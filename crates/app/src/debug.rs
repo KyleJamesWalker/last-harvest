@@ -15,9 +15,9 @@ use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, channel};
 
-use twinbit_game::Buttons;
+use last_harvest_game::Buttons;
 
-pub const PIPE: &str = "/tmp/twinbit.ctl";
+pub const PIPE: &str = "/tmp/last-harvest.ctl";
 const PRESS_MS: f32 = 120.0;
 const SWIPE_MS: f32 = 200.0;
 const TAP_S: f32 = 0.08;
@@ -32,7 +32,7 @@ pub enum Command {
 }
 
 pub fn listen() -> Option<Receiver<Command>> {
-    std::env::var_os("TWINBIT_DEBUG")?;
+    std::env::var_os("LAST_HARVEST_DEBUG")?;
     let _ = std::fs::remove_file(PIPE);
     if !std::process::Command::new("mkfifo").arg(PIPE).status().is_ok_and(|s| s.success()) {
         eprintln!("debug: mkfifo {PIPE} failed");

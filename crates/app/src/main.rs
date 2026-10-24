@@ -8,7 +8,7 @@ mod persist;
 
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use twinbit_game::{Buttons, Game, InputTracker, MAX_TOUCHES, RawInput, SCREEN_H, SCREEN_W, Scene, System};
+use last_harvest_game::{Buttons, Game, InputTracker, MAX_TOUCHES, RawInput, SCREEN_H, SCREEN_W, Scene, System};
 use winit::application::ApplicationHandler;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event::{ElementState, MouseButton, TouchPhase, WindowEvent};
@@ -62,7 +62,7 @@ impl App {
         let mut game = Game::new(seed);
         let (saver, save) = persist::Saver::load();
         game.load(save);
-        if let Some(scene) = std::env::var("TWINBIT_START").ok().and_then(|s| Scene::from_name(&s)) {
+        if let Some(scene) = std::env::var("LAST_HARVEST_START").ok().and_then(|s| Scene::from_name(&s)) {
             game.open(scene);
         }
         Self {

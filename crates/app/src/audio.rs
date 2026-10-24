@@ -5,7 +5,7 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{SampleFormat, SizedSample};
-use twinbit_game::Sfx;
+use last_harvest_game::Sfx;
 
 const MIX: f32 = 0.25;
 const ATTACK: f32 = 0.005;

@@ -1,5 +1,5 @@
 #!/bin/bash
 # Stock menu launcher: the frontend exits before this runs and restarts after.
-cd "$(dirname "$0")/twinbit" || exit 1
+cd "$(dirname "$0")/last-harvest" || exit 1
 . /etc/profile.d/myenv.sh
-./twinbit > log.txt 2>&1
+./last-harvest > log.txt 2>&1

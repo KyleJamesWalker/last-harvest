@@ -1,5 +1,5 @@
 [package]
-name = "twinbit-game"
+name = "last-harvest-game"
 edition.workspace = true
 version.workspace = true
 publish.workspace = true

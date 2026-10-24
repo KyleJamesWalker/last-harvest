@@ -1,5 +1,5 @@
 [package]
-name = "twinbit-render"
+name = "last-harvest-render"
 edition.workspace = true
 version.workspace = true
 publish.workspace = true
@@ -8,4 +8,4 @@ publish.workspace = true
 fontdue = "0.9"
 glow.workspace = true
 png = "0.17"
-twinbit-game.workspace = true
+last-harvest-game.workspace = true

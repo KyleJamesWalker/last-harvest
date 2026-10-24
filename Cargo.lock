@@ -725,6 +725,39 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e2db585e1d738fc771bf08a151420d3ed193d9d895a36df7f6f8a9456b911ddc"
 
 [[package]]
+name = "last-harvest"
+version = "0.1.0"
+dependencies = [
+ "cpal",
+ "evdev",
+ "glow",
+ "glutin",
+ "glutin-winit",
+ "last-harvest-game",
+ "last-harvest-render",
+ "png",
+ "raw-window-handle",
+ "winit",
+]
+
+[[package]]
+name = "last-harvest-game"
+version = "0.1.0"
+dependencies = [
+ "glam",
+]
+
+[[package]]
+name = "last-harvest-render"
+version = "0.1.0"
+dependencies = [
+ "fontdue",
+ "glow",
+ "last-harvest-game",
+ "png",
+]
+
+[[package]]
 name = "libc"
 version = "0.2.191"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1650,39 +1683,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d2df906b07856748fa3f6e0ad0cbaa047052d4a7dd609e231c4f72cee8c36f31"
 dependencies = [
  "core_maths",
-]
-
-[[package]]
-name = "twinbit"
-version = "0.1.0"
-dependencies = [
- "cpal",
- "evdev",
- "glow",
- "glutin",
- "glutin-winit",
- "png",
- "raw-window-handle",
- "twinbit-game",
- "twinbit-render",
- "winit",
-]
-
-[[package]]
-name = "twinbit-game"
-version = "0.1.0"
-dependencies = [
- "glam",
-]
-
-[[package]]
-name = "twinbit-render"
-version = "0.1.0"
-dependencies = [
- "fontdue",
- "glow",
- "png",
- "twinbit-game",
 ]
 
 [[package]]

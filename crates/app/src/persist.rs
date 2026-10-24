@@ -1,11 +1,11 @@
-//! Save file and crash log, kept next to the binary unless `TWINBIT_SAVE` names another save path.
+//! Save file and crash log, kept next to the binary unless `LAST_HARVEST_SAVE` names another save path.
 
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use twinbit_game::Save;
+use last_harvest_game::Save;
 
 /// Batches bursts of changes, such as holding a volume key, into one write.
 const SETTLE: Duration = Duration::from_secs(1);
@@ -22,7 +22,7 @@ pub struct Saver {
 
 impl Saver {
     pub fn load() -> (Self, Save) {
-        let path = std::env::var_os("TWINBIT_SAVE").map_or_else(|| dir().join("save.txt"), PathBuf::from);
+        let path = std::env::var_os("LAST_HARVEST_SAVE").map_or_else(|| dir().join("save.txt"), PathBuf::from);
         let save = fs::read_to_string(&path).map(|t| Save::parse(&t)).unwrap_or_default();
         eprintln!("save: {} {save:?}", path.display());
         (Self { path, written: save, changed_at: None }, save)

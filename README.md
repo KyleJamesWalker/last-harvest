@@ -1,24 +1,6 @@
-# twinbit-ds
+# last-harvest
 
 A Rust tech demo for the ANBERNIC RG DS Plus. It is a test project, not a finished game. It gives a working example of every hardware feature, as a starting point for a real game.
-
-<!-- template -->
-## Start a new game
-
-This repository is a GitHub template. Create a game from it, then rename it:
-
-```sh
-gh repo create my-game --private --template KyleJamesWalker/twinbit-ds --clone
-cd my-game
-scripts/rename.sh my-game
-cargo test
-git commit -m "chore: rename to my-game"
-```
-
-`scripts/rename.sh` replaces the name everywhere it appears: the crates, the binary, the `TWINBIT_*` environment variables, the device paths and debug pipe, the window titles, and the Ports launcher and its cover art. It then deletes itself and this section. The name must be lowercase letters, digits and hyphens, at most 15 characters.
-
-The demo scenes stay in the copy. Keep, adapt or delete them as the new game needs.
-<!-- /template -->
 
 ## Screenshots
 
@@ -74,7 +56,7 @@ scripts/sysroot.sh        # copy the device's libasound for linking
 Run on macOS:
 
 ```sh
-cargo run -p twinbit
+cargo run -p last-harvest
 ```
 
 Build, copy and start on the device:
@@ -82,10 +64,10 @@ Build, copy and start on the device:
 ```sh
 scripts/deploy.sh
 CAPTURE=1 scripts/deploy.sh   # also log every input device and the lid sensor
-ssh root@anbernic.local tail -f /userdata/twinbit/run.log
+ssh root@anbernic.local tail -f /userdata/last-harvest/run.log
 ```
 
-Install into the stock menu as Ports > Twinbit:
+Install into the stock menu as Ports > LastHarvest:
 
 ```sh
 scripts/install.sh
@@ -122,7 +104,7 @@ In the menu, tap a row or use Up, Down and A. Each scene lists its own controls 
 
 ### Debug mode
 
-`DEBUG=1 scripts/deploy.sh` starts the game with a control pipe at `/tmp/twinbit.ctl`. `scripts/debug.sh` drives it over SSH:
+`DEBUG=1 scripts/deploy.sh` starts the game with a control pipe at `/tmp/last-harvest.ctl`. `scripts/debug.sh` drives it over SSH:
 
 ```sh
 scripts/debug.sh scene dice                 # open a scene
@@ -135,22 +117,22 @@ scripts/debug.sh panic                      # crash on purpose to test crash.log
 scripts/debug.sh logs                       # follow the game log, with a perf line each second
 ```
 
-The scene names are `micro`, `stars`, `balloon`, `dodge`, `dice`, `stress` and `hardware`. The `stars`, `balloon` and `dodge` scenes start a microgame run on that microgame. On macOS, set `TWINBIT_DEBUG=1` and write commands to the pipe directly.
+The scene names are `micro`, `stars`, `balloon`, `dodge`, `dice`, `stress` and `hardware`. The `stars`, `balloon` and `dodge` scenes start a microgame run on that microgame. On macOS, set `LAST_HARVEST_DEBUG=1` and write commands to the pipe directly.
 
 ### Environment variables
 
 | Variable | Effect |
 |---|---|
-| `TWINBIT_START` | Opens a scene at launch, by debug scene name. |
-| `TWINBIT_DEBUG` | Turns on debug mode. `DEBUG=1 scripts/deploy.sh` sets it. |
-| `TWINBIT_LOG_INPUT` | Logs every gamepad event. `CAPTURE=1 scripts/deploy.sh` sets it. |
-| `TWINBIT_SAVE` | Sets the save file path. |
-| `TWINBIT_TOP` | Names the output for the top screen, such as `DSI-2`. |
+| `LAST_HARVEST_START` | Opens a scene at launch, by debug scene name. |
+| `LAST_HARVEST_DEBUG` | Turns on debug mode. `DEBUG=1 scripts/deploy.sh` sets it. |
+| `LAST_HARVEST_LOG_INPUT` | Logs every gamepad event. `CAPTURE=1 scripts/deploy.sh` sets it. |
+| `LAST_HARVEST_SAVE` | Sets the save file path. |
+| `LAST_HARVEST_TOP` | Names the output for the top screen, such as `DSI-2`. |
 | `RGDS_HOST` | Sets the SSH target for the scripts. The default is `root@anbernic.local`. |
 
 ### Saves and crashes
 
-The game keeps `save.txt` and `crash.log` next to its binary: `/mnt/sdcard/PORTS/twinbit` when launched from Ports, `/userdata/twinbit` in a dev run. It writes the save through a synced temp file and a rename, one second after the last change. Each panic appends a backtrace to `crash.log`.
+The game keeps `save.txt` and `crash.log` next to its binary: `/mnt/sdcard/PORTS/last-harvest` when launched from Ports, `/userdata/last-harvest` in a dev run. It writes the save through a synced temp file and a rename, one second after the last change. Each panic appends a backtrace to `crash.log`.
 
 ## Performance
 

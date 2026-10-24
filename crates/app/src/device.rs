@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use evdev::{AbsoluteAxisCode, EventSummary, KeyCode};
-use twinbit_game::{Battery, Buttons, Outputs};
+use last_harvest_game::{Battery, Buttons, Outputs};
 
 const PAD_NAME: &str = "ANBERNIC-rk3568-keys";
 const BACK_NAME: &str = "adc-keys";
@@ -58,7 +58,7 @@ pub struct Device {
 
 impl Device {
     pub fn open() -> Option<Self> {
-        let log = std::env::var_os("TWINBIT_LOG_INPUT").is_some();
+        let log = std::env::var_os("LAST_HARVEST_LOG_INPUT").is_some();
         let pad = Arc::new(Mutex::new(Pad::default()));
         let mut found = false;
         for (path, mut dev) in evdev::enumerate().filter(|(_, d)| matches!(d.name(), Some(PAD_NAME | BACK_NAME | POWER_NAME))) {

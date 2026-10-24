@@ -5,8 +5,8 @@ cd "$(dirname "$0")/.."
 host="${RGDS_HOST:-root@anbernic.local}"
 ports=/mnt/sdcard/PORTS
 scripts/build-device.sh
-ssh "$host" "mkdir -p $ports/twinbit $ports/Imgs"
-scp -q target/aarch64-unknown-linux-gnu/release/twinbit "$host:$ports/twinbit/twinbit"
-scp -q assets/Twinbit.sh "$host:$ports/Twinbit.sh"
-scp -q assets/Twinbit.png "$host:$ports/Imgs/Twinbit.png"
-echo "installed: Ports > Twinbit"
+ssh "$host" "mkdir -p $ports/last-harvest $ports/Imgs"
+scp -q target/aarch64-unknown-linux-gnu/release/last-harvest "$host:$ports/last-harvest/last-harvest"
+scp -q assets/LastHarvest.sh "$host:$ports/LastHarvest.sh"
+scp -q assets/LastHarvest.png "$host:$ports/Imgs/LastHarvest.png"
+echo "installed: Ports > LastHarvest"

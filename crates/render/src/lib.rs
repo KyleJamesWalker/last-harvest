@@ -3,8 +3,8 @@ mod atlas;
 use std::collections::HashMap;
 
 use glow::HasContext;
-use twinbit_game::scene3d::{MeshId, Scene3d, Vertex3};
-use twinbit_game::{Canvas, SCREEN_H, SCREEN_W, Shape};
+use last_harvest_game::scene3d::{MeshId, Scene3d, Vertex3};
+use last_harvest_game::{Canvas, SCREEN_H, SCREEN_W, Shape};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Profile {

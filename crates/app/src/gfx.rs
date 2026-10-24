@@ -8,8 +8,8 @@ use glutin::surface::{GlSurface, Surface, SwapInterval, WindowSurface};
 use glow::HasContext;
 use glutin_winit::{DisplayBuilder, GlWindow};
 use raw_window_handle::HasWindowHandle;
-use twinbit_game::Frame;
-use twinbit_render::{Profile, Renderer};
+use last_harvest_game::Frame;
+use last_harvest_render::{Profile, Renderer};
 use winit::dpi::{LogicalPosition, LogicalSize, PhysicalSize};
 use winit::event_loop::ActiveEventLoop;
 use winit::window::{Fullscreen, Window, WindowAttributes, WindowId};
@@ -151,17 +151,17 @@ fn window_attrs(el: &ActiveEventLoop) -> (WindowAttributes, WindowAttributes) {
     }
     if cfg!(target_os = "linux") && monitors.len() >= 2 {
         let swapped = std::fs::read_to_string("/sys/class/anbernic_misc/lcdswap").is_ok_and(|s| s.trim() == "1");
-        let top_name = std::env::var("TWINBIT_TOP").unwrap_or_else(|_| if swapped { "DSI-2" } else { "DSI-1" }.into());
+        let top_name = std::env::var("LAST_HARVEST_TOP").unwrap_or_else(|_| if swapped { "DSI-2" } else { "DSI-1" }.into());
         let top = monitors.iter().find(|m| m.name().as_deref() == Some(&top_name)).unwrap_or(&monitors[0]);
         let bottom = monitors.iter().find(|m| m.name() != top.name()).unwrap_or(&monitors[1]);
         eprintln!("top={:?} bottom={:?}", top.name(), bottom.name());
         let full = |m: &winit::monitor::MonitorHandle| Some(Fullscreen::Borderless(Some(m.clone())));
-        (base("twinbit top").with_fullscreen(full(top)), base("twinbit bottom").with_fullscreen(full(bottom)))
+        (base("last-harvest top").with_fullscreen(full(top)), base("last-harvest bottom").with_fullscreen(full(bottom)))
     } else {
         let size = LogicalSize::new(512.0, 384.0);
         (
-            base("twinbit top").with_inner_size(size).with_position(LogicalPosition::new(200.0, 60.0)),
-            base("twinbit bottom").with_inner_size(size).with_position(LogicalPosition::new(200.0, 60.0 + 384.0 + 36.0)),
+            base("last-harvest top").with_inner_size(size).with_position(LogicalPosition::new(200.0, 60.0)),
+            base("last-harvest bottom").with_inner_size(size).with_position(LogicalPosition::new(200.0, 60.0 + 384.0 + 36.0)),
         )
     }
 }

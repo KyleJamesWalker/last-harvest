@@ -1,6 +1,6 @@
 #!/bin/sh
 # Runs on the device: pauses the stock frontend (and its idle auto-sleep) while the game runs.
-# A deploy drops in twinbit.new and touches /tmp/twinbit.restart to relaunch without resuming the frontend.
+# A deploy drops in last-harvest.new and touches /tmp/last-harvest.restart to relaunch without resuming the frontend.
 # A panic (exit 101) also relaunches; any other exit ends the session.
 # Set CAPTURE=1 to also log every input device and the lid sensor, and DEBUG=1 for remote control.
 cd "$(dirname "$0")"
@@ -13,16 +13,16 @@ trap '[ -n "$front" ] && kill -CONT $front && kill $front; kill $(jobs -p) 2>/de
 if [ -n "$CAPTURE" ]; then
   for e in 0 2 4 6; do evtest /dev/input/event$e > ev$e.log 2>&1 & done
   (while :; do echo "$(date +%s) $(cat /sys/class/anbernic_misc/hallkey)"; sleep 0.5; done) > hall.log &
-  export TWINBIT_LOG_INPUT=1
+  export LAST_HARVEST_LOG_INPUT=1
 fi
-[ -n "$DEBUG" ] && export TWINBIT_DEBUG=1
+[ -n "$DEBUG" ] && export LAST_HARVEST_DEBUG=1
 while :; do
-  [ -f twinbit.new ] && mv twinbit.new twinbit
-  rm -f /tmp/twinbit.restart
-  timeout "${TIMEOUT:-1800}" ./twinbit > run.log 2>&1
+  [ -f last-harvest.new ] && mv last-harvest.new last-harvest
+  rm -f /tmp/last-harvest.restart
+  timeout "${TIMEOUT:-1800}" ./last-harvest > run.log 2>&1
   status=$?
   echo "run.sh: game exited with $status" >> run.log
-  [ -f /tmp/twinbit.restart ] && continue
+  [ -f /tmp/last-harvest.restart ] && continue
   [ $status -eq 101 ] || break
   cp run.log crash-run.log
   sleep 1

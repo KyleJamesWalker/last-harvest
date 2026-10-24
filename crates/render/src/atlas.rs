@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use twinbit_game::{Align, Sprite};
+use last_harvest_game::{Align, Sprite};
 
 const SPRITES_PNG: &[u8] = include_bytes!("../../../assets/sprites.png");
 const FONT_TTF: &[u8] = include_bytes!("../../../assets/fonts/AtkinsonHyperlegible-Regular.ttf");

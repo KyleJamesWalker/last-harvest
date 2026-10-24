@@ -369,7 +369,7 @@ impl Game {
     }
 
     fn draw_menu(&self, f: &mut Frame, selected: usize) {
-        f.top.text_centered(200.0, 32.0, WHITE, "TWINBIT");
+        f.top.text_centered(200.0, 32.0, WHITE, "LAST HARVEST");
         f.top.label("ANBERNIC RG DS Plus tech demo", SCREEN_W / 2.0, 400.0, 40.0, [1.0, 1.0, 1.0, 0.7], Align::Center);
         if self.save.best > 0 {
             f.top.label(format!("Best microgame run: {}", self.save.best), SCREEN_W / 2.0, 470.0, 32.0, HOT, Align::Center);
