@@ -188,6 +188,6 @@ When the stock menu launches a port, the frontend exits first and restarts after
 
 The code is under the [MIT License](LICENSE).
 
-The game art is the [Zombie Apocalypse Tileset](https://ittaimanero.itch.io/zombie-apocalypse-tileset) by Ittai Manero. It is not included in this repository and the MIT License does not cover it. The pack's own license applies: you may use and edit it in personal and commercial games, but you may not redistribute or resell it. To build the game, get the pack from itch.io and extract it to `assets/zombie-apocalypse/`, which git ignores.
+The game art is the [Zombie Apocalypse Tileset](https://ittaimanero.itch.io/zombie-apocalypse-tileset) by Ittai Manero. It is not included in this repository and the MIT License does not cover it. The pack's own license applies: you may use and edit it in personal and commercial games, but you may not redistribute or resell it. To build the game, download the pack from itch.io and run `scripts/assets.sh <path to the zip>`. It extracts to `assets/zombie-apocalypse/`, which git ignores.
 
 The font is Atkinson Hyperlegible, under the SIL Open Font License in `assets/fonts/OFL.txt`.
