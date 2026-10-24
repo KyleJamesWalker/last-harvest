@@ -1,6 +1,6 @@
 # last-harvest
 
-A Rust tech demo for the ANBERNIC RG DS Plus. It is a test project, not a finished game. It gives a working example of every hardware feature, as a starting point for a real game.
+A zombie survivors-like for the ANBERNIC RG DS Plus, written in Rust. It is built on the [twinbit-ds](https://github.com/KyleJamesWalker/twinbit-ds) template, and the template's demo scenes are still in place.
 
 ## Screenshots
 
@@ -183,3 +183,11 @@ The button codes do not follow the evdev gamepad layout. For example, Start repo
 On exit, the game hands the backlights, LEDs and touch mode back the way it found them.
 
 When the stock menu launches a port, the frontend exits first and restarts afterwards. `scripts/deploy.sh` runs the game over SSH instead, so the on-device `run.sh` pauses the frontend to stop its idle timer from suspending the device. The timer keeps counting while paused, so resuming the frontend can suspend the device at once. For that reason a crash restarts the game, and only a clean quit hands control back.
+
+## License
+
+The code is under the [MIT License](LICENSE).
+
+The game art is the [Zombie Apocalypse Tileset](https://ittaimanero.itch.io/zombie-apocalypse-tileset) by Ittai Manero. It is not included in this repository and the MIT License does not cover it. The pack's own license applies: you may use and edit it in personal and commercial games, but you may not redistribute or resell it. To build the game, get the pack from itch.io and extract it to `assets/zombie-apocalypse/`, which git ignores.
+
+The font is Atkinson Hyperlegible, under the SIL Open Font License in `assets/fonts/OFL.txt`.

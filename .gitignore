@@ -25,3 +25,6 @@ rustc-ice-*.txt
 
 # Device libraries pulled by scripts/sysroot.sh
 /.sysroot
+
+# Zombie Apocalypse Tileset: its license forbids redistribution
+/assets/zombie-apocalypse/
