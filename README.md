@@ -10,6 +10,8 @@ The top screen is the main view, in 2.5D: every sprite's silhouette extruded int
 
 Zombies claw their way out of the ground, at the edge of the fog early on and only a few tiles away by the end of the night, then find their way around buildings and fences. Your weapons fire on their own at the nearest one. Tap the map to lob a grenade there; you hold three, and each recharges in 12 seconds. Kills drop money, and money levels you up: pick one of three upgrades on either screen. Shooting a red barrel sets it off. Survive until dawn, ten minutes in.
 
+Every sound is synthesized at runtime from a few oscillator voices per cue, with a low drone that swells as the dead close in. They are placeholders until the game has recorded sound.
+
 | Action | Device | macOS |
 |---|---|---|
 | Walk forward and back | Up and Down, or the stick | Up and Down arrows |
@@ -109,7 +111,7 @@ scripts/debug.sh panic                      # crash on purpose to test crash.log
 scripts/debug.sh logs                       # follow the game log, with a perf line each second
 ```
 
-The scene names are `title`, `harvest`, `farm` (the game without zombies, for looking around), `art` and `hardware`. On macOS, set `LAST_HARVEST_DEBUG=1` and write commands to the pipe directly.
+The scene names are `title`, `harvest`, `farm` (the game without zombies, for looking around; X drops one a few steps ahead), `art` and `hardware`. On macOS, set `LAST_HARVEST_DEBUG=1` and write commands to the pipe directly.
 
 ### Environment variables
 
