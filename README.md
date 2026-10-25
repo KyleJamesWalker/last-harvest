@@ -16,13 +16,18 @@ Captured on the device with `scripts/debug.sh shot`. Each image shows the top sc
 
 ## The game
 
-**Play** in the title menu starts a run on a newly generated farm: a road with a gas station, a farmhouse and barn joined to the road by dirt paths, fenced crop and corn fields, a windmill, a graveyard, and scattered trees, wrecks and barrels. The top screen shows the farm top-down at 4x, 256x192 art pixels. The bottom screen shows the same farm in 2.5D: every sprite's silhouette extruded into depth, lit by the player's lantern and fading into fog, from a camera that follows the direction you walk.
+**Play** in the title menu starts a run on a newly generated farm: a road with a gas station, a farmhouse and barn joined to the road by dirt paths, fenced crop and corn fields, a windmill, a graveyard, and scattered trees, wrecks and barrels.
 
-Zombies arrive from just out of sight and find their way around buildings and fences. Your weapons fire on their own at the nearest one. Kills drop money, and money levels you up: pick one of three upgrades on either screen. Shooting a red barrel sets it off. Survive until dawn, ten minutes in.
+The top screen is the main view, in 2.5D: every sprite's silhouette extruded into depth, lit by the player's lantern and fading into fog, seen from just behind the player. The bottom screen is the same farm top-down at 2x, 512x384 art pixels, with dots marking what the main view faces.
+
+Zombies arrive at the edge of the fog and find their way around buildings and fences. Your weapons fire on their own at the nearest one. Tap the map to lob a grenade there; you hold three, and each recharges in 12 seconds. Kills drop money, and money levels you up: pick one of three upgrades on either screen. Shooting a red barrel sets it off. Survive until dawn, ten minutes in.
 
 | Action | Device | macOS |
 |---|---|---|
-| Move | D-pad or stick | Arrow keys |
+| Walk forward and back | Up and Down, or the stick | Up and Down arrows |
+| Turn | Left and Right, or the stick | Left and Right arrows |
+| Strafe | L1 and R1 | Q and W |
+| Throw a grenade | Tap the map | Click the bottom window |
 | Pick an upgrade | Tap it, or Up, Down and A | Click it, or arrows and X |
 | Show the whole map | Hold R2 | Hold 2 |
 | Back to the menu | Back, or B after a run | Tab, or Z after a run |
