@@ -1,12 +1,11 @@
 //! The editing pane: sprite list, pixel canvas, tools, palette and frames, laid out on a 1024x768 canvas.
 
-use std::path::PathBuf;
-
 use last_harvest_game::art::Art;
 use last_harvest_game::{Align, Canvas, Color, Stand};
 
-use crate::history::{Commit, Repo};
+use crate::history::Commit;
 use crate::sprite::{self, CLEAR, Frame, Rgba, Sprite};
+use crate::store::Store;
 
 const UNDO_DEPTH: usize = 100;
 const LIST: Rect = Rect { x: 8.0, y: 52.0, w: 200.0, h: 690.0 };
@@ -147,7 +146,6 @@ pub enum Key {
 
 /// Browsing a sprite's committed versions: the commits, the one on show, and what was open before.
 struct Browse {
-    repo: Repo,
     commits: Vec<Commit>,
     at: usize,
     /// The sprite's files differ from its last commit.
@@ -176,8 +174,7 @@ const BACK: Rect = Rect { x: LIST.x + 104.0, y: LIST.y + LIST.h - 44.0, w: 88.0,
 type Snapshot = (Vec<Frame>, Option<[Frame; 2]>, Option<Frame>);
 
 pub struct Editor {
-    dir: PathBuf,
-    catalog: PathBuf,
+    store: Box<dyn Store>,
     pub sprite: Sprite,
     names: Vec<(String, bool)>,
     scroll: f32,
@@ -229,15 +226,17 @@ pub struct Editor {
     hover: Option<[f32; 2]>,
     /// The frames, then the carving views, as packed into the scratch area, when they fit.
     live: Vec<Art>,
+    /// Magnification of the pixel canvas past fitting it, and how far it is moved off center.
+    lens: f32,
+    pan: [f32; 2],
 }
 
 impl Editor {
-    pub fn new(dir: PathBuf, name: &str) -> Self {
-        let sprite = Sprite::load(&dir, name).unwrap_or(Sprite { name: name.into(), frames: vec![Frame::blank(16, 16)], views: None, footprint: None });
-        let names = sprite::catalog(&dir);
+    pub fn new(store: Box<dyn Store>, name: &str) -> Self {
+        let sprite = store.load(name).unwrap_or(Sprite { name: name.into(), frames: vec![Frame::blank(16, 16)], views: None, footprint: None });
+        let names = store.names();
         let mut e = Self {
-            dir,
-            catalog: sprite::catalog_file(),
+            store,
             sprite,
             names,
             scroll: 0.0,
@@ -275,6 +274,8 @@ impl Editor {
             channel: None,
             hover: None,
             live: Vec::new(),
+            lens: 1.0,
+            pan: [0.0; 2],
         };
         e.load_stand();
         e
@@ -359,7 +360,7 @@ impl Editor {
 
     /// The stand as saved, or a guess from the name and size when none was.
     fn load_stand(&mut self) {
-        let saved = sprite::read_stand(&self.dir, &self.catalog, &self.sprite.name);
+        let saved = self.store.stand(&self.sprite.name);
         self.apply_stand(saved);
     }
 
@@ -416,15 +417,16 @@ impl Editor {
     fn open(&mut self, name: &str) {
         self.selection = None;
         self.last_dot = None;
-        self.names = sprite::catalog(&self.dir);
+        self.names = self.store.names();
         self.trimmed = Default::default();
-        if let Some(s) = Sprite::load(&self.dir, name) {
+        if let Some(s) = self.store.load(name) {
             self.sprite = s;
             self.frame = 0;
             self.undo.clear();
             self.redo.clear();
             self.dirty = false;
             self.changed = true;
+            self.fit();
             self.load_stand();
         }
     }
@@ -445,9 +447,64 @@ impl Editor {
     /// Canvas origin and size of one sprite pixel.
     fn grid(&self) -> ([f32; 2], f32) {
         let f = self.current();
-        let zoom = (CANVAS.w / f.w as f32).min(CANVAS.h / f.h as f32).floor().max(1.0);
+        let fit = (CANVAS.w / f.w as f32).min(CANVAS.h / f.h as f32).floor().max(1.0);
+        let zoom = (fit * self.lens).round().max(1.0);
         let (w, h) = (f.w as f32 * zoom, f.h as f32 * zoom);
-        ([CANVAS.x + (CANVAS.w - w) / 2.0, CANVAS.y + (CANVAS.h - h) / 2.0], zoom)
+        ([CANVAS.x + (CANVAS.w - w) / 2.0 + self.pan[0], CANVAS.y + (CANVAS.h - h) / 2.0 + self.pan[1]], zoom)
+    }
+
+    /// Magnifies the pixel canvas `factor` times about `center`, then moves it by `pan`, in pane units.
+    pub fn zoom_canvas(&mut self, center: [f32; 2], factor: f32, pan: [f32; 2]) {
+        let (o, zoom) = self.grid();
+        let under = [(center[0] - o[0]) / zoom, (center[1] - o[1]) / zoom];
+        self.lens = (self.lens * factor).clamp(1.0, 32.0);
+        self.pan = [0.0; 2];
+        let (base, zoom) = self.grid();
+        let (w, h) = (self.current().w as f32 * zoom, self.current().h as f32 * zoom);
+        // Some of the sprite always stays in sight.
+        let reach = [(w + CANVAS.w) / 2.0 - 48.0, (h + CANVAS.h) / 2.0 - 48.0].map(|v| v.max(0.0));
+        self.pan = [0, 1].map(|i| (center[i] - under[i] * zoom - base[i] + pan[i]).clamp(-reach[i], reach[i]));
+    }
+
+    /// Fits the whole surface on the canvas again.
+    pub fn fit(&mut self) {
+        (self.lens, self.pan) = (1.0, [0.0; 2]);
+    }
+
+    /// Whether `p` is on the pixel canvas with nothing in front of it.
+    pub fn on_canvas(&self, p: [f32; 2]) -> bool {
+        CANVAS.contains(p) && self.pending.is_none() && self.ask.is_none()
+    }
+
+    /// Whether `p` is on a row of the sprite list.
+    pub fn on_list(&self, p: [f32; 2]) -> bool {
+        LIST.contains(p) && p[1] >= self.list_top() && self.browse.is_none() && self.pending.is_none() && self.ask.is_none()
+    }
+
+    /// Scrolls the sprite list `dy` pane units, the way a finger drags it.
+    pub fn drag_list(&mut self, dy: f32) {
+        self.wheel([LIST.x + 1.0, LIST.y + LIST.h - 1.0], dy / (LIST_ROW * 3.0));
+    }
+
+    /// Forgets where the pointer is, once a finger or pen lifts.
+    pub fn unhover(&mut self) {
+        self.hover = None;
+    }
+
+    /// The name or search being typed, while one is.
+    pub fn text(&self) -> Option<&str> {
+        if self.typing { Some(&self.filter) } else { self.ask.as_ref().map(|(_, name)| name.as_str()) }
+    }
+
+    /// Replaces the name or search being typed, as typing `text` key by key would leave it.
+    pub fn set_text(&mut self, text: &str) {
+        let clean: String = text.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == ' ').map(|c| if c == ' ' { '_' } else { c.to_ascii_uppercase() }).collect();
+        if self.typing {
+            self.filter = clean;
+            self.scroll = 0.0;
+        } else if let Some((_, name)) = &mut self.ask {
+            *name = clean;
+        }
     }
 
     fn pixel_at(&self, p: [f32; 2]) -> (i32, i32) {
@@ -783,13 +840,13 @@ impl Editor {
                 let new = !self.names.iter().any(|(n, _)| *n == self.sprite.name);
                 // A carving lives in the sprite's folder, so it saves the pixels too.
                 let carving = self.stand == CARVE && self.stand_touched;
-                let pixels = if self.dirty || new || carving { self.sprite.save(&self.dir) } else { Ok(()) };
-                let stand = if self.stand_touched { sprite::save_stand(&self.dir, &self.catalog, &self.sprite.name, &self.stand_text()) } else { Ok(()) };
+                let pixels = if self.dirty || new || carving { self.store.save(&self.sprite) } else { Ok(()) };
+                let stand = if self.stand_touched { self.store.save_stand(&self.sprite.name, &self.stand_text()) } else { Ok(()) };
                 match pixels.and(stand) {
                     Ok(()) => {
                         self.dirty = false;
                         self.stand_touched = false;
-                        self.names = sprite::catalog(&self.dir);
+                        self.names = self.store.names();
                         self.reveal();
                         self.say(format!("Saved {}. Rebuild the game to see it in play.", self.sprite.name));
                     }
@@ -946,19 +1003,17 @@ impl Editor {
 
     /// Starts browsing the sprite's committed versions, showing the newest.
     fn open_history(&mut self) {
-        let Some(repo) = Repo::open(&self.dir) else {
+        let Some((commits, changed)) = self.store.history(&self.sprite.name) else {
             self.say("The sprites folder isn't in a git repository");
             return;
         };
-        let commits = repo.log(&self.sprite.name);
         if commits.is_empty() {
             self.say(format!("{} has no commits yet", self.sprite.name));
             return;
         }
         self.deselect();
         self.playing = false;
-        let changed = repo.changed(&self.sprite.name);
-        self.browse = Some(Browse { repo, commits, at: 0, changed, before: self.stash() });
+        self.browse = Some(Browse { commits, at: 0, changed, before: self.stash() });
         self.show_version(0);
     }
 
@@ -967,13 +1022,13 @@ impl Editor {
         let Some(b) = &mut self.browse else { return };
         b.at = i.min(b.commits.len() - 1);
         let (id, name) = (b.commits[b.at].id.clone(), self.sprite.name.clone());
-        let loaded = Sprite::load_from(&name, |file| b.repo.read(&id, &name, file));
-        let stand = b.repo.read(&id, &name, "stand.txt").map(|t| String::from_utf8_lossy(&t).trim().to_string());
+        let loaded = Sprite::load_from(&name, |file| self.store.version(&id, &name, file));
+        let stand = self.store.version(&id, &name, "stand.txt").map(|t| String::from_utf8_lossy(&t).trim().to_string());
         if let Some(s) = loaded {
             self.sprite = s;
             self.frame = 0;
             self.view = None;
-            let stand = stand.or_else(|| sprite::read_stand(&self.dir, &self.catalog, &name));
+            let stand = stand.or_else(|| self.store.stand(&name));
             self.apply_stand(stand);
             self.changed = true;
         }
@@ -1183,6 +1238,7 @@ impl Editor {
                         self.ask = None;
                         let (frames, views, footprint) = if kind == Ask::Copy { self.snapshot() } else { (vec![Frame::blank(16, 16)], None, None) };
                         self.sprite = Sprite { name: name.clone(), frames, views, footprint };
+                        self.fit();
                         self.view = None;
                         self.frame = 0;
                         self.undo.clear();
@@ -1323,8 +1379,9 @@ impl Editor {
             c.label(format!("/{}{caret}", self.filter), LIST.x + 8.0, LIST.y + 4.0, 17.0, HOT, Align::Left);
             c.label(format!("{count}"), LIST.x + LIST.w - 8.0, LIST.y + 4.0, 15.0, DIM, Align::Right);
         }
-        let first = (self.scroll / LIST_ROW) as usize;
-        let rows = ((LIST.h - (top - LIST.y)) / LIST_ROW) as usize;
+        // Only whole rows, so a list scrolled part of a row doesn't spill past its panel.
+        let first = (self.scroll / LIST_ROW).ceil() as usize;
+        let rows = ((LIST.h - (top - LIST.y) - (first as f32 * LIST_ROW - self.scroll)) / LIST_ROW) as usize;
         for (i, (name, saved)) in self.listed().into_iter().enumerate().skip(first).take(rows) {
             let y = top + i as f32 * LIST_ROW - self.scroll;
             if *name == self.sprite.name {
@@ -1449,32 +1506,41 @@ impl Editor {
         let (w, h) = (f.w as f32 * zoom, f.h as f32 * zoom);
         // A checkerboard under clear pixels.
         let cell = 16.0;
-        for gy in 0..(h / cell).ceil() as i32 {
-            for gx in 0..(w / cell).ceil() as i32 {
+        // The cells `size` big from `at` that fall within `from..from + extent`, of `n`.
+        let seen = |from: f32, extent: f32, at: f32, size: f32, n: usize| {
+            let first = ((from - at) / size).floor().max(0.0) as usize;
+            (first.min(n), (((from + extent - at) / size).ceil().max(0.0) as usize).min(n))
+        };
+        let (gx0, gx1) = seen(CANVAS.x, CANVAS.w, o[0], cell, (w / cell).ceil() as usize);
+        let (gy0, gy1) = seen(CANVAS.y, CANVAS.h, o[1], cell, (h / cell).ceil() as usize);
+        for gy in gy0..gy1 {
+            for gx in gx0..gx1 {
                 let (x, y) = (gx as f32 * cell, gy as f32 * cell);
                 let shade = if (gx + gy) % 2 == 0 { [0.3, 0.3, 0.33, 1.0] } else { [0.36, 0.36, 0.4, 1.0] };
-                c.rect(o[0] + x, o[1] + y, cell.min(w - x), cell.min(h - y), shade);
+                clip(c, o[0] + x, o[1] + y, cell.min(w - x), cell.min(h - y), shade);
             }
         }
-        for y in 0..f.h {
-            for x in 0..f.w {
+        let (x0, x1) = seen(CANVAS.x, CANVAS.w, o[0], zoom, f.w);
+        let (y0, y1) = seen(CANVAS.y, CANVAS.h, o[1], zoom, f.h);
+        for y in y0..y1 {
+            for x in x0..x1 {
                 let p = f.px[y * f.w + x];
                 if p[3] > 0 {
-                    c.rect(o[0] + x as f32 * zoom, o[1] + y as f32 * zoom, zoom, zoom, rgba(p));
+                    clip(c, o[0] + x as f32 * zoom, o[1] + y as f32 * zoom, zoom, zoom, rgba(p));
                 }
             }
         }
         if zoom >= 8.0 {
             let line = [1.0, 1.0, 1.0, 0.07];
-            for x in 0..=f.w {
-                c.rect(o[0] + x as f32 * zoom, o[1], 1.0, h, line);
+            for x in x0..=x1 {
+                clip(c, o[0] + x as f32 * zoom, o[1], 1.0, h, line);
             }
-            for y in 0..=f.h {
-                c.rect(o[0], o[1] + y as f32 * zoom, w, 1.0, line);
+            for y in y0..=y1 {
+                clip(c, o[0], o[1] + y as f32 * zoom, w, 1.0, line);
             }
         }
         if self.mirror {
-            c.rect(o[0] + w / 2.0 - 1.0, o[1], 2.0, h, [0.4, 0.8, 1.0, 0.5]);
+            clip(c, o[0] + w / 2.0 - 1.0, o[1], 2.0, h, [0.4, 0.8, 1.0, 0.5]);
         }
         if let Some(sel) = &self.selection {
             if let Some(f) = &sel.float {
@@ -1482,8 +1548,8 @@ impl Editor {
                     for x in 0..f.w {
                         let p = f.px[y * f.w + x];
                         let (px, py) = (o[0] + (sel.x + x as i32) as f32 * zoom, o[1] + (sel.y + y as i32) as f32 * zoom);
-                        if p[3] > 0 && CANVAS.contains([px, py]) {
-                            c.rect(px, py, zoom, zoom, rgba(p));
+                        if p[3] > 0 {
+                            clip(c, px, py, zoom, zoom, rgba(p));
                         }
                     }
                 }
@@ -1500,7 +1566,7 @@ impl Editor {
                     let (a, b) = (t.max(0.0), (t + dash).min(len));
                     if b > a {
                         let r = if across { [ex + a, ey, b - a, 2.0] } else { [ex, ey + a, 2.0, b - a] };
-                        c.rect(r[0], r[1], r[2], r[3], HOT);
+                        clip(c, r[0], r[1], r[2], r[3], HOT);
                     }
                     t += dash * 2.0;
                 }
@@ -1511,12 +1577,21 @@ impl Editor {
             if f.get(x, y).is_some() {
                 let (px, py) = (o[0] + x as f32 * zoom, o[1] + y as f32 * zoom);
                 let edge = [1.0, 1.0, 1.0, 0.8];
-                c.rect(px, py, zoom, 1.0, edge);
-                c.rect(px, py + zoom - 1.0, zoom, 1.0, edge);
-                c.rect(px, py, 1.0, zoom, edge);
-                c.rect(px + zoom - 1.0, py, 1.0, zoom, edge);
+                clip(c, px, py, zoom, 1.0, edge);
+                clip(c, px, py + zoom - 1.0, zoom, 1.0, edge);
+                clip(c, px, py, 1.0, zoom, edge);
+                clip(c, px + zoom - 1.0, py, 1.0, zoom, edge);
             }
         }
+    }
+}
+
+/// Draws the part of a rectangle that falls on the pixel canvas.
+fn clip(c: &mut Canvas, x: f32, y: f32, w: f32, h: f32, color: Color) {
+    let (x0, y0) = (x.max(CANVAS.x), y.max(CANVAS.y));
+    let (x1, y1) = ((x + w).min(CANVAS.x + CANVAS.w), (y + h).min(CANVAS.y + CANVAS.h));
+    if x1 > x0 && y1 > y0 {
+        c.rect(x0, y0, x1 - x0, y1 - y0, color);
     }
 }
 
@@ -1543,13 +1618,22 @@ fn rgba(c: Rgba) -> Color {
 
 #[cfg(test)]
 mod tests {
+    use std::path::{Path, PathBuf};
+
     use super::*;
+    use crate::store::FsStore;
+
+    /// Where this test's editor saves.
+    fn tmp() -> PathBuf {
+        std::env::temp_dir().join(format!("lh-editor-{}-{:?}", std::process::id(), std::thread::current().id()))
+    }
+
+    fn editor_in(dir: &Path, catalog: PathBuf) -> Editor {
+        Editor::new(Box::new(FsStore { dir: dir.to_path_buf(), catalog }), "BARREL")
+    }
 
     fn editor() -> Editor {
-        let dir = std::env::temp_dir().join(format!("lh-editor-{}-{:?}", std::process::id(), std::thread::current().id()));
-        let mut e = Editor::new(dir.clone(), "BARREL");
-        e.catalog = dir.join("art.txt");
-        e
+        editor_in(&tmp(), tmp().join("art.txt"))
     }
 
     fn click_pixel(e: &mut Editor, x: i32, y: i32) {
@@ -1710,8 +1794,8 @@ mod tests {
         let target = e.pending.clone().unwrap();
         e.key(Key::Enter);
         assert_eq!(e.sprite.name, target);
-        assert!(e.dir.join("BARREL/0.png").exists());
-        let _ = std::fs::remove_dir_all(&e.dir);
+        assert!(tmp().join("BARREL/0.png").exists());
+        let _ = std::fs::remove_dir_all(tmp());
     }
 
     fn at(e: &Editor, x: i32, y: i32) -> [f32; 2] {
@@ -1812,10 +1896,10 @@ mod tests {
         e.act(Action::Stand(CARVE), false);
         e.act(Action::AddFootprint, false);
         e.act(Action::Save, false);
-        let back = Sprite::load(&e.dir, "BARREL").unwrap();
+        let back = Sprite::load(&tmp(), "BARREL").unwrap();
         assert_eq!(back.footprint, e.sprite.footprint);
         assert!(back.views.is_some());
-        let _ = std::fs::remove_dir_all(&e.dir);
+        let _ = std::fs::remove_dir_all(tmp());
     }
 
     #[test]
@@ -1918,9 +2002,7 @@ mod tests {
         }
         s.frames[0].set(0, 0, [0, 0, 255, 255]);
         s.save(&dir).unwrap();
-        let mut e = Editor::new(dir, "BARREL");
-        e.catalog = root.join("art.txt");
-        (e, root)
+        (editor_in(&dir, root.join("art.txt")), root)
     }
 
     #[test]
@@ -1959,9 +2041,49 @@ mod tests {
         assert_eq!(e.current().get(0, 0), Some([0, 0, 255, 255]));
         e.key(Key::Redo);
         e.act(Action::Save, false);
-        let saved = Sprite::load(&e.dir, "BARREL").unwrap();
+        let saved = Sprite::load(&root.join("sprites"), "BARREL").unwrap();
         assert_eq!(saved.frames[0].get(0, 0), Some([255, 0, 0, 255]));
         std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn pinching_magnifies_about_the_fingers_and_opening_a_sprite_fits_it() {
+        let mut e = editor();
+        let p = at(&e, 3, 4);
+        e.zoom_canvas(p, 3.0, [0.0; 2]);
+        assert_eq!(e.pixel_at(p), (3, 4), "the pixel under the fingers stays there");
+        assert!(e.grid().1 > 30.0);
+        e.zoom_canvas(p, 1.0, [-40.0, 0.0]);
+        assert_eq!(e.pixel_at([p[0] - 40.0, p[1]]), (3, 4));
+        e.zoom_canvas(p, 1.0, [1e6, 1e6]);
+        let (o, zoom) = e.grid();
+        assert!(o[0] < CANVAS.x + CANVAS.w && o[1] + 16.0 * zoom > CANVAS.y, "some of it stays in sight");
+        let mut big = Canvas::default();
+        e.draw(&mut big);
+        assert!(big.shapes.iter().all(|s| !matches!(s, last_harvest_game::Shape::Rect { x, w, .. } if *x < CANVAS.x && *x + *w > CANVAS.x + 1.0 && *w < CANVAS.w)), "pixels stay inside the canvas");
+        e.key(Key::Char('j'));
+        assert_eq!((e.lens, e.pan), (1.0, [0.0; 2]));
+    }
+
+    #[test]
+    fn typed_text_arrives_whole_and_dragging_scrolls_the_list() {
+        let mut e = editor();
+        e.key(Key::Char('/'));
+        e.set_text("car h!");
+        assert_eq!(e.text(), Some("CAR_H"));
+        e.key(Key::Escape);
+        assert_eq!(e.text(), None);
+        e.scroll = 0.0;
+        e.drag_list(-200.0);
+        assert_eq!(e.scroll, 200.0);
+        e.drag_list(500.0);
+        assert_eq!(e.scroll, 0.0);
+        assert!(e.on_list([LIST.x + 10.0, LIST.y + 10.0]));
+        e.act(Action::Ask(Ask::New), false);
+        assert!(!e.on_list([LIST.x + 10.0, LIST.y + 10.0]) && !e.on_canvas([CANVAS.x + 10.0, CANVAS.y + 10.0]));
+        e.set_text("big rock");
+        e.key(Key::Enter);
+        assert_eq!(e.sprite.name, "BIG_ROCK");
     }
 
     #[test]

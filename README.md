@@ -170,6 +170,30 @@ A pixel editor for the game's sprites, on macOS. The left pane lists every sprit
 
 Save writes each frame to `assets/private/sprites/NAME/0.png`, `1.png` and so on, and a changed stand to the sprite's line in `crates/game/art.txt` as `@prop 12`, `@slab 10`, `@figure` or `@ground`, or to `stand.txt` in its folder for a new sprite. A carved sprite keeps `south.png`, `east.png`, an optional `footprint.png`, and a `stand.txt` saying `carve` in its folder; a build without them, such as a fresh clone, stands it as a slab. The next build of the game packs a saved sprite in place of its cut from the tileset, and a folder with a name not in `crates/game/art.txt` becomes a new sprite, `art::NAME`, for the code to use. Saved sprites go in the private assets submodule, because edits of the tileset's sprites fall under its license: commit and push them there. Delete a sprite's folder to go back to the tileset's version. Set `LAST_HARVEST_SPRITES` to save somewhere else.
 
+### Sprite editor on an iPad
+
+The same editor also runs in a browser, served from the Mac to an iPad on the same network. Saves land in the Mac's `assets/private/sprites`, by the same rules as above, and History reads the same git log.
+
+```sh
+rustup target add wasm32-unknown-unknown
+cargo install wasm-bindgen-cli --version 0.2.129   # the version in Cargo.lock
+scripts/web-editor.sh                              # build, then serve on port 8080
+```
+
+The server prints the address to open on the iPad, such as `http://192.168.1.20:8080/`; add `?open=CAR_H` to start on a sprite. `SPRITE_SERVER_PORT` sets the port, and `scripts/web-editor.sh --build-only` only builds. Safari's Add to Home Screen gives the editor the whole screen.
+
+| Action | Touch |
+|---|---|
+| Draw | Apple Pencil, or a finger on the canvas |
+| Zoom and pan the canvas | Pinch with two fingers; Fit sets it back |
+| Turn the 2.5D view, move closer | Drag it; pinch it |
+| Zoom the map | Pinch it |
+| Scroll the sprite list | Drag it; tap a name to open it |
+| Keyboard shortcuts | The toolbar under the panes: Undo, Redo, Copy, Cut, Paste, Delete, Enter, Esc, Shift (stays on until tapped again), the arrows, sprites, frames, Search, History, New, Play, Mirror, Fit, Save |
+| Name a sprite or search | Type in the field that appears |
+
+A hardware keyboard keeps the macOS shortcuts. The web build embeds the tileset, whose license forbids redistributing it, so the server only answers loopback and private network addresses: never publish `target/web-editor` or expose the server to the internet. Anyone on the local network can open the editor and save sprites while it runs.
+
 ### Sounds
 
 Put Ogg Vorbis or WAV files in `assets/private/sounds/`, named after the cue they replace. `scripts/deploy.sh` and `scripts/install.sh` copy them to the device. A cue with no file keeps its synth voice. Add `-2`, `-3` and so on for variations, such as `shot.wav` and `shot-2.wav`, and each play picks one at random. Ogg Vorbis is about a tenth the size of WAV and decodes once at startup; on the device a stereo track decodes at about 50 times real time. WAV files can be 8, 16, 24 or 32-bit PCM or 32-bit float. Either can be mono or stereo, at any sample rate. Only files named after a cue are loaded. Two kinds of long track loop instead, streamed a little at a time on their own threads: `music.ogg` replaces the synth drone and swells with the danger, and `ambience.ogg`, `ambience-2.ogg` and `ambience-3.ogg` play quietly underneath, fading out while the game is paused.
@@ -206,7 +230,8 @@ Measured on the device with the debug perf log, 4x MSAA, both screens at 1024x76
 | `crates/game/art.txt` | The sprite catalog that `build.rs` cuts from the tileset. |
 | `crates/render` | OpenGL renderer for shapes, pixel art, TrueType text and the lit, fogged 3D cards: GL 3.3 on macOS, GLES 3.0 on the device. |
 | `crates/app` | Windows, input, audio, saves, crash log, debug mode, and the device-only sysfs and evdev code. |
-| `crates/editor` | The sprite editor, a macOS tool built on the game's renderer and views. |
+| `crates/editor` | The sprite editor, built on the game's renderer and views: a macOS window, or a web page in `crates/editor/web`. |
+| `crates/sprite-server` | Serves the web editor on the local network, with the sprites folder and its git history. |
 | `scripts` | Cross-compile, sysroot, deploy, install and debug scripts, and the on-device run script. |
 | `assets` | The font and its license, and the Ports launcher with its cover art. |
 | `assets/private` | Submodule of the private assets repository: the tileset, edited sprites and recorded sounds. |

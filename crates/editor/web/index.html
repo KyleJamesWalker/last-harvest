@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<title>LastHarvest sprite editor</title>
+<link rel="icon" href="data:,">
+<style>
+  html, body { margin: 0; height: 100%; background: #19191e; color: #ebebf2; overflow: hidden; overscroll-behavior: none; }
+  body { position: fixed; inset: 0; display: flex; flex-direction: column; font: 16px -apple-system, system-ui, sans-serif;
+         -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+  #panes { display: block; touch-action: none; margin: 0 auto; }
+  #toolbar { flex: 1; display: flex; flex-wrap: wrap; align-content: flex-start; justify-content: center; gap: 8px 18px;
+             padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); overflow: auto; touch-action: manipulation; }
+  .group { display: flex; gap: 6px; align-items: center; }
+  .group > span { color: #9a9aa8; font-size: 13px; margin-right: 2px; }
+  button { min-width: 68px; height: 60px; padding: 0 14px; border: 0; border-radius: 8px; background: #3d3d47; color: inherit;
+           font: inherit; font-size: 18px; touch-action: manipulation; }
+  button:active { background: #5a5a68; }
+  button.on { background: #f2bf4d; color: #19191e; }
+  button.save { background: #6b5a2a; }
+  #text { position: absolute; left: 50%; top: 56px; transform: translateX(-50%); width: min(480px, 60vw); height: 48px;
+          font-size: 24px; padding: 0 14px; border: 3px solid #f2bf4d; border-radius: 8px; background: #19191e; color: #f2bf4d;
+          text-transform: uppercase; }
+  #text[hidden] { display: none; }
+  .failure { position: absolute; z-index: 1; margin: 12px; padding: 12px; background: #5a1e1e; color: #fff; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<canvas id="panes"></canvas>
+<input id="text" hidden placeholder="Type a name" autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false" enterkeyhint="done">
+<div id="toolbar">
+  <div class="group"><button data-act="undo">Undo</button><button data-act="redo">Redo</button></div>
+  <div class="group"><span>Pixels</span><button data-act="copy">Copy</button><button data-act="cut">Cut</button><button data-act="paste">Paste</button><button data-act="delete">Delete</button></div>
+  <div class="group"><button data-act="enter">Enter</button><button data-act="escape">Esc</button><button data-act="shift" title="Shift-click lines, 8-pixel nudges and resizes">Shift</button></div>
+  <div class="group"><span>Arrows</span><button data-act="left">&#8592;</button><button data-act="up">&#8593;</button><button data-act="down">&#8595;</button><button data-act="right">&#8594;</button></div>
+  <div class="group"><span>Sprite</span><button data-act="prev-sprite">&#8593; K</button><button data-act="next-sprite">&#8595; J</button></div>
+  <div class="group"><span>Frame</span><button data-act="prev-frame">&#8592; H</button><button data-act="next-frame">&#8594; L</button></div>
+  <div class="group"><button data-act="search">Search</button><button data-act="history">History</button><button data-act="new">New</button><button data-act="play">Play</button><button data-act="mirror">Mirror</button><button data-act="fit">Fit</button><button data-act="save" class="save">Save</button></div>
+</div>
+<script type="module">
+  import init from "./sprite-editor.js";
+  init();
+</script>
+</body>
+</html>

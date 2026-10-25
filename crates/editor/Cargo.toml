@@ -6,10 +6,17 @@ publish.workspace = true
 
 [dependencies]
 glow.workspace = true
-glutin = { version = "0.32", default-features = false, features = ["egl", "wayland"] }
-glutin-winit = { version = "0.5", default-features = false, features = ["egl", "wayland"] }
 last-harvest-game.workspace = true
 last-harvest-render.workspace = true
 png = "0.17"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+glutin = { version = "0.32", default-features = false, features = ["egl", "wayland"] }
+glutin-winit = { version = "0.5", default-features = false, features = ["egl", "wayland"] }
 raw-window-handle = "0.6"
 winit = { version = "0.30", default-features = false, features = ["rwh_06", "wayland", "wayland-dlopen"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = "0.3"
+wasm-bindgen = "0.2"
+web-sys = { version = "0.3", features = ["AddEventListenerOptions", "console", "CssStyleDeclaration", "Document", "DomTokenList", "Element", "EventTarget", "HtmlCanvasElement", "HtmlElement", "HtmlInputElement", "KeyboardEvent", "Location", "MouseEvent", "Performance", "PointerEvent", "WebGl2RenderingContext", "WheelEvent", "Window", "XmlHttpRequest"] }

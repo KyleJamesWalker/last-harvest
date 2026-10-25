@@ -1,5 +1,6 @@
 //! A sprite being edited: its frames as plain RGBA pixels, loaded from the packed texture or a saved folder.
 
+#[cfg(not(target_arch = "wasm32"))]
 use std::path::{Path, PathBuf};
 
 use last_harvest_game::Stand;
@@ -124,6 +125,7 @@ pub fn block_views(top: &Frame, height: usize) -> [Frame; 2] {
     [south, east]
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 /// Where saved sprites live; the game's build packs them in place of, or beside, the tileset's.
 pub fn folder() -> PathBuf {
     std::env::var_os("LAST_HARVEST_SPRITES").map(PathBuf::from).unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/private/sprites"))
@@ -134,6 +136,7 @@ pub fn valid_name(n: &str) -> bool {
     n.starts_with(|c: char| c.is_ascii_uppercase()) && n.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 /// Every sprite to choose from: the packed catalog, then new ones saved on disk, with whether each has a saved copy.
 pub fn catalog(dir: &Path) -> Vec<(String, bool)> {
     let saved = |n: &str| dir.join(n).join("0.png").exists();
@@ -152,6 +155,7 @@ pub fn catalog(dir: &Path) -> Vec<(String, bool)> {
 
 impl Sprite {
     /// The saved copy if there is one, else the packed frames.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn load(dir: &Path, name: &str) -> Option<Self> {
         Self::load_from(name, |file| std::fs::read(dir.join(name).join(file)).ok())
     }
@@ -171,7 +175,22 @@ impl Sprite {
         Some(Self { name: name.to_string(), frames, views, footprint: png(FOOTPRINT_FILE) })
     }
 
+    /// The files a save writes: the frames, then the views and the footprint when it has them.
+    pub fn files(&self) -> Vec<(String, Vec<u8>)> {
+        let frames = self.frames.iter().enumerate().map(|(i, f)| (format!("{i}.png"), f));
+        let views = self.views.iter().flat_map(|v| VIEW_FILES.iter().zip(v).map(|(n, f)| (n.to_string(), f)));
+        let footprint = self.footprint.iter().map(|f| (FOOTPRINT_FILE.to_string(), f));
+        frames.chain(views).chain(footprint).map(|(n, f)| (n, encode_png(f))).collect()
+    }
+
+    /// A sprite from the files `files` lists, which must hold at least one frame.
+    pub fn from_files(name: &str, files: &[(String, Vec<u8>)]) -> Option<Self> {
+        files.iter().any(|(n, _)| n == "0.png").then_some(())?;
+        Self::load_from(name, |file| files.iter().find(|(n, _)| n == file).map(|(_, b)| b.clone()))
+    }
+
     /// Writes `0.png`, `1.png` and so on, removing frames left over from a longer save.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn save(&self, dir: &Path) -> Result<(), String> {
         let path = dir.join(&self.name);
         std::fs::create_dir_all(&path).map_err(|e| format!("{}: {e}", path.display()))?;
@@ -200,6 +219,7 @@ impl Sprite {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 /// The game's sprite catalog, where a packed sprite's stand is written.
 pub fn catalog_file() -> PathBuf {
     std::env::var_os("LAST_HARVEST_CATALOG").map(PathBuf::from).unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("../game/art.txt"))
@@ -229,10 +249,12 @@ pub fn parse_stand(text: &str) -> Option<Stand> {
 }
 
 /// The line for `name` in the catalog, as (index, the line).
+#[cfg(not(target_arch = "wasm32"))]
 fn catalog_line(text: &str, name: &str) -> Option<(usize, String)> {
     text.lines().enumerate().find(|(_, l)| l.split_whitespace().next() == Some(name) && !l.starts_with('#')).map(|(i, l)| (i, l.to_string()))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 /// How a sprite stands, as last saved: its folder's `stand.txt`, else its catalog line, else nothing said.
 /// `carve` comes back as itself, since its views are pixels rather than words.
 pub fn read_stand(dir: &Path, catalog: &Path, name: &str) -> Option<String> {
@@ -245,6 +267,7 @@ pub fn read_stand(dir: &Path, catalog: &Path, name: &str) -> Option<String> {
     Some(code.split_once('@')?.1.trim().to_string())
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 /// Writes how a sprite stands: on its catalog line when it has one, which git keeps, else in its folder.
 /// A carved sprite's stand always goes in its folder, beside the views it needs.
 pub fn save_stand(dir: &Path, catalog: &Path, name: &str, how: &str) -> Result<(), String> {
@@ -268,7 +291,7 @@ pub fn save_stand(dir: &Path, catalog: &Path, name: &str, how: &str) -> Result<(
     Ok(())
 }
 
-fn decode_png(bytes: &[u8]) -> Result<Frame, String> {
+pub fn decode_png(bytes: &[u8]) -> Result<Frame, String> {
     let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes));
     decoder.set_transformations(png::Transformations::EXPAND);
     let mut reader = decoder.read_info().map_err(|e| e.to_string())?;
@@ -283,13 +306,46 @@ fn decode_png(bytes: &[u8]) -> Result<Frame, String> {
     Ok(Frame { w: info.width as usize, h: info.height as usize, px })
 }
 
-fn write_png(path: &Path, f: &Frame) -> Result<(), String> {
-    let file = std::fs::File::create(path).map_err(|e| format!("{}: {e}", path.display()))?;
-    let mut enc = png::Encoder::new(std::io::BufWriter::new(file), f.w as u32, f.h as u32);
+pub fn encode_png(f: &Frame) -> Vec<u8> {
+    let mut out = Vec::new();
+    let mut enc = png::Encoder::new(&mut out, f.w as u32, f.h as u32);
     enc.set_color(png::ColorType::Rgba);
     enc.set_depth(png::BitDepth::Eight);
     let data: Vec<u8> = f.px.iter().flatten().copied().collect();
-    enc.write_header().and_then(|mut w| w.write_image_data(&data)).map_err(|e| format!("{}: {e}", path.display()))
+    enc.write_header().and_then(|mut w| w.write_image_data(&data)).expect("encoding into memory");
+    out
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn write_png(path: &Path, f: &Frame) -> Result<(), String> {
+    std::fs::write(path, encode_png(f)).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// Files bundled into one body: each a name line, a length line, then its bytes.
+pub fn bundle(files: &[(String, Vec<u8>)]) -> Vec<u8> {
+    let mut out = Vec::new();
+    for (name, bytes) in files {
+        out.extend(format!("{name}\n{}\n", bytes.len()).into_bytes());
+        out.extend(bytes);
+    }
+    out
+}
+
+pub fn unbundle(mut body: &[u8]) -> Option<Vec<(String, Vec<u8>)>> {
+    let line = |body: &mut &[u8]| {
+        let end = body.iter().position(|&b| b == b'\n')?;
+        let text = String::from_utf8(body[..end].to_vec()).ok();
+        *body = &body[end + 1..];
+        text
+    };
+    let mut files = Vec::new();
+    while !body.is_empty() {
+        let name = line(&mut body)?;
+        let len: usize = line(&mut body)?.parse().ok()?;
+        files.push((name, body.get(..len)?.to_vec()));
+        body = &body[len..];
+    }
+    Some(files)
 }
 
 /// Every opaque color in the tileset, darkest first within each hue band, for drawing in the pack's style.
@@ -350,6 +406,18 @@ mod tests {
         assert!(catalog(&dir).iter().any(|(n, saved)| n == "TEST_THING" && *saved));
         std::fs::remove_dir_all(&dir).unwrap();
         assert_eq!(back.frames, s.frames);
+    }
+
+    #[test]
+    fn a_sprites_files_bundle_and_come_back_whole() {
+        let mut s = Sprite { name: "THING".into(), frames: vec![Frame::blank(3, 2); 2], views: Some([Frame::blank(3, 4), Frame::blank(2, 4)]), footprint: None };
+        s.frames[1].set(1, 1, [1, 2, 3, 255]);
+        let files = unbundle(&bundle(&s.files())).unwrap();
+        assert_eq!(files.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>(), ["0.png", "1.png", "south.png", "east.png"]);
+        let back = Sprite::from_files("THING", &files).unwrap();
+        assert_eq!((back.frames, back.views, back.footprint), (s.frames, s.views, s.footprint));
+        assert!(Sprite::from_files("THING", &files[1..]).is_none(), "a frame at least");
+        assert!(unbundle(b"0.png\n9\nshort").is_none());
     }
 
     #[test]
