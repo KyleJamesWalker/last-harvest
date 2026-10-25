@@ -12,7 +12,7 @@ use crate::samples::{self, Bank, Clip};
 const MIX: f32 = 0.25;
 const ATTACK: f32 = 0.005;
 /// Oldest voices give way past this, so a swarm can't pile up hundreds.
-const MAX_VOICES: usize = 48;
+const MAX_VOICES: usize = 32;
 /// Each cue plays up to this fraction sharp or flat, so repeats don't drone.
 const JITTER: f32 = 0.05;
 const DRONE_GAIN: f32 = 0.5;
@@ -37,16 +37,16 @@ struct Note {
     wave: Wave,
     gain: f32,
     pan: f32,
-    curve: f32,
+    curve: i32,
 }
 
 const fn note(delay: f32, dur: f32, f0: f32, f1: f32, wave: Wave, gain: f32) -> Note {
-    Note { delay, dur, f0, f1, wave, gain, pan: 0.0, curve: 1.0 }
+    Note { delay, dur, f0, f1, wave, gain, pan: 0.0, curve: 1 }
 }
 
 /// A note that hits hard and falls away fast.
 const fn hit(delay: f32, dur: f32, f0: f32, f1: f32, wave: Wave, gain: f32) -> Note {
-    Note { curve: 2.5, ..note(delay, dur, f0, f1, wave, gain) }
+    Note { curve: 3, ..note(delay, dur, f0, f1, wave, gain) }
 }
 
 fn arpeggio(freqs: &[f32], step: f32, wave: Wave) -> Vec<Note> {
@@ -120,7 +120,7 @@ fn notes(sfx: Sfx) -> Vec<Note> {
         Sfx::Boom { pan, gain } => placed(
             vec![
                 hit(0.0, 0.8, 3000.0, 100.0, Noise, 1.0),
-                Note { curve: 1.5, ..note(0.0, 0.7, 90.0, 30.0, Triangle, 1.0) },
+                Note { curve: 2, ..note(0.0, 0.7, 90.0, 30.0, Triangle, 1.0) },
                 hit(0.05, 1.2, 800.0, 60.0, Noise, 0.5),
             ],
             pan,
@@ -188,6 +188,16 @@ struct Voice {
     phase: f32,
     /// The current step of a noise voice.
     held: f32,
+    /// Current pitch, and what it is multiplied by each sample to sweep from `f0` to `f1`.
+    freq: f32,
+    sweep: f32,
+}
+
+impl Voice {
+    fn new(note: Note, dt: f32) -> Self {
+        let sweep = (note.f1 / note.f0).powf(dt / note.dur);
+        Voice { note, t: -note.delay, phase: 0.0, held: 0.0, freq: note.f0, sweep }
+    }
 }
 
 /// A low, slow chord under the game that grows louder and harsher with the dread.
@@ -243,7 +253,8 @@ impl Synth {
                 continue;
             }
             let n = v.note;
-            let freq = n.f0 * (n.f1 / n.f0).powf(v.t / n.dur);
+            let freq = v.freq;
+            v.freq *= v.sweep;
             let before = v.phase;
             v.phase = (v.phase + freq * self.dt).fract();
             let wrapped = v.phase < before || n.f0 <= 1.0;
@@ -260,7 +271,7 @@ impl Synth {
                 }
             };
             let v = &self.voices[i];
-            let fade = (1.0 - v.t / n.dur).max(0.0).powf(n.curve);
+            let fade = (1.0 - v.t / n.dur).max(0.0).powi(n.curve);
             let env = (v.t / ATTACK).min(1.0) * fade;
             let s = wave * env * n.gain;
             sum[0] += s * (1.0 - n.pan).min(1.0);
@@ -318,7 +329,7 @@ impl Synth {
             }
             for note in notes(sfx) {
                 let note = if note.f0 > 1.0 { Note { f0: note.f0 * k, f1: note.f1 * k, ..note } } else { note };
-                self.voices.push(Voice { note, t: -note.delay, phase: 0.0, held: 0.0 });
+                self.voices.push(Voice::new(note, self.dt));
             }
             if self.voices.len() > MAX_VOICES {
                 let extra = self.voices.len() - MAX_VOICES;
