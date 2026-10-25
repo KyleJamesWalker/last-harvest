@@ -14,9 +14,24 @@ Captured on the device with `scripts/debug.sh shot`. Each image shows the top sc
 | **Hardware test** | | |
 | ![Brightness, LEDs, battery and temperature](docs/screenshots/hardware.jpg) | | |
 
-## Overview
+## The game
 
-The title menu opens four scenes:
+**Play** in the title menu starts a run on a newly generated farm: a road with a gas station, a farmhouse and barn joined to the road by dirt paths, fenced crop and corn fields, a windmill, a graveyard, and scattered trees, wrecks and barrels. The view is the top screen at 4x, 256x192 art pixels.
+
+Zombies arrive from just out of sight and find their way around buildings and fences. Your weapons fire on their own at the nearest one. Kills drop money, and money levels you up: pick one of three upgrades on either screen. Shooting a red barrel sets it off. Survive until dawn, ten minutes in.
+
+| Action | Device | macOS |
+|---|---|---|
+| Move | D-pad or stick | Arrow keys |
+| Pick an upgrade | Tap it, or Up, Down and A | Click it, or arrows and X |
+| Show the whole map | Hold R2 | Hold 2 |
+| Back to the menu | Back, or B after a run | Tab, or Z after a run |
+
+The art comes from the tileset's reference sheet. `crates/game/art.txt` names each sprite and where it sits on the sheet, and `crates/game/build.rs` packs them into one texture at build time. The `art` debug scene shows every sprite in the catalog.
+
+## Tech demo scenes
+
+The title menu also opens the template's four demo scenes:
 
 | Scene | What it exercises |
 |---|---|
@@ -48,6 +63,7 @@ The same code also builds and runs on macOS for quick iteration.
 
 ```sh
 rustup target add aarch64-unknown-linux-gnu
+scripts/assets.sh <path to the tileset zip>   # unpack the art; every build needs it
 scripts/sysroot.sh        # copy the device's libasound for linking
 ```
 
@@ -117,7 +133,7 @@ scripts/debug.sh panic                      # crash on purpose to test crash.log
 scripts/debug.sh logs                       # follow the game log, with a perf line each second
 ```
 
-The scene names are `micro`, `stars`, `balloon`, `dodge`, `dice`, `stress` and `hardware`. The `stars`, `balloon` and `dodge` scenes start a microgame run on that microgame. On macOS, set `LAST_HARVEST_DEBUG=1` and write commands to the pipe directly.
+The scene names are `harvest`, `art`, `micro`, `stars`, `balloon`, `dodge`, `dice`, `stress` and `hardware`. The `stars`, `balloon` and `dodge` scenes start a microgame run on that microgame. On macOS, set `LAST_HARVEST_DEBUG=1` and write commands to the pipe directly.
 
 ### Environment variables
 
@@ -152,6 +168,8 @@ Above about 2,200 sprites per screen, frame time grows linearly with the sprite 
 | Path | Contents |
 |---|---|
 | `crates/game` | Scenes, input model, dice physics, 3D meshes, save format, bitmap font. No platform dependencies. |
+| `crates/game/src/harvest` | The game: map generation, zombies, weapons, upgrades. |
+| `crates/game/art.txt` | The sprite catalog that `build.rs` cuts from the tileset. |
 | `crates/render` | OpenGL renderer for shapes, sprites, TrueType text and lit 3D meshes: GL 3.3 on macOS, GLES 3.0 on the device. |
 | `crates/app` | Windows, input, audio, mic, saves, crash log, debug mode, and the device-only sysfs and evdev code. |
 | `scripts` | Cross-compile, sysroot, deploy, install and debug scripts, and the on-device run script. |
