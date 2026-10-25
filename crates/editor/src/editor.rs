@@ -177,6 +177,8 @@ pub struct Editor {
     pending: Option<String>,
     selection: Option<Selection>,
     grab: Option<Grab>,
+    /// Rows of the south and east views cut off by lowering the carving's height, highest first.
+    trimmed: [Vec<Vec<Rgba>>; 2],
     /// Pixels an arrow key moves a selection: 8 with Shift held.
     pub nudge: i32,
     /// Copied pixels and where they were copied from.
@@ -221,6 +223,7 @@ impl Editor {
             pending: None,
             selection: None,
             grab: None,
+            trimmed: Default::default(),
             nudge: 1,
             clipboard: None,
             status: None,
@@ -363,6 +366,7 @@ impl Editor {
 
     fn open(&mut self, name: &str) {
         self.selection = None;
+        self.trimmed = Default::default();
         if let Some(s) = Sprite::load(&self.dir, name) {
             self.sprite = s;
             self.frame = 0;
@@ -792,6 +796,7 @@ impl Editor {
                 if let Some([south, east]) = &mut self.sprite.views {
                     *south = south.resized(w, south.h);
                     *east = east.resized(h, east.h);
+                    self.trimmed = Default::default();
                 }
                 if let Some(f) = &mut self.sprite.footprint {
                     *f = f.resized(w, h);
@@ -831,16 +836,31 @@ impl Editor {
     }
 
     /// Sets how tall the carving is, keeping the views' bottoms on the ground.
+    /// Rows lowering the height cut off are kept, and come back as it rises; past them, the top row repeats.
     fn resize_views(&mut self, height: i32) {
         let h = height.clamp(1, MAX_SIZE as i32) as usize;
-        if self.sprite.views.is_none() {
+        let Some(views) = &self.sprite.views else { return };
+        if views[0].h == h {
             return;
         }
         self.remember();
-        if let Some(views) = &mut self.sprite.views {
-            for v in views.iter_mut() {
-                *v = v.resized(v.w, h);
-            }
+        let Some(views) = &mut self.sprite.views else { return };
+        for (v, kept) in views.iter_mut().zip(&mut self.trimmed) {
+            let rows: Vec<Vec<Rgba>> = v.px.chunks(v.w).map(<[Rgba]>::to_vec).collect();
+            let rows = if h < rows.len() {
+                // The cut rows sit just below any cut before, which were higher up.
+                kept.extend(rows[..rows.len() - h].iter().cloned());
+                rows[rows.len() - h..].to_vec()
+            } else {
+                let mut grown = Vec::with_capacity(h);
+                let back = (h - rows.len()).min(kept.len());
+                let top = rows.first().cloned().unwrap_or_default();
+                grown.extend(std::iter::repeat_n(top, h - rows.len() - back));
+                grown.extend(kept.drain(kept.len() - back..));
+                grown.extend(rows);
+                grown
+            };
+            *v = Frame { w: v.w, h, px: rows.concat() };
         }
         self.height = h as f32;
         self.stand_touched = true;
@@ -989,6 +1009,7 @@ impl Editor {
             Key::Save => self.act(Action::Save, false),
             Key::Undo => {
                 self.selection = None;
+                self.trimmed = Default::default();
                 if let Some(prev) = self.undo.pop() {
                     let now = self.snapshot();
                     (self.sprite.frames, self.sprite.views, self.sprite.footprint) = prev;
@@ -1000,6 +1021,7 @@ impl Editor {
             }
             Key::Redo => {
                 self.selection = None;
+                self.trimmed = Default::default();
                 if let Some(next) = self.redo.pop() {
                     let now = self.snapshot();
                     (self.sprite.frames, self.sprite.views, self.sprite.footprint) = next;
@@ -1510,5 +1532,25 @@ mod tests {
         assert_eq!(back.footprint, e.sprite.footprint);
         assert!(back.views.is_some());
         let _ = std::fs::remove_dir_all(&e.dir);
+    }
+
+    #[test]
+    fn lowering_then_raising_the_carving_brings_its_rows_back() {
+        let mut e = editor();
+        e.act(Action::Stand(CARVE), false);
+        let views = e.sprite.views.clone().unwrap();
+        let h = views[0].h as i32;
+        e.sprite.views.as_mut().unwrap()[0].set(2, 0, [9, 9, 9, 255]);
+        let marked = e.sprite.views.clone().unwrap();
+        e.resize_views(h - 3);
+        e.resize_views(h - 5);
+        assert_eq!(e.view_height(), (h - 5) as usize);
+        e.resize_views(h);
+        assert_eq!(e.sprite.views.clone().unwrap(), marked, "every cut row is back where it was");
+        e.resize_views(h + 2);
+        let grown = &e.sprite.views.as_ref().unwrap()[0];
+        assert_eq!(grown.get(2, 0), Some([9, 9, 9, 255]), "past the cut rows, the top row repeats");
+        assert_eq!(grown.get(2, 2), Some([9, 9, 9, 255]));
+        assert_eq!(grown.get(3, 0), marked[0].get(3, 0));
     }
 }
