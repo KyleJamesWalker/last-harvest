@@ -28,3 +28,6 @@ rustc-ice-*.txt
 
 # Zombie Apocalypse Tileset: its license forbids redistribution
 /assets/zombie-apocalypse/
+
+# macOS Finder metadata
+.DS_Store
