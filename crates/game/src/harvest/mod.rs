@@ -323,7 +323,7 @@ pub struct Harvest {
     next_xp: u32,
     level: u32,
     kills: u32,
-    /// Holding R2 pauses and shows the whole map.
+    /// Holding L1 pauses and shows the whole map.
     overview: bool,
     /// Steps to the player from each cell, rebuilt when the player changes cell.
     flow: Vec<u16>,
@@ -396,7 +396,7 @@ impl Harvest {
 
     pub fn update(&mut self, input: &Input, dt: f32, sounds: &mut Vec<Sfx>) -> Flow {
         let mut flow = Flow::default();
-        self.overview = input.held.contains(Buttons::R2);
+        self.overview = input.held.contains(Buttons::L1);
         if self.overview {
             return flow;
         }
@@ -442,12 +442,12 @@ impl Harvest {
     fn play(&mut self, input: &Input, dt: f32, sounds: &mut Vec<Sfx>, flow: &mut Flow) {
         self.t += dt;
         self.hurt = (self.hurt - dt).max(0.0);
-        // Tank controls: left and right turn, up and down walk along the heading, L1 and R1 strafe.
+        // Up and down walk along the heading, left and right strafe, L2 and R2 turn.
         let dir = input.dir();
-        self.view_yaw = (self.view_yaw + dir[0] * TURN_SPEED * dt).rem_euclid(TAU);
+        let turn = input.held.contains(Buttons::R2) as i32 as f32 - input.held.contains(Buttons::L2) as i32 as f32;
+        self.view_yaw = (self.view_yaw + turn * TURN_SPEED * dt).rem_euclid(TAU);
         let f = [self.view_yaw.cos(), self.view_yaw.sin()];
-        let side = input.held.contains(Buttons::R1) as i32 as f32 - input.held.contains(Buttons::L1) as i32 as f32;
-        let ahead = -dir[1];
+        let (side, ahead) = (dir[0], -dir[1]);
         let mv = [f[0] * ahead - f[1] * side, f[1] * ahead + f[0] * side];
         self.aim = f;
         self.facing = Facing::of(f);
@@ -835,7 +835,7 @@ impl Harvest {
         if self.overview {
             let scale = (SCREEN_W / self.map.width_px()).min(SCREEN_H / self.map.height_px());
             self.world(c, [0.0, 0.0], scale);
-            c.label("Whole map (release R2 to play)", SCREEN_W / 2.0, SCREEN_H - 40.0, 28.0, WHITE, Align::Center);
+            c.label("Whole map (release L1 to play)", SCREEN_W / 2.0, SCREEN_H - 40.0, 28.0, WHITE, Align::Center);
             return;
         }
         let cam = self.camera();
@@ -1058,12 +1058,21 @@ mod tests {
     }
 
     #[test]
-    fn left_and_right_turn_without_moving() {
+    fn the_shoulder_triggers_turn_without_moving() {
         let mut h = Harvest::calm(9);
         let (start, yaw) = (h.pos, h.view_yaw);
-        run(&mut h, &Input { held: Buttons::RIGHT, ..Default::default() }, 0.25);
+        run(&mut h, &Input { held: Buttons::R2, ..Default::default() }, 0.25);
         assert_eq!(h.pos, start);
         assert!((h.view_yaw - yaw).rem_euclid(TAU) > 0.5);
+    }
+
+    #[test]
+    fn left_and_right_strafe_across_the_heading() {
+        let mut h = Harvest::calm(9);
+        h.view_yaw = -PI / 2.0;
+        let start = h.pos;
+        run(&mut h, &Input { held: Buttons::RIGHT, ..Default::default() }, 0.3);
+        assert!(h.pos[0] > start[0] && (h.pos[1] - start[1]).abs() < 1.0);
     }
 
     #[test]

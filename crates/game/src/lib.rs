@@ -250,7 +250,7 @@ impl Game {
             f.top.label(line, SCREEN_W / 2.0, 480.0, 34.0, HOT, Align::Center);
         }
         f.bottom.label("Press A or tap to start", SCREEN_W / 2.0, 300.0, 56.0, WHITE, Align::Center);
-        let hint = "Up / Down walk, Left / Right turn, tap the map to throw.   Hold Home: quit";
+        let hint = "D-pad: walk and strafe.  L2 / R2: turn.  Tap the map: throw.  Hold Home: quit";
         f.bottom.label(hint, SCREEN_W / 2.0, SCREEN_H - 60.0, 24.0, DIM, Align::Center);
     }
 }
