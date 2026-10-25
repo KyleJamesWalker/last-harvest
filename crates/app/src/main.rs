@@ -28,6 +28,8 @@ struct Stats {
     frames: u32,
     total_ms: f32,
     worst_ms: f32,
+    /// CPU time in the game update, building the frame, and rendering it.
+    work_ms: [f32; 3],
     since: Option<Instant>,
 }
 
@@ -123,10 +125,11 @@ impl App {
         self.system.fps = s.frames as f32 / since.elapsed().as_secs_f32();
         self.system.frame_ms = s.total_ms / s.frames as f32;
         self.system.worst_ms = s.worst_ms;
+        let [u, d, r] = s.work_ms.map(|ms| ms / s.frames as f32);
         *s = Stats { since: Some(Instant::now()), ..Default::default() };
         if self.debug.is_some() {
             let sys = &self.system;
-            eprintln!("perf: fps={:.1} ms={:.1} worst={:.1} {}", sys.fps, sys.frame_ms, sys.worst_ms, self.game.summary());
+            eprintln!("perf: fps={:.1} ms={:.1} worst={:.1} update={u:.1} build={d:.1} render={r:.1} {}", sys.fps, sys.frame_ms, sys.worst_ms, self.game.summary());
         }
         #[cfg(target_os = "linux")]
         if let Some(dev) = &self.device {
@@ -195,7 +198,9 @@ impl App {
             self.system.headphones = dev.headphones();
         }
         self.game.set_system(self.system);
+        let started = Instant::now();
         self.game.update(&input, dt);
+        self.stats.work_ms[0] += started.elapsed().as_secs_f32() * 1000.0;
         self.saver.update(self.game.save(), false);
         let sounds = self.game.take_sounds();
         if let Some(audio) = &self.audio {
@@ -208,7 +213,13 @@ impl App {
             dev.apply(&self.game.outputs());
         }
         if let Some(gfx) = &mut self.gfx {
-            match gfx.render(&self.game.draw(), shot.is_some()) {
+            let started = Instant::now();
+            let frame = self.game.draw();
+            self.stats.work_ms[1] += started.elapsed().as_secs_f32() * 1000.0;
+            let started = Instant::now();
+            let rendered = gfx.render(&frame, shot.is_some());
+            self.stats.work_ms[2] += started.elapsed().as_secs_f32() * 1000.0;
+            match rendered {
                 Ok(Some(img)) => {
                     let path = shot.unwrap();
                     match debug::save_png(&path, img.width, img.height, &img.rgba) {
