@@ -44,8 +44,9 @@ impl Canvas {
     }
 
     /// Only the top `show` fraction of the art's rows, top-left at (x, y).
-    pub fn art_top(&mut self, art: Art, x: f32, y: f32, scale: f32, flip: bool, show: f32) {
-        self.shapes.push(Shape::Art { art, x, y, scale, flip, angle: 0.0, show: show.clamp(0.0, 1.0), color: [1.0; 4] });
+    #[allow(clippy::too_many_arguments)]
+    pub fn art_top(&mut self, art: Art, x: f32, y: f32, scale: f32, flip: bool, show: f32, color: Color) {
+        self.shapes.push(Shape::Art { art, x, y, scale, flip, angle: 0.0, show: show.clamp(0.0, 1.0), color });
     }
 
     /// Pixel art centered on (cx, cy) and rotated by `angle` radians.

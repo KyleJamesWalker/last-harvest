@@ -6,7 +6,7 @@ use super::juice::{self, Tone};
 use super::map::TILE;
 use super::{CHOICE_ROW, CHOICE_TOP, Choice, DropKind, GOLD, GRENADE_FLIGHT, GRENADE_RADIUS, GRENADES, Harvest, PICK_TIME, PLAYER, Phase, RED, SCALE, TELL_TIME, WHITE, art_for, clock, view3d};
 use crate::art::{self, Art};
-use crate::{Align, Canvas, Frame, SCREEN_H, SCREEN_W};
+use crate::{Align, Canvas, Color, Frame, SCREEN_H, SCREEN_W};
 
 impl Harvest {
     /// The top screen is the 3D view; the bottom is the map, where a tap throws a grenade.
@@ -23,17 +23,17 @@ impl Harvest {
 
         let c = &mut f.bottom;
         c.clear = [0.0, 0.0, 0.0, 1.0];
+        // The sky's wash multiplied into the map's colors: the same look as a translucent layer, without its fill cost.
         let wash = view3d::sky(self).wash;
+        let tint = [0, 1, 2, 3].map(|i| if i == 3 { 1.0 } else { 1.0 - wash[3] + wash[3] * wash[i] });
         if self.overview {
             let scale = (SCREEN_W / self.map.width_px()).min(SCREEN_H / self.map.height_px());
-            self.world(c, [0.0, 0.0], scale);
-            c.rect(0.0, 0.0, SCREEN_W, SCREEN_H, wash);
+            self.world(c, [0.0, 0.0], scale, tint);
             c.label("Whole map (release L1 to play)", SCREEN_W / 2.0, SCREEN_H - 40.0, 28.0, WHITE, Align::Center);
             return;
         }
         let cam = self.camera();
-        self.world(c, cam, SCALE);
-        c.rect(0.0, 0.0, SCREEN_W, SCREEN_H, wash);
+        self.world(c, cam, SCALE, tint);
         self.view_cone(c, cam);
         self.grenade_tray(c);
         if let Phase::LevelUp { choices, selected, t, picked } = &self.phase {
@@ -148,7 +148,9 @@ impl Harvest {
     }
 
     /// Draws the map and everything on it, with `cam` at the top-left and each art pixel `scale` screen pixels across.
-    fn world(&self, c: &mut Canvas, cam: [f32; 2], scale: f32) {
+    fn world(&self, c: &mut Canvas, cam: [f32; 2], scale: f32, tint: Color) {
+        let shade = |k: Color| [k[0] * tint[0], k[1] * tint[1], k[2] * tint[2], k[3]];
+        let lit = shade(WHITE);
         let (view_w, view_h) = (SCREEN_W / scale, SCREEN_H / scale);
         let at = |x: f32, y: f32| ((x - cam[0]) * scale, (y - cam[1]) * scale);
 
@@ -158,9 +160,9 @@ impl Harvest {
             for tx in tx0..tx1.min(self.map.w) {
                 let (ground, overlay) = self.map.tile(tx, ty);
                 let (sx, sy) = at(tx as f32 * TILE, ty as f32 * TILE);
-                c.art(ground, sx, sy, scale, false, WHITE);
+                c.art(ground, sx, sy, scale, false, lit);
                 if let Some(o) = overlay {
-                    c.art(o, sx, sy, scale, false, WHITE);
+                    c.art(o, sx, sy, scale, false, lit);
                 }
             }
         }
@@ -169,7 +171,7 @@ impl Harvest {
         for (a, x, y, color) in self.map.decals.iter().map(|&(a, x, y)| (a, x, y, WHITE)).chain(stains) {
             if visible(x, y, a.w(), a.h()) {
                 let (sx, sy) = at(x, y);
-                c.art(a, sx, sy, scale, false, color);
+                c.art(a, sx, sy, scale, false, shade(color));
             }
         }
         for t in &self.tells {
@@ -182,7 +184,7 @@ impl Harvest {
             let turn = if corpse.fall[0] < 0.0 { -1.0 } else { 1.0 };
             let angle = if corpse.z > 0.0 { corpse.spin } else { corpse.tipped() * PI / 2.0 * turn };
             let fade = 1.0 - corpse.sunk() / 8.0;
-            c.art_rotated(corpse.art, sx, sy, scale, angle, [0.8, 0.8, 0.8, fade]);
+            c.art_rotated(corpse.art, sx, sy, scale, angle, shade([0.8, 0.8, 0.8, fade]));
         }
         for d in &self.drops {
             let a = match d.kind {
@@ -190,7 +192,7 @@ impl Harvest {
                 DropKind::Health => art::HEALTH,
             };
             let (sx, sy) = at(d.pos[0] - a.w() / 2.0, d.pos[1] - a.h() - d.z);
-            c.art(a, sx, sy, scale, false, WHITE);
+            c.art(a, sx, sy, scale, false, lit);
         }
 
         // Props, zombies and the player, drawn back to front by where they meet the ground.
@@ -223,17 +225,17 @@ impl Harvest {
         sprites.sort_by(|a, b| a.0.total_cmp(&b.0));
         for (_, a, x, y, flip, show) in sprites {
             let (sx, sy) = at(x, y);
-            c.art_top(a, sx, sy, scale, flip, show);
+            c.art_top(a, sx, sy, scale, flip, show, lit);
         }
 
         for b in &self.bullets {
             let (sx, sy) = at(b.pos[0], b.pos[1]);
-            c.art_rotated(art::BULLET, sx, sy, scale, b.vel[1].atan2(b.vel[0]), WHITE);
+            c.art_rotated(art::BULLET, sx, sy, scale, b.vel[1].atan2(b.vel[0]), lit);
         }
         for fx in &self.fx {
             let a = fx.frames[((fx.t * fx.fps) as usize).min(fx.frames.len() - 1)];
             let (sx, sy) = at(fx.pos[0], fx.pos[1]);
-            c.art_rotated(a, sx, sy, scale, fx.angle, WHITE);
+            c.art_rotated(a, sx, sy, scale, fx.angle, lit);
         }
         for p in &self.juice.particles {
             let s = p.size_now() * scale;
@@ -261,7 +263,7 @@ impl Harvest {
                 c.circle(sx, sy, 1.5 * scale, [1.0, 0.25, 0.15, 0.85]);
             }
             let (sx, sy) = at(p[0], p[1] - 6.0 - lift);
-            c.art_rotated(art::GRENADE, sx, sy, scale, g.t * 12.0, WHITE);
+            c.art_rotated(art::GRENADE, sx, sy, scale, g.t * 12.0, lit);
         }
     }
 
