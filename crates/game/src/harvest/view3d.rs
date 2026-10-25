@@ -126,7 +126,7 @@ fn stand(out: &mut Vec<Card>, eye: Vec3, art: Art, flip: bool, pose: Pose, solid
         let normal = right * if flip { -n[0] } else { n[0] } + Vec3::Y * n[1] + back * n[2];
         let corners = f.corners.map(place);
         if normal.dot(eye - corners[0]) > 0.0 {
-            out.push(Card { corners, uv: f.uv, normal });
+            out.push(Card::new(corners, f.uv, normal));
         }
     }
 }
@@ -137,7 +137,7 @@ fn flat(out: &mut Vec<Card>, art: Art, x: f32, z: f32, lift: f32) {
     let (aw, ah) = (ATLAS_W as f32, ATLAS_H as f32);
     let (x1, z1) = (x + w * PX, z + h * PX);
     let corners = [Vec3::new(x, lift, z), Vec3::new(x1, lift, z), Vec3::new(x1, lift, z1), Vec3::new(x, lift, z1)];
-    out.push(Card { corners, uv: [rx / aw, ry / ah, (rx + w) / aw, (ry + h) / ah], normal: Vec3::Y });
+    out.push(Card::new(corners, [rx / aw, ry / ah, (rx + w) / aw, (ry + h) / ah], Vec3::Y));
 }
 
 fn world(p: [f32; 2]) -> Vec3 {
@@ -255,7 +255,9 @@ pub fn scene(h: &Harvest) -> CardScene {
         view_proj: proj * view,
         eye,
         light: p + Vec3::Y * 1.4 + forward * 0.3,
+        light_color: [1.0, 0.86, 0.66],
         light_range: lantern,
+        flashes: Vec::new(),
         ambient: [0.2, 0.2, 0.25],
         fog: [0.11, 0.11, 0.13],
         fog_range: [6.0, VIEW_RADIUS],
