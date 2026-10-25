@@ -54,11 +54,20 @@ impl Particle {
     }
 }
 
-/// A damage number drifting up from where it landed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Tone {
+    Hit,
+    Crit,
+    /// Damage the player took.
+    Hurt,
+    Heal,
+}
+
+/// A number drifting up from where it landed.
 pub struct Popup {
     pub pos: [f32; 2],
     pub value: u32,
-    pub crit: bool,
+    pub tone: Tone,
     pub age: f32,
 }
 
@@ -67,7 +76,7 @@ impl Popup {
     pub fn rise(&self) -> (f32, f32) {
         let k = self.age / POPUP_TIME;
         let pop = if k < 0.15 { 0.6 + k / 0.15 * 0.7 } else { 1.3 - (k - 0.15) * 0.5 };
-        (18.0 + 14.0 * (1.0 - (1.0 - k).powi(2)), pop * if self.crit { 1.4 } else { 1.0 })
+        (18.0 + 14.0 * (1.0 - (1.0 - k).powi(2)), pop * if self.tone == Tone::Hit { 1.0 } else { 1.4 })
     }
 
     pub fn fade(&self) -> f32 {
@@ -323,12 +332,12 @@ impl Juice {
         }
     }
 
-    pub fn popup(&mut self, pos: [f32; 2], damage: f32, crit: bool) {
+    pub fn popup(&mut self, pos: [f32; 2], amount: f32, tone: Tone) {
         if self.popups.len() >= MAX_POPUPS {
             self.popups.remove(0);
         }
         let jitter = [self.rng.range(-4.0, 4.0), self.rng.range(-2.0, 2.0)];
-        self.popups.push(Popup { pos: [pos[0] + jitter[0], pos[1] + jitter[1]], value: damage.round().max(1.0) as u32, crit, age: 0.0 });
+        self.popups.push(Popup { pos: [pos[0] + jitter[0], pos[1] + jitter[1]], value: amount.round().max(1.0) as u32, tone, age: 0.0 });
     }
 
     pub fn corpse(&mut self, c: Corpse) {

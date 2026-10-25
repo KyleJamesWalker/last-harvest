@@ -9,7 +9,7 @@ use std::f32::consts::{PI, TAU};
 use crate::art::{self, Art};
 use crate::rng::Rng;
 use crate::{Align, Buttons, Canvas, Color, Frame, Input, SCREEN_H, SCREEN_W, Sfx};
-use juice::{Corpse, Juice, Particle};
+use juice::{Corpse, Juice, Particle, Tone};
 use map::{Map, TILE};
 
 /// Screen pixels per art pixel on the bottom screen's map, which shows 512x384 art pixels.
@@ -56,6 +56,7 @@ const PICK_TIME: f32 = 0.3;
 /// Seconds the upgrade cards ignore input while they slide in.
 const CARDS_IN: f32 = 0.35;
 const RARE_CHANCE: f32 = 0.12;
+const STAGGER_TIME: f32 = 0.4;
 const MAX_BIRDS: usize = 12;
 const WHITE: Color = [1.0; 4];
 const GOLD: Color = [1.0, 0.85, 0.3, 1.0];
@@ -139,13 +140,15 @@ struct Zombie {
     knock: [f32; 2],
     /// Speed a blast throws the body at, if a blast killed it.
     fling: f32,
+    /// Seconds left rooted by a heavy blow; only big zombies stagger, the rest are knocked back.
+    stagger: f32,
     facing: (Facing, bool),
     anim: f32,
 }
 
 impl Zombie {
     fn new(kind: Kind, pos: [f32; 2], hp: f32, rise: f32, anim: f32) -> Self {
-        Self { kind, pos, dir: [0.0, 1.0], rise, push: [0.0; 2], hp, flash: 0.0, hurt: 0.0, squash: 0.0, knock: [0.0; 2], fling: 0.0, facing: (Facing::Front, false), anim }
+        Self { kind, pos, dir: [0.0, 1.0], rise, push: [0.0; 2], hp, flash: 0.0, hurt: 0.0, squash: 0.0, knock: [0.0; 2], fling: 0.0, stagger: 0.0, facing: (Facing::Front, false), anim }
     }
 
     /// The frame showing now, for a facing.
@@ -153,7 +156,7 @@ impl Zombie {
         let look = &self.kind.stats().look;
         if self.flash > 0.0 {
             look.flash[facing.index()]
-        } else if self.hurt > 0.0 {
+        } else if self.hurt > 0.0 || self.stagger > 0.0 {
             look.hurt[facing.index()]
         } else {
             look.walk[facing.index()][self.frame()]
@@ -876,6 +879,10 @@ impl Harvest {
                 z.rise = (z.rise + dt / RISE_TIME).min(1.0);
                 continue;
             }
+            if z.stagger > 0.0 {
+                z.stagger -= dt;
+                continue;
+            }
             let speed = z.kind.stats().speed;
             let direct = sub(self.pos, z.pos);
             let to = if len(direct) < TILE * 1.5 { norm(direct) } else { self.map.downhill(&self.flow, z.pos).unwrap_or(norm(direct)) };
@@ -896,6 +903,7 @@ impl Harvest {
         if hit > 0.0 {
             self.hp -= hit;
             self.hurt = HURT_TIME;
+            self.juice.popup(self.pos, hit, Tone::Hurt);
             flow.rumble = flow.rumble.max(Some(Rumble::Hit));
             sounds.push(Sfx::Hurt);
             self.ouch(0.45);
@@ -1074,6 +1082,7 @@ impl Harvest {
         }
         if len(sub(self.pos, c)) < radius * 0.7 && self.hurt <= 0.0 {
             self.hp -= 15.0;
+            self.juice.popup(self.pos, 15.0, Tone::Hurt);
             self.hurt = HURT_TIME;
             self.ouch(0.3);
         }
@@ -1219,8 +1228,12 @@ impl Harvest {
                         money = true;
                     }
                     DropKind::Health => {
-                        self.hp = (self.hp + 30.0).min(self.gear.max_hp);
-                        healed = true;
+                        let gain = 30f32.min(self.gear.max_hp - self.hp);
+                        self.hp += gain;
+                        healed = gain > 0.0 || healed;
+                        if gain > 0.0 {
+                            self.juice.popup(self.pos, gain, Tone::Heal);
+                        }
                     }
                 }
                 d.age = -1.0;
@@ -1303,6 +1316,8 @@ impl Harvest {
         } else if minute > ((self.t - dt) / 60.0) as usize && (1..10).contains(&minute) {
             self.juice.banner(format!("{minute}:00   {}", MINUTE_LINES[minute - 1]), WHITE, 3.0);
             sounds.push(Sfx::Bell);
+            // Where they will rise from now on.
+            self.juice.ring(self.pos, spawn_ring(self.t)[0], 1.6, [0.85, 0.2, 0.15]);
         }
 
         let night = (1.0 - self.t / DAWN).max(0.0);
@@ -1452,8 +1467,12 @@ impl Harvest {
             let Some(([x, y], dist)) = view3d::to_screen(scene.view_proj, p.pos, rise) else { continue };
             let size = 30.0 * pop * (3.5 / dist).clamp(0.45, 1.6);
             let a = p.fade();
-            let color = if p.crit { [1.0, 0.55, 0.15, a] } else { [1.0, 1.0, 1.0, a] };
-            let text = if p.crit { format!("{}!", p.value) } else { p.value.to_string() };
+            let (color, text) = match p.tone {
+                Tone::Hit => ([1.0, 1.0, 1.0, a], p.value.to_string()),
+                Tone::Crit => ([1.0, 0.55, 0.15, a], format!("{}!", p.value)),
+                Tone::Hurt => ([1.0, 0.25, 0.2, a], format!("-{}", p.value)),
+                Tone::Heal => ([0.45, 1.0, 0.5, a], format!("+{}", p.value)),
+            };
             c.label(text.clone(), x + 2.0, y + 2.0, size, [0.0, 0.0, 0.0, a * 0.8], Align::Center);
             c.label(text, x, y, size, color, Align::Center);
         }
@@ -1776,7 +1795,10 @@ fn strike(z: &mut Zombie, juice: &mut Juice, damage: f32, dir: [f32; 2], force: 
     z.knock = dir;
     let k = force / z.kind.stats().mass;
     z.push = [dir[0] * k, dir[1] * k];
-    juice.popup(z.pos, dealt, crit);
+    juice.popup(z.pos, dealt, if crit { Tone::Crit } else { Tone::Hit });
+    if z.kind == Kind::Big && (crit || force > 100.0) {
+        z.stagger = STAGGER_TIME;
+    }
     juice.burst(z.pos, 8.0, if crit { 6 } else { 3 }, dir, 0.6, [30.0, 90.0], juice::BLOOD, 1.4, 0.4, 0.0);
     crit
 }
@@ -2068,5 +2090,21 @@ mod tests {
         }
         let steps: Vec<u8> = sounds.iter().filter_map(|s| if let Sfx::Pickup(n) = s { Some(*n) } else { None }).collect();
         assert_eq!(steps, [0, 1, 2]);
+    }
+
+    #[test]
+    fn a_blast_staggers_a_big_zombie_in_place() {
+        let mut j = Juice::new(1);
+        let mut big = Zombie::new(Kind::Big, [0.0; 2], 500.0, 1.0, 0.0);
+        strike(&mut big, &mut j, 10.0, [1.0, 0.0], 30.0);
+        let stagger = big.stagger;
+        strike(&mut big, &mut j, 10.0, [1.0, 0.0], 120.0);
+        assert!(big.stagger > stagger && big.stagger == STAGGER_TIME);
+        let mut h = Harvest::calm(3);
+        let at = [h.pos[0] + 60.0, h.pos[1]];
+        h.zombies.push(big);
+        h.zombies[0].pos = at;
+        h.move_zombies(0.1);
+        assert_eq!(h.zombies[0].pos, at);
     }
 }
