@@ -275,13 +275,38 @@ impl Game {
     }
 
     fn draw_title(&self, f: &mut Frame) {
-        f.top.text_centered(240.0, 20.0, WHITE, "LAST HARVEST");
+        let t = self.clock;
+        f.top.clear = [0.06, 0.07, 0.11, 1.0];
+        // A line of the dead shambling along the horizon, and fireflies drifting over the field.
+        f.top.circle(840.0, 120.0, 90.0, [0.8, 0.8, 0.7, 0.06]);
+        f.top.circle(840.0, 120.0, 48.0, [0.85, 0.85, 0.75, 1.0]);
+        f.top.circle(822.0, 108.0, 10.0, [0.75, 0.75, 0.66, 1.0]);
+        f.top.circle(856.0, 136.0, 7.0, [0.75, 0.75, 0.66, 1.0]);
+        f.top.rect(0.0, 600.0, SCREEN_W, 168.0, [0.1, 0.08, 0.07, 1.0]);
+        let walkers = [&art::SKINNY_SIDE, &art::KID_SIDE, &art::SKINNY_SIDE, &art::BIG_SIDE, &art::SKINNY_SIDE];
+        for (i, frames) in walkers.iter().enumerate() {
+            let span = SCREEN_W + 400.0;
+            let x = (i as f32 * span / walkers.len() as f32 + t * 22.0) % span - 200.0;
+            let a = frames[(t * 5.0 + i as f32) as usize % frames.len()];
+            f.top.art(a, x, 600.0 - a.h() * 8.0 + 8.0, 8.0, false, [0.02, 0.02, 0.03, 1.0]);
+        }
+        for i in 0..30 {
+            let seed = i as f32 * 7.31;
+            let x = (seed.sin() * 9000.0).fract().abs() * SCREEN_W + (t * 0.3 + seed).sin() * 30.0;
+            let y = (seed.cos() * 7000.0).fract().abs() * 560.0 + (t * 0.4 + seed * 2.0).cos() * 20.0;
+            let glow = ((t * 1.7 + seed).sin() * 0.5 + 0.5).powi(3);
+            f.top.circle(x, y, 3.0 + 3.0 * glow, [0.75, 1.0, 0.45, 0.2 + 0.7 * glow]);
+        }
+        let flicker = 0.85 + 0.15 * ((t * 13.0).sin() * (t * 7.3).sin()).abs();
+        f.top.text_centered(248.0, 20.0, [0.0, 0.0, 0.0, 0.7], "LAST HARVEST");
+        f.top.text_centered(240.0 + (t * 1.2).sin() * 4.0, 20.0, [flicker, flicker * 0.92, flicker * 0.8, 1.0], "LAST HARVEST");
         f.top.label("Survive the night", SCREEN_W / 2.0, 400.0, 44.0, DIM, Align::Center);
         if self.save.best > 0 {
             let line = format!("Longest night: {}:{:02}", self.save.best / 60, self.save.best % 60);
             f.top.label(line, SCREEN_W / 2.0, 480.0, 34.0, HOT, Align::Center);
         }
-        f.bottom.label("Press A or tap to start", SCREEN_W / 2.0, 300.0, 56.0, WHITE, Align::Center);
+        let pulse = 0.55 + 0.45 * (t * 3.0).sin().abs();
+        f.bottom.label("Press A or tap to start", SCREEN_W / 2.0, 300.0, 56.0, [1.0, 1.0, 1.0, pulse], Align::Center);
         let hint = "D-pad: walk and strafe.  Y / A: turn.  B: turn around.  Tap the map: throw.";
         f.bottom.label(hint, SCREEN_W / 2.0, SCREEN_H - 60.0, 24.0, DIM, Align::Center);
     }
