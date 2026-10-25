@@ -35,6 +35,8 @@ pub enum Stand {
     Figure,
     /// Flat on the ground like a tile or a stain.
     Ground,
+    /// A solid carved where the sprite, seen from above, agrees with drawings of it seen from the south and the east.
+    Carve { south: Art, east: Art },
 }
 
 /// One sprite in the packed texture.

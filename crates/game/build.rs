@@ -186,6 +186,21 @@ fn stand_code(how: &str, line: usize) -> String {
     }
 }
 
+/// Rust for a stand, packing a carved sprite's south and east views from its folder.
+/// Without them, as in a clone that lacks the saved sprites, a carved sprite falls back to a slab.
+fn stand_for(how: &str, dir: &Path, intern: &mut impl FnMut(Image) -> usize, line: usize) -> String {
+    if how != "carve" {
+        return stand_code(how, line);
+    }
+    match (decode(&dir.join("south.png")), decode(&dir.join("east.png"))) {
+        (Ok(south), Ok(east)) => format!("Stand::Carve {{ south: Art({}), east: Art({}) }}", intern(south), intern(east)),
+        _ => {
+            println!("cargo:warning={} is carved but has no south.png and east.png; it stands as a slab", dir.display());
+            "Stand::Slab { height: 10.0 }".into()
+        }
+    }
+}
+
 /// A sprite name the generated code can use as a constant.
 fn is_name(n: &str) -> bool {
     n.starts_with(|c: char| c.is_ascii_uppercase()) && n.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
@@ -237,7 +252,8 @@ fn main() {
         let (rest, how) = rest.split_once('@').unwrap_or((rest, ""));
         let how = std::fs::read_to_string(sprites.join(name).join("stand.txt")).unwrap_or_else(|_| how.to_string());
         if !how.trim().is_empty() {
-            stands.push((name.to_string(), stand_code(how.trim(), i + 1)));
+            let code = stand_for(how.trim(), &sprites.join(name), &mut intern, i + 1);
+            stands.push((name.to_string(), code));
         }
         // A sprite saved from the editor takes the place of its cut from the sheet.
         let drawn = saved(&sprites.join(name));
@@ -256,7 +272,8 @@ fn main() {
     for name in extra {
         let frames = saved(&sprites.join(&name));
         if let Ok(how) = std::fs::read_to_string(sprites.join(&name).join("stand.txt")) {
-            stands.push((name.clone(), stand_code(how.trim(), 0)));
+            let code = stand_for(how.trim(), &sprites.join(&name), &mut intern, 0);
+            stands.push((name.clone(), code));
         }
         if !frames.is_empty() {
             entries.push((name, frames.into_iter().map(&mut intern).collect()));

@@ -1,10 +1,12 @@
 //! The 2.5D view: the same farm, with every sprite's silhouette extruded into a lantern-lit, fogged 3D scene.
 
 use std::borrow::Cow;
-use std::sync::OnceLock;
+use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
 
 use glam::{Mat4, Vec3};
 
+use super::carve;
 use super::map::TILE;
 use crate::art::Stand;
 use super::{DAWN, DropKind, Facing, GRENADE_FLIGHT, GRENADE_RADIUS, Harvest, PLAYER, Phase, TELL_TIME, WALK_FPS, Zombie, art_for, len, norm, sub};
@@ -156,7 +158,33 @@ fn fixed(out: &mut Vec<Card>, eye: Vec3, a: Art, how: Stand, left: f32, base: f3
             stand(out, eye, a, false, pose, true);
         }
         Stand::Ground => flat(out, a, left * PX, (base - a.h()) * PX, DECAL_LIFT + 0.006, [1.0; 3]),
+        Stand::Carve { south, east } => carved(out, eye, a, south, east, Vec3::new(left * PX, 0.0, (base - a.h()) * PX)),
         Stand::Figure => {}
+    }
+}
+
+/// The carved solid for a sprite and its views, worked out once for packed sprites and every time for live ones.
+fn carving(top: Art, south: Art, east: Art) -> Cow<'static, [carve::Quad]> {
+    type Cache = Mutex<HashMap<(Art, Art, Art), &'static [carve::Quad]>>;
+    static CACHE: OnceLock<Cache> = OnceLock::new();
+    let views = carve::Views { top: top.rect(), south: south.rect(), east: east.rect() };
+    if top.is_live() {
+        return Cow::Owned(art::with_pixels(top, |px| carve::carve(px, ATLAS_W as usize, &views)));
+    }
+    let mut cache = CACHE.get_or_init(Default::default).lock().unwrap();
+    Cow::Borrowed(*cache.entry((top, south, east)).or_insert_with(|| carve::carve(PIXELS, ATLAS_W as usize, &views).leak()))
+}
+
+/// Places a carved solid with its north-west ground corner at `origin`.
+fn carved(out: &mut Vec<Card>, eye: Vec3, top: Art, south: Art, east: Art, origin: Vec3) {
+    let (aw, ah) = (ATLAS_W as f32, ATLAS_H as f32);
+    for q in carving(top, south, east).iter() {
+        let corners = q.corners.map(|[x, y, z]| origin + Vec3::new(x, y, z) * PX);
+        let normal = Vec3::from(q.normal);
+        if normal.dot(eye - corners[0]) > 0.0 {
+            let [u0, v0, u1, v1] = q.uv;
+            out.push(Card::new(corners, [u0 / aw, v0 / ah, u1 / aw, v1 / ah], normal));
+        }
     }
 }
 

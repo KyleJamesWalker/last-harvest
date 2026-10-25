@@ -1,5 +1,6 @@
 //! Last Harvest: survive the night on a randomly generated farm while the horde closes in.
 
+mod carve;
 mod draw;
 mod juice;
 mod map;
