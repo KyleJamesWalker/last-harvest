@@ -17,6 +17,12 @@ pub struct Bank {
     clips: HashMap<String, Vec<Arc<Clip>>>,
 }
 
+/// Every name `cue` gives, which are the files held in memory.
+const CUES: &[&str] = &[
+    "start", "miss", "gameover", "turn", "shot", "blast", "slash", "thud", "crit", "kill-skinny", "kill-kid", "kill-big", "boom", "throw",
+    "pickup", "heal", "hurt", "heartbeat", "levelup", "pick", "pick-rare", "rise", "groan", "caw", "bell", "horde", "dawn",
+];
+
 /// The file name a cue looks for, and the playback rate it asks for. Pickups climb a pentatonic scale from one file.
 pub fn cue(sfx: Sfx) -> (&'static str, f32) {
     let name = match sfx {
@@ -70,7 +76,8 @@ impl Bank {
         let mut bank = Bank::default();
         let Ok(entries) = std::fs::read_dir(dir) else { return bank };
         for path in entries.flatten().map(|e| e.path()) {
-            if path.extension().and_then(|e| e.to_str()) != Some("wav") {
+            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+            if ext != "wav" && ext != "ogg" {
                 continue;
             }
             let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else { continue };
@@ -79,7 +86,12 @@ impl Bank {
                 Some((base, n)) if n.parse::<u32>().is_ok() => base,
                 _ => stem,
             };
-            match std::fs::read(&path).map_err(|e| e.to_string()).and_then(|b| decode(&b, rate)) {
+            // Loops like music and ambience are long and played another way; only cues are held in memory.
+            if !CUES.contains(&name) {
+                continue;
+            }
+            let read = std::fs::read(&path).map_err(|e| e.to_string());
+            match read.and_then(|b| if ext == "ogg" { decode_ogg(&b, rate) } else { decode(&b, rate) }) {
                 Ok(clip) => bank.clips.entry(name.to_string()).or_default().push(Arc::new(clip)),
                 Err(e) => eprintln!("audio: {}: {e}", path.display()),
             }
@@ -145,6 +157,25 @@ pub fn decode(bytes: &[u8], rate: f32) -> Result<Clip, String> {
             [l, r]
         })
         .collect();
+    resample(&source, source_rate, rate)
+}
+
+/// Reads an Ogg Vorbis file, mono or stereo, resampled to `rate`.
+pub fn decode_ogg(bytes: &[u8], rate: f32) -> Result<Clip, String> {
+    let mut reader = lewton::inside_ogg::OggStreamReader::new(std::io::Cursor::new(bytes)).map_err(|e| e.to_string())?;
+    let channels = reader.ident_hdr.audio_channels as usize;
+    let source_rate = reader.ident_hdr.audio_sample_rate as f32;
+    let mut source = Vec::new();
+    while let Some(packet) = reader.read_dec_packet_itl().map_err(|e| e.to_string())? {
+        source.extend(packet.chunks_exact(channels).map(|f| {
+            let s = |v: i16| v as f32 / 32768.0;
+            [s(f[0]), s(f[(channels > 1) as usize])]
+        }));
+    }
+    resample(&source, source_rate, rate)
+}
+
+fn resample(source: &[[f32; 2]], source_rate: f32, rate: f32) -> Result<Clip, String> {
     if source.is_empty() {
         return Err("no samples".into());
     }
@@ -218,5 +249,39 @@ mod tests {
         assert_eq!(bank.clips["kill-big"].len(), 1);
         assert!(bank.get("kill", 0.0).is_none());
         assert_eq!(cue(Sfx::Kill(2)).0, "kill-big");
+    }
+
+    #[test]
+    fn every_cue_name_is_one_the_bank_keeps() {
+        let all = [
+            Sfx::Start, Sfx::Miss, Sfx::GameOver, Sfx::Turn, Sfx::Shot, Sfx::Blast, Sfx::Slash, Sfx::Thud(false), Sfx::Thud(true),
+            Sfx::Kill(0), Sfx::Kill(1), Sfx::Kill(2), Sfx::Boom { pan: 0, gain: 0 }, Sfx::Throw, Sfx::Pickup(0), Sfx::Heal, Sfx::Hurt,
+            Sfx::Heartbeat, Sfx::LevelUp, Sfx::Pick(false), Sfx::Pick(true), Sfx::Rise { pan: 0, gain: 0 }, Sfx::Groan { pan: 0, gain: 0 },
+            Sfx::Caw { pan: 0, gain: 0 }, Sfx::Bell, Sfx::Horde, Sfx::Dawn,
+        ];
+        for sfx in all {
+            assert!(CUES.contains(&cue(sfx).0), "{sfx:?}");
+        }
+    }
+
+    #[test]
+    fn ogg_files_load_and_loops_are_left_out() {
+        let dir = std::env::temp_dir().join(format!("lh-ogg-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let tone = dir.join("tone.wav");
+        std::fs::write(&tone, wav(1, 22_050, &(0..2205).map(|i| ((i as f32 * 0.1).sin() * 8000.0) as i16).collect::<Vec<_>>())).unwrap();
+        let ok = std::process::Command::new("sox").arg(&tone).arg(dir.join("shot.ogg")).status().is_ok_and(|s| s.success());
+        if !ok {
+            eprintln!("sox isn't installed; skipping");
+            return;
+        }
+        std::fs::copy(dir.join("shot.ogg"), dir.join("music.ogg")).unwrap();
+        let bank = Bank::load(&dir, 48_000.0);
+        std::fs::remove_dir_all(&dir).unwrap();
+        let clip = bank.get("shot", 0.0).expect("the ogg cue loads");
+        // Vorbis pads the stream's end with a few milliseconds the decoder doesn't trim.
+        assert!((4800..5800).contains(&clip.frames.len()), "{}", clip.frames.len());
+        assert!(clip.frames.iter().any(|f| f[0].abs() > 0.1));
+        assert!(bank.get("music", 0.0).is_none());
     }
 }

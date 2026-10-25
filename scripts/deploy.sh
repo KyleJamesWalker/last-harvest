@@ -8,9 +8,11 @@ scripts/build-device.sh
 ssh "$host" "mkdir -p $dir"
 scp -q scripts/device-run.sh "$host:$dir/run.sh"
 scp -q target/aarch64-unknown-linux-gnu/release/last-harvest "$host:$dir/last-harvest.new"
-if compgen -G "assets/private/sounds/*.wav" >/dev/null; then
+shopt -s nullglob
+sounds=(assets/private/sounds/*.ogg assets/private/sounds/*.wav)
+if (( ${#sounds[@]} )); then
   ssh "$host" "rm -rf $dir/sounds && mkdir -p $dir/sounds"
-  scp -q assets/private/sounds/*.wav "$host:$dir/sounds/"
+  scp -q "${sounds[@]}" "$host:$dir/sounds/"
 fi
 ssh "$host" "cd $dir; if pidof last-harvest >/dev/null; then touch /tmp/last-harvest.restart; killall last-harvest; else CAPTURE=${CAPTURE:-} DEBUG=${DEBUG:-} nohup ./run.sh >/dev/null 2>&1 </dev/null & fi"
 echo "deployed; logs: ssh $host tail -f $dir/run.log"
