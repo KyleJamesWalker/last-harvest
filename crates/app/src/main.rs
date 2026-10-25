@@ -63,6 +63,12 @@ impl App {
         let mut game = Game::new(seed);
         let (saver, save) = persist::Saver::load();
         game.load(save);
+        if std::env::var_os("LAST_HARVEST_UNLOCK_ALL").is_some() {
+            game.unlock_everything();
+        }
+        if let Ok(kit) = std::env::var("LAST_HARVEST_KIT") {
+            game.start_with(&kit);
+        }
         if let Some(scene) = std::env::var("LAST_HARVEST_START").ok().and_then(|s| Scene::from_name(&s)) {
             game.open(scene);
         }
