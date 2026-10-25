@@ -460,6 +460,8 @@ pub struct Harvest {
     heartbeat: f32,
     /// Seconds of the full-screen gold flash when the cards appear.
     glory: f32,
+    /// A tap that landed during hit-stop, thrown when the world moves again.
+    queued_touch: Option<[f32; 2]>,
 }
 
 fn len(v: [f32; 2]) -> f32 {
@@ -525,6 +527,7 @@ impl Harvest {
             hush: [0.0; 5],
             heartbeat: 0.0,
             glory: 0.0,
+            queued_touch: None,
         }
         .with_birds()
     }
@@ -569,7 +572,15 @@ impl Harvest {
         self.juice.tick_real(dt);
         self.glory = (self.glory - dt).max(0.0);
         match self.phase {
-            Phase::Playing if self.juice.frozen() => {}
+            // Taps and the turnaround still count while hit-stop holds the world still.
+            Phase::Playing if self.juice.frozen() => {
+                if let Some(touch) = input.touch.filter(|_| input.touch_started) {
+                    self.queued_touch = Some(touch);
+                }
+                if input.pressed.contains(Buttons::B) && self.spin <= 0.0 {
+                    self.spin = PI;
+                }
+            }
             Phase::Playing => self.play(input, dt, sounds, &mut flow),
             Phase::LevelUp { .. } => self.choose(input, dt, sounds),
             Phase::Over { t, won } => {
@@ -675,7 +686,7 @@ impl Harvest {
         }
         self.noise = None;
         self.grenades = (self.grenades + dt / GRENADE_RECHARGE).min(GRENADES);
-        if let Some(touch) = input.touch.filter(|_| input.touch_started) {
+        if let Some(touch) = input.touch.filter(|_| input.touch_started).or(self.queued_touch.take()) {
             self.throw(touch, sounds);
         }
         self.fly(dt, sounds, flow);
@@ -2106,5 +2117,17 @@ mod tests {
         h.zombies[0].pos = at;
         h.move_zombies(0.1);
         assert_eq!(h.zombies[0].pos, at);
+    }
+
+    #[test]
+    fn a_tap_during_hit_stop_still_throws() {
+        let mut h = Harvest::calm(12);
+        h.juice.stop(0.1);
+        let mut sounds = Vec::new();
+        h.update(&Input { touch: Some([600.0, 300.0]), touch_started: true, ..Default::default() }, 0.016, &mut sounds);
+        assert!(h.thrown.is_empty());
+        h.update(&Input::default(), 0.1, &mut sounds);
+        h.update(&Input::default(), 0.016, &mut sounds);
+        assert_eq!(h.thrown.len(), 1);
     }
 }
