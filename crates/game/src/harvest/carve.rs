@@ -35,15 +35,20 @@ pub fn carve(pixels: &[u8], stride: usize, v: &Views) -> Vec<Quad> {
     let (hf, df) = (h as f32, d as f32);
     let [tx, ty, sx, sy, ex, ey] = [v.top[0], v.top[1], v.south[0], v.south[1], v.east[0], v.east[1]].map(f32::from);
 
+    // Tops take the sprite's colors, or the footprint's where the footprint reaches past the sprite.
+    let painted = |x: usize, z: usize| alpha(v.top, x, z);
+    let [fx, fy] = [footprint[0], footprint[1]].map(f32::from);
     for up in 0..h {
         let open_above = |x: usize, z: usize| up + 1 == h || !solid(x, z, up + 1);
-        for [x0, z0, x1, z1] in rects(w, d, |x, z| solid(x, z, up) && open_above(x, z)) {
-            let y = (up + 1) as f32;
-            out.push(Quad {
-                corners: [[x0, y, z0], [x1, y, z0], [x1, y, z1], [x0, y, z1]],
-                uv: [tx + x0, ty + z0, tx + x1, ty + z1],
-                normal: [0.0, 1.0, 0.0],
-            });
+        for (from_sprite, [ux, uy]) in [(true, [tx, ty]), (false, [fx, fy])] {
+            for [x0, z0, x1, z1] in rects(w, d, |x, z| solid(x, z, up) && open_above(x, z) && painted(x, z) == from_sprite) {
+                let y = (up + 1) as f32;
+                out.push(Quad {
+                    corners: [[x0, y, z0], [x1, y, z0], [x1, y, z1], [x0, y, z1]],
+                    uv: [ux + x0, uy + z0, ux + x1, uy + z1],
+                    normal: [0.0, 1.0, 0.0],
+                });
+            }
         }
     }
     for z in 0..d {
@@ -185,5 +190,17 @@ mod tests {
         assert_eq!(west, 1.0, "the footprint's clear column is gone");
         let top = q.iter().find(|q| q.normal == [0.0, 1.0, 0.0]).unwrap();
         assert_eq!(top.uv[0], v.top[0] as f32 + 1.0, "colors still come from the sprite");
+    }
+
+    #[test]
+    fn where_the_footprint_reaches_past_the_sprite_its_color_tops_the_solid() {
+        // The sprite (top) is clear in column 0; the footprint (east rect, all opaque) still makes it solid.
+        let (px, stride, mut v) = texture(3, 3, 3, |k, x, _| k == 0 && x == 0);
+        v.footprint = Some(v.east);
+        let q = carve(&px, stride, &v);
+        let tops: Vec<&Quad> = q.iter().filter(|q| q.normal == [0.0, 1.0, 0.0]).collect();
+        let edge = tops.iter().find(|q| q.corners[0][0] == 0.0).unwrap();
+        assert_eq!(edge.uv[0], v.east[0] as f32, "the clear column is colored from the footprint");
+        assert!(tops.iter().any(|q| q.uv[0] == v.top[0] as f32 + 1.0), "the rest from the sprite");
     }
 }
