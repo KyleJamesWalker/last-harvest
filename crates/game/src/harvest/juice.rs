@@ -6,8 +6,8 @@ use std::f32::consts::TAU;
 use crate::art::Art;
 use crate::rng::Rng;
 
-const MAX_PARTICLES: usize = 700;
-const MAX_POPUPS: usize = 70;
+const MAX_PARTICLES: usize = 400;
+const MAX_POPUPS: usize = 40;
 const MAX_CORPSES: usize = 60;
 const MAX_FLASHES: usize = 4;
 const POPUP_TIME: f32 = 0.7;
