@@ -108,10 +108,10 @@ scripts/debug.sh swipe 300 650 650 250 120  # drag over 120 ms
 scripts/debug.sh shot out.png               # save both screens, top above bottom
 scripts/debug.sh sleep 5                    # suspend, then wake on the RTC alarm
 scripts/debug.sh panic                      # crash on purpose to test crash.log
-scripts/debug.sh logs                       # follow the game log, with a perf line each second
+scripts/debug.sh logs                       # follow the game log, with a perf line each second: FPS, frame times, and CPU ms in update, frame building and rendering
 ```
 
-The scene names are `title`, `harvest`, `farm` (the game without zombies, for looking around; X drops one a few steps ahead), `art` and `hardware`. On macOS, set `LAST_HARVEST_DEBUG=1` and write commands to the pipe directly.
+The scene names are `title`, `harvest`, `farm` (the game without zombies, for looking around; X drops one a few steps ahead), `bench` (a frozen horde of 300 with every effect showing, turning a full circle every 600 frames, for comparing frame rates between builds), `art` and `hardware`. On macOS, set `LAST_HARVEST_DEBUG=1` and write commands to the pipe directly.
 
 ### Environment variables
 

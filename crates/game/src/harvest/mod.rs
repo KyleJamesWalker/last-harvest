@@ -441,6 +441,8 @@ pub struct Harvest {
     turn_ready: bool,
     /// No zombies: a walk around the farm, for looking at it.
     calm: bool,
+    /// A frozen swarm with every effect showing, turning in place, for measuring frame rate.
+    bench: bool,
     juice: Juice,
     tells: Vec<Tell>,
     birds: Vec<Bird>,
@@ -518,6 +520,7 @@ impl Harvest {
             spin: 0.0,
             turn_ready: false,
             calm: false,
+            bench: false,
             juice: Juice::new(seed),
             tells: Vec::new(),
             birds: Vec::new(),
@@ -559,6 +562,34 @@ impl Harvest {
         None
     }
 
+    /// The same frames every run: 300 zombies, bodies, stains and specks around the player, frozen,
+    /// with the camera turning a full circle every 600 frames.
+    pub fn bench() -> Self {
+        let mut h = Self { calm: true, bench: true, ..Self::new(7) };
+        h.birds.clear();
+        for i in 0..MAX_ZOMBIES {
+            let a = i as f32 * 2.399;
+            let r = 14.0 + (i as f32).sqrt() * 9.0;
+            let pos = [h.pos[0] + a.cos() * r, h.pos[1] + a.sin() * r];
+            let mut z = Zombie::new([Kind::Skinny, Kind::Kid, Kind::Big][i % 3], pos, 10.0, 1.0, i as f32 * 0.1);
+            z.dir = norm(sub(h.pos, pos));
+            h.zombies.push(z);
+        }
+        for i in 0..40 {
+            let a = i as f32 * 0.9;
+            let at = [h.pos[0] + a.cos() * 30.0, h.pos[1] + a.sin() * 30.0];
+            let stain = art::BLOOD_STAIN[i % art::BLOOD_STAIN.len()];
+            h.stains.push((stain, at[0], at[1], [1.0; 3]));
+            h.juice.corpse(Corpse { art: art::SKINNY_HURT[0], flip: false, pos: at, z: 0.0, vel: [0.0; 2], vz: 0.0, fall: [a.cos(), a.sin()], age: 1.0, spin: 0.0 });
+            h.juice.burst(at, 8.0, 8, [0.0; 2], 0.0, [10.0, 40.0], juice::BLOOD, 1.5, 100.0, 0.0);
+            h.juice.popup(at, 12.0 + i as f32, if i % 5 == 0 { Tone::Crit } else { Tone::Hit });
+            let vel = [a.cos() * 200.0, a.sin() * 200.0];
+            h.bullets.push(Bullet { pos: [h.pos[0] + a.cos() * 20.0, h.pos[1] - 6.0 + a.sin() * 20.0], vel, damage: 0.0, pierce: 0, life: 1.0, hit: Vec::new() });
+        }
+        h.juice.flash(h.pos, 10.0, [1.2, 0.85, 0.4], 3.5, f32::MAX);
+        h
+    }
+
     pub fn calm(seed: u64) -> Self {
         Self { calm: true, ..Self::new(seed) }
     }
@@ -569,6 +600,10 @@ impl Harvest {
 
     pub fn update(&mut self, input: &Input, dt: f32, sounds: &mut Vec<Sfx>) -> Flow {
         let mut flow = Flow::default();
+        if self.bench {
+            self.view_yaw = (self.view_yaw + TAU / 600.0).rem_euclid(TAU);
+            return flow;
+        }
         self.overview = input.held.contains(Buttons::L1);
         if self.overview {
             return flow;

@@ -38,6 +38,8 @@ pub enum Scene {
     Harvest,
     /// Debug walk around a generated farm with no zombies.
     Farm,
+    /// Debug frame-rate benchmark: the same frozen swarm every run.
+    Bench,
     /// Debug view of every sprite in the art catalog.
     Gallery,
     /// Debug check of every hardware feature, and where screen brightness is set.
@@ -50,6 +52,7 @@ impl Scene {
             "title" | "menu" => Scene::Title,
             "harvest" | "play" => Scene::Harvest,
             "farm" => Scene::Farm,
+            "bench" => Scene::Bench,
             "art" => Scene::Gallery,
             "hardware" => Scene::Hardware,
             _ => return None,
@@ -133,6 +136,7 @@ impl Game {
                 State::Harvest(Box::new(harvest::Harvest::new(seed)))
             }
             Scene::Farm => State::Harvest(Box::new(harvest::Harvest::calm(seed))),
+            Scene::Bench => State::Harvest(Box::new(harvest::Harvest::bench())),
             Scene::Gallery => State::Gallery(gallery::Gallery::default()),
             Scene::Hardware => State::Hardware(hardware::Hardware::default()),
         };
@@ -370,7 +374,7 @@ mod tests {
     #[test]
     fn every_scene_opens_by_name() {
         let mut game = Game::new(1);
-        for name in ["title", "harvest", "farm", "art", "hardware"] {
+        for name in ["title", "harvest", "farm", "bench", "art", "hardware"] {
             game.open(Scene::from_name(name).unwrap());
         }
         assert!(matches!(game.state, State::Hardware(_)));
