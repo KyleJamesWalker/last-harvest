@@ -41,10 +41,10 @@ pub fn cue(sfx: Sfx) -> (&'static str, f32) {
         Sfx::Kill(_) => "kill-big",
         Sfx::Boom { .. } => "boom",
         Sfx::Throw => "throw",
+        // Sped up past an octave, a recorded sound turns into chipmunk noise, so a run tops out there.
         Sfx::Pickup(n) => {
-            const SCALE: [f32; 5] = [0.0, 2.0, 4.0, 7.0, 9.0];
-            let n = n as usize;
-            return ("pickup", 2f32.powf((SCALE[n % 5] + 12.0 * (n / 5) as f32) / 12.0));
+            const SCALE: [f32; 6] = [0.0, 2.0, 4.0, 7.0, 9.0, 12.0];
+            return ("pickup", 2f32.powf(SCALE[(n as usize).min(SCALE.len() - 1)] / 12.0));
         }
         Sfx::Heal => "heal",
         Sfx::Hurt => "hurt",
@@ -283,5 +283,14 @@ mod tests {
         assert!((4800..5800).contains(&clip.frames.len()), "{}", clip.frames.len());
         assert!(clip.frames.iter().any(|f| f[0].abs() > 0.1));
         assert!(bank.get("music", 0.0).is_none());
+    }
+
+    #[test]
+    fn a_pickup_run_climbs_one_octave_and_holds() {
+        let rate = |n| cue(Sfx::Pickup(n)).1;
+        assert_eq!(rate(0), 1.0);
+        assert!((1..6).all(|n| rate(n) > rate(n - 1)));
+        assert_eq!(rate(5), 2.0);
+        assert_eq!(rate(20), 2.0);
     }
 }
