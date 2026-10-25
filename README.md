@@ -1,22 +1,10 @@
 # last-harvest
 
-A zombie survivors-like for the ANBERNIC RG DS Plus, written in Rust. It is built on the [twinbit-ds](https://github.com/KyleJamesWalker/twinbit-ds) template, and the template's demo scenes are still in place.
-
-## Screenshots
-
-Captured on the device with `scripts/debug.sh shot`. Each image shows the top screen above the bottom screen.
-
-| Menu | Microgame: CATCH! | Microgame: BLOW! |
-|---|---|---|
-| ![Title menu](docs/screenshots/menu.jpg) | ![Stars fall across the hinge](docs/screenshots/stars.jpg) | ![Blow into the mic to pop the balloon](docs/screenshots/balloon.jpg) |
-| **Microgame: DODGE!** | **3D dice** | **Stress test** |
-| ![Rocks fall across both screens](docs/screenshots/dodge.jpg) | ![A lit die rolls in a felt tray](docs/screenshots/dice.jpg) | ![About 5,600 sprites with the performance overlay](docs/screenshots/stress.jpg) |
-| **Hardware test** | | |
-| ![Brightness, LEDs, battery and temperature](docs/screenshots/hardware.jpg) | | |
+A zombie survivors-like for the ANBERNIC RG DS Plus, written in Rust. It is built on the [twinbit-ds](https://github.com/KyleJamesWalker/twinbit-ds) template.
 
 ## The game
 
-**Play** in the title menu starts a run on a newly generated farm: a road with a gas station, a farmhouse and barn joined to the road by dirt paths, fenced crop and corn fields, a windmill, a graveyard, and scattered trees, wrecks and barrels.
+Press A or tap the title screen to start a run on a newly generated farm: a road with a gas station, a farmhouse and barn joined to the road by dirt paths, fenced crop and corn fields, a windmill, a graveyard, and scattered trees, wrecks and barrels.
 
 The top screen is the main view, in 2.5D: every sprite's silhouette extruded into depth, lit by the player's lantern and fading into fog, seen from just behind the player. The bottom screen is the same farm top-down at 2x, 512x384 art pixels, with dots marking what the main view faces.
 
@@ -25,35 +13,22 @@ Zombies claw their way out of the ground, at the edge of the fog early on and on
 | Action | Device | macOS |
 |---|---|---|
 | Walk forward and back | Up and Down, or the stick | Up and Down arrows |
-| Turn | Left and Right, or the stick | Left and Right arrows |
-| Strafe | L1 and R1 | Q and W |
+| Strafe | Left and Right, or the stick | Left and Right arrows |
+| Turn | L2 and R2 | 1 and 2 |
 | Throw a grenade | Tap the map | Click the bottom window |
 | Pick an upgrade | Tap it, or Up, Down and A | Click it, or arrows and X |
-| Show the whole map | Hold R2 | Hold 2 |
+| Show the whole map | Hold L1 | Hold Q |
 | Back to the menu | Back, or B after a run | Tab, or Z after a run |
 
 The art comes from the tileset's reference sheet. `crates/game/art.txt` names each sprite and where it sits on the sheet, and `crates/game/build.rs` packs them into one texture at build time. The `art` debug scene shows every sprite in the catalog.
 
-## Tech demo scenes
+Also on every screen:
 
-The title menu also opens the template's four demo scenes:
-
-| Scene | What it exercises |
-|---|---|
-| Microgames | Short timed rounds that speed up as you score, with three lives. CATCH! drops stars from the top screen across the hinge, and you tap them on the bottom screen. BLOW! inflates a balloon from the hinge microphone. DODGE! steers with the d-pad or stick under falling rocks. |
-| 3D dice | Lit 3D meshes on both screens: an overhead tray below and a chase camera above. Rigid body physics, swipe to throw, a clack and a rumble on each hard bounce. |
-| Stress test | Bouncing sprites on each screen at a spawn rate you set per screen, to find where 60 FPS breaks. |
-| Hardware test | Per-screen brightness, both LEDs, each speaker, the motor, battery, SoC and GPU temperature, and the headphone jack. |
-
-Every scene also has these features:
-
-- A strip on the top screen lights each input while you hold it, plus the lid, the motor and the headphones. A gauge shows the stick position.
-- Each finger on the bottom screen gets a numbered ring, up to 10 at once.
 - Select toggles a performance overlay with FPS, frame times and temperatures.
+- Volume and the longest night survived persist between launches.
 - Closing the lid pauses the game and turns both backlights off.
 - The power button suspends the device, and the game resumes where it left off.
 - Plugging in headphones moves the audio to them.
-- Volume, brightness and the best microgame run persist between launches.
 
 The same code also builds and runs on macOS for quick iteration.
 
@@ -109,26 +84,21 @@ cargo test
 | L1 / R1 / L2 / R2 | Shoulders | Q / W / 1 / 2 |
 | Start / Select | Start / Select | Enter / Backspace |
 | Touch | Stylus or finger on the bottom screen | Mouse on the bottom window |
-| Blow | Hinge microphone | Microphone, or hold Space |
 | Volume | V+ / V- | = / - |
 | Lid | Close the lid | C toggles |
 | Sleep and wake | Power button | None |
 | Performance overlay | Select | Backspace |
-| Back to the menu | Back | Tab |
+| Back to the title | Back | Tab |
 | Quit | Hold Home for one second | Esc |
 
-In the menu, tap a row or use Up, Down and A. Each scene lists its own controls on screen:
-
-- **3D dice:** tap or press A for a random throw, or swipe to throw in that direction.
-- **Stress test:** L1 and R1 set the top screen's spawn rate, L2 and R2 the bottom's, and A clears both.
-- **Hardware test:** Up and Down set the top brightness, Left and Right the bottom. X and B toggle the work and low-power LEDs. L1 and R1 play the left and right speaker, R2 runs the motor, and any other button plays a tone.
+The `hardware` debug scene checks every hardware feature and sets each screen's brightness: Up and Down set the top brightness, Left and Right the bottom. X and B toggle the work and low-power LEDs. L1 and R1 play the left and right speaker, R2 runs the motor, and any other button plays a tone.
 
 ### Debug mode
 
 `DEBUG=1 scripts/deploy.sh` starts the game with a control pipe at `/tmp/last-harvest.ctl`. `scripts/debug.sh` drives it over SSH:
 
 ```sh
-scripts/debug.sh scene dice                 # open a scene
+scripts/debug.sh scene farm                 # open a scene
 scripts/debug.sh press a 120                # hold a button for 120 ms
 scripts/debug.sh tap 500 400                # touch the bottom screen
 scripts/debug.sh swipe 300 650 650 250 120  # drag over 120 ms
@@ -138,7 +108,7 @@ scripts/debug.sh panic                      # crash on purpose to test crash.log
 scripts/debug.sh logs                       # follow the game log, with a perf line each second
 ```
 
-The scene names are `harvest`, `farm` (the game without zombies, for looking around), `art`, `micro`, `stars`, `balloon`, `dodge`, `dice`, `stress` and `hardware`. The `stars`, `balloon` and `dodge` scenes start a microgame run on that microgame. On macOS, set `LAST_HARVEST_DEBUG=1` and write commands to the pipe directly.
+The scene names are `title`, `harvest`, `farm` (the game without zombies, for looking around), `art` and `hardware`. On macOS, set `LAST_HARVEST_DEBUG=1` and write commands to the pipe directly.
 
 ### Environment variables
 
@@ -157,29 +127,19 @@ The game keeps `save.txt` and `crash.log` next to its binary: `/mnt/sdcard/PORTS
 
 ## Performance
 
-Measured on the device with the debug perf log, 4x MSAA, both screens at 1024x768:
-
-| Load | Frame rate |
-|---|---|
-| Menu, microgames, 3D dice, hardware test | 60 FPS |
-| Stress test, up to about 2,200 sprites per screen | 60 FPS |
-| Stress test, about 4,700 sprites per screen | 30 FPS |
-| Stress test, about 15,000 sprites per screen | 9 FPS |
-
-Above about 2,200 sprites per screen, frame time grows linearly with the sprite count.
+Measured on the device with the debug perf log, 4x MSAA, both screens at 1024x768: a run holds 60 FPS with the full horde of 300 zombies swarming the player. The 3D view skips faces turned away from the camera and draws only the nearest 160 zombies.
 
 ## Layout
 
 | Path | Contents |
 |---|---|
-| `crates/game` | Scenes, input model, dice physics, 3D meshes, save format, bitmap font. No platform dependencies. |
+| `crates/game` | Scenes, input model, save format, bitmap font. No platform dependencies. |
 | `crates/game/src/harvest` | The game: map generation, zombies, weapons, upgrades. |
 | `crates/game/art.txt` | The sprite catalog that `build.rs` cuts from the tileset. |
-| `crates/render` | OpenGL renderer for shapes, sprites, TrueType text and lit 3D meshes: GL 3.3 on macOS, GLES 3.0 on the device. |
-| `crates/app` | Windows, input, audio, mic, saves, crash log, debug mode, and the device-only sysfs and evdev code. |
+| `crates/render` | OpenGL renderer for shapes, pixel art, TrueType text and the lit, fogged 3D cards: GL 3.3 on macOS, GLES 3.0 on the device. |
+| `crates/app` | Windows, input, audio, saves, crash log, debug mode, and the device-only sysfs and evdev code. |
 | `scripts` | Cross-compile, sysroot, deploy, install and debug scripts, and the on-device run script. |
-| `assets` | The sprite sheet, the font and its license, and the Ports launcher with its cover art. |
-| `docs/screenshots` | The screenshots above. |
+| `assets` | The font and its license, the Ports launcher with its cover art, and the gitignored tileset. |
 
 ## Device notes
 
@@ -193,7 +153,7 @@ The stock firmware runs Weston with one output per panel. DSI-1 is the top scree
 | Touch | Wayland touch events from the `gt9xx` panel, up to 10 fingers. The stock menu sets `/sys/class/anbernic_misc/tpctrl` to `1` when it launches a port, which stops Weston from delivering touches, so the game sets it to `0`. |
 | Lid | `/sys/class/anbernic_misc/hallkey`: `3` open, `2` closed |
 | Vibration motor | `/sys/class/anbernic_misc/moto`: `1` on, `0` off |
-| Microphone and speakers | ALSA through PulseAudio. The game plays stereo and records from the `default` source. |
+| Speakers | ALSA through PulseAudio. The game plays stereo. |
 | Headphone jack | `/sys/class/extcon/*/state` for `rk817-sound`, `HEADPHONE=1`. Its evdev switch device never sends events. The game moves audio between the PulseAudio sinks `alsa_output.1.stereo-fallback` (speakers) and `alsa_output.0.HiFi__Speaker__sink` (headphones). |
 | Backlights | `/sys/class/backlight/backlight` (top) and `backlight1` (bottom), 0 to 255. `bl_power` `4` turns a panel off. |
 | LEDs | `/sys/class/anbernic_misc/work_led` and `lowpwr_led`, `1` on, `0` off. Both on shows orange. |
