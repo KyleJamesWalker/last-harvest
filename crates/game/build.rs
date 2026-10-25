@@ -186,14 +186,17 @@ fn stand_code(how: &str, line: usize) -> String {
     }
 }
 
-/// Rust for a stand, packing a carved sprite's south and east views from its folder.
+/// Rust for a stand, packing a carved sprite's south and east views, and its footprint if it has one, from its folder.
 /// Without them, as in a clone that lacks the saved sprites, a carved sprite falls back to a slab.
 fn stand_for(how: &str, dir: &Path, intern: &mut impl FnMut(Image) -> usize, line: usize) -> String {
     if how != "carve" {
         return stand_code(how, line);
     }
     match (decode(&dir.join("south.png")), decode(&dir.join("east.png"))) {
-        (Ok(south), Ok(east)) => format!("Stand::Carve {{ south: Art({}), east: Art({}) }}", intern(south), intern(east)),
+        (Ok(south), Ok(east)) => {
+            let footprint = decode(&dir.join("footprint.png")).ok().map_or("None".to_string(), |s| format!("Some(Art({}))", intern(s)));
+            format!("Stand::Carve {{ footprint: {footprint}, south: Art({}), east: Art({}) }}", intern(south), intern(east))
+        }
         _ => {
             println!("cargo:warning={} is carved but has no south.png and east.png; it stands as a slab", dir.display());
             "Stand::Slab { height: 10.0 }".into()

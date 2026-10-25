@@ -1,6 +1,6 @@
-//! A solid carved from three views of a sprite: the sprite itself seen from above, and drawings of it seen
-//! from the south and from the east. A voxel is solid where all three views are, and each face takes its
-//! color from the view that looks at it.
+//! A solid carved from three views of a sprite: seen from above, from the south and from the east. A voxel is
+//! solid where all three views are, and each face takes its color from the view that looks at it. The view
+//! from above is the sprite itself, unless a separate footprint gives the outline and the sprite only the colors.
 
 /// One face of the solid. Corners are in pixels with x east, y up and z south from the north-west corner
 /// on the ground; `uv` is in texture pixels, (u0, v0) at the first corner and (u1, v1) at the third.
@@ -15,6 +15,8 @@ pub struct Quad {
 /// the east view is as wide as the sprite is tall, with south on its left; both are as tall as the solid.
 pub struct Views {
     pub top: [u16; 4],
+    /// The outline seen from above, as tall and wide as `top`, when the sprite's own outline isn't it.
+    pub footprint: Option<[u16; 4]>,
     pub south: [u16; 4],
     pub east: [u16; 4],
 }
@@ -27,7 +29,8 @@ pub fn carve(pixels: &[u8], stride: usize, v: &Views) -> Vec<Quad> {
     let (w, d) = (v.top[2] as usize, v.top[3] as usize);
     let h = v.south[3].min(v.east[3]) as usize;
     // `up` counts from the ground; the views' rows count down from the top.
-    let solid = |x: usize, z: usize, up: usize| alpha(v.top, x, z) && alpha(v.south, x, h - 1 - up) && alpha(v.east, d - 1 - z, h - 1 - up);
+    let footprint = v.footprint.unwrap_or(v.top);
+    let solid = |x: usize, z: usize, up: usize| alpha(footprint, x, z) && alpha(v.south, x, h - 1 - up) && alpha(v.east, d - 1 - z, h - 1 - up);
     let mut out = Vec::new();
     let (hf, df) = (h as f32, d as f32);
     let [tx, ty, sx, sy, ex, ey] = [v.top[0], v.top[1], v.south[0], v.south[1], v.east[0], v.east[1]].map(f32::from);
@@ -129,7 +132,7 @@ mod tests {
             }
         }
         let r = |(x0, rw, rh): (usize, usize, usize)| [x0 as u16, 0, rw as u16, rh as u16];
-        (px, stride, Views { top: r(rects[0]), south: r(rects[1]), east: r(rects[2]) })
+        (px, stride, Views { top: r(rects[0]), footprint: None, south: r(rects[1]), east: r(rects[2]) })
     }
 
     #[test]
@@ -170,5 +173,17 @@ mod tests {
             }
         }
         assert!((0..5).all(|y| (0..7).all(|x| covered[y * 7 + x] == set(x, y))));
+    }
+
+    #[test]
+    fn a_footprint_sets_the_outline_while_the_sprite_keeps_the_colors() {
+        // The top view is fully opaque, but the footprint (the east view's rect reused) clears column 0.
+        let (px, stride, mut v) = texture(3, 3, 3, |k, x, _| k == 2 && x == 0);
+        v.footprint = Some(v.east);
+        let q = carve(&px, stride, &v);
+        let west = q.iter().filter(|q| q.normal == [0.0, 1.0, 0.0]).map(|q| q.corners[0][0]).fold(f32::MAX, f32::min);
+        assert_eq!(west, 1.0, "the footprint's clear column is gone");
+        let top = q.iter().find(|q| q.normal == [0.0, 1.0, 0.0]).unwrap();
+        assert_eq!(top.uv[0], v.top[0] as f32 + 1.0, "colors still come from the sprite");
     }
 }

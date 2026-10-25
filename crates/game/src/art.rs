@@ -35,8 +35,9 @@ pub enum Stand {
     Figure,
     /// Flat on the ground like a tile or a stain.
     Ground,
-    /// A solid carved where the sprite, seen from above, agrees with drawings of it seen from the south and the east.
-    Carve { south: Art, east: Art },
+    /// A solid carved where the view from above agrees with drawings of it seen from the south and the east.
+    /// The outline from above is `footprint` when given, else the sprite's own; the sprite colors the top either way.
+    Carve { footprint: Option<Art>, south: Art, east: Art },
 }
 
 /// One sprite in the packed texture.

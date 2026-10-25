@@ -158,27 +158,28 @@ fn fixed(out: &mut Vec<Card>, eye: Vec3, a: Art, how: Stand, left: f32, base: f3
             stand(out, eye, a, false, pose, true);
         }
         Stand::Ground => flat(out, a, left * PX, (base - a.h()) * PX, DECAL_LIFT + 0.006, [1.0; 3]),
-        Stand::Carve { south, east } => carved(out, eye, a, south, east, Vec3::new(left * PX, 0.0, (base - a.h()) * PX)),
+        Stand::Carve { footprint, south, east } => carved(out, eye, [a, footprint.unwrap_or(a), south, east], footprint.is_some(), Vec3::new(left * PX, 0.0, (base - a.h()) * PX)),
         Stand::Figure => {}
     }
 }
 
 /// The carved solid for a sprite and its views, worked out once for packed sprites and every time for live ones.
-fn carving(top: Art, south: Art, east: Art) -> Cow<'static, [carve::Quad]> {
-    type Cache = Mutex<HashMap<(Art, Art, Art), &'static [carve::Quad]>>;
+fn carving([top, footprint, south, east]: [Art; 4], own_footprint: bool) -> Cow<'static, [carve::Quad]> {
+    type Cache = Mutex<HashMap<[Art; 4], &'static [carve::Quad]>>;
     static CACHE: OnceLock<Cache> = OnceLock::new();
-    let views = carve::Views { top: top.rect(), south: south.rect(), east: east.rect() };
+    let views = carve::Views { top: top.rect(), footprint: own_footprint.then(|| footprint.rect()), south: south.rect(), east: east.rect() };
     if top.is_live() {
         return Cow::Owned(art::with_pixels(top, |px| carve::carve(px, ATLAS_W as usize, &views)));
     }
     let mut cache = CACHE.get_or_init(Default::default).lock().unwrap();
-    Cow::Borrowed(*cache.entry((top, south, east)).or_insert_with(|| carve::carve(PIXELS, ATLAS_W as usize, &views).leak()))
+    Cow::Borrowed(*cache.entry([top, footprint, south, east]).or_insert_with(|| carve::carve(PIXELS, ATLAS_W as usize, &views).leak()))
 }
 
-/// Places a carved solid with its north-west ground corner at `origin`.
-fn carved(out: &mut Vec<Card>, eye: Vec3, top: Art, south: Art, east: Art, origin: Vec3) {
+/// Places a carved solid with its north-west ground corner at `origin`: `arts` are the sprite, the footprint
+/// (the sprite again unless `own_footprint`), and the south and east views.
+fn carved(out: &mut Vec<Card>, eye: Vec3, arts: [Art; 4], own_footprint: bool, origin: Vec3) {
     let (aw, ah) = (ATLAS_W as f32, ATLAS_H as f32);
-    for q in carving(top, south, east).iter() {
+    for q in carving(arts, own_footprint).iter() {
         let corners = q.corners.map(|[x, y, z]| origin + Vec3::new(x, y, z) * PX);
         let normal = Vec3::from(q.normal);
         if normal.dot(eye - corners[0]) > 0.0 {
