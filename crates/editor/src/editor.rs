@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use last_harvest_game::art::Art;
 use last_harvest_game::{Align, Canvas, Color, Stand};
 
+use crate::history::{Commit, Repo};
 use crate::sprite::{self, CLEAR, Frame, Rgba, Sprite};
 
 const UNDO_DEPTH: usize = 100;
@@ -106,6 +107,9 @@ enum Action {
     Frame(usize),
     View(usize),
     AddFootprint,
+    History,
+    Restore,
+    Back,
     Play,
     Width(i32),
     Height(i32),
@@ -140,6 +144,33 @@ pub enum Key {
     Cut,
     Paste,
 }
+
+/// Browsing a sprite's committed versions: the commits, the one on show, and what was open before.
+struct Browse {
+    repo: Repo,
+    commits: Vec<Commit>,
+    at: usize,
+    /// The sprite's files differ from its last commit.
+    changed: bool,
+    before: Stash,
+}
+
+/// The sprite as it was before browsing began, to go back to.
+struct Stash {
+    sprite: Sprite,
+    stand: u8,
+    depth: f32,
+    height: f32,
+    frame: usize,
+    view: Option<usize>,
+    dirty: bool,
+    stand_touched: bool,
+}
+
+const HISTORY_ROW: f32 = 40.0;
+const HISTORY_TOP: f32 = LIST.y + 48.0;
+const RESTORE: Rect = Rect { x: LIST.x + 8.0, y: LIST.y + LIST.h - 44.0, w: 88.0, h: 36.0 };
+const BACK: Rect = Rect { x: LIST.x + 104.0, y: LIST.y + LIST.h - 44.0, w: 88.0, h: 36.0 };
 
 /// Everything an undo puts back: the frames, the carving views and the footprint.
 type Snapshot = (Vec<Frame>, Option<[Frame; 2]>, Option<Frame>);
@@ -186,6 +217,7 @@ pub struct Editor {
     peek: bool,
     /// The last pixel drawn, which a Shift-click draws a line from.
     last_dot: Option<(i32, i32)>,
+    browse: Option<Browse>,
     /// Pixels an arrow key moves a selection: 8 with Shift held.
     pub nudge: i32,
     /// Copied pixels and where they were copied from.
@@ -235,6 +267,7 @@ impl Editor {
             typing: false,
             peek: false,
             last_dot: None,
+            browse: None,
             nudge: 1,
             clipboard: None,
             status: None,
@@ -327,6 +360,11 @@ impl Editor {
     /// The stand as saved, or a guess from the name and size when none was.
     fn load_stand(&mut self) {
         let saved = sprite::read_stand(&self.dir, &self.catalog, &self.sprite.name);
+        self.apply_stand(saved);
+    }
+
+    /// Sets the stand from how it was written, or a guess from the name and size when it wasn't.
+    fn apply_stand(&mut self, saved: Option<String>) {
         self.stand_touched = false;
         self.view = None;
         self.depth = (self.current().w as f32 * 0.6).clamp(2.0, 48.0).round();
@@ -422,8 +460,14 @@ impl Editor {
         let mut push = |x: f32, y: f32, w: f32, h: f32, action: Action, label: &str, on: bool| {
             b.push(Button { rect: Rect { x, y, w, h }, action, label: label.into(), on });
         };
-        for (i, (a, l)) in [(Action::Ask(Ask::New), "New"), (Action::Ask(Ask::Copy), "Copy"), (Action::Revert, "Revert"), (Action::Save, "Save")].into_iter().enumerate() {
-            push(616.0 + i as f32 * 102.0, 8.0, 94.0, 34.0, a, l, a == Action::Save && self.unsaved());
+        let header = [(Action::Ask(Ask::New), "New"), (Action::Ask(Ask::Copy), "Copy"), (Action::History, "History R"), (Action::Revert, "Revert"), (Action::Save, "Save")];
+        for (i, (a, l)) in header.into_iter().enumerate() {
+            let on = (a == Action::Save && self.unsaved()) || (a == Action::History && self.browse.is_some());
+            push(512.0 + i as f32 * 102.0, 8.0, 94.0, 34.0, a, l, on);
+        }
+        if self.browse.is_some() {
+            push(RESTORE.x, RESTORE.y, RESTORE.w, RESTORE.h, Action::Restore, "Restore", true);
+            push(BACK.x, BACK.y, BACK.w, BACK.h, Action::Back, "Back", false);
         }
         let tools = [(Tool::Pencil, "Pencil B"), (Tool::Eraser, "Eraser E"), (Tool::Fill, "Fill G"), (Tool::Picker, "Pick  hold I"), (Tool::Select, "Select S")];
         for (i, (t, l)) in tools.into_iter().enumerate() {
@@ -484,6 +528,18 @@ impl Editor {
             return;
         }
         if self.ask.is_some() {
+            return;
+        }
+        if self.browse.is_some() {
+            let allowed = |a: &Action| matches!(a, Action::History | Action::Restore | Action::Back | Action::Frame(_) | Action::View(_) | Action::Play);
+            if let Some(b) = self.buttons().into_iter().find(|b| b.rect.contains(p) && allowed(&b.action)) {
+                self.act(b.action, shift);
+            } else if LIST.contains(p) && p[1] >= HISTORY_TOP {
+                let i = ((p[1] - HISTORY_TOP) / HISTORY_ROW) as usize;
+                if self.browse.as_ref().is_some_and(|b| i < b.commits.len()) {
+                    self.show_version(i);
+                }
+            }
             return;
         }
         if LIST.contains(p) {
@@ -721,6 +777,7 @@ impl Editor {
         let step = if shift { 8 } else { 1 };
         match a {
             Action::Ask(k) => self.ask = Some((k, String::new())),
+            Action::Save if self.browse.is_some() => self.say("Restore this version or go back first"),
             Action::Save => {
                 self.deselect();
                 let new = !self.names.iter().any(|(n, _)| *n == self.sprite.name);
@@ -792,6 +849,10 @@ impl Editor {
                 self.playing = false;
                 self.changed = true;
             }
+            Action::History if self.browse.is_some() => self.leave_history(),
+            Action::History => self.open_history(),
+            Action::Restore => self.restore_version(),
+            Action::Back => self.leave_history(),
             Action::AddFootprint => {
                 self.deselect();
                 self.remember();
@@ -861,6 +922,78 @@ impl Editor {
                     self.tool = Tool::Pencil;
                 }
             }
+        }
+    }
+
+    fn stash(&self) -> Stash {
+        Stash {
+            sprite: self.sprite.clone(),
+            stand: self.stand,
+            depth: self.depth,
+            height: self.height,
+            frame: self.frame,
+            view: self.view,
+            dirty: self.dirty,
+            stand_touched: self.stand_touched,
+        }
+    }
+
+    fn unstash(&mut self, s: Stash) {
+        (self.sprite, self.stand, self.depth, self.height, self.frame, self.view) = (s.sprite, s.stand, s.depth, s.height, s.frame, s.view);
+        (self.dirty, self.stand_touched) = (s.dirty, s.stand_touched);
+        self.changed = true;
+    }
+
+    /// Starts browsing the sprite's committed versions, showing the newest.
+    fn open_history(&mut self) {
+        let Some(repo) = Repo::open(&self.dir) else {
+            self.say("The sprites folder isn't in a git repository");
+            return;
+        };
+        let commits = repo.log(&self.sprite.name);
+        if commits.is_empty() {
+            self.say(format!("{} has no commits yet", self.sprite.name));
+            return;
+        }
+        self.deselect();
+        self.playing = false;
+        let changed = repo.changed(&self.sprite.name);
+        self.browse = Some(Browse { repo, commits, at: 0, changed, before: self.stash() });
+        self.show_version(0);
+    }
+
+    /// Puts the sprite as it was at the `i`th commit on show, read-only.
+    fn show_version(&mut self, i: usize) {
+        let Some(b) = &mut self.browse else { return };
+        b.at = i.min(b.commits.len() - 1);
+        let (id, name) = (b.commits[b.at].id.clone(), self.sprite.name.clone());
+        let loaded = Sprite::load_from(&name, |file| b.repo.read(&id, &name, file));
+        let stand = b.repo.read(&id, &name, "stand.txt").map(|t| String::from_utf8_lossy(&t).trim().to_string());
+        if let Some(s) = loaded {
+            self.sprite = s;
+            self.frame = 0;
+            self.view = None;
+            let stand = stand.or_else(|| sprite::read_stand(&self.dir, &self.catalog, &name));
+            self.apply_stand(stand);
+            self.changed = true;
+        }
+    }
+
+    /// Keeps the version on show as the sprite, unsaved; undo goes back to what was open before.
+    fn restore_version(&mut self) {
+        let Some(b) = self.browse.take() else { return };
+        let before = b.before.sprite;
+        self.undo.push((before.frames, before.views, before.footprint));
+        self.redo.clear();
+        self.dirty = true;
+        self.stand_touched = true;
+        let c = &b.commits[b.at];
+        self.say(format!("Restored {} from {}: Save to keep it", c.id, c.date));
+    }
+
+    fn leave_history(&mut self) {
+        if let Some(b) = self.browse.take() {
+            self.unstash(b.before);
         }
     }
 
@@ -982,6 +1115,20 @@ impl Editor {
     }
 
     pub fn key(&mut self, key: Key) {
+        if let Some(b) = &self.browse {
+            let (at, n) = (b.at, b.commits.len());
+            match key {
+                Key::Char('j') => self.show_version((at + 1).min(n - 1)),
+                Key::Char('k') => self.show_version(at.saturating_sub(1)),
+                Key::Enter => self.restore_version(),
+                Key::Escape | Key::Char('r') => self.leave_history(),
+                Key::Left | Key::Char('h') => self.step_frame(-1),
+                Key::Right | Key::Char('l') => self.step_frame(1),
+                Key::Char(' ') => self.act(Action::Play, false),
+                _ => {}
+            }
+            return;
+        }
         if self.pending.is_some() {
             match key {
                 Key::Char('s') | Key::Enter => self.decide(Choice::Save),
@@ -1083,6 +1230,7 @@ impl Editor {
             Key::Char('b' | 'p') => self.act(Action::Tool(Tool::Pencil), false),
             Key::Char('e') => self.act(Action::Tool(Tool::Eraser), false),
             Key::Char('g' | 'f') => self.act(Action::Tool(Tool::Fill), false),
+            Key::Char('r') => self.open_history(),
             Key::Char('/') => {
                 self.typing = true;
                 self.filter.clear();
@@ -1133,6 +1281,40 @@ impl Editor {
         c.label(format!("{}{}", self.sprite.name, if self.unsaved() { "  (unsaved)" } else { "" }), 12.0, 12.0, 26.0, TEXT, Align::Left);
 
         c.rect(LIST.x, LIST.y, LIST.w, LIST.h, PANEL);
+        if let Some(b) = &self.browse {
+            self.draw_history(c, b);
+        } else {
+            self.draw_list(c);
+        }
+
+        self.draw_canvas(c);
+        if let Some(b) = &self.browse {
+            let commit = &b.commits[b.at];
+            c.rect(CANVAS.x, CANVAS.y, CANVAS.w, 30.0, [0.0, 0.0, 0.0, 0.7]);
+            let line: String = format!("Viewing {}  {}  {}", commit.id, commit.date, commit.subject).chars().take(62).collect();
+            c.label(line, CANVAS.x + 8.0, CANVAS.y + 6.0, 16.0, HOT, Align::Left);
+        }
+        self.draw_controls(c);
+    }
+
+    fn draw_history(&self, c: &mut Canvas, b: &Browse) {
+        c.label(format!("{} history", self.sprite.name), LIST.x + 8.0, LIST.y + 6.0, 17.0, HOT, Align::Left);
+        let note = if b.changed { "Saved changes aren't committed" } else { "J/K: browse   Enter: restore" };
+        c.label(note, LIST.x + 8.0, LIST.y + 28.0, 13.0, DIM, Align::Left);
+        let rows = ((RESTORE.y - HISTORY_TOP - 8.0) / HISTORY_ROW) as usize;
+        let first = b.at.saturating_sub(rows.saturating_sub(1));
+        for (i, commit) in b.commits.iter().enumerate().skip(first).take(rows) {
+            let y = HISTORY_TOP + (i - first) as f32 * HISTORY_ROW;
+            if i == b.at {
+                c.rect(LIST.x, y, LIST.w, HISTORY_ROW - 2.0, [0.35, 0.3, 0.18, 1.0]);
+            }
+            c.label(format!("{}  {}", commit.date, commit.id), LIST.x + 8.0, y + 3.0, 13.0, DIM, Align::Left);
+            let subject: String = commit.subject.chars().take(26).collect();
+            c.label(subject, LIST.x + 8.0, y + 19.0, 15.0, TEXT, Align::Left);
+        }
+    }
+
+    fn draw_list(&self, c: &mut Canvas) {
         let top = self.list_top();
         if top > LIST.y {
             c.rect(LIST.x + 2.0, LIST.y + 2.0, LIST.w - 4.0, LIST_ROW + 2.0, if self.typing { [0.3, 0.27, 0.15, 1.0] } else { BUTTON });
@@ -1151,8 +1333,9 @@ impl Editor {
             let mark = if *saved { "  *" } else { "" };
             c.label(format!("{name}{mark}"), LIST.x + 8.0, y + 2.0, 17.0, if *saved { HOT } else { TEXT }, Align::Left);
         }
+    }
 
-        self.draw_canvas(c);
+    fn draw_controls(&self, c: &mut Canvas) {
 
         for b in self.buttons() {
             let r = b.rect;
@@ -1227,7 +1410,7 @@ impl Editor {
             }
         }
 
-        let help = "/: search   J/K: sprites   H/L: frames   S: select   Cmd+C/X/V   hold I: pick   Shift-click: line   Cmd+Z: undo   Cmd+S: save";
+        let help = "/: search   J/K: sprites   H/L: frames   R: history   S: select   Cmd+C/X/V   hold I: pick   Shift-click: line   Cmd+S: save";
         c.label(help, 12.0, 748.0, 13.0, DIM, Align::Left);
         if let Some((text, age)) = &self.status {
             let a = (4.0 - age).clamp(0.0, 1.0);
@@ -1720,5 +1903,72 @@ mod tests {
         e.key(Key::Undo);
         assert_eq!(e.current().get(4, 1), Some(CLEAR));
         assert_eq!(e.current().get(1, 1), Some([5, 5, 5, 255]), "the first dot was its own step");
+    }
+
+    /// An editor on a sprite with two commits: BARREL with pixel (0, 0) red, then green; its files now say blue.
+    fn with_history(tag: &str) -> (Editor, PathBuf) {
+        use crate::history::tests::{commit, repo};
+        let root = repo(tag);
+        let dir = root.join("sprites");
+        let mut s = Sprite::load(&dir, "BARREL").unwrap();
+        for (c, message) in [([255, 0, 0, 255], "red"), ([0, 255, 0, 255], "green")] {
+            s.frames[0].set(0, 0, c);
+            s.save(&dir).unwrap();
+            commit(&root, message);
+        }
+        s.frames[0].set(0, 0, [0, 0, 255, 255]);
+        s.save(&dir).unwrap();
+        let mut e = Editor::new(dir, "BARREL");
+        e.catalog = root.join("art.txt");
+        (e, root)
+    }
+
+    #[test]
+    fn history_shows_each_commit_and_back_returns_to_the_work() {
+        let (mut e, root) = with_history("browse");
+        click_pixel(&mut e, 1, 1);
+        let work = e.sprite.frames.clone();
+        e.key(Key::Char('r'));
+        let b = e.browse.as_ref().unwrap();
+        assert_eq!(b.commits.iter().map(|c| c.subject.as_str()).collect::<Vec<_>>(), ["green", "red"]);
+        assert!(b.changed, "the blue on disk isn't committed");
+        assert_eq!(e.current().get(0, 0), Some([0, 255, 0, 255]));
+        e.key(Key::Char('j'));
+        assert_eq!(e.current().get(0, 0), Some([255, 0, 0, 255]));
+        let before = e.current().clone();
+        click_pixel(&mut e, 2, 2);
+        assert_eq!(*e.current(), before, "a version on show can't be painted");
+        e.act(Action::Save, false);
+        assert!(e.browse.is_some(), "nor saved");
+        e.key(Key::Escape);
+        assert!(e.browse.is_none());
+        assert_eq!(e.sprite.frames, work);
+        assert!(e.dirty);
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn restoring_a_commit_is_one_undo_and_saving_writes_it() {
+        let (mut e, root) = with_history("restore");
+        e.key(Key::Char('r'));
+        e.key(Key::Char('j'));
+        e.key(Key::Enter);
+        assert!(e.browse.is_none() && e.unsaved());
+        assert_eq!(e.current().get(0, 0), Some([255, 0, 0, 255]));
+        e.key(Key::Undo);
+        assert_eq!(e.current().get(0, 0), Some([0, 0, 255, 255]));
+        e.key(Key::Redo);
+        e.act(Action::Save, false);
+        let saved = Sprite::load(&e.dir, "BARREL").unwrap();
+        assert_eq!(saved.frames[0].get(0, 0), Some([255, 0, 0, 255]));
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn history_explains_when_there_is_none() {
+        let mut e = editor();
+        e.key(Key::Char('r'));
+        assert!(e.browse.is_none());
+        assert!(e.status.is_some());
     }
 }

@@ -1,6 +1,7 @@
 //! A pixel editor for LastHarvest's sprites, with live previews in the game's 2.5D view and on its map.
 
 mod editor;
+mod history;
 mod sprite;
 
 use std::error::Error;

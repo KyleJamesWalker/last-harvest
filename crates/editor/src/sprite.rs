@@ -153,17 +153,22 @@ pub fn catalog(dir: &Path) -> Vec<(String, bool)> {
 impl Sprite {
     /// The saved copy if there is one, else the packed frames.
     pub fn load(dir: &Path, name: &str) -> Option<Self> {
+        Self::load_from(name, |file| std::fs::read(dir.join(name).join(file)).ok())
+    }
+
+    /// Loads from whatever `read` returns for each file in the sprite's folder, such as an earlier commit.
+    pub fn load_from(name: &str, read: impl Fn(&str) -> Option<Vec<u8>>) -> Option<Self> {
+        let png = |file: &str| read(file).and_then(|bytes| decode_png(&bytes).ok());
         let mut frames = Vec::new();
-        while let Ok(f) = read_png(&dir.join(name).join(format!("{}.png", frames.len()))) {
+        while let Some(f) = png(&format!("{}.png", frames.len())) {
             frames.push(f);
         }
         if frames.is_empty() {
             let (_, arts) = art::ALL.iter().find(|(n, _)| *n == name)?;
             frames = arts.iter().map(|&a| Frame::from_art(a)).collect();
         }
-        let view = |f: &str| read_png(&dir.join(name).join(f)).ok();
-        let views = view(VIEW_FILES[0]).zip(view(VIEW_FILES[1])).map(|(s, e)| [s, e]);
-        Some(Self { name: name.to_string(), frames, views, footprint: view(FOOTPRINT_FILE) })
+        let views = png(VIEW_FILES[0]).zip(png(VIEW_FILES[1])).map(|(s, e)| [s, e]);
+        Some(Self { name: name.to_string(), frames, views, footprint: png(FOOTPRINT_FILE) })
     }
 
     /// Writes `0.png`, `1.png` and so on, removing frames left over from a longer save.
@@ -263,9 +268,8 @@ pub fn save_stand(dir: &Path, catalog: &Path, name: &str, how: &str) -> Result<(
     Ok(())
 }
 
-fn read_png(path: &Path) -> Result<Frame, String> {
-    let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
-    let mut decoder = png::Decoder::new(std::io::BufReader::new(file));
+fn decode_png(bytes: &[u8]) -> Result<Frame, String> {
+    let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes));
     decoder.set_transformations(png::Transformations::EXPAND);
     let mut reader = decoder.read_info().map_err(|e| e.to_string())?;
     let mut buf = vec![0; reader.output_buffer_size()];
@@ -273,7 +277,7 @@ fn read_png(path: &Path) -> Result<Frame, String> {
     let channels = match info.color_type {
         png::ColorType::Rgba => 4,
         png::ColorType::Rgb => 3,
-        other => return Err(format!("{}: unsupported {other:?}", path.display())),
+        other => return Err(format!("unsupported {other:?}")),
     };
     let px = buf[..info.buffer_size()].chunks_exact(channels).map(|p| [p[0], p[1], p[2], if channels == 4 { p[3] } else { 255 }]).collect();
     Ok(Frame { w: info.width as usize, h: info.height as usize, px })
