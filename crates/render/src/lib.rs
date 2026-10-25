@@ -290,6 +290,16 @@ impl Renderer {
         }
     }
 
+    /// Replaces the art texture's pixels; `pixels` must match the packed texture's size.
+    pub fn set_art(&mut self, gl: &glow::Context, pixels: &[u8]) {
+        assert_eq!(pixels.len(), art::PIXELS.len());
+        unsafe {
+            gl.bind_texture(glow::TEXTURE_2D, Some(self.art));
+            let (aw, ah) = (art::ATLAS_W as i32, art::ATLAS_H as i32);
+            gl.tex_sub_image_2d(glow::TEXTURE_2D, 0, 0, 0, aw, ah, glow::RGBA, glow::UNSIGNED_BYTE, glow::PixelUnpackData::Slice(Some(pixels)));
+        }
+    }
+
     /// Draws one screen's canvas into `viewport` (x, y, w, h in framebuffer pixels, GL origin).
     pub fn draw(&mut self, gl: &glow::Context, canvas: &Canvas, viewport: [i32; 4]) {
         self.verts.clear();

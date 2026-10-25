@@ -3,6 +3,7 @@
 mod draw;
 mod juice;
 mod map;
+pub mod showcase;
 mod view3d;
 
 use std::f32::consts::{PI, TAU};
@@ -467,6 +468,8 @@ pub struct Harvest {
     queued_touch: Option<[f32; 2]>,
     /// Sideways input, eased, which tilts the camera into a strafe.
     lean: f32,
+    /// A sprite the editor is showing off.
+    shown: Option<showcase::Shown>,
 }
 
 fn len(v: [f32; 2]) -> f32 {
@@ -535,6 +538,7 @@ impl Harvest {
             glory: 0.0,
             queued_touch: None,
             lean: 0.0,
+            shown: None,
         }
         .with_birds()
     }

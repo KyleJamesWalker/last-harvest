@@ -1,10 +1,12 @@
 //! The 2.5D view: the same farm, with every sprite's silhouette extruded into a lantern-lit, fogged 3D scene.
 
+use std::borrow::Cow;
 use std::sync::OnceLock;
 
 use glam::{Mat4, Vec3};
 
 use super::map::TILE;
+use super::showcase::Stand;
 use super::{DAWN, DropKind, Facing, GRENADE_FLIGHT, GRENADE_RADIUS, Harvest, PLAYER, Phase, TELL_TIME, WALK_FPS, Zombie, art_for, len, norm, sub};
 use crate::art::{self, ATLAS_H, ATLAS_W, Art, PIXELS, RECTS};
 use crate::scene3d::{Card, CardScene, Flash};
@@ -27,14 +29,17 @@ struct Face {
 }
 
 /// Front and back faces, then the side faces along every edge of the silhouette.
-fn faces(art: Art) -> &'static [Face] {
+fn faces(art: Art) -> Cow<'static, [Face]> {
     static ALL: OnceLock<Vec<Vec<Face>>> = OnceLock::new();
-    &ALL.get_or_init(|| (0..RECTS.len()).map(|i| extrude(Art(i as u16))).collect())[art.0 as usize]
+    if art.is_live() {
+        return Cow::Owned(art::with_pixels(art, |pixels| extrude(pixels, art.rect())));
+    }
+    Cow::Borrowed(&ALL.get_or_init(|| (0..RECTS.len()).map(|i| extrude(PIXELS, Art(i as u16).rect())).collect())[art.0 as usize])
 }
 
-fn extrude(art: Art) -> Vec<Face> {
-    let [rx, ry, w, h] = art.rect().map(|v| v as i32);
-    let opaque = |x: i32, y: i32| x >= 0 && y >= 0 && x < w && y < h && PIXELS[(((ry + y) * ATLAS_W as i32 + rx + x) * 4 + 3) as usize] > 0;
+fn extrude(pixels: &[u8], rect: [u16; 4]) -> Vec<Face> {
+    let [rx, ry, w, h] = rect.map(|v| v as i32);
+    let opaque = |x: i32, y: i32| x >= 0 && y >= 0 && x < w && y < h && pixels[(((ry + y) * ATLAS_W as i32 + rx + x) * 4 + 3) as usize] > 0;
     let (aw, ah) = (ATLAS_W as f32, ATLAS_H as f32);
     let u = |x: i32| (rx + x) as f32 / aw;
     let v = |y: i32| (ry + y) as f32 / ah;
@@ -48,7 +53,7 @@ fn extrude(art: Art) -> Vec<Face> {
     // stretched along the depth, so a wall's side shows its planks rather than its black border.
     let dark = |x: i32, y: i32| {
         let i = (((ry + y) * ATLAS_W as i32 + rx + x) * 4) as usize;
-        PIXELS[i] as u32 + PIXELS[i + 1] as u32 + PIXELS[i + 2] as u32 <= 40
+        pixels[i] as u32 + pixels[i + 1] as u32 + pixels[i + 2] as u32 <= 40
     };
     let inside = |x: i32, y: i32, dx: i32, dy: i32| {
         (0..4).map(|k| (x + dx * k, y + dy * k)).find(|&(ix, iy)| opaque(ix, iy) && !dark(ix, iy)).unwrap_or((x, y))
@@ -124,7 +129,7 @@ fn stand(out: &mut Vec<Card>, eye: Vec3, art: Art, flip: bool, pose: Pose, solid
     let Pose { origin, right, up, back, depth, tint } = pose;
     let (w, h) = (art.w(), art.h());
     let all = faces(art);
-    let used = if solid { all } else { &all[..2] };
+    let used = if solid { &all[..] } else { &all[..2] };
     let (rn, un) = (right.normalize_or_zero(), up.normalize_or_zero());
     for f in used {
         let place = |[x, y, z]: [f32; 3]| {
@@ -294,6 +299,20 @@ pub fn scene(h: &Harvest) -> CardScene {
             stand(&mut cards, eye, prop.frame(h.t), false, Pose::upright(base, Vec3::X, -Vec3::Z, prop.depth * PX), true);
         }
     }
+    if let Some(s) = h.shown.as_ref().filter(|s| !s.frames.is_empty()) {
+        let a = s.frame(h.t);
+        match s.stand {
+            Stand::Prop { depth } => {
+                let base = Vec3::new((s.pos[0] - a.w() / 2.0) * PX, 0.0, s.pos[1] * PX);
+                stand(&mut cards, eye, a, false, Pose::upright(base, Vec3::X, -Vec3::Z, depth * PX), true);
+            }
+            Stand::Ground => {
+                let q = world([s.pos[0] - a.w() / 2.0, s.pos[1] - a.h() / 2.0]);
+                flat(&mut cards, a, q.x, q.z, DECAL_LIFT + 0.006, [1.0; 3]);
+            }
+            Stand::Figure => {}
+        }
+    }
     for b in &h.barrels {
         let a = if b.flash > 0.0 { art::BARREL_FLASH } else { art::BARREL };
         let base = Vec3::new(b.pos[0] * PX, 0.0, (b.pos[1] + a.h()) * PX);
@@ -330,6 +349,9 @@ pub fn scene(h: &Harvest) -> CardScene {
     }
     let (facing, flip) = facing_from(h.aim, forward, right);
     board(&mut cards, Board::new(art_for(h, &PLAYER, facing), flip, h.pos, 0.0, CHARACTER_DEPTH));
+    if let Some(s) = h.shown.as_ref().filter(|s| s.stand == Stand::Figure && !s.frames.is_empty()) {
+        board(&mut cards, Board::new(s.frame(h.t), false, s.pos, 0.0, CHARACTER_DEPTH));
+    }
     for d in &h.drops {
         let a = match d.kind {
             DropKind::Money(_) => art::MONEY[3],

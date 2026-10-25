@@ -4,6 +4,7 @@ use std::f32::consts::{PI, TAU};
 
 use super::juice::{self, Tone};
 use super::map::TILE;
+use super::showcase::Stand;
 use super::{CHOICE_ROW, CHOICE_TOP, Choice, DropKind, GOLD, GRENADE_FLIGHT, GRENADE_RADIUS, GRENADES, Harvest, PICK_TIME, PLAYER, Phase, RED, SCALE, TELL_TIME, WHITE, art_for, clock, view3d};
 use crate::art::{self, Art};
 use crate::{Align, Canvas, Color, Frame, SCREEN_H, SCREEN_W};
@@ -148,7 +149,7 @@ impl Harvest {
     }
 
     /// Draws the map and everything on it, with `cam` at the top-left and each art pixel `scale` screen pixels across.
-    fn world(&self, c: &mut Canvas, cam: [f32; 2], scale: f32, tint: Color) {
+    pub(super) fn world(&self, c: &mut Canvas, cam: [f32; 2], scale: f32, tint: Color) {
         let shade = |k: Color| [k[0] * tint[0], k[1] * tint[1], k[2] * tint[2], k[3]];
         let lit = shade(WHITE);
         let (view_w, view_h) = (SCREEN_W / scale, SCREEN_H / scale);
@@ -173,6 +174,11 @@ impl Harvest {
                 let (sx, sy) = at(x, y);
                 c.art(a, sx, sy, scale, false, shade(color));
             }
+        }
+        if let Some(s) = self.shown.as_ref().filter(|s| s.stand == Stand::Ground && !s.frames.is_empty()) {
+            let a = s.frame(self.t);
+            let (sx, sy) = at(s.pos[0] - a.w() / 2.0, s.pos[1] - a.h() / 2.0);
+            c.art(a, sx, sy, scale, false, lit);
         }
         for t in &self.tells {
             let k = (t.t / TELL_TIME).min(1.0);
@@ -214,6 +220,10 @@ impl Harvest {
             let (facing, flip) = z.facing;
             let a = z.art(facing);
             sprites.push((z.pos[1], a, z.pos[0] - a.w() / 2.0, z.pos[1] - a.h() * z.rise + 2.0, flip, z.rise));
+        }
+        if let Some(s) = self.shown.as_ref().filter(|s| s.stand != Stand::Ground && !s.frames.is_empty()) {
+            let a = s.frame(self.t);
+            sprites.push((s.pos[1], a, s.pos[0] - a.w() / 2.0, s.pos[1] - a.h(), false, 1.0));
         }
         for b in &self.birds {
             let a = b.art();
