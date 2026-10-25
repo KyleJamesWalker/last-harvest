@@ -138,11 +138,12 @@ A pixel editor for the game's sprites, on macOS. The left pane lists every sprit
 | Draw, erase, fill, pick a color | B, E, G, I, or the tool buttons; right-click always picks |
 | Mirror strokes left to right | M |
 | Undo and redo | Cmd+Z, Cmd+Shift+Z |
-| Previous and next frame | Left and Right arrows |
+| Next and previous sprite | J and K |
+| Previous and next frame | H and L, or the Left and Right arrows |
 | Play the animation | Space |
 | New sprite, or a copy of this one | New, Copy |
 | Resize every frame | W and H - and +, 8 at a time with Shift; the bottom center stays put |
-| Save | Cmd+S |
+| Save | Cmd+S; leaving a sprite with unsaved changes asks to save (S or Enter), discard (D) or stay (Esc) |
 | Screenshot the window | F12, into the sprites folder |
 
 Save writes each frame to `assets/sprites/NAME/0.png`, `1.png` and so on, and a changed stand to the sprite's line in `crates/game/art.txt` as `@prop 12`, `@slab 10`, `@figure` or `@ground`, or to `stand.txt` in its folder for a new sprite. A carved sprite keeps `south.png`, `east.png` and a `stand.txt` saying `carve` in its folder; a build without them, such as a fresh clone, stands it as a slab. The next build of the game packs a saved sprite in place of its cut from the tileset, and a folder with a name not in `crates/game/art.txt` becomes a new sprite, `art::NAME`, for the code to use. Saved sprites stay out of git, because edits of the tileset's sprites fall under its license. Delete a sprite's folder to go back to the tileset's version. Set `LAST_HARVEST_SPRITES` to save somewhere else.

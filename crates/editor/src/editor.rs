@@ -19,6 +19,16 @@ const MAX_SIZE: usize = 128;
 const STANDS: [&str; 5] = ["Prop", "Slab", "Figure", "Ground", "Carve"];
 const CARVE: u8 = 4;
 const VIEW_NAMES: [&str; 2] = ["South view", "East view"];
+const DIALOG: Rect = Rect { x: 212.0, y: 250.0, w: 600.0, h: 230.0 };
+/// The unsaved-changes dialog's choices: save then switch, discard then switch, or stay.
+const CHOICES: [(&str, Choice); 3] = [("Save and switch  S", Choice::Save), ("Discard  D", Choice::Discard), ("Stay  Esc", Choice::Stay)];
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Choice {
+    Save,
+    Discard,
+    Stay,
+}
 
 const TEXT: Color = [0.92, 0.92, 0.95, 1.0];
 const DIM: Color = [0.6, 0.6, 0.66, 1.0];
@@ -128,6 +138,8 @@ pub struct Editor {
     stand_touched: bool,
     pub fps: f32,
     ask: Option<(Ask, String)>,
+    /// A sprite to switch to once the current one's unsaved changes are saved or dropped.
+    pending: Option<String>,
     status: Option<(String, f32)>,
     /// The last pixel a stroke painted, so a fast drag joins up.
     stroke: Option<(i32, i32)>,
@@ -165,6 +177,7 @@ impl Editor {
             stand_touched: false,
             fps: 6.0,
             ask: None,
+            pending: None,
             status: None,
             stroke: None,
             channel: None,
@@ -382,17 +395,19 @@ impl Editor {
     }
 
     pub fn mouse_down(&mut self, p: [f32; 2], right: bool, shift: bool) {
+        if self.pending.is_some() {
+            if let Some(&(_, choice)) = CHOICES.iter().enumerate().find(|(i, _)| choice_rect(*i).contains(p)).map(|(_, c)| c) {
+                self.decide(choice);
+            }
+            return;
+        }
         if self.ask.is_some() {
             return;
         }
         if LIST.contains(p) {
             let i = ((p[1] - LIST.y + self.scroll) / LIST_ROW) as usize;
             if let Some((name, _)) = self.names.get(i).cloned() {
-                if self.unsaved() {
-                    self.say(format!("{} has unsaved changes: Save or Revert first", self.sprite.name));
-                } else {
-                    self.open(&name);
-                }
+                self.switch_to(name);
             }
             return;
         }
@@ -615,7 +630,75 @@ impl Editor {
         self.stand_touched = true;
     }
 
+    /// Opens another sprite, first asking what to do with unsaved changes to this one.
+    fn switch_to(&mut self, name: String) {
+        if name == self.sprite.name {
+            return;
+        }
+        if self.unsaved() {
+            self.pending = Some(name);
+        } else {
+            self.open(&name);
+            self.reveal();
+        }
+    }
+
+    fn decide(&mut self, choice: Choice) {
+        let Some(name) = self.pending.take() else { return };
+        match choice {
+            Choice::Save => {
+                self.act(Action::Save, false);
+                if self.unsaved() {
+                    return;
+                }
+                self.open(&name);
+            }
+            Choice::Discard => {
+                self.dirty = false;
+                self.stand_touched = false;
+                self.open(&name);
+            }
+            Choice::Stay => return,
+        }
+        self.reveal();
+    }
+
+    /// Steps `by` places through the sprite list.
+    fn step_sprite(&mut self, by: i32) {
+        let n = self.names.len() as i32;
+        let at = self.names.iter().position(|(m, _)| *m == self.sprite.name).map_or(0, |i| i as i32);
+        let next = (at + by).rem_euclid(n.max(1)) as usize;
+        if let Some((name, _)) = self.names.get(next).cloned() {
+            self.switch_to(name);
+        }
+    }
+
+    /// Scrolls the list so the open sprite shows.
+    fn reveal(&mut self) {
+        let Some(i) = self.names.iter().position(|(m, _)| *m == self.sprite.name) else { return };
+        let y = i as f32 * LIST_ROW;
+        if y < self.scroll {
+            self.scroll = y;
+        } else if y + LIST_ROW > self.scroll + LIST.h {
+            self.scroll = y + LIST_ROW - LIST.h;
+        }
+    }
+
+    fn step_frame(&mut self, by: i32) {
+        let n = self.sprite.frames.len() as i32;
+        self.act(Action::Frame((self.frame as i32 + by).rem_euclid(n) as usize), false);
+    }
+
     pub fn key(&mut self, key: Key) {
+        if self.pending.is_some() {
+            match key {
+                Key::Char('s') | Key::Enter => self.decide(Choice::Save),
+                Key::Char('d') => self.decide(Choice::Discard),
+                Key::Escape | Key::Char('c') => self.decide(Choice::Stay),
+                _ => {}
+            }
+            return;
+        }
         if let Some((kind, name)) = &mut self.ask {
             match key {
                 Key::Char(c) if c.is_ascii_alphanumeric() || c == '_' || c == ' ' => {
@@ -656,8 +739,10 @@ impl Editor {
             Key::Char('m') => self.mirror = !self.mirror,
             Key::Char(' ') => self.act(Action::Play, false),
             Key::Char('n') => self.act(Action::Ask(Ask::New), false),
-            Key::Left => self.act(Action::Frame((self.frame + self.sprite.frames.len() - 1) % self.sprite.frames.len()), false),
-            Key::Right => self.act(Action::Frame((self.frame + 1) % self.sprite.frames.len()), false),
+            Key::Left | Key::Char('h') => self.step_frame(-1),
+            Key::Right | Key::Char('l') => self.step_frame(1),
+            Key::Char('j') => self.step_sprite(1),
+            Key::Char('k') => self.step_sprite(-1),
             Key::Save => self.act(Action::Save, false),
             Key::Undo => {
                 if let Some(prev) = self.undo.pop() {
@@ -769,12 +854,26 @@ impl Editor {
             }
         }
 
-        let help = "Left: draw   Right: pick color   Shift with - and +: steps of 8   Cmd+Z / Cmd+Shift+Z: undo / redo   Cmd+S: save";
+        let help = "J/K: sprites   H/L: frames   Right-click: pick color   Shift with -/+: steps of 8   Cmd+Z / Cmd+Shift+Z: undo/redo   Cmd+S: save";
         c.label(help, 12.0, 748.0, 13.0, DIM, Align::Left);
         if let Some((text, age)) = &self.status {
             let a = (4.0 - age).clamp(0.0, 1.0);
             c.rect(CANVAS.x, CANVAS.y + CANVAS.h - 40.0, CANVAS.w, 40.0, [0.0, 0.0, 0.0, 0.7 * a]);
             c.label(text.clone(), CANVAS.x + CANVAS.w / 2.0, CANVAS.y + CANVAS.h - 30.0, 18.0, [1.0, 1.0, 1.0, a], Align::Center);
+        }
+        if let Some(name) = &self.pending {
+            c.rect(0.0, 0.0, 1024.0, 768.0, [0.0, 0.0, 0.0, 0.65]);
+            let d = DIALOG;
+            c.rect(d.x - 3.0, d.y - 3.0, d.w + 6.0, d.h + 6.0, HOT);
+            c.rect(d.x, d.y, d.w, d.h, PANEL);
+            c.label(format!("{} has unsaved changes", self.sprite.name), d.x + d.w / 2.0, d.y + 24.0, 28.0, HOT, Align::Center);
+            c.label(format!("Save them before opening {name}?"), d.x + d.w / 2.0, d.y + 70.0, 22.0, TEXT, Align::Center);
+            for (i, (label, choice)) in CHOICES.iter().enumerate() {
+                let r = choice_rect(i);
+                c.rect(r.x, r.y, r.w, r.h, if *choice == Choice::Save { HOT } else { BUTTON });
+                let ink = if *choice == Choice::Save { [0.1, 0.1, 0.1, 1.0] } else { TEXT };
+                c.label(*label, r.x + r.w / 2.0, r.y + (r.h - 20.0) / 2.0, 20.0, ink, Align::Center);
+            }
         }
         if let Some((kind, name)) = &self.ask {
             c.rect(0.0, 0.0, 1024.0, 768.0, [0.0, 0.0, 0.0, 0.6]);
@@ -833,6 +932,12 @@ impl Editor {
             }
         }
     }
+}
+
+fn choice_rect(i: usize) -> Rect {
+    let widths = [220.0, 150.0, 150.0];
+    let x = DIALOG.x + 24.0 + widths[..i].iter().map(|w| w + 14.0).sum::<f32>();
+    Rect { x, y: DIALOG.y + DIALOG.h - 76.0, w: widths[i], h: 48.0 }
 }
 
 fn rgba(c: Rgba) -> Color {
@@ -963,5 +1068,52 @@ mod tests {
                 assert!(std::ptr::eq(x, y) || apart, "{:?} overlaps {:?}", x.action, y.action);
             }
         }
+    }
+
+    #[test]
+    fn j_and_k_walk_the_list_and_h_and_l_the_frames() {
+        let mut e = editor();
+        let at = |e: &Editor| e.names.iter().position(|(n, _)| *n == e.sprite.name).unwrap();
+        let start = at(&e);
+        e.key(Key::Char('j'));
+        assert_eq!(at(&e), start + 1);
+        e.key(Key::Char('k'));
+        e.key(Key::Char('k'));
+        assert_eq!(at(&e), start - 1);
+        e.act(Action::AddFrame, false);
+        e.key(Key::Char('h'));
+        assert_eq!(e.frame, 0);
+        e.key(Key::Char('l'));
+        assert_eq!(e.frame, 1);
+    }
+
+    #[test]
+    fn switching_away_from_changes_asks_first() {
+        let mut e = editor();
+        click_pixel(&mut e, 0, 0);
+        let name = e.sprite.name.clone();
+        e.key(Key::Char('j'));
+        assert_eq!(e.sprite.name, name, "still here until a choice is made");
+        assert!(e.pending.is_some());
+        e.key(Key::Char('b'));
+        assert!(e.pending.is_some(), "other keys wait");
+        e.key(Key::Escape);
+        assert!(e.pending.is_none() && e.dirty && e.sprite.name == name);
+        e.key(Key::Char('j'));
+        e.key(Key::Char('d'));
+        assert_ne!(e.sprite.name, name);
+        assert!(!e.dirty);
+    }
+
+    #[test]
+    fn save_and_switch_writes_then_opens() {
+        let mut e = editor();
+        click_pixel(&mut e, 0, 0);
+        e.key(Key::Char('j'));
+        let target = e.pending.clone().unwrap();
+        e.key(Key::Enter);
+        assert_eq!(e.sprite.name, target);
+        assert!(e.dir.join("BARREL/0.png").exists());
+        let _ = std::fs::remove_dir_all(&e.dir);
     }
 }
