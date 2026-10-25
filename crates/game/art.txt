@@ -8,6 +8,7 @@
 #   px X Y W H                       raw reference pixels, for sprites that straddle the grid
 #   solid W H                        opaque white, for tinted particles
 #   blank W H                        clear, for the sprite editor's scratch space
+#   png FILE [xN]                    a picture in this folder, cut into N frames side by side
 #
 # A line may end with how the sprite stands in the 3D view: @prop DEPTH (upright, extruded back),
 # @slab HEIGHT (flat as a roof that high, for sprites drawn from above), @figure (turns to the camera)
@@ -40,7 +41,7 @@ PICKET_BOTTOM   cell 19 6 x3
 SKULL_FENCE     cell 22 4 ; cell 22 5 ; cell 22 6
 
 # Buildings and large props
-HOUSE           cell 0 0 6 5 3,2<1,2 -3,4 3,4<1,4
+HOUSE           cell 0 0 6 5 3,2<1,2 -3,4 3,4<1,4  @prop 48
 BARN_RED        cell 23 0 5 6 -23,0 -27,0 /80,89
 BARN_GREEN      cell 23 6 5 6 -23,6 -27,6 /80,89
 GAS_STATION     px 240 56 93 55
@@ -48,7 +49,7 @@ MAILBOX         px 257 119 13 10
 GAS_PUMP        px 238 116 18 33
 WINDMILL        cell 21 7 1 3
 WINDMILL_FAN    cell 22 7 ; cell 22 8 ; cell 22 9
-SCARECROW       cell 21 2 1 2
+SCARECROW       cell 21 2 1 2  @prop 3
 HAY_STACK       cell 19 0 3 2
 HAY             cell 20 1
 TRACTOR         cell 18 11 2 2
@@ -122,3 +123,49 @@ CROW_PECK       cell 42 3 ; cell 42 4 ; cell 42 5 ; cell 42 6
 SKINNY_HURT     cell 31 3 ; cell 31 4 ; cell 31 2
 BIG_HURT        cell 31 6 ; cell 31 7 ; cell 31 5
 KID_HURT        cell 37 5 ; cell 37 6 ; cell 37 4
+
+# Placeholder weapons and upgrade icons, drawn to be replaced in the sprite editor
+SCYTHE_SWING    png placeholder/scythe.png
+PITCHFORK_THRUST png placeholder/pitchfork.png
+DOG             png placeholder/dog.png x3
+TACKS           png placeholder/tacks.png
+FIRE            png placeholder/fire.png x3
+MOLOTOV         png placeholder/molotov.png
+FLARE           png placeholder/flare.png
+ICON_PISTOL            png placeholder/icon_pistol.png
+ICON_SHOTGUN           png placeholder/icon_shotgun.png
+ICON_RIFLE             png placeholder/icon_rifle.png
+ICON_LANTERN           png placeholder/icon_lantern.png
+ICON_BURNER            png placeholder/icon_burner.png
+ICON_PITCHFORK         png placeholder/icon_pitchfork.png
+ICON_KNIFE             png placeholder/icon_knife.png
+ICON_SCYTHE            png placeholder/icon_scythe.png
+ICON_CROWS             png placeholder/icon_crows.png
+ICON_ZAPPER            png placeholder/icon_zapper.png
+ICON_DOG               png placeholder/icon_dog.png
+ICON_TACKS             png placeholder/icon_tacks.png
+ICON_GAS               png placeholder/icon_gas.png
+ICON_HOLSTER           png placeholder/icon_holster.png
+ICON_SCARECROW         png placeholder/icon_scarecrow.png
+ICON_MOLOTOV           png placeholder/icon_molotov.png
+ICON_FLARE             png placeholder/icon_flare.png
+ICON_HOLLOW_POINTS     png placeholder/icon_hollow_points.png
+ICON_QUICK_HANDS       png placeholder/icon_quick_hands.png
+ICON_RUNNING_SHOES     png placeholder/icon_running_shoes.png
+ICON_CANNED_PEACHES    png placeholder/icon_canned_peaches.png
+ICON_DEEP_POCKETS      png placeholder/icon_deep_pockets.png
+ICON_WORK_JACKET       png placeholder/icon_work_jacket.png
+ICON_GARDEN_TEA        png placeholder/icon_garden_tea.png
+ICON_SHARP_EYE         png placeholder/icon_sharp_eye.png
+ICON_BIGGER_BLAST      png placeholder/icon_bigger_blast.png
+ICON_LONG_BARREL       png placeholder/icon_long_barrel.png
+ICON_LUCKY_PENNY       png placeholder/icon_lucky_penny.png
+ICON_PAWN_SHOP         png placeholder/icon_pawn_shop.png
+ICON_HEAVY_ROUNDS      png placeholder/icon_heavy_rounds.png
+ICON_BRIGHTER_LANTERN  png placeholder/icon_brighter_lantern.png
+ICON_VACCINE           png placeholder/icon_vaccine.png
+ICON_GRENADE_BELT      png placeholder/icon_grenade_belt.png
+ICON_FUEL_DRUMS        png placeholder/icon_fuel_drums.png
+ICON_SNACK             png placeholder/icon_snack.png
+ICON_AMMO_CRATE        png placeholder/icon_ammo_crate.png
+ICON_POCKET_CHANGE     png placeholder/icon_pocket_change.png

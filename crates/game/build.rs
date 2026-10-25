@@ -91,7 +91,7 @@ fn decode(path: &Path) -> Result<Image, String> {
     Ok(Image { w: info.width, h: info.height, rgba: buf })
 }
 
-fn cut(sheet: &Image, frame: &str, line: usize) -> Vec<Image> {
+fn cut(sheet: &Image, dir: &Path, frame: &str, line: usize) -> Vec<Image> {
     let words: Vec<&str> = frame.split_whitespace().collect();
     let bad = || -> Vec<Image> { panic!("art.txt:{line}: bad frame {frame:?}") };
     let num = |s: &str| s.parse::<u32>().unwrap_or_else(|_| panic!("art.txt:{line}: bad number {s:?}"));
@@ -101,6 +101,28 @@ fn cut(sheet: &Image, frame: &str, line: usize) -> Vec<Image> {
             let mut img = Image::new(w, h);
             img.blit(sheet, [x, y], [w, h], [0, 0]);
             vec![img]
+        }
+        Some("png") if (2..=3).contains(&words.len()) => {
+            let frames = match words.get(2) {
+                Some(n) => num(n.strip_prefix('x').unwrap_or_else(|| panic!("art.txt:{line}: bad frame count {n:?}"))),
+                None => 1,
+            };
+            let path = dir.join(words[1]);
+            println!("cargo:rerun-if-changed={}", path.display());
+            let img = decode(&path).unwrap_or_else(|e| {
+                println!("cargo:warning=art.txt:{line}: {}: {e}; drawn as a magenta square", path.display());
+                let mut img = Image::new(8 * frames, 8);
+                img.rgba.chunks_exact_mut(4).for_each(|p| p.copy_from_slice(&[255, 0, 255, 255]));
+                img
+            });
+            let w = img.w / frames;
+            (0..frames)
+                .map(|f| {
+                    let mut out = Image::new(w, img.h);
+                    out.blit(&img, [f * w, 0], [w, img.h], [0, 0]);
+                    out
+                })
+                .collect()
         }
         Some(kind @ ("solid" | "blank")) if words.len() == 3 => {
             let mut img = Image::new(num(words[1]), num(words[2]));
@@ -260,7 +282,7 @@ fn main() {
         }
         // A sprite saved from the editor takes the place of its cut from the sheet.
         let drawn = saved(&sprites.join(name));
-        let frames = if drawn.is_empty() { rest.split(';').flat_map(|frame| cut(&sheet, frame.trim(), i + 1)).collect() } else { drawn };
+        let frames = if drawn.is_empty() { rest.split(';').flat_map(|frame| cut(&sheet, &manifest, frame.trim(), i + 1)).collect() } else { drawn };
         entries.push((name.to_string(), frames.into_iter().map(&mut intern).collect()));
     }
     // Sprites drawn from scratch in the editor, with no line in the catalog.
