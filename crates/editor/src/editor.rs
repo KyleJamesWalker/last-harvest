@@ -18,7 +18,9 @@ const THUMB: f32 = 64.0;
 const MAX_SIZE: usize = 128;
 const STANDS: [&str; 5] = ["Prop", "Slab", "Figure", "Ground", "Carve"];
 const CARVE: u8 = 4;
-const VIEW_NAMES: [&str; 2] = ["South view", "East view"];
+const VIEW_NAMES: [&str; 3] = ["South view", "East view", "Footprint"];
+const VIEW_HINTS: [&str; 3] = ["the sprite seen from the south: west on the left", "the sprite seen from the east: south on the left", "the outline from above: only opaque or clear counts"];
+const FOOTPRINT: usize = 2;
 const DIALOG: Rect = Rect { x: 212.0, y: 250.0, w: 600.0, h: 230.0 };
 /// The unsaved-changes dialog's choices: save then switch, discard then switch, or stay.
 const CHOICES: [(&str, Choice); 3] = [("Save and switch  S", Choice::Save), ("Discard  D", Choice::Discard), ("Stay  Esc", Choice::Stay)];
@@ -103,6 +105,7 @@ enum Action {
     MoveFrame(i32),
     Frame(usize),
     View(usize),
+    AddFootprint,
     Play,
     Width(i32),
     Height(i32),
@@ -138,8 +141,8 @@ pub enum Key {
     Paste,
 }
 
-/// Everything an undo puts back: the frames and the carving views.
-type Snapshot = (Vec<Frame>, Option<[Frame; 2]>);
+/// Everything an undo puts back: the frames, the carving views and the footprint.
+type Snapshot = (Vec<Frame>, Option<[Frame; 2]>, Option<Frame>);
 
 pub struct Editor {
     dir: PathBuf,
@@ -189,7 +192,7 @@ pub struct Editor {
 
 impl Editor {
     pub fn new(dir: PathBuf, name: &str) -> Self {
-        let sprite = Sprite::load(&dir, name).unwrap_or(Sprite { name: name.into(), frames: vec![Frame::blank(16, 16)], views: None });
+        let sprite = Sprite::load(&dir, name).unwrap_or(Sprite { name: name.into(), frames: vec![Frame::blank(16, 16)], views: None, footprint: None });
         let names = sprite::catalog(&dir);
         let mut e = Self {
             dir,
@@ -237,7 +240,9 @@ impl Editor {
             0 => Stand::Prop { depth: self.depth },
             2 => Stand::Figure,
             3 => Stand::Ground,
-            CARVE if self.live.len() == n + 2 => Stand::Carve { south: self.live[n], east: self.live[n + 1] },
+            CARVE if self.live.len() == n + 2 + self.sprite.footprint.is_some() as usize => {
+                Stand::Carve { footprint: self.live.get(n + 2).copied(), south: self.live[n], east: self.live[n + 1] }
+            }
             _ => Stand::Slab { height: self.height },
         }
     }
@@ -250,7 +255,8 @@ impl Editor {
     /// Everything to pack for the previews: the frames, then the carving views when carving, with any
     /// floating pixels shown where they would land.
     pub fn surfaces(&self) -> Vec<Frame> {
-        let views = self.sprite.views.iter().filter(|_| self.stand == CARVE).flatten();
+        let carving = self.stand == CARVE && self.sprite.views.is_some();
+        let views = self.sprite.views.iter().flatten().chain(&self.sprite.footprint).filter(|_| carving);
         let mut out: Vec<Frame> = self.sprite.frames.iter().chain(views).cloned().collect();
         if let Some(Selection { x, y, float: Some(f), .. }) = &self.selection {
             let i = self.view.map_or(self.frame, |v| self.sprite.frames.len() + v);
@@ -280,21 +286,23 @@ impl Editor {
 
     /// What the canvas shows: a frame, or a carving view.
     fn current(&self) -> &Frame {
-        match (self.view, &self.sprite.views) {
-            (Some(v), Some(views)) => &views[v],
+        match (self.view, &self.sprite.views, &self.sprite.footprint) {
+            (Some(FOOTPRINT), _, Some(f)) => f,
+            (Some(v), Some(views), _) if v < 2 => &views[v],
             _ => &self.sprite.frames[self.frame],
         }
     }
 
     fn current_mut(&mut self) -> &mut Frame {
-        match (self.view, &mut self.sprite.views) {
-            (Some(v), Some(views)) => &mut views[v],
+        match (self.view, &mut self.sprite.views, &mut self.sprite.footprint) {
+            (Some(FOOTPRINT), _, Some(f)) => f,
+            (Some(v), Some(views), _) if v < 2 => &mut views[v],
             _ => &mut self.sprite.frames[self.frame],
         }
     }
 
     fn snapshot(&self) -> Snapshot {
-        (self.sprite.frames.clone(), self.sprite.views.clone())
+        (self.sprite.frames.clone(), self.sprite.views.clone(), self.sprite.footprint.clone())
     }
 
     /// The carving height, which is how tall the views are.
@@ -420,7 +428,7 @@ impl Editor {
         push(SIDE_X + 130.0, 678.0, 46.0, 30.0, Action::Fps(-1), "-", false);
         push(SIDE_X + 182.0, 678.0, 46.0, 30.0, Action::Fps(1), "+", false);
         let carving = self.stand == CARVE && self.sprite.views.is_some();
-        let room = if carving { 5 } else { 7 };
+        let room = if carving { 4 } else { 7 };
         let shown = self.sprite.frames.len().min(room);
         let first = self.frame.saturating_sub(room - 1).min(self.sprite.frames.len() - shown);
         for i in first..first + shown {
@@ -431,6 +439,12 @@ impl Editor {
         if carving {
             for v in 0..2 {
                 push(after + 56.0 + v as f32 * (THUMB + 6.0), 622.0, THUMB, THUMB, Action::View(v), "", self.view == Some(v));
+            }
+            let x = after + 56.0 + 2.0 * (THUMB + 6.0);
+            if self.sprite.footprint.is_some() {
+                push(x, 622.0, THUMB, THUMB, Action::View(FOOTPRINT), "", self.view == Some(FOOTPRINT));
+            } else {
+                push(x, 622.0, THUMB, THUMB, Action::AddFootprint, "", false);
             }
         }
         let row = 700.0;
@@ -719,6 +733,12 @@ impl Editor {
                 self.sprite.frames.insert(self.frame + 1, copy);
                 self.frame += 1;
             }
+            Action::DeleteFrame if self.view == Some(FOOTPRINT) => {
+                self.remember();
+                self.sprite.footprint = None;
+                self.view = None;
+                self.say("Footprint removed: the sprite's own outline shapes the solid again");
+            }
             Action::DeleteFrame if self.sprite.frames.len() > 1 => {
                 self.remember();
                 self.sprite.frames.remove(self.frame);
@@ -740,6 +760,13 @@ impl Editor {
                 self.playing = false;
                 self.changed = true;
             }
+            Action::AddFootprint => {
+                self.deselect();
+                self.remember();
+                self.sprite.footprint = Some(self.sprite.frames[self.frame].clone());
+                self.view = Some(FOOTPRINT);
+                self.say("Erase what isn't solid from above");
+            }
             Action::View(v) => {
                 self.deselect();
                 self.view = Some(v);
@@ -750,6 +777,7 @@ impl Editor {
                 self.changed = true;
             }
             Action::Width(_) if self.view.is_some() => self.say("A view is as wide as the sprite: resize the frames instead"),
+            Action::Height(_) if self.view == Some(FOOTPRINT) => self.say("The footprint is the sprite's size: resize the frames instead"),
             Action::Height(d) if self.view.is_some() => self.resize_views(self.view_height() as i32 + d * step),
             Action::Width(d) | Action::Height(d) => {
                 let top = &self.sprite.frames[self.frame];
@@ -764,6 +792,9 @@ impl Editor {
                 if let Some([south, east]) = &mut self.sprite.views {
                     *south = south.resized(w, south.h);
                     *east = east.resized(h, east.h);
+                }
+                if let Some(f) = &mut self.sprite.footprint {
+                    *f = f.resized(w, h);
                 }
             }
             Action::Stand(s) => {
@@ -901,8 +932,8 @@ impl Editor {
                         self.say(format!("{name} already exists"));
                     } else {
                         self.ask = None;
-                        let (frames, views) = if kind == Ask::Copy { (self.sprite.frames.clone(), self.sprite.views.clone()) } else { (vec![Frame::blank(16, 16)], None) };
-                        self.sprite = Sprite { name: name.clone(), frames, views };
+                        let (frames, views, footprint) = if kind == Ask::Copy { self.snapshot() } else { (vec![Frame::blank(16, 16)], None, None) };
+                        self.sprite = Sprite { name: name.clone(), frames, views, footprint };
                         self.view = None;
                         self.frame = 0;
                         self.undo.clear();
@@ -960,7 +991,7 @@ impl Editor {
                 self.selection = None;
                 if let Some(prev) = self.undo.pop() {
                     let now = self.snapshot();
-                    (self.sprite.frames, self.sprite.views) = prev;
+                    (self.sprite.frames, self.sprite.views, self.sprite.footprint) = prev;
                     self.redo.push(now);
                     self.frame = self.frame.min(self.sprite.frames.len() - 1);
                     self.changed = true;
@@ -971,7 +1002,7 @@ impl Editor {
                 self.selection = None;
                 if let Some(next) = self.redo.pop() {
                     let now = self.snapshot();
-                    (self.sprite.frames, self.sprite.views) = next;
+                    (self.sprite.frames, self.sprite.views, self.sprite.footprint) = next;
                     self.undo.push(now);
                     self.frame = self.frame.min(self.sprite.frames.len() - 1);
                     self.changed = true;
@@ -1011,9 +1042,15 @@ impl Editor {
             }
             let thumb = match b.action {
                 Action::Frame(i) => Some((i, None)),
-                Action::View(v) => Some((self.sprite.frames.len() + v, Some(["South", "East"][v]))),
+                Action::View(v) => Some((self.sprite.frames.len() + v, Some(["South", "East", "Footprint"][v]))),
                 _ => None,
             };
+            if b.action == Action::AddFootprint {
+                c.rect(r.x, r.y, r.w, r.h, BUTTON);
+                c.label("+", r.x + r.w / 2.0, r.y + 6.0, 30.0, TEXT, Align::Center);
+                c.label("Footprint", r.x + r.w / 2.0, r.y + r.h - 18.0, 13.0, DIM, Align::Center);
+                continue;
+            }
             if let Some((i, label)) = thumb {
                 c.rect(r.x, r.y, r.w, r.h, if b.on { HOT } else { PANEL });
                 c.rect(r.x + 2.0, r.y + 2.0, r.w - 4.0, r.h - 4.0, [0.22, 0.22, 0.25, 1.0]);
@@ -1052,8 +1089,7 @@ impl Editor {
             _ => {}
         }
         if let Some(v) = self.view {
-            let what = ["the sprite seen from the south: west on the left", "the sprite seen from the east: south on the left"][v];
-            c.label(format!("{}: {what}", VIEW_NAMES[v]), CANVAS.x + 8.0, CANVAS.y + 6.0, 16.0, HOT, Align::Left);
+            c.label(format!("{}: {}", VIEW_NAMES[v], VIEW_HINTS[v]), CANVAS.x + 8.0, CANVAS.y + 6.0, 16.0, HOT, Align::Left);
         }
         c.label(format!("{} fps", self.fps), SIDE_X, 683.0, 18.0, TEXT, Align::Left);
 
@@ -1437,5 +1473,42 @@ mod tests {
         e.key(Key::Paste);
         e.key(Key::Enter);
         assert!(e.current().px.iter().any(|p| p[3] > 0));
+    }
+
+    #[test]
+    fn a_footprint_is_optional_and_carves_from_its_own_outline() {
+        let mut e = editor();
+        e.act(Action::Stand(CARVE), false);
+        let n = e.sprite.frames.len();
+        assert_eq!(e.surfaces().len(), n + 2, "no footprint until one is added");
+        assert!(e.buttons().iter().any(|b| b.action == Action::AddFootprint));
+        e.act(Action::AddFootprint, false);
+        assert_eq!(e.view, Some(FOOTPRINT));
+        assert_eq!(e.surfaces().len(), n + 3);
+        e.tool = Tool::Eraser;
+        click_pixel(&mut e, 3, 3);
+        assert_eq!(e.sprite.footprint.as_ref().unwrap().get(3, 3), Some(CLEAR));
+        assert_ne!(e.sprite.frames[0].get(3, 3), Some(CLEAR), "the sprite keeps its colors");
+        e.set_live((0..n + 3).map(|i| Art(i as u16)).collect());
+        assert!(matches!(e.stand(), Stand::Carve { footprint: Some(_), .. }));
+        e.act(Action::Width(2), false);
+        assert_eq!(e.sprite.footprint.as_ref().unwrap().w, e.sprite.frames[0].w);
+        e.act(Action::View(FOOTPRINT), false);
+        e.act(Action::DeleteFrame, false);
+        assert!(e.sprite.footprint.is_none() && e.view.is_none());
+        e.key(Key::Undo);
+        assert!(e.sprite.footprint.is_some());
+    }
+
+    #[test]
+    fn a_footprint_saves_and_loads_beside_the_views() {
+        let mut e = editor();
+        e.act(Action::Stand(CARVE), false);
+        e.act(Action::AddFootprint, false);
+        e.act(Action::Save, false);
+        let back = Sprite::load(&e.dir, "BARREL").unwrap();
+        assert_eq!(back.footprint, e.sprite.footprint);
+        assert!(back.views.is_some());
+        let _ = std::fs::remove_dir_all(&e.dir);
     }
 }

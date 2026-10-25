@@ -78,7 +78,11 @@ pub struct Sprite {
     pub frames: Vec<Frame>,
     /// Drawings of it from the south and from the east, for carving it into a solid.
     pub views: Option<[Frame; 2]>,
+    /// Its outline from above, for carving, when the sprite's own outline isn't it.
+    pub footprint: Option<Frame>,
 }
+
+pub const FOOTPRINT_FILE: &str = "footprint.png";
 
 pub const VIEW_FILES: [&str; 2] = ["south.png", "east.png"];
 
@@ -159,7 +163,7 @@ impl Sprite {
         }
         let view = |f: &str| read_png(&dir.join(name).join(f)).ok();
         let views = view(VIEW_FILES[0]).zip(view(VIEW_FILES[1])).map(|(s, e)| [s, e]);
-        Some(Self { name: name.to_string(), frames, views })
+        Some(Self { name: name.to_string(), frames, views, footprint: view(FOOTPRINT_FILE) })
     }
 
     /// Writes `0.png`, `1.png` and so on, removing frames left over from a longer save.
@@ -172,6 +176,12 @@ impl Sprite {
         let mut i = self.frames.len();
         while std::fs::remove_file(path.join(format!("{i}.png"))).is_ok() {
             i += 1;
+        }
+        match &self.footprint {
+            Some(f) => write_png(&path.join(FOOTPRINT_FILE), f)?,
+            None => {
+                let _ = std::fs::remove_file(path.join(FOOTPRINT_FILE));
+            }
         }
         for (k, file) in VIEW_FILES.iter().enumerate() {
             match &self.views {
@@ -327,7 +337,7 @@ mod tests {
     #[test]
     fn saves_and_loads_every_frame_and_drops_leftovers() {
         let dir = std::env::temp_dir().join(format!("lh-sprites-{}", std::process::id()));
-        let mut s = Sprite { name: "TEST_THING".into(), frames: vec![Frame::blank(3, 2), Frame::blank(3, 2), Frame::blank(3, 2)], views: None };
+        let mut s = Sprite { name: "TEST_THING".into(), frames: vec![Frame::blank(3, 2), Frame::blank(3, 2), Frame::blank(3, 2)], views: None, footprint: None };
         s.frames[1].set(2, 1, [200, 10, 10, 255]);
         s.save(&dir).unwrap();
         s.frames.truncate(2);
