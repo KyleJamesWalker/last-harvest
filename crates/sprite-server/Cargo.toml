@@ -1,0 +1,9 @@
+[package]
+name = "sprite-server"
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+sprite-editor = { path = "../editor" }
+tiny_http = "0.12"
