@@ -150,7 +150,7 @@ The game keeps `save.txt` and `crash.log` next to its binary: `/mnt/sdcard/PORTS
 
 ## Performance
 
-Measured on the device with the debug perf log, 4x MSAA, both screens at 1024x768: a run holds 60 FPS with the full horde of 300 zombies swarming the player. The 3D view skips faces turned away from the camera and draws only the nearest 160 zombies.
+Measured on the device with the debug perf log, 4x MSAA, both screens at 1024x768: the `bench` scene, 300 zombies with every effect showing, holds 60 FPS, and so does a full horde swarming the player. The busiest fights, when kills pile up bodies, specks and numbers at once, dip to the high fifties. The 3D view skips faces turned away from the camera, draws only the nearest 160 zombies, and shades most cards with a shader variant that has no tint or flash lighting.
 
 ## Layout
 
