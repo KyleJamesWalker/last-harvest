@@ -4,6 +4,7 @@ mod draw;
 mod font;
 mod gallery;
 mod hardware;
+mod harvest;
 mod input;
 mod micro;
 mod osd;
@@ -46,6 +47,8 @@ const MENU_ROW: f32 = 110.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Scene {
+    /// The game: survive the night on a generated farm.
+    Harvest,
     Microgames,
     /// A microgame run that starts with one microgame, by index.
     Microgame(usize),
@@ -57,11 +60,17 @@ pub enum Scene {
 }
 
 impl Scene {
-    const MENU: [(Scene, &'static str); 4] =
-        [(Scene::Microgames, "Microgames"), (Scene::Dice, "3D dice"), (Scene::Stress, "Stress test"), (Scene::Hardware, "Hardware test")];
+    const MENU: [(Scene, &'static str); 5] = [
+        (Scene::Harvest, "Play"),
+        (Scene::Microgames, "Microgames"),
+        (Scene::Dice, "3D dice"),
+        (Scene::Stress, "Stress test"),
+        (Scene::Hardware, "Hardware test"),
+    ];
 
     pub fn from_name(name: &str) -> Option<Scene> {
         Some(match name {
+            "harvest" | "play" => Scene::Harvest,
             "micro" | "microgames" => Scene::Microgames,
             "stars" => Scene::Microgame(0),
             "balloon" => Scene::Microgame(1),
@@ -85,6 +94,7 @@ enum State {
     Stress(Box<stress::Stress>),
     Hardware(hardware::Hardware),
     Gallery(gallery::Gallery),
+    Harvest(Box<harvest::Harvest>),
 }
 
 pub struct Game {
@@ -144,6 +154,7 @@ impl Game {
             }
             State::Hardware(_) => "hardware".into(),
             State::Gallery(_) => "art".into(),
+            State::Harvest(h) => h.summary(),
         }
     }
 
@@ -174,6 +185,10 @@ impl Game {
             Scene::Stress => State::Stress(Box::new(stress::Stress::new(&mut self.rng))),
             Scene::Hardware => State::Hardware(hardware::Hardware::default()),
             Scene::Gallery => State::Gallery(gallery::Gallery::default()),
+            Scene::Harvest => {
+                self.sounds.push(Sfx::Start);
+                State::Harvest(Box::new(harvest::Harvest::new(self.rng.next_u32() as u64 + 1)))
+            }
         }
     }
 
@@ -326,6 +341,13 @@ impl Game {
                 g.update(input, dt);
                 State::Gallery(g)
             }
+            State::Harvest(mut h) => {
+                let flow = h.update(input, dt, &mut self.sounds);
+                if flow.rumble {
+                    self.rumble = self.rumble.max(RUMBLE_MISS);
+                }
+                if flow.quit { State::Title { selected: 0 } } else { State::Harvest(h) }
+            }
         };
     }
 
@@ -364,6 +386,7 @@ impl Game {
             }
             State::Hardware(hw) => hw.draw(&mut f, &self.system, self.save.brightness, self.leds),
             State::Gallery(g) => g.draw(&mut f),
+            State::Harvest(h) => h.draw(&mut f),
         }
         if self.paused {
             f.top.text_centered(360.0, 16.0, WHITE, "PAUSED");
@@ -376,7 +399,7 @@ impl Game {
         } else if matches!(self.state, State::Title { .. }) {
             system::draw_battery(&mut f.top, &self.system, 16.0);
         }
-        if !matches!(self.state, State::Gallery(_)) {
+        if !matches!(self.state, State::Harvest(_) | State::Gallery(_)) {
             osd::draw(&mut f.top, &self.input, self.rumble(), self.system.headphones);
         }
         osd::touches(&mut f.bottom, &self.input);
@@ -384,8 +407,8 @@ impl Game {
     }
 
     fn draw_menu(&self, f: &mut Frame, selected: usize) {
-        f.top.text_centered(200.0, 32.0, WHITE, "LAST HARVEST");
-        f.top.label("ANBERNIC RG DS Plus tech demo", SCREEN_W / 2.0, 400.0, 40.0, [1.0, 1.0, 1.0, 0.7], Align::Center);
+        f.top.text_centered(200.0, 20.0, WHITE, "LAST HARVEST");
+        f.top.label("Survive the night", SCREEN_W / 2.0, 400.0, 40.0, [1.0, 1.0, 1.0, 0.7], Align::Center);
         if self.save.best > 0 {
             f.top.label(format!("Best microgame run: {}", self.save.best), SCREEN_W / 2.0, 470.0, 32.0, HOT, Align::Center);
         }
@@ -422,7 +445,7 @@ mod tests {
     fn idle_play_ends_in_game_over_and_records_the_best() {
         let mut game = Game::new(1);
         let mut t = InputTracker::default();
-        game.update(&t.frame(RawInput { held: Buttons::START, ..Default::default() }), 0.016);
+        game.open(Scene::Microgames);
         for _ in 0..10_000 {
             game.update(&t.frame(RawInput::default()), 0.016);
         }
@@ -454,6 +477,10 @@ mod tests {
     #[test]
     fn the_menu_opens_each_scene_and_back_returns() {
         let mut game = Game::new(1);
+        press(&mut game, Buttons::A);
+        assert!(matches!(game.state, State::Harvest(_)));
+        press(&mut game, Buttons::BACK);
+        press(&mut game, Buttons::DOWN);
         press(&mut game, Buttons::DOWN);
         press(&mut game, Buttons::A);
         assert!(matches!(game.state, State::Dice(_)));
@@ -467,7 +494,7 @@ mod tests {
     #[test]
     fn tapping_a_menu_row_opens_it() {
         let mut game = Game::new(1);
-        let y = MENU_TOP + 2.0 * MENU_ROW;
+        let y = MENU_TOP + 3.0 * MENU_ROW;
         game.update(&Input { touch: Some([512.0, y]), touch_started: true, ..Default::default() }, 0.016);
         assert!(matches!(game.state, State::Stress(_)));
     }
