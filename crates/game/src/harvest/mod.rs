@@ -1,6 +1,7 @@
 //! Last Harvest: survive the night on a randomly generated farm while the horde closes in.
 
 mod map;
+mod view3d;
 
 use std::f32::consts::{PI, TAU};
 
@@ -88,6 +89,8 @@ impl Kind {
 struct Zombie {
     kind: Kind,
     pos: [f32; 2],
+    /// Direction of travel, for picking frames in the 3D view.
+    dir: [f32; 2],
     push: [f32; 2],
     hp: f32,
     flash: f32,
@@ -130,6 +133,24 @@ struct Barrel {
 impl Barrel {
     fn center(&self) -> [f32; 2] {
         [self.pos[0] + TILE / 2.0, self.pos[1] + TILE / 2.0]
+    }
+}
+
+impl Zombie {
+    fn frame(&self) -> usize {
+        (self.anim * WALK_FPS * self.kind.stats().speed / 20.0) as usize % 3
+    }
+}
+
+/// The player's frame for a facing: flashing while invulnerable, red just after a hit, else walking.
+fn art_for(h: &Harvest, look: &Look, facing: Facing) -> Art {
+    let i = facing.index();
+    if h.hurt > 0.0 && ((h.hurt * 20.0) as u32).is_multiple_of(2) {
+        look.flash[i]
+    } else if h.hurt > HURT_TIME - 0.2 {
+        art::PLAYER_HURT[i]
+    } else {
+        look.walk[i][if h.walk > 0.0 { 1 + (h.walk * WALK_FPS) as usize % 2 } else { 0 }]
     }
 }
 
@@ -270,6 +291,10 @@ pub struct Harvest {
     /// Steps to the player from each cell, rebuilt when the player changes cell.
     flow: Vec<u16>,
     flow_cell: [usize; 2],
+    /// Heading of the 3D camera on the ground plane, in radians from +x toward +y.
+    view_yaw: f32,
+    /// No zombies: a walk around the farm, for looking at it.
+    calm: bool,
 }
 
 fn len(v: [f32; 2]) -> f32 {
@@ -317,7 +342,13 @@ impl Harvest {
             overview: false,
             flow: Vec::new(),
             flow_cell: [usize::MAX; 2],
+            view_yaw: PI / 2.0,
+            calm: false,
         }
+    }
+
+    pub fn calm(seed: u64) -> Self {
+        Self { calm: true, ..Self::new(seed) }
     }
 
     pub fn summary(&self) -> String {
@@ -381,11 +412,15 @@ impl Harvest {
             self.facing = Facing::of(d);
             self.aim = d;
             self.walk += dt;
+            let turn = (d[1].atan2(d[0]) - self.view_yaw + PI).rem_euclid(TAU) - PI;
+            self.view_yaw += turn * (1.6 * dt).min(1.0);
         } else {
             self.walk = 0.0;
         }
 
-        self.spawn(dt);
+        if !self.calm {
+            self.spawn(dt);
+        }
         self.move_zombies(dt);
         self.contact(sounds, flow);
         self.fire(dt, sounds);
@@ -449,7 +484,7 @@ impl Harvest {
                 let pos = [self.pos[0] + a.cos() * r, self.pos[1] + a.sin() * r];
                 if !self.map.hits(pos[0], pos[1], ZOMBIE_HALF) {
                     let s = kind.stats();
-                    self.zombies.push(Zombie { kind, pos, push: [0.0; 2], hp: s.hp * (1.0 + minutes * 0.08), flash: 0.0, facing: (Facing::Front, false), anim: self.rng.range(0.0, 1.0) });
+                    self.zombies.push(Zombie { kind, pos, dir: [0.0, 1.0], push: [0.0; 2], hp: s.hp * (1.0 + minutes * 0.08), flash: 0.0, facing: (Facing::Front, false), anim: self.rng.range(0.0, 1.0) });
                     break;
                 }
             }
@@ -484,6 +519,7 @@ impl Harvest {
             z.pos = self.map.slide(z.pos, [v[0] * dt, v[1] * dt], ZOMBIE_HALF);
             z.push = [z.push[0] * (1.0 - 8.0 * dt).max(0.0), z.push[1] * (1.0 - 8.0 * dt).max(0.0)];
             z.facing = Facing::of(to);
+            z.dir = to;
             z.anim += dt;
             z.flash = (z.flash - dt).max(0.0);
         }
@@ -767,18 +803,11 @@ impl Harvest {
         for z in &self.zombies {
             let s = z.kind.stats();
             let (facing, flip) = z.facing;
-            let a = if z.flash > 0.0 { s.look.flash[facing.index()] } else { s.look.walk[facing.index()][(z.anim * WALK_FPS * s.speed / 20.0) as usize % 3] };
+            let a = if z.flash > 0.0 { s.look.flash[facing.index()] } else { s.look.walk[facing.index()][z.frame()] };
             sprites.push((z.pos[1], a, z.pos[0] - a.w() / 2.0, z.pos[1] - a.h() + 2.0, flip, WHITE));
         }
         let (facing, flip) = self.facing;
-        let blink = self.hurt > 0.0 && ((self.hurt * 20.0) as u32).is_multiple_of(2);
-        let a = if blink {
-            PLAYER.flash[facing.index()]
-        } else if self.hurt > HURT_TIME - 0.2 {
-            art::PLAYER_HURT[facing.index()]
-        } else {
-            PLAYER.walk[facing.index()][if self.walk > 0.0 { 1 + (self.walk * WALK_FPS) as usize % 2 } else { 0 }]
-        };
+        let a = art_for(self, &PLAYER, facing);
         sprites.push((self.pos[1], a, self.pos[0] - a.w() / 2.0, self.pos[1] - a.h() + 2.0, flip, WHITE));
         sprites.sort_by(|a, b| a.0.total_cmp(&b.0));
         for (_, a, x, y, flip, color) in sprites {
@@ -841,28 +870,15 @@ impl Harvest {
         }
     }
 
+    /// The bottom screen shows the same farm in 3D, with the level-up choices over it when they are up.
     fn bottom(&self, c: &mut Canvas) {
-        c.clear = [0.07, 0.06, 0.06, 1.0];
-        match &self.phase {
-            Phase::LevelUp { choices, selected } => {
-                c.label("Tap an upgrade, or Up / Down and A", SCREEN_W / 2.0, 60.0, 32.0, WHITE, Align::Center);
-                self.choices(c, choices, *selected, CHOICE_TOP);
-            }
-            _ => {
-                let g = &self.gear;
-                let lines = [
-                    format!("Pistol x{}", g.bullets),
-                    if g.shotgun > 0 { format!("Shotgun lv {}", g.shotgun) } else { "Shotgun: not found yet".into() },
-                    if g.knife > 0 { format!("Knife lv {}", g.knife) } else { "Knife: not found yet".into() },
-                    format!("Damage x{:.2}   Speed {:.0}   Reach {:.0}", g.damage, g.speed, g.magnet),
-                    format!("Health {:.0} / {:.0}", self.hp.max(0.0), g.max_hp),
-                    format!("Dawn in {}", clock((DAWN - self.t).max(0.0))),
-                ];
-                for (i, l) in lines.iter().enumerate() {
-                    c.label(l.as_str(), 80.0, 80.0 + i as f32 * 70.0, 40.0, WHITE, Align::Left);
-                }
-                c.label("Move with the d-pad or stick. Weapons fire on their own.", SCREEN_W / 2.0, SCREEN_H - 70.0, 26.0, [1.0, 1.0, 1.0, 0.5], Align::Center);
-            }
+        let scene = view3d::scene(self);
+        c.clear = [scene.fog[0], scene.fog[1], scene.fog[2], 1.0];
+        c.cards = Some(scene);
+        if let Phase::LevelUp { choices, selected } = &self.phase {
+            c.rect(0.0, 0.0, SCREEN_W, SCREEN_H, [0.0, 0.0, 0.0, 0.6]);
+            c.label("Tap an upgrade, or Up / Down and A", SCREEN_W / 2.0, 60.0, 32.0, WHITE, Align::Center);
+            self.choices(c, choices, *selected, CHOICE_TOP);
         }
     }
 }
@@ -930,7 +946,7 @@ mod tests {
         let mut h = Harvest::new(6);
         let barrel = h.barrels.first().expect("seed 6 has barrels");
         let c = barrel.center();
-        h.zombies.push(Zombie { kind: Kind::Big, pos: [c[0] + 20.0, c[1]], push: [0.0; 2], hp: 50.0, flash: 0.0, facing: (Facing::Front, false), anim: 0.0 });
+        h.zombies.push(Zombie { kind: Kind::Big, pos: [c[0] + 20.0, c[1]], dir: [0.0, 1.0], push: [0.0; 2], hp: 50.0, flash: 0.0, facing: (Facing::Front, false), anim: 0.0 });
         h.bullets.push(Bullet { pos: [c[0], c[1] - 6.0], vel: [1.0, 0.0], damage: 50.0, pierce: 0, life: 1.0, hit: Vec::new() });
         let mut sounds = Vec::new();
         h.move_bullets(0.016);

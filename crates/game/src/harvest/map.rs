@@ -18,6 +18,8 @@ pub struct Prop {
     pub y: f32,
     /// World y where the prop meets the ground, for depth sorting.
     pub base: f32,
+    /// How far it reaches back from `base`, in world pixels, when extruded for the 3D view.
+    pub depth: f32,
 }
 
 impl Prop {
@@ -60,6 +62,17 @@ pub struct Map {
     pub barrels: Vec<[f32; 2]>,
     /// Where the player starts, in world pixels.
     pub spawn: [f32; 2],
+}
+
+/// Buildings and vehicles reach back over their solid rows; small things are slabs.
+fn thickness(art: Art, tw: usize, th: usize, open_rows: usize) -> f32 {
+    if tw * th >= 4 {
+        ((th - open_rows.min(th - 1)) as f32 * TILE).max(8.0)
+    } else if [art::BUSH, art::STUMP, art::HAY, art::TANK, art::MAILBOX].contains(&art) || art::LOG.contains(&art) {
+        12.0
+    } else {
+        3.0
+    }
 }
 
 fn tiles(px: f32) -> usize {
@@ -258,7 +271,8 @@ impl Map {
     fn prop(&mut self, frames: &'static [Art], fps: f32, x: usize, y: usize, open_rows: usize) -> (usize, usize) {
         let (tw, th) = (tiles(frames[0].w()), tiles(frames[0].h()));
         let (px, py) = (x as f32 * TILE, y as f32 * TILE);
-        self.props.push(Prop { frames, fps, x: px, y: py, base: py + frames[0].h() });
+        let depth = thickness(frames[0], tw, th, open_rows);
+        self.props.push(Prop { frames, fps, x: px, y: py, base: py + frames[0].h(), depth });
         for yy in y + open_rows.min(th - 1)..(y + th).min(self.h) {
             for xx in x..(x + tw).min(self.w) {
                 let i = self.i(xx, yy);
@@ -335,7 +349,7 @@ impl Map {
         if let Some((x, y, _, _)) = self.place_near(rng, &[art::WINDMILL], at, 8, 1, 2) {
             let (px, py) = (x as f32 * TILE, y as f32 * TILE - 6.0);
             let base = py + 6.0 + art::WINDMILL.h() + 0.1;
-            self.props.push(Prop { frames: &art::WINDMILL_FAN, fps: 8.0, x: px, y: py, base });
+            self.props.push(Prop { frames: &art::WINDMILL_FAN, fps: 8.0, x: px, y: py, base, depth: 2.0 });
         }
     }
 

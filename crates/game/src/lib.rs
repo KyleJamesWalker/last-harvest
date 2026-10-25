@@ -57,6 +57,8 @@ pub enum Scene {
     Hardware,
     /// Debug view of every sprite in the art catalog.
     Gallery,
+    /// Debug walk around a generated farm with no zombies.
+    Farm,
 }
 
 impl Scene {
@@ -79,6 +81,7 @@ impl Scene {
             "stress" => Scene::Stress,
             "hardware" => Scene::Hardware,
             "art" => Scene::Gallery,
+            "farm" => Scene::Farm,
             _ => return None,
         })
     }
@@ -185,6 +188,7 @@ impl Game {
             Scene::Stress => State::Stress(Box::new(stress::Stress::new(&mut self.rng))),
             Scene::Hardware => State::Hardware(hardware::Hardware::default()),
             Scene::Gallery => State::Gallery(gallery::Gallery::default()),
+            Scene::Farm => State::Harvest(Box::new(harvest::Harvest::calm(self.rng.next_u32() as u64 + 1))),
             Scene::Harvest => {
                 self.sounds.push(Sfx::Start);
                 State::Harvest(Box::new(harvest::Harvest::new(self.rng.next_u32() as u64 + 1)))
