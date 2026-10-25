@@ -3,7 +3,7 @@ mod atlas;
 use std::collections::HashMap;
 
 use glow::HasContext;
-use last_harvest_game::scene3d::{MeshId, Scene3d, Vertex3};
+use last_harvest_game::scene3d::{CardScene, MeshId, Scene3d, Vertex3};
 use last_harvest_game::{Canvas, SCREEN_H, SCREEN_W, Shape, art};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -94,6 +94,50 @@ void main() {
 }
 "#;
 
+const CARD_VERT: &str = r#"
+layout(location = 0) in vec3 a_pos;
+layout(location = 1) in vec2 a_uv;
+layout(location = 2) in vec3 a_normal;
+uniform mat4 u_view_proj;
+out vec3 v_world;
+out vec2 v_uv;
+out vec3 v_normal;
+void main() {
+    gl_Position = u_view_proj * vec4(a_pos, 1.0);
+    v_world = a_pos;
+    v_uv = a_uv;
+    v_normal = a_normal;
+}
+"#;
+
+const CARD_FRAG: &str = r#"
+in vec3 v_world;
+in vec2 v_uv;
+in vec3 v_normal;
+uniform sampler2D u_art;
+uniform vec3 u_eye;
+uniform vec3 u_light;
+uniform float u_light_range;
+uniform vec3 u_ambient;
+uniform vec3 u_fog;
+uniform vec2 u_fog_range;
+out vec4 o_color;
+void main() {
+    vec4 t = texture(u_art, v_uv);
+    if (t.a < 0.5) discard;
+    vec3 to = u_light - v_world;
+    float d = length(to);
+    float reach = clamp(1.0 - d / u_light_range, 0.0, 1.0);
+    float facing = 0.45 + 0.55 * abs(dot(normalize(v_normal), to / max(d, 1e-3)));
+    vec3 lit = t.rgb * (u_ambient + vec3(1.0, 0.86, 0.66) * reach * reach * facing * 1.6);
+    float fog = smoothstep(u_fog_range.x, u_fog_range.y, length(v_world - u_eye));
+    o_color = vec4(mix(lit, u_fog, fog), 1.0);
+}
+"#;
+
+/// Position, uv and normal.
+const CARD_FLOATS: usize = 8;
+
 const FLOATS_PER_VERT: usize = 11;
 const KIND_RECT: f32 = 0.0;
 const KIND_CIRCLE: f32 = 1.0;
@@ -116,6 +160,10 @@ pub struct Renderer {
     atlas: atlas::Atlas,
     texture: glow::Texture,
     art: glow::Texture,
+    card_program: glow::Program,
+    card_vao: glow::VertexArray,
+    card_vbo: glow::Buffer,
+    card_verts: Vec<f32>,
 }
 
 unsafe fn link(gl: &glow::Context, header: &str, vert: &str, frag: &str) -> Result<glow::Program, String> {
@@ -170,6 +218,15 @@ impl Renderer {
         unsafe {
             let program = link(gl, header, VERT, FRAG)?;
             let mesh_program = link(gl, header, MESH_VERT, MESH_FRAG)?;
+            let card_program = link(gl, header, CARD_VERT, CARD_FRAG)?;
+            let card_vao = gl.create_vertex_array()?;
+            let card_vbo = gl.create_buffer()?;
+            gl.bind_vertex_array(Some(card_vao));
+            gl.bind_buffer(glow::ARRAY_BUFFER, Some(card_vbo));
+            for (loc, size, offset) in [(0, 3, 0), (1, 2, 3), (2, 3, 5)] {
+                gl.enable_vertex_attrib_array(loc);
+                gl.vertex_attrib_pointer_f32(loc, size, glow::FLOAT, false, (CARD_FLOATS * 4) as i32, offset * 4);
+            }
             let mut meshes = HashMap::new();
             for id in MeshId::ALL {
                 meshes.insert(id, upload_mesh(gl, &id.build())?);
@@ -207,7 +264,7 @@ impl Renderer {
             gl.uniform_1_i32(gl.get_uniform_location(program, "u_art").as_ref(), 1);
 
             let u_size = gl.get_uniform_location(program, "u_size");
-            Ok(Self { program, vao, vbo, u_size, verts: Vec::new(), mesh_program, meshes, atlas, texture, art })
+            Ok(Self { program, vao, vbo, u_size, verts: Vec::new(), mesh_program, meshes, atlas, texture, art, card_program, card_vao, card_vbo, card_verts: Vec::new() })
         }
     }
 
@@ -252,6 +309,9 @@ impl Renderer {
             if let Some(scene) = &canvas.scene {
                 self.draw_scene(gl, scene);
             }
+            if let Some(cards) = &canvas.cards {
+                self.draw_cards(gl, cards);
+            }
 
             gl.enable(glow::BLEND);
             gl.blend_func(glow::SRC_ALPHA, glow::ONE_MINUS_SRC_ALPHA);
@@ -293,6 +353,43 @@ impl Renderer {
                 gl.draw_arrays(glow::TRIANGLES, 0, mesh.count);
             }
             gl.disable(glow::POLYGON_OFFSET_FILL);
+            gl.disable(glow::DEPTH_TEST);
+        }
+    }
+
+    fn draw_cards(&mut self, gl: &glow::Context, scene: &CardScene) {
+        self.card_verts.clear();
+        for card in &scene.cards {
+            let [u0, v0, u1, v1] = card.uv;
+            let uvs = [[u0, v0], [u1, v0], [u1, v1], [u0, v1]];
+            let n = card.normal.to_array();
+            for i in [0, 1, 2, 0, 2, 3] {
+                let p = card.corners[i].to_array();
+                self.card_verts.extend_from_slice(&[p[0], p[1], p[2], uvs[i][0], uvs[i][1], n[0], n[1], n[2]]);
+            }
+        }
+        unsafe {
+            gl.enable(glow::DEPTH_TEST);
+            gl.depth_func(glow::LEQUAL);
+            gl.disable(glow::BLEND);
+            gl.use_program(Some(self.card_program));
+            let p = self.card_program;
+            let loc = |name| gl.get_uniform_location(p, name);
+            gl.uniform_matrix_4_f32_slice(loc("u_view_proj").as_ref(), false, &scene.view_proj.to_cols_array());
+            gl.uniform_3_f32_slice(loc("u_eye").as_ref(), &scene.eye.to_array());
+            gl.uniform_3_f32_slice(loc("u_light").as_ref(), &scene.light.to_array());
+            gl.uniform_1_f32(loc("u_light_range").as_ref(), scene.light_range);
+            gl.uniform_3_f32_slice(loc("u_ambient").as_ref(), &scene.ambient);
+            gl.uniform_3_f32_slice(loc("u_fog").as_ref(), &scene.fog);
+            gl.uniform_2_f32_slice(loc("u_fog_range").as_ref(), &scene.fog_range);
+            gl.uniform_1_i32(loc("u_art").as_ref(), 1);
+            gl.active_texture(glow::TEXTURE1);
+            gl.bind_texture(glow::TEXTURE_2D, Some(self.art));
+            gl.bind_vertex_array(Some(self.card_vao));
+            gl.bind_buffer(glow::ARRAY_BUFFER, Some(self.card_vbo));
+            let bytes = std::slice::from_raw_parts(self.card_verts.as_ptr().cast::<u8>(), self.card_verts.len() * 4);
+            gl.buffer_data_u8_slice(glow::ARRAY_BUFFER, bytes, glow::STREAM_DRAW);
+            gl.draw_arrays(glow::TRIANGLES, 0, (self.card_verts.len() / CARD_FLOATS) as i32);
             gl.disable(glow::DEPTH_TEST);
         }
     }

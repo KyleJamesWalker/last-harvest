@@ -1,5 +1,5 @@
 use crate::art::Art;
-use crate::scene3d::Scene3d;
+use crate::scene3d::{CardScene, Scene3d};
 use crate::{BOTTOM_OFFSET, SCREEN_H, SCREEN_W, font};
 
 pub type Color = [f32; 4];
@@ -41,6 +41,8 @@ pub struct Canvas {
     pub clear: Color,
     /// Drawn first, under the 2D shapes.
     pub scene: Option<Scene3d>,
+    /// Drawn after `scene`, also under the 2D shapes.
+    pub cards: Option<CardScene>,
     pub shapes: Vec<Shape>,
 }
 
