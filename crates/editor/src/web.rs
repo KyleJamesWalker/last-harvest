@@ -1,0 +1,511 @@
+//! The editor in a web page, for a tablet: the same panes drawn with WebGL2, fingers and a pen in place of the
+//! mouse, a toolbar in place of the keyboard shortcuts, and `sprite-server` in place of the disk.
+
+mod http;
+
+use std::cell::RefCell;
+use std::rc::Rc;
+
+use last_harvest_game::{SCREEN_H, SCREEN_W};
+use last_harvest_render::{Profile, Renderer};
+use sprite_editor::editor::Key;
+use sprite_editor::studio::{Pane, Studio};
+use wasm_bindgen::JsCast;
+use wasm_bindgen::prelude::*;
+use web_sys::{AddEventListenerOptions, Document, Element, Event, EventTarget, HtmlCanvasElement, HtmlElement, HtmlInputElement, KeyboardEvent, PointerEvent, WebGl2RenderingContext, WheelEvent};
+
+/// How far a finger may wander, in CSS pixels, and still tap; and how long it rests, in ms, before it draws.
+const TAP: f32 = 8.0;
+const HOLD: f64 = 120.0;
+/// Room left under the panes for the toolbar, in CSS pixels.
+const TOOLBAR: f32 = 180.0;
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Gesture {
+    Idle,
+    /// A finger on the pixel canvas, not yet known to be a stroke or the first of a pinch.
+    Waiting { id: i32, at: [f32; 2], since: f64 },
+    /// A press handed to the studio.
+    Held { id: i32 },
+    /// A finger on the sprite list, scrolling it once it moves.
+    List { id: i32, at: [f32; 2], moved: bool },
+    /// Two fingers zooming and panning the pane they began in, until both lift.
+    Pinch { pane: Pane },
+}
+
+struct Web {
+    studio: Studio,
+    gl: glow::Context,
+    renderer: Renderer,
+    canvas: HtmlCanvasElement,
+    input: HtmlInputElement,
+    document: Document,
+    /// The panes' size in CSS pixels, and device pixels per CSS pixel.
+    size: [f32; 2],
+    dpr: f32,
+    last: f64,
+    gesture: Gesture,
+    /// Fingers down, and where each is.
+    touches: Vec<(i32, [f32; 2])>,
+    /// The pinch's last center and spread.
+    spread: ([f32; 2], f32),
+    pointer: [f32; 2],
+    /// The toolbar's Shift, standing in for the key until tapped again.
+    shift: bool,
+    i_held: bool,
+    title: String,
+}
+
+fn now() -> f64 {
+    web_sys::window().and_then(|w| w.performance()).map_or(0.0, |p| p.now())
+}
+
+fn distance(a: [f32; 2], b: [f32; 2]) -> f32 {
+    (a[0] - b[0]).hypot(a[1] - b[1])
+}
+
+impl Web {
+    fn locate(&self, p: [f32; 2]) -> (Pane, [f32; 2]) {
+        Studio::locate(self.size, p)
+    }
+
+    /// `p` in `pane`'s 1024x768 canvas, even when it lies outside the pane.
+    fn in_pane(&self, pane: Pane, p: [f32; 2]) -> [f32; 2] {
+        let [x, y, w, h] = Studio::panes(self.size)[pane as usize];
+        [(p[0] - x) / w * SCREEN_W, (p[1] - y) / h * SCREEN_H]
+    }
+
+    fn layout(&mut self) {
+        let Some(window) = web_sys::window() else { return };
+        let inner = |v: Result<JsValue, JsValue>| v.ok().and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+        let (iw, ih) = (inner(window.inner_width()), inner(window.inner_height()));
+        let w = iw.min((ih - TOOLBAR).max(200.0) * 2.0).floor();
+        self.size = [w, (w / 2.0).floor()];
+        self.dpr = window.device_pixel_ratio() as f32;
+        let style = self.canvas.style();
+        let _ = style.set_property("width", &format!("{}px", self.size[0]));
+        let _ = style.set_property("height", &format!("{}px", self.size[1]));
+        self.canvas.set_width((self.size[0] * self.dpr).round() as u32);
+        self.canvas.set_height((self.size[1] * self.dpr).round() as u32);
+    }
+
+    fn frame(&mut self) {
+        let t = now();
+        let dt = ((t - self.last) / 1000.0).clamp(0.0, 0.05) as f32;
+        self.last = t;
+        if let Gesture::Waiting { id, at, since } = self.gesture
+            && t - since > HOLD
+        {
+            self.begin(id, at);
+        }
+        if let Some(pixels) = self.studio.tick(dt) {
+            self.renderer.set_art(&self.gl, pixels);
+        }
+        let px = |v: f32| (v * self.dpr).round() as i32;
+        for (canvas, [x, y, w, h]) in self.studio.canvases().iter().zip(Studio::panes(self.size)) {
+            self.renderer.draw(&self.gl, canvas, [px(x), px(self.size[1] - y - h), px(w), px(h)]);
+        }
+        let title = self.studio.editor.title();
+        if title != self.title {
+            self.document.set_title(&title);
+            self.title = title;
+        }
+        self.sync_text(false);
+    }
+
+    /// Hands a press at `at` to the studio.
+    fn begin(&mut self, id: i32, at: [f32; 2]) {
+        let (pane, p) = self.locate(at);
+        self.studio.press(pane, p, false, self.shift);
+        self.pointer = at;
+        self.gesture = Gesture::Held { id };
+    }
+
+    fn motion(&mut self, p: [f32; 2]) {
+        let (pane, at) = self.locate(p);
+        // Only the 2.5D view turns by how far the pointer moves, so it is measured across a preview.
+        let dx = (p[0] - self.pointer[0]) / Studio::panes(self.size)[1][2] * SCREEN_W;
+        self.studio.motion(pane, at, dx);
+        self.pointer = p;
+    }
+
+    fn spread_now(&self) -> Option<([f32; 2], f32)> {
+        let [(_, a), (_, b), ..] = self.touches[..] else { return None };
+        Some(([(a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0], distance(a, b).max(1.0)))
+    }
+
+    fn down(&mut self, e: &PointerEvent) {
+        let (id, p) = (e.pointer_id(), [e.offset_x() as f32, e.offset_y() as f32]);
+        let _ = self.canvas.set_pointer_capture(id);
+        if e.pointer_type() != "touch" {
+            // A pen or mouse takes over from any finger, such as a palm resting on the screen.
+            self.cancel_touches();
+            let (pane, at) = self.locate(p);
+            self.studio.press(pane, at, e.button() == 2, self.shift);
+            self.pointer = p;
+            self.gesture = Gesture::Held { id };
+            return;
+        }
+        if matches!(self.gesture, Gesture::Held { id: held } if !self.touches.iter().any(|(t, _)| *t == held)) {
+            return;
+        }
+        self.touches.push((id, p));
+        match self.touches.len() {
+            1 => {
+                let (pane, at) = self.locate(p);
+                let editing = pane == Pane::Edit;
+                self.gesture = if editing && self.studio.editor.on_canvas(at) {
+                    Gesture::Waiting { id, at: p, since: now() }
+                } else if editing && self.studio.editor.on_list(at) {
+                    self.pointer = p;
+                    Gesture::List { id, at: p, moved: false }
+                } else {
+                    self.begin(id, p);
+                    self.gesture
+                };
+            }
+            2 => {
+                if matches!(self.gesture, Gesture::Held { .. }) {
+                    self.studio.release();
+                }
+                let pane = self.locate(self.touches[0].1).0;
+                self.spread = self.spread_now().unwrap_or_default();
+                self.gesture = Gesture::Pinch { pane };
+            }
+            _ => {}
+        }
+    }
+
+    /// Drops what the fingers were doing, without the tap or stroke they would have made.
+    fn cancel_touches(&mut self) {
+        if !self.touches.is_empty() {
+            if matches!(self.gesture, Gesture::Held { .. }) {
+                self.studio.release();
+            }
+            self.touches.clear();
+            self.gesture = Gesture::Idle;
+        }
+    }
+
+    fn moved(&mut self, e: &PointerEvent) {
+        let (id, p) = (e.pointer_id(), [e.offset_x() as f32, e.offset_y() as f32]);
+        if let Some(t) = self.touches.iter_mut().find(|(t, _)| *t == id) {
+            t.1 = p;
+        }
+        match self.gesture {
+            Gesture::Waiting { id: w, at, since } if w == id => {
+                if distance(p, at) > TAP || now() - since > HOLD {
+                    self.begin(id, at);
+                    self.motion(p);
+                }
+            }
+            Gesture::Held { id: h } if h == id => self.motion(p),
+            Gesture::List { id: l, at, moved } if l == id => {
+                if moved || (p[1] - at[1]).abs() > TAP {
+                    let dy = self.in_pane(Pane::Edit, p)[1] - self.in_pane(Pane::Edit, self.pointer)[1];
+                    self.studio.editor.drag_list(dy);
+                    self.gesture = Gesture::List { id, at, moved: true };
+                }
+                self.pointer = p;
+            }
+            Gesture::Pinch { pane } => {
+                let Some((center, spread)) = self.spread_now() else { return };
+                let (was, before) = self.spread;
+                let [a, b] = [self.in_pane(pane, was), self.in_pane(pane, center)];
+                self.studio.pinch(pane, b, spread / before, [b[0] - a[0], b[1] - a[1]]);
+                self.spread = (center, spread);
+            }
+            Gesture::Idle if e.pointer_type() != "touch" => self.motion(p),
+            _ => {}
+        }
+    }
+
+    fn up(&mut self, e: &PointerEvent, cancelled: bool) {
+        let id = e.pointer_id();
+        self.touches.retain(|(t, _)| *t != id);
+        match self.gesture {
+            Gesture::Waiting { id: w, at, .. } if w == id => {
+                if !cancelled {
+                    self.begin(id, at);
+                }
+                self.studio.release();
+                self.gesture = Gesture::Idle;
+            }
+            Gesture::List { id: l, at, moved } if l == id => {
+                if !moved && !cancelled {
+                    self.begin(id, at);
+                    self.studio.release();
+                }
+                self.gesture = Gesture::Idle;
+            }
+            Gesture::Held { id: h } if h == id => {
+                self.studio.release();
+                self.gesture = Gesture::Idle;
+            }
+            Gesture::Pinch { .. } if self.touches.is_empty() => self.gesture = Gesture::Idle,
+            _ => {}
+        }
+        if e.pointer_type() != "mouse" {
+            self.studio.editor.unhover();
+        }
+        self.sync_text(true);
+    }
+
+    fn wheel(&mut self, e: &WheelEvent) {
+        let p = [e.offset_x() as f32, e.offset_y() as f32];
+        let (pane, at) = self.locate(p);
+        let lines = if e.delta_mode() == 0 { e.delta_y() as f32 / 20.0 } else { e.delta_y() as f32 };
+        if e.ctrl_key() {
+            // A trackpad pinch arrives as a wheel with Ctrl held.
+            self.studio.pinch(pane, at, (-lines * 0.2).exp(), [0.0; 2]);
+        } else {
+            self.studio.wheel(pane, at, -lines);
+        }
+    }
+
+    fn press_key(&mut self, k: Key, shift: bool) {
+        self.studio.editor.nudge = if shift || self.shift { 8 } else { 1 };
+        self.studio.editor.key(k);
+        self.sync_text(true);
+    }
+
+    /// A key from a hardware keyboard; whether the editor took it.
+    fn key(&mut self, e: &KeyboardEvent, down: bool) -> bool {
+        let key = e.key();
+        if key.eq_ignore_ascii_case("i") && !self.studio.editor.wants_text() {
+            if !e.repeat() {
+                self.i_held = down;
+            }
+            self.studio.editor.peek(self.i_held || e.alt_key());
+            return true;
+        }
+        self.studio.editor.peek(self.i_held || e.alt_key());
+        if !down {
+            return false;
+        }
+        let cmd = e.meta_key() || e.ctrl_key();
+        let k = match key.as_str() {
+            k if cmd => match k.to_lowercase().as_str() {
+                "z" if e.shift_key() => Key::Redo,
+                "z" => Key::Undo,
+                "y" => Key::Redo,
+                "s" => Key::Save,
+                "c" => Key::Copy,
+                "x" => Key::Cut,
+                "v" => Key::Paste,
+                _ => return false,
+            },
+            " " => Key::Char(' '),
+            "Enter" => Key::Enter,
+            "Escape" => Key::Escape,
+            "Backspace" | "Delete" => Key::Backspace,
+            "ArrowUp" => Key::Up,
+            "ArrowDown" => Key::Down,
+            "ArrowLeft" => Key::Left,
+            "ArrowRight" => Key::Right,
+            k if k.chars().count() == 1 => Key::Char(k.chars().next().unwrap_or(' ').to_ascii_lowercase()),
+            _ => return false,
+        };
+        self.press_key(k, e.shift_key());
+        true
+    }
+
+    /// A toolbar button, by its `data-act`.
+    fn act(&mut self, act: &str) {
+        let k = match act {
+            "undo" => Key::Undo,
+            "redo" => Key::Redo,
+            "copy" => Key::Copy,
+            "cut" => Key::Cut,
+            "paste" => Key::Paste,
+            "delete" => Key::Backspace,
+            "enter" => Key::Enter,
+            "escape" => Key::Escape,
+            "left" => Key::Left,
+            "right" => Key::Right,
+            "up" => Key::Up,
+            "down" => Key::Down,
+            "prev-sprite" => Key::Char('k'),
+            "next-sprite" => Key::Char('j'),
+            "prev-frame" => Key::Char('h'),
+            "next-frame" => Key::Char('l'),
+            "search" => Key::Char('/'),
+            "history" => Key::Char('r'),
+            "new" => Key::Char('n'),
+            "play" => Key::Char(' '),
+            "mirror" => Key::Char('m'),
+            "save" => Key::Save,
+            "fit" => return self.studio.editor.fit(),
+            "shift" => {
+                self.shift = !self.shift;
+                if let Some(b) = self.document.query_selector("[data-act=shift]").ok().flatten() {
+                    let _ = b.class_list().toggle_with_force("on", self.shift);
+                }
+                return;
+            }
+            _ => return,
+        };
+        self.press_key(k, false);
+    }
+
+    /// Shows the text field while a name or search is being typed, and hides it after. Focusing it brings up
+    /// the system keyboard only while handling a tap, so `focus` says whether this is one.
+    fn sync_text(&mut self, focus: bool) {
+        let typing = self.document.active_element().is_some_and(|a| a == **self.input);
+        match self.studio.editor.text().map(str::to_string) {
+            Some(t) => {
+                if self.input.hidden() {
+                    self.input.set_hidden(false);
+                    self.input.set_value(&t);
+                }
+                if focus && !typing {
+                    let _ = self.input.focus();
+                }
+            }
+            None if !self.input.hidden() => {
+                self.input.set_hidden(true);
+                let _ = self.input.blur();
+            }
+            None => {}
+        }
+    }
+
+    fn typed(&mut self) {
+        self.studio.editor.set_text(&self.input.value());
+        if let Some(t) = self.studio.editor.text() {
+            self.input.set_value(t);
+        }
+    }
+}
+
+type Frame = Closure<dyn FnMut()>;
+
+/// Calls `f` with the page's state on each `kind` event at `target`, which may cancel it.
+fn listen<E: JsCast + 'static>(target: &EventTarget, kind: &str, web: &Rc<RefCell<Web>>, f: impl Fn(&mut Web, &E) + 'static) {
+    let web = web.clone();
+    let cb = Closure::<dyn FnMut(Event)>::new(move |e: Event| {
+        if let Ok(mut w) = web.try_borrow_mut() {
+            f(&mut w, e.unchecked_ref());
+        }
+    });
+    let opts = AddEventListenerOptions::new();
+    opts.set_passive(false);
+    target.add_event_listener_with_callback_and_add_event_listener_options(kind, cb.as_ref().unchecked_ref(), &opts).expect("listening");
+    cb.forget();
+}
+
+fn element<T: JsCast>(document: &Document, id: &str) -> Result<T, String> {
+    document.get_element_by_id(id).and_then(|e| e.dyn_into().ok()).ok_or(format!("#{id} missing from the page"))
+}
+
+fn start() -> Result<(), String> {
+    let window = web_sys::window().ok_or("no window")?;
+    let document = window.document().ok_or("no document")?;
+    let canvas: HtmlCanvasElement = element(&document, "panes")?;
+    let input: HtmlInputElement = element(&document, "text")?;
+    let toolbar: Element = element(&document, "toolbar")?;
+    let options = js_sys::Object::new();
+    for (k, v) in [("antialias", true), ("alpha", false), ("depth", true)] {
+        js_sys::Reflect::set(&options, &k.into(), &v.into()).map_err(|e| format!("{e:?}"))?;
+    }
+    let context = canvas.get_context_with_context_options("webgl2", &options).ok().flatten().ok_or("this browser has no WebGL2")?;
+    let gl = glow::Context::from_webgl2_context(context.dyn_into::<WebGl2RenderingContext>().map_err(|_| "not a WebGL2 context")?);
+    let renderer = Renderer::new(&gl, Profile::Gles)?;
+    let search = window.location().search().unwrap_or_default();
+    let open = search.trim_start_matches('?').split('&').find_map(|kv| kv.strip_prefix("open=")).unwrap_or("SCARECROW").to_string();
+    let mut studio = Studio::new(Box::new(http::HttpStore), &open);
+    studio.hints = ["drag to turn, pinch to move closer", "pinch to zoom"];
+    let web = Rc::new(RefCell::new(Web {
+        studio,
+        gl,
+        renderer,
+        canvas: canvas.clone(),
+        input: input.clone(),
+        document: document.clone(),
+        size: [1.0; 2],
+        dpr: 1.0,
+        last: now(),
+        gesture: Gesture::Idle,
+        touches: Vec::new(),
+        spread: ([0.0; 2], 1.0),
+        pointer: [0.0; 2],
+        shift: false,
+        i_held: false,
+        title: String::new(),
+    }));
+    web.borrow_mut().layout();
+
+    listen(&canvas, "pointerdown", &web, |w, e: &PointerEvent| {
+        e.prevent_default();
+        w.down(e);
+    });
+    listen(&canvas, "pointermove", &web, |w, e: &PointerEvent| w.moved(e));
+    listen(&canvas, "pointerup", &web, |w, e: &PointerEvent| w.up(e, false));
+    listen(&canvas, "pointercancel", &web, |w, e: &PointerEvent| w.up(e, true));
+    listen(&canvas, "contextmenu", &web, |_, e: &Event| e.prevent_default());
+    listen(&canvas, "wheel", &web, |w, e: &WheelEvent| {
+        e.prevent_default();
+        w.wheel(e);
+    });
+    for kind in ["gesturestart", "gesturechange", "touchmove"] {
+        listen(&document, kind, &web, |_, e: &Event| e.prevent_default());
+    }
+    listen(&window, "resize", &web, |w, _: &Event| w.layout());
+    listen(&window, "keydown", &web, |w, e: &KeyboardEvent| {
+        if e.target().and_then(|t| t.dyn_into::<HtmlInputElement>().ok()).is_none() && w.key(e, true) {
+            e.prevent_default();
+        }
+    });
+    listen(&window, "keyup", &web, |w, e: &KeyboardEvent| {
+        w.key(e, false);
+    });
+    listen(&toolbar, "click", &web, |w, e: &Event| {
+        let button = e.target().and_then(|t| t.dyn_into::<Element>().ok()).and_then(|t| t.closest("[data-act]").ok().flatten());
+        if let Some(act) = button.and_then(|b| b.get_attribute("data-act")) {
+            w.act(&act);
+        }
+    });
+    listen(&input, "input", &web, |w, _: &Event| w.typed());
+    listen(&input, "keydown", &web, |w, e: &KeyboardEvent| {
+        let k = match e.key().as_str() {
+            "Enter" => Key::Enter,
+            "Escape" => Key::Escape,
+            _ => return,
+        };
+        e.prevent_default();
+        w.press_key(k, false);
+    });
+
+    let tick: Rc<RefCell<Option<Frame>>> = Rc::new(RefCell::new(None));
+    let next = tick.clone();
+    *tick.borrow_mut() = Some(Closure::new(move || {
+        if let Ok(mut w) = web.try_borrow_mut() {
+            w.frame();
+        }
+        if let (Some(window), Some(cb)) = (web_sys::window(), next.borrow().as_ref()) {
+            let _ = window.request_animation_frame(cb.as_ref().unchecked_ref());
+        }
+    }));
+    let _ = window.request_animation_frame(tick.borrow().as_ref().ok_or("no frame callback")?.as_ref().unchecked_ref());
+    Ok(())
+}
+
+/// Shows a failure on the page, where a tablet's user can see it.
+fn fail(text: &str) {
+    web_sys::console::error_1(&text.into());
+    if let Some(body) = web_sys::window().and_then(|w| w.document()).and_then(|d| d.body()) {
+        let note = body.owner_document().and_then(|d| d.create_element("pre").ok());
+        if let Some(note) = note.and_then(|n| n.dyn_into::<HtmlElement>().ok()) {
+            note.set_class_name("failure");
+            note.set_inner_text(text);
+            let _ = body.prepend_with_node_1(&note);
+        }
+    }
+}
+
+pub fn main() {
+    std::panic::set_hook(Box::new(|info| fail(&info.to_string())));
+    if let Err(e) = start() {
+        fail(&e);
+    }
+}

@@ -1578,10 +1578,13 @@ dependencies = [
  "glow",
  "glutin",
  "glutin-winit",
+ "js-sys",
  "last-harvest-game",
  "last-harvest-render",
  "png",
  "raw-window-handle",
+ "wasm-bindgen",
+ "web-sys",
  "winit",
 ]
 
