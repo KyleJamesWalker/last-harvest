@@ -1379,8 +1379,9 @@ impl Editor {
             c.label(format!("/{}{caret}", self.filter), LIST.x + 8.0, LIST.y + 4.0, 17.0, HOT, Align::Left);
             c.label(format!("{count}"), LIST.x + LIST.w - 8.0, LIST.y + 4.0, 15.0, DIM, Align::Right);
         }
-        let first = (self.scroll / LIST_ROW) as usize;
-        let rows = ((LIST.h - (top - LIST.y)) / LIST_ROW) as usize;
+        // Only whole rows, so a list scrolled part of a row doesn't spill past its panel.
+        let first = (self.scroll / LIST_ROW).ceil() as usize;
+        let rows = ((LIST.h - (top - LIST.y) - (first as f32 * LIST_ROW - self.scroll)) / LIST_ROW) as usize;
         for (i, (name, saved)) in self.listed().into_iter().enumerate().skip(first).take(rows) {
             let y = top + i as f32 * LIST_ROW - self.scroll;
             if *name == self.sprite.name {
