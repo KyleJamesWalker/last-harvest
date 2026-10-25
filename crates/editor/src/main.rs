@@ -69,7 +69,7 @@ impl App {
         eprintln!("sprites: {}", dir.display());
         Self {
             gl: None,
-            editor: Editor::new(dir, "SCARECROW"),
+            editor: Editor::new(dir, &std::env::var("SPRITE_EDITOR_OPEN").unwrap_or_else(|_| "SCARECROW".into())),
             showcase: Showcase::new(SHOWCASE_SEED),
             atlas: PIXELS.to_vec(),
             yaw: Showcase::yaw(),

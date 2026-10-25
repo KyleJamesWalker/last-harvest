@@ -94,6 +94,7 @@ pub enum Key {
 
 pub struct Editor {
     dir: PathBuf,
+    catalog: PathBuf,
     pub sprite: Sprite,
     names: Vec<(String, bool)>,
     scroll: f32,
@@ -110,8 +111,13 @@ pub struct Editor {
     pub changed: bool,
     playing: bool,
     clock: f32,
+    /// Prop, slab, figure or ground.
     stand: u8,
     depth: f32,
+    height: f32,
+    /// The stand as last saved, if one was, and whether it has been changed since.
+    saved_stand: Option<Stand>,
+    stand_touched: bool,
     pub fps: f32,
     ask: Option<(Ask, String)>,
     status: Option<(String, f32)>,
@@ -129,6 +135,7 @@ impl Editor {
         let names = sprite::catalog(&dir);
         let mut e = Self {
             dir,
+            catalog: sprite::catalog_file(),
             sprite,
             names,
             scroll: 0.0,
@@ -145,6 +152,9 @@ impl Editor {
             clock: 0.0,
             stand: 0,
             depth: 12.0,
+            height: 10.0,
+            saved_stand: None,
+            stand_touched: false,
             fps: 6.0,
             ask: None,
             status: None,
@@ -153,7 +163,7 @@ impl Editor {
             hover: None,
             live: Vec::new(),
         };
-        e.guess_stand();
+        e.load_stand();
         e
     }
 
@@ -161,7 +171,8 @@ impl Editor {
     pub fn stand(&self) -> Stand {
         match self.stand {
             0 => Stand::Prop { depth: self.depth },
-            1 => Stand::Figure,
+            1 => Stand::Slab { height: self.height },
+            2 => Stand::Figure,
             _ => Stand::Ground,
         }
     }
@@ -176,19 +187,46 @@ impl Editor {
     }
 
     pub fn title(&self) -> String {
-        format!("{}{} - LastHarvest sprite editor", self.sprite.name, if self.dirty { " *" } else { "" })
+        format!("{}{} - LastHarvest sprite editor", self.sprite.name, if self.unsaved() { " *" } else { "" })
+    }
+
+    fn unsaved(&self) -> bool {
+        self.dirty || self.stand_touched
     }
 
     fn current(&self) -> &Frame {
         &self.sprite.frames[self.frame]
     }
 
-    fn guess_stand(&mut self) {
-        let n = &self.sprite.name;
-        let figure = ["PLAYER", "SKINNY", "KID", "BIG", "CROW"].iter().any(|k| n.starts_with(k));
-        let ground = ["DIRT", "GRASS", "PATH", "ROAD", "SOIL", "SPROUTS", "BLOOD", "CORPSE"].iter().any(|k| n.starts_with(k));
-        self.stand = if figure { 1 } else if ground { 2 } else { 0 };
+    /// The stand as saved, or a guess from the name and size when none was.
+    fn load_stand(&mut self) {
+        self.saved_stand = sprite::read_stand(&self.dir, &self.catalog, &self.sprite.name);
+        self.stand_touched = false;
         self.depth = (self.current().w as f32 * 0.6).clamp(2.0, 48.0).round();
+        self.height = 10.0;
+        let guess = || {
+            let n = &self.sprite.name;
+            if ["PLAYER", "SKINNY", "KID", "BIG", "CROW"].iter().any(|k| n.starts_with(k)) {
+                Stand::Figure
+            } else if ["DIRT", "GRASS", "PATH", "ROAD", "SOIL", "SPROUTS", "BLOOD", "CORPSE"].iter().any(|k| n.starts_with(k)) {
+                Stand::Ground
+            } else {
+                Stand::Prop { depth: self.depth }
+            }
+        };
+        let s = self.saved_stand.unwrap_or_else(guess);
+        self.stand = match s {
+            Stand::Prop { depth } => {
+                self.depth = depth;
+                0
+            }
+            Stand::Slab { height } => {
+                self.height = height;
+                1
+            }
+            Stand::Figure => 2,
+            Stand::Ground => 3,
+        };
     }
 
     fn say(&mut self, text: impl Into<String>) {
@@ -213,7 +251,7 @@ impl Editor {
             self.redo.clear();
             self.dirty = false;
             self.changed = true;
-            self.guess_stand();
+            self.load_stand();
         }
     }
 
@@ -249,7 +287,7 @@ impl Editor {
             b.push(Button { rect: Rect { x, y, w, h }, action, label: label.into(), on });
         };
         for (i, (a, l)) in [(Action::Ask(Ask::New), "New"), (Action::Ask(Ask::Copy), "Copy"), (Action::Revert, "Revert"), (Action::Save, "Save")].into_iter().enumerate() {
-            push(616.0 + i as f32 * 102.0, 8.0, 94.0, 34.0, a, l, a == Action::Save && self.dirty);
+            push(616.0 + i as f32 * 102.0, 8.0, 94.0, 34.0, a, l, a == Action::Save && self.unsaved());
         }
         let tools = [(Tool::Pencil, "Pencil  B"), (Tool::Eraser, "Eraser  E"), (Tool::Fill, "Fill  G"), (Tool::Picker, "Pick  I")];
         for (i, (t, l)) in tools.into_iter().enumerate() {
@@ -257,14 +295,14 @@ impl Editor {
         }
         push(SIDE_X, 128.0, SIDE_W, 32.0, Action::Mirror, "Mirror left/right  M", self.mirror);
         let cols = (SIDE_W / SWATCH) as usize;
-        for (i, &c) in self.palette.iter().enumerate().take(cols * 12) {
+        for (i, &c) in self.palette.iter().enumerate().take(cols * 9) {
             let (x, y) = (SIDE_X + (i % cols) as f32 * SWATCH, 316.0 + (i / cols) as f32 * SWATCH);
             push(x, y, SWATCH - 2.0, SWATCH - 2.0, Action::Color(c), "", self.color == c);
         }
-        for (i, l) in ["Prop", "Figure", "Ground"].into_iter().enumerate() {
-            push(SIDE_X + i as f32 * 78.0, 602.0, 74.0, 30.0, Action::Stand(i as u8), l, self.stand == i as u8);
+        for (i, l) in ["Prop", "Slab", "Figure", "Ground"].into_iter().enumerate() {
+            push(SIDE_X + (i % 2) as f32 * 118.0, 566.0 + (i / 2) as f32 * 34.0, 114.0, 30.0, Action::Stand(i as u8), l, self.stand == i as u8);
         }
-        if self.stand == 0 {
+        if self.stand < 2 {
             push(SIDE_X + 130.0, 640.0, 46.0, 30.0, Action::Depth(-1), "-", false);
             push(SIDE_X + 182.0, 640.0, 46.0, 30.0, Action::Depth(1), "+", false);
         }
@@ -295,7 +333,7 @@ impl Editor {
         if LIST.contains(p) {
             let i = ((p[1] - LIST.y + self.scroll) / LIST_ROW) as usize;
             if let Some((name, _)) = self.names.get(i).cloned() {
-                if self.dirty {
+                if self.unsaved() {
                     self.say(format!("{} has unsaved changes: Save or Revert first", self.sprite.name));
                 } else {
                     self.open(&name);
@@ -391,15 +429,22 @@ impl Editor {
         let step = if shift { 8 } else { 1 };
         match a {
             Action::Ask(k) => self.ask = Some((k, String::new())),
-            Action::Save => match self.sprite.save(&self.dir) {
-                Ok(()) => {
-                    self.dirty = false;
-                    self.names = sprite::catalog(&self.dir);
-                    let n = self.sprite.frames.len();
-                    self.say(format!("Saved {} ({n} frame{}). Rebuild the game to see it in play.", self.sprite.name, if n == 1 { "" } else { "s" }));
+            Action::Save => {
+                let pixels = if self.dirty || !self.names.iter().any(|(n, _)| *n == self.sprite.name) { self.sprite.save(&self.dir) } else { Ok(()) };
+                let stand = if self.stand_touched { sprite::save_stand(&self.dir, &self.catalog, &self.sprite.name, self.stand()) } else { Ok(()) };
+                match pixels.and(stand) {
+                    Ok(()) => {
+                        self.dirty = false;
+                        if self.stand_touched {
+                            self.saved_stand = Some(self.stand());
+                            self.stand_touched = false;
+                        }
+                        self.names = sprite::catalog(&self.dir);
+                        self.say(format!("Saved {}. Rebuild the game to see it in play.", self.sprite.name));
+                    }
+                    Err(e) => self.say(format!("Save failed: {e}")),
                 }
-                Err(e) => self.say(format!("Save failed: {e}")),
-            },
+            }
             Action::Revert => {
                 let name = self.sprite.name.clone();
                 if self.names.iter().any(|(n, _)| *n == name) {
@@ -454,10 +499,13 @@ impl Editor {
             }
             Action::Stand(s) => {
                 self.stand = s;
+                self.stand_touched = true;
                 self.changed = true;
             }
             Action::Depth(d) => {
-                self.depth = (self.depth + (d * step) as f32).clamp(1.0, 96.0);
+                let size = if self.stand == 0 { &mut self.depth } else { &mut self.height };
+                *size = (*size + (d * step) as f32).clamp(1.0, 96.0);
+                self.stand_touched = true;
                 self.changed = true;
             }
             Action::Fps(d) => {
@@ -538,7 +586,7 @@ impl Editor {
 
     pub fn draw(&self, c: &mut Canvas) {
         c.clear = [0.1, 0.1, 0.12, 1.0];
-        c.label(format!("{}{}", self.sprite.name, if self.dirty { "  (unsaved)" } else { "" }), 12.0, 12.0, 26.0, TEXT, Align::Left);
+        c.label(format!("{}{}", self.sprite.name, if self.unsaved() { "  (unsaved)" } else { "" }), 12.0, 12.0, 26.0, TEXT, Align::Left);
 
         c.rect(LIST.x, LIST.y, LIST.w, LIST.h, PANEL);
         let first = (self.scroll / LIST_ROW) as usize;
@@ -590,9 +638,11 @@ impl Editor {
             c.rect(bar.x + self.color[i] as f32 / 255.0 * bar.w - 2.0, bar.y - 3.0, 4.0, bar.h + 6.0, TEXT);
         }
         c.label("Tileset palette", SIDE_X, 294.0, 16.0, DIM, Align::Left);
-        c.label("Stands as", SIDE_X, 582.0, 16.0, DIM, Align::Left);
-        if self.stand == 0 {
-            c.label(format!("Depth {} px", self.depth), SIDE_X, 645.0, 18.0, TEXT, Align::Left);
+        c.label("Stands in 3D as", SIDE_X, 546.0, 16.0, DIM, Align::Left);
+        match self.stand {
+            0 => c.label(format!("Depth {} px", self.depth), SIDE_X, 645.0, 18.0, TEXT, Align::Left),
+            1 => c.label(format!("Height {} px", self.height), SIDE_X, 645.0, 18.0, TEXT, Align::Left),
+            _ => {}
         }
         c.label(format!("{} fps", self.fps), SIDE_X, 683.0, 18.0, TEXT, Align::Left);
 
@@ -683,7 +733,9 @@ mod tests {
 
     fn editor() -> Editor {
         let dir = std::env::temp_dir().join(format!("lh-editor-{}-{:?}", std::process::id(), std::thread::current().id()));
-        Editor::new(dir, "BARREL")
+        let mut e = Editor::new(dir.clone(), "BARREL");
+        e.catalog = dir.join("art.txt");
+        e
     }
 
     fn click_pixel(e: &mut Editor, x: i32, y: i32) {

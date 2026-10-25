@@ -2,6 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
+use last_harvest_game::Stand;
 use last_harvest_game::art::{self, ATLAS_W, Art, PIXELS};
 
 pub type Rgba = [u8; 4];
@@ -132,6 +133,70 @@ impl Sprite {
     }
 }
 
+/// The game's sprite catalog, where a packed sprite's stand is written.
+pub fn catalog_file() -> PathBuf {
+    std::env::var_os("LAST_HARVEST_CATALOG").map(PathBuf::from).unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("../game/art.txt"))
+}
+
+/// How a stand is written in the catalog and in `stand.txt`.
+pub fn stand_text(s: Stand) -> String {
+    match s {
+        Stand::Prop { depth } => format!("prop {depth}"),
+        Stand::Slab { height } => format!("slab {height}"),
+        Stand::Figure => "figure".into(),
+        Stand::Ground => "ground".into(),
+    }
+}
+
+pub fn parse_stand(text: &str) -> Option<Stand> {
+    let words: Vec<&str> = text.split_whitespace().collect();
+    let size = || words.get(1)?.parse::<f32>().ok();
+    Some(match *words.first()? {
+        "prop" => Stand::Prop { depth: size()? },
+        "slab" => Stand::Slab { height: size()? },
+        "figure" => Stand::Figure,
+        "ground" => Stand::Ground,
+        _ => return None,
+    })
+}
+
+/// The line for `name` in the catalog, as (index, the line).
+fn catalog_line(text: &str, name: &str) -> Option<(usize, String)> {
+    text.lines().enumerate().find(|(_, l)| l.split_whitespace().next() == Some(name) && !l.starts_with('#')).map(|(i, l)| (i, l.to_string()))
+}
+
+/// How a sprite stands, as last saved: its folder's `stand.txt`, else its catalog line, else nothing said.
+pub fn read_stand(dir: &Path, catalog: &Path, name: &str) -> Option<Stand> {
+    if let Ok(t) = std::fs::read_to_string(dir.join(name).join("stand.txt")) {
+        return parse_stand(&t);
+    }
+    let text = std::fs::read_to_string(catalog).ok()?;
+    let (_, line) = catalog_line(&text, name)?;
+    let code = line.split('#').next()?;
+    parse_stand(code.split_once('@')?.1)
+}
+
+/// Writes how a sprite stands: on its catalog line when it has one, which git keeps, else in its folder.
+pub fn save_stand(dir: &Path, catalog: &Path, name: &str, s: Stand) -> Result<(), String> {
+    let text = std::fs::read_to_string(catalog).map_err(|e| format!("{}: {e}", catalog.display()))?;
+    let Some((i, line)) = catalog_line(&text, name) else {
+        let path = dir.join(name);
+        std::fs::create_dir_all(&path).map_err(|e| e.to_string())?;
+        return std::fs::write(path.join("stand.txt"), stand_text(s) + "\n").map_err(|e| e.to_string());
+    };
+    let (code, comment) = line.split_once('#').map_or((line.as_str(), None), |(c, m)| (c, Some(m)));
+    let code = code.split('@').next().unwrap_or(code).trim_end();
+    let new = match comment {
+        Some(m) => format!("{code}  @{}  #{m}", stand_text(s)),
+        None => format!("{code}  @{}", stand_text(s)),
+    };
+    let mut lines: Vec<&str> = text.lines().collect();
+    lines[i] = &new;
+    std::fs::write(catalog, lines.join("\n") + "\n").map_err(|e| e.to_string())?;
+    let _ = std::fs::remove_file(dir.join(name).join("stand.txt"));
+    Ok(())
+}
+
 fn read_png(path: &Path) -> Result<Frame, String> {
     let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
     let mut decoder = png::Decoder::new(std::io::BufReader::new(file));
@@ -228,5 +293,23 @@ mod tests {
     fn names_must_work_as_constants() {
         assert!(valid_name("SCARECROW_2"));
         assert!(!valid_name("scarecrow") && !valid_name("2X") && !valid_name(""));
+    }
+
+    #[test]
+    fn stands_round_trip_through_the_catalog_or_the_folder() {
+        let tmp = std::env::temp_dir().join(format!("lh-stand-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        let catalog = tmp.join("art.txt");
+        std::fs::write(&catalog, "# a comment about CAR_V\nCAR_V  px 1 2 3 4\nCAR_H  px 5 6 7 8  @prop 4\n").unwrap();
+        let dir = tmp.join("sprites");
+        save_stand(&dir, &catalog, "CAR_V", Stand::Slab { height: 12.0 }).unwrap();
+        save_stand(&dir, &catalog, "CAR_H", Stand::Slab { height: 10.0 }).unwrap();
+        save_stand(&dir, &catalog, "NEW_ONE", Stand::Figure).unwrap();
+        let text = std::fs::read_to_string(&catalog).unwrap();
+        assert_eq!(text, "# a comment about CAR_V\nCAR_V  px 1 2 3 4  @slab 12\nCAR_H  px 5 6 7 8  @slab 10\n");
+        assert_eq!(read_stand(&dir, &catalog, "CAR_V"), Some(Stand::Slab { height: 12.0 }));
+        assert_eq!(read_stand(&dir, &catalog, "NEW_ONE"), Some(Stand::Figure));
+        assert_eq!(read_stand(&dir, &catalog, "MISSING"), None);
+        std::fs::remove_dir_all(&tmp).unwrap();
     }
 }
