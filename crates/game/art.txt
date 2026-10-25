@@ -9,6 +9,10 @@
 #   solid W H                        opaque white, for tinted particles
 #   blank W H                        clear, for the sprite editor's scratch space
 #
+# A line may end with how the sprite stands in the 3D view: @prop DEPTH (upright, extruded back),
+# @slab HEIGHT (flat as a roof that high, for sprites drawn from above), @figure (turns to the camera)
+# or @ground (flat). Without one, buildings reach back over their solid rows and small things are thin.
+#
 # A sprite saved from the editor as assets/sprites/NAME/0.png, 1.png and so on replaces its frames here,
 # and a folder there with no line here adds a new sprite.
 
@@ -49,10 +53,10 @@ HAY_STACK       cell 19 0 3 2
 HAY             cell 20 1
 TRACTOR         cell 18 11 2 2
 TRUCK           px 408 242 41 23 ; px 455 242 41 23 ; px 502 242 40 23
-CAR_H           px 272 112 33 18
-CAR_V           px 339 153 18 33
-WRECK_H         px 544 226 33 18 ; px 595 188 33 18 ; px 629 226 33 18 ; px 544 245 33 18 ; px 595 207 33 18 ; px 629 245 33 18
-WRECK_V         px 611 229 17 33 ; px 662 191 17 33 ; px 696 229 17 33
+CAR_H           px 272 112 33 18  @slab 12
+CAR_V           px 339 153 18 33  @slab 12
+WRECK_H         px 544 226 33 18 ; px 595 188 33 18 ; px 629 226 33 18 ; px 544 245 33 18 ; px 595 207 33 18 ; px 629 245 33 18  @slab 10
+WRECK_V         px 611 229 17 33 ; px 662 191 17 33 ; px 696 229 17 33  @slab 10
 
 # Scatter
 BUSHES          cell 15 10 3 3 key=443830,726650

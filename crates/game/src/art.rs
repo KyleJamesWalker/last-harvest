@@ -24,6 +24,19 @@ pub(crate) fn with_pixels<T>(art: Art, f: impl FnOnce(&[u8]) -> T) -> T {
     if art.is_live() { f(&LIVE.read().unwrap().pixels) } else { f(PIXELS) }
 }
 
+/// How a sprite stands in the 3D view.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Stand {
+    /// Upright and fixed to the map like a wall, extruded `depth` pixels back.
+    Prop { depth: f32 },
+    /// Lying flat as a roof `height` pixels up, its edges drawn down to the ground: for sprites drawn from above, like cars.
+    Slab { height: f32 },
+    /// Turning to face the camera like a character.
+    Figure,
+    /// Flat on the ground like a tile or a stain.
+    Ground,
+}
+
 /// One sprite in the packed texture.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Art(pub u16);
@@ -35,6 +48,11 @@ impl Art {
             Some(&r) => r,
             None => LIVE.read().unwrap().rects[self.0 as usize - RECTS.len()],
         }
+    }
+
+    /// How the catalog says this sprite stands, if it says.
+    pub fn stand(self) -> Option<Stand> {
+        STANDS.get(self.0 as usize).copied().flatten()
     }
 
     /// Whether the editor added this sprite while running.

@@ -13,7 +13,8 @@ mod sfx;
 mod system;
 
 pub use draw::{Align, Canvas, Color, Frame, Shape};
-pub use harvest::showcase::{Showcase, Stand};
+pub use art::Stand;
+pub use harvest::showcase::Showcase;
 pub use input::{Buttons, Input, InputTracker, MAX_TOUCHES, RawInput};
 pub use save::Save;
 pub use sfx::Sfx;

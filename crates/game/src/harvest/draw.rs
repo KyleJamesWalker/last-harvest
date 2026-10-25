@@ -4,7 +4,7 @@ use std::f32::consts::{PI, TAU};
 
 use super::juice::{self, Tone};
 use super::map::TILE;
-use super::showcase::Stand;
+use crate::art::Stand;
 use super::{CHOICE_ROW, CHOICE_TOP, Choice, DropKind, GOLD, GRENADE_FLIGHT, GRENADE_RADIUS, GRENADES, Harvest, PICK_TIME, PLAYER, Phase, RED, SCALE, TELL_TIME, WHITE, art_for, clock, view3d};
 use crate::art::{self, Art};
 use crate::{Align, Canvas, Color, Frame, SCREEN_H, SCREEN_W};

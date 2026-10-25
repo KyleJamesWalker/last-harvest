@@ -173,6 +173,19 @@ fn cut(sheet: &Image, frame: &str, line: usize) -> Vec<Image> {
     }
 }
 
+/// Rust for a stand written as `prop 12`, `slab 10`, `figure` or `ground`.
+fn stand_code(how: &str, line: usize) -> String {
+    let words: Vec<&str> = how.split_whitespace().collect();
+    let size = || words.get(1).and_then(|w| w.parse::<f32>().ok()).unwrap_or_else(|| panic!("art.txt:{line}: {how:?} needs a size in pixels"));
+    match words.first().copied() {
+        Some("prop") => format!("Stand::Prop {{ depth: {:?} }}", size()),
+        Some("slab") => format!("Stand::Slab {{ height: {:?} }}", size()),
+        Some("figure") => "Stand::Figure".into(),
+        Some("ground") => "Stand::Ground".into(),
+        _ => panic!("art.txt:{line}: unknown stand {how:?}; use prop N, slab N, figure or ground"),
+    }
+}
+
 /// A sprite name the generated code can use as a constant.
 fn is_name(n: &str) -> bool {
     n.starts_with(|c: char| c.is_ascii_uppercase()) && n.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
@@ -205,6 +218,8 @@ fn main() {
 
     // Each entry is a name and its frames, as indices into the deduplicated image list.
     let mut entries: Vec<(String, Vec<usize>)> = Vec::new();
+    // How each entry stands in the 3D view, when the catalog or the editor says.
+    let mut stands: Vec<(String, String)> = Vec::new();
     let mut images: Vec<Image> = Vec::new();
     let mut seen: HashMap<Vec<u8>, usize> = HashMap::new();
     let mut intern = |img: Image| {
@@ -219,6 +234,11 @@ fn main() {
     for (i, raw) in text.lines().enumerate() {
         let line = raw.split('#').next().unwrap().trim();
         let Some((name, rest)) = line.split_once(char::is_whitespace) else { continue };
+        let (rest, how) = rest.split_once('@').unwrap_or((rest, ""));
+        let how = std::fs::read_to_string(sprites.join(name).join("stand.txt")).unwrap_or_else(|_| how.to_string());
+        if !how.trim().is_empty() {
+            stands.push((name.to_string(), stand_code(how.trim(), i + 1)));
+        }
         // A sprite saved from the editor takes the place of its cut from the sheet.
         let drawn = saved(&sprites.join(name));
         let frames = if drawn.is_empty() { rest.split(';').flat_map(|frame| cut(&sheet, frame.trim(), i + 1)).collect() } else { drawn };
@@ -235,6 +255,9 @@ fn main() {
     extra.sort();
     for name in extra {
         let frames = saved(&sprites.join(&name));
+        if let Ok(how) = std::fs::read_to_string(sprites.join(&name).join("stand.txt")) {
+            stands.push((name.clone(), stand_code(how.trim(), 0)));
+        }
         if !frames.is_empty() {
             entries.push((name, frames.into_iter().map(&mut intern).collect()));
         }
@@ -281,6 +304,15 @@ fn main() {
             names.push(format!("(\"{name}\", &{name})"));
         }
     }
+    let mut by_image = vec!["None".to_string(); images.len()];
+    for (name, code) in &stands {
+        if let Some((_, ids)) = entries.iter().find(|(n, _)| n == name) {
+            for &id in ids {
+                by_image[id] = format!("Some({code})");
+            }
+        }
+    }
+    writeln!(src, "pub(crate) static STANDS: [Option<Stand>; {}] = [{}];", by_image.len(), by_image.join(", ")).unwrap();
     writeln!(src, "/// Every catalog entry with its frames, for the art gallery.\npub static ALL: &[(&str, &[Art])] = &[{}];", names.join(", ")).unwrap();
     std::fs::write(out.join("art_gen.rs"), src).unwrap();
 }

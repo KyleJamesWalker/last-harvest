@@ -4,19 +4,8 @@ use std::f32::consts::FRAC_PI_2;
 
 use super::map::TILE;
 use super::{Harvest, SCALE, VIEW_H, VIEW_W, view3d};
-use crate::art::Art;
+use crate::art::{Art, Stand};
 use crate::{Canvas, Color};
-
-/// How a sprite stands in the world.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Stand {
-    /// Fixed to the map like a building or fence, extruded `depth` pixels deep.
-    Prop { depth: f32 },
-    /// Turning to face the camera like a character.
-    Figure,
-    /// Lying flat on the ground like a tile or a stain.
-    Ground,
-}
 
 /// The sprite on show, centered at `pos` with its feet on the ground.
 pub(super) struct Shown {

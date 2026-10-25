@@ -6,7 +6,7 @@ use std::sync::OnceLock;
 use glam::{Mat4, Vec3};
 
 use super::map::TILE;
-use super::showcase::Stand;
+use crate::art::Stand;
 use super::{DAWN, DropKind, Facing, GRENADE_FLIGHT, GRENADE_RADIUS, Harvest, PLAYER, Phase, TELL_TIME, WALK_FPS, Zombie, art_for, len, norm, sub};
 use crate::art::{self, ATLAS_H, ATLAS_W, Art, PIXELS, RECTS};
 use crate::scene3d::{Card, CardScene, Flash};
@@ -82,7 +82,7 @@ fn extrude(pixels: &[u8], rect: [u16; 4]) -> Vec<Face> {
     }
     for y in 0..h {
         for (side, at, ny) in [(-1, y, 1.0), (1, y + 1, -1.0)] {
-            let edge = |x: i32| opaque(x, y) && !opaque(x, y + side) && (side < 0 || y + 1 < h);
+            let edge = |x: i32| opaque(x, y) && !opaque(x, y + side);
             let mut x = 0;
             while x < w {
                 if !edge(x) {
@@ -142,6 +142,21 @@ fn stand(out: &mut Vec<Card>, eye: Vec3, art: Art, flip: bool, pose: Pose, solid
         if normal.dot(eye - corners[0]) > 0.0 {
             out.push(Card { tint, ..Card::new(corners, f.uv, normal) });
         }
+    }
+}
+
+/// Puts a sprite fixed to the map, with its left edge at `left` and its bottom row meeting the ground at `base`,
+/// both in map pixels. Figures turn to face the camera, so the caller draws those.
+fn fixed(out: &mut Vec<Card>, eye: Vec3, a: Art, how: Stand, left: f32, base: f32) {
+    match how {
+        Stand::Prop { depth } => stand(out, eye, a, false, Pose::upright(Vec3::new(left * PX, 0.0, base * PX), Vec3::X, -Vec3::Z, depth * PX), true),
+        // The sprite is the roof, its top row to the north, and its edges run down to the ground.
+        Stand::Slab { height } => {
+            let pose = Pose { origin: Vec3::new(left * PX, height * PX, base * PX), right: Vec3::X, up: -Vec3::Z, back: -Vec3::Y, depth: height * PX, tint: [1.0; 3] };
+            stand(out, eye, a, false, pose, true);
+        }
+        Stand::Ground => flat(out, a, left * PX, (base - a.h()) * PX, DECAL_LIFT + 0.006, [1.0; 3]),
+        Stand::Figure => {}
     }
 }
 
@@ -292,26 +307,27 @@ pub fn scene(h: &Harvest) -> CardScene {
     }
     // Anything standing behind the player would fill the screen, so only what is ahead gets drawn.
     let ahead = |q: Vec3| near(q) && (q - p).dot(forward) > 0.3;
+    let mut figures = Vec::new();
     for prop in &h.map.props {
-        let base = Vec3::new(prop.x * PX, 0.0, prop.base * PX);
-        let middle = base + Vec3::new(prop.frames[0].w() * PX * 0.5, 0.0, -prop.depth * PX * 0.5);
-        if ahead(middle) {
-            stand(&mut cards, eye, prop.frame(h.t), false, Pose::upright(base, Vec3::X, -Vec3::Z, prop.depth * PX), true);
+        let a = prop.frame(h.t);
+        let how = a.stand().unwrap_or(Stand::Prop { depth: prop.depth });
+        let bottom = prop.y + a.h();
+        let middle = match how {
+            Stand::Prop { depth } => Vec3::new((prop.x + a.w() * 0.5) * PX, 0.0, (prop.base - depth * 0.5) * PX),
+            _ => Vec3::new((prop.x + a.w() * 0.5) * PX, 0.0, (bottom - a.h() * 0.5) * PX),
+        };
+        if !ahead(middle) {
+            continue;
+        }
+        if how == Stand::Figure {
+            figures.push((a, [prop.x + a.w() / 2.0, bottom]));
+        } else {
+            fixed(&mut cards, eye, a, how, prop.x, if matches!(how, Stand::Prop { .. }) { prop.base } else { bottom });
         }
     }
-    if let Some(s) = h.shown.as_ref().filter(|s| !s.frames.is_empty()) {
+    if let Some(s) = h.shown.as_ref().filter(|s| !s.frames.is_empty() && s.stand != Stand::Figure) {
         let a = s.frame(h.t);
-        match s.stand {
-            Stand::Prop { depth } => {
-                let base = Vec3::new((s.pos[0] - a.w() / 2.0) * PX, 0.0, s.pos[1] * PX);
-                stand(&mut cards, eye, a, false, Pose::upright(base, Vec3::X, -Vec3::Z, depth * PX), true);
-            }
-            Stand::Ground => {
-                let q = world([s.pos[0] - a.w() / 2.0, s.pos[1] - a.h() / 2.0]);
-                flat(&mut cards, a, q.x, q.z, DECAL_LIFT + 0.006, [1.0; 3]);
-            }
-            Stand::Figure => {}
-        }
+        fixed(&mut cards, eye, a, s.stand, s.pos[0] - a.w() / 2.0, s.pos[1]);
     }
     for b in &h.barrels {
         let a = if b.flash > 0.0 { art::BARREL_FLASH } else { art::BARREL };
@@ -351,6 +367,9 @@ pub fn scene(h: &Harvest) -> CardScene {
     board(&mut cards, Board::new(art_for(h, &PLAYER, facing), flip, h.pos, 0.0, CHARACTER_DEPTH));
     if let Some(s) = h.shown.as_ref().filter(|s| s.stand == Stand::Figure && !s.frames.is_empty()) {
         board(&mut cards, Board::new(s.frame(h.t), false, s.pos, 0.0, CHARACTER_DEPTH));
+    }
+    for (a, at) in figures {
+        board(&mut cards, Board::new(a, false, at, 0.0, CHARACTER_DEPTH));
     }
     for d in &h.drops {
         let a = match d.kind {

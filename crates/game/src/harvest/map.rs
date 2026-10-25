@@ -66,7 +66,9 @@ pub struct Map {
 
 /// Buildings and vehicles reach back over their solid rows; small things are slabs.
 fn thickness(art: Art, tw: usize, th: usize, open_rows: usize) -> f32 {
-    if tw * th >= 4 {
+    if let Some(art::Stand::Prop { depth }) = art.stand() {
+        depth
+    } else if tw * th >= 4 {
         ((th - open_rows.min(th - 1)) as f32 * TILE).max(8.0)
     } else if [art::BUSH, art::STUMP, art::HAY, art::TANK, art::MAILBOX].contains(&art) || art::LOG.contains(&art) {
         12.0
