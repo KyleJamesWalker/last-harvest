@@ -76,6 +76,48 @@ impl Frame {
 pub struct Sprite {
     pub name: String,
     pub frames: Vec<Frame>,
+    /// Drawings of it from the south and from the east, for carving it into a solid.
+    pub views: Option<[Frame; 2]>,
+}
+
+pub const VIEW_FILES: [&str; 2] = ["south.png", "east.png"];
+
+impl Frame {
+    /// The color seen walking in from (x, y) by (dx, dy): the first opaque pixel past the dark outline,
+    /// or the outline itself when nothing else is there.
+    fn first(&self, (mut x, mut y): (i32, i32), (dx, dy): (i32, i32)) -> Option<Rgba> {
+        let dark = |c: Rgba| c[0] as u32 + c[1] as u32 + c[2] as u32 <= 60;
+        let mut outline = None;
+        while let Some(c) = self.get(x, y) {
+            if c[3] > 0 {
+                if !dark(c) {
+                    return Some(c);
+                }
+                outline = outline.or(Some(c));
+            }
+            (x, y) = (x + dx, y + dy);
+        }
+        outline
+    }
+}
+
+/// Plain views of a block as tall as `height`, colored by the top view's edges, to carve a shape out of.
+pub fn block_views(top: &Frame, height: usize) -> [Frame; 2] {
+    let (w, d) = (top.w as i32, top.h as i32);
+    let mut south = Frame::blank(top.w, height);
+    for x in 0..w {
+        if let Some(c) = top.first((x, d - 1), (0, -1)) {
+            (0..height as i32).for_each(|y| south.set(x, y, c));
+        }
+    }
+    // Seen from the east, south is on the left.
+    let mut east = Frame::blank(top.h, height);
+    for c in 0..d {
+        if let Some(col) = top.first((w - 1, d - 1 - c), (-1, 0)) {
+            (0..height as i32).for_each(|y| east.set(c, y, col));
+        }
+    }
+    [south, east]
 }
 
 /// Where saved sprites live; the game's build packs them in place of, or beside, the tileset's.
@@ -115,7 +157,9 @@ impl Sprite {
             let (_, arts) = art::ALL.iter().find(|(n, _)| *n == name)?;
             frames = arts.iter().map(|&a| Frame::from_art(a)).collect();
         }
-        Some(Self { name: name.to_string(), frames })
+        let view = |f: &str| read_png(&dir.join(name).join(f)).ok();
+        let views = view(VIEW_FILES[0]).zip(view(VIEW_FILES[1])).map(|(s, e)| [s, e]);
+        Some(Self { name: name.to_string(), frames, views })
     }
 
     /// Writes `0.png`, `1.png` and so on, removing frames left over from a longer save.
@@ -128,6 +172,14 @@ impl Sprite {
         let mut i = self.frames.len();
         while std::fs::remove_file(path.join(format!("{i}.png"))).is_ok() {
             i += 1;
+        }
+        for (k, file) in VIEW_FILES.iter().enumerate() {
+            match &self.views {
+                Some(v) => write_png(&path.join(file), &v[k])?,
+                None => {
+                    let _ = std::fs::remove_file(path.join(file));
+                }
+            }
         }
         Ok(())
     }
@@ -145,6 +197,7 @@ pub fn stand_text(s: Stand) -> String {
         Stand::Slab { height } => format!("slab {height}"),
         Stand::Figure => "figure".into(),
         Stand::Ground => "ground".into(),
+        Stand::Carve { .. } => "carve".into(),
     }
 }
 
@@ -166,29 +219,32 @@ fn catalog_line(text: &str, name: &str) -> Option<(usize, String)> {
 }
 
 /// How a sprite stands, as last saved: its folder's `stand.txt`, else its catalog line, else nothing said.
-pub fn read_stand(dir: &Path, catalog: &Path, name: &str) -> Option<Stand> {
+/// `carve` comes back as itself, since its views are pixels rather than words.
+pub fn read_stand(dir: &Path, catalog: &Path, name: &str) -> Option<String> {
     if let Ok(t) = std::fs::read_to_string(dir.join(name).join("stand.txt")) {
-        return parse_stand(&t);
+        return Some(t.trim().to_string());
     }
     let text = std::fs::read_to_string(catalog).ok()?;
     let (_, line) = catalog_line(&text, name)?;
     let code = line.split('#').next()?;
-    parse_stand(code.split_once('@')?.1)
+    Some(code.split_once('@')?.1.trim().to_string())
 }
 
 /// Writes how a sprite stands: on its catalog line when it has one, which git keeps, else in its folder.
-pub fn save_stand(dir: &Path, catalog: &Path, name: &str, s: Stand) -> Result<(), String> {
+/// A carved sprite's stand always goes in its folder, beside the views it needs.
+pub fn save_stand(dir: &Path, catalog: &Path, name: &str, how: &str) -> Result<(), String> {
     let text = std::fs::read_to_string(catalog).map_err(|e| format!("{}: {e}", catalog.display()))?;
-    let Some((i, line)) = catalog_line(&text, name) else {
+    let line = catalog_line(&text, name).filter(|_| how != "carve");
+    let Some((i, line)) = line else {
         let path = dir.join(name);
         std::fs::create_dir_all(&path).map_err(|e| e.to_string())?;
-        return std::fs::write(path.join("stand.txt"), stand_text(s) + "\n").map_err(|e| e.to_string());
+        return std::fs::write(path.join("stand.txt"), format!("{how}\n")).map_err(|e| e.to_string());
     };
     let (code, comment) = line.split_once('#').map_or((line.as_str(), None), |(c, m)| (c, Some(m)));
     let code = code.split('@').next().unwrap_or(code).trim_end();
     let new = match comment {
-        Some(m) => format!("{code}  @{}  #{m}", stand_text(s)),
-        None => format!("{code}  @{}", stand_text(s)),
+        Some(m) => format!("{code}  @{how}  #{m}"),
+        None => format!("{code}  @{how}"),
     };
     let mut lines: Vec<&str> = text.lines().collect();
     lines[i] = &new;
@@ -271,7 +327,7 @@ mod tests {
     #[test]
     fn saves_and_loads_every_frame_and_drops_leftovers() {
         let dir = std::env::temp_dir().join(format!("lh-sprites-{}", std::process::id()));
-        let mut s = Sprite { name: "TEST_THING".into(), frames: vec![Frame::blank(3, 2), Frame::blank(3, 2), Frame::blank(3, 2)] };
+        let mut s = Sprite { name: "TEST_THING".into(), frames: vec![Frame::blank(3, 2), Frame::blank(3, 2), Frame::blank(3, 2)], views: None };
         s.frames[1].set(2, 1, [200, 10, 10, 255]);
         s.save(&dir).unwrap();
         s.frames.truncate(2);
@@ -302,14 +358,30 @@ mod tests {
         let catalog = tmp.join("art.txt");
         std::fs::write(&catalog, "# a comment about CAR_V\nCAR_V  px 1 2 3 4\nCAR_H  px 5 6 7 8  @prop 4\n").unwrap();
         let dir = tmp.join("sprites");
-        save_stand(&dir, &catalog, "CAR_V", Stand::Slab { height: 12.0 }).unwrap();
-        save_stand(&dir, &catalog, "CAR_H", Stand::Slab { height: 10.0 }).unwrap();
-        save_stand(&dir, &catalog, "NEW_ONE", Stand::Figure).unwrap();
+        save_stand(&dir, &catalog, "CAR_V", &stand_text(Stand::Slab { height: 12.0 })).unwrap();
+        save_stand(&dir, &catalog, "CAR_H", "slab 10").unwrap();
+        save_stand(&dir, &catalog, "NEW_ONE", "figure").unwrap();
         let text = std::fs::read_to_string(&catalog).unwrap();
         assert_eq!(text, "# a comment about CAR_V\nCAR_V  px 1 2 3 4  @slab 12\nCAR_H  px 5 6 7 8  @slab 10\n");
-        assert_eq!(read_stand(&dir, &catalog, "CAR_V"), Some(Stand::Slab { height: 12.0 }));
-        assert_eq!(read_stand(&dir, &catalog, "NEW_ONE"), Some(Stand::Figure));
+        assert_eq!(read_stand(&dir, &catalog, "CAR_V").as_deref(), Some("slab 12"));
+        assert_eq!(read_stand(&dir, &catalog, "NEW_ONE").as_deref(), Some("figure"));
         assert_eq!(read_stand(&dir, &catalog, "MISSING"), None);
+        save_stand(&dir, &catalog, "CAR_H", "carve").unwrap();
+        assert_eq!(read_stand(&dir, &catalog, "CAR_H").as_deref(), Some("carve"), "the folder's stand.txt wins");
         std::fs::remove_dir_all(&tmp).unwrap();
+    }
+
+    #[test]
+    fn block_views_take_the_top_views_edge_colors() {
+        let mut top = Frame::blank(3, 4);
+        top.set(1, 2, [10, 0, 0, 255]);
+        top.set(2, 0, [0, 20, 0, 255]);
+        let [south, east] = block_views(&top, 5);
+        assert_eq!((south.w, south.h, east.w, east.h), (3, 5, 4, 5));
+        assert_eq!(south.get(1, 4), Some([10, 0, 0, 255]));
+        assert_eq!(south.get(0, 0), Some(CLEAR));
+        // Row 0 is the north row, so it is the east view's last column.
+        assert_eq!(east.get(3, 0), Some([0, 20, 0, 255]));
+        assert_eq!(east.get(1, 0), Some([10, 0, 0, 255]));
     }
 }

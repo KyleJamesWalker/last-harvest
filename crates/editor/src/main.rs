@@ -104,7 +104,7 @@ impl App {
         }
         let mut rects = Vec::new();
         let (mut x, mut y, mut shelf) = (0, 0, 0);
-        for f in &self.editor.sprite.frames {
+        for f in self.editor.surfaces() {
             if x + f.w > sw {
                 (x, y, shelf) = (0, y + shelf + 1, 0);
             }

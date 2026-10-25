@@ -131,7 +131,7 @@ The scene names are `title`, `harvest`, `farm` (the game without zombies, for lo
 cargo run -p sprite-editor
 ```
 
-A pixel editor for the game's sprites, on macOS. The left pane lists every sprite in the catalog, with the pixel canvas, tools, color and frames around it. The right panes show the sprite as the game would: in the 2.5D view (drag to walk around it, scroll to move closer) and on the map (scroll to zoom). Choose how it stands in 3D: a prop, upright with a depth to extrude; a slab, lying flat as a roof at a height with its edges drawn down, for sprites drawn from above like cars; a figure that turns to face the camera; or flat on the ground.
+A pixel editor for the game's sprites, on macOS. The left pane lists every sprite in the catalog, with the pixel canvas, tools, color and frames around it. The right panes show the sprite as the game would: in the 2.5D view (drag to walk around it, scroll to move closer) and on the map (scroll to zoom). Choose how it stands in 3D: a prop, upright with a depth to extrude; a slab, lying flat as a roof at a height with its edges drawn down, for sprites drawn from above like cars; a figure that turns to face the camera; flat on the ground; or carved. A carved sprite gets two more drawings, beside its frames: a south view (the sprite seen from the south, west on the left) and an east view (seen from the east, south on the left). The solid is every voxel all three views agree on, and each face takes its color from the view that looks at it, so a car can have a raised cabin, a lower hood and wheels. Choosing Carve starts both views as a plain block in the sprite's colors, to erase into shape; the height buttons set how tall they are.
 
 | Action | Input |
 |---|---|
@@ -145,7 +145,7 @@ A pixel editor for the game's sprites, on macOS. The left pane lists every sprit
 | Save | Cmd+S |
 | Screenshot the window | F12, into the sprites folder |
 
-Save writes each frame to `assets/sprites/NAME/0.png`, `1.png` and so on, and a changed stand to the sprite's line in `crates/game/art.txt` as `@prop 12`, `@slab 10`, `@figure` or `@ground`, or to `stand.txt` in its folder for a new sprite. The next build of the game packs a saved sprite in place of its cut from the tileset, and a folder with a name not in `crates/game/art.txt` becomes a new sprite, `art::NAME`, for the code to use. Saved sprites stay out of git, because edits of the tileset's sprites fall under its license. Delete a sprite's folder to go back to the tileset's version. Set `LAST_HARVEST_SPRITES` to save somewhere else.
+Save writes each frame to `assets/sprites/NAME/0.png`, `1.png` and so on, and a changed stand to the sprite's line in `crates/game/art.txt` as `@prop 12`, `@slab 10`, `@figure` or `@ground`, or to `stand.txt` in its folder for a new sprite. A carved sprite keeps `south.png`, `east.png` and a `stand.txt` saying `carve` in its folder; a build without them, such as a fresh clone, stands it as a slab. The next build of the game packs a saved sprite in place of its cut from the tileset, and a folder with a name not in `crates/game/art.txt` becomes a new sprite, `art::NAME`, for the code to use. Saved sprites stay out of git, because edits of the tileset's sprites fall under its license. Delete a sprite's folder to go back to the tileset's version. Set `LAST_HARVEST_SPRITES` to save somewhere else.
 
 ### Sounds
 
