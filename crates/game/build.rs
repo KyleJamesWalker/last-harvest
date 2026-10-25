@@ -47,6 +47,29 @@ impl Image {
     }
 }
 
+/// Makes clear every pixel of a `key` color reachable from the border through other such pixels,
+/// so a sprite drawn on a baked-in ground loses the ground but keeps the same colors inside its outline.
+fn clear_from_edges(img: &mut Image, key: &[[u8; 3]]) {
+    if key.is_empty() {
+        return;
+    }
+    let (w, h) = (img.w as i32, img.h as i32);
+    let idx = |x: i32, y: i32| ((y * w + x) * 4) as usize;
+    let keyed = |img: &Image, x: i32, y: i32| {
+        let i = idx(x, y);
+        img.rgba[i + 3] != 0 && key.contains(&[img.rgba[i], img.rgba[i + 1], img.rgba[i + 2]])
+    };
+    let mut stack: Vec<(i32, i32)> = (0..w).flat_map(|x| [(x, 0), (x, h - 1)]).chain((0..h).flat_map(|y| [(0, y), (w - 1, y)])).collect();
+    while let Some((x, y)) = stack.pop() {
+        if x < 0 || y < 0 || x >= w || y >= h || !keyed(img, x, y) {
+            continue;
+        }
+        let i = idx(x, y);
+        img.rgba[i + 3] = 0;
+        stack.extend([(x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)]);
+    }
+}
+
 fn decode(path: &Path) -> Result<Image, String> {
     let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
     let mut decoder = png::Decoder::new(std::io::BufReader::new(file));
@@ -87,12 +110,18 @@ fn cut(sheet: &Image, frame: &str, line: usize) -> Vec<Image> {
             let mut cleared = Vec::new();
             let mut under = Vec::new();
             let mut crop = None;
+            let mut key: Vec<[u8; 3]> = Vec::new();
             let pair = |s: &str| s.split_once(',').map(|(a, b)| (num(a), num(b)));
             for word in &words[1 + nums.len()..] {
                 if let Some(n) = word.strip_prefix('x') {
                     frames = num(n);
                 } else if let Some(p) = word.strip_prefix('-').and_then(pair) {
                     cleared.push(p);
+                } else if let Some(list) = word.strip_prefix("key=") {
+                    for hex in list.split(',') {
+                        let n = u32::from_str_radix(hex, 16).unwrap_or_else(|_| panic!("art.txt:{line}: bad color {hex:?}"));
+                        key.push([(n >> 16) as u8, (n >> 8) as u8, n as u8]);
+                    }
                 } else if let Some(p) = word.strip_prefix('/').and_then(pair) {
                     crop = Some(p);
                 } else if let Some((cell, below)) = word.split_once('<').and_then(|(a, b)| Some((pair(a)?, pair(b)?))) {
@@ -118,6 +147,7 @@ fn cut(sheet: &Image, frame: &str, line: usize) -> Vec<Image> {
                             }
                         }
                     }
+                    clear_from_edges(&mut img, &key);
                     match crop {
                         Some((cw, ch)) => {
                             let mut out = Image::new(cw, ch);
