@@ -16,7 +16,7 @@ Captured on the device with `scripts/debug.sh shot`. Each image shows the top sc
 
 ## The game
 
-**Play** in the title menu starts a run on a newly generated farm: a road with a gas station, a farmhouse and barn joined to the road by dirt paths, fenced crop and corn fields, a windmill, a graveyard, and scattered trees, wrecks and barrels. The view is the top screen at 4x, 256x192 art pixels.
+**Play** in the title menu starts a run on a newly generated farm: a road with a gas station, a farmhouse and barn joined to the road by dirt paths, fenced crop and corn fields, a windmill, a graveyard, and scattered trees, wrecks and barrels. The top screen shows the farm top-down at 4x, 256x192 art pixels. The bottom screen shows the same farm in 2.5D: every sprite's silhouette extruded into depth, lit by the player's lantern and fading into fog, from a camera that follows the direction you walk.
 
 Zombies arrive from just out of sight and find their way around buildings and fences. Your weapons fire on their own at the nearest one. Kills drop money, and money levels you up: pick one of three upgrades on either screen. Shooting a red barrel sets it off. Survive until dawn, ten minutes in.
 
@@ -133,7 +133,7 @@ scripts/debug.sh panic                      # crash on purpose to test crash.log
 scripts/debug.sh logs                       # follow the game log, with a perf line each second
 ```
 
-The scene names are `harvest`, `art`, `micro`, `stars`, `balloon`, `dodge`, `dice`, `stress` and `hardware`. The `stars`, `balloon` and `dodge` scenes start a microgame run on that microgame. On macOS, set `LAST_HARVEST_DEBUG=1` and write commands to the pipe directly.
+The scene names are `harvest`, `farm` (the game without zombies, for looking around), `art`, `micro`, `stars`, `balloon`, `dodge`, `dice`, `stress` and `hardware`. The `stars`, `balloon` and `dodge` scenes start a microgame run on that microgame. On macOS, set `LAST_HARVEST_DEBUG=1` and write commands to the pipe directly.
 
 ### Environment variables
 
