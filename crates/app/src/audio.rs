@@ -343,3 +343,50 @@ impl Audio {
 fn on_error(e: cpal::StreamError) {
     eprintln!("audio: {e}");
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const RATE: f32 = 48_000.0;
+
+    fn synth() -> (Synth, Sender<Sfx>) {
+        let (tx, rx) = channel();
+        let volume = Arc::new(AtomicU32::new(1f32.to_bits()));
+        let dread = Arc::new(AtomicU32::new(0f32.to_bits()));
+        let drone = Drone { level: 0.0, phases: [0.0; 3], t: 0.0 };
+        (Synth { rx, voices: Vec::new(), volume, dread, drone, dt: 1.0 / RATE, noise: 1 }, tx)
+    }
+
+    /// Plays `secs` of audio and returns the loudest sample.
+    fn render(s: &mut Synth, secs: f32) -> f32 {
+        let mut buf = vec![0.0f32; (RATE * secs) as usize * 2];
+        s.fill(&mut buf, 2);
+        buf.iter().fold(0.0, |m, v| m.max(v.abs()))
+    }
+
+    #[test]
+    fn every_cue_sounds_ends_and_stays_under_full_scale() {
+        let cues = [
+            Sfx::Shot, Sfx::Blast, Sfx::Slash, Sfx::Thud(true), Sfx::Kill(0), Sfx::Kill(1), Sfx::Kill(2),
+            Sfx::Boom { pan: 0, gain: 255 }, Sfx::Throw, Sfx::Pickup(20), Sfx::Heal, Sfx::Hurt, Sfx::Heartbeat,
+            Sfx::LevelUp, Sfx::Pick(true), Sfx::Rise { pan: -100, gain: 255 }, Sfx::Groan { pan: 100, gain: 255 },
+            Sfx::Caw { pan: 0, gain: 255 }, Sfx::Bell, Sfx::Horde, Sfx::Dawn, Sfx::GameOver,
+        ];
+        for cue in cues {
+            let (mut s, tx) = synth();
+            tx.send(cue).unwrap();
+            let peak = render(&mut s, 3.0);
+            assert!(peak > 0.02 && peak < 0.99, "{cue:?} peaks at {peak}");
+            assert!(s.voices.is_empty(), "{cue:?} still playing");
+        }
+    }
+
+    #[test]
+    fn the_drone_follows_the_dread() {
+        let (mut s, _tx) = synth();
+        assert_eq!(render(&mut s, 0.5), 0.0);
+        s.dread.store(1f32.to_bits(), Ordering::Relaxed);
+        assert!(render(&mut s, 4.0) > 0.02);
+    }
+}
