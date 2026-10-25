@@ -32,5 +32,8 @@ rustc-ice-*.txt
 # Recorded sounds stay out until their licenses are checked
 /assets/sounds/
 
+# Sprites saved from the editor: edits of the tileset's are derived from it, so they share its license
+/assets/sprites/
+
 # macOS Finder metadata
 .DS_Store

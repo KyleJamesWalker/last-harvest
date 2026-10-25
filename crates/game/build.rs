@@ -77,10 +77,13 @@ fn decode(path: &Path) -> Result<Image, String> {
     let mut reader = decoder.read_info().map_err(|e| e.to_string())?;
     let mut buf = vec![0; reader.output_buffer_size()];
     let info = reader.next_frame(&mut buf).map_err(|e| e.to_string())?;
-    if info.color_type != png::ColorType::Rgba || info.bit_depth != png::BitDepth::Eight {
-        return Err(format!("expected 8-bit RGBA, got {:?} {:?}", info.color_type, info.bit_depth));
+    if info.bit_depth != png::BitDepth::Eight || !matches!(info.color_type, png::ColorType::Rgba | png::ColorType::Rgb) {
+        return Err(format!("expected 8-bit RGBA or RGB, got {:?} {:?}", info.color_type, info.bit_depth));
     }
     buf.truncate(info.buffer_size());
+    if info.color_type == png::ColorType::Rgb {
+        buf = buf.chunks_exact(3).flat_map(|p| [p[0], p[1], p[2], 255]).collect();
+    }
     // A few stray, nearly clear pixels would otherwise show as faint squares.
     for px in buf.chunks_exact_mut(4) {
         px[3] = if px[3] >= 128 { 255 } else { 0 };
@@ -99,9 +102,11 @@ fn cut(sheet: &Image, frame: &str, line: usize) -> Vec<Image> {
             img.blit(sheet, [x, y], [w, h], [0, 0]);
             vec![img]
         }
-        Some("solid") if words.len() == 3 => {
+        Some(kind @ ("solid" | "blank")) if words.len() == 3 => {
             let mut img = Image::new(num(words[1]), num(words[2]));
-            img.rgba.fill(255);
+            if kind == "solid" {
+                img.rgba.fill(255);
+            }
             vec![img]
         }
         Some("cell") => {
@@ -168,6 +173,23 @@ fn cut(sheet: &Image, frame: &str, line: usize) -> Vec<Image> {
     }
 }
 
+/// A sprite name the generated code can use as a constant.
+fn is_name(n: &str) -> bool {
+    n.starts_with(|c: char| c.is_ascii_uppercase()) && n.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+}
+
+/// The frames saved for a sprite as `0.png`, `1.png` and so on, or none.
+fn saved(dir: &Path) -> Vec<Image> {
+    let mut frames = Vec::new();
+    loop {
+        let path = dir.join(format!("{}.png", frames.len()));
+        if !path.exists() {
+            return frames;
+        }
+        frames.push(decode(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display())));
+    }
+}
+
 fn main() {
     let manifest = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
     let out = PathBuf::from(std::env::var("OUT_DIR").unwrap());
@@ -175,6 +197,8 @@ fn main() {
     let reference = manifest.join("../../assets/zombie-apocalypse/Zombie Apocalypse Tileset Reference.png");
     println!("cargo:rerun-if-changed={}", catalog.display());
     println!("cargo:rerun-if-changed={}", reference.display());
+    let sprites = manifest.join("../../assets/sprites");
+    println!("cargo:rerun-if-changed={}", manifest.join("../../assets").display());
     let sheet = decode(&reference).unwrap_or_else(|e| {
         panic!("{}: {e}\nGet the Zombie Apocalypse Tileset from itch.io and run scripts/assets.sh <zip>.", reference.display())
     });
@@ -183,23 +207,37 @@ fn main() {
     let mut entries: Vec<(String, Vec<usize>)> = Vec::new();
     let mut images: Vec<Image> = Vec::new();
     let mut seen: HashMap<Vec<u8>, usize> = HashMap::new();
+    let mut intern = |img: Image| {
+        let mut key = img.rgba.clone();
+        key.extend(img.w.to_le_bytes());
+        *seen.entry(key).or_insert_with(|| {
+            images.push(img);
+            images.len() - 1
+        })
+    };
     let text = std::fs::read_to_string(&catalog).unwrap();
     for (i, raw) in text.lines().enumerate() {
         let line = raw.split('#').next().unwrap().trim();
         let Some((name, rest)) = line.split_once(char::is_whitespace) else { continue };
-        let mut ids = Vec::new();
-        for frame in rest.split(';') {
-            for img in cut(&sheet, frame.trim(), i + 1) {
-                let mut key = img.rgba.clone();
-                key.extend(img.w.to_le_bytes());
-                let id = *seen.entry(key).or_insert_with(|| {
-                    images.push(img);
-                    images.len() - 1
-                });
-                ids.push(id);
-            }
+        // A sprite saved from the editor takes the place of its cut from the sheet.
+        let drawn = saved(&sprites.join(name));
+        let frames = if drawn.is_empty() { rest.split(';').flat_map(|frame| cut(&sheet, frame.trim(), i + 1)).collect() } else { drawn };
+        entries.push((name.to_string(), frames.into_iter().map(&mut intern).collect()));
+    }
+    // Sprites drawn from scratch in the editor, with no line in the catalog.
+    let mut extra: Vec<String> = std::fs::read_dir(&sprites)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|e| e.file_name().into_string().ok())
+        .filter(|n| is_name(n) && !entries.iter().any(|(e, _)| e == n))
+        .collect();
+    extra.sort();
+    for name in extra {
+        let frames = saved(&sprites.join(&name));
+        if !frames.is_empty() {
+            entries.push((name, frames.into_iter().map(&mut intern).collect()));
         }
-        entries.push((name.to_string(), ids));
     }
 
     // Shelf packing, tallest first.

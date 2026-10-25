@@ -7,6 +7,10 @@
 #        key=RRGGBB,... clears those colors where they touch the edge, to drop a baked-in ground
 #   px X Y W H                       raw reference pixels, for sprites that straddle the grid
 #   solid W H                        opaque white, for tinted particles
+#   blank W H                        clear, for the sprite editor's scratch space
+#
+# A sprite saved from the editor as assets/sprites/NAME/0.png, 1.png and so on replaces its frames here,
+# and a folder there with no line here adds a new sprite.
 
 # Ground
 DIRT            cell 10 12 ; cell 11 10
@@ -103,6 +107,8 @@ PISTOL          px 21 158 8 5
 SHOTGUN         px 17 139 16 5
 GRENADE         px 22 118 7 9
 WHITE           solid 4 4
+# The sprite editor draws the sprite it is working on here.
+SCRATCH         blank 128 128
 
 # Wildlife, in the white bird's column; the black bird's is one to the right
 CROW_FLY        cell 42 0 ; cell 42 1 ; cell 42 2
