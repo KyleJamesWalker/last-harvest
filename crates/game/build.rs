@@ -225,11 +225,11 @@ fn main() {
     let manifest = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
     let out = PathBuf::from(std::env::var("OUT_DIR").unwrap());
     let catalog = manifest.join("art.txt");
-    let reference = manifest.join("../../assets/zombie-apocalypse/Zombie Apocalypse Tileset Reference.png");
+    let reference = manifest.join("../../assets/private/zombie-apocalypse/Zombie Apocalypse Tileset Reference.png");
     println!("cargo:rerun-if-changed={}", catalog.display());
     println!("cargo:rerun-if-changed={}", reference.display());
-    let sprites = manifest.join("../../assets/sprites");
-    println!("cargo:rerun-if-changed={}", manifest.join("../../assets").display());
+    let sprites = manifest.join("../../assets/private/sprites");
+    println!("cargo:rerun-if-changed={}", manifest.join("../../assets/private").display());
     let sheet = decode(&reference).unwrap_or_else(|e| {
         panic!("{}: {e}\nGet the Zombie Apocalypse Tileset from itch.io and run scripts/assets.sh <zip>.", reference.display())
     });

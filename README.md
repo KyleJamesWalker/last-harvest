@@ -44,9 +44,22 @@ The same code also builds and runs on macOS for quick iteration.
 
 ## Setup
 
+Every build needs the tileset at `assets/private/`. That folder is a submodule pointing at a private repository holding the tileset, the edited sprites and recorded sounds, since the tileset's license forbids redistributing it. With access to that repository:
+
+```sh
+git submodule update --init   # or clone with --recurse-submodules
+```
+
+Without it, buy the [tileset](https://ittaimanero.itch.io/zombie-apocalypse-tileset) and unpack it into the same place; the game builds with the tileset's own sprites:
+
+```sh
+scripts/assets.sh <path to the tileset zip>
+```
+
+Then:
+
 ```sh
 rustup target add aarch64-unknown-linux-gnu
-scripts/assets.sh <path to the tileset zip>   # unpack the art; every build needs it
 scripts/sysroot.sh        # copy the device's libasound for linking
 ```
 
@@ -121,7 +134,7 @@ The scene names are `title`, `harvest`, `farm` (the game without zombies, for lo
 | `LAST_HARVEST_DEBUG` | Turns on debug mode. `DEBUG=1 scripts/deploy.sh` sets it. |
 | `LAST_HARVEST_LOG_INPUT` | Logs every gamepad event. `CAPTURE=1 scripts/deploy.sh` sets it. |
 | `LAST_HARVEST_SAVE` | Sets the save file path. |
-| `LAST_HARVEST_SOUNDS` | Sets the folder of recorded sounds. The default is `sounds` beside the binary, then `assets/sounds`. |
+| `LAST_HARVEST_SOUNDS` | Sets the folder of recorded sounds. The default is `sounds` beside the binary, then `assets/private/sounds`. |
 | `LAST_HARVEST_TOP` | Names the output for the top screen, such as `DSI-2`. |
 | `RGDS_HOST` | Sets the SSH target for the scripts. The default is `root@anbernic.local`. |
 
@@ -152,11 +165,11 @@ A pixel editor for the game's sprites, on macOS. The left pane lists every sprit
 | Save | Cmd+S; leaving a sprite with unsaved changes asks to save (S or Enter), discard (D) or stay (Esc) |
 | Screenshot the window | F12, into the sprites folder |
 
-Save writes each frame to `assets/sprites/NAME/0.png`, `1.png` and so on, and a changed stand to the sprite's line in `crates/game/art.txt` as `@prop 12`, `@slab 10`, `@figure` or `@ground`, or to `stand.txt` in its folder for a new sprite. A carved sprite keeps `south.png`, `east.png`, an optional `footprint.png`, and a `stand.txt` saying `carve` in its folder; a build without them, such as a fresh clone, stands it as a slab. The next build of the game packs a saved sprite in place of its cut from the tileset, and a folder with a name not in `crates/game/art.txt` becomes a new sprite, `art::NAME`, for the code to use. Saved sprites stay out of git, because edits of the tileset's sprites fall under its license. Delete a sprite's folder to go back to the tileset's version. Set `LAST_HARVEST_SPRITES` to save somewhere else.
+Save writes each frame to `assets/private/sprites/NAME/0.png`, `1.png` and so on, and a changed stand to the sprite's line in `crates/game/art.txt` as `@prop 12`, `@slab 10`, `@figure` or `@ground`, or to `stand.txt` in its folder for a new sprite. A carved sprite keeps `south.png`, `east.png`, an optional `footprint.png`, and a `stand.txt` saying `carve` in its folder; a build without them, such as a fresh clone, stands it as a slab. The next build of the game packs a saved sprite in place of its cut from the tileset, and a folder with a name not in `crates/game/art.txt` becomes a new sprite, `art::NAME`, for the code to use. Saved sprites go in the private assets submodule, because edits of the tileset's sprites fall under its license: commit and push them there. Delete a sprite's folder to go back to the tileset's version. Set `LAST_HARVEST_SPRITES` to save somewhere else.
 
 ### Sounds
 
-Put WAV files in `assets/sounds/`, named after the cue they replace. `scripts/deploy.sh` and `scripts/install.sh` copy them to the device. A cue with no file keeps its synth voice. Add `-2`, `-3` and so on for variations, such as `shot.wav` and `shot-2.wav`, and each play picks one at random. Files can be 8, 16, 24 or 32-bit PCM or 32-bit float, mono or stereo, at any sample rate.
+Put WAV files in `assets/private/sounds/`, named after the cue they replace. `scripts/deploy.sh` and `scripts/install.sh` copy them to the device. A cue with no file keeps its synth voice. Add `-2`, `-3` and so on for variations, such as `shot.wav` and `shot-2.wav`, and each play picks one at random. Files can be 8, 16, 24 or 32-bit PCM or 32-bit float, mono or stereo, at any sample rate.
 
 | File | Plays when |
 |---|---|
@@ -171,7 +184,7 @@ Put WAV files in `assets/sounds/`, named after the cue they replace. `scripts/de
 | `bell`, `horde`, `dawn`, `gameover` | Each minute, each horde, surviving, or dying |
 | `start`, `miss` | A run starts, or a tap with no grenade ready |
 
-Every file also plays a few percent sharp or flat at random. Explosions, rising, groans and crows are panned and quieted by where they happen. Git ignores `assets/sounds/` until each file's license is checked.
+Every file also plays a few percent sharp or flat at random. Explosions, rising, groans and crows are panned and quieted by where they happen. They live in the private assets submodule, so check each file's license before sharing it anywhere else.
 
 ### Saves and crashes
 
@@ -192,7 +205,8 @@ Measured on the device with the debug perf log, 4x MSAA, both screens at 1024x76
 | `crates/app` | Windows, input, audio, saves, crash log, debug mode, and the device-only sysfs and evdev code. |
 | `crates/editor` | The sprite editor, a macOS tool built on the game's renderer and views. |
 | `scripts` | Cross-compile, sysroot, deploy, install and debug scripts, and the on-device run script. |
-| `assets` | The font and its license, the Ports launcher with its cover art, and the gitignored tileset. |
+| `assets` | The font and its license, and the Ports launcher with its cover art. |
+| `assets/private` | Submodule of the private assets repository: the tileset, edited sprites and recorded sounds. |
 
 ## Device notes
 
@@ -224,6 +238,6 @@ When the stock menu launches a port, the frontend exits first and restarts after
 
 The code is under the [MIT License](LICENSE).
 
-The game art is the [Zombie Apocalypse Tileset](https://ittaimanero.itch.io/zombie-apocalypse-tileset) by Ittai Manero. It is not included in this repository and the MIT License does not cover it. The pack's own license applies: you may use and edit it in personal and commercial games, but you may not redistribute or resell it. To build the game, download the pack from itch.io and run `scripts/assets.sh <path to the zip>`. It extracts to `assets/zombie-apocalypse/`, which git ignores.
+The game art is the [Zombie Apocalypse Tileset](https://ittaimanero.itch.io/zombie-apocalypse-tileset) by Ittai Manero. It is not included in this repository and the MIT License does not cover it. The pack's own license applies: you may use and edit it in personal and commercial games, but you may not redistribute or resell it. The `assets/private` submodule points at a private repository that holds it with the sprites edited from it; without access, download the pack from itch.io and run `scripts/assets.sh <path to the zip>`, which extracts it to `assets/private/zombie-apocalypse/`.
 
 The font is Atkinson Hyperlegible, under the SIL Open Font License in `assets/fonts/OFL.txt`.

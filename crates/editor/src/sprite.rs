@@ -126,7 +126,7 @@ pub fn block_views(top: &Frame, height: usize) -> [Frame; 2] {
 
 /// Where saved sprites live; the game's build packs them in place of, or beside, the tileset's.
 pub fn folder() -> PathBuf {
-    std::env::var_os("LAST_HARVEST_SPRITES").map(PathBuf::from).unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/sprites"))
+    std::env::var_os("LAST_HARVEST_SPRITES").map(PathBuf::from).unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/private/sprites"))
 }
 
 /// A name the build can turn into a constant: a capital letter, then capitals, digits and underscores.

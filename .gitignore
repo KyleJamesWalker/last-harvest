@@ -26,14 +26,5 @@ rustc-ice-*.txt
 # Device libraries pulled by scripts/sysroot.sh
 /.sysroot
 
-# Zombie Apocalypse Tileset: its license forbids redistribution
-/assets/zombie-apocalypse/
-
-# Recorded sounds stay out until their licenses are checked
-/assets/sounds/
-
-# Sprites saved from the editor: edits of the tileset's are derived from it, so they share its license
-/assets/sprites/
-
 # macOS Finder metadata
 .DS_Store

@@ -55,13 +55,13 @@ pub fn cue(sfx: Sfx) -> (&'static str, f32) {
     (name, 1.0)
 }
 
-/// Where the sounds live: `LAST_HARVEST_SOUNDS`, else `sounds` beside the binary, else `assets/sounds` for a dev run.
+/// Where the sounds live: `LAST_HARVEST_SOUNDS`, else `sounds` beside the binary, else `assets/private/sounds` for a dev run.
 pub fn folder() -> Option<PathBuf> {
     if let Some(dir) = std::env::var_os("LAST_HARVEST_SOUNDS") {
         return Some(dir.into());
     }
     let beside = std::env::current_exe().ok()?.parent()?.join("sounds");
-    [beside, PathBuf::from("assets/sounds")].into_iter().find(|d| d.is_dir())
+    [beside, PathBuf::from("assets/private/sounds")].into_iter().find(|d| d.is_dir())
 }
 
 impl Bank {

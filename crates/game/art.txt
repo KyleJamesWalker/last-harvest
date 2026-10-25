@@ -13,7 +13,7 @@
 # @slab HEIGHT (flat as a roof that high, for sprites drawn from above), @figure (turns to the camera)
 # or @ground (flat). Without one, buildings reach back over their solid rows and small things are thin.
 #
-# A sprite saved from the editor as assets/sprites/NAME/0.png, 1.png and so on replaces its frames here,
+# A sprite saved from the editor as assets/private/sprites/NAME/0.png, 1.png and so on replaces its frames here,
 # and a folder there with no line here adds a new sprite.
 
 # Ground

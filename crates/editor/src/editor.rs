@@ -1665,14 +1665,18 @@ mod tests {
         e.key(Key::Char('/'));
         assert!(e.wants_text());
         type_keys(&mut e, "car_");
+        // Saved sprites with CAR_ in their names can join the two in the catalog.
         let found: Vec<String> = e.listed().iter().map(|(n, _)| n.clone()).collect();
-        assert_eq!(found, ["CAR_H", "CAR_V"]);
+        assert_eq!(found[..2], ["CAR_H", "CAR_V"]);
+        assert!(found.iter().all(|n| n.contains("CAR_")));
         e.key(Key::Enter);
         assert_eq!(e.sprite.name, "CAR_H");
         assert!(!e.wants_text());
         e.key(Key::Char('j'));
         assert_eq!(e.sprite.name, "CAR_V");
-        e.key(Key::Char('j'));
+        for _ in 1..found.len() {
+            e.key(Key::Char('j'));
+        }
         assert_eq!(e.sprite.name, "CAR_H", "it wraps within the matches");
         e.key(Key::Escape);
         assert!(e.filter.is_empty() && e.listed().len() == e.names.len());
