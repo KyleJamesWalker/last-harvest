@@ -8,7 +8,7 @@ Press A or tap the title screen to start a run on a newly generated farm: a road
 
 The top screen is the main view, in 2.5D: every sprite's silhouette extruded into depth, lit by the player's lantern and fading into fog, seen from just behind the player. The bottom screen is the same farm top-down at 2x, 512x384 art pixels, with dots marking what the main view faces.
 
-Zombies claw their way out of the ground, at the edge of the fog early on and only a few tiles away by the end of the night, then find their way around buildings and fences. Your weapons fire on their own at the nearest one. Tap the map to lob a grenade there; you hold three, and each recharges in 12 seconds. Kills drop money, and money levels you up: pick one of three upgrades on either screen. Shooting a red barrel sets it off. Survive until dawn, ten minutes in. Fall, and you sink into the dirt and climb back out as one of them.
+Zombies claw their way out of the ground, at the edge of the fog early on and only a few tiles away by the end of the night, then find their way around buildings and fences. Your weapons fire on their own. Tap the map to lob a grenade there; you hold three, and each recharges in 12 seconds. Kills drop money, and money levels you up: pick one of three powerups on either screen; see [Powerups](#powerups). Shooting a red barrel sets it off. Survive until dawn, ten minutes in. Fall, and you sink into the dirt and climb back out as one of them.
 
 Pick a difficulty on the title screen with Left and Right, or by tapping its arrows. Easy bites gently and drops health often, Normal makes bites hurt and health scarce, and Hard makes every bite count. The choice is remembered.
 
@@ -25,7 +25,22 @@ Every sound is synthesized at runtime from a few oscillator voices per cue, with
 | Show the whole map | Hold L1 | Hold Q |
 | Back to the menu | Back, or B after a run | Tab, or Z after a run |
 
-The art comes from the tileset's reference sheet. `crates/game/art.txt` names each sprite and where it sits on the sheet, and `crates/game/build.rs` packs them into one texture at build time. The `art` debug scene shows every sprite in the catalog.
+The art comes from the tileset's reference sheet. `crates/game/art.txt` names each sprite and where it sits on the sheet, and `crates/game/build.rs` packs them into one texture at build time. The `art` debug scene shows every sprite in the catalog. The new weapons and every upgrade icon are original placeholders in `crates/game/placeholder/`. Redraw one in the [sprite editor](#sprite-editor) and the saved version replaces the placeholder.
+
+### Powerups
+
+A run starts with the pistol. Each level-up offers three cards, drawn from 17 weapons and 17 passives. A run carries at most six weapons and six passives. Once both are full, the cards only offer levels for what you already carry. When nothing is left to level, the cards offer a snack, an ammo crate or pocket change.
+
+Each weapon covers a zone, shown on its card:
+
+- **Ahead** weapons fire into the view the top screen shows. The pistol also shoots anything within 70 pixels, whichever way you face.
+- **Around** weapons hit a ring centered on you.
+- **Behind** weapons fire or drop things behind you.
+- **Map** weapons land on crowds anywhere on the farm.
+
+Eight powerups are open from the first night. The rest unlock as you kill zombies, survive longer, reach higher levels, play more nights and survive to dawn. The title screen shows how many are open and the next one you are closest to. The game-over screen names any powerup that the run unlocked.
+
+`crates/game/powerups.txt` defines every powerup: its name, zone, unlock rule, highest level, and its stats at each level. Change a number and rebuild to rebalance. To add a powerup, copy a section under a new id. A `does` line reuses an existing weapon behavior with new numbers. The comments at the top of the file list every key and stat. A test reads the file, so a typo fails `cargo test` and names the line.
 
 Also on every screen:
 
@@ -138,6 +153,8 @@ The scene names are `title`, `harvest`, `farm` (the game without zombies, for lo
 | `LAST_HARVEST_SAVE` | Sets the save file path. |
 | `LAST_HARVEST_SOUNDS` | Sets the folder of recorded sounds. The default is `sounds` beside the binary, then `assets/private/sounds`. |
 | `LAST_HARVEST_TOP` | Names the output for the top screen, such as `DSI-2`. |
+| `LAST_HARVEST_UNLOCK_ALL` | Offers every powerup, whatever the save has unlocked. |
+| `LAST_HARVEST_KIT` | Starts every run carrying these powerups, as comma-separated `id` or `id:level`, such as `scythe:3,crows,dog`. |
 | `RGDS_HOST` | Sets the SSH target for the scripts. The default is `root@anbernic.local`. |
 
 ### Sprite editor
