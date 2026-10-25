@@ -87,6 +87,10 @@ pub struct Game {
     save: Save,
     volume_shown: f32,
     leds: [bool; 2],
+    /// Every powerup on offer, whatever the save says, for trying them out.
+    unlock_all: bool,
+    /// Powerups every run starts with, as `Harvest::with_kit` reads them.
+    kit: String,
 }
 
 impl Game {
@@ -106,6 +110,8 @@ impl Game {
             save: Save::default(),
             volume_shown: 0.0,
             leds: [false; 2],
+            unlock_all: false,
+            kit: String::new(),
         }
     }
 
@@ -115,6 +121,20 @@ impl Game {
 
     pub fn save(&self) -> Save {
         self.save
+    }
+
+    pub fn unlock_everything(&mut self) {
+        self.unlock_all = true;
+    }
+
+    /// Starts every run carrying these powerups: `id` or `id:level`, comma separated.
+    pub fn start_with(&mut self, kit: &str) {
+        self.kit = kit.to_string();
+    }
+
+    fn progress(&self) -> harvest::Progress {
+        let s = &self.save;
+        harvest::Progress { kills: s.kills, best: s.best, best_level: s.best_level, nights: s.nights, dawns: s.dawns, everything: self.unlock_all }
     }
 
     /// One line describing the current scene, for logs.
@@ -137,7 +157,7 @@ impl Game {
             Scene::Title => State::Title,
             Scene::Harvest => {
                 self.sounds.push(Sfx::Start);
-                State::Harvest(Box::new(harvest::Harvest::new(seed).at(self.save.difficulty)))
+                State::Harvest(Box::new(harvest::Harvest::new(seed).at(self.save.difficulty).with_progress(self.progress()).with_kit(&self.kit)))
             }
             Scene::Farm => State::Harvest(Box::new(harvest::Harvest::calm(seed))),
             Scene::Bench => State::Harvest(Box::new(harvest::Harvest::bench())),
@@ -243,8 +263,9 @@ impl Game {
                 if let Some(r) = flow.rumble {
                     self.buzz(r);
                 }
-                if let Some(secs) = flow.survived {
-                    self.save.best = self.save.best.max(secs as u32);
+                if let Some(run) = flow.ended {
+                    let p = self.progress().after(run);
+                    (self.save.kills, self.save.best, self.save.best_level, self.save.nights, self.save.dawns) = (p.kills, p.best, p.best_level, p.nights, p.dawns);
                 }
                 if flow.quit { State::Title } else { State::Harvest(h) }
             }
@@ -323,6 +344,11 @@ impl Game {
         if self.save.best > 0 {
             let line = format!("Longest night: {}:{:02}", self.save.best / 60, self.save.best % 60);
             f.top.label(line, SCREEN_W / 2.0, 480.0, 34.0, HOT, Align::Center);
+        }
+        let (open, all) = harvest::unlocked(&self.progress());
+        f.top.label(format!("Powerups unlocked: {open} of {all}"), SCREEN_W / 2.0, 530.0, 28.0, DIM, Align::Center);
+        if let Some((name, how)) = harvest::next_unlock(&self.progress()) {
+            f.top.label(format!("Next: {name}. {how}"), SCREEN_W / 2.0, 566.0, 24.0, DIM, Align::Center);
         }
         let pulse = 0.55 + 0.45 * (t * 3.0).sin().abs();
         f.bottom.label("Press A or tap to start", SCREEN_W / 2.0, 240.0, 56.0, [1.0, 1.0, 1.0, pulse], Align::Center);

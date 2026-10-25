@@ -177,6 +177,8 @@ fn notes(sfx: Sfx) -> Vec<Note> {
             pan,
             gain,
         ),
+        Sfx::Zap => vec![note(0.0, 0.14, 3200.0, 900.0, Square, 0.25), note(0.0, 0.1, 4000.0, 6000.0, Noise, 0.3)],
+        Sfx::Bark => vec![hit(0.0, 0.09, 520.0, 300.0, Square, 0.4), hit(0.12, 0.08, 480.0, 280.0, Square, 0.35)],
         Sfx::Bell => vec![hit(0.0, 1.4, 660.0, 660.0, Triangle, 0.6), hit(0.0, 1.0, 1320.0, 1320.0, Sine, 0.3), hit(0.0, 0.8, 1650.0, 1650.0, Sine, 0.2)],
         Sfx::Horde => vec![
             note(0.0, 1.3, 55.0, 50.0, Square, 0.45),

@@ -9,7 +9,8 @@ use glam::{Mat4, Vec3};
 use super::carve;
 use super::map::TILE;
 use crate::art::Stand;
-use super::{DAWN, DropKind, Facing, GRENADE_FLIGHT, GRENADE_RADIUS, Harvest, Phase, TELL_TIME, TURN_RISE, TURNED, WALK_FPS, Zombie, len, norm, player_pose, sub};
+use super::weapons::{BOLT_LIFE, Hazard};
+use super::{DAWN, DropKind, Facing, GRENADE_FLIGHT, GRENADE_RADIUS, Harvest, Phase, TELL_TIME, TURN_RISE, TURNED, Thrown, WALK_FPS, Zombie, len, norm, player_pose, sub};
 use crate::art::{self, ATLAS_H, ATLAS_W, Art, PIXELS, RECTS};
 use crate::scene3d::{Card, CardScene, Flash};
 use crate::{SCREEN_H, SCREEN_W};
@@ -256,6 +257,17 @@ pub fn sky(h: &Harvest) -> Sky {
     }
 }
 
+/// A ring of glowing specks on the ground.
+fn patch_ring(out: &mut Vec<Card>, center: Vec3, radius: f32, color: [f32; 3], right: Vec3, near: impl Fn(Vec3) -> bool) {
+    for i in 0..16 {
+        let a = i as f32 / 16.0 * std::f32::consts::TAU;
+        let q = center + Vec3::new(a.cos() * radius, 0.05, a.sin() * radius);
+        if near(q) {
+            speck(out, q, 0.06, right, color, 1.0);
+        }
+    }
+}
+
 /// Where a point in the world lands on the top screen, in screen pixels, and how far away it is; None behind the camera.
 pub fn to_screen(view_proj: Mat4, at: [f32; 2], height: f32) -> Option<([f32; 2], f32)> {
     let q = world(at) + Vec3::Y * (height * PX);
@@ -411,6 +423,64 @@ pub fn scene(h: &Harvest) -> CardScene {
     for (a, at) in figures {
         board(&mut cards, Board::new(a, false, at, 0.0, CHARACTER_DEPTH));
     }
+    for d in &h.decoys {
+        // It shudders harder as it gets ready to burst.
+        let mut b = Board::new(art::SCARECROW, false, d.pos, 0.0, CHARACTER_DEPTH);
+        let k = d.age / d.life;
+        b.lean = right * ((d.age * (10.0 + 30.0 * k)).sin() * 0.08 * k);
+        board(&mut cards, b);
+    }
+    for d in &h.dogs {
+        let flip = d.heading[0] * right.x + d.heading[1] * right.z < 0.0;
+        board(&mut cards, Board::new(d.art(), flip, d.pos, 0.0, CHARACTER_DEPTH));
+    }
+    for (i, (p, flip)) in h.crows().into_iter().enumerate() {
+        let a = art::CROW_FLY[(h.t * 12.0 + i as f32) as usize % art::CROW_FLY.len()];
+        board(&mut cards, Board::new(a, flip, p, 12.0 * PX, 0.0));
+    }
+    for s in &h.swings {
+        let (angle, r) = s.now();
+        let at = [h.pos[0] + angle.cos() * r, h.pos[1] + angle.sin() * r];
+        board(&mut cards, Board::new(s.art, angle.cos() * right.x + angle.sin() * right.z < 0.0, at, 4.0 * PX, 0.0));
+    }
+    for patch in &h.patches {
+        let q = world(patch.pos);
+        if !near(q) {
+            continue;
+        }
+        match patch.hazard {
+            // Underfoot behind the player they'd fill the bottom of the screen.
+            Hazard::Tacks if (q - p).dot(forward) < 0.0 => {}
+            Hazard::Tacks => {
+                let a = art::TACKS;
+                flat(&mut cards, a, q.x - a.w() * PX / 2.0, q.z - a.h() * PX / 2.0, DECAL_LIFT + 0.008, [1.0; 3]);
+            }
+            Hazard::Fire => {
+                let a = art::FIRE[((h.t * 10.0 + patch.pos[0]) as usize) % art::FIRE.len()];
+                let mut b = Board::new(a, false, patch.pos, 0.0, 0.0);
+                b.tint = [1.6, 1.3, 1.0];
+                board(&mut cards, b);
+            }
+            Hazard::Flare => {
+                board(&mut cards, Board::new(art::FLARE, false, patch.pos, 0.0, 0.0));
+                patch_ring(&mut cards, q, patch.radius * PX, [1.0, 0.3, 0.2], right, near);
+            }
+        }
+    }
+    for b in &h.bolts {
+        let fade = 1.0 - b.age / BOLT_LIFE;
+        for w in b.points.windows(2) {
+            for k in 0..10 {
+                let t = k as f32 / 10.0;
+                let jitter = (k as f32 * 7.3 + b.age * 90.0).sin() * 2.0;
+                let at = [w[0][0] + (w[1][0] - w[0][0]) * t + jitter, w[0][1] + (w[1][1] - w[0][1]) * t + 6.0];
+                let q = world(at) + Vec3::Y * (0.5 + jitter * PX);
+                if near(q) && (q - p).dot(forward) > 0.0 {
+                    speck(&mut cards, q, 0.07 * fade, right, [0.7, 0.85, 1.0], 1.0);
+                }
+            }
+        }
+    }
     for d in &h.drops {
         let a = match d.kind {
             DropKind::Money(_) => art::MONEY[3],
@@ -447,7 +517,10 @@ pub fn scene(h: &Harvest) -> CardScene {
     }
     for g in &h.thrown {
         let (at, lift) = g.at();
-        board(&mut cards, Board::new(art::GRENADE, false, at, lift * PX, 0.0));
+        board(&mut cards, Board::new(g.art(), false, at, lift * PX, 0.0));
+        if g.kind != Thrown::Grenade {
+            continue;
+        }
         // A shadow that grows as the grenade comes down, and a ring of red marks where it will land.
         let k = (g.t / GRENADE_FLIGHT).min(1.0);
         patch(&mut cards, world(at) + Vec3::Y * (DECAL_LIFT + 0.01), 0.15 + 0.15 * k, [0.02; 3]);
@@ -507,7 +580,7 @@ pub fn scene(h: &Harvest) -> CardScene {
         .iter()
         .map(|f| Flash { pos: world(f.pos) + Vec3::Y * (f.z * PX), color: f.color.map(|c| c * f.strength()), range: f.range * (0.5 + 0.5 * f.strength()) })
         .collect();
-    let health = h.hp / h.gear.max_hp;
+    let health = h.hp / h.kit.max_hp();
     let dying = matches!(h.phase, Phase::Over { won: false, .. });
     // Once the player has climbed back out, a sickly light comes up on what they've become.
     let turned = match h.phase {
@@ -516,7 +589,7 @@ pub fn scene(h: &Harvest) -> CardScene {
     };
     // The lantern gutters when you're nearly done for.
     let gutter = if health < 0.3 { 0.15 * (h.juice.clock * 23.0).sin().abs() * (h.juice.clock * 7.0).sin().abs() } else { 0.0 };
-    let lantern = if dying { 3.0 + 4.0 * turned } else { 9.0 } * (1.0 - 0.04 * (h.t * 13.0).sin().abs() - gutter);
+    let lantern = if dying { 3.0 + 4.0 * turned } else { 9.0 * h.kit.mods.view + 6.0 * h.beam } * (1.0 - 0.04 * (h.t * 13.0).sin().abs() - gutter);
     let sky = sky(h);
     let hurt = h.juice.hurt / 0.35;
     let light_color = [sky.lantern[0], sky.lantern[1] * (1.0 - 0.4 * hurt), sky.lantern[2] * (1.0 - 0.5 * hurt)];

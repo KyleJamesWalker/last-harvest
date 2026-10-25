@@ -32,6 +32,10 @@ pub enum Sfx {
     Rise { pan: i8, gain: u8 },
     Groan { pan: i8, gain: u8 },
     Caw { pan: i8, gain: u8 },
+    /// The bug zapper's bolt.
+    Zap,
+    /// The farm dog getting stuck in.
+    Bark,
     /// The minute bell.
     Bell,
     Horde,

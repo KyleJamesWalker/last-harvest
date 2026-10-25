@@ -5,7 +5,9 @@ use std::f32::consts::{PI, TAU};
 use super::juice::{self, Tone};
 use super::map::TILE;
 use crate::art::Stand;
-use super::{CHOICE_ROW, CHOICE_TOP, Choice, DropKind, GOLD, GRENADE_FLIGHT, GRENADE_RADIUS, GRENADES, Harvest, PICK_TIME, Phase, RED, SCALE, TELL_TIME, TURNED, WHITE, clock, player_pose, view3d};
+use super::powerups::{Kind, Zone, book};
+use super::weapons::{BOLT_LIFE, Hazard};
+use super::{CHOICE_ROW, CHOICE_TOP, Choice, DropKind, GOLD, GRENADE_FLIGHT, GRENADE_RADIUS, Harvest, PICK_TIME, Phase, RED, SCALE, TELL_TIME, TURNED, Thrown, WHITE, clock, player_pose, view3d};
 use crate::art::{self, Art};
 use crate::{Align, Canvas, Color, Frame, SCREEN_H, SCREEN_W};
 
@@ -37,6 +39,7 @@ impl Harvest {
         self.world(c, cam, SCALE, tint);
         self.view_cone(c, cam);
         self.grenade_tray(c);
+        self.kit_tray(c);
         if let Phase::LevelUp { choices, selected, t, picked } = &self.phase {
             let fade = picked.map_or(1.0, |p| 1.0 - p / PICK_TIME);
             c.rect(0.0, 0.0, SCREEN_W, SCREEN_H, [0.0, 0.0, 0.0, 0.6 * (t / 0.2).min(1.0) * fade]);
@@ -79,7 +82,7 @@ impl Harvest {
 
     /// Red creeping in from the edges: a flash when hit, and a pulse in time with the heart when nearly dead.
     fn vignette(&self, c: &mut Canvas) {
-        let health = self.hp / self.gear.max_hp;
+        let health = self.hp / self.kit.max_hp();
         let low = ((0.35 - health) / 0.35).clamp(0.0, 1.0);
         let beat = (1.0 - (self.heartbeat.max(0.0) / (0.5 + health * 2.0)) * 4.0).max(0.0);
         let hit = self.juice.hurt / 0.35;
@@ -119,13 +122,14 @@ impl Harvest {
 
     /// Dots along the edges of what the 3D view can see.
     fn view_cone(&self, c: &mut Canvas, cam: [f32; 2]) {
-        let half = 0.6;
+        let half = self.ahead_half();
+        let lit = if self.beam > 0.0 { [1.0, 1.0, 0.8, 1.0] } else { [1.0, 0.9, 0.6, 0.8] };
         for edge in [-half, half] {
             let a = self.view_yaw + edge;
             for k in 1..9 {
                 let r = k as f32 * 14.0;
                 let (x, y) = ((self.pos[0] + a.cos() * r - cam[0]) * SCALE, (self.pos[1] - 6.0 + a.sin() * r - cam[1]) * SCALE);
-                c.circle(x, y, 5.0, [1.0, 0.9, 0.6, 0.8 - k as f32 * 0.08]);
+                c.circle(x, y, 5.0, [lit[0], lit[1], lit[2], lit[3] - k as f32 * 0.08]);
             }
         }
     }
@@ -134,9 +138,10 @@ impl Harvest {
     fn grenade_tray(&self, c: &mut Canvas) {
         let a = art::GRENADE;
         let slot = a.w() * 5.0 + 12.0;
-        let panel = GRENADES * slot + 24.0;
+        let most = self.kit.grenades();
+        let panel = most * slot + 24.0;
         c.rect(SCREEN_W - 40.0 - panel + 12.0, SCREEN_H - 40.0 - a.h() * 5.0, panel, a.h() * 5.0 + 34.0, [0.0, 0.0, 0.0, 0.6]);
-        for i in 0..GRENADES as usize {
+        for i in 0..most as usize {
             let x = SCREEN_W - 40.0 - (i as f32 + 1.0) * slot;
             let y = SCREEN_H - 24.0 - a.h() * 5.0;
             let fill = (self.grenades - i as f32).clamp(0.0, 1.0);
@@ -144,6 +149,22 @@ impl Harvest {
             c.art(a, x, y, 5.0, false, color);
             if fill > 0.0 && fill < 1.0 {
                 c.rect(x, y + a.h() * 5.0 + 4.0, a.w() * 5.0 * fill, 5.0, GOLD);
+            }
+        }
+    }
+
+    /// The weapons and passives carried, bottom left, each with its level.
+    fn kit_tray(&self, c: &mut Canvas) {
+        let rows: [Vec<(usize, u32)>; 2] = [self.kit.weapons.iter().map(|a| (a.def, a.level)).collect(), self.kit.passives.clone()];
+        let size = 40.0;
+        for (r, row) in rows.iter().enumerate() {
+            let y = SCREEN_H - 24.0 - (2 - r) as f32 * (size + 10.0);
+            for (i, &(def, level)) in row.iter().enumerate() {
+                let x = 24.0 + i as f32 * (size + 8.0);
+                c.rect(x - 2.0, y - 2.0, size + 4.0, size + 4.0, [0.0, 0.0, 0.0, 0.6]);
+                c.art(book().defs[def].icon, x, y, size / 16.0, false, WHITE);
+                let top = level >= book().defs[def].max;
+                c.label(level.to_string(), x + size - 2.0, y + size - 20.0, 20.0, if top { GOLD } else { WHITE }, Align::Right);
             }
         }
     }
@@ -184,6 +205,28 @@ impl Harvest {
             let k = (t.t / TELL_TIME).min(1.0);
             let (sx, sy) = at(t.pos[0], t.pos[1]);
             c.circle(sx, sy, (2.0 + 3.0 * k) * scale, [0.2, 0.13, 0.07, 0.8]);
+        }
+        for p in &self.patches {
+            let fade = ((p.life - p.age) / 0.5).clamp(0.0, 1.0);
+            match p.hazard {
+                Hazard::Tacks => {
+                    let a = art::TACKS;
+                    let (sx, sy) = at(p.pos[0] - a.w() / 2.0, p.pos[1] - a.h() / 2.0);
+                    c.art(a, sx, sy, scale, false, shade([1.0, 1.0, 1.0, fade]));
+                }
+                Hazard::Fire => {
+                    let a = art::FIRE[((self.t * 10.0 + p.pos[0]) as usize) % art::FIRE.len()];
+                    let (sx, sy) = at(p.pos[0] - a.w() / 2.0, p.pos[1] - a.h());
+                    c.art(a, sx, sy, scale, false, [1.0, 1.0, 1.0, fade]);
+                }
+                Hazard::Flare => {
+                    let (sx, sy) = at(p.pos[0], p.pos[1]);
+                    c.circle(sx, sy, p.radius * scale, [1.0, 0.3, 0.2, 0.12 * fade]);
+                    let a = art::FLARE;
+                    let (sx, sy) = at(p.pos[0] - a.w() / 2.0, p.pos[1] - a.h());
+                    c.art(a, sx, sy, scale, false, WHITE);
+                }
+            }
         }
         for corpse in &self.juice.corpses {
             let (sx, sy) = at(corpse.pos[0], corpse.pos[1] - corpse.z - 3.0);
@@ -229,6 +272,18 @@ impl Harvest {
             let a = b.art();
             sprites.push((b.pos[1], a, b.pos[0] - a.w() / 2.0, b.pos[1] - a.h() - b.z, b.flip, 1.0));
         }
+        for d in &self.decoys {
+            let a = art::SCARECROW;
+            sprites.push((d.pos[1], a, d.pos[0] - a.w() / 2.0, d.pos[1] - a.h() + 2.0, false, 1.0));
+        }
+        for d in &self.dogs {
+            let a = d.art();
+            sprites.push((d.pos[1], a, d.pos[0] - a.w() / 2.0, d.pos[1] - a.h() + 2.0, d.heading[0] < 0.0, 1.0));
+        }
+        for (i, (p, flip)) in self.crows().into_iter().enumerate() {
+            let a = art::CROW_FLY[(self.t * 12.0 + i as f32) as usize % art::CROW_FLY.len()];
+            sprites.push((p[1], a, p[0] - a.w() / 2.0, p[1] - a.h() - 12.0, flip, 1.0));
+        }
         let (facing, flip) = self.facing;
         let (a, rise) = player_pose(self, facing);
         sprites.push((self.pos[1], a, self.pos[0] - a.w() / 2.0, self.pos[1] - a.h() * rise + 2.0, flip, rise));
@@ -246,6 +301,22 @@ impl Harvest {
             let a = fx.frames[((fx.t * fx.fps) as usize).min(fx.frames.len() - 1)];
             let (sx, sy) = at(fx.pos[0], fx.pos[1]);
             c.art_rotated(a, sx, sy, scale, fx.angle, lit);
+        }
+        for s in &self.swings {
+            let (angle, r) = s.now();
+            let (sx, sy) = at(self.pos[0] + angle.cos() * r, self.pos[1] - 6.0 + angle.sin() * r);
+            c.art_rotated(s.art, sx, sy, scale, angle, lit);
+        }
+        for b in &self.bolts {
+            let fade = 1.0 - b.age / BOLT_LIFE;
+            for w in b.points.windows(2) {
+                for k in 0..8 {
+                    let t = k as f32 / 8.0;
+                    let jitter = ((k as f32 * 7.3 + b.age * 90.0).sin()) * 3.0;
+                    let (sx, sy) = at(w[0][0] + (w[1][0] - w[0][0]) * t + jitter, w[0][1] + (w[1][1] - w[0][1]) * t - jitter);
+                    c.circle(sx, sy, 1.2 * scale, [0.7, 0.85, 1.0, fade]);
+                }
+            }
         }
         for p in &self.juice.particles {
             let s = p.size_now() * scale;
@@ -266,14 +337,17 @@ impl Harvest {
             let k = (g.t / GRENADE_FLIGHT).min(1.0);
             let (gx, gy) = at(p[0], p[1]);
             c.circle(gx, gy, (2.0 + 2.0 * k) * scale, [0.0, 0.0, 0.0, 0.4]);
+            let (sx, sy) = at(p[0], p[1] - 6.0 - lift);
+            c.art_rotated(g.art(), sx, sy, scale, g.t * 12.0, lit);
+            if g.kind != Thrown::Grenade {
+                continue;
+            }
             for i in 0..8 {
                 let a = g.t * 3.0 + i as f32 / 8.0 * TAU;
                 let rr = GRENADE_RADIUS * (1.15 - 0.15 * k);
                 let (sx, sy) = at(g.to[0] + a.cos() * rr, g.to[1] + a.sin() * rr);
                 c.circle(sx, sy, 1.5 * scale, [1.0, 0.25, 0.15, 0.85]);
             }
-            let (sx, sy) = at(p[0], p[1] - 6.0 - lift);
-            c.art_rotated(art::GRENADE, sx, sy, scale, g.t * 12.0, lit);
         }
     }
 
@@ -314,6 +388,11 @@ impl Harvest {
                 let line = format!("Survived {}   Level {}   Kills {}", clock(self.t), self.level, self.kills);
                 c.label(line, SCREEN_W / 2.0, line_y, 40.0, [1.0, 1.0, 1.0, a], Align::Center);
                 c.label("A: try another farm      B: menu", SCREEN_W / 2.0, line_y + 80.0, 32.0, [1.0, 1.0, 1.0, 0.7 * a], Align::Center);
+                if !self.newly.is_empty() {
+                    let names: Vec<&str> = self.newly.iter().map(|&i| book().defs[i].name.as_str()).collect();
+                    let y = if *won { line_y + 160.0 } else { line_y - 80.0 };
+                    c.label(format!("Unlocked: {}", names.join(", ")), SCREEN_W / 2.0, y, 34.0, [GOLD[0], GOLD[1], GOLD[2], a], Align::Center);
+                }
             }
         }
     }
@@ -334,7 +413,7 @@ impl Harvest {
         }
         // Health, with a pale chunk trailing what was just lost; it throbs when low.
         let (bx, by, bw, bh) = (24.0, 30.0, 240.0, 22.0);
-        let max = self.gear.max_hp;
+        let max = self.kit.max_hp();
         c.rect(bx - 3.0, by - 3.0, bw + 6.0, bh + 6.0, [0.0, 0.0, 0.0, 0.7]);
         c.rect(bx, by, bw * (self.hp_shown / max).clamp(0.0, 1.0), bh, [1.0, 0.9, 0.8, 0.85]);
         let health = self.hp / max;
@@ -376,11 +455,36 @@ impl Harvest {
                 }
                 c.label("RARE  x2", x + w - 28.0, y + 16.0, 30.0, [GOLD[0], GOLD[1], GOLD[2], alpha], Align::Right);
             }
-            let (name, blurb) = ch.up.text(&self.gear);
+            let def = &book().defs[ch.up];
+            let from = self.kit.level(ch.up);
+            let to = (from + if ch.rare { 2 } else { 1 }).min(def.max);
+            let icon = 6.0;
+            c.rect(x + 16.0, y + (h - 16.0 * icon) / 2.0, 16.0 * icon, 16.0 * icon, [0.0, 0.0, 0.0, 0.35 * alpha]);
+            c.art(def.icon, x + 16.0, y + (h - 16.0 * icon) / 2.0, icon, false, [1.0, 1.0, 1.0, alpha]);
+            let left = x + 32.0 + 16.0 * icon;
             let name_color = if on { GOLD } else { WHITE };
-            c.label(name, x + 28.0, y + 12.0, 40.0, [name_color[0], name_color[1], name_color[2], alpha], Align::Left);
-            c.label(blurb, x + 28.0, y + 62.0, 28.0, [1.0, 1.0, 1.0, 0.75 * alpha], Align::Left);
+            c.label(def.name.clone(), left, y + 12.0, 40.0, [name_color[0], name_color[1], name_color[2], alpha], Align::Left);
+            c.label(def.change(from, to), left, y + 62.0, 26.0, [1.0, 1.0, 1.0, 0.75 * alpha], Align::Left);
+            let tag = match def.kind {
+                Kind::Filler => String::new(),
+                _ if from == 0 && to > 1 => format!("NEW  LV {to}"),
+                _ if from == 0 => "NEW".into(),
+                _ => format!("LV {to}"),
+            };
+            let zone = def.zone.map(Zone::name).unwrap_or(if def.kind == Kind::Passive { "PASSIVE" } else { "" });
+            let tag_y = if ch.rare { y + 52.0 } else { y + 16.0 };
+            c.label(format!("{zone}  {tag}"), x + w - 28.0, tag_y, 26.0, [zone_color(def.zone)[0], zone_color(def.zone)[1], zone_color(def.zone)[2], alpha], Align::Right);
         }
+    }
+}
+
+fn zone_color(zone: Option<Zone>) -> Color {
+    match zone {
+        Some(Zone::Ahead) => [1.0, 0.85, 0.45, 1.0],
+        Some(Zone::Around) => [0.6, 0.9, 1.0, 1.0],
+        Some(Zone::Behind) => [1.0, 0.55, 0.5, 1.0],
+        Some(Zone::Map) => [0.7, 1.0, 0.6, 1.0],
+        None => [0.8, 0.8, 0.85, 1.0],
     }
 }
 

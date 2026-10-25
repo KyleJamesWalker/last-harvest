@@ -1,0 +1,445 @@
+# Every powerup the level-up cards can offer. Change a number and rebuild; nothing else needs to change.
+#
+#   slots weapons N | slots passives N     how many of each a run can carry
+#
+#   [id]                start of a powerup; the id is how the save and the code know it
+#   name    Text        the card's title
+#   kind    weapon | passive | filler      fillers are offered only when nothing else is left
+#   does    behaviour   for weapons, which behaviour it fires with; defaults to the id, so a copy
+#                       under a new id with `does scythe` is a second scythe with its own numbers
+#   zone    ahead | around | behind | map
+#   icon    SPRITE      the card's picture, a name from art.txt; defaults to ICON_<ID>
+#   unlock  start | kills N | night SECONDS | level N | nights N | dawns N
+#           kills and nights add up over every run; night and level are the best single run
+#   blurb   Text        the card's line when the powerup is new
+#   max     N           highest level
+#   STAT    v1 v2 ...   the value at each level, from level 1; a short list repeats its last value
+#
+# Weapon stats, and their value when left out:
+#   cooldown 1   seconds between attacks       damage 0     per hit, or per second for fire and tacks
+#   count 1      bullets, crows, dogs...        range 100    how far it reaches or looks, in pixels
+#   area 20      radius or width, in pixels     pierce 0     extra zombies a bullet goes through
+#   speed 200    pixels per second              duration 1   seconds a pool, trap or burn lasts
+#   spread 30    degrees across a fan of shots  knockback 30
+#   slow 0       fraction of speed taken away
+#
+# Passive stats are the total at that level, and passives add together. Write the ones that scale with a
+# percentage (+10% or -8%): damage, cooldown, speed, magnet, area, reach, greed, knockback, view, recharge,
+# blast. The rest are plain numbers: max_hp, heal, armor, regen (health a second), crit and luck (chances,
+# 0 to 1), pierce, revive, grenades, cluster, drums (seconds between barrels coming back), refill, money.
+
+slots weapons 6
+slots passives 6
+
+# Ahead: what you're facing, the same view as the top screen.
+
+[pistol]
+name      Pistol
+kind      weapon
+zone      ahead
+unlock    start
+blurb     Shoots whatever's in front of you, else the nearest
+max       8
+cooldown  0.6 0.55 0.55 0.5 0.5 0.45 0.45 0.4
+damage    12 12 15 15 18 18 21 24
+count     1 2 2 3 3 3 4 4
+range     150
+speed     220
+pierce    0 0 0 0 1 1 1 1
+spread    8
+
+[shotgun]
+name      Shotgun
+kind      weapon
+zone      ahead
+unlock    start
+blurb     A spread of pellets at close range
+max       8
+cooldown  1.5 1.45 1.4 1.35 1.3 1.2 1.1 1.0
+damage    8 8 9 9 10 11 12 13
+count     5 7 7 9 9 11 11 13
+range     90
+speed     200
+pierce    1
+spread    40
+knockback 45
+
+[rifle]
+name      Hunting rifle
+kind      weapon
+zone      ahead
+unlock    kills 500
+blurb     A slow, heavy round straight down your heading
+max       8
+cooldown  2.0 1.9 1.8 1.7 1.6 1.5 1.4 1.2
+damage    40 50 60 70 80 95 110 130
+pierce    3 4 5 6 7 8 9 10
+range     260
+speed     420
+spread    10
+knockback 50
+
+[lantern]
+name      Lantern beam
+kind      weapon
+zone      ahead
+unlock    night 120
+blurb     Your light burns and slows what it falls on
+max       8
+cooldown  0.5
+damage    4 5 6 7 8 10 12 14
+range     60 65 70 75 80 85 90 100
+slow      0.3 0.35 0.4 0.45 0.5 0.55 0.6 0.65
+duration  0.6
+
+[burner]
+name      Weed burner
+kind      weapon
+zone      ahead
+unlock    kills 1500
+blurb     A short cone of flame that sets them burning
+max       8
+cooldown  0.2
+damage    6 8 10 12 14 16 18 22
+range     34 36 38 40 44 48 52 56
+spread    50
+duration  2 2 2.5 2.5 3 3 3.5 4
+
+[pitchfork]
+name      Pitchfork
+kind      weapon
+zone      ahead
+unlock    kills 3000
+blurb     Skewers everything in a line in front of you
+max       8
+cooldown  1.2 1.15 1.1 1.05 1.0 0.95 0.9 0.8
+damage    25 30 35 40 50 60 70 80
+range     30 32 34 36 38 40 44 48
+area      8
+count     1 1 1 2 2 2 3 3
+spread    40
+knockback 90
+
+# Around: a ring centred on you.
+
+[knife]
+name      Knife
+kind      weapon
+zone      around
+unlock    start
+blurb     Slashes everything close by
+max       8
+cooldown  1.1 1.05 1.0 0.95 0.9 0.85 0.8 0.75
+damage    15 20 25 30 35 40 45 50
+area      22 26 30 34 38 42 46 50
+knockback 60
+
+[scythe]
+name      Scythe
+kind      weapon
+zone      around
+unlock    kills 100
+blurb     A full sweep all the way around you
+max       8
+cooldown  2.4 2.3 2.2 2.0 1.9 1.8 1.6 1.4
+damage    20 25 30 35 40 50 60 70
+area      30 32 34 36 38 42 46 50
+knockback 110
+
+[crows]
+name      Crows
+kind      weapon
+zone      around
+unlock    night 240
+blurb     Birds circle you and peck at what they touch
+max       8
+count     1 2 2 3 3 4 4 5
+damage    6 6 8 8 10 10 12 14
+area      26 26 28 28 30 30 32 34
+# Degrees a second around you; cooldown is how soon a crow can peck the same zombie again.
+speed     150 150 160 160 170 170 180 200
+cooldown  0.5
+
+[zapper]
+name      Bug zapper
+kind      weapon
+zone      around
+unlock    kills 2000
+blurb     Lightning that jumps from one zombie to the next
+max       8
+cooldown  1.6 1.5 1.4 1.3 1.2 1.1 1.0 0.9
+damage    14 16 18 20 24 28 32 36
+range     70
+# count is how many zombies one bolt reaches; area is how far it jumps between them.
+count     2 2 3 3 4 4 5 6
+area      50
+
+[dog]
+name      Farm dog
+kind      weapon
+zone      around
+unlock    dawns 1
+blurb     A good dog that runs down whatever comes close
+max       8
+cooldown  0.8 0.75 0.7 0.65 0.6 0.55 0.55 0.5
+damage    15 18 21 24 28 32 38 45
+range     90
+speed     90 95 100 105 110 115 120 130
+count     1 1 1 1 2 2 2 2
+knockback 50
+
+# Behind: whatever is following you.
+
+[tacks]
+name      Tacks
+kind      weapon
+zone      behind
+unlock    kills 250
+blurb     Scattered behind you; they hurt and slow
+max       8
+cooldown  1.4 1.3 1.2 1.1 1.0 0.95 0.9 0.8
+damage    8 10 12 14 16 18 20 24
+area      10 10 12 12 14 14 16 18
+duration  6 6 7 7 8 8 9 10
+count     1 1 2 2 2 3 3 3
+slow      0.5
+
+[gas]
+name      Gas trail
+kind      weapon
+zone      behind
+unlock    night 420
+blurb     Leaves a line of burning fuel where you walk
+max       8
+# Drops a fire this often while you move.
+cooldown  0.35 0.35 0.3 0.3 0.28 0.26 0.24 0.2
+damage    10 12 14 16 18 21 24 30
+area      7 7 8 8 9 10 11 12
+duration  3 3 3.5 3.5 4 4 4.5 5
+
+[holster]
+name      Back holster
+kind      weapon
+zone      behind
+unlock    night 300
+blurb     A sawn-off that fires behind you
+max       8
+cooldown  1.6 1.5 1.45 1.4 1.3 1.2 1.1 1.0
+damage    9 9 10 10 11 12 13 14
+count     5 7 7 9 9 11 11 13
+range     80
+speed     200
+pierce    1
+spread    50
+knockback 60
+
+[scarecrow]
+name      Scarecrow decoy
+kind      weapon
+zone      behind
+unlock    kills 4000
+blurb     Dropped behind you; draws them in, then bursts
+max       8
+cooldown  12 11 10 9 8 7 6 5
+# range is how far it draws zombies from; area is its blast.
+range     70 75 80 85 90 95 100 110
+area      40 40 44 44 48 48 52 56
+damage    60 70 80 90 100 115 130 150
+duration  4
+
+# Map: anywhere on the farm.
+
+[molotov]
+name      Molotov
+kind      weapon
+zone      map
+unlock    kills 1000
+blurb     Lobbed into a crowd, leaving a pool of fire
+max       8
+cooldown  4.0 3.8 3.6 3.3 3.0 2.7 2.4 2.0
+damage    12 14 16 18 20 23 26 30
+area      18 18 20 22 24 26 28 30
+duration  3 3 3.5 3.5 4 4 4.5 5
+range     120
+count     1 1 1 2 2 2 3 3
+
+[flare]
+name      Flare gun
+kind      weapon
+zone      map
+unlock    night 540
+blurb     Lights up a far crowd, and burns it
+max       8
+cooldown  9 8.5 8 7.5 7 6.5 6 5
+damage    8 9 10 12 14 16 18 20
+area      40 42 44 46 50 54 58 60
+duration  6 6 7 7 8 8 9 10
+range     160
+
+# Passives.
+
+[hollow_points]
+name      Hollow points
+kind      passive
+unlock    start
+blurb     More damage for every weapon
+max       5
+damage    +10% +20% +30% +40% +50%
+
+[quick_hands]
+name      Quick hands
+kind      passive
+unlock    start
+blurb     Every weapon attacks faster
+max       5
+cooldown  -6% -12% -18% -24% -30%
+
+[running_shoes]
+name      Running shoes
+kind      passive
+unlock    start
+blurb     Move faster
+max       5
+speed     +10% +20% +30% +40% +50%
+
+[canned_peaches]
+name      Canned peaches
+kind      passive
+unlock    start
+blurb     More max health, and a bite to eat now
+max       5
+max_hp    20 40 60 80 100
+heal      20
+
+[deep_pockets]
+name      Deep pockets
+kind      passive
+unlock    start
+blurb     Pick up money from further away
+max       5
+magnet    +30% +60% +90% +120% +150%
+
+[work_jacket]
+name      Work jacket
+kind      passive
+unlock    level 5
+blurb     Takes the edge off every bite
+max       5
+armor     1 2 3 4 5
+
+[garden_tea]
+name      Garden tea
+kind      passive
+unlock    nights 2
+blurb     Slowly heals you
+max       5
+regen     0.2 0.4 0.6 0.8 1.0
+
+[sharp_eye]
+name      Sharp eye
+kind      passive
+unlock    level 8
+blurb     A better chance of a critical hit
+max       5
+crit      0.05 0.1 0.15 0.2 0.25
+
+[bigger_blast]
+name      Bigger blast
+kind      passive
+unlock    level 12
+blurb     Wider sweeps, pools and explosions
+max       5
+area      +10% +20% +30% +40% +50%
+
+[long_barrel]
+name      Long barrel
+kind      passive
+unlock    level 10
+blurb     Weapons reach further
+max       5
+reach     +10% +20% +30% +40% +50%
+
+[lucky_penny]
+name      Lucky penny
+kind      passive
+unlock    nights 5
+blurb     Rare cards turn up more often
+max       5
+luck      0.05 0.1 0.15 0.2 0.25
+
+[pawn_shop]
+name      Pawn shop
+kind      passive
+unlock    level 14
+blurb     Money is worth more
+max       5
+greed     +20% +40% +60% +80% +100%
+
+[heavy_rounds]
+name      Heavy rounds
+kind      passive
+unlock    dawns 2
+blurb     Hits shove harder, and bullets go through
+max       5
+pierce    1 1 2 2 3
+knockback +20% +40% +60% +80% +100%
+
+[brighter_lantern]
+name      Brighter lantern
+kind      passive
+unlock    kills 5000
+blurb     See wider and further ahead
+max       5
+view      +10% +20% +30% +40% +50%
+
+[vaccine]
+name      Vaccine
+kind      passive
+unlock    dawns 5
+blurb     When you start to turn, you come back as yourself
+max       2
+revive    1 2
+
+[grenade_belt]
+name      Grenade belt
+kind      passive
+zone      map
+unlock    nights 3
+blurb     More grenades, sooner, and they scatter bomblets
+max       5
+grenades  1 1 2 2 3
+recharge  -10% -20% -25% -30% -40%
+cluster   0 2 2 3 4
+
+[fuel_drums]
+name      Fuel drums
+kind      passive
+zone      map
+unlock    dawns 3
+blurb     Blown barrels come back, and blow bigger
+max       5
+drums     40 32 25 18 12
+blast     +10% +20% +30% +40% +50%
+
+# Fillers.
+
+[snack]
+name      Snack
+kind      filler
+unlock    start
+blurb     Heal 30
+heal      30
+
+[ammo_crate]
+name      Ammo crate
+kind      filler
+unlock    start
+blurb     Every grenade, ready now
+refill    1
+
+[pocket_change]
+name      Pocket change
+kind      filler
+unlock    start
+blurb     A little money
+money     10

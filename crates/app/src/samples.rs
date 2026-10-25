@@ -20,7 +20,7 @@ pub struct Bank {
 /// Every name `cue` gives, which are the files held in memory.
 const CUES: &[&str] = &[
     "start", "miss", "gameover", "turn", "shot", "blast", "slash", "thud", "crit", "kill-skinny", "kill-kid", "kill-big", "boom", "throw",
-    "pickup", "heal", "hurt", "heartbeat", "levelup", "pick", "pick-rare", "rise", "groan", "caw", "bell", "horde", "dawn",
+    "pickup", "heal", "hurt", "heartbeat", "levelup", "pick", "pick-rare", "rise", "groan", "caw", "bell", "horde", "dawn", "zap", "bark",
 ];
 
 /// The file name a cue looks for, and the playback rate it asks for. Pickups climb a pentatonic scale from one file.
@@ -55,6 +55,8 @@ pub fn cue(sfx: Sfx) -> (&'static str, f32) {
         Sfx::Rise { .. } => "rise",
         Sfx::Groan { .. } => "groan",
         Sfx::Caw { .. } => "caw",
+        Sfx::Zap => "zap",
+        Sfx::Bark => "bark",
         Sfx::Bell => "bell",
         Sfx::Horde => "horde",
         Sfx::Dawn => "dawn",
@@ -257,7 +259,7 @@ mod tests {
             Sfx::Start, Sfx::Miss, Sfx::GameOver, Sfx::Turn, Sfx::Shot, Sfx::Blast, Sfx::Slash, Sfx::Thud(false), Sfx::Thud(true),
             Sfx::Kill(0), Sfx::Kill(1), Sfx::Kill(2), Sfx::Boom { pan: 0, gain: 0 }, Sfx::Throw, Sfx::Pickup(0), Sfx::Heal, Sfx::Hurt,
             Sfx::Heartbeat, Sfx::LevelUp, Sfx::Pick(false), Sfx::Pick(true), Sfx::Rise { pan: 0, gain: 0 }, Sfx::Groan { pan: 0, gain: 0 },
-            Sfx::Caw { pan: 0, gain: 0 }, Sfx::Bell, Sfx::Horde, Sfx::Dawn,
+            Sfx::Caw { pan: 0, gain: 0 }, Sfx::Bell, Sfx::Horde, Sfx::Dawn, Sfx::Zap, Sfx::Bark,
         ];
         for sfx in all {
             assert!(CUES.contains(&cue(sfx).0), "{sfx:?}");

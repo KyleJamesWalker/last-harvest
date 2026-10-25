@@ -247,6 +247,15 @@ impl Map {
         }
     }
 
+    /// Blocks the cell under a world point again, as when a barrel comes back.
+    pub fn close(&mut self, x: f32, y: f32) {
+        let (tx, ty) = ((x / TILE) as usize, (y / TILE) as usize);
+        if tx < self.w && ty < self.h {
+            let i = self.i(tx, ty);
+            self.solid[i] = true;
+        }
+    }
+
     /// Ground and overlay art for one cell.
     pub fn tile(&self, x: usize, y: usize) -> (Art, Option<Art>) {
         let i = self.i(x, y);
