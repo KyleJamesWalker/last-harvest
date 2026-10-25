@@ -20,7 +20,7 @@ Captured on the device with `scripts/debug.sh shot`. Each image shows the top sc
 
 The top screen is the main view, in 2.5D: every sprite's silhouette extruded into depth, lit by the player's lantern and fading into fog, seen from just behind the player. The bottom screen is the same farm top-down at 2x, 512x384 art pixels, with dots marking what the main view faces.
 
-Zombies arrive at the edge of the fog and find their way around buildings and fences. Your weapons fire on their own at the nearest one. Tap the map to lob a grenade there; you hold three, and each recharges in 12 seconds. Kills drop money, and money levels you up: pick one of three upgrades on either screen. Shooting a red barrel sets it off. Survive until dawn, ten minutes in.
+Zombies claw their way out of the ground, at the edge of the fog early on and only a few tiles away by the end of the night, then find their way around buildings and fences. Your weapons fire on their own at the nearest one. Tap the map to lob a grenade there; you hold three, and each recharges in 12 seconds. Kills drop money, and money levels you up: pick one of three upgrades on either screen. Shooting a red barrel sets it off. Survive until dawn, ten minutes in.
 
 | Action | Device | macOS |
 |---|---|---|
