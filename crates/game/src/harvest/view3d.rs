@@ -152,10 +152,10 @@ pub fn scene(h: &Harvest) -> CardScene {
     let forward = Vec3::new(h.view_yaw.cos(), 0.0, h.view_yaw.sin());
     let right = forward.cross(Vec3::Y);
     let p = world(h.pos);
-    let eye = p - forward * 3.2 + Vec3::Y * 2.1;
-    let target = p + forward * 3.0 + Vec3::Y * 0.6;
+    let eye = p - forward * 2.4 + Vec3::Y * 1.5;
+    let target = p + forward * 4.0 + Vec3::Y * 0.7;
     let view = Mat4::look_at_rh(eye, target, Vec3::Y);
-    let proj = Mat4::perspective_rh_gl(62f32.to_radians(), SCREEN_W / SCREEN_H, 0.3, VIEW_RADIUS + 6.0);
+    let proj = Mat4::perspective_rh_gl(66f32.to_radians(), SCREEN_W / SCREEN_H, 0.3, VIEW_RADIUS + 6.0);
     let near = |q: Vec3| {
         let d = q - p;
         d.length() < VIEW_RADIUS && d.dot(forward) > -4.0
@@ -226,6 +226,10 @@ pub fn scene(h: &Harvest) -> CardScene {
     for f in &h.fx {
         let a = f.frames[((f.t * f.fps) as usize).min(f.frames.len() - 1)];
         billboard(&mut cards, a, false, [f.pos[0], f.pos[1] + 6.0], 0.25, 0.0);
+    }
+    for g in &h.thrown {
+        let (at, lift) = g.at();
+        billboard(&mut cards, art::GRENADE, false, at, lift * PX, 0.0);
     }
     for b in &h.bullets {
         billboard(&mut cards, art::MUZZLE, false, [b.pos[0], b.pos[1] + 6.0], 0.35, 0.0);

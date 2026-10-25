@@ -10,10 +10,20 @@ use crate::rng::Rng;
 use crate::{Align, Buttons, Canvas, Color, Frame, Input, SCREEN_H, SCREEN_W, Sfx};
 use map::{Map, TILE};
 
-/// Screen pixels per art pixel; the view is 256x192 art pixels, the DS's own resolution.
-const SCALE: f32 = 4.0;
+/// Screen pixels per art pixel on the bottom screen's map, which shows 512x384 art pixels.
+const SCALE: f32 = 2.0;
 const VIEW_W: f32 = SCREEN_W / SCALE;
 const VIEW_H: f32 = SCREEN_H / SCALE;
+/// Zombies appear in this ring around the player, in world pixels: about where the 3D view's fog closes in.
+const SPAWN_RING: [f32; 2] = [200.0, 250.0];
+const PISTOL_RANGE: f32 = 150.0;
+const SHOTGUN_RANGE: f32 = 90.0;
+/// Radians per second at full turn.
+const TURN_SPEED: f32 = 2.6;
+const GRENADES: f32 = 3.0;
+const GRENADE_RECHARGE: f32 = 12.0;
+const GRENADE_FLIGHT: f32 = 0.7;
+const GRENADE_RADIUS: f32 = 36.0;
 const MAP_W: usize = 72;
 const MAP_H: usize = 54;
 const DAWN: f32 = 600.0;
@@ -118,6 +128,22 @@ struct Drop {
     pos: [f32; 2],
     age: f32,
     pulled: bool,
+}
+
+/// A grenade in the air from `from` to `to`, `t` seconds after the throw.
+struct Grenade {
+    from: [f32; 2],
+    to: [f32; 2],
+    t: f32,
+}
+
+impl Grenade {
+    /// Ground position and height above it, in world pixels.
+    fn at(&self) -> ([f32; 2], f32) {
+        let k = (self.t / GRENADE_FLIGHT).min(1.0);
+        let p = [self.from[0] + (self.to[0] - self.from[0]) * k, self.from[1] + (self.to[1] - self.from[1]) * k];
+        (p, (k * PI).sin() * 28.0)
+    }
 }
 
 const BARREL_HP: f32 = 20.0;
@@ -281,6 +307,9 @@ pub struct Harvest {
     fx: Vec<Fx>,
     stains: Vec<(Art, f32, f32)>,
     barrels: Vec<Barrel>,
+    /// Grenades ready to throw; the fraction is the next one recharging.
+    grenades: f32,
+    thrown: Vec<Grenade>,
     owed: f32,
     xp: u32,
     next_xp: u32,
@@ -291,7 +320,7 @@ pub struct Harvest {
     /// Steps to the player from each cell, rebuilt when the player changes cell.
     flow: Vec<u16>,
     flow_cell: [usize; 2],
-    /// Heading of the 3D camera on the ground plane, in radians from +x toward +y.
+    /// The player's heading, which the 3D camera looks along, in radians from +x toward +y.
     view_yaw: f32,
     /// No zombies: a walk around the farm, for looking at it.
     calm: bool,
@@ -318,6 +347,8 @@ impl Harvest {
         let barrels = map.barrels.iter().map(|&pos| Barrel { pos, hp: BARREL_HP, flash: 0.0 }).collect();
         Self {
             barrels,
+            grenades: GRENADES,
+            thrown: Vec::new(),
             pos: map.spawn,
             hp: gear.max_hp,
             rng,
@@ -342,7 +373,7 @@ impl Harvest {
             overview: false,
             flow: Vec::new(),
             flow_cell: [usize::MAX; 2],
-            view_yaw: PI / 2.0,
+            view_yaw: -PI / 2.0,
             calm: false,
         }
     }
@@ -403,20 +434,27 @@ impl Harvest {
     fn play(&mut self, input: &Input, dt: f32, sounds: &mut Vec<Sfx>, flow: &mut Flow) {
         self.t += dt;
         self.hurt = (self.hurt - dt).max(0.0);
+        // Tank controls: left and right turn, up and down walk along the heading, L1 and R1 strafe.
         let dir = input.dir();
-        let moving = len(dir) > 0.2;
-        if moving {
-            let d = norm(dir);
-            let step = self.gear.speed * dt;
-            self.pos = self.map.slide(self.pos, [d[0] * step, d[1] * step], PLAYER_HALF);
-            self.facing = Facing::of(d);
-            self.aim = d;
+        self.view_yaw = (self.view_yaw + dir[0] * TURN_SPEED * dt).rem_euclid(TAU);
+        let f = [self.view_yaw.cos(), self.view_yaw.sin()];
+        let side = input.held.contains(Buttons::R1) as i32 as f32 - input.held.contains(Buttons::L1) as i32 as f32;
+        let ahead = -dir[1];
+        let mv = [f[0] * ahead - f[1] * side, f[1] * ahead + f[0] * side];
+        self.aim = f;
+        self.facing = Facing::of(f);
+        if len(mv) > 0.2 {
+            let k = self.gear.speed * dt * len(mv).min(1.0) / len(mv);
+            self.pos = self.map.slide(self.pos, [mv[0] * k, mv[1] * k], PLAYER_HALF);
             self.walk += dt;
-            let turn = (d[1].atan2(d[0]) - self.view_yaw + PI).rem_euclid(TAU) - PI;
-            self.view_yaw += turn * (1.6 * dt).min(1.0);
         } else {
             self.walk = 0.0;
         }
+        self.grenades = (self.grenades + dt / GRENADE_RECHARGE).min(GRENADES);
+        if let Some(touch) = input.touch.filter(|_| input.touch_started) {
+            self.throw(touch, sounds);
+        }
+        self.fly(dt, sounds, flow);
 
         if !self.calm {
             self.spawn(dt);
@@ -480,7 +518,7 @@ impl Harvest {
             };
             for _ in 0..8 {
                 let a = self.rng.range(0.0, TAU);
-                let r = self.rng.range(VIEW_W * 0.6, VIEW_W * 0.75);
+                let r = self.rng.range(SPAWN_RING[0], SPAWN_RING[1]);
                 let pos = [self.pos[0] + a.cos() * r, self.pos[1] + a.sin() * r];
                 if !self.map.hits(pos[0], pos[1], ZOMBIE_HALF) {
                     let s = kind.stats();
@@ -553,7 +591,7 @@ impl Harvest {
         let aim_at = |range: f32, this: &Harvest| this.nearest(range).map(norm);
 
         if self.gear.cooldowns[0] <= 0.0
-            && let Some(d) = aim_at(VIEW_W * 0.6, self)
+            && let Some(d) = aim_at(PISTOL_RANGE, self)
         {
             self.gear.cooldowns[0] = 0.6 * self.gear.rate;
             let n = self.gear.bullets;
@@ -569,7 +607,7 @@ impl Harvest {
 
         if self.gear.shotgun > 0
             && self.gear.cooldowns[1] <= 0.0
-            && let Some(d) = aim_at(VIEW_W * 0.35, self)
+            && let Some(d) = aim_at(SHOTGUN_RANGE, self)
         {
             self.gear.cooldowns[1] = 1.5 * self.gear.rate;
             let pellets = 3 + 2 * self.gear.shotgun;
@@ -644,7 +682,7 @@ impl Harvest {
         self.bullets.retain(|b| b.life > 0.0);
     }
 
-    /// Sets off every barrel shot to pieces; returns whether one blew.
+    /// Sets off a barrel shot to pieces, one per frame so neighbors chain; returns whether one blew.
     fn blow(&mut self, dt: f32, sounds: &mut Vec<Sfx>) -> bool {
         for r in &mut self.barrels {
             r.flash = (r.flash - dt).max(0.0);
@@ -653,29 +691,58 @@ impl Harvest {
         let c = self.barrels.swap_remove(i).center();
         self.map.open(c[0], c[1]);
         self.flow_cell = [usize::MAX; 2];
+        self.explode(c, BLAST_RADIUS, 60.0, sounds);
+        true
+    }
+
+    /// Damages zombies in `radius`, sets off barrels in it, and hurts the player if too close.
+    fn explode(&mut self, c: [f32; 2], radius: f32, damage: f32, sounds: &mut Vec<Sfx>) {
         for z in &mut self.zombies {
             let d = sub(z.pos, c);
-            if len(d) < BLAST_RADIUS {
-                z.hp -= 60.0 * self.gear.damage;
+            if len(d) < radius {
+                z.hp -= damage * self.gear.damage;
                 z.flash = FLASH_TIME;
                 let away = norm(d);
                 z.push = [away[0] * 120.0, away[1] * 120.0];
             }
         }
-        // Neighbors go off a moment later, one per frame.
         for r in &mut self.barrels {
-            if len(sub(r.center(), c)) < BLAST_RADIUS {
+            if len(sub(r.center(), c)) < radius {
                 r.hp = r.hp.min(0.0);
             }
         }
-        if len(sub(self.pos, c)) < BLAST_RADIUS * 0.7 && self.hurt <= 0.0 {
+        if len(sub(self.pos, c)) < radius * 0.7 && self.hurt <= 0.0 {
             self.hp -= 15.0;
             self.hurt = HURT_TIME;
         }
         self.fx.push(Fx { frames: &art::EXPLOSION, fps: 14.0, pos: c, angle: 0.0, t: 0.0 });
         self.fx.push(Fx { frames: &art::SMOKE, fps: 8.0, pos: [c[0], c[1] - 8.0], angle: 0.0, t: 0.0 });
         sounds.push(Sfx::Hit);
-        true
+    }
+
+    /// Lobs a grenade at the map point under a bottom-screen touch, if one is ready.
+    fn throw(&mut self, touch: [f32; 2], sounds: &mut Vec<Sfx>) {
+        if self.grenades < 1.0 {
+            sounds.push(Sfx::Miss);
+            return;
+        }
+        self.grenades -= 1.0;
+        let cam = self.camera();
+        let to = [cam[0] + touch[0] / SCALE, cam[1] + touch[1] / SCALE];
+        self.thrown.push(Grenade { from: self.pos, to, t: 0.0 });
+        sounds.push(Sfx::Prompt);
+    }
+
+    fn fly(&mut self, dt: f32, sounds: &mut Vec<Sfx>, flow: &mut Flow) {
+        for g in &mut self.thrown {
+            g.t += dt;
+        }
+        let landed: Vec<[f32; 2]> = self.thrown.iter().filter(|g| g.t >= GRENADE_FLIGHT).map(|g| g.to).collect();
+        self.thrown.retain(|g| g.t < GRENADE_FLIGHT);
+        for c in landed {
+            self.explode(c, GRENADE_RADIUS, 50.0, sounds);
+            flow.rumble = true;
+        }
     }
 
     fn reap(&mut self, sounds: &mut Vec<Sfx>) {
@@ -739,18 +806,62 @@ impl Harvest {
         [(x * SCALE).round() / SCALE, (y * SCALE).round() / SCALE]
     }
 
+    /// The top screen is the 3D view; the bottom is the map, where a tap throws a grenade.
     pub fn draw(&self, f: &mut Frame) {
-        let c = &mut f.top;
+        let scene = view3d::scene(self);
+        f.top.clear = [scene.fog[0], scene.fog[1], scene.fog[2], 1.0];
+        f.top.cards = Some(scene);
+        self.hud(&mut f.top);
+        self.overlays(&mut f.top);
+
+        let c = &mut f.bottom;
         c.clear = [0.0, 0.0, 0.0, 1.0];
         if self.overview {
             let scale = (SCREEN_W / self.map.width_px()).min(SCREEN_H / self.map.height_px());
             self.world(c, [0.0, 0.0], scale);
             c.label("Whole map (release R2 to play)", SCREEN_W / 2.0, SCREEN_H - 40.0, 28.0, WHITE, Align::Center);
-            self.bottom(&mut f.bottom);
             return;
         }
-        self.world(c, self.camera(), SCALE);
-        self.draw_overlays(f);
+        let cam = self.camera();
+        self.world(c, cam, SCALE);
+        self.view_cone(c, cam);
+        self.grenade_tray(c);
+        if let Phase::LevelUp { choices, selected } = &self.phase {
+            c.rect(0.0, 0.0, SCREEN_W, SCREEN_H, [0.0, 0.0, 0.0, 0.6]);
+            c.label("Tap an upgrade, or Up / Down and A", SCREEN_W / 2.0, 60.0, 32.0, WHITE, Align::Center);
+            self.choices(c, choices, *selected, CHOICE_TOP);
+        }
+    }
+
+    /// Dots along the edges of what the 3D view can see.
+    fn view_cone(&self, c: &mut Canvas, cam: [f32; 2]) {
+        let half = 0.6;
+        for edge in [-half, half] {
+            let a = self.view_yaw + edge;
+            for k in 1..9 {
+                let r = k as f32 * 14.0;
+                let (x, y) = ((self.pos[0] + a.cos() * r - cam[0]) * SCALE, (self.pos[1] - 6.0 + a.sin() * r - cam[1]) * SCALE);
+                c.circle(x, y, 5.0, [1.0, 0.9, 0.6, 0.8 - k as f32 * 0.08]);
+            }
+        }
+    }
+
+    /// Grenades ready, bottom right, with the next one filling in.
+    fn grenade_tray(&self, c: &mut Canvas) {
+        let a = art::GRENADE;
+        let slot = a.w() * 5.0 + 12.0;
+        let panel = GRENADES * slot + 24.0;
+        c.rect(SCREEN_W - 40.0 - panel + 12.0, SCREEN_H - 40.0 - a.h() * 5.0, panel, a.h() * 5.0 + 34.0, [0.0, 0.0, 0.0, 0.6]);
+        for i in 0..GRENADES as usize {
+            let x = SCREEN_W - 40.0 - (i as f32 + 1.0) * slot;
+            let y = SCREEN_H - 24.0 - a.h() * 5.0;
+            let fill = (self.grenades - i as f32).clamp(0.0, 1.0);
+            let color = if fill >= 1.0 { WHITE } else { [0.4, 0.4, 0.4, 0.6] };
+            c.art(a, x, y, 5.0, false, color);
+            if fill > 0.0 && fill < 1.0 {
+                c.rect(x, y + a.h() * 5.0 + 4.0, a.w() * 5.0 * fill, 5.0, GOLD);
+            }
+        }
     }
 
     /// Draws the map and everything on it, with `cam` at the top-left and each art pixel `scale` screen pixels across.
@@ -824,11 +935,14 @@ impl Harvest {
             let (sx, sy) = at(fx.pos[0], fx.pos[1]);
             c.art_rotated(a, sx, sy, scale, fx.angle, WHITE);
         }
+        for g in &self.thrown {
+            let (p, lift) = g.at();
+            let (sx, sy) = at(p[0], p[1] - 6.0 - lift);
+            c.art_rotated(art::GRENADE, sx, sy, scale, g.t * 12.0, WHITE);
+        }
     }
 
-    fn draw_overlays(&self, f: &mut Frame) {
-        let c = &mut f.top;
-        self.hud(c);
+    fn overlays(&self, c: &mut Canvas) {
         match &self.phase {
             Phase::Playing => {}
             Phase::LevelUp { choices, selected } => {
@@ -845,7 +959,6 @@ impl Harvest {
                 c.label("A: try another farm      B: menu", SCREEN_W / 2.0, 440.0, 32.0, [1.0, 1.0, 1.0, 0.7], Align::Center);
             }
         }
-        self.bottom(&mut f.bottom);
     }
 
     fn hud(&self, c: &mut Canvas) {
@@ -870,17 +983,6 @@ impl Harvest {
         }
     }
 
-    /// The bottom screen shows the same farm in 3D, with the level-up choices over it when they are up.
-    fn bottom(&self, c: &mut Canvas) {
-        let scene = view3d::scene(self);
-        c.clear = [scene.fog[0], scene.fog[1], scene.fog[2], 1.0];
-        c.cards = Some(scene);
-        if let Phase::LevelUp { choices, selected } = &self.phase {
-            c.rect(0.0, 0.0, SCREEN_W, SCREEN_H, [0.0, 0.0, 0.0, 0.6]);
-            c.label("Tap an upgrade, or Up / Down and A", SCREEN_W / 2.0, 60.0, 32.0, WHITE, Align::Center);
-            self.choices(c, choices, *selected, CHOICE_TOP);
-        }
-    }
 }
 
 const CHOICE_TOP: f32 = 160.0;
@@ -922,13 +1024,39 @@ mod tests {
     }
 
     #[test]
-    fn walking_moves_the_player_and_walls_stop_it() {
-        let mut h = Harvest::new(9);
+    fn up_walks_along_the_heading_and_walls_stop_it() {
+        let mut h = Harvest::calm(9);
+        h.view_yaw = 0.0;
         let start = h.pos;
-        run(&mut h, &Input { held: Buttons::RIGHT, ..Default::default() }, 0.5);
-        assert!(h.pos[0] > start[0]);
-        run(&mut h, &Input { held: Buttons::RIGHT, ..Default::default() }, 120.0);
+        run(&mut h, &Input { held: Buttons::UP, ..Default::default() }, 0.5);
+        assert!(h.pos[0] > start[0] && (h.pos[1] - start[1]).abs() < 1.0);
+        run(&mut h, &Input { held: Buttons::UP, ..Default::default() }, 120.0);
         assert!(h.pos[0] < h.map.width_px() - TILE);
+    }
+
+    #[test]
+    fn left_and_right_turn_without_moving() {
+        let mut h = Harvest::calm(9);
+        let (start, yaw) = (h.pos, h.view_yaw);
+        run(&mut h, &Input { held: Buttons::RIGHT, ..Default::default() }, 0.25);
+        assert_eq!(h.pos, start);
+        assert!((h.view_yaw - yaw).rem_euclid(TAU) > 0.5);
+    }
+
+    #[test]
+    fn a_tap_on_the_map_throws_a_grenade_that_lands_there() {
+        let mut h = Harvest::calm(12);
+        let cam = h.camera();
+        let target = [h.pos[0] + 60.0, h.pos[1]];
+        h.zombies.push(Zombie { kind: Kind::Skinny, pos: target, dir: [0.0, 1.0], push: [0.0; 2], hp: 20.0, flash: 0.0, facing: (Facing::Front, false), anim: 0.0 });
+        let touch = [(target[0] - cam[0]) * SCALE, (target[1] - cam[1]) * SCALE];
+        let mut sounds = Vec::new();
+        h.update(&Input { touch: Some(touch), touch_started: true, ..Default::default() }, 0.016, &mut sounds);
+        assert_eq!(h.thrown.len(), 1);
+        assert!(h.grenades < GRENADES);
+        h.update(&Input::default(), GRENADE_FLIGHT, &mut sounds);
+        assert!(h.thrown.is_empty());
+        assert!(h.kills == 1 || h.zombies.iter().all(|z| z.hp <= 0.0));
     }
 
     #[test]

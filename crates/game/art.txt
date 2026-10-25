@@ -100,3 +100,4 @@ SMOKE           cell 40 4 ; cell 40 5 ; cell 40 6 ; cell 40 7 ; cell 40 8 ; cell
 KNIFE           px 19 178 12 4
 PISTOL          px 21 158 8 5
 SHOTGUN         px 17 139 16 5
+GRENADE         px 22 118 7 9
