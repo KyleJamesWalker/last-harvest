@@ -679,6 +679,12 @@ impl Harvest {
 
         if !self.calm {
             self.spawn(dt);
+        } else if input.pressed.contains(Buttons::X) {
+            // The quiet farm takes one zombie at a time, for trying out weapons and effects.
+            let pos = [self.pos[0] + f[0] * 50.0, self.pos[1] + f[1] * 50.0];
+            if !self.map.hits(pos[0], pos[1], ZOMBIE_HALF) {
+                self.tells.push(Tell { kind: Kind::Skinny, pos, hp: Kind::Skinny.stats().hp, t: 0.0 });
+            }
         }
         self.rise(dt, sounds);
         self.move_zombies(dt);
