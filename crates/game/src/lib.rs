@@ -342,9 +342,9 @@ mod tests {
         let mut game = Game::new(1);
         press(&mut game, Buttons::A);
         let mut t = InputTracker::default();
-        // Tapping A every other frame picks each level-up so the run plays out.
+        // Tapping A and X every other frame starts the run and picks each level-up, so the run plays out.
         for i in 0..60 * 60 * 10 {
-            let held = if i % 2 == 0 { Buttons::A } else { Buttons::NONE };
+            let held = if i % 2 == 0 { Buttons::A | Buttons::X } else { Buttons::NONE };
             game.update(&t.frame(RawInput { held, ..Default::default() }), 1.0 / 60.0);
             if game.save().best > 0 {
                 break;

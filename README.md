@@ -19,7 +19,7 @@ Every sound is synthesized at runtime from a few oscillator voices per cue, with
 | Turn | Y and A, or L2 and R2 | A and X, or 1 and 2 |
 | Turn around | B | Z |
 | Throw a grenade | Tap the map | Click the bottom window |
-| Pick an upgrade | Tap it, or Up, Down and A | Click it, or arrows and X |
+| Pick an upgrade | Tap it, or Up, Down and X | Click it, or arrows and S |
 | Show the whole map | Hold L1 | Hold Q |
 | Back to the menu | Back, or B after a run | Tab, or Z after a run |
 

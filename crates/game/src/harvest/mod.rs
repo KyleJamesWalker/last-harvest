@@ -669,7 +669,8 @@ impl Harvest {
                 sounds.push(Sfx::Tick(selected as u8 * 3));
             }
             let tapped = input.touch.filter(|_| input.touch_started).and_then(|[_, y]| choice_row(y));
-            if let Some(i) = tapped.or(input.pressed.any(Buttons::A | Buttons::START).then_some(selected)) {
+            // X picks: A turns, and a player still holding it as the cards appear shouldn't pick by accident.
+            if let Some(i) = tapped.or(input.pressed.contains(Buttons::X).then_some(selected)) {
                 let c = choices[i];
                 let mut heal = 0.0;
                 for _ in 0..if c.rare { 2 } else { 1 } {
@@ -1552,7 +1553,7 @@ mod tests {
         for _ in 0..(secs * 60.0) as usize {
             h.update(input, 1.0 / 60.0, &mut sounds);
             if let Phase::LevelUp { .. } = h.phase {
-                h.update(&Input { pressed: Buttons::A, ..Default::default() }, 1.0 / 60.0, &mut sounds);
+                h.update(&Input { pressed: Buttons::X, ..Default::default() }, 1.0 / 60.0, &mut sounds);
             }
         }
     }
@@ -1757,11 +1758,15 @@ mod tests {
         assert!(h.t - t < 0.05, "slow motion");
         h.update(&Input::default(), LEVEL_SLOW, &mut sounds);
         assert!(matches!(h.phase, Phase::LevelUp { picked: None, .. }));
-        let a = Input { pressed: Buttons::A, ..Default::default() };
-        h.update(&a, 1.0 / 60.0, &mut sounds);
+        let x = Input { pressed: Buttons::X, ..Default::default() };
+        h.update(&x, 1.0 / 60.0, &mut sounds);
         assert!(matches!(h.phase, Phase::LevelUp { picked: None, .. }), "too soon");
         h.update(&Input::default(), CARDS_IN, &mut sounds);
-        h.update(&a, 1.0 / 60.0, &mut sounds);
+        for turn in [Buttons::A, Buttons::START] {
+            h.update(&Input { pressed: turn, ..Default::default() }, 1.0 / 60.0, &mut sounds);
+            assert!(matches!(h.phase, Phase::LevelUp { picked: None, .. }), "{turn:?} doesn't pick");
+        }
+        h.update(&x, 1.0 / 60.0, &mut sounds);
         assert!(matches!(h.phase, Phase::LevelUp { picked: Some(_), .. }));
         h.update(&Input::default(), PICK_TIME, &mut sounds);
         assert!(matches!(h.phase, Phase::Playing));
