@@ -199,6 +199,7 @@ impl App {
         let sounds = self.game.take_sounds();
         if let Some(audio) = &self.audio {
             audio.set_volume(self.game.volume());
+            audio.set_dread(self.game.outputs().dread);
             sounds.into_iter().for_each(|s| audio.play(s));
         }
         #[cfg(target_os = "linux")]

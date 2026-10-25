@@ -24,7 +24,8 @@ use save::LEVELS;
 pub const SCREEN_W: f32 = 1024.0;
 pub const SCREEN_H: f32 = 768.0;
 
-const RUMBLE_HIT: f32 = 0.35;
+/// Kill ticks closer together than this blur into one buzz.
+const TICK_GAP: f32 = 0.15;
 const VOLUME_SHOWN: f32 = 1.2;
 const WHITE: Color = [1.0, 1.0, 1.0, 1.0];
 const HOT: Color = [1.0, 0.85, 0.2, 1.0];
@@ -71,6 +72,10 @@ pub struct Game {
     system: System,
     show_perf: bool,
     rumble: f32,
+    /// Motor pulses as (start, end) on `clock`.
+    pulses: Vec<(f32, f32)>,
+    clock: f32,
+    last_tick: f32,
     sounds: Vec<Sfx>,
     save: Save,
     volume_shown: f32,
@@ -87,6 +92,9 @@ impl Game {
             system: System::default(),
             show_perf: false,
             rumble: 0.0,
+            pulses: Vec::new(),
+            clock: 0.0,
+            last_tick: f32::MIN,
             sounds: Vec::new(),
             save: Save::default(),
             volume_shown: 0.0,
@@ -132,7 +140,23 @@ impl Game {
 
     /// Whether the vibration motor should be running this frame.
     pub fn rumble(&self) -> bool {
-        self.rumble > 0.0
+        self.rumble > 0.0 || self.pulses.iter().any(|&(a, b)| (a..b).contains(&self.clock))
+    }
+
+    fn buzz(&mut self, r: harvest::Rumble) {
+        use harvest::Rumble;
+        let now = self.clock;
+        let pattern: &[(f32, f32)] = match r {
+            Rumble::Tick if now - self.last_tick < TICK_GAP => &[],
+            Rumble::Tick => {
+                self.last_tick = now;
+                &[(0.0, 0.05)]
+            }
+            Rumble::Hit => &[(0.0, 0.25)],
+            Rumble::Blast => &[(0.0, 0.4)],
+            Rumble::Fanfare => &[(0.0, 0.08), (0.14, 0.22), (0.3, 0.5)],
+        };
+        self.pulses.extend(pattern.iter().map(|&(a, b)| (now + a, now + b)));
     }
 
     pub fn outputs(&self) -> Outputs {
@@ -140,6 +164,10 @@ impl Game {
         Outputs {
             rumble: self.rumble(),
             volume: self.volume(),
+            dread: match &self.state {
+                State::Harvest(h) if !self.paused => h.dread(),
+                _ => 0.0,
+            },
             brightness: self.save.brightness.map(level),
             screens_on: !self.paused,
             work_led: self.leds[0],
@@ -161,6 +189,9 @@ impl Game {
         self.paused = input.lid_closed;
         self.input = *input;
         self.rumble = (self.rumble - dt).max(0.0);
+        self.clock += dt;
+        let now = self.clock;
+        self.pulses.retain(|&(_, end)| end > now);
         self.volume_shown = (self.volume_shown - dt).max(0.0);
         let step = input.pressed.contains(Buttons::VOL_UP) as i8 - input.pressed.contains(Buttons::VOL_DOWN) as i8;
         if step != 0 {
@@ -173,6 +204,7 @@ impl Game {
         }
         if self.paused {
             self.rumble = 0.0;
+            self.pulses.clear();
             return;
         }
         if input.pressed.any(Buttons::BACK) {
@@ -189,8 +221,8 @@ impl Game {
             }
             State::Harvest(mut h) => {
                 let flow = h.update(input, dt, &mut self.sounds);
-                if flow.rumble {
-                    self.rumble = self.rumble.max(RUMBLE_HIT);
+                if let Some(r) = flow.rumble {
+                    self.buzz(r);
                 }
                 if let Some(secs) = flow.survived {
                     self.save.best = self.save.best.max(secs as u32);

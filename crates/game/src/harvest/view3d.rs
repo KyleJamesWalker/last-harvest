@@ -5,9 +5,9 @@ use std::sync::OnceLock;
 use glam::{Mat4, Vec3};
 
 use super::map::TILE;
-use super::{DropKind, Facing, Harvest, PLAYER, Phase, Zombie, art_for, len, sub};
+use super::{DAWN, DropKind, Facing, GRENADE_FLIGHT, GRENADE_RADIUS, Harvest, PLAYER, Phase, TELL_TIME, Zombie, art_for, len, sub};
 use crate::art::{self, ATLAS_H, ATLAS_W, Art, PIXELS, RECTS};
-use crate::scene3d::{Card, CardScene};
+use crate::scene3d::{Card, CardScene, Flash};
 use crate::{SCREEN_H, SCREEN_W};
 
 /// World units are tiles; sprite pixels are this big.
@@ -100,44 +100,74 @@ fn extrude(art: Art) -> Vec<Face> {
     out
 }
 
-/// Where a standing sprite goes: `origin` is its front bottom-left corner, `right` runs along its width
-/// and `back` into its depth, `depth` world units deep.
+/// Where a standing sprite goes: `origin` is its front bottom-left corner, `right` runs along its width,
+/// `up` along its height and `back` into its depth, `depth` world units deep. Scaling `right` or `up` stretches it.
 struct Pose {
     origin: Vec3,
     right: Vec3,
+    up: Vec3,
     back: Vec3,
     depth: f32,
+    tint: [f32; 3],
+}
+
+impl Pose {
+    fn upright(origin: Vec3, right: Vec3, back: Vec3, depth: f32) -> Self {
+        Self { origin, right, up: Vec3::Y, back, depth, tint: [1.0; 3] }
+    }
 }
 
 /// Places a sprite standing on the ground; only its front and back faces when `solid` is false.
 /// Faces turned away from `eye` are left out: every extrusion is closed, so they would be hidden anyway,
 /// and alpha-tested fragments cost full price on the device's GPU.
 fn stand(out: &mut Vec<Card>, eye: Vec3, art: Art, flip: bool, pose: Pose, solid: bool) {
-    let Pose { origin, right, back, depth } = pose;
+    let Pose { origin, right, up, back, depth, tint } = pose;
     let (w, h) = (art.w(), art.h());
     let all = faces(art);
     let used = if solid { all } else { &all[..2] };
+    let (rn, un) = (right.normalize_or_zero(), up.normalize_or_zero());
     for f in used {
         let place = |[x, y, z]: [f32; 3]| {
             let x = if flip { w - x } else { x };
-            origin + right * (x * PX) + Vec3::Y * ((h - y) * PX) + back * (z * depth)
+            origin + right * (x * PX) + up * ((h - y) * PX) + back * (z * depth)
         };
         let n = f.normal;
-        let normal = right * if flip { -n[0] } else { n[0] } + Vec3::Y * n[1] + back * n[2];
+        let normal = rn * if flip { -n[0] } else { n[0] } + un * n[1] + back * n[2];
         let corners = f.corners.map(place);
         if normal.dot(eye - corners[0]) > 0.0 {
-            out.push(Card::new(corners, f.uv, normal));
+            out.push(Card { tint, ..Card::new(corners, f.uv, normal) });
         }
     }
 }
 
 /// Lays a sprite flat on the ground with its top-left at (x, z), lifted by `lift`.
-fn flat(out: &mut Vec<Card>, art: Art, x: f32, z: f32, lift: f32) {
+fn flat(out: &mut Vec<Card>, art: Art, x: f32, z: f32, lift: f32, tint: [f32; 3]) {
     let [rx, ry, w, h] = art.rect().map(f32::from);
     let (aw, ah) = (ATLAS_W as f32, ATLAS_H as f32);
     let (x1, z1) = (x + w * PX, z + h * PX);
     let corners = [Vec3::new(x, lift, z), Vec3::new(x1, lift, z), Vec3::new(x1, lift, z1), Vec3::new(x, lift, z1)];
-    out.push(Card::new(corners, [rx / aw, ry / ah, (rx + w) / aw, (ry + h) / ah], Vec3::Y));
+    out.push(Card { tint, ..Card::new(corners, [rx / aw, ry / ah, (rx + w) / aw, (ry + h) / ah], Vec3::Y) });
+}
+
+/// A solid square of color facing the camera, `size` world units across, centered on `at`.
+fn speck(out: &mut Vec<Card>, at: Vec3, size: f32, right: Vec3, color: [f32; 3], glow: f32) {
+    let (r, u) = (right * (size / 2.0), Vec3::Y * (size / 2.0));
+    let [rx, ry, w, h] = art::WHITE.rect().map(f32::from);
+    let (aw, ah) = (ATLAS_W as f32, ATLAS_H as f32);
+    // The middle of the white square, so filtering never reaches its edge.
+    let uv = [(rx + w * 0.25) / aw, (ry + h * 0.25) / ah, (rx + w * 0.75) / aw, (ry + h * 0.75) / ah];
+    let corners = [at - r + u, at + r + u, at + r - u, at - r - u];
+    out.push(Card { tint: color, glow, ..Card::new(corners, uv, right.cross(Vec3::Y)) });
+}
+
+/// A flat square of color on the ground.
+fn patch(out: &mut Vec<Card>, at: Vec3, size: f32, color: [f32; 3]) {
+    let [rx, ry, w, h] = art::WHITE.rect().map(f32::from);
+    let (aw, ah) = (ATLAS_W as f32, ATLAS_H as f32);
+    let uv = [(rx + w * 0.25) / aw, (ry + h * 0.25) / ah, (rx + w * 0.75) / aw, (ry + h * 0.75) / ah];
+    let s = size / 2.0;
+    let corners = [at + Vec3::new(-s, 0.0, -s), at + Vec3::new(s, 0.0, -s), at + Vec3::new(s, 0.0, s), at + Vec3::new(-s, 0.0, s)];
+    out.push(Card { tint: color, ..Card::new(corners, uv, Vec3::Y) });
 }
 
 fn world(p: [f32; 2]) -> Vec3 {
@@ -154,14 +184,71 @@ fn facing_from(dir: [f32; 2], forward: Vec3, right: Vec3) -> (Facing, bool) {
     }
 }
 
+/// The colors of the night, warming toward dawn over the last three minutes.
+pub struct Sky {
+    pub fog: [f32; 3],
+    pub ambient: [f32; 3],
+    pub lantern: [f32; 3],
+    /// Laid over the bottom screen's map.
+    pub wash: [f32; 4],
+}
+
+pub fn sky(h: &Harvest) -> Sky {
+    let won = matches!(h.phase, Phase::Over { won: true, .. });
+    let k = if won { 1.0 } else { ((h.t - (DAWN - 180.0)) / 180.0).clamp(0.0, 1.0) };
+    let k = k * k * (3.0 - 2.0 * k);
+    let mix = |a: [f32; 3], b: [f32; 3]| [0, 1, 2].map(|i| a[i] + (b[i] - a[i]) * k);
+    let night = 1.0 - k;
+    Sky {
+        fog: mix([0.07, 0.08, 0.12], [0.45, 0.32, 0.3]),
+        ambient: mix([0.18, 0.19, 0.27], [0.62, 0.52, 0.48]),
+        lantern: mix([1.0, 0.86, 0.66], [0.6, 0.5, 0.4]),
+        wash: [0.05 + 0.9 * k, 0.07 + 0.5 * k, 0.2 + 0.1 * k, 0.22 * night + 0.1 * k],
+    }
+}
+
+/// Where a point in the world lands on the top screen, in screen pixels, and how far away it is; None behind the camera.
+pub fn to_screen(view_proj: Mat4, at: [f32; 2], height: f32) -> Option<([f32; 2], f32)> {
+    let q = world(at) + Vec3::Y * (height * PX);
+    let c = view_proj * q.extend(1.0);
+    if c.w < 0.3 {
+        return None;
+    }
+    let (x, y) = (c.x / c.w, c.y / c.w);
+    Some(([(x + 1.0) * 0.5 * SCREEN_W, (1.0 - y) * 0.5 * SCREEN_H], c.w))
+}
+
+/// A camera-facing sprite: a character, pickup or effect.
+struct Board {
+    art: Art,
+    flip: bool,
+    at: [f32; 2],
+    lift: f32,
+    depth: f32,
+    /// Width and height multipliers.
+    scale: [f32; 2],
+    /// Tips the top of the sprite this way, in world units per unit of height.
+    lean: Vec3,
+    tint: [f32; 3],
+}
+
+impl Board {
+    fn new(art: Art, flip: bool, at: [f32; 2], lift: f32, depth: f32) -> Self {
+        Self { art, flip, at, lift, depth, scale: [1.0; 2], lean: Vec3::ZERO, tint: [1.0; 3] }
+    }
+}
+
 pub fn scene(h: &Harvest) -> CardScene {
+    let j = &h.juice;
     let forward = Vec3::new(h.view_yaw.cos(), 0.0, h.view_yaw.sin());
     let right = forward.cross(Vec3::Y);
     let p = world(h.pos);
-    let eye = p - forward * 2.4 + Vec3::Y * 1.5;
-    let target = p + forward * 4.0 + Vec3::Y * 0.7;
-    let view = Mat4::look_at_rh(eye, target, Vec3::Y);
-    let proj = Mat4::perspective_rh_gl(66f32.to_radians(), SCREEN_W / SCREEN_H, 0.3, VIEW_RADIUS + 6.0);
+    let [sx, sy, roll] = j.shake_offset();
+    let shake = right * sx + Vec3::Y * sy;
+    let eye = p - forward * 2.4 + Vec3::Y * 1.5 + shake;
+    let target = p + forward * 4.0 + Vec3::Y * (0.7 + j.kick * 6.0) + shake;
+    let view = Mat4::look_at_rh(eye, target, Vec3::Y * roll.cos() + right * roll.sin());
+    let proj = Mat4::perspective_rh_gl((66.0 + j.punch).to_radians(), SCREEN_W / SCREEN_H, 0.3, VIEW_RADIUS + 6.0);
     let near = |q: Vec3| {
         let d = q - p;
         d.length() < VIEW_RADIUS && d.dot(forward) > -4.0
@@ -177,16 +264,23 @@ pub fn scene(h: &Harvest) -> CardScene {
                 continue;
             }
             let (ground, overlay) = h.map.tile(tx as usize, ty as usize);
-            flat(&mut cards, ground, corner.x, corner.z, 0.0);
+            flat(&mut cards, ground, corner.x, corner.z, 0.0, [1.0; 3]);
             if let Some(crop) = overlay {
-                stand(&mut cards, eye, crop, false, Pose { origin: corner + Vec3::Z, right: Vec3::X, back: -Vec3::Z, depth: 2.0 * PX }, false);
+                stand(&mut cards, eye, crop, false, Pose::upright(corner + Vec3::Z, Vec3::X, -Vec3::Z, 2.0 * PX), false);
             }
         }
     }
-    for &(a, x, y) in h.map.decals.iter().chain(&h.stains) {
+    for &(a, x, y) in &h.map.decals {
         let q = world([x, y]);
         if near(q) {
-            flat(&mut cards, a, q.x, q.z, DECAL_LIFT);
+            flat(&mut cards, a, q.x, q.z, DECAL_LIFT, [1.0; 3]);
+        }
+    }
+    for (i, &(a, x, y, tint)) in h.stains.iter().enumerate() {
+        let q = world([x, y]);
+        if near(q) {
+            // Newer stains sit a hair higher, so overlapping ones don't flicker.
+            flat(&mut cards, a, q.x, q.z, DECAL_LIFT + 0.002 + i as f32 * 0.00005, tint);
         }
     }
     // Anything standing behind the player would fill the screen, so only what is ahead gets drawn.
@@ -195,24 +289,25 @@ pub fn scene(h: &Harvest) -> CardScene {
         let base = Vec3::new(prop.x * PX, 0.0, prop.base * PX);
         let middle = base + Vec3::new(prop.frames[0].w() * PX * 0.5, 0.0, -prop.depth * PX * 0.5);
         if ahead(middle) {
-            stand(&mut cards, eye, prop.frame(h.t), false, Pose { origin: base, right: Vec3::X, back: -Vec3::Z, depth: prop.depth * PX }, true);
+            stand(&mut cards, eye, prop.frame(h.t), false, Pose::upright(base, Vec3::X, -Vec3::Z, prop.depth * PX), true);
         }
     }
     for b in &h.barrels {
         let a = if b.flash > 0.0 { art::BARREL_FLASH } else { art::BARREL };
         let base = Vec3::new(b.pos[0] * PX, 0.0, (b.pos[1] + a.h()) * PX);
         if ahead(base) {
-            stand(&mut cards, eye, a, false, Pose { origin: base, right: Vec3::X, back: -Vec3::Z, depth: 12.0 * PX }, true);
+            stand(&mut cards, eye, a, false, Pose::upright(base, Vec3::X, -Vec3::Z, 12.0 * PX), true);
         }
     }
 
-    // Characters and pickups turn to face the camera.
-    let billboard = |cards: &mut Vec<Card>, a: Art, flip: bool, at: [f32; 2], lift: f32, depth: f32| {
-        let q = world(at);
+    let board = |cards: &mut Vec<Card>, b: Board| {
+        let q = world(b.at);
         // Close to the lens a character fills the screen without showing anything useful.
         if near(q) && (q - p).dot(forward) > -0.8 && (q - eye).length() > 1.4 {
-            let origin = q - right * (a.w() * PX / 2.0) - forward * (depth / 2.0) + Vec3::Y * lift;
-            stand(cards, eye, a, flip, Pose { origin, right, back: forward, depth }, depth > 0.0);
+            let r = right * b.scale[0];
+            let origin = q - r * (b.art.w() * PX / 2.0) - forward * (b.depth / 2.0) + Vec3::Y * b.lift;
+            let up = (Vec3::Y + b.lean) * b.scale[1];
+            stand(cards, eye, b.art, b.flip, Pose { origin, right: r, up, back: forward, depth: b.depth, tint: b.tint }, b.depth > 0.0);
         }
     };
     // A full horde swarming the player would bury the GPU; the farthest are lost in the fog anyway.
@@ -222,44 +317,116 @@ pub fn scene(h: &Harvest) -> CardScene {
         nearest.truncate(MAX_ZOMBIES_3D);
     }
     for z in nearest {
-        let look = &z.kind.stats().look;
         let (facing, flip) = facing_from(z.dir, forward, right);
-        let a = if z.flash > 0.0 { look.flash[facing.index()] } else { look.walk[facing.index()][z.frame()] };
+        let a = z.art(facing);
+        let s = z.squash;
         // A rising zombie starts below the ground plane, which hides the part still buried.
-        billboard(&mut cards, a, flip, z.pos, -(1.0 - z.rise) * a.h() * PX, CHARACTER_DEPTH);
+        let mut b = Board::new(a, flip, z.pos, -(1.0 - z.rise) * a.h() * PX, CHARACTER_DEPTH);
+        b.scale = [1.0 + 0.3 * s, 1.0 - 0.2 * s];
+        b.lean = Vec3::new(z.knock[0], 0.0, z.knock[1]) * (0.35 * s);
+        board(&mut cards, b);
     }
     let (facing, flip) = facing_from(h.aim, forward, right);
-    billboard(&mut cards, art_for(h, &PLAYER, facing), flip, h.pos, 0.0, CHARACTER_DEPTH);
+    board(&mut cards, Board::new(art_for(h, &PLAYER, facing), flip, h.pos, 0.0, CHARACTER_DEPTH));
     for d in &h.drops {
         let a = match d.kind {
             DropKind::Money(_) => art::MONEY[3],
             DropKind::Health => art::HEALTH,
         };
-        billboard(&mut cards, a, false, d.pos, 0.1 + (h.t * 4.0 + d.pos[0]).sin().abs() * 0.1, 0.0);
+        let mut b = Board::new(a, false, d.pos, 0.1 + d.z * PX + (h.t * 4.0 + d.pos[0]).sin().abs() * 0.1, 0.0);
+        // Coins spin; never quite edge-on, or they vanish.
+        b.scale[0] = (h.t * 5.0 + d.pos[1]).cos().abs().max(0.2);
+        board(&mut cards, b);
+    }
+    for c in &h.juice.corpses {
+        let q = world(c.pos);
+        if !near(q) || (q - p).dot(forward) < 0.0 {
+            continue;
+        }
+        let fall = Vec3::new(c.fall[0], 0.0, c.fall[1]).normalize_or(forward);
+        let side = fall.cross(Vec3::Y);
+        let tip = if c.z > 0.0 { c.spin } else { c.tipped() * std::f32::consts::FRAC_PI_2 };
+        let up = Vec3::Y * tip.cos() + fall * tip.sin();
+        let back = up.cross(side);
+        let lift = c.z * PX + 0.04 - c.sunk() * PX;
+        let origin = q - side * (c.art.w() * PX / 2.0) + Vec3::Y * lift;
+        stand(&mut cards, eye, c.art, c.flip, Pose { origin, right: side, up, back, depth: PX, tint: [0.8; 3] }, false);
+    }
+    for b in &h.birds {
+        let mut board_b = Board::new(b.art(), b.flip, b.pos, b.z * PX, 0.0);
+        board_b.tint = [0.7; 3];
+        board(&mut cards, board_b);
     }
     for f in &h.fx {
         let a = f.frames[((f.t * f.fps) as usize).min(f.frames.len() - 1)];
-        billboard(&mut cards, a, false, [f.pos[0], f.pos[1] + 6.0], 0.25, 0.0);
+        board(&mut cards, Board::new(a, false, [f.pos[0], f.pos[1] + 6.0], 0.25, 0.0));
     }
     for g in &h.thrown {
         let (at, lift) = g.at();
-        billboard(&mut cards, art::GRENADE, false, at, lift * PX, 0.0);
+        board(&mut cards, Board::new(art::GRENADE, false, at, lift * PX, 0.0));
+        // A shadow that grows as the grenade comes down, and a ring of red marks where it will land.
+        let k = (g.t / GRENADE_FLIGHT).min(1.0);
+        patch(&mut cards, world(at) + Vec3::Y * (DECAL_LIFT + 0.01), 0.15 + 0.15 * k, [0.02; 3]);
+        let spin = g.t * 3.0;
+        for i in 0..10 {
+            let a = spin + i as f32 / 10.0 * std::f32::consts::TAU;
+            let rr = GRENADE_RADIUS * PX * (1.15 - 0.15 * k);
+            let q = world(g.to) + Vec3::new(a.cos() * rr, 0.06, a.sin() * rr);
+            if near(q) {
+                speck(&mut cards, q, 0.08, right, [1.0, 0.25, 0.15], 1.0);
+            }
+        }
     }
     for b in &h.bullets {
-        billboard(&mut cards, art::MUZZLE, false, [b.pos[0], b.pos[1] + 6.0], 0.35, 0.0);
+        board(&mut cards, Board::new(art::MUZZLE, false, [b.pos[0], b.pos[1] + 6.0], 0.35, 0.0));
+    }
+    for t in &h.tells {
+        // Churned earth, bulging as the zombie nears the surface.
+        let k = (t.t / TELL_TIME).min(1.0);
+        patch(&mut cards, world(t.pos) + Vec3::Y * (DECAL_LIFT + 0.004), 0.3 + 0.3 * k, [0.16, 0.11, 0.07]);
+    }
+    for pt in &h.juice.particles {
+        let q = world(pt.pos) + Vec3::Y * (pt.z * PX);
+        if near(q) && (q - p).dot(forward) > 0.0 {
+            speck(&mut cards, q, pt.size_now() * PX, right, pt.color, pt.glow);
+        }
+    }
+    for ring in &h.juice.rings {
+        let rr = ring.now() * PX;
+        let size = 0.18 * (1.0 - ring.age / ring.life);
+        let n = 36;
+        for i in 0..n {
+            let a = i as f32 / n as f32 * std::f32::consts::TAU;
+            let q = world(ring.center) + Vec3::new(a.cos() * rr, 0.08, a.sin() * rr);
+            if near(q) {
+                speck(&mut cards, q, size, right, ring.color, 1.0);
+            }
+        }
     }
 
+    let flashes = h
+        .juice
+        .flashes
+        .iter()
+        .map(|f| Flash { pos: world(f.pos) + Vec3::Y * (f.z * PX), color: f.color.map(|c| c * f.strength()), range: f.range * (0.5 + 0.5 * f.strength()) })
+        .collect();
+    let health = h.hp / h.gear.max_hp;
     let dying = matches!(h.phase, Phase::Over { won: false, .. });
-    let lantern = if dying { 3.0 } else { 9.0 } * (1.0 - 0.04 * (h.t * 13.0).sin().abs());
+    // The lantern gutters when you're nearly done for.
+    let gutter = if health < 0.3 { 0.15 * (h.juice.clock * 23.0).sin().abs() * (h.juice.clock * 7.0).sin().abs() } else { 0.0 };
+    let lantern = if dying { 3.0 } else { 9.0 } * (1.0 - 0.04 * (h.t * 13.0).sin().abs() - gutter);
+    let sky = sky(h);
+    let hurt = h.juice.hurt / 0.35;
+    let light_color = [sky.lantern[0], sky.lantern[1] * (1.0 - 0.4 * hurt), sky.lantern[2] * (1.0 - 0.5 * hurt)];
     CardScene {
         view_proj: proj * view,
         eye,
         light: p + Vec3::Y * 1.4 + forward * 0.3,
-        light_color: [1.0, 0.86, 0.66],
+        light_color,
         light_range: lantern,
-        flashes: Vec::new(),
-        ambient: [0.2, 0.2, 0.25],
-        fog: [0.11, 0.11, 0.13],
+        flashes,
+        ambient: sky.ambient,
+        fog: sky.fog,
         fog_range: [6.0, VIEW_RADIUS],
         cards,
     }

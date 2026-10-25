@@ -25,6 +25,8 @@ pub struct System {
 pub struct Outputs {
     pub rumble: bool,
     pub volume: f32,
+    /// How tense the music should be, 0 (silent) to 1.
+    pub dread: f32,
     pub brightness: [f32; 2],
     pub screens_on: bool,
     pub work_led: bool,
