@@ -162,7 +162,7 @@ mod tests {
     #[test]
     fn rects_cover_exactly_the_set_cells() {
         let set = |x: usize, y: usize| !(x + y).is_multiple_of(3);
-        let mut covered = vec![false; 7 * 5];
+        let mut covered = [false; 7 * 5];
         for [x0, y0, x1, y1] in rects(7, 5, set) {
             for (x, y) in (y0 as usize..y1 as usize).flat_map(|y| (x0 as usize..x1 as usize).map(move |x| (x, y))) {
                 assert!(!covered[y * 7 + x] && set(x, y));
