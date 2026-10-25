@@ -10,7 +10,7 @@ The top screen is the main view, in 2.5D: every sprite's silhouette extruded int
 
 Zombies claw their way out of the ground, at the edge of the fog early on and only a few tiles away by the end of the night, then find their way around buildings and fences. Your weapons fire on their own at the nearest one. Tap the map to lob a grenade there; you hold three, and each recharges in 12 seconds. Kills drop money, and money levels you up: pick one of three upgrades on either screen. Shooting a red barrel sets it off. Survive until dawn, ten minutes in.
 
-Every sound is synthesized at runtime from a few oscillator voices per cue, with a low drone that swells as the dead close in. They are placeholders until the game has recorded sound.
+Every sound is synthesized at runtime from a few oscillator voices per cue, with a low drone that swells as the dead close in. A recorded WAV can replace any cue; see [Sounds](#sounds).
 
 | Action | Device | macOS |
 |---|---|---|
@@ -121,8 +121,28 @@ The scene names are `title`, `harvest`, `farm` (the game without zombies, for lo
 | `LAST_HARVEST_DEBUG` | Turns on debug mode. `DEBUG=1 scripts/deploy.sh` sets it. |
 | `LAST_HARVEST_LOG_INPUT` | Logs every gamepad event. `CAPTURE=1 scripts/deploy.sh` sets it. |
 | `LAST_HARVEST_SAVE` | Sets the save file path. |
+| `LAST_HARVEST_SOUNDS` | Sets the folder of recorded sounds. The default is `sounds` beside the binary, then `assets/sounds`. |
 | `LAST_HARVEST_TOP` | Names the output for the top screen, such as `DSI-2`. |
 | `RGDS_HOST` | Sets the SSH target for the scripts. The default is `root@anbernic.local`. |
+
+### Sounds
+
+Put WAV files in `assets/sounds/`, named after the cue they replace. `scripts/deploy.sh` and `scripts/install.sh` copy them to the device. A cue with no file keeps its synth voice. Add `-2`, `-3` and so on for variations, such as `shot.wav` and `shot-2.wav`, and each play picks one at random. Files can be 8, 16, 24 or 32-bit PCM or 32-bit float, mono or stereo, at any sample rate.
+
+| File | Plays when |
+|---|---|
+| `shot`, `blast`, `slash` | The pistol, shotgun or knife fires |
+| `thud`, `crit` | A hit lands, or a critical hit |
+| `kill-skinny`, `kill-kid`, `kill-big` | A zombie dies |
+| `throw`, `boom` | A grenade leaves your hand, or anything explodes |
+| `pickup` | Money is collected; quick pickups play it higher, up a scale |
+| `heal`, `hurt`, `heartbeat` | Health is picked up, you are hit, or health is low |
+| `levelup`, `pick`, `pick-rare` | The XP bar fills, or an upgrade is chosen |
+| `rise`, `groan`, `caw` | A zombie breaks out of the ground, groans, or a crow takes off |
+| `bell`, `horde`, `dawn`, `gameover` | Each minute, each horde, surviving, or dying |
+| `start`, `miss` | A run starts, or a tap with no grenade ready |
+
+Every file also plays a few percent sharp or flat at random. Explosions, rising, groans and crows are panned and quieted by where they happen. Git ignores `assets/sounds/` until each file's license is checked.
 
 ### Saves and crashes
 

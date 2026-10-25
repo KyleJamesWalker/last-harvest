@@ -7,6 +7,8 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{SampleFormat, SizedSample};
 use last_harvest_game::Sfx;
 
+use crate::samples::{self, Bank, Clip};
+
 const MIX: f32 = 0.25;
 const ATTACK: f32 = 0.005;
 /// Oldest voices give way past this, so a swarm can't pile up hundreds.
@@ -195,9 +197,28 @@ struct Drone {
     t: f32,
 }
 
+/// A recorded clip playing back, `rate` times as fast as it was recorded.
+struct Play {
+    clip: Arc<Clip>,
+    pos: f32,
+    rate: f32,
+    gain: f32,
+    pan: f32,
+}
+
+/// Stereo pan (-1 to 1) and loudness (0 to 1) for a cue the game placed in the world.
+fn placement(sfx: Sfx) -> (f32, f32) {
+    match sfx {
+        Sfx::Boom { pan, gain } | Sfx::Rise { pan, gain } | Sfx::Groan { pan, gain } | Sfx::Caw { pan, gain } => (pan as f32 / 100.0, gain as f32 / 255.0),
+        _ => (0.0, 1.0),
+    }
+}
+
 struct Synth {
     rx: Receiver<Sfx>,
     voices: Vec<Voice>,
+    bank: Bank,
+    plays: Vec<Play>,
     volume: Arc<AtomicU32>,
     dread: Arc<AtomicU32>,
     drone: Drone,
@@ -246,6 +267,16 @@ impl Synth {
             sum[1] += s * (1.0 + n.pan).min(1.0);
         }
         self.voices.retain(|v| v.t < v.note.dur);
+        for p in &mut self.plays {
+            let f = &p.clip.frames;
+            let (i, t) = (p.pos as usize, p.pos.fract());
+            let (a, b) = (f[i], f[(i + 1).min(f.len() - 1)]);
+            let s = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+            sum[0] += s[0] * p.gain * (1.0 - p.pan).min(1.0);
+            sum[1] += s[1] * p.gain * (1.0 + p.pan).min(1.0);
+            p.pos += p.rate;
+        }
+        self.plays.retain(|p| (p.pos as usize) < p.clip.frames.len());
         let d = self.drone_sample();
         let gain = MIX * f32::from_bits(self.volume.load(Ordering::Relaxed));
         [0, 1].map(|i| ((sum[i] + d) * gain).clamp(-1.0, 1.0))
@@ -275,6 +306,16 @@ impl Synth {
     fn fill<T: SizedSample + cpal::FromSample<f32>>(&mut self, data: &mut [T], channels: usize) {
         while let Ok(sfx) = self.rx.try_recv() {
             let k = 1.0 + self.random() * JITTER;
+            let (name, rate) = samples::cue(sfx);
+            let pick = self.random() * 0.5 + 0.5;
+            if let Some(clip) = self.bank.get(name, pick) {
+                let (pan, gain) = placement(sfx);
+                self.plays.push(Play { clip, pos: 0.0, rate: rate * k, gain, pan });
+                if self.plays.len() > MAX_VOICES {
+                    self.plays.remove(0);
+                }
+                continue;
+            }
             for note in notes(sfx) {
                 let note = if note.f0 > 1.0 { Note { f0: note.f0 * k, f1: note.f1 * k, ..note } } else { note };
                 self.voices.push(Voice { note, t: -note.delay, phase: 0.0, held: 0.0 });
@@ -316,7 +357,9 @@ impl Audio {
         let volume = Arc::new(AtomicU32::new(0f32.to_bits()));
         let dread = Arc::new(AtomicU32::new(0f32.to_bits()));
         let drone = Drone { level: 0.0, phases: [0.0; 3], t: 0.0 };
-        let mut synth = Synth { rx, voices: Vec::new(), volume: volume.clone(), dread: dread.clone(), drone, dt: 1.0 / config.sample_rate.0 as f32, noise: 0x9E37_79B9 };
+        let rate = config.sample_rate.0 as f32;
+        let bank = samples::folder().map(|dir| Bank::load(&dir, rate)).unwrap_or_default();
+        let mut synth = Synth { rx, voices: Vec::new(), bank, plays: Vec::new(), volume: volume.clone(), dread: dread.clone(), drone, dt: 1.0 / rate, noise: 0x9E37_79B9 };
         let stream = match supported.sample_format() {
             SampleFormat::F32 => device.build_output_stream(&config, move |d: &mut [f32], _: &_| synth.fill(d, channels), on_error, None)?,
             SampleFormat::I16 => device.build_output_stream(&config, move |d: &mut [i16], _: &_| synth.fill(d, channels), on_error, None)?,
@@ -355,7 +398,7 @@ mod tests {
         let volume = Arc::new(AtomicU32::new(1f32.to_bits()));
         let dread = Arc::new(AtomicU32::new(0f32.to_bits()));
         let drone = Drone { level: 0.0, phases: [0.0; 3], t: 0.0 };
-        (Synth { rx, voices: Vec::new(), volume, dread, drone, dt: 1.0 / RATE, noise: 1 }, tx)
+        (Synth { rx, voices: Vec::new(), bank: Bank::default(), plays: Vec::new(), volume, dread, drone, dt: 1.0 / RATE, noise: 1 }, tx)
     }
 
     /// Plays `secs` of audio and returns the loudest sample.
@@ -388,5 +431,34 @@ mod tests {
         assert_eq!(render(&mut s, 0.5), 0.0);
         s.dread.store(1f32.to_bits(), Ordering::Relaxed);
         assert!(render(&mut s, 4.0) > 0.02);
+    }
+
+    #[test]
+    fn a_recorded_clip_replaces_its_synth_cue() {
+        let dir = std::env::temp_dir().join(format!("lh-cue-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut wav = Vec::new();
+        let samples = vec![8000i16; 4800];
+        let data = (samples.len() * 2) as u32;
+        wav.extend(b"RIFF");
+        wav.extend((36 + data).to_le_bytes());
+        wav.extend(b"WAVEfmt ");
+        for v in [16u32.to_le_bytes().to_vec(), 1u16.to_le_bytes().to_vec(), 1u16.to_le_bytes().to_vec(), 48000u32.to_le_bytes().to_vec(), 96000u32.to_le_bytes().to_vec(), 2u16.to_le_bytes().to_vec(), 16u16.to_le_bytes().to_vec()] {
+            wav.extend(v);
+        }
+        wav.extend(b"data");
+        wav.extend(data.to_le_bytes());
+        samples.iter().for_each(|v| wav.extend(v.to_le_bytes()));
+        std::fs::write(dir.join("shot.wav"), wav).unwrap();
+        let (mut s, tx) = synth();
+        s.bank = Bank::load(&dir, RATE);
+        std::fs::remove_dir_all(&dir).unwrap();
+        tx.send(Sfx::Shot).unwrap();
+        tx.send(Sfx::Blast).unwrap();
+        render(&mut s, 0.01);
+        assert_eq!(s.plays.len(), 1, "the shot plays its clip");
+        assert!(!s.voices.is_empty(), "the blast keeps its synth voice");
+        render(&mut s, 0.2);
+        assert!(s.plays.is_empty());
     }
 }

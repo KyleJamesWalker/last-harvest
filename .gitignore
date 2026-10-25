@@ -29,5 +29,8 @@ rustc-ice-*.txt
 # Zombie Apocalypse Tileset: its license forbids redistribution
 /assets/zombie-apocalypse/
 
+# Recorded sounds stay out until their licenses are checked
+/assets/sounds/
+
 # macOS Finder metadata
 .DS_Store

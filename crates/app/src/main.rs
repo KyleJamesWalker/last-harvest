@@ -4,6 +4,7 @@ mod debug;
 mod device;
 mod gfx;
 mod persist;
+mod samples;
 
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
