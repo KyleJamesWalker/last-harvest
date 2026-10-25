@@ -56,6 +56,33 @@ pub enum Tool {
     Eraser,
     Fill,
     Picker,
+    Select,
+}
+
+/// A rectangle of pixels picked out with the select tool. Once moved or pasted, its pixels float above the
+/// surface until placed, and only their opaque pixels land.
+#[derive(Clone, Debug, PartialEq)]
+struct Selection {
+    x: i32,
+    y: i32,
+    w: usize,
+    h: usize,
+    float: Option<Frame>,
+}
+
+impl Selection {
+    fn contains(&self, x: i32, y: i32) -> bool {
+        x >= self.x && y >= self.y && x < self.x + self.w as i32 && y < self.y + self.h as i32
+    }
+}
+
+/// What the select tool is doing while the mouse is down.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Grab {
+    /// Drawing a new rectangle from this corner.
+    From(i32, i32),
+    /// Moving the selection, held this far from its top-left.
+    Move(i32, i32),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -104,6 +131,11 @@ pub enum Key {
     Undo,
     Redo,
     Save,
+    Up,
+    Down,
+    Copy,
+    Cut,
+    Paste,
 }
 
 /// Everything an undo puts back: the frames and the carving views.
@@ -140,6 +172,12 @@ pub struct Editor {
     ask: Option<(Ask, String)>,
     /// A sprite to switch to once the current one's unsaved changes are saved or dropped.
     pending: Option<String>,
+    selection: Option<Selection>,
+    grab: Option<Grab>,
+    /// Pixels an arrow key moves a selection: 8 with Shift held.
+    pub nudge: i32,
+    /// Copied pixels and where they were copied from.
+    clipboard: Option<(Frame, i32, i32)>,
     status: Option<(String, f32)>,
     /// The last pixel a stroke painted, so a fast drag joins up.
     stroke: Option<(i32, i32)>,
@@ -178,6 +216,10 @@ impl Editor {
             fps: 6.0,
             ask: None,
             pending: None,
+            selection: None,
+            grab: None,
+            nudge: 1,
+            clipboard: None,
             status: None,
             stroke: None,
             channel: None,
@@ -205,10 +247,18 @@ impl Editor {
         if self.stand == CARVE { "carve".into() } else { sprite::stand_text(self.stand()) }
     }
 
-    /// Everything to pack for the previews: the frames, then the carving views when carving.
-    pub fn surfaces(&self) -> Vec<&Frame> {
+    /// Everything to pack for the previews: the frames, then the carving views when carving, with any
+    /// floating pixels shown where they would land.
+    pub fn surfaces(&self) -> Vec<Frame> {
         let views = self.sprite.views.iter().filter(|_| self.stand == CARVE).flatten();
-        self.sprite.frames.iter().chain(views).collect()
+        let mut out: Vec<Frame> = self.sprite.frames.iter().chain(views).cloned().collect();
+        if let Some(Selection { x, y, float: Some(f), .. }) = &self.selection {
+            let i = self.view.map_or(self.frame, |v| self.sprite.frames.len() + v);
+            if let Some(target) = out.get_mut(i) {
+                stamp(target, f, *x, *y);
+            }
+        }
+        out
     }
 
     /// The frames to show in the previews: all of them while playing, else the one being edited.
@@ -304,6 +354,7 @@ impl Editor {
     }
 
     fn open(&mut self, name: &str) {
+        self.selection = None;
         if let Some(s) = Sprite::load(&self.dir, name) {
             self.sprite = s;
             self.frame = 0;
@@ -349,11 +400,11 @@ impl Editor {
         for (i, (a, l)) in [(Action::Ask(Ask::New), "New"), (Action::Ask(Ask::Copy), "Copy"), (Action::Revert, "Revert"), (Action::Save, "Save")].into_iter().enumerate() {
             push(616.0 + i as f32 * 102.0, 8.0, 94.0, 34.0, a, l, a == Action::Save && self.unsaved());
         }
-        let tools = [(Tool::Pencil, "Pencil  B"), (Tool::Eraser, "Eraser  E"), (Tool::Fill, "Fill  G"), (Tool::Picker, "Pick  I")];
+        let tools = [(Tool::Pencil, "Pencil B"), (Tool::Eraser, "Eraser E"), (Tool::Fill, "Fill G"), (Tool::Picker, "Pick I"), (Tool::Select, "Select S")];
         for (i, (t, l)) in tools.into_iter().enumerate() {
             push(SIDE_X + (i % 2) as f32 * 118.0, 52.0 + (i / 2) as f32 * 38.0, 114.0, 32.0, Action::Tool(t), l, self.tool == t);
         }
-        push(SIDE_X, 128.0, SIDE_W, 32.0, Action::Mirror, "Mirror left/right  M", self.mirror);
+        push(SIDE_X + 118.0, 128.0, 114.0, 32.0, Action::Mirror, "Mirror M", self.mirror);
         let cols = (SIDE_W / SWATCH) as usize;
         for (i, &c) in self.palette.iter().enumerate().take(cols * 9) {
             let (x, y) = (SIDE_X + (i % cols) as f32 * SWATCH, 316.0 + (i / cols) as f32 * SWATCH);
@@ -424,6 +475,21 @@ impl Editor {
         }
         if CANVAS.contains(p) {
             let (x, y) = self.pixel_at(p);
+            if self.tool == Tool::Select && !right {
+                self.grab = Some(match &self.selection {
+                    Some(sel) if sel.contains(x, y) => {
+                        self.lift();
+                        let sel = self.selection.as_ref().unwrap();
+                        Grab::Move(x - sel.x, y - sel.y)
+                    }
+                    _ => {
+                        self.place();
+                        self.selection = None;
+                        Grab::From(x, y)
+                    }
+                });
+                return;
+            }
             if right || self.tool == Tool::Picker {
                 if let Some(c) = self.current().get(x, y).filter(|c| c[3] > 0) {
                     self.color = c;
@@ -444,8 +510,22 @@ impl Editor {
             self.color[3] = 255;
             return;
         }
+        if let Some(grab) = self.grab {
+            let (x, y) = self.pixel_at(p);
+            match grab {
+                Grab::From(ax, ay) => {
+                    let f = self.current();
+                    let clamp = |v: i32, max: usize| v.clamp(0, max as i32 - 1);
+                    let (x0, x1) = (clamp(ax.min(x), f.w), clamp(ax.max(x), f.w));
+                    let (y0, y1) = (clamp(ay.min(y), f.h), clamp(ay.max(y), f.h));
+                    self.selection = Some(Selection { x: x0, y: y0, w: (x1 - x0 + 1) as usize, h: (y1 - y0 + 1) as usize, float: None });
+                }
+                Grab::Move(gx, gy) => self.shift_selection(x - gx, y - gy),
+            }
+            return;
+        }
         let Some((lx, ly)) = self.stroke else { return };
-        if matches!(self.tool, Tool::Fill | Tool::Picker) {
+        if matches!(self.tool, Tool::Fill | Tool::Picker | Tool::Select) {
             return;
         }
         let (x, y) = self.pixel_at(p);
@@ -461,6 +541,103 @@ impl Editor {
     pub fn mouse_up(&mut self) {
         self.stroke = None;
         self.channel = None;
+        if matches!(self.grab.take(), Some(Grab::From(..))) && self.selection.as_ref().is_some_and(|s| s.w * s.h == 1) {
+            self.selection = None;
+        }
+    }
+
+    /// Lifts the selected pixels off the surface so they can move, leaving clear pixels behind.
+    fn lift(&mut self) {
+        let Some(sel) = self.selection.clone().filter(|s| s.float.is_none()) else { return };
+        self.remember();
+        let mut float = Frame::blank(sel.w, sel.h);
+        let f = self.current_mut();
+        for y in 0..sel.h as i32 {
+            for x in 0..sel.w as i32 {
+                float.set(x, y, f.get(sel.x + x, sel.y + y).unwrap_or(CLEAR));
+                f.set(sel.x + x, sel.y + y, CLEAR);
+            }
+        }
+        self.selection = Some(Selection { float: Some(float), ..sel });
+    }
+
+    /// Puts floating pixels down where they are; the selection stays as a rectangle.
+    fn place(&mut self) {
+        let Some(Selection { x, y, float: Some(f), .. }) = self.selection.clone() else { return };
+        stamp(self.current_mut(), &f, x, y);
+        if let Some(sel) = &mut self.selection {
+            sel.float = None;
+        }
+        self.changed = true;
+    }
+
+    /// Ends the selection, putting any floating pixels down first.
+    fn deselect(&mut self) {
+        self.place();
+        self.selection = None;
+        self.grab = None;
+    }
+
+    fn shift_selection(&mut self, x: i32, y: i32) {
+        self.lift();
+        if let Some(sel) = &mut self.selection {
+            (sel.x, sel.y) = (x, y);
+        }
+        self.changed = true;
+    }
+
+    fn copy(&mut self) {
+        let Some(sel) = &self.selection else {
+            self.say("Select some pixels first: S, then drag");
+            return;
+        };
+        let pixels = match &sel.float {
+            Some(f) => f.clone(),
+            None => {
+                let mut out = Frame::blank(sel.w, sel.h);
+                for y in 0..sel.h as i32 {
+                    for x in 0..sel.w as i32 {
+                        out.set(x, y, self.current().get(sel.x + x, sel.y + y).unwrap_or(CLEAR));
+                    }
+                }
+                out
+            }
+        };
+        let (w, h) = (pixels.w, pixels.h);
+        self.clipboard = Some((pixels, sel.x, sel.y));
+        self.say(format!("Copied {w} x {h}: pick a surface and paste with Cmd+V"));
+    }
+
+    /// Clears the selected pixels, or drops floating ones.
+    fn clear_selection(&mut self) {
+        let Some(sel) = self.selection.clone() else { return };
+        if sel.float.is_none() {
+            self.remember();
+            let f = self.current_mut();
+            for y in 0..sel.h as i32 {
+                for x in 0..sel.w as i32 {
+                    f.set(sel.x + x, sel.y + y, CLEAR);
+                }
+            }
+        }
+        self.selection = None;
+        self.changed = true;
+    }
+
+    fn paste(&mut self) {
+        let Some((pixels, x, y)) = self.clipboard.clone() else {
+            self.say("Nothing copied yet");
+            return;
+        };
+        self.deselect();
+        self.remember();
+        let f = self.current();
+        // Where it was copied from, unless that would put it out of sight.
+        let fits = |v: i32, size: usize, max: usize| if v >= 0 && v + size as i32 <= max as i32 { v } else { 0 };
+        let (x, y) = (fits(x, pixels.w, f.w), fits(y, pixels.h, f.h));
+        self.selection = Some(Selection { x, y, w: pixels.w, h: pixels.h, float: Some(pixels) });
+        self.tool = Tool::Select;
+        self.say("Pasted: drag or use the arrow keys to line it up, Enter to place");
     }
 
     pub fn wheel(&mut self, p: [f32; 2], dy: f32) {
@@ -501,6 +678,7 @@ impl Editor {
         match a {
             Action::Ask(k) => self.ask = Some((k, String::new())),
             Action::Save => {
+                self.deselect();
                 let new = !self.names.iter().any(|(n, _)| *n == self.sprite.name);
                 // A carving lives in the sprite's folder, so it saves the pixels too.
                 let carving = self.stand == CARVE && self.stand_touched;
@@ -528,7 +706,12 @@ impl Editor {
                 }
                 self.say("Reverted to the last save");
             }
-            Action::Tool(t) => self.tool = t,
+            Action::Tool(t) => {
+                if t != Tool::Select {
+                    self.deselect();
+                }
+                self.tool = t;
+            }
             Action::Mirror => self.mirror = !self.mirror,
             Action::AddFrame => {
                 self.remember();
@@ -551,12 +734,14 @@ impl Editor {
                 }
             }
             Action::Frame(i) => {
+                self.deselect();
                 self.frame = i;
                 self.view = None;
                 self.playing = false;
                 self.changed = true;
             }
             Action::View(v) => {
+                self.deselect();
                 self.view = Some(v);
                 self.playing = false;
             }
@@ -731,11 +916,38 @@ impl Editor {
             }
             return;
         }
+        if self.selection.is_some() {
+            let moved = match key {
+                Key::Left => Some((-1, 0)),
+                Key::Right => Some((1, 0)),
+                Key::Up => Some((0, -1)),
+                Key::Down => Some((0, 1)),
+                _ => None,
+            };
+            if let Some((dx, dy)) = moved {
+                let sel = self.selection.as_ref().unwrap();
+                let (x, y) = (sel.x + dx * self.nudge, sel.y + dy * self.nudge);
+                self.shift_selection(x, y);
+                return;
+            }
+            match key {
+                Key::Enter | Key::Escape => return self.deselect(),
+                Key::Backspace => return self.clear_selection(),
+                _ => {}
+            }
+        }
         match key {
-            Key::Char('b' | 'p') => self.tool = Tool::Pencil,
-            Key::Char('e') => self.tool = Tool::Eraser,
-            Key::Char('g' | 'f') => self.tool = Tool::Fill,
-            Key::Char('i') => self.tool = Tool::Picker,
+            Key::Copy => self.copy(),
+            Key::Cut => {
+                self.copy();
+                self.clear_selection();
+            }
+            Key::Paste => self.paste(),
+            Key::Char('b' | 'p') => self.act(Action::Tool(Tool::Pencil), false),
+            Key::Char('e') => self.act(Action::Tool(Tool::Eraser), false),
+            Key::Char('g' | 'f') => self.act(Action::Tool(Tool::Fill), false),
+            Key::Char('i') => self.act(Action::Tool(Tool::Picker), false),
+            Key::Char('s') => self.act(Action::Tool(Tool::Select), false),
             Key::Char('m') => self.mirror = !self.mirror,
             Key::Char(' ') => self.act(Action::Play, false),
             Key::Char('n') => self.act(Action::Ask(Ask::New), false),
@@ -745,6 +957,7 @@ impl Editor {
             Key::Char('k') => self.step_sprite(-1),
             Key::Save => self.act(Action::Save, false),
             Key::Undo => {
+                self.selection = None;
                 if let Some(prev) = self.undo.pop() {
                     let now = self.snapshot();
                     (self.sprite.frames, self.sprite.views) = prev;
@@ -755,6 +968,7 @@ impl Editor {
                 }
             }
             Key::Redo => {
+                self.selection = None;
                 if let Some(next) = self.redo.pop() {
                     let now = self.snapshot();
                     (self.sprite.frames, self.sprite.views) = next;
@@ -854,7 +1068,7 @@ impl Editor {
             }
         }
 
-        let help = "J/K: sprites   H/L: frames   Right-click: pick color   Shift with -/+: steps of 8   Cmd+Z / Cmd+Shift+Z: undo/redo   Cmd+S: save";
+        let help = "S: select, drag to move, arrows nudge   Cmd+C/X/V: copy, cut, paste   J/K: sprites   H/L: frames   Right-click: pick   Cmd+Z: undo   Cmd+S: save";
         c.label(help, 12.0, 748.0, 13.0, DIM, Align::Left);
         if let Some((text, age)) = &self.status {
             let a = (4.0 - age).clamp(0.0, 1.0);
@@ -920,6 +1134,36 @@ impl Editor {
         if self.mirror {
             c.rect(o[0] + w / 2.0 - 1.0, o[1], 2.0, h, [0.4, 0.8, 1.0, 0.5]);
         }
+        if let Some(sel) = &self.selection {
+            if let Some(f) = &sel.float {
+                for y in 0..f.h {
+                    for x in 0..f.w {
+                        let p = f.px[y * f.w + x];
+                        let (px, py) = (o[0] + (sel.x + x as i32) as f32 * zoom, o[1] + (sel.y + y as i32) as f32 * zoom);
+                        if p[3] > 0 && CANVAS.contains([px, py]) {
+                            c.rect(px, py, zoom, zoom, rgba(p));
+                        }
+                    }
+                }
+            }
+            // Marching ants: the outline's dashes walk around it.
+            let (x0, y0) = (o[0] + sel.x as f32 * zoom, o[1] + sel.y as f32 * zoom);
+            let (sw, sh) = (sel.w as f32 * zoom, sel.h as f32 * zoom);
+            let dash = 6.0;
+            let phase = (self.clock * 12.0) % (dash * 2.0);
+            let edges = [(x0, y0, sw, true), (x0, y0 + sh - 2.0, sw, true), (x0, y0, sh, false), (x0 + sw - 2.0, y0, sh, false)];
+            for (ex, ey, len, across) in edges {
+                let mut t = -phase;
+                while t < len {
+                    let (a, b) = (t.max(0.0), (t + dash).min(len));
+                    if b > a {
+                        let r = if across { [ex + a, ey, b - a, 2.0] } else { [ex, ey + a, 2.0, b - a] };
+                        c.rect(r[0], r[1], r[2], r[3], HOT);
+                    }
+                    t += dash * 2.0;
+                }
+            }
+        }
         if let Some(p) = self.hover.filter(|p| CANVAS.contains(*p)) {
             let (x, y) = self.pixel_at(p);
             if f.get(x, y).is_some() {
@@ -929,6 +1173,17 @@ impl Editor {
                 c.rect(px, py + zoom - 1.0, zoom, 1.0, edge);
                 c.rect(px, py, 1.0, zoom, edge);
                 c.rect(px + zoom - 1.0, py, 1.0, zoom, edge);
+            }
+        }
+    }
+}
+
+/// Lays the opaque pixels of `top` over `f` with its top-left at (x, y).
+fn stamp(f: &mut Frame, top: &Frame, x: i32, y: i32) {
+    for ty in 0..top.h as i32 {
+        for tx in 0..top.w as i32 {
+            if let Some(c) = top.get(tx, ty).filter(|c| c[3] > 0) {
+                f.set(x + tx, y + ty, c);
             }
         }
     }
@@ -1115,5 +1370,72 @@ mod tests {
         assert_eq!(e.sprite.name, target);
         assert!(e.dir.join("BARREL/0.png").exists());
         let _ = std::fs::remove_dir_all(&e.dir);
+    }
+
+    fn at(e: &Editor, x: i32, y: i32) -> [f32; 2] {
+        let (o, zoom) = e.grid();
+        [o[0] + (x as f32 + 0.5) * zoom, o[1] + (y as f32 + 0.5) * zoom]
+    }
+
+    #[test]
+    fn dragging_a_selection_moves_its_pixels_and_undo_puts_them_back() {
+        let mut e = editor();
+        let before = e.current().clone();
+        let px = |e: &Editor, x, y| e.current().get(x, y).unwrap();
+        let original = px(&e, 5, 8);
+        e.key(Key::Char('s'));
+        e.mouse_down(at(&e, 4, 7), false, false);
+        e.drag(at(&e, 6, 9));
+        e.mouse_up();
+        assert_eq!(e.selection.as_ref().map(|s| (s.x, s.y, s.w, s.h)), Some((4, 7, 3, 3)));
+        e.mouse_down(at(&e, 5, 8), false, false);
+        e.drag(at(&e, 7, 8));
+        e.mouse_up();
+        e.key(Key::Enter);
+        assert_eq!(px(&e, 7, 8), original);
+        assert!(e.selection.is_none());
+        e.key(Key::Undo);
+        assert_eq!(*e.current(), before);
+    }
+
+    #[test]
+    fn copy_then_paste_onto_a_view_and_nudge_into_place() {
+        let mut e = editor();
+        e.act(Action::Stand(CARVE), false);
+        e.sprite.frames[0] = Frame::blank(16, 16);
+        e.sprite.frames[0].set(1, 1, [200, 0, 0, 255]);
+        e.key(Key::Char('s'));
+        e.mouse_down(at(&e, 0, 0), false, false);
+        e.drag(at(&e, 2, 2));
+        e.mouse_up();
+        e.key(Key::Copy);
+        e.act(Action::View(0), false);
+        let under = e.current().get(3, 1).unwrap();
+        let beside = e.current().get(2, 0).unwrap();
+        e.key(Key::Paste);
+        e.nudge = 1;
+        e.key(Key::Right);
+        e.key(Key::Right);
+        assert!(e.surfaces()[e.sprite.frames.len()].get(3, 1) == Some([200, 0, 0, 255]), "previews show it while it floats");
+        e.key(Key::Enter);
+        let v = &e.sprite.views.as_ref().unwrap()[0];
+        assert_eq!(v.get(3, 1), Some([200, 0, 0, 255]));
+        assert_eq!(v.get(2, 0), Some(beside), "clear pixels in a paste leave what was there");
+        e.key(Key::Undo);
+        assert_eq!(e.sprite.views.as_ref().unwrap()[0].get(3, 1), Some(under));
+    }
+
+    #[test]
+    fn delete_clears_the_selection_and_cut_copies_first() {
+        let mut e = editor();
+        e.key(Key::Char('s'));
+        e.mouse_down(at(&e, 0, 0), false, false);
+        e.drag(at(&e, 15, 15));
+        e.mouse_up();
+        e.key(Key::Cut);
+        assert!(e.current().px.iter().all(|p| p[3] == 0));
+        e.key(Key::Paste);
+        e.key(Key::Enter);
+        assert!(e.current().px.iter().any(|p| p[3] > 0));
     }
 }

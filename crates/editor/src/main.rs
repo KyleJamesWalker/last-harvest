@@ -180,6 +180,9 @@ impl App {
                 "z" => Key::Undo,
                 "y" => Key::Redo,
                 "s" => Key::Save,
+                "c" => Key::Copy,
+                "x" => Key::Cut,
+                "v" => Key::Paste,
                 _ => return,
             },
             WKey::Character(s) => match s.chars().next() {
@@ -189,7 +192,9 @@ impl App {
             WKey::Named(NamedKey::Space) => Key::Char(' '),
             WKey::Named(NamedKey::Enter) => Key::Enter,
             WKey::Named(NamedKey::Escape) => Key::Escape,
-            WKey::Named(NamedKey::Backspace) => Key::Backspace,
+            WKey::Named(NamedKey::Backspace | NamedKey::Delete) => Key::Backspace,
+            WKey::Named(NamedKey::ArrowUp) => Key::Up,
+            WKey::Named(NamedKey::ArrowDown) => Key::Down,
             WKey::Named(NamedKey::ArrowLeft) => Key::Left,
             WKey::Named(NamedKey::ArrowRight) => Key::Right,
             WKey::Named(NamedKey::F12) => {
@@ -198,6 +203,7 @@ impl App {
             }
             _ => return,
         };
+        self.editor.nudge = if self.modifiers.shift_key() { 8 } else { 1 };
         self.editor.key(k);
     }
 }

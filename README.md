@@ -137,9 +137,12 @@ A pixel editor for the game's sprites, on macOS. The left pane lists every sprit
 |---|---|
 | Draw, erase, fill, pick a color | B, E, G, I, or the tool buttons; right-click always picks |
 | Mirror strokes left to right | M |
+| Select, then move by dragging inside | S, then drag; arrows nudge 1 pixel, 8 with Shift |
+| Copy, cut and paste | Cmd+C, Cmd+X, Cmd+V; a paste floats until Enter, Esc or a click outside, and its clear pixels leave what's under them |
+| Delete the selected pixels | Delete or Backspace |
 | Undo and redo | Cmd+Z, Cmd+Shift+Z |
 | Next and previous sprite | J and K |
-| Previous and next frame | H and L, or the Left and Right arrows |
+| Previous and next frame | H and L, or the Left and Right arrows when nothing is selected |
 | Play the animation | Space |
 | New sprite, or a copy of this one | New, Copy |
 | Resize every frame | W and H - and +, 8 at a time with Shift; the bottom center stays put |
