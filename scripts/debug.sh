@@ -2,7 +2,7 @@
 # Drives a game started with `DEBUG=1 scripts/deploy.sh`. RGDS_HOST overrides the target.
 #   scripts/debug.sh shot [out.png]      save both screens to out.png (default: shot.png)
 #   scripts/debug.sh logs                follow the game log
-#   scripts/debug.sh <command...>        send a command: press a, tap 500 400, swipe 200 600 700 200, scene dice
+#   scripts/debug.sh <command...>        send a command: press a, tap 500 400, swipe 200 600 700 200, scene farm
 set -euo pipefail
 host="${RGDS_HOST:-root@anbernic.local}"
 pipe=/tmp/last-harvest.ctl

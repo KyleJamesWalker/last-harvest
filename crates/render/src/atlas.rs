@@ -1,12 +1,10 @@
-//! One RGBA texture holding the sprite sheet and a rasterized font.
+//! One RGBA texture holding a rasterized font.
 
 use std::collections::HashMap;
 
-use last_harvest_game::{Align, Sprite};
+use last_harvest_game::Align;
 
-const SPRITES_PNG: &[u8] = include_bytes!("../../../assets/sprites.png");
 const FONT_TTF: &[u8] = include_bytes!("../../../assets/fonts/AtkinsonHyperlegible-Regular.ttf");
-const SPRITE_PX: u32 = 64;
 /// Glyphs are rasterized once at this height and scaled when drawn; mipmaps keep small text smooth.
 const GLYPH_PX: f32 = 48.0;
 const PAD: u32 = 4;
@@ -36,17 +34,10 @@ pub struct Placed {
 impl Atlas {
     pub fn build() -> Result<Self, String> {
         let mut rgba = vec![0u8; (SIZE * SIZE * 4) as usize];
-        let (w, h, sheet) = decode_png(SPRITES_PNG)?;
-        for y in 0..h {
-            let src = &sheet[(y * w * 4) as usize..((y + 1) * w * 4) as usize];
-            let dst = (y * SIZE * 4) as usize;
-            rgba[dst..dst + src.len()].copy_from_slice(src);
-        }
-
         let font = fontdue::Font::from_bytes(FONT_TTF, fontdue::FontSettings::default())?;
         let ascent = font.horizontal_line_metrics(GLYPH_PX).map_or(GLYPH_PX * 0.8, |m| m.ascent);
         let mut glyphs = HashMap::new();
-        let (mut x, mut y, mut row_h) = (PAD, h + PAD, 0);
+        let (mut x, mut y, mut row_h) = (PAD, PAD, 0);
         for ch in (32u8..127).map(char::from) {
             let (m, bitmap) = font.rasterize(ch, GLYPH_PX);
             let (gw, gh) = (m.width as u32, m.height as u32);
@@ -71,13 +62,6 @@ impl Atlas {
             row_h = row_h.max(gh);
         }
         Ok(Self { rgba, glyphs, ascent })
-    }
-
-    pub fn sprite_uv(&self, sprite: Sprite) -> [f32; 4] {
-        let i = Sprite::ALL.iter().position(|&s| s == sprite).unwrap_or(0) as f32;
-        let (s, cell) = (SIZE as f32, SPRITE_PX as f32);
-        // Half a texel in from each edge so filtering never reads the neighboring cell.
-        [(i * cell + 0.5) / s, 0.5 / s, ((i + 1.0) * cell - 0.5) / s, (cell - 0.5) / s]
     }
 
     /// Lays out one line of text; unknown characters advance like a space.
@@ -107,17 +91,6 @@ impl Atlas {
     }
 }
 
-fn decode_png(bytes: &[u8]) -> Result<(u32, u32, Vec<u8>), String> {
-    let decoder = png::Decoder::new(bytes);
-    let mut reader = decoder.read_info().map_err(|e| e.to_string())?;
-    let mut buf = vec![0; reader.output_buffer_size()];
-    let info = reader.next_frame(&mut buf).map_err(|e| e.to_string())?;
-    if info.color_type != png::ColorType::Rgba || info.bit_depth != png::BitDepth::Eight {
-        return Err(format!("sprite sheet must be 8-bit RGBA, got {:?} {:?}", info.color_type, info.bit_depth));
-    }
-    buf.truncate(info.buffer_size());
-    Ok((info.width, info.height, buf))
-}
 
 #[cfg(test)]
 mod tests {

@@ -755,7 +755,6 @@ dependencies = [
  "fontdue",
  "glow",
  "last-harvest-game",
- "png",
 ]
 
 [[package]]

@@ -79,7 +79,6 @@ pub struct RawInput {
     pub stick: [f32; 2],
     pub touch: Option<[f32; 2]>,
     pub touches: [Option<[f32; 2]>; MAX_TOUCHES],
-    pub mic: f32,
     pub lid_closed: bool,
 }
 
@@ -91,7 +90,6 @@ pub struct Input {
     pub touch: Option<[f32; 2]>,
     pub touches: [Option<[f32; 2]>; MAX_TOUCHES],
     pub touch_started: bool,
-    pub mic: f32,
     pub lid_closed: bool,
 }
 
@@ -123,7 +121,6 @@ impl InputTracker {
             touch: raw.touch,
             touches: raw.touches,
             touch_started: raw.touch.is_some() && self.prev.touch.is_none(),
-            mic: raw.mic,
             lid_closed: raw.lid_closed,
         };
         self.prev = raw;

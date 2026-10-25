@@ -7,6 +7,7 @@ pub struct Save {
     pub volume: u8,
     /// Per-screen brightness in 1..=LEVELS, top first.
     pub brightness: [u8; 2],
+    /// Longest night survived, in seconds.
     pub best: u32,
 }
 

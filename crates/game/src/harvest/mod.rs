@@ -293,6 +293,8 @@ enum Phase {
 pub struct Flow {
     pub rumble: bool,
     pub quit: bool,
+    /// Seconds survived, on the frame a run ends.
+    pub survived: Option<f32>,
 }
 
 pub struct Harvest {
@@ -483,9 +485,11 @@ impl Harvest {
             self.hp = 0.0;
             sounds.push(Sfx::GameOver);
             self.phase = Phase::Over { t: 0.0, won: false };
+            flow.survived = Some(self.t);
         } else if self.t >= DAWN {
             sounds.push(Sfx::Nice);
             self.phase = Phase::Over { t: 0.0, won: true };
+            flow.survived = Some(self.t);
         } else if self.xp >= self.next_xp {
             self.xp -= self.next_xp;
             self.next_xp = (self.next_xp as f32 * 1.35).ceil() as u32 + 2;

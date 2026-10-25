@@ -3,7 +3,6 @@ mod debug;
 #[cfg(target_os = "linux")]
 mod device;
 mod gfx;
-mod mic;
 mod persist;
 
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -35,13 +34,11 @@ struct App {
     game: Game,
     tracker: InputTracker,
     gfx: Option<gfx::Gfx>,
-    mic: Option<mic::Mic>,
     audio: Option<audio::Audio>,
     #[cfg(target_os = "linux")]
     device: Option<device::Device>,
     keys: Buttons,
     lid_key: bool,
-    blow_key: bool,
     cursor: Option<[f32; 2]>,
     mouse_down: bool,
     touches: Vec<(u64, [f32; 2])>,
@@ -69,13 +66,11 @@ impl App {
             game,
             tracker: InputTracker::default(),
             gfx: None,
-            mic: mic::Mic::open().inspect_err(|e| eprintln!("mic disabled: {e}")).ok(),
             audio: audio::Audio::open().inspect_err(|e| eprintln!("audio disabled: {e}")).ok(),
             #[cfg(target_os = "linux")]
             device: device::Device::open(),
             keys: Buttons::NONE,
             lid_key: false,
-            blow_key: false,
             cursor: None,
             mouse_down: false,
             touches: Vec::new(),
@@ -95,7 +90,6 @@ impl App {
         let mut raw = RawInput {
             held: self.keys,
             touch: self.touches.first().map(|&(_, p)| p).or(self.cursor.filter(|_| self.mouse_down)),
-            mic: self.mic.as_ref().map_or(0.0, |m| m.level()).max(if self.blow_key { 1.0 } else { 0.0 }),
             lid_closed: self.lid_key,
             ..Default::default()
         };
@@ -293,7 +287,6 @@ impl ApplicationHandler for App {
                 let down = event.state == ElementState::Pressed;
                 match code {
                     KeyCode::Escape => el.exit(),
-                    KeyCode::Space => self.blow_key = down,
                     KeyCode::KeyC if down && !event.repeat => self.lid_key = !self.lid_key,
                     _ => {
                         if let Some(b) = key_button(code) {

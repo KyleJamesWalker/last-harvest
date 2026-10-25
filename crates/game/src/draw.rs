@@ -1,21 +1,8 @@
 use crate::art::Art;
-use crate::scene3d::{CardScene, Scene3d};
-use crate::{BOTTOM_OFFSET, SCREEN_H, SCREEN_W, font};
+use crate::scene3d::CardScene;
+use crate::{SCREEN_W, font};
 
 pub type Color = [f32; 4];
-
-/// Cells of the sprite sheet, left to right.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Sprite {
-    Star,
-    Rock,
-    Gem,
-    Heart,
-}
-
-impl Sprite {
-    pub const ALL: [Sprite; 4] = [Sprite::Star, Sprite::Rock, Sprite::Gem, Sprite::Heart];
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Align {
@@ -28,8 +15,6 @@ pub enum Align {
 pub enum Shape {
     Rect { x: f32, y: f32, w: f32, h: f32, color: Color },
     Circle { x: f32, y: f32, r: f32, color: Color },
-    /// Centered on (x, y), `size` pixels across, rotated by `angle` radians.
-    Sprite { sprite: Sprite, x: f32, y: f32, size: f32, angle: f32, color: Color },
     /// Pixel art from the tileset, top-left at (x, y), each texel `scale` pixels across, rotated about its center.
     /// Only the top `show` fraction of its rows is drawn.
     Art { art: Art, x: f32, y: f32, scale: f32, flip: bool, angle: f32, show: f32, color: Color },
@@ -41,8 +26,6 @@ pub enum Shape {
 pub struct Canvas {
     pub clear: Color,
     /// Drawn first, under the 2D shapes.
-    pub scene: Option<Scene3d>,
-    /// Drawn after `scene`, also under the 2D shapes.
     pub cards: Option<CardScene>,
     pub shapes: Vec<Shape>,
 }
@@ -54,10 +37,6 @@ impl Canvas {
 
     pub fn circle(&mut self, x: f32, y: f32, r: f32, color: Color) {
         self.shapes.push(Shape::Circle { x, y, r, color });
-    }
-
-    pub fn sprite(&mut self, sprite: Sprite, x: f32, y: f32, size: f32, angle: f32, color: Color) {
-        self.shapes.push(Shape::Sprite { sprite, x, y, size, angle, color });
     }
 
     pub fn art(&mut self, art: Art, x: f32, y: f32, scale: f32, flip: bool, color: Color) {
@@ -108,24 +87,3 @@ pub struct Frame {
     pub bottom: Canvas,
 }
 
-impl Frame {
-    /// Draws a circle in world space, which runs from the top screen through the hinge to the bottom one.
-    pub fn world_sprite(&mut self, sprite: Sprite, x: f32, wy: f32, size: f32, angle: f32, color: Color) {
-        let r = size / 2.0;
-        if wy - r < SCREEN_H {
-            self.top.sprite(sprite, x, wy, size, angle, color);
-        }
-        if wy + r > BOTTOM_OFFSET {
-            self.bottom.sprite(sprite, x, wy - BOTTOM_OFFSET, size, angle, color);
-        }
-    }
-
-    pub fn world_circle(&mut self, x: f32, wy: f32, r: f32, color: Color) {
-        if wy - r < SCREEN_H {
-            self.top.circle(x, wy, r, color);
-        }
-        if wy + r > BOTTOM_OFFSET {
-            self.bottom.circle(x, wy - BOTTOM_OFFSET, r, color);
-        }
-    }
-}

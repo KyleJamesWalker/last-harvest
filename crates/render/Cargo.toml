@@ -7,5 +7,4 @@ publish.workspace = true
 [dependencies]
 fontdue = "0.9"
 glow.workspace = true
-png = "0.17"
 last-harvest-game.workspace = true

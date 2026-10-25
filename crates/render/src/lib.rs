@@ -1,9 +1,7 @@
 mod atlas;
 
-use std::collections::HashMap;
-
 use glow::HasContext;
-use last_harvest_game::scene3d::{CardScene, MeshId, Scene3d, Vertex3};
+use last_harvest_game::scene3d::CardScene;
 use last_harvest_game::{Canvas, SCREEN_H, SCREEN_W, Shape, art};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -60,40 +58,6 @@ void main() {
 }
 "#;
 
-const MESH_VERT: &str = r#"
-layout(location = 0) in vec3 a_pos;
-layout(location = 1) in vec3 a_normal;
-layout(location = 2) in vec3 a_color;
-uniform mat4 u_view_proj;
-uniform mat4 u_model;
-out vec3 v_world;
-out vec3 v_normal;
-out vec3 v_color;
-void main() {
-    vec4 world = u_model * vec4(a_pos, 1.0);
-    gl_Position = u_view_proj * world;
-    v_world = world.xyz;
-    v_normal = mat3(u_model) * a_normal;
-    v_color = a_color;
-}
-"#;
-
-const MESH_FRAG: &str = r#"
-in vec3 v_world;
-in vec3 v_normal;
-in vec3 v_color;
-uniform vec3 u_light;
-uniform vec3 u_eye;
-out vec4 o_color;
-void main() {
-    vec3 n = normalize(v_normal);
-    vec3 h = normalize(u_light + normalize(u_eye - v_world));
-    float diffuse = max(dot(n, u_light), 0.0);
-    float spec = pow(max(dot(n, h), 0.0), 32.0) * 0.25;
-    o_color = vec4(v_color * (0.35 + 0.65 * diffuse) + spec, 1.0);
-}
-"#;
-
 const CARD_VERT: &str = r#"
 layout(location = 0) in vec3 a_pos;
 layout(location = 1) in vec2 a_uv;
@@ -144,19 +108,12 @@ const KIND_CIRCLE: f32 = 1.0;
 const KIND_TEXTURE: f32 = 2.0;
 const KIND_ART: f32 = 3.0;
 
-struct Mesh {
-    vao: glow::VertexArray,
-    count: i32,
-}
-
 pub struct Renderer {
     program: glow::Program,
     vao: glow::VertexArray,
     vbo: glow::Buffer,
     u_size: Option<glow::UniformLocation>,
     verts: Vec<f32>,
-    mesh_program: glow::Program,
-    meshes: HashMap<MeshId, Mesh>,
     atlas: atlas::Atlas,
     texture: glow::Texture,
     art: glow::Texture,
@@ -192,23 +149,6 @@ unsafe fn link(gl: &glow::Context, header: &str, vert: &str, frag: &str) -> Resu
     }
 }
 
-unsafe fn upload_mesh(gl: &glow::Context, verts: &[Vertex3]) -> Result<Mesh, String> {
-    unsafe {
-        let floats: Vec<f32> = verts.iter().flat_map(|v| v.pos.into_iter().chain(v.normal).chain(v.color)).collect();
-        let vao = gl.create_vertex_array()?;
-        let vbo = gl.create_buffer()?;
-        gl.bind_vertex_array(Some(vao));
-        gl.bind_buffer(glow::ARRAY_BUFFER, Some(vbo));
-        let bytes = std::slice::from_raw_parts(floats.as_ptr().cast::<u8>(), floats.len() * 4);
-        gl.buffer_data_u8_slice(glow::ARRAY_BUFFER, bytes, glow::STATIC_DRAW);
-        for (loc, offset) in [(0, 0), (1, 3), (2, 6)] {
-            gl.enable_vertex_attrib_array(loc);
-            gl.vertex_attrib_pointer_f32(loc, 3, glow::FLOAT, false, 9 * 4, offset * 4);
-        }
-        Ok(Mesh { vao, count: verts.len() as i32 })
-    }
-}
-
 impl Renderer {
     pub fn new(gl: &glow::Context, profile: Profile) -> Result<Self, String> {
         let header = match profile {
@@ -217,7 +157,6 @@ impl Renderer {
         };
         unsafe {
             let program = link(gl, header, VERT, FRAG)?;
-            let mesh_program = link(gl, header, MESH_VERT, MESH_FRAG)?;
             let card_program = link(gl, header, CARD_VERT, CARD_FRAG)?;
             let card_vao = gl.create_vertex_array()?;
             let card_vbo = gl.create_buffer()?;
@@ -226,10 +165,6 @@ impl Renderer {
             for (loc, size, offset) in [(0, 3, 0), (1, 2, 3), (2, 3, 5)] {
                 gl.enable_vertex_attrib_array(loc);
                 gl.vertex_attrib_pointer_f32(loc, size, glow::FLOAT, false, (CARD_FLOATS * 4) as i32, offset * 4);
-            }
-            let mut meshes = HashMap::new();
-            for id in MeshId::ALL {
-                meshes.insert(id, upload_mesh(gl, &id.build())?);
             }
 
             let vao = gl.create_vertex_array()?;
@@ -264,7 +199,7 @@ impl Renderer {
             gl.uniform_1_i32(gl.get_uniform_location(program, "u_art").as_ref(), 1);
 
             let u_size = gl.get_uniform_location(program, "u_size");
-            Ok(Self { program, vao, vbo, u_size, verts: Vec::new(), mesh_program, meshes, atlas, texture, art, card_program, card_vao, card_vbo, card_verts: Vec::new() })
+            Ok(Self { program, vao, vbo, u_size, verts: Vec::new(), atlas, texture, art, card_program, card_vao, card_vbo, card_verts: Vec::new() })
         }
     }
 
@@ -275,10 +210,6 @@ impl Renderer {
             match *shape {
                 Shape::Rect { x, y, w, h, color } => self.quad(x, y, w, h, color, KIND_RECT),
                 Shape::Circle { x, y, r, color } => self.quad(x - r, y - r, 2.0 * r, 2.0 * r, color, KIND_CIRCLE),
-                Shape::Sprite { sprite, x, y, size, angle, color } => {
-                    let uv = self.atlas.sprite_uv(sprite);
-                    self.sprite(x, y, size, angle, uv, color);
-                }
                 Shape::Art { art, x, y, scale, flip, angle, show, color } => {
                     let [ax, ay, aw, ah] = art.rect().map(f32::from);
                     let ah = ah * show;
@@ -307,9 +238,6 @@ impl Renderer {
             gl.clear_color(r, g, b, a);
             gl.clear(glow::COLOR_BUFFER_BIT | glow::DEPTH_BUFFER_BIT);
             gl.disable(glow::SCISSOR_TEST);
-            if let Some(scene) = &canvas.scene {
-                self.draw_scene(gl, scene);
-            }
             if let Some(cards) = &canvas.cards {
                 self.draw_cards(gl, cards);
             }
@@ -327,34 +255,6 @@ impl Renderer {
             let bytes = std::slice::from_raw_parts(self.verts.as_ptr().cast::<u8>(), self.verts.len() * 4);
             gl.buffer_data_u8_slice(glow::ARRAY_BUFFER, bytes, glow::STREAM_DRAW);
             gl.draw_arrays(glow::TRIANGLES, 0, (self.verts.len() / FLOATS_PER_VERT) as i32);
-        }
-    }
-
-    fn draw_scene(&self, gl: &glow::Context, scene: &Scene3d) {
-        unsafe {
-            gl.enable(glow::DEPTH_TEST);
-            gl.depth_func(glow::LEQUAL);
-            gl.disable(glow::BLEND);
-            gl.use_program(Some(self.mesh_program));
-            let loc = |name| gl.get_uniform_location(self.mesh_program, name);
-            gl.uniform_matrix_4_f32_slice(loc("u_view_proj").as_ref(), false, &scene.view_proj.to_cols_array());
-            gl.uniform_3_f32_slice(loc("u_light").as_ref(), &scene.light.to_array());
-            gl.uniform_3_f32_slice(loc("u_eye").as_ref(), &scene.eye.to_array());
-            let u_model = loc("u_model");
-            for (id, model) in &scene.draws {
-                let mesh = &self.meshes[id];
-                if id.is_decal() {
-                    gl.enable(glow::POLYGON_OFFSET_FILL);
-                    gl.polygon_offset(-2.0, -64.0);
-                } else {
-                    gl.disable(glow::POLYGON_OFFSET_FILL);
-                }
-                gl.uniform_matrix_4_f32_slice(u_model.as_ref(), false, &model.to_cols_array());
-                gl.bind_vertex_array(Some(mesh.vao));
-                gl.draw_arrays(glow::TRIANGLES, 0, mesh.count);
-            }
-            gl.disable(glow::POLYGON_OFFSET_FILL);
-            gl.disable(glow::DEPTH_TEST);
         }
     }
 
@@ -402,12 +302,6 @@ impl Renderer {
 
     fn textured(&mut self, x: f32, y: f32, w: f32, h: f32, uv: [f32; 4], color: [f32; 4]) {
         self.push_quad([[x, y], [x + w, y], [x + w, y + h], [x, y + h]], uv, color, KIND_TEXTURE);
-    }
-
-    fn sprite(&mut self, x: f32, y: f32, size: f32, angle: f32, uv: [f32; 4], color: [f32; 4]) {
-        let (s, c) = (angle.sin() * size / 2.0, angle.cos() * size / 2.0);
-        let corner = |dx: f32, dy: f32| [x + dx * c - dy * s, y + dx * s + dy * c];
-        self.push_quad([corner(-1.0, -1.0), corner(1.0, -1.0), corner(1.0, 1.0), corner(-1.0, 1.0)], uv, color, KIND_TEXTURE);
     }
 
     /// Corners run clockwise from top-left; `uv` is (u0, v0, u1, v1) for the same corners.
