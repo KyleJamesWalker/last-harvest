@@ -2,6 +2,7 @@ pub mod art;
 mod dice;
 mod draw;
 mod font;
+mod gallery;
 mod hardware;
 mod input;
 mod micro;
@@ -51,6 +52,8 @@ pub enum Scene {
     Dice,
     Stress,
     Hardware,
+    /// Debug view of every sprite in the art catalog.
+    Gallery,
 }
 
 impl Scene {
@@ -66,6 +69,7 @@ impl Scene {
             "dice" => Scene::Dice,
             "stress" => Scene::Stress,
             "hardware" => Scene::Hardware,
+            "art" => Scene::Gallery,
             _ => return None,
         })
     }
@@ -80,6 +84,7 @@ enum State {
     Dice(Box<dice::Dice>),
     Stress(Box<stress::Stress>),
     Hardware(hardware::Hardware),
+    Gallery(gallery::Gallery),
 }
 
 pub struct Game {
@@ -138,6 +143,7 @@ impl Game {
                 format!("stress top={top} bottom={bottom}")
             }
             State::Hardware(_) => "hardware".into(),
+            State::Gallery(_) => "art".into(),
         }
     }
 
@@ -167,6 +173,7 @@ impl Game {
             Scene::Dice => State::Dice(Box::new(dice::Dice::new(&mut self.rng))),
             Scene::Stress => State::Stress(Box::new(stress::Stress::new(&mut self.rng))),
             Scene::Hardware => State::Hardware(hardware::Hardware::default()),
+            Scene::Gallery => State::Gallery(gallery::Gallery::default()),
         }
     }
 
@@ -315,6 +322,10 @@ impl Game {
                 hw.update(input, dt, controls);
                 State::Hardware(hw)
             }
+            State::Gallery(mut g) => {
+                g.update(input, dt);
+                State::Gallery(g)
+            }
         };
     }
 
@@ -352,6 +363,7 @@ impl Game {
                 perf = true;
             }
             State::Hardware(hw) => hw.draw(&mut f, &self.system, self.save.brightness, self.leds),
+            State::Gallery(g) => g.draw(&mut f),
         }
         if self.paused {
             f.top.text_centered(360.0, 16.0, WHITE, "PAUSED");
@@ -364,7 +376,9 @@ impl Game {
         } else if matches!(self.state, State::Title { .. }) {
             system::draw_battery(&mut f.top, &self.system, 16.0);
         }
-        osd::draw(&mut f.top, &self.input, self.rumble(), self.system.headphones);
+        if !matches!(self.state, State::Gallery(_)) {
+            osd::draw(&mut f.top, &self.input, self.rumble(), self.system.headphones);
+        }
         osd::touches(&mut f.bottom, &self.input);
         f
     }
