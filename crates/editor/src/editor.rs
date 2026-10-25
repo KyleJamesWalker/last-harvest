@@ -1,12 +1,11 @@
 //! The editing pane: sprite list, pixel canvas, tools, palette and frames, laid out on a 1024x768 canvas.
 
-use std::path::PathBuf;
-
 use last_harvest_game::art::Art;
 use last_harvest_game::{Align, Canvas, Color, Stand};
 
-use crate::history::{Commit, Repo};
+use crate::history::Commit;
 use crate::sprite::{self, CLEAR, Frame, Rgba, Sprite};
+use crate::store::Store;
 
 const UNDO_DEPTH: usize = 100;
 const LIST: Rect = Rect { x: 8.0, y: 52.0, w: 200.0, h: 690.0 };
@@ -147,7 +146,6 @@ pub enum Key {
 
 /// Browsing a sprite's committed versions: the commits, the one on show, and what was open before.
 struct Browse {
-    repo: Repo,
     commits: Vec<Commit>,
     at: usize,
     /// The sprite's files differ from its last commit.
@@ -176,8 +174,7 @@ const BACK: Rect = Rect { x: LIST.x + 104.0, y: LIST.y + LIST.h - 44.0, w: 88.0,
 type Snapshot = (Vec<Frame>, Option<[Frame; 2]>, Option<Frame>);
 
 pub struct Editor {
-    dir: PathBuf,
-    catalog: PathBuf,
+    store: Box<dyn Store>,
     pub sprite: Sprite,
     names: Vec<(String, bool)>,
     scroll: f32,
@@ -232,12 +229,11 @@ pub struct Editor {
 }
 
 impl Editor {
-    pub fn new(dir: PathBuf, name: &str) -> Self {
-        let sprite = Sprite::load(&dir, name).unwrap_or(Sprite { name: name.into(), frames: vec![Frame::blank(16, 16)], views: None, footprint: None });
-        let names = sprite::catalog(&dir);
+    pub fn new(store: Box<dyn Store>, name: &str) -> Self {
+        let sprite = store.load(name).unwrap_or(Sprite { name: name.into(), frames: vec![Frame::blank(16, 16)], views: None, footprint: None });
+        let names = store.names();
         let mut e = Self {
-            dir,
-            catalog: sprite::catalog_file(),
+            store,
             sprite,
             names,
             scroll: 0.0,
@@ -359,7 +355,7 @@ impl Editor {
 
     /// The stand as saved, or a guess from the name and size when none was.
     fn load_stand(&mut self) {
-        let saved = sprite::read_stand(&self.dir, &self.catalog, &self.sprite.name);
+        let saved = self.store.stand(&self.sprite.name);
         self.apply_stand(saved);
     }
 
@@ -416,9 +412,9 @@ impl Editor {
     fn open(&mut self, name: &str) {
         self.selection = None;
         self.last_dot = None;
-        self.names = sprite::catalog(&self.dir);
+        self.names = self.store.names();
         self.trimmed = Default::default();
-        if let Some(s) = Sprite::load(&self.dir, name) {
+        if let Some(s) = self.store.load(name) {
             self.sprite = s;
             self.frame = 0;
             self.undo.clear();
@@ -783,13 +779,13 @@ impl Editor {
                 let new = !self.names.iter().any(|(n, _)| *n == self.sprite.name);
                 // A carving lives in the sprite's folder, so it saves the pixels too.
                 let carving = self.stand == CARVE && self.stand_touched;
-                let pixels = if self.dirty || new || carving { self.sprite.save(&self.dir) } else { Ok(()) };
-                let stand = if self.stand_touched { sprite::save_stand(&self.dir, &self.catalog, &self.sprite.name, &self.stand_text()) } else { Ok(()) };
+                let pixels = if self.dirty || new || carving { self.store.save(&self.sprite) } else { Ok(()) };
+                let stand = if self.stand_touched { self.store.save_stand(&self.sprite.name, &self.stand_text()) } else { Ok(()) };
                 match pixels.and(stand) {
                     Ok(()) => {
                         self.dirty = false;
                         self.stand_touched = false;
-                        self.names = sprite::catalog(&self.dir);
+                        self.names = self.store.names();
                         self.reveal();
                         self.say(format!("Saved {}. Rebuild the game to see it in play.", self.sprite.name));
                     }
@@ -946,19 +942,17 @@ impl Editor {
 
     /// Starts browsing the sprite's committed versions, showing the newest.
     fn open_history(&mut self) {
-        let Some(repo) = Repo::open(&self.dir) else {
+        let Some((commits, changed)) = self.store.history(&self.sprite.name) else {
             self.say("The sprites folder isn't in a git repository");
             return;
         };
-        let commits = repo.log(&self.sprite.name);
         if commits.is_empty() {
             self.say(format!("{} has no commits yet", self.sprite.name));
             return;
         }
         self.deselect();
         self.playing = false;
-        let changed = repo.changed(&self.sprite.name);
-        self.browse = Some(Browse { repo, commits, at: 0, changed, before: self.stash() });
+        self.browse = Some(Browse { commits, at: 0, changed, before: self.stash() });
         self.show_version(0);
     }
 
@@ -967,13 +961,13 @@ impl Editor {
         let Some(b) = &mut self.browse else { return };
         b.at = i.min(b.commits.len() - 1);
         let (id, name) = (b.commits[b.at].id.clone(), self.sprite.name.clone());
-        let loaded = Sprite::load_from(&name, |file| b.repo.read(&id, &name, file));
-        let stand = b.repo.read(&id, &name, "stand.txt").map(|t| String::from_utf8_lossy(&t).trim().to_string());
+        let loaded = Sprite::load_from(&name, |file| self.store.version(&id, &name, file));
+        let stand = self.store.version(&id, &name, "stand.txt").map(|t| String::from_utf8_lossy(&t).trim().to_string());
         if let Some(s) = loaded {
             self.sprite = s;
             self.frame = 0;
             self.view = None;
-            let stand = stand.or_else(|| sprite::read_stand(&self.dir, &self.catalog, &name));
+            let stand = stand.or_else(|| self.store.stand(&name));
             self.apply_stand(stand);
             self.changed = true;
         }
@@ -1543,13 +1537,22 @@ fn rgba(c: Rgba) -> Color {
 
 #[cfg(test)]
 mod tests {
+    use std::path::{Path, PathBuf};
+
     use super::*;
+    use crate::store::FsStore;
+
+    /// Where this test's editor saves.
+    fn tmp() -> PathBuf {
+        std::env::temp_dir().join(format!("lh-editor-{}-{:?}", std::process::id(), std::thread::current().id()))
+    }
+
+    fn editor_in(dir: &Path, catalog: PathBuf) -> Editor {
+        Editor::new(Box::new(FsStore { dir: dir.to_path_buf(), catalog }), "BARREL")
+    }
 
     fn editor() -> Editor {
-        let dir = std::env::temp_dir().join(format!("lh-editor-{}-{:?}", std::process::id(), std::thread::current().id()));
-        let mut e = Editor::new(dir.clone(), "BARREL");
-        e.catalog = dir.join("art.txt");
-        e
+        editor_in(&tmp(), tmp().join("art.txt"))
     }
 
     fn click_pixel(e: &mut Editor, x: i32, y: i32) {
@@ -1710,8 +1713,8 @@ mod tests {
         let target = e.pending.clone().unwrap();
         e.key(Key::Enter);
         assert_eq!(e.sprite.name, target);
-        assert!(e.dir.join("BARREL/0.png").exists());
-        let _ = std::fs::remove_dir_all(&e.dir);
+        assert!(tmp().join("BARREL/0.png").exists());
+        let _ = std::fs::remove_dir_all(tmp());
     }
 
     fn at(e: &Editor, x: i32, y: i32) -> [f32; 2] {
@@ -1812,10 +1815,10 @@ mod tests {
         e.act(Action::Stand(CARVE), false);
         e.act(Action::AddFootprint, false);
         e.act(Action::Save, false);
-        let back = Sprite::load(&e.dir, "BARREL").unwrap();
+        let back = Sprite::load(&tmp(), "BARREL").unwrap();
         assert_eq!(back.footprint, e.sprite.footprint);
         assert!(back.views.is_some());
-        let _ = std::fs::remove_dir_all(&e.dir);
+        let _ = std::fs::remove_dir_all(tmp());
     }
 
     #[test]
@@ -1918,9 +1921,7 @@ mod tests {
         }
         s.frames[0].set(0, 0, [0, 0, 255, 255]);
         s.save(&dir).unwrap();
-        let mut e = Editor::new(dir, "BARREL");
-        e.catalog = root.join("art.txt");
-        (e, root)
+        (editor_in(&dir, root.join("art.txt")), root)
     }
 
     #[test]
@@ -1959,7 +1960,7 @@ mod tests {
         assert_eq!(e.current().get(0, 0), Some([0, 0, 255, 255]));
         e.key(Key::Redo);
         e.act(Action::Save, false);
-        let saved = Sprite::load(&e.dir, "BARREL").unwrap();
+        let saved = Sprite::load(&root.join("sprites"), "BARREL").unwrap();
         assert_eq!(saved.frames[0].get(0, 0), Some([255, 0, 0, 255]));
         std::fs::remove_dir_all(&root).unwrap();
     }
