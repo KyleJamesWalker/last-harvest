@@ -99,6 +99,11 @@ fn cut(sheet: &Image, frame: &str, line: usize) -> Vec<Image> {
             img.blit(sheet, [x, y], [w, h], [0, 0]);
             vec![img]
         }
+        Some("solid") if words.len() == 3 => {
+            let mut img = Image::new(num(words[1]), num(words[2]));
+            img.rgba.fill(255);
+            vec![img]
+        }
         Some("cell") => {
             let nums: Vec<u32> = words[1..].iter().take_while(|w| w.parse::<u32>().is_ok()).map(|w| num(w)).collect();
             let (c, r, w, h) = match nums[..] {

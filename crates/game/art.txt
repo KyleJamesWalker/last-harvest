@@ -6,6 +6,7 @@
 #        C,R<C2,R2 draws cell C2,R2 beneath C,R, /W,H crops the result to W x H pixels, and
 #        key=RRGGBB,... clears those colors where they touch the edge, to drop a baked-in ground
 #   px X Y W H                       raw reference pixels, for sprites that straddle the grid
+#   solid W H                        opaque white, for tinted particles
 
 # Ground
 DIRT            cell 10 12 ; cell 11 10
@@ -101,3 +102,13 @@ KNIFE           px 19 178 12 4
 PISTOL          px 21 158 8 5
 SHOTGUN         px 17 139 16 5
 GRENADE         px 22 118 7 9
+WHITE           solid 4 4
+
+# Wildlife, in the white bird's column; the black bird's is one to the right
+CROW_FLY        cell 42 0 ; cell 42 1 ; cell 42 2
+CROW_PECK       cell 42 3 ; cell 42 4 ; cell 42 5 ; cell 42 6
+
+# Hit frames, front, side, back
+SKINNY_HURT     cell 31 3 ; cell 31 4 ; cell 31 2
+BIG_HURT        cell 31 6 ; cell 31 7 ; cell 31 5
+KID_HURT        cell 37 5 ; cell 37 6 ; cell 37 4
