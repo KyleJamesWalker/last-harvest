@@ -125,6 +125,28 @@ The scene names are `title`, `harvest`, `farm` (the game without zombies, for lo
 | `LAST_HARVEST_TOP` | Names the output for the top screen, such as `DSI-2`. |
 | `RGDS_HOST` | Sets the SSH target for the scripts. The default is `root@anbernic.local`. |
 
+### Sprite editor
+
+```sh
+cargo run -p sprite-editor
+```
+
+A pixel editor for the game's sprites, on macOS. The left pane lists every sprite in the catalog, with the pixel canvas, tools, color and frames around it. The right panes show the sprite as the game would: in the 2.5D view (drag to walk around it, scroll to move closer) and on the map (scroll to zoom). Choose whether it stands like a prop, with a depth to extrude, a figure that turns to face the camera, or flat on the ground.
+
+| Action | Input |
+|---|---|
+| Draw, erase, fill, pick a color | B, E, G, I, or the tool buttons; right-click always picks |
+| Mirror strokes left to right | M |
+| Undo and redo | Cmd+Z, Cmd+Shift+Z |
+| Previous and next frame | Left and Right arrows |
+| Play the animation | Space |
+| New sprite, or a copy of this one | New, Copy |
+| Resize every frame | W and H - and +, 8 at a time with Shift; the bottom center stays put |
+| Save | Cmd+S |
+| Screenshot the window | F12, into the sprites folder |
+
+Save writes each frame to `assets/sprites/NAME/0.png`, `1.png` and so on. The next build of the game packs a saved sprite in place of its cut from the tileset, and a folder with a name not in `crates/game/art.txt` becomes a new sprite, `art::NAME`, for the code to use. Saved sprites stay out of git, because edits of the tileset's sprites fall under its license. Delete a sprite's folder to go back to the tileset's version. Set `LAST_HARVEST_SPRITES` to save somewhere else.
+
 ### Sounds
 
 Put WAV files in `assets/sounds/`, named after the cue they replace. `scripts/deploy.sh` and `scripts/install.sh` copy them to the device. A cue with no file keeps its synth voice. Add `-2`, `-3` and so on for variations, such as `shot.wav` and `shot-2.wav`, and each play picks one at random. Files can be 8, 16, 24 or 32-bit PCM or 32-bit float, mono or stereo, at any sample rate.
@@ -161,6 +183,7 @@ Measured on the device with the debug perf log, 4x MSAA, both screens at 1024x76
 | `crates/game/art.txt` | The sprite catalog that `build.rs` cuts from the tileset. |
 | `crates/render` | OpenGL renderer for shapes, pixel art, TrueType text and the lit, fogged 3D cards: GL 3.3 on macOS, GLES 3.0 on the device. |
 | `crates/app` | Windows, input, audio, saves, crash log, debug mode, and the device-only sysfs and evdev code. |
+| `crates/editor` | The sprite editor, a macOS tool built on the game's renderer and views. |
 | `scripts` | Cross-compile, sysroot, deploy, install and debug scripts, and the on-device run script. |
 | `assets` | The font and its license, the Ports launcher with its cover art, and the gitignored tileset. |
 
