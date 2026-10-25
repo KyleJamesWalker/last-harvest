@@ -24,6 +24,8 @@ const PISTOL_RANGE: f32 = 150.0;
 const SHOTGUN_RANGE: f32 = 90.0;
 /// Radians per second at full turn.
 const TURN_SPEED: f32 = 2.6;
+/// Seconds for the quick 180-degree turn.
+const SPIN_TIME: f32 = 0.2;
 const GRENADES: f32 = 3.0;
 const GRENADE_RECHARGE: f32 = 12.0;
 const GRENADE_FLIGHT: f32 = 0.7;
@@ -330,6 +332,10 @@ pub struct Harvest {
     flow_cell: [usize; 2],
     /// The player's heading, which the 3D camera looks along, in radians from +x toward +y.
     view_yaw: f32,
+    /// Radians left of a quick turn in progress.
+    spin: f32,
+    /// False until the turn buttons are let go, so the A that started the run or picked an upgrade doesn't turn.
+    turn_ready: bool,
     /// No zombies: a walk around the farm, for looking at it.
     calm: bool,
 }
@@ -382,6 +388,8 @@ impl Harvest {
             flow: Vec::new(),
             flow_cell: [usize::MAX; 2],
             view_yaw: -PI / 2.0,
+            spin: 0.0,
+            turn_ready: false,
             calm: false,
         }
     }
@@ -420,6 +428,7 @@ impl Harvest {
                         self.hp = (self.hp + heal).min(self.gear.max_hp);
                         sounds.push(Sfx::Start);
                         self.phase = Phase::Playing;
+                        self.turn_ready = false;
                     }
                     None => self.phase = Phase::LevelUp { choices, selected },
                 }
@@ -442,10 +451,18 @@ impl Harvest {
     fn play(&mut self, input: &Input, dt: f32, sounds: &mut Vec<Sfx>, flow: &mut Flow) {
         self.t += dt;
         self.hurt = (self.hurt - dt).max(0.0);
-        // Up and down walk along the heading, left and right strafe, L2 and R2 turn.
+        // Up and down walk along the heading, left and right strafe, Y and A (or L2 and R2) turn, B turns around.
         let dir = input.dir();
-        let turn = input.held.contains(Buttons::R2) as i32 as f32 - input.held.contains(Buttons::L2) as i32 as f32;
-        self.view_yaw = (self.view_yaw + turn * TURN_SPEED * dt).rem_euclid(TAU);
+        let turning = Buttons::A | Buttons::Y | Buttons::L2 | Buttons::R2;
+        self.turn_ready |= !input.held.any(turning);
+        let held = if self.turn_ready { input.held } else { Buttons::NONE };
+        let turn = held.any(Buttons::A | Buttons::R2) as i32 as f32 - held.any(Buttons::Y | Buttons::L2) as i32 as f32;
+        if input.pressed.contains(Buttons::B) && self.spin <= 0.0 {
+            self.spin = PI;
+        }
+        let spun = self.spin.min(PI / SPIN_TIME * dt);
+        self.spin -= spun;
+        self.view_yaw = (self.view_yaw + turn * TURN_SPEED * dt + spun).rem_euclid(TAU);
         let f = [self.view_yaw.cos(), self.view_yaw.sin()];
         let (side, ahead) = (dir[0], -dir[1]);
         let mv = [f[0] * ahead - f[1] * side, f[1] * ahead + f[0] * side];
@@ -1058,12 +1075,37 @@ mod tests {
     }
 
     #[test]
-    fn the_shoulder_triggers_turn_without_moving() {
+    fn y_and_a_or_the_shoulder_triggers_turn_without_moving() {
+        for (left, right) in [(Buttons::Y, Buttons::A), (Buttons::L2, Buttons::R2)] {
+            let mut h = Harvest::calm(9);
+            run(&mut h, &Input::default(), 0.05);
+            let (start, yaw) = (h.pos, h.view_yaw);
+            run(&mut h, &Input { held: right, ..Default::default() }, 0.25);
+            assert_eq!(h.pos, start);
+            assert!((h.view_yaw - yaw).rem_euclid(TAU) > 0.5);
+            run(&mut h, &Input { held: left, ..Default::default() }, 0.25);
+            assert!((h.view_yaw - yaw).rem_euclid(TAU) < 0.01 || (h.view_yaw - yaw).rem_euclid(TAU) > TAU - 0.01);
+        }
+    }
+
+    #[test]
+    fn the_a_that_starts_a_run_does_not_turn() {
         let mut h = Harvest::calm(9);
-        let (start, yaw) = (h.pos, h.view_yaw);
-        run(&mut h, &Input { held: Buttons::R2, ..Default::default() }, 0.25);
-        assert_eq!(h.pos, start);
-        assert!((h.view_yaw - yaw).rem_euclid(TAU) > 0.5);
+        let yaw = h.view_yaw.rem_euclid(TAU);
+        run(&mut h, &Input { held: Buttons::A, ..Default::default() }, 0.2);
+        assert_eq!(h.view_yaw, yaw);
+        run(&mut h, &Input::default(), 0.05);
+        run(&mut h, &Input { held: Buttons::A, ..Default::default() }, 0.2);
+        assert_ne!(h.view_yaw, yaw);
+    }
+
+    #[test]
+    fn b_turns_all_the_way_around_quickly() {
+        let mut h = Harvest::calm(9);
+        let yaw = h.view_yaw;
+        h.update(&Input { pressed: Buttons::B, ..Default::default() }, 1.0 / 60.0, &mut Vec::new());
+        run(&mut h, &Input::default(), SPIN_TIME + 0.05);
+        assert!(((h.view_yaw - yaw).rem_euclid(TAU) - PI).abs() < 1e-3);
     }
 
     #[test]
