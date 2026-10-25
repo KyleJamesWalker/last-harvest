@@ -24,6 +24,7 @@ pub fn cue(sfx: Sfx) -> (&'static str, f32) {
         Sfx::Start => "start",
         Sfx::Miss => "miss",
         Sfx::GameOver => "gameover",
+        Sfx::Turn => "turn",
         Sfx::Shot => "shot",
         Sfx::Blast => "blast",
         Sfx::Slash => "slash",

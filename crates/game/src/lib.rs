@@ -1,4 +1,5 @@
 pub mod art;
+mod difficulty;
 mod draw;
 mod font;
 mod gallery;
@@ -12,6 +13,7 @@ pub mod scene3d;
 mod sfx;
 mod system;
 
+pub use difficulty::Difficulty;
 pub use draw::{Align, Canvas, Color, Frame, Shape};
 pub use art::Stand;
 pub use harvest::showcase::Showcase;
@@ -135,7 +137,7 @@ impl Game {
             Scene::Title => State::Title,
             Scene::Harvest => {
                 self.sounds.push(Sfx::Start);
-                State::Harvest(Box::new(harvest::Harvest::new(seed)))
+                State::Harvest(Box::new(harvest::Harvest::new(seed).at(self.save.difficulty)))
             }
             Scene::Farm => State::Harvest(Box::new(harvest::Harvest::calm(seed))),
             Scene::Bench => State::Harvest(Box::new(harvest::Harvest::bench())),
@@ -219,7 +221,18 @@ impl Game {
         }
         self.state = match std::mem::replace(&mut self.state, State::Title) {
             State::Title => {
-                if input.pressed.any(Buttons::START | Buttons::A) || input.touch_started {
+                let by = input.pressed.contains(Buttons::RIGHT) as i32 - input.pressed.contains(Buttons::LEFT) as i32;
+                let tapped = input.touch.filter(|_| input.touch_started);
+                let arrow = tapped.and_then(difficulty_arrow);
+                if by != 0 || arrow.is_some() {
+                    let next = self.save.difficulty.step(arrow.unwrap_or(by));
+                    if next != self.save.difficulty {
+                        self.save.difficulty = next;
+                        self.sounds.push(Sfx::Tick(next as u8 * 4));
+                    }
+                    return;
+                }
+                if input.pressed.any(Buttons::START | Buttons::A) || tapped.is_some() {
                     self.open(Scene::Harvest);
                     return;
                 }
@@ -312,10 +325,30 @@ impl Game {
             f.top.label(line, SCREEN_W / 2.0, 480.0, 34.0, HOT, Align::Center);
         }
         let pulse = 0.55 + 0.45 * (t * 3.0).sin().abs();
-        f.bottom.label("Press A or tap to start", SCREEN_W / 2.0, 300.0, 56.0, [1.0, 1.0, 1.0, pulse], Align::Center);
-        let hint = "D-pad: walk and strafe.  Y / A: turn.  B: turn around.  Tap the map: throw.";
+        f.bottom.label("Press A or tap to start", SCREEN_W / 2.0, 240.0, 56.0, [1.0, 1.0, 1.0, pulse], Align::Center);
+        let d = self.save.difficulty;
+        let (y, mid) = (DIFFICULTY_Y, SCREEN_W / 2.0);
+        f.bottom.rect(mid - 300.0, y - 10.0, 600.0, 140.0, [1.0, 1.0, 1.0, 0.06]);
+        let arrow = |on: bool| if on { HOT } else { [1.0, 1.0, 1.0, 0.15] };
+        f.bottom.label("<", mid - 250.0, y + 6.0, 56.0, arrow(d != Difficulty::Easy), Align::Center);
+        f.bottom.label(">", mid + 250.0, y + 6.0, 56.0, arrow(d != Difficulty::Hard), Align::Center);
+        f.bottom.label(d.name(), mid, y + 6.0, 52.0, HOT, Align::Center);
+        f.bottom.label(d.blurb(), mid, y + 80.0, 26.0, DIM, Align::Center);
+        let hint = "D-pad: walk and strafe.  Y / A: turn.  B: turn around.  Tap the map: throw.  Left / Right here: difficulty.";
         f.bottom.label(hint, SCREEN_W / 2.0, SCREEN_H - 60.0, 24.0, DIM, Align::Center);
     }
+}
+
+/// The top of the difficulty row on the title's bottom screen.
+const DIFFICULTY_Y: f32 = 400.0;
+
+/// Which way a tap on the title's bottom screen steps the difficulty, if it lands on an arrow.
+fn difficulty_arrow([x, y]: [f32; 2]) -> Option<i32> {
+    if !(DIFFICULTY_Y - 10.0..DIFFICULTY_Y + 130.0).contains(&y) {
+        return None;
+    }
+    let off = x - SCREEN_W / 2.0;
+    (off.abs() > 160.0 && off.abs() < 320.0).then_some(off.signum() as i32)
 }
 
 #[cfg(test)]
@@ -380,5 +413,21 @@ mod tests {
             game.open(Scene::from_name(name).unwrap());
         }
         assert!(matches!(game.state, State::Hardware(_)));
+    }
+
+    #[test]
+    fn the_title_sets_the_difficulty_and_the_run_uses_it() {
+        let mut game = Game::new(1);
+        assert_eq!(game.save().difficulty, Difficulty::Normal);
+        press(&mut game, Buttons::LEFT);
+        press(&mut game, Buttons::LEFT);
+        assert_eq!(game.save().difficulty, Difficulty::Easy, "it stops at the end");
+        let tap = |game: &mut Game, x: f32| game.update(&Input { touch: Some([x, DIFFICULTY_Y + 40.0]), touch_started: true, ..Default::default() }, 0.016);
+        tap(&mut game, SCREEN_W / 2.0 + 250.0);
+        tap(&mut game, SCREEN_W / 2.0 + 250.0);
+        assert_eq!(game.save().difficulty, Difficulty::Hard);
+        assert!(matches!(game.state, State::Title), "an arrow tap doesn't start a run");
+        press(&mut game, Buttons::A);
+        assert!(game.summary().starts_with("harvest hard "), "{}", game.summary());
     }
 }

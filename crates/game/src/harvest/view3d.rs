@@ -9,7 +9,7 @@ use glam::{Mat4, Vec3};
 use super::carve;
 use super::map::TILE;
 use crate::art::Stand;
-use super::{DAWN, DropKind, Facing, GRENADE_FLIGHT, GRENADE_RADIUS, Harvest, PLAYER, Phase, TELL_TIME, WALK_FPS, Zombie, art_for, len, norm, sub};
+use super::{DAWN, DropKind, Facing, GRENADE_FLIGHT, GRENADE_RADIUS, Harvest, Phase, TELL_TIME, TURN_RISE, TURNED, WALK_FPS, Zombie, len, norm, player_pose, sub};
 use crate::art::{self, ATLAS_H, ATLAS_W, Art, PIXELS, RECTS};
 use crate::scene3d::{Card, CardScene, Flash};
 use crate::{SCREEN_H, SCREEN_W};
@@ -289,15 +289,25 @@ impl Board {
 
 pub fn scene(h: &Harvest) -> CardScene {
     let j = &h.juice;
-    let forward = Vec3::new(h.view_yaw.cos(), 0.0, h.view_yaw.sin());
+    // After a death the camera swings around in front of the player and pulls back, to watch them turn.
+    let swing = match h.phase {
+        Phase::Over { t, won: false } => {
+            let k = (t / 1.2).clamp(0.0, 1.0);
+            k * k * (3.0 - 2.0 * k)
+        }
+        _ => 0.0,
+    };
+    let yaw = h.view_yaw + std::f32::consts::PI * swing;
+    let forward = Vec3::new(yaw.cos(), 0.0, yaw.sin());
     let right = forward.cross(Vec3::Y);
     let p = world(h.pos);
     let [sx, sy, roll] = j.shake_offset();
     let roll = roll + h.lean * 0.035;
     let bob = if h.walk > 0.0 { (h.walk * WALK_FPS * std::f32::consts::PI / 2.0).sin().abs() * 0.04 } else { 0.0 };
     let shake = right * sx + Vec3::Y * (sy + bob);
-    let eye = p - forward * 2.4 + Vec3::Y * 1.5 + shake;
-    let target = p + forward * 4.0 + Vec3::Y * (0.7 + j.kick * 6.0) + shake;
+    let eye = p - forward * (2.4 + 0.2 * swing) + Vec3::Y * (1.5 + 0.4 * swing) + shake;
+    let looking = p + forward * 4.0 + Vec3::Y * (0.7 + j.kick * 6.0);
+    let target = looking.lerp(p + Vec3::Y * 0.5, swing) + shake;
     let view = Mat4::look_at_rh(eye, target, Vec3::Y * roll.cos() + right * roll.sin());
     let proj = Mat4::perspective_rh_gl((66.0 + j.punch).to_radians(), SCREEN_W / SCREEN_H, 0.3, VIEW_RADIUS + 6.0);
     let near = |q: Vec3| {
@@ -393,7 +403,8 @@ pub fn scene(h: &Harvest) -> CardScene {
         board(&mut cards, b);
     }
     let (facing, flip) = facing_from(h.aim, forward, right);
-    board(&mut cards, Board::new(art_for(h, &PLAYER, facing), flip, h.pos, 0.0, CHARACTER_DEPTH));
+    let (a, rise) = player_pose(h, facing);
+    board(&mut cards, Board::new(a, flip, h.pos, -(1.0 - rise) * a.h() * PX, CHARACTER_DEPTH));
     if let Some(s) = h.shown.as_ref().filter(|s| s.stand == Stand::Figure && !s.frames.is_empty()) {
         board(&mut cards, Board::new(s.frame(h.t), false, s.pos, 0.0, CHARACTER_DEPTH));
     }
@@ -498,12 +509,19 @@ pub fn scene(h: &Harvest) -> CardScene {
         .collect();
     let health = h.hp / h.gear.max_hp;
     let dying = matches!(h.phase, Phase::Over { won: false, .. });
+    // Once the player has climbed back out, a sickly light comes up on what they've become.
+    let turned = match h.phase {
+        Phase::Over { t, won: false } => ((t - TURN_RISE) / (TURNED - TURN_RISE)).clamp(0.0, 1.0),
+        _ => 0.0,
+    };
     // The lantern gutters when you're nearly done for.
     let gutter = if health < 0.3 { 0.15 * (h.juice.clock * 23.0).sin().abs() * (h.juice.clock * 7.0).sin().abs() } else { 0.0 };
-    let lantern = if dying { 3.0 } else { 9.0 } * (1.0 - 0.04 * (h.t * 13.0).sin().abs() - gutter);
+    let lantern = if dying { 3.0 + 4.0 * turned } else { 9.0 } * (1.0 - 0.04 * (h.t * 13.0).sin().abs() - gutter);
     let sky = sky(h);
     let hurt = h.juice.hurt / 0.35;
     let light_color = [sky.lantern[0], sky.lantern[1] * (1.0 - 0.4 * hurt), sky.lantern[2] * (1.0 - 0.5 * hurt)];
+    let sickly = [0.55, 1.0, 0.45];
+    let light_color = [0, 1, 2].map(|i| light_color[i] + (sickly[i] - light_color[i]) * turned);
     CardScene {
         view_proj: proj * view,
         eye,
@@ -513,7 +531,7 @@ pub fn scene(h: &Harvest) -> CardScene {
         flashes,
         ambient: sky.ambient,
         // Color drains away as the player nears death, and is gone once they fall.
-        saturation: if dying { 0.15 } else { 0.35 + 0.65 * (health / 0.3).min(1.0) },
+        saturation: if dying { 0.15 + 0.45 * turned } else { 0.35 + 0.65 * (health / 0.3).min(1.0) },
         fog: sky.fog,
         fog_range: [6.0, VIEW_RADIUS],
         cards,

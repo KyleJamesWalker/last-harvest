@@ -10,6 +10,8 @@ pub enum Sfx {
     Start,
     Miss,
     GameOver,
+    /// The dead player climbing back out of the ground as a zombie.
+    Turn,
     Shot,
     Blast,
     Slash,

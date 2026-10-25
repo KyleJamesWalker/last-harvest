@@ -86,6 +86,11 @@ fn notes(sfx: Sfx) -> Vec<Note> {
             v.push(hit(0.0, 1.2, 90.0, 30.0, Triangle, 1.0));
             v
         }
+        Sfx::Turn => vec![
+            hit(0.0, 0.6, 420.0, 140.0, Square, 0.45),
+            note(0.0, 0.7, 2500.0, 600.0, Noise, 0.3),
+            note(0.1, 0.9, 110.0, 70.0, Triangle, 0.6),
+        ],
         Sfx::Shot => vec![
             hit(0.0, 0.07, 9000.0, 1500.0, Noise, 0.8),
             hit(0.0, 0.06, 180.0, 60.0, Square, 0.45),

@@ -11,7 +11,7 @@ use std::f32::consts::{PI, TAU};
 
 use crate::art::{self, Art};
 use crate::rng::Rng;
-use crate::{Buttons, Color, Input, SCREEN_H, SCREEN_W, Sfx};
+use crate::{Buttons, Color, Difficulty, Input, SCREEN_H, SCREEN_W, Sfx};
 use juice::{Corpse, Juice, Particle, Tone};
 use map::{Map, TILE};
 
@@ -42,7 +42,6 @@ const MAX_ZOMBIES: usize = 300;
 const MAX_STAINS: usize = 160;
 const PLAYER_HALF: [f32; 2] = [4.0, 3.0];
 const ZOMBIE_HALF: [f32; 2] = [3.0, 2.0];
-const HURT_TIME: f32 = 0.7;
 const FLASH_TIME: f32 = 0.08;
 const WALK_FPS: f32 = 8.0;
 const PICKUP_RADIUS: f32 = 7.0;
@@ -60,6 +59,11 @@ const PICK_TIME: f32 = 0.3;
 const CARDS_IN: f32 = 0.35;
 const RARE_CHANCE: f32 = 0.12;
 const STAGGER_TIME: f32 = 0.4;
+/// Seconds into a death: the player drops, sinks into the dirt, then claws back out as one of them.
+const TURN_FALL: f32 = 0.4;
+const TURN_SINK: f32 = 1.2;
+const TURN_RISE: f32 = 1.6;
+const TURNED: f32 = 2.6;
 const MAX_BIRDS: usize = 12;
 const WHITE: Color = [1.0; 4];
 const GOLD: Color = [1.0, 0.85, 0.3, 1.0];
@@ -118,9 +122,9 @@ struct KindStats {
 impl Kind {
     fn stats(self) -> KindStats {
         match self {
-            Kind::Skinny => KindStats { hp: 20.0, speed: 20.0, damage: 8.0, xp: 1, mass: 1.0, look: Look { walk: [&art::SKINNY_FRONT, &art::SKINNY_SIDE, &art::SKINNY_BACK], flash: &art::SKINNY_FLASH, hurt: &art::SKINNY_HURT } },
-            Kind::Kid => KindStats { hp: 10.0, speed: 32.0, damage: 5.0, xp: 1, mass: 0.6, look: Look { walk: [&art::KID_FRONT, &art::KID_SIDE, &art::KID_BACK], flash: &art::KID_FLASH, hurt: &art::KID_HURT } },
-            Kind::Big => KindStats { hp: 90.0, speed: 12.0, damage: 18.0, xp: 5, mass: 3.5, look: Look { walk: [&art::BIG_FRONT, &art::BIG_SIDE, &art::BIG_BACK], flash: &art::BIG_FLASH, hurt: &art::BIG_HURT } },
+            Kind::Skinny => KindStats { hp: 20.0, speed: 20.0, damage: 15.0, xp: 1, mass: 1.0, look: Look { walk: [&art::SKINNY_FRONT, &art::SKINNY_SIDE, &art::SKINNY_BACK], flash: &art::SKINNY_FLASH, hurt: &art::SKINNY_HURT } },
+            Kind::Kid => KindStats { hp: 10.0, speed: 32.0, damage: 10.0, xp: 1, mass: 0.6, look: Look { walk: [&art::KID_FRONT, &art::KID_SIDE, &art::KID_BACK], flash: &art::KID_FLASH, hurt: &art::KID_HURT } },
+            Kind::Big => KindStats { hp: 90.0, speed: 12.0, damage: 32.0, xp: 5, mass: 3.5, look: Look { walk: [&art::BIG_FRONT, &art::BIG_SIDE, &art::BIG_BACK], flash: &art::BIG_FLASH, hurt: &art::BIG_HURT } },
         }
     }
 }
@@ -277,10 +281,23 @@ fn art_for(h: &Harvest, look: &Look, facing: Facing) -> Art {
     let i = facing.index();
     if h.hurt > 0.0 && ((h.hurt * 20.0) as u32).is_multiple_of(2) {
         look.flash[i]
-    } else if h.hurt > HURT_TIME - 0.2 {
+    } else if h.hurt > h.difficulty.hurt_time() - 0.2 {
         art::PLAYER_HURT[i]
     } else {
         look.walk[i][if h.walk > 0.0 { 1 + (h.walk * WALK_FPS) as usize % 2 } else { 0 }]
+    }
+}
+
+/// The player's frame for a facing, and how far out of the ground it stands, 0 to 1. Once dead, it sinks
+/// and climbs back out as a zombie.
+fn player_pose(h: &Harvest, facing: Facing) -> (Art, f32) {
+    let Phase::Over { t, won: false } = h.phase else { return (art_for(h, &PLAYER, facing), 1.0) };
+    let i = facing.index();
+    if t < TURN_RISE {
+        (art::PLAYER_HURT[i], 1.0 - ((t - TURN_FALL) / (TURN_SINK - TURN_FALL)).clamp(0.0, 1.0))
+    } else {
+        let walk = Kind::Skinny.stats().look.walk[i];
+        (walk[(t * WALK_FPS * 0.6) as usize % walk.len()], ((t - TURN_RISE) / (TURNED - TURN_RISE)).min(1.0))
     }
 }
 
@@ -471,6 +488,7 @@ pub struct Harvest {
     lean: f32,
     /// A sprite the editor is showing off.
     shown: Option<showcase::Shown>,
+    difficulty: Difficulty,
 }
 
 fn len(v: [f32; 2]) -> f32 {
@@ -540,6 +558,7 @@ impl Harvest {
             queued_touch: None,
             lean: 0.0,
             shown: None,
+            difficulty: Difficulty::Normal,
         }
         .with_birds()
     }
@@ -595,12 +614,16 @@ impl Harvest {
         h
     }
 
+    pub fn at(self, difficulty: Difficulty) -> Self {
+        Self { difficulty, ..self }
+    }
+
     pub fn calm(seed: u64) -> Self {
         Self { calm: true, ..Self::new(seed) }
     }
 
     pub fn summary(&self) -> String {
-        format!("harvest t={:.0} level={} kills={} zombies={} hp={:.0}", self.t, self.level, self.kills, self.zombies.len(), self.hp)
+        format!("harvest {} t={:.0} level={} kills={} zombies={} hp={:.0}", self.difficulty.key(), self.t, self.level, self.kills, self.zombies.len(), self.hp)
     }
 
     pub fn update(&mut self, input: &Input, dt: f32, sounds: &mut Vec<Sfx>) -> Flow {
@@ -627,15 +650,29 @@ impl Harvest {
             }
             Phase::Playing => self.play(input, dt, sounds, &mut flow),
             Phase::LevelUp { .. } => self.choose(input, dt, sounds),
-            Phase::Over { t, won } => {
-                let t = t + dt;
+            Phase::Over { t: before, won } => {
+                let t = before + dt;
                 self.phase = Phase::Over { t, won };
-                self.juice.tick(dt * 0.4);
-                if t > 1.0 && input.pressed.any(Buttons::A | Buttons::START) {
+                self.juice.tick(if t < TURN_SINK { dt * 0.4 } else { dt });
+                if !won {
+                    self.wander_off(dt);
+                }
+                if !won && before < TURN_RISE && t >= TURN_RISE {
+                    self.juice.burst(self.pos, 0.0, 16, [0.0; 2], 0.0, [20.0, 60.0], juice::DIRT, 1.8, 0.7, 0.0);
+                    self.fx.push(Fx { frames: &art::SMOKE, fps: 7.0, pos: [self.pos[0], self.pos[1] - 3.0], angle: 0.0, t: 0.0 });
+                    self.juice.shake(0.35);
+                    sounds.push(Sfx::Turn);
+                }
+                for f in &mut self.fx {
+                    f.t += dt;
+                }
+                self.fx.retain(|f| !f.done());
+                let ready = if won { 1.0 } else { TURNED + 0.6 };
+                if t > ready && input.pressed.any(Buttons::A | Buttons::START) {
                     let seed = self.rng.next_u32() as u64 + 1;
-                    *self = Harvest::new(seed);
+                    *self = Harvest::new(seed).at(self.difficulty);
                     sounds.push(Sfx::Start);
-                } else if t > 1.0 && input.pressed.contains(Buttons::B) {
+                } else if t > ready && input.pressed.contains(Buttons::B) {
                     flow.quit = true;
                 }
             }
@@ -952,14 +989,26 @@ impl Harvest {
         }
     }
 
+    /// With the player down, the dead lose interest and shamble away.
+    fn wander_off(&mut self, dt: f32) {
+        for z in self.zombies.iter_mut().filter(|z| z.rise >= 1.0) {
+            let away = norm(sub(z.pos, self.pos));
+            let speed = z.kind.stats().speed * 0.8;
+            z.pos = self.map.slide(z.pos, [away[0] * speed * dt, away[1] * speed * dt], ZOMBIE_HALF);
+            z.dir = away;
+            z.facing = Facing::of(away);
+            z.anim += dt;
+        }
+    }
+
     fn contact(&mut self, sounds: &mut Vec<Sfx>, flow: &mut Flow) {
         if self.hurt > 0.0 {
             return;
         }
-        let hit = self.zombies.iter().filter(|z| z.rise >= 1.0 && len(sub(z.pos, self.pos)) < 9.0).map(|z| z.kind.stats().damage).fold(0.0, f32::max);
+        let hit = self.zombies.iter().filter(|z| z.rise >= 1.0 && len(sub(z.pos, self.pos)) < 9.0).map(|z| z.kind.stats().damage * self.difficulty.damage()).fold(0.0, f32::max);
         if hit > 0.0 {
             self.hp -= hit;
-            self.hurt = HURT_TIME;
+            self.hurt = self.difficulty.hurt_time();
             self.juice.popup(self.pos, hit, Tone::Hurt);
             flow.rumble = flow.rumble.max(Some(Rumble::Hit));
             sounds.push(Sfx::Hurt);
@@ -1140,7 +1189,7 @@ impl Harvest {
         if len(sub(self.pos, c)) < radius * 0.7 && self.hurt <= 0.0 {
             self.hp -= 15.0;
             self.juice.popup(self.pos, 15.0, Tone::Hurt);
-            self.hurt = HURT_TIME;
+            self.hurt = self.difficulty.hurt_time();
             self.ouch(0.3);
         }
         self.fx.push(Fx { frames: &art::EXPLOSION, fps: 14.0, pos: c, angle: 0.0, t: 0.0 });
@@ -1227,7 +1276,7 @@ impl Harvest {
                 self.juice.stop(0.06);
                 self.juice.shake(0.2);
             }
-            let kind = if self.rng.below(60) == 0 { DropKind::Health } else { DropKind::Money(s.xp) };
+            let kind = if self.rng.below(self.difficulty.health_drop()) == 0 { DropKind::Health } else { DropKind::Money(s.xp) };
             let a = self.juice.rng.range(0.0, TAU);
             let speed = self.juice.rng.range(8.0, 28.0);
             let vz = self.juice.rng.range(60.0, 95.0);
@@ -1288,7 +1337,7 @@ impl Harvest {
                         }
                     }
                     DropKind::Health => {
-                        let gain = 30f32.min(self.gear.max_hp - self.hp);
+                        let gain = self.difficulty.heal().min(self.gear.max_hp - self.hp);
                         self.hp += gain;
                         healed = gain > 0.0 || healed;
                         if gain > 0.0 {
@@ -1452,7 +1501,7 @@ impl Harvest {
     /// Bars and counters easing toward their real values.
     fn feel(&mut self, dt: f32) {
         self.xp_shown += (self.xp as f32 - self.xp_shown) * (10.0 * dt).min(1.0);
-        if self.hurt < HURT_TIME - 0.35 {
+        if self.hurt < self.difficulty.hurt_time() - 0.35 {
             self.hp_shown = (self.hp_shown - 60.0 * dt).max(self.hp);
         }
         self.hp_shown = self.hp_shown.max(self.hp);
@@ -1687,15 +1736,40 @@ mod tests {
     }
 
     #[test]
-    fn dying_offers_a_new_farm() {
-        let mut h = Harvest::new(4);
+    fn dying_turns_the_player_then_offers_a_new_farm_at_the_same_difficulty() {
+        let mut h = Harvest::new(4).at(Difficulty::Hard);
+        let mut sounds = Vec::new();
         h.hp = 0.0;
-        h.update(&Input::default(), 0.016, &mut Vec::new());
+        h.update(&Input::default(), 0.016, &mut sounds);
         assert!(matches!(h.phase, Phase::Over { won: false, .. }));
-        h.update(&Input::default(), 1.5, &mut Vec::new());
-        h.update(&Input { pressed: Buttons::A, ..Default::default() }, 0.016, &mut Vec::new());
+        let a = Input { pressed: Buttons::A, ..Default::default() };
+        h.update(&Input::default(), TURN_SINK, &mut sounds);
+        assert_eq!(player_pose(&h, Facing::Front).1, 0.0, "under the dirt");
+        h.update(&a, 0.016, &mut sounds);
+        assert!(matches!(h.phase, Phase::Over { .. }), "too soon to start over");
+        h.update(&Input::default(), TURN_RISE - TURN_SINK, &mut sounds);
+        assert!(sounds.contains(&Sfx::Turn));
+        h.update(&Input::default(), TURNED - TURN_RISE + 0.7, &mut sounds);
+        let (art, rise) = player_pose(&h, Facing::Front);
+        assert_eq!(rise, 1.0);
+        assert!(art::SKINNY_FRONT.contains(&art), "back up as one of them");
+        h.update(&a, 0.016, &mut sounds);
         assert!(matches!(h.phase, Phase::Playing));
         assert_eq!(h.kills, 0);
+        assert_eq!(h.difficulty, Difficulty::Hard);
+    }
+
+    #[test]
+    fn harder_difficulties_hit_harder_and_drop_less_health() {
+        let bite = |d: Difficulty| {
+            let mut h = Harvest::calm(3).at(d);
+            h.zombies.push(Zombie::new(Kind::Skinny, [h.pos[0] + 3.0, h.pos[1]], 1000.0, 1.0, 0.0));
+            h.update(&Input::default(), 1.0 / 60.0, &mut Vec::new());
+            h.gear.max_hp - h.hp
+        };
+        let [easy, normal, hard] = Difficulty::ALL.map(bite);
+        assert!(easy < normal && normal < hard, "{easy} {normal} {hard}");
+        assert!(Difficulty::Easy.health_drop() < Difficulty::Hard.health_drop());
     }
 
     #[test]

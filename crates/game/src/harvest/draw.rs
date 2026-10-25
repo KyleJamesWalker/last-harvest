@@ -5,7 +5,7 @@ use std::f32::consts::{PI, TAU};
 use super::juice::{self, Tone};
 use super::map::TILE;
 use crate::art::Stand;
-use super::{CHOICE_ROW, CHOICE_TOP, Choice, DropKind, GOLD, GRENADE_FLIGHT, GRENADE_RADIUS, GRENADES, Harvest, PICK_TIME, PLAYER, Phase, RED, SCALE, TELL_TIME, WHITE, art_for, clock, view3d};
+use super::{CHOICE_ROW, CHOICE_TOP, Choice, DropKind, GOLD, GRENADE_FLIGHT, GRENADE_RADIUS, GRENADES, Harvest, PICK_TIME, Phase, RED, SCALE, TELL_TIME, TURNED, WHITE, clock, player_pose, view3d};
 use crate::art::{self, Art};
 use crate::{Align, Canvas, Color, Frame, SCREEN_H, SCREEN_W};
 
@@ -230,8 +230,8 @@ impl Harvest {
             sprites.push((b.pos[1], a, b.pos[0] - a.w() / 2.0, b.pos[1] - a.h() - b.z, b.flip, 1.0));
         }
         let (facing, flip) = self.facing;
-        let a = art_for(self, &PLAYER, facing);
-        sprites.push((self.pos[1], a, self.pos[0] - a.w() / 2.0, self.pos[1] - a.h() + 2.0, flip, 1.0));
+        let (a, rise) = player_pose(self, facing);
+        sprites.push((self.pos[1], a, self.pos[0] - a.w() / 2.0, self.pos[1] - a.h() * rise + 2.0, flip, rise));
         sprites.sort_by(|a, b| a.0.total_cmp(&b.0));
         for (_, a, x, y, flip, show) in sprites {
             let (sx, sy) = at(x, y);
@@ -298,15 +298,22 @@ impl Harvest {
                 self.choices(c, choices, *selected, *t, *picked, 270.0);
             }
             Phase::Over { t, won } => {
+                // A death waits for the player to climb back out before the summary shows.
+                let t = if *won { *t } else { t - TURNED };
+                if t <= 0.0 {
+                    return;
+                }
                 let k = (t / 0.6).min(1.0);
                 c.rect(0.0, 0.0, SCREEN_W, SCREEN_H, [0.0, 0.0, 0.0, 0.6 * k]);
-                let (title, color) = if *won { ("DAWN", GOLD) } else { ("YOU DIED", RED) };
+                let (title, color) = if *won { ("DAWN", GOLD) } else { ("YOU TURNED", RED) };
                 let scale = 16.0 * back_out(k);
-                c.text_centered(260.0 - scale * 2.5, scale, color, title);
+                // A lost run keeps the middle clear, where the turned player stands.
+                let (title_y, line_y) = if *won { (260.0, 360.0) } else { (130.0, 560.0) };
+                c.text_centered(title_y - scale * 2.5, scale, color, title);
                 let a = ((t - 0.5) / 0.4).clamp(0.0, 1.0);
                 let line = format!("Survived {}   Level {}   Kills {}", clock(self.t), self.level, self.kills);
-                c.label(line, SCREEN_W / 2.0, 360.0, 40.0, [1.0, 1.0, 1.0, a], Align::Center);
-                c.label("A: try another farm      B: menu", SCREEN_W / 2.0, 440.0, 32.0, [1.0, 1.0, 1.0, 0.7 * a], Align::Center);
+                c.label(line, SCREEN_W / 2.0, line_y, 40.0, [1.0, 1.0, 1.0, a], Align::Center);
+                c.label("A: try another farm      B: menu", SCREEN_W / 2.0, line_y + 80.0, 32.0, [1.0, 1.0, 1.0, 0.7 * a], Align::Center);
             }
         }
     }
