@@ -154,8 +154,17 @@ pub struct Banner {
     pub big: bool,
 }
 
+/// Money on its way from where it was picked up to the XP bar.
+pub struct Mote {
+    pub pos: [f32; 2],
+    pub age: f32,
+}
+
+pub const MOTE_TIME: f32 = 0.4;
+
 pub struct Juice {
     pub rng: Rng,
+    pub motes: Vec<Mote>,
     pub particles: Vec<Particle>,
     pub popups: Vec<Popup>,
     pub corpses: Vec<Corpse>,
@@ -180,6 +189,7 @@ impl Juice {
     pub fn new(seed: u64) -> Self {
         Self {
             rng: Rng::new(seed ^ 0x5EED_1E55),
+            motes: Vec::new(),
             particles: Vec::new(),
             popups: Vec::new(),
             corpses: Vec::new(),
@@ -208,6 +218,10 @@ impl Juice {
         } else {
             self.rest = (self.rest - dt).max(0.0);
         }
+        for m in &mut self.motes {
+            m.age += dt;
+        }
+        self.motes.retain(|m| m.age < MOTE_TIME);
         if let Some(b) = &mut self.banner {
             b.age += dt;
             if b.age > b.life {

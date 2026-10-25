@@ -16,6 +16,8 @@ pub struct CardScene {
     pub light_range: f32,
     pub flashes: Vec<Flash>,
     pub ambient: [f32; 3],
+    /// 1 is full color, 0 is grey.
+    pub saturation: f32,
     pub fog: [f32; 3],
     /// Distances from the eye where fog starts and where it is total.
     pub fog_range: [f32; 2],

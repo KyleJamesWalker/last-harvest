@@ -91,6 +91,7 @@ uniform vec3 u_flash_pos[4];
 uniform vec3 u_flash_color[4];
 uniform float u_flash_range[4];
 uniform vec3 u_ambient;
+uniform float u_saturation;
 uniform vec3 u_fog;
 uniform vec2 u_fog_range;
 out vec4 o_color;
@@ -111,6 +112,7 @@ void main() {
         light += u_flash_color[i] * k * k * (0.45 + 0.55 * abs(dot(n, f / max(fd, 1e-3))));
     }
     vec3 lit = mix(base * light, base, v_tint.a);
+    lit = mix(vec3(dot(lit, vec3(0.3, 0.59, 0.11))), lit, u_saturation);
     float fog = smoothstep(u_fog_range.x, u_fog_range.y, length(v_world - u_eye)) * (1.0 - 0.7 * v_tint.a);
     o_color = vec4(mix(lit, u_fog, fog), 1.0);
 }
@@ -317,6 +319,7 @@ impl Renderer {
             gl.uniform_3_f32_slice(loc("u_flash_color").as_ref(), &color);
             gl.uniform_1_f32_slice(loc("u_flash_range").as_ref(), &range);
             gl.uniform_3_f32_slice(loc("u_ambient").as_ref(), &scene.ambient);
+            gl.uniform_1_f32(loc("u_saturation").as_ref(), scene.saturation);
             gl.uniform_3_f32_slice(loc("u_fog").as_ref(), &scene.fog);
             gl.uniform_2_f32_slice(loc("u_fog_range").as_ref(), &scene.fog_range);
             gl.uniform_1_i32(loc("u_art").as_ref(), 1);

@@ -462,6 +462,8 @@ pub struct Harvest {
     glory: f32,
     /// A tap that landed during hit-stop, thrown when the world moves again.
     queued_touch: Option<[f32; 2]>,
+    /// Sideways input, eased, which tilts the camera into a strafe.
+    lean: f32,
 }
 
 fn len(v: [f32; 2]) -> f32 {
@@ -528,6 +530,7 @@ impl Harvest {
             heartbeat: 0.0,
             glory: 0.0,
             queued_touch: None,
+            lean: 0.0,
         }
         .with_birds()
     }
@@ -669,6 +672,7 @@ impl Harvest {
         self.view_yaw = (self.view_yaw + turn * TURN_SPEED * dt + spun).rem_euclid(TAU);
         let f = [self.view_yaw.cos(), self.view_yaw.sin()];
         let (side, ahead) = (dir[0], -dir[1]);
+        self.lean += (side - self.lean) * (8.0 * dt).min(1.0);
         let mv = [f[0] * ahead - f[1] * side, f[1] * ahead + f[0] * side];
         self.aim = f;
         self.facing = Facing::of(f);
@@ -1237,6 +1241,9 @@ impl Harvest {
                     DropKind::Money(v) => {
                         self.xp += v;
                         money = true;
+                        if self.juice.motes.len() < 24 {
+                            self.juice.motes.push(juice::Mote { pos: d.pos, age: 0.0 });
+                        }
                     }
                     DropKind::Health => {
                         let gain = 30f32.min(self.gear.max_hp - self.hp);
@@ -1442,6 +1449,7 @@ impl Harvest {
         let scene = view3d::scene(self);
         f.top.clear = [scene.fog[0], scene.fog[1], scene.fog[2], 1.0];
         self.popups(&mut f.top, &scene);
+        self.motes(&mut f.top, &scene);
         f.top.cards = Some(scene);
         self.vignette(&mut f.top);
         self.hud(&mut f.top);
@@ -1486,6 +1494,20 @@ impl Harvest {
             };
             c.label(text.clone(), x + 2.0, y + 2.0, size, [0.0, 0.0, 0.0, a * 0.8], Align::Center);
             c.label(text, x, y, size, color, Align::Center);
+        }
+    }
+
+    /// Collected money arcing up into the XP bar.
+    fn motes(&self, c: &mut Canvas, scene: &crate::scene3d::CardScene) {
+        let end = [SCREEN_W * (self.xp_shown / self.next_xp as f32).clamp(0.0, 1.0), 7.0];
+        for m in &self.juice.motes {
+            let Some((start, _)) = view3d::to_screen(scene.view_proj, m.pos, 8.0) else { continue };
+            let k = m.age / juice::MOTE_TIME;
+            let e = k * k;
+            let lift = (k * PI).sin() * 60.0;
+            let (x, y) = (start[0] + (end[0] - start[0]) * e, start[1] + (end[1] - start[1]) * e - lift);
+            c.circle(x, y, 7.0 - 3.0 * k, [1.0, 0.9, 0.4, 1.0]);
+            c.circle(x, y, 3.0, [1.0, 1.0, 0.9, 1.0]);
         }
     }
 

@@ -5,7 +5,7 @@ use std::sync::OnceLock;
 use glam::{Mat4, Vec3};
 
 use super::map::TILE;
-use super::{DAWN, DropKind, Facing, GRENADE_FLIGHT, GRENADE_RADIUS, Harvest, PLAYER, Phase, TELL_TIME, Zombie, art_for, len, sub};
+use super::{DAWN, DropKind, Facing, GRENADE_FLIGHT, GRENADE_RADIUS, Harvest, PLAYER, Phase, TELL_TIME, WALK_FPS, Zombie, art_for, len, norm, sub};
 use crate::art::{self, ATLAS_H, ATLAS_W, Art, PIXELS, RECTS};
 use crate::scene3d::{Card, CardScene, Flash};
 use crate::{SCREEN_H, SCREEN_W};
@@ -244,7 +244,9 @@ pub fn scene(h: &Harvest) -> CardScene {
     let right = forward.cross(Vec3::Y);
     let p = world(h.pos);
     let [sx, sy, roll] = j.shake_offset();
-    let shake = right * sx + Vec3::Y * sy;
+    let roll = roll + h.lean * 0.035;
+    let bob = if h.walk > 0.0 { (h.walk * WALK_FPS * std::f32::consts::PI / 2.0).sin().abs() * 0.04 } else { 0.0 };
+    let shake = right * sx + Vec3::Y * (sy + bob);
     let eye = p - forward * 2.4 + Vec3::Y * 1.5 + shake;
     let target = p + forward * 4.0 + Vec3::Y * (0.7 + j.kick * 6.0) + shake;
     let view = Mat4::look_at_rh(eye, target, Vec3::Y * roll.cos() + right * roll.sin());
@@ -380,6 +382,15 @@ pub fn scene(h: &Harvest) -> CardScene {
     }
     for b in &h.bullets {
         board(&mut cards, Board::new(art::MUZZLE, false, [b.pos[0], b.pos[1] + 6.0], 0.35, 0.0));
+        // A short glowing tracer behind each bullet.
+        let n = norm(b.vel);
+        for k in 1..4 {
+            let at = [b.pos[0] - n[0] * k as f32 * 3.0, b.pos[1] + 6.0 - n[1] * k as f32 * 3.0];
+            let q = world(at) + Vec3::Y * 0.42;
+            if near(q) && (q - p).dot(forward) > 0.0 {
+                speck(&mut cards, q, 0.07 - 0.015 * k as f32, right, [1.0, 0.8, 0.4], 1.0);
+            }
+        }
     }
     for t in &h.tells {
         // Churned earth, darkening as the zombie nears the surface.
@@ -431,6 +442,8 @@ pub fn scene(h: &Harvest) -> CardScene {
         light_range: lantern,
         flashes,
         ambient: sky.ambient,
+        // Color drains away as the player nears death, and is gone once they fall.
+        saturation: if dying { 0.15 } else { 0.35 + 0.65 * (health / 0.3).min(1.0) },
         fog: sky.fog,
         fog_range: [6.0, VIEW_RADIUS],
         cards,
