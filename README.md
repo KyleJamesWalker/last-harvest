@@ -135,7 +135,10 @@ A pixel editor for the game's sprites, on macOS. The left pane lists every sprit
 
 | Action | Input |
 |---|---|
-| Draw, erase, fill, pick a color | B, E, G, I, or the tool buttons; right-click always picks |
+| Draw, erase, fill | B, E, G, or the tool buttons |
+| Pick a color | Hold I or Option and click, then let go to return to the tool; right-click always picks; the Pick button keeps the picker |
+| Draw a straight line | Shift-click with the pencil or eraser, from the last pixel drawn |
+| Search the sprite list | /, then type; Enter opens the first match and keeps the filter, Esc clears it |
 | Mirror strokes left to right | M |
 | Select, then move by dragging inside | S, then drag; arrows nudge 1 pixel, 8 with Shift |
 | Copy, cut and paste | Cmd+C, Cmd+X, Cmd+V; a paste floats until Enter, Esc or a click outside, and its clear pixels leave what's under them |

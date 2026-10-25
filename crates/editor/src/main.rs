@@ -59,6 +59,7 @@ struct App {
     modifiers: ModifiersState,
     last: Instant,
     frames: u32,
+    i_held: bool,
     /// Saves the window as a PNG at the end of the next frame.
     shot: Option<std::path::PathBuf>,
 }
@@ -80,6 +81,7 @@ impl App {
             modifiers: ModifiersState::empty(),
             last: Instant::now(),
             frames: 0,
+            i_held: false,
             shot: None,
         }
     }
@@ -233,7 +235,17 @@ impl ApplicationHandler for App {
                     g.surface.resize(&g.context, w, h);
                 }
             }
-            WindowEvent::ModifiersChanged(m) => self.modifiers = m.state(),
+            WindowEvent::ModifiersChanged(m) => {
+                self.modifiers = m.state();
+                self.editor.peek(self.i_held || self.modifiers.alt_key());
+            }
+            // I and Option hold the color picker; letting go returns to the tool.
+            WindowEvent::KeyboardInput { event, .. } if matches!(&event.logical_key, WKey::Character(c) if c.eq_ignore_ascii_case("i")) && !self.editor.wants_text() => {
+                if !event.repeat {
+                    self.i_held = event.state == ElementState::Pressed;
+                    self.editor.peek(self.i_held || self.modifiers.alt_key());
+                }
+            }
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => self.key(&event.logical_key),
             WindowEvent::CursorMoved { position, .. } => {
                 let s = self.gl.as_ref().map_or(1.0, |g| g.window.scale_factor()) as f32;

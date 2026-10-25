@@ -179,6 +179,13 @@ pub struct Editor {
     grab: Option<Grab>,
     /// Rows of the south and east views cut off by lowering the carving's height, highest first.
     trimmed: [Vec<Vec<Rgba>>; 2],
+    /// Narrows the sprite list to names containing it; `typing` while it's being typed.
+    filter: String,
+    typing: bool,
+    /// The color picker stands in for the tool while a key is held.
+    peek: bool,
+    /// The last pixel drawn, which a Shift-click draws a line from.
+    last_dot: Option<(i32, i32)>,
     /// Pixels an arrow key moves a selection: 8 with Shift held.
     pub nudge: i32,
     /// Copied pixels and where they were copied from.
@@ -224,6 +231,10 @@ impl Editor {
             selection: None,
             grab: None,
             trimmed: Default::default(),
+            filter: String::new(),
+            typing: false,
+            peek: false,
+            last_dot: None,
             nudge: 1,
             clipboard: None,
             status: None,
@@ -366,6 +377,8 @@ impl Editor {
 
     fn open(&mut self, name: &str) {
         self.selection = None;
+        self.last_dot = None;
+        self.names = sprite::catalog(&self.dir);
         self.trimmed = Default::default();
         if let Some(s) = Sprite::load(&self.dir, name) {
             self.sprite = s;
@@ -412,9 +425,9 @@ impl Editor {
         for (i, (a, l)) in [(Action::Ask(Ask::New), "New"), (Action::Ask(Ask::Copy), "Copy"), (Action::Revert, "Revert"), (Action::Save, "Save")].into_iter().enumerate() {
             push(616.0 + i as f32 * 102.0, 8.0, 94.0, 34.0, a, l, a == Action::Save && self.unsaved());
         }
-        let tools = [(Tool::Pencil, "Pencil B"), (Tool::Eraser, "Eraser E"), (Tool::Fill, "Fill G"), (Tool::Picker, "Pick I"), (Tool::Select, "Select S")];
+        let tools = [(Tool::Pencil, "Pencil B"), (Tool::Eraser, "Eraser E"), (Tool::Fill, "Fill G"), (Tool::Picker, "Pick  hold I"), (Tool::Select, "Select S")];
         for (i, (t, l)) in tools.into_iter().enumerate() {
-            push(SIDE_X + (i % 2) as f32 * 118.0, 52.0 + (i / 2) as f32 * 38.0, 114.0, 32.0, Action::Tool(t), l, self.tool == t);
+            push(SIDE_X + (i % 2) as f32 * 118.0, 52.0 + (i / 2) as f32 * 38.0, 114.0, 32.0, Action::Tool(t), l, self.tool_now() == t);
         }
         push(SIDE_X + 118.0, 128.0, 114.0, 32.0, Action::Mirror, "Mirror M", self.mirror);
         let cols = (SIDE_W / SWATCH) as usize;
@@ -474,8 +487,12 @@ impl Editor {
             return;
         }
         if LIST.contains(p) {
-            let i = ((p[1] - LIST.y + self.scroll) / LIST_ROW) as usize;
-            if let Some((name, _)) = self.names.get(i).cloned() {
+            if p[1] < self.list_top() {
+                self.typing = true;
+                return;
+            }
+            let i = ((p[1] - self.list_top() + self.scroll) / LIST_ROW) as usize;
+            if let Some((name, _)) = self.listed().get(i).map(|e| (*e).clone()) {
                 self.switch_to(name);
             }
             return;
@@ -493,7 +510,7 @@ impl Editor {
         }
         if CANVAS.contains(p) {
             let (x, y) = self.pixel_at(p);
-            if self.tool == Tool::Select && !right {
+            if self.tool_now() == Tool::Select && !right {
                 self.grab = Some(match &self.selection {
                     Some(sel) if sel.contains(x, y) => {
                         self.lift();
@@ -508,14 +525,17 @@ impl Editor {
                 });
                 return;
             }
-            if right || self.tool == Tool::Picker {
+            if right || self.tool_now() == Tool::Picker {
                 if let Some(c) = self.current().get(x, y).filter(|c| c[3] > 0) {
                     self.color = c;
                 }
                 return;
             }
             self.remember();
-            self.paint(x, y);
+            match self.last_dot.filter(|_| shift && matches!(self.tool, Tool::Pencil | Tool::Eraser)) {
+                Some(from) => self.line(from, (x, y)),
+                None => self.paint(x, y),
+            }
             self.stroke = Some((x, y));
         }
     }
@@ -543,16 +563,12 @@ impl Editor {
             return;
         }
         let Some((lx, ly)) = self.stroke else { return };
-        if matches!(self.tool, Tool::Fill | Tool::Picker | Tool::Select) {
+        if matches!(self.tool_now(), Tool::Fill | Tool::Picker | Tool::Select) {
             return;
         }
         let (x, y) = self.pixel_at(p);
         // Every pixel on the line from the last one, so a quick drag leaves no gaps.
-        let steps = (x - lx).abs().max((y - ly).abs()).max(1);
-        for k in 1..=steps {
-            let t = k as f32 / steps as f32;
-            self.paint(lx + ((x - lx) as f32 * t).round() as i32, ly + ((y - ly) as f32 * t).round() as i32);
-        }
+        self.line((lx, ly), (x, y));
         self.stroke = Some((x, y));
     }
 
@@ -660,12 +676,22 @@ impl Editor {
 
     pub fn wheel(&mut self, p: [f32; 2], dy: f32) {
         if LIST.contains(p) {
-            let max = (self.names.len() as f32 * LIST_ROW - LIST.h).max(0.0);
+            let max = (self.listed().len() as f32 * LIST_ROW - (LIST.h - (self.list_top() - LIST.y))).max(0.0);
             self.scroll = (self.scroll - dy * LIST_ROW * 3.0).clamp(0.0, max);
         }
     }
 
+    /// Paints every pixel from `a` to `b`, leaving out `a` itself, which is already painted.
+    fn line(&mut self, (ax, ay): (i32, i32), (bx, by): (i32, i32)) {
+        let steps = (bx - ax).abs().max((by - ay).abs()).max(1);
+        for k in 1..=steps {
+            let t = k as f32 / steps as f32;
+            self.paint(ax + ((bx - ax) as f32 * t).round() as i32, ay + ((by - ay) as f32 * t).round() as i32);
+        }
+    }
+
     fn paint(&mut self, x: i32, y: i32) {
+        self.last_dot = Some((x, y));
         let c = if self.tool == Tool::Eraser { CLEAR } else { self.color };
         let w = self.current().w as i32;
         let (mirror, tool) = (self.mirror, self.tool);
@@ -707,6 +733,7 @@ impl Editor {
                         self.dirty = false;
                         self.stand_touched = false;
                         self.names = sprite::catalog(&self.dir);
+                        self.reveal();
                         self.say(format!("Saved {}. Rebuild the game to see it in play.", self.sprite.name));
                     }
                     Err(e) => self.say(format!("Save failed: {e}")),
@@ -759,6 +786,7 @@ impl Editor {
             }
             Action::Frame(i) => {
                 self.deselect();
+                self.last_dot = None;
                 self.frame = i;
                 self.view = None;
                 self.playing = false;
@@ -773,6 +801,7 @@ impl Editor {
             }
             Action::View(v) => {
                 self.deselect();
+                self.last_dot = None;
                 self.view = Some(v);
                 self.playing = false;
             }
@@ -899,24 +928,51 @@ impl Editor {
         self.reveal();
     }
 
-    /// Steps `by` places through the sprite list.
+    /// The sprites the list shows: all of them, or those matching the search.
+    fn listed(&self) -> Vec<&(String, bool)> {
+        let want = self.filter.to_ascii_uppercase();
+        self.names.iter().filter(|(n, _)| n.contains(&want)).collect()
+    }
+
+    /// Where the list's rows start: below the search box when there is one.
+    fn list_top(&self) -> f32 {
+        if self.typing || !self.filter.is_empty() { LIST.y + LIST_ROW + 6.0 } else { LIST.y }
+    }
+
+    /// Steps `by` places through the sprites the list shows.
     fn step_sprite(&mut self, by: i32) {
-        let n = self.names.len() as i32;
-        let at = self.names.iter().position(|(m, _)| *m == self.sprite.name).map_or(0, |i| i as i32);
+        let listed = self.listed();
+        let n = listed.len() as i32;
+        let at = listed.iter().position(|(m, _)| *m == self.sprite.name).map_or(if by > 0 { -1 } else { 0 }, |i| i as i32);
         let next = (at + by).rem_euclid(n.max(1)) as usize;
-        if let Some((name, _)) = self.names.get(next).cloned() {
+        if let Some((name, _)) = listed.get(next).map(|e| (*e).clone()) {
             self.switch_to(name);
         }
     }
 
+    /// The tool that acts now: the picker while a key holds it, else the one chosen.
+    fn tool_now(&self) -> Tool {
+        if self.peek { Tool::Picker } else { self.tool }
+    }
+
+    /// Holds the color picker in place of the tool, until `on` goes false.
+    pub fn peek(&mut self, on: bool) {
+        self.peek = on;
+    }
+
+    /// Whether keys are typing a name or a search, so letters shouldn't act as shortcuts.
+    pub fn wants_text(&self) -> bool {
+        self.typing || self.ask.is_some()
+    }
+
     /// Scrolls the list so the open sprite shows.
     fn reveal(&mut self) {
-        let Some(i) = self.names.iter().position(|(m, _)| *m == self.sprite.name) else { return };
-        let y = i as f32 * LIST_ROW;
+        let Some(i) = self.listed().iter().position(|(m, _)| *m == self.sprite.name) else { return };
+        let (y, room) = (i as f32 * LIST_ROW, LIST.h - (self.list_top() - LIST.y));
         if y < self.scroll {
             self.scroll = y;
-        } else if y + LIST_ROW > self.scroll + LIST.h {
-            self.scroll = y + LIST_ROW - LIST.h;
+        } else if y + LIST_ROW > self.scroll + room {
+            self.scroll = y + LIST_ROW - room;
         }
     }
 
@@ -931,6 +987,32 @@ impl Editor {
                 Key::Char('s') | Key::Enter => self.decide(Choice::Save),
                 Key::Char('d') => self.decide(Choice::Discard),
                 Key::Escape | Key::Char('c') => self.decide(Choice::Stay),
+                _ => {}
+            }
+            return;
+        }
+        if self.typing {
+            match key {
+                Key::Char(c) if c.is_ascii_alphanumeric() || c == '_' || c == ' ' => {
+                    self.filter.push(if c == ' ' { '_' } else { c.to_ascii_uppercase() });
+                    self.scroll = 0.0;
+                }
+                Key::Backspace => {
+                    self.filter.pop();
+                }
+                Key::Escape => {
+                    self.typing = false;
+                    self.filter.clear();
+                    self.reveal();
+                }
+                Key::Enter => {
+                    self.typing = false;
+                    let open_one = !self.listed().iter().any(|(n, _)| *n == self.sprite.name);
+                    if let Some((name, _)) = self.listed().first().map(|e| (*e).clone()).filter(|_| open_one) {
+                        self.switch_to(name);
+                    }
+                    self.reveal();
+                }
                 _ => {}
             }
             return;
@@ -960,6 +1042,10 @@ impl Editor {
                         self.redo.clear();
                         self.dirty = true;
                         self.changed = true;
+                        if !self.names.iter().any(|(n, _)| *n == name) {
+                            self.names.push((name.clone(), false));
+                        }
+                        self.reveal();
                         self.say(format!("{name} is new: Save writes it to disk"));
                     }
                 }
@@ -997,7 +1083,14 @@ impl Editor {
             Key::Char('b' | 'p') => self.act(Action::Tool(Tool::Pencil), false),
             Key::Char('e') => self.act(Action::Tool(Tool::Eraser), false),
             Key::Char('g' | 'f') => self.act(Action::Tool(Tool::Fill), false),
-            Key::Char('i') => self.act(Action::Tool(Tool::Picker), false),
+            Key::Char('/') => {
+                self.typing = true;
+                self.filter.clear();
+            }
+            Key::Escape if !self.filter.is_empty() => {
+                self.filter.clear();
+                self.reveal();
+            }
             Key::Char('s') => self.act(Action::Tool(Tool::Select), false),
             Key::Char('m') => self.mirror = !self.mirror,
             Key::Char(' ') => self.act(Action::Play, false),
@@ -1040,10 +1133,18 @@ impl Editor {
         c.label(format!("{}{}", self.sprite.name, if self.unsaved() { "  (unsaved)" } else { "" }), 12.0, 12.0, 26.0, TEXT, Align::Left);
 
         c.rect(LIST.x, LIST.y, LIST.w, LIST.h, PANEL);
+        let top = self.list_top();
+        if top > LIST.y {
+            c.rect(LIST.x + 2.0, LIST.y + 2.0, LIST.w - 4.0, LIST_ROW + 2.0, if self.typing { [0.3, 0.27, 0.15, 1.0] } else { BUTTON });
+            let caret = if self.typing && (self.clock * 2.0) as i32 % 2 == 0 { "_" } else { "" };
+            let count = self.listed().len();
+            c.label(format!("/{}{caret}", self.filter), LIST.x + 8.0, LIST.y + 4.0, 17.0, HOT, Align::Left);
+            c.label(format!("{count}"), LIST.x + LIST.w - 8.0, LIST.y + 4.0, 15.0, DIM, Align::Right);
+        }
         let first = (self.scroll / LIST_ROW) as usize;
-        let rows = (LIST.h / LIST_ROW) as usize;
-        for (i, (name, saved)) in self.names.iter().enumerate().skip(first).take(rows) {
-            let y = LIST.y + i as f32 * LIST_ROW - self.scroll;
+        let rows = ((LIST.h - (top - LIST.y)) / LIST_ROW) as usize;
+        for (i, (name, saved)) in self.listed().into_iter().enumerate().skip(first).take(rows) {
+            let y = top + i as f32 * LIST_ROW - self.scroll;
             if *name == self.sprite.name {
                 c.rect(LIST.x, y, LIST.w, LIST_ROW, [0.35, 0.3, 0.18, 1.0]);
             }
@@ -1126,7 +1227,7 @@ impl Editor {
             }
         }
 
-        let help = "S: select, drag to move, arrows nudge   Cmd+C/X/V: copy, cut, paste   J/K: sprites   H/L: frames   Right-click: pick   Cmd+Z: undo   Cmd+S: save";
+        let help = "/: search   J/K: sprites   H/L: frames   S: select   Cmd+C/X/V   hold I: pick   Shift-click: line   Cmd+Z: undo   Cmd+S: save";
         c.label(help, 12.0, 748.0, 13.0, DIM, Align::Left);
         if let Some((text, age)) = &self.status {
             let a = (4.0 - age).clamp(0.0, 1.0);
@@ -1552,5 +1653,68 @@ mod tests {
         assert_eq!(grown.get(2, 0), Some([9, 9, 9, 255]), "past the cut rows, the top row repeats");
         assert_eq!(grown.get(2, 2), Some([9, 9, 9, 255]));
         assert_eq!(grown.get(3, 0), marked[0].get(3, 0));
+    }
+
+    fn type_keys(e: &mut Editor, text: &str) {
+        text.chars().for_each(|c| e.key(Key::Char(c)));
+    }
+
+    #[test]
+    fn slash_searches_the_list_and_j_steps_through_the_matches() {
+        let mut e = editor();
+        e.key(Key::Char('/'));
+        assert!(e.wants_text());
+        type_keys(&mut e, "car_");
+        let found: Vec<String> = e.listed().iter().map(|(n, _)| n.clone()).collect();
+        assert_eq!(found, ["CAR_H", "CAR_V"]);
+        e.key(Key::Enter);
+        assert_eq!(e.sprite.name, "CAR_H");
+        assert!(!e.wants_text());
+        e.key(Key::Char('j'));
+        assert_eq!(e.sprite.name, "CAR_V");
+        e.key(Key::Char('j'));
+        assert_eq!(e.sprite.name, "CAR_H", "it wraps within the matches");
+        e.key(Key::Escape);
+        assert!(e.filter.is_empty() && e.listed().len() == e.names.len());
+    }
+
+    #[test]
+    fn a_new_copy_shows_in_the_list_before_it_is_saved() {
+        let mut e = editor();
+        e.act(Action::Ask(Ask::Copy), false);
+        type_keys(&mut e, "barrel two");
+        e.key(Key::Enter);
+        assert!(e.names.iter().any(|(n, saved)| n == "BARREL_TWO" && !saved));
+        e.key(Key::Char('/'));
+        type_keys(&mut e, "two");
+        assert_eq!(e.listed().len(), 1);
+    }
+
+    #[test]
+    fn holding_the_picker_picks_without_painting_and_lets_go_to_the_tool() {
+        let mut e = editor();
+        let before = e.current().clone();
+        let c = before.px.iter().copied().find(|p| p[3] > 0).unwrap();
+        let i = before.px.iter().position(|p| *p == c).unwrap() as i32;
+        e.peek(true);
+        click_pixel(&mut e, i % 16, i / 16);
+        assert_eq!(e.color, c);
+        assert_eq!(*e.current(), before, "a held pick paints nothing");
+        e.peek(false);
+        assert_eq!(e.tool_now(), Tool::Pencil);
+    }
+
+    #[test]
+    fn shift_click_draws_a_line_from_the_last_pixel_in_one_undo() {
+        let mut e = editor();
+        e.sprite.frames[0] = Frame::blank(16, 16);
+        e.color = [5, 5, 5, 255];
+        click_pixel(&mut e, 1, 1);
+        e.mouse_down(at(&e, 7, 1), false, true);
+        e.mouse_up();
+        assert!((1..=7).all(|x| e.current().get(x, 1) == Some([5, 5, 5, 255])));
+        e.key(Key::Undo);
+        assert_eq!(e.current().get(4, 1), Some(CLEAR));
+        assert_eq!(e.current().get(1, 1), Some([5, 5, 5, 255]), "the first dot was its own step");
     }
 }
