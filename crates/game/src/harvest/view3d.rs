@@ -5,7 +5,7 @@ use std::sync::OnceLock;
 use glam::{Mat4, Vec3};
 
 use super::map::TILE;
-use super::{DropKind, Facing, Harvest, PLAYER, Phase, art_for};
+use super::{DropKind, Facing, Harvest, PLAYER, Phase, Zombie, art_for, len, sub};
 use crate::art::{self, ATLAS_H, ATLAS_W, Art, PIXELS, RECTS};
 use crate::scene3d::{Card, CardScene};
 use crate::{SCREEN_H, SCREEN_W};
@@ -15,6 +15,7 @@ const PX: f32 = 1.0 / TILE;
 const VIEW_RADIUS: f32 = 16.0;
 const CHARACTER_DEPTH: f32 = 3.0 * PX;
 const DECAL_LIFT: f32 = 0.03;
+const MAX_ZOMBIES_3D: usize = 160;
 
 /// One face of an extruded sprite in sprite space: x right and y down in pixels, z from front (0) to back (1).
 /// The normal is in (right, up, back).
@@ -109,7 +110,9 @@ struct Pose {
 }
 
 /// Places a sprite standing on the ground; only its front and back faces when `solid` is false.
-fn stand(out: &mut Vec<Card>, art: Art, flip: bool, pose: Pose, solid: bool) {
+/// Faces turned away from `eye` are left out: every extrusion is closed, so they would be hidden anyway,
+/// and alpha-tested fragments cost full price on the device's GPU.
+fn stand(out: &mut Vec<Card>, eye: Vec3, art: Art, flip: bool, pose: Pose, solid: bool) {
     let Pose { origin, right, back, depth } = pose;
     let (w, h) = (art.w(), art.h());
     let all = faces(art);
@@ -121,7 +124,10 @@ fn stand(out: &mut Vec<Card>, art: Art, flip: bool, pose: Pose, solid: bool) {
         };
         let n = f.normal;
         let normal = right * if flip { -n[0] } else { n[0] } + Vec3::Y * n[1] + back * n[2];
-        out.push(Card { corners: f.corners.map(place), uv: f.uv, normal });
+        let corners = f.corners.map(place);
+        if normal.dot(eye - corners[0]) > 0.0 {
+            out.push(Card { corners, uv: f.uv, normal });
+        }
     }
 }
 
@@ -173,7 +179,7 @@ pub fn scene(h: &Harvest) -> CardScene {
             let (ground, overlay) = h.map.tile(tx as usize, ty as usize);
             flat(&mut cards, ground, corner.x, corner.z, 0.0);
             if let Some(crop) = overlay {
-                stand(&mut cards, crop, false, Pose { origin: corner + Vec3::Z, right: Vec3::X, back: -Vec3::Z, depth: 2.0 * PX }, false);
+                stand(&mut cards, eye, crop, false, Pose { origin: corner + Vec3::Z, right: Vec3::X, back: -Vec3::Z, depth: 2.0 * PX }, false);
             }
         }
     }
@@ -189,26 +195,33 @@ pub fn scene(h: &Harvest) -> CardScene {
         let base = Vec3::new(prop.x * PX, 0.0, prop.base * PX);
         let middle = base + Vec3::new(prop.frames[0].w() * PX * 0.5, 0.0, -prop.depth * PX * 0.5);
         if ahead(middle) {
-            stand(&mut cards, prop.frame(h.t), false, Pose { origin: base, right: Vec3::X, back: -Vec3::Z, depth: prop.depth * PX }, true);
+            stand(&mut cards, eye, prop.frame(h.t), false, Pose { origin: base, right: Vec3::X, back: -Vec3::Z, depth: prop.depth * PX }, true);
         }
     }
     for b in &h.barrels {
         let a = if b.flash > 0.0 { art::BARREL_FLASH } else { art::BARREL };
         let base = Vec3::new(b.pos[0] * PX, 0.0, (b.pos[1] + a.h()) * PX);
         if ahead(base) {
-            stand(&mut cards, a, false, Pose { origin: base, right: Vec3::X, back: -Vec3::Z, depth: 12.0 * PX }, true);
+            stand(&mut cards, eye, a, false, Pose { origin: base, right: Vec3::X, back: -Vec3::Z, depth: 12.0 * PX }, true);
         }
     }
 
     // Characters and pickups turn to face the camera.
     let billboard = |cards: &mut Vec<Card>, a: Art, flip: bool, at: [f32; 2], lift: f32, depth: f32| {
         let q = world(at);
-        if near(q) && (q - p).dot(forward) > -0.8 {
+        // Close to the lens a character fills the screen without showing anything useful.
+        if near(q) && (q - p).dot(forward) > -0.8 && (q - eye).length() > 1.4 {
             let origin = q - right * (a.w() * PX / 2.0) - forward * (depth / 2.0) + Vec3::Y * lift;
-            stand(cards, a, flip, Pose { origin, right, back: forward, depth }, depth > 0.0);
+            stand(cards, eye, a, flip, Pose { origin, right, back: forward, depth }, depth > 0.0);
         }
     };
-    for z in &h.zombies {
+    // A full horde swarming the player would bury the GPU; the farthest are lost in the fog anyway.
+    let mut nearest: Vec<&Zombie> = h.zombies.iter().collect();
+    if nearest.len() > MAX_ZOMBIES_3D {
+        nearest.select_nth_unstable_by(MAX_ZOMBIES_3D, |a, b| len(sub(a.pos, h.pos)).total_cmp(&len(sub(b.pos, h.pos))));
+        nearest.truncate(MAX_ZOMBIES_3D);
+    }
+    for z in nearest {
         let look = &z.kind.stats().look;
         let (facing, flip) = facing_from(z.dir, forward, right);
         let a = if z.flash > 0.0 { look.flash[facing.index()] } else { look.walk[facing.index()][z.frame()] };
