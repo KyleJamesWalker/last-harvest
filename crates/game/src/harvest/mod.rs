@@ -661,7 +661,12 @@ impl Harvest {
         if len(mv) > 0.2 {
             let k = self.gear.speed * dt * len(mv).min(1.0) / len(mv);
             self.pos = self.map.slide(self.pos, [mv[0] * k, mv[1] * k], PLAYER_HALF);
+            let before = (self.walk * WALK_FPS) as u32;
             self.walk += dt;
+            if (self.walk * WALK_FPS) as u32 / 2 != before / 2 {
+                let back = [-mv[0], -mv[1]];
+                self.juice.burst(self.pos, 0.5, 2, back, 0.8, [8.0, 20.0], juice::DIRT, 1.0, 0.35, 0.0);
+            }
         } else {
             self.walk = 0.0;
         }
@@ -705,6 +710,14 @@ impl Harvest {
             flow.survived = Some(self.t);
         } else if self.t >= DAWN {
             sounds.push(Sfx::Dawn);
+            // First light burns the dead away.
+            for z in std::mem::take(&mut self.zombies) {
+                self.juice.burst(z.pos, 8.0, 3, [0.0; 2], 0.0, [10.0, 40.0], juice::EMBER, 1.4, 1.2, 1.0);
+                self.fx.push(Fx { frames: &art::SMOKE, fps: 5.0, pos: [z.pos[0], z.pos[1] - 6.0], angle: 0.0, t: 0.0 });
+            }
+            self.tells.clear();
+            self.juice.flash(self.pos, 40.0, [1.6, 1.1, 0.7], 14.0, 1.5);
+            self.juice.shake(0.3);
             flow.rumble = flow.rumble.max(Some(Rumble::Fanfare));
             self.phase = Phase::Over { t: 0.0, won: true };
             flow.survived = Some(self.t);
@@ -961,6 +974,8 @@ impl Harvest {
                 }
                 let at = [self.pos[0] + d[0] * 8.0, self.pos[1] - 5.0 + d[1] * 8.0];
                 self.fx.push(Fx { frames: &art::SLASH, fps: 20.0, pos: at, angle: d[1].atan2(d[0]) - PI / 2.0, t: 0.0 });
+                self.juice.kick += 0.02;
+                self.juice.shake(0.06);
                 sounds.push(Sfx::Slash);
                 self.thud(hits, sounds);
             }
@@ -1665,7 +1680,12 @@ impl Harvest {
         // XP across the top, with a bright leading edge; it flashes while full.
         let k = (self.xp_shown / self.next_xp as f32).clamp(0.0, 1.0);
         c.rect(0.0, 0.0, SCREEN_W, 14.0, [0.0, 0.0, 0.0, 0.6]);
-        let bar = if self.leveling > 0.0 && (self.juice.clock * 16.0).sin() > 0.0 { WHITE } else { GOLD };
+        let glint = (1.0 - self.chain.0 / 0.15).max(0.0);
+        let bar = if self.leveling > 0.0 && (self.juice.clock * 16.0).sin() > 0.0 {
+            WHITE
+        } else {
+            [GOLD[0], GOLD[1] + (1.0 - GOLD[1]) * glint, GOLD[2] + (1.0 - GOLD[2]) * glint, 1.0]
+        };
         c.rect(0.0, 0.0, SCREEN_W * k, 14.0, bar);
         if k > 0.01 && k < 1.0 {
             c.rect(SCREEN_W * k - 8.0, 0.0, 8.0, 14.0, [1.0, 1.0, 0.85, 0.9]);

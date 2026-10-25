@@ -345,7 +345,8 @@ pub fn scene(h: &Harvest) -> CardScene {
         }
         let fall = Vec3::new(c.fall[0], 0.0, c.fall[1]).normalize_or(forward);
         let side = fall.cross(Vec3::Y);
-        let tip = if c.z > 0.0 { c.spin } else { c.tipped() * std::f32::consts::FRAC_PI_2 };
+        // Slumped short of flat, or the low camera would see the body edge-on.
+        let tip = if c.z > 0.0 { c.spin } else { c.tipped() * 1.2 };
         let up = Vec3::Y * tip.cos() + fall * tip.sin();
         let back = up.cross(side);
         let lift = c.z * PX + 0.04 - c.sunk() * PX;
@@ -381,9 +382,13 @@ pub fn scene(h: &Harvest) -> CardScene {
         board(&mut cards, Board::new(art::MUZZLE, false, [b.pos[0], b.pos[1] + 6.0], 0.35, 0.0));
     }
     for t in &h.tells {
-        // Churned earth, bulging as the zombie nears the surface.
+        // Churned earth, darkening as the zombie nears the surface.
         let k = (t.t / TELL_TIME).min(1.0);
-        patch(&mut cards, world(t.pos) + Vec3::Y * (DECAL_LIFT + 0.004), 0.3 + 0.3 * k, [0.16, 0.11, 0.07]);
+        let mark = art::BLOOD_STAIN[(t.pos[0] as usize) % art::BLOOD_STAIN.len()];
+        let q = world([t.pos[0] - mark.w() / 2.0, t.pos[1] - mark.h() / 2.0]);
+        if near(q) {
+            flat(&mut cards, mark, q.x, q.z, DECAL_LIFT + 0.004, [0.45 - 0.2 * k, 0.32 - 0.15 * k, 0.2 - 0.1 * k]);
+        }
     }
     for pt in &h.juice.particles {
         let q = world(pt.pos) + Vec3::Y * (pt.z * PX);
@@ -458,6 +463,33 @@ mod tests {
             }
         }
         eprintln!("most cards in one view: {worst}");
+        assert!(worst < 12_000, "{worst} cards");
+    }
+
+    #[test]
+    fn a_swarm_with_every_effect_going_stays_within_budget() {
+        use crate::harvest::juice::{BLOOD, Corpse};
+        use crate::harvest::{Kind, Zombie};
+        let mut h = Harvest::calm(7);
+        for i in 0..300 {
+            let a = i as f32 * 0.37;
+            let r = 12.0 + (i % 40) as f32 * 3.0;
+            h.zombies.push(Zombie::new(Kind::Skinny, [h.pos[0] + a.cos() * r, h.pos[1] + a.sin() * r], 10.0, 1.0, 0.0));
+        }
+        for i in 0..60 {
+            let a = i as f32 * 0.5;
+            let at = [h.pos[0] + a.cos() * 40.0, h.pos[1] + a.sin() * 40.0];
+            h.juice.corpse(Corpse { art: art::SKINNY_HURT[0], flip: false, pos: at, z: 0.0, vel: [0.0; 2], vz: 0.0, fall: [1.0, 0.0], age: 1.0, spin: 0.0 });
+            h.juice.burst(at, 8.0, 12, [0.0; 2], 0.0, [10.0, 40.0], BLOOD, 1.5, 1.0, 0.0);
+        }
+        h.juice.ring(h.pos, 80.0, 1.0, BLOOD);
+        h.juice.ring(h.pos, 40.0, 1.0, BLOOD);
+        let mut worst = 0;
+        for yaw in 0..8 {
+            h.view_yaw = yaw as f32 * std::f32::consts::FRAC_PI_4;
+            worst = worst.max(scene(&h).cards.len());
+        }
+        eprintln!("most cards with everything going: {worst}");
         assert!(worst < 12_000, "{worst} cards");
     }
 }
