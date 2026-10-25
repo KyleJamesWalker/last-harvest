@@ -745,6 +745,7 @@ name = "last-harvest-game"
 version = "0.1.0"
 dependencies = [
  "glam",
+ "png",
 ]
 
 [[package]]

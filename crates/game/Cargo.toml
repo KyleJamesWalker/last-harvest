@@ -6,3 +6,6 @@ publish.workspace = true
 
 [dependencies]
 glam = "0.30"
+
+[build-dependencies]
+png = "0.17"

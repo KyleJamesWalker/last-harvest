@@ -1,3 +1,4 @@
+pub mod art;
 mod dice;
 mod draw;
 mod font;

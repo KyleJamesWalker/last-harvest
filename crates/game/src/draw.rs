@@ -1,3 +1,4 @@
+use crate::art::Art;
 use crate::scene3d::Scene3d;
 use crate::{BOTTOM_OFFSET, SCREEN_H, SCREEN_W, font};
 
@@ -29,6 +30,8 @@ pub enum Shape {
     Circle { x: f32, y: f32, r: f32, color: Color },
     /// Centered on (x, y), `size` pixels across, rotated by `angle` radians.
     Sprite { sprite: Sprite, x: f32, y: f32, size: f32, angle: f32, color: Color },
+    /// Pixel art from the tileset, top-left at (x, y), each texel `scale` pixels across, rotated about its center.
+    Art { art: Art, x: f32, y: f32, scale: f32, flip: bool, angle: f32, color: Color },
     /// TrueType text; `y` is the top of the line and `size` its height in pixels.
     Text { text: String, x: f32, y: f32, size: f32, color: Color, align: Align },
 }
@@ -52,6 +55,16 @@ impl Canvas {
 
     pub fn sprite(&mut self, sprite: Sprite, x: f32, y: f32, size: f32, angle: f32, color: Color) {
         self.shapes.push(Shape::Sprite { sprite, x, y, size, angle, color });
+    }
+
+    pub fn art(&mut self, art: Art, x: f32, y: f32, scale: f32, flip: bool, color: Color) {
+        self.shapes.push(Shape::Art { art, x, y, scale, flip, angle: 0.0, color });
+    }
+
+    /// Pixel art centered on (cx, cy) and rotated by `angle` radians.
+    pub fn art_rotated(&mut self, art: Art, cx: f32, cy: f32, scale: f32, angle: f32, color: Color) {
+        let (x, y) = (cx - art.w() * scale / 2.0, cy - art.h() * scale / 2.0);
+        self.shapes.push(Shape::Art { art, x, y, scale, flip: false, angle, color });
     }
 
     /// TrueType text. `text` and `text_centered` draw the 3x5 bitmap font instead.

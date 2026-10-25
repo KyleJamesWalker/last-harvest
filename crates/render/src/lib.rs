@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use glow::HasContext;
 use last_harvest_game::scene3d::{MeshId, Scene3d, Vertex3};
-use last_harvest_game::{Canvas, SCREEN_H, SCREEN_W, Shape};
+use last_harvest_game::{Canvas, SCREEN_H, SCREEN_W, Shape, art};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Profile {
@@ -40,8 +40,13 @@ in vec4 v_color;
 in float v_kind;
 in vec2 v_uv;
 uniform sampler2D u_atlas;
+uniform sampler2D u_art;
 out vec4 o_color;
 void main() {
+    if (v_kind > 2.5) {
+        o_color = texture(u_art, v_uv) * v_color;
+        return;
+    }
     if (v_kind > 1.5) {
         o_color = texture(u_atlas, v_uv) * v_color;
         return;
@@ -93,6 +98,7 @@ const FLOATS_PER_VERT: usize = 11;
 const KIND_RECT: f32 = 0.0;
 const KIND_CIRCLE: f32 = 1.0;
 const KIND_TEXTURE: f32 = 2.0;
+const KIND_ART: f32 = 3.0;
 
 struct Mesh {
     vao: glow::VertexArray,
@@ -109,6 +115,7 @@ pub struct Renderer {
     meshes: HashMap<MeshId, Mesh>,
     atlas: atlas::Atlas,
     texture: glow::Texture,
+    art: glow::Texture,
 }
 
 unsafe fn link(gl: &glow::Context, header: &str, vert: &str, frag: &str) -> Result<glow::Program, String> {
@@ -188,11 +195,19 @@ impl Renderer {
             gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MAG_FILTER, glow::LINEAR as i32);
             gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_S, glow::CLAMP_TO_EDGE as i32);
             gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_T, glow::CLAMP_TO_EDGE as i32);
+            let art = gl.create_texture()?;
+            gl.bind_texture(glow::TEXTURE_2D, Some(art));
+            let (aw, ah) = (art::ATLAS_W as i32, art::ATLAS_H as i32);
+            gl.tex_image_2d(glow::TEXTURE_2D, 0, glow::RGBA8 as i32, aw, ah, 0, glow::RGBA, glow::UNSIGNED_BYTE, glow::PixelUnpackData::Slice(Some(art::PIXELS)));
+            for (param, value) in [(glow::TEXTURE_MIN_FILTER, glow::NEAREST), (glow::TEXTURE_MAG_FILTER, glow::NEAREST), (glow::TEXTURE_WRAP_S, glow::CLAMP_TO_EDGE), (glow::TEXTURE_WRAP_T, glow::CLAMP_TO_EDGE)] {
+                gl.tex_parameter_i32(glow::TEXTURE_2D, param, value as i32);
+            }
             gl.use_program(Some(program));
             gl.uniform_1_i32(gl.get_uniform_location(program, "u_atlas").as_ref(), 0);
+            gl.uniform_1_i32(gl.get_uniform_location(program, "u_art").as_ref(), 1);
 
             let u_size = gl.get_uniform_location(program, "u_size");
-            Ok(Self { program, vao, vbo, u_size, verts: Vec::new(), mesh_program, meshes, atlas, texture })
+            Ok(Self { program, vao, vbo, u_size, verts: Vec::new(), mesh_program, meshes, atlas, texture, art })
         }
     }
 
@@ -206,6 +221,16 @@ impl Renderer {
                 Shape::Sprite { sprite, x, y, size, angle, color } => {
                     let uv = self.atlas.sprite_uv(sprite);
                     self.sprite(x, y, size, angle, uv, color);
+                }
+                Shape::Art { art, x, y, scale, flip, angle, color } => {
+                    let [ax, ay, aw, ah] = art.rect().map(f32::from);
+                    let (sw, sh) = (art::ATLAS_W as f32, art::ATLAS_H as f32);
+                    let (u0, u1) = (ax / sw, (ax + aw) / sw);
+                    let uv = [if flip { u1 } else { u0 }, ay / sh, if flip { u0 } else { u1 }, (ay + ah) / sh];
+                    let (hw, hh) = (aw * scale / 2.0, ah * scale / 2.0);
+                    let (cx, cy, s, c) = (x + hw, y + hh, angle.sin(), angle.cos());
+                    let corner = |dx: f32, dy: f32| [cx + dx * c - dy * s, cy + dx * s + dy * c];
+                    self.push_quad([corner(-hw, -hh), corner(hw, -hh), corner(hw, hh), corner(-hw, hh)], uv, color, KIND_ART);
                 }
                 Shape::Text { ref text, x, y, size, color, align } => {
                     for g in self.atlas.layout(text, x, y, size, align) {
@@ -231,6 +256,8 @@ impl Renderer {
             gl.enable(glow::BLEND);
             gl.blend_func(glow::SRC_ALPHA, glow::ONE_MINUS_SRC_ALPHA);
             gl.use_program(Some(self.program));
+            gl.active_texture(glow::TEXTURE1);
+            gl.bind_texture(glow::TEXTURE_2D, Some(self.art));
             gl.active_texture(glow::TEXTURE0);
             gl.bind_texture(glow::TEXTURE_2D, Some(self.texture));
             gl.uniform_2_f32(self.u_size.as_ref(), SCREEN_W, SCREEN_H);
