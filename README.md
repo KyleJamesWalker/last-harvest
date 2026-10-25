@@ -14,7 +14,8 @@ Zombies claw their way out of the ground, at the edge of the fog early on and on
 |---|---|---|
 | Walk forward and back | Up and Down, or the stick | Up and Down arrows |
 | Strafe | Left and Right, or the stick | Left and Right arrows |
-| Turn | L2 and R2 | 1 and 2 |
+| Turn | Y and A, or L2 and R2 | A and X, or 1 and 2 |
+| Turn around | B | Z |
 | Throw a grenade | Tap the map | Click the bottom window |
 | Pick an upgrade | Tap it, or Up, Down and A | Click it, or arrows and X |
 | Show the whole map | Hold L1 | Hold Q |
