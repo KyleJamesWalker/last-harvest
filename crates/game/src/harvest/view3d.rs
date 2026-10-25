@@ -212,7 +212,8 @@ pub fn scene(h: &Harvest) -> CardScene {
         let look = &z.kind.stats().look;
         let (facing, flip) = facing_from(z.dir, forward, right);
         let a = if z.flash > 0.0 { look.flash[facing.index()] } else { look.walk[facing.index()][z.frame()] };
-        billboard(&mut cards, a, flip, z.pos, 0.0, CHARACTER_DEPTH);
+        // A rising zombie starts below the ground plane, which hides the part still buried.
+        billboard(&mut cards, a, flip, z.pos, -(1.0 - z.rise) * a.h() * PX, CHARACTER_DEPTH);
     }
     let (facing, flip) = facing_from(h.aim, forward, right);
     billboard(&mut cards, art_for(h, &PLAYER, facing), flip, h.pos, 0.0, CHARACTER_DEPTH);

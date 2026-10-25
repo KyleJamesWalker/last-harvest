@@ -14,8 +14,12 @@ use map::{Map, TILE};
 const SCALE: f32 = 2.0;
 const VIEW_W: f32 = SCREEN_W / SCALE;
 const VIEW_H: f32 = SCREEN_H / SCALE;
-/// Zombies appear in this ring around the player, in world pixels: about where the 3D view's fog closes in.
-const SPAWN_RING: [f32; 2] = [200.0, 250.0];
+/// Zombies erupt in a ring around the player, in world pixels: at the fog's edge at dusk,
+/// closing to a few tiles away by dawn.
+const SPAWN_RING_DUSK: [f32; 2] = [200.0, 250.0];
+const SPAWN_RING_DAWN: [f32; 2] = [56.0, 110.0];
+/// Seconds a zombie takes to climb out of the ground, harmless and rooted.
+const RISE_TIME: f32 = 0.9;
 const PISTOL_RANGE: f32 = 150.0;
 const SHOTGUN_RANGE: f32 = 90.0;
 /// Radians per second at full turn.
@@ -101,6 +105,8 @@ struct Zombie {
     pos: [f32; 2],
     /// Direction of travel, for picking frames in the 3D view.
     dir: [f32; 2],
+    /// How far out of the ground, 0 to 1.
+    rise: f32,
     push: [f32; 2],
     hp: f32,
     flash: f32,
@@ -518,11 +524,13 @@ impl Harvest {
             };
             for _ in 0..8 {
                 let a = self.rng.range(0.0, TAU);
-                let r = self.rng.range(SPAWN_RING[0], SPAWN_RING[1]);
+                let [near, far] = spawn_ring(self.t);
+                let r = self.rng.range(near, far);
                 let pos = [self.pos[0] + a.cos() * r, self.pos[1] + a.sin() * r];
                 if !self.map.hits(pos[0], pos[1], ZOMBIE_HALF) {
                     let s = kind.stats();
-                    self.zombies.push(Zombie { kind, pos, dir: [0.0, 1.0], push: [0.0; 2], hp: s.hp * (1.0 + minutes * 0.08), flash: 0.0, facing: (Facing::Front, false), anim: self.rng.range(0.0, 1.0) });
+                    self.zombies.push(Zombie { kind, pos, dir: [0.0, 1.0], rise: 0.0, push: [0.0; 2], hp: s.hp * (1.0 + minutes * 0.08), flash: 0.0, facing: (Facing::Front, false), anim: self.rng.range(0.0, 1.0) });
+                    self.fx.push(Fx { frames: &art::SMOKE, fps: 7.0, pos: [pos[0], pos[1] - 3.0], angle: 0.0, t: 0.0 });
                     break;
                 }
             }
@@ -550,6 +558,11 @@ impl Harvest {
             self.flow_cell = cell;
         }
         for (z, s) in self.zombies.iter_mut().zip(sep) {
+            z.flash = (z.flash - dt).max(0.0);
+            if z.rise < 1.0 {
+                z.rise = (z.rise + dt / RISE_TIME).min(1.0);
+                continue;
+            }
             let speed = z.kind.stats().speed;
             let direct = sub(self.pos, z.pos);
             let to = if len(direct) < TILE * 1.5 { norm(direct) } else { self.map.downhill(&self.flow, z.pos).unwrap_or(norm(direct)) };
@@ -559,7 +572,6 @@ impl Harvest {
             z.facing = Facing::of(to);
             z.dir = to;
             z.anim += dt;
-            z.flash = (z.flash - dt).max(0.0);
         }
     }
 
@@ -567,7 +579,7 @@ impl Harvest {
         if self.hurt > 0.0 {
             return;
         }
-        let hit = self.zombies.iter().filter(|z| len(sub(z.pos, self.pos)) < 9.0).map(|z| z.kind.stats().damage).fold(0.0, f32::max);
+        let hit = self.zombies.iter().filter(|z| z.rise >= 1.0 && len(sub(z.pos, self.pos)) < 9.0).map(|z| z.kind.stats().damage).fold(0.0, f32::max);
         if hit > 0.0 {
             self.hp -= hit;
             self.hurt = HURT_TIME;
@@ -898,32 +910,33 @@ impl Harvest {
         }
 
         // Props, zombies and the player, drawn back to front by where they meet the ground.
-        let mut sprites: Vec<(f32, Art, f32, f32, bool, Color)> = Vec::new();
+        // The last field is how much of each sprite shows: zombies still in the ground show only their top.
+        let mut sprites: Vec<(f32, Art, f32, f32, bool, f32)> = Vec::new();
         for p in &self.map.props {
             let a = p.frame(self.t);
             if visible(p.x, p.y, a.w(), a.h()) {
-                sprites.push((p.base, a, p.x, p.y, false, WHITE));
+                sprites.push((p.base, a, p.x, p.y, false, 1.0));
             }
         }
         for r in &self.barrels {
             let a = if r.flash > 0.0 { art::BARREL_FLASH } else { art::BARREL };
             if visible(r.pos[0], r.pos[1], TILE, TILE) {
-                sprites.push((r.pos[1] + a.h(), a, r.pos[0], r.pos[1], false, WHITE));
+                sprites.push((r.pos[1] + a.h(), a, r.pos[0], r.pos[1], false, 1.0));
             }
         }
         for z in &self.zombies {
             let s = z.kind.stats();
             let (facing, flip) = z.facing;
             let a = if z.flash > 0.0 { s.look.flash[facing.index()] } else { s.look.walk[facing.index()][z.frame()] };
-            sprites.push((z.pos[1], a, z.pos[0] - a.w() / 2.0, z.pos[1] - a.h() + 2.0, flip, WHITE));
+            sprites.push((z.pos[1], a, z.pos[0] - a.w() / 2.0, z.pos[1] - a.h() * z.rise + 2.0, flip, z.rise));
         }
         let (facing, flip) = self.facing;
         let a = art_for(self, &PLAYER, facing);
-        sprites.push((self.pos[1], a, self.pos[0] - a.w() / 2.0, self.pos[1] - a.h() + 2.0, flip, WHITE));
+        sprites.push((self.pos[1], a, self.pos[0] - a.w() / 2.0, self.pos[1] - a.h() + 2.0, flip, 1.0));
         sprites.sort_by(|a, b| a.0.total_cmp(&b.0));
-        for (_, a, x, y, flip, color) in sprites {
+        for (_, a, x, y, flip, show) in sprites {
             let (sx, sy) = at(x, y);
-            c.art(a, sx, sy, scale, flip, color);
+            c.art_top(a, sx, sy, scale, flip, show);
         }
 
         for b in &self.bullets {
@@ -994,6 +1007,12 @@ fn choice_row(y: f32) -> Option<usize> {
     (0.0..3.0).contains(&row).then_some(row as usize)
 }
 
+/// Where zombies erupt `t` seconds into the night.
+fn spawn_ring(t: f32) -> [f32; 2] {
+    let k = (t / DAWN).clamp(0.0, 1.0);
+    [0, 1].map(|i| SPAWN_RING_DUSK[i] + (SPAWN_RING_DAWN[i] - SPAWN_RING_DUSK[i]) * k)
+}
+
 fn clock(t: f32) -> String {
     let s = t as u32;
     format!("{}:{:02}", s / 60, s % 60)
@@ -1048,7 +1067,7 @@ mod tests {
         let mut h = Harvest::calm(12);
         let cam = h.camera();
         let target = [h.pos[0] + 60.0, h.pos[1]];
-        h.zombies.push(Zombie { kind: Kind::Skinny, pos: target, dir: [0.0, 1.0], push: [0.0; 2], hp: 20.0, flash: 0.0, facing: (Facing::Front, false), anim: 0.0 });
+        h.zombies.push(Zombie { kind: Kind::Skinny, pos: target, dir: [0.0, 1.0], rise: 1.0, push: [0.0; 2], hp: 20.0, flash: 0.0, facing: (Facing::Front, false), anim: 0.0 });
         let touch = [(target[0] - cam[0]) * SCALE, (target[1] - cam[1]) * SCALE];
         let mut sounds = Vec::new();
         h.update(&Input { touch: Some(touch), touch_started: true, ..Default::default() }, 0.016, &mut sounds);
@@ -1074,13 +1093,35 @@ mod tests {
         let mut h = Harvest::new(6);
         let barrel = h.barrels.first().expect("seed 6 has barrels");
         let c = barrel.center();
-        h.zombies.push(Zombie { kind: Kind::Big, pos: [c[0] + 20.0, c[1]], dir: [0.0, 1.0], push: [0.0; 2], hp: 50.0, flash: 0.0, facing: (Facing::Front, false), anim: 0.0 });
+        h.zombies.push(Zombie { kind: Kind::Big, pos: [c[0] + 20.0, c[1]], dir: [0.0, 1.0], rise: 1.0, push: [0.0; 2], hp: 50.0, flash: 0.0, facing: (Facing::Front, false), anim: 0.0 });
         h.bullets.push(Bullet { pos: [c[0], c[1] - 6.0], vel: [1.0, 0.0], damage: 50.0, pierce: 0, life: 1.0, hit: Vec::new() });
         let mut sounds = Vec::new();
         h.move_bullets(0.016);
         assert!(h.blow(0.016, &mut sounds));
         assert!(h.zombies[0].hp <= 0.0);
         assert!(!h.map.solid_at(c[0], c[1]));
+    }
+
+    #[test]
+    fn the_spawn_ring_closes_in_toward_dawn() {
+        assert_eq!(spawn_ring(0.0), SPAWN_RING_DUSK);
+        assert_eq!(spawn_ring(DAWN), SPAWN_RING_DAWN);
+        assert!(spawn_ring(DAWN / 2.0)[0] < SPAWN_RING_DUSK[0]);
+    }
+
+    #[test]
+    fn a_rising_zombie_is_rooted_and_harmless_until_it_is_out() {
+        let mut h = Harvest::calm(3);
+        let at = [h.pos[0] + 4.0, h.pos[1]];
+        h.zombies.push(Zombie { kind: Kind::Skinny, pos: at, dir: [0.0, 1.0], rise: 0.0, push: [0.0; 2], hp: 1000.0, flash: 0.0, facing: (Facing::Front, false), anim: 0.0 });
+        let mut sounds = Vec::new();
+        h.update(&Input::default(), RISE_TIME * 0.5, &mut sounds);
+        assert_eq!(h.zombies[0].pos, at);
+        assert_eq!(h.hp, h.gear.max_hp);
+        for _ in 0..60 {
+            h.update(&Input::default(), 1.0 / 60.0, &mut sounds);
+        }
+        assert!(h.hp < h.gear.max_hp);
     }
 
     #[test]

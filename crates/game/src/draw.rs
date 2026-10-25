@@ -31,7 +31,8 @@ pub enum Shape {
     /// Centered on (x, y), `size` pixels across, rotated by `angle` radians.
     Sprite { sprite: Sprite, x: f32, y: f32, size: f32, angle: f32, color: Color },
     /// Pixel art from the tileset, top-left at (x, y), each texel `scale` pixels across, rotated about its center.
-    Art { art: Art, x: f32, y: f32, scale: f32, flip: bool, angle: f32, color: Color },
+    /// Only the top `show` fraction of its rows is drawn.
+    Art { art: Art, x: f32, y: f32, scale: f32, flip: bool, angle: f32, show: f32, color: Color },
     /// TrueType text; `y` is the top of the line and `size` its height in pixels.
     Text { text: String, x: f32, y: f32, size: f32, color: Color, align: Align },
 }
@@ -60,13 +61,18 @@ impl Canvas {
     }
 
     pub fn art(&mut self, art: Art, x: f32, y: f32, scale: f32, flip: bool, color: Color) {
-        self.shapes.push(Shape::Art { art, x, y, scale, flip, angle: 0.0, color });
+        self.shapes.push(Shape::Art { art, x, y, scale, flip, angle: 0.0, show: 1.0, color });
+    }
+
+    /// Only the top `show` fraction of the art's rows, top-left at (x, y).
+    pub fn art_top(&mut self, art: Art, x: f32, y: f32, scale: f32, flip: bool, show: f32) {
+        self.shapes.push(Shape::Art { art, x, y, scale, flip, angle: 0.0, show: show.clamp(0.0, 1.0), color: [1.0; 4] });
     }
 
     /// Pixel art centered on (cx, cy) and rotated by `angle` radians.
     pub fn art_rotated(&mut self, art: Art, cx: f32, cy: f32, scale: f32, angle: f32, color: Color) {
         let (x, y) = (cx - art.w() * scale / 2.0, cy - art.h() * scale / 2.0);
-        self.shapes.push(Shape::Art { art, x, y, scale, flip: false, angle, color });
+        self.shapes.push(Shape::Art { art, x, y, scale, flip: false, angle, show: 1.0, color });
     }
 
     /// TrueType text. `text` and `text_centered` draw the 3x5 bitmap font instead.

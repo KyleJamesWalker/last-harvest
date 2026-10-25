@@ -279,8 +279,9 @@ impl Renderer {
                     let uv = self.atlas.sprite_uv(sprite);
                     self.sprite(x, y, size, angle, uv, color);
                 }
-                Shape::Art { art, x, y, scale, flip, angle, color } => {
+                Shape::Art { art, x, y, scale, flip, angle, show, color } => {
                     let [ax, ay, aw, ah] = art.rect().map(f32::from);
+                    let ah = ah * show;
                     let (sw, sh) = (art::ATLAS_W as f32, art::ATLAS_H as f32);
                     let (u0, u1) = (ax / sw, (ax + aw) / sw);
                     let uv = [if flip { u1 } else { u0 }, ay / sh, if flip { u0 } else { u1 }, (ay + ah) / sh];
