@@ -26,6 +26,8 @@ pub struct Studio {
     yaw: f32,
     distance: f32,
     zoom: f32,
+    /// The map's zoom as a pinch leaves it, before rounding to whole steps.
+    map_lens: f32,
     /// The pane a press began in, which keeps the pointer until it lets go.
     held: Option<Pane>,
     /// How the previews' labels say to move them.
@@ -41,6 +43,7 @@ impl Studio {
             yaw: Showcase::yaw(),
             distance: 48.0,
             zoom: 2.0,
+            map_lens: 2.0,
             held: None,
             hints: ["drag to turn, scroll to move closer", "scroll to zoom"],
         }
@@ -140,12 +143,27 @@ impl Studio {
         self.editor.mouse_up();
     }
 
+    /// Two fingers spreading `factor` times further apart about `center` in `pane`, and moving by `pan`.
+    pub fn pinch(&mut self, pane: Pane, center: [f32; 2], factor: f32, pan: [f32; 2]) {
+        match pane {
+            Pane::Edit => self.editor.zoom_canvas(center, factor, pan),
+            Pane::View => self.distance = (self.distance / factor).clamp(24.0, 200.0),
+            Pane::Map => {
+                self.map_lens = (self.map_lens * factor).clamp(1.0, 6.0);
+                self.zoom = self.map_lens.round();
+            }
+        }
+    }
+
     /// A scroll of `dy` lines over `p` in `pane`.
     pub fn wheel(&mut self, pane: Pane, p: [f32; 2], dy: f32) {
         match pane {
             Pane::Edit => self.editor.wheel(p, dy),
             Pane::View => self.distance = (self.distance - dy * 6.0).clamp(24.0, 200.0),
-            Pane::Map => self.zoom = (self.zoom + dy.signum()).clamp(1.0, 6.0),
+            Pane::Map => {
+                self.zoom = (self.zoom + dy.signum()).clamp(1.0, 6.0);
+                self.map_lens = self.zoom;
+            }
         }
     }
 }
