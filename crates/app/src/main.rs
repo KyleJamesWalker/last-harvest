@@ -1,5 +1,6 @@
 mod audio;
 mod debug;
+mod loops;
 #[cfg(target_os = "linux")]
 mod device;
 mod gfx;
@@ -205,7 +206,9 @@ impl App {
         let sounds = self.game.take_sounds();
         if let Some(audio) = &self.audio {
             audio.set_volume(self.game.volume());
-            audio.set_dread(self.game.outputs().dread);
+            let outputs = self.game.outputs();
+            audio.set_dread(outputs.dread);
+            audio.set_beds(outputs.screens_on);
             sounds.into_iter().for_each(|s| audio.play(s));
         }
         #[cfg(target_os = "linux")]

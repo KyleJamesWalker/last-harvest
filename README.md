@@ -172,7 +172,7 @@ Save writes each frame to `assets/private/sprites/NAME/0.png`, `1.png` and so on
 
 ### Sounds
 
-Put Ogg Vorbis or WAV files in `assets/private/sounds/`, named after the cue they replace. `scripts/deploy.sh` and `scripts/install.sh` copy them to the device. A cue with no file keeps its synth voice. Add `-2`, `-3` and so on for variations, such as `shot.wav` and `shot-2.wav`, and each play picks one at random. Ogg Vorbis is about a tenth the size of WAV and decodes once at startup; on the device a stereo track decodes at about 50 times real time. WAV files can be 8, 16, 24 or 32-bit PCM or 32-bit float. Either can be mono or stereo, at any sample rate. Only files named after a cue are loaded.
+Put Ogg Vorbis or WAV files in `assets/private/sounds/`, named after the cue they replace. `scripts/deploy.sh` and `scripts/install.sh` copy them to the device. A cue with no file keeps its synth voice. Add `-2`, `-3` and so on for variations, such as `shot.wav` and `shot-2.wav`, and each play picks one at random. Ogg Vorbis is about a tenth the size of WAV and decodes once at startup; on the device a stereo track decodes at about 50 times real time. WAV files can be 8, 16, 24 or 32-bit PCM or 32-bit float. Either can be mono or stereo, at any sample rate. Only files named after a cue are loaded. Two kinds of long track loop instead, streamed a little at a time on their own threads: `music.ogg` replaces the synth drone and swells with the danger, and `ambience.ogg`, `ambience-2.ogg` and `ambience-3.ogg` play quietly underneath, fading out while the game is paused.
 
 | File | Plays when |
 |---|---|

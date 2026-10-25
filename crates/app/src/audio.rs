@@ -7,6 +7,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{SampleFormat, SizedSample};
 use last_harvest_game::Sfx;
 
+use crate::loops::Loop;
 use crate::samples::{self, Bank, Clip};
 
 const MIX: f32 = 0.25;
@@ -16,6 +17,10 @@ const MAX_VOICES: usize = 32;
 /// Each cue plays up to this fraction sharp or flat, so repeats don't drone.
 const JITTER: f32 = 0.05;
 const DRONE_GAIN: f32 = 0.5;
+/// Music at full dread; it eases between a third of this and all of it as the danger grows.
+const MUSIC_GAIN: f32 = 0.6;
+/// The ambience beds that play under everything, by file name, and how loud each sits.
+const BEDS: [(&str, f32); 3] = [("ambience", 0.15), ("ambience-2", 0.15), ("ambience-3", 0.4)];
 
 #[derive(Clone, Copy)]
 enum Wave {
@@ -237,6 +242,13 @@ struct Synth {
     volume: Arc<AtomicU32>,
     dread: Arc<AtomicU32>,
     drone: Drone,
+    /// Recorded music, which takes the drone's place, and how loud it is now.
+    music: Option<Loop>,
+    music_level: f32,
+    beds: Vec<(Loop, f32)>,
+    /// 0 or 1 for whether the beds should play, and their level easing toward it.
+    beds_on: Arc<AtomicU32>,
+    beds_level: f32,
     dt: f32,
     noise: u32,
 }
@@ -293,9 +305,32 @@ impl Synth {
             p.pos += p.rate;
         }
         self.plays.retain(|p| (p.pos as usize) < p.clip.frames.len());
-        let d = self.drone_sample();
+        let under = self.under();
         let gain = MIX * f32::from_bits(self.volume.load(Ordering::Relaxed));
-        [0, 1].map(|i| ((sum[i] + d) * gain).clamp(-1.0, 1.0))
+        [0, 1].map(|i| ((sum[i] + under[i]) * gain).clamp(-1.0, 1.0))
+    }
+
+    /// Everything under the effects: the music (or the synth drone without it) and the ambience beds.
+    fn under(&mut self) -> [f32; 2] {
+        let ease = (self.dt * 0.5).min(1.0);
+        let dread = f32::from_bits(self.dread.load(Ordering::Relaxed));
+        let mut out = match &mut self.music {
+            Some(music) => {
+                let target = if dread > 0.0 { MUSIC_GAIN * (0.33 + 0.67 * dread) } else { 0.0 };
+                self.music_level += (target - self.music_level) * ease;
+                let f = music.next();
+                [f[0] * self.music_level, f[1] * self.music_level]
+            }
+            None => [self.drone_sample(); 2],
+        };
+        let on = f32::from_bits(self.beds_on.load(Ordering::Relaxed));
+        self.beds_level += (on - self.beds_level) * ease;
+        for (bed, level) in &mut self.beds {
+            let f = bed.next();
+            out[0] += f[0] * *level * self.beds_level;
+            out[1] += f[1] * *level * self.beds_level;
+        }
+        out
     }
 
     fn drone_sample(&mut self) -> f32 {
@@ -360,6 +395,7 @@ pub struct Audio {
     tx: Sender<Sfx>,
     volume: Arc<AtomicU32>,
     dread: Arc<AtomicU32>,
+    beds_on: Arc<AtomicU32>,
 }
 
 impl Audio {
@@ -374,15 +410,36 @@ impl Audio {
         let dread = Arc::new(AtomicU32::new(0f32.to_bits()));
         let drone = Drone { level: 0.0, phases: [0.0; 3], t: 0.0 };
         let rate = config.sample_rate.0 as f32;
-        let bank = samples::folder().map(|dir| Bank::load(&dir, rate)).unwrap_or_default();
-        let mut synth = Synth { rx, voices: Vec::new(), bank, plays: Vec::new(), volume: volume.clone(), dread: dread.clone(), drone, dt: 1.0 / rate, noise: 0x9E37_79B9 };
+        let folder = samples::folder();
+        let bank = folder.as_deref().map(|dir| Bank::load(dir, rate)).unwrap_or_default();
+        let track = |name: &str| folder.as_deref().and_then(|dir| Loop::open(&dir.join(format!("{name}.ogg")), rate));
+        let music = track("music");
+        let beds: Vec<(Loop, f32)> = BEDS.iter().filter_map(|&(name, level)| Some((track(name)?, level))).collect();
+        eprintln!("audio: music {}, {} ambience beds", if music.is_some() { "recorded" } else { "synth" }, beds.len());
+        let beds_on = Arc::new(AtomicU32::new(1f32.to_bits()));
+        let mut synth = Synth {
+            rx,
+            voices: Vec::new(),
+            bank,
+            plays: Vec::new(),
+            volume: volume.clone(),
+            dread: dread.clone(),
+            drone,
+            music,
+            music_level: 0.0,
+            beds,
+            beds_on: beds_on.clone(),
+            beds_level: 0.0,
+            dt: 1.0 / rate,
+            noise: 0x9E37_79B9,
+        };
         let stream = match supported.sample_format() {
             SampleFormat::F32 => device.build_output_stream(&config, move |d: &mut [f32], _: &_| synth.fill(d, channels), on_error, None)?,
             SampleFormat::I16 => device.build_output_stream(&config, move |d: &mut [i16], _: &_| synth.fill(d, channels), on_error, None)?,
             f => return Err(format!("unsupported output format {f:?}").into()),
         };
         stream.play()?;
-        Ok(Self { _stream: stream, tx, volume, dread })
+        Ok(Self { _stream: stream, tx, volume, dread, beds_on })
     }
 
     pub fn play(&self, sfx: Sfx) {
@@ -391,6 +448,11 @@ impl Audio {
 
     pub fn set_volume(&self, v: f32) {
         self.volume.store(v.to_bits(), Ordering::Relaxed);
+    }
+
+    /// Whether the ambience beds play; they fade out while the game is paused.
+    pub fn set_beds(&self, on: bool) {
+        self.beds_on.store(if on { 1f32 } else { 0f32 }.to_bits(), Ordering::Relaxed);
     }
 
     /// How loud and harsh the drone under the game is, 0 to 1.
@@ -414,7 +476,25 @@ mod tests {
         let volume = Arc::new(AtomicU32::new(1f32.to_bits()));
         let dread = Arc::new(AtomicU32::new(0f32.to_bits()));
         let drone = Drone { level: 0.0, phases: [0.0; 3], t: 0.0 };
-        (Synth { rx, voices: Vec::new(), bank: Bank::default(), plays: Vec::new(), volume, dread, drone, dt: 1.0 / RATE, noise: 1 }, tx)
+        (
+            Synth {
+                rx,
+                voices: Vec::new(),
+                bank: Bank::default(),
+                plays: Vec::new(),
+                volume,
+                dread,
+                drone,
+                music: None,
+                music_level: 0.0,
+                beds: Vec::new(),
+                beds_on: Arc::new(AtomicU32::new(0f32.to_bits())),
+                beds_level: 0.0,
+                dt: 1.0 / RATE,
+                noise: 1,
+            },
+            tx,
+        )
     }
 
     /// Plays `secs` of audio and returns the loudest sample.
