@@ -7,7 +7,7 @@ use super::powerups::{Does, Kind, Stat, book};
 use super::{
     Barrel, Bullet, FLASH_TIME, Fx, GRENADE_FLIGHT, GRENADE_RADIUS, Grenade, Harvest, TILE, Thrown, Zombie, ZOMBIE_HALF, len, norm, strike, sub,
 };
-use crate::Sfx;
+use crate::{Difficulty, Sfx};
 use crate::art::{self, Art};
 
 /// Half the angle the top screen sees, in radians, before a brighter lantern widens it.
@@ -130,9 +130,9 @@ pub(super) struct Kit {
 }
 
 impl Kit {
-    /// Every run starts with the first weapon in the file.
-    pub fn start() -> Self {
-        let weapons = book().start.iter().map(|&def| Armed { def, level: 1, cd: 0.5, phase: 0.0 }).collect();
+    /// The weapons the file starts a run with at `difficulty`.
+    pub fn start(difficulty: Difficulty) -> Self {
+        let weapons = book().start[difficulty as usize].iter().map(|&def| Armed { def, level: 1, cd: 0.5, phase: 0.0 }).collect();
         Self { weapons, passives: Vec::new(), mods: Mods::of(&[]) }
     }
 

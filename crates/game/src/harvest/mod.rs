@@ -564,7 +564,7 @@ impl Harvest {
     pub fn new(seed: u64) -> Self {
         let mut rng = Rng::new(seed);
         let map = Map::generate(&mut rng, MAP_W, MAP_H);
-        let kit = Kit::start();
+        let kit = Kit::start(Difficulty::Normal);
         let barrels = map.barrels.iter().map(|&pos| Barrel { pos, hp: BARREL_HP, flash: 0.0 }).collect();
         Self {
             barrels,
@@ -696,7 +696,8 @@ impl Harvest {
     }
 
     pub fn at(self, difficulty: Difficulty) -> Self {
-        Self { difficulty, ..self }
+        let kit = Kit::start(difficulty);
+        Self { difficulty, hp: kit.max_hp(), grenades: kit.grenades(), kit, ..self }
     }
 
     /// Offers only what earlier runs have unlocked.
@@ -2049,6 +2050,16 @@ mod tests {
         assert!(matches!(h.phase, Phase::Playing));
         assert_eq!(h.kills, 0);
         assert_eq!(h.difficulty, Difficulty::Hard);
+        assert!(h.kit.weapons.is_empty(), "and its kit");
+    }
+
+    #[test]
+    fn each_difficulty_starts_with_its_own_weapons_and_one_grenade() {
+        for (d, count) in [(Difficulty::Easy, 2), (Difficulty::Normal, 1), (Difficulty::Hard, 0)] {
+            let h = Harvest::new(1).at(d).with_kit("lantern");
+            assert_eq!(h.kit.weapons.len(), count + 1, "{d:?}");
+            assert_eq!(h.grenades, 1.0, "{d:?}");
+        }
     }
 
     #[test]
