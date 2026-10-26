@@ -8,7 +8,7 @@ Press A or tap the title screen to start a run on a newly generated farm: a road
 
 The top screen is the main view, in 2.5D: every sprite's silhouette extruded into depth, lit by the player's lantern and fading into fog, seen from just behind the player. The bottom screen is the same farm top-down at 2x, 512x384 art pixels, with dots marking what the main view faces.
 
-Zombies claw their way out of the ground, at the edge of the fog early on and only a few tiles away by the end of the night, then find their way around buildings and fences. Your weapons fire on their own. Tap the map to lob a grenade there; you hold three, and each recharges in 12 seconds. Kills drop money, and money levels you up: pick one of three powerups on either screen; see [Powerups](#powerups). Shooting a red barrel sets it off. Survive until dawn, ten minutes in. Fall, and you sink into the dirt and climb back out as one of them.
+Zombies claw their way out of the ground, at the edge of the fog early on and only a few tiles away by the end of the night, then find their way around buildings and fences. Your weapons fire on their own. Tap the map to lob a grenade there; you start with one, and each recharges in 12 seconds. Kills drop money, and money levels you up: pick one of three powerups on either screen; see [Powerups](#powerups). Shooting a red barrel sets it off; hold X and your guns go for the barrels in view. Ten minutes in, dawn wakes the Harvester behind you and the dead grow 1% stronger every second: run back to the farmhouse to survive. Start pauses. Fall, and you sink into the dirt and climb back out as one of them, leading the dead off to the next farm.
 
 Pick a difficulty on the title screen with Left and Right, or by tapping its arrows. Easy bites gently and drops health often, Normal makes bites hurt and health scarce, and Hard makes every bite count. The choice is remembered.
 
@@ -171,10 +171,12 @@ A pixel editor for the game's sprites, on macOS. The left pane lists every sprit
 | Action | Input |
 |---|---|
 | Draw, erase, fill | B, E, G, or the tool buttons |
-| Pick a color | Hold I or Option and click, then let go to return to the tool; right-click always picks; the Pick button keeps the picker |
+| Pick a color | Hold I or Option and click, then let go to return to the tool; right-click always picks; the Pick button returns to the tool it took over from once it takes a color |
 | Draw a straight line | Shift-click with the pencil or eraser, from the last pixel drawn |
 | Search the sprite list | /, then type; Enter opens the first match and keeps the filter, Esc clears it |
 | Mirror strokes left to right | M |
+| See the previous frame faintly under this one | O, or Onion |
+| Compare the sprite with its family, such as `KID_FRONT`, `KID_SIDE` and `KID_HURT`, side by side | C, or Compare; tap another to open it |
 | Select, then move by dragging inside | S, then drag; arrows nudge 1 pixel, 8 with Shift |
 | Copy, cut and paste | Cmd+C, Cmd+X, Cmd+V; a paste floats until Enter, Esc or a click outside, and its clear pixels leave what's under them |
 | Delete the selected pixels | Delete or Backspace |
@@ -210,6 +212,7 @@ The server prints the address to open on the iPad, such as `http://192.168.1.20:
 | Zoom the map | Pinch it |
 | Scroll the sprite list | Drag it; tap a name to open it |
 | Keyboard shortcuts | The toolbar under the panes: Undo, Redo, Copy, Cut, Paste, Delete, Enter, Esc, Shift (stays on until tapped again), the arrows, sprites, frames, Search, History, New, Play, Mirror, Fit, Save |
+| Hold Shift while drawing | Keep a finger on the Shift pad in either bottom corner |
 | Name a sprite or search | Type in the field that appears |
 
 A hardware keyboard keeps the macOS shortcuts. The web build embeds the tileset, whose license forbids redistributing it, so the server only answers loopback and private network addresses: never publish `target/web-editor` or expose the server to the internet. Anyone on the local network can open the editor and save sprites while it runs.
