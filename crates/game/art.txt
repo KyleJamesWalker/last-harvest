@@ -125,20 +125,20 @@ BIG_HURT        cell 31 6 ; cell 31 7 ; cell 31 5
 KID_HURT        cell 37 5 ; cell 37 6 ; cell 37 4
 
 # Placeholders: weapons and upgrade icons, drawn to be replaced in the sprite editor
-SCYTHE_SWING    png placeholder/scythe.png
-PITCHFORK_THRUST png placeholder/pitchfork.png
-DOG             png placeholder/dog.png x3
+SCYTHE_SWING    png placeholder/scythe.png  @prop 2
+PITCHFORK_THRUST png placeholder/pitchfork.png  @prop 2
+DOG             png placeholder/dog.png x3  @prop 4
 TACKS           png placeholder/tacks.png
-FIRE            png placeholder/fire.png x3
-MOLOTOV         png placeholder/molotov.png
+FIRE            png placeholder/fire.png x3  @prop 4
+MOLOTOV         png placeholder/molotov.png  @prop 2
 FLARE           png placeholder/flare.png
 CHEST           png placeholder/chest.png
 ICON_PISTOL            png placeholder/icon_pistol.png
 ICON_SHOTGUN           png placeholder/icon_shotgun.png
-ICON_RIFLE             png placeholder/icon_rifle.png
-ICON_LANTERN           png placeholder/icon_lantern.png
-ICON_BURNER            png placeholder/icon_burner.png
-ICON_PITCHFORK         png placeholder/icon_pitchfork.png
+ICON_RIFLE             png placeholder/icon_rifle.png  @prop 1
+ICON_LANTERN           png placeholder/icon_lantern.png  @prop 4
+ICON_BURNER            png placeholder/icon_burner.png  @prop 2
+ICON_PITCHFORK         png placeholder/icon_pitchfork.png  @prop 2
 ICON_KNIFE             png placeholder/icon_knife.png
 ICON_SCYTHE            png placeholder/icon_scythe.png
 ICON_CROWS             png placeholder/icon_crows.png
