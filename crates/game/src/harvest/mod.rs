@@ -34,7 +34,6 @@ const RISE_TIME: f32 = 0.9;
 const TURN_SPEED: f32 = 2.6;
 /// Seconds for the quick 180-degree turn.
 const SPIN_TIME: f32 = 0.2;
-const GRENADES: f32 = 3.0;
 const GRENADE_RECHARGE: f32 = 12.0;
 const GRENADE_FLIGHT: f32 = 0.7;
 const GRENADE_RADIUS: f32 = 36.0;
@@ -582,7 +581,7 @@ impl Harvest {
             fury_tick: 0.0,
             trial: Vec::new(),
             start_t: 0.0,
-            grenades: GRENADES,
+            grenades: book().grenades as f32,
             thrown: Vec::new(),
             pos: map.spawn,
             hp: kit.max_hp(),
@@ -602,7 +601,7 @@ impl Harvest {
             stains: Vec::new(),
             owed: 0.0,
             xp: 0,
-            next_xp: 5,
+            next_xp: book().first_level,
             level: 1,
             kills: 0,
             overview: false,
@@ -1059,6 +1058,9 @@ impl Harvest {
     /// that has a free slot to go in. A chest always holds one if any qualify, its own kind first.
     fn find(&mut self, chest: bool) -> Option<usize> {
         let b = book();
+        if self.newly.len() >= b.finds {
+            return None;
+        }
         let minutes = self.t / 60.0;
         let finds: Vec<usize> = (0..b.defs.len())
             .filter(|&i| self.progress.findable(i) && self.kit.offerable(i) && minutes >= b.defs[i].after && (chest || !b.defs[i].chest))
@@ -1857,7 +1859,7 @@ mod tests {
         let mut sounds = Vec::new();
         h.update(&Input { touch: Some(touch), touch_started: true, ..Default::default() }, 0.016, &mut sounds);
         assert_eq!(h.thrown.len(), 1);
-        assert!(h.grenades < GRENADES);
+        assert!(h.grenades < h.kit.grenades());
         h.update(&Input::default(), GRENADE_FLIGHT, &mut sounds);
         assert!(h.thrown.is_empty());
         assert!(h.kills == 1 || h.zombies.iter().all(|z| z.hp <= 0.0));
@@ -1867,10 +1869,10 @@ mod tests {
     fn a_tap_picks_an_upgrade() {
         let mut h = Harvest::new(2);
         let choice = |id| Choice { up: book().index(id).unwrap(), rare: false, found: false };
-        h.phase = Phase::LevelUp { choices: [choice("shotgun"), choice("knife"), choice("running_shoes")], selected: 0, t: 1.0, picked: None };
+        h.phase = Phase::LevelUp { choices: [choice("shotgun"), choice("pistol"), choice("running_shoes")], selected: 0, t: 1.0, picked: None };
         let tap = Input { touch: Some([500.0, CHOICE_TOP + CHOICE_ROW * 1.5]), touch_started: true, ..Default::default() };
         h.update(&tap, 0.016, &mut Vec::new());
-        assert_eq!(h.kit.level(book().index("knife").unwrap()), 1);
+        assert_eq!(h.kit.level(book().index("pistol").unwrap()), 1);
         h.update(&Input::default(), PICK_TIME, &mut Vec::new());
         assert!(matches!(h.phase, Phase::Playing));
     }
@@ -1951,6 +1953,7 @@ mod tests {
     #[test]
     fn a_kill_drops_a_body_a_number_and_money_that_hops() {
         let mut h = Harvest::calm(3);
+        h.kit.raise(book().index("pistol").unwrap(), 1);
         let at = [-30.0, 30.0, 0.0].into_iter().flat_map(|dx| [-30.0, 30.0].map(|dy| [h.pos[0] + dx, h.pos[1] + dy])).find(|p| !h.map.hits(p[0], p[1], ZOMBIE_HALF)).unwrap();
         h.zombies.push(Zombie::new(Kind::Skinny, at, 5.0, 1.0, 0.0));
         let mut sounds = Vec::new();

@@ -5,7 +5,7 @@ use std::f32::consts::{PI, TAU};
 use super::juice::{self, Tone};
 use super::powerups::{Does, Kind, Stat, book};
 use super::{
-    Barrel, Bullet, FLASH_TIME, Fx, GRENADE_FLIGHT, GRENADE_RADIUS, GRENADES, Grenade, Harvest, TILE, Thrown, Zombie, ZOMBIE_HALF, len, norm, strike, sub,
+    Barrel, Bullet, FLASH_TIME, Fx, GRENADE_FLIGHT, GRENADE_RADIUS, Grenade, Harvest, TILE, Thrown, Zombie, ZOMBIE_HALF, len, norm, strike, sub,
 };
 use crate::Sfx;
 use crate::art::{self, Art};
@@ -132,8 +132,8 @@ pub(super) struct Kit {
 impl Kit {
     /// Every run starts with the first weapon in the file.
     pub fn start() -> Self {
-        let first = book().defs.iter().position(|d| d.kind == Kind::Weapon).unwrap_or(0);
-        Self { weapons: vec![Armed { def: first, level: 1, cd: 0.5, phase: 0.0 }], passives: Vec::new(), mods: Mods::of(&[]) }
+        let weapons = book().start.iter().map(|&def| Armed { def, level: 1, cd: 0.5, phase: 0.0 }).collect();
+        Self { weapons, passives: Vec::new(), mods: Mods::of(&[]) }
     }
 
     pub fn level(&self, def: usize) -> u32 {
@@ -189,7 +189,7 @@ impl Kit {
     }
 
     pub fn grenades(&self) -> f32 {
-        GRENADES + self.mods.grenades.round()
+        book().grenades as f32 + self.mods.grenades.round()
     }
 }
 
@@ -984,6 +984,7 @@ mod tests {
     fn slots_and_top_levels_limit_the_cards() {
         let b = book();
         let mut h = Harvest::new(1).with_progress(super::super::Progress { everything: true, ..Default::default() });
+        h.kit.weapons.clear();
         for d in b.defs.iter().enumerate().filter(|(_, d)| d.kind == Kind::Weapon).map(|(i, _)| i).take(b.weapon_slots) {
             h.kit.raise(d, 1);
         }
@@ -1115,6 +1116,21 @@ mod tests {
         assert_eq!(flow.found, 1 << scythe, "the game keeps it right away");
         assert!(h.progress.owns(scythe) && h.kit.level(scythe) == 1);
         assert!((0..50).all(|_| h.roll_choices().iter().all(|c| !c.found)), "nothing else is waiting");
+    }
+
+    #[test]
+    fn a_run_finds_two_powerups_at_most() {
+        let b = book();
+        let mut h = Harvest::new(3).with_progress(super::super::Progress { kills: 9999, best: 9999, best_level: 99, nights: 99, dawns: 99, ..Default::default() });
+        h.t = 900.0;
+        h.newly = vec![b.index("scythe").unwrap(); b.finds];
+        for _ in 0..100 {
+            h.chest = true;
+            assert!(h.roll_choices().iter().all(|c| !c.found), "not even from a chest");
+        }
+        h.newly.pop();
+        h.chest = true;
+        assert!(h.roll_choices().iter().any(|c| c.found));
     }
 
     #[test]

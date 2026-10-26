@@ -1,6 +1,10 @@
 # Every powerup the level-up cards can offer. Change a number and rebuild; nothing else needs to change.
 #
 #   slots weapons N | slots passives N     how many of each a run can carry
+#   start ID ID ...     the weapons every run carries; each must be `unlock start`
+#   grenades N          grenades every run starts with, before a grenade belt
+#   finds N             the most powerups one run can find
+#   first_level N       money for the first level-up; each after costs about 1.35 times the last, plus 2
 #
 #   [id]                start of a powerup; the id is how the save and the code know it
 #   name    Text        the card's title
@@ -35,6 +39,10 @@
 
 slots weapons 6
 slots passives 6
+start        knife
+grenades     1
+finds        2
+first_level  2
 
 # Ahead: what you're facing, the same view as the top screen.
 
