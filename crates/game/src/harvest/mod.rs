@@ -79,6 +79,9 @@ const TURN_FALL: f32 = 0.4;
 const TURN_SINK: f32 = 1.2;
 const TURN_RISE: f32 = 1.6;
 const TURNED: f32 = 2.6;
+/// How fast the turned player and the dead with them walk off, and how near they gather around the player.
+const MARCH_SPEED: f32 = 16.0;
+const MARCH_CLOSE: f32 = 40.0;
 const MAX_BIRDS: usize = 12;
 const WHITE: Color = [1.0; 4];
 const GOLD: Color = [1.0, 0.85, 0.3, 1.0];
@@ -768,8 +771,8 @@ impl Harvest {
                 let t = before + dt;
                 self.phase = Phase::Over { t, won };
                 self.juice.tick(if t < TURN_SINK { dt * 0.4 } else { dt });
-                if !won {
-                    self.wander_off(dt);
+                if !won && t >= TURNED {
+                    self.march(dt);
                 }
                 if !won && before < TURN_RISE && t >= TURN_RISE {
                     self.juice.burst(self.pos, 0.0, 16, [0.0; 2], 0.0, [20.0, 60.0], juice::DIRT, 1.8, 0.7, 0.0);
@@ -1287,13 +1290,19 @@ impl Harvest {
     }
 
     /// With the player down, the dead lose interest and shamble away.
-    fn wander_off(&mut self, dt: f32) {
+    /// Turned, the player shambles on the way they faced, and the dead close in and walk with them to the next farm.
+    fn march(&mut self, dt: f32) {
+        let ahead = self.aim;
+        self.pos = self.map.slide(self.pos, [ahead[0] * MARCH_SPEED * dt, ahead[1] * MARCH_SPEED * dt], PLAYER_HALF);
         for z in self.zombies.iter_mut().filter(|z| z.rise >= 1.0) {
-            let away = norm(sub(z.pos, self.pos));
-            let speed = z.kind.stats().speed * 0.8;
-            z.pos = self.map.slide(z.pos, [away[0] * speed * dt, away[1] * speed * dt], ZOMBIE_HALF);
-            z.dir = away;
-            z.facing = Facing::of(away);
+            let to = sub(self.pos, z.pos);
+            let pull = ((len(to) - MARCH_CLOSE) / MARCH_CLOSE).clamp(0.0, 1.5);
+            let n = norm(to);
+            let way = norm([ahead[0] + n[0] * pull, ahead[1] + n[1] * pull]);
+            let speed = MARCH_SPEED * (1.0 + 0.5 * pull);
+            z.pos = self.map.slide(z.pos, [way[0] * speed * dt, way[1] * speed * dt], ZOMBIE_HALF);
+            z.dir = way;
+            z.facing = Facing::of(way);
             z.anim += dt;
         }
     }
@@ -1992,6 +2001,25 @@ mod tests {
             h.update(&Input::default(), 1.0 / 60.0, &mut sounds);
         }
         assert!(h.hp < h.kit.max_hp());
+    }
+
+    #[test]
+    fn the_turned_player_leads_the_dead_off_the_way_they_faced() {
+        let mut h = Harvest::calm(4);
+        h.zombies.clear();
+        let open = |h: &Harvest, p: [f32; 2]| !h.map.hits(p[0], p[1], ZOMBIE_HALF);
+        let spot = (1..60).map(|k| [h.map.spawn[0] + k as f32 * 4.0, h.map.spawn[1]]).find(|p| open(&h, *p) && open(&h, [p[0] + 120.0, p[1]]) && (0..30).all(|i| open(&h, [p[0] + i as f32 * 4.0, p[1]]))).expect("an open run east");
+        h.pos = spot;
+        h.view_yaw = 0.0;
+        h.aim = [1.0, 0.0];
+        h.zombies.push(Zombie::new(Kind::Skinny, [spot[0] - 30.0, spot[1]], 50.0, 1.0, 0.0));
+        h.hp = 0.0;
+        h.phase = Phase::Over { t: TURNED, won: false };
+        for _ in 0..180 {
+            h.update(&Input::default(), 1.0 / 60.0, &mut Vec::new());
+        }
+        assert!(h.pos[0] - spot[0] > 30.0, "the player walks on the way they faced");
+        assert!(len(sub(h.zombies[0].pos, h.pos)) < MARCH_CLOSE * 1.5, "and the dead keep with them");
     }
 
     #[test]
