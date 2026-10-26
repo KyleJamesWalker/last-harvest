@@ -188,6 +188,8 @@ pub struct Editor {
     scroll: f32,
     frame: usize,
     tool: Tool,
+    /// The tool to go back to once the picker has taken a color.
+    before_pick: Tool,
     mirror: bool,
     color: Rgba,
     palette: Vec<Rgba>,
@@ -251,6 +253,7 @@ impl Editor {
             scroll: 0.0,
             frame: 0,
             tool: Tool::Pencil,
+            before_pick: Tool::Pencil,
             mirror: false,
             color: [0x55, 0x3c, 0x2a, 255],
             palette: sprite::palette(),
@@ -663,6 +666,9 @@ impl Editor {
             if right || self.tool_now() == Tool::Picker {
                 if let Some(c) = self.current().get(x, y).filter(|c| c[3] > 0) {
                     self.color = c;
+                    if !right && self.tool == Tool::Picker {
+                        self.tool = self.before_pick;
+                    }
                 }
                 return;
             }
@@ -893,6 +899,9 @@ impl Editor {
             Action::Tool(t) => {
                 if t != Tool::Select {
                     self.deselect();
+                }
+                if t == Tool::Picker && self.tool != Tool::Picker {
+                    self.before_pick = self.tool;
                 }
                 self.tool = t;
             }
@@ -1936,6 +1945,19 @@ mod tests {
         e.key(Key::Paste);
         let sel = e.selection.as_ref().unwrap();
         assert_eq!((sel.x, sel.y), (0, 0), "a paste that fits stays where it was copied from");
+    }
+
+    #[test]
+    fn the_picker_hands_back_the_tool_it_took_over_from() {
+        let mut e = editor();
+        e.sprite.frames[0] = Frame::blank(16, 16);
+        e.sprite.frames[0].set(4, 4, [10, 200, 30, 255]);
+        e.act(Action::Tool(Tool::Eraser), false);
+        e.act(Action::Tool(Tool::Picker), false);
+        click_pixel(&mut e, 0, 0);
+        assert_eq!(e.tool, Tool::Picker, "a clear pixel gives no color, so it stays");
+        click_pixel(&mut e, 4, 4);
+        assert_eq!((e.color, e.tool), ([10, 200, 30, 255], Tool::Eraser));
     }
 
     #[test]
