@@ -15,6 +15,10 @@ const SIDE_X: f32 = 784.0;
 const SIDE_W: f32 = 232.0;
 const SWATCH: f32 = 23.0;
 const THUMB: f32 = 64.0;
+/// How many of a sprite's family Compare lays out at once.
+const FAMILY_MAX: usize = 6;
+/// How opaque Onion draws the previous frame.
+const ONION: f32 = 0.3;
 const MAX_SIZE: usize = 128;
 const STANDS: [&str; 5] = ["Prop", "Slab", "Figure", "Ground", "Carve"];
 const CARVE: u8 = 4;
@@ -116,6 +120,8 @@ enum Action {
     Depth(i32),
     Fps(i32),
     Color(Rgba),
+    Onion,
+    Compare,
 }
 
 struct Button {
@@ -191,6 +197,11 @@ pub struct Editor {
     /// The tool to go back to once the picker has taken a color.
     before_pick: Tool,
     mirror: bool,
+    /// The previous frame shows faintly under the one being drawn.
+    onion: bool,
+    /// The canvas lays out the open sprite's family side by side, each with its frames.
+    compare: bool,
+    family: Vec<(String, Vec<Frame>)>,
     color: Rgba,
     palette: Vec<Rgba>,
     undo: Vec<Snapshot>,
@@ -255,6 +266,9 @@ impl Editor {
             tool: Tool::Pencil,
             before_pick: Tool::Pencil,
             mirror: false,
+            onion: false,
+            compare: false,
+            family: Vec::new(),
             color: [0x55, 0x3c, 0x2a, 255],
             palette: sprite::palette(),
             undo: Vec::new(),
@@ -441,7 +455,59 @@ impl Editor {
             self.changed = true;
             self.fit();
             self.load_stand();
+            self.load_family();
         }
+    }
+
+    /// The sprites named like this one but for the last word, such as `KID_FRONT`, `KID_SIDE` and `KID_HURT`,
+    /// in catalog order; at most `FAMILY_MAX`, around this one.
+    fn family_names(&self) -> Vec<String> {
+        let stem = |n: &str| n.rsplit_once('_').map(|(s, _)| s.to_string());
+        let Some(mine) = stem(&self.sprite.name) else { return vec![self.sprite.name.clone()] };
+        let all: Vec<String> = self.names.iter().map(|(n, _)| n.clone()).filter(|n| stem(n).as_ref() == Some(&mine)).collect();
+        let at = all.iter().position(|n| *n == self.sprite.name).unwrap_or(0);
+        let start = at.saturating_sub(FAMILY_MAX / 2).min(all.len().saturating_sub(FAMILY_MAX));
+        all.into_iter().skip(start).take(FAMILY_MAX).collect()
+    }
+
+    /// Loads the rest of the family's frames for Compare; the open sprite draws from its live copy.
+    fn load_family(&mut self) {
+        self.family = if self.compare {
+            self.family_names().into_iter().map(|n| {
+                let frames = if n == self.sprite.name { Vec::new() } else { self.store.load(&n).map(|s| s.frames).unwrap_or_default() };
+                (n, frames)
+            }).collect()
+        } else {
+            Vec::new()
+        };
+    }
+
+    /// Where Compare puts each of the family on the canvas, and the shared size of a pixel; None when it's off.
+    fn compare_layout(&self) -> Option<(Vec<[f32; 2]>, f32)> {
+        if !self.compare || self.view.is_some() || self.family.len() < 2 {
+            return None;
+        }
+        let shown: Vec<&Frame> = self.family.iter().map(|(n, frames)| self.family_frame(n, frames)).collect();
+        let gap = 16.0;
+        let across: f32 = shown.iter().map(|f| f.w as f32).sum();
+        let tall = shown.iter().map(|f| f.h).max().unwrap_or(1) as f32;
+        let room = CANVAS.w - gap * (shown.len() + 1) as f32;
+        let zoom = (room / across).min((CANVAS.h - 60.0) / tall).floor().max(1.0);
+        let mut x = CANVAS.x + (CANVAS.w - (across * zoom + gap * (shown.len() - 1) as f32)) / 2.0;
+        let origins = shown
+            .iter()
+            .map(|f| {
+                let at = [x, CANVAS.y + (CANVAS.h - f.h as f32 * zoom) / 2.0];
+                x += f.w as f32 * zoom + gap;
+                at
+            })
+            .collect();
+        Some((origins, zoom))
+    }
+
+    /// The frame Compare shows for one of the family: the same frame number as the open one, where it has it.
+    fn family_frame<'a>(&'a self, name: &str, frames: &'a [Frame]) -> &'a Frame {
+        if name == self.sprite.name { self.current() } else { frames.get(self.frame.min(frames.len().saturating_sub(1))).unwrap_or(self.current()) }
     }
 
     pub fn tick(&mut self, dt: f32) {
@@ -459,6 +525,10 @@ impl Editor {
 
     /// Canvas origin and size of one sprite pixel.
     fn grid(&self) -> ([f32; 2], f32) {
+        if let Some((origins, zoom)) = self.compare_layout() {
+            let at = self.family.iter().position(|(n, _)| *n == self.sprite.name).unwrap_or(0);
+            return (origins[at], zoom);
+        }
         let f = self.current();
         let fit = (CANVAS.w / f.w as f32).min(CANVAS.h / f.h as f32).floor().max(1.0);
         let zoom = (fit * self.lens).round().max(1.0);
@@ -558,6 +628,8 @@ impl Editor {
         }
         push(SIDE_X + 130.0, 678.0, 46.0, 30.0, Action::Fps(-1), "-", false);
         push(SIDE_X + 182.0, 678.0, 46.0, 30.0, Action::Fps(1), "+", false);
+        push(SIDE_X, 714.0, 114.0, 30.0, Action::Onion, "Onion O", self.onion);
+        push(SIDE_X + 118.0, 714.0, 114.0, 30.0, Action::Compare, "Compare C", self.compare);
         let carving = self.stand == CARVE && self.sprite.views.is_some();
         let room = if carving { 4 } else { 7 };
         let shown = self.sprite.frames.len().min(room);
@@ -645,6 +717,17 @@ impl Editor {
         if let Some(b) = self.buttons().into_iter().find(|b| b.rect.contains(p)) {
             self.act(b.action, shift);
             return;
+        }
+        if let Some((origins, zoom)) = self.compare_layout().filter(|_| CANVAS.contains(p)) {
+            let hit = self.family.iter().zip(&origins).find(|((n, frames), o)| {
+                let f = self.family_frame(n, frames);
+                *n != self.sprite.name && (o[0]..o[0] + f.w as f32 * zoom).contains(&p[0]) && (o[1]..o[1] + f.h as f32 * zoom).contains(&p[1])
+            });
+            if let Some(((name, _), _)) = hit {
+                let name = name.clone();
+                self.switch_to(name);
+                return;
+            }
         }
         if CANVAS.contains(p) {
             let (x, y) = self.pixel_at(p);
@@ -906,6 +989,11 @@ impl Editor {
                 self.tool = t;
             }
             Action::Mirror => self.mirror = !self.mirror,
+            Action::Onion => self.onion = !self.onion,
+            Action::Compare => {
+                self.compare = !self.compare;
+                self.load_family();
+            }
             Action::AddFrame => {
                 self.remember();
                 let copy = self.current().clone();
@@ -1356,6 +1444,8 @@ impl Editor {
             }
             Key::Char('s') => self.act(Action::Tool(Tool::Select), false),
             Key::Char('m') => self.mirror = !self.mirror,
+            Key::Char('o') => self.act(Action::Onion, false),
+            Key::Char('c') => self.act(Action::Compare, false),
             Key::Char(' ') => self.act(Action::Play, false),
             Key::Char('n') => self.act(Action::Ask(Ask::New), false),
             Key::Left | Key::Char('h') => self.step_frame(-1),
@@ -1569,10 +1659,41 @@ impl Editor {
         }
     }
 
+    /// With Onion on, the frame before the one being drawn, wrapping round from the first.
+    fn onion_frame(&self) -> Option<&Frame> {
+        let n = self.sprite.frames.len();
+        (self.onion && self.view.is_none() && n > 1).then(|| &self.sprite.frames[(self.frame + n - 1) % n])
+    }
+
+    /// Compare's other sprites, read-only beside the open one, each named underneath.
+    fn draw_family(&self, c: &mut Canvas, zoom: f32) {
+        let Some((origins, _)) = self.compare_layout() else { return };
+        for ((name, frames), o) in self.family.iter().zip(&origins) {
+            let f = self.family_frame(name, frames);
+            let (w, h) = (f.w as f32 * zoom, f.h as f32 * zoom);
+            let mine = *name == self.sprite.name;
+            clip(c, o[0] - 3.0, o[1] - 3.0, w + 6.0, h + 6.0, if mine { HOT } else { [0.25, 0.25, 0.29, 1.0] });
+            clip(c, o[0], o[1], w, h, [0.3, 0.3, 0.33, 1.0]);
+            if !mine {
+                for y in 0..f.h {
+                    for x in 0..f.w {
+                        let p = f.px[y * f.w + x];
+                        if p[3] > 0 {
+                            clip(c, o[0] + x as f32 * zoom, o[1] + y as f32 * zoom, zoom, zoom, rgba(p));
+                        }
+                    }
+                }
+            }
+            let short = name.rsplit_once('_').map_or(name.as_str(), |(_, s)| s);
+            c.label(short, o[0] + w / 2.0, o[1] + h + 8.0, 15.0, if mine { HOT } else { DIM }, Align::Center);
+        }
+    }
+
     fn draw_canvas(&self, c: &mut Canvas) {
         c.rect(CANVAS.x, CANVAS.y, CANVAS.w, CANVAS.h, PANEL);
         let f = self.current();
         let (o, zoom) = self.grid();
+        self.draw_family(c, zoom);
         let (w, h) = (f.w as f32 * zoom, f.h as f32 * zoom);
         // A checkerboard under clear pixels.
         let cell = 16.0;
@@ -1588,6 +1709,17 @@ impl Editor {
                 let (x, y) = (gx as f32 * cell, gy as f32 * cell);
                 let shade = if (gx + gy) % 2 == 0 { [0.3, 0.3, 0.33, 1.0] } else { [0.36, 0.36, 0.4, 1.0] };
                 clip(c, o[0] + x, o[1] + y, cell.min(w - x), cell.min(h - y), shade);
+            }
+        }
+        if let Some(prev) = self.onion_frame() {
+            for y in 0..prev.h.min(f.h) {
+                for x in 0..prev.w.min(f.w) {
+                    let p = prev.px[y * prev.w + x];
+                    if p[3] > 0 {
+                        let [r, g, b, _] = rgba(p);
+                        clip(c, o[0] + x as f32 * zoom, o[1] + y as f32 * zoom, zoom, zoom, [r, g, b, ONION]);
+                    }
+                }
             }
         }
         let (x0, x1) = seen(CANVAS.x, CANVAS.w, o[0], zoom, f.w);
@@ -1704,6 +1836,11 @@ mod tests {
 
     fn editor() -> Editor {
         editor_in(&tmp(), tmp().join("art.txt"))
+    }
+
+    fn editor_on(name: &str) -> Editor {
+        let dir = tmp();
+        Editor::new(Box::new(FsStore { dir: dir.clone(), catalog: dir.join("art.txt") }), name)
     }
 
     fn click_pixel(e: &mut Editor, x: i32, y: i32) {
@@ -1958,6 +2095,34 @@ mod tests {
         assert_eq!(e.tool, Tool::Picker, "a clear pixel gives no color, so it stays");
         click_pixel(&mut e, 4, 4);
         assert_eq!((e.color, e.tool), ([10, 200, 30, 255], Tool::Eraser));
+    }
+
+    #[test]
+    fn compare_lays_out_the_family_and_a_tap_opens_another() {
+        let mut e = editor_on("KID_SIDE");
+        assert!(e.compare_layout().is_none());
+        e.key(Key::Char('c'));
+        let names: Vec<&str> = e.family.iter().map(|(n, _)| n.as_str()).collect();
+        assert!(["KID_FRONT", "KID_SIDE", "KID_BACK"].iter().all(|n| names.contains(n)), "{names:?}");
+        let (origins, zoom) = e.compare_layout().unwrap();
+        let back = e.family.iter().position(|(n, _)| n == "KID_BACK").unwrap();
+        let mine = e.family.iter().position(|(n, _)| n == "KID_SIDE").unwrap();
+        assert_eq!(e.grid(), (origins[mine], zoom), "drawing lands on the open one");
+        e.mouse_down([origins[back][0] + zoom, origins[back][1] + zoom], false, false);
+        assert_eq!(e.sprite.name, "KID_BACK");
+        assert!(e.compare && e.family.iter().any(|(n, _)| n == "KID_SIDE"), "still comparing, from the new one");
+    }
+
+    #[test]
+    fn onion_shows_the_frame_before_wrapping_round() {
+        let mut e = editor();
+        e.sprite.frames = vec![Frame::blank(16, 16), Frame::blank(16, 16), Frame::blank(16, 16)];
+        assert!(e.onion_frame().is_none());
+        e.key(Key::Char('o'));
+        e.act(Action::Frame(0), false);
+        assert!(std::ptr::eq(e.onion_frame().unwrap(), &e.sprite.frames[2]));
+        e.act(Action::Frame(2), false);
+        assert!(std::ptr::eq(e.onion_frame().unwrap(), &e.sprite.frames[1]));
     }
 
     #[test]
