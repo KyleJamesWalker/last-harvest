@@ -23,6 +23,7 @@ impl Harvest {
         self.vignette(&mut f.top);
         self.hud(&mut f.top);
         self.way_home(&mut f.top, view_proj);
+        self.barrel_mark(&mut f.top, view_proj);
         self.banner(&mut f.top);
         self.overlays(&mut f.top);
         self.paused_top(&mut f.top);
@@ -420,6 +421,20 @@ impl Harvest {
                 }
             }
         }
+    }
+
+    /// While X is held, a crosshair on the barrel the aimed weapons are going for.
+    fn barrel_mark(&self, c: &mut Canvas, view_proj: glam::Mat4) {
+        let Some(d) = self.barrel_reach().and_then(|reach| self.barrel_in_view(reach)) else { return };
+        let Some(([x, y], dist)) = view3d::to_screen(view_proj, [self.pos[0] + d[0], self.pos[1] + d[1]], 8.0) else { return };
+        let r = (90.0 / dist).clamp(18.0, 60.0) * (1.0 + 0.1 * (self.t * 10.0).sin());
+        let red = [1.0, 0.3, 0.2, 0.9];
+        for (dx, dy) in [(-1.0, 0.0), (1.0, 0.0), (0.0, -1.0), (0.0, 1.0)] {
+            let (cx, cy) = (x + dx * r, y + dy * r);
+            let (w, h) = if dx != 0.0 { (r * 0.6, 5.0) } else { (5.0, r * 0.6) };
+            c.rect(cx - w / 2.0, cy - h / 2.0, w, h, red);
+        }
+        c.circle(x, y, 5.0, red);
     }
 
     /// After dawn, where the farmhouse is: over it when it's in view, else at the edge it lies past.

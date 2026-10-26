@@ -492,6 +492,8 @@ pub struct Harvest {
     turned_from: [f32; 2],
     /// The pause menu's highlighted choice, while Start has the run paused.
     menu: Option<usize>,
+    /// X is held: aimed weapons go for explosive barrels in view first.
+    targeting: bool,
     /// False until the turn buttons are let go, so the A that started the run or picked an upgrade doesn't turn.
     turn_ready: bool,
     /// No zombies: a walk around the farm, for looking at it.
@@ -618,6 +620,7 @@ impl Harvest {
             spin: 0.0,
             turned_from: [0.0; 2],
             menu: None,
+            targeting: false,
             turn_ready: false,
             calm: false,
             bench: false,
@@ -853,6 +856,7 @@ impl Harvest {
         let turning = Buttons::A | Buttons::Y | Buttons::L2 | Buttons::R2;
         self.turn_ready |= !input.held.any(turning);
         let held = if self.turn_ready { input.held } else { Buttons::NONE };
+        self.targeting = input.held.contains(Buttons::X);
         let turn = held.any(Buttons::A | Buttons::R2) as i32 as f32 - held.any(Buttons::Y | Buttons::L2) as i32 as f32;
         if input.pressed.contains(Buttons::B) {
             self.turn_around();

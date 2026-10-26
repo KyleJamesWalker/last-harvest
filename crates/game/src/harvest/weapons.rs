@@ -324,6 +324,24 @@ impl Harvest {
             .min_by(|a, b| len(*a).total_cmp(&len(*b)))
     }
 
+    /// While X is held, the offset to the nearest barrel within `range` inside the view.
+    pub(super) fn barrel_in_view(&self, range: f32) -> Option<[f32; 2]> {
+        if !self.targeting {
+            return None;
+        }
+        self.barrels
+            .iter()
+            .map(|b| sub(b.center(), self.pos))
+            .filter(|d| len(*d) < range && in_cone(*d, self.aim, self.ahead_half()))
+            .min_by(|a, b| len(*a).total_cmp(&len(*b)))
+    }
+
+    /// The longest reach of the carried weapons that X turns on barrels.
+    pub(super) fn barrel_reach(&self) -> Option<f32> {
+        let aimed = self.kit.weapons.iter().filter(|a| matches!(a.does(), Does::Pistol | Does::Shotgun | Does::Rifle));
+        aimed.map(|&a| self.stat(a, Stat::Range)).reduce(f32::max)
+    }
+
     pub(super) fn fire(&mut self, dt: f32, sounds: &mut Vec<Sfx>) {
         for i in 0..self.kit.weapons.len() {
             let mut a = self.kit.weapons[i];
@@ -344,8 +362,8 @@ impl Harvest {
     fn attack(&mut self, a: Armed, sounds: &mut Vec<Sfx>) -> bool {
         match a.does() {
             Does::Pistol => self.pistol(a, sounds),
-            Does::Shotgun => self.spray(a, self.aim, self.ahead_half(), sounds),
-            Does::Holster => self.spray(a, [-self.aim[0], -self.aim[1]], BEHIND_HALF, sounds),
+            Does::Shotgun => self.spray(a, self.aim, self.ahead_half(), true, sounds),
+            Does::Holster => self.spray(a, [-self.aim[0], -self.aim[1]], BEHIND_HALF, false, sounds),
             Does::Rifle => self.rifle(a, sounds),
             Does::Lantern => self.beam(a),
             Does::Burner => self.burner(a),
@@ -364,7 +382,7 @@ impl Harvest {
 
     fn pistol(&mut self, a: Armed, sounds: &mut Vec<Sfx>) -> bool {
         let range = self.stat(a, Stat::Range);
-        let target = self.nearest_in(POINT_BLANK.min(range), None).or_else(|| self.nearest_in(range, Some((self.aim, self.ahead_half())))).or_else(|| self.nearest_in(range, None));
+        let target = self.barrel_in_view(range).or_else(|| self.nearest_in(POINT_BLANK.min(range), None)).or_else(|| self.nearest_in(range, Some((self.aim, self.ahead_half())))).or_else(|| self.nearest_in(range, None));
         let Some(d) = target.map(norm) else { return false };
         let (n, speed) = (self.stat(a, Stat::Count) as u32, self.stat(a, Stat::Speed));
         let base = d[1].atan2(d[0]);
@@ -382,10 +400,12 @@ impl Harvest {
         true
     }
 
-    /// A fan of pellets at the nearest zombie inside the cone around `dir`.
-    fn spray(&mut self, a: Armed, dir: [f32; 2], half: f32, sounds: &mut Vec<Sfx>) -> bool {
+    /// A fan of pellets at the nearest zombie inside the cone around `dir`, or at a barrel in view when `barrels`
+    /// and X is held.
+    fn spray(&mut self, a: Armed, dir: [f32; 2], half: f32, barrels: bool, sounds: &mut Vec<Sfx>) -> bool {
         let range = self.stat(a, Stat::Range);
-        let Some(d) = self.nearest_in(range, Some((dir, half))).map(norm) else { return false };
+        let barrel = if barrels { self.barrel_in_view(range) } else { None };
+        let Some(d) = barrel.or_else(|| self.nearest_in(range, Some((dir, half)))).map(norm) else { return false };
         let (pellets, speed) = (self.stat(a, Stat::Count).max(2.0) as u32, self.stat(a, Stat::Speed));
         let (base, spread) = (d[1].atan2(d[0]), self.stat(a, Stat::Spread).to_radians());
         for k in 0..pellets {
@@ -409,11 +429,13 @@ impl Harvest {
     fn rifle(&mut self, a: Armed, sounds: &mut Vec<Sfx>) -> bool {
         let range = self.stat(a, Stat::Range);
         let half = self.stat(a, Stat::Spread).to_radians() / 2.0;
-        if self.nearest_in(range, Some((self.aim, half))).is_none() {
+        let barrel = self.barrel_in_view(range);
+        if barrel.is_none() && self.nearest_in(range, Some((self.aim, half))).is_none() {
             return false;
         }
         let speed = self.stat(a, Stat::Speed);
-        let angle = self.aim[1].atan2(self.aim[0]);
+        let way = barrel.map_or(self.aim, norm);
+        let angle = way[1].atan2(way[0]);
         self.shoot(angle, speed, self.stat(a, Stat::Damage), self.stat(a, Stat::Pierce) as u32, range / speed, self.stat(a, Stat::Knockback));
         let muzzle = [self.pos[0] + self.aim[0] * 9.0, self.pos[1] - 6.0 + self.aim[1] * 9.0];
         self.fx.push(Fx { frames: std::slice::from_ref(&art::MUZZLE), fps: 12.0, pos: muzzle, angle, t: 0.0 });
@@ -954,6 +976,26 @@ mod tests {
         }
         let mut h = with("holster", [20.0, 0.0]);
         assert_eq!(hurt_after(&mut h, 3.0), 0.0, "the holster only fires behind");
+    }
+
+    #[test]
+    fn holding_x_turns_aimed_weapons_on_a_barrel_in_view() {
+        for id in ["pistol", "shotgun", "rifle"] {
+            let mut h = with(id, [30.0, 0.0]);
+            h.barrels.clear();
+            h.barrels.push(super::super::Barrel { pos: [h.pos[0] + 60.0, h.pos[1] - 40.0], hp: 1.0, flash: 0.0 });
+            let toward = |h: &Harvest| h.bullets.last().map(|b| b.vel[1] < -1.0).unwrap();
+            h.kit.weapons[0].cd = 0.0;
+            h.fire(1.0 / 60.0, &mut Vec::new());
+            assert!(!toward(&h), "{id}: without X it shoots the zombie");
+            h.targeting = true;
+            h.bullets.clear();
+            h.kit.weapons[0].cd = 0.0;
+            h.fire(1.0 / 60.0, &mut Vec::new());
+            assert!(toward(&h), "{id}: with X it goes for the barrel");
+            h.barrels[0].pos = [h.pos[0] - 60.0, h.pos[1]];
+            assert!(h.barrel_in_view(200.0).is_none(), "not one behind");
+        }
     }
 
     #[test]

@@ -406,7 +406,7 @@ impl Game {
             f.bottom.label("Clears kills, records and found powerups; settings stay", SCREEN_W / 2.0, y + h + 20.0, 24.0, [1.0, 0.45, 0.4, 1.0], Align::Center);
         }
         f.bottom.label("D-pad: walk and strafe.   Y / A: turn.   B: turn around.", SCREEN_W / 2.0, SCREEN_H - 84.0, 24.0, DIM, Align::Center);
-        f.bottom.label("Tap the map: throw.   Left / Right here: difficulty.", SCREEN_W / 2.0, SCREEN_H - 50.0, 24.0, DIM, Align::Center);
+        f.bottom.label("Hold X: aim at barrels.   Tap the map: throw.   Left / Right here: difficulty.", SCREEN_W / 2.0, SCREEN_H - 50.0, 24.0, DIM, Align::Center);
     }
 }
 
