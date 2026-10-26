@@ -16,7 +16,7 @@ use crate::rng::Rng;
 use crate::{Buttons, Color, Difficulty, Input, SCREEN_H, SCREEN_W, Sfx};
 use juice::{Corpse, Juice, Particle, Tone};
 use map::{Map, TILE};
-pub use powerups::{Progress, Run};
+pub use powerups::{Progress, Run, found_from_ids, found_ids};
 use powerups::{Kind as Card, book};
 use weapons::{Bolt, Decoy, Dog, Kit, Patch, Swing};
 
@@ -56,6 +56,8 @@ const HURT_FRAMES: f32 = 0.18;
 /// Real seconds of slow motion between filling the bar and choosing an upgrade.
 const LEVEL_SLOW: f32 = 0.7;
 const LEVEL_PUSH_RADIUS: f32 = 80.0;
+/// How many times a big zombie's health a horde's leader has.
+const LEADER_HP: f32 = 4.0;
 /// Seconds after a pick before play resumes, so the choice can land.
 const PICK_TIME: f32 = 0.3;
 /// Seconds the upgrade cards ignore input while they slide in.
@@ -163,6 +165,8 @@ struct Zombie {
     burn: f32,
     burn_dps: f32,
     burn_tick: f32,
+    /// A horde's leader, which drops a chest.
+    leader: bool,
 }
 
 impl Zombie {
@@ -188,6 +192,7 @@ impl Zombie {
             burn: 0.0,
             burn_dps: 0.0,
             burn_tick: 0.0,
+            leader: false,
         }
     }
 
@@ -210,6 +215,7 @@ struct Tell {
     pos: [f32; 2],
     hp: f32,
     t: f32,
+    leader: bool,
 }
 
 /// A crow pecking at the fields until something startles it.
@@ -258,6 +264,8 @@ struct Bullet {
 enum DropKind {
     Money(u32),
     Health,
+    /// A horde leader's: a free level-up, holding a find when one is waiting.
+    Chest,
 }
 
 struct Drop {
@@ -369,12 +377,13 @@ impl Fx {
     }
 }
 
-/// An upgrade on offer; a rare one counts twice.
+/// An upgrade on offer; a rare one counts twice, and a found one unlocks for good when taken.
 #[derive(Clone, Copy, Debug)]
 struct Choice {
     /// Which powerup, by its place in the book.
     up: usize,
     rare: bool,
+    found: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -392,6 +401,8 @@ pub struct Flow {
     pub quit: bool,
     /// How the run went, on the frame it ends.
     pub ended: Option<Run>,
+    /// Powerups found this frame, to keep even if the run is abandoned.
+    pub found: u64,
 }
 
 pub struct Harvest {
@@ -430,9 +441,15 @@ pub struct Harvest {
     /// Money's worth of XP not yet a whole point, from a pawn shop's share.
     xp_frac: f32,
     revived: u32,
-    /// What earlier runs unlocked, and what this one unlocked when it ended.
+    /// What earlier runs unlocked, what this one found, and how many more it made findable.
     progress: Progress,
     newly: Vec<usize>,
+    ready: usize,
+    found_now: u64,
+    /// The next level-up comes from a chest.
+    chest: bool,
+    /// The next zombie to rise leads the horde.
+    leader_owed: bool,
     /// Powerups every run on this farm starts with, by place in the book and level, for trying them out.
     trial: Vec<(usize, u32)>,
     /// Grenades ready to throw; the fraction is the next one recharging.
@@ -487,18 +504,20 @@ pub struct Harvest {
     difficulty: Difficulty,
 }
 
-/// Weapons and passives unlocked so far, out of all of them.
-pub fn unlocked(p: &Progress) -> (usize, usize) {
-    let all: Vec<_> = book().defs.iter().filter(|d| d.kind != Card::Filler).collect();
-    (all.iter().filter(|d| d.unlock.met(p)).count(), all.len())
+/// Weapons and passives unlocked so far, out of all of them, and how many are waiting to be found.
+pub fn unlocked(p: &Progress) -> (usize, usize, usize) {
+    let all: Vec<usize> = (0..book().defs.len()).filter(|&i| book().defs[i].kind != Card::Filler).collect();
+    (all.iter().filter(|&&i| p.owns(i)).count(), all.len(), all.iter().filter(|&&i| p.findable(i)).count())
 }
 
-/// The locked powerup closest to unlocking, and what it takes.
+/// The powerup closest to becoming findable, and what it takes.
 pub fn next_unlock(p: &Progress) -> Option<(String, String)> {
     book()
         .defs
         .iter()
-        .filter(|d| !d.unlock.met(p))
+        .enumerate()
+        .filter(|&(i, d)| !p.owns(i) && !d.unlock.met(p))
+        .map(|(_, d)| d)
         .max_by(|a, b| a.unlock.nearness(p).total_cmp(&b.unlock.nearness(p)))
         .map(|d| (d.name.clone(), d.unlock.text()))
 }
@@ -538,6 +557,10 @@ impl Harvest {
             revived: 0,
             progress: Progress::default(),
             newly: Vec::new(),
+            ready: 0,
+            found_now: 0,
+            chest: false,
+            leader_owed: false,
             trial: Vec::new(),
             grenades: GRENADES,
             thrown: Vec::new(),
@@ -727,6 +750,7 @@ impl Harvest {
                 }
             }
         }
+        flow.found = std::mem::take(&mut self.found_now);
         flow
     }
 
@@ -827,7 +851,7 @@ impl Harvest {
             // The quiet farm takes one zombie at a time, for trying out weapons and effects.
             let pos = [self.pos[0] + f[0] * 50.0, self.pos[1] + f[1] * 50.0];
             if !self.map.hits(pos[0], pos[1], ZOMBIE_HALF) {
-                self.tells.push(Tell { kind: Kind::Skinny, pos, hp: Kind::Skinny.stats().hp, t: 0.0 });
+                self.tells.push(Tell { kind: Kind::Skinny, pos, hp: Kind::Skinny.stats().hp, t: 0.0, leader: false });
             }
         }
         self.rise(dt, sounds);
@@ -938,22 +962,49 @@ impl Harvest {
     /// Three cards from what's unlocked and still has room to grow; fillers make up the rest.
     fn roll_choices(&mut self) -> [Choice; 3] {
         let b = book();
-        let mut pool: Vec<usize> = (0..b.defs.len()).filter(|&i| b.defs[i].unlock.met(&self.progress) && self.kit.offerable(i)).collect();
+        let chest = std::mem::take(&mut self.chest);
+        let mut pool: Vec<usize> = (0..b.defs.len()).filter(|&i| self.progress.owns(i) && self.kit.offerable(i)).collect();
         let mut fillers: Vec<usize> = (0..b.defs.len()).filter(|&i| b.defs[i].kind == Card::Filler).collect();
         let rare = RARE_CHANCE + self.kit.mods.luck;
-        let mut out = [Choice { up: 0, rare: false }; 3];
+        let mut out = [Choice { up: 0, rare: false, found: false }; 3];
         for slot in &mut out {
             let from = if pool.is_empty() { &mut fillers } else { &mut pool };
             let up = if from.is_empty() { 0 } else { from.swap_remove(self.rng.below(from.len())) };
             let roll = self.rng.range(0.0, 1.0);
-            *slot = Choice { up, rare: b.defs[up].kind != Card::Filler && roll < rare };
+            *slot = Choice { up, rare: b.defs[up].kind != Card::Filler && roll < rare, found: false };
+        }
+        if let Some(up) = self.find(chest) {
+            out[self.rng.below(3)] = Choice { up, rare: false, found: true };
         }
         out
+    }
+
+    /// A powerup to offer as a find, if one turns up: only one whose unlock is met, whose minute has come and
+    /// that has a free slot to go in. A chest always holds one if any qualify, its own kind first.
+    fn find(&mut self, chest: bool) -> Option<usize> {
+        let b = book();
+        let minutes = self.t / 60.0;
+        let finds: Vec<usize> = (0..b.defs.len())
+            .filter(|&i| self.progress.findable(i) && self.kit.offerable(i) && minutes >= b.defs[i].after && (chest || !b.defs[i].chest))
+            .collect();
+        if chest {
+            let own: Vec<usize> = finds.iter().copied().filter(|&i| b.defs[i].chest).collect();
+            let from = if own.is_empty() { &finds } else { &own };
+            return (!from.is_empty()).then(|| from[self.rng.below(from.len())]);
+        }
+        let i = *finds.get(self.rng.below(finds.len().max(1)))?;
+        (self.rng.range(0.0, 1.0) < b.defs[i].find).then_some(i)
     }
 
     /// Takes a card: a level, or two for a rare one, and anything it gives right away.
     fn pick(&mut self, c: Choice) {
         let def = &book().defs[c.up];
+        if c.found {
+            self.progress.found |= 1 << c.up;
+            self.found_now |= 1 << c.up;
+            self.newly.push(c.up);
+            self.juice.banner(format!("FOUND: {}", def.name.to_uppercase()), [GOLD[0], GOLD[1], GOLD[2], 1.0], 2.4);
+        }
         let (from, to) = self.kit.raise(c.up, if c.rare { 2 } else { 1 });
         let heal = def.at(powerups::Stat::Heal, to) * (to - from).max(1) as f32;
         self.hp = (self.hp + heal).min(self.kit.max_hp());
@@ -981,7 +1032,7 @@ impl Harvest {
     fn finish(&mut self, won: bool) -> Run {
         let run = Run { secs: self.t as u32, kills: self.kills, level: self.level, won };
         let after = self.progress.after(run);
-        self.newly = (0..book().defs.len()).filter(|&i| !book().defs[i].unlock.met(&self.progress) && book().defs[i].unlock.met(&after)).collect();
+        self.ready = (0..book().defs.len()).filter(|&i| !self.progress.findable(i) && after.findable(i)).count();
         self.progress = after;
         run
     }
@@ -992,11 +1043,13 @@ impl Harvest {
         self.owed += (0.7 + minutes * 0.9).min(9.0) * dt;
         if horde_now(self.t, dt) {
             self.owed += 20.0 + minutes * 4.0;
+            self.leader_owed = true;
         }
         while self.owed >= 1.0 && self.zombies.len() + self.tells.len() < MAX_ZOMBIES {
             self.owed -= 1.0;
             let roll = self.rng.range(0.0, 1.0);
-            let kind = if minutes > 2.0 && roll < 0.06 + minutes * 0.01 {
+            let leader = std::mem::take(&mut self.leader_owed);
+            let kind = if leader || (minutes > 2.0 && roll < 0.06 + minutes * 0.01) {
                 Kind::Big
             } else if minutes > 1.0 && roll < 0.35 {
                 Kind::Kid
@@ -1009,7 +1062,8 @@ impl Harvest {
                 let r = self.rng.range(near, far);
                 let pos = [self.pos[0] + a.cos() * r, self.pos[1] + a.sin() * r];
                 if !self.map.hits(pos[0], pos[1], ZOMBIE_HALF) {
-                    self.tells.push(Tell { kind, pos, hp: kind.stats().hp * (1.0 + minutes * 0.08), t: 0.0 });
+                    let hp = kind.stats().hp * (1.0 + minutes * 0.08) * if leader { LEADER_HP } else { 1.0 };
+                    self.tells.push(Tell { kind, pos, hp, t: 0.0, leader });
                     break;
                 }
             }
@@ -1034,6 +1088,7 @@ impl Harvest {
             let t = self.tells.swap_remove(i);
             let anim = self.rng.range(0.0, 1.0);
             let mut z = Zombie::new(t.kind, t.pos, t.hp, 0.0, anim);
+            z.leader = t.leader;
             z.id = self.next_id;
             self.next_id += 1;
             self.zombies.push(z);
@@ -1306,7 +1361,13 @@ impl Harvest {
                 self.juice.stop(0.06);
                 self.juice.shake(0.2);
             }
-            let kind = if self.rng.below(self.difficulty.health_drop()) == 0 { DropKind::Health } else { DropKind::Money(s.xp) };
+            let kind = if z.leader {
+                DropKind::Chest
+            } else if self.rng.below(self.difficulty.health_drop()) == 0 {
+                DropKind::Health
+            } else {
+                DropKind::Money(s.xp)
+            };
             let a = self.juice.rng.range(0.0, TAU);
             let speed = self.juice.rng.range(8.0, 28.0);
             let vz = self.juice.rng.range(60.0, 95.0);
@@ -1367,6 +1428,13 @@ impl Harvest {
                         if self.juice.motes.len() < 24 {
                             self.juice.motes.push(juice::Mote { pos: d.pos, age: 0.0 });
                         }
+                    }
+                    DropKind::Chest => {
+                        self.chest = true;
+                        self.leveling = LEVEL_SLOW;
+                        sounds.push(Sfx::LevelUp);
+                        self.juice.shout("A CHEST", GOLD, 0.9);
+                        self.juice.flash(self.pos, 20.0, [1.8, 1.4, 0.6], 9.0, 0.8);
                     }
                     DropKind::Health => {
                         let gain = self.difficulty.heal().min(self.kit.max_hp() - self.hp);
@@ -1722,7 +1790,7 @@ mod tests {
     #[test]
     fn a_tap_picks_an_upgrade() {
         let mut h = Harvest::new(2);
-        let choice = |id| Choice { up: book().index(id).unwrap(), rare: false };
+        let choice = |id| Choice { up: book().index(id).unwrap(), rare: false, found: false };
         h.phase = Phase::LevelUp { choices: [choice("shotgun"), choice("knife"), choice("running_shoes")], selected: 0, t: 1.0, picked: None };
         let tap = Input { touch: Some([500.0, CHOICE_TOP + CHOICE_ROW * 1.5]), touch_started: true, ..Default::default() };
         h.update(&tap, 0.016, &mut Vec::new());
@@ -1913,6 +1981,25 @@ mod tests {
         }
         let steps: Vec<u8> = sounds.iter().filter_map(|s| if let Sfx::Pickup(n) = s { Some(*n) } else { None }).collect();
         assert_eq!(steps, [0, 1, 2]);
+    }
+
+    #[test]
+    fn a_horde_brings_a_leader_whose_chest_opens_a_find() {
+        let mut h = Harvest::new(3).with_progress(Progress { kills: 100, ..Default::default() });
+        h.t = 90.0;
+        h.spawn(0.02);
+        let leader = h.tells.iter().find(|t| t.leader).expect("the horde has a leader");
+        assert!(leader.kind == Kind::Big && h.tells.iter().filter(|t| t.leader).count() == 1);
+        h.drops.push(Drop { kind: DropKind::Chest, pos: h.pos, z: 0.0, vz: 0.0, vel: [0.0; 2], age: 0.0, pulled: None });
+        h.collect(0.016, &mut Vec::new());
+        for _ in 0..200 {
+            if let Phase::LevelUp { choices, .. } = h.phase {
+                assert!(choices.iter().any(|c| c.found));
+                return;
+            }
+            h.update(&Input::default(), 0.016, &mut Vec::new());
+        }
+        panic!("the chest never opened");
     }
 
     #[test]

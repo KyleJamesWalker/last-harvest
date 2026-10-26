@@ -134,7 +134,7 @@ impl Game {
 
     fn progress(&self) -> harvest::Progress {
         let s = &self.save;
-        harvest::Progress { kills: s.kills, best: s.best, best_level: s.best_level, nights: s.nights, dawns: s.dawns, everything: self.unlock_all }
+        harvest::Progress { kills: s.kills, best: s.best, best_level: s.best_level, nights: s.nights, dawns: s.dawns, found: s.found, everything: self.unlock_all }
     }
 
     /// One line describing the current scene, for logs.
@@ -263,6 +263,7 @@ impl Game {
                 if let Some(r) = flow.rumble {
                     self.buzz(r);
                 }
+                self.save.found |= flow.found;
                 if let Some(run) = flow.ended {
                     let p = self.progress().after(run);
                     (self.save.kills, self.save.best, self.save.best_level, self.save.nights, self.save.dawns) = (p.kills, p.best, p.best_level, p.nights, p.dawns);
@@ -345,10 +346,15 @@ impl Game {
             let line = format!("Longest night: {}:{:02}", self.save.best / 60, self.save.best % 60);
             f.top.label(line, SCREEN_W / 2.0, 480.0, 34.0, HOT, Align::Center);
         }
-        let (open, all) = harvest::unlocked(&self.progress());
-        f.top.label(format!("Powerups unlocked: {open} of {all}"), SCREEN_W / 2.0, 530.0, 28.0, DIM, Align::Center);
+        let (open, all, waiting) = harvest::unlocked(&self.progress());
+        let line = match waiting {
+            0 => format!("Powerups unlocked: {open} of {all}"),
+            1 => format!("Powerups unlocked: {open} of {all}.  1 waiting to be found"),
+            n => format!("Powerups unlocked: {open} of {all}.  {n} waiting to be found"),
+        };
+        f.top.label(line, SCREEN_W / 2.0, 530.0, 28.0, DIM, Align::Center);
         if let Some((name, how)) = harvest::next_unlock(&self.progress()) {
-            f.top.label(format!("Next: {name}. {how}"), SCREEN_W / 2.0, 566.0, 24.0, DIM, Align::Center);
+            f.top.label(format!("Next to find: {name}. {how}"), SCREEN_W / 2.0, 566.0, 24.0, DIM, Align::Center);
         }
         let pulse = 0.55 + 0.45 * (t * 3.0).sin().abs();
         f.bottom.label("Press A or tap to start", SCREEN_W / 2.0, 240.0, 56.0, [1.0, 1.0, 1.0, pulse], Align::Center);

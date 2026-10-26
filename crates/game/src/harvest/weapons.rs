@@ -1016,7 +1016,7 @@ mod tests {
         h.phase = Phase::LevelUp { choices, selected: snack, t: 1.0, picked: None };
         h.update(&Input { pressed: Buttons::X, ..Default::default() }, 0.016, &mut Vec::new());
         assert!(h.hp > 10.0);
-        let _ = Choice { up: 0, rare: false };
+        let _ = Choice { up: 0, rare: false, found: false };
     }
 
     #[test]
@@ -1082,5 +1082,50 @@ mod tests {
             h.walk_dogs(1.0 / 60.0, &mut Vec::new());
         }
         assert!(len(sub(h.dogs[0].pos, h.pos)) < DOG_STRAY, "it ran to catch up");
+    }
+
+    #[test]
+    fn a_met_unlock_turns_up_as_a_find_only_with_room_and_stays_once_taken() {
+        let b = book();
+        let scythe = b.index("scythe").unwrap();
+        let mut h = Harvest::new(1).with_progress(super::super::Progress { kills: 100, ..Default::default() });
+        let mut seen = 0;
+        for _ in 0..200 {
+            for c in h.roll_choices().iter().filter(|c| c.found) {
+                assert_eq!(c.up, scythe, "only what has met its unlock");
+                seen += 1;
+            }
+        }
+        assert!(seen > 10, "it turns up now and then, {seen} times in 200");
+        let full = h.kit.weapons.len();
+        for id in ["rifle", "lantern", "burner", "pitchfork", "crows", "zapper"].iter().take(b.weapon_slots - full) {
+            armed(&mut h, id, 1);
+        }
+        assert!((0..200).all(|_| h.roll_choices().iter().all(|c| !c.found)), "no free weapon slot, no weapon find");
+        h.kit.weapons.pop();
+        let choices = loop {
+            let c = h.roll_choices();
+            if c.iter().any(|c| c.found) {
+                break c;
+            }
+        };
+        let at = choices.iter().position(|c| c.found).unwrap();
+        h.phase = Phase::LevelUp { choices, selected: at, t: 1.0, picked: None };
+        let flow = h.update(&Input { pressed: Buttons::X, ..Default::default() }, 0.016, &mut Vec::new());
+        assert_eq!(flow.found, 1 << scythe, "the game keeps it right away");
+        assert!(h.progress.owns(scythe) && h.kit.level(scythe) == 1);
+        assert!((0..50).all(|_| h.roll_choices().iter().all(|c| !c.found)), "nothing else is waiting");
+    }
+
+    #[test]
+    fn a_chest_always_holds_a_find_when_one_is_waiting() {
+        let mut h = Harvest::new(2).with_progress(super::super::Progress { kills: 100, ..Default::default() });
+        for _ in 0..20 {
+            h.chest = true;
+            assert!(h.roll_choices().iter().any(|c| c.found));
+        }
+        let mut h = Harvest::new(2);
+        h.chest = true;
+        assert!(h.roll_choices().iter().all(|c| !c.found), "with nothing waiting it's a plain level-up");
     }
 }

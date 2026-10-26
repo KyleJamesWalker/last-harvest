@@ -77,7 +77,7 @@ impl Does {
     }
 }
 
-/// When a powerup joins the cards.
+/// When a powerup can first be found on a card.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Unlock {
     Start,
@@ -93,7 +93,7 @@ pub enum Unlock {
     Dawns(u32),
 }
 
-/// What the player has done over every run, which unlocks powerups.
+/// What the player has done over every run, and the powerups they have found.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Progress {
     pub kills: u32,
@@ -101,6 +101,8 @@ pub struct Progress {
     pub best_level: u32,
     pub nights: u32,
     pub dawns: u32,
+    /// Powerups taken from a find card, one bit each by their place in the book.
+    pub found: u64,
     /// Everything unlocked regardless, for trying powerups out.
     pub everything: bool,
 }
@@ -114,9 +116,29 @@ impl Progress {
             best_level: self.best_level.max(run.level),
             nights: self.nights + 1,
             dawns: self.dawns + run.won as u32,
-            everything: self.everything,
+            ..self
         }
     }
+
+    /// Whether the cards can offer powerup `i` as an ordinary level.
+    pub fn owns(&self, i: usize) -> bool {
+        self.everything || book().defs[i].unlock == Unlock::Start || self.found & (1 << i) != 0
+    }
+
+    /// Whether powerup `i` has met its condition but not been found yet.
+    pub fn findable(&self, i: usize) -> bool {
+        !self.owns(i) && book().defs[i].kind != Kind::Filler && book().defs[i].unlock.met(self)
+    }
+}
+
+/// Found powerups as their ids, for the save file.
+pub fn found_ids(found: u64) -> String {
+    book().defs.iter().enumerate().filter(|(i, _)| found & (1 << i) != 0).map(|(_, d)| d.id.as_str()).collect::<Vec<_>>().join(",")
+}
+
+/// The bits for a list of ids; ones the book no longer has are dropped.
+pub fn found_from_ids(ids: &str) -> u64 {
+    ids.split(',').filter_map(|id| book().index(id.trim())).fold(0, |m, i| m | 1 << i)
 }
 
 /// How one run went.
@@ -366,6 +388,12 @@ pub struct Def {
     pub unlock: Unlock,
     pub blurb: String,
     pub max: u32,
+    /// The chance, once its unlock is met, that a level-up offers it as a find.
+    pub find: f32,
+    /// Minutes into a night before it can turn up as a find.
+    pub after: f32,
+    /// Only found in the chest a horde's leader drops.
+    pub chest: bool,
     stats: Vec<(Stat, Vec<f32>)>,
 }
 
@@ -433,6 +461,8 @@ fn sprite(name: &str) -> Option<Art> {
     art::ALL.iter().find(|(n, _)| *n == name).map(|(_, frames)| frames[0])
 }
 
+const DEFAULT_FIND: f32 = 0.25;
+
 /// Reads the powerup file; an error names the line.
 pub fn parse(text: &str) -> Result<Book, String> {
     let mut book = Book { weapon_slots: 6, passive_slots: 6, defs: Vec::new() };
@@ -457,6 +487,9 @@ pub fn parse(text: &str) -> Result<Book, String> {
                 unlock: Unlock::Start,
                 blurb: String::new(),
                 max: 1,
+                find: DEFAULT_FIND,
+                after: 0.0,
+                chest: false,
                 stats: Vec::new(),
             });
             icons.push(None);
@@ -478,6 +511,9 @@ pub fn parse(text: &str) -> Result<Book, String> {
             "blurb" => def.blurb = rest.to_string(),
             "icon" => *icons.last_mut().unwrap() = Some(rest.to_string()),
             "max" => def.max = number(rest)?.max(1),
+            "find" => def.find = rest.parse::<f32>().ok().filter(|f| (0.0..=1.0).contains(f)).ok_or_else(|| format!("{n}: find is a chance from 0 to 1, not {rest:?}"))?,
+            "after" => def.after = rest.parse::<f32>().map_err(|_| format!("{n}: after is minutes into the night, not {rest:?}"))?,
+            "chest" if rest.is_empty() => def.chest = true,
             "kind" => {
                 def.kind = match rest {
                     "weapon" => Kind::Weapon,
@@ -528,6 +564,9 @@ pub fn parse(text: &str) -> Result<Book, String> {
             }
         }
     }
+    if book.defs.len() > 64 {
+        return Err(" more than 64 powerups; the save keeps found ones as 64 bits".into());
+    }
     for (def, icon) in book.defs.iter_mut().zip(icons) {
         let icon = icon.unwrap_or_else(|| format!("ICON_{}", def.id.to_ascii_uppercase()));
         def.icon = sprite(&icon).ok_or_else(|| format!(" [{}] has no sprite called {icon}; add it to art.txt", def.id))?;
@@ -573,6 +612,17 @@ mod tests {
         assert_eq!(pp.at(Stat::Armor, 1), 0.0);
         assert_eq!(pp.change(1, 2), "Damage +10% > +25%");
         assert_eq!(gun.change(0, 1), "", "a new card shows its blurb");
+    }
+
+    #[test]
+    fn finds_read_their_chance_minute_and_chest() {
+        let b = parse("[a]\nicon WHITE\n[b]\nicon WHITE\nfind 0.1\nafter 3\nchest\n").unwrap();
+        assert_eq!((b.defs[0].find, b.defs[0].after, b.defs[0].chest), (DEFAULT_FIND, 0.0, false));
+        assert_eq!((b.defs[1].find, b.defs[1].after, b.defs[1].chest), (0.1, 3.0, true));
+        assert!(parse("[a]\nicon WHITE\nfind 2").unwrap_err().starts_with("3:"));
+        assert!(parse("[a]\nicon WHITE\nchest yes").unwrap_err().starts_with("3:"));
+        assert_eq!(found_from_ids(&found_ids(0b101)), 0b101);
+        assert_eq!(found_from_ids("pistol, nope"), 1, "an id the book lost is dropped");
     }
 
     #[test]

@@ -132,6 +132,7 @@ TACKS           png placeholder/tacks.png
 FIRE            png placeholder/fire.png x3
 MOLOTOV         png placeholder/molotov.png
 FLARE           png placeholder/flare.png
+CHEST           png placeholder/chest.png
 ICON_PISTOL            png placeholder/icon_pistol.png
 ICON_SHOTGUN           png placeholder/icon_shotgun.png
 ICON_RIFLE             png placeholder/icon_rifle.png

@@ -239,11 +239,17 @@ impl Harvest {
             let a = match d.kind {
                 DropKind::Money(_) => art::MONEY[((d.age * 10.0) as usize).min(3)],
                 DropKind::Health => art::HEALTH,
+                DropKind::Chest => art::CHEST,
             };
             let (sx, sy) = at(d.pos[0] - a.w() / 2.0, d.pos[1] - a.h() - d.z);
             c.art(a, sx, sy, scale, false, lit);
         }
 
+        for z in self.zombies.iter().filter(|z| z.leader) {
+            let (sx, sy) = at(z.pos[0], z.pos[1]);
+            let pulse = 0.35 + 0.25 * (self.t * 6.0).sin();
+            c.circle(sx, sy, 9.0 * scale, [GOLD[0], GOLD[1], GOLD[2], pulse]);
+        }
         // Props, zombies and the player, drawn back to front by where they meet the ground.
         // The last field is how much of each sprite shows: zombies still in the ground show only their top.
         let mut sprites: Vec<(f32, Art, f32, f32, bool, f32)> = Vec::new();
@@ -388,10 +394,18 @@ impl Harvest {
                 let line = format!("Survived {}   Level {}   Kills {}", clock(self.t), self.level, self.kills);
                 c.label(line, SCREEN_W / 2.0, line_y, 40.0, [1.0, 1.0, 1.0, a], Align::Center);
                 c.label("A: try another farm      B: menu", SCREEN_W / 2.0, line_y + 80.0, 32.0, [1.0, 1.0, 1.0, 0.7 * a], Align::Center);
-                if !self.newly.is_empty() {
-                    let names: Vec<&str> = self.newly.iter().map(|&i| book().defs[i].name.as_str()).collect();
-                    let y = if *won { line_y + 160.0 } else { line_y - 80.0 };
-                    c.label(format!("Unlocked: {}", names.join(", ")), SCREEN_W / 2.0, y, 34.0, [GOLD[0], GOLD[1], GOLD[2], a], Align::Center);
+                let names: Vec<&str> = self.newly.iter().map(|&i| book().defs[i].name.as_str()).collect();
+                let news = [
+                    (!names.is_empty()).then(|| format!("Found: {}", names.join(", "))),
+                    match self.ready {
+                        0 => None,
+                        1 => Some("Something new can be found".to_string()),
+                        n => Some(format!("{n} new powerups can be found")),
+                    },
+                ];
+                for (k, line) in news.into_iter().flatten().enumerate() {
+                    let y = if *won { line_y + 160.0 + k as f32 * 48.0 } else { line_y - 80.0 - k as f32 * 48.0 };
+                    c.label(line, SCREEN_W / 2.0, y, 34.0, [GOLD[0], GOLD[1], GOLD[2], a], Align::Center);
                 }
             }
         }
@@ -436,10 +450,11 @@ impl Harvest {
             let (x, y) = (112.0 + (1.0 - k) * 1000.0 - grow, top + i as f32 * CHOICE_ROW - grow / 2.0);
             let (w, h) = (800.0 + grow * 2.0, CHOICE_ROW - 20.0 + grow);
             let alpha = if on { 1.0 } else { fade };
-            if ch.rare {
+            if ch.rare || ch.found {
                 let glint = 0.6 + 0.4 * (t * 5.0).sin();
-                c.rect(x - 5.0, y - 5.0, w + 10.0, h + 10.0, [GOLD[0], GOLD[1], GOLD[2], glint * alpha]);
-                c.rect(x, y, w, h, [0.1, 0.08, 0.02, alpha]);
+                let edge = if ch.found { FIND } else { GOLD };
+                c.rect(x - 5.0, y - 5.0, w + 10.0, h + 10.0, [edge[0], edge[1], edge[2], glint * alpha]);
+                c.rect(x, y, w, h, [0.02, 0.08, 0.04, alpha]);
             }
             let fill = match picked {
                 Some(p) if on => [1.0, 1.0, 1.0, 0.8 * (1.0 - p / PICK_TIME)],
@@ -472,11 +487,17 @@ impl Harvest {
                 _ => format!("LV {to}"),
             };
             let zone = def.zone.map(Zone::name).unwrap_or(if def.kind == Kind::Passive { "PASSIVE" } else { "" });
-            let tag_y = if ch.rare { y + 52.0 } else { y + 16.0 };
+            if ch.found {
+                c.label("FOUND", x + w - 28.0, y + 16.0, 30.0, [FIND[0], FIND[1], FIND[2], alpha], Align::Right);
+            }
+            let tag_y = if ch.rare || ch.found { y + 52.0 } else { y + 16.0 };
             c.label(format!("{zone}  {tag}"), x + w - 28.0, tag_y, 26.0, [zone_color(def.zone)[0], zone_color(def.zone)[1], zone_color(def.zone)[2], alpha], Align::Right);
         }
     }
 }
+
+/// The edge and tag of a found powerup's card, apart from a rare one's gold.
+const FIND: Color = [0.45, 1.0, 0.6, 1.0];
 
 fn zone_color(zone: Option<Zone>) -> Color {
     match zone {

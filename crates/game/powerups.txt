@@ -10,7 +10,12 @@
 #   zone    ahead | around | behind | map
 #   icon    SPRITE      the card's picture, a name from art.txt; defaults to ICON_<ID>
 #   unlock  start | kills N | night SECONDS | level N | nights N | dawns N
-#           kills and nights add up over every run; night and level are the best single run
+#           kills and nights add up over every run; night and level are the best single run.
+#           Anything but `start` only becomes findable: a level-up may then offer it on a FOUND card,
+#           and taking that card unlocks it for good. A find needs a free slot of its kind.
+#   find    CHANCE      how often a level-up offers it as a find, 0 to 1; 0.25 when left out
+#   after   MINUTES     the earliest it can be found in a night; 0 when left out
+#   chest   (no value)  found only in the chest a horde's leader drops; a chest holds a find whenever one is waiting
 #   blurb   Text        the card's line when the powerup is new
 #   max     N           highest level
 #   STAT    v1 v2 ...   the value at each level, from level 1; a short list repeats its last value
@@ -71,6 +76,7 @@ zone      ahead
 unlock    kills 500
 blurb     A slow, heavy round straight down your heading
 max       8
+find      0.15
 cooldown  2.0 1.9 1.8 1.7 1.6 1.5 1.4 1.2
 damage    40 50 60 70 80 95 110 130
 pierce    3 4 5 6 7 8 9 10
@@ -112,6 +118,7 @@ zone      ahead
 unlock    kills 3000
 blurb     Skewers everything in a line in front of you
 max       8
+find      0.15
 cooldown  1.2 1.15 1.1 1.05 1.0 0.95 0.9 0.8
 damage    25 30 35 40 50 60 70 80
 range     30 32 34 36 38 40 44 48
@@ -167,6 +174,8 @@ zone      around
 unlock    kills 2000
 blurb     Lightning that jumps from one zombie to the next
 max       8
+find      0.15
+after     2
 cooldown  1.6 1.5 1.4 1.3 1.2 1.1 1.0 0.9
 damage    14 16 18 20 24 28 32 36
 range     70
@@ -181,6 +190,7 @@ zone      around
 unlock    dawns 1
 blurb     A good dog that runs down whatever comes close
 max       8
+find      0.15
 cooldown  0.8 0.75 0.7 0.65 0.6 0.55 0.55 0.5
 damage    15 18 21 24 28 32 38 45
 range     90
@@ -240,6 +250,7 @@ zone      behind
 unlock    kills 4000
 blurb     Dropped behind you; draws them in, then bursts
 max       8
+chest
 cooldown  12 11 10 9 8 7 6 5
 # range is how far it draws zombies from; area is its blast.
 range     70 75 80 85 90 95 100 110
@@ -270,6 +281,8 @@ zone      map
 unlock    night 540
 blurb     Lights up a far crowd, and burns it
 max       8
+find      0.12
+after     4
 cooldown  9 8.5 8 7.5 7 6.5 6 5
 damage    8 9 10 12 14 16 18 20
 area      40 42 44 46 50 54 58 60
@@ -381,6 +394,8 @@ kind      passive
 unlock    dawns 2
 blurb     Hits shove harder, and bullets go through
 max       5
+find      0.12
+after     3
 pierce    1 1 2 2 3
 knockback +20% +40% +60% +80% +100%
 
@@ -398,6 +413,7 @@ kind      passive
 unlock    dawns 5
 blurb     When you start to turn, you come back as yourself
 max       2
+chest
 revive    1 2
 
 [grenade_belt]
@@ -407,6 +423,7 @@ zone      map
 unlock    nights 3
 blurb     More grenades, sooner, and they scatter bomblets
 max       5
+find      0.15
 grenades  1 1 2 2 3
 recharge  -10% -20% -25% -30% -40%
 cluster   0 2 2 3 4
@@ -418,6 +435,7 @@ zone      map
 unlock    dawns 3
 blurb     Blown barrels come back, and blow bigger
 max       5
+chest
 drums     40 32 25 18 12
 blast     +10% +20% +30% +40% +50%
 

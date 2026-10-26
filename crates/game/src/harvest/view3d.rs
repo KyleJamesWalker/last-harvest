@@ -17,6 +17,7 @@ use crate::{SCREEN_H, SCREEN_W};
 
 /// World units are tiles; sprite pixels are this big.
 const PX: f32 = 1.0 / TILE;
+const LEADER_TINT: [f32; 3] = [1.6, 1.3, 0.6];
 const VIEW_RADIUS: f32 = 16.0;
 const CHARACTER_DEPTH: f32 = 3.0 * PX;
 const DECAL_LIFT: f32 = 0.03;
@@ -410,6 +411,9 @@ pub fn scene(h: &Harvest) -> CardScene {
         let s = z.squash;
         // A rising zombie starts below the ground plane, which hides the part still buried.
         let mut b = Board::new(a, flip, z.pos, -(1.0 - z.rise) * a.h() * PX, CHARACTER_DEPTH);
+        if z.leader {
+            b.tint = LEADER_TINT;
+        }
         b.scale = [1.0 + 0.3 * s, 1.0 - 0.2 * s];
         b.lean = Vec3::new(z.knock[0], 0.0, z.knock[1]) * (0.35 * s);
         board(&mut cards, b);
@@ -485,10 +489,13 @@ pub fn scene(h: &Harvest) -> CardScene {
         let a = match d.kind {
             DropKind::Money(_) => art::MONEY[3],
             DropKind::Health => art::HEALTH,
+            DropKind::Chest => art::CHEST,
         };
         let mut b = Board::new(a, false, d.pos, 0.1 + d.z * PX + (h.t * 4.0 + d.pos[0]).sin().abs() * 0.1, 0.0);
         // Coins spin; never quite edge-on, or they vanish.
-        b.scale[0] = (h.t * 5.0 + d.pos[1]).cos().abs().max(0.2);
+        if d.kind != DropKind::Chest {
+            b.scale[0] = (h.t * 5.0 + d.pos[1]).cos().abs().max(0.2);
+        }
         board(&mut cards, b);
     }
     for c in &h.juice.corpses {
