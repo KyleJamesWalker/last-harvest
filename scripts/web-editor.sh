@@ -15,7 +15,7 @@ rustup target list --installed | grep -qx wasm32-unknown-unknown || rustup targe
 cargo build --release --target wasm32-unknown-unknown -p sprite-editor --bin sprite-editor
 rm -rf "$out"
 wasm-bindgen --target web --no-typescript --out-dir "$out" target/wasm32-unknown-unknown/release/sprite-editor.wasm
-cp crates/editor/web/index.html "$out/"
+cp crates/editor/web/index.html crates/editor/web/*.png "$out/"
 echo "built $out"
 if [ "${1:-}" != "--build-only" ]; then
   exec cargo run --release -p sprite-server -- "$out"

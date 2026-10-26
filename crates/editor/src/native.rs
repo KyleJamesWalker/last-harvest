@@ -127,6 +127,20 @@ impl App {
     }
 }
 
+/// Puts the editor's icon in the Dock; winit can't set a window icon on macOS.
+#[cfg(target_os = "macos")]
+fn dock_icon() {
+    use objc2::{AllocAnyThread, MainThreadMarker};
+    use objc2_app_kit::{NSApplication, NSImage};
+    use objc2_foundation::NSData;
+    let Some(mtm) = MainThreadMarker::new() else { return };
+    let data = NSData::with_bytes(include_bytes!("../web/icon-512.png"));
+    if let Some(image) = NSImage::initWithData(NSImage::alloc(), &data) {
+        // SAFETY: on the main thread, with an image AppKit decoded itself.
+        unsafe { NSApplication::sharedApplication(mtm).setApplicationIconImage(Some(&image)) };
+    }
+}
+
 impl ApplicationHandler for App {
     fn resumed(&mut self, el: &ActiveEventLoop) {
         if self.gl.is_some() {
@@ -136,6 +150,8 @@ impl ApplicationHandler for App {
             Ok(g) => {
                 self.gl = Some(g);
                 self.studio.editor.changed = true;
+                #[cfg(target_os = "macos")]
+                dock_icon();
             }
             Err(e) => {
                 eprintln!("gl: {e}");

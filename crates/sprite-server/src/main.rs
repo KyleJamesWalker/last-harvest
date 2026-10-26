@@ -67,6 +67,7 @@ fn handle(store: &FsStore, web: &Path, method: &Method, url: &str, body: &[u8]) 
                 Some("js") => "text/javascript",
                 Some("wasm") => "application/wasm",
                 Some("css") => "text/css",
+                Some("png") => "image/png",
                 _ => return text(404, "not found"),
             };
             match std::fs::read(web.join(file)) {
