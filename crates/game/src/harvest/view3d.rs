@@ -49,7 +49,8 @@ fn faces(art: Art, reach: Reach, top: Option<Art>) -> Cow<'static, [Face]> {
 /// How far inside the outline an extrusion's sides look for their color.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Reach {
-    /// One pixel: a character's top stays its hair rather than reaching the shirt or face below.
+    /// One pixel on top, so a character's top stays its hair rather than reaching the shirt or face below, and
+    /// none on its sides, which take the outline rather than the shirt just inside a thin one.
     Thin = 0,
     /// Three pixels: a building's side skips a thick dark border to show its planks.
     Deep = 1,
@@ -74,7 +75,11 @@ fn extrude(pixels: &[u8], rect: [u16; 4], reach: Reach, top: Option<[u16; 4]>) -
         pixels[i] as u32 + pixels[i + 1] as u32 + pixels[i + 2] as u32 <= 40
     };
     let inside = |x: i32, y: i32, dx: i32, dy: i32| {
-        let steps = if reach == Reach::Thin { 2 } else { 4 };
+        let steps = match reach {
+            Reach::Thin if dx != 0 => 1,
+            Reach::Thin => 2,
+            Reach::Deep => 4,
+        };
         (0..steps).map(|k| (x + dx * k, y + dy * k)).find(|&(ix, iy)| opaque(ix, iy) && !dark(ix, iy)).unwrap_or((x, y))
     };
     for x in 0..w {
@@ -681,6 +686,19 @@ mod tests {
         };
         assert_eq!(top_row(Reach::Thin), 0, "the hair itself");
         assert_eq!(top_row(Reach::Deep), 3, "past the hair to the shirt");
+    }
+
+    #[test]
+    fn a_thin_side_takes_the_outline_not_the_shirt_inside_it() {
+        // A row of a dark outline pixel then a white one, at the atlas's top-left.
+        let mut pixels = vec![0u8; ATLAS_W as usize * 4];
+        pixels[..8].copy_from_slice(&[10, 10, 10, 255, 250, 250, 250, 255]);
+        let left_col = |reach| {
+            let side = extrude(&pixels, [0, 0, 2, 1], reach, None).into_iter().find(|f| f.normal == [-1.0, 0.0, 0.0]).unwrap();
+            (side.uv[0] * ATLAS_W as f32) as usize
+        };
+        assert_eq!(left_col(Reach::Thin), 0, "the outline");
+        assert_eq!(left_col(Reach::Deep), 1, "past it to the white");
     }
 
     #[test]
