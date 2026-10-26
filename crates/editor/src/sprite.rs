@@ -81,9 +81,26 @@ pub struct Sprite {
     pub views: Option<[Frame; 2]>,
     /// Its outline from above, for carving, when the sprite's own outline isn't it.
     pub footprint: Option<Frame>,
+    /// One row whose colors cap a figure's columns in the 3D view; a clear pixel leaves that column's own.
+    pub top: Option<Frame>,
 }
 
 pub const FOOTPRINT_FILE: &str = "footprint.png";
+pub const TOP_FILE: &str = "top.png";
+
+/// A top strip as the 3D view colors a figure's top without one: each column's first solid pixel, or the one
+/// below it when that is outline-dark.
+pub fn top_strip(f: &Frame) -> Frame {
+    let mut strip = Frame::blank(f.w, 1);
+    let dark = |p: Rgba| p[0] as u32 + p[1] as u32 + p[2] as u32 <= 40;
+    for x in 0..f.w as i32 {
+        let Some(y) = (0..f.h as i32).find(|&y| f.get(x, y).is_some_and(|p| p[3] > 0)) else { continue };
+        let below = f.get(x, y + 1).filter(|p| p[3] > 0 && !dark(*p));
+        let edge = f.get(x, y).unwrap_or(CLEAR);
+        strip.set(x, 0, if dark(edge) { below.unwrap_or(edge) } else { edge });
+    }
+    strip
+}
 
 pub const VIEW_FILES: [&str; 2] = ["south.png", "east.png"];
 
@@ -205,7 +222,7 @@ impl Sprite {
             frames = arts.iter().map(|&a| Frame::from_art(a)).collect();
         }
         let views = png(VIEW_FILES[0]).zip(png(VIEW_FILES[1])).map(|(s, e)| [s, e]);
-        Some(Self { name: name.to_string(), frames, views, footprint: png(FOOTPRINT_FILE) })
+        Some(Self { name: name.to_string(), frames, views, footprint: png(FOOTPRINT_FILE), top: png(TOP_FILE) })
     }
 
     /// The files a save writes: the frames, then the views and the footprint when it has them.
@@ -213,7 +230,8 @@ impl Sprite {
         let frames = self.frames.iter().enumerate().map(|(i, f)| (format!("{i}.png"), f));
         let views = self.views.iter().flat_map(|v| VIEW_FILES.iter().zip(v).map(|(n, f)| (n.to_string(), f)));
         let footprint = self.footprint.iter().map(|f| (FOOTPRINT_FILE.to_string(), f));
-        frames.chain(views).chain(footprint).map(|(n, f)| (n, encode_png(f))).collect()
+        let top = self.top.iter().map(|f| (TOP_FILE.to_string(), f));
+        frames.chain(views).chain(footprint).chain(top).map(|(n, f)| (n, encode_png(f))).collect()
     }
 
     /// A sprite from the files `files` lists, which must hold at least one frame.
@@ -234,10 +252,12 @@ impl Sprite {
         while std::fs::remove_file(path.join(format!("{i}.png"))).is_ok() {
             i += 1;
         }
-        match &self.footprint {
-            Some(f) => write_png(&path.join(FOOTPRINT_FILE), f)?,
-            None => {
-                let _ = std::fs::remove_file(path.join(FOOTPRINT_FILE));
+        for (file, frame) in [(FOOTPRINT_FILE, &self.footprint), (TOP_FILE, &self.top)] {
+            match frame {
+                Some(f) => write_png(&path.join(file), f)?,
+                None => {
+                    let _ = std::fs::remove_file(path.join(file));
+                }
             }
         }
         for (k, file) in VIEW_FILES.iter().enumerate() {
@@ -441,7 +461,7 @@ mod tests {
     #[test]
     fn saves_and_loads_every_frame_and_drops_leftovers() {
         let dir = std::env::temp_dir().join(format!("lh-sprites-{}", std::process::id()));
-        let mut s = Sprite { name: "TEST_THING".into(), frames: vec![Frame::blank(3, 2), Frame::blank(3, 2), Frame::blank(3, 2)], views: None, footprint: None };
+        let mut s = Sprite { name: "TEST_THING".into(), frames: vec![Frame::blank(3, 2), Frame::blank(3, 2), Frame::blank(3, 2)], views: None, footprint: None, top: None };
         s.frames[1].set(2, 1, [200, 10, 10, 255]);
         s.save(&dir).unwrap();
         s.frames.truncate(2);
@@ -454,12 +474,12 @@ mod tests {
 
     #[test]
     fn a_sprites_files_bundle_and_come_back_whole() {
-        let mut s = Sprite { name: "THING".into(), frames: vec![Frame::blank(3, 2); 2], views: Some([Frame::blank(3, 4), Frame::blank(2, 4)]), footprint: None };
+        let mut s = Sprite { name: "THING".into(), frames: vec![Frame::blank(3, 2); 2], views: Some([Frame::blank(3, 4), Frame::blank(2, 4)]), footprint: None, top: Some(Frame::blank(3, 1)) };
         s.frames[1].set(1, 1, [1, 2, 3, 255]);
         let files = unbundle(&bundle(&s.files())).unwrap();
-        assert_eq!(files.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>(), ["0.png", "1.png", "south.png", "east.png"]);
+        assert_eq!(files.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>(), ["0.png", "1.png", "south.png", "east.png", "top.png"]);
         let back = Sprite::from_files("THING", &files).unwrap();
-        assert_eq!((back.frames, back.views, back.footprint), (s.frames, s.views, s.footprint));
+        assert_eq!((back.frames, back.views, back.footprint, back.top), (s.frames, s.views, s.footprint, s.top));
         assert!(Sprite::from_files("THING", &files[1..]).is_none(), "a frame at least");
         assert!(unbundle(b"0.png\n9\nshort").is_none());
     }

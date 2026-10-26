@@ -34,12 +34,16 @@ struct Face {
 }
 
 /// Front and back faces, then the side faces along every edge of the silhouette.
-fn faces(art: Art, reach: Reach) -> Cow<'static, [Face]> {
+/// `top` is a strip whose colors cap the sprite's columns; packed sprites carry their own, the editor's are passed in.
+fn faces(art: Art, reach: Reach, top: Option<Art>) -> Cow<'static, [Face]> {
     static ALL: [OnceLock<Vec<Vec<Face>>>; 2] = [OnceLock::new(), OnceLock::new()];
-    if art.is_live() {
-        return Cow::Owned(art::with_pixels(art, |pixels| extrude(pixels, art.rect(), reach)));
+    if art.is_live() || top != art.top() {
+        return Cow::Owned(art::with_pixels(art, |pixels| extrude(pixels, art.rect(), reach, top.map(Art::rect))));
     }
-    Cow::Borrowed(&ALL[reach as usize].get_or_init(|| (0..RECTS.len()).map(|i| extrude(PIXELS, Art(i as u16).rect(), reach)).collect())[art.0 as usize])
+    let all = ALL[reach as usize].get_or_init(|| {
+        (0..RECTS.len()).map(|i| extrude(PIXELS, Art(i as u16).rect(), reach, Art(i as u16).top().map(Art::rect))).collect()
+    });
+    Cow::Borrowed(&all[art.0 as usize])
 }
 
 /// How far inside the outline an extrusion's sides look for their color.
@@ -51,7 +55,7 @@ enum Reach {
     Deep = 1,
 }
 
-fn extrude(pixels: &[u8], rect: [u16; 4], reach: Reach) -> Vec<Face> {
+fn extrude(pixels: &[u8], rect: [u16; 4], reach: Reach, top: Option<[u16; 4]>) -> Vec<Face> {
     let [rx, ry, w, h] = rect.map(|v| v as i32);
     let opaque = |x: i32, y: i32| x >= 0 && y >= 0 && x < w && y < h && pixels[(((ry + y) * ATLAS_W as i32 + rx + x) * 4 + 3) as usize] > 0;
     let (aw, ah) = (ATLAS_W as f32, ATLAS_H as f32);
@@ -95,6 +99,12 @@ fn extrude(pixels: &[u8], rect: [u16; 4], reach: Reach) -> Vec<Face> {
             }
         }
     }
+    // A strip pixel the top of column `x` takes instead, where the strip has one.
+    let capped = |x: i32| {
+        let [tx, ty, tw, _] = top?.map(|v| v as i32);
+        let i = ((ty * ATLAS_W as i32 + tx + x) * 4 + 3) as usize;
+        (x < tw && pixels[i] > 0).then_some(((tx + x) as f32 + 0.5) / aw).map(|u| (u, (ty as f32 + 0.5) / ah))
+    };
     for y in 0..h {
         for (side, at, ny) in [(-1, y, 1.0), (1, y + 1, -1.0)] {
             let edge = |x: i32| opaque(x, y) && !opaque(x, y + side);
@@ -104,8 +114,18 @@ fn extrude(pixels: &[u8], rect: [u16; 4], reach: Reach) -> Vec<Face> {
                     x += 1;
                     continue;
                 }
+                if let Some((uc, vc)) = capped(x).filter(|_| side == -1) {
+                    let yf = at as f32;
+                    out.push(Face {
+                        corners: [[x as f32, yf, 1.0], [x as f32 + 1.0, yf, 1.0], [x as f32 + 1.0, yf, 0.0], [x as f32, yf, 0.0]],
+                        uv: [uc, vc, uc, vc],
+                        normal: [0.0, ny, 0.0],
+                    });
+                    x += 1;
+                    continue;
+                }
                 let (x0, row) = (x, inside(x, y, 0, -side).1);
-                while x < w && edge(x) && inside(x, y, 0, -side).1 == row {
+                while x < w && edge(x) && inside(x, y, 0, -side).1 == row && (side != -1 || capped(x).is_none()) {
                     x += 1;
                 }
                 let (yf, vc) = (at as f32, (ry as f32 + row as f32 + 0.5) / ah);
@@ -130,11 +150,12 @@ struct Pose {
     depth: f32,
     tint: [f32; 3],
     reach: Reach,
+    top: Option<Art>,
 }
 
 impl Pose {
     fn upright(origin: Vec3, right: Vec3, back: Vec3, depth: f32) -> Self {
-        Self { origin, right, up: Vec3::Y, back, depth, tint: [1.0; 3], reach: Reach::Deep }
+        Self { origin, right, up: Vec3::Y, back, depth, tint: [1.0; 3], reach: Reach::Deep, top: None }
     }
 }
 
@@ -142,9 +163,9 @@ impl Pose {
 /// Faces turned away from `eye` are left out: every extrusion is closed, so they would be hidden anyway,
 /// and alpha-tested fragments cost full price on the device's GPU.
 fn stand(out: &mut Vec<Card>, eye: Vec3, art: Art, flip: bool, pose: Pose, solid: bool) {
-    let Pose { origin, right, up, back, depth, tint, reach } = pose;
+    let Pose { origin, right, up, back, depth, tint, reach, top } = pose;
     let (w, h) = (art.w(), art.h());
-    let all = faces(art, reach);
+    let all = faces(art, reach, top);
     let used = if solid { &all[..] } else { &all[..2] };
     let (rn, un) = (right.normalize_or_zero(), up.normalize_or_zero());
     for f in used {
@@ -168,7 +189,7 @@ fn fixed(out: &mut Vec<Card>, eye: Vec3, a: Art, how: Stand, left: f32, base: f3
         Stand::Prop { depth } => stand(out, eye, a, false, Pose::upright(Vec3::new(left * PX, 0.0, base * PX), Vec3::X, -Vec3::Z, depth * PX), true),
         // The sprite is the roof, its top row to the north, and its edges run down to the ground.
         Stand::Slab { height } => {
-            let pose = Pose { origin: Vec3::new(left * PX, height * PX, base * PX), right: Vec3::X, up: -Vec3::Z, back: -Vec3::Y, depth: height * PX, tint: [1.0; 3], reach: Reach::Deep };
+            let pose = Pose { origin: Vec3::new(left * PX, height * PX, base * PX), right: Vec3::X, up: -Vec3::Z, back: -Vec3::Y, depth: height * PX, tint: [1.0; 3], reach: Reach::Deep, top: None };
             stand(out, eye, a, false, pose, true);
         }
         Stand::Ground => flat(out, a, left * PX, (base - a.h()) * PX, DECAL_LIFT + 0.006, [1.0; 3]),
@@ -304,11 +325,13 @@ struct Board {
     /// Tips the top of the sprite this way, in world units per unit of height.
     lean: Vec3,
     tint: [f32; 3],
+    /// The strip capping its columns' tops, if it has one.
+    top: Option<Art>,
 }
 
 impl Board {
     fn new(art: Art, flip: bool, at: [f32; 2], lift: f32, depth: f32) -> Self {
-        Self { art, flip, at, lift, depth, scale: [1.0; 2], lean: Vec3::ZERO, tint: [1.0; 3] }
+        Self { art, flip, at, lift, depth, scale: [1.0; 2], lean: Vec3::ZERO, tint: [1.0; 3], top: art.top() }
     }
 }
 
@@ -408,7 +431,7 @@ pub fn scene(h: &Harvest) -> CardScene {
             let r = right * b.scale[0];
             let origin = q - r * (b.art.w() * PX / 2.0) - forward * (b.depth / 2.0) + Vec3::Y * b.lift;
             let up = (Vec3::Y + b.lean) * b.scale[1];
-            stand(cards, eye, b.art, b.flip, Pose { origin, right: r, up, back: forward, depth: b.depth, tint: b.tint, reach: Reach::Thin }, b.depth > 0.0);
+            stand(cards, eye, b.art, b.flip, Pose { origin, right: r, up, back: forward, depth: b.depth, tint: b.tint, reach: Reach::Thin, top: b.top }, b.depth > 0.0);
         }
     };
     // A full horde swarming the player would bury the GPU; the farthest are lost in the fog anyway.
@@ -438,7 +461,7 @@ pub fn scene(h: &Harvest) -> CardScene {
     let (a, rise) = player_pose(h, facing);
     board(&mut cards, Board::new(a, flip, h.pos, -(1.0 - rise) * a.h() * PX, CHARACTER_DEPTH));
     if let Some(s) = h.shown.as_ref().filter(|s| s.stand == Stand::Figure && !s.frames.is_empty()) {
-        board(&mut cards, Board::new(s.frame(h.t), false, s.pos, 0.0, CHARACTER_DEPTH));
+        board(&mut cards, Board { top: s.top, ..Board::new(s.frame(h.t), false, s.pos, 0.0, CHARACTER_DEPTH) });
     }
     for (a, at) in figures {
         board(&mut cards, Board::new(a, false, at, 0.0, CHARACTER_DEPTH));
@@ -534,7 +557,7 @@ pub fn scene(h: &Harvest) -> CardScene {
         let back = up.cross(side);
         let lift = c.z * PX + 0.04 - c.sunk() * PX;
         let origin = q - side * (c.art.w() * PX / 2.0) + Vec3::Y * lift;
-        stand(&mut cards, eye, c.art, c.flip, Pose { origin, right: side, up, back, depth: PX, tint: [0.8; 3], reach: Reach::Thin }, false);
+        stand(&mut cards, eye, c.art, c.flip, Pose { origin, right: side, up, back, depth: PX, tint: [0.8; 3], reach: Reach::Thin, top: None }, false);
     }
     for b in &h.birds {
         let mut board_b = Board::new(b.art(), b.flip, b.pos, b.z * PX, 0.0);
@@ -653,7 +676,7 @@ mod tests {
             pixels[y * ATLAS_W as usize * 4..][..4].copy_from_slice(&[rgb, rgb, rgb, 255]);
         }
         let top_row = |reach| {
-            let top = extrude(&pixels, [0, 0, 1, 4], reach).into_iter().find(|f| f.normal == [0.0, 1.0, 0.0]).unwrap();
+            let top = extrude(&pixels, [0, 0, 1, 4], reach, None).into_iter().find(|f| f.normal == [0.0, 1.0, 0.0]).unwrap();
             (top.uv[1] * ATLAS_H as f32) as usize
         };
         assert_eq!(top_row(Reach::Thin), 0, "the hair itself");
@@ -661,10 +684,26 @@ mod tests {
     }
 
     #[test]
+    fn a_top_strip_colors_its_columns_and_a_clear_pixel_leaves_the_rest() {
+        // Two dark columns at the atlas's top-left, and a strip below them: red over the first, clear over the second.
+        let row = ATLAS_W as usize * 4;
+        let mut pixels = vec![0u8; row * 4];
+        for x in 0..2 {
+            pixels[x * 4..x * 4 + 4].copy_from_slice(&[10, 10, 10, 255]);
+        }
+        pixels[row * 3..row * 3 + 4].copy_from_slice(&[200, 0, 0, 255]);
+        let tops: Vec<Face> = extrude(&pixels, [0, 0, 2, 1], Reach::Thin, Some([0, 3, 2, 1])).into_iter().filter(|f| f.normal == [0.0, 1.0, 0.0]).collect();
+        let at = |f: &Face| ((f.uv[0] * ATLAS_W as f32) as usize, (f.uv[1] * ATLAS_H as f32) as usize);
+        assert_eq!(tops.len(), 2);
+        assert_eq!(at(&tops[0]), (0, 3), "the strip's red caps the first column");
+        assert_eq!(at(&tops[1]).1, 0, "the second keeps its own color");
+    }
+
+    #[test]
     fn every_sprite_extrudes_to_a_closed_front_and_back() {
         for (name, frames) in art::ALL {
             for &a in *frames {
-                let f = faces(a, Reach::Deep);
+                let f = faces(a, Reach::Deep, a.top());
                 assert!(f.len() >= 2, "{name}");
                 assert!(f.iter().all(|f| f.uv.iter().all(|v| (0.0..=1.0).contains(v))), "{name}: uv out of range");
             }

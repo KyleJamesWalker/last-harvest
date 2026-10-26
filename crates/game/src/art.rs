@@ -58,6 +58,11 @@ impl Art {
         STANDS.get(self.0 as usize).copied().flatten()
     }
 
+    /// The top strip drawn for this sprite in the editor: one row whose colors cap its columns in the 3D view.
+    pub fn top(self) -> Option<Art> {
+        TOPS.get(self.0 as usize).copied().flatten()
+    }
+
     /// Whether the editor added this sprite while running.
     pub fn is_live(self) -> bool {
         self.0 as usize >= RECTS.len()

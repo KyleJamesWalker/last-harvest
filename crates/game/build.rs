@@ -260,6 +260,8 @@ fn main() {
     let mut entries: Vec<(String, Vec<usize>)> = Vec::new();
     // How each entry stands in the 3D view, when the catalog or the editor says.
     let mut stands: Vec<(String, String)> = Vec::new();
+    // A figure's top strip from the editor, by entry name and its image.
+    let mut tops: Vec<(String, usize)> = Vec::new();
     let mut images: Vec<Image> = Vec::new();
     let mut seen: HashMap<Vec<u8>, usize> = HashMap::new();
     let mut intern = |img: Image| {
@@ -281,6 +283,9 @@ fn main() {
             stands.push((name.to_string(), code));
         }
         // A sprite saved from the editor takes the place of its cut from the sheet.
+        if let Ok(top) = decode(&sprites.join(name).join("top.png")) {
+            tops.push((name.to_string(), intern(top)));
+        }
         let drawn = saved(&sprites.join(name));
         let frames = if drawn.is_empty() { rest.split(';').flat_map(|frame| cut(&sheet, &manifest, frame.trim(), i + 1)).collect() } else { drawn };
         entries.push((name.to_string(), frames.into_iter().map(&mut intern).collect()));
@@ -299,6 +304,9 @@ fn main() {
         if let Ok(how) = std::fs::read_to_string(sprites.join(&name).join("stand.txt")) {
             let code = stand_for(how.trim(), &sprites.join(&name), &mut intern, 0);
             stands.push((name.clone(), code));
+        }
+        if let Ok(top) = decode(&sprites.join(&name).join("top.png")) {
+            tops.push((name.clone(), intern(top)));
         }
         if !frames.is_empty() {
             entries.push((name, frames.into_iter().map(&mut intern).collect()));
@@ -355,6 +363,15 @@ fn main() {
         }
     }
     writeln!(src, "pub(crate) static STANDS: [Option<Stand>; {}] = [{}];", by_image.len(), by_image.join(", ")).unwrap();
+    let mut top_of = vec!["None".to_string(); images.len()];
+    for (name, top) in &tops {
+        if let Some((_, ids)) = entries.iter().find(|(n, _)| n == name) {
+            for &id in ids {
+                top_of[id] = format!("Some(Art({top}))");
+            }
+        }
+    }
+    writeln!(src, "pub(crate) static TOPS: [Option<Art>; {}] = [{}];", top_of.len(), top_of.join(", ")).unwrap();
     writeln!(src, "/// Every catalog entry with its frames, for the art gallery.\npub static ALL: &[(&str, &[Art])] = &[{}];", names.join(", ")).unwrap();
     std::fs::write(out.join("art_gen.rs"), src).unwrap();
 }

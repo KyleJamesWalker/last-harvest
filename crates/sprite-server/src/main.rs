@@ -150,7 +150,7 @@ mod tests {
     fn saves_and_reads_back_a_sprite_the_way_the_editor_does() {
         let s = store("save");
         let web = Path::new("/nonexistent");
-        let mut sprite = Sprite { name: "BARREL".into(), frames: vec![Frame::blank(4, 3); 3], views: None, footprint: None };
+        let mut sprite = Sprite { name: "BARREL".into(), frames: vec![Frame::blank(4, 3); 3], views: None, footprint: None, top: None };
         sprite.frames[2].set(1, 1, [9, 8, 7, 255]);
         assert_eq!(handle(&s, web, &Method::Put, "/api/sprite/BARREL", &bundle(&sprite.files())).0, 200);
         sprite.frames.truncate(2);

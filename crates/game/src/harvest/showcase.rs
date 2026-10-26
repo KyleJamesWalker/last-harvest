@@ -13,6 +13,8 @@ pub(super) struct Shown {
     pub stand: Stand,
     pub fps: f32,
     pub pos: [f32; 2],
+    /// The strip capping a figure's top, from the editor.
+    pub top: Option<Art>,
 }
 
 impl Shown {
@@ -30,16 +32,17 @@ impl Showcase {
         let mut harvest = Harvest::calm(seed);
         harvest.birds.clear();
         let pos = [harvest.map.spawn[0], harvest.map.spawn[1] - 3.0 * TILE];
-        harvest.shown = Some(Shown { frames: Vec::new(), stand: Stand::Figure, fps: 6.0, pos });
+        harvest.shown = Some(Shown { frames: Vec::new(), stand: Stand::Figure, fps: 6.0, pos, top: None });
         Self { harvest }
     }
 
-    /// Shows `frames`, animated at `fps`, standing as `stand`.
-    pub fn show(&mut self, frames: Vec<Art>, stand: Stand, fps: f32) {
+    /// Shows `frames`, animated at `fps`, standing as `stand`, with `top` capping a figure.
+    pub fn show(&mut self, frames: Vec<Art>, stand: Stand, fps: f32, top: Option<Art>) {
         if let Some(s) = &mut self.harvest.shown {
             s.frames = frames;
             s.stand = stand;
             s.fps = fps;
+            s.top = top;
         }
     }
 

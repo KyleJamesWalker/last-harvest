@@ -22,9 +22,18 @@ const ONION: f32 = 0.3;
 const MAX_SIZE: usize = 128;
 const STANDS: [&str; 5] = ["Prop", "Slab", "Figure", "Ground", "Carve"];
 const CARVE: u8 = 4;
-const VIEW_NAMES: [&str; 3] = ["South view", "East view", "Footprint"];
-const VIEW_HINTS: [&str; 3] = ["the sprite seen from the south: west on the left", "the sprite seen from the east: south on the left", "the outline from above: only opaque or clear counts"];
+const VIEW_NAMES: [&str; 4] = ["South view", "East view", "Footprint", "Top"];
+const VIEW_HINTS: [&str; 4] = [
+    "the sprite seen from the south: west on the left",
+    "the sprite seen from the east: south on the left",
+    "the outline from above: only opaque or clear counts",
+    "each column's color on top in 3D; clear leaves its own",
+];
 const FOOTPRINT: usize = 2;
+/// The view that is a figure's top strip.
+const TOP: usize = 3;
+/// How a sprite stands, by its button: prop, slab, figure, ground, carve.
+const FIGURE: u8 = 2;
 const DIALOG: Rect = Rect { x: 212.0, y: 250.0, w: 600.0, h: 230.0 };
 /// The unsaved-changes dialog's choices: save then switch, discard then switch, or stay.
 const CHOICES: [(&str, Choice); 3] = [("Save and switch  S", Choice::Save), ("Discard  D", Choice::Discard), ("Stay  Esc", Choice::Stay)];
@@ -110,6 +119,7 @@ enum Action {
     Frame(usize),
     View(usize),
     AddFootprint,
+    AddTop,
     History,
     Restore,
     Back,
@@ -177,7 +187,7 @@ const RESTORE: Rect = Rect { x: LIST.x + 8.0, y: LIST.y + LIST.h - 44.0, w: 88.0
 const BACK: Rect = Rect { x: LIST.x + 104.0, y: LIST.y + LIST.h - 44.0, w: 88.0, h: 36.0 };
 
 /// Everything an undo puts back: the frames, the carving views and the footprint.
-type Snapshot = (Vec<Frame>, Option<[Frame; 2]>, Option<Frame>);
+type Snapshot = (Vec<Frame>, Option<[Frame; 2]>, Option<Frame>, Option<Frame>);
 
 /// A line of the sprite list.
 enum Row<'a> {
@@ -254,7 +264,7 @@ pub struct Editor {
 
 impl Editor {
     pub fn new(store: Box<dyn Store>, name: &str) -> Self {
-        let sprite = store.load(name).unwrap_or(Sprite { name: name.into(), frames: vec![Frame::blank(16, 16)], views: None, footprint: None });
+        let sprite = store.load(name).unwrap_or(Sprite { name: name.into(), frames: vec![Frame::blank(16, 16)], views: None, footprint: None, top: None });
         let names = store.names();
         let mut e = Self {
             store,
@@ -332,9 +342,10 @@ impl Editor {
     pub fn surfaces(&self) -> Vec<Frame> {
         let carving = self.stand == CARVE && self.sprite.views.is_some();
         let views = self.sprite.views.iter().flatten().chain(&self.sprite.footprint).filter(|_| carving);
-        let mut out: Vec<Frame> = self.sprite.frames.iter().chain(views).cloned().collect();
+        let top = self.sprite.top.iter().filter(|_| self.stand == FIGURE);
+        let mut out: Vec<Frame> = self.sprite.frames.iter().chain(views).chain(top).cloned().collect();
         if let Some(Selection { x, y, float: Some(f), .. }) = &self.selection {
-            let i = self.view.map_or(self.frame, |v| self.sprite.frames.len() + v);
+            let i = self.view.map_or(self.frame, |v| self.surface_of(v));
             if let Some(target) = out.get_mut(i) {
                 stamp(target, f, *x, *y);
             }
@@ -342,9 +353,22 @@ impl Editor {
         out
     }
 
+    /// Where a view's drawing sits among `surfaces`: the carving views and footprint follow the frames, and a
+    /// figure's top strip follows them.
+    fn surface_of(&self, view: usize) -> usize {
+        let n = self.sprite.frames.len();
+        if view == TOP { n } else { n + view }
+    }
+
     /// The frames to show in the previews: all of them while playing, else the one being edited.
     pub fn shown(&self) -> Vec<Art> {
-        if self.playing { self.live.clone() } else { self.live.get(self.frame).copied().into_iter().collect() }
+        let n = self.sprite.frames.len().min(self.live.len());
+        if self.playing { self.live[..n].to_vec() } else { self.live.get(self.frame).copied().into_iter().collect() }
+    }
+
+    /// The top strip in the previews, for a figure that has one.
+    pub fn top_art(&self) -> Option<Art> {
+        self.sprite.top.as_ref().filter(|_| self.stand == FIGURE).and_then(|_| self.live.get(self.surface_of(TOP)).copied())
     }
 
     pub fn set_live(&mut self, live: Vec<Art>) {
@@ -362,6 +386,7 @@ impl Editor {
     /// What the canvas shows: a frame, or a carving view.
     fn current(&self) -> &Frame {
         match (self.view, &self.sprite.views, &self.sprite.footprint) {
+            (Some(TOP), _, _) if self.sprite.top.is_some() => self.sprite.top.as_ref().unwrap(),
             (Some(FOOTPRINT), _, Some(f)) => f,
             (Some(v), Some(views), _) if v < 2 => &views[v],
             _ => &self.sprite.frames[self.frame],
@@ -369,6 +394,9 @@ impl Editor {
     }
 
     fn current_mut(&mut self) -> &mut Frame {
+        if let (Some(TOP), Some(t)) = (self.view, &mut self.sprite.top) {
+            return t;
+        }
         match (self.view, &mut self.sprite.views, &mut self.sprite.footprint) {
             (Some(FOOTPRINT), _, Some(f)) => f,
             (Some(v), Some(views), _) if v < 2 => &mut views[v],
@@ -377,7 +405,7 @@ impl Editor {
     }
 
     fn snapshot(&self) -> Snapshot {
-        (self.sprite.frames.clone(), self.sprite.views.clone(), self.sprite.footprint.clone())
+        (self.sprite.frames.clone(), self.sprite.views.clone(), self.sprite.footprint.clone(), self.sprite.top.clone())
     }
 
     /// The carving height, which is how tall the views are.
@@ -639,6 +667,10 @@ impl Editor {
         }
         let after = CANVAS.x + shown as f32 * (THUMB + 6.0);
         push(after, 622.0, 44.0, THUMB, Action::AddFrame, "+", false);
+        if self.stand == FIGURE {
+            let action = if self.sprite.top.is_some() { Action::View(TOP) } else { Action::AddTop };
+            push(after + 56.0, 622.0, THUMB, THUMB, action, "", self.view == Some(TOP));
+        }
         if carving {
             for v in 0..2 {
                 push(after + 56.0 + v as f32 * (THUMB + 6.0), 622.0, THUMB, THUMB, Action::View(v), "", self.view == Some(v));
@@ -1000,6 +1032,12 @@ impl Editor {
                 self.sprite.frames.insert(self.frame + 1, copy);
                 self.frame += 1;
             }
+            Action::DeleteFrame if self.view == Some(TOP) => {
+                self.remember();
+                self.sprite.top = None;
+                self.view = None;
+                self.say("Top removed: the 3D view picks the top colors itself again");
+            }
             Action::DeleteFrame if self.view == Some(FOOTPRINT) => {
                 self.remember();
                 self.sprite.footprint = None;
@@ -1032,6 +1070,13 @@ impl Editor {
             Action::History => self.open_history(),
             Action::Restore => self.restore_version(),
             Action::Back => self.leave_history(),
+            Action::AddTop => {
+                self.deselect();
+                self.remember();
+                self.sprite.top = Some(sprite::top_strip(&self.sprite.frames[self.frame]));
+                self.view = Some(TOP);
+                self.say("Paint each column's top color for 3D");
+            }
             Action::AddFootprint => {
                 self.deselect();
                 self.remember();
@@ -1050,6 +1095,7 @@ impl Editor {
                 self.changed = true;
             }
             Action::Width(_) if self.view.is_some() => self.say("A view is as wide as the sprite: resize the frames instead"),
+            Action::Height(_) if self.view == Some(TOP) => self.say("The top is one row: resize the frames instead"),
             Action::Height(_) if self.view == Some(FOOTPRINT) => self.say("The footprint is the sprite's size: resize the frames instead"),
             Action::Height(d) if self.view.is_some() => self.resize_views(self.view_height() as i32 + d * step),
             Action::Width(d) | Action::Height(d) => {
@@ -1069,6 +1115,9 @@ impl Editor {
                 }
                 if let Some(f) = &mut self.sprite.footprint {
                     *f = f.resized(w, h);
+                }
+                if let Some(t) = &mut self.sprite.top {
+                    *t = t.resized(w, 1);
                 }
             }
             Action::Stand(s) => {
@@ -1160,7 +1209,7 @@ impl Editor {
     fn restore_version(&mut self) {
         let Some(b) = self.browse.take() else { return };
         let before = b.before.sprite;
-        self.undo.push((before.frames, before.views, before.footprint));
+        self.undo.push((before.frames, before.views, before.footprint, before.top));
         self.redo.clear();
         self.dirty = true;
         self.stand_touched = true;
@@ -1383,8 +1432,8 @@ impl Editor {
                         self.say(format!("{name} already exists"));
                     } else {
                         self.ask = None;
-                        let (frames, views, footprint) = if kind == Ask::Copy { self.snapshot() } else { (vec![Frame::blank(16, 16)], None, None) };
-                        self.sprite = Sprite { name: name.clone(), frames, views, footprint };
+                        let (frames, views, footprint, top) = if kind == Ask::Copy { self.snapshot() } else { (vec![Frame::blank(16, 16)], None, None, None) };
+                        self.sprite = Sprite { name: name.clone(), frames, views, footprint, top };
                         self.fit();
                         self.view = None;
                         self.frame = 0;
@@ -1458,7 +1507,7 @@ impl Editor {
                 self.trimmed = Default::default();
                 if let Some(prev) = self.undo.pop() {
                     let now = self.snapshot();
-                    (self.sprite.frames, self.sprite.views, self.sprite.footprint) = prev;
+                    (self.sprite.frames, self.sprite.views, self.sprite.footprint, self.sprite.top) = prev;
                     self.redo.push(now);
                     self.frame = self.frame.min(self.sprite.frames.len() - 1);
                     self.changed = true;
@@ -1470,7 +1519,7 @@ impl Editor {
                 self.trimmed = Default::default();
                 if let Some(next) = self.redo.pop() {
                     let now = self.snapshot();
-                    (self.sprite.frames, self.sprite.views, self.sprite.footprint) = next;
+                    (self.sprite.frames, self.sprite.views, self.sprite.footprint, self.sprite.top) = next;
                     self.undo.push(now);
                     self.frame = self.frame.min(self.sprite.frames.len() - 1);
                     self.changed = true;
@@ -1565,13 +1614,14 @@ impl Editor {
             }
             let thumb = match b.action {
                 Action::Frame(i) => Some((i, None)),
-                Action::View(v) => Some((self.sprite.frames.len() + v, Some(["South", "East", "Footprint"][v]))),
+                Action::View(v) => Some((self.surface_of(v), Some(["South", "East", "Footprint", "Top"][v]))),
                 _ => None,
             };
-            if b.action == Action::AddFootprint {
+            if matches!(b.action, Action::AddFootprint | Action::AddTop) {
                 c.rect(r.x, r.y, r.w, r.h, BUTTON);
                 c.label("+", r.x + r.w / 2.0, r.y + 6.0, 30.0, TEXT, Align::Center);
-                c.label("Footprint", r.x + r.w / 2.0, r.y + r.h - 18.0, 13.0, DIM, Align::Center);
+                let label = if b.action == Action::AddTop { "Top" } else { "Footprint" };
+                c.label(label, r.x + r.w / 2.0, r.y + r.h - 18.0, 13.0, DIM, Align::Center);
                 continue;
             }
             if let Some((i, label)) = thumb {
@@ -2123,6 +2173,33 @@ mod tests {
         assert!(std::ptr::eq(e.onion_frame().unwrap(), &e.sprite.frames[2]));
         e.act(Action::Frame(2), false);
         assert!(std::ptr::eq(e.onion_frame().unwrap(), &e.sprite.frames[1]));
+    }
+
+    #[test]
+    fn a_figure_gets_a_top_strip_that_starts_as_the_3d_view_would_color_it() {
+        let mut e = editor();
+        let mut f = Frame::blank(3, 4);
+        for (x, y, p) in [(0, 0, [10, 10, 10, 255]), (0, 1, [250, 250, 250, 255]), (1, 1, [10, 10, 10, 255]), (1, 2, [10, 10, 10, 255])] {
+            f.set(x, y, p);
+        }
+        e.sprite.frames = vec![f];
+        e.act(Action::Stand(FIGURE), false);
+        assert!(e.buttons().iter().any(|b| b.action == Action::AddTop));
+        e.act(Action::AddTop, false);
+        e.draw(&mut Canvas::default());
+        let top = e.sprite.top.clone().unwrap();
+        assert_eq!((top.w, top.h, e.view), (3, 1, Some(TOP)));
+        assert_eq!(top.get(0, 0), Some([250, 250, 250, 255]), "past a one-pixel outline");
+        assert_eq!(top.get(1, 0), Some([10, 10, 10, 255]), "dark all the way down stays dark");
+        assert_eq!(top.get(2, 0), Some(CLEAR), "an empty column leaves the 3D view's own");
+        e.act(Action::Width(1), false);
+        assert_eq!(e.view, Some(TOP), "a view can't be resized");
+        e.act(Action::Frame(0), false);
+        e.act(Action::Width(1), false);
+        assert_eq!(e.sprite.top.as_ref().unwrap().w, 4, "it follows the frames' width");
+        e.act(Action::View(TOP), false);
+        e.act(Action::DeleteFrame, false);
+        assert!(e.sprite.top.is_none() && e.view.is_none());
     }
 
     #[test]

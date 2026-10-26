@@ -75,7 +75,7 @@ impl Studio {
         if packed {
             self.pack();
         }
-        self.showcase.show(self.editor.shown(), self.editor.stand(), self.editor.fps);
+        self.showcase.show(self.editor.shown(), self.editor.stand(), self.editor.fps, self.editor.top_art());
         self.showcase.update(dt, self.yaw, self.distance);
         packed.then_some(&self.atlas[..])
     }
