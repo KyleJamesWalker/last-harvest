@@ -52,6 +52,8 @@ struct Web {
     pointer: [f32; 2],
     /// The toolbar's Shift, standing in for the key until tapped again.
     shift: bool,
+    /// Fingers on the corner Shift pads, by pad and pointer, which hold Shift down while they stay.
+    holding: Vec<(usize, i32)>,
     i_held: bool,
     title: String,
 }
@@ -116,7 +118,7 @@ impl Web {
     /// Hands a press at `at` to the studio.
     fn begin(&mut self, id: i32, at: [f32; 2]) {
         let (pane, p) = self.locate(at);
-        self.studio.press(pane, p, false, self.shift);
+        self.studio.press(pane, p, false, self.shifted());
         self.pointer = at;
         self.gesture = Gesture::Held { id };
     }
@@ -141,7 +143,7 @@ impl Web {
             // A pen or mouse takes over from any finger, such as a palm resting on the screen.
             self.cancel_touches();
             let (pane, at) = self.locate(p);
-            self.studio.press(pane, at, e.button() == 2, self.shift);
+            self.studio.press(pane, at, e.button() == 2, self.shifted());
             self.pointer = p;
             self.gesture = Gesture::Held { id };
             return;
@@ -264,7 +266,7 @@ impl Web {
     }
 
     fn press_key(&mut self, k: Key, shift: bool) {
-        self.studio.editor.nudge = if shift || self.shift { 8 } else { 1 };
+        self.studio.editor.nudge = if shift || self.shifted() { 8 } else { 1 };
         self.studio.editor.key(k);
         self.sync_text(true);
     }
@@ -308,6 +310,22 @@ impl Web {
         };
         self.press_key(k, e.shift_key());
         true
+    }
+
+    /// Whether Shift is down: the toolbar's toggle, or a finger on a corner pad.
+    fn shifted(&self) -> bool {
+        self.shift || !self.holding.is_empty()
+    }
+
+    /// A finger landing on (`down`) or leaving corner pad `pad`.
+    fn hold(&mut self, pad: usize, id: i32, down: bool) {
+        self.holding.retain(|&(p, i)| !(p == pad && i == id));
+        if down {
+            self.holding.push((pad, id));
+        }
+        if let Some(el) = self.document.get_element_by_id(HOLD_PADS[pad]) {
+            let _ = el.class_list().toggle_with_force("on", self.holding.iter().any(|&(p, _)| p == pad));
+        }
     }
 
     /// A toolbar button, by its `data-act`.
@@ -380,6 +398,9 @@ impl Web {
 
 type Frame = Closure<dyn FnMut()>;
 
+/// The corner pads a finger holds to keep Shift down while the pencil draws, for either hand.
+const HOLD_PADS: [&str; 2] = ["hold-left", "hold-right"];
+
 /// Calls `f` with the page's state on each `kind` event at `target`, which may cancel it.
 fn listen<E: JsCast + 'static>(target: &EventTarget, kind: &str, web: &Rc<RefCell<Web>>, f: impl Fn(&mut Web, &E) + 'static) {
     let web = web.clone();
@@ -404,6 +425,7 @@ fn start() -> Result<(), String> {
     let canvas: HtmlCanvasElement = element(&document, "panes")?;
     let input: HtmlInputElement = element(&document, "text")?;
     let toolbar: Element = element(&document, "toolbar")?;
+    let pads: Vec<Element> = HOLD_PADS.iter().map(|id| element(&document, id)).collect::<Result<_, _>>()?;
     let options = js_sys::Object::new();
     for (k, v) in [("antialias", true), ("alpha", false), ("depth", true)] {
         js_sys::Reflect::set(&options, &k.into(), &v.into()).map_err(|e| format!("{e:?}"))?;
@@ -430,6 +452,7 @@ fn start() -> Result<(), String> {
         spread: ([0.0; 2], 1.0),
         pointer: [0.0; 2],
         shift: false,
+        holding: Vec::new(),
         i_held: false,
         title: String::new(),
     }));
@@ -460,6 +483,17 @@ fn start() -> Result<(), String> {
         w.key(e, false);
     });
     // Safari sends no click for a tap that moved while touchmove is cancelled, so buttons act on pointerup.
+    for (pad, el) in pads.iter().enumerate() {
+        let target = el.clone();
+        listen(el, "pointerdown", &web, move |w, e: &PointerEvent| {
+            e.prevent_default();
+            let _ = target.set_pointer_capture(e.pointer_id());
+            w.hold(pad, e.pointer_id(), true);
+        });
+        for kind in ["pointerup", "pointercancel"] {
+            listen(el, kind, &web, move |w, e: &PointerEvent| w.hold(pad, e.pointer_id(), false));
+        }
+    }
     listen(&toolbar, "pointerup", &web, |w, e: &PointerEvent| {
         let act_at = |t: Option<Element>| t.and_then(|t| t.closest("[data-act]").ok().flatten()).and_then(|b| b.get_attribute("data-act"));
         let pressed = act_at(e.target().and_then(|t| t.dyn_into::<Element>().ok()));

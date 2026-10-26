@@ -26,6 +26,12 @@
           font-size: 24px; padding: 0 14px; border: 3px solid #f2bf4d; border-radius: 8px; background: #19191e; color: #f2bf4d;
           text-transform: uppercase; }
   #text[hidden] { display: none; }
+  .hold { position: fixed; bottom: calc(10px + env(safe-area-inset-bottom)); width: 90px; height: 90px; border-radius: 45px;
+          display: flex; align-items: center; justify-content: center; background: #3d3d47; color: #ebebf2; font-size: 20px;
+          opacity: 0.8; touch-action: none; }
+  #hold-left { left: 10px; }
+  #hold-right { right: 10px; }
+  .hold.on { background: #f2bf4d; color: #19191e; opacity: 1; }
   .failure { position: absolute; z-index: 1; margin: 12px; padding: 12px; background: #5a1e1e; color: #fff; white-space: pre-wrap; }
 </style>
 </head>
@@ -41,6 +47,8 @@
   <div class="group"><span>Frame</span><button data-act="prev-frame">&#8592; H</button><button data-act="next-frame">&#8594; L</button></div>
   <div class="group"><button data-act="search">Search</button><button data-act="history">History</button><button data-act="new">New</button><button data-act="play">Play</button><button data-act="mirror">Mirror</button><button data-act="fit">Fit</button><button data-act="save" class="save">Save</button></div>
 </div>
+<div id="hold-left" class="hold">Shift</div>
+<div id="hold-right" class="hold">Shift</div>
 <script type="module">
   import init from "./sprite-editor.js";
   init();
