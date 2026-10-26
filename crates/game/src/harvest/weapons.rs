@@ -19,6 +19,9 @@ const BURN_TICK: f32 = 0.3;
 pub(super) const BOLT_LIFE: f32 = 0.18;
 const PECK_REACH: f32 = 7.0;
 const BITE_REACH: f32 = 7.0;
+/// A dog with nothing to chase sprints back once this far from the player, and trots again inside `DOG_STRAY / 2`.
+const DOG_STRAY: f32 = 48.0;
+const DOG_TROT: f32 = 0.45;
 const BOMBLET_RADIUS: f32 = 18.0;
 /// The pistol turns on anything this close, whichever way the player faces.
 const POINT_BLANK: f32 = 70.0;
@@ -242,6 +245,12 @@ pub(super) struct Dog {
     pub anim: f32,
     cd: f32,
     target: Option<u32>,
+    vel: [f32; 2],
+    /// Where it means to wander, from the player.
+    spot: [f32; 2],
+    /// Seconds until it picks a new spot.
+    rest: f32,
+    catching_up: bool,
 }
 
 impl Dog {
@@ -604,13 +613,13 @@ impl Harvest {
         true
     }
 
-    /// Dogs run down the zombie nearest the player within their leash, bite, and come back to heel.
+    /// Dogs run down the zombie nearest the player within their leash and bite; with nothing to chase they wander near the player.
     fn walk_dogs(&mut self, dt: f32, sounds: &mut Vec<Sfx>) {
         let want: Vec<(usize, usize)> = self.kit.weapons.iter().filter(|a| a.does() == Does::Dog).flat_map(|&a| (0..self.stat(a, Stat::Count).max(1.0) as usize).map(move |s| (a.def, s))).collect();
         self.dogs.retain(|d| want.contains(&(d.def, d.slot)));
         for (def, slot) in want {
             if !self.dogs.iter().any(|d| d.def == def && d.slot == slot) {
-                self.dogs.push(Dog { def, slot, pos: self.pos, heading: [1.0, 0.0], anim: 0.0, cd: 0.0, target: None });
+                self.dogs.push(Dog { def, slot, pos: self.pos, heading: [1.0, 0.0], anim: 0.0, cd: 0.0, target: None, vel: [0.0; 2], spot: [0.0; 2], rest: 0.0, catching_up: false });
             }
         }
         let crit = self.crit();
@@ -623,21 +632,34 @@ impl Harvest {
             let near_player = |z: &Zombie| z.rise >= 1.0 && len(sub(z.pos, self.pos)) < leash;
             let held = dog.target.and_then(|id| self.zombies.iter().position(|z| z.id == id && near_player(z)));
             let target = held.or_else(|| self.zombies.iter().enumerate().filter(|(_, z)| near_player(z)).min_by(|a, b| len(sub(a.1.pos, dog.pos)).total_cmp(&len(sub(b.1.pos, dog.pos)))).map(|(i, _)| i));
-            let side = if dog.slot.is_multiple_of(2) { 1.0 } else { -1.0 };
-            let heel = polar(self.pos, self.view_yaw + side * PI * (0.35 + 0.1 * (dog.slot / 2) as f32), 14.0);
-            let goal = target.map_or(heel, |t| self.zombies[t].pos);
-            let to = sub(goal, dog.pos);
+            let (player, yaw) = (self.pos, self.view_yaw);
+            let away = len(sub(player, dog.pos));
+            let goal = target.map(|t| self.zombies[t].pos);
             let dog = &mut self.dogs[i];
             dog.cd -= dt;
+            dog.rest -= dt;
             dog.target = target.map(|t| self.zombies[t].id);
-            if target.is_none() && len(to) < 4.0 {
-                continue;
+            dog.catching_up = target.is_none() && (away > DOG_STRAY || (dog.catching_up && away > DOG_STRAY / 2.0));
+            if dog.rest <= 0.0 {
+                let rng = &mut self.juice.rng;
+                dog.spot = polar([0.0; 2], yaw + rng.range(-0.55, 0.55) * PI, rng.range(14.0, 32.0));
+                dog.rest = rng.range(1.5, 4.0);
             }
-            let step = (speed * dt).min((len(to) - if target.is_some() { BITE_REACH * 0.6 } else { 0.0 }).max(0.0));
+            let (to, pace, stop) = match goal {
+                Some(g) => (sub(g, dog.pos), speed, BITE_REACH * 0.6),
+                None if dog.catching_up => (sub(player, dog.pos), speed, 0.0),
+                None => (sub([player[0] + dog.spot[0], player[1] + dog.spot[1]], dog.pos), speed * DOG_TROT, 3.0),
+            };
             let n = norm(to);
-            dog.pos = [dog.pos[0] + n[0] * step, dog.pos[1] + n[1] * step];
-            dog.heading = n;
-            dog.anim += dt;
+            let want = if len(to) > stop { [n[0] * pace, n[1] * pace] } else { [0.0; 2] };
+            let k = (dt * 8.0).min(1.0);
+            dog.vel = [dog.vel[0] + (want[0] - dog.vel[0]) * k, dog.vel[1] + (want[1] - dog.vel[1]) * k];
+            dog.pos = [dog.pos[0] + dog.vel[0] * dt, dog.pos[1] + dog.vel[1] * dt];
+            let moving = len(dog.vel);
+            if moving > 5.0 {
+                dog.heading = norm(dog.vel);
+                dog.anim += dt * (moving / speed * 1.6).min(1.0);
+            }
             if let Some(t) = target
                 && len(to) < BITE_REACH
                 && dog.cd <= 0.0
@@ -1038,5 +1060,27 @@ mod tests {
         let life = h.decoys[0].life;
         h.decoys(life, &mut Vec::new());
         assert!(h.decoys.is_empty());
+    }
+
+    #[test]
+    fn an_idle_dog_wanders_near_the_player_and_catches_up_when_left() {
+        let mut h = with("dog", [0.0, 0.0]);
+        h.zombies.clear();
+        let mut spots = Vec::new();
+        for k in 0..60 * 20 {
+            h.walk_dogs(1.0 / 60.0, &mut Vec::new());
+            let d = &h.dogs[0];
+            assert!(len(sub(d.pos, h.pos)) < DOG_STRAY + 4.0, "it stays close");
+            if k % 60 == 0 {
+                spots.push(d.pos);
+            }
+        }
+        let roamed = spots.iter().map(|a| spots.iter().map(|b| len(sub(*a, *b))).fold(0.0, f32::max)).fold(0.0, f32::max);
+        assert!(roamed > 12.0, "it moved about while the player stood still, {roamed} px at most");
+        h.pos[0] += 120.0;
+        for _ in 0..60 * 3 {
+            h.walk_dogs(1.0 / 60.0, &mut Vec::new());
+        }
+        assert!(len(sub(h.dogs[0].pos, h.pos)) < DOG_STRAY, "it ran to catch up");
     }
 }
