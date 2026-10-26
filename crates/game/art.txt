@@ -40,7 +40,7 @@ PICKET_SIDE     cell 19 5 ; cell 21 5
 PICKET_BOTTOM   cell 19 6 x3
 SKULL_FENCE     cell 22 4 ; cell 22 5 ; cell 22 6
 
-# Buildings and large props
+# Buildings and props
 HOUSE           cell 0 0 6 5 3,2<1,2 -3,4 3,4<1,4  @prop 48
 BARN_RED        cell 23 0 5 6 -23,0 -27,0 /80,89
 BARN_GREEN      cell 23 6 5 6 -23,6 -27,6 /80,89
@@ -124,7 +124,7 @@ SKINNY_HURT     cell 31 3 ; cell 31 4 ; cell 31 2
 BIG_HURT        cell 31 6 ; cell 31 7 ; cell 31 5
 KID_HURT        cell 37 5 ; cell 37 6 ; cell 37 4
 
-# Placeholder weapons and upgrade icons, drawn to be replaced in the sprite editor
+# Placeholders: weapons and upgrade icons, drawn to be replaced in the sprite editor
 SCYTHE_SWING    png placeholder/scythe.png
 PITCHFORK_THRUST png placeholder/pitchfork.png
 DOG             png placeholder/dog.png x3

@@ -132,6 +132,39 @@ pub fn folder() -> PathBuf {
 }
 
 /// A name the build can turn into a constant: a capital letter, then capitals, digits and underscores.
+/// The list heading for a sprite: the comment line that opens its group in the catalog, up to its first
+/// `,` `:` or `;`. A sprite the catalog doesn't name is a new one.
+pub fn section(name: &str) -> &'static str {
+    static SECTIONS: std::sync::OnceLock<Vec<(String, String)>> = std::sync::OnceLock::new();
+    let sections = SECTIONS.get_or_init(|| sections_of(include_str!("../../game/art.txt")));
+    sections.iter().find(|(n, _)| n == name).map_or(NEW_SECTION, |(_, s)| s.as_str())
+}
+
+pub const NEW_SECTION: &str = "New sprites";
+
+/// Each sprite's heading in catalog text: a comment opens a group when a blank line comes before it and a
+/// sprite right after it.
+fn sections_of(text: &str) -> Vec<(String, String)> {
+    let (mut out, mut heading, mut gap, mut pending) = (Vec::new(), String::new(), true, None::<String>);
+    for line in text.lines().map(str::trim) {
+        if line.is_empty() {
+            (gap, pending) = (true, None);
+        } else if let Some(c) = line.strip_prefix('#') {
+            pending = gap.then(|| c.split([',', ':', ';']).next().unwrap_or("").trim().to_string());
+            gap = false;
+        } else {
+            if let Some(h) = pending.take() {
+                heading = h;
+            }
+            gap = false;
+            if let Some(name) = line.split_whitespace().next() {
+                out.push((name.to_string(), heading.clone()));
+            }
+        }
+    }
+    out
+}
+
 pub fn valid_name(n: &str) -> bool {
     n.starts_with(|c: char| c.is_ascii_uppercase()) && n.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
 }
@@ -373,6 +406,17 @@ pub fn palette() -> Vec<Rgba> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn headings_come_from_the_comment_that_opens_each_group() {
+        let text = "# The file\n# says what it is\n\n# Ground\nDIRT cell 1 1\n# Indexed by connections: N=1\nPATH cell 2 2\n\n# Fences: top row\nRAIL cell 3 3\n";
+        let got: Vec<(String, String)> = sections_of(text);
+        let want = [("DIRT", "Ground"), ("PATH", "Ground"), ("RAIL", "Fences")].map(|(a, b)| (a.to_string(), b.to_string()));
+        assert_eq!(got, want);
+        assert_eq!(section("PLAYER_FRONT"), "Characters");
+        assert_eq!(section("ICON_PISTOL"), "Placeholders");
+        assert_eq!(section("NOT_IN_THE_CATALOG"), NEW_SECTION);
+    }
 
     #[test]
     fn fill_stops_at_other_colors() {

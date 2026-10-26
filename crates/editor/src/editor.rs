@@ -173,10 +173,18 @@ const BACK: Rect = Rect { x: LIST.x + 104.0, y: LIST.y + LIST.h - 44.0, w: 88.0,
 /// Everything an undo puts back: the frames, the carving views and the footprint.
 type Snapshot = (Vec<Frame>, Option<[Frame; 2]>, Option<Frame>);
 
+/// A line of the sprite list.
+enum Row<'a> {
+    Heading { title: &'static str, count: usize, saved: usize, open: bool },
+    Sprite(&'a (String, bool)),
+}
+
 pub struct Editor {
     store: Box<dyn Store>,
     pub sprite: Sprite,
     names: Vec<(String, bool)>,
+    /// The list's headings that are unfolded; the open sprite's always is.
+    unfolded: Vec<&'static str>,
     scroll: f32,
     frame: usize,
     tool: Tool,
@@ -239,6 +247,7 @@ impl Editor {
             store,
             sprite,
             names,
+            unfolded: Vec::new(),
             scroll: 0.0,
             frame: 0,
             tool: Tool::Pencil,
@@ -278,6 +287,7 @@ impl Editor {
             pan: [0.0; 2],
         };
         e.load_stand();
+        e.reveal();
         e
     }
 
@@ -605,8 +615,20 @@ impl Editor {
                 return;
             }
             let i = ((p[1] - self.list_top() + self.scroll) / LIST_ROW) as usize;
-            if let Some((name, _)) = self.listed().get(i).map(|e| (*e).clone()) {
-                self.switch_to(name);
+            match self.rows().get(i) {
+                Some(Row::Heading { title, .. }) => {
+                    let title = *title;
+                    match self.unfolded.iter().position(|t| *t == title) {
+                        Some(at) => _ = self.unfolded.remove(at),
+                        None => self.unfolded.push(title),
+                    }
+                    self.wheel([LIST.x + 1.0, LIST.y + 1.0], 0.0);
+                }
+                Some(Row::Sprite((name, _))) => {
+                    let name = name.clone();
+                    self.switch_to(name);
+                }
+                None => {}
             }
             return;
         }
@@ -792,7 +814,7 @@ impl Editor {
 
     pub fn wheel(&mut self, p: [f32; 2], dy: f32) {
         if LIST.contains(p) {
-            let max = (self.listed().len() as f32 * LIST_ROW - (LIST.h - (self.list_top() - LIST.y))).max(0.0);
+            let max = (self.rows().len() as f32 * LIST_ROW - (LIST.h - (self.list_top() - LIST.y))).max(0.0);
             self.scroll = (self.scroll - dy * LIST_ROW * 3.0).clamp(0.0, max);
         }
     }
@@ -1125,6 +1147,27 @@ impl Editor {
         self.names.iter().filter(|(n, _)| n.contains(&want)).collect()
     }
 
+    /// The list's rows: a heading over each group, then its sprites if it's unfolded. A search unfolds every
+    /// group with a match.
+    fn rows(&self) -> Vec<Row<'_>> {
+        let searching = !self.filter.is_empty();
+        let mut rows = Vec::new();
+        let listed = self.listed();
+        for (i, entry) in listed.iter().enumerate() {
+            let title = sprite::section(&entry.0);
+            if i == 0 || sprite::section(&listed[i - 1].0) != title {
+                let group = listed[i..].iter().take_while(|e| sprite::section(&e.0) == title);
+                let (count, saved) = group.fold((0, 0), |(n, s), e| (n + 1, s + e.1 as usize));
+                let open = searching || self.unfolded.contains(&title);
+                rows.push(Row::Heading { title, count, saved, open });
+            }
+            if searching || self.unfolded.contains(&title) {
+                rows.push(Row::Sprite(entry));
+            }
+        }
+        rows
+    }
+
     /// Where the list's rows start: below the search box when there is one.
     fn list_top(&self) -> f32 {
         if self.typing || !self.filter.is_empty() { LIST.y + LIST_ROW + 6.0 } else { LIST.y }
@@ -1156,9 +1199,13 @@ impl Editor {
         self.typing || self.ask.is_some()
     }
 
-    /// Scrolls the list so the open sprite shows.
+    /// Unfolds the open sprite's group and scrolls the list so the sprite shows.
     fn reveal(&mut self) {
-        let Some(i) = self.listed().iter().position(|(m, _)| *m == self.sprite.name) else { return };
+        let title = sprite::section(&self.sprite.name);
+        if !self.unfolded.contains(&title) {
+            self.unfolded.push(title);
+        }
+        let Some(i) = self.rows().iter().position(|r| matches!(r, Row::Sprite((m, _)) if *m == self.sprite.name)) else { return };
         let (y, room) = (i as f32 * LIST_ROW, LIST.h - (self.list_top() - LIST.y));
         if y < self.scroll {
             self.scroll = y;
@@ -1385,13 +1432,24 @@ impl Editor {
         // Only whole rows, so a list scrolled part of a row doesn't spill past its panel.
         let first = (self.scroll / LIST_ROW).ceil() as usize;
         let rows = ((LIST.h - (top - LIST.y) - (first as f32 * LIST_ROW - self.scroll)) / LIST_ROW) as usize;
-        for (i, (name, saved)) in self.listed().into_iter().enumerate().skip(first).take(rows) {
+        for (i, row) in self.rows().into_iter().enumerate().skip(first).take(rows) {
             let y = top + i as f32 * LIST_ROW - self.scroll;
-            if *name == self.sprite.name {
-                c.rect(LIST.x, y, LIST.w, LIST_ROW, [0.35, 0.3, 0.18, 1.0]);
+            match row {
+                Row::Heading { title, count, saved, open } => {
+                    c.rect(LIST.x, y + 1.0, LIST.w, LIST_ROW - 2.0, BUTTON);
+                    let title: String = title.chars().take(20).collect();
+                    c.label(format!("{} {title}", if open { "-" } else { "+" }), LIST.x + 6.0, y + 3.0, 15.0, TEXT, Align::Left);
+                    let tally = if saved > 0 { format!("{saved}*  {count}") } else { count.to_string() };
+                    c.label(tally, LIST.x + LIST.w - 6.0, y + 4.0, 13.0, if saved > 0 { HOT } else { DIM }, Align::Right);
+                }
+                Row::Sprite((name, saved)) => {
+                    if *name == self.sprite.name {
+                        c.rect(LIST.x, y, LIST.w, LIST_ROW, [0.35, 0.3, 0.18, 1.0]);
+                    }
+                    let mark = if *saved { "  *" } else { "" };
+                    c.label(format!("{name}{mark}"), LIST.x + 14.0, y + 2.0, 17.0, if *saved { HOT } else { TEXT }, Align::Left);
+                }
             }
-            let mark = if *saved { "  *" } else { "" };
-            c.label(format!("{name}{mark}"), LIST.x + 8.0, y + 2.0, 17.0, if *saved { HOT } else { TEXT }, Align::Left);
         }
     }
 
@@ -2095,6 +2153,25 @@ mod tests {
     }
 
     #[test]
+    fn the_list_folds_into_headings_and_opens_where_you_are() {
+        let mut e = editor();
+        let rows = |e: &Editor| e.rows().iter().map(|r| match r {
+            Row::Heading { title, .. } => format!("# {title}"),
+            Row::Sprite((n, _)) => n.clone(),
+        }).collect::<Vec<_>>();
+        let here = sprite::section(&e.sprite.name);
+        let shown = rows(&e);
+        assert!(shown.iter().filter(|r| !r.starts_with('#')).all(|n| sprite::section(n) == here), "only the open sprite's group is unfolded");
+        assert!(shown.contains(&"# Ground".to_string()) && shown.contains(&"# Characters".to_string()));
+        let ground = shown.iter().position(|r| r == "# Ground").unwrap();
+        e.mouse_down([LIST.x + 10.0, e.list_top() + (ground as f32 + 0.5) * LIST_ROW - e.scroll], false, false);
+        assert!(rows(&e).contains(&"DIRT".to_string()), "tapping a heading unfolds it");
+        e.key(Key::Char('/'));
+        e.set_text("player_b");
+        assert!(rows(&e).contains(&"PLAYER_BACK".to_string()), "a search shows matches in folded groups");
+    }
+
+    #[test]
     fn typed_text_arrives_whole_and_dragging_scrolls_the_list() {
         let mut e = editor();
         e.key(Key::Char('/'));
@@ -2102,6 +2179,7 @@ mod tests {
         assert_eq!(e.text(), Some("CAR_H"));
         e.key(Key::Escape);
         assert_eq!(e.text(), None);
+        e.unfolded = e.names.iter().map(|(n, _)| sprite::section(n)).collect();
         e.scroll = 0.0;
         e.drag_list(-200.0);
         assert_eq!(e.scroll, 200.0);
