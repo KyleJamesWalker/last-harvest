@@ -488,6 +488,8 @@ pub struct Harvest {
     /// Radians the camera still trails a quick turn by, and seconds it holds before swinging.
     spin: f32,
     face: f32,
+    /// The pause menu's highlighted choice, while Start has the run paused.
+    menu: Option<usize>,
     /// False until the turn buttons are let go, so the A that started the run or picked an upgrade doesn't turn.
     turn_ready: bool,
     /// No zombies: a walk around the farm, for looking at it.
@@ -613,6 +615,7 @@ impl Harvest {
             view_yaw: -PI / 2.0,
             spin: 0.0,
             face: 0.0,
+            menu: None,
             turn_ready: false,
             calm: false,
             bench: false,
@@ -738,6 +741,15 @@ impl Harvest {
         if self.overview {
             return flow;
         }
+        if let Some(at) = self.menu {
+            self.pause_menu(at, input, sounds, &mut flow);
+            return flow;
+        }
+        if input.pressed.contains(Buttons::START) && matches!(self.phase, Phase::Playing) {
+            self.menu = Some(0);
+            sounds.push(Sfx::Tick(0));
+            return flow;
+        }
         self.juice.tick_real(dt);
         self.glory = (self.glory - dt).max(0.0);
         match self.phase {
@@ -771,10 +783,7 @@ impl Harvest {
                 self.fx.retain(|f| !f.done());
                 let ready = if won { 1.0 } else { TURNED + 0.6 };
                 if t > ready && input.pressed.any(Buttons::A | Buttons::START) {
-                    let seed = self.rng.next_u32() as u64 + 1;
-                    let kit: Vec<String> = self.trial.iter().map(|&(d, l)| format!("{}:{l}", book().defs[d].id)).collect();
-                    *self = Harvest::new(seed).at(self.difficulty).with_progress(self.progress).with_kit(&kit.join(",")).starting_at(self.start_t);
-                    sounds.push(Sfx::Start);
+                    self.restart(sounds);
                 } else if t > ready && input.pressed.contains(Buttons::B) {
                     flow.quit = true;
                 }
@@ -985,6 +994,38 @@ impl Harvest {
                 t.hp *= FURY_PER_SEC;
             }
         }
+    }
+
+    /// Start pauses: Up and Down choose, A or X (or a tap) takes it, and Start or B resumes.
+    fn pause_menu(&mut self, at: usize, input: &Input, sounds: &mut Vec<Sfx>, flow: &mut Flow) {
+        let n = PAUSE_CHOICES.len();
+        let mut at = at;
+        if input.pressed.any(Buttons::DOWN | Buttons::RIGHT) {
+            at = (at + 1) % n;
+            sounds.push(Sfx::Tick(at as u8 * 3));
+        }
+        if input.pressed.any(Buttons::UP | Buttons::LEFT) {
+            at = (at + n - 1) % n;
+            sounds.push(Sfx::Tick(at as u8 * 3));
+        }
+        let tapped = input.touch.filter(|_| input.touch_started).and_then(|[_, y]| choice_row(y)).filter(|&i| i < n);
+        let chosen = tapped.or(input.pressed.any(Buttons::A | Buttons::X).then_some(at));
+        self.menu = Some(at);
+        match chosen {
+            _ if input.pressed.any(Buttons::START | Buttons::B) => self.menu = None,
+            Some(0) => self.menu = None,
+            Some(1) => self.restart(sounds),
+            Some(_) => flow.quit = true,
+            None => {}
+        }
+    }
+
+    /// A fresh farm with the same difficulty, progress and trial powerups.
+    fn restart(&mut self, sounds: &mut Vec<Sfx>) {
+        let seed = self.rng.next_u32() as u64 + 1;
+        let kit: Vec<String> = self.trial.iter().map(|&(d, l)| format!("{}:{l}", book().defs[d].id)).collect();
+        *self = Harvest::new(seed).at(self.difficulty).with_progress(self.progress).with_kit(&kit.join(",")).starting_at(self.start_t);
+        sounds.push(Sfx::Start);
     }
 
     /// B: the player faces about at once while the camera holds on their front a moment, then swings behind.
@@ -1732,6 +1773,7 @@ impl Harvest {
 }
 
 const CHOICE_TOP: f32 = 160.0;
+const PAUSE_CHOICES: [&str; 3] = ["Resume", "New farm", "Quit to title"];
 const CHOICE_ROW: f32 = 150.0;
 
 /// Which level-up row a bottom-screen touch at `y` lands on.
@@ -1846,6 +1888,26 @@ mod tests {
         run(&mut h, &Input::default(), 0.05);
         run(&mut h, &Input { held: Buttons::A, ..Default::default() }, 0.2);
         assert_ne!(h.view_yaw, yaw);
+    }
+
+    #[test]
+    fn start_pauses_and_the_menu_resumes_restarts_or_quits() {
+        let mut h = Harvest::new(5);
+        let press = |h: &mut Harvest, b: Buttons| h.update(&Input { pressed: b, ..Default::default() }, 1.0 / 60.0, &mut Vec::new());
+        run(&mut h, &Input::default(), 1.0);
+        press(&mut h, Buttons::START);
+        let t = h.t;
+        run(&mut h, &Input::default(), 2.0);
+        assert_eq!(h.t, t, "nothing moves while paused");
+        press(&mut h, Buttons::B);
+        assert!(h.menu.is_none());
+        press(&mut h, Buttons::START);
+        press(&mut h, Buttons::DOWN);
+        press(&mut h, Buttons::A);
+        assert!(h.menu.is_none() && h.t == 0.0, "New farm starts over");
+        press(&mut h, Buttons::START);
+        let tap = Input { touch: Some([500.0, CHOICE_TOP + CHOICE_ROW * 2.5]), touch_started: true, ..Default::default() };
+        assert!(h.update(&tap, 1.0 / 60.0, &mut Vec::new()).quit, "a tap on the last choice quits");
     }
 
     #[test]

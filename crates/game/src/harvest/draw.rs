@@ -7,7 +7,7 @@ use super::map::TILE;
 use crate::art::Stand;
 use super::powerups::{Kind, Zone, book};
 use super::weapons::{BOLT_LIFE, Hazard};
-use super::{CHOICE_ROW, CHOICE_TOP, Choice, DAWN, DropKind, GOLD, GRENADE_FLIGHT, GRENADE_RADIUS, Harvest, PICK_TIME, Phase, RED, SCALE, TELL_TIME, TURNED, Thrown, WHITE, clock, player_pose, view3d};
+use super::{CHOICE_ROW, CHOICE_TOP, Choice, DAWN, DropKind, GOLD, PAUSE_CHOICES, GRENADE_FLIGHT, GRENADE_RADIUS, Harvest, PICK_TIME, Phase, RED, SCALE, TELL_TIME, TURNED, Thrown, WHITE, clock, player_pose, view3d};
 use crate::art::{self, Art};
 use crate::{Align, Canvas, Color, Frame, SCREEN_H, SCREEN_W};
 
@@ -25,6 +25,7 @@ impl Harvest {
         self.way_home(&mut f.top, view_proj);
         self.banner(&mut f.top);
         self.overlays(&mut f.top);
+        self.paused_top(&mut f.top);
 
         let c = &mut f.bottom;
         c.clear = [0.0, 0.0, 0.0, 1.0];
@@ -43,6 +44,7 @@ impl Harvest {
         self.home_on_map(c, cam);
         self.grenade_tray(c);
         self.kit_tray(c);
+        self.paused_bottom(c);
         if let Phase::LevelUp { choices, selected, t, picked } = &self.phase {
             let fade = picked.map_or(1.0, |p| 1.0 - p / PICK_TIME);
             c.rect(0.0, 0.0, SCREEN_W, SCREEN_H, [0.0, 0.0, 0.0, 0.6 * (t / 0.2).min(1.0) * fade]);
@@ -456,6 +458,30 @@ impl Harvest {
         c.circle(x, y, 14.0 * SCALE / 2.0, [GOLD[0], GOLD[1], GOLD[2], pulse * 0.5]);
         c.circle(x, y, 5.0 * SCALE / 2.0, [GOLD[0], GOLD[1], GOLD[2], 1.0]);
         c.label("HOME", x, y - 52.0, 30.0, GOLD, Align::Center);
+    }
+
+    /// Start's pause: the run's numbers over the dimmed view.
+    fn paused_top(&self, c: &mut Canvas) {
+        if self.menu.is_none() {
+            return;
+        }
+        c.rect(0.0, 0.0, SCREEN_W, SCREEN_H, [0.0, 0.0, 0.0, 0.6]);
+        c.text_centered(250.0, 16.0, WHITE, "PAUSED");
+        let line = format!("{}   Level {}   Kills {}", clock(self.t), self.level, self.kills);
+        c.label(line, SCREEN_W / 2.0, 420.0, 40.0, WHITE, Align::Center);
+    }
+
+    /// Start's pause choices, in the rows the level-up cards use so a tap lands the same way.
+    fn paused_bottom(&self, c: &mut Canvas) {
+        let Some(at) = self.menu else { return };
+        c.rect(0.0, 0.0, SCREEN_W, SCREEN_H, [0.0, 0.0, 0.0, 0.6]);
+        c.label("Start or B: resume.   Up / Down and A, or tap", SCREEN_W / 2.0, 60.0, 32.0, WHITE, Align::Center);
+        for (i, name) in PAUSE_CHOICES.iter().enumerate() {
+            let (x, y, w, h) = (212.0, CHOICE_TOP + i as f32 * CHOICE_ROW, 600.0, CHOICE_ROW - 30.0);
+            let on = i == at;
+            c.rect(x, y, w, h, if on { [1.0, 0.85, 0.3, 0.35] } else { [1.0, 1.0, 1.0, 0.1] });
+            c.label(*name, SCREEN_W / 2.0, y + h / 2.0 - 26.0, 48.0, if on { GOLD } else { WHITE }, Align::Center);
+        }
     }
 
     fn hud(&self, c: &mut Canvas) {
