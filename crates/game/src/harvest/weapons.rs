@@ -623,7 +623,8 @@ impl Harvest {
             let near_player = |z: &Zombie| z.rise >= 1.0 && len(sub(z.pos, self.pos)) < leash;
             let held = dog.target.and_then(|id| self.zombies.iter().position(|z| z.id == id && near_player(z)));
             let target = held.or_else(|| self.zombies.iter().enumerate().filter(|(_, z)| near_player(z)).min_by(|a, b| len(sub(a.1.pos, dog.pos)).total_cmp(&len(sub(b.1.pos, dog.pos)))).map(|(i, _)| i));
-            let heel = polar(self.pos, self.view_yaw + PI * 0.7 + dog.slot as f32 * 0.6, 10.0);
+            let side = if dog.slot.is_multiple_of(2) { 1.0 } else { -1.0 };
+            let heel = polar(self.pos, self.view_yaw + side * PI * (0.35 + 0.1 * (dog.slot / 2) as f32), 14.0);
             let goal = target.map_or(heel, |t| self.zombies[t].pos);
             let to = sub(goal, dog.pos);
             let dog = &mut self.dogs[i];
