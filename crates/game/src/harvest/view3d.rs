@@ -34,15 +34,24 @@ struct Face {
 }
 
 /// Front and back faces, then the side faces along every edge of the silhouette.
-fn faces(art: Art) -> Cow<'static, [Face]> {
-    static ALL: OnceLock<Vec<Vec<Face>>> = OnceLock::new();
+fn faces(art: Art, reach: Reach) -> Cow<'static, [Face]> {
+    static ALL: [OnceLock<Vec<Vec<Face>>>; 2] = [OnceLock::new(), OnceLock::new()];
     if art.is_live() {
-        return Cow::Owned(art::with_pixels(art, |pixels| extrude(pixels, art.rect())));
+        return Cow::Owned(art::with_pixels(art, |pixels| extrude(pixels, art.rect(), reach)));
     }
-    Cow::Borrowed(&ALL.get_or_init(|| (0..RECTS.len()).map(|i| extrude(PIXELS, Art(i as u16).rect())).collect())[art.0 as usize])
+    Cow::Borrowed(&ALL[reach as usize].get_or_init(|| (0..RECTS.len()).map(|i| extrude(PIXELS, Art(i as u16).rect(), reach)).collect())[art.0 as usize])
 }
 
-fn extrude(pixels: &[u8], rect: [u16; 4]) -> Vec<Face> {
+/// How far inside the outline an extrusion's sides look for their color.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Reach {
+    /// One pixel: a character's top stays its hair rather than reaching the shirt or face below.
+    Thin = 0,
+    /// Three pixels: a building's side skips a thick dark border to show its planks.
+    Deep = 1,
+}
+
+fn extrude(pixels: &[u8], rect: [u16; 4], reach: Reach) -> Vec<Face> {
     let [rx, ry, w, h] = rect.map(|v| v as i32);
     let opaque = |x: i32, y: i32| x >= 0 && y >= 0 && x < w && y < h && pixels[(((ry + y) * ATLAS_W as i32 + rx + x) * 4 + 3) as usize] > 0;
     let (aw, ah) = (ATLAS_W as f32, ATLAS_H as f32);
@@ -61,7 +70,8 @@ fn extrude(pixels: &[u8], rect: [u16; 4]) -> Vec<Face> {
         pixels[i] as u32 + pixels[i + 1] as u32 + pixels[i + 2] as u32 <= 40
     };
     let inside = |x: i32, y: i32, dx: i32, dy: i32| {
-        (0..4).map(|k| (x + dx * k, y + dy * k)).find(|&(ix, iy)| opaque(ix, iy) && !dark(ix, iy)).unwrap_or((x, y))
+        let steps = if reach == Reach::Thin { 2 } else { 4 };
+        (0..steps).map(|k| (x + dx * k, y + dy * k)).find(|&(ix, iy)| opaque(ix, iy) && !dark(ix, iy)).unwrap_or((x, y))
     };
     for x in 0..w {
         for (side, at, nx) in [(-1, x, -1.0), (1, x + 1, 1.0)] {
@@ -119,11 +129,12 @@ struct Pose {
     back: Vec3,
     depth: f32,
     tint: [f32; 3],
+    reach: Reach,
 }
 
 impl Pose {
     fn upright(origin: Vec3, right: Vec3, back: Vec3, depth: f32) -> Self {
-        Self { origin, right, up: Vec3::Y, back, depth, tint: [1.0; 3] }
+        Self { origin, right, up: Vec3::Y, back, depth, tint: [1.0; 3], reach: Reach::Deep }
     }
 }
 
@@ -131,9 +142,9 @@ impl Pose {
 /// Faces turned away from `eye` are left out: every extrusion is closed, so they would be hidden anyway,
 /// and alpha-tested fragments cost full price on the device's GPU.
 fn stand(out: &mut Vec<Card>, eye: Vec3, art: Art, flip: bool, pose: Pose, solid: bool) {
-    let Pose { origin, right, up, back, depth, tint } = pose;
+    let Pose { origin, right, up, back, depth, tint, reach } = pose;
     let (w, h) = (art.w(), art.h());
-    let all = faces(art);
+    let all = faces(art, reach);
     let used = if solid { &all[..] } else { &all[..2] };
     let (rn, un) = (right.normalize_or_zero(), up.normalize_or_zero());
     for f in used {
@@ -157,7 +168,7 @@ fn fixed(out: &mut Vec<Card>, eye: Vec3, a: Art, how: Stand, left: f32, base: f3
         Stand::Prop { depth } => stand(out, eye, a, false, Pose::upright(Vec3::new(left * PX, 0.0, base * PX), Vec3::X, -Vec3::Z, depth * PX), true),
         // The sprite is the roof, its top row to the north, and its edges run down to the ground.
         Stand::Slab { height } => {
-            let pose = Pose { origin: Vec3::new(left * PX, height * PX, base * PX), right: Vec3::X, up: -Vec3::Z, back: -Vec3::Y, depth: height * PX, tint: [1.0; 3] };
+            let pose = Pose { origin: Vec3::new(left * PX, height * PX, base * PX), right: Vec3::X, up: -Vec3::Z, back: -Vec3::Y, depth: height * PX, tint: [1.0; 3], reach: Reach::Deep };
             stand(out, eye, a, false, pose, true);
         }
         Stand::Ground => flat(out, a, left * PX, (base - a.h()) * PX, DECAL_LIFT + 0.006, [1.0; 3]),
@@ -397,7 +408,7 @@ pub fn scene(h: &Harvest) -> CardScene {
             let r = right * b.scale[0];
             let origin = q - r * (b.art.w() * PX / 2.0) - forward * (b.depth / 2.0) + Vec3::Y * b.lift;
             let up = (Vec3::Y + b.lean) * b.scale[1];
-            stand(cards, eye, b.art, b.flip, Pose { origin, right: r, up, back: forward, depth: b.depth, tint: b.tint }, b.depth > 0.0);
+            stand(cards, eye, b.art, b.flip, Pose { origin, right: r, up, back: forward, depth: b.depth, tint: b.tint, reach: Reach::Thin }, b.depth > 0.0);
         }
     };
     // A full horde swarming the player would bury the GPU; the farthest are lost in the fog anyway.
@@ -523,7 +534,7 @@ pub fn scene(h: &Harvest) -> CardScene {
         let back = up.cross(side);
         let lift = c.z * PX + 0.04 - c.sunk() * PX;
         let origin = q - side * (c.art.w() * PX / 2.0) + Vec3::Y * lift;
-        stand(&mut cards, eye, c.art, c.flip, Pose { origin, right: side, up, back, depth: PX, tint: [0.8; 3] }, false);
+        stand(&mut cards, eye, c.art, c.flip, Pose { origin, right: side, up, back, depth: PX, tint: [0.8; 3], reach: Reach::Thin }, false);
     }
     for b in &h.birds {
         let mut board_b = Board::new(b.art(), b.flip, b.pos, b.z * PX, 0.0);
@@ -635,10 +646,25 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_thin_top_keeps_thick_dark_hair_where_a_deep_one_reaches_the_shirt() {
+        // A column of three dark pixels over a white one, at the atlas's top-left.
+        let mut pixels = vec![0u8; ATLAS_W as usize * 4 * 4];
+        for (y, rgb) in [(0, 10), (1, 10), (2, 10), (3, 250)] {
+            pixels[y * ATLAS_W as usize * 4..][..4].copy_from_slice(&[rgb, rgb, rgb, 255]);
+        }
+        let top_row = |reach| {
+            let top = extrude(&pixels, [0, 0, 1, 4], reach).into_iter().find(|f| f.normal == [0.0, 1.0, 0.0]).unwrap();
+            (top.uv[1] * ATLAS_H as f32) as usize
+        };
+        assert_eq!(top_row(Reach::Thin), 0, "the hair itself");
+        assert_eq!(top_row(Reach::Deep), 3, "past the hair to the shirt");
+    }
+
+    #[test]
     fn every_sprite_extrudes_to_a_closed_front_and_back() {
         for (name, frames) in art::ALL {
             for &a in *frames {
-                let f = faces(a);
+                let f = faces(a, Reach::Deep);
                 assert!(f.len() >= 2, "{name}");
                 assert!(f.iter().all(|f| f.uv.iter().all(|v| (0.0..=1.0).contains(v))), "{name}: uv out of range");
             }
