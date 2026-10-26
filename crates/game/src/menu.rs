@@ -230,7 +230,7 @@ impl Game {
         c.label(">", mid + 250.0, y + 6.0, 56.0, arrow(d != Difficulty::Hard), Align::Center);
         c.label(d.name(), mid, y + 6.0, 52.0, HOT, Align::Center);
         c.label(d.blurb(), mid, y + 80.0, 26.0, DIM, Align::Center);
-        c.label("D-pad: walk and strafe.   Y / A: turn.   B: turn around.", SCREEN_W / 2.0, SCREEN_H - 84.0, 24.0, DIM, Align::Center);
+        c.label("D-pad: walk and strafe.   Y / A: turn.   B: turn around.   R1: screenshot.", SCREEN_W / 2.0, SCREEN_H - 84.0, 24.0, DIM, Align::Center);
         c.label("Hold X: aim at barrels.   Tap the map: throw.   Left / Right on Play: difficulty.", SCREEN_W / 2.0, SCREEN_H - 50.0, 24.0, DIM, Align::Center);
     }
 

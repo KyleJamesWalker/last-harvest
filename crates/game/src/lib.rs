@@ -104,6 +104,10 @@ pub struct Game {
     setting: usize,
     /// Settings is open over a paused run, rather than from the title.
     settings_in_run: bool,
+    /// R1 asked for a screenshot, which the app takes after the next draw.
+    shot: bool,
+    /// Seconds left of the white flash that says a screenshot was taken.
+    shot_flash: f32,
 }
 
 impl Game {
@@ -131,7 +135,17 @@ impl Game {
             row: 0,
             setting: 0,
             settings_in_run: false,
+            shot: false,
+            shot_flash: 0.0,
         }
+    }
+
+    /// Whether R1 asked for a screenshot; the app saves the frame it just drew.
+    pub fn take_screenshot(&mut self) -> bool {
+        if self.shot {
+            self.shot_flash = SHOT_FLASH;
+        }
+        std::mem::take(&mut self.shot)
     }
 
     pub fn load(&mut self, save: Save) {
@@ -255,6 +269,12 @@ impl Game {
             self.volume_shown = VOLUME_SHOWN;
             self.sounds.push(Sfx::Tick(self.save.volume));
         }
+        self.shot_flash = (self.shot_flash - dt).max(0.0);
+        let own_r1 = matches!(self.state, State::Hardware(_) | State::Gallery(_));
+        if input.pressed.contains(Buttons::R1) && !own_r1 {
+            self.shot = true;
+            self.sounds.push(Sfx::Tick(LEVELS));
+        }
         if input.pressed.contains(Buttons::SELECT) && !matches!(self.state, State::Hardware(_)) {
             self.save.fps = !self.save.fps;
         }
@@ -336,6 +356,11 @@ impl Game {
         if self.volume_shown > 0.0 {
             f.top.text_centered(40.0, 8.0, WHITE, &format!("VOL {}", self.save.volume));
         }
+        if self.shot_flash > 0.0 {
+            let a = self.shot_flash / SHOT_FLASH * 0.7;
+            f.top.rect(0.0, 0.0, SCREEN_W, SCREEN_H, [1.0, 1.0, 1.0, a]);
+            f.bottom.rect(0.0, 0.0, SCREEN_W, SCREEN_H, [1.0, 1.0, 1.0, a]);
+        }
         if self.save.fps {
             system::draw_perf(&mut f.top, &self.system);
         } else if matches!(self.state, State::Title) {
@@ -392,6 +417,9 @@ impl Game {
         self.draw_menu(f);
     }
 }
+
+/// Seconds the screenshot flash lasts.
+const SHOT_FLASH: f32 = 0.25;
 
 #[cfg(test)]
 mod tests {
@@ -542,6 +570,18 @@ mod tests {
             press(&mut game, Buttons::B);
             assert_eq!(game.page, Page::Main);
         }
+    }
+
+    #[test]
+    fn r1_takes_one_screenshot_and_flashes_after_it() {
+        let mut game = Game::new(1);
+        press(&mut game, Buttons::R1);
+        assert!(game.take_screenshot());
+        assert!(!game.take_screenshot(), "one press, one shot");
+        assert!(game.shot_flash > 0.0);
+        game.open(Scene::Gallery);
+        press(&mut game, Buttons::R1);
+        assert!(!game.take_screenshot(), "the gallery keeps R1 for itself");
     }
 
     #[test]

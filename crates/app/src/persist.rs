@@ -14,6 +14,16 @@ fn dir() -> PathBuf {
     std::env::current_exe().ok().and_then(|p| p.parent().map(Path::to_path_buf)).unwrap_or_else(|| PathBuf::from("."))
 }
 
+/// The next unused `screenshots/shot-NNNN.png` beside the save, creating the folder.
+pub fn next_screenshot() -> Option<PathBuf> {
+    let shots = dir().join("screenshots");
+    if let Err(e) = fs::create_dir_all(&shots) {
+        eprintln!("screenshot: {}: {e}", shots.display());
+        return None;
+    }
+    (1..10_000).map(|n| shots.join(format!("shot-{n:04}.png"))).find(|p| !p.exists())
+}
+
 pub struct Saver {
     path: PathBuf,
     written: Save,

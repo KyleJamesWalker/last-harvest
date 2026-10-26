@@ -227,6 +227,9 @@ impl App {
         if let Some(gfx) = &mut self.gfx {
             let started = Instant::now();
             let frame = self.game.draw();
+            if self.game.take_screenshot() && shot.is_none() {
+                shot = persist::next_screenshot();
+            }
             self.stats.work_ms[1] += started.elapsed().as_secs_f32() * 1000.0;
             let started = Instant::now();
             let rendered = gfx.render(&frame, shot.is_some());
