@@ -202,6 +202,6 @@ mod tests {
             s.wheel(Pane::View, [500.0, 400.0], 1.0);
         }
         assert_eq!(s.distance, NEAREST);
-        assert!(NEAREST < 0.0, "past where the player would stand");
+        assert!(s.distance < 0.0, "past where the player would stand");
     }
 }
