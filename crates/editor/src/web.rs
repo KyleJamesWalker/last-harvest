@@ -459,9 +459,12 @@ fn start() -> Result<(), String> {
     listen(&window, "keyup", &web, |w, e: &KeyboardEvent| {
         w.key(e, false);
     });
-    listen(&toolbar, "click", &web, |w, e: &Event| {
-        let button = e.target().and_then(|t| t.dyn_into::<Element>().ok()).and_then(|t| t.closest("[data-act]").ok().flatten());
-        if let Some(act) = button.and_then(|b| b.get_attribute("data-act")) {
+    // Safari sends no click for a tap that moved while touchmove is cancelled, so buttons act on pointerup.
+    listen(&toolbar, "pointerup", &web, |w, e: &PointerEvent| {
+        let act_at = |t: Option<Element>| t.and_then(|t| t.closest("[data-act]").ok().flatten()).and_then(|b| b.get_attribute("data-act"));
+        let pressed = act_at(e.target().and_then(|t| t.dyn_into::<Element>().ok()));
+        let lifted = act_at(w.document.element_from_point(e.client_x() as f32, e.client_y() as f32));
+        if let Some(act) = pressed.filter(|a| e.button() == 0 && lifted.as_ref() == Some(a)) {
             w.act(&act);
         }
     });
