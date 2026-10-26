@@ -34,7 +34,7 @@ const RISE_TIME: f32 = 0.9;
 const TURN_SPEED: f32 = 2.6;
 /// Seconds for the quick 180-degree turn.
 const SPIN_TIME: f32 = 0.2;
-/// Seconds the camera holds on the player's front after B, before swinging round behind.
+/// Seconds the player shows their front after B swings the camera round, before turning to match it.
 const FACE_TIME: f32 = 0.35;
 const GRENADE_RECHARGE: f32 = 12.0;
 const GRENADE_FLIGHT: f32 = 0.7;
@@ -488,9 +488,11 @@ pub struct Harvest {
     flow_cell: [usize; 2],
     /// The player's heading, which the 3D camera looks along, in radians from +x toward +y.
     view_yaw: f32,
-    /// Radians the camera still trails a quick turn by, and seconds it holds before swinging.
+    /// Radians left of a quick turn in progress.
     spin: f32,
+    /// Seconds the player keeps the heading they turned from, so the swung camera sees their front.
     face: f32,
+    turned_from: [f32; 2],
     /// The pause menu's highlighted choice, while Start has the run paused.
     menu: Option<usize>,
     /// False until the turn buttons are let go, so the A that started the run or picked an upgrade doesn't turn.
@@ -618,6 +620,7 @@ impl Harvest {
             view_yaw: -PI / 2.0,
             spin: 0.0,
             face: 0.0,
+            turned_from: [0.0; 2],
             menu: None,
             turn_ready: false,
             calm: false,
@@ -858,12 +861,12 @@ impl Harvest {
         if input.pressed.contains(Buttons::B) {
             self.turn_around();
         }
-        if self.face > 0.0 {
-            self.face -= dt;
-        } else {
-            self.spin -= self.spin.min(PI / SPIN_TIME * dt);
+        let spun = self.spin.min(PI / SPIN_TIME * dt);
+        self.spin -= spun;
+        if self.spin <= 0.0 {
+            self.face = (self.face - dt).max(0.0);
         }
-        self.view_yaw = (self.view_yaw + turn * TURN_SPEED * dt).rem_euclid(TAU);
+        self.view_yaw = (self.view_yaw + turn * TURN_SPEED * dt + spun).rem_euclid(TAU);
         let f = [self.view_yaw.cos(), self.view_yaw.sin()];
         let (side, ahead) = (dir[0], -dir[1]);
         self.lean += (side - self.lean) * (8.0 * dt).min(1.0);
@@ -1031,12 +1034,17 @@ impl Harvest {
         sounds.push(Sfx::Start);
     }
 
-    /// B: the player faces about at once while the camera holds on their front a moment, then swings behind.
+    /// The way the player's sprite faces: the old heading while B shows their front, else where they aim.
+    fn showing(&self) -> [f32; 2] {
+        if self.spin > 0.0 || self.face > 0.0 { self.turned_from } else { self.aim }
+    }
+
+    /// B: the camera swings round while the player keeps their old heading, so it lands on their front a moment.
     fn turn_around(&mut self) {
         if self.spin > 0.0 {
             return;
         }
-        self.view_yaw = (self.view_yaw + PI).rem_euclid(TAU);
+        self.turned_from = [self.view_yaw.cos(), self.view_yaw.sin()];
         self.spin = PI;
         self.face = FACE_TIME;
     }
@@ -1924,10 +1932,11 @@ mod tests {
         let mut h = Harvest::calm(9);
         let yaw = h.view_yaw;
         h.update(&Input { pressed: Buttons::B, ..Default::default() }, 1.0 / 60.0, &mut Vec::new());
-        assert!(((h.view_yaw - yaw).rem_euclid(TAU) - PI).abs() < 1e-3, "the player faces about at once");
-        assert_eq!(h.spin, PI, "while the camera holds on their front");
-        run(&mut h, &Input::default(), FACE_TIME + SPIN_TIME + 0.05);
-        assert_eq!(h.spin, 0.0, "then swings round behind");
+        run(&mut h, &Input::default(), SPIN_TIME + 0.05);
+        assert!(((h.view_yaw - yaw).rem_euclid(TAU) - PI).abs() < 1e-3, "the camera swings right round");
+        assert!(h.face > 0.0 && h.showing() == h.turned_from, "the player still faces the old way, toward it");
+        run(&mut h, &Input::default(), FACE_TIME);
+        assert_eq!(h.showing(), h.aim, "then turns to match");
     }
 
     #[test]

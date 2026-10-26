@@ -311,7 +311,7 @@ pub fn scene(h: &Harvest) -> CardScene {
         }
         _ => 0.0,
     };
-    let yaw = h.view_yaw - h.spin + std::f32::consts::PI * swing;
+    let yaw = h.view_yaw + std::f32::consts::PI * swing;
     let forward = Vec3::new(yaw.cos(), 0.0, yaw.sin());
     let right = forward.cross(Vec3::Y);
     let p = world(h.pos);
@@ -423,7 +423,7 @@ pub fn scene(h: &Harvest) -> CardScene {
         b.lean = Vec3::new(z.knock[0], 0.0, z.knock[1]) * (0.35 * s);
         board(&mut cards, b);
     }
-    let (facing, flip) = facing_from(h.aim, forward, right);
+    let (facing, flip) = facing_from(h.showing(), forward, right);
     let (a, rise) = player_pose(h, facing);
     board(&mut cards, Board::new(a, flip, h.pos, -(1.0 - rise) * a.h() * PX, CHARACTER_DEPTH));
     if let Some(s) = h.shown.as_ref().filter(|s| s.stand == Stand::Figure && !s.frames.is_empty()) {
