@@ -454,7 +454,8 @@ impl Harvest {
                 let glint = 0.6 + 0.4 * (t * 5.0).sin();
                 let edge = if ch.found { FIND } else { GOLD };
                 c.rect(x - 5.0, y - 5.0, w + 10.0, h + 10.0, [edge[0], edge[1], edge[2], glint * alpha]);
-                c.rect(x, y, w, h, [0.02, 0.08, 0.04, alpha]);
+                let back = if ch.found { [0.02, 0.08, 0.04] } else { [0.1, 0.08, 0.02] };
+                c.rect(x, y, w, h, [back[0], back[1], back[2], alpha]);
             }
             let fill = match picked {
                 Some(p) if on => [1.0, 1.0, 1.0, 0.8 * (1.0 - p / PICK_TIME)],
