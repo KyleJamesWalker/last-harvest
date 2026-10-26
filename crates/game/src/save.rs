@@ -45,6 +45,11 @@ impl Save {
         )
     }
 
+    /// The run records and found powerups wiped, keeping the settings.
+    pub fn without_progress(self) -> Self {
+        Self { best: 0, kills: 0, best_level: 0, nights: 0, dawns: 0, found: 0, ..self }
+    }
+
     /// Unknown keys and bad values fall back to the defaults, so an old or damaged file still loads.
     pub fn parse(text: &str) -> Self {
         let mut save = Self::default();

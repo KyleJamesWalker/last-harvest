@@ -40,7 +40,7 @@ Each weapon covers a zone, shown on its card:
 
 Eight powerups are open from the first night. Each of the rest has a condition: a number of kills, a long enough night, a level reached, nights played or dawns survived. Meeting it only makes the powerup findable. From then on, a level-up may offer it on a green FOUND card, and taking that card unlocks it for good. A find appears only when you have a free slot of its kind, so keep one open to find new weapons. Some finds appear only after a set minute of the night. The biggest appear only in the chest that each horde's gold-lit leader drops. Picking up a chest gives a free level-up that holds a find whenever one is waiting.
 
-The title screen shows how many powerups are unlocked, how many are waiting to be found, and the condition you are closest to. The game-over screen names what the run found.
+The title screen shows how many powerups are unlocked, how many are waiting to be found, and the condition you are closest to. The game-over screen names what the run found. Reset progress, at the top right of the title's bottom screen, clears kills, records and found powerups after a second tap. Settings stay.
 
 `crates/game/powerups.txt` defines every powerup: its name, zone, unlock rule, how often it is found, highest level, and its stats at each level. Change a number and rebuild to rebalance. To add a powerup, copy a section under a new id. A `does` line reuses an existing weapon behavior with new numbers. The comments at the top of the file list every key and stat. A test reads the file, so a typo fails `cargo test` and names the line.
 

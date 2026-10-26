@@ -91,6 +91,8 @@ pub struct Game {
     unlock_all: bool,
     /// Powerups every run starts with, as `Harvest::with_kit` reads them.
     kit: String,
+    /// Seconds left to confirm wiping the records and found powerups.
+    reset_armed: f32,
 }
 
 impl Game {
@@ -112,6 +114,7 @@ impl Game {
             leds: [false; 2],
             unlock_all: false,
             kit: String::new(),
+            reset_armed: 0.0,
         }
     }
 
@@ -243,6 +246,18 @@ impl Game {
             State::Title => {
                 let by = input.pressed.contains(Buttons::RIGHT) as i32 - input.pressed.contains(Buttons::LEFT) as i32;
                 let tapped = input.touch.filter(|_| input.touch_started);
+                self.reset_armed = (self.reset_armed - dt).max(0.0);
+                if tapped.is_some_and(on_reset) {
+                    if self.reset_armed > 0.0 {
+                        self.save = self.save.without_progress();
+                        self.reset_armed = 0.0;
+                        self.sounds.push(Sfx::Turn);
+                    } else {
+                        self.reset_armed = RESET_CONFIRM;
+                        self.sounds.push(Sfx::Tick(0));
+                    }
+                    return;
+                }
                 let arrow = tapped.and_then(difficulty_arrow);
                 if by != 0 || arrow.is_some() {
                     let next = self.save.difficulty.step(arrow.unwrap_or(by));
@@ -366,9 +381,26 @@ impl Game {
         f.bottom.label(">", mid + 250.0, y + 6.0, 56.0, arrow(d != Difficulty::Hard), Align::Center);
         f.bottom.label(d.name(), mid, y + 6.0, 52.0, HOT, Align::Center);
         f.bottom.label(d.blurb(), mid, y + 80.0, 26.0, DIM, Align::Center);
+        let [x, y, w, h] = RESET;
+        f.bottom.rect(x, y, w, h, [1.0, 1.0, 1.0, if self.reset_armed > 0.0 { 0.18 } else { 0.06 }]);
+        let (text, color) = if self.reset_armed > 0.0 { ("Tap again to erase", [1.0, 0.45, 0.4, 1.0]) } else { ("Reset progress", DIM) };
+        f.bottom.label(text, x + w / 2.0, y + 22.0, 26.0, color, Align::Center);
+        if self.reset_armed > 0.0 {
+            f.bottom.label("Clears kills, records and found powerups; settings stay", SCREEN_W / 2.0, y + h + 20.0, 24.0, [1.0, 0.45, 0.4, 1.0], Align::Center);
+        }
         let hint = "D-pad: walk and strafe.  Y / A: turn.  B: turn around.  Tap the map: throw.  Left / Right here: difficulty.";
         f.bottom.label(hint, SCREEN_W / 2.0, SCREEN_H - 60.0, 24.0, DIM, Align::Center);
     }
+}
+
+/// The title's reset button on the bottom screen, as x, y, width and height.
+const RESET: [f32; 4] = [SCREEN_W - 300.0, 24.0, 276.0, 72.0];
+/// Seconds a first tap on reset waits for the second.
+const RESET_CONFIRM: f32 = 3.0;
+
+fn on_reset([x, y]: [f32; 2]) -> bool {
+    let [rx, ry, w, h] = RESET;
+    (rx..rx + w).contains(&x) && (ry..ry + h).contains(&y)
 }
 
 /// The top of the difficulty row on the title's bottom screen.
@@ -445,6 +477,23 @@ mod tests {
             game.open(Scene::from_name(name).unwrap());
         }
         assert!(matches!(game.state, State::Hardware(_)));
+    }
+
+    #[test]
+    fn reset_takes_two_taps_and_keeps_the_settings() {
+        let mut game = Game::new(1);
+        let kept = Save { volume: 2, difficulty: Difficulty::Hard, ..Save::default() };
+        game.load(Save { kills: 900, best: 300, best_level: 9, nights: 4, dawns: 1, found: 0b110, ..kept });
+        let [x, y, w, h] = RESET;
+        let tap = |game: &mut Game, dt: f32| game.update(&Input { touch: Some([x + w / 2.0, y + h / 2.0]), touch_started: true, ..Default::default() }, dt);
+        tap(&mut game, 0.016);
+        assert_eq!(game.save().kills, 900, "one tap only asks");
+        assert!(matches!(game.state, State::Title));
+        game.update(&Input::default(), RESET_CONFIRM + 0.1);
+        tap(&mut game, 0.016);
+        assert_eq!(game.save().kills, 900, "the question times out");
+        tap(&mut game, 0.016);
+        assert_eq!(game.save(), kept);
     }
 
     #[test]
