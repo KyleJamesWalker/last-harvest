@@ -23,7 +23,7 @@ fn text(status: u16, body: impl Into<String>) -> Reply {
 /// A file a sprite's folder may hold.
 fn sprite_file(file: &str) -> bool {
     let frame = file.strip_suffix(".png").is_some_and(|n| !n.is_empty() && n.len() <= 3 && n.bytes().all(|b| b.is_ascii_digit()));
-    frame || matches!(file, "south.png" | "east.png" | "footprint.png" | "stand.txt")
+    frame || matches!(file, "south.png" | "east.png" | "footprint.png" | "top.png" | "stand.txt")
 }
 
 fn bytes(found: Option<Vec<u8>>) -> Reply {
@@ -150,7 +150,7 @@ mod tests {
     fn saves_and_reads_back_a_sprite_the_way_the_editor_does() {
         let s = store("save");
         let web = Path::new("/nonexistent");
-        let mut sprite = Sprite { name: "BARREL".into(), frames: vec![Frame::blank(4, 3); 3], views: None, footprint: None, top: None };
+        let mut sprite = Sprite { name: "BARREL".into(), frames: vec![Frame::blank(4, 3); 3], views: None, footprint: None, top: Some(Frame::blank(4, 1)) };
         sprite.frames[2].set(1, 1, [9, 8, 7, 255]);
         assert_eq!(handle(&s, web, &Method::Put, "/api/sprite/BARREL", &bundle(&sprite.files())).0, 200);
         sprite.frames.truncate(2);
@@ -158,6 +158,7 @@ mod tests {
         assert!(s.dir.join("BARREL/1.png").exists() && !s.dir.join("BARREL/2.png").exists(), "a shorter save drops leftovers");
         let (status, _, png) = handle(&s, web, &Method::Get, "/api/file/BARREL/1.png", &[]);
         assert_eq!((status, png), (200, std::fs::read(s.dir.join("BARREL/1.png")).unwrap()));
+        assert_eq!(handle(&s, web, &Method::Get, "/api/file/BARREL/top.png", &[]).0, 200, "the top strip comes back too");
         assert_eq!(handle(&s, web, &Method::Put, "/api/stand/BARREL", b"slab 7").0, 200);
         assert_eq!(std::fs::read_to_string(&s.catalog).unwrap(), "BARREL  cell 14 7  @slab 7\n");
         assert_eq!(handle(&s, web, &Method::Get, "/api/stand/BARREL", &[]).2, b"slab 7");
