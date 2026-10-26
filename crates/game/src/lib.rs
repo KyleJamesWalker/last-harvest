@@ -91,6 +91,8 @@ pub struct Game {
     unlock_all: bool,
     /// Powerups every run starts with, as `Harvest::with_kit` reads them.
     kit: String,
+    /// Seconds into the night every run starts at, for trying out late-night play.
+    start_t: f32,
     /// Seconds left to confirm wiping the records and found powerups.
     reset_armed: f32,
 }
@@ -114,6 +116,7 @@ impl Game {
             leds: [false; 2],
             unlock_all: false,
             kit: String::new(),
+            start_t: 0.0,
             reset_armed: 0.0,
         }
     }
@@ -133,6 +136,11 @@ impl Game {
     /// Starts every run carrying these powerups: `id` or `id:level`, comma separated.
     pub fn start_with(&mut self, kit: &str) {
         self.kit = kit.to_string();
+    }
+
+    /// Starts every run `secs` seconds into the night.
+    pub fn start_clock(&mut self, secs: f32) {
+        self.start_t = secs.max(0.0);
     }
 
     fn progress(&self) -> harvest::Progress {
@@ -160,7 +168,7 @@ impl Game {
             Scene::Title => State::Title,
             Scene::Harvest => {
                 self.sounds.push(Sfx::Start);
-                State::Harvest(Box::new(harvest::Harvest::new(seed).at(self.save.difficulty).with_progress(self.progress()).with_kit(&self.kit)))
+                State::Harvest(Box::new(harvest::Harvest::new(seed).at(self.save.difficulty).with_progress(self.progress()).with_kit(&self.kit).starting_at(self.start_t)))
             }
             Scene::Farm => State::Harvest(Box::new(harvest::Harvest::calm(seed))),
             Scene::Bench => State::Harvest(Box::new(harvest::Harvest::bench())),

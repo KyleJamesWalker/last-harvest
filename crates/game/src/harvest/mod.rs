@@ -467,6 +467,8 @@ pub struct Harvest {
     fury_tick: f32,
     /// Powerups every run on this farm starts with, by place in the book and level, for trying them out.
     trial: Vec<(usize, u32)>,
+    /// Seconds into the night every run on this farm starts at.
+    start_t: f32,
     /// Grenades ready to throw; the fraction is the next one recharging.
     grenades: f32,
     thrown: Vec<Grenade>,
@@ -579,6 +581,7 @@ impl Harvest {
             fury: 1.0,
             fury_tick: 0.0,
             trial: Vec::new(),
+            start_t: 0.0,
             grenades: GRENADES,
             thrown: Vec::new(),
             pos: map.spawn,
@@ -691,6 +694,13 @@ impl Harvest {
     }
 
     /// Starts carrying powerups named `id` or `id:level`, comma separated; unknown names are skipped.
+    /// Starts the night `secs` in, and every restart on this farm too.
+    pub fn starting_at(mut self, secs: f32) -> Self {
+        self.t = secs;
+        self.start_t = secs;
+        self
+    }
+
     pub fn with_kit(mut self, list: &str) -> Self {
         self.trial = list
             .split(',')
@@ -760,7 +770,7 @@ impl Harvest {
                 if t > ready && input.pressed.any(Buttons::A | Buttons::START) {
                     let seed = self.rng.next_u32() as u64 + 1;
                     let kit: Vec<String> = self.trial.iter().map(|&(d, l)| format!("{}:{l}", book().defs[d].id)).collect();
-                    *self = Harvest::new(seed).at(self.difficulty).with_progress(self.progress).with_kit(&kit.join(","));
+                    *self = Harvest::new(seed).at(self.difficulty).with_progress(self.progress).with_kit(&kit.join(",")).starting_at(self.start_t);
                     sounds.push(Sfx::Start);
                 } else if t > ready && input.pressed.contains(Buttons::B) {
                     flow.quit = true;

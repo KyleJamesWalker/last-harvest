@@ -69,6 +69,9 @@ impl App {
         if let Ok(kit) = std::env::var("LAST_HARVEST_KIT") {
             game.start_with(&kit);
         }
+        if let Some(secs) = std::env::var("LAST_HARVEST_CLOCK").ok().and_then(|s| s.parse().ok()) {
+            game.start_clock(secs);
+        }
         if let Some(scene) = std::env::var("LAST_HARVEST_START").ok().and_then(|s| Scene::from_name(&s)) {
             game.open(scene);
         }

@@ -157,6 +157,7 @@ The scene names are `title`, `harvest`, `farm` (the game without zombies, for lo
 | `LAST_HARVEST_TOP` | Names the output for the top screen, such as `DSI-2`. |
 | `LAST_HARVEST_UNLOCK_ALL` | Offers every powerup, whatever the save has unlocked. |
 | `LAST_HARVEST_KIT` | Starts every run carrying these powerups, as comma-separated `id` or `id:level`, such as `scythe:3,crows,dog`. |
+| `LAST_HARVEST_CLOCK` | Starts every night this many seconds in, such as `590` to try the run home at dawn. |
 | `RGDS_HOST` | Sets the SSH target for the scripts. The default is `root@anbernic.local`. |
 
 ### Sprite editor
