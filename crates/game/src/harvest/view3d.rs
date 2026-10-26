@@ -311,7 +311,7 @@ pub fn scene(h: &Harvest) -> CardScene {
         }
         _ => 0.0,
     };
-    let yaw = h.view_yaw + std::f32::consts::PI * swing;
+    let yaw = h.view_yaw - h.spin + std::f32::consts::PI * swing;
     let forward = Vec3::new(yaw.cos(), 0.0, yaw.sin());
     let right = forward.cross(Vec3::Y);
     let p = world(h.pos);

@@ -34,6 +34,8 @@ const RISE_TIME: f32 = 0.9;
 const TURN_SPEED: f32 = 2.6;
 /// Seconds for the quick 180-degree turn.
 const SPIN_TIME: f32 = 0.2;
+/// Seconds the camera holds on the player's front after B, before swinging round behind.
+const FACE_TIME: f32 = 0.35;
 const GRENADE_RECHARGE: f32 = 12.0;
 const GRENADE_FLIGHT: f32 = 0.7;
 const GRENADE_RADIUS: f32 = 36.0;
@@ -483,8 +485,9 @@ pub struct Harvest {
     flow_cell: [usize; 2],
     /// The player's heading, which the 3D camera looks along, in radians from +x toward +y.
     view_yaw: f32,
-    /// Radians left of a quick turn in progress.
+    /// Radians the camera still trails a quick turn by, and seconds it holds before swinging.
     spin: f32,
+    face: f32,
     /// False until the turn buttons are let go, so the A that started the run or picked an upgrade doesn't turn.
     turn_ready: bool,
     /// No zombies: a walk around the farm, for looking at it.
@@ -609,6 +612,7 @@ impl Harvest {
             flow_cell: [usize::MAX; 2],
             view_yaw: -PI / 2.0,
             spin: 0.0,
+            face: 0.0,
             turn_ready: false,
             calm: false,
             bench: false,
@@ -742,8 +746,8 @@ impl Harvest {
                 if let Some(touch) = input.touch.filter(|_| input.touch_started) {
                     self.queued_touch = Some(touch);
                 }
-                if input.pressed.contains(Buttons::B) && self.spin <= 0.0 {
-                    self.spin = PI;
+                if input.pressed.contains(Buttons::B) {
+                    self.turn_around();
                 }
             }
             Phase::Playing => self.play(input, dt, sounds, &mut flow),
@@ -839,12 +843,15 @@ impl Harvest {
         self.turn_ready |= !input.held.any(turning);
         let held = if self.turn_ready { input.held } else { Buttons::NONE };
         let turn = held.any(Buttons::A | Buttons::R2) as i32 as f32 - held.any(Buttons::Y | Buttons::L2) as i32 as f32;
-        if input.pressed.contains(Buttons::B) && self.spin <= 0.0 {
-            self.spin = PI;
+        if input.pressed.contains(Buttons::B) {
+            self.turn_around();
         }
-        let spun = self.spin.min(PI / SPIN_TIME * dt);
-        self.spin -= spun;
-        self.view_yaw = (self.view_yaw + turn * TURN_SPEED * dt + spun).rem_euclid(TAU);
+        if self.face > 0.0 {
+            self.face -= dt;
+        } else {
+            self.spin -= self.spin.min(PI / SPIN_TIME * dt);
+        }
+        self.view_yaw = (self.view_yaw + turn * TURN_SPEED * dt).rem_euclid(TAU);
         let f = [self.view_yaw.cos(), self.view_yaw.sin()];
         let (side, ahead) = (dir[0], -dir[1]);
         self.lean += (side - self.lean) * (8.0 * dt).min(1.0);
@@ -978,6 +985,16 @@ impl Harvest {
                 t.hp *= FURY_PER_SEC;
             }
         }
+    }
+
+    /// B: the player faces about at once while the camera holds on their front a moment, then swings behind.
+    fn turn_around(&mut self) {
+        if self.spin > 0.0 {
+            return;
+        }
+        self.view_yaw = (self.view_yaw + PI).rem_euclid(TAU);
+        self.spin = PI;
+        self.face = FACE_TIME;
     }
 
     /// The bar fills: a gold shockwave shoves the nearest zombies back while time slows, then the cards come.
@@ -1836,8 +1853,10 @@ mod tests {
         let mut h = Harvest::calm(9);
         let yaw = h.view_yaw;
         h.update(&Input { pressed: Buttons::B, ..Default::default() }, 1.0 / 60.0, &mut Vec::new());
-        run(&mut h, &Input::default(), SPIN_TIME + 0.05);
-        assert!(((h.view_yaw - yaw).rem_euclid(TAU) - PI).abs() < 1e-3);
+        assert!(((h.view_yaw - yaw).rem_euclid(TAU) - PI).abs() < 1e-3, "the player faces about at once");
+        assert_eq!(h.spin, PI, "while the camera holds on their front");
+        run(&mut h, &Input::default(), FACE_TIME + SPIN_TIME + 0.05);
+        assert_eq!(h.spin, 0.0, "then swings round behind");
     }
 
     #[test]
