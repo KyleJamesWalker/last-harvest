@@ -779,9 +779,12 @@ impl Editor {
         self.deselect();
         self.remember();
         let f = self.current();
-        // Where it was copied from, unless that would put it out of sight.
-        let fits = |v: i32, size: usize, max: usize| if v >= 0 && v + size as i32 <= max as i32 { v } else { 0 };
-        let (x, y) = (fits(x, pixels.w, f.w), fits(y, pixels.h, f.h));
+        // Where it was copied from, pulled in to the nearest edge; one too big for the surface lines up with its far edge.
+        let inside = |v: i32, size: usize, max: usize| {
+            let room = max as i32 - size as i32;
+            v.min(room).max(room.min(0))
+        };
+        let (x, y) = (inside(x, pixels.w, f.w), inside(y, pixels.h, f.h));
         self.selection = Some(Selection { x, y, w: pixels.w, h: pixels.h, float: Some(pixels) });
         self.tool = Tool::Select;
         self.say("Pasted: drag or use the arrow keys to line it up, Enter to place");
@@ -1849,6 +1852,32 @@ mod tests {
         assert_eq!(v.get(2, 0), Some(beside), "clear pixels in a paste leave what was there");
         e.key(Key::Undo);
         assert_eq!(e.sprite.views.as_ref().unwrap()[0].get(3, 1), Some(under));
+    }
+
+    #[test]
+    fn a_paste_from_low_on_the_sprite_lands_at_the_bottom_of_a_shorter_view() {
+        let mut e = editor();
+        e.sprite.frames[0] = Frame::blank(48, 32);
+        e.act(Action::Stand(CARVE), false);
+        e.key(Key::Char('s'));
+        e.mouse_down(at(&e, 2, 18), false, false);
+        e.drag(at(&e, 45, 31));
+        e.mouse_up();
+        e.key(Key::Copy);
+        e.act(Action::View(0), false);
+        e.key(Key::Paste);
+        let sel = e.selection.as_ref().unwrap();
+        assert_eq!((sel.x, sel.y + sel.h as i32), (2, e.current().h as i32), "taller than the view, so its bottom row is the view's");
+        e.key(Key::Escape);
+        e.key(Key::Char('s'));
+        e.mouse_down(at(&e, 0, 0), false, false);
+        e.drag(at(&e, 3, 3));
+        e.mouse_up();
+        e.key(Key::Copy);
+        e.act(Action::Frame(0), false);
+        e.key(Key::Paste);
+        let sel = e.selection.as_ref().unwrap();
+        assert_eq!((sel.x, sel.y), (0, 0), "a paste that fits stays where it was copied from");
     }
 
     #[test]
