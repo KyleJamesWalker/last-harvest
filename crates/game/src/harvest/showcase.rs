@@ -15,6 +15,8 @@ pub(super) struct Shown {
     pub pos: [f32; 2],
     /// The strip capping a figure's top, from the editor.
     pub top: Option<Art>,
+    /// Whether the player stands beside it, or is left out so the view can come close.
+    pub player: bool,
 }
 
 impl Shown {
@@ -32,7 +34,7 @@ impl Showcase {
         let mut harvest = Harvest::calm(seed);
         harvest.birds.clear();
         let pos = [harvest.map.spawn[0], harvest.map.spawn[1] - 3.0 * TILE];
-        harvest.shown = Some(Shown { frames: Vec::new(), stand: Stand::Figure, fps: 6.0, pos, top: None });
+        harvest.shown = Some(Shown { frames: Vec::new(), stand: Stand::Figure, fps: 6.0, pos, top: None, player: true });
         Self { harvest }
     }
 
@@ -46,14 +48,22 @@ impl Showcase {
         }
     }
 
+    /// Puts the player beside the sprite, or leaves them out.
+    pub fn show_player(&mut self, on: bool) {
+        if let Some(s) = &mut self.harvest.shown {
+            s.player = on;
+        }
+    }
+
     /// Moves the clock on and walks the player around the sprite to look at it from `yaw`, `distance` map pixels away.
     pub fn update(&mut self, dt: f32, yaw: f32, distance: f32) {
         let h = &mut self.harvest;
         h.t += dt;
         let Some(s) = &h.shown else { return };
         let (forward, right) = ([yaw.cos(), yaw.sin()], [-yaw.sin(), yaw.cos()]);
-        // A step to the side keeps the player from standing between the camera and the sprite.
-        h.pos = [s.pos[0] - forward[0] * distance - right[0] * 14.0, s.pos[1] - forward[1] * distance - right[1] * 14.0];
+        // A step to the side keeps a shown player from standing between the camera and the sprite.
+        let aside = if s.player { 14.0 } else { 0.0 };
+        h.pos = [s.pos[0] - forward[0] * distance - right[0] * aside, s.pos[1] - forward[1] * distance - right[1] * aside];
         h.view_yaw = yaw;
         h.aim = forward;
     }

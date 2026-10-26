@@ -299,7 +299,9 @@ impl Harvest {
         }
         let (facing, flip) = self.facing;
         let (a, rise) = player_pose(self, facing);
-        sprites.push((self.pos[1], a, self.pos[0] - a.w() / 2.0, self.pos[1] - a.h() * rise + 2.0, flip, rise));
+        if self.shown.as_ref().is_none_or(|s| s.player) {
+            sprites.push((self.pos[1], a, self.pos[0] - a.w() / 2.0, self.pos[1] - a.h() * rise + 2.0, flip, rise));
+        }
         sprites.sort_by(|a, b| a.0.total_cmp(&b.0));
         for (_, a, x, y, flip, show) in sprites {
             let (sx, sy) = at(x, y);

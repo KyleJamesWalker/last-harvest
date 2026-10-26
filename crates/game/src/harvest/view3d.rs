@@ -464,7 +464,9 @@ pub fn scene(h: &Harvest) -> CardScene {
     }
     let (facing, flip) = facing_from(h.showing(), forward, right);
     let (a, rise) = player_pose(h, facing);
-    board(&mut cards, Board::new(a, flip, h.pos, -(1.0 - rise) * a.h() * PX, CHARACTER_DEPTH));
+    if h.shown.as_ref().is_none_or(|s| s.player) {
+        board(&mut cards, Board::new(a, flip, h.pos, -(1.0 - rise) * a.h() * PX, CHARACTER_DEPTH));
+    }
     if let Some(s) = h.shown.as_ref().filter(|s| s.stand == Stand::Figure && !s.frames.is_empty()) {
         board(&mut cards, Board { top: s.top, ..Board::new(s.frame(h.t), false, s.pos, 0.0, CHARACTER_DEPTH) });
     }
