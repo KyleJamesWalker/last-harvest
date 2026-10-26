@@ -362,7 +362,8 @@ impl Game {
             f.bottom.rect(0.0, 0.0, SCREEN_W, SCREEN_H, [1.0, 1.0, 1.0, a]);
         }
         if self.save.fps {
-            system::draw_perf(&mut f.top, &self.system);
+            let top = if matches!(self.state, State::Harvest(_)) { PERF_UNDER_KILLS } else { 8.0 };
+            system::draw_perf(&mut f.top, &self.system, top);
         } else if matches!(self.state, State::Title) {
             system::draw_battery(&mut f.top, &self.system, 16.0);
         }
@@ -418,6 +419,8 @@ impl Game {
     }
 }
 
+/// Where the frame-rate overlay starts during a run, below the kill count.
+const PERF_UNDER_KILLS: f32 = 72.0;
 /// Seconds the screenshot flash lasts.
 const SHOT_FLASH: f32 = 0.25;
 

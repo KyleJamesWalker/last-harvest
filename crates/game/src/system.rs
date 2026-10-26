@@ -39,17 +39,17 @@ const WARN: [f32; 4] = [1.0, 0.45, 0.35, 1.0];
 const SIZE: f32 = 22.0;
 
 /// FPS, frame times and temperatures in the top-right corner.
-pub fn draw_perf(c: &mut Canvas, s: &System) {
+pub fn draw_perf(c: &mut Canvas, s: &System, top: f32) {
     let temp = |t: Option<f32>| t.map_or("--".to_string(), |t| format!("{t:.0} C"));
+    let slow = s.fps < 55.0 || s.worst_ms > 20.0;
     let lines = [
-        (format!("{:.0} FPS", s.fps), if s.fps < 55.0 { WARN } else { TEXT }),
-        (format!("{:.1} ms  worst {:.1}", s.frame_ms, s.worst_ms), if s.worst_ms > 20.0 { WARN } else { TEXT }),
+        (format!("{:.0} FPS  {:.1} ms  worst {:.1}", s.fps, s.frame_ms, s.worst_ms), if slow { WARN } else { TEXT }),
         (format!("SoC {}  GPU {}", temp(s.soc_c), temp(s.gpu_c)), TEXT),
     ];
-    let (w, x) = (300.0, SCREEN_W - 12.0);
-    c.rect(x - w - 8.0, 8.0, w + 16.0, lines.len() as f32 * (SIZE + 4.0) + 12.0, PANEL);
+    let (w, x) = (340.0, SCREEN_W - 12.0);
+    c.rect(x - w - 8.0, top, w + 16.0, lines.len() as f32 * (SIZE + 4.0) + 12.0, PANEL);
     for (i, (line, color)) in lines.into_iter().enumerate() {
-        c.label(line, x, 14.0 + i as f32 * (SIZE + 4.0), SIZE, color, Align::Right);
+        c.label(line, x, top + 6.0 + i as f32 * (SIZE + 4.0), SIZE, color, Align::Right);
     }
 }
 
