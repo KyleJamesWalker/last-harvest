@@ -41,6 +41,15 @@ const GRENADE_RADIUS: f32 = 36.0;
 const MAP_W: usize = 72;
 const MAP_H: usize = 54;
 const DAWN: f32 = 600.0;
+/// After dawn, every zombie's health and bite grow by this much each second, compounding.
+const FURY_PER_SEC: f32 = 1.01;
+/// Close enough to the farmhouse's front step to be safe.
+const HOME_RADIUS: f32 = 12.0;
+/// The Harvester: dawn's boss, rising this far from the player on the side away from home.
+const HARVESTER_HP: f32 = 2500.0;
+const HARVESTER_SPEED: f32 = 40.0;
+const HARVESTER_BITE: f32 = 2.0;
+const HARVESTER_RISE: f32 = 90.0;
 const MAX_ZOMBIES: usize = 300;
 const MAX_STAINS: usize = 160;
 const PLAYER_HALF: [f32; 2] = [4.0, 3.0];
@@ -167,6 +176,8 @@ struct Zombie {
     burn_tick: f32,
     /// A horde's leader, which drops a chest.
     leader: bool,
+    /// Dawn's Harvester: faster, heavier, harder biting, and drawn twice the size.
+    boss: bool,
 }
 
 impl Zombie {
@@ -193,6 +204,7 @@ impl Zombie {
             burn_dps: 0.0,
             burn_tick: 0.0,
             leader: false,
+            boss: false,
         }
     }
 
@@ -450,6 +462,9 @@ pub struct Harvest {
     chest: bool,
     /// The next zombie to rise leads the horde.
     leader_owed: bool,
+    /// What dawn has multiplied every zombie's health and bite by, and the time toward its next step.
+    fury: f32,
+    fury_tick: f32,
     /// Powerups every run on this farm starts with, by place in the book and level, for trying them out.
     trial: Vec<(usize, u32)>,
     /// Grenades ready to throw; the fraction is the next one recharging.
@@ -561,6 +576,8 @@ impl Harvest {
             found_now: 0,
             chest: false,
             leader_owed: false,
+            fury: 1.0,
+            fury_tick: 0.0,
             trial: Vec::new(),
             grenades: GRENADES,
             thrown: Vec::new(),
@@ -856,6 +873,7 @@ impl Harvest {
         }
         self.rise(dt, sounds);
         self.move_zombies(dt);
+        self.grow_fury(dt);
         self.contact(sounds, flow);
         self.fire(dt, sounds);
         self.move_bullets(dt, sounds);
@@ -887,9 +905,9 @@ impl Harvest {
             self.leveling = 0.0;
             self.phase = Phase::Over { t: 0.0, won: false };
             flow.ended = Some(self.finish(false));
-        } else if self.t >= DAWN {
+        } else if self.t >= DAWN && len(sub(self.pos, self.map.home)) < HOME_RADIUS {
             sounds.push(Sfx::Dawn);
-            // First light burns the dead away.
+            // Home: the door shuts and first light burns the dead away.
             for z in std::mem::take(&mut self.zombies) {
                 self.juice.burst(z.pos, 8.0, 3, [0.0; 2], 0.0, [10.0, 40.0], juice::EMBER, 1.4, 1.2, 1.0);
                 self.fx.push(Fx { frames: &art::SMOKE, fps: 5.0, pos: [z.pos[0], z.pos[1] - 6.0], angle: 0.0, t: 0.0 });
@@ -900,8 +918,56 @@ impl Harvest {
             flow.rumble = flow.rumble.max(Some(Rumble::Fanfare));
             self.phase = Phase::Over { t: 0.0, won: true };
             flow.ended = Some(self.finish(true));
+        } else if self.t >= DAWN && self.t - dt < DAWN {
+            self.daybreak(sounds, flow);
         } else if self.leveling <= 0.0 && self.xp >= self.next_xp {
             self.level_up(sounds, flow);
+        }
+    }
+
+    /// Dawn: the night doesn't end, it turns. The Harvester rises behind the player, and from here on the
+    /// dead grow stronger every second until the player reaches the farmhouse.
+    fn daybreak(&mut self, sounds: &mut Vec<Sfx>, flow: &mut Flow) {
+        sounds.push(Sfx::Horde);
+        flow.rumble = flow.rumble.max(Some(Rumble::Blast));
+        self.juice.shake(0.6);
+        self.juice.banner("DAWN.  THE HARVESTER WAKES.  GET HOME.", [1.0, 0.45, 0.3, 1.0], 4.0);
+        let away = norm(sub(self.pos, self.map.home));
+        let away = if away == [0.0; 2] { [0.0, 1.0] } else { away };
+        let mut at = self.pos;
+        for k in 0..24 {
+            let a = (k as f32 * 0.4).sin() * (k as f32 * 0.15);
+            let d = [away[0] * a.cos() - away[1] * a.sin(), away[0] * a.sin() + away[1] * a.cos()];
+            let p = [self.pos[0] + d[0] * HARVESTER_RISE, self.pos[1] + d[1] * HARVESTER_RISE];
+            if !self.map.hits(p[0], p[1], ZOMBIE_HALF) {
+                at = p;
+                break;
+            }
+        }
+        let mut z = Zombie::new(Kind::Big, at, HARVESTER_HP, 0.0, 0.0);
+        z.boss = true;
+        z.id = self.next_id;
+        self.next_id += 1;
+        self.zombies.push(z);
+        self.juice.burst(at, 0.0, 40, [0.0; 2], 0.0, [30.0, 110.0], juice::DIRT, 2.2, 1.0, 0.0);
+        self.juice.ring(at, 60.0, 0.8, [0.9, 0.2, 0.15]);
+    }
+
+    /// Every second past dawn, every zombie grows by `FURY_PER_SEC`, the ones still rising too.
+    fn grow_fury(&mut self, dt: f32) {
+        if self.t < DAWN {
+            return;
+        }
+        self.fury_tick += dt;
+        while self.fury_tick >= 1.0 {
+            self.fury_tick -= 1.0;
+            self.fury *= FURY_PER_SEC;
+            for z in &mut self.zombies {
+                z.hp *= FURY_PER_SEC;
+            }
+            for t in &mut self.tells {
+                t.hp *= FURY_PER_SEC;
+            }
         }
     }
 
@@ -1062,7 +1128,7 @@ impl Harvest {
                 let r = self.rng.range(near, far);
                 let pos = [self.pos[0] + a.cos() * r, self.pos[1] + a.sin() * r];
                 if !self.map.hits(pos[0], pos[1], ZOMBIE_HALF) {
-                    let hp = kind.stats().hp * (1.0 + minutes * 0.08) * if leader { LEADER_HP } else { 1.0 };
+                    let hp = kind.stats().hp * (1.0 + minutes * 0.08) * if leader { LEADER_HP } else { 1.0 } * self.fury;
                     self.tells.push(Tell { kind, pos, hp, t: 0.0, leader });
                     break;
                 }
@@ -1133,7 +1199,7 @@ impl Harvest {
                 z.stagger -= dt;
                 continue;
             }
-            let speed = z.kind.stats().speed * (1.0 - z.slow_k);
+            let speed = if z.boss { HARVESTER_SPEED } else { z.kind.stats().speed } * (1.0 - z.slow_k);
             let direct = sub(self.pos, z.pos);
             let lure = self.decoys.iter().find(|d| len(sub(d.pos, z.pos)) < d.lure);
             let to = match lure {
@@ -1166,7 +1232,7 @@ impl Harvest {
         if self.hurt > 0.0 {
             return;
         }
-        let hit = self.zombies.iter().filter(|z| z.rise >= 1.0 && len(sub(z.pos, self.pos)) < 9.0).map(|z| z.kind.stats().damage * self.difficulty.damage()).fold(0.0, f32::max);
+        let hit = self.zombies.iter().filter(|z| z.rise >= 1.0 && len(sub(z.pos, self.pos)) < 9.0).map(|z| z.kind.stats().damage * if z.boss { HARVESTER_BITE } else { 1.0 } * self.fury * self.difficulty.damage()).fold(0.0, f32::max);
         let hit = if hit > 0.0 { (hit - self.kit.mods.armor).max(1.0) } else { 0.0 };
         if hit > 0.0 {
             self.hp -= hit;
@@ -1361,7 +1427,7 @@ impl Harvest {
                 self.juice.stop(0.06);
                 self.juice.shake(0.2);
             }
-            let kind = if z.leader {
+            let kind = if z.leader || z.boss {
                 DropKind::Chest
             } else if self.rng.below(self.difficulty.health_drop()) == 0 {
                 DropKind::Health
@@ -1655,10 +1721,10 @@ fn strike(z: &mut Zombie, juice: &mut Juice, damage: f32, dir: [f32; 2], force: 
     z.hurt = HURT_FRAMES;
     z.squash = 1.0;
     z.knock = dir;
-    let k = force / z.kind.stats().mass;
+    let k = force / z.kind.stats().mass / if z.boss { 6.0 } else { 1.0 };
     z.push = [dir[0] * k, dir[1] * k];
     juice.popup(z.pos, dealt, if crit { Tone::Crit } else { Tone::Hit });
-    if z.kind == Kind::Big && (crit || force > 100.0) {
+    if z.kind == Kind::Big && !z.boss && (crit || force > 100.0) {
         z.stagger = STAGGER_TIME;
     }
     juice.burst(z.pos, 8.0, if crit { 6 } else { 3 }, dir, 0.6, [30.0, 90.0], juice::BLOOD, 1.4, 0.4, 0.0);
@@ -2000,6 +2066,69 @@ mod tests {
             h.update(&Input::default(), 0.016, &mut Vec::new());
         }
         panic!("the chest never opened");
+    }
+
+    /// A farm at the edge of dawn, with the player well away from home and nothing else about.
+    fn before_dawn() -> Harvest {
+        let mut h = Harvest::calm(4);
+        h.kit.weapons.clear();
+        h.zombies.clear();
+        h.tells.clear();
+        h.t = DAWN - 0.01;
+        h.pos = h.map.spawn;
+        h
+    }
+
+    #[test]
+    fn dawn_wakes_the_harvester_instead_of_ending_the_night() {
+        let mut h = before_dawn();
+        let flow = h.update(&Input::default(), 0.02, &mut Vec::new());
+        assert!(flow.ended.is_none() && matches!(h.phase, Phase::Playing), "the night goes on");
+        let boss = h.zombies.iter().find(|z| z.boss).expect("the Harvester rises");
+        let (to_home, to_boss) = (sub(h.map.home, h.pos), sub(boss.pos, h.pos));
+        if len(to_home) > 1.0 {
+            assert!(to_home[0] * to_boss[0] + to_home[1] * to_boss[1] <= 0.0, "it rises on the side away from home");
+        }
+    }
+
+    #[test]
+    fn past_dawn_the_dead_grow_one_percent_a_second() {
+        let mut h = before_dawn();
+        h.update(&Input::default(), 0.02, &mut Vec::new());
+        h.zombies.push(Zombie::new(Kind::Skinny, [h.pos[0] + 200.0, h.pos[1]], 100.0, 1.0, 0.0));
+        for _ in 0..10 {
+            h.grow_fury(1.0);
+        }
+        assert!((h.fury - 1.01f32.powi(10)).abs() < 1e-4);
+        let hp = h.zombies.last().unwrap().hp;
+        assert!((hp - 100.0 * 1.01f32.powi(10)).abs() < 0.01, "{hp}");
+        let bitten = |h: &mut Harvest| {
+            h.zombies.retain(|z| !z.boss);
+            h.zombies[0].pos = h.pos;
+            h.hurt = 0.0;
+            let before = h.hp;
+            h.contact(&mut Vec::new(), &mut Flow::default());
+            before - h.hp
+        };
+        let late = bitten(&mut h);
+        h.fury = 1.0;
+        assert!(late > bitten(&mut h) * 1.09, "bites grow too");
+    }
+
+    #[test]
+    fn only_the_farmhouse_step_after_dawn_ends_the_night() {
+        let mut h = before_dawn();
+        h.t = DAWN - 5.0;
+        h.pos = h.map.home;
+        h.update(&Input::default(), 0.02, &mut Vec::new());
+        assert!(matches!(h.phase, Phase::Playing), "home before dawn is just a house");
+        let mut h = before_dawn();
+        h.update(&Input::default(), 0.02, &mut Vec::new());
+        h.zombies.clear();
+        h.pos = h.map.home;
+        let flow = h.update(&Input::default(), 0.02, &mut Vec::new());
+        assert!(matches!(h.phase, Phase::Over { won: true, .. }));
+        assert!(flow.ended.is_some_and(|r| r.won));
     }
 
     #[test]

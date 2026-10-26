@@ -18,6 +18,7 @@ use crate::{SCREEN_H, SCREEN_W};
 /// World units are tiles; sprite pixels are this big.
 const PX: f32 = 1.0 / TILE;
 const LEADER_TINT: [f32; 3] = [1.6, 1.3, 0.6];
+const HARVESTER_TINT: [f32; 3] = [1.4, 0.5, 0.45];
 const VIEW_RADIUS: f32 = 16.0;
 const CHARACTER_DEPTH: f32 = 3.0 * PX;
 const DECAL_LIFT: f32 = 0.03;
@@ -414,7 +415,11 @@ pub fn scene(h: &Harvest) -> CardScene {
         if z.leader {
             b.tint = LEADER_TINT;
         }
-        b.scale = [1.0 + 0.3 * s, 1.0 - 0.2 * s];
+        let size = if z.boss { 2.0 } else { 1.0 };
+        if z.boss {
+            b.tint = HARVESTER_TINT;
+        }
+        b.scale = [size * (1.0 + 0.3 * s), size * (1.0 - 0.2 * s)];
         b.lean = Vec3::new(z.knock[0], 0.0, z.knock[1]) * (0.35 * s);
         board(&mut cards, b);
     }
@@ -426,6 +431,13 @@ pub fn scene(h: &Harvest) -> CardScene {
     }
     for (a, at) in figures {
         board(&mut cards, Board::new(a, false, at, 0.0, CHARACTER_DEPTH));
+    }
+    if h.t >= DAWN {
+        // A shaft of light over the farmhouse step, to run toward.
+        let mut b = Board::new(art::WHITE, false, h.map.home, 0.0, 0.0);
+        b.scale = [1.5, 40.0];
+        b.tint = [1.6, 1.3, 0.5];
+        board(&mut cards, b);
     }
     for d in &h.decoys {
         // It shudders harder as it gets ready to burst.

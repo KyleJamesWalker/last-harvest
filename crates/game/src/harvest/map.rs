@@ -62,6 +62,8 @@ pub struct Map {
     pub barrels: Vec<[f32; 2]>,
     /// Where the player starts, in world pixels.
     pub spawn: [f32; 2],
+    /// The farmhouse's front step, which the player runs back to once dawn breaks.
+    pub home: [f32; 2],
 }
 
 /// Buildings and vehicles reach back over their solid rows; small things are slabs.
@@ -98,6 +100,7 @@ impl Map {
             decals: Vec::new(),
             barrels: Vec::new(),
             spawn: [0.0; 2],
+            home: [0.0; 2],
         };
         map.border();
         let road = map.road(rng);
@@ -136,6 +139,10 @@ impl Map {
             !barrel
         });
         map.spawn = map.find_spawn();
+        map.home = match house.or(barn) {
+            Some((x, y, _, bh)) => [(x + 2) as f32 * TILE + TILE / 2.0, (y + bh) as f32 * TILE + TILE / 2.0],
+            None => map.spawn,
+        };
         map
     }
 
@@ -567,6 +574,8 @@ mod tests {
             assert!(!map.hits(x, y, [6.0, 6.0]), "seed {seed}: spawn blocked");
             let has = |a: Art| map.props.iter().any(|p| p.frames[0] == a);
             assert!(has(art::HOUSE) || has(art::BARN_RED) || has(art::BARN_GREEN), "seed {seed}: no farmstead");
+            assert!(!map.hits(map.home[0], map.home[1], [4.0, 4.0]), "seed {seed}: the front step is blocked");
+            assert!(map.flow(map.home)[map.i((map.spawn[0] / TILE) as usize, (map.spawn[1] / TILE) as usize)] < u16::MAX, "seed {seed}: no way home");
         }
     }
 

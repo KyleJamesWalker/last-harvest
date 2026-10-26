@@ -7,7 +7,7 @@ use super::map::TILE;
 use crate::art::Stand;
 use super::powerups::{Kind, Zone, book};
 use super::weapons::{BOLT_LIFE, Hazard};
-use super::{CHOICE_ROW, CHOICE_TOP, Choice, DropKind, GOLD, GRENADE_FLIGHT, GRENADE_RADIUS, Harvest, PICK_TIME, Phase, RED, SCALE, TELL_TIME, TURNED, Thrown, WHITE, clock, player_pose, view3d};
+use super::{CHOICE_ROW, CHOICE_TOP, Choice, DAWN, DropKind, GOLD, GRENADE_FLIGHT, GRENADE_RADIUS, Harvest, PICK_TIME, Phase, RED, SCALE, TELL_TIME, TURNED, Thrown, WHITE, clock, player_pose, view3d};
 use crate::art::{self, Art};
 use crate::{Align, Canvas, Color, Frame, SCREEN_H, SCREEN_W};
 
@@ -15,12 +15,14 @@ impl Harvest {
     /// The top screen is the 3D view; the bottom is the map, where a tap throws a grenade.
     pub fn draw(&self, f: &mut Frame) {
         let scene = view3d::scene(self);
+        let view_proj = scene.view_proj;
         f.top.clear = [scene.fog[0], scene.fog[1], scene.fog[2], 1.0];
         self.popups(&mut f.top, &scene);
         self.motes(&mut f.top, &scene);
         f.top.cards = Some(scene);
         self.vignette(&mut f.top);
         self.hud(&mut f.top);
+        self.way_home(&mut f.top, view_proj);
         self.banner(&mut f.top);
         self.overlays(&mut f.top);
 
@@ -38,6 +40,7 @@ impl Harvest {
         let cam = self.camera();
         self.world(c, cam, SCALE, tint);
         self.view_cone(c, cam);
+        self.home_on_map(c, cam);
         self.grenade_tray(c);
         self.kit_tray(c);
         if let Phase::LevelUp { choices, selected, t, picked } = &self.phase {
@@ -245,10 +248,11 @@ impl Harvest {
             c.art(a, sx, sy, scale, false, lit);
         }
 
-        for z in self.zombies.iter().filter(|z| z.leader) {
+        for z in self.zombies.iter().filter(|z| z.leader || z.boss) {
             let (sx, sy) = at(z.pos[0], z.pos[1]);
             let pulse = 0.35 + 0.25 * (self.t * 6.0).sin();
-            c.circle(sx, sy, 9.0 * scale, [GOLD[0], GOLD[1], GOLD[2], pulse]);
+            let (r, ring) = if z.boss { (16.0, HARVESTER) } else { (9.0, GOLD) };
+            c.circle(sx, sy, r * scale, [ring[0], ring[1], ring[2], pulse]);
         }
         // Props, zombies and the player, drawn back to front by where they meet the ground.
         // The last field is how much of each sprite shows: zombies still in the ground show only their top.
@@ -385,13 +389,18 @@ impl Harvest {
                 }
                 let k = (t / 0.6).min(1.0);
                 c.rect(0.0, 0.0, SCREEN_W, SCREEN_H, [0.0, 0.0, 0.0, 0.6 * k]);
-                let (title, color) = if *won { ("DAWN", GOLD) } else { ("YOU TURNED", RED) };
+                let (title, color) = if *won { ("SAFE AT HOME", GOLD) } else { ("YOU TURNED", RED) };
                 let scale = 16.0 * back_out(k);
                 // A lost run keeps the middle clear, where the turned player stands.
                 let (title_y, line_y) = if *won { (260.0, 360.0) } else { (130.0, 560.0) };
                 c.text_centered(title_y - scale * 2.5, scale, color, title);
                 let a = ((t - 0.5) / 0.4).clamp(0.0, 1.0);
-                let line = format!("Survived {}   Level {}   Kills {}", clock(self.t), self.level, self.kills);
+                let line = if self.t >= DAWN {
+                    let how = if *won { "Home" } else { "Lasted" };
+                    format!("{how} {} past dawn   Level {}   Kills {}", clock(self.t - DAWN), self.level, self.kills)
+                } else {
+                    format!("Survived {}   Level {}   Kills {}", clock(self.t), self.level, self.kills)
+                };
                 c.label(line, SCREEN_W / 2.0, line_y, 40.0, [1.0, 1.0, 1.0, a], Align::Center);
                 c.label("A: try another farm      B: menu", SCREEN_W / 2.0, line_y + 80.0, 32.0, [1.0, 1.0, 1.0, 0.7 * a], Align::Center);
                 let names: Vec<&str> = self.newly.iter().map(|&i| book().defs[i].name.as_str()).collect();
@@ -409,6 +418,44 @@ impl Harvest {
                 }
             }
         }
+    }
+
+    /// After dawn, where the farmhouse is: over it when it's in view, else at the edge it lies past.
+    fn way_home(&self, c: &mut Canvas, view_proj: glam::Mat4) {
+        if self.t < DAWN || !matches!(self.phase, Phase::Playing | Phase::LevelUp { .. }) {
+            return;
+        }
+        let d = [self.map.home[0] - self.pos[0], self.map.home[1] - self.pos[1]];
+        let far = format!("{:.0}m", (d[0] * d[0] + d[1] * d[1]).sqrt() / TILE);
+        let pulse = [GOLD[0], GOLD[1], GOLD[2], 0.75 + 0.25 * (self.t * 5.0).sin()];
+        let shown = view3d::to_screen(view_proj, self.map.home, 30.0).filter(|([x, y], _)| (60.0..SCREEN_W - 60.0).contains(x) && (120.0..SCREEN_H).contains(y));
+        if let Some(([x, y], _)) = shown {
+            c.label(format!("HOME  {far}"), x, y - 40.0, 34.0, pulse, Align::Center);
+            c.label("v", x, y - 6.0, 34.0, pulse, Align::Center);
+            return;
+        }
+        let (fwd, right) = ([self.view_yaw.cos(), self.view_yaw.sin()], [-self.view_yaw.sin(), self.view_yaw.cos()]);
+        let (ahead, side) = (d[0] * fwd[0] + d[1] * fwd[1], d[0] * right[0] + d[1] * right[1]);
+        if ahead < 0.0 && side.abs() < -ahead {
+            c.label(format!("HOME IS BEHIND YOU  {far}   (B turns)"), SCREEN_W / 2.0, SCREEN_H - 70.0, 34.0, pulse, Align::Center);
+        } else if side > 0.0 {
+            c.label(format!("HOME  {far}  >"), SCREEN_W - 24.0, 140.0, 34.0, pulse, Align::Right);
+        } else {
+            c.label(format!("<  HOME  {far}"), 24.0, 140.0, 34.0, pulse, Align::Left);
+        }
+    }
+
+    /// After dawn, the farmhouse's step on the map, pinned to the edge when it's off the map.
+    fn home_on_map(&self, c: &mut Canvas, cam: [f32; 2]) {
+        if self.t < DAWN {
+            return;
+        }
+        let x = ((self.map.home[0] - cam[0]) * SCALE).clamp(40.0, SCREEN_W - 40.0);
+        let y = ((self.map.home[1] - cam[1]) * SCALE).clamp(40.0, SCREEN_H - 40.0);
+        let pulse = 0.5 + 0.4 * (self.t * 5.0).sin();
+        c.circle(x, y, 14.0 * SCALE / 2.0, [GOLD[0], GOLD[1], GOLD[2], pulse * 0.5]);
+        c.circle(x, y, 5.0 * SCALE / 2.0, [GOLD[0], GOLD[1], GOLD[2], 1.0]);
+        c.label("HOME", x, y - 52.0, 30.0, GOLD, Align::Center);
     }
 
     fn hud(&self, c: &mut Canvas) {
@@ -434,7 +481,12 @@ impl Harvest {
         let throb = if health < 0.3 { 0.5 + 0.5 * (self.juice.clock * 10.0).sin() } else { 0.0 };
         c.rect(bx, by, bw * health.clamp(0.0, 1.0), bh, [RED[0] + 0.15 * throb, RED[1] + 0.1 * throb, RED[2], 1.0]);
         c.label(format!("LV {}", self.level), bx, by + 30.0, 32.0, WHITE, Align::Left);
-        c.text_centered(30.0, 6.0, WHITE, &clock(self.t));
+        if self.t >= DAWN {
+            c.text_centered(30.0, 6.0, HARVESTER, &format!("DAWN +{}", clock(self.t - DAWN)));
+            c.label(format!("The dead +{:.0}%", (self.fury - 1.0) * 100.0), SCREEN_W / 2.0, 96.0, 30.0, HARVESTER, Align::Center);
+        } else {
+            c.text_centered(30.0, 6.0, WHITE, &clock(self.t));
+        }
         let bump = 1.0 + 0.35 * (1.0 - self.kill_bump / 0.15).max(0.0);
         c.label(format!("{} kills", self.kills), SCREEN_W - 24.0, 28.0 - 8.0 * (bump - 1.0), 32.0 * bump, WHITE, Align::Right);
     }
@@ -499,6 +551,7 @@ impl Harvest {
 
 /// The edge and tag of a found powerup's card, apart from a rare one's gold.
 const FIND: Color = [0.45, 1.0, 0.6, 1.0];
+const HARVESTER: Color = [1.0, 0.45, 0.3, 1.0];
 
 fn zone_color(zone: Option<Zone>) -> Color {
     match zone {
