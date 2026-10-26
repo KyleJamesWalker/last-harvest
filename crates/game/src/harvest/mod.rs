@@ -413,6 +413,8 @@ enum Phase {
 pub struct Flow {
     pub rumble: Option<Rumble>,
     pub quit: bool,
+    /// The pause menu chose Settings; the run stays paused under it.
+    pub settings: bool,
     /// How the run went, on the frame it ends.
     pub ended: Option<Run>,
     /// Powerups found this frame, to keep even if the run is abandoned.
@@ -824,7 +826,7 @@ impl Harvest {
                 selected = (selected + n - 1) % n;
                 sounds.push(Sfx::Tick(selected as u8 * 3));
             }
-            let tapped = input.touch.filter(|_| input.touch_started).and_then(|[_, y]| choice_row(y));
+            let tapped = input.touch.filter(|_| input.touch_started).and_then(|[_, y]| choice_row(y)).filter(|&i| i < 3);
             // X picks: A turns, and a player still holding it as the cards appear shouldn't pick by accident.
             if let Some(i) = tapped.or(input.pressed.contains(Buttons::X).then_some(selected)) {
                 let c = choices[i];
@@ -1018,7 +1020,8 @@ impl Harvest {
         match chosen {
             _ if input.pressed.any(Buttons::START | Buttons::B) => self.menu = None,
             Some(0) => self.menu = None,
-            Some(1) => self.restart(sounds),
+            Some(1) => flow.settings = true,
+            Some(2) => self.restart(sounds),
             Some(_) => flow.quit = true,
             None => {}
         }
@@ -1787,13 +1790,13 @@ impl Harvest {
 }
 
 const CHOICE_TOP: f32 = 160.0;
-const PAUSE_CHOICES: [&str; 3] = ["Resume", "New farm", "Quit to title"];
+const PAUSE_CHOICES: [&str; 4] = ["Resume", "Settings", "New farm", "Quit to title"];
 const CHOICE_ROW: f32 = 150.0;
 
-/// Which level-up row a bottom-screen touch at `y` lands on.
+/// Which level-up or pause row a bottom-screen touch at `y` lands on.
 fn choice_row(y: f32) -> Option<usize> {
     let row = ((y - CHOICE_TOP) / CHOICE_ROW).floor();
-    (0.0..3.0).contains(&row).then_some(row as usize)
+    (0.0..4.0).contains(&row).then_some(row as usize)
 }
 
 /// Lands a hit: damage (now and then doubled), knockback, a red flash, a squash, a number and a spray of blood.
@@ -1905,7 +1908,7 @@ mod tests {
     }
 
     #[test]
-    fn start_pauses_and_the_menu_resumes_restarts_or_quits() {
+    fn start_pauses_and_the_menu_resumes_opens_settings_restarts_or_quits() {
         let mut h = Harvest::new(5);
         let press = |h: &mut Harvest, b: Buttons| h.update(&Input { pressed: b, ..Default::default() }, 1.0 / 60.0, &mut Vec::new());
         run(&mut h, &Input::default(), 1.0);
@@ -1917,10 +1920,13 @@ mod tests {
         assert!(h.menu.is_none());
         press(&mut h, Buttons::START);
         press(&mut h, Buttons::DOWN);
+        assert!(press(&mut h, Buttons::A).settings);
+        assert!(h.menu.is_some(), "the run stays paused under the settings");
+        press(&mut h, Buttons::DOWN);
         press(&mut h, Buttons::A);
         assert!(h.menu.is_none() && h.t == 0.0, "New farm starts over");
         press(&mut h, Buttons::START);
-        let tap = Input { touch: Some([500.0, CHOICE_TOP + CHOICE_ROW * 2.5]), touch_started: true, ..Default::default() };
+        let tap = Input { touch: Some([500.0, CHOICE_TOP + CHOICE_ROW * 3.5]), touch_started: true, ..Default::default() };
         assert!(h.update(&tap, 1.0 / 60.0, &mut Vec::new()).quit, "a tap on the last choice quits");
     }
 

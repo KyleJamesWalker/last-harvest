@@ -6,6 +6,7 @@ mod gallery;
 mod hardware;
 mod harvest;
 mod input;
+mod menu;
 mod osd;
 mod rng;
 mod save;
@@ -23,6 +24,7 @@ pub use sfx::Sfx;
 pub use system::{Battery, Outputs, System};
 
 use rng::Rng;
+use menu::Page;
 use save::LEVELS;
 
 pub const SCREEN_W: f32 = 1024.0;
@@ -77,7 +79,6 @@ pub struct Game {
     paused: bool,
     input: Input,
     system: System,
-    show_perf: bool,
     rumble: f32,
     /// Motor pulses as (start, end) on `clock`.
     pulses: Vec<(f32, f32)>,
@@ -97,6 +98,12 @@ pub struct Game {
     reset_armed: f32,
     /// Seconds left of the title's word that progress was erased.
     reset_shown: f32,
+    page: Page,
+    /// The highlighted row on the title's main page and on the settings page.
+    row: usize,
+    setting: usize,
+    /// Settings is open over a paused run, rather than from the title.
+    settings_in_run: bool,
 }
 
 impl Game {
@@ -107,7 +114,6 @@ impl Game {
             paused: false,
             input: Input::default(),
             system: System::default(),
-            show_perf: false,
             rumble: 0.0,
             pulses: Vec::new(),
             clock: 0.0,
@@ -121,6 +127,10 @@ impl Game {
             start_t: 0.0,
             reset_armed: 0.0,
             reset_shown: 0.0,
+            page: Page::Main,
+            row: 0,
+            setting: 0,
+            settings_in_run: false,
         }
     }
 
@@ -168,7 +178,10 @@ impl Game {
     pub fn open(&mut self, scene: Scene) {
         let seed = self.rng.next_u32() as u64 + 1;
         self.state = match scene {
-            Scene::Title => State::Title,
+            Scene::Title => {
+                self.page = Page::Main;
+                State::Title
+            }
             Scene::Harvest => {
                 self.sounds.push(Sfx::Start);
                 State::Harvest(Box::new(harvest::Harvest::new(seed).at(self.save.difficulty).with_progress(self.progress()).with_kit(&self.kit).starting_at(self.start_t)))
@@ -203,8 +216,9 @@ impl Game {
 
     pub fn outputs(&self) -> Outputs {
         let level = |l: u8| l as f32 / LEVELS as f32;
+        let motor = self.save.rumble || matches!(self.state, State::Hardware(_));
         Outputs {
-            rumble: self.rumble(),
+            rumble: motor && self.rumble(),
             volume: self.volume(),
             dread: match &self.state {
                 State::Harvest(h) if !self.paused => h.dread(),
@@ -242,7 +256,7 @@ impl Game {
             self.sounds.push(Sfx::Tick(self.save.volume));
         }
         if input.pressed.contains(Buttons::SELECT) && !matches!(self.state, State::Hardware(_)) {
-            self.show_perf = !self.show_perf;
+            self.save.fps = !self.save.fps;
         }
         if self.paused {
             self.rumble = 0.0;
@@ -250,44 +264,26 @@ impl Game {
             return;
         }
         if input.pressed.any(Buttons::BACK) {
-            self.state = State::Title;
+            self.open(Scene::Title);
             return;
         }
         self.state = match std::mem::replace(&mut self.state, State::Title) {
             State::Title => {
-                let by = input.pressed.contains(Buttons::RIGHT) as i32 - input.pressed.contains(Buttons::LEFT) as i32;
-                let tapped = input.touch.filter(|_| input.touch_started);
-                self.reset_armed = (self.reset_armed - dt).max(0.0);
-                self.reset_shown = (self.reset_shown - dt).max(0.0);
-                if tapped.is_some_and(on_reset) {
-                    if self.reset_armed > 0.0 {
-                        self.save = self.save.without_progress();
-                        self.reset_armed = 0.0;
-                        self.reset_shown = RESET_SHOWN;
-                        self.sounds.push(Sfx::Turn);
-                    } else {
-                        self.reset_armed = RESET_CONFIRM;
-                        self.sounds.push(Sfx::Tick(0));
-                    }
-                    return;
+                self.title(input, dt);
+                return;
+            }
+            State::Harvest(h) if self.page == Page::Settings => {
+                if self.settings(input, input.touch.filter(|_| input.touch_started)) {
+                    self.page = Page::Main;
                 }
-                let arrow = tapped.and_then(difficulty_arrow);
-                if by != 0 || arrow.is_some() {
-                    let next = self.save.difficulty.step(arrow.unwrap_or(by));
-                    if next != self.save.difficulty {
-                        self.save.difficulty = next;
-                        self.sounds.push(Sfx::Tick(next as u8 * 4));
-                    }
-                    return;
-                }
-                if input.pressed.any(Buttons::START | Buttons::A) || tapped.is_some() {
-                    self.open(Scene::Harvest);
-                    return;
-                }
-                State::Title
+                State::Harvest(h)
             }
             State::Harvest(mut h) => {
                 let flow = h.update(input, dt, &mut self.sounds);
+                if flow.settings {
+                    self.page = Page::Settings;
+                    self.open_settings(true);
+                }
                 if let Some(r) = flow.rumble {
                     self.buzz(r);
                 }
@@ -321,7 +317,12 @@ impl Game {
         f.bottom.clear = [0.12, 0.12, 0.15, 1.0];
         match &self.state {
             State::Title => self.draw_title(&mut f),
-            State::Harvest(h) => h.draw(&mut f),
+            State::Harvest(h) => {
+                h.draw(&mut f);
+                if self.page == Page::Settings {
+                    self.draw_settings(&mut f.bottom);
+                }
+            }
             State::Gallery(g) => g.draw(&mut f),
             State::Hardware(hw) => {
                 hw.draw(&mut f, &self.system, self.save.brightness, self.leds);
@@ -335,7 +336,7 @@ impl Game {
         if self.volume_shown > 0.0 {
             f.top.text_centered(40.0, 8.0, WHITE, &format!("VOL {}", self.save.volume));
         }
-        if self.show_perf {
+        if self.save.fps {
             system::draw_perf(&mut f.top, &self.system);
         } else if matches!(self.state, State::Title) {
             system::draw_battery(&mut f.top, &self.system, 16.0);
@@ -388,54 +389,14 @@ impl Game {
         if let Some((name, how)) = harvest::next_unlock(&self.progress()) {
             f.top.label(format!("Next to find: {name}. {how}"), SCREEN_W / 2.0, 566.0, 24.0, DIM, Align::Center);
         }
-        let pulse = 0.55 + 0.45 * (t * 3.0).sin().abs();
-        f.bottom.label("Press A or tap to start", SCREEN_W / 2.0, 240.0, 56.0, [1.0, 1.0, 1.0, pulse], Align::Center);
-        let d = self.save.difficulty;
-        let (y, mid) = (DIFFICULTY_Y, SCREEN_W / 2.0);
-        f.bottom.rect(mid - 300.0, y - 10.0, 600.0, 140.0, [1.0, 1.0, 1.0, 0.06]);
-        let arrow = |on: bool| if on { HOT } else { [1.0, 1.0, 1.0, 0.15] };
-        f.bottom.label("<", mid - 250.0, y + 6.0, 56.0, arrow(d != Difficulty::Easy), Align::Center);
-        f.bottom.label(">", mid + 250.0, y + 6.0, 56.0, arrow(d != Difficulty::Hard), Align::Center);
-        f.bottom.label(d.name(), mid, y + 6.0, 52.0, HOT, Align::Center);
-        f.bottom.label(d.blurb(), mid, y + 80.0, 26.0, DIM, Align::Center);
-        let [x, y, w, h] = RESET;
-        f.bottom.rect(x, y, w, h, [1.0, 1.0, 1.0, if self.reset_armed > 0.0 { 0.18 } else { 0.06 }]);
-        let (text, color) = if self.reset_armed > 0.0 { ("Tap again to erase", [1.0, 0.45, 0.4, 1.0]) } else { ("Reset progress", DIM) };
-        f.bottom.label(text, x + w / 2.0, y + 22.0, 26.0, color, Align::Center);
-        if self.reset_armed > 0.0 {
-            f.bottom.label("Clears kills, records and found powerups; settings stay", SCREEN_W / 2.0, y + h + 20.0, 24.0, [1.0, 0.45, 0.4, 1.0], Align::Center);
-        }
-        f.bottom.label("D-pad: walk and strafe.   Y / A: turn.   B: turn around.", SCREEN_W / 2.0, SCREEN_H - 84.0, 24.0, DIM, Align::Center);
-        f.bottom.label("Hold X: aim at barrels.   Tap the map: throw.   Left / Right here: difficulty.", SCREEN_W / 2.0, SCREEN_H - 50.0, 24.0, DIM, Align::Center);
+        self.draw_menu(f);
     }
-}
-
-/// The title's reset button on the bottom screen, as x, y, width and height.
-const RESET: [f32; 4] = [SCREEN_W - 300.0, 24.0, 276.0, 72.0];
-/// Seconds a first tap on reset waits for the second.
-const RESET_CONFIRM: f32 = 3.0;
-const RESET_SHOWN: f32 = 3.0;
-
-fn on_reset([x, y]: [f32; 2]) -> bool {
-    let [rx, ry, w, h] = RESET;
-    (rx..rx + w).contains(&x) && (ry..ry + h).contains(&y)
-}
-
-/// The top of the difficulty row on the title's bottom screen.
-const DIFFICULTY_Y: f32 = 400.0;
-
-/// Which way a tap on the title's bottom screen steps the difficulty, if it lands on an arrow.
-fn difficulty_arrow([x, y]: [f32; 2]) -> Option<i32> {
-    if !(DIFFICULTY_Y - 10.0..DIFFICULTY_Y + 130.0).contains(&y) {
-        return None;
-    }
-    let off = x - SCREEN_W / 2.0;
-    (off.abs() > 160.0 && off.abs() < 320.0).then_some(off.signum() as i32)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use menu::{DIFFICULTY_Y, RESET_CONFIRM};
 
     fn press(game: &mut Game, b: Buttons) {
         game.update(&Input { pressed: b, ..Default::default() }, 0.016);
@@ -449,6 +410,9 @@ mod tests {
         press(&mut game, Buttons::BACK);
         assert!(matches!(game.state, State::Title));
         game.update(&Input { touch: Some([512.0, 400.0]), touch_started: true, ..Default::default() }, 0.016);
+        assert_eq!(game.page, Page::Settings, "a tap on a row opens it");
+        press(&mut game, Buttons::B);
+        game.update(&Input { touch: Some([512.0, 60.0]), touch_started: true, ..Default::default() }, 0.016);
         assert!(matches!(game.state, State::Harvest(_)));
     }
 
@@ -497,22 +461,87 @@ mod tests {
         assert!(matches!(game.state, State::Hardware(_)));
     }
 
+    /// Opens Settings from the title and moves to its `row`.
+    fn settings_row(game: &mut Game, row: usize) {
+        press(game, Buttons::DOWN);
+        press(game, Buttons::A);
+        assert_eq!(game.page, Page::Settings);
+        for _ in 0..row {
+            press(game, Buttons::DOWN);
+        }
+    }
+
     #[test]
-    fn reset_takes_two_taps_and_keeps_the_settings() {
+    fn reset_takes_two_presses_and_keeps_the_settings() {
         let mut game = Game::new(1);
         let kept = Save { volume: 2, difficulty: Difficulty::Hard, ..Save::default() };
         game.load(Save { kills: 900, best: 300, best_level: 9, nights: 4, dawns: 1, found: 0b110, ..kept });
-        let [x, y, w, h] = RESET;
-        let tap = |game: &mut Game, dt: f32| game.update(&Input { touch: Some([x + w / 2.0, y + h / 2.0]), touch_started: true, ..Default::default() }, dt);
-        tap(&mut game, 0.016);
-        assert_eq!(game.save().kills, 900, "one tap only asks");
-        assert!(matches!(game.state, State::Title));
+        settings_row(&mut game, 5);
+        press(&mut game, Buttons::A);
+        assert_eq!(game.save().kills, 900, "one press only asks");
         game.update(&Input::default(), RESET_CONFIRM + 0.1);
-        tap(&mut game, 0.016);
+        press(&mut game, Buttons::A);
         assert_eq!(game.save().kills, 900, "the question times out");
-        tap(&mut game, 0.016);
+        press(&mut game, Buttons::A);
         assert_eq!(game.save(), kept);
         assert!(game.reset_shown > 0.0, "the title says so");
+    }
+
+    #[test]
+    fn settings_change_brightness_rumble_and_fps_and_b_goes_back() {
+        let mut game = Game::new(1);
+        settings_row(&mut game, 0);
+        press(&mut game, Buttons::RIGHT);
+        assert_eq!(game.save().brightness, [5, 4]);
+        for _ in 0..20 {
+            press(&mut game, Buttons::LEFT);
+        }
+        assert_eq!(game.save().brightness[0], 1, "never dark");
+        press(&mut game, Buttons::DOWN);
+        press(&mut game, Buttons::DOWN);
+        press(&mut game, Buttons::DOWN);
+        press(&mut game, Buttons::A);
+        assert!(!game.save().rumble);
+        game.rumble = 1.0;
+        assert!(!game.outputs().rumble, "rumble off keeps the motor still");
+        press(&mut game, Buttons::DOWN);
+        press(&mut game, Buttons::A);
+        assert!(game.save().fps);
+        press(&mut game, Buttons::B);
+        assert_eq!(game.page, Page::Main);
+        assert!(matches!(game.state, State::Title));
+    }
+
+    #[test]
+    fn the_pause_menu_opens_settings_over_the_run_without_reset() {
+        let mut game = Game::new(1);
+        press(&mut game, Buttons::A);
+        press(&mut game, Buttons::START);
+        press(&mut game, Buttons::DOWN);
+        press(&mut game, Buttons::A);
+        assert_eq!(game.page, Page::Settings);
+        assert_eq!(game.settings_list().len(), 5);
+        let t = game.summary();
+        game.update(&Input::default(), 1.0);
+        assert_eq!(game.summary(), t, "the run stays paused");
+        press(&mut game, Buttons::B);
+        assert_eq!(game.page, Page::Main);
+        assert!(matches!(game.state, State::Harvest(_)));
+    }
+
+    #[test]
+    fn stats_and_credits_open_and_close() {
+        let mut game = Game::new(1);
+        for (downs, page) in [(2, Page::Stats), (1, Page::Credits)] {
+            for _ in 0..downs {
+                press(&mut game, Buttons::DOWN);
+            }
+            press(&mut game, Buttons::A);
+            assert_eq!(game.page, page);
+            game.draw();
+            press(&mut game, Buttons::B);
+            assert_eq!(game.page, Page::Main);
+        }
     }
 
     #[test]

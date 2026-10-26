@@ -4,13 +4,15 @@ A zombie survivors-like for the ANBERNIC RG DS Plus, written in Rust. It is buil
 
 ## The game
 
-Press A or tap the title screen to start a run on a newly generated farm: a road with a gas station, a farmhouse and barn joined to the road by dirt paths, fenced crop and corn fields, a windmill, a graveyard, and scattered trees, wrecks and barrels.
+Choose Play on the title's bottom screen to start a run on a newly generated farm: a road with a gas station, a farmhouse and barn joined to the road by dirt paths, fenced crop and corn fields, a windmill, a graveyard, and scattered trees, wrecks and barrels.
 
 The top screen is the main view, in 2.5D: every sprite's silhouette extruded into depth, lit by the player's lantern and fading into fog, seen from just behind the player. The bottom screen is the same farm top-down at 2x, 512x384 art pixels, with dots marking what the main view faces.
 
 Zombies claw their way out of the ground, at the edge of the fog early on and only a few tiles away by the end of the night, then find their way around buildings and fences. Your weapons fire on their own. Tap the map to lob a grenade there; you start with one, and each recharges in 12 seconds. Kills drop money, and money levels you up: pick one of three powerups on either screen; see [Powerups](#powerups). Shooting a red barrel sets it off; hold X and your guns go for the barrels in view. Ten minutes in, dawn wakes the Harvester behind you and the dead grow 1% stronger every second: run back to the farmhouse to survive. Start pauses. Fall, and you sink into the dirt and climb back out as one of them, leading the dead off to the next farm.
 
-Pick a difficulty on the title screen with Left and Right, or by tapping its arrows. Easy bites gently, drops health often and starts you with a pistol, a knife and a grenade. Normal makes bites hurt and health scarce, and starts you with a knife and a grenade. Hard makes every bite count and starts you with only a grenade. The choice is remembered.
+Pick a difficulty under Play with Left and Right, or by tapping its arrows. Easy bites gently, drops health often and starts you with a pistol, a knife and a grenade. Normal makes bites hurt and health scarce, and starts you with a knife and a grenade. Hard makes every bite count and starts you with only a grenade. The choice is remembered.
+
+The title's menu also opens Settings, Stats and Credits; Up and Down choose a row, A or a tap opens it, and B goes back. Settings sets each screen's brightness, the volume, rumble, the frame-rate overlay, and resets progress. Choose Settings from the pause menu to change all but the reset mid-run. Stats lists the records the save keeps.
 
 Every sound is synthesized at runtime from a few oscillator voices per cue, with a low drone that swells as the dead close in. A recorded WAV can replace any cue; see [Sounds](#sounds).
 
@@ -40,7 +42,7 @@ Each weapon covers a zone, shown on its card:
 
 Eight powerups are open from the first night. Each of the rest has a condition: a number of kills, a long enough night, a level reached, nights played or dawns survived. Meeting it only makes the powerup findable. From then on, a level-up may offer it on a green FOUND card, and taking that card unlocks it for good. A run can find two powerups at most. A find appears only when you have a free slot of its kind, so keep one open to find new weapons. Some finds appear only after a set minute of the night. The biggest appear only in the chest that each horde's gold-lit leader drops. Picking up a chest gives a free level-up that holds a find whenever one is waiting.
 
-The title screen shows how many powerups are unlocked, how many are waiting to be found, and the condition you are closest to. The game-over screen names what the run found. Reset progress, at the top right of the title's bottom screen, clears kills, records and found powerups after a second tap. Settings stay.
+The title screen shows how many powerups are unlocked, how many are waiting to be found, and the condition you are closest to. The game-over screen names what the run found. Reset progress, in Settings, clears kills, records and found powerups after a second press. Settings stay.
 
 `crates/game/powerups.txt` defines every powerup: its name, zone, unlock rule, how often it is found, highest level, and its stats at each level. Change a number and rebuild to rebalance. To add a powerup, copy a section under a new id. A `does` line reuses an existing weapon behavior with new numbers. The comments at the top of the file list every key and stat. A test reads the file, so a typo fails `cargo test` and names the line.
 
@@ -126,7 +128,7 @@ cargo test
 | Back to the title | Back | Tab |
 | Quit | Hold Home for one second | Esc |
 
-The `hardware` debug scene checks every hardware feature and sets each screen's brightness: Up and Down set the top brightness, Left and Right the bottom. X and B toggle the work and low-power LEDs. L1 and R1 play the left and right speaker, R2 runs the motor, and any other button plays a tone.
+The `hardware` debug scene checks every hardware feature and also sets each screen's brightness: Up and Down set the top brightness, Left and Right the bottom. X and B toggle the work and low-power LEDs. L1 and R1 play the left and right speaker, R2 runs the motor, and any other button plays a tone.
 
 ### Debug mode
 
