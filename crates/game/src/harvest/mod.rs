@@ -34,8 +34,6 @@ const RISE_TIME: f32 = 0.9;
 const TURN_SPEED: f32 = 2.6;
 /// Seconds for the quick 180-degree turn.
 const SPIN_TIME: f32 = 0.2;
-/// Seconds the player shows their front after B swings the camera round, before turning to match it.
-const FACE_TIME: f32 = 0.35;
 const GRENADE_RECHARGE: f32 = 12.0;
 const GRENADE_FLIGHT: f32 = 0.7;
 const GRENADE_RADIUS: f32 = 36.0;
@@ -490,8 +488,7 @@ pub struct Harvest {
     view_yaw: f32,
     /// Radians left of a quick turn in progress.
     spin: f32,
-    /// Seconds the player keeps the heading they turned from, so the swung camera sees their front.
-    face: f32,
+    /// The heading the player keeps while B swings the camera round, so it sweeps past their front.
     turned_from: [f32; 2],
     /// The pause menu's highlighted choice, while Start has the run paused.
     menu: Option<usize>,
@@ -619,7 +616,6 @@ impl Harvest {
             flow_cell: [usize::MAX; 2],
             view_yaw: -PI / 2.0,
             spin: 0.0,
-            face: 0.0,
             turned_from: [0.0; 2],
             menu: None,
             turn_ready: false,
@@ -863,9 +859,6 @@ impl Harvest {
         }
         let spun = self.spin.min(PI / SPIN_TIME * dt);
         self.spin -= spun;
-        if self.spin <= 0.0 {
-            self.face = (self.face - dt).max(0.0);
-        }
         self.view_yaw = (self.view_yaw + turn * TURN_SPEED * dt + spun).rem_euclid(TAU);
         let f = [self.view_yaw.cos(), self.view_yaw.sin()];
         let (side, ahead) = (dir[0], -dir[1]);
@@ -1034,19 +1027,18 @@ impl Harvest {
         sounds.push(Sfx::Start);
     }
 
-    /// The way the player's sprite faces: the old heading while B shows their front, else where they aim.
+    /// The way the player's sprite faces: the old heading while B swings the camera round, else where they aim.
     fn showing(&self) -> [f32; 2] {
-        if self.spin > 0.0 || self.face > 0.0 { self.turned_from } else { self.aim }
+        if self.spin > 0.0 { self.turned_from } else { self.aim }
     }
 
-    /// B: the camera swings round while the player keeps their old heading, so it lands on their front a moment.
+    /// B: the camera swings round while the player keeps their old heading, so it sweeps past their front.
     fn turn_around(&mut self) {
         if self.spin > 0.0 {
             return;
         }
         self.turned_from = [self.view_yaw.cos(), self.view_yaw.sin()];
         self.spin = PI;
-        self.face = FACE_TIME;
     }
 
     /// The bar fills: a gold shockwave shoves the nearest zombies back while time slows, then the cards come.
@@ -1932,11 +1924,11 @@ mod tests {
         let mut h = Harvest::calm(9);
         let yaw = h.view_yaw;
         h.update(&Input { pressed: Buttons::B, ..Default::default() }, 1.0 / 60.0, &mut Vec::new());
-        run(&mut h, &Input::default(), SPIN_TIME + 0.05);
+        run(&mut h, &Input::default(), SPIN_TIME * 0.8);
+        assert_eq!(h.showing(), h.turned_from, "the player keeps the old heading while the camera swings");
+        run(&mut h, &Input::default(), SPIN_TIME * 0.2 + 0.05);
         assert!(((h.view_yaw - yaw).rem_euclid(TAU) - PI).abs() < 1e-3, "the camera swings right round");
-        assert!(h.face > 0.0 && h.showing() == h.turned_from, "the player still faces the old way, toward it");
-        run(&mut h, &Input::default(), FACE_TIME);
-        assert_eq!(h.showing(), h.aim, "then turns to match");
+        assert_eq!(h.showing(), h.aim, "and turns to match as it lands");
     }
 
     #[test]
