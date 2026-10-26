@@ -163,18 +163,17 @@ impl Unlock {
             }
     }
 
-    /// How close progress is to meeting it, from 0 to 1.
-    pub fn nearness(self, p: &Progress) -> f32 {
-        let k = |have: u32, need: u32| have as f32 / need.max(1) as f32;
+    /// Roughly how many seconds of play are left before it's met, to rank conditions of different kinds.
+    pub fn effort(self, p: &Progress) -> f32 {
+        let left = |have: u32, need: u32, secs_each: f32| need.saturating_sub(have) as f32 * secs_each;
         match self {
-            Unlock::Start => 1.0,
-            Unlock::Kills(n) => k(p.kills, n),
-            Unlock::Night(s) => k(p.best, s),
-            Unlock::Level(n) => k(p.best_level, n),
-            Unlock::Nights(n) => k(p.nights, n),
-            Unlock::Dawns(n) => k(p.dawns, n),
+            Unlock::Start => 0.0,
+            Unlock::Kills(n) => left(p.kills, n, 1.5),
+            Unlock::Night(s) => left(p.best, s, 1.0),
+            Unlock::Level(n) => left(p.best_level, n, 40.0),
+            Unlock::Nights(n) => left(p.nights, n, 300.0),
+            Unlock::Dawns(n) => left(p.dawns, n, 900.0),
         }
-        .min(1.0)
     }
 
     /// What it takes, for the title screen.
@@ -678,5 +677,8 @@ mod tests {
         let p = p.after(Run { secs: 600, kills: 10, level: 3, won: true });
         assert_eq!((p.kills, p.best, p.best_level, p.nights, p.dawns), (130, 600, 6, 2, 1));
         assert!(Unlock::Dawns(1).met(&Progress { everything: true, ..Progress::default() }));
+        let fresh = Progress::default();
+        assert!(Unlock::Kills(100).effort(&fresh) < Unlock::Kills(500).effort(&fresh));
+        assert!(Unlock::Night(120).effort(&fresh) < Unlock::Dawns(1).effort(&fresh));
     }
 }

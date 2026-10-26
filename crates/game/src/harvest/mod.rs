@@ -534,7 +534,7 @@ pub fn next_unlock(p: &Progress) -> Option<(String, String)> {
         .enumerate()
         .filter(|&(i, d)| !p.owns(i) && !d.unlock.met(p))
         .map(|(_, d)| d)
-        .max_by(|a, b| a.unlock.nearness(p).total_cmp(&b.unlock.nearness(p)))
+        .min_by(|a, b| a.unlock.effort(p).total_cmp(&b.unlock.effort(p)))
         .map(|d| (d.name.clone(), d.unlock.text()))
 }
 

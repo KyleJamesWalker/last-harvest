@@ -95,6 +95,8 @@ pub struct Game {
     start_t: f32,
     /// Seconds left to confirm wiping the records and found powerups.
     reset_armed: f32,
+    /// Seconds left of the title's word that progress was erased.
+    reset_shown: f32,
 }
 
 impl Game {
@@ -118,6 +120,7 @@ impl Game {
             kit: String::new(),
             start_t: 0.0,
             reset_armed: 0.0,
+            reset_shown: 0.0,
         }
     }
 
@@ -255,10 +258,12 @@ impl Game {
                 let by = input.pressed.contains(Buttons::RIGHT) as i32 - input.pressed.contains(Buttons::LEFT) as i32;
                 let tapped = input.touch.filter(|_| input.touch_started);
                 self.reset_armed = (self.reset_armed - dt).max(0.0);
+                self.reset_shown = (self.reset_shown - dt).max(0.0);
                 if tapped.is_some_and(on_reset) {
                     if self.reset_armed > 0.0 {
                         self.save = self.save.without_progress();
                         self.reset_armed = 0.0;
+                        self.reset_shown = RESET_SHOWN;
                         self.sounds.push(Sfx::Turn);
                     } else {
                         self.reset_armed = RESET_CONFIRM;
@@ -376,6 +381,10 @@ impl Game {
             n => format!("Powerups unlocked: {open} of {all}.  {n} waiting to be found"),
         };
         f.top.label(line, SCREEN_W / 2.0, 530.0, 28.0, DIM, Align::Center);
+        if self.reset_shown > 0.0 {
+            let a = self.reset_shown.min(1.0);
+            f.top.label("Progress erased: records, kills and found powerups", SCREEN_W / 2.0, 480.0, 34.0, [1.0, 0.45, 0.4, a], Align::Center);
+        }
         if let Some((name, how)) = harvest::next_unlock(&self.progress()) {
             f.top.label(format!("Next to find: {name}. {how}"), SCREEN_W / 2.0, 566.0, 24.0, DIM, Align::Center);
         }
@@ -396,8 +405,8 @@ impl Game {
         if self.reset_armed > 0.0 {
             f.bottom.label("Clears kills, records and found powerups; settings stay", SCREEN_W / 2.0, y + h + 20.0, 24.0, [1.0, 0.45, 0.4, 1.0], Align::Center);
         }
-        let hint = "D-pad: walk and strafe.  Y / A: turn.  B: turn around.  Tap the map: throw.  Left / Right here: difficulty.";
-        f.bottom.label(hint, SCREEN_W / 2.0, SCREEN_H - 60.0, 24.0, DIM, Align::Center);
+        f.bottom.label("D-pad: walk and strafe.   Y / A: turn.   B: turn around.", SCREEN_W / 2.0, SCREEN_H - 84.0, 24.0, DIM, Align::Center);
+        f.bottom.label("Tap the map: throw.   Left / Right here: difficulty.", SCREEN_W / 2.0, SCREEN_H - 50.0, 24.0, DIM, Align::Center);
     }
 }
 
@@ -405,6 +414,7 @@ impl Game {
 const RESET: [f32; 4] = [SCREEN_W - 300.0, 24.0, 276.0, 72.0];
 /// Seconds a first tap on reset waits for the second.
 const RESET_CONFIRM: f32 = 3.0;
+const RESET_SHOWN: f32 = 3.0;
 
 fn on_reset([x, y]: [f32; 2]) -> bool {
     let [rx, ry, w, h] = RESET;
@@ -502,6 +512,7 @@ mod tests {
         assert_eq!(game.save().kills, 900, "the question times out");
         tap(&mut game, 0.016);
         assert_eq!(game.save(), kept);
+        assert!(game.reset_shown > 0.0, "the title says so");
     }
 
     #[test]
