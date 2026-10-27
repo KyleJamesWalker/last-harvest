@@ -154,6 +154,18 @@ pub fn kill_sound(kind: u8) -> &'static str {
     roster().enemies.get(kind as usize).map_or("", |e| e.sound.as_str())
 }
 
+/// Checks a pack's own powerups.txt and enemies.txt as the game will read them, without reading the game's data,
+/// so a mod that would break the game can be left out before it's installed.
+pub fn check_tables(powerups: Option<&str>, enemies: Option<&str>) -> Result<(), String> {
+    if let Some(text) = powerups {
+        powerups::parse(text).map_err(|e| format!("powerups.txt:{e}"))?;
+    }
+    if let Some(text) = enemies {
+        enemies::parse(text).map_err(|e| format!("enemies.txt:{e}"))?;
+    }
+    Ok(())
+}
+
 /// How heavy the zombie kind a `Sfx::Kill` names is, which divides its knockback; 1 for a kind that's gone.
 pub fn kill_weight(kind: u8) -> f32 {
     roster().enemies.get(kind as usize).map_or(1.0, |e| e.mass)

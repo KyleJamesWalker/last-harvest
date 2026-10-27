@@ -54,13 +54,27 @@ fn mods_folder() -> Option<PathBuf> {
     Some(data_folder()?.join("mods"))
 }
 
-/// The mod packs in the mods folder, in name order, by file name; one that can't be read is left out and logged.
+/// The mod packs in the mods folder, in name order, by file name; one that can't be read, or whose atlas or tables
+/// would stop the game, is left out and logged.
 fn read_mods() -> Vec<(String, Pak)> {
     let Some(dir) = mods_folder() else { return Vec::new() };
-    samples::read_files(&dir, &[".pak"])
-        .into_iter()
-        .filter_map(|(name, bytes)| Pak::read(std::io::Cursor::new(bytes)).inspect_err(|e| eprintln!("mods: {name}: {e}")).ok().map(|p| (name, p)))
-        .collect()
+    let read = |bytes: Vec<u8>| -> Result<Pak, String> {
+        let pak = Pak::read(std::io::Cursor::new(bytes))?;
+        check_mod(&pak)?;
+        Ok(pak)
+    };
+    samples::read_files(&dir, &[".pak"]).into_iter().filter_map(|(name, bytes)| read(bytes).inspect_err(|e| eprintln!("mods: {name}: {e}")).ok().map(|p| (name, p))).collect()
+}
+
+/// Whether a mod's files that replace the game's own would read: its atlas the right size, its tables UTF-8 that
+/// parse.
+fn check_mod(pak: &Pak) -> Result<(), String> {
+    let size = (last_harvest_game::art::ATLAS_W * last_harvest_game::art::ATLAS_H * 4) as usize;
+    if pak.get(pack::ATLAS).is_some_and(|a| a.len() != size) {
+        return Err("its atlas is the wrong size for this build".into());
+    }
+    let text = |file: &str| pak.get(file).map(|b| std::str::from_utf8(b).map_err(|_| format!("{file} is not UTF-8"))).transpose();
+    last_harvest_game::check_tables(text(pack::POWERUPS)?, text(pack::ENEMIES)?)
 }
 
 /// Installs the pack's data, with any mods laid over it, and the enemy cards in the game, which must happen before
@@ -127,6 +141,22 @@ fn overlay_sounds(base: Files, top: Files) -> Files {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn pak(files: &[(&str, &[u8])]) -> Pak {
+        let mut all: Vec<(String, Vec<u8>)> = vec![(pack::MANIFEST.into(), pack::mod_manifest("m").into_bytes())];
+        all.extend(files.iter().map(|(p, b)| (p.to_string(), b.to_vec())));
+        let mut buf = std::io::Cursor::new(Vec::new());
+        pack::write(&mut buf, &all).unwrap();
+        Pak::read(std::io::Cursor::new(buf.into_inner())).unwrap()
+    }
+
+    #[test]
+    fn a_mod_that_would_break_the_game_is_left_out() {
+        assert!(check_mod(&pak(&[(pack::ENEMIES, include_bytes!("../../game/enemies.txt"))])).is_ok());
+        assert!(check_mod(&pak(&[(pack::ENEMIES, b"[x]\nlook NOPE")])).unwrap_err().contains("enemies.txt"));
+        assert!(check_mod(&pak(&[(pack::POWERUPS, b"[x]\nkind sideways")])).unwrap_err().contains("powerups.txt"));
+        assert!(check_mod(&pak(&[(pack::ENEMIES, &[0xff, 0xfe])])).unwrap_err().contains("UTF-8"));
+    }
 
     #[test]
     fn a_mods_sounds_replace_the_folders_by_name() {

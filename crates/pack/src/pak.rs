@@ -108,6 +108,10 @@ impl Pak {
         self.files.extend(top.files);
     }
 
+    pub fn get(&self, path: &str) -> Option<&[u8]> {
+        self.files.get(path).map(Vec::as_slice)
+    }
+
     pub fn take(&mut self, path: &str) -> Option<Vec<u8>> {
         self.files.remove(path)
     }
