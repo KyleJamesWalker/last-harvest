@@ -37,9 +37,9 @@ pub fn manifest() -> String {
     )
 }
 
-/// Files already compressed, or read in place, that deflate would only slow down.
+/// Media that deflate would barely shrink, only slow down.
 fn stored(path: &str) -> bool {
-    [".rgba", ".ogg", ".png", ".wav"].iter().any(|ext| path.ends_with(ext))
+    [".ogg", ".png", ".wav"].iter().any(|ext| path.ends_with(ext))
 }
 
 /// Writes `files` in the order given, with fixed timestamps so the same files give the same bytes.
@@ -171,10 +171,10 @@ mod tests {
     }
 
     #[test]
-    fn media_is_stored_and_text_is_deflated() {
+    fn media_is_stored_and_text_and_the_atlas_are_deflated() {
         let bytes = pack(&[(MANIFEST, manifest().as_bytes()), (ATLAS, &[0; 64]), ("sounds/shot.ogg", &[1; 64])]);
         let mut zip = ZipArchive::new(Cursor::new(bytes)).unwrap();
-        assert_eq!(zip.by_name(ATLAS).unwrap().compression(), CompressionMethod::Stored);
+        assert_eq!(zip.by_name(ATLAS).unwrap().compression(), CompressionMethod::Deflated, "mostly clear pixels, it packs small");
         assert_eq!(zip.by_name("sounds/shot.ogg").unwrap().compression(), CompressionMethod::Stored);
         assert_eq!(zip.by_name(MANIFEST).unwrap().compression(), CompressionMethod::Deflated);
     }
