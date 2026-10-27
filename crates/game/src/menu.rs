@@ -475,6 +475,11 @@ impl Game {
             c.label(*name, 160.0, y, 36.0, DIM, Align::Left);
             c.label(value.clone(), SCREEN_W - 160.0, y, 36.0, HOT, Align::Right);
         }
+        let mods = &crate::data::load_report().mods;
+        if !mods.is_empty() {
+            let line: String = mods.iter().map(|m| m.trim_end_matches(".pak")).collect::<Vec<_>>().join(", ").chars().take(60).collect();
+            c.label(line, SCREEN_W - 160.0, 104.0 + rows.len() as f32 * 66.0 - 14.0, 24.0, DIM, Align::Right);
+        }
         back_button(c);
     }
 }
