@@ -2196,7 +2196,11 @@ impl Editor {
             }
         }
 
-        let help = "/: search   J/K: sprites   H/L: frames   R: history   S: select   Cmd+C/X/V   hold I: pick   Shift-click: line   Cmd+S: save";
+        let help = if self.modding {
+            "/: search   J/K: parts   H/L: frames   T: stats   S: select   Cmd+C/X/V   hold I: pick   Shift-click: line   Cmd+S: save"
+        } else {
+            "/: search   J/K: sprites   H/L: frames   R: history   S: select   Cmd+C/X/V   hold I: pick   Shift-click: line   Cmd+S: save"
+        };
         c.label(help, 12.0, 748.0, 13.0, DIM, Align::Left);
         if let Some((text, age)) = &self.status {
             let a = (4.0 - age).clamp(0.0, 1.0);
