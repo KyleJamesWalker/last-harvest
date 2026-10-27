@@ -131,26 +131,27 @@ impl Bank {
 
 /// Reads a PCM (8, 16, 24 or 32-bit) or float WAV, mono or stereo, resampled to `rate`.
 pub fn decode(bytes: &[u8], rate: f32) -> Result<Clip, String> {
-    let u16_at = |i: usize| u16::from_le_bytes([bytes[i], bytes[i + 1]]);
-    let u32_at = |i: usize| u32::from_le_bytes([bytes[i], bytes[i + 1], bytes[i + 2], bytes[i + 3]]);
+    let cut = || "a chunk is cut short".to_string();
+    let u16_at = |i: usize| bytes.get(i..i + 2).map(|b| u16::from_le_bytes([b[0], b[1]])).ok_or_else(cut);
+    let u32_at = |i: usize| bytes.get(i..i + 4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]])).ok_or_else(cut);
     if bytes.len() < 12 || &bytes[0..4] != b"RIFF" || &bytes[8..12] != b"WAVE" {
         return Err("not a WAV file".into());
     }
     let (mut fmt, mut data) = (None, None);
     let mut i = 12;
     while i + 8 <= bytes.len() {
-        let size = u32_at(i + 4) as usize;
-        let body = i + 8..(i + 8 + size).min(bytes.len());
+        let size = u32_at(i + 4)? as usize;
+        let body = i + 8..(i + 8).saturating_add(size).min(bytes.len());
         match &bytes[i..i + 4] {
             b"fmt " if size >= 16 => {
                 // An extensible header keeps the real format in the first two bytes of its subformat GUID.
-                let format = if u16_at(i + 8) == 0xFFFE && size >= 40 { u16_at(i + 32) } else { u16_at(i + 8) };
-                fmt = Some((format, u16_at(i + 10) as usize, u32_at(i + 12) as f32, u16_at(i + 22) as usize));
+                let format = if u16_at(i + 8)? == 0xFFFE && size >= 40 { u16_at(i + 32)? } else { u16_at(i + 8)? };
+                fmt = Some((format, u16_at(i + 10)? as usize, u32_at(i + 12)? as f32, u16_at(i + 22)? as usize));
             }
             b"data" => data = Some(body),
             _ => {}
         }
-        i += 8 + size + (size & 1);
+        i = i.saturating_add(8 + size + (size & 1));
     }
     let (format, channels, source_rate, bits) = fmt.ok_or("no fmt chunk")?;
     let data = &bytes[data.ok_or("no data chunk")?];
@@ -185,6 +186,9 @@ pub fn decode_ogg(bytes: &[u8], rate: f32) -> Result<Clip, String> {
     let mut reader = lewton::inside_ogg::OggStreamReader::new(std::io::Cursor::new(bytes)).map_err(|e| e.to_string())?;
     let channels = reader.ident_hdr.audio_channels as usize;
     let source_rate = reader.ident_hdr.audio_sample_rate as f32;
+    if channels == 0 {
+        return Err("no channels".into());
+    }
     let mut source = Vec::new();
     while let Some(packet) = reader.read_dec_packet_itl().map_err(|e| e.to_string())? {
         source.extend(packet.chunks_exact(channels).map(|f| {
@@ -196,11 +200,20 @@ pub fn decode_ogg(bytes: &[u8], rate: f32) -> Result<Clip, String> {
 }
 
 fn resample(source: &[[f32; 2]], source_rate: f32, rate: f32) -> Result<Clip, String> {
+    // A sound may come from anyone's mod: a made-up rate could ask for more frames than there's memory.
+    const RATES: std::ops::RangeInclusive<f32> = 1000.0..=384_000.0;
+    const MAX_SECONDS: f32 = 30.0;
     if source.is_empty() {
         return Err("no samples".into());
     }
+    if !RATES.contains(&source_rate) {
+        return Err(format!("a rate of {source_rate} Hz"));
+    }
     let step = source_rate / rate;
     let n = (source.len() as f32 / step) as usize;
+    if n as f32 > MAX_SECONDS * rate {
+        return Err(format!("longer than {MAX_SECONDS} seconds, too long for a sound effect"));
+    }
     let frames = (0..n)
         .map(|k| {
             let at = k as f32 * step;
@@ -235,6 +248,21 @@ mod tests {
             b.extend(s.to_le_bytes());
         }
         b
+    }
+
+    #[test]
+    fn a_wav_cut_short_or_with_a_made_up_rate_is_refused() {
+        let good = wav(1, 24_000, &[0, 16384, -16384, 0]);
+        let fmt = good.windows(4).position(|w| w == b"fmt ").unwrap();
+        assert!(decode(&good[..fmt + 14], 48_000.0).err().unwrap().contains("cut short"));
+        let mut zero = good.clone();
+        zero[fmt + 12..fmt + 16].copy_from_slice(&0u32.to_le_bytes());
+        assert!(decode(&zero, 48_000.0).err().unwrap().contains("rate"));
+        let mut slow = good;
+        slow[fmt + 12..fmt + 16].copy_from_slice(&1000u32.to_le_bytes());
+        let long = wav(1, 1000, &vec![0; 40_000]);
+        assert!(decode(&long, 48_000.0).err().unwrap().contains("too long"));
+        assert!(decode(&slow, 48_000.0).is_ok());
     }
 
     #[test]
