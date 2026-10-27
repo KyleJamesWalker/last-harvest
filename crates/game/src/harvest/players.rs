@@ -34,6 +34,11 @@ pub fn weapons() -> Vec<(String, String)> {
     book().defs.iter().filter(|d| d.kind == Kind::Weapon).map(|d| (d.id.clone(), d.name.clone())).collect()
 }
 
+/// How many weapons a run can carry, and so a player card can start with.
+pub fn weapon_slots() -> usize {
+    book().weapon_slots
+}
+
 /// The weapons the game starts a run with at `difficulty`, by id.
 pub fn default_start(difficulty: Difficulty) -> Vec<String> {
     book().start[difficulty as usize].iter().map(|&i| book().defs[i].id.clone()).collect()

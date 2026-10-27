@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds the public enemy card editor for the browser into target/mod-editor: the sprite editor without the
+# Builds the public card editor for the browser into target/mod-editor: the sprite editor without the
 # tileset, keeping cards in the browser. --serve also serves it on port 8094 for a look.
 set -euo pipefail
 cd "$(dirname "$0")/.."

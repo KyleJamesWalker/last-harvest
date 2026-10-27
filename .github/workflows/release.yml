@@ -65,7 +65,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "$TAG" "last-harvest-$TAG-aarch64-linux.tar.gz" game_data.pak --clobber
 
-  # The public enemy card editor, built without the tileset, on GitHub Pages.
+  # The public card editor, built without the tileset, on GitHub Pages.
   mod-editor:
     runs-on: ubuntu-latest
     env:

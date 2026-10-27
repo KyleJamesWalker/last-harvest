@@ -18,19 +18,19 @@ pub trait Store {
     /// A file of a sprite's folder as it was at a commit.
     fn version(&self, id: &str, name: &str, file: &str) -> Option<Vec<u8>>;
 
-    /// Takes in a card's PNG from elsewhere, as the mod editor's Import does, and returns its id.
-    fn import_card(&self, _bytes: &[u8]) -> Result<String, String> {
-        Err("cards are added to the enemies folder here".into())
+    /// Takes in a card's PNG from elsewhere, as the mod editor's Import does, and returns its front part's name.
+    fn import_card(&self, _file: &str, _bytes: &[u8]) -> Result<String, String> {
+        Err("cards are added to the enemies and players folders here".into())
     }
 
-    /// A card's PNG as saved, for the mod editor's Export.
-    fn card_bytes(&self, _id: &str) -> Option<Vec<u8>> {
+    /// The PNG as saved of the card the part `name` belongs to, for the mod editor's Export.
+    fn card_bytes(&self, _name: &str) -> Option<Vec<u8>> {
         None
     }
 
-    /// Removes a card for good, as the mod editor's Delete card does.
-    fn delete_card(&self, _id: &str) -> Result<(), String> {
-        Err("cards are removed from the enemies folder here".into())
+    /// Removes the card the part `name` belongs to for good, as the mod editor's Delete card does.
+    fn delete_card(&self, _name: &str) -> Result<(), String> {
+        Err("cards are removed from the enemies and players folders here".into())
     }
 
     /// The saved copy if there is one, else the packed frames.
@@ -43,13 +43,16 @@ pub trait Store {
 pub mod cards {
     use last_harvest_pack::card;
 
-    use crate::sprite::{self, CARD_PART_FRAMES, Frame, Sprite};
+    use crate::sprite::{self, CARD_PART_FRAMES, CardKind, Frame, Sprite};
 
     /// A card's text and its five rows of frames: walking front, side and back, then flash and hurt.
-    pub fn rows(bytes: &[u8]) -> Option<(String, [Vec<Frame>; 5])> {
-        let c = card::read("card", bytes).ok()?;
+    pub fn rows(kind: CardKind, bytes: &[u8]) -> Option<(String, [Vec<Frame>; 5])> {
+        let c = card::read_as(kind, "card", bytes).ok()?;
         let [w, h] = c.frame.map(|v| v as usize);
-        let walk = last_harvest_game::card_fields(&c.text).map_or(3, |f| f.walk);
+        let walk = match kind {
+            CardKind::Enemy => last_harvest_game::card_fields(&c.text).map_or(3, |f| f.walk),
+            CardKind::Player => CARD_PART_FRAMES,
+        };
         let cols = walk.max(3);
         let cell = |col: usize, row: usize| {
             let px = (0..h).flat_map(|y| (0..w).map(move |x| ((row * h + y) * w * cols + col * w + x) * 4)).map(|i| [c.sheet[i], c.sheet[i + 1], c.sheet[i + 2], c.sheet[i + 3]]).collect();
@@ -61,7 +64,7 @@ pub mod cards {
 
     /// A file of a card's part, as `Store::read` hands it out: a frame of the part's row, or the card's text.
     pub fn file(bytes: &[u8], name: &str, file: &str) -> Option<Vec<u8>> {
-        let (text, rows) = rows(bytes)?;
+        let (text, rows) = rows(sprite::card_kind(name)?, bytes)?;
         if file == sprite::CARD_FILE {
             return Some(text.into_bytes());
         }
@@ -75,19 +78,23 @@ pub mod cards {
     /// number of frames gives the other two walking parts as many, repeating their last frame or dropping the extra.
     pub fn with_part(existing: Option<&[u8]>, part: &Sprite) -> Result<Vec<u8>, String> {
         let (id, row) = sprite::card_part(&part.name).ok_or("not a card's part")?;
-        let text = part.card.as_deref().ok_or("a card needs its enemy text")?;
-        let fields = last_harvest_game::card_fields(text)?;
-        if fields.id != id {
-            return Err(format!("the card's id is [{}], but {} needs [{id}]", fields.id, part.name));
+        let kind = sprite::card_kind(&part.name).ok_or("not a card's part")?;
+        let text = part.card.as_deref().ok_or("a card needs its text")?;
+        let card_id = match kind {
+            CardKind::Enemy => last_harvest_game::card_fields(text)?.id,
+            CardKind::Player => last_harvest_game::player_fields(text)?.id,
+        };
+        if card_id != id {
+            return Err(format!("the card's id is [{card_id}], but {} needs [{id}]", part.name));
         }
         let first = part.frames.first().ok_or("a card's part has frames")?;
         let (w, h) = (first.w, first.h);
-        let walking = row < 3;
+        let walking = row < 3 && kind == CardKind::Enemy;
         let fits = if walking { (1..=last_harvest_game::MAX_WALK).contains(&part.frames.len()) } else { part.frames.len() == CARD_PART_FRAMES };
         if !fits || part.frames.iter().any(|f| (f.w, f.h) != (w, h)) {
-            return Err(format!("a walking part has 1 to {} frames and the others {CARD_PART_FRAMES}, all one size", last_harvest_game::MAX_WALK));
+            return Err(format!("an enemy's walking part has 1 to {} frames and every other part {CARD_PART_FRAMES}, all one size", last_harvest_game::MAX_WALK));
         }
-        let mut rows = existing.and_then(rows).map(|(_, r)| r).unwrap_or_else(|| {
+        let mut rows = existing.and_then(|b| rows(kind, b)).map(|(_, r)| r).unwrap_or_else(|| {
             let t = sprite::card_template();
             std::array::from_fn(|r| t[r * CARD_PART_FRAMES..(r + 1) * CARD_PART_FRAMES].to_vec())
         });
@@ -96,13 +103,16 @@ pub mod cards {
                 *f = f.resized(w, h);
             }
         }
-        let walk = if walking { part.frames.len() } else { rows[0].len() };
+        let walk = if row < 3 { part.frames.len() } else { rows[0].len() };
         for r in rows.iter_mut().take(3) {
             let last = r.last().cloned().unwrap_or_else(|| Frame::blank(w, h));
             r.resize(walk, last);
         }
         rows[row] = part.frames.clone();
-        let text = last_harvest_game::set_card_field(text, "walk", (walk != 3).then(|| walk.to_string()).as_deref());
+        let text = match kind {
+            CardKind::Enemy => last_harvest_game::set_card_field(text, "walk", (walk != 3).then(|| walk.to_string()).as_deref()),
+            CardKind::Player => text.to_string(),
+        };
         let cols = walk.max(3);
         let mut sheet = vec![0u8; w * cols * h * 5 * 4];
         for (r, frames) in rows.iter().enumerate() {
@@ -115,7 +125,7 @@ pub mod cards {
                 }
             }
         }
-        card::write(&text, (w * cols) as u32, (h * 5) as u32, &sheet)
+        card::write_as(kind, &text, (w * cols) as u32, (h * 5) as u32, &sheet)
     }
 
     const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -146,10 +156,36 @@ pub mod cards {
         Some(out)
     }
 
-    /// The part names of every card among `ids`, each with a saved copy, sorted by card.
-    pub fn listing(mut ids: Vec<String>) -> Vec<(String, bool)> {
+    /// The part names of every card of `kind` among `ids`, each with a saved copy, sorted by card.
+    pub fn listing(kind: CardKind, mut ids: Vec<String>) -> Vec<(String, bool)> {
         ids.sort();
-        ids.iter().filter_map(|id| sprite::card_names(id)).flatten().map(|n| (n, true)).collect()
+        ids.iter().filter_map(|id| sprite::card_names_of(kind, id)).flatten().map(|n| (n, true)).collect()
+    }
+
+    /// A card's kind and id, read from a PNG and the name it came with: the name's ending when it has one, else
+    /// whichever kind its text is.
+    pub fn identify(file: &str, bytes: &[u8]) -> Result<(CardKind, String), String> {
+        let kinds = match CardKind::of(file) {
+            Some(k) => vec![k],
+            None => vec![CardKind::Enemy, CardKind::Player],
+        };
+        let mut last = String::new();
+        for kind in kinds {
+            match card::read_as(kind, file, bytes) {
+                Ok(c) => {
+                    let id = match kind {
+                        CardKind::Enemy => last_harvest_game::card_fields(&c.text)?.id,
+                        CardKind::Player => last_harvest_game::player_fields(&c.text)?.id,
+                    };
+                    if c.frame[0] > 64 || c.frame[1] > 64 {
+                        return Err("its frames are over 64 pixels, more than the game takes".into());
+                    }
+                    return Ok((kind, id));
+                }
+                Err(e) => last = e,
+            }
+        }
+        Err(last)
     }
 }
 
@@ -169,6 +205,19 @@ mod tests {
         assert_eq!(from_text("T!=="), None);
         assert_eq!(from_text("===="), None);
     }
+
+    #[test]
+    fn identify_tells_enemy_and_player_cards_apart() {
+        use super::cards::identify;
+        use crate::sprite::CardKind;
+        use last_harvest_pack::card::{Kind, write_as};
+        let sheet = vec![0u8; 24 * 40 * 4];
+        let enemy = write_as(Kind::Enemy, "[bat]", 24, 40, &sheet).unwrap();
+        let player = write_as(Kind::Player, "[jo]\nname Jo", 24, 40, &sheet).unwrap();
+        assert_eq!(identify("x.png", &enemy), Ok((CardKind::Enemy, "bat".into())));
+        assert_eq!(identify("download.png", &player), Ok((CardKind::Player, "jo".into())));
+        assert!(identify("jo.enemy.png", &player).is_err(), "a name's ending is believed");
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -178,11 +227,9 @@ pub use fs::FsStore;
 mod fs {
     use std::path::PathBuf;
 
-    use last_harvest_pack::card;
-
     use super::{Store, cards};
     use crate::history::{Commit, Repo};
-    use crate::sprite::{self, Sprite};
+    use crate::sprite::{self, CardKind, Sprite};
 
     /// The sprites folder, the game's catalog and the enemy cards folder on this machine.
     pub struct FsStore {
@@ -199,21 +246,31 @@ mod fs {
     }
 
     impl FsStore {
+        /// Enemy cards keep to `cards`, and player cards to a `players` folder beside it.
+        fn folder(&self, kind: CardKind) -> PathBuf {
+            match kind {
+                CardKind::Enemy => self.cards.clone(),
+                CardKind::Player => self.cards.with_file_name("players"),
+            }
+        }
+
         fn card_path(&self, name: &str) -> Option<PathBuf> {
-            sprite::card_id(name).map(|id| self.cards.join(format!("{id}{}", card::EXTENSION)))
+            let (kind, id) = (sprite::card_kind(name)?, sprite::card_id(name)?);
+            Some(self.folder(kind).join(format!("{id}{}", kind.extension())))
+        }
+
+        fn ids(&self, kind: CardKind) -> Vec<String> {
+            let found = std::fs::read_dir(self.folder(kind)).into_iter().flatten().flatten();
+            found.filter_map(|e| e.file_name().into_string().ok()?.strip_suffix(kind.extension()).map(str::to_string)).collect()
         }
     }
 
     impl Store for FsStore {
         fn names(&self) -> Vec<(String, bool)> {
             let mut names = sprite::catalog(&self.dir);
-            let ids = std::fs::read_dir(&self.cards)
-                .into_iter()
-                .flatten()
-                .flatten()
-                .filter_map(|e| e.file_name().into_string().ok()?.strip_suffix(card::EXTENSION).map(str::to_string))
-                .collect();
-            names.extend(cards::listing(ids));
+            for kind in [CardKind::Enemy, CardKind::Player] {
+                names.extend(cards::listing(kind, self.ids(kind)));
+            }
             names
         }
 
@@ -227,7 +284,8 @@ mod fs {
         fn save(&self, sprite: &Sprite) -> Result<(), String> {
             let Some(path) = self.card_path(&sprite.name) else { return sprite.save(&self.dir) };
             let bytes = cards::with_part(std::fs::read(&path).ok().as_deref(), sprite)?;
-            std::fs::create_dir_all(&self.cards).map_err(|e| format!("{}: {e}", self.cards.display()))?;
+            let dir = path.parent().unwrap_or(&self.cards);
+            std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
             std::fs::write(&path, bytes).map_err(|e| format!("{}: {e}", path.display()))
         }
 
@@ -255,8 +313,8 @@ mod fs {
             Repo::open(&self.dir)?.read(id, name, file)
         }
 
-        fn delete_card(&self, id: &str) -> Result<(), String> {
-            let path = self.cards.join(format!("{id}{}", card::EXTENSION));
+        fn delete_card(&self, name: &str) -> Result<(), String> {
+            let path = self.card_path(name).ok_or("not a card")?;
             std::fs::remove_file(&path).map_err(|e| format!("{}: {e}", path.display()))
         }
     }

@@ -93,33 +93,64 @@ pub struct Sprite {
 pub const FOOTPRINT_FILE: &str = "footprint.png";
 pub const TOP_FILE: &str = "top.png";
 pub const CARD_FILE: &str = "enemy.txt";
-/// An enemy card lists as five sprites, like the game's own zombies: `CARD_<ID>_FRONT` and so on, each a row of
-/// the card's sheet with three frames.
+pub use last_harvest_pack::card::Kind as CardKind;
+
+/// A card lists as five sprites, like the game's own zombies: `CARD_<ID>_FRONT` and so on for an enemy card, or
+/// `PLAYER_CARD_<ID>_FRONT` for a player card, each a row of the card's sheet.
 pub const CARD_PREFIX: &str = "CARD_";
+pub const PLAYER_CARD_PREFIX: &str = "PLAYER_CARD_";
+pub const PLAYER_SECTION: &str = "Player cards";
 pub const CARD_PARTS: [&str; 5] = ["FRONT", "SIDE", "BACK", "FLASH", "HURT"];
 pub const CARD_PART_FRAMES: usize = 3;
 pub const CARD_FRAMES: usize = CARD_PARTS.len() * CARD_PART_FRAMES;
 pub const CARD_SECTION: &str = "Enemy cards";
 
+fn prefix(kind: CardKind) -> &'static str {
+    match kind {
+        CardKind::Enemy => CARD_PREFIX,
+        CardKind::Player => PLAYER_CARD_PREFIX,
+    }
+}
+
+/// The kind of card a name's prefix says, and the rest of the name after it.
+fn split_kind(name: &str) -> Option<(CardKind, &str)> {
+    let rest = |kind| name.strip_prefix(prefix(kind)).map(|r| (kind, r));
+    rest(CardKind::Player).or_else(|| rest(CardKind::Enemy))
+}
+
 /// The card a sprite name is a part of and the part's row, such as `ghoul` and 1 for `CARD_GHOUL_SIDE`.
 pub fn card_part(name: &str) -> Option<(String, usize)> {
-    let (id, part) = name.strip_prefix(CARD_PREFIX)?.rsplit_once('_')?;
+    let (_, rest) = split_kind(name)?;
+    let (id, part) = rest.rsplit_once('_')?;
     let row = CARD_PARTS.iter().position(|p| *p == part)?;
     (!id.is_empty()).then(|| (id.to_ascii_lowercase(), row))
+}
+
+/// Which kind of card a sprite name is a part of.
+pub fn card_kind(name: &str) -> Option<CardKind> {
+    card_part(name).and(split_kind(name)).map(|(kind, _)| kind)
 }
 
 pub fn card_id(name: &str) -> Option<String> {
     card_part(name).map(|(id, _)| id)
 }
 
-/// The card a name typed for New or Copy asks for: `CARD_GHOUL`, or one of its parts.
-pub fn card_wanted(name: &str) -> Option<String> {
-    card_id(name).or_else(|| name.strip_prefix(CARD_PREFIX).filter(|id| !id.is_empty()).map(str::to_ascii_lowercase))
+/// The card a name typed for New or Copy asks for: `CARD_GHOUL` or `PLAYER_CARD_JO`, or one of their parts.
+pub fn card_wanted(name: &str) -> Option<(CardKind, String)> {
+    if let (Some(kind), Some(id)) = (card_kind(name), card_id(name)) {
+        return Some((kind, id));
+    }
+    split_kind(name).filter(|(_, id)| !id.is_empty()).map(|(kind, id)| (kind, id.to_ascii_lowercase()))
 }
 
-/// The five part names a card id lists under, when the id is one a sprite name can carry.
+/// The five part names an enemy card id lists under, when the id is one a sprite name can carry.
 pub fn card_names(id: &str) -> Option<[String; 5]> {
-    let names = CARD_PARTS.map(|p| format!("{CARD_PREFIX}{}_{p}", id.to_ascii_uppercase()));
+    card_names_of(CardKind::Enemy, id)
+}
+
+/// The five part names a card of `kind` lists under, when the id is one a sprite name can carry.
+pub fn card_names_of(kind: CardKind, id: &str) -> Option<[String; 5]> {
+    let names = CARD_PARTS.map(|p| format!("{}{}_{p}", prefix(kind), id.to_ascii_uppercase()));
     (!id.is_empty() && id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_') && names.iter().all(|n| valid_name(n))).then_some(names)
 }
 
@@ -234,8 +265,10 @@ pub fn folder() -> PathBuf {
 /// The list heading for a sprite: the comment line that opens its group in the catalog, up to its first
 /// `,` `:` or `;`. A sprite the catalog doesn't name is a new one.
 pub fn section(name: &str) -> &'static str {
-    if card_id(name).is_some() {
-        return CARD_SECTION;
+    match card_kind(name) {
+        Some(CardKind::Enemy) => return CARD_SECTION,
+        Some(CardKind::Player) => return PLAYER_SECTION,
+        None => {}
     }
     static SECTIONS: std::sync::OnceLock<Vec<(String, String)>> = std::sync::OnceLock::new();
     let sections = SECTIONS.get_or_init(|| sections_of(include_str!("../../game/art.txt")));

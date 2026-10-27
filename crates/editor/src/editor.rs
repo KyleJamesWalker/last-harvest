@@ -157,6 +157,10 @@ enum Action {
     Flag(usize),
     Sound(i32),
     EditName,
+    /// Turns a weapon, by its place in `weapons()`, on or off in a player card's start at a difficulty.
+    StartWeapon(usize, usize),
+    /// Gives a player card the game's own start at a difficulty.
+    StartDefault(usize),
 }
 
 /// What each of a card's numbers is called on its stats page, and how far a press of - or + moves it.
@@ -182,6 +186,10 @@ const MIX_STEPS: usize = 40;
 const MIX_COLORS: [Color; 6] = [[0.55, 0.62, 0.78, 1.0], [0.5, 0.75, 0.55, 1.0], [0.78, 0.5, 0.62, 1.0], [0.62, 0.55, 0.85, 1.0], [0.45, 0.7, 0.75, 1.0], [0.75, 0.68, 0.5, 1.0]];
 const NAME_MAX: usize = 24;
 const DELETE_CONFIRM: f32 = 3.0;
+/// A player card's stats: a block per difficulty with its weapon toggles, five across.
+const START_TOP: f32 = CANVAS.y + 76.0;
+const START_BLOCK: f32 = 150.0;
+const START_ACROSS: usize = 5;
 
 struct Button {
     rect: Rect,
@@ -394,10 +402,10 @@ impl Editor {
 
     /// Takes in a card's PNG, as Import does, and opens it.
     pub fn import_card(&mut self, file: &str, bytes: &[u8]) {
-        match self.store.import_card(bytes) {
-            Ok(id) => {
+        match self.store.import_card(file, bytes) {
+            Ok(front) => {
                 self.names = self.store.names();
-                let front = sprite::card_names(&id).map(|n| n[0].clone()).unwrap_or_default();
+                let id = sprite::card_id(&front).unwrap_or_default();
                 self.switch_to(front);
                 self.reveal();
                 self.say(format!("Imported {file} as card {id}"));
@@ -408,7 +416,7 @@ impl Editor {
 
     /// The open card's file name and PNG as saved, for Export; None with a word why when there's nothing to give.
     pub fn export_card(&mut self) -> Option<(String, Vec<u8>)> {
-        let Some(id) = sprite::card_id(&self.sprite.name) else {
+        let (Some(id), Some(kind)) = (sprite::card_id(&self.sprite.name), sprite::card_kind(&self.sprite.name)) else {
             self.say("Open a card to export it");
             return None;
         };
@@ -416,9 +424,10 @@ impl Editor {
             self.say("Save the card first: Export gives the saved copy");
             return None;
         }
-        let bytes = self.store.card_bytes(&id)?;
-        self.say(format!("Exported {id}{}", last_harvest_pack::card::EXTENSION));
-        Some((format!("{id}{}", last_harvest_pack::card::EXTENSION), bytes))
+        let bytes = self.store.card_bytes(&self.sprite.name)?;
+        let file = format!("{id}{}", kind.extension());
+        self.say(format!("Exported {file}"));
+        Some((file, bytes))
     }
 
     /// Removes the open card from the store on a second press within a few seconds, and leaves nothing open.
@@ -431,7 +440,7 @@ impl Editor {
             return self.say(format!("Press Delete card again to remove {id} for good"));
         }
         self.delete_armed = 0.0;
-        if let Err(e) = self.store.delete_card(&id) {
+        if let Err(e) = self.store.delete_card(&self.sprite.name) {
             return self.say(format!("Couldn't delete {id}: {e}"));
         }
         self.sprite = Sprite { name: String::new(), frames: vec![Frame::blank(16, 16)], views: None, footprint: None, top: None, card: None };
@@ -503,6 +512,13 @@ impl Editor {
         self.sprite.card.is_some()
     }
 
+    /// Sets a player card's start at `difficulty`, as `set_player_start` does.
+    fn set_start(&mut self, difficulty: last_harvest_game::Difficulty, weapons: Option<&[String]>) {
+        let Some(text) = &self.sprite.card else { return };
+        self.sprite.card = Some(last_harvest_game::set_player_start(text, difficulty, weapons));
+        self.dirty = true;
+    }
+
     /// Sets one of the card's settings, as `set_card_field` does.
     fn set_card(&mut self, key: &str, value: Option<&str>) {
         let Some(text) = &self.sprite.card else { return };
@@ -514,14 +530,16 @@ impl Editor {
     /// Reads the other cards on disk, which the spawn mix counts alongside this one.
     fn load_other_cards(&mut self) {
         let mine = sprite::card_id(&self.sprite.name);
-        let fronts: Vec<String> = self.names.iter().map(|(n, _)| n.clone()).filter(|n| sprite::card_part(n).is_some_and(|(id, row)| row == 0 && Some(&id) != mine.as_ref())).collect();
+        let enemy_front = |n: &String| sprite::card_kind(n) == Some(sprite::CardKind::Enemy) && sprite::card_part(n).is_some_and(|(id, row)| row == 0 && Some(&id) != mine.as_ref());
+        let fronts: Vec<String> = self.names.iter().map(|(n, _)| n.clone()).filter(enemy_front).collect();
         self.other_cards = fronts.iter().filter_map(|n| self.store.read(n, sprite::CARD_FILE)).filter_map(|b| String::from_utf8(b).ok()).collect();
         self.refresh_mix();
     }
 
     /// Works out the night's spawn mix with this card as it stands now, unsaved changes and all.
     fn refresh_mix(&mut self) {
-        self.mix = self.sprite.card.as_ref().filter(|_| self.stats).map(|mine| {
+        let enemy = sprite::card_kind(&self.sprite.name) == Some(sprite::CardKind::Enemy);
+        self.mix = self.sprite.card.as_ref().filter(|_| self.stats && enemy).map(|mine| {
             let others = self.other_cards.iter().filter(|t| last_harvest_game::card_fields(t).is_ok()).map(String::as_str);
             let cards: Vec<&str> = others.chain([mine.as_str()]).collect();
             let minutes: Vec<f32> = (0..MIX_STEPS).map(|i| (i as f32 + 0.5) / MIX_STEPS as f32 * last_harvest_game::NIGHT_MINUTES).collect();
@@ -539,7 +557,7 @@ impl Editor {
     }
 
     pub fn title(&self) -> String {
-        let app = if self.modding { "LastHarvest enemy card editor" } else { "LastHarvest sprite editor" };
+        let app = if self.modding { "LastHarvest card editor" } else { "LastHarvest sprite editor" };
         if self.none_open() {
             return app.into();
         }
@@ -817,7 +835,20 @@ impl Editor {
         if self.is_card() {
             push(410.0, 8.0, 94.0, 34.0, Action::Stats, "Stats T", self.stats);
         }
-        if self.stats {
+        if self.stats && self.is_player_card() {
+            push(CANVAS.x + 300.0, CANVAS.y + 30.0, 240.0, 30.0, Action::EditName, "Rename", self.naming.is_some());
+            let starts = self.player_starts();
+            for (d, start) in starts.iter().enumerate() {
+                let top = START_TOP + d as f32 * START_BLOCK;
+                push(CANVAS.x + 400.0, top, 140.0, 26.0, Action::StartDefault(d), "Default", start.is_none());
+                let have = start.clone().unwrap_or_else(|| last_harvest_game::default_start(last_harvest_game::Difficulty::ALL[d]));
+                for (w, (id, label)) in weapon_labels().into_iter().enumerate() {
+                    let (col, row) = (w % START_ACROSS, w / START_ACROSS);
+                    let on = have.contains(&id);
+                    push(CANVAS.x + 20.0 + col as f32 * 104.0, top + 30.0 + row as f32 * 30.0, 100.0, 26.0, Action::StartWeapon(d, w), &label, on);
+                }
+            }
+        } else if self.stats {
             push(CANVAS.x + 300.0, CANVAS.y + 30.0, 240.0, 30.0, Action::EditName, "Rename", self.naming.is_some());
             for i in 0..STAT_ROWS.len() {
                 let y = STAT_TOP + i as f32 * STAT_ROW;
@@ -1350,13 +1381,25 @@ impl Editor {
                 let next = sounds[(at + d).rem_euclid(sounds.len() as i32) as usize].clone();
                 self.set_card("sound", Some(&next));
             }
+            Action::StartWeapon(d, w) => {
+                let difficulty = last_harvest_game::Difficulty::ALL[d];
+                let mut have = self.player_starts()[d].clone().unwrap_or_else(|| last_harvest_game::default_start(difficulty));
+                let Some((id, _)) = last_harvest_game::weapons().into_iter().nth(w) else { return };
+                match have.iter().position(|h| *h == id) {
+                    Some(at) => _ = have.remove(at),
+                    None if have.len() >= last_harvest_game::weapon_slots() => return self.say(format!("A run carries at most {} weapons", last_harvest_game::weapon_slots())),
+                    None => have.push(id),
+                }
+                self.set_start(difficulty, Some(&have));
+            }
+            Action::StartDefault(d) => self.set_start(last_harvest_game::Difficulty::ALL[d], None),
             Action::EditName => {
                 self.naming = match self.naming.take() {
                     Some(name) => {
                         self.commit_name(name);
                         None
                     }
-                    None => self.sprite.card.as_deref().and_then(|t| last_harvest_game::card_fields(t).ok()).map(|f| f.name),
+                    None => self.card_title(),
                 };
             }
             Action::AddFrame => {
@@ -1679,9 +1722,25 @@ impl Editor {
         self.typing || self.ask.is_some() || self.naming.is_some()
     }
 
-    /// Makes card `id` on disk, from the template for New or from the open card for Copy, and opens its front.
-    fn make_card(&mut self, kind: Ask, id: &str) {
-        let Some(names) = sprite::card_names(id) else {
+    fn is_player_card(&self) -> bool {
+        self.is_card() && sprite::card_kind(&self.sprite.name) == Some(sprite::CardKind::Player)
+    }
+
+    /// The open card's name as its text gives it.
+    fn card_title(&self) -> Option<String> {
+        let text = self.sprite.card.as_deref()?;
+        if self.is_player_card() { last_harvest_game::player_fields(text).ok().map(|f| f.name) } else { last_harvest_game::card_fields(text).ok().map(|f| f.name) }
+    }
+
+    /// A player card's starting weapons at each difficulty, by id; None where it keeps the game's own.
+    fn player_starts(&self) -> [Option<Vec<String>>; 3] {
+        self.sprite.card.as_deref().and_then(|t| last_harvest_game::player_fields(t).ok()).map(|f| f.start).unwrap_or_default()
+    }
+
+    /// Makes card `id` of `card` kind in the store, from the template for New or from the open card for Copy, and
+    /// opens its front.
+    fn make_card(&mut self, kind: Ask, card: sprite::CardKind, id: &str) {
+        let Some(names) = sprite::card_names_of(card, id) else {
             return self.say("A card's id uses a-z, 0-9 and _");
         };
         if self.names.iter().any(|(n, _)| *n == names[0]) {
@@ -1689,11 +1748,14 @@ impl Editor {
         }
         let parts: Vec<Sprite> = match kind {
             Ask::Copy => {
-                let Some((from, _)) = sprite::card_part(&self.sprite.name) else {
+                let (Some((from, _)), Some(was)) = (sprite::card_part(&self.sprite.name), sprite::card_kind(&self.sprite.name)) else {
                     return self.say("Copy a card to make a card, or start one with New");
                 };
+                if was != card {
+                    return self.say("Copy a card to a card of its own kind");
+                }
                 let text = self.sprite.card.clone().unwrap_or_default().replacen(&format!("[{from}]"), &format!("[{id}]"), 1);
-                let source = sprite::card_names(&from).unwrap_or_default();
+                let source = sprite::card_names_of(card, &from).unwrap_or_default();
                 let mut parts = Vec::new();
                 for (src, name) in source.iter().zip(&names) {
                     let frames = if *src == self.sprite.name { self.sprite.frames.clone() } else { self.store.load(src).map(|s| s.frames).unwrap_or_default() };
@@ -1720,8 +1782,9 @@ impl Editor {
 
     /// How many frames the open sprite may have, when the game holds it to a number or a range.
     fn frame_limits(&self) -> Option<(usize, usize)> {
+        let player = sprite::card_kind(&self.sprite.name) == Some(sprite::CardKind::Player);
         match sprite::card_part(&self.sprite.name) {
-            Some((_, row)) if row < 3 => Some((1, last_harvest_game::MAX_WALK)),
+            Some((_, row)) if row < 3 && !player => Some((1, last_harvest_game::MAX_WALK)),
             Some(_) => Some((sprite::CARD_PART_FRAMES, sprite::CARD_PART_FRAMES)),
             None => last_harvest_game::frame_limits(&self.sprite.name),
         }
@@ -1850,9 +1913,13 @@ impl Editor {
                 Key::Escape => self.ask = None,
                 Key::Enter => {
                     let (kind, name) = (*kind, name.clone());
-                    let wanted = sprite::card_wanted(&name).or_else(|| (self.modding && !name.is_empty()).then(|| name.to_ascii_lowercase()));
-                    if let Some(id) = wanted {
-                        self.make_card(kind, &id);
+                    let typed = || match name.strip_prefix("PLAYER_") {
+                        Some(id) => (sprite::CardKind::Player, id.to_ascii_lowercase()),
+                        None => (sprite::CardKind::Enemy, name.to_ascii_lowercase()),
+                    };
+                    let wanted = sprite::card_wanted(&name).or_else(|| (self.modding && !name.is_empty()).then(typed));
+                    if let Some((card, id)) = wanted {
+                        self.make_card(kind, card, &id);
                     } else if !sprite::valid_name(&name) {
                         self.say("Names start with a letter and use A-Z, 0-9 and _");
                     } else if self.names.iter().any(|(n, _)| *n == name) {
@@ -2159,7 +2226,11 @@ impl Editor {
                 (Ask::Copy, _) => "Name the copy",
             };
             c.label(what, 512.0, 300.0, 24.0, TEXT, Align::Center);
-            let hint = if self.modding { "Its id: letters, digits and _".to_string() } else { format!("Start with {} for an enemy card", sprite::CARD_PREFIX) };
+            let hint = if self.modding {
+                "Its id: letters, digits and _. Start with PLAYER_ for a player card".to_string()
+            } else {
+                format!("Start with {} for an enemy card, {} for a player card", sprite::CARD_PREFIX, sprite::PLAYER_CARD_PREFIX)
+            };
             c.label(hint, 512.0, 328.0, 15.0, DIM, Align::Center);
             let caret = if (self.clock * 2.0) as i32 % 2 == 0 { "_" } else { " " };
             c.label(format!("{name}{caret}"), 512.0, 350.0, 30.0, HOT, Align::Center);
@@ -2167,8 +2238,36 @@ impl Editor {
         }
     }
 
+    /// A player card's stats page: its name, and the weapons it starts with at each difficulty.
+    fn draw_player_stats(&self, c: &mut Canvas) {
+        c.rect(CANVAS.x, CANVAS.y, CANVAS.w, CANVAS.h, PANEL);
+        let x = CANVAS.x + 20.0;
+        let fields = match last_harvest_game::player_fields(self.sprite.card.as_deref().unwrap_or("")) {
+            Ok(f) => f,
+            Err(e) => {
+                c.label("This card's text doesn't read:", x, CANVAS.y + 20.0, 20.0, HOT, Align::Left);
+                c.label(e, x, CANVAS.y + 52.0, 16.0, TEXT, Align::Left);
+                return;
+            }
+        };
+        c.label(format!("Player card [{}]", fields.id), x, CANVAS.y + 8.0, 17.0, DIM, Align::Left);
+        let caret = if (self.clock * 2.0) as i32 % 2 == 0 { "_" } else { " " };
+        let name = self.naming.as_ref().map_or(fields.name.clone(), |n| format!("{n}{caret}"));
+        c.label(name, x, CANVAS.y + 32.0, 26.0, if self.naming.is_some() { HOT } else { TEXT }, Align::Left);
+        for (d, difficulty) in last_harvest_game::Difficulty::ALL.into_iter().enumerate() {
+            let top = START_TOP + d as f32 * START_BLOCK;
+            let how = if fields.start[d].is_some() { "starts with" } else { "starts as the game does, with" };
+            c.label(format!("{} {how}", difficulty.name()), x, top + 4.0, 16.0, DIM, Align::Left);
+        }
+        let note = format!("Toggle up to {} weapons a run starts with; Default keeps the game's own", last_harvest_game::weapon_slots());
+        c.label(note, x, CANVAS.y + CANVAS.h - 22.0, 13.0, DIM, Align::Left);
+    }
+
     /// A card's stats page: its name, numbers, death sound and flags, as the game will read them.
     fn draw_stats(&self, c: &mut Canvas) {
+        if self.is_player_card() {
+            return self.draw_player_stats(c);
+        }
         c.rect(CANVAS.x, CANVAS.y, CANVAS.w, CANVAS.h, PANEL);
         let text = self.sprite.card.as_deref().unwrap_or("");
         let x = CANVAS.x + 20.0;
@@ -2385,6 +2484,11 @@ fn stamp(f: &mut Frame, top: &Frame, x: i32, y: i32) {
             }
         }
     }
+}
+
+/// Every weapon by id, with a label short enough for a toggle: its id, capitalized.
+fn weapon_labels() -> Vec<(String, String)> {
+    last_harvest_game::weapons().into_iter().map(|(id, _)| (id.clone(), id[..1].to_ascii_uppercase() + &id[1..])).collect()
 }
 
 fn choice_rect(i: usize) -> Rect {
@@ -2617,6 +2721,52 @@ mod tests {
         let mut e = editor_on("BARREL");
         e.act(Action::AddFrame, false);
         assert_eq!(e.sprite.frames.len(), 2, "other sprites are free");
+    }
+
+    #[test]
+    fn a_player_card_keeps_three_frames_and_sets_its_starting_weapons() {
+        let dir = tmp().join("player");
+        let _ = std::fs::remove_dir_all(&dir);
+        let store = || FsStore { dir: dir.join("sprites"), catalog: dir.join("art.txt"), cards: dir.join("enemies") };
+        let mut e = Editor::new(Box::new(store()), "");
+        e.act(Action::Ask(Ask::New), false);
+        type_in(&mut e, "player card jo");
+        e.key(Key::Enter);
+        assert_eq!(e.sprite.name, "PLAYER_CARD_JO_FRONT");
+        assert_eq!(sprite::section(&e.sprite.name), sprite::PLAYER_SECTION);
+        e.act(Action::AddFrame, false);
+        assert_eq!(e.sprite.frames.len(), 3, "the game walks the player with three frames");
+        e.act(Action::Stats, false);
+        buttons_fit(&e);
+        assert!(e.mix.is_none(), "no spawn mix for a player");
+        let crows = last_harvest_game::weapons().iter().position(|(id, _)| id == "crows").unwrap();
+        e.act(Action::StartWeapon(1, crows), false);
+        e.act(Action::StartWeapon(2, crows), false);
+        e.act(Action::StartDefault(2), false);
+        e.draw(&mut Canvas::default());
+        e.act(Action::Save, false);
+        let path = dir.join("players/jo.player.png");
+        let saved = last_harvest_pack::card::read_as(sprite::CardKind::Player, "jo", &std::fs::read(path).unwrap()).unwrap();
+        let f = last_harvest_game::player_fields(&saved.text).unwrap();
+        assert_eq!(f.start, [None, Some(vec!["knife".into(), "crows".into()]), None], "Normal adds crows to the game's knife; Hard went back to the default");
+        let e = Editor::new(Box::new(store()), "");
+        assert!(e.names.iter().any(|(n, _)| n == "PLAYER_CARD_JO_HURT"));
+    }
+
+    #[test]
+    fn the_mod_editor_makes_a_player_card_from_a_player_name() {
+        let dir = tmp().join("modplayer");
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut e = Editor::new(Box::new(FsStore { dir: dir.join("sprites"), catalog: dir.join("art.txt"), cards: dir.join("enemies") }), "");
+        e.set_modding();
+        e.act(Action::Ask(Ask::New), false);
+        type_in(&mut e, "player sam");
+        e.key(Key::Enter);
+        assert_eq!(e.sprite.name, "PLAYER_CARD_SAM_FRONT");
+        e.act(Action::Ask(Ask::New), false);
+        type_in(&mut e, "bat");
+        e.key(Key::Enter);
+        assert_eq!(e.sprite.name, "CARD_BAT_FRONT");
     }
 
     #[test]
