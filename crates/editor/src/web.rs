@@ -696,6 +696,7 @@ mod modding {
         if let Some(history) = document.query_selector("[data-act=history]").ok().flatten().and_then(|e| e.dyn_into::<HtmlElement>().ok()) {
             history.set_hidden(true);
         }
+        call("offline", &[]);
     }
 
     /// Calls one of the page's helpers on `window.lastHarvest`.

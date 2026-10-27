@@ -119,6 +119,10 @@
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     },
+    // Only the card editor keeps an offline copy: the game's own editor talks to its server and must never be stale.
+    offline() {
+      if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+    },
     // A new pack takes effect on reload, since the editor reads its data once at start.
     choosePak() {
       const input = Object.assign(document.createElement("input"), { type: "file", accept: ".pak" });

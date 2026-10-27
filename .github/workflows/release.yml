@@ -109,7 +109,7 @@ jobs:
       # Only the editor's own files may go out: never a tileset build or a stray asset.
       - name: Check the page holds only the editor
         run: |
-          expected="apple-touch-icon.png icon-512.png icon.png index.html sprite-editor.js sprite-editor_bg.wasm"
+          expected="apple-touch-icon.png icon-512.png icon.png index.html sprite-editor.js sprite-editor_bg.wasm sw.js"
           found=$(find target/mod-editor -mindepth 1 -printf '%P\n' | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')
           [ "$found" = "$expected" ] || { echo "unexpected files: $found"; exit 1; }
           cargo tree -e features -i last-harvest-game -p sprite-editor --no-default-features --features modding --target wasm32-unknown-unknown \

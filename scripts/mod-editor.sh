@@ -14,7 +14,7 @@ rustup target list --installed | grep -qx wasm32-unknown-unknown || rustup targe
 cargo build --release --target wasm32-unknown-unknown -p sprite-editor --bin sprite-editor --no-default-features --features modding
 rm -rf "$out"
 wasm-bindgen --target web --no-typescript --out-dir "$out" target/wasm32-unknown-unknown/release/sprite-editor.wasm
-cp crates/editor/web/index.html crates/editor/web/*.png "$out/"
+cp crates/editor/web/index.html crates/editor/web/sw.js crates/editor/web/*.png "$out/"
 echo "built $out"
 if [ "${1:-}" = "--serve" ]; then
   exec python3 -m http.server 8094 --bind 127.0.0.1 --directory "$out"
