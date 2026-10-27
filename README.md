@@ -71,6 +71,7 @@ A player card changes how the player looks: `<id>.player.png`, the same five-row
 ```sh
 cargo run -p last-harvest-pack -- card sheet.png ghoul.txt ghoul.enemy.png   # make a card
 cargo run -p last-harvest-pack -- show ghoul.enemy.png                       # its frame size, text and spawn mix
+cargo run -p last-harvest-pack -- show ghoul.pak                             # a pack's files, its cards, and whether the game takes it
 ```
 
 A mod pack is a `.pak` in `data/mods/` beside the binary (or the folder `LAST_HARVEST_MODS` names). The game lays each over `game_data.pak` in file-name order, a mod's file replacing the base file at the same path: a sound in `sounds/`, a card in `enemies/`, or `enemies.txt` or `powerups.txt` themselves. A mod with an atlas must be built for this version of the game. A card in `data/enemies/` or `data/players/` replaces a mod's card of the same file name. A mod that can't load is left out, like a card; the packer refuses one whose tables the game would refuse. Stats counts the cards and mods that loaded. That lets a card bring its own death sound: put `enemies/ghoul.enemy.png` and `sounds/kill-ghoul.ogg` in a folder and run `cargo run -p last-harvest-pack -- mod <folder> ghoul.pak`.

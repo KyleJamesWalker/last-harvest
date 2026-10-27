@@ -116,7 +116,28 @@ fn make_mod(dir: &Path, out: &Path) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// Lists a pack's files and whether the game would take it as a mod, reading each card in it.
+fn show_pak(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let pak = last_harvest_pack::Pak::open(path)?;
+    for file in pak.paths() {
+        let size = pak.get(file).map_or(0, <[u8]>::len);
+        let note = match card::Kind::of(file) {
+            Some(kind) => card::read_as(kind, file, pak.get(file).unwrap_or_default()).map_or_else(|e| format!("  not a card: {e}"), |c| format!("  {}x{} frames", c.frame[0], c.frame[1])),
+            None => String::new(),
+        };
+        println!("{size:>9}  {file}{note}");
+    }
+    match pak.check_mod() {
+        Ok(()) => println!("\nThe game takes it as a mod."),
+        Err(e) => println!("\nThe game leaves it out as a mod: {e}"),
+    }
+    Ok(())
+}
+
 fn show(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    if path.extension().is_some_and(|e| e == "pak") {
+        return show_pak(path);
+    }
     let kind = card::Kind::of(&path.to_string_lossy()).unwrap_or(card::Kind::Enemy);
     let card = card::read_as(kind, &path.display().to_string(), &std::fs::read(path)?)?;
     println!("{}x{} frames\n{}", card.frame[0], card.frame[1], card.text.trim_end());
@@ -160,7 +181,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ["show", _] => return show(&args[1]),
         ["mod", _, _] => return make_mod(&args[1], &args[2]),
         ["card", ..] | ["player", ..] | ["show", ..] | ["mod", ..] => {
-            return Err("usage: card <sheet.png> <enemy.txt> <name.enemy.png> | player <sheet.png> <player.txt> <name.player.png> | show <card> | mod <folder> <name.pak>".into());
+            return Err("usage: card <sheet.png> <enemy.txt> <name.enemy.png> | player <sheet.png> <player.txt> <name.player.png> | show <card or pak> | mod <folder> <name.pak>".into());
         }
         _ => {}
     }

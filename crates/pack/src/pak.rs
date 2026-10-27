@@ -118,6 +118,13 @@ impl Pak {
         last_harvest_game::check_tables(text(POWERUPS)?, text(ENEMIES)?)
     }
 
+    /// Every file's path, sorted.
+    pub fn paths(&self) -> Vec<&str> {
+        let mut paths: Vec<&str> = self.files.keys().map(String::as_str).collect();
+        paths.sort_unstable();
+        paths
+    }
+
     pub fn get(&self, path: &str) -> Option<&[u8]> {
         self.files.get(path).map(Vec::as_slice)
     }
