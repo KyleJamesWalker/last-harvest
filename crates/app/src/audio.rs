@@ -435,7 +435,15 @@ impl Audio {
         let drone = Drone { level: 0.0, phases: [0.0; 3], t: 0.0 };
         let rate = config.sample_rate.0 as f32;
         let bank = Bank::load(sounds, rate);
-        let track = |name: &str| sounds.iter().find(|(file, _)| *file == format!("{name}.ogg")).and_then(|(_, bytes)| Loop::open(bytes.clone(), rate));
+        let track = |name: &str| {
+            let (file, bytes) = sounds.iter().find(|(file, _)| *file == format!("{name}.ogg"))?;
+            let track = Loop::open(bytes.clone(), rate);
+            if track.is_none() {
+                eprintln!("audio: {file} won't play");
+                last_harvest_game::data::note(format!("{file} won't play"));
+            }
+            track
+        };
         let music = track("music");
         let beds: Vec<(Loop, f32)> = BEDS.iter().filter_map(|&(name, level)| Some((track(name)?, level))).collect();
         eprintln!("audio: music {}, {} ambience beds", if music.is_some() { "recorded" } else { "synth" }, beds.len());

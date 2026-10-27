@@ -1,6 +1,6 @@
 //! Data read at startup: from a data pack the app installs, else the copies built in with the `embed` feature.
 
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 
 use crate::art::{ATLAS_H, ATLAS_W};
 
@@ -47,6 +47,22 @@ pub fn report(r: LoadReport) {
 
 pub fn load_report() -> &'static LoadReport {
     REPORT.get_or_init(LoadReport::default)
+}
+
+/// Problems found after the data loaded, such as a mod's sound that won't play.
+static LATER: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+/// Adds a problem found after the report was made.
+pub fn note(problem: String) {
+    LATER.lock().unwrap_or_else(|e| e.into_inner()).push(problem);
+}
+
+/// How many things couldn't load, and the first of them, if any.
+pub fn problems() -> Option<(usize, String)> {
+    let later = LATER.lock().unwrap_or_else(|e| e.into_inner());
+    let mut all = load_report().problems.iter().chain(later.iter());
+    let first = all.next()?.clone();
+    Some((all.count() + 1, first))
 }
 
 /// The font and the tables are the repository's own, so every build carries them; only the tileset's atlas

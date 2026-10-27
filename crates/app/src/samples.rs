@@ -113,7 +113,10 @@ impl Bank {
             }
             match if ext == "ogg" { decode_ogg(bytes, rate) } else { decode(bytes, rate) } {
                 Ok(clip) => bank.clips.entry(name.to_string()).or_default().push(Arc::new(clip)),
-                Err(e) => eprintln!("audio: {file}: {e}"),
+                Err(e) => {
+                    eprintln!("audio: {file}: {e}");
+                    last_harvest_game::data::note(format!("{file}: {e}"));
+                }
             }
         }
         let mut names: Vec<&String> = bank.clips.keys().collect();

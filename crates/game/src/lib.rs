@@ -442,12 +442,11 @@ impl Game {
             let a = self.reset_shown.min(1.0);
             f.top.label("Progress erased: records, kills and found powerups", SCREEN_W / 2.0, 480.0, 34.0, [1.0, 0.45, 0.4, a], Align::Center);
         }
-        let problems = &data::load_report().problems;
-        if let Some(first) = problems.first() {
-            let more = if problems.len() > 1 { format!("{} cards or mods couldn't load:", problems.len()) } else { "A card or mod couldn't load:".to_string() };
+        if let Some((count, first)) = data::problems() {
+            let more = if count > 1 { format!("{count} cards, mods or sounds couldn't load:") } else { "A card, mod or sound couldn't load:".to_string() };
             let red = [1.0, 0.55, 0.5, 1.0];
             f.top.label(more, SCREEN_W / 2.0, 696.0, 24.0, red, Align::Center);
-            f.top.label(menu::fitted(first, 22.0, SCREEN_W - 40.0, 22.0).0, SCREEN_W / 2.0, 728.0, 22.0, red, Align::Center);
+            f.top.label(menu::fitted(&first, 22.0, SCREEN_W - 40.0, 22.0).0, SCREEN_W / 2.0, 728.0, 22.0, red, Align::Center);
         }
         if let Some((name, how)) = harvest::next_unlock(&self.progress()) {
             f.top.label(format!("Next to find: {name}. {how}"), SCREEN_W / 2.0, 566.0, 24.0, DIM, Align::Center);
