@@ -116,8 +116,22 @@
       };
       input.click();
     },
-    save(name, bytes) {
-      const url = URL.createObjectURL(new Blob([bytes], { type: "image/png" }));
+    // Chrome and Edge ask where to save; other browsers download.
+    async save(name, bytes) {
+      const pak = name.endsWith(".pak");
+      const type = pak ? "application/octet-stream" : "image/png";
+      if (window.showSaveFilePicker) {
+        try {
+          const types = [{ description: pak ? "Mod pack" : "Card", accept: { [type]: [pak ? ".pak" : ".png"] } }];
+          const writer = await (await window.showSaveFilePicker({ suggestedName: name, types })).createWritable();
+          await writer.write(bytes);
+          await writer.close();
+          return;
+        } catch (e) {
+          if (e.name === "AbortError") return;
+        }
+      }
+      const url = URL.createObjectURL(new Blob([bytes], { type }));
       const a = Object.assign(document.createElement("a"), { href: url, download: name });
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
