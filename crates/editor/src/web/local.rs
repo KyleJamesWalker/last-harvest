@@ -15,6 +15,11 @@ fn key(kind: CardKind, id: &str) -> String {
     }
 }
 
+/// An enemy card's own death sound, kept as its file name and Base64 bytes.
+fn sound_key(id: &str) -> String {
+    format!("last-harvest-sound:{id}")
+}
+
 pub struct LocalStore {
     storage: Storage,
 }
@@ -99,8 +104,28 @@ impl Store for LocalStore {
         out
     }
 
+    fn card_sound(&self, id: &str) -> Option<(String, Vec<u8>)> {
+        let text = self.storage.get_item(&sound_key(id)).ok()??;
+        let (file, bytes) = text.split_once(':')?;
+        Some((file.to_string(), cards::from_text(bytes)?))
+    }
+
+    fn set_card_sound(&self, id: &str, file: &str, bytes: &[u8]) -> Result<(), String> {
+        self.storage.set_item(&sound_key(id), &format!("{file}:{}", cards::to_text(bytes))).map_err(|_| "the browser's storage for this page is full".into())
+    }
+
+    fn all_sounds(&self) -> Vec<(String, Vec<u8>)> {
+        let mut ids = self.ids(CardKind::Enemy);
+        ids.sort();
+        ids.iter().filter_map(|id| self.card_sound(id)).collect()
+    }
+
     fn delete_card(&self, name: &str) -> Result<(), String> {
         let (kind, id) = Self::card_of(name).ok_or("not a card")?;
-        self.storage.remove_item(&key(kind, &id)).map_err(|_| "the browser wouldn't remove it".to_string())
+        self.storage.remove_item(&key(kind, &id)).map_err(|_| "the browser wouldn't remove it".to_string())?;
+        if kind == CardKind::Enemy {
+            let _ = self.storage.remove_item(&sound_key(&id));
+        }
+        Ok(())
     }
 }

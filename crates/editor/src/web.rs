@@ -376,13 +376,17 @@ impl Web {
             #[cfg(feature = "modding")]
             "delete-card" => return self.studio.editor.delete_card(),
             #[cfg(feature = "modding")]
+            "sound" => return modding::call("pick", &[".ogg,.wav".into(), false.into(), "lastharvest-sound".into()]),
+            #[cfg(feature = "modding")]
             "export-all" => {
                 let cards = self.studio.editor.all_cards();
                 if !cards.is_empty() {
-                    match modding::mod_pack(&cards) {
+                    let sounds = self.studio.editor.all_sounds();
+                    match modding::mod_pack(&cards, &sounds) {
                         Ok(bytes) => {
                             modding::call("save", &[modding::MOD_FILE.into(), js_sys::Uint8Array::from(&bytes[..]).into()]);
-                            self.studio.editor.say(format!("Exported {} cards as {}: put it in the game's data/mods", cards.len(), modding::MOD_FILE));
+                            let with = if sounds.is_empty() { String::new() } else { format!(" and {} death sounds", sounds.len()) };
+                            self.studio.editor.say(format!("Exported {} cards{with} as {}: put it in the game's data/mods", cards.len(), modding::MOD_FILE));
                         }
                         Err(e) => self.studio.editor.say(format!("Couldn't pack the cards: {e}")),
                     }
@@ -565,12 +569,24 @@ fn start() -> Result<(), String> {
         let bytes = js_sys::Reflect::get(&detail, &"bytes".into()).map(|v| js_sys::Uint8Array::new(&v).to_vec()).unwrap_or_default();
         if name.ends_with(".pak") {
             match modding::cards_in(&bytes) {
-                Ok(cards) if cards.is_empty() => w.studio.editor.say(format!("{name} holds no cards")),
-                Ok(cards) => w.studio.editor.import_cards(&name, cards),
+                Ok((cards, _)) if cards.is_empty() => w.studio.editor.say(format!("{name} holds no cards")),
+                Ok((cards, sounds)) => {
+                    w.studio.editor.import_cards(&name, cards.clone());
+                    w.studio.editor.import_sounds(&cards, sounds);
+                }
                 Err(e) => w.studio.editor.say(format!("{name}: {e}")),
             }
         } else {
             w.studio.editor.import_card(&name, &bytes);
+        }
+    });
+    #[cfg(feature = "modding")]
+    listen(&window, "lastharvest-sound", &web, |w, e: &web_sys::CustomEvent| {
+        let detail = e.detail();
+        let name = js_sys::Reflect::get(&detail, &"name".into()).ok().and_then(|v| v.as_string()).unwrap_or_default();
+        let bytes = js_sys::Reflect::get(&detail, &"bytes".into()).map(|v| js_sys::Uint8Array::new(&v).to_vec()).unwrap_or_default();
+        if let Some(kept) = w.studio.editor.attach_sound(&name, &bytes) {
+            modding::call("play", &[kept.into(), js_sys::Uint8Array::from(&bytes[..]).into()]);
         }
     });
     listen(&input, "keydown", &web, |w, e: &KeyboardEvent| {
@@ -668,16 +684,19 @@ mod modding {
     pub const MOD_FILE: &str = "my-cards.pak";
 
     /// The cards in a mod pack, by file name, for Import.
-    pub fn cards_in(bytes: &[u8]) -> Result<Vec<(String, Vec<u8>)>, String> {
+    type Files = Vec<(String, Vec<u8>)>;
+
+    /// The cards in a mod pack, and the sounds beside them, by file name, for Import.
+    pub fn cards_in(bytes: &[u8]) -> Result<(Files, Files), String> {
         let mut pak = Pak::read(std::io::Cursor::new(bytes))?;
         let mut cards = pak.take_dir(last_harvest_pack::ENEMY_CARDS);
         cards.extend(pak.take_dir(last_harvest_pack::PLAYER_CARDS));
-        Ok(cards)
+        Ok((cards, pak.take_dir(last_harvest_pack::SOUNDS)))
     }
 
-    /// Every card as one mod pack, enemy cards under `enemies/` and player cards under `players/`, ready for the
-    /// game's data/mods.
-    pub fn mod_pack(cards: &[(String, Vec<u8>)]) -> Result<Vec<u8>, String> {
+    /// Every card as one mod pack, enemy cards under `enemies/`, player cards under `players/` and their death
+    /// sounds under `sounds/`, ready for the game's data/mods.
+    pub fn mod_pack(cards: &[(String, Vec<u8>)], sounds: &[(String, Vec<u8>)]) -> Result<Vec<u8>, String> {
         use last_harvest_pack::card::Kind;
         let mut files = vec![(last_harvest_pack::MANIFEST.to_string(), last_harvest_pack::mod_manifest("my-cards").into_bytes())];
         for (file, bytes) in cards {
@@ -687,6 +706,7 @@ mod modding {
             };
             files.push((format!("{dir}{file}"), bytes.clone()));
         }
+        files.extend(sounds.iter().map(|(file, bytes)| (format!("{}{file}", last_harvest_pack::SOUNDS), bytes.clone())));
         let mut out = std::io::Cursor::new(Vec::new());
         last_harvest_pack::write(&mut out, &files).map_err(|e| e.to_string())?;
         Ok(out.into_inner())

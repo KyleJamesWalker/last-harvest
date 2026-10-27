@@ -321,6 +321,8 @@ pub struct Editor {
     naming: Option<String>,
     /// The other cards' texts, read when the stats page opens, for the spawn mix.
     other_cards: Vec<String>,
+    /// The open card's own death sound, by file name, when it has one.
+    own_sound: Option<String>,
     mix: Option<Result<last_harvest_game::SpawnMix, String>>,
     /// The public mod editor: every sprite is an enemy card, and cards come and go by Import and Export.
     modding: bool,
@@ -383,6 +385,7 @@ impl Editor {
             stats: false,
             naming: None,
             other_cards: Vec::new(),
+            own_sound: None,
             mix: None,
             modding: false,
             delete_armed: 0.0,
@@ -2591,6 +2594,21 @@ mod tests {
         assert_eq!(list_label("CARD_GHOUL_HURT"), "GHOUL_HURT");
         assert_eq!(list_label("CARD_NORTHERN_FIELDS_GHOUL_FLASH"), "NORTHERN~_FLASH");
         assert_eq!(list_label("BARREL"), "BARREL");
+    }
+
+    #[test]
+    fn a_death_sound_needs_an_enemy_card_and_an_ogg_or_wav() {
+        let dir = tmp().join("sound");
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut e = Editor::new(Box::new(FsStore { dir: dir.join("sprites"), catalog: dir.join("art.txt"), cards: dir.join("enemies") }), "");
+        let said = |e: &Editor| e.status.as_ref().map(|(t, _)| t.clone()).unwrap_or_default();
+        assert!(e.attach_sound("boo.ogg", b"OggS....").is_none() && said(&e).contains("enemy card"));
+        e.act(Action::Ask(Ask::New), false);
+        type_in(&mut e, "card ghoul");
+        e.key(Key::Enter);
+        assert!(e.attach_sound("boo.mp3", b"ID3....").is_none() && said(&e).contains("isn't an Ogg or WAV"));
+        assert!(e.attach_sound("big.ogg", &[b"OggS".as_slice(), &vec![0; 600 * 1024]].concat()).is_none() && said(&e).contains("at most 512 KB"));
+        assert!(e.attach_sound("boo.ogg", b"OggS....").is_none() && said(&e).contains("sounds folder"), "the Mac's store keeps none: {}", said(&e));
     }
 
     #[test]

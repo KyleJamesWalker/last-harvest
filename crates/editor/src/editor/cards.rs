@@ -65,6 +65,64 @@ impl Editor {
         self.say(message);
     }
 
+    /// Keeps `bytes`, an Ogg or WAV file, as the open enemy card's own death sound, and points the card at it.
+    /// Returns the sound's file name once kept, for the page to play.
+    pub fn attach_sound(&mut self, file: &str, bytes: &[u8]) -> Option<String> {
+        const MAX_KB: usize = 512;
+        let (Some(id), Some(sprite::CardKind::Enemy)) = (sprite::card_id(&self.sprite.name), sprite::card_kind(&self.sprite.name)) else {
+            self.say("Open an enemy card to give it a death sound");
+            return None;
+        };
+        let ext = match bytes {
+            [b'O', b'g', b'g', b'S', ..] => "ogg",
+            [b'R', b'I', b'F', b'F', _, _, _, _, b'W', b'A', b'V', b'E', ..] => "wav",
+            _ => {
+                self.say(format!("{file} isn't an Ogg or WAV sound"));
+                return None;
+            }
+        };
+        if bytes.len() > MAX_KB * 1024 {
+            self.say(format!("{file} is {} KB; a death sound may be at most {MAX_KB} KB", bytes.len() / 1024));
+            return None;
+        }
+        let cue = format!("kill-{id}");
+        let kept = format!("{cue}.{ext}");
+        if let Err(e) = self.store.set_card_sound(&id, &kept, bytes) {
+            self.say(format!("Couldn't keep {file}: {e}"));
+            return None;
+        }
+        self.own_sound = Some(kept.clone());
+        let points = self.sprite.card.as_deref().and_then(|t| last_harvest_game::card_fields(t).ok()).is_some_and(|f| f.sound == cue);
+        if points {
+            self.say(format!("{id} dies to {file} now; Export all takes it along"));
+        } else {
+            self.set_card("sound", None);
+            self.say(format!("{id} dies to {file} now; Save the card, then Export all takes it along"));
+        }
+        Some(kept)
+    }
+
+    /// Every card's own death sound, for Export all.
+    pub fn all_sounds(&self) -> Vec<(String, Vec<u8>)> {
+        self.store.all_sounds()
+    }
+
+    /// Keeps the death sounds a mod pack carries for the enemy cards it brought in, `kill-<id>.ogg` or `.wav`.
+    pub fn import_sounds(&mut self, cards: &[(String, Vec<u8>)], sounds: Vec<(String, Vec<u8>)>) {
+        let ids: Vec<String> = cards.iter().filter_map(|(file, bytes)| crate::store::cards::identify(file, bytes).ok()).filter(|(k, _)| *k == sprite::CardKind::Enemy).map(|(_, id)| id).collect();
+        let kept = sounds
+            .into_iter()
+            .filter(|(file, _)| file.rsplit_once('.').is_some_and(|(stem, ext)| matches!(ext, "ogg" | "wav") && stem.strip_prefix("kill-").is_some_and(|id| ids.iter().any(|i| i == id))))
+            .filter(|(file, bytes)| self.store.set_card_sound(&file[5..file.rfind('.').unwrap_or(file.len())], file, bytes).is_ok())
+            .count();
+        if kept > 0
+            && let Some((text, _)) = &self.status
+        {
+            self.say(format!("{text}, and {kept} death sound{}", if kept == 1 { "" } else { "s" }));
+        }
+        self.load_other_cards();
+    }
+
     /// The open card's file name and PNG as saved, for Export; None with a word why when there's nothing to give.
     pub fn export_card(&mut self) -> Option<(String, Vec<u8>)> {
         let (Some(id), Some(kind)) = (sprite::card_id(&self.sprite.name), sprite::card_kind(&self.sprite.name)) else {
@@ -141,6 +199,7 @@ impl Editor {
         let enemy_front = |n: &String| sprite::card_kind(n) == Some(sprite::CardKind::Enemy) && sprite::card_part(n).is_some_and(|(id, row)| row == 0 && Some(&id) != mine.as_ref());
         let fronts: Vec<String> = self.names.iter().map(|(n, _)| n.clone()).filter(enemy_front).collect();
         self.other_cards = fronts.iter().filter_map(|n| self.store.read(n, sprite::CARD_FILE)).filter_map(|b| String::from_utf8(b).ok()).collect();
+        self.own_sound = mine.and_then(|id| self.store.card_sound(&id)).map(|(file, _)| file);
         self.refresh_mix();
     }
 
@@ -291,7 +350,8 @@ impl Editor {
         }
         let y = STAT_TOP + STAT_ROWS.len() as f32 * STAT_ROW;
         c.label("Death sound", x, y + 3.0, 16.0, DIM, Align::Left);
-        c.label(f.sound, CANVAS.x + 380.0, y + 3.0, 16.0, TEXT, Align::Right);
+        let own = self.own_sound.as_deref().filter(|file| file.starts_with(&format!("{}.", f.sound)));
+        c.label(own.map_or(f.sound.clone(), |file| format!("{file}, its own")), CANVAS.x + 380.0, y + 3.0, 16.0, if own.is_some() { HOT } else { TEXT }, Align::Right);
         self.draw_mix(c, &f.id);
         c.label("Shift steps ten times as far.  T: back to the pixels", x, CANVAS.y + CANVAS.h - 22.0, 13.0, DIM, Align::Left);
     }

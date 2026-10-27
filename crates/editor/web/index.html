@@ -16,6 +16,7 @@
   #panes { display: block; touch-action: none; margin: 0 auto; }
   #toolbar { flex: 1; display: flex; flex-wrap: wrap; align-content: flex-start; justify-content: center; gap: 8px 18px;
              padding: 10px 12px calc(110px + env(safe-area-inset-bottom)); overflow: auto; touch-action: manipulation; }
+  @media (min-width: 700px) { #toolbar { padding-left: 110px; padding-right: 110px; } }
   .group { display: flex; flex-wrap: wrap; justify-content: center; max-width: 100%; gap: 6px; align-items: center; }
   .group > span { color: #9a9aa8; font-size: 13px; margin-right: 2px; }
   button { min-width: 68px; height: 60px; padding: 0 14px; border: 0; border-radius: 8px; background: #3d3d47; color: inherit;
@@ -53,7 +54,7 @@
   <div class="group"><span>Arrows</span><button data-act="left">&#8592;</button><button data-act="up">&#8593;</button><button data-act="down">&#8595;</button><button data-act="right">&#8594;</button></div>
   <div class="group"><span>Sprite</span><button data-act="prev-sprite">&#8593; K</button><button data-act="next-sprite">&#8595; J</button></div>
   <div class="group"><span>Frame</span><button data-act="prev-frame">&#8592; H</button><button data-act="next-frame">&#8594; L</button></div>
-  <div class="group" id="mod-tools" hidden><span>Cards</span><button data-act="import">Import</button><button data-act="export">Export</button><button data-act="export-all">Export all</button><button data-act="delete-card">Delete card</button><button data-act="pak" id="pak">Game data</button><button id="help-open">Help</button></div>
+  <div class="group" id="mod-tools" hidden><span>Cards</span><button data-act="import">Import</button><button data-act="export">Export</button><button data-act="export-all">Export all</button><button data-act="sound">Sound</button><button data-act="delete-card">Delete card</button><button data-act="pak" id="pak">Game data</button><button id="help-open">Help</button></div>
   <div class="group"><button data-act="search">Search</button><button data-act="history">History</button><button data-act="new">New</button><button data-act="play">Play</button><button data-act="mirror">Mirror</button><button data-act="fit">Fit</button><button data-act="save" class="save">Save</button></div>
 </div>
 <div id="help" hidden><div>
@@ -72,7 +73,8 @@
     <code>game_data.pak</code>, and start the game. Settings &gt; Enemies and Settings &gt; Player show it; if it
     can't load, the title screen says why.
     <b>Export all</b> instead downloads every card as one <code>my-cards.pak</code> for the game's
-    <code>data/mods</code> folder.</li>
+    <code>data/mods</code> folder; it also carries each enemy's own death sound, which <b>Sound</b> picks, an
+    <code>.ogg</code> or <code>.wav</code> up to 512 KB.</li>
   </ol>
   <p>Your cards stay in this browser until you delete them. <b>Import</b> opens a card someone shared with you, or
   every card in a <code>.pak</code>; one with the id of a card you have replaces it.
@@ -119,6 +121,11 @@
       const a = Object.assign(document.createElement("a"), { href: url, download: name });
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
+    },
+    play(name, bytes) {
+      const type = name.endsWith(".wav") ? "audio/wav" : "audio/ogg";
+      const url = URL.createObjectURL(new Blob([bytes], { type }));
+      new Audio(url).play().catch(() => {}).finally(() => setTimeout(() => URL.revokeObjectURL(url), 30000));
     },
     // Only the card editor keeps an offline copy: the game's own editor talks to its server and must never be stale.
     offline() {

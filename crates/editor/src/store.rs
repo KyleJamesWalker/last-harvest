@@ -33,6 +33,21 @@ pub trait Store {
         Vec::new()
     }
 
+    /// An enemy card's own death sound, as its file name such as `kill-ghoul.ogg` and its bytes, kept beside the card
+    /// by the mod editor.
+    fn card_sound(&self, _id: &str) -> Option<(String, Vec<u8>)> {
+        None
+    }
+
+    fn set_card_sound(&self, _id: &str, _file: &str, _bytes: &[u8]) -> Result<(), String> {
+        Err("a card's death sound goes in the sounds folder here".into())
+    }
+
+    /// Every card's own death sound by file name, for the mod editor's Export all.
+    fn all_sounds(&self) -> Vec<(String, Vec<u8>)> {
+        Vec::new()
+    }
+
     /// Removes the card the part `name` belongs to for good, as the mod editor's Delete card does.
     fn delete_card(&self, _name: &str) -> Result<(), String> {
         Err("cards are removed from the enemies and players folders here".into())
