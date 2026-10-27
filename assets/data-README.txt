@@ -15,5 +15,6 @@ mods/            Mod packs, named like loud.pak. Each is laid over game_data.pak
 Make cards in your browser with the card editor:
 https://kylejameswalker.github.io/last-harvest/
 
-Cards and mods load when the game starts. A card or mod that can't load is left out, and log.txt
-beside the game says why.
+Cards and mods load when the game starts. A card or mod that can't load is left out: the title
+screen says why, and log.txt beside the game lists every one. Stats counts the cards and mods
+that loaded.
