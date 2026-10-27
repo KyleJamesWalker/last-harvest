@@ -171,6 +171,10 @@ pub fn decode(bytes: &[u8], rate: f32) -> Result<Clip, String> {
         }
     };
     let frame = width * channels;
+    let source_rate = checked_rate(source_rate)?;
+    if (data.len() / frame) as f32 > MAX_SECONDS * source_rate {
+        return Err(too_long());
+    }
     let source: Vec<[f32; 2]> = (0..data.len() / frame)
         .map(|f| {
             let l = sample(f * frame);
@@ -189,31 +193,39 @@ pub fn decode_ogg(bytes: &[u8], rate: f32) -> Result<Clip, String> {
     if channels == 0 {
         return Err("no channels".into());
     }
+    let source_rate = checked_rate(source_rate)?;
     let mut source = Vec::new();
     while let Some(packet) = reader.read_dec_packet_itl().map_err(|e| e.to_string())? {
         source.extend(packet.chunks_exact(channels).map(|f| {
             let s = |v: i16| v as f32 / 32768.0;
             [s(f[0]), s(f[(channels > 1) as usize])]
         }));
+        // A packet of a byte or two can decode to thousands of frames, so stop as soon as it's too long.
+        if source.len() as f32 > MAX_SECONDS * source_rate {
+            return Err(too_long());
+        }
     }
     resample(&source, source_rate, rate)
 }
 
+// A sound may come from anyone's mod: a made-up rate or length could ask for more frames than there's memory.
+const RATES: std::ops::RangeInclusive<f32> = 1000.0..=384_000.0;
+const MAX_SECONDS: f32 = 30.0;
+
+fn checked_rate(rate: f32) -> Result<f32, String> {
+    if RATES.contains(&rate) { Ok(rate) } else { Err(format!("a rate of {rate} Hz")) }
+}
+
+fn too_long() -> String {
+    format!("longer than {MAX_SECONDS} seconds, too long for a sound effect")
+}
+
 fn resample(source: &[[f32; 2]], source_rate: f32, rate: f32) -> Result<Clip, String> {
-    // A sound may come from anyone's mod: a made-up rate could ask for more frames than there's memory.
-    const RATES: std::ops::RangeInclusive<f32> = 1000.0..=384_000.0;
-    const MAX_SECONDS: f32 = 30.0;
     if source.is_empty() {
         return Err("no samples".into());
     }
-    if !RATES.contains(&source_rate) {
-        return Err(format!("a rate of {source_rate} Hz"));
-    }
     let step = source_rate / rate;
     let n = (source.len() as f32 / step) as usize;
-    if n as f32 > MAX_SECONDS * rate {
-        return Err(format!("longer than {MAX_SECONDS} seconds, too long for a sound effect"));
-    }
     let frames = (0..n)
         .map(|k| {
             let at = k as f32 * step;
