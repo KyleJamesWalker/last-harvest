@@ -65,19 +65,21 @@ impl Roster {
         (0..self.enemies.len()).all(|i| off & 1 << i != 0)
     }
 
-    /// The share of spawns each kind takes `minutes` into the night, by `pick`'s rule: each kind takes the rolls
-    /// between the highest chance above it and its own, and the last kind takes every roll the rest miss.
-    pub fn shares(&self, minutes: f32) -> Vec<f32> {
+    /// The share of spawns each kind takes `minutes` into the night, by `pick`'s rule: each kind left on takes the
+    /// rolls between the highest chance above it and its own, and the last kind on takes every roll the rest miss.
+    pub fn shares(&self, minutes: f32, off: u64) -> Vec<f32> {
+        let off = if self.all_off(off) { 0 } else { off };
         let mut out = vec![0.0; self.enemies.len()];
         let mut covered = 0.0f32;
-        for (i, e) in self.enemies.iter().enumerate() {
+        for (i, e) in self.enemies.iter().enumerate().filter(|(i, _)| off & 1 << i == 0) {
             let chance = if minutes >= e.after { (e.chance + e.per_minute * minutes).clamp(0.0, 1.0) } else { 0.0 };
             if chance > covered {
                 out[i] = chance - covered;
                 covered = chance;
             }
         }
-        out[self.common()] += 1.0 - covered;
+        let last = (0..self.enemies.len()).rev().find(|i| off & 1 << i == 0).unwrap_or(self.common());
+        out[last] += 1.0 - covered;
         out
     }
 
@@ -281,7 +283,7 @@ pub fn spawn_mix(cards: &[&str], minutes: &[f32]) -> Result<SpawnMix, String> {
     Ok(SpawnMix {
         kinds: r.enemies.iter().map(|e| (e.id.clone(), e.name.clone())).collect(),
         replaced,
-        shares: minutes.iter().map(|&m| r.shares(m)).collect(),
+        shares: minutes.iter().map(|&m| r.shares(m, 0)).collect(),
     })
 }
 
@@ -582,13 +584,30 @@ mod tests {
     #[test]
     fn shares_follow_the_spawn_rule() {
         let r = roster();
-        let at = |m: f32| r.shares(m);
+        let at = |m: f32| r.shares(m, 0);
         let close = |a: &[f32], b: &[f32]| a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-5);
         assert!(close(&at(0.5), &[0.0, 0.0, 1.0]), "only skinnies in the first minute");
         assert!(close(&at(1.5), &[0.0, 0.35, 0.65]));
         assert!(close(&at(5.0), &[0.11, 0.24, 0.65]), "bigs take 0.06 + 0.01 a minute out of the kids' share");
         for m in [0.0, 3.0, 9.9] {
             assert!((at(m).iter().sum::<f32>() - 1.0).abs() < 1e-5);
+        }
+    }
+
+    #[test]
+    fn shares_with_kinds_off_match_what_pick_does() {
+        let r = roster();
+        for off in [0b001, 0b010, 0b100, 0b011, 0b110] {
+            for minutes in [0.5, 3.0, 8.0] {
+                let shares = r.shares(minutes, off);
+                let mut counted = vec![0.0f32; r.enemies.len()];
+                for k in 0..1000 {
+                    counted[r.pick(minutes, (k as f32 + 0.5) / 1000.0, off)] += 0.001;
+                }
+                for (s, c) in shares.iter().zip(&counted) {
+                    assert!((s - c).abs() < 0.002, "off {off:b} at {minutes}: {shares:?} vs {counted:?}");
+                }
+            }
         }
     }
 
