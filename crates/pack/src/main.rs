@@ -111,7 +111,7 @@ fn make_mod(dir: &Path, out: &Path) -> Result<(), Box<dyn std::error::Error>> {
     }
     files.sort_by(|a, b| a.0.cmp(&b.0));
     write(std::fs::File::create(out)?, &files)?;
-    last_harvest_pack::Pak::open(out)?;
+    last_harvest_pack::Pak::open(out)?.check_mod().inspect_err(|_| _ = std::fs::remove_file(out))?;
     println!("{}: {} files", out.display(), files.len());
     Ok(())
 }

@@ -108,6 +108,16 @@ impl Pak {
         self.files.extend(top.files);
     }
 
+    /// Whether a mod's files that replace the game's own would read: its atlas the right size, its tables UTF-8 that
+    /// parse.
+    pub fn check_mod(&self) -> Result<(), String> {
+        if self.get(ATLAS).is_some_and(|a| a.len() != (art::ATLAS_W * art::ATLAS_H * 4) as usize) {
+            return Err("its atlas is the wrong size for this build".into());
+        }
+        let text = |file: &str| self.get(file).map(|b| std::str::from_utf8(b).map_err(|_| format!("{file} is not UTF-8"))).transpose();
+        last_harvest_game::check_tables(text(POWERUPS)?, text(ENEMIES)?)
+    }
+
     pub fn get(&self, path: &str) -> Option<&[u8]> {
         self.files.get(path).map(Vec::as_slice)
     }
@@ -210,6 +220,20 @@ mod tests {
         let bytes = pack(&[(MANIFEST, manifest().as_bytes()), (POWERUPS, &zeros)]);
         assert!(bytes.len() < 1 << 20, "it packs small");
         assert!(Pak::read(Cursor::new(bytes)).err().unwrap().contains("bigger than the game reads"));
+    }
+
+    #[test]
+    fn a_mod_that_would_break_the_game_is_refused() {
+        let check = |files: &[(&str, &[u8])]| {
+            let mut all = vec![(MANIFEST, mod_manifest("m").into_bytes())];
+            all.extend(files.iter().map(|(p, b)| (*p, b.to_vec())));
+            let all: Vec<(&str, &[u8])> = all.iter().map(|(p, b)| (*p, b.as_slice())).collect();
+            Pak::read(Cursor::new(pack(&all))).unwrap().check_mod()
+        };
+        assert!(check(&[(ENEMIES, include_bytes!("../../game/enemies.txt"))]).is_ok());
+        assert!(check(&[(ENEMIES, b"[x]\nlook NOPE")]).unwrap_err().contains("enemies.txt"));
+        assert!(check(&[(POWERUPS, b"[x]\nkind sideways")]).unwrap_err().contains("powerups.txt"));
+        assert!(check(&[(ENEMIES, &[0xff, 0xfe])]).unwrap_err().contains("UTF-8"));
     }
 
     #[test]
