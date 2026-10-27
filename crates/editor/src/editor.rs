@@ -1313,9 +1313,7 @@ impl Editor {
                 self.compare = !self.compare;
                 self.load_family();
             }
-            Action::AddFrame | Action::DeleteFrame | Action::MoveFrame(_) if self.is_card() => {
-                self.say(format!("Each part of a card keeps its {} frames", sprite::CARD_PART_FRAMES));
-            }
+            Action::AddFrame | Action::DeleteFrame | Action::MoveFrame(_) if self.view.is_none() && self.frames_refused(a) => {}
             Action::Stand(_) if self.is_card() => self.say("A card stands as a figure"),
             Action::Stats => {
                 self.stats = !self.stats;
@@ -1718,6 +1716,30 @@ impl Editor {
         self.open(&names[0]);
         self.reveal();
         self.say(format!("Made card {id}: its parts are {}", sprite::CARD_PARTS.join(", ")));
+    }
+
+    /// How many frames the open sprite may have, when the game holds it to a number or a range.
+    fn frame_limits(&self) -> Option<(usize, usize)> {
+        match sprite::card_part(&self.sprite.name) {
+            Some((_, row)) if row < 3 => Some((1, last_harvest_game::MAX_WALK)),
+            Some(_) => Some((sprite::CARD_PART_FRAMES, sprite::CARD_PART_FRAMES)),
+            None => last_harvest_game::frame_limits(&self.sprite.name),
+        }
+    }
+
+    /// Whether adding, deleting or moving a frame would take the sprite outside its limits, saying why if so.
+    fn frames_refused(&mut self, a: Action) -> bool {
+        let Some((lo, hi)) = self.frame_limits() else { return false };
+        let n = self.sprite.frames.len();
+        let stills = self.sprite.name.ends_with("_FLASH") || self.sprite.name.ends_with("_HURT");
+        let fixed = || if stills { format!("{} keeps {hi} frames, one for each facing", self.sprite.name) } else { format!("{} keeps {hi} frames: the game walks it with that many", self.sprite.name) };
+        let why = match a {
+            Action::AddFrame if n >= hi => Some(if lo == hi { fixed() } else { format!("A walk has at most {hi} frames") }),
+            Action::DeleteFrame if n <= lo => Some(if lo == hi { fixed() } else { "A walk keeps at least one frame".into() }),
+            Action::MoveFrame(_) if stills => Some(format!("{}'s frames go front, side, back", self.sprite.name)),
+            _ => None,
+        };
+        why.map(|w| self.say(w)).is_some()
     }
 
     fn commit_name(&mut self, name: String) {
@@ -2511,7 +2533,8 @@ mod tests {
         assert_ne!(e.sprite.frames[0].px, e.sprite.frames[1].px, "whose legs take turns");
         assert_eq!(e.stand(), Stand::Figure);
         e.act(Action::AddFrame, false);
-        assert_eq!(e.sprite.frames.len(), 3, "a part keeps its frames");
+        assert_eq!(e.sprite.frames.len(), 4, "a walking part takes another frame");
+        e.act(Action::Save, false);
         e.act(Action::Compare, false);
         assert_eq!(e.family.len(), 5, "Compare lays out the card's parts like a built-in zombie's");
         e.act(Action::Compare, false);
@@ -2550,6 +2573,50 @@ mod tests {
         let front = Editor::new(Box::new(store()), "CARD_GHOUL_FRONT");
         assert_eq!(front.sprite.frames[0].get(0, 0), Some([0, 0, 0, 0]), "and nowhere else");
         assert_eq!(sprite::section("CARD_GHOUL_HURT"), sprite::CARD_SECTION);
+    }
+
+    #[test]
+    fn a_card_walks_its_parts_in_step_and_holds_its_stills_to_three() {
+        let dir = tmp().join("walk");
+        let _ = std::fs::remove_dir_all(&dir);
+        let store = || FsStore { dir: dir.join("sprites"), catalog: dir.join("art.txt"), cards: dir.join("enemies") };
+        let mut e = Editor::new(Box::new(store()), "");
+        e.act(Action::Ask(Ask::New), false);
+        type_in(&mut e, "card long");
+        e.key(Key::Enter);
+        e.act(Action::AddFrame, false);
+        e.act(Action::AddFrame, false);
+        e.act(Action::Save, false);
+        let side = Editor::new(Box::new(store()), "CARD_LONG_SIDE");
+        assert_eq!(side.sprite.frames.len(), 5, "the other walking parts follow");
+        assert!(side.sprite.card.as_deref().unwrap().contains("walk"), "and the text says how long the walk is");
+        let saved = last_harvest_pack::card::read("x", &std::fs::read(dir.join("enemies/long.enemy.png")).unwrap()).unwrap();
+        assert_eq!(saved.frame, [16, 16], "a five-wide sheet still has 16-pixel frames");
+        let mut hurt = Editor::new(Box::new(store()), "CARD_LONG_HURT");
+        hurt.act(Action::AddFrame, false);
+        hurt.act(Action::DeleteFrame, false);
+        assert_eq!(hurt.sprite.frames.len(), 3, "a still part keeps one frame per facing");
+        let mut front = Editor::new(Box::new(store()), "CARD_LONG_FRONT");
+        for _ in 0..10 {
+            front.act(Action::DeleteFrame, false);
+        }
+        assert_eq!(front.sprite.frames.len(), 1, "a walk keeps at least one frame");
+    }
+
+    #[test]
+    fn the_player_and_zombie_stills_keep_their_frame_counts() {
+        let mut e = editor_on("PLAYER_FRONT");
+        e.act(Action::AddFrame, false);
+        assert_eq!(e.sprite.frames.len(), 3);
+        let mut e = editor_on("KID_FLASH");
+        e.act(Action::DeleteFrame, false);
+        assert_eq!(e.sprite.frames.len(), 3);
+        let mut e = editor_on("KID_FRONT");
+        e.act(Action::AddFrame, false);
+        assert_eq!(e.sprite.frames.len(), 4, "a zombie's walk can grow");
+        let mut e = editor_on("BARREL");
+        e.act(Action::AddFrame, false);
+        assert_eq!(e.sprite.frames.len(), 2, "other sprites are free");
     }
 
     #[test]

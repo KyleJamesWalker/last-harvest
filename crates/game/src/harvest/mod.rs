@@ -17,6 +17,7 @@ use crate::rng::Rng;
 use crate::{Buttons, Color, Difficulty, Input, SCREEN_H, SCREEN_W, Sfx};
 use enemies::Enemy;
 pub(crate) use enemies::{install_cards, off_from_ids, off_ids, roster};
+pub use enemies::{MAX_WALK, frame_limits};
 pub use enemies::{CardFields, FLAGS as CARD_FLAGS, NUMBERS as CARD_NUMBERS, SpawnMix, card_fields, set_card_field, spawn_mix};
 use juice::{Corpse, Juice, Particle, Tone};
 use map::{Map, TILE};
@@ -115,16 +116,16 @@ impl Facing {
     }
 }
 
-/// Walk frames for each facing, then the flash and hurt frames for each facing.
+/// Walk frames for each facing, as many as its cycle has, then the flash and hurt frames for each facing.
 #[derive(Clone)]
 pub(crate) struct Look {
-    pub walk: [[Art; 3]; 3],
+    pub walk: [Vec<Art>; 3],
     pub flash: [Art; 3],
     pub hurt: [Art; 3],
 }
 
 fn player_look() -> Look {
-    Look { walk: [art::PLAYER_FRONT, art::PLAYER_SIDE, art::PLAYER_BACK], flash: art::PLAYER_FLASH, hurt: art::PLAYER_HURT }
+    Look { walk: [art::PLAYER_FRONT.to_vec(), art::PLAYER_SIDE.to_vec(), art::PLAYER_BACK.to_vec()], flash: art::PLAYER_FLASH, hurt: art::PLAYER_HURT }
 }
 
 /// A kind of zombie: its place in `enemies.txt`.
@@ -229,7 +230,8 @@ impl Zombie {
         } else if self.hurt > 0.0 || self.stagger > 0.0 {
             look.hurt[facing.index()]
         } else {
-            look.walk[facing.index()][self.frame()]
+            let walk = &look.walk[facing.index()];
+            walk[self.step() % walk.len()]
         }
     }
 }
@@ -357,8 +359,9 @@ impl Barrel {
 }
 
 impl Zombie {
-    fn frame(&self) -> usize {
-        (self.anim * WALK_FPS * self.kind.stats().speed / 20.0) as usize % 3
+    /// How many walk frames it has stepped through; each facing's cycle wraps at its own length.
+    fn step(&self) -> usize {
+        (self.anim * WALK_FPS * self.kind.stats().speed / 20.0) as usize
     }
 }
 
@@ -382,7 +385,7 @@ fn player_pose(h: &Harvest, facing: Facing) -> (Art, f32) {
     if t < TURN_RISE {
         (art::PLAYER_HURT[i], 1.0 - ((t - TURN_FALL) / (TURN_SINK - TURN_FALL)).clamp(0.0, 1.0))
     } else {
-        let walk = Kind::common().stats().look.walk[i];
+        let walk = &Kind::common().stats().look.walk[i];
         (walk[(t * WALK_FPS * 0.6) as usize % walk.len()], ((t - TURN_RISE) / (TURNED - TURN_RISE)).min(1.0))
     }
 }

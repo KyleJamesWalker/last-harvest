@@ -43,35 +43,36 @@ pub trait Store {
 pub mod cards {
     use last_harvest_pack::card;
 
-    use crate::sprite::{self, CARD_FRAMES, CARD_PART_FRAMES, Frame, Sprite};
+    use crate::sprite::{self, CARD_PART_FRAMES, Frame, Sprite};
 
-    /// A card's text and its 15 frames in sheet order.
-    pub fn frames(bytes: &[u8]) -> Option<(String, Vec<Frame>)> {
+    /// A card's text and its five rows of frames: walking front, side and back, then flash and hurt.
+    pub fn rows(bytes: &[u8]) -> Option<(String, [Vec<Frame>; 5])> {
         let c = card::read("card", bytes).ok()?;
         let [w, h] = c.frame.map(|v| v as usize);
-        let frames = (0..CARD_FRAMES)
-            .map(|k| {
-                let (col, row) = (k % 3, k / 3);
-                let px = (0..h).flat_map(|y| (0..w).map(move |x| ((row * h + y) * w * 3 + col * w + x) * 4)).map(|i| [c.sheet[i], c.sheet[i + 1], c.sheet[i + 2], c.sheet[i + 3]]).collect();
-                Frame { w, h, px }
-            })
-            .collect();
-        Some((c.text, frames))
+        let walk = last_harvest_game::card_fields(&c.text).map_or(3, |f| f.walk);
+        let cols = walk.max(3);
+        let cell = |col: usize, row: usize| {
+            let px = (0..h).flat_map(|y| (0..w).map(move |x| ((row * h + y) * w * cols + col * w + x) * 4)).map(|i| [c.sheet[i], c.sheet[i + 1], c.sheet[i + 2], c.sheet[i + 3]]).collect();
+            Frame { w, h, px }
+        };
+        let rows = std::array::from_fn(|row| (0..if row < 3 { walk } else { CARD_PART_FRAMES }).map(|col| cell(col, row)).collect());
+        Some((c.text, rows))
     }
 
     /// A file of a card's part, as `Store::read` hands it out: a frame of the part's row, or the card's text.
     pub fn file(bytes: &[u8], name: &str, file: &str) -> Option<Vec<u8>> {
-        let (text, frames) = frames(bytes)?;
+        let (text, rows) = rows(bytes)?;
         if file == sprite::CARD_FILE {
             return Some(text.into_bytes());
         }
         let (_, row) = sprite::card_part(name)?;
-        let k: usize = file.strip_suffix(".png")?.parse().ok().filter(|&k| k < CARD_PART_FRAMES)?;
-        frames.get(row * CARD_PART_FRAMES + k).map(sprite::encode_png)
+        let k: usize = file.strip_suffix(".png")?.parse().ok()?;
+        rows[row].get(k).map(sprite::encode_png)
     }
 
     /// The card with one part's frames and the card's text written in; a card that doesn't exist yet starts from
-    /// the template. A part of a new size resizes the rest of the card to match.
+    /// the template. A part of a new size resizes the rest of the card to match, and a walking part with a new
+    /// number of frames gives the other two walking parts as many, repeating their last frame or dropping the extra.
     pub fn with_part(existing: Option<&[u8]>, part: &Sprite) -> Result<Vec<u8>, String> {
         let (id, row) = sprite::card_part(&part.name).ok_or("not a card's part")?;
         let text = part.card.as_deref().ok_or("a card needs its enemy text")?;
@@ -81,27 +82,40 @@ pub mod cards {
         }
         let first = part.frames.first().ok_or("a card's part has frames")?;
         let (w, h) = (first.w, first.h);
-        if part.frames.len() != CARD_PART_FRAMES || part.frames.iter().any(|f| (f.w, f.h) != (w, h)) {
-            return Err(format!("each part of a card has {CARD_PART_FRAMES} frames, all one size"));
+        let walking = row < 3;
+        let fits = if walking { (1..=last_harvest_game::MAX_WALK).contains(&part.frames.len()) } else { part.frames.len() == CARD_PART_FRAMES };
+        if !fits || part.frames.iter().any(|f| (f.w, f.h) != (w, h)) {
+            return Err(format!("a walking part has 1 to {} frames and the others {CARD_PART_FRAMES}, all one size", last_harvest_game::MAX_WALK));
         }
-        let mut frames = existing.and_then(frames).map_or_else(sprite::card_template, |(_, frames)| frames);
-        for f in &mut frames {
+        let mut rows = existing.and_then(rows).map(|(_, r)| r).unwrap_or_else(|| {
+            let t = sprite::card_template();
+            std::array::from_fn(|r| t[r * CARD_PART_FRAMES..(r + 1) * CARD_PART_FRAMES].to_vec())
+        });
+        for f in rows.iter_mut().flatten() {
             if (f.w, f.h) != (w, h) {
                 *f = f.resized(w, h);
             }
         }
-        frames[row * CARD_PART_FRAMES..(row + 1) * CARD_PART_FRAMES].clone_from_slice(&part.frames);
-        let mut sheet = vec![0u8; w * 3 * h * 5 * 4];
-        for (k, f) in frames.iter().enumerate() {
-            let (col, row) = (k % 3, k / 3);
-            for y in 0..h {
-                for x in 0..w {
-                    let i = ((row * h + y) * w * 3 + col * w + x) * 4;
-                    sheet[i..i + 4].copy_from_slice(&f.px[y * w + x]);
+        let walk = if walking { part.frames.len() } else { rows[0].len() };
+        for r in rows.iter_mut().take(3) {
+            let last = r.last().cloned().unwrap_or_else(|| Frame::blank(w, h));
+            r.resize(walk, last);
+        }
+        rows[row] = part.frames.clone();
+        let text = last_harvest_game::set_card_field(text, "walk", (walk != 3).then(|| walk.to_string()).as_deref());
+        let cols = walk.max(3);
+        let mut sheet = vec![0u8; w * cols * h * 5 * 4];
+        for (r, frames) in rows.iter().enumerate() {
+            for (col, f) in frames.iter().enumerate() {
+                for y in 0..h {
+                    for x in 0..w {
+                        let i = ((r * h + y) * w * cols + col * w + x) * 4;
+                        sheet[i..i + 4].copy_from_slice(&f.px[y * w + x]);
+                    }
                 }
             }
         }
-        card::write(text, (w * 3) as u32, (h * 5) as u32, &sheet)
+        card::write(&text, (w * cols) as u32, (h * 5) as u32, &sheet)
     }
 
     const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";

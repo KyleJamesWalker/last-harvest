@@ -2,8 +2,9 @@
 #
 #   [id]        start of a zombie; the id is how the save and the code know it
 #   name        Text      what the Enemies page calls it
-#   look        SPRITE    its sprites from art.txt: SPRITE_FRONT, SPRITE_SIDE and SPRITE_BACK walking, three
+#   look        SPRITE    its sprites from art.txt: SPRITE_FRONT, SPRITE_SIDE and SPRITE_BACK walking, 1 to 8
 #                         frames each, then SPRITE_FLASH and SPRITE_HURT, one frame per facing
+#   walk        N         on a card, its walking frames per facing, 1 to 8; 3 when left out
 #   hp          N         health at dusk; it grows 8% a minute
 #   speed       N         pixels a second; the walk cycle keeps pace
 #   damage      N         a bite

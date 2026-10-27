@@ -354,7 +354,8 @@ impl Game {
         c.rect(0.0, 560.0, SCREEN_W, 208.0, [0.1, 0.08, 0.07, 1.0]);
         let turn = (self.clock / 1.5) as usize % 4;
         let (facing, flip) = [(0, false), (1, false), (2, false), (1, true)][turn];
-        let frame = e.look.walk[facing][(self.clock * 8.0 * e.speed / 20.0) as usize % 3];
+        let walk = &e.look.walk[facing];
+        let frame = walk[(self.clock * 8.0 * e.speed / 20.0) as usize % walk.len()];
         let scale = 300.0 / frame.h().max(frame.w());
         c.art(frame, 280.0 - frame.w() * scale / 2.0, 600.0 - frame.h() * scale, scale, flip, if on { WHITE } else { [0.35, 0.35, 0.4, 1.0] });
         if !on {

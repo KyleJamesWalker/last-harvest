@@ -1,5 +1,7 @@
-//! Enemy cards: a PNG of the enemy's frames, three across and five down, with its `enemies.txt` section in a
-//! compressed `iTXt` chunk, so one image file shares the art and the numbers together.
+//! Enemy cards: a PNG of the enemy's frames, five rows down, with its `enemies.txt` section in a compressed `iTXt`
+//! chunk, so one image file shares the art and the numbers together. The rows walk front, side and back, as many
+//! frames across as the text's `walk` (3 when left out), then flash and hurt with one frame per facing; the sheet
+//! is as many frames wide as its longest row.
 
 use last_harvest_game::data::Card;
 
@@ -27,10 +29,11 @@ pub fn read(name: &str, bytes: &[u8]) -> Result<Card, String> {
     text.decompress_text().map_err(|e| fail(&e))?;
     let text = text.get_text().map_err(|e| fail(&e))?;
     let (w, h) = (frame.width, frame.height);
-    if w % 3 != 0 || h % 5 != 0 {
-        return Err(fail(&format!("{w}x{h} doesn't split into three frames across and five down")));
+    let cols = last_harvest_game::card_fields(&text).map_or(3, |f| f.walk).max(3) as u32;
+    if w % cols != 0 || h % 5 != 0 {
+        return Err(fail(&format!("{w}x{h} doesn't split into {cols} frames across and five down")));
     }
-    Ok(Card { name: name.to_string(), text, frame: [w / 3, h / 5], sheet })
+    Ok(Card { name: name.to_string(), text, frame: [w / cols, h / 5], sheet })
 }
 
 /// Writes a card from its text and an RGBA sheet `w` by `h` pixels.
@@ -71,6 +74,8 @@ mod tests {
         encoder.write_header().unwrap().write_image_data(&[0; 60]).unwrap();
         assert!(read("x.png", &plain).err().unwrap().contains("not an enemy card"));
         let odd = write("[a]", 4, 5, &[0; 80]).unwrap();
-        assert!(read("y.png", &odd).err().unwrap().contains("three frames across"));
+        assert!(read("y.png", &odd).err().unwrap().contains("3 frames across"));
+        let long = write("[a]\nwalk 5", 5 * 4, 5 * 4, &[0; 5 * 4 * 5 * 4 * 4]).unwrap();
+        assert_eq!(read("z.png", &long).ok().map(|c| c.frame), Some([4, 4]), "a five-frame walk makes the sheet five across");
     }
 }

@@ -19,7 +19,7 @@ pub use difficulty::Difficulty;
 pub use draw::{Align, Canvas, Color, Frame, Shape};
 pub use art::Stand;
 pub use harvest::showcase::Showcase;
-pub use harvest::{CARD_FLAGS, CARD_NUMBERS, CardFields, NIGHT_MINUTES, SpawnMix, card_fields, kill_sound, kill_sounds, set_card_field, spawn_mix};
+pub use harvest::{CARD_FLAGS, CARD_NUMBERS, MAX_WALK, frame_limits, CardFields, NIGHT_MINUTES, SpawnMix, card_fields, kill_sound, kill_sounds, set_card_field, spawn_mix};
 pub use input::{Buttons, Input, InputTracker, MAX_TOUCHES, RawInput};
 pub use save::Save;
 pub use sfx::Sfx;
@@ -389,7 +389,7 @@ impl Game {
         f.top.circle(822.0, 108.0, 10.0, [0.75, 0.75, 0.66, 1.0]);
         f.top.circle(856.0, 136.0, 7.0, [0.75, 0.75, 0.66, 1.0]);
         f.top.rect(0.0, 600.0, SCREEN_W, 168.0, [0.1, 0.08, 0.07, 1.0]);
-        let walkers = [&art::SKINNY_SIDE, &art::KID_SIDE, &art::SKINNY_SIDE, &art::BIG_SIDE, &art::SKINNY_SIDE];
+        let walkers: [&[art::Art]; 5] = [&art::SKINNY_SIDE, &art::KID_SIDE, &art::SKINNY_SIDE, &art::BIG_SIDE, &art::SKINNY_SIDE];
         for (i, frames) in walkers.iter().enumerate() {
             let span = SCREEN_W + 400.0;
             let x = (i as f32 * span / walkers.len() as f32 + t * 22.0) % span - 200.0;

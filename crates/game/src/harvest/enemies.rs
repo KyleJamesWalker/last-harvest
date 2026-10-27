@@ -40,7 +40,8 @@ pub struct Roster {
 
 /// The most kinds a roster holds, so a save can keep the ones turned off as bits.
 const MAX_KINDS: usize = 64;
-const FRAMES: usize = 15;
+/// The most frames a walk cycle can have.
+pub const MAX_WALK: usize = 8;
 const MAX_FRAME: u32 = 64;
 const PAD: u16 = 1;
 
@@ -134,8 +135,28 @@ fn frames<const N: usize>(name: &str) -> Result<[Art; N], String> {
 }
 
 fn look(prefix: &str) -> Result<Look, String> {
-    let walk = |facing: &str| frames::<3>(&format!("{prefix}_{facing}"));
+    let walk = |facing: &str| {
+        let name = format!("{prefix}_{facing}");
+        let (_, frames) = art::ALL.iter().find(|(n, _)| *n == name).ok_or_else(|| format!(" no sprite called {name}"))?;
+        if !(1..=MAX_WALK).contains(&frames.len()) {
+            return Err(format!(" {name} has {} frames, but a walk has 1 to {MAX_WALK}", frames.len()));
+        }
+        Ok(frames.to_vec())
+    };
     Ok(Look { walk: [walk("FRONT")?, walk("SIDE")?, walk("BACK")?], flash: frames(&format!("{prefix}_FLASH"))?, hurt: frames(&format!("{prefix}_HURT"))? })
+}
+
+/// How many frames the editor should let a sprite have, when the game needs a set number or range: the player's
+/// sprites and each zombie's flash and hurt hold one per facing, and a zombie's walk has 1 to `MAX_WALK`.
+pub fn frame_limits(name: &str) -> Option<(usize, usize)> {
+    let (prefix, part) = name.rsplit_once('_')?;
+    let zombie = || entries(crate::data::enemies()).ok()?.into_iter().find(|e| e.look.as_ref().is_some_and(|(_, p)| p == prefix));
+    match part {
+        "FLASH" | "HURT" if prefix == "PLAYER" || zombie().is_some() => Some((3, 3)),
+        "FRONT" | "SIDE" | "BACK" if prefix == "PLAYER" => Some((3, 3)),
+        "FRONT" | "SIDE" | "BACK" if zombie().is_some() => Some((1, MAX_WALK)),
+        _ => None,
+    }
 }
 
 /// One `[id]` section: the kind, the line and name of its `look`, and whether it leads hordes or dresses the Harvester.
@@ -145,6 +166,8 @@ struct Entry {
     look: Option<(usize, String)>,
     leader: bool,
     harvester: bool,
+    /// Walk frames per facing on a card's sheet.
+    walk: usize,
 }
 
 fn entries(text: &str) -> Result<Vec<Entry>, String> {
@@ -159,7 +182,7 @@ fn entries(text: &str) -> Result<Vec<Entry>, String> {
             if entries.iter().any(|e| e.enemy.id == id) {
                 return Err(format!("{n}: [{id}] appears twice"));
             }
-            let blank = Look { walk: [[art::WHITE; 3]; 3], flash: [art::WHITE; 3], hurt: [art::WHITE; 3] };
+            let blank = Look { walk: std::array::from_fn(|_| vec![art::WHITE; 3]), flash: [art::WHITE; 3], hurt: [art::WHITE; 3] };
             let enemy = Enemy {
                 id: id.to_string(),
                 name: id.to_string(),
@@ -176,7 +199,7 @@ fn entries(text: &str) -> Result<Vec<Entry>, String> {
                 per_minute: 0.0,
                 heavy: false,
             };
-            entries.push(Entry { enemy, look: None, leader: false, harvester: false });
+            entries.push(Entry { enemy, look: None, leader: false, harvester: false, walk: 3 });
             continue;
         }
         let Some(entry) = entries.last_mut() else { return Err(format!("{n}: expected an [enemy] first")) };
@@ -196,6 +219,9 @@ fn entries(text: &str) -> Result<Vec<Entry>, String> {
             "after" => e.after = number()?,
             "chance" => e.chance = number()?,
             "per_minute" => e.per_minute = number()?,
+            "walk" => {
+                entry.walk = rest.parse().ok().filter(|n| (1..=MAX_WALK).contains(n)).ok_or_else(|| format!("{n}: walk is 1 to {MAX_WALK} frames, not {rest:?}"))?;
+            }
             "heavy" if rest.is_empty() => e.heavy = true,
             "leader" if rest.is_empty() => entry.leader = true,
             "harvester" if rest.is_empty() => entry.harvester = true,
@@ -265,6 +291,8 @@ pub struct CardFields {
     pub sound: String,
     /// Every flag a card sets, by key, in `FLAGS` order.
     pub flags: Vec<(&'static str, bool)>,
+    /// Walk frames per facing.
+    pub walk: usize,
 }
 
 pub const NUMBERS: [&str; 9] = ["hp", "speed", "damage", "xp", "mass", "gibs", "after", "chance", "per_minute"];
@@ -281,6 +309,7 @@ pub fn card_fields(text: &str) -> Result<CardFields, String> {
         numbers: NUMBERS.into_iter().zip(numbers).collect(),
         sound: e.sound.clone(),
         flags: FLAGS.into_iter().zip([e.heavy, entry.leader, entry.harvester]).collect(),
+        walk: entry.walk,
     })
 }
 
@@ -348,28 +377,30 @@ fn pack(cards: &[Card], base: &str, atlas: &mut [u8]) -> (Vec<String>, Vec<[u16;
             }
         };
         let [fw, fh] = card.frame;
-        if !(1..=MAX_FRAME).contains(&fw) || !(1..=MAX_FRAME).contains(&fh) || card.sheet.len() != (fw * fh * FRAMES as u32 * 4) as usize {
-            notes.push(format!("{}: frames are 1 to {MAX_FRAME} pixels, three across and five down", card.name));
+        let (walk, cols) = (entry.walk, entry.walk.max(3) as u32);
+        if !(1..=MAX_FRAME).contains(&fw) || !(1..=MAX_FRAME).contains(&fh) || card.sheet.len() != (fw * cols * fh * 5 * 4) as usize {
+            notes.push(format!("{}: frames are 1 to {MAX_FRAME} pixels, {cols} across and five down", card.name));
             continue;
         }
+        // Each walking row's frames, then a flash and a hurt frame per facing, by column and row on the sheet.
+        let cells: Vec<(u32, u32)> = (0..5u32).flat_map(|row| (0..if row < 3 { walk as u32 } else { 3 }).map(move |col| (col, row))).collect();
         let new = !ids.contains(&entry.enemy.id);
         if new && ids.len() >= MAX_KINDS {
             notes.push(format!("{}: there can be only {MAX_KINDS} kinds", card.name));
             continue;
         }
         let mut try_cursor = cursor;
-        let spots: Option<Vec<[u16; 2]>> = (0..FRAMES).map(|_| place(&mut try_cursor, [fw as u16, fh as u16])).collect();
+        let spots: Option<Vec<[u16; 2]>> = cells.iter().map(|_| place(&mut try_cursor, [fw as u16, fh as u16])).collect();
         let Some(spots) = spots else {
             notes.push(format!("{}: no room left in the sprite texture", card.name));
             continue;
         };
         cursor = try_cursor;
         let first = art::RECTS.len() + rects.len();
-        for (k, [x, y]) in spots.into_iter().enumerate() {
-            let (col, row) = ((k % 3) as u32, (k / 3) as u32);
+        for (&(col, row), [x, y]) in cells.iter().zip(spots) {
             for py in 0..fh {
                 for px in 0..fw {
-                    let s = (((row * fh + py) * fw * 3 + col * fw + px) * 4) as usize;
+                    let s = (((row * fh + py) * fw * cols + col * fw + px) * 4) as usize;
                     let d = (((y as u32 + py) * ATLAS_W + x as u32 + px) * 4) as usize;
                     let p = &card.sheet[s..s + 4];
                     // Nearly clear pixels would otherwise show as faint squares.
@@ -380,7 +411,12 @@ fn pack(cards: &[Card], base: &str, atlas: &mut [u8]) -> (Vec<String>, Vec<[u16;
             rects.push([x, y, fw as u16, fh as u16]);
         }
         let at = |k: usize| Art((first + k) as u16);
-        entry.enemy.look = Look { walk: [[at(0), at(1), at(2)], [at(3), at(4), at(5)], [at(6), at(7), at(8)]], flash: [at(9), at(10), at(11)], hurt: [at(12), at(13), at(14)] };
+        let still = 3 * walk;
+        entry.enemy.look = Look {
+            walk: std::array::from_fn(|f| (f * walk..(f + 1) * walk).map(at).collect()),
+            flash: [at(still), at(still + 1), at(still + 2)],
+            hurt: [at(still + 3), at(still + 4), at(still + 5)],
+        };
         if new {
             ids.push(entry.enemy.id.clone());
         }
@@ -399,7 +435,7 @@ mod tests {
         assert_eq!(r.enemies.iter().map(|e| e.id.as_str()).collect::<Vec<_>>(), ["big", "kid", "skinny"]);
         let big = &r.enemies[r.index("big").unwrap()];
         assert!(big.heavy && r.leader == 0 && r.harvester == 0);
-        assert_eq!(big.look.walk[0], art::BIG_FRONT);
+        assert_eq!(big.look.walk[0], art::BIG_FRONT.to_vec());
         assert_eq!(big.sound, "kill-big");
         assert_eq!(r.common(), r.index("skinny").unwrap());
     }
@@ -440,7 +476,7 @@ mod tests {
         let mut atlas = vec![0u8; (ATLAS_W * ATLAS_H * 4) as usize];
         let (notes, rects, kept) = pack(&[card("[ghoul]\nname Ghoul\nhp 40\nleader", [12, 20])], base, &mut atlas);
         assert!(notes.is_empty(), "{notes:?}");
-        assert_eq!(rects.len(), FRAMES);
+        assert_eq!(rects.len(), 15, "three walking frames a facing, then a flash and a hurt frame each");
         assert!(rects.iter().all(|r| r[1] > art::free_top() && r[2..] == [12, 20]), "below the packed sprites");
         let [x, y, ..] = rects[0].map(u32::from);
         assert_eq!(atlas[((y * ATLAS_W + x) * 4 + 3) as usize], 255, "its pixels are drawn in");
@@ -450,6 +486,31 @@ mod tests {
         assert_eq!(r.enemies[2].look.walk[0][0], Art(art::RECTS.len() as u16));
         assert_eq!((r.leader, r.harvester), (2, 0), "a card can lead hordes");
         assert_eq!(r.enemies[r.common()].id, "skinny");
+    }
+
+    #[test]
+    fn a_card_walks_as_many_frames_as_it_says() {
+        let base = include_str!("../../enemies.txt");
+        let mut atlas = vec![0u8; (ATLAS_W * ATLAS_H * 4) as usize];
+        let [w, h] = [8u32, 8];
+        let sheet = vec![255u8; (w * 5 * h * 5 * 4) as usize];
+        let card = Card { name: "long.enemy.png".into(), text: "[long]\nwalk 5".into(), frame: [w, h], sheet };
+        let (notes, rects, kept) = pack(&[card], base, &mut atlas);
+        assert!(notes.is_empty(), "{notes:?}");
+        assert_eq!(rects.len(), 5 * 3 + 6);
+        let look = &kept[0].enemy.look;
+        assert!(look.walk.iter().all(|w| w.len() == 5));
+        assert_eq!(look.flash[0], Art((art::RECTS.len() + 15) as u16), "the stills follow the walking frames");
+        assert!(parse(&format!("{base}\n[x]\nlook SKINNY\nwalk 9")).is_err(), "a walk is at most {MAX_WALK}");
+    }
+
+    #[test]
+    fn frame_limits_hold_the_player_and_stills_to_three_and_walks_to_a_range() {
+        assert_eq!(frame_limits("PLAYER_FRONT"), Some((3, 3)));
+        assert_eq!(frame_limits("KID_HURT"), Some((3, 3)));
+        assert_eq!(frame_limits("BIG_SIDE"), Some((1, MAX_WALK)));
+        assert_eq!(frame_limits("BARREL"), None);
+        assert_eq!(frame_limits("SKINNY_TOP"), None);
     }
 
     #[test]
@@ -471,8 +532,8 @@ mod tests {
         let cards = [card("[a]\nlook SKINNY", [16, 16]), card("[a]\n[b]", [16, 16]), card("[a]\nwings 2", [16, 16]), short, card("[a]", [64, 64])];
         let (notes, rects, kept) = pack(&cards, base, &mut atlas);
         assert_eq!(kept.len(), 1, "{notes:?}");
-        assert_eq!(rects.len(), FRAMES);
-        for (note, why) in notes.iter().zip(["no look", "one enemy", "wings", "three across"]) {
+        assert_eq!(rects.len(), 15, "three walking frames a facing, then a flash and a hurt frame each");
+        for (note, why) in notes.iter().zip(["no look", "one enemy", "wings", "3 across"]) {
             assert!(note.starts_with("test.png: ") && note.contains(why), "{note}");
         }
         let many: Vec<Card> = (0..40).map(|i| card(&format!("[c{i}]"), [64, 64])).collect();
