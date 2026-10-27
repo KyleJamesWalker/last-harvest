@@ -16,6 +16,7 @@ pub const POWERUPS: &str = "powerups.txt";
 pub const ENEMIES: &str = "enemies.txt";
 pub const SOUNDS: &str = "sounds/";
 pub const ENEMY_CARDS: &str = "enemies/";
+pub const PLAYER_CARDS: &str = "players/";
 
 /// The manifest of a mod pack named `id`.
 pub fn mod_manifest(id: &str) -> String {

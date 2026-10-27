@@ -12,6 +12,8 @@ pub struct Data {
     pub powerups: Option<String>,
     pub enemies: Option<String>,
     pub cards: Vec<Card>,
+    /// Player cards, the same sheet as an enemy's with three walking frames, and an id and name for text.
+    pub players: Vec<Card>,
 }
 
 /// An enemy card: one `enemies.txt` section and a sheet of `frame`-sized cells, three across and five down.
@@ -52,14 +54,15 @@ pub fn install(mut data: Data) -> Result<Vec<String>, String> {
     }
     let mut notes = Vec::new();
     let cards = std::mem::take(&mut data.cards);
-    if !cards.is_empty() {
+    let players = std::mem::take(&mut data.players);
+    if !cards.is_empty() || !players.is_empty() {
         match data.atlas.take().or(built_in::ATLAS.map(<[u8]>::to_vec)) {
             Some(mut atlas) => {
                 let base = data.enemies.as_deref().or(built_in::ENEMIES).unwrap_or_else(|| missing("enemies.txt"));
-                notes = crate::harvest::install_cards(&cards, base, &mut atlas);
+                notes = crate::harvest::install_cards(&cards, &players, base, &mut atlas);
                 data.atlas = Some(atlas);
             }
-            None => notes = cards.iter().map(|c| format!("{}: no sprite atlas to draw it into", c.name)).collect(),
+            None => notes = cards.iter().chain(&players).map(|c| format!("{}: no sprite atlas to draw it into", c.name)).collect(),
         }
     }
     DATA.set(data).map_err(|_| "the game data was already read".to_string())?;

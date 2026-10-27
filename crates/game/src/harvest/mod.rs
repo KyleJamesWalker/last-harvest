@@ -5,6 +5,7 @@ mod draw;
 mod enemies;
 mod juice;
 mod map;
+mod players;
 mod powerups;
 pub mod showcase;
 mod view3d;
@@ -18,6 +19,7 @@ use crate::{Buttons, Color, Difficulty, Input, SCREEN_H, SCREEN_W, Sfx};
 use enemies::Enemy;
 pub(crate) use enemies::{install_cards, off_from_ids, off_ids, roster};
 pub use enemies::{MAX_WALK, frame_limits};
+pub use players::{ID_MAX as PLAYER_ID_MAX, PlayerLook, looks as player_looks, player_fields};
 pub use enemies::{CardFields, FLAGS as CARD_FLAGS, NUMBERS as CARD_NUMBERS, SpawnMix, card_fields, set_card_field, spawn_mix};
 use juice::{Corpse, Juice, Particle, Tone};
 use map::{Map, TILE};
@@ -371,7 +373,7 @@ fn art_for(h: &Harvest, look: &Look, facing: Facing) -> Art {
     if h.hurt > 0.0 && ((h.hurt * 20.0) as u32).is_multiple_of(2) {
         look.flash[i]
     } else if h.hurt > h.difficulty.hurt_time() - 0.2 {
-        art::PLAYER_HURT[i]
+        look.hurt[i]
     } else {
         look.walk[i][if h.walk > 0.0 { 1 + (h.walk * WALK_FPS) as usize % 2 } else { 0 }]
     }
@@ -380,10 +382,11 @@ fn art_for(h: &Harvest, look: &Look, facing: Facing) -> Art {
 /// The player's frame for a facing, and how far out of the ground it stands, 0 to 1. Once dead, it sinks
 /// and climbs back out as a zombie.
 fn player_pose(h: &Harvest, facing: Facing) -> (Art, f32) {
-    let Phase::Over { t, won: false } = h.phase else { return (art_for(h, &player_look(), facing), 1.0) };
+    let look = &players::look(&h.look).look;
+    let Phase::Over { t, won: false } = h.phase else { return (art_for(h, look, facing), 1.0) };
     let i = facing.index();
     if t < TURN_RISE {
-        (art::PLAYER_HURT[i], 1.0 - ((t - TURN_FALL) / (TURN_SINK - TURN_FALL)).clamp(0.0, 1.0))
+        (look.hurt[i], 1.0 - ((t - TURN_FALL) / (TURN_SINK - TURN_FALL)).clamp(0.0, 1.0))
     } else {
         let walk = &Kind::common().stats().look.walk[i];
         (walk[(t * WALK_FPS * 0.6) as usize % walk.len()], ((t - TURN_RISE) / (TURNED - TURN_RISE)).min(1.0))
@@ -475,6 +478,8 @@ pub struct Harvest {
     progress: Progress,
     /// Zombie kinds the settings turned off, by place in the roster.
     enemies_off: u64,
+    /// The id of the player's look; the farmer's is empty.
+    look: String,
     newly: Vec<usize>,
     ready: usize,
     found_now: u64,
@@ -600,6 +605,7 @@ impl Harvest {
             revived: 0,
             progress: Progress::default(),
             enemies_off: 0,
+            look: String::new(),
             newly: Vec::new(),
             ready: 0,
             found_now: 0,
@@ -727,6 +733,11 @@ impl Harvest {
 
     pub fn without_enemies(self, off: u64) -> Self {
         Self { enemies_off: off, ..self }
+    }
+
+    /// Dresses the player as the look with `id`, or as the farmer when there's none.
+    pub fn looking_like(self, id: &str) -> Self {
+        Self { look: id.to_string(), ..self }
     }
 
     #[cfg(test)]

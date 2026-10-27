@@ -2,7 +2,8 @@
 //!
 //!   cargo run -p last-harvest-pack [-- <out.pak>]                     the pack, `target/game_data.pak` by default
 //!   cargo run -p last-harvest-pack -- card <sheet.png> <enemy.txt> <name.enemy.png>
-//!   cargo run -p last-harvest-pack -- show <name.enemy.png>
+//!   cargo run -p last-harvest-pack -- player <sheet.png> <player.txt> <name.player.png>
+//!   cargo run -p last-harvest-pack -- show <name.enemy.png | name.player.png>
 //!   cargo run -p last-harvest-pack -- mod <folder> <name.pak>       a mod: the folder's files at their paths in it
 
 use std::path::{Path, PathBuf};
@@ -60,15 +61,18 @@ fn decode_sheet(path: &Path) -> Result<(u32, u32, Vec<u8>), String> {
     Ok((info.width, info.height, rgba))
 }
 
-fn make_card(sheet: &Path, text: &Path, out: &Path) -> Result<(), Box<dyn std::error::Error>> {
-    if !out.to_string_lossy().ends_with(card::EXTENSION) {
-        return Err(format!("{}: a card's name ends in {}, so the game finds it", out.display(), card::EXTENSION).into());
+fn make_card(kind: card::Kind, sheet: &Path, text: &Path, out: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    if !out.to_string_lossy().ends_with(kind.extension()) {
+        return Err(format!("{}: a card's name ends in {}, so the game finds it", out.display(), kind.extension()).into());
     }
     let (w, h, rgba) = decode_sheet(sheet)?;
     let text = std::fs::read_to_string(text)?;
-    let bytes = card::write(&text, w, h, &rgba)?;
+    if kind == card::Kind::Player {
+        last_harvest_game::player_fields(&text)?;
+    }
+    let bytes = card::write_as(kind, &text, w, h, &rgba)?;
     let name = out.display().to_string();
-    let made = card::read(&name, &bytes)?;
+    let made = card::read_as(kind, &name, &bytes)?;
     std::fs::write(out, bytes)?;
     println!("{name}: {}x{} frames", made.frame[0], made.frame[1]);
     Ok(())
@@ -101,8 +105,8 @@ fn make_mod(dir: &Path, out: &Path) -> Result<(), Box<dyn std::error::Error>> {
         files.push((MANIFEST.to_string(), mod_manifest(id).into_bytes()));
     }
     for (path, bytes) in &files {
-        if path.ends_with(card::EXTENSION) {
-            card::read(path, bytes)?;
+        if let Some(kind) = card::Kind::of(path) {
+            card::read_as(kind, path, bytes)?;
         }
     }
     files.sort_by(|a, b| a.0.cmp(&b.0));
@@ -113,7 +117,8 @@ fn make_mod(dir: &Path, out: &Path) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn show(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
-    let card = card::read(&path.display().to_string(), &std::fs::read(path)?)?;
+    let kind = card::Kind::of(&path.to_string_lossy()).unwrap_or(card::Kind::Enemy);
+    let card = card::read_as(kind, &path.display().to_string(), &std::fs::read(path)?)?;
     println!("{}x{} frames\n{}", card.frame[0], card.frame[1], card.text.trim_end());
     Ok(())
 }
@@ -121,10 +126,13 @@ fn show(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<PathBuf> = std::env::args_os().skip(1).map(PathBuf::from).collect();
     match args.iter().map(|a| a.to_str().unwrap_or("")).collect::<Vec<_>>()[..] {
-        ["card", _, _, _] => return make_card(&args[1], &args[2], &args[3]),
+        ["card", _, _, _] => return make_card(card::Kind::Enemy, &args[1], &args[2], &args[3]),
+        ["player", _, _, _] => return make_card(card::Kind::Player, &args[1], &args[2], &args[3]),
         ["show", _] => return show(&args[1]),
         ["mod", _, _] => return make_mod(&args[1], &args[2]),
-        ["card", ..] | ["show", ..] | ["mod", ..] => return Err("usage: card <sheet.png> <enemy.txt> <name.enemy.png> | show <name.enemy.png> | mod <folder> <name.pak>".into()),
+        ["card", ..] | ["player", ..] | ["show", ..] | ["mod", ..] => {
+            return Err("usage: card <sheet.png> <enemy.txt> <name.enemy.png> | player <sheet.png> <player.txt> <name.player.png> | show <card> | mod <folder> <name.pak>".into());
+        }
         _ => {}
     }
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2).unwrap();

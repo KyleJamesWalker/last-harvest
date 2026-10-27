@@ -54,7 +54,7 @@ jobs:
 
       - name: Package
         run: |
-          mkdir -p dist/last-harvest/data/enemies dist/last-harvest/data/mods dist/Imgs
+          mkdir -p dist/last-harvest/data/enemies dist/last-harvest/data/players dist/last-harvest/data/mods dist/Imgs
           cp target/aarch64-unknown-linux-gnu/release/last-harvest dist/last-harvest/
           cp assets/LastHarvest.sh dist/
           cp assets/LastHarvest.png dist/Imgs/

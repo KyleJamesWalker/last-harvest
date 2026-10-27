@@ -32,9 +32,18 @@ fn cards_folder() -> Option<PathBuf> {
     Some(data_folder()?.join("enemies"))
 }
 
-/// Reads the cards among `files`, by name, logging any that aren't.
-fn read_cards(files: Vec<(String, Vec<u8>)>) -> Vec<Card> {
-    files.into_iter().filter(|(name, _)| name.ends_with(card::EXTENSION)).filter_map(|(name, bytes)| card::read(&name, &bytes).inspect_err(|e| eprintln!("enemies: {e}")).ok()).collect()
+/// `LAST_HARVEST_PLAYERS`, else `data/players` beside the binary.
+fn players_folder() -> Option<PathBuf> {
+    if let Some(dir) = std::env::var_os("LAST_HARVEST_PLAYERS") {
+        return Some(dir.into());
+    }
+    Some(data_folder()?.join("players"))
+}
+
+/// Reads the cards of `kind` among `files`, by name, logging any that aren't.
+fn read_cards(kind: card::Kind, files: Vec<(String, Vec<u8>)>) -> Vec<Card> {
+    let read = |(name, bytes): (String, Vec<u8>)| card::read_as(kind, &name, &bytes).inspect_err(|e| eprintln!("cards: {e}")).ok();
+    files.into_iter().filter(|(name, _)| name.ends_with(kind.extension())).filter_map(read).collect()
 }
 
 /// `LAST_HARVEST_MODS`, else `data/mods` beside the binary.
@@ -77,16 +86,22 @@ pub fn load() -> Result<Files, String> {
     }
     let mut text = |file: &str| pak.take(file).map(String::from_utf8).transpose().map_err(|_| format!("{file} is not UTF-8"));
     let (powerups, enemies) = (text(pack::POWERUPS)?, text(pack::ENEMIES)?);
-    let mut data = Data { atlas: pak.take(pack::ATLAS), font: pak.take(pack::FONT), powerups, enemies, cards: read_cards(pak.take_dir(pack::ENEMY_CARDS)) };
+    let (enemy, player) = (card::Kind::Enemy, card::Kind::Player);
+    let cards = read_cards(enemy, pak.take_dir(pack::ENEMY_CARDS));
+    let players = read_cards(player, pak.take_dir(pack::PLAYER_CARDS));
+    let mut data = Data { atlas: pak.take(pack::ATLAS), font: pak.take(pack::FONT), powerups, enemies, cards, players };
     if let Some(dir) = cards_folder() {
-        data.cards.extend(read_cards(samples::read_files(&dir, &[card::EXTENSION])));
+        data.cards.extend(read_cards(enemy, samples::read_files(&dir, &[enemy.extension()])));
     }
-    let cards: Vec<String> = data.cards.iter().map(|c| c.name.clone()).collect();
+    if let Some(dir) = players_folder() {
+        data.players.extend(read_cards(player, samples::read_files(&dir, &[player.extension()])));
+    }
+    let cards: Vec<String> = data.cards.iter().chain(&data.players).map(|c| c.name.clone()).collect();
     for note in data::install(data)? {
         eprintln!("enemies: {note}");
     }
     if !cards.is_empty() {
-        eprintln!("enemies: cards {cards:?}");
+        eprintln!("cards: {cards:?}");
     }
     let mut sounds = pak.take_dir(pack::SOUNDS);
     let forced = std::env::var_os("LAST_HARVEST_SOUNDS").is_some();

@@ -48,7 +48,9 @@ The title screen shows how many powerups are unlocked, how many are waiting to b
 
 `crates/game/enemies.txt` defines every kind of zombie: its sprites, health, speed, bite, money, weight, death sound, and when and how often it arrives. Big is marked `heavy`, which roots it on a hard hit, and it leads hordes and dresses dawn's Harvester. The comments at the top of the file list every key, and a test reads it the same way.
 
-An enemy card adds a kind of zombie, or replaces one, with a single PNG named `<id>.enemy.png`: a real PNG that previews anywhere, named so the game and the editor know it for a card. The image is the enemy's frames in five rows: walking front, side and back, as many frames across as its `walk` line says (1 to 8, 3 when left out), then the flash and hurt frames with one per facing. The sheet is as wide as its longest row, and every frame is the same size, up to 64 pixels. A compressed `iTXt` chunk named `last-harvest-enemy` holds its `enemies.txt` section, without `look`. A card with the id of an existing kind replaces it; a new kind goes in just before the last one. The game loads cards from `enemies/` inside `game_data.pak` and from `data/enemies/` beside the binary, or the folder `LAST_HARVEST_ENEMIES` names, and draws their frames into the sprite texture's free rows at startup. A card that can't load is left out, and the log says why. The packer leaves cards out of `game_data.pak`: `scripts/deploy.sh` and `scripts/install.sh` copy the cards in `assets/private/enemies/` into `data/enemies/` beside the game on the device, and the mod packs in `assets/private/mods/` into `data/mods/`, replacing the ones there, the way a player adds them.
+An enemy card adds a kind of zombie, or replaces one, with a single PNG named `<id>.enemy.png`: a real PNG that previews anywhere, named so the game and the editor know it for a card. The image is the enemy's frames in five rows: walking front, side and back, as many frames across as its `walk` line says (1 to 8, 3 when left out), then the flash and hurt frames with one per facing. The sheet is as wide as its longest row, and every frame is the same size, up to 64 pixels. A compressed `iTXt` chunk named `last-harvest-enemy` holds its `enemies.txt` section, without `look`. A card with the id of an existing kind replaces it; a new kind goes in just before the last one. The game loads cards from `enemies/` inside `game_data.pak` and from `data/enemies/` beside the binary, or the folder `LAST_HARVEST_ENEMIES` names, and draws their frames into the sprite texture's free rows at startup. A card that can't load is left out, and the log says why. The packer leaves cards out of `game_data.pak`: `scripts/deploy.sh` and `scripts/install.sh` copy the cards in `assets/private/enemies/` into `data/enemies/` beside the game on the device, the player cards in `assets/private/players/` into `data/players/`, and the mod packs in `assets/private/mods/` into `data/mods/`, replacing the ones there, the way a player adds them.
+
+A player card changes how the player looks: `<id>.player.png`, the same five-row sheet with three walking frames, and a `last-harvest-player` text chunk holding just `[id]` and a `name` line. The game loads them from `players/` in a pack and from `data/players/` beside the binary (or `LAST_HARVEST_PLAYERS`), and Settings > Player picks one, showing it walking on the top screen; the save keeps the choice by id. Make one with `cargo run -p last-harvest-pack -- player sheet.png jo.txt jo.player.png`.
 
 A mod pack is a `.pak` in `data/mods/` beside the binary (or the folder `LAST_HARVEST_MODS` names). The game lays each over `game_data.pak` in file-name order, a mod's file replacing the base file at the same path: a sound in `sounds/`, a card in `enemies/`, or `enemies.txt` or `powerups.txt` themselves. A mod with an atlas must be built for this version of the game. That lets a card bring its own death sound: put `enemies/ghoul.enemy.png` and `sounds/kill-ghoul.ogg` in a folder and run `cargo run -p last-harvest-pack -- mod <folder> ghoul.pak`.
 
@@ -126,6 +128,7 @@ Ports/last-harvest/
   last-harvest                   the program
   data/game_data.pak             the base game's data
   data/enemies/*.enemy.png       enemy cards
+  data/players/*.player.png      player cards
   data/mods/*.pak                mod packs, laid over the base game's data
   save.txt  log.txt  screenshots/
 ```
@@ -189,6 +192,7 @@ The scene names are `title`, `harvest`, `farm` (the game without zombies, for lo
 | `LAST_HARVEST_LOG_INPUT` | Logs every gamepad event. `CAPTURE=1 scripts/deploy.sh` sets it. |
 | `LAST_HARVEST_SAVE` | Sets the save file path. |
 | `LAST_HARVEST_ENEMIES` | Sets the folder of enemy cards. The default is `data/enemies` beside the binary. |
+| `LAST_HARVEST_PLAYERS` | Sets the folder of player cards. The default is `data/players` beside the binary. |
 | `LAST_HARVEST_MODS` | Sets the folder of mod packs. The default is `data/mods` beside the binary. |
 | `LAST_HARVEST_PAK` | Sets the data pack path. The default is `data/game_data.pak` beside the binary. |
 | `LAST_HARVEST_SOUNDS` | Sets the folder of recorded sounds, over the pack's. Without a pack, the default is `sounds` beside the binary, then `assets/private/sounds`. |

@@ -25,12 +25,13 @@ pub(crate) enum Setting {
     Volume,
     Rumble,
     Fps,
+    Player,
     Enemies,
     Reset,
 }
 
 impl Setting {
-    const ALL: [Setting; 7] = [Setting::TopBrightness, Setting::BottomBrightness, Setting::Volume, Setting::Rumble, Setting::Fps, Setting::Enemies, Setting::Reset];
+    const ALL: [Setting; 8] = [Setting::TopBrightness, Setting::BottomBrightness, Setting::Volume, Setting::Rumble, Setting::Fps, Setting::Player, Setting::Enemies, Setting::Reset];
 
     fn name(self) -> &'static str {
         match self {
@@ -39,6 +40,7 @@ impl Setting {
             Setting::Volume => "Volume",
             Setting::Rumble => "Rumble",
             Setting::Fps => "Show FPS",
+            Setting::Player => "Player",
             Setting::Enemies => "Enemies",
             Setting::Reset => "Reset progress",
         }
@@ -51,9 +53,9 @@ pub(crate) const DIFFICULTY_Y: f32 = 150.0;
 /// The Settings, Stats and Credits rows, below the difficulty box.
 const ROWS_TOP: f32 = 330.0;
 const ROW_H: f32 = 96.0;
-/// The settings rows; a run's settings leave out Enemies and Reset.
+/// The settings rows; a run's settings leave out Player, Enemies and Reset.
 const SET_TOP: f32 = 96.0;
-const SET_H: f32 = 78.0;
+const SET_H: f32 = 68.0;
 /// Enemy rows that fit above the Back button; the list scrolls past that.
 const ENEMY_ROWS: usize = 6;
 /// The arrows either side of a level bar, as x centres.
@@ -199,6 +201,12 @@ impl Game {
                 }
             }
             Setting::Fps if by != 0 || press => self.save.fps = !self.save.fps,
+            Setting::Player if by != 0 || press => {
+                let looks = crate::player_looks();
+                let at = looks.iter().position(|l| l.id == self.save.player.as_str()).unwrap_or(0) as i32;
+                let next = (at + if by == 0 { 1 } else { by }).rem_euclid(looks.len() as i32) as usize;
+                self.save.player = crate::save::LookId::new(&looks[next].id);
+            }
             Setting::Enemies if by > 0 || press => {
                 self.page = Page::Enemies;
                 self.enemy = 0;
@@ -302,6 +310,15 @@ impl Game {
                     c.label(if v { "On" } else { "Off" }, (LESS_X + MORE_X) / 2.0, mid - 20.0, 38.0, if v { HOT } else { DIM }, Align::Center);
                     continue;
                 }
+                Setting::Player => {
+                    let looks = crate::player_looks();
+                    let name = looks.iter().find(|l| l.id == self.save.player.as_str()).map_or("Farmer", |l| l.name.as_str());
+                    let arrow = if looks.len() > 1 { HOT } else { [1.0, 1.0, 1.0, 0.15] };
+                    c.label("<", LESS_X, mid - 24.0, 44.0, arrow, Align::Center);
+                    c.label(">", MORE_X, mid - 24.0, 44.0, arrow, Align::Center);
+                    c.label(name.to_string(), (LESS_X + MORE_X) / 2.0, mid - 20.0, 38.0, if on { HOT } else { WHITE }, Align::Center);
+                    continue;
+                }
                 Setting::Enemies => {
                     let r = roster();
                     let on = (0..r.enemies.len()).filter(|i| self.save.enemies_off & 1 << i == 0).count();
@@ -344,6 +361,21 @@ impl Game {
             c.label(if on { "On" } else { "Off" }, (LESS_X + MORE_X) / 2.0, y + h / 2.0 - 20.0, 38.0, if on { HOT } else { DIM }, Align::Center);
         }
         back_button(c);
+    }
+
+    /// The player's chosen look walking on the top screen, turning through its facings, under its name.
+    pub(crate) fn draw_player(&self, c: &mut Canvas) {
+        let looks = crate::player_looks();
+        let Some(p) = looks.iter().find(|l| l.id == self.save.player.as_str()).or(looks.first()) else { return };
+        c.rect(0.0, 560.0, SCREEN_W, 208.0, [0.1, 0.08, 0.07, 1.0]);
+        let (facing, flip) = [(0, false), (1, false), (2, false), (1, true)][(self.clock / 1.5) as usize % 4];
+        let walk = &p.look.walk[facing];
+        let frame = walk[(self.clock * 8.0) as usize % walk.len()];
+        let scale = 300.0 / frame.h().max(frame.w());
+        c.art(frame, SCREEN_W / 2.0 - frame.w() * scale / 2.0, 600.0 - frame.h() * scale, scale, flip, WHITE);
+        c.label(p.name.as_str(), SCREEN_W / 2.0, 60.0, 64.0, HOT, Align::Center);
+        let note = if looks.len() > 1 { format!("{} of {}: Left and Right to change", looks.iter().position(|l| l.id == p.id).unwrap_or(0) + 1, looks.len()) } else { "Add a .player.png to data/players for more".to_string() };
+        c.label(note, SCREEN_W / 2.0, 150.0, 28.0, DIM, Align::Center);
     }
 
     /// The highlighted kind walking on the top screen, turning through its facings, beside its numbers.

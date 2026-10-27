@@ -19,7 +19,7 @@ pub use difficulty::Difficulty;
 pub use draw::{Align, Canvas, Color, Frame, Shape};
 pub use art::Stand;
 pub use harvest::showcase::Showcase;
-pub use harvest::{CARD_FLAGS, CARD_NUMBERS, MAX_WALK, frame_limits, CardFields, NIGHT_MINUTES, SpawnMix, card_fields, kill_sound, kill_sounds, set_card_field, spawn_mix};
+pub use harvest::{CARD_FLAGS, CARD_NUMBERS, MAX_WALK, PLAYER_ID_MAX, PlayerLook, frame_limits, player_fields, player_looks, CardFields, NIGHT_MINUTES, SpawnMix, card_fields, kill_sound, kill_sounds, set_card_field, spawn_mix};
 pub use input::{Buttons, Input, InputTracker, MAX_TOUCHES, RawInput};
 pub use save::Save;
 pub use sfx::Sfx;
@@ -203,7 +203,7 @@ impl Game {
             }
             Scene::Harvest => {
                 self.sounds.push(Sfx::Start);
-                State::Harvest(Box::new(harvest::Harvest::new(seed).at(self.save.difficulty).with_progress(self.progress()).without_enemies(self.save.enemies_off).with_kit(&self.kit).starting_at(self.start_t)))
+                State::Harvest(Box::new(harvest::Harvest::new(seed).at(self.save.difficulty).with_progress(self.progress()).without_enemies(self.save.enemies_off).looking_like(self.save.player.as_str()).with_kit(&self.kit).starting_at(self.start_t)))
             }
             Scene::Farm => State::Harvest(Box::new(harvest::Harvest::calm(seed))),
             Scene::Bench => State::Harvest(Box::new(harvest::Harvest::bench())),
@@ -383,6 +383,11 @@ impl Game {
             self.draw_menu(f);
             return;
         }
+        if self.page == Page::Settings && self.settings_list().get(self.setting) == Some(&menu::Setting::Player) {
+            self.draw_player(&mut f.top);
+            self.draw_menu(f);
+            return;
+        }
         // A line of the dead shambling along the horizon, and fireflies drifting over the field.
         f.top.circle(840.0, 120.0, 90.0, [0.8, 0.8, 0.7, 0.06]);
         f.top.circle(840.0, 120.0, 48.0, [0.85, 0.85, 0.75, 1.0]);
@@ -517,7 +522,7 @@ mod tests {
         let mut game = Game::new(1);
         let kept = Save { volume: 2, difficulty: Difficulty::Hard, ..Save::default() };
         game.load(Save { kills: 900, best: 300, best_level: 9, nights: 4, dawns: 1, found: 0b110, ..kept });
-        settings_row(&mut game, 6);
+        settings_row(&mut game, 7);
         press(&mut game, Buttons::A);
         assert_eq!(game.save().kills, 900, "one press only asks");
         game.update(&Input::default(), RESET_CONFIRM + 0.1);
@@ -573,7 +578,7 @@ mod tests {
     #[test]
     fn the_enemies_page_turns_kinds_off_but_never_the_last() {
         let mut game = Game::new(1);
-        settings_row(&mut game, 5);
+        settings_row(&mut game, 6);
         press(&mut game, Buttons::A);
         assert_eq!(game.page, Page::Enemies);
         game.draw();
@@ -594,6 +599,22 @@ mod tests {
         press(&mut game, Buttons::A);
         let State::Harvest(h) = &game.state else { panic!("a run starts") };
         assert_eq!(h.enemies_off(), 0b011, "the run leaves them out");
+    }
+
+    #[test]
+    fn the_player_row_keeps_the_farmer_when_there_are_no_player_cards() {
+        let mut game = Game::new(1);
+        settings_row(&mut game, 5);
+        assert_eq!(game.settings_list()[game.setting], menu::Setting::Player);
+        game.draw();
+        press(&mut game, Buttons::RIGHT);
+        assert_eq!(game.save().player.as_str(), "", "one look to choose from");
+        game.load(Save { player: save::LookId::new("nobody"), ..game.save() });
+        press(&mut game, Buttons::B);
+        press(&mut game, Buttons::UP);
+        press(&mut game, Buttons::A);
+        assert!(matches!(game.state, State::Harvest(_)), "a run with a look that's gone plays as the farmer");
+        game.draw();
     }
 
     #[test]
