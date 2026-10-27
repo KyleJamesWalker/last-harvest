@@ -28,6 +28,11 @@ pub trait Store {
         None
     }
 
+    /// Every card kept here, by its file name, such as `ghoul.enemy.png`, for the mod editor's Export all.
+    fn all_cards(&self) -> Vec<(String, Vec<u8>)> {
+        Vec::new()
+    }
+
     /// Removes the card the part `name` belongs to for good, as the mod editor's Delete card does.
     fn delete_card(&self, _name: &str) -> Result<(), String> {
         Err("cards are removed from the enemies and players folders here".into())

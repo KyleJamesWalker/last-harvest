@@ -443,6 +443,19 @@ impl Editor {
         Some((file, bytes))
     }
 
+    /// Every saved card by file name, for Export all; none, with a word why, while the open card has unsaved changes.
+    pub fn all_cards(&mut self) -> Vec<(String, Vec<u8>)> {
+        if self.is_card() && self.unsaved() {
+            self.say("Save the open card first: Export all gives the saved copies");
+            return Vec::new();
+        }
+        let cards = self.store.all_cards();
+        if cards.is_empty() {
+            self.say("There are no cards to export yet");
+        }
+        cards
+    }
+
     /// Removes the open card from the store on a second press within a few seconds, and leaves nothing open.
     pub fn delete_card(&mut self) {
         let Some(id) = sprite::card_id(&self.sprite.name) else {

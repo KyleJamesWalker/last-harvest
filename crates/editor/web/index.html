@@ -53,7 +53,7 @@
   <div class="group"><span>Arrows</span><button data-act="left">&#8592;</button><button data-act="up">&#8593;</button><button data-act="down">&#8595;</button><button data-act="right">&#8594;</button></div>
   <div class="group"><span>Sprite</span><button data-act="prev-sprite">&#8593; K</button><button data-act="next-sprite">&#8595; J</button></div>
   <div class="group"><span>Frame</span><button data-act="prev-frame">&#8592; H</button><button data-act="next-frame">&#8594; L</button></div>
-  <div class="group" id="mod-tools" hidden><span>Cards</span><button data-act="import">Import</button><button data-act="export">Export</button><button data-act="delete-card">Delete card</button><button data-act="pak" id="pak">Game data</button><button id="help-open">Help</button></div>
+  <div class="group" id="mod-tools" hidden><span>Cards</span><button data-act="import">Import</button><button data-act="export">Export</button><button data-act="export-all">Export all</button><button data-act="delete-card">Delete card</button><button data-act="pak" id="pak">Game data</button><button id="help-open">Help</button></div>
   <div class="group"><button data-act="search">Search</button><button data-act="history">History</button><button data-act="new">New</button><button data-act="play">Play</button><button data-act="mirror">Mirror</button><button data-act="fit">Fit</button><button data-act="save" class="save">Save</button></div>
 </div>
 <div id="help" hidden><div>
@@ -69,7 +69,9 @@
     through the night beside the game's own kinds; for a player, which weapons each difficulty starts with.</li>
     <li><b>Save</b>, then <b>Export</b> downloads <code>id.enemy.png</code> or <code>id.player.png</code>.</li>
     <li>Copy it into the game's <code>data/enemies</code> or <code>data/players</code> folder, beside
-    <code>game_data.pak</code>, and start the game. Settings &gt; Enemies and Settings &gt; Player show it.</li>
+    <code>game_data.pak</code>, and start the game. Settings &gt; Enemies and Settings &gt; Player show it.
+    <b>Export all</b> instead downloads every card as one <code>my-cards.pak</code> for the game's
+    <code>data/mods</code> folder.</li>
   </ol>
   <p>Your cards stay in this browser until you delete them. <b>Import</b> opens a card someone shared with you.
   <b>Game data</b> lets you pick your own <code>game_data.pak</code> so the previews show the farm; it never leaves

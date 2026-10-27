@@ -89,6 +89,16 @@ impl Store for LocalStore {
         self.get(kind, &id)
     }
 
+    fn all_cards(&self) -> Vec<(String, Vec<u8>)> {
+        let mut out = Vec::new();
+        for kind in [CardKind::Enemy, CardKind::Player] {
+            let mut ids = self.ids(kind);
+            ids.sort();
+            out.extend(ids.into_iter().filter_map(|id| Some((format!("{id}{}", kind.extension()), self.get(kind, &id)?))));
+        }
+        out
+    }
+
     fn delete_card(&self, name: &str) -> Result<(), String> {
         let (kind, id) = Self::card_of(name).ok_or("not a card")?;
         self.storage.remove_item(&key(kind, &id)).map_err(|_| "the browser wouldn't remove it".to_string())

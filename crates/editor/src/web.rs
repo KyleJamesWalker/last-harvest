@@ -371,6 +371,20 @@ impl Web {
             "pak" => return modding::call("choosePak", &[]),
             #[cfg(feature = "modding")]
             "delete-card" => return self.studio.editor.delete_card(),
+            #[cfg(feature = "modding")]
+            "export-all" => {
+                let cards = self.studio.editor.all_cards();
+                if !cards.is_empty() {
+                    match modding::mod_pack(&cards) {
+                        Ok(bytes) => {
+                            modding::call("save", &[modding::MOD_FILE.into(), js_sys::Uint8Array::from(&bytes[..]).into()]);
+                            self.studio.editor.say(format!("Exported {} cards as {}: put it in the game's data/mods", cards.len(), modding::MOD_FILE));
+                        }
+                        Err(e) => self.studio.editor.say(format!("Couldn't pack the cards: {e}")),
+                    }
+                }
+                return;
+            }
             "shift" => {
                 self.shift = !self.shift;
                 if let Some(b) = self.document.query_selector("[data-act=shift]").ok().flatten() {
@@ -637,6 +651,25 @@ mod modding {
             }
         }
         atlas
+    }
+
+    pub const MOD_FILE: &str = "my-cards.pak";
+
+    /// Every card as one mod pack, enemy cards under `enemies/` and player cards under `players/`, ready for the
+    /// game's data/mods.
+    pub fn mod_pack(cards: &[(String, Vec<u8>)]) -> Result<Vec<u8>, String> {
+        use last_harvest_pack::card::Kind;
+        let mut files = vec![(last_harvest_pack::MANIFEST.to_string(), last_harvest_pack::mod_manifest("my-cards").into_bytes())];
+        for (file, bytes) in cards {
+            let dir = match Kind::of(file) {
+                Some(Kind::Player) => last_harvest_pack::PLAYER_CARDS,
+                _ => last_harvest_pack::ENEMY_CARDS,
+            };
+            files.push((format!("{dir}{file}"), bytes.clone()));
+        }
+        let mut out = std::io::Cursor::new(Vec::new());
+        last_harvest_pack::write(&mut out, &files).map_err(|e| e.to_string())?;
+        Ok(out.into_inner())
     }
 
     /// Shows the Cards group and hides what only the game's own editor has.
