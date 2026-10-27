@@ -241,7 +241,7 @@ Save writes each frame to `assets/private/sprites/NAME/0.png`, `1.png` and so on
 scripts/mod-editor.sh --serve   # build into target/mod-editor and serve it on http://127.0.0.1:8094
 ```
 
-The public editor for enemy and player cards: the sprite editor built without the tileset (`--no-default-features --features modding`), so the page can be published. It keeps cards in the browser's local storage and lists only cards; New starts one from the plain figure, Import opens `.enemy.png` files, and Export downloads the open card's saved PNG. The palette is PICO-8's 32 colors, and the previews show the card alone. A player who owns the game can press Game data and pick their `game_data.pak`: the page keeps it in IndexedDB, never sends it anywhere, and from then on previews the card on the farm with the tileset's palette. A pack built for a different version of the game is refused with a note.
+The public editor for enemy and player cards: the sprite editor built without the tileset (`--no-default-features --features modding`), so the page can be published. It keeps cards in the browser's local storage and lists only cards; New starts one from the plain figure, Import opens `.enemy.png` files, and Export downloads the open card's saved PNG. The palette is PICO-8's 32 colors, and the previews show the card on a plain floor, the ground tiles in flat colors. A player who owns the game can press Game data and pick their `game_data.pak`: the page keeps it in IndexedDB, never sends it anywhere, and from then on previews the card on the farm with the tileset's palette. A pack built for a different version of the game is refused with a note.
 
 ### Sprite editor on an iPad
 

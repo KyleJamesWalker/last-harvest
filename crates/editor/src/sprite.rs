@@ -532,11 +532,12 @@ pub const OPEN_PALETTE: [Rgba; 32] = [
 
 pub fn palette() -> Vec<Rgba> {
     let mut colors: Vec<Rgba> = art::pixels().chunks_exact(4).filter(|p| p[3] > 0).map(|p| [p[0], p[1], p[2], 255]).collect();
-    if colors.is_empty() {
-        return OPEN_PALETTE.to_vec();
-    }
     colors.sort_unstable();
     colors.dedup();
+    // Without the tileset, as in the card editor, the atlas holds only a few flat ground colors.
+    if colors.len() < 16 {
+        return OPEN_PALETTE.to_vec();
+    }
     let key = |c: &Rgba| {
         let [r, g, b] = [c[0], c[1], c[2]].map(|v| v as f32 / 255.0);
         let (max, min) = (r.max(g).max(b), r.min(g).min(b));

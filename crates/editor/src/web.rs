@@ -594,7 +594,7 @@ pub fn main() {
 /// The public mod editor's side of the page: its data, its toolbar group, and the page's helpers in `index.html`.
 #[cfg(feature = "modding")]
 mod modding {
-    use last_harvest_game::art::{ATLAS_H, ATLAS_W};
+    use last_harvest_game::art::{self, ATLAS_H, ATLAS_W};
     use last_harvest_game::data::{self, Data};
     use last_harvest_pack::{ATLAS, Pak};
     use wasm_bindgen::{JsCast, JsValue};
@@ -612,9 +612,28 @@ mod modding {
             },
             None => (None, None),
         };
-        let atlas = atlas.unwrap_or_else(|| vec![0; (ATLAS_W * ATLAS_H * 4) as usize]);
-        data::install(Data { atlas: Some(atlas), ..Data::default() })?;
+        data::install(Data { atlas: Some(atlas.unwrap_or_else(plain_ground)), ..Data::default() })?;
         Ok(note)
+    }
+
+    /// An atlas with nothing of the tileset in it but flat colors where the ground tiles go, so a card in the
+    /// previews walks on a plain floor rather than in the dark.
+    fn plain_ground() -> Vec<u8> {
+        const GROUND: [(&str, [u8; 3]); 7] =
+            [("DIRT", [74, 60, 44]), ("DIRT_TUFTS", [74, 60, 44]), ("GRASS", [66, 84, 52]), ("PATH", [110, 96, 70]), ("ROAD_V", [52, 52, 58]), ("ROAD_H", [52, 52, 58]), ("SOIL", [88, 64, 44])];
+        let mut atlas = vec![0; (ATLAS_W * ATLAS_H * 4) as usize];
+        for (name, frames) in art::ALL {
+            let Some((_, [r, g, b])) = GROUND.iter().find(|(n, _)| n == name) else { continue };
+            for a in frames.iter() {
+                let [x, y, w, h] = a.rect().map(usize::from);
+                for row in y..y + h {
+                    for px in atlas[(row * ATLAS_W as usize + x) * 4..(row * ATLAS_W as usize + x + w) * 4].chunks_exact_mut(4) {
+                        px.copy_from_slice(&[*r, *g, *b, 255]);
+                    }
+                }
+            }
+        }
+        atlas
     }
 
     /// Shows the Cards group and hides what only the game's own editor has.
