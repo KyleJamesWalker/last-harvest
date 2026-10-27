@@ -50,7 +50,7 @@ impl App {
         eprintln!("sprites: {}", store.dir.display());
         Self {
             gl: None,
-            studio: Studio::new(Box::new(store), &std::env::var("SPRITE_EDITOR_OPEN").unwrap_or_else(|_| "SCARECROW".into())),
+            studio: Studio::new(Box::new(store), &std::env::var("SPRITE_EDITOR_OPEN").unwrap_or_default()),
             cursor: [0.0; 2],
             modifiers: ModifiersState::empty(),
             last: Instant::now(),

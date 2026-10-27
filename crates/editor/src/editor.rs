@@ -291,6 +291,7 @@ pub struct Editor {
 }
 
 impl Editor {
+    /// An editor on the sprite `name`, or on none until one is picked when `name` is empty.
     pub fn new(store: Box<dyn Store>, name: &str) -> Self {
         let sprite = store.load(name).unwrap_or(Sprite { name: name.into(), frames: vec![Frame::blank(16, 16)], views: None, footprint: None, top: None, card: None });
         let names = store.names();
@@ -348,6 +349,11 @@ impl Editor {
         e
     }
 
+    /// No sprite is open yet: the list waits for a pick, or New.
+    fn none_open(&self) -> bool {
+        self.sprite.name.is_empty()
+    }
+
     /// How the sprite should stand in the previews.
     pub fn stand(&self) -> Stand {
         let n = self.sprite.frames.len();
@@ -370,6 +376,9 @@ impl Editor {
     /// Everything to pack for the previews: the frames, then the carving views when carving, with any
     /// floating pixels shown where they would land.
     pub fn surfaces(&self) -> Vec<Frame> {
+        if self.none_open() {
+            return Vec::new();
+        }
         let carving = self.stand == CARVE && self.sprite.views.is_some();
         let views = self.sprite.views.iter().flatten().chain(&self.sprite.footprint).filter(|_| carving);
         let top = self.sprite.top.iter().filter(|_| self.stand == FIGURE);
@@ -421,6 +430,9 @@ impl Editor {
     }
 
     pub fn title(&self) -> String {
+        if self.none_open() {
+            return "LastHarvest sprite editor".into();
+        }
         format!("{}{} - LastHarvest sprite editor", self.sprite.name, if self.unsaved() { " *" } else { "" })
     }
 
@@ -633,7 +645,7 @@ impl Editor {
 
     /// Whether `p` is on the pixel canvas with nothing in front of it.
     pub fn on_canvas(&self, p: [f32; 2]) -> bool {
-        CANVAS.contains(p) && self.pending.is_none() && self.ask.is_none() && !self.stats
+        CANVAS.contains(p) && self.pending.is_none() && self.ask.is_none() && !self.stats && !self.none_open()
     }
 
     /// Whether `p` is on a row of the sprite list.
@@ -842,7 +854,7 @@ impl Editor {
                 return;
             }
         }
-        if CANVAS.contains(p) && !self.stats {
+        if CANVAS.contains(p) && !self.stats && !self.none_open() {
             let (x, y) = self.pixel_at(p);
             if self.tool_now() == Tool::Select && !right {
                 self.grab = Some(match &self.selection {
@@ -958,6 +970,9 @@ impl Editor {
     }
 
     fn copy(&mut self) {
+        if self.none_open() {
+            return;
+        }
         let Some(sel) = &self.selection else {
             self.say("Select some pixels first: S, then drag");
             return;
@@ -996,6 +1011,9 @@ impl Editor {
     }
 
     fn paste(&mut self) {
+        if self.none_open() {
+            return self.say("Pick a sprite from the list, or press N for a new one");
+        }
         let Some((pixels, x, y)) = self.clipboard.clone() else {
             self.say("Nothing copied yet");
             return;
@@ -1059,6 +1077,10 @@ impl Editor {
 
     fn act(&mut self, a: Action, shift: bool) {
         let step = if shift { 8 } else { 1 };
+        let any_sprite = matches!(a, Action::Ask(Ask::New) | Action::Tool(_) | Action::Color(_) | Action::Mirror | Action::Onion | Action::Fps(_));
+        if self.none_open() && !any_sprite {
+            return self.say("Pick a sprite from the list, or press N for a new one");
+        }
         match a {
             Action::Ask(k) => self.ask = Some((k, String::new())),
             Action::Save if self.browse.is_some() => self.say("Restore this version or go back first"),
@@ -1486,6 +1508,9 @@ impl Editor {
 
     /// Unfolds the open sprite's group and scrolls the list so the sprite shows.
     fn reveal(&mut self) {
+        if self.none_open() {
+            return;
+        }
         let title = sprite::section(&self.sprite.name);
         if !self.unfolded.contains(&title) {
             self.unfolded.push(title);
@@ -1698,7 +1723,11 @@ impl Editor {
 
     pub fn draw(&self, c: &mut Canvas) {
         c.clear = [0.1, 0.1, 0.12, 1.0];
-        c.label(format!("{}{}", self.sprite.name, if self.unsaved() { "  (unsaved)" } else { "" }), 12.0, 12.0, 26.0, TEXT, Align::Left);
+        if self.none_open() {
+            c.label("No sprite open", 12.0, 12.0, 26.0, DIM, Align::Left);
+        } else {
+            c.label(format!("{}{}", self.sprite.name, if self.unsaved() { "  (unsaved)" } else { "" }), 12.0, 12.0, 26.0, TEXT, Align::Left);
+        }
 
         c.rect(LIST.x, LIST.y, LIST.w, LIST.h, PANEL);
         if let Some(b) = &self.browse {
@@ -1707,7 +1736,11 @@ impl Editor {
             self.draw_list(c);
         }
 
-        if self.stats {
+        if self.none_open() {
+            c.rect(CANVAS.x, CANVAS.y, CANVAS.w, CANVAS.h, PANEL);
+            c.label("Pick a sprite from the list", CANVAS.x + CANVAS.w / 2.0, CANVAS.y + CANVAS.h / 2.0 - 40.0, 26.0, TEXT, Align::Center);
+            c.label("or press N for a new one; a name starting CARD_ makes an enemy card", CANVAS.x + CANVAS.w / 2.0, CANVAS.y + CANVAS.h / 2.0, 17.0, DIM, Align::Center);
+        } else if self.stats {
             self.draw_stats(c);
         } else {
             self.draw_canvas(c);
@@ -2203,6 +2236,20 @@ mod tests {
         e.key(Key::Enter);
         let f = last_harvest_game::card_fields(e.sprite.card.as_deref().unwrap()).unwrap();
         assert_eq!((f.id.as_str(), f.numbers[0].1), ("b", 15.0));
+    }
+
+    #[test]
+    fn with_nothing_open_the_editor_waits_for_a_pick() {
+        let mut e = editor_on("");
+        assert!(e.none_open() && e.surfaces().is_empty());
+        e.draw(&mut Canvas::default());
+        assert!(!e.on_canvas([CANVAS.x + 10.0, CANVAS.y + 10.0]));
+        e.act(Action::Save, false);
+        e.act(Action::AddFrame, false);
+        assert!(e.status.as_ref().is_some_and(|(t, _)| t.contains("Pick a sprite")));
+        assert!(!e.unsaved() && e.names.iter().all(|(_, saved)| !saved), "nothing was written");
+        e.key(Key::Char('j'));
+        assert!(!e.none_open(), "J opens the first sprite in the list");
     }
 
     #[test]

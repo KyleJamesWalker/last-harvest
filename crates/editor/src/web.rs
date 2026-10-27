@@ -436,7 +436,7 @@ fn start() -> Result<(), String> {
     let gl = glow::Context::from_webgl2_context(context.dyn_into::<WebGl2RenderingContext>().map_err(|_| "not a WebGL2 context")?);
     let renderer = Renderer::new(&gl, Profile::Gles)?;
     let search = window.location().search().unwrap_or_default();
-    let open = search.trim_start_matches('?').split('&').find_map(|kv| kv.strip_prefix("open=")).unwrap_or("SCARECROW").to_string();
+    let open = search.trim_start_matches('?').split('&').find_map(|kv| kv.strip_prefix("open=")).unwrap_or("").to_string();
     let mut studio = Studio::new(Box::new(http::HttpStore), &open);
     studio.hints = ["drag to turn, pinch to move closer", "pinch to zoom"];
     let web = Rc::new(RefCell::new(Web {
