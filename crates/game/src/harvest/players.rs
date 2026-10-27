@@ -16,8 +16,9 @@ pub struct PlayerLook {
     pub id: String,
     pub name: String,
     pub(crate) look: Look,
-    /// The weapons a run starts with at each difficulty, by powerup; None keeps the game's.
-    pub(crate) start: [Option<Vec<usize>>; 3],
+    /// The weapons a run starts with at each difficulty, by id; None keeps the game's. Ids, since the powerup
+    /// table can't be read while the cards install.
+    pub(crate) start: [Option<Vec<String>>; 3],
 }
 
 /// What a player card's text says: its id and name, and the weapons it starts with at each difficulty, by id;
@@ -75,6 +76,22 @@ pub fn look(id: &str) -> &'static PlayerLook {
     looks().iter().find(|l| l.id == id).unwrap_or(&looks()[0])
 }
 
+impl PlayerLook {
+    /// The weapons this look starts a run with at `difficulty`, by powerup, when it has its own: the weapons it
+    /// names, as many as a run carries.
+    pub(crate) fn start_defs(&self, difficulty: Difficulty) -> Option<Vec<usize>> {
+        let ids = self.start[difficulty as usize].as_ref()?;
+        let weapons = ids.iter().filter_map(|w| book().index(w)).filter(|&i| book().defs[i].kind == Kind::Weapon);
+        Some(weapons.take(book().weapon_slots).collect())
+    }
+
+    /// The names of the weapons this look starts a run with at `difficulty`: its own, else the game's.
+    pub fn start_names(&self, difficulty: Difficulty) -> Vec<String> {
+        let defs = self.start_defs(difficulty).unwrap_or_else(|| book().start[difficulty as usize].clone());
+        defs.iter().map(|&i| book().defs[i].name.clone()).collect()
+    }
+}
+
 pub(super) fn install(cards: Vec<PlayerLook>) {
     LOOKS.set(std::iter::once(farmer()).chain(cards).collect()).ok();
 }
@@ -82,8 +99,13 @@ pub(super) fn install(cards: Vec<PlayerLook>) {
 /// A player card's settings, from its text: an `[id]` line, a `name` line, and a `start DIFFICULTY WEAPON...` line
 /// for any difficulty whose starting weapons it sets.
 pub fn player_fields(text: &str) -> Result<PlayerFields, String> {
+    parse(text, true)
+}
+
+/// Reads a player card's text, checking its weapons against the powerup table when `check` says to; installing
+/// cards can't, since that comes before the table can be read.
+fn parse(text: &str, check: bool) -> Result<PlayerFields, String> {
     let (mut id, mut name, mut start): (Option<String>, Option<String>, [Option<Vec<String>>; 3]) = (None, None, Default::default());
-    let slots = book().weapon_slots;
     for (i, raw) in text.lines().enumerate() {
         let line = raw.split('#').next().unwrap_or("").trim();
         if line.is_empty() {
@@ -96,11 +118,13 @@ pub fn player_fields(text: &str) -> Result<PlayerFields, String> {
             (None, ["name", ..]) if id.is_some() => name = Some(line["name".len()..].trim().to_string()),
             (None, ["start", d, weapons @ ..]) if id.is_some() => {
                 let d = Difficulty::from_key(d).ok_or_else(|| format!("line {n}: start names easy, normal or hard first, not {d:?}"))?;
-                if let Some(w) = weapons.iter().find(|w| book().index(w).is_none_or(|i| book().defs[i].kind != Kind::Weapon)) {
-                    return Err(format!("line {n}: {w:?} isn't a weapon"));
-                }
-                if weapons.len() > slots {
-                    return Err(format!("line {n}: a run carries at most {slots} weapons"));
+                if check {
+                    if let Some(w) = weapons.iter().find(|w| book().index(w).is_none_or(|i| book().defs[i].kind != Kind::Weapon)) {
+                        return Err(format!("line {n}: {w:?} isn't a weapon"));
+                    }
+                    if weapons.len() > book().weapon_slots {
+                        return Err(format!("line {n}: a run carries at most {} weapons", book().weapon_slots));
+                    }
                 }
                 start[d as usize] = Some(weapons.iter().map(|w| w.to_string()).collect());
             }
@@ -120,7 +144,7 @@ pub fn player_fields(text: &str) -> Result<PlayerFields, String> {
 pub(super) fn pack(cards: &[Card], atlas: &mut [u8], cursor: &mut [u16; 3], first: usize) -> (Vec<String>, Vec<[u16; 4]>, Vec<PlayerLook>) {
     let (mut notes, mut rects, mut looks): (Vec<String>, Vec<[u16; 4]>, Vec<PlayerLook>) = (Vec::new(), Vec::new(), Vec::new());
     for card in cards {
-        let PlayerFields { id, name, start } = match player_fields(&card.text) {
+        let PlayerFields { id, name, start } = match parse(&card.text, false) {
             Ok(f) => f,
             Err(e) => {
                 notes.push(format!("{}: {e}", card.name));
@@ -150,7 +174,6 @@ pub(super) fn pack(cards: &[Card], atlas: &mut [u8], cursor: &mut [u16; 3], firs
         }
         let art = |k: usize| Art((at + k) as u16);
         let look = Look { walk: std::array::from_fn(|f| (f * 3..f * 3 + 3).map(art).collect()), flash: [art(9), art(10), art(11)], hurt: [art(12), art(13), art(14)] };
-        let start = start.map(|s| s.map(|ids| ids.iter().filter_map(|w| book().index(w)).collect()));
         looks.push(PlayerLook { id, name, look, start });
     }
     (notes, rects, looks)
@@ -184,6 +207,12 @@ mod tests {
         assert_eq!(player_fields(&text).unwrap().start, [None, Some(vec![]), Some(vec!["crows".into(), "dog".into()])]);
         assert_eq!(default_start(Difficulty::Easy), ["pistol", "knife"]);
         assert!(weapons().iter().any(|(id, name)| id == "rifle" && name == "Hunting rifle"));
+    }
+
+    #[test]
+    fn a_look_without_its_own_start_names_the_games() {
+        assert_eq!(looks()[0].start_names(Difficulty::Easy), ["Pistol", "Knife"]);
+        assert!(looks()[0].start_names(Difficulty::Hard).is_empty());
     }
 
     #[test]

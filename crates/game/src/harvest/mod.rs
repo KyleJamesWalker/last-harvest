@@ -739,8 +739,7 @@ impl Harvest {
     /// Comes after `at`, since the look may start the run with its own weapons for that difficulty.
     pub fn looking_like(self, id: &str) -> Self {
         let mine = players::look(id);
-        let start = mine.start[self.difficulty as usize].as_ref();
-        let kit = start.map(|defs| Kit::with_weapons(defs));
+        let kit = mine.start_defs(self.difficulty).map(|defs| Kit::with_weapons(&defs));
         let (hp, grenades) = kit.as_ref().map_or((self.hp, self.grenades), |k| (k.max_hp(), k.grenades()));
         Self { look: mine.id.clone(), kit: kit.unwrap_or(self.kit), hp, grenades, ..self }
     }
