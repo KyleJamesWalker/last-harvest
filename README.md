@@ -226,6 +226,14 @@ A pixel editor for the game's sprites, on macOS. The left pane lists every sprit
 
 Save writes each frame to `assets/private/sprites/NAME/0.png`, `1.png` and so on, and a changed stand to the sprite's line in `crates/game/art.txt` as `@prop 12`, `@slab 10`, `@figure` or `@ground`, or to `stand.txt` in its folder for a new sprite. A carved sprite keeps `south.png`, `east.png`, an optional `footprint.png`, and a `stand.txt` saying `carve` in its folder; a build without them, such as a fresh clone, stands it as a slab. The next build of the game packs a saved sprite in place of its cut from the tileset, and a folder with a name not in `crates/game/art.txt` becomes a new sprite, `art::NAME`, for the code to use. Saved sprites go in the private assets submodule, because edits of the tileset's sprites fall under its license: commit and push them there. Delete a sprite's folder to go back to the tileset's version. Set `LAST_HARVEST_SPRITES` to save somewhere else.
 
+### Enemy card editor
+
+```sh
+scripts/mod-editor.sh --serve   # build into target/mod-editor and serve it on http://127.0.0.1:8094
+```
+
+The public editor for enemy cards: the sprite editor built without the tileset (`--no-default-features --features modding`), so the page can be published. It keeps cards in the browser's local storage and lists only cards; New starts one from the plain figure, Import opens `.enemy.png` files, and Export downloads the open card's saved PNG. The palette is PICO-8's 32 colors, and the previews show the card alone. A player who owns the game can press Game data and pick their `game_data.pak`: the page keeps it in IndexedDB, never sends it anywhere, and from then on previews the card on the farm with the tileset's palette. A pack built for a different version of the game is refused with a note.
+
 ### Sprite editor on an iPad
 
 The same editor also runs in a browser, served from the Mac to an iPad on the same network. Saves land in the Mac's `assets/private/sprites`, by the same rules as above, and History reads the same git log.

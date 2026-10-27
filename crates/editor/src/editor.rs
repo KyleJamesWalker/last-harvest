@@ -297,6 +297,8 @@ pub struct Editor {
     /// The other cards' texts, read when the stats page opens, for the spawn mix.
     other_cards: Vec<String>,
     mix: Option<Result<last_harvest_game::SpawnMix, String>>,
+    /// The public mod editor: every sprite is an enemy card, and cards come and go by Import and Export.
+    modding: bool,
 }
 
 impl Editor {
@@ -354,10 +356,45 @@ impl Editor {
             naming: None,
             other_cards: Vec::new(),
             mix: None,
+            modding: false,
         };
         e.load_stand();
         e.reveal();
         e
+    }
+
+    /// Makes this the mod editor: names typed for New and Copy are card ids, and there's no history to browse.
+    pub fn set_modding(&mut self) {
+        self.modding = true;
+    }
+
+    /// Takes in a card's PNG, as Import does, and opens it.
+    pub fn import_card(&mut self, file: &str, bytes: &[u8]) {
+        match self.store.import_card(bytes) {
+            Ok(id) => {
+                self.names = self.store.names();
+                let front = sprite::card_names(&id).map(|n| n[0].clone()).unwrap_or_default();
+                self.switch_to(front);
+                self.reveal();
+                self.say(format!("Imported {file} as card {id}"));
+            }
+            Err(e) => self.say(format!("{file}: {e}")),
+        }
+    }
+
+    /// The open card's file name and PNG as saved, for Export; None with a word why when there's nothing to give.
+    pub fn export_card(&mut self) -> Option<(String, Vec<u8>)> {
+        let Some(id) = sprite::card_id(&self.sprite.name) else {
+            self.say("Open a card to export it");
+            return None;
+        };
+        if self.unsaved() {
+            self.say("Save the card first: Export gives the saved copy");
+            return None;
+        }
+        let bytes = self.store.card_bytes(&id)?;
+        self.say(format!("Exported {id}{}", last_harvest_pack::card::EXTENSION));
+        Some((format!("{id}{}", last_harvest_pack::card::EXTENSION), bytes))
     }
 
     /// No sprite is open yet: the list waits for a pick, or New.
@@ -456,10 +493,11 @@ impl Editor {
     }
 
     pub fn title(&self) -> String {
+        let app = if self.modding { "LastHarvest enemy card editor" } else { "LastHarvest sprite editor" };
         if self.none_open() {
-            return "LastHarvest sprite editor".into();
+            return app.into();
         }
-        format!("{}{} - LastHarvest sprite editor", self.sprite.name, if self.unsaved() { " *" } else { "" })
+        format!("{}{} - {app}", self.sprite.name, if self.unsaved() { " *" } else { "" })
     }
 
     fn unsaved(&self) -> bool {
@@ -538,7 +576,7 @@ impl Editor {
         };
     }
 
-    pub(crate) fn say(&mut self, text: impl Into<String>) {
+    pub fn say(&mut self, text: impl Into<String>) {
         self.status = Some((text.into(), 0.0));
     }
 
@@ -749,7 +787,7 @@ impl Editor {
             }
         }
         let header = [(Action::Ask(Ask::New), "New"), (Action::Ask(Ask::Copy), "Copy"), (Action::History, "History R"), (Action::Revert, "Revert"), (Action::Save, "Save")];
-        for (i, (a, l)) in header.into_iter().enumerate() {
+        for (i, (a, l)) in header.into_iter().enumerate().filter(|(_, (a, _))| !(self.modding && *a == Action::History)) {
             let on = (a == Action::Save && self.unsaved()) || (a == Action::History && self.browse.is_some());
             push(512.0 + i as f32 * 102.0, 8.0, 94.0, 34.0, a, l, on);
         }
@@ -767,10 +805,10 @@ impl Editor {
             let (x, y) = (SIDE_X + (i % cols) as f32 * SWATCH, 316.0 + (i / cols) as f32 * SWATCH);
             push(x, y, SWATCH - 2.0, SWATCH - 2.0, Action::Color(c), "", self.color == c);
         }
-        for (i, l) in STANDS.into_iter().enumerate() {
+        for (i, l) in STANDS.into_iter().enumerate().filter(|_| !self.is_card()) {
             push(SIDE_X + (i % 3) as f32 * 78.0, 566.0 + (i / 3) as f32 * 34.0, 74.0, 30.0, Action::Stand(i as u8), l, self.stand == i as u8);
         }
-        if self.stand < 2 || self.stand == CARVE {
+        if (self.stand < 2 || self.stand == CARVE) && !self.is_card() {
             push(SIDE_X + 130.0, 640.0, 46.0, 30.0, Action::Depth(-1), "-", false);
             push(SIDE_X + 182.0, 640.0, 46.0, 30.0, Action::Depth(1), "+", false);
         }
@@ -1672,7 +1710,8 @@ impl Editor {
                 Key::Escape => self.ask = None,
                 Key::Enter => {
                     let (kind, name) = (*kind, name.clone());
-                    if let Some(id) = sprite::card_wanted(&name) {
+                    let wanted = sprite::card_wanted(&name).or_else(|| (self.modding && !name.is_empty()).then(|| name.to_ascii_lowercase()));
+                    if let Some(id) = wanted {
                         self.make_card(kind, &id);
                     } else if !sprite::valid_name(&name) {
                         self.say("Names start with a letter and use A-Z, 0-9 and _");
@@ -1796,8 +1835,13 @@ impl Editor {
 
         if self.none_open() {
             c.rect(CANVAS.x, CANVAS.y, CANVAS.w, CANVAS.h, PANEL);
-            c.label("Pick a sprite from the list", CANVAS.x + CANVAS.w / 2.0, CANVAS.y + CANVAS.h / 2.0 - 40.0, 26.0, TEXT, Align::Center);
-            c.label("or press N for a new one; a name starting CARD_ makes an enemy card", CANVAS.x + CANVAS.w / 2.0, CANVAS.y + CANVAS.h / 2.0, 17.0, DIM, Align::Center);
+            let (big, small) = if self.modding {
+                ("Make an enemy card", "New starts one from a plain figure; Import opens a .enemy.png")
+            } else {
+                ("Pick a sprite from the list", "or press N for a new one; a name starting CARD_ makes an enemy card")
+            };
+            c.label(big, CANVAS.x + CANVAS.w / 2.0, CANVAS.y + CANVAS.h / 2.0 - 40.0, 26.0, TEXT, Align::Center);
+            c.label(small, CANVAS.x + CANVAS.w / 2.0, CANVAS.y + CANVAS.h / 2.0, 17.0, DIM, Align::Center);
         } else if self.stats {
             self.draw_stats(c);
         } else {
@@ -1914,8 +1958,10 @@ impl Editor {
             }
             c.rect(bar.x + self.color[i] as f32 / 255.0 * bar.w - 2.0, bar.y - 3.0, 4.0, bar.h + 6.0, TEXT);
         }
-        c.label("Tileset palette", SIDE_X, 294.0, 16.0, DIM, Align::Left);
-        c.label("Stands in 3D as", SIDE_X, 546.0, 16.0, DIM, Align::Left);
+        c.label(if self.modding { "Palette" } else { "Tileset palette" }, SIDE_X, 294.0, 16.0, DIM, Align::Left);
+        if !self.is_card() {
+            c.label("Stands in 3D as", SIDE_X, 546.0, 16.0, DIM, Align::Left);
+        }
         match self.stand {
             0 => c.label(format!("Depth {} px", self.depth), SIDE_X, 645.0, 18.0, TEXT, Align::Left),
             1 => c.label(format!("Height {} px", self.height), SIDE_X, 645.0, 18.0, TEXT, Align::Left),
@@ -1965,9 +2011,14 @@ impl Editor {
         if let Some((kind, name)) = &self.ask {
             c.rect(0.0, 0.0, 1024.0, 768.0, [0.0, 0.0, 0.0, 0.6]);
             c.rect(262.0, 280.0, 500.0, 170.0, PANEL);
-            let what = if *kind == Ask::New { "Name the new sprite" } else { "Name the copy" };
+            let what = match (*kind, self.modding) {
+                (Ask::New, true) => "Name the new enemy card",
+                (Ask::New, false) => "Name the new sprite",
+                (Ask::Copy, _) => "Name the copy",
+            };
             c.label(what, 512.0, 300.0, 24.0, TEXT, Align::Center);
-            c.label(format!("Start with {} for an enemy card", sprite::CARD_PREFIX), 512.0, 328.0, 15.0, DIM, Align::Center);
+            let hint = if self.modding { "Its id: letters, digits and _".to_string() } else { format!("Start with {} for an enemy card", sprite::CARD_PREFIX) };
+            c.label(hint, 512.0, 328.0, 15.0, DIM, Align::Center);
             let caret = if (self.clock * 2.0) as i32 % 2 == 0 { "_" } else { " " };
             c.label(format!("{name}{caret}"), 512.0, 350.0, 30.0, HOT, Align::Center);
             c.label("Enter to create, Esc to cancel", 512.0, 405.0, 16.0, DIM, Align::Center);

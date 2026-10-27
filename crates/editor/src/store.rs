@@ -18,6 +18,16 @@ pub trait Store {
     /// A file of a sprite's folder as it was at a commit.
     fn version(&self, id: &str, name: &str, file: &str) -> Option<Vec<u8>>;
 
+    /// Takes in a card's PNG from elsewhere, as the mod editor's Import does, and returns its id.
+    fn import_card(&self, _bytes: &[u8]) -> Result<String, String> {
+        Err("cards are added to the enemies folder here".into())
+    }
+
+    /// A card's PNG as saved, for the mod editor's Export.
+    fn card_bytes(&self, _id: &str) -> Option<Vec<u8>> {
+        None
+    }
+
     /// The saved copy if there is one, else the packed frames.
     fn load(&self, name: &str) -> Option<Sprite> {
         Sprite::load_from(name, |file| self.read(name, file))
@@ -89,10 +99,56 @@ pub mod cards {
         card::write(text, (w * 3) as u32, (h * 5) as u32, &sheet)
     }
 
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+    /// A card as Base64, for a store such as the browser's local storage that keeps only text.
+    pub fn to_text(bytes: &[u8]) -> String {
+        let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+        for chunk in bytes.chunks(3) {
+            let n = chunk.iter().enumerate().fold(0u32, |n, (i, &b)| n | (b as u32) << (16 - 8 * i));
+            for i in 0..4 {
+                out.push(if i <= chunk.len() { ALPHABET[(n >> (18 - 6 * i) & 63) as usize] as char } else { '=' });
+            }
+        }
+        out
+    }
+
+    pub fn from_text(text: &str) -> Option<Vec<u8>> {
+        let digit = |c: u8| ALPHABET.iter().position(|&a| a == c).map(|v| v as u32);
+        let mut out = Vec::with_capacity(text.len() / 4 * 3);
+        for chunk in text.as_bytes().chunks(4) {
+            let pad = chunk.iter().filter(|&&c| c == b'=').count();
+            if pad > 2 {
+                return None;
+            }
+            let n = chunk.iter().take(4 - pad).enumerate().try_fold(0u32, |n, (i, &c)| Some(n | digit(c)? << (18 - 6 * i)))?;
+            out.extend((0..3 - pad).map(|i| (n >> (16 - 8 * i)) as u8));
+        }
+        Some(out)
+    }
+
     /// The part names of every card among `ids`, each with a saved copy, sorted by card.
     pub fn listing(mut ids: Vec<String>) -> Vec<(String, bool)> {
         ids.sort();
         ids.iter().filter_map(|id| sprite::card_names(id)).flatten().map(|n| (n, true)).collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::cards::{from_text, to_text};
+
+    #[test]
+    fn base64_round_trips_every_length() {
+        for n in 0..10 {
+            let bytes: Vec<u8> = (0..n).map(|i| (i * 37 + 200) as u8).collect();
+            assert_eq!(from_text(&to_text(&bytes)), Some(bytes));
+        }
+        assert_eq!(to_text(b"Man"), "TWFu");
+        assert_eq!(to_text(b"Ma"), "TWE=");
+        assert_eq!(from_text("TQ=="), Some(b"M".to_vec()));
+        assert_eq!(from_text("T!=="), None);
+        assert_eq!(from_text("===="), None);
     }
 }
 

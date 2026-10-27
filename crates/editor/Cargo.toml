@@ -4,9 +4,16 @@ edition.workspace = true
 version.workspace = true
 publish.workspace = true
 
+[features]
+default = ["tileset"]
+# Builds the game's tileset in. A page built with it must never be published.
+tileset = ["last-harvest-game/embed"]
+# The public mod editor: enemy cards only, kept in the browser, previewed with the player's own game_data.pak.
+modding = ["last-harvest-pack/pak"]
+
 [dependencies]
 glow.workspace = true
-last-harvest-game = { workspace = true, features = ["embed"] }
+last-harvest-game.workspace = true
 last-harvest-pack = { path = "../pack", default-features = false }
 last-harvest-render.workspace = true
 png = "0.17"
@@ -25,4 +32,4 @@ objc2-foundation = { version = "0.3", default-features = false, features = ["std
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 js-sys = "0.3"
 wasm-bindgen = "0.2"
-web-sys = { version = "0.3", features = ["AddEventListenerOptions", "console", "CssStyleDeclaration", "Document", "DomTokenList", "Element", "EventTarget", "HtmlCanvasElement", "HtmlElement", "HtmlInputElement", "KeyboardEvent", "Location", "MouseEvent", "Performance", "PointerEvent", "WebGl2RenderingContext", "WheelEvent", "Window", "XmlHttpRequest"] }
+web-sys = { version = "0.3", features = ["AddEventListenerOptions", "console", "CssStyleDeclaration", "Document", "DomTokenList", "Element", "EventTarget", "HtmlCanvasElement", "HtmlElement", "HtmlInputElement", "KeyboardEvent", "Location", "MouseEvent", "Performance", "PointerEvent", "WebGl2RenderingContext", "WheelEvent", "Window", "XmlHttpRequest", "CustomEvent", "Storage"] }

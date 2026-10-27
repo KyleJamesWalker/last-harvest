@@ -26,7 +26,7 @@
   #text { position: absolute; left: 50%; top: 56px; transform: translateX(-50%); width: min(480px, 60vw); height: 48px;
           font-size: 24px; padding: 0 14px; border: 3px solid #f2bf4d; border-radius: 8px; background: #19191e; color: #f2bf4d;
           text-transform: uppercase; }
-  #text[hidden] { display: none; }
+  #text[hidden], .group[hidden], button[hidden] { display: none; }
   .hold { position: fixed; bottom: calc(10px + env(safe-area-inset-bottom)); width: 90px; height: 90px; border-radius: 45px;
           display: flex; align-items: center; justify-content: center; background: #3d3d47; color: #ebebf2; font-size: 20px;
           opacity: 0.8; touch-action: none; }
@@ -46,12 +46,62 @@
   <div class="group"><span>Arrows</span><button data-act="left">&#8592;</button><button data-act="up">&#8593;</button><button data-act="down">&#8595;</button><button data-act="right">&#8594;</button></div>
   <div class="group"><span>Sprite</span><button data-act="prev-sprite">&#8593; K</button><button data-act="next-sprite">&#8595; J</button></div>
   <div class="group"><span>Frame</span><button data-act="prev-frame">&#8592; H</button><button data-act="next-frame">&#8594; L</button></div>
+  <div class="group" id="mod-tools" hidden><span>Cards</span><button data-act="import">Import</button><button data-act="export">Export</button><button data-act="pak" id="pak">Game data</button></div>
   <div class="group"><button data-act="search">Search</button><button data-act="history">History</button><button data-act="new">New</button><button data-act="play">Play</button><button data-act="mirror">Mirror</button><button data-act="fit">Fit</button><button data-act="save" class="save">Save</button></div>
 </div>
 <div id="hold-left" class="hold">Shift</div>
 <div id="hold-right" class="hold">Shift</div>
 <script type="module">
   import init from "./sprite-editor.js";
+
+  // The mod editor keeps a player's own game_data.pak in this browser, for previews; it's never sent anywhere.
+  const PAK = "game_data.pak";
+  const files = (mode, use) => new Promise((done, fail) => {
+    const open = indexedDB.open("last-harvest", 1);
+    open.onupgradeneeded = () => open.result.createObjectStore("files");
+    open.onerror = () => fail(open.error);
+    open.onsuccess = () => {
+      const t = open.result.transaction("files", mode);
+      const request = use(t.objectStore("files"));
+      t.oncomplete = () => done(request.result);
+      t.onerror = () => fail(t.error);
+    };
+  });
+
+  window.lastHarvest = {
+    // Asks for files, then hands each to the editor as an `event` carrying its name and bytes.
+    pick(accept, multiple, event) {
+      const input = document.createElement("input");
+      Object.assign(input, { type: "file", accept, multiple });
+      input.onchange = async () => {
+        for (const file of input.files) {
+          const bytes = new Uint8Array(await file.arrayBuffer());
+          window.dispatchEvent(new CustomEvent(event, { detail: { name: file.name, bytes } }));
+        }
+      };
+      input.click();
+    },
+    save(name, bytes) {
+      const url = URL.createObjectURL(new Blob([bytes], { type: "image/png" }));
+      const a = Object.assign(document.createElement("a"), { href: url, download: name });
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    },
+    // A new pack takes effect on reload, since the editor reads its data once at start.
+    choosePak() {
+      const input = Object.assign(document.createElement("input"), { type: "file", accept: ".pak" });
+      input.onchange = async () => {
+        if (!input.files[0]) return;
+        const bytes = new Uint8Array(await input.files[0].arrayBuffer());
+        await files("readwrite", s => s.put(bytes, PAK));
+        location.reload();
+      };
+      input.click();
+    },
+  };
+
+  window.lastHarvestPak = await files("readonly", s => s.get(PAK)).catch(() => undefined);
+  if (window.lastHarvestPak) document.getElementById("pak").textContent = "Game data ✓";
   init();
 </script>
 </body>

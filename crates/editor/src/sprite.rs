@@ -489,8 +489,19 @@ pub fn unbundle(mut body: &[u8]) -> Option<Vec<(String, Vec<u8>)>> {
 }
 
 /// Every opaque color in the tileset, darkest first within each hue band, for drawing in the pack's style.
+/// The palette when there's no tileset to take one from, as in the mod editor: PICO-8's 32 colors.
+pub const OPEN_PALETTE: [Rgba; 32] = [
+    [0, 0, 0, 255], [29, 43, 83, 255], [126, 37, 83, 255], [0, 135, 81, 255], [171, 82, 54, 255], [95, 87, 79, 255], [194, 195, 199, 255], [255, 241, 232, 255],
+    [255, 0, 77, 255], [255, 163, 0, 255], [255, 236, 39, 255], [0, 228, 54, 255], [41, 173, 255, 255], [131, 118, 156, 255], [255, 119, 168, 255], [255, 204, 170, 255],
+    [41, 24, 20, 255], [17, 29, 53, 255], [66, 33, 54, 255], [18, 83, 89, 255], [116, 47, 41, 255], [73, 51, 59, 255], [162, 136, 121, 255], [243, 239, 125, 255],
+    [190, 18, 80, 255], [255, 108, 36, 255], [168, 231, 46, 255], [0, 181, 67, 255], [6, 90, 181, 255], [117, 70, 101, 255], [255, 110, 89, 255], [255, 157, 129, 255],
+];
+
 pub fn palette() -> Vec<Rgba> {
     let mut colors: Vec<Rgba> = art::pixels().chunks_exact(4).filter(|p| p[3] > 0).map(|p| [p[0], p[1], p[2], 255]).collect();
+    if colors.is_empty() {
+        return OPEN_PALETTE.to_vec();
+    }
     colors.sort_unstable();
     colors.dedup();
     let key = |c: &Rgba| {

@@ -1,7 +1,10 @@
 //! The editor in a web page, for a tablet: the same panes drawn with WebGL2, fingers and a pen in place of the
 //! mouse, a toolbar in place of the keyboard shortcuts, and `sprite-server` in place of the disk.
 
+#[cfg(not(feature = "modding"))]
 mod http;
+#[cfg(feature = "modding")]
+mod local;
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -9,6 +12,7 @@ use std::rc::Rc;
 use last_harvest_game::{SCREEN_H, SCREEN_W};
 use last_harvest_render::{Profile, Renderer};
 use sprite_editor::editor::Key;
+use sprite_editor::store::Store;
 use sprite_editor::studio::{Pane, Studio};
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
@@ -354,6 +358,17 @@ impl Web {
             "mirror" => Key::Char('m'),
             "save" => Key::Save,
             "fit" => return self.studio.editor.fit(),
+            #[cfg(feature = "modding")]
+            "import" => return modding::call("pick", &[".png".into(), true.into(), "lastharvest-import".into()]),
+            #[cfg(feature = "modding")]
+            "export" => {
+                if let Some((name, bytes)) = self.studio.editor.export_card() {
+                    modding::call("save", &[name.into(), js_sys::Uint8Array::from(&bytes[..]).into()]);
+                }
+                return;
+            }
+            #[cfg(feature = "modding")]
+            "pak" => return modding::call("choosePak", &[]),
             "shift" => {
                 self.shift = !self.shift;
                 if let Some(b) = self.document.query_selector("[data-act=shift]").ok().flatten() {
@@ -373,8 +388,9 @@ impl Web {
         match self.studio.editor.text().map(str::to_string) {
             Some(t) => {
                 if self.input.hidden() {
-                    let caps = if self.studio.editor.free_text() { "sentences" } else { "characters" };
-                    let _ = self.input.set_attribute("autocapitalize", caps);
+                    let free = self.studio.editor.free_text();
+                    let _ = self.input.set_attribute("autocapitalize", if free { "sentences" } else { "characters" });
+                    let _ = self.input.style().set_property("text-transform", if free { "none" } else { "uppercase" });
                     self.input.set_hidden(false);
                     self.input.set_value(&t);
                 }
@@ -422,6 +438,11 @@ fn element<T: JsCast>(document: &Document, id: &str) -> Result<T, String> {
 }
 
 fn start() -> Result<(), String> {
+    // The renderer uploads the sprite atlas as it starts, so the mod editor's data goes in first.
+    #[cfg(feature = "modding")]
+    let note = modding::install_data()?;
+    #[cfg(not(feature = "modding"))]
+    let note: Option<String> = None;
     let window = web_sys::window().ok_or("no window")?;
     let document = window.document().ok_or("no document")?;
     let canvas: HtmlCanvasElement = element(&document, "panes")?;
@@ -437,7 +458,19 @@ fn start() -> Result<(), String> {
     let renderer = Renderer::new(&gl, Profile::Gles)?;
     let search = window.location().search().unwrap_or_default();
     let open = search.trim_start_matches('?').split('&').find_map(|kv| kv.strip_prefix("open=")).unwrap_or("").to_string();
-    let mut studio = Studio::new(Box::new(http::HttpStore), &open);
+    #[cfg(feature = "modding")]
+    let store: Box<dyn Store> = {
+        modding::show_tools(&document);
+        Box::new(local::LocalStore::open()?)
+    };
+    #[cfg(not(feature = "modding"))]
+    let store: Box<dyn Store> = Box::new(http::HttpStore);
+    let mut studio = Studio::new(store, &open);
+    #[cfg(feature = "modding")]
+    studio.editor.set_modding();
+    if let Some(note) = note {
+        studio.editor.say(note);
+    }
     studio.hints = ["drag to turn, pinch to move closer", "pinch to zoom"];
     let web = Rc::new(RefCell::new(Web {
         studio,
@@ -505,6 +538,13 @@ fn start() -> Result<(), String> {
         }
     });
     listen(&input, "input", &web, |w, _: &Event| w.typed());
+    #[cfg(feature = "modding")]
+    listen(&window, "lastharvest-import", &web, |w, e: &web_sys::CustomEvent| {
+        let detail = e.detail();
+        let name = js_sys::Reflect::get(&detail, &"name".into()).ok().and_then(|v| v.as_string()).unwrap_or_default();
+        let bytes = js_sys::Reflect::get(&detail, &"bytes".into()).map(|v| js_sys::Uint8Array::new(&v).to_vec()).unwrap_or_default();
+        w.studio.editor.import_card(&name, &bytes);
+    });
     listen(&input, "keydown", &web, |w, e: &KeyboardEvent| {
         let k = match e.key().as_str() {
             "Enter" => Key::Enter,
@@ -546,5 +586,51 @@ pub fn main() {
     std::panic::set_hook(Box::new(|info| fail(&info.to_string())));
     if let Err(e) = start() {
         fail(&e);
+    }
+}
+
+/// The public mod editor's side of the page: its data, its toolbar group, and the page's helpers in `index.html`.
+#[cfg(feature = "modding")]
+mod modding {
+    use last_harvest_game::art::{ATLAS_H, ATLAS_W};
+    use last_harvest_game::data::{self, Data};
+    use last_harvest_pack::{ATLAS, Pak};
+    use wasm_bindgen::{JsCast, JsValue};
+    use web_sys::{Document, HtmlElement};
+
+    /// Installs the sprite atlas from the player's own game_data.pak, which the page keeps in IndexedDB and leaves
+    /// on `window.lastHarvestPak`, or a blank one; returns a word for the player when their pack couldn't be used.
+    pub fn install_data() -> Result<Option<String>, String> {
+        let window = web_sys::window().ok_or("no window")?;
+        let pak = js_sys::Reflect::get(&window, &"lastHarvestPak".into()).ok().filter(|v| !v.is_undefined() && !v.is_null());
+        let (atlas, note) = match pak.map(|v| js_sys::Uint8Array::new(&v).to_vec()) {
+            Some(bytes) => match Pak::read(std::io::Cursor::new(bytes)) {
+                Ok(mut pak) => (pak.take(ATLAS), Some("Previews use your game data".to_string())),
+                Err(e) => (None, Some(format!("Your game data isn't for this editor: {e}"))),
+            },
+            None => (None, None),
+        };
+        let atlas = atlas.unwrap_or_else(|| vec![0; (ATLAS_W * ATLAS_H * 4) as usize]);
+        data::install(Data { atlas: Some(atlas), ..Data::default() })?;
+        Ok(note)
+    }
+
+    /// Shows the Cards group and hides what only the game's own editor has.
+    pub fn show_tools(document: &Document) {
+        if let Some(tools) = document.get_element_by_id("mod-tools").and_then(|e| e.dyn_into::<HtmlElement>().ok()) {
+            tools.set_hidden(false);
+        }
+        if let Some(history) = document.query_selector("[data-act=history]").ok().flatten().and_then(|e| e.dyn_into::<HtmlElement>().ok()) {
+            history.set_hidden(true);
+        }
+    }
+
+    /// Calls one of the page's helpers on `window.lastHarvest`.
+    pub fn call(method: &str, args: &[JsValue]) {
+        let Some(window) = web_sys::window() else { return };
+        let Ok(helpers) = js_sys::Reflect::get(&window, &"lastHarvest".into()) else { return };
+        if let Some(f) = js_sys::Reflect::get(&helpers, &method.into()).ok().and_then(|f| f.dyn_into::<js_sys::Function>().ok()) {
+            let _ = f.apply(&helpers, &args.iter().collect());
+        }
     }
 }
