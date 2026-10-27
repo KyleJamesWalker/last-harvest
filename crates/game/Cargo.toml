@@ -6,7 +6,7 @@ publish.workspace = true
 
 [features]
 default = ["embed"]
-# Builds the atlas, font and powerup table into the binary, so it runs without game_data.pak.
+# Builds the tileset's sprite atlas into the binary, so it runs without game_data.pak.
 embed = []
 
 [dependencies]

@@ -27,20 +27,16 @@ pub struct Card {
 
 static DATA: OnceLock<Data> = OnceLock::new();
 
-#[cfg(feature = "embed")]
+/// The font and the tables are the repository's own, so every build carries them; only the tileset's atlas
+/// waits on the `embed` feature.
 mod built_in {
+    #[cfg(feature = "embed")]
     pub const ATLAS: Option<&[u8]> = Some(include_bytes!(concat!(env!("OUT_DIR"), "/art.rgba")));
+    #[cfg(not(feature = "embed"))]
+    pub const ATLAS: Option<&[u8]> = None;
     pub const FONT: Option<&[u8]> = Some(include_bytes!("../../../assets/fonts/AtkinsonHyperlegible-Regular.ttf"));
     pub const POWERUPS: Option<&str> = Some(include_str!("../powerups.txt"));
     pub const ENEMIES: Option<&str> = Some(include_str!("../enemies.txt"));
-}
-
-#[cfg(not(feature = "embed"))]
-mod built_in {
-    pub const ATLAS: Option<&[u8]> = None;
-    pub const FONT: Option<&[u8]> = None;
-    pub const POWERUPS: Option<&str> = None;
-    pub const ENEMIES: Option<&str> = None;
 }
 
 /// Installs a pack's data and draws its cards' sprites into the atlas. It must come before anything reads the
