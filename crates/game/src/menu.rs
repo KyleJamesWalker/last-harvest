@@ -379,6 +379,10 @@ impl Game {
         c.label(p.name.as_str(), SCREEN_W / 2.0, 60.0, 64.0, HOT, Align::Center);
         let note = if looks.len() > 1 { format!("{} of {}: Left and Right to change", looks.iter().position(|l| l.id == p.id).unwrap_or(0) + 1, looks.len()) } else { "Add a .player.png to data/players for more".to_string() };
         c.label(note, SCREEN_W / 2.0, 150.0, 28.0, DIM, Align::Center);
+        let d = self.save.difficulty;
+        let start = p.start_names(d);
+        let kit = if start.is_empty() { "no weapons".to_string() } else { start.join(", ") };
+        c.label(format!("{} starts with {kit}", d.name()), SCREEN_W / 2.0, 196.0, 28.0, WHITE, Align::Center);
     }
 
     /// The highlighted kind walking on the top screen, turning through its facings, beside its numbers.
