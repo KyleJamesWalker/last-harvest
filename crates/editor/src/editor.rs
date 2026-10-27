@@ -402,29 +402,58 @@ impl Editor {
 
     /// Takes in a card's PNG, as Import does, and opens it.
     pub fn import_card(&mut self, file: &str, bytes: &[u8]) {
+        self.import_cards(file, vec![(file.to_string(), bytes.to_vec())]);
+    }
+
+    /// Takes in each card from `source`, a PNG or a mod pack, opens the last, and says which saved cards it replaced.
+    pub fn import_cards(&mut self, source: &str, cards: Vec<(String, Vec<u8>)>) {
         // Importing over the open card replaces what the editor holds, so its unsaved changes would be lost.
         let open = (sprite::card_kind(&self.sprite.name), sprite::card_id(&self.sprite.name));
         let same = |front: &str| (sprite::card_kind(front), sprite::card_id(front)) == open;
-        if let Ok((kind, id)) = crate::store::cards::identify(file, bytes)
-            && sprite::card_names_of(kind, &id).is_some_and(|n| same(&n[0]))
-            && self.unsaved()
-        {
-            return self.say(format!("Save or revert {id} first: Import replaces it"));
-        }
-        match self.store.import_card(file, bytes) {
-            Ok(front) => {
-                self.names = self.store.names();
-                let id = sprite::card_id(&front).unwrap_or_default();
-                if same(&front) {
-                    self.open(&front);
-                } else {
-                    self.switch_to(front);
-                }
-                self.reveal();
-                self.say(format!("Imported {file} as card {id}"));
+        let (mut imported, mut replaced, mut failed, mut last) = (Vec::new(), Vec::new(), Vec::new(), None);
+        for (file, bytes) in &cards {
+            let front = crate::store::cards::identify(file, bytes).ok().and_then(|(kind, id)| sprite::card_names_of(kind, &id)).map(|n| n[0].clone());
+            if front.as_deref().is_some_and(&same) && self.unsaved() {
+                failed.push(format!("Save or revert {} first: Import replaces it", open.1.clone().unwrap_or_default()));
+                continue;
             }
-            Err(e) => self.say(format!("{file}: {e}")),
+            let existed = front.is_some_and(|f| self.names.iter().any(|(n, _)| *n == f));
+            match self.store.import_card(file, bytes) {
+                Ok(front) => {
+                    let id = sprite::card_id(&front).unwrap_or_default();
+                    if existed {
+                        replaced.push(id.clone());
+                    }
+                    imported.push((file.clone(), id));
+                    last = Some(front);
+                }
+                Err(e) => failed.push(format!("{file}: {e}")),
+            }
         }
+        self.names = self.store.names();
+        if let Some(front) = last {
+            if same(&front) {
+                self.open(&front);
+            } else {
+                self.switch_to(front);
+            }
+            self.reveal();
+        }
+        let message = match (&imported[..], &failed[..]) {
+            ([], [only]) if cards.len() == 1 => only.clone(),
+            ([(file, id)], []) => format!("Imported {file} as card {id}{}", if replaced.is_empty() { "" } else { ", replacing your saved one" }),
+            _ => {
+                let mut m = format!("Imported {} cards from {source}", imported.len());
+                if !replaced.is_empty() {
+                    m += &format!(", replacing your {}", replaced.join(", "));
+                }
+                if let Some(first) = failed.first() {
+                    m += &format!("; {} couldn't: {first}", failed.len());
+                }
+                m
+            }
+        };
+        self.say(message);
     }
 
     /// The open card's file name and PNG as saved, for Export; None with a word why when there's nothing to give.
@@ -2859,6 +2888,25 @@ mod tests {
         e.act(Action::Save, false);
         e.import_card("twin.enemy.png", &shared);
         assert_ne!(e.sprite.frames[0].get(0, 0), Some([1, 2, 3, 255]), "the imported card shows, not the one it replaced");
+    }
+
+    #[test]
+    fn importing_says_which_saved_cards_it_replaces() {
+        let dir = tmp().join("replace");
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut e = Editor::new(Box::new(FsStore { dir: dir.join("sprites"), catalog: dir.join("art.txt"), cards: dir.join("enemies") }), "");
+        for id in ["one", "two"] {
+            e.act(Action::Ask(Ask::New), false);
+            type_in(&mut e, &format!("card {id}"));
+            e.key(Key::Enter);
+        }
+        let read = |id: &str| (format!("{id}.enemy.png"), std::fs::read(dir.join(format!("enemies/{id}.enemy.png"))).unwrap());
+        let (one, two) = (read("one"), read("two"));
+        std::fs::remove_file(dir.join("enemies/two.enemy.png")).unwrap();
+        e.names = e.store.names();
+        e.import_cards("my-cards.pak", vec![one, two, ("x.enemy.png".into(), b"no".to_vec())]);
+        let said = e.status.as_ref().map(|(t, _)| t.clone()).unwrap_or_default();
+        assert!(said.starts_with("Imported 2 cards from my-cards.pak, replacing your one; 1 couldn't: x.enemy.png"), "{said}");
     }
 
     #[test]

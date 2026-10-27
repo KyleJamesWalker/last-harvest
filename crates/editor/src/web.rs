@@ -568,7 +568,7 @@ fn start() -> Result<(), String> {
         if name.ends_with(".pak") {
             match modding::cards_in(&bytes) {
                 Ok(cards) if cards.is_empty() => w.studio.editor.say(format!("{name} holds no cards")),
-                Ok(cards) => cards.into_iter().for_each(|(file, bytes)| w.studio.editor.import_card(&file, &bytes)),
+                Ok(cards) => w.studio.editor.import_cards(&name, cards),
                 Err(e) => w.studio.editor.say(format!("{name}: {e}")),
             }
         } else {
