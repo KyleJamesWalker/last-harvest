@@ -23,6 +23,8 @@ pub struct Enemy {
     pub chance: f32,
     pub per_minute: f32,
     pub heavy: bool,
+    /// It came from an enemy card rather than the game's own file.
+    pub from_card: bool,
 }
 
 impl Enemy {
@@ -90,7 +92,7 @@ impl Roster {
         let mut leader = self.enemies[self.leader].id.clone();
         let mut harvester = self.enemies[self.harvester].id.clone();
         for card in cards {
-            let e = card.enemy.clone();
+            let e = Enemy { from_card: true, ..card.enemy.clone() };
             if card.leader {
                 leader = e.id.clone();
             }
@@ -198,6 +200,7 @@ fn entries(text: &str) -> Result<Vec<Entry>, String> {
                 chance: 1.0,
                 per_minute: 0.0,
                 heavy: false,
+                from_card: false,
             };
             entries.push(Entry { enemy, look: None, leader: false, harvester: false, walk: 3 });
             continue;
@@ -499,6 +502,7 @@ mod tests {
         let r = parse(base).unwrap().with(&kept);
         assert_eq!(r.enemies.iter().map(|e| e.id.as_str()).collect::<Vec<_>>(), ["big", "kid", "ghoul", "skinny"]);
         assert_eq!(r.enemies[2].hp, 40.0);
+        assert!(r.enemies[2].from_card && !r.enemies[0].from_card);
         assert_eq!(r.enemies[2].look.walk[0][0], Art(art::RECTS.len() as u16));
         assert_eq!((r.leader, r.harvester), (2, 0), "a card can lead hordes");
         assert_eq!(r.enemies[r.common()].id, "skinny");

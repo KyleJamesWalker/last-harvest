@@ -57,7 +57,7 @@ const ROW_H: f32 = 96.0;
 const SET_TOP: f32 = 96.0;
 const SET_H: f32 = 68.0;
 /// Enemy rows that fit above the Back button; the list scrolls past that.
-const ENEMY_ROWS: usize = 6;
+const ENEMY_ROWS: usize = 8;
 /// The arrows either side of a level bar, as x centres.
 const LESS_X: f32 = 600.0;
 const MORE_X: f32 = 940.0;
@@ -359,6 +359,9 @@ impl Game {
             c.art(icon, x + 20.0, y + 8.0, scale, false, if on { WHITE } else { [1.0, 1.0, 1.0, 0.3] });
             c.label(e.name.as_str(), x + 40.0 + icon.w() * scale, y + h / 2.0 - 20.0, 38.0, if sel { HOT } else if on { WHITE } else { DIM }, Align::Left);
             c.label(if on { "On" } else { "Off" }, (LESS_X + MORE_X) / 2.0, y + h / 2.0 - 20.0, 38.0, if on { HOT } else { DIM }, Align::Center);
+            if e.from_card {
+                c.label("Card", x + w - 24.0, y + h / 2.0 - 14.0, 26.0, DIM, Align::Right);
+            }
         }
         back_button(c);
     }
@@ -417,7 +420,7 @@ impl Game {
             c.label(value.clone(), 900.0, y, 36.0, WHITE, Align::Right);
         }
         c.label(arrives, 560.0, 450.0, 28.0, DIM, Align::Left);
-        let traits = [(e.heavy, "Staggers on a hard hit"), (r.leader == self.enemy, "Leads hordes"), (r.harvester == self.enemy, "Rises at dawn as the Harvester")];
+        let traits = [(e.heavy, "Staggers on a hard hit"), (r.leader == self.enemy, "Leads hordes"), (r.harvester == self.enemy, "Rises at dawn as the Harvester"), (e.from_card, "From an enemy card")];
         for (i, (_, line)) in traits.iter().filter(|t| t.0).enumerate() {
             c.label(*line, 560.0, 500.0 + i as f32 * 36.0, 28.0, HOT, Align::Left);
         }
