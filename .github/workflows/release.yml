@@ -11,6 +11,8 @@ on:
 
 permissions:
   contents: write
+  pages: write
+  id-token: write
 
 jobs:
   device:
@@ -62,3 +64,56 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "$TAG" "last-harvest-$TAG-aarch64-linux.tar.gz" game_data.pak --clobber
+
+  # The public enemy card editor, built without the tileset, on GitHub Pages.
+  mod-editor:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+
+      # The game crate's build reads the tileset for the sprites' places in the atlas, though none of its pixels
+      # reach this page.
+      - name: Fetch the private assets
+        env:
+          ASSETS_DEPLOY_KEY: ${{ secrets.ASSETS_DEPLOY_KEY }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$ASSETS_DEPLOY_KEY" > ~/.ssh/assets
+          chmod 600 ~/.ssh/assets
+          git config submodule.assets/private.url "git@github.com:${{ github.repository_owner }}/last-harvest-assets.git"
+          GIT_SSH_COMMAND="ssh -i ~/.ssh/assets -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new" \
+            git submodule update --init --depth 1 assets/private
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - name: Install wasm-bindgen
+        run: |
+          version=$(awk '/^name = "wasm-bindgen"$/ { getline; gsub(/[^0-9.]/, ""); print; exit }' Cargo.lock)
+          cargo install wasm-bindgen-cli --version "$version" --locked
+
+      - name: Build
+        run: scripts/mod-editor.sh
+
+      # Only the editor's own files may go out: never a tileset build or a stray asset.
+      - name: Check the page holds only the editor
+        run: |
+          expected="apple-touch-icon.png icon-512.png icon.png index.html sprite-editor.js sprite-editor_bg.wasm"
+          found=$(find target/mod-editor -mindepth 1 -printf '%P\n' | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')
+          [ "$found" = "$expected" ] || { echo "unexpected files: $found"; exit 1; }
+          cargo tree -e features -i last-harvest-game -p sprite-editor --no-default-features --features modding --target wasm32-unknown-unknown \
+            | grep -q 'feature "embed"' && { echo "the tileset is built in"; exit 1; } || true
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: target/mod-editor
+      - id: deploy
+        uses: actions/deploy-pages@v4

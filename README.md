@@ -133,7 +133,7 @@ Build the data pack, `target/game_data.pak`: a ZIP holding the sprite atlas, sou
 cargo run -p last-harvest-pack
 ```
 
-Publishing a GitHub release, such as with `gh release create v0.2.0 --generate-notes`, runs `.github/workflows/release.yml`. It attaches the device build as a Ports-layout tarball and `game_data.pak` as a separate file; extract the tarball into the SD card's `Ports` folder and put the pack in `Ports/last-harvest/data/`. The workflow reads the private assets with a read-only deploy key on that repository, stored as the `ASSETS_DEPLOY_KEY` secret.
+Publishing a GitHub release, such as with `gh release create v0.2.0 --generate-notes`, runs `.github/workflows/release.yml`. It attaches the device build as a Ports-layout tarball and `game_data.pak` as a separate file; extract the tarball into the SD card's `Ports` folder and put the pack in `Ports/last-harvest/data/`. The workflow reads the private assets with a read-only deploy key on that repository, stored as the `ASSETS_DEPLOY_KEY` secret. The same release publishes the enemy card editor to GitHub Pages, after checking the page holds only the editor's own files and no tileset; the repository's Pages source must be set to GitHub Actions.
 
 Run the tests:
 
