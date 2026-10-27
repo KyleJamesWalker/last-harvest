@@ -98,7 +98,7 @@ pub fn load() -> Result<Files, String> {
     }
     let cards: Vec<String> = data.cards.iter().chain(&data.players).map(|c| c.name.clone()).collect();
     for note in data::install(data)? {
-        eprintln!("enemies: {note}");
+        eprintln!("cards: {note}");
     }
     if !cards.is_empty() {
         eprintln!("cards: {cards:?}");
