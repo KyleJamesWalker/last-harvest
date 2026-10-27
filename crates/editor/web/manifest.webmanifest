@@ -1,0 +1,9 @@
+{
+  "name": "LastHarvest card editor",
+  "short_name": "Cards",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#19191e",
+  "theme_color": "#19191e",
+  "icons": [{ "src": "icon-512.png", "sizes": "512x512", "type": "image/png" }]
+}
