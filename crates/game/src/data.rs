@@ -11,6 +11,18 @@ pub struct Data {
     pub font: Option<Vec<u8>>,
     pub powerups: Option<String>,
     pub enemies: Option<String>,
+    pub cards: Vec<Card>,
+}
+
+/// An enemy card: one `enemies.txt` section and a sheet of `frame`-sized cells, three across and five down.
+/// The rows walk front, side and back, then flash and hurt with one frame per facing.
+pub struct Card {
+    /// Where it came from, for messages.
+    pub name: String,
+    pub text: String,
+    pub frame: [u32; 2],
+    /// RGBA, `frame[0] * 3` wide and `frame[1] * 5` tall.
+    pub sheet: Vec<u8>,
 }
 
 static DATA: OnceLock<Data> = OnceLock::new();
@@ -31,14 +43,31 @@ mod built_in {
     pub const ENEMIES: Option<&str> = None;
 }
 
-/// Installs a pack's data. It must come before anything reads the data, which then can't change.
-pub fn install(data: Data) -> Result<(), String> {
+/// Installs a pack's data and draws its cards' sprites into the atlas. It must come before anything reads the
+/// data, which then can't change. Returns a line for each card left out, and why.
+pub fn install(mut data: Data) -> Result<Vec<String>, String> {
     if let Some(atlas) = &data.atlas
         && atlas.len() != (ATLAS_W * ATLAS_H * 4) as usize
     {
         return Err(format!("the atlas is {} bytes, not {ATLAS_W}x{ATLAS_H} RGBA", atlas.len()));
     }
-    DATA.set(data).map_err(|_| "the game data was already read".to_string())
+    if DATA.get().is_some() {
+        return Err("the game data was already read".into());
+    }
+    let mut notes = Vec::new();
+    let cards = std::mem::take(&mut data.cards);
+    if !cards.is_empty() {
+        match data.atlas.take().or(built_in::ATLAS.map(<[u8]>::to_vec)) {
+            Some(mut atlas) => {
+                let base = data.enemies.as_deref().or(built_in::ENEMIES).unwrap_or_else(|| missing("enemies.txt"));
+                notes = crate::harvest::install_cards(&cards, base, &mut atlas);
+                data.atlas = Some(atlas);
+            }
+            None => notes = cards.iter().map(|c| format!("{}: no sprite atlas to draw it into", c.name)).collect(),
+        }
+    }
+    DATA.set(data).map_err(|_| "the game data was already read".to_string())?;
+    Ok(notes)
 }
 
 fn data() -> &'static Data {

@@ -16,7 +16,7 @@ use crate::art::{self, Art};
 use crate::rng::Rng;
 use crate::{Buttons, Color, Difficulty, Input, SCREEN_H, SCREEN_W, Sfx};
 use enemies::Enemy;
-pub(crate) use enemies::{off_from_ids, off_ids, roster};
+pub(crate) use enemies::{install_cards, off_from_ids, off_ids, roster};
 use juice::{Corpse, Juice, Particle, Tone};
 use map::{Map, TILE};
 pub use powerups::{Progress, Run, found_from_ids, found_ids};
@@ -113,6 +113,7 @@ impl Facing {
 }
 
 /// Walk frames for each facing, then the flash and hurt frames for each facing.
+#[derive(Clone)]
 pub(crate) struct Look {
     pub walk: [[Art; 3]; 3],
     pub flash: [Art; 3],

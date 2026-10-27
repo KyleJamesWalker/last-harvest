@@ -76,13 +76,18 @@ pub fn folder() -> Option<PathBuf> {
 
 /// The Ogg Vorbis and WAV files in `dir`.
 pub fn read_folder(dir: &Path) -> Files {
+    read_files(dir, &[".ogg", ".wav"])
+}
+
+/// The files in `dir` ending in one of `exts`, sorted by name; none when it can't be read.
+pub fn read_files(dir: &Path, exts: &[&str]) -> Files {
     let Ok(entries) = std::fs::read_dir(dir) else { return Files::new() };
     let mut files: Files = entries
         .flatten()
         .filter_map(|e| {
             let name = e.file_name().into_string().ok()?;
-            let read = || std::fs::read(e.path()).inspect_err(|err| eprintln!("audio: {name}: {err}")).ok();
-            (name.ends_with(".ogg") || name.ends_with(".wav")).then(read).flatten().map(|bytes| (name, bytes))
+            let read = || std::fs::read(e.path()).inspect_err(|err| eprintln!("{}: {err}", e.path().display())).ok();
+            exts.iter().any(|ext| name.ends_with(ext)).then(read).flatten().map(|bytes| (name, bytes))
         })
         .collect();
     files.sort_by(|a, b| a.0.cmp(&b.0));

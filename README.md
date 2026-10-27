@@ -48,6 +48,13 @@ The title screen shows how many powerups are unlocked, how many are waiting to b
 
 `crates/game/enemies.txt` defines every kind of zombie: its sprites, health, speed, bite, money, weight, death sound, and when and how often it arrives. Big is marked `heavy`, which roots it on a hard hit, and it leads hordes and dresses dawn's Harvester. The comments at the top of the file list every key, and a test reads it the same way.
 
+An enemy card adds a kind of zombie, or replaces one, with a single PNG. The image is the enemy's frames in a grid three across and five down: walking front, side and back, then the flash and hurt frames for each facing, every frame the same size up to 64 pixels. A compressed `iTXt` chunk named `last-harvest-enemy` holds its `enemies.txt` section, without `look`. A card with the id of an existing kind replaces it; a new kind goes in just before the last one. The game loads cards from `enemies/` inside `game_data.pak` and from an `enemies` folder beside the binary, or the folder `LAST_HARVEST_ENEMIES` names, and draws their frames into the sprite texture's free rows at startup. A card that can't load is left out, and the log says why.
+
+```sh
+cargo run -p last-harvest-pack -- card sheet.png ghoul.txt ghoul.png   # make a card
+cargo run -p last-harvest-pack -- show ghoul.png                       # print its frame size and text
+```
+
 Also on every screen:
 
 - Select toggles a performance overlay with FPS, frame times and temperatures.
@@ -166,6 +173,7 @@ The scene names are `title`, `harvest`, `farm` (the game without zombies, for lo
 | `LAST_HARVEST_DEBUG` | Turns on debug mode. `DEBUG=1 scripts/deploy.sh` sets it. |
 | `LAST_HARVEST_LOG_INPUT` | Logs every gamepad event. `CAPTURE=1 scripts/deploy.sh` sets it. |
 | `LAST_HARVEST_SAVE` | Sets the save file path. |
+| `LAST_HARVEST_ENEMIES` | Sets the folder of enemy cards. The default is `enemies` beside the binary. |
 | `LAST_HARVEST_PAK` | Sets the data pack path. The default is `game_data.pak` beside the binary. |
 | `LAST_HARVEST_SOUNDS` | Sets the folder of recorded sounds, over the pack's. Without a pack, the default is `sounds` beside the binary, then `assets/private/sounds`. |
 | `LAST_HARVEST_TOP` | Names the output for the top screen, such as `DSI-2`. |

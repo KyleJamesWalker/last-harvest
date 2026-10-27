@@ -1,5 +1,7 @@
 //! Data packs: ZIP files with a `.pak` extension and a `manifest.toml` at the root.
 
+pub mod card;
+
 use std::collections::HashMap;
 use std::io::{Read, Seek, Write};
 use std::path::Path;
@@ -15,6 +17,7 @@ pub const FONT: &str = "fonts/AtkinsonHyperlegible-Regular.ttf";
 pub const POWERUPS: &str = "powerups.txt";
 pub const ENEMIES: &str = "enemies.txt";
 pub const SOUNDS: &str = "sounds/";
+pub const ENEMY_CARDS: &str = "enemies/";
 
 /// The manifest of the base pack built for this binary.
 pub fn manifest() -> String {

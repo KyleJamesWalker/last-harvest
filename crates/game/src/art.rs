@@ -1,6 +1,6 @@
 //! Sprites from the Zombie Apocalypse Tileset, packed at build time from `art.txt`.
 
-use std::sync::RwLock;
+use std::sync::{OnceLock, RwLock};
 
 /// Sprites the editor adds while it runs, numbered after the packed ones: rects in the scratch area,
 /// and a copy of the texture with the editor's pixels drawn in.
@@ -11,10 +11,32 @@ struct Live {
 
 static LIVE: RwLock<Live> = RwLock::new(Live { rects: Vec::new(), pixels: Vec::new() });
 
+/// Sprites from enemy cards, drawn into the texture's free rows at startup and numbered after the packed ones.
+static ADDED: OnceLock<Vec<[u16; 4]>> = OnceLock::new();
+
+fn added() -> &'static [[u16; 4]] {
+    ADDED.get().map_or(&[], Vec::as_slice)
+}
+
+/// Sets the added sprites' rects; the texture the game reads must already hold their pixels.
+pub(crate) fn set_added(rects: Vec<[u16; 4]>) {
+    ADDED.set(rects).ok();
+}
+
+/// Packed and added sprites, every one but the editor's live ones.
+pub fn count() -> usize {
+    RECTS.len() + added().len()
+}
+
+/// The first texture row below every packed sprite.
+pub(crate) fn free_top() -> u16 {
+    RECTS.iter().map(|r| r[1] + r[3]).max().unwrap_or(0)
+}
+
 /// Replaces the live sprites with `rects` into `pixels`, a full texture the size of the packed one, and returns them.
 pub fn set_live(rects: Vec<[u16; 4]>, pixels: Vec<u8>) -> Vec<Art> {
     assert_eq!(pixels.len(), self::pixels().len(), "a live texture matches the packed one");
-    let arts = (0..rects.len()).map(|i| Art((RECTS.len() + i) as u16)).collect();
+    let arts = (0..rects.len()).map(|i| Art((count() + i) as u16)).collect();
     *LIVE.write().unwrap() = Live { rects, pixels };
     arts
 }
@@ -52,9 +74,10 @@ pub struct Art(pub u16);
 impl Art {
     /// Pixel rect in the texture: x, y, w, h.
     pub fn rect(self) -> [u16; 4] {
-        match RECTS.get(self.0 as usize) {
+        let i = self.0 as usize;
+        match RECTS.get(i).or_else(|| added().get(i - RECTS.len())) {
             Some(&r) => r,
-            None => LIVE.read().unwrap().rects[self.0 as usize - RECTS.len()],
+            None => LIVE.read().unwrap().rects[i - count()],
         }
     }
 
@@ -70,7 +93,7 @@ impl Art {
 
     /// Whether the editor added this sprite while running.
     pub fn is_live(self) -> bool {
-        self.0 as usize >= RECTS.len()
+        self.0 as usize >= count()
     }
 
     pub fn w(self) -> f32 {
