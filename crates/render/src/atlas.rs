@@ -4,7 +4,6 @@ use std::collections::HashMap;
 
 use last_harvest_game::Align;
 
-const FONT_TTF: &[u8] = include_bytes!("../../../assets/fonts/AtkinsonHyperlegible-Regular.ttf");
 /// Glyphs are rasterized once at this height and scaled when drawn; mipmaps keep small text smooth.
 const GLYPH_PX: f32 = 48.0;
 const PAD: u32 = 4;
@@ -34,7 +33,7 @@ pub struct Placed {
 impl Atlas {
     pub fn build() -> Result<Self, String> {
         let mut rgba = vec![0u8; (SIZE * SIZE * 4) as usize];
-        let font = fontdue::Font::from_bytes(FONT_TTF, fontdue::FontSettings::default())?;
+        let font = fontdue::Font::from_bytes(last_harvest_game::data::font(), fontdue::FontSettings::default())?;
         let ascent = font.horizontal_line_metrics(GLYPH_PX).map_or(GLYPH_PX * 0.8, |m| m.ascent);
         let mut glyphs = HashMap::new();
         let (mut x, mut y, mut row_h) = (PAD, PAD, 0);

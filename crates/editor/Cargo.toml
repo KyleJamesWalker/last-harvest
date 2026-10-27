@@ -6,7 +6,7 @@ publish.workspace = true
 
 [dependencies]
 glow.workspace = true
-last-harvest-game.workspace = true
+last-harvest-game = { workspace = true, features = ["embed"] }
 last-harvest-render.workspace = true
 png = "0.17"
 

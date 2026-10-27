@@ -341,7 +341,6 @@ fn main() {
 
     let mut src = String::new();
     writeln!(src, "pub const ATLAS_W: u32 = {ATLAS_W};\npub const ATLAS_H: u32 = {atlas_h};").unwrap();
-    writeln!(src, "pub static PIXELS: &[u8] = include_bytes!(concat!(env!(\"OUT_DIR\"), \"/art.rgba\"));").unwrap();
     let hash = fnv1a(rects.iter().flatten().flat_map(|v| v.to_le_bytes()).chain(atlas.rgba.iter().copied()));
     writeln!(src, "/// Fingerprint of the packed texture and its rects; a data pack's atlas must carry the same one.\npub const ART_HASH: u64 = {hash:#018x};").unwrap();
     writeln!(src, "pub(crate) const RECTS: [[u16; 4]; {}] = [", rects.len()).unwrap();

@@ -277,7 +277,7 @@ impl Renderer {
             let art = gl.create_texture()?;
             gl.bind_texture(glow::TEXTURE_2D, Some(art));
             let (aw, ah) = (art::ATLAS_W as i32, art::ATLAS_H as i32);
-            gl.tex_image_2d(glow::TEXTURE_2D, 0, glow::RGBA8 as i32, aw, ah, 0, glow::RGBA, glow::UNSIGNED_BYTE, glow::PixelUnpackData::Slice(Some(art::PIXELS)));
+            gl.tex_image_2d(glow::TEXTURE_2D, 0, glow::RGBA8 as i32, aw, ah, 0, glow::RGBA, glow::UNSIGNED_BYTE, glow::PixelUnpackData::Slice(Some(art::pixels())));
             for (param, value) in [(glow::TEXTURE_MIN_FILTER, glow::NEAREST), (glow::TEXTURE_MAG_FILTER, glow::NEAREST), (glow::TEXTURE_WRAP_S, glow::CLAMP_TO_EDGE), (glow::TEXTURE_WRAP_T, glow::CLAMP_TO_EDGE)] {
                 gl.tex_parameter_i32(glow::TEXTURE_2D, param, value as i32);
             }
@@ -292,7 +292,7 @@ impl Renderer {
 
     /// Replaces the art texture's pixels; `pixels` must match the packed texture's size.
     pub fn set_art(&mut self, gl: &glow::Context, pixels: &[u8]) {
-        assert_eq!(pixels.len(), art::PIXELS.len());
+        assert_eq!(pixels.len(), art::pixels().len());
         unsafe {
             gl.bind_texture(glow::TEXTURE_2D, Some(self.art));
             let (aw, ah) = (art::ATLAS_W as i32, art::ATLAS_H as i32);

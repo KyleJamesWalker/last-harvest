@@ -778,6 +778,7 @@ dependencies = [
  "glutin",
  "glutin-winit",
  "last-harvest-game",
+ "last-harvest-pack",
  "last-harvest-render",
  "lewton",
  "png",

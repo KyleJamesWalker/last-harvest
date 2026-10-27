@@ -106,7 +106,7 @@ Install into the stock menu as Ports > LastHarvest:
 scripts/install.sh
 ```
 
-Build the data pack, `target/game_data.pak`: a ZIP holding the sprite atlas, sounds, font and powerup table, with a `manifest.toml` that names the atlas it was built from. The game does not read it yet.
+Build the data pack, `target/game_data.pak`: a ZIP holding the sprite atlas, sounds, font and powerup table, with a `manifest.toml` that names the atlas it was built from. Builds keep the data built in through the default `embed` feature and read a pack if one is present. A build without it, `--no-default-features`, reads its data only from `game_data.pak` beside the binary and refuses to start without one, or with one built for a different atlas.
 
 ```sh
 cargo run -p last-harvest-pack
@@ -162,7 +162,8 @@ The scene names are `title`, `harvest`, `farm` (the game without zombies, for lo
 | `LAST_HARVEST_DEBUG` | Turns on debug mode. `DEBUG=1 scripts/deploy.sh` sets it. |
 | `LAST_HARVEST_LOG_INPUT` | Logs every gamepad event. `CAPTURE=1 scripts/deploy.sh` sets it. |
 | `LAST_HARVEST_SAVE` | Sets the save file path. |
-| `LAST_HARVEST_SOUNDS` | Sets the folder of recorded sounds. The default is `sounds` beside the binary, then `assets/private/sounds`. |
+| `LAST_HARVEST_PAK` | Sets the data pack path. The default is `game_data.pak` beside the binary. |
+| `LAST_HARVEST_SOUNDS` | Sets the folder of recorded sounds, over the pack's. Without a pack, the default is `sounds` beside the binary, then `assets/private/sounds`. |
 | `LAST_HARVEST_TOP` | Names the output for the top screen, such as `DSI-2`. |
 | `LAST_HARVEST_UNLOCK_ALL` | Offers every powerup, whatever the save has unlocked. |
 | `LAST_HARVEST_KIT` | Starts every run carrying these powerups, as comma-separated `id` or `id:level`, such as `scythe:3,crows,dog`. |
@@ -263,7 +264,7 @@ Measured on the device with the debug perf log, 4x MSAA, both screens at 1024x76
 | `crates/render` | OpenGL renderer for shapes, pixel art, TrueType text and the lit, fogged 3D cards: GL 3.3 on macOS, GLES 3.0 on the device. |
 | `crates/app` | Windows, input, audio, saves, crash log, debug mode, and the device-only sysfs and evdev code. |
 | `crates/editor` | The sprite editor, built on the game's renderer and views: a macOS window, or a web page in `crates/editor/web`. |
-| `crates/pack` | Builds `game_data.pak` from the built atlas and the files in `assets`. |
+| `crates/pack` | Reads and writes data packs; its binary builds `game_data.pak` from the built atlas and the files in `assets`. |
 | `crates/sprite-server` | Serves the web editor on the local network, with the sprites folder and its git history. |
 | `scripts` | Cross-compile, sysroot, deploy, install and debug scripts, and the on-device run script. |
 | `assets` | The font and its license, and the Ports launcher with its cover art. |

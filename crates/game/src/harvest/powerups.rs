@@ -462,7 +462,7 @@ impl Book {
 /// The powerups in the shipped file.
 pub fn book() -> &'static Book {
     static BOOK: OnceLock<Book> = OnceLock::new();
-    BOOK.get_or_init(|| parse(include_str!("../../powerups.txt")).unwrap_or_else(|e| panic!("powerups.txt:{e}")))
+    BOOK.get_or_init(|| parse(crate::data::powerups()).unwrap_or_else(|e| panic!("powerups.txt:{e}")))
 }
 
 fn sprite(name: &str) -> Option<Art> {

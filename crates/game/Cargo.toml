@@ -4,6 +4,11 @@ edition.workspace = true
 version.workspace = true
 publish.workspace = true
 
+[features]
+default = ["embed"]
+# Builds the atlas, font and powerup table into the binary, so it runs without game_data.pak.
+embed = []
+
 [dependencies]
 glam = "0.30"
 

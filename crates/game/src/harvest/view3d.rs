@@ -11,7 +11,7 @@ use super::map::TILE;
 use crate::art::Stand;
 use super::weapons::{BOLT_LIFE, Hazard};
 use super::{DAWN, DropKind, Facing, GRENADE_FLIGHT, GRENADE_RADIUS, Harvest, Phase, TELL_TIME, TURN_RISE, TURNED, Thrown, WALK_FPS, Zombie, len, norm, player_pose, sub};
-use crate::art::{self, ATLAS_H, ATLAS_W, Art, PIXELS, RECTS};
+use crate::art::{self, ATLAS_H, ATLAS_W, Art, RECTS};
 use crate::scene3d::{Card, CardScene, Flash};
 use crate::{SCREEN_H, SCREEN_W};
 
@@ -41,7 +41,7 @@ fn faces(art: Art, reach: Reach, top: Option<Art>) -> Cow<'static, [Face]> {
         return Cow::Owned(art::with_pixels(art, |pixels| extrude(pixels, art.rect(), reach, top.map(Art::rect))));
     }
     let all = ALL[reach as usize].get_or_init(|| {
-        (0..RECTS.len()).map(|i| extrude(PIXELS, Art(i as u16).rect(), reach, Art(i as u16).top().map(Art::rect))).collect()
+        (0..RECTS.len()).map(|i| extrude(art::pixels(), Art(i as u16).rect(), reach, Art(i as u16).top().map(Art::rect))).collect()
     });
     Cow::Borrowed(&all[art.0 as usize])
 }
@@ -212,7 +212,7 @@ fn carving([top, footprint, south, east]: [Art; 4], own_footprint: bool) -> Cow<
         return Cow::Owned(art::with_pixels(top, |px| carve::carve(px, ATLAS_W as usize, &views)));
     }
     let mut cache = CACHE.get_or_init(Default::default).lock().unwrap();
-    Cow::Borrowed(*cache.entry([top, footprint, south, east]).or_insert_with(|| carve::carve(PIXELS, ATLAS_W as usize, &views).leak()))
+    Cow::Borrowed(*cache.entry([top, footprint, south, east]).or_insert_with(|| carve::carve(art::pixels(), ATLAS_W as usize, &views).leak()))
 }
 
 /// Places a carved solid with its north-west ground corner at `origin`: `arts` are the sprite, the footprint

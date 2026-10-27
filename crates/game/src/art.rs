@@ -13,7 +13,7 @@ static LIVE: RwLock<Live> = RwLock::new(Live { rects: Vec::new(), pixels: Vec::n
 
 /// Replaces the live sprites with `rects` into `pixels`, a full texture the size of the packed one, and returns them.
 pub fn set_live(rects: Vec<[u16; 4]>, pixels: Vec<u8>) -> Vec<Art> {
-    assert_eq!(pixels.len(), PIXELS.len(), "a live texture matches the packed one");
+    assert_eq!(pixels.len(), self::pixels().len(), "a live texture matches the packed one");
     let arts = (0..rects.len()).map(|i| Art((RECTS.len() + i) as u16)).collect();
     *LIVE.write().unwrap() = Live { rects, pixels };
     arts
@@ -21,7 +21,12 @@ pub fn set_live(rects: Vec<[u16; 4]>, pixels: Vec<u8>) -> Vec<Art> {
 
 /// Runs `f` on the texture a sprite's pixels live in.
 pub(crate) fn with_pixels<T>(art: Art, f: impl FnOnce(&[u8]) -> T) -> T {
-    if art.is_live() { f(&LIVE.read().unwrap().pixels) } else { f(PIXELS) }
+    if art.is_live() { f(&LIVE.read().unwrap().pixels) } else { f(self::pixels()) }
+}
+
+/// The packed texture, `ATLAS_W` by `ATLAS_H` RGBA.
+pub fn pixels() -> &'static [u8] {
+    crate::data::atlas()
 }
 
 /// How a sprite stands in the 3D view.

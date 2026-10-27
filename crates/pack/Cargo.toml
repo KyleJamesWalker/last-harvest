@@ -4,6 +4,15 @@ edition.workspace = true
 version.workspace = true
 publish.workspace = true
 
+[features]
+default = ["packer"]
+# The packer copies the built-in atlas; the game's reader must not pull it in.
+packer = ["last-harvest-game/embed"]
+
+[[bin]]
+name = "last-harvest-pack"
+required-features = ["packer"]
+
 [dependencies]
 # zip leaves flate2 without a backend; this picks the pure-Rust one.
 flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }

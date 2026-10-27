@@ -1,6 +1,7 @@
 mod audio;
 mod debug;
 mod loops;
+mod pak;
 #[cfg(target_os = "linux")]
 mod device;
 mod gfx;
@@ -58,7 +59,7 @@ struct App {
 }
 
 impl App {
-    fn new() -> Self {
+    fn new(sounds: &samples::Files) -> Self {
         let seed = SystemTime::now().duration_since(UNIX_EPOCH).map_or(1, |d| d.as_nanos() as u64);
         let mut game = Game::new(seed);
         let (saver, save) = persist::Saver::load();
@@ -79,7 +80,7 @@ impl App {
             game,
             tracker: InputTracker::default(),
             gfx: None,
-            audio: audio::Audio::open().inspect_err(|e| eprintln!("audio disabled: {e}")).ok(),
+            audio: audio::Audio::open(sounds).inspect_err(|e| eprintln!("audio disabled: {e}")).ok(),
             #[cfg(target_os = "linux")]
             device: device::Device::open(),
             keys: Buttons::NONE,
@@ -361,7 +362,8 @@ impl ApplicationHandler for App {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     persist::install_crash_log();
+    let sounds = pak::load()?;
     let event_loop = EventLoop::new()?;
-    event_loop.run_app(&mut App::new())?;
+    event_loop.run_app(&mut App::new(&sounds))?;
     Ok(())
 }

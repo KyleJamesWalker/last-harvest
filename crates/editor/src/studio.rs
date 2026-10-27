@@ -1,7 +1,7 @@
 //! The editor and its two previews, as both the native window and the web page lay them out: the editing pane
 //! on the left and the 2.5D view above the map on the right, each 4:3 like the device's screens.
 
-use last_harvest_game::art::{self, ATLAS_W, PIXELS};
+use last_harvest_game::art::{self, ATLAS_W};
 use last_harvest_game::{Align, Canvas, SCREEN_H, SCREEN_W, Showcase};
 
 use crate::editor::Editor;
@@ -46,7 +46,7 @@ impl Studio {
         Self {
             editor: Editor::new(store, name),
             showcase: Showcase::new(SHOWCASE_SEED),
-            atlas: PIXELS.to_vec(),
+            atlas: art::pixels().to_vec(),
             yaw: Showcase::yaw(),
             distance: 48.0,
             zoom: 2.0,

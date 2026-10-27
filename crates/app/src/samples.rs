@@ -12,6 +12,9 @@ pub struct Clip {
     pub frames: Vec<[f32; 2]>,
 }
 
+/// Sound files by name, like `shot-2.ogg`, with their bytes.
+pub type Files = Vec<(String, Vec<u8>)>;
+
 #[derive(Default)]
 pub struct Bank {
     clips: HashMap<String, Vec<Arc<Clip>>>,
@@ -73,16 +76,29 @@ pub fn folder() -> Option<PathBuf> {
     [beside, PathBuf::from("assets/private/sounds")].into_iter().find(|d| d.is_dir())
 }
 
+/// The Ogg Vorbis and WAV files in `dir`.
+pub fn read_folder(dir: &Path) -> Files {
+    let Ok(entries) = std::fs::read_dir(dir) else { return Files::new() };
+    let mut files: Files = entries
+        .flatten()
+        .filter_map(|e| {
+            let name = e.file_name().into_string().ok()?;
+            let read = || std::fs::read(e.path()).inspect_err(|err| eprintln!("audio: {name}: {err}")).ok();
+            (name.ends_with(".ogg") || name.ends_with(".wav")).then(read).flatten().map(|bytes| (name, bytes))
+        })
+        .collect();
+    files.sort_by(|a, b| a.0.cmp(&b.0));
+    files
+}
+
 impl Bank {
-    pub fn load(dir: &Path, rate: f32) -> Self {
+    pub fn load(files: &[(String, Vec<u8>)], rate: f32) -> Self {
         let mut bank = Bank::default();
-        let Ok(entries) = std::fs::read_dir(dir) else { return bank };
-        for path in entries.flatten().map(|e| e.path()) {
-            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        for (file, bytes) in files {
+            let Some((stem, ext)) = file.rsplit_once('.') else { continue };
             if ext != "wav" && ext != "ogg" {
                 continue;
             }
-            let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else { continue };
             // "shot-2" is a variation of "shot"; "kill-big" is its own cue.
             let name = match stem.rsplit_once('-') {
                 Some((base, n)) if n.parse::<u32>().is_ok() => base,
@@ -92,15 +108,14 @@ impl Bank {
             if !CUES.contains(&name) {
                 continue;
             }
-            let read = std::fs::read(&path).map_err(|e| e.to_string());
-            match read.and_then(|b| if ext == "ogg" { decode_ogg(&b, rate) } else { decode(&b, rate) }) {
+            match if ext == "ogg" { decode_ogg(bytes, rate) } else { decode(bytes, rate) } {
                 Ok(clip) => bank.clips.entry(name.to_string()).or_default().push(Arc::new(clip)),
-                Err(e) => eprintln!("audio: {}: {e}", path.display()),
+                Err(e) => eprintln!("audio: {file}: {e}"),
             }
         }
         let mut names: Vec<&String> = bank.clips.keys().collect();
         names.sort();
-        eprintln!("audio: {} recorded cues from {}: {names:?}", names.len(), dir.display());
+        eprintln!("audio: {} recorded cues: {names:?}", names.len());
         bank
     }
 
@@ -245,7 +260,7 @@ mod tests {
         for name in ["shot.wav", "shot-2.wav", "kill-big.wav", "notes.txt"] {
             std::fs::write(dir.join(name), wav(1, 48_000, &[1000; 4])).unwrap();
         }
-        let bank = Bank::load(&dir, 48_000.0);
+        let bank = Bank::load(&read_folder(&dir), 48_000.0);
         std::fs::remove_dir_all(&dir).unwrap();
         assert_eq!(bank.clips["shot"].len(), 2);
         assert_eq!(bank.clips["kill-big"].len(), 1);
@@ -278,7 +293,7 @@ mod tests {
             return;
         }
         std::fs::copy(dir.join("shot.ogg"), dir.join("music.ogg")).unwrap();
-        let bank = Bank::load(&dir, 48_000.0);
+        let bank = Bank::load(&read_folder(&dir), 48_000.0);
         std::fs::remove_dir_all(&dir).unwrap();
         let clip = bank.get("shot", 0.0).expect("the ogg cue loads");
         // Vorbis pads the stream's end with a few milliseconds the decoder doesn't trim.

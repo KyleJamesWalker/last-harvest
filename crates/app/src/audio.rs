@@ -8,7 +8,7 @@ use cpal::{SampleFormat, SizedSample};
 use last_harvest_game::Sfx;
 
 use crate::loops::Loop;
-use crate::samples::{self, Bank, Clip};
+use crate::samples::{self, Bank, Clip, Files};
 
 const MIX: f32 = 0.25;
 const ATTACK: f32 = 0.005;
@@ -401,7 +401,7 @@ pub struct Audio {
 }
 
 impl Audio {
-    pub fn open() -> Result<Self, Box<dyn Error>> {
+    pub fn open(sounds: &Files) -> Result<Self, Box<dyn Error>> {
         let device = cpal::default_host().default_output_device().ok_or("no output device")?;
         let supported = device.default_output_config()?;
         eprintln!("audio: {:?} {:?}", device.name(), supported);
@@ -412,9 +412,8 @@ impl Audio {
         let dread = Arc::new(AtomicU32::new(0f32.to_bits()));
         let drone = Drone { level: 0.0, phases: [0.0; 3], t: 0.0 };
         let rate = config.sample_rate.0 as f32;
-        let folder = samples::folder();
-        let bank = folder.as_deref().map(|dir| Bank::load(dir, rate)).unwrap_or_default();
-        let track = |name: &str| folder.as_deref().and_then(|dir| Loop::open(&dir.join(format!("{name}.ogg")), rate));
+        let bank = Bank::load(sounds, rate);
+        let track = |name: &str| sounds.iter().find(|(file, _)| *file == format!("{name}.ogg")).and_then(|(_, bytes)| Loop::open(bytes.clone(), rate));
         let music = track("music");
         let beds: Vec<(Loop, f32)> = BEDS.iter().filter_map(|&(name, level)| Some((track(name)?, level))).collect();
         eprintln!("audio: music {}, {} ambience beds", if music.is_some() { "recorded" } else { "synth" }, beds.len());
@@ -549,7 +548,7 @@ mod tests {
         samples.iter().for_each(|v| wav.extend(v.to_le_bytes()));
         std::fs::write(dir.join("shot.wav"), wav).unwrap();
         let (mut s, tx) = synth();
-        s.bank = Bank::load(&dir, RATE);
+        s.bank = Bank::load(&samples::read_folder(&dir), RATE);
         std::fs::remove_dir_all(&dir).unwrap();
         tx.send(Sfx::Shot).unwrap();
         tx.send(Sfx::Blast).unwrap();

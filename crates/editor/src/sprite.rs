@@ -4,7 +4,7 @@
 use std::path::{Path, PathBuf};
 
 use last_harvest_game::Stand;
-use last_harvest_game::art::{self, ATLAS_W, Art, PIXELS};
+use last_harvest_game::art::{self, ATLAS_W, Art};
 
 pub type Rgba = [u8; 4];
 pub const CLEAR: Rgba = [0, 0, 0, 0];
@@ -25,7 +25,10 @@ impl Frame {
         let [x, y, w, h] = a.rect().map(|v| v as usize);
         let px = (0..h)
             .flat_map(|row| (0..w).map(move |col| ((y + row) * ATLAS_W as usize + x + col) * 4))
-            .map(|i| [PIXELS[i], PIXELS[i + 1], PIXELS[i + 2], PIXELS[i + 3]])
+            .map(|i| {
+                let p = art::pixels();
+                [p[i], p[i + 1], p[i + 2], p[i + 3]]
+            })
             .collect();
         Self { w, h, px }
     }
@@ -403,7 +406,7 @@ pub fn unbundle(mut body: &[u8]) -> Option<Vec<(String, Vec<u8>)>> {
 
 /// Every opaque color in the tileset, darkest first within each hue band, for drawing in the pack's style.
 pub fn palette() -> Vec<Rgba> {
-    let mut colors: Vec<Rgba> = PIXELS.chunks_exact(4).filter(|p| p[3] > 0).map(|p| [p[0], p[1], p[2], 255]).collect();
+    let mut colors: Vec<Rgba> = art::pixels().chunks_exact(4).filter(|p| p[3] > 0).map(|p| [p[0], p[1], p[2], 255]).collect();
     colors.sort_unstable();
     colors.dedup();
     let key = |c: &Rgba| {

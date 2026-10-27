@@ -2,7 +2,6 @@
 //! thread a little ahead of playback, so only a fraction of a second is ever held in memory.
 
 use std::io::Cursor;
-use std::path::Path;
 use std::sync::mpsc::{Receiver, SyncSender, TryRecvError, sync_channel};
 
 use lewton::inside_ogg::OggStreamReader;
@@ -21,8 +20,7 @@ pub struct Loop {
 
 impl Loop {
     /// Starts decoding an Ogg Vorbis file over and over at `rate`, or None if it can't be read.
-    pub fn open(path: &Path, rate: f32) -> Option<Self> {
-        let bytes = std::fs::read(path).ok()?;
+    pub fn open(bytes: Vec<u8>, rate: f32) -> Option<Self> {
         OggStreamReader::new(Cursor::new(&bytes)).ok()?;
         let (tx, rx) = sync_channel(QUEUED);
         std::thread::Builder::new().name("audio-loop".into()).spawn(move || repeat(&bytes, rate, &tx)).ok()?;
@@ -120,7 +118,7 @@ mod tests {
             eprintln!("sox isn't installed; skipping");
             return;
         }
-        let mut lp = Loop::open(&ogg, 44_100.0).unwrap();
+        let mut lp = Loop::open(std::fs::read(&ogg).unwrap(), 44_100.0).unwrap();
         std::fs::remove_dir_all(&dir).unwrap();
         // Three passes' worth, giving the decoder thread a moment whenever it falls behind.
         let (mut loud, mut taken) = (0, 0);
