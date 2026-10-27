@@ -17,7 +17,7 @@ use crate::rng::Rng;
 use crate::{Buttons, Color, Difficulty, Input, SCREEN_H, SCREEN_W, Sfx};
 use enemies::Enemy;
 pub(crate) use enemies::{install_cards, off_from_ids, off_ids, roster};
-pub use enemies::{CardFields, FLAGS as CARD_FLAGS, NUMBERS as CARD_NUMBERS, card_fields, set_card_field};
+pub use enemies::{CardFields, FLAGS as CARD_FLAGS, NUMBERS as CARD_NUMBERS, SpawnMix, card_fields, set_card_field, spawn_mix};
 use juice::{Corpse, Juice, Particle, Tone};
 use map::{Map, TILE};
 pub use powerups::{Progress, Run, found_from_ids, found_ids};
@@ -44,6 +44,8 @@ const GRENADE_RADIUS: f32 = 36.0;
 const MAP_W: usize = 72;
 const MAP_H: usize = 54;
 const DAWN: f32 = 600.0;
+/// How long a night lasts, in minutes.
+pub const NIGHT_MINUTES: f32 = DAWN / 60.0;
 /// After dawn, every zombie's health and bite grow by this much each second, compounding.
 const FURY_PER_SEC: f32 = 1.01;
 /// Close enough to the farmhouse's front step to be safe.

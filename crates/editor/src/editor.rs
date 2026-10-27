@@ -154,8 +154,14 @@ const STAT_ROWS: [(&str, f32); 9] = [
     ("Chance per minute", 0.005),
 ];
 const FLAG_NAMES: [&str; 3] = ["Heavy", "Leads hordes", "Harvester"];
-const STAT_TOP: f32 = CANVAS.y + 92.0;
-const STAT_ROW: f32 = 36.0;
+const STAT_TOP: f32 = CANVAS.y + 70.0;
+const STAT_ROW: f32 = 27.0;
+const STAT_BUTTON: f32 = 24.0;
+/// The spawn mix chart under the stats: its plot, then the legend beside it.
+const MIX: Rect = Rect { x: CANVAS.x + 20.0, y: CANVAS.y + 392.0, w: 370.0, h: 132.0 };
+const MIX_STEPS: usize = 40;
+/// Kinds' colors in the spawn mix chart, in roster order; the open card's is `HOT`.
+const MIX_COLORS: [Color; 6] = [[0.55, 0.62, 0.78, 1.0], [0.5, 0.75, 0.55, 1.0], [0.78, 0.5, 0.62, 1.0], [0.62, 0.55, 0.85, 1.0], [0.45, 0.7, 0.75, 1.0], [0.75, 0.68, 0.5, 1.0]];
 const NAME_MAX: usize = 24;
 
 struct Button {
@@ -288,6 +294,9 @@ pub struct Editor {
     stats: bool,
     /// The card's name as it's being typed.
     naming: Option<String>,
+    /// The other cards' texts, read when the stats page opens, for the spawn mix.
+    other_cards: Vec<String>,
+    mix: Option<Result<last_harvest_game::SpawnMix, String>>,
 }
 
 impl Editor {
@@ -343,6 +352,8 @@ impl Editor {
             pan: [0.0; 2],
             stats: false,
             naming: None,
+            other_cards: Vec::new(),
+            mix: None,
         };
         e.load_stand();
         e.reveal();
@@ -414,6 +425,25 @@ impl Editor {
         let Some(text) = &self.sprite.card else { return };
         self.sprite.card = Some(last_harvest_game::set_card_field(text, key, value));
         self.dirty = true;
+        self.refresh_mix();
+    }
+
+    /// Reads the other cards on disk, which the spawn mix counts alongside this one.
+    fn load_other_cards(&mut self) {
+        let mine = sprite::card_id(&self.sprite.name);
+        let fronts: Vec<String> = self.names.iter().map(|(n, _)| n.clone()).filter(|n| sprite::card_part(n).is_some_and(|(id, row)| row == 0 && Some(&id) != mine.as_ref())).collect();
+        self.other_cards = fronts.iter().filter_map(|n| self.store.read(n, sprite::CARD_FILE)).filter_map(|b| String::from_utf8(b).ok()).collect();
+        self.refresh_mix();
+    }
+
+    /// Works out the night's spawn mix with this card as it stands now, unsaved changes and all.
+    fn refresh_mix(&mut self) {
+        self.mix = self.sprite.card.as_ref().filter(|_| self.stats).map(|mine| {
+            let others = self.other_cards.iter().filter(|t| last_harvest_game::card_fields(t).is_ok()).map(String::as_str);
+            let cards: Vec<&str> = others.chain([mine.as_str()]).collect();
+            let minutes: Vec<f32> = (0..MIX_STEPS).map(|i| (i as f32 + 0.5) / MIX_STEPS as f32 * last_harvest_game::NIGHT_MINUTES).collect();
+            last_harvest_game::spawn_mix(&cards, &minutes)
+        });
     }
 
     /// The top strip in the previews, for a figure that has one.
@@ -539,6 +569,9 @@ impl Editor {
             self.load_family();
             self.stats &= self.is_card();
             self.naming = None;
+            if self.stats {
+                self.load_other_cards();
+            }
         }
     }
 
@@ -700,19 +733,19 @@ impl Editor {
             push(410.0, 8.0, 94.0, 34.0, Action::Stats, "Stats T", self.stats);
         }
         if self.stats {
-            push(CANVAS.x + 300.0, CANVAS.y + 44.0, 240.0, 34.0, Action::EditName, "Rename", self.naming.is_some());
+            push(CANVAS.x + 300.0, CANVAS.y + 30.0, 240.0, 30.0, Action::EditName, "Rename", self.naming.is_some());
             for i in 0..STAT_ROWS.len() {
                 let y = STAT_TOP + i as f32 * STAT_ROW;
-                push(CANVAS.x + 400.0, y, 66.0, 30.0, Action::StatStep(i, -1), "-", false);
-                push(CANVAS.x + 474.0, y, 66.0, 30.0, Action::StatStep(i, 1), "+", false);
+                push(CANVAS.x + 400.0, y, 66.0, STAT_BUTTON, Action::StatStep(i, -1), "-", false);
+                push(CANVAS.x + 474.0, y, 66.0, STAT_BUTTON, Action::StatStep(i, 1), "+", false);
             }
             let y = STAT_TOP + STAT_ROWS.len() as f32 * STAT_ROW;
-            push(CANVAS.x + 400.0, y, 66.0, 30.0, Action::Sound(-1), "<", false);
-            push(CANVAS.x + 474.0, y, 66.0, 30.0, Action::Sound(1), ">", false);
+            push(CANVAS.x + 400.0, y, 66.0, STAT_BUTTON, Action::Sound(-1), "<", false);
+            push(CANVAS.x + 474.0, y, 66.0, STAT_BUTTON, Action::Sound(1), ">", false);
             let fields = self.sprite.card.as_deref().and_then(|t| last_harvest_game::card_fields(t).ok());
             for (i, name) in FLAG_NAMES.into_iter().enumerate() {
                 let on = fields.as_ref().is_some_and(|f| f.flags[i].1);
-                push(CANVAS.x + 20.0 + i as f32 * 176.0, y + 48.0, 168.0, 34.0, Action::Flag(i), name, on);
+                push(CANVAS.x + 20.0 + i as f32 * 176.0, y + 32.0, 168.0, 28.0, Action::Flag(i), name, on);
             }
         }
         let header = [(Action::Ask(Ask::New), "New"), (Action::Ask(Ask::Copy), "Copy"), (Action::History, "History R"), (Action::Revert, "Revert"), (Action::Save, "Save")];
@@ -1131,6 +1164,7 @@ impl Editor {
             Action::Stats => {
                 self.stats = !self.stats;
                 self.naming = None;
+                self.load_other_cards();
             }
             Action::StatStep(i, d) => {
                 let Some(f) = self.sprite.card.as_deref().and_then(|t| last_harvest_game::card_fields(t).ok()) else { return };
@@ -1953,19 +1987,62 @@ impl Editor {
                 return;
             }
         };
-        c.label(format!("Enemy card [{}]", f.id), x, CANVAS.y + 12.0, 20.0, DIM, Align::Left);
+        let replaces = self.mix.as_ref().and_then(|m| m.as_ref().ok()).filter(|m| m.replaced.contains(&f.id)).map(|_| "  replaces the game's own");
+        c.label(format!("Enemy card [{}]{}", f.id, replaces.unwrap_or("")), x, CANVAS.y + 8.0, 17.0, if replaces.is_some() { HOT } else { DIM }, Align::Left);
         let caret = if (self.clock * 2.0) as i32 % 2 == 0 { "_" } else { " " };
         let name = self.naming.as_ref().map_or(f.name.clone(), |n| format!("{n}{caret}"));
-        c.label(name, x, CANVAS.y + 46.0, 28.0, if self.naming.is_some() { HOT } else { TEXT }, Align::Left);
+        c.label(name, x, CANVAS.y + 32.0, 26.0, if self.naming.is_some() { HOT } else { TEXT }, Align::Left);
         for (i, ((_, v), (label, _))) in f.numbers.iter().zip(STAT_ROWS).enumerate() {
             let y = STAT_TOP + i as f32 * STAT_ROW;
-            c.label(label, x, y + 5.0, 18.0, DIM, Align::Left);
-            c.label(format!("{}", (v * 1000.0).round() / 1000.0), CANVAS.x + 380.0, y + 5.0, 18.0, TEXT, Align::Right);
+            c.label(label, x, y + 3.0, 16.0, DIM, Align::Left);
+            c.label(format!("{}", (v * 1000.0).round() / 1000.0), CANVAS.x + 380.0, y + 3.0, 16.0, TEXT, Align::Right);
         }
         let y = STAT_TOP + STAT_ROWS.len() as f32 * STAT_ROW;
-        c.label("Death sound", x, y + 5.0, 18.0, DIM, Align::Left);
-        c.label(f.sound, CANVAS.x + 380.0, y + 5.0, 18.0, TEXT, Align::Right);
-        c.label("Shift steps ten times as far.  T: back to the pixels", x, CANVAS.y + CANVAS.h - 28.0, 15.0, DIM, Align::Left);
+        c.label("Death sound", x, y + 3.0, 16.0, DIM, Align::Left);
+        c.label(f.sound, CANVAS.x + 380.0, y + 3.0, 16.0, TEXT, Align::Right);
+        self.draw_mix(c, &f.id);
+        c.label("Shift steps ten times as far.  T: back to the pixels", x, CANVAS.y + CANVAS.h - 22.0, 13.0, DIM, Align::Left);
+    }
+
+    /// The share of each kind among a night's spawns from dusk to dawn, stacked, with this card's in `HOT`, and a
+    /// legend giving each kind's share over the night and flagging any that never come.
+    fn draw_mix(&self, c: &mut Canvas, mine: &str) {
+        let m = MIX;
+        c.label("Spawn mix through the night", m.x, m.y - 4.0, 15.0, DIM, Align::Left);
+        let (plot_y, plot_h) = (m.y + 18.0, m.h - 36.0);
+        c.rect(m.x, plot_y, m.w, plot_h, [0.12, 0.12, 0.14, 1.0]);
+        let mix = match &self.mix {
+            Some(Ok(mix)) => mix,
+            Some(Err(e)) => return c.label(e.clone(), m.x + 8.0, plot_y + 8.0, 14.0, HOT, Align::Left),
+            None => return,
+        };
+        let color = |i: usize| if mix.kinds[i].0 == mine { HOT } else { MIX_COLORS[i % MIX_COLORS.len()] };
+        let col = m.w / mix.shares.len() as f32;
+        for (s, shares) in mix.shares.iter().enumerate() {
+            let mut y = plot_y + plot_h;
+            for (i, share) in shares.iter().enumerate() {
+                let h = share * plot_h;
+                if h > 0.0 {
+                    c.rect(m.x + s as f32 * col, y - h, col + 0.5, h, color(i));
+                }
+                y -= h;
+            }
+        }
+        let night = last_harvest_game::NIGHT_MINUTES;
+        for minute in [0.0, night / 2.0, night] {
+            let align = if minute == 0.0 { Align::Left } else if minute == night { Align::Right } else { Align::Center };
+            c.label(format!("{minute} min"), m.x + minute / night * m.w, plot_y + plot_h + 2.0, 13.0, DIM, align);
+        }
+        let lx = m.x + m.w + 12.0;
+        for (i, (id, name)) in mix.kinds.iter().enumerate() {
+            let y = plot_y + i as f32 * 18.0;
+            let total = mix.shares.iter().map(|s| s[i]).sum::<f32>() / mix.shares.len() as f32;
+            c.rect(lx, y + 3.0, 10.0, 10.0, color(i));
+            let label: String = name.chars().take(10).collect();
+            c.label(label, lx + 14.0, y, 14.0, if id == mine { HOT } else { TEXT }, Align::Left);
+            let (share, ink) = if total <= 0.0 { ("never".to_string(), [1.0, 0.45, 0.4, 1.0]) } else { (format!("{:.0}%", total * 100.0), DIM) };
+            c.label(share, CANVAS.x + CANVAS.w - 12.0, y, 14.0, ink, Align::Right);
+        }
     }
 
     /// With Onion on, the frame before the one being drawn, wrapping round from the first.
@@ -2224,6 +2301,15 @@ mod tests {
         click_pixel(&mut e, 0, 0);
         e.act(Action::Stats, false);
         buttons_fit(&e);
+        let kinds = |e: &Editor| e.mix.as_ref().unwrap().as_ref().unwrap().kinds.iter().map(|(id, _)| id.clone()).collect::<Vec<_>>();
+        assert_eq!(kinds(&e), ["big", "kid", "ghoul", "skinny"]);
+        let skinny_total = |e: &Editor| e.mix.as_ref().unwrap().as_ref().unwrap().shares.iter().map(|s| s[3]).sum::<f32>();
+        assert_eq!(skinny_total(&e), 0.0, "a new card's chance of 1 leaves skinnies none");
+        for _ in 0..70 {
+            e.act(Action::StatStep(7, -1), false);
+        }
+        assert!(skinny_total(&e) > 0.0, "and lowering it gives them some back, unsaved");
+        e.draw(&mut Canvas::default());
         e.act(Action::StatStep(0, 1), false);
         e.act(Action::StatStep(1, 1), true);
         e.act(Action::Flag(0), false);

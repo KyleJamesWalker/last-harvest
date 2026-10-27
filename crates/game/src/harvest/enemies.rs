@@ -62,6 +62,22 @@ impl Roster {
         (0..self.enemies.len()).all(|i| off & 1 << i != 0)
     }
 
+    /// The share of spawns each kind takes `minutes` into the night, by `pick`'s rule: each kind takes the rolls
+    /// between the highest chance above it and its own, and the last kind takes every roll the rest miss.
+    pub fn shares(&self, minutes: f32) -> Vec<f32> {
+        let mut out = vec![0.0; self.enemies.len()];
+        let mut covered = 0.0f32;
+        for (i, e) in self.enemies.iter().enumerate() {
+            let chance = if minutes >= e.after { (e.chance + e.per_minute * minutes).clamp(0.0, 1.0) } else { 0.0 };
+            if chance > covered {
+                out[i] = chance - covered;
+                covered = chance;
+            }
+        }
+        out[self.common()] += 1.0 - covered;
+        out
+    }
+
     /// The last kind, which the list ends on for every roll the others miss.
     pub fn common(&self) -> usize {
         self.enemies.len() - 1
@@ -214,6 +230,30 @@ fn card_entry(text: &str) -> Result<Entry, String> {
         (1, Some(_)) => Err("a card's sprites come from its sheet, so it has no look".into()),
         (n, _) => Err(format!("a card holds one enemy, not {n}")),
     }
+}
+
+/// How a night's spawns split between the kinds: the file's own with these cards added.
+pub struct SpawnMix {
+    /// Each kind's id and name, in roster order.
+    pub kinds: Vec<(String, String)>,
+    /// The kinds in the file that a card replaces, by id.
+    pub replaced: Vec<String>,
+    /// Each kind's share of spawns at each of the minutes asked for, minute by minute.
+    pub shares: Vec<Vec<f32>>,
+}
+
+/// The spawn mix through the night with `cards` added to the enemy file, at each of `minutes`. Horde leaders
+/// and kinds a player turns off aren't counted.
+pub fn spawn_mix(cards: &[&str], minutes: &[f32]) -> Result<SpawnMix, String> {
+    let base = parse(crate::data::enemies()).map_err(|e| format!("enemies.txt:{e}"))?;
+    let entries = cards.iter().map(|t| card_entry(t)).collect::<Result<Vec<_>, _>>()?;
+    let replaced = entries.iter().map(|e| e.enemy.id.clone()).filter(|id| base.index(id).is_some()).collect();
+    let r = base.with(&entries);
+    Ok(SpawnMix {
+        kinds: r.enemies.iter().map(|e| (e.id.clone(), e.name.clone())).collect(),
+        replaced,
+        shares: minutes.iter().map(|&m| r.shares(m)).collect(),
+    })
 }
 
 /// A card's settings as the game reads them, defaults filled in, for an editor to show.
@@ -456,6 +496,32 @@ mod tests {
         let f = card_fields(&text).unwrap();
         assert_eq!((f.numbers[0].1, f.numbers[1].1, f.flags[0].1, f.flags[1].1), (55.0, 30.0, false, true));
         assert!(card_fields("[a]\nlook SKINNY").is_err());
+    }
+
+    #[test]
+    fn shares_follow_the_spawn_rule() {
+        let r = roster();
+        let at = |m: f32| r.shares(m);
+        let close = |a: &[f32], b: &[f32]| a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-5);
+        assert!(close(&at(0.5), &[0.0, 0.0, 1.0]), "only skinnies in the first minute");
+        assert!(close(&at(1.5), &[0.0, 0.35, 0.65]));
+        assert!(close(&at(5.0), &[0.11, 0.24, 0.65]), "bigs take 0.06 + 0.01 a minute out of the kids' share");
+        for m in [0.0, 3.0, 9.9] {
+            assert!((at(m).iter().sum::<f32>() - 1.0).abs() < 1e-5);
+        }
+    }
+
+    #[test]
+    fn a_card_with_chance_one_takes_the_last_kinds_share() {
+        let mix = spawn_mix(&["[ghoul]\nname Ghoul"], &[0.0, 5.0]).unwrap();
+        let ids: Vec<&str> = mix.kinds.iter().map(|(id, _)| id.as_str()).collect();
+        assert_eq!(ids, ["big", "kid", "ghoul", "skinny"]);
+        assert_eq!(mix.shares[0][3], 0.0, "skinny never spawns");
+        assert!(mix.replaced.is_empty());
+        let mix = spawn_mix(&["[kid]\nchance 0.1"], &[5.0]).unwrap();
+        assert_eq!(mix.replaced, ["kid"]);
+        assert!((mix.shares[0][1] - 0.0).abs() < 1e-5, "a kid below the bigs' chance is crowded out");
+        assert!(spawn_mix(&["[a]\nwings 2"], &[0.0]).is_err());
     }
 
     #[test]
