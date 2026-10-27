@@ -516,7 +516,7 @@ pub(crate) fn fitted(text: &str, size: f32, room: f32, least: f32) -> (String, f
     const EM: f32 = 0.56;
     let n = text.chars().count();
     let fits = size.min(room / (n.max(1) as f32 * EM)).max(least);
-    let max = (room / (fits * EM)) as usize;
+    let max = (room / (fits * EM) + 1e-3) as usize;
     let text = if n <= max { text.to_string() } else { text.chars().take(max.saturating_sub(3)).collect::<String>().trim_end().to_string() + "..." };
     (text, fits)
 }
@@ -536,6 +536,14 @@ mod tests {
         assert_eq!(fitted("Big", 64.0, 440.0, 40.0), ("Big".to_string(), 64.0), "a short name keeps its size");
         let (text, size) = fitted("Ghoul of the North", 64.0, 440.0, 40.0);
         assert!((40.0..64.0).contains(&size) && text == "Ghoul of the North");
+        for n in 20..=40 {
+            let name = "x".repeat(n);
+            let (text, size) = fitted(&name, 64.0, 944.0, 64.0 * 2.0 / 3.0);
+            assert!(size > 64.0 * 2.0 / 3.0 || text == name || text.ends_with("..."));
+            if size > 64.0 * 2.0 / 3.0 {
+                assert_eq!(text, name, "shrunk to fit, it isn't also cut");
+            }
+        }
         let (text, size) = fitted("Ghoul of the Northern Fields and Far Beyond", 64.0, 440.0, 40.0);
         assert_eq!(size, 40.0);
         assert!(text.ends_with("...") && text.chars().count() as f32 * 0.56 * size <= 440.0, "{text}");
