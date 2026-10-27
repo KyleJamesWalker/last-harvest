@@ -7,23 +7,29 @@ use last_harvest_pack::{self as pack, Pak, card};
 
 use crate::samples::{self, Files};
 
-const PAK: &str = "game_data.pak";
+/// The game's data, beside the binary: the pack and the enemy cards. What the game writes stays out of it.
+const DATA: &str = "data";
+const PAK: &str = "data/game_data.pak";
 
-/// `LAST_HARVEST_PAK`, else `game_data.pak` beside the binary.
+fn data_folder() -> Option<PathBuf> {
+    Some(std::env::current_exe().ok()?.parent()?.join(DATA))
+}
+
+/// `LAST_HARVEST_PAK`, else `data/game_data.pak` beside the binary.
 fn find() -> Option<PathBuf> {
     if let Some(path) = std::env::var_os("LAST_HARVEST_PAK") {
         return Some(path.into());
     }
-    let beside = std::env::current_exe().ok()?.parent()?.join(PAK);
-    beside.is_file().then_some(beside)
+    let pak = data_folder()?.join("game_data.pak");
+    pak.is_file().then_some(pak)
 }
 
-/// `LAST_HARVEST_ENEMIES`, else `enemies` beside the binary.
+/// `LAST_HARVEST_ENEMIES`, else `data/enemies` beside the binary.
 fn cards_folder() -> Option<PathBuf> {
     if let Some(dir) = std::env::var_os("LAST_HARVEST_ENEMIES") {
         return Some(dir.into());
     }
-    Some(std::env::current_exe().ok()?.parent()?.join("enemies"))
+    Some(data_folder()?.join("enemies"))
 }
 
 /// Reads the cards among `files`, by name, logging any that aren't.

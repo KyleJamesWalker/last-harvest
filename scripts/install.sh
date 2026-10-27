@@ -6,11 +6,11 @@ host="${RGDS_HOST:-root@anbernic.local}"
 ports=/mnt/sdcard/PORTS
 scripts/build-device.sh
 cargo run -q -p last-harvest-pack
-ssh "$host" "mkdir -p $ports/last-harvest $ports/Imgs"
-scp -q target/aarch64-unknown-linux-gnu/release/last-harvest "$host:$ports/last-harvest/last-harvest"
-scp -q target/game_data.pak "$host:$ports/last-harvest/game_data.pak"
-ssh "$host" "rm -rf $ports/last-harvest/sounds"
-scripts/sync-cards.sh "$host" "$ports/last-harvest/enemies"
+game="$ports/last-harvest"
+ssh "$host" "mkdir -p $game/data $ports/Imgs && rm -rf $game/sounds $game/enemies $game/game_data.pak"
+scp -q target/aarch64-unknown-linux-gnu/release/last-harvest "$host:$game/last-harvest"
+scp -q target/game_data.pak "$host:$game/data/game_data.pak"
+scripts/sync-cards.sh "$host" "$game/data/enemies"
 scp -q assets/LastHarvest.sh "$host:$ports/LastHarvest.sh"
 scp -q assets/LastHarvest.png "$host:$ports/Imgs/LastHarvest.png"
 echo "installed: Ports > LastHarvest"

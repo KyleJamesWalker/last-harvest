@@ -1,6 +1,6 @@
 #!/bin/sh
 # Runs on the device: pauses the stock frontend (and its idle auto-sleep) while the game runs.
-# A deploy drops in last-harvest.new and game_data.pak.new and touches /tmp/last-harvest.restart to relaunch without resuming the frontend.
+# A deploy drops in last-harvest.new and data/game_data.pak.new and touches /tmp/last-harvest.restart to relaunch without resuming the frontend.
 # A panic (exit 101) also relaunches; any other exit ends the session.
 # Set CAPTURE=1 to also log every input device and the lid sensor, and DEBUG=1 for remote control.
 cd "$(dirname "$0")"
@@ -18,7 +18,7 @@ fi
 [ -n "$DEBUG" ] && export LAST_HARVEST_DEBUG=1
 while :; do
   [ -f last-harvest.new ] && mv last-harvest.new last-harvest
-  [ -f game_data.pak.new ] && mv game_data.pak.new game_data.pak
+  [ -f data/game_data.pak.new ] && mv data/game_data.pak.new data/game_data.pak
   rm -f /tmp/last-harvest.restart
   timeout "${TIMEOUT:-1800}" ./last-harvest > run.log 2>&1
   status=$?

@@ -48,7 +48,7 @@ The title screen shows how many powerups are unlocked, how many are waiting to b
 
 `crates/game/enemies.txt` defines every kind of zombie: its sprites, health, speed, bite, money, weight, death sound, and when and how often it arrives. Big is marked `heavy`, which roots it on a hard hit, and it leads hordes and dresses dawn's Harvester. The comments at the top of the file list every key, and a test reads it the same way.
 
-An enemy card adds a kind of zombie, or replaces one, with a single PNG named `<id>.enemy.png`: a real PNG that previews anywhere, named so the game and the editor know it for a card. The image is the enemy's frames in a grid three across and five down: walking front, side and back, then the flash and hurt frames for each facing, every frame the same size up to 64 pixels. A compressed `iTXt` chunk named `last-harvest-enemy` holds its `enemies.txt` section, without `look`. A card with the id of an existing kind replaces it; a new kind goes in just before the last one. The game loads cards from `enemies/` inside `game_data.pak` and from an `enemies` folder beside the binary, or the folder `LAST_HARVEST_ENEMIES` names, and draws their frames into the sprite texture's free rows at startup. A card that can't load is left out, and the log says why. The packer leaves cards out of `game_data.pak`: `scripts/deploy.sh` and `scripts/install.sh` copy the cards in `assets/private/enemies/` into the `enemies` folder beside the game on the device, replacing the ones there, the way a player adds a card.
+An enemy card adds a kind of zombie, or replaces one, with a single PNG named `<id>.enemy.png`: a real PNG that previews anywhere, named so the game and the editor know it for a card. The image is the enemy's frames in a grid three across and five down: walking front, side and back, then the flash and hurt frames for each facing, every frame the same size up to 64 pixels. A compressed `iTXt` chunk named `last-harvest-enemy` holds its `enemies.txt` section, without `look`. A card with the id of an existing kind replaces it; a new kind goes in just before the last one. The game loads cards from `enemies/` inside `game_data.pak` and from `data/enemies/` beside the binary, or the folder `LAST_HARVEST_ENEMIES` names, and draws their frames into the sprite texture's free rows at startup. A card that can't load is left out, and the log says why. The packer leaves cards out of `game_data.pak`: `scripts/deploy.sh` and `scripts/install.sh` copy the cards in `assets/private/enemies/` into `data/enemies/` beside the game on the device, replacing the ones there, the way a player adds a card.
 
 ```sh
 cargo run -p last-harvest-pack -- card sheet.png ghoul.txt ghoul.enemy.png   # make a card
@@ -117,13 +117,23 @@ Install into the stock menu as Ports > LastHarvest:
 scripts/install.sh
 ```
 
-Build the data pack, `target/game_data.pak`: a ZIP holding the sprite atlas, sounds, font and powerup table, with a `manifest.toml` that names the atlas it was built from. Builds keep the data built in through the default `embed` feature and read a pack if one is present. A build without it, `--no-default-features`, reads its data only from `game_data.pak` beside the binary and refuses to start without one, or with one built for a different atlas.
+The game's folder keeps what ships under `data/` and what the game writes beside it:
+
+```
+Ports/last-harvest/
+  last-harvest                   the program
+  data/game_data.pak             the base game's data
+  data/enemies/*.enemy.png       enemy cards
+  save.txt  log.txt  screenshots/
+```
+
+Build the data pack, `target/game_data.pak`: a ZIP holding the sprite atlas, sounds, font and powerup table, with a `manifest.toml` that names the atlas it was built from. Builds keep the data built in through the default `embed` feature and read a pack if one is present. A build without it, `--no-default-features`, reads its data only from `data/game_data.pak` beside the binary and refuses to start without one, or with one built for a different atlas.
 
 ```sh
 cargo run -p last-harvest-pack
 ```
 
-Publishing a GitHub release, such as with `gh release create v0.2.0 --generate-notes`, runs `.github/workflows/release.yml`. It attaches the device build as a Ports-layout tarball and `game_data.pak` as a separate file; extract the tarball into the SD card's `Ports` folder and put the pack in `Ports/last-harvest/`. The workflow reads the private assets with a read-only deploy key on that repository, stored as the `ASSETS_DEPLOY_KEY` secret.
+Publishing a GitHub release, such as with `gh release create v0.2.0 --generate-notes`, runs `.github/workflows/release.yml`. It attaches the device build as a Ports-layout tarball and `game_data.pak` as a separate file; extract the tarball into the SD card's `Ports` folder and put the pack in `Ports/last-harvest/data/`. The workflow reads the private assets with a read-only deploy key on that repository, stored as the `ASSETS_DEPLOY_KEY` secret.
 
 Run the tests:
 
@@ -175,8 +185,8 @@ The scene names are `title`, `harvest`, `farm` (the game without zombies, for lo
 | `LAST_HARVEST_DEBUG` | Turns on debug mode. `DEBUG=1 scripts/deploy.sh` sets it. |
 | `LAST_HARVEST_LOG_INPUT` | Logs every gamepad event. `CAPTURE=1 scripts/deploy.sh` sets it. |
 | `LAST_HARVEST_SAVE` | Sets the save file path. |
-| `LAST_HARVEST_ENEMIES` | Sets the folder of enemy cards. The default is `enemies` beside the binary. |
-| `LAST_HARVEST_PAK` | Sets the data pack path. The default is `game_data.pak` beside the binary. |
+| `LAST_HARVEST_ENEMIES` | Sets the folder of enemy cards. The default is `data/enemies` beside the binary. |
+| `LAST_HARVEST_PAK` | Sets the data pack path. The default is `data/game_data.pak` beside the binary. |
 | `LAST_HARVEST_SOUNDS` | Sets the folder of recorded sounds, over the pack's. Without a pack, the default is `sounds` beside the binary, then `assets/private/sounds`. |
 | `LAST_HARVEST_TOP` | Names the output for the top screen, such as `DSI-2`. |
 | `LAST_HARVEST_UNLOCK_ALL` | Offers every powerup, whatever the save has unlocked. |
