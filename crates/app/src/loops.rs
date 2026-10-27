@@ -51,15 +51,18 @@ fn repeat(bytes: &[u8], rate: f32, tx: &SyncSender<Vec<[f32; 2]>>) {
         let channels = reader.ident_hdr.audio_channels as usize;
         let step = reader.ident_hdr.audio_sample_rate as f32 / rate;
         let mut resample = Resample { step, at: 0.0, prev: None };
-        let (mut out, mut decoded) = (Vec::with_capacity(CHUNK + HOLD), 0u64);
+        let (mut out, mut decoded, mut sent) = (Vec::with_capacity(CHUNK + HOLD), 0u64, false);
         while let Ok(Some(packet)) = reader.read_dec_packet_itl() {
             for f in packet.chunks_exact(channels) {
                 let s = |v: i16| v as f32 / 32768.0;
                 resample.push([s(f[0]), s(f[(channels > 1) as usize])], &mut out);
             }
             decoded += (packet.len() / channels) as u64;
-            if out.len() >= CHUNK + HOLD && tx.send(out.drain(..CHUNK).collect()).is_err() {
-                return;
+            if out.len() >= CHUNK + HOLD {
+                if tx.send(out.drain(..CHUNK).collect()).is_err() {
+                    return;
+                }
+                sent = true;
             }
         }
         // The last page's granule position is the true length: drop the padding past it.
@@ -67,7 +70,8 @@ fn repeat(bytes: &[u8], rate: f32, tx: &SyncSender<Vec<[f32; 2]>>) {
             let extra = (decoded.saturating_sub(length) as f32 / step) as usize;
             out.truncate(out.len().saturating_sub(extra));
         }
-        if decoded == 0 || (!out.is_empty() && tx.send(out).is_err()) {
+        // A pass that yields nothing would only spin: a track trimmed to nothing plays as silence.
+        if (out.is_empty() && !sent) || (!out.is_empty() && tx.send(out).is_err()) {
             return;
         }
     }
