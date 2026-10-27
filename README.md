@@ -1,6 +1,6 @@
 # last-harvest
 
-A zombie survivors-like for the ANBERNIC RG DS Plus, written in Rust. It is built on the [twinbit-ds](https://github.com/KyleJamesWalker/twinbit-ds) template.
+A zombie survivors-like for the ANBERNIC RG DS Plus, written in Rust. It is built on the [twinbit-ds](https://github.com/KyleJamesWalker/twinbit-ds) template. Players can add their own zombies and looks with cards, single PNGs made in a browser card editor, and change the rest of the game's data with mod packs: see Cards and mods.
 
 ## The game
 
