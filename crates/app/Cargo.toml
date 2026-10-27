@@ -19,7 +19,7 @@ last-harvest-game.workspace = true
 last-harvest-render.workspace = true
 winit = { version = "0.30", default-features = false, features = ["rwh_06", "wayland", "wayland-dlopen"] }
 lewton = "0.10"
-last-harvest-pack = { path = "../pack", default-features = false }
+last-harvest-pack = { path = "../pack", default-features = false, features = ["pak"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 evdev = "0.13"
