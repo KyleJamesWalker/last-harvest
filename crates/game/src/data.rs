@@ -29,6 +29,26 @@ pub struct Card {
 
 static DATA: OnceLock<Data> = OnceLock::new();
 
+/// What loaded beside the game's own data, and what couldn't, for players who can't read the log.
+#[derive(Default)]
+pub struct LoadReport {
+    pub cards: usize,
+    pub mods: Vec<String>,
+    /// A line for each card or mod left out, and why.
+    pub problems: Vec<String>,
+}
+
+static REPORT: OnceLock<LoadReport> = OnceLock::new();
+
+/// Keeps the app's account of what it loaded; the first one stays.
+pub fn report(r: LoadReport) {
+    REPORT.set(r).ok();
+}
+
+pub fn load_report() -> &'static LoadReport {
+    REPORT.get_or_init(LoadReport::default)
+}
+
 /// The font and the tables are the repository's own, so every build carries them; only the tileset's atlas
 /// waits on the `embed` feature.
 mod built_in {

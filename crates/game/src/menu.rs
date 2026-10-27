@@ -466,12 +466,14 @@ impl Game {
             ("Nights played", s.nights.to_string()),
             ("Nights survived", s.dawns.to_string()),
             ("Powerups unlocked", format!("{open} of {all}")),
+            ("Cards loaded", crate::data::load_report().cards.to_string()),
+            ("Mod packs", crate::data::load_report().mods.len().to_string()),
         ];
         c.label("Stats", SCREEN_W / 2.0, 24.0, 48.0, WHITE, Align::Center);
         for (i, (name, value)) in rows.iter().enumerate() {
-            let y = 110.0 + i as f32 * 86.0;
-            c.label(*name, 160.0, y, 40.0, DIM, Align::Left);
-            c.label(value.clone(), SCREEN_W - 160.0, y, 40.0, HOT, Align::Right);
+            let y = 104.0 + i as f32 * 66.0;
+            c.label(*name, 160.0, y, 36.0, DIM, Align::Left);
+            c.label(value.clone(), SCREEN_W - 160.0, y, 36.0, HOT, Align::Right);
         }
         back_button(c);
     }

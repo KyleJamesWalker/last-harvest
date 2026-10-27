@@ -40,10 +40,16 @@ fn players_folder() -> Option<PathBuf> {
     Some(data_folder()?.join("players"))
 }
 
-/// Reads the cards of `kind` among `files`, by name, logging any that aren't.
-fn read_cards(kind: card::Kind, files: Vec<(String, Vec<u8>)>) -> Vec<Card> {
-    let read = |(name, bytes): (String, Vec<u8>)| card::read_as(kind, &name, &bytes).inspect_err(|e| eprintln!("cards: {e}")).ok();
-    files.into_iter().filter(|(name, _)| name.ends_with(kind.extension())).filter_map(read).collect()
+/// Reads the cards of `kind` among `files`, by name, noting any that aren't.
+fn read_cards(kind: card::Kind, files: Vec<(String, Vec<u8>)>, problems: &mut Vec<String>) -> Vec<Card> {
+    let mut cards = Vec::new();
+    for (name, bytes) in files.into_iter().filter(|(name, _)| name.ends_with(kind.extension())) {
+        match card::read_as(kind, &name, &bytes) {
+            Ok(c) => cards.push(c),
+            Err(e) => problems.push(e),
+        }
+    }
+    cards
 }
 
 /// `LAST_HARVEST_MODS`, else `data/mods` beside the binary.
@@ -55,15 +61,22 @@ fn mods_folder() -> Option<PathBuf> {
 }
 
 /// The mod packs in the mods folder, in name order, by file name; one that can't be read, or whose atlas or tables
-/// would stop the game, is left out and logged.
-fn read_mods() -> Vec<(String, Pak)> {
+/// would stop the game, is left out and noted.
+fn read_mods(problems: &mut Vec<String>) -> Vec<(String, Pak)> {
     let Some(dir) = mods_folder() else { return Vec::new() };
     let read = |bytes: Vec<u8>| -> Result<Pak, String> {
         let pak = Pak::read(std::io::Cursor::new(bytes))?;
         check_mod(&pak)?;
         Ok(pak)
     };
-    samples::read_files(&dir, &[".pak"]).into_iter().filter_map(|(name, bytes)| read(bytes).inspect_err(|e| eprintln!("mods: {name}: {e}")).ok().map(|p| (name, p))).collect()
+    let mut mods = Vec::new();
+    for (name, bytes) in samples::read_files(&dir, &[".pak"]) {
+        match read(bytes) {
+            Ok(p) => mods.push((name, p)),
+            Err(e) => problems.push(format!("{name}: {e}")),
+        }
+    }
+    mods
 }
 
 /// Whether a mod's files that replace the game's own would read: its atlas the right size, its tables UTF-8 that
@@ -91,7 +104,9 @@ pub fn load() -> Result<Files, String> {
     };
     let had_base = base.is_some();
     let mut pak = base.unwrap_or_else(Pak::empty);
-    let mods = read_mods();
+    let mut problems = Vec::new();
+    let mods = read_mods(&mut problems);
+    let mod_names: Vec<String> = mods.iter().map(|(n, _)| n.clone()).collect();
     if !mods.is_empty() {
         eprintln!("mods: {:?}", mods.iter().map(|(n, _)| n).collect::<Vec<_>>());
     }
@@ -101,22 +116,26 @@ pub fn load() -> Result<Files, String> {
     let mut text = |file: &str| pak.take(file).map(String::from_utf8).transpose().map_err(|_| format!("{file} is not UTF-8"));
     let (powerups, enemies) = (text(pack::POWERUPS)?, text(pack::ENEMIES)?);
     let (enemy, player) = (card::Kind::Enemy, card::Kind::Player);
-    let cards = read_cards(enemy, pak.take_dir(pack::ENEMY_CARDS));
-    let players = read_cards(player, pak.take_dir(pack::PLAYER_CARDS));
+    let cards = read_cards(enemy, pak.take_dir(pack::ENEMY_CARDS), &mut problems);
+    let players = read_cards(player, pak.take_dir(pack::PLAYER_CARDS), &mut problems);
     let mut data = Data { atlas: pak.take(pack::ATLAS), font: pak.take(pack::FONT), powerups, enemies, cards, players };
     if let Some(dir) = cards_folder() {
-        data.cards.extend(read_cards(enemy, samples::read_files(&dir, &[enemy.extension()])));
+        data.cards.extend(read_cards(enemy, samples::read_files(&dir, &[enemy.extension()]), &mut problems));
     }
     if let Some(dir) = players_folder() {
-        data.players.extend(read_cards(player, samples::read_files(&dir, &[player.extension()])));
+        data.players.extend(read_cards(player, samples::read_files(&dir, &[player.extension()]), &mut problems));
     }
     let cards: Vec<String> = data.cards.iter().chain(&data.players).map(|c| c.name.clone()).collect();
-    for note in data::install(data)? {
-        eprintln!("cards: {note}");
-    }
+    let left_out = data::install(data)?;
     if !cards.is_empty() {
         eprintln!("cards: {cards:?}");
     }
+    let loaded = cards.len() - left_out.len();
+    problems.extend(left_out);
+    for problem in &problems {
+        eprintln!("left out: {problem}");
+    }
+    data::report(data::LoadReport { cards: loaded, mods: mod_names, problems });
     let mut sounds = pak.take_dir(pack::SOUNDS);
     let forced = std::env::var_os("LAST_HARVEST_SOUNDS").is_some();
     if (forced || !had_base)
