@@ -205,6 +205,7 @@ A pixel editor for the game's sprites, on macOS. The left pane lists every sprit
 | Action | Input |
 |---|---|
 | Draw, erase, fill | B, E, G, or the tool buttons |
+| Draw a line, box or oval | The Line, Box and Oval buttons, then drag from one end or corner to the other; hold Shift as the drag starts to fill a box or oval, or keep a line straight |
 | Pick a color | Hold I or Option and click, then let go to return to the tool; right-click always picks; the Pick button returns to the tool it took over from once it takes a color |
 | Draw a straight line | Shift-click with the pencil or eraser, from the last pixel drawn |
 | Search the sprite list | /, then type; Enter opens the first match and keeps the filter, Esc clears it |

@@ -72,6 +72,24 @@ pub enum Tool {
     Fill,
     Picker,
     Select,
+    Line,
+    Rect,
+    Ellipse,
+}
+
+impl Tool {
+    /// Whether it draws a shape by dragging from one corner to the other.
+    fn shapes(self) -> bool {
+        matches!(self, Tool::Line | Tool::Rect | Tool::Ellipse)
+    }
+}
+
+/// A shape being dragged out: where it started, the surface as it was, and whether Shift was held at the start.
+#[derive(Clone)]
+struct Drawing {
+    from: (i32, i32),
+    base: Frame,
+    shift: bool,
 }
 
 /// A rectangle of pixels picked out with the select tool. Once moved or pasted, its pixels float above the
@@ -236,6 +254,7 @@ pub struct Editor {
     tool: Tool,
     /// The tool to go back to once the picker has taken a color.
     before_pick: Tool,
+    drawing: Option<Drawing>,
     mirror: bool,
     /// The previous frame shows faintly under the one being drawn.
     onion: bool,
@@ -315,6 +334,7 @@ impl Editor {
             frame: 0,
             tool: Tool::Pencil,
             before_pick: Tool::Pencil,
+            drawing: None,
             mirror: false,
             onion: false,
             compare: false,
@@ -795,11 +815,18 @@ impl Editor {
             push(RESTORE.x, RESTORE.y, RESTORE.w, RESTORE.h, Action::Restore, "Restore", true);
             push(BACK.x, BACK.y, BACK.w, BACK.h, Action::Back, "Back", false);
         }
-        let tools = [(Tool::Pencil, "Pencil B"), (Tool::Eraser, "Eraser E"), (Tool::Fill, "Fill G"), (Tool::Picker, "Pick  hold I"), (Tool::Select, "Select S")];
+        let tools = [(Tool::Pencil, "Pencil B"), (Tool::Eraser, "Eraser E"), (Tool::Fill, "Fill G"), (Tool::Picker, "Pick I"), (Tool::Select, "Select S")];
+        let cell = |i: usize| (SIDE_X + (i % 3) as f32 * 79.0, 52.0 + (i / 3) as f32 * 38.0);
         for (i, (t, l)) in tools.into_iter().enumerate() {
-            push(SIDE_X + (i % 2) as f32 * 118.0, 52.0 + (i / 2) as f32 * 38.0, 114.0, 32.0, Action::Tool(t), l, self.tool_now() == t);
+            let (x, y) = cell(i);
+            push(x, y, 74.0, 32.0, Action::Tool(t), l, self.tool_now() == t);
         }
-        push(SIDE_X + 118.0, 128.0, 114.0, 32.0, Action::Mirror, "Mirror M", self.mirror);
+        let (x, y) = cell(5);
+        push(x, y, 74.0, 32.0, Action::Mirror, "Mirror M", self.mirror);
+        for (i, (t, l)) in [(Tool::Line, "Line"), (Tool::Rect, "Box"), (Tool::Ellipse, "Oval")].into_iter().enumerate() {
+            let (x, y) = cell(6 + i);
+            push(x, y, 74.0, 32.0, Action::Tool(t), l, self.tool_now() == t);
+        }
         let cols = (SIDE_W / SWATCH) as usize;
         for (i, &c) in self.palette.iter().enumerate().take(cols * 9) {
             let (x, y) = (SIDE_X + (i % cols) as f32 * SWATCH, 316.0 + (i / cols) as f32 * SWATCH);
@@ -936,6 +963,12 @@ impl Editor {
                 });
                 return;
             }
+            if self.tool_now().shapes() && !right {
+                self.remember();
+                self.drawing = Some(Drawing { from: (x, y), base: self.current().clone(), shift });
+                self.draw_shape((x, y));
+                return;
+            }
             if right || self.tool_now() == Tool::Picker {
                 if let Some(c) = self.current().get(x, y).filter(|c| c[3] > 0) {
                     self.color = c;
@@ -976,6 +1009,11 @@ impl Editor {
             }
             return;
         }
+        if self.drawing.is_some() {
+            let to = self.pixel_at(p);
+            self.draw_shape(to);
+            return;
+        }
         let Some((lx, ly)) = self.stroke else { return };
         if matches!(self.tool_now(), Tool::Fill | Tool::Picker | Tool::Select) {
             return;
@@ -988,6 +1026,7 @@ impl Editor {
 
     pub fn mouse_up(&mut self) {
         self.stroke = None;
+        self.drawing = None;
         self.channel = None;
         if matches!(self.grab.take(), Some(Grab::From(..))) && self.selection.as_ref().is_some_and(|s| s.w * s.h == 1) {
             self.selection = None;
@@ -1113,6 +1152,50 @@ impl Editor {
         }
     }
 
+    /// Redraws the shape being dragged out, from where it started to `to`, over the surface as it was.
+    fn draw_shape(&mut self, (bx, by): (i32, i32)) {
+        let Some(d) = self.drawing.clone() else { return };
+        *self.current_mut() = d.base;
+        let (ax, ay) = d.from;
+        match self.tool_now() {
+            Tool::Line => {
+                let (mut dx, mut dy) = (bx - ax, by - ay);
+                if d.shift {
+                    // Straight: across, down, or at 45 degrees, whichever the drag is nearest.
+                    if dx.abs() > 2 * dy.abs() {
+                        dy = 0;
+                    } else if dy.abs() > 2 * dx.abs() {
+                        dx = 0;
+                    } else {
+                        let n = dx.abs().max(dy.abs());
+                        (dx, dy) = (n * dx.signum(), n * dy.signum());
+                    }
+                }
+                self.paint(ax, ay);
+                self.line((ax, ay), (ax + dx, ay + dy));
+            }
+            Tool::Rect | Tool::Ellipse => {
+                let (x0, x1, y0, y1) = (ax.min(bx), ax.max(bx), ay.min(by), ay.max(by));
+                let inside = |x: i32, y: i32| {
+                    if self.tool_now() == Tool::Rect {
+                        return (x0..=x1).contains(&x) && (y0..=y1).contains(&y);
+                    }
+                    let (rx, ry) = ((x1 - x0 + 1) as f32 / 2.0, (y1 - y0 + 1) as f32 / 2.0);
+                    let (cx, cy) = (x0 as f32 + rx, y0 as f32 + ry);
+                    let (u, v) = ((x as f32 + 0.5 - cx) / rx, (y as f32 + 0.5 - cy) / ry);
+                    u * u + v * v <= 1.0
+                };
+                let edge = |x: i32, y: i32| [(1, 0), (-1, 0), (0, 1), (0, -1)].iter().any(|(ox, oy)| !inside(x + ox, y + oy));
+                let dots: Vec<(i32, i32)> = (y0..=y1).flat_map(|y| (x0..=x1).map(move |x| (x, y))).filter(|&(x, y)| inside(x, y) && (d.shift || edge(x, y))).collect();
+                for (x, y) in dots {
+                    self.paint(x, y);
+                }
+            }
+            _ => {}
+        }
+        self.changed = true;
+    }
+
     fn paint(&mut self, x: i32, y: i32) {
         self.last_dot = Some((x, y));
         let c = if self.tool == Tool::Eraser { CLEAR } else { self.color };
@@ -1188,6 +1271,11 @@ impl Editor {
                     self.before_pick = self.tool;
                 }
                 self.tool = t;
+                match t {
+                    Tool::Line => self.say("Drag to draw a line; hold Shift as you start to keep it straight"),
+                    Tool::Rect | Tool::Ellipse => self.say("Drag from corner to corner; hold Shift as you start to fill it"),
+                    _ => {}
+                }
             }
             Action::Mirror => self.mirror = !self.mirror,
             Action::Onion => self.onion = !self.onion,
@@ -2299,6 +2387,53 @@ mod tests {
         assert_eq!(*e.current(), before);
         e.key(Key::Redo);
         assert_eq!(e.current().get(0, 0), Some([1, 2, 3, 255]));
+    }
+
+    /// Drags a shape from one pixel to another, with Shift held at the start or not, and lists the painted pixels.
+    fn drag_shape(tool: Tool, from: (i32, i32), to: (i32, i32), shift: bool) -> (Editor, Vec<(i32, i32)>) {
+        let mut e = editor();
+        e.sprite.frames[0] = Frame::blank(16, 16);
+        e.act(Action::Tool(tool), false);
+        e.color = [5, 6, 7, 255];
+        let px = |e: &Editor, x: i32, y: i32| {
+            let (o, zoom) = e.grid();
+            [o[0] + (x as f32 + 0.5) * zoom, o[1] + (y as f32 + 0.5) * zoom]
+        };
+        e.mouse_down(px(&e, from.0, from.1), false, shift);
+        e.drag(px(&e, 15, 15));
+        e.drag(px(&e, to.0, to.1));
+        e.mouse_up();
+        let painted = (0..16).flat_map(|y| (0..16).map(move |x| (x, y))).filter(|&(x, y)| e.current().get(x, y) == Some([5, 6, 7, 255])).collect();
+        (e, painted)
+    }
+
+    #[test]
+    fn a_box_outlines_or_fills_and_leaves_no_trail_of_its_drag() {
+        let (_, outline) = drag_shape(Tool::Rect, (2, 2), (5, 4), false);
+        assert_eq!(outline.len(), 10, "the 4x3 border, and nothing of the larger box the drag passed through: {outline:?}");
+        assert!(!outline.contains(&(3, 3)) && outline.contains(&(5, 4)));
+        let (_, filled) = drag_shape(Tool::Rect, (5, 4), (2, 2), true);
+        assert_eq!(filled.len(), 12, "Shift fills, whichever corner it starts from");
+    }
+
+    #[test]
+    fn an_oval_is_round_and_symmetric() {
+        let (_, ring) = drag_shape(Tool::Ellipse, (0, 0), (8, 8), false);
+        let (_, disc) = drag_shape(Tool::Ellipse, (0, 0), (8, 8), true);
+        assert!(ring.contains(&(4, 0)) && ring.contains(&(0, 4)) && ring.contains(&(8, 4)) && ring.contains(&(4, 8)));
+        assert!(!ring.contains(&(0, 0)) && !ring.contains(&(4, 4)), "no corners, and hollow");
+        assert!(disc.contains(&(4, 4)) && disc.len() > ring.len());
+        assert!(ring.iter().all(|&(x, y)| ring.contains(&(8 - x, y)) && ring.contains(&(x, 8 - y))));
+    }
+
+    #[test]
+    fn a_line_snaps_straight_with_shift_and_undoes_in_one_step() {
+        let (_, slant) = drag_shape(Tool::Line, (0, 0), (6, 2), false);
+        assert!(slant.contains(&(0, 0)) && slant.contains(&(6, 2)) && slant.len() == 7);
+        let (mut e, flat) = drag_shape(Tool::Line, (0, 5), (6, 6), true);
+        assert!(flat.iter().all(|&(_, y)| y == 5) && flat.len() == 7, "{flat:?}");
+        e.key(Key::Undo);
+        assert!((0..16).all(|x| e.current().get(x, 5) != Some([5, 6, 7, 255])), "one undo takes the whole line");
     }
 
     #[test]
