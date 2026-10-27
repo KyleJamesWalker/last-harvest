@@ -1593,7 +1593,7 @@ impl Editor {
                             (Some(text), Ask::Copy) => text.replacen(&format!("[{}]", sprite::card_id(&self.sprite.name).unwrap_or_default()), &format!("[{id}]"), 1),
                             _ => format!("[{id}]\nname        {}\n", id[..1].to_ascii_uppercase() + &id[1..]),
                         });
-                        let frames = if card.is_some() && kind == Ask::New { vec![Frame::blank(16, 16); sprite::CARD_FRAMES] } else { frames };
+                        let frames = if card.is_some() && kind == Ask::New { sprite::card_template() } else { frames };
                         let carded = card.is_some();
                         self.sprite = Sprite { name: name.clone(), frames, views, footprint, top, card };
                         if carded {
@@ -2151,10 +2151,13 @@ mod tests {
         type_in(&mut e, "card ghoul");
         e.key(Key::Enter);
         assert_eq!((e.sprite.name.as_str(), e.sprite.frames.len()), ("CARD_GHOUL", 15));
+        assert!(e.sprite.frames.iter().all(|f| (f.w, f.h) == (16, 16) && f.px.iter().any(|p| p[3] > 0)), "a new card starts from a figure");
+        assert_ne!(e.sprite.frames[0].px, e.sprite.frames[1].px, "whose legs take turns");
+        assert!(e.sprite.frames[9].px.iter().all(|p| p[3] == 0 || *p == [255, 255, 255, 255]), "and flashes white");
         assert_eq!(e.stand(), Stand::Figure);
         e.act(Action::AddFrame, false);
         assert_eq!(e.sprite.frames.len(), 15, "a card keeps its frames");
-        click_pixel(&mut e, 2, 3);
+        click_pixel(&mut e, 0, 0);
         e.act(Action::Stats, false);
         buttons_fit(&e);
         e.act(Action::StatStep(0, 1), false);
@@ -2177,7 +2180,7 @@ mod tests {
         let e = Editor::new(Box::new(store()), "CARD_GHOUL");
         assert!(e.names.iter().any(|(n, saved)| n == "CARD_GHOUL" && *saved));
         assert_eq!(e.sprite.frames.len(), 15);
-        assert_eq!(e.sprite.frames[0].get(2, 3), Some(e.color), "the pixel came back");
+        assert_eq!(e.sprite.frames[0].get(0, 0), Some(e.color), "the pixel came back");
         assert_eq!(sprite::section("CARD_GHOUL"), sprite::CARD_SECTION);
     }
 

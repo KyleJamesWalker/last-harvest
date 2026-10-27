@@ -109,6 +109,47 @@ pub fn card_name(id: &str) -> Option<String> {
     (id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_') && valid_name(&name)).then_some(name)
 }
 
+/// A new card's 15 frames: a plain 16x16 figure to paint over, walking front, side and back with its legs taking
+/// turns, then white for the flash and red for the hurt frames.
+pub fn card_template() -> Vec<Frame> {
+    const OUTLINE: Rgba = [28, 28, 34, 255];
+    const HEAD: Rgba = [168, 168, 160, 255];
+    const BODY: Rgba = [120, 120, 128, 255];
+    const LEGS: Rgba = [84, 84, 96, 255];
+    const EYE: Rgba = [40, 40, 48, 255];
+    let figure = |facing: usize, step: usize| {
+        let mut f = Frame::blank(16, 16);
+        let mut fill = |x0: i32, y0: i32, x1: i32, y1: i32, c: Rgba| (y0..=y1).for_each(|y| (x0..=x1).for_each(|x| f.set(x, y, c)));
+        let side = facing == 1;
+        let (hx0, hx1) = if side { (6, 10) } else { (5, 10) };
+        fill(hx0 - 1, 0, hx1 + 1, 6, OUTLINE);
+        fill(hx0, 1, hx1, 5, HEAD);
+        let (bx0, bx1) = if side { (5, 10) } else { (3, 12) };
+        fill(bx0 - 1, 6, bx1 + 1, 11, OUTLINE);
+        fill(bx0, 7, bx1, 10, BODY);
+        let legs = if side { [(6, 7), (8, 9)] } else { [(5, 7), (8, 10)] };
+        for (i, (l0, l1)) in legs.into_iter().enumerate() {
+            let bottom = if step == i + 1 { 14 } else { 15 };
+            fill(l0 - 1, 11, l1 + 1, bottom, OUTLINE);
+            fill(l0, 11, l1, bottom - 1, LEGS);
+        }
+        match facing {
+            0 => [6, 9].into_iter().for_each(|x| f.set(x, 3, EYE)),
+            1 => f.set(9, 3, EYE),
+            _ => {}
+        }
+        f
+    };
+    let tint = |mut f: Frame, paint: fn(Rgba) -> Rgba| {
+        f.px.iter_mut().filter(|p| p[3] > 0).for_each(|p| *p = paint(*p));
+        f
+    };
+    let walk = (0..9).map(|k| figure(k / 3, k % 3));
+    let flash = (0..3).map(|facing| tint(figure(facing, 0), |_| [255, 255, 255, 255]));
+    let hurt = (0..3).map(|facing| tint(figure(facing, 0), |p| [p[0].saturating_add(110), p[1] / 3, p[2] / 3, 255]));
+    walk.chain(flash).chain(hurt).collect()
+}
+
 /// What a card's frame shows, by its place in the sheet.
 pub fn card_frame_name(i: usize) -> String {
     let facing = ["front", "side", "back"][i % 3];
