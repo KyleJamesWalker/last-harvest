@@ -7,6 +7,9 @@
 use last_harvest_game::data::Card;
 
 pub const KEYWORD: &str = "last-harvest-enemy";
+/// The biggest sheet a card can have: eight walking frames across and five rows down, of 64-pixel frames. Checked
+/// before decoding, since a card may come from anyone.
+const MAX_SHEET: [u32; 2] = [8 * 64, 5 * 64];
 /// What an enemy card's file name ends in: still a PNG, so it previews anywhere, but named as a card.
 pub const EXTENSION: &str = ".enemy.png";
 
@@ -55,6 +58,10 @@ pub fn read_as(kind: Kind, name: &str, bytes: &[u8]) -> Result<Card, String> {
     let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes));
     decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16 | png::Transformations::ALPHA);
     let mut reader = decoder.read_info().map_err(|e| fail(&e))?;
+    let (w, h) = (reader.info().width, reader.info().height);
+    if w > MAX_SHEET[0] || h > MAX_SHEET[1] {
+        return Err(fail(&format!("{w}x{h} is bigger than a card can be, {}x{}", MAX_SHEET[0], MAX_SHEET[1])));
+    }
     let mut buf = vec![0; reader.output_buffer_size()];
     let frame = reader.next_frame(&mut buf).map_err(|e| fail(&e))?;
     buf.truncate(frame.buffer_size());
@@ -125,6 +132,15 @@ mod tests {
         assert_eq!(Kind::of("jo.player.png"), Some(Kind::Player));
         assert_eq!(Kind::of("ghoul.enemy.png"), Some(Kind::Enemy));
         assert_eq!(Kind::of("ghoul.png"), None);
+    }
+
+    #[test]
+    fn a_sheet_too_big_for_a_card_is_refused_before_decoding() {
+        let mut big = Vec::new();
+        let mut encoder = png::Encoder::new(&mut big, 4096, 4);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.write_header().unwrap().write_image_data(&vec![0; 4096 * 4 * 4]).unwrap();
+        assert!(read("big.png", &big).err().unwrap().contains("bigger than a card"));
     }
 
     #[test]

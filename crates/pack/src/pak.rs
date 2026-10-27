@@ -9,6 +9,9 @@ use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, DateTime, ZipArchive, ZipWriter};
 
 pub const FORMAT: u32 = 1;
+/// The most a pack's file, and a whole pack, can hold once unpacked.
+const MAX_FILE: u64 = 32 << 20;
+const MAX_PACK: u64 = 128 << 20;
 pub const MANIFEST: &str = "manifest.toml";
 pub const ATLAS: &str = "art/atlas.rgba";
 pub const FONT: &str = "fonts/AtkinsonHyperlegible-Regular.ttf";
@@ -66,13 +69,19 @@ impl Pak {
     pub fn read(r: impl Read + Seek) -> Result<Self, String> {
         let mut zip = ZipArchive::new(r).map_err(|e| e.to_string())?;
         let mut files = HashMap::new();
+        let mut total = 0u64;
         for i in 0..zip.len() {
             let mut entry = zip.by_index(i).map_err(|e| e.to_string())?;
             if entry.is_dir() {
                 continue;
             }
+            total += entry.size();
+            if entry.size() > MAX_FILE || total > MAX_PACK {
+                return Err(format!("{} makes the pack bigger than the game reads: {} MB a file, {} MB in all", entry.name(), MAX_FILE >> 20, MAX_PACK >> 20));
+            }
             let mut bytes = Vec::with_capacity(entry.size() as usize);
-            entry.read_to_end(&mut bytes).map_err(|e| format!("{}: {e}", entry.name()))?;
+            // A pack may come from anyone: read no more than it declares, whatever its data holds.
+            (&mut entry).take(MAX_FILE).read_to_end(&mut bytes).map_err(|e| format!("{}: {e}", entry.name()))?;
             files.insert(entry.name().to_string(), bytes);
         }
         let text = files.get(MANIFEST).ok_or("no manifest.toml")?;
@@ -188,6 +197,14 @@ mod tests {
         assert_eq!(pak.take(POWERUPS), Some(b"base".to_vec()));
         assert_eq!(pak.take_dir(SOUNDS), [("kill-ghoul.ogg".to_string(), b"new".to_vec()), ("shot.ogg".to_string(), b"mod".to_vec())]);
         assert!(pak.take(MANIFEST).unwrap().starts_with(b"id = \"game_data\""), "the base keeps its own manifest");
+    }
+
+    #[test]
+    fn a_file_bigger_than_the_game_reads_turns_the_pack_away() {
+        let zeros = vec![0u8; (MAX_FILE + 1) as usize];
+        let bytes = pack(&[(MANIFEST, manifest().as_bytes()), (POWERUPS, &zeros)]);
+        assert!(bytes.len() < 1 << 20, "it packs small");
+        assert!(Pak::read(Cursor::new(bytes)).err().unwrap().contains("bigger than the game reads"));
     }
 
     #[test]
