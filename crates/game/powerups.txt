@@ -8,7 +8,7 @@
 #
 #   [id]                start of a powerup; the id is how the save and the code know it
 #   name    Text        the card's title
-#   kind    weapon | passive | filler      fillers are offered only when nothing else is left
+#   kind    weapon | passive | filler      fillers are offered only when nothing else is left; the book needs one
 #   does    behaviour   for weapons, which behaviour it fires with; defaults to the id, so a copy
 #                       under a new id with `does scythe` is a second scythe with its own numbers
 #   zone    ahead | around | behind | map

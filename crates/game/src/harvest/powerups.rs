@@ -612,6 +612,9 @@ pub fn parse(text: &str) -> Result<Book, String> {
             def.does = Some(def.does.or_else(|| Does::from_key(&def.id)).ok_or_else(|| format!(" [{}] needs `does` to say which weapon it fires", def.id))?);
         }
     }
+    if !book.defs.iter().any(|d| d.kind == Kind::Filler) {
+        return Err(" no filler; a level-up offers one once there's nothing else to take".into());
+    }
     Ok(book)
 }
 
@@ -637,7 +640,7 @@ mod tests {
 
     #[test]
     fn levels_read_their_value_and_short_lists_repeat_the_last() {
-        let b = parse("[gun]\nkind weapon\ndoes pistol\nicon WHITE\ndamage 1 2 3\n[pp]\nicon WHITE\ndamage +10% +25%\n").unwrap();
+        let b = parse("[gun]\nkind weapon\ndoes pistol\nicon WHITE\ndamage 1 2 3\n[pp]\nicon WHITE\ndamage +10% +25%\n[cash]\nkind filler\nicon WHITE\n").unwrap();
         let (gun, pp) = (&b.defs[0], &b.defs[1]);
         assert_eq!([1, 2, 3, 9].map(|l| gun.at(Stat::Damage, l)), [1.0, 2.0, 3.0, 3.0]);
         assert_eq!(gun.at(Stat::Range, 1), 100.0, "left out, a weapon stat has its default");
@@ -650,7 +653,7 @@ mod tests {
 
     #[test]
     fn finds_read_their_chance_minute_and_chest() {
-        let b = parse("[a]\nicon WHITE\n[b]\nicon WHITE\nfind 0.1\nafter 3\nchest\n").unwrap();
+        let b = parse("[a]\nicon WHITE\n[b]\nicon WHITE\nfind 0.1\nafter 3\nchest\n[cash]\nkind filler\nicon WHITE\n").unwrap();
         assert_eq!((b.defs[0].find, b.defs[0].after, b.defs[0].chest), (DEFAULT_FIND, 0.0, false));
         assert_eq!((b.defs[1].find, b.defs[1].after, b.defs[1].chest), (0.1, 3.0, true));
         assert!(parse("[a]\nicon WHITE\nfind 2").unwrap_err().starts_with("3:"));
@@ -676,6 +679,8 @@ mod tests {
         assert!(parse("[laser]\nkind weapon\nicon WHITE").unwrap_err().contains("does"));
         assert!(parse("[a]\nicon NOPE").unwrap_err().contains("NOPE"));
         assert!(parse("[a]\nkind weapon\ndoes knife\nicon WHITE\narmor 2").unwrap_err().contains("armor"));
+        assert!(parse("[a]\nicon WHITE").unwrap_err().contains("no filler"));
+        assert!(parse("# nothing").unwrap_err().contains("no filler"));
     }
 
     #[test]
