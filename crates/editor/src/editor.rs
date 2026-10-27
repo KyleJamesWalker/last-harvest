@@ -9,6 +9,8 @@ use crate::store::Store;
 
 mod cards;
 
+use cards::HeldImport;
+
 const UNDO_DEPTH: usize = 100;
 const LIST: Rect = Rect { x: 8.0, y: 52.0, w: 200.0, h: 690.0 };
 const LIST_ROW: f32 = 22.0;
@@ -289,6 +291,8 @@ pub struct Editor {
     ask: Option<(Ask, String)>,
     /// A sprite to switch to once the current one's unsaved changes are saved or dropped.
     pending: Option<String>,
+    /// An import over the open card, held with `pending` until its unsaved changes are saved or dropped.
+    held_import: Option<HeldImport>,
     selection: Option<Selection>,
     grab: Option<Grab>,
     /// Rows of the south and east views cut off by lowering the carving's height, highest first.
@@ -365,6 +369,7 @@ impl Editor {
             fps: 6.0,
             ask: None,
             pending: None,
+            held_import: None,
             selection: None,
             grab: None,
             trimmed: Default::default(),
@@ -1560,22 +1565,27 @@ impl Editor {
 
     fn decide(&mut self, choice: Choice) {
         let Some(name) = self.pending.take() else { return };
+        let held = self.held_import.take();
         match choice {
             Choice::Save => {
                 self.act(Action::Save, false);
                 if self.unsaved() {
                     return;
                 }
-                self.open(&name);
             }
             Choice::Discard => {
                 self.dirty = false;
                 self.stand_touched = false;
-                self.open(&name);
             }
             Choice::Stay => return,
         }
-        self.reveal();
+        match held {
+            Some(HeldImport { source, cards, sounds }) => self.import_pack(&source, cards, sounds),
+            None => {
+                self.open(&name);
+                self.reveal();
+            }
+        }
     }
 
     /// The sprites the list shows: all of them, or those matching the search.
@@ -2046,12 +2056,17 @@ impl Editor {
             c.rect(d.x - 3.0, d.y - 3.0, d.w + 6.0, d.h + 6.0, HOT);
             c.rect(d.x, d.y, d.w, d.h, PANEL);
             c.label(format!("{} has unsaved changes", self.sprite.name), d.x + d.w / 2.0, d.y + 24.0, 28.0, HOT, Align::Center);
-            c.label(format!("Save them before opening {name}?"), d.x + d.w / 2.0, d.y + 70.0, 22.0, TEXT, Align::Center);
+            let then = match &self.held_import {
+                Some(held) => format!("importing {}", held.source),
+                None => format!("opening {name}"),
+            };
+            c.label(format!("Save them before {then}?"), d.x + d.w / 2.0, d.y + 70.0, 22.0, TEXT, Align::Center);
             for (i, (label, choice)) in CHOICES.iter().enumerate() {
                 let r = choice_rect(i);
                 c.rect(r.x, r.y, r.w, r.h, if *choice == Choice::Save { HOT } else { BUTTON });
                 let ink = if *choice == Choice::Save { [0.1, 0.1, 0.1, 1.0] } else { TEXT };
-                c.label(*label, r.x + r.w / 2.0, r.y + (r.h - 20.0) / 2.0, 20.0, ink, Align::Center);
+                let label = if *choice == Choice::Save && self.held_import.is_some() { "Save and import  S" } else { label };
+                c.label(label, r.x + r.w / 2.0, r.y + (r.h - 20.0) / 2.0, 20.0, ink, Align::Center);
             }
         }
         if let Some((kind, name)) = &self.ask {
@@ -2560,8 +2575,12 @@ mod tests {
         let shared = std::fs::read(dir.join("enemies/twin.enemy.png")).unwrap();
         click_pixel(&mut e, 0, 0);
         e.import_card("twin.enemy.png", &shared);
-        assert!(e.unsaved() && e.status.as_ref().is_some_and(|(t, _)| t.contains("Save or revert")));
-        e.act(Action::Revert, false);
+        assert!(e.unsaved() && e.pending.is_some(), "the import waits on the unsaved changes");
+        e.key(Key::Escape);
+        assert!(e.unsaved() && e.held_import.is_none(), "Stay keeps the changes and drops the import");
+        e.import_card("twin.enemy.png", &shared);
+        e.key(Key::Char('d'));
+        assert!(!e.unsaved() && e.status.as_ref().is_some_and(|(t, _)| t.starts_with("Imported twin.enemy.png")), "{:?}", e.status);
         e.color = [1, 2, 3, 255];
         click_pixel(&mut e, 0, 0);
         e.act(Action::Save, false);
@@ -2583,7 +2602,7 @@ mod tests {
         let (one, two) = (read("one"), read("two"));
         std::fs::remove_file(dir.join("enemies/two.enemy.png")).unwrap();
         e.names = e.store.names();
-        e.import_cards("my-cards.pak", vec![one, two, ("x.enemy.png".into(), b"no".to_vec())]);
+        e.import_pack("my-cards.pak", vec![one, two, ("x.enemy.png".into(), b"no".to_vec())], Vec::new());
         let said = e.status.as_ref().map(|(t, _)| t.clone()).unwrap_or_default();
         assert!(said.starts_with("Imported 2 cards from my-cards.pak, replacing your one; 1 couldn't: x.enemy.png"), "{said}");
     }

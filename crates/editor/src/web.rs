@@ -570,10 +570,7 @@ fn start() -> Result<(), String> {
         if name.ends_with(".pak") {
             match modding::cards_in(&bytes) {
                 Ok((cards, _)) if cards.is_empty() => w.studio.editor.say(format!("{name} holds no cards")),
-                Ok((cards, sounds)) => {
-                    w.studio.editor.import_cards(&name, cards.clone());
-                    w.studio.editor.import_sounds(&cards, sounds);
-                }
+                Ok((cards, sounds)) => w.studio.editor.import_pack(&name, cards, sounds),
                 Err(e) => w.studio.editor.say(format!("{name}: {e}")),
             }
         } else {

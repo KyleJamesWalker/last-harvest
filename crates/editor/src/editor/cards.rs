@@ -8,24 +8,44 @@ const MIX_STEPS: usize = 40;
 /// Kinds' colors in the spawn mix chart, in roster order; the open card's is `HOT`.
 const MIX_COLORS: [Color; 6] = [[0.55, 0.62, 0.78, 1.0], [0.5, 0.75, 0.55, 1.0], [0.78, 0.5, 0.62, 1.0], [0.62, 0.55, 0.85, 1.0], [0.45, 0.7, 0.75, 1.0], [0.75, 0.68, 0.5, 1.0]];
 
+/// Files named and read, as Import hands them over.
+pub type Files = Vec<(String, Vec<u8>)>;
+
+/// An import waiting on the open card's unsaved changes.
+pub struct HeldImport {
+    pub source: String,
+    pub cards: Files,
+    pub sounds: Files,
+}
+
 impl Editor {
     /// Takes in a card's PNG, as Import does, and opens it.
     pub fn import_card(&mut self, file: &str, bytes: &[u8]) {
-        self.import_cards(file, vec![(file.to_string(), bytes.to_vec())]);
+        self.import_pack(file, vec![(file.to_string(), bytes.to_vec())], Vec::new());
+    }
+
+    /// Takes in `source`'s cards and their death sounds; one that would replace the open card's unsaved changes
+    /// first asks whether to save them.
+    pub fn import_pack(&mut self, source: &str, cards: Files, sounds: Files) {
+        let front = |(file, bytes): &(String, Vec<u8>)| crate::store::cards::identify(file, bytes).ok().and_then(|(kind, id)| sprite::card_names_of(kind, &id)).map(|n| n[0].clone());
+        let open = (sprite::card_kind(&self.sprite.name), sprite::card_id(&self.sprite.name));
+        let over_open = cards.iter().filter_map(front).any(|f| (sprite::card_kind(&f), sprite::card_id(&f)) == open);
+        if over_open && self.unsaved() {
+            self.pending = Some(self.sprite.name.clone());
+            self.held_import = Some(HeldImport { source: source.to_string(), cards, sounds });
+            return;
+        }
+        self.import_cards(source, &cards);
+        self.import_sounds(&cards, sounds);
     }
 
     /// Takes in each card from `source`, a PNG or a mod pack, opens the last, and says which saved cards it replaced.
-    pub fn import_cards(&mut self, source: &str, cards: Vec<(String, Vec<u8>)>) {
-        // Importing over the open card replaces what the editor holds, so its unsaved changes would be lost.
+    fn import_cards(&mut self, source: &str, cards: &Files) {
         let open = (sprite::card_kind(&self.sprite.name), sprite::card_id(&self.sprite.name));
         let same = |front: &str| (sprite::card_kind(front), sprite::card_id(front)) == open;
         let (mut imported, mut replaced, mut failed, mut last) = (Vec::new(), Vec::new(), Vec::new(), None);
-        for (file, bytes) in &cards {
+        for (file, bytes) in cards {
             let front = crate::store::cards::identify(file, bytes).ok().and_then(|(kind, id)| sprite::card_names_of(kind, &id)).map(|n| n[0].clone());
-            if front.as_deref().is_some_and(&same) && self.unsaved() {
-                failed.push(format!("Save or revert {} first: Import replaces it", open.1.clone().unwrap_or_default()));
-                continue;
-            }
             let existed = front.is_some_and(|f| self.names.iter().any(|(n, _)| *n == f));
             match self.store.import_card(file, bytes) {
                 Ok(front) => {
@@ -108,7 +128,7 @@ impl Editor {
     }
 
     /// Keeps the death sounds a mod pack carries for the enemy cards it brought in, `kill-<id>.ogg` or `.wav`.
-    pub fn import_sounds(&mut self, cards: &[(String, Vec<u8>)], sounds: Vec<(String, Vec<u8>)>) {
+    fn import_sounds(&mut self, cards: &Files, sounds: Files) {
         let ids: Vec<String> = cards.iter().filter_map(|(file, bytes)| crate::store::cards::identify(file, bytes).ok()).filter(|(k, _)| *k == sprite::CardKind::Enemy).map(|(_, id)| id).collect();
         let kept = sounds
             .into_iter()
