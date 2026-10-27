@@ -605,9 +605,12 @@ mod modding {
     pub fn install_data() -> Result<Option<String>, String> {
         let window = web_sys::window().ok_or("no window")?;
         let pak = js_sys::Reflect::get(&window, &"lastHarvestPak".into()).ok().filter(|v| !v.is_undefined() && !v.is_null());
+        let size = (ATLAS_W * ATLAS_H * 4) as usize;
+        // A stored pack that can't be used must leave the page working, or Game data could never replace it.
         let (atlas, note) = match pak.map(|v| js_sys::Uint8Array::new(&v).to_vec()) {
-            Some(bytes) => match Pak::read(std::io::Cursor::new(bytes)) {
-                Ok(mut pak) => (pak.take(ATLAS), Some("Previews use your game data".to_string())),
+            Some(bytes) => match Pak::read(std::io::Cursor::new(bytes)).map(|mut p| p.take(ATLAS)) {
+                Ok(Some(atlas)) if atlas.len() == size => (Some(atlas), Some("Previews use your game data".to_string())),
+                Ok(_) => (None, Some("Your game data has no sprites this editor can use".to_string())),
                 Err(e) => (None, Some(format!("Your game data isn't for this editor: {e}"))),
             },
             None => (None, None),
