@@ -4,6 +4,8 @@
 use last_harvest_game::data::Card;
 
 pub const KEYWORD: &str = "last-harvest-enemy";
+/// What an enemy card's file name ends in: still a PNG, so it previews anywhere, but named as a card.
+pub const EXTENSION: &str = ".enemy.png";
 
 /// Reads a card; `name` is for messages.
 pub fn read(name: &str, bytes: &[u8]) -> Result<Card, String> {
@@ -55,7 +57,7 @@ mod tests {
         let (w, h) = (3 * 12, 5 * 20);
         let sheet: Vec<u8> = (0..w * h).flat_map(|i| [(i % 256) as u8, 7, 9, if i % 3 == 0 { 0 } else { 255 }]).collect();
         let text = "[ghoul]\nname Ghoul — fast\nhp 40\n";
-        let card = read("ghoul.png", &write(text, w, h, &sheet).unwrap()).unwrap();
+        let card = read("ghoul.enemy.png", &write(text, w, h, &sheet).unwrap()).unwrap();
         assert_eq!(card.text, text);
         assert_eq!(card.frame, [12, 20]);
         assert_eq!(card.sheet, sheet);

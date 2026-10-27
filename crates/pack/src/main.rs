@@ -1,8 +1,8 @@
 //! Builds `game_data.pak`, the data the game loads, and makes and reads enemy cards.
 //!
 //!   cargo run -p last-harvest-pack [-- <out.pak>]                     the pack, `target/game_data.pak` by default
-//!   cargo run -p last-harvest-pack -- card <sheet.png> <enemy.txt> <card.png>
-//!   cargo run -p last-harvest-pack -- show <card.png>
+//!   cargo run -p last-harvest-pack -- card <sheet.png> <enemy.txt> <name.enemy.png>
+//!   cargo run -p last-harvest-pack -- show <name.enemy.png>
 
 use std::path::{Path, PathBuf};
 
@@ -38,7 +38,7 @@ fn files(root: &Path) -> Result<Files, Box<dyn std::error::Error>> {
     for (name, bytes) in listed(&root.join("assets/private/sounds"), &[".ogg", ".wav"])? {
         files.push((format!("{SOUNDS}{name}"), bytes));
     }
-    for (name, bytes) in listed(&root.join("assets/private/enemies"), &[".png"])? {
+    for (name, bytes) in listed(&root.join("assets/private/enemies"), &[card::EXTENSION])? {
         card::read(&name, &bytes)?;
         files.push((format!("{ENEMY_CARDS}{name}"), bytes));
     }
@@ -64,6 +64,9 @@ fn decode_sheet(path: &Path) -> Result<(u32, u32, Vec<u8>), String> {
 }
 
 fn make_card(sheet: &Path, text: &Path, out: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    if !out.to_string_lossy().ends_with(card::EXTENSION) {
+        return Err(format!("{}: a card's name ends in {}, so the game finds it", out.display(), card::EXTENSION).into());
+    }
     let (w, h, rgba) = decode_sheet(sheet)?;
     let text = std::fs::read_to_string(text)?;
     let bytes = card::write(&text, w, h, &rgba)?;
@@ -85,7 +88,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     match args.iter().map(|a| a.to_str().unwrap_or("")).collect::<Vec<_>>()[..] {
         ["card", _, _, _] => return make_card(&args[1], &args[2], &args[3]),
         ["show", _] => return show(&args[1]),
-        ["card", ..] | ["show", ..] => return Err("usage: card <sheet.png> <enemy.txt> <card.png> | show <card.png>".into()),
+        ["card", ..] | ["show", ..] => return Err("usage: card <sheet.png> <enemy.txt> <name.enemy.png> | show <name.enemy.png>".into()),
         _ => {}
     }
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2).unwrap();

@@ -174,16 +174,16 @@ mod tests {
         let mut part = Sprite { name: "CARD_GHOUL_HURT".into(), frames: vec![Frame::blank(16, 16); 3], views: None, footprint: None, top: None, card: Some("[ghoul]\nhp 40\n".into()) };
         part.frames[2].set(7, 7, [1, 2, 3, 255]);
         assert_eq!(handle(&s, web, &Method::Put, "/api/sprite/CARD_GHOUL_HURT", &bundle(&part.files())).0, 200);
-        assert!(s.cards.join("ghoul.png").exists());
+        assert!(s.cards.join("ghoul.enemy.png").exists());
         assert_eq!(handle(&s, web, &Method::Get, "/api/file/CARD_GHOUL_SIDE/enemy.txt", &[]).2, b"[ghoul]\nhp 40\n");
         let back = Sprite::load_from("CARD_GHOUL_HURT", |file| Some(handle(&s, web, &Method::Get, &format!("/api/file/CARD_GHOUL_HURT/{file}"), &[])).filter(|r| r.0 == 200).map(|r| r.2)).unwrap();
         assert_eq!((back.frames.len(), back.frames[2].get(7, 7)), (3, Some([1, 2, 3, 255])));
         let names = String::from_utf8(handle(&s, web, &Method::Get, "/api/names", &[]).2).unwrap();
         assert!(["FRONT", "SIDE", "BACK", "FLASH", "HURT"].iter().all(|p| names.contains(&format!("CARD_GHOUL_{p}\t1\n"))));
-        let before = std::fs::read(s.cards.join("ghoul.png")).unwrap();
+        let before = std::fs::read(s.cards.join("ghoul.enemy.png")).unwrap();
         part.frames.pop();
         assert_eq!(handle(&s, web, &Method::Put, "/api/sprite/CARD_GHOUL_HURT", &bundle(&part.files())).0, 500, "a part keeps its frames");
-        assert_eq!(std::fs::read(s.cards.join("ghoul.png")).unwrap(), before, "and a refused save leaves the card as it was");
+        assert_eq!(std::fs::read(s.cards.join("ghoul.enemy.png")).unwrap(), before, "and a refused save leaves the card as it was");
         std::fs::remove_dir_all(s.dir.parent().unwrap()).unwrap();
     }
 

@@ -2207,7 +2207,7 @@ mod tests {
         e.act(Action::Ask(Ask::New), false);
         type_in(&mut e, "card ghoul");
         e.key(Key::Enter);
-        assert!(dir.join("enemies/ghoul.png").exists(), "New writes the card from the template");
+        assert!(dir.join("enemies/ghoul.enemy.png").exists(), "New writes the card from the template");
         assert_eq!(e.sprite.name, "CARD_GHOUL_FRONT");
         let parts: Vec<&str> = e.names.iter().map(|(n, _)| n.as_str()).filter(|n| n.starts_with("CARD_")).collect();
         assert_eq!(parts, ["CARD_GHOUL_FRONT", "CARD_GHOUL_SIDE", "CARD_GHOUL_BACK", "CARD_GHOUL_FLASH", "CARD_GHOUL_HURT"]);
@@ -2236,7 +2236,7 @@ mod tests {
         e.key(Key::Enter);
         e.act(Action::Save, false);
         assert!(!e.unsaved(), "{:?}", e.status);
-        let saved = last_harvest_pack::card::read("ghoul.png", &std::fs::read(dir.join("enemies/ghoul.png")).unwrap()).unwrap();
+        let saved = last_harvest_pack::card::read("ghoul.enemy.png", &std::fs::read(dir.join("enemies/ghoul.enemy.png")).unwrap()).unwrap();
         let f = last_harvest_game::card_fields(&saved.text).unwrap();
         assert_eq!((f.id.as_str(), f.name.as_str()), ("ghoul", "Bog Ghoul"));
         assert_eq!((f.numbers[0].1, f.numbers[1].1, f.flags[0].1), (15.0, 30.0, true), "health 10 + 5, speed 20 + 10, heavy");
@@ -2283,7 +2283,7 @@ mod tests {
         assert_eq!(e.sprite.name, "CARD_B_FRONT");
         let f = last_harvest_game::card_fields(e.sprite.card.as_deref().unwrap()).unwrap();
         assert_eq!((f.id.as_str(), f.numbers[0].1), ("b", 15.0), "the copy keeps unsaved stats");
-        assert!(dir.join("enemies/b.png").exists() && dir.join("enemies/a.png").exists());
+        assert!(dir.join("enemies/b.enemy.png").exists() && dir.join("enemies/a.enemy.png").exists());
     }
 
     #[test]

@@ -28,7 +28,7 @@ fn cards_folder() -> Option<PathBuf> {
 
 /// Reads the cards among `files`, by name, logging any that aren't.
 fn read_cards(files: Vec<(String, Vec<u8>)>) -> Vec<Card> {
-    files.into_iter().filter(|(name, _)| name.ends_with(".png")).filter_map(|(name, bytes)| card::read(&name, &bytes).inspect_err(|e| eprintln!("enemies: {e}")).ok()).collect()
+    files.into_iter().filter(|(name, _)| name.ends_with(card::EXTENSION)).filter_map(|(name, bytes)| card::read(&name, &bytes).inspect_err(|e| eprintln!("enemies: {e}")).ok()).collect()
 }
 
 /// Installs the pack's data and the enemy cards in the game, which must happen before the game starts, and returns
@@ -50,7 +50,7 @@ pub fn load() -> Result<Files, String> {
         None => eprintln!("data: built in"),
     }
     if let Some(dir) = cards_folder() {
-        data.cards.extend(read_cards(samples::read_files(&dir, &[".png"])));
+        data.cards.extend(read_cards(samples::read_files(&dir, &[card::EXTENSION])));
     }
     let cards: Vec<String> = data.cards.iter().map(|c| c.name.clone()).collect();
     for note in data::install(data)? {

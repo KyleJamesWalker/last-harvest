@@ -53,7 +53,7 @@ mod fs {
 
     impl FsStore {
         fn card_path(&self, name: &str) -> Option<PathBuf> {
-            sprite::card_id(name).map(|id| self.cards.join(format!("{id}.png")))
+            sprite::card_id(name).map(|id| self.cards.join(format!("{id}{}", card::EXTENSION)))
         }
 
         /// A card's text and its frames in sheet order.
@@ -114,7 +114,7 @@ mod fs {
                 .into_iter()
                 .flatten()
                 .flatten()
-                .filter_map(|e| e.file_name().into_string().ok()?.strip_suffix(".png").map(str::to_string))
+                .filter_map(|e| e.file_name().into_string().ok()?.strip_suffix(card::EXTENSION).map(str::to_string))
                 .collect();
             cards.sort();
             names.extend(cards.iter().filter_map(|id| sprite::card_names(id)).flatten().map(|n| (n, true)));
