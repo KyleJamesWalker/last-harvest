@@ -576,6 +576,9 @@ pub fn parse(text: &str) -> Result<Book, String> {
                 if values.is_empty() {
                     return Err(format!("{n}: {key} needs at least one value"));
                 }
+                if values.iter().any(|v| !v.is_finite()) {
+                    return Err(format!("{n}: {key} needs numbers, one per level"));
+                }
                 def.stats.push((stat, values));
             }
         }
@@ -681,6 +684,7 @@ mod tests {
         assert!(parse("[a]\nkind weapon\ndoes knife\nicon WHITE\narmor 2").unwrap_err().contains("armor"));
         assert!(parse("[a]\nicon WHITE").unwrap_err().contains("no filler"));
         assert!(parse("# nothing").unwrap_err().contains("no filler"));
+        assert!(parse("[a]\nicon WHITE\ndamage +10% inf").unwrap_err().starts_with("3: damage"));
     }
 
     #[test]

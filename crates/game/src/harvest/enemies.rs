@@ -210,7 +210,7 @@ fn entries(text: &str) -> Result<Vec<Entry>, String> {
         let Some(entry) = entries.last_mut() else { return Err(format!("{n}: expected an [enemy] first")) };
         let e = &mut entry.enemy;
         let (key, rest) = line.split_once(char::is_whitespace).map(|(k, r)| (k, r.trim())).unwrap_or((line, ""));
-        let number = || rest.parse::<f32>().ok().filter(|v| *v >= 0.0).ok_or_else(|| format!("{n}: {key} is a number, not {rest:?}"));
+        let number = || rest.parse::<f32>().ok().filter(|v| v.is_finite() && *v >= 0.0).ok_or_else(|| format!("{n}: {key} is a number, not {rest:?}"));
         match key {
             "name" => e.name = rest.to_string(),
             "look" => entry.look = Some((n, rest.to_string())),
@@ -629,6 +629,7 @@ mod tests {
         let err = |text: &str| parse(text).err().expect("an error");
         assert!(err("hp 3").starts_with("1:"));
         assert!(err("[a]\nlook SKINNY\nhp lots").starts_with("3:"));
+        assert!(err("[a]\nlook SKINNY\nspeed inf").starts_with("3: speed"), "a number must be finite");
         assert!(err("[a]\nlook NOPE").contains("NOPE"));
         assert!(err("[a]\nhp 3").contains("no look"));
         assert!(err("[a]\nlook SKINNY\n[a]").contains("twice"));
