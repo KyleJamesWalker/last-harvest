@@ -353,6 +353,8 @@ impl Game {
             let [x, y, w, h] = setting_row(row);
             let (sel, on) = (i == self.enemy, self.save.enemies_off & 1 << i == 0);
             c.rect(x, y, w, h, if sel { [1.0, 0.85, 0.3, 0.25] } else { [1.0, 1.0, 1.0, 0.06] });
+            let [cr, cg, cb, _] = self.mix_shade(i);
+            c.rect(x, y, 10.0, h, [cr, cg, cb, if on { 1.0 } else { 0.25 }]);
             let e = &r.enemies[i];
             let icon = e.look.walk[0][0];
             let scale = (h - 16.0) / icon.h();
@@ -386,11 +388,15 @@ impl Game {
         fit_label(c, &format!("{} starts with {kit}", d.name()), SCREEN_W / 2.0, 196.0, 28.0, SCREEN_W - 80.0, WHITE, Align::Center);
     }
 
-    /// How a night's spawns split between the kinds left on, dusk to dawn across the foot of the top screen, with the
-    /// highlighted kind in `HOT`.
+    /// Kind `i`'s colour in the spawn mix, and on its row of the list: `HOT` when highlighted.
+    fn mix_shade(&self, i: usize) -> Color {
+        const SHADES: [[f32; 4]; 4] = [[0.55, 0.62, 0.78, 1.0], [0.5, 0.75, 0.55, 1.0], [0.78, 0.5, 0.62, 1.0], [0.62, 0.55, 0.85, 1.0]];
+        if i == self.enemy { HOT } else { SHADES[i % SHADES.len()] }
+    }
+
+    /// How a night's spawns split between the kinds left on, dusk to dawn across the foot of the top screen.
     fn draw_spawn_mix(&self, c: &mut Canvas) {
         const COLUMNS: usize = 60;
-        const SHADES: [[f32; 4]; 4] = [[0.55, 0.62, 0.78, 1.0], [0.5, 0.75, 0.55, 1.0], [0.78, 0.5, 0.62, 1.0], [0.62, 0.55, 0.85, 1.0]];
         let r = roster();
         let [x, y, w, h] = [40.0, 664.0, SCREEN_W - 80.0, 64.0];
         c.label("Spawn mix through the night", x, 628.0, 26.0, DIM, Align::Left);
@@ -401,8 +407,7 @@ impl Game {
             for (i, share) in r.shares(minutes, self.save.enemies_off).into_iter().enumerate() {
                 let tall = share * h;
                 if tall > 0.0 {
-                    let shade = if i == self.enemy { HOT } else { SHADES[i % SHADES.len()] };
-                    c.rect(x + k as f32 * col, top - tall, col + 0.5, tall, shade);
+                    c.rect(x + k as f32 * col, top - tall, col + 0.5, tall, self.mix_shade(i));
                 }
                 top -= tall;
             }
