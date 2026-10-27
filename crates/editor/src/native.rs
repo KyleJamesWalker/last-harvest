@@ -183,8 +183,8 @@ impl ApplicationHandler for App {
             WindowEvent::CursorMoved { position, .. } => {
                 let s = self.gl.as_ref().map_or(1.0, |g| g.window.scale_factor()) as f32;
                 let now = [position.x as f32 / s, position.y as f32 / s];
-                let (pane, p) = Studio::locate(WINDOW, now);
-                let (_, before) = Studio::locate(WINDOW, self.cursor);
+                let (pane, p) = self.studio.locate_move(WINDOW, now);
+                let (_, before) = self.studio.locate_move(WINDOW, self.cursor);
                 self.cursor = now;
                 self.studio.motion(pane, p, p[0] - before[0]);
             }

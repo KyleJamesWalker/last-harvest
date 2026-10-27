@@ -67,6 +67,20 @@ impl Studio {
         (pane, [(x - px) / pw * SCREEN_W, (y - py) / ph * SCREEN_H])
     }
 
+    /// `p` in `pane`'s 1024x768 canvas, even when it lies outside the pane.
+    pub fn in_pane(size: [f32; 2], pane: Pane, p: [f32; 2]) -> [f32; 2] {
+        let [x, y, w, h] = Self::panes(size)[pane as usize];
+        [(p[0] - x) / w * SCREEN_W, (p[1] - y) / h * SCREEN_H]
+    }
+
+    /// Where a move to `p` lands: in the pane a press is held in, even past its edge, else the pane under it.
+    pub fn locate_move(&self, size: [f32; 2], p: [f32; 2]) -> (Pane, [f32; 2]) {
+        match self.held {
+            Some(pane) => (pane, Self::in_pane(size, pane, p)),
+            None => Self::locate(size, p),
+        }
+    }
+
     /// The editing pane, the 2.5D view and the map as x, y, w, h from the top-left of a window `size` big. A wide
     /// window, twice as wide as tall, puts the view and the map down the right; a tall one, 8 wide by 9 tall, puts
     /// them side by side under the editing pane.
@@ -220,5 +234,17 @@ mod tests {
         assert_eq!(Studio::locate([800.0, 900.0], [200.0, 750.0]), (Pane::View, [512.0, 384.0]));
         assert_eq!(Studio::locate([800.0, 900.0], [600.0, 750.0]), (Pane::Map, [512.0, 384.0]));
         assert_eq!(Studio::locate([1536.0, 768.0], [1600.0, 100.0]).0, Pane::View, "past the window's edge, the pane nearest");
+    }
+
+    #[test]
+    fn a_held_press_keeps_its_pane_past_the_edge() {
+        let dir = std::env::temp_dir().join(format!("studio-held-{}", std::process::id()));
+        let mut s = Studio::new(Box::new(FsStore { dir: dir.clone(), catalog: dir.join("art.txt"), cards: dir.join("enemies") }), "BARREL");
+        s.press(Pane::Edit, [500.0, 700.0], false, false);
+        let (pane, p) = s.locate_move([800.0, 900.0], [400.0, 650.0]);
+        assert_eq!(pane, Pane::Edit, "a stroke dragged down onto the previews stays a stroke");
+        assert!(p[1] > SCREEN_H);
+        s.release();
+        assert_eq!(s.locate_move([800.0, 900.0], [400.0, 650.0]).0, Pane::Map);
     }
 }

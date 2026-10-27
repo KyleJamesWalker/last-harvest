@@ -9,7 +9,7 @@ mod local;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use last_harvest_game::{SCREEN_H, SCREEN_W};
+use last_harvest_game::SCREEN_W;
 use last_harvest_render::{Profile, Renderer};
 use sprite_editor::editor::Key;
 use sprite_editor::store::Store;
@@ -75,10 +75,8 @@ impl Web {
         Studio::locate(self.size, p)
     }
 
-    /// `p` in `pane`'s 1024x768 canvas, even when it lies outside the pane.
     fn in_pane(&self, pane: Pane, p: [f32; 2]) -> [f32; 2] {
-        let [x, y, w, h] = Studio::panes(self.size)[pane as usize];
-        [(p[0] - x) / w * SCREEN_W, (p[1] - y) / h * SCREEN_H]
+        Studio::in_pane(self.size, pane, p)
     }
 
     fn layout(&mut self) {
@@ -134,7 +132,7 @@ impl Web {
     }
 
     fn motion(&mut self, p: [f32; 2]) {
-        let (pane, at) = self.locate(p);
+        let (pane, at) = self.studio.locate_move(self.size, p);
         // Only the 2.5D view turns by how far the pointer moves, so it is measured across a preview.
         let dx = (p[0] - self.pointer[0]) / Studio::panes(self.size)[1][2] * SCREEN_W;
         self.studio.motion(pane, at, dx);
