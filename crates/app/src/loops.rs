@@ -21,7 +21,11 @@ pub struct Loop {
 impl Loop {
     /// Starts decoding an Ogg Vorbis file over and over at `rate`, or None if it can't be read.
     pub fn open(bytes: Vec<u8>, rate: f32) -> Option<Self> {
-        OggStreamReader::new(Cursor::new(&bytes)).ok()?;
+        let hdr = OggStreamReader::new(Cursor::new(&bytes)).ok()?.ident_hdr;
+        // A track may come from anyone's mod: no channels, or no rate, would stall or spin the decoder.
+        if hdr.audio_channels == 0 || !(1000..=384_000).contains(&hdr.audio_sample_rate) {
+            return None;
+        }
         let (tx, rx) = sync_channel(QUEUED);
         std::thread::Builder::new().name("audio-loop".into()).spawn(move || repeat(&bytes, rate, &tx)).ok()?;
         Some(Self { rx, buf: Vec::new(), at: 0 })
@@ -63,7 +67,7 @@ fn repeat(bytes: &[u8], rate: f32, tx: &SyncSender<Vec<[f32; 2]>>) {
             let extra = (decoded.saturating_sub(length) as f32 / step) as usize;
             out.truncate(out.len().saturating_sub(extra));
         }
-        if !out.is_empty() && tx.send(out).is_err() {
+        if decoded == 0 || (!out.is_empty() && tx.send(out).is_err()) {
             return;
         }
     }
