@@ -31,9 +31,17 @@ pub struct Placed {
 }
 
 impl Atlas {
+    /// The text atlas from the pack's font, else the game's own when a mod's won't read or fit.
     pub fn build() -> Result<Self, String> {
+        Self::from_font(last_harvest_game::data::font()).or_else(|e| {
+            eprintln!("font: {e}; using the game's own");
+            Self::from_font(last_harvest_game::data::built_in_font())
+        })
+    }
+
+    fn from_font(bytes: &[u8]) -> Result<Self, String> {
         let mut rgba = vec![0u8; (SIZE * SIZE * 4) as usize];
-        let font = fontdue::Font::from_bytes(last_harvest_game::data::font(), fontdue::FontSettings::default())?;
+        let font = fontdue::Font::from_bytes(bytes, fontdue::FontSettings::default())?;
         let ascent = font.horizontal_line_metrics(GLYPH_PX).map_or(GLYPH_PX * 0.8, |m| m.ascent);
         let mut glyphs = HashMap::new();
         let (mut x, mut y, mut row_h) = (PAD, PAD, 0);
@@ -42,6 +50,9 @@ impl Atlas {
             let (gw, gh) = (m.width as u32, m.height as u32);
             if x + gw + PAD > SIZE {
                 (x, y, row_h) = (PAD, y + row_h + PAD, 0);
+            }
+            if x + gw + PAD > SIZE || y + gh + PAD > SIZE {
+                return Err(format!("its glyphs don't fit the {SIZE}px text texture"));
             }
             for row in 0..gh {
                 for col in 0..gw {
@@ -94,6 +105,11 @@ impl Atlas {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_font_that_wont_read_is_an_error() {
+        assert!(Atlas::from_font(b"not a font").is_err());
+    }
 
     #[test]
     fn builds_and_lays_out_text() {

@@ -106,6 +106,11 @@ pub fn font() -> &'static [u8] {
     data().font.as_deref().or(built_in::FONT).unwrap_or_else(|| missing("font"))
 }
 
+/// The font built into the game, for when a pack's won't do.
+pub fn built_in_font() -> &'static [u8] {
+    built_in::FONT.unwrap_or_else(|| missing("font"))
+}
+
 pub fn powerups() -> &'static str {
     data().powerups.as_deref().or(built_in::POWERUPS).unwrap_or_else(|| missing("powerups.txt"))
 }
