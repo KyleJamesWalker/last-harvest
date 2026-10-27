@@ -120,6 +120,35 @@ fn show(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let kind = card::Kind::of(&path.to_string_lossy()).unwrap_or(card::Kind::Enemy);
     let card = card::read_as(kind, &path.display().to_string(), &std::fs::read(path)?)?;
     println!("{}x{} frames\n{}", card.frame[0], card.frame[1], card.text.trim_end());
+    match kind {
+        card::Kind::Enemy => show_mix(&card.text)?,
+        card::Kind::Player => {
+            let f = last_harvest_game::player_fields(&card.text)?;
+            println!("\nStarts with:");
+            for (d, start) in last_harvest_game::Difficulty::ALL.into_iter().zip(&f.start) {
+                let weapons = start.clone().unwrap_or_else(|| last_harvest_game::default_start(d));
+                let how = if start.is_some() { "" } else { " (the game's own)" };
+                println!("  {:<7}{}{how}", d.name(), if weapons.is_empty() { "nothing".to_string() } else { weapons.join(", ") });
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Prints how a night's spawns split between the game's kinds and this card's, a few times through the night.
+fn show_mix(text: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let minutes = [0.5, 2.5, 5.0, 9.5];
+    let mix = last_harvest_game::spawn_mix(&[text], &minutes)?;
+    println!("\nSpawn mix{}:", if mix.replaced.is_empty() { String::new() } else { format!(", replacing the game's {}", mix.replaced.join(", ")) });
+    print!("  {:<14}", "");
+    minutes.iter().for_each(|m| print!("{:>8}", format!("{m} min")));
+    println!();
+    for (k, (_, name)) in mix.kinds.iter().enumerate() {
+        print!("  {:<14}", name.chars().take(14).collect::<String>());
+        mix.shares.iter().for_each(|s| print!("{:>7.0}%", s[k] * 100.0));
+        let never = mix.shares.iter().all(|s| s[k] <= 0.0);
+        println!("{}", if never { "   never spawns" } else { "" });
+    }
     Ok(())
 }
 
