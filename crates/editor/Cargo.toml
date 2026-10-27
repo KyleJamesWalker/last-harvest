@@ -11,6 +11,7 @@ last-harvest-render.workspace = true
 png = "0.17"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+last-harvest-pack = { path = "../pack", default-features = false }
 glutin = { version = "0.32", default-features = false, features = ["egl", "wayland"] }
 glutin-winit = { version = "0.5", default-features = false, features = ["egl", "wayland"] }
 raw-window-handle = "0.6"

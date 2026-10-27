@@ -1638,6 +1638,7 @@ dependencies = [
  "glutin-winit",
  "js-sys",
  "last-harvest-game",
+ "last-harvest-pack",
  "last-harvest-render",
  "objc2 0.6.5",
  "objc2-app-kit 0.3.2",

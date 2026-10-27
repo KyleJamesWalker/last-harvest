@@ -23,7 +23,7 @@ fn text(status: u16, body: impl Into<String>) -> Reply {
 /// A file a sprite's folder may hold.
 fn sprite_file(file: &str) -> bool {
     let frame = file.strip_suffix(".png").is_some_and(|n| !n.is_empty() && n.len() <= 3 && n.bytes().all(|b| b.is_ascii_digit()));
-    frame || matches!(file, "south.png" | "east.png" | "footprint.png" | "top.png" | "stand.txt")
+    frame || matches!(file, "south.png" | "east.png" | "footprint.png" | "top.png" | "stand.txt" | "enemy.txt")
 }
 
 fn bytes(found: Option<Vec<u8>>) -> Reply {
@@ -144,14 +144,14 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(root.join("art.txt"), "BARREL  cell 14 7\n").unwrap();
-        FsStore { dir: root.join("sprites"), catalog: root.join("art.txt") }
+        FsStore { dir: root.join("sprites"), catalog: root.join("art.txt"), cards: root.join("enemies") }
     }
 
     #[test]
     fn saves_and_reads_back_a_sprite_the_way_the_editor_does() {
         let s = store("save");
         let web = Path::new("/nonexistent");
-        let mut sprite = Sprite { name: "BARREL".into(), frames: vec![Frame::blank(4, 3); 3], views: None, footprint: None, top: Some(Frame::blank(4, 1)) };
+        let mut sprite = Sprite { name: "BARREL".into(), frames: vec![Frame::blank(4, 3); 3], views: None, footprint: None, top: Some(Frame::blank(4, 1)), card: None };
         sprite.frames[2].set(1, 1, [9, 8, 7, 255]);
         assert_eq!(handle(&s, web, &Method::Put, "/api/sprite/BARREL", &bundle(&sprite.files())).0, 200);
         sprite.frames.truncate(2);
@@ -164,6 +164,25 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&s.catalog).unwrap(), "BARREL  cell 14 7  @slab 7\n");
         assert_eq!(handle(&s, web, &Method::Get, "/api/stand/BARREL", &[]).2, b"slab 7");
         assert!(String::from_utf8(handle(&s, web, &Method::Get, "/api/names", &[]).2).unwrap().contains("BARREL\t1\n"));
+        std::fs::remove_dir_all(s.dir.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn saves_and_reads_back_a_card_the_way_the_web_editor_does() {
+        let s = store("card");
+        let web = Path::new("/nonexistent");
+        let mut card = Sprite { name: "CARD_GHOUL".into(), frames: vec![Frame::blank(8, 8); 15], views: None, footprint: None, top: None, card: Some("[ghoul]\nhp 40\n".into()) };
+        card.frames[14].set(7, 7, [1, 2, 3, 255]);
+        assert_eq!(handle(&s, web, &Method::Put, "/api/sprite/CARD_GHOUL", &bundle(&card.files())).0, 200);
+        assert!(s.cards.join("ghoul.png").exists());
+        assert_eq!(handle(&s, web, &Method::Get, "/api/file/CARD_GHOUL/enemy.txt", &[]).2, b"[ghoul]\nhp 40\n");
+        let back = Sprite::load_from("CARD_GHOUL", |file| Some(handle(&s, web, &Method::Get, &format!("/api/file/CARD_GHOUL/{file}"), &[])).filter(|r| r.0 == 200).map(|r| r.2)).unwrap();
+        assert_eq!((back.frames.len(), back.frames[14].get(7, 7)), (15, Some([1, 2, 3, 255])));
+        assert!(String::from_utf8(handle(&s, web, &Method::Get, "/api/names", &[]).2).unwrap().contains("CARD_GHOUL\t1\n"));
+        let before = std::fs::read(s.cards.join("ghoul.png")).unwrap();
+        card.frames.pop();
+        assert_eq!(handle(&s, web, &Method::Put, "/api/sprite/CARD_GHOUL", &bundle(&card.files())).0, 500, "a card keeps its frames");
+        assert_eq!(std::fs::read(s.cards.join("ghoul.png")).unwrap(), before, "and a refused save leaves it as it was");
         std::fs::remove_dir_all(s.dir.parent().unwrap()).unwrap();
     }
 

@@ -132,7 +132,31 @@ enum Action {
     Color(Rgba),
     Onion,
     Compare,
+    /// Shows a card's stats on the canvas, or its pixels again.
+    Stats,
+    /// Steps one of `CARD_NUMBERS` by its step times the value.
+    StatStep(usize, i32),
+    Flag(usize),
+    Sound(i32),
+    EditName,
 }
+
+/// What each of a card's numbers is called on its stats page, and how far a press of - or + moves it.
+const STAT_ROWS: [(&str, f32); 9] = [
+    ("Health", 5.0),
+    ("Speed", 1.0),
+    ("Bite", 1.0),
+    ("Money", 1.0),
+    ("Weight", 0.1),
+    ("Gibs", 1.0),
+    ("Arrives after (minutes)", 0.5),
+    ("Chance", 0.01),
+    ("Chance per minute", 0.005),
+];
+const FLAG_NAMES: [&str; 3] = ["Heavy", "Leads hordes", "Harvester"];
+const STAT_TOP: f32 = CANVAS.y + 92.0;
+const STAT_ROW: f32 = 36.0;
+const NAME_MAX: usize = 24;
 
 struct Button {
     rect: Rect,
@@ -260,11 +284,15 @@ pub struct Editor {
     /// Magnification of the pixel canvas past fitting it, and how far it is moved off center.
     lens: f32,
     pan: [f32; 2],
+    /// A card's stats are on the canvas in place of its pixels.
+    stats: bool,
+    /// The card's name as it's being typed.
+    naming: Option<String>,
 }
 
 impl Editor {
     pub fn new(store: Box<dyn Store>, name: &str) -> Self {
-        let sprite = store.load(name).unwrap_or(Sprite { name: name.into(), frames: vec![Frame::blank(16, 16)], views: None, footprint: None, top: None });
+        let sprite = store.load(name).unwrap_or(Sprite { name: name.into(), frames: vec![Frame::blank(16, 16)], views: None, footprint: None, top: None, card: None });
         let names = store.names();
         let mut e = Self {
             store,
@@ -312,6 +340,8 @@ impl Editor {
             live: Vec::new(),
             lens: 1.0,
             pan: [0.0; 2],
+            stats: false,
+            naming: None,
         };
         e.load_stand();
         e.reveal();
@@ -363,7 +393,22 @@ impl Editor {
     /// The frames to show in the previews: all of them while playing, else the one being edited.
     pub fn shown(&self) -> Vec<Art> {
         let n = self.sprite.frames.len().min(self.live.len());
+        if self.playing && self.is_card() {
+            let row = self.frame / 3 * 3;
+            return self.live.get(row..(row + 3).min(n)).map(<[Art]>::to_vec).unwrap_or_default();
+        }
         if self.playing { self.live[..n].to_vec() } else { self.live.get(self.frame).copied().into_iter().collect() }
+    }
+
+    fn is_card(&self) -> bool {
+        self.sprite.card.is_some()
+    }
+
+    /// Sets one of the card's settings, as `set_card_field` does.
+    fn set_card(&mut self, key: &str, value: Option<&str>) {
+        let Some(text) = &self.sprite.card else { return };
+        self.sprite.card = Some(last_harvest_game::set_card_field(text, key, value));
+        self.dirty = true;
     }
 
     /// The top strip in the previews, for a figure that has one.
@@ -484,6 +529,8 @@ impl Editor {
             self.fit();
             self.load_stand();
             self.load_family();
+            self.stats &= self.is_card();
+            self.naming = None;
         }
     }
 
@@ -546,7 +593,9 @@ impl Editor {
                 self.status = None;
             }
         }
-        if self.playing && !self.sprite.frames.is_empty() {
+        if self.playing && self.is_card() {
+            self.frame = self.frame / 3 * 3 + (self.clock * self.fps) as usize % 3;
+        } else if self.playing && !self.sprite.frames.is_empty() {
             self.frame = (self.clock * self.fps) as usize % self.sprite.frames.len();
         }
     }
@@ -584,7 +633,7 @@ impl Editor {
 
     /// Whether `p` is on the pixel canvas with nothing in front of it.
     pub fn on_canvas(&self, p: [f32; 2]) -> bool {
-        CANVAS.contains(p) && self.pending.is_none() && self.ask.is_none()
+        CANVAS.contains(p) && self.pending.is_none() && self.ask.is_none() && !self.stats
     }
 
     /// Whether `p` is on a row of the sprite list.
@@ -604,11 +653,24 @@ impl Editor {
 
     /// The name or search being typed, while one is.
     pub fn text(&self) -> Option<&str> {
+        if let Some(name) = &self.naming {
+            return Some(name);
+        }
         if self.typing { Some(&self.filter) } else { self.ask.as_ref().map(|(_, name)| name.as_str()) }
+    }
+
+    /// Whether the text being typed takes any case and spaces, as a card's name does, rather than a sprite name's capitals.
+    pub fn free_text(&self) -> bool {
+        self.naming.is_some()
     }
 
     /// Replaces the name or search being typed, as typing `text` key by key would leave it.
     pub fn set_text(&mut self, text: &str) {
+        if let Some(name) = &mut self.naming {
+            // A `#` would start a comment in the card's text.
+            *name = text.chars().filter(|c| !c.is_control() && *c != '#').take(NAME_MAX).collect();
+            return;
+        }
         let clean: String = text.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == ' ').map(|c| if c == ' ' { '_' } else { c.to_ascii_uppercase() }).collect();
         if self.typing {
             self.filter = clean;
@@ -628,6 +690,25 @@ impl Editor {
         let mut push = |x: f32, y: f32, w: f32, h: f32, action: Action, label: &str, on: bool| {
             b.push(Button { rect: Rect { x, y, w, h }, action, label: label.into(), on });
         };
+        if self.is_card() {
+            push(410.0, 8.0, 94.0, 34.0, Action::Stats, "Stats T", self.stats);
+        }
+        if self.stats {
+            push(CANVAS.x + 300.0, CANVAS.y + 44.0, 240.0, 34.0, Action::EditName, "Rename", self.naming.is_some());
+            for i in 0..STAT_ROWS.len() {
+                let y = STAT_TOP + i as f32 * STAT_ROW;
+                push(CANVAS.x + 400.0, y, 66.0, 30.0, Action::StatStep(i, -1), "-", false);
+                push(CANVAS.x + 474.0, y, 66.0, 30.0, Action::StatStep(i, 1), "+", false);
+            }
+            let y = STAT_TOP + STAT_ROWS.len() as f32 * STAT_ROW;
+            push(CANVAS.x + 400.0, y, 66.0, 30.0, Action::Sound(-1), "<", false);
+            push(CANVAS.x + 474.0, y, 66.0, 30.0, Action::Sound(1), ">", false);
+            let fields = self.sprite.card.as_deref().and_then(|t| last_harvest_game::card_fields(t).ok());
+            for (i, name) in FLAG_NAMES.into_iter().enumerate() {
+                let on = fields.as_ref().is_some_and(|f| f.flags[i].1);
+                push(CANVAS.x + 20.0 + i as f32 * 176.0, y + 48.0, 168.0, 34.0, Action::Flag(i), name, on);
+            }
+        }
         let header = [(Action::Ask(Ask::New), "New"), (Action::Ask(Ask::Copy), "Copy"), (Action::History, "History R"), (Action::Revert, "Revert"), (Action::Save, "Save")];
         for (i, (a, l)) in header.into_iter().enumerate() {
             let on = (a == Action::Save && self.unsaved()) || (a == Action::History && self.browse.is_some());
@@ -667,7 +748,7 @@ impl Editor {
         }
         let after = CANVAS.x + shown as f32 * (THUMB + 6.0);
         push(after, 622.0, 44.0, THUMB, Action::AddFrame, "+", false);
-        if self.stand == FIGURE {
+        if self.stand == FIGURE && !self.is_card() {
             let action = if self.sprite.top.is_some() { Action::View(TOP) } else { Action::AddTop };
             push(after + 56.0, 622.0, THUMB, THUMB, action, "", self.view == Some(TOP));
         }
@@ -761,7 +842,7 @@ impl Editor {
                 return;
             }
         }
-        if CANVAS.contains(p) {
+        if CANVAS.contains(p) && !self.stats {
             let (x, y) = self.pixel_at(p);
             if self.tool_now() == Tool::Select && !right {
                 self.grab = Some(match &self.selection {
@@ -994,7 +1075,8 @@ impl Editor {
                         self.stand_touched = false;
                         self.names = self.store.names();
                         self.reveal();
-                        self.say(format!("Saved {}. Rebuild the game to see it in play.", self.sprite.name));
+                        let next = if self.is_card() { "Restart the game to load it." } else { "Rebuild the game to see it in play." };
+                        self.say(format!("Saved {}. {next}", self.sprite.name));
                     }
                     Err(e) => self.say(format!("Save failed: {e}")),
                 }
@@ -1025,6 +1107,53 @@ impl Editor {
             Action::Compare => {
                 self.compare = !self.compare;
                 self.load_family();
+            }
+            Action::AddFrame | Action::DeleteFrame | Action::MoveFrame(_) if self.is_card() => {
+                self.say(format!("A card keeps its {} frames: walk front, side and back, then flash and hurt", sprite::CARD_FRAMES));
+            }
+            Action::Stand(_) if self.is_card() => self.say("A card stands as a figure"),
+            Action::Stats => {
+                self.stats = !self.stats;
+                self.naming = None;
+            }
+            Action::StatStep(i, d) => {
+                let Some(f) = self.sprite.card.as_deref().and_then(|t| last_harvest_game::card_fields(t).ok()) else { return };
+                let (key, value) = f.numbers[i];
+                let (_, step) = STAT_ROWS[i];
+                let bigger = if shift { 10.0 } else { 1.0 };
+                let lo = if key == "mass" { 0.1 } else { 0.0 };
+                let mut v = ((value + step * bigger * d as f32) / step).round() * step;
+                v = v.max(lo);
+                if key == "chance" {
+                    v = v.min(1.0);
+                }
+                let text = format!("{}", (v * 1000.0).round() / 1000.0);
+                self.set_card(key, Some(&text));
+            }
+            Action::Flag(i) => {
+                let Some(f) = self.sprite.card.as_deref().and_then(|t| last_harvest_game::card_fields(t).ok()) else { return };
+                let (key, on) = f.flags[i];
+                self.set_card(key, if on { None } else { Some("") });
+            }
+            Action::Sound(d) => {
+                let Some(f) = self.sprite.card.as_deref().and_then(|t| last_harvest_game::card_fields(t).ok()) else { return };
+                let mut sounds: Vec<String> = last_harvest_game::kill_sounds().map(str::to_string).collect();
+                sounds.dedup();
+                if !sounds.contains(&f.sound) {
+                    sounds.push(f.sound.clone());
+                }
+                let at = sounds.iter().position(|s| *s == f.sound).unwrap_or(0) as i32;
+                let next = sounds[(at + d).rem_euclid(sounds.len() as i32) as usize].clone();
+                self.set_card("sound", Some(&next));
+            }
+            Action::EditName => {
+                self.naming = match self.naming.take() {
+                    Some(name) => {
+                        self.commit_name(name);
+                        None
+                    }
+                    None => self.sprite.card.as_deref().and_then(|t| last_harvest_game::card_fields(t).ok()).map(|f| f.name),
+                };
             }
             Action::AddFrame => {
                 self.remember();
@@ -1067,6 +1196,7 @@ impl Editor {
                 self.changed = true;
             }
             Action::History if self.browse.is_some() => self.leave_history(),
+            Action::History if self.is_card() => self.say("Cards don't keep a history here yet"),
             Action::History => self.open_history(),
             Action::Restore => self.restore_version(),
             Action::Back => self.leave_history(),
@@ -1342,7 +1472,16 @@ impl Editor {
 
     /// Whether keys are typing a name or a search, so letters shouldn't act as shortcuts.
     pub fn wants_text(&self) -> bool {
-        self.typing || self.ask.is_some()
+        self.typing || self.ask.is_some() || self.naming.is_some()
+    }
+
+    fn commit_name(&mut self, name: String) {
+        let name = name.trim().to_string();
+        if name.is_empty() {
+            self.say("A card needs a name");
+        } else {
+            self.set_card("name", Some(&name));
+        }
     }
 
     /// Unfolds the open sprite's group and scrolls the list so the sprite shows.
@@ -1389,6 +1528,21 @@ impl Editor {
             }
             return;
         }
+        if let Some(name) = &mut self.naming {
+            match key {
+                Key::Char(c) if !c.is_control() && c != '#' && name.chars().count() < NAME_MAX => name.push(c),
+                Key::Backspace => {
+                    name.pop();
+                }
+                Key::Escape => self.naming = None,
+                Key::Enter => {
+                    let name = self.naming.take().unwrap_or_default();
+                    self.commit_name(name);
+                }
+                _ => {}
+            }
+            return;
+        }
         if self.typing {
             match key {
                 Key::Char(c) if c.is_ascii_alphanumeric() || c == '_' || c == ' ' => {
@@ -1430,10 +1584,21 @@ impl Editor {
                         self.say("Names start with a letter and use A-Z, 0-9 and _");
                     } else if self.names.iter().any(|(n, _)| *n == name) {
                         self.say(format!("{name} already exists"));
+                    } else if sprite::card_id(&name).is_some() && kind == Ask::Copy && !self.is_card() {
+                        self.say("Copy a card to make a card, or start one with New");
                     } else {
                         self.ask = None;
                         let (frames, views, footprint, top) = if kind == Ask::Copy { self.snapshot() } else { (vec![Frame::blank(16, 16)], None, None, None) };
-                        self.sprite = Sprite { name: name.clone(), frames, views, footprint, top };
+                        let card = sprite::card_id(&name).map(|id| match (&self.sprite.card, kind) {
+                            (Some(text), Ask::Copy) => text.replacen(&format!("[{}]", sprite::card_id(&self.sprite.name).unwrap_or_default()), &format!("[{id}]"), 1),
+                            _ => format!("[{id}]\nname        {}\n", id[..1].to_ascii_uppercase() + &id[1..]),
+                        });
+                        let frames = if card.is_some() && kind == Ask::New { vec![Frame::blank(16, 16); sprite::CARD_FRAMES] } else { frames };
+                        let carded = card.is_some();
+                        self.sprite = Sprite { name: name.clone(), frames, views, footprint, top, card };
+                        if carded {
+                            self.stand = FIGURE;
+                        }
                         self.fit();
                         self.view = None;
                         self.frame = 0;
@@ -1495,6 +1660,7 @@ impl Editor {
             Key::Char('m') => self.mirror = !self.mirror,
             Key::Char('o') => self.act(Action::Onion, false),
             Key::Char('c') => self.act(Action::Compare, false),
+            Key::Char('t') if self.is_card() => self.act(Action::Stats, false),
             Key::Char(' ') => self.act(Action::Play, false),
             Key::Char('n') => self.act(Action::Ask(Ask::New), false),
             Key::Left | Key::Char('h') => self.step_frame(-1),
@@ -1541,7 +1707,11 @@ impl Editor {
             self.draw_list(c);
         }
 
-        self.draw_canvas(c);
+        if self.stats {
+            self.draw_stats(c);
+        } else {
+            self.draw_canvas(c);
+        }
         if let Some(b) = &self.browse {
             let commit = &b.commits[b.at];
             c.rect(CANVAS.x, CANVAS.y, CANVAS.w, 30.0, [0.0, 0.0, 0.0, 0.7]);
@@ -1668,6 +1838,9 @@ impl Editor {
 
         let f = self.current();
         c.label(format!("{} / {}", self.frame + 1, self.sprite.frames.len()), CANVAS.x + 248.0, 704.0, 18.0, DIM, Align::Left);
+        if self.is_card() && self.view.is_none() && !self.stats {
+            c.label(sprite::card_frame_name(self.frame), CANVAS.x + 8.0, CANVAS.y + 6.0, 16.0, HOT, Align::Left);
+        }
         c.label(format!("W {}", f.w), CANVAS.x + 362.0, 704.0, 18.0, TEXT, Align::Right);
         c.label(format!("H {}", f.h), CANVAS.x + 484.0, 704.0, 18.0, TEXT, Align::Right);
         if let Some(p) = self.hover.filter(|p| CANVAS.contains(*p)) {
@@ -1703,10 +1876,39 @@ impl Editor {
             c.rect(262.0, 280.0, 500.0, 170.0, PANEL);
             let what = if *kind == Ask::New { "Name the new sprite" } else { "Name the copy" };
             c.label(what, 512.0, 300.0, 24.0, TEXT, Align::Center);
+            c.label(format!("Start with {} for an enemy card", sprite::CARD_PREFIX), 512.0, 328.0, 15.0, DIM, Align::Center);
             let caret = if (self.clock * 2.0) as i32 % 2 == 0 { "_" } else { " " };
             c.label(format!("{name}{caret}"), 512.0, 350.0, 30.0, HOT, Align::Center);
             c.label("Enter to create, Esc to cancel", 512.0, 405.0, 16.0, DIM, Align::Center);
         }
+    }
+
+    /// A card's stats page: its name, numbers, death sound and flags, as the game will read them.
+    fn draw_stats(&self, c: &mut Canvas) {
+        c.rect(CANVAS.x, CANVAS.y, CANVAS.w, CANVAS.h, PANEL);
+        let text = self.sprite.card.as_deref().unwrap_or("");
+        let x = CANVAS.x + 20.0;
+        let f = match last_harvest_game::card_fields(text) {
+            Ok(f) => f,
+            Err(e) => {
+                c.label("This card's text doesn't read:", x, CANVAS.y + 20.0, 20.0, HOT, Align::Left);
+                c.label(e, x, CANVAS.y + 52.0, 16.0, TEXT, Align::Left);
+                return;
+            }
+        };
+        c.label(format!("Enemy card [{}]", f.id), x, CANVAS.y + 12.0, 20.0, DIM, Align::Left);
+        let caret = if (self.clock * 2.0) as i32 % 2 == 0 { "_" } else { " " };
+        let name = self.naming.as_ref().map_or(f.name.clone(), |n| format!("{n}{caret}"));
+        c.label(name, x, CANVAS.y + 46.0, 28.0, if self.naming.is_some() { HOT } else { TEXT }, Align::Left);
+        for (i, ((_, v), (label, _))) in f.numbers.iter().zip(STAT_ROWS).enumerate() {
+            let y = STAT_TOP + i as f32 * STAT_ROW;
+            c.label(label, x, y + 5.0, 18.0, DIM, Align::Left);
+            c.label(format!("{}", (v * 1000.0).round() / 1000.0), CANVAS.x + 380.0, y + 5.0, 18.0, TEXT, Align::Right);
+        }
+        let y = STAT_TOP + STAT_ROWS.len() as f32 * STAT_ROW;
+        c.label("Death sound", x, y + 5.0, 18.0, DIM, Align::Left);
+        c.label(f.sound, CANVAS.x + 380.0, y + 5.0, 18.0, TEXT, Align::Right);
+        c.label("Shift steps ten times as far.  T: back to the pixels", x, CANVAS.y + CANVAS.h - 28.0, 15.0, DIM, Align::Left);
     }
 
     /// With Onion on, the frame before the one being drawn, wrapping round from the first.
@@ -1881,7 +2083,7 @@ mod tests {
     }
 
     fn editor_in(dir: &Path, catalog: PathBuf) -> Editor {
-        Editor::new(Box::new(FsStore { dir: dir.to_path_buf(), catalog }), "BARREL")
+        Editor::new(Box::new(FsStore { dir: dir.to_path_buf(), catalog, cards: dir.join("enemies") }), "BARREL")
     }
 
     fn editor() -> Editor {
@@ -1890,7 +2092,7 @@ mod tests {
 
     fn editor_on(name: &str) -> Editor {
         let dir = tmp();
-        Editor::new(Box::new(FsStore { dir: dir.clone(), catalog: dir.join("art.txt") }), name)
+        Editor::new(Box::new(FsStore { dir: dir.clone(), catalog: dir.join("art.txt"), cards: dir.join("enemies") }), name)
     }
 
     fn click_pixel(e: &mut Editor, x: i32, y: i32) {
@@ -1921,6 +2123,83 @@ mod tests {
         e.color = [9, 9, 9, 255];
         click_pixel(&mut e, 1, 3);
         assert_eq!(e.current().get(14, 3), Some([9, 9, 9, 255]));
+    }
+
+    fn type_in(e: &mut Editor, text: &str) {
+        text.chars().for_each(|ch| e.key(Key::Char(ch)));
+    }
+
+    /// Fails if any two of the editor's buttons overlap or one leaves the pane.
+    fn buttons_fit(e: &Editor) {
+        let b = e.buttons();
+        for x in &b {
+            assert!(x.rect.x >= 0.0 && x.rect.y >= 0.0 && x.rect.x + x.rect.w <= 1024.0 && x.rect.y + x.rect.h <= 768.0, "{:?}", x.action);
+            for y in &b {
+                let apart = x.rect.x + x.rect.w <= y.rect.x || y.rect.x + y.rect.w <= x.rect.x || x.rect.y + x.rect.h <= y.rect.y || y.rect.y + y.rect.h <= x.rect.y;
+                assert!(std::ptr::eq(x, y) || apart, "{:?} overlaps {:?}", x.action, y.action);
+            }
+        }
+    }
+
+    #[test]
+    fn a_new_card_edits_its_frames_and_stats_and_saves_as_one_png() {
+        let dir = tmp().join("cards");
+        let _ = std::fs::remove_dir_all(&dir);
+        let store = || FsStore { dir: dir.join("sprites"), catalog: dir.join("art.txt"), cards: dir.join("enemies") };
+        let mut e = Editor::new(Box::new(store()), "BARREL");
+        e.act(Action::Ask(Ask::New), false);
+        type_in(&mut e, "card ghoul");
+        e.key(Key::Enter);
+        assert_eq!((e.sprite.name.as_str(), e.sprite.frames.len()), ("CARD_GHOUL", 15));
+        assert_eq!(e.stand(), Stand::Figure);
+        e.act(Action::AddFrame, false);
+        assert_eq!(e.sprite.frames.len(), 15, "a card keeps its frames");
+        click_pixel(&mut e, 2, 3);
+        e.act(Action::Stats, false);
+        buttons_fit(&e);
+        e.act(Action::StatStep(0, 1), false);
+        e.act(Action::StatStep(1, 1), true);
+        e.act(Action::Flag(0), false);
+        e.act(Action::EditName, false);
+        for _ in 0..5 {
+            e.key(Key::Backspace);
+        }
+        assert!(e.wants_text() && e.free_text());
+        type_in(&mut e, "Bog Ghoul");
+        e.key(Key::Enter);
+        e.act(Action::Save, false);
+        assert!(!e.unsaved(), "{:?}", e.status);
+        let saved = last_harvest_pack::card::read("ghoul.png", &std::fs::read(dir.join("enemies/ghoul.png")).unwrap()).unwrap();
+        let f = last_harvest_game::card_fields(&saved.text).unwrap();
+        assert_eq!((f.id.as_str(), f.name.as_str()), ("ghoul", "Bog Ghoul"));
+        assert_eq!((f.numbers[0].1, f.numbers[1].1, f.flags[0].1), (15.0, 30.0, true), "health 10 + 5, speed 20 + 10, heavy");
+        assert_eq!(saved.frame, [16, 16]);
+        let e = Editor::new(Box::new(store()), "CARD_GHOUL");
+        assert!(e.names.iter().any(|(n, saved)| n == "CARD_GHOUL" && *saved));
+        assert_eq!(e.sprite.frames.len(), 15);
+        assert_eq!(e.sprite.frames[0].get(2, 3), Some(e.color), "the pixel came back");
+        assert_eq!(sprite::section("CARD_GHOUL"), sprite::CARD_SECTION);
+    }
+
+    #[test]
+    fn a_card_copies_to_a_card_with_its_own_id() {
+        let dir = tmp().join("copy");
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut e = Editor::new(Box::new(FsStore { dir: dir.join("sprites"), catalog: dir.join("art.txt"), cards: dir.join("enemies") }), "BARREL");
+        e.act(Action::Ask(Ask::Copy), false);
+        type_in(&mut e, "card nope");
+        e.key(Key::Enter);
+        assert!(e.ask.is_some(), "a plain sprite doesn't copy to a card");
+        e.ask = None;
+        e.act(Action::Ask(Ask::New), false);
+        type_in(&mut e, "card a");
+        e.key(Key::Enter);
+        e.act(Action::StatStep(0, 1), false);
+        e.act(Action::Ask(Ask::Copy), false);
+        type_in(&mut e, "card b");
+        e.key(Key::Enter);
+        let f = last_harvest_game::card_fields(e.sprite.card.as_deref().unwrap()).unwrap();
+        assert_eq!((f.id.as_str(), f.numbers[0].1), ("b", 15.0));
     }
 
     #[test]

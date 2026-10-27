@@ -29,46 +29,121 @@ pub use fs::FsStore;
 
 #[cfg(not(target_arch = "wasm32"))]
 mod fs {
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
+
+    use last_harvest_pack::card;
 
     use super::Store;
     use crate::history::{Commit, Repo};
-    use crate::sprite::{self, Sprite};
+    use crate::sprite::{self, CARD_FRAMES, Frame, Sprite};
 
-    /// The sprites folder and the game's catalog on this machine.
+    /// The sprites folder, the game's catalog and the enemy cards folder on this machine.
     pub struct FsStore {
         pub dir: PathBuf,
         pub catalog: PathBuf,
+        pub cards: PathBuf,
     }
 
     impl Default for FsStore {
         fn default() -> Self {
-            Self { dir: sprite::folder(), catalog: sprite::catalog_file() }
+            let dir = sprite::folder();
+            Self { cards: dir.with_file_name("enemies"), dir, catalog: sprite::catalog_file() }
+        }
+    }
+
+    impl FsStore {
+        fn card_path(&self, name: &str) -> Option<PathBuf> {
+            sprite::card_id(name).map(|id| self.cards.join(format!("{id}.png")))
+        }
+
+        /// A card's text and its frames in sheet order.
+        fn card(&self, path: &Path) -> Option<(String, Vec<Frame>)> {
+            let c = card::read(&path.display().to_string(), &std::fs::read(path).ok()?).ok()?;
+            let [w, h] = c.frame.map(|v| v as usize);
+            let frames = (0..CARD_FRAMES)
+                .map(|k| {
+                    let (col, row) = (k % 3, k / 3);
+                    let px = (0..h).flat_map(|y| (0..w).map(move |x| ((row * h + y) * w * 3 + col * w + x) * 4)).map(|i| [c.sheet[i], c.sheet[i + 1], c.sheet[i + 2], c.sheet[i + 3]]).collect();
+                    Frame { w, h, px }
+                })
+                .collect();
+            Some((c.text, frames))
+        }
+
+        fn save_card(&self, path: &Path, sprite: &Sprite) -> Result<(), String> {
+            let text = sprite.card.as_deref().ok_or("a card needs its enemy text")?;
+            let fields = last_harvest_game::card_fields(text)?;
+            if Some(fields.id.as_str()) != sprite::card_id(&sprite.name).as_deref() {
+                return Err(format!("the card's id is [{}], but {} needs [{}]", fields.id, sprite.name, sprite::card_id(&sprite.name).unwrap_or_default()));
+            }
+            let first = sprite.frames.first().ok_or("a card has frames")?;
+            let (w, h) = (first.w, first.h);
+            if sprite.frames.len() != CARD_FRAMES || sprite.frames.iter().any(|f| (f.w, f.h) != (w, h)) {
+                return Err(format!("a card has {CARD_FRAMES} frames, all one size"));
+            }
+            let mut sheet = vec![0u8; w * 3 * h * 5 * 4];
+            for (k, f) in sprite.frames.iter().enumerate() {
+                let (col, row) = (k % 3, k / 3);
+                for y in 0..h {
+                    for x in 0..w {
+                        let i = ((row * h + y) * w * 3 + col * w + x) * 4;
+                        sheet[i..i + 4].copy_from_slice(&f.px[y * w + x]);
+                    }
+                }
+            }
+            let bytes = card::write(text, (w * 3) as u32, (h * 5) as u32, &sheet)?;
+            std::fs::create_dir_all(&self.cards).map_err(|e| format!("{}: {e}", self.cards.display()))?;
+            std::fs::write(path, bytes).map_err(|e| format!("{}: {e}", path.display()))
         }
     }
 
     impl Store for FsStore {
         fn names(&self) -> Vec<(String, bool)> {
-            sprite::catalog(&self.dir)
+            let mut names = sprite::catalog(&self.dir);
+            let mut cards: Vec<String> = std::fs::read_dir(&self.cards)
+                .into_iter()
+                .flatten()
+                .flatten()
+                .filter_map(|e| e.file_name().into_string().ok()?.strip_suffix(".png").and_then(sprite::card_name))
+                .collect();
+            cards.sort();
+            names.extend(cards.into_iter().map(|n| (n, true)));
+            names
         }
 
         fn read(&self, name: &str, file: &str) -> Option<Vec<u8>> {
-            std::fs::read(self.dir.join(name).join(file)).ok()
+            let Some(path) = self.card_path(name) else { return std::fs::read(self.dir.join(name).join(file)).ok() };
+            let (text, frames) = self.card(&path)?;
+            if file == sprite::CARD_FILE {
+                return Some(text.into_bytes());
+            }
+            let k: usize = file.strip_suffix(".png")?.parse().ok()?;
+            frames.get(k).map(sprite::encode_png)
         }
 
         fn save(&self, sprite: &Sprite) -> Result<(), String> {
-            sprite.save(&self.dir)
+            match self.card_path(&sprite.name) {
+                Some(path) => self.save_card(&path, sprite),
+                None => sprite.save(&self.dir),
+            }
         }
 
         fn stand(&self, name: &str) -> Option<String> {
+            if sprite::card_id(name).is_some() {
+                return Some("figure".into());
+            }
             sprite::read_stand(&self.dir, &self.catalog, name)
         }
 
         fn save_stand(&self, name: &str, how: &str) -> Result<(), String> {
+            if sprite::card_id(name).is_some() {
+                return Ok(());
+            }
             sprite::save_stand(&self.dir, &self.catalog, name, how)
         }
 
         fn history(&self, name: &str) -> Option<(Vec<Commit>, bool)> {
+            sprite::card_id(name).is_none().then_some(())?;
             let repo = Repo::open(&self.dir)?;
             Some((repo.log(name), repo.changed(name)))
         }

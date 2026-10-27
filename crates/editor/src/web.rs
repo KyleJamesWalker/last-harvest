@@ -373,6 +373,8 @@ impl Web {
         match self.studio.editor.text().map(str::to_string) {
             Some(t) => {
                 if self.input.hidden() {
+                    let caps = if self.studio.editor.free_text() { "sentences" } else { "characters" };
+                    let _ = self.input.set_attribute("autocapitalize", caps);
                     self.input.set_hidden(false);
                     self.input.set_value(&t);
                 }

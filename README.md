@@ -55,6 +55,8 @@ cargo run -p last-harvest-pack -- card sheet.png ghoul.txt ghoul.png   # make a 
 cargo run -p last-harvest-pack -- show ghoul.png                       # print its frame size and text
 ```
 
+The sprite editor, on the Mac or an iPad, lists the cards in `assets/private/enemies/` under Enemy cards as `CARD_<ID>`. A card's 15 frames edit like any sprite's, each labelled with what it shows, and Play loops the row in view; a card always keeps 15 frames and stands as a figure. Stats (T) puts the card's name, numbers, death sound and flags on the canvas, as the game reads them. Save writes the card back to one PNG. New with a name starting `CARD_` starts a blank card, and Copy from a card makes another under a new id.
+
 Also on every screen:
 
 - Select toggles a performance overlay with FPS, frame times and temperatures.

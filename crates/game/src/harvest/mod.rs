@@ -17,6 +17,7 @@ use crate::rng::Rng;
 use crate::{Buttons, Color, Difficulty, Input, SCREEN_H, SCREEN_W, Sfx};
 use enemies::Enemy;
 pub(crate) use enemies::{install_cards, off_from_ids, off_ids, roster};
+pub use enemies::{CardFields, FLAGS as CARD_FLAGS, NUMBERS as CARD_NUMBERS, card_fields, set_card_field};
 use juice::{Corpse, Juice, Particle, Tone};
 use map::{Map, TILE};
 pub use powerups::{Progress, Run, found_from_ids, found_ids};

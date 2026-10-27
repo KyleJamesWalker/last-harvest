@@ -216,6 +216,60 @@ fn card_entry(text: &str) -> Result<Entry, String> {
     }
 }
 
+/// A card's settings as the game reads them, defaults filled in, for an editor to show.
+pub struct CardFields {
+    pub id: String,
+    pub name: String,
+    /// Every number a card sets, by key, in `NUMBERS` order.
+    pub numbers: Vec<(&'static str, f32)>,
+    pub sound: String,
+    /// Every flag a card sets, by key, in `FLAGS` order.
+    pub flags: Vec<(&'static str, bool)>,
+}
+
+pub const NUMBERS: [&str; 9] = ["hp", "speed", "damage", "xp", "mass", "gibs", "after", "chance", "per_minute"];
+pub const FLAGS: [&str; 3] = ["heavy", "leader", "harvester"];
+
+/// Reads a card's text as the game would, or says why it can't.
+pub fn card_fields(text: &str) -> Result<CardFields, String> {
+    let entry = card_entry(text)?;
+    let e = &entry.enemy;
+    let numbers = [e.hp, e.speed, e.damage, e.xp as f32, e.mass, e.gibs as f32, e.after, e.chance, e.per_minute];
+    Ok(CardFields {
+        id: e.id.clone(),
+        name: e.name.clone(),
+        numbers: NUMBERS.into_iter().zip(numbers).collect(),
+        sound: e.sound.clone(),
+        flags: FLAGS.into_iter().zip([e.heavy, entry.leader, entry.harvester]).collect(),
+    })
+}
+
+/// A card's text with `key` set to `value`, or a flag set when `value` is empty, or the key removed when None.
+/// Other lines, comments among them, stay as they were.
+pub fn set_card_field(text: &str, key: &str, value: Option<&str>) -> String {
+    let line = value.map(|v| if v.is_empty() { key.to_string() } else { format!("{key:<11} {v}") });
+    let mut out: Vec<String> = Vec::new();
+    let mut placed = false;
+    for raw in text.lines() {
+        let words = raw.split('#').next().unwrap_or("").trim();
+        if words.split_whitespace().next() == Some(key) {
+            if let Some(l) = line.as_ref().filter(|_| !placed) {
+                out.push(l.clone());
+            }
+            placed = true;
+        } else {
+            out.push(raw.to_string());
+        }
+    }
+    if let Some(l) = line.filter(|_| !placed) {
+        while out.last().is_some_and(|l| l.trim().is_empty()) {
+            out.pop();
+        }
+        out.push(l);
+    }
+    out.join("\n") + "\n"
+}
+
 /// Where a card's frames go in the texture: shelves below the packed sprites, carrying on from `cursor`.
 fn place(cursor: &mut [u16; 3], [w, h]: [u16; 2]) -> Option<[u16; 2]> {
     let [x, y, shelf] = cursor;
@@ -384,6 +438,24 @@ mod tests {
         let many: Vec<Card> = (0..40).map(|i| card(&format!("[c{i}]"), [64, 64])).collect();
         let (notes, ..) = pack(&many, base, &mut atlas);
         assert!(notes.last().unwrap().contains("no room"), "a full texture turns cards away");
+    }
+
+    #[test]
+    fn a_card_reads_with_defaults_and_rewrites_one_setting_at_a_time() {
+        let text = "# my ghoul\n[ghoul]\nname Ghoul\nhp 40\nheavy\n";
+        let f = card_fields(text).unwrap();
+        assert_eq!((f.id.as_str(), f.name.as_str(), f.sound.as_str()), ("ghoul", "Ghoul", "kill-ghoul"));
+        assert_eq!(f.numbers[0], ("hp", 40.0));
+        assert_eq!(f.numbers[1], ("speed", 20.0), "unset numbers read as the game's defaults");
+        assert_eq!(f.flags[0], ("heavy", true));
+        let text = set_card_field(text, "hp", Some("55"));
+        let text = set_card_field(&text, "speed", Some("30"));
+        let text = set_card_field(&text, "heavy", None);
+        let text = set_card_field(&text, "leader", Some(""));
+        assert_eq!(text, "# my ghoul\n[ghoul]\nname Ghoul\nhp          55\nspeed       30\nleader\n");
+        let f = card_fields(&text).unwrap();
+        assert_eq!((f.numbers[0].1, f.numbers[1].1, f.flags[0].1, f.flags[1].1), (55.0, 30.0, false, true));
+        assert!(card_fields("[a]\nlook SKINNY").is_err());
     }
 
     #[test]

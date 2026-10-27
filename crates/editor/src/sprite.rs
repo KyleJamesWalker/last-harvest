@@ -86,10 +86,38 @@ pub struct Sprite {
     pub footprint: Option<Frame>,
     /// One row whose colors cap a figure's columns in the 3D view; a clear pixel leaves that column's own.
     pub top: Option<Frame>,
+    /// An enemy card's `enemies.txt` section; a card's frames are its 15, in sheet order.
+    pub card: Option<String>,
 }
 
 pub const FOOTPRINT_FILE: &str = "footprint.png";
 pub const TOP_FILE: &str = "top.png";
+pub const CARD_FILE: &str = "enemy.txt";
+/// Enemy cards list as sprites named this and their id in capitals.
+pub const CARD_PREFIX: &str = "CARD_";
+pub const CARD_FRAMES: usize = 15;
+pub const CARD_SECTION: &str = "Enemy cards";
+
+/// The id of the card a sprite name stands for, such as `ghoul` for `CARD_GHOUL`.
+pub fn card_id(name: &str) -> Option<String> {
+    name.strip_prefix(CARD_PREFIX).filter(|id| !id.is_empty()).map(str::to_ascii_lowercase)
+}
+
+/// The sprite name a card id lists under, when the id is one a sprite name can carry.
+pub fn card_name(id: &str) -> Option<String> {
+    let name = format!("{CARD_PREFIX}{}", id.to_ascii_uppercase());
+    (id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_') && valid_name(&name)).then_some(name)
+}
+
+/// What a card's frame shows, by its place in the sheet.
+pub fn card_frame_name(i: usize) -> String {
+    let facing = ["front", "side", "back"][i % 3];
+    match i / 3 {
+        row @ 0..3 => format!("Walk {} {}", ["front", "side", "back"][row], i % 3 + 1),
+        3 => format!("Flash {facing}"),
+        _ => format!("Hurt {facing}"),
+    }
+}
 
 /// A top strip as the 3D view colors a figure's top without one: each column's first solid pixel, or the one
 /// below it when that is outline-dark.
@@ -155,6 +183,9 @@ pub fn folder() -> PathBuf {
 /// The list heading for a sprite: the comment line that opens its group in the catalog, up to its first
 /// `,` `:` or `;`. A sprite the catalog doesn't name is a new one.
 pub fn section(name: &str) -> &'static str {
+    if card_id(name).is_some() {
+        return CARD_SECTION;
+    }
     static SECTIONS: std::sync::OnceLock<Vec<(String, String)>> = std::sync::OnceLock::new();
     let sections = SECTIONS.get_or_init(|| sections_of(include_str!("../../game/art.txt")));
     sections.iter().find(|(n, _)| n == name).map_or(NEW_SECTION, |(_, s)| s.as_str())
@@ -225,7 +256,8 @@ impl Sprite {
             frames = arts.iter().map(|&a| Frame::from_art(a)).collect();
         }
         let views = png(VIEW_FILES[0]).zip(png(VIEW_FILES[1])).map(|(s, e)| [s, e]);
-        Some(Self { name: name.to_string(), frames, views, footprint: png(FOOTPRINT_FILE), top: png(TOP_FILE) })
+        let card = read(CARD_FILE).and_then(|b| String::from_utf8(b).ok());
+        Some(Self { name: name.to_string(), frames, views, footprint: png(FOOTPRINT_FILE), top: png(TOP_FILE), card })
     }
 
     /// The files a save writes: the frames, then the views and the footprint when it has them.
@@ -234,7 +266,8 @@ impl Sprite {
         let views = self.views.iter().flat_map(|v| VIEW_FILES.iter().zip(v).map(|(n, f)| (n.to_string(), f)));
         let footprint = self.footprint.iter().map(|f| (FOOTPRINT_FILE.to_string(), f));
         let top = self.top.iter().map(|f| (TOP_FILE.to_string(), f));
-        frames.chain(views).chain(footprint).chain(top).map(|(n, f)| (n, encode_png(f))).collect()
+        let pngs = frames.chain(views).chain(footprint).chain(top).map(|(n, f)| (n, encode_png(f)));
+        pngs.chain(self.card.iter().map(|t| (CARD_FILE.to_string(), t.clone().into_bytes()))).collect()
     }
 
     /// A sprite from the files `files` lists, which must hold at least one frame.
@@ -464,7 +497,7 @@ mod tests {
     #[test]
     fn saves_and_loads_every_frame_and_drops_leftovers() {
         let dir = std::env::temp_dir().join(format!("lh-sprites-{}", std::process::id()));
-        let mut s = Sprite { name: "TEST_THING".into(), frames: vec![Frame::blank(3, 2), Frame::blank(3, 2), Frame::blank(3, 2)], views: None, footprint: None, top: None };
+        let mut s = Sprite { name: "TEST_THING".into(), frames: vec![Frame::blank(3, 2), Frame::blank(3, 2), Frame::blank(3, 2)], views: None, footprint: None, top: None, card: None };
         s.frames[1].set(2, 1, [200, 10, 10, 255]);
         s.save(&dir).unwrap();
         s.frames.truncate(2);
@@ -477,7 +510,7 @@ mod tests {
 
     #[test]
     fn a_sprites_files_bundle_and_come_back_whole() {
-        let mut s = Sprite { name: "THING".into(), frames: vec![Frame::blank(3, 2); 2], views: Some([Frame::blank(3, 4), Frame::blank(2, 4)]), footprint: None, top: Some(Frame::blank(3, 1)) };
+        let mut s = Sprite { name: "THING".into(), frames: vec![Frame::blank(3, 2); 2], views: Some([Frame::blank(3, 4), Frame::blank(2, 4)]), footprint: None, top: Some(Frame::blank(3, 1)), card: None };
         s.frames[1].set(1, 1, [1, 2, 3, 255]);
         let files = unbundle(&bundle(&s.files())).unwrap();
         assert_eq!(files.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>(), ["0.png", "1.png", "south.png", "east.png", "top.png"]);

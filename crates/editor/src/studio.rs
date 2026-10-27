@@ -194,7 +194,7 @@ mod tests {
     #[test]
     fn the_view_hides_the_player_on_a_tap_and_comes_closer_without_them() {
         let dir = std::env::temp_dir().join(format!("studio-test-{}", std::process::id()));
-        let mut s = Studio::new(Box::new(FsStore { dir: dir.clone(), catalog: dir.join("art.txt") }), "BARREL");
+        let mut s = Studio::new(Box::new(FsStore { dir: dir.clone(), catalog: dir.join("art.txt"), cards: dir.join("enemies") }), "BARREL");
         let [x, y, w, h] = PLAYER_SWITCH;
         s.press(Pane::View, [x + w / 2.0, y + h / 2.0], false, false);
         assert!(!s.player && s.held.is_none(), "a tap on the switch, not a drag");
