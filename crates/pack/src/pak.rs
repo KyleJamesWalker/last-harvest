@@ -80,8 +80,9 @@ impl Pak {
                 return Err(format!("{} makes the pack bigger than the game reads: {} MB a file, {} MB in all", entry.name(), MAX_FILE >> 20, MAX_PACK >> 20));
             }
             let mut bytes = Vec::with_capacity(entry.size() as usize);
-            // A pack may come from anyone: read no more than it declares, whatever its data holds.
-            (&mut entry).take(MAX_FILE).read_to_end(&mut bytes).map_err(|e| format!("{}: {e}", entry.name()))?;
+            // A pack may come from anyone: read no more than a file declares, whatever its data would unpack to.
+            let declared = entry.size();
+            (&mut entry).take(declared).read_to_end(&mut bytes).map_err(|e| format!("{}: {e}", entry.name()))?;
             files.insert(entry.name().to_string(), bytes);
         }
         let text = files.get(MANIFEST).ok_or("no manifest.toml")?;
