@@ -432,9 +432,10 @@ impl Game {
             (true, false) => "Whenever no other kind does".to_string(),
             (true, true) => format!("After {}", minutes(e.after)),
             (false, after) => {
-                let grows = if e.per_minute > 0.0 { format!(" + {}% a minute", e.per_minute * 100.0) } else { String::new() };
-                let from = if after { format!(" after {}", minutes(e.after)) } else { String::new() };
-                format!("{}%{grows}{from}", e.chance * 100.0)
+                let percent = |p: f32| (p * 1000.0).round() / 10.0;
+                let grows = if e.per_minute > 0.0 { format!(" +{}%/min", percent(e.per_minute)) } else { String::new() };
+                let from = if after { format!(" after {} min", e.after) } else { String::new() };
+                format!("Chance {}%{grows}{from}", percent(e.chance))
             }
         };
         let rows = [
