@@ -1937,7 +1937,7 @@ impl Editor {
                         c.rect(LIST.x, y, LIST.w, LIST_ROW, [0.35, 0.3, 0.18, 1.0]);
                     }
                     let mark = if *saved { "  *" } else { "" };
-                    c.label(format!("{name}{mark}"), LIST.x + 14.0, y + 2.0, 17.0, if *saved { HOT } else { TEXT }, Align::Left);
+                    c.label(format!("{}{mark}", list_label(name)), LIST.x + 14.0, y + 2.0, 17.0, if *saved { HOT } else { TEXT }, Align::Left);
                 }
             }
         }
@@ -2219,6 +2219,18 @@ fn stamp(f: &mut Frame, top: &Frame, x: i32, y: i32) {
             }
         }
     }
+}
+
+/// How the list shows a sprite: a card's part without the prefix its heading already gives, its id cut short to fit.
+fn list_label(name: &str) -> String {
+    const ROOM: usize = 16;
+    let Some((id, row)) = sprite::card_part(name) else { return name.to_string() };
+    let (id, part) = (id.to_ascii_uppercase(), sprite::CARD_PARTS[row]);
+    if id.len() + 1 + part.len() <= ROOM {
+        return format!("{id}_{part}");
+    }
+    let keep = ROOM.saturating_sub(part.len() + 2).max(1);
+    format!("{}~_{part}", id[..keep.min(id.len())].trim_end_matches('_'))
 }
 
 fn choice_rect(i: usize) -> Rect {
@@ -2571,6 +2583,14 @@ mod tests {
         e.import_cards("my-cards.pak", vec![one, two, ("x.enemy.png".into(), b"no".to_vec())]);
         let said = e.status.as_ref().map(|(t, _)| t.clone()).unwrap_or_default();
         assert!(said.starts_with("Imported 2 cards from my-cards.pak, replacing your one; 1 couldn't: x.enemy.png"), "{said}");
+    }
+
+    #[test]
+    fn the_list_shows_a_cards_parts_without_their_prefix_and_cut_to_fit() {
+        assert_eq!(list_label("PLAYER_CARD_JO_FRONT"), "JO_FRONT");
+        assert_eq!(list_label("CARD_GHOUL_HURT"), "GHOUL_HURT");
+        assert_eq!(list_label("CARD_NORTHERN_FIELDS_GHOUL_FLASH"), "NORTHERN~_FLASH");
+        assert_eq!(list_label("BARREL"), "BARREL");
     }
 
     #[test]
