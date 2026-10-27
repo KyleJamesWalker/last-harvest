@@ -4,6 +4,8 @@ use std::sync::OnceLock;
 
 use super::Look;
 use super::enemies::{draw_cell, place};
+use super::powerups::{Kind, book};
+use crate::Difficulty;
 use crate::art::Art;
 use crate::data::Card;
 
@@ -14,12 +16,48 @@ pub struct PlayerLook {
     pub id: String,
     pub name: String,
     pub(crate) look: Look,
+    /// The weapons a run starts with at each difficulty, by powerup; None keeps the game's.
+    pub(crate) start: [Option<Vec<usize>>; 3],
+}
+
+/// What a player card's text says: its id and name, and the weapons it starts with at each difficulty, by id;
+/// None for a difficulty keeps the game's own.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PlayerFields {
+    pub id: String,
+    pub name: String,
+    pub start: [Option<Vec<String>>; 3],
+}
+
+/// Every weapon a player card can start with, by id and name.
+pub fn weapons() -> Vec<(String, String)> {
+    book().defs.iter().filter(|d| d.kind == Kind::Weapon).map(|d| (d.id.clone(), d.name.clone())).collect()
+}
+
+/// The weapons the game starts a run with at `difficulty`, by id.
+pub fn default_start(difficulty: Difficulty) -> Vec<String> {
+    book().start[difficulty as usize].iter().map(|&i| book().defs[i].id.clone()).collect()
+}
+
+/// A player card's text with its `start` line for `difficulty` set to `weapons`, or removed when None.
+pub fn set_player_start(text: &str, difficulty: Difficulty, weapons: Option<&[String]>) -> String {
+    let mine = |line: &str| {
+        let words: Vec<&str> = line.split('#').next().unwrap_or("").split_whitespace().collect();
+        words.first() == Some(&"start") && words.get(1) == Some(&difficulty.key())
+    };
+    let line = weapons.map(|w| format!("start       {:<6} {}", difficulty.key(), w.join(" ")).trim_end().to_string());
+    let mut out: Vec<String> = text.lines().filter(|l| !mine(l)).map(str::to_string).collect();
+    while out.last().is_some_and(|l| l.trim().is_empty()) {
+        out.pop();
+    }
+    out.extend(line);
+    out.join("\n") + "\n"
 }
 
 static LOOKS: OnceLock<Vec<PlayerLook>> = OnceLock::new();
 
 fn farmer() -> PlayerLook {
-    PlayerLook { id: String::new(), name: "Farmer".into(), look: super::player_look() }
+    PlayerLook { id: String::new(), name: "Farmer".into(), look: super::player_look(), start: Default::default() }
 }
 
 /// The looks to choose from: the farmer first, then the player cards.
@@ -36,18 +74,32 @@ pub(super) fn install(cards: Vec<PlayerLook>) {
     LOOKS.set(std::iter::once(farmer()).chain(cards).collect()).ok();
 }
 
-/// A player card's id and name, from its text: an `[id]` line and a `name` line.
-pub fn player_fields(text: &str) -> Result<(String, String), String> {
-    let (mut id, mut name) = (None, None);
+/// A player card's settings, from its text: an `[id]` line, a `name` line, and a `start DIFFICULTY WEAPON...` line
+/// for any difficulty whose starting weapons it sets.
+pub fn player_fields(text: &str) -> Result<PlayerFields, String> {
+    let (mut id, mut name, mut start): (Option<String>, Option<String>, [Option<Vec<String>>; 3]) = (None, None, Default::default());
+    let slots = book().weapon_slots;
     for (i, raw) in text.lines().enumerate() {
         let line = raw.split('#').next().unwrap_or("").trim();
         if line.is_empty() {
             continue;
         }
-        match (line.strip_prefix('[').and_then(|l| l.strip_suffix(']')), line.split_once(char::is_whitespace)) {
+        let n = i + 1;
+        let words: Vec<&str> = line.split_whitespace().collect();
+        match (line.strip_prefix('[').and_then(|l| l.strip_suffix(']')), &words[..]) {
             (Some(v), _) if id.is_none() => id = Some(v.to_string()),
-            (None, Some(("name", v))) if id.is_some() => name = Some(v.trim().to_string()),
-            _ => return Err(format!("line {}: a player card has its [id] and a name, nothing else", i + 1)),
+            (None, ["name", ..]) if id.is_some() => name = Some(line["name".len()..].trim().to_string()),
+            (None, ["start", d, weapons @ ..]) if id.is_some() => {
+                let d = Difficulty::from_key(d).ok_or_else(|| format!("line {n}: start names easy, normal or hard first, not {d:?}"))?;
+                if let Some(w) = weapons.iter().find(|w| book().index(w).is_none_or(|i| book().defs[i].kind != Kind::Weapon)) {
+                    return Err(format!("line {n}: {w:?} isn't a weapon"));
+                }
+                if weapons.len() > slots {
+                    return Err(format!("line {n}: a run carries at most {slots} weapons"));
+                }
+                start[d as usize] = Some(weapons.iter().map(|w| w.to_string()).collect());
+            }
+            _ => return Err(format!("line {n}: a player card has its [id], a name and start lines, nothing else")),
         }
     }
     let id = id.ok_or("a player card starts with its [id]")?;
@@ -55,7 +107,7 @@ pub fn player_fields(text: &str) -> Result<(String, String), String> {
         return Err(format!("[{id}]: a player card's id is 1 to {ID_MAX} of a-z, 0-9 and _"));
     }
     let name = name.unwrap_or_else(|| id.clone());
-    Ok((id, name))
+    Ok(PlayerFields { id, name, start })
 }
 
 /// The player cards' looks with their frames drawn into `atlas` from `cursor` on, numbered from `first`, the rects
@@ -63,7 +115,7 @@ pub fn player_fields(text: &str) -> Result<(String, String), String> {
 pub(super) fn pack(cards: &[Card], atlas: &mut [u8], cursor: &mut [u16; 3], first: usize) -> (Vec<String>, Vec<[u16; 4]>, Vec<PlayerLook>) {
     let (mut notes, mut rects, mut looks): (Vec<String>, Vec<[u16; 4]>, Vec<PlayerLook>) = (Vec::new(), Vec::new(), Vec::new());
     for card in cards {
-        let (id, name) = match player_fields(&card.text) {
+        let PlayerFields { id, name, start } = match player_fields(&card.text) {
             Ok(f) => f,
             Err(e) => {
                 notes.push(format!("{}: {e}", card.name));
@@ -93,7 +145,8 @@ pub(super) fn pack(cards: &[Card], atlas: &mut [u8], cursor: &mut [u16; 3], firs
         }
         let art = |k: usize| Art((at + k) as u16);
         let look = Look { walk: std::array::from_fn(|f| (f * 3..f * 3 + 3).map(art).collect()), flash: [art(9), art(10), art(11)], hurt: [art(12), art(13), art(14)] };
-        looks.push(PlayerLook { id, name, look });
+        let start = start.map(|s| s.map(|ids| ids.iter().filter_map(|w| book().index(w)).collect()));
+        looks.push(PlayerLook { id, name, look, start });
     }
     (notes, rects, looks)
 }
@@ -105,11 +158,27 @@ mod tests {
 
     #[test]
     fn a_player_card_reads_its_id_and_name_and_nothing_else() {
-        assert_eq!(player_fields("[jo]\nname Jo the Farmer\n"), Ok(("jo".into(), "Jo the Farmer".into())));
-        assert_eq!(player_fields("# mine\n[jo]"), Ok(("jo".into(), "jo".into())));
+        let f = player_fields("[jo]\nname Jo the Farmer\nstart normal crows knife\nstart hard\n").unwrap();
+        assert_eq!((f.id.as_str(), f.name.as_str()), ("jo", "Jo the Farmer"));
+        assert_eq!(f.start, [None, Some(vec!["crows".into(), "knife".into()]), Some(vec![])]);
+        assert_eq!(player_fields("# mine\n[jo]").unwrap().name, "jo");
+        assert!(player_fields("[jo]\nstart normal heal").is_err(), "only weapons");
+        assert!(player_fields("[jo]\nstart nightmare knife").is_err());
         assert!(player_fields("[jo]\nhp 5").is_err());
         assert!(player_fields("[Jo!]").is_err());
         assert!(player_fields("name Jo").is_err());
+    }
+
+    #[test]
+    fn start_lines_are_set_and_cleared_one_difficulty_at_a_time() {
+        let text = "[jo]\nname Jo\nstart easy pistol\n";
+        let text = set_player_start(text, Difficulty::Hard, Some(&["crows".to_string(), "dog".to_string()]));
+        let text = set_player_start(&text, Difficulty::Easy, None);
+        assert_eq!(text, "[jo]\nname Jo\nstart       hard   crows dog\n");
+        let text = set_player_start(&text, Difficulty::Normal, Some(&[]));
+        assert_eq!(player_fields(&text).unwrap().start, [None, Some(vec![]), Some(vec!["crows".into(), "dog".into()])]);
+        assert_eq!(default_start(Difficulty::Easy), ["pistol", "knife"]);
+        assert!(weapons().iter().any(|(id, name)| id == "rifle" && name == "Hunting rifle"));
     }
 
     #[test]

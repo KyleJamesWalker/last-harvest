@@ -132,7 +132,12 @@ pub(super) struct Kit {
 impl Kit {
     /// The weapons the file starts a run with at `difficulty`.
     pub fn start(difficulty: Difficulty) -> Self {
-        let weapons = book().start[difficulty as usize].iter().map(|&def| Armed { def, level: 1, cd: 0.5, phase: 0.0 }).collect();
+        Self::with_weapons(&book().start[difficulty as usize])
+    }
+
+    /// A kit carrying these weapons at level 1, and nothing else.
+    pub fn with_weapons(defs: &[usize]) -> Self {
+        let weapons = defs.iter().map(|&def| Armed { def, level: 1, cd: 0.5, phase: 0.0 }).collect();
         Self { weapons, passives: Vec::new(), mods: Mods::of(&[]) }
     }
 

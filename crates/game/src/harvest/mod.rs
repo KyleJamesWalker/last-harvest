@@ -19,7 +19,7 @@ use crate::{Buttons, Color, Difficulty, Input, SCREEN_H, SCREEN_W, Sfx};
 use enemies::Enemy;
 pub(crate) use enemies::{install_cards, off_from_ids, off_ids, roster};
 pub use enemies::{MAX_WALK, frame_limits};
-pub use players::{ID_MAX as PLAYER_ID_MAX, PlayerLook, looks as player_looks, player_fields};
+pub use players::{ID_MAX as PLAYER_ID_MAX, PlayerFields, PlayerLook, default_start, looks as player_looks, player_fields, set_player_start, weapons};
 pub use enemies::{CardFields, FLAGS as CARD_FLAGS, NUMBERS as CARD_NUMBERS, SpawnMix, card_fields, set_card_field, spawn_mix};
 use juice::{Corpse, Juice, Particle, Tone};
 use map::{Map, TILE};
@@ -736,8 +736,13 @@ impl Harvest {
     }
 
     /// Dresses the player as the look with `id`, or as the farmer when there's none.
+    /// Comes after `at`, since the look may start the run with its own weapons for that difficulty.
     pub fn looking_like(self, id: &str) -> Self {
-        Self { look: id.to_string(), ..self }
+        let mine = players::look(id);
+        let start = mine.start[self.difficulty as usize].as_ref();
+        let kit = start.map(|defs| Kit::with_weapons(defs));
+        let (hp, grenades) = kit.as_ref().map_or((self.hp, self.grenades), |k| (k.max_hp(), k.grenades()));
+        Self { look: mine.id.clone(), kit: kit.unwrap_or(self.kit), hp, grenades, ..self }
     }
 
     #[cfg(test)]
