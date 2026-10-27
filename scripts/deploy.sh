@@ -10,7 +10,7 @@ ssh "$host" "mkdir -p $dir/data && rm -rf $dir/sounds $dir/enemies $dir/game_dat
 scp -q scripts/device-run.sh "$host:$dir/run.sh"
 scp -q target/game_data.pak "$host:$dir/data/game_data.pak.new"
 scp -q target/aarch64-unknown-linux-gnu/release/last-harvest "$host:$dir/last-harvest.new"
-scripts/sync-cards.sh "$host" "$dir/data/enemies"
+scripts/sync-data.sh "$host" "$dir/data"
 # A run.sh from before the data folder never swaps data/game_data.pak.new in.
 ssh "$host" "[ -f $dir/data/game_data.pak ] || cp $dir/data/game_data.pak.new $dir/data/game_data.pak"
 ssh "$host" "cd $dir; if pidof last-harvest >/dev/null; then touch /tmp/last-harvest.restart; killall last-harvest; else CAPTURE=${CAPTURE:-} DEBUG=${DEBUG:-} nohup ./run.sh >/dev/null 2>&1 </dev/null & fi"

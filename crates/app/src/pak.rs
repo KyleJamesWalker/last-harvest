@@ -37,24 +37,47 @@ fn read_cards(files: Vec<(String, Vec<u8>)>) -> Vec<Card> {
     files.into_iter().filter(|(name, _)| name.ends_with(card::EXTENSION)).filter_map(|(name, bytes)| card::read(&name, &bytes).inspect_err(|e| eprintln!("enemies: {e}")).ok()).collect()
 }
 
-/// Installs the pack's data and the enemy cards in the game, which must happen before the game starts, and returns
-/// the sound files: a sounds folder named by `LAST_HARVEST_SOUNDS`, else the pack's, else a sounds folder found nearby.
-pub fn load() -> Result<Files, String> {
-    let mut sounds = Files::new();
-    let mut data = Data::default();
-    match find() {
-        Some(path) => {
-            let fail = |e: String| format!("{}: {e}", path.display());
-            let mut pak = Pak::open(&path).map_err(fail)?;
-            let mut text = |file: &str| pak.take(file).map(String::from_utf8).transpose().map_err(|_| fail(format!("{file} is not UTF-8")));
-            let (powerups, enemies) = (text(pack::POWERUPS)?, text(pack::ENEMIES)?);
-            data = Data { atlas: pak.take(pack::ATLAS), font: pak.take(pack::FONT), powerups, enemies, cards: read_cards(pak.take_dir(pack::ENEMY_CARDS)) };
-            sounds = pak.take_dir(pack::SOUNDS);
-            eprintln!("data: {} with {} sounds", path.display(), sounds.len());
-        }
-        None if !cfg!(feature = "embed") => return Err(format!("no {PAK} beside the binary")),
-        None => eprintln!("data: built in"),
+/// `LAST_HARVEST_MODS`, else `data/mods` beside the binary.
+fn mods_folder() -> Option<PathBuf> {
+    if let Some(dir) = std::env::var_os("LAST_HARVEST_MODS") {
+        return Some(dir.into());
     }
+    Some(data_folder()?.join("mods"))
+}
+
+/// The mod packs in the mods folder, in name order, by file name; one that can't be read is left out and logged.
+fn read_mods() -> Vec<(String, Pak)> {
+    let Some(dir) = mods_folder() else { return Vec::new() };
+    samples::read_files(&dir, &[".pak"])
+        .into_iter()
+        .filter_map(|(name, bytes)| Pak::read(std::io::Cursor::new(bytes)).inspect_err(|e| eprintln!("mods: {name}: {e}")).ok().map(|p| (name, p)))
+        .collect()
+}
+
+/// Installs the pack's data, with any mods laid over it, and the enemy cards in the game, which must happen before
+/// the game starts, and returns the sound files: a sounds folder named by `LAST_HARVEST_SOUNDS`, else the pack's,
+/// else a sounds folder found nearby, with the mods' sounds over either.
+pub fn load() -> Result<Files, String> {
+    let base = match find() {
+        Some(path) => Some(Pak::open(&path).map_err(|e| format!("{}: {e}", path.display()))?).inspect(|_| eprintln!("data: {}", path.display())),
+        None if !cfg!(feature = "embed") => return Err(format!("no {PAK} beside the binary")),
+        None => {
+            eprintln!("data: built in");
+            None
+        }
+    };
+    let had_base = base.is_some();
+    let mut pak = base.unwrap_or_else(Pak::empty);
+    let mods = read_mods();
+    if !mods.is_empty() {
+        eprintln!("mods: {:?}", mods.iter().map(|(n, _)| n).collect::<Vec<_>>());
+    }
+    for (_, m) in mods {
+        pak.overlay(m);
+    }
+    let mut text = |file: &str| pak.take(file).map(String::from_utf8).transpose().map_err(|_| format!("{file} is not UTF-8"));
+    let (powerups, enemies) = (text(pack::POWERUPS)?, text(pack::ENEMIES)?);
+    let mut data = Data { atlas: pak.take(pack::ATLAS), font: pak.take(pack::FONT), powerups, enemies, cards: read_cards(pak.take_dir(pack::ENEMY_CARDS)) };
     if let Some(dir) = cards_folder() {
         data.cards.extend(read_cards(samples::read_files(&dir, &[card::EXTENSION])));
     }
@@ -65,11 +88,36 @@ pub fn load() -> Result<Files, String> {
     if !cards.is_empty() {
         eprintln!("enemies: cards {cards:?}");
     }
-    if (sounds.is_empty() || std::env::var_os("LAST_HARVEST_SOUNDS").is_some())
+    let mut sounds = pak.take_dir(pack::SOUNDS);
+    let forced = std::env::var_os("LAST_HARVEST_SOUNDS").is_some();
+    if (forced || !had_base)
         && let Some(dir) = samples::folder()
     {
-        sounds = samples::read_folder(&dir);
         eprintln!("audio: sounds from {}", dir.display());
+        let folder = samples::read_folder(&dir);
+        sounds = if forced { folder } else { overlay_sounds(folder, sounds) };
     }
+    eprintln!("audio: {} sound files", sounds.len());
     Ok(sounds)
+}
+
+/// `base` with each of `top`'s files in place of the one of the same name.
+fn overlay_sounds(base: Files, top: Files) -> Files {
+    let mut out: Files = base.into_iter().filter(|(n, _)| !top.iter().any(|(t, _)| t == n)).collect();
+    out.extend(top);
+    out.sort_by(|a, b| a.0.cmp(&b.0));
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_mods_sounds_replace_the_folders_by_name() {
+        let base = vec![("shot.ogg".to_string(), b"a".to_vec()), ("boom.ogg".to_string(), b"b".to_vec())];
+        let top = vec![("shot.ogg".to_string(), b"mod".to_vec()), ("kill-ghoul.ogg".to_string(), b"new".to_vec())];
+        let names: Vec<(String, Vec<u8>)> = overlay_sounds(base, top);
+        assert_eq!(names, [("boom.ogg".into(), b"b".to_vec()), ("kill-ghoul.ogg".into(), b"new".to_vec()), ("shot.ogg".into(), b"mod".to_vec())]);
+    }
 }

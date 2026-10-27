@@ -17,6 +17,11 @@ pub const ENEMIES: &str = "enemies.txt";
 pub const SOUNDS: &str = "sounds/";
 pub const ENEMY_CARDS: &str = "enemies/";
 
+/// The manifest of a mod pack named `id`.
+pub fn mod_manifest(id: &str) -> String {
+    format!("id = \"{id}\"\nversion = \"1\"\nformat = {FORMAT}\n")
+}
+
 /// The manifest of the base pack built for this binary.
 pub fn manifest() -> String {
     format!(
@@ -79,6 +84,17 @@ impl Pak {
             return Err("its atlas was built for a different build of the game".into());
         }
         Ok(Self { files })
+    }
+
+    /// No files, for mods to lay over when there's no base pack.
+    pub fn empty() -> Self {
+        Self { files: HashMap::new() }
+    }
+
+    /// Lays a mod over this pack: each of its files replaces the one at the same path, all but its manifest.
+    pub fn overlay(&mut self, mut top: Pak) {
+        top.files.remove(MANIFEST);
+        self.files.extend(top.files);
     }
 
     pub fn take(&mut self, path: &str) -> Option<Vec<u8>> {
@@ -160,6 +176,17 @@ mod tests {
         let newer = manifest().replace(&format!("format = {FORMAT}"), "format = 99");
         assert!(Pak::read(Cursor::new(pack(&[(MANIFEST, newer.as_bytes())]))).err().unwrap().contains("format 99"));
         assert!(Pak::read(Cursor::new(pack(&[(POWERUPS, b"x")]))).is_err());
+    }
+
+    #[test]
+    fn a_mod_replaces_files_at_the_same_path_and_adds_the_rest() {
+        let base = pack(&[(MANIFEST, manifest().as_bytes()), ("sounds/shot.ogg", b"base"), (POWERUPS, b"base")]);
+        let top = pack(&[(MANIFEST, mod_manifest("loud").as_bytes()), ("sounds/shot.ogg", b"mod"), ("sounds/kill-ghoul.ogg", b"new")]);
+        let mut pak = Pak::read(Cursor::new(base)).unwrap();
+        pak.overlay(Pak::read(Cursor::new(top)).unwrap());
+        assert_eq!(pak.take(POWERUPS), Some(b"base".to_vec()));
+        assert_eq!(pak.take_dir(SOUNDS), [("kill-ghoul.ogg".to_string(), b"new".to_vec()), ("shot.ogg".to_string(), b"mod".to_vec())]);
+        assert!(pak.take(MANIFEST).unwrap().starts_with(b"id = \"game_data\""), "the base keeps its own manifest");
     }
 
     #[test]

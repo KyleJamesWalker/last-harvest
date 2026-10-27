@@ -3,11 +3,12 @@
 //!   cargo run -p last-harvest-pack [-- <out.pak>]                     the pack, `target/game_data.pak` by default
 //!   cargo run -p last-harvest-pack -- card <sheet.png> <enemy.txt> <name.enemy.png>
 //!   cargo run -p last-harvest-pack -- show <name.enemy.png>
+//!   cargo run -p last-harvest-pack -- mod <folder> <name.pak>       a mod: the folder's files at their paths in it
 
 use std::path::{Path, PathBuf};
 
 use last_harvest_game::art;
-use last_harvest_pack::{ATLAS, ENEMIES, FONT, MANIFEST, POWERUPS, SOUNDS, card, manifest, write};
+use last_harvest_pack::{ATLAS, ENEMIES, FONT, MANIFEST, POWERUPS, SOUNDS, card, manifest, mod_manifest, write};
 
 /// Files by path or name, with their bytes.
 type Files = Vec<(String, Vec<u8>)>;
@@ -73,6 +74,44 @@ fn make_card(sheet: &Path, text: &Path, out: &Path) -> Result<(), Box<dyn std::e
     Ok(())
 }
 
+/// Every file under `dir`, by its path from there with `/` between folders.
+fn tree(dir: &Path, under: &str, out: &mut Files) -> std::io::Result<()> {
+    for entry in std::fs::read_dir(dir)? {
+        let path = entry?.path();
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or_default().to_string();
+        if name.starts_with('.') {
+            continue;
+        }
+        let at = format!("{under}{name}");
+        if path.is_dir() {
+            tree(&path, &format!("{at}/"), out)?;
+        } else {
+            out.push((at, std::fs::read(&path)?));
+        }
+    }
+    Ok(())
+}
+
+/// Packs a folder as a mod: its files at their paths, with its own manifest.toml or one named after the folder.
+fn make_mod(dir: &Path, out: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let mut files = Files::new();
+    tree(dir, "", &mut files)?;
+    if !files.iter().any(|(p, _)| p == MANIFEST) {
+        let id = dir.file_name().and_then(|n| n.to_str()).unwrap_or("mod");
+        files.push((MANIFEST.to_string(), mod_manifest(id).into_bytes()));
+    }
+    for (path, bytes) in &files {
+        if path.ends_with(card::EXTENSION) {
+            card::read(path, bytes)?;
+        }
+    }
+    files.sort_by(|a, b| a.0.cmp(&b.0));
+    write(std::fs::File::create(out)?, &files)?;
+    last_harvest_pack::Pak::open(out)?;
+    println!("{}: {} files", out.display(), files.len());
+    Ok(())
+}
+
 fn show(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let card = card::read(&path.display().to_string(), &std::fs::read(path)?)?;
     println!("{}x{} frames\n{}", card.frame[0], card.frame[1], card.text.trim_end());
@@ -84,7 +123,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     match args.iter().map(|a| a.to_str().unwrap_or("")).collect::<Vec<_>>()[..] {
         ["card", _, _, _] => return make_card(&args[1], &args[2], &args[3]),
         ["show", _] => return show(&args[1]),
-        ["card", ..] | ["show", ..] => return Err("usage: card <sheet.png> <enemy.txt> <name.enemy.png> | show <name.enemy.png>".into()),
+        ["mod", _, _] => return make_mod(&args[1], &args[2]),
+        ["card", ..] | ["show", ..] | ["mod", ..] => return Err("usage: card <sheet.png> <enemy.txt> <name.enemy.png> | show <name.enemy.png> | mod <folder> <name.pak>".into()),
         _ => {}
     }
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2).unwrap();
