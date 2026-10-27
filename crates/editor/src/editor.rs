@@ -181,6 +181,7 @@ const MIX_STEPS: usize = 40;
 /// Kinds' colors in the spawn mix chart, in roster order; the open card's is `HOT`.
 const MIX_COLORS: [Color; 6] = [[0.55, 0.62, 0.78, 1.0], [0.5, 0.75, 0.55, 1.0], [0.78, 0.5, 0.62, 1.0], [0.62, 0.55, 0.85, 1.0], [0.45, 0.7, 0.75, 1.0], [0.75, 0.68, 0.5, 1.0]];
 const NAME_MAX: usize = 24;
+const DELETE_CONFIRM: f32 = 3.0;
 
 struct Button {
     rect: Rect,
@@ -318,6 +319,8 @@ pub struct Editor {
     mix: Option<Result<last_harvest_game::SpawnMix, String>>,
     /// The public mod editor: every sprite is an enemy card, and cards come and go by Import and Export.
     modding: bool,
+    /// Seconds left for a second press of Delete card to go ahead.
+    delete_armed: f32,
 }
 
 impl Editor {
@@ -377,6 +380,7 @@ impl Editor {
             other_cards: Vec::new(),
             mix: None,
             modding: false,
+            delete_armed: 0.0,
         };
         e.load_stand();
         e.reveal();
@@ -415,6 +419,28 @@ impl Editor {
         let bytes = self.store.card_bytes(&id)?;
         self.say(format!("Exported {id}{}", last_harvest_pack::card::EXTENSION));
         Some((format!("{id}{}", last_harvest_pack::card::EXTENSION), bytes))
+    }
+
+    /// Removes the open card from the store on a second press within a few seconds, and leaves nothing open.
+    pub fn delete_card(&mut self) {
+        let Some(id) = sprite::card_id(&self.sprite.name) else {
+            return self.say("Open a card to delete it");
+        };
+        if self.delete_armed <= 0.0 {
+            self.delete_armed = DELETE_CONFIRM;
+            return self.say(format!("Press Delete card again to remove {id} for good"));
+        }
+        self.delete_armed = 0.0;
+        if let Err(e) = self.store.delete_card(&id) {
+            return self.say(format!("Couldn't delete {id}: {e}"));
+        }
+        self.sprite = Sprite { name: String::new(), frames: vec![Frame::blank(16, 16)], views: None, footprint: None, top: None, card: None };
+        (self.dirty, self.stand_touched, self.stats, self.frame) = (false, false, false, 0);
+        self.undo.clear();
+        self.redo.clear();
+        self.names = self.store.names();
+        self.changed = true;
+        self.say(format!("Deleted card {id}"));
     }
 
     /// No sprite is open yet: the list waits for a pick, or New.
@@ -686,6 +712,7 @@ impl Editor {
 
     pub fn tick(&mut self, dt: f32) {
         self.clock += dt;
+        self.delete_armed = (self.delete_armed - dt).max(0.0);
         if let Some((_, age)) = &mut self.status {
             *age += dt;
             if *age > 4.0 {
@@ -831,6 +858,9 @@ impl Editor {
         for (i, &c) in self.palette.iter().enumerate().take(cols * 9) {
             let (x, y) = (SIDE_X + (i % cols) as f32 * SWATCH, 316.0 + (i / cols) as f32 * SWATCH);
             push(x, y, SWATCH - 2.0, SWATCH - 2.0, Action::Color(c), "", self.color == c);
+        }
+        if self.none_open() {
+            return b;
         }
         for (i, l) in STANDS.into_iter().enumerate().filter(|_| !self.is_card()) {
             push(SIDE_X + (i % 3) as f32 * 78.0, 566.0 + (i / 3) as f32 * 34.0, 74.0, 30.0, Action::Stand(i as u8), l, self.stand == i as u8);
@@ -2047,10 +2077,11 @@ impl Editor {
             c.rect(bar.x + self.color[i] as f32 / 255.0 * bar.w - 2.0, bar.y - 3.0, 4.0, bar.h + 6.0, TEXT);
         }
         c.label(if self.modding { "Palette" } else { "Tileset palette" }, SIDE_X, 294.0, 16.0, DIM, Align::Left);
-        if !self.is_card() {
+        if !self.is_card() && !self.none_open() {
             c.label("Stands in 3D as", SIDE_X, 546.0, 16.0, DIM, Align::Left);
         }
         match self.stand {
+            _ if self.none_open() => {}
             0 => c.label(format!("Depth {} px", self.depth), SIDE_X, 645.0, 18.0, TEXT, Align::Left),
             1 => c.label(format!("Height {} px", self.height), SIDE_X, 645.0, 18.0, TEXT, Align::Left),
             CARVE => c.label(format!("Height {} px", self.view_height()), SIDE_X, 645.0, 18.0, TEXT, Align::Left),
@@ -2059,15 +2090,16 @@ impl Editor {
         if let Some(v) = self.view {
             c.label(format!("{}: {}", VIEW_NAMES[v], VIEW_HINTS[v]), CANVAS.x + 8.0, CANVAS.y + 6.0, 16.0, HOT, Align::Left);
         }
-        c.label(format!("{} fps", self.fps), SIDE_X, 683.0, 18.0, TEXT, Align::Left);
-
         let f = self.current();
-        c.label(format!("{} / {}", self.frame + 1, self.sprite.frames.len()), CANVAS.x + 248.0, 704.0, 18.0, DIM, Align::Left);
+        if !self.none_open() {
+            c.label(format!("{} fps", self.fps), SIDE_X, 683.0, 18.0, TEXT, Align::Left);
+            c.label(format!("{} / {}", self.frame + 1, self.sprite.frames.len()), CANVAS.x + 248.0, 704.0, 18.0, DIM, Align::Left);
+            c.label(format!("W {}", f.w), CANVAS.x + 362.0, 704.0, 18.0, TEXT, Align::Right);
+            c.label(format!("H {}", f.h), CANVAS.x + 484.0, 704.0, 18.0, TEXT, Align::Right);
+        }
         if let Some((_, row)) = sprite::card_part(&self.sprite.name).filter(|_| self.view.is_none() && !self.stats) {
             c.label(sprite::card_frame_name(row, self.frame), CANVAS.x + 8.0, CANVAS.y + 6.0, 16.0, HOT, Align::Left);
         }
-        c.label(format!("W {}", f.w), CANVAS.x + 362.0, 704.0, 18.0, TEXT, Align::Right);
-        c.label(format!("H {}", f.h), CANVAS.x + 484.0, 704.0, 18.0, TEXT, Align::Right);
         if let Some(p) = self.hover.filter(|p| CANVAS.contains(*p)) {
             let (x, y) = self.pixel_at(p);
             if f.get(x, y).is_some() {
@@ -2570,6 +2602,26 @@ mod tests {
         assert!(!e.unsaved() && e.names.iter().all(|(_, saved)| !saved), "nothing was written");
         e.key(Key::Char('j'));
         assert!(!e.none_open(), "J opens the first sprite in the list");
+    }
+
+    #[test]
+    fn delete_card_takes_two_presses_and_leaves_nothing_open() {
+        let dir = tmp().join("delete");
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut e = Editor::new(Box::new(FsStore { dir: dir.join("sprites"), catalog: dir.join("art.txt"), cards: dir.join("enemies") }), "");
+        e.act(Action::Ask(Ask::New), false);
+        type_in(&mut e, "card gone");
+        e.key(Key::Enter);
+        e.delete_card();
+        assert!(dir.join("enemies/gone.enemy.png").exists(), "one press only asks");
+        e.tick(DELETE_CONFIRM + 0.1);
+        e.delete_card();
+        assert!(dir.join("enemies/gone.enemy.png").exists(), "the question times out");
+        e.delete_card();
+        assert!(!dir.join("enemies/gone.enemy.png").exists());
+        assert!(e.none_open() && !e.names.iter().any(|(n, _)| n.starts_with("CARD_GONE")));
+        assert!(!e.buttons().iter().any(|b| matches!(b.action, Action::Frame(_) | Action::AddFrame | Action::Width(_) | Action::Play)), "nothing open shows no frame controls");
+        e.draw(&mut Canvas::default());
     }
 
     #[test]

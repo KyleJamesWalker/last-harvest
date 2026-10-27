@@ -369,6 +369,8 @@ impl Web {
             }
             #[cfg(feature = "modding")]
             "pak" => return modding::call("choosePak", &[]),
+            #[cfg(feature = "modding")]
+            "delete-card" => return self.studio.editor.delete_card(),
             "shift" => {
                 self.shift = !self.shift;
                 if let Some(b) = self.document.query_selector("[data-act=shift]").ok().flatten() {

@@ -28,6 +28,11 @@ pub trait Store {
         None
     }
 
+    /// Removes a card for good, as the mod editor's Delete card does.
+    fn delete_card(&self, _id: &str) -> Result<(), String> {
+        Err("cards are removed from the enemies folder here".into())
+    }
+
     /// The saved copy if there is one, else the packed frames.
     fn load(&self, name: &str) -> Option<Sprite> {
         Sprite::load_from(name, |file| self.read(name, file))
@@ -234,6 +239,11 @@ mod fs {
 
         fn version(&self, id: &str, name: &str, file: &str) -> Option<Vec<u8>> {
             Repo::open(&self.dir)?.read(id, name, file)
+        }
+
+        fn delete_card(&self, id: &str) -> Result<(), String> {
+            let path = self.cards.join(format!("{id}{}", card::EXTENSION));
+            std::fs::remove_file(&path).map_err(|e| format!("{}: {e}", path.display()))
         }
     }
 }

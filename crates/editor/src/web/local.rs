@@ -81,4 +81,8 @@ impl Store for LocalStore {
     fn card_bytes(&self, id: &str) -> Option<Vec<u8>> {
         self.get(id)
     }
+
+    fn delete_card(&self, id: &str) -> Result<(), String> {
+        self.storage.remove_item(&format!("{KEY}{id}")).map_err(|_| "the browser wouldn't remove it".to_string())
+    }
 }
