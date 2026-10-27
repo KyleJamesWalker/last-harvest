@@ -528,7 +528,7 @@ pub fn parse(text: &str) -> Result<Book, String> {
             "icon" => *icons.last_mut().unwrap() = Some(rest.to_string()),
             "max" => def.max = number(rest)?.max(1),
             "find" => def.find = rest.parse::<f32>().ok().filter(|f| (0.0..=1.0).contains(f)).ok_or_else(|| format!("{n}: find is a chance from 0 to 1, not {rest:?}"))?,
-            "after" => def.after = rest.parse::<f32>().map_err(|_| format!("{n}: after is minutes into the night, not {rest:?}"))?,
+            "after" => def.after = rest.parse::<f32>().ok().filter(|v| v.is_finite()).ok_or_else(|| format!("{n}: after is minutes into the night, not {rest:?}"))?,
             "chest" if rest.is_empty() => def.chest = true,
             "kind" => {
                 def.kind = match rest {
@@ -685,6 +685,7 @@ mod tests {
         assert!(parse("[a]\nicon WHITE").unwrap_err().contains("no filler"));
         assert!(parse("# nothing").unwrap_err().contains("no filler"));
         assert!(parse("[a]\nicon WHITE\ndamage +10% inf").unwrap_err().starts_with("3: damage"));
+        assert!(parse("[a]\nicon WHITE\nafter NaN").unwrap_err().starts_with("3: after"));
     }
 
     #[test]
