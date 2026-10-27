@@ -59,19 +59,22 @@ impl Studio {
 
     /// Which pane a point falls in, for a window `size` wide and tall, and where in that pane's 1024x768 canvas.
     pub fn locate(size: [f32; 2], [x, y]: [f32; 2]) -> (Pane, [f32; 2]) {
-        let [edit, _, _] = Self::panes(size);
-        if x < edit[2] {
-            (Pane::Edit, [x / edit[2] * SCREEN_W, y / edit[3] * SCREEN_H])
-        } else {
-            let (w, half) = (size[0] - edit[2], size[1] / 2.0);
-            let pane = if y < half { Pane::View } else { Pane::Map };
-            (pane, [(x - edit[2]) / w * SCREEN_W, (y % half) / half * SCREEN_H])
-        }
+        let panes = Self::panes(size);
+        let (cx, cy) = (x.clamp(0.0, size[0] - 1.0), y.clamp(0.0, size[1] - 1.0));
+        let at = panes.iter().position(|&[px, py, pw, ph]| cx >= px && cy >= py && cx < px + pw && cy < py + ph);
+        let pane = [Pane::Edit, Pane::View, Pane::Map][at.unwrap_or(0)];
+        let [px, py, pw, ph] = panes[pane as usize];
+        (pane, [(x - px) / pw * SCREEN_W, (y - py) / ph * SCREEN_H])
     }
 
-    /// The editing pane, the 2.5D view and the map as x, y, w, h from the top-left of a window `size` big,
-    /// which should be twice as wide as it is tall.
+    /// The editing pane, the 2.5D view and the map as x, y, w, h from the top-left of a window `size` big. A wide
+    /// window, twice as wide as tall, puts the view and the map down the right; a tall one, 8 wide by 9 tall, puts
+    /// them side by side under the editing pane.
     pub fn panes([w, h]: [f32; 2]) -> [[f32; 4]; 3] {
+        if h > w {
+            let (top, half) = (w * 0.75, w / 2.0);
+            return [[0.0, 0.0, w, top], [0.0, top, half, h - top], [half, top, w - half, h - top]];
+        }
         let edit = w * 2.0 / 3.0;
         [[0.0, 0.0, edit, h], [edit, 0.0, w - edit, h / 2.0], [edit, h / 2.0, w - edit, h / 2.0]]
     }
@@ -207,5 +210,15 @@ mod tests {
         }
         assert_eq!(s.distance, NEAREST);
         assert!(s.distance < 0.0, "past where the player would stand");
+    }
+
+    #[test]
+    fn points_land_in_the_pane_under_them_wide_or_tall() {
+        assert_eq!(Studio::locate([1536.0, 768.0], [512.0, 384.0]), (Pane::Edit, [512.0, 384.0]));
+        assert_eq!(Studio::locate([1536.0, 768.0], [1280.0, 576.0]), (Pane::Map, [512.0, 384.0]));
+        assert_eq!(Studio::locate([800.0, 900.0], [400.0, 300.0]), (Pane::Edit, [512.0, 384.0]));
+        assert_eq!(Studio::locate([800.0, 900.0], [200.0, 750.0]), (Pane::View, [512.0, 384.0]));
+        assert_eq!(Studio::locate([800.0, 900.0], [600.0, 750.0]), (Pane::Map, [512.0, 384.0]));
+        assert_eq!(Studio::locate([1536.0, 768.0], [1600.0, 100.0]).0, Pane::View, "past the window's edge, the pane nearest");
     }
 }

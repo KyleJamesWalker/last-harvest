@@ -85,8 +85,14 @@ impl Web {
         let Some(window) = web_sys::window() else { return };
         let inner = |v: Result<JsValue, JsValue>| v.ok().and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
         let (iw, ih) = (inner(window.inner_width()), inner(window.inner_height()));
-        let w = iw.min((ih - TOOLBAR).max(200.0) * 2.0).floor();
-        self.size = [w, (w / 2.0).floor()];
+        let room = (ih - TOOLBAR).max(200.0);
+        self.size = if ih > iw {
+            let w = iw.min(room * 8.0 / 9.0).floor();
+            [w, (w * 9.0 / 8.0).floor()]
+        } else {
+            let w = iw.min(room * 2.0).floor();
+            [w, (w / 2.0).floor()]
+        };
         self.dpr = window.device_pixel_ratio() as f32;
         let style = self.canvas.style();
         let _ = style.set_property("width", &format!("{}px", self.size[0]));
