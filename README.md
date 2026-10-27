@@ -316,7 +316,7 @@ Measured on the device with the debug perf log, 4x MSAA, both screens at 1024x76
 | `crates/pack` | Reads and writes data packs; its binary builds `game_data.pak` from the built atlas and the files in `assets`. |
 | `crates/sprite-server` | Serves the web editor on the local network, with the sprites folder and its git history. |
 | `scripts` | Cross-compile, sysroot, deploy, install and debug scripts, and the on-device run script. |
-| `assets` | The font and its license, and the Ports launcher with its cover art. |
+| `assets` | The font and its license, the Ports launcher with its cover art, and the README a release puts in `data/`. |
 | `assets/private` | Submodule of the private assets repository: the tileset, edited sprites and recorded sounds. |
 
 ## Device notes
