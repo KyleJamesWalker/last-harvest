@@ -94,10 +94,16 @@ pub mod cards {
         if !fits || part.frames.iter().any(|f| (f.w, f.h) != (w, h)) {
             return Err(format!("an enemy's walking part has 1 to {} frames and every other part {CARD_PART_FRAMES}, all one size", last_harvest_game::MAX_WALK));
         }
-        let mut rows = existing.and_then(|b| rows(kind, b)).map(|(_, r)| r).unwrap_or_else(|| {
-            let t = sprite::card_template();
-            std::array::from_fn(|r| t[r * CARD_PART_FRAMES..(r + 1) * CARD_PART_FRAMES].to_vec())
-        });
+        if w > sprite::CARD_MAX_FRAME || h > sprite::CARD_MAX_FRAME {
+            return Err(format!("a card's frames are at most {0}x{0} pixels", sprite::CARD_MAX_FRAME));
+        }
+        let mut rows = match existing {
+            Some(bytes) => rows(kind, bytes).ok_or("the saved card can't be read, so saving would lose its other parts")?.1,
+            None => {
+                let t = sprite::card_template();
+                std::array::from_fn(|r| t[r * CARD_PART_FRAMES..(r + 1) * CARD_PART_FRAMES].to_vec())
+            }
+        };
         for f in rows.iter_mut().flatten() {
             if (f.w, f.h) != (w, h) {
                 *f = f.resized(w, h);

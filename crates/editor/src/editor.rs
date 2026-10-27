@@ -1479,7 +1479,11 @@ impl Editor {
                 let top = &self.sprite.frames[self.frame];
                 let (w, h) = (top.w as i32, top.h as i32);
                 let (w, h) = if matches!(a, Action::Width(_)) { (w + d * step, h) } else { (w, h + d * step) };
-                let (w, h) = (w.clamp(1, MAX_SIZE as i32) as usize, h.clamp(1, MAX_SIZE as i32) as usize);
+                let max = if self.is_card() { sprite::CARD_MAX_FRAME } else { MAX_SIZE } as i32;
+                if (w > max || h > max) && self.is_card() {
+                    self.say(format!("A card's frames are at most {max}x{max} pixels"));
+                }
+                let (w, h) = (w.clamp(1, max) as usize, h.clamp(1, max) as usize);
                 self.remember();
                 for f in &mut self.sprite.frames {
                     *f = f.resized(w, h);
@@ -2786,6 +2790,25 @@ mod tests {
         e.act(Action::Save, false);
         let hurt = Editor::new(Box::new(store()), "CARD_TALL_HURT");
         assert_eq!((hurt.sprite.frames[0].w, hurt.sprite.frames[0].h), (16, 20));
+    }
+
+    #[test]
+    fn a_card_stops_at_the_games_frame_size_and_never_saves_over_an_unreadable_card() {
+        let dir = tmp().join("bigcard");
+        let _ = std::fs::remove_dir_all(&dir);
+        let store = || FsStore { dir: dir.join("sprites"), catalog: dir.join("art.txt"), cards: dir.join("enemies") };
+        let mut e = Editor::new(Box::new(store()), "");
+        e.act(Action::Ask(Ask::New), false);
+        type_in(&mut e, "card big");
+        e.key(Key::Enter);
+        e.act(Action::Height(60), false);
+        assert_eq!(e.current().h, sprite::CARD_MAX_FRAME);
+        let path = dir.join("enemies/big.enemy.png");
+        std::fs::write(&path, b"not a png").unwrap();
+        click_pixel(&mut e, 0, 0);
+        e.act(Action::Save, false);
+        assert!(e.unsaved(), "{:?}", e.status);
+        assert_eq!(std::fs::read(&path).unwrap(), b"not a png", "the file is left for the player to sort out");
     }
 
     #[test]

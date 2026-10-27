@@ -104,6 +104,8 @@ pub const CARD_PARTS: [&str; 5] = ["FRONT", "SIDE", "BACK", "FLASH", "HURT"];
 pub const CARD_PART_FRAMES: usize = 3;
 pub const CARD_FRAMES: usize = CARD_PARTS.len() * CARD_PART_FRAMES;
 pub const CARD_SECTION: &str = "Enemy cards";
+/// The biggest frame a card can have, as the game reads cards.
+pub const CARD_MAX_FRAME: usize = 64;
 
 fn prefix(kind: CardKind) -> &'static str {
     match kind {
