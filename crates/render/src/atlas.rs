@@ -46,6 +46,10 @@ impl Atlas {
         let mut glyphs = HashMap::new();
         let (mut x, mut y, mut row_h) = (PAD, PAD, 0);
         for ch in (32u8..127).map(char::from) {
+            let m = font.metrics(ch, GLYPH_PX);
+            if m.width as u32 + 2 * PAD > SIZE || m.height as u32 + 2 * PAD > SIZE {
+                return Err(format!("its {ch:?} is too big for the {SIZE}px text texture"));
+            }
             let (m, bitmap) = font.rasterize(ch, GLYPH_PX);
             let (gw, gh) = (m.width as u32, m.height as u32);
             if x + gw + PAD > SIZE {
