@@ -81,8 +81,14 @@ impl PlayerLook {
     /// names, as many as a run carries.
     pub(crate) fn start_defs(&self, difficulty: Difficulty) -> Option<Vec<usize>> {
         let ids = self.start[difficulty as usize].as_ref()?;
-        let weapons = ids.iter().filter_map(|w| book().index(w)).filter(|&i| book().defs[i].kind == Kind::Weapon);
-        Some(weapons.take(book().weapon_slots).collect())
+        let mut defs: Vec<usize> = Vec::new();
+        for def in ids.iter().filter_map(|w| book().index(w)).filter(|&i| book().defs[i].kind == Kind::Weapon) {
+            // A weapon named twice would sit in two slots, and the second could never level.
+            if !defs.contains(&def) && defs.len() < book().weapon_slots {
+                defs.push(def);
+            }
+        }
+        Some(defs)
     }
 
     /// The names of the weapons this look starts a run with at `difficulty`: its own, else the game's.
@@ -207,6 +213,13 @@ mod tests {
         assert_eq!(player_fields(&text).unwrap().start, [None, Some(vec![]), Some(vec!["crows".into(), "dog".into()])]);
         assert_eq!(default_start(Difficulty::Easy), ["pistol", "knife"]);
         assert!(weapons().iter().any(|(id, name)| id == "rifle" && name == "Hunting rifle"));
+    }
+
+    #[test]
+    fn a_start_keeps_each_weapon_once_and_only_weapons() {
+        let start = Some(vec!["pistol".into(), "pistol".into(), "heal".into(), "knife".into(), "nope".into()]);
+        let jo = PlayerLook { id: "jo".into(), name: "Jo".into(), look: super::super::player_look(), start: [None, start, None] };
+        assert_eq!(jo.start_names(Difficulty::Normal), ["Pistol", "Knife"]);
     }
 
     #[test]
