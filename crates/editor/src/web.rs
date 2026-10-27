@@ -359,7 +359,7 @@ impl Web {
             "save" => Key::Save,
             "fit" => return self.studio.editor.fit(),
             #[cfg(feature = "modding")]
-            "import" => return modding::call("pick", &[".png".into(), true.into(), "lastharvest-import".into()]),
+            "import" => return modding::call("pick", &[".png,.pak".into(), true.into(), "lastharvest-import".into()]),
             #[cfg(feature = "modding")]
             "export" => {
                 if let Some((name, bytes)) = self.studio.editor.export_card() {
@@ -559,7 +559,15 @@ fn start() -> Result<(), String> {
         let detail = e.detail();
         let name = js_sys::Reflect::get(&detail, &"name".into()).ok().and_then(|v| v.as_string()).unwrap_or_default();
         let bytes = js_sys::Reflect::get(&detail, &"bytes".into()).map(|v| js_sys::Uint8Array::new(&v).to_vec()).unwrap_or_default();
-        w.studio.editor.import_card(&name, &bytes);
+        if name.ends_with(".pak") {
+            match modding::cards_in(&bytes) {
+                Ok(cards) if cards.is_empty() => w.studio.editor.say(format!("{name} holds no cards")),
+                Ok(cards) => cards.into_iter().for_each(|(file, bytes)| w.studio.editor.import_card(&file, &bytes)),
+                Err(e) => w.studio.editor.say(format!("{name}: {e}")),
+            }
+        } else {
+            w.studio.editor.import_card(&name, &bytes);
+        }
     });
     listen(&input, "keydown", &web, |w, e: &KeyboardEvent| {
         let k = match e.key().as_str() {
@@ -654,6 +662,14 @@ mod modding {
     }
 
     pub const MOD_FILE: &str = "my-cards.pak";
+
+    /// The cards in a mod pack, by file name, for Import.
+    pub fn cards_in(bytes: &[u8]) -> Result<Vec<(String, Vec<u8>)>, String> {
+        let mut pak = Pak::read(std::io::Cursor::new(bytes))?;
+        let mut cards = pak.take_dir(last_harvest_pack::ENEMY_CARDS);
+        cards.extend(pak.take_dir(last_harvest_pack::PLAYER_CARDS));
+        Ok(cards)
+    }
 
     /// Every card as one mod pack, enemy cards under `enemies/` and player cards under `players/`, ready for the
     /// game's data/mods.
