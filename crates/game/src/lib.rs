@@ -35,6 +35,8 @@ pub const SCREEN_H: f32 = 768.0;
 /// Kill ticks closer together than this blur into one buzz.
 const TICK_GAP: f32 = 0.15;
 const VOLUME_SHOWN: f32 = 1.2;
+/// The most kinds walking the title's horizon besides the filler between them.
+const MAX_TITLE_KINDS: usize = 5;
 const WHITE: Color = [1.0, 1.0, 1.0, 1.0];
 const HOT: Color = [1.0, 0.85, 0.2, 1.0];
 const DIM: Color = [1.0, 1.0, 1.0, 0.55];
@@ -375,6 +377,19 @@ impl Game {
         f
     }
 
+    /// The title's line of the dead, side on: each kind turned on once, the last kind on between them.
+    fn title_walkers(&self) -> Vec<&'static [art::Art]> {
+        let r = harvest::roster();
+        let on: Vec<usize> = (0..r.enemies.len()).filter(|&i| self.save.enemies_off & 1 << i == 0).collect();
+        let Some(&filler) = on.last() else { return Vec::new() };
+        let side = |i: usize| r.enemies[i].look.walk[1].as_slice();
+        let mut line = vec![side(filler)];
+        for &i in on.iter().rev().skip(1).take(MAX_TITLE_KINDS) {
+            line.extend([side(i), side(filler)]);
+        }
+        line
+    }
+
     fn draw_title(&self, f: &mut Frame) {
         let t = self.clock;
         f.top.clear = [0.06, 0.07, 0.11, 1.0];
@@ -394,7 +409,7 @@ impl Game {
         f.top.circle(822.0, 108.0, 10.0, [0.75, 0.75, 0.66, 1.0]);
         f.top.circle(856.0, 136.0, 7.0, [0.75, 0.75, 0.66, 1.0]);
         f.top.rect(0.0, 600.0, SCREEN_W, 168.0, [0.1, 0.08, 0.07, 1.0]);
-        let walkers: [&[art::Art]; 5] = [&art::SKINNY_SIDE, &art::KID_SIDE, &art::SKINNY_SIDE, &art::BIG_SIDE, &art::SKINNY_SIDE];
+        let walkers = self.title_walkers();
         for (i, frames) in walkers.iter().enumerate() {
             let span = SCREEN_W + 400.0;
             let x = (i as f32 * span / walkers.len() as f32 + t * 22.0) % span - 200.0;
@@ -615,6 +630,17 @@ mod tests {
         press(&mut game, Buttons::A);
         assert!(matches!(game.state, State::Harvest(_)), "a run with a look that's gone plays as the farmer");
         game.draw();
+    }
+
+    #[test]
+    fn the_title_walks_each_kind_turned_on_between_the_common_one() {
+        let mut game = Game::new(1);
+        let names = |g: &Game| g.title_walkers().iter().map(|w| w[0]).collect::<Vec<_>>();
+        assert_eq!(names(&game), [art::SKINNY_SIDE[0], art::KID_SIDE[0], art::SKINNY_SIDE[0], art::BIG_SIDE[0], art::SKINNY_SIDE[0]]);
+        game.load(Save { enemies_off: 0b010, ..game.save() });
+        assert_eq!(names(&game), [art::SKINNY_SIDE[0], art::BIG_SIDE[0], art::SKINNY_SIDE[0]], "a kind turned off stays off the title");
+        game.load(Save { enemies_off: 0b100, ..game.save() });
+        assert_eq!(names(&game), [art::KID_SIDE[0], art::BIG_SIDE[0], art::KID_SIDE[0]], "with the common kind off, the last one on fills in");
     }
 
     #[test]
