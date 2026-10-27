@@ -385,6 +385,31 @@ impl Game {
         c.label(format!("{} starts with {kit}", d.name()), SCREEN_W / 2.0, 196.0, 28.0, WHITE, Align::Center);
     }
 
+    /// How a night's spawns split between the kinds left on, dusk to dawn across the foot of the top screen, with the
+    /// highlighted kind in `HOT`.
+    fn draw_spawn_mix(&self, c: &mut Canvas) {
+        const COLUMNS: usize = 60;
+        const SHADES: [[f32; 4]; 4] = [[0.55, 0.62, 0.78, 1.0], [0.5, 0.75, 0.55, 1.0], [0.78, 0.5, 0.62, 1.0], [0.62, 0.55, 0.85, 1.0]];
+        let r = roster();
+        let [x, y, w, h] = [40.0, 664.0, SCREEN_W - 80.0, 64.0];
+        c.label("Spawn mix through the night", x, 628.0, 26.0, DIM, Align::Left);
+        let col = w / COLUMNS as f32;
+        for k in 0..COLUMNS {
+            let minutes = (k as f32 + 0.5) / COLUMNS as f32 * crate::harvest::NIGHT_MINUTES;
+            let mut top = y + h;
+            for (i, share) in r.shares(minutes, self.save.enemies_off).into_iter().enumerate() {
+                let tall = share * h;
+                if tall > 0.0 {
+                    let shade = if i == self.enemy { HOT } else { SHADES[i % SHADES.len()] };
+                    c.rect(x + k as f32 * col, top - tall, col + 0.5, tall, shade);
+                }
+                top -= tall;
+            }
+        }
+        c.label("dusk", x, y + h + 4.0, 22.0, DIM, Align::Left);
+        c.label("dawn", x + w, y + h + 4.0, 22.0, DIM, Align::Right);
+    }
+
     /// The highlighted kind walking on the top screen, turning through its facings, beside its numbers.
     pub(crate) fn draw_enemy(&self, c: &mut Canvas) {
         let r = roster();
@@ -398,8 +423,9 @@ impl Game {
         let scale = 300.0 / frame.h().max(frame.w());
         c.art(frame, 280.0 - frame.w() * scale / 2.0, 600.0 - frame.h() * scale, scale, flip, if on { WHITE } else { [0.35, 0.35, 0.4, 1.0] });
         if !on {
-            c.label("OFF", 280.0, 640.0, 44.0, [1.0, 0.45, 0.4, 1.0], Align::Center);
+            c.label("OFF", 280.0, 400.0, 64.0, [1.0, 0.45, 0.4, 1.0], Align::Center);
         }
+        self.draw_spawn_mix(c);
         c.label(e.name.as_str(), 560.0, 60.0, 64.0, HOT, Align::Left);
         let minutes = |m: f32| if m == 1.0 { "1 minute".to_string() } else { format!("{m} minutes") };
         let arrives = match (e.chance >= 1.0 && e.per_minute == 0.0, e.after > 0.0) {
