@@ -2074,7 +2074,7 @@ impl Editor {
         if self.none_open() {
             c.rect(CANVAS.x, CANVAS.y, CANVAS.w, CANVAS.h, PANEL);
             let (big, small) = if self.modding {
-                ("Make an enemy card", "New starts one from a plain figure; Import opens a .enemy.png")
+                ("Make a card", "New starts one from a plain figure, PLAYER_ for a player card; Import opens a card or a .pak")
             } else {
                 ("Pick a sprite from the list", "or press N for a new one; a name starting CARD_ makes an enemy card")
             };
