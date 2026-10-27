@@ -35,7 +35,7 @@ mod fs {
 
     use super::Store;
     use crate::history::{Commit, Repo};
-    use crate::sprite::{self, CARD_FRAMES, Frame, Sprite};
+    use crate::sprite::{self, CARD_FRAMES, CARD_PART_FRAMES, Frame, Sprite};
 
     /// The sprites folder, the game's catalog and the enemy cards folder on this machine.
     pub struct FsStore {
@@ -70,19 +70,29 @@ mod fs {
             Some((c.text, frames))
         }
 
+        /// Writes one part's frames into its row of the card, and the card's text; a card not yet on disk starts
+        /// from the template. A part of a new size resizes the rest of the card to match.
         fn save_card(&self, path: &Path, sprite: &Sprite) -> Result<(), String> {
+            let (id, row) = sprite::card_part(&sprite.name).ok_or("not a card's part")?;
             let text = sprite.card.as_deref().ok_or("a card needs its enemy text")?;
             let fields = last_harvest_game::card_fields(text)?;
-            if Some(fields.id.as_str()) != sprite::card_id(&sprite.name).as_deref() {
-                return Err(format!("the card's id is [{}], but {} needs [{}]", fields.id, sprite.name, sprite::card_id(&sprite.name).unwrap_or_default()));
+            if fields.id != id {
+                return Err(format!("the card's id is [{}], but {} needs [{id}]", fields.id, sprite.name));
             }
-            let first = sprite.frames.first().ok_or("a card has frames")?;
+            let first = sprite.frames.first().ok_or("a card's part has frames")?;
             let (w, h) = (first.w, first.h);
-            if sprite.frames.len() != CARD_FRAMES || sprite.frames.iter().any(|f| (f.w, f.h) != (w, h)) {
-                return Err(format!("a card has {CARD_FRAMES} frames, all one size"));
+            if sprite.frames.len() != CARD_PART_FRAMES || sprite.frames.iter().any(|f| (f.w, f.h) != (w, h)) {
+                return Err(format!("each part of a card has {CARD_PART_FRAMES} frames, all one size"));
             }
+            let mut frames = self.card(path).map_or_else(sprite::card_template, |(_, frames)| frames);
+            for f in &mut frames {
+                if (f.w, f.h) != (w, h) {
+                    *f = f.resized(w, h);
+                }
+            }
+            frames[row * CARD_PART_FRAMES..(row + 1) * CARD_PART_FRAMES].clone_from_slice(&sprite.frames);
             let mut sheet = vec![0u8; w * 3 * h * 5 * 4];
-            for (k, f) in sprite.frames.iter().enumerate() {
+            for (k, f) in frames.iter().enumerate() {
                 let (col, row) = (k % 3, k / 3);
                 for y in 0..h {
                     for x in 0..w {
@@ -104,10 +114,10 @@ mod fs {
                 .into_iter()
                 .flatten()
                 .flatten()
-                .filter_map(|e| e.file_name().into_string().ok()?.strip_suffix(".png").and_then(sprite::card_name))
+                .filter_map(|e| e.file_name().into_string().ok()?.strip_suffix(".png").map(str::to_string))
                 .collect();
             cards.sort();
-            names.extend(cards.into_iter().map(|n| (n, true)));
+            names.extend(cards.iter().filter_map(|id| sprite::card_names(id)).flatten().map(|n| (n, true)));
             names
         }
 
@@ -117,8 +127,9 @@ mod fs {
             if file == sprite::CARD_FILE {
                 return Some(text.into_bytes());
             }
-            let k: usize = file.strip_suffix(".png")?.parse().ok()?;
-            frames.get(k).map(sprite::encode_png)
+            let (_, row) = sprite::card_part(name)?;
+            let k: usize = file.strip_suffix(".png")?.parse().ok().filter(|&k| k < CARD_PART_FRAMES)?;
+            frames.get(row * CARD_PART_FRAMES + k).map(sprite::encode_png)
         }
 
         fn save(&self, sprite: &Sprite) -> Result<(), String> {

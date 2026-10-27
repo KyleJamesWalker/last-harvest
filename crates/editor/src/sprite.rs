@@ -86,27 +86,41 @@ pub struct Sprite {
     pub footprint: Option<Frame>,
     /// One row whose colors cap a figure's columns in the 3D view; a clear pixel leaves that column's own.
     pub top: Option<Frame>,
-    /// An enemy card's `enemies.txt` section; a card's frames are its 15, in sheet order.
+    /// An enemy card's `enemies.txt` section, when this is one of a card's parts.
     pub card: Option<String>,
 }
 
 pub const FOOTPRINT_FILE: &str = "footprint.png";
 pub const TOP_FILE: &str = "top.png";
 pub const CARD_FILE: &str = "enemy.txt";
-/// Enemy cards list as sprites named this and their id in capitals.
+/// An enemy card lists as five sprites, like the game's own zombies: `CARD_<ID>_FRONT` and so on, each a row of
+/// the card's sheet with three frames.
 pub const CARD_PREFIX: &str = "CARD_";
-pub const CARD_FRAMES: usize = 15;
+pub const CARD_PARTS: [&str; 5] = ["FRONT", "SIDE", "BACK", "FLASH", "HURT"];
+pub const CARD_PART_FRAMES: usize = 3;
+pub const CARD_FRAMES: usize = CARD_PARTS.len() * CARD_PART_FRAMES;
 pub const CARD_SECTION: &str = "Enemy cards";
 
-/// The id of the card a sprite name stands for, such as `ghoul` for `CARD_GHOUL`.
-pub fn card_id(name: &str) -> Option<String> {
-    name.strip_prefix(CARD_PREFIX).filter(|id| !id.is_empty()).map(str::to_ascii_lowercase)
+/// The card a sprite name is a part of and the part's row, such as `ghoul` and 1 for `CARD_GHOUL_SIDE`.
+pub fn card_part(name: &str) -> Option<(String, usize)> {
+    let (id, part) = name.strip_prefix(CARD_PREFIX)?.rsplit_once('_')?;
+    let row = CARD_PARTS.iter().position(|p| *p == part)?;
+    (!id.is_empty()).then(|| (id.to_ascii_lowercase(), row))
 }
 
-/// The sprite name a card id lists under, when the id is one a sprite name can carry.
-pub fn card_name(id: &str) -> Option<String> {
-    let name = format!("{CARD_PREFIX}{}", id.to_ascii_uppercase());
-    (id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_') && valid_name(&name)).then_some(name)
+pub fn card_id(name: &str) -> Option<String> {
+    card_part(name).map(|(id, _)| id)
+}
+
+/// The card a name typed for New or Copy asks for: `CARD_GHOUL`, or one of its parts.
+pub fn card_wanted(name: &str) -> Option<String> {
+    card_id(name).or_else(|| name.strip_prefix(CARD_PREFIX).filter(|id| !id.is_empty()).map(str::to_ascii_lowercase))
+}
+
+/// The five part names a card id lists under, when the id is one a sprite name can carry.
+pub fn card_names(id: &str) -> Option<[String; 5]> {
+    let names = CARD_PARTS.map(|p| format!("{CARD_PREFIX}{}_{p}", id.to_ascii_uppercase()));
+    (!id.is_empty() && id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_') && names.iter().all(|n| valid_name(n))).then_some(names)
 }
 
 /// A new card's 15 frames: a plain 16x16 figure to paint over, walking front, side and back with its legs taking
@@ -150,14 +164,10 @@ pub fn card_template() -> Vec<Frame> {
     walk.chain(flash).chain(hurt).collect()
 }
 
-/// What a card's frame shows, by its place in the sheet.
-pub fn card_frame_name(i: usize) -> String {
-    let facing = ["front", "side", "back"][i % 3];
-    match i / 3 {
-        row @ 0..3 => format!("Walk {} {}", ["front", "side", "back"][row], i % 3 + 1),
-        3 => format!("Flash {facing}"),
-        _ => format!("Hurt {facing}"),
-    }
+/// What frame `i` of a card's part in `row` shows.
+pub fn card_frame_name(row: usize, i: usize) -> String {
+    let facing = ["Facing front", "Facing side", "Facing back"];
+    if row < 3 { format!("Walking, step {}", i + 1) } else { facing.get(i).unwrap_or(&"").to_string() }
 }
 
 /// A top strip as the 3D view colors a figure's top without one: each column's first solid pixel, or the one

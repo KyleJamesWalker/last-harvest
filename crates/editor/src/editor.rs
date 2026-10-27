@@ -402,10 +402,6 @@ impl Editor {
     /// The frames to show in the previews: all of them while playing, else the one being edited.
     pub fn shown(&self) -> Vec<Art> {
         let n = self.sprite.frames.len().min(self.live.len());
-        if self.playing && self.is_card() {
-            let row = self.frame / 3 * 3;
-            return self.live.get(row..(row + 3).min(n)).map(<[Art]>::to_vec).unwrap_or_default();
-        }
         if self.playing { self.live[..n].to_vec() } else { self.live.get(self.frame).copied().into_iter().collect() }
     }
 
@@ -605,9 +601,7 @@ impl Editor {
                 self.status = None;
             }
         }
-        if self.playing && self.is_card() {
-            self.frame = self.frame / 3 * 3 + (self.clock * self.fps) as usize % 3;
-        } else if self.playing && !self.sprite.frames.is_empty() {
+        if self.playing && !self.sprite.frames.is_empty() {
             self.frame = (self.clock * self.fps) as usize % self.sprite.frames.len();
         }
     }
@@ -1131,7 +1125,7 @@ impl Editor {
                 self.load_family();
             }
             Action::AddFrame | Action::DeleteFrame | Action::MoveFrame(_) if self.is_card() => {
-                self.say(format!("A card keeps its {} frames: walk front, side and back, then flash and hurt", sprite::CARD_FRAMES));
+                self.say(format!("Each part of a card keeps its {} frames", sprite::CARD_PART_FRAMES));
             }
             Action::Stand(_) if self.is_card() => self.say("A card stands as a figure"),
             Action::Stats => {
@@ -1497,6 +1491,45 @@ impl Editor {
         self.typing || self.ask.is_some() || self.naming.is_some()
     }
 
+    /// Makes card `id` on disk, from the template for New or from the open card for Copy, and opens its front.
+    fn make_card(&mut self, kind: Ask, id: &str) {
+        let Some(names) = sprite::card_names(id) else {
+            return self.say("A card's id uses a-z, 0-9 and _");
+        };
+        if self.names.iter().any(|(n, _)| *n == names[0]) {
+            return self.say(format!("Card {id} already exists"));
+        }
+        let parts: Vec<Sprite> = match kind {
+            Ask::Copy => {
+                let Some((from, _)) = sprite::card_part(&self.sprite.name) else {
+                    return self.say("Copy a card to make a card, or start one with New");
+                };
+                let text = self.sprite.card.clone().unwrap_or_default().replacen(&format!("[{from}]"), &format!("[{id}]"), 1);
+                let source = sprite::card_names(&from).unwrap_or_default();
+                let mut parts = Vec::new();
+                for (src, name) in source.iter().zip(&names) {
+                    let frames = if *src == self.sprite.name { self.sprite.frames.clone() } else { self.store.load(src).map(|s| s.frames).unwrap_or_default() };
+                    parts.push(Sprite { name: name.clone(), frames, views: None, footprint: None, top: None, card: Some(text.clone()) });
+                }
+                parts
+            }
+            Ask::New => {
+                let text = format!("[{id}]\nname        {}\n", id[..1].to_ascii_uppercase() + &id[1..]);
+                let frames = sprite::card_template();
+                names.iter().zip(frames.chunks(sprite::CARD_PART_FRAMES)).map(|(name, f)| Sprite { name: name.clone(), frames: f.to_vec(), views: None, footprint: None, top: None, card: Some(text.clone()) }).collect()
+            }
+        };
+        if let Err(e) = parts.iter().try_for_each(|p| self.store.save(p)) {
+            return self.say(format!("Couldn't make the card: {e}"));
+        }
+        self.ask = None;
+        self.dirty = false;
+        self.stand_touched = false;
+        self.open(&names[0]);
+        self.reveal();
+        self.say(format!("Made card {id}: its parts are {}", sprite::CARD_PARTS.join(", ")));
+    }
+
     fn commit_name(&mut self, name: String) {
         let name = name.trim().to_string();
         if name.is_empty() {
@@ -1605,25 +1638,16 @@ impl Editor {
                 Key::Escape => self.ask = None,
                 Key::Enter => {
                     let (kind, name) = (*kind, name.clone());
-                    if !sprite::valid_name(&name) {
+                    if let Some(id) = sprite::card_wanted(&name) {
+                        self.make_card(kind, &id);
+                    } else if !sprite::valid_name(&name) {
                         self.say("Names start with a letter and use A-Z, 0-9 and _");
                     } else if self.names.iter().any(|(n, _)| *n == name) {
                         self.say(format!("{name} already exists"));
-                    } else if sprite::card_id(&name).is_some() && kind == Ask::Copy && !self.is_card() {
-                        self.say("Copy a card to make a card, or start one with New");
                     } else {
                         self.ask = None;
                         let (frames, views, footprint, top) = if kind == Ask::Copy { self.snapshot() } else { (vec![Frame::blank(16, 16)], None, None, None) };
-                        let card = sprite::card_id(&name).map(|id| match (&self.sprite.card, kind) {
-                            (Some(text), Ask::Copy) => text.replacen(&format!("[{}]", sprite::card_id(&self.sprite.name).unwrap_or_default()), &format!("[{id}]"), 1),
-                            _ => format!("[{id}]\nname        {}\n", id[..1].to_ascii_uppercase() + &id[1..]),
-                        });
-                        let frames = if card.is_some() && kind == Ask::New { sprite::card_template() } else { frames };
-                        let carded = card.is_some();
-                        self.sprite = Sprite { name: name.clone(), frames, views, footprint, top, card };
-                        if carded {
-                            self.stand = FIGURE;
-                        }
+                        self.sprite = Sprite { name: name.clone(), frames, views, footprint, top, card: None };
                         self.fit();
                         self.view = None;
                         self.frame = 0;
@@ -1871,8 +1895,8 @@ impl Editor {
 
         let f = self.current();
         c.label(format!("{} / {}", self.frame + 1, self.sprite.frames.len()), CANVAS.x + 248.0, 704.0, 18.0, DIM, Align::Left);
-        if self.is_card() && self.view.is_none() && !self.stats {
-            c.label(sprite::card_frame_name(self.frame), CANVAS.x + 8.0, CANVAS.y + 6.0, 16.0, HOT, Align::Left);
+        if let Some((_, row)) = sprite::card_part(&self.sprite.name).filter(|_| self.view.is_none() && !self.stats) {
+            c.label(sprite::card_frame_name(row, self.frame), CANVAS.x + 8.0, CANVAS.y + 6.0, 16.0, HOT, Align::Left);
         }
         c.label(format!("W {}", f.w), CANVAS.x + 362.0, 704.0, 18.0, TEXT, Align::Right);
         c.label(format!("H {}", f.h), CANVAS.x + 484.0, 704.0, 18.0, TEXT, Align::Right);
@@ -2175,7 +2199,7 @@ mod tests {
     }
 
     #[test]
-    fn a_new_card_edits_its_frames_and_stats_and_saves_as_one_png() {
+    fn a_new_card_lists_as_five_parts_that_save_into_one_png() {
         let dir = tmp().join("cards");
         let _ = std::fs::remove_dir_all(&dir);
         let store = || FsStore { dir: dir.join("sprites"), catalog: dir.join("art.txt"), cards: dir.join("enemies") };
@@ -2183,13 +2207,20 @@ mod tests {
         e.act(Action::Ask(Ask::New), false);
         type_in(&mut e, "card ghoul");
         e.key(Key::Enter);
-        assert_eq!((e.sprite.name.as_str(), e.sprite.frames.len()), ("CARD_GHOUL", 15));
-        assert!(e.sprite.frames.iter().all(|f| (f.w, f.h) == (16, 16) && f.px.iter().any(|p| p[3] > 0)), "a new card starts from a figure");
+        assert!(dir.join("enemies/ghoul.png").exists(), "New writes the card from the template");
+        assert_eq!(e.sprite.name, "CARD_GHOUL_FRONT");
+        let parts: Vec<&str> = e.names.iter().map(|(n, _)| n.as_str()).filter(|n| n.starts_with("CARD_")).collect();
+        assert_eq!(parts, ["CARD_GHOUL_FRONT", "CARD_GHOUL_SIDE", "CARD_GHOUL_BACK", "CARD_GHOUL_FLASH", "CARD_GHOUL_HURT"]);
+        assert_eq!(e.sprite.frames.len(), 3);
+        assert!(e.sprite.frames.iter().all(|f| (f.w, f.h) == (16, 16) && f.px.iter().any(|p| p[3] > 0)), "it starts from a figure");
         assert_ne!(e.sprite.frames[0].px, e.sprite.frames[1].px, "whose legs take turns");
-        assert!(e.sprite.frames[9].px.iter().all(|p| p[3] == 0 || *p == [255, 255, 255, 255]), "and flashes white");
         assert_eq!(e.stand(), Stand::Figure);
         e.act(Action::AddFrame, false);
-        assert_eq!(e.sprite.frames.len(), 15, "a card keeps its frames");
+        assert_eq!(e.sprite.frames.len(), 3, "a part keeps its frames");
+        e.act(Action::Compare, false);
+        assert_eq!(e.family.len(), 5, "Compare lays out the card's parts like a built-in zombie's");
+        e.act(Action::Compare, false);
+        e.switch_to("CARD_GHOUL_SIDE".into());
         click_pixel(&mut e, 0, 0);
         e.act(Action::Stats, false);
         buttons_fit(&e);
@@ -2210,11 +2241,26 @@ mod tests {
         assert_eq!((f.id.as_str(), f.name.as_str()), ("ghoul", "Bog Ghoul"));
         assert_eq!((f.numbers[0].1, f.numbers[1].1, f.flags[0].1), (15.0, 30.0, true), "health 10 + 5, speed 20 + 10, heavy");
         assert_eq!(saved.frame, [16, 16]);
-        let e = Editor::new(Box::new(store()), "CARD_GHOUL");
-        assert!(e.names.iter().any(|(n, saved)| n == "CARD_GHOUL" && *saved));
-        assert_eq!(e.sprite.frames.len(), 15);
-        assert_eq!(e.sprite.frames[0].get(0, 0), Some(e.color), "the pixel came back");
-        assert_eq!(sprite::section("CARD_GHOUL"), sprite::CARD_SECTION);
+        let side = Editor::new(Box::new(store()), "CARD_GHOUL_SIDE");
+        assert_eq!(side.sprite.frames[0].get(0, 0), Some(e.color), "the pixel landed in the side row");
+        let front = Editor::new(Box::new(store()), "CARD_GHOUL_FRONT");
+        assert_eq!(front.sprite.frames[0].get(0, 0), Some([0, 0, 0, 0]), "and nowhere else");
+        assert_eq!(sprite::section("CARD_GHOUL_HURT"), sprite::CARD_SECTION);
+    }
+
+    #[test]
+    fn resizing_one_part_resizes_the_whole_card() {
+        let dir = tmp().join("resize");
+        let _ = std::fs::remove_dir_all(&dir);
+        let store = || FsStore { dir: dir.join("sprites"), catalog: dir.join("art.txt"), cards: dir.join("enemies") };
+        let mut e = Editor::new(Box::new(store()), "");
+        e.act(Action::Ask(Ask::New), false);
+        type_in(&mut e, "card tall");
+        e.key(Key::Enter);
+        e.act(Action::Height(4), false);
+        e.act(Action::Save, false);
+        let hurt = Editor::new(Box::new(store()), "CARD_TALL_HURT");
+        assert_eq!((hurt.sprite.frames[0].w, hurt.sprite.frames[0].h), (16, 20));
     }
 
     #[test]
@@ -2234,8 +2280,10 @@ mod tests {
         e.act(Action::Ask(Ask::Copy), false);
         type_in(&mut e, "card b");
         e.key(Key::Enter);
+        assert_eq!(e.sprite.name, "CARD_B_FRONT");
         let f = last_harvest_game::card_fields(e.sprite.card.as_deref().unwrap()).unwrap();
-        assert_eq!((f.id.as_str(), f.numbers[0].1), ("b", 15.0));
+        assert_eq!((f.id.as_str(), f.numbers[0].1), ("b", 15.0), "the copy keeps unsaved stats");
+        assert!(dir.join("enemies/b.png").exists() && dir.join("enemies/a.png").exists());
     }
 
     #[test]
