@@ -538,7 +538,7 @@ impl Editor {
         };
     }
 
-    fn say(&mut self, text: impl Into<String>) {
+    pub(crate) fn say(&mut self, text: impl Into<String>) {
         self.status = Some((text.into(), 0.0));
     }
 

@@ -98,7 +98,8 @@ impl Studio {
         }
         let mut rects = Vec::new();
         let (mut x, mut y, mut shelf) = (0, 0, 0);
-        for f in self.editor.surfaces() {
+        let surfaces = self.editor.surfaces();
+        for f in &surfaces {
             if x + f.w > sw {
                 (x, y, shelf) = (0, y + shelf + 1, 0);
             }
@@ -114,6 +115,9 @@ impl Studio {
             rects.push([(sx + x) as u16, (sy + y) as u16, f.w as u16, f.h as u16]);
             x += f.w + 1;
             shelf = shelf.max(f.h);
+        }
+        if rects.len() < surfaces.len() {
+            self.editor.say(format!("Too big to preview whole: the frames and views must fit in {sw}x{sh} pixels"));
         }
         let live = art::set_live(rects, self.atlas.clone());
         self.editor.set_live(live);

@@ -113,7 +113,7 @@ SHOTGUN         px 17 139 16 5
 GRENADE         px 22 118 7 9
 WHITE           solid 4 4
 # The sprite editor draws the sprite it is working on here.
-SCRATCH         blank 128 128
+SCRATCH         blank 256 256
 
 # Wildlife, in the white bird's column; the black bird's is one to the right
 CROW_FLY        cell 42 0 ; cell 42 1 ; cell 42 2
