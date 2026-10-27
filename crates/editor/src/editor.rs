@@ -684,6 +684,7 @@ impl Editor {
             self.load_family();
             self.stats &= self.is_card();
             self.naming = None;
+            self.delete_armed = 0.0;
             if self.stats {
                 self.load_other_cards();
             }
