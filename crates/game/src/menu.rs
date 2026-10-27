@@ -506,12 +506,19 @@ fn draw_credits(c: &mut Canvas) {
 /// a label of `size` at `y` would have it. Widths are estimated, since a label isn't measured until it's drawn.
 #[allow(clippy::too_many_arguments)]
 fn fit_label(c: &mut Canvas, text: &str, x: f32, y: f32, size: f32, room: f32, color: Color, align: Align) {
+    let (text, fits) = fitted(text, size, room, size * 2.0 / 3.0);
+    c.label(text, x, y + (size - fits) / 2.0, fits, color, align);
+}
+
+/// `text` and a size, from `size` down to `least`, that fit `room` pixels, cut short with an ellipsis if even `least`
+/// doesn't.
+pub(crate) fn fitted(text: &str, size: f32, room: f32, least: f32) -> (String, f32) {
     const EM: f32 = 0.56;
     let n = text.chars().count();
-    let fits = size.min(room / (n.max(1) as f32 * EM)).max(size * 2.0 / 3.0);
+    let fits = size.min(room / (n.max(1) as f32 * EM)).max(least);
     let max = (room / (fits * EM)) as usize;
     let text = if n <= max { text.to_string() } else { text.chars().take(max.saturating_sub(3)).collect::<String>().trim_end().to_string() + "..." };
-    c.label(text, x, y + (size - fits) / 2.0, fits, color, align);
+    (text, fits)
 }
 
 fn back_button(c: &mut Canvas) {

@@ -444,9 +444,10 @@ impl Game {
         }
         let problems = &data::load_report().problems;
         if let Some(first) = problems.first() {
-            let more = if problems.len() > 1 { format!("{} cards or mods couldn't load", problems.len()) } else { "A card or mod couldn't load".to_string() };
-            let line: String = format!("{more}: {first}").chars().take(84).collect();
-            f.top.label(line, SCREEN_W / 2.0, 728.0, 22.0, [1.0, 0.55, 0.5, 1.0], Align::Center);
+            let more = if problems.len() > 1 { format!("{} cards or mods couldn't load:", problems.len()) } else { "A card or mod couldn't load:".to_string() };
+            let red = [1.0, 0.55, 0.5, 1.0];
+            f.top.label(more, SCREEN_W / 2.0, 696.0, 24.0, red, Align::Center);
+            f.top.label(menu::fitted(first, 22.0, SCREEN_W - 40.0, 22.0).0, SCREEN_W / 2.0, 728.0, 22.0, red, Align::Center);
         }
         if let Some((name, how)) = harvest::next_unlock(&self.progress()) {
             f.top.label(format!("Next to find: {name}. {how}"), SCREEN_W / 2.0, 566.0, 24.0, DIM, Align::Center);
