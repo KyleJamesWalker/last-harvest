@@ -8,8 +8,10 @@ self.addEventListener("fetch", (e) => {
   e.respondWith(
     fetch(e.request)
       .then((response) => {
-        const copy = response.clone();
-        caches.open(CACHE).then((c) => c.put(e.request, copy));
+        if (response.status === 200) {
+          const copy = response.clone();
+          caches.open(CACHE).then((c) => c.put(e.request, copy)).catch(() => {});
+        }
         return response;
       })
       .catch(() => caches.match(e.request, { ignoreSearch: true })),

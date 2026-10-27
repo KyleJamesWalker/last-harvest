@@ -119,7 +119,7 @@ pub fn load() -> Result<Files, String> {
     if !cards.is_empty() {
         eprintln!("cards: {cards:?}");
     }
-    let loaded = cards.len() - left_out.len();
+    let loaded = cards.len().saturating_sub(left_out.len());
     problems.extend(left_out);
     for problem in &problems {
         eprintln!("left out: {problem}");
