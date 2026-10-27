@@ -9,7 +9,8 @@ use last_harvest_game::data::Card;
 pub const KEYWORD: &str = "last-harvest-enemy";
 /// The biggest sheet a card can have: eight walking frames across and five rows down, of 64-pixel frames. Checked
 /// before decoding, since a card may come from anyone.
-const MAX_SHEET: [u32; 2] = [8 * 64, 5 * 64];
+const MAX_SHEET: [u32; 2] = [8 * MAX_FRAME, 5 * MAX_FRAME];
+const MAX_FRAME: u32 = 64;
 /// What an enemy card's file name ends in: still a PNG, so it previews anywhere, but named as a card.
 pub const EXTENSION: &str = ".enemy.png";
 
@@ -84,7 +85,11 @@ pub fn read_as(kind: Kind, name: &str, bytes: &[u8]) -> Result<Card, String> {
     if w % cols != 0 || h % 5 != 0 {
         return Err(fail(&format!("{w}x{h} doesn't split into {cols} frames across and five down")));
     }
-    Ok(Card { name: name.to_string(), text, frame: [w / cols, h / 5], sheet })
+    let frame = [w / cols, h / 5];
+    if frame.iter().any(|&side| side > MAX_FRAME) {
+        return Err(fail(&format!("its frames are {}x{}, but the game draws them at most {MAX_FRAME} pixels a side", frame[0], frame[1])));
+    }
+    Ok(Card { name: name.to_string(), text, frame, sheet })
 }
 
 /// Writes an enemy card from its text and an RGBA sheet `w` by `h` pixels.
@@ -154,5 +159,7 @@ mod tests {
         assert!(read("y.png", &odd).err().unwrap().contains("3 frames across"));
         let long = write("[a]\nwalk 5", 5 * 4, 5 * 4, &[0; 5 * 4 * 5 * 4 * 4]).unwrap();
         assert_eq!(read("z.png", &long).ok().map(|c| c.frame), Some([4, 4]), "a five-frame walk makes the sheet five across");
+        let wide = write("[a]", 3 * 100, 5 * 10, &vec![0; 3 * 100 * 5 * 10 * 4]).unwrap();
+        assert!(read("w.png", &wide).err().unwrap().contains("at most 64"), "three 100-pixel frames fit the sheet but not the game");
     }
 }
