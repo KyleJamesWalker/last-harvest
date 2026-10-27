@@ -10,6 +10,7 @@ pub struct Data {
     pub atlas: Option<Vec<u8>>,
     pub font: Option<Vec<u8>>,
     pub powerups: Option<String>,
+    pub enemies: Option<String>,
 }
 
 static DATA: OnceLock<Data> = OnceLock::new();
@@ -19,6 +20,7 @@ mod built_in {
     pub const ATLAS: Option<&[u8]> = Some(include_bytes!(concat!(env!("OUT_DIR"), "/art.rgba")));
     pub const FONT: Option<&[u8]> = Some(include_bytes!("../../../assets/fonts/AtkinsonHyperlegible-Regular.ttf"));
     pub const POWERUPS: Option<&str> = Some(include_str!("../powerups.txt"));
+    pub const ENEMIES: Option<&str> = Some(include_str!("../enemies.txt"));
 }
 
 #[cfg(not(feature = "embed"))]
@@ -26,6 +28,7 @@ mod built_in {
     pub const ATLAS: Option<&[u8]> = None;
     pub const FONT: Option<&[u8]> = None;
     pub const POWERUPS: Option<&str> = None;
+    pub const ENEMIES: Option<&str> = None;
 }
 
 /// Installs a pack's data. It must come before anything reads the data, which then can't change.
@@ -57,4 +60,8 @@ pub fn font() -> &'static [u8] {
 
 pub fn powerups() -> &'static str {
     data().powerups.as_deref().or(built_in::POWERUPS).unwrap_or_else(|| missing("powerups.txt"))
+}
+
+pub fn enemies() -> &'static str {
+    data().enemies.as_deref().or(built_in::ENEMIES).unwrap_or_else(|| missing("enemies.txt"))
 }

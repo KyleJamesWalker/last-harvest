@@ -13,6 +13,7 @@ pub const MANIFEST: &str = "manifest.toml";
 pub const ATLAS: &str = "art/atlas.rgba";
 pub const FONT: &str = "fonts/AtkinsonHyperlegible-Regular.ttf";
 pub const POWERUPS: &str = "powerups.txt";
+pub const ENEMIES: &str = "enemies.txt";
 pub const SOUNDS: &str = "sounds/";
 
 /// The manifest of the base pack built for this binary.

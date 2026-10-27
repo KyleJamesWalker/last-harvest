@@ -117,12 +117,17 @@ fn notes(sfx: Sfx) -> Vec<Note> {
         }
         Sfx::Kill(kind) => {
             // Kids pop high; big ones go down with a heavy, wet thump.
-            let f = [300.0, 520.0, 160.0][kind.min(2) as usize];
+            let sound = last_harvest_game::kill_sound(kind);
+            let f = match sound {
+                "kill-kid" => 520.0,
+                "kill-big" => 160.0,
+                _ => 300.0,
+            };
             let mut v = vec![hit(0.0, 0.16, 3000.0, 400.0, Noise, 0.65), hit(0.0, 0.14, f, f / 3.0, Triangle, 0.7)];
-            if kind == 1 {
+            if sound == "kill-kid" {
                 v.push(hit(0.0, 0.03, 900.0, 900.0, Square, 0.3));
             }
-            if kind == 2 {
+            if sound == "kill-big" {
                 v.push(hit(0.02, 0.4, 90.0, 35.0, Square, 0.5));
             }
             v

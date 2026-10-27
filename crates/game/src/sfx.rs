@@ -17,7 +17,7 @@ pub enum Sfx {
     Slash,
     /// A bullet or blade landing; true for a critical hit.
     Thud(bool),
-    /// A zombie going down; the value is its kind, small to big.
+    /// A zombie going down; the value is its kind, by its place in `enemies.txt`.
     Kill(u8),
     Boom { pan: i8, gain: u8 },
     Throw,

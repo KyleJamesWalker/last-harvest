@@ -931,7 +931,7 @@ mod tests {
         h.view_yaw = 0.0;
         h.aim = [1.0, 0.0];
         h.pos = (0..40).map(|k| [h.pos[0] + k as f32 * 16.0, h.pos[1]]).find(|p| !h.map.hits(p[0] + offset[0], p[1] + offset[1], ZOMBIE_HALF)).unwrap();
-        h.zombies.push(Zombie::new(ZKind::Big, [h.pos[0] + offset[0], h.pos[1] + offset[1]], 500.0, 1.0, 0.0));
+        h.zombies.push(Zombie::new(ZKind::named("big"), [h.pos[0] + offset[0], h.pos[1] + offset[1]], 500.0, 1.0, 0.0));
         h
     }
 
@@ -1001,7 +1001,7 @@ mod tests {
     #[test]
     fn the_pistol_prefers_what_is_ahead() {
         let mut h = with("pistol", [120.0, 0.0]);
-        h.zombies.push(Zombie::new(ZKind::Big, [h.pos[0] - 90.0, h.pos[1]], 500.0, 1.0, 0.0));
+        h.zombies.push(Zombie::new(ZKind::named("big"), [h.pos[0] - 90.0, h.pos[1]], 500.0, 1.0, 0.0));
         h.kit.weapons[0].cd = 0.0;
         h.fire(1.0 / 60.0, &mut Vec::new());
         assert!(h.bullets[0].vel[0] > 0.0, "it shot ahead, not at the closer one behind");

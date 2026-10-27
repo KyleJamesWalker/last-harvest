@@ -22,7 +22,7 @@ pub struct Bank {
 
 /// Every name `cue` gives, which are the files held in memory.
 const CUES: &[&str] = &[
-    "start", "miss", "gameover", "turn", "shot", "blast", "slash", "thud", "crit", "kill-skinny", "kill-kid", "kill-big", "boom", "throw",
+    "start", "miss", "gameover", "turn", "shot", "blast", "slash", "thud", "crit", "boom", "throw",
     "pickup", "heal", "hurt", "heartbeat", "levelup", "pick", "pick-rare", "rise", "groan", "caw", "bell", "horde", "dawn", "zap", "bark",
 ];
 
@@ -39,9 +39,7 @@ pub fn cue(sfx: Sfx) -> (&'static str, f32) {
         Sfx::Slash => "slash",
         Sfx::Thud(false) => "thud",
         Sfx::Thud(true) => "crit",
-        Sfx::Kill(0) => "kill-skinny",
-        Sfx::Kill(1) => "kill-kid",
-        Sfx::Kill(_) => "kill-big",
+        Sfx::Kill(kind) => last_harvest_game::kill_sound(kind),
         Sfx::Boom { .. } => "boom",
         Sfx::Throw => "throw",
         // Sped up past an octave, a recorded sound turns into chipmunk noise, so a run tops out there.
@@ -105,7 +103,7 @@ impl Bank {
                 _ => stem,
             };
             // Loops like music and ambience are long and played another way; only cues are held in memory.
-            if !CUES.contains(&name) {
+            if !CUES.contains(&name) && !last_harvest_game::kill_sounds().any(|k| k == name) {
                 continue;
             }
             match if ext == "ogg" { decode_ogg(bytes, rate) } else { decode(bytes, rate) } {
@@ -265,7 +263,7 @@ mod tests {
         assert_eq!(bank.clips["shot"].len(), 2);
         assert_eq!(bank.clips["kill-big"].len(), 1);
         assert!(bank.get("kill", 0.0).is_none());
-        assert_eq!(cue(Sfx::Kill(2)).0, "kill-big");
+        assert_eq!(cue(Sfx::Kill(0)).0, "kill-big");
     }
 
     #[test]
@@ -277,7 +275,8 @@ mod tests {
             Sfx::Caw { pan: 0, gain: 0 }, Sfx::Bell, Sfx::Horde, Sfx::Dawn, Sfx::Zap, Sfx::Bark,
         ];
         for sfx in all {
-            assert!(CUES.contains(&cue(sfx).0), "{sfx:?}");
+            let name = cue(sfx).0;
+            assert!(CUES.contains(&name) || last_harvest_game::kill_sounds().any(|k| k == name), "{sfx:?}");
         }
     }
 

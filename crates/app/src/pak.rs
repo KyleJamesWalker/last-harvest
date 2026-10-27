@@ -26,8 +26,9 @@ pub fn load() -> Result<Files, String> {
         Some(path) => {
             let fail = |e: String| format!("{}: {e}", path.display());
             let mut pak = Pak::open(&path).map_err(fail)?;
-            let powerups = pak.take(pack::POWERUPS).map(String::from_utf8).transpose().map_err(|_| fail("powerups.txt is not UTF-8".into()))?;
-            data::install(Data { atlas: pak.take(pack::ATLAS), font: pak.take(pack::FONT), powerups }).map_err(fail)?;
+            let mut text = |file: &str| pak.take(file).map(String::from_utf8).transpose().map_err(|_| fail(format!("{file} is not UTF-8")));
+            let (powerups, enemies) = (text(pack::POWERUPS)?, text(pack::ENEMIES)?);
+            data::install(Data { atlas: pak.take(pack::ATLAS), font: pak.take(pack::FONT), powerups, enemies }).map_err(fail)?;
             sounds = pak.take_dir(pack::SOUNDS);
             eprintln!("data: {} with {} sounds", path.display(), sounds.len());
         }

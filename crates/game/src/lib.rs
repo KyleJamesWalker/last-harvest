@@ -19,6 +19,7 @@ pub use difficulty::Difficulty;
 pub use draw::{Align, Canvas, Color, Frame, Shape};
 pub use art::Stand;
 pub use harvest::showcase::Showcase;
+pub use harvest::{kill_sound, kill_sounds};
 pub use input::{Buttons, Input, InputTracker, MAX_TOUCHES, RawInput};
 pub use save::Save;
 pub use sfx::Sfx;

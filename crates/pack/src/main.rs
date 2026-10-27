@@ -4,7 +4,7 @@
 use std::path::{Path, PathBuf};
 
 use last_harvest_game::art;
-use last_harvest_pack::{ATLAS, FONT, MANIFEST, POWERUPS, SOUNDS, manifest, write};
+use last_harvest_pack::{ATLAS, ENEMIES, FONT, MANIFEST, POWERUPS, SOUNDS, manifest, write};
 
 /// Every file in the base pack, by its path inside the pack, sorted so the same inputs give the same bytes.
 fn files(root: &Path) -> std::io::Result<Vec<(String, Vec<u8>)>> {
@@ -13,6 +13,7 @@ fn files(root: &Path) -> std::io::Result<Vec<(String, Vec<u8>)>> {
         (ATLAS.to_string(), art::pixels().to_vec()),
         (FONT.to_string(), std::fs::read(root.join("assets").join(FONT))?),
         (POWERUPS.to_string(), std::fs::read(root.join("crates/game").join(POWERUPS))?),
+        (ENEMIES.to_string(), std::fs::read(root.join("crates/game").join(ENEMIES))?),
     ];
     for entry in std::fs::read_dir(root.join("assets/private/sounds"))? {
         let path = entry?.path();

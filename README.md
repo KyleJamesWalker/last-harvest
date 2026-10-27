@@ -46,6 +46,8 @@ The title screen shows how many powerups are unlocked, how many are waiting to b
 
 `crates/game/powerups.txt` defines every powerup: its name, zone, unlock rule, how often it is found, highest level, and its stats at each level. Change a number and rebuild to rebalance. To add a powerup, copy a section under a new id. A `does` line reuses an existing weapon behavior with new numbers. The comments at the top of the file list every key and stat. A test reads the file, so a typo fails `cargo test` and names the line.
 
+`crates/game/enemies.txt` defines every kind of zombie: its sprites, health, speed, bite, money, weight, death sound, and when and how often it arrives. Big is marked `heavy`, which roots it on a hard hit, and it leads hordes and dresses dawn's Harvester. The comments at the top of the file list every key, and a test reads it the same way.
+
 Also on every screen:
 
 - Select toggles a performance overlay with FPS, frame times and temperatures.

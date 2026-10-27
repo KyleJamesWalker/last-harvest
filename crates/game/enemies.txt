@@ -1,0 +1,61 @@
+# Every kind of zombie a night can send. Change a number and rebuild; nothing else needs to change.
+#
+#   [id]        start of a zombie; the id is how the save and the code know it
+#   name        Text      what the Enemies page calls it
+#   look        SPRITE    its sprites from art.txt: SPRITE_FRONT, SPRITE_SIDE and SPRITE_BACK walking, three
+#                         frames each, then SPRITE_FLASH and SPRITE_HURT, one frame per facing
+#   hp          N         health at dusk; it grows 8% a minute
+#   speed       N         pixels a second; the walk cycle keeps pace
+#   damage      N         a bite
+#   xp          N         the money it drops
+#   mass        N         divides knockback
+#   gibs        N         blood specks when it dies
+#   sound       CUE       its death sound; kill-ID when left out
+#   after       MINUTES   the earliest it arrives in a night; 0 when left out
+#   chance      P         see below; 1 when left out
+#   per_minute  P         added to chance for each minute of the night; 0 when left out
+#   heavy                 a crit or a hard hit roots it for a moment, and its death shakes the screen
+#   leader                a horde's leader, carrying the chest, is one of these
+#   harvester             dawn's Harvester wears this one's sprites
+#
+# Each zombie that arrives rolls a number from 0 to 1 and becomes the first kind, top to bottom, whose chance
+# is above the roll, so put the rarest first and end on one with no chance. A lost night's player rises as
+# the last one.
+
+[big]
+name        Big
+look        BIG
+hp          90
+speed       12
+damage      32
+xp          5
+mass        3.5
+gibs        20
+after       2
+chance      0.06
+per_minute  0.01
+heavy
+leader
+harvester
+
+[kid]
+name        Kid
+look        KID
+hp          10
+speed       32
+damage      10
+xp          1
+mass        0.6
+gibs        14
+after       1
+chance      0.35
+
+[skinny]
+name        Skinny
+look        SKINNY
+hp          20
+speed       20
+damage      15
+xp          1
+mass        1
+gibs        9

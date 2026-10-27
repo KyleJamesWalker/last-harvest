@@ -752,7 +752,7 @@ mod tests {
         for i in 0..300 {
             let a = i as f32 * 0.37;
             let r = 12.0 + (i % 40) as f32 * 3.0;
-            h.zombies.push(Zombie::new(Kind::Skinny, [h.pos[0] + a.cos() * r, h.pos[1] + a.sin() * r], 10.0, 1.0, 0.0));
+            h.zombies.push(Zombie::new(Kind::named("skinny"), [h.pos[0] + a.cos() * r, h.pos[1] + a.sin() * r], 10.0, 1.0, 0.0));
         }
         for i in 0..60 {
             let a = i as f32 * 0.5;

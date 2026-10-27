@@ -2,6 +2,7 @@
 
 mod carve;
 mod draw;
+mod enemies;
 mod juice;
 mod map;
 mod powerups;
@@ -14,6 +15,7 @@ use std::f32::consts::{PI, TAU};
 use crate::art::{self, Art};
 use crate::rng::Rng;
 use crate::{Buttons, Color, Difficulty, Input, SCREEN_H, SCREEN_W, Sfx};
+use enemies::{Enemy, roster};
 use juice::{Corpse, Juice, Particle, Tone};
 use map::{Map, TILE};
 pub use powerups::{Progress, Run, found_from_ids, found_ids};
@@ -110,39 +112,43 @@ impl Facing {
 }
 
 /// Walk frames for each facing, then the flash and hurt frames for each facing.
-struct Look {
-    walk: [&'static [Art; 3]; 3],
-    flash: &'static [Art; 3],
-    hurt: &'static [Art; 3],
+pub(crate) struct Look {
+    pub walk: [[Art; 3]; 3],
+    pub flash: [Art; 3],
+    pub hurt: [Art; 3],
 }
 
-const PLAYER: Look = Look { walk: [&art::PLAYER_FRONT, &art::PLAYER_SIDE, &art::PLAYER_BACK], flash: &art::PLAYER_FLASH, hurt: &art::PLAYER_HURT };
+fn player_look() -> Look {
+    Look { walk: [art::PLAYER_FRONT, art::PLAYER_SIDE, art::PLAYER_BACK], flash: art::PLAYER_FLASH, hurt: art::PLAYER_HURT }
+}
 
+/// A kind of zombie: its place in `enemies.txt`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Kind {
-    Skinny,
-    Kid,
-    Big,
-}
-
-struct KindStats {
-    hp: f32,
-    speed: f32,
-    damage: f32,
-    xp: u32,
-    /// Divides knockback.
-    mass: f32,
-    look: Look,
-}
+struct Kind(u8);
 
 impl Kind {
-    fn stats(self) -> KindStats {
-        match self {
-            Kind::Skinny => KindStats { hp: 20.0, speed: 20.0, damage: 15.0, xp: 1, mass: 1.0, look: Look { walk: [&art::SKINNY_FRONT, &art::SKINNY_SIDE, &art::SKINNY_BACK], flash: &art::SKINNY_FLASH, hurt: &art::SKINNY_HURT } },
-            Kind::Kid => KindStats { hp: 10.0, speed: 32.0, damage: 10.0, xp: 1, mass: 0.6, look: Look { walk: [&art::KID_FRONT, &art::KID_SIDE, &art::KID_BACK], flash: &art::KID_FLASH, hurt: &art::KID_HURT } },
-            Kind::Big => KindStats { hp: 90.0, speed: 12.0, damage: 32.0, xp: 5, mass: 3.5, look: Look { walk: [&art::BIG_FRONT, &art::BIG_SIDE, &art::BIG_BACK], flash: &art::BIG_FLASH, hurt: &art::BIG_HURT } },
-        }
+    fn stats(self) -> &'static Enemy {
+        &roster().enemies[self.0 as usize]
     }
+
+    fn common() -> Self {
+        Kind(roster().common() as u8)
+    }
+
+    #[cfg(test)]
+    fn named(id: &str) -> Self {
+        Kind(roster().index(id).unwrap_or_else(|| panic!("no enemy {id}")) as u8)
+    }
+}
+
+/// The death sound of the zombie kind a `Sfx::Kill` names.
+pub fn kill_sound(kind: u8) -> &'static str {
+    roster().enemies.get(kind as usize).map_or("", |e| e.sound.as_str())
+}
+
+/// Every zombie kind's death sound.
+pub fn kill_sounds() -> impl Iterator<Item = &'static str> {
+    roster().enemies.iter().map(|e| e.sound.as_str())
 }
 
 struct Zombie {
@@ -366,12 +372,12 @@ fn art_for(h: &Harvest, look: &Look, facing: Facing) -> Art {
 /// The player's frame for a facing, and how far out of the ground it stands, 0 to 1. Once dead, it sinks
 /// and climbs back out as a zombie.
 fn player_pose(h: &Harvest, facing: Facing) -> (Art, f32) {
-    let Phase::Over { t, won: false } = h.phase else { return (art_for(h, &PLAYER, facing), 1.0) };
+    let Phase::Over { t, won: false } = h.phase else { return (art_for(h, &player_look(), facing), 1.0) };
     let i = facing.index();
     if t < TURN_RISE {
         (art::PLAYER_HURT[i], 1.0 - ((t - TURN_FALL) / (TURN_SINK - TURN_FALL)).clamp(0.0, 1.0))
     } else {
-        let walk = Kind::Skinny.stats().look.walk[i];
+        let walk = Kind::common().stats().look.walk[i];
         (walk[(t * WALK_FPS * 0.6) as usize % walk.len()], ((t - TURN_RISE) / (TURNED - TURN_RISE)).min(1.0))
     }
 }
@@ -678,7 +684,8 @@ impl Harvest {
             let a = i as f32 * 2.399;
             let r = 14.0 + (i as f32).sqrt() * 9.0;
             let pos = [h.pos[0] + a.cos() * r, h.pos[1] + a.sin() * r];
-            let mut z = Zombie::new([Kind::Skinny, Kind::Kid, Kind::Big][i % 3], pos, 10.0, 1.0, i as f32 * 0.1);
+            let kinds = roster().enemies.len();
+            let mut z = Zombie::new(Kind((kinds - 1 - i % kinds) as u8), pos, 10.0, 1.0, i as f32 * 0.1);
             z.dir = norm(sub(h.pos, pos));
             h.zombies.push(z);
         }
@@ -899,7 +906,7 @@ impl Harvest {
             // The quiet farm takes one zombie at a time, for trying out weapons and effects.
             let pos = [self.pos[0] + f[0] * 50.0, self.pos[1] + f[1] * 50.0];
             if !self.map.hits(pos[0], pos[1], ZOMBIE_HALF) {
-                self.tells.push(Tell { kind: Kind::Skinny, pos, hp: Kind::Skinny.stats().hp, t: 0.0, leader: false });
+                self.tells.push(Tell { kind: Kind::common(), pos, hp: Kind::common().stats().hp, t: 0.0, leader: false });
             }
         }
         self.rise(dt, sounds);
@@ -975,7 +982,7 @@ impl Harvest {
                 break;
             }
         }
-        let mut z = Zombie::new(Kind::Big, at, HARVESTER_HP, 0.0, 0.0);
+        let mut z = Zombie::new(Kind(roster().harvester as u8), at, HARVESTER_HP, 0.0, 0.0);
         z.boss = true;
         z.id = self.next_id;
         self.next_id += 1;
@@ -1196,13 +1203,7 @@ impl Harvest {
             self.owed -= 1.0;
             let roll = self.rng.range(0.0, 1.0);
             let leader = std::mem::take(&mut self.leader_owed);
-            let kind = if leader || (minutes > 2.0 && roll < 0.06 + minutes * 0.01) {
-                Kind::Big
-            } else if minutes > 1.0 && roll < 0.35 {
-                Kind::Kid
-            } else {
-                Kind::Skinny
-            };
+            let kind = Kind(if leader { roster().leader } else { roster().pick(minutes, roll) } as u8);
             for _ in 0..8 {
                 let a = self.rng.range(0.0, TAU);
                 let [near, far] = spawn_ring(self.t);
@@ -1492,7 +1493,7 @@ impl Harvest {
             self.kills += 1;
             self.kill_bump = 0.0;
             died = Some(match died {
-                Some(Kind::Big) => Kind::Big,
+                Some(k) if k.stats().heavy => k,
                 _ => z.kind,
             });
             let s = z.kind.stats();
@@ -1503,14 +1504,10 @@ impl Harvest {
             let (vel, vz) = if z.fling > 0.0 { ([fall[0] * z.fling, fall[1] * z.fling], z.fling * 0.9) } else { ([fall[0] * 25.0, fall[1] * 25.0], 0.0) };
             let flip = self.juice.rng.below(2) == 0;
             self.juice.corpse(Corpse { art: s.look.hurt[Facing::Front.index()], flip, pos: z.pos, z: 0.0, vel, vz, fall, age: 0.0, spin: 0.0 });
-            let gibs = match z.kind {
-                Kind::Kid => 14,
-                Kind::Skinny => 9,
-                Kind::Big => 20,
-            };
+            let gibs = s.gibs as usize;
             self.juice.burst(z.pos, 8.0, gibs, fall, 1.2, [30.0, 110.0], juice::BLOOD, 1.6, 0.6, 0.0);
             self.juice.burst(z.pos, 8.0, gibs / 3, fall, 0.8, [20.0, 60.0], juice::DARK_BLOOD, 2.4, 0.8, 0.0);
-            if z.kind == Kind::Big {
+            if s.heavy {
                 self.juice.stop(0.06);
                 self.juice.shake(0.2);
             }
@@ -1527,8 +1524,8 @@ impl Harvest {
             self.drops.push(Drop { kind, pos: z.pos, z: 4.0, vz, vel: [a.cos() * speed, a.sin() * speed], age: 0.0, pulled: None });
         }
         if let Some(kind) = died {
-            if self.hush[1] <= 0.0 || kind == Kind::Big {
-                sounds.push(Sfx::Kill(kind as u8));
+            if self.hush[1] <= 0.0 || kind.stats().heavy {
+                sounds.push(Sfx::Kill(kind.0));
                 self.hush[1] = 0.05;
             }
             flow.rumble = flow.rumble.max(Some(Rumble::Tick));
@@ -1812,7 +1809,7 @@ fn strike(z: &mut Zombie, juice: &mut Juice, damage: f32, dir: [f32; 2], force: 
     let k = force / z.kind.stats().mass / if z.boss { 6.0 } else { 1.0 };
     z.push = [dir[0] * k, dir[1] * k];
     juice.popup(z.pos, dealt, if crit { Tone::Crit } else { Tone::Hit });
-    if z.kind == Kind::Big && !z.boss && (crit || force > 100.0) {
+    if z.kind.stats().heavy && !z.boss && (crit || force > 100.0) {
         z.stagger = STAGGER_TIME;
     }
     juice.burst(z.pos, 8.0, if crit { 6 } else { 3 }, dir, 0.6, [30.0, 90.0], juice::BLOOD, 1.4, 0.4, 0.0);
@@ -1956,7 +1953,7 @@ mod tests {
         let mut h = Harvest::calm(12);
         let cam = h.camera();
         let target = [h.pos[0] + 60.0, h.pos[1]];
-        h.zombies.push(Zombie::new(Kind::Skinny, target, 20.0, 1.0, 0.0));
+        h.zombies.push(Zombie::new(Kind::named("skinny"), target, 20.0, 1.0, 0.0));
         let touch = [(target[0] - cam[0]) * SCALE, (target[1] - cam[1]) * SCALE];
         let mut sounds = Vec::new();
         h.update(&Input { touch: Some(touch), touch_started: true, ..Default::default() }, 0.016, &mut sounds);
@@ -1984,7 +1981,7 @@ mod tests {
         let mut h = Harvest::new(6);
         let barrel = h.barrels.first().expect("seed 6 has barrels");
         let c = barrel.center();
-        h.zombies.push(Zombie::new(Kind::Big, [c[0] + 20.0, c[1]], 50.0, 1.0, 0.0));
+        h.zombies.push(Zombie::new(Kind::named("big"), [c[0] + 20.0, c[1]], 50.0, 1.0, 0.0));
         let mut sounds = Vec::new();
         h.bullets.push(Bullet { pos: [c[0], c[1] - 6.0], vel: [1.0, 0.0], damage: 50.0, pierce: 0, life: 1.0, force: 30.0, hit: Vec::new() });
         h.move_bullets(0.016, &mut sounds);
@@ -2004,7 +2001,7 @@ mod tests {
     fn a_rising_zombie_is_rooted_and_harmless_until_it_is_out() {
         let mut h = Harvest::calm(3);
         let at = [h.pos[0] + 4.0, h.pos[1]];
-        h.zombies.push(Zombie::new(Kind::Skinny, at, 1000.0, 0.0, 0.0));
+        h.zombies.push(Zombie::new(Kind::named("skinny"), at, 1000.0, 0.0, 0.0));
         let mut sounds = Vec::new();
         h.update(&Input::default(), RISE_TIME * 0.5, &mut sounds);
         assert_eq!(h.zombies[0].pos, at);
@@ -2024,7 +2021,7 @@ mod tests {
         h.pos = spot;
         h.view_yaw = 0.0;
         h.aim = [1.0, 0.0];
-        h.zombies.push(Zombie::new(Kind::Skinny, [spot[0] - 30.0, spot[1]], 50.0, 1.0, 0.0));
+        h.zombies.push(Zombie::new(Kind::named("skinny"), [spot[0] - 30.0, spot[1]], 50.0, 1.0, 0.0));
         h.hp = 0.0;
         h.phase = Phase::Over { t: TURNED, won: false };
         for _ in 0..180 {
@@ -2072,7 +2069,7 @@ mod tests {
     fn harder_difficulties_hit_harder_and_drop_less_health() {
         let bite = |d: Difficulty| {
             let mut h = Harvest::calm(3).at(d);
-            h.zombies.push(Zombie::new(Kind::Skinny, [h.pos[0] + 3.0, h.pos[1]], 1000.0, 1.0, 0.0));
+            h.zombies.push(Zombie::new(Kind::named("skinny"), [h.pos[0] + 3.0, h.pos[1]], 1000.0, 1.0, 0.0));
             h.update(&Input::default(), 1.0 / 60.0, &mut Vec::new());
             h.kit.max_hp() - h.hp
         };
@@ -2086,7 +2083,7 @@ mod tests {
         let mut h = Harvest::calm(3);
         h.kit.raise(book().index("pistol").unwrap(), 1);
         let at = [-30.0, 30.0, 0.0].into_iter().flat_map(|dx| [-30.0, 30.0].map(|dy| [h.pos[0] + dx, h.pos[1] + dy])).find(|p| !h.map.hits(p[0], p[1], ZOMBIE_HALF)).unwrap();
-        h.zombies.push(Zombie::new(Kind::Skinny, at, 5.0, 1.0, 0.0));
+        h.zombies.push(Zombie::new(Kind::named("skinny"), at, 5.0, 1.0, 0.0));
         let mut sounds = Vec::new();
         for _ in 0..90 {
             h.update(&Input::default(), 1.0 / 60.0, &mut sounds);
@@ -2097,7 +2094,7 @@ mod tests {
         let d = h.drops.first().map(|d| d.age).unwrap_or(0.0);
         assert!(h.drops.is_empty() || d > 0.0);
         let mut h = Harvest::calm(3);
-        h.zombies.push(Zombie::new(Kind::Skinny, at, 5.0, 1.0, 0.0));
+        h.zombies.push(Zombie::new(Kind::named("skinny"), at, 5.0, 1.0, 0.0));
         h.zombies[0].hp = 0.0;
         h.reap(&mut sounds, &mut Flow::default());
         assert!(h.drops[0].vz > 0.0, "money hops out of the body");
@@ -2106,8 +2103,8 @@ mod tests {
     #[test]
     fn a_hit_shows_a_number_and_shoves_light_zombies_further() {
         let mut j = Juice::new(1);
-        let mut kid = Zombie::new(Kind::Kid, [0.0; 2], 100.0, 1.0, 0.0);
-        let mut big = Zombie::new(Kind::Big, [0.0; 2], 100.0, 1.0, 0.0);
+        let mut kid = Zombie::new(Kind::named("kid"), [0.0; 2], 100.0, 1.0, 0.0);
+        let mut big = Zombie::new(Kind::named("big"), [0.0; 2], 100.0, 1.0, 0.0);
         strike(&mut kid, &mut j, 10.0, [1.0, 0.0], 30.0, CRIT_CHANCE);
         strike(&mut big, &mut j, 10.0, [1.0, 0.0], 30.0, CRIT_CHANCE);
         assert_eq!(j.popups.len(), 2);
@@ -2159,7 +2156,7 @@ mod tests {
     #[test]
     fn getting_hit_freezes_the_world_for_a_moment() {
         let mut h = Harvest::calm(3);
-        h.zombies.push(Zombie::new(Kind::Skinny, [h.pos[0] + 3.0, h.pos[1]], 1000.0, 1.0, 0.0));
+        h.zombies.push(Zombie::new(Kind::named("skinny"), [h.pos[0] + 3.0, h.pos[1]], 1000.0, 1.0, 0.0));
         let mut sounds = Vec::new();
         h.update(&Input::default(), 1.0 / 60.0, &mut sounds);
         assert!(h.hp < h.kit.max_hp() && h.juice.frozen());
@@ -2199,7 +2196,7 @@ mod tests {
         h.t = 90.0;
         h.spawn(0.02);
         let leader = h.tells.iter().find(|t| t.leader).expect("the horde has a leader");
-        assert!(leader.kind == Kind::Big && h.tells.iter().filter(|t| t.leader).count() == 1);
+        assert!(leader.kind == Kind::named("big") && h.tells.iter().filter(|t| t.leader).count() == 1);
         h.drops.push(Drop { kind: DropKind::Chest, pos: h.pos, z: 0.0, vz: 0.0, vel: [0.0; 2], age: 0.0, pulled: None });
         h.collect(0.016, &mut Vec::new());
         for _ in 0..200 {
@@ -2239,7 +2236,7 @@ mod tests {
     fn past_dawn_the_dead_grow_one_percent_a_second() {
         let mut h = before_dawn();
         h.update(&Input::default(), 0.02, &mut Vec::new());
-        h.zombies.push(Zombie::new(Kind::Skinny, [h.pos[0] + 200.0, h.pos[1]], 100.0, 1.0, 0.0));
+        h.zombies.push(Zombie::new(Kind::named("skinny"), [h.pos[0] + 200.0, h.pos[1]], 100.0, 1.0, 0.0));
         for _ in 0..10 {
             h.grow_fury(1.0);
         }
@@ -2278,7 +2275,7 @@ mod tests {
     #[test]
     fn a_blast_staggers_a_big_zombie_in_place() {
         let mut j = Juice::new(1);
-        let mut big = Zombie::new(Kind::Big, [0.0; 2], 500.0, 1.0, 0.0);
+        let mut big = Zombie::new(Kind::named("big"), [0.0; 2], 500.0, 1.0, 0.0);
         strike(&mut big, &mut j, 10.0, [1.0, 0.0], 30.0, CRIT_CHANCE);
         let stagger = big.stagger;
         strike(&mut big, &mut j, 10.0, [1.0, 0.0], 120.0, CRIT_CHANCE);
