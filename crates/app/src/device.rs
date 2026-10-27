@@ -20,8 +20,8 @@ const JACK_POLL: std::time::Duration = std::time::Duration::from_millis(250);
 const SPEAKER_SINK: &str = "alsa_output.1.stereo-fallback";
 const HEADPHONE_SINK: &str = "alsa_output.0.HiFi__Speaker__sink";
 const WAKE_ALARM: &str = "/sys/class/rtc/rtc0/wakealarm";
-/// Top screen first.
-const BACKLIGHTS: [&str; 2] = ["/sys/class/backlight/backlight", "/sys/class/backlight/backlight1"];
+/// Top screen first: `backlight1` lights the top panel and `backlight` the bottom one.
+const BACKLIGHTS: [&str; 2] = ["/sys/class/backlight/backlight1", "/sys/class/backlight/backlight"];
 const BACKLIGHT_MIN: f32 = 8.0;
 const WORK_LED: &str = "/sys/class/anbernic_misc/work_led";
 const LOW_LED: &str = "/sys/class/anbernic_misc/lowpwr_led";
