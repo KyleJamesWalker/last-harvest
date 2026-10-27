@@ -11,8 +11,6 @@ on:
 
 permissions:
   contents: write
-  pages: write
-  id-token: write
 
 jobs:
   device:
@@ -69,6 +67,10 @@ jobs:
   # The public card editor, built without the tileset, on GitHub Pages.
   mod-editor:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
     env:
       TAG: ${{ github.event.release.tag_name || inputs.tag }}
     environment:
