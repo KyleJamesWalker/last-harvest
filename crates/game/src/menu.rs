@@ -1,6 +1,6 @@
 //! The title's bottom-screen menu and its pages; Settings also opens over a paused run.
 
-use crate::draw::{Align, Canvas, Frame};
+use crate::draw::{Align, Canvas, Color, Frame};
 use crate::harvest::{self, roster};
 use crate::input::{Buttons, Input};
 use crate::save::LEVELS;
@@ -316,7 +316,7 @@ impl Game {
                     let arrow = if looks.len() > 1 { HOT } else { [1.0, 1.0, 1.0, 0.15] };
                     c.label("<", LESS_X, mid - 24.0, 44.0, arrow, Align::Center);
                     c.label(">", MORE_X, mid - 24.0, 44.0, arrow, Align::Center);
-                    c.label(name.to_string(), (LESS_X + MORE_X) / 2.0, mid - 20.0, 38.0, if on { HOT } else { WHITE }, Align::Center);
+                    fit_label(c, name, (LESS_X + MORE_X) / 2.0, mid - 20.0, 38.0, MORE_X - LESS_X - 80.0, if on { HOT } else { WHITE }, Align::Center);
                     continue;
                 }
                 Setting::Enemies => {
@@ -357,7 +357,8 @@ impl Game {
             let icon = e.look.walk[0][0];
             let scale = (h - 16.0) / icon.h();
             c.art(icon, x + 20.0, y + 8.0, scale, false, if on { WHITE } else { [1.0, 1.0, 1.0, 0.3] });
-            c.label(e.name.as_str(), x + 40.0 + icon.w() * scale, y + h / 2.0 - 20.0, 38.0, if sel { HOT } else if on { WHITE } else { DIM }, Align::Left);
+            let left = x + 40.0 + icon.w() * scale;
+            fit_label(c, &e.name, left, y + h / 2.0 - 20.0, 38.0, (LESS_X + MORE_X) / 2.0 - 60.0 - left, if sel { HOT } else if on { WHITE } else { DIM }, Align::Left);
             c.label(if on { "On" } else { "Off" }, (LESS_X + MORE_X) / 2.0, y + h / 2.0 - 20.0, 38.0, if on { HOT } else { DIM }, Align::Center);
             if e.from_card {
                 c.label("Card", x + w - 24.0, y + h / 2.0 - 14.0, 26.0, DIM, Align::Right);
@@ -376,13 +377,13 @@ impl Game {
         let frame = walk[(self.clock * 8.0) as usize % walk.len()];
         let scale = 300.0 / frame.h().max(frame.w());
         c.art(frame, SCREEN_W / 2.0 - frame.w() * scale / 2.0, 600.0 - frame.h() * scale, scale, flip, WHITE);
-        c.label(p.name.as_str(), SCREEN_W / 2.0, 60.0, 64.0, HOT, Align::Center);
+        fit_label(c, &p.name, SCREEN_W / 2.0, 60.0, 64.0, SCREEN_W - 80.0, HOT, Align::Center);
         let note = if looks.len() > 1 { format!("{} of {}: Left and Right to change", looks.iter().position(|l| l.id == p.id).unwrap_or(0) + 1, looks.len()) } else { "Add a .player.png to data/players for more".to_string() };
         c.label(note, SCREEN_W / 2.0, 150.0, 28.0, DIM, Align::Center);
         let d = self.save.difficulty;
         let start = p.start_names(d);
         let kit = if start.is_empty() { "no weapons".to_string() } else { start.join(", ") };
-        c.label(format!("{} starts with {kit}", d.name()), SCREEN_W / 2.0, 196.0, 28.0, WHITE, Align::Center);
+        fit_label(c, &format!("{} starts with {kit}", d.name()), SCREEN_W / 2.0, 196.0, 28.0, SCREEN_W - 80.0, WHITE, Align::Center);
     }
 
     /// How a night's spawns split between the kinds left on, dusk to dawn across the foot of the top screen, with the
@@ -426,7 +427,7 @@ impl Game {
             c.label("OFF", 280.0, 400.0, 64.0, [1.0, 0.45, 0.4, 1.0], Align::Center);
         }
         self.draw_spawn_mix(c);
-        c.label(e.name.as_str(), 560.0, 60.0, 64.0, HOT, Align::Left);
+        fit_label(c, &e.name, 560.0, 60.0, 64.0, SCREEN_W - 560.0 - 24.0, HOT, Align::Left);
         let minutes = |m: f32| if m == 1.0 { "1 minute".to_string() } else { format!("{m} minutes") };
         let arrives = match (e.chance >= 1.0 && e.per_minute == 0.0, e.after > 0.0) {
             (true, false) => "Whenever no other kind does".to_string(),
@@ -499,6 +500,18 @@ fn draw_credits(c: &mut Canvas) {
         c.label(*name, SCREEN_W / 2.0, y + 40.0, 46.0, WHITE, Align::Center);
     }
     back_button(c);
+}
+
+/// Draws `text` within `room` pixels: smaller, down to two thirds of `size`, then cut short, keeping its middle where
+/// a label of `size` at `y` would have it. Widths are estimated, since a label isn't measured until it's drawn.
+#[allow(clippy::too_many_arguments)]
+fn fit_label(c: &mut Canvas, text: &str, x: f32, y: f32, size: f32, room: f32, color: Color, align: Align) {
+    const EM: f32 = 0.56;
+    let n = text.chars().count();
+    let fits = size.min(room / (n.max(1) as f32 * EM)).max(size * 2.0 / 3.0);
+    let max = (room / (fits * EM)) as usize;
+    let text = if n <= max { text.to_string() } else { text.chars().take(max.saturating_sub(3)).collect::<String>().trim_end().to_string() + "..." };
+    c.label(text, x, y + (size - fits) / 2.0, fits, color, align);
 }
 
 fn back_button(c: &mut Canvas) {
