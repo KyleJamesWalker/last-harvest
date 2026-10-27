@@ -33,7 +33,7 @@ jobs:
           GIT_SSH_COMMAND="ssh -i ~/.ssh/assets -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new" \
             git submodule update --init --depth 1 assets/private
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.94.0
       - uses: Swatinem/rust-cache@v2
       - uses: mlugg/setup-zig@v2
         with:
@@ -94,7 +94,7 @@ jobs:
           GIT_SSH_COMMAND="ssh -i ~/.ssh/assets -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new" \
             git submodule update --init --depth 1 assets/private
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.94.0
         with:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
