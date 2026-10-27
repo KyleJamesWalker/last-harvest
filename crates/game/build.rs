@@ -243,6 +243,10 @@ fn saved(dir: &Path) -> Vec<Image> {
     }
 }
 
+fn fnv1a(bytes: impl Iterator<Item = u8>) -> u64 {
+    bytes.fold(0xcbf2_9ce4_8422_2325, |h, b| (h ^ b as u64).wrapping_mul(0x0100_0000_01b3))
+}
+
 fn main() {
     let manifest = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
     let out = PathBuf::from(std::env::var("OUT_DIR").unwrap());
@@ -338,6 +342,8 @@ fn main() {
     let mut src = String::new();
     writeln!(src, "pub const ATLAS_W: u32 = {ATLAS_W};\npub const ATLAS_H: u32 = {atlas_h};").unwrap();
     writeln!(src, "pub static PIXELS: &[u8] = include_bytes!(concat!(env!(\"OUT_DIR\"), \"/art.rgba\"));").unwrap();
+    let hash = fnv1a(rects.iter().flatten().flat_map(|v| v.to_le_bytes()).chain(atlas.rgba.iter().copied()));
+    writeln!(src, "/// Fingerprint of the packed texture and its rects; a data pack's atlas must carry the same one.\npub const ART_HASH: u64 = {hash:#018x};").unwrap();
     writeln!(src, "pub(crate) const RECTS: [[u16; 4]; {}] = [", rects.len()).unwrap();
     for r in &rects {
         writeln!(src, "    [{}, {}, {}, {}],", r[0], r[1], r[2], r[3]).unwrap();

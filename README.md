@@ -106,6 +106,12 @@ Install into the stock menu as Ports > LastHarvest:
 scripts/install.sh
 ```
 
+Build the data pack, `target/game_data.pak`: a ZIP holding the sprite atlas, sounds, font and powerup table, with a `manifest.toml` that names the atlas it was built from. The game does not read it yet.
+
+```sh
+cargo run -p last-harvest-pack
+```
+
 Run the tests:
 
 ```sh
@@ -257,6 +263,7 @@ Measured on the device with the debug perf log, 4x MSAA, both screens at 1024x76
 | `crates/render` | OpenGL renderer for shapes, pixel art, TrueType text and the lit, fogged 3D cards: GL 3.3 on macOS, GLES 3.0 on the device. |
 | `crates/app` | Windows, input, audio, saves, crash log, debug mode, and the device-only sysfs and evdev code. |
 | `crates/editor` | The sprite editor, built on the game's renderer and views: a macOS window, or a web page in `crates/editor/web`. |
+| `crates/pack` | Builds `game_data.pak` from the built atlas and the files in `assets`. |
 | `crates/sprite-server` | Serves the web editor on the local network, with the sprites folder and its git history. |
 | `scripts` | Cross-compile, sysroot, deploy, install and debug scripts, and the on-device run script. |
 | `assets` | The font and its license, and the Ports launcher with its cover art. |
