@@ -114,6 +114,8 @@ pub fn load() -> Result<Files, String> {
     if let Some(dir) = players_folder() {
         data.players.extend(read_cards(player, samples::read_files(&dir, &[player.extension()]), &mut problems));
     }
+    keep_last_of_each_name(&mut data.cards);
+    keep_last_of_each_name(&mut data.players);
     let cards: Vec<String> = data.cards.iter().chain(&data.players).map(|c| c.name.clone()).collect();
     let left_out = data::install(data)?;
     if !cards.is_empty() {
@@ -138,6 +140,14 @@ pub fn load() -> Result<Files, String> {
     Ok(sounds)
 }
 
+/// Drops each card that a later one of the same file name replaces, so a loose card stands in for a pack's.
+fn keep_last_of_each_name(cards: &mut Vec<Card>) {
+    let mut seen = std::collections::HashSet::new();
+    cards.reverse();
+    cards.retain(|c| seen.insert(c.name.clone()));
+    cards.reverse();
+}
+
 /// `base` with each of `top`'s files in place of the one of the same name.
 fn overlay_sounds(base: Files, top: Files) -> Files {
     let mut out: Files = base.into_iter().filter(|(n, _)| !top.iter().any(|(t, _)| t == n)).collect();
@@ -159,6 +169,14 @@ mod tests {
         assert_eq!(cards.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["ghoul.enemy.png"]);
         assert_eq!(problems.len(), 1);
         assert!(problems[0].starts_with("bad.enemy.png: "), "{problems:?}");
+    }
+
+    #[test]
+    fn a_loose_card_stands_in_for_a_packs_of_the_same_name() {
+        let card = |name: &str, text: &str| Card { name: name.into(), text: text.into(), frame: [1, 1], sheet: vec![] };
+        let mut cards = vec![card("ghoul.enemy.png", "pack"), card("bat.enemy.png", "pack"), card("ghoul.enemy.png", "loose")];
+        keep_last_of_each_name(&mut cards);
+        assert_eq!(cards.iter().map(|c| (c.name.as_str(), c.text.as_str())).collect::<Vec<_>>(), [("bat.enemy.png", "pack"), ("ghoul.enemy.png", "loose")]);
     }
 
     #[test]
