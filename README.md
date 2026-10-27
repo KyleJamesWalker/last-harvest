@@ -112,6 +112,8 @@ Build the data pack, `target/game_data.pak`: a ZIP holding the sprite atlas, sou
 cargo run -p last-harvest-pack
 ```
 
+Publishing a GitHub release, such as with `gh release create v0.2.0 --generate-notes`, runs `.github/workflows/release.yml`. It attaches the device build as a Ports-layout tarball and `game_data.pak` as a separate file; extract the tarball into the SD card's `Ports` folder and put the pack in `Ports/last-harvest/`. The workflow reads the private assets with a read-only deploy key on that repository, stored as the `ASSETS_DEPLOY_KEY` secret.
+
 Run the tests:
 
 ```sh
