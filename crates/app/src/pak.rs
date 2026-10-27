@@ -151,6 +151,17 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_card_that_wont_read_is_noted_and_the_rest_load() {
+        let good = card::write("[ghoul]\nname Ghoul", 3, 5, &[0; 3 * 5 * 4]).unwrap();
+        let files = vec![("bad.enemy.png".to_string(), b"nope".to_vec()), ("ghoul.enemy.png".to_string(), good), ("notes.txt".to_string(), vec![])];
+        let mut problems = Vec::new();
+        let cards = read_cards(card::Kind::Enemy, files, &mut problems);
+        assert_eq!(cards.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["ghoul.enemy.png"]);
+        assert_eq!(problems.len(), 1);
+        assert!(problems[0].starts_with("bad.enemy.png: "), "{problems:?}");
+    }
+
+    #[test]
     fn a_mods_sounds_replace_the_folders_by_name() {
         let base = vec![("shot.ogg".to_string(), b"a".to_vec()), ("boom.ogg".to_string(), b"b".to_vec())];
         let top = vec![("shot.ogg".to_string(), b"mod".to_vec()), ("kill-ghoul.ogg".to_string(), b"new".to_vec())];
