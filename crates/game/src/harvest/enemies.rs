@@ -37,20 +37,37 @@ pub struct Roster {
 }
 
 impl Roster {
-    #[cfg(test)]
     pub fn index(&self, id: &str) -> Option<usize> {
         self.enemies.iter().position(|e| e.id == id)
     }
 
-    /// The kind that arrives `minutes` into the night for a roll from 0 to 1: the first whose chance is above it.
-    pub fn pick(&self, minutes: f32, roll: f32) -> usize {
-        self.enemies.iter().position(|e| e.arrives(minutes, roll)).unwrap_or(self.common())
+    /// The kind that arrives `minutes` into the night for a roll from 0 to 1: the first whose chance is above it,
+    /// skipping kinds in the `off` mask, else the last kind left on. With every kind off, none are skipped.
+    pub fn pick(&self, minutes: f32, roll: f32, off: u64) -> usize {
+        let off = if self.all_off(off) { 0 } else { off };
+        let on = |i: &usize| off & 1 << i == 0;
+        let all = 0..self.enemies.len();
+        all.clone().filter(on).find(|&i| self.enemies[i].arrives(minutes, roll)).or_else(|| all.rev().find(on)).unwrap_or(self.common())
+    }
+
+    pub fn all_off(&self, off: u64) -> bool {
+        (0..self.enemies.len()).all(|i| off & 1 << i != 0)
     }
 
     /// The last kind, which the list ends on for every roll the others miss.
     pub fn common(&self) -> usize {
         self.enemies.len() - 1
     }
+}
+
+/// The kinds a save turns off, read from comma-separated ids as a mask by place in the roster.
+pub fn off_from_ids(text: &str) -> u64 {
+    text.split(',').filter_map(|id| roster().index(id.trim())).fold(0, |m, i| m | 1 << i)
+}
+
+pub fn off_ids(off: u64) -> String {
+    let r = roster();
+    (0..r.enemies.len()).filter(|i| off & 1 << i != 0).map(|i| r.enemies[i].id.as_str()).collect::<Vec<_>>().join(",")
 }
 
 /// The zombies in the shipped file.
@@ -126,8 +143,8 @@ pub fn parse(text: &str) -> Result<Roster, String> {
             _ => return Err(format!("{n}: [{}] has no setting {key:?}", e.id)),
         }
     }
-    if enemies.is_empty() {
-        return Err(" no enemies".into());
+    if enemies.is_empty() || enemies.len() > 64 {
+        return Err(format!(" {} enemies, but there can be 1 to 64", enemies.len()));
     }
     for (e, at) in enemies.iter_mut().zip(looks) {
         let (n, prefix) = at.ok_or_else(|| format!(" [{}] has no look", e.id))?;
@@ -154,12 +171,24 @@ mod tests {
     #[test]
     fn spawn_rolls_match_the_old_odds() {
         let r = roster();
-        let id = |minutes: f32, roll: f32| r.enemies[r.pick(minutes, roll)].id.as_str();
+        let id = |minutes: f32, roll: f32| r.enemies[r.pick(minutes, roll, 0)].id.as_str();
         assert_eq!(id(0.5, 0.0), "skinny", "nothing but skinnies in the first minute");
         assert_eq!(id(1.5, 0.0), "kid");
         assert_eq!(id(1.5, 0.35), "skinny");
         assert_eq!(id(5.0, 0.10), "big", "bigs take rolls under 0.06 plus 0.01 a minute after two minutes");
         assert_eq!(id(5.0, 0.11), "kid");
+    }
+
+    #[test]
+    fn kinds_turned_off_never_arrive() {
+        let r = roster();
+        let bit = |id: &str| 1u64 << r.index(id).unwrap();
+        let id = |off: u64, roll: f32| r.enemies[r.pick(5.0, roll, off)].id.as_str();
+        assert_eq!(id(bit("big"), 0.0), "kid", "the roll a big would take goes to the next kind");
+        assert_eq!(id(bit("skinny"), 0.9), "kid", "a roll every chance misses goes to the last kind left on");
+        assert_eq!(id(bit("big") | bit("kid") | bit("skinny"), 0.9), "skinny", "with every kind off, none are skipped");
+        assert_eq!(off_from_ids("kid, nope,big"), bit("kid") | bit("big"));
+        assert_eq!(off_ids(bit("kid") | bit("big")), "big,kid");
     }
 
     #[test]

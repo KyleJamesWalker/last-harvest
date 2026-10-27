@@ -15,7 +15,8 @@ use std::f32::consts::{PI, TAU};
 use crate::art::{self, Art};
 use crate::rng::Rng;
 use crate::{Buttons, Color, Difficulty, Input, SCREEN_H, SCREEN_W, Sfx};
-use enemies::{Enemy, roster};
+use enemies::Enemy;
+pub(crate) use enemies::{off_from_ids, off_ids, roster};
 use juice::{Corpse, Juice, Particle, Tone};
 use map::{Map, TILE};
 pub use powerups::{Progress, Run, found_from_ids, found_ids};
@@ -465,6 +466,8 @@ pub struct Harvest {
     revived: u32,
     /// What earlier runs unlocked, what this one found, and how many more it made findable.
     progress: Progress,
+    /// Zombie kinds the settings turned off, by place in the roster.
+    enemies_off: u64,
     newly: Vec<usize>,
     ready: usize,
     found_now: u64,
@@ -589,6 +592,7 @@ impl Harvest {
             xp_frac: 0.0,
             revived: 0,
             progress: Progress::default(),
+            enemies_off: 0,
             newly: Vec::new(),
             ready: 0,
             found_now: 0,
@@ -712,6 +716,15 @@ impl Harvest {
     /// Offers only what earlier runs have unlocked.
     pub fn with_progress(self, progress: Progress) -> Self {
         Self { progress, ..self }
+    }
+
+    pub fn without_enemies(self, off: u64) -> Self {
+        Self { enemies_off: off, ..self }
+    }
+
+    #[cfg(test)]
+    pub fn enemies_off(&self) -> u64 {
+        self.enemies_off
     }
 
     /// Starts carrying powerups named `id` or `id:level`, comma separated; unknown names are skipped.
@@ -1203,7 +1216,8 @@ impl Harvest {
             self.owed -= 1.0;
             let roll = self.rng.range(0.0, 1.0);
             let leader = std::mem::take(&mut self.leader_owed);
-            let kind = Kind(if leader { roster().leader } else { roster().pick(minutes, roll) } as u8);
+            let r = roster();
+            let kind = Kind(if leader && self.enemies_off & 1 << r.leader == 0 { r.leader } else { r.pick(minutes, roll, self.enemies_off) } as u8);
             for _ in 0..8 {
                 let a = self.rng.range(0.0, TAU);
                 let [near, far] = spawn_ring(self.t);

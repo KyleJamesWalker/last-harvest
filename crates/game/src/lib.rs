@@ -104,6 +104,8 @@ pub struct Game {
     /// The highlighted row on the title's main page and on the settings page.
     row: usize,
     setting: usize,
+    /// The highlighted kind on the Enemies page.
+    enemy: usize,
     /// Settings is open over a paused run, rather than from the title.
     settings_in_run: bool,
     /// R1 asked for a screenshot, which the app takes after the next draw.
@@ -136,6 +138,7 @@ impl Game {
             page: Page::Main,
             row: 0,
             setting: 0,
+            enemy: 0,
             settings_in_run: false,
             shot: false,
             shot_flash: 0.0,
@@ -200,7 +203,7 @@ impl Game {
             }
             Scene::Harvest => {
                 self.sounds.push(Sfx::Start);
-                State::Harvest(Box::new(harvest::Harvest::new(seed).at(self.save.difficulty).with_progress(self.progress()).with_kit(&self.kit).starting_at(self.start_t)))
+                State::Harvest(Box::new(harvest::Harvest::new(seed).at(self.save.difficulty).with_progress(self.progress()).without_enemies(self.save.enemies_off).with_kit(&self.kit).starting_at(self.start_t)))
             }
             Scene::Farm => State::Harvest(Box::new(harvest::Harvest::calm(seed))),
             Scene::Bench => State::Harvest(Box::new(harvest::Harvest::bench())),
@@ -375,6 +378,11 @@ impl Game {
     fn draw_title(&self, f: &mut Frame) {
         let t = self.clock;
         f.top.clear = [0.06, 0.07, 0.11, 1.0];
+        if self.page == Page::Enemies {
+            self.draw_enemy(&mut f.top);
+            self.draw_menu(f);
+            return;
+        }
         // A line of the dead shambling along the horizon, and fireflies drifting over the field.
         f.top.circle(840.0, 120.0, 90.0, [0.8, 0.8, 0.7, 0.06]);
         f.top.circle(840.0, 120.0, 48.0, [0.85, 0.85, 0.75, 1.0]);
@@ -509,7 +517,7 @@ mod tests {
         let mut game = Game::new(1);
         let kept = Save { volume: 2, difficulty: Difficulty::Hard, ..Save::default() };
         game.load(Save { kills: 900, best: 300, best_level: 9, nights: 4, dawns: 1, found: 0b110, ..kept });
-        settings_row(&mut game, 5);
+        settings_row(&mut game, 6);
         press(&mut game, Buttons::A);
         assert_eq!(game.save().kills, 900, "one press only asks");
         game.update(&Input::default(), RESET_CONFIRM + 0.1);
@@ -560,6 +568,32 @@ mod tests {
         press(&mut game, Buttons::B);
         assert_eq!(game.page, Page::Main);
         assert!(matches!(game.state, State::Harvest(_)));
+    }
+
+    #[test]
+    fn the_enemies_page_turns_kinds_off_but_never_the_last() {
+        let mut game = Game::new(1);
+        settings_row(&mut game, 5);
+        press(&mut game, Buttons::A);
+        assert_eq!(game.page, Page::Enemies);
+        game.draw();
+        press(&mut game, Buttons::A);
+        assert_eq!(game.save().enemies_off, 0b001);
+        press(&mut game, Buttons::DOWN);
+        press(&mut game, Buttons::RIGHT);
+        press(&mut game, Buttons::DOWN);
+        press(&mut game, Buttons::A);
+        assert_eq!(game.save().enemies_off, 0b011, "the last kind on stays on");
+        assert!(game.take_sounds().contains(&Sfx::Miss));
+        let off = Save::parse(&game.save().to_text()).enemies_off;
+        assert_eq!(off, 0b011, "and the save keeps them by id");
+        press(&mut game, Buttons::B);
+        assert_eq!(game.page, Page::Settings);
+        press(&mut game, Buttons::B);
+        press(&mut game, Buttons::UP);
+        press(&mut game, Buttons::A);
+        let State::Harvest(h) = &game.state else { panic!("a run starts") };
+        assert_eq!(h.enemies_off(), 0b011, "the run leaves them out");
     }
 
     #[test]

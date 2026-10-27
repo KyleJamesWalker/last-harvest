@@ -1,7 +1,7 @@
 //! The title's bottom-screen menu and its pages; Settings also opens over a paused run.
 
 use crate::draw::{Align, Canvas, Frame};
-use crate::harvest;
+use crate::harvest::{self, roster};
 use crate::input::{Buttons, Input};
 use crate::save::LEVELS;
 use crate::{DIM, Difficulty, Game, HOT, SCREEN_H, SCREEN_W, Sfx, WHITE};
@@ -11,6 +11,7 @@ pub(crate) enum Page {
     #[default]
     Main,
     Settings,
+    Enemies,
     Stats,
     Credits,
 }
@@ -24,11 +25,12 @@ pub(crate) enum Setting {
     Volume,
     Rumble,
     Fps,
+    Enemies,
     Reset,
 }
 
 impl Setting {
-    const ALL: [Setting; 6] = [Setting::TopBrightness, Setting::BottomBrightness, Setting::Volume, Setting::Rumble, Setting::Fps, Setting::Reset];
+    const ALL: [Setting; 7] = [Setting::TopBrightness, Setting::BottomBrightness, Setting::Volume, Setting::Rumble, Setting::Fps, Setting::Enemies, Setting::Reset];
 
     fn name(self) -> &'static str {
         match self {
@@ -37,6 +39,7 @@ impl Setting {
             Setting::Volume => "Volume",
             Setting::Rumble => "Rumble",
             Setting::Fps => "Show FPS",
+            Setting::Enemies => "Enemies",
             Setting::Reset => "Reset progress",
         }
     }
@@ -48,9 +51,11 @@ pub(crate) const DIFFICULTY_Y: f32 = 150.0;
 /// The Settings, Stats and Credits rows, below the difficulty box.
 const ROWS_TOP: f32 = 330.0;
 const ROW_H: f32 = 96.0;
-/// The settings rows; a run's settings leave out Reset.
-const SET_TOP: f32 = 100.0;
-const SET_H: f32 = 86.0;
+/// The settings rows; a run's settings leave out Enemies and Reset.
+const SET_TOP: f32 = 96.0;
+const SET_H: f32 = 78.0;
+/// Enemy rows that fit above the Back button; the list scrolls past that.
+const ENEMY_ROWS: usize = 6;
 /// The arrows either side of a level bar, as x centres.
 const LESS_X: f32 = 600.0;
 const MORE_X: f32 = 940.0;
@@ -96,6 +101,11 @@ impl Game {
             Page::Settings => {
                 if self.settings(input, tapped) {
                     self.page = Page::Main;
+                }
+            }
+            Page::Enemies => {
+                if self.enemies_page(input, tapped) {
+                    self.page = Page::Settings;
                 }
             }
             Page::Stats | Page::Credits if back => {
@@ -189,6 +199,12 @@ impl Game {
                 }
             }
             Setting::Fps if by != 0 || press => self.save.fps = !self.save.fps,
+            Setting::Enemies if by > 0 || press => {
+                self.page = Page::Enemies;
+                self.enemy = 0;
+                self.sounds.push(Sfx::Tick(9));
+                return false;
+            }
             Setting::Reset if press && self.reset_armed > 0.0 => {
                 self.save = self.save.without_progress();
                 self.reset_armed = 0.0;
@@ -203,11 +219,42 @@ impl Game {
         false
     }
 
+    /// Up and Down choose a kind, A, Left, Right or a tap turns it on or off; returns true once B leaves.
+    fn enemies_page(&mut self, input: &Input, tapped: Option<[f32; 2]>) -> bool {
+        let count = roster().enemies.len();
+        if input.pressed.any(Buttons::B | Buttons::START) || tapped.is_some_and(|p| inside(p, BACK)) {
+            self.sounds.push(Sfx::Tick(0));
+            return true;
+        }
+        let step = input.pressed.contains(Buttons::DOWN) as i32 - input.pressed.contains(Buttons::UP) as i32;
+        if step != 0 {
+            self.enemy = (self.enemy as i32 + step).rem_euclid(count as i32) as usize;
+            self.sounds.push(Sfx::Tick(self.enemy as u8 * 2));
+            return false;
+        }
+        let first = self.enemy.saturating_sub(ENEMY_ROWS - 1);
+        let toggle = match tapped {
+            Some(p) => (first..count.min(first + ENEMY_ROWS)).find(|&i| inside(p, setting_row(i - first))).inspect(|&i| self.enemy = i).is_some(),
+            None => input.pressed.any(Buttons::A | Buttons::LEFT | Buttons::RIGHT),
+        };
+        if toggle {
+            let flipped = self.save.enemies_off ^ 1 << self.enemy;
+            if roster().all_off(flipped) {
+                self.sounds.push(Sfx::Miss);
+            } else {
+                self.save.enemies_off = flipped;
+                self.sounds.push(Sfx::Tick(6));
+            }
+        }
+        false
+    }
+
     pub(crate) fn draw_menu(&self, f: &mut Frame) {
         let c = &mut f.bottom;
         match self.page {
             Page::Main => self.draw_main(c),
             Page::Settings => self.draw_settings(c),
+            Page::Enemies => self.draw_enemies(c),
             Page::Stats => self.draw_stats(c),
             Page::Credits => draw_credits(c),
         }
@@ -255,6 +302,12 @@ impl Game {
                     c.label(if v { "On" } else { "Off" }, (LESS_X + MORE_X) / 2.0, mid - 20.0, 38.0, if v { HOT } else { DIM }, Align::Center);
                     continue;
                 }
+                Setting::Enemies => {
+                    let r = roster();
+                    let on = (0..r.enemies.len()).filter(|i| self.save.enemies_off & 1 << i == 0).count();
+                    c.label(format!("{on} of {} on   >", r.enemies.len()), x + w - 30.0, mid - 20.0, 38.0, if on < r.enemies.len() { HOT } else { DIM }, Align::Right);
+                    continue;
+                }
                 Setting::Reset => {
                     let hint = if armed { "Clears records, kills and found powerups" } else { "Settings stay" };
                     c.label(hint, x + w - 30.0, mid - 14.0, 24.0, if armed { red } else { DIM }, Align::Right);
@@ -272,6 +325,69 @@ impl Game {
             }
         }
         back_button(c);
+    }
+
+    fn draw_enemies(&self, c: &mut Canvas) {
+        let r = roster();
+        c.rect(0.0, 0.0, SCREEN_W, SCREEN_H, [0.12, 0.12, 0.15, 1.0]);
+        c.label("Enemies", SCREEN_W / 2.0, 24.0, 48.0, WHITE, Align::Center);
+        let first = self.enemy.saturating_sub(ENEMY_ROWS - 1);
+        for (row, i) in (first..r.enemies.len().min(first + ENEMY_ROWS)).enumerate() {
+            let [x, y, w, h] = setting_row(row);
+            let (sel, on) = (i == self.enemy, self.save.enemies_off & 1 << i == 0);
+            c.rect(x, y, w, h, if sel { [1.0, 0.85, 0.3, 0.25] } else { [1.0, 1.0, 1.0, 0.06] });
+            let e = &r.enemies[i];
+            let icon = e.look.walk[0][0];
+            let scale = (h - 16.0) / icon.h();
+            c.art(icon, x + 20.0, y + 8.0, scale, false, if on { WHITE } else { [1.0, 1.0, 1.0, 0.3] });
+            c.label(e.name.as_str(), x + 40.0 + icon.w() * scale, y + h / 2.0 - 20.0, 38.0, if sel { HOT } else if on { WHITE } else { DIM }, Align::Left);
+            c.label(if on { "On" } else { "Off" }, (LESS_X + MORE_X) / 2.0, y + h / 2.0 - 20.0, 38.0, if on { HOT } else { DIM }, Align::Center);
+        }
+        back_button(c);
+    }
+
+    /// The highlighted kind walking on the top screen, turning through its facings, beside its numbers.
+    pub(crate) fn draw_enemy(&self, c: &mut Canvas) {
+        let r = roster();
+        let Some(e) = r.enemies.get(self.enemy) else { return };
+        let on = self.save.enemies_off & 1 << self.enemy == 0;
+        c.rect(0.0, 560.0, SCREEN_W, 208.0, [0.1, 0.08, 0.07, 1.0]);
+        let turn = (self.clock / 1.5) as usize % 4;
+        let (facing, flip) = [(0, false), (1, false), (2, false), (1, true)][turn];
+        let frame = e.look.walk[facing][(self.clock * 8.0 * e.speed / 20.0) as usize % 3];
+        let scale = 300.0 / frame.h().max(frame.w());
+        c.art(frame, 280.0 - frame.w() * scale / 2.0, 600.0 - frame.h() * scale, scale, flip, if on { WHITE } else { [0.35, 0.35, 0.4, 1.0] });
+        if !on {
+            c.label("OFF", 280.0, 640.0, 44.0, [1.0, 0.45, 0.4, 1.0], Align::Center);
+        }
+        c.label(e.name.as_str(), 560.0, 60.0, 64.0, HOT, Align::Left);
+        let minutes = |m: f32| if m == 1.0 { "1 minute".to_string() } else { format!("{m} minutes") };
+        let arrives = match (e.chance >= 1.0 && e.per_minute == 0.0, e.after > 0.0) {
+            (true, false) => "Whenever no other kind does".to_string(),
+            (true, true) => format!("After {}", minutes(e.after)),
+            (false, after) => {
+                let grows = if e.per_minute > 0.0 { format!(" + {}% a minute", e.per_minute * 100.0) } else { String::new() };
+                let from = if after { format!(" after {}", minutes(e.after)) } else { String::new() };
+                format!("{}%{grows}{from}", e.chance * 100.0)
+            }
+        };
+        let rows = [
+            ("Health", e.hp.to_string()),
+            ("Speed", e.speed.to_string()),
+            ("Bite", e.damage.to_string()),
+            ("Money", e.xp.to_string()),
+            ("Weight", e.mass.to_string()),
+        ];
+        for (i, (name, value)) in rows.iter().enumerate() {
+            let y = 160.0 + i as f32 * 56.0;
+            c.label(*name, 560.0, y, 36.0, DIM, Align::Left);
+            c.label(value.clone(), 900.0, y, 36.0, WHITE, Align::Right);
+        }
+        c.label(arrives, 560.0, 450.0, 28.0, DIM, Align::Left);
+        let traits = [(e.heavy, "Staggers on a hard hit"), (r.leader == self.enemy, "Leads hordes"), (r.harvester == self.enemy, "Rises at dawn as the Harvester")];
+        for (i, (_, line)) in traits.iter().filter(|t| t.0).enumerate() {
+            c.label(*line, 560.0, 500.0 + i as f32 * 36.0, 28.0, HOT, Align::Left);
+        }
     }
 
     fn draw_stats(&self, c: &mut Canvas) {

@@ -12,7 +12,7 @@ Zombies claw their way out of the ground, at the edge of the fog early on and on
 
 Pick a difficulty under Play with Left and Right, or by tapping its arrows. Easy bites gently, drops health often and starts you with a pistol, a knife and a grenade. Normal makes bites hurt and health scarce, and starts you with a knife and a grenade. Hard makes every bite count and starts you with only a grenade. The choice is remembered.
 
-The title's menu also opens Settings, Stats and Credits; Up and Down choose a row, A or a tap opens it, and B goes back. Settings sets each screen's brightness, the volume, rumble, the frame-rate overlay, and resets progress. Choose Settings from the pause menu to change all but the reset mid-run. Stats lists the records the save keeps. R1 saves both screens, top above bottom, as `screenshots/shot-NNNN.png` beside the save.
+The title's menu also opens Settings, Stats and Credits; Up and Down choose a row, A or a tap opens it, and B goes back. Settings sets each screen's brightness, the volume, rumble, the frame-rate overlay, which zombies come, and resets progress. Its Enemies page shows each kind walking on the top screen with its numbers, and A turns it on or off; nights skip the kinds turned off, and at least one stays on. Choose Settings from the pause menu to change all but the enemies and the reset mid-run. Stats lists the records the save keeps. R1 saves both screens, top above bottom, as `screenshots/shot-NNNN.png` beside the save.
 
 Every sound is synthesized at runtime from a few oscillator voices per cue, with a low drone that swells as the dead close in. A recorded WAV can replace any cue; see [Sounds](#sounds).
 
