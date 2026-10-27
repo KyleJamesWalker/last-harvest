@@ -11,6 +11,8 @@ const PITCH: [u32; 2] = [17, 19];
 const CELL: u32 = 16;
 const ATLAS_W: u32 = 512;
 const PAD: u32 = 1;
+/// Free rows kept below the packed sprites for enemy cards, which the game draws in at startup.
+const CARD_ROWS: u32 = 256;
 
 struct Image {
     w: u32,
@@ -332,7 +334,7 @@ fn main() {
         x += img.w + PAD;
         shelf = shelf.max(img.h);
     }
-    let atlas_h = (y + shelf + PAD).next_power_of_two();
+    let atlas_h = (y + shelf + PAD + CARD_ROWS).next_power_of_two();
     let mut atlas = Image::new(ATLAS_W, atlas_h);
     for (img, r) in images.iter().zip(&rects) {
         atlas.blit(img, [0, 0], [img.w, img.h], [r[0], r[1]]);
