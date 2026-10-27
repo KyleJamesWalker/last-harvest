@@ -535,7 +535,7 @@ mod tests {
     fn a_label_shrinks_to_fit_then_cuts_short() {
         assert_eq!(fitted("Big", 64.0, 440.0, 40.0), ("Big".to_string(), 64.0), "a short name keeps its size");
         let (text, size) = fitted("Ghoul of the North", 64.0, 440.0, 40.0);
-        assert!(size < 64.0 && size >= 40.0 && text == "Ghoul of the North");
+        assert!((40.0..64.0).contains(&size) && text == "Ghoul of the North");
         let (text, size) = fitted("Ghoul of the Northern Fields and Far Beyond", 64.0, 440.0, 40.0);
         assert_eq!(size, 40.0);
         assert!(text.ends_with("...") && text.chars().count() as f32 * 0.56 * size <= 440.0, "{text}");
