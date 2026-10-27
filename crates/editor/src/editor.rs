@@ -2074,12 +2074,14 @@ impl Editor {
         if self.none_open() {
             c.rect(CANVAS.x, CANVAS.y, CANVAS.w, CANVAS.h, PANEL);
             let (big, small) = if self.modding {
-                ("Make a card", "New starts one from a plain figure, PLAYER_ for a player card; Import opens a card or a .pak")
+                ("Make a card", ["New starts one from a plain figure, PLAYER_ for a player card;", "Import opens a card or a .pak"])
             } else {
-                ("Pick a sprite from the list", "or press N for a new one; a name starting CARD_ makes an enemy card")
+                ("Pick a sprite from the list", ["or press N for a new one;", "a name starting CARD_ makes an enemy card"])
             };
             c.label(big, CANVAS.x + CANVAS.w / 2.0, CANVAS.y + CANVAS.h / 2.0 - 40.0, 26.0, TEXT, Align::Center);
-            c.label(small, CANVAS.x + CANVAS.w / 2.0, CANVAS.y + CANVAS.h / 2.0, 17.0, DIM, Align::Center);
+            for (i, line) in small.into_iter().enumerate() {
+                c.label(line, CANVAS.x + CANVAS.w / 2.0, CANVAS.y + CANVAS.h / 2.0 + i as f32 * 24.0, 17.0, DIM, Align::Center);
+            }
         } else if self.stats {
             self.draw_stats(c);
         } else {
