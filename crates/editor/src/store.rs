@@ -319,6 +319,16 @@ mod fs {
             Repo::open(&self.dir)?.read(id, name, file)
         }
 
+        fn import_card(&self, file: &str, bytes: &[u8]) -> Result<String, String> {
+            let (kind, id) = cards::identify(file, bytes)?;
+            let names = sprite::card_names_of(kind, &id).ok_or_else(|| format!("its id [{id}] needs to be letters, digits and _"))?;
+            let dir = self.folder(kind);
+            std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+            let path = dir.join(format!("{id}{}", kind.extension()));
+            std::fs::write(&path, bytes).map_err(|e| format!("{}: {e}", path.display()))?;
+            Ok(names[0].clone())
+        }
+
         fn delete_card(&self, name: &str) -> Result<(), String> {
             let path = self.card_path(name).ok_or("not a card")?;
             std::fs::remove_file(&path).map_err(|e| format!("{}: {e}", path.display()))

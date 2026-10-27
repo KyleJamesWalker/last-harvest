@@ -402,11 +402,24 @@ impl Editor {
 
     /// Takes in a card's PNG, as Import does, and opens it.
     pub fn import_card(&mut self, file: &str, bytes: &[u8]) {
+        // Importing over the open card replaces what the editor holds, so its unsaved changes would be lost.
+        let open = (sprite::card_kind(&self.sprite.name), sprite::card_id(&self.sprite.name));
+        let same = |front: &str| (sprite::card_kind(front), sprite::card_id(front)) == open;
+        if let Ok((kind, id)) = crate::store::cards::identify(file, bytes)
+            && sprite::card_names_of(kind, &id).is_some_and(|n| same(&n[0]))
+            && self.unsaved()
+        {
+            return self.say(format!("Save or revert {id} first: Import replaces it"));
+        }
         match self.store.import_card(file, bytes) {
             Ok(front) => {
                 self.names = self.store.names();
                 let id = sprite::card_id(&front).unwrap_or_default();
-                self.switch_to(front);
+                if same(&front) {
+                    self.open(&front);
+                } else {
+                    self.switch_to(front);
+                }
                 self.reveal();
                 self.say(format!("Imported {file} as card {id}"));
             }
@@ -2809,6 +2822,27 @@ mod tests {
         e.act(Action::Save, false);
         assert!(e.unsaved(), "{:?}", e.status);
         assert_eq!(std::fs::read(&path).unwrap(), b"not a png", "the file is left for the player to sort out");
+    }
+
+    #[test]
+    fn importing_over_the_open_card_waits_for_its_changes_then_shows_the_import() {
+        let dir = tmp().join("reimport");
+        let _ = std::fs::remove_dir_all(&dir);
+        let store = || FsStore { dir: dir.join("sprites"), catalog: dir.join("art.txt"), cards: dir.join("enemies") };
+        let mut e = Editor::new(Box::new(store()), "");
+        e.act(Action::Ask(Ask::New), false);
+        type_in(&mut e, "card twin");
+        e.key(Key::Enter);
+        let shared = std::fs::read(dir.join("enemies/twin.enemy.png")).unwrap();
+        click_pixel(&mut e, 0, 0);
+        e.import_card("twin.enemy.png", &shared);
+        assert!(e.unsaved() && e.status.as_ref().is_some_and(|(t, _)| t.contains("Save or revert")));
+        e.act(Action::Revert, false);
+        e.color = [1, 2, 3, 255];
+        click_pixel(&mut e, 0, 0);
+        e.act(Action::Save, false);
+        e.import_card("twin.enemy.png", &shared);
+        assert_ne!(e.sprite.frames[0].get(0, 0), Some([1, 2, 3, 255]), "the imported card shows, not the one it replaced");
     }
 
     #[test]
