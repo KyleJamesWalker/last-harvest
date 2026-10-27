@@ -154,6 +154,11 @@ pub fn kill_sound(kind: u8) -> &'static str {
     roster().enemies.get(kind as usize).map_or("", |e| e.sound.as_str())
 }
 
+/// How heavy the zombie kind a `Sfx::Kill` names is, which divides its knockback; 1 for a kind that's gone.
+pub fn kill_weight(kind: u8) -> f32 {
+    roster().enemies.get(kind as usize).map_or(1.0, |e| e.mass)
+}
+
 /// Every zombie kind's death sound.
 pub fn kill_sounds() -> impl Iterator<Item = &'static str> {
     roster().enemies.iter().map(|e| e.sound.as_str())

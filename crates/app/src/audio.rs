@@ -116,19 +116,28 @@ fn notes(sfx: Sfx) -> Vec<Note> {
             v
         }
         Sfx::Kill(kind) => {
-            // Kids pop high; big ones go down with a heavy, wet thump.
-            let sound = last_harvest_game::kill_sound(kind);
-            let f = match sound {
-                "kill-kid" => 520.0,
-                "kill-big" => 160.0,
-                _ => 300.0,
+            // Kids pop high; big ones go down with a heavy, wet thump. A card's own sound, when it has no
+            // recording, takes the voice nearest its weight.
+            let voice = match last_harvest_game::kill_sound(kind) {
+                "kill-kid" => KillVoice::Small,
+                "kill-big" => KillVoice::Big,
+                "kill-skinny" => KillVoice::Plain,
+                _ => match last_harvest_game::kill_weight(kind) {
+                    w if w < 0.8 => KillVoice::Small,
+                    w if w >= 2.0 => KillVoice::Big,
+                    _ => KillVoice::Plain,
+                },
+            };
+            let f = match voice {
+                KillVoice::Small => 520.0,
+                KillVoice::Big => 160.0,
+                KillVoice::Plain => 300.0,
             };
             let mut v = vec![hit(0.0, 0.16, 3000.0, 400.0, Noise, 0.65), hit(0.0, 0.14, f, f / 3.0, Triangle, 0.7)];
-            if sound == "kill-kid" {
-                v.push(hit(0.0, 0.03, 900.0, 900.0, Square, 0.3));
-            }
-            if sound == "kill-big" {
-                v.push(hit(0.02, 0.4, 90.0, 35.0, Square, 0.5));
+            match voice {
+                KillVoice::Small => v.push(hit(0.0, 0.03, 900.0, 900.0, Square, 0.3)),
+                KillVoice::Big => v.push(hit(0.02, 0.4, 90.0, 35.0, Square, 0.5)),
+                KillVoice::Plain => {}
             }
             v
         }
@@ -395,6 +404,14 @@ impl Synth {
             }
         }
     }
+}
+
+/// The synth's three death sounds, small to big.
+#[derive(Clone, Copy)]
+enum KillVoice {
+    Small,
+    Plain,
+    Big,
 }
 
 pub struct Audio {

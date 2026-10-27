@@ -19,7 +19,7 @@ pub use difficulty::Difficulty;
 pub use draw::{Align, Canvas, Color, Frame, Shape};
 pub use art::Stand;
 pub use harvest::showcase::Showcase;
-pub use harvest::{CARD_FLAGS, CARD_NUMBERS, MAX_WALK, PLAYER_ID_MAX, PlayerFields, PlayerLook, default_start, frame_limits, player_fields, player_looks, set_player_start, weapon_slots, weapons, CardFields, NIGHT_MINUTES, SpawnMix, card_fields, kill_sound, kill_sounds, set_card_field, spawn_mix};
+pub use harvest::{CARD_FLAGS, CARD_NUMBERS, MAX_WALK, PLAYER_ID_MAX, PlayerFields, PlayerLook, default_start, frame_limits, player_fields, player_looks, set_player_start, weapon_slots, weapons, CardFields, NIGHT_MINUTES, SpawnMix, card_fields, kill_sound, kill_sounds, kill_weight, set_card_field, spawn_mix};
 pub use input::{Buttons, Input, InputTracker, MAX_TOUCHES, RawInput};
 pub use save::Save;
 pub use sfx::Sfx;
