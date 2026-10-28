@@ -165,6 +165,12 @@ enum Action {
     StartWeapon(usize, usize),
     /// Gives a player card the game's own start at a difficulty.
     StartDefault(usize),
+    /// Hits the card's figure in the previews, killing it when true.
+    Strike(bool),
+    /// Fills a blank flash, hurt or dead part with the game's own frames.
+    Generate,
+    /// Blanks a flash, hurt or dead part, so the game draws it.
+    ClearPart,
 }
 
 /// What each of a card's numbers is called on its stats page, and how far a press of - or + moves it.
@@ -277,6 +283,12 @@ pub struct Editor {
     dirty: bool,
     /// The previews need repacking.
     pub changed: bool,
+    /// A Hurt (false) or Kill (true) for the previews to play.
+    pub strike: Option<bool>,
+    /// Where the last packing put a card's figure among the surfaces, and whether it has dead frames.
+    figure_at: Option<(usize, bool)>,
+    /// The open card's parts as saved, read when it opens or saves.
+    card_parts: Vec<Vec<Frame>>,
     playing: bool,
     clock: f32,
     /// An index into `STANDS`.
@@ -359,6 +371,9 @@ impl Editor {
             redo: Vec::new(),
             dirty: false,
             changed: true,
+            strike: None,
+            figure_at: None,
+            card_parts: Vec::new(),
             playing: false,
             clock: 0.0,
             stand: 0,
@@ -396,6 +411,7 @@ impl Editor {
             delete_armed: 0.0,
         };
         e.load_stand();
+        e.load_card_parts();
         e.reveal();
         e
     }
@@ -430,8 +446,28 @@ impl Editor {
     }
 
     /// Everything to pack for the previews: the frames, then the carving views when carving, with any
-    /// floating pixels shown where they would land.
-    pub fn surfaces(&self) -> Vec<Frame> {
+    /// floating pixels shown where they would land, then a card's figure.
+    pub fn surfaces(&mut self) -> Vec<Frame> {
+        let mut out = self.own_surfaces();
+        self.figure_at = None;
+        if let Some((figure, dead)) = self.figure_frames() {
+            self.figure_at = Some((out.len(), dead));
+            out.extend(figure);
+        }
+        out
+    }
+
+    /// The card's figure as packed for the previews, for Hurt and Kill.
+    pub fn figure(&self) -> Option<last_harvest_game::Figure> {
+        let (k, dead) = self.figure_at?;
+        let a = self.live.get(k..k + cards::FIGURE_FRAMES)?;
+        let three = |i: usize| [a[i], a[i + 1], a[i + 2]];
+        let gibs = self.sprite.card.as_deref().and_then(|t| last_harvest_game::card_fields(t).ok());
+        let gibs = gibs.and_then(|f| f.numbers.iter().find(|(k, _)| *k == "gibs").map(|(_, v)| *v as usize)).unwrap_or(9);
+        Some(last_harvest_game::Figure { stand: three(0), flash: three(3), hurt: three(6), dead: dead.then(|| three(9)), gibs })
+    }
+
+    fn own_surfaces(&self) -> Vec<Frame> {
         if self.none_open() {
             return Vec::new();
         }
@@ -456,9 +492,12 @@ impl Editor {
     }
 
     /// The frames to show in the previews: all of them while playing, else the one being edited.
+    /// A still part's frames show as the game draws them: blank ones from the walk.
     pub fn shown(&self) -> Vec<Art> {
         let n = self.sprite.frames.len().min(self.live.len());
-        if self.playing { self.live[..n].to_vec() } else { self.live.get(self.frame).copied().into_iter().collect() }
+        let still = self.still_row().and_then(|row| self.figure().map(|f| [f.flash, f.hurt, f.dead.unwrap_or(f.hurt)][row - 3]));
+        let art = |i: usize| still.and_then(|s| s.get(i).copied()).unwrap_or(self.live[i]);
+        if self.playing { (0..n).map(art).collect() } else { (self.frame < n).then(|| art(self.frame)).into_iter().collect() }
     }
 
     /// The top strip in the previews, for a figure that has one.
@@ -583,6 +622,7 @@ impl Editor {
             self.fit();
             self.load_stand();
             self.load_family();
+            self.load_card_parts();
             self.stats &= self.is_card();
             self.naming = None;
             self.delete_armed = 0.0;
@@ -749,6 +789,8 @@ impl Editor {
         };
         if self.is_card() {
             push(410.0, 8.0, 94.0, 34.0, Action::Stats, "Stats T", self.stats);
+        } else if self.built_in_still().is_some() {
+            push(410.0, 8.0, 94.0, 34.0, Action::Generate, "Generate", false);
         }
         if self.stats && self.is_player_card() {
             push(CANVAS.x + 300.0, CANVAS.y + 30.0, 240.0, 30.0, Action::EditName, "Rename", self.naming.is_some());
@@ -807,6 +849,14 @@ impl Editor {
         }
         if self.none_open() {
             return b;
+        }
+        if self.is_card() {
+            push(SIDE_X, 566.0, 74.0, 30.0, Action::Strike(false), "Hurt", false);
+            push(SIDE_X + 78.0, 566.0, 74.0, 30.0, Action::Strike(true), "Kill", false);
+            if self.still_row().is_some() {
+                push(SIDE_X, 600.0, 114.0, 30.0, Action::Generate, "Generate", false);
+                push(SIDE_X + 118.0, 600.0, 114.0, 30.0, Action::ClearPart, "Clear", false);
+            }
         }
         for (i, l) in STANDS.into_iter().enumerate().filter(|_| !self.is_card()) {
             push(SIDE_X + (i % 3) as f32 * 78.0, 566.0 + (i / 3) as f32 * 34.0, 74.0, 30.0, Action::Stand(i as u8), l, self.stand == i as u8);
@@ -1220,6 +1270,8 @@ impl Editor {
                         self.dirty = false;
                         self.stand_touched = false;
                         self.names = self.store.names();
+                        self.load_card_parts();
+                        self.changed = true;
                         self.reveal();
                         let next = if self.is_card() { "Restart the game to load it." } else { "Rebuild the game to see it in play." };
                         self.say(format!("Saved {}. {next}", self.sprite.name));
@@ -1261,6 +1313,9 @@ impl Editor {
             }
             Action::AddFrame | Action::DeleteFrame | Action::MoveFrame(_) if self.view.is_none() && self.frames_refused(a) => {}
             Action::Stand(_) if self.is_card() => self.say("A card stands as a figure"),
+            Action::Strike(kill) => self.strike = Some(kill),
+            Action::Generate => self.generate_part(),
+            Action::ClearPart => self.clear_part(),
             Action::Stats => {
                 self.stats = !self.stats;
                 self.naming = None;
@@ -2294,6 +2349,55 @@ mod tests {
     }
 
     #[test]
+    fn a_cards_still_parts_start_blank_and_generate_from_the_walk() {
+        let dir = tmp().join("still-parts");
+        let _ = std::fs::remove_dir_all(&dir);
+        let store = || FsStore { dir: dir.join("sprites"), catalog: dir.join("art.txt"), cards: dir.join("enemies") };
+        let mut e = Editor::new(Box::new(store()), "BARREL");
+        e.act(Action::Ask(Ask::New), false);
+        type_in(&mut e, "card ghoul");
+        e.key(Key::Enter);
+        let stand = e.sprite.frames[0].clone();
+        e.switch_to("CARD_GHOUL_HURT".into());
+        assert!(e.sprite.frames.iter().all(|f| f.px.iter().all(|p| p[3] == 0)), "a new card leaves hurt to the game");
+        let (figure, dead) = e.figure_frames().unwrap();
+        assert_eq!((figure.len(), dead), (cards::FIGURE_FRAMES, false));
+        let derived: Vec<Rgba> = stand.px.iter().map(|&p| last_harvest_game::hurt_pixel(p)).collect();
+        assert_eq!(figure[6].px, derived, "the preview shows the hurt frame the game will draw");
+        e.act(Action::Generate, false);
+        assert_eq!(e.sprite.frames[0].px, derived);
+        e.act(Action::ClearPart, false);
+        assert!(e.sprite.frames.iter().all(|f| f.px.iter().all(|p| p[3] == 0)));
+        e.switch_to("CARD_GHOUL_DEAD".into());
+        e.decide(Choice::Discard);
+        assert_eq!(e.sprite.name, "CARD_GHOUL_DEAD");
+        click_pixel(&mut e, 0, 0);
+        e.act(Action::Save, false);
+        let bytes = std::fs::read(dir.join("enemies/ghoul.enemy.png")).unwrap();
+        let card = last_harvest_pack::card::read("ghoul.enemy.png", &bytes).unwrap();
+        assert_eq!(card.sheet.len(), (16 * 3 * 16 * 6 * 4) as usize, "a drawn dead part saves a sixth row");
+        assert!(e.figure_frames().unwrap().1);
+    }
+
+    #[test]
+    fn a_game_figures_still_sprites_generate_from_its_walk() {
+        let mut e = editor_on("SKINNY_HURT");
+        assert_eq!(e.built_in_still(), Some(4));
+        let front = e.store.load("SKINNY_FRONT").unwrap().frames[0].clone();
+        e.act(Action::Generate, false);
+        assert_eq!(e.sprite.frames.len(), 3, "one per facing");
+        assert_eq!(e.sprite.frames[0].px, front.px.iter().map(|&p| last_harvest_game::hurt_pixel(p)).collect::<Vec<_>>());
+        e.key(Key::Undo);
+        assert_ne!(e.sprite.frames[0].px, front.px.iter().map(|&p| last_harvest_game::hurt_pixel(p)).collect::<Vec<_>>(), "Undo puts the drawn ones back");
+        assert_eq!(editor_on("BARREL_FLASH").built_in_still(), None, "a barrel has no walk to draw from");
+        let mut dead = editor_on("SKINNY_HURT");
+        dead.sprite.name = "SKINNY_DEAD".into();
+        dead.set_live(vec![Art(1), Art(2), Art(3)]);
+        dead.frame = 1;
+        assert_eq!(dead.lying_figure().and_then(|f| f.dead), Some([Art(2); 3]), "the frame being edited lies down");
+    }
+
+    #[test]
     fn painting_undoes_and_redoes() {
         let mut e = editor();
         e.color = [1, 2, 3, 255];
@@ -2380,7 +2484,7 @@ mod tests {
     }
 
     #[test]
-    fn a_new_card_lists_as_five_parts_that_save_into_one_png() {
+    fn a_new_card_lists_as_six_parts_that_save_into_one_png() {
         let dir = tmp().join("cards");
         let _ = std::fs::remove_dir_all(&dir);
         let store = || FsStore { dir: dir.join("sprites"), catalog: dir.join("art.txt"), cards: dir.join("enemies") };
@@ -2391,7 +2495,7 @@ mod tests {
         assert!(dir.join("enemies/ghoul.enemy.png").exists(), "New writes the card from the template");
         assert_eq!(e.sprite.name, "CARD_GHOUL_FRONT");
         let parts: Vec<&str> = e.names.iter().map(|(n, _)| n.as_str()).filter(|n| n.starts_with("CARD_")).collect();
-        assert_eq!(parts, ["CARD_GHOUL_FRONT", "CARD_GHOUL_SIDE", "CARD_GHOUL_BACK", "CARD_GHOUL_FLASH", "CARD_GHOUL_HURT"]);
+        assert_eq!(parts, ["CARD_GHOUL_FRONT", "CARD_GHOUL_SIDE", "CARD_GHOUL_BACK", "CARD_GHOUL_FLASH", "CARD_GHOUL_HURT", "CARD_GHOUL_DEAD"]);
         assert_eq!(e.sprite.frames.len(), 3);
         assert!(e.sprite.frames.iter().all(|f| (f.w, f.h) == (16, 16) && f.px.iter().any(|p| p[3] > 0)), "it starts from a figure");
         assert_ne!(e.sprite.frames[0].px, e.sprite.frames[1].px, "whose legs take turns");
@@ -2400,7 +2504,7 @@ mod tests {
         assert_eq!(e.sprite.frames.len(), 4, "a walking part takes another frame");
         e.act(Action::Save, false);
         e.act(Action::Compare, false);
-        assert_eq!(e.family.len(), 5, "Compare lays out the card's parts like a built-in zombie's");
+        assert_eq!(e.family.len(), 6, "Compare lays out the card's parts like a built-in zombie's");
         e.act(Action::Compare, false);
         e.switch_to("CARD_GHOUL_SIDE".into());
         click_pixel(&mut e, 0, 0);

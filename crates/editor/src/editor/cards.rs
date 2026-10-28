@@ -422,3 +422,117 @@ impl Editor {
 pub(super) fn weapon_labels() -> Vec<(String, String)> {
     last_harvest_game::weapons().into_iter().map(|(id, _)| (id.clone(), id[..1].to_ascii_uppercase() + &id[1..])).collect()
 }
+
+/// Frames in a card's figure: each facing's first walking frame, then its flash, hurt and dead frames.
+pub(super) const FIGURE_FRAMES: usize = 12;
+
+fn blank(f: &Frame) -> bool {
+    f.px.iter().all(|p| p[3] < 128)
+}
+
+/// A still frame for `row` (flash, hurt or dead) drawn from a standing frame, as the game draws a blank one.
+fn derive(row: usize, stand: &Frame) -> Frame {
+    let paint = if row == 3 { last_harvest_game::flash_pixel } else { last_harvest_game::hurt_pixel };
+    Frame { w: stand.w, h: stand.h, px: stand.px.iter().map(|&p| paint(p)).collect() }
+}
+
+impl Editor {
+    /// Reads the open card's parts as saved, or none when a card isn't open.
+    pub(super) fn load_card_parts(&mut self) {
+        let names = sprite::card_part(&self.sprite.name).and_then(|(id, _)| sprite::card_names_of(sprite::card_kind(&self.sprite.name)?, &id));
+        let parts = names.and_then(|names| names.iter().map(|n| self.store.load(n).map(|s| s.frames)).collect::<Option<Vec<_>>>());
+        self.card_parts = parts.unwrap_or_default();
+    }
+
+    /// The open card's parts, with the open part's unsaved frames.
+    fn card_rows(&self) -> Option<Vec<Vec<Frame>>> {
+        let (_, row) = sprite::card_part(&self.sprite.name)?;
+        let mut rows = self.card_parts.clone();
+        *rows.get_mut(row)? = self.sprite.frames.clone();
+        Some(rows)
+    }
+
+    /// The card's figure for the previews, `FIGURE_FRAMES` long, with blank still frames drawn as the game draws
+    /// them, and whether it has dead frames of its own.
+    pub(super) fn figure_frames(&self) -> Option<(Vec<Frame>, bool)> {
+        let rows = self.card_rows()?;
+        let stand: Vec<Frame> = rows[..3].iter().map(|r| r.first().cloned()).collect::<Option<_>>()?;
+        let mut out = stand.clone();
+        for (row, frames) in rows.iter().enumerate().skip(3) {
+            for (facing, s) in stand.iter().enumerate() {
+                let f = frames.get(facing).filter(|f| !blank(f) && (f.w, f.h) == (s.w, s.h)).cloned();
+                out.push(f.unwrap_or_else(|| derive(row, s)));
+            }
+        }
+        let dead = rows[5].iter().any(|f| !blank(f));
+        Some((out, dead))
+    }
+
+    /// The row of the open card part when it is a still one: flash, hurt or dead.
+    pub(super) fn still_row(&self) -> Option<usize> {
+        sprite::card_part(&self.sprite.name).map(|(_, row)| row).filter(|&r| r >= 3)
+    }
+
+    /// The row a game sprite's name gives it when it is a figure's flash, hurt or dead frames beside walking
+    /// ones, such as `SKINNY_DEAD` beside `SKINNY_FRONT`.
+    pub(super) fn built_in_still(&self) -> Option<usize> {
+        let (prefix, part) = self.sprite.name.rsplit_once('_')?;
+        let row = ["FLASH", "HURT", "DEAD"].iter().position(|p| *p == part)? + 3;
+        let walks = ["FRONT", "SIDE", "BACK"].iter().all(|w| self.names.iter().any(|(n, _)| *n == format!("{prefix}_{w}")));
+        (!self.is_card() && walks).then_some(row)
+    }
+
+    /// Each facing's first walking frame, for drawing the open still sprite from.
+    fn stand_frames(&self) -> Option<Vec<Frame>> {
+        if self.is_card() {
+            return self.card_rows()?[..3].iter().map(|r| r.first().cloned()).collect();
+        }
+        let (prefix, _) = self.sprite.name.rsplit_once('_')?;
+        ["FRONT", "SIDE", "BACK"].iter().map(|w| self.store.load(&format!("{prefix}_{w}"))?.frames.into_iter().next()).collect()
+    }
+
+    /// Whether the open part is a card's dead frames, which the previews show lying down.
+    pub fn dead_part(&self) -> bool {
+        self.still_row() == Some(5)
+    }
+
+    /// The figure to lay down in the previews while dead frames are open, a card's or the game's, showing the
+    /// frame being edited the way the game tips a corpse over.
+    pub fn lying_figure(&self) -> Option<last_harvest_game::Figure> {
+        let i = self.frame;
+        if self.dead_part() {
+            let mut f = self.figure()?;
+            match &mut f.dead {
+                Some(d) => *d = [d[i.min(2)]; 3],
+                None => f.hurt = [f.hurt[i.min(2)]; 3],
+            }
+            return Some(f);
+        }
+        let a = *self.live.get(i).filter(|_| self.built_in_still() == Some(5) && i < self.sprite.frames.len())?;
+        Some(last_harvest_game::Figure { stand: [a; 3], flash: [a; 3], hurt: [a; 3], dead: Some([a; 3]), gibs: 0 })
+    }
+
+    /// Draws the open still sprite's frames, one per facing, as the game draws a card's blank ones, to edit from.
+    pub(super) fn generate_part(&mut self) {
+        let Some(row) = self.still_row().or_else(|| self.built_in_still()) else { return };
+        let Some(stand) = self.stand_frames() else {
+            return self.say("Generate draws from each facing's first walking frame, and one is missing");
+        };
+        self.remember();
+        self.sprite.frames = stand.iter().map(|s| derive(row, s)).collect();
+        self.frame = self.frame.min(self.sprite.frames.len() - 1);
+        self.say("Drew each facing from its first walking frame; edit them, or Undo to go back");
+    }
+
+    /// Blanks the open still part, so the game draws it from the walk.
+    pub(super) fn clear_part(&mut self) {
+        if self.still_row().is_none() {
+            return;
+        }
+        self.remember();
+        for f in &mut self.sprite.frames {
+            *f = Frame::blank(f.w, f.h);
+        }
+        self.say("Cleared: the game draws these from each facing's first walking frame");
+    }
+}

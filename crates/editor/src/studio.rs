@@ -100,6 +100,12 @@ impl Studio {
         if packed {
             self.pack();
         }
+        if let Some(kill) = self.editor.strike.take()
+            && let Some(figure) = self.editor.figure()
+        {
+            if kill { self.showcase.kill(figure) } else { self.showcase.hurt(figure) }
+        }
+        self.showcase.lie(self.editor.lying_figure());
         self.showcase.show(self.editor.shown(), self.editor.stand(), self.editor.fps, self.editor.top_art());
         self.showcase.show_player(self.player);
         self.showcase.update(dt, self.yaw, self.distance);
@@ -224,6 +230,22 @@ mod tests {
         }
         assert_eq!(s.distance, NEAREST);
         assert!(s.distance < 0.0, "past where the player would stand");
+    }
+
+    #[test]
+    fn a_cards_dead_part_has_its_figure_to_lay_down() {
+        let dir = std::env::temp_dir().join(format!("studio-dead-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("enemies")).unwrap();
+        let sheet: Vec<u8> = (0..16 * 3 * 16 * 5).flat_map(|i| if i % 7 == 0 { [0; 4] } else { [200, 100, 50, 255] }).collect();
+        let card = last_harvest_pack::card::write("[ghoul]\nname Ghoul", 48, 80, &sheet).unwrap();
+        std::fs::write(dir.join("enemies/ghoul.enemy.png"), card).unwrap();
+        let mut s = Studio::new(Box::new(FsStore { dir: dir.clone(), catalog: dir.join("art.txt"), cards: dir.join("enemies") }), "CARD_GHOUL_DEAD");
+        s.tick(0.1);
+        s.tick(0.1);
+        assert_eq!(s.editor.sprite.name, "CARD_GHOUL_DEAD");
+        assert!(s.editor.dead_part());
+        assert!(s.editor.figure().is_some(), "the figure was packed");
+        assert!(s.editor.lying_figure().is_some_and(|f| f.dead.is_none()), "a blank dead part lies as the tipped hurt frame");
     }
 
     #[test]

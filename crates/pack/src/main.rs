@@ -70,7 +70,9 @@ fn make_card(kind: card::Kind, sheet: &Path, text: &Path, out: &Path) -> Result<
     if kind == card::Kind::Player {
         last_harvest_game::player_fields(&text)?;
     }
-    let bytes = card::write_as(kind, &text, w, h, &rgba)?;
+    // A sheet both five and six frames tall reads as five; a dead row needs one six only divides.
+    let rows = if h % 5 == 0 { 5 } else { 6 };
+    let bytes = card::write_as(kind, &text, w, h, rows, &rgba)?;
     let name = out.display().to_string();
     let made = card::read_as(kind, &name, &bytes)?;
     std::fs::write(out, bytes)?;

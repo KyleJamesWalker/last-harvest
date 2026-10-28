@@ -1,15 +1,16 @@
 //! Cards: a PNG of a figure's frames, five rows down, with its text in a compressed `iTXt` chunk, so one image file
 //! shares the art and the numbers together. The rows walk front, side and back, then flash and hurt with one frame
-//! per facing. An enemy card's text is its `enemies.txt` section, whose `walk` sets how many frames its walking rows
+//! per facing; a `last-harvest-rows` chunk of 6 adds a dead row. An enemy card's text is its `enemies.txt` section, whose `walk` sets how many frames its walking rows
 //! have (3 when left out), and the sheet is as wide as its longest row; a player card's is its id and name, and it
 //! always walks three frames.
 
 use last_harvest_game::data::Card;
 
 pub const KEYWORD: &str = "last-harvest-enemy";
-/// The biggest sheet a card can have: eight walking frames across and five rows down, of 64-pixel frames. Checked
+/// The biggest sheet a card can have: eight walking frames across and six rows down, of 64-pixel frames. Checked
 /// before decoding, since a card may come from anyone.
-const MAX_SHEET: [u32; 2] = [8 * MAX_FRAME, 5 * MAX_FRAME];
+const MAX_SHEET: [u32; 2] = [8 * MAX_FRAME, 6 * MAX_FRAME];
+const ROWS_KEYWORD: &str = "last-harvest-rows";
 const MAX_FRAME: u32 = 64;
 /// What an enemy card's file name ends in: still a PNG, so it previews anywhere, but named as a card.
 pub const EXTENSION: &str = ".enemy.png";
@@ -77,28 +78,33 @@ pub fn read_as(kind: Kind, name: &str, bytes: &[u8]) -> Result<Card, String> {
     let mut text = text.clone();
     text.decompress_text().map_err(|e| fail(&e))?;
     let text = text.get_text().map_err(|e| fail(&e))?;
+    let rows = match reader.info().uncompressed_latin1_text.iter().find(|t| t.keyword == ROWS_KEYWORD) {
+        None => 5,
+        Some(t) if t.text == "6" => 6,
+        Some(t) => return Err(fail(&format!("{ROWS_KEYWORD} is {:?}, but a card has 5 or 6 rows", t.text))),
+    };
     let (w, h) = (frame.width, frame.height);
     let cols = match kind {
         Kind::Enemy => last_harvest_game::card_fields(&text).map_or(3, |f| f.walk).max(3) as u32,
         Kind::Player => 3,
     };
-    if w % cols != 0 || h % 5 != 0 {
-        return Err(fail(&format!("{w}x{h} doesn't split into {cols} frames across and five down")));
+    if w % cols != 0 || h % rows != 0 {
+        return Err(fail(&format!("{w}x{h} doesn't split into {cols} frames across and {rows} down")));
     }
-    let frame = [w / cols, h / 5];
+    let frame = [w / cols, h / rows];
     if frame.iter().any(|&side| side > MAX_FRAME) {
         return Err(fail(&format!("its frames are {}x{}, but the game draws them at most {MAX_FRAME} pixels a side", frame[0], frame[1])));
     }
     Ok(Card { name: name.to_string(), text, frame, sheet })
 }
 
-/// Writes an enemy card from its text and an RGBA sheet `w` by `h` pixels.
+/// Writes an enemy card from its text and a five-row RGBA sheet `w` by `h` pixels.
 pub fn write(text: &str, w: u32, h: u32, sheet: &[u8]) -> Result<Vec<u8>, String> {
-    write_as(Kind::Enemy, text, w, h, sheet)
+    write_as(Kind::Enemy, text, w, h, 5, sheet)
 }
 
-/// Writes a card of `kind` from its text and an RGBA sheet `w` by `h` pixels.
-pub fn write_as(kind: Kind, text: &str, w: u32, h: u32, sheet: &[u8]) -> Result<Vec<u8>, String> {
+/// Writes a card of `kind` from its text and an RGBA sheet `w` by `h` pixels, `rows` (5, or 6 with a dead row) down.
+pub fn write_as(kind: Kind, text: &str, w: u32, h: u32, rows: u32, sheet: &[u8]) -> Result<Vec<u8>, String> {
     let mut out = Vec::new();
     let mut encoder = png::Encoder::new(&mut out, w, h);
     encoder.set_color(png::ColorType::Rgba);
@@ -107,6 +113,9 @@ pub fn write_as(kind: Kind, text: &str, w: u32, h: u32, sheet: &[u8]) -> Result<
     let mut chunk = png::text_metadata::ITXtChunk::new(kind.keyword(), text);
     chunk.compress_text().map_err(|e| e.to_string())?;
     writer.write_text_chunk(&chunk).map_err(|e| e.to_string())?;
+    if rows == 6 {
+        writer.write_text_chunk(&png::text_metadata::TEXtChunk::new(ROWS_KEYWORD, "6")).map_err(|e| e.to_string())?;
+    }
     writer.write_image_data(sheet).map_err(|e| e.to_string())?;
     writer.finish().map_err(|e| e.to_string())?;
     Ok(out)
@@ -130,13 +139,22 @@ mod tests {
     #[test]
     fn a_player_card_keeps_its_own_keyword() {
         let sheet = vec![9u8; 3 * 8 * 5 * 8 * 4];
-        let bytes = write_as(Kind::Player, "[jo]\nname Jo", 24, 40, &sheet).unwrap();
+        let bytes = write_as(Kind::Player, "[jo]\nname Jo", 24, 40, 5, &sheet).unwrap();
         let card = read_as(Kind::Player, "jo.player.png", &bytes).unwrap();
         assert_eq!((card.text.as_str(), card.frame), ("[jo]\nname Jo", [8, 8]));
         assert!(read("jo.player.png", &bytes).err().unwrap().contains("not an enemy card"), "an enemy card is a different kind");
         assert_eq!(Kind::of("jo.player.png"), Some(Kind::Player));
         assert_eq!(Kind::of("ghoul.enemy.png"), Some(Kind::Enemy));
         assert_eq!(Kind::of("ghoul.png"), None);
+    }
+
+    #[test]
+    fn a_rows_chunk_adds_a_dead_row() {
+        let sheet = vec![9u8; 3 * 8 * 6 * 8 * 4];
+        let bytes = write_as(Kind::Enemy, "[a]", 24, 48, 6, &sheet).unwrap();
+        assert_eq!(read("a.enemy.png", &bytes).unwrap().frame, [8, 8]);
+        let five = write("[a]", 24, 48, &sheet).unwrap();
+        assert!(read("b.enemy.png", &five).is_err(), "48 tall with no chunk is five rows, which doesn't split");
     }
 
     #[test]

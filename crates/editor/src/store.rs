@@ -59,14 +59,15 @@ pub trait Store {
     }
 }
 
-/// Enemy cards as the editor sees them: one PNG per card, opened as five part sprites of three frames each.
+/// Enemy cards as the editor sees them: one PNG per card, opened as six part sprites of three frames each.
 pub mod cards {
     use last_harvest_pack::card;
 
     use crate::sprite::{self, CARD_PART_FRAMES, CardKind, Frame, Sprite};
 
-    /// A card's text and its five rows of frames: walking front, side and back, then flash and hurt.
-    pub fn rows(kind: CardKind, bytes: &[u8]) -> Option<(String, [Vec<Frame>; 5])> {
+    /// A card's text and its six rows of frames: walking front, side and back, then flash, hurt and dead, blank
+    /// when the card has no dead row.
+    pub fn rows(kind: CardKind, bytes: &[u8]) -> Option<(String, [Vec<Frame>; 6])> {
         let c = card::read_as(kind, "card", bytes).ok()?;
         let [w, h] = c.frame.map(|v| v as usize);
         let walk = match kind {
@@ -74,7 +75,11 @@ pub mod cards {
             CardKind::Player => CARD_PART_FRAMES,
         };
         let cols = walk.max(3);
+        let have = c.sheet.len() / (w * cols * h * 4);
         let cell = |col: usize, row: usize| {
+            if row >= have {
+                return Frame::blank(w, h);
+            }
             let px = (0..h).flat_map(|y| (0..w).map(move |x| ((row * h + y) * w * cols + col * w + x) * 4)).map(|i| [c.sheet[i], c.sheet[i + 1], c.sheet[i + 2], c.sheet[i + 3]]).collect();
             Frame { w, h, px }
         };
@@ -140,8 +145,10 @@ pub mod cards {
             CardKind::Player => text.to_string(),
         };
         let cols = walk.max(3);
-        let mut sheet = vec![0u8; w * cols * h * 5 * 4];
-        for (r, frames) in rows.iter().enumerate() {
+        let dead = rows[5].iter().any(|f| f.px.iter().any(|p| p[3] >= 128));
+        let height = if dead { 6 } else { 5 };
+        let mut sheet = vec![0u8; w * cols * h * height * 4];
+        for (r, frames) in rows.iter().take(height).enumerate() {
             for (col, f) in frames.iter().enumerate() {
                 for y in 0..h {
                     for x in 0..w {
@@ -151,7 +158,7 @@ pub mod cards {
                 }
             }
         }
-        card::write_as(kind, &text, (w * cols) as u32, (h * 5) as u32, &sheet)
+        card::write_as(kind, &text, (w * cols) as u32, (h * height) as u32, height as u32, &sheet)
     }
 
     const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -238,8 +245,8 @@ mod tests {
         use crate::sprite::CardKind;
         use last_harvest_pack::card::{Kind, write_as};
         let sheet = vec![0u8; 24 * 40 * 4];
-        let enemy = write_as(Kind::Enemy, "[bat]", 24, 40, &sheet).unwrap();
-        let player = write_as(Kind::Player, "[jo]\nname Jo", 24, 40, &sheet).unwrap();
+        let enemy = write_as(Kind::Enemy, "[bat]", 24, 40, 5, &sheet).unwrap();
+        let player = write_as(Kind::Player, "[jo]\nname Jo", 24, 40, 5, &sheet).unwrap();
         assert_eq!(identify("x.png", &enemy), Ok((CardKind::Enemy, "bat".into())));
         assert_eq!(identify("download.png", &player), Ok((CardKind::Player, "jo".into())));
         assert!(identify("jo.enemy.png", &player).is_err(), "a name's ending is believed");
