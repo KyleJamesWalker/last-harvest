@@ -18,7 +18,7 @@ use crate::rng::Rng;
 use crate::{Buttons, Color, Difficulty, Input, SCREEN_H, SCREEN_W, Sfx};
 use enemies::Enemy;
 pub(crate) use enemies::{install_cards, off_from_ids, off_ids, roster};
-pub use map::{MAP_EXTENSION, MAP_MAX, MAP_MIN, check_map};
+pub use map::{GROUND as MAP_GROUND, MAP_EXTENSION, MAP_MAX, MAP_MIN, MapSource, PROPS as MAP_PROPS, PropLine, check_map, valid_map_id};
 pub use enemies::{MAX_WALK, flash_pixel, frame_limits, hurt_pixel};
 pub use players::{ID_MAX as PLAYER_ID_MAX, PlayerFields, PlayerLook, default_start, looks as player_looks, player_fields, set_player_start, weapon_slots, weapons};
 pub use enemies::{CardFields, FLAGS as CARD_FLAGS, NUMBERS as CARD_NUMBERS, SpawnMix, card_fields, set_card_field, spawn_mix};
@@ -822,6 +822,13 @@ impl Harvest {
 
     pub fn calm(seed: u64) -> Self {
         Self { calm: true, ..Self::new(seed) }
+    }
+
+    /// A calm farm on a hand-made map, built loosely so a half-made one still shows.
+    pub(super) fn calm_on(seed: u64, src: &map::MapSource) -> Result<Self, String> {
+        let mut rng = Rng::new(seed);
+        let map = Map::from_source(src, &mut rng, false)?;
+        Ok(Self { calm: true, ..Self::with_map(seed, rng, map) })
     }
 
     pub fn summary(&self) -> String {

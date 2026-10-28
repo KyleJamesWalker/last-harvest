@@ -4,7 +4,7 @@ use crate::art::{self, Art};
 use crate::rng::Rng;
 
 mod text;
-pub use text::{EXTENSION as MAP_EXTENSION, MAX_SIZE as MAP_MAX, MIN_SIZE as MAP_MIN, check as check_map};
+pub use text::{EXTENSION as MAP_EXTENSION, GROUND, MAX_SIZE as MAP_MAX, MIN_SIZE as MAP_MIN, MapSource, PROPS, PropLine, check as check_map, valid_id as valid_map_id};
 
 pub const TILE: f32 = 16.0;
 const N: u8 = 1;

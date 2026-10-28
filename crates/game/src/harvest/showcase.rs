@@ -36,6 +36,9 @@ pub struct Figure {
     pub gibs: usize,
 }
 
+/// The seed hand-made maps are built with in the editor, so their scatter holds still while editing.
+const SEED: u64 = 7;
+
 /// Seconds a killed figure stays gone before it stands again.
 const DEAD_TIME: f32 = 3.0;
 
@@ -92,6 +95,33 @@ impl Showcase {
             s.fps = fps;
             s.top = top;
         }
+    }
+
+    /// Shows a hand-made map instead of the quiet farm, or the farm again for None; says why a map can't be built.
+    /// The sprite on show moves to the map's spawn.
+    pub fn show_map(&mut self, src: Option<&super::map::MapSource>) -> Result<(), String> {
+        let mut harvest = match src {
+            Some(src) => Harvest::calm_on(SEED, src)?,
+            None => Harvest::calm(SEED),
+        };
+        harvest.birds.clear();
+        let shown = self.harvest.shown.take().map(|s| Shown { pos: harvest.map.spawn, ..s });
+        harvest.shown = shown;
+        self.harvest = harvest;
+        Ok(())
+    }
+
+    /// Puts the sprite on show, and so the views, over the tile `at`.
+    pub fn look_at(&mut self, [x, y]: [usize; 2]) {
+        if let Some(s) = &mut self.harvest.shown {
+            s.pos = [(x as f32 + 0.5) * TILE, (y as f32 + 0.5) * TILE];
+        }
+    }
+
+    /// The map from above with its top-left at `cam` in map pixels, `scale` screen pixels to a map pixel, drawn
+    /// over the whole canvas.
+    pub fn plan(&self, c: &mut Canvas, cam: [f32; 2], scale: f32) {
+        self.harvest.world(c, cam, scale, [1.0; 4]);
     }
 
     /// Puts the player beside the sprite, or leaves them out.
