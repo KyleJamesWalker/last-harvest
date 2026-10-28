@@ -20,6 +20,7 @@ pub const ENEMIES: &str = "enemies.txt";
 pub const SOUNDS: &str = "sounds/";
 pub const ENEMY_CARDS: &str = "enemies/";
 pub const PLAYER_CARDS: &str = "players/";
+pub const MAPS: &str = "maps/";
 
 /// The manifest of a mod pack named `id`.
 pub fn mod_manifest(id: &str) -> String {

@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use last_harvest_game::data::{self, Card, Data};
+use last_harvest_game::data::{self, Card, Data, MapFile};
 use last_harvest_pack::{self as pack, Pak, card};
 
 use crate::samples::{self, Files};
@@ -38,6 +38,28 @@ fn players_folder() -> Option<PathBuf> {
         return Some(dir.into());
     }
     Some(data_folder()?.join("players"))
+}
+
+/// `LAST_HARVEST_MAPS`, else `data/maps` beside the binary.
+fn maps_folder() -> Option<PathBuf> {
+    if let Some(dir) = std::env::var_os("LAST_HARVEST_MAPS") {
+        return Some(dir.into());
+    }
+    Some(data_folder()?.join("maps"))
+}
+
+/// The map files among `files`, by name, noting any that aren't text.
+fn read_maps(files: Vec<(String, Vec<u8>)>, problems: &mut Vec<String>) -> Vec<MapFile> {
+    let ext = last_harvest_game::MAP_EXTENSION;
+    let maps = files.into_iter().filter(|(name, _)| name.ends_with(ext));
+    maps.filter_map(|(file, bytes)| match String::from_utf8(bytes) {
+        Ok(text) => Some(MapFile { file, text }),
+        Err(_) => {
+            problems.push(format!("{file}: not text"));
+            None
+        }
+    })
+    .collect()
 }
 
 /// Reads the cards of `kind` among `files`, by name, noting any that aren't.
@@ -107,7 +129,11 @@ pub fn load() -> Result<Files, String> {
     let (enemy, player) = (card::Kind::Enemy, card::Kind::Player);
     let cards = read_cards(enemy, pak.take_dir(pack::ENEMY_CARDS), &mut problems);
     let players = read_cards(player, pak.take_dir(pack::PLAYER_CARDS), &mut problems);
-    let mut data = Data { atlas: pak.take(pack::ATLAS), font: pak.take(pack::FONT), powerups, enemies, cards, players };
+    let maps = read_maps(pak.take_dir(pack::MAPS), &mut problems);
+    let mut data = Data { atlas: pak.take(pack::ATLAS), font: pak.take(pack::FONT), powerups, enemies, cards, players, maps };
+    if let Some(dir) = maps_folder() {
+        data.maps.extend(read_maps(samples::read_files(&dir, &[last_harvest_game::MAP_EXTENSION]), &mut problems));
+    }
     if let Some(dir) = cards_folder() {
         data.cards.extend(read_cards(enemy, samples::read_files(&dir, &[enemy.extension()]), &mut problems));
     }

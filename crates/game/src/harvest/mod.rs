@@ -18,6 +18,7 @@ use crate::rng::Rng;
 use crate::{Buttons, Color, Difficulty, Input, SCREEN_H, SCREEN_W, Sfx};
 use enemies::Enemy;
 pub(crate) use enemies::{install_cards, off_from_ids, off_ids, roster};
+pub use map::{MAP_EXTENSION, MAP_MAX, MAP_MIN, check_map};
 pub use enemies::{MAX_WALK, flash_pixel, frame_limits, hurt_pixel};
 pub use players::{ID_MAX as PLAYER_ID_MAX, PlayerFields, PlayerLook, default_start, looks as player_looks, player_fields, set_player_start, weapon_slots, weapons};
 pub use enemies::{CardFields, FLAGS as CARD_FLAGS, NUMBERS as CARD_NUMBERS, SpawnMix, card_fields, set_card_field, spawn_mix};
@@ -459,6 +460,8 @@ pub struct Flow {
 pub struct Harvest {
     rng: Rng,
     map: Map,
+    /// The hand-made map this run is on, by id; empty for a generated farm.
+    map_id: String,
     t: f32,
     phase: Phase,
     pos: [f32; 2],
@@ -606,9 +609,23 @@ impl Harvest {
         Self::sized(seed, MAP_SIZE)
     }
 
+    /// A run on the hand-made map `id`, or on a generated farm when no map that reads has that id.
+    pub fn on(seed: u64, id: &str) -> Self {
+        let mut rng = Rng::new(seed);
+        let file = crate::data::maps().iter().find(|m| m.id == id);
+        match file.and_then(|m| Map::from_text(&m.text, &mut rng).ok()) {
+            Some(map) => Self { map_id: id.to_string(), ..Self::with_map(seed, rng, map) },
+            None => Self::new(seed),
+        }
+    }
+
     fn sized(seed: u64, [w, h]: [usize; 2]) -> Self {
         let mut rng = Rng::new(seed);
         let map = Map::generate(&mut rng, w, h);
+        Self::with_map(seed, rng, map)
+    }
+
+    fn with_map(seed: u64, rng: Rng, map: Map) -> Self {
         let kit = Kit::start(Difficulty::Normal);
         let barrels = map.barrels.iter().map(|&pos| Barrel { pos, hp: BARREL_HP, flash: 0.0 }).collect();
         Self {
@@ -643,6 +660,7 @@ impl Harvest {
             hp: kit.max_hp(),
             rng,
             map,
+            map_id: String::new(),
             t: 0.0,
             phase: Phase::Playing,
             hurt: 0.0,
@@ -1102,7 +1120,7 @@ impl Harvest {
     fn restart(&mut self, sounds: &mut Vec<Sfx>) {
         let seed = self.rng.next_u32() as u64 + 1;
         let kit: Vec<String> = self.trial.iter().map(|&(d, l)| format!("{}:{l}", book().defs[d].id)).collect();
-        *self = Harvest::new(seed).at(self.difficulty).with_progress(self.progress).with_kit(&kit.join(",")).starting_at(self.start_t);
+        *self = Harvest::on(seed, &self.map_id).at(self.difficulty).with_progress(self.progress).with_kit(&kit.join(",")).starting_at(self.start_t);
         sounds.push(Sfx::Start);
     }
 

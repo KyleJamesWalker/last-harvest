@@ -16,7 +16,9 @@ pub(crate) enum Page {
     Credits,
 }
 
-const MAIN: [(Page, &str); 4] = [(Page::Main, "Play"), (Page::Settings, "Settings"), (Page::Stats, "Stats"), (Page::Credits, "Credits")];
+const MAIN: [(Page, &str); 5] = [(Page::Main, "Play"), (Page::Main, "Map"), (Page::Settings, "Settings"), (Page::Stats, "Stats"), (Page::Credits, "Credits")];
+/// The row that picks the map runs start on rather than opening a page.
+const MAP_ROW: usize = 1;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Setting {
@@ -50,9 +52,9 @@ impl Setting {
 /// The Play button, then the difficulty box under it, as x, y, width and height.
 const PLAY: [f32; 4] = [212.0, 30.0, 600.0, 100.0];
 pub(crate) const DIFFICULTY_Y: f32 = 150.0;
-/// The Settings, Stats and Credits rows, below the difficulty box.
-const ROWS_TOP: f32 = 330.0;
-const ROW_H: f32 = 96.0;
+/// The Map, Settings, Stats and Credits rows, below the difficulty box.
+const ROWS_TOP: f32 = 316.0;
+const ROW_H: f32 = 80.0;
 /// The settings rows; a run's settings leave out Player, Enemies and Reset.
 const SET_TOP: f32 = 96.0;
 const SET_H: f32 = 68.0;
@@ -126,6 +128,9 @@ impl Game {
             return;
         }
         let by = input.pressed.contains(Buttons::RIGHT) as i32 - input.pressed.contains(Buttons::LEFT) as i32;
+        if by != 0 && self.row == MAP_ROW {
+            return self.step_map(by);
+        }
         let arrow = tapped.and_then(difficulty_arrow);
         if (by != 0 && self.row == 0) || arrow.is_some() {
             let next = self.save.difficulty.step(arrow.unwrap_or(by));
@@ -141,6 +146,10 @@ impl Game {
         };
         match chosen {
             Some(0) => self.open(crate::Scene::Harvest),
+            Some(MAP_ROW) => {
+                self.row = MAP_ROW;
+                self.step_map(1);
+            }
             Some(i) => {
                 self.row = i;
                 self.page = MAIN[i].0;
@@ -151,6 +160,15 @@ impl Game {
             }
             None => {}
         }
+    }
+
+    /// Moves the map runs start on `by` along Random and the hand-made maps.
+    fn step_map(&mut self, by: i32) {
+        let maps = crate::data::maps();
+        let at = maps.iter().position(|m| m.id == self.save.map.as_str()).map_or(0, |i| i + 1) as i32;
+        let next = (at + by).rem_euclid(maps.len() as i32 + 1) as usize;
+        self.save.map = crate::save::LookId::new(next.checked_sub(1).map_or("", |i| maps[i].id.as_str()));
+        self.sounds.push(Sfx::Tick(next as u8 * 3));
     }
 
     pub(crate) fn open_settings(&mut self, in_run: bool) {
@@ -275,6 +293,15 @@ impl Game {
             let on = i == self.row;
             c.rect(x, y, w, h, if on { [1.0, 0.85, 0.3, 0.3] } else { [1.0, 1.0, 1.0, 0.08] });
             let color = if on { [HOT[0], HOT[1], HOT[2], if i == 0 { pulse } else { 1.0 }] } else { WHITE };
+            if i == MAP_ROW {
+                let maps = crate::data::maps();
+                let name = maps.iter().find(|m| m.id == self.save.map.as_str()).map_or("Random farm", |m| m.name.as_str());
+                let arrow = if maps.is_empty() { [1.0, 1.0, 1.0, 0.15] } else if on { HOT } else { DIM };
+                c.label("<", x + 40.0, y + h / 2.0 - 26.0, 48.0, arrow, Align::Center);
+                c.label(">", x + w - 40.0, y + h / 2.0 - 26.0, 48.0, arrow, Align::Center);
+                fit_label(c, &format!("Map: {name}"), x + w / 2.0, y + h / 2.0 - 22.0, 44.0, w - 120.0, color, Align::Center);
+                continue;
+            }
             c.label(*name, x + w / 2.0, y + h / 2.0 - 26.0, 52.0, color, Align::Center);
         }
         let d = self.save.difficulty;

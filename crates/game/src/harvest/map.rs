@@ -3,6 +3,9 @@
 use crate::art::{self, Art};
 use crate::rng::Rng;
 
+mod text;
+pub use text::{EXTENSION as MAP_EXTENSION, MAX_SIZE as MAP_MAX, MIN_SIZE as MAP_MIN, check as check_map};
+
 pub const TILE: f32 = 16.0;
 const N: u8 = 1;
 const E: u8 = 2;
@@ -455,16 +458,22 @@ impl Map {
     /// A fence around the rect, with a two-tile gate in the bottom.
     fn fence(&mut self, rng: &mut Rng, style: &Fence, x: usize, y: usize, w: usize, h: usize) {
         let gate = x + 1 + rng.below(w - 3);
+        self.fence_gated(style, [x, y, w, h], Some(gate), |n| rng.below(n));
+    }
+
+    /// A fence around the rect, with a two-tile gate in the bottom from column `gate` if any; `pick` chooses
+    /// among a style's gate posts.
+    fn fence_gated(&mut self, style: &Fence, [x, y, w, h]: [usize; 4], gate: Option<usize>, mut pick: impl FnMut(usize) -> usize) {
         for xx in x..x + w {
             let k = if xx == x { 0 } else if xx == x + w - 1 { 2 } else { 1 };
             self.prop(&style.top[k..k + 1], 0.0, xx, y, 0);
-            let post = (xx + 1 == gate || xx == gate + 2) && k == 1;
+            let post = gate.is_some_and(|g| xx + 1 == g || xx == g + 2) && k == 1;
             match style.gate_post {
                 Some(posts) if post => {
-                    let p = rng.below(posts.len());
+                    let p = pick(posts.len());
                     self.prop(&posts[p..p + 1], 0.0, xx, y + h - 1, 0);
                 }
-                _ if xx != gate && xx != gate + 1 => {
+                _ if !gate.is_some_and(|g| xx == g || xx == g + 1) => {
                     self.prop(&style.bottom[k..k + 1], 0.0, xx, y + h - 1, 0);
                 }
                 _ => {}
