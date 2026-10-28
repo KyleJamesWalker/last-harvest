@@ -48,8 +48,8 @@ pub enum Scene {
     Harvest,
     /// Debug walk around a generated farm with no zombies.
     Farm,
-    /// Debug frame-rate benchmark: the same frozen swarm every run.
-    Bench,
+    /// Debug frame-rate benchmark: the same frozen swarm every run, on a farm this many tiles wide and tall.
+    Bench([usize; 2]),
     /// Debug view of every sprite in the art catalog.
     Gallery,
     /// Debug check of every hardware feature, and where screen brightness is set.
@@ -62,7 +62,11 @@ impl Scene {
             "title" | "menu" => Scene::Title,
             "harvest" | "play" => Scene::Harvest,
             "farm" => Scene::Farm,
-            "bench" => Scene::Bench,
+            "bench" => Scene::Bench(harvest::MAP_SIZE),
+            _ if name.starts_with("bench-") => {
+                let (w, h) = name["bench-".len()..].split_once('x')?;
+                Scene::Bench([w.parse().ok()?, h.parse().ok()?])
+            }
             "art" => Scene::Gallery,
             "hardware" => Scene::Hardware,
             _ => return None,
@@ -208,7 +212,7 @@ impl Game {
                 State::Harvest(Box::new(harvest::Harvest::new(seed).at(self.save.difficulty).with_progress(self.progress()).without_enemies(self.save.enemies_off).looking_like(self.save.player.as_str()).with_kit(&self.kit).starting_at(self.start_t)))
             }
             Scene::Farm => State::Harvest(Box::new(harvest::Harvest::calm(seed))),
-            Scene::Bench => State::Harvest(Box::new(harvest::Harvest::bench())),
+            Scene::Bench(size) => State::Harvest(Box::new(harvest::Harvest::bench(size))),
             Scene::Gallery => State::Gallery(gallery::Gallery::default()),
             Scene::Hardware => State::Hardware(hardware::Hardware::default()),
         };

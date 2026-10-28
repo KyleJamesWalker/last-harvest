@@ -44,8 +44,7 @@ const SPIN_TIME: f32 = 0.2;
 const GRENADE_RECHARGE: f32 = 12.0;
 const GRENADE_FLIGHT: f32 = 0.7;
 const GRENADE_RADIUS: f32 = 36.0;
-const MAP_W: usize = 72;
-const MAP_H: usize = 54;
+pub const MAP_SIZE: [usize; 2] = [72, 54];
 const DAWN: f32 = 600.0;
 /// How long a night lasts, in minutes.
 pub const NIGHT_MINUTES: f32 = DAWN / 60.0;
@@ -604,8 +603,12 @@ fn norm(v: [f32; 2]) -> [f32; 2] {
 
 impl Harvest {
     pub fn new(seed: u64) -> Self {
+        Self::sized(seed, MAP_SIZE)
+    }
+
+    fn sized(seed: u64, [w, h]: [usize; 2]) -> Self {
         let mut rng = Rng::new(seed);
-        let map = Map::generate(&mut rng, MAP_W, MAP_H);
+        let map = Map::generate(&mut rng, w, h);
         let kit = Kit::start(Difficulty::Normal);
         let barrels = map.barrels.iter().map(|&pos| Barrel { pos, hp: BARREL_HP, flash: 0.0 }).collect();
         Self {
@@ -711,10 +714,17 @@ impl Harvest {
         None
     }
 
-    /// The same frames every run: 300 zombies, bodies, stains and specks around the player, frozen,
-    /// with the camera turning a full circle every 600 frames.
-    pub fn bench() -> Self {
-        let mut h = Self { calm: true, bench: true, ..Self::new(7) };
+    /// The same frames every run: 300 zombies, bodies, stains and specks around the player, frozen, with the
+    /// camera turning a full circle every 600 frames, on a generated farm `size` tiles across. Logs the map's
+    /// prop count and how long a flow field over it takes, which a moving player pays each time they change tile.
+    pub fn bench(size: [usize; 2]) -> Self {
+        let [w, hgt] = size.map(|v| v.clamp(16, 400));
+        let mut h = Self { calm: true, bench: true, ..Self::sized(7, [w, hgt]) };
+        let start = std::time::Instant::now();
+        for _ in 0..20 {
+            std::hint::black_box(h.map.flow(h.pos));
+        }
+        eprintln!("bench: {w}x{hgt} tiles, {} props, flow field {:.2} ms", h.map.props.len(), start.elapsed().as_secs_f64() * 1000.0 / 20.0);
         h.birds.clear();
         for i in 0..MAX_ZOMBIES {
             let a = i as f32 * 2.399;
