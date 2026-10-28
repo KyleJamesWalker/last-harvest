@@ -361,12 +361,16 @@ pub(super) fn place(cursor: &mut [u16; 3], [w, h]: [u16; 2]) -> Option<[u16; 2]>
 
 /// Draws each enemy and player card's frames into the free rows of `atlas` and keeps its kind for the roster and
 /// its look for the player; `base` is the enemy file the enemy cards join. Returns a line for each card left out.
-pub(crate) fn install_cards(cards: &[Card], players: &[Card], base: &str, atlas: &mut [u8]) -> Vec<String> {
+pub(crate) fn install_cards(cards: &[Card], players: &[Card], props: &[Card], base: &str, atlas: &mut [u8]) -> Vec<String> {
     let mut cursor = start();
     let (mut notes, mut rects, kept) = pack(cards, base, atlas, &mut cursor);
     let (more, player_rects, looks) = super::players::pack(players, atlas, &mut cursor, art::RECTS.len() + rects.len());
     notes.extend(more);
     rects.extend(player_rects);
+    let (more, prop_rects, named) = super::props::pack(props, atlas, &mut cursor, art::RECTS.len() + rects.len());
+    notes.extend(more);
+    rects.extend(prop_rects);
+    super::props::set_props(named);
     art::set_added(rects);
     CARDS.set(kept).ok();
     super::players::install(looks);

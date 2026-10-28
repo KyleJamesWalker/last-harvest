@@ -54,15 +54,25 @@ pub fn read(name: &str, bytes: &[u8]) -> Result<Card, String> {
     read_as(Kind::Enemy, name, bytes)
 }
 
-/// Reads a card of `kind`; `name` is for messages.
-pub fn read_as(kind: Kind, name: &str, bytes: &[u8]) -> Result<Card, String> {
+/// A card-like PNG as read: its text, its size, its RGBA pixels, and its rows chunk if it has one.
+pub(crate) struct Decoded {
+    pub text: String,
+    pub w: u32,
+    pub h: u32,
+    pub sheet: Vec<u8>,
+    pub rows: Option<String>,
+}
+
+/// Reads a PNG no bigger than `max` with its text under `keyword`; `noun` and `name` are for messages. The size is
+/// checked before decoding, since the file may come from anyone.
+pub(crate) fn decode(keyword: &str, noun: &str, name: &str, bytes: &[u8], max: [u32; 2]) -> Result<Decoded, String> {
     let fail = |e: &dyn std::fmt::Display| format!("{name}: {e}");
     let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes));
     decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16 | png::Transformations::ALPHA);
     let mut reader = decoder.read_info().map_err(|e| fail(&e))?;
     let (w, h) = (reader.info().width, reader.info().height);
-    if w > MAX_SHEET[0] || h > MAX_SHEET[1] {
-        return Err(fail(&format!("{w}x{h} is bigger than a card can be, {}x{}", MAX_SHEET[0], MAX_SHEET[1])));
+    if w > max[0] || h > max[1] {
+        return Err(fail(&format!("{w}x{h} is bigger than {noun} can be, {}x{}", max[0], max[1])));
     }
     let mut buf = vec![0; reader.output_buffer_size()];
     let frame = reader.next_frame(&mut buf).map_err(|e| fail(&e))?;
@@ -73,17 +83,41 @@ pub fn read_as(kind: Kind, name: &str, bytes: &[u8]) -> Result<Card, String> {
         other => return Err(fail(&format!("unexpected color type {other:?}"))),
     };
     reader.finish().map_err(|e| fail(&e))?;
-    let keyword = kind.keyword();
-    let text = reader.info().utf8_text.iter().find(|t| t.keyword == keyword).ok_or_else(|| fail(&format!("no {keyword} text, so not {}", kind.noun())))?;
+    let text = reader.info().utf8_text.iter().find(|t| t.keyword == keyword).ok_or_else(|| fail(&format!("no {keyword} text, so not {noun}")))?;
     let mut text = text.clone();
     text.decompress_text().map_err(|e| fail(&e))?;
     let text = text.get_text().map_err(|e| fail(&e))?;
-    let rows = match reader.info().uncompressed_latin1_text.iter().find(|t| t.keyword == ROWS_KEYWORD) {
+    let rows = reader.info().uncompressed_latin1_text.iter().find(|t| t.keyword == ROWS_KEYWORD).map(|t| t.text.clone());
+    Ok(Decoded { text, w: frame.width, h: frame.height, sheet, rows })
+}
+
+/// Writes a PNG of an RGBA sheet `w` by `h` with `text` under `keyword`, and a rows chunk when given.
+pub(crate) fn encode(keyword: &str, text: &str, w: u32, h: u32, rows: Option<&str>, sheet: &[u8]) -> Result<Vec<u8>, String> {
+    let mut out = Vec::new();
+    let mut encoder = png::Encoder::new(&mut out, w, h);
+    encoder.set_color(png::ColorType::Rgba);
+    encoder.set_depth(png::BitDepth::Eight);
+    let mut writer = encoder.write_header().map_err(|e| e.to_string())?;
+    let mut chunk = png::text_metadata::ITXtChunk::new(keyword, text);
+    chunk.compress_text().map_err(|e| e.to_string())?;
+    writer.write_text_chunk(&chunk).map_err(|e| e.to_string())?;
+    if let Some(rows) = rows {
+        writer.write_text_chunk(&png::text_metadata::TEXtChunk::new(ROWS_KEYWORD, rows)).map_err(|e| e.to_string())?;
+    }
+    writer.write_image_data(sheet).map_err(|e| e.to_string())?;
+    writer.finish().map_err(|e| e.to_string())?;
+    Ok(out)
+}
+
+/// Reads a card of `kind`; `name` is for messages.
+pub fn read_as(kind: Kind, name: &str, bytes: &[u8]) -> Result<Card, String> {
+    let fail = |e: &dyn std::fmt::Display| format!("{name}: {e}");
+    let Decoded { text, w, h, sheet, rows } = decode(kind.keyword(), kind.noun(), name, bytes, MAX_SHEET)?;
+    let rows = match rows.as_deref() {
         None => 5,
-        Some(t) if t.text == "6" => 6,
-        Some(t) => return Err(fail(&format!("{ROWS_KEYWORD} is {:?}, but a card has 5 or 6 rows", t.text))),
+        Some("6") => 6,
+        Some(t) => return Err(fail(&format!("{ROWS_KEYWORD} is {t:?}, but a card has 5 or 6 rows"))),
     };
-    let (w, h) = (frame.width, frame.height);
     let cols = match kind {
         Kind::Enemy => last_harvest_game::card_fields(&text).map_or(3, |f| f.walk).max(3) as u32,
         Kind::Player => 3,
@@ -105,20 +139,7 @@ pub fn write(text: &str, w: u32, h: u32, sheet: &[u8]) -> Result<Vec<u8>, String
 
 /// Writes a card of `kind` from its text and an RGBA sheet `w` by `h` pixels, `rows` (5, or 6 with a dead row) down.
 pub fn write_as(kind: Kind, text: &str, w: u32, h: u32, rows: u32, sheet: &[u8]) -> Result<Vec<u8>, String> {
-    let mut out = Vec::new();
-    let mut encoder = png::Encoder::new(&mut out, w, h);
-    encoder.set_color(png::ColorType::Rgba);
-    encoder.set_depth(png::BitDepth::Eight);
-    let mut writer = encoder.write_header().map_err(|e| e.to_string())?;
-    let mut chunk = png::text_metadata::ITXtChunk::new(kind.keyword(), text);
-    chunk.compress_text().map_err(|e| e.to_string())?;
-    writer.write_text_chunk(&chunk).map_err(|e| e.to_string())?;
-    if rows == 6 {
-        writer.write_text_chunk(&png::text_metadata::TEXtChunk::new(ROWS_KEYWORD, "6")).map_err(|e| e.to_string())?;
-    }
-    writer.write_image_data(sheet).map_err(|e| e.to_string())?;
-    writer.finish().map_err(|e| e.to_string())?;
-    Ok(out)
+    encode(kind.keyword(), text, w, h, (rows == 6).then_some("6"), sheet)
 }
 
 #[cfg(test)]
@@ -163,7 +184,7 @@ mod tests {
         let mut encoder = png::Encoder::new(&mut big, 4096, 4);
         encoder.set_color(png::ColorType::Rgba);
         encoder.write_header().unwrap().write_image_data(&vec![0; 4096 * 4 * 4]).unwrap();
-        assert!(read("big.png", &big).err().unwrap().contains("bigger than a card"));
+        assert!(read("big.png", &big).err().unwrap().contains("bigger than an enemy card"));
     }
 
     #[test]

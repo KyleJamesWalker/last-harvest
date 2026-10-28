@@ -143,8 +143,9 @@ enum Section {
     Props,
 }
 
+/// A sprite's frames by name: the game's own, else a prop's.
 fn sprite(name: &str) -> Option<&'static [Art]> {
-    art::ALL.iter().find(|(n, _)| *n == name).map(|(_, f)| *f)
+    art::ALL.iter().find(|(n, _)| *n == name).map(|(_, f)| *f).or_else(|| super::super::props::prop(name).map(|p| p.frames))
 }
 
 impl MapSource {
@@ -289,6 +290,9 @@ impl MapSource {
     }
 }
 
+/// The most frames a prop line can pick among.
+const MAX_FRAME_INDEX: usize = 64;
+
 /// The smallest map the random generator lays a whole farm out on.
 pub const RANDOM_MIN: [usize; 2] = [40, 30];
 
@@ -309,13 +313,17 @@ fn prop_line(words: &[&str]) -> Result<PropLine, String> {
         };
         return Ok(PropLine::Fence { picket, rect: [r[0], r[1], r[2], r[3]], gate });
     }
-    let frames = sprite(words[0]).ok_or_else(|| format!("no sprite called {}", words[0]))?;
+    if !words[0].bytes().all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_') {
+        return Err(format!("{} isn't a sprite name", words[0]));
+    }
+    // Only the frame count is checked here: a player's prop may not be loaded yet when its map is read.
+    let frames = sprite(words[0]).map_or(usize::MAX, <[Art]>::len);
     let at = words.get(1..3).and_then(numbers).ok_or("a prop's name is followed by its x and y")?;
     let (mut frame, mut fps, mut open) = (None, 0.0, 0);
     for pair in words[3..].chunks(2) {
         let value = pair.get(1).and_then(|v| v.parse::<f32>().ok()).filter(|v| v.is_finite() && *v >= 0.0);
         match (pair[0], value) {
-            ("frame", Some(k)) if (k as usize) < frames.len() => frame = Some(k as usize),
+            ("frame", Some(k)) if (k as usize) < frames.min(MAX_FRAME_INDEX) => frame = Some(k as usize),
             ("fps", Some(v)) => fps = v.min(60.0),
             ("open", Some(v)) => open = (v as usize).min(64),
             (word, _) => return Err(format!("{word} after a prop is frame, fps or open with a number in range")),
@@ -458,7 +466,8 @@ impl Map {
                     Some(k) => &frames[(*k).min(frames.len() - 1)..][..1],
                     None => frames,
                 };
-                self.prop(frames, *fps, x, y, *open);
+                let fps = if *fps == 0.0 && frame.is_none() { super::super::props::prop(name).map_or(0.0, |p| p.fps) } else { *fps };
+                self.prop(frames, fps, x, y, *open);
                 if frames[0] == art::WINDMILL {
                     let (px, py) = (x as f32 * TILE, y as f32 * TILE - 6.0);
                     let base = py + 6.0 + art::WINDMILL.h() + 0.1;
@@ -647,6 +656,23 @@ mod tests {
             let src = MapSource::random("Farm", size, seed);
             Map::from_source(&src, &mut Rng::new(1), true).unwrap_or_else(|e| panic!("seed {seed} {size:?}: {e}"));
         }
+    }
+
+    #[test]
+    fn a_map_reads_before_its_players_props_load() {
+        let src = MapSource::parse(&farm("PROP_LATER 3 3 frame 1")).unwrap();
+        assert!(Map::from_source(&src, &mut Rng::new(1), true).err().unwrap().contains("no sprite called PROP_LATER"));
+        assert!(MapSource::parse(&farm("prop_lower 3 3")).unwrap_err().contains("isn't a sprite name"));
+    }
+
+    #[test]
+    fn a_map_places_a_players_prop_by_name() {
+        let fields = super::super::super::props::prop_fields("[map_test_tank]\nfps 6\nstand slab 4").unwrap();
+        super::super::super::props::set_props(vec![(fields, art::WINDMILL_FAN.to_vec())]);
+        let map = read(&farm("PROP_MAP_TEST_TANK 3 3")).unwrap();
+        let p = map.props.iter().find(|p| p.frames[0] == art::WINDMILL_FAN[0]).expect("placed");
+        assert_eq!(p.fps, 6.0, "it turns at the prop's own pace");
+        assert!(read(&farm("PROP_NOT_LOADED 3 3")).err().unwrap().contains("no sprite called PROP_NOT_LOADED"));
     }
 
     #[test]

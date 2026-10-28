@@ -48,6 +48,20 @@ fn maps_folder() -> Option<PathBuf> {
     Some(data_folder()?.join("maps"))
 }
 
+/// `LAST_HARVEST_PROPS`, else `data/props` beside the binary.
+fn props_folder() -> Option<PathBuf> {
+    if let Some(dir) = std::env::var_os("LAST_HARVEST_PROPS") {
+        return Some(dir.into());
+    }
+    Some(data_folder()?.join("props"))
+}
+
+/// The props among `files`, by name, noting any that don't read.
+fn read_props(files: Vec<(String, Vec<u8>)>, problems: &mut Vec<String>) -> Vec<Card> {
+    let props = files.into_iter().filter(|(name, _)| name.ends_with(pack::prop::EXTENSION));
+    props.filter_map(|(name, bytes)| pack::prop::read(&name, &bytes).map_err(|e| problems.push(e)).ok()).collect()
+}
+
 /// The map files among `files`, by name, noting any that aren't text.
 fn read_maps(files: Vec<(String, Vec<u8>)>, problems: &mut Vec<String>) -> Vec<MapFile> {
     let ext = last_harvest_game::MAP_EXTENSION;
@@ -130,7 +144,12 @@ pub fn load() -> Result<Files, String> {
     let cards = read_cards(enemy, pak.take_dir(pack::ENEMY_CARDS), &mut problems);
     let players = read_cards(player, pak.take_dir(pack::PLAYER_CARDS), &mut problems);
     let maps = read_maps(pak.take_dir(pack::MAPS), &mut problems);
-    let mut data = Data { atlas: pak.take(pack::ATLAS), font: pak.take(pack::FONT), powerups, enemies, cards, players, maps };
+    let props = read_props(pak.take_dir(pack::PROPS), &mut problems);
+    let mut data = Data { atlas: pak.take(pack::ATLAS), font: pak.take(pack::FONT), powerups, enemies, cards, players, props, maps };
+    if let Some(dir) = props_folder() {
+        data.props.extend(read_props(samples::read_files(&dir, &[pack::prop::EXTENSION]), &mut problems));
+    }
+    keep_last_of_each_name(&mut data.props);
     if let Some(dir) = maps_folder() {
         data.maps.extend(read_maps(samples::read_files(&dir, &[last_harvest_game::MAP_EXTENSION]), &mut problems));
     }

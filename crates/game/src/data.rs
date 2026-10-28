@@ -14,6 +14,8 @@ pub struct Data {
     pub cards: Vec<Card>,
     /// Player cards, the same sheet as an enemy's with three walking frames, and an id and name for text.
     pub players: Vec<Card>,
+    /// Players' own props for maps, a sheet of frames one row high with an id and how they stand for text.
+    pub props: Vec<Card>,
     /// Hand-made maps, as found; install keeps the ones that read.
     pub maps: Vec<MapFile>,
 }
@@ -108,14 +110,15 @@ pub fn install(mut data: Data) -> Result<Vec<String>, String> {
     let mut notes = Vec::new();
     let cards = std::mem::take(&mut data.cards);
     let players = std::mem::take(&mut data.players);
-    if !cards.is_empty() || !players.is_empty() {
+    let props = std::mem::take(&mut data.props);
+    if !cards.is_empty() || !players.is_empty() || !props.is_empty() {
         match data.atlas.take().or(built_in::ATLAS.map(<[u8]>::to_vec)) {
             Some(mut atlas) => {
                 let base = data.enemies.as_deref().or(built_in::ENEMIES).unwrap_or_else(|| missing("enemies.txt"));
-                notes = crate::harvest::install_cards(&cards, &players, base, &mut atlas);
+                notes = crate::harvest::install_cards(&cards, &players, &props, base, &mut atlas);
                 data.atlas = Some(atlas);
             }
-            None => notes = cards.iter().chain(&players).map(|c| format!("{}: no sprite atlas to draw it into", c.name)).collect(),
+            None => notes = cards.iter().chain(&players).chain(&props).map(|c| format!("{}: no sprite atlas to draw it into", c.name)).collect(),
         }
     }
     let mut maps: Vec<LoadedMap> = Vec::new();
