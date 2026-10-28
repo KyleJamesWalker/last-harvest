@@ -72,7 +72,25 @@ A player card changes how the player looks: `<id>.player.png`, the same five-row
 cargo run -p last-harvest-pack -- card sheet.png ghoul.txt ghoul.enemy.png   # make a card
 cargo run -p last-harvest-pack -- show ghoul.enemy.png                       # its frame size, text and spawn mix
 cargo run -p last-harvest-pack -- show ghoul.pak                             # a pack's files, its cards, and whether the game takes it
+cargo run -p last-harvest-pack -- show old_farm.map.txt                      # whether a map reads, or its first mistake
 ```
+
+A map is a hand-made farm for a run, `<id>.map.txt`: the id is 1 to 24 lowercase letters, digits and `_`. The game reads maps from `maps/` in packs and from `data/maps/` beside the binary (or the folder `LAST_HARVEST_MAPS` names), and the title screen's Map row picks one, or a random farm, for every run after; the choice is saved. A map reads as a header, then its ground, then its props:
+
+```text
+name Old Farm
+size 40 30          # 16x12 to 160x120 tiles
+spawn 12 17         # the player's tile
+home 9 16           # the tile they run back to at dawn
+scatter             # optional: trees, bushes and wrecks over the rest of the open ground, new each run
+ground              # `size` rows of one code per tile
+..........vvv...........,,,......ccccc..
+props
+HOUSE 6 9 open 1    # a sprite by name and its top-left tile; `open` top rows don't block, `frame` picks one, `fps` animates
+fence rail 25 4 10 8 gate 4
+```
+
+The ground codes are `.` dirt, `,` dirt with tufts, `g` grass, `s` soil, `p` sprouts, `c` corn, `v` and `h` roads running north-south and east-west, and `=` a path; roads and paths join up with their neighbours, and corn grows a top and bottom at a field's edges. A fence is `rail` or `picket` round a rectangle, with an optional two-tile gate that many tiles from its left. A ring of trees and bushes always closes the edge, and the spawn and home must be open, off the edge, and joined by open ground. A map that doesn't read is left out with its first mistake on the title screen; `sync-data.sh` copies `assets/private/maps/` to the device.
 
 A mod pack is a `.pak` in `data/mods/` beside the binary (or the folder `LAST_HARVEST_MODS` names). The game lays each over `game_data.pak` in file-name order, a mod's file replacing the base file at the same path: a sound in `sounds/`, a card in `enemies/`, or `enemies.txt` or `powerups.txt` themselves. A mod with an atlas must be built for this version of the game. A card in `data/enemies/` or `data/players/` replaces a mod's card of the same file name. A mod that can't load is left out, like a card; the packer refuses one whose tables the game would refuse. Stats counts the cards and mods that loaded. That lets a card bring its own death sound: put `enemies/ghoul.enemy.png` and `sounds/kill-ghoul.ogg` in a folder and run `cargo run -p last-harvest-pack -- mod <folder> ghoul.pak`.
 
@@ -190,7 +208,7 @@ scripts/debug.sh panic                      # crash on purpose to test crash.log
 scripts/debug.sh logs                       # follow the game log, with a perf line each second: FPS, frame times, and CPU ms in update, frame building and rendering
 ```
 
-The scene names are `title`, `harvest`, `farm` (the game without zombies, for looking around; X drops one a few steps ahead), `bench` (a frozen horde of 300 with every effect showing, turning a full circle every 600 frames, for comparing frame rates between builds), `art` and `hardware`. On macOS, set `LAST_HARVEST_DEBUG=1` and write commands to the pipe directly.
+The scene names are `title`, `harvest`, `farm` (the game without zombies, for looking around; X drops one a few steps ahead), `bench` (a frozen horde of 300 with every effect showing, turning a full circle every 600 frames, for comparing frame rates between builds; `bench-160x120` and the like build it on a farm that many tiles across and log the map's flow field time), `art` and `hardware`. On macOS, set `LAST_HARVEST_DEBUG=1` and write commands to the pipe directly.
 
 ### Environment variables
 
@@ -203,6 +221,7 @@ The scene names are `title`, `harvest`, `farm` (the game without zombies, for lo
 | `LAST_HARVEST_ENEMIES` | Sets the folder of enemy cards. The default is `data/enemies` beside the binary. |
 | `LAST_HARVEST_PLAYERS` | Sets the folder of player cards. The default is `data/players` beside the binary. |
 | `LAST_HARVEST_MODS` | Sets the folder of mod packs. The default is `data/mods` beside the binary. |
+| `LAST_HARVEST_MAPS` | Sets the folder of maps. The default is `data/maps` beside the binary. |
 | `LAST_HARVEST_PAK` | Sets the data pack path. The default is `data/game_data.pak` beside the binary. |
 | `LAST_HARVEST_SOUNDS` | Sets the folder of recorded sounds, over the pack's. Without a pack, the default is `sounds` beside the binary, then `assets/private/sounds`. |
 | `LAST_HARVEST_TOP` | Names the output for the top screen, such as `DSI-2`. |
