@@ -58,6 +58,16 @@ pub trait Store {
         Vec::new()
     }
 
+    /// A player's prop's PNG, by id.
+    fn prop_bytes(&self, _id: &str) -> Option<Vec<u8>> {
+        None
+    }
+
+    /// Keeps a prop's PNG, as Import does.
+    fn put_prop(&self, _id: &str, _bytes: &[u8]) -> Result<(), String> {
+        Err("props aren't kept here".into())
+    }
+
     /// A map's text, by id.
     fn read_map(&self, _id: &str) -> Option<String> {
         None
@@ -70,6 +80,91 @@ pub trait Store {
     /// The saved copy if there is one, else the packed frames.
     fn load(&self, name: &str) -> Option<Sprite> {
         Sprite::load_from(name, |file| self.read(name, file))
+    }
+}
+
+/// Players' props as the editor sees them: one PNG each, opened as a sprite `PROP_<ID>` whose text rides along
+/// as its card text.
+pub mod props {
+    use last_harvest_pack::prop;
+
+    use crate::sprite::{self, Frame, Sprite};
+
+    /// The id a prop's sprite name carries, such as `rusty_tank` for `PROP_RUSTY_TANK`.
+    pub fn id(name: &str) -> Option<String> {
+        let id = name.strip_prefix(last_harvest_game::PROP_PREFIX)?.to_ascii_lowercase();
+        last_harvest_game::valid_map_id(&id).then_some(id)
+    }
+
+    pub fn name(id: &str) -> String {
+        format!("{}{}", last_harvest_game::PROP_PREFIX, id.to_ascii_uppercase())
+    }
+
+    /// The prop's frames, side by side, as the editor's frames.
+    fn frames(bytes: &[u8]) -> Option<(String, Vec<Frame>)> {
+        let p = prop::read("prop", bytes).ok()?;
+        let [w, h] = p.frame.map(|v| v as usize);
+        let n = (p.sheet.len() / (w * h * 4)).max(1);
+        let frames = (0..n)
+            .map(|k| {
+                let px = (0..h).flat_map(|y| (0..w).map(move |x| (y * w * n + k * w + x) * 4)).map(|i| [p.sheet[i], p.sheet[i + 1], p.sheet[i + 2], p.sheet[i + 3]]).collect();
+                Frame { w, h, px }
+            })
+            .collect();
+        Some((p.text, frames))
+    }
+
+    /// A file of a prop's sprite, as `Store::read` hands it out: a frame, or its text.
+    pub fn file(bytes: &[u8], file: &str) -> Option<Vec<u8>> {
+        let (text, frames) = frames(bytes)?;
+        if file == sprite::CARD_FILE {
+            return Some(text.into_bytes());
+        }
+        let k: usize = file.strip_suffix(".png")?.parse().ok()?;
+        frames.get(k).map(sprite::encode_png)
+    }
+
+    /// How a prop stands, as its text says, for `Store::stand`.
+    pub fn stand(bytes: &[u8]) -> Option<String> {
+        let text = prop::read("prop", bytes).ok()?.text;
+        text.lines().find_map(|l| l.trim().strip_prefix("stand ").map(str::to_string))
+    }
+
+    /// A prop's PNG from the sprite's frames and text, its frame count set to theirs.
+    pub fn from_sprite(sprite: &Sprite) -> Result<Vec<u8>, String> {
+        let id = id(&sprite.name).ok_or("not a prop")?;
+        let first = sprite.frames.first().ok_or("a prop has a frame")?;
+        let (w, h, n) = (first.w, first.h, sprite.frames.len());
+        let max = last_harvest_game::PROP_MAX_FRAME as usize;
+        if sprite.frames.iter().any(|f| (f.w, f.h) != (w, h)) || w > max || h > max || n > last_harvest_game::PROP_MAX_FRAMES as usize {
+            return Err(format!("a prop's frames are one size, at most {max} pixels a side, and {} at most", last_harvest_game::PROP_MAX_FRAMES));
+        }
+        let mut fields = sprite.card.as_deref().and_then(|t| last_harvest_game::prop_fields(t).ok()).unwrap_or_else(|| blank(&id));
+        fields.id = id;
+        fields.frames = n as u32;
+        let mut sheet = vec![0u8; w * n * h * 4];
+        for (k, f) in sprite.frames.iter().enumerate() {
+            for y in 0..h {
+                for x in 0..w {
+                    let i = (y * w * n + k * w + x) * 4;
+                    sheet[i..i + 4].copy_from_slice(&f.px[y * w + x]);
+                }
+            }
+        }
+        prop::write(&last_harvest_game::prop_text(&fields), (w * n) as u32, h as u32, &sheet)
+    }
+
+    /// The prop with its stand set from how the editor writes one; carving isn't something a prop does.
+    pub fn with_stand(bytes: &[u8], how: &str) -> Result<Vec<u8>, String> {
+        let p = prop::read("prop", bytes)?;
+        let mut fields = last_harvest_game::prop_fields(&p.text)?;
+        let stand = last_harvest_game::prop_fields(&format!("[{}]\nstand {how}", fields.id)).map_err(|_| "a prop stands as a prop, slab, figure or ground".to_string())?;
+        fields.stand = stand.stand;
+        prop::write(&last_harvest_game::prop_text(&fields), p.frame[0] * fields.frames, p.frame[1], &p.sheet)
+    }
+
+    pub fn blank(id: &str) -> last_harvest_game::PropFields {
+        last_harvest_game::PropFields { id: id.into(), frames: 1, fps: 0.0, open: 0, stand: None }
     }
 }
 
@@ -274,7 +369,7 @@ pub use fs::FsStore;
 mod fs {
     use std::path::PathBuf;
 
-    use super::{Store, cards};
+    use super::{Store, cards, props};
     use crate::history::{Commit, Repo};
     use crate::sprite::{self, CardKind, Sprite};
 
@@ -311,6 +406,19 @@ mod fs {
             self.cards.with_file_name("maps")
         }
 
+        /// Props keep to a `props` folder beside the cards.
+        fn prop_path(&self, id: &str) -> PathBuf {
+            self.cards.with_file_name("props").join(format!("{id}{}", last_harvest_pack::prop::EXTENSION))
+        }
+
+        fn prop_ids(&self) -> Vec<String> {
+            let found = std::fs::read_dir(self.cards.with_file_name("props")).into_iter().flatten().flatten();
+            let ids = found.filter_map(|e| e.file_name().into_string().ok()?.strip_suffix(last_harvest_pack::prop::EXTENSION).map(str::to_string));
+            let mut ids: Vec<String> = ids.filter(|id| last_harvest_game::valid_map_id(id)).collect();
+            ids.sort();
+            ids
+        }
+
         fn ids(&self, kind: CardKind) -> Vec<String> {
             let found = std::fs::read_dir(self.folder(kind)).into_iter().flatten().flatten();
             found.filter_map(|e| e.file_name().into_string().ok()?.strip_suffix(kind.extension()).map(str::to_string)).collect()
@@ -323,10 +431,14 @@ mod fs {
             for kind in [CardKind::Enemy, CardKind::Player] {
                 names.extend(cards::listing(kind, self.ids(kind)));
             }
+            names.extend(self.prop_ids().iter().map(|id| (props::name(id), true)));
             names
         }
 
         fn read(&self, name: &str, file: &str) -> Option<Vec<u8>> {
+            if let Some(id) = props::id(name) {
+                return props::file(&std::fs::read(self.prop_path(&id)).ok()?, file);
+            }
             match self.card_path(name) {
                 Some(path) => cards::file(&std::fs::read(path).ok()?, name, file),
                 None => std::fs::read(self.dir.join(name).join(file)).ok(),
@@ -334,6 +446,9 @@ mod fs {
         }
 
         fn save(&self, sprite: &Sprite) -> Result<(), String> {
+            if let Some(id) = props::id(&sprite.name) {
+                return self.put_prop(&id, &props::from_sprite(sprite)?);
+            }
             let Some(path) = self.card_path(&sprite.name) else { return sprite.save(&self.dir) };
             let bytes = cards::with_part(std::fs::read(&path).ok().as_deref(), sprite)?;
             let dir = path.parent().unwrap_or(&self.cards);
@@ -345,12 +460,19 @@ mod fs {
             if sprite::card_id(name).is_some() {
                 return Some("figure".into());
             }
+            if let Some(id) = props::id(name) {
+                return props::stand(&std::fs::read(self.prop_path(&id)).ok()?);
+            }
             sprite::read_stand(&self.dir, &self.catalog, name)
         }
 
         fn save_stand(&self, name: &str, how: &str) -> Result<(), String> {
             if sprite::card_id(name).is_some() {
                 return Ok(());
+            }
+            if let Some(id) = props::id(name) {
+                let bytes = std::fs::read(self.prop_path(&id)).map_err(|e| e.to_string())?;
+                return self.put_prop(&id, &props::with_stand(&bytes, how)?);
             }
             sprite::save_stand(&self.dir, &self.catalog, name, how)
         }
@@ -373,6 +495,20 @@ mod fs {
             let path = dir.join(format!("{id}{}", kind.extension()));
             std::fs::write(&path, bytes).map_err(|e| format!("{}: {e}", path.display()))?;
             Ok(names[0].clone())
+        }
+
+        fn prop_bytes(&self, id: &str) -> Option<Vec<u8>> {
+            last_harvest_game::valid_map_id(id).then(|| std::fs::read(self.prop_path(id)).ok()).flatten()
+        }
+
+        fn put_prop(&self, id: &str, bytes: &[u8]) -> Result<(), String> {
+            if !last_harvest_game::valid_map_id(id) {
+                return Err(format!("{id} can't name a prop"));
+            }
+            last_harvest_pack::prop::read(id, bytes)?;
+            let path = self.prop_path(id);
+            std::fs::create_dir_all(path.parent().unwrap_or(&self.cards)).map_err(|e| e.to_string())?;
+            std::fs::write(&path, bytes).map_err(|e| format!("{}: {e}", path.display()))
         }
 
         fn map_ids(&self) -> Vec<String> {

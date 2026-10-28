@@ -1,11 +1,23 @@
 //! Hand-made maps: opened from the list as `MAP_<ID>`, drawn from above on the canvas by the game's own map
 //! drawing, and painted with ground, props, fences, the spawn and home.
 
-use last_harvest_game::{MAP_GROUND, MAP_PROPS, MapSource, PropLine, SCREEN_H, SCREEN_W};
+use last_harvest_game::art::Art;
+use last_harvest_game::{MAP_GROUND, MAP_PROPS, MapSource, PropFields, PropLine, SCREEN_H, SCREEN_W};
 
 use super::*;
 
 const TILE: f32 = 16.0;
+
+/// Files by name, or by their path in a pack.
+type Files = Vec<(String, Vec<u8>)>;
+
+/// What the picker offers: players' props as packed for the previews, then the game's own, each with its sprite
+/// name, walk-through rows and a frame to show.
+fn pickable() -> Vec<(String, usize, Option<Art>)> {
+    let own = MAP_PROPS.iter().map(|(n, open)| (n.to_string(), *open, last_harvest_game::art::ALL.iter().find(|(a, _)| a == n).map(|(_, f)| f[0])));
+    let players = last_harvest_game::named_props().into_iter().map(|p| (p.name, p.open, p.frames.first().copied()));
+    players.chain(own).collect()
+}
 
 /// What a press on the map does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -218,6 +230,133 @@ impl MapEdit {
 }
 
 impl Editor {
+    /// Every player's prop the store keeps, to pack for the previews while a map is open: their frames, in turn,
+    /// and each one's fields and frame count.
+    pub(super) fn prop_surfaces(&self) -> (Vec<Frame>, Vec<(PropFields, usize)>) {
+        let (mut frames, mut props) = (Vec::new(), Vec::new());
+        for (name, _) in self.names.iter().filter(|(n, _)| n.starts_with(last_harvest_game::PROP_PREFIX)) {
+            let Some(s) = self.store.load(name) else { continue };
+            let Some(f) = s.card.as_deref().and_then(|t| last_harvest_game::prop_fields(t).ok()) else { continue };
+            props.push((f, s.frames.len()));
+            frames.extend(s.frames);
+        }
+        (frames, props)
+    }
+
+    /// Tells the game which packed arts are which player's prop, so maps place them by name, and checks the open
+    /// map again now they can.
+    pub(super) fn register_props(&mut self) {
+        let mut at = 0;
+        let mut named = Vec::new();
+        for (f, n) in &self.map_props {
+            let Some(arts) = self.live.get(at..at + n) else { break };
+            named.push((f.clone(), arts.to_vec()));
+            at += n;
+        }
+        last_harvest_game::set_props(named);
+        if let Some(m) = &mut self.map {
+            m.check();
+            m.changed = true;
+        }
+    }
+
+    /// The open map's file and every player's prop it places, as saved, for Export; None with a word why.
+    pub fn export_map(&mut self) -> Option<(String, Files)> {
+        let m = self.map.as_ref()?;
+        if m.dirty {
+            self.say("Save the map first: Export gives the saved copy");
+            return None;
+        }
+        let id = m.id.clone();
+        let text = self.store.read_map(&id)?;
+        let ext = last_harvest_game::MAP_EXTENSION;
+        let mut files = vec![(format!("{}{id}{ext}", last_harvest_pack::MAPS), text.into_bytes())];
+        let mut missing = Vec::new();
+        for (_, p) in &m.src.props {
+            let PropLine::Sprite { name, .. } = p else { continue };
+            let Some(pid) = crate::store::props::id(name) else { continue };
+            let file = format!("{}{pid}{}", last_harvest_pack::PROPS, last_harvest_pack::prop::EXTENSION);
+            if files.iter().any(|(f, _)| *f == file) {
+                continue;
+            }
+            match self.store.prop_bytes(&pid) {
+                Some(bytes) => files.push((file, bytes)),
+                None => missing.push(name.clone()),
+            }
+        }
+        let props = files.len() - 1;
+        let with = if props == 0 { String::new() } else { format!(" with {props} prop{}", if props == 1 { "" } else { "s" }) };
+        let note = if missing.is_empty() { String::new() } else { format!("; not kept here: {}", missing.join(", ")) };
+        self.say(format!("Exported {id}{with} as {id}.pak: put it in the game's data/mods{note}"));
+        Some((format!("{id}.pak"), files))
+    }
+
+    /// The open prop's file and PNG as saved, for Export; None with a word why.
+    pub fn export_prop(&mut self) -> Option<(String, Vec<u8>)> {
+        let id = crate::store::props::id(&self.sprite.name)?;
+        if self.unsaved() {
+            self.say("Save the prop first: Export gives the saved copy");
+            return None;
+        }
+        let bytes = self.store.prop_bytes(&id)?;
+        let file = format!("{id}{}", last_harvest_pack::prop::EXTENSION);
+        self.say(format!("Exported {file}"));
+        Some((file, bytes))
+    }
+
+    /// Every saved map and player's prop by its path in a pack, for Export all.
+    pub fn all_maps_and_props(&self) -> Files {
+        let maps = self.store.map_ids().into_iter().filter_map(|id| {
+            let text = self.store.read_map(&id)?;
+            Some((format!("{}{id}{}", last_harvest_pack::MAPS, last_harvest_game::MAP_EXTENSION), text.into_bytes()))
+        });
+        let props = self.names.iter().filter_map(|(n, _)| crate::store::props::id(n)).filter_map(|id| {
+            let bytes = self.store.prop_bytes(&id)?;
+            Some((format!("{}{id}{}", last_harvest_pack::PROPS, last_harvest_pack::prop::EXTENSION), bytes))
+        });
+        maps.chain(props).collect()
+    }
+
+    /// Takes in props, then maps, by file name, as Import does from a `.map.txt`, a `.prop.png` or a pack's
+    /// `maps/` and `props/`; opens the first map, else the first prop, and says what came in and what didn't.
+    pub fn import_maps(&mut self, source: &str, maps: Files, props: Files) {
+        if self.unsaved() {
+            return self.say("Save or revert first: Import opens what it brings in");
+        }
+        let (mut took, mut problems, mut first) = (Vec::new(), Vec::new(), None);
+        for (file, bytes) in &props {
+            let read = last_harvest_pack::prop::read(file, bytes).and_then(|p| last_harvest_game::prop_fields(&p.text).map_err(|e| format!("{file}: {e}")));
+            match read.and_then(|f| self.store.put_prop(&f.id, bytes).map(|()| f.id)) {
+                Ok(id) => {
+                    took.push(crate::store::props::name(&id));
+                    first.get_or_insert(crate::store::props::name(&id));
+                }
+                Err(e) => problems.push(e),
+            }
+        }
+        let mut first_map = None;
+        for (file, bytes) in &maps {
+            let id = file.strip_suffix(last_harvest_game::MAP_EXTENSION).unwrap_or(file);
+            let read = std::str::from_utf8(bytes).map_err(|_| format!("{file}: not text")).and_then(|t| MapSource::parse(t).map(|s| s.to_text()).map_err(|e| format!("{file}: {e}")));
+            match read.and_then(|text| if last_harvest_game::valid_map_id(id) { self.store.save_map(id, &text) } else { Err(format!("{file}: a map's file name is lowercase letters, digits and _")) }) {
+                Ok(()) => {
+                    let name = format!("{}{}", sprite::MAP_PREFIX, id.to_ascii_uppercase());
+                    took.push(name.clone());
+                    first_map.get_or_insert(name);
+                }
+                Err(e) => problems.push(e),
+            }
+        }
+        self.names = self.all_names();
+        if let Some(name) = first_map.or(first) {
+            self.open(&name);
+            self.reveal();
+        }
+        let took = if took.is_empty() { format!("Nothing came in from {source}") } else { format!("Imported {} from {source}", took.join(", ")) };
+        let note = problems.first().map_or(String::new(), |p| format!("; left out {}: {p}", problems.len()));
+        self.say(format!("{took}{note}"));
+    }
+
     pub(super) fn map_id_of(name: &str) -> Option<String> {
         let id = name.strip_prefix(sprite::MAP_PREFIX)?.to_ascii_lowercase();
         last_harvest_game::valid_map_id(&id).then_some(id)
@@ -327,12 +466,18 @@ impl Editor {
                 }
             }
             MapTool::Prop => {
+                let count = pickable().len();
                 for k in 0..PICK_ACROSS * PICK_ROWS {
                     let i = m.pick_scroll * PICK_ACROSS + k;
-                    if i < MAP_PROPS.len() {
+                    if i < count {
                         let (x, y) = (SIDE_X + (k % PICK_ACROSS) as f32 * PICK_CELL, PICK_TOP + (k / PICK_ACROSS) as f32 * PICK_CELL);
                         push(x, y, PICK_CELL - 4.0, PICK_CELL - 4.0, Action::PickProp(i), "", m.prop == i);
                     }
+                }
+                if count > PICK_ACROSS * PICK_ROWS {
+                    let y = PICK_TOP + PICK_ROWS as f32 * PICK_CELL + 2.0;
+                    push(SIDE_X, y, 114.0, 30.0, Action::PickPage(-1), "<", false);
+                    push(SIDE_X + 118.0, y, 114.0, 30.0, Action::PickPage(1), ">", false);
                 }
             }
             MapTool::Fence => {
@@ -356,6 +501,7 @@ impl Editor {
             Action::MapTool(t) => m.tool = t,
             Action::Ground(code) => m.ground = code,
             Action::PickProp(i) => m.prop = i,
+            Action::PickPage(d) => m.scroll_picker(d * PICK_ROWS as i32),
             Action::Picket(on) => m.picket = on,
             Action::MapFit => m.fit(),
             Action::Randomize => {
@@ -420,9 +566,10 @@ impl Editor {
                 }
             },
             MapTool::Prop => {
-                let (name, open) = MAP_PROPS[m.prop];
-                m.src.props.push((0, PropLine::Sprite { name: name.into(), at, frame: None, fps: 0.0, open }));
-                m.edited();
+                if let Some((name, open, _)) = pickable().into_iter().nth(m.prop) {
+                    m.src.props.push((0, PropLine::Sprite { name, at, frame: None, fps: 0.0, open }));
+                    m.edited();
+                }
             }
             MapTool::Erase => {
                 m.stroke = true;
@@ -493,8 +640,7 @@ impl Editor {
     pub(super) fn map_wheel(&mut self, p: [f32; 2], dy: f32) {
         let Some(m) = &mut self.map else { return };
         if m.tool == MapTool::Prop && p[0] >= SIDE_X && (PICK_TOP..PICK_TOP + PICK_ROWS as f32 * PICK_CELL).contains(&p[1]) {
-            let rows = MAP_PROPS.len().div_ceil(PICK_ACROSS).saturating_sub(PICK_ROWS);
-            m.pick_scroll = (m.pick_scroll as i32 + dy.signum() as i32).clamp(0, rows as i32) as usize;
+            m.scroll_picker(dy.signum() as i32);
         } else if CANVAS.contains(p) {
             m.zoom(p, if dy < 0.0 { 1.25 } else { 0.8 });
         }
@@ -559,7 +705,8 @@ impl Editor {
                     (0.0, 0.0)
                 }
                 (MapTool::Prop, _) => {
-                    let probe = PropLine::Sprite { name: MAP_PROPS[m.prop].0.into(), at, frame: None, fps: 0.0, open: 0 };
+                    let name = pickable().into_iter().nth(m.prop).map_or_else(String::new, |(n, _, _)| n);
+                    let probe = PropLine::Sprite { name, at, frame: None, fps: 0.0, open: 0 };
                     let [_, _, pw, ph] = probe.rect();
                     (pw as f32 * tile, ph as f32 * tile)
                 }
@@ -575,12 +722,12 @@ impl Editor {
         c.rect(LIST.x, LIST.y, LIST.w, LIST.h, PANEL);
         self.draw_list(c);
         c.label(format!("{}{}", self.sprite.name, if m.dirty { "  (unsaved)" } else { "" }), 12.0, 12.0, 26.0, TEXT, Align::Left);
+        let picks = pickable();
         for b in self.buttons() {
             let r = b.rect;
             c.rect(r.x, r.y, r.w, r.h, if b.on { HOT } else { BUTTON });
             if let Action::PickProp(i) = b.action {
-                let frames = last_harvest_game::art::ALL.iter().find(|(n, _)| *n == MAP_PROPS[i].0).map(|(_, f)| f[0]);
-                if let Some(a) = frames {
+                if let Some(a) = picks.get(i).and_then(|(_, _, a)| *a) {
                     let s = ((r.w - 8.0) / a.w().max(a.h())).min(3.0);
                     c.rect(r.x + 2.0, r.y + 2.0, r.w - 4.0, r.h - 4.0, [0.22, 0.22, 0.25, 1.0]);
                     c.art(a, r.x + (r.w - a.w() * s) / 2.0, r.y + (r.h - a.h() * s) / 2.0, s, false, [1.0; 4]);
@@ -592,7 +739,7 @@ impl Editor {
         let what = match m.tool {
             MapTool::Paint => "Drag to paint; Shift-click: a line".to_string(),
             MapTool::Move => "Drag a prop or fence to move it".to_string(),
-            MapTool::Prop => format!("{}: click to place", MAP_PROPS[m.prop].0),
+            MapTool::Prop => format!("{}: click to place", picks.get(m.prop).map_or("", |(n, _, _)| n.as_str())),
             MapTool::Erase => "Click a prop to take it off".to_string(),
             MapTool::Fence => "Drag a rectangle; the gate goes mid-bottom".to_string(),
             MapTool::Spawn => "Click where the player starts".to_string(),
@@ -608,15 +755,44 @@ impl Editor {
             Some(p) => (format!("The game would leave it out: {p}"), [1.0, 0.5, 0.45, 1.0]),
             None => ("Ready to play".to_string(), [0.5, 0.9, 0.55, 1.0]),
         };
-        let line: String = line.chars().take(78).collect();
-        c.label(line, CANVAS.x, CANVAS.y + CANVAS.h + 36.0, 16.0, color, Align::Left);
+        let mut y = CANVAS.y + CANVAS.h + 36.0;
+        for part in wrap(&line, 70).into_iter().take(2) {
+            c.label(part, CANVAS.x, y, 16.0, color, Align::Left);
+            y += 20.0;
+        }
         if let Some((text, _)) = &self.status {
-            c.label(text.chars().take(90).collect::<String>(), CANVAS.x, CANVAS.y + CANVAS.h + 60.0, 16.0, TEXT, Align::Left);
+            for part in wrap(text, 70).into_iter().take(2) {
+                c.label(part, CANVAS.x, y + 4.0, 16.0, TEXT, Align::Left);
+                y += 20.0;
+            }
         }
     }
 }
 
+/// Breaks `text` into lines of at most `width` characters, between words.
+fn wrap(text: &str, width: usize) -> Vec<String> {
+    let mut lines = vec![String::new()];
+    for word in text.split(' ') {
+        let line = lines.last_mut().unwrap();
+        if !line.is_empty() && line.chars().count() + 1 + word.chars().count() > width {
+            lines.push(word.to_string());
+        } else {
+            if !line.is_empty() {
+                line.push(' ');
+            }
+            line.push_str(word);
+        }
+    }
+    lines
+}
+
 impl MapEdit {
+    /// Moves the prop picker `rows` rows on, or back for fewer than none, within what it holds.
+    fn scroll_picker(&mut self, rows: i32) {
+        let last = pickable().len().div_ceil(PICK_ACROSS).saturating_sub(PICK_ROWS);
+        self.pick_scroll = (self.pick_scroll as i32 + rows).clamp(0, last as i32) as usize;
+    }
+
     fn zoom(&mut self, about: [f32; 2], factor: f32) {
         let fit = (CANVAS.w / (self.src.size[0] as f32 * TILE)).min(CANVAS.h / (self.src.size[1] as f32 * TILE));
         let scale = (self.scale * factor).clamp(fit.min(1.0) * 0.8, MAX_SCALE);
@@ -660,7 +836,14 @@ mod tests {
         click(&mut e, [10, 10]);
         assert_eq!(e.map.as_ref().unwrap().src.ground[10 * 72 + 10], b'g');
         e.act(Action::MapTool(MapTool::Prop), false);
-        e.act(Action::PickProp(0), false);
+        e.act(Action::MapTool(MapTool::Prop), false);
+        e.act(Action::PickPage(1), false);
+        assert_eq!(e.map.as_ref().unwrap().pick_scroll, PICK_ROWS, "> turns a page");
+        assert!(e.buttons().iter().any(|b| b.action == Action::PickPage(-1)), "and < is there to turn back");
+        e.act(Action::PickPage(-5), false);
+        assert_eq!(e.map.as_ref().unwrap().pick_scroll, 0, "no further back than the start");
+        let house = pickable().iter().position(|(n, _, _)| n == "HOUSE").unwrap();
+        e.act(Action::PickProp(house), false);
         click(&mut e, [5, 5]);
         e.act(Action::MapTool(MapTool::Spawn), false);
         click(&mut e, [20, 20]);
@@ -730,5 +913,64 @@ mod tests {
         e.switch_to("BARREL".into());
         e.decide(Choice::Discard);
         assert!(e.map.is_none() && e.sprite.name == "BARREL", "a sprite opens in place of the map");
+    }
+}
+
+#[cfg(test)]
+mod prop_tests {
+    use super::*;
+    use crate::store::FsStore;
+
+    fn store(dir: &std::path::Path) -> Box<FsStore> {
+        Box::new(FsStore { dir: dir.join("sprites"), catalog: dir.join("art.txt"), cards: dir.join("enemies") })
+    }
+
+    fn new(e: &mut Editor, name: &str) {
+        e.act(Action::Ask(Ask::New), false);
+        name.chars().for_each(|ch| e.key(Key::Char(ch)));
+        e.key(Key::Enter);
+    }
+
+    #[test]
+    fn a_map_with_a_players_prop_exports_and_imports_whole() {
+        let dir = std::env::temp_dir().join(format!("lh-props-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut e = Editor::new(store(&dir), "BARREL");
+        new(&mut e, "prop beacon");
+        assert_eq!((e.sprite.name.as_str(), sprite::section("PROP_BEACON")), ("PROP_BEACON", sprite::PROP_SECTION));
+        e.sprite.frames = vec![Frame { w: 16, h: 24, px: vec![[200, 40, 40, 255]; 16 * 24] }; 2];
+        e.act(Action::Fps(1), false);
+        e.dirty = true;
+        e.act(Action::Save, false);
+        let saved = last_harvest_pack::prop::read("b", &std::fs::read(dir.join("props/beacon.prop.png")).unwrap()).unwrap();
+        assert_eq!(saved.frame, [16, 24]);
+        assert!(saved.text.contains("frames 2") && saved.text.contains("fps 7"), "{}", saved.text);
+
+        new(&mut e, "map beacon farm");
+        let frames = e.surfaces();
+        assert_eq!(frames.len(), 2, "the prop's frames pack for the previews");
+        e.set_live(vec![Art(1), Art(2)]);
+        assert!(e.map.as_ref().unwrap().problem.is_none(), "registering the props checks the map again");
+        let picks = pickable();
+        let at = picks.iter().position(|(n, _, _)| n == "PROP_BEACON").expect("the picker offers it");
+        e.act(Action::MapTool(MapTool::Prop), false);
+        e.act(Action::PickProp(at), false);
+        let p = e.map.as_ref().unwrap().screen([10, 10]);
+        e.mouse_down([p[0] + 1.0, p[1] + 1.0], false, false);
+        e.mouse_up();
+        assert!(e.map.as_ref().unwrap().problem.is_none(), "{:?}", e.map.as_ref().unwrap().problem);
+        e.act(Action::Save, false);
+        let (pak, files) = e.export_map().unwrap();
+        assert_eq!(pak, "beacon_farm.pak");
+        let paths: Vec<&str> = files.iter().map(|(f, _)| f.as_str()).collect();
+        assert_eq!(paths, ["maps/beacon_farm.map.txt", "props/beacon.prop.png"]);
+
+        let other = dir.join("elsewhere");
+        let mut fresh = Editor::new(store(&other), "BARREL");
+        let take = |dir: &str| files.iter().filter(|(f, _)| f.starts_with(dir)).map(|(f, b)| (f[dir.len()..].to_string(), b.clone())).collect::<Vec<_>>();
+        fresh.import_maps("beacon_farm.pak", take("maps/"), take("props/"));
+        assert_eq!(fresh.sprite.name, "MAP_BEACON_FARM", "the map opens");
+        assert!(other.join("props/beacon.prop.png").exists() && other.join("maps/beacon_farm.map.txt").exists());
+        assert!(fresh.names.iter().any(|(n, _)| n == "PROP_BEACON"));
     }
 }

@@ -264,6 +264,9 @@ pub fn section(name: &str) -> &'static str {
     if name.starts_with(MAP_PREFIX) {
         return MAP_SECTION;
     }
+    if name.starts_with(last_harvest_game::PROP_PREFIX) {
+        return PROP_SECTION;
+    }
     match card_kind(name) {
         Some(CardKind::Enemy) => return CARD_SECTION,
         Some(CardKind::Player) => return PLAYER_SECTION,
@@ -278,6 +281,8 @@ pub const NEW_SECTION: &str = "New sprites";
 /// A hand-made map lists as `MAP_<ID>` under Maps.
 pub const MAP_PREFIX: &str = "MAP_";
 pub const MAP_SECTION: &str = "Maps";
+/// A player's prop lists as `PROP_<ID>` under Props.
+pub const PROP_SECTION: &str = "Props";
 
 /// Each sprite's heading in catalog text: a comment opens a group when a blank line comes before it and a
 /// sprite right after it.

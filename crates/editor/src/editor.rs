@@ -169,8 +169,10 @@ enum Action {
     StartDefault(usize),
     MapTool(MapTool),
     Ground(u8),
-    /// Picks a prop by its place in `MAP_PROPS`.
+    /// Picks a prop by its place in the map editor's picker.
     PickProp(usize),
+    /// Turns the prop picker a page back or on.
+    PickPage(i32),
     Picket(bool),
     /// Grows or shrinks the map by tiles across and down.
     MapSize(i32, i32),
@@ -303,6 +305,8 @@ pub struct Editor {
     card_parts: Vec<Vec<Frame>>,
     /// The hand-made map being edited, in place of a sprite.
     map: Option<MapEdit>,
+    /// Players' props packed for the previews while a map is open, in order: their fields and frame counts.
+    map_props: Vec<(last_harvest_game::PropFields, usize)>,
     playing: bool,
     clock: f32,
     /// An index into `STANDS`.
@@ -389,6 +393,7 @@ impl Editor {
             figure_at: None,
             card_parts: Vec::new(),
             map: None,
+            map_props: Vec::new(),
             playing: false,
             clock: 0.0,
             stand: 0,
@@ -467,7 +472,9 @@ impl Editor {
     pub fn surfaces(&mut self) -> Vec<Frame> {
         if self.map.is_some() {
             self.figure_at = None;
-            return Vec::new();
+            let (frames, props) = self.prop_surfaces();
+            self.map_props = props;
+            return frames;
         }
         let mut out = self.own_surfaces();
         self.figure_at = None;
@@ -515,6 +522,9 @@ impl Editor {
     /// The frames to show in the previews: all of them while playing, else the one being edited.
     /// A still part's frames show as the game draws them: blank ones from the walk.
     pub fn shown(&self) -> Vec<Art> {
+        if self.map.is_some() {
+            return Vec::new();
+        }
         let n = self.sprite.frames.len().min(self.live.len());
         let still = self.still_row().and_then(|row| self.figure().map(|f| [f.flash, f.hurt, f.dead.unwrap_or(f.hurt)][row - 3]));
         let art = |i: usize| still.and_then(|s| s.get(i).copied()).unwrap_or(self.live[i]);
@@ -528,6 +538,9 @@ impl Editor {
 
     pub fn set_live(&mut self, live: Vec<Art>) {
         self.live = live;
+        if self.map.is_some() {
+            self.register_props();
+        }
     }
 
     pub fn title(&self) -> String {
@@ -650,6 +663,9 @@ impl Editor {
             self.load_stand();
             self.load_family();
             self.load_card_parts();
+            if let Some(fps) = self.sprite.card.as_deref().filter(|_| crate::store::props::id(name).is_some()).and_then(|t| last_harvest_game::prop_fields(t).ok()).map(|f| f.fps).filter(|v| *v > 0.0) {
+                self.fps = fps;
+            }
             self.stats &= self.is_card();
             self.naming = None;
             self.delete_armed = 0.0;
@@ -1307,7 +1323,7 @@ impl Editor {
             return;
         }
         match a {
-            Action::MapTool(_) | Action::Ground(_) | Action::PickProp(_) | Action::Picket(_) | Action::MapSize(..) | Action::Randomize | Action::MapFit => {}
+            Action::MapTool(_) | Action::Ground(_) | Action::PickProp(_) | Action::PickPage(_) | Action::Picket(_) | Action::MapSize(..) | Action::Randomize | Action::MapFit => {}
             Action::Ask(k) => self.ask = Some((k, String::new())),
             Action::Save if self.browse.is_some() => self.say("Restore this version or go back first"),
             Action::Save => {
@@ -1546,6 +1562,11 @@ impl Editor {
             Action::Fps(d) => {
                 self.fps = (self.fps + d as f32).clamp(1.0, 30.0);
                 self.changed = true;
+                if let Some(mut f) = self.sprite.card.as_deref().filter(|_| crate::store::props::id(&self.sprite.name).is_some()).and_then(|t| last_harvest_game::prop_fields(t).ok()) {
+                    f.fps = self.fps;
+                    self.sprite.card = Some(last_harvest_game::prop_text(&f));
+                    self.dirty = true;
+                }
             }
             Action::Color(c) => {
                 self.color = c;
@@ -1877,7 +1898,8 @@ impl Editor {
                     } else {
                         self.ask = None;
                         let (frames, views, footprint, top) = if kind == Ask::Copy { self.snapshot() } else { (vec![Frame::blank(16, 16)], None, None, None) };
-                        self.sprite = Sprite { name: name.clone(), frames, views, footprint, top, card: None };
+                        let card = crate::store::props::id(&name).map(|id| last_harvest_game::prop_text(&crate::store::props::blank(&id)));
+                        self.sprite = Sprite { name: name.clone(), frames, views, footprint, top, card };
                         self.fit();
                         self.view = None;
                         self.frame = 0;

@@ -5,7 +5,7 @@ use web_sys::Storage;
 
 use sprite_editor::history::Commit;
 use sprite_editor::sprite::{self, CardKind, Sprite};
-use sprite_editor::store::{Store, cards};
+use sprite_editor::store::{Store, cards, props};
 
 /// Enemy and player cards keep to their own keys.
 fn key(kind: CardKind, id: &str) -> String {
@@ -22,6 +22,7 @@ fn sound_key(id: &str) -> String {
 
 /// Maps keep to keys of their own, by id.
 const MAP_KEY: &str = "last-harvest-map:";
+const PROP_KEY: &str = "last-harvest-prop:";
 
 pub struct LocalStore {
     storage: Storage,
@@ -47,6 +48,14 @@ impl LocalStore {
         (0..n).filter_map(|i| self.storage.key(i).ok().flatten()?.strip_prefix(&prefix).map(str::to_string)).collect()
     }
 
+    /// The ids kept under keys starting `prefix`, sorted.
+    fn keyed(&self, prefix: &str) -> Vec<String> {
+        let n = self.storage.length().unwrap_or(0);
+        let mut ids: Vec<String> = (0..n).filter_map(|i| self.storage.key(i).ok().flatten()?.strip_prefix(prefix).map(str::to_string)).collect();
+        ids.sort();
+        ids
+    }
+
     /// The kind and id of the card the part `name` belongs to.
     fn card_of(name: &str) -> Option<(CardKind, String)> {
         Some((sprite::card_kind(name)?, sprite::card_id(name)?))
@@ -55,26 +64,48 @@ impl LocalStore {
 
 impl Store for LocalStore {
     fn names(&self) -> Vec<(String, bool)> {
-        [CardKind::Enemy, CardKind::Player].into_iter().flat_map(|k| cards::listing(k, self.ids(k))).collect()
+        let mut names: Vec<(String, bool)> = [CardKind::Enemy, CardKind::Player].into_iter().flat_map(|k| cards::listing(k, self.ids(k))).collect();
+        names.extend(self.keyed(PROP_KEY).iter().map(|id| (props::name(id), true)));
+        names
     }
 
     fn read(&self, name: &str, file: &str) -> Option<Vec<u8>> {
+        if let Some(id) = props::id(name) {
+            return props::file(&self.prop_bytes(&id)?, file);
+        }
         let (kind, id) = Self::card_of(name)?;
         cards::file(&self.get(kind, &id)?, name, file)
     }
 
     fn save(&self, sprite: &Sprite) -> Result<(), String> {
-        let (kind, id) = Self::card_of(&sprite.name).ok_or("the mod editor keeps cards only")?;
+        if let Some(id) = props::id(&sprite.name) {
+            return self.put_prop(&id, &props::from_sprite(sprite)?);
+        }
+        let (kind, id) = Self::card_of(&sprite.name).ok_or("the mod editor keeps cards, props and maps only")?;
         let bytes = cards::with_part(self.get(kind, &id).as_deref(), sprite)?;
         self.put(kind, &id, &bytes)
     }
 
-    fn stand(&self, _name: &str) -> Option<String> {
-        Some("figure".into())
+    fn stand(&self, name: &str) -> Option<String> {
+        match props::id(name) {
+            Some(id) => props::stand(&self.prop_bytes(&id)?),
+            None => Some("figure".into()),
+        }
     }
 
-    fn save_stand(&self, _name: &str, _how: &str) -> Result<(), String> {
-        Ok(())
+    fn save_stand(&self, name: &str, how: &str) -> Result<(), String> {
+        let Some(id) = props::id(name) else { return Ok(()) };
+        let bytes = self.prop_bytes(&id).ok_or("save the prop first")?;
+        self.put_prop(&id, &props::with_stand(&bytes, how)?)
+    }
+
+    fn prop_bytes(&self, id: &str) -> Option<Vec<u8>> {
+        cards::from_text(&self.storage.get_item(&format!("{PROP_KEY}{id}")).ok()??)
+    }
+
+    fn put_prop(&self, id: &str, bytes: &[u8]) -> Result<(), String> {
+        last_harvest_pack::prop::read(id, bytes)?;
+        self.storage.set_item(&format!("{PROP_KEY}{id}"), &cards::to_text(bytes)).map_err(|_| "the browser's storage for this page is full".into())
     }
 
     fn history(&self, _name: &str) -> Option<(Vec<Commit>, bool)> {
@@ -133,10 +164,7 @@ impl Store for LocalStore {
     }
 
     fn map_ids(&self) -> Vec<String> {
-        let n = self.storage.length().unwrap_or(0);
-        let mut ids: Vec<String> = (0..n).filter_map(|i| self.storage.key(i).ok().flatten()?.strip_prefix(MAP_KEY).map(str::to_string)).collect();
-        ids.sort();
-        ids
+        self.keyed(MAP_KEY)
     }
 
     fn read_map(&self, id: &str) -> Option<String> {
