@@ -110,6 +110,9 @@ fn make_mod(dir: &Path, out: &Path) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(kind) = card::Kind::of(path) {
             card::read_as(kind, path, bytes)?;
         }
+        if let Some(file) = map_file(path) {
+            last_harvest_game::check_map(file, String::from_utf8(bytes.clone()).map_err(|_| format!("{path}: not text"))?)?;
+        }
     }
     files.sort_by(|a, b| a.0.cmp(&b.0));
     write(std::fs::File::create(out)?, &files)?;
@@ -123,9 +126,11 @@ fn show_pak(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let pak = last_harvest_pack::Pak::open(path)?;
     for file in pak.paths() {
         let size = pak.get(file).map_or(0, <[u8]>::len);
-        let note = match card::Kind::of(file) {
-            Some(kind) => card::read_as(kind, file, pak.get(file).unwrap_or_default()).map_or_else(|e| format!("  not a card: {e}"), |c| format!("  {}x{} frames", c.frame[0], c.frame[1])),
-            None => String::new(),
+        let bytes = pak.get(file).unwrap_or_default();
+        let note = match (card::Kind::of(file), map_file(file)) {
+            (Some(kind), _) => card::read_as(kind, file, bytes).map_or_else(|e| format!("  not a card: {e}"), |c| format!("  {}x{} frames", c.frame[0], c.frame[1])),
+            (_, Some(name)) => map_note(name, bytes),
+            _ => String::new(),
         };
         println!("{size:>9}  {file}{note}");
     }
@@ -136,9 +141,28 @@ fn show_pak(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// A map's file name, for a path in a pack's `maps/` or a map file anywhere.
+fn map_file(path: &str) -> Option<&str> {
+    let name = path.strip_prefix(last_harvest_pack::MAPS).unwrap_or(path);
+    let name = name.rsplit('/').next().unwrap_or(name);
+    name.ends_with(last_harvest_game::MAP_EXTENSION).then_some(name)
+}
+
+fn map_note(name: &str, bytes: &[u8]) -> String {
+    match std::str::from_utf8(bytes).map_err(|_| "not text".to_string()).and_then(|t| last_harvest_game::check_map(name, t.to_string())) {
+        Ok(m) => format!("  map: {}", m.name),
+        Err(e) => format!("  not a map: {e}"),
+    }
+}
+
 fn show(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
     if path.extension().is_some_and(|e| e == "pak") {
         return show_pak(path);
+    }
+    let shown = path.to_string_lossy();
+    if let Some(name) = map_file(&shown) {
+        println!("{}", map_note(name, &std::fs::read(path)?).trim_start());
+        return Ok(());
     }
     let kind = card::Kind::of(&path.to_string_lossy()).unwrap_or(card::Kind::Enemy);
     let card = card::read_as(kind, &path.display().to_string(), &std::fs::read(path)?)?;
@@ -183,7 +207,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ["show", _] => return show(&args[1]),
         ["mod", _, _] => return make_mod(&args[1], &args[2]),
         ["card", ..] | ["player", ..] | ["show", ..] | ["mod", ..] => {
-            return Err("usage: card <sheet.png> <enemy.txt> <name.enemy.png> | player <sheet.png> <player.txt> <name.player.png> | show <card or pak> | mod <folder> <name.pak>".into());
+            return Err("usage: card <sheet.png> <enemy.txt> <name.enemy.png> | player <sheet.png> <player.txt> <name.player.png> | show <card, map or pak> | mod <folder> <name.pak>".into());
         }
         _ => {}
     }
