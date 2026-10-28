@@ -53,6 +53,20 @@ pub trait Store {
         Err("cards are removed from the enemies and players folders here".into())
     }
 
+    /// Every hand-made map kept here, by id.
+    fn map_ids(&self) -> Vec<String> {
+        Vec::new()
+    }
+
+    /// A map's text, by id.
+    fn read_map(&self, _id: &str) -> Option<String> {
+        None
+    }
+
+    fn save_map(&self, _id: &str, _text: &str) -> Result<(), String> {
+        Err("maps aren't kept here".into())
+    }
+
     /// The saved copy if there is one, else the packed frames.
     fn load(&self, name: &str) -> Option<Sprite> {
         Sprite::load_from(name, |file| self.read(name, file))
@@ -292,6 +306,11 @@ mod fs {
             Some(self.folder(kind).join(format!("{id}{}", kind.extension())))
         }
 
+        /// Maps keep to a `maps` folder beside the cards.
+        fn maps(&self) -> PathBuf {
+            self.cards.with_file_name("maps")
+        }
+
         fn ids(&self, kind: CardKind) -> Vec<String> {
             let found = std::fs::read_dir(self.folder(kind)).into_iter().flatten().flatten();
             found.filter_map(|e| e.file_name().into_string().ok()?.strip_suffix(kind.extension()).map(str::to_string)).collect()
@@ -354,6 +373,27 @@ mod fs {
             let path = dir.join(format!("{id}{}", kind.extension()));
             std::fs::write(&path, bytes).map_err(|e| format!("{}: {e}", path.display()))?;
             Ok(names[0].clone())
+        }
+
+        fn map_ids(&self) -> Vec<String> {
+            let found = std::fs::read_dir(self.maps()).into_iter().flatten().flatten();
+            let ids = found.filter_map(|e| e.file_name().into_string().ok()?.strip_suffix(last_harvest_game::MAP_EXTENSION).map(str::to_string));
+            let mut ids: Vec<String> = ids.filter(|id| last_harvest_game::valid_map_id(id)).collect();
+            ids.sort();
+            ids
+        }
+
+        fn read_map(&self, id: &str) -> Option<String> {
+            let ok = last_harvest_game::valid_map_id(id);
+            ok.then(|| std::fs::read_to_string(self.maps().join(format!("{id}{}", last_harvest_game::MAP_EXTENSION))).ok()).flatten()
+        }
+
+        fn save_map(&self, id: &str, text: &str) -> Result<(), String> {
+            if !last_harvest_game::valid_map_id(id) {
+                return Err(format!("{id} can't name a map"));
+            }
+            std::fs::create_dir_all(self.maps()).map_err(|e| e.to_string())?;
+            std::fs::write(self.maps().join(format!("{id}{}", last_harvest_game::MAP_EXTENSION)), text).map_err(|e| e.to_string())
         }
 
         fn delete_card(&self, name: &str) -> Result<(), String> {

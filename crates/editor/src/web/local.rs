@@ -20,6 +20,9 @@ fn sound_key(id: &str) -> String {
     format!("last-harvest-sound:{id}")
 }
 
+/// Maps keep to keys of their own, by id.
+const MAP_KEY: &str = "last-harvest-map:";
+
 pub struct LocalStore {
     storage: Storage,
 }
@@ -127,5 +130,20 @@ impl Store for LocalStore {
             let _ = self.storage.remove_item(&sound_key(&id));
         }
         Ok(())
+    }
+
+    fn map_ids(&self) -> Vec<String> {
+        let n = self.storage.length().unwrap_or(0);
+        let mut ids: Vec<String> = (0..n).filter_map(|i| self.storage.key(i).ok().flatten()?.strip_prefix(MAP_KEY).map(str::to_string)).collect();
+        ids.sort();
+        ids
+    }
+
+    fn read_map(&self, id: &str) -> Option<String> {
+        self.storage.get_item(&format!("{MAP_KEY}{id}")).ok()?
+    }
+
+    fn save_map(&self, id: &str, text: &str) -> Result<(), String> {
+        self.storage.set_item(&format!("{MAP_KEY}{id}"), text).map_err(|_| "the browser's storage for this page is full".into())
     }
 }

@@ -261,6 +261,9 @@ pub fn folder() -> PathBuf {
 /// The list heading for a sprite: the comment line that opens its group in the catalog, up to its first
 /// `,` `:` or `;`. A sprite the catalog doesn't name is a new one.
 pub fn section(name: &str) -> &'static str {
+    if name.starts_with(MAP_PREFIX) {
+        return MAP_SECTION;
+    }
     match card_kind(name) {
         Some(CardKind::Enemy) => return CARD_SECTION,
         Some(CardKind::Player) => return PLAYER_SECTION,
@@ -272,6 +275,9 @@ pub fn section(name: &str) -> &'static str {
 }
 
 pub const NEW_SECTION: &str = "New sprites";
+/// A hand-made map lists as `MAP_<ID>` under Maps.
+pub const MAP_PREFIX: &str = "MAP_";
+pub const MAP_SECTION: &str = "Maps";
 
 /// Each sprite's heading in catalog text: a comment opens a group when a blank line comes before it and a
 /// sprite right after it.

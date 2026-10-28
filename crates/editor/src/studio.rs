@@ -39,6 +39,8 @@ pub struct Studio {
     pub hints: [&'static str; 2],
     /// Whether the player stands in the previews.
     player: bool,
+    /// Whether the previews show a hand-made map rather than the quiet farm.
+    on_map: bool,
 }
 
 impl Studio {
@@ -54,6 +56,7 @@ impl Studio {
             held: None,
             hints: ["drag to turn, scroll to move closer", "scroll to zoom"],
             player: true,
+            on_map: false,
         }
     }
 
@@ -105,9 +108,19 @@ impl Studio {
         {
             if kill { self.showcase.kill(figure) } else { self.showcase.hurt(figure) }
         }
+        if let Some(focus) = self.editor.take_map_change() {
+            if let Err(e) = self.showcase.show_map(self.editor.map_source()) {
+                self.editor.say(e);
+            }
+            self.showcase.look_at(focus);
+            self.on_map = true;
+        } else if self.on_map && self.editor.map_source().is_none() {
+            let _ = self.showcase.show_map(None);
+            self.on_map = false;
+        }
         self.showcase.lie(self.editor.lying_figure());
         self.showcase.show(self.editor.shown(), self.editor.stand(), self.editor.fps, self.editor.top_art());
-        self.showcase.show_player(self.player);
+        self.showcase.show_player(self.player && !self.on_map);
         self.showcase.update(dt, self.yaw, self.distance);
         packed.then_some(&self.atlas[..])
     }
@@ -149,6 +162,9 @@ impl Studio {
     /// The editing pane, the 2.5D view and the map, in the order `panes` places them.
     pub fn canvases(&self) -> [Canvas; 3] {
         let mut edit = Canvas::default();
+        if let Some((cam, scale)) = self.editor.map_view() {
+            self.showcase.plan(&mut edit, cam, scale);
+        }
         self.editor.draw(&mut edit);
         let mut view = self.showcase.top();
         view.label(format!("2.5D view: {}", self.hints[0]), 16.0, 12.0, 30.0, [1.0, 1.0, 1.0, 0.85], Align::Left);

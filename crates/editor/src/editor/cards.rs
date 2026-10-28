@@ -59,7 +59,7 @@ impl Editor {
                 Err(e) => failed.push(format!("{file}: {e}")),
             }
         }
-        self.names = self.store.names();
+        self.names = self.all_names();
         if let Some(front) = last {
             if same(&front) {
                 self.open(&front);
@@ -189,7 +189,7 @@ impl Editor {
         (self.dirty, self.stand_touched, self.stats, self.frame) = (false, false, false, 0);
         self.undo.clear();
         self.redo.clear();
-        self.names = self.store.names();
+        self.names = self.all_names();
         self.changed = true;
         self.say(format!("Deleted card {id}"));
     }

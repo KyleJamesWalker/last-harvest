@@ -8,8 +8,10 @@ use crate::sprite::{self, CLEAR, Frame, Rgba, Sprite};
 use crate::store::Store;
 
 mod cards;
+mod maps;
 
 use cards::HeldImport;
+use maps::{MapEdit, MapTool};
 
 const UNDO_DEPTH: usize = 100;
 const LIST: Rect = Rect { x: 8.0, y: 52.0, w: 200.0, h: 690.0 };
@@ -165,6 +167,16 @@ enum Action {
     StartWeapon(usize, usize),
     /// Gives a player card the game's own start at a difficulty.
     StartDefault(usize),
+    MapTool(MapTool),
+    Ground(u8),
+    /// Picks a prop by its place in `MAP_PROPS`.
+    PickProp(usize),
+    Picket(bool),
+    /// Grows or shrinks the map by tiles across and down.
+    MapSize(i32, i32),
+    /// Lays a farm out as the random generator does, over the whole map.
+    Randomize,
+    MapFit,
     /// Hits the card's figure in the previews, killing it when true.
     Strike(bool),
     /// Fills a blank flash, hurt or dead part with the game's own frames.
@@ -289,6 +301,8 @@ pub struct Editor {
     figure_at: Option<(usize, bool)>,
     /// The open card's parts as saved, read when it opens or saves.
     card_parts: Vec<Vec<Frame>>,
+    /// The hand-made map being edited, in place of a sprite.
+    map: Option<MapEdit>,
     playing: bool,
     clock: f32,
     /// An index into `STANDS`.
@@ -374,6 +388,7 @@ impl Editor {
             strike: None,
             figure_at: None,
             card_parts: Vec::new(),
+            map: None,
             playing: false,
             clock: 0.0,
             stand: 0,
@@ -410,6 +425,8 @@ impl Editor {
             modding: false,
             delete_armed: 0.0,
         };
+        e.names = e.all_names();
+        e.open_map(name);
         e.load_stand();
         e.load_card_parts();
         e.reveal();
@@ -448,6 +465,10 @@ impl Editor {
     /// Everything to pack for the previews: the frames, then the carving views when carving, with any
     /// floating pixels shown where they would land, then a card's figure.
     pub fn surfaces(&mut self) -> Vec<Frame> {
+        if self.map.is_some() {
+            self.figure_at = None;
+            return Vec::new();
+        }
         let mut out = self.own_surfaces();
         self.figure_at = None;
         if let Some((figure, dead)) = self.figure_frames() {
@@ -518,7 +539,7 @@ impl Editor {
     }
 
     fn unsaved(&self) -> bool {
-        self.dirty || self.stand_touched
+        self.dirty || self.stand_touched || self.map.as_ref().is_some_and(|m| m.dirty)
     }
 
     /// What the canvas shows: a frame, or a carving view.
@@ -610,7 +631,13 @@ impl Editor {
     fn open(&mut self, name: &str) {
         self.selection = None;
         self.last_dot = None;
-        self.names = self.store.names();
+        self.names = self.all_names();
+        if self.open_map(name) {
+            return;
+        }
+        if self.store.load(name).is_some() {
+            self.map = None;
+        }
         self.trimmed = Default::default();
         if let Some(s) = self.store.load(name) {
             self.sprite = s;
@@ -712,6 +739,9 @@ impl Editor {
 
     /// Magnifies the pixel canvas `factor` times about `center`, then moves it by `pan`, in pane units.
     pub fn zoom_canvas(&mut self, center: [f32; 2], factor: f32, pan: [f32; 2]) {
+        if self.map.is_some() {
+            return self.map_pinch(center, factor, pan);
+        }
         let (o, zoom) = self.grid();
         let under = [(center[0] - o[0]) / zoom, (center[1] - o[1]) / zoom];
         self.lens = (self.lens * factor).clamp(1.0, 32.0);
@@ -787,6 +817,10 @@ impl Editor {
         let mut push = |x: f32, y: f32, w: f32, h: f32, action: Action, label: &str, on: bool| {
             b.push(Button { rect: Rect { x, y, w, h }, action, label: label.into(), on });
         };
+        if let Some(m) = &self.map {
+            self.map_buttons(m, &mut push);
+            return b;
+        }
         if self.is_card() {
             push(410.0, 8.0, 94.0, 34.0, Action::Stats, "Stats T", self.stats);
         } else if self.built_in_still().is_some() {
@@ -950,6 +984,13 @@ impl Editor {
             }
             return;
         }
+        if self.map.is_some() {
+            match self.buttons().into_iter().find(|b| b.rect.contains(p)) {
+                Some(b) => self.act(b.action, shift),
+                None => self.map_down(p, right, shift),
+            }
+            return;
+        }
         for (i, bar) in self.bars().iter().enumerate() {
             if bar.contains(p) {
                 self.channel = Some(i);
@@ -1015,6 +1056,9 @@ impl Editor {
 
     pub fn drag(&mut self, p: [f32; 2]) {
         self.hover = Some(p);
+        if self.map.is_some() {
+            return self.map_drag(p);
+        }
         if let Some(i) = self.channel {
             let bar = self.bars()[i];
             self.color[i] = (((p[0] - bar.x) / bar.w).clamp(0.0, 1.0) * 255.0).round() as u8;
@@ -1051,6 +1095,7 @@ impl Editor {
     }
 
     pub fn mouse_up(&mut self) {
+        self.map_up();
         self.stroke = None;
         self.drawing = None;
         self.channel = None;
@@ -1163,6 +1208,9 @@ impl Editor {
     }
 
     pub fn wheel(&mut self, p: [f32; 2], dy: f32) {
+        if self.map.is_some() && !LIST.contains(p) {
+            return self.map_wheel(p, dy);
+        }
         if LIST.contains(p) {
             let max = (self.rows().len() as f32 * LIST_ROW - (LIST.h - (self.list_top() - LIST.y))).max(0.0);
             self.scroll = (self.scroll - dy * LIST_ROW * 3.0).clamp(0.0, max);
@@ -1255,7 +1303,11 @@ impl Editor {
         if self.none_open() && !any_sprite {
             return self.say("Pick a sprite from the list, or press N for a new one");
         }
+        if self.map.is_some() && self.map_act(a) {
+            return;
+        }
         match a {
+            Action::MapTool(_) | Action::Ground(_) | Action::PickProp(_) | Action::Picket(_) | Action::MapSize(..) | Action::Randomize | Action::MapFit => {}
             Action::Ask(k) => self.ask = Some((k, String::new())),
             Action::Save if self.browse.is_some() => self.say("Restore this version or go back first"),
             Action::Save => {
@@ -1269,7 +1321,7 @@ impl Editor {
                     Ok(()) => {
                         self.dirty = false;
                         self.stand_touched = false;
-                        self.names = self.store.names();
+                        self.names = self.all_names();
                         self.load_card_parts();
                         self.changed = true;
                         self.reveal();
@@ -1814,7 +1866,9 @@ impl Editor {
                         None => (sprite::CardKind::Enemy, name.to_ascii_lowercase()),
                     };
                     let wanted = sprite::card_wanted(&name).or_else(|| (self.modding && !name.is_empty()).then(typed));
-                    if let Some((card, id)) = wanted {
+                    if name.starts_with(sprite::MAP_PREFIX) && kind == Ask::New {
+                        self.make_map(&name);
+                    } else if let Some((card, id)) = wanted {
                         self.make_card(kind, card, &id);
                     } else if !sprite::valid_name(&name) {
                         self.say("Names start with a letter and use A-Z, 0-9 and _");
@@ -1840,6 +1894,9 @@ impl Editor {
                 }
                 _ => {}
             }
+            return;
+        }
+        if self.map.is_some() && self.map_key(key) {
             return;
         }
         if self.selection.is_some() {
@@ -1923,6 +1980,9 @@ impl Editor {
 
     pub fn draw(&self, c: &mut Canvas) {
         c.clear = [0.1, 0.1, 0.12, 1.0];
+        if let Some(m) = &self.map {
+            return self.draw_map(c, m);
+        }
         if self.none_open() {
             c.label("No sprite open", 12.0, 12.0, 26.0, DIM, Align::Left);
         } else {

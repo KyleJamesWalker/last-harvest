@@ -59,6 +59,13 @@ fn handle(store: &FsStore, web: &Path, method: &Method, url: &str, body: &[u8]) 
             None => text(404, "not a git repository"),
         },
         (Method::Get, ["api", "version", id, name, file]) if valid_id(id) && named(name) && sprite_file(file) => bytes(store.version(id, name, file)),
+        (Method::Get, ["api", "maps"]) => text(200, store.map_ids().iter().map(|id| format!("{id}\n")).collect::<String>()),
+        (Method::Get, ["api", "map", id]) if last_harvest_game::valid_map_id(id) => store.read_map(id).map_or_else(|| text(404, "no such map"), |t| text(200, t)),
+        (Method::Put, ["api", "map", id]) if last_harvest_game::valid_map_id(id) => match std::str::from_utf8(body).map_err(|_| "not text".to_string()).and_then(last_harvest_game::MapSource::parse) {
+            // Written back from its parsed form, so only map syntax reaches the folder.
+            Ok(src) => store.save_map(id, &src.to_text()).map_or_else(|e| text(500, e), |()| text(200, "saved")),
+            Err(e) => text(400, e),
+        },
         (_, ["api", ..]) => text(404, "no such call"),
         (Method::Get, [file]) => {
             let file = if file.is_empty() { "index.html" } else { file };

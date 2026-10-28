@@ -1654,6 +1654,7 @@ dependencies = [
 name = "sprite-server"
 version = "0.1.0"
 dependencies = [
+ "last-harvest-game",
  "sprite-editor",
  "tiny_http",
 ]
