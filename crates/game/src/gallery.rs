@@ -7,8 +7,8 @@ use crate::{Align, Buttons, Frame, Input, SCREEN_H, SCREEN_W};
 
 const PARTS: [&str; 3] = ["FRONT", "SIDE", "BACK"];
 
-/// Every sprite to show: the catalog's but the editor's blank scratch space, then each card's walking parts, flash
-/// and hurt, named after the card.
+/// Every sprite to show: the catalog's but the editor's blank scratch space, then each card's walking parts, flash,
+/// hurt and dead, named after the card.
 fn entries() -> Vec<(String, Vec<Art>)> {
     let catalog = ALL.iter().filter(|(n, _)| *n != "SCRATCH");
     let mut out: Vec<(String, Vec<Art>)> = catalog.map(|(n, f)| (n.to_string(), f.to_vec())).collect();
@@ -20,6 +20,9 @@ fn entries() -> Vec<(String, Vec<Art>)> {
         }
         out.push((format!("{name} FLASH"), look.flash.to_vec()));
         out.push((format!("{name} HURT"), look.hurt.to_vec()));
+        if let Some(dead) = look.dead {
+            out.push((format!("{name} DEAD"), dead.to_vec()));
+        }
     }
     out
 }

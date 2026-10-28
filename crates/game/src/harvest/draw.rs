@@ -7,7 +7,7 @@ use super::map::TILE;
 use crate::art::Stand;
 use super::powerups::{Kind, Zone, book};
 use super::weapons::{BOLT_LIFE, Hazard};
-use super::{CHOICE_ROW, CHOICE_TOP, Choice, DAWN, DropKind, GOLD, PAUSE_CHOICES, GRENADE_FLIGHT, GRENADE_RADIUS, Harvest, PICK_TIME, Phase, RED, SCALE, TELL_TIME, TURNED, Thrown, WHITE, clock, player_pose, view3d};
+use super::{CHOICE_ROW, CHOICE_TOP, Choice, DAWN, DropKind, Facing, GOLD, PAUSE_CHOICES, GRENADE_FLIGHT, GRENADE_RADIUS, Harvest, PICK_TIME, Phase, RED, SCALE, TELL_TIME, TURNED, Thrown, WHITE, clock, player_pose, view3d};
 use crate::art::{self, Art};
 use crate::{Align, Canvas, Color, Frame, SCREEN_H, SCREEN_W};
 
@@ -235,11 +235,12 @@ impl Harvest {
             }
         }
         for corpse in &self.juice.corpses {
+            let fade = 1.0 - corpse.sunk() / 8.0;
+            let a = corpse.dead.map_or(corpse.art, |(dead, dir)| dead[Facing::of(dir).0.index()]);
             let (sx, sy) = at(corpse.pos[0], corpse.pos[1] - corpse.z - 3.0);
             let turn = if corpse.fall[0] < 0.0 { -1.0 } else { 1.0 };
             let angle = if corpse.z > 0.0 { corpse.spin } else { corpse.tipped() * PI / 2.0 * turn };
-            let fade = 1.0 - corpse.sunk() / 8.0;
-            c.art_rotated(corpse.art, sx, sy, scale, angle, shade([0.8, 0.8, 0.8, fade]));
+            c.art_rotated(a, sx, sy, scale, angle, shade([0.8, 0.8, 0.8, fade]));
         }
         for d in &self.drops {
             let a = match d.kind {

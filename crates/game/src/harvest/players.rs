@@ -158,15 +158,16 @@ pub(super) fn pack(cards: &[Card], atlas: &mut [u8], cursor: &mut [u16; 3], firs
             }
         };
         let [fw, fh] = card.frame;
-        if !(1..=64).contains(&fw) || !(1..=64).contains(&fh) || card.sheet.len() != (fw * 3 * fh * 5 * 4) as usize {
-            notes.push(format!("{}: frames are 1 to 64 pixels, 3 across and five down", card.name));
+        let Some(rows) = super::enemies::rows(card, 3) else {
+            notes.push(format!("{}: frames are 1 to 64 pixels, 3 across and five or six down", card.name));
             continue;
-        }
+        };
         if looks.iter().any(|l| l.id == id) {
             notes.push(format!("{}: another player card is [{id}] too", card.name));
             continue;
         }
-        let cells: Vec<(u32, u32)> = (0..5).flat_map(|row| (0..3).map(move |col| (col, row))).collect();
+        let rows = if super::enemies::has_dead(card, 3) { rows } else { 5 };
+        let cells: Vec<(u32, u32)> = (0..rows).flat_map(|row| (0..3).map(move |col| (col, row))).collect();
         let mut try_cursor = *cursor;
         let Some(spots) = cells.iter().map(|_| place(&mut try_cursor, [fw as u16, fh as u16])).collect::<Option<Vec<_>>>() else {
             notes.push(format!("{}: no room left in the sprite texture", card.name));
@@ -179,7 +180,7 @@ pub(super) fn pack(cards: &[Card], atlas: &mut [u8], cursor: &mut [u16; 3], firs
             rects.push([spot[0], spot[1], fw as u16, fh as u16]);
         }
         let art = |k: usize| Art((at + k) as u16);
-        let look = Look { walk: std::array::from_fn(|f| (f * 3..f * 3 + 3).map(art).collect()), flash: [art(9), art(10), art(11)], hurt: [art(12), art(13), art(14)] };
+        let look = Look { walk: std::array::from_fn(|f| (f * 3..f * 3 + 3).map(art).collect()), flash: [art(9), art(10), art(11)], hurt: [art(12), art(13), art(14)], dead: (rows == 6).then(|| [art(15), art(16), art(17)]) };
         looks.push(PlayerLook { id, name, look, start });
     }
     (notes, rects, looks)

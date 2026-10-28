@@ -18,7 +18,7 @@ use crate::rng::Rng;
 use crate::{Buttons, Color, Difficulty, Input, SCREEN_H, SCREEN_W, Sfx};
 use enemies::Enemy;
 pub(crate) use enemies::{install_cards, off_from_ids, off_ids, roster};
-pub use enemies::{MAX_WALK, frame_limits};
+pub use enemies::{MAX_WALK, flash_pixel, frame_limits, hurt_pixel};
 pub use players::{ID_MAX as PLAYER_ID_MAX, PlayerFields, PlayerLook, default_start, looks as player_looks, player_fields, set_player_start, weapon_slots, weapons};
 pub use enemies::{CardFields, FLAGS as CARD_FLAGS, NUMBERS as CARD_NUMBERS, SpawnMix, card_fields, set_card_field, spawn_mix};
 use juice::{Corpse, Juice, Particle, Tone};
@@ -124,10 +124,12 @@ pub(crate) struct Look {
     pub walk: [Vec<Art>; 3],
     pub flash: [Art; 3],
     pub hurt: [Art; 3],
+    /// Dead, per facing, tipped over as a corpse; without it a corpse is the front hurt frame.
+    pub dead: Option<[Art; 3]>,
 }
 
 fn player_look() -> Look {
-    Look { walk: [art::PLAYER_FRONT.to_vec(), art::PLAYER_SIDE.to_vec(), art::PLAYER_BACK.to_vec()], flash: art::PLAYER_FLASH, hurt: art::PLAYER_HURT }
+    Look { walk: [art::PLAYER_FRONT.to_vec(), art::PLAYER_SIDE.to_vec(), art::PLAYER_BACK.to_vec()], flash: art::PLAYER_FLASH, hurt: art::PLAYER_HURT, dead: None }
 }
 
 /// A kind of zombie: its place in `enemies.txt`.
@@ -403,7 +405,7 @@ fn player_pose(h: &Harvest, facing: Facing) -> (Art, f32) {
     let Phase::Over { t, won: false } = h.phase else { return (art_for(h, look, facing), 1.0) };
     let i = facing.index();
     if t < TURN_RISE {
-        (look.hurt[i], 1.0 - ((t - TURN_FALL) / (TURN_SINK - TURN_FALL)).clamp(0.0, 1.0))
+        (look.dead.map_or(look.hurt[i], |d| d[i]), 1.0 - ((t - TURN_FALL) / (TURN_SINK - TURN_FALL)).clamp(0.0, 1.0))
     } else {
         let walk = &Kind::common().stats().look.walk[i];
         (walk[(t * WALK_FPS * 0.6) as usize % walk.len()], ((t - TURN_RISE) / (TURNED - TURN_RISE)).min(1.0))
@@ -728,7 +730,7 @@ impl Harvest {
             let at = [h.pos[0] + a.cos() * 30.0, h.pos[1] + a.sin() * 30.0];
             let stain = art::BLOOD_STAIN[i % art::BLOOD_STAIN.len()];
             h.stains.push((stain, at[0], at[1], [1.0; 3]));
-            h.juice.corpse(Corpse { art: art::SKINNY_HURT[0], flip: false, pos: at, z: 0.0, vel: [0.0; 2], vz: 0.0, fall: [a.cos(), a.sin()], age: 1.0, spin: 0.0 });
+            h.juice.corpse(Corpse { art: art::SKINNY_HURT[0], dead: None, flip: false, pos: at, z: 0.0, vel: [0.0; 2], vz: 0.0, fall: [a.cos(), a.sin()], age: 1.0, spin: 0.0 });
             h.juice.burst(at, 8.0, 8, [0.0; 2], 0.0, [10.0, 40.0], juice::BLOOD, 1.5, 100.0, 0.0);
             h.juice.popup(at, 12.0 + i as f32, if i % 5 == 0 { Tone::Crit } else { Tone::Hit });
             let vel = [a.cos() * 200.0, a.sin() * 200.0];
@@ -1534,6 +1536,19 @@ impl Harvest {
         }
     }
 
+    /// A zombie dying at `pos`, knocked toward `fall` and flung `fling` hard: blood, a stain, gibs and its corpse.
+    pub(super) fn gore(&mut self, pos: [f32; 2], fall: [f32; 2], fling: f32, dir: [f32; 2], look: &Look, gibs: usize) {
+        self.fx.push(Fx { frames: &art::BLOOD_SPLAT, fps: 12.0, pos: [pos[0], pos[1] - 4.0], angle: 0.0, t: 0.0 });
+        let stain = art::BLOOD_STAIN[self.rng.below(art::BLOOD_STAIN.len())];
+        self.stain((stain, pos[0] - stain.w() / 2.0, pos[1] - stain.h() / 2.0, [1.0; 3]));
+        let (vel, vz) = if fling > 0.0 { ([fall[0] * fling, fall[1] * fling], fling * 0.9) } else { ([fall[0] * 25.0, fall[1] * 25.0], 0.0) };
+        let flip = self.juice.rng.below(2) == 0;
+        let dead = look.dead.map(|d| (d, dir));
+        self.juice.corpse(Corpse { art: look.hurt[Facing::Front.index()], dead, flip, pos, z: 0.0, vel, vz, fall, age: 0.0, spin: 0.0 });
+        self.juice.burst(pos, 8.0, gibs, fall, 1.2, [30.0, 110.0], juice::BLOOD, 1.6, 0.6, 0.0);
+        self.juice.burst(pos, 8.0, gibs / 3, fall, 0.8, [20.0, 60.0], juice::DARK_BLOOD, 2.4, 0.8, 0.0);
+    }
+
     fn reap(&mut self, sounds: &mut Vec<Sfx>, flow: &mut Flow) {
         let mut died: Option<Kind> = None;
         let mut i = 0;
@@ -1550,16 +1565,8 @@ impl Harvest {
                 _ => z.kind,
             });
             let s = z.kind.stats();
-            self.fx.push(Fx { frames: &art::BLOOD_SPLAT, fps: 12.0, pos: [z.pos[0], z.pos[1] - 4.0], angle: 0.0, t: 0.0 });
-            let stain = art::BLOOD_STAIN[self.rng.below(art::BLOOD_STAIN.len())];
-            self.stain((stain, z.pos[0] - stain.w() / 2.0, z.pos[1] - stain.h() / 2.0, [1.0; 3]));
             let fall = if z.knock == [0.0; 2] { norm(sub(z.pos, self.pos)) } else { z.knock };
-            let (vel, vz) = if z.fling > 0.0 { ([fall[0] * z.fling, fall[1] * z.fling], z.fling * 0.9) } else { ([fall[0] * 25.0, fall[1] * 25.0], 0.0) };
-            let flip = self.juice.rng.below(2) == 0;
-            self.juice.corpse(Corpse { art: s.look.hurt[Facing::Front.index()], flip, pos: z.pos, z: 0.0, vel, vz, fall, age: 0.0, spin: 0.0 });
-            let gibs = s.gibs as usize;
-            self.juice.burst(z.pos, 8.0, gibs, fall, 1.2, [30.0, 110.0], juice::BLOOD, 1.6, 0.6, 0.0);
-            self.juice.burst(z.pos, 8.0, gibs / 3, fall, 0.8, [20.0, 60.0], juice::DARK_BLOOD, 2.4, 0.8, 0.0);
+            self.gore(z.pos, fall, z.fling, z.dir, &s.look, s.gibs as usize);
             if s.heavy {
                 self.juice.stop(0.06);
                 self.juice.shake(0.2);

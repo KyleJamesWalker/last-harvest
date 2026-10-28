@@ -556,6 +556,13 @@ pub fn scene(h: &Harvest) -> CardScene {
         if !near(q) || (q - p).dot(forward) < 0.0 {
             continue;
         }
+        let (art, flip) = match c.dead {
+            Some((dead, dir)) => {
+                let (facing, flip) = facing_from(dir, forward, right);
+                (dead[facing.index()], flip)
+            }
+            None => (c.art, c.flip),
+        };
         let fall = Vec3::new(c.fall[0], 0.0, c.fall[1]).normalize_or(forward);
         let side = fall.cross(Vec3::Y);
         // Slumped short of flat, or the low camera would see the body edge-on.
@@ -563,8 +570,8 @@ pub fn scene(h: &Harvest) -> CardScene {
         let up = Vec3::Y * tip.cos() + fall * tip.sin();
         let back = up.cross(side);
         let lift = c.z * PX + 0.04 - c.sunk() * PX;
-        let origin = q - side * (c.art.w() * PX / 2.0) + Vec3::Y * lift;
-        stand(&mut cards, eye, c.art, c.flip, Pose { origin, right: side, up, back, depth: PX, tint: [0.8; 3], reach: Reach::Thin, top: None }, false);
+        let origin = q - side * (art.w() * PX / 2.0) + Vec3::Y * lift;
+        stand(&mut cards, eye, art, flip, Pose { origin, right: side, up, back, depth: PX, tint: [0.8; 3], reach: Reach::Thin, top: None }, false);
     }
     for b in &h.birds {
         let mut board_b = Board::new(b.art(), b.flip, b.pos, b.z * PX, 0.0);
@@ -757,7 +764,7 @@ mod tests {
         for i in 0..60 {
             let a = i as f32 * 0.5;
             let at = [h.pos[0] + a.cos() * 40.0, h.pos[1] + a.sin() * 40.0];
-            h.juice.corpse(Corpse { art: art::SKINNY_HURT[0], flip: false, pos: at, z: 0.0, vel: [0.0; 2], vz: 0.0, fall: [1.0, 0.0], age: 1.0, spin: 0.0 });
+            h.juice.corpse(Corpse { art: art::SKINNY_HURT[0], dead: None, flip: false, pos: at, z: 0.0, vel: [0.0; 2], vz: 0.0, fall: [1.0, 0.0], age: 1.0, spin: 0.0 });
             h.juice.burst(at, 8.0, 12, [0.0; 2], 0.0, [10.0, 40.0], BLOOD, 1.5, 1.0, 0.0);
         }
         h.juice.ring(h.pos, 80.0, 1.0, BLOOD);
