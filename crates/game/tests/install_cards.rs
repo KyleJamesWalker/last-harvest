@@ -12,12 +12,13 @@ fn card(name: &str, text: &str, walk: u32) -> Card {
 
 #[test]
 fn enemy_and_player_cards_install_and_reach_the_game() {
-    let cards = vec![card("ghoul.enemy.png", "[ghoul]\nname Ghoul\nsound kill-ghoul\nwalk 5\n", 5)];
-    let players = vec![card("jo.player.png", "[jo]\nname Jo\nstart normal crows knife crows\nstart hard\n", 3)];
+    let cards = vec![card("ghoul.enemy.png", "[ghoul]\nname Ghoul\nabout Quick and quiet.\nsound kill-ghoul\nwalk 5\n", 5)];
+    let players = vec![card("jo.player.png", "[jo]\nname Jo\nabout Up with the sun.\nstart normal crows knife crows\nstart hard\n", 3)];
     let notes = data::install(Data { cards, players, ..Data::default() }).expect("installing cards leaves the data unread until it's done");
     assert!(notes.is_empty(), "{notes:?}");
     assert!(kill_sounds().any(|s| s == "kill-ghoul"), "the enemy card joins the roster");
     let jo = player_looks().iter().find(|l| l.id == "jo").expect("the player card joins the looks");
+    assert_eq!(jo.about, "Up with the sun.");
     assert_eq!(jo.start_names(Difficulty::Normal), ["Crows", "Knife"]);
     assert!(jo.start_names(Difficulty::Hard).is_empty());
     assert_eq!(jo.start_names(Difficulty::Easy), ["Pistol", "Knife"], "a difficulty it doesn't set keeps the game's");

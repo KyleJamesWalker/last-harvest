@@ -16,7 +16,9 @@ pub(crate) enum Page {
     Credits,
 }
 
-const MAIN: [(Page, &str); 4] = [(Page::Main, "Play"), (Page::Settings, "Settings"), (Page::Stats, "Stats"), (Page::Credits, "Credits")];
+const MAIN: [(Page, &str); 5] = [(Page::Main, "Play"), (Page::Main, "Map"), (Page::Settings, "Settings"), (Page::Stats, "Stats"), (Page::Credits, "Credits")];
+/// The row that picks the map runs start on rather than opening a page.
+const MAP_ROW: usize = 1;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Setting {
@@ -50,9 +52,9 @@ impl Setting {
 /// The Play button, then the difficulty box under it, as x, y, width and height.
 const PLAY: [f32; 4] = [212.0, 30.0, 600.0, 100.0];
 pub(crate) const DIFFICULTY_Y: f32 = 150.0;
-/// The Settings, Stats and Credits rows, below the difficulty box.
-const ROWS_TOP: f32 = 330.0;
-const ROW_H: f32 = 96.0;
+/// The Map, Settings, Stats and Credits rows, below the difficulty box.
+const ROWS_TOP: f32 = 316.0;
+const ROW_H: f32 = 80.0;
 /// The settings rows; a run's settings leave out Player, Enemies and Reset.
 const SET_TOP: f32 = 96.0;
 const SET_H: f32 = 68.0;
@@ -126,6 +128,9 @@ impl Game {
             return;
         }
         let by = input.pressed.contains(Buttons::RIGHT) as i32 - input.pressed.contains(Buttons::LEFT) as i32;
+        if by != 0 && self.row == MAP_ROW {
+            return self.step_map(by);
+        }
         let arrow = tapped.and_then(difficulty_arrow);
         if (by != 0 && self.row == 0) || arrow.is_some() {
             let next = self.save.difficulty.step(arrow.unwrap_or(by));
@@ -141,6 +146,10 @@ impl Game {
         };
         match chosen {
             Some(0) => self.open(crate::Scene::Harvest),
+            Some(MAP_ROW) => {
+                self.row = MAP_ROW;
+                self.step_map(1);
+            }
             Some(i) => {
                 self.row = i;
                 self.page = MAIN[i].0;
@@ -151,6 +160,15 @@ impl Game {
             }
             None => {}
         }
+    }
+
+    /// Moves the map runs start on `by` along Random and the hand-made maps.
+    fn step_map(&mut self, by: i32) {
+        let maps = crate::data::maps();
+        let at = maps.iter().position(|m| m.id == self.save.map.as_str()).map_or(0, |i| i + 1) as i32;
+        let next = (at + by).rem_euclid(maps.len() as i32 + 1) as usize;
+        self.save.map = crate::save::LookId::new(next.checked_sub(1).map_or("", |i| maps[i].id.as_str()));
+        self.sounds.push(Sfx::Tick(next as u8 * 3));
     }
 
     pub(crate) fn open_settings(&mut self, in_run: bool) {
@@ -275,6 +293,15 @@ impl Game {
             let on = i == self.row;
             c.rect(x, y, w, h, if on { [1.0, 0.85, 0.3, 0.3] } else { [1.0, 1.0, 1.0, 0.08] });
             let color = if on { [HOT[0], HOT[1], HOT[2], if i == 0 { pulse } else { 1.0 }] } else { WHITE };
+            if i == MAP_ROW {
+                let maps = crate::data::maps();
+                let name = maps.iter().find(|m| m.id == self.save.map.as_str()).map_or("Random farm", |m| m.name.as_str());
+                let arrow = if maps.is_empty() { [1.0, 1.0, 1.0, 0.15] } else if on { HOT } else { DIM };
+                c.label("<", x + 40.0, y + h / 2.0 - 26.0, 48.0, arrow, Align::Center);
+                c.label(">", x + w - 40.0, y + h / 2.0 - 26.0, 48.0, arrow, Align::Center);
+                fit_label(c, &format!("Map: {name}"), x + w / 2.0, y + h / 2.0 - 22.0, 44.0, w - 120.0, color, Align::Center);
+                continue;
+            }
             c.label(*name, x + w / 2.0, y + h / 2.0 - 26.0, 52.0, color, Align::Center);
         }
         let d = self.save.difficulty;
@@ -379,13 +406,14 @@ impl Game {
         let frame = walk[(self.clock * 8.0) as usize % walk.len()];
         let scale = 300.0 / frame.h().max(frame.w());
         c.art(frame, SCREEN_W / 2.0 - frame.w() * scale / 2.0, 600.0 - frame.h() * scale, scale, flip, WHITE);
-        fit_label(c, &p.name, SCREEN_W / 2.0, 60.0, 64.0, SCREEN_W - 80.0, HOT, Align::Center);
+        fit_label(c, &p.name, SCREEN_W / 2.0, 40.0, 64.0, SCREEN_W - 80.0, HOT, Align::Center);
+        wrap_label(c, &p.about, SCREEN_W / 2.0, 118.0, 28.0, SCREEN_W - 80.0, 2, WHITE, Align::Center);
         let note = if looks.len() > 1 { format!("{} of {}: Left and Right to change", looks.iter().position(|l| l.id == p.id).unwrap_or(0) + 1, looks.len()) } else { "Add a .player.png to data/players for more".to_string() };
-        c.label(note, SCREEN_W / 2.0, 150.0, 28.0, DIM, Align::Center);
+        c.label(note, SCREEN_W / 2.0, 200.0, 26.0, DIM, Align::Center);
         let d = self.save.difficulty;
         let start = p.start_names(d);
         let kit = if start.is_empty() { "no weapons".to_string() } else { start.join(", ") };
-        fit_label(c, &format!("{} starts with {kit}", d.name()), SCREEN_W / 2.0, 196.0, 28.0, SCREEN_W - 80.0, WHITE, Align::Center);
+        fit_label(c, &format!("{} starts with {kit}", d.name()), SCREEN_W / 2.0, 240.0, 28.0, SCREEN_W - 80.0, WHITE, Align::Center);
     }
 
     /// Kind `i`'s colour in the spawn mix, and on its row of the list: `HOT` when highlighted.
@@ -431,6 +459,7 @@ impl Game {
         if !on {
             c.label("OFF", 280.0, 400.0, 64.0, [1.0, 0.45, 0.4, 1.0], Align::Center);
         }
+        wrap_label(c, &e.about, 280.0, 60.0, 30.0, 480.0, 3, WHITE, Align::Center);
         self.draw_spawn_mix(c);
         fit_label(c, &e.name, 560.0, 60.0, 64.0, SCREEN_W - 560.0 - 24.0, HOT, Align::Left);
         let minutes = |m: f32| if m == 1.0 { "1 minute".to_string() } else { format!("{m} minutes") };
@@ -487,6 +516,10 @@ impl Game {
             let line: String = mods.iter().map(|m| m.trim_end_matches(".pak")).collect::<Vec<_>>().join(", ").chars().take(60).collect();
             c.label(line, SCREEN_W - 160.0, 104.0 + rows.len() as f32 * 66.0 - 14.0, 24.0, DIM, Align::Right);
         }
+        let report = crate::data::load_report();
+        if !report.version.is_empty() {
+            fit_label(c, &format!("Version {}", report.versions()), 24.0, SCREEN_H - 52.0, 24.0, BACK[0] - 48.0, DIM, Align::Left);
+        }
         back_button(c);
     }
 }
@@ -515,10 +548,39 @@ fn fit_label(c: &mut Canvas, text: &str, x: f32, y: f32, size: f32, room: f32, c
     c.label(text, x, y + (size - fits) / 2.0, fits, color, align);
 }
 
+/// Draws `text` word-wrapped to `room` pixels, in at most `lines` lines of `size` from `y` down, the last one fitted
+/// as `fit_label` fits it.
+#[allow(clippy::too_many_arguments)]
+fn wrap_label(c: &mut Canvas, text: &str, x: f32, y: f32, size: f32, room: f32, lines: usize, color: Color, align: Align) {
+    for (i, line) in wrapped(text, size, room, lines).into_iter().enumerate() {
+        fit_label(c, &line, x, y + i as f32 * size * 1.25, size, room, color, align);
+    }
+}
+
+/// `text` split between words into at most `lines` lines that each fit `room` pixels at `size`; the last takes
+/// whatever is left, for `fitted` to shrink or cut.
+pub(crate) fn wrapped(text: &str, size: f32, room: f32, lines: usize) -> Vec<String> {
+    let max = (room / (size * EM)) as usize;
+    let mut out: Vec<String> = Vec::new();
+    for word in text.split_whitespace() {
+        let full = out.len() == lines;
+        match out.last_mut() {
+            Some(line) if full || line.chars().count() + 1 + word.chars().count() <= max => {
+                line.push(' ');
+                line.push_str(word);
+            }
+            _ => out.push(word.to_string()),
+        }
+    }
+    out
+}
+
+/// A label's width per pixel of size, roughly, for the font's average letter.
+const EM: f32 = 0.56;
+
 /// `text` and a size, from `size` down to `least`, that fit `room` pixels, cut short with an ellipsis if even `least`
 /// doesn't.
 pub(crate) fn fitted(text: &str, size: f32, room: f32, least: f32) -> (String, f32) {
-    const EM: f32 = 0.56;
     let n = text.chars().count();
     let fits = size.min(room / (n.max(1) as f32 * EM)).max(least);
     let max = (room / (fits * EM) + 1e-3) as usize;
@@ -552,5 +614,16 @@ mod tests {
         let (text, size) = fitted("Ghoul of the Northern Fields and Far Beyond", 64.0, 440.0, 40.0);
         assert_eq!(size, 40.0);
         assert!(text.ends_with("...") && text.chars().count() as f32 * 0.56 * size <= 440.0, "{text}");
+    }
+
+    #[test]
+    fn a_long_about_wraps_between_words_and_the_rest_goes_on_the_last_line() {
+        let about = "Slow and huge; it bites hard, shrugs off knockback and leads the hordes.";
+        let lines = wrapped(about, 30.0, 480.0, 3);
+        assert_eq!(lines.join(" "), about, "nothing is lost or split mid-word");
+        assert!(lines.len() > 1 && lines.iter().all(|l| l.chars().count() as f32 * EM * 30.0 <= 480.0), "{lines:?}");
+        assert_eq!(wrapped("", 30.0, 480.0, 3), Vec::<String>::new());
+        let squeezed = wrapped(&"word ".repeat(40), 30.0, 480.0, 2);
+        assert_eq!(squeezed.len(), 2, "the last line takes the rest, for fit_label to cut");
     }
 }

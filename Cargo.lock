@@ -777,12 +777,15 @@ dependencies = [
  "glow",
  "glutin",
  "glutin-winit",
+ "js-sys",
  "last-harvest-game",
  "last-harvest-pack",
  "last-harvest-render",
  "lewton",
  "png",
  "raw-window-handle",
+ "wasm-bindgen",
+ "web-sys",
  "winit",
 ]
 
@@ -1654,6 +1657,7 @@ dependencies = [
 name = "sprite-server"
 version = "0.1.0"
 dependencies = [
+ "last-harvest-game",
  "sprite-editor",
  "tiny_http",
 ]

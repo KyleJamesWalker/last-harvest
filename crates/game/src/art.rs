@@ -83,7 +83,10 @@ impl Art {
 
     /// How the catalog says this sprite stands, if it says.
     pub fn stand(self) -> Option<Stand> {
-        STANDS.get(self.0 as usize).copied().flatten()
+        match STANDS.get(self.0 as usize) {
+            Some(s) => *s,
+            None => crate::harvest::stand_of(self),
+        }
     }
 
     /// The top strip drawn for this sprite in the editor: one row whose colors cap its columns in the 3D view.

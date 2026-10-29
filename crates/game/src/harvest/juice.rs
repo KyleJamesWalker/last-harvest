@@ -11,7 +11,7 @@ const MAX_POPUPS: usize = 40;
 const MAX_CORPSES: usize = 60;
 const MAX_FLASHES: usize = 4;
 const POPUP_TIME: f32 = 0.7;
-const CORPSE_FALL: f32 = 0.22;
+pub(super) const CORPSE_FALL: f32 = 0.22;
 const CORPSE_STAY: f32 = 7.0;
 const CORPSE_SINK: f32 = 1.2;
 /// Trauma lost per second; shake is trauma squared, so small knocks fade fast.
@@ -87,6 +87,8 @@ impl Popup {
 /// A zombie that has stopped: it topples over, lies there a while, then sinks into the dirt.
 pub struct Corpse {
     pub art: Art,
+    /// Its own dead frames, per facing, and the way the body faces; they tip over in place of `art`.
+    pub dead: Option<([Art; 3], [f32; 2])>,
     pub flip: bool,
     pub pos: [f32; 2],
     pub z: f32,
@@ -416,7 +418,7 @@ mod tests {
     #[test]
     fn a_corpse_topples_lies_still_then_sinks_away() {
         let mut j = Juice::new(1);
-        j.corpse(Corpse { art: Art(0), flip: false, pos: [0.0; 2], z: 0.0, vel: [0.0; 2], vz: 0.0, fall: [1.0, 0.0], age: 0.0, spin: 0.0 });
+        j.corpse(Corpse { art: Art(0), dead: None, flip: false, pos: [0.0; 2], z: 0.0, vel: [0.0; 2], vz: 0.0, fall: [1.0, 0.0], age: 0.0, spin: 0.0 });
         j.tick(CORPSE_FALL);
         assert_eq!(j.corpses[0].tipped(), 1.0);
         assert_eq!(j.corpses[0].sunk(), 0.0);

@@ -14,6 +14,24 @@ pub struct Data {
     pub cards: Vec<Card>,
     /// Player cards, the same sheet as an enemy's with three walking frames, and an id and name for text.
     pub players: Vec<Card>,
+    /// Players' own props for maps, a sheet of frames one row high with an id and how they stand for text.
+    pub props: Vec<Card>,
+    /// Hand-made maps, as found; install keeps the ones that read.
+    pub maps: Vec<MapFile>,
+}
+
+/// A hand-made map's file name and text, as found.
+pub struct MapFile {
+    pub file: String,
+    pub text: String,
+}
+
+/// A map that reads: its id from the file name, the name it gives itself, and its text, read again each run so
+/// its scatter differs.
+pub struct LoadedMap {
+    pub id: String,
+    pub name: String,
+    pub text: String,
 }
 
 /// An enemy card: one `enemies.txt` section and a sheet of `frame`-sized cells, three across and five down.
@@ -28,6 +46,7 @@ pub struct Card {
 }
 
 static DATA: OnceLock<Data> = OnceLock::new();
+static MAPS: OnceLock<Vec<LoadedMap>> = OnceLock::new();
 
 /// What loaded beside the game's own data, and what couldn't, for players who can't read the log.
 #[derive(Default)]
@@ -36,6 +55,21 @@ pub struct LoadReport {
     pub mods: Vec<String>,
     /// A line for each card or mod left out, and why.
     pub problems: Vec<String>,
+    /// The game's release, and the one its `game_data.pak` was built for.
+    pub version: String,
+    pub pack_version: Option<String>,
+    /// Where to put which `game_data.pak`, when there is none.
+    pub missing_pack: Option<String>,
+}
+
+impl LoadReport {
+    /// The game's release, and the pack's when it differs.
+    pub fn versions(&self) -> String {
+        match &self.pack_version {
+            Some(p) if *p != self.version => format!("{}, data {p}", self.version),
+            _ => self.version.clone(),
+        }
+    }
 }
 
 static REPORT: OnceLock<LoadReport> = OnceLock::new();
@@ -91,17 +125,32 @@ pub fn install(mut data: Data) -> Result<Vec<String>, String> {
     let mut notes = Vec::new();
     let cards = std::mem::take(&mut data.cards);
     let players = std::mem::take(&mut data.players);
-    if !cards.is_empty() || !players.is_empty() {
+    let props = std::mem::take(&mut data.props);
+    if !cards.is_empty() || !players.is_empty() || !props.is_empty() {
         match data.atlas.take().or(built_in::ATLAS.map(<[u8]>::to_vec)) {
             Some(mut atlas) => {
                 let base = data.enemies.as_deref().or(built_in::ENEMIES).unwrap_or_else(|| missing("enemies.txt"));
-                notes = crate::harvest::install_cards(&cards, &players, base, &mut atlas);
+                notes = crate::harvest::install_cards(&cards, &players, &props, base, &mut atlas);
                 data.atlas = Some(atlas);
             }
-            None => notes = cards.iter().chain(&players).map(|c| format!("{}: no sprite atlas to draw it into", c.name)).collect(),
+            None => notes = cards.iter().chain(&players).chain(&props).map(|c| format!("{}: no sprite atlas to draw it into", c.name)).collect(),
+        }
+    }
+    let mut maps: Vec<LoadedMap> = Vec::new();
+    for file in std::mem::take(&mut data.maps) {
+        match crate::harvest::check_map(&file.file, file.text) {
+            Ok(map) => {
+                maps.retain(|m| m.id != map.id);
+                maps.push(map);
+            }
+            Err(e) => {
+                eprintln!("left out: {e}");
+                note(e);
+            }
         }
     }
     DATA.set(data).map_err(|_| "the game data was already read".to_string())?;
+    MAPS.set(maps).ok();
     Ok(notes)
 }
 
@@ -127,10 +176,28 @@ pub fn built_in_font() -> &'static [u8] {
     built_in::FONT.unwrap_or_else(|| missing("font"))
 }
 
+/// The hand-made maps that read, in the order found; a later one replaces an earlier with the same id.
+pub fn maps() -> &'static [LoadedMap] {
+    MAPS.get().map_or(&[], Vec::as_slice)
+}
+
 pub fn powerups() -> &'static str {
     data().powerups.as_deref().or(built_in::POWERUPS).unwrap_or_else(|| missing("powerups.txt"))
 }
 
 pub fn enemies() -> &'static str {
     data().enemies.as_deref().or(built_in::ENEMIES).unwrap_or_else(|| missing("enemies.txt"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn versions_name_the_pack_only_when_it_differs() {
+        let report = |pack: Option<&str>| LoadReport { version: "v0.2.0".into(), pack_version: pack.map(String::from), ..Default::default() };
+        assert_eq!(report(Some("v0.2.0")).versions(), "v0.2.0");
+        assert_eq!(report(None).versions(), "v0.2.0");
+        assert_eq!(report(Some("v0.1.0")).versions(), "v0.2.0, data v0.1.0");
+    }
 }

@@ -163,7 +163,16 @@
   document.getElementById("help-close").addEventListener("click", () => help.hidden = true);
 
   window.lastHarvestPak = await files("readonly", s => s.get(PAK)).catch(() => undefined);
-  if (window.lastHarvestPak) document.getElementById("pak").textContent = "Game data ✓";
+  if (window.lastHarvestPak) {
+    document.getElementById("pak").textContent = "Game data ✓";
+  } else {
+    // Published beside the play page, the site's own pack previews cards on the farm; without it, a plain floor.
+    const response = await fetch("../game_data.pak").catch(() => undefined);
+    if (response?.ok) {
+      window.lastHarvestPak = new Uint8Array(await response.arrayBuffer());
+      window.lastHarvestPakShared = true;
+    }
+  }
   init();
 </script>
 </body>

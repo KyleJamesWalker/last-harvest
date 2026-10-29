@@ -363,10 +363,24 @@ impl Web {
             "save" => Key::Save,
             "fit" => return self.studio.editor.fit(),
             #[cfg(feature = "modding")]
-            "import" => return modding::call("pick", &[".png,.pak".into(), true.into(), "lastharvest-import".into()]),
+            "import" => return modding::call("pick", &[".png,.pak,.txt".into(), true.into(), "lastharvest-import".into()]),
             #[cfg(feature = "modding")]
             "export" => {
-                if let Some((name, bytes)) = self.studio.editor.export_card() {
+                let editor = &mut self.studio.editor;
+                let out = if editor.map_source().is_some() {
+                    editor.export_map().and_then(|(name, files)| match modding::pack_of(&name, files) {
+                        Ok(bytes) => Some((name, bytes)),
+                        Err(e) => {
+                            editor.say(format!("Couldn't pack the map: {e}"));
+                            None
+                        }
+                    })
+                } else if sprite_editor::store::props::id(&editor.sprite.name).is_some() {
+                    editor.export_prop()
+                } else {
+                    editor.export_card()
+                };
+                if let Some((name, bytes)) = out {
                     modding::call("save", &[name.into(), js_sys::Uint8Array::from(&bytes[..]).into()]);
                 }
                 return;
@@ -379,14 +393,16 @@ impl Web {
             "sound" => return modding::call("pick", &[".ogg,.wav".into(), false.into(), "lastharvest-sound".into()]),
             #[cfg(feature = "modding")]
             "export-all" => {
+                let extra = self.studio.editor.all_maps_and_props();
                 let cards = self.studio.editor.all_cards();
-                if !cards.is_empty() {
+                if !cards.is_empty() || !extra.is_empty() {
                     let sounds = self.studio.editor.all_sounds();
-                    match modding::mod_pack(&cards, &sounds) {
+                    match modding::mod_pack(&cards, &sounds, &extra) {
                         Ok(bytes) => {
                             modding::call("save", &[modding::MOD_FILE.into(), js_sys::Uint8Array::from(&bytes[..]).into()]);
                             let with = if sounds.is_empty() { String::new() } else { format!(" and {} death sounds", sounds.len()) };
-                            self.studio.editor.say(format!("Exported {} cards{with} as {}: put it in the game's data/mods", cards.len(), modding::MOD_FILE));
+                            let maps = if extra.is_empty() { String::new() } else { format!(", {} maps and props", extra.len()) };
+                            self.studio.editor.say(format!("Exported {} cards{with}{maps} as {}: put it in the game's data/mods", cards.len(), modding::MOD_FILE));
                         }
                         Err(e) => self.studio.editor.say(format!("Couldn't pack the cards: {e}")),
                     }
@@ -416,6 +432,9 @@ impl Web {
                     let _ = self.input.set_attribute("autocapitalize", if free { "sentences" } else { "characters" });
                     let _ = self.input.style().set_property("text-transform", if free { "none" } else { "uppercase" });
                     self.input.set_hidden(false);
+                    self.input.set_value(&t);
+                } else if self.input.value() != t {
+                    // Rename and About hand the open field from one line to the other.
                     self.input.set_value(&t);
                 }
                 if focus && !typing {
@@ -569,10 +588,21 @@ fn start() -> Result<(), String> {
         let bytes = js_sys::Reflect::get(&detail, &"bytes".into()).map(|v| js_sys::Uint8Array::new(&v).to_vec()).unwrap_or_default();
         if name.ends_with(".pak") {
             match modding::cards_in(&bytes) {
-                Ok((cards, _)) if cards.is_empty() => w.studio.editor.say(format!("{name} holds no cards")),
-                Ok((cards, sounds)) => w.studio.editor.import_pack(&name, cards, sounds),
+                Ok((cards, _, maps, props)) if cards.is_empty() && maps.is_empty() && props.is_empty() => w.studio.editor.say(format!("{name} holds no cards, maps or props")),
+                Ok((cards, sounds, maps, props)) => {
+                    if !maps.is_empty() || !props.is_empty() {
+                        w.studio.editor.import_maps(&name, maps, props);
+                    }
+                    if !cards.is_empty() {
+                        w.studio.editor.import_pack(&name, cards, sounds);
+                    }
+                }
                 Err(e) => w.studio.editor.say(format!("{name}: {e}")),
             }
+        } else if name.ends_with(last_harvest_game::MAP_EXTENSION) {
+            w.studio.editor.import_maps(&name, vec![(name.clone(), bytes)], Vec::new());
+        } else if name.ends_with(last_harvest_pack::prop::EXTENSION) {
+            w.studio.editor.import_maps(&name, Vec::new(), vec![(name.clone(), bytes)]);
         } else {
             w.studio.editor.import_card(&name, &bytes);
         }
@@ -639,16 +669,18 @@ mod modding {
     use wasm_bindgen::{JsCast, JsValue};
     use web_sys::{Document, HtmlElement};
 
-    /// Installs the sprite atlas from the player's own game_data.pak, which the page keeps in IndexedDB and leaves
-    /// on `window.lastHarvestPak`, or a blank one; returns a word for the player when their pack couldn't be used.
+    /// Installs the sprite atlas from the player's own game_data.pak, which the page keeps in IndexedDB, else the
+    /// site's, either left on `window.lastHarvestPak`, or a blank one; returns a word for the player when their pack
+    /// couldn't be used.
     pub fn install_data() -> Result<Option<String>, String> {
         let window = web_sys::window().ok_or("no window")?;
         let pak = js_sys::Reflect::get(&window, &"lastHarvestPak".into()).ok().filter(|v| !v.is_undefined() && !v.is_null());
+        let shared = js_sys::Reflect::get(&window, &"lastHarvestPakShared".into()).is_ok_and(|v| v.is_truthy());
         let size = (ATLAS_W * ATLAS_H * 4) as usize;
         // A stored pack that can't be used must leave the page working, or Game data could never replace it.
         let (atlas, note) = match pak.map(|v| js_sys::Uint8Array::new(&v).to_vec()) {
             Some(bytes) => match Pak::read(std::io::Cursor::new(bytes)).map(|mut p| p.take(ATLAS)) {
-                Ok(Some(atlas)) if atlas.len() == size => (Some(atlas), Some("Previews use your game data".to_string())),
+                Ok(Some(atlas)) if atlas.len() == size => (Some(atlas), (!shared).then(|| "Previews use your game data".to_string())),
                 Ok(_) => (None, Some("Your game data has no sprites this editor can use".to_string())),
                 Err(e) => (None, Some(format!("Your game data isn't for this editor: {e}"))),
             },
@@ -683,17 +715,26 @@ mod modding {
     /// The cards in a mod pack, by file name, for Import.
     type Files = Vec<(String, Vec<u8>)>;
 
-    /// The cards in a mod pack, and the sounds beside them, by file name, for Import.
-    pub fn cards_in(bytes: &[u8]) -> Result<(Files, Files), String> {
+    /// The cards in a mod pack, the sounds beside them, and its maps and props, by file name, for Import.
+    pub fn cards_in(bytes: &[u8]) -> Result<(Files, Files, Files, Files), String> {
         let mut pak = Pak::read(std::io::Cursor::new(bytes))?;
         let mut cards = pak.take_dir(last_harvest_pack::ENEMY_CARDS);
         cards.extend(pak.take_dir(last_harvest_pack::PLAYER_CARDS));
-        Ok((cards, pak.take_dir(last_harvest_pack::SOUNDS)))
+        Ok((cards, pak.take_dir(last_harvest_pack::SOUNDS), pak.take_dir(last_harvest_pack::MAPS), pak.take_dir(last_harvest_pack::PROPS)))
+    }
+
+    /// A mod pack named after `name` holding `files` by their paths in it.
+    pub fn pack_of(name: &str, mut files: Files) -> Result<Vec<u8>, String> {
+        let id = name.strip_suffix(".pak").unwrap_or(name);
+        files.insert(0, (last_harvest_pack::MANIFEST.to_string(), last_harvest_pack::mod_manifest(id).into_bytes()));
+        let mut out = std::io::Cursor::new(Vec::new());
+        last_harvest_pack::write(&mut out, &files).map_err(|e| e.to_string())?;
+        Ok(out.into_inner())
     }
 
     /// Every card as one mod pack, enemy cards under `enemies/`, player cards under `players/` and their death
     /// sounds under `sounds/`, ready for the game's data/mods.
-    pub fn mod_pack(cards: &[(String, Vec<u8>)], sounds: &[(String, Vec<u8>)]) -> Result<Vec<u8>, String> {
+    pub fn mod_pack(cards: &[(String, Vec<u8>)], sounds: &[(String, Vec<u8>)], extra: &[(String, Vec<u8>)]) -> Result<Vec<u8>, String> {
         use last_harvest_pack::card::Kind;
         let mut files = vec![(last_harvest_pack::MANIFEST.to_string(), last_harvest_pack::mod_manifest("my-cards").into_bytes())];
         for (file, bytes) in cards {
@@ -704,6 +745,7 @@ mod modding {
             files.push((format!("{dir}{file}"), bytes.clone()));
         }
         files.extend(sounds.iter().map(|(file, bytes)| (format!("{}{file}", last_harvest_pack::SOUNDS), bytes.clone())));
+        files.extend(extra.iter().cloned());
         let mut out = std::io::Cursor::new(Vec::new());
         last_harvest_pack::write(&mut out, &files).map_err(|e| e.to_string())?;
         Ok(out.into_inner())

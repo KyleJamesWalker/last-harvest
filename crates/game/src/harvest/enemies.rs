@@ -10,6 +10,8 @@ use crate::data::Card;
 pub struct Enemy {
     pub id: String,
     pub name: String,
+    /// A sentence on what to expect of it, for the Enemies page; empty when it has none.
+    pub about: String,
     pub look: Look,
     pub hp: f32,
     pub speed: f32,
@@ -46,6 +48,20 @@ const MAX_KINDS: usize = 64;
 pub const MAX_WALK: usize = 8;
 const MAX_FRAME: u32 = 64;
 const PAD: u16 = 1;
+/// The longest `about` can be, so it fits the menus in a few lines.
+pub const ABOUT_MAX: usize = 80;
+
+/// An `about` line's text, checked: 1 to `ABOUT_MAX` of the characters the game's font draws.
+pub(super) fn about(text: &str) -> Result<String, String> {
+    if let Some(c) = text.chars().find(|c| !(' '..='~').contains(c)) {
+        return Err(format!("about uses letters, digits, spaces and plain punctuation, not {c:?}"));
+    }
+    match text.chars().count() {
+        0 => Err("about needs a sentence after it".into()),
+        n if n > ABOUT_MAX => Err(format!("about is at most {ABOUT_MAX} characters, not {n}")),
+        _ => Ok(text.to_string()),
+    }
+}
 
 impl Roster {
     pub fn index(&self, id: &str) -> Option<usize> {
@@ -147,7 +163,7 @@ fn look(prefix: &str) -> Result<Look, String> {
         }
         Ok(frames.to_vec())
     };
-    Ok(Look { walk: [walk("FRONT")?, walk("SIDE")?, walk("BACK")?], flash: frames(&format!("{prefix}_FLASH"))?, hurt: frames(&format!("{prefix}_HURT"))? })
+    Ok(Look { walk: [walk("FRONT")?, walk("SIDE")?, walk("BACK")?], flash: frames(&format!("{prefix}_FLASH"))?, hurt: frames(&format!("{prefix}_HURT"))?, dead: frames(&format!("{prefix}_DEAD")).ok() })
 }
 
 /// How many frames the editor should let a sprite have, when the game needs a set number or range: the player's
@@ -156,7 +172,7 @@ pub fn frame_limits(name: &str) -> Option<(usize, usize)> {
     let (prefix, part) = name.rsplit_once('_')?;
     let zombie = || entries(crate::data::enemies()).ok()?.into_iter().find(|e| e.look.as_ref().is_some_and(|(_, p)| p == prefix));
     match part {
-        "FLASH" | "HURT" if prefix == "PLAYER" || zombie().is_some() => Some((3, 3)),
+        "FLASH" | "HURT" | "DEAD" if prefix == "PLAYER" || zombie().is_some() => Some((3, 3)),
         "FRONT" | "SIDE" | "BACK" if prefix == "PLAYER" => Some((3, 3)),
         "FRONT" | "SIDE" | "BACK" if zombie().is_some() => Some((1, MAX_WALK)),
         _ => None,
@@ -186,10 +202,11 @@ fn entries(text: &str) -> Result<Vec<Entry>, String> {
             if entries.iter().any(|e| e.enemy.id == id) {
                 return Err(format!("{n}: [{id}] appears twice"));
             }
-            let blank = Look { walk: std::array::from_fn(|_| vec![art::WHITE; 3]), flash: [art::WHITE; 3], hurt: [art::WHITE; 3] };
+            let blank = Look { walk: std::array::from_fn(|_| vec![art::WHITE; 3]), flash: [art::WHITE; 3], hurt: [art::WHITE; 3], dead: None };
             let enemy = Enemy {
                 id: id.to_string(),
                 name: id.to_string(),
+                about: String::new(),
                 look: blank,
                 hp: 10.0,
                 speed: 20.0,
@@ -213,6 +230,7 @@ fn entries(text: &str) -> Result<Vec<Entry>, String> {
         let number = || rest.parse::<f32>().ok().filter(|v| v.is_finite() && *v >= 0.0).ok_or_else(|| format!("{n}: {key} is a number, not {rest:?}"));
         match key {
             "name" => e.name = rest.to_string(),
+            "about" => e.about = about(rest).map_err(|err| format!("{n}: {err}"))?,
             "look" => entry.look = Some((n, rest.to_string())),
             "hp" => e.hp = number()?,
             "speed" => e.speed = number()?,
@@ -291,6 +309,8 @@ pub fn spawn_mix(cards: &[&str], minutes: &[f32]) -> Result<SpawnMix, String> {
 pub struct CardFields {
     pub id: String,
     pub name: String,
+    /// Empty when the card has no `about`.
+    pub about: String,
     /// Every number a card sets, by key, in `NUMBERS` order.
     pub numbers: Vec<(&'static str, f32)>,
     pub sound: String,
@@ -311,6 +331,7 @@ pub fn card_fields(text: &str) -> Result<CardFields, String> {
     Ok(CardFields {
         id: e.id.clone(),
         name: e.name.clone(),
+        about: e.about.clone(),
         numbers: NUMBERS.into_iter().zip(numbers).collect(),
         sound: e.sound.clone(),
         flags: FLAGS.into_iter().zip([e.heavy, entry.leader, entry.harvester]).collect(),
@@ -361,12 +382,16 @@ pub(super) fn place(cursor: &mut [u16; 3], [w, h]: [u16; 2]) -> Option<[u16; 2]>
 
 /// Draws each enemy and player card's frames into the free rows of `atlas` and keeps its kind for the roster and
 /// its look for the player; `base` is the enemy file the enemy cards join. Returns a line for each card left out.
-pub(crate) fn install_cards(cards: &[Card], players: &[Card], base: &str, atlas: &mut [u8]) -> Vec<String> {
+pub(crate) fn install_cards(cards: &[Card], players: &[Card], props: &[Card], base: &str, atlas: &mut [u8]) -> Vec<String> {
     let mut cursor = start();
     let (mut notes, mut rects, kept) = pack(cards, base, atlas, &mut cursor);
     let (more, player_rects, looks) = super::players::pack(players, atlas, &mut cursor, art::RECTS.len() + rects.len());
     notes.extend(more);
     rects.extend(player_rects);
+    let (more, prop_rects, named) = super::props::pack(props, atlas, &mut cursor, art::RECTS.len() + rects.len());
+    notes.extend(more);
+    rects.extend(prop_rects);
+    super::props::set_props(named);
     art::set_added(rects);
     CARDS.set(kept).ok();
     super::players::install(looks);
@@ -378,16 +403,66 @@ pub(super) fn start() -> [u16; 3] {
     [PAD, art::free_top() + PAD, 0]
 }
 
+/// How many rows a card's sheet has, five or six with a dead row, if its frames are a size the game draws.
+pub(super) fn rows(card: &Card, cols: u32) -> Option<u32> {
+    let [fw, fh] = card.frame;
+    let row = (fw * cols * fh * 4) as usize;
+    let fits = (1..=MAX_FRAME).contains(&fw) && (1..=MAX_FRAME).contains(&fh);
+    [5, 6].into_iter().find(|&rows| fits && card.sheet.len() == row * rows as usize)
+}
+
+/// Whether a card draws its own dead frames: a sixth row with something in it.
+pub(super) fn has_dead(card: &Card, cols: u32) -> bool {
+    rows(card, cols) == Some(6) && (0..3).any(|col| !blank(card, cols, col, 5))
+}
+
+fn blank(card: &Card, cols: u32, col: u32, row: u32) -> bool {
+    let [fw, fh] = card.frame;
+    (0..fh).all(|py| (0..fw).all(|px| card.sheet[(((row * fh + py) * fw * cols + col * fw + px) * 4 + 3) as usize] < 128))
+}
+
+/// A flash pixel drawn from a standing one: the figure's shape in one pale colour.
+pub fn flash_pixel(p: [u8; 4]) -> [u8; 4] {
+    if p[3] >= 128 { [234, 201, 218, 255] } else { [0; 4] }
+}
+
+/// A hurt pixel drawn from a standing one: the outline stays and the rest goes from dark to bright red by how
+/// light it was, the built-in figures' ramp.
+pub fn hurt_pixel(p: [u8; 4]) -> [u8; 4] {
+    if p[3] < 128 {
+        return [0; 4];
+    }
+    let light = (p[0] as u32 * 299 + p[1] as u32 * 587 + p[2] as u32 * 114) / 1000;
+    if light < OUTLINE {
+        return [p[0], p[1], p[2], 255];
+    }
+    let t = (light - OUTLINE) as f32 / (255 - OUTLINE) as f32;
+    let mix = |a: u8, b: u8| (a as f32 + (b as f32 - a as f32) * t).round() as u8;
+    [mix(117, 194), mix(33, 71), mix(14, 35), 255]
+}
+
+/// Pixels darker than this are outline, which a hurt frame keeps.
+const OUTLINE: u32 = 40;
+
 /// Copies the cell at `col` and `row` of a sheet `cols` frames wide into the atlas at `at`, with nearly clear
-/// pixels made clear so they don't show as faint squares.
+/// pixels made clear so they don't show as faint squares. A blank flash or hurt cell is drawn from that facing's
+/// first walking frame instead, and a blank dead cell beside drawn ones as the hurt frame.
 pub(super) fn draw_cell(card: &Card, cols: u32, (col, row): (u32, u32), [x, y]: [u16; 2], atlas: &mut [u8]) {
     let [fw, fh] = card.frame;
+    let at = |col: u32, row: u32, px: u32, py: u32| (((row * fh + py) * fw * cols + col * fw + px) * 4) as usize;
+    let pixel = |col, row, px, py| -> [u8; 4] { card.sheet[at(col, row, px, py)..][..4].try_into().unwrap() };
+    let blank = row >= 3 && blank(card, cols, col, row);
     for py in 0..fh {
         for px in 0..fw {
-            let s = (((row * fh + py) * fw * cols + col * fw + px) * 4) as usize;
             let d = (((y as u32 + py) * ATLAS_W + x as u32 + px) * 4) as usize;
-            let p = &card.sheet[s..s + 4];
-            let solid = if p[3] >= 128 { [p[0], p[1], p[2], 255] } else { [0; 4] };
+            let solid = match (blank, row) {
+                (true, 3) => flash_pixel(pixel(0, col, px, py)),
+                (true, _) => hurt_pixel(pixel(0, col, px, py)),
+                _ => {
+                    let p = pixel(col, row, px, py);
+                    if p[3] >= 128 { [p[0], p[1], p[2], 255] } else { [0; 4] }
+                }
+            };
             atlas[d..d + 4].copy_from_slice(&solid);
         }
     }
@@ -408,12 +483,13 @@ fn pack(cards: &[Card], base: &str, atlas: &mut [u8], cursor: &mut [u16; 3]) -> 
         };
         let [fw, fh] = card.frame;
         let (walk, cols) = (entry.walk, entry.walk.max(3) as u32);
-        if !(1..=MAX_FRAME).contains(&fw) || !(1..=MAX_FRAME).contains(&fh) || card.sheet.len() != (fw * cols * fh * 5 * 4) as usize {
-            notes.push(format!("{}: frames are 1 to {MAX_FRAME} pixels, {cols} across and five down", card.name));
+        let Some(rows) = rows(card, cols) else {
+            notes.push(format!("{}: frames are 1 to {MAX_FRAME} pixels, {cols} across and five or six down", card.name));
             continue;
-        }
-        // Each walking row's frames, then a flash and a hurt frame per facing, by column and row on the sheet.
-        let cells: Vec<(u32, u32)> = (0..5u32).flat_map(|row| (0..if row < 3 { walk as u32 } else { 3 }).map(move |col| (col, row))).collect();
+        };
+        // Each walking row's frames, then a flash, a hurt and maybe a dead frame per facing, by column and row.
+        let rows = if has_dead(card, cols) { rows } else { 5 };
+        let cells: Vec<(u32, u32)> = (0..rows).flat_map(|row| (0..if row < 3 { walk as u32 } else { 3 }).map(move |col| (col, row))).collect();
         let new = !ids.contains(&entry.enemy.id);
         if new && ids.len() >= MAX_KINDS {
             notes.push(format!("{}: there can be only {MAX_KINDS} kinds", card.name));
@@ -437,6 +513,7 @@ fn pack(cards: &[Card], base: &str, atlas: &mut [u8], cursor: &mut [u16; 3]) -> 
             walk: std::array::from_fn(|f| (f * walk..(f + 1) * walk).map(at).collect()),
             flash: [at(still), at(still + 1), at(still + 2)],
             hurt: [at(still + 3), at(still + 4), at(still + 5)],
+            dead: (rows == 6).then(|| [at(still + 6), at(still + 7), at(still + 8)]),
         };
         if new {
             ids.push(entry.enemy.id.clone());
@@ -459,6 +536,38 @@ mod tests {
         assert_eq!(big.look.walk[0], art::BIG_FRONT.to_vec());
         assert_eq!(big.sound, "kill-big");
         assert_eq!(r.common(), r.index("skinny").unwrap());
+        assert!(r.enemies.iter().all(|e| !e.about.is_empty()), "every kind says what to expect of it");
+    }
+
+    #[test]
+    fn about_is_a_short_line_of_the_fonts_characters() {
+        let f = card_fields("[ghoul]\nabout   Fast, and it never stops.  # comment\n").unwrap();
+        assert_eq!(f.about, "Fast, and it never stops.");
+        assert_eq!(card_fields("[ghoul]").unwrap().about, "", "an old card without one still reads");
+        let err = |text: &str| card_fields(text).err().expect("an error");
+        assert!(err("[a]\nabout").contains("needs a sentence"));
+        assert!(err("[a]\nabout Fast \u{2014} and hungry").contains("plain punctuation"), "the font draws ASCII only");
+        assert!(err("[a]\nabout tab\there").contains("plain punctuation"));
+        let long = format!("[a]\nabout {}", "x".repeat(ABOUT_MAX + 1));
+        assert!(err(&long).starts_with("line 2: about is at most"));
+        assert_eq!(card_fields(&format!("[a]\nabout {}", "x".repeat(ABOUT_MAX))).unwrap().about.len(), ABOUT_MAX);
+        let text = set_card_field("[a]\nname A\nhp 3\n", "about", Some("Quiet."));
+        assert_eq!(card_fields(&text).unwrap().about, "Quiet.");
+        assert_eq!(set_card_field(&text, "about", None), "[a]\nname A\nhp 3\n");
+    }
+
+    #[test]
+    fn any_about_either_reads_within_its_limits_or_says_why() {
+        let mut rng = crate::rng::Rng::new(7);
+        let pool: Vec<char> = (' '..='~').chain(['\u{e9}', '\u{2014}', '\t', '\u{7f}', '\u{1f9df}']).collect();
+        for _ in 0..2000 {
+            let n = rng.below(ABOUT_MAX + 20);
+            let text: String = (0..n).map(|_| pool[rng.below(pool.len())]).collect();
+            let reads = [card_fields(&format!("[a]\nabout {text}")).map(|f| f.about), super::super::players::player_fields(&format!("[jo]\nabout {text}")).map(|f| f.about)];
+            for about in reads.into_iter().flatten() {
+                assert!(!about.is_empty() && about.chars().count() <= ABOUT_MAX && about.chars().all(|c| (' '..='~').contains(&c)), "{about:?}");
+            }
+        }
     }
 
     #[test]
@@ -508,6 +617,53 @@ mod tests {
         assert_eq!(r.enemies[2].look.walk[0][0], Art(art::RECTS.len() as u16));
         assert_eq!((r.leader, r.harvester), (2, 0), "a card can lead hordes");
         assert_eq!(r.enemies[r.common()].id, "skinny");
+    }
+
+    #[test]
+    fn blank_flash_and_hurt_cells_are_drawn_from_the_first_walking_frame() {
+        let base = include_str!("../../enemies.txt");
+        let mut atlas = vec![0u8; (ATLAS_W * ATLAS_H * 4) as usize];
+        let mut c = card("[ghoul]\nname Ghoul", [4, 4]);
+        let row_bytes = 4 * 3 * 4 * 4;
+        c.sheet[3 * row_bytes..].fill(0);
+        c.sheet[..4].copy_from_slice(&[0, 0, 0, 255]);
+        c.sheet[4..8].copy_from_slice(&[255, 255, 255, 255]);
+        let (_, rects, _) = pack(&[c], base, &mut atlas, &mut start());
+        let px = |r: [u16; 4], dx: u32| {
+            let i = (((r[1] as u32) * ATLAS_W + r[0] as u32 + dx) * 4) as usize;
+            <[u8; 4]>::try_from(&atlas[i..i + 4]).unwrap()
+        };
+        assert_eq!(px(rects[9], 0), flash_pixel([0, 0, 0, 255]), "flash is the shape in one colour");
+        assert_eq!(px(rects[12], 0), [0, 0, 0, 255], "hurt keeps the outline");
+        assert_eq!(px(rects[12], 1), [194, 71, 35, 255], "and turns white the built-ins' brightest red");
+    }
+
+    #[test]
+    fn a_sixth_row_gives_dead_frames_only_when_drawn() {
+        let base = include_str!("../../enemies.txt");
+        let mut atlas = vec![0u8; (ATLAS_W * ATLAS_H * 4) as usize];
+        let mut c = card("[ghoul]\nname Ghoul", [4, 4]);
+        c.sheet.extend(std::iter::repeat_n(255, 3 * 4 * 4 * 4));
+        let (notes, rects, kept) = pack(&[c], base, &mut atlas, &mut start());
+        assert!(notes.is_empty(), "{notes:?}");
+        assert_eq!(rects.len(), 18);
+        assert_eq!(kept[0].enemy.look.dead.map(|d| d[0]), Some(Art((art::RECTS.len() + 15) as u16)));
+        let mut c = card("[ghoul]\nname Ghoul", [4, 4]);
+        c.sheet.extend(std::iter::repeat_n(0, 3 * 4 * 4 * 4));
+        let (_, rects, kept) = pack(&[c], base, &mut atlas, &mut start());
+        assert_eq!((rects.len(), kept[0].enemy.look.dead), (15, None), "a blank dead row tips the hurt frame as before");
+    }
+
+    #[test]
+    fn a_drawn_hurt_cell_is_kept() {
+        let base = include_str!("../../enemies.txt");
+        let mut atlas = vec![0u8; (ATLAS_W * ATLAS_H * 4) as usize];
+        let c = card("[ghoul]\nname Ghoul", [4, 4]);
+        let first = (4 * 4 * 3 * 4 * 4) as usize;
+        let want: [u8; 4] = c.sheet[first..first + 4].try_into().unwrap();
+        let (_, rects, _) = pack(&[c], base, &mut atlas, &mut start());
+        let i = (((rects[12][1] as u32) * ATLAS_W + rects[12][0] as u32) * 4) as usize;
+        assert_eq!(atlas[i..i + 4], want);
     }
 
     #[test]

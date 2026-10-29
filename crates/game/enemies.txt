@@ -2,6 +2,8 @@
 #
 #   [id]        start of a zombie; the id is how the save and the code know it
 #   name        Text      what the Enemies page calls it
+#   about       Text      a sentence on what to expect of it, for the Enemies page: up to 80 letters, digits,
+#                         spaces and plain punctuation (printable ASCII); none when left out
 #   look        SPRITE    its sprites from art.txt: SPRITE_FRONT, SPRITE_SIDE and SPRITE_BACK walking, 1 to 8
 #                         frames each, then SPRITE_FLASH and SPRITE_HURT, one frame per facing
 #   walk        N         on a card, its walking frames per facing, 1 to 8; 3 when left out
@@ -25,6 +27,7 @@
 
 [big]
 name        Big
+about       Slow and huge; it bites hard, shrugs off knockback and leads the hordes.
 look        BIG
 hp          90
 speed       12
@@ -41,6 +44,7 @@ harvester
 
 [kid]
 name        Kid
+about       Small and quick; it falls to a slap, but it reaches you first.
 look        KID
 hp          10
 speed       32
@@ -53,6 +57,7 @@ chance      0.35
 
 [skinny]
 name        Skinny
+about       The common dead: slow, frail, and never alone for long.
 look        SKINNY
 hp          20
 speed       20
