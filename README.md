@@ -258,9 +258,10 @@ scripts/capture.sh pull            # copy the newest here, top screen stacked ab
 scripts/capture.sh stream          # play the top screen live in ffplay; close the window to stop
 scripts/capture.sh stream both     # both screens, stacked
 AUDIO=0 scripts/capture.sh stream  # no sound, less delay
+SAVE=1 scripts/capture.sh stream both  # also record the stream to the SD card
 ```
 
-`record` and `stream` take `top`, `bottom` or `both`, and read which output is the top screen from `run.log`. A recording of both screens keeps each screen as its own video track. `pull` stacks them into one video, and a player that shows only the first track shows the top screen. A recording takes about 50 to 80 MB a minute, and `record` refuses to start with less than 1 GB free. Set `CAPTURE_DIR` to record somewhere else.
+`record` and `stream` take `top`, `bottom` or `both`, and read which output is the top screen from `run.log`. `SAVE=1` writes the encoded stream to the SD card as it sends it, and closing the player saves it as an MP4, as `stop` does. A recording of both screens keeps each screen as its own video track. `pull` stacks them into one video, and a player that shows only the first track shows the top screen. A recording takes about 50 to 80 MB a minute, and `record` refuses to start with less than 1 GB free. Set `CAPTURE_DIR` to record somewhere else.
 
 The stream reaches the Mac about 240 ms after the device draws it, or about 155 ms with `AUDIO=0`, before ffplay's own buffering. The Mac needs `ffmpeg`, which includes `ffplay`.
 
