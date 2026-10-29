@@ -66,11 +66,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "$TAG" "last-harvest-$TAG-aarch64-linux.tar.gz" game_data.pak --clobber
 
-  # The public card editor, built without the tileset, on GitHub Pages.
-  mod-editor:
+  # GitHub Pages: a landing page, the game in play/ and the public card editor in editor/, sharing game_data.pak at
+  # the root. Also the game as an HTML5 zip, on the release and, when set up, on itch.io.
+  pages:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       pages: write
       id-token: write
     env:
@@ -83,8 +84,7 @@ jobs:
         with:
           ref: ${{ env.TAG }}
 
-      # The game crate's build reads the tileset for the sprites' places in the atlas, though none of its pixels
-      # reach this page.
+      # game_data.pak carries the tileset's atlas and the recorded sounds; neither wasm may build them in.
       - name: Fetch the private assets
         env:
           ASSETS_DEPLOY_KEY: ${{ secrets.ASSETS_DEPLOY_KEY }}
@@ -106,19 +106,48 @@ jobs:
           cargo install wasm-bindgen-cli --version "$version" --locked
 
       - name: Build
-        run: scripts/mod-editor.sh
-
-      # Only the editor's own files may go out: never a tileset build or a stray asset.
-      - name: Check the page holds only the editor
         run: |
-          expected="apple-touch-icon.png icon-512.png icon.png index.html manifest.webmanifest sprite-editor.js sprite-editor_bg.wasm sw.js"
-          found=$(find target/mod-editor -mindepth 1 -printf '%P\n' | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')
+          scripts/pages.sh
+          scripts/web-game.sh --zip
+          mv target/last-harvest-web.zip "last-harvest-$TAG-web.zip"
+
+      # Only the site's own files may go out: never a tileset build or a stray asset.
+      - name: Check the site holds only the landing page, the game and the editor
+        run: |
+          expected="apple-touch-icon.png editor editor/apple-touch-icon.png editor/icon-512.png editor/icon.png editor/index.html"
+          expected="$expected editor/manifest.webmanifest editor/sprite-editor.js editor/sprite-editor_bg.wasm editor/sw.js game_data.pak"
+          expected="$expected icon.png index.html play play/icon.png play/index.html play/last-harvest.js play/last-harvest_bg.wasm sw.js"
+          found=$(find target/pages -mindepth 1 -printf '%P\n' | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')
           [ "$found" = "$expected" ] || { echo "unexpected files: $found"; exit 1; }
+          expected="game_data.pak icon.png index.html last-harvest.js last-harvest_bg.wasm"
+          found=$(unzip -Z1 "last-harvest-$TAG-web.zip" | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')
+          [ "$found" = "$expected" ] || { echo "unexpected files in the zip: $found"; exit 1; }
           cargo tree -e features -i last-harvest-game -p sprite-editor --no-default-features --features modding --target wasm32-unknown-unknown \
-            | grep -q 'feature "embed"' && { echo "the tileset is built in"; exit 1; } || true
+            | grep -q 'feature "embed"' && { echo "the tileset is built into the editor"; exit 1; } || true
+          cargo tree -e features -i last-harvest-game -p last-harvest --no-default-features --target wasm32-unknown-unknown \
+            | grep -q 'feature "embed"' && { echo "the tileset is built into the game"; exit 1; } || true
+
+      - name: Upload to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" "last-harvest-$TAG-web.zip" --clobber
 
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: target/mod-editor
+          path: target/pages
       - id: deploy
         uses: actions/deploy-pages@v4
+
+      - name: Push to itch.io
+        env:
+          BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
+          ITCH_TARGET: ${{ vars.ITCH_TARGET }}
+        run: |
+          if [ -z "$BUTLER_API_KEY" ] || [ -z "$ITCH_TARGET" ]; then
+            echo "BUTLER_API_KEY or ITCH_TARGET is not set: skipping itch.io"
+            exit 0
+          fi
+          curl -fsSL -o butler.zip https://broth.itch.zone/butler/linux-amd64/LATEST/archive/default
+          unzip -q butler.zip -d butler
+          chmod +x butler/butler
+          butler/butler push "last-harvest-$TAG-web.zip" "$ITCH_TARGET" --userversion "$TAG"
