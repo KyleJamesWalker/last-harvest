@@ -2,8 +2,8 @@
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Difficulty {
-    Easy,
     #[default]
+    Easy,
     Normal,
     Hard,
 }

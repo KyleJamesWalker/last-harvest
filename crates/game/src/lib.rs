@@ -704,7 +704,7 @@ mod tests {
     #[test]
     fn the_title_sets_the_difficulty_and_the_run_uses_it() {
         let mut game = Game::new(1);
-        assert_eq!(game.save().difficulty, Difficulty::Normal);
+        assert_eq!(game.save().difficulty, Difficulty::Easy, "a first run starts on Easy");
         press(&mut game, Buttons::LEFT);
         press(&mut game, Buttons::LEFT);
         assert_eq!(game.save().difficulty, Difficulty::Easy, "it stops at the end");
