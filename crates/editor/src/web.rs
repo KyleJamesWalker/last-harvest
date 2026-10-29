@@ -669,16 +669,18 @@ mod modding {
     use wasm_bindgen::{JsCast, JsValue};
     use web_sys::{Document, HtmlElement};
 
-    /// Installs the sprite atlas from the player's own game_data.pak, which the page keeps in IndexedDB and leaves
-    /// on `window.lastHarvestPak`, or a blank one; returns a word for the player when their pack couldn't be used.
+    /// Installs the sprite atlas from the player's own game_data.pak, which the page keeps in IndexedDB, else the
+    /// site's, either left on `window.lastHarvestPak`, or a blank one; returns a word for the player when their pack
+    /// couldn't be used.
     pub fn install_data() -> Result<Option<String>, String> {
         let window = web_sys::window().ok_or("no window")?;
         let pak = js_sys::Reflect::get(&window, &"lastHarvestPak".into()).ok().filter(|v| !v.is_undefined() && !v.is_null());
+        let shared = js_sys::Reflect::get(&window, &"lastHarvestPakShared".into()).is_ok_and(|v| v.is_truthy());
         let size = (ATLAS_W * ATLAS_H * 4) as usize;
         // A stored pack that can't be used must leave the page working, or Game data could never replace it.
         let (atlas, note) = match pak.map(|v| js_sys::Uint8Array::new(&v).to_vec()) {
             Some(bytes) => match Pak::read(std::io::Cursor::new(bytes)).map(|mut p| p.take(ATLAS)) {
-                Ok(Some(atlas)) if atlas.len() == size => (Some(atlas), Some("Previews use your game data".to_string())),
+                Ok(Some(atlas)) if atlas.len() == size => (Some(atlas), (!shared).then(|| "Previews use your game data".to_string())),
                 Ok(_) => (None, Some("Your game data has no sprites this editor can use".to_string())),
                 Err(e) => (None, Some(format!("Your game data isn't for this editor: {e}"))),
             },
