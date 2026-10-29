@@ -35,6 +35,8 @@ mod tests {
         assert_eq!((p.frame, p.text.as_str()), ([10, 6], "[tank]\nframes 2"));
         assert!(read("x.prop.png", &write("[x]\nframes 3", 20, 6, &sheet).unwrap()).err().unwrap().contains("3 frames"));
         assert!(read("y.prop.png", &write("frames 2", 20, 6, &sheet).unwrap()).err().unwrap().contains("[id]"));
+        assert!(read("h.prop.png", &write("[h]\nframes 2\nhp 1e9", 20, 6, &sheet).unwrap()).err().unwrap().contains("hp is a number from 0 to 1000"));
+        assert!(read("b.prop.png", &write("[b]\nbroken yes", 20, 6, &sheet).unwrap()).err().unwrap().contains("2 or more frames"));
         let card = crate::card::write("[a]", 3, 5, &[0; 60]).unwrap();
         assert!(read("z.prop.png", &card).err().unwrap().contains("not a prop"), "a card isn't a prop");
     }
