@@ -47,63 +47,75 @@ pub struct PropKind {
     pub open: usize,
     /// Whether it stops shots.
     pub cover: bool,
+    /// Hit points before zombies or shots break it; 0 for one that doesn't break.
+    pub hp: f32,
 }
 
-const fn kind(name: &'static str, open: usize, cover: bool) -> PropKind {
-    PropKind { name, open, cover }
+const fn kind(name: &'static str, open: usize, cover: bool, hp: f32) -> PropKind {
+    PropKind { name, open, cover, hp }
 }
 
 /// The sprites a map can place.
 pub const PROPS: [PropKind; 30] = [
-    kind("HOUSE", 1, true),
-    kind("BARN_RED", 2, true),
-    kind("BARN_GREEN", 2, true),
-    kind("GAS_STATION", 1, true),
-    kind("GAS_PUMP", 2, true),
-    kind("WINDMILL", 2, true),
-    kind("SCARECROW", 1, false),
-    kind("HAY_STACK", 1, true),
-    kind("HAY", 0, true),
-    kind("TRACTOR", 1, true),
-    kind("TRUCK", 1, true),
-    kind("CAR_H", 0, true),
-    kind("CAR_V", 1, true),
-    kind("WRECK_H", 0, true),
-    kind("WRECK_V", 1, true),
-    kind("MAILBOX", 0, false),
-    kind("BUSHES", 1, false),
-    kind("BUSH", 0, false),
-    kind("DEAD_TREE", 0, false),
-    kind("TALL_TREE", 1, true),
-    kind("STUMP", 0, false),
-    kind("LOG", 0, false),
-    kind("BARREL", 0, true),
-    kind("TANK", 0, true),
-    kind("TOMBSTONE", 0, true),
-    kind("SIGN", 0, false),
-    kind("SIGN_LOW", 0, false),
-    kind("BARRIER", 0, true),
-    kind("SKULL_FENCE", 0, false),
-    kind("CORPSE", 0, false),
+    kind("HOUSE", 1, true, 0.0),
+    kind("BARN_RED", 2, true, 0.0),
+    kind("BARN_GREEN", 2, true, 0.0),
+    kind("GAS_STATION", 1, true, 0.0),
+    kind("GAS_PUMP", 2, true, 0.0),
+    kind("WINDMILL", 2, true, 0.0),
+    kind("SCARECROW", 1, false, 30.0),
+    kind("HAY_STACK", 1, true, 0.0),
+    kind("HAY", 0, true, 0.0),
+    kind("TRACTOR", 1, true, 0.0),
+    kind("TRUCK", 1, true, 0.0),
+    kind("CAR_H", 0, true, 0.0),
+    kind("CAR_V", 1, true, 0.0),
+    kind("WRECK_H", 0, true, 0.0),
+    kind("WRECK_V", 1, true, 0.0),
+    kind("MAILBOX", 0, false, 15.0),
+    kind("BUSHES", 1, false, 0.0),
+    kind("BUSH", 0, false, 0.0),
+    kind("DEAD_TREE", 0, false, 0.0),
+    kind("TALL_TREE", 1, true, 0.0),
+    kind("STUMP", 0, false, 0.0),
+    kind("LOG", 0, false, 0.0),
+    kind("BARREL", 0, true, 0.0),
+    kind("TANK", 0, true, 0.0),
+    kind("TOMBSTONE", 0, true, 0.0),
+    kind("SIGN", 0, false, 20.0),
+    kind("SIGN_LOW", 0, false, 20.0),
+    kind("BARRIER", 0, true, 60.0),
+    kind("SKULL_FENCE", 0, false, 40.0),
+    kind("CORPSE", 0, false, 0.0),
 ];
 
-/// What a prop line says over its sprite's own: whether it stops shots. None keeps the sprite's.
+/// What a prop line says over its sprite's own: its hit points, 0 for one that doesn't break, and whether it
+/// stops shots. None keeps the sprite's.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Tough {
+    pub hp: Option<f32>,
     pub cover: Option<bool>,
 }
 
 impl Tough {
     fn text(&self) -> String {
-        match self.cover {
-            Some(c) => format!(" cover {}", if c { "yes" } else { "no" }),
-            None => String::new(),
+        let mut s = String::new();
+        if let Some(hp) = self.hp {
+            s += &format!(" hp {hp}");
         }
+        if let Some(c) = self.cover {
+            s += &format!(" cover {}", if c { "yes" } else { "no" });
+        }
+        s
     }
 
     /// Takes `key value` if it's one of these; false if it isn't, and an error if the value doesn't do.
     fn read(&mut self, key: &str, value: Option<&str>) -> Result<bool, String> {
         match key {
+            "hp" => {
+                let hp = value.and_then(|v| v.parse::<f32>().ok()).filter(|v| (0.0..=super::MAX_HP).contains(v));
+                self.hp = Some(hp.ok_or_else(|| format!("hp is a number from 0 to {}", super::MAX_HP))?);
+            }
             "cover" => self.cover = Some(yes_no(value).ok_or("cover is yes or no")?),
             _ => return Ok(false),
         }
@@ -345,7 +357,7 @@ pub const RANDOM_MIN: [usize; 2] = [40, 30];
 /// One line of the props section, read but not yet placed.
 fn prop_line(words: &[&str]) -> Result<PropLine, String> {
     if words[0] == "fence" {
-        let usage = "a fence is rail or picket, then x, y, width and height, then maybe gate and a column, and cover yes or no";
+        let usage = "a fence is rail or picket, then x, y, width and height, then maybe gate and a column, hp and a number, and cover yes or no";
         let picket = match words.get(1) {
             Some(&"rail") => false,
             Some(&"picket") => true,
@@ -378,7 +390,7 @@ fn prop_line(words: &[&str]) -> Result<PropLine, String> {
             ("frame", Some(k)) if (k as usize) < frames.min(MAX_FRAME_INDEX) => frame = Some(k as usize),
             ("fps", Some(v)) => fps = v.min(60.0),
             ("open", Some(v)) => open = (v as usize).min(64),
-            (word, _) => return Err(format!("{word} after a prop is frame, fps or open with a number in range, or cover yes or no")),
+            (word, _) => return Err(format!("{word} after a prop is frame, fps, open or hp with a number in range, or cover yes or no")),
         }
     }
     Ok(PropLine::Sprite { name: words[0].to_string(), at: [at[0], at[1]], frame, fps, open, tough })
@@ -408,13 +420,7 @@ impl Map {
         if src.scatter {
             map.scatter(rng);
         }
-        map.props.retain(|p| {
-            let barrel = p.frames[0] == art::BARREL;
-            if barrel {
-                map.barrels.push([p.x, p.y]);
-            }
-            !barrel
-        });
+        map.keep_barrels_apart();
         let centre = |[x, y]: [usize; 2]| [(x.min(w - 1) as f32 + 0.5) * TILE, (y.min(h - 1) as f32 + 0.5) * TILE];
         (map.spawn, map.home) = (centre(src.spawn), centre(src.home));
         if strict {
@@ -431,7 +437,7 @@ impl Map {
                 return Err(format!("the {what} at {x} {y} is on the edge or under something solid"));
             }
         }
-        if self.flow(self.home)[self.i(src.spawn[0], src.spawn[1])] == u16::MAX {
+        if self.reach(self.home)[self.i(src.spawn[0], src.spawn[1])] == u16::MAX {
             return Err("there's no way from the spawn to home".into());
         }
         Ok(())
@@ -445,6 +451,8 @@ impl Map {
             overlay: vec![None; w * h],
             solid: vec![false; w * h],
             cover: vec![false; w * h],
+            owner: vec![super::NO_OWNER; w * h],
+            cost: vec![1; w * h],
             cells: vec![Cell::Open; w * h],
             props: Vec::new(),
             decals: Vec::new(),
@@ -524,7 +532,7 @@ impl Map {
                 if frames[0] == art::WINDMILL {
                     let (px, py) = (x as f32 * TILE, y as f32 * TILE - 6.0);
                     let base = py + 6.0 + art::WINDMILL.h() + 0.1;
-                    self.props.push(Prop { frames: &art::WINDMILL_FAN, fps: 8.0, x: px, y: py, base, depth: 2.0 });
+                    self.props.push(Prop::new(&art::WINDMILL_FAN, 8.0, px, py, base, 2.0));
                 }
             }
         }
@@ -617,11 +625,11 @@ mod tests {
 
     #[test]
     fn a_source_writes_back_what_it_read() {
-        let text = farm("HOUSE 2 2 open 1 cover no\nDEAD_TREE 5 5 frame 2\nfence picket 13 2 6 6 gate 2 cover yes\nfence rail 2 7 4 3").replace("ground", "scatter\nground");
+        let text = farm("HOUSE 2 2 open 1 hp 400 cover no\nDEAD_TREE 5 5 frame 2\nfence picket 13 2 6 6 gate 2 hp 0 cover yes\nfence rail 2 7 4 3").replace("ground", "scatter\nground");
         let src = MapSource::parse(&text).unwrap();
         let lines = |s: &MapSource| s.props.iter().map(|(_, p)| p.clone()).collect::<Vec<_>>();
         assert_eq!(lines(&MapSource::parse(&src.to_text()).unwrap()), lines(&src));
-        assert!(src.to_text().contains("HOUSE 2 2 open 1 cover no\n") && src.to_text().contains("gate 2 cover yes\n"), "{}", src.to_text());
+        assert!(src.to_text().contains("HOUSE 2 2 open 1 hp 400 cover no\n") && src.to_text().contains("gate 2 hp 0 cover yes\n"), "{}", src.to_text());
         assert_eq!(MapSource::parse(&src.to_text()).unwrap().ground, src.ground);
         assert_eq!(src.props[1].1, PropLine::Sprite { name: "DEAD_TREE".into(), at: [5, 5], frame: Some(2), fps: 0.0, open: 0, tough: Tough::default() });
         let grown = src.resized([3, -2]);
@@ -655,7 +663,11 @@ mod tests {
         assert!(err(&farm("NOPE 3 3")).starts_with("21: no sprite called NOPE"));
         assert!(err(&farm("HOUSE 3")).contains("x and y"));
         assert!(err(&farm("HOUSE 15 3")).starts_with("21: HOUSE at 15 3 reaches the edge"));
-        assert!(err(&farm("BARREL 3 3 spin 2")).contains("frame, fps or open"));
+        assert!(err(&farm("BARREL 3 3 spin 2")).contains("frame, fps, open or hp"));
+        for bad in ["hp -1", "hp 1001", "hp nan", "hp inf", "hp"] {
+            assert!(err(&farm(&format!("SIGN 3 3 {bad}"))).starts_with("21: hp is a number from 0 to 1000"), "{bad}");
+            assert!(err(&farm(&format!("fence rail 2 2 4 4 {bad}"))).starts_with("21: hp is a number"), "{bad}");
+        }
         assert!(err(&farm("fence wood 2 2 4 4")).contains("rail or picket"));
         assert!(err(&farm("fence rail 2 2 4 4 gate 3")).contains("inside the fence"));
         assert!(err(&farm("BARREL 3 3 cover maybe")).starts_with("21: cover is yes or no"));
@@ -670,9 +682,9 @@ mod tests {
 
     #[test]
     fn mangled_maps_are_refused_without_panicking() {
-        let good = farm("HOUSE 2 2 open 1 cover no\nWINDMILL 13 9 fps 8\nfence picket 13 2 6 6 gate 2 cover yes\nDEAD_TREE 5 5 frame 2");
+        let good = farm("HOUSE 2 2 open 1 cover no\nWINDMILL 13 9 fps 8 hp 30\nfence picket 13 2 6 6 gate 2 hp 50 cover yes\nDEAD_TREE 5 5 frame 2");
         read(&good).unwrap();
-        let pieces = ["99999", "65535", "0", "-1", "nan", "inf", "fence", "gate", "frame", "cover", "yes", "no", "\n", "props", "ground", "c", "v", "=", " ", "#"];
+        let pieces = ["99999", "65535", "1001", "0", "-1", "nan", "inf", "fence", "gate", "frame", "hp", "cover", "yes", "no", "\n", "props", "ground", "c", "v", "=", " ", "#"];
         let mut rng = Rng::new(42);
         for _ in 0..4000 {
             let mut text = good.clone();
@@ -695,6 +707,42 @@ mod tests {
                 let _ = src.resized([rng.below(9) as i32 - 4, rng.below(9) as i32 - 4]);
             }
         }
+    }
+
+    #[test]
+    fn zombies_find_their_way_through_a_fence_and_the_player_round_it() {
+        let pen = |line: &str| read(&farm(&format!("fence rail 13 2 6 6 {line}"))).unwrap();
+        let (map, at) = (pen(""), [15.5 * TILE, 4.5 * TILE]);
+        let cell = |x: usize, y: usize| y * map.w + x;
+        assert_eq!(map.reach(at)[cell(15, 9)], u16::MAX, "no gate: the player can't get in");
+        let flow = map.flow(at);
+        assert!(flow[cell(15, 9)] < u16::MAX && flow[cell(15, 9)] > 4, "zombies chew in, at a cost");
+        assert!(map.downhill(&flow, [15.5 * TILE, 8.5 * TILE]).unwrap()[1] < -0.9, "straight at the fence");
+        assert_eq!(pen("hp 0").flow(at)[cell(15, 9)], u16::MAX, "a fence that doesn't break is a wall");
+        let gated = pen("gate 2");
+        assert_eq!(gated.flow(at)[cell(15, 8)], gated.reach(at)[cell(15, 8)], "an open gate beats chewing");
+        assert!(read(&farm("fence rail 2 1 7 7 hp 999").replace("home 6 10", "home 4 4")).is_err(), "a home the player can't walk to is refused");
+    }
+
+    #[test]
+    fn a_broken_prop_opens_its_cells_and_shows_its_broken_frame_or_goes() {
+        test_props();
+        let mut map = read(&farm("PROP_CRATE_TEST 3 3\nSIGN 5 3\nSIGN 6 3 hp 0")).unwrap();
+        let (krate, sign) = ([3.5 * TILE, 3.5 * TILE], [5.5 * TILE, 3.5 * TILE]);
+        let i = map.breakable_at(krate[0], krate[1]).expect("the crate breaks");
+        assert_eq!(map.props[i].frames, &art::LOG[..2], "the broken frame doesn't animate with the rest");
+        assert!(map.breakable_at(6.5 * TILE, 3.5 * TILE).is_none(), "hp 0 doesn't break");
+        map.hurt_prop(i, 9.0, 0.1);
+        assert!(map.crumble(0.0).is_none() && map.props[i].flash > 0.0);
+        map.hurt_prop(i, 1.0, 0.1);
+        assert!(map.crumble(0.0).is_some());
+        assert!(!map.solid_at(krate[0], krate[1]) && map.breakable_at(krate[0], krate[1]).is_none());
+        assert_eq!(map.props[i].frames, &art::LOG[2..], "it lies broken");
+        let (props, j) = (map.props.len(), map.breakable_at(sign[0], sign[1]).expect("a sign breaks"));
+        map.hurt_prop(j, 100.0, 0.0);
+        map.crumble(0.0).unwrap();
+        assert!(map.props.len() == props - 1 && !map.solid_at(sign[0], sign[1]), "a sign without a broken frame goes");
+        assert!(map.breakable_at(krate[0], krate[1]).is_none() && map.solid_at(6.5 * TILE, 3.5 * TILE));
     }
 
     #[test]
@@ -735,10 +783,17 @@ mod tests {
         assert!(MapSource::parse(&farm("prop_lower 3 3")).unwrap_err().contains("isn't a sprite name"));
     }
 
+    /// Sets the same players' props for every test that needs some, since tests run side by side.
+    fn test_props() {
+        let read = super::super::super::props::prop_fields;
+        let tank = read("[map_test_tank]\nfps 6\nstand slab 4").unwrap();
+        let krate = read("[crate_test]\nframes 3\nhp 10\nbroken yes\ncover no").unwrap();
+        super::super::super::props::set_props(vec![(tank, art::WINDMILL_FAN.to_vec()), (krate, art::LOG.to_vec())]);
+    }
+
     #[test]
     fn a_map_places_a_players_prop_by_name() {
-        let fields = super::super::super::props::prop_fields("[map_test_tank]\nfps 6\nstand slab 4").unwrap();
-        super::super::super::props::set_props(vec![(fields, art::WINDMILL_FAN.to_vec())]);
+        test_props();
         let map = read(&farm("PROP_MAP_TEST_TANK 3 3")).unwrap();
         let p = map.props.iter().find(|p| p.frames[0] == art::WINDMILL_FAN[0]).expect("placed");
         assert_eq!(p.fps, 6.0, "it turns at the prop's own pace");

@@ -142,6 +142,7 @@ pub mod props {
         let mut fields = sprite.card.as_deref().and_then(|t| last_harvest_game::prop_fields(t).ok()).unwrap_or_else(|| blank(&id));
         fields.id = id;
         fields.frames = n as u32;
+        fields.broken &= n > 1;
         let mut sheet = vec![0u8; w * n * h * 4];
         for (k, f) in sprite.frames.iter().enumerate() {
             for y in 0..h {
@@ -164,7 +165,7 @@ pub mod props {
     }
 
     pub fn blank(id: &str) -> last_harvest_game::PropFields {
-        last_harvest_game::PropFields { id: id.into(), frames: 1, fps: 0.0, open: 0, stand: None, cover: true }
+        last_harvest_game::PropFields { id: id.into(), frames: 1, fps: 0.0, open: 0, stand: None, cover: true, hp: 0.0, broken: false }
     }
 }
 

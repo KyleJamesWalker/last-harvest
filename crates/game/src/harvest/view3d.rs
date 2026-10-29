@@ -188,16 +188,16 @@ fn stand(out: &mut Vec<Card>, eye: Vec3, art: Art, flip: bool, pose: Pose, solid
 }
 
 /// Puts a sprite fixed to the map, with its left edge at `left` and its bottom row meeting the ground at `base`,
-/// both in map pixels. Figures turn to face the camera, so the caller draws those.
-fn fixed(out: &mut Vec<Card>, eye: Vec3, a: Art, how: Stand, left: f32, base: f32) {
+/// both in map pixels, tinted by `tint`. Figures turn to face the camera, so the caller draws those.
+fn fixed(out: &mut Vec<Card>, eye: Vec3, a: Art, how: Stand, left: f32, base: f32, tint: [f32; 3]) {
     match how {
-        Stand::Prop { depth } => stand(out, eye, a, false, Pose::upright(Vec3::new(left * PX, 0.0, base * PX), Vec3::X, -Vec3::Z, depth * PX), true),
+        Stand::Prop { depth } => stand(out, eye, a, false, Pose { tint, ..Pose::upright(Vec3::new(left * PX, 0.0, base * PX), Vec3::X, -Vec3::Z, depth * PX) }, true),
         // The sprite is the roof, its top row to the north, and its edges run down to the ground.
         Stand::Slab { height } => {
-            let pose = Pose { origin: Vec3::new(left * PX, height * PX, base * PX), right: Vec3::X, up: -Vec3::Z, back: -Vec3::Y, depth: height * PX, tint: [1.0; 3], reach: Reach::Deep, top: None };
+            let pose = Pose { origin: Vec3::new(left * PX, height * PX, base * PX), right: Vec3::X, up: -Vec3::Z, back: -Vec3::Y, depth: height * PX, tint, reach: Reach::Deep, top: None };
             stand(out, eye, a, false, pose, true);
         }
-        Stand::Ground => flat(out, a, left * PX, (base - a.h()) * PX, DECAL_LIFT + 0.006, [1.0; 3]),
+        Stand::Ground => flat(out, a, left * PX, (base - a.h()) * PX, DECAL_LIFT + 0.006, tint),
         Stand::Carve { footprint, south, east } => carved(out, eye, [a, footprint.unwrap_or(a), south, east], footprint.is_some(), Vec3::new(left * PX, 0.0, (base - a.h()) * PX)),
         Stand::Figure => {}
     }
@@ -414,12 +414,13 @@ pub fn scene(h: &Harvest) -> CardScene {
         if how == Stand::Figure {
             figures.push((a, [prop.x + a.w() / 2.0, bottom]));
         } else {
-            fixed(&mut cards, eye, a, how, prop.x, if matches!(how, Stand::Prop { .. }) { prop.base } else { bottom });
+            let tint = [if prop.flash > 0.0 { super::PROP_FLASH } else { 1.0 }; 3];
+            fixed(&mut cards, eye, a, how, prop.x, if matches!(how, Stand::Prop { .. }) { prop.base } else { bottom }, tint);
         }
     }
     if let Some(s) = h.shown.as_ref().filter(|s| !s.frames.is_empty() && s.stand != Stand::Figure) {
         let a = s.frame(h.t);
-        fixed(&mut cards, eye, a, s.stand, s.pos[0] - a.w() / 2.0, s.pos[1]);
+        fixed(&mut cards, eye, a, s.stand, s.pos[0] - a.w() / 2.0, s.pos[1], [1.0; 3]);
     }
     for b in &h.barrels {
         let a = if b.flash > 0.0 { art::BARREL_FLASH } else { art::BARREL };

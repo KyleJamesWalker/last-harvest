@@ -21,8 +21,8 @@ use enemies::Enemy;
 pub(crate) use enemies::{install_cards, off_from_ids, off_ids, roster};
 pub use props::{MAX_FRAME as PROP_MAX_FRAME, MAX_FRAMES as PROP_MAX_FRAMES, Named as NamedProp, PREFIX as PROP_PREFIX, PropFields, load_for_checks as load_props_for_checks, prop_fields, prop_text, props as named_props, set_props};
 pub(crate) use props::stand_of;
+pub use map::{GROUND as MAP_GROUND, MAP_EXTENSION, MAP_MAX, MAP_MIN, MAX_HP as PROP_MAX_HP, MapSource, PROPS as MAP_PROPS, PropKind, PropLine, Tough as PropTough, check_map, valid_map_id};
 pub use enemies::{ABOUT_MAX, MAX_WALK, flash_pixel, frame_limits, hurt_pixel};
-pub use map::{GROUND as MAP_GROUND, MAP_EXTENSION, MAP_MAX, MAP_MIN, MapSource, PROPS as MAP_PROPS, PropKind, PropLine, Tough as PropTough, check_map, valid_map_id};
 pub use players::{ID_MAX as PLAYER_ID_MAX, PlayerFields, PlayerLook, default_start, looks as player_looks, player_fields, set_player_start, weapon_slots, weapons};
 pub use enemies::{CardFields, FLAGS as CARD_FLAGS, NUMBERS as CARD_NUMBERS, SpawnMix, card_fields, set_card_field, spawn_mix};
 use juice::{Corpse, Juice, Particle, Tone};
@@ -368,6 +368,10 @@ impl Grenade {
 
 const BARREL_HP: f32 = 20.0;
 const BLAST_RADIUS: f32 = 40.0;
+/// Bites a second a zombie takes out of a prop in its way.
+const CHEW_RATE: f32 = 0.5;
+/// How much brighter a prop draws while it flashes from a hit.
+const PROP_FLASH: f32 = 3.0;
 
 struct Barrel {
     /// Top-left in world pixels; the barrel fills one cell.
@@ -1013,6 +1017,7 @@ impl Harvest {
         if self.blow(dt, sounds) {
             flow.rumble = flow.rumble.max(Some(Rumble::Blast));
         }
+        self.crumble(dt, sounds);
         self.reap(sounds, flow);
         self.collect(dt, sounds);
         self.flock(dt, sounds);
@@ -1362,6 +1367,7 @@ impl Harvest {
             self.flow = self.map.flow(self.pos);
             self.flow_cell = cell;
         }
+        let mut bites = Vec::new();
         for (z, s) in self.zombies.iter_mut().zip(sep) {
             z.flash = (z.flash - dt).max(0.0);
             z.hurt = (z.hurt - dt).max(0.0);
@@ -1388,7 +1394,27 @@ impl Harvest {
             z.facing = Facing::of(to);
             z.dir = to;
             z.anim += dt;
+            let ahead = [z.pos[0] + to[0] * TILE / 2.0, z.pos[1] + to[1] * TILE / 2.0];
+            if let Some(i) = self.map.breakable_at(ahead[0], ahead[1]) {
+                bites.push((i, ahead, z.kind.stats().damage * CHEW_RATE * self.fury * dt));
+            }
         }
+        for (i, at, damage) in bites {
+            self.map.hurt_prop(i, damage, 0.0);
+            if self.juice.rng.range(0.0, 1.0) < dt * 3.0 {
+                self.juice.burst(at, 4.0, 2, [0.0; 2], 0.0, [20.0, 50.0], juice::DIRT, 1.0, 0.3, 0.0);
+            }
+        }
+    }
+
+    /// Breaks a prop chewed or shot to pieces, one per frame, and sends the dead the new way through.
+    fn crumble(&mut self, dt: f32, sounds: &mut Vec<Sfx>) {
+        let Some(c) = self.map.crumble(dt) else { return };
+        self.flow_cell = [usize::MAX; 2];
+        self.fx.push(Fx { frames: &art::SMOKE, fps: 8.0, pos: [c[0], c[1] - 4.0], angle: 0.0, t: 0.0 });
+        self.juice.burst(c, 4.0, 12, [0.0; 2], 0.0, [30.0, 80.0], juice::DIRT, 1.6, 0.6, 0.0);
+        self.noise = Some(c);
+        self.thud((1, false), sounds);
     }
 
     /// With the player down, the dead lose interest and shamble away.
@@ -1456,6 +1482,9 @@ impl Harvest {
                     barrel.hp -= b.damage;
                     barrel.flash = FLASH_TIME;
                     self.juice.burst(ground, 6.0, 4, back, 0.8, [40.0, 100.0], juice::SPARK, 0.8, 0.2, 1.0);
+                } else if let Some(i) = self.map.breakable_at(ground[0], ground[1]) {
+                    self.map.hurt_prop(i, b.damage, FLASH_TIME);
+                    self.juice.burst(ground, 6.0, 4, back, 0.9, [30.0, 70.0], juice::DIRT, 1.0, 0.3, 0.0);
                 } else {
                     self.juice.burst(ground, 6.0, 2, back, 0.9, [20.0, 50.0], juice::DIRT, 1.0, 0.3, 0.0);
                 }
@@ -1514,6 +1543,9 @@ impl Harvest {
             if len(sub(r.center(), c)) < radius {
                 r.hp = r.hp.min(0.0);
             }
+        }
+        for i in self.map.breakables_near(c, radius) {
+            self.map.hurt_prop(i, damage, FLASH_TIME);
         }
         if len(sub(self.pos, c)) < radius * 0.7 && self.hurt <= 0.0 {
             let hurt = (15.0 - m.armor).max(1.0);
@@ -2101,6 +2133,51 @@ mod tests {
         };
         assert!(!stops(bush), "a bush blocks the way but not a shot");
         assert!(stops(house));
+    }
+
+    /// A calm run on a dirt map with a gateless rail fence round the player, from tile (7, 4) to (13, 9).
+    fn penned() -> Harvest {
+        let mut src = map::MapSource::new("Pen", [20, 14]);
+        src.props.push((0, PropLine::Fence { picket: false, rect: [7, 4, 7, 6], gate: None, tough: Default::default() }));
+        Harvest::calm_on(1, &src).unwrap()
+    }
+
+    #[test]
+    fn zombies_chew_through_a_fence_to_get_at_the_player() {
+        let mut h = penned();
+        let fence = h.map.props.len();
+        h.zombies.push(Zombie::new(Kind::named("skinny"), [3.5 * TILE, 7.5 * TILE], 1000.0, 1.0, 0.0));
+        for _ in 0..60 * 20 {
+            h.update(&Input::default(), 1.0 / 60.0, &mut Vec::new());
+            if h.hp < h.kit.max_hp() {
+                break;
+            }
+        }
+        assert!(h.map.props.len() < fence, "a piece of fence is gone");
+        assert!(h.hp < h.kit.max_hp(), "and the zombie came through it");
+    }
+
+    #[test]
+    fn shots_and_blasts_break_cover_but_fly_past_a_fence() {
+        let mut h = penned();
+        let post = [7.5 * TILE, 6.5 * TILE];
+        let shoot = |h: &mut Harvest| {
+            h.bullets = vec![Bullet { pos: [post[0], post[1] - 6.0], vel: [0.0; 2], damage: 10.0, pierce: 0, life: 1.0, force: 0.0, hit: Vec::new() }];
+            h.move_bullets(0.016, &mut Vec::new());
+        };
+        let i = h.map.breakable_at(post[0], post[1]).unwrap();
+        shoot(&mut h);
+        assert_eq!((h.bullets.len(), h.map.props[i].hp), (1, 40.0), "a fence isn't cover");
+        let mut src = map::MapSource::new("Pen", [20, 14]);
+        src.props.push((0, PropLine::Fence { picket: false, rect: [7, 4, 7, 6], gate: None, tough: map::Tough { hp: Some(30.0), cover: Some(true) } }));
+        h = Harvest::calm_on(1, &src).unwrap();
+        shoot(&mut h);
+        assert!(h.bullets.is_empty() && h.map.props[i].hp == 20.0 && h.map.props[i].flash > 0.0, "cover that breaks takes the shot");
+        h.explode([post[0] - 20.0, post[1]], BLAST_RADIUS, 60.0, &mut Vec::new());
+        for _ in 0..10 {
+            h.crumble(0.016, &mut Vec::new());
+        }
+        assert!(!h.map.solid_at(post[0], post[1]), "a blast takes it down");
     }
 
     #[test]
