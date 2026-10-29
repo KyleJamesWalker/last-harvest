@@ -95,12 +95,12 @@ pub const TOP_FILE: &str = "top.png";
 pub const CARD_FILE: &str = "enemy.txt";
 pub use last_harvest_pack::card::Kind as CardKind;
 
-/// A card lists as five sprites, like the game's own zombies: `CARD_<ID>_FRONT` and so on for an enemy card, or
+/// A card lists as six sprites, like the game's own zombies: `CARD_<ID>_FRONT` and so on for an enemy card, or
 /// `PLAYER_CARD_<ID>_FRONT` for a player card, each a row of the card's sheet.
 pub const CARD_PREFIX: &str = "CARD_";
 pub const PLAYER_CARD_PREFIX: &str = "PLAYER_CARD_";
 pub const PLAYER_SECTION: &str = "Player cards";
-pub const CARD_PARTS: [&str; 5] = ["FRONT", "SIDE", "BACK", "FLASH", "HURT"];
+pub const CARD_PARTS: [&str; 6] = ["FRONT", "SIDE", "BACK", "FLASH", "HURT", "DEAD"];
 pub const CARD_PART_FRAMES: usize = 3;
 pub const CARD_FRAMES: usize = CARD_PARTS.len() * CARD_PART_FRAMES;
 pub const CARD_SECTION: &str = "Enemy cards";
@@ -145,19 +145,19 @@ pub fn card_wanted(name: &str) -> Option<(CardKind, String)> {
     split_kind(name).filter(|(_, id)| !id.is_empty()).map(|(kind, id)| (kind, id.to_ascii_lowercase()))
 }
 
-/// The five part names an enemy card id lists under, when the id is one a sprite name can carry.
-pub fn card_names(id: &str) -> Option<[String; 5]> {
+/// The part names an enemy card id lists under, when the id is one a sprite name can carry.
+pub fn card_names(id: &str) -> Option<[String; 6]> {
     card_names_of(CardKind::Enemy, id)
 }
 
-/// The five part names a card of `kind` lists under, when the id is one a sprite name can carry.
-pub fn card_names_of(kind: CardKind, id: &str) -> Option<[String; 5]> {
+/// The part names a card of `kind` lists under, when the id is one a sprite name can carry.
+pub fn card_names_of(kind: CardKind, id: &str) -> Option<[String; 6]> {
     let names = CARD_PARTS.map(|p| format!("{}{}_{p}", prefix(kind), id.to_ascii_uppercase()));
     (!id.is_empty() && id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_') && names.iter().all(|n| valid_name(n))).then_some(names)
 }
 
-/// A new card's 15 frames: a plain 16x16 figure to paint over, walking front, side and back with its legs taking
-/// turns, then white for the flash and red for the hurt frames.
+/// A new card's 18 frames: a plain 16x16 figure to paint over, walking front, side and back with its legs taking
+/// turns, then blank flash, hurt and dead frames, which the game draws from the walk.
 pub fn card_template() -> Vec<Frame> {
     const OUTLINE: Rgba = [28, 28, 34, 255];
     const HEAD: Rgba = [168, 168, 160, 255];
@@ -187,14 +187,8 @@ pub fn card_template() -> Vec<Frame> {
         }
         f
     };
-    let tint = |mut f: Frame, paint: fn(Rgba) -> Rgba| {
-        f.px.iter_mut().filter(|p| p[3] > 0).for_each(|p| *p = paint(*p));
-        f
-    };
     let walk = (0..9).map(|k| figure(k / 3, k % 3));
-    let flash = (0..3).map(|facing| tint(figure(facing, 0), |_| [255, 255, 255, 255]));
-    let hurt = (0..3).map(|facing| tint(figure(facing, 0), |p| [p[0].saturating_add(110), p[1] / 3, p[2] / 3, 255]));
-    walk.chain(flash).chain(hurt).collect()
+    walk.chain((0..9).map(|_| Frame::blank(16, 16))).collect()
 }
 
 /// What frame `i` of a card's part in `row` shows.
@@ -267,6 +261,12 @@ pub fn folder() -> PathBuf {
 /// The list heading for a sprite: the comment line that opens its group in the catalog, up to its first
 /// `,` `:` or `;`. A sprite the catalog doesn't name is a new one.
 pub fn section(name: &str) -> &'static str {
+    if name.starts_with(MAP_PREFIX) {
+        return MAP_SECTION;
+    }
+    if name.starts_with(last_harvest_game::PROP_PREFIX) {
+        return PROP_SECTION;
+    }
     match card_kind(name) {
         Some(CardKind::Enemy) => return CARD_SECTION,
         Some(CardKind::Player) => return PLAYER_SECTION,
@@ -278,6 +278,11 @@ pub fn section(name: &str) -> &'static str {
 }
 
 pub const NEW_SECTION: &str = "New sprites";
+/// A hand-made map lists as `MAP_<ID>` under Maps.
+pub const MAP_PREFIX: &str = "MAP_";
+pub const MAP_SECTION: &str = "Maps";
+/// A player's prop lists as `PROP_<ID>` under Props.
+pub const PROP_SECTION: &str = "Props";
 
 /// Each sprite's heading in catalog text: a comment opens a group when a blank line comes before it and a
 /// sprite right after it.

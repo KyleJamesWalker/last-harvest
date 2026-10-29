@@ -5,6 +5,7 @@ mod draw;
 mod enemies;
 mod juice;
 mod map;
+mod props;
 mod players;
 mod powerups;
 pub mod showcase;
@@ -18,7 +19,10 @@ use crate::rng::Rng;
 use crate::{Buttons, Color, Difficulty, Input, SCREEN_H, SCREEN_W, Sfx};
 use enemies::Enemy;
 pub(crate) use enemies::{install_cards, off_from_ids, off_ids, roster};
-pub use enemies::{MAX_WALK, frame_limits};
+pub use props::{MAX_FRAME as PROP_MAX_FRAME, MAX_FRAMES as PROP_MAX_FRAMES, Named as NamedProp, PREFIX as PROP_PREFIX, PropFields, load_for_checks as load_props_for_checks, prop_fields, prop_text, props as named_props, set_props};
+pub(crate) use props::stand_of;
+pub use map::{GROUND as MAP_GROUND, MAP_EXTENSION, MAP_MAX, MAP_MIN, MAX_HP as PROP_MAX_HP, MapSource, PROPS as MAP_PROPS, PropKind, PropLine, Tough as PropTough, check_map, valid_map_id};
+pub use enemies::{ABOUT_MAX, MAX_WALK, flash_pixel, frame_limits, hurt_pixel};
 pub use players::{ID_MAX as PLAYER_ID_MAX, PlayerFields, PlayerLook, default_start, looks as player_looks, player_fields, set_player_start, weapon_slots, weapons};
 pub use enemies::{CardFields, FLAGS as CARD_FLAGS, NUMBERS as CARD_NUMBERS, SpawnMix, card_fields, set_card_field, spawn_mix};
 use juice::{Corpse, Juice, Particle, Tone};
@@ -44,8 +48,7 @@ const SPIN_TIME: f32 = 0.2;
 const GRENADE_RECHARGE: f32 = 12.0;
 const GRENADE_FLIGHT: f32 = 0.7;
 const GRENADE_RADIUS: f32 = 36.0;
-const MAP_W: usize = 72;
-const MAP_H: usize = 54;
+pub const MAP_SIZE: [usize; 2] = [72, 54];
 const DAWN: f32 = 600.0;
 /// How long a night lasts, in minutes.
 pub const NIGHT_MINUTES: f32 = DAWN / 60.0;
@@ -124,10 +127,12 @@ pub(crate) struct Look {
     pub walk: [Vec<Art>; 3],
     pub flash: [Art; 3],
     pub hurt: [Art; 3],
+    /// Dead, per facing, tipped over as a corpse; without it a corpse is the front hurt frame.
+    pub dead: Option<[Art; 3]>,
 }
 
 fn player_look() -> Look {
-    Look { walk: [art::PLAYER_FRONT.to_vec(), art::PLAYER_SIDE.to_vec(), art::PLAYER_BACK.to_vec()], flash: art::PLAYER_FLASH, hurt: art::PLAYER_HURT }
+    Look { walk: [art::PLAYER_FRONT.to_vec(), art::PLAYER_SIDE.to_vec(), art::PLAYER_BACK.to_vec()], flash: art::PLAYER_FLASH, hurt: art::PLAYER_HURT, dead: None }
 }
 
 /// A kind of zombie: its place in `enemies.txt`.
@@ -363,6 +368,10 @@ impl Grenade {
 
 const BARREL_HP: f32 = 20.0;
 const BLAST_RADIUS: f32 = 40.0;
+/// Bites a second a zombie takes out of a prop in its way.
+const CHEW_RATE: f32 = 0.5;
+/// How much brighter a prop draws while it flashes from a hit.
+const PROP_FLASH: f32 = 3.0;
 
 struct Barrel {
     /// Top-left in world pixels; the barrel fills one cell.
@@ -403,7 +412,7 @@ fn player_pose(h: &Harvest, facing: Facing) -> (Art, f32) {
     let Phase::Over { t, won: false } = h.phase else { return (art_for(h, look, facing), 1.0) };
     let i = facing.index();
     if t < TURN_RISE {
-        (look.hurt[i], 1.0 - ((t - TURN_FALL) / (TURN_SINK - TURN_FALL)).clamp(0.0, 1.0))
+        (look.dead.map_or(look.hurt[i], |d| d[i]), 1.0 - ((t - TURN_FALL) / (TURN_SINK - TURN_FALL)).clamp(0.0, 1.0))
     } else {
         let walk = &Kind::common().stats().look.walk[i];
         (walk[(t * WALK_FPS * 0.6) as usize % walk.len()], ((t - TURN_RISE) / (TURNED - TURN_RISE)).min(1.0))
@@ -458,6 +467,8 @@ pub struct Flow {
 pub struct Harvest {
     rng: Rng,
     map: Map,
+    /// The hand-made map this run is on, by id; empty for a generated farm.
+    map_id: String,
     t: f32,
     phase: Phase,
     pos: [f32; 2],
@@ -602,8 +613,26 @@ fn norm(v: [f32; 2]) -> [f32; 2] {
 
 impl Harvest {
     pub fn new(seed: u64) -> Self {
+        Self::sized(seed, MAP_SIZE)
+    }
+
+    /// A run on the hand-made map `id`, or on a generated farm when no map that reads has that id.
+    pub fn on(seed: u64, id: &str) -> Self {
         let mut rng = Rng::new(seed);
-        let map = Map::generate(&mut rng, MAP_W, MAP_H);
+        let file = crate::data::maps().iter().find(|m| m.id == id);
+        match file.and_then(|m| Map::from_text(&m.text, &mut rng).ok()) {
+            Some(map) => Self { map_id: id.to_string(), ..Self::with_map(seed, rng, map) },
+            None => Self::new(seed),
+        }
+    }
+
+    fn sized(seed: u64, [w, h]: [usize; 2]) -> Self {
+        let mut rng = Rng::new(seed);
+        let map = Map::generate(&mut rng, w, h);
+        Self::with_map(seed, rng, map)
+    }
+
+    fn with_map(seed: u64, rng: Rng, map: Map) -> Self {
         let kit = Kit::start(Difficulty::Normal);
         let barrels = map.barrels.iter().map(|&pos| Barrel { pos, hp: BARREL_HP, flash: 0.0 }).collect();
         Self {
@@ -638,6 +667,7 @@ impl Harvest {
             hp: kit.max_hp(),
             rng,
             map,
+            map_id: String::new(),
             t: 0.0,
             phase: Phase::Playing,
             hurt: 0.0,
@@ -709,10 +739,17 @@ impl Harvest {
         None
     }
 
-    /// The same frames every run: 300 zombies, bodies, stains and specks around the player, frozen,
-    /// with the camera turning a full circle every 600 frames.
-    pub fn bench() -> Self {
-        let mut h = Self { calm: true, bench: true, ..Self::new(7) };
+    /// The same frames every run: 300 zombies, bodies, stains and specks around the player, frozen, with the
+    /// camera turning a full circle every 600 frames, on a generated farm `size` tiles across. Logs the map's
+    /// prop count and how long a flow field over it takes, which a moving player pays each time they change tile.
+    pub fn bench(size: [usize; 2]) -> Self {
+        let [w, hgt] = size.map(|v| v.clamp(16, 400));
+        let mut h = Self { calm: true, bench: true, ..Self::sized(7, [w, hgt]) };
+        let start = std::time::Instant::now();
+        for _ in 0..20 {
+            std::hint::black_box(h.map.flow(h.pos));
+        }
+        eprintln!("bench: {w}x{hgt} tiles, {} props, flow field {:.2} ms", h.map.props.len(), start.elapsed().as_secs_f64() * 1000.0 / 20.0);
         h.birds.clear();
         for i in 0..MAX_ZOMBIES {
             let a = i as f32 * 2.399;
@@ -728,7 +765,7 @@ impl Harvest {
             let at = [h.pos[0] + a.cos() * 30.0, h.pos[1] + a.sin() * 30.0];
             let stain = art::BLOOD_STAIN[i % art::BLOOD_STAIN.len()];
             h.stains.push((stain, at[0], at[1], [1.0; 3]));
-            h.juice.corpse(Corpse { art: art::SKINNY_HURT[0], flip: false, pos: at, z: 0.0, vel: [0.0; 2], vz: 0.0, fall: [a.cos(), a.sin()], age: 1.0, spin: 0.0 });
+            h.juice.corpse(Corpse { art: art::SKINNY_HURT[0], dead: None, flip: false, pos: at, z: 0.0, vel: [0.0; 2], vz: 0.0, fall: [a.cos(), a.sin()], age: 1.0, spin: 0.0 });
             h.juice.burst(at, 8.0, 8, [0.0; 2], 0.0, [10.0, 40.0], juice::BLOOD, 1.5, 100.0, 0.0);
             h.juice.popup(at, 12.0 + i as f32, if i % 5 == 0 { Tone::Crit } else { Tone::Hit });
             let vel = [a.cos() * 200.0, a.sin() * 200.0];
@@ -792,6 +829,13 @@ impl Harvest {
 
     pub fn calm(seed: u64) -> Self {
         Self { calm: true, ..Self::new(seed) }
+    }
+
+    /// A calm farm on a hand-made map, built loosely so a half-made one still shows.
+    pub(super) fn calm_on(seed: u64, src: &map::MapSource) -> Result<Self, String> {
+        let mut rng = Rng::new(seed);
+        let map = Map::from_source(src, &mut rng, false)?;
+        Ok(Self { calm: true, ..Self::with_map(seed, rng, map) })
     }
 
     pub fn summary(&self) -> String {
@@ -973,6 +1017,7 @@ impl Harvest {
         if self.blow(dt, sounds) {
             flow.rumble = flow.rumble.max(Some(Rumble::Blast));
         }
+        self.crumble(dt, sounds);
         self.reap(sounds, flow);
         self.collect(dt, sounds);
         self.flock(dt, sounds);
@@ -1090,7 +1135,7 @@ impl Harvest {
     fn restart(&mut self, sounds: &mut Vec<Sfx>) {
         let seed = self.rng.next_u32() as u64 + 1;
         let kit: Vec<String> = self.trial.iter().map(|&(d, l)| format!("{}:{l}", book().defs[d].id)).collect();
-        *self = Harvest::new(seed).at(self.difficulty).with_progress(self.progress).with_kit(&kit.join(",")).starting_at(self.start_t);
+        *self = Harvest::on(seed, &self.map_id).at(self.difficulty).with_progress(self.progress).with_kit(&kit.join(",")).starting_at(self.start_t);
         sounds.push(Sfx::Start);
     }
 
@@ -1322,6 +1367,7 @@ impl Harvest {
             self.flow = self.map.flow(self.pos);
             self.flow_cell = cell;
         }
+        let mut bites = Vec::new();
         for (z, s) in self.zombies.iter_mut().zip(sep) {
             z.flash = (z.flash - dt).max(0.0);
             z.hurt = (z.hurt - dt).max(0.0);
@@ -1348,7 +1394,27 @@ impl Harvest {
             z.facing = Facing::of(to);
             z.dir = to;
             z.anim += dt;
+            let ahead = [z.pos[0] + to[0] * TILE / 2.0, z.pos[1] + to[1] * TILE / 2.0];
+            if let Some(i) = self.map.breakable_at(ahead[0], ahead[1]) {
+                bites.push((i, ahead, z.kind.stats().damage * CHEW_RATE * self.fury * dt));
+            }
         }
+        for (i, at, damage) in bites {
+            self.map.hurt_prop(i, damage, 0.0);
+            if self.juice.rng.range(0.0, 1.0) < dt * 3.0 {
+                self.juice.burst(at, 4.0, 2, [0.0; 2], 0.0, [20.0, 50.0], juice::DIRT, 1.0, 0.3, 0.0);
+            }
+        }
+    }
+
+    /// Breaks a prop chewed or shot to pieces, one per frame, and sends the dead the new way through.
+    fn crumble(&mut self, dt: f32, sounds: &mut Vec<Sfx>) {
+        let Some(c) = self.map.crumble(dt) else { return };
+        self.flow_cell = [usize::MAX; 2];
+        self.fx.push(Fx { frames: &art::SMOKE, fps: 8.0, pos: [c[0], c[1] - 4.0], angle: 0.0, t: 0.0 });
+        self.juice.burst(c, 4.0, 12, [0.0; 2], 0.0, [30.0, 80.0], juice::DIRT, 1.6, 0.6, 0.0);
+        self.noise = Some(c);
+        self.thud((1, false), sounds);
     }
 
     /// With the player down, the dead lose interest and shamble away.
@@ -1409,13 +1475,16 @@ impl Harvest {
             b.life -= dt;
             let ground = [b.pos[0], b.pos[1] + 6.0];
             let back = norm([-b.vel[0], -b.vel[1]]);
-            if self.map.solid_at(ground[0], ground[1]) {
+            if self.map.cover_at(ground[0], ground[1]) {
                 let cell = |p: [f32; 2]| [(p[0] / TILE).floor(), (p[1] / TILE).floor()];
                 let at = cell(ground);
                 if let Some(barrel) = self.barrels.iter_mut().find(|r| cell(r.pos) == at) {
                     barrel.hp -= b.damage;
                     barrel.flash = FLASH_TIME;
                     self.juice.burst(ground, 6.0, 4, back, 0.8, [40.0, 100.0], juice::SPARK, 0.8, 0.2, 1.0);
+                } else if let Some(i) = self.map.breakable_at(ground[0], ground[1]) {
+                    self.map.hurt_prop(i, b.damage, FLASH_TIME);
+                    self.juice.burst(ground, 6.0, 4, back, 0.9, [30.0, 70.0], juice::DIRT, 1.0, 0.3, 0.0);
                 } else {
                     self.juice.burst(ground, 6.0, 2, back, 0.9, [20.0, 50.0], juice::DIRT, 1.0, 0.3, 0.0);
                 }
@@ -1474,6 +1543,9 @@ impl Harvest {
             if len(sub(r.center(), c)) < radius {
                 r.hp = r.hp.min(0.0);
             }
+        }
+        for i in self.map.breakables_near(c, radius) {
+            self.map.hurt_prop(i, damage, FLASH_TIME);
         }
         if len(sub(self.pos, c)) < radius * 0.7 && self.hurt <= 0.0 {
             let hurt = (15.0 - m.armor).max(1.0);
@@ -1534,6 +1606,19 @@ impl Harvest {
         }
     }
 
+    /// A zombie dying at `pos`, knocked toward `fall` and flung `fling` hard: blood, a stain, gibs and its corpse.
+    pub(super) fn gore(&mut self, pos: [f32; 2], fall: [f32; 2], fling: f32, dir: [f32; 2], look: &Look, gibs: usize) {
+        self.fx.push(Fx { frames: &art::BLOOD_SPLAT, fps: 12.0, pos: [pos[0], pos[1] - 4.0], angle: 0.0, t: 0.0 });
+        let stain = art::BLOOD_STAIN[self.rng.below(art::BLOOD_STAIN.len())];
+        self.stain((stain, pos[0] - stain.w() / 2.0, pos[1] - stain.h() / 2.0, [1.0; 3]));
+        let (vel, vz) = if fling > 0.0 { ([fall[0] * fling, fall[1] * fling], fling * 0.9) } else { ([fall[0] * 25.0, fall[1] * 25.0], 0.0) };
+        let flip = self.juice.rng.below(2) == 0;
+        let dead = look.dead.map(|d| (d, dir));
+        self.juice.corpse(Corpse { art: look.hurt[Facing::Front.index()], dead, flip, pos, z: 0.0, vel, vz, fall, age: 0.0, spin: 0.0 });
+        self.juice.burst(pos, 8.0, gibs, fall, 1.2, [30.0, 110.0], juice::BLOOD, 1.6, 0.6, 0.0);
+        self.juice.burst(pos, 8.0, gibs / 3, fall, 0.8, [20.0, 60.0], juice::DARK_BLOOD, 2.4, 0.8, 0.0);
+    }
+
     fn reap(&mut self, sounds: &mut Vec<Sfx>, flow: &mut Flow) {
         let mut died: Option<Kind> = None;
         let mut i = 0;
@@ -1550,16 +1635,8 @@ impl Harvest {
                 _ => z.kind,
             });
             let s = z.kind.stats();
-            self.fx.push(Fx { frames: &art::BLOOD_SPLAT, fps: 12.0, pos: [z.pos[0], z.pos[1] - 4.0], angle: 0.0, t: 0.0 });
-            let stain = art::BLOOD_STAIN[self.rng.below(art::BLOOD_STAIN.len())];
-            self.stain((stain, z.pos[0] - stain.w() / 2.0, z.pos[1] - stain.h() / 2.0, [1.0; 3]));
             let fall = if z.knock == [0.0; 2] { norm(sub(z.pos, self.pos)) } else { z.knock };
-            let (vel, vz) = if z.fling > 0.0 { ([fall[0] * z.fling, fall[1] * z.fling], z.fling * 0.9) } else { ([fall[0] * 25.0, fall[1] * 25.0], 0.0) };
-            let flip = self.juice.rng.below(2) == 0;
-            self.juice.corpse(Corpse { art: s.look.hurt[Facing::Front.index()], flip, pos: z.pos, z: 0.0, vel, vz, fall, age: 0.0, spin: 0.0 });
-            let gibs = s.gibs as usize;
-            self.juice.burst(z.pos, 8.0, gibs, fall, 1.2, [30.0, 110.0], juice::BLOOD, 1.6, 0.6, 0.0);
-            self.juice.burst(z.pos, 8.0, gibs / 3, fall, 0.8, [20.0, 60.0], juice::DARK_BLOOD, 2.4, 0.8, 0.0);
+            self.gore(z.pos, fall, z.fling, z.dir, &s.look, s.gibs as usize);
             if s.heavy {
                 self.juice.stop(0.06);
                 self.juice.shake(0.2);
@@ -2041,6 +2118,66 @@ mod tests {
         assert!(h.blow(0.016, &mut sounds));
         assert!(h.zombies[0].hp <= 0.0);
         assert!(!h.map.solid_at(c[0], c[1]));
+    }
+
+    #[test]
+    fn shots_fly_past_bushes_and_stop_at_buildings() {
+        let mut h = Harvest::calm(6);
+        let bottom = |a: Art| h.map.props.iter().find(|p| p.frames[0] == a).map(|p| [p.x + TILE / 2.0, p.base - TILE / 2.0]).expect("seed 6 has one");
+        let (bush, house) = (bottom(art::BUSH), bottom(art::HOUSE));
+        assert!(h.map.solid_at(bush[0], bush[1]));
+        let mut stops = |at: [f32; 2]| {
+            h.bullets = vec![Bullet { pos: [at[0], at[1] - 6.0], vel: [0.0; 2], damage: 1.0, pierce: 0, life: 1.0, force: 0.0, hit: Vec::new() }];
+            h.move_bullets(0.016, &mut Vec::new());
+            h.bullets.is_empty()
+        };
+        assert!(!stops(bush), "a bush blocks the way but not a shot");
+        assert!(stops(house));
+    }
+
+    /// A calm run on a dirt map with a gateless rail fence round the player, from tile (7, 4) to (13, 9).
+    fn penned() -> Harvest {
+        let mut src = map::MapSource::new("Pen", [20, 14]);
+        src.props.push((0, PropLine::Fence { picket: false, rect: [7, 4, 7, 6], gate: None, tough: Default::default() }));
+        Harvest::calm_on(1, &src).unwrap()
+    }
+
+    #[test]
+    fn zombies_chew_through_a_fence_to_get_at_the_player() {
+        let mut h = penned();
+        let fence = h.map.props.len();
+        h.zombies.push(Zombie::new(Kind::named("skinny"), [3.5 * TILE, 7.5 * TILE], 1000.0, 1.0, 0.0));
+        for _ in 0..60 * 20 {
+            h.update(&Input::default(), 1.0 / 60.0, &mut Vec::new());
+            if h.hp < h.kit.max_hp() {
+                break;
+            }
+        }
+        assert!(h.map.props.len() < fence, "a piece of fence is gone");
+        assert!(h.hp < h.kit.max_hp(), "and the zombie came through it");
+    }
+
+    #[test]
+    fn shots_and_blasts_break_cover_but_fly_past_a_fence() {
+        let mut h = penned();
+        let post = [7.5 * TILE, 6.5 * TILE];
+        let shoot = |h: &mut Harvest| {
+            h.bullets = vec![Bullet { pos: [post[0], post[1] - 6.0], vel: [0.0; 2], damage: 10.0, pierce: 0, life: 1.0, force: 0.0, hit: Vec::new() }];
+            h.move_bullets(0.016, &mut Vec::new());
+        };
+        let i = h.map.breakable_at(post[0], post[1]).unwrap();
+        shoot(&mut h);
+        assert_eq!((h.bullets.len(), h.map.props[i].hp), (1, 40.0), "a fence isn't cover");
+        let mut src = map::MapSource::new("Pen", [20, 14]);
+        src.props.push((0, PropLine::Fence { picket: false, rect: [7, 4, 7, 6], gate: None, tough: map::Tough { hp: Some(30.0), cover: Some(true) } }));
+        h = Harvest::calm_on(1, &src).unwrap();
+        shoot(&mut h);
+        assert!(h.bullets.is_empty() && h.map.props[i].hp == 20.0 && h.map.props[i].flash > 0.0, "cover that breaks takes the shot");
+        h.explode([post[0] - 20.0, post[1]], BLAST_RADIUS, 60.0, &mut Vec::new());
+        for _ in 0..10 {
+            h.crumble(0.016, &mut Vec::new());
+        }
+        assert!(!h.map.solid_at(post[0], post[1]), "a blast takes it down");
     }
 
     #[test]

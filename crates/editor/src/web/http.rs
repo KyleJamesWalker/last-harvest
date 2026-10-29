@@ -65,4 +65,16 @@ impl Store for HttpStore {
     fn version(&self, id: &str, name: &str, file: &str) -> Option<Vec<u8>> {
         get(&format!("api/version/{id}/{name}/{file}"))
     }
+
+    fn map_ids(&self) -> Vec<String> {
+        get("api/maps").map(utf8).unwrap_or_default().lines().map(str::to_string).collect()
+    }
+
+    fn read_map(&self, id: &str) -> Option<String> {
+        get(&format!("api/map/{id}")).map(utf8)
+    }
+
+    fn save_map(&self, id: &str, text: &str) -> Result<(), String> {
+        put(&format!("api/map/{id}"), text.as_bytes())
+    }
 }

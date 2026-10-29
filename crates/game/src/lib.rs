@@ -18,8 +18,10 @@ mod system;
 pub use difficulty::Difficulty;
 pub use draw::{Align, Canvas, Color, Frame, Shape};
 pub use art::Stand;
-pub use harvest::showcase::Showcase;
-pub use harvest::{CARD_FLAGS, CARD_NUMBERS, MAX_WALK, PLAYER_ID_MAX, PlayerFields, PlayerLook, default_start, frame_limits, player_fields, player_looks, set_player_start, weapon_slots, weapons, CardFields, NIGHT_MINUTES, SpawnMix, card_fields, check_tables, kill_sound, kill_sounds, kill_weight, set_card_field, spawn_mix};
+pub use harvest::showcase::{Figure, Showcase};
+pub use harvest::{NamedProp, load_props_for_checks, PROP_MAX_FRAME, PROP_MAX_FRAMES, PROP_PREFIX, PropFields, named_props, prop_fields, prop_text, set_props};
+pub use harvest::{MAP_EXTENSION, MAP_GROUND, MAP_MAX, MAP_MIN, MAP_PROPS, MapSource, PROP_MAX_HP, PropKind, PropLine, PropTough, check_map, valid_map_id};
+pub use harvest::{ABOUT_MAX, CARD_FLAGS, CARD_NUMBERS, MAX_WALK, PLAYER_ID_MAX, PlayerFields, PlayerLook, default_start, flash_pixel, frame_limits, hurt_pixel, player_fields, player_looks, set_player_start, weapon_slots, weapons, CardFields, NIGHT_MINUTES, SpawnMix, card_fields, check_tables, kill_sound, kill_sounds, kill_weight, set_card_field, spawn_mix};
 pub use input::{Buttons, Input, InputTracker, MAX_TOUCHES, RawInput};
 pub use save::Save;
 pub use sfx::Sfx;
@@ -48,8 +50,8 @@ pub enum Scene {
     Harvest,
     /// Debug walk around a generated farm with no zombies.
     Farm,
-    /// Debug frame-rate benchmark: the same frozen swarm every run.
-    Bench,
+    /// Debug frame-rate benchmark: the same frozen swarm every run, on a farm this many tiles wide and tall.
+    Bench([usize; 2]),
     /// Debug view of every sprite in the art catalog.
     Gallery,
     /// Debug check of every hardware feature, and where screen brightness is set.
@@ -62,7 +64,11 @@ impl Scene {
             "title" | "menu" => Scene::Title,
             "harvest" | "play" => Scene::Harvest,
             "farm" => Scene::Farm,
-            "bench" => Scene::Bench,
+            "bench" => Scene::Bench(harvest::MAP_SIZE),
+            _ if name.starts_with("bench-") => {
+                let (w, h) = name["bench-".len()..].split_once('x')?;
+                Scene::Bench([w.parse().ok()?, h.parse().ok()?])
+            }
             "art" => Scene::Gallery,
             "hardware" => Scene::Hardware,
             _ => return None,
@@ -205,10 +211,10 @@ impl Game {
             }
             Scene::Harvest => {
                 self.sounds.push(Sfx::Start);
-                State::Harvest(Box::new(harvest::Harvest::new(seed).at(self.save.difficulty).with_progress(self.progress()).without_enemies(self.save.enemies_off).looking_like(self.save.player.as_str()).with_kit(&self.kit).starting_at(self.start_t)))
+                State::Harvest(Box::new(harvest::Harvest::on(seed, self.save.map.as_str()).at(self.save.difficulty).with_progress(self.progress()).without_enemies(self.save.enemies_off).looking_like(self.save.player.as_str()).with_kit(&self.kit).starting_at(self.start_t)))
             }
             Scene::Farm => State::Harvest(Box::new(harvest::Harvest::calm(seed))),
-            Scene::Bench => State::Harvest(Box::new(harvest::Harvest::bench())),
+            Scene::Bench(size) => State::Harvest(Box::new(harvest::Harvest::bench(size))),
             Scene::Gallery => State::Gallery(gallery::Gallery::default()),
             Scene::Hardware => State::Hardware(hardware::Hardware::default()),
         };
@@ -442,7 +448,11 @@ impl Game {
             let a = self.reset_shown.min(1.0);
             f.top.label("Progress erased: records, kills and found powerups", SCREEN_W / 2.0, 480.0, 34.0, [1.0, 0.45, 0.4, a], Align::Center);
         }
-        if let Some((count, first)) = data::problems() {
+        if let Some(missing) = &data::load_report().missing_pack {
+            let red = [1.0, 0.55, 0.5, 1.0];
+            f.top.label("No game data: the game can't draw without game_data.pak.", SCREEN_W / 2.0, 696.0, 24.0, red, Align::Center);
+            f.top.label(menu::fitted(missing, 22.0, SCREEN_W - 40.0, 22.0).0, SCREEN_W / 2.0, 728.0, 22.0, red, Align::Center);
+        } else if let Some((count, first)) = data::problems() {
             let more = if count > 1 { format!("{count} cards, mods or sounds couldn't load:") } else { "A card, mod or sound couldn't load:".to_string() };
             let red = [1.0, 0.55, 0.5, 1.0];
             f.top.label(more, SCREEN_W / 2.0, 696.0, 24.0, red, Align::Center);
@@ -531,6 +541,7 @@ mod tests {
     /// Opens Settings from the title and moves to its `row`.
     fn settings_row(game: &mut Game, row: usize) {
         press(game, Buttons::DOWN);
+        press(game, Buttons::DOWN);
         press(game, Buttons::A);
         assert_eq!(game.page, Page::Settings);
         for _ in 0..row {
@@ -617,6 +628,7 @@ mod tests {
         assert_eq!(game.page, Page::Settings);
         press(&mut game, Buttons::B);
         press(&mut game, Buttons::UP);
+        press(&mut game, Buttons::UP);
         press(&mut game, Buttons::A);
         let State::Harvest(h) = &game.state else { panic!("a run starts") };
         assert_eq!(h.enemies_off(), 0b011, "the run leaves them out");
@@ -632,6 +644,7 @@ mod tests {
         assert_eq!(game.save().player.as_str(), "", "one look to choose from");
         game.load(Save { player: save::LookId::new("nobody"), ..game.save() });
         press(&mut game, Buttons::B);
+        press(&mut game, Buttons::UP);
         press(&mut game, Buttons::UP);
         press(&mut game, Buttons::A);
         assert!(matches!(game.state, State::Harvest(_)), "a run with a look that's gone plays as the farmer");
@@ -650,9 +663,21 @@ mod tests {
     }
 
     #[test]
+    fn the_map_row_stays_on_the_random_farm_with_no_maps() {
+        let mut game = Game::new(1);
+        press(&mut game, Buttons::DOWN);
+        for button in [Buttons::A, Buttons::RIGHT, Buttons::LEFT] {
+            press(&mut game, button);
+            assert_eq!((game.page, game.save.map.as_str()), (Page::Main, ""), "it picks, it doesn't open a page");
+        }
+        game.draw();
+        assert!(Scene::from_name("bench-100x80") == Some(Scene::Bench([100, 80])) && Scene::from_name("bench-1x").is_none());
+    }
+
+    #[test]
     fn stats_and_credits_open_and_close() {
         let mut game = Game::new(1);
-        for (downs, page) in [(2, Page::Stats), (1, Page::Credits)] {
+        for (downs, page) in [(3, Page::Stats), (1, Page::Credits)] {
             for _ in 0..downs {
                 press(&mut game, Buttons::DOWN);
             }
@@ -679,7 +704,7 @@ mod tests {
     #[test]
     fn the_title_sets_the_difficulty_and_the_run_uses_it() {
         let mut game = Game::new(1);
-        assert_eq!(game.save().difficulty, Difficulty::Normal);
+        assert_eq!(game.save().difficulty, Difficulty::Easy, "a first run starts on Easy");
         press(&mut game, Buttons::LEFT);
         press(&mut game, Buttons::LEFT);
         assert_eq!(game.save().difficulty, Difficulty::Easy, "it stops at the end");

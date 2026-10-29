@@ -2,7 +2,8 @@
 
 use std::path::PathBuf;
 
-use last_harvest_game::data::{self, Card, Data};
+use last_harvest_game::art;
+use last_harvest_game::data::{self, Card, Data, MapFile};
 use last_harvest_pack::{self as pack, Pak, card};
 
 use crate::samples::{self, Files};
@@ -38,6 +39,42 @@ fn players_folder() -> Option<PathBuf> {
         return Some(dir.into());
     }
     Some(data_folder()?.join("players"))
+}
+
+/// `LAST_HARVEST_MAPS`, else `data/maps` beside the binary.
+fn maps_folder() -> Option<PathBuf> {
+    if let Some(dir) = std::env::var_os("LAST_HARVEST_MAPS") {
+        return Some(dir.into());
+    }
+    Some(data_folder()?.join("maps"))
+}
+
+/// `LAST_HARVEST_PROPS`, else `data/props` beside the binary.
+fn props_folder() -> Option<PathBuf> {
+    if let Some(dir) = std::env::var_os("LAST_HARVEST_PROPS") {
+        return Some(dir.into());
+    }
+    Some(data_folder()?.join("props"))
+}
+
+/// The props among `files`, by name, noting any that don't read.
+fn read_props(files: Vec<(String, Vec<u8>)>, problems: &mut Vec<String>) -> Vec<Card> {
+    let props = files.into_iter().filter(|(name, _)| name.ends_with(pack::prop::EXTENSION));
+    props.filter_map(|(name, bytes)| pack::prop::read(&name, &bytes).map_err(|e| problems.push(e)).ok()).collect()
+}
+
+/// The map files among `files`, by name, noting any that aren't text.
+fn read_maps(files: Vec<(String, Vec<u8>)>, problems: &mut Vec<String>) -> Vec<MapFile> {
+    let ext = last_harvest_game::MAP_EXTENSION;
+    let maps = files.into_iter().filter(|(name, _)| name.ends_with(ext));
+    maps.filter_map(|(file, bytes)| match String::from_utf8(bytes) {
+        Ok(text) => Some(MapFile { file, text }),
+        Err(_) => {
+            problems.push(format!("{file}: not text"));
+            None
+        }
+    })
+    .collect()
 }
 
 /// Reads the cards of `kind` among `files`, by name, noting any that aren't.
@@ -83,14 +120,31 @@ fn read_mods(problems: &mut Vec<String>) -> Vec<(String, Pak)> {
 /// the game starts, and returns the sound files: a sounds folder named by `LAST_HARVEST_SOUNDS`, else the pack's,
 /// else a sounds folder found nearby, with the mods' sounds over either.
 pub fn load() -> Result<Files, String> {
+    let mut missing_pack = None;
     let base = match find() {
-        Some(path) => Some(Pak::open(&path).map_err(|e| format!("{}: {e}", path.display()))?).inspect(|_| eprintln!("data: {}", path.display())),
-        None if !cfg!(feature = "embed") => return Err(format!("no {PAK} beside the binary")),
+        Some(path) => {
+            let pak = Pak::open(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+            eprintln!("data: {} ({})", path.display(), pak.version().unwrap_or("no version"));
+            Some(pak)
+        }
+        None if !cfg!(feature = "embed") => {
+            let message = missing(data_folder().map_or_else(|| DATA.into(), |d| d.display().to_string()));
+            eprintln!("data: no {PAK} beside the binary. {message}");
+            missing_pack = Some(message);
+            None
+        }
         None => {
             eprintln!("data: built in");
             None
         }
     };
+    install(base, missing_pack)
+}
+
+/// `load` with the pack already open, or none for the built-in data. A web page has no data folder beside it, so
+/// it fetches the pack itself and finds no mods or cards.
+pub fn install(base: Option<Pak>, missing_pack: Option<String>) -> Result<Files, String> {
+    let pack_version = base.as_ref().and_then(Pak::version).map(String::from);
     let had_base = base.is_some();
     let mut pak = base.unwrap_or_else(Pak::empty);
     let mut problems = Vec::new();
@@ -107,7 +161,19 @@ pub fn load() -> Result<Files, String> {
     let (enemy, player) = (card::Kind::Enemy, card::Kind::Player);
     let cards = read_cards(enemy, pak.take_dir(pack::ENEMY_CARDS), &mut problems);
     let players = read_cards(player, pak.take_dir(pack::PLAYER_CARDS), &mut problems);
-    let mut data = Data { atlas: pak.take(pack::ATLAS), font: pak.take(pack::FONT), powerups, enemies, cards, players };
+    let maps = read_maps(pak.take_dir(pack::MAPS), &mut problems);
+    let props = read_props(pak.take_dir(pack::PROPS), &mut problems);
+    let mut data = Data { atlas: pak.take(pack::ATLAS), font: pak.take(pack::FONT), powerups, enemies, cards, players, props, maps };
+    if missing_pack.is_some() && data.atlas.is_none() {
+        data.atlas = Some(vec![0; (art::ATLAS_W * art::ATLAS_H * 4) as usize]);
+    }
+    if let Some(dir) = props_folder() {
+        data.props.extend(read_props(samples::read_files(&dir, &[pack::prop::EXTENSION]), &mut problems));
+    }
+    keep_last_of_each_name(&mut data.props);
+    if let Some(dir) = maps_folder() {
+        data.maps.extend(read_maps(samples::read_files(&dir, &[last_harvest_game::MAP_EXTENSION]), &mut problems));
+    }
     if let Some(dir) = cards_folder() {
         data.cards.extend(read_cards(enemy, samples::read_files(&dir, &[enemy.extension()]), &mut problems));
     }
@@ -126,7 +192,7 @@ pub fn load() -> Result<Files, String> {
     for problem in &problems {
         eprintln!("left out: {problem}");
     }
-    data::report(data::LoadReport { cards: loaded, mods: mod_names, problems });
+    data::report(data::LoadReport { cards: loaded, mods: mod_names, problems, version: crate::VERSION.into(), pack_version, missing_pack });
     let mut sounds = pak.take_dir(pack::SOUNDS);
     let forced = std::env::var_os("LAST_HARVEST_SOUNDS").is_some();
     if (forced || !had_base)
@@ -138,6 +204,14 @@ pub fn load() -> Result<Files, String> {
     }
     eprintln!("audio: {} sound files", sounds.len());
     Ok(sounds)
+}
+
+/// Which `game_data.pak` to copy into `folder`: the one from this game's release.
+fn missing(folder: String) -> String {
+    match crate::VERSION {
+        v if v.starts_with("dev") => format!("Copy in a game_data.pak built with this game: {folder}"),
+        v => format!("Copy game_data.pak from release {v} into {folder}"),
+    }
 }
 
 /// Drops each card that a later one of the same file name replaces, so a loose card stands in for a pack's.

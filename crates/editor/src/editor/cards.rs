@@ -59,7 +59,7 @@ impl Editor {
                 Err(e) => failed.push(format!("{file}: {e}")),
             }
         }
-        self.names = self.store.names();
+        self.names = self.all_names();
         if let Some(front) = last {
             if same(&front) {
                 self.open(&front);
@@ -189,13 +189,13 @@ impl Editor {
         (self.dirty, self.stand_touched, self.stats, self.frame) = (false, false, false, 0);
         self.undo.clear();
         self.redo.clear();
-        self.names = self.store.names();
+        self.names = self.all_names();
         self.changed = true;
         self.say(format!("Deleted card {id}"));
     }
 
     pub(super) fn is_card(&self) -> bool {
-        self.sprite.card.is_some()
+        self.sprite.card.is_some() && !self.is_prop()
     }
 
     /// Sets a player card's start at `difficulty`, as `set_player_start` does.
@@ -238,10 +238,37 @@ impl Editor {
         self.is_card() && sprite::card_kind(&self.sprite.name) == Some(sprite::CardKind::Player)
     }
 
-    /// The open card's name as its text gives it.
-    pub(super) fn card_title(&self) -> Option<String> {
+    /// The open card's name or about as its text gives it.
+    pub(super) fn card_line(&self, line: Line) -> Option<String> {
         let text = self.sprite.card.as_deref()?;
-        if self.is_player_card() { last_harvest_game::player_fields(text).ok().map(|f| f.name) } else { last_harvest_game::card_fields(text).ok().map(|f| f.name) }
+        let (name, about) = if self.is_player_card() { last_harvest_game::player_fields(text).ok().map(|f| (f.name, f.about))? } else { last_harvest_game::card_fields(text).ok().map(|f| (f.name, f.about))? };
+        Some(if line == Line::Name { name } else { about })
+    }
+
+    /// The Rename and About buttons beside a card's name.
+    pub(super) fn line_buttons(&self, push: &mut impl FnMut(f32, f32, f32, f32, Action, &str, bool)) {
+        let typing = |line: Line| self.naming.as_ref().is_some_and(|(l, _)| *l == line);
+        push(CANVAS.x + 300.0, CANVAS.y + 30.0, 116.0, 30.0, Action::EditName, "Rename", typing(Line::Name));
+        push(CANVAS.x + 424.0, CANVAS.y + 30.0, 116.0, 30.0, Action::EditAbout, "About", typing(Line::About));
+    }
+
+    /// A card's name and its about under it, wrapped to two lines, with a caret on whichever is being typed.
+    fn draw_lines(&self, c: &mut Canvas, name: &str, about: &str) {
+        const ABOUT_ACROSS: usize = 66;
+        let x = CANVAS.x + 20.0;
+        let caret = if (self.clock * 2.0) as i32 % 2 == 0 { "_" } else { " " };
+        let typed = |line: Line, saved: &str| match &self.naming {
+            Some((l, t)) if *l == line => (format!("{t}{caret}"), HOT),
+            _ => (saved.to_string(), TEXT),
+        };
+        let (name, ink) = typed(Line::Name, name);
+        c.label(name, x, CANVAS.y + 32.0, 26.0, ink, Align::Left);
+        let (about, ink) = typed(Line::About, about);
+        let (about, ink) = if about.trim().is_empty() && ink == TEXT { ("No about yet: a sentence on what to expect, for the game's menus".to_string(), DIM) } else { (about, ink) };
+        let split = if about.chars().count() <= ABOUT_ACROSS { about.len() } else { about[..=ABOUT_ACROSS].rfind(' ').unwrap_or(ABOUT_ACROSS) };
+        for (i, part) in [&about[..split], about[split..].trim_start()].into_iter().enumerate() {
+            c.label(part, x, CANVAS.y + 64.0 + i as f32 * 16.0, 14.0, ink, Align::Left);
+        }
     }
 
     /// A player card's starting weapons at each difficulty, by id; None where it keeps the game's own.
@@ -317,7 +344,7 @@ impl Editor {
         why.map(|w| self.say(w)).is_some()
     }
 
-    /// A player card's stats page: its name, and the weapons it starts with at each difficulty.
+    /// A player card's stats page: its name and about, and the weapons it starts with at each difficulty.
     pub(super) fn draw_player_stats(&self, c: &mut Canvas) {
         c.rect(CANVAS.x, CANVAS.y, CANVAS.w, CANVAS.h, PANEL);
         let x = CANVAS.x + 20.0;
@@ -330,9 +357,7 @@ impl Editor {
             }
         };
         c.label(format!("Player card [{}]", fields.id), x, CANVAS.y + 8.0, 17.0, DIM, Align::Left);
-        let caret = if (self.clock * 2.0) as i32 % 2 == 0 { "_" } else { " " };
-        let name = self.naming.as_ref().map_or(fields.name.clone(), |n| format!("{n}{caret}"));
-        c.label(name, x, CANVAS.y + 32.0, 26.0, if self.naming.is_some() { HOT } else { TEXT }, Align::Left);
+        self.draw_lines(c, &fields.name, &fields.about);
         for (d, difficulty) in last_harvest_game::Difficulty::ALL.into_iter().enumerate() {
             let top = START_TOP + d as f32 * START_BLOCK;
             let how = if fields.start[d].is_some() { "starts with" } else { "starts as the game does, with" };
@@ -342,7 +367,7 @@ impl Editor {
         c.label(note, x, CANVAS.y + CANVAS.h - 22.0, 13.0, DIM, Align::Left);
     }
 
-    /// A card's stats page: its name, numbers, death sound and flags, as the game will read them.
+    /// A card's stats page: its name, about, numbers, death sound and flags, as the game will read them.
     pub(super) fn draw_stats(&self, c: &mut Canvas) {
         if self.is_player_card() {
             return self.draw_player_stats(c);
@@ -360,9 +385,7 @@ impl Editor {
         };
         let replaces = self.mix.as_ref().and_then(|m| m.as_ref().ok()).filter(|m| m.replaced.contains(&f.id)).map(|_| "  replaces the game's own");
         c.label(format!("Enemy card [{}]{}", f.id, replaces.unwrap_or("")), x, CANVAS.y + 8.0, 17.0, if replaces.is_some() { HOT } else { DIM }, Align::Left);
-        let caret = if (self.clock * 2.0) as i32 % 2 == 0 { "_" } else { " " };
-        let name = self.naming.as_ref().map_or(f.name.clone(), |n| format!("{n}{caret}"));
-        c.label(name, x, CANVAS.y + 32.0, 26.0, if self.naming.is_some() { HOT } else { TEXT }, Align::Left);
+        self.draw_lines(c, &f.name, &f.about);
         for (i, ((_, v), (label, _))) in f.numbers.iter().zip(STAT_ROWS).enumerate() {
             let y = STAT_TOP + i as f32 * STAT_ROW;
             c.label(label, x, y + 3.0, 16.0, DIM, Align::Left);
@@ -421,4 +444,118 @@ impl Editor {
 /// Every weapon by id, with a label short enough for a toggle: its id, capitalized.
 pub(super) fn weapon_labels() -> Vec<(String, String)> {
     last_harvest_game::weapons().into_iter().map(|(id, _)| (id.clone(), id[..1].to_ascii_uppercase() + &id[1..])).collect()
+}
+
+/// Frames in a card's figure: each facing's first walking frame, then its flash, hurt and dead frames.
+pub(super) const FIGURE_FRAMES: usize = 12;
+
+fn blank(f: &Frame) -> bool {
+    f.px.iter().all(|p| p[3] < 128)
+}
+
+/// A still frame for `row` (flash, hurt or dead) drawn from a standing frame, as the game draws a blank one.
+fn derive(row: usize, stand: &Frame) -> Frame {
+    let paint = if row == 3 { last_harvest_game::flash_pixel } else { last_harvest_game::hurt_pixel };
+    Frame { w: stand.w, h: stand.h, px: stand.px.iter().map(|&p| paint(p)).collect() }
+}
+
+impl Editor {
+    /// Reads the open card's parts as saved, or none when a card isn't open.
+    pub(super) fn load_card_parts(&mut self) {
+        let names = sprite::card_part(&self.sprite.name).and_then(|(id, _)| sprite::card_names_of(sprite::card_kind(&self.sprite.name)?, &id));
+        let parts = names.and_then(|names| names.iter().map(|n| self.store.load(n).map(|s| s.frames)).collect::<Option<Vec<_>>>());
+        self.card_parts = parts.unwrap_or_default();
+    }
+
+    /// The open card's parts, with the open part's unsaved frames.
+    fn card_rows(&self) -> Option<Vec<Vec<Frame>>> {
+        let (_, row) = sprite::card_part(&self.sprite.name)?;
+        let mut rows = self.card_parts.clone();
+        *rows.get_mut(row)? = self.sprite.frames.clone();
+        Some(rows)
+    }
+
+    /// The card's figure for the previews, `FIGURE_FRAMES` long, with blank still frames drawn as the game draws
+    /// them, and whether it has dead frames of its own.
+    pub(super) fn figure_frames(&self) -> Option<(Vec<Frame>, bool)> {
+        let rows = self.card_rows()?;
+        let stand: Vec<Frame> = rows[..3].iter().map(|r| r.first().cloned()).collect::<Option<_>>()?;
+        let mut out = stand.clone();
+        for (row, frames) in rows.iter().enumerate().skip(3) {
+            for (facing, s) in stand.iter().enumerate() {
+                let f = frames.get(facing).filter(|f| !blank(f) && (f.w, f.h) == (s.w, s.h)).cloned();
+                out.push(f.unwrap_or_else(|| derive(row, s)));
+            }
+        }
+        let dead = rows[5].iter().any(|f| !blank(f));
+        Some((out, dead))
+    }
+
+    /// The row of the open card part when it is a still one: flash, hurt or dead.
+    pub(super) fn still_row(&self) -> Option<usize> {
+        sprite::card_part(&self.sprite.name).map(|(_, row)| row).filter(|&r| r >= 3)
+    }
+
+    /// The row a game sprite's name gives it when it is a figure's flash, hurt or dead frames beside walking
+    /// ones, such as `SKINNY_DEAD` beside `SKINNY_FRONT`.
+    pub(super) fn built_in_still(&self) -> Option<usize> {
+        let (prefix, part) = self.sprite.name.rsplit_once('_')?;
+        let row = ["FLASH", "HURT", "DEAD"].iter().position(|p| *p == part)? + 3;
+        let walks = ["FRONT", "SIDE", "BACK"].iter().all(|w| self.names.iter().any(|(n, _)| *n == format!("{prefix}_{w}")));
+        (!self.is_card() && walks).then_some(row)
+    }
+
+    /// Each facing's first walking frame, for drawing the open still sprite from.
+    fn stand_frames(&self) -> Option<Vec<Frame>> {
+        if self.is_card() {
+            return self.card_rows()?[..3].iter().map(|r| r.first().cloned()).collect();
+        }
+        let (prefix, _) = self.sprite.name.rsplit_once('_')?;
+        ["FRONT", "SIDE", "BACK"].iter().map(|w| self.store.load(&format!("{prefix}_{w}"))?.frames.into_iter().next()).collect()
+    }
+
+    /// Whether the open part is a card's dead frames, which the previews show lying down.
+    pub fn dead_part(&self) -> bool {
+        self.still_row() == Some(5)
+    }
+
+    /// The figure to lay down in the previews while dead frames are open, a card's or the game's, showing the
+    /// frame being edited the way the game tips a corpse over.
+    pub fn lying_figure(&self) -> Option<last_harvest_game::Figure> {
+        let i = self.frame;
+        if self.dead_part() {
+            let mut f = self.figure()?;
+            match &mut f.dead {
+                Some(d) => *d = [d[i.min(2)]; 3],
+                None => f.hurt = [f.hurt[i.min(2)]; 3],
+            }
+            return Some(f);
+        }
+        let a = *self.live.get(i).filter(|_| self.built_in_still() == Some(5) && i < self.sprite.frames.len())?;
+        Some(last_harvest_game::Figure { stand: [a; 3], flash: [a; 3], hurt: [a; 3], dead: Some([a; 3]), gibs: 0 })
+    }
+
+    /// Draws the open still sprite's frames, one per facing, as the game draws a card's blank ones, to edit from.
+    pub(super) fn generate_part(&mut self) {
+        let Some(row) = self.still_row().or_else(|| self.built_in_still()) else { return };
+        let Some(stand) = self.stand_frames() else {
+            return self.say("Generate draws from each facing's first walking frame, and one is missing");
+        };
+        self.remember();
+        self.sprite.frames = stand.iter().map(|s| derive(row, s)).collect();
+        self.frame = self.frame.min(self.sprite.frames.len() - 1);
+        self.say("Drew each facing from its first walking frame; edit them, or Undo to go back");
+    }
+
+    /// Blanks the open still part, so the game draws it from the walk.
+    pub(super) fn clear_part(&mut self) {
+        if self.still_row().is_none() {
+            return;
+        }
+        self.remember();
+        for f in &mut self.sprite.frames {
+            *f = Frame::blank(f.w, f.h);
+        }
+        self.say("Cleared: the game draws these from each facing's first walking frame");
+    }
 }

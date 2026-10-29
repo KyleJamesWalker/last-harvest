@@ -8,8 +8,10 @@ use crate::sprite::{self, CLEAR, Frame, Rgba, Sprite};
 use crate::store::Store;
 
 mod cards;
+mod maps;
 
 use cards::HeldImport;
+use maps::{MapEdit, MapTool, PROP_HP_Y, PROP_PALETTE_ROWS};
 
 const UNDO_DEPTH: usize = 100;
 const LIST: Rect = Rect { x: 8.0, y: 52.0, w: 200.0, h: 690.0 };
@@ -128,6 +130,37 @@ enum Ask {
     Copy,
 }
 
+/// A line of a card's text typed on its stats page.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Line {
+    Name,
+    About,
+}
+
+impl Line {
+    fn key(self) -> &'static str {
+        match self {
+            Line::Name => "name",
+            Line::About => "about",
+        }
+    }
+
+    /// Whether `c` can be typed into this line; a `#` would start a comment.
+    fn takes(self, c: char) -> bool {
+        match self {
+            Line::Name => !c.is_control() && c != '#',
+            Line::About => (' '..='~').contains(&c) && c != '#',
+        }
+    }
+
+    fn max(self) -> usize {
+        match self {
+            Line::Name => NAME_MAX,
+            Line::About => last_harvest_game::ABOUT_MAX,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Action {
     Ask(Ask),
@@ -161,10 +194,37 @@ enum Action {
     Flag(usize),
     Sound(i32),
     EditName,
+    EditAbout,
     /// Turns a weapon, by its place in `weapons()`, on or off in a player card's start at a difficulty.
     StartWeapon(usize, usize),
     /// Gives a player card the game's own start at a difficulty.
     StartDefault(usize),
+    MapTool(MapTool),
+    Ground(u8),
+    /// Picks a prop by its place in the map editor's picker.
+    PickProp(usize),
+    /// Turns the prop picker a page back or on.
+    PickPage(i32),
+    Picket(bool),
+    /// Grows or shrinks the map by tiles across and down.
+    MapSize(i32, i32),
+    /// Lays a farm out as the random generator does, over the whole map.
+    Randomize,
+    MapFit,
+    /// Hits the card's figure in the previews, killing it when true.
+    Strike(bool),
+    /// Turns whether a prop stops shots, the open prop's or the map's selected one.
+    Cover,
+    /// Steps a prop's hit points, the open prop's or the map's selected one, by 10 times the value.
+    Hp(i32),
+    /// Keeps the open prop's last frame for when it breaks, or not.
+    Broken,
+    /// Gives the map's selected prop its sprite's hit points and cover again.
+    PropDefaults,
+    /// Fills a blank flash, hurt or dead part with the game's own frames.
+    Generate,
+    /// Blanks a flash, hurt or dead part, so the game draws it.
+    ClearPart,
 }
 
 /// What each of a card's numbers is called on its stats page, and how far a press of - or + moves it.
@@ -180,15 +240,16 @@ const STAT_ROWS: [(&str, f32); 9] = [
     ("Chance per minute", 0.005),
 ];
 const FLAG_NAMES: [&str; 3] = ["Heavy", "Leads hordes", "Harvester"];
-const STAT_TOP: f32 = CANVAS.y + 70.0;
-const STAT_ROW: f32 = 27.0;
+const STAT_TOP: f32 = CANVAS.y + 100.0;
+const STAT_ROW: f32 = 25.0;
 const STAT_BUTTON: f32 = 24.0;
 const NAME_MAX: usize = 24;
 const DELETE_CONFIRM: f32 = 3.0;
 /// A player card's stats: a block per difficulty with its weapon toggles, five across.
-const START_TOP: f32 = CANVAS.y + 76.0;
-const START_BLOCK: f32 = 150.0;
+const START_TOP: f32 = CANVAS.y + 100.0;
+const START_BLOCK: f32 = 142.0;
 const START_ACROSS: usize = 5;
+const START_ROW: f32 = 28.0;
 
 struct Button {
     rect: Rect,
@@ -277,6 +338,16 @@ pub struct Editor {
     dirty: bool,
     /// The previews need repacking.
     pub changed: bool,
+    /// A Hurt (false) or Kill (true) for the previews to play.
+    pub strike: Option<bool>,
+    /// Where the last packing put a card's figure among the surfaces, and whether it has dead frames.
+    figure_at: Option<(usize, bool)>,
+    /// The open card's parts as saved, read when it opens or saves.
+    card_parts: Vec<Vec<Frame>>,
+    /// The hand-made map being edited, in place of a sprite.
+    map: Option<MapEdit>,
+    /// Players' props packed for the previews while a map is open, in order: their fields and frame counts.
+    map_props: Vec<(last_harvest_game::PropFields, usize)>,
     playing: bool,
     clock: f32,
     /// An index into `STANDS`.
@@ -321,8 +392,8 @@ pub struct Editor {
     pan: [f32; 2],
     /// A card's stats are on the canvas in place of its pixels.
     stats: bool,
-    /// The card's name as it's being typed.
-    naming: Option<String>,
+    /// The card's name or about as it's being typed.
+    naming: Option<(Line, String)>,
     /// The other cards' texts, read when the stats page opens, for the spawn mix.
     other_cards: Vec<String>,
     /// The open card's own death sound, by file name, when it has one.
@@ -359,6 +430,11 @@ impl Editor {
             redo: Vec::new(),
             dirty: false,
             changed: true,
+            strike: None,
+            figure_at: None,
+            card_parts: Vec::new(),
+            map: None,
+            map_props: Vec::new(),
             playing: false,
             clock: 0.0,
             stand: 0,
@@ -395,7 +471,10 @@ impl Editor {
             modding: false,
             delete_armed: 0.0,
         };
+        e.names = e.all_names();
+        e.open_map(name);
         e.load_stand();
+        e.load_card_parts();
         e.reveal();
         e
     }
@@ -430,8 +509,34 @@ impl Editor {
     }
 
     /// Everything to pack for the previews: the frames, then the carving views when carving, with any
-    /// floating pixels shown where they would land.
-    pub fn surfaces(&self) -> Vec<Frame> {
+    /// floating pixels shown where they would land, then a card's figure.
+    pub fn surfaces(&mut self) -> Vec<Frame> {
+        if self.map.is_some() {
+            self.figure_at = None;
+            let (frames, props) = self.prop_surfaces();
+            self.map_props = props;
+            return frames;
+        }
+        let mut out = self.own_surfaces();
+        self.figure_at = None;
+        if let Some((figure, dead)) = self.figure_frames() {
+            self.figure_at = Some((out.len(), dead));
+            out.extend(figure);
+        }
+        out
+    }
+
+    /// The card's figure as packed for the previews, for Hurt and Kill.
+    pub fn figure(&self) -> Option<last_harvest_game::Figure> {
+        let (k, dead) = self.figure_at?;
+        let a = self.live.get(k..k + cards::FIGURE_FRAMES)?;
+        let three = |i: usize| [a[i], a[i + 1], a[i + 2]];
+        let gibs = self.sprite.card.as_deref().and_then(|t| last_harvest_game::card_fields(t).ok());
+        let gibs = gibs.and_then(|f| f.numbers.iter().find(|(k, _)| *k == "gibs").map(|(_, v)| *v as usize)).unwrap_or(9);
+        Some(last_harvest_game::Figure { stand: three(0), flash: three(3), hurt: three(6), dead: dead.then(|| three(9)), gibs })
+    }
+
+    fn own_surfaces(&self) -> Vec<Frame> {
         if self.none_open() {
             return Vec::new();
         }
@@ -456,9 +561,15 @@ impl Editor {
     }
 
     /// The frames to show in the previews: all of them while playing, else the one being edited.
+    /// A still part's frames show as the game draws them: blank ones from the walk.
     pub fn shown(&self) -> Vec<Art> {
+        if self.map.is_some() {
+            return Vec::new();
+        }
         let n = self.sprite.frames.len().min(self.live.len());
-        if self.playing { self.live[..n].to_vec() } else { self.live.get(self.frame).copied().into_iter().collect() }
+        let still = self.still_row().and_then(|row| self.figure().map(|f| [f.flash, f.hurt, f.dead.unwrap_or(f.hurt)][row - 3]));
+        let art = |i: usize| still.and_then(|s| s.get(i).copied()).unwrap_or(self.live[i]);
+        if self.playing { (0..n).map(art).collect() } else { (self.frame < n).then(|| art(self.frame)).into_iter().collect() }
     }
 
     /// The top strip in the previews, for a figure that has one.
@@ -468,6 +579,9 @@ impl Editor {
 
     pub fn set_live(&mut self, live: Vec<Art>) {
         self.live = live;
+        if self.map.is_some() {
+            self.register_props();
+        }
     }
 
     pub fn title(&self) -> String {
@@ -479,7 +593,7 @@ impl Editor {
     }
 
     fn unsaved(&self) -> bool {
-        self.dirty || self.stand_touched
+        self.dirty || self.stand_touched || self.map.as_ref().is_some_and(|m| m.dirty)
     }
 
     /// What the canvas shows: a frame, or a carving view.
@@ -571,7 +685,13 @@ impl Editor {
     fn open(&mut self, name: &str) {
         self.selection = None;
         self.last_dot = None;
-        self.names = self.store.names();
+        self.names = self.all_names();
+        if self.open_map(name) {
+            return;
+        }
+        if self.store.load(name).is_some() {
+            self.map = None;
+        }
         self.trimmed = Default::default();
         if let Some(s) = self.store.load(name) {
             self.sprite = s;
@@ -583,6 +703,10 @@ impl Editor {
             self.fit();
             self.load_stand();
             self.load_family();
+            self.load_card_parts();
+            if let Some(fps) = self.sprite.card.as_deref().filter(|_| crate::store::props::id(name).is_some()).and_then(|t| last_harvest_game::prop_fields(t).ok()).map(|f| f.fps).filter(|v| *v > 0.0) {
+                self.fps = fps;
+            }
             self.stats &= self.is_card();
             self.naming = None;
             self.delete_armed = 0.0;
@@ -672,6 +796,9 @@ impl Editor {
 
     /// Magnifies the pixel canvas `factor` times about `center`, then moves it by `pan`, in pane units.
     pub fn zoom_canvas(&mut self, center: [f32; 2], factor: f32, pan: [f32; 2]) {
+        if self.map.is_some() {
+            return self.map_pinch(center, factor, pan);
+        }
         let (o, zoom) = self.grid();
         let under = [(center[0] - o[0]) / zoom, (center[1] - o[1]) / zoom];
         self.lens = (self.lens * factor).clamp(1.0, 32.0);
@@ -710,7 +837,7 @@ impl Editor {
 
     /// The name or search being typed, while one is.
     pub fn text(&self) -> Option<&str> {
-        if let Some(name) = &self.naming {
+        if let Some((_, name)) = &self.naming {
             return Some(name);
         }
         if self.typing { Some(&self.filter) } else { self.ask.as_ref().map(|(_, name)| name.as_str()) }
@@ -723,9 +850,8 @@ impl Editor {
 
     /// Replaces the name or search being typed, as typing `text` key by key would leave it.
     pub fn set_text(&mut self, text: &str) {
-        if let Some(name) = &mut self.naming {
-            // A `#` would start a comment in the card's text.
-            *name = text.chars().filter(|c| !c.is_control() && *c != '#').take(NAME_MAX).collect();
+        if let Some((line, name)) = &mut self.naming {
+            *name = text.chars().filter(|&c| line.takes(c)).take(line.max()).collect();
             return;
         }
         let clean: String = text.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == ' ').map(|c| if c == ' ' { '_' } else { c.to_ascii_uppercase() }).collect();
@@ -747,11 +873,17 @@ impl Editor {
         let mut push = |x: f32, y: f32, w: f32, h: f32, action: Action, label: &str, on: bool| {
             b.push(Button { rect: Rect { x, y, w, h }, action, label: label.into(), on });
         };
+        if let Some(m) = &self.map {
+            self.map_buttons(m, &mut push);
+            return b;
+        }
         if self.is_card() {
             push(410.0, 8.0, 94.0, 34.0, Action::Stats, "Stats T", self.stats);
+        } else if self.built_in_still().is_some() {
+            push(410.0, 8.0, 94.0, 34.0, Action::Generate, "Generate", false);
         }
         if self.stats && self.is_player_card() {
-            push(CANVAS.x + 300.0, CANVAS.y + 30.0, 240.0, 30.0, Action::EditName, "Rename", self.naming.is_some());
+            self.line_buttons(&mut push);
             let starts = self.player_starts();
             for (d, start) in starts.iter().enumerate() {
                 let top = START_TOP + d as f32 * START_BLOCK;
@@ -760,11 +892,11 @@ impl Editor {
                 for (w, (id, label)) in cards::weapon_labels().into_iter().enumerate() {
                     let (col, row) = (w % START_ACROSS, w / START_ACROSS);
                     let on = have.contains(&id);
-                    push(CANVAS.x + 20.0 + col as f32 * 104.0, top + 30.0 + row as f32 * 30.0, 100.0, 26.0, Action::StartWeapon(d, w), &label, on);
+                    push(CANVAS.x + 20.0 + col as f32 * 104.0, top + 30.0 + row as f32 * START_ROW, 100.0, 26.0, Action::StartWeapon(d, w), &label, on);
                 }
             }
         } else if self.stats {
-            push(CANVAS.x + 300.0, CANVAS.y + 30.0, 240.0, 30.0, Action::EditName, "Rename", self.naming.is_some());
+            self.line_buttons(&mut push);
             for i in 0..STAT_ROWS.len() {
                 let y = STAT_TOP + i as f32 * STAT_ROW;
                 push(CANVAS.x + 400.0, y, 66.0, STAT_BUTTON, Action::StatStep(i, -1), "-", false);
@@ -801,12 +933,21 @@ impl Editor {
             push(x, y, 74.0, 32.0, Action::Tool(t), l, self.tool_now() == t);
         }
         let cols = (SIDE_W / SWATCH) as usize;
-        for (i, &c) in self.palette.iter().enumerate().take(cols * 9) {
+        for (i, &c) in self.palette.iter().enumerate().take(cols * if self.is_prop() { PROP_PALETTE_ROWS } else { 9 }) {
             let (x, y) = (SIDE_X + (i % cols) as f32 * SWATCH, 316.0 + (i / cols) as f32 * SWATCH);
             push(x, y, SWATCH - 2.0, SWATCH - 2.0, Action::Color(c), "", self.color == c);
         }
         if self.none_open() {
             return b;
+        }
+        self.prop_buttons(&mut push);
+        if self.is_card() {
+            push(SIDE_X, 566.0, 74.0, 30.0, Action::Strike(false), "Hurt", false);
+            push(SIDE_X + 78.0, 566.0, 74.0, 30.0, Action::Strike(true), "Kill", false);
+            if self.still_row().is_some() {
+                push(SIDE_X, 600.0, 114.0, 30.0, Action::Generate, "Generate", false);
+                push(SIDE_X + 118.0, 600.0, 114.0, 30.0, Action::ClearPart, "Clear", false);
+            }
         }
         for (i, l) in STANDS.into_iter().enumerate().filter(|_| !self.is_card()) {
             push(SIDE_X + (i % 3) as f32 * 78.0, 566.0 + (i / 3) as f32 * 34.0, 74.0, 30.0, Action::Stand(i as u8), l, self.stand == i as u8);
@@ -900,6 +1041,13 @@ impl Editor {
             }
             return;
         }
+        if self.map.is_some() {
+            match self.buttons().into_iter().find(|b| b.rect.contains(p)) {
+                Some(b) => self.act(b.action, shift),
+                None => self.map_down(p, right, shift),
+            }
+            return;
+        }
         for (i, bar) in self.bars().iter().enumerate() {
             if bar.contains(p) {
                 self.channel = Some(i);
@@ -965,6 +1113,9 @@ impl Editor {
 
     pub fn drag(&mut self, p: [f32; 2]) {
         self.hover = Some(p);
+        if self.map.is_some() {
+            return self.map_drag(p);
+        }
         if let Some(i) = self.channel {
             let bar = self.bars()[i];
             self.color[i] = (((p[0] - bar.x) / bar.w).clamp(0.0, 1.0) * 255.0).round() as u8;
@@ -1001,6 +1152,7 @@ impl Editor {
     }
 
     pub fn mouse_up(&mut self) {
+        self.map_up();
         self.stroke = None;
         self.drawing = None;
         self.channel = None;
@@ -1113,6 +1265,9 @@ impl Editor {
     }
 
     pub fn wheel(&mut self, p: [f32; 2], dy: f32) {
+        if self.map.is_some() && !LIST.contains(p) {
+            return self.map_wheel(p, dy);
+        }
         if LIST.contains(p) {
             let max = (self.rows().len() as f32 * LIST_ROW - (LIST.h - (self.list_top() - LIST.y))).max(0.0);
             self.scroll = (self.scroll - dy * LIST_ROW * 3.0).clamp(0.0, max);
@@ -1205,7 +1360,15 @@ impl Editor {
         if self.none_open() && !any_sprite {
             return self.say("Pick a sprite from the list, or press N for a new one");
         }
+        if self.map.is_some() && self.map_act(a) {
+            return;
+        }
         match a {
+            Action::MapTool(_) | Action::Ground(_) | Action::PickProp(_) | Action::PickPage(_) | Action::Picket(_) | Action::MapSize(..) | Action::Randomize | Action::MapFit | Action::PropDefaults => {}
+            Action::Cover => self.edit_prop(|f| f.cover = !f.cover),
+            Action::Hp(d) => self.edit_prop(|f| f.hp = (f.hp + (d * step * 10) as f32).clamp(0.0, last_harvest_game::PROP_MAX_HP)),
+            Action::Broken if self.sprite.frames.len() < 2 => self.say("Add a frame first: the last one shows once the prop breaks"),
+            Action::Broken => self.edit_prop(|f| f.broken = !f.broken),
             Action::Ask(k) => self.ask = Some((k, String::new())),
             Action::Save if self.browse.is_some() => self.say("Restore this version or go back first"),
             Action::Save => {
@@ -1219,7 +1382,9 @@ impl Editor {
                     Ok(()) => {
                         self.dirty = false;
                         self.stand_touched = false;
-                        self.names = self.store.names();
+                        self.names = self.all_names();
+                        self.load_card_parts();
+                        self.changed = true;
                         self.reveal();
                         let next = if self.is_card() { "Restart the game to load it." } else { "Rebuild the game to see it in play." };
                         self.say(format!("Saved {}. {next}", self.sprite.name));
@@ -1261,6 +1426,9 @@ impl Editor {
             }
             Action::AddFrame | Action::DeleteFrame | Action::MoveFrame(_) if self.view.is_none() && self.frames_refused(a) => {}
             Action::Stand(_) if self.is_card() => self.say("A card stands as a figure"),
+            Action::Strike(kill) => self.strike = Some(kill),
+            Action::Generate => self.generate_part(),
+            Action::ClearPart => self.clear_part(),
             Action::Stats => {
                 self.stats = !self.stats;
                 self.naming = None;
@@ -1308,15 +1476,8 @@ impl Editor {
                 self.set_start(difficulty, Some(&have));
             }
             Action::StartDefault(d) => self.set_start(last_harvest_game::Difficulty::ALL[d], None),
-            Action::EditName => {
-                self.naming = match self.naming.take() {
-                    Some(name) => {
-                        self.commit_name(name);
-                        None
-                    }
-                    None => self.card_title(),
-                };
-            }
+            Action::EditName => self.edit_line(Line::Name),
+            Action::EditAbout => self.edit_line(Line::About),
             Action::AddFrame => {
                 self.remember();
                 let copy = self.current().clone();
@@ -1439,6 +1600,11 @@ impl Editor {
             Action::Fps(d) => {
                 self.fps = (self.fps + d as f32).clamp(1.0, 30.0);
                 self.changed = true;
+                if let Some(mut f) = self.sprite.card.as_deref().filter(|_| crate::store::props::id(&self.sprite.name).is_some()).and_then(|t| last_harvest_game::prop_fields(t).ok()) {
+                    f.fps = self.fps;
+                    self.sprite.card = Some(last_harvest_game::prop_text(&f));
+                    self.dirty = true;
+                }
             }
             Action::Color(c) => {
                 self.color = c;
@@ -1646,12 +1812,25 @@ impl Editor {
         self.typing || self.ask.is_some() || self.naming.is_some()
     }
 
-    fn commit_name(&mut self, name: String) {
-        let name = name.trim().to_string();
-        if name.is_empty() {
-            self.say("A card needs a name");
-        } else {
-            self.set_card("name", Some(&name));
+    /// Starts typing the card's `line`, or keeps what's typed when it's already being typed, as Enter does.
+    fn edit_line(&mut self, line: Line) {
+        match self.naming.take() {
+            Some((was, text)) => {
+                self.commit_line(was, text);
+                if was != line {
+                    self.naming = self.card_line(line).map(|t| (line, t));
+                }
+            }
+            None => self.naming = self.card_line(line).map(|t| (line, t)),
+        }
+    }
+
+    fn commit_line(&mut self, line: Line, text: String) {
+        let text = text.trim();
+        match line {
+            Line::Name if text.is_empty() => self.say("A card needs a name"),
+            Line::About if text.is_empty() => self.set_card(line.key(), None),
+            _ => self.set_card(line.key(), Some(text)),
         }
     }
 
@@ -1702,16 +1881,17 @@ impl Editor {
             }
             return;
         }
-        if let Some(name) = &mut self.naming {
+        if let Some((line, name)) = &mut self.naming {
             match key {
-                Key::Char(c) if !c.is_control() && c != '#' && name.chars().count() < NAME_MAX => name.push(c),
+                Key::Char(c) if line.takes(c) && name.chars().count() < line.max() => name.push(c),
                 Key::Backspace => {
                     name.pop();
                 }
                 Key::Escape => self.naming = None,
                 Key::Enter => {
-                    let name = self.naming.take().unwrap_or_default();
-                    self.commit_name(name);
+                    if let Some((line, text)) = self.naming.take() {
+                        self.commit_line(line, text);
+                    }
                 }
                 _ => {}
             }
@@ -1759,7 +1939,9 @@ impl Editor {
                         None => (sprite::CardKind::Enemy, name.to_ascii_lowercase()),
                     };
                     let wanted = sprite::card_wanted(&name).or_else(|| (self.modding && !name.is_empty()).then(typed));
-                    if let Some((card, id)) = wanted {
+                    if name.starts_with(sprite::MAP_PREFIX) && kind == Ask::New {
+                        self.make_map(&name);
+                    } else if let Some((card, id)) = wanted {
                         self.make_card(kind, card, &id);
                     } else if !sprite::valid_name(&name) {
                         self.say("Names start with a letter and use A-Z, 0-9 and _");
@@ -1768,7 +1950,8 @@ impl Editor {
                     } else {
                         self.ask = None;
                         let (frames, views, footprint, top) = if kind == Ask::Copy { self.snapshot() } else { (vec![Frame::blank(16, 16)], None, None, None) };
-                        self.sprite = Sprite { name: name.clone(), frames, views, footprint, top, card: None };
+                        let card = crate::store::props::id(&name).map(|id| last_harvest_game::prop_text(&crate::store::props::blank(&id)));
+                        self.sprite = Sprite { name: name.clone(), frames, views, footprint, top, card };
                         self.fit();
                         self.view = None;
                         self.frame = 0;
@@ -1785,6 +1968,9 @@ impl Editor {
                 }
                 _ => {}
             }
+            return;
+        }
+        if self.map.is_some() && self.map_key(key) {
             return;
         }
         if self.selection.is_some() {
@@ -1868,6 +2054,9 @@ impl Editor {
 
     pub fn draw(&self, c: &mut Canvas) {
         c.clear = [0.1, 0.1, 0.12, 1.0];
+        if let Some(m) = &self.map {
+            return self.draw_map(c, m);
+        }
         if self.none_open() {
             c.label("No sprite open", 12.0, 12.0, 26.0, DIM, Align::Left);
         } else {
@@ -2021,6 +2210,9 @@ impl Editor {
         }
         if let Some(v) = self.view {
             c.label(format!("{}: {}", VIEW_NAMES[v], VIEW_HINTS[v]), CANVAS.x + 8.0, CANVAS.y + 6.0, 16.0, HOT, Align::Left);
+        }
+        if let Some(f) = self.open_prop_fields() {
+            c.label(if f.hp > 0.0 { format!("HP {}", f.hp) } else { "Won't break".into() }, SIDE_X, PROP_HP_Y + 5.0, 18.0, TEXT, Align::Left);
         }
         let f = self.current();
         if !self.none_open() {
@@ -2294,6 +2486,55 @@ mod tests {
     }
 
     #[test]
+    fn a_cards_still_parts_start_blank_and_generate_from_the_walk() {
+        let dir = tmp().join("still-parts");
+        let _ = std::fs::remove_dir_all(&dir);
+        let store = || FsStore { dir: dir.join("sprites"), catalog: dir.join("art.txt"), cards: dir.join("enemies") };
+        let mut e = Editor::new(Box::new(store()), "BARREL");
+        e.act(Action::Ask(Ask::New), false);
+        type_in(&mut e, "card ghoul");
+        e.key(Key::Enter);
+        let stand = e.sprite.frames[0].clone();
+        e.switch_to("CARD_GHOUL_HURT".into());
+        assert!(e.sprite.frames.iter().all(|f| f.px.iter().all(|p| p[3] == 0)), "a new card leaves hurt to the game");
+        let (figure, dead) = e.figure_frames().unwrap();
+        assert_eq!((figure.len(), dead), (cards::FIGURE_FRAMES, false));
+        let derived: Vec<Rgba> = stand.px.iter().map(|&p| last_harvest_game::hurt_pixel(p)).collect();
+        assert_eq!(figure[6].px, derived, "the preview shows the hurt frame the game will draw");
+        e.act(Action::Generate, false);
+        assert_eq!(e.sprite.frames[0].px, derived);
+        e.act(Action::ClearPart, false);
+        assert!(e.sprite.frames.iter().all(|f| f.px.iter().all(|p| p[3] == 0)));
+        e.switch_to("CARD_GHOUL_DEAD".into());
+        e.decide(Choice::Discard);
+        assert_eq!(e.sprite.name, "CARD_GHOUL_DEAD");
+        click_pixel(&mut e, 0, 0);
+        e.act(Action::Save, false);
+        let bytes = std::fs::read(dir.join("enemies/ghoul.enemy.png")).unwrap();
+        let card = last_harvest_pack::card::read("ghoul.enemy.png", &bytes).unwrap();
+        assert_eq!(card.sheet.len(), (16 * 3 * 16 * 6 * 4) as usize, "a drawn dead part saves a sixth row");
+        assert!(e.figure_frames().unwrap().1);
+    }
+
+    #[test]
+    fn a_game_figures_still_sprites_generate_from_its_walk() {
+        let mut e = editor_on("SKINNY_HURT");
+        assert_eq!(e.built_in_still(), Some(4));
+        let front = e.store.load("SKINNY_FRONT").unwrap().frames[0].clone();
+        e.act(Action::Generate, false);
+        assert_eq!(e.sprite.frames.len(), 3, "one per facing");
+        assert_eq!(e.sprite.frames[0].px, front.px.iter().map(|&p| last_harvest_game::hurt_pixel(p)).collect::<Vec<_>>());
+        e.key(Key::Undo);
+        assert_ne!(e.sprite.frames[0].px, front.px.iter().map(|&p| last_harvest_game::hurt_pixel(p)).collect::<Vec<_>>(), "Undo puts the drawn ones back");
+        assert_eq!(editor_on("BARREL_FLASH").built_in_still(), None, "a barrel has no walk to draw from");
+        let mut dead = editor_on("SKINNY_HURT");
+        dead.sprite.name = "SKINNY_DEAD".into();
+        dead.set_live(vec![Art(1), Art(2), Art(3)]);
+        dead.frame = 1;
+        assert_eq!(dead.lying_figure().and_then(|f| f.dead), Some([Art(2); 3]), "the frame being edited lies down");
+    }
+
+    #[test]
     fn painting_undoes_and_redoes() {
         let mut e = editor();
         e.color = [1, 2, 3, 255];
@@ -2380,7 +2621,7 @@ mod tests {
     }
 
     #[test]
-    fn a_new_card_lists_as_five_parts_that_save_into_one_png() {
+    fn a_new_card_lists_as_six_parts_that_save_into_one_png() {
         let dir = tmp().join("cards");
         let _ = std::fs::remove_dir_all(&dir);
         let store = || FsStore { dir: dir.join("sprites"), catalog: dir.join("art.txt"), cards: dir.join("enemies") };
@@ -2391,7 +2632,7 @@ mod tests {
         assert!(dir.join("enemies/ghoul.enemy.png").exists(), "New writes the card from the template");
         assert_eq!(e.sprite.name, "CARD_GHOUL_FRONT");
         let parts: Vec<&str> = e.names.iter().map(|(n, _)| n.as_str()).filter(|n| n.starts_with("CARD_")).collect();
-        assert_eq!(parts, ["CARD_GHOUL_FRONT", "CARD_GHOUL_SIDE", "CARD_GHOUL_BACK", "CARD_GHOUL_FLASH", "CARD_GHOUL_HURT"]);
+        assert_eq!(parts, ["CARD_GHOUL_FRONT", "CARD_GHOUL_SIDE", "CARD_GHOUL_BACK", "CARD_GHOUL_FLASH", "CARD_GHOUL_HURT", "CARD_GHOUL_DEAD"]);
         assert_eq!(e.sprite.frames.len(), 3);
         assert!(e.sprite.frames.iter().all(|f| (f.w, f.h) == (16, 16) && f.px.iter().any(|p| p[3] > 0)), "it starts from a figure");
         assert_ne!(e.sprite.frames[0].px, e.sprite.frames[1].px, "whose legs take turns");
@@ -2400,7 +2641,7 @@ mod tests {
         assert_eq!(e.sprite.frames.len(), 4, "a walking part takes another frame");
         e.act(Action::Save, false);
         e.act(Action::Compare, false);
-        assert_eq!(e.family.len(), 5, "Compare lays out the card's parts like a built-in zombie's");
+        assert_eq!(e.family.len(), 6, "Compare lays out the card's parts like a built-in zombie's");
         e.act(Action::Compare, false);
         e.switch_to("CARD_GHOUL_SIDE".into());
         click_pixel(&mut e, 0, 0);
@@ -2424,12 +2665,20 @@ mod tests {
         }
         assert!(e.wants_text() && e.free_text());
         type_in(&mut e, "Bog Ghoul");
+        e.act(Action::EditAbout, false);
+        assert_eq!(e.text(), Some(""), "About keeps the name typed so far and starts on an empty about");
+        type_in(&mut e, "Wet, slow and #hungry");
+        assert_eq!(e.text(), Some("Wet, slow and hungry"), "a # would start a comment");
+        e.set_text(&format!("Wet\u{2014}slow {}", "z".repeat(100)));
+        assert!(e.text().is_some_and(|t| t.starts_with("Wetslow") && t.len() == last_harvest_game::ABOUT_MAX), "only the font's characters, up to the limit");
+        e.set_text("Wet and slow, but it never gives up.");
+        e.draw(&mut Canvas::default());
         e.key(Key::Enter);
         e.act(Action::Save, false);
         assert!(!e.unsaved(), "{:?}", e.status);
         let saved = last_harvest_pack::card::read("ghoul.enemy.png", &std::fs::read(dir.join("enemies/ghoul.enemy.png")).unwrap()).unwrap();
         let f = last_harvest_game::card_fields(&saved.text).unwrap();
-        assert_eq!((f.id.as_str(), f.name.as_str()), ("ghoul", "Bog Ghoul"));
+        assert_eq!((f.id.as_str(), f.name.as_str(), f.about.as_str()), ("ghoul", "Bog Ghoul", "Wet and slow, but it never gives up."));
         assert_eq!((f.numbers[0].1, f.numbers[1].1, f.flags[0].1), (15.0, 30.0, true), "health 10 + 5, speed 20 + 10, heavy");
         assert_eq!(saved.frame, [16, 16]);
         let side = Editor::new(Box::new(store()), "CARD_GHOUL_SIDE");
@@ -2503,11 +2752,23 @@ mod tests {
         e.act(Action::StartWeapon(1, crows), false);
         e.act(Action::StartWeapon(2, crows), false);
         e.act(Action::StartDefault(2), false);
+        e.act(Action::EditAbout, false);
+        type_in(&mut e, "Up with the sun.");
+        e.act(Action::EditAbout, false);
+        e.act(Action::EditAbout, false);
+        assert_eq!(e.text(), Some("Up with the sun."), "About again types over what's saved");
+        e.set_text("  ");
+        e.key(Key::Enter);
+        assert_eq!(last_harvest_game::player_fields(e.sprite.card.as_deref().unwrap()).unwrap().about, "", "an empty about takes the line out");
+        e.act(Action::EditAbout, false);
+        type_in(&mut e, "Up with the sun.");
+        e.key(Key::Enter);
         e.draw(&mut Canvas::default());
         e.act(Action::Save, false);
         let path = dir.join("players/jo.player.png");
         let saved = last_harvest_pack::card::read_as(sprite::CardKind::Player, "jo", &std::fs::read(path).unwrap()).unwrap();
         let f = last_harvest_game::player_fields(&saved.text).unwrap();
+        assert_eq!(f.about, "Up with the sun.");
         assert_eq!(f.start, [None, Some(vec!["knife".into(), "crows".into()]), None], "Normal adds crows to the game's knife; Hard went back to the default");
         let e = Editor::new(Box::new(store()), "");
         assert!(e.names.iter().any(|(n, _)| n == "PLAYER_CARD_JO_HURT"));
@@ -3219,6 +3480,32 @@ mod tests {
         e.set_text("big rock");
         e.key(Key::Enter);
         assert_eq!(e.sprite.name, "BIG_ROCK");
+    }
+
+    #[test]
+    fn a_props_buttons_set_how_it_stands_in_the_way() {
+        let dir = tmp().join("tough");
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut e = Editor::new(Box::new(FsStore { dir: dir.join("sprites"), catalog: dir.join("art.txt"), cards: dir.join("enemies") }), "BARREL");
+        e.act(Action::Ask(Ask::New), false);
+        type_in(&mut e, "prop crate");
+        e.key(Key::Enter);
+        assert!(!e.is_card() && e.buttons().iter().any(|b| b.action == Action::Stand(0)), "a prop isn't a card: it stands as a sprite does");
+        buttons_fit(&e);
+        e.act(Action::Broken, false);
+        assert!(!e.open_prop_fields().unwrap().broken, "one frame has none to spare");
+        e.act(Action::AddFrame, false);
+        e.act(Action::Broken, false);
+        e.act(Action::Cover, false);
+        e.act(Action::Hp(1), false);
+        e.act(Action::Hp(1), true);
+        e.act(Action::Save, false);
+        let saved = last_harvest_pack::prop::read("c", &std::fs::read(dir.join("props/crate.prop.png")).unwrap()).unwrap();
+        let f = last_harvest_game::prop_fields(&saved.text).unwrap();
+        assert_eq!((f.frames, f.broken, f.cover, f.hp), (2, true, false, 90.0), "{}", saved.text);
+        e.act(Action::Hp(-1), true);
+        e.act(Action::Hp(-1), true);
+        assert_eq!(e.open_prop_fields().unwrap().hp, 0.0, "no lower than none");
     }
 
     #[test]

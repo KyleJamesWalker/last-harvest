@@ -1,15 +1,12 @@
-mod audio;
 mod debug;
-mod loops;
-mod pak;
 #[cfg(target_os = "linux")]
 mod device;
 mod gfx;
 mod persist;
-mod samples;
 
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use last_harvest::{VERSION, audio, pak, samples};
 use last_harvest_game::{Buttons, Game, InputTracker, MAX_TOUCHES, RawInput, SCREEN_H, SCREEN_W, Scene, System};
 use winit::application::ApplicationHandler;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
@@ -361,7 +358,12 @@ impl ApplicationHandler for App {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    if std::env::args().nth(1).as_deref() == Some("--version") {
+        println!("{VERSION}");
+        return Ok(());
+    }
     persist::install_crash_log();
+    eprintln!("last-harvest {VERSION}");
     let sounds = pak::load()?;
     let event_loop = EventLoop::new()?;
     event_loop.run_app(&mut App::new(&sounds))?;

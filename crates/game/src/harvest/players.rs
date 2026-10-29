@@ -15,18 +15,22 @@ pub const ID_MAX: usize = 24;
 pub struct PlayerLook {
     pub id: String,
     pub name: String,
+    /// A sentence about the look, for the Player setting; empty when it has none.
+    pub about: String,
     pub(crate) look: Look,
     /// The weapons a run starts with at each difficulty, by id; None keeps the game's. Ids, since the powerup
     /// table can't be read while the cards install.
     pub(crate) start: [Option<Vec<String>>; 3],
 }
 
-/// What a player card's text says: its id and name, and the weapons it starts with at each difficulty, by id;
+/// What a player card's text says: its id, name and about, and the weapons it starts with at each difficulty, by id;
 /// None for a difficulty keeps the game's own.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PlayerFields {
     pub id: String,
     pub name: String,
+    /// Empty when the card has no `about`.
+    pub about: String,
     pub start: [Option<Vec<String>>; 3],
 }
 
@@ -63,7 +67,8 @@ pub fn set_player_start(text: &str, difficulty: Difficulty, weapons: Option<&[St
 static LOOKS: OnceLock<Vec<PlayerLook>> = OnceLock::new();
 
 fn farmer() -> PlayerLook {
-    PlayerLook { id: String::new(), name: "Farmer".into(), look: super::player_look(), start: Default::default() }
+    let about = "Up before dawn every day of the year; tonight, dawn is the hard part.".into();
+    PlayerLook { id: String::new(), name: "Farmer".into(), about, look: super::player_look(), start: Default::default() }
 }
 
 /// The looks to choose from: the farmer first, then the player cards.
@@ -102,8 +107,8 @@ pub(super) fn install(cards: Vec<PlayerLook>) {
     LOOKS.set(std::iter::once(farmer()).chain(cards).collect()).ok();
 }
 
-/// A player card's settings, from its text: an `[id]` line, a `name` line, and a `start DIFFICULTY WEAPON...` line
-/// for any difficulty whose starting weapons it sets.
+/// A player card's settings, from its text: an `[id]` line, `name` and `about` lines, and a `start DIFFICULTY
+/// WEAPON...` line for any difficulty whose starting weapons it sets.
 pub fn player_fields(text: &str) -> Result<PlayerFields, String> {
     parse(text, true)
 }
@@ -112,6 +117,7 @@ pub fn player_fields(text: &str) -> Result<PlayerFields, String> {
 /// cards can't, since that comes before the table can be read.
 fn parse(text: &str, check: bool) -> Result<PlayerFields, String> {
     let (mut id, mut name, mut start): (Option<String>, Option<String>, [Option<Vec<String>>; 3]) = (None, None, Default::default());
+    let mut about = String::new();
     for (i, raw) in text.lines().enumerate() {
         let line = raw.split('#').next().unwrap_or("").trim();
         if line.is_empty() {
@@ -122,6 +128,7 @@ fn parse(text: &str, check: bool) -> Result<PlayerFields, String> {
         match (line.strip_prefix('[').and_then(|l| l.strip_suffix(']')), &words[..]) {
             (Some(v), _) if id.is_none() => id = Some(v.to_string()),
             (None, ["name", ..]) if id.is_some() => name = Some(line["name".len()..].trim().to_string()),
+            (None, ["about", ..]) if id.is_some() => about = super::enemies::about(line["about".len()..].trim()).map_err(|e| format!("line {n}: {e}"))?,
             (None, ["start", d, weapons @ ..]) if id.is_some() => {
                 let d = Difficulty::from_key(d).ok_or_else(|| format!("line {n}: start names easy, normal or hard first, not {d:?}"))?;
                 if check {
@@ -134,7 +141,7 @@ fn parse(text: &str, check: bool) -> Result<PlayerFields, String> {
                 }
                 start[d as usize] = Some(weapons.iter().map(|w| w.to_string()).collect());
             }
-            _ => return Err(format!("line {n}: a player card has its [id], a name and start lines, nothing else")),
+            _ => return Err(format!("line {n}: a player card has its [id], a name, an about and start lines, nothing else")),
         }
     }
     let id = id.ok_or("a player card starts with its [id]")?;
@@ -142,7 +149,7 @@ fn parse(text: &str, check: bool) -> Result<PlayerFields, String> {
         return Err(format!("[{id}]: a player card's id is 1 to {ID_MAX} of a-z, 0-9 and _"));
     }
     let name = name.unwrap_or_else(|| id.clone());
-    Ok(PlayerFields { id, name, start })
+    Ok(PlayerFields { id, name, about, start })
 }
 
 /// The player cards' looks with their frames drawn into `atlas` from `cursor` on, numbered from `first`, the rects
@@ -150,7 +157,7 @@ fn parse(text: &str, check: bool) -> Result<PlayerFields, String> {
 pub(super) fn pack(cards: &[Card], atlas: &mut [u8], cursor: &mut [u16; 3], first: usize) -> (Vec<String>, Vec<[u16; 4]>, Vec<PlayerLook>) {
     let (mut notes, mut rects, mut looks): (Vec<String>, Vec<[u16; 4]>, Vec<PlayerLook>) = (Vec::new(), Vec::new(), Vec::new());
     for card in cards {
-        let PlayerFields { id, name, start } = match parse(&card.text, false) {
+        let PlayerFields { id, name, about, start } = match parse(&card.text, false) {
             Ok(f) => f,
             Err(e) => {
                 notes.push(format!("{}: {e}", card.name));
@@ -158,15 +165,16 @@ pub(super) fn pack(cards: &[Card], atlas: &mut [u8], cursor: &mut [u16; 3], firs
             }
         };
         let [fw, fh] = card.frame;
-        if !(1..=64).contains(&fw) || !(1..=64).contains(&fh) || card.sheet.len() != (fw * 3 * fh * 5 * 4) as usize {
-            notes.push(format!("{}: frames are 1 to 64 pixels, 3 across and five down", card.name));
+        let Some(rows) = super::enemies::rows(card, 3) else {
+            notes.push(format!("{}: frames are 1 to 64 pixels, 3 across and five or six down", card.name));
             continue;
-        }
+        };
         if looks.iter().any(|l| l.id == id) {
             notes.push(format!("{}: another player card is [{id}] too", card.name));
             continue;
         }
-        let cells: Vec<(u32, u32)> = (0..5).flat_map(|row| (0..3).map(move |col| (col, row))).collect();
+        let rows = if super::enemies::has_dead(card, 3) { rows } else { 5 };
+        let cells: Vec<(u32, u32)> = (0..rows).flat_map(|row| (0..3).map(move |col| (col, row))).collect();
         let mut try_cursor = *cursor;
         let Some(spots) = cells.iter().map(|_| place(&mut try_cursor, [fw as u16, fh as u16])).collect::<Option<Vec<_>>>() else {
             notes.push(format!("{}: no room left in the sprite texture", card.name));
@@ -179,8 +187,8 @@ pub(super) fn pack(cards: &[Card], atlas: &mut [u8], cursor: &mut [u16; 3], firs
             rects.push([spot[0], spot[1], fw as u16, fh as u16]);
         }
         let art = |k: usize| Art((at + k) as u16);
-        let look = Look { walk: std::array::from_fn(|f| (f * 3..f * 3 + 3).map(art).collect()), flash: [art(9), art(10), art(11)], hurt: [art(12), art(13), art(14)] };
-        looks.push(PlayerLook { id, name, look, start });
+        let look = Look { walk: std::array::from_fn(|f| (f * 3..f * 3 + 3).map(art).collect()), flash: [art(9), art(10), art(11)], hurt: [art(12), art(13), art(14)], dead: (rows == 6).then(|| [art(15), art(16), art(17)]) };
+        looks.push(PlayerLook { id, name, about, look, start });
     }
     (notes, rects, looks)
 }
@@ -201,6 +209,11 @@ mod tests {
         assert!(player_fields("[jo]\nhp 5").is_err());
         assert!(player_fields("[Jo!]").is_err());
         assert!(player_fields("name Jo").is_err());
+        assert_eq!(player_fields("[jo]\nabout Up with the sun.").unwrap().about, "Up with the sun.");
+        assert_eq!(player_fields("[jo]").unwrap().about, "", "an old card without one still reads");
+        assert!(player_fields("[jo]\nabout").err().unwrap().starts_with("line 2: about"));
+        assert!(player_fields(&format!("[jo]\nabout {}", "y".repeat(81))).err().unwrap().contains("at most 80"));
+        assert!(super::super::enemies::about(&looks()[0].about).is_ok(), "the farmer's own fits the limits");
     }
 
     #[test]
@@ -218,7 +231,7 @@ mod tests {
     #[test]
     fn a_start_keeps_each_weapon_once_and_only_weapons() {
         let start = Some(vec!["pistol".into(), "pistol".into(), "heal".into(), "knife".into(), "nope".into()]);
-        let jo = PlayerLook { id: "jo".into(), name: "Jo".into(), look: super::super::player_look(), start: [None, start, None] };
+        let jo = PlayerLook { id: "jo".into(), name: "Jo".into(), about: String::new(), look: super::super::player_look(), start: [None, start, None] };
         assert_eq!(jo.start_names(Difficulty::Normal), ["Pistol", "Knife"]);
     }
 
@@ -233,8 +246,9 @@ mod tests {
         let mut atlas = vec![0u8; (ATLAS_W * ATLAS_H * 4) as usize];
         let card = |text: &str| Card { name: "p.player.png".into(), text: text.into(), frame: [8, 8], sheet: vec![255; 3 * 8 * 5 * 8 * 4] };
         let mut cursor = super::super::enemies::start();
-        let (notes, rects, looks) = pack(&[card("[jo]\nname Jo"), card("[jo]"), card("[x]\nhp 1")], &mut atlas, &mut cursor, 500);
+        let (notes, rects, looks) = pack(&[card("[jo]\nname Jo\nabout Calm."), card("[jo]"), card("[x]\nhp 1")], &mut atlas, &mut cursor, 500);
         assert_eq!(notes.len(), 2, "{notes:?}");
+        assert_eq!(looks[0].about, "Calm.");
         assert_eq!((rects.len(), looks.len()), (15, 1));
         assert_eq!(looks[0].look.walk[1][0], Art(503));
         assert_eq!(looks[0].look.hurt[2], Art(514));

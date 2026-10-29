@@ -7,7 +7,7 @@ use super::map::TILE;
 use crate::art::Stand;
 use super::powerups::{Kind, Zone, book};
 use super::weapons::{BOLT_LIFE, Hazard};
-use super::{CHOICE_ROW, CHOICE_TOP, Choice, DAWN, DropKind, GOLD, PAUSE_CHOICES, GRENADE_FLIGHT, GRENADE_RADIUS, Harvest, PICK_TIME, Phase, RED, SCALE, TELL_TIME, TURNED, Thrown, WHITE, clock, player_pose, view3d};
+use super::{CHOICE_ROW, CHOICE_TOP, Choice, DAWN, DropKind, Facing, GOLD, PAUSE_CHOICES, GRENADE_FLIGHT, GRENADE_RADIUS, Harvest, PICK_TIME, PROP_FLASH, Phase, RED, SCALE, TELL_TIME, TURNED, Thrown, WHITE, clock, player_pose, view3d};
 use crate::art::{self, Art};
 use crate::{Align, Canvas, Color, Frame, SCREEN_H, SCREEN_W};
 
@@ -235,11 +235,12 @@ impl Harvest {
             }
         }
         for corpse in &self.juice.corpses {
+            let fade = 1.0 - corpse.sunk() / 8.0;
+            let a = corpse.dead.map_or(corpse.art, |(dead, dir)| dead[Facing::of(dir).0.index()]);
             let (sx, sy) = at(corpse.pos[0], corpse.pos[1] - corpse.z - 3.0);
             let turn = if corpse.fall[0] < 0.0 { -1.0 } else { 1.0 };
             let angle = if corpse.z > 0.0 { corpse.spin } else { corpse.tipped() * PI / 2.0 * turn };
-            let fade = 1.0 - corpse.sunk() / 8.0;
-            c.art_rotated(corpse.art, sx, sy, scale, angle, shade([0.8, 0.8, 0.8, fade]));
+            c.art_rotated(a, sx, sy, scale, angle, shade([0.8, 0.8, 0.8, fade]));
         }
         for d in &self.drops {
             let a = match d.kind {
@@ -258,54 +259,55 @@ impl Harvest {
             c.circle(sx, sy, r * scale, [ring[0], ring[1], ring[2], pulse]);
         }
         // Props, zombies and the player, drawn back to front by where they meet the ground.
-        // The last field is how much of each sprite shows: zombies still in the ground show only their top.
-        let mut sprites: Vec<(f32, Art, f32, f32, bool, f32)> = Vec::new();
+        // The last fields are how much of each sprite shows, as zombies still in the ground show only their top,
+        // and how bright, as a prop just hit flashes.
+        let mut sprites: Vec<(f32, Art, f32, f32, bool, f32, f32)> = Vec::new();
         for p in &self.map.props {
             let a = p.frame(self.t);
             if visible(p.x, p.y, a.w(), a.h()) {
-                sprites.push((p.base, a, p.x, p.y, false, 1.0));
+                sprites.push((p.base, a, p.x, p.y, false, 1.0, if p.flash > 0.0 { PROP_FLASH } else { 1.0 }));
             }
         }
         for r in &self.barrels {
             let a = if r.flash > 0.0 { art::BARREL_FLASH } else { art::BARREL };
             if visible(r.pos[0], r.pos[1], TILE, TILE) {
-                sprites.push((r.pos[1] + a.h(), a, r.pos[0], r.pos[1], false, 1.0));
+                sprites.push((r.pos[1] + a.h(), a, r.pos[0], r.pos[1], false, 1.0, 1.0));
             }
         }
         for z in &self.zombies {
             let (facing, flip) = z.facing;
             let a = z.art(facing);
-            sprites.push((z.pos[1], a, z.pos[0] - a.w() / 2.0, z.pos[1] - a.h() * z.rise + 2.0, flip, z.rise));
+            sprites.push((z.pos[1], a, z.pos[0] - a.w() / 2.0, z.pos[1] - a.h() * z.rise + 2.0, flip, z.rise, 1.0));
         }
         if let Some(s) = self.shown.as_ref().filter(|s| s.stand != Stand::Ground && !s.frames.is_empty()) {
             let a = s.frame(self.t);
-            sprites.push((s.pos[1], a, s.pos[0] - a.w() / 2.0, s.pos[1] - a.h(), false, 1.0));
+            sprites.push((s.pos[1], a, s.pos[0] - a.w() / 2.0, s.pos[1] - a.h(), false, 1.0, 1.0));
         }
         for b in &self.birds {
             let a = b.art();
-            sprites.push((b.pos[1], a, b.pos[0] - a.w() / 2.0, b.pos[1] - a.h() - b.z, b.flip, 1.0));
+            sprites.push((b.pos[1], a, b.pos[0] - a.w() / 2.0, b.pos[1] - a.h() - b.z, b.flip, 1.0, 1.0));
         }
         for d in &self.decoys {
             let a = art::SCARECROW;
-            sprites.push((d.pos[1], a, d.pos[0] - a.w() / 2.0, d.pos[1] - a.h() + 2.0, false, 1.0));
+            sprites.push((d.pos[1], a, d.pos[0] - a.w() / 2.0, d.pos[1] - a.h() + 2.0, false, 1.0, 1.0));
         }
         for d in &self.dogs {
             let a = d.art();
-            sprites.push((d.pos[1], a, d.pos[0] - a.w() / 2.0, d.pos[1] - a.h() + 2.0, d.heading[0] < 0.0, 1.0));
+            sprites.push((d.pos[1], a, d.pos[0] - a.w() / 2.0, d.pos[1] - a.h() + 2.0, d.heading[0] < 0.0, 1.0, 1.0));
         }
         for (i, (p, flip)) in self.crows().into_iter().enumerate() {
             let a = art::CROW_FLY[(self.t * 12.0 + i as f32) as usize % art::CROW_FLY.len()];
-            sprites.push((p[1], a, p[0] - a.w() / 2.0, p[1] - a.h() - 12.0, flip, 1.0));
+            sprites.push((p[1], a, p[0] - a.w() / 2.0, p[1] - a.h() - 12.0, flip, 1.0, 1.0));
         }
         let (facing, flip) = self.facing;
         let (a, rise) = player_pose(self, facing);
         if self.shown.as_ref().is_none_or(|s| s.player) {
-            sprites.push((self.pos[1], a, self.pos[0] - a.w() / 2.0, self.pos[1] - a.h() * rise + 2.0, flip, rise));
+            sprites.push((self.pos[1], a, self.pos[0] - a.w() / 2.0, self.pos[1] - a.h() * rise + 2.0, flip, rise, 1.0));
         }
         sprites.sort_by(|a, b| a.0.total_cmp(&b.0));
-        for (_, a, x, y, flip, show) in sprites {
+        for (_, a, x, y, flip, show, bright) in sprites {
             let (sx, sy) = at(x, y);
-            c.art_top(a, sx, sy, scale, flip, show, lit);
+            c.art_top(a, sx, sy, scale, flip, show, [lit[0] * bright, lit[1] * bright, lit[2] * bright, lit[3]]);
         }
 
         for b in &self.bullets {
