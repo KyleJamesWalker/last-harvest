@@ -1,8 +1,8 @@
 //! Cards: a PNG of a figure's frames, five rows down, with its text in a compressed `iTXt` chunk, so one image file
 //! shares the art and the numbers together. The rows walk front, side and back, then flash and hurt with one frame
 //! per facing; a `last-harvest-rows` chunk of 6 adds a dead row. An enemy card's text is its `enemies.txt` section, whose `walk` sets how many frames its walking rows
-//! have (3 when left out), and the sheet is as wide as its longest row; a player card's is its id and name, and it
-//! always walks three frames.
+//! have (3 when left out), and the sheet is as wide as its longest row; a player card's is its id, name and `about`,
+//! and it always walks three frames.
 
 use last_harvest_game::data::Card;
 
@@ -150,9 +150,10 @@ mod tests {
     fn a_card_round_trips_its_text_and_frames() {
         let (w, h) = (3 * 12, 5 * 20);
         let sheet: Vec<u8> = (0..w * h).flat_map(|i| [(i % 256) as u8, 7, 9, if i % 3 == 0 { 0 } else { 255 }]).collect();
-        let text = "[ghoul]\nname Ghoul — fast\nhp 40\n";
+        let text = "[ghoul]\nname Ghoul — fast\nabout Quick, and it never stops.\nhp 40\n";
         let card = read("ghoul.enemy.png", &write(text, w, h, &sheet).unwrap()).unwrap();
         assert_eq!(card.text, text);
+        assert_eq!(last_harvest_game::card_fields(&card.text).unwrap().about, "Quick, and it never stops.");
         assert_eq!(card.frame, [12, 20]);
         assert_eq!(card.sheet, sheet);
     }
@@ -160,9 +161,9 @@ mod tests {
     #[test]
     fn a_player_card_keeps_its_own_keyword() {
         let sheet = vec![9u8; 3 * 8 * 5 * 8 * 4];
-        let bytes = write_as(Kind::Player, "[jo]\nname Jo", 24, 40, 5, &sheet).unwrap();
+        let bytes = write_as(Kind::Player, "[jo]\nname Jo\nabout Up early.", 24, 40, 5, &sheet).unwrap();
         let card = read_as(Kind::Player, "jo.player.png", &bytes).unwrap();
-        assert_eq!((card.text.as_str(), card.frame), ("[jo]\nname Jo", [8, 8]));
+        assert_eq!((card.text.as_str(), card.frame), ("[jo]\nname Jo\nabout Up early.", [8, 8]));
         assert!(read("jo.player.png", &bytes).err().unwrap().contains("not an enemy card"), "an enemy card is a different kind");
         assert_eq!(Kind::of("jo.player.png"), Some(Kind::Player));
         assert_eq!(Kind::of("ghoul.enemy.png"), Some(Kind::Enemy));

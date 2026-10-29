@@ -81,8 +81,9 @@ fn make_card(kind: card::Kind, sheet: &Path, text: &Path, out: &Path) -> Result<
     }
     let (w, h, rgba) = decode_sheet(sheet)?;
     let text = std::fs::read_to_string(text)?;
-    if kind == card::Kind::Player {
-        last_harvest_game::player_fields(&text)?;
+    match kind {
+        card::Kind::Enemy => _ = last_harvest_game::card_fields(&text)?,
+        card::Kind::Player => _ = last_harvest_game::player_fields(&text)?,
     }
     // A sheet both five and six frames tall reads as five; a dead row needs one six only divides.
     let rows = if h % 5 == 0 { 5 } else { 6 };
@@ -206,9 +207,14 @@ fn show(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let card = card::read_as(kind, &path.display().to_string(), &std::fs::read(path)?)?;
     println!("{}x{} frames\n{}", card.frame[0], card.frame[1], card.text.trim_end());
     match kind {
-        card::Kind::Enemy => show_mix(&card.text)?,
+        card::Kind::Enemy => {
+            let f = last_harvest_game::card_fields(&card.text)?;
+            println!("\nAbout: {}", if f.about.is_empty() { "none" } else { &f.about });
+            show_mix(&card.text)?
+        }
         card::Kind::Player => {
             let f = last_harvest_game::player_fields(&card.text)?;
+            println!("\nAbout: {}", if f.about.is_empty() { "none" } else { &f.about });
             println!("\nStarts with:");
             for (d, start) in last_harvest_game::Difficulty::ALL.into_iter().zip(&f.start) {
                 let weapons = start.clone().unwrap_or_else(|| last_harvest_game::default_start(d));
