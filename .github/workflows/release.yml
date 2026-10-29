@@ -106,6 +106,8 @@ jobs:
           cargo install wasm-bindgen-cli --version "$version" --locked
 
       - name: Build
+        env:
+          LAST_HARVEST_VERSION: ${{ env.TAG }}
         run: |
           scripts/pages.sh
           scripts/web-game.sh --zip
