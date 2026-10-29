@@ -238,10 +238,37 @@ impl Editor {
         self.is_card() && sprite::card_kind(&self.sprite.name) == Some(sprite::CardKind::Player)
     }
 
-    /// The open card's name as its text gives it.
-    pub(super) fn card_title(&self) -> Option<String> {
+    /// The open card's name or about as its text gives it.
+    pub(super) fn card_line(&self, line: Line) -> Option<String> {
         let text = self.sprite.card.as_deref()?;
-        if self.is_player_card() { last_harvest_game::player_fields(text).ok().map(|f| f.name) } else { last_harvest_game::card_fields(text).ok().map(|f| f.name) }
+        let (name, about) = if self.is_player_card() { last_harvest_game::player_fields(text).ok().map(|f| (f.name, f.about))? } else { last_harvest_game::card_fields(text).ok().map(|f| (f.name, f.about))? };
+        Some(if line == Line::Name { name } else { about })
+    }
+
+    /// The Rename and About buttons beside a card's name.
+    pub(super) fn line_buttons(&self, push: &mut impl FnMut(f32, f32, f32, f32, Action, &str, bool)) {
+        let typing = |line: Line| self.naming.as_ref().is_some_and(|(l, _)| *l == line);
+        push(CANVAS.x + 300.0, CANVAS.y + 30.0, 116.0, 30.0, Action::EditName, "Rename", typing(Line::Name));
+        push(CANVAS.x + 424.0, CANVAS.y + 30.0, 116.0, 30.0, Action::EditAbout, "About", typing(Line::About));
+    }
+
+    /// A card's name and its about under it, wrapped to two lines, with a caret on whichever is being typed.
+    fn draw_lines(&self, c: &mut Canvas, name: &str, about: &str) {
+        const ABOUT_ACROSS: usize = 66;
+        let x = CANVAS.x + 20.0;
+        let caret = if (self.clock * 2.0) as i32 % 2 == 0 { "_" } else { " " };
+        let typed = |line: Line, saved: &str| match &self.naming {
+            Some((l, t)) if *l == line => (format!("{t}{caret}"), HOT),
+            _ => (saved.to_string(), TEXT),
+        };
+        let (name, ink) = typed(Line::Name, name);
+        c.label(name, x, CANVAS.y + 32.0, 26.0, ink, Align::Left);
+        let (about, ink) = typed(Line::About, about);
+        let (about, ink) = if about.trim().is_empty() && ink == TEXT { ("No about yet: a sentence on what to expect, for the game's menus".to_string(), DIM) } else { (about, ink) };
+        let split = if about.chars().count() <= ABOUT_ACROSS { about.len() } else { about[..=ABOUT_ACROSS].rfind(' ').unwrap_or(ABOUT_ACROSS) };
+        for (i, part) in [&about[..split], about[split..].trim_start()].into_iter().enumerate() {
+            c.label(part, x, CANVAS.y + 64.0 + i as f32 * 16.0, 14.0, ink, Align::Left);
+        }
     }
 
     /// A player card's starting weapons at each difficulty, by id; None where it keeps the game's own.
@@ -317,7 +344,7 @@ impl Editor {
         why.map(|w| self.say(w)).is_some()
     }
 
-    /// A player card's stats page: its name, and the weapons it starts with at each difficulty.
+    /// A player card's stats page: its name and about, and the weapons it starts with at each difficulty.
     pub(super) fn draw_player_stats(&self, c: &mut Canvas) {
         c.rect(CANVAS.x, CANVAS.y, CANVAS.w, CANVAS.h, PANEL);
         let x = CANVAS.x + 20.0;
@@ -330,9 +357,7 @@ impl Editor {
             }
         };
         c.label(format!("Player card [{}]", fields.id), x, CANVAS.y + 8.0, 17.0, DIM, Align::Left);
-        let caret = if (self.clock * 2.0) as i32 % 2 == 0 { "_" } else { " " };
-        let name = self.naming.as_ref().map_or(fields.name.clone(), |n| format!("{n}{caret}"));
-        c.label(name, x, CANVAS.y + 32.0, 26.0, if self.naming.is_some() { HOT } else { TEXT }, Align::Left);
+        self.draw_lines(c, &fields.name, &fields.about);
         for (d, difficulty) in last_harvest_game::Difficulty::ALL.into_iter().enumerate() {
             let top = START_TOP + d as f32 * START_BLOCK;
             let how = if fields.start[d].is_some() { "starts with" } else { "starts as the game does, with" };
@@ -342,7 +367,7 @@ impl Editor {
         c.label(note, x, CANVAS.y + CANVAS.h - 22.0, 13.0, DIM, Align::Left);
     }
 
-    /// A card's stats page: its name, numbers, death sound and flags, as the game will read them.
+    /// A card's stats page: its name, about, numbers, death sound and flags, as the game will read them.
     pub(super) fn draw_stats(&self, c: &mut Canvas) {
         if self.is_player_card() {
             return self.draw_player_stats(c);
@@ -360,9 +385,7 @@ impl Editor {
         };
         let replaces = self.mix.as_ref().and_then(|m| m.as_ref().ok()).filter(|m| m.replaced.contains(&f.id)).map(|_| "  replaces the game's own");
         c.label(format!("Enemy card [{}]{}", f.id, replaces.unwrap_or("")), x, CANVAS.y + 8.0, 17.0, if replaces.is_some() { HOT } else { DIM }, Align::Left);
-        let caret = if (self.clock * 2.0) as i32 % 2 == 0 { "_" } else { " " };
-        let name = self.naming.as_ref().map_or(f.name.clone(), |n| format!("{n}{caret}"));
-        c.label(name, x, CANVAS.y + 32.0, 26.0, if self.naming.is_some() { HOT } else { TEXT }, Align::Left);
+        self.draw_lines(c, &f.name, &f.about);
         for (i, ((_, v), (label, _))) in f.numbers.iter().zip(STAT_ROWS).enumerate() {
             let y = STAT_TOP + i as f32 * STAT_ROW;
             c.label(label, x, y + 3.0, 16.0, DIM, Align::Left);

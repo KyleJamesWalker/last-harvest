@@ -433,6 +433,9 @@ impl Web {
                     let _ = self.input.style().set_property("text-transform", if free { "none" } else { "uppercase" });
                     self.input.set_hidden(false);
                     self.input.set_value(&t);
+                } else if self.input.value() != t {
+                    // Rename and About hand the open field from one line to the other.
+                    self.input.set_value(&t);
                 }
                 if focus && !typing {
                     let _ = self.input.focus();

@@ -130,6 +130,37 @@ enum Ask {
     Copy,
 }
 
+/// A line of a card's text typed on its stats page.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Line {
+    Name,
+    About,
+}
+
+impl Line {
+    fn key(self) -> &'static str {
+        match self {
+            Line::Name => "name",
+            Line::About => "about",
+        }
+    }
+
+    /// Whether `c` can be typed into this line; a `#` would start a comment.
+    fn takes(self, c: char) -> bool {
+        match self {
+            Line::Name => !c.is_control() && c != '#',
+            Line::About => (' '..='~').contains(&c) && c != '#',
+        }
+    }
+
+    fn max(self) -> usize {
+        match self {
+            Line::Name => NAME_MAX,
+            Line::About => last_harvest_game::ABOUT_MAX,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Action {
     Ask(Ask),
@@ -163,6 +194,7 @@ enum Action {
     Flag(usize),
     Sound(i32),
     EditName,
+    EditAbout,
     /// Turns a weapon, by its place in `weapons()`, on or off in a player card's start at a difficulty.
     StartWeapon(usize, usize),
     /// Gives a player card the game's own start at a difficulty.
@@ -200,15 +232,16 @@ const STAT_ROWS: [(&str, f32); 9] = [
     ("Chance per minute", 0.005),
 ];
 const FLAG_NAMES: [&str; 3] = ["Heavy", "Leads hordes", "Harvester"];
-const STAT_TOP: f32 = CANVAS.y + 70.0;
-const STAT_ROW: f32 = 27.0;
+const STAT_TOP: f32 = CANVAS.y + 100.0;
+const STAT_ROW: f32 = 25.0;
 const STAT_BUTTON: f32 = 24.0;
 const NAME_MAX: usize = 24;
 const DELETE_CONFIRM: f32 = 3.0;
 /// A player card's stats: a block per difficulty with its weapon toggles, five across.
-const START_TOP: f32 = CANVAS.y + 76.0;
-const START_BLOCK: f32 = 150.0;
+const START_TOP: f32 = CANVAS.y + 100.0;
+const START_BLOCK: f32 = 142.0;
 const START_ACROSS: usize = 5;
+const START_ROW: f32 = 28.0;
 
 struct Button {
     rect: Rect,
@@ -351,8 +384,8 @@ pub struct Editor {
     pan: [f32; 2],
     /// A card's stats are on the canvas in place of its pixels.
     stats: bool,
-    /// The card's name as it's being typed.
-    naming: Option<String>,
+    /// The card's name or about as it's being typed.
+    naming: Option<(Line, String)>,
     /// The other cards' texts, read when the stats page opens, for the spawn mix.
     other_cards: Vec<String>,
     /// The open card's own death sound, by file name, when it has one.
@@ -796,7 +829,7 @@ impl Editor {
 
     /// The name or search being typed, while one is.
     pub fn text(&self) -> Option<&str> {
-        if let Some(name) = &self.naming {
+        if let Some((_, name)) = &self.naming {
             return Some(name);
         }
         if self.typing { Some(&self.filter) } else { self.ask.as_ref().map(|(_, name)| name.as_str()) }
@@ -809,9 +842,8 @@ impl Editor {
 
     /// Replaces the name or search being typed, as typing `text` key by key would leave it.
     pub fn set_text(&mut self, text: &str) {
-        if let Some(name) = &mut self.naming {
-            // A `#` would start a comment in the card's text.
-            *name = text.chars().filter(|c| !c.is_control() && *c != '#').take(NAME_MAX).collect();
+        if let Some((line, name)) = &mut self.naming {
+            *name = text.chars().filter(|&c| line.takes(c)).take(line.max()).collect();
             return;
         }
         let clean: String = text.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == ' ').map(|c| if c == ' ' { '_' } else { c.to_ascii_uppercase() }).collect();
@@ -843,7 +875,7 @@ impl Editor {
             push(410.0, 8.0, 94.0, 34.0, Action::Generate, "Generate", false);
         }
         if self.stats && self.is_player_card() {
-            push(CANVAS.x + 300.0, CANVAS.y + 30.0, 240.0, 30.0, Action::EditName, "Rename", self.naming.is_some());
+            self.line_buttons(&mut push);
             let starts = self.player_starts();
             for (d, start) in starts.iter().enumerate() {
                 let top = START_TOP + d as f32 * START_BLOCK;
@@ -852,11 +884,11 @@ impl Editor {
                 for (w, (id, label)) in cards::weapon_labels().into_iter().enumerate() {
                     let (col, row) = (w % START_ACROSS, w / START_ACROSS);
                     let on = have.contains(&id);
-                    push(CANVAS.x + 20.0 + col as f32 * 104.0, top + 30.0 + row as f32 * 30.0, 100.0, 26.0, Action::StartWeapon(d, w), &label, on);
+                    push(CANVAS.x + 20.0 + col as f32 * 104.0, top + 30.0 + row as f32 * START_ROW, 100.0, 26.0, Action::StartWeapon(d, w), &label, on);
                 }
             }
         } else if self.stats {
-            push(CANVAS.x + 300.0, CANVAS.y + 30.0, 240.0, 30.0, Action::EditName, "Rename", self.naming.is_some());
+            self.line_buttons(&mut push);
             for i in 0..STAT_ROWS.len() {
                 let y = STAT_TOP + i as f32 * STAT_ROW;
                 push(CANVAS.x + 400.0, y, 66.0, STAT_BUTTON, Action::StatStep(i, -1), "-", false);
@@ -1431,15 +1463,8 @@ impl Editor {
                 self.set_start(difficulty, Some(&have));
             }
             Action::StartDefault(d) => self.set_start(last_harvest_game::Difficulty::ALL[d], None),
-            Action::EditName => {
-                self.naming = match self.naming.take() {
-                    Some(name) => {
-                        self.commit_name(name);
-                        None
-                    }
-                    None => self.card_title(),
-                };
-            }
+            Action::EditName => self.edit_line(Line::Name),
+            Action::EditAbout => self.edit_line(Line::About),
             Action::AddFrame => {
                 self.remember();
                 let copy = self.current().clone();
@@ -1774,12 +1799,25 @@ impl Editor {
         self.typing || self.ask.is_some() || self.naming.is_some()
     }
 
-    fn commit_name(&mut self, name: String) {
-        let name = name.trim().to_string();
-        if name.is_empty() {
-            self.say("A card needs a name");
-        } else {
-            self.set_card("name", Some(&name));
+    /// Starts typing the card's `line`, or keeps what's typed when it's already being typed, as Enter does.
+    fn edit_line(&mut self, line: Line) {
+        match self.naming.take() {
+            Some((was, text)) => {
+                self.commit_line(was, text);
+                if was != line {
+                    self.naming = self.card_line(line).map(|t| (line, t));
+                }
+            }
+            None => self.naming = self.card_line(line).map(|t| (line, t)),
+        }
+    }
+
+    fn commit_line(&mut self, line: Line, text: String) {
+        let text = text.trim();
+        match line {
+            Line::Name if text.is_empty() => self.say("A card needs a name"),
+            Line::About if text.is_empty() => self.set_card(line.key(), None),
+            _ => self.set_card(line.key(), Some(text)),
         }
     }
 
@@ -1830,16 +1868,17 @@ impl Editor {
             }
             return;
         }
-        if let Some(name) = &mut self.naming {
+        if let Some((line, name)) = &mut self.naming {
             match key {
-                Key::Char(c) if !c.is_control() && c != '#' && name.chars().count() < NAME_MAX => name.push(c),
+                Key::Char(c) if line.takes(c) && name.chars().count() < line.max() => name.push(c),
                 Key::Backspace => {
                     name.pop();
                 }
                 Key::Escape => self.naming = None,
                 Key::Enter => {
-                    let name = self.naming.take().unwrap_or_default();
-                    self.commit_name(name);
+                    if let Some((line, text)) = self.naming.take() {
+                        self.commit_line(line, text);
+                    }
                 }
                 _ => {}
             }
@@ -2610,12 +2649,20 @@ mod tests {
         }
         assert!(e.wants_text() && e.free_text());
         type_in(&mut e, "Bog Ghoul");
+        e.act(Action::EditAbout, false);
+        assert_eq!(e.text(), Some(""), "About keeps the name typed so far and starts on an empty about");
+        type_in(&mut e, "Wet, slow and #hungry");
+        assert_eq!(e.text(), Some("Wet, slow and hungry"), "a # would start a comment");
+        e.set_text(&format!("Wet\u{2014}slow {}", "z".repeat(100)));
+        assert!(e.text().is_some_and(|t| t.starts_with("Wetslow") && t.len() == last_harvest_game::ABOUT_MAX), "only the font's characters, up to the limit");
+        e.set_text("Wet and slow, but it never gives up.");
+        e.draw(&mut Canvas::default());
         e.key(Key::Enter);
         e.act(Action::Save, false);
         assert!(!e.unsaved(), "{:?}", e.status);
         let saved = last_harvest_pack::card::read("ghoul.enemy.png", &std::fs::read(dir.join("enemies/ghoul.enemy.png")).unwrap()).unwrap();
         let f = last_harvest_game::card_fields(&saved.text).unwrap();
-        assert_eq!((f.id.as_str(), f.name.as_str()), ("ghoul", "Bog Ghoul"));
+        assert_eq!((f.id.as_str(), f.name.as_str(), f.about.as_str()), ("ghoul", "Bog Ghoul", "Wet and slow, but it never gives up."));
         assert_eq!((f.numbers[0].1, f.numbers[1].1, f.flags[0].1), (15.0, 30.0, true), "health 10 + 5, speed 20 + 10, heavy");
         assert_eq!(saved.frame, [16, 16]);
         let side = Editor::new(Box::new(store()), "CARD_GHOUL_SIDE");
@@ -2689,11 +2736,23 @@ mod tests {
         e.act(Action::StartWeapon(1, crows), false);
         e.act(Action::StartWeapon(2, crows), false);
         e.act(Action::StartDefault(2), false);
+        e.act(Action::EditAbout, false);
+        type_in(&mut e, "Up with the sun.");
+        e.act(Action::EditAbout, false);
+        e.act(Action::EditAbout, false);
+        assert_eq!(e.text(), Some("Up with the sun."), "About again types over what's saved");
+        e.set_text("  ");
+        e.key(Key::Enter);
+        assert_eq!(last_harvest_game::player_fields(e.sprite.card.as_deref().unwrap()).unwrap().about, "", "an empty about takes the line out");
+        e.act(Action::EditAbout, false);
+        type_in(&mut e, "Up with the sun.");
+        e.key(Key::Enter);
         e.draw(&mut Canvas::default());
         e.act(Action::Save, false);
         let path = dir.join("players/jo.player.png");
         let saved = last_harvest_pack::card::read_as(sprite::CardKind::Player, "jo", &std::fs::read(path).unwrap()).unwrap();
         let f = last_harvest_game::player_fields(&saved.text).unwrap();
+        assert_eq!(f.about, "Up with the sun.");
         assert_eq!(f.start, [None, Some(vec!["knife".into(), "crows".into()]), None], "Normal adds crows to the game's knife; Hard went back to the default");
         let e = Editor::new(Box::new(store()), "");
         assert!(e.names.iter().any(|(n, _)| n == "PLAYER_CARD_JO_HURT"));
