@@ -179,7 +179,7 @@ Publishing a GitHub release, such as with `gh release create v0.2.0 --generate-n
 
 From then on the launcher, `LastHarvest.sh`, keeps the game current before each start, never during a run. It asks the GitHub API for the latest release; a newer tag downloads this platform's tarball and swaps in its binary, data README, launcher and icon, and a `game_data.pak` whose sha256 differs from the release asset's `digest` is downloaded, so a release that changes only the pack updates too. Each download is checked against its asset's `digest` under a temporary name and only then moved over the old file, and a new binary must report the new tag before it replaces the old one. When `data/game_data.pak` is missing, the launcher fetches the pack of the binary's own release, even with updates off. Offline, it gives up after a 4 second connect timeout and starts the game as it is. A `dev` build, as `scripts/install.sh` installs, is never updated, and `data/no-updates` turns updates off. The launcher logs what it did at the top of `log.txt`. `LAST_HARVEST_API`, `LAST_HARVEST_DOWNLOADS` and `LAST_HARVEST_PLATFORM` point it at another release source and platform, for testing.
 
-The workflow reads the private assets with a read-only deploy key on that repository, stored as the `ASSETS_DEPLOY_KEY` secret. The same release publishes the card editor to GitHub Pages, after checking the page holds only the editor's own files and no tileset; the repository's Pages source must be set to GitHub Actions.
+The workflow reads the private assets with a read-only deploy key on that repository, stored as the `ASSETS_DEPLOY_KEY` secret. The same release publishes GitHub Pages, built by `scripts/pages.sh`: a landing page at the root, the game in `play/`, the card editor in `editor/`, and `game_data.pak` at the root, which both fetch. It checks the site holds exactly those files and that neither page's wasm builds the tileset in; the repository's Pages source must be set to GitHub Actions. It also attaches the game as `last-harvest-<tag>-web.zip` and, once set up, pushes that zip to itch.io: see The game in a browser.
 
 Run the tests:
 
@@ -282,13 +282,32 @@ A pixel editor for the game's sprites, on macOS. The left pane lists every sprit
 
 Save writes each frame to `assets/private/sprites/NAME/0.png`, `1.png` and so on, and a changed stand to the sprite's line in `crates/game/art.txt` as `@prop 12`, `@slab 10`, `@figure` or `@ground`, or to `stand.txt` in its folder for a new sprite. A carved sprite keeps `south.png`, `east.png`, an optional `footprint.png`, and a `stand.txt` saying `carve` in its folder; a build without them, such as a fresh clone, stands it as a slab. The next build of the game packs a saved sprite in place of its cut from the tileset, and a folder with a name not in `crates/game/art.txt` becomes a new sprite, `art::NAME`, for the code to use. Saved sprites go in the private assets submodule, because edits of the tileset's sprites fall under its license: commit and push them there. Delete a sprite's folder to go back to the tileset's version. Set `LAST_HARVEST_SPRITES` to save somewhere else.
 
+### The game in a browser
+
+```sh
+scripts/web-game.sh --serve   # build into target/web-game and serve it on http://127.0.0.1:8095
+scripts/web-game.sh --zip     # also pack it as target/last-harvest-web.zip, for itch.io
+scripts/pages.sh --serve      # the whole Pages site in target/pages, on http://127.0.0.1:8093
+```
+
+A teaser for players without the handheld: the same game built for WebAssembly by `crates/app/src/web.rs`, with both screens drawn on one canvas, top above bottom, scaled to fit the window. It is built without `embed` and fetches `game_data.pak` from the path in its page's `data-pak` attribute: beside it in the zip, `../game_data.pak` on Pages. It reads no mods, cards or maps. Sound starts with the first click or key, as browsers require. The keys are the macOS ones under Controls, without Esc or Home. A click or tap on the bottom screen is a touch. A gamepad in the browser's standard layout maps by its labels, as on an Xbox pad: A, B, X and Y, the bumpers and triggers as L1, R1, L2 and R2, View as Select, Menu as Start, and the d-pad and left stick. The save lives in the browser's local storage, in `save.txt`'s format. Brightness, rumble, screenshots and the device's sensors do nothing.
+
+To publish it on itch.io, once:
+
+1. Create the project with Kind of project set to HTML. Under Embed options, set the viewport to 1024 x 1536 or a smaller 2:3 size such as 640 x 960, or choose Click to launch in fullscreen; the page scales to whatever it gets.
+2. Create an API key at itch.io under Settings > API keys and store it as the repository secret `BUTLER_API_KEY`.
+3. Store the butler target, such as `user/last-harvest:html5`, as the repository variable `ITCH_TARGET`.
+4. After the first release pushes, edit the project and mark the upload as played in the browser.
+
+Without the secret or the variable, releases skip itch.io.
+
 ### Card editor
 
 ```sh
 scripts/mod-editor.sh --serve   # build into target/mod-editor and serve it on http://127.0.0.1:8094
 ```
 
-The public editor for enemy and player cards: the sprite editor built without the tileset (`--no-default-features --features modding`), so the page can be published. It keeps cards in the browser's local storage and lists only cards; New starts one from the plain figure, Import opens `.enemy.png` and `.player.png` files and the cards in a `.pak`, saying which saved cards it replaced, Export downloads the open card's saved PNG, and Export all downloads every card as one mod pack, `my-cards.pak`, for the game's `data/mods`. Sound gives the open enemy card its own death sound, an Ogg or WAV of up to 512 KB kept beside it in the browser; Export all packs it as `sounds/kill-<id>.ogg`, and Import of a pack brings its cards' sounds back. The palette is PICO-8's 32 colors, and the previews show the card on a plain floor, the ground tiles in flat colors. A player who owns the game can press Game data and pick their `game_data.pak`: the page keeps it in IndexedDB, never sends it anywhere, and from then on previews the card on the farm with the tileset's palette. A pack built for a different version of the game is refused with a note. Once opened, the page keeps an offline copy, so it also works with no connection, from an iPad's home screen for one; it still loads a new release first whenever it can. On a phone held upright, the editing pane spans the screen with the previews under it.
+The public editor for enemy and player cards: the sprite editor built without the tileset (`--no-default-features --features modding`), so the page can be published. It keeps cards in the browser's local storage and lists only cards; New starts one from the plain figure, Import opens `.enemy.png` and `.player.png` files and the cards in a `.pak`, saying which saved cards it replaced, Export downloads the open card's saved PNG, and Export all downloads every card as one mod pack, `my-cards.pak`, for the game's `data/mods`. Sound gives the open enemy card its own death sound, an Ogg or WAV of up to 512 KB kept beside it in the browser; Export all packs it as `sounds/kill-<id>.ogg`, and Import of a pack brings its cards' sounds back. The palette is PICO-8's 32 colors, and the previews show the card on a plain floor, the ground tiles in flat colors. On Pages, the editor fetches the site's own `../game_data.pak` and previews on the farm; served on its own, without one, it falls back to the plain floor. A player can also press Game data and pick their own `game_data.pak`, which takes precedence: the page keeps it in IndexedDB, never sends it anywhere, and from then on previews the card on the farm with the tileset's palette. A pack built for a different version of the game is refused with a note. Once opened, the page keeps an offline copy, so it also works with no connection, from an iPad's home screen for one; it still loads a new release first whenever it can. On a phone held upright, the editing pane spans the screen with the previews under it.
 
 ### Sprite editor on an iPad
 
@@ -350,12 +369,12 @@ Measured on the device with the debug perf log, 4x MSAA, both screens at 1024x76
 | `crates/game/src/harvest` | The game: map generation, zombies, weapons, upgrades. |
 | `crates/game/art.txt` | The sprite catalog that `build.rs` cuts from the tileset. |
 | `crates/render` | OpenGL renderer for shapes, pixel art, TrueType text and the lit, fogged 3D cards: GL 3.3 on macOS, GLES 3.0 on the device. |
-| `crates/app` | Windows, input, audio, saves, crash log, debug mode, and the device-only sysfs and evdev code. |
+| `crates/app` | Windows, input, audio, saves, crash log, debug mode, and the device-only sysfs and evdev code; the web page's shell in `src/web.rs` and `web/`. |
 | `crates/editor` | The sprite editor, built on the game's renderer and views: a macOS window, or a web page in `crates/editor/web`. |
 | `crates/pack` | Reads and writes data packs; its binary builds `game_data.pak` from the built atlas and the files in `assets`. |
 | `crates/sprite-server` | Serves the web editor on the local network, with the sprites folder and its git history. |
-| `scripts` | Cross-compile, sysroot, deploy, install and debug scripts, and the on-device run script. |
-| `assets` | The font and its license, the Ports launcher with its cover art, and the README a release puts in `data/`. |
+| `scripts` | Cross-compile, sysroot, deploy, install and debug scripts, the on-device run script, and the web and Pages builds. |
+| `assets` | The font and its license, the Ports launcher with its cover art, the README a release puts in `data/`, and the Pages landing page in `site/`. |
 | `assets/private` | Submodule of the private assets repository: the tileset, edited sprites and recorded sounds. |
 
 ## Device notes
