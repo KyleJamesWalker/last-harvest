@@ -223,6 +223,23 @@ scripts/debug.sh logs                       # follow the game log, with a perf l
 
 The scene names are `title`, `harvest`, `farm` (the game without zombies, for looking around; X drops one a few steps ahead), `bench` (a frozen horde of 300 with every effect showing, turning a full circle every 600 frames, for comparing frame rates between builds; `bench-160x120` and the like build it on a farm that many tiles across and log the map's flow field time), `art` and `hardware`. On macOS, set `LAST_HARVEST_DEBUG=1` and write commands to the pipe directly.
 
+### Recording and streaming
+
+`scripts/capture.sh` records the device's screens and sound to an MP4 on the SD card, or plays them live on the Mac. It works with any running game, in debug mode or not, and needs nothing deployed. The device's hardware H.264 encoder does the work, so the game holds 60 fps. On the `bench` scene, recording both screens at 60 fps with sound left the frame rate at 60.2 and the worst frame at 21 ms. Capture takes about a third of one CPU core.
+
+```sh
+scripts/capture.sh record          # both screens and sound, to /mnt/sdcard/captures
+scripts/capture.sh stop            # finish the MP4
+scripts/capture.sh pull            # copy the newest here, top screen stacked above the bottom
+scripts/capture.sh stream          # play the top screen live in ffplay; close the window to stop
+scripts/capture.sh stream both     # both screens, stacked
+AUDIO=0 scripts/capture.sh stream  # no sound, less delay
+```
+
+`record` and `stream` take `top`, `bottom` or `both`, and read which output is the top screen from `run.log`. A recording of both screens keeps each screen as its own video track. `pull` stacks them into one video, and a player that shows only the first track shows the top screen. A recording takes about 50 to 80 MB a minute, and `record` refuses to start with less than 1 GB free. Set `CAPTURE_DIR` to record somewhere else.
+
+The stream reaches the Mac about 240 ms after the device draws it, or about 155 ms with `AUDIO=0`, before ffplay's own buffering. The Mac needs `ffmpeg`, which includes `ffplay`.
+
 ### Environment variables
 
 | Variable | Effect |
@@ -373,7 +390,7 @@ Measured on the device with the debug perf log, 4x MSAA, both screens at 1024x76
 | `crates/editor` | The sprite editor, built on the game's renderer and views: a macOS window, or a web page in `crates/editor/web`. |
 | `crates/pack` | Reads and writes data packs; its binary builds `game_data.pak` from the built atlas and the files in `assets`. |
 | `crates/sprite-server` | Serves the web editor on the local network, with the sprites folder and its git history. |
-| `scripts` | Cross-compile, sysroot, deploy, install and debug scripts, the on-device run script, and the web and Pages builds. |
+| `scripts` | Cross-compile, sysroot, deploy, install, debug and capture scripts, the on-device run script, and the web and Pages builds. |
 | `assets` | The font and its license, the Ports launcher with its cover art, the README a release puts in `data/`, and the Pages landing page in `site/`. |
 | `assets/private` | Submodule of the private assets repository: the tileset, edited sprites and recorded sounds. |
 
