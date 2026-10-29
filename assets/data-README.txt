@@ -1,7 +1,13 @@
 LAST HARVEST: the data folder
 
-game_data.pak    The game's own data: sprites, sounds and tables. The game won't start without it,
-                 and it has to come from the same release as the game.
+game_data.pak    The game's own data: sprites, sounds and tables. It has to come from the same
+                 release as the game. When it's missing, the game downloads it as it starts; with
+                 no connection, the title says which release's game_data.pak to copy in here.
+
+no-updates       Make an empty file with this name to stop updates. Otherwise, each time you start
+                 the game, it looks for a newer release online and installs it first, along with
+                 a changed game_data.pak. With no connection it starts as it is, and log.txt beside
+                 the game says what the update did.
 
 enemies/         Enemy cards, named like ghoul.enemy.png. Each adds a kind of zombie to the night, or
                  replaces one of the game's own. Settings > Enemies lists them and turns them on or off.

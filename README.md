@@ -162,16 +162,23 @@ Ports/last-harvest/
   data/enemies/*.enemy.png       enemy cards
   data/players/*.player.png      player cards
   data/mods/*.pak                mod packs, laid over the base game's data
+  data/no-updates                if present, the launcher doesn't update the game
   save.txt  log.txt  screenshots/
 ```
 
-Build the data pack, `target/game_data.pak`: a ZIP holding the sprite atlas, sounds, font and powerup table, with a `manifest.toml` that names the atlas it was built from. Builds keep the data built in through the default `embed` feature and read a pack if one is present. A build without it, `--no-default-features`, reads its data only from `data/game_data.pak` beside the binary and refuses to start without one, or with one built for a different atlas.
+Build the data pack, `target/game_data.pak`: a ZIP holding the sprite atlas, sounds, font and powerup table, with a `manifest.toml` that names the atlas it was built from and the release, `LAST_HARVEST_VERSION` when the packer was built, else `dev`. Builds keep the data built in through the default `embed` feature and read a pack if one is present. A build without it, `--no-default-features`, reads its data only from `data/game_data.pak` beside the binary and refuses one built for a different atlas; without one it starts with no sprites, and the title says which release's pack to copy where.
+
+The binary reports its release, `LAST_HARVEST_VERSION` when it was built, else `dev-<commit>`, with `--version`, at the top of `log.txt`, and in a corner of Stats, which adds the pack's when it differs.
 
 ```sh
 cargo run -p last-harvest-pack
 ```
 
-Publishing a GitHub release, such as with `gh release create v0.2.0 --generate-notes`, runs `.github/workflows/release.yml`. It attaches the device build as a Ports-layout tarball and `game_data.pak` as a separate file; extract the tarball into the SD card's `Ports` folder and put the pack in `Ports/last-harvest/data/`. The workflow reads the private assets with a read-only deploy key on that repository, stored as the `ASSETS_DEPLOY_KEY` secret. The same release publishes the card editor to GitHub Pages, after checking the page holds only the editor's own files and no tileset; the repository's Pages source must be set to GitHub Actions.
+Publishing a GitHub release, such as with `gh release create v0.2.0 --generate-notes`, runs `.github/workflows/release.yml`. It attaches the device build as a Ports-layout tarball and `game_data.pak` as a separate file; extract the tarball into the SD card's `Ports` folder and put the pack in `Ports/last-harvest/data/`. Both are built with the tag as `LAST_HARVEST_VERSION`.
+
+From then on the launcher, `LastHarvest.sh`, keeps the game current before each start, never during a run. It asks the GitHub API for the latest release; a newer tag downloads this platform's tarball and swaps in its binary, data README, launcher and icon, and a `game_data.pak` whose sha256 differs from the release asset's `digest` is downloaded, so a release that changes only the pack updates too. Each download is checked against its asset's `digest` under a temporary name and only then moved over the old file, and a new binary must report the new tag before it replaces the old one. When `data/game_data.pak` is missing, the launcher fetches the pack of the binary's own release, even with updates off. Offline, it gives up after a 4 second connect timeout and starts the game as it is. A `dev` build, as `scripts/install.sh` installs, is never updated, and `data/no-updates` turns updates off. The launcher logs what it did at the top of `log.txt`. `LAST_HARVEST_API`, `LAST_HARVEST_DOWNLOADS` and `LAST_HARVEST_PLATFORM` point it at another release source and platform, for testing.
+
+The workflow reads the private assets with a read-only deploy key on that repository, stored as the `ASSETS_DEPLOY_KEY` secret. The same release publishes the card editor to GitHub Pages, after checking the page holds only the editor's own files and no tileset; the repository's Pages source must be set to GitHub Actions.
 
 Run the tests:
 
@@ -234,6 +241,10 @@ The scene names are `title`, `harvest`, `farm` (the game without zombies, for lo
 | `LAST_HARVEST_UNLOCK_ALL` | Offers every powerup, whatever the save has unlocked. |
 | `LAST_HARVEST_KIT` | Starts every run carrying these powerups, as comma-separated `id` or `id:level`, such as `scythe:3,crows,dog`. |
 | `LAST_HARVEST_CLOCK` | Starts every night this many seconds in, such as `590` to try the run home at dawn. |
+| `LAST_HARVEST_VERSION` | At build time, the release the binary and `game_data.pak` report. The default is `dev`, plus the commit for the binary. |
+| `LAST_HARVEST_API` | The launcher's GitHub releases API, for testing updates. The default is `https://api.github.com/repos/KyleJamesWalker/last-harvest/releases`. |
+| `LAST_HARVEST_DOWNLOADS` | The launcher's base URL for release assets. The default is `https://github.com/KyleJamesWalker/last-harvest/releases/download`. |
+| `LAST_HARVEST_PLATFORM` | The launcher's platform, naming the tarball `last-harvest-<tag>-<platform>.tar.gz`. The default comes from `uname`: `aarch64-linux`. |
 | `RGDS_HOST` | Sets the SSH target for the scripts. The default is `root@anbernic.local`. |
 
 ### Sprite editor
