@@ -87,6 +87,8 @@ struct Toughness {
 
 /// Fence pieces let shots through, and zombies chew through them.
 const FENCE: Toughness = Toughness { cover: false, hp: 40.0, broken: None };
+/// Anything else stands as a wall.
+const UNKNOWN: Toughness = Toughness { cover: true, hp: 0.0, broken: None };
 
 /// How a sprite stands in the way when no prop line says otherwise: a player's prop as its text says, a fence
 /// piece as fences do, and the game's own as `PROPS` lists them.
@@ -98,7 +100,7 @@ fn toughness(a: Art) -> Toughness {
         return FENCE;
     }
     let kind = art::ALL.iter().find(|(_, f)| f.contains(&a)).and_then(|(n, _)| PROPS.iter().find(|k| k.name == *n));
-    Toughness { cover: kind.is_none_or(|k| k.cover), hp: kind.map_or(0.0, |k| k.hp), broken: None }
+    kind.map_or(UNKNOWN, |k| Toughness { cover: k.cover, hp: k.hp, broken: None })
 }
 
 impl Toughness {

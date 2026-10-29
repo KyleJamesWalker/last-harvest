@@ -2,7 +2,7 @@
 //! drawing, and painted with ground, props, fences, the spawn and home.
 
 use last_harvest_game::art::Art;
-use last_harvest_game::{MAP_GROUND, MAP_PROPS, MapSource, PropFields, PropLine, SCREEN_H, SCREEN_W};
+use last_harvest_game::{MAP_GROUND, MAP_PROPS, MapSource, PROP_MAX_HP, PropFields, PropLine, SCREEN_H, SCREEN_W};
 
 use super::*;
 
@@ -50,6 +50,12 @@ const PICK_CELL: f32 = 57.0;
 const SIZE_Y: f32 = 470.0;
 /// The most zoom, in screen pixels to a map pixel.
 const MAX_SCALE: f32 = 4.0;
+/// Where a prop's hit points and cover show: the selected one's under Move, and an open prop's sprite's under
+/// the palette, which keeps this many rows for them.
+const TOUGH_Y: f32 = PICK_TOP + 30.0;
+pub(super) const PROP_PALETTE_ROWS: usize = 6;
+pub(super) const PROP_HP_Y: f32 = 498.0;
+const PROP_COVER_Y: f32 = 462.0;
 
 pub(super) struct MapEdit {
     pub id: String,
@@ -67,6 +73,9 @@ pub(super) struct MapEdit {
     last_tile: Option<[usize; 2]>,
     /// The prop being moved, by its place in the list, and the tile it was grabbed by, from its top-left.
     grab: Option<(usize, [usize; 2])>,
+    /// The prop Move last picked up or that was last placed, by its place in the list, whose hit points and cover
+    /// show.
+    selected: Option<usize>,
     fence_from: Option<[usize; 2]>,
     pan_from: Option<[f32; 2]>,
     hover: Option<[usize; 2]>,
@@ -98,6 +107,7 @@ impl MapEdit {
             stroke: false,
             last_tile: None,
             grab: None,
+            selected: None,
             fence_from: None,
             pan_from: None,
             hover: None,
@@ -221,6 +231,19 @@ impl MapEdit {
         self.prop_at(at).map(|i| self.src.props.remove(i)).is_some()
     }
 
+    /// The selected prop's line, if it's still there.
+    fn selected_line(&self) -> Option<&PropLine> {
+        self.selected.and_then(|i| self.src.props.get(i)).map(|(_, p)| p)
+    }
+
+    /// Changes the selected prop's line, as one step to undo.
+    fn retough(&mut self, change: impl FnOnce(&mut PropLine)) {
+        let Some(i) = self.selected.filter(|&i| i < self.src.props.len()) else { return };
+        self.remember();
+        change(&mut self.src.props[i].1);
+        self.edited();
+    }
+
     fn fence_rect(&self, to: [usize; 2]) -> Option<[usize; 4]> {
         let from = self.fence_from?;
         let (x0, x1) = (from[0].min(to[0]), from[0].max(to[0]));
@@ -230,6 +253,35 @@ impl MapEdit {
 }
 
 impl Editor {
+    pub(super) fn is_prop(&self) -> bool {
+        crate::store::props::id(&self.sprite.name).is_some()
+    }
+
+    /// The open prop's text, read.
+    pub(super) fn open_prop_fields(&self) -> Option<PropFields> {
+        self.sprite.card.as_deref().filter(|_| self.is_prop()).and_then(|t| last_harvest_game::prop_fields(t).ok())
+    }
+
+    /// Changes the open prop's text, its frame count kept to its frames so a broken frame always has one.
+    pub(super) fn edit_prop(&mut self, change: impl FnOnce(&mut PropFields)) {
+        let Some(mut f) = self.open_prop_fields() else { return };
+        change(&mut f);
+        f.frames = (self.sprite.frames.len() as u32).clamp(1, last_harvest_game::PROP_MAX_FRAMES);
+        f.broken &= f.frames > 1;
+        self.sprite.card = Some(last_harvest_game::prop_text(&f));
+        self.dirty = true;
+        self.changed = true;
+    }
+
+    /// An open prop's Cover, Broken frame and hit point buttons, under the palette.
+    pub(super) fn prop_buttons(&self, push: &mut impl FnMut(f32, f32, f32, f32, Action, &str, bool)) {
+        let Some(f) = self.open_prop_fields() else { return };
+        push(SIDE_X, PROP_COVER_Y, 114.0, 30.0, Action::Cover, "Cover", f.cover);
+        push(SIDE_X + 118.0, PROP_COVER_Y, 114.0, 30.0, Action::Broken, "Broken frame", f.broken);
+        push(SIDE_X + 130.0, PROP_HP_Y, 46.0, 30.0, Action::Hp(-1), "-", false);
+        push(SIDE_X + 182.0, PROP_HP_Y, 46.0, 30.0, Action::Hp(1), "+", false);
+    }
+
     /// Every player's prop the store keeps, to pack for the previews while a map is open: their frames, in turn,
     /// and each one's fields and frame count.
     pub(super) fn prop_surfaces(&self) -> (Vec<Frame>, Vec<(PropFields, usize)>) {
@@ -484,6 +536,15 @@ impl Editor {
                 push(SIDE_X, PICK_TOP, 114.0, 30.0, Action::Picket(false), "Rail", !m.picket);
                 push(SIDE_X + 118.0, PICK_TOP, 114.0, 30.0, Action::Picket(true), "Picket", m.picket);
             }
+            MapTool::Move => {
+                if let Some(p) = m.selected_line() {
+                    let (_, cover) = p.hp_and_cover();
+                    push(SIDE_X + 130.0, TOUGH_Y, 46.0, 30.0, Action::Hp(-1), "-", false);
+                    push(SIDE_X + 182.0, TOUGH_Y, 46.0, 30.0, Action::Hp(1), "+", false);
+                    push(SIDE_X, TOUGH_Y + 36.0, 114.0, 30.0, Action::Cover, "Cover", cover);
+                    push(SIDE_X + 118.0, TOUGH_Y + 36.0, 114.0, 30.0, Action::PropDefaults, "Defaults", false);
+                }
+            }
             _ => {}
         }
         push(SIDE_X + 130.0, SIZE_Y, 46.0, 30.0, Action::MapSize(-4, 0), "-", false);
@@ -504,6 +565,15 @@ impl Editor {
             Action::PickPage(d) => m.scroll_picker(d * PICK_ROWS as i32),
             Action::Picket(on) => m.picket = on,
             Action::MapFit => m.fit(),
+            Action::Hp(d) => m.retough(|p| {
+                let hp = p.hp_and_cover().0;
+                p.tough_mut().hp = Some((hp + d as f32 * 10.0).clamp(0.0, PROP_MAX_HP));
+            }),
+            Action::Cover => m.retough(|p| {
+                let cover = p.hp_and_cover().1;
+                p.tough_mut().cover = Some(!cover);
+            }),
+            Action::PropDefaults => m.retough(|p| *p.tough_mut() = Default::default()),
             Action::Randomize => {
                 m.remember();
                 m.rolls += 1;
@@ -556,18 +626,22 @@ impl Editor {
                     None => m.paint(at),
                 }
             }
-            MapTool::Move => match m.prop_at(at) {
-                Some(i) => {
-                    let [x, y, ..] = m.src.props[i].1.rect();
-                    m.grab = Some((i, [at[0] - x, at[1] - y]));
+            MapTool::Move => {
+                m.selected = m.prop_at(at);
+                match m.selected {
+                    Some(i) => {
+                        let [x, y, ..] = m.src.props[i].1.rect();
+                        m.grab = Some((i, [at[0] - x, at[1] - y]));
+                    }
+                    None => {
+                        m.undo.pop();
+                    }
                 }
-                None => {
-                    m.undo.pop();
-                }
-            },
+            }
             MapTool::Prop => {
                 if let Some((name, open, _)) = pickable().into_iter().nth(m.prop) {
                     m.src.props.push((0, PropLine::Sprite { name, at, frame: None, fps: 0.0, open, tough: Default::default() }));
+                    m.selected = Some(m.src.props.len() - 1);
                     m.edited();
                 }
             }
@@ -623,6 +697,7 @@ impl Editor {
             if w >= 4 && h >= 3 {
                 let gate = Some(((w - 2) / 2).clamp(1, w - 3));
                 m.src.props.push((0, PropLine::Fence { picket: m.picket, rect, gate, tough: Default::default() }));
+                m.selected = Some(m.src.props.len() - 1);
                 m.edited();
             } else {
                 m.undo.pop();
@@ -696,6 +771,13 @@ impl Editor {
         };
         mark(c, m.src.spawn, "S", [0.3, 0.6, 1.0, 1.0]);
         mark(c, m.src.home, "H", [0.3, 0.9, 0.4, 1.0]);
+        if let Some([x, y, w, h]) = m.selected_line().filter(|_| m.tool == MapTool::Move).map(PropLine::rect) {
+            let ([sx, sy], (w, h)) = (m.screen([x, y]), (w as f32 * tile, h as f32 * tile));
+            let pick = [0.45, 0.8, 1.0, 1.0];
+            for [rx, ry, rw, rh] in [[sx, sy, w, 2.0], [sx, sy + h - 2.0, w, 2.0], [sx, sy, 2.0, h], [sx + w - 2.0, sy, 2.0, h]] {
+                c.rect(rx, ry, rw, rh, pick);
+            }
+        }
         if let Some(at) = m.hover {
             let [x, y] = m.screen(at);
             let (w, h) = match (m.tool, m.fence_rect(at)) {
@@ -738,7 +820,7 @@ impl Editor {
         }
         let what = match m.tool {
             MapTool::Paint => "Drag to paint; Shift-click: a line".to_string(),
-            MapTool::Move => "Drag a prop or fence to move it".to_string(),
+            MapTool::Move => "Drag a prop or fence to move it; set its HP and cover".to_string(),
             MapTool::Prop => format!("{}: click to place", picks.get(m.prop).map_or("", |(n, _, _)| n.as_str())),
             MapTool::Erase => "Click a prop to take it off".to_string(),
             MapTool::Fence => "Drag a rectangle; the gate goes mid-bottom".to_string(),
@@ -746,6 +828,18 @@ impl Editor {
             MapTool::Home => "Click the tile they run back to at dawn".to_string(),
         };
         c.label(what, SIDE_X, HINT_Y, 15.0, DIM, Align::Left);
+        if let Some(p) = m.selected_line().filter(|_| m.tool == MapTool::Move) {
+            let [x, y, ..] = p.rect();
+            let what = match p {
+                PropLine::Sprite { name, .. } => name.clone(),
+                PropLine::Fence { picket, .. } => if *picket { "Picket fence" } else { "Rail fence" }.to_string(),
+            };
+            c.label(format!("{what} at {x} {y}"), SIDE_X, PICK_TOP + 4.0, 16.0, TEXT, Align::Left);
+            let (hp, _) = p.hp_and_cover();
+            c.label(if hp > 0.0 { format!("HP {hp}") } else { "Won't break".into() }, SIDE_X, TOUGH_Y + 5.0, 18.0, TEXT, Align::Left);
+            let own = p.tough() == Default::default();
+            c.label(if own { "As its sprite says" } else { "Set on this map" }, SIDE_X, TOUGH_Y + 74.0, 15.0, DIM, Align::Left);
+        }
         let [w, h] = m.src.size;
         c.label(format!("Width {w}"), SIDE_X, SIZE_Y + 6.0, 17.0, TEXT, Align::Left);
         c.label(format!("Height {h}"), SIDE_X, SIZE_Y + 42.0, 17.0, TEXT, Align::Left);
@@ -913,6 +1007,42 @@ mod tests {
         e.switch_to("BARREL".into());
         e.decide(Choice::Discard);
         assert!(e.map.is_none() && e.sprite.name == "BARREL", "a sprite opens in place of the map");
+    }
+}
+
+#[cfg(test)]
+mod tough_tests {
+    use super::*;
+    use crate::store::FsStore;
+
+    #[test]
+    fn move_picks_a_prop_whose_hit_points_and_cover_it_sets() {
+        let dir = std::env::temp_dir().join(format!("lh-tough-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut e = Editor::new(Box::new(FsStore { dir: dir.join("sprites"), catalog: dir.join("art.txt"), cards: dir.join("enemies") }), "BARREL");
+        e.act(Action::Ask(Ask::New), false);
+        "map pen".chars().for_each(|ch| e.key(Key::Char(ch)));
+        e.key(Key::Enter);
+        let m = e.map.as_mut().unwrap();
+        m.src.props.push((0, PropLine::Fence { picket: false, rect: [30, 30, 7, 5], gate: Some(2), tough: Default::default() }));
+        e.act(Action::MapTool(MapTool::Move), false);
+        let line = |e: &Editor| e.map.as_ref().unwrap().src.props[0].1.clone();
+        e.act(Action::Hp(1), false);
+        assert_eq!(line(&e).tough(), Default::default(), "nothing picked, nothing set");
+        let p = e.map.as_ref().unwrap().screen([30, 32]);
+        e.mouse_down([p[0] + 1.0, p[1] + 1.0], false, false);
+        e.mouse_up();
+        assert!(e.buttons().iter().any(|b| b.action == Action::PropDefaults), "the picked fence's settings show");
+        e.act(Action::Hp(1), false);
+        e.act(Action::Cover, false);
+        assert_eq!(line(&e).hp_and_cover(), (50.0, true));
+        e.act(Action::Save, false);
+        let saved = std::fs::read_to_string(dir.join("maps/pen.map.txt")).unwrap();
+        assert!(saved.contains("fence rail 30 30 7 5 gate 2 hp 50 cover yes"), "{saved}");
+        e.key(Key::Undo);
+        assert_eq!(line(&e).hp_and_cover(), (50.0, false), "each press undoes on its own");
+        e.act(Action::PropDefaults, false);
+        assert_eq!(line(&e).tough(), Default::default());
     }
 }
 

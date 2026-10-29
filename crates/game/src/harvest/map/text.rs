@@ -20,7 +20,7 @@
 //! `open` ones blocks movement, and a windmill brings its fan. The edge is always a ring of trees and bushes, and
 //! `scatter` sprinkles the rest of the open ground as the random farm does, differently each run.
 
-use super::{Cell, FENCE, Map, PICKET, Prop, RAIL, TILE, toughness};
+use super::{Cell, FENCE, Map, PICKET, Prop, RAIL, TILE, UNKNOWN, toughness};
 use crate::art::{self, Art};
 use crate::data::LoadedMap;
 use crate::rng::Rng;
@@ -152,6 +152,28 @@ impl PropLine {
                 [at[0], at[1], tw, th]
             }
             PropLine::Fence { rect, .. } => *rect,
+        }
+    }
+
+    /// Its hit points and whether it stops shots: what its line says, else what its sprite does.
+    pub fn hp_and_cover(&self) -> (f32, bool) {
+        let (own, tough) = match self {
+            PropLine::Sprite { name, tough, .. } => (sprite(name).map_or(UNKNOWN, |f| toughness(f[0])), tough),
+            PropLine::Fence { tough, .. } => (FENCE, tough),
+        };
+        let t = own.with(*tough);
+        (t.hp, t.cover)
+    }
+
+    pub fn tough(&self) -> Tough {
+        match self {
+            PropLine::Sprite { tough, .. } | PropLine::Fence { tough, .. } => *tough,
+        }
+    }
+
+    pub fn tough_mut(&mut self) -> &mut Tough {
+        match self {
+            PropLine::Sprite { tough, .. } | PropLine::Fence { tough, .. } => tough,
         }
     }
 
@@ -722,6 +744,16 @@ mod tests {
         let gated = pen("gate 2");
         assert_eq!(gated.flow(at)[cell(15, 8)], gated.reach(at)[cell(15, 8)], "an open gate beats chewing");
         assert!(read(&farm("fence rail 2 1 7 7 hp 999").replace("home 6 10", "home 4 4")).is_err(), "a home the player can't walk to is refused");
+    }
+
+    #[test]
+    fn a_line_says_its_hit_points_and_cover_over_its_sprites() {
+        let mut src = MapSource::parse(&farm("SIGN 3 3\nHOUSE 2 2 hp 300\nfence rail 13 2 6 6 cover yes")).unwrap();
+        let got = |s: &MapSource| s.props.iter().map(|(_, p)| p.hp_and_cover()).collect::<Vec<_>>();
+        assert_eq!(got(&src), [(20.0, false), (300.0, true), (40.0, true)]);
+        src.props[0].1.tough_mut().cover = Some(true);
+        *src.props[1].1.tough_mut() = Tough::default();
+        assert_eq!(got(&src)[..2], [(20.0, true), (0.0, true)]);
     }
 
     #[test]

@@ -11,7 +11,7 @@ mod cards;
 mod maps;
 
 use cards::HeldImport;
-use maps::{MapEdit, MapTool};
+use maps::{MapEdit, MapTool, PROP_HP_Y, PROP_PALETTE_ROWS};
 
 const UNDO_DEPTH: usize = 100;
 const LIST: Rect = Rect { x: 8.0, y: 52.0, w: 200.0, h: 690.0 };
@@ -213,6 +213,14 @@ enum Action {
     MapFit,
     /// Hits the card's figure in the previews, killing it when true.
     Strike(bool),
+    /// Turns whether a prop stops shots, the open prop's or the map's selected one.
+    Cover,
+    /// Steps a prop's hit points, the open prop's or the map's selected one, by 10 times the value.
+    Hp(i32),
+    /// Keeps the open prop's last frame for when it breaks, or not.
+    Broken,
+    /// Gives the map's selected prop its sprite's hit points and cover again.
+    PropDefaults,
     /// Fills a blank flash, hurt or dead part with the game's own frames.
     Generate,
     /// Blanks a flash, hurt or dead part, so the game draws it.
@@ -925,13 +933,14 @@ impl Editor {
             push(x, y, 74.0, 32.0, Action::Tool(t), l, self.tool_now() == t);
         }
         let cols = (SIDE_W / SWATCH) as usize;
-        for (i, &c) in self.palette.iter().enumerate().take(cols * 9) {
+        for (i, &c) in self.palette.iter().enumerate().take(cols * if self.is_prop() { PROP_PALETTE_ROWS } else { 9 }) {
             let (x, y) = (SIDE_X + (i % cols) as f32 * SWATCH, 316.0 + (i / cols) as f32 * SWATCH);
             push(x, y, SWATCH - 2.0, SWATCH - 2.0, Action::Color(c), "", self.color == c);
         }
         if self.none_open() {
             return b;
         }
+        self.prop_buttons(&mut push);
         if self.is_card() {
             push(SIDE_X, 566.0, 74.0, 30.0, Action::Strike(false), "Hurt", false);
             push(SIDE_X + 78.0, 566.0, 74.0, 30.0, Action::Strike(true), "Kill", false);
@@ -1355,7 +1364,11 @@ impl Editor {
             return;
         }
         match a {
-            Action::MapTool(_) | Action::Ground(_) | Action::PickProp(_) | Action::PickPage(_) | Action::Picket(_) | Action::MapSize(..) | Action::Randomize | Action::MapFit => {}
+            Action::MapTool(_) | Action::Ground(_) | Action::PickProp(_) | Action::PickPage(_) | Action::Picket(_) | Action::MapSize(..) | Action::Randomize | Action::MapFit | Action::PropDefaults => {}
+            Action::Cover => self.edit_prop(|f| f.cover = !f.cover),
+            Action::Hp(d) => self.edit_prop(|f| f.hp = (f.hp + (d * step * 10) as f32).clamp(0.0, last_harvest_game::PROP_MAX_HP)),
+            Action::Broken if self.sprite.frames.len() < 2 => self.say("Add a frame first: the last one shows once the prop breaks"),
+            Action::Broken => self.edit_prop(|f| f.broken = !f.broken),
             Action::Ask(k) => self.ask = Some((k, String::new())),
             Action::Save if self.browse.is_some() => self.say("Restore this version or go back first"),
             Action::Save => {
@@ -2197,6 +2210,9 @@ impl Editor {
         }
         if let Some(v) = self.view {
             c.label(format!("{}: {}", VIEW_NAMES[v], VIEW_HINTS[v]), CANVAS.x + 8.0, CANVAS.y + 6.0, 16.0, HOT, Align::Left);
+        }
+        if let Some(f) = self.open_prop_fields() {
+            c.label(if f.hp > 0.0 { format!("HP {}", f.hp) } else { "Won't break".into() }, SIDE_X, PROP_HP_Y + 5.0, 18.0, TEXT, Align::Left);
         }
         let f = self.current();
         if !self.none_open() {
@@ -3464,6 +3480,32 @@ mod tests {
         e.set_text("big rock");
         e.key(Key::Enter);
         assert_eq!(e.sprite.name, "BIG_ROCK");
+    }
+
+    #[test]
+    fn a_props_buttons_set_how_it_stands_in_the_way() {
+        let dir = tmp().join("tough");
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut e = Editor::new(Box::new(FsStore { dir: dir.join("sprites"), catalog: dir.join("art.txt"), cards: dir.join("enemies") }), "BARREL");
+        e.act(Action::Ask(Ask::New), false);
+        type_in(&mut e, "prop crate");
+        e.key(Key::Enter);
+        assert!(!e.is_card() && e.buttons().iter().any(|b| b.action == Action::Stand(0)), "a prop isn't a card: it stands as a sprite does");
+        buttons_fit(&e);
+        e.act(Action::Broken, false);
+        assert!(!e.open_prop_fields().unwrap().broken, "one frame has none to spare");
+        e.act(Action::AddFrame, false);
+        e.act(Action::Broken, false);
+        e.act(Action::Cover, false);
+        e.act(Action::Hp(1), false);
+        e.act(Action::Hp(1), true);
+        e.act(Action::Save, false);
+        let saved = last_harvest_pack::prop::read("c", &std::fs::read(dir.join("props/crate.prop.png")).unwrap()).unwrap();
+        let f = last_harvest_game::prop_fields(&saved.text).unwrap();
+        assert_eq!((f.frames, f.broken, f.cover, f.hp), (2, true, false, 90.0), "{}", saved.text);
+        e.act(Action::Hp(-1), true);
+        e.act(Action::Hp(-1), true);
+        assert_eq!(e.open_prop_fields().unwrap().hp, 0.0, "no lower than none");
     }
 
     #[test]

@@ -195,7 +195,7 @@ impl Editor {
     }
 
     pub(super) fn is_card(&self) -> bool {
-        self.sprite.card.is_some()
+        self.sprite.card.is_some() && !self.is_prop()
     }
 
     /// Sets a player card's start at `difficulty`, as `set_player_start` does.
