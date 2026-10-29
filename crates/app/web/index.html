@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LastHarvest</title>
+<link rel="icon" href="icon.png">
+<style>
+  html, body { margin: 0; height: 100%; background: #000; color: #ebebf2; overflow: hidden; }
+  body { display: flex; align-items: center; justify-content: center; font: 18px -apple-system, system-ui, sans-serif;
+         -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
+  /* Both 1024x768 screens, top above bottom: 2:3, as large as fits. */
+  #screens, #start { width: min(100vw, 100vh * 2 / 3); height: min(100vh, 150vw); }
+  #screens { display: block; touch-action: none; outline: none; }
+  #start { position: absolute; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px;
+           background: rgba(0, 0, 0, 0.6); cursor: pointer; text-align: center; }
+  #start[hidden] { display: none; }
+  #start b { font-size: 34px; color: #f2bf4d; }
+  #start p { margin: 0 24px; max-width: 30em; line-height: 1.5; color: #c8c8d2; font-size: 15px; }
+  .failure { position: absolute; z-index: 1; top: 0; margin: 12px; padding: 12px; background: #5a1e1e; color: #fff; white-space: pre-wrap; }
+</style>
+</head>
+<body data-pak="game_data.pak">
+<canvas id="screens" tabindex="0"></canvas>
+<div id="start">
+  <b id="start-label">Loading…</b>
+  <p>Arrows move. X is A, Z is B, S is X, A is Y, Enter is Start, Q and W are the shoulders.
+  A click on the bottom screen is a touch. Gamepads work too.</p>
+</div>
+<script type="module">
+  import init, { run } from "./last-harvest.js";
+
+  const label = document.getElementById("start-label");
+  const hint = document.querySelector("#start p");
+
+  async function download(url) {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`${url}: ${response.status} ${response.statusText}`);
+    const total = Number(response.headers.get("content-length")) || 0;
+    const reader = response.body.getReader();
+    const parts = [];
+    let got = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      parts.push(value);
+      got += value.length;
+      label.textContent = total ? `Loading… ${Math.min(99, Math.floor((got * 100) / total))}%` : `Loading… ${(got / 1e6).toFixed(1)} MB`;
+    }
+    const bytes = new Uint8Array(got);
+    let at = 0;
+    for (const part of parts) {
+      bytes.set(part, at);
+      at += part.length;
+    }
+    return bytes;
+  }
+
+  try {
+    const [pak] = await Promise.all([download(document.body.dataset.pak), init()]);
+    run(pak);
+    label.textContent = "Click to start";
+  } catch (e) {
+    label.textContent = "The game couldn't load";
+    hint.textContent = String(e.message ?? e);
+  }
+</script>
+</body>
+</html>

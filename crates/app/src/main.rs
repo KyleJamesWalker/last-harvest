@@ -1,15 +1,12 @@
-mod audio;
 mod debug;
-mod loops;
-mod pak;
 #[cfg(target_os = "linux")]
 mod device;
 mod gfx;
 mod persist;
-mod samples;
 
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use last_harvest::{VERSION, audio, pak, samples};
 use last_harvest_game::{Buttons, Game, InputTracker, MAX_TOUCHES, RawInput, SCREEN_H, SCREEN_W, Scene, System};
 use winit::application::ApplicationHandler;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
@@ -359,9 +356,6 @@ impl ApplicationHandler for App {
         }
     }
 }
-
-/// The release this binary was built for, or `dev` and its commit.
-const VERSION: &str = env!("LAST_HARVEST_BUILD");
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     if std::env::args().nth(1).as_deref() == Some("--version") {

@@ -138,6 +138,12 @@ pub fn load() -> Result<Files, String> {
             None
         }
     };
+    install(base, missing_pack)
+}
+
+/// `load` with the pack already open, or none for the built-in data. A web page has no data folder beside it, so
+/// it fetches the pack itself and finds no mods or cards.
+pub fn install(base: Option<Pak>, missing_pack: Option<String>) -> Result<Files, String> {
     let pack_version = base.as_ref().and_then(Pak::version).map(String::from);
     let had_base = base.is_some();
     let mut pak = base.unwrap_or_else(Pak::empty);
