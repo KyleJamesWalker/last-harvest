@@ -4,7 +4,7 @@ use crate::art::{self, Art};
 use crate::rng::Rng;
 
 mod text;
-pub use text::{EXTENSION as MAP_EXTENSION, GROUND, MAX_SIZE as MAP_MAX, MIN_SIZE as MAP_MIN, MapSource, PROPS, PropLine, check as check_map, valid_id as valid_map_id};
+pub use text::{EXTENSION as MAP_EXTENSION, GROUND, MAX_SIZE as MAP_MAX, MIN_SIZE as MAP_MIN, MapSource, PROPS, PropKind, PropLine, Tough, check as check_map, valid_id as valid_map_id};
 
 pub const TILE: f32 = 16.0;
 const N: u8 = 1;
@@ -43,6 +43,35 @@ struct Fence {
 const RAIL: Fence = Fence { top: &art::RAIL_TOP, side: &art::RAIL_SIDE, bottom: &art::RAIL_BOTTOM, gate_post: None };
 const PICKET: Fence = Fence { top: &art::PICKET_TOP, side: &art::PICKET_SIDE, bottom: &art::PICKET_BOTTOM, gate_post: Some(&art::SKULL_FENCE) };
 
+/// How a placed prop stands in the way of shots.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Toughness {
+    cover: bool,
+}
+
+/// Fence pieces let shots through.
+const FENCE: Toughness = Toughness { cover: false };
+
+/// How a sprite stands in the way when no prop line says otherwise: a player's prop as its text says, a fence
+/// piece as fences do, and the game's own as `PROPS` lists them.
+fn toughness(a: Art) -> Toughness {
+    if let Some(cover) = super::props::cover_of(a) {
+        return Toughness { cover };
+    }
+    if [&RAIL, &PICKET].iter().any(|f| f.top.contains(&a) || f.side.contains(&a) || f.bottom.contains(&a)) {
+        return FENCE;
+    }
+    let kind = art::ALL.iter().find(|(_, f)| f.contains(&a)).and_then(|(n, _)| PROPS.iter().find(|k| k.name == *n));
+    Toughness { cover: kind.is_none_or(|k| k.cover) }
+}
+
+impl Toughness {
+    /// These, with what a prop line says over them.
+    fn with(self, t: Tough) -> Self {
+        Toughness { cover: t.cover.unwrap_or(self.cover) }
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Cell {
     Open,
@@ -56,7 +85,10 @@ pub struct Map {
     pub h: usize,
     ground: Vec<Art>,
     overlay: Vec<Option<Art>>,
+    /// Cells nobody walks through.
     solid: Vec<bool>,
+    /// Solid cells that stop shots too.
+    cover: Vec<bool>,
     cells: Vec<Cell>,
     pub props: Vec<Prop>,
     /// Flat art drawn on the ground under everything else: corpses and the like.
@@ -98,6 +130,7 @@ impl Map {
             ground,
             overlay: vec![None; w * h],
             solid: vec![false; w * h],
+            cover: vec![false; w * h],
             cells: vec![Cell::Open; w * h],
             props: Vec::new(),
             decals: Vec::new(),
@@ -167,6 +200,15 @@ impl Map {
         }
         let (tx, ty) = ((x / TILE) as usize, (y / TILE) as usize);
         tx >= self.w || ty >= self.h || self.solid[self.i(tx, ty)]
+    }
+
+    /// Whether a shot at a world point stops there: on cover, or off the map.
+    pub fn cover_at(&self, x: f32, y: f32) -> bool {
+        if x < 0.0 || y < 0.0 {
+            return true;
+        }
+        let (tx, ty) = ((x / TILE) as usize, (y / TILE) as usize);
+        tx >= self.w || ty >= self.h || self.cover[self.i(tx, ty)]
     }
 
     /// Whether a box centered on (x, y) with half extents `half` overlaps a solid cell.
@@ -253,7 +295,7 @@ impl Map {
         let (tx, ty) = ((x / TILE) as usize, (y / TILE) as usize);
         if tx < self.w && ty < self.h {
             let i = self.i(tx, ty);
-            self.solid[i] = false;
+            (self.solid[i], self.cover[i]) = (false, false);
         }
     }
 
@@ -262,7 +304,7 @@ impl Map {
         let (tx, ty) = ((x / TILE) as usize, (y / TILE) as usize);
         if tx < self.w && ty < self.h {
             let i = self.i(tx, ty);
-            self.solid[i] = true;
+            (self.solid[i], self.cover[i]) = (true, true);
         }
     }
 
@@ -290,6 +332,11 @@ impl Map {
 
     /// Adds a prop with its top-left on tile (x, y); every row but the top `open_rows` blocks movement.
     fn prop(&mut self, frames: &'static [Art], fps: f32, x: usize, y: usize, open_rows: usize) -> (usize, usize) {
+        self.prop_as(frames, fps, x, y, open_rows, toughness(frames[0]))
+    }
+
+    /// Adds a prop as `prop` does, standing in the way of shots as `tough` says.
+    fn prop_as(&mut self, frames: &'static [Art], fps: f32, x: usize, y: usize, open_rows: usize, tough: Toughness) -> (usize, usize) {
         let (tw, th) = (tiles(frames[0].w()), tiles(frames[0].h()));
         let (px, py) = (x as f32 * TILE, y as f32 * TILE);
         let depth = thickness(frames[0], tw, th, open_rows);
@@ -298,6 +345,7 @@ impl Map {
             for xx in x..(x + tw).min(self.w) {
                 let i = self.i(xx, yy);
                 self.solid[i] = true;
+                self.cover[i] |= tough.cover;
             }
         }
         self.claim(x, y, tw, th, Cell::Taken);
@@ -458,30 +506,30 @@ impl Map {
     /// A fence around the rect, with a two-tile gate in the bottom.
     fn fence(&mut self, rng: &mut Rng, style: &Fence, x: usize, y: usize, w: usize, h: usize) {
         let gate = x + 1 + rng.below(w - 3);
-        self.fence_gated(style, [x, y, w, h], Some(gate), |n| rng.below(n));
+        self.fence_gated(style, [x, y, w, h], Some(gate), FENCE, |n| rng.below(n));
     }
 
-    /// A fence around the rect, with a two-tile gate in the bottom from column `gate` if any; `pick` chooses
-    /// among a style's gate posts.
-    fn fence_gated(&mut self, style: &Fence, [x, y, w, h]: [usize; 4], gate: Option<usize>, mut pick: impl FnMut(usize) -> usize) {
+    /// A fence around the rect, with a two-tile gate in the bottom from column `gate` if any, every piece as
+    /// `tough`; `pick` chooses among a style's gate posts.
+    fn fence_gated(&mut self, style: &Fence, [x, y, w, h]: [usize; 4], gate: Option<usize>, tough: Toughness, mut pick: impl FnMut(usize) -> usize) {
         for xx in x..x + w {
             let k = if xx == x { 0 } else if xx == x + w - 1 { 2 } else { 1 };
-            self.prop(&style.top[k..k + 1], 0.0, xx, y, 0);
+            self.prop_as(&style.top[k..k + 1], 0.0, xx, y, 0, tough);
             let post = gate.is_some_and(|g| xx + 1 == g || xx == g + 2) && k == 1;
             match style.gate_post {
                 Some(posts) if post => {
                     let p = pick(posts.len());
-                    self.prop(&posts[p..p + 1], 0.0, xx, y + h - 1, 0);
+                    self.prop_as(&posts[p..p + 1], 0.0, xx, y + h - 1, 0, tough);
                 }
                 _ if !gate.is_some_and(|g| xx == g || xx == g + 1) => {
-                    self.prop(&style.bottom[k..k + 1], 0.0, xx, y + h - 1, 0);
+                    self.prop_as(&style.bottom[k..k + 1], 0.0, xx, y + h - 1, 0, tough);
                 }
                 _ => {}
             }
         }
         for yy in y + 1..y + h - 1 {
-            self.prop(&style.side[..1], 0.0, x, yy, 0);
-            self.prop(&style.side[1..], 0.0, x + w - 1, yy, 0);
+            self.prop_as(&style.side[..1], 0.0, x, yy, 0, tough);
+            self.prop_as(&style.side[1..], 0.0, x + w - 1, yy, 0, tough);
         }
     }
 

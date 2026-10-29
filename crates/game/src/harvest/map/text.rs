@@ -20,7 +20,7 @@
 //! `open` ones blocks movement, and a windmill brings its fan. The edge is always a ring of trees and bushes, and
 //! `scatter` sprinkles the rest of the open ground as the random farm does, differently each run.
 
-use super::{Cell, Map, PICKET, Prop, RAIL, TILE};
+use super::{Cell, FENCE, Map, PICKET, Prop, RAIL, TILE, toughness};
 use crate::art::{self, Art};
 use crate::data::LoadedMap;
 use crate::rng::Rng;
@@ -39,47 +39,93 @@ pub const MAX_SIZE: [usize; 2] = [160, 120];
 pub const GROUND: [(u8, &str); 9] =
     [(b'.', "Dirt"), (b',', "Tufts"), (b'g', "Grass"), (b's', "Soil"), (b'p', "Sprouts"), (b'c', "Corn"), (b'v', "Road |"), (b'h', "Road -"), (b'=', "Path")];
 
-/// The sprites a map can place, with how many of their top rows a figure walks through.
-pub const PROPS: [(&str, usize); 30] = [
-    ("HOUSE", 1),
-    ("BARN_RED", 2),
-    ("BARN_GREEN", 2),
-    ("GAS_STATION", 1),
-    ("GAS_PUMP", 2),
-    ("WINDMILL", 2),
-    ("SCARECROW", 1),
-    ("HAY_STACK", 1),
-    ("HAY", 0),
-    ("TRACTOR", 1),
-    ("TRUCK", 1),
-    ("CAR_H", 0),
-    ("CAR_V", 1),
-    ("WRECK_H", 0),
-    ("WRECK_V", 1),
-    ("MAILBOX", 0),
-    ("BUSHES", 1),
-    ("BUSH", 0),
-    ("DEAD_TREE", 0),
-    ("TALL_TREE", 1),
-    ("STUMP", 0),
-    ("LOG", 0),
-    ("BARREL", 0),
-    ("TANK", 0),
-    ("TOMBSTONE", 0),
-    ("SIGN", 0),
-    ("SIGN_LOW", 0),
-    ("BARRIER", 0),
-    ("SKULL_FENCE", 0),
-    ("CORPSE", 0),
+/// A sprite a map can place, and how it stands in the way when its line doesn't say.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PropKind {
+    pub name: &'static str,
+    /// How many of its top rows a figure walks through.
+    pub open: usize,
+    /// Whether it stops shots.
+    pub cover: bool,
+}
+
+const fn kind(name: &'static str, open: usize, cover: bool) -> PropKind {
+    PropKind { name, open, cover }
+}
+
+/// The sprites a map can place.
+pub const PROPS: [PropKind; 30] = [
+    kind("HOUSE", 1, true),
+    kind("BARN_RED", 2, true),
+    kind("BARN_GREEN", 2, true),
+    kind("GAS_STATION", 1, true),
+    kind("GAS_PUMP", 2, true),
+    kind("WINDMILL", 2, true),
+    kind("SCARECROW", 1, false),
+    kind("HAY_STACK", 1, true),
+    kind("HAY", 0, true),
+    kind("TRACTOR", 1, true),
+    kind("TRUCK", 1, true),
+    kind("CAR_H", 0, true),
+    kind("CAR_V", 1, true),
+    kind("WRECK_H", 0, true),
+    kind("WRECK_V", 1, true),
+    kind("MAILBOX", 0, false),
+    kind("BUSHES", 1, false),
+    kind("BUSH", 0, false),
+    kind("DEAD_TREE", 0, false),
+    kind("TALL_TREE", 1, true),
+    kind("STUMP", 0, false),
+    kind("LOG", 0, false),
+    kind("BARREL", 0, true),
+    kind("TANK", 0, true),
+    kind("TOMBSTONE", 0, true),
+    kind("SIGN", 0, false),
+    kind("SIGN_LOW", 0, false),
+    kind("BARRIER", 0, true),
+    kind("SKULL_FENCE", 0, false),
+    kind("CORPSE", 0, false),
 ];
+
+/// What a prop line says over its sprite's own: whether it stops shots. None keeps the sprite's.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Tough {
+    pub cover: Option<bool>,
+}
+
+impl Tough {
+    fn text(&self) -> String {
+        match self.cover {
+            Some(c) => format!(" cover {}", if c { "yes" } else { "no" }),
+            None => String::new(),
+        }
+    }
+
+    /// Takes `key value` if it's one of these; false if it isn't, and an error if the value doesn't do.
+    fn read(&mut self, key: &str, value: Option<&str>) -> Result<bool, String> {
+        match key {
+            "cover" => self.cover = Some(yes_no(value).ok_or("cover is yes or no")?),
+            _ => return Ok(false),
+        }
+        Ok(true)
+    }
+}
+
+fn yes_no(word: Option<&str>) -> Option<bool> {
+    match word? {
+        "yes" => Some(true),
+        "no" => Some(false),
+        _ => None,
+    }
+}
 
 /// One line of a map's props.
 #[derive(Clone, Debug, PartialEq)]
 pub enum PropLine {
     /// A sprite by name with its top-left on `at`; `frame` picks one of its frames, else they animate at `fps`.
-    Sprite { name: String, at: [usize; 2], frame: Option<usize>, fps: f32, open: usize },
+    Sprite { name: String, at: [usize; 2], frame: Option<usize>, fps: f32, open: usize, tough: Tough },
     /// A fence round `rect` (x, y, width, height), with a two-tile gate `gate` tiles from its left.
-    Fence { picket: bool, rect: [usize; 4], gate: Option<usize> },
+    Fence { picket: bool, rect: [usize; 4], gate: Option<usize>, tough: Tough },
 }
 
 impl PropLine {
@@ -99,7 +145,7 @@ impl PropLine {
 
     fn text(&self) -> String {
         match self {
-            PropLine::Sprite { name, at, frame, fps, open } => {
+            PropLine::Sprite { name, at, frame, fps, open, tough } => {
                 let mut s = format!("{name} {} {}", at[0], at[1]);
                 if let Some(k) = frame {
                     s += &format!(" frame {k}");
@@ -110,12 +156,12 @@ impl PropLine {
                 if *open > 0 {
                     s += &format!(" open {open}");
                 }
-                s
+                s + &tough.text()
             }
-            PropLine::Fence { picket, rect: [x, y, w, h], gate } => {
+            PropLine::Fence { picket, rect: [x, y, w, h], gate, tough } => {
                 let style = if *picket { "picket" } else { "rail" };
                 let gate = gate.map_or(String::new(), |g| format!(" gate {g}"));
-                format!("fence {style} {x} {y} {w} {h}{gate}")
+                format!("fence {style} {x} {y} {w} {h}{gate}{}", tough.text())
             }
         }
     }
@@ -278,8 +324,8 @@ impl MapSource {
             }
             let Some((name, all)) = art::ALL.iter().find(|(_, all)| all.contains(&frames[0])) else { continue };
             let frame = (frames.len() == 1 && all.len() > 1).then(|| all.iter().position(|a| *a == frames[0])).flatten();
-            let open = PROPS.iter().find(|(n, _)| n == name).map_or(0, |(_, o)| *o);
-            let line = PropLine::Sprite { name: name.to_string(), at: [tile(x), tile(y)], frame, fps: 0.0, open };
+            let open = PROPS.iter().find(|k| k.name == *name).map_or(0, |k| k.open);
+            let line = PropLine::Sprite { name: name.to_string(), at: [tile(x), tile(y)], frame, fps: 0.0, open, tough: Tough::default() };
             let [x, y, pw, ph] = line.rect();
             if x > 0 && y > 0 && x + pw < w && y + ph < h {
                 props.push((0, line));
@@ -299,19 +345,22 @@ pub const RANDOM_MIN: [usize; 2] = [40, 30];
 /// One line of the props section, read but not yet placed.
 fn prop_line(words: &[&str]) -> Result<PropLine, String> {
     if words[0] == "fence" {
-        let usage = "a fence is rail or picket, then x, y, width and height, then maybe gate and a column";
+        let usage = "a fence is rail or picket, then x, y, width and height, then maybe gate and a column, and cover yes or no";
         let picket = match words.get(1) {
             Some(&"rail") => false,
             Some(&"picket") => true,
             _ => return Err("a fence is rail or picket".into()),
         };
         let r = words.get(2..6).and_then(numbers).ok_or(usage)?;
-        let gate = match words.get(6..) {
-            Some([]) | None => None,
-            Some(["gate", g]) => Some(g.parse::<u16>().map_err(|_| usage)? as usize),
-            _ => return Err(usage.into()),
-        };
-        return Ok(PropLine::Fence { picket, rect: [r[0], r[1], r[2], r[3]], gate });
+        let (mut gate, mut tough) = (None, Tough::default());
+        for pair in words.get(6..).unwrap_or_default().chunks(2) {
+            match (pair[0], pair.get(1)) {
+                ("gate", Some(g)) => gate = Some(g.parse::<u16>().map_err(|_| usage)? as usize),
+                (key, value) if tough.read(key, value.copied())? => {}
+                _ => return Err(usage.into()),
+            }
+        }
+        return Ok(PropLine::Fence { picket, rect: [r[0], r[1], r[2], r[3]], gate, tough });
     }
     if !words[0].bytes().all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_') {
         return Err(format!("{} isn't a sprite name", words[0]));
@@ -319,17 +368,20 @@ fn prop_line(words: &[&str]) -> Result<PropLine, String> {
     // Only the frame count is checked here: a player's prop may not be loaded yet when its map is read.
     let frames = sprite(words[0]).map_or(usize::MAX, <[Art]>::len);
     let at = words.get(1..3).and_then(numbers).ok_or("a prop's name is followed by its x and y")?;
-    let (mut frame, mut fps, mut open) = (None, 0.0, 0);
+    let (mut frame, mut fps, mut open, mut tough) = (None, 0.0, 0, Tough::default());
     for pair in words[3..].chunks(2) {
+        if tough.read(pair[0], pair.get(1).copied())? {
+            continue;
+        }
         let value = pair.get(1).and_then(|v| v.parse::<f32>().ok()).filter(|v| v.is_finite() && *v >= 0.0);
         match (pair[0], value) {
             ("frame", Some(k)) if (k as usize) < frames.min(MAX_FRAME_INDEX) => frame = Some(k as usize),
             ("fps", Some(v)) => fps = v.min(60.0),
             ("open", Some(v)) => open = (v as usize).min(64),
-            (word, _) => return Err(format!("{word} after a prop is frame, fps or open with a number in range")),
+            (word, _) => return Err(format!("{word} after a prop is frame, fps or open with a number in range, or cover yes or no")),
         }
     }
-    Ok(PropLine::Sprite { name: words[0].to_string(), at: [at[0], at[1]], frame, fps, open })
+    Ok(PropLine::Sprite { name: words[0].to_string(), at: [at[0], at[1]], frame, fps, open, tough })
 }
 
 impl Map {
@@ -392,6 +444,7 @@ impl Map {
             ground: vec![art::DIRT[0]; w * h],
             overlay: vec![None; w * h],
             solid: vec![false; w * h],
+            cover: vec![false; w * h],
             cells: vec![Cell::Open; w * h],
             props: Vec::new(),
             decals: Vec::new(),
@@ -444,7 +497,7 @@ impl Map {
     fn place(&mut self, p: &PropLine) -> Result<(), String> {
         let [x, y, w, h] = p.rect();
         match p {
-            PropLine::Fence { picket, gate, .. } => {
+            PropLine::Fence { picket, gate, tough, .. } => {
                 if w < 4 || h < 3 || x == 0 || y == 0 || x + w >= self.w || y + h >= self.h {
                     return Err(format!("a fence at {x} {y} is at least 4x3 and inside the edge"));
                 }
@@ -452,12 +505,12 @@ impl Map {
                     return Err("a gate sits inside the fence, 1 to width - 3".into());
                 }
                 let mut post = 0;
-                self.fence_gated(if *picket { &PICKET } else { &RAIL }, [x, y, w, h], gate.map(|g| g + x), |n| {
+                self.fence_gated(if *picket { &PICKET } else { &RAIL }, [x, y, w, h], gate.map(|g| g + x), FENCE.with(*tough), |n| {
                     post += 1;
                     post % n
                 });
             }
-            PropLine::Sprite { name, frame, fps, open, .. } => {
+            PropLine::Sprite { name, frame, fps, open, tough, .. } => {
                 if x == 0 || y == 0 || x + w >= self.w || y + h >= self.h {
                     return Err(format!("{name} at {x} {y} reaches the edge"));
                 }
@@ -467,7 +520,7 @@ impl Map {
                     None => frames,
                 };
                 let fps = if *fps == 0.0 && frame.is_none() { super::super::props::prop(name).map_or(0.0, |p| p.fps) } else { *fps };
-                self.prop(frames, fps, x, y, *open);
+                self.prop_as(frames, fps, x, y, *open, toughness(frames[0]).with(*tough));
                 if frames[0] == art::WINDMILL {
                     let (px, py) = (x as f32 * TILE, y as f32 * TILE - 6.0);
                     let base = py + 6.0 + art::WINDMILL.h() + 0.1;
@@ -550,12 +603,27 @@ mod tests {
     }
 
     #[test]
+    fn a_prop_stops_shots_as_its_sprite_does_unless_its_line_says() {
+        let map = read(&farm("HOUSE 2 2\nBUSH 13 10\nTANK 15 10 cover no\nBUSH 17 10 cover yes\nfence rail 13 2 6 6 gate 2 cover yes\nfence picket 2 7 4 3")).unwrap();
+        let walk = |x: usize, y: usize| map.solid_at((x as f32 + 0.5) * TILE, (y as f32 + 0.5) * TILE);
+        let shot = |x: usize, y: usize| map.cover_at((x as f32 + 0.5) * TILE, (y as f32 + 0.5) * TILE);
+        assert!(walk(3, 4) && shot(3, 4), "a house stops both");
+        assert!(walk(13, 10) && !shot(13, 10), "a bush lets shots through");
+        assert!(walk(15, 10) && !shot(15, 10) && shot(17, 10), "lines say otherwise");
+        assert!(walk(13, 4) && shot(13, 4), "a fence that says it's cover");
+        assert!(walk(2, 8) && !shot(2, 8), "and one that doesn't");
+        assert!(map.cover_at(-1.0, 5.0 * TILE), "nothing flies off the map");
+    }
+
+    #[test]
     fn a_source_writes_back_what_it_read() {
-        let text = farm("HOUSE 2 2 open 1\nDEAD_TREE 5 5 frame 2\nfence picket 13 2 6 6 gate 2\nfence rail 2 7 4 3").replace("ground", "scatter\nground");
+        let text = farm("HOUSE 2 2 open 1 cover no\nDEAD_TREE 5 5 frame 2\nfence picket 13 2 6 6 gate 2 cover yes\nfence rail 2 7 4 3").replace("ground", "scatter\nground");
         let src = MapSource::parse(&text).unwrap();
-        assert_eq!(MapSource::parse(&src.to_text()).unwrap().props.len(), src.props.len());
+        let lines = |s: &MapSource| s.props.iter().map(|(_, p)| p.clone()).collect::<Vec<_>>();
+        assert_eq!(lines(&MapSource::parse(&src.to_text()).unwrap()), lines(&src));
+        assert!(src.to_text().contains("HOUSE 2 2 open 1 cover no\n") && src.to_text().contains("gate 2 cover yes\n"), "{}", src.to_text());
         assert_eq!(MapSource::parse(&src.to_text()).unwrap().ground, src.ground);
-        assert_eq!(src.props[1].1, PropLine::Sprite { name: "DEAD_TREE".into(), at: [5, 5], frame: Some(2), fps: 0.0, open: 0 });
+        assert_eq!(src.props[1].1, PropLine::Sprite { name: "DEAD_TREE".into(), at: [5, 5], frame: Some(2), fps: 0.0, open: 0, tough: Tough::default() });
         let grown = src.resized([3, -2]);
         assert_eq!(grown.size, [23, 12]);
         assert_eq!(grown.ground[22], b'.', "new ground is dirt");
@@ -590,6 +658,8 @@ mod tests {
         assert!(err(&farm("BARREL 3 3 spin 2")).contains("frame, fps or open"));
         assert!(err(&farm("fence wood 2 2 4 4")).contains("rail or picket"));
         assert!(err(&farm("fence rail 2 2 4 4 gate 3")).contains("inside the fence"));
+        assert!(err(&farm("BARREL 3 3 cover maybe")).starts_with("21: cover is yes or no"));
+        assert!(err(&farm("fence rail 2 2 4 4 cover")).contains("cover is yes or no"));
         assert!(err(&farm("").replace("size 20 14", "size 8 8")).contains("16x12"));
         assert!(err(&farm("").replace("size 20 14", "size 20 15")).contains("14 rows"));
         assert!(err(&farm("").replacen("....", "..x.", 1)).contains("x isn't a ground code"));
@@ -600,9 +670,9 @@ mod tests {
 
     #[test]
     fn mangled_maps_are_refused_without_panicking() {
-        let good = farm("HOUSE 2 2 open 1\nWINDMILL 13 9 fps 8\nfence picket 13 2 6 6 gate 2\nDEAD_TREE 5 5 frame 2");
+        let good = farm("HOUSE 2 2 open 1 cover no\nWINDMILL 13 9 fps 8\nfence picket 13 2 6 6 gate 2 cover yes\nDEAD_TREE 5 5 frame 2");
         read(&good).unwrap();
-        let pieces = ["99999", "65535", "0", "-1", "nan", "inf", "fence", "gate", "frame", "\n", "props", "ground", "c", "v", "=", " ", "#"];
+        let pieces = ["99999", "65535", "0", "-1", "nan", "inf", "fence", "gate", "frame", "cover", "yes", "no", "\n", "props", "ground", "c", "v", "=", " ", "#"];
         let mut rng = Rng::new(42);
         for _ in 0..4000 {
             let mut text = good.clone();
@@ -677,6 +747,6 @@ mod tests {
 
     #[test]
     fn every_listed_prop_is_a_sprite() {
-        assert!(PROPS.iter().all(|(n, _)| sprite(n).is_some()));
+        assert!(PROPS.iter().all(|k| sprite(k.name).is_some()));
     }
 }

@@ -14,7 +14,7 @@ type Files = Vec<(String, Vec<u8>)>;
 /// What the picker offers: players' props as packed for the previews, then the game's own, each with its sprite
 /// name, walk-through rows and a frame to show.
 fn pickable() -> Vec<(String, usize, Option<Art>)> {
-    let own = MAP_PROPS.iter().map(|(n, open)| (n.to_string(), *open, last_harvest_game::art::ALL.iter().find(|(a, _)| a == n).map(|(_, f)| f[0])));
+    let own = MAP_PROPS.iter().map(|k| (k.name.to_string(), k.open, last_harvest_game::art::ALL.iter().find(|(a, _)| *a == k.name).map(|(_, f)| f[0])));
     let players = last_harvest_game::named_props().into_iter().map(|p| (p.name, p.open, p.frames.first().copied()));
     players.chain(own).collect()
 }
@@ -567,7 +567,7 @@ impl Editor {
             },
             MapTool::Prop => {
                 if let Some((name, open, _)) = pickable().into_iter().nth(m.prop) {
-                    m.src.props.push((0, PropLine::Sprite { name, at, frame: None, fps: 0.0, open }));
+                    m.src.props.push((0, PropLine::Sprite { name, at, frame: None, fps: 0.0, open, tough: Default::default() }));
                     m.edited();
                 }
             }
@@ -622,7 +622,7 @@ impl Editor {
             let [_, _, w, h] = rect;
             if w >= 4 && h >= 3 {
                 let gate = Some(((w - 2) / 2).clamp(1, w - 3));
-                m.src.props.push((0, PropLine::Fence { picket: m.picket, rect, gate }));
+                m.src.props.push((0, PropLine::Fence { picket: m.picket, rect, gate, tough: Default::default() }));
                 m.edited();
             } else {
                 m.undo.pop();
@@ -706,7 +706,7 @@ impl Editor {
                 }
                 (MapTool::Prop, _) => {
                     let name = pickable().into_iter().nth(m.prop).map_or_else(String::new, |(n, _, _)| n);
-                    let probe = PropLine::Sprite { name, at, frame: None, fps: 0.0, open: 0 };
+                    let probe = PropLine::Sprite { name, at, frame: None, fps: 0.0, open: 0, tough: Default::default() };
                     let [_, _, pw, ph] = probe.rect();
                     (pw as f32 * tile, ph as f32 * tile)
                 }

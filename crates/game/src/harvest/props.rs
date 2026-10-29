@@ -6,6 +6,7 @@
 //! fps 4           # how fast they animate; still when left out
 //! open 1          # top rows a figure walks through
 //! stand prop 8    # prop N, slab N, figure or ground; prop by its size when left out
+//! cover no        # whether it stops shots; yes when left out
 //! ```
 
 use std::sync::RwLock;
@@ -26,11 +27,12 @@ pub struct PropFields {
     pub fps: f32,
     pub open: usize,
     pub stand: Option<Stand>,
+    pub cover: bool,
 }
 
 /// Reads a prop's text; errors name the line.
 pub fn prop_fields(text: &str) -> Result<PropFields, String> {
-    let mut f = PropFields { id: String::new(), frames: 1, fps: 0.0, open: 0, stand: None };
+    let mut f = PropFields { id: String::new(), frames: 1, fps: 0.0, open: 0, stand: None, cover: true };
     for (i, raw) in text.lines().enumerate() {
         let n = i + 1;
         let line = raw.split('#').next().unwrap_or("").trim();
@@ -54,6 +56,7 @@ pub fn prop_fields(text: &str) -> Result<PropFields, String> {
             "fps" => f.fps = number()?.min(60.0),
             "open" => f.open = (number()? as usize).min(64),
             "stand" => f.stand = Some(parse_stand(value).ok_or_else(|| format!("{n}: a stand is prop N, slab N, figure or ground"))?),
+            "cover" => f.cover = yes_no(value).ok_or_else(|| format!("{n}: cover is yes or no"))?,
             _ => return Err(format!("{n}: {key} isn't something a prop says")),
         }
     }
@@ -78,7 +81,18 @@ pub fn prop_text(f: &PropFields) -> String {
     if let Some(stand) = f.stand {
         s += &format!("stand {}\n", stand_text(stand));
     }
+    if !f.cover {
+        s += "cover no\n";
+    }
     s
+}
+
+fn yes_no(word: &str) -> Option<bool> {
+    match word {
+        "yes" => Some(true),
+        "no" => Some(false),
+        _ => None,
+    }
 }
 
 fn parse_stand(text: &str) -> Option<Stand> {
@@ -102,7 +116,8 @@ fn stand_text(s: Stand) -> String {
     }
 }
 
-/// A prop as a map places it: its frames, how fast they turn, its walk-through rows, and how it stands.
+/// A prop as a map places it: its frames, how fast they turn, its walk-through rows, how it stands, and whether
+/// it stops shots.
 #[derive(Clone, Debug)]
 pub struct Named {
     pub name: String,
@@ -110,6 +125,7 @@ pub struct Named {
     pub fps: f32,
     pub open: usize,
     pub stand: Option<Stand>,
+    pub cover: bool,
 }
 
 /// Props from packs, set once the game draws them in, and the editor's, set as it packs them.
@@ -117,7 +133,7 @@ static NAMED: RwLock<Vec<Named>> = RwLock::new(Vec::new());
 
 /// Sets the props maps can place by name. Leaks each call's frames: call it only when they change.
 pub fn set_props(props: Vec<(PropFields, Vec<Art>)>) {
-    let named = props.into_iter().map(|(f, arts)| Named { name: format!("{PREFIX}{}", f.id.to_ascii_uppercase()), frames: arts.leak(), fps: f.fps, open: f.open, stand: f.stand }).collect();
+    let named = props.into_iter().map(|(f, arts)| Named { name: format!("{PREFIX}{}", f.id.to_ascii_uppercase()), frames: arts.leak(), fps: f.fps, open: f.open, stand: f.stand, cover: f.cover }).collect();
     *NAMED.write().unwrap_or_else(|e| e.into_inner()) = named;
 }
 
@@ -134,6 +150,11 @@ pub fn props() -> Vec<Named> {
 /// How an added sprite stands, if a prop set it.
 pub(crate) fn stand_of(art: Art) -> Option<Stand> {
     NAMED.read().ok()?.iter().find(|n| n.frames.contains(&art)).and_then(|n| n.stand)
+}
+
+/// Whether an added sprite stops shots, if it's a prop's.
+pub(crate) fn cover_of(art: Art) -> Option<bool> {
+    NAMED.read().ok()?.iter().find(|n| n.frames.contains(&art)).map(|n| n.cover)
 }
 
 /// Loads props into a texture of their own, so maps that place them can be checked away from the game, as the
@@ -199,8 +220,8 @@ mod tests {
 
     #[test]
     fn a_prop_reads_and_writes_its_text() {
-        let f = prop_fields("[rusty_tank]\nframes 2\nfps 4\nopen 1\nstand slab 6\n").unwrap();
-        assert_eq!(f, PropFields { id: "rusty_tank".into(), frames: 2, fps: 4.0, open: 1, stand: Some(Stand::Slab { height: 6.0 }) });
+        let f = prop_fields("[rusty_tank]\nframes 2\nfps 4\nopen 1\nstand slab 6\ncover no\n").unwrap();
+        assert_eq!(f, PropFields { id: "rusty_tank".into(), frames: 2, fps: 4.0, open: 1, stand: Some(Stand::Slab { height: 6.0 }), cover: false });
         assert_eq!(prop_fields(&prop_text(&f)).unwrap(), f);
         assert_eq!(prop_text(&prop_fields("[a]").unwrap()), "[a]\n", "defaults stay out");
         assert!(prop_fields("frames 2").unwrap_err().contains("[id]"));
@@ -208,6 +229,8 @@ mod tests {
         assert!(prop_fields("[a]\nwings 2").unwrap_err().starts_with("2: wings"));
         assert!(prop_fields("[a]\nstand carve").unwrap_err().contains("a stand is"));
         assert!(prop_fields("[a]\nfps nan").is_err());
+        assert!(prop_fields("[a]\ncover maybe").unwrap_err().contains("cover is yes or no"));
+        assert!(prop_fields("[a]").unwrap().cover, "props stop shots unless they say");
     }
 
     #[test]
