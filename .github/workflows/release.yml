@@ -43,6 +43,8 @@ jobs:
           tool: cargo-zigbuild@0.22.3
 
       - name: Build
+        env:
+          LAST_HARVEST_VERSION: ${{ env.TAG }}
         run: |
           sudo apt-get update
           sudo apt-get install -y libasound2-dev
