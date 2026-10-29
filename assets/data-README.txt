@@ -10,7 +10,7 @@ no-updates       Make an empty file with this name to stop updates. Otherwise, e
                  the game says what the update did.
 
 enemies/         Enemy cards, named like ghoul.enemy.png. Each adds a kind of zombie to the night, or
-                 replaces one of the game's own. Settings > Enemies lists them and turns them on or off.
+                 replaces one of the game's own. Settings > Enemies lists them, with each one's about line, and turns them on or off.
 
 players/         Player cards, named like jo.player.png. Each is a look for you, and may set the weapons
                  you start with. Settings > Player picks one.
