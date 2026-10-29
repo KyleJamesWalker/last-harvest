@@ -406,13 +406,14 @@ impl Game {
         let frame = walk[(self.clock * 8.0) as usize % walk.len()];
         let scale = 300.0 / frame.h().max(frame.w());
         c.art(frame, SCREEN_W / 2.0 - frame.w() * scale / 2.0, 600.0 - frame.h() * scale, scale, flip, WHITE);
-        fit_label(c, &p.name, SCREEN_W / 2.0, 60.0, 64.0, SCREEN_W - 80.0, HOT, Align::Center);
+        fit_label(c, &p.name, SCREEN_W / 2.0, 40.0, 64.0, SCREEN_W - 80.0, HOT, Align::Center);
+        wrap_label(c, &p.about, SCREEN_W / 2.0, 118.0, 28.0, SCREEN_W - 80.0, 2, WHITE, Align::Center);
         let note = if looks.len() > 1 { format!("{} of {}: Left and Right to change", looks.iter().position(|l| l.id == p.id).unwrap_or(0) + 1, looks.len()) } else { "Add a .player.png to data/players for more".to_string() };
-        c.label(note, SCREEN_W / 2.0, 150.0, 28.0, DIM, Align::Center);
+        c.label(note, SCREEN_W / 2.0, 200.0, 26.0, DIM, Align::Center);
         let d = self.save.difficulty;
         let start = p.start_names(d);
         let kit = if start.is_empty() { "no weapons".to_string() } else { start.join(", ") };
-        fit_label(c, &format!("{} starts with {kit}", d.name()), SCREEN_W / 2.0, 196.0, 28.0, SCREEN_W - 80.0, WHITE, Align::Center);
+        fit_label(c, &format!("{} starts with {kit}", d.name()), SCREEN_W / 2.0, 240.0, 28.0, SCREEN_W - 80.0, WHITE, Align::Center);
     }
 
     /// Kind `i`'s colour in the spawn mix, and on its row of the list: `HOT` when highlighted.
@@ -458,6 +459,7 @@ impl Game {
         if !on {
             c.label("OFF", 280.0, 400.0, 64.0, [1.0, 0.45, 0.4, 1.0], Align::Center);
         }
+        wrap_label(c, &e.about, 280.0, 60.0, 30.0, 480.0, 3, WHITE, Align::Center);
         self.draw_spawn_mix(c);
         fit_label(c, &e.name, 560.0, 60.0, 64.0, SCREEN_W - 560.0 - 24.0, HOT, Align::Left);
         let minutes = |m: f32| if m == 1.0 { "1 minute".to_string() } else { format!("{m} minutes") };
@@ -546,10 +548,39 @@ fn fit_label(c: &mut Canvas, text: &str, x: f32, y: f32, size: f32, room: f32, c
     c.label(text, x, y + (size - fits) / 2.0, fits, color, align);
 }
 
+/// Draws `text` word-wrapped to `room` pixels, in at most `lines` lines of `size` from `y` down, the last one fitted
+/// as `fit_label` fits it.
+#[allow(clippy::too_many_arguments)]
+fn wrap_label(c: &mut Canvas, text: &str, x: f32, y: f32, size: f32, room: f32, lines: usize, color: Color, align: Align) {
+    for (i, line) in wrapped(text, size, room, lines).into_iter().enumerate() {
+        fit_label(c, &line, x, y + i as f32 * size * 1.25, size, room, color, align);
+    }
+}
+
+/// `text` split between words into at most `lines` lines that each fit `room` pixels at `size`; the last takes
+/// whatever is left, for `fitted` to shrink or cut.
+pub(crate) fn wrapped(text: &str, size: f32, room: f32, lines: usize) -> Vec<String> {
+    let max = (room / (size * EM)) as usize;
+    let mut out: Vec<String> = Vec::new();
+    for word in text.split_whitespace() {
+        let full = out.len() == lines;
+        match out.last_mut() {
+            Some(line) if full || line.chars().count() + 1 + word.chars().count() <= max => {
+                line.push(' ');
+                line.push_str(word);
+            }
+            _ => out.push(word.to_string()),
+        }
+    }
+    out
+}
+
+/// A label's width per pixel of size, roughly, for the font's average letter.
+const EM: f32 = 0.56;
+
 /// `text` and a size, from `size` down to `least`, that fit `room` pixels, cut short with an ellipsis if even `least`
 /// doesn't.
 pub(crate) fn fitted(text: &str, size: f32, room: f32, least: f32) -> (String, f32) {
-    const EM: f32 = 0.56;
     let n = text.chars().count();
     let fits = size.min(room / (n.max(1) as f32 * EM)).max(least);
     let max = (room / (fits * EM) + 1e-3) as usize;
@@ -583,5 +614,16 @@ mod tests {
         let (text, size) = fitted("Ghoul of the Northern Fields and Far Beyond", 64.0, 440.0, 40.0);
         assert_eq!(size, 40.0);
         assert!(text.ends_with("...") && text.chars().count() as f32 * 0.56 * size <= 440.0, "{text}");
+    }
+
+    #[test]
+    fn a_long_about_wraps_between_words_and_the_rest_goes_on_the_last_line() {
+        let about = "Slow and huge; it bites hard, shrugs off knockback and leads the hordes.";
+        let lines = wrapped(about, 30.0, 480.0, 3);
+        assert_eq!(lines.join(" "), about, "nothing is lost or split mid-word");
+        assert!(lines.len() > 1 && lines.iter().all(|l| l.chars().count() as f32 * EM * 30.0 <= 480.0), "{lines:?}");
+        assert_eq!(wrapped("", 30.0, 480.0, 3), Vec::<String>::new());
+        let squeezed = wrapped(&"word ".repeat(40), 30.0, 480.0, 2);
+        assert_eq!(squeezed.len(), 2, "the last line takes the rest, for fit_label to cut");
     }
 }

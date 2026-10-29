@@ -10,6 +10,8 @@ use crate::data::Card;
 pub struct Enemy {
     pub id: String,
     pub name: String,
+    /// A sentence on what to expect of it, for the Enemies page; empty when it has none.
+    pub about: String,
     pub look: Look,
     pub hp: f32,
     pub speed: f32,
@@ -46,6 +48,20 @@ const MAX_KINDS: usize = 64;
 pub const MAX_WALK: usize = 8;
 const MAX_FRAME: u32 = 64;
 const PAD: u16 = 1;
+/// The longest `about` can be, so it fits the menus in a few lines.
+pub const ABOUT_MAX: usize = 80;
+
+/// An `about` line's text, checked: 1 to `ABOUT_MAX` of the characters the game's font draws.
+pub(super) fn about(text: &str) -> Result<String, String> {
+    if let Some(c) = text.chars().find(|c| !(' '..='~').contains(c)) {
+        return Err(format!("about uses letters, digits, spaces and plain punctuation, not {c:?}"));
+    }
+    match text.chars().count() {
+        0 => Err("about needs a sentence after it".into()),
+        n if n > ABOUT_MAX => Err(format!("about is at most {ABOUT_MAX} characters, not {n}")),
+        _ => Ok(text.to_string()),
+    }
+}
 
 impl Roster {
     pub fn index(&self, id: &str) -> Option<usize> {
@@ -190,6 +206,7 @@ fn entries(text: &str) -> Result<Vec<Entry>, String> {
             let enemy = Enemy {
                 id: id.to_string(),
                 name: id.to_string(),
+                about: String::new(),
                 look: blank,
                 hp: 10.0,
                 speed: 20.0,
@@ -213,6 +230,7 @@ fn entries(text: &str) -> Result<Vec<Entry>, String> {
         let number = || rest.parse::<f32>().ok().filter(|v| v.is_finite() && *v >= 0.0).ok_or_else(|| format!("{n}: {key} is a number, not {rest:?}"));
         match key {
             "name" => e.name = rest.to_string(),
+            "about" => e.about = about(rest).map_err(|err| format!("{n}: {err}"))?,
             "look" => entry.look = Some((n, rest.to_string())),
             "hp" => e.hp = number()?,
             "speed" => e.speed = number()?,
@@ -291,6 +309,8 @@ pub fn spawn_mix(cards: &[&str], minutes: &[f32]) -> Result<SpawnMix, String> {
 pub struct CardFields {
     pub id: String,
     pub name: String,
+    /// Empty when the card has no `about`.
+    pub about: String,
     /// Every number a card sets, by key, in `NUMBERS` order.
     pub numbers: Vec<(&'static str, f32)>,
     pub sound: String,
@@ -311,6 +331,7 @@ pub fn card_fields(text: &str) -> Result<CardFields, String> {
     Ok(CardFields {
         id: e.id.clone(),
         name: e.name.clone(),
+        about: e.about.clone(),
         numbers: NUMBERS.into_iter().zip(numbers).collect(),
         sound: e.sound.clone(),
         flags: FLAGS.into_iter().zip([e.heavy, entry.leader, entry.harvester]).collect(),
@@ -515,6 +536,38 @@ mod tests {
         assert_eq!(big.look.walk[0], art::BIG_FRONT.to_vec());
         assert_eq!(big.sound, "kill-big");
         assert_eq!(r.common(), r.index("skinny").unwrap());
+        assert!(r.enemies.iter().all(|e| !e.about.is_empty()), "every kind says what to expect of it");
+    }
+
+    #[test]
+    fn about_is_a_short_line_of_the_fonts_characters() {
+        let f = card_fields("[ghoul]\nabout   Fast, and it never stops.  # comment\n").unwrap();
+        assert_eq!(f.about, "Fast, and it never stops.");
+        assert_eq!(card_fields("[ghoul]").unwrap().about, "", "an old card without one still reads");
+        let err = |text: &str| card_fields(text).err().expect("an error");
+        assert!(err("[a]\nabout").contains("needs a sentence"));
+        assert!(err("[a]\nabout Fast \u{2014} and hungry").contains("plain punctuation"), "the font draws ASCII only");
+        assert!(err("[a]\nabout tab\there").contains("plain punctuation"));
+        let long = format!("[a]\nabout {}", "x".repeat(ABOUT_MAX + 1));
+        assert!(err(&long).starts_with("line 2: about is at most"));
+        assert_eq!(card_fields(&format!("[a]\nabout {}", "x".repeat(ABOUT_MAX))).unwrap().about.len(), ABOUT_MAX);
+        let text = set_card_field("[a]\nname A\nhp 3\n", "about", Some("Quiet."));
+        assert_eq!(card_fields(&text).unwrap().about, "Quiet.");
+        assert_eq!(set_card_field(&text, "about", None), "[a]\nname A\nhp 3\n");
+    }
+
+    #[test]
+    fn any_about_either_reads_within_its_limits_or_says_why() {
+        let mut rng = crate::rng::Rng::new(7);
+        let pool: Vec<char> = (' '..='~').chain(['\u{e9}', '\u{2014}', '\t', '\u{7f}', '\u{1f9df}']).collect();
+        for _ in 0..2000 {
+            let n = rng.below(ABOUT_MAX + 20);
+            let text: String = (0..n).map(|_| pool[rng.below(pool.len())]).collect();
+            let reads = [card_fields(&format!("[a]\nabout {text}")).map(|f| f.about), super::super::players::player_fields(&format!("[jo]\nabout {text}")).map(|f| f.about)];
+            for about in reads.into_iter().flatten() {
+                assert!(!about.is_empty() && about.chars().count() <= ABOUT_MAX && about.chars().all(|c| (' '..='~').contains(&c)), "{about:?}");
+            }
+        }
     }
 
     #[test]

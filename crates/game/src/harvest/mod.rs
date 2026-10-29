@@ -22,7 +22,7 @@ pub(crate) use enemies::{install_cards, off_from_ids, off_ids, roster};
 pub use props::{MAX_FRAME as PROP_MAX_FRAME, MAX_FRAMES as PROP_MAX_FRAMES, Named as NamedProp, PREFIX as PROP_PREFIX, PropFields, load_for_checks as load_props_for_checks, prop_fields, prop_text, props as named_props, set_props};
 pub(crate) use props::stand_of;
 pub use map::{GROUND as MAP_GROUND, MAP_EXTENSION, MAP_MAX, MAP_MIN, MapSource, PROPS as MAP_PROPS, PropLine, check_map, valid_map_id};
-pub use enemies::{MAX_WALK, flash_pixel, frame_limits, hurt_pixel};
+pub use enemies::{ABOUT_MAX, MAX_WALK, flash_pixel, frame_limits, hurt_pixel};
 pub use players::{ID_MAX as PLAYER_ID_MAX, PlayerFields, PlayerLook, default_start, looks as player_looks, player_fields, set_player_start, weapon_slots, weapons};
 pub use enemies::{CardFields, FLAGS as CARD_FLAGS, NUMBERS as CARD_NUMBERS, SpawnMix, card_fields, set_card_field, spawn_mix};
 use juice::{Corpse, Juice, Particle, Tone};
