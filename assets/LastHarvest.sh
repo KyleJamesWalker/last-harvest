@@ -26,6 +26,14 @@ fetch() {
         else
             curl -fsSL --connect-timeout 4 --speed-limit 1024 --speed-time 30 -o "$2" "$1"
         fi
+    # The RG DS Plus has no curl, and its busybox wget can't do https.
+    elif command -v python3 >/dev/null; then
+        python3 - "$1" "$2" "$3" 2>/dev/null <<'EOF'
+import shutil, sys, urllib.request
+url, out, api = sys.argv[1:4]
+with urllib.request.urlopen(url, timeout=5 if api else 30) as r, open(out, "wb") as f:
+    shutil.copyfileobj(r, f)
+EOF
     elif command -v wget >/dev/null; then
         wget -q -T "$([ -n "$3" ] && echo 5 || echo 30)" -t 1 -O "$2" "$1"
     else
