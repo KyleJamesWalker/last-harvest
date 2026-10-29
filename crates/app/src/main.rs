@@ -360,8 +360,16 @@ impl ApplicationHandler for App {
     }
 }
 
+/// The release this binary was built for, or `dev` and its commit.
+const VERSION: &str = env!("LAST_HARVEST_BUILD");
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    if std::env::args().nth(1).as_deref() == Some("--version") {
+        println!("{VERSION}");
+        return Ok(());
+    }
     persist::install_crash_log();
+    eprintln!("last-harvest {VERSION}");
     let sounds = pak::load()?;
     let event_loop = EventLoop::new()?;
     event_loop.run_app(&mut App::new(&sounds))?;

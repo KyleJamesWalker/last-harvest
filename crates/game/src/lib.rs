@@ -448,7 +448,11 @@ impl Game {
             let a = self.reset_shown.min(1.0);
             f.top.label("Progress erased: records, kills and found powerups", SCREEN_W / 2.0, 480.0, 34.0, [1.0, 0.45, 0.4, a], Align::Center);
         }
-        if let Some((count, first)) = data::problems() {
+        if let Some(missing) = &data::load_report().missing_pack {
+            let red = [1.0, 0.55, 0.5, 1.0];
+            f.top.label("No game data: the game can't draw without game_data.pak.", SCREEN_W / 2.0, 696.0, 24.0, red, Align::Center);
+            f.top.label(menu::fitted(missing, 22.0, SCREEN_W - 40.0, 22.0).0, SCREEN_W / 2.0, 728.0, 22.0, red, Align::Center);
+        } else if let Some((count, first)) = data::problems() {
             let more = if count > 1 { format!("{count} cards, mods or sounds couldn't load:") } else { "A card, mod or sound couldn't load:".to_string() };
             let red = [1.0, 0.55, 0.5, 1.0];
             f.top.label(more, SCREEN_W / 2.0, 696.0, 24.0, red, Align::Center);

@@ -514,6 +514,10 @@ impl Game {
             let line: String = mods.iter().map(|m| m.trim_end_matches(".pak")).collect::<Vec<_>>().join(", ").chars().take(60).collect();
             c.label(line, SCREEN_W - 160.0, 104.0 + rows.len() as f32 * 66.0 - 14.0, 24.0, DIM, Align::Right);
         }
+        let report = crate::data::load_report();
+        if !report.version.is_empty() {
+            fit_label(c, &format!("Version {}", report.versions()), 24.0, SCREEN_H - 52.0, 24.0, BACK[0] - 48.0, DIM, Align::Left);
+        }
         back_button(c);
     }
 }

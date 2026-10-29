@@ -26,11 +26,17 @@ pub fn mod_manifest(id: &str) -> String {
     format!("id = \"{id}\"\nversion = \"1\"\nformat = {FORMAT}\n")
 }
 
+/// The release a base pack is built for: `LAST_HARVEST_VERSION` when the packer was built, else `dev`.
+pub const VERSION: &str = match option_env!("LAST_HARVEST_VERSION") {
+    Some(v) if !v.is_empty() => v,
+    _ => "dev",
+};
+
 /// The manifest of the base pack built for this binary.
 pub fn manifest() -> String {
     format!(
         "id = \"game_data\"\nversion = \"{}\"\nformat = {FORMAT}\n\n[atlas]\nwidth = {}\nheight = {}\nhash = \"{:016x}\"\n",
-        env!("CARGO_PKG_VERSION"),
+        VERSION,
         art::ATLAS_W,
         art::ATLAS_H,
         art::ART_HASH,
@@ -123,6 +129,11 @@ impl Pak {
         let mut paths: Vec<&str> = self.files.keys().map(String::as_str).collect();
         paths.sort_unstable();
         paths
+    }
+
+    /// The release its manifest names, for a base pack.
+    pub fn version(&self) -> Option<&str> {
+        value(std::str::from_utf8(self.get(MANIFEST)?).ok()?, "", "version")
     }
 
     pub fn get(&self, path: &str) -> Option<&[u8]> {
@@ -218,7 +229,7 @@ mod tests {
         pak.overlay(Pak::read(Cursor::new(top)).unwrap());
         assert_eq!(pak.take(POWERUPS), Some(b"base".to_vec()));
         assert_eq!(pak.take_dir(SOUNDS), [("kill-ghoul.ogg".to_string(), b"new".to_vec()), ("shot.ogg".to_string(), b"mod".to_vec())]);
-        assert!(pak.take(MANIFEST).unwrap().starts_with(b"id = \"game_data\""), "the base keeps its own manifest");
+        assert_eq!(pak.version(), Some(VERSION), "the base keeps its own manifest");
     }
 
     #[test]

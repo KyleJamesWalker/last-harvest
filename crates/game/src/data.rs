@@ -55,6 +55,21 @@ pub struct LoadReport {
     pub mods: Vec<String>,
     /// A line for each card or mod left out, and why.
     pub problems: Vec<String>,
+    /// The game's release, and the one its `game_data.pak` was built for.
+    pub version: String,
+    pub pack_version: Option<String>,
+    /// Where to put which `game_data.pak`, when there is none.
+    pub missing_pack: Option<String>,
+}
+
+impl LoadReport {
+    /// The game's release, and the pack's when it differs.
+    pub fn versions(&self) -> String {
+        match &self.pack_version {
+            Some(p) if *p != self.version => format!("{}, data {p}", self.version),
+            _ => self.version.clone(),
+        }
+    }
 }
 
 static REPORT: OnceLock<LoadReport> = OnceLock::new();
@@ -172,4 +187,17 @@ pub fn powerups() -> &'static str {
 
 pub fn enemies() -> &'static str {
     data().enemies.as_deref().or(built_in::ENEMIES).unwrap_or_else(|| missing("enemies.txt"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn versions_name_the_pack_only_when_it_differs() {
+        let report = |pack: Option<&str>| LoadReport { version: "v0.2.0".into(), pack_version: pack.map(String::from), ..Default::default() };
+        assert_eq!(report(Some("v0.2.0")).versions(), "v0.2.0");
+        assert_eq!(report(None).versions(), "v0.2.0");
+        assert_eq!(report(Some("v0.1.0")).versions(), "v0.2.0, data v0.1.0");
+    }
 }

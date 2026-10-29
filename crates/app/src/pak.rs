@@ -2,6 +2,7 @@
 
 use std::path::PathBuf;
 
+use last_harvest_game::art;
 use last_harvest_game::data::{self, Card, Data, MapFile};
 use last_harvest_pack::{self as pack, Pak, card};
 
@@ -119,14 +120,25 @@ fn read_mods(problems: &mut Vec<String>) -> Vec<(String, Pak)> {
 /// the game starts, and returns the sound files: a sounds folder named by `LAST_HARVEST_SOUNDS`, else the pack's,
 /// else a sounds folder found nearby, with the mods' sounds over either.
 pub fn load() -> Result<Files, String> {
+    let mut missing_pack = None;
     let base = match find() {
-        Some(path) => Some(Pak::open(&path).map_err(|e| format!("{}: {e}", path.display()))?).inspect(|_| eprintln!("data: {}", path.display())),
-        None if !cfg!(feature = "embed") => return Err(format!("no {PAK} beside the binary")),
+        Some(path) => {
+            let pak = Pak::open(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+            eprintln!("data: {} ({})", path.display(), pak.version().unwrap_or("no version"));
+            Some(pak)
+        }
+        None if !cfg!(feature = "embed") => {
+            let message = missing(data_folder().map_or_else(|| DATA.into(), |d| d.display().to_string()));
+            eprintln!("data: no {PAK} beside the binary. {message}");
+            missing_pack = Some(message);
+            None
+        }
         None => {
             eprintln!("data: built in");
             None
         }
     };
+    let pack_version = base.as_ref().and_then(Pak::version).map(String::from);
     let had_base = base.is_some();
     let mut pak = base.unwrap_or_else(Pak::empty);
     let mut problems = Vec::new();
@@ -146,6 +158,9 @@ pub fn load() -> Result<Files, String> {
     let maps = read_maps(pak.take_dir(pack::MAPS), &mut problems);
     let props = read_props(pak.take_dir(pack::PROPS), &mut problems);
     let mut data = Data { atlas: pak.take(pack::ATLAS), font: pak.take(pack::FONT), powerups, enemies, cards, players, props, maps };
+    if missing_pack.is_some() && data.atlas.is_none() {
+        data.atlas = Some(vec![0; (art::ATLAS_W * art::ATLAS_H * 4) as usize]);
+    }
     if let Some(dir) = props_folder() {
         data.props.extend(read_props(samples::read_files(&dir, &[pack::prop::EXTENSION]), &mut problems));
     }
@@ -171,7 +186,7 @@ pub fn load() -> Result<Files, String> {
     for problem in &problems {
         eprintln!("left out: {problem}");
     }
-    data::report(data::LoadReport { cards: loaded, mods: mod_names, problems });
+    data::report(data::LoadReport { cards: loaded, mods: mod_names, problems, version: crate::VERSION.into(), pack_version, missing_pack });
     let mut sounds = pak.take_dir(pack::SOUNDS);
     let forced = std::env::var_os("LAST_HARVEST_SOUNDS").is_some();
     if (forced || !had_base)
@@ -183,6 +198,14 @@ pub fn load() -> Result<Files, String> {
     }
     eprintln!("audio: {} sound files", sounds.len());
     Ok(sounds)
+}
+
+/// Which `game_data.pak` to copy into `folder`: the one from this game's release.
+fn missing(folder: String) -> String {
+    match crate::VERSION {
+        v if v.starts_with("dev") => format!("Copy in a game_data.pak built with this game: {folder}"),
+        v => format!("Copy game_data.pak from release {v} into {folder}"),
+    }
 }
 
 /// Drops each card that a later one of the same file name replaces, so a loose card stands in for a pack's.
