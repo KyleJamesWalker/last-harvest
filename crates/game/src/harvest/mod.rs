@@ -159,7 +159,7 @@ pub fn check_tables(powerups: Option<&str>, enemies: Option<&str>, props: Option
 }
 
 /// The data files the game reads its rules from, which the editors change and a mod can replace.
-pub const TABLES: [&str; 6] = ["tuning.txt", "props.txt", "ground.txt", "effects.txt", "powerups.txt", "enemies.txt"];
+pub const TABLES: [&str; 7] = ["tuning.txt", "props.txt", "ground.txt", "farm.txt", "effects.txt", "powerups.txt", "enemies.txt"];
 
 /// A data file as the game has it built in.
 pub fn built_in_table(file: &str) -> Option<&'static str> {
@@ -168,6 +168,7 @@ pub fn built_in_table(file: &str) -> Option<&'static str> {
         "props.txt" => Some(include_str!("../../props.txt")),
         "effects.txt" => Some(include_str!("../../effects.txt")),
         "ground.txt" => Some(include_str!("../../ground.txt")),
+        "farm.txt" => Some(include_str!("../../farm.txt")),
         "powerups.txt" => Some(include_str!("../../powerups.txt")),
         "enemies.txt" => Some(include_str!("../../enemies.txt")),
         _ => None,
@@ -182,6 +183,7 @@ pub fn check_table(file: &str, text: &str) -> Result<(), String> {
         "props.txt" => map::parse_props(text).map(|_| ()).map_err(fail),
         "effects.txt" => effects::parse(text).map(|_| ()).map_err(fail),
         "ground.txt" => map::parse_ground(text).map(|_| ()).map_err(fail),
+        "farm.txt" => map::parse_farm(text).map(|_| ()).map_err(fail),
         "powerups.txt" => powerups::parse(text).map(|_| ()).map_err(fail),
         "enemies.txt" => enemies::parse(text).map(|_| ()).map_err(fail),
         _ => Err(format!("{file} isn't one of the game's data files")),

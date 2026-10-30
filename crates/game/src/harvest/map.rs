@@ -3,8 +3,10 @@
 use crate::art::{self, Art};
 use crate::rng::Rng;
 
+mod farm;
 mod ground;
 mod text;
+pub use farm::parse as parse_farm;
 pub use ground::parse as parse_ground;
 pub use text::{EXTENSION as MAP_EXTENSION, ground_codes, MAX_SIZE as MAP_MAX, MIN_SIZE as MAP_MIN, MapSource, PropKind, parse_props, props as map_props, PropLine, Tough, check as check_map, valid_id as valid_map_id};
 
@@ -184,9 +186,10 @@ fn tiles(px: f32) -> usize {
 
 impl Map {
     pub fn generate(rng: &mut Rng, w: usize, h: usize) -> Self {
+        let tufts = farm::farm().tufts;
         let mut ground = Vec::with_capacity(w * h);
         for _ in 0..w * h {
-            ground.push(if rng.below(10) == 0 { art::DIRT_TUFTS[rng.below(2)] } else { art::DIRT[rng.below(2)] });
+            ground.push(if tufts > 0 && rng.below(tufts) == 0 { art::DIRT_TUFTS[rng.below(2)] } else { art::DIRT[rng.below(2)] });
         }
         let mut map = Map {
             w,
@@ -228,7 +231,8 @@ impl Map {
             map.place_near(rng, &[art::MAILBOX], [x + 2, y + bh + 2], 3, 0);
             map.graveyard(rng, [x + bw / 2, y + bh / 2]);
         }
-        for _ in 0..4 + rng.below(4) {
+        let f = farm::farm();
+        for _ in 0..f.fields + if f.more_fields > 0 { rng.below(f.more_fields) } else { 0 } {
             map.field(rng);
         }
         map.roadside(rng, road);
@@ -748,33 +752,22 @@ impl Map {
     }
 
     fn scatter(&mut self, rng: &mut Rng) {
-        let area = self.w * self.h;
-        let counts: [(&'static [Art], usize); 10] = [
-            (&art::DEAD_TREE, area / 120),
-            (std::slice::from_ref(&art::BUSH), area / 140),
-            (std::slice::from_ref(&art::BUSHES), area / 900),
-            (std::slice::from_ref(&art::TALL_TREE), area / 400),
-            (&art::LOG, area / 400),
-            (std::slice::from_ref(&art::STUMP), area / 600),
-            (std::slice::from_ref(&art::BARREL), area / 500),
-            (std::slice::from_ref(&art::TANK), area / 1200),
-            (&art::WRECK_H, area / 1200),
-            (&art::SIGN, area / 1200),
-        ];
-        for (set, n) in counts {
-            for _ in 0..n {
+        let (area, f) = (self.w * self.h, farm::farm());
+        let per = |n: usize| area.checked_div(n).unwrap_or(0);
+        for &(set, n) in &f.scatter {
+            for _ in 0..per(n) {
                 let k = rng.below(set.len());
                 self.place_anywhere(rng, &set[k..k + 1]);
             }
         }
-        for _ in 0..area / 300 {
+        for _ in 0..per(f.corpses) {
             let (x, y) = (1 + rng.below(self.w - 2), 1 + rng.below(self.h - 2));
             if self.cells[self.i(x, y)] == Cell::Open {
                 let a = art::CORPSE[rng.below(art::CORPSE.len())];
                 self.decals.push((a, x as f32 * TILE, y as f32 * TILE));
             }
         }
-        for _ in 0..area / 600 {
+        for _ in 0..per(f.grass) {
             let (cx, cy, r) = (rng.below(self.w) as i32, rng.below(self.h) as i32, rng.below(2) as i32);
             for y in (cy - r).max(1)..(cy + r + 1).min(self.h as i32 - 1) {
                 for x in (cx - r).max(1)..(cx + r + 1).min(self.w as i32 - 1) {

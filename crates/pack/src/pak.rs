@@ -21,6 +21,7 @@ pub const PROPS_TABLE: &str = "props.txt";
 pub const TUNING: &str = "tuning.txt";
 pub const EFFECTS: &str = "effects.txt";
 pub const GROUND: &str = "ground.txt";
+pub const FARM: &str = "farm.txt";
 pub const SOUNDS: &str = "sounds/";
 pub const ENEMY_CARDS: &str = "enemies/";
 pub const PLAYER_CARDS: &str = "players/";
@@ -126,7 +127,7 @@ impl Pak {
         }
         let text = |file: &str| self.get(file).map(|b| std::str::from_utf8(b).map_err(|_| format!("{file} is not UTF-8"))).transpose();
         last_harvest_game::check_tables(text(POWERUPS)?, text(ENEMIES)?, text(PROPS_TABLE)?)?;
-        for file in [EFFECTS, GROUND] {
+        for file in [EFFECTS, GROUND, FARM] {
             if let Some(t) = text(file)? {
                 last_harvest_game::check_table(file, t)?;
             }
