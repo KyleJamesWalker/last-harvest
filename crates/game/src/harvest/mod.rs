@@ -209,6 +209,10 @@ pub fn check_own_table(file: &str, text: &str) -> Result<(), String> {
             Some(k) => Err(format!("{file}: no sprite called {} in art.txt", k.name)),
             None => Ok(()),
         },
+        "powerups.txt" => match text.lines().filter_map(|l| l.split('#').next()?.trim().strip_prefix("icon")).map(str::trim).find(|n| missing(n)) {
+            Some(name) => Err(format!("{file}: no sprite called {name} in art.txt")),
+            None => Ok(()),
+        },
         "farm.txt" => {
             let mut scatter = false;
             for line in text.lines().map(|l| l.split('#').next().unwrap_or("").trim()).filter(|l| !l.is_empty()) {
@@ -2063,6 +2067,8 @@ mod tests {
         assert_eq!(check_own_table("effects.txt", &effects), Err("effects.txt: no sprite called NOPE in art.txt".into()));
         let farm = built_in_table("farm.txt").unwrap().replace("BUSH 140", "PROP_MINE 140");
         assert!(check_table("farm.txt", &farm).is_ok() && check_own_table("farm.txt", &farm).is_err(), "only a mod's farm strews its props");
+        let powerups = built_in_table("powerups.txt").unwrap().replacen("unlock    start", "unlock    start\nicon      PROP_MINE", 1);
+        assert!(check_table("powerups.txt", &powerups).is_ok() && check_own_table("powerups.txt", &powerups).is_err(), "only a mod's icon can be its prop");
     }
 
     fn run(h: &mut Harvest, input: &Input, secs: f32) {

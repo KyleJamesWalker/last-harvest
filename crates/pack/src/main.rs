@@ -128,6 +128,11 @@ fn make_mod(dir: &Path, out: &Path) -> Result<(), Box<dyn std::error::Error>> {
     }
     // The mod's maps are checked against its own ground and props, where it brings them.
     let table = |name: &str| files.iter().find(|(p, _)| p == name).and_then(|(_, b)| String::from_utf8(b.clone()).ok());
+    for (file, text) in [(GROUND, table(GROUND)), (PROPS_TABLE, table(PROPS_TABLE))] {
+        if let Some(t) = text {
+            last_harvest_game::check_table(file, &t)?;
+        }
+    }
     let tables = last_harvest_game::data::Data { ground: table(GROUND), props_table: table(PROPS_TABLE), ..Default::default() };
     last_harvest_game::data::install(tables)?;
     load_props(files.iter().map(|(p, b)| (p.as_str(), b.as_slice())))?;

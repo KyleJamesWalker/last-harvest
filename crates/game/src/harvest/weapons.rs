@@ -896,7 +896,8 @@ impl Harvest {
             Thrown::Lob { def, damage, radius, life, slow } => {
                 let d = &book().defs[def];
                 match d.lands {
-                    Lands::Blast => self.explode(g.to, radius, damage, sounds),
+                    // A blast adds the area and damage passives itself, so it takes the numbers from before them.
+                    Lands::Blast => self.explode(g.to, radius / self.kit.mods.area, damage / self.kit.mods.damage, sounds),
                     Lands::Fire => self.lay(Hazard::Fire, g.to, radius, damage, life, 0.0),
                     Lands::Flare => self.lay(Hazard::Flare, g.to, radius, damage, life, 0.0),
                     Lands::Tacks => self.lay(Hazard::Tacks, g.to, radius, damage, life, slow),
