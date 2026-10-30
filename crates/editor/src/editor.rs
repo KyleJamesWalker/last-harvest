@@ -238,8 +238,12 @@ enum Action {
     ClearPart,
     /// Clears every pixel of the paint color.
     ClearColor,
-    /// Steps how many of the open prop's top rows a figure walks through.
+    /// Steps how many of the open prop's top rows a figure walks through, or the map's selected prop's.
     Open(i32),
+    /// Steps which frame the map's selected prop shows, through each one and back to all of them animating.
+    LineFrame(i32),
+    /// Steps how fast the map's selected prop animates; 0 keeps its sprite's own pace.
+    LineFps(i32),
     /// Steps the data page's line, by its place in the section, down or up.
     DataStep(usize, i32),
     /// Starts typing the data page's line's value.
@@ -1515,6 +1519,7 @@ impl Editor {
         match a {
             Action::MapTool(_) | Action::Ground(_) | Action::PickProp(_) | Action::PickPage(_) | Action::Picket(_) | Action::MapSize(..) | Action::Randomize | Action::MapFit | Action::PropDefaults => {}
             Action::DataStep(..) | Action::DataEdit(_) | Action::DataRemove(_) | Action::DataAdd | Action::DataPage(_) => {}
+            Action::LineFrame(_) | Action::LineFps(_) => {}
             Action::Cover => self.edit_prop(|f| f.cover = !f.cover),
             Action::Open(d) => self.edit_prop(|f| f.open = (f.open as i32 + d * step).clamp(0, 64) as usize),
             Action::Hp(d) => self.edit_prop(|f| f.hp = (f.hp + (d * step * 10) as f32).clamp(0.0, last_harvest_game::PROP_MAX_HP)),

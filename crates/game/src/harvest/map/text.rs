@@ -158,6 +158,14 @@ pub enum PropLine {
 }
 
 impl PropLine {
+    /// How many frames its sprite has; 1 for a fence.
+    pub fn frame_count(&self) -> usize {
+        match self {
+            PropLine::Sprite { name, .. } => sprite(name).map_or(1, <[Art]>::len),
+            PropLine::Fence { .. } => 1,
+        }
+    }
+
     /// The tiles it covers, as x, y, width and height.
     pub fn rect(&self) -> [usize; 4] {
         match self {

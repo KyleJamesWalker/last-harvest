@@ -53,6 +53,9 @@ const MAX_SCALE: f32 = 4.0;
 /// Where a prop's hit points and cover show: the selected one's under Move, and an open prop's sprite's under
 /// the palette, which keeps this many rows for them.
 const TOUGH_Y: f32 = PICK_TOP + 30.0;
+/// Where the selected prop's walk-through rows, frame and pace go under Move, a row apart.
+const LINE_Y: f32 = TOUGH_Y + 100.0;
+const LINE_ROW: f32 = 36.0;
 pub(super) const PROP_PALETTE_ROWS: usize = 5;
 pub(super) const PROP_HP_Y: f32 = 474.0;
 pub(super) const PROP_OPEN_Y: f32 = 508.0;
@@ -568,6 +571,13 @@ impl Editor {
                     push(SIDE_X + 182.0, TOUGH_Y, 46.0, 30.0, Action::Hp(1), "+", false);
                     push(SIDE_X, TOUGH_Y + 36.0, 114.0, 30.0, Action::Cover, "Cover", cover);
                     push(SIDE_X + 118.0, TOUGH_Y + 36.0, 114.0, 30.0, Action::PropDefaults, "Defaults", false);
+                    if matches!(p, PropLine::Sprite { .. }) {
+                        for (i, (minus, plus)) in [(Action::Open(-1), Action::Open(1)), (Action::LineFrame(-1), Action::LineFrame(1)), (Action::LineFps(-1), Action::LineFps(1))].into_iter().enumerate() {
+                            let y = LINE_Y + i as f32 * LINE_ROW;
+                            push(SIDE_X + 130.0, y, 46.0, 30.0, minus, "-", false);
+                            push(SIDE_X + 182.0, y, 46.0, 30.0, plus, "+", false);
+                        }
+                    }
                 }
             }
             _ => {}
@@ -599,6 +609,25 @@ impl Editor {
                 p.tough_mut().cover = Some(!cover);
             }),
             Action::PropDefaults => m.retough(|p| *p.tough_mut() = Default::default()),
+            Action::Open(d) => m.retough(|p| {
+                if let PropLine::Sprite { open, .. } = p {
+                    *open = (*open as i32 + d).clamp(0, 64) as usize;
+                }
+            }),
+            Action::LineFrame(d) => m.retough(|p| {
+                let n = p.frame_count() as i32;
+                if let PropLine::Sprite { frame, .. } = p {
+                    // All of them animating sits between the last frame and the first.
+                    let at = frame.map_or(n, |f| f as i32);
+                    let next = (at + d).rem_euclid(n + 1);
+                    *frame = (next < n).then_some(next as usize);
+                }
+            }),
+            Action::LineFps(d) => m.retough(|p| {
+                if let PropLine::Sprite { fps, .. } = p {
+                    *fps = (*fps + d as f32).clamp(0.0, 60.0);
+                }
+            }),
             Action::Randomize => {
                 m.remember();
                 m.rolls += 1;
@@ -864,6 +893,19 @@ impl Editor {
             c.label(if hp > 0.0 { format!("HP {hp}") } else { "Won't break".into() }, SIDE_X, TOUGH_Y + 5.0, 18.0, TEXT, Align::Left);
             let own = p.tough() == Default::default();
             c.label(if own { "As its sprite says" } else { "Set on this map" }, SIDE_X, TOUGH_Y + 74.0, 15.0, DIM, Align::Left);
+            if let PropLine::Sprite { frame, fps, open, .. } = p {
+                let lines = [
+                    match open {
+                        0 => "Blocks every row".to_string(),
+                        n => format!("Top {n} open"),
+                    },
+                    frame.map_or("All frames".to_string(), |f| format!("Frame {} of {}", f + 1, p.frame_count())),
+                    if *fps > 0.0 { format!("{fps} fps") } else { "Its own pace".to_string() },
+                ];
+                for (i, line) in lines.into_iter().enumerate() {
+                    c.label(line, SIDE_X, LINE_Y + i as f32 * LINE_ROW + 6.0, 16.0, TEXT, Align::Left);
+                }
+            }
         }
         let [w, h] = m.src.size;
         c.label(format!("Width {w}"), SIDE_X, SIZE_Y + 6.0, 17.0, TEXT, Align::Left);
@@ -1068,6 +1110,35 @@ mod tough_tests {
         assert_eq!(line(&e).hp_and_cover(), (50.0, false), "each press undoes on its own");
         e.act(Action::PropDefaults, false);
         assert_eq!(line(&e).tough(), Default::default());
+    }
+
+    #[test]
+    fn move_sets_a_props_walk_through_rows_frame_and_pace() {
+        let dir = std::env::temp_dir().join(format!("lh-line-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut e = Editor::new(Box::new(FsStore { dir: dir.join("sprites"), catalog: dir.join("art.txt"), cards: dir.join("enemies") }), "BARREL");
+        e.act(Action::Ask(Ask::New), false);
+        "map yard".chars().for_each(|ch| e.key(Key::Char(ch)));
+        e.key(Key::Enter);
+        let m = e.map.as_mut().unwrap();
+        let sign = PropLine::Sprite { name: "SIGN".into(), at: [30, 30], frame: None, fps: 0.0, open: 0, tough: Default::default() };
+        let n = sign.frame_count();
+        m.src.props.push((0, sign));
+        m.selected = Some(0);
+        e.act(Action::MapTool(MapTool::Move), false);
+        e.map.as_mut().unwrap().selected = Some(0);
+        let b = e.buttons();
+        let apart = |x: &Button, y: &Button| x.rect.x + x.rect.w <= y.rect.x || y.rect.x + y.rect.w <= x.rect.x || x.rect.y + x.rect.h <= y.rect.y || y.rect.y + y.rect.h <= x.rect.y;
+        assert!(b.iter().enumerate().all(|(i, x)| b.iter().skip(i + 1).all(|y| apart(x, y))), "no two buttons overlap");
+        for a in [Action::Open(1), Action::LineFrame(1), Action::LineFps(1), Action::LineFps(1)] {
+            e.act(a, false);
+        }
+        let PropLine::Sprite { frame, fps, open, .. } = e.map.as_ref().unwrap().src.props[0].1.clone() else { unreachable!() };
+        assert_eq!((frame, fps, open), (Some(0), 2.0, 1));
+        e.act(Action::LineFrame(-1), false);
+        let PropLine::Sprite { frame, .. } = e.map.as_ref().unwrap().src.props[0].1.clone() else { unreachable!() };
+        assert_eq!(frame, None, "back before the first frame, they all animate");
+        assert!(n > 1);
     }
 }
 
