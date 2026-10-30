@@ -1,6 +1,6 @@
 # last-harvest
 
-A zombie survivors-like for the ANBERNIC RG DS Plus, written in Rust. It is built on the [twinbit-ds](https://github.com/KyleJamesWalker/twinbit-ds) template. Players can add their own zombies and looks with cards, single PNGs made in a browser card editor, and change the rest of the game's data with mod packs: see Cards and mods.
+A zombie survivors-like for the ANBERNIC RG DS Plus, written in Rust. It is built on the [twinbit-ds](https://github.com/KyleJamesWalker/twinbit-ds) template. Players can add their own zombies and looks with cards, single PNGs made in a browser card editor, and change the rest of the game's data with mod packs: see Cards and mods. The [manual](docs/guides/GAME_MANUAL.md) covers playing and making things for the game.
 
 ## The game
 
@@ -31,7 +31,7 @@ The art comes from the tileset's reference sheet. `crates/game/art.txt` names ea
 
 ### Powerups
 
-A run starts with only the knife and one grenade, and the first level-up takes just 2 money. Each level-up offers three cards, drawn from 17 weapons and 17 passives. A run carries at most six weapons and six passives. Once both are full, the cards only offer levels for what you already carry. When nothing is left to level, the cards offer a snack, an ammo crate or pocket change.
+On Normal a run starts with only the knife and one grenade; see the difficulties above. The first level-up takes just 2 money. Each level-up offers three cards, drawn from 17 weapons and 17 passives. A run carries at most six weapons and six passives. Once both are full, the cards only offer levels for what you already carry. When nothing is left to level, the cards offer a snack, an ammo crate or pocket change.
 
 Each weapon covers a zone, shown on its card:
 
@@ -120,7 +120,7 @@ A weapon in `powerups.txt` picks a behavior with `does`. Two behaviors take thei
 
 Any weapon can name an `effect` and a `bullet` from `effects.txt`, and a `sound`. Its `kick`, `punch` and `shake` move the camera on each attack, and `flash` lights the ground: a color, its reach in tiles and its seconds. An `icon` can be a player's prop, `PROP_<ID>`. So a new weapon needs no code.
 
-Both editors edit these files. Each section lists under a `Data:` heading, such as `tuning.txt`'s `[player]` under Data: tuning. Its page shows one line a row, with the comment under it. Numbers step with - and +, and Edit types any value.
+Both editors edit these files. Each file is a folder under one Data heading, and each section a page in it, such as `tuning.txt`'s `[player]` under Data > tuning. Its page shows one line a row, with the comment under it. Numbers step with - and +, and Edit types any value.
 
 Save writes the file only when the game would read it. The sprite editor saves into `crates/game/`. The card editor keeps a changed file in the browser, and Export all carries it to the mod pack. A sprite that `props.txt` or `effects.txt` names shows a Data button that opens its section.
 

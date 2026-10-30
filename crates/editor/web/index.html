@@ -41,7 +41,7 @@
   #help > div { max-width: min(720px, 92vw); max-height: 86vh; overflow: auto; padding: 20px 26px; border-radius: 12px; background: #26262d;
                 line-height: 1.45; }
   #help h2 { margin: 0 0 8px; color: #f2bf4d; }
-  #help code { color: #f2bf4d; }
+  #help code, #help a { color: #f2bf4d; }
 </style>
 </head>
 <body>
@@ -64,8 +64,8 @@
   <ol>
     <li><b>New</b> starts a card from a plain figure. Type its id: letters, digits and <code>_</code>. Start the name
     with <code>PLAYER_</code> for a player card.</li>
-    <li>Draw its five parts from the list: walking front, side and back, then a flash and a hurt frame for each
-    facing. An enemy's walk can have 1 to 8 frames. <b>Compare</b> shows all five side by side.</li>
+    <li>Draw its parts from the list: walking front, side and back, then a flash, a hurt and a dead frame for each
+    facing. An enemy's walk can have 1 to 8 frames. <b>Compare</b> shows them side by side.</li>
     <li><b>Stats</b> (<code>T</code>) sets its name and numbers. For an enemy, the chart shows how often it comes
     through the night beside the game's own kinds; for a player, which weapons each difficulty starts with.</li>
     <li><b>Save</b>, then <b>Export</b> downloads <code>id.enemy.png</code> or <code>id.player.png</code>.</li>
@@ -82,6 +82,8 @@
   your browser.</p>
   <p>Some apps strip a PNG's text when they re-save it, which takes a card's numbers with it: share the file
   itself.</p>
+  <p>The <a href="https://kylejameswalker.github.io/last-harvest/manual.html" target="_blank" rel="noopener">manual</a>
+  covers playing the game and everything this editor makes, step by step.</p>
   <button id="help-close">Close</button>
 </div></div>
 <div id="hold-left" class="hold">Shift</div>
