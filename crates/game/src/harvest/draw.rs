@@ -221,7 +221,8 @@ impl Harvest {
                     c.art(a, sx, sy, scale, false, shade([1.0, 1.0, 1.0, fade]));
                 }
                 Hazard::Fire => {
-                    let a = art::FIRE[((self.t * 10.0 + p.pos[0]) as usize) % art::FIRE.len()];
+                    let fire = super::effects::effects().fire;
+                    let a = fire.looping(self.t + p.pos[0] / fire.fps);
                     let (sx, sy) = at(p.pos[0] - a.w() / 2.0, p.pos[1] - a.h());
                     c.art(a, sx, sy, scale, false, [1.0, 1.0, 1.0, fade]);
                 }
@@ -244,7 +245,7 @@ impl Harvest {
         }
         for d in &self.drops {
             let a = match d.kind {
-                DropKind::Money(_) => art::MONEY[((d.age * 10.0) as usize).min(3)],
+                DropKind::Money(_) => super::effects::effects().money.once(d.age),
                 DropKind::Health => art::HEALTH,
                 DropKind::Chest => art::CHEST,
             };
@@ -296,7 +297,8 @@ impl Harvest {
             sprites.push((d.pos[1], a, d.pos[0] - a.w() / 2.0, d.pos[1] - a.h() + 2.0, d.heading[0] < 0.0, 1.0, 1.0));
         }
         for (i, (p, flip)) in self.crows().into_iter().enumerate() {
-            let a = art::CROW_FLY[(self.t * 12.0 + i as f32) as usize % art::CROW_FLY.len()];
+            let crow = super::effects::effects().crow;
+            let a = crow.looping(self.t + i as f32 / crow.fps);
             sprites.push((p[1], a, p[0] - a.w() / 2.0, p[1] - a.h() - 12.0, flip, 1.0, 1.0));
         }
         let (facing, flip) = self.facing;

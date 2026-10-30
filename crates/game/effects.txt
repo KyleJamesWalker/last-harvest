@@ -1,0 +1,80 @@
+# What each effect, swing and animal plays: a sprite from art.txt or a player's prop (PROP_<ID>), and how fast.
+#   art NAME      the sprite; its frames play in order
+#   fps N         frames a second
+#   life N        a swing's seconds
+#   reach N       how far out a swing sweeps, as a fraction of the weapon's range or area
+# A sprite standing as a slab lies flat and turns with the swing; anything else faces the camera.
+
+[muzzle_pistol]
+art MUZZLE
+fps 20
+
+[muzzle_rifle]
+art MUZZLE
+fps 12
+
+[shotgun_blast]
+art SHOTGUN_BLAST
+fps 18
+
+[slash]
+art SLASH
+fps 20
+
+[pitchfork]
+art PITCHFORK_THRUST
+life 0.16
+reach 0.6
+
+[scythe]
+art SCYTHE_SWING
+life 0.3
+reach 0.7
+
+[explosion]
+art EXPLOSION
+fps 14
+
+[explosion_smoke]
+art SMOKE
+fps 8
+
+[blood]
+art BLOOD_SPLAT
+fps 12
+
+[zombie_rises]
+art SMOKE
+fps 7
+
+[player_rises]
+art SMOKE
+fps 7
+
+[dawn_burns]
+art SMOKE
+fps 5
+
+[prop_crumbles]
+art SMOKE
+fps 8
+
+[drum_returns]
+art SMOKE
+fps 7
+
+[fire]
+art FIRE
+fps 10
+
+[money]
+art MONEY
+fps 10
+
+[crow]
+art CROW_FLY
+fps 12
+
+[dog]
+art DOG
+fps 10

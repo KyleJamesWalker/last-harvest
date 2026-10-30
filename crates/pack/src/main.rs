@@ -9,7 +9,7 @@
 use std::path::{Path, PathBuf};
 
 use last_harvest_game::art;
-use last_harvest_pack::{ATLAS, ENEMIES, FONT, MANIFEST, POWERUPS, PROPS_TABLE, SOUNDS, TUNING, card, manifest, mod_manifest, write};
+use last_harvest_pack::{ATLAS, ENEMIES, FONT, MANIFEST, EFFECTS, POWERUPS, PROPS_TABLE, SOUNDS, TUNING, card, manifest, mod_manifest, write};
 
 /// Files by path or name, with their bytes.
 type Files = Vec<(String, Vec<u8>)>;
@@ -38,6 +38,7 @@ fn files(root: &Path) -> Result<Files, Box<dyn std::error::Error>> {
         (ENEMIES.to_string(), std::fs::read(root.join("crates/game").join(ENEMIES))?),
         (PROPS_TABLE.to_string(), std::fs::read(root.join("crates/game").join(PROPS_TABLE))?),
         (TUNING.to_string(), std::fs::read(root.join("crates/game").join(TUNING))?),
+        (EFFECTS.to_string(), std::fs::read(root.join("crates/game").join(EFFECTS))?),
     ];
     for (name, bytes) in listed(&root.join("assets/private/sounds"), &[".ogg", ".wav"])? {
         files.push((format!("{SOUNDS}{name}"), bytes));

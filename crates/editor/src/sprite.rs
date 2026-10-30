@@ -272,6 +272,7 @@ pub fn section(name: &str) -> &'static str {
         return match rest.split('_').next() {
             Some("TUNING") => "Data: tuning",
             Some("PROPS") => "Data: props",
+            Some("EFFECTS") => "Data: effects",
             Some("POWERUPS") => "Data: powerups and weapons",
             Some("ENEMIES") => "Data: enemies",
             _ => "Data",

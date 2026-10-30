@@ -2,6 +2,7 @@
 
 mod carve;
 mod draw;
+mod effects;
 mod enemies;
 mod juice;
 mod map;
@@ -157,13 +158,14 @@ pub fn check_tables(powerups: Option<&str>, enemies: Option<&str>, props: Option
 }
 
 /// The data files the game reads its rules from, which the editors change and a mod can replace.
-pub const TABLES: [&str; 4] = ["tuning.txt", "props.txt", "powerups.txt", "enemies.txt"];
+pub const TABLES: [&str; 5] = ["tuning.txt", "props.txt", "effects.txt", "powerups.txt", "enemies.txt"];
 
 /// A data file as the game has it built in.
 pub fn built_in_table(file: &str) -> Option<&'static str> {
     match file {
         "tuning.txt" => Some(include_str!("../../tuning.txt")),
         "props.txt" => Some(include_str!("../../props.txt")),
+        "effects.txt" => Some(include_str!("../../effects.txt")),
         "powerups.txt" => Some(include_str!("../../powerups.txt")),
         "enemies.txt" => Some(include_str!("../../enemies.txt")),
         _ => None,
@@ -176,6 +178,7 @@ pub fn check_table(file: &str, text: &str) -> Result<(), String> {
     match file {
         "tuning.txt" => crate::tuning::parse(text, Some(&crate::tuning::built_in())).map(|_| ()).map_err(fail),
         "props.txt" => map::parse_props(text).map(|_| ()).map_err(fail),
+        "effects.txt" => effects::parse(text).map(|_| ()).map_err(fail),
         "powerups.txt" => powerups::parse(text).map(|_| ()).map_err(fail),
         "enemies.txt" => enemies::parse(text).map(|_| ()).map_err(fail),
         _ => Err(format!("{file} isn't one of the game's data files")),
@@ -294,7 +297,7 @@ struct Bird {
 impl Bird {
     fn art(&self) -> Art {
         if self.flying || self.z > 0.0 {
-            art::CROW_FLY[(self.anim * 12.0) as usize % art::CROW_FLY.len()]
+            effects::effects().crow.looping(self.anim)
         } else {
             // Mostly standing, with a peck now and then.
             let k = (self.anim * 5.0) as usize % 14;
@@ -438,6 +441,10 @@ struct Fx {
 }
 
 impl Fx {
+    fn play(e: effects::Effect, pos: [f32; 2], angle: f32) -> Self {
+        Fx { frames: e.frames, fps: e.fps, pos, angle, t: 0.0 }
+    }
+
     fn done(&self) -> bool {
         self.t * self.fps >= self.frames.len() as f32
     }
@@ -893,7 +900,7 @@ impl Harvest {
                 }
                 if !won && before < TURN_RISE && t >= TURN_RISE {
                     self.juice.burst(self.pos, 0.0, 16, [0.0; 2], 0.0, [20.0, 60.0], juice::DIRT, 1.8, 0.7, 0.0);
-                    self.fx.push(Fx { frames: &art::SMOKE, fps: 7.0, pos: [self.pos[0], self.pos[1] - 3.0], angle: 0.0, t: 0.0 });
+                    self.fx.push(Fx::play(effects::effects().player_rises, [self.pos[0], self.pos[1] - 3.0], 0.0));
                     self.juice.shake(0.35);
                     sounds.push(Sfx::Turn);
                 }
@@ -1054,7 +1061,7 @@ impl Harvest {
             // Home: the door shuts and first light burns the dead away.
             for z in std::mem::take(&mut self.zombies) {
                 self.juice.burst(z.pos, 8.0, 3, [0.0; 2], 0.0, [10.0, 40.0], juice::EMBER, 1.4, 1.2, 1.0);
-                self.fx.push(Fx { frames: &art::SMOKE, fps: 5.0, pos: [z.pos[0], z.pos[1] - 6.0], angle: 0.0, t: 0.0 });
+                self.fx.push(Fx::play(effects::effects().dawn_burns, [z.pos[0], z.pos[1] - 6.0], 0.0));
             }
             self.tells.clear();
             self.juice.flash(self.pos, 40.0, [1.6, 1.1, 0.7], 14.0, 1.5);
@@ -1347,7 +1354,7 @@ impl Harvest {
             z.id = self.next_id;
             self.next_id += 1;
             self.zombies.push(z);
-            self.fx.push(Fx { frames: &art::SMOKE, fps: 7.0, pos: [pos[0], pos[1] - 3.0], angle: 0.0, t: 0.0 });
+            self.fx.push(Fx::play(effects::effects().zombie_rises, [pos[0], pos[1] - 3.0], 0.0));
             self.juice.burst(pos, 0.0, 8, [0.0; 2], 0.0, [15.0, 45.0], juice::DIRT, 1.6, 0.6, 0.0);
             let (pan, gain) = self.place(pos);
             if self.hush[3] <= 0.0 && gain > 60 {
@@ -1420,7 +1427,7 @@ impl Harvest {
     fn crumble(&mut self, dt: f32, sounds: &mut Vec<Sfx>) {
         let Some(c) = self.map.crumble(dt) else { return };
         self.flow_cell = [usize::MAX; 2];
-        self.fx.push(Fx { frames: &art::SMOKE, fps: 8.0, pos: [c[0], c[1] - 4.0], angle: 0.0, t: 0.0 });
+        self.fx.push(Fx::play(effects::effects().prop_crumbles, [c[0], c[1] - 4.0], 0.0));
         self.juice.burst(c, 4.0, 12, [0.0; 2], 0.0, [30.0, 80.0], juice::DIRT, 1.6, 0.6, 0.0);
         self.noise = Some(c);
         self.thud((1, false), sounds);
@@ -1564,8 +1571,8 @@ impl Harvest {
             self.hurt = self.difficulty.hurt_time();
             self.ouch(0.3);
         }
-        self.fx.push(Fx { frames: &art::EXPLOSION, fps: 14.0, pos: c, angle: 0.0, t: 0.0 });
-        self.fx.push(Fx { frames: &art::SMOKE, fps: 8.0, pos: [c[0], c[1] - 8.0], angle: 0.0, t: 0.0 });
+        self.fx.push(Fx::play(effects::effects().explosion, c, 0.0));
+        self.fx.push(Fx::play(effects::effects().explosion_smoke, [c[0], c[1] - 8.0], 0.0));
         let near = len(sub(self.pos, c));
         self.juice.shake((0.75 * (1.0 - near / 260.0)).max(0.12));
         self.juice.stop(0.07);
@@ -1618,7 +1625,7 @@ impl Harvest {
 
     /// A zombie dying at `pos`, knocked toward `fall` and flung `fling` hard: blood, a stain, gibs and its corpse.
     pub(super) fn gore(&mut self, pos: [f32; 2], fall: [f32; 2], fling: f32, dir: [f32; 2], look: &Look, gibs: usize) {
-        self.fx.push(Fx { frames: &art::BLOOD_SPLAT, fps: 12.0, pos: [pos[0], pos[1] - 4.0], angle: 0.0, t: 0.0 });
+        self.fx.push(Fx::play(effects::effects().blood, [pos[0], pos[1] - 4.0], 0.0));
         let stain = art::BLOOD_STAIN[self.rng.below(art::BLOOD_STAIN.len())];
         self.stain((stain, pos[0] - stain.w() / 2.0, pos[1] - stain.h() / 2.0, [1.0; 3]));
         let (vel, vz) = if fling > 0.0 { ([fall[0] * fling, fall[1] * fling], fling * 0.9) } else { ([fall[0] * 25.0, fall[1] * 25.0], 0.0) };

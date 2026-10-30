@@ -525,7 +525,8 @@ pub fn scene(h: &Harvest) -> CardScene {
         board(&mut cards, Board::new(d.art(), flip, d.pos, 0.0, CHARACTER_DEPTH));
     }
     for (i, (p, flip)) in h.crows().into_iter().enumerate() {
-        let a = art::CROW_FLY[(h.t * 12.0 + i as f32) as usize % art::CROW_FLY.len()];
+        let crow = super::effects::effects().crow;
+        let a = crow.looping(h.t + i as f32 / crow.fps);
         board(&mut cards, Board::new(a, flip, p, 12.0 * PX, 0.0));
     }
     for s in &h.swings {
@@ -549,7 +550,8 @@ pub fn scene(h: &Harvest) -> CardScene {
                 flat(&mut cards, a, q.x - a.w() * PX / 2.0, q.z - a.h() * PX / 2.0, DECAL_LIFT + 0.008, [1.0; 3]);
             }
             Hazard::Fire => {
-                let a = art::FIRE[((h.t * 10.0 + patch.pos[0]) as usize) % art::FIRE.len()];
+                let fire = super::effects::effects().fire;
+                let a = fire.looping(h.t + patch.pos[0] / fire.fps);
                 let mut b = Board::new(a, false, patch.pos, 0.0, 0.0);
                 b.tint = [1.6, 1.3, 1.0];
                 board(&mut cards, b);
@@ -576,7 +578,7 @@ pub fn scene(h: &Harvest) -> CardScene {
     }
     for d in &h.drops {
         let a = match d.kind {
-            DropKind::Money(_) => art::MONEY[3],
+            DropKind::Money(_) => super::effects::effects().money.once(f32::MAX),
             DropKind::Health => art::HEALTH,
             DropKind::Chest => art::CHEST,
         };

@@ -15,6 +15,8 @@ pub struct Data {
     pub props_table: Option<String>,
     /// A pack's `tuning.txt`, setting over the game's own numbers.
     pub tuning: Option<String>,
+    /// `effects.txt`: what each effect, swing and animal plays.
+    pub effects: Option<String>,
     pub cards: Vec<Card>,
     /// Player cards, the same sheet as an enemy's with three walking frames, and an id and name for text.
     pub players: Vec<Card>,
@@ -114,6 +116,7 @@ mod built_in {
     pub const POWERUPS: Option<&str> = Some(include_str!("../powerups.txt"));
     pub const ENEMIES: Option<&str> = Some(include_str!("../enemies.txt"));
     pub const PROPS: Option<&str> = Some(include_str!("../props.txt"));
+    pub const EFFECTS: Option<&str> = Some(include_str!("../effects.txt"));
 }
 
 /// Installs a pack's data and draws its cards' sprites into the atlas. It must come before anything reads the
@@ -193,6 +196,11 @@ pub fn powerups() -> &'static str {
 /// The game's own props, as `props.txt` lists them.
 pub fn props() -> &'static str {
     data().props_table.as_deref().or(built_in::PROPS).unwrap_or_else(|| missing("props.txt"))
+}
+
+/// What each effect, swing and animal plays, as `effects.txt` says.
+pub fn effects() -> &'static str {
+    data().effects.as_deref().or(built_in::EFFECTS).unwrap_or_else(|| missing("effects.txt"))
 }
 
 /// A pack's `tuning.txt`, if it has one; the game's own numbers are built in.

@@ -8,7 +8,7 @@ use super::{
     Barrel, Bullet, FLASH_TIME, Fx, Grenade, Harvest, TILE, Thrown, Zombie, ZOMBIE_HALF, len, norm, strike, sub,
 };
 use crate::{Difficulty, Sfx};
-use crate::art::{self, Art};
+use crate::art::Art;
 
 /// Half the angle the top screen sees, in radians, before a brighter lantern widens it.
 pub(super) const AHEAD_HALF: f32 = 0.6;
@@ -259,7 +259,7 @@ pub(super) struct Dog {
 
 impl Dog {
     pub fn art(&self) -> Art {
-        art::DOG[(self.anim * 10.0) as usize % art::DOG.len()]
+        super::effects::effects().dog.looping(self.anim)
     }
 }
 
@@ -396,7 +396,7 @@ impl Harvest {
             self.shoot(angle, speed, self.stat(a, Stat::Damage), self.stat(a, Stat::Pierce) as u32, range / speed, self.stat(a, Stat::Knockback));
         }
         let muzzle = [self.pos[0] + d[0] * 8.0, self.pos[1] - 6.0 + d[1] * 8.0];
-        self.fx.push(Fx { frames: std::slice::from_ref(&art::MUZZLE), fps: 20.0, pos: muzzle, angle: base, t: 0.0 });
+        self.fx.push(Fx::play(super::effects::effects().muzzle_pistol, muzzle, base));
         self.juice.kick += 0.015;
         self.juice.flash([self.pos[0] + d[0] * 8.0, self.pos[1] + d[1] * 8.0], 10.0, [1.2, 0.85, 0.4], 3.5, 0.07);
         self.noise = Some(self.pos);
@@ -417,7 +417,7 @@ impl Harvest {
             self.shoot(angle, speed, self.stat(a, Stat::Damage), self.stat(a, Stat::Pierce) as u32, range / speed * 0.9, self.stat(a, Stat::Knockback));
         }
         let at = [self.pos[0] + d[0] * 10.0, self.pos[1] - 6.0 + d[1] * 10.0];
-        self.fx.push(Fx { frames: &art::SHOTGUN_BLAST, fps: 18.0, pos: at, angle: base, t: 0.0 });
+        self.fx.push(Fx::play(super::effects::effects().shotgun_blast, at, base));
         let ground = [self.pos[0] + d[0] * 10.0, self.pos[1] + d[1] * 10.0];
         self.juice.kick += 0.04;
         self.juice.punch += 3.0;
@@ -442,7 +442,7 @@ impl Harvest {
         let angle = way[1].atan2(way[0]);
         self.shoot(angle, speed, self.stat(a, Stat::Damage), self.stat(a, Stat::Pierce) as u32, range / speed, self.stat(a, Stat::Knockback));
         let muzzle = [self.pos[0] + self.aim[0] * 9.0, self.pos[1] - 6.0 + self.aim[1] * 9.0];
-        self.fx.push(Fx { frames: std::slice::from_ref(&art::MUZZLE), fps: 12.0, pos: muzzle, angle, t: 0.0 });
+        self.fx.push(Fx::play(super::effects::effects().muzzle_rifle, muzzle, angle));
         self.juice.kick += 0.05;
         self.juice.punch += 2.0;
         self.juice.shake(0.1);
@@ -518,7 +518,8 @@ impl Harvest {
                     hits.0 += 1;
                 }
             }
-            self.swings.push(Swing { art: art::PITCHFORK_THRUST, age: 0.0, life: 0.16, angle: [angle; 2], reach: [2.0, range * 0.6] });
+            let e = super::effects::effects().pitchfork;
+            self.swings.push(Swing { art: e.frames[0], age: 0.0, life: e.life, angle: [angle; 2], reach: [2.0, range * e.reach] });
         }
         self.juice.kick += 0.02;
         sounds.push(Sfx::Slash);
@@ -539,7 +540,7 @@ impl Harvest {
             }
         }
         let at = [self.pos[0] + d[0] * 8.0, self.pos[1] - 5.0 + d[1] * 8.0];
-        self.fx.push(Fx { frames: &art::SLASH, fps: 20.0, pos: at, angle: d[1].atan2(d[0]) - PI / 2.0, t: 0.0 });
+        self.fx.push(Fx::play(super::effects::effects().slash, at, d[1].atan2(d[0]) - PI / 2.0));
         self.juice.kick += 0.02;
         self.juice.shake(0.06);
         sounds.push(Sfx::Slash);
@@ -562,7 +563,8 @@ impl Harvest {
             }
         }
         let from = self.view_yaw;
-        self.swings.push(Swing { art: art::SCYTHE_SWING, age: 0.0, life: 0.3, angle: [from, from + TAU], reach: [reach * 0.7; 2] });
+        let e = super::effects::effects().scythe;
+        self.swings.push(Swing { art: e.frames[0], age: 0.0, life: e.life, angle: [from, from + TAU], reach: [reach * e.reach; 2] });
         self.juice.ring(self.pos, reach, 0.3, [0.85, 0.85, 0.8]);
         self.juice.shake(0.1);
         self.juice.punch += 1.5;
@@ -907,7 +909,7 @@ impl Harvest {
         self.barrels.push(Barrel { pos, hp: crate::tuning::tuning().barrel_hp, flash: 0.0 });
         self.map.close(pos[0] + TILE / 2.0, pos[1] + TILE / 2.0);
         self.flow_cell = [usize::MAX; 2];
-        self.fx.push(Fx { frames: &art::SMOKE, fps: 7.0, pos: [pos[0] + TILE / 2.0, pos[1] + TILE / 2.0 - 4.0], angle: 0.0, t: 0.0 });
+        self.fx.push(Fx::play(super::effects::effects().drum_returns, [pos[0] + TILE / 2.0, pos[1] + TILE / 2.0 - 4.0], 0.0));
     }
 
     pub(super) fn shoot(&mut self, angle: f32, speed: f32, damage: f32, pierce: u32, life: f32, force: f32) {
