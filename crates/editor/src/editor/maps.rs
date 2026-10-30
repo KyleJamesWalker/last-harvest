@@ -289,8 +289,9 @@ impl Editor {
     }
 
     /// Every player's prop the store keeps, to pack for the previews while a map is open: their frames, then the
-    /// footprint and views of one that stands by them, in turn, and each one's fields and how many it packed.
-    pub(super) fn prop_surfaces(&self) -> (Vec<Frame>, Vec<(PropFields, usize)>) {
+    /// footprint and views of one that stands by them, then the frames again without the colors it clears in 3D, in
+    /// turn, and each one's fields, how many it packed before those copies, and how many copies.
+    pub(super) fn prop_surfaces(&self) -> (Vec<Frame>, Vec<(PropFields, usize, usize)>) {
         let (mut frames, mut props) = (Vec::new(), Vec::new());
         for (name, _) in self.names.iter().filter(|(n, _)| n.starts_with(last_harvest_game::PROP_PREFIX)) {
             let Some(s) = self.store.load(name) else { continue };
@@ -299,8 +300,10 @@ impl Editor {
             let views = s.views.filter(|_| f.by_views.is_some());
             let footprint = s.footprint.filter(|_| views.is_some() && f.footprint);
             let packed = s.frames.len() + footprint.is_some() as usize + 2 * views.is_some() as usize;
-            props.push((f, packed));
-            frames.extend(s.frames.into_iter().chain(footprint).chain(views.into_iter().flatten()));
+            let cleared = |fr: &Frame| Frame { px: fr.px.iter().map(|p| if p[3] > 0 && f.clear.contains(&[p[0], p[1], p[2]]) { CLEAR } else { *p }).collect(), ..fr.clone() };
+            let copies: Vec<Frame> = if f.clear.is_empty() { Vec::new() } else { s.frames.iter().map(cleared).collect() };
+            props.push((f, packed, copies.len()));
+            frames.extend(s.frames.into_iter().chain(footprint).chain(views.into_iter().flatten()).chain(copies));
         }
         (frames, props)
     }
@@ -309,17 +312,20 @@ impl Editor {
     /// map again now they can.
     pub(super) fn register_props(&mut self) {
         let mut at = 0;
-        let mut named = Vec::new();
-        for (f, n) in &self.map_props {
-            let Some(arts) = self.live.get(at..at + n) else { break };
+        let (mut named, mut solids) = (Vec::new(), Vec::new());
+        for (f, n, copies) in &self.map_props {
+            let Some(arts) = self.live.get(at..at + n + copies) else { break };
+            let (arts, cleared) = arts.split_at(*n);
+            solids.extend(arts.iter().copied().zip(cleared.iter().copied()));
             let (mut f, frames) = (f.clone(), (f.frames as usize).min(*n));
             if let [.., south, east] = arts[frames..] {
                 f.stand_by(south, east, (n - frames == 3).then(|| arts[frames]));
             }
             named.push((f, arts[..frames].to_vec()));
-            at += n;
+            at += n + copies;
         }
         last_harvest_game::set_props(named);
+        last_harvest_game::art::set_live_solids(solids);
         if let Some(m) = &mut self.map {
             m.check();
             m.changed = true;
@@ -1164,7 +1170,10 @@ mod prop_tests {
         let mut e = Editor::new(store(&dir), "BARREL");
         new(&mut e, "prop beacon");
         assert_eq!((e.sprite.name.as_str(), sprite::section("PROP_BEACON")), ("PROP_BEACON", sprite::PROP_SECTION));
-        e.sprite.frames = vec![Frame { w: 16, h: 24, px: vec![[200, 40, 40, 255]; 16 * 24] }; 2];
+        let mut px = vec![[200, 40, 40, 255]; 16 * 24];
+        px[..16].fill([9, 9, 9, 255]);
+        e.sprite.frames = vec![Frame { w: 16, h: 24, px }; 2];
+        e.sprite.clear_in_3d = vec![[9, 9, 9, 255]];
         e.act(Action::Fps(1), false);
         e.dirty = true;
         e.act(Action::Save, false);
@@ -1174,8 +1183,10 @@ mod prop_tests {
 
         new(&mut e, "map beacon farm");
         let frames = e.surfaces();
-        assert_eq!(frames.len(), 2, "the prop's frames pack for the previews");
-        e.set_live(vec![Art(1), Art(2)]);
+        assert_eq!(frames.len(), 4, "the prop's frames pack for the previews, then their 3D copies");
+        assert!(frames[2].px[..16].iter().all(|p| p[3] == 0) && frames[2].px[16] == [200, 40, 40, 255], "a copy drops only the cleared colors");
+        assert_eq!(e.map_props.iter().map(|(_, n, copies)| (*n, *copies)).collect::<Vec<_>>(), [(2, 2)]);
+        e.set_live(vec![Art(1), Art(2), Art(3), Art(4)]);
         assert!(e.map.as_ref().unwrap().problem.is_none(), "registering the props checks the map again");
         let picks = pickable();
         let at = picks.iter().position(|(n, _, _)| n == "PROP_BEACON").expect("the picker offers it");

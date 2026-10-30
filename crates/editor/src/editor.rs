@@ -393,7 +393,7 @@ pub struct Editor {
     /// The data page section that says how the open sprite plays, found when it opens.
     data_link: Option<String>,
     /// Players' props packed for the previews while a map is open, in order: their fields and frame counts.
-    map_props: Vec<(last_harvest_game::PropFields, usize)>,
+    map_props: Vec<(last_harvest_game::PropFields, usize, usize)>,
     playing: bool,
     clock: f32,
     /// An index into `STANDS`.
