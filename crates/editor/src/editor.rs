@@ -12,7 +12,7 @@ mod maps;
 mod tables;
 
 use cards::HeldImport;
-use maps::{MapEdit, MapTool, PROP_HP_Y, PROP_PALETTE_ROWS};
+use maps::{MapEdit, MapTool, PROP_HP_Y, PROP_OPEN_Y, PROP_PALETTE_ROWS};
 use tables::DataEdit;
 
 const UNDO_DEPTH: usize = 100;
@@ -238,6 +238,8 @@ enum Action {
     ClearPart,
     /// Clears every pixel of the paint color.
     ClearColor,
+    /// Steps how many of the open prop's top rows a figure walks through.
+    Open(i32),
     /// Steps the data page's line, by its place in the section, down or up.
     DataStep(usize, i32),
     /// Starts typing the data page's line's value.
@@ -1514,6 +1516,7 @@ impl Editor {
             Action::MapTool(_) | Action::Ground(_) | Action::PickProp(_) | Action::PickPage(_) | Action::Picket(_) | Action::MapSize(..) | Action::Randomize | Action::MapFit | Action::PropDefaults => {}
             Action::DataStep(..) | Action::DataEdit(_) | Action::DataRemove(_) | Action::DataAdd | Action::DataPage(_) => {}
             Action::Cover => self.edit_prop(|f| f.cover = !f.cover),
+            Action::Open(d) => self.edit_prop(|f| f.open = (f.open as i32 + d * step).clamp(0, 64) as usize),
             Action::Hp(d) => self.edit_prop(|f| f.hp = (f.hp + (d * step * 10) as f32).clamp(0.0, last_harvest_game::PROP_MAX_HP)),
             Action::Broken if self.sprite.frames.len() < 2 => self.say("Add a frame first: the last one shows once the prop breaks"),
             Action::Broken => self.edit_prop(|f| f.broken = !f.broken),
@@ -2101,7 +2104,8 @@ impl Editor {
                         Some(id) => (sprite::CardKind::Player, id.to_ascii_lowercase()),
                         None => (sprite::CardKind::Enemy, name.to_ascii_lowercase()),
                     };
-                    let wanted = sprite::card_wanted(&name).or_else(|| (self.modding && !name.is_empty()).then(typed));
+                    let prop = crate::store::props::id(&name).is_some();
+                    let wanted = sprite::card_wanted(&name).or_else(|| (self.modding && !name.is_empty() && !prop).then(typed));
                     if name.starts_with(sprite::MAP_PREFIX) && kind == Ask::New {
                         self.make_map(&name);
                     } else if let Some((card, id)) = wanted {
@@ -2391,6 +2395,12 @@ impl Editor {
             c.label(format!("{}: {}", VIEW_NAMES[v], VIEW_HINTS[v]), CANVAS.x + 8.0, CANVAS.y + 6.0, 16.0, HOT, Align::Left);
         }
         if let Some(f) = self.open_prop_fields() {
+            let open = match f.open {
+                0 => "Blocks every row".to_string(),
+                1 => "Top row open".to_string(),
+                n => format!("Top {n} rows open"),
+            };
+            c.label(open, SIDE_X, PROP_OPEN_Y + 6.0, 16.0, TEXT, Align::Left);
             c.label(if f.hp > 0.0 { format!("HP {}", f.hp) } else { "Won't break".into() }, SIDE_X, PROP_HP_Y + 5.0, 18.0, TEXT, Align::Left);
         }
         let f = self.current();
@@ -2455,7 +2465,7 @@ impl Editor {
             };
             c.label(what, 512.0, 300.0, 24.0, TEXT, Align::Center);
             let hint = if self.modding {
-                "Its id: letters, digits and _. Start with PLAYER_ for a player card".to_string()
+                "Its id: letters, digits and _. PLAYER_ makes a player card, PROP_ a prop, MAP_ a map".to_string()
             } else {
                 format!("Start with {} for an enemy card, {} for a player card", sprite::CARD_PREFIX, sprite::PLAYER_CARD_PREFIX)
             };
@@ -3294,6 +3304,20 @@ mod tests {
     }
 
     #[test]
+    fn the_mod_editor_makes_a_prop_from_its_name() {
+        let dir = tmp().join("mod-prop");
+        let mut e = editor_in(&dir, dir.join("art.txt"));
+        e.set_modding();
+        e.act(Action::Ask(Ask::New), false);
+        e.set_text("PROP_POST");
+        e.key(Key::Enter);
+        assert_eq!(e.sprite.name, "PROP_POST");
+        assert!(e.is_prop() && e.open_prop_fields().is_some(), "a prop, not a card");
+        e.act(Action::Save, false);
+        assert!(dir.join("props/post.prop.png").exists());
+    }
+
+    #[test]
     fn a_slab_floats_as_set() {
         let mut e = editor();
         e.act(Action::Stand(1), false);
@@ -3789,10 +3813,12 @@ mod tests {
         e.act(Action::Cover, false);
         e.act(Action::Hp(1), false);
         e.act(Action::Hp(1), true);
+        e.act(Action::Open(1), false);
+        e.act(Action::Open(1), false);
         e.act(Action::Save, false);
         let saved = last_harvest_pack::prop::read("c", &std::fs::read(dir.join("props/crate.prop.png")).unwrap()).unwrap();
         let f = last_harvest_game::prop_fields(&saved.text).unwrap();
-        assert_eq!((f.frames, f.broken, f.cover, f.hp), (2, true, false, 90.0), "{}", saved.text);
+        assert_eq!((f.frames, f.broken, f.cover, f.hp, f.open), (2, true, false, 90.0, 2), "{}", saved.text);
         e.act(Action::Hp(-1), true);
         e.act(Action::Hp(-1), true);
         assert_eq!(e.open_prop_fields().unwrap().hp, 0.0, "no lower than none");

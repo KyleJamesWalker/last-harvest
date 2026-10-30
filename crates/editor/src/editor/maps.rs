@@ -53,9 +53,10 @@ const MAX_SCALE: f32 = 4.0;
 /// Where a prop's hit points and cover show: the selected one's under Move, and an open prop's sprite's under
 /// the palette, which keeps this many rows for them.
 const TOUGH_Y: f32 = PICK_TOP + 30.0;
-pub(super) const PROP_PALETTE_ROWS: usize = 6;
-pub(super) const PROP_HP_Y: f32 = 498.0;
-const PROP_COVER_Y: f32 = 462.0;
+pub(super) const PROP_PALETTE_ROWS: usize = 5;
+pub(super) const PROP_HP_Y: f32 = 474.0;
+pub(super) const PROP_OPEN_Y: f32 = 508.0;
+const PROP_COVER_Y: f32 = 440.0;
 
 pub(super) struct MapEdit {
     pub id: String,
@@ -280,6 +281,8 @@ impl Editor {
         push(SIDE_X + 118.0, PROP_COVER_Y, 114.0, 30.0, Action::Broken, "Broken frame", f.broken);
         push(SIDE_X + 130.0, PROP_HP_Y, 46.0, 30.0, Action::Hp(-1), "-", false);
         push(SIDE_X + 182.0, PROP_HP_Y, 46.0, 30.0, Action::Hp(1), "+", false);
+        push(SIDE_X + 130.0, PROP_OPEN_Y, 46.0, 30.0, Action::Open(-1), "-", false);
+        push(SIDE_X + 182.0, PROP_OPEN_Y, 46.0, 30.0, Action::Open(1), "+", false);
     }
 
     /// Every player's prop the store keeps, to pack for the previews while a map is open: their frames, then the
