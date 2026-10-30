@@ -13,6 +13,8 @@ pub struct Data {
     pub enemies: Option<String>,
     /// `props.txt`: the game's own props a map can place, and how they stand in the way.
     pub props_table: Option<String>,
+    /// A pack's `tuning.txt`, setting over the game's own numbers.
+    pub tuning: Option<String>,
     pub cards: Vec<Card>,
     /// Player cards, the same sheet as an enemy's with three walking frames, and an id and name for text.
     pub players: Vec<Card>,
@@ -191,6 +193,11 @@ pub fn powerups() -> &'static str {
 /// The game's own props, as `props.txt` lists them.
 pub fn props() -> &'static str {
     data().props_table.as_deref().or(built_in::PROPS).unwrap_or_else(|| missing("props.txt"))
+}
+
+/// A pack's `tuning.txt`, if it has one; the game's own numbers are built in.
+pub fn tuning() -> Option<&'static str> {
+    data().tuning.as_deref()
 }
 
 pub fn enemies() -> &'static str {

@@ -14,6 +14,7 @@ mod save;
 pub mod scene3d;
 mod sfx;
 mod system;
+pub mod tuning;
 
 pub use difficulty::Difficulty;
 pub use draw::{Align, Canvas, Color, Frame, Shape};

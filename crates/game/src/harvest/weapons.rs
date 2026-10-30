@@ -5,7 +5,7 @@ use std::f32::consts::{PI, TAU};
 use super::juice::{self, Tone};
 use super::powerups::{Does, Kind, Stat, book};
 use super::{
-    Barrel, Bullet, FLASH_TIME, Fx, GRENADE_FLIGHT, GRENADE_RADIUS, Grenade, Harvest, TILE, Thrown, Zombie, ZOMBIE_HALF, len, norm, strike, sub,
+    Barrel, Bullet, FLASH_TIME, Fx, Grenade, Harvest, TILE, Thrown, Zombie, ZOMBIE_HALF, len, norm, strike, sub,
 };
 use crate::{Difficulty, Sfx};
 use crate::art::{self, Art};
@@ -22,7 +22,6 @@ const BITE_REACH: f32 = 7.0;
 /// A dog with nothing to chase sprints back once this far from the player, and trots again inside `DOG_STRAY / 2`.
 const DOG_STRAY: f32 = 48.0;
 const DOG_TROT: f32 = 0.45;
-const BOMBLET_RADIUS: f32 = 18.0;
 /// The pistol turns on anything this close, whichever way the player faces.
 const POINT_BLANK: f32 = 70.0;
 
@@ -182,15 +181,15 @@ impl Kit {
     }
 
     pub fn max_hp(&self) -> f32 {
-        100.0 + self.mods.max_hp
+        crate::tuning::tuning().player_hp + self.mods.max_hp
     }
 
     pub fn speed(&self) -> f32 {
-        48.0 * self.mods.speed
+        crate::tuning::tuning().player_speed * self.mods.speed
     }
 
     pub fn magnet(&self) -> f32 {
-        28.0 * self.mods.magnet
+        crate::tuning::tuning().player_magnet * self.mods.magnet
     }
 
     pub fn grenades(&self) -> f32 {
@@ -317,7 +316,7 @@ impl Harvest {
     }
 
     fn crit(&self) -> f32 {
-        super::CRIT_CHANCE + self.kit.mods.crit
+        crate::tuning::tuning().crit + self.kit.mods.crit
     }
 
     /// The offset to the nearest zombie within `range`, inside `cone` (a direction and a half-angle) when given.
@@ -775,13 +774,13 @@ impl Harvest {
     pub(super) fn land(&mut self, g: &Grenade, sounds: &mut Vec<Sfx>) {
         match g.kind {
             Thrown::Grenade => {
-                self.explode(g.to, GRENADE_RADIUS, 50.0, sounds);
+                self.explode(g.to, crate::tuning::tuning().grenade_radius, crate::tuning::tuning().grenade_damage, sounds);
                 for _ in 0..self.kit.mods.cluster.round() as u32 {
                     let to = polar(g.to, self.juice.rng.range(0.0, TAU), self.juice.rng.range(16.0, 34.0));
-                    self.thrown.push(Grenade { from: g.to, to, t: GRENADE_FLIGHT * 0.45, kind: Thrown::Bomblet });
+                    self.thrown.push(Grenade { from: g.to, to, t: crate::tuning::tuning().grenade_flight * 0.45, kind: Thrown::Bomblet });
                 }
             }
-            Thrown::Bomblet => self.explode(g.to, BOMBLET_RADIUS, 25.0, sounds),
+            Thrown::Bomblet => self.explode(g.to, crate::tuning::tuning().bomblet_radius, crate::tuning::tuning().bomblet_damage, sounds),
             Thrown::Molotov { dps, radius, life } => {
                 // A pool is a ring of fires, so it reads as one in both views.
                 self.lay(Hazard::Fire, g.to, radius * 0.5, dps, life, 0.0);
@@ -905,7 +904,7 @@ impl Harvest {
             return;
         }
         let pos = free[self.juice.rng.below(free.len())];
-        self.barrels.push(Barrel { pos, hp: super::BARREL_HP, flash: 0.0 });
+        self.barrels.push(Barrel { pos, hp: crate::tuning::tuning().barrel_hp, flash: 0.0 });
         self.map.close(pos[0] + TILE / 2.0, pos[1] + TILE / 2.0);
         self.flow_cell = [usize::MAX; 2];
         self.fx.push(Fx { frames: &art::SMOKE, fps: 7.0, pos: [pos[0] + TILE / 2.0, pos[1] + TILE / 2.0 - 4.0], angle: 0.0, t: 0.0 });

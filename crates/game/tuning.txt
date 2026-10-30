@@ -1,0 +1,58 @@
+# The numbers the game plays by that no card, prop or powerup sets. Each [section] holds `key number` lines;
+# a mod's tuning.txt only needs the lines it changes. Distances are in pixels (a tile is 16), times in seconds.
+
+[player]
+hp 100          # health before upgrades
+speed 48        # pixels a second before upgrades
+magnet 28       # how near money and health drift in from, before upgrades
+crit 0.1        # chance a hit lands double, before upgrades
+pickup 7        # how near the player picks something up
+
+[easy]
+damage 0.55     # multiplies the damage zombies deal
+hurt_time 0.7   # seconds a hit leaves the player safe from the next
+health_drop 60  # one kill in this many drops health; the rest drop money
+heal 30         # health a health drop gives back
+
+[normal]
+damage 1
+hurt_time 0.5
+health_drop 200
+heal 20
+
+[hard]
+damage 1.4
+hurt_time 0.4
+health_drop 400
+heal 15
+
+[zombies]
+max 300         # most alive at once
+rise 0.9        # seconds a zombie takes to climb out of the ground, harmless and rooted
+stagger 0.4     # seconds a heavy hit stops a zombie
+growth 0.08     # health added per minute of the night, as a fraction of its own
+leader_hp 4     # times a big zombie's health a horde's leader has
+fury 1.01       # after dawn, every zombie's health and bite multiply by this each second
+
+[harvester]
+hp 2500         # dawn's boss
+speed 40
+bite 2          # times a zombie's bite
+rise 90         # how far from the player it rises, on the side away from home
+
+[grenade]
+recharge 12     # seconds to earn a grenade back, before upgrades
+flight 0.7      # seconds in the air
+radius 36
+damage 50
+bomblet_radius 18
+bomblet_damage 25
+
+[barrel]
+hp 20
+radius 40
+damage 60
+
+[blast]
+hurt 15         # damage any blast deals the player, less armor
+near 0.7        # the player is hurt within this fraction of its radius

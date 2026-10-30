@@ -39,51 +39,33 @@ const VIEW_H: f32 = SCREEN_H / SCALE;
 /// closing to a few tiles away by dawn.
 const SPAWN_RING_DUSK: [f32; 2] = [200.0, 250.0];
 const SPAWN_RING_DAWN: [f32; 2] = [56.0, 110.0];
-/// Seconds a zombie takes to climb out of the ground, harmless and rooted.
-const RISE_TIME: f32 = 0.9;
 /// Radians per second at full turn.
 const TURN_SPEED: f32 = 2.6;
 /// Seconds for the quick 180-degree turn.
 const SPIN_TIME: f32 = 0.2;
-const GRENADE_RECHARGE: f32 = 12.0;
-const GRENADE_FLIGHT: f32 = 0.7;
-const GRENADE_RADIUS: f32 = 36.0;
 pub const MAP_SIZE: [usize; 2] = [72, 54];
 const DAWN: f32 = 600.0;
 /// How long a night lasts, in minutes.
 pub const NIGHT_MINUTES: f32 = DAWN / 60.0;
-/// After dawn, every zombie's health and bite grow by this much each second, compounding.
-const FURY_PER_SEC: f32 = 1.01;
 /// Close enough to the farmhouse's front step to be safe.
 const HOME_RADIUS: f32 = 12.0;
-/// The Harvester: dawn's boss, rising this far from the player on the side away from home.
-const HARVESTER_HP: f32 = 2500.0;
-const HARVESTER_SPEED: f32 = 40.0;
-const HARVESTER_BITE: f32 = 2.0;
-const HARVESTER_RISE: f32 = 90.0;
-const MAX_ZOMBIES: usize = 300;
 const MAX_STAINS: usize = 160;
 const PLAYER_HALF: [f32; 2] = [4.0, 3.0];
 const ZOMBIE_HALF: [f32; 2] = [3.0, 2.0];
 const FLASH_TIME: f32 = 0.08;
 const WALK_FPS: f32 = 8.0;
-const PICKUP_RADIUS: f32 = 7.0;
 /// Seconds the ground churns before a zombie breaks out.
 const TELL_TIME: f32 = 0.6;
-const CRIT_CHANCE: f32 = 0.1;
 /// Seconds a struck zombie shows its red frame.
 const HURT_FRAMES: f32 = 0.18;
 /// Real seconds of slow motion between filling the bar and choosing an upgrade.
 const LEVEL_SLOW: f32 = 0.7;
 const LEVEL_PUSH_RADIUS: f32 = 80.0;
-/// How many times a big zombie's health a horde's leader has.
-const LEADER_HP: f32 = 4.0;
 /// Seconds after a pick before play resumes, so the choice can land.
 const PICK_TIME: f32 = 0.3;
 /// Seconds the upgrade cards ignore input while they slide in.
 const CARDS_IN: f32 = 0.35;
 const RARE_CHANCE: f32 = 0.12;
-const STAGGER_TIME: f32 = 0.4;
 /// Seconds into a death: the player drops, sinks into the dirt, then claws back out as one of them.
 const TURN_FALL: f32 = 0.4;
 const TURN_SINK: f32 = 1.2;
@@ -363,14 +345,12 @@ impl Grenade {
 
     /// Ground position and height above it, in world pixels.
     fn at(&self) -> ([f32; 2], f32) {
-        let k = (self.t / GRENADE_FLIGHT).min(1.0);
+        let k = (self.t / crate::tuning::tuning().grenade_flight).min(1.0);
         let p = [self.from[0] + (self.to[0] - self.from[0]) * k, self.from[1] + (self.to[1] - self.from[1]) * k];
         (p, (k * PI).sin() * 28.0)
     }
 }
 
-const BARREL_HP: f32 = 20.0;
-const BLAST_RADIUS: f32 = 40.0;
 /// Bites a second a zombie takes out of a prop in its way.
 const CHEW_RATE: f32 = 0.5;
 /// How much brighter a prop draws while it flashes from a hit.
@@ -637,7 +617,7 @@ impl Harvest {
 
     fn with_map(seed: u64, rng: Rng, map: Map) -> Self {
         let kit = Kit::start(Difficulty::Normal);
-        let barrels = map.barrels.iter().map(|&pos| Barrel { pos, hp: BARREL_HP, flash: 0.0 }).collect();
+        let barrels = map.barrels.iter().map(|&pos| Barrel { pos, hp: crate::tuning::tuning().barrel_hp, flash: 0.0 }).collect();
         Self {
             barrels,
             barrel_spots: map.barrels.clone(),
@@ -754,7 +734,7 @@ impl Harvest {
         }
         eprintln!("bench: {w}x{hgt} tiles, {} props, flow field {:.2} ms", h.map.props.len(), start.elapsed().as_secs_f64() * 1000.0 / 20.0);
         h.birds.clear();
-        for i in 0..MAX_ZOMBIES {
+        for i in 0..(crate::tuning::tuning().max_zombies as usize) {
             let a = i as f32 * 2.399;
             let r = 14.0 + (i as f32).sqrt() * 9.0;
             let pos = [h.pos[0] + a.cos() * r, h.pos[1] + a.sin() * r];
@@ -992,7 +972,7 @@ impl Harvest {
             self.walk = 0.0;
         }
         self.noise = None;
-        self.grenades = (self.grenades + dt / (GRENADE_RECHARGE * self.kit.mods.recharge)).min(self.kit.grenades());
+        self.grenades = (self.grenades + dt / (crate::tuning::tuning().grenade_recharge * self.kit.mods.recharge)).min(self.kit.grenades());
         self.hp = (self.hp + self.kit.mods.regen * dt).min(self.kit.max_hp());
         if let Some(touch) = input.touch.filter(|_| input.touch_started).or(self.queued_touch.take()) {
             self.throw(touch, sounds);
@@ -1076,13 +1056,13 @@ impl Harvest {
         for k in 0..24 {
             let a = (k as f32 * 0.4).sin() * (k as f32 * 0.15);
             let d = [away[0] * a.cos() - away[1] * a.sin(), away[0] * a.sin() + away[1] * a.cos()];
-            let p = [self.pos[0] + d[0] * HARVESTER_RISE, self.pos[1] + d[1] * HARVESTER_RISE];
+            let p = [self.pos[0] + d[0] * crate::tuning::tuning().harvester_rise, self.pos[1] + d[1] * crate::tuning::tuning().harvester_rise];
             if !self.map.hits(p[0], p[1], ZOMBIE_HALF) {
                 at = p;
                 break;
             }
         }
-        let mut z = Zombie::new(Kind(roster().harvester as u8), at, HARVESTER_HP, 0.0, 0.0);
+        let mut z = Zombie::new(Kind(roster().harvester as u8), at, crate::tuning::tuning().harvester_hp, 0.0, 0.0);
         z.boss = true;
         z.id = self.next_id;
         self.next_id += 1;
@@ -1091,7 +1071,7 @@ impl Harvest {
         self.juice.ring(at, 60.0, 0.8, [0.9, 0.2, 0.15]);
     }
 
-    /// Every second past dawn, every zombie grows by `FURY_PER_SEC`, the ones still rising too.
+    /// Every second past dawn, every zombie grows by the fury `tuning.txt` sets, the ones still rising too.
     fn grow_fury(&mut self, dt: f32) {
         if self.t < DAWN {
             return;
@@ -1099,12 +1079,12 @@ impl Harvest {
         self.fury_tick += dt;
         while self.fury_tick >= 1.0 {
             self.fury_tick -= 1.0;
-            self.fury *= FURY_PER_SEC;
+            self.fury *= crate::tuning::tuning().fury;
             for z in &mut self.zombies {
-                z.hp *= FURY_PER_SEC;
+                z.hp *= crate::tuning::tuning().fury;
             }
             for t in &mut self.tells {
-                t.hp *= FURY_PER_SEC;
+                t.hp *= crate::tuning::tuning().fury;
             }
         }
     }
@@ -1299,7 +1279,7 @@ impl Harvest {
             self.owed += 20.0 + minutes * 4.0;
             self.leader_owed = true;
         }
-        while self.owed >= 1.0 && self.zombies.len() + self.tells.len() < MAX_ZOMBIES {
+        while self.owed >= 1.0 && self.zombies.len() + self.tells.len() < (crate::tuning::tuning().max_zombies as usize) {
             self.owed -= 1.0;
             let roll = self.rng.range(0.0, 1.0);
             let leader = std::mem::take(&mut self.leader_owed);
@@ -1311,7 +1291,7 @@ impl Harvest {
                 let r = self.rng.range(near, far);
                 let pos = [self.pos[0] + a.cos() * r, self.pos[1] + a.sin() * r];
                 if !self.map.hits(pos[0], pos[1], ZOMBIE_HALF) {
-                    let hp = kind.stats().hp * (1.0 + minutes * 0.08) * if leader { LEADER_HP } else { 1.0 } * self.fury;
+                    let hp = kind.stats().hp * (1.0 + minutes * crate::tuning::tuning().growth) * if leader { crate::tuning::tuning().leader_hp } else { 1.0 } * self.fury;
                     self.tells.push(Tell { kind, pos, hp, t: 0.0, leader });
                     break;
                 }
@@ -1376,14 +1356,14 @@ impl Harvest {
             z.hurt = (z.hurt - dt).max(0.0);
             z.squash = (z.squash - dt * 5.0).max(0.0);
             if z.rise < 1.0 {
-                z.rise = (z.rise + dt / RISE_TIME).min(1.0);
+                z.rise = (z.rise + dt / crate::tuning::tuning().rise).min(1.0);
                 continue;
             }
             if z.stagger > 0.0 {
                 z.stagger -= dt;
                 continue;
             }
-            let speed = if z.boss { HARVESTER_SPEED } else { z.kind.stats().speed } * (1.0 - z.slow_k);
+            let speed = if z.boss { crate::tuning::tuning().harvester_speed } else { z.kind.stats().speed } * (1.0 - z.slow_k);
             let direct = sub(self.pos, z.pos);
             let lure = self.decoys.iter().find(|d| len(sub(d.pos, z.pos)) < d.lure);
             let to = match lure {
@@ -1442,7 +1422,7 @@ impl Harvest {
         if self.hurt > 0.0 {
             return;
         }
-        let hit = self.zombies.iter().filter(|z| z.rise >= 1.0 && len(sub(z.pos, self.pos)) < 9.0).map(|z| z.kind.stats().damage * if z.boss { HARVESTER_BITE } else { 1.0 } * self.fury * self.difficulty.damage()).fold(0.0, f32::max);
+        let hit = self.zombies.iter().filter(|z| z.rise >= 1.0 && len(sub(z.pos, self.pos)) < 9.0).map(|z| z.kind.stats().damage * if z.boss { crate::tuning::tuning().harvester_bite } else { 1.0 } * self.fury * self.difficulty.damage()).fold(0.0, f32::max);
         let hit = if hit > 0.0 { (hit - self.kit.mods.armor).max(1.0) } else { 0.0 };
         if hit > 0.0 {
             self.hp -= hit;
@@ -1471,7 +1451,7 @@ impl Harvest {
     }
 
     fn move_bullets(&mut self, dt: f32, sounds: &mut Vec<Sfx>) {
-        let crit = CRIT_CHANCE + self.kit.mods.crit;
+        let crit = crate::tuning::tuning().crit + self.kit.mods.crit;
         let mut hits = (0, false);
         for b in &mut self.bullets {
             b.pos = [b.pos[0] + b.vel[0] * dt, b.pos[1] + b.vel[1] * dt];
@@ -1524,7 +1504,7 @@ impl Harvest {
         let c = self.barrels.swap_remove(i).center();
         self.map.open(c[0], c[1]);
         self.flow_cell = [usize::MAX; 2];
-        self.explode(c, BLAST_RADIUS, 60.0, sounds);
+        self.explode(c, crate::tuning::tuning().barrel_radius, crate::tuning::tuning().barrel_damage, sounds);
         true
     }
 
@@ -1532,7 +1512,7 @@ impl Harvest {
     /// Bigger with a fuel drums' blast, an area passive's reach and the damage passives.
     fn explode(&mut self, c: [f32; 2], radius: f32, damage: f32, sounds: &mut Vec<Sfx>) {
         let m = self.kit.mods;
-        let (radius, damage, crit) = (radius * m.blast * m.area, damage * m.blast * m.damage, CRIT_CHANCE + m.crit);
+        let (radius, damage, crit) = (radius * m.blast * m.area, damage * m.blast * m.damage, crate::tuning::tuning().crit + m.crit);
         let mut hits = (0, false);
         for z in &mut self.zombies {
             let d = sub(z.pos, c);
@@ -1550,8 +1530,9 @@ impl Harvest {
         for i in self.map.breakables_near(c, radius) {
             self.map.hurt_prop(i, damage, FLASH_TIME);
         }
-        if len(sub(self.pos, c)) < radius * 0.7 && self.hurt <= 0.0 {
-            let hurt = (15.0 - m.armor).max(1.0);
+        let t = crate::tuning::tuning();
+        if len(sub(self.pos, c)) < radius * t.blast_near && self.hurt <= 0.0 {
+            let hurt = (t.blast_hurt - m.armor).max(1.0);
             self.hp -= hurt;
             self.juice.popup(self.pos, hurt, Tone::Hurt);
             self.hurt = self.difficulty.hurt_time();
@@ -1599,7 +1580,7 @@ impl Harvest {
         for g in &mut self.thrown {
             g.t += dt;
         }
-        let (landed, flying): (Vec<Grenade>, Vec<Grenade>) = std::mem::take(&mut self.thrown).into_iter().partition(|g| g.t >= GRENADE_FLIGHT);
+        let (landed, flying): (Vec<Grenade>, Vec<Grenade>) = std::mem::take(&mut self.thrown).into_iter().partition(|g| g.t >= crate::tuning::tuning().grenade_flight);
         self.thrown = flying;
         for g in landed {
             self.land(&g, sounds);
@@ -1701,7 +1682,7 @@ impl Harvest {
             }
             let step = [d.vel[0] * dt, d.vel[1] * dt];
             // A fast drop would otherwise step past the player.
-            if dist < PICKUP_RADIUS || (d.pulled.is_some() && len(step) >= dist) {
+            if dist < crate::tuning::tuning().pickup || (d.pulled.is_some() && len(step) >= dist) {
                 match d.kind {
                     DropKind::Money(v) => {
                         self.xp_frac += v as f32 * self.kit.mods.greed;
@@ -1943,7 +1924,7 @@ fn strike(z: &mut Zombie, juice: &mut Juice, damage: f32, dir: [f32; 2], force: 
     z.push = [dir[0] * k, dir[1] * k];
     juice.popup(z.pos, dealt, if crit { Tone::Crit } else { Tone::Hit });
     if z.kind.stats().heavy && !z.boss && (crit || force > 100.0) {
-        z.stagger = STAGGER_TIME;
+        z.stagger = crate::tuning::tuning().stagger;
     }
     juice.burst(z.pos, 8.0, if crit { 6 } else { 3 }, dir, 0.6, [30.0, 90.0], juice::BLOOD, 1.4, 0.4, 0.0);
     crit
@@ -2092,7 +2073,7 @@ mod tests {
         h.update(&Input { touch: Some(touch), touch_started: true, ..Default::default() }, 0.016, &mut sounds);
         assert_eq!(h.thrown.len(), 1);
         assert!(h.grenades < h.kit.grenades());
-        h.update(&Input::default(), GRENADE_FLIGHT, &mut sounds);
+        h.update(&Input::default(), crate::tuning::tuning().grenade_flight, &mut sounds);
         assert!(h.thrown.is_empty());
         assert!(h.kills == 1 || h.zombies.iter().all(|z| z.hp <= 0.0));
     }
@@ -2176,7 +2157,7 @@ mod tests {
         h = Harvest::calm_on(1, &src).unwrap();
         shoot(&mut h);
         assert!(h.bullets.is_empty() && h.map.props[i].hp == 20.0 && h.map.props[i].flash > 0.0, "cover that breaks takes the shot");
-        h.explode([post[0] - 20.0, post[1]], BLAST_RADIUS, 60.0, &mut Vec::new());
+        h.explode([post[0] - 20.0, post[1]], crate::tuning::tuning().barrel_radius, crate::tuning::tuning().barrel_damage, &mut Vec::new());
         for _ in 0..10 {
             h.crumble(0.016, &mut Vec::new());
         }
@@ -2196,7 +2177,7 @@ mod tests {
         let at = [h.pos[0] + 4.0, h.pos[1]];
         h.zombies.push(Zombie::new(Kind::named("skinny"), at, 1000.0, 0.0, 0.0));
         let mut sounds = Vec::new();
-        h.update(&Input::default(), RISE_TIME * 0.5, &mut sounds);
+        h.update(&Input::default(), crate::tuning::tuning().rise * 0.5, &mut sounds);
         assert_eq!(h.zombies[0].pos, at);
         assert_eq!(h.hp, h.kit.max_hp());
         for _ in 0..60 {
@@ -2298,8 +2279,8 @@ mod tests {
         let mut j = Juice::new(1);
         let mut kid = Zombie::new(Kind::named("kid"), [0.0; 2], 100.0, 1.0, 0.0);
         let mut big = Zombie::new(Kind::named("big"), [0.0; 2], 100.0, 1.0, 0.0);
-        strike(&mut kid, &mut j, 10.0, [1.0, 0.0], 30.0, CRIT_CHANCE);
-        strike(&mut big, &mut j, 10.0, [1.0, 0.0], 30.0, CRIT_CHANCE);
+        strike(&mut kid, &mut j, 10.0, [1.0, 0.0], 30.0, crate::tuning::tuning().crit);
+        strike(&mut big, &mut j, 10.0, [1.0, 0.0], 30.0, crate::tuning::tuning().crit);
         assert_eq!(j.popups.len(), 2);
         assert!(kid.push[0] > big.push[0] * 3.0);
         assert!(kid.squash > 0.0 && kid.hurt > 0.0);
@@ -2469,10 +2450,10 @@ mod tests {
     fn a_blast_staggers_a_big_zombie_in_place() {
         let mut j = Juice::new(1);
         let mut big = Zombie::new(Kind::named("big"), [0.0; 2], 500.0, 1.0, 0.0);
-        strike(&mut big, &mut j, 10.0, [1.0, 0.0], 30.0, CRIT_CHANCE);
+        strike(&mut big, &mut j, 10.0, [1.0, 0.0], 30.0, crate::tuning::tuning().crit);
         let stagger = big.stagger;
-        strike(&mut big, &mut j, 10.0, [1.0, 0.0], 120.0, CRIT_CHANCE);
-        assert!(big.stagger > stagger && big.stagger == STAGGER_TIME);
+        strike(&mut big, &mut j, 10.0, [1.0, 0.0], 120.0, crate::tuning::tuning().crit);
+        assert!(big.stagger > stagger && big.stagger == crate::tuning::tuning().stagger);
         let mut h = Harvest::calm(3);
         let at = [h.pos[0] + 60.0, h.pos[1]];
         h.zombies.push(big);

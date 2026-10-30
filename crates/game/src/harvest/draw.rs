@@ -7,7 +7,7 @@ use super::map::TILE;
 use crate::art::Stand;
 use super::powerups::{Kind, Zone, book};
 use super::weapons::{BOLT_LIFE, Hazard};
-use super::{CHOICE_ROW, CHOICE_TOP, Choice, DAWN, DropKind, Facing, GOLD, PAUSE_CHOICES, GRENADE_FLIGHT, GRENADE_RADIUS, Harvest, PICK_TIME, PROP_FLASH, Phase, RED, SCALE, TELL_TIME, TURNED, Thrown, WHITE, clock, player_pose, view3d};
+use super::{CHOICE_ROW, CHOICE_TOP, Choice, DAWN, DropKind, Facing, GOLD, PAUSE_CHOICES, Harvest, PICK_TIME, PROP_FLASH, Phase, RED, SCALE, TELL_TIME, TURNED, Thrown, WHITE, clock, player_pose, view3d};
 use crate::art::{self, Art};
 use crate::{Align, Canvas, Color, Frame, SCREEN_H, SCREEN_W};
 
@@ -351,7 +351,7 @@ impl Harvest {
         }
         for g in &self.thrown {
             let (p, lift) = g.at();
-            let k = (g.t / GRENADE_FLIGHT).min(1.0);
+            let k = (g.t / crate::tuning::tuning().grenade_flight).min(1.0);
             let (gx, gy) = at(p[0], p[1]);
             c.circle(gx, gy, (2.0 + 2.0 * k) * scale, [0.0, 0.0, 0.0, 0.4]);
             let (sx, sy) = at(p[0], p[1] - 6.0 - lift);
@@ -361,7 +361,7 @@ impl Harvest {
             }
             for i in 0..8 {
                 let a = g.t * 3.0 + i as f32 / 8.0 * TAU;
-                let rr = GRENADE_RADIUS * (1.15 - 0.15 * k);
+                let rr = crate::tuning::tuning().grenade_radius * (1.15 - 0.15 * k);
                 let (sx, sy) = at(g.to[0] + a.cos() * rr, g.to[1] + a.sin() * rr);
                 c.circle(sx, sy, 1.5 * scale, [1.0, 0.25, 0.15, 0.85]);
             }

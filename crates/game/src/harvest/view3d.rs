@@ -10,7 +10,7 @@ use super::carve;
 use super::map::TILE;
 use crate::art::Stand;
 use super::weapons::{BOLT_LIFE, Hazard};
-use super::{DAWN, DropKind, Facing, GRENADE_FLIGHT, GRENADE_RADIUS, Harvest, Phase, TELL_TIME, TURN_RISE, TURNED, Thrown, WALK_FPS, Zombie, len, norm, player_pose, sub};
+use super::{DAWN, DropKind, Facing, Harvest, Phase, TELL_TIME, TURN_RISE, TURNED, Thrown, WALK_FPS, Zombie, len, norm, player_pose, sub};
 use crate::art::{self, ATLAS_H, ATLAS_W, Art};
 use crate::scene3d::{Card, CardScene, Flash};
 use crate::{SCREEN_H, SCREEN_W};
@@ -628,12 +628,12 @@ pub fn scene(h: &Harvest) -> CardScene {
             continue;
         }
         // A shadow that grows as the grenade comes down, and a ring of red marks where it will land.
-        let k = (g.t / GRENADE_FLIGHT).min(1.0);
+        let k = (g.t / crate::tuning::tuning().grenade_flight).min(1.0);
         patch(&mut cards, world(at) + Vec3::Y * (DECAL_LIFT + 0.01), 0.15 + 0.15 * k, [0.02; 3]);
         let spin = g.t * 3.0;
         for i in 0..10 {
             let a = spin + i as f32 / 10.0 * std::f32::consts::TAU;
-            let rr = GRENADE_RADIUS * PX * (1.15 - 0.15 * k);
+            let rr = crate::tuning::tuning().grenade_radius * PX * (1.15 - 0.15 * k);
             let q = world(g.to) + Vec3::new(a.cos() * rr, 0.06, a.sin() * rr);
             if near(q) {
                 speck(&mut cards, q, 0.08, right, [1.0, 0.25, 0.15], 1.0);

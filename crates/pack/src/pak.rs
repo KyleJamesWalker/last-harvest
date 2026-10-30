@@ -18,6 +18,7 @@ pub const FONT: &str = "fonts/AtkinsonHyperlegible-Regular.ttf";
 pub const POWERUPS: &str = "powerups.txt";
 pub const ENEMIES: &str = "enemies.txt";
 pub const PROPS_TABLE: &str = "props.txt";
+pub const TUNING: &str = "tuning.txt";
 pub const SOUNDS: &str = "sounds/";
 pub const ENEMY_CARDS: &str = "enemies/";
 pub const PLAYER_CARDS: &str = "players/";
@@ -122,7 +123,11 @@ impl Pak {
             return Err("its atlas is the wrong size for this build".into());
         }
         let text = |file: &str| self.get(file).map(|b| std::str::from_utf8(b).map_err(|_| format!("{file} is not UTF-8"))).transpose();
-        last_harvest_game::check_tables(text(POWERUPS)?, text(ENEMIES)?, text(PROPS_TABLE)?)
+        last_harvest_game::check_tables(text(POWERUPS)?, text(ENEMIES)?, text(PROPS_TABLE)?)?;
+        match text(TUNING)? {
+            Some(t) => last_harvest_game::tuning::parse(t, Some(&last_harvest_game::tuning::built_in())).map(|_| ()).map_err(|e| format!("tuning.txt:{e}")),
+            None => Ok(()),
+        }
     }
 
     /// Every file's path, sorted.
