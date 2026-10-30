@@ -51,6 +51,32 @@ pub enum Does {
     Scarecrow,
     Molotov,
     Flare,
+    /// A gun shaped by its section's `aim` and `pattern`.
+    Gun,
+}
+
+/// Where a gun looks for something to shoot.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Aim {
+    /// The nearest zombie in range, whichever way.
+    Nearest,
+    /// The nearest in the cone the player faces.
+    Ahead,
+    /// The nearest in the cone behind.
+    Behind,
+    /// Wherever the player faces, once anything is in range.
+    Around,
+}
+
+/// How a gun's shots spread.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Pattern {
+    /// Evenly across its spread, centred on the target.
+    Fan,
+    /// Evenly all the way round.
+    Ring,
+    /// At random across its spread.
+    Spray,
 }
 
 impl Does {
@@ -73,6 +99,7 @@ impl Does {
             "scarecrow" => Does::Scarecrow,
             "molotov" => Does::Molotov,
             "flare" => Does::Flare,
+            "gun" => Does::Gun,
             _ => return None,
         })
     }
@@ -400,6 +427,9 @@ pub struct Def {
     pub bullet: Option<String>,
     /// For a weapon, the sound it makes in place of its behaviour's own.
     pub sound: Option<crate::Sfx>,
+    /// For a gun, where it looks and how its shots spread.
+    pub aim: Aim,
+    pub pattern: Pattern,
     stats: Vec<(Stat, Vec<f32>)>,
 }
 
@@ -512,6 +542,8 @@ pub fn parse(text: &str) -> Result<Book, String> {
                 effect: None,
                 bullet: None,
                 sound: None,
+                aim: Aim::Nearest,
+                pattern: Pattern::Fan,
                 stats: Vec::new(),
             });
             icons.push(None);
@@ -567,6 +599,23 @@ pub fn parse(text: &str) -> Result<Book, String> {
             "sound" => {
                 let names: Vec<&str> = WEAPON_SOUNDS.iter().map(|(k, _)| *k).collect();
                 def.sound = Some(WEAPON_SOUNDS.iter().find(|(k, _)| *k == rest).map(|(_, s)| *s).ok_or_else(|| format!("{n}: sound is one of {}", names.join(", ")))?);
+            }
+            "aim" => {
+                def.aim = match rest {
+                    "nearest" => Aim::Nearest,
+                    "ahead" => Aim::Ahead,
+                    "behind" => Aim::Behind,
+                    "around" => Aim::Around,
+                    _ => return Err(format!("{n}: aim is nearest, ahead, behind or around, not {rest:?}")),
+                }
+            }
+            "pattern" => {
+                def.pattern = match rest {
+                    "fan" => Pattern::Fan,
+                    "ring" => Pattern::Ring,
+                    "spray" => Pattern::Spray,
+                    _ => return Err(format!("{n}: pattern is fan, ring or spray, not {rest:?}")),
+                }
             }
             "does" => def.does = Some(Does::from_key(rest).ok_or_else(|| format!("{n}: no weapon behaviour called {rest:?}"))?),
             "unlock" => {
@@ -682,6 +731,9 @@ mod tests {
         assert_eq!((d.effect.as_deref(), d.bullet.as_deref(), d.sound), (Some("red_slash"), Some("bullet_3d"), Some(crate::Sfx::Blast)));
         assert!(parse("[a]\nicon WHITE\nsound moo").unwrap_err().starts_with("3: sound is one of shot"));
         assert!(parse("[a]\nicon WHITE\neffect Red").unwrap_err().starts_with("3: effect names"));
+        let g = parse("[nova]\nkind weapon\ndoes gun\naim around\npattern ring\nicon WHITE\n[cash]\nkind filler\nicon WHITE\n").unwrap();
+        assert_eq!((g.defs[0].does, g.defs[0].aim, g.defs[0].pattern), (Some(Does::Gun), Aim::Around, Pattern::Ring));
+        assert!(parse("[a]\nicon WHITE\naim up").unwrap_err().starts_with("3: aim is"));
     }
 
     #[test]

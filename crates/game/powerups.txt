@@ -23,6 +23,9 @@
 #   effect  NAME        for weapons, the effects.txt effect it plays in place of its behaviour's own
 #   bullet  NAME        for weapons that shoot, the effects.txt effect its bullets fly as
 #   sound   NAME        for weapons, shot, blast, slash, zap, bark or throw in place of its behaviour's own
+#   aim     nearest | ahead | behind | around     for `does gun`, where it looks for a target; nearest when left out
+#   pattern fan | ring | spray     for `does gun`, how count shots spread: evenly across spread, evenly all the way
+#                       round, or at random across spread; fan when left out
 #   blurb   Text        the card's line when the powerup is new
 #   max     N           highest level
 #   STAT    v1 v2 ...   the value at each level, from level 1; a short list repeats its last value

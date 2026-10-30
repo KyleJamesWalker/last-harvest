@@ -3,7 +3,7 @@
 use std::f32::consts::{PI, TAU};
 
 use super::juice::{self, Tone};
-use super::powerups::{Does, Kind, Stat, book};
+use super::powerups::{Aim, Does, Kind, Pattern, Stat, book};
 use super::{
     Barrel, Bullet, FLASH_TIME, Fx, Grenade, Harvest, TILE, Thrown, Zombie, len, norm, strike, sub,
 };
@@ -27,6 +27,17 @@ pub(super) struct Armed {
 impl Armed {
     pub fn does(&self) -> Does {
         book().defs[self.def].does.unwrap_or(Does::Pistol)
+    }
+}
+
+/// The `k`th of a gun's `n` shots at `base`: across `spread` for a fan, all the way round for a ring, or at the
+/// random `jitter` (-0.5 to 0.5) of `spread` for a spray.
+fn shot_angle(pattern: Pattern, k: u32, n: u32, base: f32, spread: f32, jitter: f32) -> f32 {
+    match pattern {
+        Pattern::Fan if n > 1 => base + (k as f32 / (n - 1) as f32 - 0.5) * spread,
+        Pattern::Fan => base,
+        Pattern::Ring => base + k as f32 * TAU / n as f32,
+        Pattern::Spray => base + jitter * spread,
     }
 }
 
@@ -347,7 +358,7 @@ impl Harvest {
 
     /// The longest reach of the carried weapons that X turns on barrels.
     pub(super) fn barrel_reach(&self) -> Option<f32> {
-        let aimed = self.kit.weapons.iter().filter(|a| matches!(a.does(), Does::Pistol | Does::Shotgun | Does::Rifle));
+        let aimed = self.kit.weapons.iter().filter(|a| matches!(a.does(), Does::Pistol | Does::Shotgun | Does::Rifle | Does::Gun));
         aimed.map(|&a| self.stat(a, Stat::Range)).reduce(f32::max)
     }
 
@@ -385,6 +396,7 @@ impl Harvest {
             Does::Scarecrow => self.scarecrow(a),
             Does::Molotov => self.lob_molotovs(a, sounds),
             Does::Flare => self.lob_flare(a, sounds),
+            Does::Gun => self.gun(a, sounds),
             Does::Crows | Does::Dog => false,
         }
     }
@@ -404,6 +416,33 @@ impl Harvest {
         self.fx.push(Fx::play(look(a, super::effects::effects().muzzle_pistol), muzzle, base));
         self.juice.kick += 0.015;
         self.juice.flash([self.pos[0] + d[0] * 8.0, self.pos[1] + d[1] * 8.0], 10.0, [1.2, 0.85, 0.4], 3.5, 0.07);
+        self.noise = Some(self.pos);
+        sounds.push(sound(a, Sfx::Shot));
+        true
+    }
+
+    /// A gun as its section shapes it: where it looks for a target, and how its shots spread.
+    fn gun(&mut self, a: Armed, sounds: &mut Vec<Sfx>) -> bool {
+        let def = &book().defs[a.def];
+        let (aim, pattern) = (def.aim, def.pattern);
+        let range = self.stat(a, Stat::Range);
+        let target = match aim {
+            Aim::Nearest => self.nearest_in(range, None),
+            Aim::Ahead => self.nearest_in(range, Some((self.aim, self.ahead_half()))),
+            Aim::Behind => self.nearest_in(range, Some(([-self.aim[0], -self.aim[1]], crate::tuning::tuning().behind_half))),
+            Aim::Around => self.nearest_in(range, None).map(|_| self.aim),
+        };
+        let Some(d) = target.map(norm) else { return false };
+        let (n, speed) = (self.stat(a, Stat::Count).max(1.0) as u32, self.stat(a, Stat::Speed));
+        let (base, spread) = (d[1].atan2(d[0]), self.stat(a, Stat::Spread).to_radians());
+        let (damage, pierce, force) = (self.stat(a, Stat::Damage), self.stat(a, Stat::Pierce) as u32, self.stat(a, Stat::Knockback));
+        for k in 0..n {
+            let angle = shot_angle(pattern, k, n, base, spread, self.juice.rng.range(-0.5, 0.5));
+            self.shoot(angle, speed, damage, pierce, range / speed, force, bullet(a));
+        }
+        let muzzle = [self.pos[0] + d[0] * 8.0, self.pos[1] - 6.0 + d[1] * 8.0];
+        self.fx.push(Fx::play(look(a, super::effects::effects().muzzle_pistol), muzzle, base));
+        self.juice.kick += 0.015;
         self.noise = Some(self.pos);
         sounds.push(sound(a, Sfx::Shot));
         true
@@ -929,6 +968,16 @@ mod tests {
     use super::super::{Choice, Kind as ZKind, Phase};
     use super::*;
     use crate::{Buttons, Input};
+
+    #[test]
+    fn a_gun_spreads_its_shots_as_its_pattern_says() {
+        let all = |p: Pattern, n: u32| (0..n).map(|k| shot_angle(p, k, n, 1.0, 0.5, 0.25)).collect::<Vec<_>>();
+        assert_eq!(all(Pattern::Fan, 3), [0.75, 1.0, 1.25]);
+        assert_eq!(all(Pattern::Fan, 1), [1.0], "one shot goes straight at the target");
+        let ring = all(Pattern::Ring, 4);
+        assert!(ring.windows(2).all(|w| (w[1] - w[0] - TAU / 4.0).abs() < 1e-6), "evenly all the way round");
+        assert_eq!(all(Pattern::Spray, 2), [1.125, 1.125]);
+    }
 
     fn armed(h: &mut Harvest, id: &str, level: u32) {
         let def = book().index(id).unwrap();
