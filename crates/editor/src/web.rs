@@ -58,6 +58,8 @@ struct Web {
     shift: bool,
     /// Fingers on the corner Shift pads, by pad and pointer, which hold Shift down while they stay.
     holding: Vec<(usize, i32)>,
+    /// Whether the keyboard's Shift was down when the last pointer landed.
+    key_shift: bool,
     i_held: bool,
     title: String,
 }
@@ -126,7 +128,7 @@ impl Web {
     /// Hands a press at `at` to the studio.
     fn begin(&mut self, id: i32, at: [f32; 2]) {
         let (pane, p) = self.locate(at);
-        self.studio.press(pane, p, false, self.shifted());
+        self.studio.press(pane, p, false, self.shifted() || self.key_shift);
         self.pointer = at;
         self.gesture = Gesture::Held { id };
     }
@@ -147,11 +149,12 @@ impl Web {
     fn down(&mut self, e: &PointerEvent) {
         let (id, p) = (e.pointer_id(), [e.offset_x() as f32, e.offset_y() as f32]);
         let _ = self.canvas.set_pointer_capture(id);
+        self.key_shift = e.shift_key();
         if e.pointer_type() != "touch" {
             // A pen or mouse takes over from any finger, such as a palm resting on the screen.
             self.cancel_touches();
             let (pane, at) = self.locate(p);
-            self.studio.press(pane, at, e.button() == 2, self.shifted());
+            self.studio.press(pane, at, e.button() == 2, self.shifted() || self.key_shift);
             self.pointer = p;
             self.gesture = Gesture::Held { id };
             return;
@@ -531,6 +534,7 @@ fn start() -> Result<(), String> {
         pointer: [0.0; 2],
         shift: false,
         holding: Vec::new(),
+        key_shift: false,
         i_held: false,
         title: String::new(),
     }));
