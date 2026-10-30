@@ -270,13 +270,13 @@ pub fn section(name: &str) -> &'static str {
     }
     if let Some(rest) = name.strip_prefix(DATA_PREFIX) {
         return match rest.split('_').next() {
-            Some("TUNING") => "Data: tuning",
-            Some("PROPS") => "Data: props",
-            Some("EFFECTS") => "Data: effects",
-            Some("GROUND") => "Data: ground",
-            Some("FARM") => "Data: random farm",
-            Some("POWERUPS") => "Data: powerups",
-            Some("ENEMIES") => "Data: enemies",
+            Some("TUNING") => "Data/tuning",
+            Some("PROPS") => "Data/props",
+            Some("EFFECTS") => "Data/effects",
+            Some("GROUND") => "Data/ground",
+            Some("FARM") => "Data/random farm",
+            Some("POWERUPS") => "Data/powerups",
+            Some("ENEMIES") => "Data/enemies",
             _ => "Data",
         };
     }
@@ -291,6 +291,16 @@ pub fn section(name: &str) -> &'static str {
     static SECTIONS: std::sync::OnceLock<Vec<(String, String)>> = std::sync::OnceLock::new();
     let sections = SECTIONS.get_or_init(|| sections_of(include_str!("../../game/art.txt")));
     sections.iter().find(|(n, _)| n == name).map_or(NEW_SECTION, |(_, s)| s.as_str())
+}
+
+/// The headings a section lists under, outermost first: `Data/tuning` is under `Data`, then `Data/tuning`.
+pub fn section_path(section: &'static str) -> impl Iterator<Item = &'static str> {
+    section.match_indices('/').map(move |(i, _)| &section[..i]).chain(std::iter::once(section))
+}
+
+/// Whether `section` lists under the heading `path`.
+pub fn within(section: &str, path: &str) -> bool {
+    section.strip_prefix(path).is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
 }
 
 pub const NEW_SECTION: &str = "New sprites";

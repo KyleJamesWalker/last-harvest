@@ -337,6 +337,8 @@ struct Stash {
 }
 
 const HISTORY_ROW: f32 = 40.0;
+/// How far each nesting level of the list steps in.
+const INDENT: f32 = 12.0;
 const HISTORY_TOP: f32 = LIST.y + 48.0;
 const RESTORE: Rect = Rect { x: LIST.x + 8.0, y: LIST.y + LIST.h - 44.0, w: 88.0, h: 36.0 };
 const BACK: Rect = Rect { x: LIST.x + 104.0, y: LIST.y + LIST.h - 44.0, w: 88.0, h: 36.0 };
@@ -346,7 +348,7 @@ type Snapshot = (Vec<Frame>, Option<[Frame; 2]>, Option<Frame>, Option<Frame>);
 
 /// A line of the sprite list.
 enum Row<'a> {
-    Heading { title: &'static str, count: usize, saved: usize, open: bool },
+    Heading { title: &'static str, depth: usize, count: usize, saved: usize, open: bool },
     Sprite(&'a (String, bool)),
 }
 
@@ -1967,21 +1969,29 @@ impl Editor {
         self.names.iter().filter(|(n, _)| n.contains(&want)).collect()
     }
 
-    /// The list's rows: a heading over each group, then its sprites if it's unfolded. A search unfolds every
-    /// group with a match.
+    /// The list's rows: a heading over each group, nested by `/` in its title, then its sprites if every heading
+    /// over them is unfolded. A search unfolds every group with a match.
     fn rows(&self) -> Vec<Row<'_>> {
         let searching = !self.filter.is_empty();
         let mut rows = Vec::new();
         let listed = self.listed();
         for (i, entry) in listed.iter().enumerate() {
             let title = sprite::section(&entry.0);
-            if i == 0 || sprite::section(&listed[i - 1].0) != title {
-                let group = listed[i..].iter().take_while(|e| sprite::section(&e.0) == title);
-                let (count, saved) = group.fold((0, 0), |(n, s), e| (n + 1, s + e.1 as usize));
-                let open = searching || self.unfolded.contains(&title);
-                rows.push(Row::Heading { title, count, saved, open });
+            let before = i.checked_sub(1).map(|b| sprite::section(&listed[b].0));
+            let mut shown = true;
+            for (depth, path) in sprite::section_path(title).enumerate() {
+                let open = searching || self.unfolded.contains(&path);
+                if !before.is_some_and(|b| sprite::within(b, path)) {
+                    let group = listed[i..].iter().take_while(|e| sprite::within(sprite::section(&e.0), path));
+                    let (count, saved) = group.fold((0, 0), |(n, s), e| (n + 1, s + e.1 as usize));
+                    rows.push(Row::Heading { title: path, depth, count, saved, open });
+                }
+                if !open {
+                    shown = false;
+                    break;
+                }
             }
-            if searching || self.unfolded.contains(&title) {
+            if shown {
                 rows.push(Row::Sprite(entry));
             }
         }
@@ -2047,9 +2057,10 @@ impl Editor {
         if self.none_open() {
             return;
         }
-        let title = sprite::section(&self.sprite.name);
-        if !self.unfolded.contains(&title) {
-            self.unfolded.push(title);
+        for title in sprite::section_path(sprite::section(&self.sprite.name)) {
+            if !self.unfolded.contains(&title) {
+                self.unfolded.push(title);
+            }
         }
         let Some(i) = self.rows().iter().position(|r| matches!(r, Row::Sprite((m, _)) if *m == self.sprite.name)) else { return };
         let (y, room) = (i as f32 * LIST_ROW, LIST.h - (self.list_top() - LIST.y));
@@ -2343,10 +2354,10 @@ impl Editor {
         for (i, row) in self.rows().into_iter().enumerate().skip(first).take(rows) {
             let y = top + i as f32 * LIST_ROW - self.scroll;
             match row {
-                Row::Heading { title, count, saved, open } => {
+                Row::Heading { title, depth, count, saved, open } => {
                     c.rect(LIST.x, y + 1.0, LIST.w, LIST_ROW - 2.0, BUTTON);
-                    let title: String = title.chars().take(20).collect();
-                    c.label(format!("{} {title}", if open { "-" } else { "+" }), LIST.x + 6.0, y + 3.0, 15.0, TEXT, Align::Left);
+                    let title: String = title.rsplit('/').next().unwrap_or(title).chars().take(20 - 2 * depth).collect();
+                    c.label(format!("{} {title}", if open { "-" } else { "+" }), LIST.x + 6.0 + INDENT * depth as f32, y + 3.0, 15.0, TEXT, Align::Left);
                     let tally = if saved > 0 { format!("{saved}*  {count}") } else { count.to_string() };
                     c.label(tally, LIST.x + LIST.w - 6.0, y + 4.0, 13.0, if saved > 0 { HOT } else { DIM }, Align::Right);
                 }
@@ -2355,7 +2366,8 @@ impl Editor {
                         c.rect(LIST.x, y, LIST.w, LIST_ROW, [0.35, 0.3, 0.18, 1.0]);
                     }
                     let mark = if *saved { "  *" } else { "" };
-                    c.label(format!("{}{mark}", list_label(name)), LIST.x + 14.0, y + 2.0, 17.0, if *saved { HOT } else { TEXT }, Align::Left);
+                    let depth = sprite::section(name).matches('/').count() as f32;
+                    c.label(format!("{}{mark}", list_label(name)), LIST.x + 14.0 + INDENT * depth, y + 2.0, 17.0, if *saved { HOT } else { TEXT }, Align::Left);
                 }
             }
         }
@@ -3337,7 +3349,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let mut e = editor_in(&dir, dir.join("art.txt"));
         assert!(e.names.iter().any(|(n, _)| n == "DATA_TUNING_PLAYER") && e.names.iter().any(|(n, _)| n == "DATA_POWERUPS_PISTOL"));
-        assert_eq!(sprite::section("DATA_TUNING_PLAYER"), "Data: tuning");
+        assert_eq!(sprite::section("DATA_TUNING_PLAYER"), "Data/tuning");
         assert_eq!((list_label("DATA_GROUND__67"), list_label("DATA_GROUND__47"), list_label("DATA_TUNING_PLAYER")), ("[g]".into(), "[G]".into(), "PLAYER".into()));
         assert!(["DATA_GROUND__2E", "DATA_GROUND__3D", "DATA_GROUND__67"].iter().all(|n| e.names.iter().any(|(m, _)| m == n)), "ground codes list apart");
         e.switch_to("DATA_TUNING_PLAYER".into());
@@ -3839,6 +3851,18 @@ mod tests {
         let ground = shown.iter().position(|r| r == "# Ground").unwrap();
         e.mouse_down([LIST.x + 10.0, e.list_top() + (ground as f32 + 0.5) * LIST_ROW - e.scroll], false, false);
         assert!(rows(&e).contains(&"DIRT".to_string()), "tapping a heading unfolds it");
+        let tap = |e: &mut Editor, heading: &str| {
+            let at = rows(e).iter().position(|r| r == heading).unwrap();
+            e.scroll = at as f32 * LIST_ROW;
+            e.mouse_down([LIST.x + 10.0, e.list_top() + (at as f32 + 0.5) * LIST_ROW - e.scroll], false, false);
+        };
+        let data = |e: &Editor| rows(e).into_iter().filter(|r| r.starts_with("# Data")).collect::<Vec<_>>();
+        assert_eq!(data(&e), ["# Data"], "the data files fold under one heading");
+        tap(&mut e, "# Data");
+        assert_eq!(data(&e).len(), 1 + last_harvest_game::TABLES.len(), "a folder per data file");
+        assert!(!rows(&e).contains(&"DATA_TUNING_PLAYER".to_string()));
+        tap(&mut e, "# Data/tuning");
+        assert!(rows(&e).contains(&"DATA_TUNING_PLAYER".to_string()), "a data file's folder unfolds its sections");
         e.key(Key::Char('/'));
         e.set_text("player_b");
         assert!(rows(&e).contains(&"PLAYER_BACK".to_string()), "a search shows matches in folded groups");
@@ -3852,7 +3876,7 @@ mod tests {
         assert_eq!(e.text(), Some("CAR_H"));
         e.key(Key::Escape);
         assert_eq!(e.text(), None);
-        e.unfolded = e.names.iter().map(|(n, _)| sprite::section(n)).collect();
+        e.unfolded = e.names.iter().flat_map(|(n, _)| sprite::section_path(sprite::section(n))).collect();
         e.scroll = 0.0;
         e.drag_list(-200.0);
         assert_eq!(e.scroll, 200.0);
