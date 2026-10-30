@@ -17,6 +17,7 @@
 #   after       MINUTES   the earliest it arrives in a night; 0 when left out
 #   chance      P         see below; 1 when left out
 #   per_minute  P         added to chance for each minute of the night; 0 when left out
+#   charge      N         times its speed once within tuning.txt's charge_reach of the player; 1 when left out
 #   heavy                 a crit or a hard hit roots it for a moment, and its death shakes the screen
 #   leader                a horde's leader, carrying the chest, is one of these
 #   harvester             dawn's Harvester wears this one's sprites

@@ -24,6 +24,8 @@ pub struct Enemy {
     pub after: f32,
     pub chance: f32,
     pub per_minute: f32,
+    /// Times its speed within tuning.txt's charge reach of the player; 1 for none.
+    pub charge: f32,
     pub heavy: bool,
     /// It came from an enemy card rather than the game's own file.
     pub from_card: bool,
@@ -218,6 +220,7 @@ fn entries(text: &str) -> Result<Vec<Entry>, String> {
                 after: 0.0,
                 chance: 1.0,
                 per_minute: 0.0,
+                charge: 1.0,
                 heavy: false,
                 from_card: false,
             };
@@ -242,6 +245,7 @@ fn entries(text: &str) -> Result<Vec<Entry>, String> {
             "after" => e.after = number()?,
             "chance" => e.chance = number()?,
             "per_minute" => e.per_minute = number()?,
+            "charge" => e.charge = number()?.clamp(0.1, 10.0),
             "walk" => {
                 entry.walk = rest.parse().ok().filter(|n| (1..=MAX_WALK).contains(n)).ok_or_else(|| format!("{n}: walk is 1 to {MAX_WALK} frames, not {rest:?}"))?;
             }
@@ -320,14 +324,14 @@ pub struct CardFields {
     pub walk: usize,
 }
 
-pub const NUMBERS: [&str; 9] = ["hp", "speed", "damage", "xp", "mass", "gibs", "after", "chance", "per_minute"];
+pub const NUMBERS: [&str; 10] = ["hp", "speed", "damage", "xp", "mass", "gibs", "after", "chance", "per_minute", "charge"];
 pub const FLAGS: [&str; 3] = ["heavy", "leader", "harvester"];
 
 /// Reads a card's text as the game would, or says why it can't.
 pub fn card_fields(text: &str) -> Result<CardFields, String> {
     let entry = card_entry(text)?;
     let e = &entry.enemy;
-    let numbers = [e.hp, e.speed, e.damage, e.xp as f32, e.mass, e.gibs as f32, e.after, e.chance, e.per_minute];
+    let numbers = [e.hp, e.speed, e.damage, e.xp as f32, e.mass, e.gibs as f32, e.after, e.chance, e.per_minute, e.charge];
     Ok(CardFields {
         id: e.id.clone(),
         name: e.name.clone(),

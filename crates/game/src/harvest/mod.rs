@@ -1449,7 +1449,9 @@ impl Harvest {
                 z.stagger -= dt;
                 continue;
             }
-            let speed = if z.boss { crate::tuning::tuning().harvester_speed } else { z.kind.stats().speed } * (1.0 - z.slow_k);
+            let t = crate::tuning::tuning();
+            let charge = if len(sub(self.pos, z.pos)) < t.charge_reach { z.kind.stats().charge } else { 1.0 };
+            let speed = if z.boss { t.harvester_speed } else { z.kind.stats().speed * charge } * (1.0 - z.slow_k);
             let direct = sub(self.pos, z.pos);
             let lure = self.decoys.iter().find(|d| len(sub(d.pos, z.pos)) < d.lure);
             let to = match lure {

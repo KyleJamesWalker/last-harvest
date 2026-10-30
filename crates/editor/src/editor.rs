@@ -260,7 +260,7 @@ enum Action {
 }
 
 /// What each of a card's numbers is called on its stats page, and how far a press of - or + moves it.
-const STAT_ROWS: [(&str, f32); 9] = [
+const STAT_ROWS: [(&str, f32); 10] = [
     ("Health", 5.0),
     ("Speed", 1.0),
     ("Bite", 1.0),
@@ -270,11 +270,12 @@ const STAT_ROWS: [(&str, f32); 9] = [
     ("Arrives after (minutes)", 0.5),
     ("Chance", 0.01),
     ("Chance per minute", 0.005),
+    ("Charge (times speed near you)", 0.1),
 ];
 const FLAG_NAMES: [&str; 3] = ["Heavy", "Leads hordes", "Harvester"];
 const STAT_TOP: f32 = CANVAS.y + 100.0;
-const STAT_ROW: f32 = 25.0;
-const STAT_BUTTON: f32 = 24.0;
+const STAT_ROW: f32 = 22.0;
+const STAT_BUTTON: f32 = 20.0;
 const NAME_MAX: usize = 24;
 const DELETE_CONFIRM: f32 = 3.0;
 /// A player card's stats: a block per difficulty with its weapon toggles, five across.
@@ -1634,7 +1635,7 @@ impl Editor {
                 let (key, value) = f.numbers[i];
                 let (_, step) = STAT_ROWS[i];
                 let bigger = if shift { 10.0 } else { 1.0 };
-                let lo = if key == "mass" { 0.1 } else { 0.0 };
+                let lo = if matches!(key, "mass" | "charge") { 0.1 } else { 0.0 };
                 let mut v = ((value + step * bigger * d as f32) / step).round() * step;
                 v = v.max(lo);
                 if key == "chance" {
@@ -2937,6 +2938,8 @@ mod tests {
         e.draw(&mut Canvas::default());
         e.act(Action::StatStep(0, 1), false);
         e.act(Action::StatStep(1, 1), true);
+        e.act(Action::StatStep(9, 1), false);
+        assert_eq!(last_harvest_game::card_fields(e.sprite.card.as_deref().unwrap()).unwrap().numbers[9], ("charge", 1.1));
         e.act(Action::Flag(0), false);
         e.act(Action::EditName, false);
         for _ in 0..5 {
