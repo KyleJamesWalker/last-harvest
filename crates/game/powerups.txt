@@ -12,7 +12,7 @@
 #   does    behaviour   for weapons, which behaviour it fires with; defaults to the id, so a copy
 #                       under a new id with `does scythe` is a second scythe with its own numbers
 #   zone    ahead | around | behind | map
-#   icon    SPRITE      the card's picture, a name from art.txt; defaults to ICON_<ID>
+#   icon    SPRITE      the card's picture, a name from art.txt or a player's prop, PROP_<ID>; defaults to ICON_<ID>
 #   unlock  start | kills N | night SECONDS | level N | nights N | dawns N
 #           kills and nights add up over every run; night and level are the best single run.
 #           Anything but `start` only becomes findable: a level-up may then offer it on a FOUND card,
@@ -20,6 +20,16 @@
 #   find    CHANCE      how often a level-up offers it as a find, 0 to 1; 0.25 when left out
 #   after   MINUTES     the earliest it can be found in a night; 0 when left out
 #   chest   (no value)  found only in the chest a horde's leader drops; a chest holds a find whenever one is waiting
+#   effect  NAME        for weapons, the effects.txt effect it plays in place of its behaviour's own
+#   bullet  NAME        for weapons that shoot, the effects.txt effect its bullets fly as
+#   sound   NAME        for weapons, shot, blast, slash, zap, bark or throw in place of its behaviour's own
+#   aim     nearest | ahead | behind | around     for `does gun` and `does blade`, where it looks for a target;
+#                       nearest when left out. A blade cuts everything within area across spread degrees, 360 all round
+#   lands   blast | fire | flare | tacks     for `does lob`, which throws count at a crowd within range, what it does
+#                       where it lands, with damage, area, duration and slow; blast when left out. It flies as its
+#                       bullet effect, the grenade when left out, and plays its effect where it lands
+#   pattern fan | ring | spray     for `does gun`, how count shots spread: evenly across spread, evenly all the way
+#                       round, or at random across spread; fan when left out
 #   blurb   Text        the card's line when the powerup is new
 #   max     N           highest level
 #   STAT    v1 v2 ...   the value at each level, from level 1; a short list repeats its last value

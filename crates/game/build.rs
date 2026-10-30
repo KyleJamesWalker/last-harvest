@@ -14,6 +14,7 @@ const PAD: u32 = 1;
 /// Free rows kept below the packed sprites for enemy cards, which the game draws in at startup.
 const CARD_ROWS: u32 = 256;
 
+#[derive(Clone)]
 struct Image {
     w: u32,
     h: u32,
@@ -203,7 +204,14 @@ fn stand_code(how: &str, line: usize) -> String {
     let size = || words.get(1).and_then(|w| w.parse::<f32>().ok()).unwrap_or_else(|| panic!("art.txt:{line}: {how:?} needs a size in pixels"));
     match words.first().copied() {
         Some("prop") => format!("Stand::Prop {{ depth: {:?} }}", size()),
-        Some("slab") => format!("Stand::Slab {{ height: {:?} }}", size()),
+        Some("slab") => {
+            let lift = match words.get(2..4) {
+                Some(["float", n]) => n.parse::<f32>().unwrap_or_else(|_| panic!("art.txt:{line}: {how:?} floats a number of pixels")),
+                None if words.len() == 2 => 0.0,
+                _ => panic!("art.txt:{line}: a slab is slab N or slab N float N"),
+            };
+            format!("Stand::Slab {{ height: {:?}, lift: {lift:?} }}", size())
+        }
         Some("figure") => "Stand::Figure".into(),
         Some("ground") => "Stand::Ground".into(),
         _ => panic!("art.txt:{line}: unknown stand {how:?}; use prop N, slab N, figure or ground"),
@@ -212,7 +220,24 @@ fn stand_code(how: &str, line: usize) -> String {
 
 /// Rust for a stand, packing a carved sprite's south and east views, and its footprint if it has one, from its folder.
 /// Without them, as in a clone that lacks the saved sprites, a carved sprite falls back to a slab.
-fn stand_for(how: &str, dir: &Path, intern: &mut impl FnMut(Image) -> usize, line: usize) -> String {
+/// A turned sprite's east view is its folder's, else the cut its catalog line names, as in `turned 2 cell 21 10`,
+/// where the optional 2 is its depth.
+fn stand_for(how: &str, dir: &Path, intern: &mut impl FnMut(Image) -> usize, line: usize, cut_view: &dyn Fn(&str) -> Vec<Image>) -> String {
+    if let Some(rest) = how.strip_prefix("turned") {
+        let rest = rest.trim();
+        let (depth, rest) = match rest.split_once(char::is_whitespace).map_or((rest, ""), |(a, b)| (a, b.trim())) {
+            (n, cut) if n.parse::<f32>().is_ok() => (format!("Some({:?})", n.parse::<f32>().unwrap()), cut),
+            _ => ("None".to_string(), rest),
+        };
+        let east = decode(&dir.join("east.png")).ok().or_else(|| (!rest.is_empty()).then(|| cut_view(rest).into_iter().next()).flatten());
+        return match east {
+            Some(east) => format!("Stand::Turned {{ east: Art({}), depth: {depth} }}", intern(east)),
+            None => {
+                println!("cargo:warning={} is turned but has no east.png or cut to stand up; it stands as a prop", dir.display());
+                "Stand::Prop { depth: 3.0 }".into()
+            }
+        };
+    }
     if how != "carve" {
         return stand_code(how, line);
     }
@@ -223,7 +248,7 @@ fn stand_for(how: &str, dir: &Path, intern: &mut impl FnMut(Image) -> usize, lin
         }
         _ => {
             println!("cargo:warning={} is carved but has no south.png and east.png; it stands as a slab", dir.display());
-            "Stand::Slab { height: 10.0 }".into()
+            "Stand::Slab { height: 10.0, lift: 0.0 }".into()
         }
     }
 }
@@ -231,6 +256,36 @@ fn stand_for(how: &str, dir: &Path, intern: &mut impl FnMut(Image) -> usize, lin
 /// A sprite name the generated code can use as a constant.
 fn is_name(n: &str) -> bool {
     n.starts_with(|c: char| c.is_ascii_uppercase()) && n.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+}
+
+/// Each frame paired with a copy lacking the colors its folder's `clear.txt` lists, one hex color a line,
+/// for the 3D view to stand up in its place.
+fn cleared_in_3d(dir: &Path, frames: &[Image], ids: &[usize], intern: &mut impl FnMut(Image) -> usize) -> Vec<(usize, usize)> {
+    let path = dir.join("clear.txt");
+    let Ok(text) = std::fs::read_to_string(&path) else { return Vec::new() };
+    let colors: Vec<[u8; 3]> = text
+        .lines()
+        .map(|l| l.trim().trim_start_matches('#'))
+        .filter(|l| !l.is_empty())
+        .map(|l| {
+            let byte = |i: usize| l.get(i..i + 2).and_then(|h| u8::from_str_radix(h, 16).ok());
+            match (l.len(), byte(0), byte(2), byte(4)) {
+                (6, Some(r), Some(g), Some(b)) => [r, g, b],
+                _ => panic!("{}: {l} isn't a color like #5A6E3C", path.display()),
+            }
+        })
+        .collect();
+    frames
+        .iter()
+        .zip(ids)
+        .map(|(f, &id)| {
+            let mut copy = f.clone();
+            for px in copy.rgba.chunks_exact_mut(4).filter(|p| p[3] > 0 && colors.contains(&[p[0], p[1], p[2]])) {
+                px.fill(0);
+            }
+            (id, intern(copy))
+        })
+        .collect()
 }
 
 /// The frames saved for a sprite as `0.png`, `1.png` and so on, or none.
@@ -268,6 +323,8 @@ fn main() {
     let mut stands: Vec<(String, String)> = Vec::new();
     // A figure's top strip from the editor, by entry name and its image.
     let mut tops: Vec<(String, usize)> = Vec::new();
+    // Each frame with its copy for the 3D view, where the editor clears colors in 3D.
+    let mut solids: Vec<(usize, usize)> = Vec::new();
     let mut images: Vec<Image> = Vec::new();
     let mut seen: HashMap<Vec<u8>, usize> = HashMap::new();
     let mut intern = |img: Image| {
@@ -285,7 +342,7 @@ fn main() {
         let (rest, how) = rest.split_once('@').unwrap_or((rest, ""));
         let how = std::fs::read_to_string(sprites.join(name).join("stand.txt")).unwrap_or_else(|_| how.to_string());
         if !how.trim().is_empty() {
-            let code = stand_for(how.trim(), &sprites.join(name), &mut intern, i + 1);
+            let code = stand_for(how.trim(), &sprites.join(name), &mut intern, i + 1, &|spec| cut(&sheet, &manifest, spec, i + 1));
             stands.push((name.to_string(), code));
         }
         // A sprite saved from the editor takes the place of its cut from the sheet.
@@ -293,8 +350,10 @@ fn main() {
             tops.push((name.to_string(), intern(top)));
         }
         let drawn = saved(&sprites.join(name));
-        let frames = if drawn.is_empty() { rest.split(';').flat_map(|frame| cut(&sheet, &manifest, frame.trim(), i + 1)).collect() } else { drawn };
-        entries.push((name.to_string(), frames.into_iter().map(&mut intern).collect()));
+        let frames: Vec<Image> = if drawn.is_empty() { rest.split(';').flat_map(|frame| cut(&sheet, &manifest, frame.trim(), i + 1)).collect() } else { drawn };
+        let ids: Vec<usize> = frames.iter().map(|f| intern(f.clone())).collect();
+        solids.extend(cleared_in_3d(&sprites.join(name), &frames, &ids, &mut intern));
+        entries.push((name.to_string(), ids));
     }
     // Sprites drawn from scratch in the editor, with no line in the catalog.
     let mut extra: Vec<String> = std::fs::read_dir(&sprites)
@@ -308,14 +367,16 @@ fn main() {
     for name in extra {
         let frames = saved(&sprites.join(&name));
         if let Ok(how) = std::fs::read_to_string(sprites.join(&name).join("stand.txt")) {
-            let code = stand_for(how.trim(), &sprites.join(&name), &mut intern, 0);
+            let code = stand_for(how.trim(), &sprites.join(&name), &mut intern, 0, &|spec| cut(&sheet, &manifest, spec, 0));
             stands.push((name.clone(), code));
         }
         if let Ok(top) = decode(&sprites.join(&name).join("top.png")) {
             tops.push((name.clone(), intern(top)));
         }
         if !frames.is_empty() {
-            entries.push((name, frames.into_iter().map(&mut intern).collect()));
+            let ids: Vec<usize> = frames.iter().map(|f| intern(f.clone())).collect();
+            solids.extend(cleared_in_3d(&sprites.join(&name), &frames, &ids, &mut intern));
+            entries.push((name, ids));
         }
     }
 
@@ -379,6 +440,11 @@ fn main() {
         }
     }
     writeln!(src, "pub(crate) static TOPS: [Option<Art>; {}] = [{}];", top_of.len(), top_of.join(", ")).unwrap();
+    let mut solid_of = vec!["None".to_string(); images.len()];
+    for (id, solid) in solids {
+        solid_of[id] = format!("Some(Art({solid}))");
+    }
+    writeln!(src, "pub(crate) static SOLIDS: [Option<Art>; {}] = [{}];", solid_of.len(), solid_of.join(", ")).unwrap();
     writeln!(src, "/// Every catalog entry with its frames, for the art gallery.\npub static ALL: &[(&str, &[Art])] = &[{}];", names.join(", ")).unwrap();
     std::fs::write(out.join("art_gen.rs"), src).unwrap();
 }

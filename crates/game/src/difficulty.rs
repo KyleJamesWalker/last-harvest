@@ -35,21 +35,25 @@ impl Difficulty {
 
     /// Multiplies the damage a zombie deals.
     pub fn damage(self) -> f32 {
-        [0.55, 1.0, 1.4][self as usize]
+        let t = crate::tuning::tuning();
+        [t.easy_damage, t.normal_damage, t.hard_damage][self as usize]
     }
 
     /// Seconds a hit leaves the player safe from the next.
     pub fn hurt_time(self) -> f32 {
-        [0.7, 0.5, 0.4][self as usize]
+        let t = crate::tuning::tuning();
+        [t.easy_hurt_time, t.normal_hurt_time, t.hard_hurt_time][self as usize]
     }
 
     /// One kill in this many drops health instead of money.
     pub fn health_drop(self) -> usize {
-        [60, 200, 400][self as usize]
+        let t = crate::tuning::tuning();
+        [t.easy_health_drop, t.normal_health_drop, t.hard_health_drop][self as usize].max(1.0) as usize
     }
 
     pub fn heal(self) -> f32 {
-        [30.0, 20.0, 15.0][self as usize]
+        let t = crate::tuning::tuning();
+        [t.easy_heal, t.normal_heal, t.hard_heal][self as usize]
     }
 
     pub fn key(self) -> &'static str {

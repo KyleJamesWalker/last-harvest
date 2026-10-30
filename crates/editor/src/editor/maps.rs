@@ -2,7 +2,7 @@
 //! drawing, and painted with ground, props, fences, the spawn and home.
 
 use last_harvest_game::art::Art;
-use last_harvest_game::{MAP_GROUND, MAP_PROPS, MapSource, PROP_MAX_HP, PropFields, PropLine, SCREEN_H, SCREEN_W};
+use last_harvest_game::{MapSource, PROP_MAX_HP, PropFields, PropLine, SCREEN_H, SCREEN_W};
 
 use super::*;
 
@@ -14,7 +14,7 @@ type Files = Vec<(String, Vec<u8>)>;
 /// What the picker offers: players' props as packed for the previews, then the game's own, each with its sprite
 /// name, walk-through rows and a frame to show.
 fn pickable() -> Vec<(String, usize, Option<Art>)> {
-    let own = MAP_PROPS.iter().map(|k| (k.name.to_string(), k.open, last_harvest_game::art::ALL.iter().find(|(a, _)| *a == k.name).map(|(_, f)| f[0])));
+    let own = last_harvest_game::map_props().iter().map(|k| (k.name.to_string(), k.open, last_harvest_game::art::ALL.iter().find(|(a, _)| *a == k.name).map(|(_, f)| f[0])));
     let players = last_harvest_game::named_props().into_iter().map(|p| (p.name, p.open, p.frames.first().copied()));
     players.chain(own).collect()
 }
@@ -53,9 +53,13 @@ const MAX_SCALE: f32 = 4.0;
 /// Where a prop's hit points and cover show: the selected one's under Move, and an open prop's sprite's under
 /// the palette, which keeps this many rows for them.
 const TOUGH_Y: f32 = PICK_TOP + 30.0;
-pub(super) const PROP_PALETTE_ROWS: usize = 6;
-pub(super) const PROP_HP_Y: f32 = 498.0;
-const PROP_COVER_Y: f32 = 462.0;
+/// Where the selected prop's walk-through rows, frame and pace go under Move, a row apart.
+const LINE_Y: f32 = TOUGH_Y + 100.0;
+const LINE_ROW: f32 = 36.0;
+pub(super) const PROP_PALETTE_ROWS: usize = 5;
+pub(super) const PROP_HP_Y: f32 = 474.0;
+pub(super) const PROP_OPEN_Y: f32 = 508.0;
+const PROP_COVER_Y: f32 = 440.0;
 
 pub(super) struct MapEdit {
     pub id: String,
@@ -280,17 +284,23 @@ impl Editor {
         push(SIDE_X + 118.0, PROP_COVER_Y, 114.0, 30.0, Action::Broken, "Broken frame", f.broken);
         push(SIDE_X + 130.0, PROP_HP_Y, 46.0, 30.0, Action::Hp(-1), "-", false);
         push(SIDE_X + 182.0, PROP_HP_Y, 46.0, 30.0, Action::Hp(1), "+", false);
+        push(SIDE_X + 130.0, PROP_OPEN_Y, 46.0, 30.0, Action::Open(-1), "-", false);
+        push(SIDE_X + 182.0, PROP_OPEN_Y, 46.0, 30.0, Action::Open(1), "+", false);
     }
 
-    /// Every player's prop the store keeps, to pack for the previews while a map is open: their frames, in turn,
-    /// and each one's fields and frame count.
+    /// Every player's prop the store keeps, to pack for the previews while a map is open: their frames, then the
+    /// footprint and views of one that stands by them, in turn, and each one's fields and how many it packed.
     pub(super) fn prop_surfaces(&self) -> (Vec<Frame>, Vec<(PropFields, usize)>) {
         let (mut frames, mut props) = (Vec::new(), Vec::new());
         for (name, _) in self.names.iter().filter(|(n, _)| n.starts_with(last_harvest_game::PROP_PREFIX)) {
             let Some(s) = self.store.load(name) else { continue };
-            let Some(f) = s.card.as_deref().and_then(|t| last_harvest_game::prop_fields(t).ok()) else { continue };
-            props.push((f, s.frames.len()));
-            frames.extend(s.frames);
+            let Some(mut f) = s.card.as_deref().and_then(|t| last_harvest_game::prop_fields(t).ok()) else { continue };
+            f.frames = s.frames.len() as u32;
+            let views = s.views.filter(|_| f.by_views.is_some());
+            let footprint = s.footprint.filter(|_| views.is_some() && f.footprint);
+            let packed = s.frames.len() + footprint.is_some() as usize + 2 * views.is_some() as usize;
+            props.push((f, packed));
+            frames.extend(s.frames.into_iter().chain(footprint).chain(views.into_iter().flatten()));
         }
         (frames, props)
     }
@@ -302,7 +312,11 @@ impl Editor {
         let mut named = Vec::new();
         for (f, n) in &self.map_props {
             let Some(arts) = self.live.get(at..at + n) else { break };
-            named.push((f.clone(), arts.to_vec()));
+            let (mut f, frames) = (f.clone(), (f.frames as usize).min(*n));
+            if let [.., south, east] = arts[frames..] {
+                f.stand_by(south, east, (n - frames == 3).then(|| arts[frames]));
+            }
+            named.push((f, arts[..frames].to_vec()));
             at += n;
         }
         last_harvest_game::set_props(named);
@@ -366,7 +380,12 @@ impl Editor {
             let bytes = self.store.prop_bytes(&id)?;
             Some((format!("{}{id}{}", last_harvest_pack::PROPS, last_harvest_pack::prop::EXTENSION), bytes))
         });
-        maps.chain(props).collect()
+        // A data file goes along only where the mod changed it, so the game's own carries on elsewhere.
+        let tables = last_harvest_game::TABLES.into_iter().filter_map(|file| {
+            let text = self.store.read_table(file)?;
+            (last_harvest_game::built_in_table(file) != Some(text.as_str())).then(|| (file.to_string(), text.into_bytes()))
+        });
+        maps.chain(props).chain(tables).collect()
     }
 
     /// Takes in props, then maps, by file name, as Import does from a `.map.txt`, a `.prop.png` or a pack's
@@ -383,6 +402,14 @@ impl Editor {
                     took.push(crate::store::props::name(&id));
                     first.get_or_insert(crate::store::props::name(&id));
                 }
+                Err(e) => problems.push(e),
+            }
+        }
+        let (tables, maps): (Files, Files) = maps.into_iter().partition(|(file, _)| last_harvest_game::TABLES.contains(&file.as_str()));
+        for (file, bytes) in tables {
+            let saved = String::from_utf8(bytes).map_err(|_| format!("{file} is not text")).and_then(|t| self.store.save_table(&file, &t));
+            match saved {
+                Ok(()) => took.push(file),
                 Err(e) => problems.push(e),
             }
         }
@@ -418,6 +445,7 @@ impl Editor {
     pub(super) fn all_names(&self) -> Vec<(String, bool)> {
         let mut names = self.store.names();
         names.extend(self.store.map_ids().into_iter().map(|id| (format!("{}{}", sprite::MAP_PREFIX, id.to_ascii_uppercase()), true)));
+        names.extend(self.data_names());
         names
     }
 
@@ -434,7 +462,7 @@ impl Editor {
 
     fn start_map(&mut self, name: &str, id: &str, src: MapSource) {
         self.map = Some(MapEdit::new(id, src));
-        self.sprite = Sprite { name: name.into(), frames: vec![Frame::blank(16, 16)], views: None, footprint: None, top: None, card: None };
+        self.sprite = Sprite { name: name.into(), frames: vec![Frame::blank(16, 16)], views: None, footprint: None, top: None, card: None, clear_in_3d: Vec::new() };
         self.frame = 0;
         self.view = None;
         self.stats = false;
@@ -513,8 +541,8 @@ impl Editor {
         }
         match m.tool {
             MapTool::Paint => {
-                for (i, (code, l)) in MAP_GROUND.into_iter().enumerate() {
-                    push(SIDE_X + (i % 3) as f32 * 79.0, PICK_TOP + (i / 3) as f32 * 34.0, 74.0, 30.0, Action::Ground(code), l, m.ground == code);
+                for (i, (code, l)) in last_harvest_game::map_ground().into_iter().enumerate() {
+                    push(SIDE_X + (i % 3) as f32 * 79.0, PICK_TOP + (i / 3) as f32 * 34.0, 74.0, 30.0, Action::Ground(code), &l, m.ground == code);
                 }
             }
             MapTool::Prop => {
@@ -543,6 +571,13 @@ impl Editor {
                     push(SIDE_X + 182.0, TOUGH_Y, 46.0, 30.0, Action::Hp(1), "+", false);
                     push(SIDE_X, TOUGH_Y + 36.0, 114.0, 30.0, Action::Cover, "Cover", cover);
                     push(SIDE_X + 118.0, TOUGH_Y + 36.0, 114.0, 30.0, Action::PropDefaults, "Defaults", false);
+                    if matches!(p, PropLine::Sprite { .. }) {
+                        for (i, (minus, plus)) in [(Action::Open(-1), Action::Open(1)), (Action::LineFrame(-1), Action::LineFrame(1)), (Action::LineFps(-1), Action::LineFps(1))].into_iter().enumerate() {
+                            let y = LINE_Y + i as f32 * LINE_ROW;
+                            push(SIDE_X + 130.0, y, 46.0, 30.0, minus, "-", false);
+                            push(SIDE_X + 182.0, y, 46.0, 30.0, plus, "+", false);
+                        }
+                    }
                 }
             }
             _ => {}
@@ -574,6 +609,25 @@ impl Editor {
                 p.tough_mut().cover = Some(!cover);
             }),
             Action::PropDefaults => m.retough(|p| *p.tough_mut() = Default::default()),
+            Action::Open(d) => m.retough(|p| {
+                if let PropLine::Sprite { open, .. } = p {
+                    *open = (*open as i32 + d).clamp(0, 64) as usize;
+                }
+            }),
+            Action::LineFrame(d) => m.retough(|p| {
+                let n = p.frame_count() as i32;
+                if let PropLine::Sprite { frame, .. } = p {
+                    // All of them animating sits between the last frame and the first.
+                    let at = frame.map_or(n, |f| f as i32);
+                    let next = (at + d).rem_euclid(n + 1);
+                    *frame = (next < n).then_some(next as usize);
+                }
+            }),
+            Action::LineFps(d) => m.retough(|p| {
+                if let PropLine::Sprite { fps, .. } = p {
+                    *fps = (*fps + d as f32).clamp(0.0, 60.0);
+                }
+            }),
             Action::Randomize => {
                 m.remember();
                 m.rolls += 1;
@@ -839,6 +893,19 @@ impl Editor {
             c.label(if hp > 0.0 { format!("HP {hp}") } else { "Won't break".into() }, SIDE_X, TOUGH_Y + 5.0, 18.0, TEXT, Align::Left);
             let own = p.tough() == Default::default();
             c.label(if own { "As its sprite says" } else { "Set on this map" }, SIDE_X, TOUGH_Y + 74.0, 15.0, DIM, Align::Left);
+            if let PropLine::Sprite { frame, fps, open, .. } = p {
+                let lines = [
+                    match open {
+                        0 => "Blocks every row".to_string(),
+                        n => format!("Top {n} open"),
+                    },
+                    frame.map_or("All frames".to_string(), |f| format!("Frame {} of {}", f + 1, p.frame_count())),
+                    if *fps > 0.0 { format!("{fps} fps") } else { "Its own pace".to_string() },
+                ];
+                for (i, line) in lines.into_iter().enumerate() {
+                    c.label(line, SIDE_X, LINE_Y + i as f32 * LINE_ROW + 6.0, 16.0, TEXT, Align::Left);
+                }
+            }
         }
         let [w, h] = m.src.size;
         c.label(format!("Width {w}"), SIDE_X, SIZE_Y + 6.0, 17.0, TEXT, Align::Left);
@@ -1043,6 +1110,35 @@ mod tough_tests {
         assert_eq!(line(&e).hp_and_cover(), (50.0, false), "each press undoes on its own");
         e.act(Action::PropDefaults, false);
         assert_eq!(line(&e).tough(), Default::default());
+    }
+
+    #[test]
+    fn move_sets_a_props_walk_through_rows_frame_and_pace() {
+        let dir = std::env::temp_dir().join(format!("lh-line-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut e = Editor::new(Box::new(FsStore { dir: dir.join("sprites"), catalog: dir.join("art.txt"), cards: dir.join("enemies") }), "BARREL");
+        e.act(Action::Ask(Ask::New), false);
+        "map yard".chars().for_each(|ch| e.key(Key::Char(ch)));
+        e.key(Key::Enter);
+        let m = e.map.as_mut().unwrap();
+        let sign = PropLine::Sprite { name: "SIGN".into(), at: [30, 30], frame: None, fps: 0.0, open: 0, tough: Default::default() };
+        let n = sign.frame_count();
+        m.src.props.push((0, sign));
+        m.selected = Some(0);
+        e.act(Action::MapTool(MapTool::Move), false);
+        e.map.as_mut().unwrap().selected = Some(0);
+        let b = e.buttons();
+        let apart = |x: &Button, y: &Button| x.rect.x + x.rect.w <= y.rect.x || y.rect.x + y.rect.w <= x.rect.x || x.rect.y + x.rect.h <= y.rect.y || y.rect.y + y.rect.h <= x.rect.y;
+        assert!(b.iter().enumerate().all(|(i, x)| b.iter().skip(i + 1).all(|y| apart(x, y))), "no two buttons overlap");
+        for a in [Action::Open(1), Action::LineFrame(1), Action::LineFps(1), Action::LineFps(1)] {
+            e.act(a, false);
+        }
+        let PropLine::Sprite { frame, fps, open, .. } = e.map.as_ref().unwrap().src.props[0].1.clone() else { unreachable!() };
+        assert_eq!((frame, fps, open), (Some(0), 2.0, 1));
+        e.act(Action::LineFrame(-1), false);
+        let PropLine::Sprite { frame, .. } = e.map.as_ref().unwrap().src.props[0].1.clone() else { unreachable!() };
+        assert_eq!(frame, None, "back before the first frame, they all animate");
+        assert!(n > 1);
     }
 }
 

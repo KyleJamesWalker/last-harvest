@@ -185,7 +185,7 @@ impl Editor {
         if let Err(e) = self.store.delete_card(&self.sprite.name) {
             return self.say(format!("Couldn't delete {id}: {e}"));
         }
-        self.sprite = Sprite { name: String::new(), frames: vec![Frame::blank(16, 16)], views: None, footprint: None, top: None, card: None };
+        self.sprite = Sprite { name: String::new(), frames: vec![Frame::blank(16, 16)], views: None, footprint: None, top: None, card: None, clear_in_3d: Vec::new() };
         (self.dirty, self.stand_touched, self.stats, self.frame) = (false, false, false, 0);
         self.undo.clear();
         self.redo.clear();
@@ -229,7 +229,7 @@ impl Editor {
         self.mix = self.sprite.card.as_ref().filter(|_| self.stats && enemy).map(|mine| {
             let others = self.other_cards.iter().filter(|t| last_harvest_game::card_fields(t).is_ok()).map(String::as_str);
             let cards: Vec<&str> = others.chain([mine.as_str()]).collect();
-            let minutes: Vec<f32> = (0..MIX_STEPS).map(|i| (i as f32 + 0.5) / MIX_STEPS as f32 * last_harvest_game::NIGHT_MINUTES).collect();
+            let minutes: Vec<f32> = (0..MIX_STEPS).map(|i| (i as f32 + 0.5) / MIX_STEPS as f32 * last_harvest_game::night_minutes()).collect();
             last_harvest_game::spawn_mix(&cards, &minutes)
         });
     }
@@ -298,14 +298,14 @@ impl Editor {
                 let mut parts = Vec::new();
                 for (src, name) in source.iter().zip(&names) {
                     let frames = if *src == self.sprite.name { self.sprite.frames.clone() } else { self.store.load(src).map(|s| s.frames).unwrap_or_default() };
-                    parts.push(Sprite { name: name.clone(), frames, views: None, footprint: None, top: None, card: Some(text.clone()) });
+                    parts.push(Sprite { name: name.clone(), frames, views: None, footprint: None, top: None, card: Some(text.clone()), clear_in_3d: Vec::new() });
                 }
                 parts
             }
             Ask::New => {
                 let text = format!("[{id}]\nname        {}\n", id[..1].to_ascii_uppercase() + &id[1..]);
                 let frames = sprite::card_template();
-                names.iter().zip(frames.chunks(sprite::CARD_PART_FRAMES)).map(|(name, f)| Sprite { name: name.clone(), frames: f.to_vec(), views: None, footprint: None, top: None, card: Some(text.clone()) }).collect()
+                names.iter().zip(frames.chunks(sprite::CARD_PART_FRAMES)).map(|(name, f)| Sprite { name: name.clone(), frames: f.to_vec(), views: None, footprint: None, top: None, card: Some(text.clone()), clear_in_3d: Vec::new() }).collect()
             }
         };
         if let Err(e) = parts.iter().try_for_each(|p| self.store.save(p)) {
@@ -362,6 +362,11 @@ impl Editor {
             let top = START_TOP + d as f32 * START_BLOCK;
             let how = if fields.start[d].is_some() { "starts with" } else { "starts as the game does, with" };
             c.label(format!("{} {how}", difficulty.name()), x, top + 4.0, 16.0, DIM, Align::Left);
+        }
+        let t = last_harvest_game::tuning::tuning();
+        for (i, (label, own)) in [("Health", t.player_hp), ("Speed", t.player_speed), ("Magnet", t.player_magnet)].into_iter().enumerate() {
+            let (v, ink) = fields.base[i].map_or((own, DIM), |v| (v, TEXT));
+            c.label(format!("{label} {v}"), x + i as f32 * 180.0, BASE_Y + 5.0, 16.0, ink, Align::Left);
         }
         let note = format!("Toggle up to {} weapons a run starts with; Default keeps the game's own", last_harvest_game::weapon_slots());
         c.label(note, x, CANVAS.y + CANVAS.h - 22.0, 13.0, DIM, Align::Left);
@@ -423,7 +428,7 @@ impl Editor {
                 y -= h;
             }
         }
-        let night = last_harvest_game::NIGHT_MINUTES;
+        let night = last_harvest_game::night_minutes();
         for minute in [0.0, night / 2.0, night] {
             let align = if minute == 0.0 { Align::Left } else if minute == night { Align::Right } else { Align::Center };
             c.label(format!("{minute} min"), m.x + minute / night * m.w, plot_y + plot_h + 2.0, 13.0, DIM, align);

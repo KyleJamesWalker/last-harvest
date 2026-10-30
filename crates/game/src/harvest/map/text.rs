@@ -15,12 +15,12 @@
 //! fence rail 4 20 10 6 gate 3
 //! ```
 //!
-//! Ground codes are in `GROUND`. Roads and paths join up with their neighbours, and corn grows tops and bottoms at
+//! Ground codes are in `ground.txt`. Roads and paths join up with their neighbours, and corn grows tops and bottoms at
 //! a field's edges. A prop is a sprite's name and the tile its top-left sits on; every row of it but the top
 //! `open` ones blocks movement, and a windmill brings its fan. The edge is always a ring of trees and bushes, and
 //! `scatter` sprinkles the rest of the open ground as the random farm does, differently each run.
 
-use super::{Cell, FENCE, Map, PICKET, Prop, RAIL, TILE, UNKNOWN, toughness};
+use super::{Cell, MAX_HP, Map, PICKET, Prop, RAIL, TILE, Toughness, toughness};
 use crate::art::{self, Art};
 use crate::data::LoadedMap;
 use crate::rng::Rng;
@@ -35,9 +35,10 @@ const MAX_TEXT: usize = 1024 * 1024;
 pub const MIN_SIZE: [usize; 2] = [16, 12];
 pub const MAX_SIZE: [usize; 2] = [160, 120];
 
-/// Each ground code and what it lays.
-pub const GROUND: [(u8, &str); 9] =
-    [(b'.', "Dirt"), (b',', "Tufts"), (b'g', "Grass"), (b's', "Soil"), (b'p', "Sprouts"), (b'c', "Corn"), (b'v', "Road |"), (b'h', "Road -"), (b'=', "Path")];
+/// Each ground code and its paint button's label, as `ground.txt` lists them.
+pub fn ground_codes() -> Vec<(u8, String)> {
+    super::ground::ground().iter().map(|g| (g.code, g.name.clone())).collect()
+}
 
 /// A sprite a map can place, and how it stands in the way when its line doesn't say.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -51,43 +52,60 @@ pub struct PropKind {
     pub hp: f32,
 }
 
-const fn kind(name: &'static str, open: usize, cover: bool, hp: f32) -> PropKind {
-    PropKind { name, open, cover, hp }
+/// The game's own props as `props.txt` lists them: the ones a map can place, then how a fence piece and any other
+/// sprite stand in the way.
+#[derive(Debug)]
+pub struct PropBook {
+    pub props: Vec<PropKind>,
+    pub fence: PropKind,
+    pub other: PropKind,
+}
+
+/// Reads `props.txt`; errors name the line.
+pub fn parse_props(text: &str) -> Result<PropBook, String> {
+    let mut sections: Vec<PropKind> = Vec::new();
+    for (i, raw) in text.lines().enumerate() {
+        let n = i + 1;
+        let line = raw.split('#').next().unwrap_or("").trim();
+        if line.is_empty() {
+            continue;
+        }
+        if let Some(name) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
+            if sections.iter().any(|k| k.name == name) {
+                return Err(format!("{n}: [{name}] is listed twice"));
+            }
+            sections.push(PropKind { name: name.to_string().leak(), open: 0, cover: true, hp: 0.0 });
+            continue;
+        }
+        let Some(k) = sections.last_mut() else { return Err(format!("{n}: a line before any [NAME]")) };
+        let (key, value) = line.split_once(char::is_whitespace).map_or((line, ""), |(k, v)| (k, v.trim()));
+        match key {
+            "open" => k.open = value.parse::<usize>().ok().filter(|v| *v <= 64).ok_or_else(|| format!("{n}: open is 0 to 64 rows"))?,
+            "cover" => k.cover = yes_no(Some(value)).ok_or_else(|| format!("{n}: cover is yes or no"))?,
+            "hp" => k.hp = value.parse::<f32>().ok().filter(|v| (0.0..=MAX_HP).contains(v)).ok_or_else(|| format!("{n}: hp is a number from 0 to {MAX_HP}"))?,
+            _ => return Err(format!("{n}: {key} isn't something a prop says")),
+        }
+    }
+    let mut take = |name: &str| sections.iter().position(|k| k.name == name).map(|i| sections.remove(i)).ok_or_else(|| format!("no [{name}] section"));
+    let (fence, other) = (take("fence")?, take("other")?);
+    Ok(PropBook { props: sections, fence, other })
+}
+
+/// The game's own props, read from `props.txt` the first time they're asked for.
+pub fn book() -> &'static PropBook {
+    static BOOK: std::sync::OnceLock<PropBook> = std::sync::OnceLock::new();
+    BOOK.get_or_init(|| parse_props(crate::data::props()).unwrap_or_else(|e| panic!("props.txt:{e}")))
 }
 
 /// The sprites a map can place.
-pub const PROPS: [PropKind; 30] = [
-    kind("HOUSE", 1, true, 0.0),
-    kind("BARN_RED", 2, true, 0.0),
-    kind("BARN_GREEN", 2, true, 0.0),
-    kind("GAS_STATION", 1, true, 0.0),
-    kind("GAS_PUMP", 2, true, 0.0),
-    kind("WINDMILL", 2, true, 0.0),
-    kind("SCARECROW", 1, false, 30.0),
-    kind("HAY_STACK", 1, true, 0.0),
-    kind("HAY", 0, true, 0.0),
-    kind("TRACTOR", 1, true, 0.0),
-    kind("TRUCK", 1, true, 0.0),
-    kind("CAR_H", 0, true, 0.0),
-    kind("CAR_V", 1, true, 0.0),
-    kind("WRECK_H", 0, true, 0.0),
-    kind("WRECK_V", 1, true, 0.0),
-    kind("MAILBOX", 0, false, 15.0),
-    kind("BUSHES", 1, false, 0.0),
-    kind("BUSH", 0, false, 0.0),
-    kind("DEAD_TREE", 0, false, 0.0),
-    kind("TALL_TREE", 1, true, 0.0),
-    kind("STUMP", 0, false, 0.0),
-    kind("LOG", 0, false, 0.0),
-    kind("BARREL", 0, true, 0.0),
-    kind("TANK", 0, true, 0.0),
-    kind("TOMBSTONE", 0, true, 0.0),
-    kind("SIGN", 0, false, 20.0),
-    kind("SIGN_LOW", 0, false, 20.0),
-    kind("BARRIER", 0, true, 60.0),
-    kind("SKULL_FENCE", 0, false, 40.0),
-    kind("CORPSE", 0, false, 0.0),
-];
+pub fn props() -> &'static [PropKind] {
+    &book().props
+}
+
+/// The sprite a map can place by this name, if it can.
+pub fn prop_kind(name: &str) -> Option<&'static PropKind> {
+    props().iter().find(|k| k.name == name)
+}
 
 /// What a prop line says over its sprite's own: its hit points, 0 for one that doesn't break, and whether it
 /// stops shots. None keeps the sprite's.
@@ -141,6 +159,14 @@ pub enum PropLine {
 }
 
 impl PropLine {
+    /// How many frames its sprite has; 1 for a fence.
+    pub fn frame_count(&self) -> usize {
+        match self {
+            PropLine::Sprite { name, .. } => sprite(name).map_or(1, <[Art]>::len),
+            PropLine::Fence { .. } => 1,
+        }
+    }
+
     /// The tiles it covers, as x, y, width and height.
     pub fn rect(&self) -> [usize; 4] {
         match self {
@@ -158,8 +184,8 @@ impl PropLine {
     /// Its hit points and whether it stops shots: what its line says, else what its sprite does.
     pub fn hp_and_cover(&self) -> (f32, bool) {
         let (own, tough) = match self {
-            PropLine::Sprite { name, tough, .. } => (sprite(name).map_or(UNKNOWN, |f| toughness(f[0])), tough),
-            PropLine::Fence { tough, .. } => (FENCE, tough),
+            PropLine::Sprite { name, tough, .. } => (sprite(name).map_or(Toughness::other(), |f| toughness(f[0])), tough),
+            PropLine::Fence { tough, .. } => (Toughness::fence(), tough),
         };
         let t = own.with(*tough);
         (t.hp, t.cover)
@@ -232,7 +258,7 @@ impl MapSource {
     /// A map of dirt `size` tiles, with the spawn in the middle and home just above it.
     pub fn new(name: &str, size: [usize; 2]) -> Self {
         let [w, h] = size;
-        Self { name: name.into(), size, spawn: [w / 2, h / 2], home: [w / 2, h / 2 - 1], scatter: false, ground: vec![b'.'; w * h], props: Vec::new() }
+        Self { name: name.into(), size, spawn: [w / 2, h / 2], home: [w / 2, h / 2 - 1], scatter: false, ground: vec![super::ground::ground()[0].code; w * h], props: Vec::new() }
     }
 
     /// Reads a map file's syntax; whether the map works is `Map::from_source`'s to say. Errors name the line.
@@ -280,7 +306,7 @@ impl MapSource {
             if row.len() != w || !row.is_ascii() {
                 return Err(format!("{n}: a ground row is {w} codes, one per cell"));
             }
-            if let Some(c) = row.bytes().find(|c| !GROUND.iter().any(|(g, _)| g == c)) {
+            if let Some(c) = row.bytes().find(|c| !super::ground::ground().iter().any(|g| g.code == *c)) {
                 return Err(format!("{n}: {} isn't a ground code", c as char));
             }
             ground.extend(row.bytes());
@@ -315,7 +341,7 @@ impl MapSource {
         let size: [usize; 2] = std::array::from_fn(|i| (self.size[i] as i32 + by[i]).clamp(MIN_SIZE[i] as i32, MAX_SIZE[i] as i32) as usize);
         let [w, h] = size;
         let old = self.size;
-        let ground = (0..h).flat_map(|y| (0..w).map(move |x| (x, y))).map(|(x, y)| if x < old[0] && y < old[1] { self.ground[y * old[0] + x] } else { b'.' }).collect();
+        let ground = (0..h).flat_map(|y| (0..w).map(move |x| (x, y))).map(|(x, y)| if x < old[0] && y < old[1] { self.ground[y * old[0] + x] } else { super::ground::ground()[0].code }).collect();
         let inside = |[x, y]: [usize; 2]| [x.clamp(1, w - 2), y.clamp(1, h - 2)];
         let fits = |p: &PropLine| {
             let [x, y, pw, ph] = p.rect();
@@ -334,20 +360,12 @@ impl MapSource {
         let size = std::array::from_fn(|i| size[i].clamp(RANDOM_MIN[i], MAX_SIZE[i]));
         let [w, h] = size;
         let map = Map::generate(&mut Rng::new(seed), w, h);
+        let kinds = super::ground::ground();
         let code = |i: usize| {
             let (g, o) = (map.ground[i], map.overlay[i]);
-            let is = |set: &[Art]| set.contains(&g);
-            match () {
-                _ if o.is_some_and(|o| o == art::CORN || o == art::CORN_BOTTOM || art::CORN_TOP.contains(&o)) => b'c',
-                _ if is(&art::ROAD_V) => b'v',
-                _ if is(&art::ROAD_H) => b'h',
-                _ if is(&art::PATH) => b'=',
-                _ if is(&art::SOIL) => b's',
-                _ if is(&art::SPROUTS) => b'p',
-                _ if is(&art::GRASS) => b'g',
-                _ if is(&art::DIRT_TUFTS) && !is(&art::DIRT) => b',',
-                _ => b'.',
-            }
+            let crop = kinds.iter().find(|k| k.crop.is_some_and(|(top, mid, bottom)| o.is_some_and(|o| o == mid || o == bottom || top.contains(&o))));
+            let plain = || kinds.iter().filter(|k| k.crop.is_none()).find(|k| k.art.contains(&g));
+            crop.or_else(plain).map_or(kinds[0].code, |k| k.code)
         };
         let tile = |px: f32| (px / TILE) as usize;
         let mut props = Vec::new();
@@ -358,7 +376,7 @@ impl MapSource {
             }
             let Some((name, all)) = art::ALL.iter().find(|(_, all)| all.contains(&frames[0])) else { continue };
             let frame = (frames.len() == 1 && all.len() > 1).then(|| all.iter().position(|a| *a == frames[0])).flatten();
-            let open = PROPS.iter().find(|k| k.name == *name).map_or(0, |k| k.open);
+            let open = prop_kind(name).map_or(0, |k| k.open);
             let line = PropLine::Sprite { name: name.to_string(), at: [tile(x), tile(y)], frame, fps: 0.0, open, tough: Tough::default() };
             let [x, y, pw, ph] = line.rect();
             if x > 0 && y > 0 && x + pw < w && y + ph < h {
@@ -479,6 +497,7 @@ impl Map {
             props: Vec::new(),
             decals: Vec::new(),
             barrels: Vec::new(),
+            barrel_hp: Vec::new(),
             spawn: [0.0; 2],
             home: [0.0; 2],
         }
@@ -492,31 +511,25 @@ impl Map {
         for y in 0..h {
             for x in 0..w {
                 let i = self.i(x, y);
-                let pick = (x * 7 + y * 13) % 2;
-                let (left, right, up, down) = (code(x.wrapping_sub(1), y), code(x + 1, y), code(x, y.wrapping_sub(1)), code(x, y + 1));
-                let lane = |before: u8, after: u8, c: u8| if before != c { 0 } else if after != c { 2 } else { 1 };
-                self.ground[i] = match code(x, y) {
-                    b',' => art::DIRT_TUFTS[pick],
-                    b'g' => art::GRASS[pick],
-                    b's' | b'c' => art::SOIL[pick],
-                    b'p' => art::SPROUTS[pick],
-                    b'v' => art::ROAD_V[lane(left, right, b'v')],
-                    b'h' => art::ROAD_H[lane(up, down, b'h')],
-                    _ => art::DIRT[pick],
+                let c = code(x, y);
+                let g = super::ground::of(c);
+                let (before, after) = match g.joins {
+                    Some(super::ground::Joins::Across) => (code(x.wrapping_sub(1), y) == c, code(x + 1, y) == c),
+                    _ => (code(x, y.wrapping_sub(1)) == c, code(x, y + 1) == c),
                 };
-                match code(x, y) {
-                    b'v' | b'h' => self.cells[i] = Cell::Road,
-                    b'=' => self.cells[i] = Cell::Path,
-                    b'c' => {
-                        self.overlay[i] = Some(match (up == b'c', down == b'c') {
-                            (false, _) => art::CORN_TOP[pick],
-                            (_, false) => art::CORN_BOTTOM,
-                            _ => art::CORN,
-                        });
-                        self.cells[i] = Cell::Taken;
-                    }
-                    b's' | b'p' => self.cells[i] = Cell::Taken,
-                    _ => {}
+                // A path's tile comes from autotiling, which leaves the edge ring the first ground's.
+                let laid = if g.cell == Cell::Path { &super::ground::ground()[0] } else { g };
+                self.ground[i] = laid.tile(x, y, before, after);
+                if g.cell != Cell::Open {
+                    self.cells[i] = g.cell;
+                }
+                if let Some((top, middle, bottom)) = g.crop {
+                    let (up, down) = (code(x, y.wrapping_sub(1)) == c, code(x, y + 1) == c);
+                    self.overlay[i] = Some(match (up, down) {
+                        (false, _) => top[(x * 7 + y * 13) % top.len()],
+                        (_, false) => bottom,
+                        _ => middle,
+                    });
                 }
             }
         }
@@ -535,7 +548,7 @@ impl Map {
                     return Err("a gate sits inside the fence, 1 to width - 3".into());
                 }
                 let mut post = 0;
-                self.fence_gated(if *picket { &PICKET } else { &RAIL }, [x, y, w, h], gate.map(|g| g + x), FENCE.with(*tough), |n| {
+                self.fence_gated(if *picket { &PICKET } else { &RAIL }, [x, y, w, h], gate.map(|g| g + x), Toughness::fence().with(*tough), |n| {
                     post += 1;
                     post % n
                 });
@@ -616,6 +629,7 @@ mod tests {
     #[test]
     fn a_map_file_lays_its_ground_and_props() {
         let map = read(&farm("HOUSE 2 2 open 1\nBARREL 13 10\nfence rail 13 2 6 6 gate 2\nWINDMILL 3 8")).unwrap();
+        assert_eq!(read(&farm("BARREL 13 10 hp 55")).unwrap().barrel_hp, [55.0], "a barrel's line sets its hit points");
         assert_eq!((map.w, map.h), (20, 14));
         assert_eq!(map.tile(9, 5).0, art::ROAD_V[0]);
         assert_eq!(map.tile(10, 5).0, art::ROAD_V[1]);
@@ -834,6 +848,9 @@ mod tests {
 
     #[test]
     fn every_listed_prop_is_a_sprite() {
-        assert!(PROPS.iter().all(|k| sprite(k.name).is_some()));
+        assert!(props().iter().all(|k| sprite(k.name).is_some()));
+        assert_eq!((book().fence.cover, book().fence.hp), (false, 40.0));
+        assert!(parse_props("[fence]\n[other]\n[A]\nopen 99").unwrap_err().starts_with("4: open"));
+        assert!(parse_props("[fence]\n[A]").unwrap_err().contains("[other]"));
     }
 }

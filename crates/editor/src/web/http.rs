@@ -77,4 +77,12 @@ impl Store for HttpStore {
     fn save_map(&self, id: &str, text: &str) -> Result<(), String> {
         put(&format!("api/map/{id}"), text.as_bytes())
     }
+
+    fn read_table(&self, file: &str) -> Option<String> {
+        get(&format!("api/table/{file}")).map(utf8)
+    }
+
+    fn save_table(&self, file: &str, text: &str) -> Result<(), String> {
+        put(&format!("api/table/{file}"), text.as_bytes())
+    }
 }

@@ -11,6 +11,16 @@ pub struct Data {
     pub font: Option<Vec<u8>>,
     pub powerups: Option<String>,
     pub enemies: Option<String>,
+    /// `props.txt`: the game's own props a map can place, and how they stand in the way.
+    pub props_table: Option<String>,
+    /// A pack's `tuning.txt`, setting over the game's own numbers.
+    pub tuning: Option<String>,
+    /// `effects.txt`: what each effect, swing and animal plays.
+    pub effects: Option<String>,
+    /// `ground.txt`: the ground a map paints.
+    pub ground: Option<String>,
+    /// `farm.txt`: how the random farm lays itself out.
+    pub farm: Option<String>,
     pub cards: Vec<Card>,
     /// Player cards, the same sheet as an enemy's with three walking frames, and an id and name for text.
     pub players: Vec<Card>,
@@ -109,6 +119,10 @@ mod built_in {
     pub const FONT: Option<&[u8]> = Some(include_bytes!("../../../assets/fonts/AtkinsonHyperlegible-Regular.ttf"));
     pub const POWERUPS: Option<&str> = Some(include_str!("../powerups.txt"));
     pub const ENEMIES: Option<&str> = Some(include_str!("../enemies.txt"));
+    pub const PROPS: Option<&str> = Some(include_str!("../props.txt"));
+    pub const EFFECTS: Option<&str> = Some(include_str!("../effects.txt"));
+    pub const GROUND: Option<&str> = Some(include_str!("../ground.txt"));
+    pub const FARM: Option<&str> = Some(include_str!("../farm.txt"));
 }
 
 /// Installs a pack's data and draws its cards' sprites into the atlas. It must come before anything reads the
@@ -136,8 +150,11 @@ pub fn install(mut data: Data) -> Result<Vec<String>, String> {
             None => notes = cards.iter().chain(&players).chain(&props).map(|c| format!("{}: no sprite atlas to draw it into", c.name)).collect(),
         }
     }
+    let files = std::mem::take(&mut data.maps);
+    // Maps are checked against the data being installed, its ground and props, so that comes first.
+    DATA.set(data).map_err(|_| "the game data was already read".to_string())?;
     let mut maps: Vec<LoadedMap> = Vec::new();
-    for file in std::mem::take(&mut data.maps) {
+    for file in files {
         match crate::harvest::check_map(&file.file, file.text) {
             Ok(map) => {
                 maps.retain(|m| m.id != map.id);
@@ -149,7 +166,6 @@ pub fn install(mut data: Data) -> Result<Vec<String>, String> {
             }
         }
     }
-    DATA.set(data).map_err(|_| "the game data was already read".to_string())?;
     MAPS.set(maps).ok();
     Ok(notes)
 }
@@ -183,6 +199,31 @@ pub fn maps() -> &'static [LoadedMap] {
 
 pub fn powerups() -> &'static str {
     data().powerups.as_deref().or(built_in::POWERUPS).unwrap_or_else(|| missing("powerups.txt"))
+}
+
+/// The game's own props, as `props.txt` lists them.
+pub fn props() -> &'static str {
+    data().props_table.as_deref().or(built_in::PROPS).unwrap_or_else(|| missing("props.txt"))
+}
+
+/// How the random farm lays itself out, as `farm.txt` says.
+pub fn farm() -> &'static str {
+    data().farm.as_deref().or(built_in::FARM).unwrap_or_else(|| missing("farm.txt"))
+}
+
+/// The ground a map paints, as `ground.txt` says.
+pub fn ground() -> &'static str {
+    data().ground.as_deref().or(built_in::GROUND).unwrap_or_else(|| missing("ground.txt"))
+}
+
+/// What each effect, swing and animal plays, as `effects.txt` says.
+pub fn effects() -> &'static str {
+    data().effects.as_deref().or(built_in::EFFECTS).unwrap_or_else(|| missing("effects.txt"))
+}
+
+/// A pack's `tuning.txt`, if it has one; the game's own numbers are built in.
+pub fn tuning() -> Option<&'static str> {
+    data().tuning.as_deref()
 }
 
 pub fn enemies() -> &'static str {

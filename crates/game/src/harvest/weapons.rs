@@ -3,28 +3,17 @@
 use std::f32::consts::{PI, TAU};
 
 use super::juice::{self, Tone};
-use super::powerups::{Does, Kind, Stat, book};
+use super::powerups::{Aim, Does, Kind, Lands, Pattern, Stat, book};
 use super::{
-    Barrel, Bullet, FLASH_TIME, Fx, GRENADE_FLIGHT, GRENADE_RADIUS, Grenade, Harvest, TILE, Thrown, Zombie, ZOMBIE_HALF, len, norm, strike, sub,
+    Barrel, Bullet, FLASH_TIME, Fx, Grenade, Harvest, TILE, Thrown, Zombie, len, norm, strike, sub,
 };
 use crate::{Difficulty, Sfx};
-use crate::art::{self, Art};
+use crate::art::Art;
 
-/// Half the angle the top screen sees, in radians, before a brighter lantern widens it.
-pub(super) const AHEAD_HALF: f32 = 0.6;
-const BEHIND_HALF: f32 = 0.9;
 const MAX_PATCHES: usize = 80;
 const PATCH_TICK: f32 = 0.25;
 const BURN_TICK: f32 = 0.3;
 pub(super) const BOLT_LIFE: f32 = 0.18;
-const PECK_REACH: f32 = 7.0;
-const BITE_REACH: f32 = 7.0;
-/// A dog with nothing to chase sprints back once this far from the player, and trots again inside `DOG_STRAY / 2`.
-const DOG_STRAY: f32 = 48.0;
-const DOG_TROT: f32 = 0.45;
-const BOMBLET_RADIUS: f32 = 18.0;
-/// The pistol turns on anything this close, whichever way the player faces.
-const POINT_BLANK: f32 = 70.0;
 
 /// A weapon the player carries; `phase` turns the crows around.
 #[derive(Clone, Copy, Debug)]
@@ -39,6 +28,32 @@ impl Armed {
     pub fn does(&self) -> Does {
         book().defs[self.def].does.unwrap_or(Does::Pistol)
     }
+}
+
+/// The `k`th of a gun's `n` shots at `base`: across `spread` for a fan, all the way round for a ring, or at the
+/// random `jitter` (-0.5 to 0.5) of `spread` for a spray.
+fn shot_angle(pattern: Pattern, k: u32, n: u32, base: f32, spread: f32, jitter: f32) -> f32 {
+    match pattern {
+        Pattern::Fan if n > 1 => base + (k as f32 / (n - 1) as f32 - 0.5) * spread,
+        Pattern::Fan => base,
+        Pattern::Ring => base + k as f32 * TAU / n as f32,
+        Pattern::Spray => base + jitter * spread,
+    }
+}
+
+/// The effect a weapon plays: the one its `effect` line names, else its behaviour's own.
+fn look(a: Armed, own: super::effects::Effect) -> super::effects::Effect {
+    book().defs[a.def].effect.as_deref().and_then(|n| super::effects::effects().named(n)).unwrap_or(own)
+}
+
+/// What a weapon's bullets fly as, when its `bullet` line names an effect.
+fn bullet(a: Armed) -> Option<super::effects::Effect> {
+    book().defs[a.def].bullet.as_deref().and_then(|n| super::effects::effects().named(n))
+}
+
+/// The sound a weapon makes: the one its `sound` line names, else its behaviour's own.
+fn sound(a: Armed, own: Sfx) -> Sfx {
+    book().defs[a.def].sound.unwrap_or(own)
 }
 
 /// Everything the passives add up to.
@@ -127,6 +142,8 @@ pub(super) struct Kit {
     pub weapons: Vec<Armed>,
     pub passives: Vec<(usize, u32)>,
     pub mods: Mods,
+    /// The health, speed and magnet the player has before upgrades: their card's, else tuning.txt's.
+    pub base: [f32; 3],
 }
 
 impl Kit {
@@ -138,7 +155,8 @@ impl Kit {
     /// A kit carrying these weapons at level 1, and nothing else.
     pub fn with_weapons(defs: &[usize]) -> Self {
         let weapons = defs.iter().map(|&def| Armed { def, level: 1, cd: 0.5, phase: 0.0 }).collect();
-        Self { weapons, passives: Vec::new(), mods: Mods::of(&[]) }
+        let t = crate::tuning::tuning();
+        Self { weapons, passives: Vec::new(), mods: Mods::of(&[]), base: [t.player_hp, t.player_speed, t.player_magnet] }
     }
 
     pub fn level(&self, def: usize) -> u32 {
@@ -182,15 +200,15 @@ impl Kit {
     }
 
     pub fn max_hp(&self) -> f32 {
-        100.0 + self.mods.max_hp
+        self.base[0] + self.mods.max_hp
     }
 
     pub fn speed(&self) -> f32 {
-        48.0 * self.mods.speed
+        self.base[1] * self.mods.speed
     }
 
     pub fn magnet(&self) -> f32 {
-        28.0 * self.mods.magnet
+        self.base[2] * self.mods.magnet
     }
 
     pub fn grenades(&self) -> f32 {
@@ -260,7 +278,7 @@ pub(super) struct Dog {
 
 impl Dog {
     pub fn art(&self) -> Art {
-        art::DOG[(self.anim * 10.0) as usize % art::DOG.len()]
+        super::effects::effects().dog.looping(self.anim)
     }
 }
 
@@ -313,11 +331,11 @@ impl Harvest {
     }
 
     pub(super) fn ahead_half(&self) -> f32 {
-        AHEAD_HALF * self.kit.mods.view
+        crate::tuning::tuning().view_half * self.kit.mods.view
     }
 
     fn crit(&self) -> f32 {
-        super::CRIT_CHANCE + self.kit.mods.crit
+        crate::tuning::tuning().crit + self.kit.mods.crit
     }
 
     /// The offset to the nearest zombie within `range`, inside `cone` (a direction and a half-angle) when given.
@@ -343,7 +361,7 @@ impl Harvest {
 
     /// The longest reach of the carried weapons that X turns on barrels.
     pub(super) fn barrel_reach(&self) -> Option<f32> {
-        let aimed = self.kit.weapons.iter().filter(|a| matches!(a.does(), Does::Pistol | Does::Shotgun | Does::Rifle));
+        let aimed = self.kit.weapons.iter().filter(|a| matches!(a.does(), Does::Pistol | Does::Shotgun | Does::Rifle | Does::Gun));
         aimed.map(|&a| self.stat(a, Stat::Range)).reduce(f32::max)
     }
 
@@ -368,7 +386,7 @@ impl Harvest {
         match a.does() {
             Does::Pistol => self.pistol(a, sounds),
             Does::Shotgun => self.spray(a, self.aim, self.ahead_half(), true, sounds),
-            Does::Holster => self.spray(a, [-self.aim[0], -self.aim[1]], BEHIND_HALF, false, sounds),
+            Does::Holster => self.spray(a, [-self.aim[0], -self.aim[1]], crate::tuning::tuning().behind_half, false, sounds),
             Does::Rifle => self.rifle(a, sounds),
             Does::Lantern => self.beam(a),
             Does::Burner => self.burner(a),
@@ -381,27 +399,84 @@ impl Harvest {
             Does::Scarecrow => self.scarecrow(a),
             Does::Molotov => self.lob_molotovs(a, sounds),
             Does::Flare => self.lob_flare(a, sounds),
+            Does::Gun => self.gun(a, sounds),
+            Does::Blade => self.blade(a, sounds),
+            Does::Lob => self.lob(a, sounds),
             Does::Crows | Does::Dog => false,
         }
     }
 
     fn pistol(&mut self, a: Armed, sounds: &mut Vec<Sfx>) -> bool {
         let range = self.stat(a, Stat::Range);
-        let target = self.barrel_in_view(range).or_else(|| self.nearest_in(POINT_BLANK.min(range), None)).or_else(|| self.nearest_in(range, Some((self.aim, self.ahead_half())))).or_else(|| self.nearest_in(range, None));
+        let target = self.barrel_in_view(range).or_else(|| self.nearest_in(crate::tuning::tuning().point_blank.min(range), None)).or_else(|| self.nearest_in(range, Some((self.aim, self.ahead_half())))).or_else(|| self.nearest_in(range, None));
         let Some(d) = target.map(norm) else { return false };
         let (n, speed) = (self.stat(a, Stat::Count) as u32, self.stat(a, Stat::Speed));
         let base = d[1].atan2(d[0]);
         let gap = self.stat(a, Stat::Spread).to_radians();
         for k in 0..n {
             let angle = base + (k as f32 - (n - 1) as f32 / 2.0) * gap;
-            self.shoot(angle, speed, self.stat(a, Stat::Damage), self.stat(a, Stat::Pierce) as u32, range / speed, self.stat(a, Stat::Knockback));
+            self.shoot(angle, speed, self.stat(a, Stat::Damage), self.stat(a, Stat::Pierce) as u32, range / speed, self.stat(a, Stat::Knockback), bullet(a));
         }
         let muzzle = [self.pos[0] + d[0] * 8.0, self.pos[1] - 6.0 + d[1] * 8.0];
-        self.fx.push(Fx { frames: std::slice::from_ref(&art::MUZZLE), fps: 20.0, pos: muzzle, angle: base, t: 0.0 });
+        self.fx.push(Fx::play(look(a, super::effects::effects().muzzle_pistol), muzzle, base));
         self.juice.kick += 0.015;
         self.juice.flash([self.pos[0] + d[0] * 8.0, self.pos[1] + d[1] * 8.0], 10.0, [1.2, 0.85, 0.4], 3.5, 0.07);
         self.noise = Some(self.pos);
-        sounds.push(Sfx::Shot);
+        sounds.push(sound(a, Sfx::Shot));
+        true
+    }
+
+    /// A gun as its section shapes it: where it looks for a target, and how its shots spread.
+    fn gun(&mut self, a: Armed, sounds: &mut Vec<Sfx>) -> bool {
+        let def = &book().defs[a.def];
+        let (aim, pattern) = (def.aim, def.pattern);
+        let range = self.stat(a, Stat::Range);
+        let Some(d) = self.barrel_in_view(range).map(norm).or_else(|| self.aimed(aim, range)) else { return false };
+        let (n, speed) = (self.stat(a, Stat::Count).max(1.0) as u32, self.stat(a, Stat::Speed));
+        let (base, spread) = (d[1].atan2(d[0]), self.stat(a, Stat::Spread).to_radians());
+        let (damage, pierce, force) = (self.stat(a, Stat::Damage), self.stat(a, Stat::Pierce) as u32, self.stat(a, Stat::Knockback));
+        for k in 0..n {
+            let angle = shot_angle(pattern, k, n, base, spread, self.juice.rng.range(-0.5, 0.5));
+            self.shoot(angle, speed, damage, pierce, range / speed, force, bullet(a));
+        }
+        let muzzle = [self.pos[0] + d[0] * 8.0, self.pos[1] - 6.0 + d[1] * 8.0];
+        self.fx.push(Fx::play(look(a, super::effects::effects().muzzle_pistol), muzzle, base));
+        self.juice.kick += 0.015;
+        self.noise = Some(self.pos);
+        sounds.push(sound(a, Sfx::Shot));
+        true
+    }
+
+    /// Where a gun or blade looks for a target within `range`: the way to it, if it finds one.
+    fn aimed(&self, aim: Aim, range: f32) -> Option<[f32; 2]> {
+        match aim {
+            Aim::Nearest => self.nearest_in(range, None),
+            Aim::Ahead => self.nearest_in(range, Some((self.aim, self.ahead_half()))),
+            Aim::Behind => self.nearest_in(range, Some(([-self.aim[0], -self.aim[1]], crate::tuning::tuning().behind_half))),
+            Aim::Around => self.nearest_in(range, None).map(|_| self.aim),
+        }
+        .map(norm)
+    }
+
+    /// A blade as its section shapes it: everything within its area across its spread, toward what its aim finds.
+    fn blade(&mut self, a: Armed, sounds: &mut Vec<Sfx>) -> bool {
+        let reach = self.stat(a, Stat::Area);
+        let Some(d) = self.aimed(book().defs[a.def].aim, reach) else { return false };
+        let half = self.stat(a, Stat::Spread).to_radians() / 2.0;
+        let (damage, force, crit) = (self.stat(a, Stat::Damage), self.stat(a, Stat::Knockback), self.crit());
+        let mut hits = (0, false);
+        for z in &mut self.zombies {
+            let to = sub(z.pos, self.pos);
+            if len(to) < reach && (half >= PI || in_cone(to, d, half)) {
+                hits.1 |= strike(z, &mut self.juice, damage, norm(to), force, crit);
+                hits.0 += 1;
+            }
+        }
+        let at = [self.pos[0] + d[0] * 8.0, self.pos[1] - 5.0 + d[1] * 8.0];
+        self.fx.push(Fx::play(look(a, super::effects::effects().slash), at, d[1].atan2(d[0]) - PI / 2.0));
+        self.juice.kick += 0.02;
+        sounds.push(sound(a, Sfx::Slash));
+        self.thud(hits, sounds);
         true
     }
 
@@ -415,10 +490,10 @@ impl Harvest {
         let (base, spread) = (d[1].atan2(d[0]), self.stat(a, Stat::Spread).to_radians());
         for k in 0..pellets {
             let angle = base + (k as f32 / (pellets - 1) as f32 - 0.5) * spread;
-            self.shoot(angle, speed, self.stat(a, Stat::Damage), self.stat(a, Stat::Pierce) as u32, range / speed * 0.9, self.stat(a, Stat::Knockback));
+            self.shoot(angle, speed, self.stat(a, Stat::Damage), self.stat(a, Stat::Pierce) as u32, range / speed * 0.9, self.stat(a, Stat::Knockback), bullet(a));
         }
         let at = [self.pos[0] + d[0] * 10.0, self.pos[1] - 6.0 + d[1] * 10.0];
-        self.fx.push(Fx { frames: &art::SHOTGUN_BLAST, fps: 18.0, pos: at, angle: base, t: 0.0 });
+        self.fx.push(Fx::play(look(a, super::effects::effects().shotgun_blast), at, base));
         let ground = [self.pos[0] + d[0] * 10.0, self.pos[1] + d[1] * 10.0];
         self.juice.kick += 0.04;
         self.juice.punch += 3.0;
@@ -426,7 +501,7 @@ impl Harvest {
         self.juice.flash(ground, 10.0, [1.6, 1.1, 0.5], 5.0, 0.1);
         self.juice.burst(ground, 8.0, 8, d, 0.35, [80.0, 160.0], juice::SPARK, 1.0, 0.18, 1.0);
         self.noise = Some(self.pos);
-        sounds.push(Sfx::Blast);
+        sounds.push(sound(a, Sfx::Blast));
         true
     }
 
@@ -441,15 +516,15 @@ impl Harvest {
         let speed = self.stat(a, Stat::Speed);
         let way = barrel.map_or(self.aim, norm);
         let angle = way[1].atan2(way[0]);
-        self.shoot(angle, speed, self.stat(a, Stat::Damage), self.stat(a, Stat::Pierce) as u32, range / speed, self.stat(a, Stat::Knockback));
+        self.shoot(angle, speed, self.stat(a, Stat::Damage), self.stat(a, Stat::Pierce) as u32, range / speed, self.stat(a, Stat::Knockback), bullet(a));
         let muzzle = [self.pos[0] + self.aim[0] * 9.0, self.pos[1] - 6.0 + self.aim[1] * 9.0];
-        self.fx.push(Fx { frames: std::slice::from_ref(&art::MUZZLE), fps: 12.0, pos: muzzle, angle, t: 0.0 });
+        self.fx.push(Fx::play(look(a, super::effects::effects().muzzle_rifle), muzzle, angle));
         self.juice.kick += 0.05;
         self.juice.punch += 2.0;
         self.juice.shake(0.1);
         self.juice.flash([self.pos[0] + self.aim[0] * 10.0, self.pos[1] + self.aim[1] * 10.0], 10.0, [1.6, 1.2, 0.7], 5.0, 0.1);
         self.noise = Some(self.pos);
-        sounds.push(Sfx::Blast);
+        sounds.push(sound(a, Sfx::Blast));
         true
     }
 
@@ -519,10 +594,11 @@ impl Harvest {
                     hits.0 += 1;
                 }
             }
-            self.swings.push(Swing { art: art::PITCHFORK_THRUST, age: 0.0, life: 0.16, angle: [angle; 2], reach: [2.0, range * 0.6] });
+            let e = look(a, super::effects::effects().pitchfork);
+            self.swings.push(Swing { art: e.frames[0], age: 0.0, life: e.life, angle: [angle; 2], reach: [2.0, range * e.reach] });
         }
         self.juice.kick += 0.02;
-        sounds.push(Sfx::Slash);
+        sounds.push(sound(a, Sfx::Slash));
         self.thud(hits, sounds);
         true
     }
@@ -540,10 +616,10 @@ impl Harvest {
             }
         }
         let at = [self.pos[0] + d[0] * 8.0, self.pos[1] - 5.0 + d[1] * 8.0];
-        self.fx.push(Fx { frames: &art::SLASH, fps: 20.0, pos: at, angle: d[1].atan2(d[0]) - PI / 2.0, t: 0.0 });
+        self.fx.push(Fx::play(look(a, super::effects::effects().slash), at, d[1].atan2(d[0]) - PI / 2.0));
         self.juice.kick += 0.02;
         self.juice.shake(0.06);
-        sounds.push(Sfx::Slash);
+        sounds.push(sound(a, Sfx::Slash));
         self.thud(hits, sounds);
         true
     }
@@ -563,11 +639,12 @@ impl Harvest {
             }
         }
         let from = self.view_yaw;
-        self.swings.push(Swing { art: art::SCYTHE_SWING, age: 0.0, life: 0.3, angle: [from, from + TAU], reach: [reach * 0.7; 2] });
+        let e = look(a, super::effects::effects().scythe);
+        self.swings.push(Swing { art: e.frames[0], age: 0.0, life: e.life, angle: [from, from + TAU], reach: [reach * e.reach; 2] });
         self.juice.ring(self.pos, reach, 0.3, [0.85, 0.85, 0.8]);
         self.juice.shake(0.1);
         self.juice.punch += 1.5;
-        sounds.push(Sfx::Slash);
+        sounds.push(sound(a, Sfx::Slash));
         self.thud(hits, sounds);
         true
     }
@@ -587,7 +664,7 @@ impl Harvest {
             let (damage, cd) = (self.stat(a, Stat::Damage), self.stat(a, Stat::Cooldown));
             for at in self.crow_spots(a) {
                 for z in &mut self.zombies {
-                    if z.rise >= 1.0 && len(sub(z.pos, at)) < PECK_REACH && !self.pecked.iter().any(|p| p.0 == z.id) {
+                    if z.rise >= 1.0 && len(sub(z.pos, at)) < crate::tuning::tuning().crow_reach && !self.pecked.iter().any(|p| p.0 == z.id) {
                         hits.1 |= strike(z, &mut self.juice, damage, norm(sub(z.pos, self.pos)), 20.0 * self.kit.mods.knockback, crit);
                         hits.0 += 1;
                         self.pecked.push((z.id, cd));
@@ -635,7 +712,7 @@ impl Harvest {
         }
         self.juice.flash(points[1], 10.0, [0.6, 0.8, 1.8], 5.0, 0.12);
         self.bolts.push(Bolt { points, age: 0.0 });
-        sounds.push(Sfx::Zap);
+        sounds.push(sound(a, Sfx::Zap));
         self.thud(hits, sounds);
         true
     }
@@ -666,16 +743,16 @@ impl Harvest {
             dog.cd -= dt;
             dog.rest -= dt;
             dog.target = target.map(|t| self.zombies[t].id);
-            dog.catching_up = target.is_none() && (away > DOG_STRAY || (dog.catching_up && away > DOG_STRAY / 2.0));
+            dog.catching_up = target.is_none() && (away > crate::tuning::tuning().dog_stray || (dog.catching_up && away > crate::tuning::tuning().dog_stray / 2.0));
             if dog.rest <= 0.0 {
                 let rng = &mut self.juice.rng;
                 dog.spot = polar([0.0; 2], yaw + rng.range(-0.55, 0.55) * PI, rng.range(14.0, 32.0));
                 dog.rest = rng.range(1.5, 4.0);
             }
             let (to, pace, stop) = match goal {
-                Some(g) => (sub(g, dog.pos), speed, BITE_REACH * 0.6),
+                Some(g) => (sub(g, dog.pos), speed, crate::tuning::tuning().dog_reach * 0.6),
                 None if dog.catching_up => (sub(player, dog.pos), speed, 0.0),
-                None => (sub([player[0] + dog.spot[0], player[1] + dog.spot[1]], dog.pos), speed * DOG_TROT, 3.0),
+                None => (sub([player[0] + dog.spot[0], player[1] + dog.spot[1]], dog.pos), speed * crate::tuning::tuning().dog_trot, 3.0),
             };
             let n = norm(to);
             let want = if len(to) > stop { [n[0] * pace, n[1] * pace] } else { [0.0; 2] };
@@ -688,7 +765,7 @@ impl Harvest {
                 dog.anim += dt * (moving / speed * 1.6).min(1.0);
             }
             if let Some(t) = target
-                && len(to) < BITE_REACH
+                && len(to) < crate::tuning::tuning().dog_reach
                 && dog.cd <= 0.0
             {
                 dog.cd = cd;
@@ -729,7 +806,7 @@ impl Harvest {
             return false;
         }
         let at = [self.pos[0] - self.aim[0] * 12.0, self.pos[1] - self.aim[1] * 12.0];
-        if self.map.hits(at[0], at[1], ZOMBIE_HALF) {
+        if self.map.hits(at[0], at[1], crate::tuning::tuning().zombie_half()) {
             return false;
         }
         let (lure, blast, damage, life) = (self.stat(a, Stat::Range), self.stat(a, Stat::Area), self.stat(a, Stat::Damage), self.stat(a, Stat::Duration));
@@ -763,6 +840,22 @@ impl Harvest {
         thrown
     }
 
+    /// Throws a lob weapon's `count` at crowds within its range.
+    fn lob(&mut self, a: Armed, sounds: &mut Vec<Sfx>) -> bool {
+        let range = self.stat(a, Stat::Range);
+        let (damage, radius, life, slow) = (self.stat(a, Stat::Damage), self.stat(a, Stat::Area), self.stat(a, Stat::Duration), self.stat(a, Stat::Slow));
+        let mut thrown = false;
+        for _ in 0..self.stat(a, Stat::Count).max(1.0) as u32 {
+            let Some(to) = self.crowd(range) else { break };
+            self.thrown.push(Grenade { from: self.pos, to, t: 0.0, kind: Thrown::Lob { def: a.def, damage, radius, life, slow } });
+            thrown = true;
+        }
+        if thrown {
+            sounds.push(sound(a, Sfx::Throw));
+        }
+        thrown
+    }
+
     fn lob_flare(&mut self, a: Armed, sounds: &mut Vec<Sfx>) -> bool {
         let Some(to) = self.crowd(self.stat(a, Stat::Range)) else { return false };
         let kind = Thrown::Flare { dps: self.stat(a, Stat::Damage), radius: self.stat(a, Stat::Area), life: self.stat(a, Stat::Duration) };
@@ -775,13 +868,13 @@ impl Harvest {
     pub(super) fn land(&mut self, g: &Grenade, sounds: &mut Vec<Sfx>) {
         match g.kind {
             Thrown::Grenade => {
-                self.explode(g.to, GRENADE_RADIUS, 50.0, sounds);
+                self.explode(g.to, crate::tuning::tuning().grenade_radius, crate::tuning::tuning().grenade_damage, sounds);
                 for _ in 0..self.kit.mods.cluster.round() as u32 {
                     let to = polar(g.to, self.juice.rng.range(0.0, TAU), self.juice.rng.range(16.0, 34.0));
-                    self.thrown.push(Grenade { from: g.to, to, t: GRENADE_FLIGHT * 0.45, kind: Thrown::Bomblet });
+                    self.thrown.push(Grenade { from: g.to, to, t: crate::tuning::tuning().grenade_flight * 0.45, kind: Thrown::Bomblet });
                 }
             }
-            Thrown::Bomblet => self.explode(g.to, BOMBLET_RADIUS, 25.0, sounds),
+            Thrown::Bomblet => self.explode(g.to, crate::tuning::tuning().bomblet_radius, crate::tuning::tuning().bomblet_damage, sounds),
             Thrown::Molotov { dps, radius, life } => {
                 // A pool is a ring of fires, so it reads as one in both views.
                 self.lay(Hazard::Fire, g.to, radius * 0.5, dps, life, 0.0);
@@ -799,6 +892,19 @@ impl Harvest {
             Thrown::Flare { dps, radius, life } => {
                 self.lay(Hazard::Flare, g.to, radius, dps, life, 0.0);
                 self.juice.ring(g.to, radius, 0.6, [1.0, 0.3, 0.2]);
+            }
+            Thrown::Lob { def, damage, radius, life, slow } => {
+                let d = &book().defs[def];
+                match d.lands {
+                    // A blast adds the area and damage passives itself, so it takes the numbers from before them.
+                    Lands::Blast => self.explode(g.to, radius / self.kit.mods.area, damage / self.kit.mods.damage, sounds),
+                    Lands::Fire => self.lay(Hazard::Fire, g.to, radius, damage, life, 0.0),
+                    Lands::Flare => self.lay(Hazard::Flare, g.to, radius, damage, life, 0.0),
+                    Lands::Tacks => self.lay(Hazard::Tacks, g.to, radius, damage, life, slow),
+                }
+                if let Some(e) = d.effect.as_deref().and_then(|n| super::effects::effects().named(n)) {
+                    self.fx.push(Fx::play(e, g.to, 0.0));
+                }
             }
         }
     }
@@ -829,7 +935,7 @@ impl Harvest {
                         z.slow = z.slow.max(0.5);
                         z.slow_k = z.slow_k.max(p.slow);
                     }
-                    Hazard::Fire | Hazard::Flare => ignite(z, p.dps, 1.5),
+                    Hazard::Fire | Hazard::Flare => ignite(z, p.dps, crate::tuning::tuning().fire_burn),
                 }
             }
             match p.hazard {
@@ -905,15 +1011,16 @@ impl Harvest {
             return;
         }
         let pos = free[self.juice.rng.below(free.len())];
-        self.barrels.push(Barrel { pos, hp: super::BARREL_HP, flash: 0.0 });
+        self.barrels.push(Barrel { pos, hp: crate::tuning::tuning().barrel_hp, flash: 0.0 });
         self.map.close(pos[0] + TILE / 2.0, pos[1] + TILE / 2.0);
         self.flow_cell = [usize::MAX; 2];
-        self.fx.push(Fx { frames: &art::SMOKE, fps: 7.0, pos: [pos[0] + TILE / 2.0, pos[1] + TILE / 2.0 - 4.0], angle: 0.0, t: 0.0 });
+        self.fx.push(Fx::play(super::effects::effects().drum_returns, [pos[0] + TILE / 2.0, pos[1] + TILE / 2.0 - 4.0], 0.0));
     }
 
-    pub(super) fn shoot(&mut self, angle: f32, speed: f32, damage: f32, pierce: u32, life: f32, force: f32) {
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn shoot(&mut self, angle: f32, speed: f32, damage: f32, pierce: u32, life: f32, force: f32, look: Option<super::effects::Effect>) {
         let vel = [angle.cos() * speed, angle.sin() * speed];
-        self.bullets.push(Bullet { pos: [self.pos[0], self.pos[1] - 6.0], vel, damage, pierce, life, force, hit: Vec::new() });
+        self.bullets.push(Bullet { pos: [self.pos[0], self.pos[1] - 6.0], vel, damage, pierce, life, force, hit: Vec::new(), look, age: 0.0 });
     }
 }
 
@@ -922,6 +1029,16 @@ mod tests {
     use super::super::{Choice, Kind as ZKind, Phase};
     use super::*;
     use crate::{Buttons, Input};
+
+    #[test]
+    fn a_gun_spreads_its_shots_as_its_pattern_says() {
+        let all = |p: Pattern, n: u32| (0..n).map(|k| shot_angle(p, k, n, 1.0, 0.5, 0.25)).collect::<Vec<_>>();
+        assert_eq!(all(Pattern::Fan, 3), [0.75, 1.0, 1.25]);
+        assert_eq!(all(Pattern::Fan, 1), [1.0], "one shot goes straight at the target");
+        let ring = all(Pattern::Ring, 4);
+        assert!(ring.windows(2).all(|w| (w[1] - w[0] - TAU / 4.0).abs() < 1e-6), "evenly all the way round");
+        assert_eq!(all(Pattern::Spray, 2), [1.125, 1.125]);
+    }
 
     fn armed(h: &mut Harvest, id: &str, level: u32) {
         let def = book().index(id).unwrap();
@@ -935,7 +1052,7 @@ mod tests {
         armed(&mut h, id, 1);
         h.view_yaw = 0.0;
         h.aim = [1.0, 0.0];
-        h.pos = (0..40).map(|k| [h.pos[0] + k as f32 * 16.0, h.pos[1]]).find(|p| !h.map.hits(p[0] + offset[0], p[1] + offset[1], ZOMBIE_HALF)).unwrap();
+        h.pos = (0..40).map(|k| [h.pos[0] + k as f32 * 16.0, h.pos[1]]).find(|p| !h.map.hits(p[0] + offset[0], p[1] + offset[1], crate::tuning::tuning().zombie_half())).unwrap();
         h.zombies.push(Zombie::new(ZKind::named("big"), [h.pos[0] + offset[0], h.pos[1] + offset[1]], 500.0, 1.0, 0.0));
         h
     }
@@ -1118,7 +1235,7 @@ mod tests {
         for k in 0..60 * 20 {
             h.walk_dogs(1.0 / 60.0, &mut Vec::new());
             let d = &h.dogs[0];
-            assert!(len(sub(d.pos, h.pos)) < DOG_STRAY + 4.0, "it stays close");
+            assert!(len(sub(d.pos, h.pos)) < crate::tuning::tuning().dog_stray + 4.0, "it stays close");
             if k % 60 == 0 {
                 spots.push(d.pos);
             }
@@ -1129,7 +1246,7 @@ mod tests {
         for _ in 0..60 * 3 {
             h.walk_dogs(1.0 / 60.0, &mut Vec::new());
         }
-        assert!(len(sub(h.dogs[0].pos, h.pos)) < DOG_STRAY, "it ran to catch up");
+        assert!(len(sub(h.dogs[0].pos, h.pos)) < crate::tuning::tuning().dog_stray, "it ran to catch up");
     }
 
     #[test]

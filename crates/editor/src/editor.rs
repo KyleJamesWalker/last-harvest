@@ -9,9 +9,11 @@ use crate::store::Store;
 
 mod cards;
 mod maps;
+mod tables;
 
 use cards::HeldImport;
-use maps::{MapEdit, MapTool, PROP_HP_Y, PROP_PALETTE_ROWS};
+use maps::{MapEdit, MapTool, PROP_HP_Y, PROP_OPEN_Y, PROP_PALETTE_ROWS};
+use tables::DataEdit;
 
 const UNDO_DEPTH: usize = 100;
 const LIST: Rect = Rect { x: 8.0, y: 52.0, w: 200.0, h: 690.0 };
@@ -26,8 +28,9 @@ const FAMILY_MAX: usize = 6;
 /// How opaque Onion draws the previous frame.
 const ONION: f32 = 0.3;
 const MAX_SIZE: usize = 128;
-const STANDS: [&str; 5] = ["Prop", "Slab", "Figure", "Ground", "Carve"];
+const STANDS: [&str; 6] = ["Prop", "Slab", "Figure", "Ground", "Carve", "Turned"];
 const CARVE: u8 = 4;
+const TURNED: u8 = 5;
 const VIEW_NAMES: [&str; 4] = ["South view", "East view", "Footprint", "Top"];
 const VIEW_HINTS: [&str; 4] = [
     "the sprite seen from the south: west on the left",
@@ -38,7 +41,7 @@ const VIEW_HINTS: [&str; 4] = [
 const FOOTPRINT: usize = 2;
 /// The view that is a figure's top strip.
 const TOP: usize = 3;
-/// How a sprite stands, by its button: prop, slab, figure, ground, carve.
+/// How a sprite stands, by its button: prop, slab, figure, ground, carve, turned.
 const FIGURE: u8 = 2;
 const DIALOG: Rect = Rect { x: 212.0, y: 250.0, w: 600.0, h: 230.0 };
 /// The unsaved-changes dialog's choices: save then switch, discard then switch, or stay.
@@ -135,6 +138,10 @@ enum Ask {
 enum Line {
     Name,
     About,
+    /// A data file's line's value.
+    Value,
+    /// A new `key value` line for a data file's section.
+    Added,
 }
 
 impl Line {
@@ -142,13 +149,14 @@ impl Line {
         match self {
             Line::Name => "name",
             Line::About => "about",
+            Line::Value | Line::Added => "",
         }
     }
 
     /// Whether `c` can be typed into this line; a `#` would start a comment.
     fn takes(self, c: char) -> bool {
         match self {
-            Line::Name => !c.is_control() && c != '#',
+            Line::Name | Line::Value | Line::Added => !c.is_control() && c != '#',
             Line::About => (' '..='~').contains(&c) && c != '#',
         }
     }
@@ -157,6 +165,7 @@ impl Line {
         match self {
             Line::Name => NAME_MAX,
             Line::About => last_harvest_game::ABOUT_MAX,
+            Line::Value | Line::Added => 300,
         }
     }
 }
@@ -183,6 +192,8 @@ enum Action {
     Height(i32),
     Stand(u8),
     Depth(i32),
+    /// Floats a slab higher or lower.
+    Float(i32),
     Fps(i32),
     Color(Rgba),
     Onion,
@@ -225,10 +236,31 @@ enum Action {
     Generate,
     /// Blanks a flash, hurt or dead part, so the game draws it.
     ClearPart,
+    /// Clears every pixel of the paint color.
+    ClearColor,
+    /// Steps how many of the open prop's top rows a figure walks through, or the map's selected prop's.
+    Open(i32),
+    /// Opens the data page section that says how the open sprite plays.
+    Data,
+    /// Steps a player card's health, speed or magnet down or up.
+    PlayerBase(usize, i32),
+    /// Steps which frame the map's selected prop shows, through each one and back to all of them animating.
+    LineFrame(i32),
+    /// Steps how fast the map's selected prop animates; 0 keeps its sprite's own pace.
+    LineFps(i32),
+    /// Steps the data page's line, by its place in the section, down or up.
+    DataStep(usize, i32),
+    /// Starts typing the data page's line's value.
+    DataEdit(usize),
+    DataRemove(usize),
+    DataAdd,
+    DataPage(i32),
+    /// Leaves the paint color out of the 3D view, or puts it back.
+    ClearIn3d,
 }
 
 /// What each of a card's numbers is called on its stats page, and how far a press of - or + moves it.
-const STAT_ROWS: [(&str, f32); 9] = [
+const STAT_ROWS: [(&str, f32); 10] = [
     ("Health", 5.0),
     ("Speed", 1.0),
     ("Bite", 1.0),
@@ -238,18 +270,23 @@ const STAT_ROWS: [(&str, f32); 9] = [
     ("Arrives after (minutes)", 0.5),
     ("Chance", 0.01),
     ("Chance per minute", 0.005),
+    ("Charge (times speed near you)", 0.1),
 ];
 const FLAG_NAMES: [&str; 3] = ["Heavy", "Leads hordes", "Harvester"];
 const STAT_TOP: f32 = CANVAS.y + 100.0;
-const STAT_ROW: f32 = 25.0;
-const STAT_BUTTON: f32 = 24.0;
+const STAT_ROW: f32 = 22.0;
+const STAT_BUTTON: f32 = 20.0;
 const NAME_MAX: usize = 24;
 const DELETE_CONFIRM: f32 = 3.0;
 /// A player card's stats: a block per difficulty with its weapon toggles, five across.
 const START_TOP: f32 = CANVAS.y + 100.0;
-const START_BLOCK: f32 = 142.0;
+const START_BLOCK: f32 = 126.0;
 const START_ACROSS: usize = 5;
-const START_ROW: f32 = 28.0;
+const START_ROW: f32 = 24.0;
+/// A player card's health, speed and magnet, under its starting weapons.
+const BASE_Y: f32 = START_TOP + 3.0 * START_BLOCK + 4.0;
+/// How far a press of - or + moves a player card's health, speed and magnet.
+const BASE_STEPS: [f32; 3] = [5.0, 2.0, 2.0];
 
 struct Button {
     rect: Rect,
@@ -292,6 +329,7 @@ struct Stash {
     stand: u8,
     depth: f32,
     height: f32,
+    lift: f32,
     frame: usize,
     view: Option<usize>,
     dirty: bool,
@@ -299,6 +337,8 @@ struct Stash {
 }
 
 const HISTORY_ROW: f32 = 40.0;
+/// How far each nesting level of the list steps in.
+const INDENT: f32 = 12.0;
 const HISTORY_TOP: f32 = LIST.y + 48.0;
 const RESTORE: Rect = Rect { x: LIST.x + 8.0, y: LIST.y + LIST.h - 44.0, w: 88.0, h: 36.0 };
 const BACK: Rect = Rect { x: LIST.x + 104.0, y: LIST.y + LIST.h - 44.0, w: 88.0, h: 36.0 };
@@ -308,7 +348,7 @@ type Snapshot = (Vec<Frame>, Option<[Frame; 2]>, Option<Frame>, Option<Frame>);
 
 /// A line of the sprite list.
 enum Row<'a> {
-    Heading { title: &'static str, count: usize, saved: usize, open: bool },
+    Heading { title: &'static str, depth: usize, count: usize, saved: usize, open: bool },
     Sprite(&'a (String, bool)),
 }
 
@@ -342,10 +382,16 @@ pub struct Editor {
     pub strike: Option<bool>,
     /// Where the last packing put a card's figure among the surfaces, and whether it has dead frames.
     figure_at: Option<(usize, bool)>,
+    /// Where the last packing put the frames' 3D copies among the surfaces, and how many there are.
+    solids_at: Option<(usize, usize)>,
     /// The open card's parts as saved, read when it opens or saves.
     card_parts: Vec<Vec<Frame>>,
     /// The hand-made map being edited, in place of a sprite.
     map: Option<MapEdit>,
+    /// The data file section open on the data page, if one is.
+    data: Option<DataEdit>,
+    /// The data page section that says how the open sprite plays, found when it opens.
+    data_link: Option<String>,
     /// Players' props packed for the previews while a map is open, in order: their fields and frame counts.
     map_props: Vec<(last_harvest_game::PropFields, usize)>,
     playing: bool,
@@ -356,6 +402,8 @@ pub struct Editor {
     view: Option<usize>,
     depth: f32,
     height: f32,
+    /// How far a slab floats off the ground.
+    lift: f32,
     /// Whether the stand has been changed since it was loaded or saved.
     stand_touched: bool,
     pub fps: f32,
@@ -408,7 +456,7 @@ pub struct Editor {
 impl Editor {
     /// An editor on the sprite `name`, or on none until one is picked when `name` is empty.
     pub fn new(store: Box<dyn Store>, name: &str) -> Self {
-        let sprite = store.load(name).unwrap_or(Sprite { name: name.into(), frames: vec![Frame::blank(16, 16)], views: None, footprint: None, top: None, card: None });
+        let sprite = store.load(name).unwrap_or(Sprite { name: name.into(), frames: vec![Frame::blank(16, 16)], views: None, footprint: None, top: None, card: None, clear_in_3d: Vec::new() });
         let names = store.names();
         let mut e = Self {
             store,
@@ -432,8 +480,11 @@ impl Editor {
             changed: true,
             strike: None,
             figure_at: None,
+            solids_at: None,
             card_parts: Vec::new(),
             map: None,
+            data: None,
+            data_link: None,
             map_props: Vec::new(),
             playing: false,
             clock: 0.0,
@@ -441,6 +492,7 @@ impl Editor {
             view: None,
             depth: 12.0,
             height: 10.0,
+            lift: 0.0,
             stand_touched: false,
             fps: 6.0,
             ask: None,
@@ -472,9 +524,12 @@ impl Editor {
             delete_armed: 0.0,
         };
         e.names = e.all_names();
-        e.open_map(name);
+        if !e.open_table(name) {
+            e.open_map(name);
+        }
         e.load_stand();
         e.load_card_parts();
+        e.data_link = e.data_link_for(name);
         e.reveal();
         e
     }
@@ -499,18 +554,42 @@ impl Editor {
             CARVE if self.live.len() == n + 2 + self.sprite.footprint.is_some() as usize => {
                 Stand::Carve { footprint: self.live.get(n + 2).copied(), south: self.live[n], east: self.live[n + 1] }
             }
-            _ => Stand::Slab { height: self.height },
+            TURNED => match self.live.get(n + 1).filter(|_| self.sprite.views.is_some()) {
+                Some(&east) => Stand::Turned { east, depth: Some(self.depth) },
+                None => Stand::Prop { depth: self.depth },
+            },
+            _ => Stand::Slab { height: self.height, lift: self.lift },
         }
     }
 
     /// The stand as the catalog and `stand.txt` write it.
     fn stand_text(&self) -> String {
-        if self.stand == CARVE { "carve".into() } else { sprite::stand_text(self.stand()) }
+        match self.stand {
+            CARVE => "carve".into(),
+            TURNED => format!("turned {}", self.depth),
+            _ => sprite::stand_text(self.stand()),
+        }
+    }
+
+    /// How many columns of the frame on show hold a pixel: how thick it is seen from above.
+    fn outline_width(&self) -> f32 {
+        let f = &self.sprite.frames[self.frame];
+        ((0..f.w as i32).filter(|&x| (0..f.h as i32).any(|y| f.get(x, y).is_some_and(|p| p[3] > 0))).count() as f32).max(1.0)
+    }
+
+    /// Whether the sprite stands by its views, carved or turned, and has them.
+    fn by_views(&self) -> bool {
+        matches!(self.stand, CARVE | TURNED) && self.sprite.views.is_some()
     }
 
     /// Everything to pack for the previews: the frames, then the carving views when carving, with any
     /// floating pixels shown where they would land, then a card's figure.
     pub fn surfaces(&mut self) -> Vec<Frame> {
+        if self.data.is_some() {
+            self.figure_at = None;
+            self.solids_at = None;
+            return Vec::new();
+        }
         if self.map.is_some() {
             self.figure_at = None;
             let (frames, props) = self.prop_surfaces();
@@ -522,6 +601,17 @@ impl Editor {
         if let Some((figure, dead)) = self.figure_frames() {
             self.figure_at = Some((out.len(), dead));
             out.extend(figure);
+        }
+        self.solids_at = None;
+        let clear = &self.sprite.clear_in_3d;
+        if !clear.is_empty() && !self.none_open() {
+            let n = self.sprite.frames.len();
+            let solids: Vec<Frame> = out[..n]
+                .iter()
+                .map(|f| Frame { px: f.px.iter().map(|p| if clear.contains(p) { CLEAR } else { *p }).collect(), ..f.clone() })
+                .collect();
+            self.solids_at = Some((out.len(), n));
+            out.extend(solids);
         }
         out
     }
@@ -540,8 +630,8 @@ impl Editor {
         if self.none_open() {
             return Vec::new();
         }
-        let carving = self.stand == CARVE && self.sprite.views.is_some();
-        let views = self.sprite.views.iter().flatten().chain(&self.sprite.footprint).filter(|_| carving);
+        let footprint = self.sprite.footprint.iter().filter(|_| self.stand == CARVE);
+        let views = self.sprite.views.iter().flatten().chain(footprint).filter(|_| self.by_views());
         let top = self.sprite.top.iter().filter(|_| self.stand == FIGURE);
         let mut out: Vec<Frame> = self.sprite.frames.iter().chain(views).chain(top).cloned().collect();
         if let Some(Selection { x, y, float: Some(f), .. }) = &self.selection {
@@ -563,7 +653,7 @@ impl Editor {
     /// The frames to show in the previews: all of them while playing, else the one being edited.
     /// A still part's frames show as the game draws them: blank ones from the walk.
     pub fn shown(&self) -> Vec<Art> {
-        if self.map.is_some() {
+        if self.map.is_some() || self.data.is_some() {
             return Vec::new();
         }
         let n = self.sprite.frames.len().min(self.live.len());
@@ -578,6 +668,8 @@ impl Editor {
     }
 
     pub fn set_live(&mut self, live: Vec<Art>) {
+        let solids = self.solids_at.map_or(Vec::new(), |(k, n)| (0..n).filter_map(|i| Some((*live.get(i)?, *live.get(k + i)?))).collect());
+        last_harvest_game::art::set_live_solids(solids);
         self.live = live;
         if self.map.is_some() {
             self.register_props();
@@ -593,7 +685,7 @@ impl Editor {
     }
 
     fn unsaved(&self) -> bool {
-        self.dirty || self.stand_touched || self.map.as_ref().is_some_and(|m| m.dirty)
+        self.dirty || self.stand_touched || self.map.as_ref().is_some_and(|m| m.dirty) || self.data.as_ref().is_some_and(|d| d.dirty)
     }
 
     /// What the canvas shows: a frame, or a carving view.
@@ -636,8 +728,12 @@ impl Editor {
     fn apply_stand(&mut self, saved: Option<String>) {
         self.stand_touched = false;
         self.view = None;
-        self.depth = (self.current().w as f32 * 0.6).clamp(2.0, 48.0).round();
+        let packed = last_harvest_game::art::ALL.iter().find(|(n, _)| *n == self.sprite.name).and_then(|(_, a)| a.first().copied());
+        let open = self.open_prop_fields().map_or(0, |f| f.open);
+        let f = self.current();
+        self.depth = last_harvest_game::default_prop_depth(f.w as f32, f.h as f32, packed, open);
         self.height = 10.0;
+        self.lift = 0.0;
         let guess = || {
             let n = &self.sprite.name;
             if ["PLAYER", "SKINNY", "KID", "BIG", "CROW"].iter().any(|k| n.starts_with(k)) {
@@ -652,19 +748,25 @@ impl Editor {
             self.stand = CARVE;
             return;
         }
+        if let Some(depth) = saved.as_deref().and_then(last_harvest_game::turned_depth).filter(|_| self.sprite.views.is_some()) {
+            self.stand = TURNED;
+            self.depth = depth.unwrap_or_else(|| self.outline_width());
+            return;
+        }
         let s = saved.as_deref().and_then(sprite::parse_stand).unwrap_or_else(guess);
         self.stand = match s {
             Stand::Prop { depth } => {
                 self.depth = depth;
                 0
             }
-            Stand::Slab { height } => {
-                self.height = height;
+            Stand::Slab { height, lift } => {
+                (self.height, self.lift) = (height, lift);
                 1
             }
             Stand::Figure => 2,
             Stand::Ground => 3,
             Stand::Carve { .. } => CARVE,
+            Stand::Turned { .. } => TURNED,
         };
     }
 
@@ -686,9 +788,12 @@ impl Editor {
         self.selection = None;
         self.last_dot = None;
         self.names = self.all_names();
-        if self.open_map(name) {
+        self.data = None;
+        self.data_link = None;
+        if self.open_table(name) || self.open_map(name) {
             return;
         }
+        self.data_link = self.data_link_for(name);
         if self.store.load(name).is_some() {
             self.map = None;
         }
@@ -877,10 +982,16 @@ impl Editor {
             self.map_buttons(m, &mut push);
             return b;
         }
+        if let Some(d) = &self.data {
+            self.data_buttons(d, &mut push);
+            return b;
+        }
         if self.is_card() {
             push(410.0, 8.0, 94.0, 34.0, Action::Stats, "Stats T", self.stats);
         } else if self.built_in_still().is_some() {
             push(410.0, 8.0, 94.0, 34.0, Action::Generate, "Generate", false);
+        } else if self.data_link.is_some() {
+            push(410.0, 8.0, 94.0, 34.0, Action::Data, "Data", false);
         }
         if self.stats && self.is_player_card() {
             self.line_buttons(&mut push);
@@ -892,8 +1003,13 @@ impl Editor {
                 for (w, (id, label)) in cards::weapon_labels().into_iter().enumerate() {
                     let (col, row) = (w % START_ACROSS, w / START_ACROSS);
                     let on = have.contains(&id);
-                    push(CANVAS.x + 20.0 + col as f32 * 104.0, top + 30.0 + row as f32 * START_ROW, 100.0, 26.0, Action::StartWeapon(d, w), &label, on);
+                    push(CANVAS.x + 20.0 + col as f32 * 104.0, top + 30.0 + row as f32 * START_ROW, 100.0, 22.0, Action::StartWeapon(d, w), &label, on);
                 }
+            }
+            for i in 0..3 {
+                let x = CANVAS.x + 20.0 + i as f32 * 180.0;
+                push(x + 100.0, BASE_Y, 34.0, 26.0, Action::PlayerBase(i, -1), "-", false);
+                push(x + 138.0, BASE_Y, 34.0, 26.0, Action::PlayerBase(i, 1), "+", false);
             }
         } else if self.stats {
             self.line_buttons(&mut push);
@@ -928,6 +1044,10 @@ impl Editor {
         }
         let (x, y) = cell(5);
         push(x, y, 74.0, 32.0, Action::Mirror, "Mirror M", self.mirror);
+        push(SIDE_X + 128.0, 192.0, 50.0, 26.0, Action::ClearColor, "Erase", false);
+        if !self.is_card() {
+            push(SIDE_X + 182.0, 192.0, 50.0, 26.0, Action::ClearIn3d, "No 3D", self.sprite.clear_in_3d.contains(&self.color));
+        }
         for (i, (t, l)) in [(Tool::Line, "Line"), (Tool::Rect, "Box"), (Tool::Ellipse, "Oval")].into_iter().enumerate() {
             let (x, y) = cell(6 + i);
             push(x, y, 74.0, 32.0, Action::Tool(t), l, self.tool_now() == t);
@@ -952,16 +1072,20 @@ impl Editor {
         for (i, l) in STANDS.into_iter().enumerate().filter(|_| !self.is_card()) {
             push(SIDE_X + (i % 3) as f32 * 78.0, 566.0 + (i / 3) as f32 * 34.0, 74.0, 30.0, Action::Stand(i as u8), l, self.stand == i as u8);
         }
-        if (self.stand < 2 || self.stand == CARVE) && !self.is_card() {
+        if (self.stand < 2 || matches!(self.stand, CARVE | TURNED)) && !self.is_card() {
             push(SIDE_X + 130.0, 640.0, 46.0, 30.0, Action::Depth(-1), "-", false);
             push(SIDE_X + 182.0, 640.0, 46.0, 30.0, Action::Depth(1), "+", false);
         }
-        push(SIDE_X + 130.0, 678.0, 46.0, 30.0, Action::Fps(-1), "-", false);
-        push(SIDE_X + 182.0, 678.0, 46.0, 30.0, Action::Fps(1), "+", false);
-        push(SIDE_X, 714.0, 114.0, 30.0, Action::Onion, "Onion O", self.onion);
-        push(SIDE_X + 118.0, 714.0, 114.0, 30.0, Action::Compare, "Compare C", self.compare);
+        if self.stand == 1 && !self.is_card() {
+            push(SIDE_X + 130.0, 672.0, 46.0, 28.0, Action::Float(-1), "-", false);
+            push(SIDE_X + 182.0, 672.0, 46.0, 28.0, Action::Float(1), "+", false);
+        }
+        push(SIDE_X + 130.0, 704.0, 46.0, 28.0, Action::Fps(-1), "-", false);
+        push(SIDE_X + 182.0, 704.0, 46.0, 28.0, Action::Fps(1), "+", false);
+        push(SIDE_X, 736.0, 114.0, 28.0, Action::Onion, "Onion O", self.onion);
+        push(SIDE_X + 118.0, 736.0, 114.0, 28.0, Action::Compare, "Compare C", self.compare);
         let carving = self.stand == CARVE && self.sprite.views.is_some();
-        let room = if carving { 4 } else { 7 };
+        let room = if carving { 4 } else if self.by_views() { 6 } else { 7 };
         let shown = self.sprite.frames.len().min(room);
         let first = self.frame.saturating_sub(room - 1).min(self.sprite.frames.len() - shown);
         for i in first..first + shown {
@@ -983,6 +1107,8 @@ impl Editor {
             } else {
                 push(x, 622.0, THUMB, THUMB, Action::AddFootprint, "", false);
             }
+        } else if self.by_views() {
+            push(after + 56.0, 622.0, THUMB, THUMB, Action::View(1), "", self.view == Some(1));
         }
         let row = 700.0;
         push(CANVAS.x, row, 40.0, 30.0, Action::MoveFrame(-1), "<", false);
@@ -1038,6 +1164,12 @@ impl Editor {
                     self.switch_to(name);
                 }
                 None => {}
+            }
+            return;
+        }
+        if self.data.is_some() {
+            if let Some(b) = self.buttons().into_iter().find(|b| b.rect.contains(p)) {
+                self.act(b.action, shift);
             }
             return;
         }
@@ -1115,6 +1247,9 @@ impl Editor {
         self.hover = Some(p);
         if self.map.is_some() {
             return self.map_drag(p);
+        }
+        if self.data.is_some() {
+            return;
         }
         if let Some(i) = self.channel {
             let bar = self.bars()[i];
@@ -1242,6 +1377,41 @@ impl Editor {
         self.changed = true;
     }
 
+    /// Clears the paint color from every frame, or from the carving view on the canvas.
+    fn clear_color(&mut self) {
+        let c = self.color;
+        let hex = sprite::hex(c);
+        let in_view = self.view.is_some();
+        let count = |f: &Frame| f.px.iter().filter(|&&p| p == c).count();
+        let n = if in_view { count(self.current()) } else { self.sprite.frames.iter().map(count).sum() };
+        if n == 0 {
+            return self.say(format!("No {hex} pixels to clear"));
+        }
+        self.remember();
+        let frames = if in_view { std::slice::from_mut(self.current_mut()) } else { &mut self.sprite.frames[..] };
+        frames.iter_mut().flat_map(|f| f.px.iter_mut()).filter(|p| **p == c).for_each(|p| *p = CLEAR);
+        self.say(format!("Cleared {n} {hex} pixels"));
+    }
+
+    /// Leaves the paint color out of the 3D view, keeping it in 2D, or puts it back.
+    fn clear_in_3d(&mut self) {
+        let (c, list) = (self.color, &mut self.sprite.clear_in_3d);
+        let gone = match list.iter().position(|&k| k == c) {
+            Some(i) => {
+                list.remove(i);
+                false
+            }
+            None => {
+                list.push(c);
+                true
+            }
+        };
+        let n = list.len();
+        self.dirty = true;
+        self.changed = true;
+        self.say(format!("{} {} the 3D view; {n} color{} cleared in 3D", sprite::hex(c), if gone { "left out of" } else { "back in" }, if n == 1 { "" } else { "s" }));
+    }
+
     fn paste(&mut self) {
         if self.none_open() {
             return self.say("Pick a sprite from the list, or press N for a new one");
@@ -1267,6 +1437,12 @@ impl Editor {
     pub fn wheel(&mut self, p: [f32; 2], dy: f32) {
         if self.map.is_some() && !LIST.contains(p) {
             return self.map_wheel(p, dy);
+        }
+        if self.data.is_some() && !LIST.contains(p) {
+            if dy != 0.0 {
+                self.act(Action::DataPage(if dy > 0.0 { -1 } else { 1 }), false);
+            }
+            return;
         }
         if LIST.contains(p) {
             let max = (self.rows().len() as f32 * LIST_ROW - (LIST.h - (self.list_top() - LIST.y))).max(0.0);
@@ -1363,9 +1539,28 @@ impl Editor {
         if self.map.is_some() && self.map_act(a) {
             return;
         }
+        if self.data.is_some() && self.data_act(a, shift) {
+            return;
+        }
         match a {
             Action::MapTool(_) | Action::Ground(_) | Action::PickProp(_) | Action::PickPage(_) | Action::Picket(_) | Action::MapSize(..) | Action::Randomize | Action::MapFit | Action::PropDefaults => {}
+            Action::DataStep(..) | Action::DataEdit(_) | Action::DataRemove(_) | Action::DataAdd | Action::DataPage(_) => {}
+            Action::LineFrame(_) | Action::LineFps(_) => {}
+            Action::PlayerBase(i, d) => {
+                let t = last_harvest_game::tuning::tuning();
+                let own = [t.player_hp, t.player_speed, t.player_magnet][i];
+                let now = last_harvest_game::player_fields(self.sprite.card.as_deref().unwrap_or("")).ok().and_then(|f| f.base[i]).unwrap_or(own);
+                let next = (now + BASE_STEPS[i] * (d * step) as f32).clamp(1.0, 1000.0);
+                let value = (next != own).then(|| next.to_string());
+                self.set_card(last_harvest_game::PLAYER_BASE_KEYS[i], value.as_deref());
+            }
+            Action::Data => {
+                if let Some(name) = self.data_link.clone() {
+                    self.switch_to(name);
+                }
+            }
             Action::Cover => self.edit_prop(|f| f.cover = !f.cover),
+            Action::Open(d) => self.edit_prop(|f| f.open = (f.open as i32 + d * step).clamp(0, 64) as usize),
             Action::Hp(d) => self.edit_prop(|f| f.hp = (f.hp + (d * step * 10) as f32).clamp(0.0, last_harvest_game::PROP_MAX_HP)),
             Action::Broken if self.sprite.frames.len() < 2 => self.say("Add a frame first: the last one shows once the prop breaks"),
             Action::Broken => self.edit_prop(|f| f.broken = !f.broken),
@@ -1375,7 +1570,7 @@ impl Editor {
                 self.deselect();
                 let new = !self.names.iter().any(|(n, _)| *n == self.sprite.name);
                 // A carving lives in the sprite's folder, so it saves the pixels too.
-                let carving = self.stand == CARVE && self.stand_touched;
+                let carving = matches!(self.stand, CARVE | TURNED) && self.stand_touched;
                 let pixels = if self.dirty || new || carving { self.store.save(&self.sprite) } else { Ok(()) };
                 let stand = if self.stand_touched { self.store.save_stand(&self.sprite.name, &self.stand_text()) } else { Ok(()) };
                 match pixels.and(stand) {
@@ -1429,6 +1624,9 @@ impl Editor {
             Action::Strike(kill) => self.strike = Some(kill),
             Action::Generate => self.generate_part(),
             Action::ClearPart => self.clear_part(),
+            Action::ClearColor => self.clear_color(),
+            Action::ClearIn3d if self.is_card() => self.say("A card stands as a figure, which keeps every color"),
+            Action::ClearIn3d => self.clear_in_3d(),
             Action::Stats => {
                 self.stats = !self.stats;
                 self.naming = None;
@@ -1439,7 +1637,7 @@ impl Editor {
                 let (key, value) = f.numbers[i];
                 let (_, step) = STAT_ROWS[i];
                 let bigger = if shift { 10.0 } else { 1.0 };
-                let lo = if key == "mass" { 0.1 } else { 0.0 };
+                let lo = if matches!(key, "mass" | "charge") { 0.1 } else { 0.0 };
                 let mut v = ((value + step * bigger * d as f32) / step).round() * step;
                 v = v.max(lo);
                 if key == "chance" {
@@ -1581,19 +1779,29 @@ impl Editor {
                 self.stand = s;
                 self.stand_touched = true;
                 self.changed = true;
-                if s == CARVE && self.sprite.views.is_none() {
+                if matches!(s, CARVE | TURNED) && self.sprite.views.is_none() {
                     self.remember();
                     self.sprite.views = Some(sprite::block_views(&self.sprite.frames[self.frame], self.height as usize));
-                    self.say("Carve: erase the south and east views to shape the solid");
                 }
-                if s != CARVE {
-                    self.view = None;
+                match s {
+                    CARVE => self.say("Carve: erase the south and east views to shape the solid"),
+                    TURNED => {
+                        self.depth = self.outline_width();
+                        self.view = Some(1);
+                        self.say("Turned: draw it seen from the east, south on the left; it stands where the frame's outline is");
+                    }
+                    _ => self.view = None,
                 }
             }
             Action::Depth(d) if self.stand == CARVE => self.resize_views(self.view_height() as i32 + d * step),
             Action::Depth(d) => {
-                let size = if self.stand == 0 { &mut self.depth } else { &mut self.height };
-                *size = (*size + (d * step) as f32).clamp(1.0, 96.0);
+                let size = if matches!(self.stand, 0 | TURNED) { &mut self.depth } else { &mut self.height };
+                *size = (*size + (d * step) as f32).clamp(1.0, if self.stand == TURNED { 64.0 } else { 96.0 });
+                self.stand_touched = true;
+                self.changed = true;
+            }
+            Action::Float(d) => {
+                self.lift = (self.lift + (d * step) as f32).clamp(0.0, 96.0);
                 self.stand_touched = true;
                 self.changed = true;
             }
@@ -1621,6 +1829,7 @@ impl Editor {
             stand: self.stand,
             depth: self.depth,
             height: self.height,
+            lift: self.lift,
             frame: self.frame,
             view: self.view,
             dirty: self.dirty,
@@ -1629,7 +1838,7 @@ impl Editor {
     }
 
     fn unstash(&mut self, s: Stash) {
-        (self.sprite, self.stand, self.depth, self.height, self.frame, self.view) = (s.sprite, s.stand, s.depth, s.height, s.frame, s.view);
+        (self.sprite, self.stand, self.depth, self.height, self.lift, self.frame, self.view) = (s.sprite, s.stand, s.depth, s.height, s.lift, s.frame, s.view);
         (self.dirty, self.stand_touched) = (s.dirty, s.stand_touched);
         self.changed = true;
     }
@@ -1760,21 +1969,29 @@ impl Editor {
         self.names.iter().filter(|(n, _)| n.contains(&want)).collect()
     }
 
-    /// The list's rows: a heading over each group, then its sprites if it's unfolded. A search unfolds every
-    /// group with a match.
+    /// The list's rows: a heading over each group, nested by `/` in its title, then its sprites if every heading
+    /// over them is unfolded. A search unfolds every group with a match.
     fn rows(&self) -> Vec<Row<'_>> {
         let searching = !self.filter.is_empty();
         let mut rows = Vec::new();
         let listed = self.listed();
         for (i, entry) in listed.iter().enumerate() {
             let title = sprite::section(&entry.0);
-            if i == 0 || sprite::section(&listed[i - 1].0) != title {
-                let group = listed[i..].iter().take_while(|e| sprite::section(&e.0) == title);
-                let (count, saved) = group.fold((0, 0), |(n, s), e| (n + 1, s + e.1 as usize));
-                let open = searching || self.unfolded.contains(&title);
-                rows.push(Row::Heading { title, count, saved, open });
+            let before = i.checked_sub(1).map(|b| sprite::section(&listed[b].0));
+            let mut shown = true;
+            for (depth, path) in sprite::section_path(title).enumerate() {
+                let open = searching || self.unfolded.contains(&path);
+                if !before.is_some_and(|b| sprite::within(b, path)) {
+                    let group = listed[i..].iter().take_while(|e| sprite::within(sprite::section(&e.0), path));
+                    let (count, saved) = group.fold((0, 0), |(n, s), e| (n + 1, s + e.1 as usize));
+                    rows.push(Row::Heading { title: path, depth, count, saved, open });
+                }
+                if !open {
+                    shown = false;
+                    break;
+                }
             }
-            if searching || self.unfolded.contains(&title) {
+            if shown {
                 rows.push(Row::Sprite(entry));
             }
         }
@@ -1828,6 +2045,7 @@ impl Editor {
     fn commit_line(&mut self, line: Line, text: String) {
         let text = text.trim();
         match line {
+            Line::Value | Line::Added => self.commit_data(line, text),
             Line::Name if text.is_empty() => self.say("A card needs a name"),
             Line::About if text.is_empty() => self.set_card(line.key(), None),
             _ => self.set_card(line.key(), Some(text)),
@@ -1839,9 +2057,10 @@ impl Editor {
         if self.none_open() {
             return;
         }
-        let title = sprite::section(&self.sprite.name);
-        if !self.unfolded.contains(&title) {
-            self.unfolded.push(title);
+        for title in sprite::section_path(sprite::section(&self.sprite.name)) {
+            if !self.unfolded.contains(&title) {
+                self.unfolded.push(title);
+            }
         }
         let Some(i) = self.rows().iter().position(|r| matches!(r, Row::Sprite((m, _)) if *m == self.sprite.name)) else { return };
         let (y, room) = (i as f32 * LIST_ROW, LIST.h - (self.list_top() - LIST.y));
@@ -1938,7 +2157,8 @@ impl Editor {
                         Some(id) => (sprite::CardKind::Player, id.to_ascii_lowercase()),
                         None => (sprite::CardKind::Enemy, name.to_ascii_lowercase()),
                     };
-                    let wanted = sprite::card_wanted(&name).or_else(|| (self.modding && !name.is_empty()).then(typed));
+                    let prop = crate::store::props::id(&name).is_some();
+                    let wanted = sprite::card_wanted(&name).or_else(|| (self.modding && !name.is_empty() && !prop).then(typed));
                     if name.starts_with(sprite::MAP_PREFIX) && kind == Ask::New {
                         self.make_map(&name);
                     } else if let Some((card, id)) = wanted {
@@ -1951,7 +2171,8 @@ impl Editor {
                         self.ask = None;
                         let (frames, views, footprint, top) = if kind == Ask::Copy { self.snapshot() } else { (vec![Frame::blank(16, 16)], None, None, None) };
                         let card = crate::store::props::id(&name).map(|id| last_harvest_game::prop_text(&crate::store::props::blank(&id)));
-                        self.sprite = Sprite { name: name.clone(), frames, views, footprint, top, card };
+                        let clear_in_3d = if kind == Ask::Copy { self.sprite.clear_in_3d.clone() } else { Vec::new() };
+                        self.sprite = Sprite { name: name.clone(), frames, views, footprint, top, card, clear_in_3d };
                         self.fit();
                         self.view = None;
                         self.frame = 0;
@@ -1971,6 +2192,9 @@ impl Editor {
             return;
         }
         if self.map.is_some() && self.map_key(key) {
+            return;
+        }
+        if self.data_key(key) {
             return;
         }
         if self.selection.is_some() {
@@ -2057,6 +2281,9 @@ impl Editor {
         if let Some(m) = &self.map {
             return self.draw_map(c, m);
         }
+        if let Some(d) = &self.data {
+            return self.draw_data(c, d);
+        }
         if self.none_open() {
             c.label("No sprite open", 12.0, 12.0, 26.0, DIM, Align::Left);
         } else {
@@ -2127,10 +2354,10 @@ impl Editor {
         for (i, row) in self.rows().into_iter().enumerate().skip(first).take(rows) {
             let y = top + i as f32 * LIST_ROW - self.scroll;
             match row {
-                Row::Heading { title, count, saved, open } => {
+                Row::Heading { title, depth, count, saved, open } => {
                     c.rect(LIST.x, y + 1.0, LIST.w, LIST_ROW - 2.0, BUTTON);
-                    let title: String = title.chars().take(20).collect();
-                    c.label(format!("{} {title}", if open { "-" } else { "+" }), LIST.x + 6.0, y + 3.0, 15.0, TEXT, Align::Left);
+                    let title: String = title.rsplit('/').next().unwrap_or(title).chars().take(20 - 2 * depth).collect();
+                    c.label(format!("{} {title}", if open { "-" } else { "+" }), LIST.x + 6.0 + INDENT * depth as f32, y + 3.0, 15.0, TEXT, Align::Left);
                     let tally = if saved > 0 { format!("{saved}*  {count}") } else { count.to_string() };
                     c.label(tally, LIST.x + LIST.w - 6.0, y + 4.0, 13.0, if saved > 0 { HOT } else { DIM }, Align::Right);
                 }
@@ -2139,7 +2366,8 @@ impl Editor {
                         c.rect(LIST.x, y, LIST.w, LIST_ROW, [0.35, 0.3, 0.18, 1.0]);
                     }
                     let mark = if *saved { "  *" } else { "" };
-                    c.label(format!("{}{mark}", list_label(name)), LIST.x + 14.0, y + 2.0, 17.0, if *saved { HOT } else { TEXT }, Align::Left);
+                    let depth = sprite::section(name).matches('/').count() as f32;
+                    c.label(format!("{}{mark}", list_label(name)), LIST.x + 14.0 + INDENT * depth, y + 2.0, 17.0, if *saved { HOT } else { TEXT }, Align::Left);
                 }
             }
         }
@@ -2154,6 +2382,11 @@ impl Editor {
                     c.rect(r.x - 2.0, r.y - 2.0, r.w + 4.0, r.h + 4.0, TEXT);
                 }
                 c.rect(r.x, r.y, r.w, r.h, rgba(col));
+                // A color cleared in 3D wears a corner mark.
+                if self.sprite.clear_in_3d.contains(&col) {
+                    c.rect(r.x + r.w - 8.0, r.y, 8.0, 8.0, [0.0, 0.0, 0.0, 1.0]);
+                    c.rect(r.x + r.w - 6.0, r.y + 2.0, 4.0, 4.0, [1.0; 4]);
+                }
                 continue;
             }
             let thumb = match b.action {
@@ -2187,7 +2420,7 @@ impl Editor {
         // Color: a swatch, then red, green and blue bars.
         c.label("Color", SIDE_X, 172.0, 18.0, DIM, Align::Left);
         c.rect(SIDE_X + 60.0, 168.0, 60.0, 48.0, rgba(self.color));
-        c.label(format!("#{:02X}{:02X}{:02X}", self.color[0], self.color[1], self.color[2]), SIDE_X + 130.0, 184.0, 18.0, TEXT, Align::Left);
+        c.label(format!("#{:02X}{:02X}{:02X}", self.color[0], self.color[1], self.color[2]), SIDE_X + 130.0, 168.0, 18.0, TEXT, Align::Left);
         for (i, bar) in self.bars().iter().enumerate() {
             c.label(["R", "G", "B"][i], SIDE_X + 4.0, bar.y - 2.0, 18.0, DIM, Align::Left);
             for k in 0..16 {
@@ -2204,19 +2437,29 @@ impl Editor {
         match self.stand {
             _ if self.none_open() => {}
             0 => c.label(format!("Depth {} px", self.depth), SIDE_X, 645.0, 18.0, TEXT, Align::Left),
-            1 => c.label(format!("Height {} px", self.height), SIDE_X, 645.0, 18.0, TEXT, Align::Left),
+            1 => {
+                c.label(format!("Height {} px", self.height), SIDE_X, 645.0, 18.0, TEXT, Align::Left);
+                c.label(format!("Float {} px", self.lift), SIDE_X, 676.0, 18.0, TEXT, Align::Left);
+            }
             CARVE => c.label(format!("Height {} px", self.view_height()), SIDE_X, 645.0, 18.0, TEXT, Align::Left),
+            TURNED => c.label(format!("Depth {} px", self.depth), SIDE_X, 645.0, 18.0, TEXT, Align::Left),
             _ => {}
         }
         if let Some(v) = self.view {
             c.label(format!("{}: {}", VIEW_NAMES[v], VIEW_HINTS[v]), CANVAS.x + 8.0, CANVAS.y + 6.0, 16.0, HOT, Align::Left);
         }
         if let Some(f) = self.open_prop_fields() {
+            let open = match f.open {
+                0 => "Blocks every row".to_string(),
+                1 => "Top row open".to_string(),
+                n => format!("Top {n} rows open"),
+            };
+            c.label(open, SIDE_X, PROP_OPEN_Y + 6.0, 16.0, TEXT, Align::Left);
             c.label(if f.hp > 0.0 { format!("HP {}", f.hp) } else { "Won't break".into() }, SIDE_X, PROP_HP_Y + 5.0, 18.0, TEXT, Align::Left);
         }
         let f = self.current();
         if !self.none_open() {
-            c.label(format!("{} fps", self.fps), SIDE_X, 683.0, 18.0, TEXT, Align::Left);
+            c.label(format!("{} fps", self.fps), SIDE_X, 708.0, 18.0, TEXT, Align::Left);
             c.label(format!("{} / {}", self.frame + 1, self.sprite.frames.len()), CANVAS.x + 248.0, 704.0, 18.0, DIM, Align::Left);
             c.label(format!("W {}", f.w), CANVAS.x + 362.0, 704.0, 18.0, TEXT, Align::Right);
             c.label(format!("H {}", f.h), CANVAS.x + 484.0, 704.0, 18.0, TEXT, Align::Right);
@@ -2237,6 +2480,11 @@ impl Editor {
             "/: search   J/K: sprites   H/L: frames   R: history   S: select   Cmd+C/X/V   hold I: pick   Shift-click: line   Cmd+S: save"
         };
         c.label(help, 12.0, 748.0, 13.0, DIM, Align::Left);
+        self.draw_overlays(c);
+    }
+
+    /// The status line, and the unsaved-changes and naming dialogs over everything else.
+    fn draw_overlays(&self, c: &mut Canvas) {
         if let Some((text, age)) = &self.status {
             let a = (4.0 - age).clamp(0.0, 1.0);
             c.rect(CANVAS.x, CANVAS.y + CANVAS.h - 40.0, CANVAS.w, 40.0, [0.0, 0.0, 0.0, 0.7 * a]);
@@ -2271,7 +2519,7 @@ impl Editor {
             };
             c.label(what, 512.0, 300.0, 24.0, TEXT, Align::Center);
             let hint = if self.modding {
-                "Its id: letters, digits and _. Start with PLAYER_ for a player card".to_string()
+                "Its id: letters, digits and _. PLAYER_ makes a player card, PROP_ a prop, MAP_ a map".to_string()
             } else {
                 format!("Start with {} for an enemy card, {} for a player card", sprite::CARD_PREFIX, sprite::PLAYER_CARD_PREFIX)
             };
@@ -2434,6 +2682,14 @@ fn stamp(f: &mut Frame, top: &Frame, x: i32, y: i32) {
 /// How the list shows a sprite: a card's part without the prefix its heading already gives, its id cut short to fit.
 fn list_label(name: &str) -> String {
     const ROOM: usize = 16;
+    // Under its file's heading, a data section shows by its own name; a ground code by its character.
+    if let Some(rest) = name.strip_prefix(sprite::DATA_PREFIX) {
+        return match rest.split_once('_').map_or("", |(_, s)| s) {
+            "" => "(top of the file)".to_string(),
+            s if s.len() == 3 && s.starts_with('_') => u8::from_str_radix(&s[1..], 16).map_or(s.to_string(), |c| format!("[{}]", c as char)),
+            s => s.to_string(),
+        };
+    }
     let Some((id, row)) = sprite::card_part(name) else { return name.to_string() };
     let (id, part) = (id.to_ascii_uppercase(), sprite::CARD_PARTS[row]);
     if id.len() + 1 + part.len() <= ROOM {
@@ -2604,6 +2860,42 @@ mod tests {
         assert_eq!(e.current().get(14, 3), Some([9, 9, 9, 255]));
     }
 
+    #[test]
+    fn clear_color_clears_it_in_every_frame_in_one_undo() {
+        let mut e = editor();
+        e.color = [9, 9, 9, 255];
+        click_pixel(&mut e, 1, 3);
+        click_pixel(&mut e, 5, 7);
+        e.color = [4, 4, 4, 255];
+        click_pixel(&mut e, 2, 2);
+        e.sprite.frames.push(e.sprite.frames[0].clone());
+        e.color = [9, 9, 9, 255];
+        e.act(Action::ClearColor, false);
+        for f in &e.sprite.frames {
+            assert_eq!((f.get(1, 3), f.get(5, 7)), (Some(CLEAR), Some(CLEAR)));
+            assert_eq!(f.get(2, 2), Some([4, 4, 4, 255]), "other colors stay");
+        }
+        e.key(Key::Undo);
+        assert!(e.sprite.frames.iter().all(|f| f.get(1, 3) == Some([9, 9, 9, 255])));
+    }
+
+    #[test]
+    fn a_color_cleared_in_3d_stays_in_2d_and_saves() {
+        let mut e = editor();
+        e.color = [9, 9, 9, 255];
+        click_pixel(&mut e, 1, 3);
+        e.act(Action::ClearIn3d, false);
+        assert_eq!(e.current().get(1, 3), Some([9, 9, 9, 255]), "the 2D frame keeps it");
+        let surfaces = e.surfaces();
+        let (k, n) = e.solids_at.unwrap();
+        assert_eq!((surfaces.len(), surfaces[k].get(1, 3)), (k + n, Some(CLEAR)), "the 3D copy leaves it out");
+        let files = e.sprite.files();
+        let back = Sprite::from_files(&e.sprite.name, &files).unwrap();
+        assert_eq!(back.clear_in_3d, vec![[9, 9, 9, 255]]);
+        e.act(Action::ClearIn3d, false);
+        assert!(e.sprite.clear_in_3d.is_empty() && e.surfaces().len() == n, "pressing again puts it back");
+    }
+
     fn type_in(e: &mut Editor, text: &str) {
         text.chars().for_each(|ch| e.key(Key::Char(ch)));
     }
@@ -2658,6 +2950,8 @@ mod tests {
         e.draw(&mut Canvas::default());
         e.act(Action::StatStep(0, 1), false);
         e.act(Action::StatStep(1, 1), true);
+        e.act(Action::StatStep(9, 1), false);
+        assert_eq!(last_harvest_game::card_fields(e.sprite.card.as_deref().unwrap()).unwrap().numbers[9], ("charge", 1.1));
         e.act(Action::Flag(0), false);
         e.act(Action::EditName, false);
         for _ in 0..5 {
@@ -2763,12 +3057,16 @@ mod tests {
         e.act(Action::EditAbout, false);
         type_in(&mut e, "Up with the sun.");
         e.key(Key::Enter);
+        e.act(Action::PlayerBase(0, 1), false);
+        e.act(Action::PlayerBase(1, 1), false);
+        e.act(Action::PlayerBase(1, -1), false);
         e.draw(&mut Canvas::default());
         e.act(Action::Save, false);
         let path = dir.join("players/jo.player.png");
         let saved = last_harvest_pack::card::read_as(sprite::CardKind::Player, "jo", &std::fs::read(path).unwrap()).unwrap();
         let f = last_harvest_game::player_fields(&saved.text).unwrap();
         assert_eq!(f.about, "Up with the sun.");
+        assert_eq!(f.base, [Some(last_harvest_game::tuning::tuning().player_hp + 5.0), None, None], "back at the game's own, a number leaves the card");
         assert_eq!(f.start, [None, Some(vec!["knife".into(), "crows".into()]), None], "Normal adds crows to the game's knife; Hard went back to the default");
         let e = Editor::new(Box::new(store()), "");
         assert!(e.names.iter().any(|(n, _)| n == "PLAYER_CARD_JO_HURT"));
@@ -3031,6 +3329,104 @@ mod tests {
                 assert!(std::ptr::eq(x, y) || apart, "{:?} overlaps {:?}", x.action, y.action);
             }
         }
+    }
+
+    #[test]
+    fn a_sprite_with_no_stand_shows_the_depth_the_game_gives_it() {
+        let mut e = editor();
+        e.switch_to("BUSH".into());
+        e.decide(Choice::Discard);
+        let game = last_harvest_game::default_prop_depth(16.0, 16.0, Some(last_harvest_game::art::BUSH), 0);
+        assert_eq!((e.sprite.name.as_str(), e.stand()), ("BUSH", Stand::Prop { depth: game }));
+        e.switch_to("MAILBOX".into());
+        e.decide(Choice::Discard);
+        assert_eq!(e.depth, last_harvest_game::default_prop_depth(16.0, 16.0, Some(last_harvest_game::art::MAILBOX), 0));
+    }
+
+    #[test]
+    fn the_data_page_steps_types_adds_and_saves_only_what_the_game_reads() {
+        let dir = tmp().join("data");
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut e = editor_in(&dir, dir.join("art.txt"));
+        assert!(e.names.iter().any(|(n, _)| n == "DATA_TUNING_PLAYER") && e.names.iter().any(|(n, _)| n == "DATA_POWERUPS_PISTOL"));
+        assert_eq!(sprite::section("DATA_TUNING_PLAYER"), "Data/tuning");
+        assert_eq!((list_label("DATA_GROUND__67"), list_label("DATA_GROUND__47"), list_label("DATA_TUNING_PLAYER")), ("[g]".into(), "[G]".into(), "PLAYER".into()));
+        assert!(["DATA_GROUND__2E", "DATA_GROUND__3D", "DATA_GROUND__67"].iter().all(|n| e.names.iter().any(|(m, _)| m == n)), "ground codes list apart");
+        e.switch_to("DATA_TUNING_PLAYER".into());
+        e.act(Action::DataStep(0, 1), false);
+        assert!(e.unsaved());
+        buttons_fit(&e);
+        e.act(Action::DataEdit(1), false);
+        e.set_text("52");
+        e.key(Key::Enter);
+        e.act(Action::DataAdd, false);
+        e.set_text("wings 2");
+        e.key(Key::Enter);
+        e.act(Action::Save, false);
+        assert!(e.unsaved(), "the game has no wings to read");
+        let last = e.data.as_ref().map_or(0, |d| d.table.entries(&d.section).len() - 1);
+        e.act(Action::DataRemove(last), false);
+        e.key(Key::Save);
+        assert!(!e.unsaved());
+        let saved = std::fs::read_to_string(dir.join("tuning.txt")).unwrap();
+        assert!(saved.contains("hp 101          # health") && saved.contains("speed 52"), "{saved}");
+        assert_eq!(last_harvest_game::tuning::parse(&saved, None).unwrap().player_speed, 52.0);
+    }
+
+    #[test]
+    fn the_mod_editor_makes_a_prop_from_its_name() {
+        let dir = tmp().join("mod-prop");
+        let mut e = editor_in(&dir, dir.join("art.txt"));
+        e.set_modding();
+        e.act(Action::Ask(Ask::New), false);
+        e.set_text("PROP_POST");
+        e.key(Key::Enter);
+        assert_eq!(e.sprite.name, "PROP_POST");
+        assert!(e.is_prop() && e.open_prop_fields().is_some(), "a prop, not a card");
+        e.act(Action::Save, false);
+        assert!(dir.join("props/post.prop.png").exists());
+    }
+
+    #[test]
+    fn a_sprite_links_to_the_data_that_says_how_it_plays() {
+        let mut e = editor_on("HOUSE");
+        assert_eq!(e.data_link.as_deref(), Some("DATA_PROPS_HOUSE"));
+        e.act(Action::Data, false);
+        assert_eq!(e.sprite.name, "DATA_PROPS_HOUSE");
+        e.switch_to("SLASH".into());
+        assert_eq!(e.data_link.as_deref(), Some("DATA_EFFECTS_SLASH"));
+        e.switch_to("PLAYER_FRONT".into());
+        assert_eq!(e.data_link, None);
+    }
+
+    #[test]
+    fn a_slab_floats_as_set() {
+        let mut e = editor();
+        e.act(Action::Stand(1), false);
+        e.act(Action::Float(1), true);
+        buttons_fit(&e);
+        assert_eq!(e.stand(), Stand::Slab { height: e.height, lift: 8.0 });
+        assert_eq!(e.stand_text(), format!("slab {} float 8", e.height));
+        assert_eq!(sprite::parse_stand(&e.stand_text()), Some(e.stand()));
+    }
+
+    #[test]
+    fn turned_stands_up_the_east_view_alone() {
+        let mut e = editor();
+        e.act(Action::Stand(TURNED), false);
+        let outline = e.outline_width();
+        assert_eq!(e.depth, outline, "it starts as thick as it is seen from above");
+        e.act(Action::Depth(1), false);
+        assert_eq!((e.view, e.stand_text()), (Some(1), format!("turned {}", outline + 1.0)), "it opens the east view to draw, its depth as set");
+        for _ in 0..8 {
+            e.act(Action::AddFrame, false);
+        }
+        buttons_fit(&e);
+        let views: Vec<Action> = e.buttons().iter().map(|b| b.action).filter(|a| matches!(a, Action::View(_) | Action::AddFootprint)).collect();
+        assert_eq!(views, [Action::View(1)], "only the east view shows");
+        let n = e.surfaces().len();
+        e.set_live((0..n).map(|i| Art(i as u16)).collect());
+        assert_eq!(e.stand(), Stand::Turned { east: Art(e.sprite.frames.len() as u16 + 1), depth: Some(outline + 1.0) });
     }
 
     #[test]
@@ -3455,6 +3851,18 @@ mod tests {
         let ground = shown.iter().position(|r| r == "# Ground").unwrap();
         e.mouse_down([LIST.x + 10.0, e.list_top() + (ground as f32 + 0.5) * LIST_ROW - e.scroll], false, false);
         assert!(rows(&e).contains(&"DIRT".to_string()), "tapping a heading unfolds it");
+        let tap = |e: &mut Editor, heading: &str| {
+            let at = rows(e).iter().position(|r| r == heading).unwrap();
+            e.scroll = at as f32 * LIST_ROW;
+            e.mouse_down([LIST.x + 10.0, e.list_top() + (at as f32 + 0.5) * LIST_ROW - e.scroll], false, false);
+        };
+        let data = |e: &Editor| rows(e).into_iter().filter(|r| r.starts_with("# Data")).collect::<Vec<_>>();
+        assert_eq!(data(&e), ["# Data"], "the data files fold under one heading");
+        tap(&mut e, "# Data");
+        assert_eq!(data(&e).len(), 1 + last_harvest_game::TABLES.len(), "a folder per data file");
+        assert!(!rows(&e).contains(&"DATA_TUNING_PLAYER".to_string()));
+        tap(&mut e, "# Data/tuning");
+        assert!(rows(&e).contains(&"DATA_TUNING_PLAYER".to_string()), "a data file's folder unfolds its sections");
         e.key(Key::Char('/'));
         e.set_text("player_b");
         assert!(rows(&e).contains(&"PLAYER_BACK".to_string()), "a search shows matches in folded groups");
@@ -3468,7 +3876,7 @@ mod tests {
         assert_eq!(e.text(), Some("CAR_H"));
         e.key(Key::Escape);
         assert_eq!(e.text(), None);
-        e.unfolded = e.names.iter().map(|(n, _)| sprite::section(n)).collect();
+        e.unfolded = e.names.iter().flat_map(|(n, _)| sprite::section_path(sprite::section(n))).collect();
         e.scroll = 0.0;
         e.drag_list(-200.0);
         assert_eq!(e.scroll, 200.0);
@@ -3499,10 +3907,12 @@ mod tests {
         e.act(Action::Cover, false);
         e.act(Action::Hp(1), false);
         e.act(Action::Hp(1), true);
+        e.act(Action::Open(1), false);
+        e.act(Action::Open(1), false);
         e.act(Action::Save, false);
         let saved = last_harvest_pack::prop::read("c", &std::fs::read(dir.join("props/crate.prop.png")).unwrap()).unwrap();
         let f = last_harvest_game::prop_fields(&saved.text).unwrap();
-        assert_eq!((f.frames, f.broken, f.cover, f.hp), (2, true, false, 90.0), "{}", saved.text);
+        assert_eq!((f.frames, f.broken, f.cover, f.hp, f.open), (2, true, false, 90.0, 2), "{}", saved.text);
         e.act(Action::Hp(-1), true);
         e.act(Action::Hp(-1), true);
         assert_eq!(e.open_prop_fields().unwrap().hp, 0.0, "no lower than none");

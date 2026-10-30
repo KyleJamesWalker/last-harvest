@@ -7,15 +7,24 @@ use std::sync::{OnceLock, RwLock};
 struct Live {
     rects: Vec<[u16; 4]>,
     pixels: Vec<u8>,
+    /// Each live sprite with the copy the 3D view stands up in its place, as `Art::solid` says.
+    solids: Vec<(Art, Art)>,
 }
 
-static LIVE: RwLock<Live> = RwLock::new(Live { rects: Vec::new(), pixels: Vec::new() });
+static LIVE: RwLock<Live> = RwLock::new(Live { rects: Vec::new(), pixels: Vec::new(), solids: Vec::new() });
 
 /// Sprites from enemy cards, drawn into the texture's free rows at startup and numbered after the packed ones.
 static ADDED: OnceLock<Vec<[u16; 4]>> = OnceLock::new();
 
 fn added() -> &'static [[u16; 4]] {
     ADDED.get().map_or(&[], Vec::as_slice)
+}
+
+/// Added sprites paired with the copies the 3D view stands up in their place, as `Art::solid` says.
+static ADDED_SOLIDS: OnceLock<Vec<(Art, Art)>> = OnceLock::new();
+
+pub(crate) fn set_added_solids(solids: Vec<(Art, Art)>) {
+    ADDED_SOLIDS.set(solids).ok();
 }
 
 /// Sets the added sprites' rects; the texture the game reads must already hold their pixels.
@@ -37,8 +46,13 @@ pub(crate) fn free_top() -> u16 {
 pub fn set_live(rects: Vec<[u16; 4]>, pixels: Vec<u8>) -> Vec<Art> {
     assert_eq!(pixels.len(), self::pixels().len(), "a live texture matches the packed one");
     let arts = (0..rects.len()).map(|i| Art((count() + i) as u16)).collect();
-    *LIVE.write().unwrap() = Live { rects, pixels };
+    *LIVE.write().unwrap() = Live { rects, pixels, solids: Vec::new() };
     arts
+}
+
+/// Pairs live sprites with the copies the 3D view stands up in their place.
+pub fn set_live_solids(solids: Vec<(Art, Art)>) {
+    LIVE.write().unwrap().solids = solids;
 }
 
 /// Runs `f` on the texture a sprite's pixels live in.
@@ -56,8 +70,9 @@ pub fn pixels() -> &'static [u8] {
 pub enum Stand {
     /// Upright and fixed to the map like a wall, extruded `depth` pixels back.
     Prop { depth: f32 },
-    /// Lying flat as a roof `height` pixels up, its edges drawn down to the ground: for sprites drawn from above, like cars.
-    Slab { height: f32 },
+    /// Lying flat as a roof `height` pixels up, its edges drawn down to the ground: for sprites drawn from above, like
+    /// cars. Floated `lift` pixels off the ground, it is a plate `height` thick there, as an effect seen from above is.
+    Slab { height: f32, lift: f32 },
     /// Turning to face the camera like a character.
     Figure,
     /// Flat on the ground like a tile or a stain.
@@ -65,6 +80,10 @@ pub enum Stand {
     /// A solid carved where the view from above agrees with drawings of it seen from the south and the east.
     /// The outline from above is `footprint` when given, else the sprite's own; the sprite colors the top either way.
     Carve { footprint: Option<Art>, south: Art, east: Art },
+    /// Upright like a prop but running north to south, as `east` draws it seen from the east, centered where the
+    /// sprite's outline from above puts it and `depth` pixels thick, or as thick as that outline: for pieces drawn
+    /// from above, like a fence's sides.
+    Turned { east: Art, depth: Option<f32> },
 }
 
 /// One sprite in the packed texture.
@@ -92,6 +111,17 @@ impl Art {
     /// The top strip drawn for this sprite in the editor: one row whose colors cap its columns in the 3D view.
     pub fn top(self) -> Option<Art> {
         TOPS.get(self.0 as usize).copied().flatten()
+    }
+
+    /// What the 3D view stands up for this sprite: a copy without the colors the editor clears in 3D, else itself.
+    pub fn solid(self) -> Art {
+        if self.is_live() {
+            return LIVE.read().unwrap().solids.iter().find(|(a, _)| *a == self).map_or(self, |&(_, s)| s);
+        }
+        match SOLIDS.get(self.0 as usize) {
+            Some(s) => s.unwrap_or(self),
+            None => ADDED_SOLIDS.get().and_then(|v| v.iter().find(|(a, _)| *a == self)).map_or(self, |&(_, s)| s),
+        }
     }
 
     /// Whether the editor added this sprite while running.

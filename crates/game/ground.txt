@@ -1,0 +1,58 @@
+# The ground a map paints, one code a cell. Each [c] section is a code, one character, and the map editor's
+# paint buttons follow this order. Its lines:
+#   name Text           the paint button's label
+#   art NAME            the tile, from art.txt; with several frames, cells pick between them by where they are
+#   joins across|down   a run's cells take the first, middle and last frames of art, left to right or top to bottom
+#   cell open|road|path|field   what the cell is: open ground, a road, a path that joins the paths and roads
+#                       beside it, picking art's frame by which sides join, or a field the farm grows on
+#   crop TOP MIDDLE BOTTOM   a crop standing on it, from art.txt: TOP at the north end of a run, BOTTOM at the
+#                       south end, MIDDLE between; TOP picks between its frames as art does
+# The first code is what a map's new ground is.
+
+[.]
+name Dirt
+art DIRT
+cell open
+
+[,]
+name Tufts
+art DIRT_TUFTS
+cell open
+
+[g]
+name Grass
+art GRASS
+cell open
+
+[s]
+name Soil
+art SOIL
+cell field
+
+[p]
+name Sprouts
+art SPROUTS
+cell field
+
+[c]
+name Corn
+art SOIL
+cell field
+crop CORN_TOP CORN CORN_BOTTOM
+
+[v]
+name Road |
+art ROAD_V
+joins across
+cell road
+
+[h]
+name Road -
+art ROAD_H
+joins down
+cell road
+
+[=]
+name Path
+art PATH
+cell path

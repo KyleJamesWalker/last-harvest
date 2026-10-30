@@ -88,11 +88,15 @@ pub struct Sprite {
     pub top: Option<Frame>,
     /// An enemy card's `enemies.txt` section, when this is one of a card's parts.
     pub card: Option<String>,
+    /// Colors the 3D view leaves out, where the 2D view keeps them.
+    pub clear_in_3d: Vec<Rgba>,
 }
 
 pub const FOOTPRINT_FILE: &str = "footprint.png";
 pub const TOP_FILE: &str = "top.png";
 pub const CARD_FILE: &str = "enemy.txt";
+/// The colors a sprite clears in 3D, one hex color a line.
+pub const CLEAR_FILE: &str = "clear.txt";
 pub use last_harvest_pack::card::Kind as CardKind;
 
 /// A card lists as six sprites, like the game's own zombies: `CARD_<ID>_FRONT` and so on for an enemy card, or
@@ -264,6 +268,18 @@ pub fn section(name: &str) -> &'static str {
     if name.starts_with(MAP_PREFIX) {
         return MAP_SECTION;
     }
+    if let Some(rest) = name.strip_prefix(DATA_PREFIX) {
+        return match rest.split('_').next() {
+            Some("TUNING") => "Data/tuning",
+            Some("PROPS") => "Data/props",
+            Some("EFFECTS") => "Data/effects",
+            Some("GROUND") => "Data/ground",
+            Some("FARM") => "Data/random farm",
+            Some("POWERUPS") => "Data/powerups",
+            Some("ENEMIES") => "Data/enemies",
+            _ => "Data",
+        };
+    }
     if name.starts_with(last_harvest_game::PROP_PREFIX) {
         return PROP_SECTION;
     }
@@ -277,10 +293,22 @@ pub fn section(name: &str) -> &'static str {
     sections.iter().find(|(n, _)| n == name).map_or(NEW_SECTION, |(_, s)| s.as_str())
 }
 
+/// The headings a section lists under, outermost first: `Data/tuning` is under `Data`, then `Data/tuning`.
+pub fn section_path(section: &'static str) -> impl Iterator<Item = &'static str> {
+    section.match_indices('/').map(move |(i, _)| &section[..i]).chain(std::iter::once(section))
+}
+
+/// Whether `section` lists under the heading `path`.
+pub fn within(section: &str, path: &str) -> bool {
+    section.strip_prefix(path).is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+}
+
 pub const NEW_SECTION: &str = "New sprites";
 /// A hand-made map lists as `MAP_<ID>` under Maps.
 pub const MAP_PREFIX: &str = "MAP_";
 pub const MAP_SECTION: &str = "Maps";
+/// A section of one of the game's data files lists as `DATA_<FILE>_<SECTION>`, under a heading for its file.
+pub const DATA_PREFIX: &str = "DATA_";
 /// A player's prop lists as `PROP_<ID>` under Props.
 pub const PROP_SECTION: &str = "Props";
 
@@ -305,6 +333,19 @@ fn sections_of(text: &str) -> Vec<(String, String)> {
         }
     }
     out
+}
+
+/// A color as `#5A6E3C`.
+pub fn hex(c: Rgba) -> String {
+    format!("#{:02X}{:02X}{:02X}", c[0], c[1], c[2])
+}
+
+/// An opaque color from `#5A6E3C`, the `#` optional.
+pub fn parse_hex(text: &str) -> Option<Rgba> {
+    let t = text.trim().trim_start_matches('#');
+    let byte = |i: usize| t.get(i..i + 2).and_then(|h| u8::from_str_radix(h, 16).ok());
+    (t.len() == 6).then_some(())?;
+    Some([byte(0)?, byte(2)?, byte(4)?, 255])
 }
 
 pub fn valid_name(n: &str) -> bool {
@@ -346,9 +387,19 @@ impl Sprite {
             let (_, arts) = art::ALL.iter().find(|(n, _)| *n == name)?;
             frames = arts.iter().map(|&a| Frame::from_art(a)).collect();
         }
-        let views = png(VIEW_FILES[0]).zip(png(VIEW_FILES[1])).map(|(s, e)| [s, e]);
+        // A sprite the catalog turns shows the east view it packs until one is saved.
+        let packed_east = || match art::ALL.iter().find(|(n, _)| *n == name)?.1.first()?.stand()? {
+            Stand::Turned { east, .. } => Some(Frame::from_art(east)),
+            _ => None,
+        };
+        let views = png(VIEW_FILES[0]).zip(png(VIEW_FILES[1])).map(|(s, e)| [s, e]).or_else(|| {
+            let east = packed_east()?;
+            Some([block_views(&frames[0], east.h)[0].clone(), east])
+        });
         let card = read(CARD_FILE).and_then(|b| String::from_utf8(b).ok());
-        Some(Self { name: name.to_string(), frames, views, footprint: png(FOOTPRINT_FILE), top: png(TOP_FILE), card })
+        let clear = read(CLEAR_FILE).and_then(|b| String::from_utf8(b).ok()).unwrap_or_default();
+        let clear_in_3d = clear.lines().filter_map(parse_hex).collect();
+        Some(Self { name: name.to_string(), frames, views, footprint: png(FOOTPRINT_FILE), top: png(TOP_FILE), card, clear_in_3d })
     }
 
     /// The files a save writes: the frames, then the views and the footprint when it has them.
@@ -358,7 +409,13 @@ impl Sprite {
         let footprint = self.footprint.iter().map(|f| (FOOTPRINT_FILE.to_string(), f));
         let top = self.top.iter().map(|f| (TOP_FILE.to_string(), f));
         let pngs = frames.chain(views).chain(footprint).chain(top).map(|(n, f)| (n, encode_png(f)));
-        pngs.chain(self.card.iter().map(|t| (CARD_FILE.to_string(), t.clone().into_bytes()))).collect()
+        let clear = self.clear_text().map(|t| (CLEAR_FILE.to_string(), t.into_bytes()));
+        pngs.chain(self.card.iter().map(|t| (CARD_FILE.to_string(), t.clone().into_bytes()))).chain(clear).collect()
+    }
+
+    /// `clear.txt` as written, or None when no color is cleared in 3D.
+    fn clear_text(&self) -> Option<String> {
+        (!self.clear_in_3d.is_empty()).then(|| self.clear_in_3d.iter().map(|&c| format!("{}\n", hex(c))).collect())
     }
 
     /// A sprite from the files `files` lists, which must hold at least one frame.
@@ -387,6 +444,12 @@ impl Sprite {
                 }
             }
         }
+        match self.clear_text() {
+            Some(t) => std::fs::write(path.join(CLEAR_FILE), t).map_err(|e| e.to_string())?,
+            None => {
+                let _ = std::fs::remove_file(path.join(CLEAR_FILE));
+            }
+        }
         for (k, file) in VIEW_FILES.iter().enumerate() {
             match &self.views {
                 Some(v) => write_png(&path.join(file), &v[k])?,
@@ -409,10 +472,13 @@ pub fn catalog_file() -> PathBuf {
 pub fn stand_text(s: Stand) -> String {
     match s {
         Stand::Prop { depth } => format!("prop {depth}"),
-        Stand::Slab { height } => format!("slab {height}"),
+        Stand::Slab { height, lift: 0.0 } => format!("slab {height}"),
+        Stand::Slab { height, lift } => format!("slab {height} float {lift}"),
         Stand::Figure => "figure".into(),
         Stand::Ground => "ground".into(),
         Stand::Carve { .. } => "carve".into(),
+        Stand::Turned { depth: None, .. } => "turned".into(),
+        Stand::Turned { depth: Some(d), .. } => format!("turned {d}"),
     }
 }
 
@@ -421,7 +487,14 @@ pub fn parse_stand(text: &str) -> Option<Stand> {
     let size = || words.get(1)?.parse::<f32>().ok();
     Some(match *words.first()? {
         "prop" => Stand::Prop { depth: size()? },
-        "slab" => Stand::Slab { height: size()? },
+        "slab" => {
+            let lift = match words.get(2..4) {
+                Some(["float", n]) => n.parse::<f32>().ok()?,
+                None if words.len() == 2 => 0.0,
+                _ => return None,
+            };
+            Stand::Slab { height: size()?, lift }
+        }
         "figure" => Stand::Figure,
         "ground" => Stand::Ground,
         _ => return None,
@@ -600,7 +673,7 @@ mod tests {
     #[test]
     fn saves_and_loads_every_frame_and_drops_leftovers() {
         let dir = std::env::temp_dir().join(format!("lh-sprites-{}", std::process::id()));
-        let mut s = Sprite { name: "TEST_THING".into(), frames: vec![Frame::blank(3, 2), Frame::blank(3, 2), Frame::blank(3, 2)], views: None, footprint: None, top: None, card: None };
+        let mut s = Sprite { name: "TEST_THING".into(), frames: vec![Frame::blank(3, 2), Frame::blank(3, 2), Frame::blank(3, 2)], views: None, footprint: None, top: None, card: None, clear_in_3d: Vec::new() };
         s.frames[1].set(2, 1, [200, 10, 10, 255]);
         s.save(&dir).unwrap();
         s.frames.truncate(2);
@@ -613,7 +686,7 @@ mod tests {
 
     #[test]
     fn a_sprites_files_bundle_and_come_back_whole() {
-        let mut s = Sprite { name: "THING".into(), frames: vec![Frame::blank(3, 2); 2], views: Some([Frame::blank(3, 4), Frame::blank(2, 4)]), footprint: None, top: Some(Frame::blank(3, 1)), card: None };
+        let mut s = Sprite { name: "THING".into(), frames: vec![Frame::blank(3, 2); 2], views: Some([Frame::blank(3, 4), Frame::blank(2, 4)]), footprint: None, top: Some(Frame::blank(3, 1)), card: None, clear_in_3d: Vec::new() };
         s.frames[1].set(1, 1, [1, 2, 3, 255]);
         let files = unbundle(&bundle(&s.files())).unwrap();
         assert_eq!(files.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>(), ["0.png", "1.png", "south.png", "east.png", "top.png"]);
@@ -643,7 +716,7 @@ mod tests {
         let catalog = tmp.join("art.txt");
         std::fs::write(&catalog, "# a comment about CAR_V\nCAR_V  px 1 2 3 4\nCAR_H  px 5 6 7 8  @prop 4\n").unwrap();
         let dir = tmp.join("sprites");
-        save_stand(&dir, &catalog, "CAR_V", &stand_text(Stand::Slab { height: 12.0 })).unwrap();
+        save_stand(&dir, &catalog, "CAR_V", &stand_text(Stand::Slab { height: 12.0, lift: 0.0 })).unwrap();
         save_stand(&dir, &catalog, "CAR_H", "slab 10").unwrap();
         save_stand(&dir, &catalog, "NEW_ONE", "figure").unwrap();
         let text = std::fs::read_to_string(&catalog).unwrap();

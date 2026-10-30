@@ -4,4 +4,5 @@ pub mod editor;
 pub mod history;
 pub mod sprite;
 pub mod store;
+pub mod table;
 pub mod studio;

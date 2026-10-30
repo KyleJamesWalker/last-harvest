@@ -9,7 +9,7 @@
 use std::path::{Path, PathBuf};
 
 use last_harvest_game::art;
-use last_harvest_pack::{ATLAS, ENEMIES, FONT, MANIFEST, POWERUPS, SOUNDS, card, manifest, mod_manifest, write};
+use last_harvest_pack::{ATLAS, ENEMIES, FONT, MANIFEST, EFFECTS, FARM, GROUND, POWERUPS, PROPS_TABLE, SOUNDS, TUNING, card, manifest, mod_manifest, write};
 
 /// Files by path or name, with their bytes.
 type Files = Vec<(String, Vec<u8>)>;
@@ -36,6 +36,11 @@ fn files(root: &Path) -> Result<Files, Box<dyn std::error::Error>> {
         (FONT.to_string(), std::fs::read(root.join("assets").join(FONT))?),
         (POWERUPS.to_string(), std::fs::read(root.join("crates/game").join(POWERUPS))?),
         (ENEMIES.to_string(), std::fs::read(root.join("crates/game").join(ENEMIES))?),
+        (PROPS_TABLE.to_string(), std::fs::read(root.join("crates/game").join(PROPS_TABLE))?),
+        (TUNING.to_string(), std::fs::read(root.join("crates/game").join(TUNING))?),
+        (EFFECTS.to_string(), std::fs::read(root.join("crates/game").join(EFFECTS))?),
+        (GROUND.to_string(), std::fs::read(root.join("crates/game").join(GROUND))?),
+        (FARM.to_string(), std::fs::read(root.join("crates/game").join(FARM))?),
     ];
     for (name, bytes) in listed(&root.join("assets/private/sounds"), &[".ogg", ".wav"])? {
         files.push((format!("{SOUNDS}{name}"), bytes));
@@ -121,6 +126,15 @@ fn make_mod(dir: &Path, out: &Path) -> Result<(), Box<dyn std::error::Error>> {
         let id = dir.file_name().and_then(|n| n.to_str()).unwrap_or("mod");
         files.push((MANIFEST.to_string(), mod_manifest(id).into_bytes()));
     }
+    // The mod's maps are checked against its own ground and props, where it brings them.
+    let table = |name: &str| files.iter().find(|(p, _)| p == name).and_then(|(_, b)| String::from_utf8(b.clone()).ok());
+    for (file, text) in [(GROUND, table(GROUND)), (PROPS_TABLE, table(PROPS_TABLE))] {
+        if let Some(t) = text {
+            last_harvest_game::check_table(file, &t)?;
+        }
+    }
+    let tables = last_harvest_game::data::Data { ground: table(GROUND), props_table: table(PROPS_TABLE), ..Default::default() };
+    last_harvest_game::data::install(tables)?;
     load_props(files.iter().map(|(p, b)| (p.as_str(), b.as_slice())))?;
     for (path, bytes) in &files {
         if let Some(kind) = card::Kind::of(path) {

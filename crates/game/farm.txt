@@ -1,0 +1,23 @@
+# How the random farm lays itself out around its road, gas station, house, barn, windmill and graveyard.
+# Counts go by the map's area: `N` means one for each N cells.
+
+[farm]
+tufts 10        # one dirt cell in this many has tufts; 0 for none
+grass 600       # a small patch of grass for each this many cells
+corpses 300     # a corpse on the ground for each this many cells
+fields 4        # fields at least, each soil, sprouts or corn, some fenced
+more_fields 4   # plus a random number of fields below this; 0 for none
+
+# Props strewn anywhere free, in this order: a sprite from art.txt or a player's prop (PROP_<ID>), and N.
+# A sprite with several frames puts down one of them at random.
+[scatter]
+DEAD_TREE 120
+BUSH 140
+BUSHES 900
+TALL_TREE 400
+LOG 400
+STUMP 600
+BARREL 500
+TANK 1200
+WRECK_H 1200
+SIGN 1200

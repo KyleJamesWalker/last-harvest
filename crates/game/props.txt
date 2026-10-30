@@ -1,0 +1,103 @@
+# The game's own props: the sprites a map can place, and how each stands in the way when its line doesn't say.
+# Each [NAME] is a sprite in art.txt, and takes the same lines as a player's prop:
+#   open 1      top rows a figure walks through; 0 when left out
+#   cover no    whether it stops shots; yes when left out
+#   hp 40       hit points before zombies or shots break it, up to 1000; it doesn't break when left out
+# [fence] sets them for every fence piece, and [other] for any other sprite a map places.
+
+[fence]
+cover no
+hp 40
+
+[other]
+
+[HOUSE]
+open 1
+
+[BARN_RED]
+open 2
+
+[BARN_GREEN]
+open 2
+
+[GAS_STATION]
+open 1
+
+[GAS_PUMP]
+open 2
+
+[WINDMILL]
+open 2
+
+[SCARECROW]
+open 1
+cover no
+hp 30
+
+[HAY_STACK]
+open 1
+
+[HAY]
+
+[TRACTOR]
+open 1
+
+[TRUCK]
+open 1
+
+[CAR_H]
+
+[CAR_V]
+open 1
+
+[WRECK_H]
+
+[WRECK_V]
+open 1
+
+[MAILBOX]
+cover no
+hp 15
+
+[BUSHES]
+open 1
+cover no
+
+[BUSH]
+cover no
+
+[DEAD_TREE]
+cover no
+
+[TALL_TREE]
+open 1
+
+[STUMP]
+cover no
+
+[LOG]
+cover no
+
+[BARREL]
+
+[TANK]
+
+[TOMBSTONE]
+
+[SIGN]
+cover no
+hp 20
+
+[SIGN_LOW]
+cover no
+hp 20
+
+[BARRIER]
+hp 60
+
+[SKULL_FENCE]
+cover no
+hp 40
+
+[CORPSE]
+cover no

@@ -58,6 +58,10 @@ struct Web {
     shift: bool,
     /// Fingers on the corner Shift pads, by pad and pointer, which hold Shift down while they stay.
     holding: Vec<(usize, i32)>,
+    /// A tap on a corner pad holds Shift for the next press, since iPadOS drops a pencil's touch while a finger is down.
+    armed: bool,
+    /// Whether the keyboard's Shift was down when the last pointer landed.
+    key_shift: bool,
     i_held: bool,
     title: String,
 }
@@ -126,7 +130,8 @@ impl Web {
     /// Hands a press at `at` to the studio.
     fn begin(&mut self, id: i32, at: [f32; 2]) {
         let (pane, p) = self.locate(at);
-        self.studio.press(pane, p, false, self.shifted());
+        let shift = self.press_shift();
+        self.studio.press(pane, p, false, shift);
         self.pointer = at;
         self.gesture = Gesture::Held { id };
     }
@@ -147,11 +152,13 @@ impl Web {
     fn down(&mut self, e: &PointerEvent) {
         let (id, p) = (e.pointer_id(), [e.offset_x() as f32, e.offset_y() as f32]);
         let _ = self.canvas.set_pointer_capture(id);
+        self.key_shift = e.shift_key();
         if e.pointer_type() != "touch" {
             // A pen or mouse takes over from any finger, such as a palm resting on the screen.
             self.cancel_touches();
             let (pane, at) = self.locate(p);
-            self.studio.press(pane, at, e.button() == 2, self.shifted());
+            let shift = self.press_shift();
+            self.studio.press(pane, at, e.button() == 2, shift);
             self.pointer = p;
             self.gesture = Gesture::Held { id };
             return;
@@ -322,7 +329,17 @@ impl Web {
 
     /// Whether Shift is down: the toolbar's toggle, or a finger on a corner pad.
     fn shifted(&self) -> bool {
-        self.shift || !self.holding.is_empty()
+        self.shift || self.armed || !self.holding.is_empty()
+    }
+
+    /// Whether a press on the canvas is shifted, using up a pad's tap.
+    fn press_shift(&mut self) -> bool {
+        let shift = self.shifted() || self.key_shift;
+        if self.armed {
+            self.armed = false;
+            self.light_pads();
+        }
+        shift
     }
 
     /// A finger landing on (`down`) or leaving corner pad `pad`.
@@ -330,9 +347,16 @@ impl Web {
         self.holding.retain(|&(p, i)| !(p == pad && i == id));
         if down {
             self.holding.push((pad, id));
+            self.armed = !self.armed;
         }
-        if let Some(el) = self.document.get_element_by_id(HOLD_PADS[pad]) {
-            let _ = el.class_list().toggle_with_force("on", self.holding.iter().any(|&(p, _)| p == pad));
+        self.light_pads();
+    }
+
+    fn light_pads(&self) {
+        for (pad, name) in HOLD_PADS.iter().enumerate() {
+            if let Some(el) = self.document.get_element_by_id(name) {
+                let _ = el.class_list().toggle_with_force("on", self.armed || self.holding.iter().any(|&(p, _)| p == pad));
+            }
         }
     }
 
@@ -401,7 +425,7 @@ impl Web {
                         Ok(bytes) => {
                             modding::call("save", &[modding::MOD_FILE.into(), js_sys::Uint8Array::from(&bytes[..]).into()]);
                             let with = if sounds.is_empty() { String::new() } else { format!(" and {} death sounds", sounds.len()) };
-                            let maps = if extra.is_empty() { String::new() } else { format!(", {} maps and props", extra.len()) };
+                            let maps = if extra.is_empty() { String::new() } else { format!(", {} maps, props and data files", extra.len()) };
                             self.studio.editor.say(format!("Exported {} cards{with}{maps} as {}: put it in the game's data/mods", cards.len(), modding::MOD_FILE));
                         }
                         Err(e) => self.studio.editor.say(format!("Couldn't pack the cards: {e}")),
@@ -531,6 +555,8 @@ fn start() -> Result<(), String> {
         pointer: [0.0; 2],
         shift: false,
         holding: Vec::new(),
+        armed: false,
+        key_shift: false,
         i_held: false,
         title: String::new(),
     }));
@@ -588,7 +614,7 @@ fn start() -> Result<(), String> {
         let bytes = js_sys::Reflect::get(&detail, &"bytes".into()).map(|v| js_sys::Uint8Array::new(&v).to_vec()).unwrap_or_default();
         if name.ends_with(".pak") {
             match modding::cards_in(&bytes) {
-                Ok((cards, _, maps, props)) if cards.is_empty() && maps.is_empty() && props.is_empty() => w.studio.editor.say(format!("{name} holds no cards, maps or props")),
+                Ok((cards, _, maps, props)) if cards.is_empty() && maps.is_empty() && props.is_empty() => w.studio.editor.say(format!("{name} holds no cards, maps, props or data")),
                 Ok((cards, sounds, maps, props)) => {
                     if !maps.is_empty() || !props.is_empty() {
                         w.studio.editor.import_maps(&name, maps, props);
@@ -715,12 +741,15 @@ mod modding {
     /// The cards in a mod pack, by file name, for Import.
     type Files = Vec<(String, Vec<u8>)>;
 
-    /// The cards in a mod pack, the sounds beside them, and its maps and props, by file name, for Import.
+    /// The cards in a mod pack, the sounds beside them, its maps with any data files it changes, and its props, by
+    /// file name, for Import.
     pub fn cards_in(bytes: &[u8]) -> Result<(Files, Files, Files, Files), String> {
         let mut pak = Pak::read(std::io::Cursor::new(bytes))?;
         let mut cards = pak.take_dir(last_harvest_pack::ENEMY_CARDS);
         cards.extend(pak.take_dir(last_harvest_pack::PLAYER_CARDS));
-        Ok((cards, pak.take_dir(last_harvest_pack::SOUNDS), pak.take_dir(last_harvest_pack::MAPS), pak.take_dir(last_harvest_pack::PROPS)))
+        let mut maps = pak.take_dir(last_harvest_pack::MAPS);
+        maps.extend(last_harvest_game::TABLES.into_iter().filter_map(|file| Some((file.to_string(), pak.take(file)?))));
+        Ok((cards, pak.take_dir(last_harvest_pack::SOUNDS), maps, pak.take_dir(last_harvest_pack::PROPS)))
     }
 
     /// A mod pack named after `name` holding `files` by their paths in it.

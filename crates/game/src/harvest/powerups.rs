@@ -51,6 +51,49 @@ pub enum Does {
     Scarecrow,
     Molotov,
     Flare,
+    /// A gun shaped by its section's `aim` and `pattern`.
+    Gun,
+    /// A blade that cuts everything within its area across its spread, aimed by its section's `aim`.
+    Blade,
+    /// Throws at a crowd, and lands as its section's `lands` says.
+    Lob,
+}
+
+/// What a lobbed weapon does where it lands.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Lands {
+    /// Blows up, as a grenade does.
+    Blast,
+    /// A pool of fire.
+    Fire,
+    /// A flare that burns what stands in it.
+    Flare,
+    /// Tacks that hurt and slow.
+    Tacks,
+}
+
+/// Where a gun looks for something to shoot.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Aim {
+    /// The nearest zombie in range, whichever way.
+    Nearest,
+    /// The nearest in the cone the player faces.
+    Ahead,
+    /// The nearest in the cone behind.
+    Behind,
+    /// Wherever the player faces, once anything is in range.
+    Around,
+}
+
+/// How a gun's shots spread.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Pattern {
+    /// Evenly across its spread, centred on the target.
+    Fan,
+    /// Evenly all the way round.
+    Ring,
+    /// At random across its spread.
+    Spray,
 }
 
 impl Does {
@@ -73,6 +116,9 @@ impl Does {
             "scarecrow" => Does::Scarecrow,
             "molotov" => Does::Molotov,
             "flare" => Does::Flare,
+            "gun" => Does::Gun,
+            "blade" => Does::Blade,
+            "lob" => Does::Lob,
             _ => return None,
         })
     }
@@ -394,8 +440,23 @@ pub struct Def {
     pub after: f32,
     /// Only found in the chest a horde's leader drops.
     pub chest: bool,
+    /// For a weapon, the `effects.txt` effect it plays in place of its behaviour's own.
+    pub effect: Option<String>,
+    /// For a weapon that shoots, the effect its bullets fly as.
+    pub bullet: Option<String>,
+    /// For a weapon, the sound it makes in place of its behaviour's own.
+    pub sound: Option<crate::Sfx>,
+    /// For a gun, where it looks and how its shots spread.
+    pub aim: Aim,
+    pub pattern: Pattern,
+    /// For a lob, what it does where it lands.
+    pub lands: Lands,
     stats: Vec<(Stat, Vec<f32>)>,
 }
+
+/// The sounds a weapon can make, by the name `sound` gives them.
+pub const WEAPON_SOUNDS: [(&str, crate::Sfx); 6] =
+    [("shot", crate::Sfx::Shot), ("blast", crate::Sfx::Blast), ("slash", crate::Sfx::Slash), ("zap", crate::Sfx::Zap), ("bark", crate::Sfx::Bark), ("throw", crate::Sfx::Throw)];
 
 impl Def {
     /// The value of `stat` at `level`, counting from 1.
@@ -465,8 +526,16 @@ pub fn book() -> &'static Book {
     BOOK.get_or_init(|| parse(crate::data::powerups()).unwrap_or_else(|e| panic!("powerups.txt:{e}")))
 }
 
+/// A sprite by name: the catalog's, else a player's prop's. A prop that isn't installed yet, as when a mod is
+/// checked before it loads, stands in as a blank and is reported.
 fn sprite(name: &str) -> Option<Art> {
-    art::ALL.iter().find(|(n, _)| *n == name).map(|(_, frames)| frames[0])
+    let own = art::ALL.iter().find(|(n, _)| *n == name).map(|(_, frames)| frames[0]);
+    own.or_else(|| super::props::prop(name).and_then(|p| p.frames.first().copied())).or_else(|| {
+        name.starts_with(super::props::PREFIX).then(|| {
+            crate::data::note(format!("powerups.txt: no prop called {name} for an icon"));
+            art::WHITE
+        })
+    })
 }
 
 const DEFAULT_FIND: f32 = 0.25;
@@ -499,6 +568,12 @@ pub fn parse(text: &str) -> Result<Book, String> {
                 find: DEFAULT_FIND,
                 after: 0.0,
                 chest: false,
+                effect: None,
+                bullet: None,
+                sound: None,
+                aim: Aim::Nearest,
+                pattern: Pattern::Fan,
+                lands: Lands::Blast,
                 stats: Vec::new(),
             });
             icons.push(None);
@@ -546,6 +621,40 @@ pub fn parse(text: &str) -> Result<Book, String> {
                     "map" => Zone::Map,
                     _ => return Err(format!("{n}: zone is ahead, around, behind or map, not {rest:?}")),
                 })
+            }
+            "effect" | "bullet" if !rest.is_empty() && rest.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_') => {
+                *if key == "effect" { &mut def.effect } else { &mut def.bullet } = Some(rest.to_string());
+            }
+            "effect" | "bullet" => return Err(format!("{n}: {key} names an effects.txt section, such as slash")),
+            "sound" => {
+                let names: Vec<&str> = WEAPON_SOUNDS.iter().map(|(k, _)| *k).collect();
+                def.sound = Some(WEAPON_SOUNDS.iter().find(|(k, _)| *k == rest).map(|(_, s)| *s).ok_or_else(|| format!("{n}: sound is one of {}", names.join(", ")))?);
+            }
+            "aim" => {
+                def.aim = match rest {
+                    "nearest" => Aim::Nearest,
+                    "ahead" => Aim::Ahead,
+                    "behind" => Aim::Behind,
+                    "around" => Aim::Around,
+                    _ => return Err(format!("{n}: aim is nearest, ahead, behind or around, not {rest:?}")),
+                }
+            }
+            "lands" => {
+                def.lands = match rest {
+                    "blast" => Lands::Blast,
+                    "fire" => Lands::Fire,
+                    "flare" => Lands::Flare,
+                    "tacks" => Lands::Tacks,
+                    _ => return Err(format!("{n}: lands is blast, fire, flare or tacks, not {rest:?}")),
+                }
+            }
+            "pattern" => {
+                def.pattern = match rest {
+                    "fan" => Pattern::Fan,
+                    "ring" => Pattern::Ring,
+                    "spray" => Pattern::Spray,
+                    _ => return Err(format!("{n}: pattern is fan, ring or spray, not {rest:?}")),
+                }
             }
             "does" => def.does = Some(Does::from_key(rest).ok_or_else(|| format!("{n}: no weapon behaviour called {rest:?}"))?),
             "unlock" => {
@@ -652,6 +761,21 @@ mod tests {
         assert_eq!(pp.at(Stat::Armor, 1), 0.0);
         assert_eq!(pp.change(1, 2), "Damage +10% > +25%");
         assert_eq!(gun.change(0, 1), "", "a new card shows its blurb");
+    }
+
+    #[test]
+    fn a_weapon_can_play_its_own_effect_bullet_and_sound() {
+        let b = parse("[cleaver]\nkind weapon\ndoes knife\nicon WHITE\neffect red_slash\nbullet bullet_3d\nsound blast\n[cash]\nkind filler\nicon WHITE\n").unwrap();
+        let d = &b.defs[0];
+        assert_eq!((d.effect.as_deref(), d.bullet.as_deref(), d.sound), (Some("red_slash"), Some("bullet_3d"), Some(crate::Sfx::Blast)));
+        assert!(parse("[a]\nicon WHITE\nsound moo").unwrap_err().starts_with("3: sound is one of shot"));
+        assert!(parse("[a]\nicon WHITE\neffect Red").unwrap_err().starts_with("3: effect names"));
+        let lob = parse("[pot]\nkind weapon\ndoes lob\nlands tacks\nicon WHITE\n[cash]\nkind filler\nicon WHITE\n").unwrap();
+        assert_eq!((lob.defs[0].does, lob.defs[0].lands), (Some(Does::Lob), Lands::Tacks));
+        assert!(parse("[a]\nicon WHITE\nlands moon").unwrap_err().starts_with("3: lands is"));
+        let g = parse("[nova]\nkind weapon\ndoes gun\naim around\npattern ring\nicon WHITE\n[cash]\nkind filler\nicon WHITE\n").unwrap();
+        assert_eq!((g.defs[0].does, g.defs[0].aim, g.defs[0].pattern), (Some(Does::Gun), Aim::Around, Pattern::Ring));
+        assert!(parse("[a]\nicon WHITE\naim up").unwrap_err().starts_with("3: aim is"));
     }
 
     #[test]

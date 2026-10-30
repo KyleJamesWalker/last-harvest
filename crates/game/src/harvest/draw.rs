@@ -7,7 +7,7 @@ use super::map::TILE;
 use crate::art::Stand;
 use super::powerups::{Kind, Zone, book};
 use super::weapons::{BOLT_LIFE, Hazard};
-use super::{CHOICE_ROW, CHOICE_TOP, Choice, DAWN, DropKind, Facing, GOLD, PAUSE_CHOICES, GRENADE_FLIGHT, GRENADE_RADIUS, Harvest, PICK_TIME, PROP_FLASH, Phase, RED, SCALE, TELL_TIME, TURNED, Thrown, WHITE, clock, player_pose, view3d};
+use super::{CHOICE_ROW, CHOICE_TOP, Choice, DropKind, Facing, GOLD, PAUSE_CHOICES, Harvest, PICK_TIME, PROP_FLASH, Phase, RED, SCALE, TELL_TIME, TURNED, Thrown, WHITE, clock, player_pose, view3d};
 use crate::art::{self, Art};
 use crate::{Align, Canvas, Color, Frame, SCREEN_H, SCREEN_W};
 
@@ -216,19 +216,20 @@ impl Harvest {
             let fade = ((p.life - p.age) / 0.5).clamp(0.0, 1.0);
             match p.hazard {
                 Hazard::Tacks => {
-                    let a = art::TACKS;
+                    let a = super::effects::effects().tacks.looping(self.t);
                     let (sx, sy) = at(p.pos[0] - a.w() / 2.0, p.pos[1] - a.h() / 2.0);
                     c.art(a, sx, sy, scale, false, shade([1.0, 1.0, 1.0, fade]));
                 }
                 Hazard::Fire => {
-                    let a = art::FIRE[((self.t * 10.0 + p.pos[0]) as usize) % art::FIRE.len()];
+                    let fire = super::effects::effects().fire;
+                    let a = fire.looping(self.t + p.pos[0] / fire.fps);
                     let (sx, sy) = at(p.pos[0] - a.w() / 2.0, p.pos[1] - a.h());
                     c.art(a, sx, sy, scale, false, [1.0, 1.0, 1.0, fade]);
                 }
                 Hazard::Flare => {
                     let (sx, sy) = at(p.pos[0], p.pos[1]);
                     c.circle(sx, sy, p.radius * scale, [1.0, 0.3, 0.2, 0.12 * fade]);
-                    let a = art::FLARE;
+                    let a = super::effects::effects().flare.looping(self.t);
                     let (sx, sy) = at(p.pos[0] - a.w() / 2.0, p.pos[1] - a.h());
                     c.art(a, sx, sy, scale, false, WHITE);
                 }
@@ -244,9 +245,9 @@ impl Harvest {
         }
         for d in &self.drops {
             let a = match d.kind {
-                DropKind::Money(_) => art::MONEY[((d.age * 10.0) as usize).min(3)],
-                DropKind::Health => art::HEALTH,
-                DropKind::Chest => art::CHEST,
+                DropKind::Money(_) => super::effects::effects().money.once(d.age),
+                DropKind::Health => super::effects::effects().health.looping(d.age),
+                DropKind::Chest => super::effects::effects().chest.looping(d.age),
             };
             let (sx, sy) = at(d.pos[0] - a.w() / 2.0, d.pos[1] - a.h() - d.z);
             c.art(a, sx, sy, scale, false, lit);
@@ -296,7 +297,8 @@ impl Harvest {
             sprites.push((d.pos[1], a, d.pos[0] - a.w() / 2.0, d.pos[1] - a.h() + 2.0, d.heading[0] < 0.0, 1.0, 1.0));
         }
         for (i, (p, flip)) in self.crows().into_iter().enumerate() {
-            let a = art::CROW_FLY[(self.t * 12.0 + i as f32) as usize % art::CROW_FLY.len()];
+            let crow = super::effects::effects().crow;
+            let a = crow.looping(self.t + i as f32 / crow.fps);
             sprites.push((p[1], a, p[0] - a.w() / 2.0, p[1] - a.h() - 12.0, flip, 1.0, 1.0));
         }
         let (facing, flip) = self.facing;
@@ -312,7 +314,8 @@ impl Harvest {
 
         for b in &self.bullets {
             let (sx, sy) = at(b.pos[0], b.pos[1]);
-            c.art_rotated(art::BULLET, sx, sy, scale, b.vel[1].atan2(b.vel[0]), lit);
+            let a = b.look.unwrap_or(super::effects::effects().bullet).looping(b.age);
+            c.art_rotated(a, sx, sy, scale, b.vel[1].atan2(b.vel[0]), lit);
         }
         for fx in &self.fx {
             let a = fx.frames[((fx.t * fx.fps) as usize).min(fx.frames.len() - 1)];
@@ -351,7 +354,7 @@ impl Harvest {
         }
         for g in &self.thrown {
             let (p, lift) = g.at();
-            let k = (g.t / GRENADE_FLIGHT).min(1.0);
+            let k = (g.t / crate::tuning::tuning().grenade_flight).min(1.0);
             let (gx, gy) = at(p[0], p[1]);
             c.circle(gx, gy, (2.0 + 2.0 * k) * scale, [0.0, 0.0, 0.0, 0.4]);
             let (sx, sy) = at(p[0], p[1] - 6.0 - lift);
@@ -361,7 +364,7 @@ impl Harvest {
             }
             for i in 0..8 {
                 let a = g.t * 3.0 + i as f32 / 8.0 * TAU;
-                let rr = GRENADE_RADIUS * (1.15 - 0.15 * k);
+                let rr = crate::tuning::tuning().grenade_radius * (1.15 - 0.15 * k);
                 let (sx, sy) = at(g.to[0] + a.cos() * rr, g.to[1] + a.sin() * rr);
                 c.circle(sx, sy, 1.5 * scale, [1.0, 0.25, 0.15, 0.85]);
             }
@@ -402,9 +405,9 @@ impl Harvest {
                 let (title_y, line_y) = if *won { (260.0, 360.0) } else { (130.0, 560.0) };
                 c.text_centered(title_y - scale * 2.5, scale, color, title);
                 let a = ((t - 0.5) / 0.4).clamp(0.0, 1.0);
-                let line = if self.t >= DAWN {
+                let line = if self.t >= super::dawn() {
                     let how = if *won { "Home" } else { "Lasted" };
-                    format!("{how} {} past dawn   Level {}   Kills {}", clock(self.t - DAWN), self.level, self.kills)
+                    format!("{how} {} past dawn   Level {}   Kills {}", clock(self.t - super::dawn()), self.level, self.kills)
                 } else {
                     format!("Survived {}   Level {}   Kills {}", clock(self.t), self.level, self.kills)
                 };
@@ -443,7 +446,7 @@ impl Harvest {
 
     /// After dawn, where the farmhouse is: over it when it's in view, else at the edge it lies past.
     fn way_home(&self, c: &mut Canvas, view_proj: glam::Mat4) {
-        if self.t < DAWN || !matches!(self.phase, Phase::Playing | Phase::LevelUp { .. }) {
+        if self.t < super::dawn() || !matches!(self.phase, Phase::Playing | Phase::LevelUp { .. }) {
             return;
         }
         let d = [self.map.home[0] - self.pos[0], self.map.home[1] - self.pos[1]];
@@ -468,7 +471,7 @@ impl Harvest {
 
     /// After dawn, the farmhouse's step on the map, pinned to the edge when it's off the map.
     fn home_on_map(&self, c: &mut Canvas, cam: [f32; 2]) {
-        if self.t < DAWN {
+        if self.t < super::dawn() {
             return;
         }
         let x = ((self.map.home[0] - cam[0]) * SCALE).clamp(40.0, SCREEN_W - 40.0);
@@ -526,8 +529,8 @@ impl Harvest {
         let throb = if health < 0.3 { 0.5 + 0.5 * (self.juice.clock * 10.0).sin() } else { 0.0 };
         c.rect(bx, by, bw * health.clamp(0.0, 1.0), bh, [RED[0] + 0.15 * throb, RED[1] + 0.1 * throb, RED[2], 1.0]);
         c.label(format!("LV {}", self.level), bx, by + 30.0, 32.0, WHITE, Align::Left);
-        if self.t >= DAWN {
-            c.text_centered(30.0, 6.0, HARVESTER, &format!("DAWN +{}", clock(self.t - DAWN)));
+        if self.t >= super::dawn() {
+            c.text_centered(30.0, 6.0, HARVESTER, &format!("DAWN +{}", clock(self.t - super::dawn())));
             c.label(format!("The dead +{:.0}%", (self.fury - 1.0) * 100.0), SCREEN_W / 2.0, 96.0, 30.0, HARVESTER, Align::Center);
         } else {
             c.text_centered(30.0, 6.0, WHITE, &clock(self.t));

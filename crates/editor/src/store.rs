@@ -77,6 +77,15 @@ pub trait Store {
         Err("maps aren't kept here".into())
     }
 
+    /// One of the game's data files, such as `tuning.txt`, as kept here: the game's own until one is saved.
+    fn read_table(&self, file: &str) -> Option<String> {
+        last_harvest_game::built_in_table(file).map(str::to_string)
+    }
+
+    fn save_table(&self, _file: &str, _text: &str) -> Result<(), String> {
+        Err("the game's data files aren't kept here".into())
+    }
+
     /// The saved copy if there is one, else the packed frames.
     fn load(&self, name: &str) -> Option<Sprite> {
         Sprite::load_from(name, |file| self.read(name, file))
@@ -100,25 +109,40 @@ pub mod props {
         format!("{}{}", last_harvest_game::PROP_PREFIX, id.to_ascii_uppercase())
     }
 
-    /// The prop's frames, side by side, as the editor's frames.
-    fn frames(bytes: &[u8]) -> Option<(String, Vec<Frame>)> {
+    /// A prop's pictures as the editor's frames: its text, its frames, its footprint and its south and east views.
+    type Pictures = (String, Vec<Frame>, Option<Frame>, Option<[Frame; 2]>);
+
+    fn pictures(bytes: &[u8]) -> Option<Pictures> {
         let p = prop::read("prop", bytes).ok()?;
-        let [w, h] = p.frame.map(|v| v as usize);
-        let n = (p.sheet.len() / (w * h * 4)).max(1);
-        let frames = (0..n)
-            .map(|k| {
-                let px = (0..h).flat_map(|y| (0..w).map(move |x| (y * w * n + k * w + x) * 4)).map(|i| [p.sheet[i], p.sheet[i + 1], p.sheet[i + 2], p.sheet[i + 3]]).collect();
-                Frame { w, h, px }
-            })
-            .collect();
-        Some((p.text, frames))
+        let f = last_harvest_game::prop_fields(&p.text).ok()?;
+        let [fw, fh] = p.frame;
+        let sw = f.sheet_w(fw, fh) as usize;
+        let cut = |[x0, y0, w, h]: [u32; 4]| {
+            let (x0, y0, w, h) = (x0 as usize, y0 as usize, w as usize, h as usize);
+            let px = (0..h).flat_map(|y| (0..w).map(move |x| ((y0 + y) * sw + x0 + x) * 4)).map(|i| [p.sheet[i], p.sheet[i + 1], p.sheet[i + 2], p.sheet[i + 3]]).collect();
+            Frame { w, h, px }
+        };
+        let frames = (0..f.frames).map(|k| cut([k * fw, 0, fw, fh])).collect();
+        let footprint = (f.cells() > f.frames).then(|| cut([f.frames * fw, 0, fw, fh]));
+        let views = (f.views > 0).then(|| [cut([0, fh, fw, f.views]), cut([fw, fh, fh, f.views])]);
+        Some((p.text, frames, footprint, views))
     }
 
-    /// A file of a prop's sprite, as `Store::read` hands it out: a frame, or its text.
+    /// A file of a prop's sprite, as `Store::read` hands it out: a frame, a view, or its text.
     pub fn file(bytes: &[u8], file: &str) -> Option<Vec<u8>> {
-        let (text, frames) = frames(bytes)?;
+        let (text, frames, footprint, views) = pictures(bytes)?;
         if file == sprite::CARD_FILE {
             return Some(text.into_bytes());
+        }
+        if file == sprite::FOOTPRINT_FILE {
+            return footprint.as_ref().map(sprite::encode_png);
+        }
+        if file == sprite::CLEAR_FILE {
+            let f = last_harvest_game::prop_fields(&text).ok()?;
+            return (!f.clear.is_empty()).then(|| f.clear.iter().map(|&[r, g, b]| format!("{}\n", sprite::hex([r, g, b, 255]))).collect::<String>().into_bytes());
+        }
+        if let Some(v) = sprite::VIEW_FILES.iter().position(|n| *n == file) {
+            return views.as_ref().map(|v2| sprite::encode_png(&v2[v]));
         }
         let k: usize = file.strip_suffix(".png")?.parse().ok()?;
         frames.get(k).map(sprite::encode_png)
@@ -130,7 +154,7 @@ pub mod props {
         text.lines().find_map(|l| l.trim().strip_prefix("stand ").map(str::to_string))
     }
 
-    /// A prop's PNG from the sprite's frames and text, its frame count set to theirs.
+    /// A prop's PNG from the sprite's frames, views and text, its frame count set to theirs.
     pub fn from_sprite(sprite: &Sprite) -> Result<Vec<u8>, String> {
         let id = id(&sprite.name).ok_or("not a prop")?;
         let first = sprite.frames.first().ok_or("a prop has a frame")?;
@@ -143,29 +167,50 @@ pub mod props {
         fields.id = id;
         fields.frames = n as u32;
         fields.broken &= n > 1;
-        let mut sheet = vec![0u8; w * n * h * 4];
-        for (k, f) in sprite.frames.iter().enumerate() {
-            for y in 0..h {
-                for x in 0..w {
-                    let i = (y * w * n + k * w + x) * 4;
-                    sheet[i..i + 4].copy_from_slice(&f.px[y * w + x]);
+        fields.clear = sprite.clear_in_3d.iter().map(|&[r, g, b, _]| [r, g, b]).collect();
+        let views = sprite.views.as_ref().filter(|[s, e]| (s.w, e.w, s.h) == (w, h, e.h) && s.h <= max);
+        fields.views = views.map_or(0, |v| v[0].h as u32);
+        let footprint = sprite.footprint.as_ref().filter(|f| views.is_some() && (f.w, f.h) == (w, h));
+        fields.footprint = footprint.is_some();
+        if views.is_none() {
+            fields.by_views = None;
+        }
+        let (sw, vh) = (fields.sheet_w(w as u32, h as u32) as usize, fields.views as usize);
+        let mut sheet = vec![0u8; sw * (h + vh) * 4];
+        let mut put = |f: &Frame, x0: usize, y0: usize| {
+            for y in 0..f.h {
+                for x in 0..f.w {
+                    let i = ((y0 + y) * sw + x0 + x) * 4;
+                    sheet[i..i + 4].copy_from_slice(&f.px[y * f.w + x]);
                 }
             }
+        };
+        for (k, f) in sprite.frames.iter().chain(footprint).enumerate() {
+            put(f, k * w, 0);
         }
-        prop::write(&last_harvest_game::prop_text(&fields), (w * n) as u32, h as u32, &sheet)
+        if let Some([south, east]) = views {
+            put(south, 0, h);
+            put(east, w, h);
+        }
+        prop::write(&last_harvest_game::prop_text(&fields), sw as u32, (h + vh) as u32, &sheet)
     }
 
-    /// The prop with its stand set from how the editor writes one; carving isn't something a prop does.
+    /// The prop with its stand set from how the editor writes one; carving and turning need the views saved first.
     pub fn with_stand(bytes: &[u8], how: &str) -> Result<Vec<u8>, String> {
         let p = prop::read("prop", bytes)?;
         let mut fields = last_harvest_game::prop_fields(&p.text)?;
-        let stand = last_harvest_game::prop_fields(&format!("[{}]\nstand {how}", fields.id)).map_err(|_| "a prop stands as a prop, slab, figure or ground".to_string())?;
-        fields.stand = stand.stand;
-        prop::write(&last_harvest_game::prop_text(&fields), p.frame[0] * fields.frames, p.frame[1], &p.sheet)
+        let views = format!("\nviews {}", fields.views.max(1));
+        let stand = last_harvest_game::prop_fields(&format!("[{}]\nstand {how}{views}", fields.id)).map_err(|_| "a prop stands as a prop, slab, figure, ground, carve or turned".to_string())?;
+        if stand.by_views.is_some() && fields.views == 0 {
+            return Err("draw its views before it stands by them".into());
+        }
+        (fields.stand, fields.by_views) = (stand.stand, stand.by_views);
+        let [fw, fh] = p.frame;
+        prop::write(&last_harvest_game::prop_text(&fields), fields.sheet_w(fw, fh), fh + fields.views, &p.sheet)
     }
 
     pub fn blank(id: &str) -> last_harvest_game::PropFields {
-        last_harvest_game::PropFields { id: id.into(), frames: 1, fps: 0.0, open: 0, stand: None, cover: true, hp: 0.0, broken: false }
+        last_harvest_game::PropFields { id: id.into(), frames: 1, fps: 0.0, open: 0, stand: None, by_views: None, views: 0, footprint: false, clear: Vec::new(), cover: true, hp: 0.0, broken: false }
     }
 }
 
@@ -335,6 +380,27 @@ pub mod cards {
 #[cfg(test)]
 mod tests {
     use super::cards::{from_text, to_text};
+    use crate::sprite::{self, Frame, Sprite};
+
+    #[test]
+    fn a_prop_keeps_its_views_and_stands_by_them() {
+        let mut frame = Frame::blank(4, 3);
+        frame.set(1, 1, [9, 9, 9, 255]);
+        let (mut south, mut east, mut footprint) = (Frame::blank(4, 5), Frame::blank(3, 5), Frame::blank(4, 3));
+        south.set(0, 4, [1, 2, 3, 255]);
+        east.set(2, 0, [4, 5, 6, 255]);
+        footprint.set(3, 2, [7, 8, 9, 255]);
+        let blank = Sprite { name: "PROP_POST".into(), frames: vec![frame.clone(); 2], views: None, footprint: None, top: None, card: None, clear_in_3d: Vec::new() };
+        assert!(super::props::with_stand(&super::props::from_sprite(&blank).unwrap(), "carve").unwrap_err().contains("views"));
+        let s = Sprite { views: Some([south.clone(), east.clone()]), footprint: Some(footprint.clone()), ..blank };
+        let bytes = super::props::with_stand(&super::props::from_sprite(&s).unwrap(), "turned").unwrap();
+        let back = Sprite::from_files("PROP_POST", &["0.png", "1.png", "south.png", "east.png", "footprint.png", sprite::CARD_FILE].map(|f| (f.to_string(), super::props::file(&bytes, f).unwrap()))).unwrap();
+        assert_eq!((&back.frames, &back.views, &back.footprint), (&vec![frame; 2], &Some([south, east]), &Some(footprint)));
+        assert_eq!(super::props::stand(&bytes).as_deref(), Some("turned"));
+        let cleared = Sprite { clear_in_3d: vec![[9, 9, 9, 255]], ..back };
+        let bytes = super::props::from_sprite(&cleared).unwrap();
+        assert_eq!(super::props::file(&bytes, sprite::CLEAR_FILE).as_deref(), Some(&b"#090909\n"[..]), "the prop's text keeps its colors cleared in 3D");
+    }
 
     #[test]
     fn base64_round_trips_every_length() {
@@ -531,6 +597,19 @@ mod fs {
             }
             std::fs::create_dir_all(self.maps()).map_err(|e| e.to_string())?;
             std::fs::write(self.maps().join(format!("{id}{}", last_harvest_game::MAP_EXTENSION)), text).map_err(|e| e.to_string())
+        }
+
+        fn read_table(&self, file: &str) -> Option<String> {
+            last_harvest_game::built_in_table(file)?;
+            std::fs::read_to_string(self.catalog.with_file_name(file)).ok().or_else(|| last_harvest_game::built_in_table(file).map(str::to_string))
+        }
+
+        /// Writes a data file beside the catalog, which the game's build takes in, once the game would read it as
+        /// its own.
+        fn save_table(&self, file: &str, text: &str) -> Result<(), String> {
+            last_harvest_game::check_own_table(file, text)?;
+            let path = self.catalog.with_file_name(file);
+            std::fs::write(&path, text).map_err(|e| format!("{}: {e}", path.display()))
         }
 
         fn delete_card(&self, name: &str) -> Result<(), String> {

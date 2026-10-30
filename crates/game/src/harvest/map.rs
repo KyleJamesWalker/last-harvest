@@ -3,8 +3,12 @@
 use crate::art::{self, Art};
 use crate::rng::Rng;
 
+mod farm;
+mod ground;
 mod text;
-pub use text::{EXTENSION as MAP_EXTENSION, GROUND, MAX_SIZE as MAP_MAX, MIN_SIZE as MAP_MIN, MapSource, PROPS, PropKind, PropLine, Tough, check as check_map, valid_id as valid_map_id};
+pub use farm::parse as parse_farm;
+pub use ground::parse as parse_ground;
+pub use text::{EXTENSION as MAP_EXTENSION, ground_codes, MAX_SIZE as MAP_MAX, MIN_SIZE as MAP_MIN, MapSource, PropKind, parse_props, props as map_props, PropLine, Tough, check as check_map, valid_id as valid_map_id};
 
 pub const TILE: f32 = 16.0;
 const N: u8 = 1;
@@ -85,32 +89,50 @@ struct Toughness {
     broken: Option<&'static [Art]>,
 }
 
-/// Fence pieces let shots through, and zombies chew through them.
-const FENCE: Toughness = Toughness { cover: false, hp: 40.0, broken: None };
-/// Anything else stands as a wall.
-const UNKNOWN: Toughness = Toughness { cover: true, hp: 0.0, broken: None };
-
 /// How a sprite stands in the way when no prop line says otherwise: a player's prop as its text says, a fence
-/// piece as fences do, and the game's own as `PROPS` lists them.
+/// piece as `props.txt` says fences do, and the game's own as it lists them.
 fn toughness(a: Art) -> Toughness {
     if let Some(p) = super::props::named_of(a) {
         return Toughness { cover: p.cover, hp: p.hp, broken: p.broken };
     }
     if [&RAIL, &PICKET].iter().any(|f| f.top.contains(&a) || f.side.contains(&a) || f.bottom.contains(&a)) {
-        return FENCE;
+        return Toughness::fence();
     }
-    let kind = art::ALL.iter().find(|(_, f)| f.contains(&a)).and_then(|(n, _)| PROPS.iter().find(|k| k.name == *n));
-    kind.map_or(UNKNOWN, |k| Toughness { cover: k.cover, hp: k.hp, broken: None })
+    let kind = art::ALL.iter().find(|(_, f)| f.contains(&a)).and_then(|(n, _)| text::prop_kind(n));
+    kind.map_or(Toughness::other(), Toughness::of)
+}
+
+/// Top rows a figure walks through for a sprite the game places: a player's prop's own, else as `props.txt` lists
+/// it.
+fn open_of(a: Art) -> usize {
+    if let Some(p) = super::props::named_of(a) {
+        return p.open;
+    }
+    art::ALL.iter().find(|(_, f)| f.contains(&a)).and_then(|(n, _)| text::prop_kind(n)).map_or(0, |k| k.open)
 }
 
 impl Toughness {
+    fn of(k: &PropKind) -> Self {
+        Toughness { cover: k.cover, hp: k.hp, broken: None }
+    }
+
+    /// How fence pieces stand in the way.
+    fn fence() -> Self {
+        Self::of(&text::book().fence)
+    }
+
+    /// How a sprite `props.txt` doesn't list stands in the way.
+    fn other() -> Self {
+        Self::of(&text::book().other)
+    }
+
     /// These, with what a prop line says over them.
     fn with(self, t: Tough) -> Self {
         Toughness { cover: t.cover.unwrap_or(self.cover), hp: t.hp.unwrap_or(self.hp), ..self }
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Cell {
     Open,
     Road,
@@ -137,6 +159,8 @@ pub struct Map {
     pub decals: Vec<(Art, f32, f32)>,
     /// Explosive barrels, by top-left in world pixels; each blocks its cell until it blows.
     pub barrels: Vec<[f32; 2]>,
+    /// Each barrel's hit points as its prop line set them; 0 for tuning.txt's.
+    pub barrel_hp: Vec<f32>,
     /// Where the player starts, in world pixels.
     pub spawn: [f32; 2],
     /// The farmhouse's front step, which the player runs back to once dawn breaks.
@@ -149,11 +173,15 @@ fn thickness(art: Art, tw: usize, th: usize, open_rows: usize) -> f32 {
         depth
     } else if tw * th >= 4 {
         ((th - open_rows.min(th - 1)) as f32 * TILE).max(8.0)
-    } else if [art::BUSH, art::STUMP, art::HAY, art::TANK, art::MAILBOX].contains(&art) || art::LOG.contains(&art) {
-        12.0
     } else {
         3.0
     }
+}
+
+/// How far a prop `w` by `h` pixels reaches back in 3D when it says no depth, placed with `open_rows` walk-through
+/// rows; `art` is the packed sprite, if it is one.
+pub fn default_depth(w: f32, h: f32, art: Option<Art>, open_rows: usize) -> f32 {
+    thickness(art.unwrap_or(Art(u16::MAX)), tiles(w), tiles(h), open_rows)
 }
 
 fn tiles(px: f32) -> usize {
@@ -162,9 +190,10 @@ fn tiles(px: f32) -> usize {
 
 impl Map {
     pub fn generate(rng: &mut Rng, w: usize, h: usize) -> Self {
+        let tufts = farm::farm().tufts;
         let mut ground = Vec::with_capacity(w * h);
         for _ in 0..w * h {
-            ground.push(if rng.below(10) == 0 { art::DIRT_TUFTS[rng.below(2)] } else { art::DIRT[rng.below(2)] });
+            ground.push(if tufts > 0 && rng.below(tufts) == 0 { art::DIRT_TUFTS[rng.below(2)] } else { art::DIRT[rng.below(2)] });
         }
         let mut map = Map {
             w,
@@ -179,15 +208,16 @@ impl Map {
             props: Vec::new(),
             decals: Vec::new(),
             barrels: Vec::new(),
+            barrel_hp: Vec::new(),
             spawn: [0.0; 2],
             home: [0.0; 2],
         };
         map.border();
         let road = map.road(rng);
         map.gas_station(rng, road);
-        let house = map.place_near(rng, &[art::HOUSE], [w / 2, h / 2], 14, 2, 1);
+        let house = map.place_near(rng, &[art::HOUSE], [w / 2, h / 2], 14, 2);
         let barn_art: &'static [Art] = if rng.below(2) == 0 { &[art::BARN_RED] } else { &[art::BARN_GREEN] };
-        let barn = map.place_near(rng, barn_art, [w / 2, h / 2], 16, 2, 2);
+        let barn = map.place_near(rng, barn_art, [w / 2, h / 2], 16, 2);
         for (spot, door) in [(house, 2), (barn, 2)] {
             if let Some((x, y, _, bh)) = spot {
                 map.path_to_road(x + door, y + bh, road);
@@ -197,15 +227,16 @@ impl Map {
         if let Some((x, y, bw, bh)) = barn {
             let at = [x + bw / 2, y + bh / 2];
             map.windmill(rng, at);
-            map.place_near(rng, &[art::HAY_STACK], at, 7, 0, 1);
-            map.place_near(rng, &[art::HAY], at, 7, 0, 0);
-            map.place_near(rng, &[art::TRACTOR], at, 8, 0, 1);
+            map.place_near(rng, &[art::HAY_STACK], at, 7, 0);
+            map.place_near(rng, &[art::HAY], at, 7, 0);
+            map.place_near(rng, &[art::TRACTOR], at, 8, 0);
         }
         if let Some((x, y, bw, bh)) = house {
-            map.place_near(rng, &[art::MAILBOX], [x + 2, y + bh + 2], 3, 0, 0);
+            map.place_near(rng, &[art::MAILBOX], [x + 2, y + bh + 2], 3, 0);
             map.graveyard(rng, [x + bw / 2, y + bh / 2]);
         }
-        for _ in 0..4 + rng.below(4) {
+        let f = farm::farm();
+        for _ in 0..f.fields + if f.more_fields > 0 { rng.below(f.more_fields) } else { 0 } {
             map.field(rng);
         }
         map.roadside(rng, road);
@@ -436,11 +467,12 @@ impl Map {
     /// Moves barrels from the props to `barrels`, since they blow up rather than break, and notes the rest's
     /// breakable cells.
     fn keep_barrels_apart(&mut self) {
-        let barrels = &mut self.barrels;
+        let (barrels, hp) = (&mut self.barrels, &mut self.barrel_hp);
         self.props.retain(|p| {
             let barrel = p.frames[0] == art::BARREL;
             if barrel {
                 barrels.push([p.x, p.y]);
+                hp.push(p.hp);
             }
             !barrel
         });
@@ -487,9 +519,9 @@ impl Map {
         }
     }
 
-    /// Adds a prop with its top-left on tile (x, y); every row but the top `open_rows` blocks movement.
-    fn prop(&mut self, frames: &'static [Art], fps: f32, x: usize, y: usize, open_rows: usize) -> (usize, usize) {
-        self.prop_as(frames, fps, x, y, open_rows, toughness(frames[0]))
+    /// Adds a prop with its top-left on tile (x, y); every row but the top ones `props.txt` opens blocks movement.
+    fn prop(&mut self, frames: &'static [Art], fps: f32, x: usize, y: usize) -> (usize, usize) {
+        self.prop_as(frames, fps, x, y, open_of(frames[0]), toughness(frames[0]))
     }
 
     /// Adds a prop as `prop` does, standing in the way of shots as `tough` says.
@@ -513,22 +545,22 @@ impl Map {
     }
 
     /// Places a prop at a free spot within `radius` tiles of `at`; returns its tile rect.
-    fn place_near(&mut self, rng: &mut Rng, frames: &'static [Art], at: [usize; 2], radius: usize, margin: usize, open_rows: usize) -> Option<(usize, usize, usize, usize)> {
+    fn place_near(&mut self, rng: &mut Rng, frames: &'static [Art], at: [usize; 2], radius: usize, margin: usize) -> Option<(usize, usize, usize, usize)> {
         let (tw, th) = (tiles(frames[0].w()), tiles(frames[0].h()));
         for _ in 0..300 {
             let x = (at[0] + rng.below(2 * radius + 1)).saturating_sub(radius);
             let y = (at[1] + rng.below(2 * radius + 1)).saturating_sub(radius);
             if self.free(x, y, tw, th, margin) {
-                self.prop(frames, 0.0, x, y, open_rows);
+                self.prop(frames, 0.0, x, y);
                 return Some((x, y, tw, th));
             }
         }
         None
     }
 
-    fn place_anywhere(&mut self, rng: &mut Rng, frames: &'static [Art], open_rows: usize) {
+    fn place_anywhere(&mut self, rng: &mut Rng, frames: &'static [Art]) {
         let at = [self.w / 2, self.h / 2];
-        self.place_near(rng, frames, at, self.w.max(self.h) / 2, 0, open_rows);
+        self.place_near(rng, frames, at, self.w.max(self.h) / 2, 0);
     }
 
     /// Dead trees and bushes around the edge keep everyone on the map.
@@ -537,7 +569,7 @@ impl Map {
         let ring = (0..w).flat_map(|x| [(x, 0), (x, h - 1)]).chain((1..h - 1).flat_map(|y| [(0, y), (w - 1, y)]));
         for (n, (x, y)) in ring.enumerate() {
             let art = if n % 3 == 0 { &art::DEAD_TREE[..1] } else { std::slice::from_ref(&art::BUSH) };
-            self.prop(art, 0.0, x, y, 0);
+            self.prop(art, 0.0, x, y);
         }
     }
 
@@ -561,21 +593,21 @@ impl Map {
         for _ in 0..50 {
             let y = 3 + rng.below(self.h - th - 10);
             if self.free(x, y, tw, th + 3, 0) {
-                self.prop(&[art::GAS_STATION], 0.0, x, y, 1);
-                self.prop(&[art::GAS_PUMP], 0.0, x + 1, y + th, 2);
-                self.prop(&[art::GAS_PUMP], 0.0, x + tw - 3, y + th, 2);
-                if self.place_near(rng, &art::TRUCK, [x + tw / 2, y + th + 3], 4, 0, 1).is_some() {
+                self.prop(&[art::GAS_STATION], 0.0, x, y);
+                self.prop(&[art::GAS_PUMP], 0.0, x + 1, y + th);
+                self.prop(&[art::GAS_PUMP], 0.0, x + tw - 3, y + th);
+                if self.place_near(rng, &art::TRUCK, [x + tw / 2, y + th + 3], 4, 0).is_some() {
                     let last = self.props.len() - 1;
                     self.props[last].fps = 3.0;
                 }
-                self.place_near(rng, &[art::CAR_V], [x + tw / 2, y + th + 2], 4, 0, 1);
+                self.place_near(rng, &[art::CAR_V], [x + tw / 2, y + th + 2], 4, 0);
                 return;
             }
         }
     }
 
     fn windmill(&mut self, rng: &mut Rng, at: [usize; 2]) {
-        if let Some((x, y, _, _)) = self.place_near(rng, &[art::WINDMILL], at, 8, 1, 2) {
+        if let Some((x, y, _, _)) = self.place_near(rng, &[art::WINDMILL], at, 8, 1) {
             let (px, py) = (x as f32 * TILE, y as f32 * TILE - 6.0);
             let base = py + 6.0 + art::WINDMILL.h() + 0.1;
             self.props.push(Prop::new(&art::WINDMILL_FAN, 8.0, px, py, base, 2.0));
@@ -590,7 +622,7 @@ impl Map {
             if self.free(x, y, 7, 5, 1) {
                 for (dx, dy) in [(1, 1), (3, 1), (5, 1), (2, 3), (4, 3)] {
                     if rng.below(5) > 0 {
-                        self.prop(&[art::TOMBSTONE], 0.0, x + dx, y + dy, 0);
+                        self.prop(&[art::TOMBSTONE], 0.0, x + dx, y + dy);
                     }
                 }
                 self.fence(rng, &PICKET, x, y, 7, 5);
@@ -615,6 +647,7 @@ impl Map {
     }
 
     fn autotile_paths(&mut self) {
+        let path_art = ground::ground().iter().find(|g| g.cell == Cell::Path).map_or(&art::PATH[..], |g| g.art);
         for y in 1..self.h - 1 {
             for x in 1..self.w - 1 {
                 if self.cells[self.i(x, y)] != Cell::Path {
@@ -623,7 +656,7 @@ impl Map {
                 let joins = |xx: usize, yy: usize| matches!(self.cells[self.i(xx, yy)], Cell::Path | Cell::Road);
                 let mask = N * joins(x, y - 1) as u8 + E * joins(x + 1, y) as u8 + S * joins(x, y + 1) as u8 + W * joins(x - 1, y) as u8;
                 let i = self.i(x, y);
-                self.ground[i] = art::PATH[mask as usize];
+                self.ground[i] = path_art[mask as usize];
             }
         }
     }
@@ -654,7 +687,7 @@ impl Map {
             }
             self.claim(x, y, fw, fh, Cell::Taken);
             if kind < 2 && rng.below(2) == 0 {
-                self.prop(&[art::SCARECROW], 0.0, x + fw / 2, y + fh / 2 - 1, 1);
+                self.prop(&[art::SCARECROW], 0.0, x + fw / 2, y + fh / 2 - 1);
             }
             if fenced {
                 self.fence(rng, &RAIL, x - 1, y - 1, fw + 2, fh + 2);
@@ -666,7 +699,7 @@ impl Map {
     /// A fence around the rect, with a two-tile gate in the bottom.
     fn fence(&mut self, rng: &mut Rng, style: &Fence, x: usize, y: usize, w: usize, h: usize) {
         let gate = x + 1 + rng.below(w - 3);
-        self.fence_gated(style, [x, y, w, h], Some(gate), FENCE, |n| rng.below(n));
+        self.fence_gated(style, [x, y, w, h], Some(gate), Toughness::fence(), |n| rng.below(n));
     }
 
     /// A fence around the rect, with a two-tile gate in the bottom from column `gate` if any, every piece as
@@ -701,12 +734,12 @@ impl Map {
             if self.cells[self.i(x, y)] == Cell::Open {
                 let set: &'static [Art] = if rng.below(2) == 0 { &art::SIGN } else { &art::SIGN_LOW };
                 let k = rng.below(set.len());
-                self.prop(&set[k..k + 1], 0.0, x, y, 0);
+                self.prop(&set[k..k + 1], 0.0, x, y);
             }
         }
         for (lanes, y) in [([0, 2], 3), ([0, 1], self.h - 4)] {
             for lane in lanes {
-                self.prop(&[art::BARRIER], 0.0, road + lane, y, 0);
+                self.prop(&[art::BARRIER], 0.0, road + lane, y);
             }
         }
     }
@@ -717,39 +750,28 @@ impl Map {
             let (x, y) = (road + rng.below(3), 2 + rng.below(self.h - 6));
             let k = rng.below(art::WRECK_V.len());
             if (y..y + 3).all(|yy| !self.solid[self.i(x, yy)]) {
-                self.prop(&art::WRECK_V[k..k + 1], 0.0, x, y, 1);
+                self.prop(&art::WRECK_V[k..k + 1], 0.0, x, y);
             }
         }
     }
 
     fn scatter(&mut self, rng: &mut Rng) {
-        let area = self.w * self.h;
-        let counts: [(&'static [Art], usize, usize); 10] = [
-            (&art::DEAD_TREE, area / 120, 0),
-            (std::slice::from_ref(&art::BUSH), area / 140, 0),
-            (std::slice::from_ref(&art::BUSHES), area / 900, 1),
-            (std::slice::from_ref(&art::TALL_TREE), area / 400, 1),
-            (&art::LOG, area / 400, 0),
-            (std::slice::from_ref(&art::STUMP), area / 600, 0),
-            (std::slice::from_ref(&art::BARREL), area / 500, 0),
-            (std::slice::from_ref(&art::TANK), area / 1200, 0),
-            (&art::WRECK_H, area / 1200, 0),
-            (&art::SIGN, area / 1200, 0),
-        ];
-        for (set, n, open_rows) in counts {
-            for _ in 0..n {
+        let (area, f) = (self.w * self.h, farm::farm());
+        let per = |n: usize| area.checked_div(n).unwrap_or(0);
+        for &(set, n) in &f.scatter {
+            for _ in 0..per(n) {
                 let k = rng.below(set.len());
-                self.place_anywhere(rng, &set[k..k + 1], open_rows);
+                self.place_anywhere(rng, &set[k..k + 1]);
             }
         }
-        for _ in 0..area / 300 {
+        for _ in 0..per(f.corpses) {
             let (x, y) = (1 + rng.below(self.w - 2), 1 + rng.below(self.h - 2));
             if self.cells[self.i(x, y)] == Cell::Open {
                 let a = art::CORPSE[rng.below(art::CORPSE.len())];
                 self.decals.push((a, x as f32 * TILE, y as f32 * TILE));
             }
         }
-        for _ in 0..area / 600 {
+        for _ in 0..per(f.grass) {
             let (cx, cy, r) = (rng.below(self.w) as i32, rng.below(self.h) as i32, rng.below(2) as i32);
             for y in (cy - r).max(1)..(cy + r + 1).min(self.h as i32 - 1) {
                 for x in (cx - r).max(1)..(cx + r + 1).min(self.w as i32 - 1) {
