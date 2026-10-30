@@ -43,6 +43,18 @@ impl Editor {
         out
     }
 
+    /// The data page section that says how a sprite plays: its props.txt section, else the first effects.txt
+    /// section that plays it.
+    pub(super) fn data_link_for(&self, sprite: &str) -> Option<String> {
+        let props = Table::new("props.txt", &self.store.read_table("props.txt")?);
+        if props.sections().iter().any(|s| s == sprite) {
+            return Some(data_name("props.txt", sprite));
+        }
+        let effects = Table::new("effects.txt", &self.store.read_table("effects.txt")?);
+        let plays = |s: &String| effects.entries(s).iter().any(|e| e.key == "art" && e.value == sprite);
+        effects.sections().iter().find(|s| plays(s)).map(|s| data_name("effects.txt", s))
+    }
+
     /// Opens a data file's section from the store; true if `name` is one.
     pub(super) fn open_table(&mut self, name: &str) -> bool {
         if !name.starts_with(sprite::DATA_PREFIX) {

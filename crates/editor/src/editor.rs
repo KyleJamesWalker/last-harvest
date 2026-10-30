@@ -240,6 +240,8 @@ enum Action {
     ClearColor,
     /// Steps how many of the open prop's top rows a figure walks through, or the map's selected prop's.
     Open(i32),
+    /// Opens the data page section that says how the open sprite plays.
+    Data,
     /// Steps which frame the map's selected prop shows, through each one and back to all of them animating.
     LineFrame(i32),
     /// Steps how fast the map's selected prop animates; 0 keeps its sprite's own pace.
@@ -379,6 +381,8 @@ pub struct Editor {
     map: Option<MapEdit>,
     /// The data file section open on the data page, if one is.
     data: Option<DataEdit>,
+    /// The data page section that says how the open sprite plays, found when it opens.
+    data_link: Option<String>,
     /// Players' props packed for the previews while a map is open, in order: their fields and frame counts.
     map_props: Vec<(last_harvest_game::PropFields, usize)>,
     playing: bool,
@@ -471,6 +475,7 @@ impl Editor {
             card_parts: Vec::new(),
             map: None,
             data: None,
+            data_link: None,
             map_props: Vec::new(),
             playing: false,
             clock: 0.0,
@@ -510,9 +515,12 @@ impl Editor {
             delete_armed: 0.0,
         };
         e.names = e.all_names();
-        e.open_map(name);
+        if !e.open_table(name) {
+            e.open_map(name);
+        }
         e.load_stand();
         e.load_card_parts();
+        e.data_link = e.data_link_for(name);
         e.reveal();
         e
     }
@@ -772,9 +780,11 @@ impl Editor {
         self.last_dot = None;
         self.names = self.all_names();
         self.data = None;
+        self.data_link = None;
         if self.open_table(name) || self.open_map(name) {
             return;
         }
+        self.data_link = self.data_link_for(name);
         if self.store.load(name).is_some() {
             self.map = None;
         }
@@ -971,6 +981,8 @@ impl Editor {
             push(410.0, 8.0, 94.0, 34.0, Action::Stats, "Stats T", self.stats);
         } else if self.built_in_still().is_some() {
             push(410.0, 8.0, 94.0, 34.0, Action::Generate, "Generate", false);
+        } else if self.data_link.is_some() {
+            push(410.0, 8.0, 94.0, 34.0, Action::Data, "Data", false);
         }
         if self.stats && self.is_player_card() {
             self.line_buttons(&mut push);
@@ -1520,6 +1532,11 @@ impl Editor {
             Action::MapTool(_) | Action::Ground(_) | Action::PickProp(_) | Action::PickPage(_) | Action::Picket(_) | Action::MapSize(..) | Action::Randomize | Action::MapFit | Action::PropDefaults => {}
             Action::DataStep(..) | Action::DataEdit(_) | Action::DataRemove(_) | Action::DataAdd | Action::DataPage(_) => {}
             Action::LineFrame(_) | Action::LineFps(_) => {}
+            Action::Data => {
+                if let Some(name) = self.data_link.clone() {
+                    self.switch_to(name);
+                }
+            }
             Action::Cover => self.edit_prop(|f| f.cover = !f.cover),
             Action::Open(d) => self.edit_prop(|f| f.open = (f.open as i32 + d * step).clamp(0, 64) as usize),
             Action::Hp(d) => self.edit_prop(|f| f.hp = (f.hp + (d * step * 10) as f32).clamp(0.0, last_harvest_game::PROP_MAX_HP)),
@@ -3320,6 +3337,18 @@ mod tests {
         assert!(e.is_prop() && e.open_prop_fields().is_some(), "a prop, not a card");
         e.act(Action::Save, false);
         assert!(dir.join("props/post.prop.png").exists());
+    }
+
+    #[test]
+    fn a_sprite_links_to_the_data_that_says_how_it_plays() {
+        let mut e = editor_on("HOUSE");
+        assert_eq!(e.data_link.as_deref(), Some("DATA_PROPS_HOUSE"));
+        e.act(Action::Data, false);
+        assert_eq!(e.sprite.name, "DATA_PROPS_HOUSE");
+        e.switch_to("SLASH".into());
+        assert_eq!(e.data_link.as_deref(), Some("DATA_EFFECTS_SLASH"));
+        e.switch_to("PLAYER_FRONT".into());
+        assert_eq!(e.data_link, None);
     }
 
     #[test]
