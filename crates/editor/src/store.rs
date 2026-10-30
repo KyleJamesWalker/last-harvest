@@ -137,6 +137,10 @@ pub mod props {
         if file == sprite::FOOTPRINT_FILE {
             return footprint.as_ref().map(sprite::encode_png);
         }
+        if file == sprite::CLEAR_FILE {
+            let f = last_harvest_game::prop_fields(&text).ok()?;
+            return (!f.clear.is_empty()).then(|| f.clear.iter().map(|&[r, g, b]| format!("{}\n", sprite::hex([r, g, b, 255]))).collect::<String>().into_bytes());
+        }
         if let Some(v) = sprite::VIEW_FILES.iter().position(|n| *n == file) {
             return views.as_ref().map(|v2| sprite::encode_png(&v2[v]));
         }
@@ -163,6 +167,7 @@ pub mod props {
         fields.id = id;
         fields.frames = n as u32;
         fields.broken &= n > 1;
+        fields.clear = sprite.clear_in_3d.iter().map(|&[r, g, b, _]| [r, g, b]).collect();
         let views = sprite.views.as_ref().filter(|[s, e]| (s.w, e.w, s.h) == (w, h, e.h) && s.h <= max);
         fields.views = views.map_or(0, |v| v[0].h as u32);
         let footprint = sprite.footprint.as_ref().filter(|f| views.is_some() && (f.w, f.h) == (w, h));
@@ -205,7 +210,7 @@ pub mod props {
     }
 
     pub fn blank(id: &str) -> last_harvest_game::PropFields {
-        last_harvest_game::PropFields { id: id.into(), frames: 1, fps: 0.0, open: 0, stand: None, by_views: None, views: 0, footprint: false, cover: true, hp: 0.0, broken: false }
+        last_harvest_game::PropFields { id: id.into(), frames: 1, fps: 0.0, open: 0, stand: None, by_views: None, views: 0, footprint: false, clear: Vec::new(), cover: true, hp: 0.0, broken: false }
     }
 }
 
@@ -390,8 +395,11 @@ mod tests {
         let s = Sprite { views: Some([south.clone(), east.clone()]), footprint: Some(footprint.clone()), ..blank };
         let bytes = super::props::with_stand(&super::props::from_sprite(&s).unwrap(), "turned").unwrap();
         let back = Sprite::from_files("PROP_POST", &["0.png", "1.png", "south.png", "east.png", "footprint.png", sprite::CARD_FILE].map(|f| (f.to_string(), super::props::file(&bytes, f).unwrap()))).unwrap();
-        assert_eq!((back.frames, back.views, back.footprint), (vec![frame; 2], Some([south, east]), Some(footprint)));
+        assert_eq!((&back.frames, &back.views, &back.footprint), (&vec![frame; 2], &Some([south, east]), &Some(footprint)));
         assert_eq!(super::props::stand(&bytes).as_deref(), Some("turned"));
+        let cleared = Sprite { clear_in_3d: vec![[9, 9, 9, 255]], ..back };
+        let bytes = super::props::from_sprite(&cleared).unwrap();
+        assert_eq!(super::props::file(&bytes, sprite::CLEAR_FILE).as_deref(), Some(&b"#090909\n"[..]), "the prop's text keeps its colors cleared in 3D");
     }
 
     #[test]

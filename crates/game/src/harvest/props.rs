@@ -8,6 +8,7 @@
 //! stand prop 8    # prop N, slab N, figure, ground, carve or turned; prop by its size when left out
 //! views 12        # how tall its south and east views are, drawn under its frames, for carve and turned
 //! footprint yes   # its outline from above for carving follows its frames; its own outline when left out
+//! clear 5A6E3C    # colors the 3D view leaves out, where the 2D view keeps them, without a `#`
 //! cover no        # whether it stops shots; yes when left out
 //! hp 40           # hit points before zombies or shots break it, up to 1000; it doesn't break when left out
 //! broken yes      # the last frame shows once it breaks, and the rest animate; it goes when left out
@@ -40,6 +41,8 @@ pub struct PropFields {
     /// How tall the south and east views are; 0 for none.
     pub views: u32,
     pub footprint: bool,
+    /// Colors the 3D view leaves out of its frames.
+    pub clear: Vec<[u8; 3]>,
     pub cover: bool,
     pub hp: f32,
     pub broken: bool,
@@ -85,7 +88,7 @@ impl PropFields {
 
 /// Reads a prop's text; errors name the line.
 pub fn prop_fields(text: &str) -> Result<PropFields, String> {
-    let mut f = PropFields { id: String::new(), frames: 1, fps: 0.0, open: 0, stand: None, by_views: None, views: 0, footprint: false, cover: true, hp: 0.0, broken: false };
+    let mut f = PropFields { id: String::new(), frames: 1, fps: 0.0, open: 0, stand: None, by_views: None, views: 0, footprint: false, clear: Vec::new(), cover: true, hp: 0.0, broken: false };
     for (i, raw) in text.lines().enumerate() {
         let n = i + 1;
         let line = raw.split('#').next().unwrap_or("").trim();
@@ -116,6 +119,8 @@ pub fn prop_fields(text: &str) -> Result<PropFields, String> {
             "cover" => f.cover = yes_no(value).ok_or_else(|| format!("{n}: cover is yes or no"))?,
             "hp" => f.hp = Some(number()?).filter(|v| *v <= MAX_HP).ok_or_else(|| format!("{n}: hp is a number from 0 to {MAX_HP}"))?,
             "broken" => f.broken = yes_no(value).ok_or_else(|| format!("{n}: broken is yes or no"))?,
+            "clear" if !value.is_empty() => f.clear = value.split_whitespace().map(hex).collect::<Option<_>>().ok_or_else(|| format!("{n}: clear lists colors such as 5A6E3C"))?,
+            "clear" => return Err(format!("{n}: clear lists colors such as 5A6E3C, without a #")),
             _ => return Err(format!("{n}: {key} isn't something a prop says")),
         }
     }
@@ -165,6 +170,9 @@ pub fn prop_text(f: &PropFields) -> String {
     if f.broken {
         s += "broken yes\n";
     }
+    if !f.clear.is_empty() {
+        s += &format!("clear {}\n", f.clear.iter().map(|[r, g, b]| format!("{r:02X}{g:02X}{b:02X}")).collect::<Vec<_>>().join(" "));
+    }
     s
 }
 
@@ -174,6 +182,13 @@ pub fn turned_depth(text: &str) -> Option<Option<f32>> {
         "" => Some(None),
         n => n.parse::<f32>().ok().filter(|d| (1.0..=64.0).contains(d)).map(Some),
     }
+}
+
+/// A color from `5A6E3C`.
+fn hex(t: &str) -> Option<[u8; 3]> {
+    let byte = |i: usize| t.get(i..i + 2).and_then(|h| u8::from_str_radix(h, 16).ok());
+    (t.len() == 6).then_some(())?;
+    Some([byte(0)?, byte(2)?, byte(4)?])
 }
 
 fn yes_no(word: &str) -> Option<bool> {
@@ -270,18 +285,18 @@ pub(crate) fn named_of(art: Art) -> Option<Named> {
 /// packer does; returns a line for each left out. Once a run: the sprites it adds can't be added again.
 pub fn load_for_checks(props: &[Card]) -> Vec<String> {
     let mut atlas = vec![0u8; (ATLAS_W * crate::art::ATLAS_H * 4) as usize];
-    let (notes, rects, named) = pack(props, &mut atlas, &mut super::enemies::start(), crate::art::RECTS.len());
+    let (notes, rects, named, _) = pack(props, &mut atlas, &mut super::enemies::start(), crate::art::RECTS.len());
     crate::art::set_added(rects);
     set_props(named);
     notes
 }
 
 /// A line for each prop left out, the rects drawn, and the props drawn with their arts.
-type Packed = (Vec<String>, Vec<[u16; 4]>, Vec<(PropFields, Vec<Art>)>);
+type Packed = (Vec<String>, Vec<[u16; 4]>, Vec<(PropFields, Vec<Art>)>, Vec<(Art, Art)>);
 
 /// Draws each prop's frames into the texture's free rows from `cursor` on, numbered from `first`.
 pub(super) fn pack(cards: &[Card], atlas: &mut [u8], cursor: &mut [u16; 3], first: usize) -> Packed {
-    let (mut notes, mut rects, mut kept) = (Vec::new(), Vec::new(), Vec::new());
+    let (mut notes, mut rects, mut kept, mut solids) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     for card in cards {
         let mut fields = match prop_fields(&card.text) {
             Ok(f) => f,
@@ -300,11 +315,15 @@ pub(super) fn pack(cards: &[Card], atlas: &mut [u8], cursor: &mut [u16; 3], firs
             notes.push(format!("{}: another prop is [{}] too", card.name, fields.id));
             continue;
         }
-        // Each picture as its top-left in the sheet and its size: the frames and footprint, then the views.
+        // Each picture as its top-left in the sheet and its size: the frames and footprint, then the views, then
+        // the frames again for the 3D view, without the colors it clears.
         let mut pictures: Vec<[u32; 4]> = (0..fields.cells()).map(|k| [k * fw, 0, fw, fh]).collect();
         if vh > 0 {
             pictures.extend([[0, fh, fw, vh], [fw, fh, fh, vh]]);
         }
+        let copies = if fields.clear.is_empty() { 0 } else { fields.frames as usize };
+        let plain = pictures.len();
+        pictures.extend((0..copies as u32).map(|k| [k * fw, 0, fw, fh]));
         let mut try_cursor = *cursor;
         let Some(spots) = pictures.iter().map(|p| super::enemies::place(&mut try_cursor, [p[2] as u16, p[3] as u16])).collect::<Option<Vec<_>>>() else {
             notes.push(format!("{}: no room left in the sprite texture", card.name));
@@ -312,30 +331,47 @@ pub(super) fn pack(cards: &[Card], atlas: &mut [u8], cursor: &mut [u16; 3], firs
         };
         *cursor = try_cursor;
         let mut arts = Vec::new();
-        for ([sx, sy, w, h], [x, y]) in pictures.into_iter().zip(spots) {
+        for (k, ([sx, sy, w, h], [x, y])) in pictures.into_iter().zip(spots).enumerate() {
             for py in 0..h {
                 for px in 0..w {
                     let s = (((sy + py) * sw + sx + px) * 4) as usize;
                     let d = (((y as u32 + py) * ATLAS_W + x as u32 + px) * 4) as usize;
                     let p = &card.sheet[s..s + 4];
-                    atlas[d..d + 4].copy_from_slice(&if p[3] >= 128 { [p[0], p[1], p[2], 255] } else { [0; 4] });
+                    let cleared = k >= plain && fields.clear.contains(&[p[0], p[1], p[2]]);
+                    atlas[d..d + 4].copy_from_slice(&if p[3] >= 128 && !cleared { [p[0], p[1], p[2], 255] } else { [0; 4] });
                 }
             }
             arts.push(Art((first + rects.len()) as u16));
             rects.push([x, y, w as u16, h as u16]);
         }
+        let in_3d = arts.split_off(plain);
+        solids.extend(arts.iter().copied().zip(in_3d));
         let views = arts.split_off(fields.frames as usize);
         if let [.., south, east] = views[..] {
             fields.stand_by(south, east, views.first().copied().filter(|_| views.len() == 3));
         }
         kept.push((fields, arts));
     }
-    (notes, rects, kept)
+    (notes, rects, kept, solids)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_prop_packs_a_3d_copy_without_the_colors_it_clears() {
+        let fields = prop_fields("[ash]\nframes 2\nclear FFFFFF").unwrap();
+        assert_eq!(prop_fields(&prop_text(&fields)).unwrap().clear, [[255, 255, 255]]);
+        assert!(prop_fields("[ash]\nclear #FFFFFF").unwrap_err().contains("without a #"), "a # starts a comment");
+        let card = Card { name: "ash.prop.png".into(), text: prop_text(&fields), frame: [2, 2], sheet: vec![255; 2 * 2 * 2 * 4] };
+        let mut atlas = vec![0u8; (ATLAS_W * crate::art::ATLAS_H * 4) as usize];
+        let (notes, rects, kept, solids) = pack(&[card], &mut atlas, &mut super::super::enemies::start(), 0);
+        assert!(notes.is_empty(), "{notes:?}");
+        assert_eq!((kept[0].1.len(), solids.len()), (2, 2), "each frame has its copy");
+        let alpha = |a: Art| atlas[((rects[a.0 as usize][1] as u32 * ATLAS_W + rects[a.0 as usize][0] as u32) * 4 + 3) as usize];
+        assert_eq!((alpha(solids[0].0), alpha(solids[0].1)), (255, 0), "white stays in 2D and goes in 3D");
+    }
 
     #[test]
     fn a_turned_prop_packs_its_east_view_to_stand_up() {
@@ -344,7 +380,7 @@ mod tests {
         let sw = fields.sheet_w(fw, fh);
         let card = Card { name: "post.prop.png".into(), text: prop_text(&fields), frame: [fw, fh], sheet: vec![255; (sw * (fh + vh) * 4) as usize] };
         let mut atlas = vec![0u8; (ATLAS_W * crate::art::ATLAS_H * 4) as usize];
-        let (notes, rects, kept) = pack(&[card], &mut atlas, &mut super::super::enemies::start(), 0);
+        let (notes, rects, kept, _) = pack(&[card], &mut atlas, &mut super::super::enemies::start(), 0);
         assert!(notes.is_empty(), "{notes:?}");
         assert_eq!(rects.iter().map(|r| [r[2], r[3]]).collect::<Vec<_>>(), [[4, 3], [4, 5], [3, 5]], "the frame, then the south and east views");
         assert_eq!(kept[0].1, [Art(0)]);
@@ -357,7 +393,7 @@ mod tests {
     #[test]
     fn a_prop_reads_and_writes_its_text() {
         let f = prop_fields("[rusty_tank]\nframes 2\nfps 4\nopen 1\nstand slab 6\ncover no\nhp 40\nbroken yes\n").unwrap();
-        assert_eq!(f, PropFields { id: "rusty_tank".into(), frames: 2, fps: 4.0, open: 1, stand: Some(Stand::Slab { height: 6.0, lift: 0.0 }), by_views: None, views: 0, footprint: false, cover: false, hp: 40.0, broken: true });
+        assert_eq!(f, PropFields { id: "rusty_tank".into(), frames: 2, fps: 4.0, open: 1, stand: Some(Stand::Slab { height: 6.0, lift: 0.0 }), by_views: None, views: 0, footprint: false, clear: Vec::new(), cover: false, hp: 40.0, broken: true });
         assert_eq!(prop_fields(&prop_text(&f)).unwrap(), f);
         assert_eq!(prop_text(&prop_fields("[a]").unwrap()), "[a]\n", "defaults stay out");
         assert!(prop_fields("frames 2").unwrap_err().contains("[id]"));
@@ -409,7 +445,7 @@ mod tests {
         let mut atlas = vec![0u8; (crate::art::ATLAS_W * crate::art::ATLAS_H * 4) as usize];
         let card = |name: &str, text: &str, frame: [u32; 2], n: u32| Card { name: name.into(), text: text.into(), frame, sheet: vec![255; (frame[0] * n * frame[1] * 4) as usize] };
         let cards = [card("a.prop.png", "[a]\nframes 2", [20, 10], 2), card("b.prop.png", "[a]", [8, 8], 1), card("c.prop.png", "[c]\nframes 3", [8, 8], 2)];
-        let (notes, rects, kept) = pack(&cards, &mut atlas, &mut super::super::enemies::start(), 100);
+        let (notes, rects, kept, _) = pack(&cards, &mut atlas, &mut super::super::enemies::start(), 100);
         assert_eq!(kept.len(), 1);
         assert_eq!(kept[0].1, vec![Art(100), Art(101)]);
         assert_eq!(rects.len(), 2);

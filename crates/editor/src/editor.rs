@@ -1042,7 +1042,7 @@ impl Editor {
         let (x, y) = cell(5);
         push(x, y, 74.0, 32.0, Action::Mirror, "Mirror M", self.mirror);
         push(SIDE_X + 128.0, 192.0, 50.0, 26.0, Action::ClearColor, "Erase", false);
-        if !self.is_card() && !self.is_prop() {
+        if !self.is_card() {
             push(SIDE_X + 182.0, 192.0, 50.0, 26.0, Action::ClearIn3d, "No 3D", self.sprite.clear_in_3d.contains(&self.color));
         }
         for (i, (t, l)) in [(Tool::Line, "Line"), (Tool::Rect, "Box"), (Tool::Ellipse, "Oval")].into_iter().enumerate() {
@@ -1622,7 +1622,7 @@ impl Editor {
             Action::Generate => self.generate_part(),
             Action::ClearPart => self.clear_part(),
             Action::ClearColor => self.clear_color(),
-            Action::ClearIn3d if self.is_card() || self.is_prop() => self.say("Cards and props keep every color in 3D for now"),
+            Action::ClearIn3d if self.is_card() => self.say("A card stands as a figure, which keeps every color"),
             Action::ClearIn3d => self.clear_in_3d(),
             Action::Stats => {
                 self.stats = !self.stats;

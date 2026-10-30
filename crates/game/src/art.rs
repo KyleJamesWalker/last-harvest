@@ -20,6 +20,13 @@ fn added() -> &'static [[u16; 4]] {
     ADDED.get().map_or(&[], Vec::as_slice)
 }
 
+/// Added sprites paired with the copies the 3D view stands up in their place, as `Art::solid` says.
+static ADDED_SOLIDS: OnceLock<Vec<(Art, Art)>> = OnceLock::new();
+
+pub(crate) fn set_added_solids(solids: Vec<(Art, Art)>) {
+    ADDED_SOLIDS.set(solids).ok();
+}
+
 /// Sets the added sprites' rects; the texture the game reads must already hold their pixels.
 pub(crate) fn set_added(rects: Vec<[u16; 4]>) {
     ADDED.set(rects).ok();
@@ -111,7 +118,10 @@ impl Art {
         if self.is_live() {
             return LIVE.read().unwrap().solids.iter().find(|(a, _)| *a == self).map_or(self, |&(_, s)| s);
         }
-        SOLIDS.get(self.0 as usize).copied().flatten().unwrap_or(self)
+        match SOLIDS.get(self.0 as usize) {
+            Some(s) => s.unwrap_or(self),
+            None => ADDED_SOLIDS.get().and_then(|v| v.iter().find(|(a, _)| *a == self)).map_or(self, |&(_, s)| s),
+        }
     }
 
     /// Whether the editor added this sprite while running.

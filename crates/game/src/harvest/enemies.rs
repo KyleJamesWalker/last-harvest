@@ -388,7 +388,8 @@ pub(crate) fn install_cards(cards: &[Card], players: &[Card], props: &[Card], ba
     let (more, player_rects, looks) = super::players::pack(players, atlas, &mut cursor, art::RECTS.len() + rects.len());
     notes.extend(more);
     rects.extend(player_rects);
-    let (more, prop_rects, named) = super::props::pack(props, atlas, &mut cursor, art::RECTS.len() + rects.len());
+    let (more, prop_rects, named, solids) = super::props::pack(props, atlas, &mut cursor, art::RECTS.len() + rects.len());
+    art::set_added_solids(solids);
     notes.extend(more);
     rects.extend(prop_rects);
     super::props::set_props(named);
