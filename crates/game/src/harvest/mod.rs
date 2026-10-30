@@ -24,7 +24,7 @@ pub use props::{MAX_FRAME as PROP_MAX_FRAME, MAX_FRAMES as PROP_MAX_FRAMES, Name
 pub(crate) use props::stand_of;
 pub use map::{default_depth as default_prop_depth, ground_codes as map_ground, MAP_EXTENSION, MAP_MAX, MAP_MIN, MAX_HP as PROP_MAX_HP, MapSource, map_props, parse_props, PropKind, PropLine, Tough as PropTough, check_map, valid_map_id};
 pub use enemies::{ABOUT_MAX, MAX_WALK, flash_pixel, frame_limits, hurt_pixel};
-pub use players::{ID_MAX as PLAYER_ID_MAX, PlayerFields, PlayerLook, default_start, looks as player_looks, player_fields, set_player_start, weapon_slots, weapons};
+pub use players::{BASE_KEYS as PLAYER_BASE_KEYS, ID_MAX as PLAYER_ID_MAX, PlayerFields, PlayerLook, default_start, looks as player_looks, player_fields, set_player_start, weapon_slots, weapons};
 pub use enemies::{CardFields, FLAGS as CARD_FLAGS, NUMBERS as CARD_NUMBERS, SpawnMix, card_fields, set_card_field, spawn_mix};
 use juice::{Corpse, Juice, Particle, Tone};
 use map::{Map, TILE};
@@ -818,9 +818,13 @@ impl Harvest {
     /// Comes after `at`, since the look may start the run with its own weapons for that difficulty.
     pub fn looking_like(self, id: &str) -> Self {
         let mine = players::look(id);
-        let kit = mine.start_defs(self.difficulty).map(|defs| Kit::with_weapons(&defs));
-        let (hp, grenades) = kit.as_ref().map_or((self.hp, self.grenades), |k| (k.max_hp(), k.grenades()));
-        Self { look: mine.id.clone(), kit: kit.unwrap_or(self.kit), hp, grenades, ..self }
+        let own = mine.start_defs(self.difficulty).map(|defs| Kit::with_weapons(&defs));
+        let grenades = own.as_ref().map_or(self.grenades, Kit::grenades);
+        let mut kit = own.unwrap_or(self.kit);
+        for (b, theirs) in kit.base.iter_mut().zip(mine.base) {
+            *b = theirs.unwrap_or(*b);
+        }
+        Self { look: mine.id.clone(), hp: kit.max_hp(), kit, grenades, ..self }
     }
 
     #[cfg(test)]

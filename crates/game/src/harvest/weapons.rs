@@ -142,6 +142,8 @@ pub(super) struct Kit {
     pub weapons: Vec<Armed>,
     pub passives: Vec<(usize, u32)>,
     pub mods: Mods,
+    /// The health, speed and magnet the player has before upgrades: their card's, else tuning.txt's.
+    pub base: [f32; 3],
 }
 
 impl Kit {
@@ -153,7 +155,8 @@ impl Kit {
     /// A kit carrying these weapons at level 1, and nothing else.
     pub fn with_weapons(defs: &[usize]) -> Self {
         let weapons = defs.iter().map(|&def| Armed { def, level: 1, cd: 0.5, phase: 0.0 }).collect();
-        Self { weapons, passives: Vec::new(), mods: Mods::of(&[]) }
+        let t = crate::tuning::tuning();
+        Self { weapons, passives: Vec::new(), mods: Mods::of(&[]), base: [t.player_hp, t.player_speed, t.player_magnet] }
     }
 
     pub fn level(&self, def: usize) -> u32 {
@@ -197,15 +200,15 @@ impl Kit {
     }
 
     pub fn max_hp(&self) -> f32 {
-        crate::tuning::tuning().player_hp + self.mods.max_hp
+        self.base[0] + self.mods.max_hp
     }
 
     pub fn speed(&self) -> f32 {
-        crate::tuning::tuning().player_speed * self.mods.speed
+        self.base[1] * self.mods.speed
     }
 
     pub fn magnet(&self) -> f32 {
-        crate::tuning::tuning().player_magnet * self.mods.magnet
+        self.base[2] * self.mods.magnet
     }
 
     pub fn grenades(&self) -> f32 {

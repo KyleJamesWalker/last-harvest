@@ -363,6 +363,11 @@ impl Editor {
             let how = if fields.start[d].is_some() { "starts with" } else { "starts as the game does, with" };
             c.label(format!("{} {how}", difficulty.name()), x, top + 4.0, 16.0, DIM, Align::Left);
         }
+        let t = last_harvest_game::tuning::tuning();
+        for (i, (label, own)) in [("Health", t.player_hp), ("Speed", t.player_speed), ("Magnet", t.player_magnet)].into_iter().enumerate() {
+            let (v, ink) = fields.base[i].map_or((own, DIM), |v| (v, TEXT));
+            c.label(format!("{label} {v}"), x + i as f32 * 180.0, BASE_Y + 5.0, 16.0, ink, Align::Left);
+        }
         let note = format!("Toggle up to {} weapons a run starts with; Default keeps the game's own", last_harvest_game::weapon_slots());
         c.label(note, x, CANVAS.y + CANVAS.h - 22.0, 13.0, DIM, Align::Left);
     }

@@ -21,6 +21,7 @@ pub struct PlayerLook {
     /// The weapons a run starts with at each difficulty, by id; None keeps the game's. Ids, since the powerup
     /// table can't be read while the cards install.
     pub(crate) start: [Option<Vec<String>>; 3],
+    pub(crate) base: [Option<f32>; 3],
 }
 
 /// What a player card's text says: its id, name and about, and the weapons it starts with at each difficulty, by id;
@@ -32,7 +33,12 @@ pub struct PlayerFields {
     /// Empty when the card has no `about`.
     pub about: String,
     pub start: [Option<Vec<String>>; 3],
+    /// Health, speed and magnet before upgrades, where the card sets them over tuning.txt's.
+    pub base: [Option<f32>; 3],
 }
+
+/// The numbers a player card can set over tuning.txt's, by key, in the order of `PlayerFields::base`.
+pub const BASE_KEYS: [&str; 3] = ["hp", "speed", "magnet"];
 
 /// Every weapon a player card can start with, by id and name.
 pub fn weapons() -> Vec<(String, String)> {
@@ -68,7 +74,7 @@ static LOOKS: OnceLock<Vec<PlayerLook>> = OnceLock::new();
 
 fn farmer() -> PlayerLook {
     let about = "Up before dawn every day of the year; tonight, dawn is the hard part.".into();
-    PlayerLook { id: String::new(), name: "Farmer".into(), about, look: super::player_look(), start: Default::default() }
+    PlayerLook { id: String::new(), name: "Farmer".into(), about, look: super::player_look(), start: Default::default(), base: [None; 3] }
 }
 
 /// The looks to choose from: the farmer first, then the player cards.
@@ -118,6 +124,7 @@ pub fn player_fields(text: &str) -> Result<PlayerFields, String> {
 fn parse(text: &str, check: bool) -> Result<PlayerFields, String> {
     let (mut id, mut name, mut start): (Option<String>, Option<String>, [Option<Vec<String>>; 3]) = (None, None, Default::default());
     let mut about = String::new();
+    let mut base = [None; 3];
     for (i, raw) in text.lines().enumerate() {
         let line = raw.split('#').next().unwrap_or("").trim();
         if line.is_empty() {
@@ -141,7 +148,11 @@ fn parse(text: &str, check: bool) -> Result<PlayerFields, String> {
                 }
                 start[d as usize] = Some(weapons.iter().map(|w| w.to_string()).collect());
             }
-            _ => return Err(format!("line {n}: a player card has its [id], a name, an about and start lines, nothing else")),
+            (None, [key, v]) if id.is_some() && BASE_KEYS.contains(key) => {
+                let at = BASE_KEYS.iter().position(|k| k == key).unwrap_or(0);
+                base[at] = Some(v.parse::<f32>().ok().filter(|v| v.is_finite() && *v > 0.0 && *v <= 1000.0).ok_or_else(|| format!("line {n}: {key} is a number above 0, up to 1000"))?);
+            }
+            _ => return Err(format!("line {n}: a player card has its [id], a name, an about, start lines and hp, speed and magnet, nothing else")),
         }
     }
     let id = id.ok_or("a player card starts with its [id]")?;
@@ -149,7 +160,7 @@ fn parse(text: &str, check: bool) -> Result<PlayerFields, String> {
         return Err(format!("[{id}]: a player card's id is 1 to {ID_MAX} of a-z, 0-9 and _"));
     }
     let name = name.unwrap_or_else(|| id.clone());
-    Ok(PlayerFields { id, name, about, start })
+    Ok(PlayerFields { id, name, about, start, base })
 }
 
 /// The player cards' looks with their frames drawn into `atlas` from `cursor` on, numbered from `first`, the rects
@@ -157,7 +168,7 @@ fn parse(text: &str, check: bool) -> Result<PlayerFields, String> {
 pub(super) fn pack(cards: &[Card], atlas: &mut [u8], cursor: &mut [u16; 3], first: usize) -> (Vec<String>, Vec<[u16; 4]>, Vec<PlayerLook>) {
     let (mut notes, mut rects, mut looks): (Vec<String>, Vec<[u16; 4]>, Vec<PlayerLook>) = (Vec::new(), Vec::new(), Vec::new());
     for card in cards {
-        let PlayerFields { id, name, about, start } = match parse(&card.text, false) {
+        let PlayerFields { id, name, about, start, base } = match parse(&card.text, false) {
             Ok(f) => f,
             Err(e) => {
                 notes.push(format!("{}: {e}", card.name));
@@ -188,7 +199,7 @@ pub(super) fn pack(cards: &[Card], atlas: &mut [u8], cursor: &mut [u16; 3], firs
         }
         let art = |k: usize| Art((at + k) as u16);
         let look = Look { walk: std::array::from_fn(|f| (f * 3..f * 3 + 3).map(art).collect()), flash: [art(9), art(10), art(11)], hurt: [art(12), art(13), art(14)], dead: (rows == 6).then(|| [art(15), art(16), art(17)]) };
-        looks.push(PlayerLook { id, name, about, look, start });
+        looks.push(PlayerLook { id, name, about, look, start, base });
     }
     (notes, rects, looks)
 }
@@ -206,7 +217,9 @@ mod tests {
         assert_eq!(player_fields("# mine\n[jo]").unwrap().name, "jo");
         assert!(player_fields("[jo]\nstart normal heal").is_err(), "only weapons");
         assert!(player_fields("[jo]\nstart nightmare knife").is_err());
-        assert!(player_fields("[jo]\nhp 5").is_err());
+        assert_eq!(player_fields("[jo]\nhp 120\nspeed 60").unwrap().base, [Some(120.0), Some(60.0), None]);
+        assert!(player_fields("[jo]\nhp 0").err().unwrap().starts_with("line 2: hp"));
+        assert!(player_fields("[jo]\nwings 2").is_err());
         assert!(player_fields("[Jo!]").is_err());
         assert!(player_fields("name Jo").is_err());
         assert_eq!(player_fields("[jo]\nabout Up with the sun.").unwrap().about, "Up with the sun.");
@@ -231,7 +244,7 @@ mod tests {
     #[test]
     fn a_start_keeps_each_weapon_once_and_only_weapons() {
         let start = Some(vec!["pistol".into(), "pistol".into(), "heal".into(), "knife".into(), "nope".into()]);
-        let jo = PlayerLook { id: "jo".into(), name: "Jo".into(), about: String::new(), look: super::super::player_look(), start: [None, start, None] };
+        let jo = PlayerLook { id: "jo".into(), name: "Jo".into(), about: String::new(), look: super::super::player_look(), start: [None, start, None], base: [None; 3] };
         assert_eq!(jo.start_names(Difficulty::Normal), ["Pistol", "Knife"]);
     }
 
@@ -246,7 +259,7 @@ mod tests {
         let mut atlas = vec![0u8; (ATLAS_W * ATLAS_H * 4) as usize];
         let card = |text: &str| Card { name: "p.player.png".into(), text: text.into(), frame: [8, 8], sheet: vec![255; 3 * 8 * 5 * 8 * 4] };
         let mut cursor = super::super::enemies::start();
-        let (notes, rects, looks) = pack(&[card("[jo]\nname Jo\nabout Calm."), card("[jo]"), card("[x]\nhp 1")], &mut atlas, &mut cursor, 500);
+        let (notes, rects, looks) = pack(&[card("[jo]\nname Jo\nabout Calm."), card("[jo]"), card("[x]\nwings 1")], &mut atlas, &mut cursor, 500);
         assert_eq!(notes.len(), 2, "{notes:?}");
         assert_eq!(looks[0].about, "Calm.");
         assert_eq!((rects.len(), looks.len()), (15, 1));

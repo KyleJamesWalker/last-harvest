@@ -242,6 +242,8 @@ enum Action {
     Open(i32),
     /// Opens the data page section that says how the open sprite plays.
     Data,
+    /// Steps a player card's health, speed or magnet down or up.
+    PlayerBase(usize, i32),
     /// Steps which frame the map's selected prop shows, through each one and back to all of them animating.
     LineFrame(i32),
     /// Steps how fast the map's selected prop animates; 0 keeps its sprite's own pace.
@@ -277,9 +279,13 @@ const NAME_MAX: usize = 24;
 const DELETE_CONFIRM: f32 = 3.0;
 /// A player card's stats: a block per difficulty with its weapon toggles, five across.
 const START_TOP: f32 = CANVAS.y + 100.0;
-const START_BLOCK: f32 = 142.0;
+const START_BLOCK: f32 = 126.0;
 const START_ACROSS: usize = 5;
-const START_ROW: f32 = 28.0;
+const START_ROW: f32 = 24.0;
+/// A player card's health, speed and magnet, under its starting weapons.
+const BASE_Y: f32 = START_TOP + 3.0 * START_BLOCK + 4.0;
+/// How far a press of - or + moves a player card's health, speed and magnet.
+const BASE_STEPS: [f32; 3] = [5.0, 2.0, 2.0];
 
 struct Button {
     rect: Rect,
@@ -994,8 +1000,13 @@ impl Editor {
                 for (w, (id, label)) in cards::weapon_labels().into_iter().enumerate() {
                     let (col, row) = (w % START_ACROSS, w / START_ACROSS);
                     let on = have.contains(&id);
-                    push(CANVAS.x + 20.0 + col as f32 * 104.0, top + 30.0 + row as f32 * START_ROW, 100.0, 26.0, Action::StartWeapon(d, w), &label, on);
+                    push(CANVAS.x + 20.0 + col as f32 * 104.0, top + 30.0 + row as f32 * START_ROW, 100.0, 22.0, Action::StartWeapon(d, w), &label, on);
                 }
+            }
+            for i in 0..3 {
+                let x = CANVAS.x + 20.0 + i as f32 * 180.0;
+                push(x + 100.0, BASE_Y, 34.0, 26.0, Action::PlayerBase(i, -1), "-", false);
+                push(x + 138.0, BASE_Y, 34.0, 26.0, Action::PlayerBase(i, 1), "+", false);
             }
         } else if self.stats {
             self.line_buttons(&mut push);
@@ -1532,6 +1543,14 @@ impl Editor {
             Action::MapTool(_) | Action::Ground(_) | Action::PickProp(_) | Action::PickPage(_) | Action::Picket(_) | Action::MapSize(..) | Action::Randomize | Action::MapFit | Action::PropDefaults => {}
             Action::DataStep(..) | Action::DataEdit(_) | Action::DataRemove(_) | Action::DataAdd | Action::DataPage(_) => {}
             Action::LineFrame(_) | Action::LineFps(_) => {}
+            Action::PlayerBase(i, d) => {
+                let t = last_harvest_game::tuning::tuning();
+                let own = [t.player_hp, t.player_speed, t.player_magnet][i];
+                let now = last_harvest_game::player_fields(self.sprite.card.as_deref().unwrap_or("")).ok().and_then(|f| f.base[i]).unwrap_or(own);
+                let next = (now + BASE_STEPS[i] * (d * step) as f32).clamp(1.0, 1000.0);
+                let value = (next != own).then(|| next.to_string());
+                self.set_card(last_harvest_game::PLAYER_BASE_KEYS[i], value.as_deref());
+            }
             Action::Data => {
                 if let Some(name) = self.data_link.clone() {
                     self.switch_to(name);
@@ -3015,12 +3034,16 @@ mod tests {
         e.act(Action::EditAbout, false);
         type_in(&mut e, "Up with the sun.");
         e.key(Key::Enter);
+        e.act(Action::PlayerBase(0, 1), false);
+        e.act(Action::PlayerBase(1, 1), false);
+        e.act(Action::PlayerBase(1, -1), false);
         e.draw(&mut Canvas::default());
         e.act(Action::Save, false);
         let path = dir.join("players/jo.player.png");
         let saved = last_harvest_pack::card::read_as(sprite::CardKind::Player, "jo", &std::fs::read(path).unwrap()).unwrap();
         let f = last_harvest_game::player_fields(&saved.text).unwrap();
         assert_eq!(f.about, "Up with the sun.");
+        assert_eq!(f.base, [Some(last_harvest_game::tuning::tuning().player_hp + 5.0), None, None], "back at the game's own, a number leaves the card");
         assert_eq!(f.start, [None, Some(vec!["knife".into(), "crows".into()]), None], "Normal adds crows to the game's knife; Hard went back to the default");
         let e = Editor::new(Box::new(store()), "");
         assert!(e.names.iter().any(|(n, _)| n == "PLAYER_CARD_JO_HURT"));
