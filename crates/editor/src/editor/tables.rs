@@ -206,7 +206,7 @@ impl Editor {
             };
             c.label(value, CANVAS.x + 150.0, y + 2.0, 18.0, if typed.is_some() { HOT } else { TEXT }, Align::Left);
             if !e.comment.is_empty() {
-                let note: String = e.comment.chars().take(52).collect();
+                let note: String = e.comment.chars().take(38).collect();
                 c.label(note, CANVAS.x + 150.0, y + 21.0, 12.0, DIM, Align::Left);
             }
         }

@@ -2669,6 +2669,16 @@ fn stamp(f: &mut Frame, top: &Frame, x: i32, y: i32) {
 /// How the list shows a sprite: a card's part without the prefix its heading already gives, its id cut short to fit.
 fn list_label(name: &str) -> String {
     const ROOM: usize = 16;
+    // Under its file's heading, a data section shows by its own name; a ground code by its character.
+    if let Some(rest) = name.strip_prefix(sprite::DATA_PREFIX) {
+        let (file, section) = rest.split_once('_').unwrap_or((rest, ""));
+        return match section {
+            "" => "(top of the file)".to_string(),
+            s if file == "GROUND" && s.len() == 1 => format!("[{}]", s.to_ascii_lowercase()),
+            s if s.len() == 3 && s.starts_with('_') => u8::from_str_radix(&s[1..], 16).map_or(s.to_string(), |c| format!("[{}]", c as char)),
+            s => s.to_string(),
+        };
+    }
     let Some((id, row)) = sprite::card_part(name) else { return name.to_string() };
     let (id, part) = (id.to_ascii_uppercase(), sprite::CARD_PARTS[row]);
     if id.len() + 1 + part.len() <= ROOM {
