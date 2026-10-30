@@ -215,11 +215,21 @@ pub fn check_own_table(file: &str, text: &str) -> Result<(), String> {
             None => Ok(()),
         },
         "farm.txt" => {
-            let mut scatter = false;
+            let mut section = "";
             for line in text.lines().map(|l| l.split('#').next().unwrap_or("").trim()).filter(|l| !l.is_empty()) {
                 if let Some(s) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
-                    scatter = s == "scatter";
-                } else if let Some(name) = line.split_whitespace().next().filter(|n| scatter && missing(n)) {
+                    section = s;
+                    continue;
+                }
+                let words: Vec<&str> = line.split_whitespace().collect();
+                let names = match (section, &words[..]) {
+                    ("farm", _) => &[][..],
+                    ("scatter", [name, ..]) => std::slice::from_ref(name),
+                    (_, ["sprites", names @ ..]) => names,
+                    (_, ["near", name, _, ..]) => std::slice::from_ref(name),
+                    _ => &[][..],
+                };
+                if let Some(name) = names.iter().find(|n| missing(n)) {
                     return Err(format!("{file}: no sprite called {name} in art.txt"));
                 }
             }
@@ -2068,6 +2078,11 @@ mod tests {
         assert_eq!(check_own_table("effects.txt", &effects), Err("effects.txt: no sprite called NOPE in art.txt".into()));
         let farm = built_in_table("farm.txt").unwrap().replace("BUSH 140", "PROP_MINE 140");
         assert!(check_table("farm.txt", &farm).is_ok() && check_own_table("farm.txt", &farm).is_err(), "only a mod's farm strews its props");
+        for (from, to) in [("sprites BARN_RED", "sprites PROP_MINE"), ("near HAY 7", "near PROP_MINE 7")] {
+            let farm = built_in_table("farm.txt").unwrap().replace(from, to);
+            assert!(check_table("farm.txt", &farm).is_ok() && check_own_table("farm.txt", &farm).is_err(), "only a mod's farm builds with its props");
+        }
+        assert!(check_own_table("farm.txt", built_in_table("farm.txt").unwrap()).is_ok());
         let powerups = built_in_table("powerups.txt").unwrap().replacen("unlock    start", "unlock    start\nicon      PROP_MINE", 1);
         assert!(check_table("powerups.txt", &powerups).is_ok() && check_own_table("powerups.txt", &powerups).is_err(), "only a mod's icon can be its prop");
     }

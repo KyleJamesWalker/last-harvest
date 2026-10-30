@@ -104,6 +104,12 @@ fn toughness(a: Art) -> Toughness {
 
 /// Top rows a figure walks through for a sprite the game places: a player's prop's own, else as `props.txt` lists
 /// it.
+/// The tiles of a ground code from `ground.txt`, else of its first.
+fn ground_art(code: u8) -> &'static [Art] {
+    let all = ground::ground();
+    all.iter().find(|g| g.code == code).unwrap_or(&all[0]).art
+}
+
 fn open_of(a: Art) -> usize {
     if let Some(p) = super::props::named_of(a) {
         return p.open;
@@ -190,10 +196,11 @@ fn tiles(px: f32) -> usize {
 
 impl Map {
     pub fn generate(rng: &mut Rng, w: usize, h: usize) -> Self {
-        let tufts = farm::farm().tufts;
+        let f = farm::farm();
+        let (dirt, tufted) = (ground_art(f.ground), ground_art(f.tufted));
         let mut ground = Vec::with_capacity(w * h);
         for _ in 0..w * h {
-            ground.push(if tufts > 0 && rng.below(tufts) == 0 { art::DIRT_TUFTS[rng.below(2)] } else { art::DIRT[rng.below(2)] });
+            ground.push(if f.tufts > 0 && rng.below(f.tufts) == 0 { tufted[rng.below(tufted.len())] } else { dirt[rng.below(dirt.len())] });
         }
         let mut map = Map {
             w,
@@ -215,27 +222,26 @@ impl Map {
         map.border();
         let road = map.road(rng);
         map.gas_station(rng, road);
-        let house = map.place_near(rng, &[art::HOUSE], [w / 2, h / 2], 14, 2);
-        let barn_art: &'static [Art] = if rng.below(2) == 0 { &[art::BARN_RED] } else { &[art::BARN_GREEN] };
-        let barn = map.place_near(rng, barn_art, [w / 2, h / 2], 16, 2);
-        for (spot, door) in [(house, 2), (barn, 2)] {
-            if let Some((x, y, _, bh)) = spot {
-                map.path_to_road(x + door, y + bh, road);
-            }
+        let mut stood = Vec::new();
+        for b in f.buildings.iter().filter(|b| !b.sprites.is_empty()) {
+            let k = if b.sprites.len() > 1 { rng.below(b.sprites.len()) } else { 0 };
+            stood.extend(map.place_near(rng, b.sprites[k], [w / 2, h / 2], b.within, b.margin).map(|spot| (b, spot)));
+        }
+        for &(b, (x, y, _, bh)) in &stood {
+            map.path_to_road(x + b.door, y + bh, road);
         }
         map.autotile_paths();
-        if let Some((x, y, bw, bh)) = barn {
-            let at = [x + bw / 2, y + bh / 2];
-            map.windmill(rng, at);
-            map.place_near(rng, &[art::HAY_STACK], at, 7, 0);
-            map.place_near(rng, &[art::HAY], at, 7, 0);
-            map.place_near(rng, &[art::TRACTOR], at, 8, 0);
+        // The last building's props go down first.
+        for &(b, (x, y, bw, bh)) in stood.iter().rev() {
+            let (middle, step) = ([x + bw / 2, y + bh / 2], [x + b.door, y + bh + 2]);
+            for near in &b.near {
+                match *near {
+                    farm::Near::Windmill => map.windmill(rng, middle),
+                    farm::Near::Graveyard => map.graveyard(rng, middle),
+                    farm::Near::Prop { frames, within, door } => _ = map.place_near(rng, frames, if door { step } else { middle }, within, 0),
+                }
+            }
         }
-        if let Some((x, y, bw, bh)) = house {
-            map.place_near(rng, &[art::MAILBOX], [x + 2, y + bh + 2], 3, 0);
-            map.graveyard(rng, [x + bw / 2, y + bh / 2]);
-        }
-        let f = farm::farm();
         for _ in 0..f.fields + if f.more_fields > 0 { rng.below(f.more_fields) } else { 0 } {
             map.field(rng);
         }
@@ -244,8 +250,8 @@ impl Map {
         map.scatter(rng);
         map.keep_barrels_apart();
         map.spawn = map.find_spawn();
-        map.home = match house.or(barn) {
-            Some((x, y, _, bh)) => [(x + 2) as f32 * TILE + TILE / 2.0, (y + bh) as f32 * TILE + TILE / 2.0],
+        map.home = match stood.first() {
+            Some(&(b, (x, y, _, bh))) => [(x + b.door) as f32 * TILE + TILE / 2.0, (y + bh) as f32 * TILE + TILE / 2.0],
             None => map.spawn,
         };
         map
@@ -771,13 +777,14 @@ impl Map {
                 self.decals.push((a, x as f32 * TILE, y as f32 * TILE));
             }
         }
+        let patch = ground_art(f.patch);
         for _ in 0..per(f.grass) {
             let (cx, cy, r) = (rng.below(self.w) as i32, rng.below(self.h) as i32, rng.below(2) as i32);
             for y in (cy - r).max(1)..(cy + r + 1).min(self.h as i32 - 1) {
                 for x in (cx - r).max(1)..(cx + r + 1).min(self.w as i32 - 1) {
                     let i = self.i(x as usize, y as usize);
                     if (x - cx).pow(2) + (y - cy).pow(2) <= r * r && self.cells[i] == Cell::Open {
-                        self.ground[i] = art::GRASS[rng.below(2)];
+                        self.ground[i] = patch[rng.below(patch.len())];
                     }
                 }
             }

@@ -7,6 +7,9 @@ grass 600       # a small patch of grass for each this many cells
 corpses 300     # a corpse on the ground for each this many cells
 fields 4        # fields at least, each soil, sprouts or corn, some fenced
 more_fields 4   # plus a random number of fields below this; 0 for none
+ground .        # the ground code from ground.txt the farm is laid on; . when left out
+tufted ,        # the code a tufted cell gets; , when left out
+patch g         # the code a grass patch paints; g when left out
 
 # Props strewn anywhere free, in this order: a sprite from art.txt or a player's prop (PROP_<ID>), and N.
 # A sprite with several frames puts down one of them at random.
@@ -21,3 +24,30 @@ BARREL 500
 TANK 1200
 WRECK_H 1200
 SIGN 1200
+
+# The buildings near the middle, in this order, each with a dirt path from its door to the road. The first that
+# stands is home. Any section but [farm] and [scatter] is one, by a name of your own:
+#   sprites NAME ...      the sprites it picks one of at random
+#   within N              how far from the middle it may stand, in tiles
+#   margin N              tiles kept clear around it; 0 when left out
+#   door N                tiles in from its left to its door; 0 when left out
+#   near NAME N [door]    a sprite placed within N tiles of the building's middle, or of the step outside its door
+#   near windmill | near graveyard    the windmill with its fan, or tombstones in a picket fence, by its middle
+# Once every building stands, what goes near each goes down in order, the last building's first.
+[house]
+sprites HOUSE
+within 14
+margin 2
+door 2
+near MAILBOX 3 door
+near graveyard
+
+[barn]
+sprites BARN_RED BARN_GREEN
+within 16
+margin 2
+door 2
+near windmill
+near HAY_STACK 7
+near HAY 7
+near TRACTOR 8
