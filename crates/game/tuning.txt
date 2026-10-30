@@ -10,6 +10,16 @@ pickup 7        # how near the player picks something up
 width 8         # the player's footprint for walls, in pixels
 depth 6
 
+[night]
+length 600      # seconds from dusk to dawn
+dusk_near 200   # zombies rise between these distances from the player at dusk,
+dusk_far 250
+dawn_near 56    # closing to these by dawn
+dawn_far 110
+home 12         # how near the farmhouse's front step counts as home once dawn breaks
+rare 0.12       # chance a level-up card is rare and counts twice
+push 80         # how far a level-up pushes zombies back
+
 [easy]
 damage 0.55     # multiplies the damage zombies deal
 hurt_time 0.7   # seconds a hit leaves the player safe from the next

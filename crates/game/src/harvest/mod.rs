@@ -36,20 +36,26 @@ use weapons::{Bolt, Decoy, Dog, Kit, Patch, Swing};
 const SCALE: f32 = 2.0;
 const VIEW_W: f32 = SCREEN_W / SCALE;
 const VIEW_H: f32 = SCREEN_H / SCALE;
-/// Zombies erupt in a ring around the player, in world pixels: at the fog's edge at dusk,
-/// closing to a few tiles away by dawn.
-const SPAWN_RING_DUSK: [f32; 2] = [200.0, 250.0];
-const SPAWN_RING_DAWN: [f32; 2] = [56.0, 110.0];
 /// Radians per second at full turn.
 const TURN_SPEED: f32 = 2.6;
 /// Seconds for the quick 180-degree turn.
 const SPIN_TIME: f32 = 0.2;
 pub const MAP_SIZE: [usize; 2] = [72, 54];
-const DAWN: f32 = 600.0;
-/// How long a night lasts, in minutes.
-pub const NIGHT_MINUTES: f32 = DAWN / 60.0;
-/// Close enough to the farmhouse's front step to be safe.
-const HOME_RADIUS: f32 = 12.0;
+/// How long a night lasts, in minutes, as `tuning.txt` says.
+pub fn night_minutes() -> f32 {
+    dawn() / 60.0
+}
+
+/// Seconds from dusk to dawn.
+fn dawn() -> f32 {
+    crate::tuning::tuning().night
+}
+
+/// Where zombies rise around the player at dusk and at dawn, nearest and furthest, in world pixels.
+fn spawn_rings() -> ([f32; 2], [f32; 2]) {
+    let t = crate::tuning::tuning();
+    ([t.dusk_near, t.dusk_far], [t.dawn_near, t.dawn_far])
+}
 const MAX_STAINS: usize = 160;
 const FLASH_TIME: f32 = 0.08;
 /// Seconds the ground churns before a zombie breaks out.
@@ -58,12 +64,10 @@ const TELL_TIME: f32 = 0.6;
 const HURT_FRAMES: f32 = 0.18;
 /// Real seconds of slow motion between filling the bar and choosing an upgrade.
 const LEVEL_SLOW: f32 = 0.7;
-const LEVEL_PUSH_RADIUS: f32 = 80.0;
 /// Seconds after a pick before play resumes, so the choice can land.
 const PICK_TIME: f32 = 0.3;
 /// Seconds the upgrade cards ignore input while they slide in.
 const CARDS_IN: f32 = 0.35;
-const RARE_CHANCE: f32 = 0.12;
 /// Seconds into a death: the player drops, sinks into the dirt, then claws back out as one of them.
 const TURN_FALL: f32 = 0.4;
 const TURN_SINK: f32 = 1.2;
@@ -1059,7 +1063,7 @@ impl Harvest {
             self.leveling = 0.0;
             self.phase = Phase::Over { t: 0.0, won: false };
             flow.ended = Some(self.finish(false));
-        } else if self.t >= DAWN && len(sub(self.pos, self.map.home)) < HOME_RADIUS {
+        } else if self.t >= dawn() && len(sub(self.pos, self.map.home)) < crate::tuning::tuning().home {
             sounds.push(Sfx::Dawn);
             // Home: the door shuts and first light burns the dead away.
             for z in std::mem::take(&mut self.zombies) {
@@ -1072,7 +1076,7 @@ impl Harvest {
             flow.rumble = flow.rumble.max(Some(Rumble::Fanfare));
             self.phase = Phase::Over { t: 0.0, won: true };
             flow.ended = Some(self.finish(true));
-        } else if self.t >= DAWN && self.t - dt < DAWN {
+        } else if self.t >= dawn() && self.t - dt < dawn() {
             self.daybreak(sounds, flow);
         } else if self.leveling <= 0.0 && self.xp >= self.next_xp {
             self.level_up(sounds, flow);
@@ -1109,7 +1113,7 @@ impl Harvest {
 
     /// Every second past dawn, every zombie grows by the fury `tuning.txt` sets, the ones still rising too.
     fn grow_fury(&mut self, dt: f32) {
-        if self.t < DAWN {
+        if self.t < dawn() {
             return;
         }
         self.fury_tick += dt;
@@ -1182,7 +1186,7 @@ impl Harvest {
         sounds.push(Sfx::LevelUp);
         flow.rumble = flow.rumble.max(Some(Rumble::Fanfare));
         self.shove(320.0);
-        self.juice.ring(self.pos, LEVEL_PUSH_RADIUS, 0.5, juice::GOLD);
+        self.juice.ring(self.pos, crate::tuning::tuning().push, 0.5, juice::GOLD);
         self.juice.flash(self.pos, 20.0, [1.8, 1.4, 0.6], 9.0, 0.8);
         self.juice.punch += 6.0;
         self.juice.shake(0.3);
@@ -1216,8 +1220,8 @@ impl Harvest {
         for z in &mut self.zombies {
             let d = sub(z.pos, self.pos);
             let l = len(d);
-            if l < LEVEL_PUSH_RADIUS && z.rise >= 1.0 {
-                let k = force * (1.0 - l / LEVEL_PUSH_RADIUS) / z.kind.stats().mass;
+            if l < crate::tuning::tuning().push && z.rise >= 1.0 {
+                let k = force * (1.0 - l / crate::tuning::tuning().push) / z.kind.stats().mass;
                 let a = norm(d);
                 z.push = [a[0] * k, a[1] * k];
                 z.squash = 1.0;
@@ -1232,7 +1236,7 @@ impl Harvest {
         let chest = std::mem::take(&mut self.chest);
         let mut pool: Vec<usize> = (0..b.defs.len()).filter(|&i| self.progress.owns(i) && self.kit.offerable(i)).collect();
         let mut fillers: Vec<usize> = (0..b.defs.len()).filter(|&i| b.defs[i].kind == Card::Filler).collect();
-        let rare = RARE_CHANCE + self.kit.mods.luck;
+        let rare = crate::tuning::tuning().rare + self.kit.mods.luck;
         let mut out = [Choice { up: 0, rare: false, found: false }; 3];
         for slot in &mut out {
             let from = if pool.is_empty() { &mut fillers } else { &mut pool };
@@ -1290,7 +1294,7 @@ impl Harvest {
         self.hp = self.kit.max_hp() * 0.5;
         self.hurt = 2.0;
         self.shove(600.0);
-        self.juice.ring(self.pos, LEVEL_PUSH_RADIUS, 0.6, [0.4, 1.0, 0.5]);
+        self.juice.ring(self.pos, crate::tuning::tuning().push, 0.6, [0.4, 1.0, 0.5]);
         self.juice.flash(self.pos, 20.0, [0.6, 1.8, 0.7], 9.0, 0.8);
         self.juice.shake(0.4);
         self.juice.banner("THE VACCINE HOLDS", [0.5, 1.0, 0.55, 1.0], 2.4);
@@ -1830,7 +1834,7 @@ impl Harvest {
             self.juice.ring(self.pos, spawn_ring(self.t)[0], 1.6, [0.85, 0.2, 0.15]);
         }
 
-        let night = (1.0 - self.t / DAWN).max(0.0);
+        let night = (1.0 - self.t / dawn()).max(0.0);
         let fireflies = self.juice.particles.iter().filter(|p| p.wander).count();
         if (fireflies as f32) < 4.0 + 14.0 * night && self.juice.rng.range(0.0, 1.0) < dt * 4.0 {
             let a = self.juice.rng.range(0.0, TAU);
@@ -1926,7 +1930,7 @@ impl Harvest {
             return 0.0;
         }
         let close = self.zombies.iter().filter(|z| len(sub(z.pos, self.pos)) < 90.0).count() as f32;
-        (0.25 + 0.35 * self.t / DAWN + close / 40.0).min(1.0)
+        (0.25 + 0.35 * self.t / dawn() + close / 40.0).min(1.0)
     }
 
     /// Top-left of the view in world pixels, rounded to whole screen pixels.
@@ -1986,8 +1990,8 @@ const MINUTE_LINES: [&str; 9] = [
 
 /// Where zombies erupt `t` seconds into the night.
 fn spawn_ring(t: f32) -> [f32; 2] {
-    let k = (t / DAWN).clamp(0.0, 1.0);
-    [0, 1].map(|i| SPAWN_RING_DUSK[i] + (SPAWN_RING_DAWN[i] - SPAWN_RING_DUSK[i]) * k)
+    let k = (t / dawn()).clamp(0.0, 1.0);
+    [0, 1].map(|i| spawn_rings().0[i] + (spawn_rings().1[i] - spawn_rings().0[i]) * k)
 }
 
 fn clock(t: f32) -> String {
@@ -2203,9 +2207,9 @@ mod tests {
 
     #[test]
     fn the_spawn_ring_closes_in_toward_dawn() {
-        assert_eq!(spawn_ring(0.0), SPAWN_RING_DUSK);
-        assert_eq!(spawn_ring(DAWN), SPAWN_RING_DAWN);
-        assert!(spawn_ring(DAWN / 2.0)[0] < SPAWN_RING_DUSK[0]);
+        assert_eq!(spawn_ring(0.0), spawn_rings().0);
+        assert_eq!(spawn_ring(dawn()), spawn_rings().1);
+        assert!(spawn_ring(dawn() / 2.0)[0] < spawn_rings().0[0]);
     }
 
     #[test]
@@ -2426,7 +2430,7 @@ mod tests {
         h.kit.weapons.clear();
         h.zombies.clear();
         h.tells.clear();
-        h.t = DAWN - 0.01;
+        h.t = dawn() - 0.01;
         h.pos = h.map.spawn;
         h
     }
@@ -2470,7 +2474,7 @@ mod tests {
     #[test]
     fn only_the_farmhouse_step_after_dawn_ends_the_night() {
         let mut h = before_dawn();
-        h.t = DAWN - 5.0;
+        h.t = dawn() - 5.0;
         h.pos = h.map.home;
         h.update(&Input::default(), 0.02, &mut Vec::new());
         assert!(matches!(h.phase, Phase::Playing), "home before dawn is just a house");

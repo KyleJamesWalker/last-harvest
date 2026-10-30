@@ -10,7 +10,7 @@ use super::carve;
 use super::map::TILE;
 use crate::art::Stand;
 use super::weapons::{BOLT_LIFE, Hazard};
-use super::{DAWN, DropKind, Facing, Harvest, Phase, TELL_TIME, TURN_RISE, TURNED, Thrown, Zombie, len, norm, player_pose, sub};
+use super::{DropKind, Facing, Harvest, Phase, TELL_TIME, TURN_RISE, TURNED, Thrown, Zombie, len, norm, player_pose, sub};
 use crate::art::{self, ATLAS_H, ATLAS_W, Art};
 use crate::scene3d::{Card, CardScene, Flash};
 use crate::{SCREEN_H, SCREEN_W};
@@ -313,7 +313,7 @@ pub struct Sky {
 
 pub fn sky(h: &Harvest) -> Sky {
     let won = matches!(h.phase, Phase::Over { won: true, .. });
-    let k = if won { 1.0 } else { ((h.t - (DAWN - 180.0)) / 180.0).clamp(0.0, 1.0) };
+    let k = if won { 1.0 } else { ((h.t - (super::dawn() - 180.0)) / 180.0).clamp(0.0, 1.0) };
     let k = k * k * (3.0 - 2.0 * k);
     let mix = |a: [f32; 3], b: [f32; 3]| [0, 1, 2].map(|i| a[i] + (b[i] - a[i]) * k);
     let night = 1.0 - k;
@@ -506,7 +506,7 @@ pub fn scene(h: &Harvest) -> CardScene {
     for (a, at) in figures {
         board(&mut cards, Board::new(a, false, at, 0.0, CHARACTER_DEPTH));
     }
-    if h.t >= DAWN {
+    if h.t >= super::dawn() {
         // A shaft of light over the farmhouse step, to run toward.
         let mut b = Board::new(art::WHITE, false, h.map.home, 0.0, 0.0);
         b.scale = [1.5, 40.0];

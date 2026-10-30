@@ -430,7 +430,7 @@ impl Game {
         c.label("Spawn mix through the night", x, 628.0, 26.0, DIM, Align::Left);
         let col = w / COLUMNS as f32;
         for k in 0..COLUMNS {
-            let minutes = (k as f32 + 0.5) / COLUMNS as f32 * crate::harvest::NIGHT_MINUTES;
+            let minutes = (k as f32 + 0.5) / COLUMNS as f32 * crate::harvest::night_minutes();
             let mut top = y + h;
             for (i, share) in r.shares(minutes, self.save.enemies_off).into_iter().enumerate() {
                 let tall = share * h;

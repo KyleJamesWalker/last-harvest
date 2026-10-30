@@ -7,7 +7,7 @@ use super::map::TILE;
 use crate::art::Stand;
 use super::powerups::{Kind, Zone, book};
 use super::weapons::{BOLT_LIFE, Hazard};
-use super::{CHOICE_ROW, CHOICE_TOP, Choice, DAWN, DropKind, Facing, GOLD, PAUSE_CHOICES, Harvest, PICK_TIME, PROP_FLASH, Phase, RED, SCALE, TELL_TIME, TURNED, Thrown, WHITE, clock, player_pose, view3d};
+use super::{CHOICE_ROW, CHOICE_TOP, Choice, DropKind, Facing, GOLD, PAUSE_CHOICES, Harvest, PICK_TIME, PROP_FLASH, Phase, RED, SCALE, TELL_TIME, TURNED, Thrown, WHITE, clock, player_pose, view3d};
 use crate::art::{self, Art};
 use crate::{Align, Canvas, Color, Frame, SCREEN_H, SCREEN_W};
 
@@ -405,9 +405,9 @@ impl Harvest {
                 let (title_y, line_y) = if *won { (260.0, 360.0) } else { (130.0, 560.0) };
                 c.text_centered(title_y - scale * 2.5, scale, color, title);
                 let a = ((t - 0.5) / 0.4).clamp(0.0, 1.0);
-                let line = if self.t >= DAWN {
+                let line = if self.t >= super::dawn() {
                     let how = if *won { "Home" } else { "Lasted" };
-                    format!("{how} {} past dawn   Level {}   Kills {}", clock(self.t - DAWN), self.level, self.kills)
+                    format!("{how} {} past dawn   Level {}   Kills {}", clock(self.t - super::dawn()), self.level, self.kills)
                 } else {
                     format!("Survived {}   Level {}   Kills {}", clock(self.t), self.level, self.kills)
                 };
@@ -446,7 +446,7 @@ impl Harvest {
 
     /// After dawn, where the farmhouse is: over it when it's in view, else at the edge it lies past.
     fn way_home(&self, c: &mut Canvas, view_proj: glam::Mat4) {
-        if self.t < DAWN || !matches!(self.phase, Phase::Playing | Phase::LevelUp { .. }) {
+        if self.t < super::dawn() || !matches!(self.phase, Phase::Playing | Phase::LevelUp { .. }) {
             return;
         }
         let d = [self.map.home[0] - self.pos[0], self.map.home[1] - self.pos[1]];
@@ -471,7 +471,7 @@ impl Harvest {
 
     /// After dawn, the farmhouse's step on the map, pinned to the edge when it's off the map.
     fn home_on_map(&self, c: &mut Canvas, cam: [f32; 2]) {
-        if self.t < DAWN {
+        if self.t < super::dawn() {
             return;
         }
         let x = ((self.map.home[0] - cam[0]) * SCALE).clamp(40.0, SCREEN_W - 40.0);
@@ -529,8 +529,8 @@ impl Harvest {
         let throb = if health < 0.3 { 0.5 + 0.5 * (self.juice.clock * 10.0).sin() } else { 0.0 };
         c.rect(bx, by, bw * health.clamp(0.0, 1.0), bh, [RED[0] + 0.15 * throb, RED[1] + 0.1 * throb, RED[2], 1.0]);
         c.label(format!("LV {}", self.level), bx, by + 30.0, 32.0, WHITE, Align::Left);
-        if self.t >= DAWN {
-            c.text_centered(30.0, 6.0, HARVESTER, &format!("DAWN +{}", clock(self.t - DAWN)));
+        if self.t >= super::dawn() {
+            c.text_centered(30.0, 6.0, HARVESTER, &format!("DAWN +{}", clock(self.t - super::dawn())));
             c.label(format!("The dead +{:.0}%", (self.fury - 1.0) * 100.0), SCREEN_W / 2.0, 96.0, 30.0, HARVESTER, Align::Center);
         } else {
             c.text_centered(30.0, 6.0, WHITE, &clock(self.t));

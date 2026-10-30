@@ -229,7 +229,7 @@ impl Editor {
         self.mix = self.sprite.card.as_ref().filter(|_| self.stats && enemy).map(|mine| {
             let others = self.other_cards.iter().filter(|t| last_harvest_game::card_fields(t).is_ok()).map(String::as_str);
             let cards: Vec<&str> = others.chain([mine.as_str()]).collect();
-            let minutes: Vec<f32> = (0..MIX_STEPS).map(|i| (i as f32 + 0.5) / MIX_STEPS as f32 * last_harvest_game::NIGHT_MINUTES).collect();
+            let minutes: Vec<f32> = (0..MIX_STEPS).map(|i| (i as f32 + 0.5) / MIX_STEPS as f32 * last_harvest_game::night_minutes()).collect();
             last_harvest_game::spawn_mix(&cards, &minutes)
         });
     }
@@ -423,7 +423,7 @@ impl Editor {
                 y -= h;
             }
         }
-        let night = last_harvest_game::NIGHT_MINUTES;
+        let night = last_harvest_game::night_minutes();
         for minute in [0.0, night / 2.0, night] {
             let align = if minute == 0.0 { Align::Left } else if minute == night { Align::Right } else { Align::Center };
             c.label(format!("{minute} min"), m.x + minute / night * m.w, plot_y + plot_h + 2.0, 13.0, DIM, align);
