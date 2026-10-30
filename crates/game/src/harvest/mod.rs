@@ -395,6 +395,8 @@ enum Thrown {
     Bomblet,
     Molotov { dps: f32, radius: f32, life: f32 },
     Flare { dps: f32, radius: f32, life: f32 },
+    /// A `does lob` weapon's throw, by its place in the powerup book.
+    Lob { def: usize, damage: f32, radius: f32, life: f32, slow: f32 },
 }
 
 /// A grenade or the like in the air from `from` to `to`, `t` seconds after the throw.
@@ -411,6 +413,10 @@ impl Grenade {
             Thrown::Grenade | Thrown::Bomblet => effects::effects().grenade.looping(self.t),
             Thrown::Molotov { .. } => effects::effects().molotov.looping(self.t),
             Thrown::Flare { .. } => effects::effects().flare.looping(self.t),
+            Thrown::Lob { def, .. } => {
+                let named = powerups::book().defs[def].bullet.as_deref().and_then(|n| effects::effects().named(n));
+                named.unwrap_or(effects::effects().grenade).looping(self.t)
+            }
         }
     }
 
@@ -1665,7 +1671,8 @@ impl Harvest {
         self.thrown = flying;
         for g in landed {
             self.land(&g, sounds);
-            if matches!(g.kind, Thrown::Grenade | Thrown::Bomblet) {
+            let blast = matches!(g.kind, Thrown::Lob { def, .. } if powerups::book().defs[def].lands == powerups::Lands::Blast);
+            if blast || matches!(g.kind, Thrown::Grenade | Thrown::Bomblet) {
                 flow.rumble = flow.rumble.max(Some(Rumble::Blast));
             }
         }

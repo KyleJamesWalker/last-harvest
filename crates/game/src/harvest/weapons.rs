@@ -3,7 +3,7 @@
 use std::f32::consts::{PI, TAU};
 
 use super::juice::{self, Tone};
-use super::powerups::{Aim, Does, Kind, Pattern, Stat, book};
+use super::powerups::{Aim, Does, Kind, Lands, Pattern, Stat, book};
 use super::{
     Barrel, Bullet, FLASH_TIME, Fx, Grenade, Harvest, TILE, Thrown, Zombie, len, norm, strike, sub,
 };
@@ -401,6 +401,7 @@ impl Harvest {
             Does::Flare => self.lob_flare(a, sounds),
             Does::Gun => self.gun(a, sounds),
             Does::Blade => self.blade(a, sounds),
+            Does::Lob => self.lob(a, sounds),
             Does::Crows | Does::Dog => false,
         }
     }
@@ -839,6 +840,22 @@ impl Harvest {
         thrown
     }
 
+    /// Throws a lob weapon's `count` at crowds within its range.
+    fn lob(&mut self, a: Armed, sounds: &mut Vec<Sfx>) -> bool {
+        let range = self.stat(a, Stat::Range);
+        let (damage, radius, life, slow) = (self.stat(a, Stat::Damage), self.stat(a, Stat::Area), self.stat(a, Stat::Duration), self.stat(a, Stat::Slow));
+        let mut thrown = false;
+        for _ in 0..self.stat(a, Stat::Count).max(1.0) as u32 {
+            let Some(to) = self.crowd(range) else { break };
+            self.thrown.push(Grenade { from: self.pos, to, t: 0.0, kind: Thrown::Lob { def: a.def, damage, radius, life, slow } });
+            thrown = true;
+        }
+        if thrown {
+            sounds.push(sound(a, Sfx::Throw));
+        }
+        thrown
+    }
+
     fn lob_flare(&mut self, a: Armed, sounds: &mut Vec<Sfx>) -> bool {
         let Some(to) = self.crowd(self.stat(a, Stat::Range)) else { return false };
         let kind = Thrown::Flare { dps: self.stat(a, Stat::Damage), radius: self.stat(a, Stat::Area), life: self.stat(a, Stat::Duration) };
@@ -875,6 +892,18 @@ impl Harvest {
             Thrown::Flare { dps, radius, life } => {
                 self.lay(Hazard::Flare, g.to, radius, dps, life, 0.0);
                 self.juice.ring(g.to, radius, 0.6, [1.0, 0.3, 0.2]);
+            }
+            Thrown::Lob { def, damage, radius, life, slow } => {
+                let d = &book().defs[def];
+                match d.lands {
+                    Lands::Blast => self.explode(g.to, radius, damage, sounds),
+                    Lands::Fire => self.lay(Hazard::Fire, g.to, radius, damage, life, 0.0),
+                    Lands::Flare => self.lay(Hazard::Flare, g.to, radius, damage, life, 0.0),
+                    Lands::Tacks => self.lay(Hazard::Tacks, g.to, radius, damage, life, slow),
+                }
+                if let Some(e) = d.effect.as_deref().and_then(|n| super::effects::effects().named(n)) {
+                    self.fx.push(Fx::play(e, g.to, 0.0));
+                }
             }
         }
     }

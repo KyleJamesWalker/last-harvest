@@ -116,7 +116,7 @@ The game reads its rules from seven text files in `crates/game/`. The packer put
 
 A mod's `tuning.txt` needs only the lines it changes. The other files replace the game's whole file. The packer and the game check a mod's files as the game reads them, and leave out a mod that would break the game.
 
-A weapon in `powerups.txt` picks a behavior with `does`. Two behaviors take their shape from data. `does gun` fires `count` shots at what its `aim` finds (`nearest`, `ahead`, `behind` or `around`), spread by its `pattern` (`fan`, `ring` or `spray`). `does blade` cuts everything within `area` across `spread` degrees, toward what its `aim` finds.
+A weapon in `powerups.txt` picks a behavior with `does`. Two behaviors take their shape from data. `does gun` fires `count` shots at what its `aim` finds (`nearest`, `ahead`, `behind` or `around`), spread by its `pattern` (`fan`, `ring` or `spray`). `does blade` cuts everything within `area` across `spread` degrees, toward what its `aim` finds. `does lob` throws `count` at a crowd within `range`, and `lands` says what it does there: `blast`, `fire`, `flare` or `tacks`.
 
 Any weapon can name an `effect` and a `bullet` from `effects.txt`, and a `sound`. An `icon` can be a player's prop, `PROP_<ID>`. So a new weapon needs no code.
 

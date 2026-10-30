@@ -55,6 +55,21 @@ pub enum Does {
     Gun,
     /// A blade that cuts everything within its area across its spread, aimed by its section's `aim`.
     Blade,
+    /// Throws at a crowd, and lands as its section's `lands` says.
+    Lob,
+}
+
+/// What a lobbed weapon does where it lands.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Lands {
+    /// Blows up, as a grenade does.
+    Blast,
+    /// A pool of fire.
+    Fire,
+    /// A flare that burns what stands in it.
+    Flare,
+    /// Tacks that hurt and slow.
+    Tacks,
 }
 
 /// Where a gun looks for something to shoot.
@@ -103,6 +118,7 @@ impl Does {
             "flare" => Does::Flare,
             "gun" => Does::Gun,
             "blade" => Does::Blade,
+            "lob" => Does::Lob,
             _ => return None,
         })
     }
@@ -433,6 +449,8 @@ pub struct Def {
     /// For a gun, where it looks and how its shots spread.
     pub aim: Aim,
     pub pattern: Pattern,
+    /// For a lob, what it does where it lands.
+    pub lands: Lands,
     stats: Vec<(Stat, Vec<f32>)>,
 }
 
@@ -555,6 +573,7 @@ pub fn parse(text: &str) -> Result<Book, String> {
                 sound: None,
                 aim: Aim::Nearest,
                 pattern: Pattern::Fan,
+                lands: Lands::Blast,
                 stats: Vec::new(),
             });
             icons.push(None);
@@ -618,6 +637,15 @@ pub fn parse(text: &str) -> Result<Book, String> {
                     "behind" => Aim::Behind,
                     "around" => Aim::Around,
                     _ => return Err(format!("{n}: aim is nearest, ahead, behind or around, not {rest:?}")),
+                }
+            }
+            "lands" => {
+                def.lands = match rest {
+                    "blast" => Lands::Blast,
+                    "fire" => Lands::Fire,
+                    "flare" => Lands::Flare,
+                    "tacks" => Lands::Tacks,
+                    _ => return Err(format!("{n}: lands is blast, fire, flare or tacks, not {rest:?}")),
                 }
             }
             "pattern" => {
@@ -742,6 +770,9 @@ mod tests {
         assert_eq!((d.effect.as_deref(), d.bullet.as_deref(), d.sound), (Some("red_slash"), Some("bullet_3d"), Some(crate::Sfx::Blast)));
         assert!(parse("[a]\nicon WHITE\nsound moo").unwrap_err().starts_with("3: sound is one of shot"));
         assert!(parse("[a]\nicon WHITE\neffect Red").unwrap_err().starts_with("3: effect names"));
+        let lob = parse("[pot]\nkind weapon\ndoes lob\nlands tacks\nicon WHITE\n[cash]\nkind filler\nicon WHITE\n").unwrap();
+        assert_eq!((lob.defs[0].does, lob.defs[0].lands), (Some(Does::Lob), Lands::Tacks));
+        assert!(parse("[a]\nicon WHITE\nlands moon").unwrap_err().starts_with("3: lands is"));
         let g = parse("[nova]\nkind weapon\ndoes gun\naim around\npattern ring\nicon WHITE\n[cash]\nkind filler\nicon WHITE\n").unwrap();
         assert_eq!((g.defs[0].does, g.defs[0].aim, g.defs[0].pattern), (Some(Does::Gun), Aim::Around, Pattern::Ring));
         assert!(parse("[a]\nicon WHITE\naim up").unwrap_err().starts_with("3: aim is"));
