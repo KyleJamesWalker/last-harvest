@@ -110,11 +110,11 @@ The game reads its rules from seven text files in `crates/game/`. The packer put
 | `props.txt` | The game's own props a map can place, with walk-through rows, cover and hit points, and the defaults for fences and other sprites |
 | `ground.txt` | Each ground code: its label, tile, how a run joins, what the cell is, and any crop on it |
 | `farm.txt` | How the random farm lays itself out: tufts, grass, corpses, fields, and the props it strews and how often |
-| `effects.txt` | The sprite and speed of each effect, swing, bullet, thrown item, pickup and animal, plus effects a mod names |
+| `effects.txt` | The sprite and speed of each effect, swing, bullet, thrown item, pickup and animal, plus effects a mod names, and the particle colors in `[colors]` |
 | `powerups.txt` | Every weapon and passive |
 | `enemies.txt` | Every kind of zombie, including a `charge` that speeds it up near the player |
 
-A mod's `tuning.txt` needs only the lines it changes. The other files replace the game's whole file. The packer and the game check a mod's files as the game reads them, and leave out a mod that would break the game.
+A mod's `tuning.txt`, and the `[colors]` of its `effects.txt`, need only the lines they change. The other files replace the game's whole file. The packer and the game check a mod's files as the game reads them, and leave out a mod that would break the game.
 
 A weapon in `powerups.txt` picks a behavior with `does`. Two behaviors take their shape from data. `does gun` fires `count` shots at what its `aim` finds (`nearest`, `ahead`, `behind` or `around`), spread by its `pattern` (`fan`, `ring` or `spray`). `does blade` cuts everything within `area` across `spread` degrees, toward what its `aim` finds. `does lob` throws `count` at a crowd within `range`, and `lands` says what it does there: `blast`, `fire`, `flare` or `tacks`.
 

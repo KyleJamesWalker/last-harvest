@@ -850,7 +850,7 @@ mod tests {
 
     #[test]
     fn a_swarm_with_every_effect_going_stays_within_budget() {
-        use crate::harvest::juice::{BLOOD, Corpse};
+        use crate::harvest::juice::{Corpse, blood};
         use crate::harvest::{Kind, Zombie};
         let mut h = Harvest::calm(7);
         for i in 0..300 {
@@ -862,10 +862,10 @@ mod tests {
             let a = i as f32 * 0.5;
             let at = [h.pos[0] + a.cos() * 40.0, h.pos[1] + a.sin() * 40.0];
             h.juice.corpse(Corpse { art: art::SKINNY_HURT[0], dead: None, flip: false, pos: at, z: 0.0, vel: [0.0; 2], vz: 0.0, fall: [1.0, 0.0], age: 1.0, spin: 0.0 });
-            h.juice.burst(at, 8.0, 12, [0.0; 2], 0.0, [10.0, 40.0], BLOOD, 1.5, 1.0, 0.0);
+            h.juice.burst(at, 8.0, 12, [0.0; 2], 0.0, [10.0, 40.0], blood(), 1.5, 1.0, 0.0);
         }
-        h.juice.ring(h.pos, 80.0, 1.0, BLOOD);
-        h.juice.ring(h.pos, 40.0, 1.0, BLOOD);
+        h.juice.ring(h.pos, 80.0, 1.0, blood());
+        h.juice.ring(h.pos, 40.0, 1.0, blood());
         let mut worst = 0;
         for yaw in 0..8 {
             h.view_yaw = yaw as f32 * std::f32::consts::FRAC_PI_4;

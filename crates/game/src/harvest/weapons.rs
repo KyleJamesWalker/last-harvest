@@ -506,7 +506,7 @@ impl Harvest {
         self.fx.push(Fx::play(look(a, super::effects::effects().shotgun_blast), at, base));
         let ground = [self.pos[0] + d[0] * 10.0, self.pos[1] + d[1] * 10.0];
         self.attack_feel(a, ground, 10.0);
-        self.juice.burst(ground, 8.0, 8, d, 0.35, [80.0, 160.0], juice::SPARK, 1.0, 0.18, 1.0);
+        self.juice.burst(ground, 8.0, 8, d, 0.35, [80.0, 160.0], juice::spark(), 1.0, 0.18, 1.0);
         self.noise = Some(self.pos);
         sounds.push(sound(a, Sfx::Blast));
         true
@@ -545,7 +545,7 @@ impl Harvest {
                 z.slow = z.slow.max(secs);
                 z.slow_k = z.slow_k.max(slow);
                 if lit < 6 {
-                    self.juice.burst(z.pos, 8.0, 2, [0.0; 2], 0.0, [10.0, 30.0], juice::EMBER, 1.0, 0.4, 1.0);
+                    self.juice.burst(z.pos, 8.0, 2, [0.0; 2], 0.0, [10.0, 30.0], juice::ember(), 1.0, 0.4, 1.0);
                 }
                 lit += 1;
             }
@@ -570,7 +570,7 @@ impl Harvest {
         }
         let nozzle = [self.pos[0] + self.aim[0] * 6.0, self.pos[1] + self.aim[1] * 6.0];
         let reach = range * 3.0;
-        self.juice.burst(nozzle, 6.0, 5, self.aim, half, [reach * 0.6, reach], juice::EMBER, 1.6, 0.3, 1.0);
+        self.juice.burst(nozzle, 6.0, 5, self.aim, half, [reach * 0.6, reach], juice::ember(), 1.6, 0.3, 1.0);
         self.attack_feel(a, nozzle, 8.0);
         true
     }
@@ -813,7 +813,7 @@ impl Harvest {
         }
         let (lure, blast, damage, life) = (self.stat(a, Stat::Range), self.stat(a, Stat::Area), self.stat(a, Stat::Damage), self.stat(a, Stat::Duration));
         self.decoys.push(Decoy { pos: at, age: 0.0, life, lure, blast, damage });
-        self.juice.burst(at, 0.0, 8, [0.0; 2], 0.0, [15.0, 40.0], juice::DIRT, 1.4, 0.5, 0.0);
+        self.juice.burst(at, 0.0, 8, [0.0; 2], 0.0, [15.0, 40.0], juice::dirt(), 1.4, 0.5, 0.0);
         true
     }
 
@@ -887,7 +887,7 @@ impl Harvest {
                     self.lay(Hazard::Fire, at, radius * 0.5, dps, life, 0.0);
                 }
                 self.juice.flash(g.to, 6.0, [1.8, 0.9, 0.3], 6.0, 0.3);
-                self.juice.burst(g.to, 4.0, 14, [0.0; 2], 0.0, [30.0, 90.0], juice::EMBER, 1.4, 0.5, 1.0);
+                self.juice.burst(g.to, 4.0, 14, [0.0; 2], 0.0, [30.0, 90.0], juice::ember(), 1.4, 0.5, 1.0);
                 let (pan, gain) = self.place(g.to);
                 sounds.push(Sfx::Boom { pan, gain: gain / 2 });
             }
@@ -941,7 +941,7 @@ impl Harvest {
                 }
             }
             match p.hazard {
-                Hazard::Fire => self.juice.burst(p.pos, 4.0, 1, [0.0; 2], 0.0, [5.0, 20.0], juice::EMBER, 1.2, 0.6, 1.0),
+                Hazard::Fire => self.juice.burst(p.pos, 4.0, 1, [0.0; 2], 0.0, [5.0, 20.0], juice::ember(), 1.2, 0.6, 1.0),
                 Hazard::Flare => {
                     let flicker = self.juice.rng.range(0.8, 1.2);
                     self.juice.flash(p.pos, 6.0, [2.0 * flicker, 0.5, 0.35], p.radius / 6.0, 0.3);
@@ -965,7 +965,7 @@ impl Harvest {
             if z.burn_tick >= BURN_TICK {
                 z.burn_tick -= BURN_TICK;
                 singe(z, &mut self.juice, z.burn_dps * BURN_TICK);
-                self.juice.burst(z.pos, 8.0, 1, [0.0; 2], 0.0, [5.0, 15.0], juice::EMBER, 1.2, 0.5, 1.0);
+                self.juice.burst(z.pos, 8.0, 1, [0.0; 2], 0.0, [5.0, 15.0], juice::ember(), 1.2, 0.5, 1.0);
             }
         }
         for s in &mut self.swings {
