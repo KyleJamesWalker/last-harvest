@@ -1540,7 +1540,7 @@ impl Editor {
         if self.none_open() && !any_sprite {
             return self.say("Pick a sprite from the list, or press N for a new one");
         }
-        if self.map.is_some() && self.map_act(a) {
+        if self.map.is_some() && self.map_act(a, shift) {
             return;
         }
         if self.data.is_some() && self.data_act(a, shift) {

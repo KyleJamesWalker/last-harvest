@@ -597,7 +597,7 @@ impl Editor {
     }
 
     /// Carries out a map action; false if it isn't one.
-    pub(super) fn map_act(&mut self, a: Action) -> bool {
+    pub(super) fn map_act(&mut self, a: Action, shift: bool) -> bool {
         let Some(m) = &mut self.map else { return false };
         match a {
             Action::MapTool(t) => m.tool = t,
@@ -650,8 +650,9 @@ impl Editor {
                 self.say(format!("A random farm{grown}. Press again for another, or Undo to go back"));
             }
             Action::MapSize(dw, dh) => {
+                let by = if shift { 4 } else { 1 };
                 m.remember();
-                m.src = m.src.resized([dw, dh]);
+                m.src = m.src.resized([dw * by, dh * by]);
                 m.fit();
                 m.edited();
                 let [w, h] = m.src.size;
@@ -1061,6 +1062,9 @@ mod tests {
 
         e.act(Action::MapSize(-4, 4), false);
         assert_eq!(e.map.as_ref().unwrap().src.size, [68, 58]);
+        e.act(Action::MapSize(4, 0), true);
+        assert_eq!(e.map.as_ref().unwrap().src.size, [84, 58], "Shift steps by 16");
+        e.key(Key::Undo);
         e.act(Action::MapTool(MapTool::Home), false);
         let walled = e.map.as_ref().unwrap().src.size[0] - 1;
         click(&mut e, [walled, 5]);
