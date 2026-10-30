@@ -282,15 +282,19 @@ impl Editor {
         push(SIDE_X + 182.0, PROP_HP_Y, 46.0, 30.0, Action::Hp(1), "+", false);
     }
 
-    /// Every player's prop the store keeps, to pack for the previews while a map is open: their frames, in turn,
-    /// and each one's fields and frame count.
+    /// Every player's prop the store keeps, to pack for the previews while a map is open: their frames, then the
+    /// footprint and views of one that stands by them, in turn, and each one's fields and how many it packed.
     pub(super) fn prop_surfaces(&self) -> (Vec<Frame>, Vec<(PropFields, usize)>) {
         let (mut frames, mut props) = (Vec::new(), Vec::new());
         for (name, _) in self.names.iter().filter(|(n, _)| n.starts_with(last_harvest_game::PROP_PREFIX)) {
             let Some(s) = self.store.load(name) else { continue };
-            let Some(f) = s.card.as_deref().and_then(|t| last_harvest_game::prop_fields(t).ok()) else { continue };
-            props.push((f, s.frames.len()));
-            frames.extend(s.frames);
+            let Some(mut f) = s.card.as_deref().and_then(|t| last_harvest_game::prop_fields(t).ok()) else { continue };
+            f.frames = s.frames.len() as u32;
+            let views = s.views.filter(|_| f.by_views.is_some());
+            let footprint = s.footprint.filter(|_| views.is_some() && f.footprint);
+            let packed = s.frames.len() + footprint.is_some() as usize + 2 * views.is_some() as usize;
+            props.push((f, packed));
+            frames.extend(s.frames.into_iter().chain(footprint).chain(views.into_iter().flatten()));
         }
         (frames, props)
     }
@@ -302,7 +306,11 @@ impl Editor {
         let mut named = Vec::new();
         for (f, n) in &self.map_props {
             let Some(arts) = self.live.get(at..at + n) else { break };
-            named.push((f.clone(), arts.to_vec()));
+            let (mut f, frames) = (f.clone(), (f.frames as usize).min(*n));
+            if let [.., south, east] = arts[frames..] {
+                f.stand_by(south, east, (n - frames == 3).then(|| arts[frames]));
+            }
+            named.push((f, arts[..frames].to_vec()));
             at += n;
         }
         last_harvest_game::set_props(named);
@@ -434,7 +442,7 @@ impl Editor {
 
     fn start_map(&mut self, name: &str, id: &str, src: MapSource) {
         self.map = Some(MapEdit::new(id, src));
-        self.sprite = Sprite { name: name.into(), frames: vec![Frame::blank(16, 16)], views: None, footprint: None, top: None, card: None };
+        self.sprite = Sprite { name: name.into(), frames: vec![Frame::blank(16, 16)], views: None, footprint: None, top: None, card: None, clear_in_3d: Vec::new() };
         self.frame = 0;
         self.view = None;
         self.stats = false;

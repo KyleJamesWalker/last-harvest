@@ -26,8 +26,9 @@ const FAMILY_MAX: usize = 6;
 /// How opaque Onion draws the previous frame.
 const ONION: f32 = 0.3;
 const MAX_SIZE: usize = 128;
-const STANDS: [&str; 5] = ["Prop", "Slab", "Figure", "Ground", "Carve"];
+const STANDS: [&str; 6] = ["Prop", "Slab", "Figure", "Ground", "Carve", "Turned"];
 const CARVE: u8 = 4;
+const TURNED: u8 = 5;
 const VIEW_NAMES: [&str; 4] = ["South view", "East view", "Footprint", "Top"];
 const VIEW_HINTS: [&str; 4] = [
     "the sprite seen from the south: west on the left",
@@ -38,7 +39,7 @@ const VIEW_HINTS: [&str; 4] = [
 const FOOTPRINT: usize = 2;
 /// The view that is a figure's top strip.
 const TOP: usize = 3;
-/// How a sprite stands, by its button: prop, slab, figure, ground, carve.
+/// How a sprite stands, by its button: prop, slab, figure, ground, carve, turned.
 const FIGURE: u8 = 2;
 const DIALOG: Rect = Rect { x: 212.0, y: 250.0, w: 600.0, h: 230.0 };
 /// The unsaved-changes dialog's choices: save then switch, discard then switch, or stay.
@@ -183,6 +184,8 @@ enum Action {
     Height(i32),
     Stand(u8),
     Depth(i32),
+    /// Floats a slab higher or lower.
+    Float(i32),
     Fps(i32),
     Color(Rgba),
     Onion,
@@ -225,6 +228,10 @@ enum Action {
     Generate,
     /// Blanks a flash, hurt or dead part, so the game draws it.
     ClearPart,
+    /// Clears every pixel of the paint color.
+    ClearColor,
+    /// Leaves the paint color out of the 3D view, or puts it back.
+    ClearIn3d,
 }
 
 /// What each of a card's numbers is called on its stats page, and how far a press of - or + moves it.
@@ -292,6 +299,7 @@ struct Stash {
     stand: u8,
     depth: f32,
     height: f32,
+    lift: f32,
     frame: usize,
     view: Option<usize>,
     dirty: bool,
@@ -342,6 +350,8 @@ pub struct Editor {
     pub strike: Option<bool>,
     /// Where the last packing put a card's figure among the surfaces, and whether it has dead frames.
     figure_at: Option<(usize, bool)>,
+    /// Where the last packing put the frames' 3D copies among the surfaces, and how many there are.
+    solids_at: Option<(usize, usize)>,
     /// The open card's parts as saved, read when it opens or saves.
     card_parts: Vec<Vec<Frame>>,
     /// The hand-made map being edited, in place of a sprite.
@@ -356,6 +366,8 @@ pub struct Editor {
     view: Option<usize>,
     depth: f32,
     height: f32,
+    /// How far a slab floats off the ground.
+    lift: f32,
     /// Whether the stand has been changed since it was loaded or saved.
     stand_touched: bool,
     pub fps: f32,
@@ -408,7 +420,7 @@ pub struct Editor {
 impl Editor {
     /// An editor on the sprite `name`, or on none until one is picked when `name` is empty.
     pub fn new(store: Box<dyn Store>, name: &str) -> Self {
-        let sprite = store.load(name).unwrap_or(Sprite { name: name.into(), frames: vec![Frame::blank(16, 16)], views: None, footprint: None, top: None, card: None });
+        let sprite = store.load(name).unwrap_or(Sprite { name: name.into(), frames: vec![Frame::blank(16, 16)], views: None, footprint: None, top: None, card: None, clear_in_3d: Vec::new() });
         let names = store.names();
         let mut e = Self {
             store,
@@ -432,6 +444,7 @@ impl Editor {
             changed: true,
             strike: None,
             figure_at: None,
+            solids_at: None,
             card_parts: Vec::new(),
             map: None,
             map_props: Vec::new(),
@@ -441,6 +454,7 @@ impl Editor {
             view: None,
             depth: 12.0,
             height: 10.0,
+            lift: 0.0,
             stand_touched: false,
             fps: 6.0,
             ask: None,
@@ -499,13 +513,32 @@ impl Editor {
             CARVE if self.live.len() == n + 2 + self.sprite.footprint.is_some() as usize => {
                 Stand::Carve { footprint: self.live.get(n + 2).copied(), south: self.live[n], east: self.live[n + 1] }
             }
-            _ => Stand::Slab { height: self.height },
+            TURNED => match self.live.get(n + 1).filter(|_| self.sprite.views.is_some()) {
+                Some(&east) => Stand::Turned { east, depth: Some(self.depth) },
+                None => Stand::Prop { depth: self.depth },
+            },
+            _ => Stand::Slab { height: self.height, lift: self.lift },
         }
     }
 
     /// The stand as the catalog and `stand.txt` write it.
     fn stand_text(&self) -> String {
-        if self.stand == CARVE { "carve".into() } else { sprite::stand_text(self.stand()) }
+        match self.stand {
+            CARVE => "carve".into(),
+            TURNED => format!("turned {}", self.depth),
+            _ => sprite::stand_text(self.stand()),
+        }
+    }
+
+    /// How many columns of the frame on show hold a pixel: how thick it is seen from above.
+    fn outline_width(&self) -> f32 {
+        let f = &self.sprite.frames[self.frame];
+        ((0..f.w as i32).filter(|&x| (0..f.h as i32).any(|y| f.get(x, y).is_some_and(|p| p[3] > 0))).count() as f32).max(1.0)
+    }
+
+    /// Whether the sprite stands by its views, carved or turned, and has them.
+    fn by_views(&self) -> bool {
+        matches!(self.stand, CARVE | TURNED) && self.sprite.views.is_some()
     }
 
     /// Everything to pack for the previews: the frames, then the carving views when carving, with any
@@ -522,6 +555,17 @@ impl Editor {
         if let Some((figure, dead)) = self.figure_frames() {
             self.figure_at = Some((out.len(), dead));
             out.extend(figure);
+        }
+        self.solids_at = None;
+        let clear = &self.sprite.clear_in_3d;
+        if !clear.is_empty() && !self.none_open() {
+            let n = self.sprite.frames.len();
+            let solids: Vec<Frame> = out[..n]
+                .iter()
+                .map(|f| Frame { px: f.px.iter().map(|p| if clear.contains(p) { CLEAR } else { *p }).collect(), ..f.clone() })
+                .collect();
+            self.solids_at = Some((out.len(), n));
+            out.extend(solids);
         }
         out
     }
@@ -540,8 +584,8 @@ impl Editor {
         if self.none_open() {
             return Vec::new();
         }
-        let carving = self.stand == CARVE && self.sprite.views.is_some();
-        let views = self.sprite.views.iter().flatten().chain(&self.sprite.footprint).filter(|_| carving);
+        let footprint = self.sprite.footprint.iter().filter(|_| self.stand == CARVE);
+        let views = self.sprite.views.iter().flatten().chain(footprint).filter(|_| self.by_views());
         let top = self.sprite.top.iter().filter(|_| self.stand == FIGURE);
         let mut out: Vec<Frame> = self.sprite.frames.iter().chain(views).chain(top).cloned().collect();
         if let Some(Selection { x, y, float: Some(f), .. }) = &self.selection {
@@ -578,6 +622,8 @@ impl Editor {
     }
 
     pub fn set_live(&mut self, live: Vec<Art>) {
+        let solids = self.solids_at.map_or(Vec::new(), |(k, n)| (0..n).filter_map(|i| Some((*live.get(i)?, *live.get(k + i)?))).collect());
+        last_harvest_game::art::set_live_solids(solids);
         self.live = live;
         if self.map.is_some() {
             self.register_props();
@@ -636,8 +682,12 @@ impl Editor {
     fn apply_stand(&mut self, saved: Option<String>) {
         self.stand_touched = false;
         self.view = None;
-        self.depth = (self.current().w as f32 * 0.6).clamp(2.0, 48.0).round();
+        let packed = last_harvest_game::art::ALL.iter().find(|(n, _)| *n == self.sprite.name).and_then(|(_, a)| a.first().copied());
+        let open = self.open_prop_fields().map_or(0, |f| f.open);
+        let f = self.current();
+        self.depth = last_harvest_game::default_prop_depth(f.w as f32, f.h as f32, packed, open);
         self.height = 10.0;
+        self.lift = 0.0;
         let guess = || {
             let n = &self.sprite.name;
             if ["PLAYER", "SKINNY", "KID", "BIG", "CROW"].iter().any(|k| n.starts_with(k)) {
@@ -652,19 +702,25 @@ impl Editor {
             self.stand = CARVE;
             return;
         }
+        if let Some(depth) = saved.as_deref().and_then(last_harvest_game::turned_depth).filter(|_| self.sprite.views.is_some()) {
+            self.stand = TURNED;
+            self.depth = depth.unwrap_or_else(|| self.outline_width());
+            return;
+        }
         let s = saved.as_deref().and_then(sprite::parse_stand).unwrap_or_else(guess);
         self.stand = match s {
             Stand::Prop { depth } => {
                 self.depth = depth;
                 0
             }
-            Stand::Slab { height } => {
-                self.height = height;
+            Stand::Slab { height, lift } => {
+                (self.height, self.lift) = (height, lift);
                 1
             }
             Stand::Figure => 2,
             Stand::Ground => 3,
             Stand::Carve { .. } => CARVE,
+            Stand::Turned { .. } => TURNED,
         };
     }
 
@@ -928,6 +984,10 @@ impl Editor {
         }
         let (x, y) = cell(5);
         push(x, y, 74.0, 32.0, Action::Mirror, "Mirror M", self.mirror);
+        push(SIDE_X + 128.0, 192.0, 50.0, 26.0, Action::ClearColor, "Erase", false);
+        if !self.is_card() && !self.is_prop() {
+            push(SIDE_X + 182.0, 192.0, 50.0, 26.0, Action::ClearIn3d, "No 3D", self.sprite.clear_in_3d.contains(&self.color));
+        }
         for (i, (t, l)) in [(Tool::Line, "Line"), (Tool::Rect, "Box"), (Tool::Ellipse, "Oval")].into_iter().enumerate() {
             let (x, y) = cell(6 + i);
             push(x, y, 74.0, 32.0, Action::Tool(t), l, self.tool_now() == t);
@@ -952,16 +1012,20 @@ impl Editor {
         for (i, l) in STANDS.into_iter().enumerate().filter(|_| !self.is_card()) {
             push(SIDE_X + (i % 3) as f32 * 78.0, 566.0 + (i / 3) as f32 * 34.0, 74.0, 30.0, Action::Stand(i as u8), l, self.stand == i as u8);
         }
-        if (self.stand < 2 || self.stand == CARVE) && !self.is_card() {
+        if (self.stand < 2 || matches!(self.stand, CARVE | TURNED)) && !self.is_card() {
             push(SIDE_X + 130.0, 640.0, 46.0, 30.0, Action::Depth(-1), "-", false);
             push(SIDE_X + 182.0, 640.0, 46.0, 30.0, Action::Depth(1), "+", false);
         }
-        push(SIDE_X + 130.0, 678.0, 46.0, 30.0, Action::Fps(-1), "-", false);
-        push(SIDE_X + 182.0, 678.0, 46.0, 30.0, Action::Fps(1), "+", false);
-        push(SIDE_X, 714.0, 114.0, 30.0, Action::Onion, "Onion O", self.onion);
-        push(SIDE_X + 118.0, 714.0, 114.0, 30.0, Action::Compare, "Compare C", self.compare);
+        if self.stand == 1 && !self.is_card() {
+            push(SIDE_X + 130.0, 672.0, 46.0, 28.0, Action::Float(-1), "-", false);
+            push(SIDE_X + 182.0, 672.0, 46.0, 28.0, Action::Float(1), "+", false);
+        }
+        push(SIDE_X + 130.0, 704.0, 46.0, 28.0, Action::Fps(-1), "-", false);
+        push(SIDE_X + 182.0, 704.0, 46.0, 28.0, Action::Fps(1), "+", false);
+        push(SIDE_X, 736.0, 114.0, 28.0, Action::Onion, "Onion O", self.onion);
+        push(SIDE_X + 118.0, 736.0, 114.0, 28.0, Action::Compare, "Compare C", self.compare);
         let carving = self.stand == CARVE && self.sprite.views.is_some();
-        let room = if carving { 4 } else { 7 };
+        let room = if carving { 4 } else if self.by_views() { 6 } else { 7 };
         let shown = self.sprite.frames.len().min(room);
         let first = self.frame.saturating_sub(room - 1).min(self.sprite.frames.len() - shown);
         for i in first..first + shown {
@@ -983,6 +1047,8 @@ impl Editor {
             } else {
                 push(x, 622.0, THUMB, THUMB, Action::AddFootprint, "", false);
             }
+        } else if self.by_views() {
+            push(after + 56.0, 622.0, THUMB, THUMB, Action::View(1), "", self.view == Some(1));
         }
         let row = 700.0;
         push(CANVAS.x, row, 40.0, 30.0, Action::MoveFrame(-1), "<", false);
@@ -1242,6 +1308,41 @@ impl Editor {
         self.changed = true;
     }
 
+    /// Clears the paint color from every frame, or from the carving view on the canvas.
+    fn clear_color(&mut self) {
+        let c = self.color;
+        let hex = sprite::hex(c);
+        let in_view = self.view.is_some();
+        let count = |f: &Frame| f.px.iter().filter(|&&p| p == c).count();
+        let n = if in_view { count(self.current()) } else { self.sprite.frames.iter().map(count).sum() };
+        if n == 0 {
+            return self.say(format!("No {hex} pixels to clear"));
+        }
+        self.remember();
+        let frames = if in_view { std::slice::from_mut(self.current_mut()) } else { &mut self.sprite.frames[..] };
+        frames.iter_mut().flat_map(|f| f.px.iter_mut()).filter(|p| **p == c).for_each(|p| *p = CLEAR);
+        self.say(format!("Cleared {n} {hex} pixels"));
+    }
+
+    /// Leaves the paint color out of the 3D view, keeping it in 2D, or puts it back.
+    fn clear_in_3d(&mut self) {
+        let (c, list) = (self.color, &mut self.sprite.clear_in_3d);
+        let gone = match list.iter().position(|&k| k == c) {
+            Some(i) => {
+                list.remove(i);
+                false
+            }
+            None => {
+                list.push(c);
+                true
+            }
+        };
+        let n = list.len();
+        self.dirty = true;
+        self.changed = true;
+        self.say(format!("{} {} the 3D view; {n} color{} cleared in 3D", sprite::hex(c), if gone { "left out of" } else { "back in" }, if n == 1 { "" } else { "s" }));
+    }
+
     fn paste(&mut self) {
         if self.none_open() {
             return self.say("Pick a sprite from the list, or press N for a new one");
@@ -1375,7 +1476,7 @@ impl Editor {
                 self.deselect();
                 let new = !self.names.iter().any(|(n, _)| *n == self.sprite.name);
                 // A carving lives in the sprite's folder, so it saves the pixels too.
-                let carving = self.stand == CARVE && self.stand_touched;
+                let carving = matches!(self.stand, CARVE | TURNED) && self.stand_touched;
                 let pixels = if self.dirty || new || carving { self.store.save(&self.sprite) } else { Ok(()) };
                 let stand = if self.stand_touched { self.store.save_stand(&self.sprite.name, &self.stand_text()) } else { Ok(()) };
                 match pixels.and(stand) {
@@ -1429,6 +1530,9 @@ impl Editor {
             Action::Strike(kill) => self.strike = Some(kill),
             Action::Generate => self.generate_part(),
             Action::ClearPart => self.clear_part(),
+            Action::ClearColor => self.clear_color(),
+            Action::ClearIn3d if self.is_card() || self.is_prop() => self.say("Cards and props keep every color in 3D for now"),
+            Action::ClearIn3d => self.clear_in_3d(),
             Action::Stats => {
                 self.stats = !self.stats;
                 self.naming = None;
@@ -1581,19 +1685,29 @@ impl Editor {
                 self.stand = s;
                 self.stand_touched = true;
                 self.changed = true;
-                if s == CARVE && self.sprite.views.is_none() {
+                if matches!(s, CARVE | TURNED) && self.sprite.views.is_none() {
                     self.remember();
                     self.sprite.views = Some(sprite::block_views(&self.sprite.frames[self.frame], self.height as usize));
-                    self.say("Carve: erase the south and east views to shape the solid");
                 }
-                if s != CARVE {
-                    self.view = None;
+                match s {
+                    CARVE => self.say("Carve: erase the south and east views to shape the solid"),
+                    TURNED => {
+                        self.depth = self.outline_width();
+                        self.view = Some(1);
+                        self.say("Turned: draw it seen from the east, south on the left; it stands where the frame's outline is");
+                    }
+                    _ => self.view = None,
                 }
             }
             Action::Depth(d) if self.stand == CARVE => self.resize_views(self.view_height() as i32 + d * step),
             Action::Depth(d) => {
-                let size = if self.stand == 0 { &mut self.depth } else { &mut self.height };
-                *size = (*size + (d * step) as f32).clamp(1.0, 96.0);
+                let size = if matches!(self.stand, 0 | TURNED) { &mut self.depth } else { &mut self.height };
+                *size = (*size + (d * step) as f32).clamp(1.0, if self.stand == TURNED { 64.0 } else { 96.0 });
+                self.stand_touched = true;
+                self.changed = true;
+            }
+            Action::Float(d) => {
+                self.lift = (self.lift + (d * step) as f32).clamp(0.0, 96.0);
                 self.stand_touched = true;
                 self.changed = true;
             }
@@ -1621,6 +1735,7 @@ impl Editor {
             stand: self.stand,
             depth: self.depth,
             height: self.height,
+            lift: self.lift,
             frame: self.frame,
             view: self.view,
             dirty: self.dirty,
@@ -1629,7 +1744,7 @@ impl Editor {
     }
 
     fn unstash(&mut self, s: Stash) {
-        (self.sprite, self.stand, self.depth, self.height, self.frame, self.view) = (s.sprite, s.stand, s.depth, s.height, s.frame, s.view);
+        (self.sprite, self.stand, self.depth, self.height, self.lift, self.frame, self.view) = (s.sprite, s.stand, s.depth, s.height, s.lift, s.frame, s.view);
         (self.dirty, self.stand_touched) = (s.dirty, s.stand_touched);
         self.changed = true;
     }
@@ -1951,7 +2066,8 @@ impl Editor {
                         self.ask = None;
                         let (frames, views, footprint, top) = if kind == Ask::Copy { self.snapshot() } else { (vec![Frame::blank(16, 16)], None, None, None) };
                         let card = crate::store::props::id(&name).map(|id| last_harvest_game::prop_text(&crate::store::props::blank(&id)));
-                        self.sprite = Sprite { name: name.clone(), frames, views, footprint, top, card };
+                        let clear_in_3d = if kind == Ask::Copy { self.sprite.clear_in_3d.clone() } else { Vec::new() };
+                        self.sprite = Sprite { name: name.clone(), frames, views, footprint, top, card, clear_in_3d };
                         self.fit();
                         self.view = None;
                         self.frame = 0;
@@ -2154,6 +2270,11 @@ impl Editor {
                     c.rect(r.x - 2.0, r.y - 2.0, r.w + 4.0, r.h + 4.0, TEXT);
                 }
                 c.rect(r.x, r.y, r.w, r.h, rgba(col));
+                // A color cleared in 3D wears a corner mark.
+                if self.sprite.clear_in_3d.contains(&col) {
+                    c.rect(r.x + r.w - 8.0, r.y, 8.0, 8.0, [0.0, 0.0, 0.0, 1.0]);
+                    c.rect(r.x + r.w - 6.0, r.y + 2.0, 4.0, 4.0, [1.0; 4]);
+                }
                 continue;
             }
             let thumb = match b.action {
@@ -2187,7 +2308,7 @@ impl Editor {
         // Color: a swatch, then red, green and blue bars.
         c.label("Color", SIDE_X, 172.0, 18.0, DIM, Align::Left);
         c.rect(SIDE_X + 60.0, 168.0, 60.0, 48.0, rgba(self.color));
-        c.label(format!("#{:02X}{:02X}{:02X}", self.color[0], self.color[1], self.color[2]), SIDE_X + 130.0, 184.0, 18.0, TEXT, Align::Left);
+        c.label(format!("#{:02X}{:02X}{:02X}", self.color[0], self.color[1], self.color[2]), SIDE_X + 130.0, 168.0, 18.0, TEXT, Align::Left);
         for (i, bar) in self.bars().iter().enumerate() {
             c.label(["R", "G", "B"][i], SIDE_X + 4.0, bar.y - 2.0, 18.0, DIM, Align::Left);
             for k in 0..16 {
@@ -2204,8 +2325,12 @@ impl Editor {
         match self.stand {
             _ if self.none_open() => {}
             0 => c.label(format!("Depth {} px", self.depth), SIDE_X, 645.0, 18.0, TEXT, Align::Left),
-            1 => c.label(format!("Height {} px", self.height), SIDE_X, 645.0, 18.0, TEXT, Align::Left),
+            1 => {
+                c.label(format!("Height {} px", self.height), SIDE_X, 645.0, 18.0, TEXT, Align::Left);
+                c.label(format!("Float {} px", self.lift), SIDE_X, 676.0, 18.0, TEXT, Align::Left);
+            }
             CARVE => c.label(format!("Height {} px", self.view_height()), SIDE_X, 645.0, 18.0, TEXT, Align::Left),
+            TURNED => c.label(format!("Depth {} px", self.depth), SIDE_X, 645.0, 18.0, TEXT, Align::Left),
             _ => {}
         }
         if let Some(v) = self.view {
@@ -2216,7 +2341,7 @@ impl Editor {
         }
         let f = self.current();
         if !self.none_open() {
-            c.label(format!("{} fps", self.fps), SIDE_X, 683.0, 18.0, TEXT, Align::Left);
+            c.label(format!("{} fps", self.fps), SIDE_X, 708.0, 18.0, TEXT, Align::Left);
             c.label(format!("{} / {}", self.frame + 1, self.sprite.frames.len()), CANVAS.x + 248.0, 704.0, 18.0, DIM, Align::Left);
             c.label(format!("W {}", f.w), CANVAS.x + 362.0, 704.0, 18.0, TEXT, Align::Right);
             c.label(format!("H {}", f.h), CANVAS.x + 484.0, 704.0, 18.0, TEXT, Align::Right);
@@ -2602,6 +2727,42 @@ mod tests {
         e.color = [9, 9, 9, 255];
         click_pixel(&mut e, 1, 3);
         assert_eq!(e.current().get(14, 3), Some([9, 9, 9, 255]));
+    }
+
+    #[test]
+    fn clear_color_clears_it_in_every_frame_in_one_undo() {
+        let mut e = editor();
+        e.color = [9, 9, 9, 255];
+        click_pixel(&mut e, 1, 3);
+        click_pixel(&mut e, 5, 7);
+        e.color = [4, 4, 4, 255];
+        click_pixel(&mut e, 2, 2);
+        e.sprite.frames.push(e.sprite.frames[0].clone());
+        e.color = [9, 9, 9, 255];
+        e.act(Action::ClearColor, false);
+        for f in &e.sprite.frames {
+            assert_eq!((f.get(1, 3), f.get(5, 7)), (Some(CLEAR), Some(CLEAR)));
+            assert_eq!(f.get(2, 2), Some([4, 4, 4, 255]), "other colors stay");
+        }
+        e.key(Key::Undo);
+        assert!(e.sprite.frames.iter().all(|f| f.get(1, 3) == Some([9, 9, 9, 255])));
+    }
+
+    #[test]
+    fn a_color_cleared_in_3d_stays_in_2d_and_saves() {
+        let mut e = editor();
+        e.color = [9, 9, 9, 255];
+        click_pixel(&mut e, 1, 3);
+        e.act(Action::ClearIn3d, false);
+        assert_eq!(e.current().get(1, 3), Some([9, 9, 9, 255]), "the 2D frame keeps it");
+        let surfaces = e.surfaces();
+        let (k, n) = e.solids_at.unwrap();
+        assert_eq!((surfaces.len(), surfaces[k].get(1, 3)), (k + n, Some(CLEAR)), "the 3D copy leaves it out");
+        let files = e.sprite.files();
+        let back = Sprite::from_files(&e.sprite.name, &files).unwrap();
+        assert_eq!(back.clear_in_3d, vec![[9, 9, 9, 255]]);
+        e.act(Action::ClearIn3d, false);
+        assert!(e.sprite.clear_in_3d.is_empty() && e.surfaces().len() == n, "pressing again puts it back");
     }
 
     fn type_in(e: &mut Editor, text: &str) {
@@ -3031,6 +3192,47 @@ mod tests {
                 assert!(std::ptr::eq(x, y) || apart, "{:?} overlaps {:?}", x.action, y.action);
             }
         }
+    }
+
+    #[test]
+    fn a_sprite_with_no_stand_shows_the_depth_the_game_gives_it() {
+        let mut e = editor();
+        e.switch_to("BUSH".into());
+        e.decide(Choice::Discard);
+        assert_eq!((e.sprite.name.as_str(), e.stand()), ("BUSH", Stand::Prop { depth: 12.0 }));
+        e.switch_to("MAILBOX".into());
+        e.decide(Choice::Discard);
+        assert_eq!(e.depth, last_harvest_game::default_prop_depth(16.0, 16.0, Some(last_harvest_game::art::MAILBOX), 0));
+    }
+
+    #[test]
+    fn a_slab_floats_as_set() {
+        let mut e = editor();
+        e.act(Action::Stand(1), false);
+        e.act(Action::Float(1), true);
+        buttons_fit(&e);
+        assert_eq!(e.stand(), Stand::Slab { height: e.height, lift: 8.0 });
+        assert_eq!(e.stand_text(), format!("slab {} float 8", e.height));
+        assert_eq!(sprite::parse_stand(&e.stand_text()), Some(e.stand()));
+    }
+
+    #[test]
+    fn turned_stands_up_the_east_view_alone() {
+        let mut e = editor();
+        e.act(Action::Stand(TURNED), false);
+        let outline = e.outline_width();
+        assert_eq!(e.depth, outline, "it starts as thick as it is seen from above");
+        e.act(Action::Depth(1), false);
+        assert_eq!((e.view, e.stand_text()), (Some(1), format!("turned {}", outline + 1.0)), "it opens the east view to draw, its depth as set");
+        for _ in 0..8 {
+            e.act(Action::AddFrame, false);
+        }
+        buttons_fit(&e);
+        let views: Vec<Action> = e.buttons().iter().map(|b| b.action).filter(|a| matches!(a, Action::View(_) | Action::AddFootprint)).collect();
+        assert_eq!(views, [Action::View(1)], "only the east view shows");
+        let n = e.surfaces().len();
+        e.set_live((0..n).map(|i| Art(i as u16)).collect());
+        assert_eq!(e.stand(), Stand::Turned { east: Art(e.sprite.frames.len() as u16 + 1), depth: Some(outline + 1.0) });
     }
 
     #[test]

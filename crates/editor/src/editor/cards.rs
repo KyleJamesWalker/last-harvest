@@ -185,7 +185,7 @@ impl Editor {
         if let Err(e) = self.store.delete_card(&self.sprite.name) {
             return self.say(format!("Couldn't delete {id}: {e}"));
         }
-        self.sprite = Sprite { name: String::new(), frames: vec![Frame::blank(16, 16)], views: None, footprint: None, top: None, card: None };
+        self.sprite = Sprite { name: String::new(), frames: vec![Frame::blank(16, 16)], views: None, footprint: None, top: None, card: None, clear_in_3d: Vec::new() };
         (self.dirty, self.stand_touched, self.stats, self.frame) = (false, false, false, 0);
         self.undo.clear();
         self.redo.clear();
@@ -298,14 +298,14 @@ impl Editor {
                 let mut parts = Vec::new();
                 for (src, name) in source.iter().zip(&names) {
                     let frames = if *src == self.sprite.name { self.sprite.frames.clone() } else { self.store.load(src).map(|s| s.frames).unwrap_or_default() };
-                    parts.push(Sprite { name: name.clone(), frames, views: None, footprint: None, top: None, card: Some(text.clone()) });
+                    parts.push(Sprite { name: name.clone(), frames, views: None, footprint: None, top: None, card: Some(text.clone()), clear_in_3d: Vec::new() });
                 }
                 parts
             }
             Ask::New => {
                 let text = format!("[{id}]\nname        {}\n", id[..1].to_ascii_uppercase() + &id[1..]);
                 let frames = sprite::card_template();
-                names.iter().zip(frames.chunks(sprite::CARD_PART_FRAMES)).map(|(name, f)| Sprite { name: name.clone(), frames: f.to_vec(), views: None, footprint: None, top: None, card: Some(text.clone()) }).collect()
+                names.iter().zip(frames.chunks(sprite::CARD_PART_FRAMES)).map(|(name, f)| Sprite { name: name.clone(), frames: f.to_vec(), views: None, footprint: None, top: None, card: Some(text.clone()), clear_in_3d: Vec::new() }).collect()
             }
         };
         if let Err(e) = parts.iter().try_for_each(|p| self.store.save(p)) {

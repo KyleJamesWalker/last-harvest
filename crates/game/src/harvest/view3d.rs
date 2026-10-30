@@ -191,16 +191,45 @@ fn stand(out: &mut Vec<Card>, eye: Vec3, art: Art, flip: bool, pose: Pose, solid
 /// both in map pixels, tinted by `tint`. Figures turn to face the camera, so the caller draws those.
 fn fixed(out: &mut Vec<Card>, eye: Vec3, a: Art, how: Stand, left: f32, base: f32, tint: [f32; 3]) {
     match how {
-        Stand::Prop { depth } => stand(out, eye, a, false, Pose { tint, ..Pose::upright(Vec3::new(left * PX, 0.0, base * PX), Vec3::X, -Vec3::Z, depth * PX) }, true),
+        Stand::Prop { depth } => stand(out, eye, a.solid(), false, Pose { tint, ..Pose::upright(Vec3::new(left * PX, 0.0, base * PX), Vec3::X, -Vec3::Z, depth * PX) }, true),
         // The sprite is the roof, its top row to the north, and its edges run down to the ground.
-        Stand::Slab { height } => {
-            let pose = Pose { origin: Vec3::new(left * PX, height * PX, base * PX), right: Vec3::X, up: -Vec3::Z, back: -Vec3::Y, depth: height * PX, tint, reach: Reach::Deep, top: None };
-            stand(out, eye, a, false, pose, true);
+        // Colors cleared in 3D stay on the ground beneath it.
+        Stand::Slab { height, lift } => {
+            if a.solid() != a && lift == 0.0 {
+                flat(out, a, left * PX, (base - a.h()) * PX, DECAL_LIFT + 0.006, tint);
+            }
+            let center = Vec3::new((left + a.w() / 2.0) * PX, 0.0, (base - a.h() / 2.0) * PX);
+            lying(out, eye, a, center, 0.0, height, lift, tint);
         }
         Stand::Ground => flat(out, a, left * PX, (base - a.h()) * PX, DECAL_LIFT + 0.006, tint),
+        Stand::Turned { east, depth } => turned(out, eye, a, east, depth, left, base - a.h(), tint),
         Stand::Carve { footprint, south, east } => carved(out, eye, [a, footprint.unwrap_or(a), south, east], footprint.is_some(), Vec3::new(left * PX, 0.0, (base - a.h()) * PX)),
         Stand::Figure => {}
     }
+}
+
+/// Lays a sprite's 3D copy flat around `center` on the ground, its top row to the north turned `angle` as the 2D
+/// view turns it, as a plate `height` map pixels thick whose underside floats `lift` up.
+#[allow(clippy::too_many_arguments)]
+fn lying(out: &mut Vec<Card>, eye: Vec3, a: Art, center: Vec3, angle: f32, height: f32, lift: f32, tint: [f32; 3]) {
+    let (right, down) = (Vec3::new(angle.cos(), 0.0, angle.sin()), Vec3::new(-angle.sin(), 0.0, angle.cos()));
+    let corner = center - right * (a.w() / 2.0 * PX) + down * (a.h() / 2.0 * PX);
+    let origin = Vec3::new(corner.x, (lift + height) * PX, corner.z);
+    let pose = Pose { origin, right, up: -down, back: -Vec3::Y, depth: height * PX, tint, reach: Reach::Deep, top: None };
+    stand(out, eye, a.solid(), false, pose, true);
+}
+
+/// Stands `east` upright running north from the bottom of `a`, a sprite drawn from above with its top-left at
+/// `left`, `top` in map pixels, centered on `a`'s outline from above and `depth` thick, or as thick as the outline.
+#[allow(clippy::too_many_arguments)]
+fn turned(out: &mut Vec<Card>, eye: Vec3, a: Art, east: Art, depth: Option<f32>, left: f32, top: f32, tint: [f32; 3]) {
+    let [rx, ry, w, h] = a.rect().map(usize::from);
+    let filled = |x: usize| art::with_pixels(a, |px| (0..h).any(|y| px[((ry + y) * ATLAS_W as usize + rx + x) * 4 + 3] > 0));
+    let x0 = (0..w).find(|&x| filled(x)).unwrap_or(0) as f32;
+    let x1 = (0..w).rev().find(|&x| filled(x)).map_or(w, |x| x + 1) as f32;
+    let depth = depth.unwrap_or(x1 - x0);
+    let origin = Vec3::new((left + (x0 + x1 - depth) / 2.0) * PX, 0.0, (top + a.h()) * PX);
+    stand(out, eye, east.solid(), false, Pose { tint, ..Pose::upright(origin, -Vec3::Z, Vec3::X, depth * PX) }, true);
 }
 
 /// The carved solid for a sprite and its views, worked out once for packed sprites and every time for live ones.
@@ -379,6 +408,9 @@ pub fn scene(h: &Harvest) -> CardScene {
             }
             let (ground, overlay) = h.map.tile(tx as usize, ty as usize);
             flat(&mut cards, ground, corner.x, corner.z, 0.0, [1.0; 3]);
+            if let Some(Stand::Slab { height, lift }) = ground.stand() {
+                lying(&mut cards, eye, ground, corner + Vec3::new(0.5, 0.0, 0.5), 0.0, height, lift, [1.0; 3]);
+            }
             if let Some(crop) = overlay {
                 stand(&mut cards, eye, crop, false, Pose::upright(corner + Vec3::Z, Vec3::X, -Vec3::Z, 2.0 * PX), false);
             }
@@ -499,7 +531,10 @@ pub fn scene(h: &Harvest) -> CardScene {
     for s in &h.swings {
         let (angle, r) = s.now();
         let at = [h.pos[0] + angle.cos() * r, h.pos[1] + angle.sin() * r];
-        board(&mut cards, Board::new(s.art, angle.cos() * right.x + angle.sin() * right.z < 0.0, at, 4.0 * PX, 0.0));
+        match s.art.stand() {
+            Some(Stand::Slab { height, lift }) => lying(&mut cards, eye, s.art, world(at), angle, height, lift, [1.0; 3]),
+            _ => board(&mut cards, Board::new(s.art, angle.cos() * right.x + angle.sin() * right.z < 0.0, at, 4.0 * PX, 0.0)),
+        }
     }
     for patch in &h.patches {
         let q = world(patch.pos);
@@ -581,7 +616,10 @@ pub fn scene(h: &Harvest) -> CardScene {
     }
     for f in &h.fx {
         let a = f.frames[((f.t * f.fps) as usize).min(f.frames.len() - 1)];
-        board(&mut cards, Board::new(a, false, [f.pos[0], f.pos[1] + 6.0], 0.25, 0.0));
+        match a.stand() {
+            Some(Stand::Slab { height, lift }) => lying(&mut cards, eye, a, world(f.pos), f.angle, height, lift, [1.0; 3]),
+            _ => board(&mut cards, Board::new(a, false, [f.pos[0], f.pos[1] + 6.0], 0.25, 0.0)),
+        }
     }
     for g in &h.thrown {
         let (at, lift) = g.at();
@@ -682,6 +720,61 @@ pub fn scene(h: &Harvest) -> CardScene {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_floating_slab_lies_off_the_ground_and_turns_with_its_angle() {
+        let a = art::HAY;
+        let eye = Vec3::new(0.0, 3.0, 0.5);
+        let corners = |angle: f32| {
+            let mut out = Vec::new();
+            lying(&mut out, eye, a, Vec3::ZERO, angle, 1.0, 6.0, [1.0; 3]);
+            out.iter().flat_map(|c| c.corners).collect::<Vec<_>>()
+        };
+        let flat = corners(0.0);
+        assert!(flat.iter().all(|c| (6.0 * PX - 1e-5..=7.0 * PX + 1e-5).contains(&c.y)), "a plate 1 thick, 6 up");
+        let reach = |cs: &[Vec3], f: fn(&Vec3) -> f32| cs.iter().map(f).fold(0.0f32, |m, v| m.max(v.abs()));
+        let turned = corners(std::f32::consts::FRAC_PI_2);
+        assert!((reach(&flat, |c| c.x) - reach(&turned, |c| c.z)).abs() < 1e-4, "a quarter turn swaps its width onto z");
+    }
+
+    #[test]
+    fn a_fence_side_turns_to_run_north_along_its_strip() {
+        let side = art::RAIL_SIDE[0];
+        let Some(Stand::Turned { east, depth: None }) = side.stand() else { panic!("the catalog turns the rail's sides") };
+        assert_eq!(east.rect()[2..], art::RAIL_TOP[1].rect()[2..]);
+        let thin = |depth| {
+            let mut cards = Vec::new();
+            fixed(&mut cards, Vec3::new(-3.0, 2.0, 3.0), side, Stand::Turned { east, depth }, 0.0, 16.0, [1.0; 3]);
+            let xs: Vec<f32> = cards.iter().flat_map(|c| c.corners).map(|c| c.x / PX).collect();
+            (xs.iter().copied().fold(f32::MAX, f32::min), xs.iter().copied().fold(f32::MIN, f32::max))
+        };
+        assert_eq!(thin(Some(1.0)), (2.0, 3.0), "a set depth stays centered on the strip");
+        let mut cards = Vec::new();
+        fixed(&mut cards, Vec3::new(-3.0, 2.0, 3.0), side, Stand::Turned { east, depth: None }, 0.0, 16.0, [1.0; 3]);
+        let corners = || cards.iter().flat_map(|c| c.corners);
+        let (xs, zs): (Vec<f32>, Vec<f32>) = corners().map(|c| (c.x / PX, c.z / PX)).unzip();
+        let span = |v: &[f32]| (v.iter().copied().fold(f32::MAX, f32::min), v.iter().copied().fold(f32::MIN, f32::max));
+        assert_eq!(span(&xs), (1.0, 4.0), "as thick as the strip drawn from above");
+        assert_eq!(span(&zs), (0.0, 16.0), "the length of the tile");
+    }
+
+    #[test]
+    fn a_slab_with_colors_cleared_in_3d_lays_the_whole_sprite_under_its_copy() {
+        let eye = Vec3::new(0.5, 3.0, 4.0);
+        let cards = |a: Art| {
+            let mut out = Vec::new();
+            fixed(&mut out, eye, a, Stand::Slab { height: 4.0, lift: 0.0 }, 0.0, 16.0, [1.0; 3]);
+            out
+        };
+        let on_ground = |cards: &[Card]| cards.iter().filter(|c| (c.corners[0].y - DECAL_LIFT - 0.006).abs() < 1e-4).count();
+        assert_eq!(on_ground(&cards(art::HAY)), 0, "nothing lies on the ground without cleared colors");
+        let live = art::set_live(vec![art::HAY.rect()], art::pixels().to_vec())[0];
+        art::set_live_solids(vec![(live, art::BUSH)]);
+        let cleared = cards(live);
+        assert_eq!(on_ground(&cleared), 1, "the whole sprite lies on the ground");
+        assert_eq!(cleared.len() - 1, cards(art::BUSH).len(), "the raised part is the 3D copy's");
+        art::set_live_solids(Vec::new());
+    }
 
     #[test]
     fn a_thin_top_keeps_thick_dark_hair_where_a_deep_one_reaches_the_shirt() {

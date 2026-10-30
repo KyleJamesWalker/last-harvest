@@ -156,6 +156,12 @@ fn thickness(art: Art, tw: usize, th: usize, open_rows: usize) -> f32 {
     }
 }
 
+/// How far a prop `w` by `h` pixels reaches back in 3D when it says no depth, placed with `open_rows` walk-through
+/// rows; `art` is the packed sprite, if it is one.
+pub fn default_depth(w: f32, h: f32, art: Option<Art>, open_rows: usize) -> f32 {
+    thickness(art.unwrap_or(Art(u16::MAX)), tiles(w), tiles(h), open_rows)
+}
+
 fn tiles(px: f32) -> usize {
     (px / TILE).ceil() as usize
 }
