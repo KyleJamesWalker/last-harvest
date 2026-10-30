@@ -58,6 +58,8 @@ struct Web {
     shift: bool,
     /// Fingers on the corner Shift pads, by pad and pointer, which hold Shift down while they stay.
     holding: Vec<(usize, i32)>,
+    /// A tap on a corner pad holds Shift for the next press, since iPadOS drops a pencil's touch while a finger is down.
+    armed: bool,
     /// Whether the keyboard's Shift was down when the last pointer landed.
     key_shift: bool,
     i_held: bool,
@@ -128,7 +130,8 @@ impl Web {
     /// Hands a press at `at` to the studio.
     fn begin(&mut self, id: i32, at: [f32; 2]) {
         let (pane, p) = self.locate(at);
-        self.studio.press(pane, p, false, self.shifted() || self.key_shift);
+        let shift = self.press_shift();
+        self.studio.press(pane, p, false, shift);
         self.pointer = at;
         self.gesture = Gesture::Held { id };
     }
@@ -154,7 +157,8 @@ impl Web {
             // A pen or mouse takes over from any finger, such as a palm resting on the screen.
             self.cancel_touches();
             let (pane, at) = self.locate(p);
-            self.studio.press(pane, at, e.button() == 2, self.shifted() || self.key_shift);
+            let shift = self.press_shift();
+            self.studio.press(pane, at, e.button() == 2, shift);
             self.pointer = p;
             self.gesture = Gesture::Held { id };
             return;
@@ -325,7 +329,17 @@ impl Web {
 
     /// Whether Shift is down: the toolbar's toggle, or a finger on a corner pad.
     fn shifted(&self) -> bool {
-        self.shift || !self.holding.is_empty()
+        self.shift || self.armed || !self.holding.is_empty()
+    }
+
+    /// Whether a press on the canvas is shifted, using up a pad's tap.
+    fn press_shift(&mut self) -> bool {
+        let shift = self.shifted() || self.key_shift;
+        if self.armed {
+            self.armed = false;
+            self.light_pads();
+        }
+        shift
     }
 
     /// A finger landing on (`down`) or leaving corner pad `pad`.
@@ -333,9 +347,16 @@ impl Web {
         self.holding.retain(|&(p, i)| !(p == pad && i == id));
         if down {
             self.holding.push((pad, id));
+            self.armed = !self.armed;
         }
-        if let Some(el) = self.document.get_element_by_id(HOLD_PADS[pad]) {
-            let _ = el.class_list().toggle_with_force("on", self.holding.iter().any(|&(p, _)| p == pad));
+        self.light_pads();
+    }
+
+    fn light_pads(&self) {
+        for (pad, name) in HOLD_PADS.iter().enumerate() {
+            if let Some(el) = self.document.get_element_by_id(name) {
+                let _ = el.class_list().toggle_with_force("on", self.armed || self.holding.iter().any(|&(p, _)| p == pad));
+            }
         }
     }
 
@@ -534,6 +555,7 @@ fn start() -> Result<(), String> {
         pointer: [0.0; 2],
         shift: false,
         holding: Vec::new(),
+        armed: false,
         key_shift: false,
         i_held: false,
         title: String::new(),

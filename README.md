@@ -370,7 +370,7 @@ The server prints the address to open on the iPad, such as `http://192.168.1.20:
 | Zoom the map | Pinch it |
 | Scroll the sprite list | Drag it; tap a name to open it |
 | Keyboard shortcuts | The toolbar under the panes: Undo, Redo, Copy, Cut, Paste, Delete, Enter, Esc, Shift (stays on until tapped again), the arrows, sprites, frames, Search, History, New, Play, Mirror, Fit, Save |
-| Hold Shift while drawing | Keep a finger on the Shift pad in either bottom corner |
+| Shift for the next pencil tap | Tap the Shift pad in either bottom corner; it lights until the pencil uses it, and a second tap turns it off |
 | Name a sprite or search | Type in the field that appears |
 
 A hardware keyboard keeps the macOS shortcuts. The web build embeds the tileset, whose license forbids redistributing it, so the server only answers loopback and private network addresses: never publish `target/web-editor` or expose the server to the internet. Anyone on the local network can open the editor and save sprites while it runs.
