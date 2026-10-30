@@ -12,7 +12,7 @@
 #   does    behaviour   for weapons, which behaviour it fires with; defaults to the id, so a copy
 #                       under a new id with `does scythe` is a second scythe with its own numbers
 #   zone    ahead | around | behind | map
-#   icon    SPRITE      the card's picture, a name from art.txt; defaults to ICON_<ID>
+#   icon    SPRITE      the card's picture, a name from art.txt or a player's prop, PROP_<ID>; defaults to ICON_<ID>
 #   unlock  start | kills N | night SECONDS | level N | nights N | dawns N
 #           kills and nights add up over every run; night and level are the best single run.
 #           Anything but `start` only becomes findable: a level-up may then offer it on a FOUND card,

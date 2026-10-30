@@ -508,8 +508,16 @@ pub fn book() -> &'static Book {
     BOOK.get_or_init(|| parse(crate::data::powerups()).unwrap_or_else(|e| panic!("powerups.txt:{e}")))
 }
 
+/// A sprite by name: the catalog's, else a player's prop's. A prop that isn't installed yet, as when a mod is
+/// checked before it loads, stands in as a blank and is reported.
 fn sprite(name: &str) -> Option<Art> {
-    art::ALL.iter().find(|(n, _)| *n == name).map(|(_, frames)| frames[0])
+    let own = art::ALL.iter().find(|(n, _)| *n == name).map(|(_, frames)| frames[0]);
+    own.or_else(|| super::props::prop(name).and_then(|p| p.frames.first().copied())).or_else(|| {
+        name.starts_with(super::props::PREFIX).then(|| {
+            crate::data::note(format!("powerups.txt: no prop called {name} for an icon"));
+            art::WHITE
+        })
+    })
 }
 
 const DEFAULT_FIND: f32 = 0.25;
