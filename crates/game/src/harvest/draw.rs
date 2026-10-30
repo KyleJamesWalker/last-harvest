@@ -314,7 +314,8 @@ impl Harvest {
 
         for b in &self.bullets {
             let (sx, sy) = at(b.pos[0], b.pos[1]);
-            c.art_rotated(art::BULLET, sx, sy, scale, b.vel[1].atan2(b.vel[0]), lit);
+            let a = b.look.unwrap_or(super::effects::effects().bullet).looping(b.age);
+            c.art_rotated(a, sx, sy, scale, b.vel[1].atan2(b.vel[0]), lit);
         }
         for fx in &self.fx {
             let a = fx.frames[((fx.t * fx.fps) as usize).min(fx.frames.len() - 1)];

@@ -27,18 +27,28 @@ impl Effect {
 
 macro_rules! effects {
     ($($field:ident,)*) => {
-        #[derive(Clone, Copy, Debug)]
+        #[derive(Clone, Debug)]
         pub struct Effects {
             $(pub $field: Effect,)*
+            /// Effects of a mod's own, by the name of their section.
+            pub extra: Vec<(String, Effect)>,
         }
 
         /// Every effect `effects.txt` names, in the order `Effects` holds them.
         pub const NAMES: &[&str] = &[$(stringify!($field),)*];
 
         impl Effects {
-            fn from_list(v: &[Effect]) -> Self {
+            fn from_list(v: &[Effect], extra: Vec<(String, Effect)>) -> Self {
                 let mut at = v.iter().copied();
-                Effects { $($field: at.next().expect("one effect a name"),)* }
+                Effects { $($field: at.next().expect("one effect a name"),)* extra }
+            }
+
+            /// An effect by its section's name, the game's own or a mod's.
+            pub fn named(&self, name: &str) -> Option<Effect> {
+                match name {
+                    $(stringify!($field) => Some(self.$field),)*
+                    _ => self.extra.iter().find(|(n, _)| n == name).map(|(_, e)| *e),
+                }
             }
         }
     };
@@ -49,6 +59,8 @@ effects! {
     muzzle_rifle,
     shotgun_blast,
     slash,
+    bullet,
+    bullet_3d,
     pitchfork,
     scythe,
     explosion,
@@ -74,9 +86,14 @@ pub struct Written {
     pub reach: f32,
 }
 
-/// Reads `effects.txt`; it must name every effect, each with a sprite. Errors name the line.
-pub fn parse(text: &str) -> Result<Vec<Written>, String> {
+/// Effects of a mod's own as written, by the name of their section.
+type Extra = Vec<(String, Written)>;
+
+/// Reads `effects.txt`: the game's effects in the order of `NAMES`, which it must all name, then any of its own by
+/// name, each with a sprite. Errors name the line.
+pub fn parse(text: &str) -> Result<(Vec<Written>, Extra), String> {
     let mut out: Vec<Option<Written>> = vec![None; NAMES.len()];
+    let mut extra: Vec<(String, Written)> = Vec::new();
     let mut at = None;
     for (i, raw) in text.lines().enumerate() {
         let n = i + 1;
@@ -85,12 +102,31 @@ pub fn parse(text: &str) -> Result<Vec<Written>, String> {
             continue;
         }
         if let Some(name) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
-            let k = NAMES.iter().position(|e| *e == name).ok_or_else(|| format!("{n}: [{name}] isn't an effect"))?;
-            out[k] = Some(Written { art: String::new(), fps: 10.0, life: 0.2, reach: 1.0 });
-            at = Some(k);
+            let fresh = Written { art: String::new(), fps: 10.0, life: 0.2, reach: 1.0 };
+            if !name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_') || name.is_empty() {
+                return Err(format!("{n}: [{name}] isn't a name of lowercase letters, digits and _"));
+            }
+            if out.iter().zip(NAMES).any(|(o, k)| o.is_some() && *k == name) || extra.iter().any(|(k, _)| k == name) {
+                return Err(format!("{n}: [{name}] appears twice"));
+            }
+            at = Some(match NAMES.iter().position(|e| *e == name) {
+                Some(k) => {
+                    out[k] = Some(fresh);
+                    k
+                }
+                None => {
+                    extra.push((name.to_string(), fresh));
+                    NAMES.len() + extra.len() - 1
+                }
+            });
             continue;
         }
-        let Some(e) = at.and_then(|k| out[k].as_mut()) else { return Err(format!("{n}: a line before any [effect]")) };
+        let e = match at {
+            Some(k) if k < NAMES.len() => out[k].as_mut(),
+            Some(k) => extra.get_mut(k - NAMES.len()).map(|(_, w)| w),
+            None => None,
+        };
+        let Some(e) = e else { return Err(format!("{n}: a line before any [effect]")) };
         let (key, value) = line.split_once(char::is_whitespace).map_or((line, ""), |(k, v)| (k, v.trim()));
         let number = || value.parse::<f32>().ok().filter(|v| v.is_finite() && *v > 0.0).ok_or_else(|| format!("{n}: {key} is a number above 0"));
         match key {
@@ -102,14 +138,19 @@ pub fn parse(text: &str) -> Result<Vec<Written>, String> {
             _ => return Err(format!("{n}: {key} isn't something an effect says")),
         }
     }
-    out.into_iter()
+    let own = out
+        .into_iter()
         .zip(NAMES)
         .map(|(e, name)| match e {
             Some(e) if e.art.is_empty() => Err(format!("[{name}] needs an art line")),
             Some(e) => Ok(e),
             None => Err(format!("no [{name}]")),
         })
-        .collect()
+        .collect::<Result<Vec<_>, _>>()?;
+    if let Some((name, _)) = extra.iter().find(|(_, w)| w.art.is_empty()) {
+        return Err(format!("[{name}] needs an art line"));
+    }
+    Ok((own, extra))
 }
 
 /// A sprite's frames by name: the catalog's, else a player's prop's.
@@ -121,8 +162,18 @@ fn frames_of(name: &str) -> Option<&'static [Art]> {
 pub fn effects() -> &'static Effects {
     static E: OnceLock<Effects> = OnceLock::new();
     E.get_or_init(|| {
-        let own = parse(include_str!("../../effects.txt")).unwrap_or_else(|e| panic!("effects.txt:{e}"));
-        let mine = parse(crate::data::effects()).unwrap_or_else(|e| panic!("effects.txt:{e}"));
+        let (own, _) = parse(include_str!("../../effects.txt")).unwrap_or_else(|e| panic!("effects.txt:{e}"));
+        let (mine, extra) = parse(crate::data::effects()).unwrap_or_else(|e| panic!("effects.txt:{e}"));
+        let extra = extra
+            .into_iter()
+            .filter_map(|(name, w)| match frames_of(&w.art) {
+                Some(frames) => Some((name, Effect { frames, fps: w.fps, life: w.life, reach: w.reach })),
+                None => {
+                    crate::data::note(format!("effects.txt: [{name}] plays {}, which isn't a sprite", w.art));
+                    None
+                }
+            })
+            .collect();
         let list: Vec<Effect> = mine
             .iter()
             .zip(&own)
@@ -135,7 +186,7 @@ pub fn effects() -> &'static Effects {
                 Effect { frames, fps: w.fps, life: w.life, reach: w.reach }
             })
             .collect();
-        Effects::from_list(&list)
+        Effects::from_list(&list, extra)
     })
 }
 
@@ -151,7 +202,11 @@ mod tests {
         assert_eq!(e.money.once(10.0), art::MONEY[3]);
         let own = include_str!("../../effects.txt");
         assert_eq!(parse(&own.replace("art SLASH\n", "")).unwrap_err(), "[slash] needs an art line");
-        assert!(parse("[sparkle]\nart X").unwrap_err().starts_with("1: [sparkle]"));
+        assert!(parse("[Sparkle]\nart X").unwrap_err().starts_with("1: [Sparkle]"));
         assert!(parse("[slash]\nart SLASH").unwrap_err().starts_with("no [muzzle_pistol]"));
+        let (_, extra) = parse(&format!("{own}\n[red_slash]\nart SCYTHE_SWING\nfps 9")).unwrap();
+        assert_eq!((extra[0].0.as_str(), extra[0].1.fps), ("red_slash", 9.0));
+        assert_eq!(e.named("slash"), Some(e.slash));
+        assert_eq!(e.named("red_slash"), None);
     }
 }

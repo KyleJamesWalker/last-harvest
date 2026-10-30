@@ -643,7 +643,8 @@ pub fn scene(h: &Harvest) -> CardScene {
         }
     }
     for b in &h.bullets {
-        board(&mut cards, Board::new(art::MUZZLE, false, [b.pos[0], b.pos[1] + 6.0], 0.35, 0.0));
+        let a = b.look.unwrap_or(super::effects::effects().bullet_3d).looping(b.age);
+        board(&mut cards, Board::new(a, false, [b.pos[0], b.pos[1] + 6.0], 0.35, 0.0));
         // A short glowing tracer behind each bullet.
         let n = norm(b.vel);
         for k in 1..4 {

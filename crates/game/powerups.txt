@@ -20,6 +20,9 @@
 #   find    CHANCE      how often a level-up offers it as a find, 0 to 1; 0.25 when left out
 #   after   MINUTES     the earliest it can be found in a night; 0 when left out
 #   chest   (no value)  found only in the chest a horde's leader drops; a chest holds a find whenever one is waiting
+#   effect  NAME        for weapons, the effects.txt effect it plays in place of its behaviour's own
+#   bullet  NAME        for weapons that shoot, the effects.txt effect its bullets fly as
+#   sound   NAME        for weapons, shot, blast, slash, zap, bark or throw in place of its behaviour's own
 #   blurb   Text        the card's line when the powerup is new
 #   max     N           highest level
 #   STAT    v1 v2 ...   the value at each level, from level 1; a short list repeats its last value

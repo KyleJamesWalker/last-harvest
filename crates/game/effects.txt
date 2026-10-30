@@ -4,6 +4,8 @@
 #   life N        a swing's seconds
 #   reach N       how far out a swing sweeps, as a fraction of the weapon's range or area
 # A sprite standing as a slab lies flat and turns with the swing; anything else faces the camera.
+# A section with a name of your own is an effect a weapon in powerups.txt can play with `effect NAME` or
+# fire as its bullets with `bullet NAME`.
 
 [muzzle_pistol]
 art MUZZLE
@@ -20,6 +22,12 @@ fps 18
 [slash]
 art SLASH
 fps 20
+
+[bullet]
+art BULLET
+
+[bullet_3d]
+art MUZZLE
 
 [pitchfork]
 art PITCHFORK_THRUST

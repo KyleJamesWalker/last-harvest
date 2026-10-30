@@ -394,8 +394,18 @@ pub struct Def {
     pub after: f32,
     /// Only found in the chest a horde's leader drops.
     pub chest: bool,
+    /// For a weapon, the `effects.txt` effect it plays in place of its behaviour's own.
+    pub effect: Option<String>,
+    /// For a weapon that shoots, the effect its bullets fly as.
+    pub bullet: Option<String>,
+    /// For a weapon, the sound it makes in place of its behaviour's own.
+    pub sound: Option<crate::Sfx>,
     stats: Vec<(Stat, Vec<f32>)>,
 }
+
+/// The sounds a weapon can make, by the name `sound` gives them.
+pub const WEAPON_SOUNDS: [(&str, crate::Sfx); 6] =
+    [("shot", crate::Sfx::Shot), ("blast", crate::Sfx::Blast), ("slash", crate::Sfx::Slash), ("zap", crate::Sfx::Zap), ("bark", crate::Sfx::Bark), ("throw", crate::Sfx::Throw)];
 
 impl Def {
     /// The value of `stat` at `level`, counting from 1.
@@ -499,6 +509,9 @@ pub fn parse(text: &str) -> Result<Book, String> {
                 find: DEFAULT_FIND,
                 after: 0.0,
                 chest: false,
+                effect: None,
+                bullet: None,
+                sound: None,
                 stats: Vec::new(),
             });
             icons.push(None);
@@ -546,6 +559,14 @@ pub fn parse(text: &str) -> Result<Book, String> {
                     "map" => Zone::Map,
                     _ => return Err(format!("{n}: zone is ahead, around, behind or map, not {rest:?}")),
                 })
+            }
+            "effect" | "bullet" if !rest.is_empty() && rest.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_') => {
+                *if key == "effect" { &mut def.effect } else { &mut def.bullet } = Some(rest.to_string());
+            }
+            "effect" | "bullet" => return Err(format!("{n}: {key} names an effects.txt section, such as slash")),
+            "sound" => {
+                let names: Vec<&str> = WEAPON_SOUNDS.iter().map(|(k, _)| *k).collect();
+                def.sound = Some(WEAPON_SOUNDS.iter().find(|(k, _)| *k == rest).map(|(_, s)| *s).ok_or_else(|| format!("{n}: sound is one of {}", names.join(", ")))?);
             }
             "does" => def.does = Some(Does::from_key(rest).ok_or_else(|| format!("{n}: no weapon behaviour called {rest:?}"))?),
             "unlock" => {
@@ -652,6 +673,15 @@ mod tests {
         assert_eq!(pp.at(Stat::Armor, 1), 0.0);
         assert_eq!(pp.change(1, 2), "Damage +10% > +25%");
         assert_eq!(gun.change(0, 1), "", "a new card shows its blurb");
+    }
+
+    #[test]
+    fn a_weapon_can_play_its_own_effect_bullet_and_sound() {
+        let b = parse("[cleaver]\nkind weapon\ndoes knife\nicon WHITE\neffect red_slash\nbullet bullet_3d\nsound blast\n[cash]\nkind filler\nicon WHITE\n").unwrap();
+        let d = &b.defs[0];
+        assert_eq!((d.effect.as_deref(), d.bullet.as_deref(), d.sound), (Some("red_slash"), Some("bullet_3d"), Some(crate::Sfx::Blast)));
+        assert!(parse("[a]\nicon WHITE\nsound moo").unwrap_err().starts_with("3: sound is one of shot"));
+        assert!(parse("[a]\nicon WHITE\neffect Red").unwrap_err().starts_with("3: effect names"));
     }
 
     #[test]
