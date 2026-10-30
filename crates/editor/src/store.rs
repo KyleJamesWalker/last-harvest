@@ -43,6 +43,10 @@ pub trait Store {
         Err("a card's death sound goes in the sounds folder here".into())
     }
 
+    fn remove_card_sound(&self, _id: &str) -> Result<(), String> {
+        Err("a card's death sound goes in the sounds folder here".into())
+    }
+
     /// Every card's own death sound by file name, for the mod editor's Export all.
     fn all_sounds(&self) -> Vec<(String, Vec<u8>)> {
         Vec::new()

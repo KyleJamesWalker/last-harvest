@@ -150,6 +150,10 @@ impl Store for LocalStore {
         self.storage.set_item(&sound_key(id), &format!("{file}:{}", cards::to_text(bytes))).map_err(|_| "the browser's storage for this page is full".into())
     }
 
+    fn remove_card_sound(&self, id: &str) -> Result<(), String> {
+        self.storage.remove_item(&sound_key(id)).map_err(|_| "the browser wouldn't remove it".to_string())
+    }
+
     fn all_sounds(&self) -> Vec<(String, Vec<u8>)> {
         let mut ids = self.ids(CardKind::Enemy);
         ids.sort();

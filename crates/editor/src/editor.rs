@@ -204,6 +204,7 @@ enum Action {
     StatStep(usize, i32),
     Flag(usize),
     Sound(i32),
+    DropSound,
     EditName,
     EditAbout,
     /// Turns a weapon, by its place in `weapons()`, on or off in a player card's start at a difficulty.
@@ -1021,6 +1022,9 @@ impl Editor {
             let y = STAT_TOP + STAT_ROWS.len() as f32 * STAT_ROW;
             push(CANVAS.x + 400.0, y, 66.0, STAT_BUTTON, Action::Sound(-1), "<", false);
             push(CANVAS.x + 474.0, y, 66.0, STAT_BUTTON, Action::Sound(1), ">", false);
+            if self.own_sound.is_some() {
+                push(CANVAS.x + 548.0, y, 110.0, STAT_BUTTON, Action::DropSound, "Drop own", false);
+            }
             let fields = self.sprite.card.as_deref().and_then(|t| last_harvest_game::card_fields(t).ok());
             for (i, name) in FLAG_NAMES.into_iter().enumerate() {
                 let on = fields.as_ref().is_some_and(|f| f.flags[i].1);
@@ -1662,6 +1666,7 @@ impl Editor {
                 let next = sounds[(at + d).rem_euclid(sounds.len() as i32) as usize].clone();
                 self.set_card("sound", Some(&next));
             }
+            Action::DropSound => self.drop_sound(),
             Action::StartWeapon(d, w) => {
                 let difficulty = last_harvest_game::Difficulty::ALL[d];
                 let mut have = self.player_starts()[d].clone().unwrap_or_else(|| last_harvest_game::default_start(difficulty));
@@ -3187,6 +3192,13 @@ mod tests {
         assert!(e.attach_sound("boo.mp3", b"ID3....").is_none() && said(&e).contains("isn't an Ogg or WAV"));
         assert!(e.attach_sound("big.ogg", &[b"OggS".as_slice(), &vec![0; 600 * 1024]].concat()).is_none() && said(&e).contains("at most 512 KB"));
         assert!(e.attach_sound("boo.ogg", b"OggS....").is_none() && said(&e).contains("sounds folder"), "the Mac's store keeps none: {}", said(&e));
+        e.stats = true;
+        let drop = |e: &Editor| e.buttons().iter().any(|b| b.action == Action::DropSound);
+        assert!(!drop(&e), "Drop own shows only for a card with its own sound");
+        e.own_sound = Some("kill-ghoul.ogg".into());
+        assert!(drop(&e));
+        e.act(Action::DropSound, false);
+        assert!(said(&e).starts_with("Couldn't drop the sound") && e.own_sound.is_some(), "{}", said(&e));
     }
 
     #[test]

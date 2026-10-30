@@ -122,6 +122,24 @@ impl Editor {
         Some(kept)
     }
 
+    /// Forgets the open enemy card's own death sound; a card that pointed at it dies to the game's first again.
+    pub(super) fn drop_sound(&mut self) {
+        let Some(id) = sprite::card_id(&self.sprite.name) else { return };
+        if let Err(e) = self.store.remove_card_sound(&id) {
+            return self.say(format!("Couldn't drop the sound: {e}"));
+        }
+        self.own_sound = None;
+        let cue = format!("kill-{id}");
+        let points = self.sprite.card.as_deref().and_then(|t| last_harvest_game::card_fields(t).ok()).is_some_and(|f| f.sound == cue);
+        match last_harvest_game::kill_sounds().find(|s| *s != cue).filter(|_| points) {
+            Some(stock) => {
+                self.set_card("sound", Some(stock));
+                self.say(format!("{id} dies to {stock} again; Save the card to keep it"));
+            }
+            None => self.say(format!("{id}'s own death sound is gone")),
+        }
+    }
+
     /// Every card's own death sound, for Export all.
     pub fn all_sounds(&self) -> Vec<(String, Vec<u8>)> {
         self.store.all_sounds()
