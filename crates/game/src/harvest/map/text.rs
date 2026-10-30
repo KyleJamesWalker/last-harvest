@@ -15,7 +15,7 @@
 //! fence rail 4 20 10 6 gate 3
 //! ```
 //!
-//! Ground codes are in `GROUND`. Roads and paths join up with their neighbours, and corn grows tops and bottoms at
+//! Ground codes are in `ground.txt`. Roads and paths join up with their neighbours, and corn grows tops and bottoms at
 //! a field's edges. A prop is a sprite's name and the tile its top-left sits on; every row of it but the top
 //! `open` ones blocks movement, and a windmill brings its fan. The edge is always a ring of trees and bushes, and
 //! `scatter` sprinkles the rest of the open ground as the random farm does, differently each run.
@@ -35,9 +35,10 @@ const MAX_TEXT: usize = 1024 * 1024;
 pub const MIN_SIZE: [usize; 2] = [16, 12];
 pub const MAX_SIZE: [usize; 2] = [160, 120];
 
-/// Each ground code and what it lays.
-pub const GROUND: [(u8, &str); 9] =
-    [(b'.', "Dirt"), (b',', "Tufts"), (b'g', "Grass"), (b's', "Soil"), (b'p', "Sprouts"), (b'c', "Corn"), (b'v', "Road |"), (b'h', "Road -"), (b'=', "Path")];
+/// Each ground code and its paint button's label, as `ground.txt` lists them.
+pub fn ground_codes() -> Vec<(u8, String)> {
+    super::ground::ground().iter().map(|g| (g.code, g.name.clone())).collect()
+}
 
 /// A sprite a map can place, and how it stands in the way when its line doesn't say.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -257,7 +258,7 @@ impl MapSource {
     /// A map of dirt `size` tiles, with the spawn in the middle and home just above it.
     pub fn new(name: &str, size: [usize; 2]) -> Self {
         let [w, h] = size;
-        Self { name: name.into(), size, spawn: [w / 2, h / 2], home: [w / 2, h / 2 - 1], scatter: false, ground: vec![b'.'; w * h], props: Vec::new() }
+        Self { name: name.into(), size, spawn: [w / 2, h / 2], home: [w / 2, h / 2 - 1], scatter: false, ground: vec![super::ground::ground()[0].code; w * h], props: Vec::new() }
     }
 
     /// Reads a map file's syntax; whether the map works is `Map::from_source`'s to say. Errors name the line.
@@ -305,7 +306,7 @@ impl MapSource {
             if row.len() != w || !row.is_ascii() {
                 return Err(format!("{n}: a ground row is {w} codes, one per cell"));
             }
-            if let Some(c) = row.bytes().find(|c| !GROUND.iter().any(|(g, _)| g == c)) {
+            if let Some(c) = row.bytes().find(|c| !super::ground::ground().iter().any(|g| g.code == *c)) {
                 return Err(format!("{n}: {} isn't a ground code", c as char));
             }
             ground.extend(row.bytes());
@@ -340,7 +341,7 @@ impl MapSource {
         let size: [usize; 2] = std::array::from_fn(|i| (self.size[i] as i32 + by[i]).clamp(MIN_SIZE[i] as i32, MAX_SIZE[i] as i32) as usize);
         let [w, h] = size;
         let old = self.size;
-        let ground = (0..h).flat_map(|y| (0..w).map(move |x| (x, y))).map(|(x, y)| if x < old[0] && y < old[1] { self.ground[y * old[0] + x] } else { b'.' }).collect();
+        let ground = (0..h).flat_map(|y| (0..w).map(move |x| (x, y))).map(|(x, y)| if x < old[0] && y < old[1] { self.ground[y * old[0] + x] } else { super::ground::ground()[0].code }).collect();
         let inside = |[x, y]: [usize; 2]| [x.clamp(1, w - 2), y.clamp(1, h - 2)];
         let fits = |p: &PropLine| {
             let [x, y, pw, ph] = p.rect();
@@ -359,20 +360,12 @@ impl MapSource {
         let size = std::array::from_fn(|i| size[i].clamp(RANDOM_MIN[i], MAX_SIZE[i]));
         let [w, h] = size;
         let map = Map::generate(&mut Rng::new(seed), w, h);
+        let kinds = super::ground::ground();
         let code = |i: usize| {
             let (g, o) = (map.ground[i], map.overlay[i]);
-            let is = |set: &[Art]| set.contains(&g);
-            match () {
-                _ if o.is_some_and(|o| o == art::CORN || o == art::CORN_BOTTOM || art::CORN_TOP.contains(&o)) => b'c',
-                _ if is(&art::ROAD_V) => b'v',
-                _ if is(&art::ROAD_H) => b'h',
-                _ if is(&art::PATH) => b'=',
-                _ if is(&art::SOIL) => b's',
-                _ if is(&art::SPROUTS) => b'p',
-                _ if is(&art::GRASS) => b'g',
-                _ if is(&art::DIRT_TUFTS) && !is(&art::DIRT) => b',',
-                _ => b'.',
-            }
+            let crop = kinds.iter().find(|k| k.crop.is_some_and(|(top, mid, bottom)| o.is_some_and(|o| o == mid || o == bottom || top.contains(&o))));
+            let plain = || kinds.iter().filter(|k| k.crop.is_none()).find(|k| k.art.contains(&g));
+            crop.or_else(plain).map_or(kinds[0].code, |k| k.code)
         };
         let tile = |px: f32| (px / TILE) as usize;
         let mut props = Vec::new();
@@ -518,31 +511,23 @@ impl Map {
         for y in 0..h {
             for x in 0..w {
                 let i = self.i(x, y);
-                let pick = (x * 7 + y * 13) % 2;
-                let (left, right, up, down) = (code(x.wrapping_sub(1), y), code(x + 1, y), code(x, y.wrapping_sub(1)), code(x, y + 1));
-                let lane = |before: u8, after: u8, c: u8| if before != c { 0 } else if after != c { 2 } else { 1 };
-                self.ground[i] = match code(x, y) {
-                    b',' => art::DIRT_TUFTS[pick],
-                    b'g' => art::GRASS[pick],
-                    b's' | b'c' => art::SOIL[pick],
-                    b'p' => art::SPROUTS[pick],
-                    b'v' => art::ROAD_V[lane(left, right, b'v')],
-                    b'h' => art::ROAD_H[lane(up, down, b'h')],
-                    _ => art::DIRT[pick],
+                let c = code(x, y);
+                let g = super::ground::of(c);
+                let (before, after) = match g.joins {
+                    Some(super::ground::Joins::Across) => (code(x.wrapping_sub(1), y) == c, code(x + 1, y) == c),
+                    _ => (code(x, y.wrapping_sub(1)) == c, code(x, y + 1) == c),
                 };
-                match code(x, y) {
-                    b'v' | b'h' => self.cells[i] = Cell::Road,
-                    b'=' => self.cells[i] = Cell::Path,
-                    b'c' => {
-                        self.overlay[i] = Some(match (up == b'c', down == b'c') {
-                            (false, _) => art::CORN_TOP[pick],
-                            (_, false) => art::CORN_BOTTOM,
-                            _ => art::CORN,
-                        });
-                        self.cells[i] = Cell::Taken;
-                    }
-                    b's' | b'p' => self.cells[i] = Cell::Taken,
-                    _ => {}
+                self.ground[i] = g.tile(x, y, before, after);
+                if g.cell != Cell::Open {
+                    self.cells[i] = g.cell;
+                }
+                if let Some((top, middle, bottom)) = g.crop {
+                    let (up, down) = (code(x, y.wrapping_sub(1)) == c, code(x, y + 1) == c);
+                    self.overlay[i] = Some(match (up, down) {
+                        (false, _) => top[(x * 7 + y * 13) % top.len()],
+                        (_, false) => bottom,
+                        _ => middle,
+                    });
                 }
             }
         }

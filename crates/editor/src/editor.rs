@@ -3304,6 +3304,7 @@ mod tests {
         let mut e = editor_in(&dir, dir.join("art.txt"));
         assert!(e.names.iter().any(|(n, _)| n == "DATA_TUNING_PLAYER") && e.names.iter().any(|(n, _)| n == "DATA_POWERUPS_PISTOL"));
         assert_eq!(sprite::section("DATA_TUNING_PLAYER"), "Data: tuning");
+        assert!(["DATA_GROUND__2E", "DATA_GROUND__3D", "DATA_GROUND_G"].iter().all(|n| e.names.iter().any(|(m, _)| m == n)), "ground codes list apart");
         e.switch_to("DATA_TUNING_PLAYER".into());
         e.act(Action::DataStep(0, 1), false);
         assert!(e.unsaved());

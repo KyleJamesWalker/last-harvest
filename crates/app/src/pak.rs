@@ -158,12 +158,13 @@ pub fn install(base: Option<Pak>, missing_pack: Option<String>) -> Result<Files,
     }
     let mut text = |file: &str| pak.take(file).map(String::from_utf8).transpose().map_err(|_| format!("{file} is not UTF-8"));
     let (powerups, enemies, props_table, tuning, effects) = (text(pack::POWERUPS)?, text(pack::ENEMIES)?, text(pack::PROPS_TABLE)?, text(pack::TUNING)?, text(pack::EFFECTS)?);
+    let ground = text(pack::GROUND)?;
     let (enemy, player) = (card::Kind::Enemy, card::Kind::Player);
     let cards = read_cards(enemy, pak.take_dir(pack::ENEMY_CARDS), &mut problems);
     let players = read_cards(player, pak.take_dir(pack::PLAYER_CARDS), &mut problems);
     let maps = read_maps(pak.take_dir(pack::MAPS), &mut problems);
     let props = read_props(pak.take_dir(pack::PROPS), &mut problems);
-    let mut data = Data { atlas: pak.take(pack::ATLAS), font: pak.take(pack::FONT), powerups, enemies, props_table, tuning, effects, cards, players, props, maps };
+    let mut data = Data { atlas: pak.take(pack::ATLAS), font: pak.take(pack::FONT), powerups, enemies, props_table, tuning, effects, ground, cards, players, props, maps };
     if missing_pack.is_some() && data.atlas.is_none() {
         data.atlas = Some(vec![0; (art::ATLAS_W * art::ATLAS_H * 4) as usize]);
     }

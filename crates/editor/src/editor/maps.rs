@@ -2,7 +2,7 @@
 //! drawing, and painted with ground, props, fences, the spawn and home.
 
 use last_harvest_game::art::Art;
-use last_harvest_game::{MAP_GROUND, MapSource, PROP_MAX_HP, PropFields, PropLine, SCREEN_H, SCREEN_W};
+use last_harvest_game::{MapSource, PROP_MAX_HP, PropFields, PropLine, SCREEN_H, SCREEN_W};
 
 use super::*;
 
@@ -541,8 +541,8 @@ impl Editor {
         }
         match m.tool {
             MapTool::Paint => {
-                for (i, (code, l)) in MAP_GROUND.into_iter().enumerate() {
-                    push(SIDE_X + (i % 3) as f32 * 79.0, PICK_TOP + (i / 3) as f32 * 34.0, 74.0, 30.0, Action::Ground(code), l, m.ground == code);
+                for (i, (code, l)) in last_harvest_game::map_ground().into_iter().enumerate() {
+                    push(SIDE_X + (i % 3) as f32 * 79.0, PICK_TOP + (i / 3) as f32 * 34.0, 74.0, 30.0, Action::Ground(code), &l, m.ground == code);
                 }
             }
             MapTool::Prop => {

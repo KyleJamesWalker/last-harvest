@@ -22,7 +22,7 @@ use enemies::Enemy;
 pub(crate) use enemies::{install_cards, off_from_ids, off_ids, roster};
 pub use props::{MAX_FRAME as PROP_MAX_FRAME, MAX_FRAMES as PROP_MAX_FRAMES, Named as NamedProp, PREFIX as PROP_PREFIX, ByViews as PropByViews, PropFields, load_for_checks as load_props_for_checks, turned_depth, prop_fields, prop_text, props as named_props, set_props};
 pub(crate) use props::stand_of;
-pub use map::{default_depth as default_prop_depth, GROUND as MAP_GROUND, MAP_EXTENSION, MAP_MAX, MAP_MIN, MAX_HP as PROP_MAX_HP, MapSource, map_props, parse_props, PropKind, PropLine, Tough as PropTough, check_map, valid_map_id};
+pub use map::{default_depth as default_prop_depth, ground_codes as map_ground, MAP_EXTENSION, MAP_MAX, MAP_MIN, MAX_HP as PROP_MAX_HP, MapSource, map_props, parse_props, PropKind, PropLine, Tough as PropTough, check_map, valid_map_id};
 pub use enemies::{ABOUT_MAX, MAX_WALK, flash_pixel, frame_limits, hurt_pixel};
 pub use players::{ID_MAX as PLAYER_ID_MAX, PlayerFields, PlayerLook, default_start, looks as player_looks, player_fields, set_player_start, weapon_slots, weapons};
 pub use enemies::{CardFields, FLAGS as CARD_FLAGS, NUMBERS as CARD_NUMBERS, SpawnMix, card_fields, set_card_field, spawn_mix};
@@ -155,7 +155,7 @@ pub fn check_tables(powerups: Option<&str>, enemies: Option<&str>, props: Option
 }
 
 /// The data files the game reads its rules from, which the editors change and a mod can replace.
-pub const TABLES: [&str; 5] = ["tuning.txt", "props.txt", "effects.txt", "powerups.txt", "enemies.txt"];
+pub const TABLES: [&str; 6] = ["tuning.txt", "props.txt", "ground.txt", "effects.txt", "powerups.txt", "enemies.txt"];
 
 /// A data file as the game has it built in.
 pub fn built_in_table(file: &str) -> Option<&'static str> {
@@ -163,6 +163,7 @@ pub fn built_in_table(file: &str) -> Option<&'static str> {
         "tuning.txt" => Some(include_str!("../../tuning.txt")),
         "props.txt" => Some(include_str!("../../props.txt")),
         "effects.txt" => Some(include_str!("../../effects.txt")),
+        "ground.txt" => Some(include_str!("../../ground.txt")),
         "powerups.txt" => Some(include_str!("../../powerups.txt")),
         "enemies.txt" => Some(include_str!("../../enemies.txt")),
         _ => None,
@@ -176,6 +177,7 @@ pub fn check_table(file: &str, text: &str) -> Result<(), String> {
         "tuning.txt" => crate::tuning::parse(text, Some(&crate::tuning::built_in())).map(|_| ()).map_err(fail),
         "props.txt" => map::parse_props(text).map(|_| ()).map_err(fail),
         "effects.txt" => effects::parse(text).map(|_| ()).map_err(fail),
+        "ground.txt" => map::parse_ground(text).map(|_| ()).map_err(fail),
         "powerups.txt" => powerups::parse(text).map(|_| ()).map_err(fail),
         "enemies.txt" => enemies::parse(text).map(|_| ()).map_err(fail),
         _ => Err(format!("{file} isn't one of the game's data files")),

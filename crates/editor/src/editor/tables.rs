@@ -27,7 +27,8 @@ pub(super) struct DataEdit {
 /// its first heading.
 pub(super) fn data_name(file: &str, section: &str) -> String {
     let stem = file.trim_end_matches(".txt").to_ascii_uppercase();
-    let section: String = section.chars().map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_uppercase() } else { '_' }).collect();
+    // A ground code such as `.` is spelled as its hex, so no two sections share a name.
+    let section: String = section.chars().map(|c| if c.is_ascii_alphanumeric() || c == '_' { c.to_ascii_uppercase().to_string() } else { format!("_{:02X}", c as u32) }).collect();
     if section.is_empty() { format!("{}{stem}", sprite::DATA_PREFIX) } else { format!("{}{stem}_{section}", sprite::DATA_PREFIX) }
 }
 

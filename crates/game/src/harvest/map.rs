@@ -3,8 +3,10 @@
 use crate::art::{self, Art};
 use crate::rng::Rng;
 
+mod ground;
 mod text;
-pub use text::{EXTENSION as MAP_EXTENSION, GROUND, MAX_SIZE as MAP_MAX, MIN_SIZE as MAP_MIN, MapSource, PropKind, parse_props, props as map_props, PropLine, Tough, check as check_map, valid_id as valid_map_id};
+pub use ground::parse as parse_ground;
+pub use text::{EXTENSION as MAP_EXTENSION, ground_codes, MAX_SIZE as MAP_MAX, MIN_SIZE as MAP_MIN, MapSource, PropKind, parse_props, props as map_props, PropLine, Tough, check as check_map, valid_id as valid_map_id};
 
 pub const TILE: f32 = 16.0;
 const N: u8 = 1;
@@ -124,7 +126,7 @@ impl Toughness {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Cell {
     Open,
     Road,
@@ -637,6 +639,7 @@ impl Map {
     }
 
     fn autotile_paths(&mut self) {
+        let path_art = ground::ground().iter().find(|g| g.cell == Cell::Path).map_or(&art::PATH[..], |g| g.art);
         for y in 1..self.h - 1 {
             for x in 1..self.w - 1 {
                 if self.cells[self.i(x, y)] != Cell::Path {
@@ -645,7 +648,7 @@ impl Map {
                 let joins = |xx: usize, yy: usize| matches!(self.cells[self.i(xx, yy)], Cell::Path | Cell::Road);
                 let mask = N * joins(x, y - 1) as u8 + E * joins(x + 1, y) as u8 + S * joins(x, y + 1) as u8 + W * joins(x - 1, y) as u8;
                 let i = self.i(x, y);
-                self.ground[i] = art::PATH[mask as usize];
+                self.ground[i] = path_art[mask as usize];
             }
         }
     }

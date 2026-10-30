@@ -17,6 +17,8 @@ pub struct Data {
     pub tuning: Option<String>,
     /// `effects.txt`: what each effect, swing and animal plays.
     pub effects: Option<String>,
+    /// `ground.txt`: the ground a map paints.
+    pub ground: Option<String>,
     pub cards: Vec<Card>,
     /// Player cards, the same sheet as an enemy's with three walking frames, and an id and name for text.
     pub players: Vec<Card>,
@@ -117,6 +119,7 @@ mod built_in {
     pub const ENEMIES: Option<&str> = Some(include_str!("../enemies.txt"));
     pub const PROPS: Option<&str> = Some(include_str!("../props.txt"));
     pub const EFFECTS: Option<&str> = Some(include_str!("../effects.txt"));
+    pub const GROUND: Option<&str> = Some(include_str!("../ground.txt"));
 }
 
 /// Installs a pack's data and draws its cards' sprites into the atlas. It must come before anything reads the
@@ -196,6 +199,11 @@ pub fn powerups() -> &'static str {
 /// The game's own props, as `props.txt` lists them.
 pub fn props() -> &'static str {
     data().props_table.as_deref().or(built_in::PROPS).unwrap_or_else(|| missing("props.txt"))
+}
+
+/// The ground a map paints, as `ground.txt` says.
+pub fn ground() -> &'static str {
+    data().ground.as_deref().or(built_in::GROUND).unwrap_or_else(|| missing("ground.txt"))
 }
 
 /// What each effect, swing and animal plays, as `effects.txt` says.

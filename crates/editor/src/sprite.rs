@@ -273,6 +273,7 @@ pub fn section(name: &str) -> &'static str {
             Some("TUNING") => "Data: tuning",
             Some("PROPS") => "Data: props",
             Some("EFFECTS") => "Data: effects",
+            Some("GROUND") => "Data: ground",
             Some("POWERUPS") => "Data: powerups and weapons",
             Some("ENEMIES") => "Data: enemies",
             _ => "Data",
