@@ -53,6 +53,8 @@ pub enum Does {
     Flare,
     /// A gun shaped by its section's `aim` and `pattern`.
     Gun,
+    /// A blade that cuts everything within its area across its spread, aimed by its section's `aim`.
+    Blade,
 }
 
 /// Where a gun looks for something to shoot.
@@ -100,6 +102,7 @@ impl Does {
             "molotov" => Does::Molotov,
             "flare" => Does::Flare,
             "gun" => Does::Gun,
+            "blade" => Does::Blade,
             _ => return None,
         })
     }

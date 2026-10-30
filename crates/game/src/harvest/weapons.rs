@@ -397,6 +397,7 @@ impl Harvest {
             Does::Molotov => self.lob_molotovs(a, sounds),
             Does::Flare => self.lob_flare(a, sounds),
             Does::Gun => self.gun(a, sounds),
+            Does::Blade => self.blade(a, sounds),
             Does::Crows | Does::Dog => false,
         }
     }
@@ -426,13 +427,7 @@ impl Harvest {
         let def = &book().defs[a.def];
         let (aim, pattern) = (def.aim, def.pattern);
         let range = self.stat(a, Stat::Range);
-        let target = match aim {
-            Aim::Nearest => self.nearest_in(range, None),
-            Aim::Ahead => self.nearest_in(range, Some((self.aim, self.ahead_half()))),
-            Aim::Behind => self.nearest_in(range, Some(([-self.aim[0], -self.aim[1]], crate::tuning::tuning().behind_half))),
-            Aim::Around => self.nearest_in(range, None).map(|_| self.aim),
-        };
-        let Some(d) = target.map(norm) else { return false };
+        let Some(d) = self.aimed(aim, range) else { return false };
         let (n, speed) = (self.stat(a, Stat::Count).max(1.0) as u32, self.stat(a, Stat::Speed));
         let (base, spread) = (d[1].atan2(d[0]), self.stat(a, Stat::Spread).to_radians());
         let (damage, pierce, force) = (self.stat(a, Stat::Damage), self.stat(a, Stat::Pierce) as u32, self.stat(a, Stat::Knockback));
@@ -445,6 +440,39 @@ impl Harvest {
         self.juice.kick += 0.015;
         self.noise = Some(self.pos);
         sounds.push(sound(a, Sfx::Shot));
+        true
+    }
+
+    /// Where a gun or blade looks for a target within `range`: the way to it, if it finds one.
+    fn aimed(&self, aim: Aim, range: f32) -> Option<[f32; 2]> {
+        match aim {
+            Aim::Nearest => self.nearest_in(range, None),
+            Aim::Ahead => self.nearest_in(range, Some((self.aim, self.ahead_half()))),
+            Aim::Behind => self.nearest_in(range, Some(([-self.aim[0], -self.aim[1]], crate::tuning::tuning().behind_half))),
+            Aim::Around => self.nearest_in(range, None).map(|_| self.aim),
+        }
+        .map(norm)
+    }
+
+    /// A blade as its section shapes it: everything within its area across its spread, toward what its aim finds.
+    fn blade(&mut self, a: Armed, sounds: &mut Vec<Sfx>) -> bool {
+        let reach = self.stat(a, Stat::Area);
+        let Some(d) = self.aimed(book().defs[a.def].aim, reach) else { return false };
+        let half = self.stat(a, Stat::Spread).to_radians() / 2.0;
+        let (damage, force, crit) = (self.stat(a, Stat::Damage), self.stat(a, Stat::Knockback), self.crit());
+        let mut hits = (0, false);
+        for z in &mut self.zombies {
+            let to = sub(z.pos, self.pos);
+            if len(to) < reach && (half >= PI || in_cone(to, d, half)) {
+                hits.1 |= strike(z, &mut self.juice, damage, norm(to), force, crit);
+                hits.0 += 1;
+            }
+        }
+        let at = [self.pos[0] + d[0] * 8.0, self.pos[1] - 5.0 + d[1] * 8.0];
+        self.fx.push(Fx::play(look(a, super::effects::effects().slash), at, d[1].atan2(d[0]) - PI / 2.0));
+        self.juice.kick += 0.02;
+        sounds.push(sound(a, Sfx::Slash));
+        self.thud(hits, sounds);
         true
     }
 
