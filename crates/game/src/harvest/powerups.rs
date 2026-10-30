@@ -678,7 +678,7 @@ pub fn parse(text: &str) -> Result<Book, String> {
                 } = v;
             }
             "flash" => {
-                let v: Vec<f32> = rest.split_whitespace().filter_map(|w| w.parse().ok()).filter(|v: &f32| (0.0..=10.0).contains(v)).collect();
+                let v: Vec<f32> = rest.split_whitespace().map(|w| w.parse().ok().filter(|v: &f32| (0.0..=10.0).contains(v))).collect::<Option<_>>().unwrap_or_default();
                 let [r, g, b, range, life] = v[..] else { return Err(format!("{n}: flash takes red, green and blue, reach and seconds, such as 1.2 0.85 0.4 3.5 0.07")) };
                 def.feel.flash = Some(([r, g, b], range, life));
             }
@@ -811,6 +811,7 @@ mod tests {
         assert_eq!(book().defs[book().index("crows").unwrap()].feel, Feel::default(), "none when left out");
         assert!(parse("[a]\nicon WHITE\nkick lots").unwrap_err().starts_with("3: kick takes"));
         assert!(parse("[a]\nicon WHITE\nflash 1 1 1").unwrap_err().starts_with("3: flash takes"));
+        assert!(parse("[a]\nicon WHITE\nflash 1 1 1 20 0.1 0.2").unwrap_err().starts_with("3: flash takes"), "a number out of range isn't dropped");
     }
 
     #[test]

@@ -233,7 +233,12 @@ pub fn check_own_table(file: &str, text: &str) -> Result<(), String> {
                     return Err(format!("{file}: no sprite called {name} in art.txt"));
                 }
             }
-            Ok(())
+            let farm = map::parse_farm(text).map_err(fail)?;
+            let codes = map::ground_codes();
+            match [farm.ground, farm.tufted, farm.patch].into_iter().find(|c| !codes.iter().any(|(k, _)| k == c)) {
+                Some(c) => Err(format!("{file}: no ground code {} in ground.txt", c as char)),
+                None => Ok(()),
+            }
         }
         _ => Ok(()),
     }
@@ -2083,6 +2088,8 @@ mod tests {
             assert!(check_table("farm.txt", &farm).is_ok() && check_own_table("farm.txt", &farm).is_err(), "only a mod's farm builds with its props");
         }
         assert!(check_own_table("farm.txt", built_in_table("farm.txt").unwrap()).is_ok());
+        let farm = built_in_table("farm.txt").unwrap().replace("patch g", "patch Z");
+        assert_eq!(check_own_table("farm.txt", &farm), Err("farm.txt: no ground code Z in ground.txt".into()));
         let powerups = built_in_table("powerups.txt").unwrap().replacen("unlock    start", "unlock    start\nicon      PROP_MINE", 1);
         assert!(check_table("powerups.txt", &powerups).is_ok() && check_own_table("powerups.txt", &powerups).is_err(), "only a mod's icon can be its prop");
     }

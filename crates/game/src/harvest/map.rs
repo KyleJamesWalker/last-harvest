@@ -102,14 +102,14 @@ fn toughness(a: Art) -> Toughness {
     kind.map_or(Toughness::other(), Toughness::of)
 }
 
-/// Top rows a figure walks through for a sprite the game places: a player's prop's own, else as `props.txt` lists
-/// it.
 /// The tiles of a ground code from `ground.txt`, else of its first.
 fn ground_art(code: u8) -> &'static [Art] {
     let all = ground::ground();
     all.iter().find(|g| g.code == code).unwrap_or(&all[0]).art
 }
 
+/// Top rows a figure walks through for a sprite the game places: a player's prop's own, else as `props.txt` lists
+/// it.
 fn open_of(a: Art) -> usize {
     if let Some(p) = super::props::named_of(a) {
         return p.open;
@@ -227,13 +227,13 @@ impl Map {
             let k = if b.sprites.len() > 1 { rng.below(b.sprites.len()) } else { 0 };
             stood.extend(map.place_near(rng, b.sprites[k], [w / 2, h / 2], b.within, b.margin).map(|spot| (b, spot)));
         }
-        for &(b, (x, y, _, bh)) in &stood {
-            map.path_to_road(x + b.door, y + bh, road);
+        for &(b, (x, y, bw, bh)) in &stood {
+            map.path_to_road(x + b.door.min(bw - 1), y + bh, road);
         }
         map.autotile_paths();
         // The last building's props go down first.
         for &(b, (x, y, bw, bh)) in stood.iter().rev() {
-            let (middle, step) = ([x + bw / 2, y + bh / 2], [x + b.door, y + bh + 2]);
+            let (middle, step) = ([x + bw / 2, y + bh / 2], [x + b.door.min(bw - 1), y + bh + 2]);
             for near in &b.near {
                 match *near {
                     farm::Near::Windmill => map.windmill(rng, middle),
@@ -251,7 +251,7 @@ impl Map {
         map.keep_barrels_apart();
         map.spawn = map.find_spawn();
         map.home = match stood.first() {
-            Some(&(b, (x, y, _, bh))) => [(x + b.door) as f32 * TILE + TILE / 2.0, (y + bh) as f32 * TILE + TILE / 2.0],
+            Some(&(b, (x, y, bw, bh))) => [(x + b.door.min(bw - 1)) as f32 * TILE + TILE / 2.0, (y + bh) as f32 * TILE + TILE / 2.0],
             None => map.spawn,
         };
         map

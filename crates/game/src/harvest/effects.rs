@@ -119,7 +119,7 @@ pub fn parse_colors(text: &str, base: Option<&Palette>) -> Result<Palette, Strin
         }
         let (key, value) = line.split_once(char::is_whitespace).map_or((line, ""), |(k, v)| (k, v.trim()));
         let k = COLORS.iter().position(|c| *c == key).ok_or_else(|| format!("{n}: {key} isn't a color; there's {}", COLORS.join(", ")))?;
-        let v: Vec<f32> = value.split_whitespace().filter_map(|w| w.parse().ok()).filter(|v: &f32| (0.0..=1.0).contains(v)).collect();
+        let v: Vec<f32> = value.split_whitespace().map(|w| w.parse().ok().filter(|v: &f32| (0.0..=1.0).contains(v))).collect::<Option<_>>().unwrap_or_default();
         let [r, g, b] = v[..] else { return Err(format!("{n}: {key} takes red, green and blue from 0 to 1, such as 0.62 0.08 0.06")) };
         out[k] = [r, g, b];
         seen[k] = true;
@@ -276,5 +276,6 @@ mod tests {
         assert_eq!(parse_colors("[colors]\ngold 0 0 1", None).unwrap_err(), "[colors] doesn't set blood");
         assert!(parse_colors("[colors]\nmauve 1 1 1", Some(colors())).unwrap_err().starts_with("2: mauve isn't a color"));
         assert!(parse_colors("[colors]\ngold 2 0 0", Some(colors())).unwrap_err().starts_with("2: gold takes"));
+        assert!(parse_colors("[colors]\ngold 1 2 0 0", Some(colors())).unwrap_err().starts_with("2: gold takes"), "a number out of range isn't dropped");
     }
 }

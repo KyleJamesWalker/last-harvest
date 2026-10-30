@@ -51,6 +51,9 @@ fn frames(name: &str) -> Option<&'static [Art]> {
     art::ALL.iter().find(|(n, _)| *n == name).map(|(_, f)| *f).or_else(|| super::super::props::prop(name).map(|p| p.frames))
 }
 
+/// The most tiles a building's `within`, `margin`, `door` or `near` may name: wider than the largest map.
+const MAX_TILES: usize = 200;
+
 const FARM_KEYS: [&str; 5] = ["tufts", "grass", "corpses", "fields", "more_fields"];
 
 /// Reads `farm.txt`; a prop of a player's that isn't loaded is left out. Errors name the line.
@@ -118,14 +121,22 @@ pub fn parse(text: &str) -> Result<Farm, String> {
                             }
                         }
                     }
-                    "within" => b.within = count()?,
-                    "margin" => b.margin = count()?,
-                    "door" => b.door = count()?,
+                    "within" | "margin" | "door" => {
+                        let v = count()?;
+                        if v > MAX_TILES {
+                            return Err(format!("{n}: {key} is at most {MAX_TILES} tiles"));
+                        }
+                        *match key {
+                            "within" => &mut b.within,
+                            "margin" => &mut b.margin,
+                            _ => &mut b.door,
+                        } = v;
+                    }
                     "near" => match value.split_whitespace().collect::<Vec<_>>()[..] {
                         ["windmill"] => b.near.push(Near::Windmill),
                         ["graveyard"] => b.near.push(Near::Graveyard),
                         [name, within, ref rest @ ..] if rest.is_empty() || rest == ["door"] => {
-                            let within = within.parse::<usize>().ok().filter(|w| *w > 0).ok_or_else(|| format!("{n}: near takes a sprite and how many tiles from 1"))?;
+                            let within = within.parse::<usize>().ok().filter(|w| (1..=MAX_TILES).contains(w)).ok_or_else(|| format!("{n}: near takes a sprite and how many tiles, 1 to {MAX_TILES}"))?;
                             match frames(name) {
                                 Some(frames) => b.near.push(Near::Prop { frames, within, door: !rest.is_empty() }),
                                 None if name.starts_with(super::super::props::PREFIX) => {}
@@ -177,5 +188,7 @@ mod tests {
         assert!(parse(&format!("{base}[shed]\nwithin 5\nnear SIGN")).unwrap_err().starts_with("10: near is"));
         assert!(parse(&format!("{base}[Shed]")).unwrap_err().starts_with("8: [Shed]"));
         assert!(parse("[farm]\nground ..").unwrap_err().starts_with("2: ground is a ground code"));
+        assert!(parse(&format!("{base}[shed]\nmargin 18446744073709551615")).unwrap_err().starts_with("9: margin"));
+        assert!(parse(&format!("{base}[shed]\nwithin 5\nnear SIGN 201")).unwrap_err().starts_with("10: near takes"));
     }
 }
