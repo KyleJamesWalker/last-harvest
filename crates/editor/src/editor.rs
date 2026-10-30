@@ -2671,10 +2671,8 @@ fn list_label(name: &str) -> String {
     const ROOM: usize = 16;
     // Under its file's heading, a data section shows by its own name; a ground code by its character.
     if let Some(rest) = name.strip_prefix(sprite::DATA_PREFIX) {
-        let (file, section) = rest.split_once('_').unwrap_or((rest, ""));
-        return match section {
+        return match rest.split_once('_').map_or("", |(_, s)| s) {
             "" => "(top of the file)".to_string(),
-            s if file == "GROUND" && s.len() == 1 => format!("[{}]", s.to_ascii_lowercase()),
             s if s.len() == 3 && s.starts_with('_') => u8::from_str_radix(&s[1..], 16).map_or(s.to_string(), |c| format!("[{}]", c as char)),
             s => s.to_string(),
         };
@@ -3337,7 +3335,8 @@ mod tests {
         let mut e = editor_in(&dir, dir.join("art.txt"));
         assert!(e.names.iter().any(|(n, _)| n == "DATA_TUNING_PLAYER") && e.names.iter().any(|(n, _)| n == "DATA_POWERUPS_PISTOL"));
         assert_eq!(sprite::section("DATA_TUNING_PLAYER"), "Data: tuning");
-        assert!(["DATA_GROUND__2E", "DATA_GROUND__3D", "DATA_GROUND_G"].iter().all(|n| e.names.iter().any(|(m, _)| m == n)), "ground codes list apart");
+        assert_eq!((list_label("DATA_GROUND__67"), list_label("DATA_GROUND__47"), list_label("DATA_TUNING_PLAYER")), ("[g]".into(), "[G]".into(), "PLAYER".into()));
+        assert!(["DATA_GROUND__2E", "DATA_GROUND__3D", "DATA_GROUND__67"].iter().all(|n| e.names.iter().any(|(m, _)| m == n)), "ground codes list apart");
         e.switch_to("DATA_TUNING_PLAYER".into());
         e.act(Action::DataStep(0, 1), false);
         assert!(e.unsaved());

@@ -150,8 +150,11 @@ pub fn install(mut data: Data) -> Result<Vec<String>, String> {
             None => notes = cards.iter().chain(&players).chain(&props).map(|c| format!("{}: no sprite atlas to draw it into", c.name)).collect(),
         }
     }
+    let files = std::mem::take(&mut data.maps);
+    // Maps are checked against the data being installed, its ground and props, so that comes first.
+    DATA.set(data).map_err(|_| "the game data was already read".to_string())?;
     let mut maps: Vec<LoadedMap> = Vec::new();
-    for file in std::mem::take(&mut data.maps) {
+    for file in files {
         match crate::harvest::check_map(&file.file, file.text) {
             Ok(map) => {
                 maps.retain(|m| m.id != map.id);
@@ -163,7 +166,6 @@ pub fn install(mut data: Data) -> Result<Vec<String>, String> {
             }
         }
     }
-    DATA.set(data).map_err(|_| "the game data was already read".to_string())?;
     MAPS.set(maps).ok();
     Ok(notes)
 }

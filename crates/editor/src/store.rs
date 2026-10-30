@@ -596,9 +596,10 @@ mod fs {
             std::fs::read_to_string(self.catalog.with_file_name(file)).ok().or_else(|| last_harvest_game::built_in_table(file).map(str::to_string))
         }
 
-        /// Writes a data file beside the catalog, once the game would read it.
+        /// Writes a data file beside the catalog, which the game's build takes in, once the game would read it as
+        /// its own.
         fn save_table(&self, file: &str, text: &str) -> Result<(), String> {
-            last_harvest_game::check_table(file, text)?;
+            last_harvest_game::check_own_table(file, text)?;
             let path = self.catalog.with_file_name(file);
             std::fs::write(&path, text).map_err(|e| format!("{}: {e}", path.display()))
         }

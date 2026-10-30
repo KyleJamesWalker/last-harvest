@@ -27,8 +27,9 @@ pub(super) struct DataEdit {
 /// its first heading.
 pub(super) fn data_name(file: &str, section: &str) -> String {
     let stem = file.trim_end_matches(".txt").to_ascii_uppercase();
-    // A ground code such as `.` is spelled as its hex, so no two sections share a name.
-    let section: String = section.chars().map(|c| if c.is_ascii_alphanumeric() || c == '_' { c.to_ascii_uppercase().to_string() } else { format!("_{:02X}", c as u32) }).collect();
+    // A ground code, `.` or `g`, is spelled as its hex: names are capitals, and `g` and `G` are two codes.
+    let hex = |c: char| format!("_{:02X}", c as u32);
+    let section: String = if file == "ground.txt" { section.chars().map(hex).collect() } else { section.chars().map(|c| if c.is_ascii_alphanumeric() || c == '_' { c.to_ascii_uppercase().to_string() } else { hex(c) }).collect() };
     if section.is_empty() { format!("{}{stem}", sprite::DATA_PREFIX) } else { format!("{}{stem}_{section}", sprite::DATA_PREFIX) }
 }
 
@@ -162,6 +163,7 @@ impl Editor {
         match self.store.save_table(&d.file, &d.table.text) {
             Ok(()) => {
                 d.dirty = false;
+                self.dirty = false;
                 let file = d.file.clone();
                 self.names = self.all_names();
                 self.say(format!("Saved {file}"));
@@ -176,6 +178,8 @@ impl Editor {
         }
         match key {
             Key::Save => self.save_table(),
+            // The page has no pixels for these to change.
+            Key::Undo | Key::Redo | Key::Copy | Key::Cut | Key::Paste => {}
             Key::Up => {
                 self.data_act(Action::DataPage(-1), false);
             }
@@ -220,7 +224,7 @@ impl Editor {
             c.rect(r.x, r.y, r.w, r.h, if b.on { HOT } else { BUTTON });
             c.label(b.label, r.x + r.w / 2.0, r.y + (r.h - 18.0) / 2.0, 18.0, if b.on { [0.1, 0.1, 0.1, 1.0] } else { TEXT }, Align::Center);
         }
-        let help = "Edit or Enter: type a value   -/+: step a number, Shift by ten   Up/Down: page   Cmd+S: save";
+        let help = "Edit: type a value, Enter keeps it   -/+: step a number, Shift by ten   Up/Down: page   Cmd+S: save";
         c.label(help, CANVAS.x, CANVAS.y + CANVAS.h + 12.0, 15.0, DIM, Align::Left);
         c.label("The game checks the file as it would read it before it saves.", CANVAS.x, CANVAS.y + CANVAS.h + 34.0, 15.0, DIM, Align::Left);
         self.draw_overlays(c);

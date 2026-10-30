@@ -126,6 +126,10 @@ fn make_mod(dir: &Path, out: &Path) -> Result<(), Box<dyn std::error::Error>> {
         let id = dir.file_name().and_then(|n| n.to_str()).unwrap_or("mod");
         files.push((MANIFEST.to_string(), mod_manifest(id).into_bytes()));
     }
+    // The mod's maps are checked against its own ground and props, where it brings them.
+    let table = |name: &str| files.iter().find(|(p, _)| p == name).and_then(|(_, b)| String::from_utf8(b.clone()).ok());
+    let tables = last_harvest_game::data::Data { ground: table(GROUND), props_table: table(PROPS_TABLE), ..Default::default() };
+    last_harvest_game::data::install(tables)?;
     load_props(files.iter().map(|(p, b)| (p.as_str(), b.as_slice())))?;
     for (path, bytes) in &files {
         if let Some(kind) = card::Kind::of(path) {

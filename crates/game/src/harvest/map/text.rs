@@ -517,7 +517,9 @@ impl Map {
                     Some(super::ground::Joins::Across) => (code(x.wrapping_sub(1), y) == c, code(x + 1, y) == c),
                     _ => (code(x, y.wrapping_sub(1)) == c, code(x, y + 1) == c),
                 };
-                self.ground[i] = g.tile(x, y, before, after);
+                // A path's tile comes from autotiling, which leaves the edge ring the first ground's.
+                let laid = if g.cell == Cell::Path { &super::ground::ground()[0] } else { g };
+                self.ground[i] = laid.tile(x, y, before, after);
                 if g.cell != Cell::Open {
                     self.cells[i] = g.cell;
                 }

@@ -430,7 +430,7 @@ impl Harvest {
         let def = &book().defs[a.def];
         let (aim, pattern) = (def.aim, def.pattern);
         let range = self.stat(a, Stat::Range);
-        let Some(d) = self.aimed(aim, range) else { return false };
+        let Some(d) = self.barrel_in_view(range).map(norm).or_else(|| self.aimed(aim, range)) else { return false };
         let (n, speed) = (self.stat(a, Stat::Count).max(1.0) as u32, self.stat(a, Stat::Speed));
         let (base, spread) = (d[1].atan2(d[0]), self.stat(a, Stat::Spread).to_radians());
         let (damage, pierce, force) = (self.stat(a, Stat::Damage), self.stat(a, Stat::Pierce) as u32, self.stat(a, Stat::Knockback));

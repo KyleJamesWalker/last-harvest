@@ -113,7 +113,10 @@ pub fn parse(text: &str, base: Option<&Tuning>) -> Result<Tuning, String> {
         }
         let (key, value) = line.split_once(char::is_whitespace).map_or((line, ""), |(k, v)| (k, v.trim()));
         let at = KEYS.iter().position(|(s, k)| *s == section && *k == key).ok_or_else(|| format!("{n}: {key} isn't a number [{section}] sets"))?;
-        let v = value.parse::<f32>().ok().filter(|v| v.is_finite() && *v >= 0.0).ok_or_else(|| format!("{n}: {key} is a number from 0 up"))?;
+        // A night, the player's health and a grenade's flight divide, or end the run, at 0.
+        let above = matches!((section.as_str(), key), ("night", "length") | ("player", "hp") | ("grenade", "flight"));
+        let ok = |v: &f32| v.is_finite() && if above { *v > 0.0 } else { *v >= 0.0 };
+        let v = value.parse::<f32>().ok().filter(ok).ok_or_else(|| format!("{n}: {key} is a number from {}", if above { "above 0" } else { "0 up" }))?;
         values[at] = Some(v);
     }
     if let Some(i) = values.iter().position(Option::is_none) {
@@ -161,6 +164,8 @@ mod tests {
         assert!(parse("[player]\nhp 150", None).unwrap_err().contains("doesn't set"));
         assert!(parse("[space]\n", Some(&base)).unwrap_err().starts_with("1: [space]"));
         assert!(parse("[player]\nwings 2", Some(&base)).unwrap_err().starts_with("2: wings"));
-        assert!(parse("[player]\nhp -1", Some(&base)).unwrap_err().contains("from 0 up"));
+        assert!(parse("[player]\nhp -1", Some(&base)).unwrap_err().contains("above 0"));
+        assert!(parse("[night]\nlength 0", Some(&base)).unwrap_err().contains("above 0"));
+        assert!(parse("[player]\ncrit 0", Some(&base)).is_ok());
     }
 }

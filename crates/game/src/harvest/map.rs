@@ -102,8 +102,12 @@ fn toughness(a: Art) -> Toughness {
     kind.map_or(Toughness::other(), Toughness::of)
 }
 
-/// Top rows a figure walks through for a sprite the game places, as `props.txt` lists it.
+/// Top rows a figure walks through for a sprite the game places: a player's prop's own, else as `props.txt` lists
+/// it.
 fn open_of(a: Art) -> usize {
+    if let Some(p) = super::props::named_of(a) {
+        return p.open;
+    }
     art::ALL.iter().find(|(_, f)| f.contains(&a)).and_then(|(n, _)| text::prop_kind(n)).map_or(0, |k| k.open)
 }
 

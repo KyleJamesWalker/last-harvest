@@ -190,6 +190,40 @@ pub fn check_table(file: &str, text: &str) -> Result<(), String> {
     }
 }
 
+/// Checks a data file's text as the game's own, built in: it must set every number and name only sprites in
+/// art.txt, since nothing lies under it. Errors name the line, or the sprite.
+pub fn check_own_table(file: &str, text: &str) -> Result<(), String> {
+    check_table(file, text)?;
+    let fail = |e: String| format!("{file}:{e}");
+    let missing = |name: &str| !art::ALL.iter().any(|(n, _)| *n == name);
+    match file {
+        "tuning.txt" => crate::tuning::parse(text, None).map(|_| ()).map_err(fail),
+        "effects.txt" => {
+            let (own, extra) = effects::parse(text).map_err(fail)?;
+            match own.iter().chain(extra.iter().map(|(_, w)| w)).find(|w| missing(&w.art)) {
+                Some(w) => Err(format!("{file}: no sprite called {} in art.txt", w.art)),
+                None => Ok(()),
+            }
+        }
+        "props.txt" => match map::parse_props(text).map_err(fail)?.props.iter().find(|k| missing(k.name)) {
+            Some(k) => Err(format!("{file}: no sprite called {} in art.txt", k.name)),
+            None => Ok(()),
+        },
+        "farm.txt" => {
+            let mut scatter = false;
+            for line in text.lines().map(|l| l.split('#').next().unwrap_or("").trim()).filter(|l| !l.is_empty()) {
+                if let Some(s) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
+                    scatter = s == "scatter";
+                } else if let Some(name) = line.split_whitespace().next().filter(|n| scatter && missing(n)) {
+                    return Err(format!("{file}: no sprite called {name} in art.txt"));
+                }
+            }
+            Ok(())
+        }
+        _ => Ok(()),
+    }
+}
+
 /// How heavy the zombie kind a `Sfx::Kill` names is, which divides its knockback; 1 for a kind that's gone.
 pub fn kill_weight(kind: u8) -> f32 {
     roster().enemies.get(kind as usize).map_or(1.0, |e| e.mass)
@@ -2008,6 +2042,19 @@ fn clock(t: f32) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_games_own_data_must_be_whole_and_name_its_sprites() {
+        for file in TABLES {
+            assert_eq!(check_own_table(file, built_in_table(file).unwrap()), Ok(()), "{file}");
+        }
+        assert!(check_table("tuning.txt", "[player]\nhp 120").is_ok(), "a mod sets only what it changes");
+        assert!(check_own_table("tuning.txt", "[player]\nhp 120").unwrap_err().contains("doesn't set"));
+        let effects = built_in_table("effects.txt").unwrap().replace("art SLASH", "art NOPE");
+        assert_eq!(check_own_table("effects.txt", &effects), Err("effects.txt: no sprite called NOPE in art.txt".into()));
+        let farm = built_in_table("farm.txt").unwrap().replace("BUSH 140", "PROP_MINE 140");
+        assert!(check_table("farm.txt", &farm).is_ok() && check_own_table("farm.txt", &farm).is_err(), "only a mod's farm strews its props");
+    }
 
     fn run(h: &mut Harvest, input: &Input, secs: f32) {
         let mut sounds = Vec::new();
