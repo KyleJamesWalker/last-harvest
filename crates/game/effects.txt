@@ -75,6 +75,24 @@ fps 7
 art FIRE
 fps 10
 
+[tacks]
+art TACKS
+
+[flare]
+art FLARE
+
+[grenade]
+art GRENADE
+
+[molotov]
+art MOLOTOV
+
+[health]
+art HEALTH
+
+[chest]
+art CHEST
+
 [money]
 art MONEY
 fps 10

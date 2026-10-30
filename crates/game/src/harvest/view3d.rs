@@ -10,7 +10,7 @@ use super::carve;
 use super::map::TILE;
 use crate::art::Stand;
 use super::weapons::{BOLT_LIFE, Hazard};
-use super::{DAWN, DropKind, Facing, Harvest, Phase, TELL_TIME, TURN_RISE, TURNED, Thrown, WALK_FPS, Zombie, len, norm, player_pose, sub};
+use super::{DAWN, DropKind, Facing, Harvest, Phase, TELL_TIME, TURN_RISE, TURNED, Thrown, Zombie, len, norm, player_pose, sub};
 use crate::art::{self, ATLAS_H, ATLAS_W, Art};
 use crate::scene3d::{Card, CardScene, Flash};
 use crate::{SCREEN_H, SCREEN_W};
@@ -385,7 +385,7 @@ pub fn scene(h: &Harvest) -> CardScene {
     let p = world(h.pos);
     let [sx, sy, roll] = j.shake_offset();
     let roll = roll + h.lean * 0.035;
-    let bob = if h.walk > 0.0 { (h.walk * WALK_FPS * std::f32::consts::PI / 2.0).sin().abs() * 0.04 } else { 0.0 };
+    let bob = if h.walk > 0.0 { (h.walk * crate::tuning::tuning().walk_fps * std::f32::consts::PI / 2.0).sin().abs() * 0.04 } else { 0.0 };
     let shake = right * sx + Vec3::Y * (sy + bob);
     let eye = p - forward * (2.4 + 0.2 * swing) + Vec3::Y * (1.5 + 0.4 * swing) + shake;
     let looking = p + forward * 4.0 + Vec3::Y * (0.7 + j.kick * 6.0);
@@ -546,7 +546,7 @@ pub fn scene(h: &Harvest) -> CardScene {
             // Underfoot behind the player they'd fill the bottom of the screen.
             Hazard::Tacks if (q - p).dot(forward) < 0.0 => {}
             Hazard::Tacks => {
-                let a = art::TACKS;
+                let a = super::effects::effects().tacks.looping(h.t);
                 flat(&mut cards, a, q.x - a.w() * PX / 2.0, q.z - a.h() * PX / 2.0, DECAL_LIFT + 0.008, [1.0; 3]);
             }
             Hazard::Fire => {
@@ -557,7 +557,7 @@ pub fn scene(h: &Harvest) -> CardScene {
                 board(&mut cards, b);
             }
             Hazard::Flare => {
-                board(&mut cards, Board::new(art::FLARE, false, patch.pos, 0.0, 0.0));
+                board(&mut cards, Board::new(super::effects::effects().flare.looping(h.t), false, patch.pos, 0.0, 0.0));
                 patch_ring(&mut cards, q, patch.radius * PX, [1.0, 0.3, 0.2], right, near);
             }
         }
@@ -579,8 +579,8 @@ pub fn scene(h: &Harvest) -> CardScene {
     for d in &h.drops {
         let a = match d.kind {
             DropKind::Money(_) => super::effects::effects().money.once(f32::MAX),
-            DropKind::Health => art::HEALTH,
-            DropKind::Chest => art::CHEST,
+            DropKind::Health => super::effects::effects().health.looping(d.age),
+            DropKind::Chest => super::effects::effects().chest.looping(d.age),
         };
         let mut b = Board::new(a, false, d.pos, 0.1 + d.z * PX + (h.t * 4.0 + d.pos[0]).sin().abs() * 0.1, 0.0);
         // Coins spin; never quite edge-on, or they vanish.

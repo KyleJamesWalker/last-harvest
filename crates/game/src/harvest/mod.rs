@@ -51,10 +51,7 @@ pub const NIGHT_MINUTES: f32 = DAWN / 60.0;
 /// Close enough to the farmhouse's front step to be safe.
 const HOME_RADIUS: f32 = 12.0;
 const MAX_STAINS: usize = 160;
-const PLAYER_HALF: [f32; 2] = [4.0, 3.0];
-const ZOMBIE_HALF: [f32; 2] = [3.0, 2.0];
 const FLASH_TIME: f32 = 0.08;
-const WALK_FPS: f32 = 8.0;
 /// Seconds the ground churns before a zombie breaks out.
 const TELL_TIME: f32 = 0.6;
 /// Seconds a struck zombie shows its red frame.
@@ -369,9 +366,9 @@ struct Grenade {
 impl Grenade {
     fn art(&self) -> Art {
         match self.kind {
-            Thrown::Grenade | Thrown::Bomblet => art::GRENADE,
-            Thrown::Molotov { .. } => art::MOLOTOV,
-            Thrown::Flare { .. } => art::FLARE,
+            Thrown::Grenade | Thrown::Bomblet => effects::effects().grenade.looping(self.t),
+            Thrown::Molotov { .. } => effects::effects().molotov.looping(self.t),
+            Thrown::Flare { .. } => effects::effects().flare.looping(self.t),
         }
     }
 
@@ -404,7 +401,7 @@ impl Barrel {
 impl Zombie {
     /// How many walk frames it has stepped through; each facing's cycle wraps at its own length.
     fn step(&self) -> usize {
-        (self.anim * WALK_FPS * self.kind.stats().speed / 20.0) as usize
+        (self.anim * crate::tuning::tuning().walk_fps * self.kind.stats().speed / 20.0) as usize
     }
 }
 
@@ -416,7 +413,7 @@ fn art_for(h: &Harvest, look: &Look, facing: Facing) -> Art {
     } else if h.hurt > h.difficulty.hurt_time() - 0.2 {
         look.hurt[i]
     } else {
-        look.walk[i][if h.walk > 0.0 { 1 + (h.walk * WALK_FPS) as usize % 2 } else { 0 }]
+        look.walk[i][if h.walk > 0.0 { 1 + (h.walk * crate::tuning::tuning().walk_fps) as usize % 2 } else { 0 }]
     }
 }
 
@@ -430,7 +427,7 @@ fn player_pose(h: &Harvest, facing: Facing) -> (Art, f32) {
         (look.dead.map_or(look.hurt[i], |d| d[i]), 1.0 - ((t - TURN_FALL) / (TURN_SINK - TURN_FALL)).clamp(0.0, 1.0))
     } else {
         let walk = &Kind::common().stats().look.walk[i];
-        (walk[(t * WALK_FPS * 0.6) as usize % walk.len()], ((t - TURN_RISE) / (TURNED - TURN_RISE)).min(1.0))
+        (walk[(t * crate::tuning::tuning().walk_fps * 0.6) as usize % walk.len()], ((t - TURN_RISE) / (TURNED - TURN_RISE)).min(1.0))
     }
 }
 
@@ -997,10 +994,10 @@ impl Harvest {
         self.facing = Facing::of(f);
         if len(mv) > 0.2 {
             let k = self.kit.speed() * dt * len(mv).min(1.0) / len(mv);
-            self.pos = self.map.slide(self.pos, [mv[0] * k, mv[1] * k], PLAYER_HALF);
-            let before = (self.walk * WALK_FPS) as u32;
+            self.pos = self.map.slide(self.pos, [mv[0] * k, mv[1] * k], crate::tuning::tuning().player_half());
+            let before = (self.walk * crate::tuning::tuning().walk_fps) as u32;
             self.walk += dt;
-            if (self.walk * WALK_FPS) as u32 / 2 != before / 2 {
+            if (self.walk * crate::tuning::tuning().walk_fps) as u32 / 2 != before / 2 {
                 let back = [-mv[0], -mv[1]];
                 self.juice.burst(self.pos, 0.5, 2, back, 0.8, [8.0, 20.0], juice::DIRT, 1.0, 0.35, 0.0);
             }
@@ -1020,7 +1017,7 @@ impl Harvest {
         } else if input.pressed.contains(Buttons::X) {
             // The quiet farm takes one zombie at a time, for trying out weapons and effects.
             let pos = [self.pos[0] + f[0] * 50.0, self.pos[1] + f[1] * 50.0];
-            if !self.map.hits(pos[0], pos[1], ZOMBIE_HALF) {
+            if !self.map.hits(pos[0], pos[1], crate::tuning::tuning().zombie_half()) {
                 self.tells.push(Tell { kind: Kind::common(), pos, hp: Kind::common().stats().hp, t: 0.0, leader: false });
             }
         }
@@ -1093,7 +1090,7 @@ impl Harvest {
             let a = (k as f32 * 0.4).sin() * (k as f32 * 0.15);
             let d = [away[0] * a.cos() - away[1] * a.sin(), away[0] * a.sin() + away[1] * a.cos()];
             let p = [self.pos[0] + d[0] * crate::tuning::tuning().harvester_rise, self.pos[1] + d[1] * crate::tuning::tuning().harvester_rise];
-            if !self.map.hits(p[0], p[1], ZOMBIE_HALF) {
+            if !self.map.hits(p[0], p[1], crate::tuning::tuning().zombie_half()) {
                 at = p;
                 break;
             }
@@ -1326,7 +1323,7 @@ impl Harvest {
                 let [near, far] = spawn_ring(self.t);
                 let r = self.rng.range(near, far);
                 let pos = [self.pos[0] + a.cos() * r, self.pos[1] + a.sin() * r];
-                if !self.map.hits(pos[0], pos[1], ZOMBIE_HALF) {
+                if !self.map.hits(pos[0], pos[1], crate::tuning::tuning().zombie_half()) {
                     let hp = kind.stats().hp * (1.0 + minutes * crate::tuning::tuning().growth) * if leader { crate::tuning::tuning().leader_hp } else { 1.0 } * self.fury;
                     self.tells.push(Tell { kind, pos, hp, t: 0.0, leader });
                     break;
@@ -1408,7 +1405,7 @@ impl Harvest {
                 None => self.map.downhill(&self.flow, z.pos).unwrap_or(norm(direct)),
             };
             let v = [to[0] * speed + s[0] * 20.0 + z.push[0], to[1] * speed + s[1] * 20.0 + z.push[1]];
-            z.pos = self.map.slide(z.pos, [v[0] * dt, v[1] * dt], ZOMBIE_HALF);
+            z.pos = self.map.slide(z.pos, [v[0] * dt, v[1] * dt], crate::tuning::tuning().zombie_half());
             z.push = [z.push[0] * (1.0 - 8.0 * dt).max(0.0), z.push[1] * (1.0 - 8.0 * dt).max(0.0)];
             z.facing = Facing::of(to);
             z.dir = to;
@@ -1440,14 +1437,14 @@ impl Harvest {
     /// Turned, the player shambles on the way they faced, and the dead close in and walk with them to the next farm.
     fn march(&mut self, dt: f32) {
         let ahead = self.aim;
-        self.pos = self.map.slide(self.pos, [ahead[0] * MARCH_SPEED * dt, ahead[1] * MARCH_SPEED * dt], PLAYER_HALF);
+        self.pos = self.map.slide(self.pos, [ahead[0] * MARCH_SPEED * dt, ahead[1] * MARCH_SPEED * dt], crate::tuning::tuning().player_half());
         for z in self.zombies.iter_mut().filter(|z| z.rise >= 1.0) {
             let to = sub(self.pos, z.pos);
             let pull = ((len(to) - MARCH_CLOSE) / MARCH_CLOSE).clamp(0.0, 1.5);
             let n = norm(to);
             let way = norm([ahead[0] + n[0] * pull, ahead[1] + n[1] * pull]);
             let speed = MARCH_SPEED * (1.0 + 0.5 * pull);
-            z.pos = self.map.slide(z.pos, [way[0] * speed * dt, way[1] * speed * dt], ZOMBIE_HALF);
+            z.pos = self.map.slide(z.pos, [way[0] * speed * dt, way[1] * speed * dt], crate::tuning::tuning().zombie_half());
             z.dir = way;
             z.facing = Facing::of(way);
             z.anim += dt;
@@ -2227,7 +2224,7 @@ mod tests {
     fn the_turned_player_leads_the_dead_off_the_way_they_faced() {
         let mut h = Harvest::calm(4);
         h.zombies.clear();
-        let open = |h: &Harvest, p: [f32; 2]| !h.map.hits(p[0], p[1], ZOMBIE_HALF);
+        let open = |h: &Harvest, p: [f32; 2]| !h.map.hits(p[0], p[1], crate::tuning::tuning().zombie_half());
         let spot = (1..60).map(|k| [h.map.spawn[0] + k as f32 * 4.0, h.map.spawn[1]]).find(|p| open(&h, *p) && open(&h, [p[0] + 120.0, p[1]]) && (0..30).all(|i| open(&h, [p[0] + i as f32 * 4.0, p[1]]))).expect("an open run east");
         h.pos = spot;
         h.view_yaw = 0.0;
@@ -2293,7 +2290,7 @@ mod tests {
     fn a_kill_drops_a_body_a_number_and_money_that_hops() {
         let mut h = Harvest::calm(3);
         h.kit.raise(book().index("pistol").unwrap(), 1);
-        let at = [-30.0, 30.0, 0.0].into_iter().flat_map(|dx| [-30.0, 30.0].map(|dy| [h.pos[0] + dx, h.pos[1] + dy])).find(|p| !h.map.hits(p[0], p[1], ZOMBIE_HALF)).unwrap();
+        let at = [-30.0, 30.0, 0.0].into_iter().flat_map(|dx| [-30.0, 30.0].map(|dy| [h.pos[0] + dx, h.pos[1] + dy])).find(|p| !h.map.hits(p[0], p[1], crate::tuning::tuning().zombie_half())).unwrap();
         h.zombies.push(Zombie::new(Kind::named("skinny"), at, 5.0, 1.0, 0.0));
         let mut sounds = Vec::new();
         for _ in 0..90 {

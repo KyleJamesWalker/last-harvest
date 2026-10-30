@@ -216,7 +216,7 @@ impl Harvest {
             let fade = ((p.life - p.age) / 0.5).clamp(0.0, 1.0);
             match p.hazard {
                 Hazard::Tacks => {
-                    let a = art::TACKS;
+                    let a = super::effects::effects().tacks.looping(self.t);
                     let (sx, sy) = at(p.pos[0] - a.w() / 2.0, p.pos[1] - a.h() / 2.0);
                     c.art(a, sx, sy, scale, false, shade([1.0, 1.0, 1.0, fade]));
                 }
@@ -229,7 +229,7 @@ impl Harvest {
                 Hazard::Flare => {
                     let (sx, sy) = at(p.pos[0], p.pos[1]);
                     c.circle(sx, sy, p.radius * scale, [1.0, 0.3, 0.2, 0.12 * fade]);
-                    let a = art::FLARE;
+                    let a = super::effects::effects().flare.looping(self.t);
                     let (sx, sy) = at(p.pos[0] - a.w() / 2.0, p.pos[1] - a.h());
                     c.art(a, sx, sy, scale, false, WHITE);
                 }
@@ -246,8 +246,8 @@ impl Harvest {
         for d in &self.drops {
             let a = match d.kind {
                 DropKind::Money(_) => super::effects::effects().money.once(d.age),
-                DropKind::Health => art::HEALTH,
-                DropKind::Chest => art::CHEST,
+                DropKind::Health => super::effects::effects().health.looping(d.age),
+                DropKind::Chest => super::effects::effects().chest.looping(d.age),
             };
             let (sx, sy) = at(d.pos[0] - a.w() / 2.0, d.pos[1] - a.h() - d.z);
             c.art(a, sx, sy, scale, false, lit);

@@ -5,25 +5,15 @@ use std::f32::consts::{PI, TAU};
 use super::juice::{self, Tone};
 use super::powerups::{Does, Kind, Stat, book};
 use super::{
-    Barrel, Bullet, FLASH_TIME, Fx, Grenade, Harvest, TILE, Thrown, Zombie, ZOMBIE_HALF, len, norm, strike, sub,
+    Barrel, Bullet, FLASH_TIME, Fx, Grenade, Harvest, TILE, Thrown, Zombie, len, norm, strike, sub,
 };
 use crate::{Difficulty, Sfx};
 use crate::art::Art;
 
-/// Half the angle the top screen sees, in radians, before a brighter lantern widens it.
-pub(super) const AHEAD_HALF: f32 = 0.6;
-const BEHIND_HALF: f32 = 0.9;
 const MAX_PATCHES: usize = 80;
 const PATCH_TICK: f32 = 0.25;
 const BURN_TICK: f32 = 0.3;
 pub(super) const BOLT_LIFE: f32 = 0.18;
-const PECK_REACH: f32 = 7.0;
-const BITE_REACH: f32 = 7.0;
-/// A dog with nothing to chase sprints back once this far from the player, and trots again inside `DOG_STRAY / 2`.
-const DOG_STRAY: f32 = 48.0;
-const DOG_TROT: f32 = 0.45;
-/// The pistol turns on anything this close, whichever way the player faces.
-const POINT_BLANK: f32 = 70.0;
 
 /// A weapon the player carries; `phase` turns the crows around.
 #[derive(Clone, Copy, Debug)]
@@ -327,7 +317,7 @@ impl Harvest {
     }
 
     pub(super) fn ahead_half(&self) -> f32 {
-        AHEAD_HALF * self.kit.mods.view
+        crate::tuning::tuning().view_half * self.kit.mods.view
     }
 
     fn crit(&self) -> f32 {
@@ -382,7 +372,7 @@ impl Harvest {
         match a.does() {
             Does::Pistol => self.pistol(a, sounds),
             Does::Shotgun => self.spray(a, self.aim, self.ahead_half(), true, sounds),
-            Does::Holster => self.spray(a, [-self.aim[0], -self.aim[1]], BEHIND_HALF, false, sounds),
+            Does::Holster => self.spray(a, [-self.aim[0], -self.aim[1]], crate::tuning::tuning().behind_half, false, sounds),
             Does::Rifle => self.rifle(a, sounds),
             Does::Lantern => self.beam(a),
             Does::Burner => self.burner(a),
@@ -401,7 +391,7 @@ impl Harvest {
 
     fn pistol(&mut self, a: Armed, sounds: &mut Vec<Sfx>) -> bool {
         let range = self.stat(a, Stat::Range);
-        let target = self.barrel_in_view(range).or_else(|| self.nearest_in(POINT_BLANK.min(range), None)).or_else(|| self.nearest_in(range, Some((self.aim, self.ahead_half())))).or_else(|| self.nearest_in(range, None));
+        let target = self.barrel_in_view(range).or_else(|| self.nearest_in(crate::tuning::tuning().point_blank.min(range), None)).or_else(|| self.nearest_in(range, Some((self.aim, self.ahead_half())))).or_else(|| self.nearest_in(range, None));
         let Some(d) = target.map(norm) else { return false };
         let (n, speed) = (self.stat(a, Stat::Count) as u32, self.stat(a, Stat::Speed));
         let base = d[1].atan2(d[0]);
@@ -603,7 +593,7 @@ impl Harvest {
             let (damage, cd) = (self.stat(a, Stat::Damage), self.stat(a, Stat::Cooldown));
             for at in self.crow_spots(a) {
                 for z in &mut self.zombies {
-                    if z.rise >= 1.0 && len(sub(z.pos, at)) < PECK_REACH && !self.pecked.iter().any(|p| p.0 == z.id) {
+                    if z.rise >= 1.0 && len(sub(z.pos, at)) < crate::tuning::tuning().crow_reach && !self.pecked.iter().any(|p| p.0 == z.id) {
                         hits.1 |= strike(z, &mut self.juice, damage, norm(sub(z.pos, self.pos)), 20.0 * self.kit.mods.knockback, crit);
                         hits.0 += 1;
                         self.pecked.push((z.id, cd));
@@ -682,16 +672,16 @@ impl Harvest {
             dog.cd -= dt;
             dog.rest -= dt;
             dog.target = target.map(|t| self.zombies[t].id);
-            dog.catching_up = target.is_none() && (away > DOG_STRAY || (dog.catching_up && away > DOG_STRAY / 2.0));
+            dog.catching_up = target.is_none() && (away > crate::tuning::tuning().dog_stray || (dog.catching_up && away > crate::tuning::tuning().dog_stray / 2.0));
             if dog.rest <= 0.0 {
                 let rng = &mut self.juice.rng;
                 dog.spot = polar([0.0; 2], yaw + rng.range(-0.55, 0.55) * PI, rng.range(14.0, 32.0));
                 dog.rest = rng.range(1.5, 4.0);
             }
             let (to, pace, stop) = match goal {
-                Some(g) => (sub(g, dog.pos), speed, BITE_REACH * 0.6),
+                Some(g) => (sub(g, dog.pos), speed, crate::tuning::tuning().dog_reach * 0.6),
                 None if dog.catching_up => (sub(player, dog.pos), speed, 0.0),
-                None => (sub([player[0] + dog.spot[0], player[1] + dog.spot[1]], dog.pos), speed * DOG_TROT, 3.0),
+                None => (sub([player[0] + dog.spot[0], player[1] + dog.spot[1]], dog.pos), speed * crate::tuning::tuning().dog_trot, 3.0),
             };
             let n = norm(to);
             let want = if len(to) > stop { [n[0] * pace, n[1] * pace] } else { [0.0; 2] };
@@ -704,7 +694,7 @@ impl Harvest {
                 dog.anim += dt * (moving / speed * 1.6).min(1.0);
             }
             if let Some(t) = target
-                && len(to) < BITE_REACH
+                && len(to) < crate::tuning::tuning().dog_reach
                 && dog.cd <= 0.0
             {
                 dog.cd = cd;
@@ -745,7 +735,7 @@ impl Harvest {
             return false;
         }
         let at = [self.pos[0] - self.aim[0] * 12.0, self.pos[1] - self.aim[1] * 12.0];
-        if self.map.hits(at[0], at[1], ZOMBIE_HALF) {
+        if self.map.hits(at[0], at[1], crate::tuning::tuning().zombie_half()) {
             return false;
         }
         let (lure, blast, damage, life) = (self.stat(a, Stat::Range), self.stat(a, Stat::Area), self.stat(a, Stat::Damage), self.stat(a, Stat::Duration));
@@ -845,7 +835,7 @@ impl Harvest {
                         z.slow = z.slow.max(0.5);
                         z.slow_k = z.slow_k.max(p.slow);
                     }
-                    Hazard::Fire | Hazard::Flare => ignite(z, p.dps, 1.5),
+                    Hazard::Fire | Hazard::Flare => ignite(z, p.dps, crate::tuning::tuning().fire_burn),
                 }
             }
             match p.hazard {
@@ -952,7 +942,7 @@ mod tests {
         armed(&mut h, id, 1);
         h.view_yaw = 0.0;
         h.aim = [1.0, 0.0];
-        h.pos = (0..40).map(|k| [h.pos[0] + k as f32 * 16.0, h.pos[1]]).find(|p| !h.map.hits(p[0] + offset[0], p[1] + offset[1], ZOMBIE_HALF)).unwrap();
+        h.pos = (0..40).map(|k| [h.pos[0] + k as f32 * 16.0, h.pos[1]]).find(|p| !h.map.hits(p[0] + offset[0], p[1] + offset[1], crate::tuning::tuning().zombie_half())).unwrap();
         h.zombies.push(Zombie::new(ZKind::named("big"), [h.pos[0] + offset[0], h.pos[1] + offset[1]], 500.0, 1.0, 0.0));
         h
     }
@@ -1135,7 +1125,7 @@ mod tests {
         for k in 0..60 * 20 {
             h.walk_dogs(1.0 / 60.0, &mut Vec::new());
             let d = &h.dogs[0];
-            assert!(len(sub(d.pos, h.pos)) < DOG_STRAY + 4.0, "it stays close");
+            assert!(len(sub(d.pos, h.pos)) < crate::tuning::tuning().dog_stray + 4.0, "it stays close");
             if k % 60 == 0 {
                 spots.push(d.pos);
             }
@@ -1146,7 +1136,7 @@ mod tests {
         for _ in 0..60 * 3 {
             h.walk_dogs(1.0 / 60.0, &mut Vec::new());
         }
-        assert!(len(sub(h.dogs[0].pos, h.pos)) < DOG_STRAY, "it ran to catch up");
+        assert!(len(sub(h.dogs[0].pos, h.pos)) < crate::tuning::tuning().dog_stray, "it ran to catch up");
     }
 
     #[test]

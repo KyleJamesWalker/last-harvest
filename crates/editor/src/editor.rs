@@ -3284,7 +3284,8 @@ mod tests {
         e.key(Key::Enter);
         e.act(Action::Save, false);
         assert!(e.unsaved(), "the game has no wings to read");
-        e.act(Action::DataRemove(5), false);
+        let last = e.data.as_ref().map_or(0, |d| d.table.entries(&d.section).len() - 1);
+        e.act(Action::DataRemove(last), false);
         e.key(Key::Save);
         assert!(!e.unsaved());
         let saved = std::fs::read_to_string(dir.join("tuning.txt")).unwrap();

@@ -33,6 +33,8 @@ tuning! {
     player_magnet = "player" "magnet",
     crit = "player" "crit",
     pickup = "player" "pickup",
+    player_width = "player" "width",
+    player_depth = "player" "depth",
     easy_damage = "easy" "damage",
     easy_hurt_time = "easy" "hurt_time",
     easy_health_drop = "easy" "health_drop",
@@ -51,6 +53,9 @@ tuning! {
     growth = "zombies" "growth",
     leader_hp = "zombies" "leader_hp",
     fury = "zombies" "fury",
+    zombie_width = "zombies" "width",
+    zombie_depth = "zombies" "depth",
+    walk_fps = "zombies" "walk_fps",
     harvester_hp = "harvester" "hp",
     harvester_speed = "harvester" "speed",
     harvester_bite = "harvester" "bite",
@@ -64,6 +69,14 @@ tuning! {
     barrel_hp = "barrel" "hp",
     barrel_radius = "barrel" "radius",
     barrel_damage = "barrel" "damage",
+    view_half = "weapons" "view_half",
+    behind_half = "weapons" "behind_half",
+    point_blank = "weapons" "point_blank",
+    crow_reach = "weapons" "crow_reach",
+    dog_reach = "weapons" "dog_reach",
+    dog_stray = "weapons" "dog_stray",
+    dog_trot = "weapons" "dog_trot",
+    fire_burn = "weapons" "fire_burn",
     blast_hurt = "blast" "hurt",
     blast_near = "blast" "near",
 }
@@ -104,6 +117,17 @@ pub fn parse(text: &str, base: Option<&Tuning>) -> Result<Tuning, String> {
 /// The game's own numbers, as built in, which a pack's `tuning.txt` sets over.
 pub fn built_in() -> Tuning {
     parse(include_str!("../tuning.txt"), None).unwrap_or_else(|e| panic!("tuning.txt:{e}"))
+}
+
+impl Tuning {
+    /// Half the player's footprint for walls, across and down.
+    pub fn player_half(&self) -> [f32; 2] {
+        [self.player_width / 2.0, self.player_depth / 2.0]
+    }
+
+    pub fn zombie_half(&self) -> [f32; 2] {
+        [self.zombie_width / 2.0, self.zombie_depth / 2.0]
+    }
 }
 
 /// The numbers the game plays by, read the first time they're asked for.
