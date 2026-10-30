@@ -496,6 +496,7 @@ impl Map {
             props: Vec::new(),
             decals: Vec::new(),
             barrels: Vec::new(),
+            barrel_hp: Vec::new(),
             spawn: [0.0; 2],
             home: [0.0; 2],
         }
@@ -633,6 +634,7 @@ mod tests {
     #[test]
     fn a_map_file_lays_its_ground_and_props() {
         let map = read(&farm("HOUSE 2 2 open 1\nBARREL 13 10\nfence rail 13 2 6 6 gate 2\nWINDMILL 3 8")).unwrap();
+        assert_eq!(read(&farm("BARREL 13 10 hp 55")).unwrap().barrel_hp, [55.0], "a barrel's line sets its hit points");
         assert_eq!((map.w, map.h), (20, 14));
         assert_eq!(map.tile(9, 5).0, art::ROAD_V[0]);
         assert_eq!(map.tile(10, 5).0, art::ROAD_V[1]);

@@ -650,7 +650,8 @@ impl Harvest {
 
     fn with_map(seed: u64, rng: Rng, map: Map) -> Self {
         let kit = Kit::start(Difficulty::Normal);
-        let barrels = map.barrels.iter().map(|&pos| Barrel { pos, hp: crate::tuning::tuning().barrel_hp, flash: 0.0 }).collect();
+        let own = crate::tuning::tuning().barrel_hp;
+        let barrels = map.barrels.iter().enumerate().map(|(i, &pos)| Barrel { pos, hp: map.barrel_hp.get(i).copied().filter(|h| *h > 0.0).unwrap_or(own), flash: 0.0 }).collect();
         Self {
             barrels,
             barrel_spots: map.barrels.clone(),

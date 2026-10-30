@@ -151,6 +151,8 @@ pub struct Map {
     pub decals: Vec<(Art, f32, f32)>,
     /// Explosive barrels, by top-left in world pixels; each blocks its cell until it blows.
     pub barrels: Vec<[f32; 2]>,
+    /// Each barrel's hit points as its prop line set them; 0 for tuning.txt's.
+    pub barrel_hp: Vec<f32>,
     /// Where the player starts, in world pixels.
     pub spawn: [f32; 2],
     /// The farmhouse's front step, which the player runs back to once dawn breaks.
@@ -197,6 +199,7 @@ impl Map {
             props: Vec::new(),
             decals: Vec::new(),
             barrels: Vec::new(),
+            barrel_hp: Vec::new(),
             spawn: [0.0; 2],
             home: [0.0; 2],
         };
@@ -454,11 +457,12 @@ impl Map {
     /// Moves barrels from the props to `barrels`, since they blow up rather than break, and notes the rest's
     /// breakable cells.
     fn keep_barrels_apart(&mut self) {
-        let barrels = &mut self.barrels;
+        let (barrels, hp) = (&mut self.barrels, &mut self.barrel_hp);
         self.props.retain(|p| {
             let barrel = p.frames[0] == art::BARREL;
             if barrel {
                 barrels.push([p.x, p.y]);
+                hp.push(p.hp);
             }
             !barrel
         });
