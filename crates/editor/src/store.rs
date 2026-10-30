@@ -482,6 +482,11 @@ mod fs {
             self.cards.with_file_name("props").join(format!("{id}{}", last_harvest_pack::prop::EXTENSION))
         }
 
+        /// The PNG a card's part or a prop lives in, which git keeps whole.
+        fn packed_path(&self, name: &str) -> Option<PathBuf> {
+            props::id(name).map(|id| self.prop_path(&id)).or_else(|| self.card_path(name))
+        }
+
         fn prop_ids(&self) -> Vec<String> {
             let found = std::fs::read_dir(self.cards.with_file_name("props")).into_iter().flatten().flatten();
             let ids = found.filter_map(|e| e.file_name().into_string().ok()?.strip_suffix(last_harvest_pack::prop::EXTENSION).map(str::to_string));
@@ -549,13 +554,19 @@ mod fs {
         }
 
         fn history(&self, name: &str) -> Option<(Vec<Commit>, bool)> {
-            sprite::card_id(name).is_none().then_some(())?;
-            let repo = Repo::open(&self.dir)?;
-            Some((repo.log(name), repo.changed(name)))
+            let Some(path) = self.packed_path(name) else {
+                let repo = Repo::open(&self.dir)?;
+                return Some((repo.log(name), repo.changed(name)));
+            };
+            let file = path.file_name()?.to_str()?;
+            let repo = Repo::open(path.parent()?)?;
+            Some((repo.log(file), repo.changed(file)))
         }
 
         fn version(&self, id: &str, name: &str, file: &str) -> Option<Vec<u8>> {
-            Repo::open(&self.dir)?.read(id, name, file)
+            let Some(path) = self.packed_path(name) else { return Repo::open(&self.dir)?.read(id, name, file) };
+            let bytes = Repo::open(path.parent()?)?.show(id, path.file_name()?.to_str()?)?;
+            if props::id(name).is_some() { props::file(&bytes, file) } else { cards::file(&bytes, name, file) }
         }
 
         fn import_card(&self, file: &str, bytes: &[u8]) -> Result<String, String> {

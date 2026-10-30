@@ -65,7 +65,12 @@ mod git {
 
         /// A file of the sprite's folder as it was at commit `id`, if it existed then.
         pub fn read(&self, id: &str, name: &str, file: &str) -> Option<Vec<u8>> {
-            git(&self.dir, &["show", &format!("{id}:./{name}/{file}")])
+            self.show(id, &format!("{name}/{file}"))
+        }
+
+        /// A file under the folder as it was at commit `id`, if it existed then.
+        pub fn show(&self, id: &str, path: &str) -> Option<Vec<u8>> {
+            git(&self.dir, &["show", &format!("{id}:./{path}")])
         }
     }
 

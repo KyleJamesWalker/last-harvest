@@ -318,7 +318,7 @@ A pixel editor for the game's sprites, on macOS. The left pane lists every sprit
 | Play the animation | Space |
 | New sprite, or a copy of this one | New, Copy |
 | Resize every frame | W and H - and +, 8 at a time with Shift; the bottom center stays put |
-| Browse earlier versions | R, or History: the commits that touched the sprite in the assets repository, newest first. J and K step through them, shown read-only on the canvas and in the previews; Enter or Restore brings one back as unsaved changes, and Esc or Back returns to what was open. The editor only reads from git. |
+| Browse earlier versions | R, or History: the commits that touched the sprite in the assets repository, newest first; for a card's part or a prop, the commits that touched its PNG. J and K step through them, shown read-only on the canvas and in the previews; Enter or Restore brings one back as unsaved changes, and Esc or Back returns to what was open. The editor only reads from git. |
 | Save | Cmd+S; leaving a sprite with unsaved changes asks to save (S or Enter), discard (D) or stay (Esc) |
 | Screenshot the window | F12, into the sprites folder |
 

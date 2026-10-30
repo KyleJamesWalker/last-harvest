@@ -1722,7 +1722,6 @@ impl Editor {
                 self.changed = true;
             }
             Action::History if self.browse.is_some() => self.leave_history(),
-            Action::History if self.is_card() => self.say("Cards don't keep a history here yet"),
             Action::History => self.open_history(),
             Action::Restore => self.restore_version(),
             Action::Back => self.leave_history(),
@@ -1851,7 +1850,7 @@ impl Editor {
     /// Starts browsing the sprite's committed versions, showing the newest.
     fn open_history(&mut self) {
         let Some((commits, changed)) = self.store.history(&self.sprite.name) else {
-            self.say("The sprites folder isn't in a git repository");
+            self.say(if self.modding { "The card editor keeps no history; the sprite editor reads it from git" } else { "Its folder isn't in a git repository" });
             return;
         };
         if commits.is_empty() {
@@ -3787,6 +3786,35 @@ mod tests {
         s.frames[0].set(0, 0, [0, 0, 255, 255]);
         s.save(&dir).unwrap();
         (editor_in(&dir, root.join("art.txt")), root)
+    }
+
+    #[test]
+    fn a_cards_part_shows_the_history_of_its_card() {
+        use crate::history::tests::{commit, repo};
+        let root = repo("card");
+        let dir = root.join("sprites");
+        let mut e = Editor::new(Box::new(FsStore { dir: dir.clone(), catalog: root.join("art.txt"), cards: root.join("enemies") }), "BARREL");
+        e.act(Action::Ask(Ask::New), false);
+        type_in(&mut e, "card ghoul");
+        e.key(Key::Enter);
+        let part = e.sprite.name.clone();
+        for (c, message) in [([255, 0, 0, 255], "red"), ([0, 255, 0, 255], "green"), ([0, 0, 255, 255], "")] {
+            e.sprite.frames[0].set(0, 0, c);
+            e.dirty = true;
+            e.act(Action::Save, false);
+            if !message.is_empty() {
+                commit(&root, message);
+            }
+        }
+        e.key(Key::Char('r'));
+        let b = e.browse.as_ref().unwrap_or_else(|| panic!("{:?}", e.status));
+        assert_eq!(b.commits.iter().map(|c| c.subject.as_str()).collect::<Vec<_>>(), ["green", "red"]);
+        assert!(b.changed, "the blue on disk isn't committed");
+        assert_eq!((e.sprite.name.as_str(), e.current().get(0, 0)), (part.as_str(), Some([0, 255, 0, 255])));
+        e.key(Key::Char('j'));
+        assert_eq!(e.current().get(0, 0), Some([255, 0, 0, 255]));
+        assert!(e.sprite.card.is_some(), "the version keeps its card's text");
+        std::fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]
