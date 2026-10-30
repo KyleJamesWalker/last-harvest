@@ -2,7 +2,7 @@
 //! drawing, and painted with ground, props, fences, the spawn and home.
 
 use last_harvest_game::art::Art;
-use last_harvest_game::{MAP_GROUND, MAP_PROPS, MapSource, PROP_MAX_HP, PropFields, PropLine, SCREEN_H, SCREEN_W};
+use last_harvest_game::{MAP_GROUND, MapSource, PROP_MAX_HP, PropFields, PropLine, SCREEN_H, SCREEN_W};
 
 use super::*;
 
@@ -14,7 +14,7 @@ type Files = Vec<(String, Vec<u8>)>;
 /// What the picker offers: players' props as packed for the previews, then the game's own, each with its sprite
 /// name, walk-through rows and a frame to show.
 fn pickable() -> Vec<(String, usize, Option<Art>)> {
-    let own = MAP_PROPS.iter().map(|k| (k.name.to_string(), k.open, last_harvest_game::art::ALL.iter().find(|(a, _)| *a == k.name).map(|(_, f)| f[0])));
+    let own = last_harvest_game::map_props().iter().map(|k| (k.name.to_string(), k.open, last_harvest_game::art::ALL.iter().find(|(a, _)| *a == k.name).map(|(_, f)| f[0])));
     let players = last_harvest_game::named_props().into_iter().map(|p| (p.name, p.open, p.frames.first().copied()));
     players.chain(own).collect()
 }

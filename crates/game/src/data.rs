@@ -11,6 +11,8 @@ pub struct Data {
     pub font: Option<Vec<u8>>,
     pub powerups: Option<String>,
     pub enemies: Option<String>,
+    /// `props.txt`: the game's own props a map can place, and how they stand in the way.
+    pub props_table: Option<String>,
     pub cards: Vec<Card>,
     /// Player cards, the same sheet as an enemy's with three walking frames, and an id and name for text.
     pub players: Vec<Card>,
@@ -109,6 +111,7 @@ mod built_in {
     pub const FONT: Option<&[u8]> = Some(include_bytes!("../../../assets/fonts/AtkinsonHyperlegible-Regular.ttf"));
     pub const POWERUPS: Option<&str> = Some(include_str!("../powerups.txt"));
     pub const ENEMIES: Option<&str> = Some(include_str!("../enemies.txt"));
+    pub const PROPS: Option<&str> = Some(include_str!("../props.txt"));
 }
 
 /// Installs a pack's data and draws its cards' sprites into the atlas. It must come before anything reads the
@@ -183,6 +186,11 @@ pub fn maps() -> &'static [LoadedMap] {
 
 pub fn powerups() -> &'static str {
     data().powerups.as_deref().or(built_in::POWERUPS).unwrap_or_else(|| missing("powerups.txt"))
+}
+
+/// The game's own props, as `props.txt` lists them.
+pub fn props() -> &'static str {
+    data().props_table.as_deref().or(built_in::PROPS).unwrap_or_else(|| missing("props.txt"))
 }
 
 pub fn enemies() -> &'static str {

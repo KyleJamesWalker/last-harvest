@@ -3199,7 +3199,8 @@ mod tests {
         let mut e = editor();
         e.switch_to("BUSH".into());
         e.decide(Choice::Discard);
-        assert_eq!((e.sprite.name.as_str(), e.stand()), ("BUSH", Stand::Prop { depth: 12.0 }));
+        let game = last_harvest_game::default_prop_depth(16.0, 16.0, Some(last_harvest_game::art::BUSH), 0);
+        assert_eq!((e.sprite.name.as_str(), e.stand()), ("BUSH", Stand::Prop { depth: game }));
         e.switch_to("MAILBOX".into());
         e.decide(Choice::Discard);
         assert_eq!(e.depth, last_harvest_game::default_prop_depth(16.0, 16.0, Some(last_harvest_game::art::MAILBOX), 0));

@@ -21,7 +21,7 @@ use enemies::Enemy;
 pub(crate) use enemies::{install_cards, off_from_ids, off_ids, roster};
 pub use props::{MAX_FRAME as PROP_MAX_FRAME, MAX_FRAMES as PROP_MAX_FRAMES, Named as NamedProp, PREFIX as PROP_PREFIX, ByViews as PropByViews, PropFields, load_for_checks as load_props_for_checks, turned_depth, prop_fields, prop_text, props as named_props, set_props};
 pub(crate) use props::stand_of;
-pub use map::{default_depth as default_prop_depth, GROUND as MAP_GROUND, MAP_EXTENSION, MAP_MAX, MAP_MIN, MAX_HP as PROP_MAX_HP, MapSource, PROPS as MAP_PROPS, PropKind, PropLine, Tough as PropTough, check_map, valid_map_id};
+pub use map::{default_depth as default_prop_depth, GROUND as MAP_GROUND, MAP_EXTENSION, MAP_MAX, MAP_MIN, MAX_HP as PROP_MAX_HP, MapSource, map_props, parse_props, PropKind, PropLine, Tough as PropTough, check_map, valid_map_id};
 pub use enemies::{ABOUT_MAX, MAX_WALK, flash_pixel, frame_limits, hurt_pixel};
 pub use players::{ID_MAX as PLAYER_ID_MAX, PlayerFields, PlayerLook, default_start, looks as player_looks, player_fields, set_player_start, weapon_slots, weapons};
 pub use enemies::{CardFields, FLAGS as CARD_FLAGS, NUMBERS as CARD_NUMBERS, SpawnMix, card_fields, set_card_field, spawn_mix};
@@ -159,9 +159,12 @@ pub fn kill_sound(kind: u8) -> &'static str {
     roster().enemies.get(kind as usize).map_or("", |e| e.sound.as_str())
 }
 
-/// Checks a pack's own powerups.txt and enemies.txt as the game will read them, without reading the game's data,
-/// so a mod that would break the game can be left out before it's installed.
-pub fn check_tables(powerups: Option<&str>, enemies: Option<&str>) -> Result<(), String> {
+/// Checks a pack's own powerups.txt, enemies.txt and props.txt as the game will read them, without reading the
+/// game's data, so a mod that would break the game can be left out before it's installed.
+pub fn check_tables(powerups: Option<&str>, enemies: Option<&str>, props: Option<&str>) -> Result<(), String> {
+    if let Some(text) = props {
+        map::parse_props(text).map_err(|e| format!("props.txt:{e}"))?;
+    }
     if let Some(text) = powerups {
         powerups::parse(text).map_err(|e| format!("powerups.txt:{e}"))?;
     }
