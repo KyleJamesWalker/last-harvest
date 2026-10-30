@@ -48,6 +48,7 @@ fury 1.01       # after dawn, every zombie's health and bite multiply by this ea
 width 6         # a zombie's footprint for walls, in pixels
 depth 4
 walk_fps 8      # walking frames a second for the player, and for a zombie at a speed of 20
+bite_reach 9    # how near a zombie bites the player
 
 [harvester]
 hp 2500         # dawn's boss

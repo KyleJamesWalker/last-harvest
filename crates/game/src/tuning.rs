@@ -64,6 +64,7 @@ tuning! {
     zombie_width = "zombies" "width",
     zombie_depth = "zombies" "depth",
     walk_fps = "zombies" "walk_fps",
+    bite_reach = "zombies" "bite_reach",
     harvester_hp = "harvester" "hp",
     harvester_speed = "harvester" "speed",
     harvester_bite = "harvester" "bite",
