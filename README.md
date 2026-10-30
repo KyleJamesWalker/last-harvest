@@ -118,7 +118,7 @@ A mod's `tuning.txt` needs only the lines it changes. The other files replace th
 
 A weapon in `powerups.txt` picks a behavior with `does`. Two behaviors take their shape from data. `does gun` fires `count` shots at what its `aim` finds (`nearest`, `ahead`, `behind` or `around`), spread by its `pattern` (`fan`, `ring` or `spray`). `does blade` cuts everything within `area` across `spread` degrees, toward what its `aim` finds. `does lob` throws `count` at a crowd within `range`, and `lands` says what it does there: `blast`, `fire`, `flare` or `tacks`.
 
-Any weapon can name an `effect` and a `bullet` from `effects.txt`, and a `sound`. An `icon` can be a player's prop, `PROP_<ID>`. So a new weapon needs no code.
+Any weapon can name an `effect` and a `bullet` from `effects.txt`, and a `sound`. Its `kick`, `punch` and `shake` move the camera on each attack, and `flash` lights the ground: a color, its reach in tiles and its seconds. An `icon` can be a player's prop, `PROP_<ID>`. So a new weapon needs no code.
 
 Both editors edit these files. Each section lists under a `Data:` heading, such as `tuning.txt`'s `[player]` under Data: tuning. Its page shows one line a row, with the comment under it. Numbers step with - and +, and Edit types any value.
 

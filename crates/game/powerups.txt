@@ -30,6 +30,9 @@
 #                       bullet effect, the grenade when left out, and plays its effect where it lands
 #   pattern fan | ring | spray     for `does gun`, how count shots spread: evenly across spread, evenly all the way
 #                       round, or at random across spread; fan when left out
+#   kick N | punch N | shake N    for weapons, each attack's camera kick back, punch in and screen shake; none when left out
+#   flash R G B REACH SECONDS     for weapons, a flash of light on each attack: its color, above 1 for brighter than
+#                       white, how far it lights in tiles, and how long; none when left out
 #   blurb   Text        the card's line when the powerup is new
 #   max     N           highest level
 #   STAT    v1 v2 ...   the value at each level, from level 1; a short list repeats its last value
@@ -61,6 +64,8 @@ first_level  2
 [pistol]
 name      Pistol
 kind      weapon
+kick      0.015
+flash     1.2 0.85 0.4 3.5 0.07
 zone      ahead
 unlock    start
 blurb     Shoots whatever's in front of you, else the nearest
@@ -76,6 +81,10 @@ spread    8
 [shotgun]
 name      Shotgun
 kind      weapon
+kick      0.04
+punch     3
+shake     0.12
+flash     1.6 1.1 0.5 5 0.1
 zone      ahead
 unlock    start
 blurb     A spread of pellets at close range
@@ -92,6 +101,10 @@ knockback 45
 [rifle]
 name      Hunting rifle
 kind      weapon
+kick      0.05
+punch     2
+shake     0.1
+flash     1.6 1.2 0.7 5 0.1
 zone      ahead
 unlock    kills 500
 blurb     A slow, heavy round straight down your heading
@@ -121,6 +134,7 @@ duration  0.6
 [burner]
 name      Weed burner
 kind      weapon
+flash     1.4 0.7 0.3 4 0.15
 zone      ahead
 unlock    kills 1500
 blurb     A short cone of flame that sets them burning
@@ -134,6 +148,7 @@ duration  2 2 2.5 2.5 3 3 3.5 4
 [pitchfork]
 name      Pitchfork
 kind      weapon
+kick      0.02
 zone      ahead
 unlock    kills 3000
 blurb     Skewers everything in a line in front of you
@@ -152,6 +167,8 @@ knockback 90
 [knife]
 name      Knife
 kind      weapon
+kick      0.02
+shake     0.06
 zone      around
 unlock    start
 blurb     Slashes everything close by
@@ -164,6 +181,8 @@ knockback 60
 [scythe]
 name      Scythe
 kind      weapon
+punch     1.5
+shake     0.1
 zone      around
 unlock    kills 100
 blurb     A full sweep all the way around you
@@ -190,6 +209,7 @@ cooldown  0.5
 [zapper]
 name      Bug zapper
 kind      weapon
+flash     0.6 0.8 1.8 5 0.12
 zone      around
 unlock    kills 2000
 blurb     Lightning that jumps from one zombie to the next
@@ -250,6 +270,10 @@ duration  3 3 3.5 3.5 4 4 4.5 5
 [holster]
 name      Back holster
 kind      weapon
+kick      0.04
+punch     3
+shake     0.12
+flash     1.6 1.1 0.5 5 0.1
 zone      behind
 unlock    night 300
 blurb     A sawn-off that fires behind you
