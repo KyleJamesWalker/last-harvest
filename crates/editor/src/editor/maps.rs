@@ -374,7 +374,12 @@ impl Editor {
             let bytes = self.store.prop_bytes(&id)?;
             Some((format!("{}{id}{}", last_harvest_pack::PROPS, last_harvest_pack::prop::EXTENSION), bytes))
         });
-        maps.chain(props).collect()
+        // A data file goes along only where the mod changed it, so the game's own carries on elsewhere.
+        let tables = last_harvest_game::TABLES.into_iter().filter_map(|file| {
+            let text = self.store.read_table(file)?;
+            (last_harvest_game::built_in_table(file) != Some(text.as_str())).then(|| (file.to_string(), text.into_bytes()))
+        });
+        maps.chain(props).chain(tables).collect()
     }
 
     /// Takes in props, then maps, by file name, as Import does from a `.map.txt`, a `.prop.png` or a pack's
@@ -391,6 +396,14 @@ impl Editor {
                     took.push(crate::store::props::name(&id));
                     first.get_or_insert(crate::store::props::name(&id));
                 }
+                Err(e) => problems.push(e),
+            }
+        }
+        let (tables, maps): (Files, Files) = maps.into_iter().partition(|(file, _)| last_harvest_game::TABLES.contains(&file.as_str()));
+        for (file, bytes) in tables {
+            let saved = String::from_utf8(bytes).map_err(|_| format!("{file} is not text")).and_then(|t| self.store.save_table(&file, &t));
+            match saved {
+                Ok(()) => took.push(file),
                 Err(e) => problems.push(e),
             }
         }
@@ -426,6 +439,7 @@ impl Editor {
     pub(super) fn all_names(&self) -> Vec<(String, bool)> {
         let mut names = self.store.names();
         names.extend(self.store.map_ids().into_iter().map(|id| (format!("{}{}", sprite::MAP_PREFIX, id.to_ascii_uppercase()), true)));
+        names.extend(self.data_names());
         names
     }
 

@@ -401,7 +401,7 @@ impl Web {
                         Ok(bytes) => {
                             modding::call("save", &[modding::MOD_FILE.into(), js_sys::Uint8Array::from(&bytes[..]).into()]);
                             let with = if sounds.is_empty() { String::new() } else { format!(" and {} death sounds", sounds.len()) };
-                            let maps = if extra.is_empty() { String::new() } else { format!(", {} maps and props", extra.len()) };
+                            let maps = if extra.is_empty() { String::new() } else { format!(", {} maps, props and data files", extra.len()) };
                             self.studio.editor.say(format!("Exported {} cards{with}{maps} as {}: put it in the game's data/mods", cards.len(), modding::MOD_FILE));
                         }
                         Err(e) => self.studio.editor.say(format!("Couldn't pack the cards: {e}")),
@@ -588,7 +588,7 @@ fn start() -> Result<(), String> {
         let bytes = js_sys::Reflect::get(&detail, &"bytes".into()).map(|v| js_sys::Uint8Array::new(&v).to_vec()).unwrap_or_default();
         if name.ends_with(".pak") {
             match modding::cards_in(&bytes) {
-                Ok((cards, _, maps, props)) if cards.is_empty() && maps.is_empty() && props.is_empty() => w.studio.editor.say(format!("{name} holds no cards, maps or props")),
+                Ok((cards, _, maps, props)) if cards.is_empty() && maps.is_empty() && props.is_empty() => w.studio.editor.say(format!("{name} holds no cards, maps, props or data")),
                 Ok((cards, sounds, maps, props)) => {
                     if !maps.is_empty() || !props.is_empty() {
                         w.studio.editor.import_maps(&name, maps, props);
@@ -715,12 +715,15 @@ mod modding {
     /// The cards in a mod pack, by file name, for Import.
     type Files = Vec<(String, Vec<u8>)>;
 
-    /// The cards in a mod pack, the sounds beside them, and its maps and props, by file name, for Import.
+    /// The cards in a mod pack, the sounds beside them, its maps with any data files it changes, and its props, by
+    /// file name, for Import.
     pub fn cards_in(bytes: &[u8]) -> Result<(Files, Files, Files, Files), String> {
         let mut pak = Pak::read(std::io::Cursor::new(bytes))?;
         let mut cards = pak.take_dir(last_harvest_pack::ENEMY_CARDS);
         cards.extend(pak.take_dir(last_harvest_pack::PLAYER_CARDS));
-        Ok((cards, pak.take_dir(last_harvest_pack::SOUNDS), pak.take_dir(last_harvest_pack::MAPS), pak.take_dir(last_harvest_pack::PROPS)))
+        let mut maps = pak.take_dir(last_harvest_pack::MAPS);
+        maps.extend(last_harvest_game::TABLES.into_iter().filter_map(|file| Some((file.to_string(), pak.take(file)?))));
+        Ok((cards, pak.take_dir(last_harvest_pack::SOUNDS), maps, pak.take_dir(last_harvest_pack::PROPS)))
     }
 
     /// A mod pack named after `name` holding `files` by their paths in it.

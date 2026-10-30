@@ -156,6 +156,32 @@ pub fn check_tables(powerups: Option<&str>, enemies: Option<&str>, props: Option
     Ok(())
 }
 
+/// The data files the game reads its rules from, which the editors change and a mod can replace.
+pub const TABLES: [&str; 4] = ["tuning.txt", "props.txt", "powerups.txt", "enemies.txt"];
+
+/// A data file as the game has it built in.
+pub fn built_in_table(file: &str) -> Option<&'static str> {
+    match file {
+        "tuning.txt" => Some(include_str!("../../tuning.txt")),
+        "props.txt" => Some(include_str!("../../props.txt")),
+        "powerups.txt" => Some(include_str!("../../powerups.txt")),
+        "enemies.txt" => Some(include_str!("../../enemies.txt")),
+        _ => None,
+    }
+}
+
+/// Checks a data file's text as the game will read it; errors name the line.
+pub fn check_table(file: &str, text: &str) -> Result<(), String> {
+    let fail = |e: String| format!("{file}:{e}");
+    match file {
+        "tuning.txt" => crate::tuning::parse(text, Some(&crate::tuning::built_in())).map(|_| ()).map_err(fail),
+        "props.txt" => map::parse_props(text).map(|_| ()).map_err(fail),
+        "powerups.txt" => powerups::parse(text).map(|_| ()).map_err(fail),
+        "enemies.txt" => enemies::parse(text).map(|_| ()).map_err(fail),
+        _ => Err(format!("{file} isn't one of the game's data files")),
+    }
+}
+
 /// How heavy the zombie kind a `Sfx::Kill` names is, which divides its knockback; 1 for a kind that's gone.
 pub fn kill_weight(kind: u8) -> f32 {
     roster().enemies.get(kind as usize).map_or(1.0, |e| e.mass)

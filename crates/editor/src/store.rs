@@ -77,6 +77,15 @@ pub trait Store {
         Err("maps aren't kept here".into())
     }
 
+    /// One of the game's data files, such as `tuning.txt`, as kept here: the game's own until one is saved.
+    fn read_table(&self, file: &str) -> Option<String> {
+        last_harvest_game::built_in_table(file).map(str::to_string)
+    }
+
+    fn save_table(&self, _file: &str, _text: &str) -> Result<(), String> {
+        Err("the game's data files aren't kept here".into())
+    }
+
     /// The saved copy if there is one, else the packed frames.
     fn load(&self, name: &str) -> Option<Sprite> {
         Sprite::load_from(name, |file| self.read(name, file))
@@ -580,6 +589,18 @@ mod fs {
             }
             std::fs::create_dir_all(self.maps()).map_err(|e| e.to_string())?;
             std::fs::write(self.maps().join(format!("{id}{}", last_harvest_game::MAP_EXTENSION)), text).map_err(|e| e.to_string())
+        }
+
+        fn read_table(&self, file: &str) -> Option<String> {
+            last_harvest_game::built_in_table(file)?;
+            std::fs::read_to_string(self.catalog.with_file_name(file)).ok().or_else(|| last_harvest_game::built_in_table(file).map(str::to_string))
+        }
+
+        /// Writes a data file beside the catalog, once the game would read it.
+        fn save_table(&self, file: &str, text: &str) -> Result<(), String> {
+            last_harvest_game::check_table(file, text)?;
+            let path = self.catalog.with_file_name(file);
+            std::fs::write(&path, text).map_err(|e| format!("{}: {e}", path.display()))
         }
 
         fn delete_card(&self, name: &str) -> Result<(), String> {

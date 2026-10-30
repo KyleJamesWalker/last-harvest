@@ -23,6 +23,8 @@ fn sound_key(id: &str) -> String {
 /// Maps keep to keys of their own, by id.
 const MAP_KEY: &str = "last-harvest-map:";
 const PROP_KEY: &str = "last-harvest-prop:";
+/// A data file the mod changes, by its file name.
+const TABLE_KEY: &str = "last-harvest-table:";
 
 pub struct LocalStore {
     storage: Storage,
@@ -173,5 +175,21 @@ impl Store for LocalStore {
 
     fn save_map(&self, id: &str, text: &str) -> Result<(), String> {
         self.storage.set_item(&format!("{MAP_KEY}{id}"), text).map_err(|_| "the browser's storage for this page is full".into())
+    }
+
+    fn read_table(&self, file: &str) -> Option<String> {
+        let built_in = last_harvest_game::built_in_table(file)?;
+        Some(self.storage.get_item(&format!("{TABLE_KEY}{file}")).ok().flatten().unwrap_or_else(|| built_in.to_string()))
+    }
+
+    /// Keeps a data file the mod changes; one the same as the game's own is dropped, so Export leaves it out.
+    fn save_table(&self, file: &str, text: &str) -> Result<(), String> {
+        last_harvest_game::check_table(file, text)?;
+        let key = format!("{TABLE_KEY}{file}");
+        if last_harvest_game::built_in_table(file) == Some(text) {
+            let _ = self.storage.remove_item(&key);
+            return Ok(());
+        }
+        self.storage.set_item(&key, text).map_err(|_| "the browser's storage for this page is full".into())
     }
 }

@@ -9,9 +9,11 @@ use crate::store::Store;
 
 mod cards;
 mod maps;
+mod tables;
 
 use cards::HeldImport;
 use maps::{MapEdit, MapTool, PROP_HP_Y, PROP_PALETTE_ROWS};
+use tables::DataEdit;
 
 const UNDO_DEPTH: usize = 100;
 const LIST: Rect = Rect { x: 8.0, y: 52.0, w: 200.0, h: 690.0 };
@@ -136,6 +138,10 @@ enum Ask {
 enum Line {
     Name,
     About,
+    /// A data file's line's value.
+    Value,
+    /// A new `key value` line for a data file's section.
+    Added,
 }
 
 impl Line {
@@ -143,13 +149,14 @@ impl Line {
         match self {
             Line::Name => "name",
             Line::About => "about",
+            Line::Value | Line::Added => "",
         }
     }
 
     /// Whether `c` can be typed into this line; a `#` would start a comment.
     fn takes(self, c: char) -> bool {
         match self {
-            Line::Name => !c.is_control() && c != '#',
+            Line::Name | Line::Value | Line::Added => !c.is_control() && c != '#',
             Line::About => (' '..='~').contains(&c) && c != '#',
         }
     }
@@ -158,6 +165,7 @@ impl Line {
         match self {
             Line::Name => NAME_MAX,
             Line::About => last_harvest_game::ABOUT_MAX,
+            Line::Value | Line::Added => 300,
         }
     }
 }
@@ -230,6 +238,13 @@ enum Action {
     ClearPart,
     /// Clears every pixel of the paint color.
     ClearColor,
+    /// Steps the data page's line, by its place in the section, down or up.
+    DataStep(usize, i32),
+    /// Starts typing the data page's line's value.
+    DataEdit(usize),
+    DataRemove(usize),
+    DataAdd,
+    DataPage(i32),
     /// Leaves the paint color out of the 3D view, or puts it back.
     ClearIn3d,
 }
@@ -356,6 +371,8 @@ pub struct Editor {
     card_parts: Vec<Vec<Frame>>,
     /// The hand-made map being edited, in place of a sprite.
     map: Option<MapEdit>,
+    /// The data file section open on the data page, if one is.
+    data: Option<DataEdit>,
     /// Players' props packed for the previews while a map is open, in order: their fields and frame counts.
     map_props: Vec<(last_harvest_game::PropFields, usize)>,
     playing: bool,
@@ -447,6 +464,7 @@ impl Editor {
             solids_at: None,
             card_parts: Vec::new(),
             map: None,
+            data: None,
             map_props: Vec::new(),
             playing: false,
             clock: 0.0,
@@ -544,6 +562,11 @@ impl Editor {
     /// Everything to pack for the previews: the frames, then the carving views when carving, with any
     /// floating pixels shown where they would land, then a card's figure.
     pub fn surfaces(&mut self) -> Vec<Frame> {
+        if self.data.is_some() {
+            self.figure_at = None;
+            self.solids_at = None;
+            return Vec::new();
+        }
         if self.map.is_some() {
             self.figure_at = None;
             let (frames, props) = self.prop_surfaces();
@@ -607,7 +630,7 @@ impl Editor {
     /// The frames to show in the previews: all of them while playing, else the one being edited.
     /// A still part's frames show as the game draws them: blank ones from the walk.
     pub fn shown(&self) -> Vec<Art> {
-        if self.map.is_some() {
+        if self.map.is_some() || self.data.is_some() {
             return Vec::new();
         }
         let n = self.sprite.frames.len().min(self.live.len());
@@ -639,7 +662,7 @@ impl Editor {
     }
 
     fn unsaved(&self) -> bool {
-        self.dirty || self.stand_touched || self.map.as_ref().is_some_and(|m| m.dirty)
+        self.dirty || self.stand_touched || self.map.as_ref().is_some_and(|m| m.dirty) || self.data.as_ref().is_some_and(|d| d.dirty)
     }
 
     /// What the canvas shows: a frame, or a carving view.
@@ -742,7 +765,8 @@ impl Editor {
         self.selection = None;
         self.last_dot = None;
         self.names = self.all_names();
-        if self.open_map(name) {
+        self.data = None;
+        if self.open_table(name) || self.open_map(name) {
             return;
         }
         if self.store.load(name).is_some() {
@@ -933,6 +957,10 @@ impl Editor {
             self.map_buttons(m, &mut push);
             return b;
         }
+        if let Some(d) = &self.data {
+            self.data_buttons(d, &mut push);
+            return b;
+        }
         if self.is_card() {
             push(410.0, 8.0, 94.0, 34.0, Action::Stats, "Stats T", self.stats);
         } else if self.built_in_still().is_some() {
@@ -1107,6 +1135,12 @@ impl Editor {
             }
             return;
         }
+        if self.data.is_some() {
+            if let Some(b) = self.buttons().into_iter().find(|b| b.rect.contains(p)) {
+                self.act(b.action, shift);
+            }
+            return;
+        }
         if self.map.is_some() {
             match self.buttons().into_iter().find(|b| b.rect.contains(p)) {
                 Some(b) => self.act(b.action, shift),
@@ -1181,6 +1215,9 @@ impl Editor {
         self.hover = Some(p);
         if self.map.is_some() {
             return self.map_drag(p);
+        }
+        if self.data.is_some() {
+            return;
         }
         if let Some(i) = self.channel {
             let bar = self.bars()[i];
@@ -1369,6 +1406,12 @@ impl Editor {
         if self.map.is_some() && !LIST.contains(p) {
             return self.map_wheel(p, dy);
         }
+        if self.data.is_some() && !LIST.contains(p) {
+            if dy != 0.0 {
+                self.act(Action::DataPage(if dy > 0.0 { -1 } else { 1 }), false);
+            }
+            return;
+        }
         if LIST.contains(p) {
             let max = (self.rows().len() as f32 * LIST_ROW - (LIST.h - (self.list_top() - LIST.y))).max(0.0);
             self.scroll = (self.scroll - dy * LIST_ROW * 3.0).clamp(0.0, max);
@@ -1464,8 +1507,12 @@ impl Editor {
         if self.map.is_some() && self.map_act(a) {
             return;
         }
+        if self.data.is_some() && self.data_act(a, shift) {
+            return;
+        }
         match a {
             Action::MapTool(_) | Action::Ground(_) | Action::PickProp(_) | Action::PickPage(_) | Action::Picket(_) | Action::MapSize(..) | Action::Randomize | Action::MapFit | Action::PropDefaults => {}
+            Action::DataStep(..) | Action::DataEdit(_) | Action::DataRemove(_) | Action::DataAdd | Action::DataPage(_) => {}
             Action::Cover => self.edit_prop(|f| f.cover = !f.cover),
             Action::Hp(d) => self.edit_prop(|f| f.hp = (f.hp + (d * step * 10) as f32).clamp(0.0, last_harvest_game::PROP_MAX_HP)),
             Action::Broken if self.sprite.frames.len() < 2 => self.say("Add a frame first: the last one shows once the prop breaks"),
@@ -1943,6 +1990,7 @@ impl Editor {
     fn commit_line(&mut self, line: Line, text: String) {
         let text = text.trim();
         match line {
+            Line::Value | Line::Added => self.commit_data(line, text),
             Line::Name if text.is_empty() => self.say("A card needs a name"),
             Line::About if text.is_empty() => self.set_card(line.key(), None),
             _ => self.set_card(line.key(), Some(text)),
@@ -2089,6 +2137,9 @@ impl Editor {
         if self.map.is_some() && self.map_key(key) {
             return;
         }
+        if self.data_key(key) {
+            return;
+        }
         if self.selection.is_some() {
             let moved = match key {
                 Key::Left => Some((-1, 0)),
@@ -2172,6 +2223,9 @@ impl Editor {
         c.clear = [0.1, 0.1, 0.12, 1.0];
         if let Some(m) = &self.map {
             return self.draw_map(c, m);
+        }
+        if let Some(d) = &self.data {
+            return self.draw_data(c, d);
         }
         if self.none_open() {
             c.label("No sprite open", 12.0, 12.0, 26.0, DIM, Align::Left);
@@ -2362,6 +2416,11 @@ impl Editor {
             "/: search   J/K: sprites   H/L: frames   R: history   S: select   Cmd+C/X/V   hold I: pick   Shift-click: line   Cmd+S: save"
         };
         c.label(help, 12.0, 748.0, 13.0, DIM, Align::Left);
+        self.draw_overlays(c);
+    }
+
+    /// The status line, and the unsaved-changes and naming dialogs over everything else.
+    fn draw_overlays(&self, c: &mut Canvas) {
         if let Some((text, age)) = &self.status {
             let a = (4.0 - age).clamp(0.0, 1.0);
             c.rect(CANVAS.x, CANVAS.y + CANVAS.h - 40.0, CANVAS.w, 40.0, [0.0, 0.0, 0.0, 0.7 * a]);
@@ -3204,6 +3263,33 @@ mod tests {
         e.switch_to("MAILBOX".into());
         e.decide(Choice::Discard);
         assert_eq!(e.depth, last_harvest_game::default_prop_depth(16.0, 16.0, Some(last_harvest_game::art::MAILBOX), 0));
+    }
+
+    #[test]
+    fn the_data_page_steps_types_adds_and_saves_only_what_the_game_reads() {
+        let dir = tmp().join("data");
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut e = editor_in(&dir, dir.join("art.txt"));
+        assert!(e.names.iter().any(|(n, _)| n == "DATA_TUNING_PLAYER") && e.names.iter().any(|(n, _)| n == "DATA_POWERUPS_PISTOL"));
+        assert_eq!(sprite::section("DATA_TUNING_PLAYER"), "Data: tuning");
+        e.switch_to("DATA_TUNING_PLAYER".into());
+        e.act(Action::DataStep(0, 1), false);
+        assert!(e.unsaved());
+        buttons_fit(&e);
+        e.act(Action::DataEdit(1), false);
+        e.set_text("52");
+        e.key(Key::Enter);
+        e.act(Action::DataAdd, false);
+        e.set_text("wings 2");
+        e.key(Key::Enter);
+        e.act(Action::Save, false);
+        assert!(e.unsaved(), "the game has no wings to read");
+        e.act(Action::DataRemove(5), false);
+        e.key(Key::Save);
+        assert!(!e.unsaved());
+        let saved = std::fs::read_to_string(dir.join("tuning.txt")).unwrap();
+        assert!(saved.contains("hp 101          # health") && saved.contains("speed 52"), "{saved}");
+        assert_eq!(last_harvest_game::tuning::parse(&saved, None).unwrap().player_speed, 52.0);
     }
 
     #[test]

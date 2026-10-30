@@ -268,6 +268,15 @@ pub fn section(name: &str) -> &'static str {
     if name.starts_with(MAP_PREFIX) {
         return MAP_SECTION;
     }
+    if let Some(rest) = name.strip_prefix(DATA_PREFIX) {
+        return match rest.split('_').next() {
+            Some("TUNING") => "Data: tuning",
+            Some("PROPS") => "Data: props",
+            Some("POWERUPS") => "Data: powerups and weapons",
+            Some("ENEMIES") => "Data: enemies",
+            _ => "Data",
+        };
+    }
     if name.starts_with(last_harvest_game::PROP_PREFIX) {
         return PROP_SECTION;
     }
@@ -285,6 +294,8 @@ pub const NEW_SECTION: &str = "New sprites";
 /// A hand-made map lists as `MAP_<ID>` under Maps.
 pub const MAP_PREFIX: &str = "MAP_";
 pub const MAP_SECTION: &str = "Maps";
+/// A section of one of the game's data files lists as `DATA_<FILE>_<SECTION>`, under a heading for its file.
+pub const DATA_PREFIX: &str = "DATA_";
 /// A player's prop lists as `PROP_<ID>` under Props.
 pub const PROP_SECTION: &str = "Props";
 

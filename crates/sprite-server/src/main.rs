@@ -59,6 +59,12 @@ fn handle(store: &FsStore, web: &Path, method: &Method, url: &str, body: &[u8]) 
             None => text(404, "not a git repository"),
         },
         (Method::Get, ["api", "version", id, name, file]) if valid_id(id) && named(name) && sprite_file(file) => bytes(store.version(id, name, file)),
+        (Method::Get, ["api", "table", file]) if last_harvest_game::TABLES.contains(file) => store.read_table(file).map_or_else(|| text(404, "no such table"), |t| text(200, t)),
+        (Method::Put, ["api", "table", file]) if last_harvest_game::TABLES.contains(file) => match std::str::from_utf8(body) {
+            // Checked as the game reads it, so a save never breaks the build.
+            Ok(t) => store.save_table(file, t).map_or_else(|e| text(400, e), |()| text(200, "saved")),
+            Err(_) => text(400, "not text"),
+        },
         (Method::Get, ["api", "maps"]) => text(200, store.map_ids().iter().map(|id| format!("{id}\n")).collect::<String>()),
         (Method::Get, ["api", "map", id]) if last_harvest_game::valid_map_id(id) => store.read_map(id).map_or_else(|| text(404, "no such map"), |t| text(200, t)),
         (Method::Put, ["api", "map", id]) if last_harvest_game::valid_map_id(id) => match std::str::from_utf8(body).map_err(|_| "not text".to_string()).and_then(last_harvest_game::MapSource::parse) {
