@@ -173,7 +173,7 @@ mod tests {
     #[test]
     fn the_farm_reads_and_mistakes_name_their_line() {
         let f = farm();
-        assert_eq!((f.tufts, f.fields, f.scatter.len(), f.ground), (10, 4, 10, b'.'));
+        assert_eq!((f.tufts, f.fields, f.scatter.len(), f.ground), (10, 4, 11, b'.'));
         assert_eq!(f.scatter[0], (&art::DEAD_TREE[..], 120));
         assert_eq!(f.buildings.iter().map(|b| (b.name.as_str(), b.sprites.len(), b.near.len())).collect::<Vec<_>>(), [("house", 1, 2), ("barn", 2, 4)]);
         let base = "[farm]\ntufts 1\ngrass 1\ncorpses 1\nfields 1\nmore_fields 1\n[scatter]\n";

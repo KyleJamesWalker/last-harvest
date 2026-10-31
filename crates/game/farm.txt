@@ -22,7 +22,8 @@ LOG 400
 STUMP 600
 BARREL 500
 TANK 1200
-WRECK_H 1200
+WRECK_H 2400
+WRECK_H2 2400
 SIGN 1200
 
 # The buildings near the middle, in this order, each with a dirt path from its door to the road. The first that
