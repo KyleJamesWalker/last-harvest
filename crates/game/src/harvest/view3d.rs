@@ -208,7 +208,7 @@ fn fixed(out: &mut Vec<Card>, eye: Vec3, a: Art, how: Stand, left: f32, base: f3
             lying(out, eye, a, center, 0.0, height, lift, tint);
         }
         Stand::Ground => flat(out, a, left * PX, (base - a.h()) * PX, DECAL_LIFT + 0.006, tint),
-        Stand::Turned { east, depth } => turned(out, eye, a, east, depth, left, base - a.h(), tint),
+        Stand::Turned { east, depth } => turned(out, eye, a, east, depth, left, base - a.h(), tint, 0.0),
         Stand::Carve { .. } => carved(out, eye, Carving::of(a, how).unwrap(), Vec3::new(left * PX, 0.0, (base - a.h()) * PX)),
         Stand::Figure => {}
     }
@@ -239,16 +239,18 @@ fn lying(out: &mut Vec<Card>, eye: Vec3, a: Art, center: Vec3, angle: f32, heigh
 }
 
 /// Stands `east` upright running north from the bottom of `a`, a sprite drawn from above with its top-left at
-/// `left`, `top` in map pixels, centered on `a`'s outline from above and `depth` thick, or as thick as the outline.
+/// `left`, `top` in map pixels, centered on `a`'s outline from above and `depth` thick, or as thick as the outline,
+/// and stretched `reach` pixels further south.
 #[allow(clippy::too_many_arguments)]
-fn turned(out: &mut Vec<Card>, eye: Vec3, a: Art, east: Art, depth: Option<f32>, left: f32, top: f32, tint: [f32; 3]) {
+fn turned(out: &mut Vec<Card>, eye: Vec3, a: Art, east: Art, depth: Option<f32>, left: f32, top: f32, tint: [f32; 3], reach: f32) {
     let [rx, ry, w, h] = a.rect().map(usize::from);
     let filled = |x: usize| art::with_pixels(a, |px| (0..h).any(|y| px[((ry + y) * ATLAS_W as usize + rx + x) * 4 + 3] > 0));
     let x0 = (0..w).find(|&x| filled(x)).unwrap_or(0) as f32;
     let x1 = (0..w).rev().find(|&x| filled(x)).map_or(w, |x| x + 1) as f32;
     let depth = depth.unwrap_or(x1 - x0);
-    let origin = Vec3::new((left + (x0 + x1 - depth) / 2.0) * PX, 0.0, (top + a.h()) * PX);
-    stand(out, eye, east.solid(), false, Pose { tint, ..Pose::upright(origin, -Vec3::Z, Vec3::X, depth * PX) }, true);
+    let origin = Vec3::new((left + (x0 + x1 - depth) / 2.0) * PX, 0.0, (top + a.h() + reach) * PX);
+    let stretch = (a.h() + reach) / a.h();
+    stand(out, eye, east.solid(), false, Pose { tint, ..Pose::upright(origin, -Vec3::Z * stretch, Vec3::X, depth * PX) }, true);
 }
 
 /// The pictures a solid is carved from, as `carve::Views` takes them: `top` colors it from above.
@@ -498,7 +500,16 @@ pub fn scene(h: &Harvest) -> CardScene {
             figures.push((a, [prop.x + a.w() / 2.0, bottom]));
         } else {
             let tint = [if prop.flash > 0.0 { super::PROP_FLASH } else { 1.0 }; 3];
-            fixed(&mut cards, eye, a, how, prop.x, if matches!(how, Stand::Prop { .. }) { prop.base } else { bottom }, tint);
+            // A prop drawn above its base line, as the windmill's fan is, stands that far up.
+            match how {
+                // A fence side that runs on into its corner reaches that corner's board.
+                Stand::Turned { east, depth } if prop.reach > 0.0 => turned(&mut cards, eye, a, east, depth, prop.x, prop.y, tint, prop.reach),
+                Stand::Prop { depth } if prop.base > bottom + 1.0 => {
+                    let origin = Vec3::new(prop.x * PX, (prop.base - bottom) * PX, prop.base * PX);
+                    stand(&mut cards, eye, a.solid(), false, Pose { tint, ..Pose::upright(origin, Vec3::X, -Vec3::Z, depth * PX) }, true);
+                }
+                _ => fixed(&mut cards, eye, a, how, prop.x, if matches!(how, Stand::Prop { .. }) { prop.base } else { bottom }, tint),
+            }
         }
     }
     if let Some(s) = h.shown.as_ref().filter(|s| !s.frames.is_empty() && s.stand != Stand::Figure) {
