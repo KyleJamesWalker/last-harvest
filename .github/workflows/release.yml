@@ -114,11 +114,11 @@ jobs:
           mv target/last-harvest-web.zip "last-harvest-$TAG-web.zip"
 
       # Only the site's own files may go out: never a tileset build or a stray asset.
-      - name: Check the site holds only the landing page, the game and the editor
+      - name: Check the site holds only the landing page, the manual, the game and the editor
         run: |
           expected="apple-touch-icon.png editor editor/apple-touch-icon.png editor/icon-512.png editor/icon.png editor/index.html"
           expected="$expected editor/manifest.webmanifest editor/sprite-editor.js editor/sprite-editor_bg.wasm editor/sw.js game_data.pak"
-          expected="$expected icon.png index.html play play/icon.png play/index.html play/last-harvest.js play/last-harvest_bg.wasm sw.js"
+          expected="$expected icon.png index.html manual.html play play/icon.png play/index.html play/last-harvest.js play/last-harvest_bg.wasm sw.js"
           found=$(find target/pages -mindepth 1 -printf '%P\n' | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')
           [ "$found" = "$expected" ] || { echo "unexpected files: $found"; exit 1; }
           expected="game_data.pak icon.png index.html last-harvest.js last-harvest_bg.wasm"
