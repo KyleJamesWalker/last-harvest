@@ -10,7 +10,8 @@
 #   blank W H                        clear, for the sprite editor's scratch space
 #   png FILE [xN]                    a picture in this folder, cut into N frames side by side
 #
-# A line may end with how the sprite stands in the 3D view: @prop DEPTH (upright, extruded back),
+# A line may end with how the sprite stands in the 3D view: @prop DEPTH (upright, extruded back), @fold ROWS (the
+# rows above ROWS laid flat as the roof, the rest upright as the front),
 # @slab HEIGHT (flat as a roof that high, for sprites drawn from above), @figure (turns to the camera)
 # or @ground (flat). Without one, buildings reach back over their solid rows and small things are thin.
 #

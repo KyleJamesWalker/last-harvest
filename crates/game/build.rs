@@ -208,6 +208,7 @@ fn stand_code(how: &str, line: usize) -> String {
     let size = || words.get(1).and_then(|w| w.parse::<f32>().ok()).unwrap_or_else(|| panic!("art.txt:{line}: {how:?} needs a size in pixels"));
     match words.first().copied() {
         Some("prop") => format!("Stand::Prop {{ depth: {:?} }}", size()),
+        Some("fold") => format!("Stand::Fold {{ rows: {:?} }}", size()),
         Some("slab") => {
             let lift = match words.get(2..4) {
                 Some(["float", n]) => n.parse::<f32>().unwrap_or_else(|_| panic!("art.txt:{line}: {how:?} floats a number of pixels")),
@@ -218,7 +219,7 @@ fn stand_code(how: &str, line: usize) -> String {
         }
         Some("figure") => "Stand::Figure".into(),
         Some("ground") => "Stand::Ground".into(),
-        _ => panic!("art.txt:{line}: unknown stand {how:?}; use prop N, slab N, figure or ground"),
+        _ => panic!("art.txt:{line}: unknown stand {how:?}; use prop N, fold N, slab N, figure or ground"),
     }
 }
 

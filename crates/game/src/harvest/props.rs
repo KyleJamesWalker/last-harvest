@@ -5,7 +5,7 @@
 //! frames 2        # frames across the sheet, 1 to MAX_FRAMES; 1 when left out
 //! fps 4           # how fast they animate; still when left out
 //! open 1          # top rows a figure walks through
-//! stand prop 8    # prop N, slab N, figure, ground, carve or turned; prop by its size when left out
+//! stand prop 8    # prop N, fold N, slab N, figure, ground, carve or turned; prop by its size when left out
 //! views 12        # how tall its south and east views are, drawn under its frames, for carve and turned
 //! footprint yes   # its outline from above for carving follows its frames; its own outline when left out
 //! roof yes        # a carving's top takes its colors from its roof, after any footprint; from its frames when left out
@@ -131,7 +131,7 @@ pub fn prop_fields(text: &str) -> Result<PropFields, String> {
             "open" => f.open = (number()? as usize).min(64),
             "stand" if value == "carve" => f.by_views = Some(ByViews::Carve),
             "stand" if value.starts_with("turned") => f.by_views = Some(ByViews::Turned { depth: turned_depth(value).ok_or_else(|| format!("{n}: turned takes a depth from 1 to 64 pixels, or none"))? }),
-            "stand" => f.stand = Some(parse_stand(value).ok_or_else(|| format!("{n}: a stand is prop N, slab N, slab N float N, figure, ground, carve or turned"))?),
+            "stand" => f.stand = Some(parse_stand(value).ok_or_else(|| format!("{n}: a stand is prop N, fold N, slab N, slab N float N, figure, ground, carve or turned"))?),
             "views" => f.views = (number()? as u32).min(MAX_FRAME),
             "footprint" => f.footprint = yes_no(value).ok_or_else(|| format!("{n}: footprint is yes or no"))?,
             "roof" => f.roof = yes_no(value).ok_or_else(|| format!("{n}: roof is yes or no"))?,
@@ -225,6 +225,7 @@ fn parse_stand(text: &str) -> Option<Stand> {
     let size = || words.get(1)?.parse::<f32>().ok().filter(|v| v.is_finite() && (0.0..=256.0).contains(v));
     Some(match *words.first()? {
         "prop" => Stand::Prop { depth: size()? },
+        "fold" => Stand::Fold { rows: size()? },
         "slab" => {
             let lift = match words.get(2..4) {
                 Some(["float", n]) => n.parse::<f32>().ok().filter(|v| v.is_finite() && (0.0..=256.0).contains(v))?,
@@ -242,6 +243,7 @@ fn parse_stand(text: &str) -> Option<Stand> {
 fn stand_text(s: Stand) -> String {
     match s {
         Stand::Prop { depth } => format!("prop {depth}"),
+        Stand::Fold { rows } => format!("fold {rows}"),
         Stand::Slab { height, lift: 0.0 } => format!("slab {height}"),
         Stand::Slab { height, lift } => format!("slab {height} float {lift}"),
         Stand::Figure => "figure".into(),
@@ -524,6 +526,8 @@ mod tests {
         assert_eq!((carved.by_views, carved.views, carved.footprint), (Some(ByViews::Carve), 12, true));
         assert_eq!(prop_fields(&prop_text(&carved)).unwrap(), carved);
         assert!(prop_fields("[a]\nstand sideways").unwrap_err().contains("a stand is"));
+        let folded = prop_fields("[a]\nstand fold 20").unwrap();
+        assert_eq!((folded.stand, prop_fields(&prop_text(&folded)).unwrap().stand), (Some(Stand::Fold { rows: 20.0 }), Some(Stand::Fold { rows: 20.0 })));
         let floating = prop_fields("[a]\nstand slab 1 float 6").unwrap();
         assert_eq!(floating.stand, Some(Stand::Slab { height: 1.0, lift: 6.0 }));
         assert_eq!(prop_fields(&prop_text(&floating)).unwrap(), floating);

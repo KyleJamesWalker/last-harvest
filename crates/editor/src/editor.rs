@@ -212,6 +212,8 @@ enum Action {
     Depth(i32),
     /// Floats a slab higher or lower.
     Float(i32),
+    /// Moves a prop's fold, the row its roof ends at, down or up.
+    Fold(i32),
     Fps(i32),
     Color(Rgba),
     Onion,
@@ -359,6 +361,7 @@ struct Stash {
     depth: f32,
     height: f32,
     lift: f32,
+    fold: f32,
     frame: usize,
     view: Option<usize>,
     dirty: bool,
@@ -471,6 +474,8 @@ pub struct Editor {
     height: f32,
     /// How far a slab floats off the ground.
     lift: f32,
+    /// The rows of a prop above its fold, laid flat as its roof; 0 for no fold.
+    fold: f32,
     /// Whether the stand has been changed since it was loaded or saved.
     stand_touched: bool,
     pub fps: f32,
@@ -567,6 +572,7 @@ impl Editor {
             depth: 12.0,
             height: 10.0,
             lift: 0.0,
+            fold: 0.0,
             stand_touched: false,
             fps: 6.0,
             ask: None,
@@ -624,6 +630,7 @@ impl Editor {
     pub fn stand(&self) -> Stand {
         let n = self.sprite.frames.len();
         match self.stand {
+            0 if self.fold > 0.0 => Stand::Fold { rows: self.fold },
             0 => Stand::Prop { depth: self.depth },
             2 => Stand::Figure,
             3 => Stand::Ground,
@@ -827,6 +834,7 @@ impl Editor {
         self.depth = last_harvest_game::default_prop_depth(f.w as f32, f.h as f32, packed, open);
         self.height = 10.0;
         self.lift = 0.0;
+        self.fold = 0.0;
         let guess = || {
             let n = &self.sprite.name;
             if ["PLAYER", "SKINNY", "KID", "BIG", "CROW"].iter().any(|k| n.starts_with(k)) {
@@ -850,6 +858,10 @@ impl Editor {
         self.stand = match s {
             Stand::Prop { depth } => {
                 self.depth = depth;
+                0
+            }
+            Stand::Fold { rows } => {
+                self.fold = rows;
                 0
             }
             Stand::Slab { height, lift } => {
@@ -1197,6 +1209,10 @@ impl Editor {
         if self.stand == 1 && !self.is_card() {
             push(SIDE_X + 130.0, 672.0, 46.0, 28.0, Action::Float(-1), "-", false);
             push(SIDE_X + 182.0, 672.0, 46.0, 28.0, Action::Float(1), "+", false);
+        }
+        if self.stand == 0 && !self.is_card() {
+            push(SIDE_X + 130.0, 672.0, 46.0, 28.0, Action::Fold(-1), "-", false);
+            push(SIDE_X + 182.0, 672.0, 46.0, 28.0, Action::Fold(1), "+", false);
         }
         push(SIDE_X + 130.0, 704.0, 46.0, 28.0, Action::Fps(-1), "-", false);
         push(SIDE_X + 182.0, 704.0, 46.0, 28.0, Action::Fps(1), "+", false);
@@ -1941,6 +1957,7 @@ impl Editor {
                 }
             }
             Action::Depth(d) if self.stand == CARVE => self.resize_views(self.view_height() as i32 + d * step),
+            Action::Depth(_) if self.stand == 0 && self.fold > 0.0 => self.say("A folded prop is as deep as its roof: move the fold instead"),
             Action::Depth(d) => {
                 let size = if matches!(self.stand, 0 | TURNED) { &mut self.depth } else { &mut self.height };
                 *size = (*size + (d * step) as f32).clamp(1.0, if self.stand == TURNED { 64.0 } else { 96.0 });
@@ -1951,6 +1968,13 @@ impl Editor {
                 self.lift = (self.lift + (d * step) as f32).clamp(0.0, 96.0);
                 self.stand_touched = true;
                 self.changed = true;
+            }
+            Action::Fold(d) => {
+                let rows = self.sprite.frames[self.frame].h as f32 - 1.0;
+                self.fold = (self.fold + (d * step) as f32).clamp(0.0, rows.max(0.0));
+                self.stand_touched = true;
+                self.changed = true;
+                self.say(if self.fold > 0.0 { "Fold: the rows above the line lie flat as the roof, as deep as they are tall" } else { "No fold: it stands upright, extruded back by its depth" });
             }
             Action::Fps(d) => {
                 self.fps = (self.fps + d as f32).clamp(1.0, 30.0);
@@ -1977,6 +2001,7 @@ impl Editor {
             depth: self.depth,
             height: self.height,
             lift: self.lift,
+            fold: self.fold,
             frame: self.frame,
             view: self.view,
             dirty: self.dirty,
@@ -1985,7 +2010,7 @@ impl Editor {
     }
 
     fn unstash(&mut self, s: Stash) {
-        (self.sprite, self.stand, self.depth, self.height, self.lift, self.frame, self.view) = (s.sprite, s.stand, s.depth, s.height, s.lift, s.frame, s.view);
+        (self.sprite, self.stand, self.depth, self.height, self.lift, self.fold, self.frame, self.view) = (s.sprite, s.stand, s.depth, s.height, s.lift, s.fold, s.frame, s.view);
         (self.dirty, self.stand_touched) = (s.dirty, s.stand_touched);
         self.changed = true;
     }
@@ -2623,7 +2648,11 @@ impl Editor {
         }
         match self.stand {
             _ if self.none_open() => {}
-            0 => c.label(format!("Depth {} px", self.depth), SIDE_X, 645.0, 18.0, TEXT, Align::Left),
+            0 => {
+                let depth = if self.fold > 0.0 { self.fold } else { self.depth };
+                c.label(format!("Depth {depth} px"), SIDE_X, 645.0, 18.0, TEXT, Align::Left);
+                c.label(if self.fold > 0.0 { format!("Fold {} rows", self.fold) } else { "Fold: none".into() }, SIDE_X, 676.0, 18.0, TEXT, Align::Left);
+            }
             1 => {
                 c.label(format!("Height {} px", self.height), SIDE_X, 645.0, 18.0, TEXT, Align::Left);
                 c.label(format!("Float {} px", self.lift), SIDE_X, 676.0, 18.0, TEXT, Align::Left);
@@ -2804,6 +2833,9 @@ impl Editor {
         }
         if self.mirror {
             clip(c, o[0] + w / 2.0 - 1.0, o[1], 2.0, h, [0.4, 0.8, 1.0, 0.5]);
+        }
+        if self.stand == 0 && self.fold > 0.0 && self.view.is_none() {
+            clip(c, o[0], o[1] + self.fold * zoom - 1.0, w, 2.0, [1.0, 0.6, 0.2, 0.8]);
         }
         if let Some(sel) = &self.selection {
             if let Some(f) = &sel.float {
@@ -3968,6 +4000,29 @@ mod tests {
         e.key(Key::Char('e'));
         e.key(Key::Char('x'));
         assert_eq!((e.color, e.tool), (first, Tool::Pencil), "a color to draw with puts the pencil back");
+    }
+
+    #[test]
+    fn a_prop_folds_its_roof_rows_flat_and_saves_the_fold() {
+        let mut e = editor();
+        e.act(Action::Stand(0), false);
+        assert!(e.buttons().iter().any(|b| b.action == Action::Fold(1)));
+        assert!(matches!(e.stand(), Stand::Prop { .. }), "no fold until one is set");
+        for _ in 0..3 {
+            e.act(Action::Fold(1), false);
+        }
+        assert_eq!(e.stand(), Stand::Fold { rows: 3.0 });
+        e.act(Action::Depth(1), false);
+        assert_eq!(e.stand(), Stand::Fold { rows: 3.0 }, "the fold sets the depth");
+        e.act(Action::Save, false);
+        let mut back = editor();
+        back.apply_stand(Some(e.stand_text()));
+        assert_eq!((back.stand, back.fold), (0, 3.0));
+        for _ in 0..3 {
+            e.act(Action::Fold(-1), false);
+        }
+        assert!(matches!(e.stand(), Stand::Prop { .. }), "a fold of 0 is none");
+        let _ = std::fs::remove_dir_all(tmp());
     }
 
     #[test]
