@@ -30,12 +30,13 @@ Your weapons fire on their own. You move, turn, throw grenades and pick upgrades
 | Throw a grenade | Tap the map | Click the bottom screen |
 | Pick an upgrade | Tap it, or Up, Down and X | Click it, or the arrows and S |
 | Show the whole map | Hold L1 | Hold Q |
-| Pause | Start | Enter |
+| Pause | Start | Enter, or Esc |
 | Choose a difficulty | Left and Right on Play | Left and Right arrows on Play |
 | Screenshot | R1 | W |
 | Volume | V+ and V- | `=` and `-` |
 | Back to the menu | Back, or B after a run | Tab, or Z after a run |
-| Quit | Hold Home for one second | Esc |
+| Back out of a menu | B | Z, or Esc |
+| Quit | Hold Home for one second | Cmd+Q, or close a window |
 
 In a browser, Esc and Home do nothing, and neither do screenshots, brightness or rumble. Sound starts with your first click or key. A gamepad in the browser's standard layout maps by its labels, as on an Xbox pad:
 

@@ -696,6 +696,37 @@ fn norm(v: [f32; 2]) -> [f32; 2] {
 }
 
 impl Harvest {
+    /// What a keyboard's Esc stands for: Start to pause a run in play, else B to back out of what is open.
+    pub fn escape(&self) -> Buttons {
+        if self.menu.is_none() && matches!(self.phase, Phase::Playing) { Buttons::START } else { Buttons::B }
+    }
+
+    /// The player's position and the solid cells and props around them, for the debug pipe's `state`.
+    pub fn debug_state(&self) -> String {
+        let half = crate::tuning::tuning().player_half();
+        let [px, py] = self.pos;
+        let (tx, ty) = ((px / TILE) as i32, (py / TILE) as i32);
+        let mut s = format!("pos {px:.1},{py:.1} tile {tx},{ty} half {half:?} yaw {:.2}\n", self.view_yaw);
+        let r = 4;
+        for y in ty - r..=ty + r {
+            s += &format!("{y:4} ");
+            for x in tx - r..=tx + r {
+                let solid = self.map.solid_at(x as f32 * TILE + 1.0, y as f32 * TILE + 1.0);
+                s.push(if (x, y) == (tx, ty) { 'P' } else if solid { '#' } else { '.' });
+            }
+            s.push('\n');
+        }
+        let name = |a: art::Art| art::ALL.iter().find(|(_, f)| f.contains(&a)).map_or("?", |(n, _)| n);
+        for p in &self.map.props {
+            let [cx, cy, cw, ch] = p.cells().map(|v| v as i32);
+            if cx + cw >= tx - r && cx <= tx + r && cy + ch >= ty - r && cy <= ty + r {
+                let a = p.frames[0];
+                s += &format!("{} at px {},{} size {}x{} blocks tiles x {}..{} y {}..{}\n", name(a), p.x, p.y, a.w(), a.h(), cx, cx + cw, cy, cy + ch);
+            }
+        }
+        s
+    }
+
     pub fn new(seed: u64) -> Self {
         Self::sized(seed, MAP_SIZE)
     }
@@ -1090,7 +1121,7 @@ impl Harvest {
         } else if input.pressed.contains(Buttons::X) {
             // The quiet farm takes one zombie at a time, for trying out weapons and effects.
             let pos = [self.pos[0] + f[0] * 50.0, self.pos[1] + f[1] * 50.0];
-            if !self.map.hits(pos[0], pos[1], crate::tuning::tuning().zombie_half()) {
+            if !self.map.hits_cells(pos[0], pos[1], crate::tuning::tuning().zombie_half()) {
                 self.tells.push(Tell { kind: Kind::common(), pos, hp: Kind::common().stats().hp, t: 0.0, leader: false });
             }
         }
@@ -1163,7 +1194,7 @@ impl Harvest {
             let a = (k as f32 * 0.4).sin() * (k as f32 * 0.15);
             let d = [away[0] * a.cos() - away[1] * a.sin(), away[0] * a.sin() + away[1] * a.cos()];
             let p = [self.pos[0] + d[0] * crate::tuning::tuning().harvester_rise, self.pos[1] + d[1] * crate::tuning::tuning().harvester_rise];
-            if !self.map.hits(p[0], p[1], crate::tuning::tuning().zombie_half()) {
+            if !self.map.hits_cells(p[0], p[1], crate::tuning::tuning().zombie_half()) {
                 at = p;
                 break;
             }
@@ -1396,7 +1427,7 @@ impl Harvest {
                 let [near, far] = spawn_ring(self.t);
                 let r = self.rng.range(near, far);
                 let pos = [self.pos[0] + a.cos() * r, self.pos[1] + a.sin() * r];
-                if !self.map.hits(pos[0], pos[1], crate::tuning::tuning().zombie_half()) {
+                if !self.map.hits_cells(pos[0], pos[1], crate::tuning::tuning().zombie_half()) {
                     let hp = kind.stats().hp * (1.0 + minutes * crate::tuning::tuning().growth) * if leader { crate::tuning::tuning().leader_hp } else { 1.0 } * self.fury;
                     self.tells.push(Tell { kind, pos, hp, t: 0.0, leader });
                     break;
@@ -1480,7 +1511,7 @@ impl Harvest {
                 None => self.map.downhill(&self.flow, z.pos).unwrap_or(norm(direct)),
             };
             let v = [to[0] * speed + s[0] * 20.0 + z.push[0], to[1] * speed + s[1] * 20.0 + z.push[1]];
-            z.pos = self.map.slide(z.pos, [v[0] * dt, v[1] * dt], crate::tuning::tuning().zombie_half());
+            z.pos = self.map.slide_cells(z.pos, [v[0] * dt, v[1] * dt], crate::tuning::tuning().zombie_half());
             z.push = [z.push[0] * (1.0 - 8.0 * dt).max(0.0), z.push[1] * (1.0 - 8.0 * dt).max(0.0)];
             z.facing = Facing::of(to);
             z.dir = to;
@@ -2159,8 +2190,10 @@ mod tests {
         let t = h.t;
         run(&mut h, &Input::default(), 2.0);
         assert_eq!(h.t, t, "nothing moves while paused");
+        assert_eq!(h.escape(), Buttons::B, "Esc backs out of the pause menu");
         press(&mut h, Buttons::B);
         assert!(h.menu.is_none());
+        assert_eq!(h.escape(), Buttons::START, "and pauses a run in play");
         press(&mut h, Buttons::START);
         press(&mut h, Buttons::DOWN);
         assert!(press(&mut h, Buttons::A).settings);
@@ -2323,7 +2356,8 @@ mod tests {
         let mut h = Harvest::calm(4);
         h.zombies.clear();
         let open = |h: &Harvest, p: [f32; 2]| !h.map.hits(p[0], p[1], crate::tuning::tuning().zombie_half());
-        let spot = (1..60).map(|k| [h.map.spawn[0] + k as f32 * 4.0, h.map.spawn[1]]).find(|p| open(&h, *p) && open(&h, [p[0] + 120.0, p[1]]) && (0..30).all(|i| open(&h, [p[0] + i as f32 * 4.0, p[1]]))).expect("an open run east");
+        let rows = (0..21).map(|r| (r as f32 - 10.0) * TILE);
+        let spot = rows.flat_map(|dy| (1..60).map(move |k| [h.map.spawn[0] + k as f32 * 4.0, h.map.spawn[1] + dy])).find(|p| open(&h, *p) && open(&h, [p[0] + 120.0, p[1]]) && (-8..30).all(|i| open(&h, [p[0] + i as f32 * 4.0, p[1]]))).expect("an open run east");
         h.pos = spot;
         h.view_yaw = 0.0;
         h.aim = [1.0, 0.0];

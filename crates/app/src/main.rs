@@ -41,6 +41,8 @@ struct App {
     device: Option<device::Device>,
     keys: Buttons,
     lid_key: bool,
+    /// The button Esc pressed, released with it.
+    esc: Buttons,
     cursor: Option<[f32; 2]>,
     mouse_down: bool,
     touches: Vec<(u64, [f32; 2])>,
@@ -82,6 +84,7 @@ impl App {
             device: device::Device::open(),
             keys: Buttons::NONE,
             lid_key: false,
+            esc: Buttons::NONE,
             cursor: None,
             mouse_down: false,
             touches: Vec::new(),
@@ -175,6 +178,7 @@ impl App {
                     None => eprintln!("debug: unknown scene {name}"),
                 },
                 debug::Command::Shot(path) => shot = Some(path),
+                debug::Command::State => eprintln!("debug: state\n{}", self.game.debug_state().unwrap_or_else(|| "not in a harvest".into())),
                 #[cfg(target_os = "linux")]
                 debug::Command::Sleep(secs) => return self.suspend(Some(secs)),
                 #[cfg(not(target_os = "linux"))]
@@ -312,7 +316,12 @@ impl ApplicationHandler for App {
                 let PhysicalKey::Code(code) = event.physical_key else { return };
                 let down = event.state == ElementState::Pressed;
                 match code {
-                    KeyCode::Escape => el.exit(),
+                    KeyCode::Escape if down && !event.repeat => {
+                        self.esc = self.game.escape();
+                        self.keys.set(self.esc, true);
+                    }
+                    KeyCode::Escape if !down => self.keys.set(self.esc, false),
+                    KeyCode::Escape => {}
                     KeyCode::KeyC if down && !event.repeat => self.lid_key = !self.lid_key,
                     _ => {
                         if let Some(b) = key_button(code) {

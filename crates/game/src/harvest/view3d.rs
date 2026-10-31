@@ -20,6 +20,12 @@ const PX: f32 = 1.0 / TILE;
 const LEADER_TINT: [f32; 3] = [1.6, 1.3, 0.6];
 const HARVESTER_TINT: [f32; 3] = [1.4, 0.5, 0.45];
 const VIEW_RADIUS: f32 = 16.0;
+/// How far behind the player the camera sits, in tiles.
+const CAMERA_BACK: f32 = 2.4;
+/// How far either side of the line from the camera to the player something is left out, in tiles, once its front is
+/// `BEHIND` tiles behind the player.
+const SIGHTLINE: f32 = 0.5;
+const BEHIND: f32 = 0.3;
 const CHARACTER_DEPTH: f32 = 3.0 * PX;
 const DECAL_LIFT: f32 = 0.03;
 const MAX_ZOMBIES_3D: usize = 160;
@@ -202,10 +208,23 @@ fn fixed(out: &mut Vec<Card>, eye: Vec3, a: Art, how: Stand, left: f32, base: f3
             lying(out, eye, a, center, 0.0, height, lift, tint);
         }
         Stand::Ground => flat(out, a, left * PX, (base - a.h()) * PX, DECAL_LIFT + 0.006, tint),
-        Stand::Turned { east, depth } => turned(out, eye, a, east, depth, left, base - a.h(), tint),
+        Stand::Turned { east, depth } => turned(out, eye, a, east, depth, left, base - a.h(), tint, 0.0),
         Stand::Carve { .. } => carved(out, eye, Carving::of(a, how).unwrap(), Vec3::new(left * PX, 0.0, (base - a.h()) * PX)),
         Stand::Figure => {}
     }
+}
+
+/// Where a placed prop stands in 3D: its frame now and how that stands, and the middle of its box on the ground and
+/// the box's size across and down, in world units.
+fn placed(prop: &super::map::Prop, t: f32) -> (Art, Stand, Vec3, [f32; 2]) {
+    let a = prop.frame(t);
+    let how = a.stand().unwrap_or(Stand::Prop { depth: prop.depth });
+    let bottom = prop.y + a.h();
+    let (middle, deep) = match how {
+        Stand::Prop { depth } => (Vec3::new((prop.x + a.w() * 0.5) * PX, 0.0, (prop.base - depth * 0.5) * PX), depth),
+        _ => (Vec3::new((prop.x + a.w() * 0.5) * PX, 0.0, (bottom - a.h() * 0.5) * PX), a.h()),
+    };
+    (a, how, middle, [a.w() * PX, deep * PX])
 }
 
 /// Lays a sprite's 3D copy flat around `center` on the ground, its top row to the north turned `angle` as the 2D
@@ -220,16 +239,18 @@ fn lying(out: &mut Vec<Card>, eye: Vec3, a: Art, center: Vec3, angle: f32, heigh
 }
 
 /// Stands `east` upright running north from the bottom of `a`, a sprite drawn from above with its top-left at
-/// `left`, `top` in map pixels, centered on `a`'s outline from above and `depth` thick, or as thick as the outline.
+/// `left`, `top` in map pixels, centered on `a`'s outline from above and `depth` thick, or as thick as the outline,
+/// and stretched `reach` pixels further south.
 #[allow(clippy::too_many_arguments)]
-fn turned(out: &mut Vec<Card>, eye: Vec3, a: Art, east: Art, depth: Option<f32>, left: f32, top: f32, tint: [f32; 3]) {
+fn turned(out: &mut Vec<Card>, eye: Vec3, a: Art, east: Art, depth: Option<f32>, left: f32, top: f32, tint: [f32; 3], reach: f32) {
     let [rx, ry, w, h] = a.rect().map(usize::from);
     let filled = |x: usize| art::with_pixels(a, |px| (0..h).any(|y| px[((ry + y) * ATLAS_W as usize + rx + x) * 4 + 3] > 0));
     let x0 = (0..w).find(|&x| filled(x)).unwrap_or(0) as f32;
     let x1 = (0..w).rev().find(|&x| filled(x)).map_or(w, |x| x + 1) as f32;
     let depth = depth.unwrap_or(x1 - x0);
-    let origin = Vec3::new((left + (x0 + x1 - depth) / 2.0) * PX, 0.0, (top + a.h()) * PX);
-    stand(out, eye, east.solid(), false, Pose { tint, ..Pose::upright(origin, -Vec3::Z, Vec3::X, depth * PX) }, true);
+    let origin = Vec3::new((left + (x0 + x1 - depth) / 2.0) * PX, 0.0, (top + a.h() + reach) * PX);
+    let stretch = (a.h() + reach) / a.h();
+    stand(out, eye, east.solid(), false, Pose { tint, ..Pose::upright(origin, -Vec3::Z * stretch, Vec3::X, depth * PX) }, true);
 }
 
 /// The pictures a solid is carved from, as `carve::Views` takes them: `top` colors it from above.
@@ -417,7 +438,7 @@ pub fn scene(h: &Harvest) -> CardScene {
     let roll = roll + h.lean * 0.035;
     let bob = if h.walk > 0.0 { (h.walk * crate::tuning::tuning().walk_fps * std::f32::consts::PI / 2.0).sin().abs() * 0.04 } else { 0.0 };
     let shake = right * sx + Vec3::Y * (sy + bob);
-    let eye = p - forward * (2.4 + 0.2 * swing) + Vec3::Y * (1.5 + 0.4 * swing) + shake;
+    let eye = p - forward * (CAMERA_BACK + 0.2 * swing) + Vec3::Y * (1.5 + 0.4 * swing) + shake;
     let looking = p + forward * 4.0 + Vec3::Y * (0.7 + j.kick * 6.0);
     let target = looking.lerp(p + Vec3::Y * 0.5, swing) + shake;
     let view = Mat4::look_at_rh(eye, target, Vec3::Y * roll.cos() + right * roll.sin());
@@ -459,25 +480,36 @@ pub fn scene(h: &Harvest) -> CardScene {
             flat(&mut cards, a, q.x, q.z, DECAL_LIFT + 0.002 + i as f32 * 0.00005, tint);
         }
     }
-    // Anything standing behind the player would fill the screen, so only what is ahead gets drawn.
-    let ahead = |q: Vec3| near(q) && (q - p).dot(forward) > 0.3;
+    // What stands between the camera and the player would hide them, so it isn't drawn; what stands beside or
+    // ahead of them is, even level with them and even with the camera inside it, since they can walk into it. `q` is
+    // the middle of a box `size` map tiles across on the ground.
+    let ahead = |q: Vec3, size: [f32; 2]| {
+        let reach = |dir: Vec3| (dir.x.abs() * size[0] + dir.z.abs() * size[1]) / 2.0;
+        let d = q - p;
+        let (front, aside) = (d.dot(forward) + reach(forward), d.dot(right).abs() - reach(right));
+        near(q) && front > -CAMERA_BACK && (front > -BEHIND || aside > SIGHTLINE)
+    };
     let mut figures = Vec::new();
     for prop in &h.map.props {
-        let a = prop.frame(h.t);
-        let how = a.stand().unwrap_or(Stand::Prop { depth: prop.depth });
+        let (a, how, middle, size) = placed(prop, h.t);
         let bottom = prop.y + a.h();
-        let middle = match how {
-            Stand::Prop { depth } => Vec3::new((prop.x + a.w() * 0.5) * PX, 0.0, (prop.base - depth * 0.5) * PX),
-            _ => Vec3::new((prop.x + a.w() * 0.5) * PX, 0.0, (bottom - a.h() * 0.5) * PX),
-        };
-        if !ahead(middle) {
+        if !ahead(middle, size) {
             continue;
         }
         if how == Stand::Figure {
             figures.push((a, [prop.x + a.w() / 2.0, bottom]));
         } else {
             let tint = [if prop.flash > 0.0 { super::PROP_FLASH } else { 1.0 }; 3];
-            fixed(&mut cards, eye, a, how, prop.x, if matches!(how, Stand::Prop { .. }) { prop.base } else { bottom }, tint);
+            // A prop drawn above its base line, as the windmill's fan is, stands that far up.
+            match how {
+                // A fence side that runs on into its corner reaches that corner's board.
+                Stand::Turned { east, depth } if prop.reach > 0.0 => turned(&mut cards, eye, a, east, depth, prop.x, prop.y, tint, prop.reach),
+                Stand::Prop { depth } if prop.base > bottom + 1.0 => {
+                    let origin = Vec3::new(prop.x * PX, (prop.base - bottom) * PX, prop.base * PX);
+                    stand(&mut cards, eye, a.solid(), false, Pose { tint, ..Pose::upright(origin, Vec3::X, -Vec3::Z, depth * PX) }, true);
+                }
+                _ => fixed(&mut cards, eye, a, how, prop.x, if matches!(how, Stand::Prop { .. }) { prop.base } else { bottom }, tint),
+            }
         }
     }
     if let Some(s) = h.shown.as_ref().filter(|s| !s.frames.is_empty() && s.stand != Stand::Figure) {
@@ -487,7 +519,7 @@ pub fn scene(h: &Harvest) -> CardScene {
     for b in &h.barrels {
         let a = if b.flash > 0.0 { art::BARREL_FLASH } else { art::BARREL };
         let base = Vec3::new(b.pos[0] * PX, 0.0, (b.pos[1] + a.h()) * PX);
-        if ahead(base) {
+        if ahead(base + Vec3::new(a.w() / 2.0, 0.0, -6.0) * PX, [a.w() * PX, 12.0 * PX]) {
             stand(&mut cards, eye, a, false, Pose::upright(base, Vec3::X, -Vec3::Z, 12.0 * PX), true);
         }
     }
@@ -891,6 +923,25 @@ mod tests {
                 assert!(f.iter().all(|f| f.uv.iter().all(|v| (0.0..=1.0).contains(v))), "{name}: uv out of range");
             }
         }
+    }
+
+    #[test]
+    fn what_stands_beside_the_player_shows_and_only_what_blocks_the_camera_hides() {
+        let mut h = Harvest::calm(7);
+        h.view_yaw = 0.0;
+        h.barrels.clear();
+        let without = scene(&h).cards.len();
+        let drawn = |h: &mut Harvest, tiles: [f32; 2]| {
+            h.barrels = vec![super::super::Barrel { pos: [h.pos[0] + tiles[0] * TILE, h.pos[1] + tiles[1] * TILE], hp: 1.0, flash: 0.0 }];
+            scene(h).cards.len() > without
+        };
+        assert!(drawn(&mut h, [0.0, 2.0]), "level with the player, off to the side");
+        assert!(drawn(&mut h, [-0.5, 0.4]), "right against the player's side");
+        assert!(drawn(&mut h, [-0.5, -1.4]), "right against the other side");
+        assert!(drawn(&mut h, [-1.0, 2.0]), "a little behind, still on screen");
+        assert!(drawn(&mut h, [3.0, 0.0]), "ahead");
+        assert!(!drawn(&mut h, [-1.5, -0.5]), "between the camera and the player");
+        assert!(!drawn(&mut h, [-4.0, 1.0]), "behind the camera");
     }
 
     #[test]

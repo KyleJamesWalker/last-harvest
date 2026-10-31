@@ -483,13 +483,14 @@ impl Map {
         Ok(())
     }
 
-    fn blank(w: usize, h: usize) -> Map {
+    pub(super) fn blank(w: usize, h: usize) -> Map {
         Map {
             w,
             h,
             ground: vec![art::DIRT[0]; w * h],
             overlay: vec![None; w * h],
             solid: vec![false; w * h],
+            shape: vec![[super::WHOLE, super::NO_BOX]; w * h],
             cover: vec![false; w * h],
             owner: vec![super::NO_OWNER; w * h],
             cost: vec![1; w * h],
