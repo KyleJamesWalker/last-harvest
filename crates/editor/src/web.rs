@@ -386,6 +386,7 @@ impl Web {
             "mirror" => Key::Char('m'),
             "save" => Key::Save,
             "fit" => return self.studio.editor.fit(),
+            "palette" => return call("pick", &[".hex,.txt".into(), false.into(), "lastharvest-palette".into()]),
             #[cfg(feature = "modding")]
             "import" => return modding::call("pick", &[".png,.pak,.txt".into(), true.into(), "lastharvest-import".into()]),
             #[cfg(feature = "modding")]
@@ -607,6 +608,13 @@ fn start() -> Result<(), String> {
         }
     });
     listen(&input, "input", &web, |w, _: &Event| w.typed());
+    listen(&window, "lastharvest-palette", &web, |w, e: &web_sys::CustomEvent| {
+        let detail = e.detail();
+        let name = js_sys::Reflect::get(&detail, &"name".into()).ok().and_then(|v| v.as_string()).unwrap_or_default();
+        let bytes = js_sys::Reflect::get(&detail, &"bytes".into()).map(|v| js_sys::Uint8Array::new(&v).to_vec()).unwrap_or_default();
+        let stem = name.rsplit_once('.').map_or(name.as_str(), |(s, _)| s);
+        w.studio.editor.use_palette(stem, &String::from_utf8_lossy(&bytes));
+    });
     #[cfg(feature = "modding")]
     listen(&window, "lastharvest-import", &web, |w, e: &web_sys::CustomEvent| {
         let detail = e.detail();
@@ -666,6 +674,15 @@ fn start() -> Result<(), String> {
     Ok(())
 }
 
+/// Calls one of the page's helpers on `window.lastHarvest`.
+pub fn call(method: &str, args: &[JsValue]) {
+    let Some(window) = web_sys::window() else { return };
+    let Ok(helpers) = js_sys::Reflect::get(&window, &"lastHarvest".into()) else { return };
+    if let Some(f) = js_sys::Reflect::get(&helpers, &method.into()).ok().and_then(|f| f.dyn_into::<js_sys::Function>().ok()) {
+        let _ = f.apply(&helpers, &args.iter().collect());
+    }
+}
+
 /// Shows a failure on the page, where a tablet's user can see it.
 fn fail(text: &str) {
     web_sys::console::error_1(&text.into());
@@ -692,7 +709,7 @@ mod modding {
     use last_harvest_game::art::{self, ATLAS_H, ATLAS_W};
     use last_harvest_game::data::{self, Data};
     use last_harvest_pack::{ATLAS, Pak};
-    use wasm_bindgen::{JsCast, JsValue};
+    use wasm_bindgen::JsCast;
     use web_sys::{Document, HtmlElement};
 
     /// Installs the sprite atlas from the player's own game_data.pak, which the page keeps in IndexedDB, else the
@@ -791,12 +808,5 @@ mod modding {
         call("offline", &[]);
     }
 
-    /// Calls one of the page's helpers on `window.lastHarvest`.
-    pub fn call(method: &str, args: &[JsValue]) {
-        let Some(window) = web_sys::window() else { return };
-        let Ok(helpers) = js_sys::Reflect::get(&window, &"lastHarvest".into()) else { return };
-        if let Some(f) = js_sys::Reflect::get(&helpers, &method.into()).ok().and_then(|f| f.dyn_into::<js_sys::Function>().ok()) {
-            let _ = f.apply(&helpers, &args.iter().collect());
-        }
-    }
+    pub use super::call;
 }

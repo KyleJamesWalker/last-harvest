@@ -19,13 +19,34 @@ const TRAUMA_DECAY: f32 = 1.6;
 /// No new hit-stop for this long after one ends, so a swarm of kills doesn't stutter.
 const HITSTOP_REST: f32 = 0.35;
 
-pub const BLOOD: [f32; 3] = [0.62, 0.08, 0.06];
-pub const DARK_BLOOD: [f32; 3] = [0.35, 0.03, 0.03];
-pub const DIRT: [f32; 3] = [0.42, 0.3, 0.2];
-pub const SPARK: [f32; 3] = [1.0, 0.85, 0.4];
-pub const EMBER: [f32; 3] = [1.0, 0.5, 0.15];
-pub const GOLD: [f32; 3] = [1.0, 0.85, 0.3];
-pub const FIREFLY: [f32; 3] = [0.75, 1.0, 0.45];
+/// The particle colors, from the `[colors]` section of `effects.txt`.
+pub fn blood() -> [f32; 3] {
+    super::effects::colors()[0]
+}
+
+pub fn dark_blood() -> [f32; 3] {
+    super::effects::colors()[1]
+}
+
+pub fn dirt() -> [f32; 3] {
+    super::effects::colors()[2]
+}
+
+pub fn spark() -> [f32; 3] {
+    super::effects::colors()[3]
+}
+
+pub fn ember() -> [f32; 3] {
+    super::effects::colors()[4]
+}
+
+pub fn gold() -> [f32; 3] {
+    super::effects::colors()[5]
+}
+
+pub fn firefly() -> [f32; 3] {
+    super::effects::colors()[6]
+}
 
 /// A speck in the world, in map pixels with `z` its height above the ground.
 pub struct Particle {
@@ -405,7 +426,7 @@ mod tests {
     #[test]
     fn particles_fall_bounce_and_expire() {
         let mut j = Juice::new(1);
-        j.burst([0.0, 0.0], 10.0, 20, [1.0, 0.0], 0.5, [40.0, 80.0], BLOOD, 2.0, 0.5, 0.0);
+        j.burst([0.0, 0.0], 10.0, 20, [1.0, 0.0], 0.5, [40.0, 80.0], [0.62, 0.08, 0.06], 2.0, 0.5, 0.0);
         assert_eq!(j.particles.len(), 20);
         for _ in 0..20 {
             j.tick(1.0 / 60.0);

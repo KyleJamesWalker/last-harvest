@@ -104,3 +104,13 @@ fps 12
 [dog]
 art DOG
 fps 10
+
+# The colors of particles, as red, green and blue from 0 to 1. A mod's file can leave any of them out.
+[colors]
+blood 0.62 0.08 0.06
+dark_blood 0.35 0.03 0.03
+dirt 0.42 0.3 0.2
+spark 1.0 0.85 0.4
+ember 1.0 0.5 0.15
+gold 1.0 0.85 0.3
+firefly 0.75 1.0 0.45

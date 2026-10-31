@@ -451,7 +451,19 @@ pub struct Def {
     pub pattern: Pattern,
     /// For a lob, what it does where it lands.
     pub lands: Lands,
+    /// For a weapon, how each attack shakes the camera and lights the ground.
+    pub feel: Feel,
     stats: Vec<(Stat, Vec<f32>)>,
+}
+
+/// How a weapon's attack feels: the camera's kick back and punch in, screen shake, and a flash of light with its
+/// color (above 1 for brighter than white), reach in tiles and seconds.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Feel {
+    pub kick: f32,
+    pub punch: f32,
+    pub shake: f32,
+    pub flash: Option<([f32; 3], f32, f32)>,
 }
 
 /// The sounds a weapon can make, by the name `sound` gives them.
@@ -574,6 +586,7 @@ pub fn parse(text: &str) -> Result<Book, String> {
                 aim: Aim::Nearest,
                 pattern: Pattern::Fan,
                 lands: Lands::Blast,
+                feel: Feel::default(),
                 stats: Vec::new(),
             });
             icons.push(None);
@@ -655,6 +668,19 @@ pub fn parse(text: &str) -> Result<Book, String> {
                     "spray" => Pattern::Spray,
                     _ => return Err(format!("{n}: pattern is fan, ring or spray, not {rest:?}")),
                 }
+            }
+            "kick" | "punch" | "shake" => {
+                let v = rest.parse::<f32>().ok().filter(|v| (0.0..=10.0).contains(v)).ok_or_else(|| format!("{n}: {key} takes a number from 0 to 10"))?;
+                *match key {
+                    "kick" => &mut def.feel.kick,
+                    "punch" => &mut def.feel.punch,
+                    _ => &mut def.feel.shake,
+                } = v;
+            }
+            "flash" => {
+                let v: Vec<f32> = rest.split_whitespace().map(|w| w.parse().ok().filter(|v: &f32| (0.0..=10.0).contains(v))).collect::<Option<_>>().unwrap_or_default();
+                let [r, g, b, range, life] = v[..] else { return Err(format!("{n}: flash takes red, green and blue, reach and seconds, such as 1.2 0.85 0.4 3.5 0.07")) };
+                def.feel.flash = Some(([r, g, b], range, life));
             }
             "does" => def.does = Some(Does::from_key(rest).ok_or_else(|| format!("{n}: no weapon behaviour called {rest:?}"))?),
             "unlock" => {
@@ -776,6 +802,16 @@ mod tests {
         let g = parse("[nova]\nkind weapon\ndoes gun\naim around\npattern ring\nicon WHITE\n[cash]\nkind filler\nicon WHITE\n").unwrap();
         assert_eq!((g.defs[0].does, g.defs[0].aim, g.defs[0].pattern), (Some(Does::Gun), Aim::Around, Pattern::Ring));
         assert!(parse("[a]\nicon WHITE\naim up").unwrap_err().starts_with("3: aim is"));
+    }
+
+    #[test]
+    fn a_weapon_reads_its_feel_and_the_shipped_ones_keep_theirs() {
+        let rifle = &book().defs[book().index("rifle").unwrap()].feel;
+        assert_eq!(*rifle, Feel { kick: 0.05, punch: 2.0, shake: 0.1, flash: Some(([1.6, 1.2, 0.7], 5.0, 0.1)) });
+        assert_eq!(book().defs[book().index("crows").unwrap()].feel, Feel::default(), "none when left out");
+        assert!(parse("[a]\nicon WHITE\nkick lots").unwrap_err().starts_with("3: kick takes"));
+        assert!(parse("[a]\nicon WHITE\nflash 1 1 1").unwrap_err().starts_with("3: flash takes"));
+        assert!(parse("[a]\nicon WHITE\nflash 1 1 1 20 0.1 0.2").unwrap_err().starts_with("3: flash takes"), "a number out of range isn't dropped");
     }
 
     #[test]

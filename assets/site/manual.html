@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Last Harvest Manual</title>
+<meta name="description" content="How to play Last Harvest, and how to make cards, props, maps and mods for it.">
+<link rel="icon" href="icon.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<style>
+  :root { color-scheme: dark; }
+  html { background: #19191e; color: #ebebf2; scroll-padding-top: 16px; }
+  body { margin: 0 auto; max-width: 860px; padding: 32px 16px calc(32px + env(safe-area-inset-bottom));
+         font: 17px/1.55 -apple-system, system-ui, sans-serif; }
+  a { color: #f2bf4d; }
+  header { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: baseline; justify-content: space-between; margin-bottom: 24px; }
+  header b { font-size: 28px; letter-spacing: 0.04em; color: #f2bf4d; }
+  header nav { display: flex; gap: 12px; font-size: 15px; }
+  h1 { font-size: 34px; color: #f2bf4d; margin: 32px 0 12px; }
+  h2 { font-size: 26px; color: #f2bf4d; margin: 40px 0 12px; padding-top: 16px; border-top: 1px solid #33333c; }
+  h3 { font-size: 20px; margin: 28px 0 8px; }
+  h4 { font-size: 17px; margin: 20px 0 6px; }
+  h1 .anchor, h2 .anchor, h3 .anchor, h4 .anchor { margin-left: 8px; color: #55555f; text-decoration: none; visibility: hidden; }
+  :hover > .anchor, .anchor:focus-visible { visibility: visible; }
+  p, li, dd { color: #d2d2dc; }
+  code { font: 0.88em ui-monospace, Menlo, monospace; background: #26262d; padding: 1px 5px; border-radius: 4px; color: #ebebf2; }
+  blockquote { margin: 16px 0; padding: 4px 16px; border-left: 3px solid #f2bf4d; background: #202026; }
+  .table { overflow-x: auto; margin: 12px 0 20px; }
+  table { border-collapse: collapse; font-size: 15px; min-width: 100%; }
+  th, td { border: 1px solid #33333c; padding: 6px 10px; text-align: left; vertical-align: top; }
+  th { background: #26262d; color: #f2bf4d; }
+  details.toc { background: #202026; border-radius: 10px; padding: 12px 16px; margin: 0 0 24px; }
+  details.toc summary { cursor: pointer; font-weight: 700; color: #f2bf4d; }
+  details.toc ol { margin: 6px 0; padding-left: 22px; }
+  details.toc li { margin: 2px 0; }
+</style>
+</head>
+<body>
+<header>
+  <b>Last Harvest</b>
+  <nav><a href="./">Home</a><a href="play/">Play</a><a href="editor/">Card editor</a><a href="https://github.com/KyleJamesWalker/last-harvest">Source</a></nav>
+</header>
+<details class="toc" open>
+<summary>Contents</summary>
+{{ TOC }}
+</details>
+<main>
+{{ CONTENT }}
+</main>
+</body>
+</html>

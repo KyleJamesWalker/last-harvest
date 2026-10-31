@@ -168,6 +168,10 @@ impl Studio {
         self.editor.draw(&mut edit);
         let mut view = self.showcase.top();
         view.label(format!("2.5D view: {}", self.hints[0]), 16.0, 12.0, 30.0, [1.0, 1.0, 1.0, 0.85], Align::Left);
+        if let Some(n) = self.showcase.quads().filter(|_| !self.on_map) {
+            view.rect(8.0, SCREEN_H - 56.0, 760.0, 48.0, [0.0, 0.0, 0.0, 0.5]);
+            view.label(format!("3D: {n} quads, {} vertices; about half face the camera", 4 * n), 16.0, SCREEN_H - 48.0, 28.0, [1.0, 1.0, 1.0, 0.9], Align::Left);
+        }
         let [x, y, w, h] = PLAYER_SWITCH;
         view.rect(x, y, w, h, [0.0, 0.0, 0.0, 0.5]);
         let label = if self.player { "Player: shown" } else { "Player: hidden" };
@@ -284,5 +288,21 @@ mod tests {
         assert!(p[1] > SCREEN_H);
         s.release();
         assert_eq!(s.locate_move([800.0, 900.0], [400.0, 650.0]).0, Pane::Map);
+    }
+
+    #[test]
+    fn the_view_counts_the_quads_the_sprite_draws() {
+        let dir = std::env::temp_dir().join(format!("studio-quads-{}", std::process::id()));
+        let mut s = Studio::new(Box::new(FsStore { dir: dir.clone(), catalog: dir.join("art.txt"), cards: dir.join("enemies") }), "BARREL");
+        let count = |s: &mut Studio| {
+            s.tick(0.0);
+            let [_, view, _] = s.canvases();
+            view.shapes.iter().find_map(|sh| match sh {
+                last_harvest_game::Shape::Text { text, .. } => text.strip_prefix("3D: ")?.split(' ').next()?.parse::<usize>().ok(),
+                _ => None,
+            })
+        };
+        assert!(count(&mut s).is_some_and(|n| n > 1), "a barrel stands as a solid of many quads");
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

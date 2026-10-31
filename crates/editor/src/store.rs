@@ -43,6 +43,10 @@ pub trait Store {
         Err("a card's death sound goes in the sounds folder here".into())
     }
 
+    fn remove_card_sound(&self, _id: &str) -> Result<(), String> {
+        Err("a card's death sound goes in the sounds folder here".into())
+    }
+
     /// Every card's own death sound by file name, for the mod editor's Export all.
     fn all_sounds(&self) -> Vec<(String, Vec<u8>)> {
         Vec::new()
@@ -86,6 +90,11 @@ pub trait Store {
         Err("the game's data files aren't kept here".into())
     }
 
+    /// The Lospec palette called `name`, as its `.hex` file, fetched where this machine can reach lospec.com.
+    fn lospec(&self, _name: &str) -> Result<String, String> {
+        Err("This editor can't reach lospec.com: download the palette's .hex file there and load it with Palette file".into())
+    }
+
     /// The saved copy if there is one, else the packed frames.
     fn load(&self, name: &str) -> Option<Sprite> {
         Sprite::load_from(name, |file| self.read(name, file))
@@ -109,8 +118,9 @@ pub mod props {
         format!("{}{}", last_harvest_game::PROP_PREFIX, id.to_ascii_uppercase())
     }
 
-    /// A prop's pictures as the editor's frames: its text, its frames, its footprint and its south and east views.
-    type Pictures = (String, Vec<Frame>, Option<Frame>, Option<[Frame; 2]>);
+    /// A prop's pictures as the editor's frames: its text, its frames, its south and east views, and the optional
+    /// pictures it has, by the file each saves as.
+    type Pictures = (String, Vec<Frame>, Option<[Frame; 2]>, Vec<(&'static str, Frame)>);
 
     fn pictures(bytes: &[u8]) -> Option<Pictures> {
         let p = prop::read("prop", bytes).ok()?;
@@ -123,23 +133,35 @@ pub mod props {
             Frame { w, h, px }
         };
         let frames = (0..f.frames).map(|k| cut([k * fw, 0, fw, fh])).collect();
-        let footprint = (f.cells() > f.frames).then(|| cut([f.frames * fw, 0, fw, fh]));
-        let views = (f.views > 0).then(|| [cut([0, fh, fw, f.views]), cut([fw, fh, fh, f.views])]);
-        Some((p.text, frames, footprint, views))
+        let (carving, vh) = (f.views > 0, f.views);
+        let (roof_x, north_x) = ((f.frames + f.footprint as u32) * fw, fw + fh);
+        let optional = [
+            (f.footprint, sprite::FOOTPRINT_FILE, [f.frames * fw, 0, fw, fh]),
+            (f.roof, sprite::ROOF_FILE, [roof_x, 0, fw, fh]),
+            (f.north, sprite::NORTH_FILE, [north_x, fh, fw, vh]),
+            (f.west, sprite::WEST_FILE, [north_x + f.north as u32 * fw, fh, fh, vh]),
+        ];
+        let optional = optional.into_iter().filter(|(on, ..)| carving && *on).map(|(_, file, r)| (file, cut(r))).collect();
+        let views = carving.then(|| [cut([0, fh, fw, vh]), cut([fw, fh, fh, vh])]);
+        Some((p.text, frames, views, optional))
     }
 
     /// A file of a prop's sprite, as `Store::read` hands it out: a frame, a view, or its text.
     pub fn file(bytes: &[u8], file: &str) -> Option<Vec<u8>> {
-        let (text, frames, footprint, views) = pictures(bytes)?;
+        let (text, frames, views, optional) = pictures(bytes)?;
         if file == sprite::CARD_FILE {
             return Some(text.into_bytes());
         }
-        if file == sprite::FOOTPRINT_FILE {
-            return footprint.as_ref().map(sprite::encode_png);
+        if let Some((_, f)) = optional.iter().find(|(n, _)| *n == file) {
+            return Some(sprite::encode_png(f));
         }
         if file == sprite::CLEAR_FILE {
             let f = last_harvest_game::prop_fields(&text).ok()?;
             return (!f.clear.is_empty()).then(|| f.clear.iter().map(|&[r, g, b]| format!("{}\n", sprite::hex([r, g, b, 255]))).collect::<String>().into_bytes());
+        }
+        if file == last_harvest_game::paint::FILE {
+            let text = last_harvest_game::prop_fields(&text).ok()?.paint.text();
+            return (!text.is_empty()).then(|| text.into_bytes());
         }
         if let Some(v) = sprite::VIEW_FILES.iter().position(|n| *n == file) {
             return views.as_ref().map(|v2| sprite::encode_png(&v2[v]));
@@ -168,10 +190,17 @@ pub mod props {
         fields.frames = n as u32;
         fields.broken &= n > 1;
         fields.clear = sprite.clear_in_3d.iter().map(|&[r, g, b, _]| [r, g, b]).collect();
+        fields.paint = sprite.paint.clone();
         let views = sprite.views.as_ref().filter(|[s, e]| (s.w, e.w, s.h) == (w, h, e.h) && s.h <= max);
         fields.views = views.map_or(0, |v| v[0].h as u32);
-        let footprint = sprite.footprint.as_ref().filter(|f| views.is_some() && (f.w, f.h) == (w, h));
-        fields.footprint = footprint.is_some();
+        // Each optional picture keeps its size, and none is packed without views.
+        fn sized(f: &Option<Frame>, size: Option<(usize, usize)>) -> Option<&Frame> {
+            f.as_ref().filter(|f| Some((f.w, f.h)) == size)
+        }
+        let (top, vh) = (views.map(|_| (w, h)), views.map(|v| v[0].h));
+        let (footprint, roof) = (sized(&sprite.footprint, top), sized(&sprite.roof, top));
+        let (north, west) = (sized(&sprite.north, vh.map(|vh| (w, vh))), sized(&sprite.west, vh.map(|vh| (h, vh))));
+        (fields.footprint, fields.roof, fields.north, fields.west) = (footprint.is_some(), roof.is_some(), north.is_some(), west.is_some());
         if views.is_none() {
             fields.by_views = None;
         }
@@ -185,12 +214,18 @@ pub mod props {
                 }
             }
         };
-        for (k, f) in sprite.frames.iter().chain(footprint).enumerate() {
+        for (k, f) in sprite.frames.iter().chain(footprint).chain(roof).enumerate() {
             put(f, k * w, 0);
         }
         if let Some([south, east]) = views {
             put(south, 0, h);
             put(east, w, h);
+        }
+        if let Some(f) = north {
+            put(f, w + h, h);
+        }
+        if let Some(f) = west {
+            put(f, w + h + north.map_or(0, |_| w), h);
         }
         prop::write(&last_harvest_game::prop_text(&fields), sw as u32, (h + vh) as u32, &sheet)
     }
@@ -210,7 +245,7 @@ pub mod props {
     }
 
     pub fn blank(id: &str) -> last_harvest_game::PropFields {
-        last_harvest_game::PropFields { id: id.into(), frames: 1, fps: 0.0, open: 0, stand: None, by_views: None, views: 0, footprint: false, clear: Vec::new(), cover: true, hp: 0.0, broken: false }
+        last_harvest_game::PropFields { id: id.into(), frames: 1, fps: 0.0, open: 0, stand: None, by_views: None, views: 0, footprint: false, roof: false, north: false, west: false, clear: Vec::new(), cover: true, hp: 0.0, broken: false, paint: Default::default() }
     }
 }
 
@@ -390,7 +425,7 @@ mod tests {
         south.set(0, 4, [1, 2, 3, 255]);
         east.set(2, 0, [4, 5, 6, 255]);
         footprint.set(3, 2, [7, 8, 9, 255]);
-        let blank = Sprite { name: "PROP_POST".into(), frames: vec![frame.clone(); 2], views: None, footprint: None, top: None, card: None, clear_in_3d: Vec::new() };
+        let blank = Sprite { name: "PROP_POST".into(), frames: vec![frame.clone(); 2], views: None, footprint: None, roof: None, north: None, west: None, top: None, card: None, clear_in_3d: Vec::new(), paint: Default::default() };
         assert!(super::props::with_stand(&super::props::from_sprite(&blank).unwrap(), "carve").unwrap_err().contains("views"));
         let s = Sprite { views: Some([south.clone(), east.clone()]), footprint: Some(footprint.clone()), ..blank };
         let bytes = super::props::with_stand(&super::props::from_sprite(&s).unwrap(), "turned").unwrap();
@@ -400,6 +435,37 @@ mod tests {
         let cleared = Sprite { clear_in_3d: vec![[9, 9, 9, 255]], ..back };
         let bytes = super::props::from_sprite(&cleared).unwrap();
         assert_eq!(super::props::file(&bytes, sprite::CLEAR_FILE).as_deref(), Some(&b"#090909\n"[..]), "the prop's text keeps its colors cleared in 3D");
+        let paint = last_harvest_game::paint::parse("paint 090909\ncoat 4A6FA5").unwrap();
+        let bytes = super::props::from_sprite(&Sprite { paint: paint.clone(), ..cleared }).unwrap();
+        let back = Sprite::from_files("PROP_POST", &["0.png", "1.png", last_harvest_game::paint::FILE].map(|f| (f.to_string(), super::props::file(&bytes, f).unwrap()))).unwrap();
+        assert_eq!(back.paint, paint, "and its coats");
+    }
+
+    #[test]
+    fn a_carved_prop_keeps_its_top_and_north_and_west_views() {
+        let dot = |w, h, x, c: u8| {
+            let mut f = Frame::blank(w, h);
+            f.set(x, 0, [c, c, c, 255]);
+            f
+        };
+        let s = Sprite {
+            name: "PROP_STACK".into(),
+            frames: vec![dot(4, 3, 0, 1)],
+            views: Some([dot(4, 5, 1, 2), dot(3, 5, 2, 3)]),
+            footprint: None,
+            roof: Some(dot(4, 3, 3, 4)),
+            north: Some(dot(4, 5, 0, 5)),
+            west: Some(dot(3, 5, 1, 6)),
+            top: None,
+            card: None,
+            clear_in_3d: Vec::new(),
+            paint: Default::default(),
+        };
+        let bytes = super::props::with_stand(&super::props::from_sprite(&s).unwrap(), "carve").unwrap();
+        let files = ["0.png", "south.png", "east.png", sprite::ROOF_FILE, sprite::NORTH_FILE, sprite::WEST_FILE, sprite::CARD_FILE];
+        let back = Sprite::from_files("PROP_STACK", &files.map(|f| (f.to_string(), super::props::file(&bytes, f).unwrap()))).unwrap();
+        assert_eq!((&back.views, &back.roof, &back.north, &back.west), (&s.views, &s.roof, &s.north, &s.west));
+        assert!(super::props::file(&bytes, sprite::FOOTPRINT_FILE).is_none());
     }
 
     #[test]
@@ -478,6 +544,11 @@ mod fs {
             self.cards.with_file_name("props").join(format!("{id}{}", last_harvest_pack::prop::EXTENSION))
         }
 
+        /// The PNG a card's part or a prop lives in, which git keeps whole.
+        fn packed_path(&self, name: &str) -> Option<PathBuf> {
+            props::id(name).map(|id| self.prop_path(&id)).or_else(|| self.card_path(name))
+        }
+
         fn prop_ids(&self) -> Vec<String> {
             let found = std::fs::read_dir(self.cards.with_file_name("props")).into_iter().flatten().flatten();
             let ids = found.filter_map(|e| e.file_name().into_string().ok()?.strip_suffix(last_harvest_pack::prop::EXTENSION).map(str::to_string));
@@ -545,13 +616,34 @@ mod fs {
         }
 
         fn history(&self, name: &str) -> Option<(Vec<Commit>, bool)> {
-            sprite::card_id(name).is_none().then_some(())?;
-            let repo = Repo::open(&self.dir)?;
-            Some((repo.log(name), repo.changed(name)))
+            let Some(path) = self.packed_path(name) else {
+                let repo = Repo::open(&self.dir)?;
+                return Some((repo.log(name), repo.changed(name)));
+            };
+            let file = path.file_name()?.to_str()?;
+            let repo = Repo::open(path.parent()?)?;
+            Some((repo.log(file), repo.changed(file)))
         }
 
         fn version(&self, id: &str, name: &str, file: &str) -> Option<Vec<u8>> {
-            Repo::open(&self.dir)?.read(id, name, file)
+            let Some(path) = self.packed_path(name) else { return Repo::open(&self.dir)?.read(id, name, file) };
+            let bytes = Repo::open(path.parent()?)?.show(id, path.file_name()?.to_str()?)?;
+            if props::id(name).is_some() { props::file(&bytes, file) } else { cards::file(&bytes, name, file) }
+        }
+
+        fn lospec(&self, name: &str) -> Result<String, String> {
+            if !last_harvest_game::paint::lospec_name(name) {
+                return Err(format!("{name} can't name a Lospec palette"));
+            }
+            // The .json, since lospec.com never answers a .hex for a name it doesn't know.
+            let url = format!("https://lospec.com/palette-list/{name}.json");
+            let out = std::process::Command::new("curl").args(["-sSfL", "--max-time", "10", &url]).output().map_err(|e| format!("curl: {e}"))?;
+            if !out.status.success() {
+                return Err(format!("Lospec has no palette called {name}, or isn't answering"));
+            }
+            let json = String::from_utf8_lossy(&out.stdout);
+            let list = json.split_once("\"colors\":[").and_then(|(_, rest)| rest.split_once(']')).map(|(list, _)| list).ok_or_else(|| format!("{url} lists no colors"))?;
+            Ok(list.split(',').map(|c| format!("{}\n", c.trim().trim_matches('"'))).collect())
         }
 
         fn import_card(&self, file: &str, bytes: &[u8]) -> Result<String, String> {

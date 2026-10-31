@@ -181,7 +181,7 @@ pub fn check_table(file: &str, text: &str) -> Result<(), String> {
     match file {
         "tuning.txt" => crate::tuning::parse(text, Some(&crate::tuning::built_in())).map(|_| ()).map_err(fail),
         "props.txt" => map::parse_props(text).map(|_| ()).map_err(fail),
-        "effects.txt" => effects::parse(text).map(|_| ()).map_err(fail),
+        "effects.txt" => effects::parse(text).and_then(|_| effects::parse_colors(text, Some(effects::colors()))).map(|_| ()).map_err(fail),
         "ground.txt" => map::parse_ground(text).map(|_| ()).map_err(fail),
         "farm.txt" => map::parse_farm(text).map(|_| ()).map_err(fail),
         "powerups.txt" => powerups::parse(text).map(|_| ()).map_err(fail),
@@ -199,6 +199,7 @@ pub fn check_own_table(file: &str, text: &str) -> Result<(), String> {
     match file {
         "tuning.txt" => crate::tuning::parse(text, None).map(|_| ()).map_err(fail),
         "effects.txt" => {
+            effects::parse_colors(text, None).map_err(fail)?;
             let (own, extra) = effects::parse(text).map_err(fail)?;
             match own.iter().chain(extra.iter().map(|(_, w)| w)).find(|w| missing(&w.art)) {
                 Some(w) => Err(format!("{file}: no sprite called {} in art.txt", w.art)),
@@ -214,15 +215,30 @@ pub fn check_own_table(file: &str, text: &str) -> Result<(), String> {
             None => Ok(()),
         },
         "farm.txt" => {
-            let mut scatter = false;
+            let mut section = "";
             for line in text.lines().map(|l| l.split('#').next().unwrap_or("").trim()).filter(|l| !l.is_empty()) {
                 if let Some(s) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
-                    scatter = s == "scatter";
-                } else if let Some(name) = line.split_whitespace().next().filter(|n| scatter && missing(n)) {
+                    section = s;
+                    continue;
+                }
+                let words: Vec<&str> = line.split_whitespace().collect();
+                let names = match (section, &words[..]) {
+                    ("farm", _) => &[][..],
+                    ("scatter", [name, ..]) => std::slice::from_ref(name),
+                    (_, ["sprites", names @ ..]) => names,
+                    (_, ["near", name, _, ..]) => std::slice::from_ref(name),
+                    _ => &[][..],
+                };
+                if let Some(name) = names.iter().find(|n| missing(n)) {
                     return Err(format!("{file}: no sprite called {name} in art.txt"));
                 }
             }
-            Ok(())
+            let farm = map::parse_farm(text).map_err(fail)?;
+            let codes = map::ground_codes();
+            match [farm.ground, farm.tufted, farm.patch].into_iter().find(|c| !codes.iter().any(|(k, _)| k == c)) {
+                Some(c) => Err(format!("{file}: no ground code {} in ground.txt", c as char)),
+                None => Ok(()),
+            }
         }
         _ => Ok(()),
     }
@@ -835,7 +851,7 @@ impl Harvest {
             let stain = art::BLOOD_STAIN[i % art::BLOOD_STAIN.len()];
             h.stains.push((stain, at[0], at[1], [1.0; 3]));
             h.juice.corpse(Corpse { art: art::SKINNY_HURT[0], dead: None, flip: false, pos: at, z: 0.0, vel: [0.0; 2], vz: 0.0, fall: [a.cos(), a.sin()], age: 1.0, spin: 0.0 });
-            h.juice.burst(at, 8.0, 8, [0.0; 2], 0.0, [10.0, 40.0], juice::BLOOD, 1.5, 100.0, 0.0);
+            h.juice.burst(at, 8.0, 8, [0.0; 2], 0.0, [10.0, 40.0], juice::blood(), 1.5, 100.0, 0.0);
             h.juice.popup(at, 12.0 + i as f32, if i % 5 == 0 { Tone::Crit } else { Tone::Hit });
             let vel = [a.cos() * 200.0, a.sin() * 200.0];
             h.bullets.push(Bullet { pos: [h.pos[0] + a.cos() * 20.0, h.pos[1] - 6.0 + a.sin() * 20.0], vel, damage: 0.0, pierce: 0, life: 1.0, force: 0.0, hit: Vec::new(), look: None, age: 0.0 });
@@ -956,7 +972,7 @@ impl Harvest {
                     self.march(dt);
                 }
                 if !won && before < TURN_RISE && t >= TURN_RISE {
-                    self.juice.burst(self.pos, 0.0, 16, [0.0; 2], 0.0, [20.0, 60.0], juice::DIRT, 1.8, 0.7, 0.0);
+                    self.juice.burst(self.pos, 0.0, 16, [0.0; 2], 0.0, [20.0, 60.0], juice::dirt(), 1.8, 0.7, 0.0);
                     self.fx.push(Fx::play(effects::effects().player_rises, [self.pos[0], self.pos[1] - 3.0], 0.0));
                     self.juice.shake(0.35);
                     sounds.push(Sfx::Turn);
@@ -1056,7 +1072,7 @@ impl Harvest {
             self.walk += dt;
             if (self.walk * crate::tuning::tuning().walk_fps) as u32 / 2 != before / 2 {
                 let back = [-mv[0], -mv[1]];
-                self.juice.burst(self.pos, 0.5, 2, back, 0.8, [8.0, 20.0], juice::DIRT, 1.0, 0.35, 0.0);
+                self.juice.burst(self.pos, 0.5, 2, back, 0.8, [8.0, 20.0], juice::dirt(), 1.0, 0.35, 0.0);
             }
         } else {
             self.walk = 0.0;
@@ -1108,7 +1124,7 @@ impl Harvest {
             self.hp = 0.0;
             sounds.push(Sfx::GameOver);
             self.juice.shake(0.8);
-            self.juice.burst(self.pos, 8.0, 30, [0.0; 2], 0.0, [30.0, 120.0], juice::BLOOD, 2.0, 0.9, 0.0);
+            self.juice.burst(self.pos, 8.0, 30, [0.0; 2], 0.0, [30.0, 120.0], juice::blood(), 2.0, 0.9, 0.0);
             flow.rumble = Some(Rumble::Blast);
             self.leveling = 0.0;
             self.phase = Phase::Over { t: 0.0, won: false };
@@ -1117,7 +1133,7 @@ impl Harvest {
             sounds.push(Sfx::Dawn);
             // Home: the door shuts and first light burns the dead away.
             for z in std::mem::take(&mut self.zombies) {
-                self.juice.burst(z.pos, 8.0, 3, [0.0; 2], 0.0, [10.0, 40.0], juice::EMBER, 1.4, 1.2, 1.0);
+                self.juice.burst(z.pos, 8.0, 3, [0.0; 2], 0.0, [10.0, 40.0], juice::ember(), 1.4, 1.2, 1.0);
                 self.fx.push(Fx::play(effects::effects().dawn_burns, [z.pos[0], z.pos[1] - 6.0], 0.0));
             }
             self.tells.clear();
@@ -1157,7 +1173,7 @@ impl Harvest {
         z.id = self.next_id;
         self.next_id += 1;
         self.zombies.push(z);
-        self.juice.burst(at, 0.0, 40, [0.0; 2], 0.0, [30.0, 110.0], juice::DIRT, 2.2, 1.0, 0.0);
+        self.juice.burst(at, 0.0, 40, [0.0; 2], 0.0, [30.0, 110.0], juice::dirt(), 2.2, 1.0, 0.0);
         self.juice.ring(at, 60.0, 0.8, [0.9, 0.2, 0.15]);
     }
 
@@ -1236,7 +1252,7 @@ impl Harvest {
         sounds.push(Sfx::LevelUp);
         flow.rumble = flow.rumble.max(Some(Rumble::Fanfare));
         self.shove(320.0);
-        self.juice.ring(self.pos, crate::tuning::tuning().push, 0.5, juice::GOLD);
+        self.juice.ring(self.pos, crate::tuning::tuning().push, 0.5, juice::gold());
         self.juice.flash(self.pos, 20.0, [1.8, 1.4, 0.6], 9.0, 0.8);
         self.juice.punch += 6.0;
         self.juice.shake(0.3);
@@ -1254,7 +1270,7 @@ impl Harvest {
                 vz: rise,
                 age: 0.0,
                 life,
-                color: juice::GOLD,
+                color: juice::gold(),
                 size: 1.6,
                 shrink: true,
                 gravity: 40.0,
@@ -1400,7 +1416,7 @@ impl Harvest {
             };
             if age < TELL_TIME {
                 if self.juice.rng.range(0.0, 1.0) < dt * 20.0 {
-                    self.juice.burst(pos, 0.0, 1, [0.0; 2], 0.0, [6.0, 18.0], juice::DIRT, 1.4, 0.4, 0.0);
+                    self.juice.burst(pos, 0.0, 1, [0.0; 2], 0.0, [6.0, 18.0], juice::dirt(), 1.4, 0.4, 0.0);
                 }
                 continue;
             }
@@ -1412,7 +1428,7 @@ impl Harvest {
             self.next_id += 1;
             self.zombies.push(z);
             self.fx.push(Fx::play(effects::effects().zombie_rises, [pos[0], pos[1] - 3.0], 0.0));
-            self.juice.burst(pos, 0.0, 8, [0.0; 2], 0.0, [15.0, 45.0], juice::DIRT, 1.6, 0.6, 0.0);
+            self.juice.burst(pos, 0.0, 8, [0.0; 2], 0.0, [15.0, 45.0], juice::dirt(), 1.6, 0.6, 0.0);
             let (pan, gain) = self.place(pos);
             if self.hush[3] <= 0.0 && gain > 60 {
                 sounds.push(Sfx::Rise { pan, gain });
@@ -1477,7 +1493,7 @@ impl Harvest {
         for (i, at, damage) in bites {
             self.map.hurt_prop(i, damage, 0.0);
             if self.juice.rng.range(0.0, 1.0) < dt * 3.0 {
-                self.juice.burst(at, 4.0, 2, [0.0; 2], 0.0, [20.0, 50.0], juice::DIRT, 1.0, 0.3, 0.0);
+                self.juice.burst(at, 4.0, 2, [0.0; 2], 0.0, [20.0, 50.0], juice::dirt(), 1.0, 0.3, 0.0);
             }
         }
     }
@@ -1487,7 +1503,7 @@ impl Harvest {
         let Some(c) = self.map.crumble(dt) else { return };
         self.flow_cell = [usize::MAX; 2];
         self.fx.push(Fx::play(effects::effects().prop_crumbles, [c[0], c[1] - 4.0], 0.0));
-        self.juice.burst(c, 4.0, 12, [0.0; 2], 0.0, [30.0, 80.0], juice::DIRT, 1.6, 0.6, 0.0);
+        self.juice.burst(c, 4.0, 12, [0.0; 2], 0.0, [30.0, 80.0], juice::dirt(), 1.6, 0.6, 0.0);
         self.noise = Some(c);
         self.thud((1, false), sounds);
     }
@@ -1531,7 +1547,7 @@ impl Harvest {
         self.juice.hurt = 0.35;
         self.juice.shake(shake);
         self.juice.stop(0.08);
-        self.juice.burst(self.pos, 8.0, 10, [0.0; 2], 0.0, [30.0, 80.0], juice::BLOOD, 1.6, 0.5, 0.0);
+        self.juice.burst(self.pos, 8.0, 10, [0.0; 2], 0.0, [30.0, 80.0], juice::blood(), 1.6, 0.5, 0.0);
     }
 
     /// One hit sound for however many landed this frame, unless one just played.
@@ -1557,12 +1573,12 @@ impl Harvest {
                 if let Some(barrel) = self.barrels.iter_mut().find(|r| cell(r.pos) == at) {
                     barrel.hp -= b.damage;
                     barrel.flash = FLASH_TIME;
-                    self.juice.burst(ground, 6.0, 4, back, 0.8, [40.0, 100.0], juice::SPARK, 0.8, 0.2, 1.0);
+                    self.juice.burst(ground, 6.0, 4, back, 0.8, [40.0, 100.0], juice::spark(), 0.8, 0.2, 1.0);
                 } else if let Some(i) = self.map.breakable_at(ground[0], ground[1]) {
                     self.map.hurt_prop(i, b.damage, FLASH_TIME);
-                    self.juice.burst(ground, 6.0, 4, back, 0.9, [30.0, 70.0], juice::DIRT, 1.0, 0.3, 0.0);
+                    self.juice.burst(ground, 6.0, 4, back, 0.9, [30.0, 70.0], juice::dirt(), 1.0, 0.3, 0.0);
                 } else {
-                    self.juice.burst(ground, 6.0, 2, back, 0.9, [20.0, 50.0], juice::DIRT, 1.0, 0.3, 0.0);
+                    self.juice.burst(ground, 6.0, 2, back, 0.9, [20.0, 50.0], juice::dirt(), 1.0, 0.3, 0.0);
                 }
                 b.life = 0.0;
                 continue;
@@ -1638,9 +1654,9 @@ impl Harvest {
         self.juice.stop(0.07);
         self.juice.punch += 4.0;
         self.juice.flash(c, 14.0, [2.4, 1.3, 0.5], 8.0, 0.45);
-        self.juice.ring(c, radius * 1.3, 0.45, juice::EMBER);
-        self.juice.burst(c, 4.0, 18, [0.0; 2], 0.0, [40.0, 140.0], juice::EMBER, 1.2, 0.6, 1.0);
-        self.juice.burst(c, 2.0, 14, [0.0; 2], 0.0, [30.0, 90.0], juice::DIRT, 1.8, 0.8, 0.0);
+        self.juice.ring(c, radius * 1.3, 0.45, juice::ember());
+        self.juice.burst(c, 4.0, 18, [0.0; 2], 0.0, [40.0, 140.0], juice::ember(), 1.2, 0.6, 1.0);
+        self.juice.burst(c, 2.0, 14, [0.0; 2], 0.0, [30.0, 90.0], juice::dirt(), 1.8, 0.8, 0.0);
         let scorch = art::BLOOD_STAIN[self.juice.rng.below(art::BLOOD_STAIN.len())];
         self.stain((scorch, c[0] - scorch.w() / 2.0, c[1] - scorch.h() / 2.0, [0.12, 0.1, 0.09]));
         self.noise = Some(c);
@@ -1693,8 +1709,8 @@ impl Harvest {
         let flip = self.juice.rng.below(2) == 0;
         let dead = look.dead.map(|d| (d, dir));
         self.juice.corpse(Corpse { art: look.hurt[Facing::Front.index()], dead, flip, pos, z: 0.0, vel, vz, fall, age: 0.0, spin: 0.0 });
-        self.juice.burst(pos, 8.0, gibs, fall, 1.2, [30.0, 110.0], juice::BLOOD, 1.6, 0.6, 0.0);
-        self.juice.burst(pos, 8.0, gibs / 3, fall, 0.8, [20.0, 60.0], juice::DARK_BLOOD, 2.4, 0.8, 0.0);
+        self.juice.burst(pos, 8.0, gibs, fall, 1.2, [30.0, 110.0], juice::blood(), 1.6, 0.6, 0.0);
+        self.juice.burst(pos, 8.0, gibs / 3, fall, 0.8, [20.0, 60.0], juice::dark_blood(), 2.4, 0.8, 0.0);
     }
 
     fn reap(&mut self, sounds: &mut Vec<Sfx>, flow: &mut Flow) {
@@ -1814,7 +1830,7 @@ impl Harvest {
             let n = if since < 0.5 { n + 1 } else { 0 };
             self.chain = (0.0, n);
             sounds.push(Sfx::Pickup(n.min(20) as u8));
-            self.juice.burst(self.pos, 10.0, 2, [0.0; 2], 0.0, [10.0, 30.0], juice::GOLD, 0.8, 0.25, 1.0);
+            self.juice.burst(self.pos, 10.0, 2, [0.0; 2], 0.0, [10.0, 30.0], juice::gold(), 0.8, 0.25, 1.0);
         }
         if healed {
             sounds.push(Sfx::Heal);
@@ -1902,7 +1918,7 @@ impl Harvest {
                 vz: 0.0,
                 age: 0.0,
                 life,
-                color: juice::FIREFLY,
+                color: juice::firefly(),
                 size: 1.0,
                 shrink: false,
                 gravity: 0.0,
@@ -2020,7 +2036,7 @@ fn strike(z: &mut Zombie, juice: &mut Juice, damage: f32, dir: [f32; 2], force: 
     if z.kind.stats().heavy && !z.boss && (crit || force > 100.0) {
         z.stagger = crate::tuning::tuning().stagger;
     }
-    juice.burst(z.pos, 8.0, if crit { 6 } else { 3 }, dir, 0.6, [30.0, 90.0], juice::BLOOD, 1.4, 0.4, 0.0);
+    juice.burst(z.pos, 8.0, if crit { 6 } else { 3 }, dir, 0.6, [30.0, 90.0], juice::blood(), 1.4, 0.4, 0.0);
     crit
 }
 
@@ -2067,6 +2083,13 @@ mod tests {
         assert_eq!(check_own_table("effects.txt", &effects), Err("effects.txt: no sprite called NOPE in art.txt".into()));
         let farm = built_in_table("farm.txt").unwrap().replace("BUSH 140", "PROP_MINE 140");
         assert!(check_table("farm.txt", &farm).is_ok() && check_own_table("farm.txt", &farm).is_err(), "only a mod's farm strews its props");
+        for (from, to) in [("sprites BARN_RED", "sprites PROP_MINE"), ("near HAY 7", "near PROP_MINE 7")] {
+            let farm = built_in_table("farm.txt").unwrap().replace(from, to);
+            assert!(check_table("farm.txt", &farm).is_ok() && check_own_table("farm.txt", &farm).is_err(), "only a mod's farm builds with its props");
+        }
+        assert!(check_own_table("farm.txt", built_in_table("farm.txt").unwrap()).is_ok());
+        let farm = built_in_table("farm.txt").unwrap().replace("patch g", "patch Z");
+        assert_eq!(check_own_table("farm.txt", &farm), Err("farm.txt: no ground code Z in ground.txt".into()));
         let powerups = built_in_table("powerups.txt").unwrap().replacen("unlock    start", "unlock    start\nicon      PROP_MINE", 1);
         assert!(check_table("powerups.txt", &powerups).is_ok() && check_own_table("powerups.txt", &powerups).is_err(), "only a mod's icon can be its prop");
     }

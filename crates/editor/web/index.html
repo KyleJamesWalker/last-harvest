@@ -41,7 +41,7 @@
   #help > div { max-width: min(720px, 92vw); max-height: 86vh; overflow: auto; padding: 20px 26px; border-radius: 12px; background: #26262d;
                 line-height: 1.45; }
   #help h2 { margin: 0 0 8px; color: #f2bf4d; }
-  #help code { color: #f2bf4d; }
+  #help code, #help a { color: #f2bf4d; }
 </style>
 </head>
 <body>
@@ -55,7 +55,7 @@
   <div class="group"><span>Sprite</span><button data-act="prev-sprite">&#8593; K</button><button data-act="next-sprite">&#8595; J</button></div>
   <div class="group"><span>Frame</span><button data-act="prev-frame">&#8592; H</button><button data-act="next-frame">&#8594; L</button></div>
   <div class="group" id="mod-tools" hidden><span>Cards</span><button data-act="import">Import</button><button data-act="export">Export</button><button data-act="export-all">Export all</button><button data-act="sound">Sound</button><button data-act="delete-card">Delete card</button><button data-act="pak" id="pak">Game data</button><button id="help-open">Help</button></div>
-  <div class="group"><button data-act="search">Search</button><button data-act="history">History</button><button data-act="new">New</button><button data-act="play">Play</button><button data-act="mirror">Mirror</button><button data-act="fit">Fit</button><button data-act="save" class="save">Save</button></div>
+  <div class="group"><button data-act="search">Search</button><button data-act="history">History</button><button data-act="new">New</button><button data-act="play">Play</button><button data-act="mirror">Mirror</button><button data-act="palette" title="Draw from a palette file, such as a .hex from lospec.com">Palette file</button><button data-act="fit">Fit</button><button data-act="save" class="save">Save</button></div>
 </div>
 <div id="help" hidden><div>
   <h2>Making a card</h2>
@@ -64,8 +64,8 @@
   <ol>
     <li><b>New</b> starts a card from a plain figure. Type its id: letters, digits and <code>_</code>. Start the name
     with <code>PLAYER_</code> for a player card.</li>
-    <li>Draw its five parts from the list: walking front, side and back, then a flash and a hurt frame for each
-    facing. An enemy's walk can have 1 to 8 frames. <b>Compare</b> shows all five side by side.</li>
+    <li>Draw its parts from the list: walking front, side and back, then a flash, a hurt and a dead frame for each
+    facing. An enemy's walk can have 1 to 8 frames. <b>Compare</b> shows them side by side.</li>
     <li><b>Stats</b> (<code>T</code>) sets its name and numbers. For an enemy, the chart shows how often it comes
     through the night beside the game's own kinds; for a player, which weapons each difficulty starts with.</li>
     <li><b>Save</b>, then <b>Export</b> downloads <code>id.enemy.png</code> or <code>id.player.png</code>.</li>
@@ -74,14 +74,19 @@
     can't load, the title screen says why.
     <b>Export all</b> instead downloads every card as one <code>my-cards.pak</code> for the game's
     <code>data/mods</code> folder; it also carries each enemy's own death sound, which <b>Sound</b> picks, an
-    <code>.ogg</code> or <code>.wav</code> up to 512 KB.</li>
+    <code>.ogg</code> or <code>.wav</code> up to 512 KB. <b>Drop own</b>, beside the death sound on the Stats page, removes it.</li>
   </ol>
   <p>Your cards stay in this browser until you delete them. <b>Import</b> opens a card someone shared with you, or
   every card in a <code>.pak</code>; one with the id of a card you have replaces it.
   <b>Game data</b> lets you pick your own <code>game_data.pak</code> so the previews show the farm; it never leaves
   your browser.</p>
+  <p>The palette starts as the game's own colors. <b>Palette file</b> draws from another instead: download a
+  palette's <code>.hex</code> file from <a href="https://lospec.com/palette-list" target="_blank" rel="noopener">Lospec</a>
+  and pick it.</p>
   <p>Some apps strip a PNG's text when they re-save it, which takes a card's numbers with it: share the file
   itself.</p>
+  <p>The <a href="https://kylejameswalker.github.io/last-harvest/manual.html" target="_blank" rel="noopener">manual</a>
+  covers playing the game and everything this editor makes, step by step.</p>
   <button id="help-close">Close</button>
 </div></div>
 <div id="hold-left" class="hold">Shift</div>

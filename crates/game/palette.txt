@@ -1,0 +1,49 @@
+# The colors the game's own art is drawn in: the tileset's 22, then each color added for something it lacks.
+# The editors start from these, and a test keeps the game's drawings and coats to them, so add a color here, with
+# what it's for, before drawing with it. One color a line, as Lospec's .hex files have them.
+
+# The tileset's own
+FFFFFF
+EAC9DA
+D1CBAB
+B2ACAC
+878B94
+949875
+8E886A
+9A7868
+917662
+AD644B
+7F765D
+7D6754
+C24723
+726650
+9F4831
+58534A
+873018
+4E4637
+443830
+75210E
+241E1E
+000000
+
+# Lantern light, gold and brass: the tileset has no yellow
+E8D27A
+D8B04A
+A07E30
+
+# Fire and blasts, brighter than the tileset's orange
+D98A3C
+
+# Denim, glass and steel: the tileset has no blue
+5A78A0
+3E5678
+2E5470
+
+# Bottles, plants and medicine: the tileset has no green
+7AA062
+557A46
+3A5232
+
+# Skin and fruit
+E4A478
+B87A58

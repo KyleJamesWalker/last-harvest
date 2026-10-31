@@ -560,7 +560,7 @@ impl Map {
                 let frames = sprite(name).ok_or_else(|| format!("no sprite called {name}"))?;
                 let frames = match frame {
                     Some(k) => &frames[(*k).min(frames.len() - 1)..][..1],
-                    None => frames,
+                    None => super::super::props::prop(name).map_or(frames, |p| p.coat(0)),
                 };
                 let fps = if *fps == 0.0 && frame.is_none() { super::super::props::prop(name).map_or(0.0, |p| p.fps) } else { *fps };
                 self.prop_as(frames, fps, x, y, *open, toughness(frames[0]).with(*tough));
@@ -834,7 +834,8 @@ mod tests {
         let read = super::super::super::props::prop_fields;
         let tank = read("[map_test_tank]\nfps 6\nstand slab 4").unwrap();
         let krate = read("[crate_test]\nframes 3\nhp 10\nbroken yes\ncover no").unwrap();
-        super::super::super::props::set_props(vec![(tank, art::WINDMILL_FAN.to_vec()), (krate, art::LOG.to_vec())]);
+        let (tank_stand, krate_stand) = (tank.stand, krate.stand);
+        super::super::super::props::set_props(vec![(tank, vec![(art::WINDMILL_FAN.to_vec(), tank_stand)]), (krate, vec![(art::LOG.to_vec(), krate_stand)])]);
     }
 
     #[test]

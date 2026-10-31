@@ -8,7 +8,9 @@ use crate::sprite::{self, CLEAR, Frame, Rgba, Sprite};
 use crate::store::Store;
 
 mod cards;
+mod coats;
 mod maps;
+mod palette;
 mod tables;
 
 use cards::HeldImport;
@@ -31,16 +33,29 @@ const MAX_SIZE: usize = 128;
 const STANDS: [&str; 6] = ["Prop", "Slab", "Figure", "Ground", "Carve", "Turned"];
 const CARVE: u8 = 4;
 const TURNED: u8 = 5;
-const VIEW_NAMES: [&str; 4] = ["South view", "East view", "Footprint", "Top"];
-const VIEW_HINTS: [&str; 4] = [
+const VIEW_NAMES: [&str; 7] = ["South view", "East view", "Footprint", "Top", "Top", "North view", "West view"];
+/// Each view's name on its thumbnail.
+const VIEW_LABELS: [&str; 7] = ["South", "East", "Footprint", "Top", "Top", "North", "West"];
+const VIEW_HINTS: [&str; 7] = [
     "the sprite seen from the south: west on the left",
     "the sprite seen from the east: south on the left",
     "the outline from above: only opaque or clear counts",
     "each column's color on top in 3D; clear leaves its own",
+    "the colors on top in 3D; clear leaves the sprite's",
+    "the sprite seen from the north: east on the left; clear leaves the south view's",
+    "the sprite seen from the west: north on the left; clear leaves the east view's",
 ];
 const FOOTPRINT: usize = 2;
 /// The view that is a figure's top strip.
 const TOP: usize = 3;
+/// A carving's top colors, and its north and west views.
+const ROOF: usize = 4;
+const NORTH: usize = 5;
+const WEST: usize = 6;
+/// The pictures a carving may have or not, in the order they pack after its south and east views.
+const CARVE_EXTRAS: [usize; 4] = [FOOTPRINT, ROOF, NORTH, WEST];
+/// Every picture a sprite may have or not.
+const OPTIONAL: [usize; 5] = [FOOTPRINT, TOP, ROOF, NORTH, WEST];
 /// How a sprite stands, by its button: prop, slab, figure, ground, carve, turned.
 const FIGURE: u8 = 2;
 const DIALOG: Rect = Rect { x: 212.0, y: 250.0, w: 600.0, h: 230.0 };
@@ -131,6 +146,8 @@ enum Grab {
 enum Ask {
     New,
     Copy,
+    /// A Lospec palette's name, to draw from its colors.
+    Palette,
 }
 
 /// A line of a card's text typed on its stats page.
@@ -182,7 +199,8 @@ enum Action {
     MoveFrame(i32),
     Frame(usize),
     View(usize),
-    AddFootprint,
+    /// Adds one of a carving's extras, by its view.
+    AddView(usize),
     AddTop,
     History,
     Restore,
@@ -204,6 +222,7 @@ enum Action {
     StatStep(usize, i32),
     Flag(usize),
     Sound(i32),
+    DropSound,
     EditName,
     EditAbout,
     /// Turns a weapon, by its place in `weapons()`, on or off in a player card's start at a difficulty.
@@ -257,6 +276,16 @@ enum Action {
     DataPage(i32),
     /// Leaves the paint color out of the 3D view, or puts it back.
     ClearIn3d,
+    /// Shows the Coats page on the canvas, or the pixels again.
+    Coats,
+    /// Marks the brush's color as paint, or not.
+    PaintColor,
+    /// Shows a coat in the previews, or the frames as drawn.
+    Coat(Option<usize>),
+    /// Gives a coat's shade of a paint color the brush's color.
+    Shade(usize, usize),
+    DropCoat(usize),
+    AddCoat,
 }
 
 /// What each of a card's numbers is called on its stats page, and how far a press of - or + moves it.
@@ -343,8 +372,40 @@ const HISTORY_TOP: f32 = LIST.y + 48.0;
 const RESTORE: Rect = Rect { x: LIST.x + 8.0, y: LIST.y + LIST.h - 44.0, w: 88.0, h: 36.0 };
 const BACK: Rect = Rect { x: LIST.x + 104.0, y: LIST.y + LIST.h - 44.0, w: 88.0, h: 36.0 };
 
-/// Everything an undo puts back: the frames, the carving views and the footprint.
-type Snapshot = (Vec<Frame>, Option<[Frame; 2]>, Option<Frame>, Option<Frame>);
+/// Everything an undo puts back: the frames, the carving views, and the optional pictures in `OPTIONAL` order.
+type Snapshot = (Vec<Frame>, Option<[Frame; 2]>, [Option<Frame>; 5]);
+
+/// One of the pictures a sprite may have or not, by its view.
+fn optional(s: &Sprite, view: usize) -> &Option<Frame> {
+    match view {
+        FOOTPRINT => &s.footprint,
+        ROOF => &s.roof,
+        NORTH => &s.north,
+        WEST => &s.west,
+        _ => &s.top,
+    }
+}
+
+fn optional_mut(s: &mut Sprite, view: usize) -> &mut Option<Frame> {
+    match view {
+        FOOTPRINT => &mut s.footprint,
+        ROOF => &mut s.roof,
+        NORTH => &mut s.north,
+        WEST => &mut s.west,
+        _ => &mut s.top,
+    }
+}
+
+fn snapshot_of(s: &Sprite) -> Snapshot {
+    (s.frames.clone(), s.views.clone(), OPTIONAL.map(|v| optional(s, v).clone()))
+}
+
+fn restore(s: &mut Sprite, (frames, views, pictures): Snapshot) {
+    (s.frames, s.views) = (frames, views);
+    for (v, f) in OPTIONAL.into_iter().zip(pictures) {
+        *optional_mut(s, v) = f;
+    }
+}
 
 /// A line of the sprite list.
 enum Row<'a> {
@@ -371,7 +432,11 @@ pub struct Editor {
     compare: bool,
     family: Vec<(String, Vec<Frame>)>,
     color: Rgba,
+    /// The brush's color before the last pick, which X swaps back to.
+    previous_color: Rgba,
     palette: Vec<Rgba>,
+    /// The Lospec palette drawn from, else the game's own.
+    palette_name: Option<String>,
     undo: Vec<Snapshot>,
     redo: Vec<Snapshot>,
     /// Edits not yet saved.
@@ -384,6 +449,8 @@ pub struct Editor {
     figure_at: Option<(usize, bool)>,
     /// Where the last packing put the frames' 3D copies among the surfaces, and how many there are.
     solids_at: Option<(usize, usize)>,
+    /// Where the last packing put the Coats page's rows among the surfaces.
+    coats_at: Option<usize>,
     /// The open card's parts as saved, read when it opens or saves.
     card_parts: Vec<Vec<Frame>>,
     /// The hand-made map being edited, in place of a sprite.
@@ -393,7 +460,7 @@ pub struct Editor {
     /// The data page section that says how the open sprite plays, found when it opens.
     data_link: Option<String>,
     /// Players' props packed for the previews while a map is open, in order: their fields and frame counts.
-    map_props: Vec<(last_harvest_game::PropFields, usize)>,
+    map_props: Vec<(last_harvest_game::PropFields, usize, usize)>,
     playing: bool,
     clock: f32,
     /// An index into `STANDS`.
@@ -414,8 +481,8 @@ pub struct Editor {
     held_import: Option<HeldImport>,
     selection: Option<Selection>,
     grab: Option<Grab>,
-    /// Rows of the south and east views cut off by lowering the carving's height, highest first.
-    trimmed: [Vec<Vec<Rgba>>; 2],
+    /// Rows of the south, east, north and west views cut off by lowering the carving's height, highest first.
+    trimmed: [Vec<Vec<Rgba>>; 4],
     /// Narrows the sprite list to names containing it; `typing` while it's being typed.
     filter: String,
     typing: bool,
@@ -440,6 +507,10 @@ pub struct Editor {
     pan: [f32; 2],
     /// A card's stats are on the canvas in place of its pixels.
     stats: bool,
+    /// The Coats page is on the canvas in place of the pixels.
+    coats_page: bool,
+    /// The coat the previews show, else the frames as drawn.
+    coat: Option<usize>,
     /// The card's name or about as it's being typed.
     naming: Option<(Line, String)>,
     /// The other cards' texts, read when the stats page opens, for the spawn mix.
@@ -456,7 +527,7 @@ pub struct Editor {
 impl Editor {
     /// An editor on the sprite `name`, or on none until one is picked when `name` is empty.
     pub fn new(store: Box<dyn Store>, name: &str) -> Self {
-        let sprite = store.load(name).unwrap_or(Sprite { name: name.into(), frames: vec![Frame::blank(16, 16)], views: None, footprint: None, top: None, card: None, clear_in_3d: Vec::new() });
+        let sprite = store.load(name).unwrap_or(Sprite { name: name.into(), frames: vec![Frame::blank(16, 16)], views: None, footprint: None, roof: None, north: None, west: None, top: None, card: None, clear_in_3d: Vec::new(), paint: Default::default() });
         let names = store.names();
         let mut e = Self {
             store,
@@ -473,7 +544,9 @@ impl Editor {
             compare: false,
             family: Vec::new(),
             color: [0x55, 0x3c, 0x2a, 255],
+            previous_color: [0x55, 0x3c, 0x2a, 255],
             palette: sprite::palette(),
+            palette_name: None,
             undo: Vec::new(),
             redo: Vec::new(),
             dirty: false,
@@ -481,6 +554,7 @@ impl Editor {
             strike: None,
             figure_at: None,
             solids_at: None,
+            coats_at: None,
             card_parts: Vec::new(),
             map: None,
             data: None,
@@ -516,6 +590,8 @@ impl Editor {
             lens: 1.0,
             pan: [0.0; 2],
             stats: false,
+            coats_page: false,
+            coat: None,
             naming: None,
             other_cards: Vec::new(),
             own_sound: None,
@@ -551,8 +627,9 @@ impl Editor {
             0 => Stand::Prop { depth: self.depth },
             2 => Stand::Figure,
             3 => Stand::Ground,
-            CARVE if self.live.len() == n + 2 + self.sprite.footprint.is_some() as usize => {
-                Stand::Carve { footprint: self.live.get(n + 2).copied(), south: self.live[n], east: self.live[n + 1] }
+            CARVE if self.own_packed() == n + 2 + self.carve_extras().count() => {
+                let at = |v: usize| optional(&self.sprite, v).as_ref().and_then(|_| self.live.get(self.surface_of(v)).copied());
+                Stand::Carve { footprint: at(FOOTPRINT), roof: at(ROOF), south: self.live[n], east: self.live[n + 1], north: at(NORTH), west: at(WEST) }
             }
             TURNED => match self.live.get(n + 1).filter(|_| self.sprite.views.is_some()) {
                 Some(&east) => Stand::Turned { east, depth: Some(self.depth) },
@@ -560,6 +637,11 @@ impl Editor {
             },
             _ => Stand::Slab { height: self.height, lift: self.lift },
         }
+    }
+
+    /// How many of the packed pictures are the sprite's own frames and views, before any 3D copies or Coats rows.
+    fn own_packed(&self) -> usize {
+        self.solids_at.map(|(k, _)| k).or(self.coats_at).unwrap_or(self.live.len()).min(self.live.len())
     }
 
     /// The stand as the catalog and `stand.txt` write it.
@@ -608,10 +690,16 @@ impl Editor {
             let n = self.sprite.frames.len();
             let solids: Vec<Frame> = out[..n]
                 .iter()
-                .map(|f| Frame { px: f.px.iter().map(|p| if clear.contains(p) { CLEAR } else { *p }).collect(), ..f.clone() })
+                .zip(&self.sprite.frames)
+                .map(|(f, drawn)| Frame { px: f.px.iter().zip(&drawn.px).map(|(p, d)| if clear.contains(d) { CLEAR } else { *p }).collect(), ..f.clone() })
                 .collect();
             self.solids_at = Some((out.len(), n));
             out.extend(solids);
+        }
+        self.coats_at = None;
+        if self.coats_page && !self.none_open() {
+            self.coats_at = Some(out.len());
+            out.extend(self.coat_rows());
         }
         out
     }
@@ -630,10 +718,10 @@ impl Editor {
         if self.none_open() {
             return Vec::new();
         }
-        let footprint = self.sprite.footprint.iter().filter(|_| self.stand == CARVE);
-        let views = self.sprite.views.iter().flatten().chain(footprint).filter(|_| self.by_views());
+        let extras = self.carve_extras().map(|v| optional(&self.sprite, v).as_ref().unwrap()).filter(|_| self.stand == CARVE);
+        let views = self.sprite.views.iter().flatten().chain(extras).filter(|_| self.by_views());
         let top = self.sprite.top.iter().filter(|_| self.stand == FIGURE);
-        let mut out: Vec<Frame> = self.sprite.frames.iter().chain(views).chain(top).cloned().collect();
+        let mut out: Vec<Frame> = self.sprite.frames.iter().chain(views).chain(top).map(|f| self.in_coat(f)).collect();
         if let Some(Selection { x, y, float: Some(f), .. }) = &self.selection {
             let i = self.view.map_or(self.frame, |v| self.surface_of(v));
             if let Some(target) = out.get_mut(i) {
@@ -643,11 +731,20 @@ impl Editor {
         out
     }
 
-    /// Where a view's drawing sits among `surfaces`: the carving views and footprint follow the frames, and a
-    /// figure's top strip follows them.
+    /// Where a view's drawing sits among `surfaces`: the carving views follow the frames, then the carving's extras
+    /// it has, and a figure's top strip follows the frames.
     fn surface_of(&self, view: usize) -> usize {
         let n = self.sprite.frames.len();
-        if view == TOP { n } else { n + view }
+        match view {
+            TOP => n,
+            0 | 1 => n + view,
+            _ => n + 2 + self.carve_extras().take_while(|&v| v != view).count(),
+        }
+    }
+
+    /// The carving's extras the sprite has, in the order they pack.
+    fn carve_extras(&self) -> impl Iterator<Item = usize> + '_ {
+        CARVE_EXTRAS.into_iter().filter(|&v| optional(&self.sprite, v).is_some())
     }
 
     /// The frames to show in the previews: all of them while playing, else the one being edited.
@@ -690,27 +787,23 @@ impl Editor {
 
     /// What the canvas shows: a frame, or a carving view.
     fn current(&self) -> &Frame {
-        match (self.view, &self.sprite.views, &self.sprite.footprint) {
-            (Some(TOP), _, _) if self.sprite.top.is_some() => self.sprite.top.as_ref().unwrap(),
-            (Some(FOOTPRINT), _, Some(f)) => f,
-            (Some(v), Some(views), _) if v < 2 => &views[v],
+        match (self.view, &self.sprite.views) {
+            (Some(v), Some(views)) if v < 2 => &views[v],
+            (Some(v), _) if v >= 2 && optional(&self.sprite, v).is_some() => optional(&self.sprite, v).as_ref().unwrap(),
             _ => &self.sprite.frames[self.frame],
         }
     }
 
     fn current_mut(&mut self) -> &mut Frame {
-        if let (Some(TOP), Some(t)) = (self.view, &mut self.sprite.top) {
-            return t;
-        }
-        match (self.view, &mut self.sprite.views, &mut self.sprite.footprint) {
-            (Some(FOOTPRINT), _, Some(f)) => f,
-            (Some(v), Some(views), _) if v < 2 => &mut views[v],
+        match self.view {
+            Some(v) if v < 2 && self.sprite.views.is_some() => &mut self.sprite.views.as_mut().unwrap()[v],
+            Some(v) if v >= 2 && optional(&self.sprite, v).is_some() => optional_mut(&mut self.sprite, v).as_mut().unwrap(),
             _ => &mut self.sprite.frames[self.frame],
         }
     }
 
     fn snapshot(&self) -> Snapshot {
-        (self.sprite.frames.clone(), self.sprite.views.clone(), self.sprite.footprint.clone(), self.sprite.top.clone())
+        snapshot_of(&self.sprite)
     }
 
     /// The carving height, which is how tall the views are.
@@ -770,6 +863,13 @@ impl Editor {
         };
     }
 
+    /// Makes `c` the brush's color, keeping the one before it for X to swap back to.
+    fn pick_color(&mut self, c: Rgba) {
+        if c != self.color {
+            self.previous_color = std::mem::replace(&mut self.color, c);
+        }
+    }
+
     pub fn say(&mut self, text: impl Into<String>) {
         self.status = Some((text.into(), 0.0));
     }
@@ -813,6 +913,8 @@ impl Editor {
                 self.fps = fps;
             }
             self.stats &= self.is_card();
+            self.coats_page &= !self.is_card();
+            self.coat = None;
             self.naming = None;
             self.delete_armed = 0.0;
             if self.stats {
@@ -922,7 +1024,7 @@ impl Editor {
 
     /// Whether `p` is on the pixel canvas with nothing in front of it.
     pub fn on_canvas(&self, p: [f32; 2]) -> bool {
-        CANVAS.contains(p) && self.pending.is_none() && self.ask.is_none() && !self.stats && !self.none_open()
+        CANVAS.contains(p) && self.pending.is_none() && self.ask.is_none() && !self.stats && !self.coats_page && !self.none_open()
     }
 
     /// Whether `p` is on a row of the sprite list.
@@ -959,6 +1061,10 @@ impl Editor {
             *name = text.chars().filter(|&c| line.takes(c)).take(line.max()).collect();
             return;
         }
+        if let Some((Ask::Palette, name)) = &mut self.ask {
+            *name = text.chars().filter_map(lospec_char).take(64).collect();
+            return;
+        }
         let clean: String = text.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == ' ').map(|c| if c == ' ' { '_' } else { c.to_ascii_uppercase() }).collect();
         if self.typing {
             self.filter = clean;
@@ -993,6 +1099,13 @@ impl Editor {
         } else if self.data_link.is_some() {
             push(410.0, 8.0, 94.0, 34.0, Action::Data, "Data", false);
         }
+        if !self.is_card() && !self.none_open() {
+            let x = if self.built_in_still().is_some() || self.data_link.is_some() { 312.0 } else { 410.0 };
+            push(x, 8.0, 94.0, 34.0, Action::Coats, "Coats", self.coats_page);
+        }
+        if self.coats_page && !self.none_open() {
+            self.coat_buttons(&mut push);
+        }
         if self.stats && self.is_player_card() {
             self.line_buttons(&mut push);
             let starts = self.player_starts();
@@ -1021,6 +1134,9 @@ impl Editor {
             let y = STAT_TOP + STAT_ROWS.len() as f32 * STAT_ROW;
             push(CANVAS.x + 400.0, y, 66.0, STAT_BUTTON, Action::Sound(-1), "<", false);
             push(CANVAS.x + 474.0, y, 66.0, STAT_BUTTON, Action::Sound(1), ">", false);
+            if self.own_sound.is_some() {
+                push(CANVAS.x + 548.0, y, 110.0, STAT_BUTTON, Action::DropSound, "Drop own", false);
+            }
             let fields = self.sprite.card.as_deref().and_then(|t| last_harvest_game::card_fields(t).ok());
             for (i, name) in FLAG_NAMES.into_iter().enumerate() {
                 let on = fields.as_ref().is_some_and(|f| f.flags[i].1);
@@ -1047,11 +1163,13 @@ impl Editor {
         push(SIDE_X + 128.0, 192.0, 50.0, 26.0, Action::ClearColor, "Erase", false);
         if !self.is_card() {
             push(SIDE_X + 182.0, 192.0, 50.0, 26.0, Action::ClearIn3d, "No 3D", self.sprite.clear_in_3d.contains(&self.color));
+            push(SIDE_X, 192.0, 56.0, 26.0, Action::PaintColor, "Paint", self.sprite.paint.colors.contains(&[self.color[0], self.color[1], self.color[2]]));
         }
         for (i, (t, l)) in [(Tool::Line, "Line"), (Tool::Rect, "Box"), (Tool::Ellipse, "Oval")].into_iter().enumerate() {
             let (x, y) = cell(6 + i);
             push(x, y, 74.0, 32.0, Action::Tool(t), l, self.tool_now() == t);
         }
+        push(SIDE_X + 132.0, 289.0, 100.0, 24.0, Action::Ask(Ask::Palette), "Lospec", self.palette_name.is_some());
         let cols = (SIDE_W / SWATCH) as usize;
         for (i, &c) in self.palette.iter().enumerate().take(cols * if self.is_prop() { PROP_PALETTE_ROWS } else { 9 }) {
             let (x, y) = (SIDE_X + (i % cols) as f32 * SWATCH, 316.0 + (i / cols) as f32 * SWATCH);
@@ -1085,7 +1203,7 @@ impl Editor {
         push(SIDE_X, 736.0, 114.0, 28.0, Action::Onion, "Onion O", self.onion);
         push(SIDE_X + 118.0, 736.0, 114.0, 28.0, Action::Compare, "Compare C", self.compare);
         let carving = self.stand == CARVE && self.sprite.views.is_some();
-        let room = if carving { 4 } else if self.by_views() { 6 } else { 7 };
+        let room = if carving { 2 } else if self.by_views() { 6 } else { 7 };
         let shown = self.sprite.frames.len().min(room);
         let first = self.frame.saturating_sub(room - 1).min(self.sprite.frames.len() - shown);
         for i in first..first + shown {
@@ -1098,14 +1216,11 @@ impl Editor {
             push(after + 56.0, 622.0, THUMB, THUMB, action, "", self.view == Some(TOP));
         }
         if carving {
-            for v in 0..2 {
-                push(after + 56.0 + v as f32 * (THUMB + 6.0), 622.0, THUMB, THUMB, Action::View(v), "", self.view == Some(v));
-            }
-            let x = after + 56.0 + 2.0 * (THUMB + 6.0);
-            if self.sprite.footprint.is_some() {
-                push(x, 622.0, THUMB, THUMB, Action::View(FOOTPRINT), "", self.view == Some(FOOTPRINT));
-            } else {
-                push(x, 622.0, THUMB, THUMB, Action::AddFootprint, "", false);
+            // Narrower than a frame's, so all six fit beside two frames.
+            let slot = 52.0;
+            for (i, v) in [0, 1].into_iter().chain(CARVE_EXTRAS).enumerate() {
+                let action = if v < 2 || optional(&self.sprite, v).is_some() { Action::View(v) } else { Action::AddView(v) };
+                push(after + 56.0 + i as f32 * (slot + 4.0), 622.0, slot, THUMB, action, "", self.view == Some(v));
             }
         } else if self.by_views() {
             push(after + 56.0, 622.0, THUMB, THUMB, Action::View(1), "", self.view == Some(1));
@@ -1202,7 +1317,7 @@ impl Editor {
                 return;
             }
         }
-        if CANVAS.contains(p) && !self.stats && !self.none_open() {
+        if CANVAS.contains(p) && !self.stats && !self.coats_page && !self.none_open() {
             let (x, y) = self.pixel_at(p);
             if self.tool_now() == Tool::Select && !right {
                 self.grab = Some(match &self.selection {
@@ -1227,7 +1342,7 @@ impl Editor {
             }
             if right || self.tool_now() == Tool::Picker {
                 if let Some(c) = self.current().get(x, y).filter(|c| c[3] > 0) {
-                    self.color = c;
+                    self.pick_color(c);
                     if !right && self.tool == Tool::Picker {
                         self.tool = self.before_pick;
                     }
@@ -1536,7 +1651,7 @@ impl Editor {
         if self.none_open() && !any_sprite {
             return self.say("Pick a sprite from the list, or press N for a new one");
         }
-        if self.map.is_some() && self.map_act(a) {
+        if self.map.is_some() && self.map_act(a, shift) {
             return;
         }
         if self.data.is_some() && self.data_act(a, shift) {
@@ -1627,6 +1742,18 @@ impl Editor {
             Action::ClearColor => self.clear_color(),
             Action::ClearIn3d if self.is_card() => self.say("A card stands as a figure, which keeps every color"),
             Action::ClearIn3d => self.clear_in_3d(),
+            Action::Coats => {
+                self.coats_page = !self.coats_page;
+                self.changed = true;
+            }
+            Action::PaintColor => self.toggle_paint(),
+            Action::Coat(k) => {
+                self.coat = k;
+                self.changed = true;
+            }
+            Action::Shade(k, j) => self.set_shade(k, j),
+            Action::DropCoat(k) => self.drop_coat(k),
+            Action::AddCoat => self.add_coat(),
             Action::Stats => {
                 self.stats = !self.stats;
                 self.naming = None;
@@ -1662,6 +1789,7 @@ impl Editor {
                 let next = sounds[(at + d).rem_euclid(sounds.len() as i32) as usize].clone();
                 self.set_card("sound", Some(&next));
             }
+            Action::DropSound => self.drop_sound(),
             Action::StartWeapon(d, w) => {
                 let difficulty = last_harvest_game::Difficulty::ALL[d];
                 let mut have = self.player_starts()[d].clone().unwrap_or_else(|| last_harvest_game::default_start(difficulty));
@@ -1688,11 +1816,16 @@ impl Editor {
                 self.view = None;
                 self.say("Top removed: the 3D view picks the top colors itself again");
             }
-            Action::DeleteFrame if self.view == Some(FOOTPRINT) => {
+            Action::DeleteFrame if self.view.is_some_and(|v| CARVE_EXTRAS.contains(&v)) => {
+                let v = self.view.take().unwrap();
                 self.remember();
-                self.sprite.footprint = None;
-                self.view = None;
-                self.say("Footprint removed: the sprite's own outline shapes the solid again");
+                *optional_mut(&mut self.sprite, v) = None;
+                self.say(match v {
+                    FOOTPRINT => "Footprint removed: the sprite's own outline shapes the solid again",
+                    ROOF => "Top removed: the sprite colors the top again",
+                    NORTH => "North view removed: the south view colors the north side again",
+                    _ => "West view removed: the east view colors the west side again",
+                });
             }
             Action::DeleteFrame if self.sprite.frames.len() > 1 => {
                 self.remember();
@@ -1717,7 +1850,6 @@ impl Editor {
                 self.changed = true;
             }
             Action::History if self.browse.is_some() => self.leave_history(),
-            Action::History if self.is_card() => self.say("Cards don't keep a history here yet"),
             Action::History => self.open_history(),
             Action::Restore => self.restore_version(),
             Action::Back => self.leave_history(),
@@ -1728,12 +1860,20 @@ impl Editor {
                 self.view = Some(TOP);
                 self.say("Paint each column's top color for 3D");
             }
-            Action::AddFootprint => {
+            Action::AddView(v) => {
+                let Some([south, east]) = self.sprite.views.clone() else { return };
                 self.deselect();
                 self.remember();
-                self.sprite.footprint = Some(self.sprite.frames[self.frame].clone());
-                self.view = Some(FOOTPRINT);
-                self.say("Erase what isn't solid from above");
+                let frame = self.sprite.frames[self.frame].clone();
+                let (start, hint) = match v {
+                    FOOTPRINT => (frame, "Erase what isn't solid from above"),
+                    ROOF => (frame, "Paint the top's colors; what's clear keeps the sprite's"),
+                    NORTH => (south.mirrored(), "Paint the north side, east on the left; what's clear keeps the south view's"),
+                    _ => (east.mirrored(), "Paint the west side, north on the left; what's clear keeps the east view's"),
+                };
+                *optional_mut(&mut self.sprite, v) = Some(start);
+                self.view = Some(v);
+                self.say(hint);
             }
             Action::View(v) => {
                 self.deselect();
@@ -1748,6 +1888,7 @@ impl Editor {
             Action::Width(_) if self.view.is_some() => self.say("A view is as wide as the sprite: resize the frames instead"),
             Action::Height(_) if self.view == Some(TOP) => self.say("The top is one row: resize the frames instead"),
             Action::Height(_) if self.view == Some(FOOTPRINT) => self.say("The footprint is the sprite's size: resize the frames instead"),
+            Action::Height(_) if self.view == Some(ROOF) => self.say("The top is the sprite's size: resize the frames instead"),
             Action::Height(d) if self.view.is_some() => self.resize_views(self.view_height() as i32 + d * step),
             Action::Width(d) | Action::Height(d) => {
                 let top = &self.sprite.frames[self.frame];
@@ -1768,8 +1909,14 @@ impl Editor {
                     *east = east.resized(h, east.h);
                     self.trimmed = Default::default();
                 }
-                if let Some(f) = &mut self.sprite.footprint {
+                for f in [&mut self.sprite.footprint, &mut self.sprite.roof].into_iter().flatten() {
                     *f = f.resized(w, h);
+                }
+                if let Some(f) = &mut self.sprite.north {
+                    *f = f.resized(w, f.h);
+                }
+                if let Some(f) = &mut self.sprite.west {
+                    *f = f.resized(h, f.h);
                 }
                 if let Some(t) = &mut self.sprite.top {
                     *t = t.resized(w, 1);
@@ -1815,7 +1962,7 @@ impl Editor {
                 }
             }
             Action::Color(c) => {
-                self.color = c;
+                self.pick_color(c);
                 if self.tool == Tool::Eraser {
                     self.tool = Tool::Pencil;
                 }
@@ -1846,7 +1993,7 @@ impl Editor {
     /// Starts browsing the sprite's committed versions, showing the newest.
     fn open_history(&mut self) {
         let Some((commits, changed)) = self.store.history(&self.sprite.name) else {
-            self.say("The sprites folder isn't in a git repository");
+            self.say(if self.modding { "The card editor keeps no history; the sprite editor reads it from git" } else { "Its folder isn't in a git repository" });
             return;
         };
         if commits.is_empty() {
@@ -1880,7 +2027,7 @@ impl Editor {
     fn restore_version(&mut self) {
         let Some(b) = self.browse.take() else { return };
         let before = b.before.sprite;
-        self.undo.push((before.frames, before.views, before.footprint, before.top));
+        self.undo.push(snapshot_of(&before));
         self.redo.clear();
         self.dirty = true;
         self.stand_touched = true;
@@ -1903,8 +2050,10 @@ impl Editor {
             return;
         }
         self.remember();
-        let Some(views) = &mut self.sprite.views else { return };
-        for (v, kept) in views.iter_mut().zip(&mut self.trimmed) {
+        let Some([south, east]) = &mut self.sprite.views else { return };
+        let sides = [Some(south), Some(east), self.sprite.north.as_mut(), self.sprite.west.as_mut()];
+        for (v, kept) in sides.into_iter().zip(&mut self.trimmed) {
+            let Some(v) = v else { continue };
             let rows: Vec<Vec<Rgba>> = v.px.chunks(v.w).map(<[Rgba]>::to_vec).collect();
             let rows = if h < rows.len() {
                 // The cut rows sit just below any cut before, which were higher up.
@@ -2142,6 +2291,20 @@ impl Editor {
             }
             return;
         }
+        if let Some((Ask::Palette, name)) = &mut self.ask {
+            match key {
+                Key::Char(c) => name.extend(lospec_char(c).filter(|_| name.len() < 64)),
+                Key::Backspace => _ = name.pop(),
+                Key::Escape => self.ask = None,
+                Key::Enter => {
+                    let name = name.clone();
+                    self.ask = None;
+                    self.load_lospec(&name);
+                }
+                _ => {}
+            }
+            return;
+        }
         if let Some((kind, name)) = &mut self.ask {
             match key {
                 Key::Char(c) if c.is_ascii_alphanumeric() || c == '_' || c == ' ' => {
@@ -2169,10 +2332,12 @@ impl Editor {
                         self.say(format!("{name} already exists"));
                     } else {
                         self.ask = None;
-                        let (frames, views, footprint, top) = if kind == Ask::Copy { self.snapshot() } else { (vec![Frame::blank(16, 16)], None, None, None) };
+                        let pictures = if kind == Ask::Copy { self.snapshot() } else { (vec![Frame::blank(16, 16)], None, Default::default()) };
                         let card = crate::store::props::id(&name).map(|id| last_harvest_game::prop_text(&crate::store::props::blank(&id)));
                         let clear_in_3d = if kind == Ask::Copy { self.sprite.clear_in_3d.clone() } else { Vec::new() };
-                        self.sprite = Sprite { name: name.clone(), frames, views, footprint, top, card, clear_in_3d };
+                        let paint = if kind == Ask::Copy { self.sprite.paint.clone() } else { Default::default() };
+                        self.sprite = Sprite { name: name.clone(), frames: Vec::new(), views: None, footprint: None, roof: None, north: None, west: None, top: None, card, clear_in_3d, paint };
+                        restore(&mut self.sprite, pictures);
                         self.fit();
                         self.view = None;
                         self.frame = 0;
@@ -2224,7 +2389,10 @@ impl Editor {
                 self.clear_selection();
             }
             Key::Paste => self.paste(),
-            Key::Char('b' | 'p') => self.act(Action::Tool(Tool::Pencil), false),
+            // As in Photoshop, B again swaps the pencil for the eraser and back.
+            Key::Char('b') => self.act(Action::Tool(if self.tool == Tool::Pencil { Tool::Eraser } else { Tool::Pencil }), false),
+            Key::Char('p') => self.act(Action::Tool(Tool::Pencil), false),
+            Key::Char('x') => self.act(Action::Color(self.previous_color), false),
             Key::Char('e') => self.act(Action::Tool(Tool::Eraser), false),
             Key::Char('g' | 'f') => self.act(Action::Tool(Tool::Fill), false),
             Key::Char('r') => self.open_history(),
@@ -2253,7 +2421,7 @@ impl Editor {
                 self.trimmed = Default::default();
                 if let Some(prev) = self.undo.pop() {
                     let now = self.snapshot();
-                    (self.sprite.frames, self.sprite.views, self.sprite.footprint, self.sprite.top) = prev;
+                    restore(&mut self.sprite, prev);
                     self.redo.push(now);
                     self.frame = self.frame.min(self.sprite.frames.len() - 1);
                     self.changed = true;
@@ -2265,7 +2433,7 @@ impl Editor {
                 self.trimmed = Default::default();
                 if let Some(next) = self.redo.pop() {
                     let now = self.snapshot();
-                    (self.sprite.frames, self.sprite.views, self.sprite.footprint, self.sprite.top) = next;
+                    restore(&mut self.sprite, next);
                     self.undo.push(now);
                     self.frame = self.frame.min(self.sprite.frames.len() - 1);
                     self.changed = true;
@@ -2310,6 +2478,8 @@ impl Editor {
             }
         } else if self.stats {
             self.draw_stats(c);
+        } else if self.coats_page {
+            self.draw_coats(c);
         } else {
             self.draw_canvas(c);
         }
@@ -2382,22 +2552,37 @@ impl Editor {
                     c.rect(r.x - 2.0, r.y - 2.0, r.w + 4.0, r.h + 4.0, TEXT);
                 }
                 c.rect(r.x, r.y, r.w, r.h, rgba(col));
-                // A color cleared in 3D wears a corner mark.
+                // A color cleared in 3D wears a corner mark, and paint another.
                 if self.sprite.clear_in_3d.contains(&col) {
                     c.rect(r.x + r.w - 8.0, r.y, 8.0, 8.0, [0.0, 0.0, 0.0, 1.0]);
                     c.rect(r.x + r.w - 6.0, r.y + 2.0, 4.0, 4.0, [1.0; 4]);
                 }
+                if self.sprite.paint.colors.contains(&[col[0], col[1], col[2]]) {
+                    c.rect(r.x, r.y + r.h - 8.0, 8.0, 8.0, [0.0, 0.0, 0.0, 1.0]);
+                    c.rect(r.x + 2.0, r.y + r.h - 6.0, 4.0, 4.0, HOT);
+                }
+                continue;
+            }
+            if let Action::Shade(k, j) = b.action {
+                c.rect(r.x - 1.0, r.y - 1.0, r.w + 2.0, r.h + 2.0, TEXT);
+                c.rect(r.x, r.y, r.w, r.h, rgba(self.shade_color(k, j).unwrap_or(CLEAR)));
                 continue;
             }
             let thumb = match b.action {
                 Action::Frame(i) => Some((i, None)),
-                Action::View(v) => Some((self.surface_of(v), Some(["South", "East", "Footprint", "Top"][v]))),
+                Action::Coat(k) => self.coats_at.map(|at| (at + k.map_or(0, |k| k + 1), None)),
+                Action::View(v) => Some((self.surface_of(v), Some(VIEW_LABELS[v]))),
                 _ => None,
             };
-            if matches!(b.action, Action::AddFootprint | Action::AddTop) {
+            let added = match b.action {
+                Action::AddView(v) => Some(v),
+                Action::AddTop => Some(TOP),
+                _ => None,
+            };
+            if let Some(v) = added {
                 c.rect(r.x, r.y, r.w, r.h, BUTTON);
                 c.label("+", r.x + r.w / 2.0, r.y + 6.0, 30.0, TEXT, Align::Center);
-                let label = if b.action == Action::AddTop { "Top" } else { "Footprint" };
+                let label = VIEW_LABELS[v];
                 c.label(label, r.x + r.w / 2.0, r.y + r.h - 18.0, 13.0, DIM, Align::Center);
                 continue;
             }
@@ -2420,7 +2605,9 @@ impl Editor {
         // Color: a swatch, then red, green and blue bars.
         c.label("Color", SIDE_X, 172.0, 18.0, DIM, Align::Left);
         c.rect(SIDE_X + 60.0, 168.0, 60.0, 48.0, rgba(self.color));
-        c.label(format!("#{:02X}{:02X}{:02X}", self.color[0], self.color[1], self.color[2]), SIDE_X + 130.0, 168.0, 18.0, TEXT, Align::Left);
+        // A color the palette lacks shows in the warning color: the game's own art keeps to its palette.
+        let off = !self.palette.contains(&self.color);
+        c.label(format!("#{:02X}{:02X}{:02X}", self.color[0], self.color[1], self.color[2]), SIDE_X + 130.0, 168.0, 18.0, if off { HOT } else { TEXT }, Align::Left);
         for (i, bar) in self.bars().iter().enumerate() {
             c.label(["R", "G", "B"][i], SIDE_X + 4.0, bar.y - 2.0, 18.0, DIM, Align::Left);
             for k in 0..16 {
@@ -2430,7 +2617,7 @@ impl Editor {
             }
             c.rect(bar.x + self.color[i] as f32 / 255.0 * bar.w - 2.0, bar.y - 3.0, 4.0, bar.h + 6.0, TEXT);
         }
-        c.label(if self.modding { "Palette" } else { "Tileset palette" }, SIDE_X, 294.0, 16.0, DIM, Align::Left);
+        c.label(self.palette_label(), SIDE_X, 294.0, 16.0, DIM, Align::Left);
         if !self.is_card() && !self.none_open() {
             c.label("Stands in 3D as", SIDE_X, 546.0, 16.0, DIM, Align::Left);
         }
@@ -2516,9 +2703,12 @@ impl Editor {
                 (Ask::New, true) => "Name the new enemy card",
                 (Ask::New, false) => "Name the new sprite",
                 (Ask::Copy, _) => "Name the copy",
+                (Ask::Palette, _) => "Draw from a Lospec palette",
             };
             c.label(what, 512.0, 300.0, 24.0, TEXT, Align::Center);
-            let hint = if self.modding {
+            let hint = if *kind == Ask::Palette {
+                "Its name from lospec.com/palette-list, such as endesga-32; blank for the game's".to_string()
+            } else if self.modding {
                 "Its id: letters, digits and _. PLAYER_ makes a player card, PROP_ a prop, MAP_ a map".to_string()
             } else {
                 format!("Start with {} for an enemy card, {} for a player card", sprite::CARD_PREFIX, sprite::PLAYER_CARD_PREFIX)
@@ -2526,7 +2716,7 @@ impl Editor {
             c.label(hint, 512.0, 328.0, 15.0, DIM, Align::Center);
             let caret = if (self.clock * 2.0) as i32 % 2 == 0 { "_" } else { " " };
             c.label(format!("{name}{caret}"), 512.0, 350.0, 30.0, HOT, Align::Center);
-            c.label("Enter to create, Esc to cancel", 512.0, 405.0, 16.0, DIM, Align::Center);
+            c.label(if *kind == Ask::Palette { "Enter to load, Esc to cancel" } else { "Enter to create, Esc to cancel" }, 512.0, 405.0, 16.0, DIM, Align::Center);
         }
     }
 
@@ -2709,6 +2899,15 @@ fn rgba(c: Rgba) -> Color {
     [c[0] as f32 / 255.0, c[1] as f32 / 255.0, c[2] as f32 / 255.0, if c[3] == 0 { 0.0 } else { 1.0 }]
 }
 
+/// A character typed into a Lospec palette's name, as its address writes it.
+fn lospec_char(c: char) -> Option<char> {
+    match c {
+        ' ' | '_' | '-' => Some('-'),
+        c if c.is_ascii_alphanumeric() => Some(c.to_ascii_lowercase()),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::{Path, PathBuf};
@@ -2877,6 +3076,67 @@ mod tests {
         }
         e.key(Key::Undo);
         assert!(e.sprite.frames.iter().all(|f| f.get(1, 3) == Some([9, 9, 9, 255])));
+    }
+
+    #[test]
+    fn a_lospec_palette_replaces_the_games_until_cleared() {
+        let mut e = editor();
+        assert_eq!(e.palette, sprite::palette(), "the game's palette to start");
+        e.act(Action::Ask(Ask::Palette), false);
+        e.set_text("Endesga 32!");
+        assert_eq!(e.ask.as_ref().map(|(_, n)| n.as_str()), Some("endesga-32"), "typed as Lospec writes its names");
+        e.use_palette("tiny", "be4a2f\nd77643\n");
+        assert_eq!((e.palette.len(), e.palette_label()), (2, "tiny".to_string()));
+        e.use_palette("broken", "nope");
+        assert_eq!(e.palette.len(), 2, "a file that isn't a palette leaves the one in use");
+        e.ask = Some((Ask::Palette, String::new()));
+        e.key(Key::Enter);
+        assert_eq!((e.palette.clone(), e.palette_label()), (sprite::palette(), "Game palette".to_string()), "blank goes back to the game's");
+    }
+
+    #[test]
+    fn a_new_coats_darker_shades_keep_to_the_palette() {
+        let mut e = editor();
+        e.sprite.paint = last_harvest_game::paint::parse("paint 917662 726650 4E4637").unwrap();
+        e.color = [0xAD, 0x64, 0x4B, 255];
+        e.act(Action::AddCoat, false);
+        let coat = &e.sprite.paint.coats[0];
+        assert_eq!(coat.len(), 3);
+        assert!(coat.iter().all(|c| e.palette.contains(&[c[0], c[1], c[2], 255])), "{coat:?}");
+    }
+
+    #[test]
+    fn coats_repaint_the_previews_and_save() {
+        let mut e = editor();
+        e.color = [200, 100, 50, 255];
+        click_pixel(&mut e, 1, 3);
+        e.act(Action::AddCoat, false);
+        assert!(e.sprite.paint.coats.is_empty(), "no coat before a paint color");
+        e.act(Action::PaintColor, false);
+        e.color = [20, 40, 160, 255];
+        e.act(Action::Coats, false);
+        e.act(Action::AddCoat, false);
+        assert!(!e.on_canvas([CANVAS.x + 100.0, CANVAS.y + 100.0]), "the page covers the pixels");
+        assert_eq!(e.current().get(1, 3), Some([200, 100, 50, 255]), "the drawing keeps its colors");
+        let surfaces = e.surfaces();
+        let at = e.coats_at.unwrap();
+        assert_eq!((surfaces[0].get(1, 3), surfaces[at].get(1, 3), surfaces[at + 1].get(1, 3)), (Some([20, 40, 160, 255]), Some([200, 100, 50, 255]), Some([20, 40, 160, 255])), "the previews show the coat picked; the page's rows each one");
+        e.color = [0, 255, 0, 255];
+        e.act(Action::Shade(0, 0), false);
+        assert_eq!(e.sprite.paint.coats[0], [[0, 255, 0]]);
+        for _ in 1..last_harvest_game::paint::MAX_COATS {
+            e.act(Action::AddCoat, false);
+        }
+        for b in e.buttons() {
+            assert!(CANVAS.contains([b.rect.x, b.rect.y + b.rect.h - 1.0]) || !matches!(b.action, Action::Coat(_) | Action::Shade(..) | Action::DropCoat(_)), "{:?}", b.action);
+        }
+        let back = Sprite::from_files(&e.sprite.name, &e.sprite.files()).unwrap();
+        assert_eq!(back.paint, e.sprite.paint);
+        e.act(Action::Coat(None), false);
+        assert_eq!(e.surfaces()[0].get(1, 3), Some([200, 100, 50, 255]), "As drawn shows the drawing");
+        e.color = [200, 100, 50, 255];
+        e.act(Action::PaintColor, false);
+        assert!(e.sprite.paint.colors.is_empty() && e.sprite.paint.text().is_empty(), "no paint color, no coats saved");
     }
 
     #[test]
@@ -3187,6 +3447,13 @@ mod tests {
         assert!(e.attach_sound("boo.mp3", b"ID3....").is_none() && said(&e).contains("isn't an Ogg or WAV"));
         assert!(e.attach_sound("big.ogg", &[b"OggS".as_slice(), &vec![0; 600 * 1024]].concat()).is_none() && said(&e).contains("at most 512 KB"));
         assert!(e.attach_sound("boo.ogg", b"OggS....").is_none() && said(&e).contains("sounds folder"), "the Mac's store keeps none: {}", said(&e));
+        e.stats = true;
+        let drop = |e: &Editor| e.buttons().iter().any(|b| b.action == Action::DropSound);
+        assert!(!drop(&e), "Drop own shows only for a card with its own sound");
+        e.own_sound = Some("kill-ghoul.ogg".into());
+        assert!(drop(&e));
+        e.act(Action::DropSound, false);
+        assert!(said(&e).starts_with("Couldn't drop the sound") && e.own_sound.is_some(), "{}", said(&e));
     }
 
     #[test]
@@ -3422,7 +3689,7 @@ mod tests {
             e.act(Action::AddFrame, false);
         }
         buttons_fit(&e);
-        let views: Vec<Action> = e.buttons().iter().map(|b| b.action).filter(|a| matches!(a, Action::View(_) | Action::AddFootprint)).collect();
+        let views: Vec<Action> = e.buttons().iter().map(|b| b.action).filter(|a| matches!(a, Action::View(_) | Action::AddView(FOOTPRINT))).collect();
         assert_eq!(views, [Action::View(1)], "only the east view shows");
         let n = e.surfaces().len();
         e.set_live((0..n).map(|i| Art(i as u16)).collect());
@@ -3643,8 +3910,8 @@ mod tests {
         e.act(Action::Stand(CARVE), false);
         let n = e.sprite.frames.len();
         assert_eq!(e.surfaces().len(), n + 2, "no footprint until one is added");
-        assert!(e.buttons().iter().any(|b| b.action == Action::AddFootprint));
-        e.act(Action::AddFootprint, false);
+        assert!(e.buttons().iter().any(|b| b.action == Action::AddView(FOOTPRINT)));
+        e.act(Action::AddView(FOOTPRINT), false);
         assert_eq!(e.view, Some(FOOTPRINT));
         assert_eq!(e.surfaces().len(), n + 3);
         e.tool = Tool::Eraser;
@@ -3653,6 +3920,14 @@ mod tests {
         assert_ne!(e.sprite.frames[0].get(3, 3), Some(CLEAR), "the sprite keeps its colors");
         e.set_live((0..n + 3).map(|i| Art(i as u16)).collect());
         assert!(matches!(e.stand(), Stand::Carve { footprint: Some(_), .. }));
+        e.color = e.sprite.frames[0].px.iter().copied().find(|p| p[3] > 0).unwrap();
+        e.act(Action::ClearIn3d, false);
+        e.act(Action::PaintColor, false);
+        e.act(Action::Coats, false);
+        e.act(Action::AddCoat, false);
+        let packed = e.surfaces().len();
+        e.set_live((0..packed).map(|i| Art(i as u16)).collect());
+        assert!(matches!(e.stand(), Stand::Carve { footprint: Some(_), .. }), "3D copies and Coats rows packed after it keep it carved");
         e.act(Action::Width(2), false);
         assert_eq!(e.sprite.footprint.as_ref().unwrap().w, e.sprite.frames[0].w);
         e.act(Action::View(FOOTPRINT), false);
@@ -3666,11 +3941,68 @@ mod tests {
     fn a_footprint_saves_and_loads_beside_the_views() {
         let mut e = editor();
         e.act(Action::Stand(CARVE), false);
-        e.act(Action::AddFootprint, false);
+        e.act(Action::AddView(FOOTPRINT), false);
         e.act(Action::Save, false);
         let back = Sprite::load(&tmp(), "BARREL").unwrap();
         assert_eq!(back.footprint, e.sprite.footprint);
         assert!(back.views.is_some());
+        let _ = std::fs::remove_dir_all(tmp());
+    }
+
+    #[test]
+    fn b_swaps_pencil_and_eraser_and_x_swaps_the_last_two_colors() {
+        let mut e = editor();
+        e.act(Action::Tool(Tool::Fill), false);
+        e.key(Key::Char('b'));
+        assert_eq!(e.tool, Tool::Pencil);
+        e.key(Key::Char('b'));
+        assert_eq!(e.tool, Tool::Eraser);
+        e.key(Key::Char('b'));
+        assert_eq!(e.tool, Tool::Pencil);
+        let first = e.color;
+        e.act(Action::Color([1, 2, 3, 255]), false);
+        e.key(Key::Char('x'));
+        assert_eq!(e.color, first);
+        e.key(Key::Char('x'));
+        assert_eq!(e.color, [1, 2, 3, 255]);
+        e.key(Key::Char('e'));
+        e.key(Key::Char('x'));
+        assert_eq!((e.color, e.tool), (first, Tool::Pencil), "a color to draw with puts the pencil back");
+    }
+
+    #[test]
+    fn a_carving_takes_a_top_and_north_and_west_views_of_its_own() {
+        let mut e = editor();
+        e.act(Action::Stand(CARVE), false);
+        let n = e.sprite.frames.len();
+        for v in [WEST, ROOF, NORTH] {
+            assert!(e.buttons().iter().any(|b| b.action == Action::AddView(v)));
+            e.act(Action::AddView(v), false);
+            assert_eq!(e.view, Some(v));
+        }
+        let [south, east] = e.sprite.views.clone().unwrap();
+        assert_eq!((e.sprite.north.as_ref(), e.sprite.west.as_ref()), (Some(&south.mirrored()), Some(&east.mirrored())), "each starts as its opposite seen from behind");
+        assert_eq!((e.surface_of(ROOF), e.surface_of(NORTH), e.surface_of(WEST)), (n + 2, n + 3, n + 4), "packed in a fixed order, whatever order they were added in");
+        assert_eq!(e.surfaces().len(), n + 5);
+        e.set_live((0..n + 5).map(|i| Art(i as u16)).collect());
+        let at = |k: usize| Some(Art(k as u16));
+        assert_eq!(e.stand(), Stand::Carve { footprint: None, roof: at(n + 2), south: Art(n as u16), east: Art(n as u16 + 1), north: at(n + 3), west: at(n + 4) });
+        e.act(Action::View(NORTH), false);
+        e.act(Action::Height(1), false);
+        assert_eq!(e.sprite.west.as_ref().unwrap().h, e.sprite.views.as_ref().unwrap()[0].h, "the sides keep the carving's height");
+        e.act(Action::Width(1), false);
+        e.act(Action::Frame(0), false);
+        e.act(Action::Width(2), false);
+        let f = &e.sprite.frames[0];
+        assert_eq!((e.sprite.roof.as_ref().unwrap().w, e.sprite.north.as_ref().unwrap().w, e.sprite.west.as_ref().unwrap().w), (f.w, f.w, f.h));
+        e.act(Action::Save, false);
+        let back = Sprite::load(&tmp(), "BARREL").unwrap();
+        assert_eq!((&back.roof, &back.north, &back.west), (&e.sprite.roof, &e.sprite.north, &e.sprite.west));
+        e.act(Action::View(ROOF), false);
+        e.act(Action::DeleteFrame, false);
+        assert!(e.sprite.roof.is_none() && e.view.is_none());
+        e.key(Key::Undo);
+        assert!(e.sprite.roof.is_some());
         let _ = std::fs::remove_dir_all(tmp());
     }
 
@@ -3775,6 +4107,35 @@ mod tests {
         s.frames[0].set(0, 0, [0, 0, 255, 255]);
         s.save(&dir).unwrap();
         (editor_in(&dir, root.join("art.txt")), root)
+    }
+
+    #[test]
+    fn a_cards_part_shows_the_history_of_its_card() {
+        use crate::history::tests::{commit, repo};
+        let root = repo("card");
+        let dir = root.join("sprites");
+        let mut e = Editor::new(Box::new(FsStore { dir: dir.clone(), catalog: root.join("art.txt"), cards: root.join("enemies") }), "BARREL");
+        e.act(Action::Ask(Ask::New), false);
+        type_in(&mut e, "card ghoul");
+        e.key(Key::Enter);
+        let part = e.sprite.name.clone();
+        for (c, message) in [([255, 0, 0, 255], "red"), ([0, 255, 0, 255], "green"), ([0, 0, 255, 255], "")] {
+            e.sprite.frames[0].set(0, 0, c);
+            e.dirty = true;
+            e.act(Action::Save, false);
+            if !message.is_empty() {
+                commit(&root, message);
+            }
+        }
+        e.key(Key::Char('r'));
+        let b = e.browse.as_ref().unwrap_or_else(|| panic!("{:?}", e.status));
+        assert_eq!(b.commits.iter().map(|c| c.subject.as_str()).collect::<Vec<_>>(), ["green", "red"]);
+        assert!(b.changed, "the blue on disk isn't committed");
+        assert_eq!((e.sprite.name.as_str(), e.current().get(0, 0)), (part.as_str(), Some([0, 255, 0, 255])));
+        e.key(Key::Char('j'));
+        assert_eq!(e.current().get(0, 0), Some([255, 0, 0, 255]));
+        assert!(e.sprite.card.is_some(), "the version keeps its card's text");
+        std::fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]

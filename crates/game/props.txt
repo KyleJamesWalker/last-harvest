@@ -52,6 +52,8 @@ open 1
 
 [WRECK_H]
 
+[WRECK_H2]
+
 [WRECK_V]
 open 1
 

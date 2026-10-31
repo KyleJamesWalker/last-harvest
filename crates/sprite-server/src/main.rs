@@ -23,7 +23,7 @@ fn text(status: u16, body: impl Into<String>) -> Reply {
 /// A file a sprite's folder may hold.
 fn sprite_file(file: &str) -> bool {
     let frame = file.strip_suffix(".png").is_some_and(|n| !n.is_empty() && n.len() <= 3 && n.bytes().all(|b| b.is_ascii_digit()));
-    frame || matches!(file, "south.png" | "east.png" | "footprint.png" | "top.png" | "stand.txt" | "enemy.txt" | "clear.txt")
+    frame || matches!(file, "south.png" | "east.png" | "footprint.png" | "roof.png" | "north.png" | "west.png" | "top.png" | "stand.txt" | "enemy.txt" | "clear.txt" | "paints.txt")
 }
 
 fn bytes(found: Option<Vec<u8>>) -> Reply {
@@ -65,6 +65,8 @@ fn handle(store: &FsStore, web: &Path, method: &Method, url: &str, body: &[u8]) 
             Ok(t) => store.save_table(file, t).map_or_else(|e| text(400, e), |()| text(200, "saved")),
             Err(_) => text(400, "not text"),
         },
+        // lospec.com sends no CORS header, so the page asks this server to fetch a palette for it.
+        (Method::Get, ["api", "lospec", name]) => store.lospec(name).map_or_else(|e| text(502, e), |t| text(200, t)),
         (Method::Get, ["api", "maps"]) => text(200, store.map_ids().iter().map(|id| format!("{id}\n")).collect::<String>()),
         (Method::Get, ["api", "map", id]) if last_harvest_game::valid_map_id(id) => store.read_map(id).map_or_else(|| text(404, "no such map"), |t| text(200, t)),
         (Method::Put, ["api", "map", id]) if last_harvest_game::valid_map_id(id) => match std::str::from_utf8(body).map_err(|_| "not text".to_string()).and_then(last_harvest_game::MapSource::parse) {
@@ -164,7 +166,7 @@ mod tests {
     fn saves_and_reads_back_a_sprite_the_way_the_editor_does() {
         let s = store("save");
         let web = Path::new("/nonexistent");
-        let mut sprite = Sprite { name: "BARREL".into(), frames: vec![Frame::blank(4, 3); 3], views: None, footprint: None, top: Some(Frame::blank(4, 1)), card: None, clear_in_3d: Vec::new() };
+        let mut sprite = Sprite { name: "BARREL".into(), frames: vec![Frame::blank(4, 3); 3], views: None, footprint: None, roof: None, north: None, west: None, top: Some(Frame::blank(4, 1)), card: None, clear_in_3d: Vec::new(), paint: Default::default() };
         sprite.frames[2].set(1, 1, [9, 8, 7, 255]);
         assert_eq!(handle(&s, web, &Method::Put, "/api/sprite/BARREL", &bundle(&sprite.files())).0, 200);
         sprite.frames.truncate(2);
@@ -184,7 +186,7 @@ mod tests {
     fn saves_and_reads_back_a_card_part_the_way_the_web_editor_does() {
         let s = store("card");
         let web = Path::new("/nonexistent");
-        let mut part = Sprite { name: "CARD_GHOUL_HURT".into(), frames: vec![Frame::blank(16, 16); 3], views: None, footprint: None, top: None, card: Some("[ghoul]\nhp 40\n".into()), clear_in_3d: Vec::new() };
+        let mut part = Sprite { name: "CARD_GHOUL_HURT".into(), frames: vec![Frame::blank(16, 16); 3], views: None, footprint: None, roof: None, north: None, west: None, top: None, card: Some("[ghoul]\nhp 40\n".into()), clear_in_3d: Vec::new(), paint: Default::default() };
         part.frames[2].set(7, 7, [1, 2, 3, 255]);
         assert_eq!(handle(&s, web, &Method::Put, "/api/sprite/CARD_GHOUL_HURT", &bundle(&part.files())).0, 200);
         assert!(s.cards.join("ghoul.enemy.png").exists());

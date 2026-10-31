@@ -419,8 +419,7 @@ impl Harvest {
         }
         let muzzle = [self.pos[0] + d[0] * 8.0, self.pos[1] - 6.0 + d[1] * 8.0];
         self.fx.push(Fx::play(look(a, super::effects::effects().muzzle_pistol), muzzle, base));
-        self.juice.kick += 0.015;
-        self.juice.flash([self.pos[0] + d[0] * 8.0, self.pos[1] + d[1] * 8.0], 10.0, [1.2, 0.85, 0.4], 3.5, 0.07);
+        self.attack_feel(a, [self.pos[0] + d[0] * 8.0, self.pos[1] + d[1] * 8.0], 10.0);
         self.noise = Some(self.pos);
         sounds.push(sound(a, Sfx::Shot));
         true
@@ -441,10 +440,21 @@ impl Harvest {
         }
         let muzzle = [self.pos[0] + d[0] * 8.0, self.pos[1] - 6.0 + d[1] * 8.0];
         self.fx.push(Fx::play(look(a, super::effects::effects().muzzle_pistol), muzzle, base));
-        self.juice.kick += 0.015;
+        self.attack_feel(a, [self.pos[0] + d[0] * 8.0, self.pos[1] + d[1] * 8.0], 10.0);
         self.noise = Some(self.pos);
         sounds.push(sound(a, Sfx::Shot));
         true
+    }
+
+    /// Plays a weapon's feel from its section, with its flash at `at`, `z` above the ground.
+    fn attack_feel(&mut self, a: Armed, at: [f32; 2], z: f32) {
+        let f = book().defs[a.def].feel;
+        self.juice.kick += f.kick;
+        self.juice.punch += f.punch;
+        self.juice.shake(f.shake);
+        if let Some((color, range, life)) = f.flash {
+            self.juice.flash(at, z, color, range, life);
+        }
     }
 
     /// Where a gun or blade looks for a target within `range`: the way to it, if it finds one.
@@ -474,7 +484,7 @@ impl Harvest {
         }
         let at = [self.pos[0] + d[0] * 8.0, self.pos[1] - 5.0 + d[1] * 8.0];
         self.fx.push(Fx::play(look(a, super::effects::effects().slash), at, d[1].atan2(d[0]) - PI / 2.0));
-        self.juice.kick += 0.02;
+        self.attack_feel(a, [self.pos[0] + d[0] * 8.0, self.pos[1] + d[1] * 8.0], 10.0);
         sounds.push(sound(a, Sfx::Slash));
         self.thud(hits, sounds);
         true
@@ -495,11 +505,8 @@ impl Harvest {
         let at = [self.pos[0] + d[0] * 10.0, self.pos[1] - 6.0 + d[1] * 10.0];
         self.fx.push(Fx::play(look(a, super::effects::effects().shotgun_blast), at, base));
         let ground = [self.pos[0] + d[0] * 10.0, self.pos[1] + d[1] * 10.0];
-        self.juice.kick += 0.04;
-        self.juice.punch += 3.0;
-        self.juice.shake(0.12);
-        self.juice.flash(ground, 10.0, [1.6, 1.1, 0.5], 5.0, 0.1);
-        self.juice.burst(ground, 8.0, 8, d, 0.35, [80.0, 160.0], juice::SPARK, 1.0, 0.18, 1.0);
+        self.attack_feel(a, ground, 10.0);
+        self.juice.burst(ground, 8.0, 8, d, 0.35, [80.0, 160.0], juice::spark(), 1.0, 0.18, 1.0);
         self.noise = Some(self.pos);
         sounds.push(sound(a, Sfx::Blast));
         true
@@ -519,10 +526,7 @@ impl Harvest {
         self.shoot(angle, speed, self.stat(a, Stat::Damage), self.stat(a, Stat::Pierce) as u32, range / speed, self.stat(a, Stat::Knockback), bullet(a));
         let muzzle = [self.pos[0] + self.aim[0] * 9.0, self.pos[1] - 6.0 + self.aim[1] * 9.0];
         self.fx.push(Fx::play(look(a, super::effects::effects().muzzle_rifle), muzzle, angle));
-        self.juice.kick += 0.05;
-        self.juice.punch += 2.0;
-        self.juice.shake(0.1);
-        self.juice.flash([self.pos[0] + self.aim[0] * 10.0, self.pos[1] + self.aim[1] * 10.0], 10.0, [1.6, 1.2, 0.7], 5.0, 0.1);
+        self.attack_feel(a, [self.pos[0] + self.aim[0] * 10.0, self.pos[1] + self.aim[1] * 10.0], 10.0);
         self.noise = Some(self.pos);
         sounds.push(sound(a, Sfx::Blast));
         true
@@ -541,7 +545,7 @@ impl Harvest {
                 z.slow = z.slow.max(secs);
                 z.slow_k = z.slow_k.max(slow);
                 if lit < 6 {
-                    self.juice.burst(z.pos, 8.0, 2, [0.0; 2], 0.0, [10.0, 30.0], juice::EMBER, 1.0, 0.4, 1.0);
+                    self.juice.burst(z.pos, 8.0, 2, [0.0; 2], 0.0, [10.0, 30.0], juice::ember(), 1.0, 0.4, 1.0);
                 }
                 lit += 1;
             }
@@ -566,8 +570,8 @@ impl Harvest {
         }
         let nozzle = [self.pos[0] + self.aim[0] * 6.0, self.pos[1] + self.aim[1] * 6.0];
         let reach = range * 3.0;
-        self.juice.burst(nozzle, 6.0, 5, self.aim, half, [reach * 0.6, reach], juice::EMBER, 1.6, 0.3, 1.0);
-        self.juice.flash(nozzle, 8.0, [1.4, 0.7, 0.3], 4.0, 0.15);
+        self.juice.burst(nozzle, 6.0, 5, self.aim, half, [reach * 0.6, reach], juice::ember(), 1.6, 0.3, 1.0);
+        self.attack_feel(a, nozzle, 8.0);
         true
     }
 
@@ -597,7 +601,7 @@ impl Harvest {
             let e = look(a, super::effects::effects().pitchfork);
             self.swings.push(Swing { art: e.frames[0], age: 0.0, life: e.life, angle: [angle; 2], reach: [2.0, range * e.reach] });
         }
-        self.juice.kick += 0.02;
+        self.attack_feel(a, [self.pos[0] + self.aim[0] * 8.0, self.pos[1] + self.aim[1] * 8.0], 10.0);
         sounds.push(sound(a, Sfx::Slash));
         self.thud(hits, sounds);
         true
@@ -617,8 +621,7 @@ impl Harvest {
         }
         let at = [self.pos[0] + d[0] * 8.0, self.pos[1] - 5.0 + d[1] * 8.0];
         self.fx.push(Fx::play(look(a, super::effects::effects().slash), at, d[1].atan2(d[0]) - PI / 2.0));
-        self.juice.kick += 0.02;
-        self.juice.shake(0.06);
+        self.attack_feel(a, [self.pos[0] + d[0] * 8.0, self.pos[1] + d[1] * 8.0], 10.0);
         sounds.push(sound(a, Sfx::Slash));
         self.thud(hits, sounds);
         true
@@ -642,8 +645,7 @@ impl Harvest {
         let e = look(a, super::effects::effects().scythe);
         self.swings.push(Swing { art: e.frames[0], age: 0.0, life: e.life, angle: [from, from + TAU], reach: [reach * e.reach; 2] });
         self.juice.ring(self.pos, reach, 0.3, [0.85, 0.85, 0.8]);
-        self.juice.shake(0.1);
-        self.juice.punch += 1.5;
+        self.attack_feel(a, self.pos, 10.0);
         sounds.push(sound(a, Sfx::Slash));
         self.thud(hits, sounds);
         true
@@ -710,7 +712,7 @@ impl Harvest {
             at = z.pos;
             points.push([at[0], at[1] - 6.0]);
         }
-        self.juice.flash(points[1], 10.0, [0.6, 0.8, 1.8], 5.0, 0.12);
+        self.attack_feel(a, points[1], 10.0);
         self.bolts.push(Bolt { points, age: 0.0 });
         sounds.push(sound(a, Sfx::Zap));
         self.thud(hits, sounds);
@@ -811,7 +813,7 @@ impl Harvest {
         }
         let (lure, blast, damage, life) = (self.stat(a, Stat::Range), self.stat(a, Stat::Area), self.stat(a, Stat::Damage), self.stat(a, Stat::Duration));
         self.decoys.push(Decoy { pos: at, age: 0.0, life, lure, blast, damage });
-        self.juice.burst(at, 0.0, 8, [0.0; 2], 0.0, [15.0, 40.0], juice::DIRT, 1.4, 0.5, 0.0);
+        self.juice.burst(at, 0.0, 8, [0.0; 2], 0.0, [15.0, 40.0], juice::dirt(), 1.4, 0.5, 0.0);
         true
     }
 
@@ -885,7 +887,7 @@ impl Harvest {
                     self.lay(Hazard::Fire, at, radius * 0.5, dps, life, 0.0);
                 }
                 self.juice.flash(g.to, 6.0, [1.8, 0.9, 0.3], 6.0, 0.3);
-                self.juice.burst(g.to, 4.0, 14, [0.0; 2], 0.0, [30.0, 90.0], juice::EMBER, 1.4, 0.5, 1.0);
+                self.juice.burst(g.to, 4.0, 14, [0.0; 2], 0.0, [30.0, 90.0], juice::ember(), 1.4, 0.5, 1.0);
                 let (pan, gain) = self.place(g.to);
                 sounds.push(Sfx::Boom { pan, gain: gain / 2 });
             }
@@ -939,7 +941,7 @@ impl Harvest {
                 }
             }
             match p.hazard {
-                Hazard::Fire => self.juice.burst(p.pos, 4.0, 1, [0.0; 2], 0.0, [5.0, 20.0], juice::EMBER, 1.2, 0.6, 1.0),
+                Hazard::Fire => self.juice.burst(p.pos, 4.0, 1, [0.0; 2], 0.0, [5.0, 20.0], juice::ember(), 1.2, 0.6, 1.0),
                 Hazard::Flare => {
                     let flicker = self.juice.rng.range(0.8, 1.2);
                     self.juice.flash(p.pos, 6.0, [2.0 * flicker, 0.5, 0.35], p.radius / 6.0, 0.3);
@@ -963,7 +965,7 @@ impl Harvest {
             if z.burn_tick >= BURN_TICK {
                 z.burn_tick -= BURN_TICK;
                 singe(z, &mut self.juice, z.burn_dps * BURN_TICK);
-                self.juice.burst(z.pos, 8.0, 1, [0.0; 2], 0.0, [5.0, 15.0], juice::EMBER, 1.2, 0.5, 1.0);
+                self.juice.burst(z.pos, 8.0, 1, [0.0; 2], 0.0, [5.0, 15.0], juice::ember(), 1.2, 0.5, 1.0);
             }
         }
         for s in &mut self.swings {

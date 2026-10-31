@@ -95,12 +95,57 @@ pub struct Written {
 /// Effects of a mod's own as written, by the name of their section.
 type Extra = Vec<(String, Written)>;
 
+/// The particle colors `[colors]` sets, in order.
+pub const COLORS: [&str; 7] = ["blood", "dark_blood", "dirt", "spark", "ember", "gold", "firefly"];
+
+/// Particle colors by `COLORS`, red, green and blue from 0 to 1.
+pub type Palette = [[f32; 3]; COLORS.len()];
+
+/// Reads the `[colors]` section of `effects.txt` over `base`, or alone when there's no base, when it must set
+/// every color. Errors name the line.
+pub fn parse_colors(text: &str, base: Option<&Palette>) -> Result<Palette, String> {
+    let mut out = base.copied().unwrap_or_default();
+    let mut seen = [base.is_some(); COLORS.len()];
+    let mut inside = false;
+    for (i, raw) in text.lines().enumerate() {
+        let n = i + 1;
+        let line = raw.split('#').next().unwrap_or("").trim();
+        if let Some(name) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
+            inside = name == "colors";
+            continue;
+        }
+        if !inside || line.is_empty() {
+            continue;
+        }
+        let (key, value) = line.split_once(char::is_whitespace).map_or((line, ""), |(k, v)| (k, v.trim()));
+        let k = COLORS.iter().position(|c| *c == key).ok_or_else(|| format!("{n}: {key} isn't a color; there's {}", COLORS.join(", ")))?;
+        let v: Vec<f32> = value.split_whitespace().map(|w| w.parse().ok().filter(|v: &f32| (0.0..=1.0).contains(v))).collect::<Option<_>>().unwrap_or_default();
+        let [r, g, b] = v[..] else { return Err(format!("{n}: {key} takes red, green and blue from 0 to 1, such as 0.62 0.08 0.06")) };
+        out[k] = [r, g, b];
+        seen[k] = true;
+    }
+    match seen.iter().position(|s| !s) {
+        Some(k) => Err(format!("[colors] doesn't set {}", COLORS[k])),
+        None => Ok(out),
+    }
+}
+
+/// The particle colors: the game's own, with any `effects.txt` sets over them.
+pub fn colors() -> &'static Palette {
+    static C: OnceLock<Palette> = OnceLock::new();
+    C.get_or_init(|| {
+        let own = parse_colors(include_str!("../../effects.txt"), None).unwrap_or_else(|e| panic!("effects.txt:{e}"));
+        parse_colors(crate::data::effects(), Some(&own)).unwrap_or_else(|e| panic!("effects.txt:{e}"))
+    })
+}
+
 /// Reads `effects.txt`: the game's effects in the order of `NAMES`, which it must all name, then any of its own by
 /// name, each with a sprite. Errors name the line.
 pub fn parse(text: &str) -> Result<(Vec<Written>, Extra), String> {
     let mut out: Vec<Option<Written>> = vec![None; NAMES.len()];
     let mut extra: Vec<(String, Written)> = Vec::new();
     let mut at = None;
+    let mut colors = false;
     for (i, raw) in text.lines().enumerate() {
         let n = i + 1;
         let line = raw.split('#').next().unwrap_or("").trim();
@@ -108,6 +153,10 @@ pub fn parse(text: &str) -> Result<(Vec<Written>, Extra), String> {
             continue;
         }
         if let Some(name) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
+            colors = name == "colors";
+            if colors {
+                continue;
+            }
             let fresh = Written { art: String::new(), fps: 10.0, life: 0.2, reach: 1.0 };
             if !name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_') || name.is_empty() {
                 return Err(format!("{n}: [{name}] isn't a name of lowercase letters, digits and _"));
@@ -125,6 +174,9 @@ pub fn parse(text: &str) -> Result<(Vec<Written>, Extra), String> {
                     NAMES.len() + extra.len() - 1
                 }
             });
+            continue;
+        }
+        if colors {
             continue;
         }
         let e = match at {
@@ -214,5 +266,16 @@ mod tests {
         assert_eq!((extra[0].0.as_str(), extra[0].1.fps), ("red_slash", 9.0));
         assert_eq!(e.named("slash"), Some(e.slash));
         assert_eq!(e.named("red_slash"), None);
+    }
+
+    #[test]
+    fn particle_colors_read_and_a_mod_sets_only_some() {
+        assert_eq!(colors()[0], [0.62, 0.08, 0.06]);
+        let mine = parse_colors("[colors]\ngold 0 0 1\n[slash]\nart SLASH", Some(colors())).unwrap();
+        assert_eq!((mine[5], mine[0]), ([0.0, 0.0, 1.0], colors()[0]));
+        assert_eq!(parse_colors("[colors]\ngold 0 0 1", None).unwrap_err(), "[colors] doesn't set blood");
+        assert!(parse_colors("[colors]\nmauve 1 1 1", Some(colors())).unwrap_err().starts_with("2: mauve isn't a color"));
+        assert!(parse_colors("[colors]\ngold 2 0 0", Some(colors())).unwrap_err().starts_with("2: gold takes"));
+        assert!(parse_colors("[colors]\ngold 1 2 0 0", Some(colors())).unwrap_err().starts_with("2: gold takes"), "a number out of range isn't dropped");
     }
 }

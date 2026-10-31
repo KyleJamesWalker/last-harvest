@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Builds the GitHub Pages site into target/pages: the landing page, the game in play/ and the card editor in editor/.
+# Builds the GitHub Pages site into target/pages: the landing page, the manual, the game in play/ and the card editor in
+# editor/.
 # --serve also serves it on port 8093 for a look.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -9,6 +10,8 @@ scripts/web-game.sh
 rm -rf "$out"
 mkdir -p "$out"
 cp assets/site/index.html assets/site/sw.js crates/editor/web/icon.png crates/editor/web/apple-touch-icon.png target/game_data.pak "$out/"
+python3 tools/manual_items.py --check
+python3 tools/render_manual.py docs/guides/GAME_MANUAL.md assets/site/manual.html "$out"
 cp -R target/mod-editor "$out/editor"
 cp -R target/web-game "$out/play"
 # The game and the editor share the one pack at the root.

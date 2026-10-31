@@ -289,18 +289,29 @@ impl Editor {
     }
 
     /// Every player's prop the store keeps, to pack for the previews while a map is open: their frames, then the
-    /// footprint and views of one that stands by them, in turn, and each one's fields and how many it packed.
-    pub(super) fn prop_surfaces(&self) -> (Vec<Frame>, Vec<(PropFields, usize)>) {
+    /// footprint, roof and views of one that stands by them, as `PropFields::stand_by` takes them, then the frames again without the colors it clears in 3D, in
+    /// turn and all again for each coat, and each one's fields, how many it packed before those copies, and how many
+    /// copies.
+    pub(super) fn prop_surfaces(&self) -> (Vec<Frame>, Vec<(PropFields, usize, usize)>) {
         let (mut frames, mut props) = (Vec::new(), Vec::new());
         for (name, _) in self.names.iter().filter(|(n, _)| n.starts_with(last_harvest_game::PROP_PREFIX)) {
             let Some(s) = self.store.load(name) else { continue };
             let Some(mut f) = s.card.as_deref().and_then(|t| last_harvest_game::prop_fields(t).ok()) else { continue };
             f.frames = s.frames.len() as u32;
             let views = s.views.filter(|_| f.by_views.is_some());
-            let footprint = s.footprint.filter(|_| views.is_some() && f.footprint);
-            let packed = s.frames.len() + footprint.is_some() as usize + 2 * views.is_some() as usize;
-            props.push((f, packed));
-            frames.extend(s.frames.into_iter().chain(footprint).chain(views.into_iter().flatten()));
+            let has = |on: bool, fr: Option<Frame>| fr.filter(|_| views.is_some() && on);
+            let (footprint, roof, north, west) = (has(f.footprint, s.footprint), has(f.roof, s.roof), has(f.north, s.north), has(f.west, s.west));
+            (f.footprint, f.roof, f.north, f.west) = (footprint.is_some(), roof.is_some(), north.is_some(), west.is_some());
+            let before: Vec<Frame> = footprint.into_iter().chain(roof).collect();
+            let after: Vec<Frame> = north.into_iter().chain(west).collect();
+            let views: Vec<Frame> = views.into_iter().flatten().collect();
+            let packed = s.frames.len() + before.len() + views.len() + after.len();
+            let cleared = |fr: &Frame| Frame { px: fr.px.iter().map(|p| if p[3] > 0 && f.clear.contains(&[p[0], p[1], p[2]]) { CLEAR } else { *p }).collect(), ..fr.clone() };
+            let copies: Vec<Frame> = if f.clear.is_empty() { Vec::new() } else { s.frames.iter().map(cleared).collect() };
+            let group: Vec<Frame> = s.frames.iter().chain(&before).chain(&views).chain(&after).chain(&copies).cloned().collect();
+            let paint = &f.paint;
+            frames.extend((0..paint.copies()).flat_map(|k| group.iter().map(move |fr| fr.in_coat(paint, k))));
+            props.push((f, packed, copies.len()));
         }
         (frames, props)
     }
@@ -309,17 +320,24 @@ impl Editor {
     /// map again now they can.
     pub(super) fn register_props(&mut self) {
         let mut at = 0;
-        let mut named = Vec::new();
-        for (f, n) in &self.map_props {
-            let Some(arts) = self.live.get(at..at + n) else { break };
-            let (mut f, frames) = (f.clone(), (f.frames as usize).min(*n));
-            if let [.., south, east] = arts[frames..] {
-                f.stand_by(south, east, (n - frames == 3).then(|| arts[frames]));
-            }
-            named.push((f, arts[..frames].to_vec()));
-            at += n;
+        let (mut named, mut solids) = (Vec::new(), Vec::new());
+        for (f, n, copies) in &self.map_props {
+            let Some(all) = self.live.get(at..at + (n + copies) * f.paint.copies()) else { break };
+            let coats = all
+                .chunks(n + copies)
+                .map(|arts| {
+                    let (arts, cleared) = arts.split_at(*n);
+                    solids.extend(arts.iter().copied().zip(cleared.iter().copied()));
+                    let (mut f, frames) = (f.clone(), (f.frames as usize).min(*n));
+                    f.stand_by(&arts[frames..]);
+                    (arts[..frames].to_vec(), f.stand)
+                })
+                .collect();
+            named.push((f.clone(), coats));
+            at += all.len();
         }
         last_harvest_game::set_props(named);
+        last_harvest_game::art::set_live_solids(solids);
         if let Some(m) = &mut self.map {
             m.check();
             m.changed = true;
@@ -462,7 +480,7 @@ impl Editor {
 
     fn start_map(&mut self, name: &str, id: &str, src: MapSource) {
         self.map = Some(MapEdit::new(id, src));
-        self.sprite = Sprite { name: name.into(), frames: vec![Frame::blank(16, 16)], views: None, footprint: None, top: None, card: None, clear_in_3d: Vec::new() };
+        self.sprite = Sprite { name: name.into(), frames: vec![Frame::blank(16, 16)], views: None, footprint: None, roof: None, north: None, west: None, top: None, card: None, clear_in_3d: Vec::new(), paint: Default::default() };
         self.frame = 0;
         self.view = None;
         self.stats = false;
@@ -591,7 +609,7 @@ impl Editor {
     }
 
     /// Carries out a map action; false if it isn't one.
-    pub(super) fn map_act(&mut self, a: Action) -> bool {
+    pub(super) fn map_act(&mut self, a: Action, shift: bool) -> bool {
         let Some(m) = &mut self.map else { return false };
         match a {
             Action::MapTool(t) => m.tool = t,
@@ -644,8 +662,9 @@ impl Editor {
                 self.say(format!("A random farm{grown}. Press again for another, or Undo to go back"));
             }
             Action::MapSize(dw, dh) => {
+                let by = if shift { 4 } else { 1 };
                 m.remember();
-                m.src = m.src.resized([dw, dh]);
+                m.src = m.src.resized([dw * by, dh * by]);
                 m.fit();
                 m.edited();
                 let [w, h] = m.src.size;
@@ -1055,6 +1074,9 @@ mod tests {
 
         e.act(Action::MapSize(-4, 4), false);
         assert_eq!(e.map.as_ref().unwrap().src.size, [68, 58]);
+        e.act(Action::MapSize(4, 0), true);
+        assert_eq!(e.map.as_ref().unwrap().src.size, [84, 58], "Shift steps by 16");
+        e.key(Key::Undo);
         e.act(Action::MapTool(MapTool::Home), false);
         let walled = e.map.as_ref().unwrap().src.size[0] - 1;
         click(&mut e, [walled, 5]);
@@ -1164,7 +1186,10 @@ mod prop_tests {
         let mut e = Editor::new(store(&dir), "BARREL");
         new(&mut e, "prop beacon");
         assert_eq!((e.sprite.name.as_str(), sprite::section("PROP_BEACON")), ("PROP_BEACON", sprite::PROP_SECTION));
-        e.sprite.frames = vec![Frame { w: 16, h: 24, px: vec![[200, 40, 40, 255]; 16 * 24] }; 2];
+        let mut px = vec![[200, 40, 40, 255]; 16 * 24];
+        px[..16].fill([9, 9, 9, 255]);
+        e.sprite.frames = vec![Frame { w: 16, h: 24, px }; 2];
+        e.sprite.clear_in_3d = vec![[9, 9, 9, 255]];
         e.act(Action::Fps(1), false);
         e.dirty = true;
         e.act(Action::Save, false);
@@ -1174,8 +1199,10 @@ mod prop_tests {
 
         new(&mut e, "map beacon farm");
         let frames = e.surfaces();
-        assert_eq!(frames.len(), 2, "the prop's frames pack for the previews");
-        e.set_live(vec![Art(1), Art(2)]);
+        assert_eq!(frames.len(), 4, "the prop's frames pack for the previews, then their 3D copies");
+        assert!(frames[2].px[..16].iter().all(|p| p[3] == 0) && frames[2].px[16] == [200, 40, 40, 255], "a copy drops only the cleared colors");
+        assert_eq!(e.map_props.iter().map(|(_, n, copies)| (*n, *copies)).collect::<Vec<_>>(), [(2, 2)]);
+        e.set_live(vec![Art(1), Art(2), Art(3), Art(4)]);
         assert!(e.map.as_ref().unwrap().problem.is_none(), "registering the props checks the map again");
         let picks = pickable();
         let at = picks.iter().position(|(n, _, _)| n == "PROP_BEACON").expect("the picker offers it");
