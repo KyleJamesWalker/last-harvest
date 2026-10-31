@@ -561,6 +561,8 @@ The left pane lists every sprite. The pixel canvas, tools, color and frames sit 
 | Action | Input |
 |---|---|
 | Draw, erase, fill | B, E, G, or the tool buttons |
+| Swap the pencil and the eraser | B again |
+| Swap back to the color before | X |
 | Draw a line, box or oval | The Line, Box and Oval buttons, then drag. Hold Shift as the drag starts to fill a box or oval, or keep a line straight. |
 | Draw a straight line | Shift-click with the pencil or eraser, from the last pixel drawn |
 | Pick a color | Hold I or Option and click. Right-click always picks. |

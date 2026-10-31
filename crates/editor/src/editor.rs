@@ -432,6 +432,8 @@ pub struct Editor {
     compare: bool,
     family: Vec<(String, Vec<Frame>)>,
     color: Rgba,
+    /// The brush's color before the last pick, which X swaps back to.
+    previous_color: Rgba,
     palette: Vec<Rgba>,
     /// The Lospec palette drawn from, else the game's own.
     palette_name: Option<String>,
@@ -542,6 +544,7 @@ impl Editor {
             compare: false,
             family: Vec::new(),
             color: [0x55, 0x3c, 0x2a, 255],
+            previous_color: [0x55, 0x3c, 0x2a, 255],
             palette: sprite::palette(),
             palette_name: None,
             undo: Vec::new(),
@@ -858,6 +861,13 @@ impl Editor {
             Stand::Carve { .. } => CARVE,
             Stand::Turned { .. } => TURNED,
         };
+    }
+
+    /// Makes `c` the brush's color, keeping the one before it for X to swap back to.
+    fn pick_color(&mut self, c: Rgba) {
+        if c != self.color {
+            self.previous_color = std::mem::replace(&mut self.color, c);
+        }
     }
 
     pub fn say(&mut self, text: impl Into<String>) {
@@ -1332,7 +1342,7 @@ impl Editor {
             }
             if right || self.tool_now() == Tool::Picker {
                 if let Some(c) = self.current().get(x, y).filter(|c| c[3] > 0) {
-                    self.color = c;
+                    self.pick_color(c);
                     if !right && self.tool == Tool::Picker {
                         self.tool = self.before_pick;
                     }
@@ -1952,7 +1962,7 @@ impl Editor {
                 }
             }
             Action::Color(c) => {
-                self.color = c;
+                self.pick_color(c);
                 if self.tool == Tool::Eraser {
                     self.tool = Tool::Pencil;
                 }
@@ -2379,7 +2389,10 @@ impl Editor {
                 self.clear_selection();
             }
             Key::Paste => self.paste(),
-            Key::Char('b' | 'p') => self.act(Action::Tool(Tool::Pencil), false),
+            // As in Photoshop, B again swaps the pencil for the eraser and back.
+            Key::Char('b') => self.act(Action::Tool(if self.tool == Tool::Pencil { Tool::Eraser } else { Tool::Pencil }), false),
+            Key::Char('p') => self.act(Action::Tool(Tool::Pencil), false),
+            Key::Char('x') => self.act(Action::Color(self.previous_color), false),
             Key::Char('e') => self.act(Action::Tool(Tool::Eraser), false),
             Key::Char('g' | 'f') => self.act(Action::Tool(Tool::Fill), false),
             Key::Char('r') => self.open_history(),
@@ -3934,6 +3947,27 @@ mod tests {
         assert_eq!(back.footprint, e.sprite.footprint);
         assert!(back.views.is_some());
         let _ = std::fs::remove_dir_all(tmp());
+    }
+
+    #[test]
+    fn b_swaps_pencil_and_eraser_and_x_swaps_the_last_two_colors() {
+        let mut e = editor();
+        e.act(Action::Tool(Tool::Fill), false);
+        e.key(Key::Char('b'));
+        assert_eq!(e.tool, Tool::Pencil);
+        e.key(Key::Char('b'));
+        assert_eq!(e.tool, Tool::Eraser);
+        e.key(Key::Char('b'));
+        assert_eq!(e.tool, Tool::Pencil);
+        let first = e.color;
+        e.act(Action::Color([1, 2, 3, 255]), false);
+        e.key(Key::Char('x'));
+        assert_eq!(e.color, first);
+        e.key(Key::Char('x'));
+        assert_eq!(e.color, [1, 2, 3, 255]);
+        e.key(Key::Char('e'));
+        e.key(Key::Char('x'));
+        assert_eq!((e.color, e.tool), (first, Tool::Pencil), "a color to draw with puts the pencil back");
     }
 
     #[test]
