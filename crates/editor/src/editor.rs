@@ -8,6 +8,7 @@ use crate::sprite::{self, CLEAR, Frame, Rgba, Sprite};
 use crate::store::Store;
 
 mod cards;
+mod coats;
 mod maps;
 mod tables;
 
@@ -258,6 +259,16 @@ enum Action {
     DataPage(i32),
     /// Leaves the paint color out of the 3D view, or puts it back.
     ClearIn3d,
+    /// Shows the Coats page on the canvas, or the pixels again.
+    Coats,
+    /// Marks the brush's color as paint, or not.
+    PaintColor,
+    /// Shows a coat in the previews, or the frames as drawn.
+    Coat(Option<usize>),
+    /// Gives a coat's shade of a paint color the brush's color.
+    Shade(usize, usize),
+    DropCoat(usize),
+    AddCoat,
 }
 
 /// What each of a card's numbers is called on its stats page, and how far a press of - or + moves it.
@@ -385,6 +396,8 @@ pub struct Editor {
     figure_at: Option<(usize, bool)>,
     /// Where the last packing put the frames' 3D copies among the surfaces, and how many there are.
     solids_at: Option<(usize, usize)>,
+    /// Where the last packing put the Coats page's rows among the surfaces.
+    coats_at: Option<usize>,
     /// The open card's parts as saved, read when it opens or saves.
     card_parts: Vec<Vec<Frame>>,
     /// The hand-made map being edited, in place of a sprite.
@@ -441,6 +454,10 @@ pub struct Editor {
     pan: [f32; 2],
     /// A card's stats are on the canvas in place of its pixels.
     stats: bool,
+    /// The Coats page is on the canvas in place of the pixels.
+    coats_page: bool,
+    /// The coat the previews show, else the frames as drawn.
+    coat: Option<usize>,
     /// The card's name or about as it's being typed.
     naming: Option<(Line, String)>,
     /// The other cards' texts, read when the stats page opens, for the spawn mix.
@@ -482,6 +499,7 @@ impl Editor {
             strike: None,
             figure_at: None,
             solids_at: None,
+            coats_at: None,
             card_parts: Vec::new(),
             map: None,
             data: None,
@@ -517,6 +535,8 @@ impl Editor {
             lens: 1.0,
             pan: [0.0; 2],
             stats: false,
+            coats_page: false,
+            coat: None,
             naming: None,
             other_cards: Vec::new(),
             own_sound: None,
@@ -609,10 +629,16 @@ impl Editor {
             let n = self.sprite.frames.len();
             let solids: Vec<Frame> = out[..n]
                 .iter()
-                .map(|f| Frame { px: f.px.iter().map(|p| if clear.contains(p) { CLEAR } else { *p }).collect(), ..f.clone() })
+                .zip(&self.sprite.frames)
+                .map(|(f, drawn)| Frame { px: f.px.iter().zip(&drawn.px).map(|(p, d)| if clear.contains(d) { CLEAR } else { *p }).collect(), ..f.clone() })
                 .collect();
             self.solids_at = Some((out.len(), n));
             out.extend(solids);
+        }
+        self.coats_at = None;
+        if self.coats_page && !self.none_open() {
+            self.coats_at = Some(out.len());
+            out.extend(self.coat_rows());
         }
         out
     }
@@ -634,7 +660,7 @@ impl Editor {
         let footprint = self.sprite.footprint.iter().filter(|_| self.stand == CARVE);
         let views = self.sprite.views.iter().flatten().chain(footprint).filter(|_| self.by_views());
         let top = self.sprite.top.iter().filter(|_| self.stand == FIGURE);
-        let mut out: Vec<Frame> = self.sprite.frames.iter().chain(views).chain(top).cloned().collect();
+        let mut out: Vec<Frame> = self.sprite.frames.iter().chain(views).chain(top).map(|f| self.in_coat(f)).collect();
         if let Some(Selection { x, y, float: Some(f), .. }) = &self.selection {
             let i = self.view.map_or(self.frame, |v| self.surface_of(v));
             if let Some(target) = out.get_mut(i) {
@@ -814,6 +840,8 @@ impl Editor {
                 self.fps = fps;
             }
             self.stats &= self.is_card();
+            self.coats_page &= !self.is_card();
+            self.coat = None;
             self.naming = None;
             self.delete_armed = 0.0;
             if self.stats {
@@ -923,7 +951,7 @@ impl Editor {
 
     /// Whether `p` is on the pixel canvas with nothing in front of it.
     pub fn on_canvas(&self, p: [f32; 2]) -> bool {
-        CANVAS.contains(p) && self.pending.is_none() && self.ask.is_none() && !self.stats && !self.none_open()
+        CANVAS.contains(p) && self.pending.is_none() && self.ask.is_none() && !self.stats && !self.coats_page && !self.none_open()
     }
 
     /// Whether `p` is on a row of the sprite list.
@@ -994,6 +1022,13 @@ impl Editor {
         } else if self.data_link.is_some() {
             push(410.0, 8.0, 94.0, 34.0, Action::Data, "Data", false);
         }
+        if !self.is_card() && !self.none_open() {
+            let x = if self.built_in_still().is_some() || self.data_link.is_some() { 312.0 } else { 410.0 };
+            push(x, 8.0, 94.0, 34.0, Action::Coats, "Coats", self.coats_page);
+        }
+        if self.coats_page && !self.none_open() {
+            self.coat_buttons(&mut push);
+        }
         if self.stats && self.is_player_card() {
             self.line_buttons(&mut push);
             let starts = self.player_starts();
@@ -1051,6 +1086,7 @@ impl Editor {
         push(SIDE_X + 128.0, 192.0, 50.0, 26.0, Action::ClearColor, "Erase", false);
         if !self.is_card() {
             push(SIDE_X + 182.0, 192.0, 50.0, 26.0, Action::ClearIn3d, "No 3D", self.sprite.clear_in_3d.contains(&self.color));
+            push(SIDE_X, 192.0, 56.0, 26.0, Action::PaintColor, "Paint", self.sprite.paint.colors.contains(&[self.color[0], self.color[1], self.color[2]]));
         }
         for (i, (t, l)) in [(Tool::Line, "Line"), (Tool::Rect, "Box"), (Tool::Ellipse, "Oval")].into_iter().enumerate() {
             let (x, y) = cell(6 + i);
@@ -1206,7 +1242,7 @@ impl Editor {
                 return;
             }
         }
-        if CANVAS.contains(p) && !self.stats && !self.none_open() {
+        if CANVAS.contains(p) && !self.stats && !self.coats_page && !self.none_open() {
             let (x, y) = self.pixel_at(p);
             if self.tool_now() == Tool::Select && !right {
                 self.grab = Some(match &self.selection {
@@ -1631,6 +1667,18 @@ impl Editor {
             Action::ClearColor => self.clear_color(),
             Action::ClearIn3d if self.is_card() => self.say("A card stands as a figure, which keeps every color"),
             Action::ClearIn3d => self.clear_in_3d(),
+            Action::Coats => {
+                self.coats_page = !self.coats_page;
+                self.changed = true;
+            }
+            Action::PaintColor => self.toggle_paint(),
+            Action::Coat(k) => {
+                self.coat = k;
+                self.changed = true;
+            }
+            Action::Shade(k, j) => self.set_shade(k, j),
+            Action::DropCoat(k) => self.drop_coat(k),
+            Action::AddCoat => self.add_coat(),
             Action::Stats => {
                 self.stats = !self.stats;
                 self.naming = None;
@@ -2314,6 +2362,8 @@ impl Editor {
             }
         } else if self.stats {
             self.draw_stats(c);
+        } else if self.coats_page {
+            self.draw_coats(c);
         } else {
             self.draw_canvas(c);
         }
@@ -2386,15 +2436,25 @@ impl Editor {
                     c.rect(r.x - 2.0, r.y - 2.0, r.w + 4.0, r.h + 4.0, TEXT);
                 }
                 c.rect(r.x, r.y, r.w, r.h, rgba(col));
-                // A color cleared in 3D wears a corner mark.
+                // A color cleared in 3D wears a corner mark, and paint another.
                 if self.sprite.clear_in_3d.contains(&col) {
                     c.rect(r.x + r.w - 8.0, r.y, 8.0, 8.0, [0.0, 0.0, 0.0, 1.0]);
                     c.rect(r.x + r.w - 6.0, r.y + 2.0, 4.0, 4.0, [1.0; 4]);
                 }
+                if self.sprite.paint.colors.contains(&[col[0], col[1], col[2]]) {
+                    c.rect(r.x, r.y + r.h - 8.0, 8.0, 8.0, [0.0, 0.0, 0.0, 1.0]);
+                    c.rect(r.x + 2.0, r.y + r.h - 6.0, 4.0, 4.0, HOT);
+                }
+                continue;
+            }
+            if let Action::Shade(k, j) = b.action {
+                c.rect(r.x - 1.0, r.y - 1.0, r.w + 2.0, r.h + 2.0, TEXT);
+                c.rect(r.x, r.y, r.w, r.h, rgba(self.shade_color(k, j).unwrap_or(CLEAR)));
                 continue;
             }
             let thumb = match b.action {
                 Action::Frame(i) => Some((i, None)),
+                Action::Coat(k) => self.coats_at.map(|at| (at + k.map_or(0, |k| k + 1), None)),
                 Action::View(v) => Some((self.surface_of(v), Some(["South", "East", "Footprint", "Top"][v]))),
                 _ => None,
             };
@@ -2881,6 +2941,40 @@ mod tests {
         }
         e.key(Key::Undo);
         assert!(e.sprite.frames.iter().all(|f| f.get(1, 3) == Some([9, 9, 9, 255])));
+    }
+
+    #[test]
+    fn coats_repaint_the_previews_and_save() {
+        let mut e = editor();
+        e.color = [200, 100, 50, 255];
+        click_pixel(&mut e, 1, 3);
+        e.act(Action::AddCoat, false);
+        assert!(e.sprite.paint.coats.is_empty(), "no coat before a paint color");
+        e.act(Action::PaintColor, false);
+        e.color = [20, 40, 160, 255];
+        e.act(Action::Coats, false);
+        e.act(Action::AddCoat, false);
+        assert!(!e.on_canvas([CANVAS.x + 100.0, CANVAS.y + 100.0]), "the page covers the pixels");
+        assert_eq!(e.current().get(1, 3), Some([200, 100, 50, 255]), "the drawing keeps its colors");
+        let surfaces = e.surfaces();
+        let at = e.coats_at.unwrap();
+        assert_eq!((surfaces[0].get(1, 3), surfaces[at].get(1, 3), surfaces[at + 1].get(1, 3)), (Some([20, 40, 160, 255]), Some([200, 100, 50, 255]), Some([20, 40, 160, 255])), "the previews show the coat picked; the page's rows each one");
+        e.color = [0, 255, 0, 255];
+        e.act(Action::Shade(0, 0), false);
+        assert_eq!(e.sprite.paint.coats[0], [[0, 255, 0]]);
+        for _ in 1..last_harvest_game::paint::MAX_COATS {
+            e.act(Action::AddCoat, false);
+        }
+        for b in e.buttons() {
+            assert!(CANVAS.contains([b.rect.x, b.rect.y + b.rect.h - 1.0]) || !matches!(b.action, Action::Coat(_) | Action::Shade(..) | Action::DropCoat(_)), "{:?}", b.action);
+        }
+        let back = Sprite::from_files(&e.sprite.name, &e.sprite.files()).unwrap();
+        assert_eq!(back.paint, e.sprite.paint);
+        e.act(Action::Coat(None), false);
+        assert_eq!(e.surfaces()[0].get(1, 3), Some([200, 100, 50, 255]), "As drawn shows the drawing");
+        e.color = [200, 100, 50, 255];
+        e.act(Action::PaintColor, false);
+        assert!(e.sprite.paint.colors.is_empty() && e.sprite.paint.text().is_empty(), "no paint color, no coats saved");
     }
 
     #[test]
