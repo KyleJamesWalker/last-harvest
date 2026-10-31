@@ -610,6 +610,12 @@ Coats repaint a sprite, so one drawing comes in several colors, like the wrecked
 
 Each frame comes once in each coat: every frame in the first coat, then every frame in the next. A map's `frame N` picks one, and the random farm picks among them. The carving views, footprint and top strip are repainted to match.
 
+#### Palette
+
+The palette under the color is the game's own: the tileset's 22 colors and the few added for what it lacks, listed in `crates/game/palette.txt`. A color the palette lacks shows its code in yellow. The game's own art keeps to this palette. A test fails on any color in its drawings or coats that the file doesn't list, so add a color there, with what it's for, before drawing with it. A new coat's darker shades come from the palette too.
+
+**Lospec** draws from a palette on [Lospec](https://lospec.com/palette-list) instead. Type its name from its address, such as `endesga-32`, or leave it blank to go back to the game's. The sprite editor fetches it from Lospec. In the card editor online, download the palette's `.hex` file from Lospec and pick it with **Palette file**. A mod's art can use any palette.
+
 ### The previews
 
 The 2.5D preview shows the sprite as the top screen draws it. Drag it to walk around, and scroll to move closer. The map preview shows it from above, and scroll zooms it. For a map, the previews show the map around the last tile touched.
