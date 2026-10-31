@@ -1,5 +1,6 @@
 pub mod art;
 pub mod data;
+pub mod paint;
 mod difficulty;
 mod draw;
 mod font;

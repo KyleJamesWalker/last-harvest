@@ -15,7 +15,7 @@
 # or @ground (flat). Without one, buildings reach back over their solid rows and small things are thin.
 #
 # A sprite saved from the editor as assets/private/sprites/NAME/0.png, 1.png and so on replaces its frames here,
-# and a folder there with no line here adds a new sprite.
+# and a folder there with no line here adds a new sprite. A paints.txt there packs its frames once in each coat.
 
 # Ground
 DIRT            cell 10 12 ; cell 11 10
