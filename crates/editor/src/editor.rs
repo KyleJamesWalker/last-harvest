@@ -572,7 +572,7 @@ impl Editor {
             0 => Stand::Prop { depth: self.depth },
             2 => Stand::Figure,
             3 => Stand::Ground,
-            CARVE if self.live.len() == n + 2 + self.sprite.footprint.is_some() as usize => {
+            CARVE if self.own_packed() == n + 2 + self.sprite.footprint.is_some() as usize => {
                 Stand::Carve { footprint: self.live.get(n + 2).copied(), south: self.live[n], east: self.live[n + 1] }
             }
             TURNED => match self.live.get(n + 1).filter(|_| self.sprite.views.is_some()) {
@@ -581,6 +581,11 @@ impl Editor {
             },
             _ => Stand::Slab { height: self.height, lift: self.lift },
         }
+    }
+
+    /// How many of the packed pictures are the sprite's own frames and views, before any 3D copies or Coats rows.
+    fn own_packed(&self) -> usize {
+        self.solids_at.map(|(k, _)| k).or(self.coats_at).unwrap_or(self.live.len()).min(self.live.len())
     }
 
     /// The stand as the catalog and `stand.txt` write it.
@@ -3758,6 +3763,14 @@ mod tests {
         assert_ne!(e.sprite.frames[0].get(3, 3), Some(CLEAR), "the sprite keeps its colors");
         e.set_live((0..n + 3).map(|i| Art(i as u16)).collect());
         assert!(matches!(e.stand(), Stand::Carve { footprint: Some(_), .. }));
+        e.color = e.sprite.frames[0].px.iter().copied().find(|p| p[3] > 0).unwrap();
+        e.act(Action::ClearIn3d, false);
+        e.act(Action::PaintColor, false);
+        e.act(Action::Coats, false);
+        e.act(Action::AddCoat, false);
+        let packed = e.surfaces().len();
+        e.set_live((0..packed).map(|i| Art(i as u16)).collect());
+        assert!(matches!(e.stand(), Stand::Carve { footprint: Some(_), .. }), "3D copies and Coats rows packed after it keep it carved");
         e.act(Action::Width(2), false);
         assert_eq!(e.sprite.footprint.as_ref().unwrap().w, e.sprite.frames[0].w);
         e.act(Action::View(FOOTPRINT), false);
