@@ -51,7 +51,11 @@ impl Editor {
             return self.say(format!("A sprite has at most {MAX_COATS} coats"));
         }
         p.coats.push(vec![rgb(self.color)]);
-        self.coat = Some(p.coats.len() - 1);
+        // Each darker shade becomes the palette's nearest, so the coat keeps to the palette.
+        let k = p.coats.len() - 1;
+        let shades = p.shades(k).into_iter().enumerate().map(|(j, c)| if j == 0 { c } else { rgb(sprite::nearest([c[0], c[1], c[2], 255], &self.palette)) }).collect();
+        p.coats[k] = shades;
+        self.coat = Some(k);
         self.dirty = true;
         self.changed = true;
     }
@@ -118,7 +122,7 @@ impl Editor {
         c.rect(CANVAS.x, CANVAS.y, CANVAS.w, CANVAS.h, PANEL);
         let (x, p) = (CANVAS.x + 20.0, &self.sprite.paint);
         c.label("Each frame comes once in each coat; the previews show the one picked", x, CANVAS.y + 8.0, 16.0, DIM, Align::Left);
-        c.label("Click a shade to give it the brush's color. Add coat starts one whose shades follow the drawing's.", x, CANVAS.y + 30.0, 13.0, DIM, Align::Left);
+        c.label("Click a shade to give it the brush's color. Add coat starts one whose shades follow the drawing's, from the palette.", x, CANVAS.y + 30.0, 13.0, DIM, Align::Left);
         c.label("Paint", x, CANVAS.y + 60.0, 18.0, TEXT, Align::Left);
         if p.colors.is_empty() {
             c.label("Pick a color, then press Paint beside it", x + 70.0, CANVAS.y + 60.0, 16.0, DIM, Align::Left);

@@ -126,6 +126,37 @@ pub fn parse(text: &str) -> Result<Paint, String> {
     Ok(p)
 }
 
+/// The colors the game's own art keeps to, from `palette.txt`.
+pub fn palette() -> Vec<Rgb> {
+    parse_palette(include_str!("../palette.txt")).unwrap_or_else(|e| panic!("palette.txt:{e}"))
+}
+
+/// Reads a palette: a color a line, as `5A6E3C` or `#5A6E3C`, as Lospec's `.hex` files have them, with `# ` comments.
+/// Errors name the line.
+pub fn parse_palette(text: &str) -> Result<Vec<Rgb>, String> {
+    let mut out = Vec::new();
+    for (i, raw) in text.lines().enumerate() {
+        let line = raw.trim();
+        if line.is_empty() || line == "#" || line.starts_with("# ") {
+            continue;
+        }
+        let word = line.split_whitespace().next().unwrap_or("").trim_start_matches('#');
+        let c = hex(word).ok_or_else(|| format!("{}: {word} isn't a color like 5A6E3C", i + 1))?;
+        if !out.contains(&c) {
+            out.push(c);
+        }
+    }
+    if out.is_empty() {
+        return Err("no colors".into());
+    }
+    Ok(out)
+}
+
+/// Whether a Lospec palette can be named so: its name in lospec.com/palette-list, lowercase letters, digits and -.
+pub fn lospec_name(name: &str) -> bool {
+    (1..=64).contains(&name.len()) && name.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+}
+
 /// A color from `5A6E3C`.
 pub fn hex(t: &str) -> Option<Rgb> {
     let byte = |i: usize| t.get(i..i + 2).and_then(|h| u8::from_str_radix(h, 16).ok());
@@ -158,6 +189,14 @@ mod tests {
         assert_eq!(p.coats[0][..2], [[0xAD, 0x64, 0x4B], [0x87, 0x30, 0x18]], "shades of colors that stay stay");
         assert_eq!((p.coats[0].len(), p.coats[1].len()), (3, 1), "a new color gets a shade, and a one-color coat stays one");
         p.check().unwrap();
+    }
+
+    #[test]
+    fn palettes_read_as_lospec_writes_them() {
+        assert_eq!(parse_palette("be4a2f\n#D77643\n\n# warm\nbe4a2f\n").unwrap(), [[0xBE, 0x4A, 0x2F], [0xD7, 0x76, 0x43]]);
+        assert!(parse_palette("be4a2f\nred").unwrap_err().starts_with("2: red"));
+        assert_eq!(palette().len(), 34);
+        assert!(lospec_name("endesga-32") && !lospec_name("../x") && !lospec_name("Endesga"));
     }
 
     #[test]

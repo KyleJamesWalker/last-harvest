@@ -614,43 +614,62 @@ pub fn unbundle(mut body: &[u8]) -> Option<Vec<(String, Vec<u8>)>> {
     Some(files)
 }
 
-/// Every opaque color in the tileset, darkest first within each hue band, for drawing in the pack's style.
-/// The palette when there's no tileset to take one from, as in the mod editor: PICO-8's 32 colors.
-pub const OPEN_PALETTE: [Rgba; 32] = [
-    [0, 0, 0, 255], [29, 43, 83, 255], [126, 37, 83, 255], [0, 135, 81, 255], [171, 82, 54, 255], [95, 87, 79, 255], [194, 195, 199, 255], [255, 241, 232, 255],
-    [255, 0, 77, 255], [255, 163, 0, 255], [255, 236, 39, 255], [0, 228, 54, 255], [41, 173, 255, 255], [131, 118, 156, 255], [255, 119, 168, 255], [255, 204, 170, 255],
-    [41, 24, 20, 255], [17, 29, 53, 255], [66, 33, 54, 255], [18, 83, 89, 255], [116, 47, 41, 255], [73, 51, 59, 255], [162, 136, 121, 255], [243, 239, 125, 255],
-    [190, 18, 80, 255], [255, 108, 36, 255], [168, 231, 46, 255], [0, 181, 67, 255], [6, 90, 181, 255], [117, 70, 101, 255], [255, 110, 89, 255], [255, 157, 129, 255],
-];
-
+/// The colors the game's own art keeps to, from `palette.txt`, for the palette the editors start with.
 pub fn palette() -> Vec<Rgba> {
-    let mut colors: Vec<Rgba> = art::pixels().chunks_exact(4).filter(|p| p[3] > 0).map(|p| [p[0], p[1], p[2], 255]).collect();
-    colors.sort_unstable();
-    colors.dedup();
-    // Without the tileset, as in the card editor, the atlas holds only a few flat ground colors.
-    if colors.len() < 16 {
-        return OPEN_PALETTE.to_vec();
-    }
-    let key = |c: &Rgba| {
-        let [r, g, b] = [c[0], c[1], c[2]].map(|v| v as f32 / 255.0);
-        let (max, min) = (r.max(g).max(b), r.min(g).min(b));
-        let light = (max + min) / 2.0;
-        // Greys first, then by hue in twelve bands, each from dark to light.
-        let band = if max - min < 0.08 {
-            0
-        } else {
-            let hue = if max == r { (g - b) / (max - min) } else if max == g { 2.0 + (b - r) / (max - min) } else { 4.0 + (r - g) / (max - min) };
-            1 + ((hue.rem_euclid(6.0) / 6.0 * 12.0) as i32).min(11)
-        };
-        (band, (light * 1000.0) as i32)
+    paint::palette().into_iter().map(|[r, g, b]| [r, g, b, 255]).collect()
+}
+
+/// The color of `palette` that looks closest to `c`, weighing red, green and blue as the eye does.
+pub fn nearest(c: Rgba, palette: &[Rgba]) -> Rgba {
+    let d = |p: &Rgba| {
+        let r = (c[0] as i32 + p[0] as i32) / 2;
+        let [dr, dg, db] = [0, 1, 2].map(|i| c[i] as i32 - p[i] as i32);
+        (512 + r) * dr * dr / 256 + 4 * dg * dg + (767 - r) * db * db / 256
     };
-    colors.sort_by_key(key);
-    colors
+    palette.iter().copied().min_by_key(d).unwrap_or(c)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every color the game's own drawings and coats use that `palette.txt` doesn't list, with where.
+    fn off_palette(dirs: &[PathBuf]) -> Vec<String> {
+        let palette = paint::palette();
+        let mut off = Vec::new();
+        let files = dirs.iter().flat_map(|d| std::fs::read_dir(d).into_iter().flatten().flatten().map(|e| e.path()));
+        for path in files {
+            if path.is_dir() {
+                off.extend(off_palette(&[path]));
+                continue;
+            }
+            let colors: Vec<paint::Rgb> = match path.extension().and_then(|e| e.to_str()) {
+                Some("png") => decode_png(&std::fs::read(&path).unwrap()).unwrap().px.iter().filter(|p| p[3] > 0).map(|p| [p[0], p[1], p[2]]).collect(),
+                _ if path.file_name().is_some_and(|n| n == paint::FILE) => {
+                    let p = paint::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
+                    (0..p.coats.len()).flat_map(|k| p.shades(k)).collect()
+                }
+                _ => continue,
+            };
+            let mut seen = Vec::new();
+            for c in colors.into_iter().filter(|c| !palette.contains(c)) {
+                if !seen.contains(&c) {
+                    seen.push(c);
+                    off.push(format!("{}: {}", path.display(), hex([c[0], c[1], c[2], 255])));
+                }
+            }
+        }
+        off
+    }
+
+    #[test]
+    fn the_games_art_keeps_to_its_palette() {
+        let mut dirs = vec![Path::new(env!("CARGO_MANIFEST_DIR")).join("../game/placeholder")];
+        // A clone without the private assets checks only the placeholders.
+        dirs.extend(Some(folder()).filter(|f| f.is_dir()));
+        let off = off_palette(&dirs);
+        assert!(off.is_empty(), "colors that crates/game/palette.txt doesn't list; add each there with what it's for, or redraw with the palette's:\n{}", off.join("\n"));
+    }
 
     #[test]
     fn headings_come_from_the_comment_that_opens_each_group() {
