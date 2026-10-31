@@ -696,6 +696,11 @@ fn norm(v: [f32; 2]) -> [f32; 2] {
 }
 
 impl Harvest {
+    /// What a keyboard's Esc stands for: Start to pause a run in play, else B to back out of what is open.
+    pub fn escape(&self) -> Buttons {
+        if self.menu.is_none() && matches!(self.phase, Phase::Playing) { Buttons::START } else { Buttons::B }
+    }
+
     /// The player's position and the solid cells and props around them, for the debug pipe's `state`.
     pub fn debug_state(&self) -> String {
         let half = crate::tuning::tuning().player_half();
@@ -2185,8 +2190,10 @@ mod tests {
         let t = h.t;
         run(&mut h, &Input::default(), 2.0);
         assert_eq!(h.t, t, "nothing moves while paused");
+        assert_eq!(h.escape(), Buttons::B, "Esc backs out of the pause menu");
         press(&mut h, Buttons::B);
         assert!(h.menu.is_none());
+        assert_eq!(h.escape(), Buttons::START, "and pauses a run in play");
         press(&mut h, Buttons::START);
         press(&mut h, Buttons::DOWN);
         assert!(press(&mut h, Buttons::A).settings);

@@ -226,7 +226,8 @@ cargo test
 | Performance overlay | Select | Backspace |
 | Screenshot | R1 | W |
 | Back to the title | Back | Tab |
-| Quit | Hold Home for one second | Esc |
+| Pause a run, or back out of a menu | Start, or B | Esc |
+| Quit | Hold Home for one second | Cmd+Q, or close a window |
 
 The `hardware` debug scene checks every hardware feature and also sets each screen's brightness: Up and Down set the top brightness, Left and Right the bottom. X and B toggle the work and low-power LEDs. L1 and R1 play the left and right speaker, R2 runs the motor, and any other button plays a tone.
 

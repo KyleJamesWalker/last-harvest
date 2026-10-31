@@ -204,6 +204,14 @@ impl Game {
         self.system = system;
     }
 
+    /// What a keyboard's Esc stands for, so it pauses a run or backs out of a menu and never quits.
+    pub fn escape(&self) -> Buttons {
+        match &self.state {
+            State::Harvest(h) if self.page != Page::Settings => h.escape(),
+            _ => Buttons::B,
+        }
+    }
+
     /// What the debug pipe's `state` prints, in a harvest.
     pub fn debug_state(&self) -> Option<String> {
         match &self.state {
