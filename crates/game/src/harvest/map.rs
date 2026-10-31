@@ -44,6 +44,10 @@ pub struct Prop {
 }
 
 impl Prop {
+    pub fn cells(&self) -> [usize; 4] {
+        self.cells
+    }
+
     /// A prop that blocks nothing and never breaks.
     fn new(frames: &'static [Art], fps: f32, x: f32, y: f32, base: f32, depth: f32) -> Self {
         Prop { frames, fps, x, y, base, depth, hp: 0.0, full: 0.0, flash: 0.0, broken: None, cells: [0; 4], area: [0.0; 4], reach: 0.0, cover: false }

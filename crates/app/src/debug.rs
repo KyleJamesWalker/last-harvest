@@ -27,6 +27,7 @@ pub enum Command {
     Touch(Vec<(f32, Option<[f32; 2]>)>),
     Scene(String),
     Shot(PathBuf),
+    State,
     Sleep(u32),
     Panic,
 }
@@ -82,6 +83,7 @@ fn parse(line: &str) -> Option<Command> {
         }
         "scene" => Command::Scene(words.get(1)?.to_string()),
         "shot" => Command::Shot(PathBuf::from(words.get(1)?)),
+        "state" => Command::State,
         "sleep" => Command::Sleep(num(1)? as u32),
         "panic" => Command::Panic,
         _ => return None,

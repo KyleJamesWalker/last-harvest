@@ -175,6 +175,7 @@ impl App {
                     None => eprintln!("debug: unknown scene {name}"),
                 },
                 debug::Command::Shot(path) => shot = Some(path),
+                debug::Command::State => eprintln!("debug: state\n{}", self.game.debug_state().unwrap_or_else(|| "not in a harvest".into())),
                 #[cfg(target_os = "linux")]
                 debug::Command::Sleep(secs) => return self.suspend(Some(secs)),
                 #[cfg(not(target_os = "linux"))]

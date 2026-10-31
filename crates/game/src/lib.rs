@@ -204,6 +204,14 @@ impl Game {
         self.system = system;
     }
 
+    /// What the debug pipe's `state` prints, in a harvest.
+    pub fn debug_state(&self) -> Option<String> {
+        match &self.state {
+            State::Harvest(h) => Some(h.debug_state()),
+            _ => None,
+        }
+    }
+
     pub fn open(&mut self, scene: Scene) {
         let seed = self.rng.next_u32() as u64 + 1;
         self.state = match scene {

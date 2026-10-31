@@ -696,6 +696,32 @@ fn norm(v: [f32; 2]) -> [f32; 2] {
 }
 
 impl Harvest {
+    /// The player's position and the solid cells and props around them, for the debug pipe's `state`.
+    pub fn debug_state(&self) -> String {
+        let half = crate::tuning::tuning().player_half();
+        let [px, py] = self.pos;
+        let (tx, ty) = ((px / TILE) as i32, (py / TILE) as i32);
+        let mut s = format!("pos {px:.1},{py:.1} tile {tx},{ty} half {half:?} yaw {:.2}\n", self.view_yaw);
+        let r = 4;
+        for y in ty - r..=ty + r {
+            s += &format!("{y:4} ");
+            for x in tx - r..=tx + r {
+                let solid = self.map.solid_at(x as f32 * TILE + 1.0, y as f32 * TILE + 1.0);
+                s.push(if (x, y) == (tx, ty) { 'P' } else if solid { '#' } else { '.' });
+            }
+            s.push('\n');
+        }
+        let name = |a: art::Art| art::ALL.iter().find(|(_, f)| f.contains(&a)).map_or("?", |(n, _)| n);
+        for p in &self.map.props {
+            let [cx, cy, cw, ch] = p.cells().map(|v| v as i32);
+            if cx + cw >= tx - r && cx <= tx + r && cy + ch >= ty - r && cy <= ty + r {
+                let a = p.frames[0];
+                s += &format!("{} at px {},{} size {}x{} blocks tiles x {}..{} y {}..{}\n", name(a), p.x, p.y, a.w(), a.h(), cx, cx + cw, cy, cy + ch);
+            }
+        }
+        s
+    }
+
     pub fn new(seed: u64) -> Self {
         Self::sized(seed, MAP_SIZE)
     }
