@@ -66,6 +66,13 @@ impl Store for HttpStore {
         get(&format!("api/version/{id}/{name}/{file}"))
     }
 
+    fn lospec(&self, name: &str) -> Result<String, String> {
+        match request("GET", &format!("api/lospec/{name}"), None)? {
+            (200, b) => Ok(utf8(b)),
+            (_, b) => Err(utf8(b)),
+        }
+    }
+
     fn map_ids(&self) -> Vec<String> {
         get("api/maps").map(utf8).unwrap_or_default().lines().map(str::to_string).collect()
     }

@@ -10,6 +10,7 @@ use crate::store::Store;
 mod cards;
 mod coats;
 mod maps;
+mod palette;
 mod tables;
 
 use cards::HeldImport;
@@ -132,6 +133,8 @@ enum Grab {
 enum Ask {
     New,
     Copy,
+    /// A Lospec palette's name, to draw from its colors.
+    Palette,
 }
 
 /// A line of a card's text typed on its stats page.
@@ -384,6 +387,8 @@ pub struct Editor {
     family: Vec<(String, Vec<Frame>)>,
     color: Rgba,
     palette: Vec<Rgba>,
+    /// The Lospec palette drawn from, else the game's own.
+    palette_name: Option<String>,
     undo: Vec<Snapshot>,
     redo: Vec<Snapshot>,
     /// Edits not yet saved.
@@ -492,6 +497,7 @@ impl Editor {
             family: Vec::new(),
             color: [0x55, 0x3c, 0x2a, 255],
             palette: sprite::palette(),
+            palette_name: None,
             undo: Vec::new(),
             redo: Vec::new(),
             dirty: false,
@@ -993,6 +999,10 @@ impl Editor {
             *name = text.chars().filter(|&c| line.takes(c)).take(line.max()).collect();
             return;
         }
+        if let Some((Ask::Palette, name)) = &mut self.ask {
+            *name = text.chars().filter_map(lospec_char).take(64).collect();
+            return;
+        }
         let clean: String = text.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == ' ').map(|c| if c == ' ' { '_' } else { c.to_ascii_uppercase() }).collect();
         if self.typing {
             self.filter = clean;
@@ -1097,6 +1107,7 @@ impl Editor {
             let (x, y) = cell(6 + i);
             push(x, y, 74.0, 32.0, Action::Tool(t), l, self.tool_now() == t);
         }
+        push(SIDE_X + 132.0, 289.0, 100.0, 24.0, Action::Ask(Ask::Palette), "Lospec", self.palette_name.is_some());
         let cols = (SIDE_W / SWATCH) as usize;
         for (i, &c) in self.palette.iter().enumerate().take(cols * if self.is_prop() { PROP_PALETTE_ROWS } else { 9 }) {
             let (x, y) = (SIDE_X + (i % cols) as f32 * SWATCH, 316.0 + (i / cols) as f32 * SWATCH);
@@ -2199,6 +2210,20 @@ impl Editor {
             }
             return;
         }
+        if let Some((Ask::Palette, name)) = &mut self.ask {
+            match key {
+                Key::Char(c) => name.extend(lospec_char(c).filter(|_| name.len() < 64)),
+                Key::Backspace => _ = name.pop(),
+                Key::Escape => self.ask = None,
+                Key::Enter => {
+                    let name = name.clone();
+                    self.ask = None;
+                    self.load_lospec(&name);
+                }
+                _ => {}
+            }
+            return;
+        }
         if let Some((kind, name)) = &mut self.ask {
             match key {
                 Key::Char(c) if c.is_ascii_alphanumeric() || c == '_' || c == ' ' => {
@@ -2489,7 +2514,9 @@ impl Editor {
         // Color: a swatch, then red, green and blue bars.
         c.label("Color", SIDE_X, 172.0, 18.0, DIM, Align::Left);
         c.rect(SIDE_X + 60.0, 168.0, 60.0, 48.0, rgba(self.color));
-        c.label(format!("#{:02X}{:02X}{:02X}", self.color[0], self.color[1], self.color[2]), SIDE_X + 130.0, 168.0, 18.0, TEXT, Align::Left);
+        // A color the palette lacks shows in the warning color: the game's own art keeps to its palette.
+        let off = !self.palette.contains(&self.color);
+        c.label(format!("#{:02X}{:02X}{:02X}", self.color[0], self.color[1], self.color[2]), SIDE_X + 130.0, 168.0, 18.0, if off { HOT } else { TEXT }, Align::Left);
         for (i, bar) in self.bars().iter().enumerate() {
             c.label(["R", "G", "B"][i], SIDE_X + 4.0, bar.y - 2.0, 18.0, DIM, Align::Left);
             for k in 0..16 {
@@ -2499,7 +2526,7 @@ impl Editor {
             }
             c.rect(bar.x + self.color[i] as f32 / 255.0 * bar.w - 2.0, bar.y - 3.0, 4.0, bar.h + 6.0, TEXT);
         }
-        c.label(if self.modding { "Palette" } else { "Tileset palette" }, SIDE_X, 294.0, 16.0, DIM, Align::Left);
+        c.label(self.palette_label(), SIDE_X, 294.0, 16.0, DIM, Align::Left);
         if !self.is_card() && !self.none_open() {
             c.label("Stands in 3D as", SIDE_X, 546.0, 16.0, DIM, Align::Left);
         }
@@ -2585,9 +2612,12 @@ impl Editor {
                 (Ask::New, true) => "Name the new enemy card",
                 (Ask::New, false) => "Name the new sprite",
                 (Ask::Copy, _) => "Name the copy",
+                (Ask::Palette, _) => "Draw from a Lospec palette",
             };
             c.label(what, 512.0, 300.0, 24.0, TEXT, Align::Center);
-            let hint = if self.modding {
+            let hint = if *kind == Ask::Palette {
+                "Its name from lospec.com/palette-list, such as endesga-32; blank for the game's".to_string()
+            } else if self.modding {
                 "Its id: letters, digits and _. PLAYER_ makes a player card, PROP_ a prop, MAP_ a map".to_string()
             } else {
                 format!("Start with {} for an enemy card, {} for a player card", sprite::CARD_PREFIX, sprite::PLAYER_CARD_PREFIX)
@@ -2595,7 +2625,7 @@ impl Editor {
             c.label(hint, 512.0, 328.0, 15.0, DIM, Align::Center);
             let caret = if (self.clock * 2.0) as i32 % 2 == 0 { "_" } else { " " };
             c.label(format!("{name}{caret}"), 512.0, 350.0, 30.0, HOT, Align::Center);
-            c.label("Enter to create, Esc to cancel", 512.0, 405.0, 16.0, DIM, Align::Center);
+            c.label(if *kind == Ask::Palette { "Enter to load, Esc to cancel" } else { "Enter to create, Esc to cancel" }, 512.0, 405.0, 16.0, DIM, Align::Center);
         }
     }
 
@@ -2778,6 +2808,15 @@ fn rgba(c: Rgba) -> Color {
     [c[0] as f32 / 255.0, c[1] as f32 / 255.0, c[2] as f32 / 255.0, if c[3] == 0 { 0.0 } else { 1.0 }]
 }
 
+/// A character typed into a Lospec palette's name, as its address writes it.
+fn lospec_char(c: char) -> Option<char> {
+    match c {
+        ' ' | '_' | '-' => Some('-'),
+        c if c.is_ascii_alphanumeric() => Some(c.to_ascii_lowercase()),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::{Path, PathBuf};
@@ -2946,6 +2985,33 @@ mod tests {
         }
         e.key(Key::Undo);
         assert!(e.sprite.frames.iter().all(|f| f.get(1, 3) == Some([9, 9, 9, 255])));
+    }
+
+    #[test]
+    fn a_lospec_palette_replaces_the_games_until_cleared() {
+        let mut e = editor();
+        assert_eq!(e.palette, sprite::palette(), "the game's palette to start");
+        e.act(Action::Ask(Ask::Palette), false);
+        e.set_text("Endesga 32!");
+        assert_eq!(e.ask.as_ref().map(|(_, n)| n.as_str()), Some("endesga-32"), "typed as Lospec writes its names");
+        e.use_palette("tiny", "be4a2f\nd77643\n");
+        assert_eq!((e.palette.len(), e.palette_label()), (2, "tiny".to_string()));
+        e.use_palette("broken", "nope");
+        assert_eq!(e.palette.len(), 2, "a file that isn't a palette leaves the one in use");
+        e.ask = Some((Ask::Palette, String::new()));
+        e.key(Key::Enter);
+        assert_eq!((e.palette.clone(), e.palette_label()), (sprite::palette(), "Game palette".to_string()), "blank goes back to the game's");
+    }
+
+    #[test]
+    fn a_new_coats_darker_shades_keep_to_the_palette() {
+        let mut e = editor();
+        e.sprite.paint = last_harvest_game::paint::parse("paint 917662 726650 4E4637").unwrap();
+        e.color = [0xAD, 0x64, 0x4B, 255];
+        e.act(Action::AddCoat, false);
+        let coat = &e.sprite.paint.coats[0];
+        assert_eq!(coat.len(), 3);
+        assert!(coat.iter().all(|c| e.palette.contains(&[c[0], c[1], c[2], 255])), "{coat:?}");
     }
 
     #[test]

@@ -320,7 +320,7 @@ impl Editor {
                 }
                 parts
             }
-            Ask::New => {
+            Ask::New | Ask::Palette => {
                 let text = format!("[{id}]\nname        {}\n", id[..1].to_ascii_uppercase() + &id[1..]);
                 let frames = sprite::card_template();
                 names.iter().zip(frames.chunks(sprite::CARD_PART_FRAMES)).map(|(name, f)| Sprite { name: name.clone(), frames: f.to_vec(), views: None, footprint: None, top: None, card: Some(text.clone()), clear_in_3d: Vec::new(), paint: Default::default() }).collect()

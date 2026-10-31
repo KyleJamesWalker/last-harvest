@@ -90,6 +90,11 @@ pub trait Store {
         Err("the game's data files aren't kept here".into())
     }
 
+    /// The Lospec palette called `name`, as its `.hex` file, fetched where this machine can reach lospec.com.
+    fn lospec(&self, _name: &str) -> Result<String, String> {
+        Err("This editor can't reach lospec.com: download the palette's .hex file there and load it with Palette file".into())
+    }
+
     /// The saved copy if there is one, else the packed frames.
     fn load(&self, name: &str) -> Option<Sprite> {
         Sprite::load_from(name, |file| self.read(name, file))
@@ -576,6 +581,21 @@ mod fs {
             let Some(path) = self.packed_path(name) else { return Repo::open(&self.dir)?.read(id, name, file) };
             let bytes = Repo::open(path.parent()?)?.show(id, path.file_name()?.to_str()?)?;
             if props::id(name).is_some() { props::file(&bytes, file) } else { cards::file(&bytes, name, file) }
+        }
+
+        fn lospec(&self, name: &str) -> Result<String, String> {
+            if !last_harvest_game::paint::lospec_name(name) {
+                return Err(format!("{name} can't name a Lospec palette"));
+            }
+            // The .json, since lospec.com never answers a .hex for a name it doesn't know.
+            let url = format!("https://lospec.com/palette-list/{name}.json");
+            let out = std::process::Command::new("curl").args(["-sSfL", "--max-time", "10", &url]).output().map_err(|e| format!("curl: {e}"))?;
+            if !out.status.success() {
+                return Err(format!("Lospec has no palette called {name}, or isn't answering"));
+            }
+            let json = String::from_utf8_lossy(&out.stdout);
+            let list = json.split_once("\"colors\":[").and_then(|(_, rest)| rest.split_once(']')).map(|(list, _)| list).ok_or_else(|| format!("{url} lists no colors"))?;
+            Ok(list.split(',').map(|c| format!("{}\n", c.trim().trim_matches('"'))).collect())
         }
 
         fn import_card(&self, file: &str, bytes: &[u8]) -> Result<String, String> {

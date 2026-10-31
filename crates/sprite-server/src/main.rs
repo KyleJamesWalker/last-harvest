@@ -65,6 +65,8 @@ fn handle(store: &FsStore, web: &Path, method: &Method, url: &str, body: &[u8]) 
             Ok(t) => store.save_table(file, t).map_or_else(|e| text(400, e), |()| text(200, "saved")),
             Err(_) => text(400, "not text"),
         },
+        // lospec.com sends no CORS header, so the page asks this server to fetch a palette for it.
+        (Method::Get, ["api", "lospec", name]) => store.lospec(name).map_or_else(|e| text(502, e), |t| text(200, t)),
         (Method::Get, ["api", "maps"]) => text(200, store.map_ids().iter().map(|id| format!("{id}\n")).collect::<String>()),
         (Method::Get, ["api", "map", id]) if last_harvest_game::valid_map_id(id) => store.read_map(id).map_or_else(|| text(404, "no such map"), |t| text(200, t)),
         (Method::Put, ["api", "map", id]) if last_harvest_game::valid_map_id(id) => match std::str::from_utf8(body).map_err(|_| "not text".to_string()).and_then(last_harvest_game::MapSource::parse) {

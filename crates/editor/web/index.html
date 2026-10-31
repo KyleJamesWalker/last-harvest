@@ -55,7 +55,7 @@
   <div class="group"><span>Sprite</span><button data-act="prev-sprite">&#8593; K</button><button data-act="next-sprite">&#8595; J</button></div>
   <div class="group"><span>Frame</span><button data-act="prev-frame">&#8592; H</button><button data-act="next-frame">&#8594; L</button></div>
   <div class="group" id="mod-tools" hidden><span>Cards</span><button data-act="import">Import</button><button data-act="export">Export</button><button data-act="export-all">Export all</button><button data-act="sound">Sound</button><button data-act="delete-card">Delete card</button><button data-act="pak" id="pak">Game data</button><button id="help-open">Help</button></div>
-  <div class="group"><button data-act="search">Search</button><button data-act="history">History</button><button data-act="new">New</button><button data-act="play">Play</button><button data-act="mirror">Mirror</button><button data-act="fit">Fit</button><button data-act="save" class="save">Save</button></div>
+  <div class="group"><button data-act="search">Search</button><button data-act="history">History</button><button data-act="new">New</button><button data-act="play">Play</button><button data-act="mirror">Mirror</button><button data-act="palette" title="Draw from a palette file, such as a .hex from lospec.com">Palette file</button><button data-act="fit">Fit</button><button data-act="save" class="save">Save</button></div>
 </div>
 <div id="help" hidden><div>
   <h2>Making a card</h2>
@@ -80,6 +80,9 @@
   every card in a <code>.pak</code>; one with the id of a card you have replaces it.
   <b>Game data</b> lets you pick your own <code>game_data.pak</code> so the previews show the farm; it never leaves
   your browser.</p>
+  <p>The palette starts as the game's own colors. <b>Palette file</b> draws from another instead: download a
+  palette's <code>.hex</code> file from <a href="https://lospec.com/palette-list" target="_blank" rel="noopener">Lospec</a>
+  and pick it.</p>
   <p>Some apps strip a PNG's text when they re-save it, which takes a card's numbers with it: share the file
   itself.</p>
   <p>The <a href="https://kylejameswalker.github.io/last-harvest/manual.html" target="_blank" rel="noopener">manual</a>
