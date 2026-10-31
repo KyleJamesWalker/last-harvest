@@ -93,7 +93,7 @@ struct Toughness {
 /// piece as `props.txt` says fences do, and the game's own as it lists them.
 fn toughness(a: Art) -> Toughness {
     if let Some(p) = super::props::named_of(a) {
-        return Toughness { cover: p.cover, hp: p.hp, broken: p.broken };
+        return Toughness { cover: p.cover, hp: p.hp, broken: p.broken_for(a) };
     }
     if [&RAIL, &PICKET].iter().any(|f| f.top.contains(&a) || f.side.contains(&a) || f.bottom.contains(&a)) {
         return Toughness::fence();

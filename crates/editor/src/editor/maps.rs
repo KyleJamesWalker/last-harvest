@@ -290,7 +290,8 @@ impl Editor {
 
     /// Every player's prop the store keeps, to pack for the previews while a map is open: their frames, then the
     /// footprint and views of one that stands by them, then the frames again without the colors it clears in 3D, in
-    /// turn, and each one's fields, how many it packed before those copies, and how many copies.
+    /// turn and all again for each coat, and each one's fields, how many it packed before those copies, and how many
+    /// copies.
     pub(super) fn prop_surfaces(&self) -> (Vec<Frame>, Vec<(PropFields, usize, usize)>) {
         let (mut frames, mut props) = (Vec::new(), Vec::new());
         for (name, _) in self.names.iter().filter(|(n, _)| n.starts_with(last_harvest_game::PROP_PREFIX)) {
@@ -302,8 +303,10 @@ impl Editor {
             let packed = s.frames.len() + footprint.is_some() as usize + 2 * views.is_some() as usize;
             let cleared = |fr: &Frame| Frame { px: fr.px.iter().map(|p| if p[3] > 0 && f.clear.contains(&[p[0], p[1], p[2]]) { CLEAR } else { *p }).collect(), ..fr.clone() };
             let copies: Vec<Frame> = if f.clear.is_empty() { Vec::new() } else { s.frames.iter().map(cleared).collect() };
+            let group: Vec<Frame> = s.frames.iter().chain(&footprint).chain(views.iter().flatten()).chain(&copies).cloned().collect();
+            let paint = &f.paint;
+            frames.extend((0..paint.copies()).flat_map(|k| group.iter().map(move |fr| fr.in_coat(paint, k))));
             props.push((f, packed, copies.len()));
-            frames.extend(s.frames.into_iter().chain(footprint).chain(views.into_iter().flatten()).chain(copies));
         }
         (frames, props)
     }
@@ -314,15 +317,21 @@ impl Editor {
         let mut at = 0;
         let (mut named, mut solids) = (Vec::new(), Vec::new());
         for (f, n, copies) in &self.map_props {
-            let Some(arts) = self.live.get(at..at + n + copies) else { break };
-            let (arts, cleared) = arts.split_at(*n);
-            solids.extend(arts.iter().copied().zip(cleared.iter().copied()));
-            let (mut f, frames) = (f.clone(), (f.frames as usize).min(*n));
-            if let [.., south, east] = arts[frames..] {
-                f.stand_by(south, east, (n - frames == 3).then(|| arts[frames]));
-            }
-            named.push((f, arts[..frames].to_vec()));
-            at += n + copies;
+            let Some(all) = self.live.get(at..at + (n + copies) * f.paint.copies()) else { break };
+            let coats = all
+                .chunks(n + copies)
+                .map(|arts| {
+                    let (arts, cleared) = arts.split_at(*n);
+                    solids.extend(arts.iter().copied().zip(cleared.iter().copied()));
+                    let (mut f, frames) = (f.clone(), (f.frames as usize).min(*n));
+                    if let [.., south, east] = arts[frames..] {
+                        f.stand_by(south, east, (n - frames == 3).then(|| arts[frames]));
+                    }
+                    (arts[..frames].to_vec(), f.stand)
+                })
+                .collect();
+            named.push((f.clone(), coats));
+            at += all.len();
         }
         last_harvest_game::set_props(named);
         last_harvest_game::art::set_live_solids(solids);
@@ -468,7 +477,7 @@ impl Editor {
 
     fn start_map(&mut self, name: &str, id: &str, src: MapSource) {
         self.map = Some(MapEdit::new(id, src));
-        self.sprite = Sprite { name: name.into(), frames: vec![Frame::blank(16, 16)], views: None, footprint: None, top: None, card: None, clear_in_3d: Vec::new() };
+        self.sprite = Sprite { name: name.into(), frames: vec![Frame::blank(16, 16)], views: None, footprint: None, top: None, card: None, clear_in_3d: Vec::new(), paint: Default::default() };
         self.frame = 0;
         self.view = None;
         self.stats = false;

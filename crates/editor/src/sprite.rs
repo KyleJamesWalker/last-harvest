@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use last_harvest_game::Stand;
 use last_harvest_game::art::{self, ATLAS_W, Art};
+use last_harvest_game::paint::{self, Paint};
 
 pub type Rgba = [u8; 4];
 pub const CLEAR: Rgba = [0, 0, 0, 0];
@@ -62,6 +63,13 @@ impl Frame {
         }
     }
 
+    /// This frame repainted in coat `k` of `paint`.
+    pub fn in_coat(&self, paint: &Paint, k: usize) -> Self {
+        let mut bytes = self.px.concat();
+        paint.repaint(k, &mut bytes);
+        Self { px: bytes.chunks_exact(4).map(|p| [p[0], p[1], p[2], p[3]]).collect(), ..self.clone() }
+    }
+
     /// A new size, keeping the pixels anchored at the bottom center, where a sprite meets the ground.
     pub fn resized(&self, w: usize, h: usize) -> Self {
         let mut out = Self::blank(w, h);
@@ -90,6 +98,8 @@ pub struct Sprite {
     pub card: Option<String>,
     /// Colors the 3D view leaves out, where the 2D view keeps them.
     pub clear_in_3d: Vec<Rgba>,
+    /// Its colors that are paint, and the coats each frame comes in.
+    pub paint: Paint,
 }
 
 pub const FOOTPRINT_FILE: &str = "footprint.png";
@@ -399,7 +409,8 @@ impl Sprite {
         let card = read(CARD_FILE).and_then(|b| String::from_utf8(b).ok());
         let clear = read(CLEAR_FILE).and_then(|b| String::from_utf8(b).ok()).unwrap_or_default();
         let clear_in_3d = clear.lines().filter_map(parse_hex).collect();
-        Some(Self { name: name.to_string(), frames, views, footprint: png(FOOTPRINT_FILE), top: png(TOP_FILE), card, clear_in_3d })
+        let paint = read(paint::FILE).and_then(|b| paint::parse(&String::from_utf8(b).ok()?).ok()).unwrap_or_default();
+        Some(Self { name: name.to_string(), frames, views, footprint: png(FOOTPRINT_FILE), top: png(TOP_FILE), card, clear_in_3d, paint })
     }
 
     /// The files a save writes: the frames, then the views and the footprint when it has them.
@@ -410,7 +421,8 @@ impl Sprite {
         let top = self.top.iter().map(|f| (TOP_FILE.to_string(), f));
         let pngs = frames.chain(views).chain(footprint).chain(top).map(|(n, f)| (n, encode_png(f)));
         let clear = self.clear_text().map(|t| (CLEAR_FILE.to_string(), t.into_bytes()));
-        pngs.chain(self.card.iter().map(|t| (CARD_FILE.to_string(), t.clone().into_bytes()))).chain(clear).collect()
+        let paint = Some(self.paint.text()).filter(|t| !t.is_empty()).map(|t| (paint::FILE.to_string(), t.into_bytes()));
+        pngs.chain(self.card.iter().map(|t| (CARD_FILE.to_string(), t.clone().into_bytes()))).chain(clear).chain(paint).collect()
     }
 
     /// `clear.txt` as written, or None when no color is cleared in 3D.
@@ -444,10 +456,11 @@ impl Sprite {
                 }
             }
         }
-        match self.clear_text() {
-            Some(t) => std::fs::write(path.join(CLEAR_FILE), t).map_err(|e| e.to_string())?,
-            None => {
-                let _ = std::fs::remove_file(path.join(CLEAR_FILE));
+        for (file, text) in [(CLEAR_FILE, self.clear_text().unwrap_or_default()), (paint::FILE, self.paint.text())] {
+            if text.is_empty() {
+                let _ = std::fs::remove_file(path.join(file));
+            } else {
+                std::fs::write(path.join(file), text).map_err(|e| e.to_string())?;
             }
         }
         for (k, file) in VIEW_FILES.iter().enumerate() {
@@ -673,7 +686,7 @@ mod tests {
     #[test]
     fn saves_and_loads_every_frame_and_drops_leftovers() {
         let dir = std::env::temp_dir().join(format!("lh-sprites-{}", std::process::id()));
-        let mut s = Sprite { name: "TEST_THING".into(), frames: vec![Frame::blank(3, 2), Frame::blank(3, 2), Frame::blank(3, 2)], views: None, footprint: None, top: None, card: None, clear_in_3d: Vec::new() };
+        let mut s = Sprite { name: "TEST_THING".into(), frames: vec![Frame::blank(3, 2), Frame::blank(3, 2), Frame::blank(3, 2)], views: None, footprint: None, top: None, card: None, clear_in_3d: Vec::new(), paint: Default::default() };
         s.frames[1].set(2, 1, [200, 10, 10, 255]);
         s.save(&dir).unwrap();
         s.frames.truncate(2);
@@ -686,7 +699,7 @@ mod tests {
 
     #[test]
     fn a_sprites_files_bundle_and_come_back_whole() {
-        let mut s = Sprite { name: "THING".into(), frames: vec![Frame::blank(3, 2); 2], views: Some([Frame::blank(3, 4), Frame::blank(2, 4)]), footprint: None, top: Some(Frame::blank(3, 1)), card: None, clear_in_3d: Vec::new() };
+        let mut s = Sprite { name: "THING".into(), frames: vec![Frame::blank(3, 2); 2], views: Some([Frame::blank(3, 4), Frame::blank(2, 4)]), footprint: None, top: Some(Frame::blank(3, 1)), card: None, clear_in_3d: Vec::new(), paint: Default::default() };
         s.frames[1].set(1, 1, [1, 2, 3, 255]);
         let files = unbundle(&bundle(&s.files())).unwrap();
         assert_eq!(files.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>(), ["0.png", "1.png", "south.png", "east.png", "top.png"]);
