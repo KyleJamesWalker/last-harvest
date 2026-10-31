@@ -289,7 +289,7 @@ impl Editor {
     }
 
     /// Every player's prop the store keeps, to pack for the previews while a map is open: their frames, then the
-    /// footprint and views of one that stands by them, then the frames again without the colors it clears in 3D, in
+    /// footprint, roof and views of one that stands by them, as `PropFields::stand_by` takes them, then the frames again without the colors it clears in 3D, in
     /// turn and all again for each coat, and each one's fields, how many it packed before those copies, and how many
     /// copies.
     pub(super) fn prop_surfaces(&self) -> (Vec<Frame>, Vec<(PropFields, usize, usize)>) {
@@ -299,11 +299,16 @@ impl Editor {
             let Some(mut f) = s.card.as_deref().and_then(|t| last_harvest_game::prop_fields(t).ok()) else { continue };
             f.frames = s.frames.len() as u32;
             let views = s.views.filter(|_| f.by_views.is_some());
-            let footprint = s.footprint.filter(|_| views.is_some() && f.footprint);
-            let packed = s.frames.len() + footprint.is_some() as usize + 2 * views.is_some() as usize;
+            let has = |on: bool, fr: Option<Frame>| fr.filter(|_| views.is_some() && on);
+            let (footprint, roof, north, west) = (has(f.footprint, s.footprint), has(f.roof, s.roof), has(f.north, s.north), has(f.west, s.west));
+            (f.footprint, f.roof, f.north, f.west) = (footprint.is_some(), roof.is_some(), north.is_some(), west.is_some());
+            let before: Vec<Frame> = footprint.into_iter().chain(roof).collect();
+            let after: Vec<Frame> = north.into_iter().chain(west).collect();
+            let views: Vec<Frame> = views.into_iter().flatten().collect();
+            let packed = s.frames.len() + before.len() + views.len() + after.len();
             let cleared = |fr: &Frame| Frame { px: fr.px.iter().map(|p| if p[3] > 0 && f.clear.contains(&[p[0], p[1], p[2]]) { CLEAR } else { *p }).collect(), ..fr.clone() };
             let copies: Vec<Frame> = if f.clear.is_empty() { Vec::new() } else { s.frames.iter().map(cleared).collect() };
-            let group: Vec<Frame> = s.frames.iter().chain(&footprint).chain(views.iter().flatten()).chain(&copies).cloned().collect();
+            let group: Vec<Frame> = s.frames.iter().chain(&before).chain(&views).chain(&after).chain(&copies).cloned().collect();
             let paint = &f.paint;
             frames.extend((0..paint.copies()).flat_map(|k| group.iter().map(move |fr| fr.in_coat(paint, k))));
             props.push((f, packed, copies.len()));
@@ -324,9 +329,7 @@ impl Editor {
                     let (arts, cleared) = arts.split_at(*n);
                     solids.extend(arts.iter().copied().zip(cleared.iter().copied()));
                     let (mut f, frames) = (f.clone(), (f.frames as usize).min(*n));
-                    if let [.., south, east] = arts[frames..] {
-                        f.stand_by(south, east, (n - frames == 3).then(|| arts[frames]));
-                    }
+                    f.stand_by(&arts[frames..]);
                     (arts[..frames].to_vec(), f.stand)
                 })
                 .collect();
@@ -477,7 +480,7 @@ impl Editor {
 
     fn start_map(&mut self, name: &str, id: &str, src: MapSource) {
         self.map = Some(MapEdit::new(id, src));
-        self.sprite = Sprite { name: name.into(), frames: vec![Frame::blank(16, 16)], views: None, footprint: None, top: None, card: None, clear_in_3d: Vec::new(), paint: Default::default() };
+        self.sprite = Sprite { name: name.into(), frames: vec![Frame::blank(16, 16)], views: None, footprint: None, roof: None, north: None, west: None, top: None, card: None, clear_in_3d: Vec::new(), paint: Default::default() };
         self.frame = 0;
         self.view = None;
         self.stats = false;

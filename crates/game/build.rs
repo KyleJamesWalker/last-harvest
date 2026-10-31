@@ -222,7 +222,8 @@ fn stand_code(how: &str, line: usize) -> String {
     }
 }
 
-/// Rust for a stand, packing a carved sprite's south and east views, and its footprint if it has one, from its folder.
+/// Rust for a stand, packing a carved sprite's south and east views, and its footprint, roof and north and west views if
+/// it has them, from its folder.
 /// Without them, as in a clone that lacks the saved sprites, a carved sprite falls back to a slab.
 /// A turned sprite's east view is its folder's, else the cut its catalog line names, as in `turned 2 cell 21 10`,
 /// where the optional 2 is its depth.
@@ -247,8 +248,10 @@ fn stand_for(how: &str, dir: &Path, intern: &mut impl FnMut(Image) -> usize, lin
     }
     match (decode(&dir.join("south.png")), decode(&dir.join("east.png"))) {
         (Ok(south), Ok(east)) => {
-            let footprint = decode(&dir.join("footprint.png")).ok().map_or("None".to_string(), |s| format!("Some(Art({}))", intern(coat(s))));
-            format!("Stand::Carve {{ footprint: {footprint}, south: Art({}), east: Art({}) }}", intern(coat(south)), intern(coat(east)))
+            let mut optional = |file: &str| decode(&dir.join(file)).ok().map_or("None".to_string(), |s| format!("Some(Art({}))", intern(coat(s))));
+            let [footprint, roof, north, west] = ["footprint.png", "roof.png", "north.png", "west.png"].map(&mut optional);
+            let (south, east) = (intern(coat(south)), intern(coat(east)));
+            format!("Stand::Carve {{ footprint: {footprint}, roof: {roof}, south: Art({south}), east: Art({east}), north: {north}, west: {west} }}")
         }
         _ => {
             println!("cargo:warning={} is carved but has no south.png and east.png; it stands as a slab", dir.display());

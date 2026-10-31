@@ -78,8 +78,9 @@ pub enum Stand {
     /// Flat on the ground like a tile or a stain.
     Ground,
     /// A solid carved where the view from above agrees with drawings of it seen from the south and the east.
-    /// The outline from above is `footprint` when given, else the sprite's own; the sprite colors the top either way.
-    Carve { footprint: Option<Art>, south: Art, east: Art },
+    /// The outline from above is `footprint` when given, else the sprite's own; `roof` colors the top when given,
+    /// else the sprite does. `north` and `west` color those sides when given, else the south and east views do.
+    Carve { footprint: Option<Art>, roof: Option<Art>, south: Art, east: Art, north: Option<Art>, west: Option<Art> },
     /// Upright like a prop but running north to south, as `east` draws it seen from the east, centered where the
     /// sprite's outline from above puts it and `depth` pixels thick, or as thick as that outline: for pieces drawn
     /// from above, like a fence's sides.

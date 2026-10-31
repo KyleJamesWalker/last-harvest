@@ -1,6 +1,8 @@
 //! A solid carved from three views of a sprite: seen from above, from the south and from the east. A voxel is
 //! solid where all three views are, and each face takes its color from the view that looks at it. The view
 //! from above is the sprite itself, unless a separate footprint gives the outline and the sprite only the colors.
+//! Drawings from the north and the west, when given, only color the faces they look at; where they are clear, the
+//! south and east views color those faces as they do without them.
 
 /// One face of the solid. Corners are in pixels with x east, y up and z south from the north-west corner
 /// on the ground; `uv` is in texture pixels, (u0, v0) at the first corner and (u1, v1) at the third.
@@ -19,6 +21,9 @@ pub struct Views {
     pub footprint: Option<[u16; 4]>,
     pub south: [u16; 4],
     pub east: [u16; 4],
+    /// Seen from the north, east on the left, and from the west, north on the left; as big as the south and east views.
+    pub north: Option<[u16; 4]>,
+    pub west: Option<[u16; 4]>,
 }
 
 pub fn carve(pixels: &[u8], stride: usize, v: &Views) -> Vec<Quad> {
@@ -32,7 +37,7 @@ pub fn carve(pixels: &[u8], stride: usize, v: &Views) -> Vec<Quad> {
     let footprint = v.footprint.unwrap_or(v.top);
     let solid = |x: usize, z: usize, up: usize| alpha(footprint, x, z) && alpha(v.south, x, h - 1 - up) && alpha(v.east, d - 1 - z, h - 1 - up);
     let mut out = Vec::new();
-    let (hf, df) = (h as f32, d as f32);
+    let (wf, hf, df) = (w as f32, h as f32, d as f32);
     let [tx, ty, sx, sy, ex, ey] = [v.top[0], v.top[1], v.south[0], v.south[1], v.east[0], v.east[1]].map(f32::from);
 
     // Tops take the sprite's colors, or the footprint's where the footprint reaches past the sprite.
@@ -57,13 +62,18 @@ pub fn carve(pixels: &[u8], stride: usize, v: &Views) -> Vec<Quad> {
                 let n = z as i32 + dz;
                 n < 0 || n >= d as i32 || !solid(x, n as usize, up)
             };
-            for [x0, r0, x1, r1] in rects(w, h, |x, r| solid(x, z, h - 1 - r) && open(x, h - 1 - r)) {
-                let zf = if face > 0.0 { z as f32 + 1.0 } else { z as f32 };
-                out.push(Quad {
-                    corners: [[x0, hf - r0, zf], [x1, hf - r0, zf], [x1, hf - r1, zf], [x0, hf - r1, zf]],
-                    uv: [sx + x0, sy + r0, sx + x1, sy + r1],
-                    normal: [0.0, 0.0, face],
-                });
+            let north = v.north.filter(|_| face < 0.0);
+            let from_north = |x: usize, r: usize| north.is_some_and(|n| alpha(n, w - 1 - x, r));
+            for own in [false, true].into_iter().filter(|&own| !own || north.is_some()) {
+                for [x0, r0, x1, r1] in rects(w, h, |x, r| solid(x, z, h - 1 - r) && open(x, h - 1 - r) && from_north(x, r) == own) {
+                    let zf = if face > 0.0 { z as f32 + 1.0 } else { z as f32 };
+                    // Seen from the north, column c is x = w - 1 - c.
+                    let uv = match north.filter(|_| own).map(|n| n.map(f32::from)) {
+                        Some([nx, ny, ..]) => [nx + wf - x0, ny + r0, nx + wf - x1, ny + r1],
+                        None => [sx + x0, sy + r0, sx + x1, sy + r1],
+                    };
+                    out.push(Quad { corners: [[x0, hf - r0, zf], [x1, hf - r0, zf], [x1, hf - r1, zf], [x0, hf - r1, zf]], uv, normal: [0.0, 0.0, face] });
+                }
             }
         }
     }
@@ -73,15 +83,19 @@ pub fn carve(pixels: &[u8], stride: usize, v: &Views) -> Vec<Quad> {
                 let n = x as i32 + dx;
                 n < 0 || n >= w as i32 || !solid(n as usize, z, up)
             };
-            // Seen from the east, south is on the left: column c is z = d - 1 - c.
-            for [c0, r0, c1, r1] in rects(d, h, |c, r| solid(x, d - 1 - c, h - 1 - r) && open(d - 1 - c, h - 1 - r)) {
-                let xf = if face > 0.0 { x as f32 + 1.0 } else { x as f32 };
-                let (south, north) = (df - c0, df - c1);
-                out.push(Quad {
-                    corners: [[xf, hf - r0, south], [xf, hf - r0, north], [xf, hf - r1, north], [xf, hf - r1, south]],
-                    uv: [ex + c0, ey + r0, ex + c1, ey + r1],
-                    normal: [face, 0.0, 0.0],
-                });
+            let west = v.west.filter(|_| face < 0.0);
+            // Seen from the east, south is on the left: column c is z = d - 1 - c. Seen from the west, column c is z.
+            let from_west = |c: usize, r: usize| west.is_some_and(|wv| alpha(wv, d - 1 - c, r));
+            for own in [false, true].into_iter().filter(|&own| !own || west.is_some()) {
+                for [c0, r0, c1, r1] in rects(d, h, |c, r| solid(x, d - 1 - c, h - 1 - r) && open(d - 1 - c, h - 1 - r) && from_west(c, r) == own) {
+                    let xf = if face > 0.0 { x as f32 + 1.0 } else { x as f32 };
+                    let (south, north) = (df - c0, df - c1);
+                    let uv = match west.filter(|_| own).map(|wv| wv.map(f32::from)) {
+                        Some([wx, wy, ..]) => [wx + south, wy + r0, wx + north, wy + r1],
+                        None => [ex + c0, ey + r0, ex + c1, ey + r1],
+                    };
+                    out.push(Quad { corners: [[xf, hf - r0, south], [xf, hf - r0, north], [xf, hf - r1, north], [xf, hf - r1, south]], uv, normal: [face, 0.0, 0.0] });
+                }
             }
         }
     }
@@ -137,7 +151,7 @@ mod tests {
             }
         }
         let r = |(x0, rw, rh): (usize, usize, usize)| [x0 as u16, 0, rw as u16, rh as u16];
-        (px, stride, Views { top: r(rects[0]), footprint: None, south: r(rects[1]), east: r(rects[2]) })
+        (px, stride, Views { top: r(rects[0]), footprint: None, south: r(rects[1]), east: r(rects[2]), north: None, west: None })
     }
 
     #[test]
@@ -202,5 +216,21 @@ mod tests {
         let edge = tops.iter().find(|q| q.corners[0][0] == 0.0).unwrap();
         assert_eq!(edge.uv[0], v.east[0] as f32, "the clear column is colored from the footprint");
         assert!(tops.iter().any(|q| q.uv[0] == v.top[0] as f32 + 1.0), "the rest from the sprite");
+    }
+
+    #[test]
+    fn a_north_view_colors_the_north_faces_mirrored_and_the_south_view_fills_where_it_is_clear() {
+        // The footprint (the south rect) keeps the solid whole; the sprite (top), clear in column 0, is the north view.
+        let (px, stride, mut v) = texture(3, 3, 3, |k, x, _| k == 0 && x == 0);
+        (v.footprint, v.north) = (Some(v.south), Some(v.top));
+        let q = carve(&px, stride, &v);
+        let uvs = |normal: [f32; 3]| q.iter().filter(|q| q.normal == normal).map(|q| [q.uv[0], q.uv[2]]).collect::<Vec<_>>();
+        let (t, s) = (v.top[0] as f32, v.south[0] as f32);
+        assert!(uvs([0.0, 0.0, -1.0]).contains(&[t + 3.0, t + 1.0]), "x 0 and 1 from north columns 2 and 1");
+        assert!(uvs([0.0, 0.0, -1.0]).contains(&[s + 2.0, s + 3.0]), "x 2 from the south view, the north view clear there");
+        assert!(uvs([0.0, 0.0, 1.0]).iter().all(|&[u0, _]| u0 >= s && u0 < s + 3.0), "the south faces keep the south view");
+        let mut no_north = v;
+        no_north.north = None;
+        assert_eq!(carve(&px, stride, &no_north).len() + 1, q.len(), "the north faces split where their colors come from");
     }
 }

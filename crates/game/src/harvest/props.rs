@@ -8,6 +8,9 @@
 //! stand prop 8    # prop N, slab N, figure, ground, carve or turned; prop by its size when left out
 //! views 12        # how tall its south and east views are, drawn under its frames, for carve and turned
 //! footprint yes   # its outline from above for carving follows its frames; its own outline when left out
+//! roof yes        # a carving's top takes its colors from its roof, after any footprint; from its frames when left out
+//! north yes       # its north and west sides take their colors from views of their own, after the south and east
+//! west yes        # views; from those when left out
 //! clear 5A6E3C    # colors the 3D view leaves out, where the 2D view keeps them, without a `#`
 //! cover no        # whether it stops shots; yes when left out
 //! hp 40           # hit points before zombies or shots break it, up to 1000; it doesn't break when left out
@@ -16,8 +19,8 @@
 //! coat 4A6FA5     # as `crate::paint` says
 //! ```
 //!
-//! The sheet holds its frames side by side along the top, then the footprint, and under them the south view then
-//! the east view.
+//! The sheet holds its frames side by side along the top, then the footprint and the roof, and under them the south,
+//! east, north and west views.
 
 use std::sync::RwLock;
 
@@ -44,6 +47,9 @@ pub struct PropFields {
     /// How tall the south and east views are; 0 for none.
     pub views: u32,
     pub footprint: bool,
+    pub roof: bool,
+    pub north: bool,
+    pub west: bool,
     /// Colors the 3D view leaves out of its frames.
     pub clear: Vec<[u8; 3]>,
     pub cover: bool,
@@ -60,18 +66,24 @@ pub enum ByViews {
 }
 
 impl PropFields {
-    /// Sets the stand a prop makes from its views, once its south and east views and any footprint are packed.
-    pub fn stand_by(&mut self, south: Art, east: Art, footprint: Option<Art>) {
+    /// Sets the stand a prop makes from its views once they are packed: `views` are the pictures after its frames, in
+    /// the sheet's order.
+    pub fn stand_by(&mut self, views: &[Art]) {
+        let mut next = views.iter().copied();
+        let mut take = |on: bool| if on { next.next() } else { None };
+        let (footprint, roof) = (take(self.footprint), take(self.roof));
+        let (Some(south), Some(east)) = (take(true), take(true)) else { return };
+        let (north, west) = (take(self.north), take(self.west));
         match self.by_views {
-            Some(ByViews::Carve) => self.stand = Some(Stand::Carve { footprint, south, east }),
+            Some(ByViews::Carve) => self.stand = Some(Stand::Carve { footprint, roof, south, east, north, west }),
             Some(ByViews::Turned { depth }) => self.stand = Some(Stand::Turned { east, depth }),
             None => {}
         }
     }
 
-    /// The pictures the sheet holds after its frames: the footprint along the top when carving, then the views.
+    /// The pictures along the top of the sheet: the frames, then the footprint and roof when carving.
     pub fn cells(&self) -> u32 {
-        self.frames + (self.views > 0 && self.footprint) as u32
+        self.frames + (self.views > 0) as u32 * (self.footprint as u32 + self.roof as u32)
     }
 
     /// Each frame's size in a sheet `w` by `h`, laid out as the module says, or None when it can't be.
@@ -81,19 +93,20 @@ impl PropFields {
         }
         let fh = h.checked_sub(self.views).filter(|&v| v > 0)?;
         let cells = self.cells();
-        [w / cells, w.saturating_sub(fh)].into_iter().find(|&fw| fw > 0 && w == self.sheet_w(fw, fh)).map(|fw| [fw, fh])
+        let by_views = w.saturating_sub((1 + self.west as u32) * fh) / (1 + self.north as u32);
+        [w / cells, by_views].into_iter().find(|&fw| fw > 0 && w == self.sheet_w(fw, fh)).map(|fw| [fw, fh])
     }
 
     /// How wide the sheet is for frames `fw` by `fh`.
     pub fn sheet_w(&self, fw: u32, fh: u32) -> u32 {
-        let views = if self.views > 0 { fw + fh } else { 0 };
+        let views = if self.views > 0 { (1 + self.north as u32) * fw + (1 + self.west as u32) * fh } else { 0 };
         (self.cells() * fw).max(views)
     }
 }
 
 /// Reads a prop's text; errors name the line.
 pub fn prop_fields(text: &str) -> Result<PropFields, String> {
-    let mut f = PropFields { id: String::new(), frames: 1, fps: 0.0, open: 0, stand: None, by_views: None, views: 0, footprint: false, clear: Vec::new(), cover: true, hp: 0.0, broken: false, paint: Paint::default() };
+    let mut f = PropFields { id: String::new(), frames: 1, fps: 0.0, open: 0, stand: None, by_views: None, views: 0, footprint: false, roof: false, north: false, west: false, clear: Vec::new(), cover: true, hp: 0.0, broken: false, paint: Paint::default() };
     for (i, raw) in text.lines().enumerate() {
         let n = i + 1;
         let line = raw.split('#').next().unwrap_or("").trim();
@@ -121,6 +134,9 @@ pub fn prop_fields(text: &str) -> Result<PropFields, String> {
             "stand" => f.stand = Some(parse_stand(value).ok_or_else(|| format!("{n}: a stand is prop N, slab N, slab N float N, figure, ground, carve or turned"))?),
             "views" => f.views = (number()? as u32).min(MAX_FRAME),
             "footprint" => f.footprint = yes_no(value).ok_or_else(|| format!("{n}: footprint is yes or no"))?,
+            "roof" => f.roof = yes_no(value).ok_or_else(|| format!("{n}: roof is yes or no"))?,
+            "north" => f.north = yes_no(value).ok_or_else(|| format!("{n}: north is yes or no"))?,
+            "west" => f.west = yes_no(value).ok_or_else(|| format!("{n}: west is yes or no"))?,
             "cover" => f.cover = yes_no(value).ok_or_else(|| format!("{n}: cover is yes or no"))?,
             "hp" => f.hp = Some(number()?).filter(|v| *v <= MAX_HP).ok_or_else(|| format!("{n}: hp is a number from 0 to {MAX_HP}"))?,
             "broken" => f.broken = yes_no(value).ok_or_else(|| format!("{n}: broken is yes or no"))?,
@@ -167,6 +183,11 @@ pub fn prop_text(f: &PropFields) -> String {
     }
     if f.views > 0 && f.footprint {
         s += "footprint yes\n";
+    }
+    for (on, key) in [(f.roof, "roof"), (f.north, "north"), (f.west, "west")] {
+        if f.views > 0 && on {
+            s += &format!("{key} yes\n");
+        }
     }
     if !f.cover {
         s += "cover no\n";
@@ -354,11 +375,14 @@ pub(super) fn pack(cards: &[Card], atlas: &mut [u8], cursor: &mut [u16; 3], firs
             notes.push(format!("{}: another prop is [{}] too", card.name, fields.id));
             continue;
         }
-        // Each picture as its top-left in the sheet and its size: the frames and footprint, then the views, then
+        // Each picture as its top-left in the sheet and its size: the frames, footprint and roof, then the views, then
         // the frames again for the 3D view, without the colors it clears; all of them again for each coat.
         let mut pictures: Vec<[u32; 4]> = (0..fields.cells()).map(|k| [k * fw, 0, fw, fh]).collect();
         if vh > 0 {
             pictures.extend([[0, fh, fw, vh], [fw, fh, fh, vh]]);
+            let x = fw + fh;
+            pictures.extend(fields.north.then_some([x, fh, fw, vh]));
+            pictures.extend(fields.west.then_some([x + fields.north as u32 * fw, fh, fh, vh]));
         }
         let copies = if fields.clear.is_empty() { 0 } else { fields.frames as usize };
         let plain = pictures.len();
@@ -398,9 +422,7 @@ pub(super) fn pack(cards: &[Card], atlas: &mut [u8], cursor: &mut [u16; 3], firs
                 solids.extend(arts.iter().copied().zip(in_3d.iter().copied()));
                 let (frames, views) = arts.split_at(fields.frames as usize);
                 let mut f = fields.clone();
-                if let [.., south, east] = views[..] {
-                    f.stand_by(south, east, views.first().copied().filter(|_| views.len() == 3));
-                }
+                f.stand_by(views);
                 (frames.to_vec(), f.stand)
             })
             .collect();
@@ -449,6 +471,30 @@ mod tests {
     }
 
     #[test]
+    fn a_carved_prop_packs_its_roof_after_any_footprint_and_its_north_and_west_after_its_views() {
+        let a = |k: u16| Some(Art(k));
+        for (text, footprint, roof, north, west) in [
+            ("roof yes", None, a(1), None, None),
+            ("footprint yes\nroof yes", a(1), a(2), None, None),
+            ("roof yes\nnorth yes\nwest yes", None, a(1), a(4), a(5)),
+            ("west yes", None, None, None, a(3)),
+        ] {
+            let fields = prop_fields(&format!("[stack]\nstand carve\nviews 2\n{text}")).unwrap();
+            assert_eq!(prop_fields(&prop_text(&fields)).unwrap(), fields);
+            assert_eq!(fields.frame_in(fields.sheet_w(4, 3), 5), Some([4, 3]), "{text}");
+            let sheet = vec![255; (fields.sheet_w(4, 3) * 5 * 4) as usize];
+            let card = Card { name: "stack.prop.png".into(), text: prop_text(&fields), frame: [4, 3], sheet };
+            let mut atlas = vec![0u8; (ATLAS_W * crate::art::ATLAS_H * 4) as usize];
+            let (notes, rects, kept, _) = pack(&[card], &mut atlas, &mut super::super::enemies::start(), 0);
+            assert!(notes.is_empty(), "{notes:?}");
+            let views = fields.cells() as u16;
+            assert_eq!(kept[0].1[0].1, Some(Stand::Carve { footprint, roof, south: Art(views), east: Art(views + 1), north, west }), "{text}");
+            let size = |a: Option<Art>| a.map(|a| [rects[a.0 as usize][2], rects[a.0 as usize][3]]);
+            assert_eq!((size(north), size(west)), (north.map(|_| [4, 2]), west.map(|_| [3, 2])), "{text}");
+        }
+    }
+
+    #[test]
     fn a_turned_prop_packs_its_east_view_to_stand_up() {
         let (fw, fh, vh) = (4u32, 3u32, 5u32);
         let fields = prop_fields("[post]\nstand turned\nviews 5").unwrap();
@@ -467,7 +513,7 @@ mod tests {
     #[test]
     fn a_prop_reads_and_writes_its_text() {
         let f = prop_fields("[rusty_tank]\nframes 2\nfps 4\nopen 1\nstand slab 6\ncover no\nhp 40\nbroken yes\n").unwrap();
-        assert_eq!(f, PropFields { id: "rusty_tank".into(), frames: 2, fps: 4.0, open: 1, stand: Some(Stand::Slab { height: 6.0, lift: 0.0 }), by_views: None, views: 0, footprint: false, clear: Vec::new(), cover: false, hp: 40.0, broken: true, paint: Paint::default() });
+        assert_eq!(f, PropFields { id: "rusty_tank".into(), frames: 2, fps: 4.0, open: 1, stand: Some(Stand::Slab { height: 6.0, lift: 0.0 }), by_views: None, views: 0, footprint: false, roof: false, north: false, west: false, clear: Vec::new(), cover: false, hp: 40.0, broken: true, paint: Paint::default() });
         assert_eq!(prop_fields(&prop_text(&f)).unwrap(), f);
         assert_eq!(prop_text(&prop_fields("[a]").unwrap()), "[a]\n", "defaults stay out");
         assert!(prop_fields("frames 2").unwrap_err().contains("[id]"));

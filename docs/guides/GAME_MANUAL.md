@@ -266,6 +266,8 @@ The prop's text holds its `[id]` and any of these lines that differ from the def
 | `stand prop N`, `slab N`, `slab N float N`, `figure`, `ground`, `carve` or `turned [N]` | How it stands in 3D. See [Stands](#stands). |
 | `views N` | How tall its south and east views are, for a prop that carves or turns. |
 | `footprint yes` | A carving's outline from above comes from a footprint drawing. |
+| `roof yes` | A carving's top takes its colors from a top drawing. |
+| `north yes`, `west yes` | A carving's north or west side takes its colors from a drawing of its own. |
 | `clear 5A6E3C ...` | Colors the 3D view leaves out, which the 2D view keeps. |
 | `paint 917662 726650 ...` | Its colors that are paint, light to dark. See [Coats](#coats). |
 | `coat 4A6FA5` | One coat each frame comes in: one color, or a color for each paint color. |
@@ -273,7 +275,7 @@ The prop's text holds its `[id]` and any of these lines that differ from the def
 | `hp N` | Hit points before zombies or shots break it, 0 to 1000. It never breaks when left out. |
 | `broken yes` | Its last frame shows once it breaks, and the rest animate. It vanishes when left out. |
 
-A prop that carves or turns keeps its south and east views under its frames, `views` pixels tall. A carving's footprint sits after its last frame.
+A prop that carves or turns keeps its south and east views under its frames, `views` pixels tall. Any north and west views follow them, in that order. A carving's footprint and then its top sit after its last frame.
 
 ### Maps
 
@@ -597,6 +599,14 @@ A carved sprite gets two more drawings beside its frames. The south view shows i
 The solid is every voxel all three views agree on. Each face takes its color from the view that looks at it.
 
 When the sprite's own outline is not its outline from above, add a footprint. A footprint is a copy of the sprite to erase into the true outline. Only whether its pixels are clear counts, and the sprite still colors the top. Delete on the footprint tile removes it.
+
+Three more drawings are optional, each added with its + tile and removed with Delete. They change colors only, never the shape.
+
+- **Top** colors the top in place of the sprite, for when the 2D drawing looks wrong from above. It starts as a copy of the sprite.
+- **North** colors the north side, seen from the north with east on the left. Without it, the south view colors that side too.
+- **West** colors the west side, seen from the west with north on the left. Without it, the east view colors that side too.
+
+North and West start as the south and east views seen from behind. A clear pixel in Top, North or West leaves the color the side would have without that drawing.
 
 #### No 3D colors
 

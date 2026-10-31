@@ -70,6 +70,11 @@ impl Frame {
         Self { px: bytes.chunks_exact(4).map(|p| [p[0], p[1], p[2], p[3]]).collect(), ..self.clone() }
     }
 
+    /// Left to right reversed, as a view from the opposite side sees it.
+    pub fn mirrored(&self) -> Self {
+        Self { px: self.px.chunks(self.w).flat_map(|row| row.iter().rev().copied()).collect(), ..self.clone() }
+    }
+
     /// A new size, keeping the pixels anchored at the bottom center, where a sprite meets the ground.
     pub fn resized(&self, w: usize, h: usize) -> Self {
         let mut out = Self::blank(w, h);
@@ -92,6 +97,12 @@ pub struct Sprite {
     pub views: Option<[Frame; 2]>,
     /// Its outline from above, for carving, when the sprite's own outline isn't it.
     pub footprint: Option<Frame>,
+    /// The colors a carving's top takes in place of the sprite's, as big as the sprite; clear leaves the sprite's.
+    pub roof: Option<Frame>,
+    /// Drawings from the north and the west that color those sides in place of the south and east views; clear
+    /// leaves theirs.
+    pub north: Option<Frame>,
+    pub west: Option<Frame>,
     /// One row whose colors cap a figure's columns in the 3D view; a clear pixel leaves that column's own.
     pub top: Option<Frame>,
     /// An enemy card's `enemies.txt` section, when this is one of a card's parts.
@@ -103,6 +114,9 @@ pub struct Sprite {
 }
 
 pub const FOOTPRINT_FILE: &str = "footprint.png";
+pub const ROOF_FILE: &str = "roof.png";
+pub const NORTH_FILE: &str = "north.png";
+pub const WEST_FILE: &str = "west.png";
 pub const TOP_FILE: &str = "top.png";
 pub const CARD_FILE: &str = "enemy.txt";
 /// The colors a sprite clears in 3D, one hex color a line.
@@ -410,19 +424,24 @@ impl Sprite {
         let clear = read(CLEAR_FILE).and_then(|b| String::from_utf8(b).ok()).unwrap_or_default();
         let clear_in_3d = clear.lines().filter_map(parse_hex).collect();
         let paint = read(paint::FILE).and_then(|b| paint::parse(&String::from_utf8(b).ok()?).ok()).unwrap_or_default();
-        Some(Self { name: name.to_string(), frames, views, footprint: png(FOOTPRINT_FILE), top: png(TOP_FILE), card, clear_in_3d, paint })
+        Some(Self { name: name.to_string(), frames, views, footprint: png(FOOTPRINT_FILE), roof: png(ROOF_FILE), north: png(NORTH_FILE), west: png(WEST_FILE), top: png(TOP_FILE), card, clear_in_3d, paint })
     }
 
-    /// The files a save writes: the frames, then the views and the footprint when it has them.
+    /// The files a save writes: the frames, then the views, footprint, roof, north and west views and top when it has
+    /// them.
     pub fn files(&self) -> Vec<(String, Vec<u8>)> {
         let frames = self.frames.iter().enumerate().map(|(i, f)| (format!("{i}.png"), f));
         let views = self.views.iter().flat_map(|v| VIEW_FILES.iter().zip(v).map(|(n, f)| (n.to_string(), f)));
-        let footprint = self.footprint.iter().map(|f| (FOOTPRINT_FILE.to_string(), f));
-        let top = self.top.iter().map(|f| (TOP_FILE.to_string(), f));
-        let pngs = frames.chain(views).chain(footprint).chain(top).map(|(n, f)| (n, encode_png(f)));
+        let optional = self.optional().into_iter().filter_map(|(n, f)| Some((n.to_string(), f.as_ref()?)));
+        let pngs = frames.chain(views).chain(optional).map(|(n, f)| (n, encode_png(f)));
         let clear = self.clear_text().map(|t| (CLEAR_FILE.to_string(), t.into_bytes()));
         let paint = Some(self.paint.text()).filter(|t| !t.is_empty()).map(|t| (paint::FILE.to_string(), t.into_bytes()));
         pngs.chain(self.card.iter().map(|t| (CARD_FILE.to_string(), t.clone().into_bytes()))).chain(clear).chain(paint).collect()
+    }
+
+    /// The pictures a sprite may have or not, by the file each saves as.
+    fn optional(&self) -> [(&'static str, &Option<Frame>); 5] {
+        [(FOOTPRINT_FILE, &self.footprint), (ROOF_FILE, &self.roof), (NORTH_FILE, &self.north), (WEST_FILE, &self.west), (TOP_FILE, &self.top)]
     }
 
     /// `clear.txt` as written, or None when no color is cleared in 3D.
@@ -448,7 +467,7 @@ impl Sprite {
         while std::fs::remove_file(path.join(format!("{i}.png"))).is_ok() {
             i += 1;
         }
-        for (file, frame) in [(FOOTPRINT_FILE, &self.footprint), (TOP_FILE, &self.top)] {
+        for (file, frame) in self.optional() {
             match frame {
                 Some(f) => write_png(&path.join(file), f)?,
                 None => {
@@ -705,7 +724,7 @@ mod tests {
     #[test]
     fn saves_and_loads_every_frame_and_drops_leftovers() {
         let dir = std::env::temp_dir().join(format!("lh-sprites-{}", std::process::id()));
-        let mut s = Sprite { name: "TEST_THING".into(), frames: vec![Frame::blank(3, 2), Frame::blank(3, 2), Frame::blank(3, 2)], views: None, footprint: None, top: None, card: None, clear_in_3d: Vec::new(), paint: Default::default() };
+        let mut s = Sprite { name: "TEST_THING".into(), frames: vec![Frame::blank(3, 2), Frame::blank(3, 2), Frame::blank(3, 2)], views: None, footprint: None, roof: None, north: None, west: None, top: None, card: None, clear_in_3d: Vec::new(), paint: Default::default() };
         s.frames[1].set(2, 1, [200, 10, 10, 255]);
         s.save(&dir).unwrap();
         s.frames.truncate(2);
@@ -718,7 +737,7 @@ mod tests {
 
     #[test]
     fn a_sprites_files_bundle_and_come_back_whole() {
-        let mut s = Sprite { name: "THING".into(), frames: vec![Frame::blank(3, 2); 2], views: Some([Frame::blank(3, 4), Frame::blank(2, 4)]), footprint: None, top: Some(Frame::blank(3, 1)), card: None, clear_in_3d: Vec::new(), paint: Default::default() };
+        let mut s = Sprite { name: "THING".into(), frames: vec![Frame::blank(3, 2); 2], views: Some([Frame::blank(3, 4), Frame::blank(2, 4)]), footprint: None, roof: None, north: None, west: None, top: Some(Frame::blank(3, 1)), card: None, clear_in_3d: Vec::new(), paint: Default::default() };
         s.frames[1].set(1, 1, [1, 2, 3, 255]);
         let files = unbundle(&bundle(&s.files())).unwrap();
         assert_eq!(files.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>(), ["0.png", "1.png", "south.png", "east.png", "top.png"]);

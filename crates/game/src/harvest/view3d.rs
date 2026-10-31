@@ -203,7 +203,7 @@ fn fixed(out: &mut Vec<Card>, eye: Vec3, a: Art, how: Stand, left: f32, base: f3
         }
         Stand::Ground => flat(out, a, left * PX, (base - a.h()) * PX, DECAL_LIFT + 0.006, tint),
         Stand::Turned { east, depth } => turned(out, eye, a, east, depth, left, base - a.h(), tint),
-        Stand::Carve { footprint, south, east } => carved(out, eye, [a, footprint.unwrap_or(a), south, east], footprint.is_some(), Vec3::new(left * PX, 0.0, (base - a.h()) * PX)),
+        Stand::Carve { .. } => carved(out, eye, Carving::of(a, how).unwrap(), Vec3::new(left * PX, 0.0, (base - a.h()) * PX)),
         Stand::Figure => {}
     }
 }
@@ -232,23 +232,41 @@ fn turned(out: &mut Vec<Card>, eye: Vec3, a: Art, east: Art, depth: Option<f32>,
     stand(out, eye, east.solid(), false, Pose { tint, ..Pose::upright(origin, -Vec3::Z, Vec3::X, depth * PX) }, true);
 }
 
-/// The carved solid for a sprite and its views, worked out once for packed sprites and every time for live ones.
-fn carving([top, footprint, south, east]: [Art; 4], own_footprint: bool) -> Cow<'static, [carve::Quad]> {
-    type Cache = Mutex<HashMap<[Art; 4], &'static [carve::Quad]>>;
-    static CACHE: OnceLock<Cache> = OnceLock::new();
-    let views = carve::Views { top: top.rect(), footprint: own_footprint.then(|| footprint.rect()), south: south.rect(), east: east.rect() };
-    if top.is_live() {
-        return Cow::Owned(art::with_pixels(top, |px| carve::carve(px, ATLAS_W as usize, &views)));
-    }
-    let mut cache = CACHE.get_or_init(Default::default).lock().unwrap();
-    Cow::Borrowed(*cache.entry([top, footprint, south, east]).or_insert_with(|| carve::carve(art::pixels(), ATLAS_W as usize, &views).leak()))
+/// The pictures a solid is carved from, as `carve::Views` takes them: `top` colors it from above.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+struct Carving {
+    top: Art,
+    footprint: Option<Art>,
+    south: Art,
+    east: Art,
+    north: Option<Art>,
+    west: Option<Art>,
 }
 
-/// Places a carved solid with its north-west ground corner at `origin`: `arts` are the sprite, the footprint
-/// (the sprite again unless `own_footprint`), and the south and east views.
-fn carved(out: &mut Vec<Card>, eye: Vec3, arts: [Art; 4], own_footprint: bool, origin: Vec3) {
+impl Carving {
+    fn of(a: Art, how: Stand) -> Option<Self> {
+        let Stand::Carve { footprint, roof, south, east, north, west } = how else { return None };
+        // A roof colors the top in the sprite's place, which then only shapes it, unless a footprint does.
+        Some(Self { top: roof.unwrap_or(a), footprint: footprint.or(roof.map(|_| a)), south, east, north, west })
+    }
+}
+
+/// The carved solid for a sprite and its views, worked out once for packed sprites and every time for live ones.
+fn carving(c: Carving) -> Cow<'static, [carve::Quad]> {
+    type Cache = Mutex<HashMap<Carving, &'static [carve::Quad]>>;
+    static CACHE: OnceLock<Cache> = OnceLock::new();
+    let views = carve::Views { top: c.top.rect(), footprint: c.footprint.map(Art::rect), south: c.south.rect(), east: c.east.rect(), north: c.north.map(Art::rect), west: c.west.map(Art::rect) };
+    if c.top.is_live() {
+        return Cow::Owned(art::with_pixels(c.top, |px| carve::carve(px, ATLAS_W as usize, &views)));
+    }
+    let mut cache = CACHE.get_or_init(Default::default).lock().unwrap();
+    Cow::Borrowed(*cache.entry(c).or_insert_with(|| carve::carve(art::pixels(), ATLAS_W as usize, &views).leak()))
+}
+
+/// Places a carved solid with its north-west ground corner at `origin`.
+fn carved(out: &mut Vec<Card>, eye: Vec3, c: Carving, origin: Vec3) {
     let (aw, ah) = (ATLAS_W as f32, ATLAS_H as f32);
-    for q in carving(arts, own_footprint).iter() {
+    for q in carving(c).iter() {
         let corners = q.corners.map(|[x, y, z]| origin + Vec3::new(x, y, z) * PX);
         let normal = Vec3::from(q.normal);
         if normal.dot(eye - corners[0]) > 0.0 {
@@ -759,6 +777,20 @@ mod tests {
         let span = |v: &[f32]| (v.iter().copied().fold(f32::MAX, f32::min), v.iter().copied().fold(f32::MIN, f32::max));
         assert_eq!(span(&xs), (1.0, 4.0), "as thick as the strip drawn from above");
         assert_eq!(span(&zs), (0.0, 16.0), "the length of the tile");
+    }
+
+    #[test]
+    fn a_carving_takes_its_top_from_its_roof_when_it_has_one() {
+        let (a, roof) = (art::CAR_H, art::WRECK_H[0]);
+        let from_roof = |r: Option<Art>| {
+            let mut out = Vec::new();
+            fixed(&mut out, Vec3::new(0.2, 9.0, 0.1), a, Stand::Carve { footprint: None, roof: r, south: art::CAR_H, east: art::CAR_V, north: None, west: None }, 0.0, 16.0, [1.0; 3]);
+            let [rx, ry, rw, rh] = roof.rect().map(f32::from);
+            let inside = |c: &Card| (rx..=rx + rw).contains(&(c.uv[0] * ATLAS_W as f32)) && (ry..=ry + rh).contains(&(c.uv[1] * ATLAS_H as f32));
+            out.iter().filter(|c| c.normal == Vec3::Y && inside(c)).count()
+        };
+        assert_eq!(from_roof(None), 0);
+        assert!(from_roof(Some(roof)) > 0);
     }
 
     #[test]
