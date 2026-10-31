@@ -36,17 +36,47 @@ pub struct Prop {
     broken: Option<&'static [Art]>,
     /// The cells it blocks, as x, y, width and height in tiles, and whether they stop shots.
     cells: [usize; 4],
+    /// The part of it that blocks, in world pixels as x0, y0, x1, y1: its picture below any walk-through rows.
+    area: [f32; 4],
+    /// How far past its picture a fence side runs south to meet its corner's board, in pixels.
+    pub reach: f32,
     cover: bool,
 }
 
 impl Prop {
     /// A prop that blocks nothing and never breaks.
     fn new(frames: &'static [Art], fps: f32, x: f32, y: f32, base: f32, depth: f32) -> Self {
-        Prop { frames, fps, x, y, base, depth, hp: 0.0, full: 0.0, flash: 0.0, broken: None, cells: [0; 4], cover: false }
+        Prop { frames, fps, x, y, base, depth, hp: 0.0, full: 0.0, flash: 0.0, broken: None, cells: [0; 4], area: [0.0; 4], reach: 0.0, cover: false }
     }
 
     pub fn frame(&self, t: f32) -> Art {
         self.frames[(t * self.fps) as usize % self.frames.len()]
+    }
+
+    /// The box it fills in cell (x, y), if any: what its outline covers there when drawn from above, else its
+    /// `area`.
+    fn fill(&self, x: usize, y: usize) -> Option<[u8; 4]> {
+        if !self.blocks(x, y) {
+            return None;
+        }
+        let outline = match self.frames[0].stand() {
+            Some(art::Stand::Slab { .. } | art::Stand::Turned { .. }) => self.frames[0],
+            Some(art::Stand::Carve { footprint, .. }) => footprint.unwrap_or(self.frames[0]),
+            _ => return Some(clip(self.area, x, y)).filter(|b| b[2] > b[0] && b[3] > b[1]),
+        };
+        let [rx, ry, w, h] = outline.rect().map(usize::from);
+        let (cx, cy) = (x as f32 * TILE - self.x, y as f32 * TILE - self.y);
+        let span = |c: f32, n: usize| (c.max(0.0) as usize).min(n)..((c + TILE).max(0.0) as usize).min(n);
+        art::with_pixels(outline, |px| {
+            let mut b: Option<[f32; 4]> = None;
+            for j in span(cy, h) {
+                for i in span(cx, w).filter(|&i| px[((ry + j) * art::ATLAS_W as usize + rx + i) * 4 + 3] > 0) {
+                    let (lx, ly) = (i as f32 - cx, j as f32 - cy);
+                    b = Some(b.map_or([lx, ly, lx + 1.0, ly + 1.0], |b| [b[0].min(lx), b[1].min(ly), b[2].max(lx + 1.0), b[3].max(ly + 1.0)]));
+                }
+            }
+            b.map(|b| b.map(|v| v as u8))
+        })
     }
 
     fn blocks(&self, x: usize, y: usize) -> bool {
@@ -91,11 +121,16 @@ struct Toughness {
 
 /// How a sprite stands in the way when no prop line says otherwise: a player's prop as its text says, a fence
 /// piece as `props.txt` says fences do, and the game's own as it lists them.
+/// Whether a sprite is a piece of either fence style.
+fn is_fence(a: Art) -> bool {
+    [&RAIL, &PICKET].iter().any(|f| f.top.contains(&a) || f.side.contains(&a) || f.bottom.contains(&a) || f.gate_post.is_some_and(|g| g.contains(&a)))
+}
+
 fn toughness(a: Art) -> Toughness {
     if let Some(p) = super::props::named_of(a) {
         return Toughness { cover: p.cover, hp: p.hp, broken: p.broken_for(a) };
     }
-    if [&RAIL, &PICKET].iter().any(|f| f.top.contains(&a) || f.side.contains(&a) || f.bottom.contains(&a)) {
+    if is_fence(a) {
         return Toughness::fence();
     }
     let kind = art::ALL.iter().find(|(_, f)| f.contains(&a)).and_then(|(n, _)| text::prop_kind(n));
@@ -153,6 +188,9 @@ pub struct Map {
     overlay: Vec<Option<Art>>,
     /// Cells nobody walks through.
     solid: Vec<bool>,
+    /// Within each solid cell, the box its props fill, which is all the player bumps into there, and a second box
+    /// where a fence's side joins it, or `NO_BOX`.
+    shape: Vec<[[u8; 4]; 2]>,
     /// Solid cells that stop shots too.
     cover: Vec<bool>,
     /// The breakable prop blocking each cell, by its place in `props`.
@@ -194,6 +232,33 @@ fn tiles(px: f32) -> usize {
     (px / TILE).ceil() as usize
 }
 
+/// A whole cell's box, as x0, y0, x1, y1 pixels from its corner.
+const WHOLE: [u8; 4] = [0, 0, TILE as u8, TILE as u8];
+const NO_BOX: [u8; 4] = [0; 4];
+
+/// The part of world rect `area` inside cell (x, y), as a box from its corner.
+fn clip(area: [f32; 4], x: usize, y: usize) -> [u8; 4] {
+    let (cx, cy) = (x as f32 * TILE, y as f32 * TILE);
+    let at = |v: f32, c: f32| (v - c).clamp(0.0, TILE) as u8;
+    [at(area[0], cx), at(area[1], cy), at(area[2], cx), at(area[3], cy)]
+}
+
+fn union(a: [u8; 4], b: [u8; 4]) -> [u8; 4] {
+    [a[0].min(b[0]), a[1].min(b[1]), a[2].max(b[2]), a[3].max(b[3])]
+}
+
+/// Where a picture's opaque pixels are, as x0, y0, x1, y1 from its top-left; the whole picture when none are.
+fn opaque_bounds(a: Art) -> [f32; 4] {
+    let [rx, ry, w, h] = a.rect().map(usize::from);
+    let found = art::with_pixels(a, |px| {
+        let opaque = |x: usize, y: usize| px[((ry + y) * art::ATLAS_W as usize + rx + x) * 4 + 3] > 0;
+        let cols: Vec<usize> = (0..w).filter(|&x| (0..h).any(|y| opaque(x, y))).collect();
+        let rows: Vec<usize> = (0..h).filter(|&y| (0..w).any(|x| opaque(x, y))).collect();
+        Some([*cols.first()?, *rows.first()?, cols.last()? + 1, rows.last()? + 1])
+    });
+    found.unwrap_or([0, 0, w, h]).map(|v| v as f32)
+}
+
 impl Map {
     pub fn generate(rng: &mut Rng, w: usize, h: usize) -> Self {
         let f = farm::farm();
@@ -208,6 +273,7 @@ impl Map {
             ground,
             overlay: vec![None; w * h],
             solid: vec![false; w * h],
+            shape: vec![[WHOLE, NO_BOX]; w * h],
             cover: vec![false; w * h],
             owner: vec![NO_OWNER; w * h],
             cost: vec![1; w * h],
@@ -286,8 +352,19 @@ impl Map {
         tx >= self.w || ty >= self.h || self.cover[self.i(tx, ty)]
     }
 
-    /// Whether a box centered on (x, y) with half extents `half` overlaps a solid cell.
+    /// Whether a box centered on (x, y) with half extents `half` overlaps what a solid cell's props fill, as the player
+    /// bumps into them.
     pub fn hits(&self, x: f32, y: f32, half: [f32; 2]) -> bool {
+        self.hits_as::<true>(x, y, half)
+    }
+
+    /// Whether a box overlaps a solid cell at all, as zombies bump into them: they find their way cell by cell, so a
+    /// zombie in part of a solid cell would be lost.
+    pub fn hits_cells(&self, x: f32, y: f32, half: [f32; 2]) -> bool {
+        self.hits_as::<false>(x, y, half)
+    }
+
+    fn hits_as<const FILLED: bool>(&self, x: f32, y: f32, half: [f32; 2]) -> bool {
         let (x0, y0, x1, y1) = (x - half[0], y - half[1], x + half[0], y + half[1]);
         let (tx0, ty0) = ((x0 / TILE).floor(), (y0 / TILE).floor());
         let (tx1, ty1) = ((x1 / TILE).floor(), (y1 / TILE).floor());
@@ -296,7 +373,16 @@ impl Map {
             let mut tx = tx0;
             while tx <= tx1 {
                 if self.solid_at(tx * TILE + 1.0, ty * TILE + 1.0) {
-                    return true;
+                    let i = if tx < 0.0 || ty < 0.0 { usize::MAX } else { (ty as usize) * self.w + tx as usize };
+                    let filled = if FILLED { self.shape.get(i).copied().unwrap_or([WHOLE, NO_BOX]) } else { [WHOLE, NO_BOX] };
+                    let (cx, cy) = (tx * TILE, ty * TILE);
+                    let overlaps = |b: [u8; 4]| {
+                        let [bx0, by0, bx1, by1] = b.map(f32::from);
+                        bx1 > bx0 && x0 < cx + bx1 && x1 > cx + bx0 && y0 < cy + by1 && y1 > cy + by0
+                    };
+                    if filled.into_iter().any(overlaps) {
+                        return true;
+                    }
                 }
                 tx += 1.0;
             }
@@ -305,13 +391,22 @@ impl Map {
         false
     }
 
-    /// Moves a box by `delta`, one axis at a time, so it slides along walls.
+    /// Moves a box by `delta`, one axis at a time, so it slides along walls, as `hits` bumps into them.
     pub fn slide(&self, pos: [f32; 2], delta: [f32; 2], half: [f32; 2]) -> [f32; 2] {
+        self.slide_as::<true>(pos, delta, half)
+    }
+
+    /// Moves a box as `slide` does, bumping into whole cells as `hits_cells` does.
+    pub fn slide_cells(&self, pos: [f32; 2], delta: [f32; 2], half: [f32; 2]) -> [f32; 2] {
+        self.slide_as::<false>(pos, delta, half)
+    }
+
+    fn slide_as<const FILLED: bool>(&self, pos: [f32; 2], delta: [f32; 2], half: [f32; 2]) -> [f32; 2] {
         let mut p = pos;
-        if !self.hits(p[0] + delta[0], p[1], half) {
+        if !self.hits_as::<FILLED>(p[0] + delta[0], p[1], half) {
             p[0] += delta[0];
         }
-        if !self.hits(p[0], p[1] + delta[1], half) {
+        if !self.hits_as::<FILLED>(p[0], p[1] + delta[1], half) {
             p[1] += delta[1];
         }
         p
@@ -441,10 +536,12 @@ impl Map {
         for yy in y..y + h {
             for xx in x..x + w {
                 let k = self.i(xx, yy);
-                self.solid[k] = self.props.iter().any(|q| q.blocks(xx, yy));
-                self.cover[k] = self.props.iter().any(|q| q.cover && q.blocks(xx, yy));
+                let filled = self.props.iter().filter_map(|q| Some((q.cover, q.fill(xx, yy)?)));
+                let (cover, shape) = filled.fold((false, None), |(c, s), (qc, b)| (c || qc, Some(s.map_or(b, |s| union(s, b)))));
+                (self.solid[k], self.cover[k], self.shape[k]) = (shape.is_some(), cover, [shape.unwrap_or(WHOLE), NO_BOX]);
             }
         }
+        self.join_fences();
         self.index_breakables();
         Some([p.x + p.frames[0].w() / 2.0, p.base - (h as f32 * TILE) / 2.0])
     }
@@ -482,7 +579,30 @@ impl Map {
             }
             !barrel
         });
+        self.join_fences();
         self.index_breakables();
+    }
+
+    /// Runs each fence side that ends on another fence piece on down through that cell to what blocks there, so a
+    /// corner whose bottom piece blocks only its thin board has no gap between the two, while a side ending anywhere
+    /// else stays as drawn.
+    fn join_fences(&mut self) {
+        let mut joins = Vec::new();
+        for (k, p) in self.props.iter().enumerate().filter(|(_, p)| matches!(p.frames[0].stand(), Some(art::Stand::Turned { .. }))) {
+            let [x0, _, x1, y1] = p.area;
+            let (tx, ty) = ((x0 / TILE) as usize, (y1 / TILE) as usize);
+            let fence_below = || self.props.iter().any(|q| q.blocks(tx, ty) && is_fence(q.frames[0]));
+            if y1 % TILE != 0.0 || tx >= self.w || ty >= self.h || !self.solid[self.i(tx, ty)] || !fence_below() {
+                continue;
+            }
+            let i = self.i(tx, ty);
+            let [cx0, _, cx1, _] = clip([x0, ty as f32 * TILE, x1, (ty + 1) as f32 * TILE], tx, ty);
+            joins.push((k, i, [cx0, 0, cx1, self.shape[i][0][1]]));
+        }
+        for (k, i, b) in joins {
+            self.props[k].reach = b[3] as f32;
+            self.shape[i][1] = if self.shape[i][1][2] > self.shape[i][1][0] { union(self.shape[i][1], b) } else { b };
+        }
     }
 
     /// Clears the cell under a world point, as when a barrel blows.
@@ -499,7 +619,7 @@ impl Map {
         let (tx, ty) = ((x / TILE) as usize, (y / TILE) as usize);
         if tx < self.w && ty < self.h {
             let i = self.i(tx, ty);
-            (self.solid[i], self.cover[i], self.cost[i]) = (true, true, 0);
+            (self.solid[i], self.cover[i], self.cost[i], self.shape[i]) = (true, true, 0, [WHOLE, NO_BOX]);
         }
     }
 
@@ -534,18 +654,38 @@ impl Map {
     fn prop_as(&mut self, frames: &'static [Art], fps: f32, x: usize, y: usize, open_rows: usize, tough: Toughness) -> (usize, usize) {
         let (tw, th) = (tiles(frames[0].w()), tiles(frames[0].h()));
         let (px, py) = (x as f32 * TILE, y as f32 * TILE);
-        let depth = thickness(frames[0], tw, th, open_rows);
-        let top = y + open_rows.min(th - 1);
-        let cells = [x, top, (x + tw).min(self.w) - x, (y + th).min(self.h).saturating_sub(top)];
+        let stand = frames[0].stand();
+        // Drawn from above, the whole picture stands in 3D, so it all blocks. Upright, walk-through rows open from the
+        // top, never all of it, and the 3D view extrudes it as deep as what is left unless its stand says.
+        let from_above = matches!(stand, Some(art::Stand::Slab { .. } | art::Stand::Carve { .. } | art::Stand::Turned { .. }));
+        let [ox0, oy0, ox1, oy1] = opaque_bounds(frames[0]);
+        let open_px = if from_above { 0.0 } else { open_rows as f32 * TILE };
+        let mut area = [px + ox0, (py + oy0).max(py + open_px).min(py + oy1 - 1.0), px + ox1, py + oy1];
+        let depth = match stand {
+            None if tw * th >= 4 => (area[3] - area[1]).max(8.0),
+            _ => thickness(frames[0], tw, th, open_rows),
+        };
+        // Upright, it blocks just as deep as the 3D view stands it back from its bottom edge: never inside it, never
+        // short of it.
+        if !from_above {
+            area[3] = py + frames[0].h();
+            area[1] = (area[3] - depth.max(1.0)).max(py + oy0);
+        }
+        let (left, top) = ((area[0] / TILE) as usize, (area[1] / TILE) as usize);
+        let (right, bottom) = (tiles(area[2]).min(self.w), tiles(area[3]).min(self.h));
+        let cells = [left, top, right.saturating_sub(left), bottom.saturating_sub(top)];
         let hp = tough.hp.clamp(0.0, MAX_HP);
-        self.props.push(Prop { hp, full: hp, broken: tough.broken, cells, cover: tough.cover, ..Prop::new(frames, fps, px, py, py + frames[0].h(), depth) });
-        for yy in top..(y + th).min(self.h) {
-            for xx in x..(x + tw).min(self.w) {
+        let prop = Prop { hp, full: hp, broken: tough.broken, cells, area, cover: tough.cover, ..Prop::new(frames, fps, px, py, py + frames[0].h(), depth) };
+        for yy in top..bottom {
+            for xx in left..right {
+                let Some(b) = prop.fill(xx, yy) else { continue };
                 let i = self.i(xx, yy);
+                self.shape[i][0] = if self.solid[i] { union(self.shape[i][0], b) } else { b };
                 self.solid[i] = true;
                 self.cover[i] |= tough.cover;
             }
         }
+        self.props.push(prop);
         self.claim(x, y, tw, th, Cell::Taken);
         (tw, th)
     }
@@ -872,6 +1012,41 @@ mod tests {
             assert!(map.cost.iter().any(|c| *c > 1), "seed {seed}: fences to chew through");
             assert!(flow.iter().zip(map.reach(map.spawn)).all(|(f, r)| *f <= r), "seed {seed}: chewing is never further");
         }
+    }
+
+    #[test]
+    fn a_prop_blocks_only_where_its_picture_is() {
+        let mut map = Map::blank(10, 10);
+        let a = art::WRECK_V[0];
+        map.prop(&art::WRECK_V[..1], 0.0, 2, 2);
+        let [x0, y0, x1, y1] = opaque_bounds(a).map(|v| v + 2.0 * TILE);
+        let half = [4.0, 3.0];
+        assert!(!map.hits(x1 + 4.5, (y0 + y1) / 2.0, half), "beside it, in the tile its last pixels reach into");
+        assert!(map.hits((x0 + x1) / 2.0, (y0 + y1) / 2.0, half));
+        assert!(!map.hits((x0 + x1) / 2.0, y1 + 3.5, half), "just below it");
+        assert!(map.hits((x0 + x1) / 2.0, y1 + 2.5, half));
+    }
+
+    #[test]
+    fn a_thin_upright_prop_blocks_only_as_deep_as_it_stands() {
+        let mut map = Map::blank(10, 10);
+        map.prop(&art::PICKET_BOTTOM[..1], 0.0, 2, 2);
+        let base = 3.0 * TILE;
+        assert!(!map.hits(2.5 * TILE, base - 2.0 - 3.5, [4.0, 3.0]), "up to the board");
+        assert!(map.hits(2.5 * TILE, base - 2.0 - 2.5, [4.0, 3.0]));
+    }
+
+    #[test]
+    fn a_fence_side_runs_on_into_its_corner() {
+        let mut map = Map::blank(10, 10);
+        map.prop(&art::RAIL_SIDE[..1], 0.0, 2, 2);
+        map.prop(&art::RAIL_BOTTOM[..1], 0.0, 2, 3);
+        let side = map.props[0].area;
+        let gap = [(side[0] + side[2]) / 2.0, 3.0 * TILE + 6.0];
+        assert!(!map.hits(gap[0], gap[1], [1.0, 1.0]), "the corner's board alone leaves a gap under the side");
+        map.join_fences();
+        assert!(map.hits(gap[0], gap[1], [1.0, 1.0]));
+        assert!(!map.hits(side[2] + 6.0, gap[1], [1.0, 1.0]), "the rest of the corner stays open down to its board");
     }
 
     #[test]

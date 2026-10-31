@@ -48,14 +48,12 @@ open 1
 [CAR_H]
 
 [CAR_V]
-open 1
 
 [WRECK_H]
 
 [WRECK_H2]
 
 [WRECK_V]
-open 1
 
 [MAILBOX]
 cover no
