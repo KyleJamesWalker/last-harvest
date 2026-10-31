@@ -109,7 +109,7 @@ The biggest finds appear only in the chest a horde's leader drops. Picking up a 
 
 ### The title menu
 
-The title's bottom screen lists Play, Map, Settings, Stats and Credits. Up and Down choose a row, A or a tap opens it, and B goes back.
+The title's bottom screen lists Play, Map, Settings, Stats and Credits. Up and Down choose a row, A or a tap opens it, and B goes back. The top screen shows the game's version in its top-left corner.
 
 - **Map** picks a hand-made map, or a random farm, for every run after. The game saves the choice.
 - **Settings** sets each screen's brightness, the volume, rumble, the frame-rate overlay, your look, which zombies come, and Reset progress.

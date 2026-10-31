@@ -414,7 +414,16 @@ impl Game {
         line
     }
 
+    /// The title's top screen, whatever page is open, with the version in its corner.
     fn draw_title(&self, f: &mut Frame) {
+        self.draw_title_top(f);
+        let report = data::load_report();
+        if !report.version.is_empty() {
+            f.top.label(format!("Version {}", report.versions()), 16.0, 12.0, 24.0, DIM, Align::Left);
+        }
+    }
+
+    fn draw_title_top(&self, f: &mut Frame) {
         let t = self.clock;
         f.top.clear = [0.06, 0.07, 0.11, 1.0];
         if self.page == Page::Enemies {
