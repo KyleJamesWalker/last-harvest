@@ -251,6 +251,18 @@ impl Carving {
     }
 }
 
+/// How many faces a sprite standing as `how` is drawn with, before those turned from the camera are left out.
+pub(super) fn quads(a: Art, how: Stand, top: Option<Art>) -> usize {
+    match how {
+        Stand::Prop { .. } => faces(a.solid(), Reach::Deep, None).len(),
+        Stand::Slab { lift, .. } => faces(a.solid(), Reach::Deep, None).len() + (a.solid() != a && lift == 0.0) as usize,
+        Stand::Ground => 1,
+        Stand::Turned { east, .. } => faces(east.solid(), Reach::Deep, None).len(),
+        Stand::Carve { .. } => carving(Carving::of(a, how).unwrap()).len(),
+        Stand::Figure => faces(a, Reach::Thin, top).len(),
+    }
+}
+
 /// The carved solid for a sprite and its views, worked out once for packed sprites and every time for live ones.
 fn carving(c: Carving) -> Cow<'static, [carve::Quad]> {
     type Cache = Mutex<HashMap<Carving, &'static [carve::Quad]>>;
@@ -777,6 +789,21 @@ mod tests {
         let span = |v: &[f32]| (v.iter().copied().fold(f32::MAX, f32::min), v.iter().copied().fold(f32::MIN, f32::max));
         assert_eq!(span(&xs), (1.0, 4.0), "as thick as the strip drawn from above");
         assert_eq!(span(&zs), (0.0, 16.0), "the length of the tile");
+    }
+
+    #[test]
+    fn the_quads_counted_are_all_a_stand_draws_from_any_side() {
+        let a = art::HAY_STACK;
+        let carve = Stand::Carve { footprint: None, roof: None, south: art::CAR_H, east: art::CAR_V, north: None, west: None };
+        for how in [Stand::Prop { depth: 6.0 }, Stand::Slab { height: 8.0, lift: 0.0 }, Stand::Ground, carve] {
+            let n = quads(a, how, None);
+            for eye in [Vec3::new(0.0, 9.0, 0.0), Vec3::new(-9.0, 1.0, 9.0), Vec3::new(9.0, 1.0, -9.0)] {
+                let mut out = Vec::new();
+                fixed(&mut out, eye, a, how, 0.0, 16.0, [1.0; 3]);
+                assert!(!out.is_empty() && out.len() <= n, "{how:?}: drew {} of {n}", out.len());
+            }
+        }
+        assert_eq!(quads(a, Stand::Ground, None), 1);
     }
 
     #[test]

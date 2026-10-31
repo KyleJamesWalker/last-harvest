@@ -97,6 +97,12 @@ impl Showcase {
         }
     }
 
+    /// How many faces the sprite on show is drawn with in 3D, before those turned from the camera are left out.
+    pub fn quads(&self) -> Option<usize> {
+        let s = self.harvest.shown.as_ref().filter(|s| !s.frames.is_empty())?;
+        Some(view3d::quads(s.frame(self.harvest.t), s.stand, s.top))
+    }
+
     /// Shows a hand-made map instead of the quiet farm, or the farm again for None; says why a map can't be built.
     /// The sprite on show moves to the map's spawn.
     pub fn show_map(&mut self, src: Option<&super::map::MapSource>) -> Result<(), String> {

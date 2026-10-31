@@ -554,7 +554,7 @@ On a phone held upright, the editing pane spans the screen with the previews und
 
 The sprite editor is the developer's pixel editor for the game's own sprites. It runs on macOS, or in a browser on an iPad served from the Mac. It needs the private tileset, so it is never published. To set it up, see [Sprite editor](../../README.md#sprite-editor) in the README.
 
-The left pane lists every sprite. The pixel canvas, tools, color and frames sit around it. The right panes show the sprite as the game draws it, in the 2.5D view and on the map. It starts with nothing open: pick a sprite from the list, or press N for a new one.
+The left pane lists every sprite. The pixel canvas, tools, color and frames sit around it. The right panes show the sprite as the game draws it, in the 2.5D view and on the map. The 2.5D view counts the quads the sprite is drawn with in 3D, four vertices each, so you can compare stands and drawings by cost. About half of them face the camera at any moment. It starts with nothing open: pick a sprite from the list, or press N for a new one.
 
 ### Tools
 
