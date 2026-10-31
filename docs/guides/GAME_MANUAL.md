@@ -267,6 +267,8 @@ The prop's text holds its `[id]` and any of these lines that differ from the def
 | `views N` | How tall its south and east views are, for a prop that carves or turns. |
 | `footprint yes` | A carving's outline from above comes from a footprint drawing. |
 | `clear 5A6E3C ...` | Colors the 3D view leaves out, which the 2D view keeps. |
+| `paint 917662 726650 ...` | Its colors that are paint, light to dark. See [Coats](#coats). |
+| `coat 4A6FA5` | One coat each frame comes in: one color, or a color for each paint color. |
 | `cover no` | It lets shots through. It stops them when left out. |
 | `hp N` | Hit points before zombies or shots break it, 0 to 1000. It never breaks when left out. |
 | `broken yes` | Its last frame shows once it breaks, and the rest animate. It vanishes when left out. |
@@ -599,6 +601,14 @@ When the sprite's own outline is not its outline from above, add a footprint. A 
 #### No 3D colors
 
 **No 3D** leaves the current color out of the 3D view, while the 2D map keeps it. Press it again to bring the color back. Use it for a backdrop color that should not extrude.
+
+#### Coats
+
+Coats repaint a sprite, so one drawing comes in several colors, like the wrecked cars. **Paint**, beside the color, marks the current color as paint. Mark each shade of the part that changes, such as a car's body, and leave the rest, such as tires and lights, unmarked.
+
+**Coats** opens the Coats page. **Add coat** adds a coat of the current color, its darker shades following the drawing's. Click a shade to give it the current color instead. Click a coat's picture to show it in the previews, or As drawn for the drawing's own colors.
+
+Each frame comes once in each coat: every frame in the first coat, then every frame in the next. A map's `frame N` picks one, and the random farm picks among them. The carving views, footprint and top strip are repainted to match.
 
 ### The previews
 
