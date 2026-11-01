@@ -1,3 +1,7 @@
+//! The game, free of any platform. Each frame `App::tick` (crates/app/src/main.rs; `frame` in `web.rs`) calls
+//! `Game::update`, which dispatches on `State` to the title, gallery, hardware page or a run's `Harvest::update`,
+//! and the app renders what `Game::draw` returns.
+
 pub mod art;
 pub mod data;
 pub mod paint;
