@@ -374,6 +374,15 @@ Without the secret or the variable, releases skip itch.io.
 - **Rumble** runs the vibrator through `MainActivity`, as the Rumble setting allows.
 - The save sits in the app's internal storage, and the log goes to logcat (`adb logcat -s last-harvest`). The frame-rate overlay shows CPU and GPU temperatures where Android lets the app read them. It reads no mods, cards or maps.
 
+### The game on muOS
+
+`scripts/muxapp.sh` builds `target/muos/LastHarvest.muxapp` for [muOS](https://muos.dev) on the 64-bit H700 Anbernics, such as the RG34XX-SP, RG35XX Plus and RG40XX. Copy it to `ARCHIVE/` on either card and install it with **Applications > Archive Manager**; it lands in `MUOS/application/LastHarvest/` and starts from **Applications**. `--install` unpacks it onto the device over ssh instead (`MUOS_HOST`, default the `muos` ssh alias).
+
+- The binary (`crates/app/src/muos.rs`, the `muos` feature) uses the device's own SDL2, which carries the Mali GPU driver, for a GLES 3 window on the framebuffer, ALSA for sound, and muOS's SDL controller mapping for the built-in pad. The script copies `libSDL2` from the device once to link against, and needs `scripts/sysroot.sh` as the RG DS build does.
+- It plays on one screen with no touch: the title shows its logo and walking dead with the menu over them, other menus show full size, a run shows the top screen, and L2 aims grenades. Main menu > Quit, or holding Menu for a second, saves and returns to muOS.
+- `mux_launch.sh` sets up SDL as muOS's own apps do, runs the CPU at full speed while the game runs, and writes the game's log to `log.txt` beside it, with its frame rate each second.
+- On an RG34XX-SP (720x480) a run holds 60 fps with 50 zombies on screen.
+
 ### Card editor
 
 ```sh

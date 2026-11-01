@@ -8,6 +8,17 @@ publish.workspace = true
 [features]
 default = ["embed"]
 embed = ["last-harvest-game/embed"]
+# The muOS handheld build, through the device's own SDL2.
+muos = ["dep:sdl2"]
+
+[[bin]]
+name = "last-harvest"
+path = "src/main.rs"
+
+[[bin]]
+name = "last-harvest-muos"
+path = "src/muos.rs"
+required-features = ["muos"]
 
 [dependencies]
 cpal = "0.16"
@@ -36,6 +47,7 @@ libc = "0.2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 evdev = "0.13"
+sdl2 = { version = "0.37", optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 cpal = { version = "0.16", features = ["wasm-bindgen"] }
