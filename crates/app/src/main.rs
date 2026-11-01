@@ -1,3 +1,6 @@
+//! The game on the device and macOS: two windows, one per screen, and the hardware beside them. The loop is
+//! `App::tick` on each redraw of the top window, which runs `Game::update` (`crates/game/src/lib.rs`), and so
+//! `Harvest::update` during a run, then draws both screens.
 mod debug;
 #[cfg(target_os = "linux")]
 mod device;
