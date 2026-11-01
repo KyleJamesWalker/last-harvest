@@ -113,7 +113,8 @@ in vec3 v_flash;
 #endif
 uniform sampler2D u_art;
 uniform vec3 u_eye;
-uniform vec3 u_light;
+// Shared with the vertex shader, so its precision must match there.
+uniform highp vec3 u_light;
 uniform vec3 u_light_color;
 uniform float u_light_range;
 uniform vec3 u_ambient;
@@ -204,11 +205,12 @@ unsafe fn set_card_uniforms(gl: &glow::Context, p: glow::Program, scene: &CardSc
     }
 }
 
-unsafe fn link(gl: &glow::Context, header: &str, vert: &str, frag: &str) -> Result<glow::Program, String> {
+/// `headers` go before the vertex and the fragment shader's sources.
+unsafe fn link(gl: &glow::Context, headers: [&str; 2], vert: &str, frag: &str) -> Result<glow::Program, String> {
     unsafe {
         let program = gl.create_program()?;
         let mut shaders = Vec::new();
-        for (kind, src) in [(glow::VERTEX_SHADER, vert), (glow::FRAGMENT_SHADER, frag)] {
+        for ((kind, src), header) in [(glow::VERTEX_SHADER, vert), (glow::FRAGMENT_SHADER, frag)].into_iter().zip(headers) {
             let shader = gl.create_shader(kind)?;
             gl.shader_source(shader, &format!("{header}{src}"));
             gl.compile_shader(shader);
@@ -232,15 +234,16 @@ unsafe fn link(gl: &glow::Context, header: &str, vert: &str, frag: &str) -> Resu
 
 impl Renderer {
     pub fn new(gl: &glow::Context, profile: Profile) -> Result<Self, String> {
-        let header = match profile {
-            Profile::Desktop => "#version 330 core\n",
-            Profile::Gles => "#version 300 es\nprecision mediump float;\n",
+        // World positions are in tiles, which mediump can't place finely across a big map.
+        let [vert, frag] = match profile {
+            Profile::Desktop => ["#version 330 core\n"; 2],
+            Profile::Gles => ["#version 300 es\nprecision highp float;\n", "#version 300 es\nprecision mediump float;\n"],
         };
         unsafe {
-            let program = link(gl, header, VERT, FRAG)?;
+            let program = link(gl, [vert, frag], VERT, FRAG)?;
             let mut card_programs = Vec::new();
             for defines in ["", "#define FLASH\n", "#define TINT\n", "#define TINT\n#define FLASH\n"] {
-                card_programs.push(link(gl, &format!("{header}{defines}"), CARD_VERT, CARD_FRAG)?);
+                card_programs.push(link(gl, [&format!("{vert}{defines}"), &format!("{frag}{defines}")], CARD_VERT, CARD_FRAG)?);
             }
             let card_programs = [[card_programs[0], card_programs[1]], [card_programs[2], card_programs[3]]];
             let card_vao = gl.create_vertex_array()?;
