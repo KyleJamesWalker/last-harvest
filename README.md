@@ -16,6 +16,8 @@ The title's menu also opens Settings, Stats and Credits; Up and Down choose a ro
 
 With Settings > Screens on One, a run plays on the top screen alone and the bottom screen's backlight goes off. Hold L1 (1) to put the live map in place of the 3D view; grenades show only there. Hold L2 (Q) to aim a grenade on the map while time slows to half: the direction you held keeps you walking, the d-pad or stick then moves the cursor, and letting go throws; B cancels, and after 3 seconds it throws itself. The cursor starts where your last throw went, relative to your view, if that was under 5 seconds ago, else straight ahead. Hold R2 (2) for the whole map, paused. Title menus still use both screens.
 
+On macOS, Windows and a Linux desktop the game opens one resizable window and plays as on a phone (see [The game in a browser](#the-game-in-a-browser)): menus show both screens side by side, a run shows one screen, and the mouse is a finger on the on-screen controls, which hide while the keyboard or a gamepad is in use. `LAST_HARVEST_WINDOWS=2` opens a window per screen instead, to try the bottom screen's touch with the mouse as on the device.
+
 Every sound is synthesized at runtime from a few oscillator voices per cue, with a low drone that swells as the dead close in. A recorded WAV can replace any cue; see [Sounds](#sounds).
 
 | Action | Device | macOS |
@@ -24,7 +26,7 @@ Every sound is synthesized at runtime from a few oscillator voices per cue, with
 | Strafe | Left and Right, or the stick | Left and Right arrows |
 | Turn | Y and A | A and X |
 | Turn around | B | Z |
-| Throw a grenade | Tap the map | Click the bottom window |
+| Throw a grenade | Tap the map | Click the map: on the bottom window with two, or after Q puts it up in one |
 | Pick an upgrade | Tap it, or Up, Down and X | Click it, or arrows and S |
 | Show the whole map | Hold L1 | Hold 1 |
 | Back to the menu | Back, or B after a run | Tab, or Z after a run |
@@ -226,9 +228,9 @@ cargo test
 |---|---|---|
 | D-pad | D-pad or stick | Arrow keys |
 | A / B / X / Y | A / B / X / Y | X / Z / S / A |
-| L1 / R1 / L2 / R2 | Shoulders | Q / W / 1 / 2 |
+| L1 / R1 / L2 / R2 | Shoulders | 1 / W / Q / 2 |
 | Start / Select | Start / Select | Enter / Backspace |
-| Touch | Stylus or finger on the bottom screen | Mouse on the bottom window |
+| Touch | Stylus or finger on the bottom screen | The mouse, as a finger in the window; on the bottom window with two |
 | Volume | V+ / V- | = / - |
 | Lid | Close the lid | C toggles |
 | Sleep and wake | Power button | None |
@@ -297,6 +299,7 @@ The stream reaches the Mac about 240 ms after the device draws it, or about 155 
 | `LAST_HARVEST_KIT` | Starts every run carrying these powerups, as comma-separated `id` or `id:level`, such as `scythe:3,crows,dog`. |
 | `LAST_HARVEST_CLOCK` | Starts every night this many seconds in, such as `590` to try the run home at dawn. |
 | `LAST_HARVEST_GRENADES` | `endless`: a thrown grenade is never spent, for trying out aiming. |
+| `LAST_HARVEST_WINDOWS` | `2`: a window per screen, top above bottom, as before one window was the default on a desktop; the device always has two. |
 | `LAST_HARVEST_VERSION` | At build time, the release the binary and `game_data.pak` report. The default is `dev`, plus the commit for the binary. |
 | `LAST_HARVEST_API` | The launcher's GitHub releases API, for testing updates. The default is `https://api.github.com/repos/KyleJamesWalker/last-harvest/releases`. |
 | `LAST_HARVEST_DOWNLOADS` | The launcher's base URL for release assets. The default is `https://github.com/KyleJamesWalker/last-harvest/releases/download`. |

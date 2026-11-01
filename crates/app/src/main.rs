@@ -67,6 +67,8 @@ struct App {
     system: System,
     /// The window or GL failed, so the exit is a failure.
     failed: bool,
+    /// A window per screen, as on the device or with `LAST_HARVEST_WINDOWS=2`; else one window, played as on a phone.
+    two: bool,
 }
 
 impl App {
@@ -94,6 +96,11 @@ impl App {
         game.set_backlights(device.is_some());
         #[cfg(not(target_os = "linux"))]
         game.set_backlights(false);
+        #[cfg(target_os = "linux")]
+        let on_device = device.is_some();
+        #[cfg(not(target_os = "linux"))]
+        let on_device = false;
+        let two = on_device || std::env::var("LAST_HARVEST_WINDOWS").is_ok_and(|v| v == "2");
         Self {
             game,
             tracker: InputTracker::default(),
@@ -118,6 +125,7 @@ impl App {
             stats: Stats::default(),
             system: System::default(),
             failed: false,
+            two,
         }
     }
 
@@ -252,6 +260,12 @@ impl App {
             self.system.headphones = dev.headphones();
         }
         self.game.set_system(self.system);
+        if !self.two
+            && let Some(g) = &self.gfx
+        {
+            let size = g.top.window.inner_size();
+            self.game.set_phone(Some([size.width as f32, size.height as f32]));
+        }
         let started = Instant::now();
         self.game.update(&input, dt);
         self.stats.work_ms[0] += started.elapsed().as_secs_f32() * 1000.0;
@@ -297,14 +311,20 @@ impl App {
         }
     }
 
+    /// Whether a pointer on window `id` touches the game: the bottom screen's window, or the one window.
     fn is_bottom(&self, id: WindowId) -> bool {
-        self.gfx.as_ref().is_some_and(|g| g.bottom.window.id() == id)
+        self.gfx.as_ref().is_some_and(|g| g.bottom.as_ref().map_or(g.top.window.id(), |b| b.window.id()) == id)
     }
 
-    /// Converts window pixels to screen pixels; both screens are 1024x768 regardless of window size.
+    /// Converts window pixels to screen pixels, as both screens are 1024x768 whatever the window's size; the one
+    /// window keeps its own pixels, which the game lays out as on a phone.
     fn to_screen(&self, id: WindowId, p: PhysicalPosition<f64>) -> [f32; 2] {
+        if self.gfx.as_ref().is_some_and(|g| g.bottom.is_none()) {
+            return [p.x as f32, p.y as f32];
+        }
         let size = self.gfx.as_ref().map_or(PhysicalSize::new(1, 1), |g| {
-            if g.top.window.id() == id { g.top.window.inner_size() } else { g.bottom.window.inner_size() }
+            let bottom = g.bottom.as_ref().filter(|b| b.window.id() == id);
+            bottom.map_or(g.top.window.inner_size(), |b| b.window.inner_size())
         });
         [p.x as f32 / size.width.max(1) as f32 * SCREEN_W, p.y as f32 / size.height.max(1) as f32 * SCREEN_H]
     }
@@ -339,7 +359,7 @@ impl ApplicationHandler for App {
         if self.gfx.is_some() {
             return;
         }
-        match gfx::Gfx::new(el) {
+        match gfx::Gfx::new(el, self.two) {
             Ok(g) => self.gfx = Some(g),
             Err(e) => {
                 log!("gfx: {e}");
