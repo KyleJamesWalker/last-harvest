@@ -1251,11 +1251,12 @@ impl Harvest {
         }
     }
 
-    /// A fresh farm with the same difficulty, progress and trial powerups.
+    /// A fresh farm with the same difficulty, progress, enemies, look and trial powerups.
     fn restart(&mut self, sounds: &mut Vec<Sfx>) {
         let seed = self.rng.next_u32() as u64 + 1;
         let kit: Vec<String> = self.trial.iter().map(|&(d, l)| format!("{}:{l}", book().defs[d].id)).collect();
-        *self = Harvest::on(seed, &self.map_id).at(self.difficulty).with_progress(self.progress).with_kit(&kit.join(",")).starting_at(self.start_t);
+        let look = std::mem::take(&mut self.look);
+        *self = Harvest::on(seed, &self.map_id).at(self.difficulty).with_progress(self.progress).without_enemies(self.enemies_off).looking_like(&look).with_kit(&kit.join(",")).starting_at(self.start_t);
         sounds.push(Sfx::Start);
     }
 
@@ -2381,7 +2382,7 @@ mod tests {
 
     #[test]
     fn dying_turns_the_player_then_offers_a_new_farm_at_the_same_difficulty() {
-        let mut h = Harvest::new(4).at(Difficulty::Hard);
+        let mut h = Harvest::new(4).at(Difficulty::Hard).without_enemies(0b10).looking_like("");
         let mut sounds = Vec::new();
         h.hp = 0.0;
         h.update(&Input::default(), 0.016, &mut sounds);
@@ -2402,6 +2403,8 @@ mod tests {
         assert_eq!(h.kills, 0);
         assert_eq!(h.difficulty, Difficulty::Hard);
         assert!(h.kit.weapons.is_empty(), "and its kit");
+        assert_eq!(h.enemies_off, 0b10, "the kinds turned off stay off");
+        assert_eq!(h.look, "", "and the player keeps their look");
     }
 
     #[test]
