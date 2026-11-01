@@ -77,6 +77,8 @@ pub const MAX_TOUCHES: usize = 10;
 pub struct RawInput {
     pub held: Buttons,
     pub stick: [f32; 2],
+    /// A right stick's or touch strip's sideways push, -1..=1, which turns as Y and A do.
+    pub look: f32,
     pub touch: Option<[f32; 2]>,
     pub touches: [Option<[f32; 2]>; MAX_TOUCHES],
     pub lid_closed: bool,
@@ -87,6 +89,7 @@ pub struct Input {
     pub held: Buttons,
     pub pressed: Buttons,
     pub stick: [f32; 2],
+    pub look: f32,
     pub touch: Option<[f32; 2]>,
     pub touches: [Option<[f32; 2]>; MAX_TOUCHES],
     pub touch_started: bool,
@@ -118,6 +121,7 @@ impl InputTracker {
             held: raw.held,
             pressed: raw.held & !self.prev.held,
             stick: raw.stick,
+            look: raw.look,
             touch: raw.touch,
             touches: raw.touches,
             touch_started: raw.touch.is_some() && self.prev.touch.is_none(),

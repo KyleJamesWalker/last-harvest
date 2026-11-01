@@ -31,6 +31,11 @@ impl Harvest {
         self.single
     }
 
+    pub fn set_touch_aim(&mut self, on: bool) {
+        self.touch_aim = on;
+        self.touch_map &= on;
+    }
+
     pub fn set_one_screen(&mut self, on: bool) {
         self.single = on;
         if !on {
@@ -39,21 +44,33 @@ impl Harvest {
         }
     }
 
-    /// The input the run sees and the game time that passes: L2 and R2 never turn, a touch never throws, and
-    /// while aiming the walk is held and the world slows.
+    /// The input the run sees and the game time that passes: L2 and R2 never turn, a touch in play only throws
+    /// from the held-up map with `touch_aim`, and while aiming the walk is held and the world slows.
     pub(super) fn single_input(&mut self, input: &Input, dt: f32, sounds: &mut Vec<Sfx>) -> (Input, f32) {
         let mut own = without(*input, Buttons::L2 | Buttons::R2);
+        self.since_throw += dt;
+        let playing = matches!(self.phase, Phase::Playing) && self.menu.is_none();
+        if !playing {
+            self.aiming = None;
+            self.glance = false;
+            self.touch_map = false;
+            return (own, dt);
+        }
+        if self.touch_aim && input.pressed.contains(Buttons::L2) {
+            self.touch_map = !self.touch_map;
+        }
         own.touch = None;
         own.touches = Default::default();
         own.touch_started = false;
-        self.since_throw += dt;
-        let playing = matches!(self.phase, Phase::Playing) && self.menu.is_none();
-        if !playing || input.held.contains(Buttons::L1) {
+        if input.held.contains(Buttons::L1) || (self.touch_aim && self.touch_map) {
             self.aiming = None;
-            self.glance = playing;
+            self.glance = true;
+            if let Some(at) = input.touch.filter(|_| self.glance && self.touch_aim && input.touch_started) {
+                self.throw(at, sounds);
+            }
             return (own, dt);
         }
-        if input.pressed.contains(Buttons::L2) {
+        if input.pressed.contains(Buttons::L2) && !self.touch_aim {
             if self.grenades >= 1.0 {
                 let t = crate::tuning::tuning();
                 self.aiming = Some(Aiming { at: self.default_target(), left: t.aim_window, walk: input.dir(), steer: false });
@@ -85,7 +102,7 @@ impl Harvest {
             return (own, dt);
         }
         self.aiming = Some(aim);
-        let own = Input { stick: aim.walk, ..without(own, PAD | Buttons::A | Buttons::Y | Buttons::B) };
+        let own = Input { stick: aim.walk, look: 0.0, ..without(own, PAD | Buttons::A | Buttons::Y | Buttons::B) };
         (own, dt * t.aim_slow)
     }
 
@@ -259,6 +276,24 @@ mod tests {
         let late = h.aiming.unwrap().at;
         let ahead = crate::tuning::tuning().aim_ahead;
         assert!(len([late[0] - h.pos[0], late[1] - h.pos[1] - ahead]) < 1.0, "back to straight ahead: {late:?}");
+    }
+
+    #[test]
+    fn with_touch_grenades_l2_flips_the_map_up_at_full_speed_and_a_tap_throws() {
+        let mut h = single(12);
+        h.set_touch_aim(true);
+        let t = h.t;
+        press(&mut h, Buttons::L2, Buttons::L2);
+        assert!(h.aiming.is_none() && h.glance);
+        hold(&mut h, Buttons::NONE, 0.5);
+        assert!(h.glance, "it stays up with nothing held");
+        assert!(h.t - t > 0.5, "no slow motion");
+        let mut sounds = Vec::new();
+        h.update(&Input { touch: Some([700.0, 300.0]), touch_started: true, ..Default::default() }, DT, &mut sounds);
+        assert_eq!(h.thrown.len(), 1);
+        press(&mut h, Buttons::L2, Buttons::L2);
+        hold(&mut h, Buttons::NONE, DT);
+        assert!(!h.glance && h.thrown.len() == 1, "a second press puts the 3D view back, and never throws");
     }
 
     #[test]

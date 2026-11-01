@@ -674,6 +674,10 @@ pub struct Harvest {
     /// The last single-screen throw's angle off the view and distance from the player, and real seconds since.
     last_throw: Option<[f32; 2]>,
     since_throw: f32,
+    /// Touch grenades, as on a phone: L2 flips the map up or back, and a tap on it throws, instead of L2 aiming.
+    touch_aim: bool,
+    /// Touch grenades have the map up.
+    touch_map: bool,
 }
 
 /// Weapons and passives unlocked so far, out of all of them, and how many are waiting to be found.
@@ -853,6 +857,8 @@ impl Harvest {
             endless: false,
             last_throw: None,
             since_throw: 0.0,
+            touch_aim: false,
+            touch_map: false,
         }
         .with_birds()
     }
@@ -954,6 +960,11 @@ impl Harvest {
     #[cfg(test)]
     pub fn enemies_off(&self) -> u64 {
         self.enemies_off
+    }
+
+    #[cfg(test)]
+    pub fn grenades_in_the_air(&self) -> usize {
+        self.thrown.iter().filter(|g| g.kind == Thrown::Grenade).count()
     }
 
     /// Starts carrying powerups named `id` or `id:level`, comma separated; unknown names are skipped.
@@ -1128,7 +1139,7 @@ impl Harvest {
         self.turn_ready |= !input.held.any(turning);
         let held = if self.turn_ready { input.held } else { Buttons::NONE };
         self.targeting = input.held.contains(Buttons::X);
-        let turn = held.contains(Buttons::A) as i32 as f32 - held.contains(Buttons::Y) as i32 as f32;
+        let turn = (held.contains(Buttons::A) as i32 as f32 - held.contains(Buttons::Y) as i32 as f32 + input.look).clamp(-1.0, 1.0);
         if input.pressed.contains(Buttons::B) {
             self.turn_around();
         }

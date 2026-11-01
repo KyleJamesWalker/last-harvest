@@ -19,6 +19,7 @@ mod save;
 pub mod scene3d;
 mod sfx;
 mod system;
+pub mod touch;
 pub mod tuning;
 
 pub use difficulty::Difficulty;
@@ -119,6 +120,11 @@ pub struct Game {
     endless: bool,
     /// The `single` scene is open, which plays on one screen whatever Settings says.
     single_scene: bool,
+    /// A phone's window, in pixels: one canvas, on-screen controls, runs on one screen.
+    phone: Option<[f32; 2]>,
+    /// The platform sets the screens' backlights, so Settings offers their brightness.
+    backlights: bool,
+    touchpad: touch::Touchpad,
     /// Seconds left to confirm wiping the records and found powerups.
     reset_armed: f32,
     /// Seconds left of the title's word that progress was erased.
@@ -159,6 +165,9 @@ impl Game {
             bench_due: false,
             endless: false,
             single_scene: false,
+            phone: None,
+            backlights: true,
+            touchpad: touch::Touchpad::default(),
             reset_armed: 0.0,
             reset_shown: 0.0,
             page: Page::Main,
@@ -271,7 +280,40 @@ impl Game {
 
     /// Runs play on the top screen alone.
     fn one_screen(&self) -> bool {
-        self.single_scene || self.save.one_screen
+        self.single_scene || self.save.one_screen || self.phone.is_some()
+    }
+
+    /// Plays as on a phone in a window `size` pixels across and down, whose touches come in its pixels.
+    pub fn set_phone(&mut self, size: Option<[f32; 2]>) {
+        self.phone = size;
+    }
+
+    pub fn set_backlights(&mut self, on: bool) {
+        self.backlights = on;
+    }
+
+    pub(crate) fn has_backlights(&self) -> bool {
+        self.backlights
+    }
+
+    pub(crate) fn is_phone(&self) -> bool {
+        self.phone.is_some()
+    }
+
+    fn phone_layout(&self, size: [f32; 2]) -> touch::Layout {
+        touch::layout(size, matches!(self.state, State::Harvest(_)))
+    }
+
+    /// The input with the on-screen controls' buttons, stick and screen touch in place of raw fingers.
+    fn through_touchpad(&mut self, input: &Input, size: [f32; 2]) -> Input {
+        let layout = self.phone_layout(size);
+        let other = input.held != Buttons::NONE || input.stick != [0.0; 2] || input.look != 0.0;
+        let pad = self.touchpad.update(&input.touches, &layout, other);
+        let stick = [0, 1].map(|i| (input.stick[i] + pad.stick[i]).clamp(-1.0, 1.0));
+        let look = (input.look + pad.look).clamp(-1.0, 1.0);
+        let mut touches = [None; MAX_TOUCHES];
+        touches[0] = pad.touch;
+        Input { held: input.held | pad.held, pressed: input.pressed | pad.pressed, stick, look, touch: pad.touch, touches, touch_started: pad.touch_started, ..*input }
     }
 
     /// Whether the vibration motor should be running this frame.
@@ -323,6 +365,14 @@ impl Game {
     }
 
     pub fn update(&mut self, input: &Input, dt: f32) {
+        let padded;
+        let input = match self.phone {
+            Some(size) => {
+                padded = self.through_touchpad(input, size);
+                &padded
+            }
+            None => input,
+        };
         self.paused = input.lid_closed;
         self.input = *input;
         self.rumble = (self.rumble - dt).max(0.0);
@@ -367,6 +417,10 @@ impl Game {
                 State::Harvest(h)
             }
             State::Harvest(mut h) => {
+                if self.phone.is_some() {
+                    h.set_one_screen(true);
+                    h.set_touch_aim(self.save.touch_grenades);
+                }
                 let flow = h.update(input, dt, &mut self.sounds);
                 if flow.settings {
                     self.page = Page::Settings;
@@ -434,6 +488,10 @@ impl Game {
             system::draw_perf(&mut f.top, &self.system, top);
         } else if matches!(self.state, State::Title) {
             system::draw_battery(&mut f.top, &self.system, 16.0);
+        }
+        if let Some(size) = self.phone {
+            let layout = self.phone_layout(size);
+            f.phone = Some(touch::Phone { size, top: layout.top, bottom: layout.bottom, pad: self.touchpad.draw(&layout) });
         }
         f
     }
@@ -541,6 +599,57 @@ mod tests {
 
     fn press(game: &mut Game, b: Buttons) {
         game.update(&Input { pressed: b, ..Default::default() }, 0.016);
+    }
+
+    #[test]
+    fn on_a_phone_the_grenade_key_flips_the_map_up_and_a_tap_on_it_throws() {
+        let size = [2400.0, 1080.0];
+        let mut game = Game::new(1);
+        game.set_phone(Some(size));
+        press(&mut game, Buttons::A);
+        assert!(matches!(game.state, State::Harvest(_)));
+        let frame = game.draw();
+        let phone = frame.phone.expect("a phone frame");
+        assert!(phone.top.is_some() && phone.bottom.is_none(), "a run shows one screen");
+        let layout = touch::layout(size, true);
+        let [kx, ky, ..] = layout.key(Buttons::L2).unwrap();
+        let [px, py, pw, ph] = layout.top.unwrap();
+        let key = Some([kx + 4.0, ky + 4.0]);
+        let mut touches = [None; MAX_TOUCHES];
+        touches[0] = key;
+        game.update(&Input { touches, ..Default::default() }, 0.016);
+        game.update(&Input::default(), 0.016);
+        game.take_sounds();
+        touches[0] = Some([px + pw * 0.6, py + ph * 0.4]);
+        game.update(&Input { touches, ..Default::default() }, 0.016);
+        let flying = |g: &Game| match &g.state {
+            State::Harvest(h) => h.grenades_in_the_air(),
+            _ => 0,
+        };
+        assert_eq!(flying(&game), 1, "a tap on the map the key put up throws");
+        game.update(&Input::default(), 0.016);
+        touches[0] = key;
+        game.update(&Input { touches, ..Default::default() }, 0.016);
+        game.update(&Input::default(), 0.016);
+        touches[0] = Some([px + pw * 0.6, py + ph * 0.4]);
+        game.update(&Input { touches, ..Default::default() }, 0.016);
+        assert_eq!(flying(&game), 1, "a tap on the 3D view does not");
+    }
+
+    #[test]
+    fn a_phone_sets_the_grenade_style_where_others_set_the_screens() {
+        let mut game = Game::new(1);
+        assert!(game.settings_list().contains(&menu::Setting::Screens) && !game.settings_list().contains(&menu::Setting::Grenades));
+        game.set_phone(Some([2400.0, 1080.0]));
+        let list = game.settings_list();
+        assert!(list.contains(&menu::Setting::Grenades) && !list.contains(&menu::Setting::Screens));
+        game.set_phone(None);
+        game.set_backlights(false);
+        let list = game.settings_list();
+        assert!(!list.contains(&menu::Setting::TopBrightness) && !list.contains(&menu::Setting::BottomBrightness), "brightness only where the platform sets the backlights");
+        assert!(game.save.touch_grenades, "touch by default");
+        let save = Save { touch_grenades: false, ..game.save };
+        assert!(!Save::parse(&save.to_text()).touch_grenades);
     }
 
     #[test]

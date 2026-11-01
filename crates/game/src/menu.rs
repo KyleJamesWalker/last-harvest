@@ -28,13 +28,14 @@ pub(crate) enum Setting {
     Rumble,
     Fps,
     Screens,
+    Grenades,
     Player,
     Enemies,
     Reset,
 }
 
 impl Setting {
-    const ALL: [Setting; 9] = [Setting::TopBrightness, Setting::BottomBrightness, Setting::Volume, Setting::Rumble, Setting::Fps, Setting::Screens, Setting::Player, Setting::Enemies, Setting::Reset];
+    const ALL: [Setting; 10] = [Setting::TopBrightness, Setting::BottomBrightness, Setting::Volume, Setting::Rumble, Setting::Fps, Setting::Screens, Setting::Grenades, Setting::Player, Setting::Enemies, Setting::Reset];
 
     fn name(self) -> &'static str {
         match self {
@@ -44,6 +45,7 @@ impl Setting {
             Setting::Rumble => "Rumble",
             Setting::Fps => "Show FPS",
             Setting::Screens => "Screens",
+            Setting::Grenades => "Grenades",
             Setting::Player => "Player",
             Setting::Enemies => "Enemies",
             Setting::Reset => "Reset progress",
@@ -92,8 +94,20 @@ fn setting_row(i: usize) -> [f32; 4] {
 }
 
 impl Game {
-    pub(crate) fn settings_list(&self) -> &'static [Setting] {
-        if self.settings_in_run { &Setting::ALL[..6] } else { &Setting::ALL }
+    /// A run's settings leave out Player, Enemies and Reset; a phone has Grenades where others have Screens; screen
+    /// brightness shows only where the platform sets the backlights.
+    pub(crate) fn settings_list(&self) -> Vec<Setting> {
+        let phone = self.is_phone();
+        Setting::ALL
+            .into_iter()
+            .filter(|s| match s {
+                Setting::Player | Setting::Enemies | Setting::Reset => !self.settings_in_run,
+                Setting::TopBrightness | Setting::BottomBrightness => self.has_backlights(),
+                Setting::Screens => !phone,
+                Setting::Grenades => phone,
+                _ => true,
+            })
+            .collect()
     }
 
     /// The title screen: Up and Down choose a row, Left and Right the difficulty, A or a tap opens.
@@ -222,6 +236,7 @@ impl Game {
             }
             Setting::Fps if by != 0 || press => self.save.fps = !self.save.fps,
             Setting::Screens if by != 0 || press => self.save.one_screen = !self.save.one_screen,
+            Setting::Grenades if by != 0 || press => self.save.touch_grenades = !self.save.touch_grenades,
             Setting::Player if by != 0 || press => {
                 let looks = crate::player_looks();
                 let at = looks.iter().position(|l| l.id == self.save.player.as_str()).unwrap_or(0) as i32;
@@ -340,8 +355,13 @@ impl Game {
                     c.label(if v { "On" } else { "Off" }, (LESS_X + MORE_X) / 2.0, mid - 20.0, 38.0, if v { HOT } else { DIM }, Align::Center);
                     continue;
                 }
-                Setting::Screens => {
-                    let label = if self.save.one_screen { "One" } else { "Two" };
+                Setting::Screens | Setting::Grenades => {
+                    let label = match s {
+                        Setting::Screens if self.save.one_screen => "One",
+                        Setting::Screens => "Two",
+                        _ if self.save.touch_grenades => "Touch",
+                        _ => "Pad",
+                    };
                     c.label(label, (LESS_X + MORE_X) / 2.0, mid - 20.0, 38.0, HOT, Align::Center);
                     continue;
                 }

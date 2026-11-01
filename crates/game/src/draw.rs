@@ -88,5 +88,7 @@ impl Canvas {
 pub struct Frame {
     pub top: Canvas,
     pub bottom: Canvas,
+    /// On a phone, where the screens go in the window and the controls drawn over them.
+    pub phone: Option<crate::touch::Phone>,
 }
 
