@@ -126,13 +126,13 @@ pub fn prop_fields(text: &str) -> Result<PropFields, String> {
         let (key, value) = line.split_once(char::is_whitespace).map_or((line, ""), |(k, v)| (k, v.trim()));
         let number = || value.parse::<f32>().ok().filter(|v| v.is_finite() && *v >= 0.0).ok_or_else(|| format!("{n}: {key} is a number"));
         match key {
-            "frames" => f.frames = (number()? as u32).clamp(1, MAX_FRAMES),
-            "fps" => f.fps = number()?.min(60.0),
-            "open" => f.open = (number()? as usize).min(64),
+            "frames" => f.frames = Some(number()? as u32).filter(|v| (1..=MAX_FRAMES).contains(v)).ok_or_else(|| format!("{n}: frames is 1 to {MAX_FRAMES}"))?,
+            "fps" => f.fps = Some(number()?).filter(|v| *v <= 60.0).ok_or_else(|| format!("{n}: fps is a number from 0 to 60"))?,
+            "open" => f.open = Some(number()? as usize).filter(|v| *v <= 64).ok_or_else(|| format!("{n}: open is 0 to 64 rows"))?,
             "stand" if value == "carve" => f.by_views = Some(ByViews::Carve),
             "stand" if value.starts_with("turned") => f.by_views = Some(ByViews::Turned { depth: turned_depth(value).ok_or_else(|| format!("{n}: turned takes a depth from 1 to 64 pixels, or none"))? }),
             "stand" => f.stand = Some(parse_stand(value).ok_or_else(|| format!("{n}: a stand is prop N, fold N, slab N, slab N float N, figure, ground, carve or turned"))?),
-            "views" => f.views = (number()? as u32).min(MAX_FRAME),
+            "views" => f.views = Some(number()? as u32).filter(|v| *v <= MAX_FRAME).ok_or_else(|| format!("{n}: views is 0 to {MAX_FRAME} pixels"))?,
             "footprint" => f.footprint = yes_no(value).ok_or_else(|| format!("{n}: footprint is yes or no"))?,
             "roof" => f.roof = yes_no(value).ok_or_else(|| format!("{n}: roof is yes or no"))?,
             "north" => f.north = yes_no(value).ok_or_else(|| format!("{n}: north is yes or no"))?,
@@ -436,6 +436,15 @@ pub(super) fn pack(cards: &[Card], atlas: &mut [u8], cursor: &mut [u16; 3], firs
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_prop_number_out_of_range_is_refused_not_bent() {
+        for (bad, says) in [("frames 0", "2: frames is 1 to 16"), ("frames 99", "2: frames is 1 to 16"), ("fps 1000", "2: fps is a number from 0 to 60"), ("open 65", "2: open is 0 to 64"), ("views 257", "2: views is 0 to 256")] {
+            assert!(prop_fields(&format!("[p]\n{bad}")).unwrap_err().starts_with(says), "{bad}");
+        }
+        let edge = prop_fields("[p]\nframes 16\nfps 60\nopen 64\nviews 256").unwrap();
+        assert_eq!((edge.frames, edge.fps, edge.open, edge.views), (16, 60.0, 64, 256));
+    }
 
     #[test]
     fn a_prop_packs_a_3d_copy_without_the_colors_it_clears() {
