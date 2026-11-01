@@ -1820,6 +1820,7 @@ impl Editor {
             Action::StartDefault(d) => self.set_start(last_harvest_game::Difficulty::ALL[d], None),
             Action::EditName => self.edit_line(Line::Name),
             Action::EditAbout => self.edit_line(Line::About),
+            Action::AddFrame | Action::MoveFrame(_) if self.view.is_some() => self.say("Pick a frame first: frames are added and moved from a frame, not a view"),
             Action::AddFrame => {
                 self.remember();
                 let copy = self.current().clone();
@@ -1843,6 +1844,7 @@ impl Editor {
                     _ => "West view removed: the east view colors the west side again",
                 });
             }
+            Action::DeleteFrame if self.view.is_some() => self.say("Pick a frame first: a view isn't one of the frames"),
             Action::DeleteFrame if self.sprite.frames.len() > 1 => {
                 self.remember();
                 self.sprite.frames.remove(self.frame);
@@ -3610,6 +3612,21 @@ mod tests {
         e.key(Key::Undo);
         assert_eq!(e.sprite.views.as_ref().unwrap()[1].get(0, 0), east.get(0, 0));
         assert_eq!(e.stand_text(), "carve");
+    }
+
+    #[test]
+    fn frame_buttons_leave_the_frames_alone_while_a_view_is_open() {
+        let mut e = editor();
+        e.act(Action::Stand(CARVE), false);
+        e.act(Action::AddFrame, false);
+        let frames = e.sprite.frames.clone();
+        e.act(Action::View(1), false);
+        for a in [Action::AddFrame, Action::DeleteFrame, Action::MoveFrame(-1), Action::MoveFrame(1)] {
+            e.status = None;
+            e.act(a, false);
+            assert!(e.sprite.frames == frames && e.status.is_some(), "{a:?}");
+        }
+        assert!(e.sprite.views.is_some() && e.view == Some(1), "the view stays as it was");
     }
 
     #[test]
