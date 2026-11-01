@@ -20,11 +20,11 @@ Every sound is synthesized at runtime from a few oscillator voices per cue, with
 |---|---|---|
 | Walk forward and back | Up and Down, or the stick | Up and Down arrows |
 | Strafe | Left and Right, or the stick | Left and Right arrows |
-| Turn | Y and A, or L2 and R2 | A and X, or 1 and 2 |
+| Turn | Y and A, or L2 and R2 | A and X, or Q and 2 |
 | Turn around | B | Z |
 | Throw a grenade | Tap the map | Click the bottom window |
 | Pick an upgrade | Tap it, or Up, Down and X | Click it, or arrows and S |
-| Show the whole map | Hold L1 | Hold Q |
+| Show the whole map | Hold L1 | Hold 1 |
 | Back to the menu | Back, or B after a run | Tab, or Z after a run |
 
 The art comes from the tileset's reference sheet. `crates/game/art.txt` names each sprite and where it sits on the sheet, and `crates/game/build.rs` packs them into one texture at build time. The `art` debug scene shows every sprite in the catalog. The new weapons and every upgrade icon are original placeholders in `crates/game/placeholder/`. Redraw one in the [sprite editor](#sprite-editor) and the saved version replaces the placeholder.

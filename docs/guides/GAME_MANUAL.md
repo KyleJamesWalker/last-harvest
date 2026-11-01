@@ -24,12 +24,12 @@ Your weapons fire on their own. You move, turn, throw grenades and pick upgrades
 |---|---|---|
 | Walk forward and back | Up and Down, or the stick | Up and Down arrows |
 | Strafe | Left and Right, or the stick | Left and Right arrows |
-| Turn | Y and A, or L2 and R2 | A and X, or 1 and 2 |
+| Turn | Y and A, or L2 and R2 | A and X, or Q and 2 |
 | Turn around | B | Z |
 | Aim at barrels | Hold X | Hold S |
 | Throw a grenade | Tap the map | Click the bottom screen |
 | Pick an upgrade | Tap it, or Up, Down and X | Click it, or the arrows and S |
-| Show the whole map | Hold L1 | Hold Q |
+| Show the whole map | Hold L1 | Hold 1 |
 | Pause | Start | Enter, or Esc |
 | Choose a difficulty | Left and Right on Play | Left and Right arrows on Play |
 | Screenshot | R1 | W |
