@@ -165,10 +165,7 @@ pub fn install(mut data: Data) -> Result<Vec<String>, String> {
                 maps.retain(|m| m.id != map.id);
                 maps.push(map);
             }
-            Err(e) => {
-                eprintln!("left out: {e}");
-                note(e);
-            }
+            Err(e) => note(e),
         }
     }
     MAPS.set(maps).ok();
