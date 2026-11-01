@@ -114,6 +114,7 @@ fn cut(sheet: &Image, dir: &Path, frame: &str, line: usize) -> Vec<Image> {
                 Some(n) => num(n.strip_prefix('x').unwrap_or_else(|| panic!("art.txt:{line}: bad frame count {n:?}"))),
                 None => 1,
             };
+            assert!(frames > 0, "art.txt:{line}: a png is at least x1 frames, not x0");
             let path = dir.join(words[1]);
             println!("cargo:rerun-if-changed={}", path.display());
             let img = decode(&path).unwrap_or_else(|e| {
@@ -122,6 +123,7 @@ fn cut(sheet: &Image, dir: &Path, frame: &str, line: usize) -> Vec<Image> {
                 img.rgba.chunks_exact_mut(4).for_each(|p| p.copy_from_slice(&[255, 0, 255, 255]));
                 img
             });
+            assert!(img.w.is_multiple_of(frames), "art.txt:{line}: {} is {} pixels wide, which doesn't split into {frames} frames", path.display(), img.w);
             let w = img.w / frames;
             (0..frames)
                 .map(|f| {
@@ -169,6 +171,7 @@ fn cut(sheet: &Image, dir: &Path, frame: &str, line: usize) -> Vec<Image> {
                     return bad();
                 }
             }
+            assert!(frames > 0, "art.txt:{line}: a cell is at least x1 frames, not x0");
             let at = |(cc, rr): (u32, u32)| (ORIGIN[0] + cc * PITCH[0], ORIGIN[1] + rr * PITCH[1]);
             (0..frames)
                 .map(|f| {
