@@ -172,3 +172,13 @@ ICON_FUEL_DRUMS        png placeholder/icon_fuel_drums.png
 ICON_SNACK             png placeholder/icon_snack.png
 ICON_AMMO_CRATE        png placeholder/icon_ammo_crate.png
 ICON_POCKET_CHANGE     png placeholder/icon_pocket_change.png
+
+# On-screen touch controls: the stick's and turn strip's ring, knob and track, a button plate up and pressed, and
+# their icons
+TOUCH_RING             png placeholder/touch_ring.png
+TOUCH_KNOB             png placeholder/touch_knob.png
+TOUCH_TRACK            png placeholder/touch_track.png
+TOUCH_PAD              png placeholder/touch_pad.png
+TOUCH_PAD_DOWN         png placeholder/touch_pad_down.png
+TOUCH_AROUND           png placeholder/touch_around.png
+TOUCH_PAUSE            png placeholder/touch_pause.png

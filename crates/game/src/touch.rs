@@ -2,8 +2,9 @@
 //! around over a turn strip, a sideways-only floating stick that turns as a right stick does, with Pause above. They
 //! go beside the picture when the window is wide enough and under it when upright.
 
+use crate::art::{self, Art};
 use crate::input::{Buttons, MAX_TOUCHES};
-use crate::{Align, Canvas, Color, SCREEN_H, SCREEN_W};
+use crate::{Canvas, Color, SCREEN_H, SCREEN_W};
 
 /// x, y, width and height.
 pub type Rect = [f32; 4];
@@ -19,7 +20,7 @@ pub struct Layout {
     stick_r: f32,
     /// Where a thumb puts the turn strip down; empty outside a run.
     turn: Rect,
-    keys: [(Buttons, &'static str, Rect); 3],
+    keys: [(Buttons, Art, Rect); 3],
 }
 
 impl Layout {
@@ -54,7 +55,7 @@ fn fit([x, y, w, h]: Rect) -> Rect {
 pub fn layout(size: [f32; 2], run: bool) -> Layout {
     let [w, h] = size;
     let wide = w >= h;
-    let none = (Buttons::NONE, "", [0.0; 4]);
+    let none = (Buttons::NONE, art::WHITE, [0.0; 4]);
     if !run {
         let (top, bottom) = if wide { (fit([0.0, 0.0, w / 2.0, h]), fit([w / 2.0, 0.0, w / 2.0, h])) } else { (fit([0.0, 0.0, w, h / 2.0]), fit([0.0, h / 2.0, w, h / 2.0])) };
         return Layout { size, top: Some(top), bottom: Some(bottom), stick: [0.0; 4], stick_r: 0.0, turn: [0.0; 4], keys: [none; 3] };
@@ -75,16 +76,14 @@ pub fn layout(size: [f32; 2], run: bool) -> Layout {
         (pic, [0.0, band, w / 2.0, h - band], [w / 2.0, band, w / 2.0, h - band])
     };
     let cell = (right[2] / 2.0).min(right[3] / 4.0).min(0.2 * u);
-    let x0 = right[0] + (right[2] - 2.0 * cell) / 2.0;
-    let top = right[1] + 0.75 * cell;
-    let gap = cell * 0.08;
-    let key = |x: f32, y: f32, w: f32, h: f32| [x + gap, y + gap, w - 2.0 * gap, h - 2.0 * gap];
+    let cx = right[0] + right[2] / 2.0;
+    let square = |x: f32, y: f32, s: f32| [x - s / 2.0, y - s / 2.0, s, s];
     let keys = [
-        (Buttons::L2, "Grenade", key(x0, top, 2.0 * cell, cell)),
-        (Buttons::B, "Around", key(x0, top + cell, 2.0 * cell, cell * 0.8)),
-        (Buttons::START, "Pause", key(right[0] + right[2] - 1.3 * cell, right[1], 1.3 * cell, cell * 0.6)),
+        (Buttons::L2, art::GRENADE, square(cx, right[1] + 1.2 * cell, cell)),
+        (Buttons::B, art::TOUCH_AROUND, square(cx, right[1] + 2.3 * cell, 0.85 * cell)),
+        (Buttons::START, art::TOUCH_PAUSE, square(right[0] + right[2] - 0.4 * cell, right[1] + 0.4 * cell, 0.6 * cell)),
     ];
-    let strip = top + 1.9 * cell;
+    let strip = right[1] + 2.85 * cell;
     let turn = [right[0], strip, right[2], (right[1] + right[3] - strip).max(cell)];
     Layout { size, top: Some(pic), bottom: None, stick: left, stick_r: cell * 0.8, turn, keys }
 }
@@ -190,37 +189,34 @@ impl Touchpad {
         if self.hidden || l.stick_r == 0.0 {
             return c;
         }
-        let fill: Color = [1.0, 1.0, 1.0, 0.14];
-        let lit: Color = [1.0, 0.85, 0.3, 0.45];
-        let text: Color = [1.0, 1.0, 1.0, 0.8];
-        let stick = self.fingers.iter().flatten().find(|f| f.claim == Claim::Stick);
-        let [sx, sy, sw, sh] = l.stick;
-        let (base, knob) = match stick {
-            Some(f) => (f.origin, f.at),
-            None => {
-                let p = [sx + sw / 2.0, sy + sh - l.stick_r * 1.4];
-                (p, p)
-            }
-        };
+        let idle: Color = [1.0, 1.0, 1.0, 0.6];
+        let used: Color = [1.0, 1.0, 1.0, 0.95];
+        let shade: Color = [0.0, 0.0, 0.0, 0.25];
         let r = l.stick_r;
-        c.circle(base[0], base[1], r, fill);
+        // A sprite `size` pixels across at its widest, centered on (x, y).
+        let sprite = |c: &mut Canvas, a: Art, [x, y]: [f32; 2], size: f32, color: Color| {
+            let k = size / a.w().max(a.h());
+            c.art(a, x - a.w() * k / 2.0, y - a.h() * k / 2.0, k, false, color);
+        };
+        let rest = |[x, y, w, h]: Rect| [x + w / 2.0, y + h - r * 1.4];
+        let stick = self.fingers.iter().flatten().find(|f| f.claim == Claim::Stick);
+        let (base, knob) = stick.map_or((rest(l.stick), rest(l.stick)), |f| (f.origin, f.at));
+        let tint = if stick.is_some() { used } else { idle };
+        c.circle(base[0], base[1], r, shade);
+        sprite(&mut c, art::TOUCH_RING, base, 2.0 * r, tint);
         let d = [knob[0] - base[0], knob[1] - base[1]];
         let k = (r / d[0].hypot(d[1]).max(r)).min(1.0);
-        c.circle(base[0] + d[0] * k, base[1] + d[1] * k, r * 0.45, if stick.is_some() { lit } else { fill });
+        sprite(&mut c, art::TOUCH_KNOB, [base[0] + d[0] * k, base[1] + d[1] * k], r * 0.9, tint);
         let turn = self.fingers.iter().flatten().find(|f| f.claim == Claim::Turn);
-        let [tx, ty, tw, th] = l.turn;
-        let (base, knob) = match turn {
-            Some(f) => (f.origin, f.at[0]),
-            None => ([tx + tw / 2.0, ty + th / 2.0], tx + tw / 2.0),
-        };
-        c.rect(base[0] - r, base[1] - r * 0.3, 2.0 * r, r * 0.6, fill);
-        c.circle(knob.clamp(base[0] - r, base[0] + r), base[1], r * 0.45, if turn.is_some() { lit } else { fill });
-        let size = r * 0.28;
-        c.label("< Turn >", base[0], base[1] + r * 0.55, size, text, Align::Center);
-        for &(b, name, [x, y, w, h]) in &l.keys {
-            c.rect(x, y, w, h, if self.held.contains(b) { lit } else { fill });
-            let size = (h * 0.32).min(w * 0.2);
-            c.label(name, x + w / 2.0, y + h / 2.0 - size * 0.6, size, text, Align::Center);
+        let (base, knob) = turn.map_or((rest(l.turn), rest(l.turn)[0]), |f| (f.origin, f.at[0]));
+        let tint = if turn.is_some() { used } else { idle };
+        sprite(&mut c, art::TOUCH_TRACK, base, 2.0 * r, tint);
+        sprite(&mut c, art::TOUCH_KNOB, [knob.clamp(base[0] - r, base[0] + r), base[1]], r * 0.9, tint);
+        for &(b, icon, [x, y, w, _]) in &l.keys {
+            let down = self.held.contains(b);
+            let mid = [x + w / 2.0, y + w / 2.0];
+            sprite(&mut c, if down { art::TOUCH_PAD_DOWN } else { art::TOUCH_PAD }, mid, w, if down { used } else { idle });
+            sprite(&mut c, icon, mid, w * 0.6, if down { used } else { idle });
         }
         c
     }
@@ -262,8 +258,8 @@ mod tests {
         let pic = l.top.unwrap();
         assert!(l.bottom.is_none());
         assert!(l.stick[0] + l.stick[2] <= pic[0] + 0.5);
-        for &(_, name, r) in &l.keys {
-            assert!(r[0] >= pic[0] + pic[2] - 0.5, "{name} sits right of the picture");
+        for &(b, _, r) in &l.keys {
+            assert!(r[0] >= pic[0] + pic[2] - 0.5, "{b:?} sits right of the picture");
         }
     }
 
