@@ -14,7 +14,7 @@ The top screen is the main view, in 2.5D. Every sprite's silhouette stands extru
 
 The bottom screen shows the same farm from above at twice the art's size. Dots mark what the main view faces. Tap it to throw a grenade.
 
-In a browser, both screens share one canvas, the top screen above the bottom.
+In a browser, both screens share one canvas, the top screen above the bottom. On a phone or tablet the game fills the window instead: menus show both screens side by side, and a run plays on one screen with on-screen controls (see [On a phone](#on-a-phone)).
 
 ### Controls
 
@@ -51,6 +51,22 @@ Settings > Screens set to One plays a run on the top screen alone; the bottom sc
 | Show the whole map, paused | Hold R2 | Hold 2 |
 
 Grenades show only on the map. With none ready, L2 shows the map at full speed and clicks. While you aim, you keep walking the way you were going, and after 3 seconds the grenade throws itself. The cursor starts where your last throw went, relative to your view, if that was under 5 seconds ago, else straight ahead.
+
+#### On a phone
+
+A run plays on one screen with controls beside it, or under it when the phone is upright.
+
+| Action | Touch |
+|---|---|
+| Walk and strafe | Put a thumb down left of the picture and drag; the stick follows it |
+| Turn | Slide a thumb sideways on the strip under Around; further turns faster |
+| Turn around | Around |
+| Show the map | Tap Grenade; tap it again to put the 3D view back. You keep moving |
+| Throw a grenade | While the map is up, tap where it should land |
+| Pick an upgrade, or a pause choice | Tap it |
+| Pause | Pause |
+
+Putting the map away never throws, and nothing slows down. That is the Touch style; Settings > Grenades set to Pad makes Grenade (and L2 on a gamepad) aim with a cursor in slowed time instead, held and let go, as on one screen, which suits a handheld with buttons. The controls hide when you use a gamepad or keyboard, and come back at your next touch.
 
 In a browser, Esc and Home do nothing, and neither do screenshots, brightness or rumble. Sound starts with your first click or key. A gamepad in the browser's standard layout maps by its labels, as on an Xbox pad:
 
