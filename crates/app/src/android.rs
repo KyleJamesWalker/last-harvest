@@ -207,8 +207,12 @@ extern "system" fn Java_com_kylejameswalker_lastharvest_MainActivity_secondTouch
 static PACK: Mutex<Option<Result<(), String>>> = Mutex::new(None);
 
 #[unsafe(no_mangle)]
-extern "system" fn Java_com_kylejameswalker_lastharvest_MainActivity_packReady(mut env: jni::JNIEnv, _class: jni::objects::JClass, error: jni::objects::JString) {
-    let result = if error.is_null() { Ok(()) } else { Err(env.get_string(&error).map_or_else(|e| e.to_string(), String::from)) };
+extern "system" fn Java_com_kylejameswalker_lastharvest_MainActivity_packReady<'local>(mut env: jni::EnvUnowned<'local>, _class: jni::objects::JClass<'local>, error: jni::objects::JString<'local>) {
+    let result = if error.is_null() {
+        Ok(())
+    } else {
+        Err(env.with_env(|env| -> jni::errors::Result<String> { error.try_to_string(env) }).resolve::<jni::errors::LogErrorAndDefault>())
+    };
     *PACK.lock().unwrap_or_else(|e| e.into_inner()) = Some(result);
 }
 
@@ -227,14 +231,14 @@ fn release_pack(android: &AndroidApp) -> Result<Vec<u8>, String> {
     }
     let url = format!("https://github.com/KyleJamesWalker/last-harvest/releases/download/{VERSION}/game_data.pak");
     log!("data: fetching {url}");
-    let asked = (|| -> jni::errors::Result<()> {
-        let vm = unsafe { jni::JavaVM::from_raw(android.vm_as_ptr().cast()) }?;
-        let mut env = vm.attach_current_thread()?;
-        let activity = unsafe { jni::objects::JObject::from_raw(android.activity_as_ptr().cast()) };
+    let vm = unsafe { jni::JavaVM::from_raw(android.vm_as_ptr().cast()) };
+    let asked = vm.attach_current_thread(|env| -> jni::errors::Result<()> {
+        let activity = unsafe { jni::objects::JObject::from_raw(env, android.activity_as_ptr().cast()) };
         let (url, to) = (env.new_string(&url)?, env.new_string(path.to_string_lossy())?);
-        env.call_method(&activity, "fetchPack", "(Ljava/lang/String;Ljava/lang/String;)V", &[(&url).into(), (&to).into()])?;
+        let sig = jni::jni_sig!("(Ljava/lang/String;Ljava/lang/String;)V");
+        env.call_method(&activity, jni::jni_str!("fetchPack"), sig, &[jni::JValue::Object(&url), jni::JValue::Object(&to)])?;
         Ok(())
-    })();
+    });
     asked.map_err(|e| format!("fetchPack: {e}"))?;
     loop {
         if let Some(done) = PACK.lock().unwrap_or_else(|e| e.into_inner()).take() {
@@ -253,20 +257,19 @@ fn fit(w: u32, h: u32) -> [i32; 4] {
     [(w as i32 - fw) / 2, (h as i32 - fh) / 2, fw, fh]
 }
 
-/// Calls one of `MainActivity`'s methods that take an int, or none.
-fn call(android: &AndroidApp, name: &str, arg: Option<i32>) {
-    let result = (|| -> jni::errors::Result<()> {
-        let vm = unsafe { jni::JavaVM::from_raw(android.vm_as_ptr().cast()) }?;
-        let mut env = vm.attach_current_thread()?;
-        let activity = unsafe { jni::objects::JObject::from_raw(android.activity_as_ptr().cast()) };
-        match arg {
-            Some(v) => env.call_method(&activity, name, "(I)V", &[jni::objects::JValue::Int(v)])?,
-            None => env.call_method(&activity, name, "()V", &[])?,
+/// Runs the vibrator through `MainActivity` for `ms` milliseconds, or stops it.
+fn vibrate(android: &AndroidApp, ms: Option<i32>) {
+    let vm = unsafe { jni::JavaVM::from_raw(android.vm_as_ptr().cast()) };
+    let result = vm.attach_current_thread(|env| -> jni::errors::Result<()> {
+        let activity = unsafe { jni::objects::JObject::from_raw(env, android.activity_as_ptr().cast()) };
+        match ms {
+            Some(ms) => env.call_method(&activity, jni::jni_str!("vibrate"), jni::jni_sig!("(I)V"), &[jni::JValue::Int(ms)])?,
+            None => env.call_method(&activity, jni::jni_str!("stopVibrate"), jni::jni_sig!("()V"), &[])?,
         };
         Ok(())
-    })();
+    });
     if let Err(e) = result {
-        log!("{name}: {e}");
+        log!("vibrate: {e}");
     }
 }
 
@@ -379,7 +382,7 @@ impl App {
                 self.bottom_fingers = Fingers::default();
                 self.keys = Buttons::NONE;
                 if std::mem::take(&mut self.rumbling) {
-                    call(&self.android, "stopVibrate", None);
+                    vibrate(&self.android, None);
                 }
                 self.stick = [0.0; 2];
                 self.look = 0.0;
@@ -557,7 +560,7 @@ impl App {
         if rumble != self.rumbling {
             self.rumbling = rumble;
             // Longer than any pulse the game asks for; stopVibrate cuts it off when the game's rumble ends.
-            call(&self.android, if rumble { "vibrate" } else { "stopVibrate" }, rumble.then_some(2000));
+            vibrate(&self.android, rumble.then_some(2000));
         }
         let frame = self.game.draw();
         let black = Canvas { clear: [0.0, 0.0, 0.0, 1.0], ..Default::default() };

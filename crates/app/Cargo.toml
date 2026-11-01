@@ -21,7 +21,7 @@ path = "src/muos.rs"
 required-features = ["muos"]
 
 [dependencies]
-cpal = "0.16"
+cpal = "0.18"
 glow.workspace = true
 png = "0.17"
 last-harvest-game.workspace = true
@@ -44,7 +44,7 @@ winit = { version = "0.30", default-features = false, features = ["rwh_06"] }
 [target.'cfg(target_os = "android")'.dependencies]
 android-activity = { version = "0.6", features = ["native-activity"] }
 glutin = { version = "0.32", default-features = false, features = ["egl"] }
-jni = "0.21"
+jni = "0.22"
 ndk = "0.9"
 raw-window-handle = "0.6"
 
@@ -53,10 +53,10 @@ libc = "0.2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 evdev = "0.13"
-sdl2 = { version = "0.37", optional = true }
+sdl2 = { version = "0.38", optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-cpal = { version = "0.16", features = ["wasm-bindgen"] }
+cpal = { version = "0.18", features = ["wasm-bindgen"] }
 js-sys = "0.3"
 wasm-bindgen = "0.2"
 web-sys = { version = "0.3", features = ["AddEventListenerOptions", "console", "CssStyleDeclaration", "Document", "Element", "Event", "EventTarget", "Gamepad", "GamepadButton", "HtmlCanvasElement", "HtmlElement", "History", "KeyboardEvent", "Location", "MouseEvent", "NodeList", "Navigator", "Performance", "PointerEvent", "Storage", "WebGl2RenderingContext", "Window"] }
