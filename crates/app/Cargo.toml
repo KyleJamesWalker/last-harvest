@@ -21,7 +21,7 @@ path = "src/muos.rs"
 required-features = ["muos"]
 
 [dependencies]
-cpal = "0.16"
+cpal = "0.18"
 glow.workspace = true
 png = "0.17"
 last-harvest-game.workspace = true
