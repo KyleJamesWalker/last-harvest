@@ -18,6 +18,20 @@ platform() {
     esac
 }
 
+# bounded <secs> <command...>: the command, stopped after secs where there's a timeout to stop it.
+bounded() {
+    local secs=$1
+    shift
+    if timeout "$secs" true 2>/dev/null; then
+        timeout "$secs" "$@"
+    # Older busybox takes the seconds as -t.
+    elif timeout -t "$secs" true 2>/dev/null; then
+        timeout -t "$secs" "$@"
+    else
+        "$@"
+    fi
+}
+
 # fetch <url> <file> [api]: an API call gives up sooner than a download.
 fetch() {
     if command -v curl >/dev/null; then
@@ -26,14 +40,19 @@ fetch() {
         else
             curl -fsSL --connect-timeout 4 --speed-limit 1024 --speed-time 30 -o "$2" "$1"
         fi
-    # The RG DS Plus has no curl, and its busybox wget can't do https.
+    # The RG DS Plus has no curl, and its busybox wget can't do https. A socket timeout doesn't bound DNS.
     elif command -v python3 >/dev/null; then
-        python3 - "$1" "$2" "$3" 2>/dev/null <<'EOF'
+        local py='
 import shutil, sys, urllib.request
 url, out, api = sys.argv[1:4]
 with urllib.request.urlopen(url, timeout=5 if api else 30) as r, open(out, "wb") as f:
     shutil.copyfileobj(r, f)
-EOF
+'
+        if [ -n "$3" ]; then
+            bounded 8 python3 -c "$py" "$1" "$2" "$3" 2>/dev/null
+        else
+            python3 -c "$py" "$1" "$2" "$3" 2>/dev/null
+        fi
     elif command -v wget >/dev/null; then
         wget -q -T "$([ -n "$3" ] && echo 5 || echo 30)" -t 1 -O "$2" "$1"
     else
@@ -132,15 +151,26 @@ newer() {
     [ "$a" = "${a%%-*}" ] && [ "$b" != "${b%%-*}" ]
 }
 
-# The pack the release has, unless the one here is the same.
-sync_pack() {
+# The pack the release has, checked and waiting in $pak.part, unless the one here is the same.
+stage_pack() {
     local want
     want=$(field game_data.pak)
     [ -n "$want" ] || { say "release $1 has no game_data.pak"; return 1; }
     [ -f "$pak" ] && [ "$(sha256 "$pak")" = "$want" ] && return 0
     pack_tried=1
     say "fetching release $1's game_data.pak"
-    get "$downloads/$1/game_data.pak" "$pak" "$want" && say "game_data.pak is release $1's"
+    get "$downloads/$1/game_data.pak" "$pak.part" "$want"
+}
+
+# Moves a staged pack over the one here.
+swap_pack() {
+    [ -f "$pak.part" ] || return 0
+    mv -f "$pak.part" "$pak" && say "game_data.pak is release $1's"
+}
+
+# The pack the release has, unless the one here is the same.
+sync_pack() {
+    stage_pack "$1" && swap_pack "$1"
 }
 
 # Swaps in the release's binary, data README, launcher and icon from its tarball for this platform.
@@ -162,7 +192,20 @@ update_game() {
         say "the $tag binary doesn't run here; keeping $version"
         return 1
     fi
-    mv -f "$dir/last-harvest/last-harvest" last-harvest || return 1
+    # The new binary refuses the old pack, so both arrive or neither does.
+    if ! stage_pack "$tag"; then
+        say "no $tag game_data.pak; keeping $version"
+        rm -f "$pak.part"
+        return 1
+    fi
+    mv -f last-harvest last-harvest.old || { rm -f "$pak.part"; return 1; }
+    if ! { mv -f "$dir/last-harvest/last-harvest" last-harvest && swap_pack "$tag"; }; then
+        say "couldn't swap in $tag; keeping $version"
+        mv -f last-harvest.old last-harvest
+        rm -f "$pak.part"
+        return 1
+    fi
+    rm -f last-harvest.old
     [ -f "$dir/last-harvest/data/README.txt" ] && mv -f "$dir/last-harvest/data/README.txt" data/README.txt
     [ -f "$dir/Imgs/LastHarvest.png" ] && [ -d ../Imgs ] && mv -f "$dir/Imgs/LastHarvest.png" ../Imgs/LastHarvest.png
     # bash reads a running script as it goes, so a new launcher replaces this file rather than writing into it.
@@ -215,7 +258,9 @@ main() {
         exec > log.txt 2>&1
     fi
     mkdir -p "$work" data
-    rm -f "$pak.part"
+    # Power lost mid-swap leaves only the old binary.
+    [ ! -f last-harvest ] && [ -f last-harvest.old ] && mv -f last-harvest.old last-harvest
+    rm -f "$pak.part" last-harvest.old
     version=$(./last-harvest --version 2>/dev/null)
     [ -n "$LAST_HARVEST_RELAUNCHED" ] || update
     fetch_missing_pack
