@@ -772,6 +772,7 @@ checksum = "e2db585e1d738fc771bf08a151420d3ed193d9d895a36df7f6f8a9456b911ddc"
 name = "last-harvest"
 version = "0.1.0"
 dependencies = [
+ "android-activity",
  "cpal",
  "evdev",
  "glow",
@@ -783,6 +784,7 @@ dependencies = [
  "last-harvest-render",
  "lewton",
  "libc",
+ "ndk",
  "png",
  "raw-window-handle",
  "wasm-bindgen",

@@ -1,11 +1,13 @@
-//! The game's data, sound and music, shared by its two shells: `main.rs` in windows on the device and macOS, and
-//! `web.rs` in a web page.
+//! The game's data, sound and music, shared by its shells: `main.rs` in windows on the device and macOS, `web.rs`
+//! in a web page, and `android.rs` on a phone.
 
 pub mod audio;
 pub mod log;
 mod loops;
 pub mod pak;
 pub mod samples;
+#[cfg(target_os = "android")]
+mod android;
 #[cfg(target_arch = "wasm32")]
 mod web;
 
