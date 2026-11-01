@@ -153,10 +153,32 @@ impl Injector {
 
 pub fn save_png(path: &std::path::Path, width: u32, height: u32, rgba: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
     let tmp = path.with_extension("tmp");
-    let mut enc = png::Encoder::new(File::create(&tmp)?, width, height);
-    enc.set_color(png::ColorType::Rgba);
-    enc.set_depth(png::BitDepth::Eight);
-    enc.write_header()?.write_image_data(rgba)?;
-    std::fs::rename(tmp, path)?;
-    Ok(())
+    let write = || -> Result<(), Box<dyn std::error::Error>> {
+        let mut enc = png::Encoder::new(File::create(&tmp)?, width, height);
+        enc.set_color(png::ColorType::Rgba);
+        enc.set_depth(png::BitDepth::Eight);
+        enc.write_header()?.write_image_data(rgba)?;
+        std::fs::rename(&tmp, path)?;
+        Ok(())
+    };
+    write().inspect_err(|_| {
+        std::fs::remove_file(&tmp).ok();
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_shot_that_fails_leaves_no_temp_file() {
+        let dir = std::env::temp_dir().join(format!("lh-shot-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("shot.png");
+        assert!(save_png(&path, 2, 2, &[0; 3]).is_err(), "too few pixels");
+        assert!(!path.with_extension("tmp").exists());
+        save_png(&path, 1, 1, &[0; 4]).unwrap();
+        assert!(path.exists() && !path.with_extension("tmp").exists());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }
