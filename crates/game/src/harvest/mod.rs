@@ -1255,6 +1255,7 @@ impl Harvest {
             Some(_) => flow.quit = true,
             None => {}
         }
+        self.turn_ready &= self.menu.is_some();
     }
 
     /// A fresh farm with the same difficulty, progress, enemies, look and trial powerups.
@@ -2273,6 +2274,19 @@ mod tests {
         assert!(h.blow(0.016, &mut sounds));
         assert!(h.zombies[0].hp <= 0.0);
         assert!(!h.map.solid_at(c[0], c[1]));
+    }
+
+    #[test]
+    fn resuming_with_a_held_doesnt_turn_the_camera() {
+        let mut h = Harvest::calm(4);
+        h.update(&Input::default(), 1.0 / 60.0, &mut Vec::new());
+        h.update(&Input { pressed: Buttons::START, ..Default::default() }, 1.0 / 60.0, &mut Vec::new());
+        assert_eq!(h.menu, Some(0));
+        h.update(&Input { pressed: Buttons::A, held: Buttons::A, ..Default::default() }, 1.0 / 60.0, &mut Vec::new());
+        assert_eq!(h.menu, None);
+        let yaw = h.view_yaw;
+        h.update(&Input { held: Buttons::A, ..Default::default() }, 0.5, &mut Vec::new());
+        assert_eq!(h.view_yaw, yaw.rem_euclid(TAU), "the A that resumed has to be let go before it turns");
     }
 
     #[test]
