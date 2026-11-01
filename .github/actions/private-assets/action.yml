@@ -14,7 +14,9 @@ runs:
         ASSETS_DEPLOY_KEY: ${{ inputs.deploy-key }}
       # Host keys from https://api.github.com/meta (ssh_keys).
       run: |
-        install -m 700 -d ~/.ssh
+        # Git Bash on Windows can't change the folder's mode; its ssh doesn't check it.
+        mkdir -p ~/.ssh
+        chmod 700 ~/.ssh 2>/dev/null || true
         printf '%s\n' "$ASSETS_DEPLOY_KEY" > ~/.ssh/assets
         chmod 600 ~/.ssh/assets
         cat > ~/.ssh/github_known_hosts <<'EOF'
