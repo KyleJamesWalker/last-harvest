@@ -189,7 +189,7 @@ pub fn install(base: Option<Pak>, missing_pack: Option<String>) -> Result<Files,
     if !cards.is_empty() {
         log!("cards: {cards:?}");
     }
-    let loaded = cards.len().saturating_sub(left_out.len());
+    let loaded = cards.iter().filter(|c| !left_out.iter().any(|l| l.strip_prefix(c.as_str()).is_some_and(|r| r.starts_with(": ")))).count();
     problems.extend(left_out);
     for problem in &problems {
         log!("left out: {problem}");
