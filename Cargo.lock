@@ -782,6 +782,7 @@ dependencies = [
  "last-harvest-pack",
  "last-harvest-render",
  "lewton",
+ "libc",
  "png",
  "raw-window-handle",
  "wasm-bindgen",

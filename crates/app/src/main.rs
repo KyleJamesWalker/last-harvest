@@ -1,6 +1,7 @@
 //! The game on the device and macOS: two windows, one per screen, and the hardware beside them. The loop is
 //! `App::tick` on each redraw of the top window, which runs `Game::update` (`crates/game/src/lib.rs`), and so
 //! `Harvest::update` during a run, then draws both screens.
+
 mod debug;
 #[cfg(target_os = "linux")]
 mod device;
@@ -166,6 +167,10 @@ impl App {
     }
 
     fn tick(&mut self, el: &ActiveEventLoop) {
+        if stop::requested() {
+            log!("stopping: asked to by a signal");
+            return el.exit();
+        }
         let now = Instant::now();
         let frame = now - self.last;
         let dt = frame.as_secs_f32().min(0.05);
@@ -412,8 +417,41 @@ fn main() {
     }
 }
 
+/// SIGTERM and SIGINT, as `killall` and Ctrl-C send, ask the loop to quit the way Home does.
+#[cfg(unix)]
+mod stop {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    static STOP: AtomicBool = AtomicBool::new(false);
+
+    extern "C" fn on_signal(_: libc::c_int) {
+        STOP.store(true, Ordering::Relaxed);
+    }
+
+    pub fn install() {
+        for signal in [libc::SIGTERM, libc::SIGINT] {
+            // SAFETY: the handler only stores to an atomic, which is async-signal-safe.
+            unsafe { libc::signal(signal, on_signal as *const () as libc::sighandler_t) };
+        }
+    }
+
+    pub fn requested() -> bool {
+        STOP.load(Ordering::Relaxed)
+    }
+}
+
+#[cfg(not(unix))]
+mod stop {
+    pub fn install() {}
+
+    pub fn requested() -> bool {
+        false
+    }
+}
+
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     persist::install_crash_log();
+    stop::install();
     log!("last-harvest {VERSION}, started at unix {}", log::unix_now());
     let sounds = pak::load()?;
     let event_loop = EventLoop::new()?;
