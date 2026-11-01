@@ -669,6 +669,8 @@ pub struct Harvest {
     aiming: Option<single::Aiming>,
     /// The map is up on the one screen without a grenade being aimed.
     glance: bool,
+    /// A thrown grenade is never spent.
+    endless: bool,
     /// The last single-screen throw's angle off the view and distance from the player, and real seconds since.
     last_throw: Option<[f32; 2]>,
     since_throw: f32,
@@ -848,6 +850,7 @@ impl Harvest {
             single: false,
             aiming: None,
             glance: false,
+            endless: false,
             last_throw: None,
             since_throw: 0.0,
         }
@@ -955,6 +958,11 @@ impl Harvest {
 
     /// Starts carrying powerups named `id` or `id:level`, comma separated; unknown names are skipped.
     /// Starts the night `secs` in, and every restart on this farm too.
+    pub fn endless_grenades(mut self, on: bool) -> Self {
+        self.endless = on;
+        self
+    }
+
     pub fn starting_at(mut self, secs: f32) -> Self {
         self.t = secs;
         self.start_t = secs;
@@ -1299,7 +1307,7 @@ impl Harvest {
         let seed = self.rng.next_u32() as u64 + 1;
         let kit: Vec<String> = self.trial.iter().map(|&(d, l)| format!("{}:{l}", book().defs[d].id)).collect();
         let look = std::mem::take(&mut self.look);
-        *self = Harvest::on(seed, &self.map_id).at(self.difficulty).with_progress(self.progress).without_enemies(self.enemies_off).looking_like(&look).with_kit(&kit.join(",")).starting_at(self.start_t).single_screen(self.single);
+        *self = Harvest::on(seed, &self.map_id).at(self.difficulty).with_progress(self.progress).without_enemies(self.enemies_off).looking_like(&look).with_kit(&kit.join(",")).starting_at(self.start_t).single_screen(self.single).endless_grenades(self.endless);
         sounds.push(Sfx::Start);
     }
 
@@ -1761,7 +1769,9 @@ impl Harvest {
             sounds.push(Sfx::Miss);
             return;
         }
-        self.grenades -= 1.0;
+        if !self.endless {
+            self.grenades -= 1.0;
+        }
         self.thrown.push(Grenade { from: self.pos, to, t: 0.0, kind: Thrown::Grenade });
         sounds.push(Sfx::Throw);
     }

@@ -250,6 +250,17 @@ mod tests {
     }
 
     #[test]
+    fn endless_grenades_are_never_spent() {
+        let mut h = single(12).endless_grenades(true);
+        for _ in 0..3 {
+            press(&mut h, Buttons::L2, Buttons::L2);
+            hold(&mut h, Buttons::NONE, DT);
+        }
+        assert_eq!(h.thrown.len(), 3);
+        assert!(h.grenades >= 1.0);
+    }
+
+    #[test]
     fn shoulder_triggers_do_not_turn_on_one_screen() {
         let mut h = single(12);
         h.grenades = 0.0;

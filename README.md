@@ -294,6 +294,7 @@ The stream reaches the Mac about 240 ms after the device draws it, or about 155 
 | `LAST_HARVEST_UNLOCK_ALL` | Offers every powerup, whatever the save has unlocked. |
 | `LAST_HARVEST_KIT` | Starts every run carrying these powerups, as comma-separated `id` or `id:level`, such as `scythe:3,crows,dog`. |
 | `LAST_HARVEST_CLOCK` | Starts every night this many seconds in, such as `590` to try the run home at dawn. |
+| `LAST_HARVEST_GRENADES` | `endless`: a thrown grenade is never spent, for trying out aiming. |
 | `LAST_HARVEST_VERSION` | At build time, the release the binary and `game_data.pak` report. The default is `dev`, plus the commit for the binary. |
 | `LAST_HARVEST_API` | The launcher's GitHub releases API, for testing updates. The default is `https://api.github.com/repos/KyleJamesWalker/last-harvest/releases`. |
 | `LAST_HARVEST_DOWNLOADS` | The launcher's base URL for release assets. The default is `https://github.com/KyleJamesWalker/last-harvest/releases/download`. |

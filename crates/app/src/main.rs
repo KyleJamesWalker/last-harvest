@@ -84,6 +84,7 @@ impl App {
         if let Some(secs) = std::env::var("LAST_HARVEST_CLOCK").ok().and_then(|s| s.parse().ok()) {
             game.start_clock(secs);
         }
+        game.endless_grenades(std::env::var("LAST_HARVEST_GRENADES").is_ok_and(|v| v == "endless"));
         if let Some(scene) = std::env::var("LAST_HARVEST_START").ok().and_then(|s| Scene::from_name(&s)) {
             game.open(scene);
         }

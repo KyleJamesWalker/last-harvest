@@ -115,6 +115,8 @@ pub struct Game {
     start_t: f32,
     /// A bench scene just opened and hasn't reported its flow-field timing yet.
     bench_due: bool,
+    /// A thrown grenade is never spent, for trying out aiming.
+    endless: bool,
     /// Seconds left to confirm wiping the records and found powerups.
     reset_armed: f32,
     /// Seconds left of the title's word that progress was erased.
@@ -153,6 +155,7 @@ impl Game {
             kit: String::new(),
             start_t: 0.0,
             bench_due: false,
+            endless: false,
             reset_armed: 0.0,
             reset_shown: 0.0,
             page: Page::Main,
@@ -193,6 +196,10 @@ impl Game {
     /// Starts every run `secs` seconds into the night.
     pub fn start_clock(&mut self, secs: f32) {
         self.start_t = secs.max(0.0);
+    }
+
+    pub fn endless_grenades(&mut self, on: bool) {
+        self.endless = on;
     }
 
     fn progress(&self) -> harvest::Progress {
@@ -249,7 +256,7 @@ impl Game {
             }
             Scene::Harvest | Scene::Single => {
                 self.sounds.push(Sfx::Start);
-                State::Harvest(Box::new(harvest::Harvest::on(seed, self.save.map.as_str()).at(self.save.difficulty).with_progress(self.progress()).without_enemies(self.save.enemies_off).looking_like(self.save.player.as_str()).with_kit(&self.kit).starting_at(self.start_t).single_screen(scene == Scene::Single)))
+                State::Harvest(Box::new(harvest::Harvest::on(seed, self.save.map.as_str()).at(self.save.difficulty).with_progress(self.progress()).without_enemies(self.save.enemies_off).looking_like(self.save.player.as_str()).with_kit(&self.kit).starting_at(self.start_t).single_screen(scene == Scene::Single).endless_grenades(self.endless)))
             }
             Scene::Farm => State::Harvest(Box::new(harvest::Harvest::calm(seed))),
             Scene::Bench(size) => State::Harvest(Box::new(harvest::Harvest::bench(size))),
