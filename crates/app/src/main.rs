@@ -59,6 +59,8 @@ struct App {
     saver: persist::Saver,
     stats: Stats,
     system: System,
+    /// The window or GL failed, so the exit is a failure.
+    failed: bool,
 }
 
 impl App {
@@ -100,6 +102,7 @@ impl App {
             saver,
             stats: Stats::default(),
             system: System::default(),
+            failed: false,
         }
     }
 
@@ -256,6 +259,7 @@ impl App {
                 Ok(None) => {}
                 Err(e) => {
                     log!("render: {e}");
+                    self.failed = true;
                     el.exit();
                 }
             }
@@ -308,6 +312,7 @@ impl ApplicationHandler for App {
             Ok(g) => self.gfx = Some(g),
             Err(e) => {
                 log!("gfx: {e}");
+                self.failed = true;
                 el.exit();
             }
         }
@@ -365,7 +370,7 @@ impl ApplicationHandler for App {
         self.saver.update(self.game.save(), true);
         #[cfg(target_os = "linux")]
         drop(self.device.take());
-        std::process::exit(0);
+        std::process::exit(if self.failed { 1 } else { 0 });
     }
 
     fn about_to_wait(&mut self, _el: &ActiveEventLoop) {
