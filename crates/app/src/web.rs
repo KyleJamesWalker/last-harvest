@@ -65,6 +65,8 @@ struct Web {
     refused: bool,
     /// The browser has taken the GL context away.
     lost: bool,
+    /// A gamepad without the standard layout has been logged.
+    odd_pad: bool,
     last: f64,
     stats: (u32, f64, f64),
     system: System,
@@ -97,11 +99,18 @@ fn key_button(code: &str) -> Option<Buttons> {
     })
 }
 
-/// Buttons held and the left stick across every connected gamepad.
-fn gamepads() -> (Buttons, [f32; 2]) {
+/// Buttons held and the left stick across every connected gamepad with the standard layout; the first without it is
+/// logged once, and `warned` remembers that.
+fn gamepads(warned: &mut bool) -> (Buttons, [f32; 2]) {
     let (mut held, mut stick) = (Buttons::NONE, [0.0f32; 2]);
     let Some(pads) = web_sys::window().and_then(|w| w.navigator().get_gamepads().ok()) else { return (held, stick) };
     for pad in pads.iter().filter_map(|p| p.dyn_into::<Gamepad>().ok()) {
+        if js_sys::Reflect::get(&pad, &"mapping".into()).ok().and_then(|m| m.as_string()).as_deref() != Some("standard") {
+            if !std::mem::replace(warned, true) {
+                web_sys::console::warn_1(&format!("gamepad: {} has no standard layout, so it is ignored", pad.id()).into());
+            }
+            continue;
+        }
         let buttons = pad.buttons();
         for (i, b) in PAD {
             if buttons.get(i).dyn_into::<GamepadButton>().is_ok_and(|b| b.pressed()) {
@@ -263,7 +272,7 @@ impl Web {
         self.last = t;
         self.measure(frame_ms);
         self.fit();
-        let (pad, stick) = gamepads();
+        let (pad, stick) = gamepads(&mut self.odd_pad);
         let mut raw = RawInput { held: self.keys | std::mem::take(&mut self.struck) | pad, stick, touch: self.touches.first().map(|t| t.at), lid_closed: self.lid_key, ..Default::default() };
         for (slot, t) in raw.touches.iter_mut().zip(&mut self.touches) {
             *slot = Some(t.at);
@@ -358,6 +367,7 @@ fn start(pak: Pak) -> Result<(), String> {
         saved,
         refused: false,
         lost: false,
+        odd_pad: false,
         last: now(),
         stats: (0, 0.0, now()),
         system: System::default(),
