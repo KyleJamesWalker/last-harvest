@@ -299,6 +299,7 @@ The stream reaches the Mac about 240 ms after the device draws it, or about 155 
 | `LAST_HARVEST_DOWNLOADS` | The launcher's base URL for release assets. The default is `https://github.com/KyleJamesWalker/last-harvest/releases/download`. |
 | `LAST_HARVEST_PLATFORM` | The launcher's platform, naming the tarball `last-harvest-<tag>-<platform>.tar.gz`. The default comes from `uname`: `aarch64-linux`. |
 | `RGDS_HOST` | Sets the SSH target for the scripts. The default is `root@anbernic.local`. |
+| `TIMEOUT` | Stops each game run that `scripts/deploy.sh` starts on the device after this many seconds. The default, `0`, lets it run until it quits. |
 
 ### Sprite editor
 

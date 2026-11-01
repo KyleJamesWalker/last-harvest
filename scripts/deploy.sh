@@ -13,5 +13,5 @@ scp -q target/aarch64-unknown-linux-gnu/release/last-harvest "$host:$dir/last-ha
 scripts/sync-data.sh "$host" "$dir/data"
 # A run.sh from before the data folder never swaps data/game_data.pak.new in.
 ssh "$host" "[ -f $dir/data/game_data.pak ] || cp $dir/data/game_data.pak.new $dir/data/game_data.pak"
-ssh "$host" "cd $dir; if pidof last-harvest >/dev/null; then touch /tmp/last-harvest.restart; killall last-harvest; else CAPTURE=${CAPTURE:-} DEBUG=${DEBUG:-} nohup ./run.sh >/dev/null 2>&1 </dev/null & fi"
+ssh "$host" "cd $dir; if pidof last-harvest >/dev/null; then touch /tmp/last-harvest.restart; killall last-harvest; else CAPTURE=${CAPTURE:-} DEBUG=${DEBUG:-} TIMEOUT=${TIMEOUT:-} nohup ./run.sh >/dev/null 2>&1 </dev/null & fi"
 echo "deployed; logs: ssh $host tail -f $dir/run.log"
