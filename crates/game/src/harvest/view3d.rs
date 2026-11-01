@@ -489,7 +489,7 @@ pub fn scene(h: &Harvest) -> CardScene {
         let d = q - p;
         d.length() < VIEW_RADIUS && d.dot(forward) > -4.0
     };
-    let mut cards = Vec::new();
+    let mut cards = crate::scene3d::spare_cards();
 
     let (cx, cz) = (p.x as i32, p.z as i32);
     let r = VIEW_RADIUS as i32;
@@ -827,6 +827,15 @@ pub fn scene(h: &Harvest) -> CardScene {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn each_frame_builds_its_cards_in_the_last_frames_room() {
+        let h = Harvest::calm(1);
+        let first = scene(&h);
+        let room = first.cards.as_ptr();
+        drop(first);
+        assert_eq!(scene(&h).cards.as_ptr(), room);
+    }
 
     #[test]
     fn a_floating_slab_lies_off_the_ground_and_turns_with_its_angle() {
