@@ -2,6 +2,7 @@
 //! `web.rs` in a web page.
 
 pub mod audio;
+pub mod log;
 mod loops;
 pub mod pak;
 pub mod samples;

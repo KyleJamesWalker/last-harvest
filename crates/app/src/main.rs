@@ -6,7 +6,7 @@ mod persist;
 
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use last_harvest::{VERSION, audio, pak, samples};
+use last_harvest::{VERSION, audio, log, pak, samples};
 use last_harvest_game::{Buttons, Game, InputTracker, MAX_TOUCHES, RawInput, SCREEN_H, SCREEN_W, Scene, System};
 use winit::application::ApplicationHandler;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
@@ -79,7 +79,7 @@ impl App {
             game,
             tracker: InputTracker::default(),
             gfx: None,
-            audio: audio::Audio::open(sounds).inspect_err(|e| eprintln!("audio disabled: {e}")).ok(),
+            audio: audio::Audio::open(sounds).inspect_err(|e| log!("audio disabled: {e}")).ok(),
             #[cfg(target_os = "linux")]
             device: device::Device::open(),
             keys: Buttons::NONE,
@@ -140,7 +140,7 @@ impl App {
         *s = Stats { since: Some(Instant::now()), ..Default::default() };
         if self.debug.is_some() {
             let sys = &self.system;
-            eprintln!("perf: fps={:.1} ms={:.1} worst={:.1} update={u:.1} build={d:.1} render={r:.1} {}", sys.fps, sys.frame_ms, sys.worst_ms, self.game.summary());
+            log!("perf: fps={:.1} ms={:.1} worst={:.1} update={u:.1} build={d:.1} render={r:.1} {}", sys.fps, sys.frame_ms, sys.worst_ms, self.game.summary());
         }
         #[cfg(target_os = "linux")]
         if let Some(dev) = &self.device {
@@ -155,7 +155,7 @@ impl App {
         self.saver.update(self.game.save(), true);
         if let Some(dev) = &mut self.device {
             dev.suspend(wake_after);
-            eprintln!("resumed");
+            log!("resumed");
         }
         self.last = Instant::now();
         self.woke = self.last;
@@ -175,14 +175,14 @@ impl App {
                 debug::Command::Touch(keys) => self.injector.touch(keys),
                 debug::Command::Scene(name) => match Scene::from_name(&name) {
                     Some(scene) => self.game.open(scene),
-                    None => eprintln!("debug: unknown scene {name}"),
+                    None => log!("debug: unknown scene {name}"),
                 },
                 debug::Command::Shot(path) => shot = Some(path),
-                debug::Command::State => eprintln!("debug: state\n{}", self.game.debug_state().unwrap_or_else(|| "not in a harvest".into())),
+                debug::Command::State => log!("debug: state\n{}", self.game.debug_state().unwrap_or_else(|| "not in a harvest".into())),
                 #[cfg(target_os = "linux")]
                 debug::Command::Sleep(secs) => return self.suspend(Some(secs)),
                 #[cfg(not(target_os = "linux"))]
-                debug::Command::Sleep(secs) => eprintln!("debug: sleep {secs} needs the device"),
+                debug::Command::Sleep(secs) => log!("debug: sleep {secs} needs the device"),
                 debug::Command::Panic => panic!("debug: panic requested"),
             }
         }
@@ -241,13 +241,13 @@ impl App {
                 Ok(Some(img)) => {
                     let path = shot.unwrap();
                     match debug::save_png(&path, img.width, img.height, &img.rgba) {
-                        Ok(()) => eprintln!("debug: saved {}", path.display()),
-                        Err(e) => eprintln!("debug: shot failed: {e}"),
+                        Ok(()) => log!("debug: saved {}", path.display()),
+                        Err(e) => log!("debug: shot failed: {e}"),
                     }
                 }
                 Ok(None) => {}
                 Err(e) => {
-                    eprintln!("render: {e}");
+                    log!("render: {e}");
                     el.exit();
                 }
             }
@@ -299,7 +299,7 @@ impl ApplicationHandler for App {
         match gfx::Gfx::new(el) {
             Ok(g) => self.gfx = Some(g),
             Err(e) => {
-                eprintln!("gfx: {e}");
+                log!("gfx: {e}");
                 el.exit();
             }
         }
@@ -373,7 +373,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
     persist::install_crash_log();
-    eprintln!("last-harvest {VERSION}");
+    log!("last-harvest {VERSION}, started at unix {}", log::unix_now());
     let sounds = pak::load()?;
     let event_loop = EventLoop::new()?;
     event_loop.run_app(&mut App::new(&sounds))?;

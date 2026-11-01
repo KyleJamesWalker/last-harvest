@@ -8,6 +8,7 @@ use glutin::surface::{GlSurface, Surface, SwapInterval, WindowSurface};
 use glow::HasContext;
 use glutin_winit::{DisplayBuilder, GlWindow};
 use raw_window_handle::HasWindowHandle;
+use last_harvest::log;
 use last_harvest_game::Frame;
 use last_harvest_render::{Profile, Renderer};
 use winit::dpi::{LogicalPosition, LogicalSize, PhysicalSize};
@@ -53,7 +54,7 @@ impl Gfx {
                     .max_by_key(|c| (c.depth_size().min(24), c.num_samples().min(MAX_SAMPLES), std::cmp::Reverse(c.num_samples())))
                     .expect("no GL config")
             })?;
-        eprintln!("gl config: depth {} bits, {} samples", config.depth_size(), config.num_samples());
+        log!("gl config: depth {} bits, {} samples", config.depth_size(), config.num_samples());
         let top_window = top_window.ok_or("display builder made no window")?;
         let bottom_window = glutin_winit::finalize_window(el, bottom_attrs, &config)?;
 
@@ -147,14 +148,14 @@ fn window_attrs(el: &ActiveEventLoop) -> (WindowAttributes, WindowAttributes) {
     let base = |title: &str| Window::default_attributes().with_title(title).with_resizable(false);
     let monitors: Vec<_> = el.available_monitors().collect();
     for m in &monitors {
-        eprintln!("monitor {:?} {:?} at {:?}", m.name(), m.size(), m.position());
+        log!("monitor {:?} {:?} at {:?}", m.name(), m.size(), m.position());
     }
     if cfg!(target_os = "linux") && monitors.len() >= 2 {
         let swapped = std::fs::read_to_string("/sys/class/anbernic_misc/lcdswap").is_ok_and(|s| s.trim() == "1");
         let top_name = std::env::var("LAST_HARVEST_TOP").unwrap_or_else(|_| if swapped { "DSI-2" } else { "DSI-1" }.into());
         let top = monitors.iter().find(|m| m.name().as_deref() == Some(&top_name)).unwrap_or(&monitors[0]);
         let bottom = monitors.iter().find(|m| m.name() != top.name()).unwrap_or(&monitors[1]);
-        eprintln!("top={:?} bottom={:?}", top.name(), bottom.name());
+        log!("top={:?} bottom={:?}", top.name(), bottom.name());
         let full = |m: &winit::monitor::MonitorHandle| Some(Fullscreen::Borderless(Some(m.clone())));
         (base("last-harvest top").with_fullscreen(full(top)), base("last-harvest bottom").with_fullscreen(full(bottom)))
     } else {

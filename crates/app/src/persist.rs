@@ -3,8 +3,9 @@
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
+use last_harvest::log;
 use last_harvest_game::Save;
 
 /// Batches bursts of changes, such as holding a volume key, into one write.
@@ -18,7 +19,7 @@ fn dir() -> PathBuf {
 pub fn next_screenshot() -> Option<PathBuf> {
     let shots = dir().join("screenshots");
     if let Err(e) = fs::create_dir_all(&shots) {
-        eprintln!("screenshot: {}: {e}", shots.display());
+        log!("screenshot: {}: {e}", shots.display());
         return None;
     }
     (1..10_000).map(|n| shots.join(format!("shot-{n:04}.png"))).find(|p| !p.exists())
@@ -34,7 +35,7 @@ impl Saver {
     pub fn load() -> (Self, Save) {
         let path = std::env::var_os("LAST_HARVEST_SAVE").map_or_else(|| dir().join("save.txt"), PathBuf::from);
         let save = fs::read_to_string(&path).map(|t| Save::parse(&t)).unwrap_or_default();
-        eprintln!("save: {} {save:?}", path.display());
+        log!("save: {} {save:?}", path.display());
         (Self { path, written: save, changed_at: None }, save)
     }
 
@@ -48,7 +49,7 @@ impl Saver {
         if now || since.elapsed() >= SETTLE {
             match write_atomic(&self.path, save.to_text().as_bytes()) {
                 Ok(()) => self.written = save,
-                Err(e) => eprintln!("save: {}: {e}", self.path.display()),
+                Err(e) => log!("save: {}: {e}", self.path.display()),
             }
             self.changed_at = None;
         }
@@ -70,12 +71,11 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 
 /// Appends each panic, with a backtrace, to `crash.log` before the default hook prints it.
 pub fn install_crash_log() {
-    let log = dir().join("crash.log");
+    let path = dir().join("crash.log");
     let default = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
-        let when = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
-        let report = format!("--- crash at unix {when}\n{info}\n{}\n", std::backtrace::Backtrace::force_capture());
-        if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(&log) {
+        let report = format!("--- crash at unix {}\n{info}\n{}\n", log::unix_now(), std::backtrace::Backtrace::force_capture());
+        if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(&path) {
             f.write_all(report.as_bytes()).ok();
             f.sync_all().ok();
         }

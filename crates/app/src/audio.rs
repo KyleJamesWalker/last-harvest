@@ -7,6 +7,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{SampleFormat, SizedSample};
 use last_harvest_game::Sfx;
 
+use crate::log;
 use crate::loops::Loop;
 use crate::samples::{self, Bank, Clip, Files};
 
@@ -426,7 +427,7 @@ impl Audio {
     pub fn open(sounds: &Files) -> Result<Self, Box<dyn Error>> {
         let device = cpal::default_host().default_output_device().ok_or("no output device")?;
         let supported = device.default_output_config()?;
-        eprintln!("audio: {:?} {:?}", device.name(), supported);
+        log!("audio: {:?} {:?}", device.name(), supported);
         let config = supported.config();
         let channels = config.channels as usize;
         let (tx, rx) = channel();
@@ -439,14 +440,14 @@ impl Audio {
             let (file, bytes) = sounds.iter().find(|(file, _)| *file == format!("{name}.ogg"))?;
             let track = Loop::open(bytes.clone(), rate);
             if track.is_none() {
-                eprintln!("audio: {file} won't play");
+                log!("audio: {file} won't play");
                 last_harvest_game::data::note(format!("{file} won't play"));
             }
             track
         };
         let music = track("music");
         let beds: Vec<(Loop, f32)> = BEDS.iter().filter_map(|&(name, level)| Some((track(name)?, level))).collect();
-        eprintln!("audio: music {}, {} ambience beds", if music.is_some() { "recorded" } else { "synth" }, beds.len());
+        log!("audio: music {}, {} ambience beds", if music.is_some() { "recorded" } else { "synth" }, beds.len());
         let beds_on = Arc::new(AtomicU32::new(1f32.to_bits()));
         let mut synth = Synth {
             rx,
@@ -493,7 +494,7 @@ impl Audio {
 }
 
 fn on_error(e: cpal::StreamError) {
-    eprintln!("audio: {e}");
+    log!("audio: {e}");
 }
 
 #[cfg(test)]

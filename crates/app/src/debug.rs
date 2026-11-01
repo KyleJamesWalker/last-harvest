@@ -15,6 +15,7 @@ use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, channel};
 
+use last_harvest::log;
 use last_harvest_game::Buttons;
 
 pub const PIPE: &str = "/tmp/last-harvest.ctl";
@@ -36,10 +37,10 @@ pub fn listen() -> Option<Receiver<Command>> {
     std::env::var_os("LAST_HARVEST_DEBUG")?;
     let _ = std::fs::remove_file(PIPE);
     if !std::process::Command::new("mkfifo").arg(PIPE).status().is_ok_and(|s| s.success()) {
-        eprintln!("debug: mkfifo {PIPE} failed");
+        log!("debug: mkfifo {PIPE} failed");
         return None;
     }
-    eprintln!("debug: listening on {PIPE}");
+    log!("debug: listening on {PIPE}");
     let (tx, rx) = channel();
     std::thread::spawn(move || {
         // Opening a pipe for reading blocks until a writer connects; each writer's EOF reopens it.
@@ -47,12 +48,12 @@ pub fn listen() -> Option<Receiver<Command>> {
             for line in BufReader::new(f).lines().map_while(Result::ok) {
                 match parse(&line) {
                     Some(cmd) => {
-                        eprintln!("debug: {line}");
+                        log!("debug: {line}");
                         if tx.send(cmd).is_err() {
                             return;
                         }
                     }
-                    None => eprintln!("debug: bad command {line:?}"),
+                    None => log!("debug: bad command {line:?}"),
                 }
             }
         }
