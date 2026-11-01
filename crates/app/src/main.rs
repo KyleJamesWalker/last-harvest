@@ -101,6 +101,7 @@ impl App {
         #[cfg(not(target_os = "linux"))]
         let on_device = false;
         let two = on_device || std::env::var("LAST_HARVEST_WINDOWS").is_ok_and(|v| v == "2");
+        game.set_quit(true);
         Self {
             game,
             tracker: InputTracker::default(),
@@ -245,7 +246,7 @@ impl App {
         }
         let input = self.tracker.frame(raw);
         self.home_held = if input.held.contains(Buttons::HOME) { self.home_held + dt } else { 0.0 };
-        if self.home_held >= QUIT_HOLD {
+        if self.home_held >= QUIT_HOLD || self.game.quit_asked() {
             return el.exit();
         }
         #[cfg(target_os = "linux")]
