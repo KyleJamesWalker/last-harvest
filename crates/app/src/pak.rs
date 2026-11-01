@@ -145,10 +145,27 @@ pub fn load() -> Result<Files, String> {
 /// `load` with the pack already open, or none for the built-in data. A web page has no data folder beside it, so
 /// it fetches the pack itself and finds no mods or cards.
 pub fn install(base: Option<Pak>, missing_pack: Option<String>) -> Result<Files, String> {
+    install_noting(base, missing_pack, Vec::new())
+}
+
+/// Drops each of the base pack's tables that the game would refuse, noting why, so the built-in one stands in.
+fn drop_refused_tables(pak: &mut Pak, problems: &mut Vec<String>) {
+    // Checking effects.txt reads the installed effects, which would lock in the default data before install.
+    for file in last_harvest_game::TABLES.into_iter().filter(|&f| f != pack::EFFECTS) {
+        let Some(bytes) = pak.get(file) else { continue };
+        let checked = std::str::from_utf8(bytes).map_err(|_| format!("{file} is not UTF-8")).and_then(|text| last_harvest_game::check_table(file, text));
+        if let Err(e) = checked {
+            pak.take(file);
+            problems.push(format!("game_data.pak: {e}; using the game's own {file}"));
+        }
+    }
+}
+
+fn install_noting(base: Option<Pak>, missing_pack: Option<String>, mut problems: Vec<String>) -> Result<Files, String> {
     let pack_version = base.as_ref().and_then(Pak::version).map(String::from);
     let had_base = base.is_some();
     let mut pak = base.unwrap_or_else(Pak::empty);
-    let mut problems = Vec::new();
+    drop_refused_tables(&mut pak, &mut problems);
     let mods = read_mods(&mut problems);
     let mod_names: Vec<String> = mods.iter().map(|(n, _)| n.clone()).collect();
     if !mods.is_empty() {
