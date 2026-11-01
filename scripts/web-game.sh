@@ -6,7 +6,7 @@ cd "$(dirname "$0")/.."
 out=target/web-game
 . scripts/lib/wasm.sh
 cargo run -q -p last-harvest-pack
-CARGO_PROFILE_RELEASE_STRIP=symbols cargo rustc --release --target wasm32-unknown-unknown -p last-harvest --lib --crate-type cdylib --no-default-features
+CARGO_PROFILE_RELEASE_STRIP=symbols CARGO_PROFILE_RELEASE_DEBUG=false cargo rustc --release --target wasm32-unknown-unknown -p last-harvest --lib --crate-type cdylib --no-default-features
 rm -rf "$out"
 wasm-bindgen --target web --no-typescript --out-name last-harvest --out-dir "$out" target/wasm32-unknown-unknown/release/last_harvest.wasm
 cp crates/app/web/index.html crates/editor/web/icon.png target/game_data.pak "$out/"
