@@ -2138,11 +2138,15 @@ impl Editor {
             Choice::Discard => {
                 self.dirty = false;
                 self.stand_touched = false;
+                if held.is_some() && self.unsaved() {
+                    let open = self.sprite.name.clone();
+                    self.open(&open);
+                }
             }
             Choice::Stay => return,
         }
         match held {
-            Some(HeldImport { source, cards, sounds }) => self.import_pack(&source, cards, sounds),
+            Some(HeldImport { source, cards, sounds, maps, props }) => self.import_all(&source, cards, sounds, maps, props),
             None => {
                 self.open(&name);
                 self.reveal();
@@ -3486,6 +3490,28 @@ mod tests {
         assert!(e.unsaved() && e.pending.is_some() && e.held_import.is_some(), "the import is still there to go ahead with");
         e.key(Key::Char('d'));
         assert!(!e.unsaved() && e.status.as_ref().is_some_and(|(t, _)| t.starts_with("Imported twin.enemy.png")), "{:?}", e.status);
+    }
+
+    #[test]
+    fn a_pak_with_maps_waits_whole_on_unsaved_changes() {
+        let dir = tmp().join("pak-held");
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut e = Editor::new(Box::new(FsStore { dir: dir.join("sprites"), catalog: dir.join("art.txt"), cards: dir.join("enemies") }), "");
+        for id in ["other", "twin"] {
+            e.act(Action::Ask(Ask::New), false);
+            type_in(&mut e, &format!("card {id}"));
+            e.key(Key::Enter);
+        }
+        let other = ("other.enemy.png".to_string(), std::fs::read(dir.join("enemies/other.enemy.png")).unwrap());
+        let map = ("pakfarm.map.txt".to_string(), last_harvest_game::MapSource::new("Pak Farm", [72, 54]).to_text().into_bytes());
+        click_pixel(&mut e, 0, 0);
+        e.import_all("mod.pak", vec![other], Vec::new(), vec![map], Vec::new());
+        assert!(e.unsaved() && e.pending.is_some() && e.held_import.is_some(), "{:?}", e.status);
+        assert!(!dir.join("maps/pakfarm.map.txt").exists(), "nothing comes in yet");
+        e.key(Key::Char('d'));
+        assert!(dir.join("maps/pakfarm.map.txt").exists(), "{:?}", e.status);
+        let said = e.status.as_ref().map(|(t, _)| t.clone()).unwrap_or_default();
+        assert!(said.contains("MAP_PAKFARM") && said.contains("other.enemy.png"), "both halves say what came in: {said}");
     }
 
     #[test]

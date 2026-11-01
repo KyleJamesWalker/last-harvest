@@ -623,20 +623,13 @@ fn start() -> Result<(), String> {
         if name.ends_with(".pak") {
             match modding::cards_in(&bytes) {
                 Ok((cards, _, maps, props)) if cards.is_empty() && maps.is_empty() && props.is_empty() => w.studio.editor.say(format!("{name} holds no cards, maps, props or data")),
-                Ok((cards, sounds, maps, props)) => {
-                    if !maps.is_empty() || !props.is_empty() {
-                        w.studio.editor.import_maps(&name, maps, props);
-                    }
-                    if !cards.is_empty() {
-                        w.studio.editor.import_pack(&name, cards, sounds);
-                    }
-                }
+                Ok((cards, sounds, maps, props)) => w.studio.editor.import_all(&name, cards, sounds, maps, props),
                 Err(e) => w.studio.editor.say(format!("{name}: {e}")),
             }
         } else if name.ends_with(last_harvest_game::MAP_EXTENSION) {
-            w.studio.editor.import_maps(&name, vec![(name.clone(), bytes)], Vec::new());
+            w.studio.editor.import_all(&name, Vec::new(), Vec::new(), vec![(name.clone(), bytes)], Vec::new());
         } else if name.ends_with(last_harvest_pack::prop::EXTENSION) {
-            w.studio.editor.import_maps(&name, Vec::new(), vec![(name.clone(), bytes)]);
+            w.studio.editor.import_all(&name, Vec::new(), Vec::new(), Vec::new(), vec![(name.clone(), bytes)]);
         } else {
             w.studio.editor.import_card(&name, &bytes);
         }

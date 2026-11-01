@@ -16,6 +16,8 @@ pub struct HeldImport {
     pub source: String,
     pub cards: Files,
     pub sounds: Files,
+    pub maps: Files,
+    pub props: Files,
 }
 
 impl Editor {
@@ -27,16 +29,33 @@ impl Editor {
     /// Takes in `source`'s cards and their death sounds; one that would replace the open card's unsaved changes
     /// first asks whether to save them.
     pub fn import_pack(&mut self, source: &str, cards: Files, sounds: Files) {
+        self.import_all(source, cards, sounds, Vec::new(), Vec::new());
+    }
+
+    /// Takes in all `source` brings, as Import does from a mod pack: its props, maps and data files, then its cards
+    /// and their sounds. Unsaved changes that any of it would open over hold the whole lot behind the save dialog.
+    pub fn import_all(&mut self, source: &str, cards: Files, sounds: Files, maps: Files, props: Files) {
         let front = |(file, bytes): &(String, Vec<u8>)| crate::store::cards::identify(file, bytes).ok().and_then(|(kind, id)| sprite::card_names_of(kind, &id)).map(|n| n[0].clone());
         let open = (sprite::card_kind(&self.sprite.name), sprite::card_id(&self.sprite.name));
         let over_open = cards.iter().filter_map(front).any(|f| (sprite::card_kind(&f), sprite::card_id(&f)) == open);
-        if over_open && self.unsaved() {
+        let brings_maps = !maps.is_empty() || !props.is_empty();
+        if (over_open || brings_maps) && self.unsaved() {
             self.pending = Some(self.sprite.name.clone());
-            self.held_import = Some(HeldImport { source: source.to_string(), cards, sounds });
+            self.held_import = Some(HeldImport { source: source.to_string(), cards, sounds, maps, props });
             return;
         }
+        if brings_maps {
+            self.import_maps(source, maps, props);
+        }
+        if cards.is_empty() && brings_maps {
+            return;
+        }
+        let maps_said = self.status.take().filter(|_| brings_maps).map(|(t, _)| t);
         self.import_cards(source, &cards);
         self.import_sounds(&cards, sounds);
+        if let (Some(before), Some((after, _))) = (maps_said, &self.status) {
+            self.say(format!("{before}; {after}"));
+        }
     }
 
     /// Takes in each card from `source`, a PNG or a mod pack, opens the last, and says which saved cards it replaced.
