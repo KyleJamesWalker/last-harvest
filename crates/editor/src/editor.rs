@@ -2129,6 +2129,9 @@ impl Editor {
             Choice::Save => {
                 self.act(Action::Save, false);
                 if self.unsaved() {
+                    if held.is_some() {
+                        (self.pending, self.held_import) = (Some(name), held);
+                    }
                     return;
                 }
             }
@@ -3464,6 +3467,25 @@ mod tests {
         e.act(Action::Save, false);
         e.import_card("twin.enemy.png", &shared);
         assert_ne!(e.sprite.frames[0].get(0, 0), Some([1, 2, 3, 255]), "the imported card shows, not the one it replaced");
+    }
+
+    #[test]
+    fn a_held_import_waits_out_a_save_that_fails() {
+        let dir = tmp().join("held-import");
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut e = Editor::new(Box::new(FsStore { dir: dir.join("sprites"), catalog: dir.join("art.txt"), cards: dir.join("enemies") }), "");
+        e.act(Action::Ask(Ask::New), false);
+        type_in(&mut e, "card twin");
+        e.key(Key::Enter);
+        let path = dir.join("enemies/twin.enemy.png");
+        let shared = std::fs::read(&path).unwrap();
+        click_pixel(&mut e, 0, 0);
+        e.import_card("twin.enemy.png", &shared);
+        std::fs::write(&path, b"not a png").unwrap();
+        e.key(Key::Char('s'));
+        assert!(e.unsaved() && e.pending.is_some() && e.held_import.is_some(), "the import is still there to go ahead with");
+        e.key(Key::Char('d'));
+        assert!(!e.unsaved() && e.status.as_ref().is_some_and(|(t, _)| t.starts_with("Imported twin.enemy.png")), "{:?}", e.status);
     }
 
     #[test]
