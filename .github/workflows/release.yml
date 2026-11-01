@@ -56,6 +56,8 @@ jobs:
           cp assets/data-README.txt dist/last-harvest/data/README.txt
           cp assets/LastHarvest.sh dist/
           cp assets/LastHarvest.png dist/Imgs/
+          cp assets/fonts/OFL.txt dist/last-harvest/
+          python3 tools/third_party.py dist/last-harvest/THIRD_PARTY_LICENSES.txt
           tar -C dist -czf "last-harvest-$TAG-aarch64-linux.tar.gz" .
 
       - name: Upload to the release
@@ -104,16 +106,19 @@ jobs:
           scripts/pages.sh
           scripts/web-game.sh --zip
           mv target/last-harvest-web.zip "last-harvest-$TAG-web.zip"
+          python3 tools/third_party.py THIRD_PARTY_LICENSES.txt
+          cp assets/fonts/OFL.txt THIRD_PARTY_LICENSES.txt target/pages/
+          zip -q -X -j "last-harvest-$TAG-web.zip" assets/fonts/OFL.txt THIRD_PARTY_LICENSES.txt
 
       # Only the site's own files may go out: never a tileset build or a stray asset.
       - name: Check the site holds only the landing page, the manual, the game and the editor
         run: |
-          expected="apple-touch-icon.png editor editor/apple-touch-icon.png editor/icon-512.png editor/icon.png editor/index.html"
+          expected="OFL.txt THIRD_PARTY_LICENSES.txt apple-touch-icon.png editor editor/apple-touch-icon.png editor/icon-512.png editor/icon.png editor/index.html"
           expected="$expected editor/manifest.webmanifest editor/sprite-editor.js editor/sprite-editor_bg.wasm editor/sw.js game_data.pak"
           expected="$expected icon.png index.html manual.html play play/icon.png play/index.html play/last-harvest.js play/last-harvest_bg.wasm sw.js"
           found=$(find target/pages -mindepth 1 -printf '%P\n' | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')
           [ "$found" = "$expected" ] || { echo "unexpected files: $found"; exit 1; }
-          expected="game_data.pak icon.png index.html last-harvest.js last-harvest_bg.wasm"
+          expected="OFL.txt THIRD_PARTY_LICENSES.txt game_data.pak icon.png index.html last-harvest.js last-harvest_bg.wasm"
           found=$(unzip -Z1 "last-harvest-$TAG-web.zip" | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')
           [ "$found" = "$expected" ] || { echo "unexpected files in the zip: $found"; exit 1; }
           cargo tree -e features -i last-harvest-game -p sprite-editor --no-default-features --features modding --target wasm32-unknown-unknown \
