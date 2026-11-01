@@ -3763,6 +3763,36 @@ mod tests {
     }
 
     #[test]
+    fn the_data_page_undoes_and_redoes_each_edit() {
+        let dir = tmp().join("data-undo");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut e = editor_in(&dir, dir.join("art.txt"));
+        e.switch_to("DATA_TUNING_PLAYER".into());
+        let text = |e: &Editor| e.data.as_ref().unwrap().table.text.clone();
+        let (start, rows) = (text(&e), e.data.as_ref().map(|d| d.table.entries(&d.section).len()).unwrap());
+        e.act(Action::DataStep(0, 1), false);
+        let stepped = text(&e);
+        e.act(Action::DataRemove(1), false);
+        assert_eq!(e.data.as_ref().map(|d| d.table.entries(&d.section).len()), Some(rows - 1));
+        e.key(Key::Undo);
+        assert_eq!(text(&e), stepped, "a removed line comes back");
+        e.key(Key::Undo);
+        assert_eq!(text(&e), start);
+        e.key(Key::Redo);
+        assert_eq!(text(&e), stepped);
+        e.act(Action::DataEdit(1), false);
+        e.set_text("52");
+        e.key(Key::Enter);
+        let typed = text(&e);
+        e.key(Key::Redo);
+        assert!(typed != stepped && text(&e) == typed, "a new edit drops what was left to redo");
+        e.key(Key::Undo);
+        assert_eq!(text(&e), stepped);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
     fn opening_what_wont_load_keeps_the_data_page_and_its_edits() {
         let dir = tmp().join("data-keep");
         let _ = std::fs::remove_dir_all(&dir);
