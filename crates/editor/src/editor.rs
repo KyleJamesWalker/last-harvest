@@ -3393,7 +3393,7 @@ mod tests {
         let f = last_harvest_game::player_fields(&saved.text).unwrap();
         assert_eq!(f.about, "Up with the sun.");
         assert_eq!(f.base, [Some(last_harvest_game::tuning::tuning().player_hp + 5.0), None, None], "back at the game's own, a number leaves the card");
-        assert_eq!(f.start, [None, Some(vec!["knife".into(), "crows".into()]), None], "Normal adds crows to the game's knife; Hard went back to the default");
+        assert_eq!(f.start, [None, Some(vec!["pistol".into(), "knife".into(), "crows".into()]), None], "Normal adds crows to the game's pistol and knife; Hard went back to the default");
         let e = Editor::new(Box::new(store()), "");
         assert!(e.names.iter().any(|(n, _)| n == "PLAYER_CARD_JO_HURT"));
     }

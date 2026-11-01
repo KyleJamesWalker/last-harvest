@@ -517,8 +517,8 @@ pub struct Book {
     pub passive_slots: usize,
     /// What a run carries from the start at each difficulty, by place in the book.
     pub start: [Vec<usize>; 3],
-    /// Grenades every run starts with, before a grenade belt.
-    pub grenades: u32,
+    /// Grenades a run starts with at each difficulty, before a grenade belt.
+    pub grenades: [u32; 3],
     /// The most powerups one run can find.
     pub finds: usize,
     /// Money for the first level-up.
@@ -557,7 +557,7 @@ const DEFAULT_FIND: f32 = 0.25;
 
 /// Reads the powerup file; an error names the line.
 pub fn parse(text: &str) -> Result<Book, String> {
-    let mut book = Book { weapon_slots: 6, passive_slots: 6, start: Default::default(), grenades: 3, finds: 2, first_level: 5, defs: Vec::new(), missing: Vec::new() };
+    let mut book = Book { weapon_slots: 6, passive_slots: 6, start: Default::default(), grenades: [3; 3], finds: 2, first_level: 5, defs: Vec::new(), missing: Vec::new() };
     let mut start: [Option<(usize, Vec<String>)>; 3] = Default::default();
     let mut icons: Vec<Option<String>> = Vec::new();
     for (i, raw) in text.lines().enumerate() {
@@ -606,7 +606,11 @@ pub fn parse(text: &str) -> Result<Book, String> {
                     let d = Difficulty::from_key(d).ok_or_else(|| format!("{n}: start names easy, normal or hard first, not {d:?}"))?;
                     start[d as usize] = Some((n, ids.iter().map(|id| id.to_string()).collect()));
                 }
-                ("grenades", [v]) => book.grenades = number(v)?,
+                ("grenades", [v]) => book.grenades = [number(v)?; 3],
+                ("grenades", [d, v]) => {
+                    let d = Difficulty::from_key(d).ok_or_else(|| format!("{n}: grenades names easy, normal or hard, or just a number, not {d:?}"))?;
+                    book.grenades[d as usize] = number(v)?;
+                }
                 ("finds", [v]) => book.finds = number(v)? as usize,
                 ("first_level", [v]) => book.first_level = number(v)?.max(1),
                 _ => return Err(format!("{n}: expected slots, start, grenades, finds, first_level or a [powerup]")),
@@ -775,10 +779,10 @@ mod tests {
         let start = b.defs.iter().filter(|d| d.kind == Kind::Weapon && d.unlock == Unlock::Start).count();
         assert!((2..=4).contains(&start), "a few weapons from the start, the rest unlocked over time");
         let ids = |d: Difficulty| b.start[d as usize].iter().map(|&i| b.defs[i].id.as_str()).collect::<Vec<_>>();
-        assert_eq!(ids(Difficulty::Easy), ["pistol", "knife"]);
-        assert_eq!(ids(Difficulty::Normal), ["knife"]);
-        assert!(ids(Difficulty::Hard).is_empty(), "hard starts with only a grenade");
-        assert_eq!(b.grenades, 1);
+        for d in [Difficulty::Easy, Difficulty::Normal, Difficulty::Hard] {
+            assert_eq!(ids(d), ["pistol", "knife"], "{d:?}");
+        }
+        assert_eq!(b.grenades, [2, 1, 1]);
         assert!(b.defs.iter().filter(|d| d.kind == Kind::Weapon).all(|d| d.zone.is_some()));
     }
 

@@ -2,7 +2,7 @@
 #
 #   slots weapons N | slots passives N     how many of each a run can carry
 #   start DIFFICULTY ID ...   the weapons a run carries at easy, normal or hard; each must be `unlock start`
-#   grenades N          grenades every run starts with, before a grenade belt
+#   grenades [DIFFICULTY] N   grenades a run starts with, before a grenade belt; without a difficulty, for all three
 #   finds N             the most powerups one run can find
 #   first_level N       money for the first level-up; each after costs about 1.35 times the last, plus 2
 #
@@ -53,9 +53,10 @@
 slots weapons 6
 slots passives 6
 start        easy pistol knife
-start        normal knife
-start        hard
+start        normal pistol knife
+start        hard pistol knife
 grenades     1
+grenades     easy 2
 finds        2
 first_level  2
 

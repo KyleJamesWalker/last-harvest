@@ -794,7 +794,7 @@ impl Harvest {
             trial: Vec::new(),
             start_t: 0.0,
             woke: false,
-            grenades: book().grenades as f32,
+            grenades: book().grenades[Difficulty::Normal as usize] as f32,
             thrown: Vec::new(),
             pos: map.spawn,
             hp: kit.max_hp(),
@@ -942,7 +942,7 @@ impl Harvest {
     /// Comes after `at`, since the look may start the run with its own weapons for that difficulty.
     pub fn looking_like(self, id: &str) -> Self {
         let mine = players::look(id);
-        let own = mine.start_defs(self.difficulty).map(|defs| Kit::with_weapons(&defs));
+        let own = mine.start_defs(self.difficulty).map(|defs| Kit::with_weapons(&defs, self.difficulty));
         let grenades = own.as_ref().map_or(self.grenades, Kit::grenades);
         let mut kit = own.unwrap_or(self.kit);
         for (b, theirs) in kit.base.iter_mut().zip(mine.base) {
@@ -2308,8 +2308,9 @@ mod tests {
         let choice = |id| Choice { up: book().index(id).unwrap(), rare: false, found: false };
         h.phase = Phase::LevelUp { choices: [choice("shotgun"), choice("pistol"), choice("running_shoes")], selected: 0, t: 1.0, picked: None };
         let tap = Input { touch: Some([500.0, CHOICE_TOP + CHOICE_ROW * 1.5]), touch_started: true, ..Default::default() };
+        let before = h.kit.level(book().index("pistol").unwrap());
         h.update(&tap, 0.016, &mut Vec::new());
-        assert_eq!(h.kit.level(book().index("pistol").unwrap()), 1);
+        assert_eq!(h.kit.level(book().index("pistol").unwrap()), before + 1);
         h.update(&Input::default(), PICK_TIME, &mut Vec::new());
         assert!(matches!(h.phase, Phase::Playing));
     }
@@ -2492,17 +2493,17 @@ mod tests {
         assert!(matches!(h.phase, Phase::Playing));
         assert_eq!(h.kills, 0);
         assert_eq!(h.difficulty, Difficulty::Hard);
-        assert!(h.kit.weapons.is_empty(), "and its kit");
+        assert_eq!(h.kit.weapons.len(), 2, "and its kit");
         assert_eq!(h.enemies_off, 0b10, "the kinds turned off stay off");
         assert_eq!(h.look, "", "and the player keeps their look");
     }
 
     #[test]
-    fn each_difficulty_starts_with_its_own_weapons_and_one_grenade() {
-        for (d, count) in [(Difficulty::Easy, 2), (Difficulty::Normal, 1), (Difficulty::Hard, 0)] {
+    fn every_difficulty_starts_with_a_pistol_and_knife_and_easy_with_two_grenades() {
+        for (d, grenades) in [(Difficulty::Easy, 2.0), (Difficulty::Normal, 1.0), (Difficulty::Hard, 1.0)] {
             let h = Harvest::new(1).at(d).with_kit("lantern");
-            assert_eq!(h.kit.weapons.len(), count + 1, "{d:?}");
-            assert_eq!(h.grenades, 1.0, "{d:?}");
+            assert_eq!(h.kit.weapons.len(), 3, "{d:?}");
+            assert_eq!((h.grenades, h.kit.grenades()), (grenades, grenades), "{d:?}");
         }
     }
 

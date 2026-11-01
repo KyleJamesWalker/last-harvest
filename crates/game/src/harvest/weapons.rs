@@ -144,19 +144,21 @@ pub(super) struct Kit {
     pub mods: Mods,
     /// The health, speed and magnet the player has before upgrades: their card's, else tuning.txt's.
     pub base: [f32; 3],
+    /// Grenades before upgrades, as the difficulty gives.
+    pub base_grenades: u32,
 }
 
 impl Kit {
-    /// The weapons the file starts a run with at `difficulty`.
+    /// The weapons and grenades the file starts a run with at `difficulty`.
     pub fn start(difficulty: Difficulty) -> Self {
-        Self::with_weapons(&book().start[difficulty as usize])
+        Self::with_weapons(&book().start[difficulty as usize], difficulty)
     }
 
-    /// A kit carrying these weapons at level 1, and nothing else.
-    pub fn with_weapons(defs: &[usize]) -> Self {
+    /// A kit carrying these weapons at level 1 and the difficulty's grenades, and nothing else.
+    pub fn with_weapons(defs: &[usize], difficulty: Difficulty) -> Self {
         let weapons = defs.iter().map(|&def| Armed { def, level: 1, cd: 0.5, phase: 0.0 }).collect();
         let t = crate::tuning::tuning();
-        Self { weapons, passives: Vec::new(), mods: Mods::of(&[]), base: [t.player_hp, t.player_speed, t.player_magnet] }
+        Self { weapons, passives: Vec::new(), mods: Mods::of(&[]), base: [t.player_hp, t.player_speed, t.player_magnet], base_grenades: book().grenades[difficulty as usize] }
     }
 
     pub fn level(&self, def: usize) -> u32 {
@@ -212,7 +214,7 @@ impl Kit {
     }
 
     pub fn grenades(&self) -> f32 {
-        book().grenades as f32 + self.mods.grenades.round()
+        self.base_grenades as f32 + self.mods.grenades.round()
     }
 }
 

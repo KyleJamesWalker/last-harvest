@@ -69,7 +69,7 @@ A night lasts ten minutes, from dusk to dawn. A bell rings each minute.
 - **Shots and cover.** Shots fly past bushes, fences and signs. Buildings, vehicles and trees stop them.
 - **Money and level-ups.** Kills drop money, and money levels you up. Each level-up shows three cards on either screen, and you pick one. A level-up also pushes nearby zombies back. Some cards are rare and count twice. See [Powerups](#powerups).
 - **Health.** Some kills drop health instead of money. How often depends on the difficulty.
-- **Grenades.** Tap the map to lob a grenade there. You start with one, and each recharges in 12 seconds.
+- **Grenades.** Tap the map to lob a grenade there. You start with one, two on Easy, and each recharges in 12 seconds.
 - **Barrels.** Shooting a red barrel sets it off. Hold X, and your guns go for the barrels in view. A blast close to you hurts you too.
 - **Hordes.** Hordes arrive during the night, each led by a gold-lit leader. The leader drops a chest when it dies.
 - **Dawn and the Harvester.** At dawn, the Harvester wakes behind you. From then on the dead grow 1% stronger every second.
@@ -84,9 +84,9 @@ Pick a difficulty under Play with Left and Right, or tap its arrows. A new save 
 
 | Difficulty | Bites | Health drops | You start with |
 |---|---|---|---|
-| Easy | Gentle | Often | A pistol, a knife and a grenade |
-| Normal | They hurt | Scarce | A knife and a grenade |
-| Hard | Every bite counts | Rarer still | Only a grenade |
+| Easy | Gentle | Often | A pistol, a knife and two grenades |
+| Normal | They hurt | Scarce | A pistol, a knife and a grenade |
+| Hard | Every bite counts | Rarer still | A pistol, a knife and a grenade |
 
 A player card can change what each difficulty starts you with. See [Player cards](#player-cards).
 
