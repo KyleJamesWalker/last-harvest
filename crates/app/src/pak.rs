@@ -162,14 +162,9 @@ pub fn install(base: Option<Pak>, missing_pack: Option<String>) -> Result<Files,
 
 /// Drops each of the base pack's tables that the game would refuse, noting why, so the built-in one stands in.
 fn drop_refused_tables(pak: &mut Pak, problems: &mut Vec<String>) {
-    // Checking effects.txt reads the installed effects, which would lock in the default data before install.
-    for file in last_harvest_game::TABLES.into_iter().filter(|&f| f != pack::EFFECTS) {
-        let Some(bytes) = pak.get(file) else { continue };
-        let checked = std::str::from_utf8(bytes).map_err(|_| format!("{file} is not UTF-8")).and_then(|text| last_harvest_game::check_table(file, text));
-        if let Err(e) = checked {
-            pak.take(file);
-            problems.push(format!("game_data.pak: {e}; using the game's own {file}"));
-        }
+    for (file, e) in pak.table_problems() {
+        pak.take(file);
+        problems.push(format!("game_data.pak: {e}; using the game's own {file}"));
     }
 }
 
