@@ -174,10 +174,13 @@ impl Pose {
 /// Faces turned away from `eye` are left out: every extrusion is closed, so they would be hidden anyway,
 /// and alpha-tested fragments cost full price on the device's GPU.
 fn stand(out: &mut Vec<Card>, eye: Vec3, art: Art, flip: bool, pose: Pose, solid: bool) {
-    let Pose { origin, right, up, back, depth, tint, reach, top } = pose;
-    let (w, h) = (art.w(), art.h());
-    let all = faces(art, reach, top);
-    let used = if solid { &all[..] } else { &all[..2] };
+    let all = faces(art, pose.reach, pose.top);
+    place(out, eye, if solid { &all[..] } else { &all[..2] }, [art.w(), art.h()], flip, pose);
+}
+
+/// Places extruded faces of a picture `w` by `h` pixels as `stand` does.
+fn place(out: &mut Vec<Card>, eye: Vec3, used: &[Face], [w, h]: [f32; 2], flip: bool, pose: Pose) {
+    let Pose { origin, right, up, back, depth, tint, .. } = pose;
     let (rn, un) = (right.normalize_or_zero(), up.normalize_or_zero());
     for f in used {
         let place = |[x, y, z]: [f32; 3]| {
@@ -210,6 +213,7 @@ fn fixed(out: &mut Vec<Card>, eye: Vec3, a: Art, how: Stand, left: f32, base: f3
         Stand::Ground => flat(out, a, left * PX, (base - a.h()) * PX, DECAL_LIFT + 0.006, tint),
         Stand::Turned { east, depth } => turned(out, eye, a, east, depth, left, base - a.h(), tint, 0.0),
         Stand::Carve { .. } => carved(out, eye, Carving::of(a, how).unwrap(), Vec3::new(left * PX, 0.0, (base - a.h()) * PX)),
+        Stand::Fold { rows } => folded(out, eye, a, rows, left, base, tint),
         Stand::Figure => {}
     }
 }
@@ -222,9 +226,43 @@ fn placed(prop: &super::map::Prop, t: f32) -> (Art, Stand, Vec3, [f32; 2]) {
     let bottom = prop.y + a.h();
     let (middle, deep) = match how {
         Stand::Prop { depth } => (Vec3::new((prop.x + a.w() * 0.5) * PX, 0.0, (prop.base - depth * 0.5) * PX), depth),
+        Stand::Fold { rows } => {
+            let roof = fold_row(a, rows) as f32;
+            (Vec3::new((prop.x + a.w() * 0.5) * PX, 0.0, (prop.base - roof * 0.5) * PX), roof)
+        }
         _ => (Vec3::new((prop.x + a.w() * 0.5) * PX, 0.0, (bottom - a.h() * 0.5) * PX), a.h()),
     };
     (a, how, middle, [a.w() * PX, deep * PX])
+}
+
+/// The faces of part of a sprite, the rows `rows` of it, extruded as `stand` extrudes a whole one; worked out once for
+/// packed sprites and every time for live ones.
+fn part_faces(a: Art, rows: [u16; 2]) -> Cow<'static, [Face]> {
+    type Cache = Mutex<HashMap<(Art, [u16; 2]), &'static [Face]>>;
+    static CACHE: OnceLock<Cache> = OnceLock::new();
+    let [rx, ry, w, _] = a.rect();
+    let rect = [rx, ry + rows[0], w, rows[1] - rows[0]];
+    if a.is_live() {
+        return Cow::Owned(art::with_pixels(a, |px| extrude(px, rect, Reach::Deep, None)));
+    }
+    let mut cache = CACHE.get_or_init(Default::default).lock().unwrap();
+    Cow::Borrowed(*cache.entry((a, rows)).or_insert_with(|| extrude(art::pixels(), rect, Reach::Deep, None).leak()))
+}
+
+/// The top row of a sprite folded at `rows`: the rows above it its roof, the rest its front.
+fn fold_row(a: Art, rows: f32) -> u16 {
+    (rows as u16).clamp(1, (a.h() as u16).saturating_sub(1).max(1))
+}
+
+/// Stands a sprite folded at row `rows`: below it upright as the front, extruded back as deep as the rows above it, and
+/// those laid flat over it as the roof, with its left edge at `left` and its bottom row meeting the ground at `base`.
+fn folded(out: &mut Vec<Card>, eye: Vec3, a: Art, rows: f32, left: f32, base: f32, tint: [f32; 3]) {
+    let (fold, h) = (fold_row(a, rows), a.h() as u16);
+    let (roof, wall) = (fold as f32, (h - fold) as f32);
+    let (w, front) = (a.w(), Vec3::new(left * PX, 0.0, base * PX));
+    place(out, eye, &part_faces(a, [fold, h]), [w, wall], false, Pose { tint, ..Pose::upright(front, Vec3::X, -Vec3::Z, roof * PX) });
+    let pose = Pose { origin: front + Vec3::Y * ((wall + 1.0) * PX), right: Vec3::X, up: -Vec3::Z, back: -Vec3::Y, depth: PX, tint, reach: Reach::Deep, top: None };
+    place(out, eye, &part_faces(a, [0, fold]), [w, roof], false, pose);
 }
 
 /// Lays a sprite's 3D copy flat around `center` on the ground, its top row to the north turned `angle` as the 2D
@@ -281,6 +319,10 @@ pub(super) fn quads(a: Art, how: Stand, top: Option<Art>) -> usize {
         Stand::Turned { east, .. } => faces(east.solid(), Reach::Deep, None).len(),
         Stand::Carve { .. } => carving(Carving::of(a, how).unwrap()).len(),
         Stand::Figure => faces(a, Reach::Thin, top).len(),
+        Stand::Fold { rows } => {
+            let fold = fold_row(a, rows);
+            part_faces(a, [0, fold]).len() + part_faces(a, [fold, a.h() as u16]).len()
+        }
     }
 }
 
@@ -508,7 +550,7 @@ pub fn scene(h: &Harvest) -> CardScene {
                     let origin = Vec3::new(prop.x * PX, (prop.base - bottom) * PX, prop.base * PX);
                     stand(&mut cards, eye, a.solid(), false, Pose { tint, ..Pose::upright(origin, Vec3::X, -Vec3::Z, depth * PX) }, true);
                 }
-                _ => fixed(&mut cards, eye, a, how, prop.x, if matches!(how, Stand::Prop { .. }) { prop.base } else { bottom }, tint),
+                _ => fixed(&mut cards, eye, a, how, prop.x, if matches!(how, Stand::Prop { .. } | Stand::Fold { .. }) { prop.base } else { bottom }, tint),
             }
         }
     }
@@ -836,6 +878,21 @@ mod tests {
             }
         }
         assert_eq!(quads(a, Stand::Ground, None), 1);
+    }
+
+    #[test]
+    fn a_folded_sprite_stands_its_front_up_and_lays_its_roof_over_it() {
+        let a = art::GAS_STATION;
+        let (rows, h) = (20.0, a.h());
+        let mut out = Vec::new();
+        folded(&mut out, Vec3::new(3.0, 6.0, 9.0), a, rows, 0.0, 100.0, [1.0; 3]);
+        let ys: Vec<f32> = out.iter().flat_map(|c| c.corners).map(|c| c.y / PX).collect();
+        let zs: Vec<f32> = out.iter().flat_map(|c| c.corners).map(|c| c.z / PX).collect();
+        let span = |v: &[f32]| (v.iter().copied().fold(f32::MAX, f32::min), v.iter().copied().fold(f32::MIN, f32::max));
+        assert_eq!(span(&ys), (0.0, h - rows + 1.0), "the front as tall as the rows below the fold, the roof a pixel over it");
+        assert_eq!(span(&zs), (100.0 - rows, 100.0), "as deep as the roof's rows");
+        assert!(out.iter().any(|c| c.normal == Vec3::Y && c.corners.iter().all(|p| (p.y / PX - (h - rows + 1.0)).abs() < 1e-3)), "the roof faces up");
+        assert_eq!(quads(a, Stand::Fold { rows }, None), part_faces(a, [0, 20]).len() + part_faces(a, [20, h as u16]).len());
     }
 
     #[test]

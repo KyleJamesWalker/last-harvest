@@ -219,6 +219,8 @@ pub struct Map {
 fn thickness(art: Art, tw: usize, th: usize, open_rows: usize) -> f32 {
     if let Some(art::Stand::Prop { depth }) = art.stand() {
         depth
+    } else if let Some(art::Stand::Fold { rows }) = art.stand() {
+        rows.clamp(1.0, (art.h() - 1.0).max(1.0)).floor()
     } else if tw * th >= 4 {
         ((th - open_rows.min(th - 1)) as f32 * TILE).max(8.0)
     } else {

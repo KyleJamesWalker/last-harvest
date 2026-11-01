@@ -264,7 +264,7 @@ The prop's text holds its `[id]` and any of these lines that differ from the def
 | `frames N` | Frames across the sheet, 1 to 16. One when left out. |
 | `fps N` | How fast the frames animate. Still when left out. |
 | `open N` | Top rows a figure walks through. |
-| `stand prop N`, `slab N`, `slab N float N`, `figure`, `ground`, `carve` or `turned [N]` | How it stands in 3D. See [Stands](#stands). |
+| `stand prop N`, `fold N`, `slab N`, `slab N float N`, `figure`, `ground`, `carve` or `turned [N]` | How it stands in 3D. See [Stands](#stands). |
 | `views N` | How tall its south and east views are, for a prop that carves or turns. |
 | `footprint yes` | A carving's outline from above comes from a footprint drawing. |
 | `roof yes` | A carving's top takes its colors from a top drawing. |
@@ -588,7 +588,7 @@ The left pane lists every sprite. The pixel canvas, tools, color and frames sit 
 
 A stand sets how a sprite stands in the 3D view. Pick one under "Stands in 3D as":
 
-- **Prop**: upright, fixed to the map like a wall, extruded to a depth you set.
+- **Prop**: upright, fixed to the map like a wall, extruded to a depth you set. Set a fold for a building drawn with its roof seen from above: the rows above the fold line lie flat as the roof, and the rows below it stand as the front. The building is as deep as the roof's rows. Fold - and + move the line, shown in orange on the canvas, and 0 is no fold.
 - **Slab**: lying flat as a roof at a height, its edges drawn down to the ground. It suits sprites drawn from above, like cars. Float lifts it off the ground as a plate of that height.
 - **Figure**: turning to face the camera like a character. A figure can add a Top drawing that colors each column's top in 3D.
 - **Ground**: flat on the ground, like a tile or a stain.

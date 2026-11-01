@@ -56,6 +56,20 @@ pub fn carve(pixels: &[u8], stride: usize, v: &Views) -> Vec<Quad> {
             }
         }
     }
+    // Undersides, as of a roof overhanging its walls, take the colors the tops do.
+    for up in 1..h {
+        let open_below = |x: usize, z: usize| !solid(x, z, up - 1);
+        for (from_sprite, [ux, uy]) in [(true, [tx, ty]), (false, [fx, fy])] {
+            for [x0, z0, x1, z1] in rects(w, d, |x, z| solid(x, z, up) && open_below(x, z) && painted(x, z) == from_sprite) {
+                let y = up as f32;
+                out.push(Quad {
+                    corners: [[x0, y, z1], [x1, y, z1], [x1, y, z0], [x0, y, z0]],
+                    uv: [ux + x0, uy + z1, ux + x1, uy + z0],
+                    normal: [0.0, -1.0, 0.0],
+                });
+            }
+        }
+    }
     for z in 0..d {
         for (dz, face) in [(1i32, 1.0f32), (-1, -1.0)] {
             let open = |x: usize, up: usize| {
@@ -232,5 +246,15 @@ mod tests {
         let mut no_north = v;
         no_north.north = None;
         assert_eq!(carve(&px, stride, &no_north).len() + 1, q.len(), "the north faces split where their colors come from");
+    }
+
+    #[test]
+    fn an_overhang_closes_its_underside() {
+        // A south view whose bottom row is clear only at x 0: that column overhangs from one up.
+        let (px, stride, v) = texture(3, 3, 3, |k, x, y| k == 1 && x == 0 && y == 2);
+        let q = carve(&px, stride, &v);
+        let under: Vec<&Quad> = q.iter().filter(|q| q.normal == [0.0, -1.0, 0.0]).collect();
+        assert_eq!(under.len(), 1, "one face under the overhang, none on the ground");
+        assert!(under[0].corners.iter().all(|c| c[1] == 1.0 && c[0] <= 1.0), "{:?}", under[0].corners);
     }
 }
