@@ -186,9 +186,12 @@ Ports/last-harvest/
   data/game_data.pak             the base game's data
   data/enemies/*.enemy.png       enemy cards
   data/players/*.player.png      player cards
+  data/props/*.prop.png          props for maps
+  data/maps/*.map.txt            hand-made farms
   data/mods/*.pak                mod packs, laid over the base game's data
   data/no-updates                if present, the launcher doesn't update the game
-  save.txt  log.txt  screenshots/
+  save.txt  log.txt  crash.log  screenshots/
+  .update/                       the launcher's downloads in progress
 ```
 
 Build the data pack, `target/game_data.pak`: a ZIP holding the sprite atlas, sounds, font and powerup table, with a `manifest.toml` that names the atlas it was built from and the release, `LAST_HARVEST_VERSION` when the packer was built, else `dev`. Builds keep the data built in through the default `embed` feature and read a pack if one is present. A build without it, `--no-default-features`, reads its data only from `data/game_data.pak` beside the binary and refuses one built for a different atlas; without one it starts with no sprites, and the title says which release's pack to copy where.
@@ -242,6 +245,7 @@ scripts/debug.sh tap 500 400                # touch the bottom screen
 scripts/debug.sh swipe 300 650 650 250 120  # drag over 120 ms
 scripts/debug.sh shot out.png               # save both screens, top above bottom
 scripts/debug.sh sleep 5                    # suspend, then wake on the RTC alarm
+scripts/debug.sh state                      # log the player's position and the solid cells and props around them
 scripts/debug.sh panic                      # crash on purpose to test crash.log
 scripts/debug.sh logs                       # follow the game log, with a perf line each second: FPS, frame times, and CPU ms in update, frame building and rendering
 ```
@@ -279,6 +283,7 @@ The stream reaches the Mac about 240 ms after the device draws it, or about 155 
 | `LAST_HARVEST_MODS` | Sets the folder of mod packs. The default is `data/mods` beside the binary. |
 | `LAST_HARVEST_MAPS` | Sets the folder of maps. The default is `data/maps` beside the binary. |
 | `LAST_HARVEST_PROPS` | Sets the folder of players' props. The default is `data/props` beside the binary. |
+| `LAST_HARVEST_CATALOG` | Sets the sprite catalog the native sprite editor writes stands to. The default is `crates/game/art.txt`. |
 | `LAST_HARVEST_PAK` | Sets the data pack path. The default is `data/game_data.pak` beside the binary. |
 | `LAST_HARVEST_SOUNDS` | Sets the folder of recorded sounds, over the pack's. Without a pack, the default is `sounds` beside the binary, then `assets/private/sounds`. |
 | `LAST_HARVEST_TOP` | Names the output for the top screen, such as `DSI-2`. |
@@ -352,7 +357,7 @@ Without the secret or the variable, releases skip itch.io.
 scripts/mod-editor.sh --serve   # build into target/mod-editor and serve it on http://127.0.0.1:8094
 ```
 
-The public editor for enemy and player cards: the sprite editor built without the tileset (`--no-default-features --features modding`), so the page can be published. It keeps cards in the browser's local storage and lists only cards; New starts one from the plain figure, Import opens `.enemy.png` and `.player.png` files and the cards in a `.pak`, saying which saved cards it replaced, Export downloads the open card's saved PNG, and Export all downloads every card as one mod pack, `my-cards.pak`, for the game's `data/mods`. Sound gives the open enemy card its own death sound, an Ogg or WAV of up to 512 KB kept beside it in the browser, and Drop own on its Stats page removes it again; Export all packs it as `sounds/kill-<id>.ogg`, and Import of a pack brings its cards' sounds back. The palette is PICO-8's 32 colors, and the previews show the card on a plain floor, the ground tiles in flat colors. On Pages, the editor fetches the site's own `../game_data.pak` and previews on the farm; served on its own, without one, it falls back to the plain floor. A player can also press Game data and pick their own `game_data.pak`, which takes precedence: the page keeps it in IndexedDB, never sends it anywhere, and from then on previews the card on the farm with the tileset's palette. A pack built for a different version of the game is refused with a note. Once opened, the page keeps an offline copy, so it also works with no connection, from an iPad's home screen for one; it still loads a new release first whenever it can. On a phone held upright, the editing pane spans the screen with the previews under it.
+The public editor for enemy and player cards: the sprite editor built without the tileset (`--no-default-features --features modding`), so the page can be published. It keeps cards in the browser's local storage and lists only cards; New starts one from the plain figure, Import opens `.enemy.png` and `.player.png` files and the cards in a `.pak`, saying which saved cards it replaced, Export downloads the open card's saved PNG, and Export all downloads every card as one mod pack, `my-cards.pak`, for the game's `data/mods`. Sound gives the open enemy card its own death sound, an Ogg or WAV of up to 512 KB kept beside it in the browser, and Drop own on its Stats page removes it again; Export all packs it as `sounds/kill-<id>.ogg`, and Import of a pack brings its cards' sounds back. The palette is PICO-8's 32 colors, and the previews show the card on a plain floor, the ground tiles in flat colors. On Pages, the editor fetches the site's own `../game_data.pak` and previews on the farm; served on its own, without one, it falls back to the plain floor. A player can also press Game data and pick their own `game_data.pak`, which takes precedence: the page keeps it in IndexedDB, never sends it anywhere, and from then on previews the card on the farm with the tileset's palette. A pack built for a different version of the game is refused with a note. Once opened, the page keeps an offline copy, so it also works with no connection, from an iPad's home screen for one; it still loads a new release first whenever it can. On iOS, a copy added to the home screen keeps its own storage, apart from Safari's: cards made in one don't show in the other. The site shares its origin, `<owner>.github.io`, with the account's other Pages projects, so any of their pages could read or clear the cards and the game's save; publish nothing untrusted there. On a phone held upright, the editing pane spans the screen with the previews under it.
 
 ### Sprite editor on an iPad
 
@@ -364,7 +369,7 @@ cargo install wasm-bindgen-cli --version 0.2.129   # the version in Cargo.lock
 scripts/web-editor.sh                              # build, then serve on port 8080
 ```
 
-The server prints the address to open on the iPad, such as `http://192.168.1.20:8080/`; add `?open=CAR_H` to start on a sprite. `SPRITE_SERVER_PORT` sets the port, and `scripts/web-editor.sh --build-only` only builds. Safari's Add to Home Screen gives the editor the whole screen.
+The server prints the address to open on the iPad, such as `http://192.168.1.20:8080/`; add `?open=CAR_H` to start on a sprite. `SPRITE_SERVER_PORT` sets the port, and `scripts/web-editor.sh --build-only` only builds. The server answers only loopback, private-LAN and link-local addresses, so Tailscale clients (100.64.0.0/10) are refused. Safari's Add to Home Screen gives the editor the whole screen.
 
 | Action | Touch |
 |---|---|
