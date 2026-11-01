@@ -1122,13 +1122,13 @@ impl Harvest {
         };
         self.t += dt;
         self.hurt = (self.hurt - dt).max(0.0);
-        // Up and down walk along the heading, left and right strafe, Y and A (or L2 and R2) turn, B turns around.
+        // Up and down walk along the heading, left and right strafe, Y and A turn, B turns around.
         let dir = input.dir();
-        let turning = Buttons::A | Buttons::Y | Buttons::L2 | Buttons::R2;
+        let turning = Buttons::A | Buttons::Y;
         self.turn_ready |= !input.held.any(turning);
         let held = if self.turn_ready { input.held } else { Buttons::NONE };
         self.targeting = input.held.contains(Buttons::X);
-        let turn = held.any(Buttons::A | Buttons::R2) as i32 as f32 - held.any(Buttons::Y | Buttons::L2) as i32 as f32;
+        let turn = held.contains(Buttons::A) as i32 as f32 - held.contains(Buttons::Y) as i32 as f32;
         if input.pressed.contains(Buttons::B) {
             self.turn_around();
         }
@@ -2216,17 +2216,17 @@ mod tests {
     }
 
     #[test]
-    fn y_and_a_or_the_shoulder_triggers_turn_without_moving() {
-        for (left, right) in [(Buttons::Y, Buttons::A), (Buttons::L2, Buttons::R2)] {
-            let mut h = Harvest::calm(9);
-            run(&mut h, &Input::default(), 0.05);
-            let (start, yaw) = (h.pos, h.view_yaw);
-            run(&mut h, &Input { held: right, ..Default::default() }, 0.25);
-            assert_eq!(h.pos, start);
-            assert!((h.view_yaw - yaw).rem_euclid(TAU) > 0.5);
-            run(&mut h, &Input { held: left, ..Default::default() }, 0.25);
-            assert!((h.view_yaw - yaw).rem_euclid(TAU) < 0.01 || (h.view_yaw - yaw).rem_euclid(TAU) > TAU - 0.01);
-        }
+    fn y_and_a_turn_without_moving_and_the_shoulder_triggers_do_not() {
+        let mut h = Harvest::calm(9);
+        run(&mut h, &Input::default(), 0.05);
+        let (start, yaw) = (h.pos, h.view_yaw);
+        run(&mut h, &Input { held: Buttons::L2 | Buttons::R2, ..Default::default() }, 0.25);
+        assert_eq!(h.view_yaw, yaw);
+        run(&mut h, &Input { held: Buttons::A, ..Default::default() }, 0.25);
+        assert_eq!(h.pos, start);
+        assert!((h.view_yaw - yaw).rem_euclid(TAU) > 0.5);
+        run(&mut h, &Input { held: Buttons::Y, ..Default::default() }, 0.25);
+        assert!((h.view_yaw - yaw).rem_euclid(TAU) < 0.01 || (h.view_yaw - yaw).rem_euclid(TAU) > TAU - 0.01);
     }
 
     #[test]

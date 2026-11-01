@@ -24,7 +24,7 @@ Your weapons fire on their own. You move, turn, throw grenades and pick upgrades
 |---|---|---|
 | Walk forward and back | Up and Down, or the stick | Up and Down arrows |
 | Strafe | Left and Right, or the stick | Left and Right arrows |
-| Turn | Y and A, or L2 and R2 | A and X, or Q and 2 |
+| Turn | Y and A | A and X |
 | Turn around | B | Z |
 | Aim at barrels | Hold X | Hold S |
 | Throw a grenade | Tap the map | Click the bottom screen |

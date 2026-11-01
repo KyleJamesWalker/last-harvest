@@ -20,7 +20,7 @@ Every sound is synthesized at runtime from a few oscillator voices per cue, with
 |---|---|---|
 | Walk forward and back | Up and Down, or the stick | Up and Down arrows |
 | Strafe | Left and Right, or the stick | Left and Right arrows |
-| Turn | Y and A, or L2 and R2 | A and X, or Q and 2 |
+| Turn | Y and A | A and X |
 | Turn around | B | Z |
 | Throw a grenade | Tap the map | Click the bottom window |
 | Pick an upgrade | Tap it, or Up, Down and X | Click it, or arrows and S |
