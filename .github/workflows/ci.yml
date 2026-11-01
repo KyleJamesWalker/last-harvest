@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Manual tables match the data files
+        run: python3 tools/manual_items.py --check
+      - name: Web pages' CSP hashes match their inline scripts
+        run: python3 tools/csp.py --check
+      # Only errors: the remaining infos and warnings are intentional (ssh commands expanded on the client).
+      - name: Shell scripts
+        run: shellcheck --severity=error scripts/*.sh assets/LastHarvest.sh
+
+  rust:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      # Every crate's build script reads the tileset in assets/private, so nothing builds without the deploy key (fork PRs).
+      - id: key
+        env:
+          ASSETS_DEPLOY_KEY: ${{ secrets.ASSETS_DEPLOY_KEY }}
+        run: |
+          if [ -n "$ASSETS_DEPLOY_KEY" ]; then echo "present=true" >> "$GITHUB_OUTPUT"; else echo "ASSETS_DEPLOY_KEY is not available: skipping the Rust checks"; fi
+      - if: steps.key.outputs.present
+        uses: ./.github/actions/private-assets
+        with:
+          deploy-key: ${{ secrets.ASSETS_DEPLOY_KEY }}
+
+      - if: steps.key.outputs.present
+        uses: dtolnay/rust-toolchain@dc08e2af391d489dff6d14cf743e574f7d1229c5 # 1.94.0
+        with:
+          toolchain: 1.94.0
+          components: clippy
+          targets: wasm32-unknown-unknown
+      - if: steps.key.outputs.present
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - if: steps.key.outputs.present
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+
+      - if: steps.key.outputs.present
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - if: steps.key.outputs.present
+        run: cargo test --workspace --locked
+      - name: The wasm builds compile, without the tileset
+        if: steps.key.outputs.present
+        run: |
+          cargo check --locked --target wasm32-unknown-unknown -p last-harvest --no-default-features
+          cargo check --locked --target wasm32-unknown-unknown -p sprite-editor --no-default-features --features modding
+          cargo tree -e features -i last-harvest-game -p sprite-editor --no-default-features --features modding --target wasm32-unknown-unknown \
+            | grep -q 'feature "embed"' && { echo "the tileset is built into the editor"; exit 1; } || true
+          cargo tree -e features -i last-harvest-game -p last-harvest --no-default-features --target wasm32-unknown-unknown \
+            | grep -q 'feature "embed"' && { echo "the tileset is built into the game"; exit 1; } || true
