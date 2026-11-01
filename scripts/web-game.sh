@@ -4,13 +4,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 out=target/web-game
-want=$(awk '/^name = "wasm-bindgen"$/ { getline; gsub(/[^0-9.]/, ""); print; exit }' Cargo.lock)
-have=$(wasm-bindgen --version 2>/dev/null | awk '{ print $2 }' || true)
-if [ "$have" != "$want" ]; then
-  echo "wasm-bindgen $want is needed (have: ${have:-none}): cargo install wasm-bindgen-cli --version $want" >&2
-  exit 1
-fi
-rustup target list --installed | grep -qx wasm32-unknown-unknown || rustup target add wasm32-unknown-unknown
+. scripts/lib/wasm.sh
 cargo run -q -p last-harvest-pack
 CARGO_PROFILE_RELEASE_STRIP=symbols cargo rustc --release --target wasm32-unknown-unknown -p last-harvest --lib --crate-type cdylib --no-default-features
 rm -rf "$out"
