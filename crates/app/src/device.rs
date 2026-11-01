@@ -138,6 +138,8 @@ impl Device {
         if let Err(e) = std::process::Command::new(SUSPEND).status() {
             log!("suspend: {e}");
         }
+        // The stock script sets the backlights and LEDs its own way, so the next apply writes them all.
+        self.written = None;
     }
 
     pub fn headphones(&self) -> bool {
