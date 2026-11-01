@@ -206,7 +206,17 @@ The binary reports its release, `LAST_HARVEST_VERSION` when it was built, else `
 cargo run -p last-harvest-pack
 ```
 
-Publishing a GitHub release, such as with `gh release create v0.2.0 --generate-notes`, runs `.github/workflows/release.yml`. It attaches the device build as a Ports-layout tarball and `game_data.pak` as a separate file; extract the tarball into the SD card's `Ports` folder and put the pack in `Ports/last-harvest/data/`. Both are built with the tag as `LAST_HARVEST_VERSION`.
+Publishing a GitHub release, such as with `gh release create v0.2.0 --generate-notes`, runs `.github/workflows/release.yml`, which builds every platform with the tag as `LAST_HARVEST_VERSION` and attaches one shared `game_data.pak` beside the packages, none of which carries it:
+
+| Asset | For | The pack |
+|---|---|---|
+| `last-harvest-<tag>-aarch64-linux.tar.gz` | The RG DS, in a Ports layout: extract into the SD card's `Ports` folder | The launcher fetches it into `Ports/last-harvest/data/` |
+| `last-harvest-<tag>-android.apk` | Android 8.0+ on arm64, phones and handhelds | Fetched on first run into the app's storage |
+| `last-harvest-<tag>-muos.muxapp` | muOS on the H700 Anbernics, through Archive Manager | Fetched by `mux_launch.sh` into its `data/` |
+| `last-harvest-<tag>-macos-arm64.zip`, `-windows-x86_64.zip`, `-windows-arm64.zip`, `-linux-x86_64.tar.gz`, `-linux-arm64.tar.gz` | Desktops, one window | Downloaded by hand into `LastHarvest/data/` |
+| `last-harvest-<tag>-web.zip` | The browser game, also on GitHub Pages and itch.io | Beside it in the zip |
+
+The APK is signed with the key in the `ANDROID_KEYSTORE_B64` and `ANDROID_KEYSTORE_PASSWORD` secrets (alias `last-harvest`), so each release installs over the last; without them the workflow signs with a throwaway key and warns. The Windows ARM64 build is cross-compiled and untested.
 
 From then on the launcher, `LastHarvest.sh`, keeps the game current before each start, never during a run. It asks the GitHub API for the latest release; a newer tag downloads this platform's tarball and swaps in its binary, data README, launcher and icon, and a `game_data.pak` whose sha256 differs from the release asset's `digest` is downloaded, so a release that changes only the pack updates too. Each download is checked against its asset's `digest` under a temporary name and only then moved over the old file, and a new binary must report the new tag before it replaces the old one. A new binary comes with its release's pack or not at all: when the pack won't download or check out, the launcher keeps the old binary and pack. When `data/game_data.pak` is missing, the launcher fetches the pack of the binary's own release, even with updates off. Offline, it starts the game as it is once the API call fails: curl gives up after a 4 second connect timeout, and on the device, which fetches with python, `timeout` stops the call after 8 seconds. A `dev` build, as `scripts/install.sh` installs, is never updated, and `data/no-updates` turns updates off. The launcher logs what it did at the top of `log.txt`. `LAST_HARVEST_API`, `LAST_HARVEST_DOWNLOADS` and `LAST_HARVEST_PLATFORM` point it at another release source and platform, for testing.
 
