@@ -67,6 +67,11 @@ radius 36
 damage 50
 bomblet_radius 18
 bomblet_damage 25
+aim_window 3    # single screen: real seconds to aim before it throws itself
+aim_slow 0.5    # game speed while aiming
+aim_speed 160   # cursor, map pixels a second
+aim_memory 5    # seconds a throw's angle off the view and distance carry to the next aim
+aim_ahead 64    # how far straight ahead the cursor starts otherwise
 
 [barrel]
 hp 20

@@ -10,6 +10,7 @@ mod props;
 mod players;
 mod powerups;
 pub mod showcase;
+mod single;
 mod view3d;
 mod weapons;
 
@@ -663,6 +664,14 @@ pub struct Harvest {
     /// A sprite the editor is showing off.
     shown: Option<showcase::Shown>,
     difficulty: Difficulty,
+    /// One screen: the map shows on the top screen only while looked at.
+    single: bool,
+    aiming: Option<single::Aiming>,
+    /// The map is up on the one screen without a grenade being aimed.
+    glance: bool,
+    /// The last single-screen throw's angle off the view and distance from the player, and real seconds since.
+    last_throw: Option<[f32; 2]>,
+    since_throw: f32,
 }
 
 /// Weapons and passives unlocked so far, out of all of them, and how many are waiting to be found.
@@ -836,6 +845,11 @@ impl Harvest {
             lean: 0.0,
             shown: None,
             difficulty: Difficulty::Normal,
+            single: false,
+            aiming: None,
+            glance: false,
+            last_throw: None,
+            since_throw: 0.0,
         }
         .with_birds()
     }
@@ -984,7 +998,14 @@ impl Harvest {
             self.view_yaw = (self.view_yaw + TAU / 600.0).rem_euclid(TAU);
             return flow;
         }
-        self.overview = input.held.contains(Buttons::L1);
+        let own;
+        let (input, dt) = if self.single {
+            own = self.single_input(input, dt, sounds);
+            (&own.0, own.1)
+        } else {
+            (input, dt)
+        };
+        self.overview = !self.single && input.held.contains(Buttons::L1);
         if self.overview {
             return flow;
         }
@@ -1278,7 +1299,7 @@ impl Harvest {
         let seed = self.rng.next_u32() as u64 + 1;
         let kit: Vec<String> = self.trial.iter().map(|&(d, l)| format!("{}:{l}", book().defs[d].id)).collect();
         let look = std::mem::take(&mut self.look);
-        *self = Harvest::on(seed, &self.map_id).at(self.difficulty).with_progress(self.progress).without_enemies(self.enemies_off).looking_like(&look).with_kit(&kit.join(",")).starting_at(self.start_t);
+        *self = Harvest::on(seed, &self.map_id).at(self.difficulty).with_progress(self.progress).without_enemies(self.enemies_off).looking_like(&look).with_kit(&kit.join(",")).starting_at(self.start_t).single_screen(self.single);
         sounds.push(Sfx::Start);
     }
 
@@ -1731,13 +1752,16 @@ impl Harvest {
 
     /// Lobs a grenade at the map point under a bottom-screen touch, if one is ready.
     fn throw(&mut self, touch: [f32; 2], sounds: &mut Vec<Sfx>) {
+        let cam = self.camera();
+        self.throw_at([cam[0] + touch[0] / SCALE, cam[1] + touch[1] / SCALE], sounds);
+    }
+
+    fn throw_at(&mut self, to: [f32; 2], sounds: &mut Vec<Sfx>) {
         if self.grenades < 1.0 {
             sounds.push(Sfx::Miss);
             return;
         }
         self.grenades -= 1.0;
-        let cam = self.camera();
-        let to = [cam[0] + touch[0] / SCALE, cam[1] + touch[1] / SCALE];
         self.thrown.push(Grenade { from: self.pos, to, t: 0.0, kind: Thrown::Grenade });
         sounds.push(Sfx::Throw);
     }

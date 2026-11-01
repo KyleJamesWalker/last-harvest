@@ -54,6 +54,8 @@ pub enum Scene {
     Title,
     /// The game: survive the night on a generated farm.
     Harvest,
+    /// Debug: the game on the top screen alone, with the map on L1 and grenades aimed on L2.
+    Single,
     /// Debug walk around a generated farm with no zombies.
     Farm,
     /// Debug frame-rate benchmark: the same frozen swarm every run, on a farm this many tiles wide and tall.
@@ -69,6 +71,7 @@ impl Scene {
         Some(match name {
             "title" | "menu" => Scene::Title,
             "harvest" | "play" => Scene::Harvest,
+            "single" => Scene::Single,
             "farm" => Scene::Farm,
             "bench" => Scene::Bench(harvest::MAP_SIZE),
             _ if name.starts_with("bench-") => {
@@ -244,9 +247,9 @@ impl Game {
                 self.page = Page::Main;
                 State::Title
             }
-            Scene::Harvest => {
+            Scene::Harvest | Scene::Single => {
                 self.sounds.push(Sfx::Start);
-                State::Harvest(Box::new(harvest::Harvest::on(seed, self.save.map.as_str()).at(self.save.difficulty).with_progress(self.progress()).without_enemies(self.save.enemies_off).looking_like(self.save.player.as_str()).with_kit(&self.kit).starting_at(self.start_t)))
+                State::Harvest(Box::new(harvest::Harvest::on(seed, self.save.map.as_str()).at(self.save.difficulty).with_progress(self.progress()).without_enemies(self.save.enemies_off).looking_like(self.save.player.as_str()).with_kit(&self.kit).starting_at(self.start_t).single_screen(scene == Scene::Single)))
             }
             Scene::Farm => State::Harvest(Box::new(harvest::Harvest::calm(seed))),
             Scene::Bench(size) => State::Harvest(Box::new(harvest::Harvest::bench(size))),
@@ -576,7 +579,7 @@ mod tests {
     #[test]
     fn every_scene_opens_by_name() {
         let mut game = Game::new(1);
-        for name in ["title", "harvest", "farm", "bench", "art", "hardware"] {
+        for name in ["title", "harvest", "single", "farm", "bench", "art", "hardware"] {
             game.open(Scene::from_name(name).unwrap());
         }
         assert!(matches!(game.state, State::Hardware(_)));
