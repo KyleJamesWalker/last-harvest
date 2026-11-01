@@ -532,7 +532,9 @@ pub struct Editor {
 impl Editor {
     /// An editor on the sprite `name`, or on none until one is picked when `name` is empty.
     pub fn new(store: Box<dyn Store>, name: &str) -> Self {
-        let sprite = store.load(name).unwrap_or(Sprite { name: name.into(), frames: vec![Frame::blank(16, 16)], views: None, footprint: None, roof: None, north: None, west: None, top: None, card: None, clear_in_3d: Vec::new(), paint: Default::default() });
+        let loaded = store.load(name);
+        let broken = loaded.is_none() && store.read(name, "0.png").is_some();
+        let sprite = loaded.unwrap_or(Sprite { name: if broken { String::new() } else { name.into() }, frames: vec![Frame::blank(16, 16)], views: None, footprint: None, roof: None, north: None, west: None, top: None, card: None, clear_in_3d: Vec::new(), paint: Default::default() });
         let names = store.names();
         let mut e = Self {
             store,
@@ -613,7 +615,14 @@ impl Editor {
         e.load_card_parts();
         e.data_link = e.data_link_for(name);
         e.reveal();
+        if broken {
+            e.say(Self::undecodable(name));
+        }
         e
+    }
+
+    fn undecodable(name: &str) -> String {
+        format!("{name} can't be opened: a picture in its folder doesn't decode, so nothing is opened over it")
     }
 
     /// Makes this the mod editor: names typed for New and Copy are card ids, and there's no history to browse.
@@ -932,6 +941,8 @@ impl Editor {
             if self.stats {
                 self.load_other_cards();
             }
+        } else if self.store.read(name, "0.png").is_some() {
+            self.say(Self::undecodable(name));
         }
     }
 
@@ -2972,6 +2983,22 @@ mod tests {
         let p = [o[0] + (x as f32 + 0.5) * zoom, o[1] + (y as f32 + 0.5) * zoom];
         e.mouse_down(p, false, false);
         e.mouse_up();
+    }
+
+    #[test]
+    fn a_sprite_whose_picture_wont_decode_is_never_opened_over() {
+        let dir = tmp().join("undecodable");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("sprites/BARREL")).unwrap();
+        std::fs::write(dir.join("sprites/BARREL/0.png"), b"not a png").unwrap();
+        let store = || FsStore { dir: dir.join("sprites"), catalog: dir.join("art.txt"), cards: dir.join("enemies") };
+        let mut e = Editor::new(Box::new(store()), "BARREL");
+        assert!(e.none_open() && e.status.as_ref().is_some_and(|(t, _)| t.contains("doesn't decode")), "{:?}", e.status);
+        e.switch_to("GRASS".into());
+        e.switch_to("BARREL".into());
+        assert_eq!((e.sprite.name.as_str(), std::fs::read(dir.join("sprites/BARREL/0.png")).unwrap()), ("GRASS", b"not a png".to_vec()));
+        assert!(e.status.as_ref().is_some_and(|(t, _)| t.contains("doesn't decode")));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

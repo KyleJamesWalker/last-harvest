@@ -203,6 +203,19 @@ mod tests {
     }
 
     #[test]
+    fn a_sprite_save_refuses_pictures_that_dont_decode() {
+        let s = store("undecodable");
+        let web = Path::new("/nonexistent");
+        let good = sprite::encode_png(&Frame::blank(4, 3));
+        for files in [vec![("0.png", b"junk".to_vec())], vec![("0.png", good.clone()), ("1.png", b"junk".to_vec())], vec![("0.png", good.clone()), ("south.png", b"junk".to_vec())], vec![("0.png", good.clone()), ("2.png", good.clone())]] {
+            let files: Vec<(String, Vec<u8>)> = files.into_iter().map(|(n, b)| (n.to_string(), b)).collect();
+            assert_eq!(handle(&s, web, &Method::Put, "/api/sprite/BARREL", &bundle(&files)).0, 400, "{:?}", files.iter().map(|f| &f.0).collect::<Vec<_>>());
+        }
+        assert!(!s.dir.exists(), "nothing is written");
+        std::fs::remove_dir_all(s.dir.parent().unwrap()).unwrap();
+    }
+
+    #[test]
     fn refuses_what_could_reach_outside_a_sprite_folder() {
         let s = store("refuse");
         let web = Path::new("/nonexistent");
