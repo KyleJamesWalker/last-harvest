@@ -607,6 +607,8 @@ pub struct Harvest {
     trial: Vec<(usize, u32)>,
     /// Seconds into the night every run on this farm starts at.
     start_t: f32,
+    /// The Harvester has risen this run.
+    woke: bool,
     /// Grenades ready to throw; the fraction is the next one recharging.
     grenades: f32,
     thrown: Vec<Grenade>,
@@ -779,6 +781,7 @@ impl Harvest {
             fury_tick: 0.0,
             trial: Vec::new(),
             start_t: 0.0,
+            woke: false,
             grenades: book().grenades as f32,
             thrown: Vec::new(),
             pos: map.spawn,
@@ -1175,7 +1178,7 @@ impl Harvest {
             flow.rumble = flow.rumble.max(Some(Rumble::Fanfare));
             self.phase = Phase::Over { t: 0.0, won: true };
             flow.ended = Some(self.finish(true));
-        } else if self.t >= dawn() && self.t - dt < dawn() {
+        } else if self.t >= dawn() && !self.woke {
             self.daybreak(sounds, flow);
         } else if self.leveling <= 0.0 && self.xp >= self.next_xp {
             self.level_up(sounds, flow);
@@ -1189,6 +1192,7 @@ impl Harvest {
     /// Dawn: the night doesn't end, it turns. The Harvester rises behind the player, and from here on the
     /// dead grow stronger every second until the player reaches the farmhouse.
     fn daybreak(&mut self, sounds: &mut Vec<Sfx>, flow: &mut Flow) {
+        self.woke = true;
         sounds.push(Sfx::Horde);
         flow.rumble = flow.rumble.max(Some(Rumble::Blast));
         self.juice.shake(0.6);
@@ -2644,6 +2648,16 @@ mod tests {
         if len(to_home) > 1.0 {
             assert!(to_home[0] * to_boss[0] + to_home[1] * to_boss[1] <= 0.0, "it rises on the side away from home");
         }
+    }
+
+    #[test]
+    fn a_run_started_past_dawn_wakes_the_harvester_at_once() {
+        let mut h = Harvest::calm(4).starting_at(dawn() + 30.0);
+        h.zombies.clear();
+        h.update(&Input::default(), 0.02, &mut Vec::new());
+        assert_eq!(h.zombies.iter().filter(|z| z.boss).count(), 1);
+        h.update(&Input::default(), 0.02, &mut Vec::new());
+        assert_eq!(h.zombies.iter().filter(|z| z.boss).count(), 1, "and only once");
     }
 
     #[test]
