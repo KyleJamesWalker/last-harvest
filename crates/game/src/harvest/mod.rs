@@ -595,8 +595,9 @@ pub struct Harvest {
     newly: Vec<usize>,
     ready: usize,
     found_now: u64,
-    /// The next level-up comes from a chest.
+    /// The next level-up comes from a chest, and the chests picked up whose level-up hasn't begun.
     chest: bool,
+    chests: u32,
     /// The next zombie to rise leads the horde.
     leader_owed: bool,
     /// What dawn has multiplied every zombie's health and bite by, and the time toward its next step.
@@ -772,6 +773,7 @@ impl Harvest {
             ready: 0,
             found_now: 0,
             chest: false,
+            chests: 0,
             leader_owed: false,
             fury: 1.0,
             fury_tick: 0.0,
@@ -1177,6 +1179,10 @@ impl Harvest {
             self.daybreak(sounds, flow);
         } else if self.leveling <= 0.0 && self.xp >= self.next_xp {
             self.level_up(sounds, flow);
+        } else if self.leveling <= 0.0 && self.chests > 0 {
+            self.chests -= 1;
+            self.chest = true;
+            self.leveling = LEVEL_SLOW;
         }
     }
 
@@ -1836,8 +1842,7 @@ impl Harvest {
                         }
                     }
                     DropKind::Chest => {
-                        self.chest = true;
-                        self.leveling = LEVEL_SLOW;
+                        self.chests += 1;
                         sounds.push(Sfx::LevelUp);
                         self.juice.shout("A CHEST", GOLD, 0.9);
                         self.juice.flash(self.pos, 20.0, [1.8, 1.4, 0.6], 9.0, 0.8);
@@ -2577,6 +2582,31 @@ mod tests {
             h.update(&Input::default(), 0.016, &mut Vec::new());
         }
         panic!("the chest never opened");
+    }
+
+    #[test]
+    fn a_chest_picked_up_during_a_level_up_still_brings_its_own() {
+        let mut h = Harvest::calm(4);
+        h.xp = h.next_xp;
+        let x = Input { pressed: Buttons::X, ..Default::default() };
+        h.update(&Input::default(), 1.0 / 60.0, &mut Vec::new());
+        assert!(h.leveling > 0.0);
+        for _ in 0..2 {
+            h.drops.push(Drop { kind: DropKind::Chest, pos: h.pos, z: 0.0, vz: 0.0, vel: [0.0; 2], age: 0.0, pulled: None });
+        }
+        h.collect(0.016, &mut Vec::new());
+        let mut level_ups = 0;
+        for _ in 0..2000 {
+            if let Phase::LevelUp { picked: None, t, .. } = h.phase
+                && t > CARDS_IN
+            {
+                level_ups += 1;
+                h.update(&x, 0.016, &mut Vec::new());
+            } else {
+                h.update(&Input::default(), 0.016, &mut Vec::new());
+            }
+        }
+        assert_eq!((level_ups, h.level), (3, 2), "the full bar's level-up, then one for each chest");
     }
 
     /// A farm at the edge of dawn, with the player well away from home and nothing else about.
