@@ -524,6 +524,8 @@ pub struct Book {
     /// Money for the first level-up.
     pub first_level: u32,
     pub defs: Vec<Def>,
+    /// Icons named for a player's prop that wasn't installed when this was read, each drawn blank.
+    missing: Vec<String>,
 }
 
 impl Book {
@@ -535,26 +537,27 @@ impl Book {
 /// The powerups in the shipped file.
 pub fn book() -> &'static Book {
     static BOOK: OnceLock<Book> = OnceLock::new();
-    BOOK.get_or_init(|| parse(crate::data::powerups()).unwrap_or_else(|e| panic!("powerups.txt:{e}")))
+    BOOK.get_or_init(|| {
+        let book = parse(crate::data::powerups()).unwrap_or_else(|e| panic!("powerups.txt:{e}"));
+        for name in &book.missing {
+            crate::data::note(format!("powerups.txt: no prop called {name} for an icon"));
+        }
+        book
+    })
 }
 
 /// A sprite by name: the catalog's, else a player's prop's. A prop that isn't installed yet, as when a mod is
-/// checked before it loads, stands in as a blank and is reported.
+/// checked before it loads, stands in as a blank, and `book` reports it.
 fn sprite(name: &str) -> Option<Art> {
     let own = art::ALL.iter().find(|(n, _)| *n == name).map(|(_, frames)| frames[0]);
-    own.or_else(|| super::props::prop(name).and_then(|p| p.frames.first().copied())).or_else(|| {
-        name.starts_with(super::props::PREFIX).then(|| {
-            crate::data::note(format!("powerups.txt: no prop called {name} for an icon"));
-            art::WHITE
-        })
-    })
+    own.or_else(|| super::props::prop(name).and_then(|p| p.frames.first().copied())).or_else(|| name.starts_with(super::props::PREFIX).then_some(art::WHITE))
 }
 
 const DEFAULT_FIND: f32 = 0.25;
 
 /// Reads the powerup file; an error names the line.
 pub fn parse(text: &str) -> Result<Book, String> {
-    let mut book = Book { weapon_slots: 6, passive_slots: 6, start: Default::default(), grenades: 3, finds: 2, first_level: 5, defs: Vec::new() };
+    let mut book = Book { weapon_slots: 6, passive_slots: 6, start: Default::default(), grenades: 3, finds: 2, first_level: 5, defs: Vec::new(), missing: Vec::new() };
     let mut start: [Option<(usize, Vec<String>)>; 3] = Default::default();
     let mut icons: Vec<Option<String>> = Vec::new();
     for (i, raw) in text.lines().enumerate() {
@@ -738,6 +741,9 @@ pub fn parse(text: &str) -> Result<Book, String> {
     for (def, icon) in book.defs.iter_mut().zip(icons) {
         let icon = icon.unwrap_or_else(|| format!("ICON_{}", def.id.to_ascii_uppercase()));
         def.icon = sprite(&icon).ok_or_else(|| format!(" [{}] has no sprite called {icon}; add it to art.txt", def.id))?;
+        if def.icon == art::WHITE && icon.starts_with(super::props::PREFIX) && super::props::prop(&icon).is_none() {
+            book.missing.push(icon);
+        }
         let wrong = def.stats.iter().find(|(s, _)| match def.kind {
             Kind::Weapon => !s.for_weapons(),
             Kind::Passive => !s.for_passives(),
@@ -774,6 +780,13 @@ mod tests {
         assert!(ids(Difficulty::Hard).is_empty(), "hard starts with only a grenade");
         assert_eq!(b.grenades, 1);
         assert!(b.defs.iter().filter(|d| d.kind == Kind::Weapon).all(|d| d.zone.is_some()));
+    }
+
+    #[test]
+    fn checking_a_mod_before_its_props_load_leaves_no_problem_behind() {
+        let b = parse("[pp]\nicon PROP_ICON_NOT_YET\n[cash]\nkind filler\nicon WHITE\n").unwrap();
+        assert_eq!((b.defs[0].icon, b.missing.as_slice()), (art::WHITE, ["PROP_ICON_NOT_YET".to_string()].as_slice()));
+        assert!(!crate::data::noted().iter().any(|n| n.contains("PROP_ICON_NOT_YET")), "only the book the game plays with reports it");
     }
 
     #[test]

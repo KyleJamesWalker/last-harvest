@@ -101,6 +101,11 @@ pub fn note(problem: String) {
     LATER.lock().unwrap_or_else(|e| e.into_inner()).push(problem);
 }
 
+#[cfg(test)]
+pub fn noted() -> Vec<String> {
+    LATER.lock().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
 /// How many things couldn't load, and the first of them, if any.
 pub fn problems() -> Option<(usize, String)> {
     let later = LATER.lock().unwrap_or_else(|e| e.into_inner());
