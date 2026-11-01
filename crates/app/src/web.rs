@@ -63,6 +63,8 @@ struct Web {
     saved: Save,
     /// The last write was refused and has been warned of.
     refused: bool,
+    /// The browser has taken the GL context away.
+    lost: bool,
     last: f64,
     stats: (u32, f64, f64),
     system: System,
@@ -138,8 +140,33 @@ impl Web {
     /// The first click or key: the page may now play sound.
     fn begin(&mut self) {
         let Some(sounds) = self.sounds.take() else { return };
-        self.overlay.set_hidden(true);
+        self.overlay.set_hidden(!self.lost);
         self.audio = audio::Audio::open(&sounds).inspect_err(|e| web_sys::console::warn_1(&format!("audio disabled: {e}").into())).ok();
+    }
+
+    /// The browser took the GL context: nothing draws until it gives it back, so the game waits behind a note.
+    fn context_lost(&mut self, e: &Event) {
+        e.prevent_default();
+        self.lost = true;
+        if let Ok(label) = element::<HtmlElement>(&self.document, "start-label") {
+            label.set_inner_text("Reload to continue");
+        }
+        if let Some(p) = self.overlay.query_selector("p").ok().flatten().and_then(|p| p.dyn_into::<HtmlElement>().ok()) {
+            p.set_inner_text("The browser took the graphics away from the game. Reload the page to carry on.");
+        }
+        self.overlay.set_hidden(false);
+    }
+
+    /// The context is back but empty, so everything the renderer uploaded goes up again.
+    fn context_restored(&mut self) {
+        match Renderer::new(&self.gl, Profile::Gles) {
+            Ok(renderer) => {
+                self.renderer = renderer;
+                self.lost = false;
+                self.overlay.set_hidden(true);
+            }
+            Err(e) => web_sys::console::error_1(&format!("graphics: {e}").into()),
+        }
     }
 
     fn down(&mut self, e: &PointerEvent) {
@@ -226,6 +253,10 @@ impl Web {
     }
 
     fn frame(&mut self) {
+        if self.lost {
+            self.last = now();
+            return;
+        }
         let t = now();
         let frame_ms = t - self.last;
         let dt = (frame_ms / 1000.0).clamp(0.0, 0.05) as f32;
@@ -326,6 +357,7 @@ fn start(pak: Pak) -> Result<(), String> {
         storage,
         saved,
         refused: false,
+        lost: false,
         last: now(),
         stats: (0, 0.0, now()),
         system: System::default(),
@@ -342,6 +374,8 @@ fn start(pak: Pak) -> Result<(), String> {
         listen(&canvas, kind, &web, |w, e: &PointerEvent| w.up(e));
     }
     listen(&canvas, "contextmenu", &web, |_, e: &Event| e.prevent_default());
+    listen(&canvas, "webglcontextlost", &web, |w, e: &Event| w.context_lost(e));
+    listen(&canvas, "webglcontextrestored", &web, |w, _: &Event| w.context_restored());
     listen(&window, "keydown", &web, |w, e: &KeyboardEvent| w.key(e, true));
     listen(&window, "keyup", &web, |w, e: &KeyboardEvent| w.key(e, false));
     // A key let go while the page had no focus would otherwise stay down.
