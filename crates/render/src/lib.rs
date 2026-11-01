@@ -375,7 +375,8 @@ impl Renderer {
             gl.enable(glow::SCISSOR_TEST);
             gl.scissor(x, y, w, h);
             gl.clear_color(r, g, b, a);
-            gl.clear(glow::COLOR_BUFFER_BIT | glow::DEPTH_BUFFER_BIT);
+            // A clear color with no alpha leaves what is under the canvas, for an overlay.
+            gl.clear(if a > 0.0 { glow::COLOR_BUFFER_BIT | glow::DEPTH_BUFFER_BIT } else { glow::DEPTH_BUFFER_BIT });
             gl.disable(glow::SCISSOR_TEST);
             if let Some(cards) = &canvas.cards {
                 self.draw_cards(gl, cards);
@@ -388,7 +389,8 @@ impl Renderer {
             gl.bind_texture(glow::TEXTURE_2D, Some(self.art));
             gl.active_texture(glow::TEXTURE0);
             gl.bind_texture(glow::TEXTURE_2D, Some(self.texture));
-            gl.uniform_2_f32(self.u_size.as_ref(), SCREEN_W, SCREEN_H);
+            let [sw, sh] = canvas.size.unwrap_or([SCREEN_W, SCREEN_H]);
+            gl.uniform_2_f32(self.u_size.as_ref(), sw, sh);
             gl.bind_vertex_array(Some(self.vao));
             gl.bind_buffer(glow::ARRAY_BUFFER, Some(self.vbo));
             let bytes = std::slice::from_raw_parts(self.verts.as_ptr().cast::<u8>(), self.verts.len() * 4);

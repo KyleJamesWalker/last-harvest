@@ -28,6 +28,8 @@ pub struct Canvas {
     /// Drawn first, under the 2D shapes.
     pub cards: Option<CardScene>,
     pub shapes: Vec<Shape>,
+    /// Its width and height in its own pixels, when not a screen's 1024x768.
+    pub size: Option<[f32; 2]>,
 }
 
 impl Canvas {
