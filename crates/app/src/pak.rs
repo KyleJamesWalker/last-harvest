@@ -122,14 +122,26 @@ fn read_mods(problems: &mut Vec<String>) -> Vec<(String, Pak)> {
 /// else a sounds folder found nearby, with the mods' sounds over either.
 pub fn load() -> Result<Files, String> {
     let mut missing_pack = None;
-    let base = match find() {
-        Some(path) => {
-            let pak = Pak::open(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let mut problems = Vec::new();
+    let folder = || missing(data_folder().map_or_else(|| DATA.into(), |d| d.display().to_string()));
+    let base = match find().map(|path| (Pak::open(&path), path)) {
+        Some((Ok(pak), path)) => {
             log!("data: {} ({})", path.display(), pak.version().unwrap_or("no version"));
             Some(pak)
         }
+        // A pack that won't open is a missing one: an update that swapped the binary but not its pack leaves one.
+        Some((Err(e), path)) => {
+            log!("data: {}: {e}", path.display());
+            problems.push(format!("game_data.pak: {e}"));
+            if cfg!(feature = "embed") {
+                log!("data: built in");
+            } else {
+                missing_pack = Some(folder());
+            }
+            None
+        }
         None if !cfg!(feature = "embed") => {
-            let message = missing(data_folder().map_or_else(|| DATA.into(), |d| d.display().to_string()));
+            let message = folder();
             log!("data: no {PAK} beside the binary. {message}");
             missing_pack = Some(message);
             None
@@ -139,7 +151,7 @@ pub fn load() -> Result<Files, String> {
             None
         }
     };
-    install(base, missing_pack)
+    install_noting(base, missing_pack, problems)
 }
 
 /// `load` with the pack already open, or none for the built-in data. A web page has no data folder beside it, so

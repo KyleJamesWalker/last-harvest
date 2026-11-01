@@ -194,7 +194,7 @@ Ports/last-harvest/
   .update/                       the launcher's downloads in progress
 ```
 
-Build the data pack, `target/game_data.pak`: a ZIP holding the sprite atlas, sounds, font and powerup table, with a `manifest.toml` that names the atlas it was built from and the release, `LAST_HARVEST_VERSION` when the packer was built, else `dev`. Builds keep the data built in through the default `embed` feature and read a pack if one is present. A build without it, `--no-default-features`, reads its data only from `data/game_data.pak` beside the binary and refuses one built for a different atlas; without one it starts with no sprites, and the title says which release's pack to copy where.
+Build the data pack, `target/game_data.pak`: a ZIP holding the sprite atlas, sounds, font and powerup table, with a `manifest.toml` that names the atlas it was built from and the release, `LAST_HARVEST_VERSION` when the packer was built, else `dev`. Builds keep the data built in through the default `embed` feature and read a pack if one is present. A build without it, `--no-default-features`, reads its data only from `data/game_data.pak` beside the binary and treats one that won't open, such as one built for a different atlas, as missing: it starts with no sprites, the title says which release's pack to copy where, and the log says why. A pack table this build refuses is left out for the game's own, with a line on the title.
 
 The binary reports its release, `LAST_HARVEST_VERSION` when it was built, else `dev-<commit>`, with `--version`, at the top of `log.txt`, and in a corner of Stats, which adds the pack's when it differs.
 
