@@ -280,7 +280,7 @@ impl MapSource {
                 ("props", Section::Header | Section::Ground) if words.len() == 1 => section = Section::Props,
                 (_, Section::Ground) => rows.push((n, line)),
                 (_, Section::Props) => props.push((n, prop_line(&words).map_err(|e| format!("{n}: {e}"))?)),
-                ("name", _) => name = line["name".len()..].trim().chars().take(40).collect(),
+                ("name", _) => name = super::super::enemies::font_line("name", line["name".len()..].trim(), NAME_MAX).map_err(|e| format!("{n}: {e}"))?,
                 ("scatter", _) if words.len() == 1 => scatter = true,
                 (key @ ("size" | "spawn" | "home"), _) => {
                     let pair = numbers(&words[1..]).filter(|v| v.len() == 2).ok_or_else(|| format!("{n}: {key} is two whole numbers"))?;
@@ -318,7 +318,8 @@ impl MapSource {
 
     pub fn to_text(&self) -> String {
         let [w, h] = self.size;
-        let mut s = format!("name {}\nsize {w} {h}\nspawn {} {}\nhome {} {}\n", self.name, self.spawn[0], self.spawn[1], self.home[0], self.home[1]);
+        let name: String = self.name.chars().filter(|&c| c != '#' && (' '..='~').contains(&c)).take(NAME_MAX).collect();
+        let mut s = format!("name {}\nsize {w} {h}\nspawn {} {}\nhome {} {}\n", name.trim(), self.spawn[0], self.spawn[1], self.home[0], self.home[1]);
         if self.scatter {
             s += "scatter\n";
         }
@@ -387,6 +388,9 @@ impl MapSource {
         Self { name: name.into(), size, spawn: at(map.spawn), home: at(map.home), scatter: false, ground: (0..w * h).map(code).collect(), props }
     }
 }
+
+/// The longest a map's `name` can be.
+const NAME_MAX: usize = 40;
 
 /// The most frames a prop line can pick among.
 const MAX_FRAME_INDEX: usize = 64;
@@ -692,6 +696,17 @@ mod tests {
     }
 
     #[test]
+    fn a_name_always_writes_back_as_a_name_that_reads() {
+        let mut src = MapSource::parse(&farm("")).unwrap();
+        for (name, reads) in [("Pen #2", "Pen 2"), ("Caf\u{e9} Farm", "Caf Farm"), ("Old Mill", "Old Mill")] {
+            src.name = name.into();
+            assert_eq!(MapSource::parse(&src.to_text()).unwrap().name, reads);
+        }
+        src.name = "y".repeat(50);
+        assert_eq!(MapSource::parse(&src.to_text()).unwrap().name.len(), 40);
+    }
+
+    #[test]
     fn a_loose_build_lets_a_half_made_map_draw() {
         let mut src = MapSource::parse(&farm("HOUSE 15 3")).unwrap();
         assert!(Map::from_source(&src, &mut Rng::new(1), true).is_err());
@@ -730,6 +745,8 @@ mod tests {
         assert!(err(&farm("").replace("spawn 4 11\n", "")).contains("no spawn"));
         assert!(err(&farm("").replace("spawn 4 11", "spawn 0 5")).contains("edge"));
         assert!(err(&farm("").replace("name Test", "wings 2")).starts_with("1: wings"));
+        assert!(err(&farm("").replace("name Test", "name Caf\u{e9}")).starts_with("1: name uses letters"), "the font draws ASCII only");
+        assert!(err(&farm("").replace("name Test", &format!("name {}", "x".repeat(41)))).starts_with("1: name is at most 40"));
     }
 
     #[test]

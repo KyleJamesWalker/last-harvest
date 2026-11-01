@@ -56,12 +56,20 @@ pub const ABOUT_MAX: usize = 80;
 
 /// An `about` line's text, checked: 1 to `ABOUT_MAX` of the characters the game's font draws.
 pub(super) fn about(text: &str) -> Result<String, String> {
-    if let Some(c) = text.chars().find(|c| !(' '..='~').contains(c)) {
-        return Err(format!("about uses letters, digits, spaces and plain punctuation, not {c:?}"));
+    if text.is_empty() {
+        return Err("about needs a sentence after it".into());
+    }
+    font_line("about", text, ABOUT_MAX)
+}
+
+/// A line of text `key` sets, checked: at most `max` of the characters the game's font draws, without the `#` that
+/// would start a comment when it's written back.
+pub(super) fn font_line(key: &str, text: &str, max: usize) -> Result<String, String> {
+    if let Some(c) = text.chars().find(|c| !(' '..='~').contains(c) || *c == '#') {
+        return Err(format!("{key} uses letters, digits, spaces and plain punctuation, not {c:?}"));
     }
     match text.chars().count() {
-        0 => Err("about needs a sentence after it".into()),
-        n if n > ABOUT_MAX => Err(format!("about is at most {ABOUT_MAX} characters, not {n}")),
+        n if n > max => Err(format!("{key} is at most {max} characters, not {n}")),
         _ => Ok(text.to_string()),
     }
 }
