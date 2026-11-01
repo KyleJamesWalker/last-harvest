@@ -67,15 +67,22 @@ impl Device {
             found = true;
             let p = pad.clone();
             std::thread::spawn(move || {
-                while let Ok(events) = dev.fetch_events() {
-                    for ev in events {
-                        let summary = ev.destructure();
-                        if log && !matches!(summary, EventSummary::Synchronization(..)) {
-                            log!("input: {summary:?}");
+                let error = loop {
+                    match dev.fetch_events() {
+                        Ok(events) => {
+                            for ev in events {
+                                let summary = ev.destructure();
+                                if log && !matches!(summary, EventSummary::Synchronization(..)) {
+                                    log!("input: {summary:?}");
+                                }
+                                handle(&mut p.lock().unwrap(), summary);
+                            }
                         }
-                        handle(&mut p.lock().unwrap(), summary);
+                        Err(e) => break e,
                     }
-                }
+                };
+                log!("input: {} stopped: {error}", path.display());
+                *p.lock().unwrap() = Pad::default();
             });
         }
         let headphones = Arc::new(AtomicBool::new(false));
