@@ -2035,8 +2035,8 @@ impl Harvest {
 
     /// Top-left of the view in world pixels, rounded to whole screen pixels.
     fn camera(&self) -> [f32; 2] {
-        let x = (self.pos[0] - VIEW_W / 2.0).clamp(0.0, self.map.width_px() - VIEW_W);
-        let y = (self.pos[1] - 8.0 - VIEW_H / 2.0).clamp(0.0, self.map.height_px() - VIEW_H);
+        let x = (self.pos[0] - VIEW_W / 2.0).clamp(0.0, (self.map.width_px() - VIEW_W).max(0.0));
+        let y = (self.pos[1] - 8.0 - VIEW_H / 2.0).clamp(0.0, (self.map.height_px() - VIEW_H).max(0.0));
         [(x * SCALE).round() / SCALE, (y * SCALE).round() / SCALE]
     }
 }
@@ -2369,6 +2369,14 @@ mod tests {
         }
         assert!(h.pos[0] - spot[0] > 30.0, "the player walks on the way they faced");
         assert!(len(sub(h.zombies[0].pos, h.pos)) < MARCH_CLOSE * 1.5, "and the dead keep with them");
+    }
+
+    #[test]
+    fn a_map_smaller_than_the_view_draws_and_takes_a_tap() {
+        let mut h = Harvest::calm_on(1, &MapSource::new("Tiny", MAP_MIN)).unwrap();
+        h.draw(&mut crate::Frame::default());
+        h.throw([SCREEN_W / 2.0, SCREEN_H / 2.0], &mut Vec::new());
+        assert_eq!(h.camera(), [0.0; 2]);
     }
 
     #[test]
