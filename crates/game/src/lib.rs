@@ -480,7 +480,7 @@ impl Game {
             f.top.label("No game data: the game can't draw without game_data.pak.", SCREEN_W / 2.0, 696.0, 24.0, red, Align::Center);
             f.top.label(menu::fitted(missing, 22.0, SCREEN_W - 40.0, 22.0).0, SCREEN_W / 2.0, 728.0, 22.0, red, Align::Center);
         } else if let Some((count, first)) = data::problems() {
-            let more = if count > 1 { format!("{count} cards, mods or sounds couldn't load:") } else { "A card, mod or sound couldn't load:".to_string() };
+            let more = if count > 1 { format!("{count} files couldn't load:") } else { "A file couldn't load:".to_string() };
             let red = [1.0, 0.55, 0.5, 1.0];
             f.top.label(more, SCREEN_W / 2.0, 696.0, 24.0, red, Align::Center);
             f.top.label(menu::fitted(&first, 22.0, SCREEN_W - 40.0, 22.0).0, SCREEN_W / 2.0, 728.0, 22.0, red, Align::Center);
