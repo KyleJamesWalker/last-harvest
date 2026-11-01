@@ -48,19 +48,28 @@ pub struct Roster {
 const MAX_KINDS: usize = 64;
 /// The most frames a walk cycle can have.
 pub const MAX_WALK: usize = 8;
-const MAX_FRAME: u32 = 64;
+/// The most pixels a side of a card's frame can be.
+pub const MAX_FRAME: u32 = 64;
 const PAD: u16 = 1;
 /// The longest `about` can be, so it fits the menus in a few lines.
 pub const ABOUT_MAX: usize = 80;
 
 /// An `about` line's text, checked: 1 to `ABOUT_MAX` of the characters the game's font draws.
 pub(super) fn about(text: &str) -> Result<String, String> {
-    if let Some(c) = text.chars().find(|c| !(' '..='~').contains(c)) {
-        return Err(format!("about uses letters, digits, spaces and plain punctuation, not {c:?}"));
+    if text.is_empty() {
+        return Err("about needs a sentence after it".into());
+    }
+    font_line("about", text, ABOUT_MAX)
+}
+
+/// A line of text `key` sets, checked: at most `max` of the characters the game's font draws, without the `#` that
+/// would start a comment when it's written back.
+pub(super) fn font_line(key: &str, text: &str, max: usize) -> Result<String, String> {
+    if let Some(c) = text.chars().find(|c| !(' '..='~').contains(c) || *c == '#') {
+        return Err(format!("{key} uses letters, digits, spaces and plain punctuation, not {c:?}"));
     }
     match text.chars().count() {
-        0 => Err("about needs a sentence after it".into()),
-        n if n > ABOUT_MAX => Err(format!("about is at most {ABOUT_MAX} characters, not {n}")),
+        n if n > max => Err(format!("{key} is at most {max} characters, not {n}")),
         _ => Ok(text.to_string()),
     }
 }

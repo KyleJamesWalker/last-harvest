@@ -7,6 +7,8 @@ use std::sync::Arc;
 
 use last_harvest_game::Sfx;
 
+use crate::log;
+
 /// Stereo frames at the output's sample rate.
 pub struct Clip {
     pub frames: Vec<[f32; 2]>,
@@ -86,7 +88,7 @@ pub fn read_files(dir: &Path, exts: &[&str]) -> Files {
         .flatten()
         .filter_map(|e| {
             let name = e.file_name().into_string().ok()?;
-            let read = || std::fs::read(e.path()).inspect_err(|err| eprintln!("{}: {err}", e.path().display())).ok();
+            let read = || std::fs::read(e.path()).inspect_err(|err| log!("{}: {err}", e.path().display())).ok();
             exts.iter().any(|ext| name.ends_with(ext)).then(read).flatten().map(|bytes| (name, bytes))
         })
         .collect();
@@ -114,14 +116,14 @@ impl Bank {
             match if ext == "ogg" { decode_ogg(bytes, rate) } else { decode(bytes, rate) } {
                 Ok(clip) => bank.clips.entry(name.to_string()).or_default().push(Arc::new(clip)),
                 Err(e) => {
-                    eprintln!("audio: {file}: {e}");
+                    log!("audio: {file}: {e}");
                     last_harvest_game::data::note(format!("{file}: {e}"));
                 }
             }
         }
         let mut names: Vec<&String> = bank.clips.keys().collect();
         names.sort();
-        eprintln!("audio: {} recorded cues: {names:?}", names.len());
+        log!("audio: {} recorded cues: {names:?}", names.len());
         bank
     }
 

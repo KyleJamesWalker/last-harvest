@@ -11,7 +11,7 @@ pub const EXTENSION: &str = ".prop.png";
 /// Reads a prop; `name` is for messages.
 pub fn read(name: &str, bytes: &[u8]) -> Result<Card, String> {
     let fail = |e: &dyn std::fmt::Display| format!("{name}: {e}");
-    let max = [(PROP_MAX_FRAMES + 1) * PROP_MAX_FRAME, 2 * PROP_MAX_FRAME];
+    let max = [(PROP_MAX_FRAMES + 2) * PROP_MAX_FRAME, 2 * PROP_MAX_FRAME];
     let d = crate::card::decode(KEYWORD, "a prop", name, bytes, max)?;
     let fields = last_harvest_game::prop_fields(&d.text).map_err(|e| fail(&e))?;
     let frame = fields.frame_in(d.w, d.h).filter(|f| f.iter().all(|&side| side <= PROP_MAX_FRAME));
@@ -46,5 +46,13 @@ mod tests {
         assert_eq!(tall.frame, [4, 8], "views wider than the frames set the width");
         let card = crate::card::write("[a]", 3, 5, &[0; 60]).unwrap();
         assert!(read("z.prop.png", &card).err().unwrap().contains("not a prop"), "a card isn't a prop");
+    }
+
+    #[test]
+    fn the_widest_carved_prop_reads() {
+        let (fw, cells) = (PROP_MAX_FRAME, PROP_MAX_FRAMES + 2);
+        let text = format!("[wide]\nframes {PROP_MAX_FRAMES}\nstand carve\nviews 2\nfootprint yes\nroof yes");
+        let p = read("w.prop.png", &write(&text, cells * fw, 3, &vec![0; (cells * fw * 3 * 4) as usize]).unwrap()).unwrap();
+        assert_eq!(p.frame, [fw, 1]);
     }
 }

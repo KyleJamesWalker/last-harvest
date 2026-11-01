@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use evdev::{AbsoluteAxisCode, EventSummary, KeyCode};
+use last_harvest::log;
 use last_harvest_game::{Battery, Buttons, Outputs};
 
 const PAD_NAME: &str = "ANBERNIC-rk3568-keys";
@@ -42,7 +43,7 @@ struct Pad {
 #[derive(Clone, Copy, PartialEq)]
 struct Written {
     brightness: [u32; 2],
-    screens_on: bool,
+    screens_on: [bool; 2],
     leds: [bool; 2],
 }
 
@@ -62,19 +63,26 @@ impl Device {
         let pad = Arc::new(Mutex::new(Pad::default()));
         let mut found = false;
         for (path, mut dev) in evdev::enumerate().filter(|(_, d)| matches!(d.name(), Some(PAD_NAME | BACK_NAME | POWER_NAME))) {
-            eprintln!("input: {} {:?}", path.display(), dev.name());
+            log!("input: {} {:?}", path.display(), dev.name());
             found = true;
             let p = pad.clone();
             std::thread::spawn(move || {
-                while let Ok(events) = dev.fetch_events() {
-                    for ev in events {
-                        let summary = ev.destructure();
-                        if log && !matches!(summary, EventSummary::Synchronization(..)) {
-                            eprintln!("input: {summary:?}");
+                let error = loop {
+                    match dev.fetch_events() {
+                        Ok(events) => {
+                            for ev in events {
+                                let summary = ev.destructure();
+                                if log && !matches!(summary, EventSummary::Synchronization(..)) {
+                                    log!("input: {summary:?}");
+                                }
+                                handle(&mut p.lock().unwrap(), summary);
+                            }
                         }
-                        handle(&mut p.lock().unwrap(), summary);
+                        Err(e) => break e,
                     }
-                }
+                };
+                log!("input: {} stopped: {error}", path.display());
+                *p.lock().unwrap() = Pad::default();
             });
         }
         let headphones = Arc::new(AtomicBool::new(false));
@@ -85,7 +93,7 @@ impl Device {
                 loop {
                     let now = fs::read_to_string(&state).is_ok_and(|s| s.contains("HEADPHONE=1"));
                     if last != Some(now) {
-                        eprintln!("headphones: {}", if now { "in" } else { "out" });
+                        log!("headphones: {}", if now { "in" } else { "out" });
                         hp.store(now, Ordering::Relaxed);
                         route_audio(if now { HEADPHONE_SINK } else { SPEAKER_SINK });
                         last = Some(now);
@@ -98,7 +106,7 @@ impl Device {
         let original_brightness = BACKLIGHTS.map(|b| fs::read_to_string(format!("{b}/brightness")).ok());
         let original_touch = read_trim(TOUCH_CTRL);
         if original_touch.as_deref().is_some_and(|t| t != "0") {
-            eprintln!("touch: tpctrl was {}, setting 0", original_touch.as_deref().unwrap_or_default());
+            log!("touch: tpctrl was {}, setting 0", original_touch.as_deref().unwrap_or_default());
             write(TOUCH_CTRL, "0");
         }
         found.then_some(Self { pad, headphones, hall_open, rumbling: false, original_brightness, original_touch, written: None })
@@ -118,7 +126,7 @@ impl Device {
         if on != self.rumbling {
             self.rumbling = on;
             if let Err(e) = fs::write(MOTOR, if on { "1" } else { "0" }) {
-                eprintln!("motor: {e}");
+                log!("motor: {e}");
             }
         }
     }
@@ -130,13 +138,15 @@ impl Device {
         if let Some(secs) = wake_after {
             let armed = fs::write(WAKE_ALARM, "0").and_then(|_| fs::write(WAKE_ALARM, format!("+{secs}")));
             if let Err(e) = armed {
-                eprintln!("suspend: wake alarm: {e}");
+                log!("suspend: wake alarm: {e}");
                 return;
             }
         }
         if let Err(e) = std::process::Command::new(SUSPEND).status() {
-            eprintln!("suspend: {e}");
+            log!("suspend: {e}");
         }
+        // The stock script sets the backlights and LEDs its own way, so the next apply writes them all.
+        self.written = None;
     }
 
     pub fn headphones(&self) -> bool {
@@ -169,9 +179,9 @@ impl Device {
             if old.is_none_or(|o| o.brightness[i] != want.brightness[i]) {
                 write(&format!("{path}/brightness"), &want.brightness[i].to_string());
             }
-            if changed(|w| w.screens_on) {
+            if old.is_none_or(|o| o.screens_on[i] != want.screens_on[i]) {
                 // 4 is FB_BLANK_POWERDOWN.
-                write(&format!("{path}/bl_power"), if want.screens_on { "0" } else { "4" });
+                write(&format!("{path}/bl_power"), if want.screens_on[i] { "0" } else { "4" });
             }
         }
         if changed(|w| w.leds[0]) {
@@ -217,7 +227,7 @@ fn jack_state_path() -> Option<std::path::PathBuf> {
 fn route_audio(sink: &str) {
     let pactl = |args: &[&str]| std::process::Command::new("pactl").args(args).output();
     if let Err(e) = pactl(&["set-default-sink", sink]) {
-        eprintln!("audio route: {e}");
+        log!("audio route: {e}");
         return;
     }
     let Ok(out) = pactl(&["list", "short", "sink-inputs"]) else { return };
@@ -232,7 +242,7 @@ fn read_trim(path: &str) -> Option<String> {
 
 fn write(path: &str, value: &str) {
     if let Err(e) = fs::write(path, value) {
-        eprintln!("{path}: {e}");
+        log!("{path}: {e}");
     }
 }
 

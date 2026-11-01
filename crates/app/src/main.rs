@@ -1,3 +1,8 @@
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+//! The game on the device and macOS: two windows, one per screen, and the hardware beside them. The loop is
+//! `App::tick` on each redraw of the top window, which runs `Game::update` (`crates/game/src/lib.rs`), and so
+//! `Harvest::update` during a run, then draws both screens.
+
 mod debug;
 #[cfg(target_os = "linux")]
 mod device;
@@ -6,12 +11,12 @@ mod persist;
 
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use last_harvest::{VERSION, audio, pak, samples};
+use last_harvest::{VERSION, audio, log, pak, samples};
 use last_harvest_game::{Buttons, Game, InputTracker, MAX_TOUCHES, RawInput, SCREEN_H, SCREEN_W, Scene, System};
 use winit::application::ApplicationHandler;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event::{ElementState, MouseButton, TouchPhase, WindowEvent};
-use winit::event_loop::{ActiveEventLoop, EventLoop};
+use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::WindowId;
 
@@ -20,6 +25,9 @@ const QUIT_HOLD: f32 = 1.0;
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 const WAKE_GRACE: Duration = Duration::from_secs(2);
 const STATS_WINDOW: Duration = Duration::from_secs(1);
+const AUDIO_RETRY: Duration = Duration::from_secs(1);
+const LID_FRAME: Duration = Duration::from_millis(100);
+const AUDIO_RETRY_MAX: Duration = Duration::from_secs(60);
 
 /// Frame timing over the last window, plus sensors read once per window.
 #[derive(Default)]
@@ -37,6 +45,9 @@ struct App {
     tracker: InputTracker,
     gfx: Option<gfx::Gfx>,
     audio: Option<audio::Audio>,
+    /// The sound files, to open the audio again with, and when to next try after the output went away.
+    sounds: samples::Files,
+    audio_retry: Option<(Instant, Duration)>,
     #[cfg(target_os = "linux")]
     device: Option<device::Device>,
     keys: Buttons,
@@ -55,10 +66,14 @@ struct App {
     saver: persist::Saver,
     stats: Stats,
     system: System,
+    /// The window or GL failed, so the exit is a failure.
+    failed: bool,
+    /// A window per screen, as on the device or with `LAST_HARVEST_WINDOWS=2`; else one window, played as on a phone.
+    two: bool,
 }
 
 impl App {
-    fn new(sounds: &samples::Files) -> Self {
+    fn new(sounds: samples::Files) -> Self {
         let seed = SystemTime::now().duration_since(UNIX_EPOCH).map_or(1, |d| d.as_nanos() as u64);
         let mut game = Game::new(seed);
         let (saver, save) = persist::Saver::load();
@@ -72,16 +87,31 @@ impl App {
         if let Some(secs) = std::env::var("LAST_HARVEST_CLOCK").ok().and_then(|s| s.parse().ok()) {
             game.start_clock(secs);
         }
+        game.endless_grenades(std::env::var("LAST_HARVEST_GRENADES").is_ok_and(|v| v == "endless"));
         if let Some(scene) = std::env::var("LAST_HARVEST_START").ok().and_then(|s| Scene::from_name(&s)) {
             game.open(scene);
         }
+        #[cfg(target_os = "linux")]
+        let device = device::Device::open();
+        #[cfg(target_os = "linux")]
+        game.set_backlights(device.is_some());
+        #[cfg(not(target_os = "linux"))]
+        game.set_backlights(false);
+        #[cfg(target_os = "linux")]
+        let on_device = device.is_some();
+        #[cfg(not(target_os = "linux"))]
+        let on_device = false;
+        let two = on_device || std::env::var("LAST_HARVEST_WINDOWS").is_ok_and(|v| v == "2");
+        game.set_quit(true);
         Self {
             game,
             tracker: InputTracker::default(),
             gfx: None,
-            audio: audio::Audio::open(sounds).inspect_err(|e| eprintln!("audio disabled: {e}")).ok(),
+            audio: audio::Audio::open(&sounds).inspect_err(|e| log!("audio disabled: {e}")).ok(),
+            sounds,
+            audio_retry: None,
             #[cfg(target_os = "linux")]
-            device: device::Device::open(),
+            device,
             keys: Buttons::NONE,
             lid_key: false,
             esc: Buttons::NONE,
@@ -96,6 +126,8 @@ impl App {
             saver,
             stats: Stats::default(),
             system: System::default(),
+            failed: false,
+            two,
         }
     }
 
@@ -140,7 +172,7 @@ impl App {
         *s = Stats { since: Some(Instant::now()), ..Default::default() };
         if self.debug.is_some() {
             let sys = &self.system;
-            eprintln!("perf: fps={:.1} ms={:.1} worst={:.1} update={u:.1} build={d:.1} render={r:.1} {}", sys.fps, sys.frame_ms, sys.worst_ms, self.game.summary());
+            log!("perf: fps={:.1} ms={:.1} worst={:.1} update={u:.1} build={d:.1} render={r:.1} {}", sys.fps, sys.frame_ms, sys.worst_ms, self.game.summary());
         }
         #[cfg(target_os = "linux")]
         if let Some(dev) = &self.device {
@@ -155,14 +187,33 @@ impl App {
         self.saver.update(self.game.save(), true);
         if let Some(dev) = &mut self.device {
             dev.suspend(wake_after);
-            eprintln!("resumed");
+            log!("resumed");
         }
         self.last = Instant::now();
         self.woke = self.last;
         self.stats = Stats::default();
     }
 
+    /// Drops audio whose output went away and opens it again, waiting twice as long after each failed try.
+    fn keep_audio(&mut self) {
+        if self.audio.as_ref().is_some_and(audio::Audio::failed) {
+            log!("audio: the output went away; opening it again");
+            self.audio = None;
+            self.audio_retry = Some((Instant::now(), AUDIO_RETRY));
+        }
+        let Some((since, wait)) = self.audio_retry else { return };
+        if self.audio.is_some() || since.elapsed() < wait {
+            return;
+        }
+        self.audio = audio::Audio::open(&self.sounds).inspect_err(|e| log!("audio: still disabled: {e}")).ok();
+        self.audio_retry = self.audio.is_none().then(|| (Instant::now(), (wait * 2).min(AUDIO_RETRY_MAX)));
+    }
+
     fn tick(&mut self, el: &ActiveEventLoop) {
+        if stop::requested() && !el.exiting() {
+            log!("stopping: asked to by a signal");
+            return el.exit();
+        }
         let now = Instant::now();
         let frame = now - self.last;
         let dt = frame.as_secs_f32().min(0.05);
@@ -175,17 +226,18 @@ impl App {
                 debug::Command::Touch(keys) => self.injector.touch(keys),
                 debug::Command::Scene(name) => match Scene::from_name(&name) {
                     Some(scene) => self.game.open(scene),
-                    None => eprintln!("debug: unknown scene {name}"),
+                    None => log!("debug: unknown scene {name}"),
                 },
                 debug::Command::Shot(path) => shot = Some(path),
-                debug::Command::State => eprintln!("debug: state\n{}", self.game.debug_state().unwrap_or_else(|| "not in a harvest".into())),
+                debug::Command::State => log!("debug: state\n{}", self.game.debug_state().unwrap_or_else(|| "not in a harvest".into())),
                 #[cfg(target_os = "linux")]
                 debug::Command::Sleep(secs) => return self.suspend(Some(secs)),
                 #[cfg(not(target_os = "linux"))]
-                debug::Command::Sleep(secs) => eprintln!("debug: sleep {secs} needs the device"),
+                debug::Command::Sleep(secs) => log!("debug: sleep {secs} needs the device"),
                 debug::Command::Panic => panic!("debug: panic requested"),
             }
         }
+        if let Some(line) = self.game.bench_report(|work| { let t = Instant::now(); work(); t.elapsed().as_secs_f64() }) { eprintln!("{line}"); }
         let mut raw = self.raw_input();
         let (held, touch) = self.injector.frame(dt);
         raw.held |= held;
@@ -195,7 +247,7 @@ impl App {
         }
         let input = self.tracker.frame(raw);
         self.home_held = if input.held.contains(Buttons::HOME) { self.home_held + dt } else { 0.0 };
-        if self.home_held >= QUIT_HOLD {
+        if self.home_held >= QUIT_HOLD || self.game.quit_asked() {
             return el.exit();
         }
         #[cfg(target_os = "linux")]
@@ -210,16 +262,23 @@ impl App {
             self.system.headphones = dev.headphones();
         }
         self.game.set_system(self.system);
+        if !self.two
+            && let Some(g) = &self.gfx
+        {
+            let size = g.top.window.inner_size();
+            self.game.set_phone(Some([size.width as f32, size.height as f32]));
+        }
         let started = Instant::now();
         self.game.update(&input, dt);
         self.stats.work_ms[0] += started.elapsed().as_secs_f32() * 1000.0;
         self.saver.update(self.game.save(), false);
+        self.keep_audio();
         let sounds = self.game.take_sounds();
         if let Some(audio) = &self.audio {
             audio.set_volume(self.game.volume());
             let outputs = self.game.outputs();
             audio.set_dread(outputs.dread);
-            audio.set_beds(outputs.screens_on);
+            audio.set_beds(outputs.screens_on[0]);
             sounds.into_iter().for_each(|s| audio.play(s));
         }
         #[cfg(target_os = "linux")]
@@ -239,28 +298,35 @@ impl App {
             match rendered {
                 Ok(Some(img)) => {
                     let path = shot.unwrap();
-                    match debug::save_png(&path, img.width, img.height, &img.rgba) {
-                        Ok(()) => eprintln!("debug: saved {}", path.display()),
-                        Err(e) => eprintln!("debug: shot failed: {e}"),
-                    }
+                    std::thread::spawn(move || match debug::save_png(&path, img.width, img.height, &img.rgba) {
+                        Ok(()) => log!("debug: saved {}", path.display()),
+                        Err(e) => log!("debug: shot failed: {e}"),
+                    });
                 }
                 Ok(None) => {}
                 Err(e) => {
-                    eprintln!("render: {e}");
+                    log!("render: {e}");
+                    self.failed = true;
                     el.exit();
                 }
             }
         }
     }
 
+    /// Whether a pointer on window `id` touches the game: the bottom screen's window, or the one window.
     fn is_bottom(&self, id: WindowId) -> bool {
-        self.gfx.as_ref().is_some_and(|g| g.bottom.window.id() == id)
+        self.gfx.as_ref().is_some_and(|g| g.bottom.as_ref().map_or(g.top.window.id(), |b| b.window.id()) == id)
     }
 
-    /// Converts window pixels to screen pixels; both screens are 1024x768 regardless of window size.
+    /// Converts window pixels to screen pixels, as both screens are 1024x768 whatever the window's size; the one
+    /// window keeps its own pixels, which the game lays out as on a phone.
     fn to_screen(&self, id: WindowId, p: PhysicalPosition<f64>) -> [f32; 2] {
+        if self.gfx.as_ref().is_some_and(|g| g.bottom.is_none()) {
+            return [p.x as f32, p.y as f32];
+        }
         let size = self.gfx.as_ref().map_or(PhysicalSize::new(1, 1), |g| {
-            if g.top.window.id() == id { g.top.window.inner_size() } else { g.bottom.window.inner_size() }
+            let bottom = g.bottom.as_ref().filter(|b| b.window.id() == id);
+            bottom.map_or(g.top.window.inner_size(), |b| b.window.inner_size())
         });
         [p.x as f32 / size.width.max(1) as f32 * SCREEN_W, p.y as f32 / size.height.max(1) as f32 * SCREEN_H]
     }
@@ -276,12 +342,12 @@ fn key_button(code: KeyCode) -> Option<Buttons> {
         KeyCode::KeyZ => Buttons::B,
         KeyCode::KeyS => Buttons::X,
         KeyCode::KeyA => Buttons::Y,
-        KeyCode::KeyQ => Buttons::L1,
+        KeyCode::KeyQ => Buttons::L2,
         KeyCode::KeyW => Buttons::R1,
         KeyCode::Enter => Buttons::START,
         KeyCode::Backspace => Buttons::SELECT,
         KeyCode::Tab => Buttons::BACK,
-        KeyCode::Digit1 => Buttons::L2,
+        KeyCode::Digit1 => Buttons::L1,
         KeyCode::Digit2 => Buttons::R2,
         KeyCode::KeyH => Buttons::HOME,
         KeyCode::Minus => Buttons::VOL_DOWN,
@@ -295,10 +361,11 @@ impl ApplicationHandler for App {
         if self.gfx.is_some() {
             return;
         }
-        match gfx::Gfx::new(el) {
+        match gfx::Gfx::new(el, self.two) {
             Ok(g) => self.gfx = Some(g),
             Err(e) => {
-                eprintln!("gfx: {e}");
+                log!("gfx: {e}");
+                self.failed = true;
                 el.exit();
             }
         }
@@ -356,25 +423,101 @@ impl ApplicationHandler for App {
         self.saver.update(self.game.save(), true);
         #[cfg(target_os = "linux")]
         drop(self.device.take());
-        std::process::exit(0);
+        std::process::exit(if self.failed { 1 } else { 0 });
     }
 
-    fn about_to_wait(&mut self, _el: &ActiveEventLoop) {
-        if let Some(g) = &self.gfx {
+    /// Draws every vsync, or a few times a second with the lid closed, which still reads the lid and the keys.
+    fn about_to_wait(&mut self, el: &ActiveEventLoop) {
+        let Some(g) = &self.gfx else { return };
+        if self.game.outputs().screens_on[0] || self.last.elapsed() >= LID_FRAME {
+            el.set_control_flow(ControlFlow::Wait);
             g.top.window.request_redraw();
+        } else {
+            el.set_control_flow(ControlFlow::WaitUntil(self.last + LID_FRAME));
         }
     }
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    if std::env::args().nth(1).as_deref() == Some("--version") {
-        println!("{VERSION}");
-        return Ok(());
+const USAGE: &str = "\
+usage: last-harvest [--version | --help]
+
+Runs the game in two windows, reading data/game_data.pak beside the binary.
+
+  --version  print the release this binary was built for
+  --help     print this
+
+Environment:
+  LAST_HARVEST_PAK         the data pack, instead of data/game_data.pak
+  LAST_HARVEST_ENEMIES     the folder of enemy cards (data/enemies)
+  LAST_HARVEST_PLAYERS     the folder of player cards (data/players)
+  LAST_HARVEST_MODS        the folder of mod packs (data/mods)
+  LAST_HARVEST_MAPS        the folder of maps (data/maps)
+  LAST_HARVEST_PROPS       the folder of players' props (data/props)
+  LAST_HARVEST_SOUNDS      a folder of recorded sounds, over the pack's
+  LAST_HARVEST_SAVE        the save file (save.txt beside the binary)
+  LAST_HARVEST_TOP         the output for the top screen, such as DSI-2
+  LAST_HARVEST_START       a scene to open at launch, by debug scene name
+  LAST_HARVEST_DEBUG       remote control on /tmp/last-harvest.ctl
+  LAST_HARVEST_LOG_INPUT   log every gamepad event
+  LAST_HARVEST_UNLOCK_ALL  offer every powerup
+  LAST_HARVEST_KIT         powerups every run starts with, such as scythe:3,crows
+  LAST_HARVEST_CLOCK       seconds into the night every run starts
+";
+
+fn main() {
+    match std::env::args().nth(1).as_deref() {
+        Some("--version") => return println!("{VERSION}"),
+        Some("--help" | "-h") => return print!("{USAGE}"),
+        Some(arg) => {
+            eprint!("last-harvest: unknown argument {arg}\n\n{USAGE}");
+            std::process::exit(2);
+        }
+        None => {}
     }
+    if let Err(e) = run() {
+        log!("error: {e}");
+        std::process::exit(1);
+    }
+}
+
+/// SIGTERM and SIGINT, as `killall` and Ctrl-C send, ask the loop to quit the way Home does.
+#[cfg(unix)]
+mod stop {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    static STOP: AtomicBool = AtomicBool::new(false);
+
+    extern "C" fn on_signal(_: libc::c_int) {
+        STOP.store(true, Ordering::Relaxed);
+    }
+
+    pub fn install() {
+        for signal in [libc::SIGTERM, libc::SIGINT] {
+            // SAFETY: the handler only stores to an atomic, which is async-signal-safe.
+            unsafe { libc::signal(signal, on_signal as *const () as libc::sighandler_t) };
+        }
+    }
+
+    pub fn requested() -> bool {
+        STOP.load(Ordering::Relaxed)
+    }
+}
+
+#[cfg(not(unix))]
+mod stop {
+    pub fn install() {}
+
+    pub fn requested() -> bool {
+        false
+    }
+}
+
+fn run() -> Result<(), Box<dyn std::error::Error>> {
     persist::install_crash_log();
-    eprintln!("last-harvest {VERSION}");
+    stop::install();
+    log!("last-harvest {VERSION}, started at unix {}", log::unix_now());
     let sounds = pak::load()?;
     let event_loop = EventLoop::new()?;
-    event_loop.run_app(&mut App::new(&sounds))?;
+    event_loop.run_app(&mut App::new(sounds))?;
     Ok(())
 }

@@ -14,7 +14,7 @@ The top screen is the main view, in 2.5D. Every sprite's silhouette stands extru
 
 The bottom screen shows the same farm from above at twice the art's size. Dots mark what the main view faces. Tap it to throw a grenade.
 
-In a browser, both screens share one canvas, the top screen above the bottom.
+In a browser, pick One screen or Two screens as the game starts. One screen, the default, fills the window: menus show both screens side by side, and a run plays on one screen with on-screen controls (see [On a phone](#on-a-phone)). Two screens share the window, the top screen above the bottom, as on the handheld.
 
 ### Controls
 
@@ -24,12 +24,12 @@ Your weapons fire on their own. You move, turn, throw grenades and pick upgrades
 |---|---|---|
 | Walk forward and back | Up and Down, or the stick | Up and Down arrows |
 | Strafe | Left and Right, or the stick | Left and Right arrows |
-| Turn | Y and A, or L2 and R2 | A and X, or 1 and 2 |
+| Turn | Y and A | A and X |
 | Turn around | B | Z |
 | Aim at barrels | Hold X | Hold S |
 | Throw a grenade | Tap the map | Click the bottom screen |
 | Pick an upgrade | Tap it, or Up, Down and X | Click it, or the arrows and S |
-| Show the whole map | Hold L1 | Hold Q |
+| Show the whole map | Hold L1 | Hold 1 |
 | Pause | Start | Enter, or Esc |
 | Choose a difficulty | Left and Right on Play | Left and Right arrows on Play |
 | Screenshot | R1 | W |
@@ -37,6 +37,36 @@ Your weapons fire on their own. You move, turn, throw grenades and pick upgrades
 | Back to the menu | Back, or B after a run | Tab, or Z after a run |
 | Back out of a menu | B | Z, or Esc |
 | Quit | Hold Home for one second | Cmd+Q, or close a window |
+
+#### One screen
+
+Settings > Screens set to One plays a run on the top screen alone; the bottom screen goes dark. The map is still there, but looking at it means losing sight of the 3D view.
+
+| Action | Device | macOS and browser |
+|---|---|---|
+| Show the map, live | Hold L1 | Hold 1 |
+| Aim a grenade, in slowed time | Hold L2, then the d-pad or stick | Hold Q, then the arrows |
+| Throw it | Let go of L2 | Let go of Q |
+| Cancel the throw | B | Z |
+| Show the whole map, paused | Hold R2 | Hold 2 |
+
+Grenades show only on the map. With none ready, L2 shows the map at full speed and clicks. While you aim, you keep walking the way you were going, and after 3 seconds the grenade throws itself. The cursor starts where your last throw went, relative to your view, if that was under 5 seconds ago, else straight ahead.
+
+#### On a phone
+
+A run plays on one screen with controls beside it, or under it when the phone is upright.
+
+| Action | Touch |
+|---|---|
+| Walk and strafe | Put a thumb down left of the picture and drag; the stick follows it |
+| Turn | Slide a thumb sideways on the strip under Around; further turns faster |
+| Turn around | Around |
+| Show the map | Tap Grenade; tap it again to put the 3D view back. You keep moving |
+| Throw a grenade | While the map is up, tap where it should land |
+| Pick an upgrade, or a pause choice | Tap it |
+| Pause | Pause |
+
+Putting the map away never throws, and nothing slows down. That is the Touch style; Settings > Grenades set to Pad makes Grenade (and L2 on a gamepad) aim with a cursor in slowed time instead, held and let go, as on one screen, which suits a handheld with buttons. The controls hide when you use a gamepad or keyboard, and come back at your next touch.
 
 In a browser, Esc and Home do nothing, and neither do screenshots, brightness or rumble. Sound starts with your first click or key. A gamepad in the browser's standard layout maps by its labels, as on an Xbox pad:
 
@@ -55,7 +85,7 @@ A night lasts ten minutes, from dusk to dawn. A bell rings each minute.
 - **Shots and cover.** Shots fly past bushes, fences and signs. Buildings, vehicles and trees stop them.
 - **Money and level-ups.** Kills drop money, and money levels you up. Each level-up shows three cards on either screen, and you pick one. A level-up also pushes nearby zombies back. Some cards are rare and count twice. See [Powerups](#powerups).
 - **Health.** Some kills drop health instead of money. How often depends on the difficulty.
-- **Grenades.** Tap the map to lob a grenade there. You start with one, and each recharges in 12 seconds.
+- **Grenades.** Tap the map to lob a grenade there. You start with one, two on Easy, and each recharges in 12 seconds.
 - **Barrels.** Shooting a red barrel sets it off. Hold X, and your guns go for the barrels in view. A blast close to you hurts you too.
 - **Hordes.** Hordes arrive during the night, each led by a gold-lit leader. The leader drops a chest when it dies.
 - **Dawn and the Harvester.** At dawn, the Harvester wakes behind you. From then on the dead grow 1% stronger every second.
@@ -70,9 +100,9 @@ Pick a difficulty under Play with Left and Right, or tap its arrows. A new save 
 
 | Difficulty | Bites | Health drops | You start with |
 |---|---|---|---|
-| Easy | Gentle | Often | A pistol, a knife and a grenade |
-| Normal | They hurt | Scarce | A knife and a grenade |
-| Hard | Every bite counts | Rarer still | Only a grenade |
+| Easy | Gentle | Often | A pistol, a knife and two grenades |
+| Normal | They hurt | Scarce | A pistol, a knife and a grenade |
+| Hard | Every bite counts | Rarer still | A pistol, a knife and a grenade |
 
 A player card can change what each difficulty starts you with. See [Player cards](#player-cards).
 
@@ -336,10 +366,10 @@ A pack's `tuning.txt`, and the `[colors]` of its `effects.txt`, need only the li
 
 `tuning.txt` holds `key number` lines in these sections:
 
-- `[player]`: your health, speed, money magnet, critical-hit chance, pickup reach and footprint, before upgrades.
+- `[player]`: your health, speed, money magnet, critical-hit chance, pickup reach and footprint, before upgrades, and how fast the view turns.
 - `[night]`: the night's length, where zombies rise at dusk and dawn, and how near home counts. It also sets the rare-card chance and the level-up push.
 - `[easy]`, `[normal]` and `[hard]`: how hard bites hit and how long a hit keeps you safe. They also set how often kills drop health, and how much.
-- `[zombies]`: the most alive at once, rising time, stagger, growth each minute, a leader's health, dawn's fury, footprint, walk speed, bite reach and `charge_reach`.
+- `[zombies]`: the most alive at once, rising time, stagger, growth each minute, a leader's health, dawn's fury, footprint, walk speed, bite reach, `charge_reach` and how fast zombies chew through a prop.
 - `[harvester]`: dawn's boss, with its health, speed, bite and how far away it rises.
 - `[grenade]`: recharge time, flight time, radius, damage and bomblets.
 - `[barrel]`: health, blast radius and damage.

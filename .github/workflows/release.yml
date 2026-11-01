@@ -18,27 +18,23 @@ jobs:
     env:
       TAG: ${{ github.event.release.tag_name || inputs.tag }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ env.TAG }}
+          persist-credentials: false
 
-      - name: Fetch the private assets
-        env:
-          ASSETS_DEPLOY_KEY: ${{ secrets.ASSETS_DEPLOY_KEY }}
-        run: |
-          install -m 700 -d ~/.ssh
-          printf '%s\n' "$ASSETS_DEPLOY_KEY" > ~/.ssh/assets
-          chmod 600 ~/.ssh/assets
-          git config submodule.assets/private.url "git@github.com:${{ github.repository_owner }}/last-harvest-assets.git"
-          GIT_SSH_COMMAND="ssh -i ~/.ssh/assets -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new" \
-            git submodule update --init --depth 1 assets/private
+      - uses: ./.github/actions/private-assets
+        with:
+          deploy-key: ${{ secrets.ASSETS_DEPLOY_KEY }}
 
-      - uses: dtolnay/rust-toolchain@1.94.0
-      - uses: Swatinem/rust-cache@v2
-      - uses: mlugg/setup-zig@v2
+      - uses: dtolnay/rust-toolchain@dc08e2af391d489dff6d14cf743e574f7d1229c5 # 1.94.0
+        with:
+          toolchain: 1.94.0
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
         with:
           version: 0.17.0
-      - uses: taiki-e/install-action@v2
+      - uses: taiki-e/install-action@68a389c788b2cd04016ce8c80ee23b80d2ab3d68 # v2.88.1
         with:
           tool: cargo-zigbuild@0.22.3
 
@@ -48,23 +44,196 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libasound2-dev
+          # Ubuntu's libasound, not the device's: same soname, old symbols only; the launcher's --version check catches a mismatch.
           ALSA_LIB=/usr/lib/aarch64-linux-gnu/libasound.so.2 scripts/sysroot.sh
           scripts/build-device.sh
           cargo run -q -p last-harvest-pack -- game_data.pak
 
       - name: Package
         run: |
-          mkdir -p dist/last-harvest/data/enemies dist/last-harvest/data/players dist/last-harvest/data/mods dist/Imgs
+          mkdir -p dist/last-harvest/data/enemies dist/last-harvest/data/players dist/last-harvest/data/props dist/last-harvest/data/maps dist/last-harvest/data/mods dist/Imgs
           cp target/aarch64-unknown-linux-gnu/release/last-harvest dist/last-harvest/
           cp assets/data-README.txt dist/last-harvest/data/README.txt
           cp assets/LastHarvest.sh dist/
           cp assets/LastHarvest.png dist/Imgs/
+          cp assets/fonts/OFL.txt dist/last-harvest/
+          python3 tools/third_party.py dist/last-harvest/THIRD_PARTY_LICENSES.txt
           tar -C dist -czf "last-harvest-$TAG-aarch64-linux.tar.gz" .
 
       - name: Upload to the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "$TAG" "last-harvest-$TAG-aarch64-linux.tar.gz" game_data.pak --clobber
+
+  # Android: an arm64 APK that fetches the release's shared game_data.pak on first run. Signed with the
+  # ANDROID_KEYSTORE_B64 key so each release installs over the last; without it, a throwaway key and a warning.
+  android:
+    runs-on: ubuntu-24.04
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ env.TAG }}
+          persist-credentials: false
+
+      - uses: ./.github/actions/private-assets
+        with:
+          deploy-key: ${{ secrets.ASSETS_DEPLOY_KEY }}
+
+      - uses: dtolnay/rust-toolchain@dc08e2af391d489dff6d14cf743e574f7d1229c5 # 1.94.0
+        with:
+          toolchain: 1.94.0
+          targets: aarch64-linux-android
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: taiki-e/install-action@68a389c788b2cd04016ce8c80ee23b80d2ab3d68 # v2.88.1
+        with:
+          tool: cargo-ndk@4.1.2
+
+      - name: Android SDK pieces
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0" "ndk;29.0.14206865" >/dev/null
+
+      - name: Build
+        env:
+          LAST_HARVEST_VERSION: ${{ env.TAG }}
+          LAST_HARVEST_NO_PAK: 1
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/29.0.14206865"
+          if [ -n "$KEYSTORE_B64" ]; then
+            printf '%s' "$KEYSTORE_B64" | base64 -d >"$RUNNER_TEMP/release.jks"
+            export ANDROID_KEYSTORE="$RUNNER_TEMP/release.jks" ANDROID_KEYSTORE_PASSWORD="$KEYSTORE_PASSWORD" ANDROID_KEY_ALIAS=last-harvest
+          else
+            echo "::warning::No ANDROID_KEYSTORE_B64 secret: the APK is signed with a throwaway key and won't install over an earlier one."
+            export ANDROID_KEYSTORE="$RUNNER_TEMP/throwaway.jks"
+          fi
+          scripts/android.sh
+          cp target/android/last-harvest.apk "last-harvest-$TAG-android.apk"
+
+      - name: Upload to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" "last-harvest-$TAG-android.apk" --clobber
+
+  # muOS: a .muxapp for the 64-bit H700 Anbernics, linked against Ubuntu's libSDL2 (same soname as the device's,
+  # which carries its GPU driver). Its launcher fetches the release's shared game_data.pak.
+  muos:
+    runs-on: ubuntu-24.04-arm
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ env.TAG }}
+          persist-credentials: false
+
+      - uses: ./.github/actions/private-assets
+        with:
+          deploy-key: ${{ secrets.ASSETS_DEPLOY_KEY }}
+
+      - uses: dtolnay/rust-toolchain@dc08e2af391d489dff6d14cf743e574f7d1229c5 # 1.94.0
+        with:
+          toolchain: 1.94.0
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: 0.17.0
+      - uses: taiki-e/install-action@68a389c788b2cd04016ce8c80ee23b80d2ab3d68 # v2.88.1
+        with:
+          tool: cargo-zigbuild@0.22.3
+
+      - name: Build
+        env:
+          LAST_HARVEST_VERSION: ${{ env.TAG }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libsdl2-dev
+          ALSA_LIB=/usr/lib/aarch64-linux-gnu/libasound.so.2 scripts/sysroot.sh
+          MUOS_SDL=/usr/lib/aarch64-linux-gnu/libSDL2-2.0.so.0 scripts/muxapp.sh --release
+          cp target/muos/LastHarvest.muxapp "last-harvest-$TAG-muos.muxapp"
+
+      - name: Upload to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" "last-harvest-$TAG-muos.muxapp" --clobber
+
+  # Desktops: one window, played as on a phone with the mouse as a finger. Each package carries the binary and an
+  # empty data folder; the release's shared game_data.pak goes in it.
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: macos-14, target: aarch64-apple-darwin, name: macos-arm64 }
+          - { runner: windows-latest, target: x86_64-pc-windows-msvc, name: windows-x86_64 }
+          - { runner: windows-latest, target: aarch64-pc-windows-msvc, name: windows-arm64 }
+          - { runner: ubuntu-24.04, target: x86_64-unknown-linux-gnu, name: linux-x86_64 }
+          - { runner: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu, name: linux-arm64 }
+    runs-on: ${{ matrix.runner }}
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ env.TAG }}
+          persist-credentials: false
+
+      - uses: ./.github/actions/private-assets
+        with:
+          deploy-key: ${{ secrets.ASSETS_DEPLOY_KEY }}
+
+      - uses: dtolnay/rust-toolchain@dc08e2af391d489dff6d14cf743e574f7d1229c5 # 1.94.0
+        with:
+          toolchain: 1.94.0
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Linux libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+
+      - name: Build
+        env:
+          LAST_HARVEST_VERSION: ${{ env.TAG }}
+        run: cargo build --locked --release -p last-harvest --bin last-harvest --target ${{ matrix.target }} --no-default-features
+
+      - name: Package
+        run: |
+          exe=last-harvest
+          [ "$RUNNER_OS" = Windows ] && exe=last-harvest.exe
+          app=dist/LastHarvest
+          mkdir -p "$app/data/enemies" "$app/data/players" "$app/data/props" "$app/data/maps" "$app/data/mods"
+          cp "target/${{ matrix.target }}/release/$exe" "$app/"
+          cp assets/data-README.txt "$app/data/README.txt"
+          cp assets/desktop-README.txt "$app/README.txt"
+          cp assets/fonts/OFL.txt "$app/"
+          "$(command -v python3 || command -v python)" tools/third_party.py "$app/THIRD_PARTY_LICENSES.txt"
+          out="last-harvest-$TAG-${{ matrix.name }}"
+          if [ "$RUNNER_OS" = Windows ]; then
+            (cd dist && 7z a -tzip -bso0 "../$out.zip" LastHarvest)
+            echo "file=$out.zip" >>"$GITHUB_ENV"
+          elif [ "$RUNNER_OS" = macOS ]; then
+            (cd dist && zip -qry "../$out.zip" LastHarvest)
+            echo "file=$out.zip" >>"$GITHUB_ENV"
+          else
+            tar -C dist -czf "$out.tar.gz" LastHarvest
+            echo "file=$out.tar.gz" >>"$GITHUB_ENV"
+          fi
+
+      - name: Upload to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" "$file" --clobber
 
   # GitHub Pages: a landing page, the game in play/ and the public card editor in editor/, sharing game_data.pak at
   # the root. Also the game as an HTML5 zip, on the release and, when set up, on itch.io.
@@ -80,26 +249,21 @@ jobs:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ env.TAG }}
+          persist-credentials: false
 
       # game_data.pak carries the tileset's atlas and the recorded sounds; neither wasm may build them in.
-      - name: Fetch the private assets
-        env:
-          ASSETS_DEPLOY_KEY: ${{ secrets.ASSETS_DEPLOY_KEY }}
-        run: |
-          install -m 700 -d ~/.ssh
-          printf '%s\n' "$ASSETS_DEPLOY_KEY" > ~/.ssh/assets
-          chmod 600 ~/.ssh/assets
-          git config submodule.assets/private.url "git@github.com:${{ github.repository_owner }}/last-harvest-assets.git"
-          GIT_SSH_COMMAND="ssh -i ~/.ssh/assets -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new" \
-            git submodule update --init --depth 1 assets/private
-
-      - uses: dtolnay/rust-toolchain@1.94.0
+      - uses: ./.github/actions/private-assets
         with:
+          deploy-key: ${{ secrets.ASSETS_DEPLOY_KEY }}
+
+      - uses: dtolnay/rust-toolchain@dc08e2af391d489dff6d14cf743e574f7d1229c5 # 1.94.0
+        with:
+          toolchain: 1.94.0
           targets: wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - name: Install wasm-bindgen
         run: |
           version=$(awk '/^name = "wasm-bindgen"$/ { getline; gsub(/[^0-9.]/, ""); print; exit }' Cargo.lock)
@@ -112,16 +276,19 @@ jobs:
           scripts/pages.sh
           scripts/web-game.sh --zip
           mv target/last-harvest-web.zip "last-harvest-$TAG-web.zip"
+          python3 tools/third_party.py THIRD_PARTY_LICENSES.txt
+          cp assets/fonts/OFL.txt THIRD_PARTY_LICENSES.txt target/pages/
+          zip -q -X -j "last-harvest-$TAG-web.zip" assets/fonts/OFL.txt THIRD_PARTY_LICENSES.txt
 
       # Only the site's own files may go out: never a tileset build or a stray asset.
       - name: Check the site holds only the landing page, the manual, the game and the editor
         run: |
-          expected="apple-touch-icon.png editor editor/apple-touch-icon.png editor/icon-512.png editor/icon.png editor/index.html"
+          expected="OFL.txt THIRD_PARTY_LICENSES.txt apple-touch-icon.png editor editor/apple-touch-icon.png editor/icon-512.png editor/icon.png editor/index.html"
           expected="$expected editor/manifest.webmanifest editor/sprite-editor.js editor/sprite-editor_bg.wasm editor/sw.js game_data.pak"
           expected="$expected icon.png index.html manual.html play play/icon.png play/index.html play/last-harvest.js play/last-harvest_bg.wasm sw.js"
           found=$(find target/pages -mindepth 1 -printf '%P\n' | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')
           [ "$found" = "$expected" ] || { echo "unexpected files: $found"; exit 1; }
-          expected="game_data.pak icon.png index.html last-harvest.js last-harvest_bg.wasm"
+          expected="OFL.txt THIRD_PARTY_LICENSES.txt game_data.pak icon.png index.html last-harvest.js last-harvest_bg.wasm"
           found=$(unzip -Z1 "last-harvest-$TAG-web.zip" | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')
           [ "$found" = "$expected" ] || { echo "unexpected files in the zip: $found"; exit 1; }
           cargo tree -e features -i last-harvest-game -p sprite-editor --no-default-features --features modding --target wasm32-unknown-unknown \
@@ -134,11 +301,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "$TAG" "last-harvest-$TAG-web.zip" --clobber
 
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
         with:
           path: target/pages
       - id: deploy
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5
 
       - name: Push to itch.io
         env:
@@ -149,7 +316,8 @@ jobs:
             echo "BUTLER_API_KEY or ITCH_TARGET is not set: skipping itch.io"
             exit 0
           fi
-          curl -fsSL -o butler.zip https://broth.itch.zone/butler/linux-amd64/LATEST/archive/default
+          curl -fsSL -o butler.zip https://broth.itch.zone/butler/linux-amd64/15.32.0/archive/default
+          echo "2335971394ef6596f95ded0833e85ee28755e13761716ef4c91d6b11f69162f5  butler.zip" | sha256sum -c -
           unzip -q butler.zip -d butler
           chmod +x butler/butler
           butler/butler push "last-harvest-$TAG-web.zip" "$ITCH_TARGET" --userversion "$TAG"

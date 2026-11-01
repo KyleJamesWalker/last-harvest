@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'sha256-Ry/TEWwEXVTYWL55FmQXx8libIhpOjkjoaP6N/0/N/U='; style-src 'unsafe-inline'; object-src 'none'; base-uri 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>LastHarvest</title>
 <link rel="icon" href="icon.png">
@@ -10,13 +11,18 @@
   body { display: flex; align-items: center; justify-content: center; font: 18px -apple-system, system-ui, sans-serif;
          -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
   /* Both 1024x768 screens, top above bottom: 2:3, as large as fits. */
-  #screens, #start { width: min(100vw, 100vh * 2 / 3); height: min(100vh, 150vw); }
+  #screens, #start { width: min(100vw, 100vh * 2 / 3); height: min(100vh, 150vw);
+                     width: min(100vw, 100dvh * 2 / 3); height: min(100dvh, 150vw); }
   #screens { display: block; touch-action: none; outline: none; }
   #start { position: absolute; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px;
            background: rgba(0, 0, 0, 0.6); cursor: pointer; text-align: center; }
   #start[hidden] { display: none; }
   #start b { font-size: 34px; color: #f2bf4d; }
   #start p { margin: 0 24px; max-width: 30em; line-height: 1.5; color: #c8c8d2; font-size: 15px; }
+  #start .screens { display: flex; gap: 12px; }
+  #start button { font: inherit; color: #ebebf2; background: rgba(255, 255, 255, 0.08); border: 2px solid rgba(255, 255, 255, 0.25);
+                  border-radius: 6px; padding: 10px 18px; cursor: pointer; }
+  #start button[aria-pressed="true"] { border-color: #f2bf4d; color: #f2bf4d; }
   .failure { position: absolute; z-index: 1; top: 0; margin: 12px; padding: 12px; background: #5a1e1e; color: #fff; white-space: pre-wrap; }
 </style>
 </head>
@@ -24,8 +30,12 @@
 <canvas id="screens" tabindex="0"></canvas>
 <div id="start">
   <b id="start-label">Loading…</b>
-  <p>Arrows move. X is A, Z is B, S is X, A is Y, Enter is Start, Q and W are the shoulders.
-  A click on the bottom screen is a touch. Gamepads work too.</p>
+  <div class="screens">
+    <button type="button" data-screens="1" aria-pressed="true">One screen</button>
+    <button type="button" data-screens="2" aria-pressed="false">Two screens</button>
+  </div>
+  <p>Arrows move. X is A, Z is B, S is X, A is Y, Enter is Start, 1 and W are L1 and R1, Q and 2 are L2 and R2.
+  The mouse or a finger is a touch: on the on-screen controls with one screen, on the bottom screen with two. Gamepads work too.</p>
 </div>
 <script type="module">
   import init, { run } from "./last-harvest.js";

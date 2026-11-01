@@ -1,5 +1,6 @@
 # The numbers the game plays by that no card, prop or powerup sets. Each [section] holds `key number` lines;
-# a mod's tuning.txt only needs the lines it changes. Distances are in pixels (a tile is 16), times in seconds.
+# a mod's tuning.txt only needs the lines it changes. Distances are in pixels (a tile is 16), times in seconds,
+# angles in radians.
 
 [player]
 hp 100          # health before upgrades
@@ -9,6 +10,7 @@ crit 0.1        # chance a hit lands double, before upgrades
 pickup 7        # how near the player picks something up
 width 8         # the player's footprint for walls, in pixels
 depth 6
+turn 2.6        # radians a second the view turns with a turn button held
 
 [night]
 length 600      # seconds from dusk to dawn
@@ -50,6 +52,7 @@ depth 4
 walk_fps 8      # walking frames a second for the player, and for a zombie at a speed of 20
 bite_reach 9    # how near a zombie bites the player
 charge_reach 48 # how near a zombie with a charge speeds up
+chew 0.5        # bites a second a zombie takes out of a prop in its way
 
 [harvester]
 hp 2500         # dawn's boss
@@ -64,6 +67,11 @@ radius 36
 damage 50
 bomblet_radius 18
 bomblet_damage 25
+aim_window 3    # single screen: real seconds to aim before it throws itself
+aim_slow 0.5    # game speed while aiming
+aim_speed 160   # cursor, map pixels a second
+aim_memory 5    # seconds a throw's angle off the view and distance carry to the next aim
+aim_ahead 64    # how far straight ahead the cursor starts otherwise
 
 [barrel]
 hp 20

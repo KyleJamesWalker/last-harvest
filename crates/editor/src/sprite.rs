@@ -400,12 +400,17 @@ impl Sprite {
         Self::load_from(name, |file| std::fs::read(dir.join(name).join(file)).ok())
     }
 
-    /// Loads from whatever `read` returns for each file in the sprite's folder, such as an earlier commit.
+    /// Loads from whatever `read` returns for each file in the sprite's folder, such as an earlier commit; None when a
+    /// file is there but doesn't decode.
     pub fn load_from(name: &str, read: impl Fn(&str) -> Option<Vec<u8>>) -> Option<Self> {
-        let png = |file: &str| read(file).and_then(|bytes| decode_png(&bytes).ok());
+        let broken = std::cell::Cell::new(false);
+        let png = |file: &str| read(file).and_then(|bytes| decode_png(&bytes).inspect_err(|_| broken.set(true)).ok());
         let mut frames = Vec::new();
         while let Some(f) = png(&format!("{}.png", frames.len())) {
             frames.push(f);
+        }
+        if broken.get() {
+            return None;
         }
         if frames.is_empty() {
             let (_, arts) = art::ALL.iter().find(|(n, _)| *n == name)?;
@@ -424,7 +429,8 @@ impl Sprite {
         let clear = read(CLEAR_FILE).and_then(|b| String::from_utf8(b).ok()).unwrap_or_default();
         let clear_in_3d = clear.lines().filter_map(parse_hex).collect();
         let paint = read(paint::FILE).and_then(|b| paint::parse(&String::from_utf8(b).ok()?).ok()).unwrap_or_default();
-        Some(Self { name: name.to_string(), frames, views, footprint: png(FOOTPRINT_FILE), roof: png(ROOF_FILE), north: png(NORTH_FILE), west: png(WEST_FILE), top: png(TOP_FILE), card, clear_in_3d, paint })
+        let sprite = Self { name: name.to_string(), frames, views, footprint: png(FOOTPRINT_FILE), roof: png(ROOF_FILE), north: png(NORTH_FILE), west: png(WEST_FILE), top: png(TOP_FILE), card, clear_in_3d, paint };
+        (!broken.get()).then_some(sprite)
     }
 
     /// The files a save writes: the frames, then the views, footprint, roof, north and west views and top when it has
@@ -580,16 +586,16 @@ pub fn save_stand(dir: &Path, catalog: &Path, name: &str, how: &str) -> Result<(
 
 pub fn decode_png(bytes: &[u8]) -> Result<Frame, String> {
     let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes));
-    decoder.set_transformations(png::Transformations::EXPAND);
+    decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16 | png::Transformations::ALPHA);
     let mut reader = decoder.read_info().map_err(|e| e.to_string())?;
     let mut buf = vec![0; reader.output_buffer_size()];
     let info = reader.next_frame(&mut buf).map_err(|e| e.to_string())?;
-    let channels = match info.color_type {
-        png::ColorType::Rgba => 4,
-        png::ColorType::Rgb => 3,
+    let buf = &buf[..info.buffer_size()];
+    let px = match info.color_type {
+        png::ColorType::Rgba => buf.chunks_exact(4).map(|p| [p[0], p[1], p[2], p[3]]).collect(),
+        png::ColorType::GrayscaleAlpha => buf.chunks_exact(2).map(|p| [p[0], p[0], p[0], p[1]]).collect(),
         other => return Err(format!("unsupported {other:?}")),
     };
-    let px = buf[..info.buffer_size()].chunks_exact(channels).map(|p| [p[0], p[1], p[2], if channels == 4 { p[3] } else { 255 }]).collect();
     Ok(Frame { w: info.width as usize, h: info.height as usize, px })
 }
 
@@ -747,6 +753,37 @@ mod tests {
         assert_eq!((back.frames, back.views, back.footprint, back.top), (s.frames, s.views, s.footprint, s.top));
         assert!(Sprite::from_files("THING", &files[1..]).is_none(), "a frame at least");
         assert!(unbundle(b"0.png\n9\nshort").is_none());
+    }
+
+    fn png_of(w: u32, h: u32, color: png::ColorType, depth: png::BitDepth, data: &[u8]) -> Vec<u8> {
+        let mut out = Vec::new();
+        let mut enc = png::Encoder::new(&mut out, w, h);
+        enc.set_color(color);
+        enc.set_depth(depth);
+        enc.write_header().and_then(|mut w| w.write_image_data(data)).unwrap();
+        out
+    }
+
+    #[test]
+    fn grayscale_and_16_bit_pngs_decode_to_their_colors() {
+        let gray = png_of(2, 1, png::ColorType::Grayscale, png::BitDepth::Eight, &[10, 200]);
+        assert_eq!(decode_png(&gray).unwrap().px, [[10, 10, 10, 255], [200, 200, 200, 255]]);
+        let gray_alpha = png_of(1, 1, png::ColorType::GrayscaleAlpha, png::BitDepth::Eight, &[7, 0]);
+        assert_eq!(decode_png(&gray_alpha).unwrap().px, [[7, 7, 7, 0]]);
+        let deep = png_of(1, 1, png::ColorType::Rgba, png::BitDepth::Sixteen, &[0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xff, 0xff]);
+        assert_eq!(decode_png(&deep).unwrap().px, [[0x12, 0x56, 0x9a, 0xff]]);
+        let rgb = png_of(1, 1, png::ColorType::Rgb, png::BitDepth::Eight, &[1, 2, 3]);
+        assert_eq!(decode_png(&rgb).unwrap().px, [[1, 2, 3, 255]]);
+    }
+
+    #[test]
+    fn a_saved_picture_that_wont_decode_never_falls_back_to_the_packed_frames() {
+        let good = encode_png(&Frame::blank(3, 2));
+        let files = |zero: &[u8], extra: Option<(&str, &[u8])>| -> Vec<(String, Vec<u8>)> { std::iter::once(("0.png".to_string(), zero.to_vec())).chain(extra.map(|(n, b)| (n.to_string(), b.to_vec()))).collect() };
+        assert!(Sprite::from_files("BARREL", &files(b"not a png", None)).is_none(), "a broken 0.png isn't swapped for the atlas");
+        assert!(Sprite::from_files("BARREL", &files(&good, Some(("1.png", b"junk")))).is_none(), "nor a broken later frame dropped");
+        assert!(Sprite::from_files("BARREL", &files(&good, Some(("south.png", b"junk")))).is_none(), "nor a broken view");
+        assert_eq!(Sprite::from_files("BARREL", &files(&good, None)).unwrap().frames, [Frame::blank(3, 2)]);
     }
 
     #[test]

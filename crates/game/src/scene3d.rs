@@ -1,5 +1,7 @@
 //! The per-frame 3D scene a backend draws under the 2D shapes: textured quads from the art texture.
 
+use std::cell::Cell;
+
 use glam::{Mat4, Vec3};
 
 /// Short-lived lights on top of the lantern, such as muzzle flashes and explosions.
@@ -22,6 +24,23 @@ pub struct CardScene {
     /// Distances from the eye where fog starts and where it is total.
     pub fog_range: [f32; 2],
     pub cards: Vec<Card>,
+}
+
+thread_local! {
+    static SPARE: Cell<Vec<Card>> = const { Cell::new(Vec::new()) };
+}
+
+pub(crate) fn spare_cards() -> Vec<Card> {
+    SPARE.take()
+}
+
+impl Drop for CardScene {
+    fn drop(&mut self) {
+        let mut cards = std::mem::take(&mut self.cards);
+        cards.clear();
+        let old = SPARE.take();
+        SPARE.set(if old.capacity() > cards.capacity() { old } else { cards });
+    }
 }
 
 #[derive(Clone, Copy, Debug)]

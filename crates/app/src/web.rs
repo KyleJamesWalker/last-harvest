@@ -1,5 +1,7 @@
-//! The game in a web page: both screens on one WebGL2 canvas, top above bottom as on the device, the keyboard and
-//! gamepads for its buttons, the pointer on the bottom half for touch, and the save in the browser's storage.
+//! The game in a web page: the keyboard and gamepads for its buttons, the pointer for touch, and the save in the
+//! browser's storage. By default it plays on one screen, as on a phone: the canvas fills the window and the game lays
+//! out the screens and its on-screen controls. With `?screens=2`, or the start overlay's Two screens, both screens
+//! share the canvas, top above bottom as on the device, and the pointer on the bottom half is the touch.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -9,7 +11,7 @@ use last_harvest_pack::Pak;
 use last_harvest_render::{Profile, Renderer};
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
-use web_sys::{AddEventListenerOptions, Document, Event, EventTarget, Gamepad, GamepadButton, HtmlCanvasElement, HtmlElement, KeyboardEvent, PointerEvent, Storage, WebGl2RenderingContext};
+use web_sys::{AddEventListenerOptions, Document, Element, Event, EventTarget, Gamepad, GamepadButton, HtmlCanvasElement, HtmlElement, KeyboardEvent, PointerEvent, Storage, WebGl2RenderingContext};
 
 use crate::{audio, pak, samples};
 
@@ -34,7 +36,7 @@ const PAD: [(u32, Buttons); 14] = [
     (15, Buttons::RIGHT),
 ];
 
-/// A pointer down on the bottom screen, in its pixels.
+/// A pointer down on the bottom screen, in its pixels; on a phone, anywhere on the canvas, in its pixels.
 struct Touch {
     id: i32,
     at: [f32; 2],
@@ -58,9 +60,17 @@ struct Web {
     /// Keys pressed since the last frame, which holds each for at least one frame however quickly it lifts.
     struck: Buttons,
     lid_key: bool,
-    touches: Vec<Touch>,
+    /// By slot, which a finger keeps until it lifts.
+    touches: [Option<Touch>; MAX_TOUCHES],
+    phone: bool,
     storage: Option<Storage>,
     saved: Save,
+    /// The last write was refused and has been warned of.
+    refused: bool,
+    /// The browser has taken the GL context away.
+    lost: bool,
+    /// A gamepad without the standard layout has been logged.
+    odd_pad: bool,
     last: f64,
     stats: (u32, f64, f64),
     system: System,
@@ -80,12 +90,12 @@ fn key_button(code: &str) -> Option<Buttons> {
         "KeyZ" => Buttons::B,
         "KeyS" => Buttons::X,
         "KeyA" => Buttons::Y,
-        "KeyQ" => Buttons::L1,
+        "KeyQ" => Buttons::L2,
         "KeyW" => Buttons::R1,
         "Enter" | "NumpadEnter" => Buttons::START,
         "Backspace" => Buttons::SELECT,
         "Tab" => Buttons::BACK,
-        "Digit1" => Buttons::L2,
+        "Digit1" => Buttons::L1,
         "Digit2" => Buttons::R2,
         "Minus" => Buttons::VOL_DOWN,
         "Equal" => Buttons::VOL_UP,
@@ -93,11 +103,19 @@ fn key_button(code: &str) -> Option<Buttons> {
     })
 }
 
-/// Buttons held and the left stick across every connected gamepad.
-fn gamepads() -> (Buttons, [f32; 2]) {
-    let (mut held, mut stick) = (Buttons::NONE, [0.0f32; 2]);
-    let Some(pads) = web_sys::window().and_then(|w| w.navigator().get_gamepads().ok()) else { return (held, stick) };
+/// Buttons held and the left stick across every connected gamepad with the standard layout; the first without it is
+/// logged once, and `warned` remembers that.
+/// The buttons held, the left stick, and the right stick's sideways push, over every standard-layout pad.
+fn gamepads(warned: &mut bool) -> (Buttons, [f32; 2], f32) {
+    let (mut held, mut stick, mut look) = (Buttons::NONE, [0.0f32; 2], 0.0f32);
+    let Some(pads) = web_sys::window().and_then(|w| w.navigator().get_gamepads().ok()) else { return (held, stick, look) };
     for pad in pads.iter().filter_map(|p| p.dyn_into::<Gamepad>().ok()) {
+        if js_sys::Reflect::get(&pad, &"mapping".into()).ok().and_then(|m| m.as_string()).as_deref() != Some("standard") {
+            if !std::mem::replace(warned, true) {
+                web_sys::console::warn_1(&format!("gamepad: {} has no standard layout, so it is ignored", pad.id()).into());
+            }
+            continue;
+        }
         let buttons = pad.buttons();
         for (i, b) in PAD {
             if buttons.get(i).dyn_into::<GamepadButton>().is_ok_and(|b| b.pressed()) {
@@ -111,33 +129,88 @@ fn gamepads() -> (Buttons, [f32; 2]) {
                 *s = (*s + v).clamp(-1.0, 1.0);
             }
         }
+        let v = axes.get(2).as_f64().unwrap_or(0.0) as f32;
+        if v.abs() >= STICK_DEAD {
+            look = (look + v).clamp(-1.0, 1.0);
+        }
     }
-    (held, stick)
+    (held, stick, look)
 }
 
 impl Web {
     /// Sizes the canvas's pixels to the space the page gives it, up to the screens' own 1024 across.
     fn fit(&mut self) {
         let dpr = web_sys::window().map_or(1.0, |w| w.device_pixel_ratio());
-        let w = ((self.canvas.client_width() as f64 * dpr).round() as u32).clamp(2, SCREEN_W as u32) & !1;
+        if self.phone {
+            let [cw, ch] = [self.canvas.client_width().max(4) as f64 * dpr, self.canvas.client_height().max(4) as f64 * dpr];
+            let k = (2560.0 / cw.max(ch)).min(1.0);
+            let [w, h] = [(cw * k).round() as u32, (ch * k).round() as u32];
+            if self.canvas.width() != w || self.canvas.height() != h {
+                self.canvas.set_width(w);
+                self.canvas.set_height(h);
+            }
+            return;
+        }
+        let w = ((self.canvas.client_width() as f64 * dpr).round() as u32).clamp(4, SCREEN_W as u32) & !3;
         if self.canvas.width() != w {
             self.canvas.set_width(w);
             self.canvas.set_height(w * 3 / 2);
         }
     }
 
-    /// Bottom-screen pixels for a pointer, or None on the top screen.
+    /// Bottom-screen pixels for a pointer, or None on the top screen; on a phone, canvas pixels.
     fn to_screen(&self, e: &PointerEvent) -> Option<[f32; 2]> {
         let [w, h] = [self.canvas.client_width().max(1) as f32, self.canvas.client_height().max(2) as f32];
+        if self.phone {
+            return Some([e.offset_x() as f32 / w * self.canvas.width() as f32, e.offset_y() as f32 / h * self.canvas.height() as f32]);
+        }
         let y = e.offset_y() as f32 / h * 2.0 - 1.0;
         (y >= 0.0).then(|| [(e.offset_x() as f32 / w).clamp(0.0, 1.0) * SCREEN_W, y.min(1.0) * SCREEN_H])
+    }
+
+    /// Plays on one screen, as on a phone, or on two stacked; the address keeps the choice for a reload.
+    fn set_screens(&mut self, one: bool) {
+        if one == self.phone {
+            return;
+        }
+        self.phone = one;
+        self.touches = Default::default();
+        show_screens(&self.document, &self.canvas, &self.overlay, one);
+        if let Some(history) = web_sys::window().and_then(|w| w.history().ok()) {
+            let _ = history.replace_state_with_url(&JsValue::NULL, "", Some(if one { "?screens=1" } else { "?screens=2" }));
+        }
     }
 
     /// The first click or key: the page may now play sound.
     fn begin(&mut self) {
         let Some(sounds) = self.sounds.take() else { return };
-        self.overlay.set_hidden(true);
+        self.overlay.set_hidden(!self.lost);
         self.audio = audio::Audio::open(&sounds).inspect_err(|e| web_sys::console::warn_1(&format!("audio disabled: {e}").into())).ok();
+    }
+
+    /// The browser took the GL context: nothing draws until it gives it back, so the game waits behind a note.
+    fn context_lost(&mut self, e: &Event) {
+        e.prevent_default();
+        self.lost = true;
+        if let Ok(label) = element::<HtmlElement>(&self.document, "start-label") {
+            label.set_inner_text("Reload to continue");
+        }
+        if let Some(p) = self.overlay.query_selector("p").ok().flatten().and_then(|p| p.dyn_into::<HtmlElement>().ok()) {
+            p.set_inner_text("The browser took the graphics away from the game. Reload the page to carry on.");
+        }
+        self.overlay.set_hidden(false);
+    }
+
+    /// The context is back but empty, so everything the renderer uploaded goes up again.
+    fn context_restored(&mut self) {
+        match Renderer::new(&self.gl, Profile::Gles) {
+            Ok(renderer) => {
+                self.renderer = renderer;
+                self.lost = false;
+                self.overlay.set_hidden(true);
+            }
+            Err(e) => web_sys::console::error_1(&format!("graphics: {e}").into()),
+        }
     }
 
     fn down(&mut self, e: &PointerEvent) {
@@ -148,27 +221,35 @@ impl Web {
             return;
         }
         if let Some(p) = self.to_screen(e)
-            && self.touches.len() < MAX_TOUCHES
+            && let Some(slot) = self.touches.iter_mut().find(|t| t.is_none())
         {
             let _ = self.canvas.set_pointer_capture(e.pointer_id());
-            self.touches.push(Touch { id: e.pointer_id(), at: p, seen: false, lifted: false });
+            *slot = Some(Touch { id: e.pointer_id(), at: p, seen: false, lifted: false });
             e.prevent_default();
         }
     }
 
     fn moved(&mut self, e: &PointerEvent) {
-        let [w, h] = [self.canvas.client_width().max(1) as f32, self.canvas.client_height().max(2) as f32];
-        let p = [(e.offset_x() as f32 / w).clamp(0.0, 1.0) * SCREEN_W, (e.offset_y() as f32 / h * 2.0 - 1.0).clamp(0.0, 1.0) * SCREEN_H];
-        if let Some(t) = self.touches.iter_mut().find(|t| t.id == e.pointer_id() && !t.lifted) {
+        let p = if self.phone {
+            self.to_screen(e)
+        } else {
+            let [w, h] = [self.canvas.client_width().max(1) as f32, self.canvas.client_height().max(2) as f32];
+            Some([(e.offset_x() as f32 / w).clamp(0.0, 1.0) * SCREEN_W, (e.offset_y() as f32 / h * 2.0 - 1.0).clamp(0.0, 1.0) * SCREEN_H])
+        };
+        if let (Some(p), Some(t)) = (p, self.touches.iter_mut().flatten().find(|t| t.id == e.pointer_id() && !t.lifted)) {
             t.at = p;
         }
     }
 
     fn up(&mut self, e: &PointerEvent) {
-        self.touches.retain_mut(|t| {
-            t.lifted |= t.id == e.pointer_id();
-            !(t.lifted && t.seen)
-        });
+        for slot in &mut self.touches {
+            if let Some(t) = slot {
+                t.lifted |= t.id == e.pointer_id();
+                if t.lifted && t.seen {
+                    *slot = None;
+                }
+            }
+        }
     }
 
     fn key(&mut self, e: &KeyboardEvent, down: bool) {
@@ -211,28 +292,41 @@ impl Web {
         if save == self.saved {
             return;
         }
-        self.saved = save;
-        if let Some(s) = &self.storage
-            && s.set_item(SAVE_KEY, &save.to_text()).is_err()
-        {
-            web_sys::console::warn_1(&"save: the browser's storage refused it".into());
+        let Some(s) = &self.storage else {
+            self.saved = save;
+            return;
+        };
+        if s.set_item(SAVE_KEY, &save.to_text()).is_ok() {
+            self.saved = save;
+            self.refused = false;
+        } else if !std::mem::replace(&mut self.refused, true) {
+            web_sys::console::warn_1(&"save: the browser's storage refused it; trying again each frame".into());
         }
     }
 
     fn frame(&mut self) {
+        if self.lost {
+            self.last = now();
+            return;
+        }
         let t = now();
         let frame_ms = t - self.last;
         let dt = (frame_ms / 1000.0).clamp(0.0, 0.05) as f32;
         self.last = t;
         self.measure(frame_ms);
         self.fit();
-        let (pad, stick) = gamepads();
-        let mut raw = RawInput { held: self.keys | std::mem::take(&mut self.struck) | pad, stick, touch: self.touches.first().map(|t| t.at), lid_closed: self.lid_key, ..Default::default() };
-        for (slot, t) in raw.touches.iter_mut().zip(&mut self.touches) {
-            *slot = Some(t.at);
-            t.seen = true;
+        let (pad, stick, look) = gamepads(&mut self.odd_pad);
+        let mut raw = RawInput { held: self.keys | std::mem::take(&mut self.struck) | pad, stick, look, touch: self.touches.iter().flatten().next().map(|t| t.at), lid_closed: self.lid_key, ..Default::default() };
+        for (out, slot) in raw.touches.iter_mut().zip(&mut self.touches) {
+            if let Some(t) = slot {
+                *out = Some(t.at);
+                t.seen = true;
+                if t.lifted {
+                    *slot = None;
+                }
+            }
         }
-        self.touches.retain(|t| !t.lifted);
+        self.game.set_phone(self.phone.then(|| [self.canvas.width() as f32, self.canvas.height() as f32]));
         let input = self.tracker.frame(raw);
         self.game.set_system(self.system);
         self.game.update(&input, dt);
@@ -242,10 +336,14 @@ impl Web {
             audio.set_volume(self.game.volume());
             let outputs = self.game.outputs();
             audio.set_dread(outputs.dread);
-            audio.set_beds(outputs.screens_on);
+            audio.set_beds(outputs.screens_on[0]);
             sounds.into_iter().for_each(|s| audio.play(s));
         }
         let frame = self.game.draw();
+        if let Some(phone) = &frame.phone {
+            crate::draw_phone(&mut self.renderer, &self.gl, &frame, phone, [self.canvas.width() as i32, self.canvas.height() as i32]);
+            return;
+        }
         let (w, h) = (self.canvas.width() as i32, self.canvas.height() as i32 / 2);
         self.renderer.draw(&self.gl, &frame.top, [0, h, w, h]);
         self.renderer.draw(&self.gl, &frame.bottom, [0, 0, w, h]);
@@ -297,9 +395,15 @@ fn start(pak: Pak) -> Result<(), String> {
     let gl = glow::Context::from_webgl2_context(context.dyn_into::<WebGl2RenderingContext>().map_err(|_| "not a WebGL2 context")?);
     let renderer = Renderer::new(&gl, Profile::Gles)?;
     let storage = window.local_storage().ok().flatten();
+    if storage.is_none() {
+        web_sys::console::warn_1(&"save: the browser gives this page no storage, so progress won't be kept".into());
+    }
     let saved = storage.as_ref().and_then(|s| s.get_item(SAVE_KEY).ok().flatten()).map(|t| Save::parse(&t)).unwrap_or_default();
     let mut game = Game::new(js_sys::Date::now() as u64);
     game.load(saved);
+    game.set_backlights(false);
+    let phone = !window.location().search().unwrap_or_default().contains("screens=2");
+    show_screens(&document, &canvas, &overlay, phone);
     let web = Rc::new(RefCell::new(Web {
         game,
         tracker: InputTracker::default(),
@@ -313,9 +417,13 @@ fn start(pak: Pak) -> Result<(), String> {
         keys: Buttons::NONE,
         struck: Buttons::NONE,
         lid_key: false,
-        touches: Vec::new(),
+        touches: Default::default(),
+        phone,
         storage,
         saved,
+        refused: false,
+        lost: false,
+        odd_pad: false,
         last: now(),
         stats: (0, 0.0, now()),
         system: System::default(),
@@ -323,6 +431,10 @@ fn start(pak: Pak) -> Result<(), String> {
 
     listen(&overlay, "pointerdown", &web, |w, e: &PointerEvent| {
         e.prevent_default();
+        let picked = e.target().and_then(|t| t.dyn_into::<Element>().ok()).and_then(|t| t.closest("[data-screens]").ok().flatten());
+        if let Some(choice) = picked.and_then(|b| b.get_attribute("data-screens")) {
+            w.set_screens(choice != "2");
+        }
         w.begin();
         let _ = w.canvas.focus();
     });
@@ -332,6 +444,8 @@ fn start(pak: Pak) -> Result<(), String> {
         listen(&canvas, kind, &web, |w, e: &PointerEvent| w.up(e));
     }
     listen(&canvas, "contextmenu", &web, |_, e: &Event| e.prevent_default());
+    listen(&canvas, "webglcontextlost", &web, |w, e: &Event| w.context_lost(e));
+    listen(&canvas, "webglcontextrestored", &web, |w, _: &Event| w.context_restored());
     listen(&window, "keydown", &web, |w, e: &KeyboardEvent| w.key(e, true));
     listen(&window, "keyup", &web, |w, e: &KeyboardEvent| w.key(e, false));
     // A key let go while the page had no focus would otherwise stay down.
@@ -350,6 +464,29 @@ fn start(pak: Pak) -> Result<(), String> {
     }));
     let _ = window.request_animation_frame(tick.borrow().as_ref().ok_or("no frame callback")?.as_ref().unchecked_ref());
     Ok(())
+}
+
+/// Sizes the canvas and the start overlay for one screen, filling the window, or two stacked as the page's style
+/// sets them, and marks the overlay's matching button.
+fn show_screens(document: &Document, canvas: &HtmlCanvasElement, overlay: &HtmlElement, one: bool) {
+    for el in [canvas.unchecked_ref::<HtmlElement>(), overlay] {
+        let style = el.style();
+        if one {
+            let _ = style.set_property("width", "100vw");
+            let _ = style.set_property("height", "100vh");
+            let _ = style.set_property("height", "100dvh");
+        } else {
+            let _ = style.remove_property("width");
+            let _ = style.remove_property("height");
+        }
+    }
+    let Ok(buttons) = document.query_selector_all("[data-screens]") else { return };
+    for i in 0..buttons.length() {
+        if let Some(b) = buttons.item(i).and_then(|n| n.dyn_into::<Element>().ok()) {
+            let on = (b.get_attribute("data-screens").as_deref() == Some("2")) != one;
+            let _ = b.set_attribute("aria-pressed", if on { "true" } else { "false" });
+        }
+    }
 }
 
 /// Shows a failure on the page, where a player can see it.

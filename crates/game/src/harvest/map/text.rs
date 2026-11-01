@@ -280,7 +280,7 @@ impl MapSource {
                 ("props", Section::Header | Section::Ground) if words.len() == 1 => section = Section::Props,
                 (_, Section::Ground) => rows.push((n, line)),
                 (_, Section::Props) => props.push((n, prop_line(&words).map_err(|e| format!("{n}: {e}"))?)),
-                ("name", _) => name = line["name".len()..].trim().chars().take(40).collect(),
+                ("name", _) => name = super::super::enemies::font_line("name", line["name".len()..].trim(), NAME_MAX).map_err(|e| format!("{n}: {e}"))?,
                 ("scatter", _) if words.len() == 1 => scatter = true,
                 (key @ ("size" | "spawn" | "home"), _) => {
                     let pair = numbers(&words[1..]).filter(|v| v.len() == 2).ok_or_else(|| format!("{n}: {key} is two whole numbers"))?;
@@ -318,7 +318,8 @@ impl MapSource {
 
     pub fn to_text(&self) -> String {
         let [w, h] = self.size;
-        let mut s = format!("name {}\nsize {w} {h}\nspawn {} {}\nhome {} {}\n", self.name, self.spawn[0], self.spawn[1], self.home[0], self.home[1]);
+        let name: String = self.name.chars().filter(|&c| c != '#' && (' '..='~').contains(&c)).take(NAME_MAX).collect();
+        let mut s = format!("name {}\nsize {w} {h}\nspawn {} {}\nhome {} {}\n", name.trim(), self.spawn[0], self.spawn[1], self.home[0], self.home[1]);
         if self.scatter {
             s += "scatter\n";
         }
@@ -387,6 +388,9 @@ impl MapSource {
         Self { name: name.into(), size, spawn: at(map.spawn), home: at(map.home), scatter: false, ground: (0..w * h).map(code).collect(), props }
     }
 }
+
+/// The longest a map's `name` can be.
+const NAME_MAX: usize = 40;
 
 /// The most frames a prop line can pick among.
 const MAX_FRAME_INDEX: usize = 64;
@@ -457,12 +461,27 @@ impl Map {
                 return Err(if *n > 0 { format!("{n}: {e}") } else { e });
             }
         }
-        if src.scatter {
-            map.scatter(rng);
-        }
-        map.keep_barrels_apart();
         let centre = |[x, y]: [usize; 2]| [(x.min(w - 1) as f32 + 0.5) * TILE, (y.min(h - 1) as f32 + 0.5) * TILE];
         (map.spawn, map.home) = (centre(src.spawn), centre(src.home));
+        if src.scatter {
+            for [x, y] in [src.spawn, src.home] {
+                map.claim(x.saturating_sub(1), y.saturating_sub(1), 3, 3, Cell::Taken);
+            }
+            let (base, before) = (map.clone(), map.props.len());
+            map.scatter_props(rng);
+            // Whether a map plays can't hang on the seed: scatter gives way to the path the map has without it.
+            if strict && map.check_ends(src).is_err() {
+                base.check_ends(src)?;
+                let way = base.way(src.spawn, src.home);
+                let kept: Vec<Prop> = map.props[before..].iter().filter(|p| !way.iter().any(|&[x, y]| p.blocks(x, y))).copied().collect();
+                map = base;
+                for p in kept {
+                    map.prop(p.frames, 0.0, (p.x / TILE) as usize, (p.y / TILE) as usize);
+                }
+            }
+            map.scatter_ground(rng);
+        }
+        map.keep_barrels_apart();
         if strict {
             map.check_ends(src)?;
         }
@@ -677,6 +696,17 @@ mod tests {
     }
 
     #[test]
+    fn a_name_always_writes_back_as_a_name_that_reads() {
+        let mut src = MapSource::parse(&farm("")).unwrap();
+        for (name, reads) in [("Pen #2", "Pen 2"), ("Caf\u{e9} Farm", "Caf Farm"), ("Old Mill", "Old Mill")] {
+            src.name = name.into();
+            assert_eq!(MapSource::parse(&src.to_text()).unwrap().name, reads);
+        }
+        src.name = "y".repeat(50);
+        assert_eq!(MapSource::parse(&src.to_text()).unwrap().name.len(), 40);
+    }
+
+    #[test]
     fn a_loose_build_lets_a_half_made_map_draw() {
         let mut src = MapSource::parse(&farm("HOUSE 15 3")).unwrap();
         assert!(Map::from_source(&src, &mut Rng::new(1), true).is_err());
@@ -715,6 +745,8 @@ mod tests {
         assert!(err(&farm("").replace("spawn 4 11\n", "")).contains("no spawn"));
         assert!(err(&farm("").replace("spawn 4 11", "spawn 0 5")).contains("edge"));
         assert!(err(&farm("").replace("name Test", "wings 2")).starts_with("1: wings"));
+        assert!(err(&farm("").replace("name Test", "name Caf\u{e9}")).starts_with("1: name uses letters"), "the font draws ASCII only");
+        assert!(err(&farm("").replace("name Test", &format!("name {}", "x".repeat(41)))).starts_with("1: name is at most 40"));
     }
 
     #[test]
@@ -797,6 +829,54 @@ mod tests {
         let wall: String = (1..13).map(|y| format!("BUSH 3 {y}\n")).collect();
         let text = farm(&wall).replace("spawn 4 11", "spawn 1 11");
         assert!(read(&text).err().unwrap().contains("no way from the spawn"));
+    }
+
+    #[test]
+    fn a_scatter_map_that_checks_builds_with_every_seed() {
+        let (rows, wall) = (vec![".".repeat(40); 30].join("\n"), (1..29).filter(|&y| y != 15).map(|y| format!("BUSH 20 {y}\n")).collect::<String>());
+        let text = format!("size 40 30\nspawn 5 15\nhome 34 15\nscatter\nground\n{rows}\nprops\n{wall}");
+        let verdict = check("gap.map.txt", text.clone()).map(|_| ());
+        assert_eq!(verdict, Ok(()));
+        let src = MapSource::parse(&text).unwrap();
+        let mut scattered = 0;
+        for seed in 0..200 {
+            let map = Map::from_source(&src, &mut Rng::new(seed), true).map(|m| m.props.len());
+            assert_eq!(map.is_ok(), verdict.is_ok(), "seed {seed}: {map:?}");
+            scattered = scattered.max(map.unwrap());
+        }
+        let plain = Map::from_source(&MapSource { scatter: false, ..src }, &mut Rng::new(0), true).unwrap().props.len();
+        assert!(scattered > plain + 10, "scatter still lands");
+    }
+
+    #[test]
+    fn any_generated_map_is_checked_without_panicking() {
+        let mut rng = Rng::new(5);
+        let codes: Vec<u8> = super::super::ground::ground().iter().map(|g| g.code).collect();
+        let names: Vec<&str> = art::ALL.iter().map(|(n, _)| *n).collect();
+        let pick = |rng: &mut Rng, lo: usize, hi: usize| lo + rng.below(hi - lo + 1);
+        for _ in 0..40 {
+            let [w, h] = [pick(&mut rng, MIN_SIZE[0], MAX_SIZE[0]), pick(&mut rng, MIN_SIZE[1], MAX_SIZE[1])];
+            let rows: Vec<String> = (0..h).map(|_| (0..w).map(|_| codes[rng.below(codes.len())] as char).collect()).collect();
+            let mut props = String::new();
+            for _ in 0..rng.below(30) {
+                let (x, y, wild) = (rng.below(w + 4), rng.below(h + 4), rng.below(20) == 0);
+                props += &match rng.below(4) {
+                    0 => format!("fence {} {x} {y} {} {} gate {}\n", ["rail", "picket"][rng.below(2)], rng.below(12), rng.below(10), rng.below(8)),
+                    1 => format!("{} {x} {y} frame {} fps {}\n", names[rng.below(names.len())], rng.below(if wild { 70 } else { 1 }), rng.below(if wild { 80 } else { 60 })),
+                    2 => format!("{} {x} {y} hp {} cover {}\n", names[rng.below(names.len())], rng.below(if wild { 1200 } else { 1000 }), ["yes", "no"][rng.below(2)]),
+                    _ => format!("{} {x} {y}\n", names[rng.below(names.len())]),
+                };
+            }
+            let ends = [rng.below(w + 1), rng.below(h + 1), rng.below(w + 1), rng.below(h + 1)];
+            let scatter = if rng.below(2) == 0 { "scatter\n" } else { "" };
+            let text = format!("size {w} {h}\nspawn {} {}\nhome {} {}\n{scatter}ground\n{}\nprops\n{props}", ends[0], ends[1], ends[2], ends[3], rows.join("\n"));
+            let checks = check("gen.map.txt", text.clone()).is_ok();
+            if let Ok(src) = MapSource::parse(&text) {
+                let seed = rng.below(1000) as u64;
+                let _ = Map::from_source(&src, &mut Rng::new(seed), false);
+                assert_eq!(Map::from_source(&src, &mut Rng::new(seed), true).is_ok(), checks, "a run builds what check passed, seed {seed}:\n{text}");
+            }
+        }
     }
 
     #[test]

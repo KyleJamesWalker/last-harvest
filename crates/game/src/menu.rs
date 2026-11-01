@@ -16,9 +16,11 @@ pub(crate) enum Page {
     Credits,
 }
 
-const MAIN: [(Page, &str); 5] = [(Page::Main, "Play"), (Page::Main, "Map"), (Page::Settings, "Settings"), (Page::Stats, "Stats"), (Page::Credits, "Credits")];
+const MAIN: [(Page, &str); 6] = [(Page::Main, "Play"), (Page::Main, "Map"), (Page::Settings, "Settings"), (Page::Stats, "Stats"), (Page::Credits, "Credits"), (Page::Main, "Quit")];
 /// The row that picks the map runs start on rather than opening a page.
 const MAP_ROW: usize = 1;
+/// The last row, shown only where the game can quit.
+const QUIT_ROW: usize = 5;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Setting {
@@ -27,13 +29,15 @@ pub(crate) enum Setting {
     Volume,
     Rumble,
     Fps,
+    Screens,
+    Grenades,
     Player,
     Enemies,
     Reset,
 }
 
 impl Setting {
-    const ALL: [Setting; 8] = [Setting::TopBrightness, Setting::BottomBrightness, Setting::Volume, Setting::Rumble, Setting::Fps, Setting::Player, Setting::Enemies, Setting::Reset];
+    const ALL: [Setting; 10] = [Setting::TopBrightness, Setting::BottomBrightness, Setting::Volume, Setting::Rumble, Setting::Fps, Setting::Screens, Setting::Grenades, Setting::Player, Setting::Enemies, Setting::Reset];
 
     fn name(self) -> &'static str {
         match self {
@@ -42,6 +46,8 @@ impl Setting {
             Setting::Volume => "Volume",
             Setting::Rumble => "Rumble",
             Setting::Fps => "Show FPS",
+            Setting::Screens => "Screens",
+            Setting::Grenades => "Grenades",
             Setting::Player => "Player",
             Setting::Enemies => "Enemies",
             Setting::Reset => "Reset progress",
@@ -54,10 +60,10 @@ const PLAY: [f32; 4] = [212.0, 30.0, 600.0, 100.0];
 pub(crate) const DIFFICULTY_Y: f32 = 150.0;
 /// The Map, Settings, Stats and Credits rows, below the difficulty box.
 const ROWS_TOP: f32 = 316.0;
-const ROW_H: f32 = 80.0;
+const ROW_H: f32 = 70.0;
 /// The settings rows; a run's settings leave out Player, Enemies and Reset.
 const SET_TOP: f32 = 96.0;
-const SET_H: f32 = 68.0;
+const SET_H: f32 = 62.0;
 /// Enemy rows that fit above the Back button; the list scrolls past that.
 const ENEMY_ROWS: usize = 8;
 /// The arrows either side of a level bar, as x centres.
@@ -90,8 +96,20 @@ fn setting_row(i: usize) -> [f32; 4] {
 }
 
 impl Game {
-    pub(crate) fn settings_list(&self) -> &'static [Setting] {
-        if self.settings_in_run { &Setting::ALL[..5] } else { &Setting::ALL }
+    /// A run's settings leave out Player, Enemies and Reset; a phone has Grenades where others have Screens; screen
+    /// brightness shows only where the platform sets the backlights.
+    pub(crate) fn settings_list(&self) -> Vec<Setting> {
+        let phone = self.is_phone();
+        Setting::ALL
+            .into_iter()
+            .filter(|s| match s {
+                Setting::Player | Setting::Enemies | Setting::Reset => !self.settings_in_run,
+                Setting::TopBrightness | Setting::BottomBrightness => self.has_backlights(),
+                Setting::Screens => !phone,
+                Setting::Grenades => phone && self.has_touch(),
+                _ => true,
+            })
+            .collect()
     }
 
     /// The title screen: Up and Down choose a row, Left and Right the difficulty, A or a tap opens.
@@ -123,7 +141,7 @@ impl Game {
     fn main_page(&mut self, input: &Input, tapped: Option<[f32; 2]>) {
         let step = input.pressed.contains(Buttons::DOWN) as i32 - input.pressed.contains(Buttons::UP) as i32;
         if step != 0 {
-            self.row = (self.row as i32 + step).rem_euclid(MAIN.len() as i32) as usize;
+            self.row = (self.row as i32 + step).rem_euclid(self.main_rows() as i32) as usize;
             self.sounds.push(Sfx::Tick(self.row as u8 * 3));
             return;
         }
@@ -141,11 +159,15 @@ impl Game {
             return;
         }
         let chosen = match tapped {
-            Some(p) => (0..MAIN.len()).find(|&i| inside(p, main_row(i))),
+            Some(p) => (0..self.main_rows()).find(|&i| inside(p, main_row(i))),
             None => input.pressed.any(Buttons::START | Buttons::A).then_some(self.row),
         };
         match chosen {
             Some(0) => self.open(crate::Scene::Harvest),
+            Some(QUIT_ROW) => {
+                self.quit_asked = true;
+                self.sounds.push(Sfx::Tick(0));
+            }
             Some(MAP_ROW) => {
                 self.row = MAP_ROW;
                 self.step_map(1);
@@ -169,6 +191,10 @@ impl Game {
         let next = (at + by).rem_euclid(maps.len() as i32 + 1) as usize;
         self.save.map = crate::save::LookId::new(next.checked_sub(1).map_or("", |i| maps[i].id.as_str()));
         self.sounds.push(Sfx::Tick(next as u8 * 3));
+    }
+
+    fn main_rows(&self) -> usize {
+        if self.can_quit { MAIN.len() } else { QUIT_ROW }
     }
 
     pub(crate) fn open_settings(&mut self, in_run: bool) {
@@ -219,6 +245,8 @@ impl Game {
                 }
             }
             Setting::Fps if by != 0 || press => self.save.fps = !self.save.fps,
+            Setting::Screens if by != 0 || press => self.save.one_screen = !self.save.one_screen,
+            Setting::Grenades if by != 0 || press => self.save.touch_grenades = !self.save.touch_grenades,
             Setting::Player if by != 0 || press => {
                 let looks = crate::player_looks();
                 let at = looks.iter().position(|l| l.id == self.save.player.as_str()).unwrap_or(0) as i32;
@@ -288,7 +316,7 @@ impl Game {
 
     fn draw_main(&self, c: &mut Canvas) {
         let pulse = 0.55 + 0.45 * (self.clock * 3.0).sin().abs();
-        for (i, (_, name)) in MAIN.iter().enumerate() {
+        for (i, (_, name)) in MAIN.iter().enumerate().take(self.main_rows()) {
             let [x, y, w, h] = main_row(i);
             let on = i == self.row;
             c.rect(x, y, w, h, if on { [1.0, 0.85, 0.3, 0.3] } else { [1.0, 1.0, 1.0, 0.08] });
@@ -335,6 +363,16 @@ impl Game {
                 Setting::Rumble | Setting::Fps => {
                     let v = if s == Setting::Rumble { self.save.rumble } else { self.save.fps };
                     c.label(if v { "On" } else { "Off" }, (LESS_X + MORE_X) / 2.0, mid - 20.0, 38.0, if v { HOT } else { DIM }, Align::Center);
+                    continue;
+                }
+                Setting::Screens | Setting::Grenades => {
+                    let label = match s {
+                        Setting::Screens if self.save.one_screen => "One",
+                        Setting::Screens => "Two",
+                        _ if self.save.touch_grenades => "Touch",
+                        _ => "Pad",
+                    };
+                    c.label(label, (LESS_X + MORE_X) / 2.0, mid - 20.0, 38.0, HOT, Align::Center);
                     continue;
                 }
                 Setting::Player => {

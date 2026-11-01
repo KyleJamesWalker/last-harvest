@@ -21,6 +21,25 @@ pub(super) struct DataEdit {
     pub first: usize,
     /// The line whose value is being typed, by its place in the section.
     pub typing: Option<usize>,
+    pub undo: Vec<String>,
+    pub redo: Vec<String>,
+}
+
+impl DataEdit {
+    /// Makes one change to the table as a step to undo; true if it changed anything.
+    fn change(&mut self, f: impl FnOnce(&mut Table, &str) -> bool) -> bool {
+        let before = self.table.text.clone();
+        if !f(&mut self.table, &self.section) || self.table.text == before {
+            return false;
+        }
+        self.undo.push(before);
+        if self.undo.len() > UNDO_DEPTH {
+            self.undo.remove(0);
+        }
+        self.redo.clear();
+        self.dirty = true;
+        true
+    }
 }
 
 /// The list name for a section of a data file: `DATA_POWERUPS_PISTOL`, or `DATA_POWERUPS` for the lines before
@@ -66,8 +85,8 @@ impl Editor {
             let Some(text) = self.store.read_table(file) else { continue };
             let t = Table::new(file, &text);
             if let Some(section) = t.sections().into_iter().find(|s| data_name(file, s) == name) {
-                self.map = None;
-                self.data = Some(DataEdit { file: file.to_string(), section, table: t, dirty: false, first: 0, typing: None });
+                (self.map, self.data_link) = (None, None);
+                self.data = Some(DataEdit { file: file.to_string(), section, table: t, dirty: false, first: 0, typing: None, undo: Vec::new(), redo: Vec::new() });
                 self.sprite = Sprite { name: name.into(), frames: vec![Frame::blank(16, 16)], views: None, footprint: None, roof: None, north: None, west: None, top: None, card: None, clear_in_3d: Vec::new(), paint: Default::default() };
                 (self.frame, self.view, self.stats, self.selection, self.naming) = (0, None, false, None, None);
                 self.undo.clear();
@@ -107,8 +126,7 @@ impl Editor {
             Action::DataStep(row, by) => {
                 let Some(e) = d.table.entries(&d.section).into_iter().nth(row) else { return true };
                 if let Some(v) = table::step(&e.value, by, shift) {
-                    d.table.set(&d.section, row, &v);
-                    d.dirty = true;
+                    d.change(|t, s| t.set(s, row, &v));
                 }
             }
             Action::DataEdit(row) => {
@@ -117,8 +135,7 @@ impl Editor {
                 self.naming = Some((Line::Value, e.value));
             }
             Action::DataRemove(row) => {
-                d.table.remove(&d.section, row);
-                d.dirty = true;
+                d.change(|t, s| t.remove(s, row));
             }
             Action::DataAdd => {
                 d.typing = None;
@@ -144,12 +161,11 @@ impl Editor {
         let Some(d) = &mut self.data else { return };
         match (line, d.typing.take()) {
             (Line::Value, Some(row)) => {
-                d.dirty |= d.table.set(&d.section, row, text);
+                d.change(|t, s| t.set(s, row, text));
             }
             (Line::Added, _) => {
                 let (key, value) = text.split_once(char::is_whitespace).map_or((text, ""), |(k, v)| (k, v.trim()));
-                if !key.is_empty() && d.table.add(&d.section, key, value) {
-                    d.dirty = true;
+                if !key.is_empty() && d.change(|t, s| t.add(s, key, value)) {
                     d.first = d.table.entries(&d.section).len().saturating_sub(ROWS);
                 }
             }
@@ -178,8 +194,17 @@ impl Editor {
         }
         match key {
             Key::Save => self.save_table(),
+            Key::Undo | Key::Redo => {
+                let Some(d) = &mut self.data else { return true };
+                let (from, to) = if key == Key::Undo { (&mut d.undo, &mut d.redo) } else { (&mut d.redo, &mut d.undo) };
+                if let Some(prev) = from.pop() {
+                    to.push(std::mem::replace(&mut d.table.text, prev));
+                    (d.dirty, d.typing) = (true, None);
+                    d.first = d.first.min(d.table.entries(&d.section).len().saturating_sub(ROWS));
+                }
+            }
             // The page has no pixels for these to change.
-            Key::Undo | Key::Redo | Key::Copy | Key::Cut | Key::Paste => {}
+            Key::Copy | Key::Cut | Key::Paste => {}
             Key::Up => {
                 self.data_act(Action::DataPage(-1), false);
             }

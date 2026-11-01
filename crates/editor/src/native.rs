@@ -12,16 +12,16 @@ use glutin_winit::{DisplayBuilder, GlWindow};
 use last_harvest_render::{Profile, Renderer};
 use raw_window_handle::HasWindowHandle;
 use sprite_editor::editor::Key;
-use sprite_editor::sprite;
 use sprite_editor::store::FsStore;
 use sprite_editor::studio::Studio;
 use winit::application::ApplicationHandler;
-use winit::dpi::LogicalSize;
+use winit::dpi::{LogicalSize, PhysicalSize};
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::keyboard::{Key as WKey, ModifiersState, NamedKey};
 use winit::window::{Window, WindowId};
 
+/// The window's size where the screen has room for it.
 const WINDOW: [f32; 2] = [1500.0, 750.0];
 
 struct Gl {
@@ -42,6 +42,8 @@ struct App {
     i_held: bool,
     /// Saves the window as a PNG at the end of the next frame.
     shot: Option<std::path::PathBuf>,
+    /// The window's inner size in logical points.
+    size: [f32; 2],
 }
 
 impl App {
@@ -57,6 +59,7 @@ impl App {
             frames: 0,
             i_held: false,
             shot: None,
+            size: WINDOW,
         }
     }
 
@@ -70,8 +73,8 @@ impl App {
         g.window.set_title(&self.studio.editor.title());
         let s = g.window.scale_factor() as f32;
         let px = |v: f32| (v * s).round() as i32;
-        for (canvas, [x, y, w, h]) in self.studio.canvases().iter().zip(Studio::panes(WINDOW)) {
-            g.renderer.draw(&g.gl, canvas, [px(x), px(WINDOW[1] - y - h), px(w), px(h)]);
+        for (canvas, [x, y, w, h]) in self.studio.canvases().iter().zip(Studio::panes(self.size)) {
+            g.renderer.draw(&g.gl, canvas, [px(x), px(self.size[1] - y - h), px(w), px(h)]);
         }
         self.frames += 1;
         // SPRITE_EDITOR_SHOT saves the window once the previews have settled, then quits: for checking the editor from scripts.
@@ -117,7 +120,7 @@ impl App {
             WKey::Named(NamedKey::ArrowLeft) => Key::Left,
             WKey::Named(NamedKey::ArrowRight) => Key::Right,
             WKey::Named(NamedKey::F12) => {
-                self.shot = Some(sprite::folder().join(format!("editor-{}.png", self.frames)));
+                self.shot = Some(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../../target/editor-{}.png", self.frames)));
                 return;
             }
             _ => return,
@@ -148,6 +151,7 @@ impl ApplicationHandler for App {
         }
         match open(el) {
             Ok(g) => {
+                self.size = logical(&g.window, g.window.inner_size());
                 self.gl = Some(g);
                 self.studio.editor.changed = true;
                 #[cfg(target_os = "macos")]
@@ -166,6 +170,7 @@ impl ApplicationHandler for App {
             WindowEvent::Resized(size) => {
                 if let (Some(g), Some(w), Some(h)) = (&self.gl, NonZeroU32::new(size.width), NonZeroU32::new(size.height)) {
                     g.surface.resize(&g.context, w, h);
+                    self.size = logical(&g.window, size);
                 }
             }
             WindowEvent::ModifiersChanged(m) => {
@@ -183,13 +188,13 @@ impl ApplicationHandler for App {
             WindowEvent::CursorMoved { position, .. } => {
                 let s = self.gl.as_ref().map_or(1.0, |g| g.window.scale_factor()) as f32;
                 let now = [position.x as f32 / s, position.y as f32 / s];
-                let (pane, p) = self.studio.locate_move(WINDOW, now);
-                let (_, before) = self.studio.locate_move(WINDOW, self.cursor);
+                let (pane, p) = self.studio.locate_move(self.size, now);
+                let (_, before) = self.studio.locate_move(self.size, self.cursor);
                 self.cursor = now;
                 self.studio.motion(pane, p, p[0] - before[0]);
             }
             WindowEvent::MouseInput { state, button, .. } => {
-                let (pane, p) = Studio::locate(WINDOW, self.cursor);
+                let (pane, p) = Studio::locate(self.size, self.cursor);
                 match state {
                     ElementState::Pressed if matches!(button, MouseButton::Left | MouseButton::Right) => {
                         self.studio.press(pane, p, button == MouseButton::Right, self.modifiers.shift_key());
@@ -203,7 +208,7 @@ impl ApplicationHandler for App {
                     MouseScrollDelta::LineDelta(_, y) => y,
                     MouseScrollDelta::PixelDelta(p) => p.y as f32 / 20.0,
                 };
-                let (pane, p) = Studio::locate(WINDOW, self.cursor);
+                let (pane, p) = Studio::locate(self.size, self.cursor);
                 self.studio.wheel(pane, p, dy);
             }
             WindowEvent::RedrawRequested => self.frame(),
@@ -218,8 +223,22 @@ impl ApplicationHandler for App {
     }
 }
 
+fn logical(window: &Window, size: PhysicalSize<u32>) -> [f32; 2] {
+    let size = size.to_logical::<f32>(window.scale_factor());
+    [size.width, size.height]
+}
+
+/// `WINDOW`, or as much of the primary screen as keeps its shape when that's smaller.
+fn fit(el: &ActiveEventLoop) -> [f32; 2] {
+    let Some(m) = el.primary_monitor().or_else(|| el.available_monitors().next()) else { return WINDOW };
+    let screen = m.size().to_logical::<f32>(m.scale_factor());
+    let w = WINDOW[0].min(screen.width * 0.95).min(screen.height * 0.85 * WINDOW[0] / WINDOW[1]).max(400.0);
+    [w.floor(), (w * WINDOW[1] / WINDOW[0]).floor()]
+}
+
 fn open(el: &ActiveEventLoop) -> Result<Gl, Box<dyn Error>> {
-    let attrs = Window::default_attributes().with_title("LastHarvest sprite editor").with_inner_size(LogicalSize::new(WINDOW[0], WINDOW[1])).with_resizable(false);
+    let [w, h] = fit(el);
+    let attrs = Window::default_attributes().with_title("LastHarvest sprite editor").with_inner_size(LogicalSize::new(w, h)).with_resizable(true);
     let template = ConfigTemplateBuilder::new().with_depth_size(24);
     let (window, config) = DisplayBuilder::new()
         .with_window_attributes(Some(attrs))

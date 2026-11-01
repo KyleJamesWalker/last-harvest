@@ -4,6 +4,7 @@ members = ["crates/game", "crates/render", "crates/app", "crates/editor", "crate
 
 [workspace.package]
 edition = "2024"
+rust-version = "1.94"
 version = "0.1.0"
 publish = false
 
@@ -15,5 +16,6 @@ glow = "0.16"
 [profile.release]
 lto = "thin"
 codegen-units = 1
-# Symbols keep crash.log backtraces readable on the device.
+# Symbols and line tables keep crash.log backtraces readable on the device.
 strip = "none"
+debug = "line-tables-only"

@@ -3,7 +3,8 @@
 //!   cargo run -p last-harvest-pack [-- <out.pak>]                     the pack, `target/game_data.pak` by default
 //!   cargo run -p last-harvest-pack -- card <sheet.png> <enemy.txt> <name.enemy.png>
 //!   cargo run -p last-harvest-pack -- player <sheet.png> <player.txt> <name.player.png>
-//!   cargo run -p last-harvest-pack -- show <name.enemy.png | name.player.png>
+//!   cargo run -p last-harvest-pack -- prop <sheet.png> <prop.txt> <name.prop.png>
+//!   cargo run -p last-harvest-pack -- show <a card, prop, map or pak>
 //!   cargo run -p last-harvest-pack -- mod <folder> <name.pak>       a mod: the folder's files at their paths in it
 
 use std::path::{Path, PathBuf};
@@ -126,15 +127,7 @@ fn make_mod(dir: &Path, out: &Path) -> Result<(), Box<dyn std::error::Error>> {
         let id = dir.file_name().and_then(|n| n.to_str()).unwrap_or("mod");
         files.push((MANIFEST.to_string(), mod_manifest(id).into_bytes()));
     }
-    // The mod's maps are checked against its own ground and props, where it brings them.
-    let table = |name: &str| files.iter().find(|(p, _)| p == name).and_then(|(_, b)| String::from_utf8(b.clone()).ok());
-    for (file, text) in [(GROUND, table(GROUND)), (PROPS_TABLE, table(PROPS_TABLE))] {
-        if let Some(t) = text {
-            last_harvest_game::check_table(file, &t)?;
-        }
-    }
-    let tables = last_harvest_game::data::Data { ground: table(GROUND), props_table: table(PROPS_TABLE), ..Default::default() };
-    last_harvest_game::data::install(tables)?;
+    install_tables(|name| files.iter().find(|(p, _)| p == name).map(|(_, b)| b.as_slice()))?;
     load_props(files.iter().map(|(p, b)| (p.as_str(), b.as_slice())))?;
     for (path, bytes) in &files {
         if let Some(kind) = card::Kind::of(path) {
@@ -154,7 +147,18 @@ fn make_mod(dir: &Path, out: &Path) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Lists a pack's files and whether the game would take it as a mod, reading each card in it.
+/// Installs a pack's own ground.txt and props.txt, where it brings them, so its maps are checked against them as
+/// the game will check them.
+fn install_tables<'a>(get: impl Fn(&str) -> Option<&'a [u8]>) -> Result<(), String> {
+    let table = |name: &str| get(name).and_then(|b| String::from_utf8(b.to_vec()).ok());
+    for file in [GROUND, PROPS_TABLE] {
+        if let Some(t) = table(file) {
+            last_harvest_game::check_table(file, &t)?;
+        }
+    }
+    last_harvest_game::data::install(last_harvest_game::data::Data { ground: table(GROUND), props_table: table(PROPS_TABLE), ..Default::default() }).map(|_| ())
+}
+
 /// Reads the props among `files` and loads them so maps that place them can be checked.
 fn load_props<'a>(files: impl Iterator<Item = (&'a str, &'a [u8])>) -> Result<(), String> {
     let props = files.filter(|(p, _)| p.ends_with(last_harvest_pack::prop::EXTENSION)).map(|(p, b)| last_harvest_pack::prop::read(p, b)).collect::<Result<Vec<_>, _>>()?;
@@ -164,8 +168,12 @@ fn load_props<'a>(files: impl Iterator<Item = (&'a str, &'a [u8])>) -> Result<()
     }
 }
 
+/// Lists a pack's files and whether the game would take it as a mod, reading each card in it.
 fn show_pak(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let pak = last_harvest_pack::Pak::open(path)?;
+    if let Err(e) = install_tables(|name| pak.get(name)) {
+        println!("Its ground or props table won't read, so its maps are checked against the game's: {e}\n");
+    }
     if let Err(e) = load_props(pak.paths().into_iter().map(|p| (p, pak.get(p).unwrap_or_default()))) {
         println!("A prop won't load, so maps that place it won't either: {e}\n");
     }
@@ -257,18 +265,65 @@ fn show_mix(text: &str) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// The usage lines from this file's own doc.
+fn usage() -> String {
+    include_str!("main.rs").lines().map_while(|l| l.strip_prefix("//!")).map(|l| l.strip_prefix(' ').unwrap_or(l)).collect::<Vec<_>>().join("\n")
+}
+
+/// A command line that isn't one of the usage lines.
+#[derive(Debug)]
+struct Usage(String);
+
+impl std::fmt::Display for Usage {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for Usage {}
+
+fn main() -> std::process::ExitCode {
     let args: Vec<PathBuf> = std::env::args_os().skip(1).map(PathBuf::from).collect();
-    match args.iter().map(|a| a.to_str().unwrap_or("")).collect::<Vec<_>>()[..] {
+    let words: Vec<&str> = args.iter().map(|a| a.to_str().unwrap_or("")).collect();
+    if words.iter().any(|w| matches!(*w, "-h" | "--help")) {
+        println!("{}", usage());
+        return std::process::ExitCode::SUCCESS;
+    }
+    match run(&args, &words) {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(e) if e.is::<Usage>() => {
+            eprintln!("{e}\n\n{}", usage());
+            std::process::ExitCode::from(2)
+        }
+        Err(e) => {
+            eprintln!("{e}");
+            std::process::ExitCode::FAILURE
+        }
+    }
+}
+
+fn run(args: &[PathBuf], words: &[&str]) -> Result<(), Box<dyn std::error::Error>> {
+    if let Some(flag) = words.iter().find(|w| w.starts_with('-')) {
+        return Err(Usage(format!("{flag} isn't an option")).into());
+    }
+    match words {
         ["card", _, _, _] => return make_card(card::Kind::Enemy, &args[1], &args[2], &args[3]),
         ["player", _, _, _] => return make_card(card::Kind::Player, &args[1], &args[2], &args[3]),
         ["show", _] => return show(&args[1]),
         ["mod", _, _] => return make_mod(&args[1], &args[2]),
         ["prop", _, _, _] => return make_prop(&args[1], &args[2], &args[3]),
-        ["card", ..] | ["player", ..] | ["prop", ..] | ["show", ..] | ["mod", ..] => {
-            return Err("usage: card <sheet.png> <enemy.txt> <name.enemy.png> | player <sheet.png> <player.txt> <name.player.png> | prop <sheet.png> <prop.txt> <name.prop.png> | show <card, prop, map or pak> | mod <folder> <name.pak>".into());
+        [word @ ("card" | "player" | "prop" | "show" | "mod"), ..] => {
+            let paths = match *word {
+                "show" => "one path",
+                "mod" => "a folder and a .pak",
+                _ => "a sheet, its text and the file to write",
+            };
+            return Err(Usage(format!("{word} takes {paths}")).into());
         }
-        _ => {}
+        [] => {}
+        [out] if out.ends_with(".pak") || out.contains(['/', std::path::MAIN_SEPARATOR]) => {}
+        [word] => return Err(Usage(format!("{word} isn't a command; to write the pack somewhere else, name a .pak file")).into()),
+        _ => return Err(Usage("too many paths".into()).into()),
     }
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2).unwrap();
     let out = args.first().cloned().unwrap_or_else(|| root.join("target/game_data.pak"));

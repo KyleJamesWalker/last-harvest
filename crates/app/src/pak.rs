@@ -6,6 +6,7 @@ use last_harvest_game::art;
 use last_harvest_game::data::{self, Card, Data, MapFile};
 use last_harvest_pack::{self as pack, Pak, card};
 
+use crate::log;
 use crate::samples::{self, Files};
 
 /// The game's data, beside the binary: the pack and the enemy cards. What the game writes stays out of it.
@@ -121,37 +122,61 @@ fn read_mods(problems: &mut Vec<String>) -> Vec<(String, Pak)> {
 /// else a sounds folder found nearby, with the mods' sounds over either.
 pub fn load() -> Result<Files, String> {
     let mut missing_pack = None;
-    let base = match find() {
-        Some(path) => {
-            let pak = Pak::open(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-            eprintln!("data: {} ({})", path.display(), pak.version().unwrap_or("no version"));
+    let mut problems = Vec::new();
+    let folder = || missing(data_folder().map_or_else(|| DATA.into(), |d| d.display().to_string()));
+    let base = match find().map(|path| (Pak::open(&path), path)) {
+        Some((Ok(pak), path)) => {
+            log!("data: {} ({})", path.display(), pak.version().unwrap_or("no version"));
             Some(pak)
         }
+        // A pack that won't open is a missing one: an update that swapped the binary but not its pack leaves one.
+        Some((Err(e), path)) => {
+            log!("data: {}: {e}", path.display());
+            problems.push(format!("game_data.pak: {e}"));
+            if cfg!(feature = "embed") {
+                log!("data: built in");
+            } else {
+                missing_pack = Some(folder());
+            }
+            None
+        }
         None if !cfg!(feature = "embed") => {
-            let message = missing(data_folder().map_or_else(|| DATA.into(), |d| d.display().to_string()));
-            eprintln!("data: no {PAK} beside the binary. {message}");
+            let message = folder();
+            log!("data: no {PAK} beside the binary. {message}");
             missing_pack = Some(message);
             None
         }
         None => {
-            eprintln!("data: built in");
+            log!("data: built in");
             None
         }
     };
-    install(base, missing_pack)
+    install_noting(base, missing_pack, problems)
 }
 
 /// `load` with the pack already open, or none for the built-in data. A web page has no data folder beside it, so
 /// it fetches the pack itself and finds no mods or cards.
 pub fn install(base: Option<Pak>, missing_pack: Option<String>) -> Result<Files, String> {
+    install_noting(base, missing_pack, Vec::new())
+}
+
+/// Drops each of the base pack's tables that the game would refuse, noting why, so the built-in one stands in.
+fn drop_refused_tables(pak: &mut Pak, problems: &mut Vec<String>) {
+    for (file, e) in pak.table_problems() {
+        pak.take(file);
+        problems.push(format!("game_data.pak: {e}; using the game's own {file}"));
+    }
+}
+
+fn install_noting(base: Option<Pak>, missing_pack: Option<String>, mut problems: Vec<String>) -> Result<Files, String> {
     let pack_version = base.as_ref().and_then(Pak::version).map(String::from);
     let had_base = base.is_some();
     let mut pak = base.unwrap_or_else(Pak::empty);
-    let mut problems = Vec::new();
+    drop_refused_tables(&mut pak, &mut problems);
     let mods = read_mods(&mut problems);
     let mod_names: Vec<String> = mods.iter().map(|(n, _)| n.clone()).collect();
     if !mods.is_empty() {
-        eprintln!("mods: {:?}", mods.iter().map(|(n, _)| n).collect::<Vec<_>>());
+        log!("mods: {:?}", mods.iter().map(|(n, _)| n).collect::<Vec<_>>());
     }
     for (_, m) in mods {
         pak.overlay(m);
@@ -186,12 +211,12 @@ pub fn install(base: Option<Pak>, missing_pack: Option<String>) -> Result<Files,
     let cards: Vec<String> = data.cards.iter().chain(&data.players).map(|c| c.name.clone()).collect();
     let left_out = data::install(data)?;
     if !cards.is_empty() {
-        eprintln!("cards: {cards:?}");
+        log!("cards: {cards:?}");
     }
-    let loaded = cards.len().saturating_sub(left_out.len());
+    let loaded = cards.iter().filter(|c| !left_out.iter().any(|l| l.strip_prefix(c.as_str()).is_some_and(|r| r.starts_with(": ")))).count();
     problems.extend(left_out);
     for problem in &problems {
-        eprintln!("left out: {problem}");
+        log!("left out: {problem}");
     }
     data::report(data::LoadReport { cards: loaded, mods: mod_names, problems, version: crate::VERSION.into(), pack_version, missing_pack });
     let mut sounds = pak.take_dir(pack::SOUNDS);
@@ -199,11 +224,11 @@ pub fn install(base: Option<Pak>, missing_pack: Option<String>) -> Result<Files,
     if (forced || !had_base)
         && let Some(dir) = samples::folder()
     {
-        eprintln!("audio: sounds from {}", dir.display());
+        log!("audio: sounds from {}", dir.display());
         let folder = samples::read_folder(&dir);
         sounds = if forced { folder } else { overlay_sounds(folder, sounds) };
     }
-    eprintln!("audio: {} sound files", sounds.len());
+    log!("audio: {} sound files", sounds.len());
     Ok(sounds)
 }
 

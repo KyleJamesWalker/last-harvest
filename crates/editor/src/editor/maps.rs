@@ -480,6 +480,7 @@ impl Editor {
 
     fn start_map(&mut self, name: &str, id: &str, src: MapSource) {
         self.map = Some(MapEdit::new(id, src));
+        (self.data, self.data_link) = (None, None);
         self.sprite = Sprite { name: name.into(), frames: vec![Frame::blank(16, 16)], views: None, footprint: None, roof: None, north: None, west: None, top: None, card: None, clear_in_3d: Vec::new(), paint: Default::default() };
         self.frame = 0;
         self.view = None;

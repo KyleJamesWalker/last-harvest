@@ -8,6 +8,7 @@ use glutin::surface::{GlSurface, Surface, SwapInterval, WindowSurface};
 use glow::HasContext;
 use glutin_winit::{DisplayBuilder, GlWindow};
 use raw_window_handle::HasWindowHandle;
+use last_harvest::log;
 use last_harvest_game::Frame;
 use last_harvest_render::{Profile, Renderer};
 use winit::dpi::{LogicalPosition, LogicalSize, PhysicalSize};
@@ -30,18 +31,19 @@ impl Screen {
     }
 }
 
-/// One GL context shared by two windows: one per physical screen.
+/// One GL context shared by the windows: one per physical screen on the device, or one window that shows the game
+/// as on a phone, with `bottom` left out.
 pub struct Gfx {
     pub top: Screen,
-    pub bottom: Screen,
+    pub bottom: Option<Screen>,
     context: PossiblyCurrentContext,
     gl: glow::Context,
     renderer: Renderer,
 }
 
 impl Gfx {
-    pub fn new(el: &ActiveEventLoop) -> Result<Self, Box<dyn Error>> {
-        let (top_attrs, bottom_attrs) = window_attrs(el);
+    pub fn new(el: &ActiveEventLoop, two: bool) -> Result<Self, Box<dyn Error>> {
+        let (top_attrs, bottom_attrs) = window_attrs(el, two);
         let mut template = ConfigTemplateBuilder::new().with_depth_size(24);
         if PROFILE == Profile::Gles {
             template = template.with_api(glutin::config::Api::GLES3);
@@ -53,9 +55,9 @@ impl Gfx {
                     .max_by_key(|c| (c.depth_size().min(24), c.num_samples().min(MAX_SAMPLES), std::cmp::Reverse(c.num_samples())))
                     .expect("no GL config")
             })?;
-        eprintln!("gl config: depth {} bits, {} samples", config.depth_size(), config.num_samples());
+        log!("gl config: depth {} bits, {} samples", config.depth_size(), config.num_samples());
         let top_window = top_window.ok_or("display builder made no window")?;
-        let bottom_window = glutin_winit::finalize_window(el, bottom_attrs, &config)?;
+        let bottom_window = bottom_attrs.map(|a| glutin_winit::finalize_window(el, a, &config)).transpose()?;
 
         let api = match PROFILE {
             Profile::Gles => ContextApi::Gles(Some(Version::new(3, 0))),
@@ -69,11 +71,14 @@ impl Gfx {
         let not_current = unsafe { display.create_context(&config, &context_attrs)? };
 
         let top = Screen::new(top_window, &config)?;
-        let bottom = Screen::new(bottom_window, &config)?;
-        let context = not_current.make_current(&bottom.surface)?;
-        // Vsync on one screen paces the loop; waiting on both would halve the frame rate.
-        bottom.surface.set_swap_interval(&context, SwapInterval::DontWait).ok();
-        context.make_current(&top.surface)?;
+        let bottom = bottom_window.map(|w| Screen::new(w, &config)).transpose()?;
+        let context = not_current.make_current(&top.surface)?;
+        if let Some(bottom) = &bottom {
+            context.make_current(&bottom.surface)?;
+            // Vsync on one screen paces the loop; waiting on both would halve the frame rate.
+            bottom.surface.set_swap_interval(&context, SwapInterval::DontWait).ok();
+            context.make_current(&top.surface)?;
+        }
         top.surface.set_swap_interval(&context, SwapInterval::Wait(NonZeroU32::MIN)).ok();
 
         let gl = unsafe { glow::Context::from_loader_function_cstr(|s| display.get_proc_address(s)) };
@@ -83,18 +88,27 @@ impl Gfx {
 
     pub fn resize(&self, id: WindowId, size: PhysicalSize<u32>) {
         let (Some(w), Some(h)) = (NonZeroU32::new(size.width), NonZeroU32::new(size.height)) else { return };
-        for screen in [&self.top, &self.bottom] {
+        for screen in std::iter::once(&self.top).chain(&self.bottom) {
             if screen.window.id() == id {
                 screen.surface.resize(&self.context, w, h);
             }
         }
     }
 
-    /// Draws both screens. With `capture`, also returns them stacked top above bottom as RGBA rows.
+    /// Draws both screens, or in one window the frame as on a phone. With `capture`, also returns what was drawn,
+    /// two screens stacked top above bottom, as RGBA rows.
     pub fn render(&mut self, frame: &Frame, capture: bool) -> Result<Option<Shot>, Box<dyn Error>> {
         let Self { top, bottom, context, gl, renderer } = self;
+        if let (None, Some(phone)) = (&bottom, &frame.phone) {
+            context.make_current(&top.surface)?;
+            let size = top.window.inner_size();
+            last_harvest::draw_phone(renderer, gl, frame, phone, [size.width as i32, size.height as i32]);
+            let shot = capture.then(|| read_back(gl, size.width, size.height));
+            top.surface.swap_buffers(context)?;
+            return Ok(shot);
+        }
         let mut shots = Vec::new();
-        for (screen, canvas) in [(&*top, &frame.top), (&*bottom, &frame.bottom)] {
+        for (screen, canvas) in std::iter::once((&*top, &frame.top)).chain(bottom.as_ref().map(|b| (b, &frame.bottom))) {
             context.make_current(&screen.surface)?;
             let size = screen.window.inner_size();
             renderer.draw(gl, canvas, [0, 0, size.width as i32, size.height as i32]);
@@ -143,25 +157,30 @@ fn stack(shots: Vec<Shot>) -> Shot {
     Shot { width, height, rgba }
 }
 
-fn window_attrs(el: &ActiveEventLoop) -> (WindowAttributes, WindowAttributes) {
+/// The top window's attributes, and the bottom's when there are `two`: full screen on each of the device's screens,
+/// else small windows one above the other. One window is resizable and as wide as a phone held sideways.
+fn window_attrs(el: &ActiveEventLoop, two: bool) -> (WindowAttributes, Option<WindowAttributes>) {
     let base = |title: &str| Window::default_attributes().with_title(title).with_resizable(false);
     let monitors: Vec<_> = el.available_monitors().collect();
     for m in &monitors {
-        eprintln!("monitor {:?} {:?} at {:?}", m.name(), m.size(), m.position());
+        log!("monitor {:?} {:?} at {:?}", m.name(), m.size(), m.position());
+    }
+    if !two {
+        return (Window::default_attributes().with_title("Last Harvest").with_inner_size(LogicalSize::new(1200.0, 600.0)), None);
     }
     if cfg!(target_os = "linux") && monitors.len() >= 2 {
         let swapped = std::fs::read_to_string("/sys/class/anbernic_misc/lcdswap").is_ok_and(|s| s.trim() == "1");
         let top_name = std::env::var("LAST_HARVEST_TOP").unwrap_or_else(|_| if swapped { "DSI-2" } else { "DSI-1" }.into());
         let top = monitors.iter().find(|m| m.name().as_deref() == Some(&top_name)).unwrap_or(&monitors[0]);
         let bottom = monitors.iter().find(|m| m.name() != top.name()).unwrap_or(&monitors[1]);
-        eprintln!("top={:?} bottom={:?}", top.name(), bottom.name());
+        log!("top={:?} bottom={:?}", top.name(), bottom.name());
         let full = |m: &winit::monitor::MonitorHandle| Some(Fullscreen::Borderless(Some(m.clone())));
-        (base("last-harvest top").with_fullscreen(full(top)), base("last-harvest bottom").with_fullscreen(full(bottom)))
+        (base("last-harvest top").with_fullscreen(full(top)), Some(base("last-harvest bottom").with_fullscreen(full(bottom))))
     } else {
         let size = LogicalSize::new(512.0, 384.0);
         (
             base("last-harvest top").with_inner_size(size).with_position(LogicalPosition::new(200.0, 60.0)),
-            base("last-harvest bottom").with_inner_size(size).with_position(LogicalPosition::new(200.0, 60.0 + 384.0 + 36.0)),
+            Some(base("last-harvest bottom").with_inner_size(size).with_position(LogicalPosition::new(200.0, 60.0 + 384.0 + 36.0))),
         )
     }
 }

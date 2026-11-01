@@ -1,3 +1,7 @@
+//! The game, free of any platform. Each frame `App::tick` (crates/app/src/main.rs; `frame` in `web.rs`) calls
+//! `Game::update`, which dispatches on `State` to the title, gallery, hardware page or a run's `Harvest::update`,
+//! and the app renders what `Game::draw` returns.
+
 pub mod art;
 pub mod data;
 pub mod paint;
@@ -15,6 +19,7 @@ mod save;
 pub mod scene3d;
 mod sfx;
 mod system;
+pub mod touch;
 pub mod tuning;
 
 pub use difficulty::Difficulty;
@@ -23,7 +28,7 @@ pub use art::Stand;
 pub use harvest::showcase::{Figure, Showcase};
 pub use harvest::{NamedProp, load_props_for_checks, PROP_MAX_FRAME, PROP_MAX_FRAMES, PROP_PREFIX, PropByViews, PropFields, named_props, turned_depth, prop_fields, prop_text, set_props};
 pub use harvest::{TABLES, built_in_table, check_own_table, check_table, default_prop_depth, MAP_EXTENSION, map_ground, MAP_MAX, MAP_MIN, map_props, parse_props, MapSource, PROP_MAX_HP, PropKind, PropLine, PropTough, check_map, valid_map_id};
-pub use harvest::{ABOUT_MAX, CARD_FLAGS, CARD_NUMBERS, MAX_WALK, PLAYER_BASE_KEYS, PLAYER_ID_MAX, PlayerFields, PlayerLook, default_start, flash_pixel, frame_limits, hurt_pixel, player_fields, player_looks, set_player_start, weapon_slots, weapons, CardFields, night_minutes, SpawnMix, card_fields, check_tables, kill_sound, kill_sounds, kill_weight, set_card_field, spawn_mix};
+pub use harvest::{ABOUT_MAX, CARD_FLAGS, CARD_MAX_FRAME, CARD_NUMBERS, MAX_WALK, PLAYER_BASE_KEYS, PLAYER_ID_MAX, PlayerFields, PlayerLook, default_start, flash_pixel, frame_limits, hurt_pixel, player_fields, player_looks, set_player_start, weapon_slots, weapons, CardFields, night_minutes, SpawnMix, card_fields, check_tables, kill_sound, kill_sounds, kill_weight, set_card_field, spawn_mix};
 pub use input::{Buttons, Input, InputTracker, MAX_TOUCHES, RawInput};
 pub use save::Save;
 pub use sfx::Sfx;
@@ -50,6 +55,8 @@ pub enum Scene {
     Title,
     /// The game: survive the night on a generated farm.
     Harvest,
+    /// Debug: the game on the top screen alone, with the map on L1 and grenades aimed on L2.
+    Single,
     /// Debug walk around a generated farm with no zombies.
     Farm,
     /// Debug frame-rate benchmark: the same frozen swarm every run, on a farm this many tiles wide and tall.
@@ -65,6 +72,7 @@ impl Scene {
         Some(match name {
             "title" | "menu" => Scene::Title,
             "harvest" | "play" => Scene::Harvest,
+            "single" => Scene::Single,
             "farm" => Scene::Farm,
             "bench" => Scene::Bench(harvest::MAP_SIZE),
             _ if name.starts_with("bench-") => {
@@ -106,6 +114,22 @@ pub struct Game {
     kit: String,
     /// Seconds into the night every run starts at, for trying out late-night play.
     start_t: f32,
+    /// A bench scene just opened and hasn't reported its flow-field timing yet.
+    bench_due: bool,
+    /// A thrown grenade is never spent, for trying out aiming.
+    endless: bool,
+    /// The `single` scene is open, which plays on one screen whatever Settings says.
+    single_scene: bool,
+    /// A phone's window, in pixels: one canvas, on-screen controls, runs on one screen.
+    phone: Option<[f32; 2]>,
+    /// The platform sets the screens' backlights, so Settings offers their brightness.
+    backlights: bool,
+    /// The phone's screen takes touches, so it gets on-screen controls and touch grenades.
+    touch_ui: bool,
+    /// The main menu offers Quit, where the platform can close the game.
+    can_quit: bool,
+    quit_asked: bool,
+    touchpad: touch::Touchpad,
     /// Seconds left to confirm wiping the records and found powerups.
     reset_armed: f32,
     /// Seconds left of the title's word that progress was erased.
@@ -143,6 +167,15 @@ impl Game {
             unlock_all: false,
             kit: String::new(),
             start_t: 0.0,
+            bench_due: false,
+            endless: false,
+            single_scene: false,
+            phone: None,
+            backlights: true,
+            touch_ui: true,
+            can_quit: false,
+            quit_asked: false,
+            touchpad: touch::Touchpad::default(),
             reset_armed: 0.0,
             reset_shown: 0.0,
             page: Page::Main,
@@ -185,6 +218,10 @@ impl Game {
         self.start_t = secs.max(0.0);
     }
 
+    pub fn endless_grenades(&mut self, on: bool) {
+        self.endless = on;
+    }
+
     fn progress(&self) -> harvest::Progress {
         let s = &self.save;
         harvest::Progress { kills: s.kills, best: s.best, best_level: s.best_level, nights: s.nights, dawns: s.dawns, found: s.found, everything: self.unlock_all }
@@ -212,6 +249,15 @@ impl Game {
         }
     }
 
+    /// A bench scene's flow-field timing, once, the first time it's asked for after the scene opens; `time` runs
+    /// the work it's given and returns the seconds it took.
+    pub fn bench_report(&mut self, time: impl FnOnce(&mut dyn FnMut()) -> f64) -> Option<String> {
+        match &self.state {
+            State::Harvest(h) if std::mem::take(&mut self.bench_due) => Some(h.bench_report(time)),
+            _ => None,
+        }
+    }
+
     /// What the debug pipe's `state` prints, in a harvest.
     pub fn debug_state(&self) -> Option<String> {
         match &self.state {
@@ -221,21 +267,84 @@ impl Game {
     }
 
     pub fn open(&mut self, scene: Scene) {
+        self.bench_due = matches!(scene, Scene::Bench(_));
         let seed = self.rng.next_u32() as u64 + 1;
+        self.single_scene = scene == Scene::Single;
         self.state = match scene {
             Scene::Title => {
                 self.page = Page::Main;
                 State::Title
             }
-            Scene::Harvest => {
+            Scene::Harvest | Scene::Single => {
                 self.sounds.push(Sfx::Start);
-                State::Harvest(Box::new(harvest::Harvest::on(seed, self.save.map.as_str()).at(self.save.difficulty).with_progress(self.progress()).without_enemies(self.save.enemies_off).looking_like(self.save.player.as_str()).with_kit(&self.kit).starting_at(self.start_t)))
+                State::Harvest(Box::new(harvest::Harvest::on(seed, self.save.map.as_str()).at(self.save.difficulty).with_progress(self.progress()).without_enemies(self.save.enemies_off).looking_like(self.save.player.as_str()).with_kit(&self.kit).starting_at(self.start_t).single_screen(self.one_screen()).endless_grenades(self.endless)))
             }
             Scene::Farm => State::Harvest(Box::new(harvest::Harvest::calm(seed))),
             Scene::Bench(size) => State::Harvest(Box::new(harvest::Harvest::bench(size))),
             Scene::Gallery => State::Gallery(gallery::Gallery::default()),
             Scene::Hardware => State::Hardware(hardware::Hardware::default()),
         };
+    }
+
+    /// Runs play on the top screen alone.
+    fn one_screen(&self) -> bool {
+        self.single_scene || self.save.one_screen || self.phone.is_some()
+    }
+
+    /// Plays as on a phone in a window `size` pixels across and down, whose touches come in its pixels.
+    pub fn set_phone(&mut self, size: Option<[f32; 2]>) {
+        self.phone = size;
+    }
+
+    pub fn set_backlights(&mut self, on: bool) {
+        self.backlights = on;
+    }
+
+    /// Offers Quit in the main menu; the platform closes the game once `quit_asked` says so.
+    pub fn set_quit(&mut self, on: bool) {
+        self.can_quit = on;
+    }
+
+    pub fn quit_asked(&self) -> bool {
+        self.quit_asked
+    }
+
+    /// The title's main page on one screen without touch: the top screen with the menu over it, smaller.
+    fn title_on_one(&self) -> bool {
+        self.phone.is_some() && !self.touch_ui && matches!(self.state, State::Title) && self.page == Page::Main
+    }
+
+    /// Plays as on a phone without touch: no on-screen controls, grenades aimed with L2.
+    pub fn set_touch(&mut self, on: bool) {
+        self.touch_ui = on;
+    }
+
+    pub(crate) fn has_touch(&self) -> bool {
+        self.touch_ui
+    }
+
+    pub(crate) fn has_backlights(&self) -> bool {
+        self.backlights
+    }
+
+    pub(crate) fn is_phone(&self) -> bool {
+        self.phone.is_some()
+    }
+
+    fn phone_layout(&self, size: [f32; 2]) -> touch::Layout {
+        touch::layout(size, matches!(self.state, State::Harvest(_)) || self.title_on_one(), self.touch_ui)
+    }
+
+    /// The input with the on-screen controls' buttons, stick and screen touch in place of raw fingers.
+    fn through_touchpad(&mut self, input: &Input, size: [f32; 2]) -> Input {
+        let layout = self.phone_layout(size);
+        let other = input.held != Buttons::NONE || input.stick != [0.0; 2] || input.look != 0.0;
+        let pad = self.touchpad.update(&input.touches, &layout, other);
+        let stick = [0, 1].map(|i| (input.stick[i] + pad.stick[i]).clamp(-1.0, 1.0));
+        let look = (input.look + pad.look).clamp(-1.0, 1.0);
+        let mut touches = [None; MAX_TOUCHES];
+        touches[0] = pad.touch;
+        Input { held: input.held | pad.held, pressed: input.pressed | pad.pressed, stick, look, touch: pad.touch, touches, touch_started: pad.touch_started, ..*input }
     }
 
     /// Whether the vibration motor should be running this frame.
@@ -270,7 +379,7 @@ impl Game {
                 _ => 0.0,
             },
             brightness: self.save.brightness.map(level),
-            screens_on: !self.paused,
+            screens_on: [!self.paused, !self.paused && !matches!(&self.state, State::Harvest(h) if h.one_screen())],
             work_led: self.leds[0],
             low_led: self.leds[1],
         }
@@ -287,6 +396,14 @@ impl Game {
     }
 
     pub fn update(&mut self, input: &Input, dt: f32) {
+        let padded;
+        let input = match self.phone {
+            Some(size) => {
+                padded = self.through_touchpad(input, size);
+                &padded
+            }
+            None => input,
+        };
         self.paused = input.lid_closed;
         self.input = *input;
         self.rumble = (self.rumble - dt).max(0.0);
@@ -323,13 +440,18 @@ impl Game {
                 self.title(input, dt);
                 return;
             }
-            State::Harvest(h) if self.page == Page::Settings => {
+            State::Harvest(mut h) if self.page == Page::Settings => {
                 if self.settings(input, input.touch.filter(|_| input.touch_started)) {
                     self.page = Page::Main;
                 }
+                h.set_one_screen(self.one_screen());
                 State::Harvest(h)
             }
             State::Harvest(mut h) => {
+                if self.phone.is_some() {
+                    h.set_one_screen(true);
+                    h.set_touch_aim(self.save.touch_grenades && self.touch_ui);
+                }
                 let flow = h.update(input, dt, &mut self.sounds);
                 if flow.settings {
                     self.page = Page::Settings;
@@ -371,7 +493,7 @@ impl Game {
             State::Harvest(h) => {
                 h.draw(&mut f);
                 if self.page == Page::Settings {
-                    self.draw_settings(&mut f.bottom);
+                    self.draw_settings(if h.one_screen() { &mut f.top } else { &mut f.bottom });
                 }
             }
             State::Gallery(g) => g.draw(&mut f),
@@ -397,6 +519,17 @@ impl Game {
             system::draw_perf(&mut f.top, &self.system, top);
         } else if matches!(self.state, State::Title) {
             system::draw_battery(&mut f.top, &self.system, 16.0);
+        }
+        if self.title_on_one() {
+            let menu = std::mem::take(&mut f.bottom);
+            let (k, top) = (0.55, 330.0);
+            let at = [(SCREEN_W - SCREEN_W * k) / 2.0, top];
+            f.top.rect(at[0], at[1], SCREEN_W * k, SCREEN_H * k, [0.08, 0.08, 0.1, 0.45]);
+            f.top.place(&menu, at, k);
+        }
+        if let Some(size) = self.phone {
+            let layout = self.phone_layout(size);
+            f.phone = Some(touch::Phone { size, top: layout.top, bottom: layout.bottom, pad: self.touchpad.draw(&layout) });
         }
         f
     }
@@ -447,7 +580,8 @@ impl Game {
             let span = SCREEN_W + 400.0;
             let x = (i as f32 * span / walkers.len() as f32 + t * 22.0) % span - 200.0;
             let a = frames[(t * 5.0 + i as f32) as usize % frames.len()];
-            f.top.art(a, x, 600.0 - a.h() * 8.0 + 8.0, 8.0, false, [0.02, 0.02, 0.03, 1.0]);
+            // Side frames face left, as in the 3D view: flipped, they walk the way they move.
+            f.top.art(a, x, 600.0 - a.h() * 8.0 + 8.0, 8.0, true, [0.02, 0.02, 0.03, 1.0]);
         }
         for i in 0..30 {
             let seed = i as f32 * 7.31;
@@ -459,6 +593,27 @@ impl Game {
         let flicker = 0.85 + 0.15 * ((t * 13.0).sin() * (t * 7.3).sin()).abs();
         f.top.text_centered(248.0, 20.0, [0.0, 0.0, 0.0, 0.7], "LAST HARVEST");
         f.top.text_centered(240.0 + (t * 1.2).sin() * 4.0, 20.0, [flicker, flicker * 0.92, flicker * 0.8, 1.0], "LAST HARVEST");
+        // On one screen the menu sits over the middle, so the records stay on the Stats page and warnings move up.
+        let one = self.title_on_one();
+        let warn_y = if one { 48.0 } else { 696.0 };
+        if !one {
+            self.draw_title_records(f);
+        }
+        if let Some(missing) = &data::load_report().missing_pack {
+            let red = [1.0, 0.55, 0.5, 1.0];
+            f.top.label("No game data: the game can't draw without game_data.pak.", SCREEN_W / 2.0, warn_y, 24.0, red, Align::Center);
+            f.top.label(menu::fitted(missing, 22.0, SCREEN_W - 40.0, 22.0).0, SCREEN_W / 2.0, warn_y + 32.0, 22.0, red, Align::Center);
+        } else if let Some((count, first)) = data::problems() {
+            let more = if count > 1 { format!("{count} files couldn't load:") } else { "A file couldn't load:".to_string() };
+            let red = [1.0, 0.55, 0.5, 1.0];
+            f.top.label(more, SCREEN_W / 2.0, warn_y, 24.0, red, Align::Center);
+            f.top.label(menu::fitted(&first, 22.0, SCREEN_W - 40.0, 22.0).0, SCREEN_W / 2.0, warn_y + 32.0, 22.0, red, Align::Center);
+        }
+        self.draw_menu(f);
+    }
+
+    /// The title's tagline and records under the logo.
+    fn draw_title_records(&self, f: &mut Frame) {
         f.top.label("Survive the night", SCREEN_W / 2.0, 400.0, 44.0, DIM, Align::Center);
         if self.save.best > 0 {
             let line = format!("Longest night: {}:{:02}", self.save.best / 60, self.save.best % 60);
@@ -475,20 +630,9 @@ impl Game {
             let a = self.reset_shown.min(1.0);
             f.top.label("Progress erased: records, kills and found powerups", SCREEN_W / 2.0, 480.0, 34.0, [1.0, 0.45, 0.4, a], Align::Center);
         }
-        if let Some(missing) = &data::load_report().missing_pack {
-            let red = [1.0, 0.55, 0.5, 1.0];
-            f.top.label("No game data: the game can't draw without game_data.pak.", SCREEN_W / 2.0, 696.0, 24.0, red, Align::Center);
-            f.top.label(menu::fitted(missing, 22.0, SCREEN_W - 40.0, 22.0).0, SCREEN_W / 2.0, 728.0, 22.0, red, Align::Center);
-        } else if let Some((count, first)) = data::problems() {
-            let more = if count > 1 { format!("{count} cards, mods or sounds couldn't load:") } else { "A card, mod or sound couldn't load:".to_string() };
-            let red = [1.0, 0.55, 0.5, 1.0];
-            f.top.label(more, SCREEN_W / 2.0, 696.0, 24.0, red, Align::Center);
-            f.top.label(menu::fitted(&first, 22.0, SCREEN_W - 40.0, 22.0).0, SCREEN_W / 2.0, 728.0, 22.0, red, Align::Center);
-        }
         if let Some((name, how)) = harvest::next_unlock(&self.progress()) {
             f.top.label(format!("Next to find: {name}. {how}"), SCREEN_W / 2.0, 566.0, 24.0, DIM, Align::Center);
         }
-        self.draw_menu(f);
     }
 }
 
@@ -504,6 +648,88 @@ mod tests {
 
     fn press(game: &mut Game, b: Buttons) {
         game.update(&Input { pressed: b, ..Default::default() }, 0.016);
+    }
+
+    #[test]
+    fn on_a_phone_the_grenade_key_flips_the_map_up_and_a_tap_on_it_throws() {
+        let size = [2400.0, 1080.0];
+        let mut game = Game::new(1);
+        game.set_phone(Some(size));
+        press(&mut game, Buttons::A);
+        assert!(matches!(game.state, State::Harvest(_)));
+        let frame = game.draw();
+        let phone = frame.phone.expect("a phone frame");
+        assert!(phone.top.is_some() && phone.bottom.is_none(), "a run shows one screen");
+        let layout = touch::layout(size, true, true);
+        let [kx, ky, ..] = layout.key(Buttons::L2).unwrap();
+        let [px, py, pw, ph] = layout.top.unwrap();
+        let key = Some([kx + 4.0, ky + 4.0]);
+        let mut touches = [None; MAX_TOUCHES];
+        touches[0] = key;
+        game.update(&Input { touches, ..Default::default() }, 0.016);
+        game.update(&Input::default(), 0.016);
+        game.take_sounds();
+        touches[0] = Some([px + pw * 0.6, py + ph * 0.4]);
+        game.update(&Input { touches, ..Default::default() }, 0.016);
+        let flying = |g: &Game| match &g.state {
+            State::Harvest(h) => h.grenades_in_the_air(),
+            _ => 0,
+        };
+        assert_eq!(flying(&game), 1, "a tap on the map the key put up throws");
+        game.update(&Input::default(), 0.016);
+        touches[0] = key;
+        game.update(&Input { touches, ..Default::default() }, 0.016);
+        game.update(&Input::default(), 0.016);
+        touches[0] = Some([px + pw * 0.6, py + ph * 0.4]);
+        game.update(&Input { touches, ..Default::default() }, 0.016);
+        assert_eq!(flying(&game), 1, "a tap on the 3D view does not");
+    }
+
+    #[test]
+    fn a_phone_sets_the_grenade_style_where_others_set_the_screens() {
+        let mut game = Game::new(1);
+        assert!(game.settings_list().contains(&menu::Setting::Screens) && !game.settings_list().contains(&menu::Setting::Grenades));
+        game.set_phone(Some([2400.0, 1080.0]));
+        let list = game.settings_list();
+        assert!(list.contains(&menu::Setting::Grenades) && !list.contains(&menu::Setting::Screens));
+        game.set_phone(None);
+        game.set_backlights(false);
+        let list = game.settings_list();
+        assert!(!list.contains(&menu::Setting::TopBrightness) && !list.contains(&menu::Setting::BottomBrightness), "brightness only where the platform sets the backlights");
+        assert!(game.save.touch_grenades, "touch by default");
+        let save = Save { touch_grenades: false, ..game.save };
+        assert!(!Save::parse(&save.to_text()).touch_grenades);
+    }
+
+    #[test]
+    fn quit_shows_last_in_the_main_menu_only_where_the_game_can_quit() {
+        let mut game = Game::new(1);
+        for _ in 0..5 {
+            press(&mut game, Buttons::DOWN);
+        }
+        assert_eq!(game.row, 0, "five rows wrap back to Play");
+        game.set_quit(true);
+        for _ in 0..5 {
+            press(&mut game, Buttons::DOWN);
+        }
+        press(&mut game, Buttons::A);
+        assert!(game.quit_asked());
+    }
+
+    #[test]
+    fn one_screen_without_touch_shows_the_title_with_the_menu_over_it() {
+        let mut game = Game::new(1);
+        game.set_phone(Some([720.0, 480.0]));
+        game.set_touch(false);
+        let f = game.draw();
+        let phone = f.phone.unwrap();
+        assert!(phone.top.is_some() && phone.bottom.is_none(), "the title's screen, not the menu's");
+        assert!(f.top.shapes.iter().any(|s| matches!(s, Shape::Text { text, .. } if text == "Play")), "with the menu on it");
+        press(&mut game, Buttons::DOWN);
+        press(&mut game, Buttons::DOWN);
+        press(&mut game, Buttons::A);
+        let phone = game.draw().phone.unwrap();
+        assert!(phone.top.is_none() && phone.bottom.is_some(), "Settings shows full size");
     }
 
     #[test]
@@ -553,13 +779,13 @@ mod tests {
         let input = Input { lid_closed: true, pressed: Buttons::START, ..Default::default() };
         game.update(&input, 0.016);
         assert!(matches!(game.state, State::Title));
-        assert!(!game.outputs().screens_on);
+        assert_eq!(game.outputs().screens_on, [false; 2]);
     }
 
     #[test]
     fn every_scene_opens_by_name() {
         let mut game = Game::new(1);
-        for name in ["title", "harvest", "farm", "bench", "art", "hardware"] {
+        for name in ["title", "harvest", "single", "farm", "bench", "art", "hardware"] {
             game.open(Scene::from_name(name).unwrap());
         }
         assert!(matches!(game.state, State::Hardware(_)));
@@ -581,7 +807,7 @@ mod tests {
         let mut game = Game::new(1);
         let kept = Save { volume: 2, difficulty: Difficulty::Hard, ..Save::default() };
         game.load(Save { kills: 900, best: 300, best_level: 9, nights: 4, dawns: 1, found: 0b110, ..kept });
-        settings_row(&mut game, 7);
+        settings_row(&mut game, 8);
         press(&mut game, Buttons::A);
         assert_eq!(game.save().kills, 900, "one press only asks");
         game.update(&Input::default(), RESET_CONFIRM + 0.1);
@@ -618,6 +844,25 @@ mod tests {
     }
 
     #[test]
+    fn screens_set_to_one_mid_run_darken_the_bottom_screen_and_persist() {
+        let mut game = Game::new(1);
+        press(&mut game, Buttons::A);
+        assert_eq!(game.outputs().screens_on, [true; 2]);
+        press(&mut game, Buttons::START);
+        press(&mut game, Buttons::DOWN);
+        press(&mut game, Buttons::A);
+        for _ in 0..5 {
+            press(&mut game, Buttons::DOWN);
+        }
+        assert_eq!(game.settings_list()[game.setting], menu::Setting::Screens);
+        press(&mut game, Buttons::A);
+        assert!(game.save.one_screen);
+        assert!(matches!(&game.state, State::Harvest(h) if h.one_screen()));
+        assert_eq!(game.outputs().screens_on, [true, false]);
+        assert!(crate::save::Save::parse(&game.save.to_text()).one_screen);
+    }
+
+    #[test]
     fn the_pause_menu_opens_settings_over_the_run_without_reset() {
         let mut game = Game::new(1);
         press(&mut game, Buttons::A);
@@ -625,7 +870,7 @@ mod tests {
         press(&mut game, Buttons::DOWN);
         press(&mut game, Buttons::A);
         assert_eq!(game.page, Page::Settings);
-        assert_eq!(game.settings_list().len(), 5);
+        assert_eq!(game.settings_list().len(), 6);
         let t = game.summary();
         game.update(&Input::default(), 1.0);
         assert_eq!(game.summary(), t, "the run stays paused");
@@ -637,7 +882,7 @@ mod tests {
     #[test]
     fn the_enemies_page_turns_kinds_off_but_never_the_last() {
         let mut game = Game::new(1);
-        settings_row(&mut game, 6);
+        settings_row(&mut game, 7);
         press(&mut game, Buttons::A);
         assert_eq!(game.page, Page::Enemies);
         game.draw();
@@ -664,7 +909,7 @@ mod tests {
     #[test]
     fn the_player_row_keeps_the_farmer_when_there_are_no_player_cards() {
         let mut game = Game::new(1);
-        settings_row(&mut game, 5);
+        settings_row(&mut game, 6);
         assert_eq!(game.settings_list()[game.setting], menu::Setting::Player);
         game.draw();
         press(&mut game, Buttons::RIGHT);
@@ -699,6 +944,23 @@ mod tests {
         }
         game.draw();
         assert!(Scene::from_name("bench-100x80") == Some(Scene::Bench([100, 80])) && Scene::from_name("bench-1x").is_none());
+    }
+
+    #[test]
+    fn a_bench_reports_its_flow_field_once_timed_by_the_caller() {
+        let mut game = Game::new(1);
+        assert!(game.bench_report(|_| 0.0).is_none(), "only a bench reports");
+        game.open(Scene::Bench([20, 16]));
+        let mut ran = false;
+        let line = game.bench_report(|work| {
+            work();
+            ran = true;
+            0.01
+        });
+        assert!(ran);
+        let line = line.expect("a bench reports");
+        assert!(line.starts_with("bench: 20x16 tiles, ") && line.ends_with(" props, flow field 0.50 ms"), "{line}");
+        assert!(game.bench_report(|_| 0.0).is_none(), "and only once");
     }
 
     #[test]

@@ -2,7 +2,8 @@
 # Runs on the device: pauses the stock frontend (and its idle auto-sleep) while the game runs.
 # A deploy drops in last-harvest.new and data/game_data.pak.new and touches /tmp/last-harvest.restart to relaunch without resuming the frontend.
 # A panic (exit 101) also relaunches; any other exit ends the session.
-# Set CAPTURE=1 to also log every input device and the lid sensor, and DEBUG=1 for remote control.
+# Set CAPTURE=1 to also log every input device and the lid sensor, DEBUG=1 for remote control, and TIMEOUT=SECS to
+# stop each run after that long (0, the default, lets it run until it quits).
 cd "$(dirname "$0")"
 . /etc/profile.d/myenv.sh
 front=$(pidof muos2.bin dmenu.bin)
@@ -11,7 +12,7 @@ front=$(pidof muos2.bin dmenu.bin)
 # Ending it instead makes dmenu_ln start a fresh one.
 trap '[ -n "$front" ] && kill -CONT $front && kill $front; kill $(jobs -p) 2>/dev/null' EXIT INT TERM
 if [ -n "$CAPTURE" ]; then
-  for e in 0 2 4 6; do evtest /dev/input/event$e > ev$e.log 2>&1 & done
+  for e in $(sed -n 's/^H: Handlers=.*\(event[0-9]*\).*/\1/p' /proc/bus/input/devices); do evtest "/dev/input/$e" > "$e.log" 2>&1 & done
   (while :; do echo "$(date +%s) $(cat /sys/class/anbernic_misc/hallkey)"; sleep 0.5; done) > hall.log &
   export LAST_HARVEST_LOG_INPUT=1
 fi
@@ -20,7 +21,11 @@ while :; do
   [ -f last-harvest.new ] && mv last-harvest.new last-harvest
   [ -f data/game_data.pak.new ] && mv data/game_data.pak.new data/game_data.pak
   rm -f /tmp/last-harvest.restart
-  timeout "${TIMEOUT:-1800}" ./last-harvest > run.log 2>&1
+  if [ "${TIMEOUT:-0}" -gt 0 ]; then
+    timeout "$TIMEOUT" ./last-harvest > run.log 2>&1
+  else
+    ./last-harvest > run.log 2>&1
+  fi
   status=$?
   echo "run.sh: game exited with $status" >> run.log
   [ -f /tmp/last-harvest.restart ] && continue

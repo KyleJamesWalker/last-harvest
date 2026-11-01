@@ -54,6 +54,9 @@ fn frames(name: &str) -> Option<&'static [Art]> {
 /// The most tiles a building's `within`, `margin`, `door` or `near` may name: wider than the largest map.
 const MAX_TILES: usize = 200;
 
+/// The most `fields` or `more_fields`: each is a search across the map at every run start.
+const MAX_FIELDS: usize = 64;
+
 const FARM_KEYS: [&str; 5] = ["tufts", "grass", "corpses", "fields", "more_fields"];
 
 /// Reads `farm.txt`; a prop of a player's that isn't loaded is left out. Errors name the line.
@@ -95,7 +98,11 @@ pub fn parse(text: &str) -> Result<Farm, String> {
             }
             "farm" => {
                 let at = FARM_KEYS.iter().position(|k| *k == key).ok_or_else(|| format!("{n}: {key} isn't something [farm] sets"))?;
-                *[&mut f.tufts, &mut f.grass, &mut f.corpses, &mut f.fields, &mut f.more_fields][at] = count()?;
+                let v = count()?;
+                if matches!(key, "fields" | "more_fields") && v > MAX_FIELDS {
+                    return Err(format!("{n}: {key} is at most {MAX_FIELDS}"));
+                }
+                *[&mut f.tufts, &mut f.grass, &mut f.corpses, &mut f.fields, &mut f.more_fields][at] = v;
                 seen[at] = true;
             }
             "scatter" => {
@@ -190,5 +197,10 @@ mod tests {
         assert!(parse("[farm]\nground ..").unwrap_err().starts_with("2: ground is a ground code"));
         assert!(parse(&format!("{base}[shed]\nmargin 18446744073709551615")).unwrap_err().starts_with("9: margin"));
         assert!(parse(&format!("{base}[shed]\nwithin 5\nnear SIGN 201")).unwrap_err().starts_with("10: near takes"));
+        for key in ["fields", "more_fields"] {
+            let huge = base.replace(&format!("\n{key} 1"), &format!("\n{key} 4000000000"));
+            assert!(crate::harvest::check_table("farm.txt", &huge).unwrap_err().contains(&format!("{key} is at most 64")), "{key}");
+            parse(&base.replace(&format!("\n{key} 1"), &format!("\n{key} 64"))).unwrap();
+        }
     }
 }

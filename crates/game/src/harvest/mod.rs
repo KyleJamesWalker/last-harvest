@@ -10,6 +10,7 @@ mod props;
 mod players;
 mod powerups;
 pub mod showcase;
+mod single;
 mod view3d;
 mod weapons;
 
@@ -23,7 +24,7 @@ pub(crate) use enemies::{install_cards, off_from_ids, off_ids, roster};
 pub use props::{MAX_FRAME as PROP_MAX_FRAME, MAX_FRAMES as PROP_MAX_FRAMES, Named as NamedProp, PREFIX as PROP_PREFIX, ByViews as PropByViews, PropFields, load_for_checks as load_props_for_checks, turned_depth, prop_fields, prop_text, props as named_props, set_props};
 pub(crate) use props::stand_of;
 pub use map::{default_depth as default_prop_depth, ground_codes as map_ground, MAP_EXTENSION, MAP_MAX, MAP_MIN, MAX_HP as PROP_MAX_HP, MapSource, map_props, parse_props, PropKind, PropLine, Tough as PropTough, check_map, valid_map_id};
-pub use enemies::{ABOUT_MAX, MAX_WALK, flash_pixel, frame_limits, hurt_pixel};
+pub use enemies::{ABOUT_MAX, MAX_FRAME as CARD_MAX_FRAME, MAX_WALK, flash_pixel, frame_limits, hurt_pixel};
 pub use players::{BASE_KEYS as PLAYER_BASE_KEYS, ID_MAX as PLAYER_ID_MAX, PlayerFields, PlayerLook, default_start, looks as player_looks, player_fields, set_player_start, weapon_slots, weapons};
 pub use enemies::{CardFields, FLAGS as CARD_FLAGS, NUMBERS as CARD_NUMBERS, SpawnMix, card_fields, set_card_field, spawn_mix};
 use juice::{Corpse, Juice, Particle, Tone};
@@ -36,8 +37,6 @@ use weapons::{Bolt, Decoy, Dog, Kit, Patch, Swing};
 const SCALE: f32 = 2.0;
 const VIEW_W: f32 = SCREEN_W / SCALE;
 const VIEW_H: f32 = SCREEN_H / SCALE;
-/// Radians per second at full turn.
-const TURN_SPEED: f32 = 2.6;
 /// Seconds for the quick 180-degree turn.
 const SPIN_TIME: f32 = 0.2;
 pub const MAP_SIZE: [usize; 2] = [72, 54];
@@ -181,7 +180,7 @@ pub fn check_table(file: &str, text: &str) -> Result<(), String> {
     match file {
         "tuning.txt" => crate::tuning::parse(text, Some(&crate::tuning::built_in())).map(|_| ()).map_err(fail),
         "props.txt" => map::parse_props(text).map(|_| ()).map_err(fail),
-        "effects.txt" => effects::parse(text).and_then(|_| effects::parse_colors(text, Some(effects::colors()))).map(|_| ()).map_err(fail),
+        "effects.txt" => effects::parse(text).and_then(|_| effects::parse_colors(text, Some(&effects::built_in_colors()))).map(|_| ()).map_err(fail),
         "ground.txt" => map::parse_ground(text).map(|_| ()).map_err(fail),
         "farm.txt" => map::parse_farm(text).map(|_| ()).map_err(fail),
         "powerups.txt" => powerups::parse(text).map(|_| ()).map_err(fail),
@@ -381,7 +380,7 @@ struct Bullet {
     pierce: u32,
     life: f32,
     force: f32,
-    hit: Vec<usize>,
+    hit: Vec<u32>,
     /// The effect it flies as, when its weapon names one.
     look: Option<effects::Effect>,
     age: f32,
@@ -448,8 +447,6 @@ impl Grenade {
     }
 }
 
-/// Bites a second a zombie takes out of a prop in its way.
-const CHEW_RATE: f32 = 0.5;
 /// How much brighter a prop draws while it flashes from a hit.
 const PROP_FLASH: f32 = 3.0;
 
@@ -595,8 +592,9 @@ pub struct Harvest {
     newly: Vec<usize>,
     ready: usize,
     found_now: u64,
-    /// The next level-up comes from a chest.
+    /// The next level-up comes from a chest, and the chests picked up whose level-up hasn't begun.
     chest: bool,
+    chests: u32,
     /// The next zombie to rise leads the horde.
     leader_owed: bool,
     /// What dawn has multiplied every zombie's health and bite by, and the time toward its next step.
@@ -606,6 +604,8 @@ pub struct Harvest {
     trial: Vec<(usize, u32)>,
     /// Seconds into the night every run on this farm starts at.
     start_t: f32,
+    /// The Harvester has risen this run.
+    woke: bool,
     /// Grenades ready to throw; the fraction is the next one recharging.
     grenades: f32,
     thrown: Vec<Grenade>,
@@ -619,6 +619,8 @@ pub struct Harvest {
     /// Steps to the player from each cell, rebuilt when the player changes cell.
     flow: Vec<u16>,
     flow_cell: [usize; 2],
+    sep: Vec<[f32; 2]>,
+    steps: map::Steps,
     /// The player's heading, which the 3D camera looks along, in radians from +x toward +y.
     view_yaw: f32,
     /// Radians left of a quick turn in progress.
@@ -662,6 +664,20 @@ pub struct Harvest {
     /// A sprite the editor is showing off.
     shown: Option<showcase::Shown>,
     difficulty: Difficulty,
+    /// One screen: the map shows on the top screen only while looked at.
+    single: bool,
+    aiming: Option<single::Aiming>,
+    /// The map is up on the one screen without a grenade being aimed.
+    glance: bool,
+    /// A thrown grenade is never spent.
+    endless: bool,
+    /// The last single-screen throw's angle off the view and distance from the player, and real seconds since.
+    last_throw: Option<[f32; 2]>,
+    since_throw: f32,
+    /// Touch grenades, as on a phone: L2 flips the map up or back, and a tap on it throws, instead of L2 aiming.
+    touch_aim: bool,
+    /// Touch grenades have the map up.
+    touch_map: bool,
 }
 
 /// Weapons and passives unlocked so far, out of all of them, and how many are waiting to be found.
@@ -734,10 +750,13 @@ impl Harvest {
     /// A run on the hand-made map `id`, or on a generated farm when no map that reads has that id.
     pub fn on(seed: u64, id: &str) -> Self {
         let mut rng = Rng::new(seed);
-        let file = crate::data::maps().iter().find(|m| m.id == id);
-        match file.and_then(|m| Map::from_text(&m.text, &mut rng).ok()) {
-            Some(map) => Self { map_id: id.to_string(), ..Self::with_map(seed, rng, map) },
-            None => Self::new(seed),
+        let Some(file) = crate::data::maps().iter().find(|m| m.id == id) else { return Self::new(seed) };
+        match Map::from_text(&file.text, &mut rng) {
+            Ok(map) => Self { map_id: id.to_string(), ..Self::with_map(seed, rng, map) },
+            Err(e) => {
+                crate::data::note(format!("{id}{}: {e}, so this run is on a random farm", MAP_EXTENSION));
+                Self::new(seed)
+            }
         }
     }
 
@@ -772,12 +791,14 @@ impl Harvest {
             ready: 0,
             found_now: 0,
             chest: false,
+            chests: 0,
             leader_owed: false,
             fury: 1.0,
             fury_tick: 0.0,
             trial: Vec::new(),
             start_t: 0.0,
-            grenades: book().grenades as f32,
+            woke: false,
+            grenades: book().grenades[Difficulty::Normal as usize] as f32,
             thrown: Vec::new(),
             pos: map.spawn,
             hp: kit.max_hp(),
@@ -804,6 +825,8 @@ impl Harvest {
             overview: false,
             flow: Vec::new(),
             flow_cell: [usize::MAX; 2],
+            sep: Vec::new(),
+            steps: map::Steps::default(),
             view_yaw: -PI / 2.0,
             spin: 0.0,
             turned_from: [0.0; 2],
@@ -828,6 +851,14 @@ impl Harvest {
             lean: 0.0,
             shown: None,
             difficulty: Difficulty::Normal,
+            single: false,
+            aiming: None,
+            glance: false,
+            endless: false,
+            last_throw: None,
+            since_throw: 0.0,
+            touch_aim: false,
+            touch_map: false,
         }
         .with_birds()
     }
@@ -856,16 +887,10 @@ impl Harvest {
     }
 
     /// The same frames every run: 300 zombies, bodies, stains and specks around the player, frozen, with the
-    /// camera turning a full circle every 600 frames, on a generated farm `size` tiles across. Logs the map's
-    /// prop count and how long a flow field over it takes, which a moving player pays each time they change tile.
+    /// camera turning a full circle every 600 frames, on a generated farm `size` tiles across.
     pub fn bench(size: [usize; 2]) -> Self {
         let [w, hgt] = size.map(|v| v.clamp(16, 400));
         let mut h = Self { calm: true, bench: true, ..Self::sized(7, [w, hgt]) };
-        let start = std::time::Instant::now();
-        for _ in 0..20 {
-            std::hint::black_box(h.map.flow(h.pos));
-        }
-        eprintln!("bench: {w}x{hgt} tiles, {} props, flow field {:.2} ms", h.map.props.len(), start.elapsed().as_secs_f64() * 1000.0 / 20.0);
         h.birds.clear();
         for i in 0..(crate::tuning::tuning().max_zombies as usize) {
             let a = i as f32 * 2.399;
@@ -891,6 +916,20 @@ impl Harvest {
         h
     }
 
+    /// The map's size and prop count and how long a flow field over it takes, which a moving player pays each time
+    /// they change tile; `time` runs the work it's given and returns the seconds it took.
+    pub fn bench_report(&self, time: impl FnOnce(&mut dyn FnMut()) -> f64) -> String {
+        let (mut dist, mut steps) = (Vec::new(), map::Steps::default());
+        let secs = time(&mut || {
+            for _ in 0..20 {
+                self.map.flow_into(self.pos, &mut dist, &mut steps);
+                std::hint::black_box(&dist);
+            }
+        });
+        let (w, hgt) = (self.map.width_px() / TILE, self.map.height_px() / TILE);
+        format!("bench: {w}x{hgt} tiles, {} props, flow field {:.2} ms", self.map.props.len(), secs * 1000.0 / 20.0)
+    }
+
     pub fn at(self, difficulty: Difficulty) -> Self {
         let kit = Kit::start(difficulty);
         Self { difficulty, hp: kit.max_hp(), grenades: kit.grenades(), kit, ..self }
@@ -909,7 +948,7 @@ impl Harvest {
     /// Comes after `at`, since the look may start the run with its own weapons for that difficulty.
     pub fn looking_like(self, id: &str) -> Self {
         let mine = players::look(id);
-        let own = mine.start_defs(self.difficulty).map(|defs| Kit::with_weapons(&defs));
+        let own = mine.start_defs(self.difficulty).map(|defs| Kit::with_weapons(&defs, self.difficulty));
         let grenades = own.as_ref().map_or(self.grenades, Kit::grenades);
         let mut kit = own.unwrap_or(self.kit);
         for (b, theirs) in kit.base.iter_mut().zip(mine.base) {
@@ -923,8 +962,18 @@ impl Harvest {
         self.enemies_off
     }
 
+    #[cfg(test)]
+    pub fn grenades_in_the_air(&self) -> usize {
+        self.thrown.iter().filter(|g| g.kind == Thrown::Grenade).count()
+    }
+
     /// Starts carrying powerups named `id` or `id:level`, comma separated; unknown names are skipped.
     /// Starts the night `secs` in, and every restart on this farm too.
+    pub fn endless_grenades(mut self, on: bool) -> Self {
+        self.endless = on;
+        self
+    }
+
     pub fn starting_at(mut self, secs: f32) -> Self {
         self.t = secs;
         self.start_t = secs;
@@ -968,10 +1017,17 @@ impl Harvest {
             self.view_yaw = (self.view_yaw + TAU / 600.0).rem_euclid(TAU);
             return flow;
         }
-        self.overview = input.held.contains(Buttons::L1);
+        self.overview = input.held.contains(if self.single { Buttons::R2 } else { Buttons::L1 });
         if self.overview {
             return flow;
         }
+        let own;
+        let (input, dt) = if self.single {
+            own = self.single_input(input, dt, sounds);
+            (&own.0, own.1)
+        } else {
+            (input, dt)
+        };
         if let Some(at) = self.menu {
             self.pause_menu(at, input, sounds, &mut flow);
             return flow;
@@ -1077,19 +1133,19 @@ impl Harvest {
         };
         self.t += dt;
         self.hurt = (self.hurt - dt).max(0.0);
-        // Up and down walk along the heading, left and right strafe, Y and A (or L2 and R2) turn, B turns around.
+        // Up and down walk along the heading, left and right strafe, Y and A turn, B turns around.
         let dir = input.dir();
-        let turning = Buttons::A | Buttons::Y | Buttons::L2 | Buttons::R2;
+        let turning = Buttons::A | Buttons::Y;
         self.turn_ready |= !input.held.any(turning);
         let held = if self.turn_ready { input.held } else { Buttons::NONE };
         self.targeting = input.held.contains(Buttons::X);
-        let turn = held.any(Buttons::A | Buttons::R2) as i32 as f32 - held.any(Buttons::Y | Buttons::L2) as i32 as f32;
+        let turn = (held.contains(Buttons::A) as i32 as f32 - held.contains(Buttons::Y) as i32 as f32 + input.look).clamp(-1.0, 1.0);
         if input.pressed.contains(Buttons::B) {
             self.turn_around();
         }
         let spun = self.spin.min(PI / SPIN_TIME * dt);
         self.spin -= spun;
-        self.view_yaw = (self.view_yaw + turn * TURN_SPEED * dt + spun).rem_euclid(TAU);
+        self.view_yaw = (self.view_yaw + turn * crate::tuning::tuning().turn_speed * dt + spun).rem_euclid(TAU);
         let f = [self.view_yaw.cos(), self.view_yaw.sin()];
         let (side, ahead) = (dir[0], -dir[1]);
         self.lean += (side - self.lean) * (8.0 * dt).min(1.0);
@@ -1173,16 +1229,21 @@ impl Harvest {
             flow.rumble = flow.rumble.max(Some(Rumble::Fanfare));
             self.phase = Phase::Over { t: 0.0, won: true };
             flow.ended = Some(self.finish(true));
-        } else if self.t >= dawn() && self.t - dt < dawn() {
+        } else if self.t >= dawn() && !self.woke {
             self.daybreak(sounds, flow);
         } else if self.leveling <= 0.0 && self.xp >= self.next_xp {
             self.level_up(sounds, flow);
+        } else if self.leveling <= 0.0 && self.chests > 0 {
+            self.chests -= 1;
+            self.chest = true;
+            self.leveling = LEVEL_SLOW;
         }
     }
 
     /// Dawn: the night doesn't end, it turns. The Harvester rises behind the player, and from here on the
     /// dead grow stronger every second until the player reaches the farmhouse.
     fn daybreak(&mut self, sounds: &mut Vec<Sfx>, flow: &mut Flow) {
+        self.woke = true;
         sounds.push(Sfx::Horde);
         flow.rumble = flow.rumble.max(Some(Rumble::Blast));
         self.juice.shake(0.6);
@@ -1249,13 +1310,15 @@ impl Harvest {
             Some(_) => flow.quit = true,
             None => {}
         }
+        self.turn_ready &= self.menu.is_some();
     }
 
-    /// A fresh farm with the same difficulty, progress and trial powerups.
+    /// A fresh farm with the same difficulty, progress, enemies, look and trial powerups.
     fn restart(&mut self, sounds: &mut Vec<Sfx>) {
         let seed = self.rng.next_u32() as u64 + 1;
         let kit: Vec<String> = self.trial.iter().map(|&(d, l)| format!("{}:{l}", book().defs[d].id)).collect();
-        *self = Harvest::on(seed, &self.map_id).at(self.difficulty).with_progress(self.progress).with_kit(&kit.join(",")).starting_at(self.start_t);
+        let look = std::mem::take(&mut self.look);
+        *self = Harvest::on(seed, &self.map_id).at(self.difficulty).with_progress(self.progress).without_enemies(self.enemies_off).looking_like(&look).with_kit(&kit.join(",")).starting_at(self.start_t).single_screen(self.single).endless_grenades(self.endless);
         sounds.push(Sfx::Start);
     }
 
@@ -1470,7 +1533,9 @@ impl Harvest {
 
     fn move_zombies(&mut self, dt: f32) {
         let n = self.zombies.len();
-        let mut sep = vec![[0.0f32; 2]; n];
+        let mut sep = std::mem::take(&mut self.sep);
+        sep.clear();
+        sep.resize(n, [0.0; 2]);
         for i in 0..n {
             for j in i + 1..n {
                 let d = sub(self.zombies[i].pos, self.zombies[j].pos);
@@ -1484,11 +1549,11 @@ impl Harvest {
         }
         let cell = [(self.pos[0] / TILE) as usize, (self.pos[1] / TILE) as usize];
         if cell != self.flow_cell {
-            self.flow = self.map.flow(self.pos);
+            self.map.flow_into(self.pos, &mut self.flow, &mut self.steps);
             self.flow_cell = cell;
         }
         let mut bites = Vec::new();
-        for (z, s) in self.zombies.iter_mut().zip(sep) {
+        for (z, &s) in self.zombies.iter_mut().zip(&sep) {
             z.flash = (z.flash - dt).max(0.0);
             z.hurt = (z.hurt - dt).max(0.0);
             z.squash = (z.squash - dt * 5.0).max(0.0);
@@ -1518,9 +1583,10 @@ impl Harvest {
             z.anim += dt;
             let ahead = [z.pos[0] + to[0] * TILE / 2.0, z.pos[1] + to[1] * TILE / 2.0];
             if let Some(i) = self.map.breakable_at(ahead[0], ahead[1]) {
-                bites.push((i, ahead, z.kind.stats().damage * CHEW_RATE * self.fury * dt));
+                bites.push((i, ahead, z.kind.stats().damage * crate::tuning::tuning().chew * self.fury * dt));
             }
         }
+        self.sep = sep;
         for (i, at, damage) in bites {
             self.map.hurt_prop(i, damage, 0.0);
             if self.juice.rng.range(0.0, 1.0) < dt * 3.0 {
@@ -1614,15 +1680,15 @@ impl Harvest {
                 b.life = 0.0;
                 continue;
             }
-            for (i, z) in self.zombies.iter_mut().enumerate() {
-                if b.life <= 0.0 || b.hit.contains(&i) {
+            for z in &mut self.zombies {
+                if b.life <= 0.0 || b.hit.contains(&z.id) {
                     continue;
                 }
                 let d = sub([z.pos[0], z.pos[1] - 6.0], b.pos);
                 if len(d) < 7.0 {
                     hits.1 |= strike(z, &mut self.juice, b.damage, norm(b.vel), b.force, crit);
                     hits.0 += 1;
-                    b.hit.push(i);
+                    b.hit.push(z.id);
                     if b.pierce == 0 {
                         b.life = 0.0;
                     } else {
@@ -1705,13 +1771,18 @@ impl Harvest {
 
     /// Lobs a grenade at the map point under a bottom-screen touch, if one is ready.
     fn throw(&mut self, touch: [f32; 2], sounds: &mut Vec<Sfx>) {
+        let cam = self.camera();
+        self.throw_at([cam[0] + touch[0] / SCALE, cam[1] + touch[1] / SCALE], sounds);
+    }
+
+    fn throw_at(&mut self, to: [f32; 2], sounds: &mut Vec<Sfx>) {
         if self.grenades < 1.0 {
             sounds.push(Sfx::Miss);
             return;
         }
-        self.grenades -= 1.0;
-        let cam = self.camera();
-        let to = [cam[0] + touch[0] / SCALE, cam[1] + touch[1] / SCALE];
+        if !self.endless {
+            self.grenades -= 1.0;
+        }
         self.thrown.push(Grenade { from: self.pos, to, t: 0.0, kind: Thrown::Grenade });
         sounds.push(Sfx::Throw);
     }
@@ -1835,8 +1906,7 @@ impl Harvest {
                         }
                     }
                     DropKind::Chest => {
-                        self.chest = true;
-                        self.leveling = LEVEL_SLOW;
+                        self.chests += 1;
                         sounds.push(Sfx::LevelUp);
                         self.juice.shout("A CHEST", GOLD, 0.9);
                         self.juice.flash(self.pos, 20.0, [1.8, 1.4, 0.6], 9.0, 0.8);
@@ -2035,8 +2105,8 @@ impl Harvest {
 
     /// Top-left of the view in world pixels, rounded to whole screen pixels.
     fn camera(&self) -> [f32; 2] {
-        let x = (self.pos[0] - VIEW_W / 2.0).clamp(0.0, self.map.width_px() - VIEW_W);
-        let y = (self.pos[1] - 8.0 - VIEW_H / 2.0).clamp(0.0, self.map.height_px() - VIEW_H);
+        let x = (self.pos[0] - VIEW_W / 2.0).clamp(0.0, (self.map.width_px() - VIEW_W).max(0.0));
+        let y = (self.pos[1] - 8.0 - VIEW_H / 2.0).clamp(0.0, (self.map.height_px() - VIEW_H).max(0.0));
         [(x * SCALE).round() / SCALE, (y * SCALE).round() / SCALE]
     }
 }
@@ -2157,17 +2227,17 @@ mod tests {
     }
 
     #[test]
-    fn y_and_a_or_the_shoulder_triggers_turn_without_moving() {
-        for (left, right) in [(Buttons::Y, Buttons::A), (Buttons::L2, Buttons::R2)] {
-            let mut h = Harvest::calm(9);
-            run(&mut h, &Input::default(), 0.05);
-            let (start, yaw) = (h.pos, h.view_yaw);
-            run(&mut h, &Input { held: right, ..Default::default() }, 0.25);
-            assert_eq!(h.pos, start);
-            assert!((h.view_yaw - yaw).rem_euclid(TAU) > 0.5);
-            run(&mut h, &Input { held: left, ..Default::default() }, 0.25);
-            assert!((h.view_yaw - yaw).rem_euclid(TAU) < 0.01 || (h.view_yaw - yaw).rem_euclid(TAU) > TAU - 0.01);
-        }
+    fn y_and_a_turn_without_moving_and_the_shoulder_triggers_do_not() {
+        let mut h = Harvest::calm(9);
+        run(&mut h, &Input::default(), 0.05);
+        let (start, yaw) = (h.pos, h.view_yaw);
+        run(&mut h, &Input { held: Buttons::L2 | Buttons::R2, ..Default::default() }, 0.25);
+        assert_eq!(h.view_yaw, yaw);
+        run(&mut h, &Input { held: Buttons::A, ..Default::default() }, 0.25);
+        assert_eq!(h.pos, start);
+        assert!((h.view_yaw - yaw).rem_euclid(TAU) > 0.5);
+        run(&mut h, &Input { held: Buttons::Y, ..Default::default() }, 0.25);
+        assert!((h.view_yaw - yaw).rem_euclid(TAU) < 0.01 || (h.view_yaw - yaw).rem_euclid(TAU) > TAU - 0.01);
     }
 
     #[test]
@@ -2249,8 +2319,9 @@ mod tests {
         let choice = |id| Choice { up: book().index(id).unwrap(), rare: false, found: false };
         h.phase = Phase::LevelUp { choices: [choice("shotgun"), choice("pistol"), choice("running_shoes")], selected: 0, t: 1.0, picked: None };
         let tap = Input { touch: Some([500.0, CHOICE_TOP + CHOICE_ROW * 1.5]), touch_started: true, ..Default::default() };
+        let before = h.kit.level(book().index("pistol").unwrap());
         h.update(&tap, 0.016, &mut Vec::new());
-        assert_eq!(h.kit.level(book().index("pistol").unwrap()), 1);
+        assert_eq!(h.kit.level(book().index("pistol").unwrap()), before + 1);
         h.update(&Input::default(), PICK_TIME, &mut Vec::new());
         assert!(matches!(h.phase, Phase::Playing));
     }
@@ -2267,6 +2338,38 @@ mod tests {
         assert!(h.blow(0.016, &mut sounds));
         assert!(h.zombies[0].hp <= 0.0);
         assert!(!h.map.solid_at(c[0], c[1]));
+    }
+
+    #[test]
+    fn resuming_with_a_held_doesnt_turn_the_camera() {
+        let mut h = Harvest::calm(4);
+        h.update(&Input::default(), 1.0 / 60.0, &mut Vec::new());
+        h.update(&Input { pressed: Buttons::START, ..Default::default() }, 1.0 / 60.0, &mut Vec::new());
+        assert_eq!(h.menu, Some(0));
+        h.update(&Input { pressed: Buttons::A, held: Buttons::A, ..Default::default() }, 1.0 / 60.0, &mut Vec::new());
+        assert_eq!(h.menu, None);
+        let yaw = h.view_yaw;
+        h.update(&Input { held: Buttons::A, ..Default::default() }, 0.5, &mut Vec::new());
+        assert_eq!(h.view_yaw, yaw.rem_euclid(TAU), "the A that resumed has to be let go before it turns");
+    }
+
+    #[test]
+    fn a_piercing_shot_hits_each_zombie_once_while_the_dead_are_cleared() {
+        let mut h = penned();
+        let at = [h.pos[0] + 20.0, h.pos[1]];
+        let mut dead = Zombie::new(Kind::named("skinny"), [h.pos[0] - 40.0, h.pos[1]], 0.0, 1.0, 0.0);
+        dead.id = 1;
+        let mut live = Zombie::new(Kind::named("skinny"), at, 1000.0, 1.0, 0.0);
+        live.id = 2;
+        h.zombies = vec![dead, live];
+        h.bullets = vec![Bullet { pos: [at[0], at[1] - 6.0], vel: [0.0; 2], damage: 10.0, pierce: 5, life: 1.0, force: 0.0, hit: Vec::new(), look: None, age: 0.0 }];
+        let mut sounds = Vec::new();
+        h.move_bullets(0.016, &mut sounds);
+        let once = h.zombies[1].hp;
+        assert!(once < 1000.0);
+        h.reap(&mut sounds, &mut Flow::default());
+        h.move_bullets(0.016, &mut sounds);
+        assert_eq!(h.zombies[0].hp, once, "the zombie that took the shot's place isn't hit again");
     }
 
     #[test]
@@ -2372,8 +2475,16 @@ mod tests {
     }
 
     #[test]
+    fn a_map_smaller_than_the_view_draws_and_takes_a_tap() {
+        let mut h = Harvest::calm_on(1, &MapSource::new("Tiny", MAP_MIN)).unwrap();
+        h.draw(&mut crate::Frame::default());
+        h.throw([SCREEN_W / 2.0, SCREEN_H / 2.0], &mut Vec::new());
+        assert_eq!(h.camera(), [0.0; 2]);
+    }
+
+    #[test]
     fn dying_turns_the_player_then_offers_a_new_farm_at_the_same_difficulty() {
-        let mut h = Harvest::new(4).at(Difficulty::Hard);
+        let mut h = Harvest::new(4).at(Difficulty::Hard).without_enemies(0b10).looking_like("");
         let mut sounds = Vec::new();
         h.hp = 0.0;
         h.update(&Input::default(), 0.016, &mut sounds);
@@ -2393,15 +2504,17 @@ mod tests {
         assert!(matches!(h.phase, Phase::Playing));
         assert_eq!(h.kills, 0);
         assert_eq!(h.difficulty, Difficulty::Hard);
-        assert!(h.kit.weapons.is_empty(), "and its kit");
+        assert_eq!(h.kit.weapons.len(), 2, "and its kit");
+        assert_eq!(h.enemies_off, 0b10, "the kinds turned off stay off");
+        assert_eq!(h.look, "", "and the player keeps their look");
     }
 
     #[test]
-    fn each_difficulty_starts_with_its_own_weapons_and_one_grenade() {
-        for (d, count) in [(Difficulty::Easy, 2), (Difficulty::Normal, 1), (Difficulty::Hard, 0)] {
+    fn every_difficulty_starts_with_a_pistol_and_knife_and_easy_with_two_grenades() {
+        for (d, grenades) in [(Difficulty::Easy, 2.0), (Difficulty::Normal, 1.0), (Difficulty::Hard, 1.0)] {
             let h = Harvest::new(1).at(d).with_kit("lantern");
-            assert_eq!(h.kit.weapons.len(), count + 1, "{d:?}");
-            assert_eq!(h.grenades, 1.0, "{d:?}");
+            assert_eq!(h.kit.weapons.len(), 3, "{d:?}");
+            assert_eq!((h.grenades, h.kit.grenades()), (grenades, grenades), "{d:?}");
         }
     }
 
@@ -2549,6 +2662,31 @@ mod tests {
         panic!("the chest never opened");
     }
 
+    #[test]
+    fn a_chest_picked_up_during_a_level_up_still_brings_its_own() {
+        let mut h = Harvest::calm(4);
+        h.xp = h.next_xp;
+        let x = Input { pressed: Buttons::X, ..Default::default() };
+        h.update(&Input::default(), 1.0 / 60.0, &mut Vec::new());
+        assert!(h.leveling > 0.0);
+        for _ in 0..2 {
+            h.drops.push(Drop { kind: DropKind::Chest, pos: h.pos, z: 0.0, vz: 0.0, vel: [0.0; 2], age: 0.0, pulled: None });
+        }
+        h.collect(0.016, &mut Vec::new());
+        let mut level_ups = 0;
+        for _ in 0..2000 {
+            if let Phase::LevelUp { picked: None, t, .. } = h.phase
+                && t > CARDS_IN
+            {
+                level_ups += 1;
+                h.update(&x, 0.016, &mut Vec::new());
+            } else {
+                h.update(&Input::default(), 0.016, &mut Vec::new());
+            }
+        }
+        assert_eq!((level_ups, h.level), (3, 2), "the full bar's level-up, then one for each chest");
+    }
+
     /// A farm at the edge of dawn, with the player well away from home and nothing else about.
     fn before_dawn() -> Harvest {
         let mut h = Harvest::calm(4);
@@ -2570,6 +2708,16 @@ mod tests {
         if len(to_home) > 1.0 {
             assert!(to_home[0] * to_boss[0] + to_home[1] * to_boss[1] <= 0.0, "it rises on the side away from home");
         }
+    }
+
+    #[test]
+    fn a_run_started_past_dawn_wakes_the_harvester_at_once() {
+        let mut h = Harvest::calm(4).starting_at(dawn() + 30.0);
+        h.zombies.clear();
+        h.update(&Input::default(), 0.02, &mut Vec::new());
+        assert_eq!(h.zombies.iter().filter(|z| z.boss).count(), 1);
+        h.update(&Input::default(), 0.02, &mut Vec::new());
+        assert_eq!(h.zombies.iter().filter(|z| z.boss).count(), 1, "and only once");
     }
 
     #[test]

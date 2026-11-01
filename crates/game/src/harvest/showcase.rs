@@ -177,7 +177,7 @@ impl Showcase {
     /// The 2.5D view, as on the top screen.
     pub fn top(&self) -> Canvas {
         let scene = view3d::scene(&self.harvest);
-        Canvas { clear: [scene.fog[0], scene.fog[1], scene.fog[2], 1.0], cards: Some(scene), shapes: Vec::new() }
+        Canvas { clear: [scene.fog[0], scene.fog[1], scene.fog[2], 1.0], cards: Some(scene), ..Default::default() }
     }
 
     /// The map around the sprite, as on the bottom screen, magnified `zoom` times past the game's own scale.

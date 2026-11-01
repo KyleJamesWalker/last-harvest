@@ -12,8 +12,15 @@ use crate::art::{self, Art};
 use crate::{Align, Canvas, Color, Frame, SCREEN_H, SCREEN_W};
 
 impl Harvest {
-    /// The top screen is the 3D view; the bottom is the map, where a tap throws a grenade.
     pub fn draw(&self, f: &mut Frame) {
+        self.draw_screens(f);
+        if self.single {
+            self.single_frame(f);
+        }
+    }
+
+    /// The top screen is the 3D view; the bottom is the map, where a tap throws a grenade.
+    fn draw_screens(&self, f: &mut Frame) {
         let scene = view3d::scene(self);
         let view_proj = scene.view_proj;
         f.top.clear = [scene.fog[0], scene.fog[1], scene.fog[2], 1.0];
@@ -36,7 +43,7 @@ impl Harvest {
         if self.overview {
             let scale = (SCREEN_W / self.map.width_px()).min(SCREEN_H / self.map.height_px());
             self.world(c, [0.0, 0.0], scale, tint);
-            c.label("Whole map (release L1 to play)", SCREEN_W / 2.0, SCREEN_H - 40.0, 28.0, WHITE, Align::Center);
+            c.label(if self.single { "Whole map (release R2 to play)" } else { "Whole map (release L1 to play)" }, SCREEN_W / 2.0, SCREEN_H - 40.0, 28.0, WHITE, Align::Center);
             return;
         }
         let cam = self.camera();
@@ -45,6 +52,7 @@ impl Harvest {
         self.home_on_map(c, cam);
         self.grenade_tray(c);
         self.kit_tray(c);
+        self.aim_mark(c, cam);
         self.paused_bottom(c);
         if let Phase::LevelUp { choices, selected, t, picked } = &self.phase {
             let fade = picked.map_or(1.0, |p| 1.0 - p / PICK_TIME);

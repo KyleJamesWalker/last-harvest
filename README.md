@@ -8,11 +8,15 @@ Choose Play on the title's bottom screen to start a run on a newly generated far
 
 The top screen is the main view, in 2.5D: every sprite's silhouette extruded into depth, lit by the player's lantern and fading into fog, seen from just behind the player. The bottom screen is the same farm top-down at 2x, 512x384 art pixels, with dots marking what the main view faces.
 
-Zombies claw their way out of the ground, at the edge of the fog early on and only a few tiles away by the end of the night, then find their way around buildings, or chew through a fence when that's quicker. Shots fly past bushes, fences and signs but stop at buildings, vehicles and trees. Your weapons fire on their own. Tap the map to lob a grenade there; you start with one, and each recharges in 12 seconds. Kills drop money, and money levels you up: pick one of three powerups on either screen; see [Powerups](#powerups). Shooting a red barrel sets it off; hold X and your guns go for the barrels in view. Ten minutes in, dawn wakes the Harvester behind you and the dead grow 1% stronger every second: run back to the farmhouse to survive. Start pauses. Fall, and you sink into the dirt and climb back out as one of them, leading the dead off to the next farm.
+Zombies claw their way out of the ground, at the edge of the fog early on and only a few tiles away by the end of the night, then find their way around buildings, or chew through a fence when that's quicker. Shots fly past bushes, fences and signs but stop at buildings, vehicles and trees. Your weapons fire on their own. Tap the map to lob a grenade there; you start with one, two on Easy, and each recharges in 12 seconds. Kills drop money, and money levels you up: pick one of three powerups on either screen; see [Powerups](#powerups). Shooting a red barrel sets it off; hold X and your guns go for the barrels in view. Ten minutes in, dawn wakes the Harvester behind you and the dead grow 1% stronger every second: run back to the farmhouse to survive. Start pauses. Fall, and you sink into the dirt and climb back out as one of them, leading the dead off to the next farm.
 
-Pick a difficulty under Play with Left and Right, or by tapping its arrows. Easy bites gently, drops health often and starts you with a pistol, a knife and a grenade. Normal makes bites hurt and health scarce, and starts you with a knife and a grenade. Hard makes every bite count and starts you with only a grenade. A new save starts on Easy, and the choice is remembered.
+Pick a difficulty under Play with Left and Right, or by tapping its arrows. Every difficulty starts you with a pistol and a knife. Easy bites gently, drops health often and gives you two grenades. Normal makes bites hurt and health scarce, and gives you one. Hard makes every bite count, with one grenade. A new save starts on Easy, and the choice is remembered.
 
-The title's menu also opens Settings, Stats and Credits; Up and Down choose a row, A or a tap opens it, and B goes back. Settings sets each screen's brightness, the volume, rumble, the frame-rate overlay, the player's look, which zombies come, and resets progress. Its Enemies page shows each kind walking on the top screen with its numbers, and A turns it on or off; nights skip the kinds turned off, and at least one stays on. Choose Settings from the pause menu to change all but the look, the enemies and the reset mid-run. Stats lists the records the save keeps. The top screen shows the game's version in its corner on every title page. R1 saves both screens, top above bottom, as `screenshots/shot-NNNN.png` beside the save.
+The title's menu also opens Settings, Stats and Credits; Up and Down choose a row, A or a tap opens it, and B goes back. Settings sets each screen's brightness (on the handheld only), the volume, rumble, the frame-rate overlay, whether runs use one screen or two, the player's look, which zombies come, and resets progress. Its Enemies page shows each kind walking on the top screen with its numbers, and A turns it on or off; nights skip the kinds turned off, and at least one stays on. Choose Settings from the pause menu to change all but the look, the enemies and the reset mid-run. Stats lists the records the save keeps. The top screen shows the game's version in its corner on every title page. R1 saves both screens, top above bottom, as `screenshots/shot-NNNN.png` beside the save.
+
+With Settings > Screens on One, a run plays on the top screen alone and the bottom screen's backlight goes off. Hold L1 (1) to put the live map in place of the 3D view; grenades show only there. Hold L2 (Q) to aim a grenade on the map while time slows to half: the direction you held keeps you walking, the d-pad or stick then moves the cursor, and letting go throws; B cancels, and after 3 seconds it throws itself. The cursor starts where your last throw went, relative to your view, if that was under 5 seconds ago, else straight ahead. Hold R2 (2) for the whole map, paused. Title menus still use both screens.
+
+On macOS, Windows and a Linux desktop the game opens one resizable window and plays as on a phone (see [The game in a browser](#the-game-in-a-browser)): menus show both screens side by side, a run shows one screen, and the mouse is a finger on the on-screen controls, which hide while the keyboard or a gamepad is in use. `LAST_HARVEST_WINDOWS=2` opens a window per screen instead, to try the bottom screen's touch with the mouse as on the device.
 
 Every sound is synthesized at runtime from a few oscillator voices per cue, with a low drone that swells as the dead close in. A recorded WAV can replace any cue; see [Sounds](#sounds).
 
@@ -20,18 +24,18 @@ Every sound is synthesized at runtime from a few oscillator voices per cue, with
 |---|---|---|
 | Walk forward and back | Up and Down, or the stick | Up and Down arrows |
 | Strafe | Left and Right, or the stick | Left and Right arrows |
-| Turn | Y and A, or L2 and R2 | A and X, or 1 and 2 |
+| Turn | Y and A | A and X |
 | Turn around | B | Z |
-| Throw a grenade | Tap the map | Click the bottom window |
+| Throw a grenade | Tap the map | Click the map: on the bottom window with two, or after Q puts it up in one |
 | Pick an upgrade | Tap it, or Up, Down and X | Click it, or arrows and S |
-| Show the whole map | Hold L1 | Hold Q |
+| Show the whole map | Hold L1 | Hold 1 |
 | Back to the menu | Back, or B after a run | Tab, or Z after a run |
 
 The art comes from the tileset's reference sheet. `crates/game/art.txt` names each sprite and where it sits on the sheet, and `crates/game/build.rs` packs them into one texture at build time. The `art` debug scene shows every sprite in the catalog. The new weapons and every upgrade icon are original placeholders in `crates/game/placeholder/`. Redraw one in the [sprite editor](#sprite-editor) and the saved version replaces the placeholder.
 
 ### Powerups
 
-On Normal a run starts with only the knife and one grenade; see the difficulties above. The first level-up takes just 2 money. Each level-up offers three cards, drawn from 17 weapons and 17 passives. A run carries at most six weapons and six passives. Once both are full, the cards only offer levels for what you already carry. When nothing is left to level, the cards offer a snack, an ammo crate or pocket change.
+A run starts with the pistol, the knife and a grenade, two on Easy; see the difficulties above. The first level-up takes just 2 money. Each level-up offers three cards, drawn from 17 weapons and 17 passives. A run carries at most six weapons and six passives. Once both are full, the cards only offer levels for what you already carry. When nothing is left to level, the cards offer a snack, an ammo crate or pocket change.
 
 Each weapon covers a zone, shown on its card:
 
@@ -106,7 +110,7 @@ The game reads its rules from seven text files in `crates/game/`. The packer put
 
 | File | What it sets |
 |---|---|
-| `tuning.txt` | Numbers no card sets: the player's base health, speed and footprint, each difficulty, zombies, the Harvester, the night's length and spawn rings, grenades, barrels, blasts and weapon reach |
+| `tuning.txt` | Numbers no card sets: the player's base health, speed, footprint and turn speed, each difficulty, zombies, the Harvester, the night's length and spawn rings, grenades, barrels, blasts and weapon reach |
 | `props.txt` | The game's own props a map can place, with walk-through rows, cover and hit points, and the defaults for fences and other sprites |
 | `ground.txt` | Each ground code: its label, tile, how a run joins, what the cell is, and any crop on it |
 | `farm.txt` | How the random farm lays itself out: the ground codes it is laid on, tufts, grass, corpses, fields, the props it strews and how often, and its buildings, where they stand and what goes near each |
@@ -186,12 +190,15 @@ Ports/last-harvest/
   data/game_data.pak             the base game's data
   data/enemies/*.enemy.png       enemy cards
   data/players/*.player.png      player cards
+  data/props/*.prop.png          props for maps
+  data/maps/*.map.txt            hand-made farms
   data/mods/*.pak                mod packs, laid over the base game's data
   data/no-updates                if present, the launcher doesn't update the game
-  save.txt  log.txt  screenshots/
+  save.txt  log.txt  crash.log  screenshots/
+  .update/                       the launcher's downloads in progress
 ```
 
-Build the data pack, `target/game_data.pak`: a ZIP holding the sprite atlas, sounds, font and powerup table, with a `manifest.toml` that names the atlas it was built from and the release, `LAST_HARVEST_VERSION` when the packer was built, else `dev`. Builds keep the data built in through the default `embed` feature and read a pack if one is present. A build without it, `--no-default-features`, reads its data only from `data/game_data.pak` beside the binary and refuses one built for a different atlas; without one it starts with no sprites, and the title says which release's pack to copy where.
+Build the data pack, `target/game_data.pak`: a ZIP holding the sprite atlas, sounds, font and powerup table, with a `manifest.toml` that names the atlas it was built from and the release, `LAST_HARVEST_VERSION` when the packer was built, else `dev`. Builds keep the data built in through the default `embed` feature and read a pack if one is present. A build without it, `--no-default-features`, reads its data only from `data/game_data.pak` beside the binary and treats one that won't open, such as one built for a different atlas, as missing: it starts with no sprites, the title says which release's pack to copy where, and the log says why. A pack table this build refuses is left out for the game's own, with a line on the title.
 
 The binary reports its release, `LAST_HARVEST_VERSION` when it was built, else `dev-<commit>`, with `--version`, at the top of `log.txt`, and in a corner of Stats, which adds the pack's when it differs.
 
@@ -199,11 +206,25 @@ The binary reports its release, `LAST_HARVEST_VERSION` when it was built, else `
 cargo run -p last-harvest-pack
 ```
 
-Publishing a GitHub release, such as with `gh release create v0.2.0 --generate-notes`, runs `.github/workflows/release.yml`. It attaches the device build as a Ports-layout tarball and `game_data.pak` as a separate file; extract the tarball into the SD card's `Ports` folder and put the pack in `Ports/last-harvest/data/`. Both are built with the tag as `LAST_HARVEST_VERSION`.
+Publishing a GitHub release, such as with `gh release create v0.2.0 --generate-notes`, runs `.github/workflows/release.yml`, which builds every platform with the tag as `LAST_HARVEST_VERSION` and attaches one shared `game_data.pak` beside the packages, none of which carries it:
 
-From then on the launcher, `LastHarvest.sh`, keeps the game current before each start, never during a run. It asks the GitHub API for the latest release; a newer tag downloads this platform's tarball and swaps in its binary, data README, launcher and icon, and a `game_data.pak` whose sha256 differs from the release asset's `digest` is downloaded, so a release that changes only the pack updates too. Each download is checked against its asset's `digest` under a temporary name and only then moved over the old file, and a new binary must report the new tag before it replaces the old one. When `data/game_data.pak` is missing, the launcher fetches the pack of the binary's own release, even with updates off. Offline, it gives up after a 4 second connect timeout and starts the game as it is. A `dev` build, as `scripts/install.sh` installs, is never updated, and `data/no-updates` turns updates off. The launcher logs what it did at the top of `log.txt`. `LAST_HARVEST_API`, `LAST_HARVEST_DOWNLOADS` and `LAST_HARVEST_PLATFORM` point it at another release source and platform, for testing.
+| Asset | For | The pack |
+|---|---|---|
+| `last-harvest-<tag>-aarch64-linux.tar.gz` | The RG DS, in a Ports layout: extract into the SD card's `Ports` folder | The launcher fetches it into `Ports/last-harvest/data/` |
+| `last-harvest-<tag>-android.apk` | Android 8.0+ on arm64, phones and handhelds | Fetched on first run into the app's storage |
+| `last-harvest-<tag>-muos.muxapp` | muOS on the H700 Anbernics, through Archive Manager | Fetched by `mux_launch.sh` into its `data/` |
+| `last-harvest-<tag>-macos-arm64.zip`, `-windows-x86_64.zip`, `-windows-arm64.zip`, `-linux-x86_64.tar.gz`, `-linux-arm64.tar.gz` | Desktops, one window | Downloaded by hand into `LastHarvest/data/` |
+| `last-harvest-<tag>-web.zip` | The browser game, also on GitHub Pages and itch.io | Beside it in the zip |
+
+The APK is signed with the key in the `ANDROID_KEYSTORE_B64` and `ANDROID_KEYSTORE_PASSWORD` secrets (alias `last-harvest`), so each release installs over the last; without them the workflow signs with a throwaway key and warns. The Windows ARM64 build is cross-compiled and untested.
+
+From then on the launcher, `LastHarvest.sh`, keeps the game current before each start, never during a run. It asks the GitHub API for the latest release; a newer tag downloads this platform's tarball and swaps in its binary, data README, launcher and icon, and a `game_data.pak` whose sha256 differs from the release asset's `digest` is downloaded, so a release that changes only the pack updates too. Each download is checked against its asset's `digest` under a temporary name and only then moved over the old file, and a new binary must report the new tag before it replaces the old one. A new binary comes with its release's pack or not at all: when the pack won't download or check out, the launcher keeps the old binary and pack. When `data/game_data.pak` is missing, the launcher fetches the pack of the binary's own release, even with updates off. Offline, it starts the game as it is once the API call fails: curl gives up after a 4 second connect timeout, and on the device, which fetches with python, `timeout` stops the call after 8 seconds. A `dev` build, as `scripts/install.sh` installs, is never updated, and `data/no-updates` turns updates off. The launcher logs what it did at the top of `log.txt`. `LAST_HARVEST_API`, `LAST_HARVEST_DOWNLOADS` and `LAST_HARVEST_PLATFORM` point it at another release source and platform, for testing.
 
 The workflow reads the private assets with a read-only deploy key on that repository, stored as the `ASSETS_DEPLOY_KEY` secret. The same release publishes GitHub Pages, built by `scripts/pages.sh`: a landing page and `manual.html` at the root, the game in `play/`, the card editor in `editor/`, and `game_data.pak` at the root, which both fetch. It checks the site holds exactly those files and that neither page's wasm builds the tileset in; the repository's Pages source must be set to GitHub Actions. It also attaches the game as `last-harvest-<tag>-web.zip` and, once set up, pushes that zip to itch.io: see The game in a browser.
+
+The tarball, the web zip and the site each carry `OFL.txt`, the font's licence, and `THIRD_PARTY_LICENSES.txt`, every shipped crate's licence as `tools/third_party.py` writes it. Each page's Content-Security-Policy allows its inline script by hash: after editing one, run `tools/csp.py`.
+
+Every pull request runs `.github/workflows/ci.yml`: clippy at zero warnings, the tests, both wasm builds and their no-tileset check, `tools/manual_items.py --check`, `tools/csp.py --check` and shellcheck. A fork's PR has no `ASSETS_DEPLOY_KEY`, so it skips the Rust steps.
 
 Run the tests:
 
@@ -217,9 +238,9 @@ cargo test
 |---|---|---|
 | D-pad | D-pad or stick | Arrow keys |
 | A / B / X / Y | A / B / X / Y | X / Z / S / A |
-| L1 / R1 / L2 / R2 | Shoulders | Q / W / 1 / 2 |
+| L1 / R1 / L2 / R2 | Shoulders | 1 / W / Q / 2 |
 | Start / Select | Start / Select | Enter / Backspace |
-| Touch | Stylus or finger on the bottom screen | Mouse on the bottom window |
+| Touch | Stylus or finger on the bottom screen | The mouse, as a finger in the window; on the bottom window with two |
 | Volume | V+ / V- | = / - |
 | Lid | Close the lid | C toggles |
 | Sleep and wake | Power button | None |
@@ -242,11 +263,12 @@ scripts/debug.sh tap 500 400                # touch the bottom screen
 scripts/debug.sh swipe 300 650 650 250 120  # drag over 120 ms
 scripts/debug.sh shot out.png               # save both screens, top above bottom
 scripts/debug.sh sleep 5                    # suspend, then wake on the RTC alarm
+scripts/debug.sh state                      # log the player's position and the solid cells and props around them
 scripts/debug.sh panic                      # crash on purpose to test crash.log
 scripts/debug.sh logs                       # follow the game log, with a perf line each second: FPS, frame times, and CPU ms in update, frame building and rendering
 ```
 
-The scene names are `title`, `harvest`, `farm` (the game without zombies, for looking around; X drops one a few steps ahead), `bench` (a frozen horde of 300 with every effect showing, turning a full circle every 600 frames, for comparing frame rates between builds; `bench-160x120` and the like build it on a farm that many tiles across and log the map's flow field time), `art` and `hardware`. On macOS, set `LAST_HARVEST_DEBUG=1` and write commands to the pipe directly.
+The scene names are `title`, `harvest`, `farm` (the game without zombies, for looking around; X drops one a few steps ahead), `single` (a run on one screen whatever Settings says; the `aim_` numbers in `tuning.txt` [grenade] shape its grenade aiming), `bench` (a frozen horde of 300 with every effect showing, turning a full circle every 600 frames, for comparing frame rates between builds; `bench-160x120` and the like build it on a farm that many tiles across and log the map's flow field time), `art` and `hardware`. On macOS, set `LAST_HARVEST_DEBUG=1` and write commands to the pipe directly.
 
 ### Recording and streaming
 
@@ -279,17 +301,21 @@ The stream reaches the Mac about 240 ms after the device draws it, or about 155 
 | `LAST_HARVEST_MODS` | Sets the folder of mod packs. The default is `data/mods` beside the binary. |
 | `LAST_HARVEST_MAPS` | Sets the folder of maps. The default is `data/maps` beside the binary. |
 | `LAST_HARVEST_PROPS` | Sets the folder of players' props. The default is `data/props` beside the binary. |
+| `LAST_HARVEST_CATALOG` | Sets the sprite catalog the native sprite editor writes stands to. The default is `crates/game/art.txt`. |
 | `LAST_HARVEST_PAK` | Sets the data pack path. The default is `data/game_data.pak` beside the binary. |
 | `LAST_HARVEST_SOUNDS` | Sets the folder of recorded sounds, over the pack's. Without a pack, the default is `sounds` beside the binary, then `assets/private/sounds`. |
 | `LAST_HARVEST_TOP` | Names the output for the top screen, such as `DSI-2`. |
 | `LAST_HARVEST_UNLOCK_ALL` | Offers every powerup, whatever the save has unlocked. |
 | `LAST_HARVEST_KIT` | Starts every run carrying these powerups, as comma-separated `id` or `id:level`, such as `scythe:3,crows,dog`. |
 | `LAST_HARVEST_CLOCK` | Starts every night this many seconds in, such as `590` to try the run home at dawn. |
+| `LAST_HARVEST_GRENADES` | `endless`: a thrown grenade is never spent, for trying out aiming. |
+| `LAST_HARVEST_WINDOWS` | `2`: a window per screen, top above bottom, as before one window was the default on a desktop; the device always has two. |
 | `LAST_HARVEST_VERSION` | At build time, the release the binary and `game_data.pak` report. The default is `dev`, plus the commit for the binary. |
 | `LAST_HARVEST_API` | The launcher's GitHub releases API, for testing updates. The default is `https://api.github.com/repos/KyleJamesWalker/last-harvest/releases`. |
 | `LAST_HARVEST_DOWNLOADS` | The launcher's base URL for release assets. The default is `https://github.com/KyleJamesWalker/last-harvest/releases/download`. |
 | `LAST_HARVEST_PLATFORM` | The launcher's platform, naming the tarball `last-harvest-<tag>-<platform>.tar.gz`. The default comes from `uname`: `aarch64-linux`. |
 | `RGDS_HOST` | Sets the SSH target for the scripts. The default is `root@anbernic.local`. |
+| `TIMEOUT` | Stops each game run that `scripts/deploy.sh` starts on the device after this many seconds. The default, `0`, lets it run until it quits. |
 
 ### Sprite editor
 
@@ -323,7 +349,7 @@ A pixel editor for the game's sprites, on macOS. The left pane lists every sprit
 | Resize every frame | W and H - and +, 8 at a time with Shift; the bottom center stays put |
 | Browse earlier versions | R, or History: the commits that touched the sprite in the assets repository, newest first; for a card's part or a prop, the commits that touched its PNG. J and K step through them, shown read-only on the canvas and in the previews; Enter or Restore brings one back as unsaved changes, and Esc or Back returns to what was open. The editor only reads from git. |
 | Save | Cmd+S; leaving a sprite with unsaved changes asks to save (S or Enter), discard (D) or stay (Esc) |
-| Screenshot the window | F12, into the sprites folder |
+| Screenshot the window | F12, into `target/` |
 
 Save writes each frame to `assets/private/sprites/NAME/0.png`, `1.png` and so on, and a changed stand to the sprite's line in `crates/game/art.txt` as `@prop 12`, `@fold 20`, `@slab 10`, `@figure` or `@ground`, or to `stand.txt` in its folder for a new sprite. A carved sprite keeps `south.png`, `east.png`, optional `footprint.png`, `roof.png`, `north.png` and `west.png`, and a `stand.txt` saying `carve` in its folder; a build without them, such as a fresh clone, stands it as a slab. A sprite with coats keeps them in `paints.txt`. Its `paint` line lists the colors that are paint, light to dark. Each `coat` line gives one color, whose darker shades follow the drawing's, or a color for each paint color. The build packs every frame once in each coat, the first coat's frames first. It repaints the views, footprint and top strip to match. The random farm and a map's `frame N` pick among the coats' frames. The game's own art keeps to `crates/game/palette.txt`: the tileset's 22 colors plus a few for what it lacks. A test fails on any drawing or coat color it doesn't list, so a new color goes there first, with what it's for. The editors draw from that palette by default. Lospec loads a palette from lospec.com by name, through the native editor or the sprite server, since lospec.com allows no fetches from a web page. Palette file loads a downloaded `.hex` file instead. The next build of the game packs a saved sprite in place of its cut from the tileset, and a folder with a name not in `crates/game/art.txt` becomes a new sprite, `art::NAME`, for the code to use. Saved sprites go in the private assets submodule, because edits of the tileset's sprites fall under its license: commit and push them there. Delete a sprite's folder to go back to the tileset's version. Set `LAST_HARVEST_SPRITES` to save somewhere else.
 
@@ -335,7 +361,9 @@ scripts/web-game.sh --zip     # also pack it as target/last-harvest-web.zip, for
 scripts/pages.sh --serve      # the whole Pages site in target/pages, on http://127.0.0.1:8093
 ```
 
-A teaser for players without the handheld: the same game built for WebAssembly by `crates/app/src/web.rs`, with both screens drawn on one canvas, top above bottom, scaled to fit the window. It is built without `embed` and fetches `game_data.pak` from the path in its page's `data-pak` attribute: beside it in the zip, `../game_data.pak` on Pages. It reads no mods, cards or maps. Sound starts with the first click or key, as browsers require. The keys are the macOS ones under Controls, without Esc or Home. A click or tap on the bottom screen is a touch. A gamepad in the browser's standard layout maps by its labels, as on an Xbox pad: A, B, X and Y, the bumpers and triggers as L1, R1, L2 and R2, View as Select, Menu as Start, and the d-pad and left stick. The save lives in the browser's local storage, in `save.txt`'s format. Brightness, rumble, screenshots and the device's sensors do nothing.
+A teaser for players without the handheld: the same game built for WebAssembly by `crates/app/src/web.rs`, played on one screen by default, or with `?screens=2` in the address on both screens drawn on one canvas, top above bottom, scaled to fit the window. The start overlay's One screen and Two screens buttons pick between them and write the choice to the address, so a reload keeps it. It is built without `embed` and fetches `game_data.pak` from the path in its page's `data-pak` attribute: beside it in the zip, `../game_data.pak` on Pages. It reads no mods, cards or maps. Sound starts with the first click or key, as browsers require. The keys are the macOS ones under Controls, without Esc or Home. With two screens, a click or tap on the bottom screen is a touch. A gamepad in the browser's standard layout maps by its labels, as on an Xbox pad: A, B, X and Y, the bumpers and triggers as L1, R1, L2 and R2, View as Select, Menu as Start, and the d-pad and left stick. The save lives in the browser's local storage, in `save.txt`'s format. Brightness, rumble, screenshots and the device's sensors do nothing.
+
+On one screen the page plays as on a phone, with a mouse or a finger: the canvas fills the window, menus show both screens side by side (stacked when upright) with taps on the bottom one, and a run plays on one screen with on-screen controls beside it, or under it when upright. A floating stick goes under the left thumb; on the right are Grenade and Turn around over a turn strip, a sideways-only floating stick that turns faster the further it slides, as a right stick does, with Pause above. Settings > Grenades picks how Grenade (and L2) throws: Touch, the default, flips the map up while you keep moving, a tap on it throws there, and a second press puts the 3D view back; Pad aims with a cursor in slowed time as on one screen, and letting go throws. Settings leaves out Screens, as a phone always plays on one screen; the brightness rows show only on the handheld, whose backlights the game sets. A gamepad's right stick turns as the strip does. Upgrade cards and the pause menu take taps on the picture. The controls hide at gamepad or keyboard input and come back at the next touch. The controls are drawn from the `TOUCH_` sprites in `art.txt` (placeholders in `crates/game/placeholder/`, which a sprite saved in the editor replaces). The game lays all of this out (`crates/game/src/touch.rs`), so another platform only passes the window's size and its fingers in pixels to `Game::set_phone` and draws `Frame::phone`.
 
 To publish it on itch.io, once:
 
@@ -346,13 +374,33 @@ To publish it on itch.io, once:
 
 Without the secret or the variable, releases skip itch.io.
 
+### The game on Android
+
+`scripts/android.sh` builds `target/android/last-harvest.apk` for arm64 devices running Android 8.0 or newer, and `--install` installs it with `adb`. The game is a NativeActivity library (`crates/app/src/android.rs`) with `game_data.pak` as an APK asset. A small `MainActivity` (`crates/app/android/java/`) adds what the NDK can't reach: the vibrator and a second screen. The script compiles it with `javac` and the SDK's `d8`, and packages everything with `aapt2`, `zipalign` and `apksigner`, with no Gradle project. It signs with the local debug key (`~/.android/debug.keystore`, made if missing). It needs the Android SDK and NDK (`ANDROID_HOME`, `ANDROID_NDK_HOME`, else the newest under `~/Library/Android/sdk`), JDK 17 (`JAVA_HOME`, else Homebrew's `openjdk@17`), `cargo install cargo-ndk` and `rustup target add aarch64-linux-android`.
+
+- **One screen** plays as the web page does on a phone, with the same on-screen controls, locked to landscape.
+- **Two screens:** when Android reports a presentation display, as dual-screen handhelds do, `MainActivity` shows the bottom screen there and passes its touches on as bottom-screen touches. The game then plays as on the RG DS, without on-screen controls. The second screen can come and go mid-run. Developer options > Simulate secondary displays (`adb shell settings put global overlay_display_devices 1024x768/240`) gives one to try it with, and `adb shell input -d <display> tap X Y` touches it.
+- **Gamepads:** a built-in or attached pad maps by position as on the web; its d-pad works whether it sends keys or hat axes, the left stick walks, the right stick turns, and Back backs out as B does.
+- **Rumble** runs the vibrator through `MainActivity`, as the Rumble setting allows.
+- The save sits in the app's internal storage, and the log goes to logcat (`adb logcat -s last-harvest`). The frame-rate overlay shows CPU and GPU temperatures where Android lets the app read them. It reads no mods, cards or maps.
+
+### The game on muOS
+
+`scripts/muxapp.sh` builds `target/muos/LastHarvest.muxapp` for [muOS](https://muos.dev) on the 64-bit H700 Anbernics, such as the RG34XX-SP, RG35XX Plus and RG40XX. Copy it to `ARCHIVE/` on either card and install it with **Applications > Archive Manager**; it lands in `MUOS/application/LastHarvest/` and starts from **Applications**. `--install` unpacks it onto the device over ssh instead (`MUOS_HOST`, default the `muos` ssh alias).
+
+- The binary (`crates/app/src/muos.rs`, the `muos` feature) uses the device's own SDL2, which carries the Mali GPU driver, for a GLES 3 window on the framebuffer, ALSA for sound, and muOS's SDL controller mapping for the built-in pad. The script copies `libSDL2` from the device once to link against, and needs `scripts/sysroot.sh` as the RG DS build does.
+- It plays on one screen with no touch: the title shows its logo and walking dead with the menu over them, other menus show full size, a run shows the top screen, and L2 aims grenades. Main menu > Quit, or holding Menu for a second, saves and returns to muOS.
+- Rumble drives the motor muOS's device config names (`board/rumble`), as the Rumble setting allows.
+- `mux_launch.sh` sets up SDL as muOS's own apps do, runs the CPU at full speed while the game runs, and writes the game's log to `log.txt` beside it, with its frame rate each second.
+- On an RG34XX-SP (720x480) a run holds 60 fps with 50 zombies on screen.
+
 ### Card editor
 
 ```sh
 scripts/mod-editor.sh --serve   # build into target/mod-editor and serve it on http://127.0.0.1:8094
 ```
 
-The public editor for enemy and player cards: the sprite editor built without the tileset (`--no-default-features --features modding`), so the page can be published. It keeps cards in the browser's local storage and lists only cards; New starts one from the plain figure, Import opens `.enemy.png` and `.player.png` files and the cards in a `.pak`, saying which saved cards it replaced, Export downloads the open card's saved PNG, and Export all downloads every card as one mod pack, `my-cards.pak`, for the game's `data/mods`. Sound gives the open enemy card its own death sound, an Ogg or WAV of up to 512 KB kept beside it in the browser, and Drop own on its Stats page removes it again; Export all packs it as `sounds/kill-<id>.ogg`, and Import of a pack brings its cards' sounds back. The palette is PICO-8's 32 colors, and the previews show the card on a plain floor, the ground tiles in flat colors. On Pages, the editor fetches the site's own `../game_data.pak` and previews on the farm; served on its own, without one, it falls back to the plain floor. A player can also press Game data and pick their own `game_data.pak`, which takes precedence: the page keeps it in IndexedDB, never sends it anywhere, and from then on previews the card on the farm with the tileset's palette. A pack built for a different version of the game is refused with a note. Once opened, the page keeps an offline copy, so it also works with no connection, from an iPad's home screen for one; it still loads a new release first whenever it can. On a phone held upright, the editing pane spans the screen with the previews under it.
+The public editor for enemy and player cards: the sprite editor built without the tileset (`--no-default-features --features modding`), so the page can be published. It keeps cards in the browser's local storage and lists only cards; New starts one from the plain figure, Import opens `.enemy.png` and `.player.png` files and the cards in a `.pak`, saying which saved cards it replaced, Export downloads the open card's saved PNG, and Export all downloads every card as one mod pack, `my-cards.pak`, for the game's `data/mods`. Sound gives the open enemy card its own death sound, an Ogg or WAV of up to 512 KB kept beside it in the browser, and Drop own on its Stats page removes it again; Export all packs it as `sounds/kill-<id>.ogg`, and Import of a pack brings its cards' sounds back. The palette is PICO-8's 32 colors, and the previews show the card on a plain floor, the ground tiles in flat colors. On Pages, the editor fetches the site's own `../game_data.pak` and previews on the farm; served on its own, without one, it falls back to the plain floor. A player can also press Game data and pick their own `game_data.pak`, which takes precedence: the page keeps it in IndexedDB, never sends it anywhere, and from then on previews the card on the farm with the tileset's palette. A pack built for a different version of the game is refused with a note. Once opened, the page keeps an offline copy, so it also works with no connection, from an iPad's home screen for one; it still loads a new release first whenever it can. On iOS, a copy added to the home screen keeps its own storage, apart from Safari's: cards made in one don't show in the other. The site shares its origin, `<owner>.github.io`, with the account's other Pages projects, so any of their pages could read or clear the cards and the game's save; publish nothing untrusted there. On a phone held upright, the editing pane spans the screen with the previews under it.
 
 ### Sprite editor on an iPad
 
@@ -364,7 +412,7 @@ cargo install wasm-bindgen-cli --version 0.2.129   # the version in Cargo.lock
 scripts/web-editor.sh                              # build, then serve on port 8080
 ```
 
-The server prints the address to open on the iPad, such as `http://192.168.1.20:8080/`; add `?open=CAR_H` to start on a sprite. `SPRITE_SERVER_PORT` sets the port, and `scripts/web-editor.sh --build-only` only builds. Safari's Add to Home Screen gives the editor the whole screen.
+The server prints the address to open on the iPad, such as `http://192.168.1.20:8080/`; add `?open=CAR_H` to start on a sprite. `SPRITE_SERVER_PORT` sets the port, and `scripts/web-editor.sh --build-only` only builds. The server answers only loopback, private-LAN and link-local addresses, so Tailscale clients (100.64.0.0/10) are refused. Safari's Add to Home Screen gives the editor the whole screen.
 
 | Action | Touch |
 |---|---|

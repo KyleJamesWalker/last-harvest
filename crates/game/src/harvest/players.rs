@@ -251,7 +251,7 @@ mod tests {
     #[test]
     fn a_look_without_its_own_start_names_the_games() {
         assert_eq!(looks()[0].start_names(Difficulty::Easy), ["Pistol", "Knife"]);
-        assert!(looks()[0].start_names(Difficulty::Hard).is_empty());
+        assert_eq!(looks()[0].start_names(Difficulty::Hard), ["Pistol", "Knife"]);
     }
 
     #[test]

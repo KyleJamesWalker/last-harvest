@@ -130,12 +130,16 @@ pub fn parse_colors(text: &str, base: Option<&Palette>) -> Result<Palette, Strin
     }
 }
 
+/// The colors in the game's own effects.txt, without reading the game's data.
+pub fn built_in_colors() -> Palette {
+    parse_colors(include_str!("../../effects.txt"), None).unwrap_or_else(|e| panic!("effects.txt:{e}"))
+}
+
 /// The particle colors: the game's own, with any `effects.txt` sets over them.
 pub fn colors() -> &'static Palette {
     static C: OnceLock<Palette> = OnceLock::new();
     C.get_or_init(|| {
-        let own = parse_colors(include_str!("../../effects.txt"), None).unwrap_or_else(|e| panic!("effects.txt:{e}"));
-        parse_colors(crate::data::effects(), Some(&own)).unwrap_or_else(|e| panic!("effects.txt:{e}"))
+        parse_colors(crate::data::effects(), Some(&built_in_colors())).unwrap_or_else(|e| panic!("effects.txt:{e}"))
     })
 }
 

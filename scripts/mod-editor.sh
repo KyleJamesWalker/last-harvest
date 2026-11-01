@@ -4,13 +4,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 out=target/mod-editor
-want=$(awk '/^name = "wasm-bindgen"$/ { getline; gsub(/[^0-9.]/, ""); print; exit }' Cargo.lock)
-have=$(wasm-bindgen --version 2>/dev/null | awk '{ print $2 }' || true)
-if [ "$have" != "$want" ]; then
-  echo "wasm-bindgen $want is needed (have: ${have:-none}): cargo install wasm-bindgen-cli --version $want" >&2
-  exit 1
-fi
-rustup target list --installed | grep -qx wasm32-unknown-unknown || rustup target add wasm32-unknown-unknown
+. scripts/lib/wasm.sh
 CARGO_PROFILE_RELEASE_STRIP=symbols CARGO_PROFILE_RELEASE_OPT_LEVEL=s cargo build --release --target wasm32-unknown-unknown -p sprite-editor --bin sprite-editor --no-default-features --features modding
 rm -rf "$out"
 wasm-bindgen --target web --no-typescript --out-dir "$out" target/wasm32-unknown-unknown/release/sprite-editor.wasm

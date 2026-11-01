@@ -532,7 +532,9 @@ pub struct Editor {
 impl Editor {
     /// An editor on the sprite `name`, or on none until one is picked when `name` is empty.
     pub fn new(store: Box<dyn Store>, name: &str) -> Self {
-        let sprite = store.load(name).unwrap_or(Sprite { name: name.into(), frames: vec![Frame::blank(16, 16)], views: None, footprint: None, roof: None, north: None, west: None, top: None, card: None, clear_in_3d: Vec::new(), paint: Default::default() });
+        let loaded = store.load(name);
+        let broken = loaded.is_none() && store.read(name, "0.png").is_some();
+        let sprite = loaded.unwrap_or(Sprite { name: if broken { String::new() } else { name.into() }, frames: vec![Frame::blank(16, 16)], views: None, footprint: None, roof: None, north: None, west: None, top: None, card: None, clear_in_3d: Vec::new(), paint: Default::default() });
         let names = store.names();
         let mut e = Self {
             store,
@@ -613,7 +615,14 @@ impl Editor {
         e.load_card_parts();
         e.data_link = e.data_link_for(name);
         e.reveal();
+        if broken {
+            e.say(Self::undecodable(name));
+        }
         e
+    }
+
+    fn undecodable(name: &str) -> String {
+        format!("{name} can't be opened: a picture in its folder doesn't decode, so nothing is opened over it")
     }
 
     /// Makes this the mod editor: names typed for New and Copy are card ids, and there's no history to browse.
@@ -900,17 +909,14 @@ impl Editor {
         self.selection = None;
         self.last_dot = None;
         self.names = self.all_names();
-        self.data = None;
-        self.data_link = None;
         if self.open_table(name) || self.open_map(name) {
             return;
         }
-        self.data_link = self.data_link_for(name);
-        if self.store.load(name).is_some() {
-            self.map = None;
-        }
-        self.trimmed = Default::default();
         if let Some(s) = self.store.load(name) {
+            self.data = None;
+            self.data_link = self.data_link_for(name);
+            self.map = None;
+            self.trimmed = Default::default();
             self.sprite = s;
             self.frame = 0;
             self.undo.clear();
@@ -932,6 +938,8 @@ impl Editor {
             if self.stats {
                 self.load_other_cards();
             }
+        } else if self.store.read(name, "0.png").is_some() {
+            self.say(Self::undecodable(name));
         }
     }
 
@@ -1820,6 +1828,7 @@ impl Editor {
             Action::StartDefault(d) => self.set_start(last_harvest_game::Difficulty::ALL[d], None),
             Action::EditName => self.edit_line(Line::Name),
             Action::EditAbout => self.edit_line(Line::About),
+            Action::AddFrame | Action::MoveFrame(_) if self.view.is_some() => self.say("Pick a frame first: frames are added and moved from a frame, not a view"),
             Action::AddFrame => {
                 self.remember();
                 let copy = self.current().clone();
@@ -1843,6 +1852,7 @@ impl Editor {
                     _ => "West view removed: the east view colors the west side again",
                 });
             }
+            Action::DeleteFrame if self.view.is_some() => self.say("Pick a frame first: a view isn't one of the frames"),
             Action::DeleteFrame if self.sprite.frames.len() > 1 => {
                 self.remember();
                 self.sprite.frames.remove(self.frame);
@@ -2119,17 +2129,24 @@ impl Editor {
             Choice::Save => {
                 self.act(Action::Save, false);
                 if self.unsaved() {
+                    if held.is_some() {
+                        (self.pending, self.held_import) = (Some(name), held);
+                    }
                     return;
                 }
             }
             Choice::Discard => {
                 self.dirty = false;
                 self.stand_touched = false;
+                if held.is_some() && self.unsaved() {
+                    let open = self.sprite.name.clone();
+                    self.open(&open);
+                }
             }
             Choice::Stay => return,
         }
         match held {
-            Some(HeldImport { source, cards, sounds }) => self.import_pack(&source, cards, sounds),
+            Some(HeldImport { source, cards, sounds, maps, props }) => self.import_all(&source, cards, sounds, maps, props),
             None => {
                 self.open(&name);
                 self.reveal();
@@ -2973,6 +2990,22 @@ mod tests {
     }
 
     #[test]
+    fn a_sprite_whose_picture_wont_decode_is_never_opened_over() {
+        let dir = tmp().join("undecodable");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("sprites/BARREL")).unwrap();
+        std::fs::write(dir.join("sprites/BARREL/0.png"), b"not a png").unwrap();
+        let store = || FsStore { dir: dir.join("sprites"), catalog: dir.join("art.txt"), cards: dir.join("enemies") };
+        let mut e = Editor::new(Box::new(store()), "BARREL");
+        assert!(e.none_open() && e.status.as_ref().is_some_and(|(t, _)| t.contains("doesn't decode")), "{:?}", e.status);
+        e.switch_to("GRASS".into());
+        e.switch_to("BARREL".into());
+        assert_eq!((e.sprite.name.as_str(), std::fs::read(dir.join("sprites/BARREL/0.png")).unwrap()), ("GRASS", b"not a png".to_vec()));
+        assert!(e.status.as_ref().is_some_and(|(t, _)| t.contains("doesn't decode")));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
     fn a_cards_still_parts_start_blank_and_generate_from_the_walk() {
         let dir = tmp().join("still-parts");
         let _ = std::fs::remove_dir_all(&dir);
@@ -3360,7 +3393,7 @@ mod tests {
         let f = last_harvest_game::player_fields(&saved.text).unwrap();
         assert_eq!(f.about, "Up with the sun.");
         assert_eq!(f.base, [Some(last_harvest_game::tuning::tuning().player_hp + 5.0), None, None], "back at the game's own, a number leaves the card");
-        assert_eq!(f.start, [None, Some(vec!["knife".into(), "crows".into()]), None], "Normal adds crows to the game's knife; Hard went back to the default");
+        assert_eq!(f.start, [None, Some(vec!["pistol".into(), "knife".into(), "crows".into()]), None], "Normal adds crows to the game's pistol and knife; Hard went back to the default");
         let e = Editor::new(Box::new(store()), "");
         assert!(e.names.iter().any(|(n, _)| n == "PLAYER_CARD_JO_HURT"));
     }
@@ -3438,6 +3471,47 @@ mod tests {
         e.act(Action::Save, false);
         e.import_card("twin.enemy.png", &shared);
         assert_ne!(e.sprite.frames[0].get(0, 0), Some([1, 2, 3, 255]), "the imported card shows, not the one it replaced");
+    }
+
+    #[test]
+    fn a_held_import_waits_out_a_save_that_fails() {
+        let dir = tmp().join("held-import");
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut e = Editor::new(Box::new(FsStore { dir: dir.join("sprites"), catalog: dir.join("art.txt"), cards: dir.join("enemies") }), "");
+        e.act(Action::Ask(Ask::New), false);
+        type_in(&mut e, "card twin");
+        e.key(Key::Enter);
+        let path = dir.join("enemies/twin.enemy.png");
+        let shared = std::fs::read(&path).unwrap();
+        click_pixel(&mut e, 0, 0);
+        e.import_card("twin.enemy.png", &shared);
+        std::fs::write(&path, b"not a png").unwrap();
+        e.key(Key::Char('s'));
+        assert!(e.unsaved() && e.pending.is_some() && e.held_import.is_some(), "the import is still there to go ahead with");
+        e.key(Key::Char('d'));
+        assert!(!e.unsaved() && e.status.as_ref().is_some_and(|(t, _)| t.starts_with("Imported twin.enemy.png")), "{:?}", e.status);
+    }
+
+    #[test]
+    fn a_pak_with_maps_waits_whole_on_unsaved_changes() {
+        let dir = tmp().join("pak-held");
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut e = Editor::new(Box::new(FsStore { dir: dir.join("sprites"), catalog: dir.join("art.txt"), cards: dir.join("enemies") }), "");
+        for id in ["other", "twin"] {
+            e.act(Action::Ask(Ask::New), false);
+            type_in(&mut e, &format!("card {id}"));
+            e.key(Key::Enter);
+        }
+        let other = ("other.enemy.png".to_string(), std::fs::read(dir.join("enemies/other.enemy.png")).unwrap());
+        let map = ("pakfarm.map.txt".to_string(), last_harvest_game::MapSource::new("Pak Farm", [72, 54]).to_text().into_bytes());
+        click_pixel(&mut e, 0, 0);
+        e.import_all("mod.pak", vec![other], Vec::new(), vec![map], Vec::new());
+        assert!(e.unsaved() && e.pending.is_some() && e.held_import.is_some(), "{:?}", e.status);
+        assert!(!dir.join("maps/pakfarm.map.txt").exists(), "nothing comes in yet");
+        e.key(Key::Char('d'));
+        assert!(dir.join("maps/pakfarm.map.txt").exists(), "{:?}", e.status);
+        let said = e.status.as_ref().map(|(t, _)| t.clone()).unwrap_or_default();
+        assert!(said.contains("MAP_PAKFARM") && said.contains("other.enemy.png"), "both halves say what came in: {said}");
     }
 
     #[test]
@@ -3613,6 +3687,21 @@ mod tests {
     }
 
     #[test]
+    fn frame_buttons_leave_the_frames_alone_while_a_view_is_open() {
+        let mut e = editor();
+        e.act(Action::Stand(CARVE), false);
+        e.act(Action::AddFrame, false);
+        let frames = e.sprite.frames.clone();
+        e.act(Action::View(1), false);
+        for a in [Action::AddFrame, Action::DeleteFrame, Action::MoveFrame(-1), Action::MoveFrame(1)] {
+            e.status = None;
+            e.act(a, false);
+            assert!(e.sprite.frames == frames && e.status.is_some(), "{a:?}");
+        }
+        assert!(e.sprite.views.is_some() && e.view == Some(1), "the view stays as it was");
+    }
+
+    #[test]
     fn carving_buttons_fit_and_none_overlap() {
         let mut e = editor();
         e.act(Action::Stand(CARVE), false);
@@ -3671,6 +3760,53 @@ mod tests {
         let saved = std::fs::read_to_string(dir.join("tuning.txt")).unwrap();
         assert!(saved.contains("hp 101          # health") && saved.contains("speed 52"), "{saved}");
         assert_eq!(last_harvest_game::tuning::parse(&saved, None).unwrap().player_speed, 52.0);
+    }
+
+    #[test]
+    fn the_data_page_undoes_and_redoes_each_edit() {
+        let dir = tmp().join("data-undo");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut e = editor_in(&dir, dir.join("art.txt"));
+        e.switch_to("DATA_TUNING_PLAYER".into());
+        let text = |e: &Editor| e.data.as_ref().unwrap().table.text.clone();
+        let (start, rows) = (text(&e), e.data.as_ref().map(|d| d.table.entries(&d.section).len()).unwrap());
+        e.act(Action::DataStep(0, 1), false);
+        let stepped = text(&e);
+        e.act(Action::DataRemove(1), false);
+        assert_eq!(e.data.as_ref().map(|d| d.table.entries(&d.section).len()), Some(rows - 1));
+        e.key(Key::Undo);
+        assert_eq!(text(&e), stepped, "a removed line comes back");
+        e.key(Key::Undo);
+        assert_eq!(text(&e), start);
+        e.key(Key::Redo);
+        assert_eq!(text(&e), stepped);
+        e.act(Action::DataEdit(1), false);
+        e.set_text("52");
+        e.key(Key::Enter);
+        let typed = text(&e);
+        e.key(Key::Redo);
+        assert!(typed != stepped && text(&e) == typed, "a new edit drops what was left to redo");
+        e.key(Key::Undo);
+        assert_eq!(text(&e), stepped);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn opening_what_wont_load_keeps_the_data_page_and_its_edits() {
+        let dir = tmp().join("data-keep");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("BROKEN")).unwrap();
+        std::fs::write(dir.join("BROKEN/0.png"), b"not a png").unwrap();
+        let mut e = editor_in(&dir, dir.join("art.txt"));
+        e.switch_to("DATA_TUNING_PLAYER".into());
+        e.act(Action::DataStep(0, 1), false);
+        e.open("BROKEN");
+        assert_eq!(e.sprite.name, "DATA_TUNING_PLAYER");
+        assert!(e.data.as_ref().is_some_and(|d| d.dirty), "the unsaved table edits stay");
+        e.open("HOUSE");
+        assert!(e.data.is_none() && e.data_link.as_deref() == Some("DATA_PROPS_HOUSE"));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
