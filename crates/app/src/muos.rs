@@ -1,6 +1,7 @@
 //! The game on a muOS handheld, such as the H700 Anbernics: one screen through the device's own SDL2, which carries
 //! its Mali GPU driver, and the built-in pad through muOS's SDL controller mapping. It plays as on a phone without
-//! touch: menus show the bottom screen, a run the top, and grenades aim with L2. Hold Menu to quit.
+//! touch: menus show the bottom screen, a run the top, and grenades aim with L2. Hold Menu to quit. Rumble drives
+//! the motor muOS's device config names, as muOS's own RUMBLE helper does.
 
 #[allow(dead_code)]
 mod persist;
@@ -36,6 +37,30 @@ fn button(b: Button) -> Option<Buttons> {
         Button::DPadRight => Buttons::RIGHT,
         _ => return None,
     })
+}
+
+/// The rumble motor's sysfs file and what turns it on and off, from muOS's device config.
+struct Motor {
+    path: String,
+    on: &'static str,
+    off: &'static str,
+}
+
+impl Motor {
+    fn find() -> Option<Self> {
+        let read = |key: &str| std::fs::read_to_string(format!("/opt/muos/device/config/board/{key}")).ok().map(|s| s.trim().to_string());
+        let path = read("rumble").filter(|p| !p.is_empty())?;
+        // muOS's rk boards stop the motor with 1000000; the others with 0.
+        let off = if read("name").is_some_and(|n| n.starts_with("rk")) { "1000000" } else { "0" };
+        log!("rumble: {path}");
+        Some(Self { path, on: "1", off })
+    }
+
+    fn set(&self, on: bool) {
+        if let Err(e) = std::fs::write(&self.path, if on { self.on } else { self.off }) {
+            log!("rumble: {}: {e}", self.path);
+        }
+    }
 }
 
 fn axis(v: i16) -> f32 {
@@ -79,6 +104,8 @@ fn run() -> Result<(), String> {
     game.set_touch(false);
     game.set_quit(true);
     let audio = audio::Audio::open(&sounds).inspect_err(|e| log!("audio disabled: {e}")).ok();
+    let motor = Motor::find();
+    let mut rumbling = false;
 
     let mut tracker = InputTracker::default();
     let (mut keys, mut struck) = (Buttons::NONE, Buttons::NONE);
@@ -90,7 +117,7 @@ fn run() -> Result<(), String> {
     loop {
         for event in events.poll_iter() {
             match event {
-                Event::Quit { .. } => return finish(&mut saver, &game),
+                Event::Quit { .. } => return finish(&mut saver, &game, motor.as_ref()),
                 Event::ControllerDeviceAdded { which, .. } => match controllers.open(which) {
                     Ok(pad) => {
                         log!("pad: {}", pad.name());
@@ -138,7 +165,7 @@ fn run() -> Result<(), String> {
         held.set(Buttons::R2, held.contains(Buttons::R2) || triggers[1]);
         menu_held = if held.contains(Buttons::HOME) { menu_held + dt } else { 0.0 };
         if menu_held >= QUIT_HOLD || game.quit_asked() {
-            return finish(&mut saver, &game);
+            return finish(&mut saver, &game, motor.as_ref());
         }
         let input = tracker.frame(RawInput { held, stick, look, ..Default::default() });
         let (w, h) = window.drawable_size();
@@ -153,6 +180,13 @@ fn run() -> Result<(), String> {
             audio.set_beds(outputs.screens_on[0]);
             sounds.into_iter().for_each(|s| audio.play(s));
         }
+        let rumble = game.outputs().rumble;
+        if rumble != rumbling {
+            rumbling = rumble;
+            if let Some(m) = &motor {
+                m.set(rumble);
+            }
+        }
         let frame = game.draw();
         if let Some(phone) = &frame.phone {
             last_harvest::draw_phone(&mut renderer, &gl, &frame, phone, [w as i32, h as i32]);
@@ -162,7 +196,10 @@ fn run() -> Result<(), String> {
     }
 }
 
-fn finish(saver: &mut persist::Saver, game: &Game) -> Result<(), String> {
+fn finish(saver: &mut persist::Saver, game: &Game, motor: Option<&Motor>) -> Result<(), String> {
+    if let Some(m) = motor {
+        m.set(false);
+    }
     saver.update(game.save(), true);
     log!("quit");
     Ok(())
