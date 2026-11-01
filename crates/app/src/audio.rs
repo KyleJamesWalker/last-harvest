@@ -468,11 +468,11 @@ impl Audio {
     pub fn open(sounds: &Files) -> Result<Self, Box<dyn Error>> {
         let device = cpal::default_host().default_output_device().ok_or("no output device")?;
         let supported = device.default_output_config()?;
-        log!("audio: {:?} {:?}", device.name(), supported);
+        log!("audio: {:?} {:?}", device.description().map(|d| d.name().to_string()), supported);
         let config = supported.config();
         let channels = config.channels as usize;
         let (tx, rx) = sync_channel(QUEUED_CUES);
-        let rate = config.sample_rate.0 as f32;
+        let rate = config.sample_rate as f32;
         let mut synth = Synth::new(rx, Bank::load(sounds, rate), rate);
         let track = |name: &str| {
             let (file, bytes) = sounds.iter().find(|(file, _)| *file == format!("{name}.ogg"))?;
@@ -490,16 +490,16 @@ impl Audio {
         let failed = Arc::new(AtomicBool::new(false));
         let on_error = {
             let failed = failed.clone();
-            move |e: cpal::StreamError| {
+            move |e: cpal::Error| {
                 log!("audio: {e}");
-                if matches!(e, cpal::StreamError::DeviceNotAvailable) {
+                if e.kind() == cpal::ErrorKind::DeviceNotAvailable {
                     failed.store(true, Ordering::Relaxed);
                 }
             }
         };
         let stream = match supported.sample_format() {
-            SampleFormat::F32 => device.build_output_stream(&config, move |d: &mut [f32], _: &_| synth.fill(d, channels), on_error, None)?,
-            SampleFormat::I16 => device.build_output_stream(&config, move |d: &mut [i16], _: &_| synth.fill(d, channels), on_error, None)?,
+            SampleFormat::F32 => device.build_output_stream(config, move |d: &mut [f32], _: &_| synth.fill(d, channels), on_error, None)?,
+            SampleFormat::I16 => device.build_output_stream(config, move |d: &mut [i16], _: &_| synth.fill(d, channels), on_error, None)?,
             f => return Err(format!("unsupported output format {f:?}").into()),
         };
         stream.play()?;

@@ -483,8 +483,8 @@ pub fn scene(h: &Harvest) -> CardScene {
     let eye = p - forward * (CAMERA_BACK + 0.2 * swing) + Vec3::Y * (1.5 + 0.4 * swing) + shake;
     let looking = p + forward * 4.0 + Vec3::Y * (0.7 + j.kick * 6.0);
     let target = looking.lerp(p + Vec3::Y * 0.5, swing) + shake;
-    let view = Mat4::look_at_rh(eye, target, Vec3::Y * roll.cos() + right * roll.sin());
-    let proj = Mat4::perspective_rh_gl((66.0 + j.punch).to_radians(), SCREEN_W / SCREEN_H, 0.3, VIEW_RADIUS + 6.0);
+    let view = glam::camera::rh::view::look_at_mat4(eye, target, Vec3::Y * roll.cos() + right * roll.sin());
+    let proj = glam::camera::rh::proj::opengl::perspective((66.0 + j.punch).to_radians(), SCREEN_W / SCREEN_H, 0.3, VIEW_RADIUS + 6.0);
     let near = |q: Vec3| {
         let d = q - p;
         d.length() < VIEW_RADIUS && d.dot(forward) > -4.0
