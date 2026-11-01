@@ -10,7 +10,8 @@
   body { display: flex; align-items: center; justify-content: center; font: 18px -apple-system, system-ui, sans-serif;
          -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
   /* Both 1024x768 screens, top above bottom: 2:3, as large as fits. */
-  #screens, #start { width: min(100vw, 100vh * 2 / 3); height: min(100vh, 150vw); }
+  #screens, #start { width: min(100vw, 100vh * 2 / 3); height: min(100vh, 150vw);
+                     width: min(100vw, 100dvh * 2 / 3); height: min(100dvh, 150vw); }
   #screens { display: block; touch-action: none; outline: none; }
   #start { position: absolute; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px;
            background: rgba(0, 0, 0, 0.6); cursor: pointer; text-align: center; }
