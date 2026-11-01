@@ -575,9 +575,15 @@ fn start() -> Result<(), String> {
         e.prevent_default();
         w.wheel(e);
     });
-    for kind in ["gesturestart", "gesturechange", "touchmove"] {
+    for kind in ["gesturestart", "gesturechange"] {
         listen(&document, kind, &web, |_, e: &Event| e.prevent_default());
     }
+    // Only the panes and hold pads keep a touch from scrolling, so the toolbar and Help still scroll by touch.
+    listen(&document, "touchmove", &web, |_, e: &Event| {
+        if e.target().and_then(|t| t.dyn_into::<Element>().ok()).is_some_and(|t| t.closest("#panes, .hold").ok().flatten().is_some()) {
+            e.prevent_default();
+        }
+    });
     listen(&window, "resize", &web, |w, _: &Event| w.layout());
     listen(&window, "keydown", &web, |w, e: &KeyboardEvent| {
         if e.target().and_then(|t| t.dyn_into::<HtmlInputElement>().ok()).is_none() && w.key(e, true) {
