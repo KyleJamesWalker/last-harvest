@@ -849,6 +849,37 @@ mod tests {
     }
 
     #[test]
+    fn any_generated_map_is_checked_without_panicking() {
+        let mut rng = Rng::new(5);
+        let codes: Vec<u8> = super::super::ground::ground().iter().map(|g| g.code).collect();
+        let names: Vec<&str> = art::ALL.iter().map(|(n, _)| *n).collect();
+        let pick = |rng: &mut Rng, lo: usize, hi: usize| lo + rng.below(hi - lo + 1);
+        for _ in 0..40 {
+            let [w, h] = [pick(&mut rng, MIN_SIZE[0], MAX_SIZE[0]), pick(&mut rng, MIN_SIZE[1], MAX_SIZE[1])];
+            let rows: Vec<String> = (0..h).map(|_| (0..w).map(|_| codes[rng.below(codes.len())] as char).collect()).collect();
+            let mut props = String::new();
+            for _ in 0..rng.below(30) {
+                let (x, y, wild) = (rng.below(w + 4), rng.below(h + 4), rng.below(20) == 0);
+                props += &match rng.below(4) {
+                    0 => format!("fence {} {x} {y} {} {} gate {}\n", ["rail", "picket"][rng.below(2)], rng.below(12), rng.below(10), rng.below(8)),
+                    1 => format!("{} {x} {y} frame {} fps {}\n", names[rng.below(names.len())], rng.below(if wild { 70 } else { 1 }), rng.below(if wild { 80 } else { 60 })),
+                    2 => format!("{} {x} {y} hp {} cover {}\n", names[rng.below(names.len())], rng.below(if wild { 1200 } else { 1000 }), ["yes", "no"][rng.below(2)]),
+                    _ => format!("{} {x} {y}\n", names[rng.below(names.len())]),
+                };
+            }
+            let ends = [rng.below(w + 1), rng.below(h + 1), rng.below(w + 1), rng.below(h + 1)];
+            let scatter = if rng.below(2) == 0 { "scatter\n" } else { "" };
+            let text = format!("size {w} {h}\nspawn {} {}\nhome {} {}\n{scatter}ground\n{}\nprops\n{props}", ends[0], ends[1], ends[2], ends[3], rows.join("\n"));
+            let checks = check("gen.map.txt", text.clone()).is_ok();
+            if let Ok(src) = MapSource::parse(&text) {
+                let seed = rng.below(1000) as u64;
+                let _ = Map::from_source(&src, &mut Rng::new(seed), false);
+                assert_eq!(Map::from_source(&src, &mut Rng::new(seed), true).is_ok(), checks, "a run builds what check passed, seed {seed}:\n{text}");
+            }
+        }
+    }
+
+    #[test]
     fn a_random_farm_reads_as_a_map_that_plays() {
         for (seed, size) in [(1, [72, 54]), (2, [40, 30]), (3, [160, 120]), (4, [16, 12]), (5, [100, 40])] {
             let src = MapSource::random("Farm", size, seed);

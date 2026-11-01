@@ -131,6 +131,21 @@ mod tests {
     }
 
     #[test]
+    fn ids_the_tables_no_longer_have_drop_and_ones_they_gained_start_off() {
+        let (rifle, crows) = (found_from_ids("rifle"), found_from_ids("crows"));
+        assert!(rifle.count_ones() == 1 && crows.count_ones() == 1 && rifle != crows);
+        let kinds = off_ids(u64::MAX);
+        let kind = kinds.rsplit(',').next().unwrap();
+        let save = Save::parse(&format!("found=rifle,laser_from_v9, crows\nenemies_off=dragon,{kind}"));
+        assert_eq!(save.found, rifle | crows, "an unknown powerup is dropped, and every other starts unfound");
+        assert_eq!(save.enemies_off, off_from_ids(kind), "an unknown kind is dropped, and every other starts on");
+        assert_eq!(save.enemies_off.count_ones(), 1);
+        let text = save.to_text();
+        assert!(!text.contains("laser_from_v9") && !text.contains("dragon"), "the next save forgets them: {text}");
+        assert_eq!(Save::parse(&text), save);
+    }
+
+    #[test]
     fn damaged_files_fall_back_per_field() {
         let save = Save::parse("volume=99\nbrightness_top=0\nbest=oops\njunk\nbrightness_bottom=8");
         assert_eq!(save, Save { volume: LEVELS, brightness: [1, 8], ..Save::default() });
