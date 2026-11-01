@@ -275,10 +275,10 @@ impl App {
             match rendered {
                 Ok(Some(img)) => {
                     let path = shot.unwrap();
-                    match debug::save_png(&path, img.width, img.height, &img.rgba) {
+                    std::thread::spawn(move || match debug::save_png(&path, img.width, img.height, &img.rgba) {
                         Ok(()) => log!("debug: saved {}", path.display()),
                         Err(e) => log!("debug: shot failed: {e}"),
-                    }
+                    });
                 }
                 Ok(None) => {}
                 Err(e) => {
