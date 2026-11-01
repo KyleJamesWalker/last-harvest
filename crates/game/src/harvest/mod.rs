@@ -179,7 +179,7 @@ pub fn check_table(file: &str, text: &str) -> Result<(), String> {
     match file {
         "tuning.txt" => crate::tuning::parse(text, Some(&crate::tuning::built_in())).map(|_| ()).map_err(fail),
         "props.txt" => map::parse_props(text).map(|_| ()).map_err(fail),
-        "effects.txt" => effects::parse(text).and_then(|_| effects::parse_colors(text, Some(effects::colors()))).map(|_| ()).map_err(fail),
+        "effects.txt" => effects::parse(text).and_then(|_| effects::parse_colors(text, Some(&effects::built_in_colors()))).map(|_| ()).map_err(fail),
         "ground.txt" => map::parse_ground(text).map(|_| ()).map_err(fail),
         "farm.txt" => map::parse_farm(text).map(|_| ()).map_err(fail),
         "powerups.txt" => powerups::parse(text).map(|_| ()).map_err(fail),
