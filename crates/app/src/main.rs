@@ -88,6 +88,12 @@ impl App {
         if let Some(scene) = std::env::var("LAST_HARVEST_START").ok().and_then(|s| Scene::from_name(&s)) {
             game.open(scene);
         }
+        #[cfg(target_os = "linux")]
+        let device = device::Device::open();
+        #[cfg(target_os = "linux")]
+        game.set_backlights(device.is_some());
+        #[cfg(not(target_os = "linux"))]
+        game.set_backlights(false);
         Self {
             game,
             tracker: InputTracker::default(),
@@ -96,7 +102,7 @@ impl App {
             sounds,
             audio_retry: None,
             #[cfg(target_os = "linux")]
-            device: device::Device::open(),
+            device,
             keys: Buttons::NONE,
             lid_key: false,
             esc: Buttons::NONE,
