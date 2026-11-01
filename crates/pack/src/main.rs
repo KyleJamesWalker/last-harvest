@@ -126,15 +126,7 @@ fn make_mod(dir: &Path, out: &Path) -> Result<(), Box<dyn std::error::Error>> {
         let id = dir.file_name().and_then(|n| n.to_str()).unwrap_or("mod");
         files.push((MANIFEST.to_string(), mod_manifest(id).into_bytes()));
     }
-    // The mod's maps are checked against its own ground and props, where it brings them.
-    let table = |name: &str| files.iter().find(|(p, _)| p == name).and_then(|(_, b)| String::from_utf8(b.clone()).ok());
-    for (file, text) in [(GROUND, table(GROUND)), (PROPS_TABLE, table(PROPS_TABLE))] {
-        if let Some(t) = text {
-            last_harvest_game::check_table(file, &t)?;
-        }
-    }
-    let tables = last_harvest_game::data::Data { ground: table(GROUND), props_table: table(PROPS_TABLE), ..Default::default() };
-    last_harvest_game::data::install(tables)?;
+    install_tables(|name| files.iter().find(|(p, _)| p == name).map(|(_, b)| b.as_slice()))?;
     load_props(files.iter().map(|(p, b)| (p.as_str(), b.as_slice())))?;
     for (path, bytes) in &files {
         if let Some(kind) = card::Kind::of(path) {
@@ -154,7 +146,18 @@ fn make_mod(dir: &Path, out: &Path) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Lists a pack's files and whether the game would take it as a mod, reading each card in it.
+/// Installs a pack's own ground.txt and props.txt, where it brings them, so its maps are checked against them as
+/// the game will check them.
+fn install_tables<'a>(get: impl Fn(&str) -> Option<&'a [u8]>) -> Result<(), String> {
+    let table = |name: &str| get(name).and_then(|b| String::from_utf8(b.to_vec()).ok());
+    for file in [GROUND, PROPS_TABLE] {
+        if let Some(t) = table(file) {
+            last_harvest_game::check_table(file, &t)?;
+        }
+    }
+    last_harvest_game::data::install(last_harvest_game::data::Data { ground: table(GROUND), props_table: table(PROPS_TABLE), ..Default::default() }).map(|_| ())
+}
+
 /// Reads the props among `files` and loads them so maps that place them can be checked.
 fn load_props<'a>(files: impl Iterator<Item = (&'a str, &'a [u8])>) -> Result<(), String> {
     let props = files.filter(|(p, _)| p.ends_with(last_harvest_pack::prop::EXTENSION)).map(|(p, b)| last_harvest_pack::prop::read(p, b)).collect::<Result<Vec<_>, _>>()?;
@@ -164,8 +167,12 @@ fn load_props<'a>(files: impl Iterator<Item = (&'a str, &'a [u8])>) -> Result<()
     }
 }
 
+/// Lists a pack's files and whether the game would take it as a mod, reading each card in it.
 fn show_pak(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let pak = last_harvest_pack::Pak::open(path)?;
+    if let Err(e) = install_tables(|name| pak.get(name)) {
+        println!("Its ground or props table won't read, so its maps are checked against the game's: {e}\n");
+    }
     if let Err(e) = load_props(pak.paths().into_iter().map(|p| (p, pak.get(p).unwrap_or_default()))) {
         println!("A prop won't load, so maps that place it won't either: {e}\n");
     }
