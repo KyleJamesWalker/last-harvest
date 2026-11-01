@@ -524,7 +524,7 @@ impl Game {
             let menu = std::mem::take(&mut f.bottom);
             let (k, top) = (0.55, 330.0);
             let at = [(SCREEN_W - SCREEN_W * k) / 2.0, top];
-            f.top.rect(at[0], at[1], SCREEN_W * k, SCREEN_H * k, [0.08, 0.08, 0.1, 0.85]);
+            f.top.rect(at[0], at[1], SCREEN_W * k, SCREEN_H * k, [0.08, 0.08, 0.1, 0.45]);
             f.top.place(&menu, at, k);
         }
         if let Some(size) = self.phone {
@@ -593,6 +593,27 @@ impl Game {
         let flicker = 0.85 + 0.15 * ((t * 13.0).sin() * (t * 7.3).sin()).abs();
         f.top.text_centered(248.0, 20.0, [0.0, 0.0, 0.0, 0.7], "LAST HARVEST");
         f.top.text_centered(240.0 + (t * 1.2).sin() * 4.0, 20.0, [flicker, flicker * 0.92, flicker * 0.8, 1.0], "LAST HARVEST");
+        // On one screen the menu sits over the middle, so the records stay on the Stats page and warnings move up.
+        let one = self.title_on_one();
+        let warn_y = if one { 48.0 } else { 696.0 };
+        if !one {
+            self.draw_title_records(f);
+        }
+        if let Some(missing) = &data::load_report().missing_pack {
+            let red = [1.0, 0.55, 0.5, 1.0];
+            f.top.label("No game data: the game can't draw without game_data.pak.", SCREEN_W / 2.0, warn_y, 24.0, red, Align::Center);
+            f.top.label(menu::fitted(missing, 22.0, SCREEN_W - 40.0, 22.0).0, SCREEN_W / 2.0, warn_y + 32.0, 22.0, red, Align::Center);
+        } else if let Some((count, first)) = data::problems() {
+            let more = if count > 1 { format!("{count} files couldn't load:") } else { "A file couldn't load:".to_string() };
+            let red = [1.0, 0.55, 0.5, 1.0];
+            f.top.label(more, SCREEN_W / 2.0, warn_y, 24.0, red, Align::Center);
+            f.top.label(menu::fitted(&first, 22.0, SCREEN_W - 40.0, 22.0).0, SCREEN_W / 2.0, warn_y + 32.0, 22.0, red, Align::Center);
+        }
+        self.draw_menu(f);
+    }
+
+    /// The title's tagline and records under the logo.
+    fn draw_title_records(&self, f: &mut Frame) {
         f.top.label("Survive the night", SCREEN_W / 2.0, 400.0, 44.0, DIM, Align::Center);
         if self.save.best > 0 {
             let line = format!("Longest night: {}:{:02}", self.save.best / 60, self.save.best % 60);
@@ -609,20 +630,9 @@ impl Game {
             let a = self.reset_shown.min(1.0);
             f.top.label("Progress erased: records, kills and found powerups", SCREEN_W / 2.0, 480.0, 34.0, [1.0, 0.45, 0.4, a], Align::Center);
         }
-        if let Some(missing) = &data::load_report().missing_pack {
-            let red = [1.0, 0.55, 0.5, 1.0];
-            f.top.label("No game data: the game can't draw without game_data.pak.", SCREEN_W / 2.0, 696.0, 24.0, red, Align::Center);
-            f.top.label(menu::fitted(missing, 22.0, SCREEN_W - 40.0, 22.0).0, SCREEN_W / 2.0, 728.0, 22.0, red, Align::Center);
-        } else if let Some((count, first)) = data::problems() {
-            let more = if count > 1 { format!("{count} files couldn't load:") } else { "A file couldn't load:".to_string() };
-            let red = [1.0, 0.55, 0.5, 1.0];
-            f.top.label(more, SCREEN_W / 2.0, 696.0, 24.0, red, Align::Center);
-            f.top.label(menu::fitted(&first, 22.0, SCREEN_W - 40.0, 22.0).0, SCREEN_W / 2.0, 728.0, 22.0, red, Align::Center);
-        }
         if let Some((name, how)) = harvest::next_unlock(&self.progress()) {
             f.top.label(format!("Next to find: {name}. {how}"), SCREEN_W / 2.0, 566.0, 24.0, DIM, Align::Center);
         }
-        self.draw_menu(f);
     }
 }
 
