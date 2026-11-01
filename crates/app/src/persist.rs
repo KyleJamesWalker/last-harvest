@@ -34,7 +34,7 @@ pub struct Saver {
 impl Saver {
     pub fn load() -> (Self, Save) {
         let path = std::env::var_os("LAST_HARVEST_SAVE").map_or_else(|| dir().join("save.txt"), PathBuf::from);
-        let save = fs::read_to_string(&path).map(|t| Save::parse(&t)).unwrap_or_default();
+        let save = read(&path);
         log!("save: {} {save:?}", path.display());
         (Self { path, written: save, changed_at: None }, save)
     }
@@ -52,6 +52,24 @@ impl Saver {
                 Err(e) => log!("save: {}: {e}", self.path.display()),
             }
             self.changed_at = None;
+        }
+    }
+}
+
+/// The save at `path`, or the defaults; one that won't read is moved aside to `<path>.bad` so the next write keeps it.
+fn read(path: &Path) -> Save {
+    match fs::read_to_string(path) {
+        Ok(text) => Save::parse(&text),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Save::default(),
+        Err(e) => {
+            let mut bad = path.as_os_str().to_owned();
+            bad.push(".bad");
+            let bad = PathBuf::from(bad);
+            match fs::rename(path, &bad) {
+                Ok(()) => log!("save: {}: {e}; moved it to {} and starting fresh", path.display(), bad.display()),
+                Err(moved) => log!("save: {}: {e}; couldn't move it aside: {moved}", path.display()),
+            }
+            Save::default()
         }
     }
 }
@@ -81,4 +99,22 @@ pub fn install_crash_log() {
         }
         default(info);
     }));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_save_that_wont_read_is_moved_aside_before_anything_overwrites_it() {
+        let dir = std::env::temp_dir().join(format!("lh-save-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("save.txt");
+        fs::write(&path, [0xff, 0xfe, 0x00]).unwrap();
+        assert!(read(&path) == Save::default());
+        assert!(!path.exists());
+        assert_eq!(fs::read(dir.join("save.txt.bad")).unwrap(), [0xff, 0xfe, 0x00]);
+        assert!(read(&dir.join("none.txt")) == Save::default(), "no save is the defaults");
+        fs::remove_dir_all(&dir).unwrap();
+    }
 }
