@@ -61,6 +61,8 @@ struct Web {
     touches: Vec<Touch>,
     storage: Option<Storage>,
     saved: Save,
+    /// The last write was refused and has been warned of.
+    refused: bool,
     last: f64,
     stats: (u32, f64, f64),
     system: System,
@@ -211,11 +213,15 @@ impl Web {
         if save == self.saved {
             return;
         }
-        self.saved = save;
-        if let Some(s) = &self.storage
-            && s.set_item(SAVE_KEY, &save.to_text()).is_err()
-        {
-            web_sys::console::warn_1(&"save: the browser's storage refused it".into());
+        let Some(s) = &self.storage else {
+            self.saved = save;
+            return;
+        };
+        if s.set_item(SAVE_KEY, &save.to_text()).is_ok() {
+            self.saved = save;
+            self.refused = false;
+        } else if !std::mem::replace(&mut self.refused, true) {
+            web_sys::console::warn_1(&"save: the browser's storage refused it; trying again each frame".into());
         }
     }
 
@@ -297,6 +303,9 @@ fn start(pak: Pak) -> Result<(), String> {
     let gl = glow::Context::from_webgl2_context(context.dyn_into::<WebGl2RenderingContext>().map_err(|_| "not a WebGL2 context")?);
     let renderer = Renderer::new(&gl, Profile::Gles)?;
     let storage = window.local_storage().ok().flatten();
+    if storage.is_none() {
+        web_sys::console::warn_1(&"save: the browser gives this page no storage, so progress won't be kept".into());
+    }
     let saved = storage.as_ref().and_then(|s| s.get_item(SAVE_KEY).ok().flatten()).map(|t| Save::parse(&t)).unwrap_or_default();
     let mut game = Game::new(js_sys::Date::now() as u64);
     game.load(saved);
@@ -316,6 +325,7 @@ fn start(pak: Pak) -> Result<(), String> {
         touches: Vec::new(),
         storage,
         saved,
+        refused: false,
         last: now(),
         stats: (0, 0.0, now()),
         system: System::default(),
