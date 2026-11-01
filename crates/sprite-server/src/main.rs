@@ -105,6 +105,31 @@ fn local(addr: IpAddr) -> bool {
     }
 }
 
+/// A Host header naming this machine by address or as localhost, with or without a port: any other name could be a
+/// domain rebound to a local address.
+fn host_allowed(host: &str) -> bool {
+    let port_ok = |p: &str| p.is_empty() || p.strip_prefix(':').is_some_and(|p| p.parse::<u16>().is_ok());
+    if let Some(rest) = host.strip_prefix('[') {
+        return rest.split_once(']').is_some_and(|(ip, port)| ip.parse::<std::net::Ipv6Addr>().is_ok() && port_ok(port));
+    }
+    let (name, port) = host.find(':').map_or((host, ""), |at| host.split_at(at));
+    port_ok(port) && (name.eq_ignore_ascii_case("localhost") || name.parse::<std::net::Ipv4Addr>().is_ok())
+}
+
+/// Why a request is turned away before it's read: a foreign Host, or a write sent from another origin's page.
+fn refused(method: &Method, host: Option<&str>, origin: Option<&str>) -> Option<Reply> {
+    let Some(host) = host.filter(|h| host_allowed(h)) else { return Some(text(403, "open this by its address or localhost")) };
+    let foreign = origin.is_some_and(|o| o != format!("http://{host}"));
+    (!matches!(method, Method::Get | Method::Head) && foreign).then(|| text(403, "writes come from this server's own page"))
+}
+
+/// The whole body, or None when it runs past `max` bytes.
+fn read_body(r: impl Read, max: u64) -> std::io::Result<Option<Vec<u8>>> {
+    let mut body = Vec::new();
+    r.take(max + 1).read_to_end(&mut body)?;
+    Ok((body.len() as u64 <= max).then_some(body))
+}
+
 /// This machine's address on the local network: where it would route to the outside from, with nothing sent.
 fn lan_ip() -> Option<IpAddr> {
     let s = UdpSocket::bind("0.0.0.0:0").ok()?;
@@ -131,12 +156,17 @@ fn main() {
             let _ = req.respond(Response::from_string("local network only").with_status_code(403));
             continue;
         }
-        let mut body = Vec::new();
-        if req.as_reader().take(MAX_BODY).read_to_end(&mut body).is_err() {
-            continue;
-        }
+        let header = |name: &'static str| req.headers().iter().find(|h| h.field.equiv(name)).map(|h| h.value.as_str().to_string());
         let (method, url) = (req.method().clone(), req.url().to_string());
-        let (status, kind, out) = handle(&store, &web, &method, &url, &body);
+        let (status, kind, out) = if let Some(no) = refused(&method, header("Host").as_deref(), header("Origin").as_deref()) {
+            no
+        } else {
+            match read_body(req.as_reader(), MAX_BODY) {
+                Ok(Some(body)) => handle(&store, &web, &method, &url, &body),
+                Ok(None) => text(413, format!("a body is at most {} MB", MAX_BODY >> 20)),
+                Err(_) => continue,
+            }
+        };
         if method != Method::Get || status >= 400 {
             eprintln!("{method} {url} -> {status}");
         }
@@ -213,6 +243,49 @@ mod tests {
         }
         assert!(!s.dir.exists(), "nothing is written");
         std::fs::remove_dir_all(s.dir.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn only_its_own_address_or_localhost_reaches_it_and_only_its_own_page_writes() {
+        for host in ["localhost", "localhost:8080", "LOCALHOST:1", "127.0.0.1", "192.168.1.5:8080", "[::1]", "[fe80::1]:8080"] {
+            assert!(host_allowed(host), "{host}");
+        }
+        for host in ["", "attacker.example", "attacker.example:8080", "localhost.attacker.example", "192.168.1.5:http", "192.168.1.5:99999", "[::1", "[evil]:80", "1.2.3.4.5"] {
+            assert!(!host_allowed(host), "{host}");
+        }
+        let own = Some("http://192.168.1.5:8080");
+        assert!(refused(&Method::Get, None, None).is_some(), "no Host, no answer");
+        assert!(refused(&Method::Get, Some("evil.example:8080"), None).is_some_and(|r| r.0 == 403));
+        assert!(refused(&Method::Get, Some("192.168.1.5:8080"), Some("http://evil.example")).is_none(), "anyone's page may read");
+        assert!(refused(&Method::Put, Some("192.168.1.5:8080"), own).is_none());
+        assert!(refused(&Method::Put, Some("192.168.1.5:8080"), None).is_none(), "curl sends no Origin");
+        for origin in ["http://evil.example", "null", "http://192.168.1.5:9090", "https://192.168.1.5:8080"] {
+            assert!(refused(&Method::Put, Some("192.168.1.5:8080"), Some(origin)).is_some_and(|r| r.0 == 403), "{origin}");
+        }
+    }
+
+    #[test]
+    fn a_body_past_the_limit_is_refused_whole() {
+        assert_eq!(read_body(&b"12345"[..], 5).unwrap(), Some(b"12345".to_vec()));
+        assert_eq!(read_body(&b"123456"[..], 5).unwrap(), None);
+    }
+
+    #[test]
+    fn a_table_save_writes_only_what_the_game_reads_and_only_its_own_tables() {
+        let s = store("table");
+        let web = Path::new("/nonexistent");
+        let root = s.dir.parent().unwrap().to_path_buf();
+        let tuning = last_harvest_game::built_in_table("tuning.txt").unwrap();
+        assert_eq!(handle(&s, web, &Method::Put, "/api/table/tuning.txt", b"[player]\nhp lots\n").0, 400);
+        assert_eq!(handle(&s, web, &Method::Put, "/api/table/tuning.txt", &[0xff, 0xfe]).0, 400);
+        assert!(!root.join("tuning.txt").exists(), "a refused table writes nothing");
+        for url in ["/api/table/art.txt", "/api/table/..%2Fart.txt", "/api/table/notes.txt"] {
+            assert_eq!(handle(&s, web, &Method::Put, url, tuning.as_bytes()).0, 404, "{url}");
+        }
+        assert_eq!(std::fs::read_to_string(&s.catalog).unwrap(), "BARREL  cell 14 7\n");
+        assert_eq!(handle(&s, web, &Method::Put, "/api/table/tuning.txt", tuning.as_bytes()).0, 200);
+        assert_eq!(std::fs::read_to_string(root.join("tuning.txt")).unwrap(), tuning);
+        std::fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]
