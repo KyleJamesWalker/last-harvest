@@ -15,7 +15,7 @@ use last_harvest_game::{Buttons, Game, InputTracker, MAX_TOUCHES, RawInput, SCRE
 use winit::application::ApplicationHandler;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event::{ElementState, MouseButton, TouchPhase, WindowEvent};
-use winit::event_loop::{ActiveEventLoop, EventLoop};
+use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::WindowId;
 
@@ -25,6 +25,7 @@ const QUIT_HOLD: f32 = 1.0;
 const WAKE_GRACE: Duration = Duration::from_secs(2);
 const STATS_WINDOW: Duration = Duration::from_secs(1);
 const AUDIO_RETRY: Duration = Duration::from_secs(1);
+const LID_FRAME: Duration = Duration::from_millis(100);
 const AUDIO_RETRY_MAX: Duration = Duration::from_secs(60);
 
 /// Frame timing over the last window, plus sensors read once per window.
@@ -396,9 +397,14 @@ impl ApplicationHandler for App {
         std::process::exit(if self.failed { 1 } else { 0 });
     }
 
-    fn about_to_wait(&mut self, _el: &ActiveEventLoop) {
-        if let Some(g) = &self.gfx {
+    /// Draws every vsync, or a few times a second with the lid closed, which still reads the lid and the keys.
+    fn about_to_wait(&mut self, el: &ActiveEventLoop) {
+        let Some(g) = &self.gfx else { return };
+        if self.game.outputs().screens_on || self.last.elapsed() >= LID_FRAME {
+            el.set_control_flow(ControlFlow::Wait);
             g.top.window.request_redraw();
+        } else {
+            el.set_control_flow(ControlFlow::WaitUntil(self.last + LID_FRAME));
         }
     }
 }
