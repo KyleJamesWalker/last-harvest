@@ -23,7 +23,7 @@ use last_harvest_pack::Pak;
 use last_harvest_render::{Profile, Renderer};
 use raw_window_handle::{AndroidDisplayHandle, AndroidNdkWindowHandle, RawDisplayHandle, RawWindowHandle};
 
-use crate::{audio, log, pak, samples};
+use crate::{VERSION, audio, log, pak, samples};
 
 /// Seconds a changed save waits for more changes before it is written.
 const SETTLE: f32 = 1.0;
@@ -201,6 +201,49 @@ extern "system" fn Java_com_kylejameswalker_lastharvest_MainActivity_secondSurfa
 #[unsafe(no_mangle)]
 extern "system" fn Java_com_kylejameswalker_lastharvest_MainActivity_secondTouch(_env: *mut jni::sys::JNIEnv, _class: jni::sys::jclass, phase: i32, id: i32, x: f32, y: f32) {
     second(|s| s.touches.push((phase, id, x, y)));
+}
+
+/// What `MainActivity.fetchPack` reported: nothing yet, then the pack's arrival or its error.
+static PACK: Mutex<Option<Result<(), String>>> = Mutex::new(None);
+
+#[unsafe(no_mangle)]
+extern "system" fn Java_com_kylejameswalker_lastharvest_MainActivity_packReady(mut env: jni::JNIEnv, _class: jni::objects::JClass, error: jni::objects::JString) {
+    let result = if error.is_null() { Ok(()) } else { Err(env.get_string(&error).map_or_else(|e| e.to_string(), String::from)) };
+    *PACK.lock().unwrap_or_else(|e| e.into_inner()) = Some(result);
+}
+
+/// The release's game_data.pak, kept in internal storage by version and fetched from the release the first time.
+/// The APK carries none, as every release shares one pack.
+fn release_pack(android: &AndroidApp) -> Result<Vec<u8>, String> {
+    let dir = android.internal_data_path().ok_or("no internal storage")?;
+    let path = dir.join(format!("game_data-{VERSION}.pak"));
+    if let Ok(bytes) = std::fs::read(&path) {
+        return Ok(bytes);
+    }
+    for old in std::fs::read_dir(&dir).into_iter().flatten().flatten().map(|e| e.path()) {
+        if old.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("game_data-") && n.ends_with(".pak")) {
+            let _ = std::fs::remove_file(old);
+        }
+    }
+    let url = format!("https://github.com/KyleJamesWalker/last-harvest/releases/download/{VERSION}/game_data.pak");
+    log!("data: fetching {url}");
+    let asked = (|| -> jni::errors::Result<()> {
+        let vm = unsafe { jni::JavaVM::from_raw(android.vm_as_ptr().cast()) }?;
+        let mut env = vm.attach_current_thread()?;
+        let activity = unsafe { jni::objects::JObject::from_raw(android.activity_as_ptr().cast()) };
+        let (url, to) = (env.new_string(&url)?, env.new_string(path.to_string_lossy())?);
+        env.call_method(&activity, "fetchPack", "(Ljava/lang/String;Ljava/lang/String;)V", &[(&url).into(), (&to).into()])?;
+        Ok(())
+    })();
+    asked.map_err(|e| format!("fetchPack: {e}"))?;
+    loop {
+        if let Some(done) = PACK.lock().unwrap_or_else(|e| e.into_inner()).take() {
+            done?;
+            return std::fs::read(&path).map_err(text);
+        }
+        // The window and resume this drops are taken up again once the game starts.
+        android.poll_events(Some(Duration::from_millis(100)), |_| {});
+    }
 }
 
 /// The largest 4:3 rect centered in a `w` by `h` window, as x, y, width and height in GL's bottom-up pixels.
@@ -545,10 +588,35 @@ impl App {
     }
 }
 
+/// Points the game at `Android/data/<app>/files/data` for its mods, cards, props and maps, as the handheld has
+/// them beside the binary: the one folder a player reaches over USB without a storage permission.
+fn data_folders(android: &AndroidApp) {
+    let Some(data) = android.external_data_path().map(|d| d.join("data")) else { return };
+    for (var, dir) in [("LAST_HARVEST_MODS", "mods"), ("LAST_HARVEST_ENEMIES", "enemies"), ("LAST_HARVEST_PLAYERS", "players"), ("LAST_HARVEST_PROPS", "props"), ("LAST_HARVEST_MAPS", "maps")] {
+        let path = data.join(dir);
+        if let Err(e) = std::fs::create_dir_all(&path) {
+            log!("data: {}: {e}", path.display());
+        }
+        // Set before any other thread starts, on the only thread reading the environment.
+        unsafe { std::env::set_var(var, &path) };
+    }
+    let readme = data.join("README.txt");
+    if !readme.exists() {
+        let _ = std::fs::write(&readme, include_str!("../../../assets/data-README.txt"));
+    }
+    log!("data: mods and cards in {}", data.display());
+}
+
 fn run(android: AndroidApp) -> Result<(), String> {
-    let mut asset = android.asset_manager().open(c"game_data.pak").ok_or("game_data.pak is missing from the APK")?;
-    let bytes = asset.buffer().map_err(text)?.to_vec();
-    let sounds = pak::install(Some(Pak::read(Cursor::new(bytes))?), None)?;
+    data_folders(&android);
+    let bundled = android.asset_manager().open(c"game_data.pak").map(|mut a| a.buffer().map(<[u8]>::to_vec).map_err(text));
+    let sounds = match bundled.unwrap_or_else(|| release_pack(&android)) {
+        Ok(bytes) => pak::install(Some(Pak::read(Cursor::new(bytes))?), None)?,
+        Err(e) => {
+            log!("data: {e}");
+            pak::install(None, Some(format!("Connect to the internet and start the game again to download its data ({e}).")))?
+        }
+    };
     let save_path = android.internal_data_path().map(|d| d.join("save.txt"));
     let saved = save_path.as_ref().and_then(|p| std::fs::read_to_string(p).ok()).map(|t| Save::parse(&t)).unwrap_or_default();
     let mut game = Game::new(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.as_nanos() as u64));
@@ -578,6 +646,12 @@ fn run(android: AndroidApp) -> Result<(), String> {
         stats: Stats::new(),
         quit: false,
     };
+    if android.native_window().is_some() {
+        if let Err(e) = app.start_gl() {
+            log!("gl: {e}");
+        }
+        app.audio = audio::Audio::open(&app.sounds).inspect_err(|e| log!("audio disabled: {e}")).ok();
+    }
     while !app.quit {
         // With a window, vsync in swap_buffers paces the loop; without one, wait for Android to give it back.
         let timeout = if app.gl.is_some() { Some(Duration::ZERO) } else { None };

@@ -15,6 +15,13 @@ import android.view.Surface;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.WindowManager;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 
 /**
  * The game's NativeActivity, with what the NDK can't reach: the vibrator, and a second screen, which Android shows
@@ -32,6 +39,9 @@ public class MainActivity extends NativeActivity implements DisplayManager.Displ
 
     /** A finger on the second screen: phase 0 down, 1 moved, 2 up; x and y from 0 to 1 across it. */
     static native void secondTouch(int phase, int id, float x, float y);
+
+    /** The pack fetchPack asked for has arrived, or failed with this error. */
+    static native void packReady(String error);
 
     private Presentation presentation;
     private DisplayManager displays;
@@ -122,6 +132,35 @@ public class MainActivity extends NativeActivity implements DisplayManager.Displ
             presentation.dismiss();
             presentation = null;
         }
+    }
+
+    /** Called from android.rs when the APK carries no game_data.pak: fetches url to path off the UI thread. */
+    public void fetchPack(String url, String path) {
+        new Thread(() -> {
+            File out = new File(path), part = new File(path + ".part");
+            String error = null;
+            try {
+                HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+                c.setConnectTimeout(10000);
+                c.setReadTimeout(30000);
+                if (c.getResponseCode() != HttpURLConnection.HTTP_OK) {
+                    throw new IOException("HTTP " + c.getResponseCode() + " for " + url);
+                }
+                try (InputStream in = c.getInputStream(); OutputStream to = new FileOutputStream(part)) {
+                    byte[] buffer = new byte[65536];
+                    for (int n; (n = in.read(buffer)) > 0; ) {
+                        to.write(buffer, 0, n);
+                    }
+                }
+                if (!part.renameTo(out)) {
+                    throw new IOException("can't move " + part + " to " + out);
+                }
+            } catch (Exception e) {
+                error = e.toString();
+                part.delete();
+            }
+            packReady(error);
+        }).start();
     }
 
     /** Called from android.rs while the game's rumble is on. */
