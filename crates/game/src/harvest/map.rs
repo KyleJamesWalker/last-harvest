@@ -98,6 +98,15 @@ impl Prop {
 const CHEW_HP_PER_STEP: f32 = 8.0;
 /// The most one cell of the flow field costs; the bucket queue keeps one bucket more than this.
 const MAX_STEP: usize = 15;
+
+/// Room a flow field rebuild reuses: its ring of buckets and the two queues of cells at the current distance.
+#[derive(Default)]
+pub struct Steps {
+    ring: [Vec<u32>; MAX_STEP + 1],
+    now: Vec<u32>,
+    next: Vec<u32>,
+}
+
 /// No prop breaks with more hit points than this.
 pub const MAX_HP: f32 = 1000.0;
 const NO_OWNER: u32 = u32::MAX;
@@ -418,36 +427,49 @@ impl Map {
         p
     }
 
-    /// What it costs a zombie to get to the cell under `target` from every cell: a step for each open cell, and
-    /// more through a prop it can chew through; `u16::MAX` where it can't.
+    #[cfg(test)]
     pub fn flow(&self, target: [f32; 2]) -> Vec<u16> {
-        self.steps::<true>(target)
+        let mut dist = Vec::new();
+        self.steps::<true>(target, &mut dist, &mut Steps::default());
+        dist
+    }
+
+    /// What it costs a zombie to get to the cell under `target` from every cell, into `dist`: a step for each open
+    /// cell, and more through a prop it can chew through; `u16::MAX` where it can't.
+    pub fn flow_into(&self, target: [f32; 2], dist: &mut Vec<u16>, steps: &mut Steps) {
+        self.steps::<true>(target, dist, steps);
     }
 
     /// Steps from every open cell to the cell under `target` over open ground, as the player walks; `u16::MAX`
     /// where unreachable.
     pub fn reach(&self, target: [f32; 2]) -> Vec<u16> {
-        self.steps::<false>(target)
+        let mut dist = Vec::new();
+        self.steps::<false>(target, &mut dist, &mut Steps::default());
+        dist
     }
 
     /// Dial's algorithm: cells a step away queue for the next distance, and those further through something to
     /// chew in a ring of buckets as long as the dearest step. Queued cells carry x in the low half and y in the
     /// high, which saves a division a cell on the device.
-    fn steps<const CHEW: bool>(&self, target: [f32; 2]) -> Vec<u16> {
+    fn steps<const CHEW: bool>(&self, target: [f32; 2], dist: &mut Vec<u16>, steps: &mut Steps) {
         let (w, h) = (self.w, self.h);
-        let mut dist = vec![u16::MAX; w * h];
+        dist.clear();
+        dist.resize(w * h, u16::MAX);
         let (tx, ty) = ((target[0] / TILE) as usize, (target[1] / TILE) as usize);
         if tx >= w || ty >= h {
-            return dist;
+            return;
         }
-        let mut ring: [Vec<u32>; MAX_STEP + 1] = Default::default();
-        let (mut now, mut next) = (vec![(ty << 16 | tx) as u32], Vec::new());
+        let Steps { ring, now, next } = steps;
+        ring.iter_mut().for_each(Vec::clear);
+        next.clear();
+        now.clear();
+        now.push((ty << 16 | tx) as u32);
         dist[self.i(tx, ty)] = 0;
         let (mut d, mut idle) = (0u16, 0);
         while idle <= MAX_STEP && d < u16::MAX - MAX_STEP as u16 {
             now.append(&mut ring[d as usize % ring.len()]);
             idle = if now.is_empty() { idle + 1 } else { 0 };
-            for &c in &now {
+            for &c in now.iter() {
                 let (x, y) = ((c & 0xffff) as usize, (c >> 16) as usize);
                 if dist[y * w + x] != d {
                     continue;
@@ -467,10 +489,9 @@ impl Map {
                 }
             }
             now.clear();
-            std::mem::swap(&mut now, &mut next);
+            std::mem::swap(now, next);
             d += 1;
         }
-        dist
     }
 
     /// Direction from `pos` toward the neighboring cell nearest the flow target, or None off the field.
@@ -997,6 +1018,7 @@ mod tests {
 
     #[test]
     fn the_flow_field_is_the_cheapest_way_through() {
+        let (mut steps, mut reused) = (Steps::default(), Vec::new());
         for seed in 1..6 {
             let map = Map::generate(&mut Rng::new(seed), 72, 54);
             let start = map.i((map.spawn[0] / TILE) as usize, (map.spawn[1] / TILE) as usize);
@@ -1015,6 +1037,9 @@ mod tests {
             }
             let flow = map.flow(map.spawn);
             assert_eq!(flow, dist, "seed {seed}");
+            map.flow_into(map.home, &mut reused, &mut steps);
+            map.flow_into(map.spawn, &mut reused, &mut steps);
+            assert_eq!(reused, dist, "seed {seed}: and the same in room left from other fields");
             assert!(map.cost.iter().any(|c| *c > 1), "seed {seed}: fences to chew through");
             assert!(flow.iter().zip(map.reach(map.spawn)).all(|(f, r)| *f <= r), "seed {seed}: chewing is never further");
         }

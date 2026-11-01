@@ -618,6 +618,8 @@ pub struct Harvest {
     /// Steps to the player from each cell, rebuilt when the player changes cell.
     flow: Vec<u16>,
     flow_cell: [usize; 2],
+    sep: Vec<[f32; 2]>,
+    steps: map::Steps,
     /// The player's heading, which the 3D camera looks along, in radians from +x toward +y.
     view_yaw: f32,
     /// Radians left of a quick turn in progress.
@@ -805,6 +807,8 @@ impl Harvest {
             overview: false,
             flow: Vec::new(),
             flow_cell: [usize::MAX; 2],
+            sep: Vec::new(),
+            steps: map::Steps::default(),
             view_yaw: -PI / 2.0,
             spin: 0.0,
             turned_from: [0.0; 2],
@@ -889,9 +893,11 @@ impl Harvest {
     /// The map's size and prop count and how long a flow field over it takes, which a moving player pays each time
     /// they change tile; `time` runs the work it's given and returns the seconds it took.
     pub fn bench_report(&self, time: impl FnOnce(&mut dyn FnMut()) -> f64) -> String {
+        let (mut dist, mut steps) = (Vec::new(), map::Steps::default());
         let secs = time(&mut || {
             for _ in 0..20 {
-                std::hint::black_box(self.map.flow(self.pos));
+                self.map.flow_into(self.pos, &mut dist, &mut steps);
+                std::hint::black_box(&dist);
             }
         });
         let (w, hgt) = (self.map.width_px() / TILE, self.map.height_px() / TILE);
@@ -1484,7 +1490,9 @@ impl Harvest {
 
     fn move_zombies(&mut self, dt: f32) {
         let n = self.zombies.len();
-        let mut sep = vec![[0.0f32; 2]; n];
+        let mut sep = std::mem::take(&mut self.sep);
+        sep.clear();
+        sep.resize(n, [0.0; 2]);
         for i in 0..n {
             for j in i + 1..n {
                 let d = sub(self.zombies[i].pos, self.zombies[j].pos);
@@ -1498,11 +1506,11 @@ impl Harvest {
         }
         let cell = [(self.pos[0] / TILE) as usize, (self.pos[1] / TILE) as usize];
         if cell != self.flow_cell {
-            self.flow = self.map.flow(self.pos);
+            self.map.flow_into(self.pos, &mut self.flow, &mut self.steps);
             self.flow_cell = cell;
         }
         let mut bites = Vec::new();
-        for (z, s) in self.zombies.iter_mut().zip(sep) {
+        for (z, &s) in self.zombies.iter_mut().zip(&sep) {
             z.flash = (z.flash - dt).max(0.0);
             z.hurt = (z.hurt - dt).max(0.0);
             z.squash = (z.squash - dt * 5.0).max(0.0);
@@ -1535,6 +1543,7 @@ impl Harvest {
                 bites.push((i, ahead, z.kind.stats().damage * crate::tuning::tuning().chew * self.fury * dt));
             }
         }
+        self.sep = sep;
         for (i, at, damage) in bites {
             self.map.hurt_prop(i, damage, 0.0);
             if self.juice.rng.range(0.0, 1.0) < dt * 3.0 {
