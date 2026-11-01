@@ -64,7 +64,7 @@ jobs:
         if: steps.key.outputs.present
         run: |
           cargo check --locked --target wasm32-unknown-unknown -p last-harvest --lib --no-default-features
-          cargo check --locked --target wasm32-unknown-unknown -p sprite-editor --no-default-features --features modding
+          cargo check --locked --target wasm32-unknown-unknown -p sprite-editor --bin sprite-editor --no-default-features --features modding
           cargo tree -e features -i last-harvest-game -p sprite-editor --no-default-features --features modding --target wasm32-unknown-unknown \
             | grep -q 'feature "embed"' && { echo "the tileset is built into the editor"; exit 1; } || true
           cargo tree -e features -i last-harvest-game -p last-harvest --no-default-features --target wasm32-unknown-unknown \
