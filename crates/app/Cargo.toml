@@ -44,7 +44,7 @@ winit = { version = "0.30", default-features = false, features = ["rwh_06"] }
 [target.'cfg(target_os = "android")'.dependencies]
 android-activity = { version = "0.6", features = ["native-activity"] }
 glutin = { version = "0.32", default-features = false, features = ["egl"] }
-jni = "0.21"
+jni = "0.22"
 ndk = "0.9"
 raw-window-handle = "0.6"
 
