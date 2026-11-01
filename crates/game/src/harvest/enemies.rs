@@ -48,7 +48,8 @@ pub struct Roster {
 const MAX_KINDS: usize = 64;
 /// The most frames a walk cycle can have.
 pub const MAX_WALK: usize = 8;
-const MAX_FRAME: u32 = 64;
+/// The most pixels a side of a card's frame can be.
+pub const MAX_FRAME: u32 = 64;
 const PAD: u16 = 1;
 /// The longest `about` can be, so it fits the menus in a few lines.
 pub const ABOUT_MAX: usize = 80;

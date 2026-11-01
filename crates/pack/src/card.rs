@@ -5,13 +5,13 @@
 //! and it always walks three frames.
 
 use last_harvest_game::data::Card;
+use last_harvest_game::{CARD_MAX_FRAME as MAX_FRAME, MAX_WALK};
 
 pub const KEYWORD: &str = "last-harvest-enemy";
 /// The biggest sheet a card can have: eight walking frames across and six rows down, of 64-pixel frames. Checked
 /// before decoding, since a card may come from anyone.
-const MAX_SHEET: [u32; 2] = [8 * MAX_FRAME, 6 * MAX_FRAME];
+const MAX_SHEET: [u32; 2] = [MAX_WALK as u32 * MAX_FRAME, 6 * MAX_FRAME];
 const ROWS_KEYWORD: &str = "last-harvest-rows";
-const MAX_FRAME: u32 = 64;
 /// What an enemy card's file name ends in: still a PNG, so it previews anywhere, but named as a card.
 pub const EXTENSION: &str = ".enemy.png";
 
