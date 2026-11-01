@@ -12,7 +12,7 @@ front=$(pidof muos2.bin dmenu.bin)
 # Ending it instead makes dmenu_ln start a fresh one.
 trap '[ -n "$front" ] && kill -CONT $front && kill $front; kill $(jobs -p) 2>/dev/null' EXIT INT TERM
 if [ -n "$CAPTURE" ]; then
-  for e in 0 2 4 6; do evtest /dev/input/event$e > ev$e.log 2>&1 & done
+  for e in $(sed -n 's/^H: Handlers=.*\(event[0-9]*\).*/\1/p' /proc/bus/input/devices); do evtest "/dev/input/$e" > "$e.log" 2>&1 & done
   (while :; do echo "$(date +%s) $(cat /sys/class/anbernic_misc/hallkey)"; sleep 0.5; done) > hall.log &
   export LAST_HARVEST_LOG_INPUT=1
 fi
