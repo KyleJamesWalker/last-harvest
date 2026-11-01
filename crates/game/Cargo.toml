@@ -11,7 +11,7 @@ default = ["embed"]
 embed = []
 
 [dependencies]
-glam = "0.30"
+glam = "0.34"
 
 [build-dependencies]
 png = "0.17"
