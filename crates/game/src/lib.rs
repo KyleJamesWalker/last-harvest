@@ -580,7 +580,8 @@ impl Game {
             let span = SCREEN_W + 400.0;
             let x = (i as f32 * span / walkers.len() as f32 + t * 22.0) % span - 200.0;
             let a = frames[(t * 5.0 + i as f32) as usize % frames.len()];
-            f.top.art(a, x, 600.0 - a.h() * 8.0 + 8.0, 8.0, false, [0.02, 0.02, 0.03, 1.0]);
+            // Side frames face left, as in the 3D view: flipped, they walk the way they move.
+            f.top.art(a, x, 600.0 - a.h() * 8.0 + 8.0, 8.0, true, [0.02, 0.02, 0.03, 1.0]);
         }
         for i in 0..30 {
             let seed = i as f32 * 7.31;
