@@ -66,7 +66,7 @@ impl Editor {
             let Some(text) = self.store.read_table(file) else { continue };
             let t = Table::new(file, &text);
             if let Some(section) = t.sections().into_iter().find(|s| data_name(file, s) == name) {
-                self.map = None;
+                (self.map, self.data_link) = (None, None);
                 self.data = Some(DataEdit { file: file.to_string(), section, table: t, dirty: false, first: 0, typing: None });
                 self.sprite = Sprite { name: name.into(), frames: vec![Frame::blank(16, 16)], views: None, footprint: None, roof: None, north: None, west: None, top: None, card: None, clear_in_3d: Vec::new(), paint: Default::default() };
                 (self.frame, self.view, self.stats, self.selection, self.naming) = (0, None, false, None, None);

@@ -909,17 +909,14 @@ impl Editor {
         self.selection = None;
         self.last_dot = None;
         self.names = self.all_names();
-        self.data = None;
-        self.data_link = None;
         if self.open_table(name) || self.open_map(name) {
             return;
         }
-        self.data_link = self.data_link_for(name);
-        if self.store.load(name).is_some() {
-            self.map = None;
-        }
-        self.trimmed = Default::default();
         if let Some(s) = self.store.load(name) {
+            self.data = None;
+            self.data_link = self.data_link_for(name);
+            self.map = None;
+            self.trimmed = Default::default();
             self.sprite = s;
             self.frame = 0;
             self.undo.clear();
@@ -3715,6 +3712,23 @@ mod tests {
         let saved = std::fs::read_to_string(dir.join("tuning.txt")).unwrap();
         assert!(saved.contains("hp 101          # health") && saved.contains("speed 52"), "{saved}");
         assert_eq!(last_harvest_game::tuning::parse(&saved, None).unwrap().player_speed, 52.0);
+    }
+
+    #[test]
+    fn opening_what_wont_load_keeps_the_data_page_and_its_edits() {
+        let dir = tmp().join("data-keep");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("BROKEN")).unwrap();
+        std::fs::write(dir.join("BROKEN/0.png"), b"not a png").unwrap();
+        let mut e = editor_in(&dir, dir.join("art.txt"));
+        e.switch_to("DATA_TUNING_PLAYER".into());
+        e.act(Action::DataStep(0, 1), false);
+        e.open("BROKEN");
+        assert_eq!(e.sprite.name, "DATA_TUNING_PLAYER");
+        assert!(e.data.as_ref().is_some_and(|d| d.dirty), "the unsaved table edits stay");
+        e.open("HOUSE");
+        assert!(e.data.is_none() && e.data_link.as_deref() == Some("DATA_PROPS_HOUSE"));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
