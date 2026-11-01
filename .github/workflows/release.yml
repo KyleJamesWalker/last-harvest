@@ -18,27 +18,23 @@ jobs:
     env:
       TAG: ${{ github.event.release.tag_name || inputs.tag }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ env.TAG }}
+          persist-credentials: false
 
-      - name: Fetch the private assets
-        env:
-          ASSETS_DEPLOY_KEY: ${{ secrets.ASSETS_DEPLOY_KEY }}
-        run: |
-          install -m 700 -d ~/.ssh
-          printf '%s\n' "$ASSETS_DEPLOY_KEY" > ~/.ssh/assets
-          chmod 600 ~/.ssh/assets
-          git config submodule.assets/private.url "git@github.com:${{ github.repository_owner }}/last-harvest-assets.git"
-          GIT_SSH_COMMAND="ssh -i ~/.ssh/assets -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new" \
-            git submodule update --init --depth 1 assets/private
+      - uses: ./.github/actions/private-assets
+        with:
+          deploy-key: ${{ secrets.ASSETS_DEPLOY_KEY }}
 
-      - uses: dtolnay/rust-toolchain@1.94.0
-      - uses: Swatinem/rust-cache@v2
-      - uses: mlugg/setup-zig@v2
+      - uses: dtolnay/rust-toolchain@dc08e2af391d489dff6d14cf743e574f7d1229c5 # 1.94.0
+        with:
+          toolchain: 1.94.0
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
         with:
           version: 0.17.0
-      - uses: taiki-e/install-action@v2
+      - uses: taiki-e/install-action@68a389c788b2cd04016ce8c80ee23b80d2ab3d68 # v2.88.1
         with:
           tool: cargo-zigbuild@0.22.3
 
@@ -48,6 +44,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libasound2-dev
+          # Ubuntu's libasound, not the device's: same soname, old symbols only; the launcher's --version check catches a mismatch.
           ALSA_LIB=/usr/lib/aarch64-linux-gnu/libasound.so.2 scripts/sysroot.sh
           scripts/build-device.sh
           cargo run -q -p last-harvest-pack -- game_data.pak
@@ -80,26 +77,21 @@ jobs:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ env.TAG }}
+          persist-credentials: false
 
       # game_data.pak carries the tileset's atlas and the recorded sounds; neither wasm may build them in.
-      - name: Fetch the private assets
-        env:
-          ASSETS_DEPLOY_KEY: ${{ secrets.ASSETS_DEPLOY_KEY }}
-        run: |
-          install -m 700 -d ~/.ssh
-          printf '%s\n' "$ASSETS_DEPLOY_KEY" > ~/.ssh/assets
-          chmod 600 ~/.ssh/assets
-          git config submodule.assets/private.url "git@github.com:${{ github.repository_owner }}/last-harvest-assets.git"
-          GIT_SSH_COMMAND="ssh -i ~/.ssh/assets -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new" \
-            git submodule update --init --depth 1 assets/private
-
-      - uses: dtolnay/rust-toolchain@1.94.0
+      - uses: ./.github/actions/private-assets
         with:
+          deploy-key: ${{ secrets.ASSETS_DEPLOY_KEY }}
+
+      - uses: dtolnay/rust-toolchain@dc08e2af391d489dff6d14cf743e574f7d1229c5 # 1.94.0
+        with:
+          toolchain: 1.94.0
           targets: wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - name: Install wasm-bindgen
         run: |
           version=$(awk '/^name = "wasm-bindgen"$/ { getline; gsub(/[^0-9.]/, ""); print; exit }' Cargo.lock)
@@ -134,11 +126,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "$TAG" "last-harvest-$TAG-web.zip" --clobber
 
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
         with:
           path: target/pages
       - id: deploy
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5
 
       - name: Push to itch.io
         env:
@@ -149,7 +141,8 @@ jobs:
             echo "BUTLER_API_KEY or ITCH_TARGET is not set: skipping itch.io"
             exit 0
           fi
-          curl -fsSL -o butler.zip https://broth.itch.zone/butler/linux-amd64/LATEST/archive/default
+          curl -fsSL -o butler.zip https://broth.itch.zone/butler/linux-amd64/15.32.0/archive/default
+          echo "2335971394ef6596f95ded0833e85ee28755e13761716ef4c91d6b11f69162f5  butler.zip" | sha256sum -c -
           unzip -q butler.zip -d butler
           chmod +x butler/butler
           butler/butler push "last-harvest-$TAG-web.zip" "$ITCH_TARGET" --userversion "$TAG"
