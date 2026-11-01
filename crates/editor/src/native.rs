@@ -12,7 +12,6 @@ use glutin_winit::{DisplayBuilder, GlWindow};
 use last_harvest_render::{Profile, Renderer};
 use raw_window_handle::HasWindowHandle;
 use sprite_editor::editor::Key;
-use sprite_editor::sprite;
 use sprite_editor::store::FsStore;
 use sprite_editor::studio::Studio;
 use winit::application::ApplicationHandler;
@@ -117,7 +116,7 @@ impl App {
             WKey::Named(NamedKey::ArrowLeft) => Key::Left,
             WKey::Named(NamedKey::ArrowRight) => Key::Right,
             WKey::Named(NamedKey::F12) => {
-                self.shot = Some(sprite::folder().join(format!("editor-{}.png", self.frames)));
+                self.shot = Some(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../../target/editor-{}.png", self.frames)));
                 return;
             }
             _ => return,
