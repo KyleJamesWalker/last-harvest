@@ -19,6 +19,10 @@
   #start[hidden] { display: none; }
   #start b { font-size: 34px; color: #f2bf4d; }
   #start p { margin: 0 24px; max-width: 30em; line-height: 1.5; color: #c8c8d2; font-size: 15px; }
+  #start .screens { display: flex; gap: 12px; }
+  #start button { font: inherit; color: #ebebf2; background: rgba(255, 255, 255, 0.08); border: 2px solid rgba(255, 255, 255, 0.25);
+                  border-radius: 6px; padding: 10px 18px; cursor: pointer; }
+  #start button[aria-pressed="true"] { border-color: #f2bf4d; color: #f2bf4d; }
   .failure { position: absolute; z-index: 1; top: 0; margin: 12px; padding: 12px; background: #5a1e1e; color: #fff; white-space: pre-wrap; }
 </style>
 </head>
@@ -26,8 +30,12 @@
 <canvas id="screens" tabindex="0"></canvas>
 <div id="start">
   <b id="start-label">Loading…</b>
+  <div class="screens">
+    <button type="button" data-screens="1" aria-pressed="true">One screen</button>
+    <button type="button" data-screens="2" aria-pressed="false">Two screens</button>
+  </div>
   <p>Arrows move. X is A, Z is B, S is X, A is Y, Enter is Start, 1 and W are L1 and R1, Q and 2 are L2 and R2.
-  A click on the bottom screen is a touch. Gamepads work too.</p>
+  The mouse or a finger is a touch: on the on-screen controls with one screen, on the bottom screen with two. Gamepads work too.</p>
 </div>
 <script type="module">
   import init, { run } from "./last-harvest.js";

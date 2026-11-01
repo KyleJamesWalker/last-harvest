@@ -1,7 +1,7 @@
-//! The game in a web page: both screens on one WebGL2 canvas, top above bottom as on the device, the keyboard and
-//! gamepads for its buttons, the pointer on the bottom half for touch, and the save in the browser's storage. On a
-//! touch screen (or with `?phone` in the address) it plays as on a phone instead: the canvas fills the window and
-//! the game lays out the screens and its on-screen controls.
+//! The game in a web page: the keyboard and gamepads for its buttons, the pointer for touch, and the save in the
+//! browser's storage. By default it plays on one screen, as on a phone: the canvas fills the window and the game lays
+//! out the screens and its on-screen controls. With `?screens=2`, or the start overlay's Two screens, both screens
+//! share the canvas, top above bottom as on the device, and the pointer on the bottom half is the touch.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -11,7 +11,7 @@ use last_harvest_pack::Pak;
 use last_harvest_render::{Profile, Renderer};
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
-use web_sys::{AddEventListenerOptions, Document, Event, EventTarget, Gamepad, GamepadButton, HtmlCanvasElement, HtmlElement, KeyboardEvent, PointerEvent, Storage, WebGl2RenderingContext};
+use web_sys::{AddEventListenerOptions, Document, Element, Event, EventTarget, Gamepad, GamepadButton, HtmlCanvasElement, HtmlElement, KeyboardEvent, PointerEvent, Storage, WebGl2RenderingContext};
 
 use crate::{audio, pak, samples};
 
@@ -166,6 +166,19 @@ impl Web {
         }
         let y = e.offset_y() as f32 / h * 2.0 - 1.0;
         (y >= 0.0).then(|| [(e.offset_x() as f32 / w).clamp(0.0, 1.0) * SCREEN_W, y.min(1.0) * SCREEN_H])
+    }
+
+    /// Plays on one screen, as on a phone, or on two stacked; the address keeps the choice for a reload.
+    fn set_screens(&mut self, one: bool) {
+        if one == self.phone {
+            return;
+        }
+        self.phone = one;
+        self.touches = Default::default();
+        show_screens(&self.document, &self.canvas, &self.overlay, one);
+        if let Some(history) = web_sys::window().and_then(|w| w.history().ok()) {
+            let _ = history.replace_state_with_url(&JsValue::NULL, "", Some(if one { "?screens=1" } else { "?screens=2" }));
+        }
     }
 
     /// The first click or key: the page may now play sound.
@@ -389,17 +402,8 @@ fn start(pak: Pak) -> Result<(), String> {
     let mut game = Game::new(js_sys::Date::now() as u64);
     game.load(saved);
     game.set_backlights(false);
-    let search = window.location().search().unwrap_or_default();
-    let coarse = window.match_media("(pointer: coarse)").ok().flatten().is_some_and(|m| m.matches());
-    let phone = if search.contains("phone=0") { false } else { coarse || search.contains("phone") };
-    if phone {
-        for el in [canvas.unchecked_ref::<HtmlElement>(), &overlay] {
-            let style = el.style();
-            let _ = style.set_property("width", "100vw");
-            let _ = style.set_property("height", "100vh");
-            let _ = style.set_property("height", "100dvh");
-        }
-    }
+    let phone = !window.location().search().unwrap_or_default().contains("screens=2");
+    show_screens(&document, &canvas, &overlay, phone);
     let web = Rc::new(RefCell::new(Web {
         game,
         tracker: InputTracker::default(),
@@ -427,6 +431,10 @@ fn start(pak: Pak) -> Result<(), String> {
 
     listen(&overlay, "pointerdown", &web, |w, e: &PointerEvent| {
         e.prevent_default();
+        let picked = e.target().and_then(|t| t.dyn_into::<Element>().ok()).and_then(|t| t.closest("[data-screens]").ok().flatten());
+        if let Some(choice) = picked.and_then(|b| b.get_attribute("data-screens")) {
+            w.set_screens(choice != "2");
+        }
         w.begin();
         let _ = w.canvas.focus();
     });
@@ -456,6 +464,29 @@ fn start(pak: Pak) -> Result<(), String> {
     }));
     let _ = window.request_animation_frame(tick.borrow().as_ref().ok_or("no frame callback")?.as_ref().unchecked_ref());
     Ok(())
+}
+
+/// Sizes the canvas and the start overlay for one screen, filling the window, or two stacked as the page's style
+/// sets them, and marks the overlay's matching button.
+fn show_screens(document: &Document, canvas: &HtmlCanvasElement, overlay: &HtmlElement, one: bool) {
+    for el in [canvas.unchecked_ref::<HtmlElement>(), overlay] {
+        let style = el.style();
+        if one {
+            let _ = style.set_property("width", "100vw");
+            let _ = style.set_property("height", "100vh");
+            let _ = style.set_property("height", "100dvh");
+        } else {
+            let _ = style.remove_property("width");
+            let _ = style.remove_property("height");
+        }
+    }
+    let Ok(buttons) = document.query_selector_all("[data-screens]") else { return };
+    for i in 0..buttons.length() {
+        if let Some(b) = buttons.item(i).and_then(|n| n.dyn_into::<Element>().ok()) {
+            let on = (b.get_attribute("data-screens").as_deref() == Some("2")) != one;
+            let _ = b.set_attribute("aria-pressed", if on { "true" } else { "false" });
+        }
+    }
 }
 
 /// Shows a failure on the page, where a player can see it.
