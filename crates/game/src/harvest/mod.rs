@@ -36,8 +36,6 @@ use weapons::{Bolt, Decoy, Dog, Kit, Patch, Swing};
 const SCALE: f32 = 2.0;
 const VIEW_W: f32 = SCREEN_W / SCALE;
 const VIEW_H: f32 = SCREEN_H / SCALE;
-/// Radians per second at full turn.
-const TURN_SPEED: f32 = 2.6;
 /// Seconds for the quick 180-degree turn.
 const SPIN_TIME: f32 = 0.2;
 pub const MAP_SIZE: [usize; 2] = [72, 54];
@@ -448,8 +446,6 @@ impl Grenade {
     }
 }
 
-/// Bites a second a zombie takes out of a prop in its way.
-const CHEW_RATE: f32 = 0.5;
 /// How much brighter a prop draws while it flashes from a hit.
 const PROP_FLASH: f32 = 3.0;
 
@@ -1094,7 +1090,7 @@ impl Harvest {
         }
         let spun = self.spin.min(PI / SPIN_TIME * dt);
         self.spin -= spun;
-        self.view_yaw = (self.view_yaw + turn * TURN_SPEED * dt + spun).rem_euclid(TAU);
+        self.view_yaw = (self.view_yaw + turn * crate::tuning::tuning().turn_speed * dt + spun).rem_euclid(TAU);
         let f = [self.view_yaw.cos(), self.view_yaw.sin()];
         let (side, ahead) = (dir[0], -dir[1]);
         self.lean += (side - self.lean) * (8.0 * dt).min(1.0);
@@ -1530,7 +1526,7 @@ impl Harvest {
             z.anim += dt;
             let ahead = [z.pos[0] + to[0] * TILE / 2.0, z.pos[1] + to[1] * TILE / 2.0];
             if let Some(i) = self.map.breakable_at(ahead[0], ahead[1]) {
-                bites.push((i, ahead, z.kind.stats().damage * CHEW_RATE * self.fury * dt));
+                bites.push((i, ahead, z.kind.stats().damage * crate::tuning::tuning().chew * self.fury * dt));
             }
         }
         for (i, at, damage) in bites {

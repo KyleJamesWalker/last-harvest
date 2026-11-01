@@ -336,10 +336,10 @@ A pack's `tuning.txt`, and the `[colors]` of its `effects.txt`, need only the li
 
 `tuning.txt` holds `key number` lines in these sections:
 
-- `[player]`: your health, speed, money magnet, critical-hit chance, pickup reach and footprint, before upgrades.
+- `[player]`: your health, speed, money magnet, critical-hit chance, pickup reach and footprint, before upgrades, and how fast the view turns.
 - `[night]`: the night's length, where zombies rise at dusk and dawn, and how near home counts. It also sets the rare-card chance and the level-up push.
 - `[easy]`, `[normal]` and `[hard]`: how hard bites hit and how long a hit keeps you safe. They also set how often kills drop health, and how much.
-- `[zombies]`: the most alive at once, rising time, stagger, growth each minute, a leader's health, dawn's fury, footprint, walk speed, bite reach and `charge_reach`.
+- `[zombies]`: the most alive at once, rising time, stagger, growth each minute, a leader's health, dawn's fury, footprint, walk speed, bite reach, `charge_reach` and how fast zombies chew through a prop.
 - `[harvester]`: dawn's boss, with its health, speed, bite and how far away it rises.
 - `[grenade]`: recharge time, flight time, radius, damage and bomblets.
 - `[barrel]`: health, blast radius and damage.

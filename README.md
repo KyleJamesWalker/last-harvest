@@ -106,7 +106,7 @@ The game reads its rules from seven text files in `crates/game/`. The packer put
 
 | File | What it sets |
 |---|---|
-| `tuning.txt` | Numbers no card sets: the player's base health, speed and footprint, each difficulty, zombies, the Harvester, the night's length and spawn rings, grenades, barrels, blasts and weapon reach |
+| `tuning.txt` | Numbers no card sets: the player's base health, speed, footprint and turn speed, each difficulty, zombies, the Harvester, the night's length and spawn rings, grenades, barrels, blasts and weapon reach |
 | `props.txt` | The game's own props a map can place, with walk-through rows, cover and hit points, and the defaults for fences and other sprites |
 | `ground.txt` | Each ground code: its label, tile, how a run joins, what the cell is, and any crop on it |
 | `farm.txt` | How the random farm lays itself out: the ground codes it is laid on, tufts, grass, corpses, fields, the props it strews and how often, and its buildings, where they stand and what goes near each |
