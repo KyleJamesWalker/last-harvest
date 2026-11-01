@@ -381,7 +381,7 @@ struct Bullet {
     pierce: u32,
     life: f32,
     force: f32,
-    hit: Vec<usize>,
+    hit: Vec<u32>,
     /// The effect it flies as, when its weapon names one.
     look: Option<effects::Effect>,
     age: f32,
@@ -1615,15 +1615,15 @@ impl Harvest {
                 b.life = 0.0;
                 continue;
             }
-            for (i, z) in self.zombies.iter_mut().enumerate() {
-                if b.life <= 0.0 || b.hit.contains(&i) {
+            for z in &mut self.zombies {
+                if b.life <= 0.0 || b.hit.contains(&z.id) {
                     continue;
                 }
                 let d = sub([z.pos[0], z.pos[1] - 6.0], b.pos);
                 if len(d) < 7.0 {
                     hits.1 |= strike(z, &mut self.juice, b.damage, norm(b.vel), b.force, crit);
                     hits.0 += 1;
-                    b.hit.push(i);
+                    b.hit.push(z.id);
                     if b.pierce == 0 {
                         b.life = 0.0;
                     } else {
@@ -2268,6 +2268,25 @@ mod tests {
         assert!(h.blow(0.016, &mut sounds));
         assert!(h.zombies[0].hp <= 0.0);
         assert!(!h.map.solid_at(c[0], c[1]));
+    }
+
+    #[test]
+    fn a_piercing_shot_hits_each_zombie_once_while_the_dead_are_cleared() {
+        let mut h = penned();
+        let at = [h.pos[0] + 20.0, h.pos[1]];
+        let mut dead = Zombie::new(Kind::named("skinny"), [h.pos[0] - 40.0, h.pos[1]], 0.0, 1.0, 0.0);
+        dead.id = 1;
+        let mut live = Zombie::new(Kind::named("skinny"), at, 1000.0, 1.0, 0.0);
+        live.id = 2;
+        h.zombies = vec![dead, live];
+        h.bullets = vec![Bullet { pos: [at[0], at[1] - 6.0], vel: [0.0; 2], damage: 10.0, pierce: 5, life: 1.0, force: 0.0, hit: Vec::new(), look: None, age: 0.0 }];
+        let mut sounds = Vec::new();
+        h.move_bullets(0.016, &mut sounds);
+        let once = h.zombies[1].hp;
+        assert!(once < 1000.0);
+        h.reap(&mut sounds, &mut Flow::default());
+        h.move_bullets(0.016, &mut sounds);
+        assert_eq!(h.zombies[0].hp, once, "the zombie that took the shot's place isn't hit again");
     }
 
     #[test]
