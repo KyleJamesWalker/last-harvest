@@ -168,7 +168,7 @@ pub struct Renderer {
     art: glow::Texture,
     /// The card shader by [tinted][flash]: most cards are neither, and the device's GPU is short on fill rate,
     /// so the plain variant skips the per-pixel tint and the flash lighting.
-    card_programs: [[glow::Program; 2]; 2],
+    card_programs: [[CardProgram; 2]; 2],
     card_vao: glow::VertexArray,
     card_vbo: glow::Buffer,
     card_verts: Vec<f32>,
@@ -177,31 +177,73 @@ pub struct Renderer {
     card_capacity: usize,
 }
 
-unsafe fn set_card_uniforms(gl: &glow::Context, p: glow::Program, scene: &CardScene) {
-    unsafe {
-        let loc = |name| gl.get_uniform_location(p, name);
-        gl.uniform_matrix_4_f32_slice(loc("u_view_proj").as_ref(), false, &scene.view_proj.to_cols_array());
-        gl.uniform_3_f32_slice(loc("u_eye").as_ref(), &scene.eye.to_array());
-        gl.uniform_3_f32_slice(loc("u_light").as_ref(), &scene.light.to_array());
-        gl.uniform_3_f32_slice(loc("u_light_color").as_ref(), &scene.light_color);
-        gl.uniform_1_f32(loc("u_light_range").as_ref(), scene.light_range);
-        let mut pos = [0.0; 3 * MAX_FLASHES];
-        let mut color = [0.0; 3 * MAX_FLASHES];
-        let mut range = [0.0; MAX_FLASHES];
-        for (i, f) in scene.flashes.iter().take(MAX_FLASHES).enumerate() {
-            pos[i * 3..i * 3 + 3].copy_from_slice(&f.pos.to_array());
-            color[i * 3..i * 3 + 3].copy_from_slice(&f.color);
-            range[i] = f.range;
+/// A card shader and its uniforms' locations; a variant without flashes has none for them.
+struct CardProgram {
+    program: glow::Program,
+    view_proj: Option<glow::UniformLocation>,
+    eye: Option<glow::UniformLocation>,
+    light: Option<glow::UniformLocation>,
+    light_color: Option<glow::UniformLocation>,
+    light_range: Option<glow::UniformLocation>,
+    flash_pos: Option<glow::UniformLocation>,
+    flash_color: Option<glow::UniformLocation>,
+    flash_range: Option<glow::UniformLocation>,
+    flash_count: Option<glow::UniformLocation>,
+    ambient: Option<glow::UniformLocation>,
+    saturation: Option<glow::UniformLocation>,
+    fog: Option<glow::UniformLocation>,
+    fog_range: Option<glow::UniformLocation>,
+}
+
+impl CardProgram {
+    unsafe fn new(gl: &glow::Context, program: glow::Program) -> Self {
+        unsafe {
+            let loc = |name| gl.get_uniform_location(program, name);
+            gl.use_program(Some(program));
+            gl.uniform_1_i32(loc("u_art").as_ref(), 1);
+            Self {
+                program,
+                view_proj: loc("u_view_proj"),
+                eye: loc("u_eye"),
+                light: loc("u_light"),
+                light_color: loc("u_light_color"),
+                light_range: loc("u_light_range"),
+                flash_pos: loc("u_flash_pos"),
+                flash_color: loc("u_flash_color"),
+                flash_range: loc("u_flash_range"),
+                flash_count: loc("u_flash_count"),
+                ambient: loc("u_ambient"),
+                saturation: loc("u_saturation"),
+                fog: loc("u_fog"),
+                fog_range: loc("u_fog_range"),
+            }
         }
-        gl.uniform_3_f32_slice(loc("u_flash_pos").as_ref(), &pos);
-        gl.uniform_3_f32_slice(loc("u_flash_color").as_ref(), &color);
-        gl.uniform_1_f32_slice(loc("u_flash_range").as_ref(), &range);
-        gl.uniform_1_i32(loc("u_flash_count").as_ref(), scene.flashes.len().min(MAX_FLASHES) as i32);
-        gl.uniform_3_f32_slice(loc("u_ambient").as_ref(), &scene.ambient);
-        gl.uniform_1_f32(loc("u_saturation").as_ref(), scene.saturation);
-        gl.uniform_3_f32_slice(loc("u_fog").as_ref(), &scene.fog);
-        gl.uniform_2_f32_slice(loc("u_fog_range").as_ref(), &scene.fog_range);
-        gl.uniform_1_i32(loc("u_art").as_ref(), 1);
+    }
+
+    unsafe fn set(&self, gl: &glow::Context, scene: &CardScene) {
+        unsafe {
+            gl.uniform_matrix_4_f32_slice(self.view_proj.as_ref(), false, &scene.view_proj.to_cols_array());
+            gl.uniform_3_f32_slice(self.eye.as_ref(), &scene.eye.to_array());
+            gl.uniform_3_f32_slice(self.light.as_ref(), &scene.light.to_array());
+            gl.uniform_3_f32_slice(self.light_color.as_ref(), &scene.light_color);
+            gl.uniform_1_f32(self.light_range.as_ref(), scene.light_range);
+            let mut pos = [0.0; 3 * MAX_FLASHES];
+            let mut color = [0.0; 3 * MAX_FLASHES];
+            let mut range = [0.0; MAX_FLASHES];
+            for (i, f) in scene.flashes.iter().take(MAX_FLASHES).enumerate() {
+                pos[i * 3..i * 3 + 3].copy_from_slice(&f.pos.to_array());
+                color[i * 3..i * 3 + 3].copy_from_slice(&f.color);
+                range[i] = f.range;
+            }
+            gl.uniform_3_f32_slice(self.flash_pos.as_ref(), &pos);
+            gl.uniform_3_f32_slice(self.flash_color.as_ref(), &color);
+            gl.uniform_1_f32_slice(self.flash_range.as_ref(), &range);
+            gl.uniform_1_i32(self.flash_count.as_ref(), scene.flashes.len().min(MAX_FLASHES) as i32);
+            gl.uniform_3_f32_slice(self.ambient.as_ref(), &scene.ambient);
+            gl.uniform_1_f32(self.saturation.as_ref(), scene.saturation);
+            gl.uniform_3_f32_slice(self.fog.as_ref(), &scene.fog);
+            gl.uniform_2_f32_slice(self.fog_range.as_ref(), &scene.fog_range);
+        }
     }
 }
 
@@ -241,11 +283,8 @@ impl Renderer {
         };
         unsafe {
             let program = link(gl, [vert, frag], VERT, FRAG)?;
-            let mut card_programs = Vec::new();
-            for defines in ["", "#define FLASH\n", "#define TINT\n", "#define TINT\n#define FLASH\n"] {
-                card_programs.push(link(gl, [&format!("{vert}{defines}"), &format!("{frag}{defines}")], CARD_VERT, CARD_FRAG)?);
-            }
-            let card_programs = [[card_programs[0], card_programs[1]], [card_programs[2], card_programs[3]]];
+            let card = |defines: &str| link(gl, [&format!("{vert}{defines}"), &format!("{frag}{defines}")], CARD_VERT, CARD_FRAG).map(|p| CardProgram::new(gl, p));
+            let card_programs = [[card("")?, card("#define FLASH\n")?], [card("#define TINT\n")?, card("#define TINT\n#define FLASH\n")?]];
             let card_vao = gl.create_vertex_array()?;
             let card_vbo = gl.create_buffer()?;
             let card_ibo = gl.create_buffer()?;
@@ -395,9 +434,9 @@ impl Renderer {
                 if range.is_empty() {
                     continue;
                 }
-                let p = self.card_programs[tinted][flash];
-                gl.use_program(Some(p));
-                set_card_uniforms(gl, p, scene);
+                let p = &self.card_programs[tinted][flash];
+                gl.use_program(Some(p.program));
+                p.set(gl, scene);
                 gl.draw_elements(glow::TRIANGLES, (range.len() * 6) as i32, glow::UNSIGNED_INT, (range.start * 6 * 4) as i32);
             }
             gl.disable(glow::DEPTH_TEST);
