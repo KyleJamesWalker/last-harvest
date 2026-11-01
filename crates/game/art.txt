@@ -62,20 +62,20 @@ WRECK_H2        px 544 245 33 18 ; px 595 207 33 18 ; px 629 245 33 18  @slab 10
 WRECK_V         px 611 229 17 33 ; px 662 191 17 33 ; px 696 229 17 33  @slab 10
 
 # Scatter
-BUSHES          cell 15 10 3 3 key=443830,726650
+BUSHES          cell 15 10 3 3 key=443830,726650  @slab 10
 BUSH            cell 18 10 key=443830,726650  @slab 8
-DEAD_TREE       cell 12 10 x3  @prop 1
+DEAD_TREE       cell 12 10 x3  @prop 3
 STUMP           cell 13 11  @prop 7
 LOG             cell 12 11 ; cell 12 12 ; cell 13 12  @prop 12
-TALL_TREE       cell 14 11 1 2
+TALL_TREE       cell 14 11 1 2  @prop 8
 BARREL          cell 14 7  @prop 8
 BARREL_FLASH    cell 14 9  @prop 8
-TANK            cell 14 6  @prop 12
+TANK            cell 14 6  @prop 8
 TOMBSTONE       cell 0 9  @prop 2
 SIGN            cell 10 2 x3  @prop 2
 SIGN_LOW        cell 10 4 x3  @prop 2
 BARRIER         cell 9 3  @prop 2
-CORPSE          px 715 248 15 13 ; px 733 248 12 14 ; px 681 153 15 13 ; px 682 172 12 14  @slab 2
+CORPSE          px 715 248 15 13 ; px 733 248 12 14 ; px 681 153 15 13 ; px 682 172 12 14  @ground
 
 # Characters, one frame row per facing; HURT and FLASH are front, side, back
 PLAYER_FRONT    cell 28 9 x3
