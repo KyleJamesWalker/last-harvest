@@ -857,16 +857,10 @@ impl Harvest {
     }
 
     /// The same frames every run: 300 zombies, bodies, stains and specks around the player, frozen, with the
-    /// camera turning a full circle every 600 frames, on a generated farm `size` tiles across. Logs the map's
-    /// prop count and how long a flow field over it takes, which a moving player pays each time they change tile.
+    /// camera turning a full circle every 600 frames, on a generated farm `size` tiles across.
     pub fn bench(size: [usize; 2]) -> Self {
         let [w, hgt] = size.map(|v| v.clamp(16, 400));
         let mut h = Self { calm: true, bench: true, ..Self::sized(7, [w, hgt]) };
-        let start = std::time::Instant::now();
-        for _ in 0..20 {
-            std::hint::black_box(h.map.flow(h.pos));
-        }
-        eprintln!("bench: {w}x{hgt} tiles, {} props, flow field {:.2} ms", h.map.props.len(), start.elapsed().as_secs_f64() * 1000.0 / 20.0);
         h.birds.clear();
         for i in 0..(crate::tuning::tuning().max_zombies as usize) {
             let a = i as f32 * 2.399;
@@ -890,6 +884,18 @@ impl Harvest {
         }
         h.juice.flash(h.pos, 10.0, [1.2, 0.85, 0.4], 3.5, f32::MAX);
         h
+    }
+
+    /// The map's size and prop count and how long a flow field over it takes, which a moving player pays each time
+    /// they change tile; `time` runs the work it's given and returns the seconds it took.
+    pub fn bench_report(&self, time: impl FnOnce(&mut dyn FnMut()) -> f64) -> String {
+        let secs = time(&mut || {
+            for _ in 0..20 {
+                std::hint::black_box(self.map.flow(self.pos));
+            }
+        });
+        let (w, hgt) = (self.map.width_px() / TILE, self.map.height_px() / TILE);
+        format!("bench: {w}x{hgt} tiles, {} props, flow field {:.2} ms", self.map.props.len(), secs * 1000.0 / 20.0)
     }
 
     pub fn at(self, difficulty: Difficulty) -> Self {

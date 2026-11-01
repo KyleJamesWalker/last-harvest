@@ -186,6 +186,7 @@ impl App {
                 debug::Command::Panic => panic!("debug: panic requested"),
             }
         }
+        if let Some(line) = self.game.bench_report(|work| { let t = Instant::now(); work(); t.elapsed().as_secs_f64() }) { eprintln!("{line}"); }
         let mut raw = self.raw_input();
         let (held, touch) = self.injector.frame(dt);
         raw.held |= held;

@@ -106,6 +106,8 @@ pub struct Game {
     kit: String,
     /// Seconds into the night every run starts at, for trying out late-night play.
     start_t: f32,
+    /// A bench scene just opened and hasn't reported its flow-field timing yet.
+    bench_due: bool,
     /// Seconds left to confirm wiping the records and found powerups.
     reset_armed: f32,
     /// Seconds left of the title's word that progress was erased.
@@ -143,6 +145,7 @@ impl Game {
             unlock_all: false,
             kit: String::new(),
             start_t: 0.0,
+            bench_due: false,
             reset_armed: 0.0,
             reset_shown: 0.0,
             page: Page::Main,
@@ -212,6 +215,15 @@ impl Game {
         }
     }
 
+    /// A bench scene's flow-field timing, once, the first time it's asked for after the scene opens; `time` runs
+    /// the work it's given and returns the seconds it took.
+    pub fn bench_report(&mut self, time: impl FnOnce(&mut dyn FnMut()) -> f64) -> Option<String> {
+        match &self.state {
+            State::Harvest(h) if std::mem::take(&mut self.bench_due) => Some(h.bench_report(time)),
+            _ => None,
+        }
+    }
+
     /// What the debug pipe's `state` prints, in a harvest.
     pub fn debug_state(&self) -> Option<String> {
         match &self.state {
@@ -221,6 +233,7 @@ impl Game {
     }
 
     pub fn open(&mut self, scene: Scene) {
+        self.bench_due = matches!(scene, Scene::Bench(_));
         let seed = self.rng.next_u32() as u64 + 1;
         self.state = match scene {
             Scene::Title => {
@@ -699,6 +712,23 @@ mod tests {
         }
         game.draw();
         assert!(Scene::from_name("bench-100x80") == Some(Scene::Bench([100, 80])) && Scene::from_name("bench-1x").is_none());
+    }
+
+    #[test]
+    fn a_bench_reports_its_flow_field_once_timed_by_the_caller() {
+        let mut game = Game::new(1);
+        assert!(game.bench_report(|_| 0.0).is_none(), "only a bench reports");
+        game.open(Scene::Bench([20, 16]));
+        let mut ran = false;
+        let line = game.bench_report(|work| {
+            work();
+            ran = true;
+            0.01
+        });
+        assert!(ran);
+        let line = line.expect("a bench reports");
+        assert!(line.starts_with("bench: 20x16 tiles, ") && line.ends_with(" props, flow field 0.50 ms"), "{line}");
+        assert!(game.bench_report(|_| 0.0).is_none(), "and only once");
     }
 
     #[test]
