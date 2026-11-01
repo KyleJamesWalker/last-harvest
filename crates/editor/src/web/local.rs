@@ -1,6 +1,10 @@
-//! Enemy cards kept in the browser's local storage, for the mod editor: nothing leaves the page but what
-//! Export hands over.
+//! Enemy cards kept in the browser's local storage, and their death sounds in IndexedDB, for the mod editor:
+//! nothing leaves the page but what Export hands over.
 
+use std::cell::RefCell;
+use std::collections::HashMap;
+
+use wasm_bindgen::JsValue;
 use web_sys::Storage;
 
 use sprite_editor::history::Commit;
@@ -15,10 +19,6 @@ fn key(kind: CardKind, id: &str) -> String {
     }
 }
 
-/// An enemy card's own death sound, kept as its file name and Base64 bytes.
-fn sound_key(id: &str) -> String {
-    format!("last-harvest-sound:{id}")
-}
 
 /// Maps keep to keys of their own, by id.
 const MAP_KEY: &str = "last-harvest-map:";
@@ -28,12 +28,23 @@ const TABLE_KEY: &str = "last-harvest-table:";
 
 pub struct LocalStore {
     storage: Storage,
+    /// Enemy cards' own death sounds by id, as file name and bytes: the page reads them from IndexedDB before the
+    /// editor starts, and each change writes through to it.
+    sounds: RefCell<HashMap<String, (String, Vec<u8>)>>,
 }
 
 impl LocalStore {
     pub fn open() -> Result<Self, String> {
-        let storage = web_sys::window().and_then(|w| w.local_storage().ok().flatten()).ok_or("this browser keeps no local storage")?;
-        Ok(Self { storage })
+        let window = web_sys::window().ok_or("no window")?;
+        let storage = window.local_storage().ok().flatten().ok_or("this browser keeps no local storage")?;
+        let kept = js_sys::Reflect::get(&window, &"lastHarvestSounds".into()).ok().filter(js_sys::Array::is_array).map(|v| js_sys::Array::from(&v));
+        let field = |v: &JsValue, k: &str| js_sys::Reflect::get(v, &k.into()).ok();
+        let sounds = kept
+            .into_iter()
+            .flat_map(|a: js_sys::Array| a.to_vec())
+            .filter_map(|s| Some((field(&s, "id")?.as_string()?, (field(&s, "file")?.as_string()?, js_sys::Uint8Array::new(&field(&s, "bytes")?).to_vec()))))
+            .collect();
+        Ok(Self { storage, sounds: RefCell::new(sounds) })
     }
 
     fn get(&self, kind: CardKind, id: &str) -> Option<Vec<u8>> {
@@ -141,17 +152,20 @@ impl Store for LocalStore {
     }
 
     fn card_sound(&self, id: &str) -> Option<(String, Vec<u8>)> {
-        let text = self.storage.get_item(&sound_key(id)).ok()??;
-        let (file, bytes) = text.split_once(':')?;
-        Some((file.to_string(), cards::from_text(bytes)?))
+        self.sounds.borrow().get(id).cloned()
     }
 
+    /// IndexedDB writes finish later; one that fails says so on the page through `lastharvest-said`.
     fn set_card_sound(&self, id: &str, file: &str, bytes: &[u8]) -> Result<(), String> {
-        self.storage.set_item(&sound_key(id), &format!("{file}:{}", cards::to_text(bytes))).map_err(|_| "the browser's storage for this page is full".into())
+        super::call("putSound", &[id.into(), file.into(), js_sys::Uint8Array::from(bytes).into()]);
+        self.sounds.borrow_mut().insert(id.to_string(), (file.to_string(), bytes.to_vec()));
+        Ok(())
     }
 
     fn remove_card_sound(&self, id: &str) -> Result<(), String> {
-        self.storage.remove_item(&sound_key(id)).map_err(|_| "the browser wouldn't remove it".to_string())
+        super::call("dropSound", &[id.into()]);
+        self.sounds.borrow_mut().remove(id);
+        Ok(())
     }
 
     fn all_sounds(&self) -> Vec<(String, Vec<u8>)> {
@@ -164,7 +178,7 @@ impl Store for LocalStore {
         let (kind, id) = Self::card_of(name).ok_or("not a card")?;
         self.storage.remove_item(&key(kind, &id)).map_err(|_| "the browser wouldn't remove it".to_string())?;
         if kind == CardKind::Enemy {
-            let _ = self.storage.remove_item(&sound_key(&id));
+            let _ = self.remove_card_sound(&id);
         }
         Ok(())
     }

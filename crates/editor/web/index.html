@@ -106,8 +106,11 @@
       const request = use(t.objectStore("files"));
       t.oncomplete = () => done(request.result);
       t.onerror = () => fail(t.error);
+      t.onabort = () => fail(t.error);
     };
   });
+  const SOUND = "sound:";
+  const said = text => window.dispatchEvent(new CustomEvent("lastharvest-said", { detail: text }));
 
   window.lastHarvest = {
     // Asks for files, then hands each to the editor as an `event` carrying its name and bytes.
@@ -141,6 +144,13 @@
       const a = Object.assign(document.createElement("a"), { href: url, download: name });
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
+    },
+    // Death sounds keep to IndexedDB, where Safari's 5 MB local storage limit doesn't reach.
+    putSound(id, file, bytes) {
+      files("readwrite", s => s.put({ id, file, bytes }, SOUND + id)).catch(e => said(`Couldn't keep ${file}: ${e?.name === "QuotaExceededError" ? "the browser's storage for this page is full" : e}`));
+    },
+    dropSound(id) {
+      files("readwrite", s => s.delete(SOUND + id)).catch(e => said(`Couldn't drop the sound: ${e}`));
     },
     play(name, bytes) {
       const type = name.endsWith(".wav") ? "audio/wav" : "audio/ogg";
@@ -179,6 +189,20 @@
       window.lastHarvestPakShared = true;
     }
   }
+  // A local storage sound is removed only after IndexedDB holds it, so a failed move loses nothing.
+  const OLD_SOUND = "last-harvest-sound:";
+  for (const key of Object.keys(localStorage).filter(k => k.startsWith(OLD_SOUND))) {
+    const text = localStorage.getItem(key), at = text.indexOf(":");
+    const id = key.slice(OLD_SOUND.length), file = text.slice(0, at);
+    try {
+      const bytes = Uint8Array.from(atob(text.slice(at + 1)), c => c.charCodeAt(0));
+      await files("readwrite", s => s.put({ id, file, bytes }, SOUND + id));
+      localStorage.removeItem(key);
+    } catch (e) {
+      console.error(`kept ${key} in local storage: ${e}`);
+    }
+  }
+  window.lastHarvestSounds = await files("readonly", s => s.getAll(IDBKeyRange.bound(SOUND, SOUND + "￿"))).catch(() => []);
   init();
 </script>
 </body>

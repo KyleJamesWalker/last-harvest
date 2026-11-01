@@ -641,6 +641,12 @@ fn start() -> Result<(), String> {
         }
     });
     #[cfg(feature = "modding")]
+    listen(&window, "lastharvest-said", &web, |w, e: &web_sys::CustomEvent| {
+        if let Some(text) = e.detail().as_string() {
+            w.studio.editor.say(text);
+        }
+    });
+    #[cfg(feature = "modding")]
     listen(&window, "lastharvest-sound", &web, |w, e: &web_sys::CustomEvent| {
         let detail = e.detail();
         let name = js_sys::Reflect::get(&detail, &"name".into()).ok().and_then(|v| v.as_string()).unwrap_or_default();
