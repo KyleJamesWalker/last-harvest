@@ -208,6 +208,10 @@ From then on the launcher, `LastHarvest.sh`, keeps the game current before each 
 
 The workflow reads the private assets with a read-only deploy key on that repository, stored as the `ASSETS_DEPLOY_KEY` secret. The same release publishes GitHub Pages, built by `scripts/pages.sh`: a landing page and `manual.html` at the root, the game in `play/`, the card editor in `editor/`, and `game_data.pak` at the root, which both fetch. It checks the site holds exactly those files and that neither page's wasm builds the tileset in; the repository's Pages source must be set to GitHub Actions. It also attaches the game as `last-harvest-<tag>-web.zip` and, once set up, pushes that zip to itch.io: see The game in a browser.
 
+The tarball, the web zip and the site each carry `OFL.txt`, the font's licence, and `THIRD_PARTY_LICENSES.txt`, every shipped crate's licence as `tools/third_party.py` writes it. Each page's Content-Security-Policy allows its inline script by hash: after editing one, run `tools/csp.py`.
+
+Every pull request runs `.github/workflows/ci.yml`: clippy at zero warnings, the tests, both wasm builds and their no-tileset check, `tools/manual_items.py --check`, `tools/csp.py --check` and shellcheck. A fork's PR has no `ASSETS_DEPLOY_KEY`, so it skips the Rust steps.
+
 Run the tests:
 
 ```sh
