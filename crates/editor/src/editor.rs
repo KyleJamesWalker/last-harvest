@@ -3088,7 +3088,8 @@ mod tests {
         e.mirror = true;
         e.color = [9, 9, 9, 255];
         click_pixel(&mut e, 1, 3);
-        assert_eq!(e.current().get(14, 3), Some([9, 9, 9, 255]));
+        let w = e.current().w as i32;
+        assert_eq!(e.current().get(w - 2, 3), Some([9, 9, 9, 255]));
     }
 
     #[test]
@@ -3597,7 +3598,7 @@ mod tests {
         let mut e = editor();
         e.act(Action::Stand(CARVE), false);
         let [south, east] = e.sprite.views.clone().unwrap();
-        assert_eq!((south.w, east.w, south.h), (16, 16, 10));
+        assert_eq!((south.w, east.w, south.h), (e.sprite.frames[0].w, 16, 10));
         e.act(Action::View(1), false);
         e.tool = Tool::Eraser;
         click_pixel(&mut e, 0, 0);
