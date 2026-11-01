@@ -33,6 +33,31 @@ pub struct Canvas {
 }
 
 impl Canvas {
+    /// Draws `src`'s shapes here, scaled by `k` with its top-left at `at`; its clear color and 3D cards are left out.
+    pub fn place(&mut self, src: &Canvas, at: [f32; 2], k: f32) {
+        let p = |x: f32, y: f32| (at[0] + x * k, at[1] + y * k);
+        for shape in &src.shapes {
+            self.shapes.push(match shape.clone() {
+                Shape::Rect { x, y, w, h, color } => {
+                    let (x, y) = p(x, y);
+                    Shape::Rect { x, y, w: w * k, h: h * k, color }
+                }
+                Shape::Circle { x, y, r, color } => {
+                    let (x, y) = p(x, y);
+                    Shape::Circle { x, y, r: r * k, color }
+                }
+                Shape::Art { art, x, y, scale, flip, angle, show, color } => {
+                    let (x, y) = p(x, y);
+                    Shape::Art { art, x, y, scale: scale * k, flip, angle, show, color }
+                }
+                Shape::Text { text, x, y, size, color, align } => {
+                    let (x, y) = p(x, y);
+                    Shape::Text { text, x, y, size: size * k, color, align }
+                }
+            });
+        }
+    }
+
     pub fn rect(&mut self, x: f32, y: f32, w: f32, h: f32, color: Color) {
         self.shapes.push(Shape::Rect { x, y, w, h, color });
     }

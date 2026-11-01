@@ -51,11 +51,16 @@ fn fit([x, y, w, h]: Rect) -> Rect {
     [x + (w - fw) / 2.0, y + (h - fh) / 2.0, fw, fh]
 }
 
-/// A run shows one screen with the controls around it; menus show both screens, side by side or stacked.
-pub fn layout(size: [f32; 2], run: bool) -> Layout {
+/// A run shows one screen with the controls around it; menus show both screens, side by side or stacked. Without
+/// `touch` there are no controls: a run's screen fills the window, and menus show the bottom screen alone.
+pub fn layout(size: [f32; 2], run: bool, touch: bool) -> Layout {
     let [w, h] = size;
     let wide = w >= h;
     let none = (Buttons::NONE, art::WHITE, [0.0; 4]);
+    if !touch {
+        let (top, bottom) = if run { (Some(fit([0.0, 0.0, w, h])), None) } else { (None, Some(fit([0.0, 0.0, w, h]))) };
+        return Layout { size, top, bottom, stick: [0.0; 4], stick_r: 0.0, turn: [0.0; 4], keys: [none; 3] };
+    }
     if !run {
         let (top, bottom) = if wide { (fit([0.0, 0.0, w / 2.0, h]), fit([w / 2.0, 0.0, w / 2.0, h])) } else { (fit([0.0, 0.0, w, h / 2.0]), fit([0.0, h / 2.0, w, h / 2.0])) };
         return Layout { size, top: Some(top), bottom: Some(bottom), stick: [0.0; 4], stick_r: 0.0, turn: [0.0; 4], keys: [none; 3] };
@@ -254,7 +259,7 @@ mod tests {
 
     #[test]
     fn a_landscape_run_puts_the_stick_left_and_the_keys_right_of_the_picture() {
-        let l = layout([2400.0, 1080.0], true);
+        let l = layout([2400.0, 1080.0], true, true);
         let pic = l.top.unwrap();
         assert!(l.bottom.is_none());
         assert!(l.stick[0] + l.stick[2] <= pic[0] + 0.5);
@@ -265,7 +270,7 @@ mod tests {
 
     #[test]
     fn menus_show_both_screens_and_no_controls() {
-        let l = layout([2400.0, 1080.0], false);
+        let l = layout([2400.0, 1080.0], false, true);
         let (t, b) = (l.top.unwrap(), l.bottom.unwrap());
         assert!(t[0] + t[2] <= b[0] + 0.5);
         assert_eq!(Touchpad::default().draw(&l).shapes.len(), 0);
@@ -273,7 +278,7 @@ mod tests {
 
     #[test]
     fn a_thumb_on_the_left_drags_the_stick_and_keys_press_once() {
-        let l = layout([2400.0, 1080.0], true);
+        let l = layout([2400.0, 1080.0], true, true);
         let mut pad = Touchpad::default();
         let down = [l.stick[0] + l.stick[2] / 2.0, l.stick[1] + l.stick[3] / 2.0];
         let grenade = l.keys[0].2;
@@ -289,7 +294,7 @@ mod tests {
 
     #[test]
     fn a_thumb_on_the_turn_strip_turns_by_how_far_it_slides_sideways() {
-        let l = layout([2400.0, 1080.0], true);
+        let l = layout([2400.0, 1080.0], true, true);
         let mut pad = Touchpad::default();
         let down = [l.turn[0] + l.turn[2] / 2.0, l.turn[1] + l.turn[3] / 2.0];
         assert_eq!(pad.update(&fingers(&[down]), &l, false).look, 0.0);
@@ -303,7 +308,7 @@ mod tests {
 
     #[test]
     fn a_tap_on_the_picture_is_a_touch_in_screen_pixels() {
-        let l = layout([2400.0, 1080.0], true);
+        let l = layout([2400.0, 1080.0], true, true);
         let pic = l.top.unwrap();
         let mut pad = Touchpad::default();
         let out = pad.update(&fingers(&[[pic[0] + pic[2] / 2.0, pic[1] + pic[3] / 4.0]]), &l, false);
@@ -314,7 +319,7 @@ mod tests {
 
     #[test]
     fn on_menus_only_the_bottom_screen_takes_touches() {
-        let l = layout([2400.0, 1080.0], false);
+        let l = layout([2400.0, 1080.0], false, true);
         let (t, b) = (l.top.unwrap(), l.bottom.unwrap());
         let mut pad = Touchpad::default();
         assert!(pad.update(&fingers(&[[t[0] + 10.0, t[1] + 10.0]]), &l, false).touch.is_none());
@@ -324,7 +329,7 @@ mod tests {
 
     #[test]
     fn a_gamepad_hides_the_controls_until_the_next_touch() {
-        let l = layout([2400.0, 1080.0], true);
+        let l = layout([2400.0, 1080.0], true, true);
         let mut pad = Touchpad::default();
         pad.update(&fingers(&[]), &l, true);
         assert!(pad.draw(&l).shapes.is_empty());
@@ -337,8 +342,17 @@ mod tests {
     }
 
     #[test]
+    fn without_touch_a_run_fills_the_window_and_menus_show_the_bottom_screen() {
+        let run = layout([720.0, 480.0], true, false);
+        assert_eq!((run.top, run.bottom), (Some([40.0, 0.0, 640.0, 480.0]), None));
+        let menus = layout([720.0, 480.0], false, false);
+        assert!(menus.top.is_none() && menus.bottom.is_some());
+        assert!(Touchpad::default().draw(&run).shapes.is_empty());
+    }
+
+    #[test]
     fn upright_puts_the_controls_under_the_picture() {
-        let l = layout([1080.0, 2400.0], true);
+        let l = layout([1080.0, 2400.0], true, true);
         let pic = l.top.unwrap();
         assert!(l.stick[1] >= pic[1] + pic[3] - 0.5);
         assert!(l.keys.iter().all(|&(_, _, r)| r[1] >= pic[1] + pic[3] - 0.5));

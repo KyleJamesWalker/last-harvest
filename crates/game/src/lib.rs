@@ -124,6 +124,11 @@ pub struct Game {
     phone: Option<[f32; 2]>,
     /// The platform sets the screens' backlights, so Settings offers their brightness.
     backlights: bool,
+    /// The phone's screen takes touches, so it gets on-screen controls and touch grenades.
+    touch_ui: bool,
+    /// The main menu offers Quit, where the platform can close the game.
+    can_quit: bool,
+    quit_asked: bool,
     touchpad: touch::Touchpad,
     /// Seconds left to confirm wiping the records and found powerups.
     reset_armed: f32,
@@ -167,6 +172,9 @@ impl Game {
             single_scene: false,
             phone: None,
             backlights: true,
+            touch_ui: true,
+            can_quit: false,
+            quit_asked: false,
             touchpad: touch::Touchpad::default(),
             reset_armed: 0.0,
             reset_shown: 0.0,
@@ -292,6 +300,29 @@ impl Game {
         self.backlights = on;
     }
 
+    /// Offers Quit in the main menu; the platform closes the game once `quit_asked` says so.
+    pub fn set_quit(&mut self, on: bool) {
+        self.can_quit = on;
+    }
+
+    pub fn quit_asked(&self) -> bool {
+        self.quit_asked
+    }
+
+    /// The title's main page on one screen without touch: the top screen with the menu over it, smaller.
+    fn title_on_one(&self) -> bool {
+        self.phone.is_some() && !self.touch_ui && matches!(self.state, State::Title) && self.page == Page::Main
+    }
+
+    /// Plays as on a phone without touch: no on-screen controls, grenades aimed with L2.
+    pub fn set_touch(&mut self, on: bool) {
+        self.touch_ui = on;
+    }
+
+    pub(crate) fn has_touch(&self) -> bool {
+        self.touch_ui
+    }
+
     pub(crate) fn has_backlights(&self) -> bool {
         self.backlights
     }
@@ -301,7 +332,7 @@ impl Game {
     }
 
     fn phone_layout(&self, size: [f32; 2]) -> touch::Layout {
-        touch::layout(size, matches!(self.state, State::Harvest(_)))
+        touch::layout(size, matches!(self.state, State::Harvest(_)) || self.title_on_one(), self.touch_ui)
     }
 
     /// The input with the on-screen controls' buttons, stick and screen touch in place of raw fingers.
@@ -419,7 +450,7 @@ impl Game {
             State::Harvest(mut h) => {
                 if self.phone.is_some() {
                     h.set_one_screen(true);
-                    h.set_touch_aim(self.save.touch_grenades);
+                    h.set_touch_aim(self.save.touch_grenades && self.touch_ui);
                 }
                 let flow = h.update(input, dt, &mut self.sounds);
                 if flow.settings {
@@ -488,6 +519,13 @@ impl Game {
             system::draw_perf(&mut f.top, &self.system, top);
         } else if matches!(self.state, State::Title) {
             system::draw_battery(&mut f.top, &self.system, 16.0);
+        }
+        if self.title_on_one() {
+            let menu = std::mem::take(&mut f.bottom);
+            let (k, top) = (0.55, 330.0);
+            let at = [(SCREEN_W - SCREEN_W * k) / 2.0, top];
+            f.top.rect(at[0], at[1], SCREEN_W * k, SCREEN_H * k, [0.08, 0.08, 0.1, 0.85]);
+            f.top.place(&menu, at, k);
         }
         if let Some(size) = self.phone {
             let layout = self.phone_layout(size);
@@ -611,7 +649,7 @@ mod tests {
         let frame = game.draw();
         let phone = frame.phone.expect("a phone frame");
         assert!(phone.top.is_some() && phone.bottom.is_none(), "a run shows one screen");
-        let layout = touch::layout(size, true);
+        let layout = touch::layout(size, true, true);
         let [kx, ky, ..] = layout.key(Buttons::L2).unwrap();
         let [px, py, pw, ph] = layout.top.unwrap();
         let key = Some([kx + 4.0, ky + 4.0]);
@@ -650,6 +688,37 @@ mod tests {
         assert!(game.save.touch_grenades, "touch by default");
         let save = Save { touch_grenades: false, ..game.save };
         assert!(!Save::parse(&save.to_text()).touch_grenades);
+    }
+
+    #[test]
+    fn quit_shows_last_in_the_main_menu_only_where_the_game_can_quit() {
+        let mut game = Game::new(1);
+        for _ in 0..5 {
+            press(&mut game, Buttons::DOWN);
+        }
+        assert_eq!(game.row, 0, "five rows wrap back to Play");
+        game.set_quit(true);
+        for _ in 0..5 {
+            press(&mut game, Buttons::DOWN);
+        }
+        press(&mut game, Buttons::A);
+        assert!(game.quit_asked());
+    }
+
+    #[test]
+    fn one_screen_without_touch_shows_the_title_with_the_menu_over_it() {
+        let mut game = Game::new(1);
+        game.set_phone(Some([720.0, 480.0]));
+        game.set_touch(false);
+        let f = game.draw();
+        let phone = f.phone.unwrap();
+        assert!(phone.top.is_some() && phone.bottom.is_none(), "the title's screen, not the menu's");
+        assert!(f.top.shapes.iter().any(|s| matches!(s, Shape::Text { text, .. } if text == "Play")), "with the menu on it");
+        press(&mut game, Buttons::DOWN);
+        press(&mut game, Buttons::DOWN);
+        press(&mut game, Buttons::A);
+        let phone = game.draw().phone.unwrap();
+        assert!(phone.top.is_none() && phone.bottom.is_some(), "Settings shows full size");
     }
 
     #[test]
