@@ -119,7 +119,7 @@ impl Web {
     /// Sizes the canvas's pixels to the space the page gives it, up to the screens' own 1024 across.
     fn fit(&mut self) {
         let dpr = web_sys::window().map_or(1.0, |w| w.device_pixel_ratio());
-        let w = ((self.canvas.client_width() as f64 * dpr).round() as u32).clamp(2, SCREEN_W as u32) & !1;
+        let w = ((self.canvas.client_width() as f64 * dpr).round() as u32).clamp(4, SCREEN_W as u32) & !3;
         if self.canvas.width() != w {
             self.canvas.set_width(w);
             self.canvas.set_height(w * 3 / 2);
