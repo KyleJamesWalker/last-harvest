@@ -24,6 +24,8 @@ const QUIT_HOLD: f32 = 1.0;
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 const WAKE_GRACE: Duration = Duration::from_secs(2);
 const STATS_WINDOW: Duration = Duration::from_secs(1);
+const AUDIO_RETRY: Duration = Duration::from_secs(1);
+const AUDIO_RETRY_MAX: Duration = Duration::from_secs(60);
 
 /// Frame timing over the last window, plus sensors read once per window.
 #[derive(Default)]
@@ -41,6 +43,9 @@ struct App {
     tracker: InputTracker,
     gfx: Option<gfx::Gfx>,
     audio: Option<audio::Audio>,
+    /// The sound files, to open the audio again with, and when to next try after the output went away.
+    sounds: samples::Files,
+    audio_retry: Option<(Instant, Duration)>,
     #[cfg(target_os = "linux")]
     device: Option<device::Device>,
     keys: Buttons,
@@ -64,7 +69,7 @@ struct App {
 }
 
 impl App {
-    fn new(sounds: &samples::Files) -> Self {
+    fn new(sounds: samples::Files) -> Self {
         let seed = SystemTime::now().duration_since(UNIX_EPOCH).map_or(1, |d| d.as_nanos() as u64);
         let mut game = Game::new(seed);
         let (saver, save) = persist::Saver::load();
@@ -85,7 +90,9 @@ impl App {
             game,
             tracker: InputTracker::default(),
             gfx: None,
-            audio: audio::Audio::open(sounds).inspect_err(|e| log!("audio disabled: {e}")).ok(),
+            audio: audio::Audio::open(&sounds).inspect_err(|e| log!("audio disabled: {e}")).ok(),
+            sounds,
+            audio_retry: None,
             #[cfg(target_os = "linux")]
             device: device::Device::open(),
             keys: Buttons::NONE,
@@ -169,6 +176,21 @@ impl App {
         self.stats = Stats::default();
     }
 
+    /// Drops audio whose output went away and opens it again, waiting twice as long after each failed try.
+    fn keep_audio(&mut self) {
+        if self.audio.as_ref().is_some_and(audio::Audio::failed) {
+            log!("audio: the output went away; opening it again");
+            self.audio = None;
+            self.audio_retry = Some((Instant::now(), AUDIO_RETRY));
+        }
+        let Some((since, wait)) = self.audio_retry else { return };
+        if self.audio.is_some() || since.elapsed() < wait {
+            return;
+        }
+        self.audio = audio::Audio::open(&self.sounds).inspect_err(|e| log!("audio: still disabled: {e}")).ok();
+        self.audio_retry = self.audio.is_none().then(|| (Instant::now(), (wait * 2).min(AUDIO_RETRY_MAX)));
+    }
+
     fn tick(&mut self, el: &ActiveEventLoop) {
         if stop::requested() {
             log!("stopping: asked to by a signal");
@@ -226,6 +248,7 @@ impl App {
         self.game.update(&input, dt);
         self.stats.work_ms[0] += started.elapsed().as_secs_f32() * 1000.0;
         self.saver.update(self.game.save(), false);
+        self.keep_audio();
         let sounds = self.game.take_sounds();
         if let Some(audio) = &self.audio {
             audio.set_volume(self.game.volume());
@@ -460,6 +483,6 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     log!("last-harvest {VERSION}, started at unix {}", log::unix_now());
     let sounds = pak::load()?;
     let event_loop = EventLoop::new()?;
-    event_loop.run_app(&mut App::new(&sounds))?;
+    event_loop.run_app(&mut App::new(sounds))?;
     Ok(())
 }

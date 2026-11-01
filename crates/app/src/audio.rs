@@ -1,7 +1,7 @@
 use std::error::Error;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{SampleFormat, SizedSample};
@@ -22,6 +22,8 @@ const DRONE_GAIN: f32 = 0.5;
 const MUSIC_GAIN: f32 = 0.6;
 /// The ambience beds that play under everything, by file name, and how loud each sits.
 const BEDS: [(&str, f32); 3] = [("ambience", 0.15), ("ambience-2", 0.15), ("ambience-3", 0.4)];
+/// Cues waiting for the audio callback; a frame queues a handful.
+const QUEUED_CUES: usize = 64;
 /// A level under this is silence: the music, beds and drone stop, and their decoders wait.
 const SILENT: f32 = 0.001;
 
@@ -57,18 +59,18 @@ const fn hit(delay: f32, dur: f32, f0: f32, f1: f32, wave: Wave, gain: f32) -> N
     Note { curve: 3, ..note(delay, dur, f0, f1, wave, gain) }
 }
 
-fn arpeggio(freqs: &[f32], step: f32, wave: Wave) -> Vec<Note> {
-    freqs.iter().enumerate().map(|(i, &f)| note(i as f32 * step, step * 1.4, f, f, wave, 0.8)).collect()
+fn arpeggio(out: &mut Vec<Note>, freqs: &[f32], step: f32, wave: Wave) {
+    out.extend(freqs.iter().enumerate().map(|(i, &f)| note(i as f32 * step, step * 1.4, f, f, wave, 0.8)));
 }
 
-fn panned(notes: Vec<Note>, pan: f32) -> Vec<Note> {
-    notes.into_iter().map(|n| Note { pan, ..n }).collect()
+fn pan_all(notes: &mut [Note], pan: f32) {
+    notes.iter_mut().for_each(|n| n.pan = pan);
 }
 
 /// Places a cue in the world: `pan` from -100 to 100 and `gain` from 0 to 255.
-fn placed(notes: Vec<Note>, pan: i8, gain: u8) -> Vec<Note> {
+fn place(notes: &mut [Note], pan: i8, gain: u8) {
     let g = gain as f32 / 255.0;
-    notes.into_iter().map(|n| Note { pan: pan as f32 / 100.0, gain: n.gain * g, ..n }).collect()
+    notes.iter_mut().for_each(|n| *n = Note { pan: pan as f32 / 100.0, gain: n.gain * g, ..*n });
 }
 
 /// Steps up a pentatonic scale from A5.
@@ -78,45 +80,54 @@ fn step(n: u8) -> f32 {
     880.0 * 2f32.powf((SCALE[n % 5] + 12.0 * (n / 5) as f32) / 12.0)
 }
 
-fn notes(sfx: Sfx) -> Vec<Note> {
+/// The most notes a cue plays.
+const MAX_NOTES: usize = 8;
+
+/// Puts `sfx`'s notes in `out`, in place of what it held.
+fn notes(sfx: Sfx, out: &mut Vec<Note>) {
     use Wave::*;
+    out.clear();
     match sfx {
         Sfx::Tick(n) => {
             let f = 440.0 * 2f32.powf(n as f32 / 12.0);
-            vec![note(0.0, 0.06, f, f, Square, 0.6)]
+            out.push(note(0.0, 0.06, f, f, Square, 0.6));
         }
-        Sfx::Left => panned(arpeggio(&[523.0, 659.0, 523.0], 0.09, Square), -1.0),
-        Sfx::Right => panned(arpeggio(&[784.0, 988.0, 784.0], 0.09, Square), 1.0),
-        Sfx::Start => arpeggio(&[523.0, 659.0, 784.0, 1047.0], 0.07, Square),
-        Sfx::Miss => vec![note(0.0, 0.35, 392.0, 147.0, Square, 0.8)],
+        Sfx::Left => {
+            arpeggio(out, &[523.0, 659.0, 523.0], 0.09, Square);
+            pan_all(out, -1.0);
+        }
+        Sfx::Right => {
+            arpeggio(out, &[784.0, 988.0, 784.0], 0.09, Square);
+            pan_all(out, 1.0);
+        }
+        Sfx::Start => arpeggio(out, &[523.0, 659.0, 784.0, 1047.0], 0.07, Square),
+        Sfx::Miss => out.push(note(0.0, 0.35, 392.0, 147.0, Square, 0.8)),
         Sfx::GameOver => {
-            let mut v = arpeggio(&[523.0, 392.0, 330.0, 262.0], 0.16, Triangle);
-            v.push(hit(0.0, 1.2, 90.0, 30.0, Triangle, 1.0));
-            v
+            arpeggio(out, &[523.0, 392.0, 330.0, 262.0], 0.16, Triangle);
+            out.push(hit(0.0, 1.2, 90.0, 30.0, Triangle, 1.0));
         }
-        Sfx::Turn => vec![
+        Sfx::Turn => out.extend_from_slice(&[
             hit(0.0, 0.6, 420.0, 140.0, Square, 0.45),
             note(0.0, 0.7, 2500.0, 600.0, Noise, 0.3),
             note(0.1, 0.9, 110.0, 70.0, Triangle, 0.6),
-        ],
-        Sfx::Shot => vec![
+        ]),
+        Sfx::Shot => out.extend_from_slice(&[
             hit(0.0, 0.07, 9000.0, 1500.0, Noise, 0.8),
             hit(0.0, 0.06, 180.0, 60.0, Square, 0.45),
             hit(0.0, 0.03, 1400.0, 400.0, Triangle, 0.35),
-        ],
-        Sfx::Blast => vec![
+        ]),
+        Sfx::Blast => out.extend_from_slice(&[
             hit(0.0, 0.22, 6000.0, 800.0, Noise, 1.0),
             hit(0.0, 0.18, 120.0, 40.0, Square, 0.7),
             hit(0.02, 0.3, 2000.0, 300.0, Noise, 0.4),
-        ],
-        Sfx::Slash => vec![note(0.0, 0.12, 2000.0, 7000.0, Noise, 0.45)],
+        ]),
+        Sfx::Slash => out.push(note(0.0, 0.12, 2000.0, 7000.0, Noise, 0.45)),
         Sfx::Thud(crit) => {
-            let mut v = vec![hit(0.0, 0.06, 1200.0, 300.0, Noise, 0.45), hit(0.0, 0.07, 220.0, 110.0, Triangle, 0.55)];
+            out.extend_from_slice(&[hit(0.0, 0.06, 1200.0, 300.0, Noise, 0.45), hit(0.0, 0.07, 220.0, 110.0, Triangle, 0.55)]);
             if crit {
-                v.push(hit(0.0, 0.12, 1320.0, 1320.0, Square, 0.3));
-                v.push(hit(0.03, 0.12, 1760.0, 1760.0, Square, 0.25));
+                out.push(hit(0.0, 0.12, 1320.0, 1320.0, Square, 0.3));
+                out.push(hit(0.03, 0.12, 1760.0, 1760.0, Square, 0.25));
             }
-            v
         }
         Sfx::Kill(kind) => {
             // Kids pop high; big ones go down with a heavy, wet thump. A card's own sound, when it has no
@@ -136,77 +147,74 @@ fn notes(sfx: Sfx) -> Vec<Note> {
                 KillVoice::Big => 160.0,
                 KillVoice::Plain => 300.0,
             };
-            let mut v = vec![hit(0.0, 0.16, 3000.0, 400.0, Noise, 0.65), hit(0.0, 0.14, f, f / 3.0, Triangle, 0.7)];
+            out.extend_from_slice(&[hit(0.0, 0.16, 3000.0, 400.0, Noise, 0.65), hit(0.0, 0.14, f, f / 3.0, Triangle, 0.7)]);
             match voice {
-                KillVoice::Small => v.push(hit(0.0, 0.03, 900.0, 900.0, Square, 0.3)),
-                KillVoice::Big => v.push(hit(0.02, 0.4, 90.0, 35.0, Square, 0.5)),
+                KillVoice::Small => out.push(hit(0.0, 0.03, 900.0, 900.0, Square, 0.3)),
+                KillVoice::Big => out.push(hit(0.02, 0.4, 90.0, 35.0, Square, 0.5)),
                 KillVoice::Plain => {}
             }
-            v
         }
-        Sfx::Boom { pan, gain } => placed(
-            vec![
+        Sfx::Boom { pan, gain } => {
+            out.extend_from_slice(&[
                 hit(0.0, 0.8, 3000.0, 100.0, Noise, 1.0),
                 Note { curve: 2, ..note(0.0, 0.7, 90.0, 30.0, Triangle, 1.0) },
                 hit(0.05, 1.2, 800.0, 60.0, Noise, 0.5),
-            ],
-            pan,
-            gain,
-        ),
-        Sfx::Throw => vec![note(0.0, 0.15, 800.0, 3000.0, Noise, 0.3), note(0.0, 0.05, 600.0, 900.0, Triangle, 0.2)],
+            ]);
+            place(out, pan, gain);
+        }
+        Sfx::Throw => out.extend_from_slice(&[note(0.0, 0.15, 800.0, 3000.0, Noise, 0.3), note(0.0, 0.05, 600.0, 900.0, Triangle, 0.2)]),
         Sfx::Pickup(n) => {
             let f = step(n);
-            vec![hit(0.0, 0.07, f, f, Square, 0.3), hit(0.02, 0.06, f * 2.0, f * 2.0, Triangle, 0.25)]
+            out.extend_from_slice(&[hit(0.0, 0.07, f, f, Square, 0.3), hit(0.02, 0.06, f * 2.0, f * 2.0, Triangle, 0.25)]);
         }
-        Sfx::Heal => arpeggio(&[523.0, 659.0, 784.0, 1047.0], 0.05, Triangle),
-        Sfx::Hurt => vec![hit(0.0, 0.25, 300.0, 80.0, Square, 0.6), hit(0.0, 0.2, 1.0, 1.0, Noise, 0.5)],
-        Sfx::Heartbeat => vec![hit(0.0, 0.12, 60.0, 40.0, Sine, 1.0), hit(0.16, 0.1, 55.0, 38.0, Sine, 0.7)],
+        Sfx::Heal => arpeggio(out, &[523.0, 659.0, 784.0, 1047.0], 0.05, Triangle),
+        Sfx::Hurt => out.extend_from_slice(&[hit(0.0, 0.25, 300.0, 80.0, Square, 0.6), hit(0.0, 0.2, 1.0, 1.0, Noise, 0.5)]),
+        Sfx::Heartbeat => out.extend_from_slice(&[hit(0.0, 0.12, 60.0, 40.0, Sine, 1.0), hit(0.16, 0.1, 55.0, 38.0, Sine, 0.7)]),
         Sfx::LevelUp => {
-            let mut v = arpeggio(&[523.0, 659.0, 784.0, 1047.0, 1319.0, 1568.0], 0.05, Square);
-            v.push(note(0.0, 0.4, 400.0, 1600.0, Triangle, 0.4));
-            v.push(hit(0.0, 0.5, 8000.0, 4000.0, Noise, 0.15));
-            v
+            arpeggio(out, &[523.0, 659.0, 784.0, 1047.0, 1319.0, 1568.0], 0.05, Square);
+            out.push(note(0.0, 0.4, 400.0, 1600.0, Triangle, 0.4));
+            out.push(hit(0.0, 0.5, 8000.0, 4000.0, Noise, 0.15));
         }
         Sfx::Pick(rare) => {
-            let mut v = arpeggio(&[659.0, 784.0, 1047.0], 0.06, Square);
+            arpeggio(out, &[659.0, 784.0, 1047.0], 0.06, Square);
             if rare {
-                v.extend(arpeggio(&[1319.0, 1568.0, 2093.0], 0.06, Triangle).into_iter().map(|n| Note { delay: n.delay + 0.18, ..n }));
+                arpeggio(out, &[1319.0, 1568.0, 2093.0], 0.06, Triangle);
+                out[3..].iter_mut().for_each(|n| n.delay += 0.18);
             }
-            v
         }
-        Sfx::Rise { pan, gain } => placed(vec![note(0.0, 0.35, 400.0, 150.0, Noise, 0.45), hit(0.0, 0.2, 80.0, 50.0, Triangle, 0.4)], pan, gain),
-        Sfx::Groan { pan, gain } => placed(
-            vec![
+        Sfx::Rise { pan, gain } => {
+            out.extend_from_slice(&[note(0.0, 0.35, 400.0, 150.0, Noise, 0.45), hit(0.0, 0.2, 80.0, 50.0, Triangle, 0.4)]);
+            place(out, pan, gain);
+        }
+        Sfx::Groan { pan, gain } => {
+            out.extend_from_slice(&[
                 note(0.0, 0.6, 95.0, 70.0, Triangle, 0.5),
                 note(0.0, 0.6, 98.0, 72.0, Square, 0.15),
                 note(0.05, 0.5, 300.0, 200.0, Noise, 0.12),
-            ],
-            pan,
-            gain,
-        ),
-        Sfx::Caw { pan, gain } => placed(
-            vec![
+            ]);
+            place(out, pan, gain);
+        }
+        Sfx::Caw { pan, gain } => {
+            out.extend_from_slice(&[
                 hit(0.0, 0.12, 900.0, 600.0, Square, 0.35),
                 hit(0.0, 0.12, 2000.0, 1500.0, Noise, 0.15),
                 hit(0.18, 0.12, 850.0, 560.0, Square, 0.3),
                 hit(0.18, 0.12, 2000.0, 1500.0, Noise, 0.12),
-            ],
-            pan,
-            gain,
-        ),
-        Sfx::Zap => vec![note(0.0, 0.14, 3200.0, 900.0, Square, 0.25), note(0.0, 0.1, 4000.0, 6000.0, Noise, 0.3)],
-        Sfx::Bark => vec![hit(0.0, 0.09, 520.0, 300.0, Square, 0.4), hit(0.12, 0.08, 480.0, 280.0, Square, 0.35)],
-        Sfx::Bell => vec![hit(0.0, 1.4, 660.0, 660.0, Triangle, 0.6), hit(0.0, 1.0, 1320.0, 1320.0, Sine, 0.3), hit(0.0, 0.8, 1650.0, 1650.0, Sine, 0.2)],
-        Sfx::Horde => vec![
+            ]);
+            place(out, pan, gain);
+        }
+        Sfx::Zap => out.extend_from_slice(&[note(0.0, 0.14, 3200.0, 900.0, Square, 0.25), note(0.0, 0.1, 4000.0, 6000.0, Noise, 0.3)]),
+        Sfx::Bark => out.extend_from_slice(&[hit(0.0, 0.09, 520.0, 300.0, Square, 0.4), hit(0.12, 0.08, 480.0, 280.0, Square, 0.35)]),
+        Sfx::Bell => out.extend_from_slice(&[hit(0.0, 1.4, 660.0, 660.0, Triangle, 0.6), hit(0.0, 1.0, 1320.0, 1320.0, Sine, 0.3), hit(0.0, 0.8, 1650.0, 1650.0, Sine, 0.2)]),
+        Sfx::Horde => out.extend_from_slice(&[
             note(0.0, 1.3, 55.0, 50.0, Square, 0.45),
             note(0.0, 1.3, 82.0, 75.0, Square, 0.3),
             note(0.0, 1.1, 200.0, 100.0, Noise, 0.25),
-        ],
+        ]),
         Sfx::Dawn => {
-            let mut v = arpeggio(&[392.0, 523.0, 659.0, 784.0, 1047.0], 0.15, Triangle);
-            v.push(note(0.75, 1.5, 1047.0, 1047.0, Triangle, 0.5));
-            v.push(note(0.75, 1.5, 523.0, 523.0, Sine, 0.4));
-            v
+            arpeggio(out, &[392.0, 523.0, 659.0, 784.0, 1047.0], 0.15, Triangle);
+            out.push(note(0.75, 1.5, 1047.0, 1047.0, Triangle, 0.5));
+            out.push(note(0.75, 1.5, 523.0, 523.0, Sine, 0.4));
         }
     }
 }
@@ -270,9 +278,31 @@ struct Synth {
     beds_level: f32,
     dt: f32,
     noise: u32,
+    /// The notes of the cue being started, kept so the audio callback doesn't allocate.
+    cue: Vec<Note>,
 }
 
 impl Synth {
+    fn new(rx: Receiver<Sfx>, bank: Bank, rate: f32) -> Self {
+        Synth {
+            rx,
+            voices: Vec::with_capacity(MAX_VOICES + MAX_NOTES),
+            bank,
+            plays: Vec::with_capacity(MAX_VOICES + 1),
+            volume: Arc::new(AtomicU32::new(0f32.to_bits())),
+            dread: Arc::new(AtomicU32::new(0f32.to_bits())),
+            drone: Drone { level: 0.0, phases: [0.0; 3], t: 0.0 },
+            music: None,
+            music_level: 0.0,
+            beds: Vec::new(),
+            beds_on: Arc::new(AtomicU32::new(1f32.to_bits())),
+            beds_level: 0.0,
+            dt: 1.0 / rate,
+            noise: 0x9E37_79B9,
+            cue: Vec::with_capacity(MAX_NOTES),
+        }
+    }
+
     fn random(&mut self) -> f32 {
         self.noise ^= self.noise << 13;
         self.noise ^= self.noise >> 17;
@@ -393,7 +423,8 @@ impl Synth {
                 }
                 continue;
             }
-            for note in notes(sfx) {
+            notes(sfx, &mut self.cue);
+            for &note in &self.cue {
                 let note = if note.f0 > 1.0 { Note { f0: note.f0 * k, f1: note.f1 * k, ..note } } else { note };
                 self.voices.push(Voice::new(note, self.dt));
             }
@@ -426,10 +457,11 @@ enum KillVoice {
 
 pub struct Audio {
     _stream: cpal::Stream,
-    tx: Sender<Sfx>,
+    tx: SyncSender<Sfx>,
     volume: Arc<AtomicU32>,
     dread: Arc<AtomicU32>,
     beds_on: Arc<AtomicU32>,
+    failed: Arc<AtomicBool>,
 }
 
 impl Audio {
@@ -439,12 +471,9 @@ impl Audio {
         log!("audio: {:?} {:?}", device.name(), supported);
         let config = supported.config();
         let channels = config.channels as usize;
-        let (tx, rx) = channel();
-        let volume = Arc::new(AtomicU32::new(0f32.to_bits()));
-        let dread = Arc::new(AtomicU32::new(0f32.to_bits()));
-        let drone = Drone { level: 0.0, phases: [0.0; 3], t: 0.0 };
+        let (tx, rx) = sync_channel(QUEUED_CUES);
         let rate = config.sample_rate.0 as f32;
-        let bank = Bank::load(sounds, rate);
+        let mut synth = Synth::new(rx, Bank::load(sounds, rate), rate);
         let track = |name: &str| {
             let (file, bytes) = sounds.iter().find(|(file, _)| *file == format!("{name}.ogg"))?;
             let track = Loop::open(bytes.clone(), rate);
@@ -454,25 +483,19 @@ impl Audio {
             }
             track
         };
-        let music = track("music");
-        let beds: Vec<(Loop, f32)> = BEDS.iter().filter_map(|&(name, level)| Some((track(name)?, level))).collect();
-        log!("audio: music {}, {} ambience beds", if music.is_some() { "recorded" } else { "synth" }, beds.len());
-        let beds_on = Arc::new(AtomicU32::new(1f32.to_bits()));
-        let mut synth = Synth {
-            rx,
-            voices: Vec::new(),
-            bank,
-            plays: Vec::new(),
-            volume: volume.clone(),
-            dread: dread.clone(),
-            drone,
-            music,
-            music_level: 0.0,
-            beds,
-            beds_on: beds_on.clone(),
-            beds_level: 0.0,
-            dt: 1.0 / rate,
-            noise: 0x9E37_79B9,
+        synth.music = track("music");
+        synth.beds = BEDS.iter().filter_map(|&(name, level)| Some((track(name)?, level))).collect();
+        log!("audio: music {}, {} ambience beds", if synth.music.is_some() { "recorded" } else { "synth" }, synth.beds.len());
+        let (volume, dread, beds_on) = (synth.volume.clone(), synth.dread.clone(), synth.beds_on.clone());
+        let failed = Arc::new(AtomicBool::new(false));
+        let on_error = {
+            let failed = failed.clone();
+            move |e: cpal::StreamError| {
+                log!("audio: {e}");
+                if matches!(e, cpal::StreamError::DeviceNotAvailable) {
+                    failed.store(true, Ordering::Relaxed);
+                }
+            }
         };
         let stream = match supported.sample_format() {
             SampleFormat::F32 => device.build_output_stream(&config, move |d: &mut [f32], _: &_| synth.fill(d, channels), on_error, None)?,
@@ -480,11 +503,17 @@ impl Audio {
             f => return Err(format!("unsupported output format {f:?}").into()),
         };
         stream.play()?;
-        Ok(Self { _stream: stream, tx, volume, dread, beds_on })
+        Ok(Self { _stream: stream, tx, volume, dread, beds_on, failed })
     }
 
+    /// Whether the output went away, so this has stopped playing and should be opened again.
+    pub fn failed(&self) -> bool {
+        self.failed.load(Ordering::Relaxed)
+    }
+
+    /// Queues a cue, or drops it when the callback is that far behind.
     pub fn play(&self, sfx: Sfx) {
-        self.tx.send(sfx).ok();
+        self.tx.try_send(sfx).ok();
     }
 
     pub fn set_volume(&self, v: f32) {
@@ -502,40 +531,27 @@ impl Audio {
     }
 }
 
-fn on_error(e: cpal::StreamError) {
-    log!("audio: {e}");
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     const RATE: f32 = 48_000.0;
 
-    fn synth() -> (Synth, Sender<Sfx>) {
-        let (tx, rx) = channel();
-        let volume = Arc::new(AtomicU32::new(1f32.to_bits()));
-        let dread = Arc::new(AtomicU32::new(0f32.to_bits()));
-        let drone = Drone { level: 0.0, phases: [0.0; 3], t: 0.0 };
-        (
-            Synth {
-                rx,
-                voices: Vec::new(),
-                bank: Bank::default(),
-                plays: Vec::new(),
-                volume,
-                dread,
-                drone,
-                music: None,
-                music_level: 0.0,
-                beds: Vec::new(),
-                beds_on: Arc::new(AtomicU32::new(0f32.to_bits())),
-                beds_level: 0.0,
-                dt: 1.0 / RATE,
-                noise: 1,
-            },
-            tx,
-        )
+    fn synth() -> (Synth, SyncSender<Sfx>) {
+        let (tx, rx) = sync_channel(QUEUED_CUES);
+        let s = Synth { noise: 1, ..Synth::new(rx, Bank::default(), RATE) };
+        s.volume.store(1f32.to_bits(), Ordering::Relaxed);
+        s.beds_on.store(0f32.to_bits(), Ordering::Relaxed);
+        (s, tx)
+    }
+
+    #[test]
+    fn no_cue_outgrows_the_notes_kept_for_it() {
+        let mut out = Vec::new();
+        for cue in [Sfx::LevelUp, Sfx::Pick(true), Sfx::Dawn, Sfx::Caw { pan: 0, gain: 255 }, Sfx::Thud(true), Sfx::GameOver, Sfx::Start] {
+            notes(cue, &mut out);
+            assert!(out.len() <= MAX_NOTES, "{cue:?} plays {} notes", out.len());
+        }
     }
 
     /// Plays `secs` of audio and returns the loudest sample.
