@@ -367,11 +367,49 @@ impl ApplicationHandler for App {
     }
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    if std::env::args().nth(1).as_deref() == Some("--version") {
-        println!("{VERSION}");
-        return Ok(());
+const USAGE: &str = "\
+usage: last-harvest [--version | --help]
+
+Runs the game in two windows, reading data/game_data.pak beside the binary.
+
+  --version  print the release this binary was built for
+  --help     print this
+
+Environment:
+  LAST_HARVEST_PAK         the data pack, instead of data/game_data.pak
+  LAST_HARVEST_ENEMIES     the folder of enemy cards (data/enemies)
+  LAST_HARVEST_PLAYERS     the folder of player cards (data/players)
+  LAST_HARVEST_MODS        the folder of mod packs (data/mods)
+  LAST_HARVEST_MAPS        the folder of maps (data/maps)
+  LAST_HARVEST_PROPS       the folder of players' props (data/props)
+  LAST_HARVEST_SOUNDS      a folder of recorded sounds, over the pack's
+  LAST_HARVEST_SAVE        the save file (save.txt beside the binary)
+  LAST_HARVEST_TOP         the output for the top screen, such as DSI-2
+  LAST_HARVEST_START       a scene to open at launch, by debug scene name
+  LAST_HARVEST_DEBUG       remote control on /tmp/last-harvest.ctl
+  LAST_HARVEST_LOG_INPUT   log every gamepad event
+  LAST_HARVEST_UNLOCK_ALL  offer every powerup
+  LAST_HARVEST_KIT         powerups every run starts with, such as scythe:3,crows
+  LAST_HARVEST_CLOCK       seconds into the night every run starts
+";
+
+fn main() {
+    match std::env::args().nth(1).as_deref() {
+        Some("--version") => return println!("{VERSION}"),
+        Some("--help" | "-h") => return print!("{USAGE}"),
+        Some(arg) => {
+            eprint!("last-harvest: unknown argument {arg}\n\n{USAGE}");
+            std::process::exit(2);
+        }
+        None => {}
     }
+    if let Err(e) = run() {
+        log!("error: {e}");
+        std::process::exit(1);
+    }
+}
+
+fn run() -> Result<(), Box<dyn std::error::Error>> {
     persist::install_crash_log();
     log!("last-harvest {VERSION}, started at unix {}", log::unix_now());
     let sounds = pak::load()?;
