@@ -22,6 +22,8 @@ const DRONE_GAIN: f32 = 0.5;
 const MUSIC_GAIN: f32 = 0.6;
 /// The ambience beds that play under everything, by file name, and how loud each sits.
 const BEDS: [(&str, f32); 3] = [("ambience", 0.15), ("ambience-2", 0.15), ("ambience-3", 0.4)];
+/// A level under this is silence: the music, beds and drone stop, and their decoders wait.
+const SILENT: f32 = 0.001;
 
 #[derive(Clone, Copy)]
 enum Wave {
@@ -335,13 +337,20 @@ impl Synth {
             Some(music) => {
                 let target = if dread > 0.0 { MUSIC_GAIN * (0.33 + 0.67 * dread) } else { 0.0 };
                 self.music_level += (target - self.music_level) * ease;
-                let f = music.next();
-                [f[0] * self.music_level, f[1] * self.music_level]
+                if self.music_level < SILENT {
+                    [0.0; 2]
+                } else {
+                    let f = music.next();
+                    [f[0] * self.music_level, f[1] * self.music_level]
+                }
             }
             None => [self.drone_sample(); 2],
         };
         let on = f32::from_bits(self.beds_on.load(Ordering::Relaxed));
         self.beds_level += (on - self.beds_level) * ease;
+        if self.beds_level < SILENT {
+            return out;
+        }
         for (bed, level) in &mut self.beds {
             let f = bed.next();
             out[0] += f[0] * *level * self.beds_level;
@@ -354,7 +363,7 @@ impl Synth {
         let target = f32::from_bits(self.dread.load(Ordering::Relaxed));
         let d = &mut self.drone;
         d.level += (target - d.level) * (self.dt * 0.5).min(1.0);
-        if d.level < 0.001 {
+        if d.level < SILENT {
             return 0.0;
         }
         d.t += self.dt;
