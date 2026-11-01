@@ -17,6 +17,21 @@ export SDL_AUDIODRIVER=alsa
 cd "$APP_DIR" || exit 1
 chmod +x ./last-harvest 2>/dev/null
 
+# A release's package carries no game_data.pak: fetch the one its release shares, again whenever the release changes.
+if [ -f version.txt ]; then
+	VERSION="$(cat version.txt)"
+	PAK=data/game_data.pak
+	if [ ! -f "$PAK" ] || [ "$(cat data/pak-version 2>/dev/null)" != "$VERSION" ]; then
+		URL="https://github.com/KyleJamesWalker/last-harvest/releases/download/$VERSION/game_data.pak"
+		mkdir -p data
+		if curl -fsSL --connect-timeout 5 -o "$PAK.part" "$URL" 2>/dev/null || wget -q -T 15 -O "$PAK.part" "$URL" 2>/dev/null; then
+			mv "$PAK.part" "$PAK" && echo "$VERSION" >data/pak-version
+		else
+			rm -f "$PAK.part"
+		fi
+	fi
+fi
+
 # Only muOS's virtual pad when it exists, else every node the kernel also gives a jsN handler.
 if [ -z "$SDL_JOYSTICK_DEVICE" ]; then
 	PADS="$(awk '/^N: / { name = $0 } /^H: / && (/js[0-9]/ || name ~ /"muOS-Keys"/) && match($0, /event[0-9]+/) { node = "/dev/input/" substr($0, RSTART, RLENGTH); if (name ~ /"muOS-Keys"/) first = first (first ? ":" : "") node; else rest = rest (rest ? ":" : "") node } END { print first ? first : rest }' /proc/bus/input/devices)"
