@@ -192,7 +192,7 @@ impl App {
     }
 
     fn tick(&mut self, el: &ActiveEventLoop) {
-        if stop::requested() {
+        if stop::requested() && !el.exiting() {
             log!("stopping: asked to by a signal");
             return el.exit();
         }
