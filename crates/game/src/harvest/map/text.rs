@@ -457,12 +457,27 @@ impl Map {
                 return Err(if *n > 0 { format!("{n}: {e}") } else { e });
             }
         }
-        if src.scatter {
-            map.scatter(rng);
-        }
-        map.keep_barrels_apart();
         let centre = |[x, y]: [usize; 2]| [(x.min(w - 1) as f32 + 0.5) * TILE, (y.min(h - 1) as f32 + 0.5) * TILE];
         (map.spawn, map.home) = (centre(src.spawn), centre(src.home));
+        if src.scatter {
+            for [x, y] in [src.spawn, src.home] {
+                map.claim(x.saturating_sub(1), y.saturating_sub(1), 3, 3, Cell::Taken);
+            }
+            let (base, before) = (map.clone(), map.props.len());
+            map.scatter_props(rng);
+            // Whether a map plays can't hang on the seed: scatter gives way to the path the map has without it.
+            if strict && map.check_ends(src).is_err() {
+                base.check_ends(src)?;
+                let way = base.way(src.spawn, src.home);
+                let kept: Vec<Prop> = map.props[before..].iter().filter(|p| !way.iter().any(|&[x, y]| p.blocks(x, y))).copied().collect();
+                map = base;
+                for p in kept {
+                    map.prop(p.frames, 0.0, (p.x / TILE) as usize, (p.y / TILE) as usize);
+                }
+            }
+            map.scatter_ground(rng);
+        }
+        map.keep_barrels_apart();
         if strict {
             map.check_ends(src)?;
         }
@@ -797,6 +812,23 @@ mod tests {
         let wall: String = (1..13).map(|y| format!("BUSH 3 {y}\n")).collect();
         let text = farm(&wall).replace("spawn 4 11", "spawn 1 11");
         assert!(read(&text).err().unwrap().contains("no way from the spawn"));
+    }
+
+    #[test]
+    fn a_scatter_map_that_checks_builds_with_every_seed() {
+        let (rows, wall) = (vec![".".repeat(40); 30].join("\n"), (1..29).filter(|&y| y != 15).map(|y| format!("BUSH 20 {y}\n")).collect::<String>());
+        let text = format!("size 40 30\nspawn 5 15\nhome 34 15\nscatter\nground\n{rows}\nprops\n{wall}");
+        let verdict = check("gap.map.txt", text.clone()).map(|_| ());
+        assert_eq!(verdict, Ok(()));
+        let src = MapSource::parse(&text).unwrap();
+        let mut scattered = 0;
+        for seed in 0..200 {
+            let map = Map::from_source(&src, &mut Rng::new(seed), true).map(|m| m.props.len());
+            assert_eq!(map.is_ok(), verdict.is_ok(), "seed {seed}: {map:?}");
+            scattered = scattered.max(map.unwrap());
+        }
+        let plain = Map::from_source(&MapSource { scatter: false, ..src }, &mut Rng::new(0), true).unwrap().props.len();
+        assert!(scattered > plain + 10, "scatter still lands");
     }
 
     #[test]

@@ -735,10 +735,13 @@ impl Harvest {
     /// A run on the hand-made map `id`, or on a generated farm when no map that reads has that id.
     pub fn on(seed: u64, id: &str) -> Self {
         let mut rng = Rng::new(seed);
-        let file = crate::data::maps().iter().find(|m| m.id == id);
-        match file.and_then(|m| Map::from_text(&m.text, &mut rng).ok()) {
-            Some(map) => Self { map_id: id.to_string(), ..Self::with_map(seed, rng, map) },
-            None => Self::new(seed),
+        let Some(file) = crate::data::maps().iter().find(|m| m.id == id) else { return Self::new(seed) };
+        match Map::from_text(&file.text, &mut rng) {
+            Ok(map) => Self { map_id: id.to_string(), ..Self::with_map(seed, rng, map) },
+            Err(e) => {
+                crate::data::note(format!("{id}{}: {e}, so this run is on a random farm", MAP_EXTENSION));
+                Self::new(seed)
+            }
         }
     }
 

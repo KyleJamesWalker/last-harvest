@@ -194,6 +194,7 @@ enum Cell {
     Taken,
 }
 
+#[derive(Clone)]
 pub struct Map {
     pub w: usize,
     pub h: usize,
@@ -929,15 +930,29 @@ impl Map {
     }
 
     fn scatter(&mut self, rng: &mut Rng) {
-        let (area, f) = (self.w * self.h, farm::farm());
-        let per = |n: usize| area.checked_div(n).unwrap_or(0);
-        for &(set, n) in &f.scatter {
-            for _ in 0..per(n) {
+        self.scatter_props(rng);
+        self.scatter_ground(rng);
+    }
+
+    /// How many of a thing `farm.txt` scatters one per `n` tiles puts on this map.
+    fn per(&self, n: usize) -> usize {
+        (self.w * self.h).checked_div(n).unwrap_or(0)
+    }
+
+    fn scatter_props(&mut self, rng: &mut Rng) {
+        for &(set, n) in &farm::farm().scatter {
+            for _ in 0..self.per(n) {
                 let k = rng.below(set.len());
                 self.place_anywhere(rng, &set[k..k + 1]);
             }
         }
-        for _ in 0..per(f.corpses) {
+    }
+
+    /// Corpses and grass patches on the open ground the props left.
+    fn scatter_ground(&mut self, rng: &mut Rng) {
+        let (f, per) = (farm::farm(), |n: usize| self.per(n));
+        let (corpses, grass) = (per(f.corpses), per(f.grass));
+        for _ in 0..corpses {
             let (x, y) = (1 + rng.below(self.w - 2), 1 + rng.below(self.h - 2));
             if self.cells[self.i(x, y)] == Cell::Open {
                 let a = art::CORPSE[rng.below(art::CORPSE.len())];
@@ -945,7 +960,7 @@ impl Map {
             }
         }
         let patch = ground_art(f.patch);
-        for _ in 0..per(f.grass) {
+        for _ in 0..grass {
             let (cx, cy, r) = (rng.below(self.w) as i32, rng.below(self.h) as i32, rng.below(2) as i32);
             for y in (cy - r).max(1)..(cy + r + 1).min(self.h as i32 - 1) {
                 for x in (cx - r).max(1)..(cx + r + 1).min(self.w as i32 - 1) {
@@ -972,6 +987,24 @@ impl Map {
             }
         }
         [cx as f32 * TILE, cy as f32 * TILE]
+    }
+
+    /// The tiles of one shortest walk from tile `from` to tile `to`, both ends in; empty when there's none.
+    fn way(&self, from: [usize; 2], to: [usize; 2]) -> Vec<[usize; 2]> {
+        let dist = self.reach([(to[0] as f32 + 0.5) * TILE, (to[1] as f32 + 0.5) * TILE]);
+        let [mut x, mut y] = from;
+        if x >= self.w || y >= self.h || dist[self.i(x, y)] == u16::MAX {
+            return Vec::new();
+        }
+        let mut way = vec![[x, y]];
+        while dist[self.i(x, y)] > 0 {
+            let d = dist[self.i(x, y)];
+            let next = [(x.wrapping_sub(1), y), (x + 1, y), (x, y.wrapping_sub(1)), (x, y + 1)].into_iter().find(|&(nx, ny)| nx < self.w && ny < self.h && dist[self.i(nx, ny)] == d - 1);
+            let Some((nx, ny)) = next else { break };
+            (x, y) = (nx, ny);
+            way.push([x, y]);
+        }
+        way
     }
 }
 
