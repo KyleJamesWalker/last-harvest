@@ -363,9 +363,13 @@ Without the secret or the variable, releases skip itch.io.
 
 ### The game on Android
 
-`scripts/android.sh` builds `target/android/last-harvest.apk` for arm64 phones running Android 8.0 or newer, and `--install` installs it with `adb`. The game is a NativeActivity library (`crates/app/src/android.rs`) with `game_data.pak` as an APK asset, packaged by the SDK's `aapt2`, `zipalign` and `apksigner` with no Gradle project, and signed with the local debug key (`~/.android/debug.keystore`, made if missing). It needs the Android SDK and NDK (`ANDROID_HOME`, `ANDROID_NDK_HOME`, else the newest under `~/Library/Android/sdk`), JDK 17 (`JAVA_HOME`, else Homebrew's `openjdk@17`), `cargo install cargo-ndk` and `rustup target add aarch64-linux-android`.
+`scripts/android.sh` builds `target/android/last-harvest.apk` for arm64 devices running Android 8.0 or newer, and `--install` installs it with `adb`. The game is a NativeActivity library (`crates/app/src/android.rs`) with `game_data.pak` as an APK asset. A small `MainActivity` (`crates/app/android/java/`) adds what the NDK can't reach: the vibrator and a second screen. The script compiles it with `javac` and the SDK's `d8`, and packages everything with `aapt2`, `zipalign` and `apksigner`, with no Gradle project. It signs with the local debug key (`~/.android/debug.keystore`, made if missing). It needs the Android SDK and NDK (`ANDROID_HOME`, `ANDROID_NDK_HOME`, else the newest under `~/Library/Android/sdk`), JDK 17 (`JAVA_HOME`, else Homebrew's `openjdk@17`), `cargo install cargo-ndk` and `rustup target add aarch64-linux-android`.
 
-It plays as the web page does on a phone, with the same on-screen controls, and keeps `save.txt` in the app's internal storage. It reads no mods, cards or maps, and neither gamepads nor keyboards yet; its log goes nowhere.
+- **One screen** plays as the web page does on a phone, with the same on-screen controls, locked to landscape.
+- **Two screens:** when Android reports a presentation display, as dual-screen handhelds do, `MainActivity` shows the bottom screen there and passes its touches on as bottom-screen touches. The game then plays as on the RG DS, without on-screen controls. The second screen can come and go mid-run. Developer options > Simulate secondary displays (`adb shell settings put global overlay_display_devices 1024x768/240`) gives one to try it with, and `adb shell input -d <display> tap X Y` touches it.
+- **Gamepads:** a built-in or attached pad maps by position as on the web; its d-pad works whether it sends keys or hat axes, the left stick walks, the right stick turns, and Back backs out as B does.
+- **Rumble** runs the vibrator through `MainActivity`, as the Rumble setting allows.
+- The save sits in the app's internal storage, and the log goes to logcat (`adb logcat -s last-harvest`). The frame-rate overlay shows CPU and GPU temperatures where Android lets the app read them. It reads no mods, cards or maps.
 
 ### Card editor
 

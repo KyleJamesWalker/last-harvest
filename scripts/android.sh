@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Builds target/android/last-harvest.apk for arm64 phones: the game as a NativeActivity library, with
-# game_data.pak as an asset, signed with the local debug key. Needs the Android SDK and NDK, JDK 17 and cargo-ndk.
+# Builds target/android/last-harvest.apk for arm64 phones: the game as a NativeActivity library, MainActivity.java
+# for the vibrator and a second screen, and game_data.pak as an asset, signed with the local debug key. Needs the
+# Android SDK and NDK, JDK 17 and cargo-ndk.
 # --install also installs it on the phone adb sees.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -14,7 +15,7 @@ jar="$ANDROID_HOME/platforms/android-36/android.jar"
 out=target/android
 stage="$out/stage"
 rm -rf "$stage"
-mkdir -p "$stage/assets" "$stage/lib/arm64-v8a" "$stage/res/mipmap"
+mkdir -p "$stage/assets" "$stage/lib/arm64-v8a" "$stage/res/mipmap" "$stage/classes"
 
 cargo run -q -p last-harvest-pack
 CARGO_PROFILE_RELEASE_STRIP=symbols CARGO_PROFILE_RELEASE_DEBUG=false cargo ndk -t arm64-v8a --platform 26 -- rustc --release -p last-harvest --lib --crate-type cdylib --no-default-features
@@ -25,7 +26,9 @@ sed "s/@VERSION@/${LAST_HARVEST_VERSION:-dev}/" crates/app/android/AndroidManife
 
 "$tools/aapt2" compile --dir "$stage/res" -o "$stage/res.zip"
 "$tools/aapt2" link -o "$stage/unsigned.apk" --manifest "$stage/AndroidManifest.xml" -I "$jar" -R "$stage/res.zip" -A "$stage/assets"
-(cd "$stage" && zip -q -r unsigned.apk lib)
+"$JAVA_HOME/bin/javac" -nowarn --release 17 -classpath "$jar" -d "$stage/classes" $(find crates/app/android/java -name '*.java')
+"$tools/d8" --min-api 26 --lib "$jar" --output "$stage" $(find "$stage/classes" -name '*.class')
+(cd "$stage" && zip -q -r unsigned.apk lib classes.dex)
 "$tools/zipalign" -f -P 16 4 "$stage/unsigned.apk" "$stage/aligned.apk"
 key="$HOME/.android/debug.keystore"
 if [ ! -f "$key" ]; then

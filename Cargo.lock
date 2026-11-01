@@ -778,6 +778,7 @@ dependencies = [
  "glow",
  "glutin",
  "glutin-winit",
+ "jni 0.21.1",
  "js-sys",
  "last-harvest-game",
  "last-harvest-pack",
