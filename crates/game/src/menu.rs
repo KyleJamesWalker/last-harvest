@@ -27,13 +27,14 @@ pub(crate) enum Setting {
     Volume,
     Rumble,
     Fps,
+    Screens,
     Player,
     Enemies,
     Reset,
 }
 
 impl Setting {
-    const ALL: [Setting; 8] = [Setting::TopBrightness, Setting::BottomBrightness, Setting::Volume, Setting::Rumble, Setting::Fps, Setting::Player, Setting::Enemies, Setting::Reset];
+    const ALL: [Setting; 9] = [Setting::TopBrightness, Setting::BottomBrightness, Setting::Volume, Setting::Rumble, Setting::Fps, Setting::Screens, Setting::Player, Setting::Enemies, Setting::Reset];
 
     fn name(self) -> &'static str {
         match self {
@@ -42,6 +43,7 @@ impl Setting {
             Setting::Volume => "Volume",
             Setting::Rumble => "Rumble",
             Setting::Fps => "Show FPS",
+            Setting::Screens => "Screens",
             Setting::Player => "Player",
             Setting::Enemies => "Enemies",
             Setting::Reset => "Reset progress",
@@ -57,7 +59,7 @@ const ROWS_TOP: f32 = 316.0;
 const ROW_H: f32 = 80.0;
 /// The settings rows; a run's settings leave out Player, Enemies and Reset.
 const SET_TOP: f32 = 96.0;
-const SET_H: f32 = 68.0;
+const SET_H: f32 = 62.0;
 /// Enemy rows that fit above the Back button; the list scrolls past that.
 const ENEMY_ROWS: usize = 8;
 /// The arrows either side of a level bar, as x centres.
@@ -91,7 +93,7 @@ fn setting_row(i: usize) -> [f32; 4] {
 
 impl Game {
     pub(crate) fn settings_list(&self) -> &'static [Setting] {
-        if self.settings_in_run { &Setting::ALL[..5] } else { &Setting::ALL }
+        if self.settings_in_run { &Setting::ALL[..6] } else { &Setting::ALL }
     }
 
     /// The title screen: Up and Down choose a row, Left and Right the difficulty, A or a tap opens.
@@ -219,6 +221,7 @@ impl Game {
                 }
             }
             Setting::Fps if by != 0 || press => self.save.fps = !self.save.fps,
+            Setting::Screens if by != 0 || press => self.save.one_screen = !self.save.one_screen,
             Setting::Player if by != 0 || press => {
                 let looks = crate::player_looks();
                 let at = looks.iter().position(|l| l.id == self.save.player.as_str()).unwrap_or(0) as i32;
@@ -335,6 +338,11 @@ impl Game {
                 Setting::Rumble | Setting::Fps => {
                     let v = if s == Setting::Rumble { self.save.rumble } else { self.save.fps };
                     c.label(if v { "On" } else { "Off" }, (LESS_X + MORE_X) / 2.0, mid - 20.0, 38.0, if v { HOT } else { DIM }, Align::Center);
+                    continue;
+                }
+                Setting::Screens => {
+                    let label = if self.save.one_screen { "One" } else { "Two" };
+                    c.label(label, (LESS_X + MORE_X) / 2.0, mid - 20.0, 38.0, HOT, Align::Center);
                     continue;
                 }
                 Setting::Player => {

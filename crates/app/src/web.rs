@@ -288,7 +288,7 @@ impl Web {
             audio.set_volume(self.game.volume());
             let outputs = self.game.outputs();
             audio.set_dread(outputs.dread);
-            audio.set_beds(outputs.screens_on);
+            audio.set_beds(outputs.screens_on[0]);
             sounds.into_iter().for_each(|s| audio.play(s));
         }
         let frame = self.game.draw();

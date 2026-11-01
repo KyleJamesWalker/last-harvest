@@ -117,6 +117,8 @@ pub struct Game {
     bench_due: bool,
     /// A thrown grenade is never spent, for trying out aiming.
     endless: bool,
+    /// The `single` scene is open, which plays on one screen whatever Settings says.
+    single_scene: bool,
     /// Seconds left to confirm wiping the records and found powerups.
     reset_armed: f32,
     /// Seconds left of the title's word that progress was erased.
@@ -156,6 +158,7 @@ impl Game {
             start_t: 0.0,
             bench_due: false,
             endless: false,
+            single_scene: false,
             reset_armed: 0.0,
             reset_shown: 0.0,
             page: Page::Main,
@@ -249,6 +252,7 @@ impl Game {
     pub fn open(&mut self, scene: Scene) {
         self.bench_due = matches!(scene, Scene::Bench(_));
         let seed = self.rng.next_u32() as u64 + 1;
+        self.single_scene = scene == Scene::Single;
         self.state = match scene {
             Scene::Title => {
                 self.page = Page::Main;
@@ -256,13 +260,18 @@ impl Game {
             }
             Scene::Harvest | Scene::Single => {
                 self.sounds.push(Sfx::Start);
-                State::Harvest(Box::new(harvest::Harvest::on(seed, self.save.map.as_str()).at(self.save.difficulty).with_progress(self.progress()).without_enemies(self.save.enemies_off).looking_like(self.save.player.as_str()).with_kit(&self.kit).starting_at(self.start_t).single_screen(scene == Scene::Single).endless_grenades(self.endless)))
+                State::Harvest(Box::new(harvest::Harvest::on(seed, self.save.map.as_str()).at(self.save.difficulty).with_progress(self.progress()).without_enemies(self.save.enemies_off).looking_like(self.save.player.as_str()).with_kit(&self.kit).starting_at(self.start_t).single_screen(self.one_screen()).endless_grenades(self.endless)))
             }
             Scene::Farm => State::Harvest(Box::new(harvest::Harvest::calm(seed))),
             Scene::Bench(size) => State::Harvest(Box::new(harvest::Harvest::bench(size))),
             Scene::Gallery => State::Gallery(gallery::Gallery::default()),
             Scene::Hardware => State::Hardware(hardware::Hardware::default()),
         };
+    }
+
+    /// Runs play on the top screen alone.
+    fn one_screen(&self) -> bool {
+        self.single_scene || self.save.one_screen
     }
 
     /// Whether the vibration motor should be running this frame.
@@ -297,7 +306,7 @@ impl Game {
                 _ => 0.0,
             },
             brightness: self.save.brightness.map(level),
-            screens_on: !self.paused,
+            screens_on: [!self.paused, !self.paused && !matches!(&self.state, State::Harvest(h) if h.one_screen())],
             work_led: self.leds[0],
             low_led: self.leds[1],
         }
@@ -350,10 +359,11 @@ impl Game {
                 self.title(input, dt);
                 return;
             }
-            State::Harvest(h) if self.page == Page::Settings => {
+            State::Harvest(mut h) if self.page == Page::Settings => {
                 if self.settings(input, input.touch.filter(|_| input.touch_started)) {
                     self.page = Page::Main;
                 }
+                h.set_one_screen(self.one_screen());
                 State::Harvest(h)
             }
             State::Harvest(mut h) => {
@@ -398,7 +408,7 @@ impl Game {
             State::Harvest(h) => {
                 h.draw(&mut f);
                 if self.page == Page::Settings {
-                    self.draw_settings(&mut f.bottom);
+                    self.draw_settings(if h.one_screen() { &mut f.top } else { &mut f.bottom });
                 }
             }
             State::Gallery(g) => g.draw(&mut f),
@@ -580,7 +590,7 @@ mod tests {
         let input = Input { lid_closed: true, pressed: Buttons::START, ..Default::default() };
         game.update(&input, 0.016);
         assert!(matches!(game.state, State::Title));
-        assert!(!game.outputs().screens_on);
+        assert_eq!(game.outputs().screens_on, [false; 2]);
     }
 
     #[test]
@@ -608,7 +618,7 @@ mod tests {
         let mut game = Game::new(1);
         let kept = Save { volume: 2, difficulty: Difficulty::Hard, ..Save::default() };
         game.load(Save { kills: 900, best: 300, best_level: 9, nights: 4, dawns: 1, found: 0b110, ..kept });
-        settings_row(&mut game, 7);
+        settings_row(&mut game, 8);
         press(&mut game, Buttons::A);
         assert_eq!(game.save().kills, 900, "one press only asks");
         game.update(&Input::default(), RESET_CONFIRM + 0.1);
@@ -645,6 +655,25 @@ mod tests {
     }
 
     #[test]
+    fn screens_set_to_one_mid_run_darken_the_bottom_screen_and_persist() {
+        let mut game = Game::new(1);
+        press(&mut game, Buttons::A);
+        assert_eq!(game.outputs().screens_on, [true; 2]);
+        press(&mut game, Buttons::START);
+        press(&mut game, Buttons::DOWN);
+        press(&mut game, Buttons::A);
+        for _ in 0..5 {
+            press(&mut game, Buttons::DOWN);
+        }
+        assert_eq!(game.settings_list()[game.setting], menu::Setting::Screens);
+        press(&mut game, Buttons::A);
+        assert!(game.save.one_screen);
+        assert!(matches!(&game.state, State::Harvest(h) if h.one_screen()));
+        assert_eq!(game.outputs().screens_on, [true, false]);
+        assert!(crate::save::Save::parse(&game.save.to_text()).one_screen);
+    }
+
+    #[test]
     fn the_pause_menu_opens_settings_over_the_run_without_reset() {
         let mut game = Game::new(1);
         press(&mut game, Buttons::A);
@@ -652,7 +681,7 @@ mod tests {
         press(&mut game, Buttons::DOWN);
         press(&mut game, Buttons::A);
         assert_eq!(game.page, Page::Settings);
-        assert_eq!(game.settings_list().len(), 5);
+        assert_eq!(game.settings_list().len(), 6);
         let t = game.summary();
         game.update(&Input::default(), 1.0);
         assert_eq!(game.summary(), t, "the run stays paused");
@@ -664,7 +693,7 @@ mod tests {
     #[test]
     fn the_enemies_page_turns_kinds_off_but_never_the_last() {
         let mut game = Game::new(1);
-        settings_row(&mut game, 6);
+        settings_row(&mut game, 7);
         press(&mut game, Buttons::A);
         assert_eq!(game.page, Page::Enemies);
         game.draw();
@@ -691,7 +720,7 @@ mod tests {
     #[test]
     fn the_player_row_keeps_the_farmer_when_there_are_no_player_cards() {
         let mut game = Game::new(1);
-        settings_row(&mut game, 5);
+        settings_row(&mut game, 6);
         assert_eq!(game.settings_list()[game.setting], menu::Setting::Player);
         game.draw();
         press(&mut game, Buttons::RIGHT);

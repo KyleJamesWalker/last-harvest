@@ -38,6 +38,20 @@ Your weapons fire on their own. You move, turn, throw grenades and pick upgrades
 | Back out of a menu | B | Z, or Esc |
 | Quit | Hold Home for one second | Cmd+Q, or close a window |
 
+#### One screen
+
+Settings > Screens set to One plays a run on the top screen alone; the bottom screen goes dark. The map is still there, but looking at it means losing sight of the 3D view.
+
+| Action | Device | macOS and browser |
+|---|---|---|
+| Show the map, live | Hold L1 | Hold 1 |
+| Aim a grenade, in slowed time | Hold L2, then the d-pad or stick | Hold Q, then the arrows |
+| Throw it | Let go of L2 | Let go of Q |
+| Cancel the throw | B | Z |
+| Show the whole map, paused | Hold R2 | Hold 2 |
+
+Grenades show only on the map. With none ready, L2 shows the map at full speed and clicks. While you aim, you keep walking the way you were going, and after 3 seconds the grenade throws itself. The cursor starts where your last throw went, relative to your view, if that was under 5 seconds ago, else straight ahead.
+
 In a browser, Esc and Home do nothing, and neither do screenshots, brightness or rumble. Sound starts with your first click or key. A gamepad in the browser's standard layout maps by its labels, as on an Xbox pad:
 
 - A, B, X and Y are the same buttons.

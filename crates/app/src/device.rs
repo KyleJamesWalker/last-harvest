@@ -43,7 +43,7 @@ struct Pad {
 #[derive(Clone, Copy, PartialEq)]
 struct Written {
     brightness: [u32; 2],
-    screens_on: bool,
+    screens_on: [bool; 2],
     leds: [bool; 2],
 }
 
@@ -179,9 +179,9 @@ impl Device {
             if old.is_none_or(|o| o.brightness[i] != want.brightness[i]) {
                 write(&format!("{path}/brightness"), &want.brightness[i].to_string());
             }
-            if changed(|w| w.screens_on) {
+            if old.is_none_or(|o| o.screens_on[i] != want.screens_on[i]) {
                 // 4 is FB_BLANK_POWERDOWN.
-                write(&format!("{path}/bl_power"), if want.screens_on { "0" } else { "4" });
+                write(&format!("{path}/bl_power"), if want.screens_on[i] { "0" } else { "4" });
             }
         }
         if changed(|w| w.leds[0]) {

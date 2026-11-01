@@ -13,6 +13,8 @@ pub struct Save {
     pub rumble: bool,
     /// The frame-rate overlay, which Select also toggles.
     pub fps: bool,
+    /// Runs play on the top screen alone.
+    pub one_screen: bool,
     /// Longest night survived, in seconds.
     pub best: u32,
     pub difficulty: Difficulty,
@@ -57,19 +59,20 @@ impl LookId {
 
 impl Default for Save {
     fn default() -> Self {
-        Self { volume: 6, brightness: [4, 4], rumble: true, fps: false, best: 0, difficulty: Difficulty::default(), kills: 0, best_level: 0, nights: 0, dawns: 0, found: 0, enemies_off: 0, player: LookId::default(), map: LookId::default() }
+        Self { volume: 6, brightness: [4, 4], rumble: true, fps: false, one_screen: false, best: 0, difficulty: Difficulty::default(), kills: 0, best_level: 0, nights: 0, dawns: 0, found: 0, enemies_off: 0, player: LookId::default(), map: LookId::default() }
     }
 }
 
 impl Save {
     pub fn to_text(&self) -> String {
         format!(
-            "volume={}\nbrightness_top={}\nbrightness_bottom={}\nrumble={}\nfps={}\nbest={}\ndifficulty={}\nkills={}\nbest_level={}\nnights={}\ndawns={}\nfound={}\nenemies_off={}\nplayer={}\nmap={}\n",
+            "volume={}\nbrightness_top={}\nbrightness_bottom={}\nrumble={}\nfps={}\nlayout={}\nbest={}\ndifficulty={}\nkills={}\nbest_level={}\nnights={}\ndawns={}\nfound={}\nenemies_off={}\nplayer={}\nmap={}\n",
             self.volume,
             self.brightness[0],
             self.brightness[1],
             on_off(self.rumble),
             on_off(self.fps),
+            if self.one_screen { "one" } else { "two" },
             self.best,
             self.difficulty.key(),
             self.kills,
@@ -99,6 +102,7 @@ impl Save {
                 "brightness_bottom" => save.brightness[1] = value.parse().unwrap_or(save.brightness[1]).clamp(1, LEVELS),
                 "rumble" => save.rumble = value == "on",
                 "fps" => save.fps = value == "on",
+                "layout" => save.one_screen = value == "one",
                 "best" => save.best = value.parse().unwrap_or(save.best),
                 "difficulty" => save.difficulty = Difficulty::from_key(value).unwrap_or(save.difficulty),
                 "kills" => save.kills = value.parse().unwrap_or(save.kills),
@@ -126,7 +130,7 @@ mod tests {
 
     #[test]
     fn round_trips() {
-        let save = Save { volume: 3, brightness: [7, 2], rumble: false, fps: true, best: 41, difficulty: Difficulty::Hard, kills: 900, best_level: 12, nights: 7, dawns: 1, found: 0b1010_0000_0000, enemies_off: 0b10, player: LookId::new("jo"), map: LookId::new("old_farm") };
+        let save = Save { volume: 3, brightness: [7, 2], rumble: false, fps: true, one_screen: true, best: 41, difficulty: Difficulty::Hard, kills: 900, best_level: 12, nights: 7, dawns: 1, found: 0b1010_0000_0000, enemies_off: 0b10, player: LookId::new("jo"), map: LookId::new("old_farm") };
         assert_eq!(Save::parse(&save.to_text()), save);
     }
 

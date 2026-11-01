@@ -27,6 +27,18 @@ impl Harvest {
         self
     }
 
+    pub fn one_screen(&self) -> bool {
+        self.single
+    }
+
+    pub fn set_one_screen(&mut self, on: bool) {
+        self.single = on;
+        if !on {
+            self.aiming = None;
+            self.glance = false;
+        }
+    }
+
     /// The input the run sees and the game time that passes: L2 and R2 never turn, a touch never throws, and
     /// while aiming the walk is held and the world slows.
     pub(super) fn single_input(&mut self, input: &Input, dt: f32, sounds: &mut Vec<Sfx>) -> (Input, f32) {
@@ -93,7 +105,7 @@ impl Harvest {
     }
 
     fn map_up(&self) -> bool {
-        self.aiming.is_some() || self.glance || self.menu.is_some() || matches!(self.phase, Phase::LevelUp { .. })
+        self.aiming.is_some() || self.glance || self.overview || self.menu.is_some() || matches!(self.phase, Phase::LevelUp { .. })
     }
 
     /// The cursor, its blast ring and the time left, over the map.
@@ -122,8 +134,8 @@ impl Harvest {
         f.bottom = Canvas::default();
         f.bottom.clear = [0.0, 0.0, 0.0, 1.0];
         let dim = [1.0, 1.0, 1.0, 0.45];
-        f.bottom.label("Single-screen test: this screen stays dark", SCREEN_W / 2.0, SCREEN_H / 2.0 - 30.0, 32.0, dim, Align::Center);
-        f.bottom.label("Hold L1: map.   L2: aim a grenade, release to throw, B cancels", SCREEN_W / 2.0, SCREEN_H / 2.0 + 20.0, 26.0, dim, Align::Center);
+        f.bottom.label("One screen: Settings > Screens brings this one back", SCREEN_W / 2.0, SCREEN_H / 2.0 - 30.0, 32.0, dim, Align::Center);
+        f.bottom.label("Hold L1: map.   L2: aim a grenade, release to throw, B cancels.   R2: whole map", SCREEN_W / 2.0, SCREEN_H / 2.0 + 20.0, 24.0, dim, Align::Center);
     }
 }
 
@@ -258,6 +270,20 @@ mod tests {
         }
         assert_eq!(h.thrown.len(), 3);
         assert!(h.grenades >= 1.0);
+    }
+
+    #[test]
+    fn r2_holds_the_whole_map_paused_and_l1_the_live_one() {
+        let mut h = single(12);
+        let t = h.t;
+        hold(&mut h, Buttons::R2, 0.5);
+        assert!(h.overview && h.map_up());
+        assert_eq!(h.t, t, "paused");
+        hold(&mut h, Buttons::L1, 0.5);
+        assert!(!h.overview && h.glance && h.map_up());
+        assert!(h.t > t + 0.4, "the live map keeps the night going");
+        hold(&mut h, Buttons::NONE, DT);
+        assert!(!h.map_up());
     }
 
     #[test]

@@ -1006,6 +1006,10 @@ impl Harvest {
             self.view_yaw = (self.view_yaw + TAU / 600.0).rem_euclid(TAU);
             return flow;
         }
+        self.overview = input.held.contains(if self.single { Buttons::R2 } else { Buttons::L1 });
+        if self.overview {
+            return flow;
+        }
         let own;
         let (input, dt) = if self.single {
             own = self.single_input(input, dt, sounds);
@@ -1013,10 +1017,6 @@ impl Harvest {
         } else {
             (input, dt)
         };
-        self.overview = !self.single && input.held.contains(Buttons::L1);
-        if self.overview {
-            return flow;
-        }
         if let Some(at) = self.menu {
             self.pause_menu(at, input, sounds, &mut flow);
             return flow;

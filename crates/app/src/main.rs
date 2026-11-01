@@ -256,7 +256,7 @@ impl App {
             audio.set_volume(self.game.volume());
             let outputs = self.game.outputs();
             audio.set_dread(outputs.dread);
-            audio.set_beds(outputs.screens_on);
+            audio.set_beds(outputs.screens_on[0]);
             sounds.into_iter().for_each(|s| audio.play(s));
         }
         #[cfg(target_os = "linux")]
@@ -401,7 +401,7 @@ impl ApplicationHandler for App {
     /// Draws every vsync, or a few times a second with the lid closed, which still reads the lid and the keys.
     fn about_to_wait(&mut self, el: &ActiveEventLoop) {
         let Some(g) = &self.gfx else { return };
-        if self.game.outputs().screens_on || self.last.elapsed() >= LID_FRAME {
+        if self.game.outputs().screens_on[0] || self.last.elapsed() >= LID_FRAME {
             el.set_control_flow(ControlFlow::Wait);
             g.top.window.request_redraw();
         } else {

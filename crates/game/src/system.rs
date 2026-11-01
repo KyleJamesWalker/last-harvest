@@ -28,7 +28,8 @@ pub struct Outputs {
     /// How tense the music should be, 0 (silent) to 1.
     pub dread: f32,
     pub brightness: [f32; 2],
-    pub screens_on: bool,
+    /// Top, then bottom.
+    pub screens_on: [bool; 2],
     pub work_led: bool,
     pub low_led: bool,
 }
