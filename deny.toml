@@ -1,0 +1,6 @@
+# `cargo deny check advisories`, run by .github/workflows/audit.yml. Every other check stays off.
+
+[advisories]
+ignore = [
+    { id = "RUSTSEC-2026-0192", reason = "ttf-parser, under fontdue, is unmaintained with no successor yet; not a vulnerability" },
+]

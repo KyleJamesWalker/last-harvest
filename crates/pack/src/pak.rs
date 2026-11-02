@@ -86,15 +86,16 @@ impl Pak {
             if entry.is_dir() {
                 continue;
             }
+            let name = entry.name().map_err(|e| e.to_string())?.into_owned();
             total += entry.size();
             if entry.size() > MAX_FILE || total > MAX_PACK {
-                return Err(format!("{} makes the pack bigger than the game reads: {} MB a file, {} MB in all", entry.name(), MAX_FILE >> 20, MAX_PACK >> 20));
+                return Err(format!("{name} makes the pack bigger than the game reads: {} MB a file, {} MB in all", MAX_FILE >> 20, MAX_PACK >> 20));
             }
             let mut bytes = Vec::with_capacity(entry.size() as usize);
             // A pack may come from anyone: read no more than a file declares, whatever its data would unpack to.
             let declared = entry.size();
-            (&mut entry).take(declared).read_to_end(&mut bytes).map_err(|e| format!("{}: {e}", entry.name()))?;
-            files.insert(entry.name().to_string(), bytes);
+            (&mut entry).take(declared).read_to_end(&mut bytes).map_err(|e| format!("{name}: {e}"))?;
+            files.insert(name, bytes);
         }
         let text = files.get(MANIFEST).ok_or("no manifest.toml")?;
         let text = std::str::from_utf8(text).map_err(|_| "manifest.toml is not UTF-8")?;

@@ -8,6 +8,7 @@ A survivors-like for a dual-screen Linux handheld, with a web build and sprite/c
 
 ## Checks
 - `cargo clippy --workspace --all-targets` at zero warnings and `cargo test --workspace` before every commit; CI (`.github/workflows/ci.yml`) runs both with `-D warnings`. The code is not rustfmt-formatted: never run `cargo fmt`.
+- `cargo deny check advisories` passes before a dependency change (`.github/workflows/audit.yml` runs it); allow an advisory only in `deny.toml`, with its reason.
 - Device: `scripts/deploy.sh`, `scripts/install.sh`, `scripts/debug.sh`. Web: `scripts/web-game.sh`, `scripts/mod-editor.sh`, `scripts/pages.sh`, `scripts/web-editor.sh`.
 - After editing an inline `<script>` in a web page, run `tools/csp.py`; after changing `powerups.txt` or `enemies.txt`, `tools/manual_items.py`.
 

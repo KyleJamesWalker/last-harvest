@@ -224,7 +224,7 @@ The workflow reads the private assets with a read-only deploy key on that reposi
 
 The tarball, the web zip and the site each carry `OFL.txt`, the font's licence, and `THIRD_PARTY_LICENSES.txt`, every shipped crate's licence as `tools/third_party.py` writes it. Each page's Content-Security-Policy allows its inline script by hash: after editing one, run `tools/csp.py`.
 
-Every pull request runs `.github/workflows/ci.yml`: clippy at zero warnings, the tests, both wasm builds and their no-tileset check, `tools/manual_items.py --check`, `tools/csp.py --check` and shellcheck. A fork's PR has no `ASSETS_DEPLOY_KEY`, so it skips the Rust steps.
+Every pull request runs `.github/workflows/ci.yml`: clippy at zero warnings, the tests, both wasm builds and their no-tileset check, `tools/manual_items.py --check`, `tools/csp.py --check` and shellcheck. A fork's PR has no `ASSETS_DEPLOY_KEY`, so it skips the Rust steps. `.github/workflows/audit.yml` runs `cargo deny check advisories` against `Cargo.lock` on every pull request, every push to `main` and each Monday, as advisories appear without any change here; `deny.toml` lists the advisories allowed and why.
 
 Run the tests:
 
