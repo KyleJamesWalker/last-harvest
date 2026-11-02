@@ -900,6 +900,11 @@ impl Map {
         }
     }
 
+    /// A barrier on the tile at `x`, `y`, as the road's are.
+    pub(super) fn barrier(&mut self, x: usize, y: usize) {
+        self.prop(&[art::BARRIER], 0.0, x, y);
+    }
+
     /// Signs on the shoulders and barriers half-closing the road near each end.
     fn roadside(&mut self, rng: &mut Rng, road: usize) {
         for _ in 0..4 {

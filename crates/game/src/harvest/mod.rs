@@ -661,6 +661,10 @@ pub struct Harvest {
     queued_touch: Option<[f32; 2]>,
     /// Sideways input, eased, which tilts the camera into a strafe.
     lean: f32,
+    /// How many times the 3D view is magnified, for the icon scene; the game keeps 1.
+    zoom: f32,
+    /// Tiles the 3D camera is raised, or lowered when negative, for the icon scene; the game keeps 0.
+    lift: f32,
     /// A sprite the editor is showing off.
     shown: Option<showcase::Shown>,
     difficulty: Difficulty,
@@ -849,6 +853,8 @@ impl Harvest {
             glory: 0.0,
             queued_touch: None,
             lean: 0.0,
+            zoom: 1.0,
+            lift: 0.0,
             shown: None,
             difficulty: Difficulty::Normal,
             single: false,
