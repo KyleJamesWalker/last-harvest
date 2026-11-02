@@ -35,9 +35,11 @@ runs:
           git -C assets/private remote add origin "$url"
           # Git for Windows refuses such names even in the index; the sparse checkout never writes them to disk.
           git -C assets/private config core.protectNTFS false
-          git -C assets/private sparse-checkout set --no-cone '/zombie-apocalypse/Zombie Apocalypse Tileset Reference.png' '/sprites/'
+          # No leading slashes: Git Bash would turn them into Windows paths.
+          MSYS_NO_PATHCONV=1 git -C assets/private sparse-checkout set --no-cone 'zombie-apocalypse/Zombie Apocalypse Tileset Reference.png' 'sprites/'
           git -C assets/private fetch -q --depth 1 origin "$pin"
           git -C assets/private checkout -q FETCH_HEAD
+          test -f 'assets/private/zombie-apocalypse/Zombie Apocalypse Tileset Reference.png' || { echo "::error::the sparse checkout has no tileset reference sheet"; exit 1; }
         else
           git submodule update --init --depth 1 assets/private
         fi
