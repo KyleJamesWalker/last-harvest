@@ -380,9 +380,9 @@ fn element<T: JsCast>(document: &Document, id: &str) -> Result<T, String> {
     document.get_element_by_id(id).and_then(|e| e.dyn_into().ok()).ok_or(format!("#{id} missing from the page"))
 }
 
-fn start(pak: Pak) -> Result<(), String> {
+fn start(pak: Pak, mods: Vec<(String, Pak)>, problems: Vec<String>) -> Result<(), String> {
     // The renderer uploads the sprite atlas as it starts, so the data goes in first.
-    let sounds = pak::install(Some(pak), None)?;
+    let sounds = pak::install_with(pak, mods, problems)?;
     let window = web_sys::window().ok_or("no window")?;
     let document = window.document().ok_or("no document")?;
     let canvas: HtmlCanvasElement = element(&document, "screens")?;
@@ -430,8 +430,12 @@ fn start(pak: Pak) -> Result<(), String> {
     }));
 
     listen(&overlay, "pointerdown", &web, |w, e: &PointerEvent| {
+        let target = e.target().and_then(|t| t.dyn_into::<Element>().ok());
+        if target.as_ref().is_some_and(|t| t.closest("[data-mods]").ok().flatten().is_some()) {
+            return;
+        }
         e.prevent_default();
-        let picked = e.target().and_then(|t| t.dyn_into::<Element>().ok()).and_then(|t| t.closest("[data-screens]").ok().flatten());
+        let picked = target.and_then(|t| t.closest("[data-screens]").ok().flatten());
         if let Some(choice) = picked.and_then(|b| b.get_attribute("data-screens")) {
             w.set_screens(choice != "2");
         }
@@ -502,9 +506,59 @@ fn fail(text: &str) {
     }
 }
 
-/// Starts the game on the page's canvas with the bytes of `game_data.pak`, which the page fetches.
+/// A field of a plain object the page hands over.
+fn field(v: &JsValue, k: &str) -> Option<JsValue> {
+    js_sys::Reflect::get(v, &k.into()).ok().filter(|v| !v.is_undefined())
+}
+
+/// The card editor's saved work on this site, from local storage, as one mod pack, with the death sounds the page
+/// read from IndexedDB for its enemy cards, or none when there is no work.
+fn editor_mod(sounds: &js_sys::Array, problems: &mut Vec<String>) -> Option<Pak> {
+    use last_harvest_pack::browser;
+    let storage = web_sys::window()?.local_storage().ok()??;
+    let keys: Vec<String> = (0..storage.length().unwrap_or(0)).filter_map(|i| storage.key(i).ok().flatten()).collect();
+    let entries = keys.into_iter().filter_map(|k| Some((k.clone(), storage.get_item(&k).ok()??)));
+    let mut files = browser::editor_files(entries, problems);
+    if files.is_empty() {
+        return None;
+    }
+    for s in sounds.iter() {
+        let (Some(id), Some(file), Some(bytes)) = (field(&s, "id").and_then(|v| v.as_string()), field(&s, "file").and_then(|v| v.as_string()), field(&s, "bytes")) else { continue };
+        let card = format!("{}{id}{}", last_harvest_pack::ENEMY_CARDS, last_harvest_pack::card::Kind::Enemy.extension());
+        if files.iter().any(|(p, _)| *p == card) {
+            files.push((format!("{}{file}", last_harvest_pack::SOUNDS), js_sys::Uint8Array::new(&bytes).to_vec()));
+        }
+    }
+    match pak::read_mod(Ok(Pak::from_files(files))) {
+        Ok(p) => Some(p),
+        Err(e) => {
+            problems.push(format!("the card editor's work: {e}"));
+            None
+        }
+    }
+}
+
+/// The name the card editor's work goes by among the mods.
+const EDITOR_MOD: &str = "card editor";
+
+/// Starts the game on the page's canvas with the bytes of `game_data.pak`, which the page fetches, the mod packs
+/// the player added, as `{name, bytes}`, and the card editor's death sounds, as `{id, file, bytes}`; the card
+/// editor's saved work goes over the added packs.
 #[wasm_bindgen]
-pub fn run(pak: Vec<u8>) -> Result<(), String> {
+pub fn run(pak: Vec<u8>, mods: js_sys::Array, sounds: js_sys::Array) -> Result<(), String> {
     std::panic::set_hook(Box::new(|info| fail(&info.to_string())));
-    start(Pak::read(std::io::Cursor::new(pak)).map_err(|e| format!("game_data.pak: {e}"))?)
+    let base = Pak::read(std::io::Cursor::new(pak)).map_err(|e| format!("game_data.pak: {e}"))?;
+    let mut problems = Vec::new();
+    let mut packs = Vec::new();
+    for m in mods.iter() {
+        let (Some(name), Some(bytes)) = (field(&m, "name").and_then(|v| v.as_string()), field(&m, "bytes")) else { continue };
+        match pak::read_mod(Pak::read(std::io::Cursor::new(js_sys::Uint8Array::new(&bytes).to_vec()))) {
+            Ok(p) => packs.push((name, p)),
+            Err(e) => problems.push(format!("{name}: {e}")),
+        }
+    }
+    if let Some(p) = editor_mod(&sounds, &mut problems) {
+        packs.push((EDITOR_MOD.into(), p));
+    }
+    start(base, packs, problems)
 }

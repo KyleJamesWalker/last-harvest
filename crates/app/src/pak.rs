@@ -98,18 +98,20 @@ fn mods_folder() -> Option<PathBuf> {
     Some(data_folder()?.join("mods"))
 }
 
-/// The mod packs in the mods folder, in name order, by file name; one that can't be read, or whose atlas or tables
-/// would stop the game, is left out and noted.
+/// A mod pack as the game lays it over its data, or why it can't be: it doesn't read, or its atlas or tables would
+/// stop the game.
+pub fn read_mod(pak: Result<Pak, String>) -> Result<Pak, String> {
+    let pak = pak?;
+    pak.check_mod()?;
+    Ok(pak)
+}
+
+/// The mod packs in the mods folder, in name order, by file name; one that `read_mod` refuses is left out and noted.
 fn read_mods(problems: &mut Vec<String>) -> Vec<(String, Pak)> {
     let Some(dir) = mods_folder() else { return Vec::new() };
-    let read = |bytes: Vec<u8>| -> Result<Pak, String> {
-        let pak = Pak::read(std::io::Cursor::new(bytes))?;
-        pak.check_mod()?;
-        Ok(pak)
-    };
     let mut mods = Vec::new();
     for (name, bytes) in samples::read_files(&dir, &[".pak"]) {
-        match read(bytes) {
+        match read_mod(Pak::read(std::io::Cursor::new(bytes))) {
             Ok(p) => mods.push((name, p)),
             Err(e) => problems.push(format!("{name}: {e}")),
         }
@@ -151,13 +153,19 @@ pub fn load() -> Result<Files, String> {
             None
         }
     };
-    install_noting(base, missing_pack, problems)
+    install_noting(base, missing_pack, Vec::new(), problems)
 }
 
 /// `load` with the pack already open, or none for the built-in data. A web page has no data folder beside it, so
 /// it fetches the pack itself and finds no mods or cards.
 pub fn install(base: Option<Pak>, missing_pack: Option<String>) -> Result<Files, String> {
-    install_noting(base, missing_pack, Vec::new())
+    install_noting(base, missing_pack, Vec::new(), Vec::new())
+}
+
+/// `install` with `mods` laid over the mods folder's, in order, by name, and `problems` already found reading them:
+/// a web page keeps its mods in the browser.
+pub fn install_with(base: Pak, mods: Vec<(String, Pak)>, problems: Vec<String>) -> Result<Files, String> {
+    install_noting(Some(base), None, mods, problems)
 }
 
 /// Drops each of the base pack's tables that the game would refuse, noting why, so the built-in one stands in.
@@ -168,12 +176,13 @@ fn drop_refused_tables(pak: &mut Pak, problems: &mut Vec<String>) {
     }
 }
 
-fn install_noting(base: Option<Pak>, missing_pack: Option<String>, mut problems: Vec<String>) -> Result<Files, String> {
+fn install_noting(base: Option<Pak>, missing_pack: Option<String>, more: Vec<(String, Pak)>, mut problems: Vec<String>) -> Result<Files, String> {
     let pack_version = base.as_ref().and_then(Pak::version).map(String::from);
     let had_base = base.is_some();
     let mut pak = base.unwrap_or_else(Pak::empty);
     drop_refused_tables(&mut pak, &mut problems);
-    let mods = read_mods(&mut problems);
+    let mut mods = read_mods(&mut problems);
+    mods.extend(more);
     let mod_names: Vec<String> = mods.iter().map(|(n, _)| n.clone()).collect();
     if !mods.is_empty() {
         log!("mods: {:?}", mods.iter().map(|(n, _)| n).collect::<Vec<_>>());

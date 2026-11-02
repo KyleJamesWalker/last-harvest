@@ -11,20 +11,11 @@ use sprite_editor::history::Commit;
 use sprite_editor::sprite::{self, CardKind, Sprite};
 use sprite_editor::store::{Store, cards, props};
 
-/// Enemy and player cards keep to their own keys.
+use last_harvest_pack::browser::{MAP_KEY, PROP_KEY, TABLE_KEY};
+
 fn key(kind: CardKind, id: &str) -> String {
-    match kind {
-        CardKind::Enemy => format!("last-harvest-card:{id}"),
-        CardKind::Player => format!("last-harvest-player:{id}"),
-    }
+    last_harvest_pack::browser::card_key(kind, id)
 }
-
-
-/// Maps keep to keys of their own, by id.
-const MAP_KEY: &str = "last-harvest-map:";
-const PROP_KEY: &str = "last-harvest-prop:";
-/// A data file the mod changes, by its file name.
-const TABLE_KEY: &str = "last-harvest-table:";
 
 pub struct LocalStore {
     storage: Storage,

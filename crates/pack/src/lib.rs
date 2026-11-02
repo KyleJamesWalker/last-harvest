@@ -1,5 +1,7 @@
 //! Data packs, ZIP files with a `.pak` extension and a `manifest.toml` at the root, and enemy cards.
 
+#[cfg(feature = "pak")]
+pub mod browser;
 pub mod card;
 pub mod prop;
 #[cfg(feature = "pak")]

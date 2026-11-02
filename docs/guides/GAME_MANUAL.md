@@ -75,7 +75,7 @@ In a browser, Esc and Home do nothing, and neither do screenshots, brightness or
 - View is Select, and Menu is Start.
 - The d-pad and left stick move you.
 
-The browser keeps your save in its local storage. It reads no cards, mod packs or maps. For the full key map, see [Controls](../../README.md#controls) in the README.
+The browser keeps your save in its local storage. To add a mod pack, press **Add mod…** on the start screen and pick a `.pak`; × removes one. The browser keeps them for next time. On the game's site, everything you've saved in the card editor plays too, with no Export needed. For the full key map, see [Controls](../../README.md#controls) in the README.
 
 ### A night
 
@@ -244,7 +244,7 @@ The game reads your files from its `data/` folder, beside `game_data.pak`, when 
 | `data/maps/` | Maps, `<id>.map.txt` |
 | `data/mods/` | Mod packs, `<name>.pak` |
 
-A file that cannot load is left out. The title screen shows the first reason. The browser game reads none of these folders.
+A file that cannot load is left out. The title screen shows the first reason. The browser game has no folders: add mod packs on its start screen instead.
 
 ### Enemy cards
 
@@ -509,7 +509,7 @@ The palette is PICO-8's 32 colors. The previews show your card on a plain floor,
 - **New** starts a card from a plain figure. Type its id with letters, digits and `_`. Start the name with `PLAYER_` for a player card, `PROP_` for a prop, or `MAP_` for a map.
 - **Import** opens `.enemy.png`, `.player.png`, `.prop.png` and `.map.txt` files, and every card, map and prop in a `.pak`. It says which saved cards it replaced. Importing a pack also brings back its cards' death sounds.
 - **Export** downloads the open card's saved PNG, `<id>.enemy.png` or `<id>.player.png`. On a prop, it downloads the prop's PNG. On a map, it downloads `<id>.pak`, holding the map and every prop it places.
-- **Export all** downloads every card, map, prop, death sound and changed data file as one mod pack, `my-cards.pak`. Put it in the game's `data/mods`.
+- **Export all** downloads every card, map, prop, death sound and changed data file as one mod pack, `my-cards.pak`. Put it in the game's `data/mods`. The game on the same site doesn't need it: it plays your saved work as it is.
 - **Sound** gives the open enemy card its own death sound. Pick an Ogg or WAV file of up to 512 KB. Export all packs it as `sounds/kill-<id>.ogg`.
 - **Delete card** removes the open card for good. Press it twice to confirm.
 - **Game data** picks your own `game_data.pak`. See [Game data](#game-data).
