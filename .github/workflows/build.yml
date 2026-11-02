@@ -178,6 +178,9 @@ jobs:
       - name: Build
         env:
           LAST_HARVEST_VERSION: ${{ env.TAG }}
+          # Released builds ship without symbols or line tables; dev builds keep them for crash.log.
+          CARGO_PROFILE_RELEASE_STRIP: symbols
+          CARGO_PROFILE_RELEASE_DEBUG: "false"
         run: cargo build --locked --release -p last-harvest --bin last-harvest --target ${{ matrix.target }} --no-default-features
 
       - name: Package
