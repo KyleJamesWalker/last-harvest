@@ -14,7 +14,7 @@ const DATA: &str = "data";
 const PAK: &str = "data/game_data.pak";
 
 fn data_folder() -> Option<PathBuf> {
-    Some(std::env::current_exe().ok()?.parent()?.join(DATA))
+    Some(crate::home()?.join(DATA))
 }
 
 /// `LAST_HARVEST_PAK`, else `data/game_data.pak` beside the binary.

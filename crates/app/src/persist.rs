@@ -12,7 +12,7 @@ use last_harvest_game::Save;
 const SETTLE: Duration = Duration::from_secs(1);
 
 fn dir() -> PathBuf {
-    std::env::current_exe().ok().and_then(|p| p.parent().map(Path::to_path_buf)).unwrap_or_else(|| PathBuf::from("."))
+    last_harvest::home().unwrap_or_else(|| PathBuf::from("."))
 }
 
 /// The next unused `screenshots/shot-NNNN.png` beside the save, creating the folder.

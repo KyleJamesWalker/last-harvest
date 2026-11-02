@@ -13,7 +13,7 @@ use last_harvest_game::Frame;
 use last_harvest_render::{Profile, Renderer};
 use winit::dpi::{LogicalPosition, LogicalSize, PhysicalSize};
 use winit::event_loop::ActiveEventLoop;
-use winit::window::{Fullscreen, Window, WindowAttributes, WindowId};
+use winit::window::{Fullscreen, Icon, Window, WindowAttributes, WindowId};
 
 const MAX_SAMPLES: u8 = 4;
 const PROFILE: Profile = if cfg!(target_os = "linux") { Profile::Gles } else { Profile::Desktop };
@@ -157,16 +157,27 @@ fn stack(shots: Vec<Shot>) -> Shot {
     Shot { width, height, rgba }
 }
 
+/// The game's icon for its windows, where the system shows one: macOS takes the app bundle's instead.
+fn icon() -> Option<Icon> {
+    let mut reader = png::Decoder::new(&include_bytes!("../../../assets/private/icons/game-32.png")[..]).read_info().ok()?;
+    let mut rgba = vec![0; reader.output_buffer_size()];
+    let info = reader.next_frame(&mut rgba).ok()?;
+    if info.color_type != png::ColorType::Rgba {
+        return None;
+    }
+    Icon::from_rgba(rgba, info.width, info.height).inspect_err(|e| log!("icon: {e}")).ok()
+}
+
 /// The top window's attributes, and the bottom's when there are `two`: full screen on each of the device's screens,
 /// else small windows one above the other. One window is resizable and as wide as a phone held sideways.
 fn window_attrs(el: &ActiveEventLoop, two: bool) -> (WindowAttributes, Option<WindowAttributes>) {
-    let base = |title: &str| Window::default_attributes().with_title(title).with_resizable(false);
+    let base = |title: &str| Window::default_attributes().with_title(title).with_resizable(false).with_window_icon(icon());
     let monitors: Vec<_> = el.available_monitors().collect();
     for m in &monitors {
         log!("monitor {:?} {:?} at {:?}", m.name(), m.size(), m.position());
     }
     if !two {
-        return (Window::default_attributes().with_title("Last Harvest").with_inner_size(LogicalSize::new(1200.0, 600.0)), None);
+        return (Window::default_attributes().with_title("Last Harvest").with_inner_size(LogicalSize::new(1200.0, 600.0)).with_window_icon(icon()), None);
     }
     if cfg!(target_os = "linux") && monitors.len() >= 2 {
         let swapped = std::fs::read_to_string("/sys/class/anbernic_misc/lcdswap").is_ok_and(|s| s.trim() == "1");

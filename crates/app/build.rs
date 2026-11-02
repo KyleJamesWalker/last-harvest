@@ -24,4 +24,19 @@ fn main() {
         }
     };
     println!("cargo:rustc-env=LAST_HARVEST_BUILD={version}");
+    windows_icon();
+}
+
+/// Builds the icon into a Windows binary; without the resource compiler, it goes without one.
+fn windows_icon() {
+    const ICO: &str = "../../assets/private/icons/game.ico";
+    println!("cargo:rerun-if-changed={ICO}");
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
+        return;
+    }
+    let mut res = winresource::WindowsResource::new();
+    res.set_icon(ICO);
+    if let Err(e) = res.compile() {
+        println!("cargo:warning=no icon in the Windows binary: {e}");
+    }
 }

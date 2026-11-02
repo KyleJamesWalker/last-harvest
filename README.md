@@ -213,7 +213,7 @@ Publishing a GitHub release, such as with `gh release create v0.2.0 --generate-n
 | `last-harvest-<tag>-aarch64-linux.tar.gz` | The RG DS, in a Ports layout: extract into the SD card's `Ports` folder | The launcher fetches it into `Ports/last-harvest/data/` |
 | `last-harvest-<tag>-android.apk` | Android 8.0+ on arm64, phones and handhelds | Fetched on first run into the app's storage |
 | `last-harvest-<tag>-muos.muxapp` | muOS on the H700 Anbernics, through Archive Manager | Fetched by `mux_launch.sh` into its `data/` |
-| `last-harvest-<tag>-macos-arm64.zip`, `-windows-x86_64.zip`, `-windows-arm64.zip`, `-linux-x86_64.tar.gz`, `-linux-arm64.tar.gz` | Desktops, one window | Downloaded by hand into `LastHarvest/data/` |
+| `last-harvest-<tag>-macos-arm64.zip`, `-windows-x86_64.zip`, `-windows-arm64.zip`, `-linux-x86_64.tar.gz`, `-linux-arm64.tar.gz` | Desktops, one window; macOS's is `Last Harvest.app`, ad-hoc signed, which keeps its data, save and screenshots in the folder beside it; the Windows `.exe` and every window carry the game's icon | Downloaded by hand into `LastHarvest/data/` |
 | `last-harvest-<tag>-web.zip` | The browser game, also on GitHub Pages and itch.io | Beside it in the zip |
 
 The APK is signed with the key in the `ANDROID_KEYSTORE_B64` and `ANDROID_KEYSTORE_PASSWORD` secrets (alias `last-harvest`), so each release installs over the last; without them the workflow signs with a throwaway key and warns. The Windows ARM64 build is cross-compiled and untested. A pre-release, or any tag not shaped `vX.Y.Z`, gets every package but leaves GitHub Pages and itch.io alone, and the RG DS launcher never updates to one, as it follows GitHub's latest release.
