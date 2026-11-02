@@ -220,3 +220,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "$TAG" "$file" --clobber
+
+      - name: Keep the package for the pull request
+        if: inputs.tag == ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ matrix.name }}
+          path: ${{ env.file }}
+          retention-days: 7
