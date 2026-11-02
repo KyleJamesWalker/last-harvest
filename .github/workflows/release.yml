@@ -55,7 +55,7 @@ jobs:
           cp target/aarch64-unknown-linux-gnu/release/last-harvest dist/last-harvest/
           cp assets/data-README.txt dist/last-harvest/data/README.txt
           cp assets/LastHarvest.sh dist/
-          cp assets/LastHarvest.png dist/Imgs/
+          cp assets/private/icons/rgds-boxart.png dist/Imgs/LastHarvest.png
           cp assets/fonts/OFL.txt dist/last-harvest/
           python3 tools/third_party.py dist/last-harvest/THIRD_PARTY_LICENSES.txt
           tar -C dist -czf "last-harvest-$TAG-aarch64-linux.tar.gz" .

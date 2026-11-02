@@ -12,6 +12,7 @@ on:
     paths:
       - ".github/**"
       - "assets/*.sh"
+      - "assets/private"
       - "assets/*.txt"
       - "crates/**"
       - "scripts/**"
@@ -185,7 +186,19 @@ jobs:
           [ "$RUNNER_OS" = Windows ] && exe=last-harvest.exe
           app=dist/LastHarvest
           mkdir -p "$app/data/enemies" "$app/data/players" "$app/data/props" "$app/data/maps" "$app/data/mods"
-          cp "target/${{ matrix.target }}/release/$exe" "$app/"
+          if [ "$RUNNER_OS" = macOS ]; then
+            # An app bundle, for its icon; the game keeps its data folder beside it.
+            bundle="$app/Last Harvest.app/Contents"
+            mkdir -p "$bundle/MacOS" "$bundle/Resources"
+            cp "target/${{ matrix.target }}/release/$exe" "$bundle/MacOS/"
+            cp assets/private/icons/game.icns "$bundle/Resources/LastHarvest.icns"
+            version="${TAG#v}"
+            sed "s/@VERSION@/${version:-0.0.0}/g" crates/app/macos/Info.plist >"$bundle/Info.plist"
+            plutil -lint "$bundle/Info.plist"
+            codesign --force --sign - "$app/Last Harvest.app"
+          else
+            cp "target/${{ matrix.target }}/release/$exe" "$app/"
+          fi
           cp assets/data-README.txt "$app/data/README.txt"
           cp assets/desktop-README.txt "$app/README.txt"
           cp assets/fonts/OFL.txt "$app/"
@@ -207,3 +220,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "$TAG" "$file" --clobber
+
+      - name: Keep the package for the pull request
+        if: inputs.tag == ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ matrix.name }}
+          path: ${{ env.file }}
+          retention-days: 7

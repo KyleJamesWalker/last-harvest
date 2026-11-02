@@ -18,6 +18,8 @@ pub(super) struct Shown {
     pub top: Option<Art>,
     /// Whether the player stands beside it, or is left out so the view can come close.
     pub player: bool,
+    /// More figures left standing about, each walking in place where it was dropped.
+    pub crowd: Vec<(Vec<Art>, [f32; 2])>,
 }
 
 impl Shown {
@@ -43,6 +45,7 @@ const SEED: u64 = 7;
 const DEAD_TIME: f32 = 3.0;
 
 pub struct Showcase {
+    seed: u64,
     harvest: Harvest,
     /// A hit playing on the figure: what it shows, whether it dies, and seconds since.
     strike: Option<(Figure, bool, f32)>,
@@ -55,8 +58,8 @@ impl Showcase {
         let mut harvest = Harvest::calm(seed);
         harvest.birds.clear();
         let pos = [harvest.map.spawn[0], harvest.map.spawn[1] - 3.0 * TILE];
-        harvest.shown = Some(Shown { frames: Vec::new(), stand: Stand::Figure, fps: 6.0, pos, top: None, player: true });
-        Self { harvest, strike: None, lying: None }
+        harvest.shown = Some(Shown { frames: Vec::new(), stand: Stand::Figure, fps: 6.0, pos, top: None, player: true, crowd: Vec::new() });
+        Self { seed, harvest, strike: None, lying: None }
     }
 
     /// Hits the figure as a bullet would: a flash, then its hurt frame.
@@ -128,6 +131,86 @@ impl Showcase {
     /// over the whole canvas.
     pub fn plan(&self, c: &mut Canvas, cam: [f32; 2], scale: f32) {
         self.harvest.world(c, cam, scale, [1.0; 4]);
+    }
+
+    /// Builds the farm again with a barrier on each side just in front of the sprite, or without.
+    pub fn barricade(&mut self, on: bool) {
+        self.rebuild(on, false);
+    }
+
+    /// A new farm from `seed`, with the sprite back near its spawn and a barricade before it if `barricade`.
+    pub fn new_farm(&mut self, seed: u64, barricade: bool) {
+        self.seed = seed;
+        self.rebuild(barricade, true);
+    }
+
+    /// Moves the sprite, and so the views, `delta` map pixels, staying on the map.
+    pub fn walk(&mut self, delta: [f32; 2]) {
+        let (w, h) = (self.harvest.map.width_px(), self.harvest.map.height_px());
+        if let Some(s) = &mut self.harvest.shown {
+            s.pos = [(s.pos[0] + delta[0]).clamp(TILE, w - TILE), (s.pos[1] + delta[1]).clamp(TILE, h - TILE)];
+        }
+    }
+
+    /// The farm from `seed` built again, the sprite kept where it is unless `respawn`, with barriers before it if
+    /// `barricade`.
+    fn rebuild(&mut self, barricade: bool, respawn: bool) {
+        let mut shown = self.harvest.shown.take();
+        let mut harvest = Harvest::calm(self.seed);
+        harvest.birds.clear();
+        if let Some(s) = shown.as_mut().filter(|_| respawn) {
+            s.pos = [harvest.map.spawn[0], harvest.map.spawn[1] - 3.0 * TILE];
+            s.crowd.clear();
+        }
+        // A tile toward the camera, one to each side of the line to it.
+        let yaw = self.harvest.view_yaw;
+        let (forward, right) = ([yaw.cos(), yaw.sin()], [-yaw.sin(), yaw.cos()]);
+        if let Some(s) = shown.as_ref().filter(|_| barricade) {
+            for side in [-1.0, 1.0] {
+                let [x, y] = [0, 1].map(|i| s.pos[i] - forward[i] * TILE + side * right[i] * TILE);
+                if x >= 0.0 && y >= 0.0 {
+                    harvest.map.barrier((x / TILE) as usize, (y / TILE) as usize);
+                }
+            }
+        }
+        harvest.shown = shown;
+        (harvest.zoom, harvest.lift) = (self.harvest.zoom, self.harvest.lift);
+        harvest.view_yaw = yaw;
+        self.harvest = harvest;
+    }
+
+    /// Leaves a copy of the figure on show standing where it is.
+    pub fn drop_copy(&mut self) {
+        if let Some(s) = self.harvest.shown.as_mut().filter(|s| !s.frames.is_empty()) {
+            s.crowd.push((s.frames.clone(), s.pos));
+        }
+    }
+
+    /// Takes away the last copy dropped, or every one with `all`.
+    pub fn pick_up(&mut self, all: bool) {
+        if let Some(s) = &mut self.harvest.shown {
+            if all {
+                s.crowd.clear();
+            } else {
+                s.crowd.pop();
+            }
+        }
+    }
+
+    /// How many copies stand about.
+    pub fn crowd(&self) -> usize {
+        self.harvest.shown.as_ref().map_or(0, |s| s.crowd.len())
+    }
+
+    /// Where the sprite on show stands, in map pixels.
+    pub fn shown_at(&self) -> Option<[f32; 2]> {
+        self.harvest.shown.as_ref().map(|s| s.pos)
+    }
+
+    /// Magnifies the 3D view `zoom` times, from a camera raised `lift` tiles.
+    pub fn zoom(&mut self, zoom: f32, lift: f32) {
+        self.harvest.zoom = zoom;
+        self.harvest.lift = lift;
     }
 
     /// Puts the player beside the sprite, or leaves them out.

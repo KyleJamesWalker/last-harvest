@@ -9,7 +9,9 @@ scripts/mod-editor.sh
 scripts/web-game.sh
 rm -rf "$out"
 mkdir -p "$out"
-cp assets/site/index.html assets/site/sw.js crates/editor/web/icon.png crates/editor/web/apple-touch-icon.png target/game_data.pak "$out/"
+cp assets/site/index.html assets/site/sw.js target/game_data.pak "$out/"
+cp assets/private/icons/game-32.png "$out/icon.png"
+cp assets/private/icons/game-176.png "$out/apple-touch-icon.png"
 python3 tools/manual_items.py --check
 python3 tools/render_manual.py docs/guides/GAME_MANUAL.md assets/site/manual.html "$out"
 cp -R target/mod-editor "$out/editor"

@@ -10,6 +10,7 @@ mod draw;
 mod font;
 mod gallery;
 mod hardware;
+mod icon;
 mod harvest;
 mod input;
 mod menu;
@@ -65,6 +66,8 @@ pub enum Scene {
     Gallery,
     /// Debug check of every hardware feature, and where screen brightness is set.
     Hardware,
+    /// Debug close-up of one figure, in 3D and flat, for making icons.
+    Icon,
 }
 
 impl Scene {
@@ -81,6 +84,7 @@ impl Scene {
             }
             "art" => Scene::Gallery,
             "hardware" => Scene::Hardware,
+            "icon" => Scene::Icon,
             _ => return None,
         })
     }
@@ -91,6 +95,7 @@ enum State {
     Harvest(Box<harvest::Harvest>),
     Gallery(gallery::Gallery),
     Hardware(hardware::Hardware),
+    Icon(Box<icon::Icon>),
 }
 
 pub struct Game {
@@ -234,6 +239,7 @@ impl Game {
             State::Harvest(h) => h.summary(),
             State::Gallery(_) => "art".into(),
             State::Hardware(_) => "hardware".into(),
+            State::Icon(_) => "icon".into(),
         }
     }
 
@@ -283,6 +289,7 @@ impl Game {
             Scene::Bench(size) => State::Harvest(Box::new(harvest::Harvest::bench(size))),
             Scene::Gallery => State::Gallery(gallery::Gallery::default()),
             Scene::Hardware => State::Hardware(hardware::Hardware::default()),
+            Scene::Icon => State::Icon(Box::default()),
         };
     }
 
@@ -471,6 +478,10 @@ impl Game {
                 g.update(input, dt);
                 State::Gallery(g)
             }
+            State::Icon(mut i) => {
+                i.update(input, dt);
+                State::Icon(i)
+            }
             State::Hardware(mut hw) => {
                 let controls = hardware::Controls {
                     sounds: &mut self.sounds,
@@ -497,6 +508,7 @@ impl Game {
                 }
             }
             State::Gallery(g) => g.draw(&mut f),
+            State::Icon(i) => i.draw(&mut f),
             State::Hardware(hw) => {
                 hw.draw(&mut f, &self.system, self.save.brightness, self.leds);
                 osd::draw(&mut f.top, &self.input, self.rumble(), self.system.headphones);
@@ -785,7 +797,7 @@ mod tests {
     #[test]
     fn every_scene_opens_by_name() {
         let mut game = Game::new(1);
-        for name in ["title", "harvest", "single", "farm", "bench", "art", "hardware"] {
+        for name in ["title", "harvest", "single", "farm", "bench", "art", "icon", "hardware"] {
             game.open(Scene::from_name(name).unwrap());
         }
         assert!(matches!(game.state, State::Hardware(_)));

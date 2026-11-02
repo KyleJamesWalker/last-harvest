@@ -72,7 +72,7 @@ pub fn folder() -> Option<PathBuf> {
     if let Some(dir) = std::env::var_os("LAST_HARVEST_SOUNDS") {
         return Some(dir.into());
     }
-    let beside = std::env::current_exe().ok()?.parent()?.join("sounds");
+    let beside = crate::home()?.join("sounds");
     [beside, PathBuf::from("assets/private/sounds")].into_iter().find(|d| d.is_dir())
 }
 

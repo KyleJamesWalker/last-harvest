@@ -137,7 +137,7 @@ fn dock_icon() {
     use objc2_app_kit::{NSApplication, NSImage};
     use objc2_foundation::NSData;
     let Some(mtm) = MainThreadMarker::new() else { return };
-    let data = NSData::with_bytes(include_bytes!("../web/icon-512.png"));
+    let data = NSData::with_bytes(include_bytes!("../../../assets/private/icons/editor-512.png"));
     if let Some(image) = NSImage::initWithData(NSImage::alloc(), &data) {
         // SAFETY: on the main thread, with an image AppKit decoded itself.
         unsafe { NSApplication::sharedApplication(mtm).setApplicationIconImage(Some(&image)) };

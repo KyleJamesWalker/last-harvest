@@ -4,8 +4,10 @@ Before the first start, download game_data.pak from the same release as this
 package and put it in the data folder here. Without it, the title says which
 release's game_data.pak to copy in.
 
-Start the game with last-harvest (last-harvest.exe on Windows). On macOS, the
-first start needs a right-click on it, then Open, as the build isn't signed.
+Start the game with last-harvest (last-harvest.exe on Windows, Last Harvest on
+macOS). On macOS, the first start needs a right-click on it, then Open, as the
+build isn't signed; if macOS still refuses, allow it under System Settings >
+Privacy & Security.
 
 It opens one window and plays as on a phone: the keyboard, a gamepad or the
 mouse, which works the on-screen controls. LAST_HARVEST_WINDOWS=2 opens a

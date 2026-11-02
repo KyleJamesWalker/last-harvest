@@ -11,6 +11,15 @@ mod android;
 #[cfg(target_arch = "wasm32")]
 mod web;
 
+/// The folder the game keeps its data, save and screenshots in: the binary's, or the one holding its app bundle on
+/// macOS, as a bundle is replaced whole on an update.
+pub fn home() -> Option<std::path::PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let dir = exe.parent()?;
+    let bundle = dir.ancestors().nth(2).filter(|app| dir.ends_with("Contents/MacOS") && app.extension().is_some_and(|e| e == "app"));
+    Some(bundle.and_then(|app| app.parent()).unwrap_or(dir).to_path_buf())
+}
+
 /// The release this binary was built for, or `dev` and its commit.
 pub const VERSION: &str = env!("LAST_HARVEST_BUILD");
 
