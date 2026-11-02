@@ -30,7 +30,7 @@ app="$stage/LastHarvest"
 rm -rf "$stage"
 mkdir -p "$app/data" "$app/glyph"
 cp crates/app/muos/mux_launch.sh "$app/"
-cp crates/app/muos/glyph/lastharvest.png "$app/glyph/"
+cp assets/private/icons/muos-glyph.png "$app/glyph/lastharvest.png"
 cp target/aarch64-unknown-linux-gnu/release/last-harvest-muos "$app/last-harvest"
 if [ -n "$release" ]; then
   echo "${LAST_HARVEST_VERSION:?a release needs LAST_HARVEST_VERSION}" >"$app/version.txt"

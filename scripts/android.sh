@@ -24,7 +24,7 @@ cargo run -q -p last-harvest-pack
 CARGO_PROFILE_RELEASE_STRIP=symbols CARGO_PROFILE_RELEASE_DEBUG=false cargo ndk -t arm64-v8a --platform 26 -- rustc --release -p last-harvest --lib --crate-type cdylib --no-default-features
 cp target/aarch64-linux-android/release/liblast_harvest.so "$stage/lib/arm64-v8a/"
 [ "${LAST_HARVEST_NO_PAK:-}" = 1 ] || cp target/game_data.pak "$stage/assets/"
-cp crates/editor/web/icon.png "$stage/res/mipmap/icon.png"
+cp assets/private/icons/game-512.png "$stage/res/mipmap/icon.png"
 version="${LAST_HARVEST_VERSION:-dev}"
 # v1.2.3 is 10203, so each release installs over the one before; dev builds are 1.
 code=1

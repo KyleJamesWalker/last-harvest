@@ -12,6 +12,7 @@ on:
     paths:
       - ".github/**"
       - "assets/*.sh"
+      - "assets/private"
       - "assets/*.txt"
       - "crates/**"
       - "scripts/**"

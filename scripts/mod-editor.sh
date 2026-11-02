@@ -8,7 +8,10 @@ out=target/mod-editor
 CARGO_PROFILE_RELEASE_STRIP=symbols CARGO_PROFILE_RELEASE_OPT_LEVEL=s cargo build --release --target wasm32-unknown-unknown -p sprite-editor --bin sprite-editor --no-default-features --features modding
 rm -rf "$out"
 wasm-bindgen --target web --no-typescript --out-dir "$out" target/wasm32-unknown-unknown/release/sprite-editor.wasm
-cp crates/editor/web/index.html crates/editor/web/sw.js crates/editor/web/manifest.webmanifest crates/editor/web/*.png "$out/"
+cp crates/editor/web/index.html crates/editor/web/sw.js crates/editor/web/manifest.webmanifest "$out/"
+cp assets/private/icons/editor-32.png "$out/icon.png"
+cp assets/private/icons/editor-176.png "$out/apple-touch-icon.png"
+cp assets/private/icons/editor-512.png "$out/icon-512.png"
 # Only the card editor offers itself as an app.
 sed -i.bak 's|<link rel="icon" href="icon.png">|<link rel="icon" href="icon.png"><link rel="manifest" href="manifest.webmanifest">|' "$out/index.html" && rm "$out/index.html.bak"
 echo "built $out"
