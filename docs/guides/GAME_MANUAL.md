@@ -14,7 +14,7 @@ The top screen is the main view, in 2.5D. Every sprite's silhouette stands extru
 
 The bottom screen shows the same farm from above at twice the art's size. Dots mark what the main view faces. Tap it to throw a grenade.
 
-In a browser, pick One screen or Two screens as the game starts. One screen, the default, fills the window: menus show both screens side by side, and a run plays on one screen with on-screen controls (see [On a phone](#on-a-phone)). Two screens share the window, the top screen above the bottom, as on the handheld.
+In a browser, pick One screen or Two screens as the game starts. One screen, the default, fills the window: menus show both screens side by side, and a run plays on one screen with on-screen controls (see [On a phone](#on-a-phone)). Two screens share the window, the top screen above the bottom, as on the handheld. The button at the top left fills the whole screen, and a second press, or Esc, leaves it.
 
 ### Controls
 
