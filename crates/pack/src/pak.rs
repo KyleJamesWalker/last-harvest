@@ -109,6 +109,11 @@ impl Pak {
         Ok(Self { files })
     }
 
+    /// A mod made of `files` by their paths in it, such as the card editor's work, held in memory.
+    pub fn from_files(files: Vec<(String, Vec<u8>)>) -> Self {
+        Self { files: files.into_iter().collect() }
+    }
+
     /// No files, for mods to lay over when there's no base pack.
     pub fn empty() -> Self {
         Self { files: HashMap::new() }

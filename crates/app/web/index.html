@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'sha256-Ud8StqIgfr2ANyJYgnZur5QdM6I3Vi4cv1m730OLhTc='; style-src 'unsafe-inline'; object-src 'none'; base-uri 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'sha256-Nydo/qt4IikZmKpPO/sw8yMT79ghGjTC1bAvVNDqcV0='; style-src 'unsafe-inline'; object-src 'none'; base-uri 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>LastHarvest</title>
 <link rel="icon" href="icon.png">
@@ -23,6 +23,12 @@
   #start button { font: inherit; color: #ebebf2; background: rgba(255, 255, 255, 0.08); border: 2px solid rgba(255, 255, 255, 0.25);
                   border-radius: 6px; padding: 10px 18px; cursor: pointer; }
   #start button[aria-pressed="true"] { border-color: #f2bf4d; color: #f2bf4d; }
+  #start .mods { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; margin: 0 24px; font-size: 15px; cursor: default; }
+  #start .mods button { padding: 4px 10px; font-size: 15px; }
+  #start .mods [data-drop] { margin-left: 4px; padding: 2px 8px; border-width: 1px; }
+  #mod-list { display: contents; }
+  #start .mod { padding: 4px 4px 4px 10px; border-radius: 6px; background: rgba(255, 255, 255, 0.08); }
+  #start .mod:not(:has(button)) { padding-right: 10px; }
   /* Top left, clear of the touch controls' Pause (top right) and stick (lower left). */
   #fullscreen { position: fixed; z-index: 2; top: max(8px, env(safe-area-inset-top)); left: max(8px, env(safe-area-inset-left));
                 width: 40px; height: 40px; padding: 8px; border: 0; border-radius: 6px; background: rgba(0, 0, 0, 0.4);
@@ -43,6 +49,10 @@
   <div class="screens">
     <button type="button" data-screens="1" aria-pressed="true">One screen</button>
     <button type="button" data-screens="2" aria-pressed="false">Two screens</button>
+  </div>
+  <div class="mods" data-mods>
+    <span id="mod-list">No mods</span>
+    <button type="button" id="add-mod">Add mod…</button>
   </div>
   <p>Arrows move. X is A, Z is B, S is X, A is Y, Enter is Start, 1 and W are L1 and R1, Q and 2 are L2 and R2.
   The mouse or a finger is a touch: on the on-screen controls with one screen, on the bottom screen with two. Gamepads work too.</p>
@@ -97,9 +107,67 @@
     return bytes;
   }
 
+  // Mod packs the player adds stay in this browser, in the IndexedDB the card editor on the same site also uses;
+  // the game reads them as it loads, so a change reloads the page.
+  const files = (mode, use) => new Promise((done, fail) => {
+    const open = indexedDB.open("last-harvest", 1);
+    open.onupgradeneeded = () => open.result.createObjectStore("files");
+    open.onerror = () => fail(open.error);
+    open.onsuccess = () => {
+      const t = open.result.transaction("files", mode);
+      const request = use(t.objectStore("files"));
+      t.oncomplete = () => done(request.result);
+      t.onerror = () => fail(t.error);
+      t.onabort = () => fail(t.error);
+    };
+  });
+  const range = prefix => IDBKeyRange.bound(prefix, prefix + "\uffff");
+  const MOD = "mod:";
+  const mods = await files("readonly", s => s.getAll(range(MOD))).catch(() => []);
+  const sounds = await files("readonly", s => s.getAll(range("sound:"))).catch(() => []);
+  mods.sort((a, b) => (a.name < b.name ? -1 : 1));
+  const list = document.getElementById("mod-list");
+  const chip = (text, drop) => {
+    const span = Object.assign(document.createElement("span"), { className: "mod", textContent: text });
+    if (drop) {
+      const button = Object.assign(document.createElement("button"), { type: "button", textContent: "×", title: `Remove ${drop}` });
+      button.dataset.drop = drop;
+      button.setAttribute("aria-label", button.title);
+      span.append(button);
+    }
+    return span;
+  };
+  // The card editor's keys, as crates/pack/src/browser.rs names them; the game lays its work over the added mods.
+  const EDITOR = ["last-harvest-card:", "last-harvest-player:", "last-harvest-prop:", "last-harvest-map:", "last-harvest-table:"];
+  const editor = Object.keys(localStorage).some(k => EDITOR.some(p => k.startsWith(p)));
+  const chips = mods.map(m => chip(m.name, m.name));
+  if (editor) chips.push(chip("Card editor work"));
+  if (chips.length) list.replaceChildren(...chips);
+  list.addEventListener("click", async e => {
+    const name = e.target.closest("[data-drop]")?.dataset.drop;
+    if (!name) return;
+    await files("readwrite", s => s.delete(MOD + name)).catch(err => alert(`Couldn't remove ${name}: ${err}`));
+    location.reload();
+  });
+  document.getElementById("add-mod").addEventListener("click", () => {
+    const input = Object.assign(document.createElement("input"), { type: "file", accept: ".pak", multiple: true });
+    input.onchange = async () => {
+      try {
+        for (const file of input.files) {
+          const bytes = new Uint8Array(await file.arrayBuffer());
+          await files("readwrite", s => s.put({ name: file.name, bytes }, MOD + file.name));
+        }
+      } catch (err) {
+        alert(err?.name === "QuotaExceededError" ? "The browser's storage for this page is full" : `Couldn't keep the mod: ${err}`);
+      }
+      location.reload();
+    };
+    input.click();
+  });
+
   try {
     const [pak] = await Promise.all([download(document.body.dataset.pak), init()]);
-    run(pak);
+    run(pak, mods, sounds);
     label.textContent = "Click to start";
   } catch (e) {
     label.textContent = "The game couldn't load";

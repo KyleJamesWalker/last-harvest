@@ -351,33 +351,7 @@ pub mod cards {
         card::write_as(kind, &text, (w * cols) as u32, (h * height) as u32, height as u32, &sheet)
     }
 
-    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
-    /// A card as Base64, for a store such as the browser's local storage that keeps only text.
-    pub fn to_text(bytes: &[u8]) -> String {
-        let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
-        for chunk in bytes.chunks(3) {
-            let n = chunk.iter().enumerate().fold(0u32, |n, (i, &b)| n | (b as u32) << (16 - 8 * i));
-            for i in 0..4 {
-                out.push(if i <= chunk.len() { ALPHABET[(n >> (18 - 6 * i) & 63) as usize] as char } else { '=' });
-            }
-        }
-        out
-    }
-
-    pub fn from_text(text: &str) -> Option<Vec<u8>> {
-        let digit = |c: u8| ALPHABET.iter().position(|&a| a == c).map(|v| v as u32);
-        let mut out = Vec::with_capacity(text.len() / 4 * 3);
-        for chunk in text.as_bytes().chunks(4) {
-            let pad = chunk.iter().filter(|&&c| c == b'=').count();
-            if pad > 2 {
-                return None;
-            }
-            let n = chunk.iter().take(4 - pad).enumerate().try_fold(0u32, |n, (i, &c)| Some(n | digit(c)? << (18 - 6 * i)))?;
-            out.extend((0..3 - pad).map(|i| (n >> (16 - 8 * i)) as u8));
-        }
-        Some(out)
-    }
+    pub use last_harvest_pack::browser::{from_text, to_text};
 
     /// The part names of every card of `kind` among `ids`, each with a saved copy, sorted by card.
     pub fn listing(kind: CardKind, mut ids: Vec<String>) -> Vec<(String, bool)> {
