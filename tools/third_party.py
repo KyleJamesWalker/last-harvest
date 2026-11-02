@@ -51,7 +51,7 @@ def main():
         if not files:
             bare.append(p)
         for f in files:
-            text = f.read_text(errors='replace').strip()
+            text = f.read_text(encoding='utf-8', errors='replace').strip()
             texts.setdefault(text, []).append(f"{p['name']} {p['version']} ({f.name})")
     width = max(len(f"{p['name']} {p['version']}") for p in crates)
     out = ['Last Harvest is MIT-licensed (see LICENSE). It is built with the crates below, under their own licences.',
@@ -65,7 +65,7 @@ def main():
         out += ['', '=' * 100, 'Used by: ' + ', '.join(owners), '=' * 100, '', text]
     body = '\n'.join(out) + '\n'
     if len(sys.argv) > 1:
-        Path(sys.argv[1]).write_text(body)
+        Path(sys.argv[1]).write_text(body, encoding='utf-8')
     else:
         sys.stdout.write(body)
 
