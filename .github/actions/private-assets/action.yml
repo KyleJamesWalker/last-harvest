@@ -33,6 +33,8 @@ runs:
           rm -rf assets/private
           git init -q assets/private
           git -C assets/private remote add origin "$url"
+          # Git for Windows refuses such names even in the index; the sparse checkout never writes them to disk.
+          git -C assets/private config core.protectNTFS false
           git -C assets/private sparse-checkout set --no-cone '/zombie-apocalypse/Zombie Apocalypse Tileset Reference.png' '/sprites/'
           git -C assets/private fetch -q --depth 1 origin "$pin"
           git -C assets/private checkout -q FETCH_HEAD
