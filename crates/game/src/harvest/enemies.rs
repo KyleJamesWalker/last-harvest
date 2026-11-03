@@ -56,6 +56,13 @@ const MAX_KINDS: usize = 64;
 pub const MAX_WALK: usize = 8;
 /// The most pixels a side of a card's frame can be.
 pub const MAX_FRAME: u32 = 64;
+/// A card frame's most texture pixels a side, so a detailed card still fits the atlas's card rows.
+pub const MAX_TEXTURE_FRAME: u32 = 128;
+
+/// A card frame's most texture pixels a side at this detail.
+pub fn card_frame_most(detail: u8) -> u32 {
+    (MAX_FRAME * detail as u32).min(MAX_TEXTURE_FRAME)
+}
 const PAD: u16 = 1;
 /// The farthest a ranged kind spits from, in pixels, and the longest a burrower stays up, in seconds.
 pub const RANGED_MAX: f32 = 160.0;
@@ -442,7 +449,7 @@ pub(super) fn start() -> [u16; 3] {
 pub(super) fn rows(card: &Card, cols: u32) -> Option<u32> {
     let [fw, fh] = card.frame;
     let row = (fw * cols * fh * 4) as usize;
-    let most = MAX_FRAME * art::DETAILS.into_iter().find(|&d| d == card.detail).unwrap_or(0) as u32;
+    let most = if art::DETAILS.contains(&card.detail) { card_frame_most(card.detail) } else { 0 };
     let fits = (1..=most).contains(&fw) && (1..=most).contains(&fh);
     [5, 6].into_iter().find(|&rows| fits && card.sheet.len() == row * rows as usize)
 }
