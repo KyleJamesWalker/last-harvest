@@ -33,6 +33,28 @@ const GUIDE: Color = [1.0, 1.0, 0.6, 0.6];
 /// How much of the figure shows over the flat barricade.
 const OVER: f32 = 0.6;
 
+/// The camera controls the icon scene and photo mode share.
+pub(crate) struct Orbit {
+    pub yaw: f32,
+    pub zoom: f32,
+    pub lift: f32,
+}
+
+impl Orbit {
+    /// With `lifting`, Up and Down raise or lower the camera; else Left and Right turn around it and Up and Down zoom,
+    /// no wider than `min_zoom`. Returns whether the camera rose or sank.
+    pub(crate) fn steer(&mut self, input: &Input, dt: f32, lifting: bool, min_zoom: f32) -> bool {
+        let [x, y] = input.dir();
+        if lifting {
+            self.lift = (self.lift - y * LIFT_RATE * dt).clamp(LIFT[0], LIFT[1]);
+            return y != 0.0;
+        }
+        self.yaw += (x + input.look).clamp(-1.0, 1.0) * TURN * dt;
+        self.zoom = (self.zoom * (-y * ZOOM_RATE * dt).exp()).clamp(min_zoom, MAX_ZOOM);
+        false
+    }
+}
+
 const fn rgb(r: u8, g: u8, b: u8) -> Color {
     [r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0, 1.0]
 }
@@ -47,9 +69,7 @@ fn subjects() -> Vec<(String, Vec<Art>)> {
 pub struct Icon {
     show: Showcase,
     subject: usize,
-    yaw: f32,
-    zoom: f32,
-    lift: f32,
+    cam: Orbit,
     /// L1 was used to raise or lower the camera while held, so letting go keeps the background.
     lifted: bool,
     held_l1: bool,
@@ -67,7 +87,7 @@ impl Default for Icon {
     fn default() -> Self {
         let mut show = Showcase::new(SEED);
         show.show_player(false);
-        Self { show, subject: 0, yaw: Showcase::yaw(), zoom: 2.0, lift: 0.0, lifted: false, held_l1: false, player: false, barricade: false, back: 0, guides: true, t: 0.0, seed: SEED, walked: false }
+        Self { show, subject: 0, cam: Orbit { yaw: Showcase::yaw(), zoom: 2.0, lift: 0.0 }, lifted: false, held_l1: false, player: false, barricade: false, back: 0, guides: true, t: 0.0, seed: SEED, walked: false }
     }
 }
 
@@ -114,14 +134,11 @@ impl Icon {
         }
         if lifting {
             self.held_l1 = true;
-            let up = axis(Buttons::UP, Buttons::DOWN);
-            if up != 0.0 {
-                self.lift = (self.lift + up * LIFT_RATE * dt).clamp(LIFT[0], LIFT[1]);
-                self.lifted = true;
-            }
+            self.lifted |= self.cam.steer(input, dt, true, MIN_ZOOM);
         } else if walking {
             let (ahead, aside) = (axis(Buttons::UP, Buttons::DOWN), axis(Buttons::RIGHT, Buttons::LEFT));
-            let (forward, right) = ([self.yaw.cos(), self.yaw.sin()], [-self.yaw.sin(), self.yaw.cos()]);
+            let yaw = self.cam.yaw;
+            let (forward, right) = ([yaw.cos(), yaw.sin()], [-yaw.sin(), yaw.cos()]);
             let step = WALK * dt;
             if ahead != 0.0 || aside != 0.0 {
                 self.show.walk([0, 1].map(|i| (forward[i] * ahead + right[i] * aside) * step));
@@ -131,15 +148,14 @@ impl Icon {
             if std::mem::take(&mut self.walked) && self.barricade {
                 self.show.barricade(true);
             }
-            self.yaw += axis(Buttons::RIGHT, Buttons::LEFT) * TURN * dt;
-            self.zoom = (self.zoom * (axis(Buttons::UP, Buttons::DOWN) * ZOOM_RATE * dt).exp()).clamp(MIN_ZOOM, MAX_ZOOM);
+            self.cam.steer(input, dt, false, MIN_ZOOM);
         }
-        self.show.zoom(self.zoom, self.lift);
+        self.show.zoom(self.cam.zoom, self.cam.lift);
         self.t += dt;
         if let Some((_, walk)) = subjects().into_iter().nth(self.subject) {
             self.show.show(walk, Stand::Figure, 6.0, None);
         }
-        self.show.update(dt, self.yaw, DISTANCE);
+        self.show.update(dt, self.cam.yaw, DISTANCE);
     }
 
     pub fn draw(&self, f: &mut Frame) {
@@ -173,7 +189,7 @@ impl Icon {
         if self.guides {
             let inset = SQUARE * (1.0 - SAFE) / 2.0;
             outline(b, x + inset, y + inset, SQUARE * SAFE, GUIDE);
-            b.label(format!("{name}   x{scale}   zoom {:.1}   height {:+.1}   {} more", self.zoom, self.lift, self.show.crowd()), SCREEN_W / 2.0, 30.0, 24.0, [1.0, 1.0, 0.6, 1.0], Align::Center);
+            b.label(format!("{name}   x{scale}   zoom {:.1}   height {:+.1}   {} more", self.cam.zoom, self.cam.lift, self.show.crowd()), SCREEN_W / 2.0, 30.0, 24.0, [1.0, 1.0, 0.6, 1.0], Align::Center);
             let help = [
                 "Keys: arrows turn and zoom   A / X figure   Q + arrows walk   Q + X / Z / S drop, undo, clear zombies",
                 "1 + arrows camera height   tap 1 background   Enter new farm   2 barricade   Z player   S guides   W screenshot",
@@ -210,11 +226,11 @@ mod tests {
         for _ in 0..200 {
             icon.update(&Input { held: Buttons::UP, ..Default::default() }, 0.1);
         }
-        assert_eq!(icon.zoom, MAX_ZOOM);
+        assert_eq!(icon.cam.zoom, MAX_ZOOM);
         let back = icon.back;
         icon.update(&Input { held: Buttons::L1 | Buttons::UP, ..Default::default() }, 0.5);
         icon.update(&Input::default(), 0.016);
-        assert!(icon.lift > 0.0);
+        assert!(icon.cam.lift > 0.0);
         assert_eq!(icon.back, back, "raising the camera keeps the background");
         icon.update(&Input { held: Buttons::L1, ..Default::default() }, 0.016);
         icon.update(&Input::default(), 0.016);
@@ -226,7 +242,7 @@ mod tests {
             icon.update(&Input { held: Buttons::L2 | Buttons::UP, ..Default::default() }, 0.1);
         }
         assert_ne!(icon.show.shown_at(), before, "L2 with the d-pad walks the figure");
-        assert_eq!(icon.zoom, MAX_ZOOM, "and doesn't zoom");
+        assert_eq!(icon.cam.zoom, MAX_ZOOM, "and doesn't zoom");
         let drop = |pressed| Input { held: Buttons::L2, pressed, ..Default::default() };
         icon.update(&drop(Buttons::A), 0.016);
         icon.update(&drop(Buttons::A), 0.016);
