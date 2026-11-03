@@ -67,7 +67,7 @@ A run plays on one screen with controls beside it, or under it when the phone is
 | Pick an upgrade, or a pause choice | Tap it |
 | Pause | Pause |
 
-Putting the map away never throws, and nothing slows down. That is the Touch style; Settings > Grenades set to Pad makes Grenade (and L2 on a gamepad) aim with a cursor in slowed time instead, held and let go, as on one screen, which suits a handheld with buttons. Settings > Touch controls picks when the controls show. Auto, the default, hides them when you use a gamepad or keyboard and brings them back at your next touch; On keeps them up; Off leaves them out for good, as on a handheld with buttons and a touch screen: menus show the bottom screen, the title shows the menu over its picture, and L2 aims grenades.
+Putting the map away never throws, and nothing slows down. That is the Touch style; Settings > Grenades set to Pad makes Grenade (and L2 on a gamepad) aim with a cursor in slowed time instead, held and let go, as on one screen, which suits a handheld with buttons. Settings > Touch controls picks when the controls show. Auto, the default, hides them when you use a gamepad or keyboard and brings them back at your next touch; On keeps them up; Off leaves them out for good, as on a handheld with buttons and a touch screen: menus show the bottom screen, the title shows the menu over its picture, and L2 aims grenades. Until you press a button or move a stick, a touch turns Off back to Auto, so a phone without buttons never loses its controls.
 
 In a browser, Esc and Home do nothing, and neither do screenshots, brightness or rumble. Sound starts with your first click or key. A gamepad in the browser's standard layout maps by its labels, as on an Xbox pad:
 

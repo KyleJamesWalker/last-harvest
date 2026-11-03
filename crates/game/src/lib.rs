@@ -165,6 +165,8 @@ pub struct Game {
     shot_flash: f32,
     /// The platform saves screenshots, so photo mode can take one.
     captures: bool,
+    /// A button or stick has been used since launch, so Off can't strand a touch-only player.
+    pad_seen: bool,
 }
 
 /// Where the title's menu sits on the top screen when one screen shows both, and its scale.
@@ -215,6 +217,7 @@ impl Game {
             shot: false,
             shot_flash: 0.0,
             captures: false,
+            pad_seen: false,
         }
     }
 
@@ -389,6 +392,10 @@ impl Game {
 
     /// The input with the on-screen controls' buttons, stick and screen touch in place of raw fingers.
     fn through_touchpad(&mut self, input: &Input, size: [f32; 2]) -> Input {
+        self.pad_seen |= input.held != Buttons::NONE || input.pressed != Buttons::NONE || input.stick != [0.0; 2] || input.look != 0.0;
+        if self.save.touch == TouchControls::Off && !self.pad_seen && self.touch_screen() && input.touches.iter().any(Option::is_some) {
+            self.save.touch = TouchControls::Auto;
+        }
         let layout = self.phone_layout(size);
         let hides = self.save.touch.hide_at_other_input();
         let other = hides && (input.held != Buttons::NONE || input.stick != [0.0; 2] || input.look != 0.0);
@@ -834,6 +841,22 @@ mod tests {
         touches[0] = Some(at);
         game.update(&Input { touches, ..Default::default() }, 0.016);
         game.update(&Input::default(), 0.016);
+    }
+
+    #[test]
+    fn off_comes_back_to_auto_at_a_touch_until_a_button_or_stick_is_used() {
+        let mut game = Game::new(1);
+        game.set_phone(Some([720.0, 480.0]));
+        game.load(Save { touch: TouchControls::Off, ..Save::default() });
+        finger(&mut game, [10.0, 10.0]);
+        assert_eq!(game.save().touch, TouchControls::Auto, "a touch-only player is never stranded");
+
+        let mut game = Game::new(1);
+        game.set_phone(Some([720.0, 480.0]));
+        press(&mut game, Buttons::DOWN);
+        game.load(Save { touch: TouchControls::Off, ..Save::default() });
+        finger(&mut game, [10.0, 10.0]);
+        assert_eq!(game.save().touch, TouchControls::Off, "a pad player's Off stays");
     }
 
     #[test]
