@@ -25,7 +25,7 @@ pub(crate) use enemies::{install_cards, off_from_ids, off_ids, roster};
 pub use props::{MAX_FRAME as PROP_MAX_FRAME, MAX_FRAMES as PROP_MAX_FRAMES, Named as NamedProp, PREFIX as PROP_PREFIX, ByViews as PropByViews, PropFields, load_for_checks as load_props_for_checks, turned_depth, prop_fields, prop_text, props as named_props, set_props};
 pub(crate) use props::stand_of;
 pub use map::{default_depth as default_prop_depth, ground_codes as map_ground, MAP_EXTENSION, MAP_MAX, MAP_MIN, MAX_HP as PROP_MAX_HP, MapSource, map_props, parse_props, PropKind, PropLine, Tough as PropTough, check_map, valid_map_id};
-pub use enemies::{ABOUT_MAX, MAX_FRAME as CARD_MAX_FRAME, MAX_WALK, flash_pixel, frame_limits, hurt_pixel};
+pub use enemies::{ABOUT_MAX, MAX_FRAME as CARD_MAX_FRAME, card_frame_most, MAX_WALK, flash_pixel, frame_limits, hurt_pixel};
 pub use players::{BASE_KEYS as PLAYER_BASE_KEYS, ID_MAX as PLAYER_ID_MAX, PlayerFields, PlayerLook, default_start, looks as player_looks, player_fields, set_player_start, weapon_slots, weapons};
 pub use enemies::{CardFields, FLAGS as CARD_FLAGS, NUMBERS as CARD_NUMBERS, SpawnMix, card_fields, set_card_field, spawn_mix};
 use juice::{Corpse, Juice, Particle, Tone};
@@ -399,6 +399,14 @@ struct Spit {
     damage: f32,
     life: f32,
     age: f32,
+}
+
+impl Spit {
+    /// The spit in its kind's own blood, if it has one.
+    fn tint(&self) -> [f32; 3] {
+        let spit = effects::effects().spit;
+        spit.frames.first().map_or([1.0; 3], |&a| juice::blood_tint(a, self.kind.stats().blood))
+    }
 }
 
 struct Bullet {
@@ -2431,6 +2439,8 @@ mod tests {
             } else {
                 assert_eq!((stain.3, fx.tint), ([1.0; 3], [1.0; 3]), "the game's own kinds keep the art's red");
             }
+            let spit = Spit { kind, pos: h.pos, vel: [0.0; 2], damage: 1.0, life: 1.0, age: 0.0 };
+            assert_eq!(spit.tint() == [1.0; 3], kind != green, "a spit flies in its kind's blood");
         }
     }
 
