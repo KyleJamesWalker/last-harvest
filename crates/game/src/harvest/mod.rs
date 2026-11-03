@@ -1006,6 +1006,12 @@ impl Harvest {
         self.enemies_off
     }
 
+    /// Whether the paused whole map is up.
+    #[cfg(test)]
+    pub(crate) fn showing_whole_map(&self) -> bool {
+        self.overview
+    }
+
     #[cfg(test)]
     pub fn grenades_in_the_air(&self) -> usize {
         self.thrown.iter().filter(|g| g.kind == Thrown::Grenade).count()

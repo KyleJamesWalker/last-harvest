@@ -63,6 +63,7 @@ A run plays on one screen with controls beside it, or under it when the phone is
 | Turn around | Around |
 | Show the map | Tap Grenade; tap it again to put the 3D view back. You keep moving |
 | Throw a grenade | While the map is up, tap where it should land |
+| See the whole map, paused | Hold Map, above the stick |
 | Pick an upgrade, or a pause choice | Tap it |
 | Pause | Pause |
 

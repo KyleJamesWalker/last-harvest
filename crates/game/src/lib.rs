@@ -664,6 +664,23 @@ mod tests {
     }
 
     #[test]
+    fn on_a_phone_holding_the_map_key_shows_the_whole_map() {
+        let size = [1080.0, 2400.0];
+        let mut game = Game::new(1);
+        game.set_phone(Some(size));
+        press(&mut game, Buttons::A);
+        let layout = touch::layout(size, true, true);
+        let [kx, ky, ..] = layout.key(Buttons::R2).unwrap();
+        let mut touches = [None; MAX_TOUCHES];
+        touches[0] = Some([kx + 4.0, ky + 4.0]);
+        let whole = |g: &Game| matches!(&g.state, State::Harvest(h) if h.showing_whole_map());
+        game.update(&Input { touches, ..Default::default() }, 0.016);
+        assert!(whole(&game), "held, the whole map is up");
+        game.update(&Input::default(), 0.016);
+        assert!(!whole(&game), "let go, the run is back");
+    }
+
+    #[test]
     fn on_a_phone_the_grenade_key_flips_the_map_up_and_a_tap_on_it_throws() {
         let size = [2400.0, 1080.0];
         let mut game = Game::new(1);
