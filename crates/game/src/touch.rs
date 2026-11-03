@@ -132,7 +132,7 @@ pub struct Touchpad {
     fingers: [Option<Finger>; MAX_TOUCHES],
     held: Buttons,
     /// Gamepad or keyboard input hides the controls until a finger comes down off the screens.
-    hidden: bool,
+    pub(crate) hidden: bool,
 }
 
 impl Touchpad {

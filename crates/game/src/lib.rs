@@ -34,7 +34,7 @@ pub use harvest::{WeaponLevels, weapon_behaviours, weapon_levels, weapon_sound_n
 pub use harvest::{TABLES, built_in_table, check_own_table, check_table, default_prop_depth, MAP_EXTENSION, map_ground, MAP_MAX, MAP_MIN, map_props, parse_props, MapSource, PROP_MAX_HP, PropKind, PropLine, PropTough, check_map, valid_map_id};
 pub use harvest::{ABOUT_MAX, CARD_FLAGS, CARD_MAX_FRAME, CARD_NUMBERS, MAX_WALK, PLAYER_BASE_KEYS, PLAYER_ID_MAX, PlayerFields, PlayerLook, default_start, flash_pixel, frame_limits, hurt_pixel, player_fields, player_looks, set_player_start, weapon_slots, weapons, CardFields, night_minutes, SpawnMix, card_fields, check_tables, kill_sound, kill_sounds, kill_weight, set_card_field, spawn_mix};
 pub use input::{Buttons, Input, InputTracker, MAX_TOUCHES, RawInput};
-pub use save::Save;
+pub use save::{Save, TouchControls};
 pub use sfx::Sfx;
 pub use system::{Battery, Outputs, System};
 
@@ -141,7 +141,7 @@ pub struct Game {
     phone: Option<[f32; 2]>,
     /// The platform sets the screens' backlights, so Settings offers their brightness.
     backlights: bool,
-    /// The phone's screen takes touches, so it gets on-screen controls and touch grenades.
+    /// The phone's screen takes touches, so Settings offers the on-screen controls and touch grenades.
     touch_ui: bool,
     /// The main menu offers Quit, where the platform can close the game.
     can_quit: bool,
@@ -348,16 +348,21 @@ impl Game {
 
     /// The title's main page on one screen without touch: the top screen with the menu over it, smaller.
     fn title_on_one(&self) -> bool {
-        self.phone.is_some() && !self.touch_ui && matches!(self.state, State::Title) && self.page == Page::Main
+        self.phone.is_some() && !self.has_touch() && matches!(self.state, State::Title) && self.page == Page::Main
     }
 
-    /// Plays as on a phone without touch: no on-screen controls, grenades aimed with L2.
+    /// Plays as on a phone without touch: no on-screen controls, grenades aimed with L2, whatever Settings says.
     pub fn set_touch(&mut self, on: bool) {
         self.touch_ui = on;
     }
 
-    pub(crate) fn has_touch(&self) -> bool {
+    pub(crate) fn touch_screen(&self) -> bool {
         self.touch_ui
+    }
+
+    /// The on-screen controls are laid out, as the screen takes touches and Settings leaves them on.
+    pub(crate) fn has_touch(&self) -> bool {
+        self.touch_ui && self.save.touch.shown()
     }
 
     pub(crate) fn has_backlights(&self) -> bool {
@@ -369,13 +374,15 @@ impl Game {
     }
 
     fn phone_layout(&self, size: [f32; 2]) -> touch::Layout {
-        touch::layout(size, matches!(self.state, State::Harvest(_)) || self.title_on_one(), self.touch_ui)
+        touch::layout(size, matches!(self.state, State::Harvest(_)) || self.title_on_one(), self.has_touch())
     }
 
     /// The input with the on-screen controls' buttons, stick and screen touch in place of raw fingers.
     fn through_touchpad(&mut self, input: &Input, size: [f32; 2]) -> Input {
         let layout = self.phone_layout(size);
-        let other = input.held != Buttons::NONE || input.stick != [0.0; 2] || input.look != 0.0;
+        let hides = self.save.touch.hide_at_other_input();
+        let other = hides && (input.held != Buttons::NONE || input.stick != [0.0; 2] || input.look != 0.0);
+        self.touchpad.hidden &= hides;
         let pad = self.touchpad.update(&input.touches, &layout, other);
         let stick = [0, 1].map(|i| (input.stick[i] + pad.stick[i]).clamp(-1.0, 1.0));
         let look = (input.look + pad.look).clamp(-1.0, 1.0);
@@ -487,7 +494,7 @@ impl Game {
             State::Harvest(mut h) => {
                 if self.phone.is_some() {
                     h.set_one_screen(true);
-                    h.set_touch_aim(self.save.touch_grenades && self.touch_ui);
+                    h.set_touch_aim(self.save.touch_grenades && self.has_touch());
                 }
                 h.set_saves_photos(self.captures);
                 let flow = h.update(input, dt, &mut self.sounds);
@@ -767,6 +774,49 @@ mod tests {
         assert!(game.save.touch_grenades, "touch by default");
         let save = Save { touch_grenades: false, ..game.save };
         assert!(!Save::parse(&save.to_text()).touch_grenades);
+    }
+
+    #[test]
+    fn settings_turn_the_on_screen_controls_auto_on_or_off() {
+        let size = [2400.0, 1080.0];
+        let mut game = Game::new(1);
+        game.set_phone(Some(size));
+        let at = game.settings_list().iter().position(|&s| s == menu::Setting::Touch).expect("a phone offers the controls");
+        settings_row(&mut game, at);
+        assert_eq!(game.save.touch, TouchControls::Auto, "Auto by default");
+        press(&mut game, Buttons::RIGHT);
+        assert_eq!(game.save.touch, TouchControls::On);
+        press(&mut game, Buttons::A);
+        assert_eq!(game.save.touch, TouchControls::Off);
+        assert!(!game.has_touch() && !game.settings_list().contains(&menu::Setting::Grenades), "Off leaves out the grenade style");
+        assert_eq!(Save::parse(&game.save.to_text()).touch, TouchControls::Off);
+        press(&mut game, Buttons::B);
+        let phone = game.draw().phone.unwrap();
+        assert!(phone.top.is_some() && phone.bottom.is_none(), "the title as without touch");
+        press(&mut game, Buttons::UP);
+        press(&mut game, Buttons::UP);
+        press(&mut game, Buttons::A);
+        let State::Harvest(_) = &game.state else { panic!("a run starts") };
+        assert_eq!(game.phone_layout(size).key(Buttons::L2), None, "a run without the controls");
+
+        let walk = Input { held: Buttons::RIGHT, ..Default::default() };
+        for (touch, hidden) in [(TouchControls::Auto, true), (TouchControls::On, false)] {
+            game.load(Save { touch, ..game.save });
+            game.touchpad.hidden = false;
+            game.update(&walk, 0.016);
+            assert!(game.phone_layout(size).key(Buttons::L2).is_some());
+            assert_eq!(game.touchpad.hidden, hidden, "{touch:?}: the pad hides the controls only in Auto");
+        }
+        game.touchpad.hidden = true;
+        game.update(&walk, 0.016);
+        assert!(!game.touchpad.hidden, "On brings them back");
+
+        game.set_touch(false);
+        game.load(Save { touch: TouchControls::On, ..game.save });
+        assert!(!game.has_touch(), "a screen without touch has no controls whatever Settings says");
+        game.page = Page::Settings;
+        game.open_settings(true);
+        assert!(!game.settings_list().contains(&menu::Setting::Touch), "nor the row");
     }
 
     #[test]
