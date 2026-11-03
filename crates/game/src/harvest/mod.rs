@@ -721,7 +721,7 @@ pub struct Harvest {
     /// Seconds since the kill count last went up, for its bump.
     kill_bump: f32,
     /// Cooldowns on sounds that would otherwise stack up in a swarm: hits, kills, groans, rising, birds, spit.
-    hush: [f32; 6],
+    hush: [f32; 7],
     heartbeat: f32,
     /// Seconds of the full-screen gold flash when the cards appear.
     glory: f32,
@@ -931,7 +931,7 @@ impl Harvest {
             chain: (1.0, 0),
             leveling: 0.0,
             kill_bump: 1.0,
-            hush: [0.0; 6],
+            hush: [0.0; 7],
             heartbeat: 0.0,
             glory: 0.0,
             queued_touch: None,
@@ -1800,11 +1800,11 @@ impl Harvest {
         }
         self.spits.retain(|s| s.life > 0.0);
         if let Some(at) = splat
-            && self.hush[5] <= 0.0
+            && self.hush[6] <= 0.0
         {
             let (pan, gain) = self.place(at);
             sounds.push(Sfx::Splat { pan, gain });
-            self.hush[5] = 0.12;
+            self.hush[6] = 0.12;
         }
         if hit > 0.0 && self.hurt <= 0.0 {
             self.bitten(hit * self.fury * self.difficulty.damage(), sounds, flow);
@@ -2481,7 +2481,7 @@ mod tests {
         h.hurt = 0.0;
         h.spits = vec![Spit { kind: Kind(0), pos: [h.pos[0] - 1.0, h.pos[1] - 6.0], vel: [10.0, 0.0], damage: 12.0, life: 1.0, age: 0.0 }];
         let hp = h.hp;
-        h.hush[5] = 0.0;
+        h.hush[6] = 0.0;
         sounds.clear();
         h.move_spits(0.016, &mut sounds, &mut Flow::default());
         assert!(h.spits.is_empty() && h.hp == hp - 12.0, "a spit on the player hurts by its damage");
