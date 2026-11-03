@@ -23,6 +23,9 @@ const USUAL_LANTERN: usize = 2;
 const FOCUS: f32 = 4.0 * TILE;
 const PICKS: usize = 8;
 const PICK_REACH: f32 = 16.0 * TILE;
+/// How fast the cross where props drop slides, in map pixels a second, and how far from the player it goes.
+const PLACE_SPEED: f32 = 6.0 * TILE;
+const PLACE_REACH: f32 = 12.0 * TILE;
 /// Radians a second Left or Right turns a posed zombie, and Up or Down a dropped prop.
 const POSE_TURN: f32 = 3.0;
 /// The game's props R2 drops, by name and sprite; players' props loaded follow them, and then a choice that takes
@@ -59,10 +62,11 @@ pub(super) enum Setting {
     Lantern,
     Pose,
     Props,
+    Place,
 }
 
 impl Setting {
-    const ALL: [Self; 5] = [Self::Time, Self::Fog, Self::Lantern, Self::Pose, Self::Props];
+    const ALL: [Self; 6] = [Self::Time, Self::Fog, Self::Lantern, Self::Pose, Self::Props, Self::Place];
 
     fn next(self) -> Self {
         Self::ALL[(Self::ALL.iter().position(|&s| s == self).unwrap_or(0) + 1) % Self::ALL.len()]
@@ -92,6 +96,8 @@ pub(super) struct Photo {
     swung: i8,
     /// Props dropped into the picture, last dropped last; never in the run's map.
     props: Vec<Dropped>,
+    /// Where the next prop drops, in map pixels, once moved; else where the camera looks.
+    spot: Option<[f32; 2]>,
 }
 
 /// A prop photo mode dropped: its place in the choices, its sprite and how that stands, the middle of its foot in map
@@ -140,7 +146,7 @@ fn push_of(v: f32) -> i8 {
 
 impl Photo {
     fn new(heading: f32) -> Self {
-        Self { heading, guides: true, setting: Setting::Time, time: None, fog: USUAL_FOG, lantern: USUAL_LANTERN, picked: None, posed: Vec::new(), pushed: 0, choices: choices(), prop: 0, swung: 0, props: Vec::new() }
+        Self { heading, guides: true, setting: Setting::Time, time: None, fog: USUAL_FOG, lantern: USUAL_LANTERN, picked: None, posed: Vec::new(), pushed: 0, choices: choices(), prop: 0, swung: 0, props: Vec::new(), spot: None }
     }
 
     /// Steps the chosen setting to its next value, after the last back round to the first.
@@ -155,7 +161,7 @@ impl Photo {
             }
             Setting::Fog => self.fog = (self.fog + 1) % FOGS.len(),
             Setting::Lantern => self.lantern = (self.lantern + 1) % LANTERNS.len(),
-            Setting::Pose | Setting::Props => {}
+            Setting::Pose | Setting::Props | Setting::Place => {}
         }
     }
 
@@ -166,6 +172,27 @@ impl Photo {
         } else {
             self.props.pop();
         }
+    }
+
+    /// Drops the chosen prop at the cross, or where the camera looks, and steps the cross aside past it to the
+    /// camera's right, or its left where `keep` holds it back, so the next doesn't stand in the same spot.
+    fn drop_at_mark(&mut self, focus: [f32; 2], yaw: f32, keep: impl Fn([f32; 2]) -> [f32; 2]) {
+        let (at, before) = (self.spot.unwrap_or(focus), self.props.len());
+        self.drop_prop(at, yaw);
+        let Some(d) = self.props.get(before) else { return };
+        let step = d.art.w().max(d.art.h()).max(TILE) + TILE / 2.0;
+        let aside = |k: f32| keep([at[0] - yaw.sin() * step * k, at[1] + yaw.cos() * step * k]);
+        let right = aside(1.0);
+        self.spot = Some(if len(sub(right, at)) > step / 2.0 { right } else { aside(-1.0) });
+    }
+
+    /// Slides the cross by `[x, y]` of the stick or d-pad for `dt` seconds, Up away from a camera looking along `yaw`.
+    fn slide_mark(&mut self, [x, y]: [f32; 2], dt: f32, focus: [f32; 2], yaw: f32, keep: impl Fn([f32; 2]) -> [f32; 2]) {
+        if x == 0.0 && y == 0.0 {
+            return;
+        }
+        let (at, (s, c), v) = (self.spot.unwrap_or(focus), yaw.sin_cos(), PLACE_SPEED * dt);
+        self.spot = Some(keep([at[0] + (-s * x - c * y) * v, at[1] + (c * x - s * y) * v]));
     }
 
     /// Chooses the next prop on a fresh push of `x` left or right, and turns the last dropped by `turn` radians.
@@ -195,12 +222,13 @@ impl Photo {
         scene.light_range = (scene.light_range * LANTERNS[self.lantern].1).max(0.01);
     }
 
-    /// Each setting and its value in two lines, the chosen one in brackets; `posing` names the picked zombie.
-    fn settings_lines(&self, posing: &str) -> [String; 2] {
+    /// Each setting and its value in two lines, the chosen one in brackets; `posing` names the picked zombie and
+    /// `place` says where the next prop drops.
+    fn settings_lines(&self, posing: &str, place: &str) -> [String; 2] {
         let time = self.time.map_or("Now", |i| TIMES[i].0);
         let prop = self.choices.get(self.prop).map_or("Take back", |p| p.0.as_str());
         let props = format!("{prop} ({} in)", self.props.len());
-        let rows = [(Setting::Time, "Time", time), (Setting::Fog, "Fog", FOGS[self.fog].0), (Setting::Lantern, "Lantern", LANTERNS[self.lantern].0), (Setting::Pose, "Pose", posing), (Setting::Props, "Props", props.as_str())];
+        let rows = [(Setting::Time, "Time", time), (Setting::Fog, "Fog", FOGS[self.fog].0), (Setting::Lantern, "Lantern", LANTERNS[self.lantern].0), (Setting::Pose, "Pose", posing), (Setting::Props, "Props", props.as_str()), (Setting::Place, "Place", place)];
         let rows: Vec<String> = rows.iter().map(|&(s, name, value)| if s == self.setting { format!("[{name}: {value}]") } else { format!("{name}: {value}") }).collect();
         [rows[..3].join("  "), rows[3..].join("  ")]
     }
@@ -236,10 +264,11 @@ impl Harvest {
     /// Left and Right turn round the player, Up and Down zoom, and with L1 held raise or lower the camera; L2 chooses
     /// a setting and R2 changes it; R1 or a tap asks for a capture, and B or Start goes back to the pause menu.
     /// Posing, R2 picks a zombie, and Left and Right turn it and Up and Down step its frame. With props, R2 drops one
-    /// where the camera looks, Left and Right choose which, Up and Down turn the last and Y takes it back. Nothing else
-    /// moves.
+    /// on the cross, Left and Right choose which, Up and Down turn the last and Y takes it back; on Place the d-pad or
+    /// stick slides the cross. Nothing else moves.
     pub(super) fn photo(&mut self, input: &Input, dt: f32, sounds: &mut Vec<Sfx>, flow: &mut Flow) {
-        let (focus, yaw) = (self.focus(), self.view_yaw);
+        let (focus, yaw, pos, size) = (self.focus(), self.view_yaw, self.pos, [self.map.width_px(), self.map.height_px()]);
+        let keep = |at| within(at, pos, size);
         let Some(p) = &mut self.photo else { return };
         if input.pressed.any(Buttons::B | Buttons::START) {
             (self.view_yaw, self.zoom, self.lift) = (p.heading, 1.0, 0.0);
@@ -257,13 +286,14 @@ impl Harvest {
         }
         let posing = p.setting == Setting::Pose;
         let propping = p.setting == Setting::Props;
-        if propping && input.pressed.contains(Buttons::Y) {
+        let placing = p.setting == Setting::Place;
+        if (propping || placing) && input.pressed.contains(Buttons::Y) {
             p.props.pop();
             sounds.push(Sfx::Tick(0));
         }
         if input.pressed.contains(Buttons::R2) {
-            if propping {
-                p.drop_prop(focus, yaw);
+            if propping || placing {
+                p.drop_at_mark(focus, yaw, keep);
             } else if posing {
                 let next = self.next_zombie();
                 if let Some(p) = &mut self.photo {
@@ -284,6 +314,9 @@ impl Harvest {
         } else if let Some(p) = self.photo.as_mut().filter(|_| propping && !lifting) {
             let [x, y] = input.dir();
             p.handle_prop(x, -y * POSE_TURN * dt);
+            (steer.held, steer.stick) = (Buttons::NONE, [0.0; 2]);
+        } else if let Some(p) = self.photo.as_mut().filter(|_| placing && !lifting) {
+            p.slide_mark(input.dir(), dt, focus, yaw, keep);
             (steer.held, steer.stick) = (Buttons::NONE, [0.0; 2]);
         }
         let mut cam = Orbit { yaw: self.view_yaw, zoom: self.zoom, lift: self.lift };
@@ -342,6 +375,14 @@ impl Harvest {
         p.pushed = push;
     }
 
+    /// Where the next prop drops: ahead where the camera looks, or how far out the cross is.
+    fn placing(&self) -> String {
+        match self.photo.as_ref().and_then(|p| p.spot) {
+            Some(at) => format!("{:.0} tiles out", len(sub(at, self.pos)) / TILE),
+            None => "ahead".into(),
+        }
+    }
+
     /// The picked zombie's name, or "none".
     fn posing(&self) -> &str {
         let picked = self.photo.as_ref().and_then(|p| p.picked);
@@ -382,6 +423,13 @@ impl Harvest {
                 f.top.rect(sx - w / 2.0, sy - 18.0 + i as f32 * 6.0, w, 6.0, GUIDE);
             }
         }
+        let mark = matches!(p.setting, Setting::Props | Setting::Place).then(|| p.spot.unwrap_or(self.focus()));
+        if let Some(([sx, sy], _)) = mark.and_then(|at| view3d::to_screen(view_proj, at, 0.0)) {
+            // A cross on the ground where the next prop drops, kept at the edge of the picture when out of it.
+            let (sx, sy) = (sx.clamp(12.0, SCREEN_W - 12.0), sy.clamp(12.0, SCREEN_H - 12.0));
+            f.top.rect(sx - 12.0, sy - 2.0, 24.0, 4.0, GUIDE);
+            f.top.rect(sx - 2.0, sy - 12.0, 4.0, 24.0, GUIDE);
+        }
         let shoot = match (self.saves_photos, self.taps) {
             (true, true) => "R1 or tap: take a photo",
             (true, false) => "R1: take a photo",
@@ -392,10 +440,11 @@ impl Harvest {
             (Setting::Pose, Some(_)) => "Left / Right: turn it   Up / Down: step its frame   R2: next zombie",
             (Setting::Pose, None) => "R2: pick the zombie nearest the middle   Left / Right: turn   Up / Down: zoom",
             (Setting::Props, _) if p.prop == p.choices.len() => "R2 or Y: take back the last prop   Left / Right: choose a prop",
-            (Setting::Props, _) => "R2: drop it ahead   Left / Right: choose   Up / Down: turn it   Y: take back",
+            (Setting::Props, _) => "R2: drop on the cross   Left / Right: choose   Up / Down: turn   Y: take back",
+            (Setting::Place, _) => "Left / Right / Up / Down: move the cross   R2: drop it there   Y: take back",
             _ => "Left / Right: turn   Up / Down: zoom   L1 + Up / Down: height",
         };
-        let [settings, more] = p.settings_lines(self.posing());
+        let [settings, more] = p.settings_lines(self.posing(), &self.placing());
         let lines = ["PHOTO MODE".to_string(), keys.into(), settings, more, format!("L2: choose  R2: change   {shoot}   B or Start: back")];
         // On one screen the help goes over the picture, where the guides already are.
         let (c, y) = if self.single { (&mut f.top, SCREEN_H - 184.0) } else { (&mut f.bottom, 40.0) };
@@ -404,6 +453,13 @@ impl Harvest {
             c.label(line.as_str(), SCREEN_W / 2.0, y + i as f32 * 32.0, 26.0, if i == 0 { GUIDE } else { HELP }, Align::Center);
         }
     }
+}
+
+/// `at` held within PLACE_REACH of `pos` and half a tile inside a map `size` pixels across and down.
+fn within(at: [f32; 2], pos: [f32; 2], size: [f32; 2]) -> [f32; 2] {
+    let off = sub(at, pos);
+    let off = if len(off) > PLACE_REACH { norm(off).map(|v| v * PLACE_REACH) } else { off };
+    [0, 1].map(|k| (pos[k] + off[k]).clamp(TILE / 2.0, (size[k] - TILE / 2.0).max(TILE / 2.0)))
 }
 
 /// A square outline two pixels thick.
@@ -511,6 +567,8 @@ mod tests {
         assert_eq!(p(&h).0, Setting::Pose);
         press(&mut h, Buttons::L2);
         assert_eq!(p(&h).0, Setting::Props);
+        press(&mut h, Buttons::L2);
+        assert_eq!(p(&h).0, Setting::Place);
         press(&mut h, Buttons::L2);
         assert_eq!(p(&h).0, Setting::Time, "and L2 comes back round to the time");
     }
@@ -726,6 +784,97 @@ mod tests {
             let middle = cards.iter().flat_map(|c| c.corners).sum::<glam::Vec3>() / (cards.len() * 4) as f32;
             assert!((middle.x - 2.0).abs() < 1.0 && (middle.z - 2.0).abs() < 1.0, "{name} stands round where it was dropped: {middle}");
         }
+    }
+
+    /// Photo mode on the Place setting.
+    fn placing(seed: u64) -> Harvest {
+        let mut h = propping(seed);
+        press(&mut h, Buttons::L2);
+        assert_eq!(h.photo.as_ref().unwrap().setting, Setting::Place);
+        h
+    }
+
+    fn spot(h: &Harvest) -> Option<[f32; 2]> {
+        h.photo.as_ref().unwrap().spot
+    }
+
+    #[test]
+    fn on_place_the_pad_slides_the_cross_and_r2_drops_there() {
+        let mut h = placing(17);
+        let (focus, yaw, zoom) = (h.focus(), h.view_yaw, h.zoom);
+        assert!(help(&h).contains("[Place: ahead]") && help(&h).contains("move the cross"), "{}", help(&h));
+        hold(&mut h, Buttons::UP, 20);
+        let ahead = spot(&h).unwrap();
+        assert!(len(sub(ahead, h.pos)) > len(sub(focus, h.pos)) + TILE, "Up slides it away from the camera: {ahead:?}");
+        assert_eq!((h.view_yaw, h.zoom), (yaw, zoom), "and moves no camera");
+        hold(&mut h, Buttons::RIGHT, 20);
+        let right = sub(spot(&h).unwrap(), ahead);
+        assert!((right[0] * yaw.cos() + right[1] * yaw.sin()).abs() < 1.0 && right[1] * yaw.cos() - right[0] * yaw.sin() > TILE, "Right slides it to the camera's right: {right:?}");
+        let at = spot(&h).unwrap();
+        press(&mut h, Buttons::R2);
+        assert_eq!(dropped(&h)[0].at, at, "R2 drops the prop on the cross");
+        assert!(help(&h).contains("tiles out]"), "{}", help(&h));
+    }
+
+    #[test]
+    fn props_dropped_one_after_another_stand_apart() {
+        let mut h = propping(18);
+        for _ in 0..4 {
+            press(&mut h, Buttons::R2);
+        }
+        let at: Vec<[f32; 2]> = dropped(&h).iter().map(|d| d.at).collect();
+        assert_eq!(at[0], h.focus(), "the first drops where the camera looks");
+        for (i, a) in at.iter().enumerate() {
+            assert!(at[..i].iter().all(|b| len(sub(*a, *b)) >= TILE), "each stands clear of those before it: {at:?}");
+        }
+    }
+
+    #[test]
+    fn the_cross_stays_near_the_player_and_on_the_map() {
+        let mut h = placing(19);
+        let size = [h.map.width_px(), h.map.height_px()];
+        for held in [Buttons::UP, Buttons::DOWN, Buttons::LEFT, Buttons::RIGHT] {
+            hold(&mut h, held, 600);
+            let [x, y] = spot(&h).unwrap();
+            assert!(len(sub([x, y], h.pos)) <= PLACE_REACH + 0.01, "{held:?}: {x}, {y}");
+            assert!((0.0..size[0]).contains(&x) && (0.0..size[1]).contains(&y), "{held:?}: {x}, {y}");
+        }
+        assert_eq!(within([-500.0, -500.0], [10.0, 10.0], size), [TILE / 2.0; 2]);
+    }
+
+    #[test]
+    fn a_touch_screen_slides_the_cross_with_the_stick_and_the_strip_still_turns() {
+        let mut h = placing(20);
+        let yaw = h.view_yaw;
+        for _ in 0..20 {
+            h.update(&Input { stick: [0.0, -1.0], look: 1.0, ..Default::default() }, DT, &mut Vec::new());
+        }
+        assert!(spot(&h).is_some(), "the stick slides the cross");
+        assert!(h.view_yaw != yaw, "and the turn strip turns the camera");
+        press(&mut h, Buttons::R2);
+        assert_eq!(dropped(&h).len(), 1, "the Map key drops it");
+    }
+
+    /// Whether each cell's middle blocks the player.
+    fn blocked(h: &Harvest) -> Vec<bool> {
+        (0..h.map.w * h.map.h).map(|i| h.map.hits(((i % h.map.w) as f32 + 0.5) * TILE, ((i / h.map.w) as f32 + 0.5) * TILE, [1.0; 2])).collect()
+    }
+
+    #[test]
+    fn leaving_after_placing_props_leaves_the_run_as_it_was() {
+        let mut h = placing(21);
+        let (t, pos, hp, heading) = (h.t, h.pos, h.hp, h.photo.as_ref().unwrap().heading);
+        let (map, solid) = (h.map.props.iter().map(|p| (p.x, p.y)).collect::<Vec<_>>(), blocked(&h));
+        hold(&mut h, Buttons::UP | Buttons::RIGHT, 30);
+        for _ in 0..3 {
+            press(&mut h, Buttons::R2);
+        }
+        press(&mut h, Buttons::B);
+        assert_eq!((h.t, h.pos, h.hp, h.view_yaw, h.zoom, h.lift), (t, pos, hp, heading, 1.0, 0.0));
+        assert_eq!(h.map.props.iter().map(|p| (p.x, p.y)).collect::<Vec<_>>(), map, "the run's map never gets them");
+        assert_eq!(blocked(&h), solid, "nor anything blocked where they stood");
+        press(&mut h, Buttons::A);
+        assert_eq!((spot(&h), dropped(&h).len()), (None, 0), "and photo mode opens with the cross ahead again");
     }
 
     #[test]
