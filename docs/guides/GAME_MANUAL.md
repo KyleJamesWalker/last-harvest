@@ -550,7 +550,7 @@ The palette is PICO-8's 32 colors. The previews show your card on a plain floor,
 
 Hurt and Kill play a hit or the game's death on the figure in the previews.
 
-**Detail** - and + redraw a card's frames 2x finer or coarser, so the figure keeps its size in the game. Going finer copies each pixel into a block to paint over; going coarser keeps each block's most common color, and Undo brings the detail back.
+**Detail** - and + redraw a card's or prop's frames 2x finer or coarser, so it keeps its size in the game. A prop's views, footprint, top and north and west drawings go finer or coarser with them. Going finer copies each pixel into a block to paint over; going coarser keeps each block's most common color, and Undo brings the detail back.
 
 On a player card's walking parts, **Grenade** (`W`) places where the player wears a ready grenade. The first click sets every frame; later clicks set the frame on show, and Shift-click sets every frame again. **Hide** leaves it off that facing. **Grenade: shown** in the 3D view hides it in the previews only.
 

@@ -336,7 +336,7 @@ A pixel editor for the game's sprites, on macOS. The left pane lists every sprit
 | Search the sprite list | /, then type; Enter opens the first match and keeps the filter, Esc clears it |
 | Mirror strokes left to right | M |
 | See the previous frame faintly under this one | O, or Onion |
-| Draw a figure or a card with finer pixels at the same size in the game | Detail - and +, beside a figure's or card's stand: each step redraws the frames 2x finer or coarser, so the sprite keeps its size; going coarser keeps each block's most common color, and Undo brings the detail back |
+| Draw a sprite, card or prop with finer pixels at the same size in the game | Detail - and +, under the palette: each step redraws the frames, views, footprint, top and north and west drawings 2x finer or coarser, so the sprite keeps its size; going coarser keeps each block's most common color, and Undo brings the detail back |
 | Place where a player's walking frame wears a ready grenade | W, or Grenade, on `PLAYER_FRONT`, `_SIDE` and `_BACK` or a player card's walking part, then click; the first click sets every frame, a later one only the frame on show, and Shift-click every frame again. Hide leaves it off that facing. Grenade: shown, under Player: shown, hides it in the previews only |
 | Compare the sprite with its family, such as `KID_FRONT`, `KID_SIDE` and `KID_HURT`, side by side | C, or Compare; tap another to open it |
 | Draw a figure's flash, hurt or dead frames from its walk, such as `SKINNY_DEAD` from `SKINNY_FRONT`, `_SIDE` and `_BACK` | Generate, on a `_FLASH`, `_HURT` or `_DEAD` sprite; a `<KIND>_DEAD` sprite of three frames gives that kind its own corpse |

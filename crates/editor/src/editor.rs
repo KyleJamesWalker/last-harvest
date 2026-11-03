@@ -62,8 +62,10 @@ const OPTIONAL: [usize; 5] = [FOOTPRINT, TOP, ROOF, NORTH, WEST];
 const FIGURE: u8 = 2;
 /// The row of the side pane that places a player's grenade, free beside a figure's stands or a card's Hurt and Kill.
 const GRENADE_Y: f32 = 640.0;
-/// The row under it that sets a figure's detail, where a prop sets its fold or float.
-const DETAIL_Y: f32 = 672.0;
+/// The row that sets a sprite's detail, under the palette and over its stand.
+const DETAIL_Y: f32 = 508.0;
+/// Rows of swatches a sprite's palette shows, above the detail row.
+const PALETTE_ROWS: usize = 8;
 const DIALOG: Rect = Rect { x: 212.0, y: 250.0, w: 600.0, h: 230.0 };
 /// The unsaved-changes dialog's choices: save then switch, discard then switch, or stay.
 const CHOICES: [(&str, Choice); 3] = [("Save and switch  S", Choice::Save), ("Discard  D", Choice::Discard), ("Stay  Esc", Choice::Stay)];
@@ -490,7 +492,7 @@ pub struct Editor {
     /// The data page section that says how the open sprite plays, found when it opens.
     data_link: Option<String>,
     /// Players' props packed for the previews while a map is open, in order: their fields and frame counts.
-    map_props: Vec<(last_harvest_game::PropFields, usize, usize)>,
+    map_props: Vec<maps::MapProp>,
     playing: bool,
     clock: f32,
     /// An index into `STANDS`.
@@ -696,10 +698,11 @@ impl Editor {
         }
     }
 
-    /// How many columns of the frame on show hold a pixel: how thick it is seen from above.
+    /// How many game pixel columns of the frame on show hold a pixel: how thick it is seen from above.
     fn outline_width(&self) -> f32 {
-        let f = &self.sprite.frames[self.frame];
-        ((0..f.w as i32).filter(|&x| (0..f.h as i32).any(|y| f.get(x, y).is_some_and(|p| p[3] > 0))).count() as f32).max(1.0)
+        let (f, d) = (&self.sprite.frames[self.frame], self.sprite.detail as i32);
+        let filled = |x: i32| (0..f.h as i32).any(|y| f.get(x, y).is_some_and(|p| p[3] > 0));
+        ((0..(f.w as i32 + d - 1) / d).filter(|&b| (b * d..b * d + d).any(filled)).count() as f32).max(1.0)
     }
 
     /// Whether the sprite stands by its views, carved or turned, and has them.
@@ -866,8 +869,8 @@ impl Editor {
         self.view = None;
         let packed = last_harvest_game::art::ALL.iter().find(|(n, _)| *n == self.sprite.name).and_then(|(_, a)| a.first().copied());
         let open = self.open_prop_fields().map_or(0, |f| f.open);
-        let f = self.current();
-        self.depth = last_harvest_game::default_prop_depth(f.w as f32, f.h as f32, packed, open);
+        let (f, d) = (self.current(), self.sprite.detail as f32);
+        self.depth = last_harvest_game::default_prop_depth(f.w as f32 / d, f.h as f32 / d, packed, open);
         self.height = 10.0;
         self.lift = 0.0;
         self.fold = 0.0;
@@ -1221,7 +1224,7 @@ impl Editor {
         }
         push(SIDE_X + 132.0, 289.0, 100.0, 24.0, Action::Ask(Ask::Palette), "Lospec", self.palette_name.is_some());
         let cols = (SIDE_W / SWATCH) as usize;
-        for (i, &c) in self.palette.iter().enumerate().take(cols * if self.is_prop() { PROP_PALETTE_ROWS } else { 9 }) {
+        for (i, &c) in self.palette.iter().enumerate().take(cols * if self.is_prop() { PROP_PALETTE_ROWS } else { PALETTE_ROWS }) {
             let (x, y) = (SIDE_X + (i % cols) as f32 * SWATCH, 316.0 + (i / cols) as f32 * SWATCH);
             push(x, y, SWATCH - 2.0, SWATCH - 2.0, Action::Color(c), "", self.color == c);
         }
@@ -2020,7 +2023,7 @@ impl Editor {
                     _ => self.view = None,
                 }
             }
-            Action::Depth(d) if self.stand == CARVE => self.resize_views(self.view_height() as i32 + d * step),
+            Action::Depth(d) if self.stand == CARVE => self.resize_views(self.view_height() as i32 + d * step * self.sprite.detail as i32),
             Action::Depth(_) if self.stand == 0 && self.fold > 0.0 => self.say("A folded prop is as deep as its roof: move the fold instead"),
             Action::Depth(d) => {
                 let size = if matches!(self.stand, 0 | TURNED) { &mut self.depth } else { &mut self.height };
@@ -2034,7 +2037,7 @@ impl Editor {
                 self.changed = true;
             }
             Action::Fold(d) => {
-                let rows = self.sprite.frames[self.frame].h as f32 - 1.0;
+                let rows = (self.sprite.frames[self.frame].h / self.sprite.detail as usize) as f32 - 1.0;
                 self.fold = (self.fold + (d * step) as f32).clamp(0.0, rows.max(0.0));
                 self.stand_touched = true;
                 self.changed = true;
@@ -2322,14 +2325,13 @@ impl Editor {
         farmer || (self.is_player_card() && sprite::card_part(&self.sprite.name).is_some_and(|(_, row)| row < 3))
     }
 
-    /// Whether the open sprite takes a detail: a figure or a card's part, its frames on show.
+    /// Whether the open sprite takes a detail: any sprite, its frames on show.
     fn takes_detail(&self) -> bool {
-        let figure = self.is_card() || (self.stand == FIGURE && !self.is_prop() && self.sprite.views.is_none());
-        figure && !self.none_open() && self.view.is_none() && !self.stats && !self.coats_page && self.map.is_none() && self.data.is_none()
+        !self.none_open() && self.view.is_none() && !self.stats && !self.coats_page && self.map.is_none() && self.data.is_none()
     }
 
-    /// Steps the detail down or up, redrawing the frames, top strip and grenade spots so the sprite keeps its size in
-    /// the game: up copies each pixel into a block to paint over, down keeps each block's most common color.
+    /// Steps the detail down or up, redrawing the frames, views, top strip and grenade spots so the sprite keeps its
+    /// size in the game: up copies each pixel into a block to paint over, down keeps each block's most common color.
     fn step_detail(&mut self, by: i32) {
         let (from, at) = (self.sprite.detail, art::DETAILS.iter().position(|&d| d == self.sprite.detail).unwrap_or(0));
         let to = art::DETAILS[(at as i32 + by).clamp(0, art::DETAILS.len() as i32 - 1) as usize];
@@ -2344,6 +2346,11 @@ impl Editor {
             let wider = top.redetailed(from, to);
             *top = Frame { w: wider.w, h: 1, px: wider.px[..wider.w].to_vec() };
         }
+        let s = &mut self.sprite;
+        for f in s.views.iter_mut().flatten().chain([&mut s.footprint, &mut s.roof, &mut s.north, &mut s.west].into_iter().flatten()) {
+            *f = f.redetailed(from, to);
+        }
+        self.trimmed = Default::default();
         self.sprite.worn = sprite::redetailed_worn(&self.sprite.worn, from, to);
         self.sprite.detail = to;
         self.selection = None;
@@ -2357,9 +2364,13 @@ impl Editor {
         });
     }
 
-    /// The live sprites' details, by place, for the previews: all of a figure's pictures share its detail.
+    /// The live sprites' details, by place, for the previews: all of a sprite's pictures share its detail, and a map's
+    /// props each their own.
     pub fn live_detail(&self) -> Vec<u8> {
-        let shows = self.sprite.detail > 1 && self.map.is_none() && self.data.is_none();
+        if self.map.is_some() {
+            return self.map_props.iter().flat_map(|(f, n, copies, d)| std::iter::repeat_n(*d, (n + copies) * f.paint.copies())).collect();
+        }
+        let shows = self.sprite.detail > 1 && self.data.is_none();
         if shows { vec![self.sprite.detail; self.live.len()] } else { Vec::new() }
     }
 
@@ -2822,7 +2833,7 @@ impl Editor {
                 c.label(format!("Height {} px", self.height), SIDE_X, 645.0, 18.0, TEXT, Align::Left);
                 c.label(format!("Float {} px", self.lift), SIDE_X, 676.0, 18.0, TEXT, Align::Left);
             }
-            CARVE => c.label(format!("Height {} px", self.view_height()), SIDE_X, 645.0, 18.0, TEXT, Align::Left),
+            CARVE => c.label(format!("Height {} px", self.view_height() / self.sprite.detail as usize), SIDE_X, 645.0, 18.0, TEXT, Align::Left),
             TURNED => c.label(format!("Depth {} px", self.depth), SIDE_X, 645.0, 18.0, TEXT, Align::Left),
             _ => {}
         }
@@ -3011,7 +3022,7 @@ impl Editor {
             clip(c, o[0] + w / 2.0 - 1.0, o[1], 2.0, h, [0.4, 0.8, 1.0, 0.5]);
         }
         let d = self.sprite.detail as usize;
-        if d > 1 && self.view.is_none() {
+        if d > 1 && self.view != Some(TOP) {
             // The game's pixels, and the blocks only partly filled.
             let line = [1.0, 1.0, 1.0, 0.25];
             for x in (0..=f.w).step_by(d) {
@@ -3633,8 +3644,8 @@ mod tests {
         assert_eq!(e.sprite.detail, 1, "1 is the least");
         e.act(Action::Save, false);
         assert!(!dir.join("sprites/PLAYER_SIDE/detail.txt").exists(), "detail 1 needs no file");
-        e.switch_to("BARREL".into());
-        assert!(!e.takes_detail() && !e.buttons().iter().any(|b| matches!(b.action, Action::Detail(_))), "props keep detail 1 for now");
+        e.view = Some(0);
+        assert!(!e.takes_detail() && !e.buttons().iter().any(|b| matches!(b.action, Action::Detail(_))), "only with the frames on show");
     }
 
     #[test]
@@ -4850,6 +4861,34 @@ mod tests {
         e.act(Action::Hp(-1), true);
         e.act(Action::Hp(-1), true);
         assert_eq!(e.open_prop_fields().unwrap().hp, 0.0, "no lower than none");
+    }
+
+    #[test]
+    fn a_props_detail_redraws_its_views_with_its_frames_and_saves_in_its_png() {
+        let dir = tmp().join("detail-prop");
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut e = Editor::new(Box::new(FsStore { dir: dir.join("sprites"), catalog: dir.join("art.txt"), cards: dir.join("enemies") }), "BARREL");
+        e.act(Action::Ask(Ask::New), false);
+        type_in(&mut e, "prop tank");
+        e.key(Key::Enter);
+        e.act(Action::Stand(CARVE), false);
+        e.act(Action::AddView(FOOTPRINT), false);
+        e.act(Action::AddView(WEST), false);
+        e.view = None;
+        let sizes = |e: &Editor| {
+            let s = &e.sprite;
+            [&s.frames[0], &s.views.as_ref().unwrap()[0], &s.views.as_ref().unwrap()[1], s.footprint.as_ref().unwrap(), s.west.as_ref().unwrap()].map(|f| (f.w, f.h))
+        };
+        let plain = sizes(&e);
+        assert!(e.takes_detail());
+        buttons_fit(&e);
+        e.act(Action::Detail(1), false);
+        assert_eq!(sizes(&e), plain.map(|(w, h)| (w * 2, h * 2)), "every picture goes finer together");
+        e.act(Action::Save, false);
+        let saved = last_harvest_pack::prop::read("t", &std::fs::read(dir.join("props/tank.prop.png")).unwrap()).unwrap();
+        assert_eq!((saved.detail, saved.frame), (2, [plain[0].0 as u32 * 2, plain[0].1 as u32 * 2]));
+        let again = Editor::new(Box::new(FsStore { dir: dir.join("sprites"), catalog: dir.join("art.txt"), cards: dir.join("enemies") }), "PROP_TANK");
+        assert_eq!((again.sprite.detail, sizes(&again)), (2, sizes(&e)));
     }
 
     #[test]

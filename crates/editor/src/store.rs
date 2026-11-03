@@ -118,9 +118,9 @@ pub mod props {
         format!("{}{}", last_harvest_game::PROP_PREFIX, id.to_ascii_uppercase())
     }
 
-    /// A prop's pictures as the editor's frames: its text, its frames, its south and east views, and the optional
-    /// pictures it has, by the file each saves as.
-    type Pictures = (String, Vec<Frame>, Option<[Frame; 2]>, Vec<(&'static str, Frame)>);
+    /// A prop's pictures as the editor's frames: its text, its frames, its south and east views, the optional
+    /// pictures it has, by the file each saves as, and its detail.
+    type Pictures = (String, Vec<Frame>, Option<[Frame; 2]>, Vec<(&'static str, Frame)>, u8);
 
     fn pictures(bytes: &[u8]) -> Option<Pictures> {
         let p = prop::read("prop", bytes).ok()?;
@@ -143,14 +143,17 @@ pub mod props {
         ];
         let optional = optional.into_iter().filter(|(on, ..)| carving && *on).map(|(_, file, r)| (file, cut(r))).collect();
         let views = carving.then(|| [cut([0, fh, fw, vh]), cut([fw, fh, fh, vh])]);
-        Some((p.text, frames, views, optional))
+        Some((p.text, frames, views, optional, p.detail))
     }
 
     /// A file of a prop's sprite, as `Store::read` hands it out: a frame, a view, or its text.
     pub fn file(bytes: &[u8], file: &str) -> Option<Vec<u8>> {
-        let (text, frames, views, optional) = pictures(bytes)?;
+        let (text, frames, views, optional, detail) = pictures(bytes)?;
         if file == sprite::CARD_FILE {
             return Some(text.into_bytes());
+        }
+        if file == sprite::DETAIL_FILE {
+            return (detail > 1).then(|| format!("{detail}\n").into_bytes());
         }
         if let Some((_, f)) = optional.iter().find(|(n, _)| *n == file) {
             return Some(sprite::encode_png(f));
@@ -227,7 +230,7 @@ pub mod props {
         if let Some(f) = west {
             put(f, w + h + north.map_or(0, |_| w), h);
         }
-        prop::write(&last_harvest_game::prop_text(&fields), sw as u32, (h + vh) as u32, &sheet)
+        prop::write_at(&last_harvest_game::prop_text(&fields), sprite.detail, sw as u32, (h + vh) as u32, &sheet)
     }
 
     /// The prop with its stand set from how the editor writes one; carving and turning need the views saved first.
@@ -241,7 +244,7 @@ pub mod props {
         }
         (fields.stand, fields.by_views) = (stand.stand, stand.by_views);
         let [fw, fh] = p.frame;
-        prop::write(&last_harvest_game::prop_text(&fields), fields.sheet_w(fw, fh), fh + fields.views, &p.sheet)
+        prop::write_at(&last_harvest_game::prop_text(&fields), p.detail, fields.sheet_w(fw, fh), fh + fields.views, &p.sheet)
     }
 
     pub fn blank(id: &str) -> last_harvest_game::PropFields {
