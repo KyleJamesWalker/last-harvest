@@ -206,6 +206,11 @@ impl Harvest {
         self.saves_photos = on;
     }
 
+    /// Whether the screen takes taps, so the guides offer them.
+    pub fn set_taps(&mut self, on: bool) {
+        self.taps = on;
+    }
+
     /// Left and Right turn round the player, Up and Down zoom, and with L1 held raise or lower the camera; L2 chooses
     /// a setting and R2 changes it; R1 or a tap asks for a capture, and B or Start goes back to the pause menu.
     /// Posing, R2 picks a zombie, and Left and Right turn it and Up and Down step its frame. With props, R2 drops one
@@ -355,7 +360,12 @@ impl Harvest {
                 f.top.rect(sx - w / 2.0, sy - 18.0 + i as f32 * 6.0, w, 6.0, GUIDE);
             }
         }
-        let shoot = if self.saves_photos { "R1 or tap: take a photo" } else { "R1 or tap: hide these guides" };
+        let shoot = match (self.saves_photos, self.taps) {
+            (true, true) => "R1 or tap: take a photo",
+            (true, false) => "R1: take a photo",
+            (false, true) => "R1 or tap: hide these guides",
+            (false, false) => "R1: hide these guides",
+        };
         let keys = match (p.setting, picked) {
             (Setting::Pose, Some(_)) => "Left / Right: turn it   Up / Down: step its frame   R2: next zombie",
             (Setting::Pose, None) => "R2: pick the zombie nearest the middle   Left / Right: turn   Up / Down: zoom",

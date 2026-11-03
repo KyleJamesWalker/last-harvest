@@ -752,6 +752,7 @@ pub struct Harvest {
     touch_map: bool,
     photo: Option<photo::Photo>,
     saves_photos: bool,
+    taps: bool,
 }
 
 /// Weapons and passives unlocked so far, out of all of them, and how many are waiting to be found.
@@ -950,6 +951,7 @@ impl Harvest {
             touch_map: false,
             photo: None,
             saves_photos: false,
+            taps: true,
         }
         .with_birds()
     }

@@ -515,6 +515,7 @@ impl Game {
                     h.set_touch_aim(self.save.touch_grenades && self.has_touch());
                 }
                 h.set_saves_photos(self.captures);
+                h.set_taps(self.phone.is_none() || self.touch_screen());
                 let flow = h.update(input, dt, &mut self.sounds);
                 if flow.capture && self.captures {
                     self.shot = true;
@@ -906,6 +907,20 @@ mod tests {
         press(&mut game, Buttons::A);
         let phone = game.draw().phone.unwrap();
         assert!(phone.top.is_none() && phone.bottom.is_some(), "Settings shows full size");
+    }
+
+    #[test]
+    fn the_pause_menu_offers_taps_only_where_the_screen_takes_them() {
+        for (touch, taps) in [(false, false), (true, true)] {
+            let mut game = Game::new(1);
+            game.set_phone(Some([640.0, 480.0]));
+            game.set_touch(touch);
+            press(&mut game, Buttons::A);
+            press(&mut game, Buttons::START);
+            let f = game.draw();
+            let shown = f.top.shapes.iter().chain(&f.bottom.shapes).any(|s| matches!(s, Shape::Text { text, .. } if text.contains("tap")));
+            assert_eq!(shown, taps, "touch {touch}");
+        }
     }
 
     #[test]

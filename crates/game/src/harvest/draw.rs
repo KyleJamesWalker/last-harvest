@@ -60,7 +60,8 @@ impl Harvest {
         if let Phase::LevelUp { choices, selected, t, picked } = &self.phase {
             let fade = picked.map_or(1.0, |p| 1.0 - p / PICK_TIME);
             c.rect(0.0, 0.0, SCREEN_W, SCREEN_H, [0.0, 0.0, 0.0, 0.6 * (t / 0.2).min(1.0) * fade]);
-            c.label("Tap an upgrade, or Up / Down and X", SCREEN_W / 2.0, 60.0, 32.0, [1.0, 1.0, 1.0, fade], Align::Center);
+            let how = if self.taps { "Tap an upgrade, or Up / Down and X" } else { "Up / Down and X: choose an upgrade" };
+            c.label(how, SCREEN_W / 2.0, 60.0, 32.0, [1.0, 1.0, 1.0, fade], Align::Center);
             self.choices(c, choices, *selected, *t, *picked, CHOICE_TOP);
         }
     }
@@ -534,7 +535,8 @@ impl Harvest {
     fn paused_bottom(&self, c: &mut Canvas) {
         let Some(at) = self.menu else { return };
         c.rect(0.0, 0.0, SCREEN_W, SCREEN_H, [0.0, 0.0, 0.0, 0.6]);
-        c.label("Start or B: resume.   Up / Down and A, or tap", SCREEN_W / 2.0, 60.0, 32.0, WHITE, Align::Center);
+        let how = if self.taps { "Start or B: resume.   Up / Down and A, or tap" } else { "Start or B: resume.   Up / Down and A" };
+        c.label(how, SCREEN_W / 2.0, 60.0, 32.0, WHITE, Align::Center);
         for (i, name) in PAUSE_CHOICES.iter().enumerate() {
             let (x, y, w, h) = (212.0, CHOICE_TOP + i as f32 * PAUSE_ROW, 600.0, PAUSE_ROW - 20.0);
             let on = i == at;
