@@ -4,7 +4,7 @@ use super::*;
 use last_harvest_pack::card;
 
 /// The spawn mix chart under the stats: its plot, then the legend beside it.
-const MIX: Rect = Rect { x: CANVAS.x + 20.0, y: CANVAS.y + 392.0, w: 370.0, h: 132.0 };
+const MIX: Rect = Rect { x: CANVAS.x + 20.0, y: CANVAS.y + 400.0, w: 370.0, h: 124.0 };
 const MIX_STEPS: usize = 40;
 /// Kinds' colors in the spawn mix chart, in roster order; the open card's is `HOT`.
 const MIX_COLORS: [Color; 6] = [[0.55, 0.62, 0.78, 1.0], [0.5, 0.75, 0.55, 1.0], [0.78, 0.5, 0.62, 1.0], [0.62, 0.55, 0.85, 1.0], [0.45, 0.7, 0.75, 1.0], [0.75, 0.68, 0.5, 1.0]];

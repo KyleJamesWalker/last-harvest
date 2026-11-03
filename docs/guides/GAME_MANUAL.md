@@ -561,6 +561,7 @@ For an enemy card, it steps each number with - and +, ten times as far with Shif
 - Health, Speed, Bite, Money, Weight and Gibs.
 - Arrives after (minutes), Chance and Chance per minute.
 - Charge, its speed near you as a multiple.
+- Spits from, in pixels, and Burrows after, in seconds up. 0 turns either off.
 
 Three toggles set Heavy, Leads hordes and Harvester. The page also shows the card's death sound. **Drop own**, beside it, removes the card's own sound.
 

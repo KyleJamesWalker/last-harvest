@@ -316,7 +316,7 @@ enum Action {
 }
 
 /// What each of a card's numbers is called on its stats page, and how far a press of - or + moves it.
-const STAT_ROWS: [(&str, f32); 10] = [
+const STAT_ROWS: [(&str, f32); 12] = [
     ("Health", 5.0),
     ("Speed", 1.0),
     ("Bite", 1.0),
@@ -327,11 +327,13 @@ const STAT_ROWS: [(&str, f32); 10] = [
     ("Chance", 0.01),
     ("Chance per minute", 0.005),
     ("Charge (times speed near you)", 0.1),
+    ("Spits from (pixels, 0 bites)", 5.0),
+    ("Burrows after (seconds up)", 1.0),
 ];
 const FLAG_NAMES: [&str; 3] = ["Heavy", "Leads hordes", "Harvester"];
 const STAT_TOP: f32 = CANVAS.y + 100.0;
-const STAT_ROW: f32 = 22.0;
-const STAT_BUTTON: f32 = 20.0;
+const STAT_ROW: f32 = 20.0;
+const STAT_BUTTON: f32 = 18.0;
 const NAME_MAX: usize = 24;
 const DELETE_CONFIRM: f32 = 3.0;
 /// A player card's stats: a block per difficulty with its weapon toggles, five across.
@@ -1188,7 +1190,7 @@ impl Editor {
             let fields = self.sprite.card.as_deref().and_then(|t| last_harvest_game::card_fields(t).ok());
             for (i, name) in FLAG_NAMES.into_iter().enumerate() {
                 let on = fields.as_ref().is_some_and(|f| f.flags[i].1);
-                push(CANVAS.x + 20.0 + i as f32 * 176.0, y + 32.0, 168.0, 28.0, Action::Flag(i), name, on);
+                push(CANVAS.x + 20.0 + i as f32 * 176.0, y + 26.0, 168.0, 24.0, Action::Flag(i), name, on);
             }
         }
         let header = [(Action::Ask(Ask::New), "New"), (Action::Ask(Ask::Copy), "Copy"), (Action::History, "History R"), (Action::Revert, "Revert"), (Action::Save, "Save")];
@@ -3476,6 +3478,11 @@ mod tests {
         e.act(Action::StatStep(1, 1), true);
         e.act(Action::StatStep(9, 1), false);
         assert_eq!(last_harvest_game::card_fields(e.sprite.card.as_deref().unwrap()).unwrap().numbers[9], ("charge", 1.1));
+        e.act(Action::StatStep(10, 1), true);
+        e.act(Action::StatStep(11, 1), false);
+        let f = last_harvest_game::card_fields(e.sprite.card.as_deref().unwrap()).unwrap();
+        assert_eq!((f.numbers[10], f.numbers[11]), (("ranged", 50.0), ("burrow", 1.0)));
+        assert!(e.sprite.card.as_deref().unwrap().contains("ranged      50\nburrow      1\n"), "each a line of the card's text");
         e.act(Action::Flag(0), false);
         e.act(Action::EditName, false);
         for _ in 0..5 {
@@ -3498,6 +3505,7 @@ mod tests {
         let f = last_harvest_game::card_fields(&saved.text).unwrap();
         assert_eq!((f.id.as_str(), f.name.as_str(), f.about.as_str()), ("ghoul", "Bog Ghoul", "Wet and slow, but it never gives up."));
         assert_eq!((f.numbers[0].1, f.numbers[1].1, f.flags[0].1), (15.0, 30.0, true), "health 10 + 5, speed 20 + 10, heavy");
+        assert_eq!((f.numbers[10].1, f.numbers[11].1), (50.0, 1.0), "it spits and burrows once saved");
         assert_eq!(saved.frame, [16, 16]);
         let side = Editor::new(Box::new(store()), "CARD_GHOUL_SIDE");
         assert_eq!(side.sprite.frames[0].get(0, 0), Some(e.color), "the pixel landed in the side row");
