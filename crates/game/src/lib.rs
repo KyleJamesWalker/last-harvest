@@ -360,7 +360,7 @@ impl Game {
     }
 
     /// The title's main page on one screen without touch: the top screen with the menu over it, smaller.
-    fn title_on_one(&self) -> bool {
+    pub(crate) fn title_on_one(&self) -> bool {
         self.phone.is_some() && !self.has_touch() && matches!(self.state, State::Title) && self.page == Page::Main
     }
 
@@ -906,6 +906,25 @@ mod tests {
         press(&mut game, Buttons::A);
         let phone = game.draw().phone.unwrap();
         assert!(phone.top.is_none() && phone.bottom.is_some(), "Settings shows full size");
+    }
+
+    #[test]
+    fn the_title_over_the_picture_names_the_pad_keys_in_type_a_handheld_can_read() {
+        let size = [640.0, 480.0];
+        let mut game = Game::new(1);
+        game.set_phone(Some(size));
+        game.set_touch(false);
+        let f = game.draw();
+        let k = size[1] / SCREEN_H;
+        let texts: Vec<_> = f.top.shapes.iter().filter_map(|s| if let Shape::Text { text, size, x, .. } = s { Some((text.clone(), *size, *x)) } else { None }).collect();
+        let help: Vec<_> = texts.iter().filter(|(t, ..)| t.contains("turn around") || t.contains("L2")).collect();
+        assert_eq!(help.len(), 2, "two lines of keys: {texts:?}");
+        assert!(texts.iter().all(|(t, ..)| !t.contains("Tap")), "no taps without touch");
+        for (text, px, x) in help {
+            assert!(px * k >= 12.0, "{text}: {} window pixels high", px * k);
+            let half = text.chars().count() as f32 * 0.56 * px / 2.0;
+            assert!(x - half >= 0.0 && x + half <= SCREEN_W, "{text}: runs off the screen");
+        }
     }
 
     #[test]
