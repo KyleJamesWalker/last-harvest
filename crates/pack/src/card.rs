@@ -19,6 +19,11 @@ const ROWS_KEYWORD: &str = "last-harvest-rows";
 /// Where a player card wears its ready grenade, as `worn::parse_card` reads it. Its own chunk, so a game from before
 /// it reads the card all the same.
 const WORN_KEYWORD: &str = "last-harvest-worn";
+/// An enemy card's own death sound, an Ogg or WAV file whole: a private ancillary chunk, so a game from before it
+/// reads the card all the same.
+const SOUND_CHUNK: [u8; 4] = *b"lhSd";
+/// The biggest death sound a card may carry. Checked before reading it, since a card may come from anyone.
+pub const MAX_SOUND: usize = 512 * 1024;
 /// What an enemy card's file name ends in: still a PNG, so it previews anywhere, but named as a card.
 pub const EXTENSION: &str = ".enemy.png";
 
@@ -168,9 +173,106 @@ pub fn write_as(kind: Kind, text: &str, worn: &str, detail: u8, w: u32, h: u32, 
     encode(kind.keyword(), text, w, h, (rows == 6).then_some("6"), worn, detail, sheet)
 }
 
+/// What a sound file is by its first bytes, `ogg` or `wav`; None for anything else.
+pub fn sound_kind(bytes: &[u8]) -> Option<&'static str> {
+    match bytes {
+        [b'O', b'g', b'g', b'S', ..] => Some("ogg"),
+        [b'R', b'I', b'F', b'F', _, _, _, _, b'W', b'A', b'V', b'E', ..] => Some("wav"),
+        _ => None,
+    }
+}
+
+/// A PNG's chunks after its signature, each whole: length, type, data and CRC.
+fn chunks(png: &[u8]) -> Result<Vec<&[u8]>, String> {
+    let (mut out, mut at) = (Vec::new(), png.get(..8).filter(|s| *s == b"\x89PNG\r\n\x1a\n").ok_or("not a PNG")?.len());
+    while at < png.len() {
+        let len = png.get(at..at + 4).map(|b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]) as usize).ok_or("the PNG is cut short")?;
+        let whole = png.get(at..at.saturating_add(len).saturating_add(12)).ok_or("the PNG is cut short")?;
+        out.push(whole);
+        at += whole.len();
+    }
+    Ok(out)
+}
+
+/// A card's own death sound, as its kind (`ogg` or `wav`) and bytes; None when it has none. One too big, damaged
+/// or not a sound is refused unread.
+pub fn sound(png: &[u8]) -> Result<Option<(&'static str, &[u8])>, String> {
+    let Some(whole) = chunks(png)?.into_iter().find(|c| c[4..8] == SOUND_CHUNK) else { return Ok(None) };
+    let data = &whole[8..whole.len() - 4];
+    if data.len() > MAX_SOUND {
+        return Err(format!("its death sound is {} KB, but a card's may be at most {} KB", data.len() / 1024, MAX_SOUND / 1024));
+    }
+    let (body, crc) = whole[4..].split_at(whole.len() - 8);
+    if crc32fast::hash(body).to_be_bytes() != crc {
+        return Err("its death sound is damaged".into());
+    }
+    sound_kind(data).map(|k| Some((k, data))).ok_or_else(|| "its death sound isn't an Ogg or WAV".into())
+}
+
+/// A card's PNG carrying `sound` as its own death sound in place of any it had, or none.
+pub fn with_sound(png: &[u8], sound: Option<&[u8]>) -> Result<Vec<u8>, String> {
+    if let Some(s) = sound {
+        sound_kind(s).ok_or("a death sound is an Ogg or WAV")?;
+        if s.len() > MAX_SOUND {
+            return Err(format!("a card's death sound may be at most {} KB", MAX_SOUND / 1024));
+        }
+    }
+    let mut out = png[..8].to_vec();
+    for whole in chunks(png)? {
+        if &whole[4..8] == b"IEND"
+            && let Some(s) = sound
+        {
+            let body = [&SOUND_CHUNK[..], s].concat();
+            out.extend((s.len() as u32).to_be_bytes());
+            out.extend(&body);
+            out.extend(crc32fast::hash(&body).to_be_bytes());
+        }
+        if whole[4..8] != SOUND_CHUNK {
+            out.extend(whole);
+        }
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An Ogg of `n` bytes, as far as its first bytes say.
+    fn ogg(n: usize) -> Vec<u8> {
+        [b"OggS".as_slice(), &vec![7; n - 4]].concat()
+    }
+
+    #[test]
+    fn a_card_carries_its_own_death_sound_and_an_older_reader_never_minds() {
+        let sheet = vec![9u8; 3 * 8 * 5 * 8 * 4];
+        let plain = write("[ghoul]\nsound kill-ghoul", 24, 40, &sheet).unwrap();
+        assert_eq!(sound(&plain), Ok(None));
+        let loud = with_sound(&plain, Some(&ogg(MAX_SOUND))).unwrap();
+        assert_eq!(sound(&loud), Ok(Some(("ogg", &ogg(MAX_SOUND)[..]))));
+        let card = read("ghoul.enemy.png", &loud).unwrap();
+        assert_eq!((card.text, card.sheet), ("[ghoul]\nsound kill-ghoul".to_string(), sheet), "a reader that knows nothing of the chunk reads the card as ever");
+        let wav = [b"RIFF\0\0\0\0WAVE".as_slice(), &[1; 20]].concat();
+        let swapped = with_sound(&loud, Some(&wav)).unwrap();
+        assert_eq!(sound(&swapped), Ok(Some(("wav", &wav[..]))), "a new sound replaces the old");
+        assert_eq!(with_sound(&swapped, None).unwrap(), plain, "and none leaves the card as it was");
+        assert!(with_sound(&plain, Some(b"ID3 mp3")).is_err());
+        assert!(with_sound(&plain, Some(&ogg(MAX_SOUND + 1))).is_err());
+    }
+
+    #[test]
+    fn a_death_sound_too_big_or_damaged_is_refused_unread() {
+        let plain = write("[a]", 3, 5, &[0; 3 * 5 * 4]).unwrap();
+        let big = ogg(MAX_SOUND + 1);
+        let body = [b"lhSd".as_slice(), &big].concat();
+        let iend = plain.len() - 12;
+        let sneaked = [&plain[..iend], &(big.len() as u32).to_be_bytes(), &body, &[0; 4], &plain[iend..]].concat();
+        assert!(sound(&sneaked).err().unwrap().contains("at most 512 KB"), "the size is refused before the CRC is even checked");
+        let mut damaged = with_sound(&plain, Some(&ogg(64))).unwrap();
+        damaged[iend + 20] ^= 1;
+        assert_eq!(sound(&damaged), Err("its death sound is damaged".into()));
+        assert!(sound(&plain[..plain.len() - 3]).is_err(), "a PNG cut short");
+    }
 
     #[test]
     fn a_card_round_trips_its_text_and_frames() {

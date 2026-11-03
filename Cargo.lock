@@ -836,6 +836,7 @@ dependencies = [
 name = "last-harvest-pack"
 version = "0.1.0"
 dependencies = [
+ "crc32fast",
  "flate2",
  "last-harvest-game",
  "png",
