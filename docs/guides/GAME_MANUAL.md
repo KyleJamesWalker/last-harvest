@@ -440,7 +440,7 @@ Each section names what an effect, swing or animal plays:
 
 A sprite that stands as a slab lies flat and turns with the swing. Anything else faces the camera. A section with a name of your own is a new effect a weapon can use.
 
-The `[colors]` section sets the particle colors: `blood`, `dark_blood`, `dirt`, `spark`, `ember`, `gold` and `firefly`. Each is red, green and blue from 0 to 1.
+The `[colors]` section sets the particle colors: `blood`, `dark_blood`, `dirt`, `spark`, `ember`, `gold` and `firefly`. Each is red, green and blue from 0 to 1. A zombie with its own `blood` bleeds that instead, and its `dark_blood` is as much darker.
 
 #### powerups.txt
 
@@ -511,6 +511,7 @@ Each `[id]` section is one kind of zombie:
 | `charge` | Times its speed once it gets near you. 1 when left out. |
 | `ranged` | How near it stops to spit at you, in pixels, up to 160. 0, a biter, when left out. |
 | `burrow` | Seconds it stays up before it tunnels again, up to 60. 0, never, when left out. |
+| `blood` | The color it bleeds, as `RRGGBB` such as `7AA062`. `effects.txt`'s `blood` when left out. |
 | `heavy` | A crit or hard hit roots it for a moment, and its death shakes the screen |
 | `leader` | A horde's leader, carrying the chest, is one of these |
 | `harvester` | Dawn's Harvester wears its sprites |

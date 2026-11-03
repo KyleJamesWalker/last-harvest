@@ -355,7 +355,8 @@ impl Harvest {
         for fx in &self.fx {
             let a = fx.frames[((fx.t * fx.fps) as usize).min(fx.frames.len() - 1)];
             let (sx, sy) = at(fx.pos[0], fx.pos[1]);
-            c.art_rotated(a, sx, sy, scale, fx.angle, lit);
+            let [r, g, b] = fx.tint;
+            c.art_rotated(a, sx, sy, scale, fx.angle, [lit[0] * r, lit[1] * g, lit[2] * b, lit[3]]);
         }
         for s in &self.swings {
             let (angle, r) = s.now();

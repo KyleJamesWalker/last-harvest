@@ -584,7 +584,7 @@ impl Editor {
             return Some(f);
         }
         let a = *self.live.get(i).filter(|_| self.built_in_still() == Some(5) && i < self.sprite.frames.len())?;
-        Some(last_harvest_game::Figure { stand: [a; 3], flash: [a; 3], hurt: [a; 3], dead: Some([a; 3]), gibs: 0 })
+        Some(last_harvest_game::Figure { stand: [a; 3], flash: [a; 3], hurt: [a; 3], dead: Some([a; 3]), gibs: 0, blood: None })
     }
 
     /// Draws the open still sprite's frames, one per facing, as the game draws a card's blank ones, to edit from.

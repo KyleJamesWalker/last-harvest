@@ -755,9 +755,10 @@ impl Editor {
         let (k, dead) = self.figure_at?;
         let a = self.live.get(k..k + cards::FIGURE_FRAMES)?;
         let three = |i: usize| [a[i], a[i + 1], a[i + 2]];
-        let gibs = self.sprite.card.as_deref().and_then(|t| last_harvest_game::card_fields(t).ok());
-        let gibs = gibs.and_then(|f| f.numbers.iter().find(|(k, _)| *k == "gibs").map(|(_, v)| *v as usize)).unwrap_or(9);
-        Some(last_harvest_game::Figure { stand: three(0), flash: three(3), hurt: three(6), dead: dead.then(|| three(9)), gibs })
+        let fields = self.sprite.card.as_deref().and_then(|t| last_harvest_game::card_fields(t).ok());
+        let gibs = fields.as_ref().and_then(|f| f.numbers.iter().find(|(k, _)| *k == "gibs").map(|(_, v)| *v as usize)).unwrap_or(9);
+        let blood = fields.and_then(|f| f.blood);
+        Some(last_harvest_game::Figure { stand: three(0), flash: three(3), hurt: three(6), dead: dead.then(|| three(9)), gibs, blood })
     }
 
     fn own_surfaces(&self) -> Vec<Frame> {

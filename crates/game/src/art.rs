@@ -249,6 +249,26 @@ impl Art {
     pub fn h(self) -> f32 {
         self.rect()[3] as f32 / self.detail() as f32
     }
+
+    /// The average color of its opaque pixels, red, green and blue from 0 to 1; None for an editor's live sprite.
+    pub fn mean(self) -> Option<[f32; 3]> {
+        if self.is_live() {
+            return None;
+        }
+        let [x, y, w, h] = self.rect().map(usize::from);
+        let px = pixels();
+        let (mut sum, mut n) = ([0.0f32; 3], 0.0f32);
+        for j in y..y + h {
+            for i in x..x + w {
+                let Some(p) = px.get((j * ATLAS_W as usize + i) * 4..(j * ATLAS_W as usize + i) * 4 + 4) else { continue };
+                if p[3] >= 128 {
+                    (0..3).for_each(|k| sum[k] += p[k] as f32 / 255.0);
+                    n += 1.0;
+                }
+            }
+        }
+        (n > 0.0).then(|| sum.map(|v| v / n))
+    }
 }
 
 include!(concat!(env!("OUT_DIR"), "/art_gen.rs"));

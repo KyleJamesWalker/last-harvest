@@ -392,6 +392,7 @@ pub enum Rumble {
 
 /// A ranged zombie's spit, flying straight at where the player stood.
 struct Spit {
+    kind: Kind,
     pos: [f32; 2],
     vel: [f32; 2],
     damage: f32,
@@ -561,11 +562,12 @@ struct Fx {
     pos: [f32; 2],
     angle: f32,
     t: f32,
+    tint: [f32; 3],
 }
 
 impl Fx {
     fn play(e: effects::Effect, pos: [f32; 2], angle: f32) -> Self {
-        Fx { frames: e.frames, fps: e.fps, pos, angle, t: 0.0 }
+        Fx { frames: e.frames, fps: e.fps, pos, angle, t: 0.0, tint: [1.0; 3] }
     }
 
     fn done(&self) -> bool {
@@ -1699,7 +1701,7 @@ impl Harvest {
                 z.cd = t.spit_every.max(0.1);
                 let fly = t.spit_speed.max(1.0);
                 let pos = [z.pos[0], z.pos[1] - 6.0];
-                spits.push(Spit { pos, vel: [to[0] * fly, to[1] * fly], damage: z.kind.stats().damage, life: ranged * 1.5 / fly, age: 0.0 });
+                spits.push(Spit { kind: z.kind, pos, vel: [to[0] * fly, to[1] * fly], damage: z.kind.stats().damage, life: ranged * 1.5 / fly, age: 0.0 });
             }
             let v = [to[0] * speed + s[0] * 20.0 + z.push[0], to[1] * speed + s[1] * 20.0 + z.push[1]];
             z.pos = self.map.slide_cells(z.pos, [v[0] * dt, v[1] * dt], crate::tuning::tuning().zombie_half());
@@ -1779,7 +1781,7 @@ impl Harvest {
             let player = len(sub(ground, self.pos)) < SPIT_REACH;
             if player || self.map.cover_at(ground[0], ground[1]) {
                 hit = hit.max(if player { s.damage } else { 0.0 });
-                self.juice.burst(ground, 6.0, 4, norm([-s.vel[0], -s.vel[1]]), 0.9, [20.0, 50.0], juice::blood(), 1.0, 0.3, 0.0);
+                self.juice.burst(ground, 6.0, 4, norm([-s.vel[0], -s.vel[1]]), 0.9, [20.0, 50.0], juice::blood_of(s.kind.stats().blood), 1.0, 0.3, 0.0);
                 s.life = 0.0;
             }
         }
@@ -2001,17 +2003,21 @@ impl Harvest {
         }
     }
 
-    /// A zombie dying at `pos`, knocked toward `fall` and flung `fling` hard: blood, a stain, gibs and its corpse.
-    pub(super) fn gore(&mut self, pos: [f32; 2], fall: [f32; 2], fling: f32, dir: [f32; 2], look: &Look, gibs: usize) {
-        self.fx.push(Fx::play(effects::effects().blood, [pos[0], pos[1] - 4.0], 0.0));
+    /// A zombie dying at `pos`, knocked toward `fall` and flung `fling` hard: blood in its `own` color or the game's, a
+    /// stain, gibs and its corpse.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn gore(&mut self, pos: [f32; 2], fall: [f32; 2], fling: f32, dir: [f32; 2], look: &Look, gibs: usize, own: Option<[u8; 3]>) {
+        let splat = effects::effects().blood;
+        let tint = splat.frames.first().map_or([1.0; 3], |&a| juice::blood_tint(a, own));
+        self.fx.push(Fx { tint, ..Fx::play(splat, [pos[0], pos[1] - 4.0], 0.0) });
         let stain = art::BLOOD_STAIN[self.rng.below(art::BLOOD_STAIN.len())];
-        self.stain((stain, pos[0] - stain.w() / 2.0, pos[1] - stain.h() / 2.0, [1.0; 3]));
+        self.stain((stain, pos[0] - stain.w() / 2.0, pos[1] - stain.h() / 2.0, juice::blood_tint(stain, own)));
         let (vel, vz) = if fling > 0.0 { ([fall[0] * fling, fall[1] * fling], fling * 0.9) } else { ([fall[0] * 25.0, fall[1] * 25.0], 0.0) };
         let flip = self.juice.rng.below(2) == 0;
         let dead = look.dead.map(|d| (d, dir));
         self.juice.corpse(Corpse { art: look.hurt[Facing::Front.index()], dead, flip, pos, z: 0.0, vel, vz, fall, age: 0.0, spin: 0.0 });
-        self.juice.burst(pos, 8.0, gibs, fall, 1.2, [30.0, 110.0], juice::blood(), 1.6, 0.6, 0.0);
-        self.juice.burst(pos, 8.0, gibs / 3, fall, 0.8, [20.0, 60.0], juice::dark_blood(), 2.4, 0.8, 0.0);
+        self.juice.burst(pos, 8.0, gibs, fall, 1.2, [30.0, 110.0], juice::blood_of(own), 1.6, 0.6, 0.0);
+        self.juice.burst(pos, 8.0, gibs / 3, fall, 0.8, [20.0, 60.0], juice::dark_blood_of(own), 2.4, 0.8, 0.0);
     }
 
     fn reap(&mut self, sounds: &mut Vec<Sfx>, flow: &mut Flow) {
@@ -2031,7 +2037,7 @@ impl Harvest {
             });
             let s = z.kind.stats();
             let fall = if z.knock == [0.0; 2] { norm(sub(z.pos, self.pos)) } else { z.knock };
-            self.gore(z.pos, fall, z.fling, z.dir, &s.look, s.gibs as usize);
+            self.gore(z.pos, fall, z.fling, z.dir, &s.look, s.gibs as usize, s.blood);
             if s.heavy {
                 self.juice.stop(0.06);
                 self.juice.shake(0.2);
@@ -2344,7 +2350,7 @@ fn strike(z: &mut Zombie, juice: &mut Juice, damage: f32, dir: [f32; 2], force: 
     if z.kind.stats().heavy && !z.boss && (crit || force > 100.0) {
         z.stagger = crate::tuning::tuning().stagger;
     }
-    juice.burst(z.pos, 8.0, if crit { 6 } else { 3 }, dir, 0.6, [30.0, 90.0], juice::blood(), 1.4, 0.4, 0.0);
+    juice.burst(z.pos, 8.0, if crit { 6 } else { 3 }, dir, 0.6, [30.0, 90.0], juice::blood_of(z.kind.stats().blood), 1.4, 0.4, 0.0);
     crit
 }
 
@@ -2396,6 +2402,38 @@ mod tests {
     }
 
     #[test]
+    fn a_kind_with_its_own_blood_bleeds_splats_and_stains_in_it() {
+        let own = [0x7A, 0xA0, 0x62];
+        let green = skinny_but(|e| e.blood = Some(own));
+        let color = own.map(|v| v as f32 / 255.0);
+        let mut h = Harvest::calm(1);
+        let mut sounds = Vec::new();
+        // A burst shades each speck from 0.8 to 1.15 times its color.
+        let of = |p: &[f32; 3], c: [f32; 3]| (0..3).all(|k| (0.79..1.16).contains(&(p[k] / c[k])));
+        for (kind, blood, dark) in [(green, color, juice::dark_blood_of(Some(own))), (Kind::named("skinny"), juice::blood(), juice::dark_blood())] {
+            h.juice.particles.clear();
+            let mut z = Zombie::new(kind, [h.pos[0] + 40.0, h.pos[1]], 1.0, 1.0, 0.0);
+            strike(&mut z, &mut h.juice, 5.0, [1.0, 0.0], 0.0, 0.0);
+            assert!(h.juice.particles.iter().all(|p| of(&p.color, blood)), "a hit sprays its blood");
+            h.juice.particles.clear();
+            h.zombies.push(z);
+            h.reap(&mut sounds, &mut Flow::default());
+            let colors: Vec<[f32; 3]> = h.juice.particles.iter().map(|p| p.color).collect();
+            assert!(colors.iter().any(|p| of(p, blood)) && colors.iter().any(|p| of(p, dark)), "its death sprays its blood and the darker shade");
+            let (stain, fx) = (h.stains.last().unwrap(), h.fx.last().unwrap());
+            let mean = stain.0.mean().unwrap();
+            let drawn: Vec<f32> = (0..3).map(|k| mean[k] * stain.3[k]).collect();
+            if kind == green {
+                assert!(drawn.iter().zip(blood).all(|(d, b)| (d - b).abs() < 1e-4), "its stain averages its color: {drawn:?}");
+                assert_ne!(fx.tint, [1.0; 3], "its splat is tinted");
+                assert!(dark.iter().zip(blood).all(|(d, b)| d < &b), "the darker shade is darker");
+            } else {
+                assert_eq!((stain.3, fx.tint), ([1.0; 3], [1.0; 3]), "the game's own kinds keep the art's red");
+            }
+        }
+    }
+
+    #[test]
     fn a_ranged_zombie_keeps_its_distance_and_spits_until_cover_stops_it() {
         let mut h = Harvest::calm_on(1, &map::MapSource::new("Field", [20, 14])).unwrap();
         h.kit.weapons.clear();
@@ -2420,18 +2458,18 @@ mod tests {
         assert_eq!(h.zombies[0].pos, before, "and holds its ground");
         assert!(h.hp < h.kit.max_hp(), "the spit landed");
         h.hurt = 0.0;
-        h.spits = vec![Spit { pos: [h.pos[0] - 1.0, h.pos[1] - 6.0], vel: [10.0, 0.0], damage: 12.0, life: 1.0, age: 0.0 }];
+        h.spits = vec![Spit { kind: Kind(0), pos: [h.pos[0] - 1.0, h.pos[1] - 6.0], vel: [10.0, 0.0], damage: 12.0, life: 1.0, age: 0.0 }];
         let hp = h.hp;
         h.move_spits(0.016, &mut sounds, &mut Flow::default());
         assert!(h.spits.is_empty() && h.hp == hp - 12.0, "a spit on the player hurts by its damage");
         h.hurt = 0.0;
-        h.spits = vec![Spit { pos: [h.pos[0] - 40.0, h.pos[1] - 6.0], vel: [10.0, 0.0], damage: 12.0, life: 1.0, age: 0.0 }];
+        h.spits = vec![Spit { kind: Kind(0), pos: [h.pos[0] - 40.0, h.pos[1] - 6.0], vel: [10.0, 0.0], damage: 12.0, life: 1.0, age: 0.0 }];
         h.move_spits(0.016, &mut sounds, &mut Flow::default());
         assert_eq!(h.spits.len(), 1, "one off to the side flies on");
 
         let mut h = Harvest::calm(6);
         let house = h.map.props.iter().find(|p| p.frames[0] == art::HOUSE).map(|p| [p.x + TILE / 2.0, p.base - TILE / 2.0]).unwrap();
-        h.spits = vec![Spit { pos: [house[0], house[1] - 6.0], vel: [0.0; 2], damage: 12.0, life: 1.0, age: 0.0 }];
+        h.spits = vec![Spit { kind: Kind(0), pos: [house[0], house[1] - 6.0], vel: [0.0; 2], damage: 12.0, life: 1.0, age: 0.0 }];
         h.move_spits(0.016, &mut sounds, &mut Flow::default());
         assert!(h.spits.is_empty(), "cover that stops a bullet stops spit");
         assert!(!clear_shot(&h.map, [house[0] - 2.0 * TILE, house[1]], [house[0] + 2.0 * TILE, house[1]]), "nor spits through a house");

@@ -30,6 +30,8 @@ pub struct Enemy {
     pub ranged: f32,
     /// Seconds above ground before it digs back under; 0 for one that never burrows.
     pub burrow: f32,
+    /// Its own blood color, else effects.txt's.
+    pub blood: Option<[u8; 3]>,
     pub heavy: bool,
     /// It came from an enemy card rather than the game's own file.
     pub from_card: bool,
@@ -239,6 +241,7 @@ fn entries(text: &str) -> Result<Vec<Entry>, String> {
                 charge: 1.0,
                 ranged: 0.0,
                 burrow: 0.0,
+                blood: None,
                 heavy: false,
                 from_card: false,
             };
@@ -266,6 +269,7 @@ fn entries(text: &str) -> Result<Vec<Entry>, String> {
             "charge" => e.charge = number()?.clamp(0.1, 10.0),
             "ranged" => e.ranged = number()?.min(RANGED_MAX),
             "burrow" => e.burrow = number()?.min(BURROW_MAX),
+            "blood" => e.blood = Some(hex_color(rest).map_err(|err| format!("{n}: {err}"))?),
             "walk" => {
                 entry.walk = rest.parse().ok().filter(|n| (1..=MAX_WALK).contains(n)).ok_or_else(|| format!("{n}: walk is 1 to {MAX_WALK} frames, not {rest:?}"))?;
             }
@@ -276,6 +280,16 @@ fn entries(text: &str) -> Result<Vec<Entry>, String> {
         }
     }
     Ok(entries)
+}
+
+/// A color written as `RRGGBB`, as palette.txt writes them.
+pub fn hex_color(text: &str) -> Result<[u8; 3], String> {
+    let bad = || format!("blood is a color as RRGGBB, such as 7AA062, not {text:?}");
+    if text.len() != 6 || !text.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(bad());
+    }
+    let byte = |i: usize| u8::from_str_radix(&text[i..i + 2], 16).map_err(|_| bad());
+    Ok([byte(0)?, byte(2)?, byte(4)?])
 }
 
 /// Reads the enemy file; an error names the line.
@@ -338,6 +352,8 @@ pub struct CardFields {
     /// Every number a card sets, by key, in `NUMBERS` order.
     pub numbers: Vec<(&'static str, f32)>,
     pub sound: String,
+    /// Its own blood color, or None for effects.txt's.
+    pub blood: Option<[u8; 3]>,
     /// Every flag a card sets, by key, in `FLAGS` order.
     pub flags: Vec<(&'static str, bool)>,
     /// Walk frames per facing.
@@ -358,6 +374,7 @@ pub fn card_fields(text: &str) -> Result<CardFields, String> {
         about: e.about.clone(),
         numbers: NUMBERS.into_iter().zip(numbers).collect(),
         sound: e.sound.clone(),
+        blood: e.blood,
         flags: FLAGS.into_iter().zip([e.heavy, entry.leader, entry.harvester]).collect(),
         walk: entry.walk,
     })
@@ -778,6 +795,19 @@ mod tests {
         assert!(roster().enemies.iter().all(|e| e.ranged == 0.0 && e.burrow == 0.0), "the game's own kinds bite and walk");
         let text = set_card_field("[spitter]\n", "ranged", Some("60"));
         assert_eq!(text, "[spitter]\nranged      60\n");
+    }
+
+    #[test]
+    fn a_card_bleeds_its_own_color_and_old_cards_the_games() {
+        assert_eq!(card_fields("[ghost]\n").unwrap().blood, None, "a card without one bleeds effects.txt's");
+        assert_eq!(card_fields("[ghost]\nblood E0e0D8\n").unwrap().blood, Some([0xE0, 0xE0, 0xD8]));
+        for bad in ["blood", "blood 7AA06", "blood 7AA0622", "blood GGGGGG", "blood 0.5 0.5 0.5"] {
+            assert!(card_fields(&format!("[ghost]\n{bad}")).err().is_some_and(|e| e.contains("RRGGBB")), "{bad}");
+        }
+        assert!(roster().enemies.iter().all(|e| e.blood.is_none()), "the game's own kinds bleed effects.txt's");
+        let text = set_card_field("[slime]\n", "blood", Some("7AA062"));
+        assert_eq!(text, "[slime]\nblood       7AA062\n");
+        assert_eq!(card_fields(&set_card_field(&text, "blood", None)).unwrap().blood, None);
     }
 
     #[test]

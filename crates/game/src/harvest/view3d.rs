@@ -778,8 +778,8 @@ pub fn scene(h: &Harvest) -> CardScene {
     for f in &h.fx {
         let a = f.frames[((f.t * f.fps) as usize).min(f.frames.len() - 1)];
         match a.stand() {
-            Some(Stand::Slab { height, lift }) => lying(&mut cards, eye, a, world(f.pos), f.angle, height, lift, [1.0; 3]),
-            _ => board(&mut cards, Board::new(a, false, [f.pos[0], f.pos[1] + 6.0], 0.25, 0.0)),
+            Some(Stand::Slab { height, lift }) => lying(&mut cards, eye, a, world(f.pos), f.angle, height, lift, f.tint),
+            _ => board(&mut cards, Board { tint: f.tint, ..Board::new(a, false, [f.pos[0], f.pos[1] + 6.0], 0.25, 0.0) }),
         }
     }
     for g in &h.thrown {
