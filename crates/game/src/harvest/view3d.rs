@@ -648,7 +648,8 @@ pub fn scene(h: &Harvest) -> CardScene {
         }
     };
     // A full horde swarming the player would bury the GPU; the farthest are lost in the fog anyway.
-    let mut nearest: Vec<&Zombie> = h.zombies.iter().enumerate().filter(|&(i, _)| !h.lies_dead(i)).map(|(_, z)| z).collect();
+    let climbing = h.burrowed.iter().filter(|z| z.rise > 0.0);
+    let mut nearest: Vec<&Zombie> = h.zombies.iter().enumerate().filter(|&(i, _)| !h.lies_dead(i)).map(|(_, z)| z).chain(climbing).collect();
     if nearest.len() > MAX_ZOMBIES_3D {
         nearest.select_nth_unstable_by(MAX_ZOMBIES_3D, |a, b| len(sub(a.pos, h.pos)).total_cmp(&len(sub(b.pos, h.pos))));
         nearest.truncate(MAX_ZOMBIES_3D);
@@ -846,7 +847,7 @@ pub fn scene(h: &Harvest) -> CardScene {
         let a = super::effects::effects().spit.looping(s.age);
         board(&mut cards, Board { tint: s.tint(), ..Board::new(a, false, [s.pos[0], s.pos[1] + 6.0], 0.35, 0.0) });
     }
-    for z in &h.burrowed {
+    for z in h.burrowed.iter().filter(|z| z.rise == 0.0) {
         let a = super::effects::effects().mound.looping(h.t + z.id as f32 * 0.37);
         board(&mut cards, Board::new(a, z.dir[0] < 0.0, z.pos, 0.0, 0.0));
     }

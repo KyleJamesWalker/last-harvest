@@ -1339,7 +1339,8 @@ impl Harvest {
         } else if self.t >= dawn() && len(sub(self.pos, self.map.home)) < crate::tuning::tuning().home {
             sounds.push(Sfx::Dawn);
             // Home: the door shuts and first light burns the dead away.
-            for z in std::mem::take(&mut self.zombies) {
+            let climbing: Vec<Zombie> = self.burrowed.drain(..).filter(|z| z.rise > 0.0).collect();
+            for z in std::mem::take(&mut self.zombies).into_iter().chain(climbing) {
                 self.juice.burst(z.pos, 8.0, 3, [0.0; 2], 0.0, [10.0, 40.0], juice::ember(), 1.4, 1.2, 1.0);
                 self.fx.push(Fx::play(effects::effects().dawn_burns, [z.pos[0], z.pos[1] - 6.0], 0.0));
             }
@@ -1747,6 +1748,7 @@ impl Harvest {
             }
             let mut z = self.zombies.swap_remove(i);
             z.up = 0.0;
+            z.rise = 0.0;
             self.fx.push(Fx::play(effects::effects().mound_breaks, [z.pos[0], z.pos[1] - 3.0], 0.0));
             self.juice.burst(z.pos, 0.0, 8, [0.0; 2], 0.0, [15.0, 45.0], juice::dirt(), 1.6, 0.6, 0.0);
             self.burrowed.push(z);
@@ -1760,10 +1762,25 @@ impl Harvest {
     }
 
     /// Burrowers tunnel along the way the dead walk, churning the dirt above them, and break out near the player.
+    /// One climbing out stays in `burrowed`, out of every weapon's reach, until it stands.
     fn tunnel(&mut self, dt: f32, sounds: &mut Vec<Sfx>) {
         let t = crate::tuning::tuning();
         for i in (0..self.burrowed.len()).rev() {
             let z = &mut self.burrowed[i];
+            z.flash = (z.flash - dt).max(0.0);
+            z.hurt = (z.hurt - dt).max(0.0);
+            z.squash = (z.squash - dt * 5.0).max(0.0);
+            z.stagger = (z.stagger - dt).max(0.0);
+            if z.rise > 0.0 {
+                z.rise += dt / t.rise;
+                if z.rise >= 1.0 {
+                    let mut z = self.burrowed.swap_remove(i);
+                    z.rise = 1.0;
+                    z.up = 0.0;
+                    self.zombies.push(z);
+                }
+                continue;
+            }
             let direct = sub(self.pos, z.pos);
             let to = if len(direct) < TILE * 1.5 { norm(direct) } else { self.map.downhill(&self.flow, z.pos).unwrap_or(norm(direct)) };
             let speed = z.kind.stats().speed;
@@ -1771,23 +1788,18 @@ impl Harvest {
             z.dir = to;
             z.facing = Facing::of(to);
             let pos = z.pos;
-            if self.juice.rng.range(0.0, 1.0) < dt * 12.0 {
-                self.juice.burst(pos, 0.0, 1, [0.0; 2], 0.0, [6.0, 18.0], juice::dirt(), 1.4, 0.4, 0.0);
+            if self.juice.rng.range(0.0, 1.0) < dt * 24.0 {
+                self.juice.burst(pos, 0.0, 2, [0.0; 2], 0.0, [8.0, 24.0], juice::dirt(), 1.6, 0.5, 0.0);
             }
             if len(sub(self.pos, pos)) > t.burrow_reach {
                 continue;
             }
-            let mut z = self.burrowed.swap_remove(i);
-            z.rise = 0.0;
-            z.up = 0.0;
-            self.zombies.push(z);
+            self.burrowed[i].rise = f32::MIN_POSITIVE;
             self.fx.push(Fx::play(effects::effects().mound_breaks, [pos[0], pos[1] - 3.0], 0.0));
-            self.juice.burst(pos, 0.0, 8, [0.0; 2], 0.0, [15.0, 45.0], juice::dirt(), 1.6, 0.6, 0.0);
-            if self.hush[3] <= 0.0 {
-                let (pan, gain) = self.place(pos);
-                sounds.push(Sfx::Rise { pan, gain });
-                self.hush[3] = 0.3;
-            }
+            self.juice.burst(pos, 0.0, 16, [0.0; 2], 0.0, [25.0, 70.0], juice::dirt(), 2.0, 0.7, 0.0);
+            let (pan, gain) = self.place(pos);
+            sounds.push(Sfx::Rise { pan, gain });
+            self.hush[3] = 0.3;
         }
     }
 
@@ -2523,15 +2535,23 @@ mod tests {
         h.explode(h.burrowed[0].pos, 40.0, 500.0, &mut sounds);
         assert_eq!(h.burrowed[0].hp, 1000.0, "nothing reaches it down there");
         for _ in 0..60 * 6 {
+            sounds.clear();
             h.update(&Input::default(), 1.0 / 60.0, &mut sounds);
-            if !h.zombies.is_empty() {
+            if h.burrowed[0].rise > 0.0 {
                 break;
             }
         }
-        assert_eq!((h.zombies.len(), h.burrowed.len()), (1, 0), "it surfaced");
+        assert!(h.burrowed[0].rise > 0.0, "it breaks ground");
         assert!(h.fx.iter().any(|f| f.frames == effects::effects().mound_breaks.frames), "in a puff of dirt");
-        assert!(len(sub(h.zombies[0].pos, h.pos)) <= crate::tuning::tuning().burrow_reach && h.zombies[0].rise < 1.0, "beside the player");
-        h.zombies[0].rise = 1.0;
+        assert!(sounds.iter().any(|s| matches!(s, Sfx::Rise { .. })), "with a sound to warn of it");
+        assert!(len(sub(h.burrowed[0].pos, h.pos)) <= crate::tuning::tuning().burrow_reach, "beside the player");
+        h.explode(h.burrowed[0].pos, 40.0, 500.0, &mut sounds);
+        assert_eq!(h.burrowed[0].hp, 1000.0, "nothing reaches it while it climbs out");
+        for _ in 0..60 * 2 {
+            h.update(&Input::default(), 1.0 / 60.0, &mut sounds);
+        }
+        assert_eq!((h.zombies.len(), h.burrowed.len()), (1, 0), "then it stands");
+        assert_eq!(h.zombies[0].rise, 1.0);
         h.zombies[0].pos = [h.pos[0] + 80.0, h.pos[1]];
         h.zombies[0].hp = 1000.0;
         h.update(&Input::default(), 1.0 / 60.0, &mut sounds);
@@ -2541,6 +2561,7 @@ mod tests {
             h.update(&Input::default(), 1.0 / 60.0, &mut sounds);
         }
         assert_eq!((h.zombies.len(), h.burrowed.len()), (0, 1), "then digs back under");
+        assert_eq!(h.burrowed[0].rise, 0.0, "to tunnel, not to climb straight back out");
     }
 
     #[test]

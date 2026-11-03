@@ -539,7 +539,7 @@ A `charge` speeds a zombie up once it comes within `tuning.txt`'s `charge_reach`
 
 A `ranged` zombie walks in until it is that near and has a clear shot, then stands and spits. Each spit does its `damage`, flies slower than you walk, and splashes on cover as a bullet would. `tuning.txt` sets `spit_speed` and `spit_every`, and `effects.txt`'s `[spit]` sets its look; a mod's `effects.txt` without one keeps the game's. It plays the `spit` sound as it spits and `splat` where it lands. A mod pack replaces either with `sounds/spit.ogg` or `sounds/splat.ogg`.
 
-A `burrow` zombie breaks ground into a tunnel. Underground it shows as a moving dirt mound, and nothing can hit it. It rises within `tuning.txt`'s `burrow_reach` of you, in a puff of dirt. After `burrow` seconds up, it digs back under, unless it is that near you. `effects.txt`'s `[mound]` sets the mound's look and `[mound_breaks]` the puff; a mod's `effects.txt` without them keeps the game's.
+A `burrow` zombie breaks ground into a tunnel. Underground it shows as a moving dirt mound, and nothing can hit it. Within `tuning.txt`'s `burrow_reach` of you, it breaks out in a puff of dirt with the rising sound, and nothing can hit it until it has climbed all the way out, which takes `rise` seconds. After `burrow` seconds up, it digs back under, unless it is that near you. `effects.txt`'s `[mound]` sets the mound's look and `[mound_breaks]` the puff; a mod's `effects.txt` without them keeps the game's.
 
 ## The card editor
 
