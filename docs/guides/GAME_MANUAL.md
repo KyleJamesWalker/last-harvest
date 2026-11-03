@@ -67,7 +67,7 @@ A run plays on one screen with controls beside it, or under it when the phone is
 | Pick an upgrade, or a pause choice | Tap it |
 | Pause | Pause |
 
-Putting the map away never throws, and nothing slows down. That is the Touch style; Settings > Grenades set to Pad makes Grenade (and L2 on a gamepad) aim with a cursor in slowed time instead, held and let go, as on one screen, which suits a handheld with buttons. The controls hide when you use a gamepad or keyboard, and come back at your next touch.
+Putting the map away never throws, and nothing slows down. That is the Touch style; Settings > Grenades set to Pad makes Grenade (and L2 on a gamepad) aim with a cursor in slowed time instead, held and let go, as on one screen, which suits a handheld with buttons. Settings > Touch controls picks when the controls show. Auto, the default, hides them when you use a gamepad or keyboard and brings them back at your next touch; On keeps them up; Off leaves them out for good, as on a handheld with buttons and a touch screen: menus show the bottom screen, the title shows the menu over its picture, and L2 aims grenades.
 
 In a browser, Esc and Home do nothing, and neither do screenshots, brightness or rumble. Sound starts with your first click or key. A gamepad in the browser's standard layout maps by its labels, as on an Xbox pad:
 
@@ -143,7 +143,7 @@ The biggest finds appear only in the chest a horde's leader drops. Picking up a 
 The title's bottom screen lists Play, Map, Settings, Stats and Credits. Up and Down choose a row, A or a tap opens it, and B goes back. The top screen shows the game's version in its top-left corner.
 
 - **Map** picks a hand-made map, or a random farm, for every run after. The game saves the choice.
-- **Settings** sets each screen's brightness, the volume, rumble, the frame-rate overlay, your look, which zombies come, and Reset progress.
+- **Settings** sets each screen's brightness, the volume, rumble, the frame-rate overlay, on a phone the touch controls and grenade style, your look, which zombies come, and Reset progress.
     - **Player** picks your look from the player cards, showing each walking on the top screen.
     - **Enemies** shows each kind of zombie walking on the top screen with its numbers. A turns a kind on or off. Nights skip the kinds turned off, and at least one stays on.
     - **Reset progress** clears kills, records and found powerups after a second press. Settings stay.
