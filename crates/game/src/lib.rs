@@ -910,6 +910,43 @@ mod tests {
     }
 
     #[test]
+    fn at_every_handheld_shape_one_screen_fills_the_window_at_4_3() {
+        let handhelds = [[640.0, 480.0], [720.0, 720.0], [720.0, 480.0], [960.0, 544.0], [480.0, 640.0]];
+        let shapes = (4..=25).map(|tenths| [1000.0 * tenths as f32 / 10.0, 1000.0]);
+        for size in handhelds.into_iter().chain(shapes) {
+            let mut game = Game::new(1);
+            game.set_phone(Some(size));
+            game.set_touch(false);
+            let check = |game: &mut Game, held: Buttons, what: &str| {
+                game.update(&Input { held, ..Default::default() }, 0.016);
+                let phone = game.draw().phone.unwrap();
+                let shown: Vec<_> = [phone.top, phone.bottom].into_iter().flatten().collect();
+                assert_eq!(shown.len(), 1, "{size:?} {what}: one screen");
+                let [x, y, w, h] = shown[0];
+                assert!((w / h - SCREEN_W / SCREEN_H).abs() < 1e-3, "{size:?} {what}: {w}x{h} is stretched");
+                assert!(x >= -0.01 && y >= -0.01 && x + w <= size[0] + 0.01 && y + h <= size[1] + 0.01, "{size:?} {what}: clipped");
+                assert!((w - size[0]).abs() < 0.01 || (h - size[1]).abs() < 0.01, "{size:?} {what}: smaller than the window allows");
+            };
+            check(&mut game, Buttons::NONE, "title");
+            settings_row(&mut game, 0);
+            check(&mut game, Buttons::NONE, "settings");
+            press(&mut game, Buttons::B);
+            press(&mut game, Buttons::UP);
+            press(&mut game, Buttons::UP);
+            press(&mut game, Buttons::A);
+            assert!(matches!(game.state, State::Harvest(_)), "{size:?}: a run");
+            check(&mut game, Buttons::NONE, "run");
+            for (held, what) in [(Buttons::L1, "map"), (Buttons::L2, "grenade aim"), (Buttons::R2, "whole map")] {
+                check(&mut game, held, what);
+                check(&mut game, Buttons::NONE, what);
+            }
+            assert!(matches!(&game.state, State::Harvest(h) if !h.showing_whole_map()), "{size:?}: back to the run");
+            press(&mut game, Buttons::START);
+            check(&mut game, Buttons::NONE, "pause");
+        }
+    }
+
+    #[test]
     fn the_pause_menu_offers_taps_only_where_the_screen_takes_them() {
         for (touch, taps) in [(false, false), (true, true)] {
             let mut game = Game::new(1);
