@@ -485,11 +485,10 @@ impl Harvest {
             }
         }
         let mark = matches!(p.setting, Setting::Props | Setting::Place).then(|| p.spot.unwrap_or(self.focus()));
-        if let Some([sx, sy]) = mark.map(|at| view3d::to_screen(view_proj, at, 0.0).map_or_else(|| self.behind(at), |s| s.0)) {
+        if let Some(at) = mark {
             // A cross on the ground where the next prop drops, kept at the edge of the picture when out of it.
-            let (sx, sy) = (sx.clamp(12.0, SCREEN_W - 12.0), sy.clamp(12.0, SCREEN_H - 12.0));
-            f.top.rect(sx - 12.0, sy - 2.0, 24.0, 4.0, GUIDE);
-            f.top.rect(sx - 2.0, sy - 12.0, 4.0, 24.0, GUIDE);
+            cross(&mut f.top, view3d::to_screen(view_proj, at, 0.0).map_or_else(|| self.behind(at), |s| s.0));
+            cross(&mut f.bottom, [(at[0] - cam[0]) * SCALE, (at[1] - cam[1]) * SCALE]);
         }
         let shoot = match (self.saves_photos, self.taps) {
             (true, true) => "R1 or tap: take a photo",
@@ -522,6 +521,13 @@ fn within(at: [f32; 2], pos: [f32; 2], size: [f32; 2]) -> [f32; 2] {
     let off = sub(at, pos);
     let off = if len(off) > PLACE_REACH { norm(off).map(|v| v * PLACE_REACH) } else { off };
     [0, 1].map(|k| (pos[k] + off[k]).clamp(TILE / 2.0, (size[k] - TILE / 2.0).max(TILE / 2.0)))
+}
+
+/// A guide cross at `[x, y]`, held inside the screen.
+fn cross(c: &mut Canvas, [x, y]: [f32; 2]) {
+    let (x, y) = (x.clamp(12.0, SCREEN_W - 12.0), y.clamp(12.0, SCREEN_H - 12.0));
+    c.rect(x - 12.0, y - 2.0, 24.0, 4.0, GUIDE);
+    c.rect(x - 2.0, y - 12.0, 4.0, 24.0, GUIDE);
 }
 
 /// A square outline two pixels thick.
@@ -943,6 +949,26 @@ mod tests {
         assert_eq!(guides(&h), ahead, "the cross still shows");
         let [x, y] = h.behind(back);
         assert!((x - SCREEN_W / 2.0).abs() < 1.0 && y == SCREEN_H, "straight behind is the middle of the bottom edge: {x}, {y}");
+    }
+
+    /// The middles of the guide crosses on the bottom screen's map.
+    fn map_crosses(h: &Harvest, clean: bool) -> Vec<[f32; 2]> {
+        let mut f = Frame::default();
+        h.photo_frame(&mut f, clean);
+        let bars = f.bottom.shapes.iter().filter_map(|s| if let crate::Shape::Rect { x, y, w: 24.0, h: 4.0, color } = *s { (color == GUIDE).then_some([x + 12.0, y + 2.0]) } else { None });
+        bars.collect()
+    }
+
+    #[test]
+    fn the_cross_shows_on_the_map_below_too_but_never_in_a_capture() {
+        let mut h = placing(26);
+        hold(&mut h, Buttons::UP | Buttons::RIGHT, 20);
+        let (at, cam) = (spot(&h).unwrap(), h.camera());
+        let want = [(at[0] - cam[0]) * SCALE, (at[1] - cam[1]) * SCALE];
+        assert_eq!(map_crosses(&h, false), [want], "the map marks where the next prop drops");
+        assert!(map_crosses(&h, true).is_empty(), "a capture leaves it out");
+        press(&mut h, Buttons::L2);
+        assert!(map_crosses(&h, false).is_empty(), "and only Props and Place show it");
     }
 
     #[test]
