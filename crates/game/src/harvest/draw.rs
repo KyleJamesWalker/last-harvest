@@ -350,7 +350,8 @@ impl Harvest {
         }
         for s in &self.spits {
             let (sx, sy) = at(s.pos[0], s.pos[1]);
-            c.art_rotated(super::effects::effects().spit.looping(s.age), sx, sy, scale, s.vel[1].atan2(s.vel[0]), lit);
+            let [r, g, b] = s.tint();
+            c.art_rotated(super::effects::effects().spit.looping(s.age), sx, sy, scale, s.vel[1].atan2(s.vel[0]), [lit[0] * r, lit[1] * g, lit[2] * b, lit[3]]);
         }
         for fx in &self.fx {
             let a = fx.frames[((fx.t * fx.fps) as usize).min(fx.frames.len() - 1)];

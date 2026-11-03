@@ -400,6 +400,14 @@ struct Spit {
     age: f32,
 }
 
+impl Spit {
+    /// The spit in its kind's own blood, if it has one.
+    fn tint(&self) -> [f32; 3] {
+        let spit = effects::effects().spit;
+        spit.frames.first().map_or([1.0; 3], |&a| juice::blood_tint(a, self.kind.stats().blood))
+    }
+}
+
 struct Bullet {
     pos: [f32; 2],
     vel: [f32; 2],
@@ -2430,6 +2438,8 @@ mod tests {
             } else {
                 assert_eq!((stain.3, fx.tint), ([1.0; 3], [1.0; 3]), "the game's own kinds keep the art's red");
             }
+            let spit = Spit { kind, pos: h.pos, vel: [0.0; 2], damage: 1.0, life: 1.0, age: 0.0 };
+            assert_eq!(spit.tint() == [1.0; 3], kind != green, "a spit flies in its kind's blood");
         }
     }
 
