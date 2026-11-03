@@ -180,7 +180,12 @@ fn window_attrs(el: &ActiveEventLoop, two: bool) -> (WindowAttributes, Option<Wi
         log!("monitor {:?} {:?} at {:?}", m.name(), m.size(), m.position());
     }
     if !two {
-        return (Window::default_attributes().with_title("Last Harvest").with_inner_size(LogicalSize::new(1200.0, 600.0)).with_window_icon(icon()), None);
+        let attrs = Window::default_attributes().with_title("Last Harvest").with_window_icon(icon());
+        let attrs = match window_size() {
+            Some([w, h]) => attrs.with_inner_size(PhysicalSize::new(w, h)),
+            None => attrs.with_inner_size(LogicalSize::new(1200.0, 600.0)),
+        };
+        return (attrs, None);
     }
     if cfg!(target_os = "linux") && monitors.len() >= 2 {
         let swapped = std::fs::read_to_string("/sys/class/anbernic_misc/lcdswap").is_ok_and(|s| s.trim() == "1");
@@ -197,4 +202,11 @@ fn window_attrs(el: &ActiveEventLoop, two: bool) -> (WindowAttributes, Option<Wi
             Some(base("last-harvest bottom").with_inner_size(size).with_position(LogicalPosition::new(200.0, 60.0 + 384.0 + 36.0))),
         )
     }
+}
+
+/// `LAST_HARVEST_WINDOW`, such as `720x720`: the one window's size in pixels, to try a handheld's screen.
+fn window_size() -> Option<[u32; 2]> {
+    let v = std::env::var("LAST_HARVEST_WINDOW").ok()?;
+    let (w, h) = v.split_once('x')?;
+    Some([w.parse().ok()?, h.parse().ok()?]).filter(|s| s.iter().all(|&n| n > 0))
 }

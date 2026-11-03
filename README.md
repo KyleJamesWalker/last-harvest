@@ -294,6 +294,9 @@ The stream reaches the Mac about 240 ms after the device draws it, or about 155 
 |---|---|
 | `LAST_HARVEST_START` | Opens a scene at launch, by debug scene name. |
 | `LAST_HARVEST_DEBUG` | Turns on debug mode. `DEBUG=1 scripts/deploy.sh` sets it. |
+| `LAST_HARVEST_PIPE` | Sets the debug command pipe. The default is `/tmp/last-harvest.ctl`. |
+| `LAST_HARVEST_WINDOW` | Opens the one desktop window this many pixels across and down, such as `720x720` or `640x480`, to try a handheld's screen. |
+| `LAST_HARVEST_TOUCH` | `off`: the desktop window plays as a screen without touch, as on muOS. |
 | `LAST_HARVEST_LOG_INPUT` | Logs every gamepad event. `CAPTURE=1 scripts/deploy.sh` sets it. |
 | `LAST_HARVEST_SAVE` | Sets the save file path. |
 | `LAST_HARVEST_ENEMIES` | Sets the folder of enemy cards. The default is `data/enemies` beside the binary. |
