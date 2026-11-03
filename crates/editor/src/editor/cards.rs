@@ -4,7 +4,7 @@ use super::*;
 use last_harvest_pack::card;
 
 /// The spawn mix chart under the stats: its plot, then the legend beside it.
-const MIX: Rect = Rect { x: CANVAS.x + 20.0, y: CANVAS.y + 400.0, w: 370.0, h: 124.0 };
+const MIX: Rect = Rect { x: CANVAS.x + 20.0, y: CANVAS.y + 420.0, w: 370.0, h: 104.0 };
 const MIX_STEPS: usize = 40;
 /// Kinds' colors in the spawn mix chart, in roster order; the open card's is `HOT`.
 const MIX_COLORS: [Color; 6] = [[0.55, 0.62, 0.78, 1.0], [0.5, 0.75, 0.55, 1.0], [0.78, 0.5, 0.62, 1.0], [0.62, 0.55, 0.85, 1.0], [0.45, 0.7, 0.75, 1.0], [0.75, 0.68, 0.5, 1.0]];
@@ -445,6 +445,15 @@ impl Editor {
         c.label("Death sound", x, y + 3.0, 16.0, DIM, Align::Left);
         let own = self.own_sound.as_deref().filter(|file| file.starts_with(&format!("{}.", f.sound)));
         c.label(own.map_or(f.sound.clone(), |file| format!("{file}, its own")), CANVAS.x + 380.0, y + 3.0, 16.0, if own.is_some() { HOT } else { TEXT }, Align::Right);
+        let y = y + STAT_ROW;
+        c.label("Blood", x, y + 3.0, 16.0, DIM, Align::Left);
+        match f.blood {
+            Some([r, g, b]) => {
+                c.rect(CANVAS.x + 290.0, y + 2.0, 16.0, 16.0, [r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0, 1.0]);
+                c.label(format!("{r:02X}{g:02X}{b:02X}"), CANVAS.x + 380.0, y + 3.0, 16.0, HOT, Align::Right);
+            }
+            None => c.label("the game's", CANVAS.x + 380.0, y + 3.0, 16.0, TEXT, Align::Right),
+        }
         self.draw_mix(c, &f.id);
         c.label("Shift steps ten times as far.  T: back to the pixels", x, CANVAS.y + CANVAS.h - 22.0, 13.0, DIM, Align::Left);
     }

@@ -568,6 +568,8 @@ For an enemy card, it steps each number with - and +, ten times as far with Shif
 
 Three toggles set Heavy, Leads hordes and Harvester. The page also shows the card's death sound. **Drop own**, beside it, removes the card's own sound.
 
+Blood's < and > step the card's blood color through the game's palette. A step before the first color goes back to the game's blood.
+
 Under the numbers, a chart shows how a night's spawns split between the game's kinds and your cards, minute by minute from dusk to dawn. Its legend gives each kind's share, and flags any kind that never comes.
 
 For a player card, the Stats page sets the name, the about line, and the weapons each difficulty starts with. Default keeps the game's own.

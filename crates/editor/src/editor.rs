@@ -235,6 +235,8 @@ enum Action {
     Flag(usize),
     Sound(i32),
     DropSound,
+    /// Steps a card's own blood color through the game's palette, or back to effects.txt's.
+    Blood(i32),
     EditName,
     EditAbout,
     /// Turns a weapon, by its place in `weapons()`, on or off in a player card's start at a difficulty.
@@ -1191,6 +1193,9 @@ impl Editor {
             if self.own_sound.is_some() {
                 push(CANVAS.x + 548.0, y, 110.0, STAT_BUTTON, Action::DropSound, "Drop own", false);
             }
+            let y = y + STAT_ROW;
+            push(CANVAS.x + 400.0, y, 66.0, STAT_BUTTON, Action::Blood(-1), "<", false);
+            push(CANVAS.x + 474.0, y, 66.0, STAT_BUTTON, Action::Blood(1), ">", false);
             let fields = self.sprite.card.as_deref().and_then(|t| last_harvest_game::card_fields(t).ok());
             for (i, name) in FLAG_NAMES.into_iter().enumerate() {
                 let on = fields.as_ref().is_some_and(|f| f.flags[i].1);
@@ -1871,6 +1876,17 @@ impl Editor {
                 self.set_card("sound", Some(&next));
             }
             Action::DropSound => self.drop_sound(),
+            Action::Blood(d) => {
+                let Some(f) = self.sprite.card.as_deref().and_then(|t| last_harvest_game::card_fields(t).ok()) else { return };
+                let mut colors: Vec<Option<[u8; 3]>> = vec![None];
+                colors.extend(sprite::palette().into_iter().map(|[r, g, b, _]| Some([r, g, b])));
+                if !colors.contains(&f.blood) {
+                    colors.insert(1, f.blood);
+                }
+                let at = colors.iter().position(|c| *c == f.blood).unwrap_or(0) as i32;
+                let next = colors[(at + d).rem_euclid(colors.len() as i32) as usize];
+                self.set_card("blood", next.map(|[r, g, b]| format!("{r:02X}{g:02X}{b:02X}")).as_deref());
+            }
             Action::StartWeapon(d, w) => {
                 let difficulty = last_harvest_game::Difficulty::ALL[d];
                 let mut have = self.player_starts()[d].clone().unwrap_or_else(|| last_harvest_game::default_start(difficulty));
@@ -3495,6 +3511,17 @@ mod tests {
         let f = last_harvest_game::card_fields(e.sprite.card.as_deref().unwrap()).unwrap();
         assert_eq!((f.numbers[10], f.numbers[11]), (("ranged", 50.0), ("burrow", 1.0)));
         assert!(e.sprite.card.as_deref().unwrap().contains("ranged      50\nburrow      1\n"), "each a line of the card's text");
+        e.act(Action::Blood(1), false);
+        e.act(Action::Blood(1), false);
+        let [r, g, b, _] = sprite::palette()[1];
+        assert_eq!(last_harvest_game::card_fields(e.sprite.card.as_deref().unwrap()).unwrap().blood, Some([r, g, b]), "> steps through the palette");
+        e.act(Action::Blood(-1), false);
+        e.act(Action::Blood(-1), false);
+        assert!(!e.sprite.card.as_deref().unwrap().contains("blood"), "past the first color is the game's own, and no line");
+        e.act(Action::Blood(-1), false);
+        let [r, g, b, _] = *sprite::palette().last().unwrap();
+        assert!(e.sprite.card.as_deref().unwrap().contains(&format!("blood       {r:02X}{g:02X}{b:02X}\n")), "< wraps to the last color");
+        buttons_fit(&e);
         e.act(Action::Flag(0), false);
         e.act(Action::EditName, false);
         for _ in 0..5 {
@@ -3518,6 +3545,7 @@ mod tests {
         assert_eq!((f.id.as_str(), f.name.as_str(), f.about.as_str()), ("ghoul", "Bog Ghoul", "Wet and slow, but it never gives up."));
         assert_eq!((f.numbers[0].1, f.numbers[1].1, f.flags[0].1), (15.0, 30.0, true), "health 10 + 5, speed 20 + 10, heavy");
         assert_eq!((f.numbers[10].1, f.numbers[11].1), (50.0, 1.0), "it spits and burrows once saved");
+        assert_eq!(f.blood, Some([r, g, b]), "and bleeds its own color");
         assert_eq!(saved.frame, [16, 16]);
         let side = Editor::new(Box::new(store()), "CARD_GHOUL_SIDE");
         assert_eq!(side.sprite.frames[0].get(0, 0), Some(e.color), "the pixel landed in the side row");
