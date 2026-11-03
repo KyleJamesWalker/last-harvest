@@ -230,7 +230,7 @@ impl Harvest {
             let (sx, sy) = at(t.pos[0], t.pos[1]);
             c.circle(sx, sy, (2.0 + 3.0 * k) * scale, [0.2, 0.13, 0.07, 0.8]);
         }
-        for z in &self.burrowed {
+        for z in self.burrowed.iter().filter(|z| z.rise == 0.0) {
             let a = super::effects::effects().mound.looping(self.t + z.id as f32 * 0.37);
             let (sx, sy) = at(z.pos[0] - a.w() / 2.0, z.pos[1] - a.h() + 1.0);
             c.art(a, sx, sy, scale, z.dir[0] < 0.0, lit);
@@ -298,7 +298,8 @@ impl Harvest {
                 sprites.push((r.pos[1] + a.h(), a, r.pos[0], r.pos[1], false, 1.0, 1.0));
             }
         }
-        for (_, z) in self.zombies.iter().enumerate().filter(|&(i, _)| !self.lies_dead(i)) {
+        let climbing = self.burrowed.iter().filter(|z| z.rise > 0.0);
+        for z in self.zombies.iter().enumerate().filter(|&(i, _)| !self.lies_dead(i)).map(|(_, z)| z).chain(climbing) {
             let (facing, flip) = z.facing;
             let a = z.art(facing);
             sprites.push((z.pos[1], a, z.pos[0] - a.w() / 2.0, z.pos[1] - a.h() * z.rise + 2.0, flip, z.rise, 1.0));
