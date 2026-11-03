@@ -9,7 +9,7 @@ mod persist;
 use std::time::{Duration, Instant};
 
 use last_harvest::{VERSION, audio, log, pak};
-use last_harvest_game::{Buttons, Game, InputTracker, RawInput, System};
+use last_harvest_game::{Buttons, Game, InputTracker, RawInput, Scene, System};
 use last_harvest_render::{Profile, Renderer};
 use sdl2::controller::{Axis, Button, GameController};
 use sdl2::event::Event;
@@ -103,6 +103,15 @@ fn run() -> Result<(), String> {
     game.set_backlights(false);
     game.set_touch(false);
     game.set_quit(true);
+    if let Ok(kit) = std::env::var("LAST_HARVEST_KIT") {
+        game.start_with(&kit);
+    }
+    if let Some(secs) = std::env::var("LAST_HARVEST_CLOCK").ok().and_then(|s| s.parse().ok()) {
+        game.start_clock(secs);
+    }
+    if let Some(scene) = std::env::var("LAST_HARVEST_START").ok().and_then(|s| Scene::from_name(&s)) {
+        game.open(scene);
+    }
     let audio = audio::Audio::open(&sounds).inspect_err(|e| log!("audio disabled: {e}")).ok();
     let motor = Motor::find();
     let mut rumbling = false;
