@@ -820,7 +820,7 @@ pub fn scene(h: &Harvest) -> CardScene {
     }
     for s in &h.spits {
         let a = super::effects::effects().spit.looping(s.age);
-        board(&mut cards, Board::new(a, false, [s.pos[0], s.pos[1] + 6.0], 0.35, 0.0));
+        board(&mut cards, Board { tint: s.tint(), ..Board::new(a, false, [s.pos[0], s.pos[1] + 6.0], 0.35, 0.0) });
     }
     for z in &h.burrowed {
         let a = super::effects::effects().mound.looping(h.t + z.id as f32 * 0.37);

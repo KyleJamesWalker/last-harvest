@@ -1994,7 +1994,7 @@ impl Editor {
                 let (w, h) = (top.w as i32, top.h as i32);
                 let (w, h) = if matches!(a, Action::Width(_)) { (w + d * step, h) } else { (w, h + d * step) };
                 let detail = self.sprite.detail as usize;
-                let max = if self.is_card() { sprite::CARD_MAX_FRAME * detail } else { MAX_SIZE.max(sprite::CARD_MAX_FRAME * detail) } as i32;
+                let max = if self.is_card() { last_harvest_game::card_frame_most(detail as u8) as usize } else { MAX_SIZE.max(sprite::CARD_MAX_FRAME * detail) } as i32;
                 if (w > max || h > max) && self.is_card() {
                     self.say(format!("A card's frames are at most {max}x{max} pixels"));
                 }
