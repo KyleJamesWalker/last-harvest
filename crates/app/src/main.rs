@@ -9,10 +9,11 @@ mod device;
 mod gfx;
 mod persist;
 
+use std::path::Path;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use last_harvest::{VERSION, audio, log, pak, samples};
-use last_harvest_game::{Buttons, Game, InputTracker, MAX_TOUCHES, RawInput, SCREEN_H, SCREEN_W, Scene, System};
+use last_harvest_game::{photo, Buttons, Capture, Game, InputTracker, MAX_TOUCHES, RawInput, SCREEN_H, SCREEN_W, Scene, System};
 use winit::application::ApplicationHandler;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event::{ElementState, MouseButton, TouchPhase, WindowEvent};
@@ -103,6 +104,7 @@ impl App {
         let on_device = false;
         let two = on_device || std::env::var("LAST_HARVEST_WINDOWS").is_ok_and(|v| v == "2");
         game.set_quit(true);
+        game.set_captures(true);
         Self {
             game,
             tracker: InputTracker::default(),
@@ -220,6 +222,7 @@ impl App {
         self.last = now;
         self.measure(frame);
         let mut shot = None;
+        let mut photo = false;
         for cmd in self.debug.iter().flat_map(|rx| rx.try_iter()).collect::<Vec<_>>() {
             match cmd {
                 debug::Command::Press(b, secs) => self.injector.press(b, secs),
@@ -288,8 +291,11 @@ impl App {
         if let Some(gfx) = &mut self.gfx {
             let started = Instant::now();
             let frame = self.game.draw();
-            if self.game.take_screenshot() && shot.is_none() {
-                shot = persist::next_screenshot();
+            if let Some(capture) = self.game.take_screenshot()
+                && shot.is_none()
+            {
+                photo = capture == Capture::Photo;
+                shot = persist::next_screenshot(if photo { "photo" } else { "shot" });
             }
             self.stats.work_ms[1] += started.elapsed().as_secs_f32() * 1000.0;
             let started = Instant::now();
@@ -298,10 +304,7 @@ impl App {
             match rendered {
                 Ok(Some(img)) => {
                     let path = shot.unwrap();
-                    std::thread::spawn(move || match debug::save_png(&path, img.width, img.height, &img.rgba) {
-                        Ok(()) => log!("debug: saved {}", path.display()),
-                        Err(e) => log!("debug: shot failed: {e}"),
-                    });
+                    std::thread::spawn(move || if photo { save_photo(&path, &img) } else { save_shot(&path, img.width, &img.rgba) });
                 }
                 Ok(None) => {}
                 Err(e) => {
@@ -330,6 +333,22 @@ impl App {
         });
         [p.x as f32 / size.width.max(1) as f32 * SCREEN_W, p.y as f32 / size.height.max(1) as f32 * SCREEN_H]
     }
+}
+
+fn save_shot(path: &Path, width: u32, rgba: &[u8]) {
+    match debug::save_png(path, width, rgba.len() as u32 / 4 / width.max(1), rgba) {
+        Ok(()) => log!("debug: saved {}", path.display()),
+        Err(e) => log!("debug: shot failed: {e}"),
+    }
+}
+
+/// Photo mode's capture: the top screen as `photo-NNNN.png`, and its middle square as `photo-NNNN-square.png`.
+fn save_photo(path: &Path, img: &gfx::Shot) {
+    let (top, full) = photo::crop(&img.rgba, img.width, img.top);
+    save_shot(path, top[2], &full);
+    let (square, pixels) = photo::crop(&img.rgba, img.width, photo::square(top));
+    let stem = path.file_stem().map_or_else(Default::default, |s| s.to_string_lossy().into_owned());
+    save_shot(&path.with_file_name(format!("{stem}-square.png")), square[2], &pixels);
 }
 
 fn key_button(code: KeyCode) -> Option<Buttons> {

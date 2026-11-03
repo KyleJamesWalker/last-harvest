@@ -96,14 +96,15 @@ impl Gfx {
     }
 
     /// Draws both screens, or in one window the frame as on a phone. With `capture`, also returns what was drawn,
-    /// two screens stacked top above bottom, as RGBA rows.
+    /// two screens stacked top above bottom, as RGBA rows, and where the top screen is in it.
     pub fn render(&mut self, frame: &Frame, capture: bool) -> Result<Option<Shot>, Box<dyn Error>> {
         let Self { top, bottom, context, gl, renderer } = self;
         if let (None, Some(phone)) = (&bottom, &frame.phone) {
             context.make_current(&top.surface)?;
             let size = top.window.inner_size();
             last_harvest::draw_phone(renderer, gl, frame, phone, [size.width as i32, size.height as i32]);
-            let shot = capture.then(|| read_back(gl, size.width, size.height));
+            let pic = phone.top.map(|r| r.map(|v| v.round().max(0.0) as u32));
+            let shot = capture.then(|| Shot { top: pic.unwrap_or([0, 0, size.width, size.height]), ..read_back(gl, size.width, size.height) });
             top.surface.swap_buffers(context)?;
             return Ok(shot);
         }
@@ -117,7 +118,8 @@ impl Gfx {
             }
             screen.surface.swap_buffers(context)?;
         }
-        Ok(capture.then(|| stack(shots)))
+        let top = shots.first().map_or([0; 4], |s| [0, 0, s.width, s.height]);
+        Ok(capture.then(|| Shot { top, ..stack(shots) }))
     }
 }
 
@@ -125,6 +127,7 @@ pub struct Shot {
     pub width: u32,
     pub height: u32,
     pub rgba: Vec<u8>,
+    pub top: [u32; 4],
 }
 
 const SHOT_GAP: u32 = 16;
@@ -138,7 +141,7 @@ fn read_back(gl: &glow::Context, width: u32, height: u32) -> Shot {
     let row = (width * 4) as usize;
     let mut flipped: Vec<u8> = rgba.chunks_exact(row).rev().flatten().copied().collect();
     flipped.chunks_exact_mut(4).for_each(|px| px[3] = 255);
-    Shot { width, height, rgba: flipped }
+    Shot { width, height, rgba: flipped, top: [0, 0, width, height] }
 }
 
 fn stack(shots: Vec<Shot>) -> Shot {
@@ -154,7 +157,7 @@ fn stack(shots: Vec<Shot>) -> Shot {
             rgba.extend(std::iter::repeat_n(0, ((width - s.width) * 4) as usize));
         }
     }
-    Shot { width, height, rgba }
+    Shot { width, height, rgba, top: [0; 4] }
 }
 
 /// The game's icon for its windows, where the system shows one: macOS takes the app bundle's instead.

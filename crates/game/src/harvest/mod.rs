@@ -6,6 +6,7 @@ mod effects;
 mod enemies;
 mod juice;
 mod map;
+mod photo;
 mod props;
 mod players;
 mod powerups;
@@ -578,6 +579,8 @@ pub struct Flow {
     pub ended: Option<Run>,
     /// Powerups found this frame, to keep even if the run is abandoned.
     pub found: u64,
+    /// Photo mode asked for a capture.
+    pub capture: bool,
 }
 
 pub struct Harvest {
@@ -719,6 +722,8 @@ pub struct Harvest {
     touch_aim: bool,
     /// Touch grenades have the map up.
     touch_map: bool,
+    photo: Option<photo::Photo>,
+    saves_photos: bool,
 }
 
 /// Weapons and passives unlocked so far, out of all of them, and how many are waiting to be found.
@@ -755,7 +760,7 @@ fn norm(v: [f32; 2]) -> [f32; 2] {
 impl Harvest {
     /// What a keyboard's Esc stands for: Start to pause a run in play, else B to back out of what is open.
     pub fn escape(&self) -> Buttons {
-        if self.menu.is_none() && matches!(self.phase, Phase::Playing) { Buttons::START } else { Buttons::B }
+        if self.menu.is_none() && self.photo.is_none() && matches!(self.phase, Phase::Playing) { Buttons::START } else { Buttons::B }
     }
 
     /// The player's position and the solid cells and props around them, for the debug pipe's `state`.
@@ -903,6 +908,8 @@ impl Harvest {
             since_throw: 0.0,
             touch_aim: false,
             touch_map: false,
+            photo: None,
+            saves_photos: false,
         }
         .with_birds()
     }
@@ -1065,6 +1072,10 @@ impl Harvest {
         let mut flow = Flow::default();
         if self.bench {
             self.view_yaw = (self.view_yaw + TAU / 600.0).rem_euclid(TAU);
+            return flow;
+        }
+        if self.photo.is_some() {
+            self.photo(input, dt, sounds, &mut flow);
             return flow;
         }
         self.overview = input.held.contains(if self.single { Buttons::R2 } else { Buttons::L1 });
@@ -1351,14 +1362,15 @@ impl Harvest {
             at = (at + n - 1) % n;
             sounds.push(Sfx::Tick(at as u8 * 3));
         }
-        let tapped = input.touch.filter(|_| input.touch_started).and_then(|[_, y]| choice_row(y)).filter(|&i| i < n);
+        let tapped = input.touch.filter(|_| input.touch_started).and_then(|[_, y]| pause_row(y));
         let chosen = tapped.or(input.pressed.any(Buttons::A | Buttons::X).then_some(at));
         self.menu = Some(at);
         match chosen {
             _ if input.pressed.any(Buttons::START | Buttons::B) => self.menu = None,
             Some(0) => self.menu = None,
             Some(1) => flow.settings = true,
-            Some(2) => self.restart(sounds),
+            Some(PAUSE_PHOTO) => self.open_photo(),
+            Some(3) => self.restart(sounds),
             Some(_) => flow.quit = true,
             None => {}
         }
@@ -2164,10 +2176,18 @@ impl Harvest {
 }
 
 const CHOICE_TOP: f32 = 160.0;
-const PAUSE_CHOICES: [&str; 4] = ["Resume", "Settings", "New farm", "Quit to title"];
+const PAUSE_CHOICES: [&str; 5] = ["Resume", "Settings", "Photo mode", "New farm", "Quit to title"];
+const PAUSE_PHOTO: usize = 2;
 const CHOICE_ROW: f32 = 150.0;
+const PAUSE_ROW: f32 = 110.0;
 
-/// Which level-up or pause row a bottom-screen touch at `y` lands on.
+/// Which pause row a bottom-screen touch at `y` lands on.
+fn pause_row(y: f32) -> Option<usize> {
+    let row = ((y - CHOICE_TOP) / PAUSE_ROW).floor();
+    (0.0..PAUSE_CHOICES.len() as f32).contains(&row).then_some(row as usize)
+}
+
+/// Which level-up card a bottom-screen touch at `y` lands on.
 fn choice_row(y: f32) -> Option<usize> {
     let row = ((y - CHOICE_TOP) / CHOICE_ROW).floor();
     (0.0..4.0).contains(&row).then_some(row as usize)
@@ -2321,10 +2341,11 @@ mod tests {
         assert!(press(&mut h, Buttons::A).settings);
         assert!(h.menu.is_some(), "the run stays paused under the settings");
         press(&mut h, Buttons::DOWN);
+        press(&mut h, Buttons::DOWN);
         press(&mut h, Buttons::A);
         assert!(h.menu.is_none() && h.t == 0.0, "New farm starts over");
         press(&mut h, Buttons::START);
-        let tap = Input { touch: Some([500.0, CHOICE_TOP + CHOICE_ROW * 3.5]), touch_started: true, ..Default::default() };
+        let tap = Input { touch: Some([500.0, CHOICE_TOP + PAUSE_ROW * 4.5]), touch_started: true, ..Default::default() };
         assert!(h.update(&tap, 1.0 / 60.0, &mut Vec::new()).quit, "a tap on the last choice quits");
     }
 
@@ -2561,7 +2582,7 @@ mod tests {
     #[test]
     fn a_map_smaller_than_the_view_draws_and_takes_a_tap() {
         let mut h = Harvest::calm_on(1, &MapSource::new("Tiny", MAP_MIN)).unwrap();
-        h.draw(&mut crate::Frame::default());
+        h.draw(&mut crate::Frame::default(), false);
         h.throw([SCREEN_W / 2.0, SCREEN_H / 2.0], &mut Vec::new());
         assert_eq!(h.camera(), [0.0; 2]);
     }

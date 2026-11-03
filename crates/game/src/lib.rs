@@ -15,6 +15,7 @@ mod harvest;
 mod input;
 mod menu;
 mod osd;
+pub mod photo;
 mod rng;
 mod save;
 pub mod scene3d;
@@ -52,6 +53,15 @@ const MAX_TITLE_KINDS: usize = 5;
 const WHITE: Color = [1.0, 1.0, 1.0, 1.0];
 const HOT: Color = [1.0, 0.85, 0.2, 1.0];
 const DIM: Color = [1.0, 1.0, 1.0, 0.55];
+
+/// What the app saves after a draw that asked for a screenshot.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Capture {
+    /// Both screens, as drawn.
+    Screens,
+    /// Photo mode's top screen alone, with its middle square beside it.
+    Photo,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Scene {
@@ -153,6 +163,8 @@ pub struct Game {
     shot: bool,
     /// Seconds left of the white flash that says a screenshot was taken.
     shot_flash: f32,
+    /// The platform saves screenshots, so photo mode can take one.
+    captures: bool,
 }
 
 impl Game {
@@ -192,15 +204,31 @@ impl Game {
             settings_in_run: false,
             shot: false,
             shot_flash: 0.0,
+            captures: false,
         }
     }
 
-    /// Whether R1 asked for a screenshot; the app saves the frame it just drew.
-    pub fn take_screenshot(&mut self) -> bool {
-        if self.shot {
-            self.shot_flash = SHOT_FLASH;
+    /// What R1 or photo mode asked to capture, if anything; the app saves the frame it just drew.
+    pub fn take_screenshot(&mut self) -> Option<Capture> {
+        if !std::mem::take(&mut self.shot) {
+            return None;
         }
-        std::mem::take(&mut self.shot)
+        self.shot_flash = SHOT_FLASH;
+        Some(if self.in_photo() { Capture::Photo } else { Capture::Screens })
+    }
+
+    /// The platform saves what `take_screenshot` asks for, so photo mode offers to take photos.
+    pub fn set_captures(&mut self, on: bool) {
+        self.captures = on;
+    }
+
+    fn in_photo(&self) -> bool {
+        matches!(&self.state, State::Harvest(h) if h.in_photo())
+    }
+
+    /// This frame is a photo mode capture, drawn with no guides or overlays.
+    fn clean(&self) -> bool {
+        self.shot && self.captures && self.in_photo()
     }
 
     pub fn load(&mut self, save: Save) {
@@ -427,7 +455,7 @@ impl Game {
             self.sounds.push(Sfx::Tick(self.save.volume));
         }
         self.shot_flash = (self.shot_flash - dt).max(0.0);
-        let own_r1 = matches!(self.state, State::Hardware(_) | State::Gallery(_));
+        let own_r1 = matches!(self.state, State::Hardware(_) | State::Gallery(_)) || self.in_photo();
         if input.pressed.contains(Buttons::R1) && !own_r1 {
             self.shot = true;
             self.sounds.push(Sfx::Tick(LEVELS));
@@ -461,7 +489,14 @@ impl Game {
                     h.set_one_screen(true);
                     h.set_touch_aim(self.save.touch_grenades && self.touch_ui);
                 }
+                h.set_saves_photos(self.captures);
                 let flow = h.update(input, dt, &mut self.sounds);
+                if flow.capture && self.captures {
+                    self.shot = true;
+                    self.sounds.push(Sfx::Tick(LEVELS));
+                } else if flow.capture {
+                    h.toggle_guides();
+                }
                 if flow.settings {
                     self.page = Page::Settings;
                     self.open_settings(true);
@@ -504,7 +539,7 @@ impl Game {
         match &self.state {
             State::Title => self.draw_title(&mut f),
             State::Harvest(h) => {
-                h.draw(&mut f);
+                h.draw(&mut f, self.clean());
                 if self.page == Page::Settings {
                     self.draw_settings(if h.one_screen() { &mut f.top } else { &mut f.bottom });
                 }
@@ -520,15 +555,16 @@ impl Game {
         if self.paused {
             f.top.text_centered(360.0, 16.0, WHITE, "PAUSED");
         }
-        if self.volume_shown > 0.0 {
+        let clean = self.clean();
+        if self.volume_shown > 0.0 && !clean {
             f.top.text_centered(40.0, 8.0, WHITE, &format!("VOL {}", self.save.volume));
         }
-        if self.shot_flash > 0.0 {
+        if self.shot_flash > 0.0 && !clean {
             let a = self.shot_flash / SHOT_FLASH * 0.7;
             f.top.rect(0.0, 0.0, SCREEN_W, SCREEN_H, [1.0, 1.0, 1.0, a]);
             f.bottom.rect(0.0, 0.0, SCREEN_W, SCREEN_H, [1.0, 1.0, 1.0, a]);
         }
-        if self.save.fps {
+        if self.save.fps && !clean {
             let top = if matches!(self.state, State::Harvest(_)) { PERF_UNDER_KILLS } else { 8.0 };
             system::draw_perf(&mut f.top, &self.system, top);
         } else if matches!(self.state, State::Title) {
@@ -543,7 +579,8 @@ impl Game {
         }
         if let Some(size) = self.phone {
             let layout = self.phone_layout(size);
-            f.phone = Some(touch::Phone { size, top: layout.top, bottom: layout.bottom, pad: self.touchpad.draw(&layout) });
+            let pad = if clean { Canvas { clear: [0.0; 4], size: Some(size), ..Default::default() } } else { self.touchpad.draw(&layout) };
+            f.phone = Some(touch::Phone { size, top: layout.top, bottom: layout.bottom, pad });
         }
         f
     }
@@ -1013,12 +1050,46 @@ mod tests {
     fn r1_takes_one_screenshot_and_flashes_after_it() {
         let mut game = Game::new(1);
         press(&mut game, Buttons::R1);
-        assert!(game.take_screenshot());
-        assert!(!game.take_screenshot(), "one press, one shot");
+        assert_eq!(game.take_screenshot(), Some(Capture::Screens));
+        assert_eq!(game.take_screenshot(), None, "one press, one shot");
         assert!(game.shot_flash > 0.0);
         game.open(Scene::Gallery);
         press(&mut game, Buttons::R1);
-        assert!(!game.take_screenshot(), "the gallery keeps R1 for itself");
+        assert_eq!(game.take_screenshot(), None, "the gallery keeps R1 for itself");
+    }
+
+    fn in_photo_mode(captures: bool) -> Game {
+        let mut game = Game::new(1);
+        game.set_captures(captures);
+        game.open(Scene::Harvest);
+        for b in [Buttons::START, Buttons::DOWN, Buttons::DOWN, Buttons::A] {
+            press(&mut game, b);
+        }
+        assert!(game.in_photo());
+        game
+    }
+
+    #[test]
+    fn a_photo_capture_frame_hides_the_guides_and_every_overlay() {
+        let mut game = in_photo_mode(true);
+        game.save.fps = true;
+        press(&mut game, Buttons::VOL_UP);
+        assert!(!game.draw().top.shapes.is_empty(), "guides, volume and frame rate show while setting up");
+        press(&mut game, Buttons::R1);
+        let frame = game.draw();
+        assert!(frame.top.cards.is_some() && frame.top.shapes.is_empty(), "the capture is the scene alone");
+        assert_eq!(game.take_screenshot(), Some(Capture::Photo));
+        assert!(!game.draw().top.shapes.is_empty(), "and the guides come back after it");
+    }
+
+    #[test]
+    fn without_saving_a_photo_r1_hides_the_guides_for_the_players_own_screenshot() {
+        let mut game = in_photo_mode(false);
+        press(&mut game, Buttons::R1);
+        assert_eq!(game.take_screenshot(), None);
+        assert!(game.draw().top.shapes.is_empty());
+        press(&mut game, Buttons::R1);
+        assert!(!game.draw().top.shapes.is_empty());
     }
 
     #[test]
