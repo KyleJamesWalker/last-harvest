@@ -2993,6 +2993,29 @@ impl Editor {
         if self.mirror {
             clip(c, o[0] + w / 2.0 - 1.0, o[1], 2.0, h, [0.4, 0.8, 1.0, 0.5]);
         }
+        let d = self.sprite.detail as usize;
+        if d > 1 && self.view.is_none() {
+            // The game's pixels, and the blocks only partly filled.
+            let line = [1.0, 1.0, 1.0, 0.25];
+            for x in (0..=f.w).step_by(d) {
+                clip(c, o[0] + x as f32 * zoom, o[1], 1.0, h, line);
+            }
+            for y in (0..=f.h).step_by(d) {
+                clip(c, o[0], o[1] + y as f32 * zoom, w, 1.0, line);
+            }
+            let partial = f.partial_blocks(d);
+            let (s, mark) = (d as f32 * zoom, [1.0, 0.35, 0.65, 0.95]);
+            for &(bx, by) in &partial {
+                let (x, y) = (o[0] + (bx * d) as f32 * zoom, o[1] + (by * d) as f32 * zoom);
+                for (rx, ry, rw, rh) in [(x, y, s, 2.0), (x, y + s - 2.0, s, 2.0), (x, y, 2.0, s), (x + s - 2.0, y, 2.0, s)] {
+                    clip(c, rx, ry, rw, rh, mark);
+                }
+            }
+            if !partial.is_empty() {
+                let said = format!("{} game pixels part filled: their 3D sides take the whole pixel", partial.len());
+                c.label(said, CANVAS.x + 8.0, CANVAS.y + CANVAS.h - 24.0, 16.0, mark, Align::Left);
+            }
+        }
         if let Some(([ax, ay], picked)) = self.grenade_at().filter(|_| self.wears_grenade() && self.tool_now() == Tool::Grenade) {
             // The grenade is drawn in game pixels, `d` of the frame's pixels each.
             let (g, d) = (Frame::from_art(art::GRENADE_WORN), self.sprite.detail as f32);
