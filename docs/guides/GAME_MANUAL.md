@@ -446,7 +446,7 @@ Each section names what an effect, swing or animal plays:
 - `life N`: a swing's seconds.
 - `reach N`: how far out a swing sweeps, as a fraction of the weapon's range or area.
 
-A sprite that stands as a slab lies flat and turns with the swing. Anything else faces the camera. A section with a name of your own is a new effect a weapon can use.
+A sprite that stands as a slab lies flat and turns with the swing. Anything else faces the camera. A section with a name of your own is a new effect a weapon can use. A mod's file may leave out `[spit]`, `[mound]` and `[mound_breaks]`, added later, and keep the game's.
 
 The `[colors]` section sets the particle colors: `blood`, `dark_blood`, `dirt`, `spark`, `ember`, `gold` and `firefly`. Each is red, green and blue from 0 to 1. A zombie with its own `blood` bleeds that instead, and its `dark_blood` is as much darker.
 
@@ -530,7 +530,7 @@ A `charge` speeds a zombie up once it comes within `tuning.txt`'s `charge_reach`
 
 A `ranged` zombie walks in until it is that near and has a clear shot, then stands and spits. Each spit does its `damage`, flies slower than you walk, and splashes on cover as a bullet would. `tuning.txt` sets `spit_speed` and `spit_every`, and `effects.txt`'s `[spit]` sets its look; a mod's `effects.txt` without one keeps the game's. It plays the `spit` sound as it spits and `splat` where it lands. A mod pack replaces either with `sounds/spit.ogg` or `sounds/splat.ogg`.
 
-A `burrow` zombie breaks ground into a tunnel. Underground it shows as a dirt mound, and nothing can hit it. It rises within `tuning.txt`'s `burrow_reach` of you. After `burrow` seconds up, it digs back under, unless it is that near you.
+A `burrow` zombie breaks ground into a tunnel. Underground it shows as a moving dirt mound, and nothing can hit it. It rises within `tuning.txt`'s `burrow_reach` of you, in a puff of dirt. After `burrow` seconds up, it digs back under, unless it is that near you. `effects.txt`'s `[mound]` sets the mound's look and `[mound_breaks]` the puff; a mod's `effects.txt` without them keeps the game's.
 
 ## The card editor
 

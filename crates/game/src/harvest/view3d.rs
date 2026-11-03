@@ -822,7 +822,11 @@ pub fn scene(h: &Harvest) -> CardScene {
         let a = super::effects::effects().spit.looping(s.age);
         board(&mut cards, Board::new(a, false, [s.pos[0], s.pos[1] + 6.0], 0.35, 0.0));
     }
-    // Churned earth, darkening as a zombie nears the surface; a burrower's mound is fully dark.
+    for z in &h.burrowed {
+        let a = super::effects::effects().mound.looping(h.t + z.id as f32 * 0.37);
+        board(&mut cards, Board::new(a, z.dir[0] < 0.0, z.pos, 0.0, 0.0));
+    }
+    // Churned earth, darkening as a zombie nears the surface; a burrower's trail is fully dark.
     let mounds = h.tells.iter().map(|t| (t.pos, (t.t / TELL_TIME).min(1.0), t.pos[0] as usize)).chain(h.burrowed.iter().map(|z| (z.pos, 1.0, z.id as usize)));
     for (pos, k, pick) in mounds {
         let mark = art::BLOOD_STAIN[pick % art::BLOOD_STAIN.len()];

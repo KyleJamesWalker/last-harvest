@@ -230,8 +230,9 @@ impl Harvest {
             c.circle(sx, sy, (2.0 + 3.0 * k) * scale, [0.2, 0.13, 0.07, 0.8]);
         }
         for z in &self.burrowed {
-            let (sx, sy) = at(z.pos[0], z.pos[1]);
-            c.circle(sx, sy, 5.0 * scale, [0.2, 0.13, 0.07, 0.8]);
+            let a = super::effects::effects().mound.looping(self.t + z.id as f32 * 0.37);
+            let (sx, sy) = at(z.pos[0] - a.w() / 2.0, z.pos[1] - a.h() + 1.0);
+            c.art(a, sx, sy, scale, z.dir[0] < 0.0, lit);
         }
         for p in &self.patches {
             let fade = ((p.life - p.age) / 0.5).clamp(0.0, 1.0);

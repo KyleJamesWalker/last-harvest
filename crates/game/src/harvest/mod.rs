@@ -1633,12 +1633,14 @@ impl Harvest {
             z.leader = t.leader;
             z.id = self.next_id;
             self.next_id += 1;
-            if t.kind.stats().burrow > 0.0 {
+            let burrows = t.kind.stats().burrow > 0.0;
+            if burrows {
                 self.burrowed.push(z);
             } else {
                 self.zombies.push(z);
             }
-            self.fx.push(Fx::play(effects::effects().zombie_rises, [pos[0], pos[1] - 3.0], 0.0));
+            let puff = if burrows { effects::effects().mound_breaks } else { effects::effects().zombie_rises };
+            self.fx.push(Fx::play(puff, [pos[0], pos[1] - 3.0], 0.0));
             self.juice.burst(pos, 0.0, 8, [0.0; 2], 0.0, [15.0, 45.0], juice::dirt(), 1.6, 0.6, 0.0);
             let (pan, gain) = self.place(pos);
             if self.hush[3] <= 0.0 && gain > 60 {
@@ -1735,6 +1737,7 @@ impl Harvest {
             }
             let mut z = self.zombies.swap_remove(i);
             z.up = 0.0;
+            self.fx.push(Fx::play(effects::effects().mound_breaks, [z.pos[0], z.pos[1] - 3.0], 0.0));
             self.juice.burst(z.pos, 0.0, 8, [0.0; 2], 0.0, [15.0, 45.0], juice::dirt(), 1.6, 0.6, 0.0);
             self.burrowed.push(z);
         }
@@ -1768,7 +1771,7 @@ impl Harvest {
             z.rise = 0.0;
             z.up = 0.0;
             self.zombies.push(z);
-            self.fx.push(Fx::play(effects::effects().zombie_rises, [pos[0], pos[1] - 3.0], 0.0));
+            self.fx.push(Fx::play(effects::effects().mound_breaks, [pos[0], pos[1] - 3.0], 0.0));
             self.juice.burst(pos, 0.0, 8, [0.0; 2], 0.0, [15.0, 45.0], juice::dirt(), 1.6, 0.6, 0.0);
             if self.hush[3] <= 0.0 {
                 let (pan, gain) = self.place(pos);
@@ -2514,6 +2517,7 @@ mod tests {
             }
         }
         assert_eq!((h.zombies.len(), h.burrowed.len()), (1, 0), "it surfaced");
+        assert!(h.fx.iter().any(|f| f.frames == effects::effects().mound_breaks.frames), "in a puff of dirt");
         assert!(len(sub(h.zombies[0].pos, h.pos)) <= crate::tuning::tuning().burrow_reach && h.zombies[0].rise < 1.0, "beside the player");
         h.zombies[0].rise = 1.0;
         h.zombies[0].pos = [h.pos[0] + 80.0, h.pos[1]];
