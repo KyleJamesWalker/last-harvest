@@ -344,7 +344,7 @@ impl Game {
         c.label(">", mid + 250.0, y + 6.0, 56.0, arrow(d != Difficulty::Hard), Align::Center);
         c.label(d.name(), mid, y + 6.0, 52.0, HOT, Align::Center);
         if self.title_on_one() {
-            wrap_label(c, d.blurb(), mid, y + 64.0, 36.0, 560.0, 2, DIM, Align::Center);
+            wrap_label(c, d.blurb(), mid, y + 56.0, 36.0, 560.0, 2, DIM, Align::Center);
             c.label("D-pad: walk.   Y / A: turn.   B: turn around.", SCREEN_W / 2.0, SCREEN_H - 104.0, 40.0, DIM, Align::Center);
             c.label("L1: map.   L2: aim a grenade.   R2: whole map.", SCREEN_W / 2.0, SCREEN_H - 56.0, 40.0, DIM, Align::Center);
             return;

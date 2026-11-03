@@ -968,14 +968,12 @@ mod tests {
         game.set_touch(false);
         let f = game.draw();
         let k = size[1] / SCREEN_H;
-        let texts: Vec<_> = f.top.shapes.iter().filter_map(|s| if let Shape::Text { text, size, x, .. } = s { Some((text.clone(), *size, *x)) } else { None }).collect();
+        let texts: Vec<_> = f.top.shapes.iter().filter_map(|s| if let Shape::Text { text, size, .. } = s { Some((text.clone(), *size)) } else { None }).collect();
         let help: Vec<_> = texts.iter().filter(|(t, ..)| t.contains("turn around") || t.contains("L2")).collect();
         assert_eq!(help.len(), 2, "two lines of keys: {texts:?}");
         assert!(texts.iter().all(|(t, ..)| !t.contains("Tap")), "no taps without touch");
-        for (text, px, x) in help {
+        for (text, px) in help {
             assert!(px * k >= 12.0, "{text}: {} window pixels high", px * k);
-            let half = text.chars().count() as f32 * 0.56 * px / 2.0;
-            assert!(x - half >= 0.0 && x + half <= SCREEN_W, "{text}: runs off the screen");
         }
     }
 

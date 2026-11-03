@@ -36,7 +36,7 @@ const FRAG: &str = r#"
 in vec2 v_local;
 in vec4 v_color;
 in float v_kind;
-in vec2 v_uv;
+in highp vec2 v_uv;
 uniform sampler2D u_atlas;
 uniform sampler2D u_art;
 out vec4 o_color;
@@ -103,7 +103,7 @@ void main() {
 
 const CARD_FRAG: &str = r#"
 in vec3 v_world;
-in vec2 v_uv;
+in highp vec2 v_uv;
 in float v_facing;
 #ifdef TINT
 in vec4 v_tint;
