@@ -517,7 +517,7 @@ Each arriving zombie rolls a number from 0 to 1. It becomes the first kind, top 
 
 A `charge` speeds a zombie up once it comes within `tuning.txt`'s `charge_reach` of you. `charge 2` doubles its speed there.
 
-A `ranged` zombie walks in until it is that near and has a clear shot, then stands and spits. Each spit does its `damage`, flies slower than you walk, and splashes on cover as a bullet would. `tuning.txt` sets `spit_speed` and `spit_every`, and `effects.txt`'s `[spit]` sets its look.
+A `ranged` zombie walks in until it is that near and has a clear shot, then stands and spits. Each spit does its `damage`, flies slower than you walk, and splashes on cover as a bullet would. `tuning.txt` sets `spit_speed` and `spit_every`, and `effects.txt`'s `[spit]` sets its look; a mod's `effects.txt` without one keeps the game's.
 
 A `burrow` zombie breaks ground into a tunnel. Underground it shows as a dirt mound, and nothing can hit it. It rises within `tuning.txt`'s `burrow_reach` of you. After `burrow` seconds up, it digs back under, unless it is that near you.
 
