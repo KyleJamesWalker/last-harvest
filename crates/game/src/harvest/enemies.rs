@@ -269,7 +269,7 @@ fn entries(text: &str) -> Result<Vec<Entry>, String> {
             "charge" => e.charge = number()?.clamp(0.1, 10.0),
             "ranged" => e.ranged = number()?.min(RANGED_MAX),
             "burrow" => e.burrow = number()?.min(BURROW_MAX),
-            "blood" => e.blood = Some(hex_color(rest).map_err(|err| format!("{n}: {err}"))?),
+            "blood" => e.blood = Some(crate::paint::hex(rest).filter(|_| rest.bytes().all(|b| b.is_ascii_hexdigit())).ok_or_else(|| format!("{n}: blood is a color as RRGGBB, such as 7AA062, not {rest:?}"))?),
             "walk" => {
                 entry.walk = rest.parse().ok().filter(|n| (1..=MAX_WALK).contains(n)).ok_or_else(|| format!("{n}: walk is 1 to {MAX_WALK} frames, not {rest:?}"))?;
             }
@@ -280,16 +280,6 @@ fn entries(text: &str) -> Result<Vec<Entry>, String> {
         }
     }
     Ok(entries)
-}
-
-/// A color written as `RRGGBB`, as palette.txt writes them.
-pub fn hex_color(text: &str) -> Result<[u8; 3], String> {
-    let bad = || format!("blood is a color as RRGGBB, such as 7AA062, not {text:?}");
-    if text.len() != 6 || !text.chars().all(|c| c.is_ascii_hexdigit()) {
-        return Err(bad());
-    }
-    let byte = |i: usize| u8::from_str_radix(&text[i..i + 2], 16).map_err(|_| bad());
-    Ok([byte(0)?, byte(2)?, byte(4)?])
 }
 
 /// Reads the enemy file; an error names the line.

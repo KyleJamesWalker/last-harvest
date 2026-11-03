@@ -45,13 +45,9 @@ pub fn dark_blood_of(own: Option<[u8; 3]>) -> [f32; 3] {
 
 /// What to multiply a blood sprite by to draw it in a kind's `own` color: white for effects.txt's.
 pub fn blood_tint(art: Art, own: Option<[u8; 3]>) -> [f32; 3] {
-    match (own, art.mean()) {
-        (Some(_), Some(mean)) => {
-            let c = blood_of(own);
-            std::array::from_fn(|k| c[k] / mean[k].max(0.02))
-        }
-        _ => [1.0; 3],
-    }
+    let (Some(_), Some(mean)) = (own, own.and_then(|_| art.mean())) else { return [1.0; 3] };
+    let c = blood_of(own);
+    std::array::from_fn(|k| c[k] / mean[k].max(0.02))
 }
 
 pub fn dirt() -> [f32; 3] {

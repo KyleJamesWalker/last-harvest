@@ -489,7 +489,7 @@ impl Editor {
         }
         let lx = m.x + m.w + 12.0;
         for (i, (id, name)) in mix.kinds.iter().enumerate() {
-            let y = plot_y + i as f32 * 18.0;
+            let y = m.y + i as f32 * 18.0;
             let total = mix.shares.iter().map(|s| s[i]).sum::<f32>() / mix.shares.len() as f32;
             c.rect(lx, y + 3.0, 10.0, 10.0, color(i));
             let label: String = name.chars().take(10).collect();
