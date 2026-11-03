@@ -243,6 +243,11 @@ pub fn default_depth(w: f32, h: f32, art: Option<Art>, open_rows: usize) -> f32 
     thickness(art.unwrap_or(Art(u16::MAX)), tiles(w), tiles(h), open_rows)
 }
 
+/// How far a sprite the game places reaches back in 3D, as the map stands it.
+pub(super) fn depth_of(a: Art) -> f32 {
+    thickness(a, tiles(a.w()), tiles(a.h()), open_of(a))
+}
+
 fn tiles(px: f32) -> usize {
     (px / TILE).ceil() as usize
 }

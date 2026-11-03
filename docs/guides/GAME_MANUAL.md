@@ -164,10 +164,13 @@ Choose Photo mode from the pause menu to frame a shot of the run, horde and all.
 | Turn the camera around you | Left / Right, or the stick | Left / Right arrows |
 | Zoom | Up / Down | Up / Down arrows |
 | Raise or lower the camera | Hold L1 with Up / Down | Hold 1 with Up / Down |
-| Choose a setting: Time, Fog, Lantern or Pose | L2 | Q |
-| Change it; on Pose, pick the next zombie | R2 | 2 |
+| Choose a setting: Time, Fog, Lantern, Pose or Props | L2 | Q |
+| Change it; on Pose, pick the next zombie; on Props, drop the chosen prop | R2 | 2 |
 | On Pose, turn the picked zombie | Left / Right, or the stick | Left / Right arrows |
 | On Pose, step its walk a frame | Up / Down | Up / Down arrows |
+| On Props, choose a prop | Left / Right, or the stick | Left / Right arrows |
+| On Props, turn the last prop dropped | Up / Down | Up / Down arrows |
+| On Props, take back the last prop dropped | Y | A |
 | Take a photo | R1, or tap | W |
 | Back to the pause menu | B or Start | Z, Enter or Esc |
 
@@ -175,7 +178,9 @@ The settings change only the picture, never the run, and go back to the run's ow
 
 Pose lets you set up the zombies in the shot. R2 picks the zombie in the picture nearest where the camera looks, and each press after picks the next of the eight nearest, then back round to the first. A marker points at the one picked. Left and Right then turn it instead of the camera, and Up and Down step its walk a frame forward or back; the turn strip on a phone still turns the camera, and L1 with Up / Down still raises it. A posed zombie shows its walk, not its hurt frame, and goes back to how the run left it when you leave.
 
-A photo leaves out the HUD, the guides and the help. It saves the top screen as `screenshots/photo-NNNN.png` beside the save, and its middle square, the one the guide outlines, as `photo-NNNN-square.png`. On a phone the touch stick and turn strip move the camera, the Grenade key chooses a setting and the Map key changes it, and a tap on the picture takes the photo. Where the game can't save a file, in a browser, on Android and on muOS, R1 or a tap hides the guides instead, so your device's own screenshot comes out clean.
+Props lets you dress the shot. Left and Right choose a prop: a barrier, barrel, tank, hay bale, haystack, scarecrow, tombstone, sign, mailbox, skull fence, dead or tall tree, stump, log, bush, corpse, gas pump, tractor, truck, car or wreck. R2 drops it on the ground where the camera looks, its front to the camera, and a marker points at it; Up and Down turn the last one dropped. Y takes the last one back, and so does R2 on Take back, the choice after Wreck and before Barrier. The help counts how many are in. Props stand only in the picture: zombies don't see them, and they go when you leave.
+
+A photo leaves out the HUD, the guides and the help. It saves the top screen as `screenshots/photo-NNNN.png` beside the save, and its middle square, the one the guide outlines, as `photo-NNNN-square.png`. On a phone the touch stick and turn strip move the camera, the Grenade key chooses a setting and the Map key changes it (on Props, choose Take back to remove one), and a tap on the picture takes the photo. Where the game can't save a file, in a browser, on Android and on muOS, R1 or a tap hides the guides instead, so your device's own screenshot comes out clean.
 
 ## Weapons, passives and zombies
 

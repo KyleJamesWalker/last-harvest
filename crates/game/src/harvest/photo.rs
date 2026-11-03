@@ -2,6 +2,7 @@
 
 use super::map::TILE;
 use super::{Facing, Flow, Harvest, PAUSE_PHOTO, SCALE, Zombie, len, norm, sub, view3d};
+use crate::art::{self, Art};
 use crate::icon::Orbit;
 use crate::scene3d::CardScene;
 use crate::{Align, Buttons, Canvas, Color, Frame, Input, SCREEN_H, SCREEN_W, Sfx};
@@ -22,8 +23,33 @@ const USUAL_LANTERN: usize = 2;
 const FOCUS: f32 = 4.0 * TILE;
 const PICKS: usize = 8;
 const PICK_REACH: f32 = 16.0 * TILE;
-/// Radians a second Left or Right turns a posed zombie.
+/// Radians a second Left or Right turns a posed zombie, and Up or Down a dropped prop.
 const POSE_TURN: f32 = 3.0;
+/// The props R2 drops, by name and sprite; the choice after the last takes back the one dropped last.
+const PROPS: [(&str, &str); 21] = [
+    ("Barrier", "BARRIER"),
+    ("Barrel", "BARREL"),
+    ("Tank", "TANK"),
+    ("Hay bale", "HAY"),
+    ("Haystack", "HAY_STACK"),
+    ("Scarecrow", "SCARECROW"),
+    ("Tombstone", "TOMBSTONE"),
+    ("Sign", "SIGN"),
+    ("Mailbox", "MAILBOX"),
+    ("Skull fence", "SKULL_FENCE"),
+    ("Dead tree", "DEAD_TREE"),
+    ("Tall tree", "TALL_TREE"),
+    ("Stump", "STUMP"),
+    ("Log", "LOG"),
+    ("Bush", "BUSH"),
+    ("Corpse", "CORPSE"),
+    ("Gas pump", "GAS_PUMP"),
+    ("Tractor", "TRACTOR"),
+    ("Truck", "TRUCK"),
+    ("Car", "CAR_H"),
+    ("Wreck", "WRECK_H"),
+];
+const TAKE_BACK: usize = PROPS.len();
 
 /// The photo mode setting R2 changes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -32,10 +58,11 @@ pub(super) enum Setting {
     Fog,
     Lantern,
     Pose,
+    Props,
 }
 
 impl Setting {
-    const ALL: [Self; 4] = [Self::Time, Self::Fog, Self::Lantern, Self::Pose];
+    const ALL: [Self; 5] = [Self::Time, Self::Fog, Self::Lantern, Self::Pose, Self::Props];
 
     fn next(self) -> Self {
         Self::ALL[(Self::ALL.iter().position(|&s| s == self).unwrap_or(0) + 1) % Self::ALL.len()]
@@ -57,11 +84,41 @@ pub(super) struct Photo {
     posed: Vec<(usize, Zombie)>,
     /// Up (-1) or Down (1) held last frame, so a held push steps one frame.
     pushed: i8,
+    /// The prop R2 drops, an index into PROPS, or TAKE_BACK.
+    prop: usize,
+    /// Left (-1) or Right (1) held last frame, so a held push chooses once.
+    swung: i8,
+    /// Props dropped into the picture, last dropped last; never in the run's map.
+    props: Vec<Dropped>,
+}
+
+/// A prop photo mode dropped: its place in PROPS, the middle of its foot in map pixels, and how far it is turned.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct Dropped {
+    kind: usize,
+    at: [f32; 2],
+    angle: f32,
+}
+
+impl Dropped {
+    fn art(&self) -> Art {
+        sprite(PROPS[self.kind].1)
+    }
+}
+
+/// The first frame of a sprite by name, or a blank where a mod's art lacks it.
+fn sprite(name: &str) -> Art {
+    art::ALL.iter().find(|(n, _)| *n == name).and_then(|(_, f)| f.first().copied()).unwrap_or(art::WHITE)
+}
+
+/// Which way a push of `v` points: -1, 0 or 1.
+fn push_of(v: f32) -> i8 {
+    if v < -0.5 { -1 } else { (v > 0.5) as i8 }
 }
 
 impl Photo {
     fn new(heading: f32) -> Self {
-        Self { heading, guides: true, setting: Setting::Time, time: None, fog: USUAL_FOG, lantern: USUAL_LANTERN, picked: None, posed: Vec::new(), pushed: 0 }
+        Self { heading, guides: true, setting: Setting::Time, time: None, fog: USUAL_FOG, lantern: USUAL_LANTERN, picked: None, posed: Vec::new(), pushed: 0, prop: 0, swung: 0, props: Vec::new() }
     }
 
     /// Steps the chosen setting to its next value, after the last back round to the first.
@@ -76,7 +133,29 @@ impl Photo {
             }
             Setting::Fog => self.fog = (self.fog + 1) % FOGS.len(),
             Setting::Lantern => self.lantern = (self.lantern + 1) % LANTERNS.len(),
-            Setting::Pose => {}
+            Setting::Pose | Setting::Props => {}
+        }
+    }
+
+    /// Drops the chosen prop at `at`, its front toward a camera looking along `yaw`, or takes back the last.
+    fn drop_prop(&mut self, at: [f32; 2], yaw: f32) {
+        if self.prop == TAKE_BACK {
+            self.props.pop();
+        } else {
+            self.props.push(Dropped { kind: self.prop, at, angle: yaw + std::f32::consts::FRAC_PI_2 });
+        }
+    }
+
+    /// Chooses the next prop on a fresh push of `x` left or right, and turns the last dropped by `turn` radians.
+    fn handle_prop(&mut self, x: f32, turn: f32) {
+        let push = push_of(x);
+        if push != 0 && push != self.swung {
+            let n = PROPS.len() + 1;
+            self.prop = (self.prop + if push < 0 { n - 1 } else { 1 }) % n;
+        }
+        self.swung = push;
+        if let Some(d) = self.props.last_mut() {
+            d.angle += turn;
         }
     }
 
@@ -94,12 +173,14 @@ impl Photo {
         scene.light_range = (scene.light_range * LANTERNS[self.lantern].1).max(0.01);
     }
 
-    /// Each setting and its value, the chosen one in brackets; `posing` names the picked zombie.
-    fn settings_line(&self, posing: &str) -> String {
+    /// Each setting and its value in two lines, the chosen one in brackets; `posing` names the picked zombie.
+    fn settings_lines(&self, posing: &str) -> [String; 2] {
         let time = self.time.map_or("Now", |i| TIMES[i].0);
-        let rows = [(Setting::Time, "Time", time), (Setting::Fog, "Fog", FOGS[self.fog].0), (Setting::Lantern, "Lantern", LANTERNS[self.lantern].0), (Setting::Pose, "Pose", posing)];
+        let prop = PROPS.get(self.prop).map_or("Take back", |p| p.0);
+        let props = format!("{prop} ({} in)", self.props.len());
+        let rows = [(Setting::Time, "Time", time), (Setting::Fog, "Fog", FOGS[self.fog].0), (Setting::Lantern, "Lantern", LANTERNS[self.lantern].0), (Setting::Pose, "Pose", posing), (Setting::Props, "Props", props.as_str())];
         let rows: Vec<String> = rows.iter().map(|&(s, name, value)| if s == self.setting { format!("[{name}: {value}]") } else { format!("{name}: {value}") }).collect();
-        rows.join("  ")
+        [rows[..3].join("  "), rows[3..].join("  ")]
     }
 }
 
@@ -127,8 +208,11 @@ impl Harvest {
 
     /// Left and Right turn round the player, Up and Down zoom, and with L1 held raise or lower the camera; L2 chooses
     /// a setting and R2 changes it; R1 or a tap asks for a capture, and B or Start goes back to the pause menu.
-    /// Posing, R2 picks a zombie, and Left and Right turn it and Up and Down step its frame. Nothing else moves.
+    /// Posing, R2 picks a zombie, and Left and Right turn it and Up and Down step its frame. With props, R2 drops one
+    /// where the camera looks, Left and Right choose which, Up and Down turn the last and Y takes it back. Nothing else
+    /// moves.
     pub(super) fn photo(&mut self, input: &Input, dt: f32, sounds: &mut Vec<Sfx>, flow: &mut Flow) {
+        let (focus, yaw) = (self.focus(), self.view_yaw);
         let Some(p) = &mut self.photo else { return };
         if input.pressed.any(Buttons::B | Buttons::START) {
             (self.view_yaw, self.zoom, self.lift) = (p.heading, 1.0, 0.0);
@@ -145,8 +229,15 @@ impl Harvest {
             sounds.push(Sfx::Tick(3));
         }
         let posing = p.setting == Setting::Pose;
+        let propping = p.setting == Setting::Props;
+        if propping && input.pressed.contains(Buttons::Y) {
+            p.props.pop();
+            sounds.push(Sfx::Tick(0));
+        }
         if input.pressed.contains(Buttons::R2) {
-            if posing {
+            if propping {
+                p.drop_prop(focus, yaw);
+            } else if posing {
                 let next = self.next_zombie();
                 if let Some(p) = &mut self.photo {
                     p.picked = next;
@@ -163,6 +254,10 @@ impl Harvest {
             self.pose(i, x * POSE_TURN * dt, y);
             // The turn strip still turns the camera.
             (steer.held, steer.stick) = (Buttons::NONE, [0.0; 2]);
+        } else if let Some(p) = self.photo.as_mut().filter(|_| propping && !lifting) {
+            let [x, y] = input.dir();
+            p.handle_prop(x, -y * POSE_TURN * dt);
+            (steer.held, steer.stick) = (Buttons::NONE, [0.0; 2]);
         }
         let mut cam = Orbit { yaw: self.view_yaw, zoom: self.zoom, lift: self.lift };
         cam.steer(&steer, dt, lifting, MIN_ZOOM);
@@ -170,9 +265,14 @@ impl Harvest {
         flow.capture = input.pressed.contains(Buttons::R1) || input.touch_started;
     }
 
+    /// Where the camera looks, on the ground ahead of the player.
+    fn focus(&self) -> [f32; 2] {
+        [self.pos[0] + self.view_yaw.cos() * FOCUS, self.pos[1] + self.view_yaw.sin() * FOCUS]
+    }
+
     /// The few zombies in the picture nearest where the camera looks, nearest first.
     fn pickable(&self) -> Vec<usize> {
-        let focus = [self.pos[0] + self.view_yaw.cos() * FOCUS, self.pos[1] + self.view_yaw.sin() * FOCUS];
+        let focus = self.focus();
         let view_proj = view3d::scene(self).view_proj;
         let shown = |z: &Zombie| view3d::to_screen(view_proj, z.pos, 12.0).is_some_and(|([x, y], _)| (0.0..SCREEN_W).contains(&x) && (0.0..SCREEN_H).contains(&y));
         let mut near: Vec<usize> = (0..self.zombies.len()).filter(|&i| len(sub(self.zombies[i].pos, self.pos)) < PICK_REACH && shown(&self.zombies[i])).collect();
@@ -222,6 +322,9 @@ impl Harvest {
         let photo = self.photo.as_ref();
         if let Some(p) = photo {
             p.light(&mut scene);
+            for d in &p.props {
+                view3d::dropped(&mut scene.cards, scene.eye, d.art(), d.at, d.angle);
+            }
         }
         f.top.clear = [scene.fog[0], scene.fog[1], scene.fog[2], 1.0];
         let view_proj = scene.view_proj;
@@ -236,25 +339,30 @@ impl Harvest {
         let x = (SCREEN_W - SCREEN_H) / 2.0;
         outline(&mut f.top, x, 0.0, SCREEN_H, GUIDE);
         let picked = p.picked.filter(|_| p.setting == Setting::Pose).and_then(|i| self.zombies.get(i));
-        if let Some(z) = picked {
-            let tall = z.art(Facing::Front).h() * if z.boss { 2.0 } else { 1.0 };
-            if let Some(([sx, sy], _)) = view3d::to_screen(view_proj, z.pos, tall + 6.0) {
-                // A marker pointing down at the posed zombie's head.
-                for (i, w) in [18.0, 12.0, 6.0].into_iter().enumerate() {
-                    f.top.rect(sx - w / 2.0, sy - 18.0 + i as f32 * 6.0, w, 6.0, GUIDE);
-                }
+        let marked = match (p.setting, picked, p.props.last()) {
+            (Setting::Pose, Some(z), _) => Some((z.pos, z.art(Facing::Front).h() * if z.boss { 2.0 } else { 1.0 })),
+            (Setting::Props, _, Some(d)) => Some((d.at, d.art().h())),
+            _ => None,
+        };
+        if let Some(([sx, sy], _)) = marked.and_then(|(at, tall)| view3d::to_screen(view_proj, at, tall + 6.0)) {
+            // A marker pointing down at the posed zombie's head, or the prop dropped last.
+            for (i, w) in [18.0, 12.0, 6.0].into_iter().enumerate() {
+                f.top.rect(sx - w / 2.0, sy - 18.0 + i as f32 * 6.0, w, 6.0, GUIDE);
             }
         }
         let shoot = if self.saves_photos { "R1 or tap: take a photo" } else { "R1 or tap: hide these guides" };
         let keys = match (p.setting, picked) {
             (Setting::Pose, Some(_)) => "Left / Right: turn it   Up / Down: step its frame   R2: next zombie",
             (Setting::Pose, None) => "R2: pick the zombie nearest the middle   Left / Right: turn   Up / Down: zoom",
+            (Setting::Props, _) if p.prop == TAKE_BACK => "R2 or Y: take back the last prop   Left / Right: choose a prop",
+            (Setting::Props, _) => "R2: drop it ahead   Left / Right: choose   Up / Down: turn it   Y: take back",
             _ => "Left / Right: turn   Up / Down: zoom   L1 + Up / Down: height",
         };
-        let lines = ["PHOTO MODE".to_string(), keys.into(), p.settings_line(self.posing()), format!("L2: choose  R2: change   {shoot}   B or Start: back")];
+        let [settings, more] = p.settings_lines(self.posing());
+        let lines = ["PHOTO MODE".to_string(), keys.into(), settings, more, format!("L2: choose  R2: change   {shoot}   B or Start: back")];
         // On one screen the help goes over the picture, where the guides already are.
-        let (c, y) = if self.single { (&mut f.top, SCREEN_H - 152.0) } else { (&mut f.bottom, 40.0) };
-        c.rect(0.0, y - 10.0, SCREEN_W, 144.0, [0.0, 0.0, 0.0, 0.55]);
+        let (c, y) = if self.single { (&mut f.top, SCREEN_H - 184.0) } else { (&mut f.bottom, 40.0) };
+        c.rect(0.0, y - 10.0, SCREEN_W, 176.0, [0.0, 0.0, 0.0, 0.55]);
         for (i, line) in lines.iter().enumerate() {
             c.label(line.as_str(), SCREEN_W / 2.0, y + i as f32 * 32.0, 26.0, if i == 0 { GUIDE } else { HELP }, Align::Center);
         }
@@ -364,6 +472,8 @@ mod tests {
         assert_eq!(p(&h), (Setting::Lantern, None, USUAL_FOG + 1, USUAL_LANTERN + 1));
         press(&mut h, Buttons::L2);
         assert_eq!(p(&h).0, Setting::Pose);
+        press(&mut h, Buttons::L2);
+        assert_eq!(p(&h).0, Setting::Props);
         press(&mut h, Buttons::L2);
         assert_eq!(p(&h).0, Setting::Time, "and L2 comes back round to the time");
     }
@@ -475,6 +585,80 @@ mod tests {
         press(&mut h, Buttons::B);
         let after: Vec<([f32; 2], f32)> = h.zombies.iter().map(|z| (z.dir, z.anim)).collect();
         assert_eq!(after, before, "leaving gives the run its horde back as it was");
+    }
+
+    /// Photo mode on the Props setting.
+    fn propping(seed: u64) -> Harvest {
+        let mut h = photo_mode(seed);
+        for _ in 0..4 {
+            press(&mut h, Buttons::L2);
+        }
+        assert_eq!(h.photo.as_ref().unwrap().setting, Setting::Props);
+        h
+    }
+
+    fn dropped(h: &Harvest) -> Vec<Dropped> {
+        h.photo.as_ref().unwrap().props.clone()
+    }
+
+    #[test]
+    fn r2_drops_the_chosen_prop_where_the_camera_looks_and_it_stands_in_the_picture() {
+        let mut h = propping(14);
+        let (cards, map) = (top_scene(&h).cards.len(), h.map.props.len());
+        assert!(help(&h).contains("[Props: Barrier (0 in)]"), "{}", help(&h));
+        press(&mut h, Buttons::R2);
+        let focus = h.focus();
+        assert_eq!(dropped(&h), vec![Dropped { kind: 0, at: focus, angle: h.view_yaw + std::f32::consts::FRAC_PI_2 }]);
+        assert!(top_scene(&h).cards.len() > cards, "the barrier stands in the frozen view");
+        hold(&mut h, Buttons::RIGHT, 10);
+        hold(&mut h, Buttons::NONE, 1);
+        hold(&mut h, Buttons::RIGHT, 1);
+        assert_eq!(h.photo.as_ref().unwrap().prop, 2, "a held Right chooses once");
+        hold(&mut h, Buttons::LEFT, 1);
+        assert_eq!(h.photo.as_ref().unwrap().prop, 1);
+        press(&mut h, Buttons::R2);
+        assert_eq!(dropped(&h).iter().map(|d| d.kind).collect::<Vec<_>>(), [0, 1]);
+        let (yaw, angle) = (h.view_yaw, dropped(&h)[1].angle);
+        hold(&mut h, Buttons::UP, 20);
+        assert_eq!(h.view_yaw, yaw, "Up and Down turn the prop, not the camera");
+        assert!(dropped(&h)[1].angle != angle && dropped(&h)[0].angle == yaw + std::f32::consts::FRAC_PI_2, "only the last one turns");
+        assert!(help(&h).contains("Barrel (2 in)"), "{}", help(&h));
+        assert_eq!(h.map.props.len(), map, "the run's map never gets them");
+    }
+
+    #[test]
+    fn y_or_the_take_back_choice_removes_the_last_prop_and_leaving_removes_them_all() {
+        let mut h = propping(15);
+        let before: Vec<(f32, f32)> = h.map.props.iter().map(|p| (p.x, p.y)).collect();
+        for _ in 0..3 {
+            press(&mut h, Buttons::R2);
+        }
+        press(&mut h, Buttons::Y);
+        assert_eq!(dropped(&h).len(), 2, "Y takes back the last");
+        hold(&mut h, Buttons::LEFT, 1);
+        assert_eq!(h.photo.as_ref().unwrap().prop, TAKE_BACK, "Left from the first comes round to taking back");
+        assert!(help(&h).contains("take back the last prop"));
+        press(&mut h, Buttons::R2);
+        assert_eq!(dropped(&h).len(), 1, "and R2 on it does too, for a touch screen with no Y");
+        let cards = top_scene(&h).cards.len();
+        press(&mut h, Buttons::B);
+        assert!(view3d::scene(&h).cards.len() < cards, "leaving takes the props out of the view");
+        assert_eq!(h.map.props.iter().map(|p| (p.x, p.y)).collect::<Vec<_>>(), before);
+        press(&mut h, Buttons::A);
+        assert!(dropped(&h).is_empty(), "and photo mode opens without them");
+    }
+
+    #[test]
+    fn every_prop_offered_is_a_sprite_the_game_has_and_stands_in_3d() {
+        for (name, sprite) in PROPS {
+            let a = super::sprite(sprite);
+            assert!(a != art::WHITE, "{name}: no sprite {sprite}");
+            let mut cards = Vec::new();
+            view3d::dropped(&mut cards, glam::Vec3::new(2.0, 1.5, 7.0), a, [2.0 * TILE, 2.0 * TILE], 0.3);
+            assert!(!cards.is_empty(), "{name} draws nothing");
+            let middle = cards.iter().flat_map(|c| c.corners).sum::<glam::Vec3>() / (cards.len() * 4) as f32;
+            assert!((middle.x - 2.0).abs() < 1.0 && (middle.z - 2.0).abs() < 1.0, "{name} stands round where it was dropped: {middle}");
+        }
     }
 
     #[test]

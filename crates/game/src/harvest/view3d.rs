@@ -260,6 +260,26 @@ fn placed(prop: &super::map::Prop, t: f32) -> (Art, Stand, Vec3, [f32; 2]) {
     (a, how, middle, [a.w() * PX, deep * PX])
 }
 
+/// Stands sprite `a` as the map would, the middle of its box on the ground at `at` in map pixels, turned `angle`
+/// radians round it: a prop photo mode drops in.
+pub(super) fn dropped(out: &mut Vec<Card>, eye: Vec3, a: Art, at: [f32; 2], angle: f32) {
+    let how = match a.stand() {
+        None | Some(Stand::Figure) => Stand::Prop { depth: super::map::depth_of(a) },
+        Some(how) => how,
+    };
+    let deep = match how {
+        Stand::Prop { depth } => depth,
+        Stand::Fold { rows } => fold_row(a, rows) as f32,
+        _ => a.h(),
+    };
+    let (center, (s, c)) = (world(at), angle.sin_cos());
+    let turn = |v: Vec3| Vec3::new(v.x * c - v.z * s, v.y, v.x * s + v.z * c);
+    let d = eye - center;
+    let mut own = Vec::new();
+    fixed(&mut own, Vec3::new(d.x * c + d.z * s, d.y, d.z * c - d.x * s), a, how, -a.w() / 2.0, deep / 2.0, [1.0; 3]);
+    out.extend(own.into_iter().map(|k| Card { corners: k.corners.map(|v| center + turn(v)), normal: turn(k.normal), ..k }));
+}
+
 /// The faces of part of a sprite, the game rows `rows` of it, extruded as `stand` extrudes a whole one; worked out once
 /// for packed sprites and every time for live ones.
 fn part_faces(a: Art, rows: [u16; 2]) -> Cow<'static, [Face]> {
