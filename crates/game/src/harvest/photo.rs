@@ -98,6 +98,17 @@ pub(super) struct Photo {
     props: Vec<Dropped>,
     /// Where the next prop drops, in map pixels, once moved; else where the camera looks.
     spot: Option<[f32; 2]>,
+    /// The props dropped in a row since the cross last moved.
+    row: Option<Row>,
+}
+
+/// A row of props dropped one after another across a camera looking along `yaw`: its right and left ends, and the
+/// side being filled, 0 for the right and 1 for the left.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Row {
+    ends: [[f32; 2]; 2],
+    side: usize,
+    yaw: f32,
 }
 
 /// A prop photo mode dropped: its place in the choices, its sprite and how that stands, the middle of its foot in map
@@ -146,7 +157,7 @@ fn push_of(v: f32) -> i8 {
 
 impl Photo {
     fn new(heading: f32) -> Self {
-        Self { heading, guides: true, setting: Setting::Time, time: None, fog: USUAL_FOG, lantern: USUAL_LANTERN, picked: None, posed: Vec::new(), pushed: 0, choices: choices(), prop: 0, swung: 0, props: Vec::new(), spot: None }
+        Self { heading, guides: true, setting: Setting::Time, time: None, fog: USUAL_FOG, lantern: USUAL_LANTERN, picked: None, posed: Vec::new(), pushed: 0, choices: choices(), prop: 0, swung: 0, props: Vec::new(), spot: None, row: None }
     }
 
     /// Steps the chosen setting to its next value, after the last back round to the first.
@@ -174,16 +185,26 @@ impl Photo {
         }
     }
 
-    /// Drops the chosen prop at the cross, or where the camera looks, and steps the cross aside past it to the
-    /// camera's right, or its left where `keep` holds it back, so the next doesn't stand in the same spot.
+    /// Drops the chosen prop at the cross, or where the camera looks, and steps the cross past the row's end on the
+    /// side being filled, the camera's right first; where `keep` holds that back, past the other end, and where both
+    /// are held back it stays.
     fn drop_at_mark(&mut self, focus: [f32; 2], yaw: f32, keep: impl Fn([f32; 2]) -> [f32; 2]) {
         let (at, before) = (self.spot.unwrap_or(focus), self.props.len());
         self.drop_prop(at, yaw);
         let Some(d) = self.props.get(before) else { return };
         let step = d.art.w().max(d.art.h()).max(TILE) + TILE / 2.0;
-        let aside = |k: f32| keep([at[0] - yaw.sin() * step * k, at[1] + yaw.cos() * step * k]);
-        let right = aside(1.0);
-        self.spot = Some(if len(sub(right, at)) > step / 2.0 { right } else { aside(-1.0) });
+        let mut row = self.row.filter(|r| r.yaw == yaw).unwrap_or(Row { ends: [at; 2], side: 0, yaw });
+        row.ends[row.side] = at;
+        let past = |row: &Row| {
+            let (from, k) = (row.ends[row.side], if row.side == 0 { 1.0 } else { -1.0 });
+            let next = keep([from[0] - yaw.sin() * step * k, from[1] + yaw.cos() * step * k]);
+            (len(sub(next, from)) > step / 2.0).then_some(next)
+        };
+        let next = past(&row).or_else(|| {
+            row.side = 1 - row.side;
+            past(&row)
+        });
+        (self.spot, self.row) = (Some(next.unwrap_or(at)), Some(row));
     }
 
     /// Slides the cross by `[x, y]` of the stick or d-pad for `dt` seconds, Up away from a camera looking along `yaw`.
@@ -192,7 +213,7 @@ impl Photo {
             return;
         }
         let (at, (s, c), v) = (self.spot.unwrap_or(focus), yaw.sin_cos(), PLACE_SPEED * dt);
-        self.spot = Some(keep([at[0] + (-s * x - c * y) * v, at[1] + (c * x - s * y) * v]));
+        (self.spot, self.row) = (Some(keep([at[0] + (-s * x - c * y) * v, at[1] + (c * x - s * y) * v])), None);
     }
 
     /// Chooses the next prop on a fresh push of `x` left or right, and turns the last dropped by `turn` radians.
@@ -827,6 +848,36 @@ mod tests {
         for (i, a) in at.iter().enumerate() {
             assert!(at[..i].iter().all(|b| len(sub(*a, *b)) >= TILE), "each stands clear of those before it: {at:?}");
         }
+    }
+
+    #[test]
+    fn a_row_held_back_at_the_map_edge_grows_the_other_way_instead_of_stacking() {
+        let mut h = placing(22);
+        let width = h.map.width_px();
+        h.view_yaw = -std::f32::consts::FRAC_PI_2;
+        h.pos = [width - 4.0 * TILE, 12.0 * TILE];
+        h.photo.as_mut().unwrap().spot = Some([width - TILE / 2.0, 10.0 * TILE]);
+        for _ in 0..4 {
+            press(&mut h, Buttons::R2);
+        }
+        let at: Vec<[f32; 2]> = dropped(&h).iter().map(|d| d.at).collect();
+        for (i, a) in at.iter().enumerate() {
+            assert!(at[..i].iter().all(|b| len(sub(*a, *b)) >= TILE), "each stands clear of those before it: {at:?}");
+        }
+        assert!(at.windows(2).all(|w| w[1][0] < w[0][0]), "the row runs west from the edge: {at:?}");
+        hold(&mut h, Buttons::DOWN, 5);
+        press(&mut h, Buttons::R2);
+        let p = h.photo.as_ref().unwrap();
+        assert_eq!(p.row.unwrap().ends, [dropped(&h)[4].at; 2], "sliding the cross starts a new row");
+    }
+
+    #[test]
+    fn a_row_held_back_at_both_ends_leaves_the_cross_where_it_is() {
+        let mut p = Photo::new(0.0);
+        let at = [5.0 * TILE, 5.0 * TILE];
+        p.spot = Some(at);
+        p.drop_at_mark(at, 0.0, |_| at);
+        assert_eq!(p.spot, Some(at));
     }
 
     #[test]
