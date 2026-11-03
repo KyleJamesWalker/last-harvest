@@ -156,6 +156,7 @@ const KIND_RECT: f32 = 0.0;
 const KIND_CIRCLE: f32 = 1.0;
 const KIND_TEXTURE: f32 = 2.0;
 const KIND_ART: f32 = 3.0;
+const UV_INSET: f32 = 0.01;
 
 pub struct Renderer {
     program: glow::Program,
@@ -353,8 +354,9 @@ impl Renderer {
                     let [ax, ay, aw, ah] = art.rect().map(f32::from);
                     let ah = ah * show;
                     let (sw, sh) = (art::ATLAS_W as f32, art::ATLAS_H as f32);
-                    let (u0, u1) = (ax / sw, (ax + aw) / sw);
-                    let uv = [if flip { u1 } else { u0 }, ay / sh, if flip { u0 } else { u1 }, (ay + ah) / sh];
+                    // Nearest sampling at a fractional scale can land a hair outside the sprite and pick up its neighbor.
+                    let (u0, u1) = ((ax + UV_INSET) / sw, (ax + aw - UV_INSET) / sw);
+                    let uv = [if flip { u1 } else { u0 }, (ay + UV_INSET) / sh, if flip { u0 } else { u1 }, (ay + ah - UV_INSET) / sh];
                     let k = scale / art.detail() as f32;
                     let (hw, hh) = (aw * k / 2.0, ah * k / 2.0);
                     let (cx, cy, s, c) = (x + hw, y + hh, angle.sin(), angle.cos());
