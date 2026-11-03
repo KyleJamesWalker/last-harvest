@@ -648,7 +648,7 @@ pub fn scene(h: &Harvest) -> CardScene {
         }
     };
     // A full horde swarming the player would bury the GPU; the farthest are lost in the fog anyway.
-    let mut nearest: Vec<&Zombie> = h.zombies.iter().collect();
+    let mut nearest: Vec<&Zombie> = h.zombies.iter().enumerate().filter(|&(i, _)| !h.lies_dead(i)).map(|(_, z)| z).collect();
     if nearest.len() > MAX_ZOMBIES_3D {
         nearest.select_nth_unstable_by(MAX_ZOMBIES_3D, |a, b| len(sub(a.pos, h.pos)).total_cmp(&len(sub(b.pos, h.pos))));
         nearest.truncate(MAX_ZOMBIES_3D);

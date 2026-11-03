@@ -1,5 +1,6 @@
 //! Photo mode: the paused run held still, horde and all, while the camera turns, zooms and rises round the player.
 
+use super::juice::{CORPSE_FALL, Corpse};
 use super::map::TILE;
 use super::{Facing, Flow, Harvest, PAUSE_PHOTO, SCALE, Zombie, len, norm, sub, view3d};
 use crate::art::{self, Art, Stand};
@@ -86,6 +87,10 @@ pub(super) struct Photo {
     picked: Option<usize>,
     /// Each posed zombie as the run left it, put back on leaving.
     posed: Vec<(usize, Zombie)>,
+    /// The posed zombies lying dead, each drawn as a corpse laid after the run's own.
+    lying: Vec<usize>,
+    /// How many corpses the run had, so photo mode's own come off on leaving.
+    corpses: usize,
     /// Up (-1) or Down (1) held last frame, so a held push steps one frame.
     pushed: i8,
     /// The props R2 can drop, by name and sprite.
@@ -157,7 +162,7 @@ fn push_of(v: f32) -> i8 {
 
 impl Photo {
     fn new(heading: f32) -> Self {
-        Self { heading, guides: true, setting: Setting::Time, time: None, fog: USUAL_FOG, lantern: USUAL_LANTERN, picked: None, posed: Vec::new(), pushed: 0, choices: choices(), prop: 0, swung: 0, props: Vec::new(), spot: None, row: None }
+        Self { heading, guides: true, setting: Setting::Time, time: None, fog: USUAL_FOG, lantern: USUAL_LANTERN, picked: None, posed: Vec::new(), lying: Vec::new(), corpses: 0, pushed: 0, choices: choices(), prop: 0, swung: 0, props: Vec::new(), spot: None, row: None }
     }
 
     /// Steps the chosen setting to its next value, after the last back round to the first.
@@ -258,7 +263,7 @@ impl Photo {
 impl Harvest {
     pub(super) fn open_photo(&mut self) {
         self.menu = None;
-        self.photo = Some(Photo::new(self.view_yaw));
+        self.photo = Some(Photo { corpses: self.juice.corpses.len(), ..Photo::new(self.view_yaw) });
     }
 
     pub fn in_photo(&self) -> bool {
@@ -296,6 +301,7 @@ impl Harvest {
             for (i, z) in std::mem::take(&mut p.posed) {
                 self.zombies[i] = z;
             }
+            self.juice.corpses.truncate(p.corpses);
             self.photo = None;
             self.menu = Some(PAUSE_PHOTO);
             sounds.push(Sfx::Tick(0));
@@ -375,7 +381,7 @@ impl Harvest {
     }
 
     /// Turns zombie `i` by `turn` radians and steps it a frame on a fresh push of `y` up or down, through its walk
-    /// and then its hurt and flash frames, first keeping it as the run left it, in its walk.
+    /// and then its hurt, flash and dead frames, first keeping it as the run left it, in its walk.
     fn pose(&mut self, i: usize, turn: f32, y: f32) {
         let (Some(p), Some(z)) = (self.photo.as_mut(), self.zombies.get_mut(i)) else { return };
         if !p.posed.iter().any(|q| q.0 == i) {
@@ -388,16 +394,39 @@ impl Harvest {
         let push = push_of(y);
         if push != 0 && push != p.pushed {
             let walk = z.kind.stats().look.walk[Facing::Front.index()].len().max(1);
-            let now = if z.flash > 0.0 { walk + 1 } else if z.hurt > 0.0 { walk } else { z.step() % walk };
-            let frames = walk + 2;
+            let dead = p.lying.contains(&i);
+            let now = if dead { walk + 2 } else if z.flash > 0.0 { walk + 1 } else if z.hurt > 0.0 { walk } else { z.step() % walk };
+            let frames = walk + 3;
             let next = (now + if push < 0 { 1 } else { frames - 1 }) % frames;
             (z.flash, z.hurt) = (if next == walk + 1 { 1.0 } else { 0.0 }, if next == walk { 1.0 } else { 0.0 });
+            p.lying.retain(|&j| j != i);
+            if next == walk + 2 {
+                p.lying.push(i);
+            }
             if next < walk {
                 let rate = (crate::tuning::tuning().walk_fps * z.kind.stats().speed / 20.0).max(1e-3);
                 z.anim = (next as f32 + 0.5) / rate;
             }
         }
         p.pushed = push;
+        self.lay_corpses();
+    }
+
+    /// Lays each posed dead zombie after the run's own corpses, fallen over backward as the game lays its dead.
+    fn lay_corpses(&mut self) {
+        let Some(p) = &self.photo else { return };
+        self.juice.corpses.truncate(p.corpses);
+        for z in p.lying.iter().filter_map(|&i| self.zombies.get(i)) {
+            let look = &z.kind.stats().look;
+            let dir = if len(z.dir) > 1e-4 { norm(z.dir) } else { [0.0, 1.0] };
+            let dead = look.dead.map(|d| (d, dir));
+            self.juice.corpses.push(Corpse { art: look.hurt[Facing::Front.index()], dead, flip: false, pos: z.pos, z: 0.0, vel: [0.0; 2], vz: 0.0, fall: [-dir[0], -dir[1]], age: CORPSE_FALL, spin: 0.0 });
+        }
+    }
+
+    /// Whether zombie `i` is posed dead, so it draws as its corpse.
+    pub(super) fn lies_dead(&self, i: usize) -> bool {
+        self.photo.as_ref().is_some_and(|p| p.lying.contains(&i))
     }
 
     /// Where the next prop drops: ahead where the camera looks, or how far out the cross is.
@@ -715,15 +744,47 @@ mod tests {
         assert_eq!(after, before, "leaving gives the run its horde back as it was");
     }
 
-    /// How many frames Up and Down step a posed zombie through: its walk, then hurt and flash.
+    /// How many frames Up and Down step a posed zombie through: its walk, then hurt, flash and dead.
     fn frame_count(h: &Harvest, i: usize) -> usize {
-        h.zombies[i].kind.stats().look.walk[Facing::Front.index()].len() + 2
+        h.zombies[i].kind.stats().look.walk[Facing::Front.index()].len() + 3
     }
 
     /// Which of those zombie `i` shows.
     fn frame(h: &Harvest, i: usize) -> usize {
-        let (z, walk) = (&h.zombies[i], frame_count(h, i) - 2);
-        if z.flash > 0.0 { walk + 1 } else if z.hurt > 0.0 { walk } else { z.step() % walk }
+        let (z, walk) = (&h.zombies[i], frame_count(h, i) - 3);
+        if h.lies_dead(i) { walk + 2 } else if z.flash > 0.0 { walk + 1 } else if z.hurt > 0.0 { walk } else { z.step() % walk }
+    }
+
+    #[test]
+    fn down_from_the_walk_lays_a_posed_zombie_dead_as_the_game_lays_its_corpses_and_leaving_stands_it_up() {
+        let mut h = posing(25);
+        let i = h.photo.as_ref().unwrap().picked.unwrap();
+        let (corpses, frames) = (h.juice.corpses.len(), frame_count(&h, i));
+        let step = frame(&h, i);
+        for _ in 0..=step {
+            hold(&mut h, Buttons::DOWN, 1);
+            hold(&mut h, Buttons::NONE, 1);
+        }
+        assert_eq!(frame(&h, i), frames - 1, "Down past the first walk frame comes round to the dead one");
+        assert!(h.lies_dead(i));
+        assert_eq!(h.juice.corpses.len(), corpses + 1, "it lies as a corpse");
+        let (z, c) = (&h.zombies[i], h.juice.corpses.last().unwrap());
+        let look = &z.kind.stats().look;
+        assert_eq!((c.pos, c.art, c.dead.map(|d| d.0)), (z.pos, look.hurt[Facing::Front.index()], look.dead), "where it stood, on its dead frame or else its front hurt one");
+        assert_eq!((c.tipped(), c.sunk()), (1.0, 0.0), "all the way over and not sinking");
+        let dir = norm(z.dir);
+        hold(&mut h, Buttons::RIGHT, 20);
+        assert!(len(sub(norm(h.juice.corpses.last().unwrap().fall), [-dir[0], -dir[1]])) > 0.1, "Left and Right turn the corpse");
+        assert_eq!(h.juice.corpses.len(), corpses + 1, "and keep just the one");
+        let standing = |h: &Harvest| view3d::scene(h).cards.len();
+        let lying = standing(&h);
+        hold(&mut h, Buttons::UP, 1);
+        assert!(!h.lies_dead(i) && h.juice.corpses.len() == corpses, "Up stands it back up on its flash frame");
+        assert!(standing(&h) != lying, "and the picture shows it standing, not lying");
+        hold(&mut h, Buttons::NONE, 1);
+        hold(&mut h, Buttons::DOWN, 1);
+        press(&mut h, Buttons::B);
+        assert!(!h.lies_dead(i) && h.juice.corpses.len() == corpses, "leaving gives the run back its own corpses and the zombie");
     }
 
     #[test]

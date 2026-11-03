@@ -276,7 +276,7 @@ impl Harvest {
             c.art(a, sx, sy, scale, false, lit);
         }
 
-        for z in self.zombies.iter().filter(|z| z.leader || z.boss) {
+        for (_, z) in self.zombies.iter().enumerate().filter(|&(i, z)| (z.leader || z.boss) && !self.lies_dead(i)) {
             let (sx, sy) = at(z.pos[0], z.pos[1]);
             let pulse = 0.35 + 0.25 * (self.t * 6.0).sin();
             let (r, ring) = if z.boss { (16.0, HARVESTER) } else { (9.0, GOLD) };
@@ -298,7 +298,7 @@ impl Harvest {
                 sprites.push((r.pos[1] + a.h(), a, r.pos[0], r.pos[1], false, 1.0, 1.0));
             }
         }
-        for z in &self.zombies {
+        for (_, z) in self.zombies.iter().enumerate().filter(|&(i, _)| !self.lies_dead(i)) {
             let (facing, flip) = z.facing;
             let a = z.art(facing);
             sprites.push((z.pos[1], a, z.pos[0] - a.w() / 2.0, z.pos[1] - a.h() * z.rise + 2.0, flip, z.rise, 1.0));
