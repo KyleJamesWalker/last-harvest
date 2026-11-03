@@ -805,7 +805,7 @@ mod tests {
 
     #[test]
     fn a_broken_prop_opens_its_cells_and_shows_its_broken_frame_or_goes() {
-        test_props();
+        let _props = test_props();
         let mut map = read(&farm("PROP_CRATE_TEST 3 3\nSIGN 5 3\nSIGN 6 3 hp 0")).unwrap();
         let (krate, sign) = ([3.5 * TILE, 3.5 * TILE], [5.5 * TILE, 3.5 * TILE]);
         let i = map.breakable_at(krate[0], krate[1]).expect("the crate breaks");
@@ -910,18 +910,20 @@ mod tests {
         assert!(MapSource::parse(&farm("prop_lower 3 3")).unwrap_err().contains("isn't a sprite name"));
     }
 
-    /// Sets the same players' props for every test that needs some, since tests run side by side.
-    fn test_props() {
+    /// Sets the same players' props for every test that needs some, since tests run side by side; hold what it returns.
+    fn test_props() -> std::sync::MutexGuard<'static, ()> {
+        let lock = art::test_lock();
         let read = super::super::super::props::prop_fields;
         let tank = read("[map_test_tank]\nfps 6\nstand slab 4").unwrap();
         let krate = read("[crate_test]\nframes 3\nhp 10\nbroken yes\ncover no").unwrap();
         let (tank_stand, krate_stand) = (tank.stand, krate.stand);
         super::super::super::props::set_props(vec![(tank, vec![(art::WINDMILL_FAN.to_vec(), tank_stand)]), (krate, vec![(art::LOG.to_vec(), krate_stand)])]);
+        lock
     }
 
     #[test]
     fn a_map_places_a_players_prop_by_name() {
-        test_props();
+        let _props = test_props();
         let map = read(&farm("PROP_MAP_TEST_TANK 3 3")).unwrap();
         let p = map.props.iter().find(|p| p.frames[0] == art::WINDMILL_FAN[0]).expect("placed");
         assert_eq!(p.fps, 6.0, "it turns at the prop's own pace");

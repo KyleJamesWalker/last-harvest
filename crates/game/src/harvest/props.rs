@@ -32,7 +32,7 @@ use crate::paint::{Paint, hex};
 /// What a prop's sprite name starts with, so it never clashes with the game's own.
 pub const PREFIX: &str = "PROP_";
 pub const MAX_FRAMES: u32 = 16;
-/// The biggest frame a prop can have, as big as the game's biggest building.
+/// The biggest frame a prop can have in its sheet's pixels, as big as the game's biggest building at detail 1.
 pub const MAX_FRAME: u32 = 256;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -347,19 +347,19 @@ pub(crate) fn named_of(art: Art) -> Option<Named> {
 /// packer does; returns a line for each left out. Once a run: the sprites it adds can't be added again.
 pub fn load_for_checks(props: &[Card]) -> Vec<String> {
     let mut atlas = vec![0u8; (ATLAS_W * crate::art::ATLAS_H * 4) as usize];
-    let (notes, rects, named, _) = pack(props, &mut atlas, &mut super::enemies::start(), crate::art::RECTS.len());
-    let detail = vec![1; rects.len()];
+    let (notes, rects, detail, named, _) = pack(props, &mut atlas, &mut super::enemies::start(), crate::art::RECTS.len());
     crate::art::set_added(rects, detail);
     set_props(named);
     notes
 }
 
-/// A line for each prop left out, the rects drawn, and the props drawn with their coats.
-type Packed = (Vec<String>, Vec<[u16; 4]>, Vec<(PropFields, Vec<Coat>)>, Vec<(Art, Art)>);
+/// A line for each prop left out, the rects drawn with their details, the props drawn with their coats, and each
+/// frame with its copy for the 3D view.
+type Packed = (Vec<String>, Vec<[u16; 4]>, Vec<u8>, Vec<(PropFields, Vec<Coat>)>, Vec<(Art, Art)>);
 
 /// Draws each prop's frames into the texture's free rows from `cursor` on, numbered from `first`.
 pub(super) fn pack(cards: &[Card], atlas: &mut [u8], cursor: &mut [u16; 3], first: usize) -> Packed {
-    let (mut notes, mut rects, mut kept, mut solids) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    let (mut notes, mut rects, mut details, mut kept, mut solids) = (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
     for card in cards {
         let fields = match prop_fields(&card.text) {
             Ok(f) => f,
@@ -372,6 +372,10 @@ pub(super) fn pack(cards: &[Card], atlas: &mut [u8], cursor: &mut [u16; 3], firs
         let (sw, vh) = (fields.sheet_w(fw, fh), fields.views);
         if !(1..=MAX_FRAME).contains(&fw) || !(1..=MAX_FRAME).contains(&fh) || card.sheet.len() != (sw * (fh + vh) * 4) as usize {
             notes.push(format!("{}: frames are 1 to {MAX_FRAME} pixels, {} across", card.name, fields.frames));
+            continue;
+        }
+        if !crate::art::DETAILS.contains(&card.detail) {
+            notes.push(format!("{}: a prop's detail is 1, 2 or 4", card.name));
             continue;
         }
         if kept.iter().any(|(f, _): &(PropFields, Vec<Coat>)| f.id == fields.id) {
@@ -417,6 +421,7 @@ pub(super) fn pack(cards: &[Card], atlas: &mut [u8], cursor: &mut [u16; 3], firs
             }
             arts.push(Art((first + rects.len()) as u16));
             rects.push([x, y, w as u16, h as u16]);
+            details.push(card.detail);
         }
         let coats = arts
             .chunks(group)
@@ -431,7 +436,7 @@ pub(super) fn pack(cards: &[Card], atlas: &mut [u8], cursor: &mut [u16; 3], firs
             .collect();
         kept.push((fields, coats));
     }
-    (notes, rects, kept, solids)
+    (notes, rects, details, kept, solids)
 }
 
 #[cfg(test)]
@@ -454,7 +459,7 @@ mod tests {
         assert!(prop_fields("[ash]\nclear #FFFFFF").unwrap_err().contains("without a #"), "a # starts a comment");
         let card = Card { detail: 1, worn: String::new(), name: "ash.prop.png".into(), text: prop_text(&fields), frame: [2, 2], sheet: vec![255; 2 * 2 * 2 * 4] };
         let mut atlas = vec![0u8; (ATLAS_W * crate::art::ATLAS_H * 4) as usize];
-        let (notes, rects, kept, solids) = pack(&[card], &mut atlas, &mut super::super::enemies::start(), 0);
+        let (notes, rects, _, kept, solids) = pack(&[card], &mut atlas, &mut super::super::enemies::start(), 0);
         assert!(notes.is_empty(), "{notes:?}");
         assert_eq!((kept[0].1[0].0.len(), solids.len()), (2, 2), "each frame has its copy");
         let alpha = |a: Art| atlas[((rects[a.0 as usize][1] as u32 * ATLAS_W + rects[a.0 as usize][0] as u32) * 4 + 3) as usize];
@@ -468,7 +473,7 @@ mod tests {
         let sheet = [0x10, 0x20, 0x30, 255].repeat((fields.sheet_w(2, 2) * 4) as usize);
         let card = Card { detail: 1, worn: String::new(), name: "car.prop.png".into(), text: prop_text(&fields), frame: [2, 2], sheet };
         let mut atlas = vec![0u8; (ATLAS_W * crate::art::ATLAS_H * 4) as usize];
-        let (notes, rects, kept, _) = pack(&[card], &mut atlas, &mut super::super::enemies::start(), 0);
+        let (notes, rects, _, kept, _) = pack(&[card], &mut atlas, &mut super::super::enemies::start(), 0);
         assert!(notes.is_empty(), "{notes:?}");
         let color = |a: Art| {
             let i = ((rects[a.0 as usize][1] as u32 * ATLAS_W + rects[a.0 as usize][0] as u32) * 4) as usize;
@@ -497,7 +502,7 @@ mod tests {
             let sheet = vec![255; (fields.sheet_w(4, 3) * 5 * 4) as usize];
             let card = Card { detail: 1, worn: String::new(), name: "stack.prop.png".into(), text: prop_text(&fields), frame: [4, 3], sheet };
             let mut atlas = vec![0u8; (ATLAS_W * crate::art::ATLAS_H * 4) as usize];
-            let (notes, rects, kept, _) = pack(&[card], &mut atlas, &mut super::super::enemies::start(), 0);
+            let (notes, rects, _, kept, _) = pack(&[card], &mut atlas, &mut super::super::enemies::start(), 0);
             assert!(notes.is_empty(), "{notes:?}");
             let views = fields.cells() as u16;
             assert_eq!(kept[0].1[0].1, Some(Stand::Carve { footprint, roof, south: Art(views), east: Art(views + 1), north, west }), "{text}");
@@ -513,7 +518,7 @@ mod tests {
         let sw = fields.sheet_w(fw, fh);
         let card = Card { detail: 1, worn: String::new(), name: "post.prop.png".into(), text: prop_text(&fields), frame: [fw, fh], sheet: vec![255; (sw * (fh + vh) * 4) as usize] };
         let mut atlas = vec![0u8; (ATLAS_W * crate::art::ATLAS_H * 4) as usize];
-        let (notes, rects, kept, _) = pack(&[card], &mut atlas, &mut super::super::enemies::start(), 0);
+        let (notes, rects, _, kept, _) = pack(&[card], &mut atlas, &mut super::super::enemies::start(), 0);
         assert!(notes.is_empty(), "{notes:?}");
         assert_eq!(rects.iter().map(|r| [r[2], r[3]]).collect::<Vec<_>>(), [[4, 3], [4, 5], [3, 5]], "the frame, then the south and east views");
         assert_eq!(kept[0].1, [(vec![Art(0)], Some(Stand::Turned { east: Art(2), depth: None }))]);
@@ -579,7 +584,7 @@ mod tests {
         let mut atlas = vec![0u8; (crate::art::ATLAS_W * crate::art::ATLAS_H * 4) as usize];
         let card = |name: &str, text: &str, frame: [u32; 2], n: u32| Card { detail: 1, worn: String::new(), name: name.into(), text: text.into(), frame, sheet: vec![255; (frame[0] * n * frame[1] * 4) as usize] };
         let cards = [card("a.prop.png", "[a]\nframes 2", [20, 10], 2), card("b.prop.png", "[a]", [8, 8], 1), card("c.prop.png", "[c]\nframes 3", [8, 8], 2)];
-        let (notes, rects, kept, _) = pack(&cards, &mut atlas, &mut super::super::enemies::start(), 100);
+        let (notes, rects, _, kept, _) = pack(&cards, &mut atlas, &mut super::super::enemies::start(), 100);
         assert_eq!(kept.len(), 1);
         assert_eq!(kept[0].1, [(vec![Art(100), Art(101)], None)]);
         assert_eq!(rects.len(), 2);

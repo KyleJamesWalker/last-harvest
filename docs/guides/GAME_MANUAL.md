@@ -325,6 +325,8 @@ The prop's text holds its `[id]` and any of these lines that differ from the def
 
 A prop that carves or turns keeps its south and east views under its frames, `views` pixels tall. Any north and west views follow them, in that order. A carving's footprint and then its top sit after its last frame.
 
+A prop can be drawn at detail 2 or 4, as a card can. Its frames and views are then drawn that many times finer and keep their size in the game, so a prop at detail 2 is up to 128 game pixels a side. It blocks the same tiles, carves the same solid and folds at the same row as a plain one. Its `stand` numbers stay in game pixels, while `views` counts the sheet's pixels.
+
 ### Maps
 
 A map is a hand-made farm for a run, named `<id>.map.txt`. The id is 1 to 24 lowercase letters, digits and `_`. The title's Map row picks one.

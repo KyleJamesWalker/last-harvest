@@ -317,8 +317,18 @@ fn list(out: &mut Listed, drawn: &[Image], how: &str, dir: &Path, line: usize, c
         }
     };
     let coats = paint.copies();
+    let detail = std::fs::read_to_string(dir.join("detail.txt")).ok().map(|text| {
+        text.trim().parse::<u8>().ok().filter(|d| [1, 2, 4].contains(d)).unwrap_or_else(|| panic!("{}: detail is 1, 2 or 4", dir.display()))
+    });
+    // A carved or turned sprite's views and its copies for the 3D view are drawn at its frames' detail.
+    let mut at_detail = Vec::new();
     if !how.is_empty() {
-        out.stands.push((name.to_string(), (0..coats).map(|k| stand_for(how, dir, intern, line, cut_view, &coat(k))).collect()));
+        let mut view = |img: Image| {
+            let id = intern(img);
+            at_detail.push(id);
+            id
+        };
+        out.stands.push((name.to_string(), (0..coats).map(|k| stand_for(how, dir, &mut view, line, cut_view, &coat(k))).collect()));
     }
     if let Ok(top) = decode(&dir.join("top.png")) {
         out.tops.push((name.to_string(), (0..coats).map(|k| intern(coat(k)(top.clone()))).collect()));
@@ -331,12 +341,13 @@ fn list(out: &mut Listed, drawn: &[Image], how: &str, dir: &Path, line: usize, c
             for px in copy.rgba.chunks_exact_mut(4).filter(|p| p[3] > 0 && clear.contains(&[p[0], p[1], p[2]])) {
                 px.fill(0);
             }
-            out.solids.push((id, intern(coat(i / drawn.len())(copy))));
+            let solid = intern(coat(i / drawn.len())(copy));
+            out.solids.push((id, solid));
+            at_detail.push(solid);
         }
     }
-    if let Ok(text) = std::fs::read_to_string(dir.join("detail.txt")) {
-        let d: u8 = text.trim().parse().ok().filter(|d| [1, 2, 4].contains(d)).unwrap_or_else(|| panic!("{}: detail is 1, 2 or 4", dir.display()));
-        out.detail.extend(ids.iter().map(|&id| (id, d)));
+    if let Some(d) = detail {
+        out.detail.extend(ids.iter().chain(&at_detail).map(|&id| (id, d)));
     }
     if let Ok(text) = std::fs::read_to_string(dir.join("grenade.txt")) {
         let specs: Vec<&str> = text.trim().split(';').map(str::trim).collect();

@@ -106,6 +106,14 @@ pub(crate) fn decode(keyword: &str, noun: &str, name: &str, bytes: &[u8], max: [
     Ok(Decoded { text, w: frame.width, h: frame.height, sheet, rows, worn, detail })
 }
 
+/// The detail a `last-harvest-detail` chunk says, 1 without one.
+pub(crate) fn detail_of(chunk: Option<&str>) -> Result<u8, String> {
+    match chunk {
+        None => Ok(1),
+        Some(t) => t.parse::<u8>().ok().filter(|d| last_harvest_game::art::DETAILS.contains(d)).ok_or_else(|| format!("{DETAIL_KEYWORD} is {t:?}, but a detail is 1, 2 or 4")),
+    }
+}
+
 /// Writes a PNG of an RGBA sheet `w` by `h` with `text` under `keyword`, and rows, worn and detail chunks when given.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn encode(keyword: &str, text: &str, w: u32, h: u32, rows: Option<&str>, worn: &str, detail: u8, sheet: &[u8]) -> Result<Vec<u8>, String> {
@@ -135,10 +143,7 @@ pub(crate) fn encode(keyword: &str, text: &str, w: u32, h: u32, rows: Option<&st
 pub fn read_as(kind: Kind, name: &str, bytes: &[u8]) -> Result<Card, String> {
     let fail = |e: &dyn std::fmt::Display| format!("{name}: {e}");
     let Decoded { text, w, h, sheet, rows, worn, detail } = decode(kind.keyword(), kind.noun(), name, bytes, MAX_SHEET)?;
-    let detail = match detail.as_deref() {
-        None => 1,
-        Some(t) => t.parse::<u8>().ok().filter(|d| last_harvest_game::art::DETAILS.contains(d)).ok_or_else(|| fail(&format!("{DETAIL_KEYWORD} is {t:?}, but a card's detail is 1, 2 or 4")))?,
-    };
+    let detail = detail_of(detail.as_deref()).map_err(|e| fail(&e))?;
     let rows = match rows.as_deref() {
         None => 5,
         Some("6") => 6,

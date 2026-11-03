@@ -260,18 +260,19 @@ fn placed(prop: &super::map::Prop, t: f32) -> (Art, Stand, Vec3, [f32; 2]) {
     (a, how, middle, [a.w() * PX, deep * PX])
 }
 
-/// The faces of part of a sprite, the rows `rows` of it, extruded as `stand` extrudes a whole one; worked out once for
-/// packed sprites and every time for live ones.
+/// The faces of part of a sprite, the game rows `rows` of it, extruded as `stand` extrudes a whole one; worked out once
+/// for packed sprites and every time for live ones.
 fn part_faces(a: Art, rows: [u16; 2]) -> Cow<'static, [Face]> {
     type Cache = Mutex<HashMap<(Art, [u16; 2]), &'static [Face]>>;
     static CACHE: OnceLock<Cache> = OnceLock::new();
-    let [rx, ry, w, _] = a.rect();
-    let rect = [rx, ry + rows[0], w, rows[1] - rows[0]];
+    let ([rx, ry, w, h], d) = (a.rect(), a.detail());
+    let [top, bottom] = rows.map(|r| (r * d as u16).min(h));
+    let rect = [rx, ry + top, w, bottom - top];
     if a.is_live() {
-        return Cow::Owned(art::with_pixels(a, |px| extrude(px, rect, Reach::Deep, None, 1)));
+        return Cow::Owned(art::with_pixels(a, |px| extrude(px, rect, Reach::Deep, None, d)));
     }
     let mut cache = CACHE.get_or_init(Default::default).lock().unwrap();
-    Cow::Borrowed(*cache.entry((a, rows)).or_insert_with(|| extrude(art::pixels(), rect, Reach::Deep, None, 1).leak()))
+    Cow::Borrowed(*cache.entry((a, rows)).or_insert_with(|| extrude(art::pixels(), rect, Reach::Deep, None, d).leak()))
 }
 
 /// The top row of a sprite folded at `rows`: the rows above it its roof, the rest its front.
@@ -284,10 +285,11 @@ fn fold_row(a: Art, rows: f32) -> u16 {
 fn folded(out: &mut Vec<Card>, eye: Vec3, a: Art, rows: f32, left: f32, base: f32, tint: [f32; 3]) {
     let (fold, h) = (fold_row(a, rows), a.h() as u16);
     let (roof, wall) = (fold as f32, (h - fold) as f32);
-    let (w, front) = (a.w(), Vec3::new(left * PX, 0.0, base * PX));
-    place(out, eye, &part_faces(a, [fold, h]), [w, wall], 1.0, false, Pose { tint, ..Pose::upright(front, Vec3::X, -Vec3::Z, roof * PX) });
+    let (d, front) = (a.detail() as f32, Vec3::new(left * PX, 0.0, base * PX));
+    let w = a.rect()[2] as f32;
+    place(out, eye, &part_faces(a, [fold, h]), [w, wall * d], 1.0 / d, false, Pose { tint, ..Pose::upright(front, Vec3::X, -Vec3::Z, roof * PX) });
     let pose = Pose { origin: front + Vec3::Y * ((wall + 1.0) * PX), right: Vec3::X, up: -Vec3::Z, back: -Vec3::Y, depth: PX, tint, reach: Reach::Deep, top: None };
-    place(out, eye, &part_faces(a, [0, fold]), [w, roof], 1.0, false, pose);
+    place(out, eye, &part_faces(a, [0, fold]), [w, roof * d], 1.0 / d, false, pose);
 }
 
 /// Lays a sprite's 3D copy flat around `center` on the ground, its top row to the north turned `angle` as the 2D
@@ -306,10 +308,10 @@ fn lying(out: &mut Vec<Card>, eye: Vec3, a: Art, center: Vec3, angle: f32, heigh
 /// and stretched `reach` pixels further south.
 #[allow(clippy::too_many_arguments)]
 fn turned(out: &mut Vec<Card>, eye: Vec3, a: Art, east: Art, depth: Option<f32>, left: f32, top: f32, tint: [f32; 3], reach: f32) {
-    let [rx, ry, w, h] = a.rect().map(usize::from);
-    let filled = |x: usize| art::with_pixels(a, |px| (0..h).any(|y| px[((ry + y) * ATLAS_W as usize + rx + x) * 4 + 3] > 0));
-    let x0 = (0..w).find(|&x| filled(x)).unwrap_or(0) as f32;
-    let x1 = (0..w).rev().find(|&x| filled(x)).map_or(w, |x| x + 1) as f32;
+    let (x0, x1) = art::with_outline(a, |solid, [w, h]| {
+        let filled = |x: usize| (0..h).any(|y| solid(x, y));
+        ((0..w).find(|&x| filled(x)).unwrap_or(0) as f32, (0..w).rev().find(|&x| filled(x)).map_or(w, |x| x + 1) as f32)
+    });
     let depth = depth.unwrap_or(x1 - x0);
     let origin = Vec3::new((left + (x0 + x1 - depth) / 2.0) * PX, 0.0, (top + a.h() + reach) * PX);
     let stretch = (a.h() + reach) / a.h();
@@ -356,11 +358,12 @@ fn carving(c: Carving) -> Cow<'static, [carve::Quad]> {
     type Cache = Mutex<HashMap<Carving, &'static [carve::Quad]>>;
     static CACHE: OnceLock<Cache> = OnceLock::new();
     let views = carve::Views { top: c.top.rect(), footprint: c.footprint.map(Art::rect), south: c.south.rect(), east: c.east.rect(), north: c.north.map(Art::rect), west: c.west.map(Art::rect) };
+    let d = c.top.detail();
     if c.top.is_live() {
-        return Cow::Owned(art::with_pixels(c.top, |px| carve::carve(px, ATLAS_W as usize, &views)));
+        return Cow::Owned(art::with_pixels(c.top, |px| carve::carve(px, ATLAS_W as usize, &views, d)));
     }
     let mut cache = CACHE.get_or_init(Default::default).lock().unwrap();
-    Cow::Borrowed(*cache.entry(c).or_insert_with(|| carve::carve(art::pixels(), ATLAS_W as usize, &views).leak()))
+    Cow::Borrowed(*cache.entry(c).or_insert_with(|| carve::carve(art::pixels(), ATLAS_W as usize, &views, d).leak()))
 }
 
 /// Places a carved solid with its north-west ground corner at `origin`.
@@ -380,7 +383,7 @@ fn carved(out: &mut Vec<Card>, eye: Vec3, c: Carving, origin: Vec3) {
 fn flat(out: &mut Vec<Card>, art: Art, x: f32, z: f32, lift: f32, tint: [f32; 3]) {
     let [rx, ry, w, h] = art.rect().map(f32::from);
     let (aw, ah) = (ATLAS_W as f32, ATLAS_H as f32);
-    let (x1, z1) = (x + w * PX, z + h * PX);
+    let (x1, z1) = (x + art.w() * PX, z + art.h() * PX);
     let corners = [Vec3::new(x, lift, z), Vec3::new(x1, lift, z), Vec3::new(x1, lift, z1), Vec3::new(x, lift, z1)];
     out.push(Card { tint, ..Card::new(corners, [rx / aw, ry / ah, (rx + w) / aw, (ry + h) / ah], Vec3::Y) });
 }
@@ -984,12 +987,40 @@ mod tests {
         };
         let on_ground = |cards: &[Card]| cards.iter().filter(|c| (c.corners[0].y - DECAL_LIFT - 0.006).abs() < 1e-4).count();
         assert_eq!(on_ground(&cards(art::HAY)), 0, "nothing lies on the ground without cleared colors");
+        let _lock = art::test_lock();
         let live = art::set_live(vec![art::HAY.rect()], art::pixels().to_vec())[0];
         art::set_live_solids(vec![(live, art::BUSH)]);
         let cleared = cards(live);
         assert_eq!(on_ground(&cleared), 1, "the whole sprite lies on the ground");
         assert_eq!(cleared.len() - 1, cards(art::BUSH).len(), "the raised part is the 3D copy's");
         art::set_live_solids(Vec::new());
+    }
+
+    #[test]
+    fn a_detail_2_prop_stands_folds_carves_and_turns_as_its_plain_sprite_does() {
+        let _lock = art::test_lock();
+        let Some(Stand::Turned { east, .. }) = art::RAIL_SIDE[0].stand() else { panic!("the catalog turns the rail's sides") };
+        let plain = [art::GAS_STATION, art::HAY_STACK, art::CAR_H, art::CAR_V, art::RAIL_SIDE[0], east];
+        let fine = art::live_detailed(&plain, 2);
+        let stands = |a: &[Art]| {
+            let carve = Stand::Carve { footprint: Some(a[2]), roof: None, south: a[2], east: a[3], north: None, west: None };
+            [(a[0], Stand::Fold { rows: 27.0 }), (a[1], Stand::Prop { depth: 6.0 }), (a[1], Stand::Slab { height: 8.0, lift: 2.0 }), (a[1], Stand::Ground), (a[2], carve), (a[4], Stand::Turned { east: a[5], depth: None })]
+        };
+        let eye = Vec3::new(-4.0, 5.0, 9.0);
+        for ((a, how), (b, fine_how)) in stands(&plain).into_iter().zip(stands(&fine)) {
+            assert_eq!((b.detail(), b.w(), b.h()), (2, a.w(), a.h()));
+            assert_eq!(quads(a, how, None), quads(b, fine_how, None), "{how:?}: as many faces");
+            let corners = |a: Art, how: Stand| {
+                let mut out = Vec::new();
+                fixed(&mut out, eye, a, how, 3.0, 60.0, [1.0; 3]);
+                let mut c: Vec<[i32; 3]> = out.iter().flat_map(|c| c.corners).map(|p| (p / PX * 100.0).round().as_ivec3().to_array()).collect();
+                c.sort();
+                c
+            };
+            assert_eq!(corners(a, how), corners(b, fine_how), "{how:?}: the same faces in the world");
+        }
+        assert_eq!(fold_row(fine[0], 27.0), fold_row(art::GAS_STATION, 27.0), "folds at the same game row");
+        art::set_live_detail(Vec::new());
     }
 
     #[test]

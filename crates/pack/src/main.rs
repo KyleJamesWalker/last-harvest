@@ -3,8 +3,8 @@
 //!   cargo run -p last-harvest-pack [-- <out.pak>]                     the pack, `target/game_data.pak` by default
 //!   cargo run -p last-harvest-pack -- card <sheet.png> <enemy.txt> <name.enemy.png> [detail]
 //!   cargo run -p last-harvest-pack -- player <sheet.png> <player.txt> <name.player.png> [detail]
+//!   cargo run -p last-harvest-pack -- prop <sheet.png> <prop.txt> <name.prop.png> [detail]
 //!     detail: 2 or 4 when that many of the sheet's pixels make one game pixel across and down
-//!   cargo run -p last-harvest-pack -- prop <sheet.png> <prop.txt> <name.prop.png>
 //!   cargo run -p last-harvest-pack -- show <a card, prop, map or pak>
 //!   cargo run -p last-harvest-pack -- mod <folder> <name.pak>       a mod: the folder's files at their paths in it
 
@@ -68,13 +68,13 @@ fn decode_sheet(path: &Path) -> Result<(u32, u32, Vec<u8>), String> {
     Ok((info.width, info.height, rgba))
 }
 
-fn make_prop(sheet: &Path, text: &Path, out: &Path) -> Result<(), Box<dyn std::error::Error>> {
+fn make_prop(sheet: &Path, text: &Path, out: &Path, detail: u8) -> Result<(), Box<dyn std::error::Error>> {
     let ext = last_harvest_pack::prop::EXTENSION;
     if !out.to_string_lossy().ends_with(ext) {
         return Err(format!("{}: a prop's name ends in {ext}, so the game finds it", out.display()).into());
     }
     let (w, h, rgba) = decode_sheet(sheet)?;
-    let bytes = last_harvest_pack::prop::write(&std::fs::read_to_string(text)?, w, h, &rgba)?;
+    let bytes = last_harvest_pack::prop::write_at(&std::fs::read_to_string(text)?, detail, w, h, &rgba)?;
     let name = out.display().to_string();
     let made = last_harvest_pack::prop::read(&name, &bytes)?;
     std::fs::write(out, bytes)?;
@@ -219,7 +219,8 @@ fn show(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let shown = path.to_string_lossy();
     if shown.ends_with(last_harvest_pack::prop::EXTENSION) {
         let p = last_harvest_pack::prop::read(&shown, &std::fs::read(path)?)?;
-        println!("{}x{} frames\n{}", p.frame[0], p.frame[1], p.text.trim_end());
+        let detail = if p.detail > 1 { format!(" at detail {}", p.detail) } else { String::new() };
+        println!("{}x{} frames{detail}\n{}", p.frame[0], p.frame[1], p.text.trim_end());
         return Ok(());
     }
     if let Some(name) = map_file(&shown) {
@@ -310,17 +311,19 @@ fn run(args: &[PathBuf], words: &[&str]) -> Result<(), Box<dyn std::error::Error
         return Err(Usage(format!("{flag} isn't an option")).into());
     }
     match words {
-        [kind @ ("card" | "player"), _, _, _, rest @ ..] if rest.len() <= 1 => {
-            let kind = if *kind == "card" { card::Kind::Enemy } else { card::Kind::Player };
+        [kind @ ("card" | "player" | "prop"), _, _, _, rest @ ..] if rest.len() <= 1 => {
             let detail = match rest.first() {
                 None => 1,
                 Some(d) => d.parse().ok().filter(|d| art::DETAILS.contains(d)).ok_or_else(|| Usage(format!("{d} isn't a detail: 1, 2 or 4")))?,
             };
-            return make_card(kind, &args[1], &args[2], &args[3], detail);
+            return match *kind {
+                "prop" => make_prop(&args[1], &args[2], &args[3], detail),
+                "card" => make_card(card::Kind::Enemy, &args[1], &args[2], &args[3], detail),
+                _ => make_card(card::Kind::Player, &args[1], &args[2], &args[3], detail),
+            };
         }
         ["show", _] => return show(&args[1]),
         ["mod", _, _] => return make_mod(&args[1], &args[2]),
-        ["prop", _, _, _] => return make_prop(&args[1], &args[2], &args[3]),
         [word @ ("card" | "player" | "prop" | "show" | "mod"), ..] => {
             let paths = match *word {
                 "show" => "one path",

@@ -414,10 +414,10 @@ pub(crate) fn install_cards(cards: &[Card], players: &[Card], props: &[Card], ba
     rects.extend(packed.rects);
     details.extend(packed.detail);
     art::set_added_worn(packed.worn);
-    let (more, prop_rects, named, solids) = super::props::pack(props, atlas, &mut cursor, art::RECTS.len() + rects.len());
+    let (more, prop_rects, prop_details, named, solids) = super::props::pack(props, atlas, &mut cursor, art::RECTS.len() + rects.len());
     art::set_added_solids(solids);
     notes.extend(more);
-    details.resize(details.len() + prop_rects.len(), 1);
+    details.extend(prop_details);
     rects.extend(prop_rects);
     super::props::set_props(named);
     art::set_added(rects, details);
