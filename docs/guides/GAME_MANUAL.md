@@ -171,6 +171,7 @@ Choose Photo mode from the pause menu to frame a shot of the run, horde and all.
 | On Props, choose a prop | Left / Right, or the stick | Left / Right arrows |
 | On Props, turn the last prop dropped | Up / Down | Up / Down arrows |
 | On Place, move the cross where props drop | D-pad, or the stick | Arrows |
+| On Place, put the cross back where the camera looks | X | S |
 | On Props or Place, take back the last prop dropped | Y | A |
 | Take a photo | R1, or tap | W |
 | Back to the pause menu | B or Start | Z, Enter or Esc |
@@ -181,7 +182,7 @@ Pose lets you set up the zombies in the shot. R2 picks the zombie in the picture
 
 Props lets you dress the shot. Left and Right choose a prop: a barrier, barrel, tank, hay bale, haystack, scarecrow, tombstone, sign, mailbox, skull fence, dead or tall tree, stump, log, bush, corpse, gas pump, tractor, truck, car or wreck, then any props of your own loaded from mod packs or the props folder, by name. R2 drops it on the cross on the ground, its front to the camera, and a marker points at it; Up and Down turn the last one dropped. Y takes the last one back, and so does R2 on Take back, the choice after the last prop and before Barrier. The help counts how many are in. Props stand only in the picture: zombies don't see them, and they go when you leave.
 
-The cross starts where the camera looks. After each drop it steps aside to the right of the prop, so props dropped one after another stand in a row. To put one somewhere else, choose Place: Left, Right, Up and Down slide the cross across the ground as the camera sees it, Up away from you, up to 12 tiles from you and never off the map, and R2 drops the chosen prop there. The help says how far out the cross is; when it is out of the picture, it waits at the edge nearest it.
+The cross starts where the camera looks. After each drop it steps aside to the right of the prop, so props dropped one after another stand in a row; where the edge of the map or the cross's reach stops the row, it grows from its left end instead. To put one somewhere else, choose Place: Left, Right, Up and Down slide the cross across the ground as the camera sees it, Up away from you, up to 12 tiles from you and never off the map, and R2 drops the chosen prop there. X puts the cross back where the camera looks. The help says how far out the cross is; when it is out of the picture, it waits at the edge nearest it, along the bottom when it is behind the camera. On Take back, R2 on Place takes back the last prop, as on Props.
 
 A photo leaves out the HUD, the guides and the help. It saves the top screen as `screenshots/photo-NNNN.png` beside the save, and its middle square, the one the guide outlines, as `photo-NNNN-square.png`. On a phone the touch stick and turn strip move the camera, the Grenade key chooses a setting and the Map key changes it (on Place the stick moves the cross; on Props, choose Take back to remove one), and a tap on the picture takes the photo. Where the game can't save a file, in a browser, on Android and on muOS, R1 or a tap hides the guides instead, so your device's own screenshot comes out clean.
 
