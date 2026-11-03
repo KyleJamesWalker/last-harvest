@@ -152,9 +152,9 @@ pub fn read_as(kind: Kind, name: &str, bytes: &[u8]) -> Result<Card, String> {
         return Err(fail(&format!("{w}x{h} doesn't split into {cols} frames across and {rows} down")));
     }
     let frame = [w / cols, h / rows];
-    if frame.iter().any(|&side| side > MAX_FRAME * detail as u32) {
-        let most = MAX_FRAME * detail as u32;
-        return Err(fail(&format!("its frames are {}x{}, but the game draws them at most {MAX_FRAME} game pixels a side, {most} at detail {detail}", frame[0], frame[1])));
+    let most = last_harvest_game::card_frame_most(detail);
+    if frame.iter().any(|&side| side > most) {
+        return Err(fail(&format!("its frames are {}x{}, but the game draws them at most {most} pixels a side at detail {detail}", frame[0], frame[1])));
     }
     // A chunk this game can't read only costs the card its grenade's place, so a newer card still loads.
     let worn = worn.filter(|w| kind == Kind::Player && last_harvest_game::worn::parse_card(w).is_ok()).unwrap_or_default();
@@ -309,13 +309,17 @@ mod tests {
     }
 
     #[test]
-    fn a_detail_chunk_lets_frames_run_that_many_times_past_the_limit() {
-        let side = 4 * MAX_FRAME;
+    fn a_detail_chunk_lets_frames_run_past_the_limit_up_to_the_texture_cap() {
+        let side = 2 * MAX_FRAME;
         let sheet = vec![9u8; (3 * side * 5 * side * 4) as usize];
-        let fine = read_as(Kind::Player, "jo", &write_as(Kind::Player, "[jo]", "", 4, 3 * side, 5 * side, 5, &sheet).unwrap()).unwrap();
-        assert_eq!((fine.detail, fine.frame), (4, [side, side]));
+        let fine = read_as(Kind::Player, "jo", &write_as(Kind::Player, "[jo]", "", 2, 3 * side, 5 * side, 5, &sheet).unwrap()).unwrap();
+        assert_eq!((fine.detail, fine.frame), (2, [side, side]));
         let plain = read_as(Kind::Player, "jo", &write_as(Kind::Player, "[jo]", "", 1, 3 * side, 5 * side, 5, &sheet).unwrap());
-        assert!(plain.err().unwrap().contains("at most 64 game pixels"));
+        assert!(plain.err().unwrap().contains("at most 64 pixels"));
+        let big = 4 * MAX_FRAME;
+        let sheet = vec![9u8; (3 * big * 5 * big * 4) as usize];
+        let over = read_as(Kind::Player, "jo", &write_as(Kind::Player, "[jo]", "", 4, 3 * big, 5 * big, 5, &sheet).unwrap());
+        assert!(over.err().unwrap().contains("at most 128 pixels a side at detail 4"), "detail 4 is held to the atlas's 128");
         let small = vec![9u8; 3 * 8 * 5 * 8 * 4];
         let plain = read_as(Kind::Player, "jo", &write_as(Kind::Player, "[jo]", "", 1, 24, 40, 5, &small).unwrap()).unwrap();
         assert_eq!(plain.detail, 1, "no chunk at detail 1");
