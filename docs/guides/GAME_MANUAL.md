@@ -93,7 +93,7 @@ A night lasts ten minutes, from dusk to dawn. A bell rings each minute.
 - **Getting home.** Run back to the farmhouse's front step to survive the night.
 - **Falling.** If you fall, you sink into the dirt and climb back out as one of the dead. You lead them off to the next farm.
 
-Start pauses a run. The pause menu offers Resume, Settings, New farm and Quit to title.
+Start pauses a run. The pause menu offers Resume, Settings, Photo mode, New farm and Quit to title.
 
 ### Difficulties
 
@@ -154,6 +154,20 @@ The title's bottom screen lists Play, Map, Settings, Stats and Credits. Up and D
 ### Saving screenshots
 
 R1 saves both screens, the top above the bottom, as `screenshots/shot-NNNN.png` beside the save.
+
+### Photo mode
+
+Choose Photo mode from the pause menu to frame a shot of the run, horde and all. Nothing moves until you leave.
+
+| Action | Pad | Keyboard |
+|---|---|---|
+| Turn the camera around you | Left / Right, or the stick | Left / Right arrows |
+| Zoom | Up / Down | Up / Down arrows |
+| Raise or lower the camera | Hold L1 with Up / Down | Hold 1 with Up / Down |
+| Take a photo | R1, or tap | W |
+| Back to the pause menu | B or Start | Z, Enter or Esc |
+
+A photo leaves out the HUD, the guides and the help. It saves the top screen as `screenshots/photo-NNNN.png` beside the save, and its middle square, the one the guide outlines, as `photo-NNNN-square.png`. On a phone the touch stick and turn strip move the camera, and a tap on the picture takes the photo. Where the game can't save a file, in a browser, on Android and on muOS, R1 or a tap hides the guides instead, so your device's own screenshot comes out clean.
 
 ## Weapons, passives and zombies
 
