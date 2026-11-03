@@ -125,6 +125,7 @@ impl Studio {
         }
         self.showcase.lie(self.editor.lying_figure());
         self.showcase.show(self.editor.shown(), self.editor.stand(), self.editor.fps, self.editor.top_art());
+        art::set_live_detail(self.editor.live_detail());
         let (worn, wears) = self.editor.live_worn();
         last_harvest_game::art::set_live_worn(worn);
         self.showcase.wear_grenade(wears && self.grenade);

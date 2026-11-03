@@ -76,6 +76,24 @@ impl Frame {
         Self { px: self.px.chunks(self.w).flat_map(|row| row.iter().rev().copied()).collect(), ..self.clone() }
     }
 
+    /// The frame drawn at detail `to` instead of `from`: each pixel copied into a block going up, and each block read as
+    /// its most common opaque pixel going down, clear where it has none.
+    pub fn redetailed(&self, from: u8, to: u8) -> Self {
+        let (from, to) = (from.max(1) as usize, to.max(1) as usize);
+        if to >= from {
+            let k = to / from;
+            let px = (0..self.h * k).flat_map(|y| (0..self.w * k).map(move |x| (x / k, y / k))).map(|(x, y)| self.px[y * self.w + x]).collect();
+            return Self { w: self.w * k, h: self.h * k, px };
+        }
+        let k = from / to;
+        let (w, h) = (self.w.div_ceil(k), self.h.div_ceil(k));
+        let block = |bx: usize, by: usize| {
+            let opaque: Vec<Rgba> = (0..k * k).map(|i| (bx * k + i % k, by * k + i / k)).filter(|&(x, y)| x < self.w && y < self.h).map(|(x, y)| self.px[y * self.w + x]).filter(|p| p[3] > 0).collect();
+            opaque.iter().max_by_key(|p| opaque.iter().filter(|q| q == p).count()).copied().unwrap_or(CLEAR)
+        };
+        Self { w, h, px: (0..h).flat_map(|y| (0..w).map(move |x| (x, y))).map(|(x, y)| block(x, y)).collect() }
+    }
+
     /// A new size, keeping the pixels anchored at the bottom center, where a sprite meets the ground.
     pub fn resized(&self, w: usize, h: usize) -> Self {
         let mut out = Self::blank(w, h);
@@ -114,6 +132,8 @@ pub struct Sprite {
     pub paint: Paint,
     /// Where each frame wears a ready grenade, the last carrying on; empty where the game picks.
     pub worn: Vec<Worn>,
+    /// How many of its pixels make one game pixel across and down: 1, 2 or 4.
+    pub detail: u8,
 }
 
 pub const FOOTPRINT_FILE: &str = "footprint.png";
@@ -126,6 +146,8 @@ pub const CARD_FILE: &str = "enemy.txt";
 pub const CLEAR_FILE: &str = "clear.txt";
 /// Where a figure's frames wear a ready grenade, as `worn::parse` reads it.
 pub const WORN_FILE: &str = "grenade.txt";
+/// A figure's detail, when more than one of its pixels make a game pixel.
+pub const DETAIL_FILE: &str = "detail.txt";
 pub use last_harvest_pack::card::Kind as CardKind;
 
 /// A card lists as six sprites, like the game's own zombies: `CARD_<ID>_FRONT` and so on for an enemy card, or
@@ -133,6 +155,16 @@ pub use last_harvest_pack::card::Kind as CardKind;
 pub const CARD_PREFIX: &str = "CARD_";
 pub const PLAYER_CARD_PREFIX: &str = "PLAYER_CARD_";
 pub const PLAYER_SECTION: &str = "Player cards";
+/// Where frames wear a ready grenade once drawn at detail `to` instead of `from`: on the same spot of the figure.
+pub fn redetailed_worn(worn: &[Worn], from: u8, to: u8) -> Vec<Worn> {
+    let (from, to) = (from.max(1) as u32, to.max(1) as u32);
+    let at = |v: u8| ((v as u32 * to + (to / from).saturating_sub(1) / 2) / from).min(255) as u8;
+    worn.iter().map(|w| match *w {
+        Worn::At([x, y]) => Worn::At([at(x), at(y)]),
+        Worn::Hidden => Worn::Hidden,
+    }).collect()
+}
+
 pub const CARD_PARTS: [&str; 6] = ["FRONT", "SIDE", "BACK", "FLASH", "HURT", "DEAD"];
 pub const CARD_PART_FRAMES: usize = 3;
 pub const CARD_FRAMES: usize = CARD_PARTS.len() * CARD_PART_FRAMES;
@@ -435,7 +467,8 @@ impl Sprite {
         let clear_in_3d = clear.lines().filter_map(parse_hex).collect();
         let paint = read(paint::FILE).and_then(|b| paint::parse(&String::from_utf8(b).ok()?).ok()).unwrap_or_default();
         let worn = read(WORN_FILE).and_then(|b| worn::parse(&String::from_utf8(b).ok()?).ok()).unwrap_or_default();
-        let sprite = Self { name: name.to_string(), frames, views, footprint: png(FOOTPRINT_FILE), roof: png(ROOF_FILE), north: png(NORTH_FILE), west: png(WEST_FILE), top: png(TOP_FILE), card, clear_in_3d, paint, worn };
+        let detail = read(DETAIL_FILE).and_then(|b| String::from_utf8(b).ok()?.trim().parse().ok()).filter(|d| art::DETAILS.contains(d)).unwrap_or(1);
+        let sprite = Self { name: name.to_string(), frames, views, footprint: png(FOOTPRINT_FILE), roof: png(ROOF_FILE), north: png(NORTH_FILE), west: png(WEST_FILE), top: png(TOP_FILE), card, clear_in_3d, paint, worn, detail };
         (!broken.get()).then_some(sprite)
     }
 
@@ -449,12 +482,18 @@ impl Sprite {
         let clear = self.clear_text().map(|t| (CLEAR_FILE.to_string(), t.into_bytes()));
         let paint = Some(self.paint.text()).filter(|t| !t.is_empty()).map(|t| (paint::FILE.to_string(), t.into_bytes()));
         let worn = self.worn_text().map(|t| (WORN_FILE.to_string(), t.into_bytes()));
-        pngs.chain(self.card.iter().map(|t| (CARD_FILE.to_string(), t.clone().into_bytes()))).chain(clear).chain(paint).chain(worn).collect()
+        let detail = self.detail_text().map(|t| (DETAIL_FILE.to_string(), t.into_bytes()));
+        pngs.chain(self.card.iter().map(|t| (CARD_FILE.to_string(), t.clone().into_bytes()))).chain(clear).chain(paint).chain(worn).chain(detail).collect()
     }
 
     /// The pictures a sprite may have or not, by the file each saves as.
     fn optional(&self) -> [(&'static str, &Option<Frame>); 5] {
         [(FOOTPRINT_FILE, &self.footprint), (ROOF_FILE, &self.roof), (NORTH_FILE, &self.north), (WEST_FILE, &self.west), (TOP_FILE, &self.top)]
+    }
+
+    /// `detail.txt` as written, or None at detail 1.
+    pub fn detail_text(&self) -> Option<String> {
+        (self.detail > 1).then(|| format!("{}\n", self.detail))
     }
 
     /// `grenade.txt` as written, or None when the game picks where its frames wear one.
@@ -493,7 +532,7 @@ impl Sprite {
                 }
             }
         }
-        for (file, text) in [(CLEAR_FILE, self.clear_text().unwrap_or_default()), (paint::FILE, self.paint.text()), (WORN_FILE, self.worn_text().unwrap_or_default())] {
+        for (file, text) in [(CLEAR_FILE, self.clear_text().unwrap_or_default()), (paint::FILE, self.paint.text()), (WORN_FILE, self.worn_text().unwrap_or_default()), (DETAIL_FILE, self.detail_text().unwrap_or_default())] {
             if text.is_empty() {
                 let _ = std::fs::remove_file(path.join(file));
             } else {
@@ -672,6 +711,23 @@ pub fn nearest(c: Rgba, palette: &[Rgba]) -> Rgba {
 mod tests {
     use super::*;
 
+    #[test]
+    fn a_frame_redrawn_finer_then_back_is_the_same_and_coarser_keeps_each_blocks_main_color() {
+        let mut f = Frame::blank(3, 2);
+        f.set(0, 0, [1, 2, 3, 255]);
+        f.set(2, 1, [9, 9, 9, 255]);
+        let fine = f.redetailed(1, 4);
+        assert_eq!((fine.w, fine.h, fine.get(11, 7)), (12, 8, Some([9, 9, 9, 255])));
+        assert_eq!(fine.redetailed(4, 1), f);
+        let mut block = Frame::blank(2, 2);
+        for (x, y, c) in [(0, 0, 5), (1, 0, 7), (0, 1, 7)] {
+            block.set(x, y, [c, c, c, 255]);
+        }
+        assert_eq!(block.redetailed(2, 1).px, [[7, 7, 7, 255]]);
+        assert_eq!(redetailed_worn(&[Worn::At([3, 10]), Worn::Hidden], 1, 2), [Worn::At([6, 20]), Worn::Hidden]);
+        assert_eq!(redetailed_worn(&[Worn::At([7, 21])], 2, 1), [Worn::At([3, 10])]);
+    }
+
     /// Every color the game's own drawings and coats use that `palette.txt` doesn't list, with where.
     fn off_palette(dirs: &[PathBuf]) -> Vec<String> {
         let palette = paint::palette();
@@ -744,7 +800,7 @@ mod tests {
     #[test]
     fn saves_and_loads_every_frame_and_drops_leftovers() {
         let dir = std::env::temp_dir().join(format!("lh-sprites-{}", std::process::id()));
-        let mut s = Sprite { worn: Vec::new(), name: "TEST_THING".into(), frames: vec![Frame::blank(3, 2), Frame::blank(3, 2), Frame::blank(3, 2)], views: None, footprint: None, roof: None, north: None, west: None, top: None, card: None, clear_in_3d: Vec::new(), paint: Default::default() };
+        let mut s = Sprite { detail: 1, worn: Vec::new(), name: "TEST_THING".into(), frames: vec![Frame::blank(3, 2), Frame::blank(3, 2), Frame::blank(3, 2)], views: None, footprint: None, roof: None, north: None, west: None, top: None, card: None, clear_in_3d: Vec::new(), paint: Default::default() };
         s.frames[1].set(2, 1, [200, 10, 10, 255]);
         s.save(&dir).unwrap();
         s.frames.truncate(2);
@@ -757,7 +813,7 @@ mod tests {
 
     #[test]
     fn a_sprites_files_bundle_and_come_back_whole() {
-        let mut s = Sprite { worn: Vec::new(), name: "THING".into(), frames: vec![Frame::blank(3, 2); 2], views: Some([Frame::blank(3, 4), Frame::blank(2, 4)]), footprint: None, roof: None, north: None, west: None, top: Some(Frame::blank(3, 1)), card: None, clear_in_3d: Vec::new(), paint: Default::default() };
+        let mut s = Sprite { detail: 1, worn: Vec::new(), name: "THING".into(), frames: vec![Frame::blank(3, 2); 2], views: Some([Frame::blank(3, 4), Frame::blank(2, 4)]), footprint: None, roof: None, north: None, west: None, top: Some(Frame::blank(3, 1)), card: None, clear_in_3d: Vec::new(), paint: Default::default() };
         s.frames[1].set(1, 1, [1, 2, 3, 255]);
         let files = unbundle(&bundle(&s.files())).unwrap();
         assert_eq!(files.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>(), ["0.png", "1.png", "south.png", "east.png", "top.png"]);

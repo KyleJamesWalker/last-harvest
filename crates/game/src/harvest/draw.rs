@@ -293,7 +293,7 @@ impl Harvest {
             let (x, y) = (s.pos[0] - a.w() / 2.0, s.pos[1] - a.h());
             sprites.push((s.pos[1], a, x, y, false, 1.0, 1.0));
             if let Some(at) = a.worn_at().filter(|_| s.worn) {
-                let [gx, gy] = worn_corner(at, a.w(), false);
+                let [gx, gy] = worn_corner(at, a, false);
                 sprites.push((s.pos[1] + 0.01, art::GRENADE_WORN, x + gx, y + gy, false, 1.0, 1.0));
             }
         }
@@ -320,7 +320,7 @@ impl Harvest {
             let (x, y) = (self.pos[0] - a.w() / 2.0, self.pos[1] - a.h() * rise + 2.0);
             sprites.push((self.pos[1], a, x, y, flip, rise, 1.0));
             if let Some((at, bright)) = player_worn(self, facing) {
-                let [gx, gy] = worn_corner(at, a.w(), flip);
+                let [gx, gy] = worn_corner(at, a, flip);
                 sprites.push((self.pos[1] + 0.01, art::GRENADE_WORN, x + gx, y + gy, flip, 1.0, bright));
             }
         }

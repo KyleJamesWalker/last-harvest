@@ -61,6 +61,8 @@ const OPTIONAL: [usize; 5] = [FOOTPRINT, TOP, ROOF, NORTH, WEST];
 const FIGURE: u8 = 2;
 /// The row of the side pane that places a player's grenade, free beside a figure's stands or a card's Hurt and Kill.
 const GRENADE_Y: f32 = 640.0;
+/// The row under it that sets a figure's detail, where a prop sets its fold or float.
+const DETAIL_Y: f32 = 672.0;
 const DIALOG: Rect = Rect { x: 212.0, y: 250.0, w: 600.0, h: 230.0 };
 /// The unsaved-changes dialog's choices: save then switch, discard then switch, or stay.
 const CHOICES: [(&str, Choice); 3] = [("Save and switch  S", Choice::Save), ("Discard  D", Choice::Discard), ("Stay  Esc", Choice::Stay)];
@@ -295,6 +297,8 @@ enum Action {
     AddCoat,
     /// Hides the ready grenade on the open player facing, or lets the game place it again.
     HideGrenade,
+    /// Steps a figure's detail down or up through `art::DETAILS`, redrawing its frames to keep its size in the game.
+    Detail(i32),
 }
 
 /// What each of a card's numbers is called on its stats page, and how far a press of - or + moves it.
@@ -383,7 +387,7 @@ const RESTORE: Rect = Rect { x: LIST.x + 8.0, y: LIST.y + LIST.h - 44.0, w: 88.0
 const BACK: Rect = Rect { x: LIST.x + 104.0, y: LIST.y + LIST.h - 44.0, w: 88.0, h: 36.0 };
 
 /// Everything an undo puts back: the frames, the carving views, and the optional pictures in `OPTIONAL` order.
-type Snapshot = (Vec<Frame>, Option<[Frame; 2]>, [Option<Frame>; 5], Vec<Worn>);
+type Snapshot = (Vec<Frame>, Option<[Frame; 2]>, [Option<Frame>; 5], Vec<Worn>, u8);
 
 /// One of the pictures a sprite may have or not, by its view.
 fn optional(s: &Sprite, view: usize) -> &Option<Frame> {
@@ -407,11 +411,11 @@ fn optional_mut(s: &mut Sprite, view: usize) -> &mut Option<Frame> {
 }
 
 fn snapshot_of(s: &Sprite) -> Snapshot {
-    (s.frames.clone(), s.views.clone(), OPTIONAL.map(|v| optional(s, v).clone()), s.worn.clone())
+    (s.frames.clone(), s.views.clone(), OPTIONAL.map(|v| optional(s, v).clone()), s.worn.clone(), s.detail)
 }
 
-fn restore(s: &mut Sprite, (frames, views, pictures, worn): Snapshot) {
-    (s.frames, s.views, s.worn) = (frames, views, worn);
+fn restore(s: &mut Sprite, (frames, views, pictures, worn, detail): Snapshot) {
+    (s.frames, s.views, s.worn, s.detail) = (frames, views, worn, detail);
     for (v, f) in OPTIONAL.into_iter().zip(pictures) {
         *optional_mut(s, v) = f;
     }
@@ -541,7 +545,7 @@ impl Editor {
     pub fn new(store: Box<dyn Store>, name: &str) -> Self {
         let loaded = store.load(name);
         let broken = loaded.is_none() && store.read(name, "0.png").is_some();
-        let sprite = loaded.unwrap_or(Sprite { worn: Vec::new(), name: if broken { String::new() } else { name.into() }, frames: vec![Frame::blank(16, 16)], views: None, footprint: None, roof: None, north: None, west: None, top: None, card: None, clear_in_3d: Vec::new(), paint: Default::default() });
+        let sprite = loaded.unwrap_or(Sprite { detail: 1, worn: Vec::new(), name: if broken { String::new() } else { name.into() }, frames: vec![Frame::blank(16, 16)], views: None, footprint: None, roof: None, north: None, west: None, top: None, card: None, clear_in_3d: Vec::new(), paint: Default::default() });
         let names = store.names();
         let mut e = Self {
             store,
@@ -1232,6 +1236,10 @@ impl Editor {
             push(SIDE_X + 130.0, 672.0, 46.0, 28.0, Action::Fold(-1), "-", false);
             push(SIDE_X + 182.0, 672.0, 46.0, 28.0, Action::Fold(1), "+", false);
         }
+        if self.takes_detail() {
+            push(SIDE_X + 130.0, DETAIL_Y, 46.0, 28.0, Action::Detail(-1), "-", false);
+            push(SIDE_X + 182.0, DETAIL_Y, 46.0, 28.0, Action::Detail(1), "+", false);
+        }
         if self.wears_grenade() {
             push(SIDE_X, GRENADE_Y, 114.0, 30.0, Action::Tool(Tool::Grenade), "Grenade W", self.tool_now() == Tool::Grenade);
             push(SIDE_X + 118.0, GRENADE_Y, 114.0, 30.0, Action::HideGrenade, "Hide", self.sprite.worn == [Worn::Hidden]);
@@ -1798,6 +1806,7 @@ impl Editor {
             }
             Action::Shade(k, j) => self.set_shade(k, j),
             Action::DropCoat(k) => self.drop_coat(k),
+            Action::Detail(by) => self.step_detail(by),
             Action::HideGrenade => {
                 self.remember();
                 self.sprite.worn = if self.sprite.worn == [Worn::Hidden] { Vec::new() } else { vec![Worn::Hidden] };
@@ -1947,7 +1956,8 @@ impl Editor {
                 let top = &self.sprite.frames[self.frame];
                 let (w, h) = (top.w as i32, top.h as i32);
                 let (w, h) = if matches!(a, Action::Width(_)) { (w + d * step, h) } else { (w, h + d * step) };
-                let max = if self.is_card() { sprite::CARD_MAX_FRAME } else { MAX_SIZE } as i32;
+                let detail = self.sprite.detail as usize;
+                let max = if self.is_card() { sprite::CARD_MAX_FRAME * detail } else { MAX_SIZE.max(sprite::CARD_MAX_FRAME * detail) } as i32;
                 if (w > max || h > max) && self.is_card() {
                     self.say(format!("A card's frames are at most {max}x{max} pixels"));
                 }
@@ -2295,6 +2305,47 @@ impl Editor {
         farmer || (self.is_player_card() && sprite::card_part(&self.sprite.name).is_some_and(|(_, row)| row < 3))
     }
 
+    /// Whether the open sprite takes a detail: a figure or a card's part, its frames on show.
+    fn takes_detail(&self) -> bool {
+        let figure = self.is_card() || (self.stand == FIGURE && !self.is_prop() && self.sprite.views.is_none());
+        figure && !self.none_open() && self.view.is_none() && !self.stats && !self.coats_page && self.map.is_none() && self.data.is_none()
+    }
+
+    /// Steps the detail down or up, redrawing the frames, top strip and grenade spots so the sprite keeps its size in
+    /// the game: up copies each pixel into a block to paint over, down keeps each block's most common color.
+    fn step_detail(&mut self, by: i32) {
+        let (from, at) = (self.sprite.detail, art::DETAILS.iter().position(|&d| d == self.sprite.detail).unwrap_or(0));
+        let to = art::DETAILS[(at as i32 + by).clamp(0, art::DETAILS.len() as i32 - 1) as usize];
+        if to == from {
+            return;
+        }
+        self.remember();
+        for f in &mut self.sprite.frames {
+            *f = f.redetailed(from, to);
+        }
+        if let Some(top) = &mut self.sprite.top {
+            let wider = top.redetailed(from, to);
+            *top = Frame { w: wider.w, h: 1, px: wider.px[..wider.w].to_vec() };
+        }
+        self.sprite.worn = sprite::redetailed_worn(&self.sprite.worn, from, to);
+        self.sprite.detail = to;
+        self.selection = None;
+        self.dirty = true;
+        self.changed = true;
+        self.fit();
+        self.say(if to > from {
+            format!("Detail {to}x: {to}x{to} of these pixels make one in the game, so paint finer over the copy")
+        } else {
+            format!("Detail {to}x: each block kept its most common color; Undo brings the detail back")
+        });
+    }
+
+    /// The live sprites' details, by place, for the previews: all of a figure's pictures share its detail.
+    pub fn live_detail(&self) -> Vec<u8> {
+        let shows = self.sprite.detail > 1 && self.map.is_none() && self.data.is_none();
+        if shows { vec![self.sprite.detail; self.live.len()] } else { Vec::new() }
+    }
+
     /// Whether the grenade can be placed on the canvas now: a player's walking facing, its frames on show.
     fn wears_grenade(&self) -> bool {
         self.player_facing() && self.view.is_none() && !self.stats && !self.coats_page
@@ -2323,7 +2374,7 @@ impl Editor {
     /// every frame, so a look that doesn't bob needs one click.
     fn place_grenade(&mut self, x: i32, y: i32, every: bool) {
         let f = self.current();
-        let fits = |v: i32, n: usize| v >= 0 && (v as usize) < n && (v as u32) < last_harvest_game::CARD_MAX_FRAME;
+        let fits = |v: i32, n: usize| v >= 0 && (v as usize) < n && v < 256;
         if !fits(x, f.w) || !fits(y, f.h) {
             return;
         }
@@ -2453,11 +2504,11 @@ impl Editor {
                         self.say(format!("{name} already exists"));
                     } else {
                         self.ask = None;
-                        let pictures = if kind == Ask::Copy { self.snapshot() } else { (vec![Frame::blank(16, 16)], None, Default::default(), Vec::new()) };
+                        let pictures = if kind == Ask::Copy { self.snapshot() } else { (vec![Frame::blank(16, 16)], None, Default::default(), Vec::new(), 1) };
                         let card = crate::store::props::id(&name).map(|id| last_harvest_game::prop_text(&crate::store::props::blank(&id)));
                         let clear_in_3d = if kind == Ask::Copy { self.sprite.clear_in_3d.clone() } else { Vec::new() };
                         let paint = if kind == Ask::Copy { self.sprite.paint.clone() } else { Default::default() };
-                        self.sprite = Sprite { worn: Vec::new(), name: name.clone(), frames: Vec::new(), views: None, footprint: None, roof: None, north: None, west: None, top: None, card, clear_in_3d, paint };
+                        self.sprite = Sprite { detail: 1, worn: Vec::new(), name: name.clone(), frames: Vec::new(), views: None, footprint: None, roof: None, north: None, west: None, top: None, card, clear_in_3d, paint };
                         restore(&mut self.sprite, pictures);
                         self.fit();
                         self.view = None;
@@ -2776,7 +2827,10 @@ impl Editor {
                 Some((_, true)) => "Grenade: the game's pick".to_string(),
                 Some(([x, y], false)) => format!("Grenade at {x}, {y}"),
             };
-            c.label(said, SIDE_X, GRENADE_Y + 36.0, 18.0, TEXT, Align::Left);
+            c.label(said, CANVAS.x + CANVAS.w - 8.0, CANVAS.y + 6.0, 16.0, HOT, Align::Right);
+        }
+        if self.takes_detail() {
+            c.label(format!("Detail {}x", self.sprite.detail), SIDE_X, DETAIL_Y + 4.0, 18.0, TEXT, Align::Left);
         }
         let f = self.current();
         if !self.none_open() {
@@ -2940,13 +2994,15 @@ impl Editor {
             clip(c, o[0] + w / 2.0 - 1.0, o[1], 2.0, h, [0.4, 0.8, 1.0, 0.5]);
         }
         if let Some(([ax, ay], picked)) = self.grenade_at().filter(|_| self.wears_grenade() && self.tool_now() == Tool::Grenade) {
-            let g = Frame::from_art(art::GRENADE_WORN);
-            let (gx, gy) = (ax as f32 - (g.w / 2) as f32, ay as f32 - (g.h / 2) as f32);
+            // The grenade is drawn in game pixels, `d` of the frame's pixels each.
+            let (g, d) = (Frame::from_art(art::GRENADE_WORN), self.sprite.detail as f32);
+            let corner = |a: u8, n: usize| a as f32 + 0.5 - (0.5 + (n / 2) as f32) * d;
+            let (gx, gy) = (corner(ax, g.w), corner(ay, g.h));
             for y in 0..g.h {
                 for x in 0..g.w {
                     let [r, gr, b, a] = rgba(g.px[y * g.w + x]);
                     if a > 0.0 {
-                        clip(c, o[0] + (gx + x as f32) * zoom, o[1] + (gy + y as f32) * zoom, zoom, zoom, [r, gr, b, if picked { 0.5 } else { 1.0 }]);
+                        clip(c, o[0] + (gx + x as f32 * d) * zoom, o[1] + (gy + y as f32 * d) * zoom, zoom * d, zoom * d, [r, gr, b, if picked { 0.5 } else { 1.0 }]);
                     }
                 }
             }
@@ -3500,6 +3556,62 @@ mod tests {
         assert_eq!(f.start, [None, Some(vec!["pistol".into(), "knife".into(), "crows".into()]), None], "Normal adds crows to the game's pistol and knife; Hard went back to the default");
         let e = Editor::new(Box::new(store()), "");
         assert!(e.names.iter().any(|(n, _)| n == "PLAYER_CARD_JO_HURT"));
+    }
+
+    #[test]
+    fn a_figures_detail_redraws_its_frames_at_the_same_game_size_and_undoes() {
+        let dir = tmp().join("detail");
+        let _ = std::fs::remove_dir_all(&dir);
+        let store = || FsStore { dir: dir.join("sprites"), catalog: dir.join("art.txt"), cards: dir.join("enemies") };
+        let mut e = Editor::new(Box::new(store()), "PLAYER_SIDE");
+        let plain = e.sprite.frames.clone();
+        e.sprite.worn = vec![Worn::At([3, 10])];
+        assert!(e.takes_detail());
+        buttons_fit(&e);
+        e.draw(&mut Canvas::default());
+        e.act(Action::Detail(1), false);
+        assert_eq!(e.sprite.detail, 2);
+        assert_eq!((e.sprite.frames[0].w, e.sprite.frames[0].h), (plain[0].w * 2, plain[0].h * 2));
+        assert_eq!(e.sprite.frames[0].get(7, 21), plain[0].get(3, 10), "each pixel is a 2x2 block");
+        assert_eq!(e.sprite.worn, [Worn::At([6, 20])], "the grenade stays on the same spot");
+        e.act(Action::Width(1), false);
+        assert_eq!(e.sprite.frames[0].w, plain[0].w * 2 + 1);
+        e.key(Key::Undo);
+        e.act(Action::Save, false);
+        assert_eq!(std::fs::read_to_string(dir.join("sprites/PLAYER_SIDE/detail.txt")).unwrap(), "2\n");
+        let again = Editor::new(Box::new(store()), "PLAYER_SIDE");
+        assert_eq!((again.sprite.detail, again.sprite.frames[0].w), (2, plain[0].w * 2));
+        e.key(Key::Undo);
+        assert_eq!((e.sprite.detail, &e.sprite.frames), (1, &plain), "undo takes the detail back too");
+        e.act(Action::Detail(-1), false);
+        assert_eq!(e.sprite.detail, 1, "1 is the least");
+        e.act(Action::Save, false);
+        assert!(!dir.join("sprites/PLAYER_SIDE/detail.txt").exists(), "detail 1 needs no file");
+        e.switch_to("BARREL".into());
+        assert!(!e.takes_detail() && !e.buttons().iter().any(|b| matches!(b.action, Action::Detail(_))), "props keep detail 1 for now");
+    }
+
+    #[test]
+    fn a_cards_detail_redraws_the_whole_card_when_one_part_saves() {
+        let dir = tmp().join("detail-card");
+        let _ = std::fs::remove_dir_all(&dir);
+        let store = || FsStore { dir: dir.join("sprites"), catalog: dir.join("art.txt"), cards: dir.join("enemies") };
+        let mut e = Editor::new(Box::new(store()), "");
+        e.act(Action::Ask(Ask::New), false);
+        type_in(&mut e, "card ghost");
+        e.key(Key::Enter);
+        e.act(Action::Save, false);
+        e.act(Action::Detail(1), false);
+        e.act(Action::Detail(1), false);
+        assert_eq!(e.sprite.detail, 4);
+        buttons_fit(&e);
+        e.act(Action::Save, false);
+        let saved = last_harvest_pack::card::read_as(sprite::CardKind::Enemy, "ghost", &std::fs::read(dir.join("enemies/ghost.enemy.png")).unwrap()).unwrap();
+        assert_eq!((saved.detail, saved.frame), (4, [64, 64]));
+        e.switch_to("CARD_GHOST_HURT".into());
+        assert_eq!((e.sprite.detail, e.sprite.frames[0].w), (4, 64), "every part is redrawn at the card's detail");
+        e.act(Action::Width(1), false);
+        assert_eq!(e.sprite.frames[0].w, 65, "a detailed card's frames reach past 64 pixels");
     }
 
     #[test]

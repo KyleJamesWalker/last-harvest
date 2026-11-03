@@ -293,6 +293,10 @@ pub mod cards {
             return Some(text.into_bytes());
         }
         let (_, row) = sprite::card_part(name)?;
+        if file == sprite::DETAIL_FILE {
+            let d = card::read_as(kind, "card", bytes).ok()?.detail;
+            return (d > 1).then(|| format!("{d}\n").into_bytes());
+        }
         if file == sprite::WORN_FILE {
             let facing = worn(kind, bytes).into_iter().nth(row).filter(|w| !w.is_empty())?;
             return Some(format!("{}\n", worn::spec(&facing)).into_bytes());
@@ -302,8 +306,9 @@ pub mod cards {
     }
 
     /// The card with one part's frames and the card's text written in; a card that doesn't exist yet starts from
-    /// the template. A part of a new size resizes the rest of the card to match, and a walking part with a new
-    /// number of frames gives the other two walking parts as many, repeating their last frame or dropping the extra.
+    /// the template. A part at a new detail redraws the rest of the card at it, a part of a new size resizes the rest
+    /// to match, and a walking part with a new number of frames gives the other two walking parts as many, repeating
+    /// their last frame or dropping the extra.
     pub fn with_part(existing: Option<&[u8]>, part: &Sprite) -> Result<Vec<u8>, String> {
         let (id, row) = sprite::card_part(&part.name).ok_or("not a card's part")?;
         let kind = sprite::card_kind(&part.name).ok_or("not a card's part")?;
@@ -322,10 +327,12 @@ pub mod cards {
         if !fits || part.frames.iter().any(|f| (f.w, f.h) != (w, h)) {
             return Err(format!("an enemy's walking part has 1 to {} frames and every other part {CARD_PART_FRAMES}, all one size", last_harvest_game::MAX_WALK));
         }
-        if w > sprite::CARD_MAX_FRAME || h > sprite::CARD_MAX_FRAME {
-            return Err(format!("a card's frames are at most {0}x{0} pixels", sprite::CARD_MAX_FRAME));
+        let most = sprite::CARD_MAX_FRAME * part.detail as usize;
+        if w > most || h > most {
+            return Err(format!("a card's frames are at most {0}x{0} game pixels, {most}x{most} at detail {1}", sprite::CARD_MAX_FRAME, part.detail));
         }
-        let mut facings = existing.map(|b| worn(kind, b)).unwrap_or_default();
+        let was = existing.and_then(|b| card::read_as(kind, "card", b).ok()).map_or(1, |c| c.detail);
+        let mut facings = existing.map(|b| worn(kind, b)).unwrap_or_default().map(|f| sprite::redetailed_worn(&f, was, part.detail));
         if kind == CardKind::Player && row < 3 {
             facings[row] = part.worn.clone();
         }
@@ -336,6 +343,9 @@ pub mod cards {
                 std::array::from_fn(|r| t[r * CARD_PART_FRAMES..(r + 1) * CARD_PART_FRAMES].to_vec())
             }
         };
+        for f in rows.iter_mut().flatten().filter(|_| was != part.detail) {
+            *f = f.redetailed(was, part.detail);
+        }
         for f in rows.iter_mut().flatten() {
             if (f.w, f.h) != (w, h) {
                 *f = f.resized(w, h);
@@ -365,7 +375,7 @@ pub mod cards {
                 }
             }
         }
-        card::write_as(kind, &text, &worn::card_text(&facings), (w * cols) as u32, (h * height) as u32, height as u32, &sheet)
+        card::write_as(kind, &text, &worn::card_text(&facings), part.detail, (w * cols) as u32, (h * height) as u32, height as u32, &sheet)
     }
 
     pub use last_harvest_pack::browser::{from_text, to_text};
@@ -416,7 +426,7 @@ mod tests {
         south.set(0, 4, [1, 2, 3, 255]);
         east.set(2, 0, [4, 5, 6, 255]);
         footprint.set(3, 2, [7, 8, 9, 255]);
-        let blank = Sprite { worn: Vec::new(), name: "PROP_POST".into(), frames: vec![frame.clone(); 2], views: None, footprint: None, roof: None, north: None, west: None, top: None, card: None, clear_in_3d: Vec::new(), paint: Default::default() };
+        let blank = Sprite { detail: 1, worn: Vec::new(), name: "PROP_POST".into(), frames: vec![frame.clone(); 2], views: None, footprint: None, roof: None, north: None, west: None, top: None, card: None, clear_in_3d: Vec::new(), paint: Default::default() };
         assert!(super::props::with_stand(&super::props::from_sprite(&blank).unwrap(), "carve").unwrap_err().contains("views"));
         let s = Sprite { views: Some([south.clone(), east.clone()]), footprint: Some(footprint.clone()), ..blank };
         let bytes = super::props::with_stand(&super::props::from_sprite(&s).unwrap(), "turned").unwrap();
@@ -442,6 +452,7 @@ mod tests {
         let s = Sprite {
             name: "PROP_STACK".into(),
             worn: Vec::new(),
+            detail: 1,
             frames: vec![dot(4, 3, 0, 1)],
             views: Some([dot(4, 5, 1, 2), dot(3, 5, 2, 3)]),
             footprint: None,
@@ -479,8 +490,8 @@ mod tests {
         use crate::sprite::CardKind;
         use last_harvest_pack::card::{Kind, write_as};
         let sheet = vec![0u8; 24 * 40 * 4];
-        let enemy = write_as(Kind::Enemy, "[bat]", "", 24, 40, 5, &sheet).unwrap();
-        let player = write_as(Kind::Player, "[jo]\nname Jo", "", 24, 40, 5, &sheet).unwrap();
+        let enemy = write_as(Kind::Enemy, "[bat]", "", 1, 24, 40, 5, &sheet).unwrap();
+        let player = write_as(Kind::Player, "[jo]\nname Jo", "", 1, 24, 40, 5, &sheet).unwrap();
         assert_eq!(identify("x.png", &enemy), Ok((CardKind::Enemy, "bat".into())));
         assert_eq!(identify("download.png", &player), Ok((CardKind::Player, "jo".into())));
         assert!(identify("jo.enemy.png", &player).is_err(), "a name's ending is believed");

@@ -13,9 +13,14 @@ struct Live {
     solids: Vec<(Art, Art)>,
     /// Where live frames wear a ready grenade, as `Art::worn` says.
     worn: Vec<(Art, Worn)>,
+    /// Each live sprite's detail, by place, as `Art::detail` says.
+    detail: Vec<u8>,
 }
 
-static LIVE: RwLock<Live> = RwLock::new(Live { rects: Vec::new(), pixels: Vec::new(), solids: Vec::new(), worn: Vec::new() });
+static LIVE: RwLock<Live> = RwLock::new(Live { rects: Vec::new(), pixels: Vec::new(), solids: Vec::new(), worn: Vec::new(), detail: Vec::new() });
+
+/// The details a sprite can be drawn at: how many texture pixels make one game pixel across and down.
+pub const DETAILS: [u8; 3] = [1, 2, 4];
 
 /// Sprites from enemy cards, drawn into the texture's free rows at startup and numbered after the packed ones.
 static ADDED: OnceLock<Vec<[u16; 4]>> = OnceLock::new();
@@ -38,9 +43,13 @@ pub(crate) fn set_added_worn(worn: Vec<(Art, Worn)>) {
     ADDED_WORN.set(worn).ok();
 }
 
-/// Sets the added sprites' rects; the texture the game reads must already hold their pixels.
-pub(crate) fn set_added(rects: Vec<[u16; 4]>) {
+/// Each added sprite's detail, by place, as `Art::detail` says.
+static ADDED_DETAIL: OnceLock<Vec<u8>> = OnceLock::new();
+
+/// Sets the added sprites' rects and details; the texture the game reads must already hold their pixels.
+pub(crate) fn set_added(rects: Vec<[u16; 4]>, detail: Vec<u8>) {
     ADDED.set(rects).ok();
+    ADDED_DETAIL.set(detail).ok();
 }
 
 /// Packed and added sprites, every one but the editor's live ones.
@@ -57,7 +66,7 @@ pub(crate) fn free_top() -> u16 {
 pub fn set_live(rects: Vec<[u16; 4]>, pixels: Vec<u8>) -> Vec<Art> {
     assert_eq!(pixels.len(), self::pixels().len(), "a live texture matches the packed one");
     let arts = (0..rects.len()).map(|i| Art((count() + i) as u16)).collect();
-    *LIVE.write().unwrap() = Live { rects, pixels, solids: Vec::new(), worn: Vec::new() };
+    *LIVE.write().unwrap() = Live { rects, pixels, solids: Vec::new(), worn: Vec::new(), detail: Vec::new() };
     arts
 }
 
@@ -69,6 +78,11 @@ pub fn set_live_solids(solids: Vec<(Art, Art)>) {
 /// Says where live frames wear a ready grenade.
 pub fn set_live_worn(worn: Vec<(Art, Worn)>) {
     LIVE.write().unwrap().worn = worn;
+}
+
+/// Sets the live sprites' details, by place; those left out are drawn at 1.
+pub fn set_live_detail(detail: Vec<u8>) {
+    LIVE.write().unwrap().detail = detail;
 }
 
 /// Runs `f` on the texture a sprite's pixels live in.
@@ -173,12 +187,24 @@ impl Art {
         self.0 as usize >= count()
     }
 
-    pub fn w(self) -> f32 {
-        self.rect()[2] as f32
+    /// How many texture pixels make one game pixel across and down: 1, 2 or 4.
+    pub fn detail(self) -> u8 {
+        let i = self.0 as usize;
+        if let Some(&d) = DETAIL.get(i) {
+            return d;
+        }
+        let d = if i < count() { ADDED_DETAIL.get().and_then(|v| v.get(i - RECTS.len())).copied() } else { LIVE.read().unwrap().detail.get(i - count()).copied() };
+        d.unwrap_or(1)
     }
 
+    /// Width in game pixels: its texture pixels over its detail.
+    pub fn w(self) -> f32 {
+        self.rect()[2] as f32 / self.detail() as f32
+    }
+
+    /// Height in game pixels: its texture pixels over its detail.
     pub fn h(self) -> f32 {
-        self.rect()[3] as f32
+        self.rect()[3] as f32 / self.detail() as f32
     }
 }
 

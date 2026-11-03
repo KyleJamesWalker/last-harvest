@@ -355,7 +355,8 @@ impl Renderer {
                     let (sw, sh) = (art::ATLAS_W as f32, art::ATLAS_H as f32);
                     let (u0, u1) = (ax / sw, (ax + aw) / sw);
                     let uv = [if flip { u1 } else { u0 }, ay / sh, if flip { u0 } else { u1 }, (ay + ah) / sh];
-                    let (hw, hh) = (aw * scale / 2.0, ah * scale / 2.0);
+                    let k = scale / art.detail() as f32;
+                    let (hw, hh) = (aw * k / 2.0, ah * k / 2.0);
                     let (cx, cy, s, c) = (x + hw, y + hh, angle.sin(), angle.cos());
                     let corner = |dx: f32, dy: f32| [cx + dx * c - dy * s, cy + dx * s + dy * c];
                     self.push_quad([corner(-hw, -hh), corner(hw, -hh), corner(hw, hh), corner(-hw, hh)], uv, color, KIND_ART);

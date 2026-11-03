@@ -87,7 +87,7 @@ impl Editor {
             if let Some(section) = t.sections().into_iter().find(|s| data_name(file, s) == name) {
                 (self.map, self.data_link) = (None, None);
                 self.data = Some(DataEdit { file: file.to_string(), section, table: t, dirty: false, first: 0, typing: None, undo: Vec::new(), redo: Vec::new() });
-                self.sprite = Sprite { worn: Vec::new(), name: name.into(), frames: vec![Frame::blank(16, 16)], views: None, footprint: None, roof: None, north: None, west: None, top: None, card: None, clear_in_3d: Vec::new(), paint: Default::default() };
+                self.sprite = Sprite { detail: 1, worn: Vec::new(), name: name.into(), frames: vec![Frame::blank(16, 16)], views: None, footprint: None, roof: None, north: None, west: None, top: None, card: None, clear_in_3d: Vec::new(), paint: Default::default() };
                 (self.frame, self.view, self.stats, self.selection, self.naming) = (0, None, false, None, None);
                 self.undo.clear();
                 self.redo.clear();

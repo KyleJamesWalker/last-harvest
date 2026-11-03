@@ -260,6 +260,8 @@ The image holds the enemy's frames in five rows:
 
 Each walking row holds as many frames as the card's `walk` line says, 1 to 8. Without a `walk` line, it holds 3. Every frame is the same size, up to 64 pixels. The sheet is as wide as its longest row.
 
+A card can be drawn at detail 2 or 4: that many of its pixels make one game pixel across and down, so the figure keeps its size in the game with finer pixels, and frames run to 128 or 256 pixels. Use it sparingly, since the rest of the game is drawn at 1.
+
 A flash or hurt frame left fully clear is drawn by the game from that facing's first walking frame. The flash becomes the figure's shape in one pale color. The hurt frame becomes the figure in reds with its outline kept.
 
 An optional sixth row holds dead frames, one per facing. A corpse tips its dead frame over. A card without dead frames tips its front hurt frame instead.
@@ -525,6 +527,8 @@ The palette is PICO-8's 32 colors. The previews show your card on a plain floor,
 
 Hurt and Kill play a hit or the game's death on the figure in the previews.
 
+**Detail** - and + redraw a card's frames 2x finer or coarser, so the figure keeps its size in the game. Going finer copies each pixel into a block to paint over; going coarser keeps each block's most common color, and Undo brings the detail back.
+
 On a player card's walking parts, **Grenade** (`W`) places where the player wears a ready grenade. The first click sets every frame; later clicks set the frame on show, and Shift-click sets every frame again. **Hide** leaves it off that facing. **Grenade: shown** in the 3D view hides it in the previews only.
 
 ### The Stats page
@@ -602,6 +606,7 @@ The left pane lists every sprite. The pixel canvas, tools, color and frames sit 
 | Search the sprite list | `/`, then type. Enter opens the first match, and Esc clears the filter. |
 | Mirror strokes left to right | M |
 | See the previous frame faintly | O, or Onion |
+| Draw finer pixels at the same size in the game | Detail - and + |
 | Place a player's ready grenade | W, or Grenade, on a player's walking part, then click. Shift-click sets every frame. |
 | Compare a sprite with its family side by side | C, or Compare |
 | Draw flash, hurt or dead frames from the walk | Generate, on a `_FLASH`, `_HURT` or `_DEAD` sprite |

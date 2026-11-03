@@ -16,7 +16,7 @@ const CELL: u32 = 16;
 const ATLAS_W: u32 = 512;
 const PAD: u32 = 1;
 /// Free rows kept below the packed sprites for enemy cards, which the game draws in at startup.
-const CARD_ROWS: u32 = 256;
+const CARD_ROWS: u32 = 768;
 
 #[derive(Clone)]
 struct Image {
@@ -300,6 +300,8 @@ struct Listed {
     solids: Vec<(usize, usize)>,
     /// Each frame with where it wears a ready grenade, from its folder's `grenade.txt`, as one frame's spec.
     worn: Vec<(usize, String)>,
+    /// Each frame drawn finer than one texture pixel a game pixel, with how many make one: its folder's `detail.txt`.
+    detail: Vec<(usize, u8)>,
 }
 
 /// Lists a sprite's frames, each once per coat of its paint, with how each coat stands, its top strip and its
@@ -331,6 +333,10 @@ fn list(out: &mut Listed, drawn: &[Image], how: &str, dir: &Path, line: usize, c
             }
             out.solids.push((id, intern(coat(i / drawn.len())(copy))));
         }
+    }
+    if let Ok(text) = std::fs::read_to_string(dir.join("detail.txt")) {
+        let d: u8 = text.trim().parse().ok().filter(|d| [1, 2, 4].contains(d)).unwrap_or_else(|| panic!("{}: detail is 1, 2 or 4", dir.display()));
+        out.detail.extend(ids.iter().map(|&id| (id, d)));
     }
     if let Ok(text) = std::fs::read_to_string(dir.join("grenade.txt")) {
         let specs: Vec<&str> = text.trim().split(';').map(str::trim).collect();
@@ -479,6 +485,11 @@ fn main() {
         worn_of[*id] = format!("Some({spec:?})");
     }
     writeln!(src, "pub(crate) static WORN: [Option<&str>; {}] = [{}];", worn_of.len(), worn_of.join(", ")).unwrap();
+    let mut detail_of = vec![1u8; images.len()];
+    for &(id, d) in &listed.detail {
+        detail_of[id] = d;
+    }
+    writeln!(src, "pub(crate) static DETAIL: [u8; {}] = {detail_of:?};", detail_of.len()).unwrap();
     writeln!(src, "/// Every catalog entry with its frames, for the art gallery.\npub static ALL: &[(&str, &[Art])] = &[{}];", names.join(", ")).unwrap();
     std::fs::write(out.join("art_gen.rs"), src).unwrap();
 }

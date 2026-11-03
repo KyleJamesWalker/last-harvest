@@ -7,7 +7,7 @@ use last_harvest_game::{Difficulty, kill_sounds, player_looks};
 /// A card of 16-pixel frames, opaque all over, `walk` frames across its walking rows.
 fn card(name: &str, text: &str, walk: u32) -> Card {
     let cols = walk.max(3);
-    Card { worn: String::new(), name: name.into(), text: text.into(), frame: [16, 16], sheet: vec![255; (16 * cols * 16 * 5 * 4) as usize] }
+    Card { detail: 1, worn: String::new(), name: name.into(), text: text.into(), frame: [16, 16], sheet: vec![255; (16 * cols * 16 * 5 * 4) as usize] }
 }
 
 #[test]

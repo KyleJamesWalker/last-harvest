@@ -282,7 +282,7 @@ mod tests {
 
     #[test]
     fn a_loose_card_stands_in_for_a_packs_of_the_same_name() {
-        let card = |name: &str, text: &str| Card { worn: String::new(), name: name.into(), text: text.into(), frame: [1, 1], sheet: vec![] };
+        let card = |name: &str, text: &str| Card { detail: 1, worn: String::new(), name: name.into(), text: text.into(), frame: [1, 1], sheet: vec![] };
         let mut cards = vec![card("ghoul.enemy.png", "pack"), card("bat.enemy.png", "pack"), card("ghoul.enemy.png", "loose")];
         keep_last_of_each_name(&mut cards);
         assert_eq!(cards.iter().map(|c| (c.name.as_str(), c.text.as_str())).collect::<Vec<_>>(), [("bat.enemy.png", "pack"), ("ghoul.enemy.png", "loose")]);

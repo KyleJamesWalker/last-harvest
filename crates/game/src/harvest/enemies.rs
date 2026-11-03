@@ -397,17 +397,19 @@ pub(super) fn place(cursor: &mut [u16; 3], [w, h]: [u16; 2]) -> Option<[u16; 2]>
 /// its look for the player; `base` is the enemy file the enemy cards join. Returns a line for each card left out.
 pub(crate) fn install_cards(cards: &[Card], players: &[Card], props: &[Card], base: &str, atlas: &mut [u8]) -> Vec<String> {
     let mut cursor = start();
-    let (mut notes, mut rects, kept) = pack(cards, base, atlas, &mut cursor);
+    let (mut notes, mut rects, mut details, kept) = pack(cards, base, atlas, &mut cursor);
     let packed = super::players::pack(players, atlas, &mut cursor, art::RECTS.len() + rects.len());
     notes.extend(packed.notes);
     rects.extend(packed.rects);
+    details.extend(packed.detail);
     art::set_added_worn(packed.worn);
     let (more, prop_rects, named, solids) = super::props::pack(props, atlas, &mut cursor, art::RECTS.len() + rects.len());
     art::set_added_solids(solids);
     notes.extend(more);
+    details.resize(details.len() + prop_rects.len(), 1);
     rects.extend(prop_rects);
     super::props::set_props(named);
-    art::set_added(rects);
+    art::set_added(rects, details);
     CARDS.set(kept).ok();
     super::players::install(packed.looks);
     notes
@@ -422,7 +424,8 @@ pub(super) fn start() -> [u16; 3] {
 pub(super) fn rows(card: &Card, cols: u32) -> Option<u32> {
     let [fw, fh] = card.frame;
     let row = (fw * cols * fh * 4) as usize;
-    let fits = (1..=MAX_FRAME).contains(&fw) && (1..=MAX_FRAME).contains(&fh);
+    let most = MAX_FRAME * art::DETAILS.into_iter().find(|&d| d == card.detail).unwrap_or(0) as u32;
+    let fits = (1..=most).contains(&fw) && (1..=most).contains(&fh);
     [5, 6].into_iter().find(|&rows| fits && card.sheet.len() == row * rows as usize)
 }
 
@@ -485,9 +488,9 @@ pub(super) fn draw_cell(card: &Card, cols: u32, (col, row): (u32, u32), [x, y]: 
 
 /// The cards' kinds with their sprites drawn into `atlas` from `cursor` on, the rects drawn, and a line for each
 /// card left out.
-fn pack(cards: &[Card], base: &str, atlas: &mut [u8], cursor: &mut [u16; 3]) -> (Vec<String>, Vec<[u16; 4]>, Vec<Entry>) {
+fn pack(cards: &[Card], base: &str, atlas: &mut [u8], cursor: &mut [u16; 3]) -> (Vec<String>, Vec<[u16; 4]>, Vec<u8>, Vec<Entry>) {
     let mut ids: Vec<String> = entries(base).map(|es| es.into_iter().map(|e| e.enemy.id).collect()).unwrap_or_default();
-    let (mut notes, mut rects, mut kept) = (Vec::new(), Vec::new(), Vec::new());
+    let (mut notes, mut rects, mut details, mut kept) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     for card in cards {
         let mut entry = match card_entry(&card.text) {
             Ok(e) => e,
@@ -499,7 +502,7 @@ fn pack(cards: &[Card], base: &str, atlas: &mut [u8], cursor: &mut [u16; 3]) -> 
         let [fw, fh] = card.frame;
         let (walk, cols) = (entry.walk, entry.walk.max(3) as u32);
         let Some(rows) = rows(card, cols) else {
-            notes.push(format!("{}: frames are 1 to {MAX_FRAME} pixels, {cols} across and five or six down", card.name));
+            notes.push(format!("{}: frames are 1 to {MAX_FRAME} game pixels, {cols} across and five or six down", card.name));
             continue;
         };
         // Each walking row's frames, then a flash, a hurt and maybe a dead frame per facing, by column and row.
@@ -521,6 +524,7 @@ fn pack(cards: &[Card], base: &str, atlas: &mut [u8], cursor: &mut [u16; 3]) -> 
         for (&cell, at) in cells.iter().zip(spots) {
             draw_cell(card, cols, cell, at, atlas);
             rects.push([at[0], at[1], fw as u16, fh as u16]);
+            details.push(card.detail);
         }
         let at = |k: usize| Art((first + k) as u16);
         let still = 3 * walk;
@@ -535,7 +539,7 @@ fn pack(cards: &[Card], base: &str, atlas: &mut [u8], cursor: &mut [u16; 3]) -> 
         }
         kept.push(entry);
     }
-    (notes, rects, kept)
+    (notes, rects, details, kept)
 }
 
 #[cfg(test)]
@@ -612,14 +616,14 @@ mod tests {
     fn card(text: &str, frame: [u32; 2]) -> Card {
         let [w, h] = frame;
         let sheet = (0..w * 3 * h * 5).flat_map(|i| [(i % 251) as u8, 40, 90, 255]).collect();
-        Card { worn: String::new(), name: "test.png".into(), text: text.into(), frame, sheet }
+        Card { detail: 1, worn: String::new(), name: "test.png".into(), text: text.into(), frame, sheet }
     }
 
     #[test]
     fn a_card_adds_a_kind_before_the_last_and_draws_its_frames() {
         let base = include_str!("../../enemies.txt");
         let mut atlas = vec![0u8; (ATLAS_W * ATLAS_H * 4) as usize];
-        let (notes, rects, kept) = pack(&[card("[ghoul]\nname Ghoul\nhp 40\nleader", [12, 20])], base, &mut atlas, &mut start());
+        let (notes, rects, _, kept) = pack(&[card("[ghoul]\nname Ghoul\nhp 40\nleader", [12, 20])], base, &mut atlas, &mut start());
         assert!(notes.is_empty(), "{notes:?}");
         assert_eq!(rects.len(), 15, "three walking frames a facing, then a flash and a hurt frame each");
         assert!(rects.iter().all(|r| r[1] > art::free_top() && r[2..] == [12, 20]), "below the packed sprites");
@@ -643,7 +647,7 @@ mod tests {
         c.sheet[3 * row_bytes..].fill(0);
         c.sheet[..4].copy_from_slice(&[0, 0, 0, 255]);
         c.sheet[4..8].copy_from_slice(&[255, 255, 255, 255]);
-        let (_, rects, _) = pack(&[c], base, &mut atlas, &mut start());
+        let (_, rects, _, _) = pack(&[c], base, &mut atlas, &mut start());
         let px = |r: [u16; 4], dx: u32| {
             let i = (((r[1] as u32) * ATLAS_W + r[0] as u32 + dx) * 4) as usize;
             <[u8; 4]>::try_from(&atlas[i..i + 4]).unwrap()
@@ -659,13 +663,13 @@ mod tests {
         let mut atlas = vec![0u8; (ATLAS_W * ATLAS_H * 4) as usize];
         let mut c = card("[ghoul]\nname Ghoul", [4, 4]);
         c.sheet.extend(std::iter::repeat_n(255, 3 * 4 * 4 * 4));
-        let (notes, rects, kept) = pack(&[c], base, &mut atlas, &mut start());
+        let (notes, rects, _, kept) = pack(&[c], base, &mut atlas, &mut start());
         assert!(notes.is_empty(), "{notes:?}");
         assert_eq!(rects.len(), 18);
         assert_eq!(kept[0].enemy.look.dead.map(|d| d[0]), Some(Art((art::RECTS.len() + 15) as u16)));
         let mut c = card("[ghoul]\nname Ghoul", [4, 4]);
         c.sheet.extend(std::iter::repeat_n(0, 3 * 4 * 4 * 4));
-        let (_, rects, kept) = pack(&[c], base, &mut atlas, &mut start());
+        let (_, rects, _, kept) = pack(&[c], base, &mut atlas, &mut start());
         assert_eq!((rects.len(), kept[0].enemy.look.dead), (15, None), "a blank dead row tips the hurt frame as before");
     }
 
@@ -676,7 +680,7 @@ mod tests {
         let c = card("[ghoul]\nname Ghoul", [4, 4]);
         let first = (4 * 4 * 3 * 4 * 4) as usize;
         let want: [u8; 4] = c.sheet[first..first + 4].try_into().unwrap();
-        let (_, rects, _) = pack(&[c], base, &mut atlas, &mut start());
+        let (_, rects, _, _) = pack(&[c], base, &mut atlas, &mut start());
         let i = (((rects[12][1] as u32) * ATLAS_W + rects[12][0] as u32) * 4) as usize;
         assert_eq!(atlas[i..i + 4], want);
     }
@@ -687,8 +691,8 @@ mod tests {
         let mut atlas = vec![0u8; (ATLAS_W * ATLAS_H * 4) as usize];
         let [w, h] = [8u32, 8];
         let sheet = vec![255u8; (w * 5 * h * 5 * 4) as usize];
-        let card = Card { worn: String::new(), name: "long.enemy.png".into(), text: "[long]\nwalk 5".into(), frame: [w, h], sheet };
-        let (notes, rects, kept) = pack(&[card], base, &mut atlas, &mut start());
+        let card = Card { detail: 1, worn: String::new(), name: "long.enemy.png".into(), text: "[long]\nwalk 5".into(), frame: [w, h], sheet };
+        let (notes, rects, _, kept) = pack(&[card], base, &mut atlas, &mut start());
         assert!(notes.is_empty(), "{notes:?}");
         assert_eq!(rects.len(), 5 * 3 + 6);
         let look = &kept[0].enemy.look;
@@ -710,7 +714,7 @@ mod tests {
     fn a_card_with_a_known_id_replaces_that_kind() {
         let base = include_str!("../../enemies.txt");
         let mut atlas = vec![0u8; (ATLAS_W * ATLAS_H * 4) as usize];
-        let (_, _, kept) = pack(&[card("[kid]\nname Imp\nspeed 50", [16, 16])], base, &mut atlas, &mut start());
+        let (_, _, _, kept) = pack(&[card("[kid]\nname Imp\nspeed 50", [16, 16])], base, &mut atlas, &mut start());
         let r = parse(base).unwrap().with(&kept);
         assert_eq!(r.enemies.len(), 3);
         assert_eq!((r.enemies[1].name.as_str(), r.enemies[1].speed), ("Imp", 50.0));
@@ -723,7 +727,7 @@ mod tests {
         let mut short = card("[a]", [16, 16]);
         short.sheet.truncate(100);
         let cards = [card("[a]\nlook SKINNY", [16, 16]), card("[a]\n[b]", [16, 16]), card("[a]\nwings 2", [16, 16]), short, card("[a]", [64, 64])];
-        let (notes, rects, kept) = pack(&cards, base, &mut atlas, &mut start());
+        let (notes, rects, _, kept) = pack(&cards, base, &mut atlas, &mut start());
         assert_eq!(kept.len(), 1, "{notes:?}");
         assert_eq!(rects.len(), 15, "three walking frames a facing, then a flash and a hurt frame each");
         for (note, why) in notes.iter().zip(["no look", "one enemy", "wings", "3 across"]) {

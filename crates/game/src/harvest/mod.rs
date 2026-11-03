@@ -508,11 +508,13 @@ fn player_worn(h: &Harvest, facing: Facing) -> Option<([u8; 2], f32)> {
     Some((at, if h.ready_flash > 0.0 { READY_BRIGHT } else { 1.0 }))
 }
 
-/// Where the worn grenade's top-left goes on a frame `w` pixels wide, for its middle at `at`, mirrored with the frame.
-fn worn_corner(at: [u8; 2], w: f32, flip: bool) -> [f32; 2] {
-    let g = art::GRENADE_WORN;
-    let x = if flip { w - 1.0 - at[0] as f32 } else { at[0] as f32 };
-    [x - (g.w() / 2.0).floor(), at[1] as f32 - (g.h() / 2.0).floor()]
+/// Where the worn grenade's top-left goes on frame `a`, in game pixels, for its middle on the frame's texture pixel
+/// `at`, mirrored with the frame.
+fn worn_corner(at: [u8; 2], a: Art, flip: bool) -> [f32; 2] {
+    let (g, k) = (art::GRENADE_WORN, a.detail() as f32);
+    let [x, y] = at.map(|v| (v as f32 + 0.5) / k);
+    let x = if flip { a.w() - x } else { x };
+    [x - 0.5 - (g.w() / 2.0).floor(), y - 0.5 - (g.h() / 2.0).floor()]
 }
 
 /// The player's frame for a facing, and how far out of the ground it stands, 0 to 1. Once dead, it sinks
@@ -2367,8 +2369,10 @@ mod tests {
     fn the_worn_grenade_centers_on_its_pixel_and_mirrors_with_the_frame() {
         let g = art::GRENADE_WORN;
         assert_eq!((g.w(), g.h()), (3.0, 4.0));
-        assert_eq!(worn_corner([11, 10], 16.0, false), [10.0, 8.0]);
-        assert_eq!(worn_corner([11, 10], 16.0, true), [3.0, 8.0], "pixel 11 of 16 mirrors to pixel 4");
+        let farmer = art::PLAYER_FRONT[0];
+        assert_eq!(farmer.w(), 16.0);
+        assert_eq!(worn_corner([11, 10], farmer, false), [10.0, 8.0]);
+        assert_eq!(worn_corner([11, 10], farmer, true), [3.0, 8.0], "pixel 11 of 16 mirrors to pixel 4");
     }
 
     #[test]

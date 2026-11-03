@@ -19,12 +19,12 @@ pub fn read(name: &str, bytes: &[u8]) -> Result<Card, String> {
         let views = if fields.views > 0 { format!(" over views {} tall", fields.views) } else { String::new() };
         return Err(fail(&format!("{}x{} doesn't split into {} frames of at most {PROP_MAX_FRAME}{views}", d.w, d.h, fields.frames)));
     };
-    Ok(Card { worn: String::new(), name: name.to_string(), text: d.text, frame, sheet: d.sheet })
+    Ok(Card { detail: 1, worn: String::new(), name: name.to_string(), text: d.text, frame, sheet: d.sheet })
 }
 
 /// Writes a prop from its text and an RGBA sheet `w` by `h` pixels.
 pub fn write(text: &str, w: u32, h: u32, sheet: &[u8]) -> Result<Vec<u8>, String> {
-    crate::card::encode(KEYWORD, text, w, h, None, "", sheet)
+    crate::card::encode(KEYWORD, text, w, h, None, "", 1, sheet)
 }
 
 #[cfg(test)]

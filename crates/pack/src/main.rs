@@ -1,8 +1,9 @@
 //! Builds `game_data.pak`, the data the game loads, and makes and reads enemy cards.
 //!
 //!   cargo run -p last-harvest-pack [-- <out.pak>]                     the pack, `target/game_data.pak` by default
-//!   cargo run -p last-harvest-pack -- card <sheet.png> <enemy.txt> <name.enemy.png>
-//!   cargo run -p last-harvest-pack -- player <sheet.png> <player.txt> <name.player.png>
+//!   cargo run -p last-harvest-pack -- card <sheet.png> <enemy.txt> <name.enemy.png> [detail]
+//!   cargo run -p last-harvest-pack -- player <sheet.png> <player.txt> <name.player.png> [detail]
+//!     detail: 2 or 4 when that many of the sheet's pixels make one game pixel across and down
 //!   cargo run -p last-harvest-pack -- prop <sheet.png> <prop.txt> <name.prop.png>
 //!   cargo run -p last-harvest-pack -- show <a card, prop, map or pak>
 //!   cargo run -p last-harvest-pack -- mod <folder> <name.pak>       a mod: the folder's files at their paths in it
@@ -81,7 +82,7 @@ fn make_prop(sheet: &Path, text: &Path, out: &Path) -> Result<(), Box<dyn std::e
     Ok(())
 }
 
-fn make_card(kind: card::Kind, sheet: &Path, text: &Path, out: &Path) -> Result<(), Box<dyn std::error::Error>> {
+fn make_card(kind: card::Kind, sheet: &Path, text: &Path, out: &Path, detail: u8) -> Result<(), Box<dyn std::error::Error>> {
     if !out.to_string_lossy().ends_with(kind.extension()) {
         return Err(format!("{}: a card's name ends in {}, so the game finds it", out.display(), kind.extension()).into());
     }
@@ -93,7 +94,7 @@ fn make_card(kind: card::Kind, sheet: &Path, text: &Path, out: &Path) -> Result<
     }
     // A sheet both five and six frames tall reads as five; a dead row needs one six only divides.
     let rows = if h % 5 == 0 { 5 } else { 6 };
-    let bytes = card::write_as(kind, &text, "", w, h, rows, &rgba)?;
+    let bytes = card::write_as(kind, &text, "", detail, w, h, rows, &rgba)?;
     let name = out.display().to_string();
     let made = card::read_as(kind, &name, &bytes)?;
     std::fs::write(out, bytes)?;
@@ -227,7 +228,8 @@ fn show(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
     }
     let kind = card::Kind::of(&path.to_string_lossy()).unwrap_or(card::Kind::Enemy);
     let card = card::read_as(kind, &path.display().to_string(), &std::fs::read(path)?)?;
-    println!("{}x{} frames\n{}", card.frame[0], card.frame[1], card.text.trim_end());
+    let detail = if card.detail > 1 { format!(" at detail {}", card.detail) } else { String::new() };
+    println!("{}x{} frames{detail}\n{}", card.frame[0], card.frame[1], card.text.trim_end());
     match kind {
         card::Kind::Enemy => {
             let f = last_harvest_game::card_fields(&card.text)?;
@@ -308,8 +310,14 @@ fn run(args: &[PathBuf], words: &[&str]) -> Result<(), Box<dyn std::error::Error
         return Err(Usage(format!("{flag} isn't an option")).into());
     }
     match words {
-        ["card", _, _, _] => return make_card(card::Kind::Enemy, &args[1], &args[2], &args[3]),
-        ["player", _, _, _] => return make_card(card::Kind::Player, &args[1], &args[2], &args[3]),
+        [kind @ ("card" | "player"), _, _, _, rest @ ..] if rest.len() <= 1 => {
+            let kind = if *kind == "card" { card::Kind::Enemy } else { card::Kind::Player };
+            let detail = match rest.first() {
+                None => 1,
+                Some(d) => d.parse().ok().filter(|d| art::DETAILS.contains(d)).ok_or_else(|| Usage(format!("{d} isn't a detail: 1, 2 or 4")))?,
+            };
+            return make_card(kind, &args[1], &args[2], &args[3], detail);
+        }
         ["show", _] => return show(&args[1]),
         ["mod", _, _] => return make_mod(&args[1], &args[2]),
         ["prop", _, _, _] => return make_prop(&args[1], &args[2], &args[3]),
