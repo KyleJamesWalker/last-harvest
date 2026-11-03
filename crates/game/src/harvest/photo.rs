@@ -289,23 +289,28 @@ impl Harvest {
         near.get(at.map_or(0, |k| (k + 1) % near.len())).copied()
     }
 
-    /// Turns zombie `i` by `turn` radians and steps its walk a frame on a fresh push of `y` up or down, first
-    /// keeping it as the run left it. It shows its walk, not a hurt frame, while posed.
+    /// Turns zombie `i` by `turn` radians and steps it a frame on a fresh push of `y` up or down, through its walk
+    /// and then its hurt and flash frames, first keeping it as the run left it, in its walk.
     fn pose(&mut self, i: usize, turn: f32, y: f32) {
         let (Some(p), Some(z)) = (self.photo.as_mut(), self.zombies.get_mut(i)) else { return };
         if !p.posed.iter().any(|q| q.0 == i) {
             p.posed.push((i, z.clone()));
+            (z.flash, z.hurt, z.stagger) = (0.0, 0.0, 0.0);
         }
-        (z.flash, z.hurt, z.stagger) = (0.0, 0.0, 0.0);
         let d = if len(z.dir) > 1e-4 { norm(z.dir) } else { [0.0, 1.0] };
         let (s, c) = turn.sin_cos();
         z.dir = [d[0] * c - d[1] * s, d[0] * s + d[1] * c];
-        let push = if y < -0.5 { -1 } else { (y > 0.5) as i8 };
+        let push = push_of(y);
         if push != 0 && push != p.pushed {
-            let frames = z.kind.stats().look.walk[Facing::Front.index()].len().max(1);
-            let rate = (crate::tuning::tuning().walk_fps * z.kind.stats().speed / 20.0).max(1e-3);
-            let step = (z.step() + frames + if push < 0 { 1 } else { frames - 1 }) % frames;
-            z.anim = (step as f32 + 0.5) / rate;
+            let walk = z.kind.stats().look.walk[Facing::Front.index()].len().max(1);
+            let now = if z.flash > 0.0 { walk + 1 } else if z.hurt > 0.0 { walk } else { z.step() % walk };
+            let frames = walk + 2;
+            let next = (now + if push < 0 { 1 } else { frames - 1 }) % frames;
+            (z.flash, z.hurt) = (if next == walk + 1 { 1.0 } else { 0.0 }, if next == walk { 1.0 } else { 0.0 });
+            if next < walk {
+                let rate = (crate::tuning::tuning().walk_fps * z.kind.stats().speed / 20.0).max(1e-3);
+                z.anim = (next as f32 + 0.5) / rate;
+            }
         }
         p.pushed = push;
     }
@@ -570,21 +575,49 @@ mod tests {
         hold(&mut h, Buttons::RIGHT, 20);
         assert_eq!(h.view_yaw, yaw, "Left and Right turn the zombie, not the camera");
         assert!(len(sub(norm(h.zombies[i].dir), norm(before[i].0))) > 0.5, "the zombie turned");
-        let step = h.zombies[i].step();
+        let frames = frame_count(&h, i);
+        let step = frame(&h, i);
         hold(&mut h, Buttons::UP, 10);
-        let frames = h.zombies[i].kind.stats().look.walk[Facing::Front.index()].len();
-        assert_eq!(h.zombies[i].step() % frames, (step + 1) % frames, "a held Up steps one frame");
+        assert_eq!(frame(&h, i), (step + 1) % frames, "a held Up steps one frame");
         hold(&mut h, Buttons::NONE, 1);
         hold(&mut h, Buttons::DOWN, 1);
         hold(&mut h, Buttons::NONE, 1);
         hold(&mut h, Buttons::DOWN, 1);
-        assert_eq!(h.zombies[i].step() % frames, (step + frames - 1) % frames, "and each Down one back");
+        assert_eq!(frame(&h, i), (step + frames - 1) % frames, "and each Down one back");
         let mut f = Frame::default();
         h.photo_frame(&mut f, true);
         assert!(f.top.shapes.is_empty(), "the capture has no marker");
         press(&mut h, Buttons::B);
         let after: Vec<([f32; 2], f32)> = h.zombies.iter().map(|z| (z.dir, z.anim)).collect();
         assert_eq!(after, before, "leaving gives the run its horde back as it was");
+    }
+
+    /// How many frames Up and Down step a posed zombie through: its walk, then hurt and flash.
+    fn frame_count(h: &Harvest, i: usize) -> usize {
+        h.zombies[i].kind.stats().look.walk[Facing::Front.index()].len() + 2
+    }
+
+    /// Which of those zombie `i` shows.
+    fn frame(h: &Harvest, i: usize) -> usize {
+        let (z, walk) = (&h.zombies[i], frame_count(h, i) - 2);
+        if z.flash > 0.0 { walk + 1 } else if z.hurt > 0.0 { walk } else { z.step() % walk }
+    }
+
+    #[test]
+    fn up_steps_a_posed_zombie_past_its_walk_to_its_hurt_and_flash_frames_and_round() {
+        let mut h = posing(13);
+        let i = h.photo.as_ref().unwrap().picked.unwrap();
+        let (look, frames) = (h.zombies[i].kind.stats().look.clone(), frame_count(&h, i));
+        let mut shown = Vec::new();
+        for _ in 0..frames {
+            hold(&mut h, Buttons::UP, 1);
+            hold(&mut h, Buttons::NONE, 1);
+            shown.push(h.zombies[i].art(Facing::Front));
+        }
+        assert!(shown.contains(&look.hurt[Facing::Front.index()]) && shown.contains(&look.flash[Facing::Front.index()]), "{shown:?}");
+        assert!(look.walk[Facing::Front.index()].contains(shown.last().unwrap()), "and round to its walk");
+        press(&mut h, Buttons::B);
+        assert_eq!((h.zombies[i].hurt, h.zombies[i].flash), (0.0, 0.0), "the run gets it back unhurt");
     }
 
     /// Photo mode on the Props setting.
