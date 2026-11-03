@@ -53,6 +53,8 @@ pub struct Card {
     pub frame: [u32; 2],
     /// RGBA, `frame[0] * 3` wide and `frame[1] * 5` tall.
     pub sheet: Vec<u8>,
+    /// A player card's `last-harvest-worn` chunk, as `worn::parse_card` reads it; empty without one.
+    pub worn: String,
 }
 
 static DATA: OnceLock<Data> = OnceLock::new();

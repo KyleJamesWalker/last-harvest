@@ -398,9 +398,10 @@ pub(super) fn place(cursor: &mut [u16; 3], [w, h]: [u16; 2]) -> Option<[u16; 2]>
 pub(crate) fn install_cards(cards: &[Card], players: &[Card], props: &[Card], base: &str, atlas: &mut [u8]) -> Vec<String> {
     let mut cursor = start();
     let (mut notes, mut rects, kept) = pack(cards, base, atlas, &mut cursor);
-    let (more, player_rects, looks) = super::players::pack(players, atlas, &mut cursor, art::RECTS.len() + rects.len());
-    notes.extend(more);
-    rects.extend(player_rects);
+    let packed = super::players::pack(players, atlas, &mut cursor, art::RECTS.len() + rects.len());
+    notes.extend(packed.notes);
+    rects.extend(packed.rects);
+    art::set_added_worn(packed.worn);
     let (more, prop_rects, named, solids) = super::props::pack(props, atlas, &mut cursor, art::RECTS.len() + rects.len());
     art::set_added_solids(solids);
     notes.extend(more);
@@ -408,7 +409,7 @@ pub(crate) fn install_cards(cards: &[Card], players: &[Card], props: &[Card], ba
     super::props::set_props(named);
     art::set_added(rects);
     CARDS.set(kept).ok();
-    super::players::install(looks);
+    super::players::install(packed.looks);
     notes
 }
 
@@ -611,7 +612,7 @@ mod tests {
     fn card(text: &str, frame: [u32; 2]) -> Card {
         let [w, h] = frame;
         let sheet = (0..w * 3 * h * 5).flat_map(|i| [(i % 251) as u8, 40, 90, 255]).collect();
-        Card { name: "test.png".into(), text: text.into(), frame, sheet }
+        Card { worn: String::new(), name: "test.png".into(), text: text.into(), frame, sheet }
     }
 
     #[test]
@@ -686,7 +687,7 @@ mod tests {
         let mut atlas = vec![0u8; (ATLAS_W * ATLAS_H * 4) as usize];
         let [w, h] = [8u32, 8];
         let sheet = vec![255u8; (w * 5 * h * 5 * 4) as usize];
-        let card = Card { name: "long.enemy.png".into(), text: "[long]\nwalk 5".into(), frame: [w, h], sheet };
+        let card = Card { worn: String::new(), name: "long.enemy.png".into(), text: "[long]\nwalk 5".into(), frame: [w, h], sheet };
         let (notes, rects, kept) = pack(&[card], base, &mut atlas, &mut start());
         assert!(notes.is_empty(), "{notes:?}");
         assert_eq!(rects.len(), 5 * 3 + 6);

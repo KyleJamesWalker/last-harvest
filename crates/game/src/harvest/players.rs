@@ -8,6 +8,7 @@ use super::powerups::{Kind, book};
 use crate::Difficulty;
 use crate::art::Art;
 use crate::data::Card;
+use crate::worn::Worn;
 
 /// The most a player card's id can be, so a save keeps it inline.
 pub const ID_MAX: usize = 24;
@@ -163,10 +164,20 @@ fn parse(text: &str, check: bool) -> Result<PlayerFields, String> {
     Ok(PlayerFields { id, name, about, start, base })
 }
 
-/// The player cards' looks with their frames drawn into `atlas` from `cursor` on, numbered from `first`, the rects
-/// drawn, and a line for each card left out.
-pub(super) fn pack(cards: &[Card], atlas: &mut [u8], cursor: &mut [u16; 3], first: usize) -> (Vec<String>, Vec<[u16; 4]>, Vec<PlayerLook>) {
-    let (mut notes, mut rects, mut looks): (Vec<String>, Vec<[u16; 4]>, Vec<PlayerLook>) = (Vec::new(), Vec::new(), Vec::new());
+/// What `pack` makes of the player cards.
+#[derive(Default)]
+pub(super) struct Packed {
+    /// A line for each card left out.
+    pub notes: Vec<String>,
+    pub rects: Vec<[u16; 4]>,
+    pub looks: Vec<PlayerLook>,
+    /// Where walk frames wear a ready grenade, for those whose card says.
+    pub worn: Vec<(Art, Worn)>,
+}
+
+/// The player cards' looks with their frames drawn into `atlas` from `cursor` on, numbered from `first`.
+pub(super) fn pack(cards: &[Card], atlas: &mut [u8], cursor: &mut [u16; 3], first: usize) -> Packed {
+    let Packed { mut notes, mut rects, mut looks, mut worn } = Packed::default();
     for card in cards {
         let PlayerFields { id, name, about, start, base } = match parse(&card.text, false) {
             Ok(f) => f,
@@ -199,9 +210,14 @@ pub(super) fn pack(cards: &[Card], atlas: &mut [u8], cursor: &mut [u16; 3], firs
         }
         let art = |k: usize| Art((at + k) as u16);
         let look = Look { walk: std::array::from_fn(|f| (f * 3..f * 3 + 3).map(art).collect()), flash: [art(9), art(10), art(11)], hurt: [art(12), art(13), art(14)], dead: (rows == 6).then(|| [art(15), art(16), art(17)]) };
+        // The card format checked the chunk on reading.
+        let facings = crate::worn::parse_card(&card.worn).unwrap_or_default();
+        for (f, frames) in facings.iter().enumerate() {
+            worn.extend((0..3).filter_map(|k| Some((art(f * 3 + k), crate::worn::frame(frames, k)?))));
+        }
         looks.push(PlayerLook { id, name, about, look, start, base });
     }
-    (notes, rects, looks)
+    Packed { notes, rects, looks, worn }
 }
 
 #[cfg(test)]
@@ -257,9 +273,12 @@ mod tests {
     #[test]
     fn player_cards_pack_after_the_others_and_skip_repeats() {
         let mut atlas = vec![0u8; (ATLAS_W * ATLAS_H * 4) as usize];
-        let card = |text: &str| Card { name: "p.player.png".into(), text: text.into(), frame: [8, 8], sheet: vec![255; 3 * 8 * 5 * 8 * 4] };
+        let card = |text: &str| Card { worn: String::new(), name: "p.player.png".into(), text: text.into(), frame: [8, 8], sheet: vec![255; 3 * 8 * 5 * 8 * 4] };
         let mut cursor = super::super::enemies::start();
-        let (notes, rects, looks) = pack(&[card("[jo]\nname Jo\nabout Calm."), card("[jo]"), card("[x]\nwings 1")], &mut atlas, &mut cursor, 500);
+        let jo = Card { worn: "side 1 2 ; 3 4\nback hide\n".into(), ..card("[jo]\nname Jo\nabout Calm.") };
+        let Packed { notes, rects, looks, worn } = pack(&[jo, card("[jo]"), card("[x]\nwings 1")], &mut atlas, &mut cursor, 500);
+        let at = |a: u16, x, y| (Art(a), Worn::At([x, y]));
+        assert_eq!(worn, [at(503, 1, 2), at(504, 3, 4), at(505, 3, 4), (Art(506), Worn::Hidden), (Art(507), Worn::Hidden), (Art(508), Worn::Hidden)], "the front says nothing");
         assert_eq!(notes.len(), 2, "{notes:?}");
         assert_eq!(looks[0].about, "Calm.");
         assert_eq!((rects.len(), looks.len()), (15, 1));

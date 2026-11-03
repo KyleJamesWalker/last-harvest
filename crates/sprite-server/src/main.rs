@@ -23,7 +23,7 @@ fn text(status: u16, body: impl Into<String>) -> Reply {
 /// A file a sprite's folder may hold.
 fn sprite_file(file: &str) -> bool {
     let frame = file.strip_suffix(".png").is_some_and(|n| !n.is_empty() && n.len() <= 3 && n.bytes().all(|b| b.is_ascii_digit()));
-    frame || matches!(file, "south.png" | "east.png" | "footprint.png" | "roof.png" | "north.png" | "west.png" | "top.png" | "stand.txt" | "enemy.txt" | "clear.txt" | "paints.txt")
+    frame || matches!(file, "south.png" | "east.png" | "footprint.png" | "roof.png" | "north.png" | "west.png" | "top.png" | "stand.txt" | "enemy.txt" | "clear.txt" | "paints.txt" | "grenade.txt")
 }
 
 fn bytes(found: Option<Vec<u8>>) -> Reply {
@@ -196,7 +196,7 @@ mod tests {
     fn saves_and_reads_back_a_sprite_the_way_the_editor_does() {
         let s = store("save");
         let web = Path::new("/nonexistent");
-        let mut sprite = Sprite { name: "BARREL".into(), frames: vec![Frame::blank(4, 3); 3], views: None, footprint: None, roof: None, north: None, west: None, top: Some(Frame::blank(4, 1)), card: None, clear_in_3d: Vec::new(), paint: Default::default() };
+        let mut sprite = Sprite { worn: Vec::new(), name: "BARREL".into(), frames: vec![Frame::blank(4, 3); 3], views: None, footprint: None, roof: None, north: None, west: None, top: Some(Frame::blank(4, 1)), card: None, clear_in_3d: Vec::new(), paint: Default::default() };
         sprite.frames[2].set(1, 1, [9, 8, 7, 255]);
         assert_eq!(handle(&s, web, &Method::Put, "/api/sprite/BARREL", &bundle(&sprite.files())).0, 200);
         sprite.frames.truncate(2);
@@ -205,6 +205,9 @@ mod tests {
         let (status, _, png) = handle(&s, web, &Method::Get, "/api/file/BARREL/1.png", &[]);
         assert_eq!((status, png), (200, std::fs::read(s.dir.join("BARREL/1.png")).unwrap()));
         assert_eq!(handle(&s, web, &Method::Get, "/api/file/BARREL/top.png", &[]).0, 200, "the top strip comes back too");
+        sprite.worn = vec![last_harvest_game::worn::Worn::At([2, 1])];
+        assert_eq!(handle(&s, web, &Method::Put, "/api/sprite/BARREL", &bundle(&sprite.files())).0, 200);
+        assert_eq!(handle(&s, web, &Method::Get, "/api/file/BARREL/grenade.txt", &[]).2, b"2 1\n", "where a figure wears its grenade comes back too");
         assert_eq!(handle(&s, web, &Method::Put, "/api/stand/BARREL", b"slab 7").0, 200);
         assert_eq!(std::fs::read_to_string(&s.catalog).unwrap(), "BARREL  cell 14 7  @slab 7\n");
         assert_eq!(handle(&s, web, &Method::Get, "/api/stand/BARREL", &[]).2, b"slab 7");
@@ -216,7 +219,7 @@ mod tests {
     fn saves_and_reads_back_a_card_part_the_way_the_web_editor_does() {
         let s = store("card");
         let web = Path::new("/nonexistent");
-        let mut part = Sprite { name: "CARD_GHOUL_HURT".into(), frames: vec![Frame::blank(16, 16); 3], views: None, footprint: None, roof: None, north: None, west: None, top: None, card: Some("[ghoul]\nhp 40\n".into()), clear_in_3d: Vec::new(), paint: Default::default() };
+        let mut part = Sprite { worn: Vec::new(), name: "CARD_GHOUL_HURT".into(), frames: vec![Frame::blank(16, 16); 3], views: None, footprint: None, roof: None, north: None, west: None, top: None, card: Some("[ghoul]\nhp 40\n".into()), clear_in_3d: Vec::new(), paint: Default::default() };
         part.frames[2].set(7, 7, [1, 2, 3, 255]);
         assert_eq!(handle(&s, web, &Method::Put, "/api/sprite/CARD_GHOUL_HURT", &bundle(&part.files())).0, 200);
         assert!(s.cards.join("ghoul.enemy.png").exists());

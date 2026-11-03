@@ -7,7 +7,7 @@ use super::map::TILE;
 use crate::art::Stand;
 use super::powerups::{Kind, Zone, book};
 use super::weapons::{BOLT_LIFE, Hazard};
-use super::{CHOICE_ROW, CHOICE_TOP, Choice, DropKind, Facing, GOLD, PAUSE_CHOICES, Harvest, PICK_TIME, PROP_FLASH, Phase, RED, SCALE, TELL_TIME, TURNED, Thrown, WHITE, clock, player_pose, view3d};
+use super::{CHOICE_ROW, CHOICE_TOP, Choice, DropKind, Facing, GOLD, PAUSE_CHOICES, Harvest, PICK_TIME, PROP_FLASH, Phase, RED, SCALE, TELL_TIME, TURNED, Thrown, WHITE, clock, player_pose, player_worn, view3d, worn_corner};
 use crate::art::{self, Art};
 use crate::{Align, Canvas, Color, Frame, SCREEN_H, SCREEN_W};
 
@@ -290,7 +290,12 @@ impl Harvest {
         }
         if let Some(s) = self.shown.as_ref().filter(|s| s.stand != Stand::Ground && !s.frames.is_empty()) {
             let a = s.frame(self.t);
-            sprites.push((s.pos[1], a, s.pos[0] - a.w() / 2.0, s.pos[1] - a.h(), false, 1.0, 1.0));
+            let (x, y) = (s.pos[0] - a.w() / 2.0, s.pos[1] - a.h());
+            sprites.push((s.pos[1], a, x, y, false, 1.0, 1.0));
+            if let Some(at) = a.worn_at().filter(|_| s.worn) {
+                let [gx, gy] = worn_corner(at, a.w(), false);
+                sprites.push((s.pos[1] + 0.01, art::GRENADE_WORN, x + gx, y + gy, false, 1.0, 1.0));
+            }
         }
         for b in &self.birds {
             let a = b.art();
@@ -312,7 +317,12 @@ impl Harvest {
         let (facing, flip) = self.facing;
         let (a, rise) = player_pose(self, facing);
         if self.shown.as_ref().is_none_or(|s| s.player) {
-            sprites.push((self.pos[1], a, self.pos[0] - a.w() / 2.0, self.pos[1] - a.h() * rise + 2.0, flip, rise, 1.0));
+            let (x, y) = (self.pos[0] - a.w() / 2.0, self.pos[1] - a.h() * rise + 2.0);
+            sprites.push((self.pos[1], a, x, y, flip, rise, 1.0));
+            if let Some((at, bright)) = player_worn(self, facing) {
+                let [gx, gy] = worn_corner(at, a.w(), flip);
+                sprites.push((self.pos[1] + 0.01, art::GRENADE_WORN, x + gx, y + gy, flip, 1.0, bright));
+            }
         }
         sprites.sort_by(|a, b| a.0.total_cmp(&b.0));
         for (_, a, x, y, flip, show, bright) in sprites {

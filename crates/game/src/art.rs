@@ -2,6 +2,8 @@
 
 use std::sync::{OnceLock, RwLock};
 
+use crate::worn::Worn;
+
 /// Sprites the editor adds while it runs, numbered after the packed ones: rects in the scratch area,
 /// and a copy of the texture with the editor's pixels drawn in.
 struct Live {
@@ -9,9 +11,11 @@ struct Live {
     pixels: Vec<u8>,
     /// Each live sprite with the copy the 3D view stands up in its place, as `Art::solid` says.
     solids: Vec<(Art, Art)>,
+    /// Where live frames wear a ready grenade, as `Art::worn` says.
+    worn: Vec<(Art, Worn)>,
 }
 
-static LIVE: RwLock<Live> = RwLock::new(Live { rects: Vec::new(), pixels: Vec::new(), solids: Vec::new() });
+static LIVE: RwLock<Live> = RwLock::new(Live { rects: Vec::new(), pixels: Vec::new(), solids: Vec::new(), worn: Vec::new() });
 
 /// Sprites from enemy cards, drawn into the texture's free rows at startup and numbered after the packed ones.
 static ADDED: OnceLock<Vec<[u16; 4]>> = OnceLock::new();
@@ -25,6 +29,13 @@ static ADDED_SOLIDS: OnceLock<Vec<(Art, Art)>> = OnceLock::new();
 
 pub(crate) fn set_added_solids(solids: Vec<(Art, Art)>) {
     ADDED_SOLIDS.set(solids).ok();
+}
+
+/// Where added sprites wear a ready grenade, as `Art::worn` says.
+static ADDED_WORN: OnceLock<Vec<(Art, Worn)>> = OnceLock::new();
+
+pub(crate) fn set_added_worn(worn: Vec<(Art, Worn)>) {
+    ADDED_WORN.set(worn).ok();
 }
 
 /// Sets the added sprites' rects; the texture the game reads must already hold their pixels.
@@ -46,13 +57,18 @@ pub(crate) fn free_top() -> u16 {
 pub fn set_live(rects: Vec<[u16; 4]>, pixels: Vec<u8>) -> Vec<Art> {
     assert_eq!(pixels.len(), self::pixels().len(), "a live texture matches the packed one");
     let arts = (0..rects.len()).map(|i| Art((count() + i) as u16)).collect();
-    *LIVE.write().unwrap() = Live { rects, pixels, solids: Vec::new() };
+    *LIVE.write().unwrap() = Live { rects, pixels, solids: Vec::new(), worn: Vec::new() };
     arts
 }
 
 /// Pairs live sprites with the copies the 3D view stands up in their place.
 pub fn set_live_solids(solids: Vec<(Art, Art)>) {
     LIVE.write().unwrap().solids = solids;
+}
+
+/// Says where live frames wear a ready grenade.
+pub fn set_live_worn(worn: Vec<(Art, Worn)>) {
+    LIVE.write().unwrap().worn = worn;
 }
 
 /// Runs `f` on the texture a sprite's pixels live in.
@@ -125,6 +141,30 @@ impl Art {
         match SOLIDS.get(self.0 as usize) {
             Some(s) => s.unwrap_or(self),
             None => ADDED_SOLIDS.get().and_then(|v| v.iter().find(|(a, _)| *a == self)).map_or(self, |&(_, s)| s),
+        }
+    }
+
+    /// Where this frame wears a ready grenade, when its sprite or card says.
+    pub fn worn(self) -> Option<Worn> {
+        if self.is_live() {
+            return LIVE.read().unwrap().worn.iter().find(|(a, _)| *a == self).map(|&(_, w)| w);
+        }
+        match WORN.get(self.0 as usize) {
+            Some(spec) => spec.and_then(|s| crate::worn::parse(s).ok()?.first().copied()),
+            None => ADDED_WORN.get().and_then(|v| v.iter().find(|(a, _)| *a == self)).map(|&(_, w)| w),
+        }
+    }
+
+    /// Where this frame wears a ready grenade: where it says, else on its right hip; None when it hides it.
+    pub fn worn_at(self) -> Option<[u8; 2]> {
+        match self.worn() {
+            Some(Worn::At(p)) => Some(p),
+            Some(Worn::Hidden) => None,
+            None => {
+                let [x, y, w, h] = self.rect().map(usize::from);
+                let stride = (ATLAS_W as usize) * 4;
+                Some(with_pixels(self, |px| crate::worn::default_at(w, h, |i, j| px[(y + j) * stride + (x + i) * 4 + 3] > 0)))
+            }
         }
     }
 

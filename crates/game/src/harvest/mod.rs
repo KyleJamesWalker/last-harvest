@@ -72,6 +72,9 @@ const TURN_FALL: f32 = 0.4;
 const TURN_SINK: f32 = 1.2;
 const TURN_RISE: f32 = 1.6;
 const TURNED: f32 = 2.6;
+/// Seconds the worn grenade flashes, and how bright, when one comes ready.
+const READY_FLASH: f32 = 0.1;
+const READY_BRIGHT: f32 = 3.0;
 /// How fast the turned player and the dead with them walk off, and how near they gather around the player.
 const MARCH_SPEED: f32 = 16.0;
 const MARCH_CLOSE: f32 = 40.0;
@@ -470,16 +473,46 @@ impl Zombie {
     }
 }
 
+/// Whether the player shows its flash frame this instant, blinking while invulnerable.
+fn blinking(h: &Harvest) -> bool {
+    h.hurt > 0.0 && ((h.hurt * 20.0) as u32).is_multiple_of(2)
+}
+
+/// Which walk frame the player shows: standing, or one of two steps.
+fn walk_frame(h: &Harvest) -> usize {
+    if h.walk > 0.0 { 1 + (h.walk * crate::tuning::tuning().walk_fps) as usize % 2 } else { 0 }
+}
+
 /// The player's frame for a facing: flashing while invulnerable, red just after a hit, else walking.
 fn art_for(h: &Harvest, look: &Look, facing: Facing) -> Art {
     let i = facing.index();
-    if h.hurt > 0.0 && ((h.hurt * 20.0) as u32).is_multiple_of(2) {
+    if blinking(h) {
         look.flash[i]
     } else if h.hurt > h.difficulty.hurt_time() - 0.2 {
         look.hurt[i]
     } else {
-        look.walk[i][if h.walk > 0.0 { 1 + (h.walk * crate::tuning::tuning().walk_fps) as usize % 2 } else { 0 }]
+        look.walk[i][walk_frame(h)]
     }
+}
+
+/// Where the player wears a ready grenade on its frame for `facing`, in that frame's pixels, and how bright it
+/// draws; None with none ready, while the player blinks, once the run is over, or where its look hides it.
+fn player_worn(h: &Harvest, facing: Facing) -> Option<([u8; 2], f32)> {
+    if h.grenades < 1.0 || blinking(h) || matches!(h.phase, Phase::Over { .. }) {
+        return None;
+    }
+    let walk = &players::look(&h.look).look.walk[facing.index()];
+    // A hurt frame wears it where the standing frame does.
+    let frame = if h.hurt > h.difficulty.hurt_time() - 0.2 { 0 } else { walk_frame(h) };
+    let at = walk[frame.min(walk.len() - 1)].worn_at()?;
+    Some((at, if h.ready_flash > 0.0 { READY_BRIGHT } else { 1.0 }))
+}
+
+/// Where the worn grenade's top-left goes on a frame `w` pixels wide, for its middle at `at`, mirrored with the frame.
+fn worn_corner(at: [u8; 2], w: f32, flip: bool) -> [f32; 2] {
+    let g = art::GRENADE_WORN;
+    let x = if flip { w - 1.0 - at[0] as f32 } else { at[0] as f32 };
+    [x - (g.w() / 2.0).floor(), at[1] as f32 - (g.h() / 2.0).floor()]
 }
 
 /// The player's frame for a facing, and how far out of the ground it stands, 0 to 1. Once dead, it sinks
@@ -608,6 +641,8 @@ pub struct Harvest {
     woke: bool,
     /// Grenades ready to throw; the fraction is the next one recharging.
     grenades: f32,
+    /// Seconds left of the worn grenade's flash after one comes ready.
+    ready_flash: f32,
     thrown: Vec<Grenade>,
     owed: f32,
     xp: u32,
@@ -803,6 +838,7 @@ impl Harvest {
             start_t: 0.0,
             woke: false,
             grenades: book().grenades[Difficulty::Normal as usize] as f32,
+            ready_flash: 0.0,
             thrown: Vec::new(),
             pos: map.spawn,
             hp: kit.max_hp(),
@@ -1171,7 +1207,9 @@ impl Harvest {
             self.walk = 0.0;
         }
         self.noise = None;
+        let before = self.grenades;
         self.grenades = (self.grenades + dt / (crate::tuning::tuning().grenade_recharge * self.kit.mods.recharge)).min(self.kit.grenades());
+        self.ready_flash = if before < 1.0 && self.grenades >= 1.0 { READY_FLASH } else { (self.ready_flash - dt).max(0.0) };
         self.hp = (self.hp + self.kit.mods.regen * dt).min(self.kit.max_hp());
         if let Some(touch) = input.touch.filter(|_| input.touch_started).or(self.queued_touch.take()) {
             self.throw(touch, sounds);
@@ -2301,6 +2339,36 @@ mod tests {
         let start = h.pos;
         run(&mut h, &Input { held: Buttons::RIGHT, ..Default::default() }, 0.3);
         assert!(h.pos[0] > start[0] && (h.pos[1] - start[1]).abs() < 1.0);
+    }
+
+    #[test]
+    fn the_player_wears_a_grenade_only_while_one_is_ready_and_it_flashes_as_one_comes_ready() {
+        let mut h = Harvest::calm(12);
+        let mut sounds = Vec::new();
+        assert!(h.grenades >= 1.0);
+        let look = &players::look(&h.look).look;
+        // The look may hide it on some facings; this one shows it.
+        let Some((facing, at)) = [Facing::Front, Facing::Side, Facing::Back].into_iter().find_map(|f| Some((f, look.walk[f.index()][0].worn_at()?))) else { return };
+        assert_eq!(player_worn(&h, facing), Some((at, 1.0)));
+        h.grenades = 0.5;
+        assert_eq!(player_worn(&h, facing), None, "none ready, none worn");
+        h.update(&Input::default(), crate::tuning::tuning().grenade_recharge * h.kit.mods.recharge, &mut sounds);
+        assert_eq!(player_worn(&h, facing).map(|w| w.1), Some(READY_BRIGHT), "it flashes as it comes ready");
+        h.update(&Input::default(), READY_FLASH, &mut sounds);
+        assert_eq!(player_worn(&h, facing).map(|w| w.1), Some(1.0));
+        h.hurt = 0.5;
+        assert!(blinking(&h) && player_worn(&h, facing).is_none(), "it blinks with the player");
+        h.hurt = 0.0;
+        h.phase = Phase::Over { t: 0.0, won: false };
+        assert_eq!(player_worn(&h, facing), None, "the dead wear nothing");
+    }
+
+    #[test]
+    fn the_worn_grenade_centers_on_its_pixel_and_mirrors_with_the_frame() {
+        let g = art::GRENADE_WORN;
+        assert_eq!((g.w(), g.h()), (3.0, 4.0));
+        assert_eq!(worn_corner([11, 10], 16.0, false), [10.0, 8.0]);
+        assert_eq!(worn_corner([11, 10], 16.0, true), [3.0, 8.0], "pixel 11 of 16 mirrors to pixel 4");
     }
 
     #[test]

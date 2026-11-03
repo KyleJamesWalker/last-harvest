@@ -10,7 +10,7 @@ use super::carve;
 use super::map::TILE;
 use crate::art::Stand;
 use super::weapons::{BOLT_LIFE, Hazard};
-use super::{DropKind, Facing, Harvest, Phase, TELL_TIME, TURN_RISE, TURNED, Thrown, Zombie, len, norm, player_pose, sub};
+use super::{DropKind, Facing, Harvest, Phase, TELL_TIME, TURN_RISE, TURNED, Thrown, Zombie, len, norm, player_pose, player_worn, sub, worn_corner};
 use crate::art::{self, ATLAS_H, ATLAS_W, Art};
 use crate::scene3d::{Card, CardScene, Flash};
 use crate::{SCREEN_H, SCREEN_W};
@@ -27,6 +27,7 @@ const CAMERA_BACK: f32 = 2.4;
 const SIGHTLINE: f32 = 0.5;
 const BEHIND: f32 = 0.3;
 const CHARACTER_DEPTH: f32 = 3.0 * PX;
+const WORN_DEPTH: f32 = PX;
 const DECAL_LIFT: f32 = 0.03;
 const MAX_ZOMBIES_3D: usize = 160;
 
@@ -454,12 +455,25 @@ struct Board {
     tint: [f32; 3],
     /// The strip capping its columns' tops, if it has one.
     top: Option<Art>,
+    /// Sprite pixels right of center, and world units toward the camera.
+    shift: [f32; 2],
 }
 
 impl Board {
     fn new(art: Art, flip: bool, at: [f32; 2], lift: f32, depth: f32) -> Self {
-        Self { art, flip, at, lift, depth, scale: [1.0; 2], lean: Vec3::ZERO, tint: [1.0; 3], top: art.top() }
+        Self { art, flip, at, lift, depth, scale: [1.0; 2], lean: Vec3::ZERO, tint: [1.0; 3], top: art.top(), shift: [0.0; 2] }
     }
+}
+
+/// The grenade worn by a figure standing at `pos` showing `a`, its middle on pixel `at`, just in front of the figure so
+/// the two never fight over the same depth.
+fn worn_board(a: Art, at: [u8; 2], flip: bool, pos: [f32; 2], bright: f32) -> Board {
+    let g = art::GRENADE_WORN;
+    let [gx, gy] = worn_corner(at, a.w(), flip);
+    let mut b = Board::new(g, flip, pos, (a.h() - gy - g.h()) * PX, WORN_DEPTH);
+    b.shift = [gx + g.w() / 2.0 - a.w() / 2.0, (CHARACTER_DEPTH + WORN_DEPTH) / 2.0 + 0.1 * PX];
+    b.tint = [bright; 3];
+    b
 }
 
 pub fn scene(h: &Harvest) -> CardScene {
@@ -573,7 +587,7 @@ pub fn scene(h: &Harvest) -> CardScene {
         // Close to the lens a character fills the screen without showing anything useful.
         if near(q) && (q - p).dot(forward) > -0.8 && (q - eye).length() > 1.4 {
             let r = right * b.scale[0];
-            let origin = q - r * (b.art.w() * PX / 2.0) - forward * (b.depth / 2.0) + Vec3::Y * b.lift;
+            let origin = q + r * ((b.shift[0] - b.art.w() / 2.0) * PX) - forward * (b.depth / 2.0 + b.shift[1]) + Vec3::Y * b.lift;
             let up = (Vec3::Y + b.lean) * b.scale[1];
             stand(cards, eye, b.art, b.flip, Pose { origin, right: r, up, back: forward, depth: b.depth, tint: b.tint, reach: Reach::Thin, top: b.top }, b.depth > 0.0);
         }
@@ -605,9 +619,16 @@ pub fn scene(h: &Harvest) -> CardScene {
     let (a, rise) = player_pose(h, facing);
     if h.shown.as_ref().is_none_or(|s| s.player) {
         board(&mut cards, Board::new(a, flip, h.pos, -(1.0 - rise) * a.h() * PX, CHARACTER_DEPTH));
+        if let Some((at, bright)) = player_worn(h, facing) {
+            board(&mut cards, worn_board(a, at, flip, h.pos, bright));
+        }
     }
     if let Some(s) = h.shown.as_ref().filter(|s| s.stand == Stand::Figure && !s.frames.is_empty()) {
-        board(&mut cards, Board { top: s.top, ..Board::new(s.frame(h.t), false, s.pos, 0.0, CHARACTER_DEPTH) });
+        let a = s.frame(h.t);
+        board(&mut cards, Board { top: s.top, ..Board::new(a, false, s.pos, 0.0, CHARACTER_DEPTH) });
+        if let Some(at) = a.worn_at().filter(|_| s.worn) {
+            board(&mut cards, worn_board(a, at, false, s.pos, 1.0));
+        }
         for (i, (frames, at)) in s.crowd.iter().enumerate() {
             // Each a step out of time with the others, so they don't march in lockstep.
             let a = frames[((h.t * s.fps) as usize + i) % frames.len()];

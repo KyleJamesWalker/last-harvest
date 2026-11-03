@@ -80,7 +80,7 @@ CORPSE          px 715 248 15 13 ; px 733 248 12 14 ; px 681 153 15 13 ; px 682 
 # Characters, one frame row per facing; HURT and FLASH are front, side, back
 PLAYER_FRONT    cell 28 9 x3
 PLAYER_SIDE     cell 28 10 x3
-PLAYER_BACK     cell 28 8 x3
+PLAYER_BACK     cell 28 8 x3  @figure
 PLAYER_HURT     cell 31 9 ; cell 31 10 ; cell 31 8
 PLAYER_FLASH    cell 33 9 ; cell 33 10 ; cell 33 8
 SKINNY_FRONT    cell 28 3 x3
@@ -113,6 +113,7 @@ KNIFE           px 19 178 12 4  @prop 2
 PISTOL          px 21 158 8 5  @prop 1
 SHOTGUN         px 17 139 16 5  @prop 2
 GRENADE         px 22 118 7 9  @prop 2
+GRENADE_WORN    png placeholder/grenade_worn.png
 WHITE           solid 4 4
 # The sprite editor draws the sprite it is working on here.
 SCRATCH         blank 256 256

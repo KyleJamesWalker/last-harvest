@@ -254,6 +254,7 @@ pub mod cards {
     use last_harvest_pack::card;
 
     use crate::sprite::{self, CARD_PART_FRAMES, CardKind, Frame, Sprite};
+    use last_harvest_game::worn::{self, Worn};
 
     /// A card's text and its six rows of frames: walking front, side and back, then flash, hurt and dead, blank
     /// when the card has no dead row.
@@ -277,13 +278,25 @@ pub mod cards {
         Some((c.text, rows))
     }
 
-    /// A file of a card's part, as `Store::read` hands it out: a frame of the part's row, or the card's text.
+    /// Where a card's walking rows wear a ready grenade, one list per facing; empty where it doesn't say.
+    fn worn(kind: CardKind, bytes: &[u8]) -> [Vec<Worn>; 3] {
+        let text = card::read_as(kind, "card", bytes).map(|c| c.worn).unwrap_or_default();
+        worn::parse_card(&text).unwrap_or_default()
+    }
+
+    /// A file of a card's part, as `Store::read` hands it out: a frame of the part's row, the card's text, or where a
+    /// player's walking part wears its grenade.
     pub fn file(bytes: &[u8], name: &str, file: &str) -> Option<Vec<u8>> {
-        let (text, rows) = rows(sprite::card_kind(name)?, bytes)?;
+        let kind = sprite::card_kind(name)?;
+        let (text, rows) = rows(kind, bytes)?;
         if file == sprite::CARD_FILE {
             return Some(text.into_bytes());
         }
         let (_, row) = sprite::card_part(name)?;
+        if file == sprite::WORN_FILE {
+            let facing = worn(kind, bytes).into_iter().nth(row).filter(|w| !w.is_empty())?;
+            return Some(format!("{}\n", worn::spec(&facing)).into_bytes());
+        }
         let k: usize = file.strip_suffix(".png")?.parse().ok()?;
         rows[row].get(k).map(sprite::encode_png)
     }
@@ -311,6 +324,10 @@ pub mod cards {
         }
         if w > sprite::CARD_MAX_FRAME || h > sprite::CARD_MAX_FRAME {
             return Err(format!("a card's frames are at most {0}x{0} pixels", sprite::CARD_MAX_FRAME));
+        }
+        let mut facings = existing.map(|b| worn(kind, b)).unwrap_or_default();
+        if kind == CardKind::Player && row < 3 {
+            facings[row] = part.worn.clone();
         }
         let mut rows = match existing {
             Some(bytes) => rows(kind, bytes).ok_or("the saved card can't be read, so saving would lose its other parts")?.1,
@@ -348,7 +365,7 @@ pub mod cards {
                 }
             }
         }
-        card::write_as(kind, &text, (w * cols) as u32, (h * height) as u32, height as u32, &sheet)
+        card::write_as(kind, &text, &worn::card_text(&facings), (w * cols) as u32, (h * height) as u32, height as u32, &sheet)
     }
 
     pub use last_harvest_pack::browser::{from_text, to_text};
@@ -399,7 +416,7 @@ mod tests {
         south.set(0, 4, [1, 2, 3, 255]);
         east.set(2, 0, [4, 5, 6, 255]);
         footprint.set(3, 2, [7, 8, 9, 255]);
-        let blank = Sprite { name: "PROP_POST".into(), frames: vec![frame.clone(); 2], views: None, footprint: None, roof: None, north: None, west: None, top: None, card: None, clear_in_3d: Vec::new(), paint: Default::default() };
+        let blank = Sprite { worn: Vec::new(), name: "PROP_POST".into(), frames: vec![frame.clone(); 2], views: None, footprint: None, roof: None, north: None, west: None, top: None, card: None, clear_in_3d: Vec::new(), paint: Default::default() };
         assert!(super::props::with_stand(&super::props::from_sprite(&blank).unwrap(), "carve").unwrap_err().contains("views"));
         let s = Sprite { views: Some([south.clone(), east.clone()]), footprint: Some(footprint.clone()), ..blank };
         let bytes = super::props::with_stand(&super::props::from_sprite(&s).unwrap(), "turned").unwrap();
@@ -424,6 +441,7 @@ mod tests {
         };
         let s = Sprite {
             name: "PROP_STACK".into(),
+            worn: Vec::new(),
             frames: vec![dot(4, 3, 0, 1)],
             views: Some([dot(4, 5, 1, 2), dot(3, 5, 2, 3)]),
             footprint: None,
@@ -461,8 +479,8 @@ mod tests {
         use crate::sprite::CardKind;
         use last_harvest_pack::card::{Kind, write_as};
         let sheet = vec![0u8; 24 * 40 * 4];
-        let enemy = write_as(Kind::Enemy, "[bat]", 24, 40, 5, &sheet).unwrap();
-        let player = write_as(Kind::Player, "[jo]\nname Jo", 24, 40, 5, &sheet).unwrap();
+        let enemy = write_as(Kind::Enemy, "[bat]", "", 24, 40, 5, &sheet).unwrap();
+        let player = write_as(Kind::Player, "[jo]\nname Jo", "", 24, 40, 5, &sheet).unwrap();
         assert_eq!(identify("x.png", &enemy), Ok((CardKind::Enemy, "bat".into())));
         assert_eq!(identify("download.png", &player), Ok((CardKind::Player, "jo".into())));
         assert!(identify("jo.enemy.png", &player).is_err(), "a name's ending is believed");

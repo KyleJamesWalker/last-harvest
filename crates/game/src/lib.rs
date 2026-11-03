@@ -22,6 +22,7 @@ mod sfx;
 mod system;
 pub mod touch;
 pub mod tuning;
+pub mod worn;
 
 pub use difficulty::Difficulty;
 pub use draw::{Align, Canvas, Color, Frame, Shape};

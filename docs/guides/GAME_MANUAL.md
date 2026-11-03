@@ -50,7 +50,7 @@ Settings > Screens set to One plays a run on the top screen alone; the bottom sc
 | Cancel the throw | B | Z |
 | Show the whole map, paused | Hold R2 | Hold 2 |
 
-Grenades show only on the map. With none ready, L2 shows the map at full speed and clicks. While you aim, you keep walking the way you were going, and after 3 seconds the grenade throws itself. The cursor starts where your last throw went, relative to your view, if that was under 5 seconds ago, else straight ahead.
+Your grenade count shows only on the map; a grenade on your belt means one is ready. With none ready, L2 shows the map at full speed and clicks. While you aim, you keep walking the way you were going, and after 3 seconds the grenade throws itself. The cursor starts where your last throw went, relative to your view, if that was under 5 seconds ago, else straight ahead.
 
 #### On a phone
 
@@ -85,7 +85,7 @@ A night lasts ten minutes, from dusk to dawn. A bell rings each minute.
 - **Shots and cover.** Shots fly past bushes, fences and signs. Buildings, vehicles and trees stop them.
 - **Money and level-ups.** Kills drop money, and money levels you up. Each level-up shows three cards on either screen, and you pick one. A level-up also pushes nearby zombies back. Some cards are rare and count twice. See [Powerups](#powerups).
 - **Health.** Some kills drop health instead of money. How often depends on the difficulty.
-- **Grenades.** Tap the map to lob a grenade there. You start with one, two on Easy, and each recharges in 12 seconds.
+- **Grenades.** Tap the map to lob a grenade there. You start with one, two on Easy, and each recharges in 12 seconds. While one is ready, you wear it on your belt.
 - **Barrels.** Shooting a red barrel sets it off. Hold X, and your guns go for the barrels in view. A blast close to you hurts you too.
 - **Hordes.** Hordes arrive during the night, each led by a gold-lit leader. The leader drops a chest when it dies.
 - **Dawn and the Harvester.** At dawn, the Harvester wakes behind you. From then on the dead grow 1% stronger every second.
@@ -525,6 +525,8 @@ The palette is PICO-8's 32 colors. The previews show your card on a plain floor,
 
 Hurt and Kill play a hit or the game's death on the figure in the previews.
 
+On a player card's walking parts, **Grenade** (`W`) places where the player wears a ready grenade. The first click sets every frame; later clicks set the frame on show, and Shift-click sets every frame again. **Hide** leaves it off that facing. **Grenade: shown** in the 3D view hides it in the previews only.
+
 ### The Stats page
 
 The Stats page sets what the game reads from the card. Rename and About type the name and the about line.
@@ -600,6 +602,7 @@ The left pane lists every sprite. The pixel canvas, tools, color and frames sit 
 | Search the sprite list | `/`, then type. Enter opens the first match, and Esc clears the filter. |
 | Mirror strokes left to right | M |
 | See the previous frame faintly | O, or Onion |
+| Place a player's ready grenade | W, or Grenade, on a player's walking part, then click. Shift-click sets every frame. |
 | Compare a sprite with its family side by side | C, or Compare |
 | Draw flash, hurt or dead frames from the walk | Generate, on a `_FLASH`, `_HURT` or `_DEAD` sprite |
 | Select, then move by dragging inside | S, then drag. The arrows nudge 1 pixel, or 8 with Shift. |
