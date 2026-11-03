@@ -164,12 +164,16 @@ Choose Photo mode from the pause menu to frame a shot of the run, horde and all.
 | Turn the camera around you | Left / Right, or the stick | Left / Right arrows |
 | Zoom | Up / Down | Up / Down arrows |
 | Raise or lower the camera | Hold L1 with Up / Down | Hold 1 with Up / Down |
-| Choose a setting: Time, Fog or Lantern | L2 | Q |
-| Change it | R2 | 2 |
+| Choose a setting: Time, Fog, Lantern or Pose | L2 | Q |
+| Change it; on Pose, pick the next zombie | R2 | 2 |
+| On Pose, turn the picked zombie | Left / Right, or the stick | Left / Right arrows |
+| On Pose, step its walk a frame | Up / Down | Up / Down arrows |
 | Take a photo | R1, or tap | W |
 | Back to the pause menu | B or Start | Z, Enter or Esc |
 
 The settings change only the picture, never the run, and go back to the run's own when you leave. Time steps through Midnight, Small hours, First light, Daybreak and Dawn, then back to Now. Fog goes from Clear through Thin, Usual and Thick to Pea soup. Lantern goes from Out through Dim, Usual and Bright to Blazing. The help shows each value and puts the chosen setting in brackets.
+
+Pose lets you set up the zombies in the shot. R2 picks the zombie in the picture nearest where the camera looks, and each press after picks the next of the eight nearest, then back round to the first. A marker points at the one picked. Left and Right then turn it instead of the camera, and Up and Down step its walk a frame forward or back; the turn strip on a phone still turns the camera, and L1 with Up / Down still raises it. A posed zombie shows its walk, not its hurt frame, and goes back to how the run left it when you leave.
 
 A photo leaves out the HUD, the guides and the help. It saves the top screen as `screenshots/photo-NNNN.png` beside the save, and its middle square, the one the guide outlines, as `photo-NNNN-square.png`. On a phone the touch stick and turn strip move the camera, the Grenade key chooses a setting and the Map key changes it, and a tap on the picture takes the photo. Where the game can't save a file, in a browser, on Android and on muOS, R1 or a tap hides the guides instead, so your device's own screenshot comes out clean.
 

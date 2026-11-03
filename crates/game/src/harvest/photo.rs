@@ -1,6 +1,7 @@
 //! Photo mode: the paused run held still, horde and all, while the camera turns, zooms and rises round the player.
 
-use super::{Flow, Harvest, PAUSE_PHOTO, SCALE, view3d};
+use super::map::TILE;
+use super::{Facing, Flow, Harvest, PAUSE_PHOTO, SCALE, Zombie, len, norm, sub, view3d};
 use crate::icon::Orbit;
 use crate::scene3d::CardScene;
 use crate::{Align, Buttons, Canvas, Color, Frame, Input, SCREEN_H, SCREEN_W, Sfx};
@@ -17,16 +18,24 @@ const USUAL_FOG: usize = 2;
 const LANTERNS: [(&str, f32); 5] = [("Out", 0.0), ("Dim", 0.5), ("Usual", 1.0), ("Bright", 1.6), ("Blazing", 2.5)];
 const USUAL_LANTERN: usize = 2;
 
+/// How far ahead of the player the camera looks, in map pixels, and the zombies R2 picks from round there.
+const FOCUS: f32 = 4.0 * TILE;
+const PICKS: usize = 8;
+const PICK_REACH: f32 = 16.0 * TILE;
+/// Radians a second Left or Right turns a posed zombie.
+const POSE_TURN: f32 = 3.0;
+
 /// The photo mode setting R2 changes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Setting {
     Time,
     Fog,
     Lantern,
+    Pose,
 }
 
 impl Setting {
-    const ALL: [Self; 3] = [Self::Time, Self::Fog, Self::Lantern];
+    const ALL: [Self; 4] = [Self::Time, Self::Fog, Self::Lantern, Self::Pose];
 
     fn next(self) -> Self {
         Self::ALL[(Self::ALL.iter().position(|&s| s == self).unwrap_or(0) + 1) % Self::ALL.len()]
@@ -42,11 +51,17 @@ pub(super) struct Photo {
     time: Option<usize>,
     fog: usize,
     lantern: usize,
+    /// The zombie being posed, by its place in the frozen horde.
+    picked: Option<usize>,
+    /// Each posed zombie as the run left it, put back on leaving.
+    posed: Vec<(usize, Zombie)>,
+    /// Up (-1) or Down (1) held last frame, so a held push steps one frame.
+    pushed: i8,
 }
 
 impl Photo {
     fn new(heading: f32) -> Self {
-        Self { heading, guides: true, setting: Setting::Time, time: None, fog: USUAL_FOG, lantern: USUAL_LANTERN }
+        Self { heading, guides: true, setting: Setting::Time, time: None, fog: USUAL_FOG, lantern: USUAL_LANTERN, picked: None, posed: Vec::new(), pushed: 0 }
     }
 
     /// Steps the chosen setting to its next value, after the last back round to the first.
@@ -61,6 +76,7 @@ impl Photo {
             }
             Setting::Fog => self.fog = (self.fog + 1) % FOGS.len(),
             Setting::Lantern => self.lantern = (self.lantern + 1) % LANTERNS.len(),
+            Setting::Pose => {}
         }
     }
 
@@ -78,10 +94,10 @@ impl Photo {
         scene.light_range = (scene.light_range * LANTERNS[self.lantern].1).max(0.01);
     }
 
-    /// Each setting and its value, the chosen one in brackets.
-    fn settings_line(&self) -> String {
+    /// Each setting and its value, the chosen one in brackets; `posing` names the picked zombie.
+    fn settings_line(&self, posing: &str) -> String {
         let time = self.time.map_or("Now", |i| TIMES[i].0);
-        let rows = [(Setting::Time, "Time", time), (Setting::Fog, "Fog", FOGS[self.fog].0), (Setting::Lantern, "Lantern", LANTERNS[self.lantern].0)];
+        let rows = [(Setting::Time, "Time", time), (Setting::Fog, "Fog", FOGS[self.fog].0), (Setting::Lantern, "Lantern", LANTERNS[self.lantern].0), (Setting::Pose, "Pose", posing)];
         let rows: Vec<String> = rows.iter().map(|&(s, name, value)| if s == self.setting { format!("[{name}: {value}]") } else { format!("{name}: {value}") }).collect();
         rows.join("  ")
     }
@@ -111,11 +127,14 @@ impl Harvest {
 
     /// Left and Right turn round the player, Up and Down zoom, and with L1 held raise or lower the camera; L2 chooses
     /// a setting and R2 changes it; R1 or a tap asks for a capture, and B or Start goes back to the pause menu.
-    /// Nothing else moves.
+    /// Posing, R2 picks a zombie, and Left and Right turn it and Up and Down step its frame. Nothing else moves.
     pub(super) fn photo(&mut self, input: &Input, dt: f32, sounds: &mut Vec<Sfx>, flow: &mut Flow) {
         let Some(p) = &mut self.photo else { return };
         if input.pressed.any(Buttons::B | Buttons::START) {
             (self.view_yaw, self.zoom, self.lift) = (p.heading, 1.0, 0.0);
+            for (i, z) in std::mem::take(&mut p.posed) {
+                self.zombies[i] = z;
+            }
             self.photo = None;
             self.menu = Some(PAUSE_PHOTO);
             sounds.push(Sfx::Tick(0));
@@ -125,14 +144,76 @@ impl Harvest {
             p.setting = p.setting.next();
             sounds.push(Sfx::Tick(3));
         }
+        let posing = p.setting == Setting::Pose;
         if input.pressed.contains(Buttons::R2) {
-            p.change();
+            if posing {
+                let next = self.next_zombie();
+                if let Some(p) = &mut self.photo {
+                    p.picked = next;
+                }
+            } else {
+                p.change();
+            }
             sounds.push(Sfx::Tick(6));
         }
+        let lifting = input.held.contains(Buttons::L1);
+        let mut steer = *input;
+        if let Some(i) = self.photo.as_ref().and_then(|p| p.picked).filter(|_| posing && !lifting) {
+            let [x, y] = input.dir();
+            self.pose(i, x * POSE_TURN * dt, y);
+            // The turn strip still turns the camera.
+            (steer.held, steer.stick) = (Buttons::NONE, [0.0; 2]);
+        }
         let mut cam = Orbit { yaw: self.view_yaw, zoom: self.zoom, lift: self.lift };
-        cam.steer(input, dt, input.held.contains(Buttons::L1), MIN_ZOOM);
+        cam.steer(&steer, dt, lifting, MIN_ZOOM);
         (self.view_yaw, self.zoom, self.lift) = (cam.yaw, cam.zoom, cam.lift);
         flow.capture = input.pressed.contains(Buttons::R1) || input.touch_started;
+    }
+
+    /// The few zombies in the picture nearest where the camera looks, nearest first.
+    fn pickable(&self) -> Vec<usize> {
+        let focus = [self.pos[0] + self.view_yaw.cos() * FOCUS, self.pos[1] + self.view_yaw.sin() * FOCUS];
+        let view_proj = view3d::scene(self).view_proj;
+        let shown = |z: &Zombie| view3d::to_screen(view_proj, z.pos, 12.0).is_some_and(|([x, y], _)| (0.0..SCREEN_W).contains(&x) && (0.0..SCREEN_H).contains(&y));
+        let mut near: Vec<usize> = (0..self.zombies.len()).filter(|&i| len(sub(self.zombies[i].pos, self.pos)) < PICK_REACH && shown(&self.zombies[i])).collect();
+        near.sort_by(|&a, &b| len(sub(self.zombies[a].pos, focus)).total_cmp(&len(sub(self.zombies[b].pos, focus))));
+        near.truncate(PICKS);
+        near
+    }
+
+    /// The zombie after the picked one among those pickable, round to the first.
+    fn next_zombie(&self) -> Option<usize> {
+        let near = self.pickable();
+        let picked = self.photo.as_ref()?.picked;
+        let at = picked.and_then(|i| near.iter().position(|&j| j == i));
+        near.get(at.map_or(0, |k| (k + 1) % near.len())).copied()
+    }
+
+    /// Turns zombie `i` by `turn` radians and steps its walk a frame on a fresh push of `y` up or down, first
+    /// keeping it as the run left it. It shows its walk, not a hurt frame, while posed.
+    fn pose(&mut self, i: usize, turn: f32, y: f32) {
+        let (Some(p), Some(z)) = (self.photo.as_mut(), self.zombies.get_mut(i)) else { return };
+        if !p.posed.iter().any(|q| q.0 == i) {
+            p.posed.push((i, z.clone()));
+        }
+        (z.flash, z.hurt, z.stagger) = (0.0, 0.0, 0.0);
+        let d = if len(z.dir) > 1e-4 { norm(z.dir) } else { [0.0, 1.0] };
+        let (s, c) = turn.sin_cos();
+        z.dir = [d[0] * c - d[1] * s, d[0] * s + d[1] * c];
+        let push = if y < -0.5 { -1 } else { (y > 0.5) as i8 };
+        if push != 0 && push != p.pushed {
+            let frames = z.kind.stats().look.walk[Facing::Front.index()].len().max(1);
+            let rate = (crate::tuning::tuning().walk_fps * z.kind.stats().speed / 20.0).max(1e-3);
+            let step = (z.step() + frames + if push < 0 { 1 } else { frames - 1 }) % frames;
+            z.anim = (step as f32 + 0.5) / rate;
+        }
+        p.pushed = push;
+    }
+
+    /// The picked zombie's name, or "none".
+    fn posing(&self) -> &str {
+        let picked = self.photo.as_ref().and_then(|p| p.picked);
+        picked.and_then(|i| self.zombies.get(i)).map_or("none", |z| z.kind.stats().name.as_str())
     }
 
     /// The frozen 3D view with no HUD on top, and the map below; the guides show unless `clean`.
@@ -143,6 +224,7 @@ impl Harvest {
             p.light(&mut scene);
         }
         f.top.clear = [scene.fog[0], scene.fog[1], scene.fog[2], 1.0];
+        let view_proj = scene.view_proj;
         f.top.cards = Some(scene);
         let c = &mut f.bottom;
         c.clear = [0.0, 0.0, 0.0, 1.0];
@@ -153,13 +235,23 @@ impl Harvest {
         // The middle square, as the capture's square crop takes it.
         let x = (SCREEN_W - SCREEN_H) / 2.0;
         outline(&mut f.top, x, 0.0, SCREEN_H, GUIDE);
+        let picked = p.picked.filter(|_| p.setting == Setting::Pose).and_then(|i| self.zombies.get(i));
+        if let Some(z) = picked {
+            let tall = z.art(Facing::Front).h() * if z.boss { 2.0 } else { 1.0 };
+            if let Some(([sx, sy], _)) = view3d::to_screen(view_proj, z.pos, tall + 6.0) {
+                // A marker pointing down at the posed zombie's head.
+                for (i, w) in [18.0, 12.0, 6.0].into_iter().enumerate() {
+                    f.top.rect(sx - w / 2.0, sy - 18.0 + i as f32 * 6.0, w, 6.0, GUIDE);
+                }
+            }
+        }
         let shoot = if self.saves_photos { "R1 or tap: take a photo" } else { "R1 or tap: hide these guides" };
-        let lines = [
-            "PHOTO MODE".to_string(),
-            "Left / Right: turn   Up / Down: zoom   L1 + Up / Down: height".into(),
-            format!("L2: choose  R2: change   {}", p.settings_line()),
-            format!("{shoot}   B or Start: back"),
-        ];
+        let keys = match (p.setting, picked) {
+            (Setting::Pose, Some(_)) => "Left / Right: turn it   Up / Down: step its frame   R2: next zombie",
+            (Setting::Pose, None) => "R2: pick the zombie nearest the middle   Left / Right: turn   Up / Down: zoom",
+            _ => "Left / Right: turn   Up / Down: zoom   L1 + Up / Down: height",
+        };
+        let lines = ["PHOTO MODE".to_string(), keys.into(), p.settings_line(self.posing()), format!("L2: choose  R2: change   {shoot}   B or Start: back")];
         // On one screen the help goes over the picture, where the guides already are.
         let (c, y) = if self.single { (&mut f.top, SCREEN_H - 152.0) } else { (&mut f.bottom, 40.0) };
         c.rect(0.0, y - 10.0, SCREEN_W, 144.0, [0.0, 0.0, 0.0, 0.55]);
@@ -271,6 +363,8 @@ mod tests {
         press(&mut h, Buttons::R2);
         assert_eq!(p(&h), (Setting::Lantern, None, USUAL_FOG + 1, USUAL_LANTERN + 1));
         press(&mut h, Buttons::L2);
+        assert_eq!(p(&h).0, Setting::Pose);
+        press(&mut h, Buttons::L2);
         assert_eq!(p(&h).0, Setting::Time, "and L2 comes back round to the time");
     }
 
@@ -302,10 +396,92 @@ mod tests {
     fn the_help_lists_the_settings_with_the_chosen_one_marked() {
         let mut h = photo_mode(9);
         press(&mut h, Buttons::L2);
+        let text = help(&h);
+        assert!(text.contains("L2: choose") && text.contains("[Fog: Usual]") && text.contains("Time: Now") && text.contains("Pose: none"), "{text}");
+    }
+
+    fn help(h: &Harvest) -> String {
         let mut f = Frame::default();
         h.photo_frame(&mut f, false);
-        let text: Vec<String> = f.bottom.shapes.iter().chain(&f.top.shapes).filter_map(|s| if let crate::Shape::Text { text, .. } = s { Some(text.clone()) } else { None }).collect();
-        assert!(text.iter().any(|t| t.contains("L2: choose") && t.contains("[Fog: Usual]") && t.contains("Time: Now")), "{text:?}");
+        let text = f.bottom.shapes.iter().chain(&f.top.shapes).filter_map(|s| if let crate::Shape::Text { text, .. } = s { Some(text.clone()) } else { None });
+        text.collect::<Vec<_>>().join("\n")
+    }
+
+    fn hold(h: &mut Harvest, held: Buttons, frames: usize) {
+        for _ in 0..frames {
+            h.update(&Input { held, ..Default::default() }, DT, &mut Vec::new());
+        }
+    }
+
+    /// Photo mode on the Pose setting with the zombie nearest the camera's focus picked.
+    fn posing(seed: u64) -> Harvest {
+        let mut h = photo_mode(seed);
+        let nearest = h.zombies.iter().map(|z| sub(z.pos, h.pos)).min_by(|a, b| len(*a).total_cmp(&len(*b))).unwrap();
+        h.view_yaw = nearest[1].atan2(nearest[0]);
+        for _ in 0..3 {
+            press(&mut h, Buttons::L2);
+        }
+        assert_eq!(h.photo.as_ref().unwrap().setting, Setting::Pose);
+        assert!(help(&h).contains("R2: pick"));
+        press(&mut h, Buttons::R2);
+        assert!(h.photo.as_ref().unwrap().picked.is_some(), "a zombie is near enough to pick");
+        h
+    }
+
+    #[test]
+    fn r2_picks_the_zombies_nearest_the_cameras_focus_in_turn() {
+        let mut h = posing(10);
+        let first = h.photo.as_ref().unwrap().picked.unwrap();
+        let near = h.pickable();
+        assert_eq!(near[0], first, "the first is the nearest the focus");
+        let scene = view3d::scene(&h);
+        let ahead = |i: usize| view3d::to_screen(scene.view_proj, h.zombies[i].pos, 12.0).is_some();
+        assert!(near.iter().all(|&i| ahead(i)), "and every pick is in front of the camera");
+        let mut seen = vec![first];
+        for _ in 1..near.len() {
+            press(&mut h, Buttons::R2);
+            seen.push(h.photo.as_ref().unwrap().picked.unwrap());
+        }
+        let mut unique = seen.clone();
+        unique.sort();
+        unique.dedup();
+        assert_eq!(unique.len(), seen.len(), "each press picks another: {seen:?}");
+        press(&mut h, Buttons::R2);
+        assert_eq!(h.photo.as_ref().unwrap().picked, Some(first), "and then round to the first");
+        assert!(help(&h).contains(&format!("[Pose: {}]", h.zombies[first].kind.stats().name)));
+    }
+
+    #[test]
+    fn a_posed_zombie_turns_and_steps_its_frame_and_the_run_gets_it_back() {
+        let mut h = posing(11);
+        let i = h.photo.as_ref().unwrap().picked.unwrap();
+        let before: Vec<([f32; 2], f32)> = h.zombies.iter().map(|z| (z.dir, z.anim)).collect();
+        let yaw = h.view_yaw;
+        hold(&mut h, Buttons::RIGHT, 20);
+        assert_eq!(h.view_yaw, yaw, "Left and Right turn the zombie, not the camera");
+        assert!(len(sub(norm(h.zombies[i].dir), norm(before[i].0))) > 0.5, "the zombie turned");
+        let step = h.zombies[i].step();
+        hold(&mut h, Buttons::UP, 10);
+        let frames = h.zombies[i].kind.stats().look.walk[Facing::Front.index()].len();
+        assert_eq!(h.zombies[i].step() % frames, (step + 1) % frames, "a held Up steps one frame");
+        hold(&mut h, Buttons::NONE, 1);
+        hold(&mut h, Buttons::DOWN, 1);
+        hold(&mut h, Buttons::NONE, 1);
+        hold(&mut h, Buttons::DOWN, 1);
+        assert_eq!(h.zombies[i].step() % frames, (step + frames - 1) % frames, "and each Down one back");
+        let mut f = Frame::default();
+        h.photo_frame(&mut f, true);
+        assert!(f.top.shapes.is_empty(), "the capture has no marker");
+        press(&mut h, Buttons::B);
+        let after: Vec<([f32; 2], f32)> = h.zombies.iter().map(|z| (z.dir, z.anim)).collect();
+        assert_eq!(after, before, "leaving gives the run its horde back as it was");
+    }
+
+    #[test]
+    fn l1_still_raises_the_camera_while_posing() {
+        let mut h = posing(12);
+        hold(&mut h, Buttons::L1 | Buttons::UP, 20);
+        assert!(h.lift > 0.0);
     }
 
     #[test]

@@ -264,6 +264,7 @@ pub fn kill_sounds() -> impl Iterator<Item = &'static str> {
     roster().enemies.iter().map(|e| e.sound.as_str())
 }
 
+#[derive(Clone)]
 struct Zombie {
     kind: Kind,
     pos: [f32; 2],
