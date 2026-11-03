@@ -167,6 +167,16 @@ pub struct Game {
     captures: bool,
 }
 
+/// Where the title's menu sits on the top screen when one screen shows both, and its scale.
+const TITLE_MENU: ([f32; 2], f32) = ([(SCREEN_W - SCREEN_W * 0.55) / 2.0, 330.0], 0.55);
+
+/// A touch on the top screen as one on the title's menu placed over it, if it lands there.
+fn title_menu_touch([x, y]: [f32; 2]) -> Option<[f32; 2]> {
+    let ([ax, ay], k) = TITLE_MENU;
+    let p = [(x - ax) / k, (y - ay) / k];
+    ((0.0..SCREEN_W).contains(&p[0]) && (0.0..SCREEN_H).contains(&p[1])).then_some(p)
+}
+
 impl Game {
     pub fn new(seed: u64) -> Self {
         Self {
@@ -386,9 +396,10 @@ impl Game {
         let pad = self.touchpad.update(&input.touches, &layout, other);
         let stick = [0, 1].map(|i| (input.stick[i] + pad.stick[i]).clamp(-1.0, 1.0));
         let look = (input.look + pad.look).clamp(-1.0, 1.0);
+        let touch = if self.title_on_one() { pad.touch.and_then(title_menu_touch) } else { pad.touch };
         let mut touches = [None; MAX_TOUCHES];
-        touches[0] = pad.touch;
-        Input { held: input.held | pad.held, pressed: input.pressed | pad.pressed, stick, look, touch: pad.touch, touches, touch_started: pad.touch_started, ..*input }
+        touches[0] = touch;
+        Input { held: input.held | pad.held, pressed: input.pressed | pad.pressed, stick, look, touch, touches, touch_started: pad.touch_started && touch.is_some(), ..*input }
     }
 
     /// Whether the vibration motor should be running this frame.
@@ -579,8 +590,7 @@ impl Game {
         }
         if self.title_on_one() {
             let menu = std::mem::take(&mut f.bottom);
-            let (k, top) = (0.55, 330.0);
-            let at = [(SCREEN_W - SCREEN_W * k) / 2.0, top];
+            let (at, k) = TITLE_MENU;
             f.top.rect(at[0], at[1], SCREEN_W * k, SCREEN_H * k, [0.08, 0.08, 0.1, 0.45]);
             f.top.place(&menu, at, k);
         }
@@ -817,6 +827,31 @@ mod tests {
         game.page = Page::Settings;
         game.open_settings(true);
         assert!(!game.settings_list().contains(&menu::Setting::Touch), "nor the row");
+    }
+
+    fn finger(game: &mut Game, at: [f32; 2]) {
+        let mut touches = [None; MAX_TOUCHES];
+        touches[0] = Some(at);
+        game.update(&Input { touches, ..Default::default() }, 0.016);
+        game.update(&Input::default(), 0.016);
+    }
+
+    #[test]
+    fn a_tap_on_the_title_menu_over_the_picture_lands_where_it_is_drawn() {
+        let size = [720.0, 480.0];
+        let mut game = Game::new(1);
+        game.set_phone(Some(size));
+        press(&mut game, Buttons::DOWN);
+        press(&mut game, Buttons::UP);
+        game.load(Save { touch: TouchControls::Off, ..Save::default() });
+        assert!(game.title_on_one());
+        let ([ax, ay], k) = TITLE_MENU;
+        let settings = [SCREEN_W / 2.0, 316.0 + 70.0 + 27.0];
+        let on_top = [ax + settings[0] * k, ay + settings[1] * k];
+        let [px, py, pw, ph] = game.phone_layout(size).top.unwrap();
+        finger(&mut game, [px + on_top[0] / SCREEN_W * pw, py + on_top[1] / SCREEN_H * ph]);
+        assert_eq!(game.page, Page::Settings);
+        assert_eq!(title_menu_touch([ax - 1.0, ay]), None, "a tap beside the menu misses it");
     }
 
     #[test]
