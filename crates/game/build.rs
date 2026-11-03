@@ -298,6 +298,8 @@ struct Listed {
     tops: Vec<(String, Vec<usize>)>,
     /// Each frame with its copy for the 3D view, where the editor clears colors in 3D.
     solids: Vec<(usize, usize)>,
+    /// Each frame with where it wears a ready grenade, from its folder's `grenade.txt`, as one frame's spec.
+    worn: Vec<(usize, String)>,
 }
 
 /// Lists a sprite's frames, each once per coat of its paint, with how each coat stands, its top strip and its
@@ -328,6 +330,12 @@ fn list(out: &mut Listed, drawn: &[Image], how: &str, dir: &Path, line: usize, c
                 px.fill(0);
             }
             out.solids.push((id, intern(coat(i / drawn.len())(copy))));
+        }
+    }
+    if let Ok(text) = std::fs::read_to_string(dir.join("grenade.txt")) {
+        let specs: Vec<&str> = text.trim().split(';').map(str::trim).collect();
+        for (i, &id) in ids.iter().enumerate() {
+            out.worn.push((id, specs[(i % drawn.len()).min(specs.len() - 1)].to_string()));
         }
     }
     out.entries.push((name.to_string(), ids));
@@ -466,6 +474,11 @@ fn main() {
         solid_of[id] = format!("Some(Art({solid}))");
     }
     writeln!(src, "pub(crate) static SOLIDS: [Option<Art>; {}] = [{}];", solid_of.len(), solid_of.join(", ")).unwrap();
+    let mut worn_of = vec!["None".to_string(); images.len()];
+    for (id, spec) in &listed.worn {
+        worn_of[*id] = format!("Some({spec:?})");
+    }
+    writeln!(src, "pub(crate) static WORN: [Option<&str>; {}] = [{}];", worn_of.len(), worn_of.join(", ")).unwrap();
     writeln!(src, "/// Every catalog entry with its frames, for the art gallery.\npub static ALL: &[(&str, &[Art])] = &[{}];", names.join(", ")).unwrap();
     std::fs::write(out.join("art_gen.rs"), src).unwrap();
 }

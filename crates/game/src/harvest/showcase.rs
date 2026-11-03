@@ -20,6 +20,8 @@ pub(super) struct Shown {
     pub player: bool,
     /// More figures left standing about, each walking in place where it was dropped.
     pub crowd: Vec<(Vec<Art>, [f32; 2])>,
+    /// Whether it wears a ready grenade, as a player's walking frames do.
+    pub worn: bool,
 }
 
 impl Shown {
@@ -58,7 +60,7 @@ impl Showcase {
         let mut harvest = Harvest::calm(seed);
         harvest.birds.clear();
         let pos = [harvest.map.spawn[0], harvest.map.spawn[1] - 3.0 * TILE];
-        harvest.shown = Some(Shown { frames: Vec::new(), stand: Stand::Figure, fps: 6.0, pos, top: None, player: true, crowd: Vec::new() });
+        harvest.shown = Some(Shown { frames: Vec::new(), stand: Stand::Figure, fps: 6.0, pos, top: None, player: true, crowd: Vec::new(), worn: false });
         Self { seed, harvest, strike: None, lying: None }
     }
 
@@ -97,6 +99,13 @@ impl Showcase {
             s.stand = stand;
             s.fps = fps;
             s.top = top;
+        }
+    }
+
+    /// Shows where the sprite on show wears a ready grenade, for a player's walking frames.
+    pub fn wear_grenade(&mut self, on: bool) {
+        if let Some(s) = &mut self.harvest.shown {
+            s.worn = on;
         }
     }
 
@@ -330,6 +339,20 @@ mod tests {
         s.show(frames.clone(), Stand::Figure, 6.0, None);
         assert!(s.harvest.juice.corpses.is_empty());
         assert_eq!(s.harvest.shown.as_ref().unwrap().frames, frames);
+    }
+
+    #[test]
+    fn a_players_facing_shows_its_grenade_in_both_views() {
+        let mut s = Showcase::new(7);
+        s.show_player(false);
+        // A sprite with no place of its own wears it where the game picks.
+        s.show(vec![art::SKINNY_FRONT[0]], Stand::Figure, 6.0, None);
+        s.update(0.01, Showcase::yaw(), 48.0);
+        let drawn = |s: &Showcase| (s.top().cards.unwrap().cards.len(), s.map(1.0).shapes.len());
+        let bare = drawn(&s);
+        s.wear_grenade(true);
+        let (cards, shapes) = drawn(&s);
+        assert!(cards > bare.0 && shapes == bare.1 + 1, "{bare:?} then {:?}", (cards, shapes));
     }
 
     #[test]

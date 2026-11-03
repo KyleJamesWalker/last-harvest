@@ -15,6 +15,8 @@ const NEAREST: f32 = -12.0;
 const FARTHEST: f32 = 200.0;
 /// The 2.5D view's switch for the player, as x, y, w, h in the pane.
 const PLAYER_SWITCH: [f32; 4] = [SCREEN_W - 300.0, 8.0, 290.0, 48.0];
+/// The switch under it for a player facing's ready grenade, shown only for a sprite that wears one.
+const GRENADE_SWITCH: [f32; 4] = [SCREEN_W - 300.0, 64.0, 290.0, 48.0];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Pane {
@@ -39,6 +41,8 @@ pub struct Studio {
     pub hints: [&'static str; 2],
     /// Whether the player stands in the previews.
     player: bool,
+    /// Whether the previews show the ready grenade on a sprite that wears one.
+    grenade: bool,
     /// Whether the previews show a hand-made map rather than the quiet farm.
     on_map: bool,
 }
@@ -56,6 +60,7 @@ impl Studio {
             held: None,
             hints: ["drag to turn, scroll to move closer", "scroll to zoom"],
             player: true,
+            grenade: true,
             on_map: false,
         }
     }
@@ -120,6 +125,9 @@ impl Studio {
         }
         self.showcase.lie(self.editor.lying_figure());
         self.showcase.show(self.editor.shown(), self.editor.stand(), self.editor.fps, self.editor.top_art());
+        let (worn, wears) = self.editor.live_worn();
+        last_harvest_game::art::set_live_worn(worn);
+        self.showcase.wear_grenade(wears && self.grenade);
         self.showcase.show_player(self.player && !self.on_map);
         self.showcase.update(dt, self.yaw, self.distance);
         packed.then_some(&self.atlas[..])
@@ -176,6 +184,12 @@ impl Studio {
         view.rect(x, y, w, h, [0.0, 0.0, 0.0, 0.5]);
         let label = if self.player { "Player: shown" } else { "Player: hidden" };
         view.label(label, x + w / 2.0, y + 8.0, 28.0, [1.0, 1.0, 1.0, 0.9], Align::Center);
+        if self.editor.live_worn().1 {
+            let [x, y, w, h] = GRENADE_SWITCH;
+            view.rect(x, y, w, h, [0.0, 0.0, 0.0, 0.5]);
+            let label = if self.grenade { "Grenade: shown" } else { "Grenade: hidden" };
+            view.label(label, x + w / 2.0, y + 8.0, 28.0, [1.0, 1.0, 1.0, 0.9], Align::Center);
+        }
         let mut map = self.showcase.map(self.zoom);
         map.label(format!("Map at {}x the game's scale: {}", self.zoom, self.hints[1]), 16.0, 12.0, 30.0, [1.0, 1.0, 1.0, 0.85], Align::Left);
         [edit, view, map]
@@ -185,6 +199,11 @@ impl Studio {
         let [x, y, w, h] = PLAYER_SWITCH;
         if pane == Pane::View && (x..x + w).contains(&p[0]) && (y..y + h).contains(&p[1]) {
             self.player = !self.player;
+            return;
+        }
+        let [x, y, w, h] = GRENADE_SWITCH;
+        if pane == Pane::View && self.editor.live_worn().1 && (x..x + w).contains(&p[0]) && (y..y + h).contains(&p[1]) {
+            self.grenade = !self.grenade;
             return;
         }
         self.held = Some(pane);
@@ -250,6 +269,20 @@ mod tests {
         }
         assert_eq!(s.distance, NEAREST);
         assert!(s.distance < 0.0, "past where the player would stand");
+    }
+
+    #[test]
+    fn a_player_facing_switches_its_grenade_in_the_previews_and_a_barrel_has_no_switch() {
+        let dir = std::env::temp_dir().join(format!("studio-grenade-{}", std::process::id()));
+        let store = || Box::new(FsStore { dir: dir.clone(), catalog: dir.join("art.txt"), cards: dir.join("enemies") });
+        let [x, y, w, h] = GRENADE_SWITCH;
+        let tap = [x + w / 2.0, y + h / 2.0];
+        let mut s = Studio::new(store(), "BARREL");
+        s.press(Pane::View, tap, false, false);
+        assert!(s.grenade && s.held == Some(Pane::View), "no switch there, so a drag starts");
+        let mut s = Studio::new(store(), "PLAYER_SIDE");
+        s.press(Pane::View, tap, false, false);
+        assert!(!s.grenade && s.held.is_none());
     }
 
     #[test]

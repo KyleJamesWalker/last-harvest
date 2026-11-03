@@ -1,6 +1,7 @@
 //! The editing pane: sprite list, pixel canvas, tools, palette and frames, laid out on a 1024x768 canvas.
 
-use last_harvest_game::art::Art;
+use last_harvest_game::art::{self, Art};
+use last_harvest_game::worn::{self, Worn};
 use last_harvest_game::{Align, Canvas, Color, Stand};
 
 use crate::history::Commit;
@@ -58,6 +59,8 @@ const CARVE_EXTRAS: [usize; 4] = [FOOTPRINT, ROOF, NORTH, WEST];
 const OPTIONAL: [usize; 5] = [FOOTPRINT, TOP, ROOF, NORTH, WEST];
 /// How a sprite stands, by its button: prop, slab, figure, ground, carve, turned.
 const FIGURE: u8 = 2;
+/// The row of the side pane that places a player's grenade, free beside a figure's stands or a card's Hurt and Kill.
+const GRENADE_Y: f32 = 640.0;
 const DIALOG: Rect = Rect { x: 212.0, y: 250.0, w: 600.0, h: 230.0 };
 /// The unsaved-changes dialog's choices: save then switch, discard then switch, or stay.
 const CHOICES: [(&str, Choice); 3] = [("Save and switch  S", Choice::Save), ("Discard  D", Choice::Discard), ("Stay  Esc", Choice::Stay)];
@@ -99,6 +102,8 @@ pub enum Tool {
     Line,
     Rect,
     Ellipse,
+    /// Places where a player's frame wears its ready grenade.
+    Grenade,
 }
 
 impl Tool {
@@ -288,6 +293,8 @@ enum Action {
     Shade(usize, usize),
     DropCoat(usize),
     AddCoat,
+    /// Hides the ready grenade on the open player facing, or lets the game place it again.
+    HideGrenade,
 }
 
 /// What each of a card's numbers is called on its stats page, and how far a press of - or + moves it.
@@ -376,7 +383,7 @@ const RESTORE: Rect = Rect { x: LIST.x + 8.0, y: LIST.y + LIST.h - 44.0, w: 88.0
 const BACK: Rect = Rect { x: LIST.x + 104.0, y: LIST.y + LIST.h - 44.0, w: 88.0, h: 36.0 };
 
 /// Everything an undo puts back: the frames, the carving views, and the optional pictures in `OPTIONAL` order.
-type Snapshot = (Vec<Frame>, Option<[Frame; 2]>, [Option<Frame>; 5]);
+type Snapshot = (Vec<Frame>, Option<[Frame; 2]>, [Option<Frame>; 5], Vec<Worn>);
 
 /// One of the pictures a sprite may have or not, by its view.
 fn optional(s: &Sprite, view: usize) -> &Option<Frame> {
@@ -400,11 +407,11 @@ fn optional_mut(s: &mut Sprite, view: usize) -> &mut Option<Frame> {
 }
 
 fn snapshot_of(s: &Sprite) -> Snapshot {
-    (s.frames.clone(), s.views.clone(), OPTIONAL.map(|v| optional(s, v).clone()))
+    (s.frames.clone(), s.views.clone(), OPTIONAL.map(|v| optional(s, v).clone()), s.worn.clone())
 }
 
-fn restore(s: &mut Sprite, (frames, views, pictures): Snapshot) {
-    (s.frames, s.views) = (frames, views);
+fn restore(s: &mut Sprite, (frames, views, pictures, worn): Snapshot) {
+    (s.frames, s.views, s.worn) = (frames, views, worn);
     for (v, f) in OPTIONAL.into_iter().zip(pictures) {
         *optional_mut(s, v) = f;
     }
@@ -534,7 +541,7 @@ impl Editor {
     pub fn new(store: Box<dyn Store>, name: &str) -> Self {
         let loaded = store.load(name);
         let broken = loaded.is_none() && store.read(name, "0.png").is_some();
-        let sprite = loaded.unwrap_or(Sprite { name: if broken { String::new() } else { name.into() }, frames: vec![Frame::blank(16, 16)], views: None, footprint: None, roof: None, north: None, west: None, top: None, card: None, clear_in_3d: Vec::new(), paint: Default::default() });
+        let sprite = loaded.unwrap_or(Sprite { worn: Vec::new(), name: if broken { String::new() } else { name.into() }, frames: vec![Frame::blank(16, 16)], views: None, footprint: None, roof: None, north: None, west: None, top: None, card: None, clear_in_3d: Vec::new(), paint: Default::default() });
         let names = store.names();
         let mut e = Self {
             store,
@@ -932,6 +939,9 @@ impl Editor {
             }
             self.stats &= self.is_card();
             self.coats_page &= !self.is_card();
+            if self.tool == Tool::Grenade && !self.wears_grenade() {
+                self.tool = Tool::Pencil;
+            }
             self.coat = None;
             self.naming = None;
             self.delete_armed = 0.0;
@@ -1222,6 +1232,10 @@ impl Editor {
             push(SIDE_X + 130.0, 672.0, 46.0, 28.0, Action::Fold(-1), "-", false);
             push(SIDE_X + 182.0, 672.0, 46.0, 28.0, Action::Fold(1), "+", false);
         }
+        if self.wears_grenade() {
+            push(SIDE_X, GRENADE_Y, 114.0, 30.0, Action::Tool(Tool::Grenade), "Grenade W", self.tool_now() == Tool::Grenade);
+            push(SIDE_X + 118.0, GRENADE_Y, 114.0, 30.0, Action::HideGrenade, "Hide", self.sprite.worn == [Worn::Hidden]);
+        }
         push(SIDE_X + 130.0, 704.0, 46.0, 28.0, Action::Fps(-1), "-", false);
         push(SIDE_X + 182.0, 704.0, 46.0, 28.0, Action::Fps(1), "+", false);
         push(SIDE_X, 736.0, 114.0, 28.0, Action::Onion, "Onion O", self.onion);
@@ -1343,6 +1357,12 @@ impl Editor {
         }
         if CANVAS.contains(p) && !self.stats && !self.coats_page && !self.none_open() {
             let (x, y) = self.pixel_at(p);
+            if self.tool_now() == Tool::Grenade {
+                if !right && self.wears_grenade() {
+                    self.place_grenade(x, y, shift);
+                }
+                return;
+            }
             if self.tool_now() == Tool::Select && !right {
                 self.grab = Some(match &self.selection {
                     Some(sel) if sel.contains(x, y) => {
@@ -1749,6 +1769,7 @@ impl Editor {
                 match t {
                     Tool::Line => self.say("Drag to draw a line; hold Shift as you start to keep it straight"),
                     Tool::Rect | Tool::Ellipse => self.say("Drag from corner to corner; hold Shift as you start to fill it"),
+                    Tool::Grenade => self.say("Click where this frame wears a ready grenade; Shift-click for every frame"),
                     _ => {}
                 }
             }
@@ -1777,6 +1798,12 @@ impl Editor {
             }
             Action::Shade(k, j) => self.set_shade(k, j),
             Action::DropCoat(k) => self.drop_coat(k),
+            Action::HideGrenade => {
+                self.remember();
+                self.sprite.worn = if self.sprite.worn == [Worn::Hidden] { Vec::new() } else { vec![Worn::Hidden] };
+                self.dirty = true;
+                self.say(if self.sprite.worn.is_empty() { "The game places the grenade again; Grenade W to place it yourself" } else { "No grenade shows on this facing" });
+            }
             Action::AddCoat => self.add_coat(),
             Action::Stats => {
                 self.stats = !self.stats;
@@ -2262,6 +2289,58 @@ impl Editor {
         }
     }
 
+    /// Whether the open sprite is one of a player's walking facings, which wear a ready grenade.
+    fn player_facing(&self) -> bool {
+        let farmer = ["PLAYER_FRONT", "PLAYER_SIDE", "PLAYER_BACK"].contains(&self.sprite.name.as_str());
+        farmer || (self.is_player_card() && sprite::card_part(&self.sprite.name).is_some_and(|(_, row)| row < 3))
+    }
+
+    /// Whether the grenade can be placed on the canvas now: a player's walking facing, its frames on show.
+    fn wears_grenade(&self) -> bool {
+        self.player_facing() && self.view.is_none() && !self.stats && !self.coats_page
+    }
+
+    /// The live frames with where each wears the grenade, and whether the previews show it.
+    pub fn live_worn(&self) -> (Vec<(Art, Worn)>, bool) {
+        let n = self.sprite.frames.len().min(self.live.len());
+        let worn = (0..n).filter_map(|i| Some((self.live[i], worn::frame(&self.sprite.worn, i)?))).collect();
+        (worn, self.player_facing() && self.map.is_none() && self.data.is_none())
+    }
+
+    /// Where the frame on show wears the grenade, and whether the game picks it; None when the facing hides it.
+    fn grenade_at(&self) -> Option<([u8; 2], bool)> {
+        match worn::frame(&self.sprite.worn, self.frame) {
+            Some(Worn::At(p)) => Some((p, false)),
+            Some(Worn::Hidden) => None,
+            None => {
+                let f = &self.sprite.frames[self.frame];
+                Some((worn::default_at(f.w, f.h, |x, y| f.px[y * f.w + x][3] > 0), true))
+            }
+        }
+    }
+
+    /// Puts the grenade's middle on pixel (x, y) of the frame on show, or of every frame. The first one placed goes on
+    /// every frame, so a look that doesn't bob needs one click.
+    fn place_grenade(&mut self, x: i32, y: i32, every: bool) {
+        let f = self.current();
+        let fits = |v: i32, n: usize| v >= 0 && (v as usize) < n && (v as u32) < last_harvest_game::CARD_MAX_FRAME;
+        if !fits(x, f.w) || !fits(y, f.h) {
+            return;
+        }
+        self.remember();
+        let at = Worn::At([x as u8, y as u8]);
+        if every || !self.sprite.worn.iter().any(|w| matches!(w, Worn::At(_))) {
+            self.sprite.worn = vec![at];
+            self.say(format!("Every frame wears it at {x}, {y}; click a frame of its own to move it there alone"));
+        } else {
+            let mut each: Vec<Worn> = (0..self.sprite.frames.len()).map(|i| worn::frame(&self.sprite.worn, i).unwrap_or(at)).collect();
+            each[self.frame] = at;
+            self.sprite.worn = each;
+            self.say(format!("Frame {} wears it at {x}, {y}", self.frame + 1));
+        }
+        self.dirty = true;
+    }
+
     fn step_frame(&mut self, by: i32) {
         let n = self.sprite.frames.len() as i32;
         self.act(Action::Frame((self.frame as i32 + by).rem_euclid(n) as usize), false);
@@ -2374,11 +2453,11 @@ impl Editor {
                         self.say(format!("{name} already exists"));
                     } else {
                         self.ask = None;
-                        let pictures = if kind == Ask::Copy { self.snapshot() } else { (vec![Frame::blank(16, 16)], None, Default::default()) };
+                        let pictures = if kind == Ask::Copy { self.snapshot() } else { (vec![Frame::blank(16, 16)], None, Default::default(), Vec::new()) };
                         let card = crate::store::props::id(&name).map(|id| last_harvest_game::prop_text(&crate::store::props::blank(&id)));
                         let clear_in_3d = if kind == Ask::Copy { self.sprite.clear_in_3d.clone() } else { Vec::new() };
                         let paint = if kind == Ask::Copy { self.sprite.paint.clone() } else { Default::default() };
-                        self.sprite = Sprite { name: name.clone(), frames: Vec::new(), views: None, footprint: None, roof: None, north: None, west: None, top: None, card, clear_in_3d, paint };
+                        self.sprite = Sprite { worn: Vec::new(), name: name.clone(), frames: Vec::new(), views: None, footprint: None, roof: None, north: None, west: None, top: None, card, clear_in_3d, paint };
                         restore(&mut self.sprite, pictures);
                         self.fit();
                         self.view = None;
@@ -2448,6 +2527,7 @@ impl Editor {
             }
             Key::Char('s') => self.act(Action::Tool(Tool::Select), false),
             Key::Char('m') => self.mirror = !self.mirror,
+            Key::Char('w') if self.wears_grenade() => self.act(Action::Tool(Tool::Grenade), false),
             Key::Char('o') => self.act(Action::Onion, false),
             Key::Char('c') => self.act(Action::Compare, false),
             Key::Char('t') if self.is_card() => self.act(Action::Stats, false),
@@ -2690,6 +2770,14 @@ impl Editor {
             c.label(open, SIDE_X, PROP_OPEN_Y + 6.0, 16.0, TEXT, Align::Left);
             c.label(if f.hp > 0.0 { format!("HP {}", f.hp) } else { "Won't break".into() }, SIDE_X, PROP_HP_Y + 5.0, 18.0, TEXT, Align::Left);
         }
+        if self.wears_grenade() {
+            let said = match self.grenade_at() {
+                None => "Grenade: hidden".to_string(),
+                Some((_, true)) => "Grenade: the game's pick".to_string(),
+                Some(([x, y], false)) => format!("Grenade at {x}, {y}"),
+            };
+            c.label(said, SIDE_X, GRENADE_Y + 36.0, 18.0, TEXT, Align::Left);
+        }
         let f = self.current();
         if !self.none_open() {
             c.label(format!("{} fps", self.fps), SIDE_X, 708.0, 18.0, TEXT, Align::Left);
@@ -2850,6 +2938,22 @@ impl Editor {
         }
         if self.mirror {
             clip(c, o[0] + w / 2.0 - 1.0, o[1], 2.0, h, [0.4, 0.8, 1.0, 0.5]);
+        }
+        if let Some(([ax, ay], picked)) = self.grenade_at().filter(|_| self.wears_grenade() && self.tool_now() == Tool::Grenade) {
+            let g = Frame::from_art(art::GRENADE_WORN);
+            let (gx, gy) = (ax as f32 - (g.w / 2) as f32, ay as f32 - (g.h / 2) as f32);
+            for y in 0..g.h {
+                for x in 0..g.w {
+                    let [r, gr, b, a] = rgba(g.px[y * g.w + x]);
+                    if a > 0.0 {
+                        clip(c, o[0] + (gx + x as f32) * zoom, o[1] + (gy + y as f32) * zoom, zoom, zoom, [r, gr, b, if picked { 0.5 } else { 1.0 }]);
+                    }
+                }
+            }
+            let (px, py) = (o[0] + ax as f32 * zoom, o[1] + ay as f32 * zoom);
+            for (x, y, w, h) in [(px, py, zoom, 2.0), (px, py + zoom - 2.0, zoom, 2.0), (px, py, 2.0, zoom), (px + zoom - 2.0, py, 2.0, zoom)] {
+                clip(c, x, y, w, h, HOT);
+            }
         }
         if self.stand == 0 && self.fold > 0.0 && self.view.is_none() {
             clip(c, o[0], o[1] + self.fold * zoom - 1.0, w, 2.0, [1.0, 0.6, 0.2, 0.8]);
@@ -3396,6 +3500,71 @@ mod tests {
         assert_eq!(f.start, [None, Some(vec!["pistol".into(), "knife".into(), "crows".into()]), None], "Normal adds crows to the game's pistol and knife; Hard went back to the default");
         let e = Editor::new(Box::new(store()), "");
         assert!(e.names.iter().any(|(n, _)| n == "PLAYER_CARD_JO_HURT"));
+    }
+
+    #[test]
+    fn the_farmer_places_its_grenade_on_every_frame_then_one_frame_hides_it_and_undoes() {
+        let dir = tmp().join("grenade");
+        let _ = std::fs::remove_dir_all(&dir);
+        let store = || FsStore { dir: dir.join("sprites"), catalog: dir.join("art.txt"), cards: dir.join("enemies") };
+        let mut e = Editor::new(Box::new(store()), "PLAYER_FRONT");
+        assert_eq!(e.grenade_at().map(|g| g.1), Some(true), "the game picks until one is placed");
+        e.key(Key::Char('w'));
+        assert_eq!(e.tool, Tool::Grenade);
+        buttons_fit(&e);
+        e.draw(&mut Canvas::default());
+        let at = |x, y| Worn::At([x, y]);
+        click_pixel(&mut e, 10, 10);
+        assert_eq!(e.sprite.worn, [at(10, 10)], "the first goes on every frame");
+        e.act(Action::Frame(1), false);
+        click_pixel(&mut e, 10, 11);
+        assert_eq!(e.sprite.worn, [at(10, 10), at(10, 11), at(10, 10)]);
+        e.mouse_down(e.grid().0, false, true);
+        e.mouse_up();
+        assert_eq!(e.sprite.worn, [at(0, 0)], "Shift puts it on every frame");
+        e.key(Key::Undo);
+        assert_eq!(e.sprite.worn, [at(10, 10), at(10, 11), at(10, 10)]);
+        e.act(Action::Save, false);
+        assert_eq!(std::fs::read_to_string(dir.join("sprites/PLAYER_FRONT/grenade.txt")).unwrap(), "10 10 ; 10 11 ; 10 10\n");
+        e.act(Action::HideGrenade, false);
+        assert_eq!(e.grenade_at(), None);
+        e.act(Action::Save, false);
+        assert_eq!(Editor::new(Box::new(store()), "PLAYER_FRONT").sprite.worn, [Worn::Hidden]);
+        e.act(Action::HideGrenade, false);
+        e.act(Action::Save, false);
+        assert!(!dir.join("sprites/PLAYER_FRONT/grenade.txt").exists(), "back to the game's pick");
+        e.switch_to("BARREL".into());
+        assert_eq!(e.tool, Tool::Pencil, "a barrel wears nothing");
+        assert!(!e.buttons().iter().any(|b| b.action == Action::HideGrenade));
+    }
+
+    #[test]
+    fn a_player_cards_walking_parts_keep_their_grenade_in_the_card() {
+        let dir = tmp().join("grenade-card");
+        let _ = std::fs::remove_dir_all(&dir);
+        let store = || FsStore { dir: dir.join("sprites"), catalog: dir.join("art.txt"), cards: dir.join("enemies") };
+        let mut e = Editor::new(Box::new(store()), "");
+        e.act(Action::Ask(Ask::New), false);
+        type_in(&mut e, "player card jo");
+        e.key(Key::Enter);
+        e.act(Action::Tool(Tool::Grenade), false);
+        buttons_fit(&e);
+        click_pixel(&mut e, 5, 9);
+        e.act(Action::Save, false);
+        e.switch_to("PLAYER_CARD_JO_BACK".into());
+        e.act(Action::HideGrenade, false);
+        e.act(Action::Save, false);
+        let saved = last_harvest_pack::card::read_as(sprite::CardKind::Player, "jo", &std::fs::read(dir.join("players/jo.player.png")).unwrap()).unwrap();
+        assert_eq!(saved.worn, "front 5 9\nback hide\n");
+        e.act(Action::Ask(Ask::Copy), false);
+        type_in(&mut e, "player card jo2");
+        e.key(Key::Enter);
+        let copy = last_harvest_pack::card::read_as(sprite::CardKind::Player, "jo2", &std::fs::read(dir.join("players/jo2.player.png")).unwrap()).unwrap();
+        assert_eq!(copy.worn, saved.worn, "a copy wears it where the card does");
+        e.switch_to("PLAYER_CARD_JO_FRONT".into());
+        assert_eq!(e.sprite.worn, [Worn::At([5, 9])]);
+        e.switch_to("PLAYER_CARD_JO_HURT".into());
+        assert!(!e.wears_grenade(), "a hurt frame wears it where the standing one does");
     }
 
     #[test]

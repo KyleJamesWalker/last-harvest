@@ -451,7 +451,7 @@ mod tests {
         let fields = prop_fields("[ash]\nframes 2\nclear FFFFFF").unwrap();
         assert_eq!(prop_fields(&prop_text(&fields)).unwrap().clear, [[255, 255, 255]]);
         assert!(prop_fields("[ash]\nclear #FFFFFF").unwrap_err().contains("without a #"), "a # starts a comment");
-        let card = Card { name: "ash.prop.png".into(), text: prop_text(&fields), frame: [2, 2], sheet: vec![255; 2 * 2 * 2 * 4] };
+        let card = Card { worn: String::new(), name: "ash.prop.png".into(), text: prop_text(&fields), frame: [2, 2], sheet: vec![255; 2 * 2 * 2 * 4] };
         let mut atlas = vec![0u8; (ATLAS_W * crate::art::ATLAS_H * 4) as usize];
         let (notes, rects, kept, solids) = pack(&[card], &mut atlas, &mut super::super::enemies::start(), 0);
         assert!(notes.is_empty(), "{notes:?}");
@@ -465,7 +465,7 @@ mod tests {
         let fields = prop_fields("[car]\nframes 2\nbroken yes\nstand carve\nviews 2\npaint 102030\ncoat 405060\ncoat 708090").unwrap();
         assert_eq!(prop_fields(&prop_text(&fields)).unwrap(), fields);
         let sheet = [0x10, 0x20, 0x30, 255].repeat((fields.sheet_w(2, 2) * 4) as usize);
-        let card = Card { name: "car.prop.png".into(), text: prop_text(&fields), frame: [2, 2], sheet };
+        let card = Card { worn: String::new(), name: "car.prop.png".into(), text: prop_text(&fields), frame: [2, 2], sheet };
         let mut atlas = vec![0u8; (ATLAS_W * crate::art::ATLAS_H * 4) as usize];
         let (notes, rects, kept, _) = pack(&[card], &mut atlas, &mut super::super::enemies::start(), 0);
         assert!(notes.is_empty(), "{notes:?}");
@@ -494,7 +494,7 @@ mod tests {
             assert_eq!(prop_fields(&prop_text(&fields)).unwrap(), fields);
             assert_eq!(fields.frame_in(fields.sheet_w(4, 3), 5), Some([4, 3]), "{text}");
             let sheet = vec![255; (fields.sheet_w(4, 3) * 5 * 4) as usize];
-            let card = Card { name: "stack.prop.png".into(), text: prop_text(&fields), frame: [4, 3], sheet };
+            let card = Card { worn: String::new(), name: "stack.prop.png".into(), text: prop_text(&fields), frame: [4, 3], sheet };
             let mut atlas = vec![0u8; (ATLAS_W * crate::art::ATLAS_H * 4) as usize];
             let (notes, rects, kept, _) = pack(&[card], &mut atlas, &mut super::super::enemies::start(), 0);
             assert!(notes.is_empty(), "{notes:?}");
@@ -510,7 +510,7 @@ mod tests {
         let (fw, fh, vh) = (4u32, 3u32, 5u32);
         let fields = prop_fields("[post]\nstand turned\nviews 5").unwrap();
         let sw = fields.sheet_w(fw, fh);
-        let card = Card { name: "post.prop.png".into(), text: prop_text(&fields), frame: [fw, fh], sheet: vec![255; (sw * (fh + vh) * 4) as usize] };
+        let card = Card { worn: String::new(), name: "post.prop.png".into(), text: prop_text(&fields), frame: [fw, fh], sheet: vec![255; (sw * (fh + vh) * 4) as usize] };
         let mut atlas = vec![0u8; (ATLAS_W * crate::art::ATLAS_H * 4) as usize];
         let (notes, rects, kept, _) = pack(&[card], &mut atlas, &mut super::super::enemies::start(), 0);
         assert!(notes.is_empty(), "{notes:?}");
@@ -576,7 +576,7 @@ mod tests {
     #[test]
     fn props_draw_into_free_rows_and_refuse_bad_sheets() {
         let mut atlas = vec![0u8; (crate::art::ATLAS_W * crate::art::ATLAS_H * 4) as usize];
-        let card = |name: &str, text: &str, frame: [u32; 2], n: u32| Card { name: name.into(), text: text.into(), frame, sheet: vec![255; (frame[0] * n * frame[1] * 4) as usize] };
+        let card = |name: &str, text: &str, frame: [u32; 2], n: u32| Card { worn: String::new(), name: name.into(), text: text.into(), frame, sheet: vec![255; (frame[0] * n * frame[1] * 4) as usize] };
         let cards = [card("a.prop.png", "[a]\nframes 2", [20, 10], 2), card("b.prop.png", "[a]", [8, 8], 1), card("c.prop.png", "[c]\nframes 3", [8, 8], 2)];
         let (notes, rects, kept, _) = pack(&cards, &mut atlas, &mut super::super::enemies::start(), 100);
         assert_eq!(kept.len(), 1);

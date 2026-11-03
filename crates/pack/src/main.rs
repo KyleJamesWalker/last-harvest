@@ -93,7 +93,7 @@ fn make_card(kind: card::Kind, sheet: &Path, text: &Path, out: &Path) -> Result<
     }
     // A sheet both five and six frames tall reads as five; a dead row needs one six only divides.
     let rows = if h % 5 == 0 { 5 } else { 6 };
-    let bytes = card::write_as(kind, &text, w, h, rows, &rgba)?;
+    let bytes = card::write_as(kind, &text, "", w, h, rows, &rgba)?;
     let name = out.display().to_string();
     let made = card::read_as(kind, &name, &bytes)?;
     std::fs::write(out, bytes)?;
@@ -243,6 +243,7 @@ fn show(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
                 let how = if start.is_some() { "" } else { " (the game's own)" };
                 println!("  {:<7}{}{how}", d.name(), if weapons.is_empty() { "nothing".to_string() } else { weapons.join(", ") });
             }
+            println!("\nWears a ready grenade:\n{}", if card.worn.is_empty() { "  on the right hip".to_string() } else { card.worn.lines().map(|l| format!("  {l}\n")).collect() }.trim_end());
         }
     }
     Ok(())

@@ -12,6 +12,9 @@ pub const KEYWORD: &str = "last-harvest-enemy";
 /// before decoding, since a card may come from anyone.
 const MAX_SHEET: [u32; 2] = [MAX_WALK as u32 * MAX_FRAME, 6 * MAX_FRAME];
 const ROWS_KEYWORD: &str = "last-harvest-rows";
+/// Where a player card wears its ready grenade, as `worn::parse_card` reads it. Its own chunk, so a game from before
+/// it reads the card all the same.
+const WORN_KEYWORD: &str = "last-harvest-worn";
 /// What an enemy card's file name ends in: still a PNG, so it previews anywhere, but named as a card.
 pub const EXTENSION: &str = ".enemy.png";
 
@@ -61,6 +64,7 @@ pub(crate) struct Decoded {
     pub h: u32,
     pub sheet: Vec<u8>,
     pub rows: Option<String>,
+    pub worn: Option<String>,
 }
 
 /// Reads a PNG no bigger than `max` with its text under `keyword`; `noun` and `name` are for messages. The size is
@@ -87,12 +91,13 @@ pub(crate) fn decode(keyword: &str, noun: &str, name: &str, bytes: &[u8], max: [
     let mut text = text.clone();
     text.decompress_text().map_err(|e| fail(&e))?;
     let text = text.get_text().map_err(|e| fail(&e))?;
-    let rows = reader.info().uncompressed_latin1_text.iter().find(|t| t.keyword == ROWS_KEYWORD).map(|t| t.text.clone());
-    Ok(Decoded { text, w: frame.width, h: frame.height, sheet, rows })
+    let latin1 = |key: &str| reader.info().uncompressed_latin1_text.iter().find(|t| t.keyword == key).map(|t| t.text.clone());
+    let (rows, worn) = (latin1(ROWS_KEYWORD), latin1(WORN_KEYWORD));
+    Ok(Decoded { text, w: frame.width, h: frame.height, sheet, rows, worn })
 }
 
-/// Writes a PNG of an RGBA sheet `w` by `h` with `text` under `keyword`, and a rows chunk when given.
-pub(crate) fn encode(keyword: &str, text: &str, w: u32, h: u32, rows: Option<&str>, sheet: &[u8]) -> Result<Vec<u8>, String> {
+/// Writes a PNG of an RGBA sheet `w` by `h` with `text` under `keyword`, and rows and worn chunks when given.
+pub(crate) fn encode(keyword: &str, text: &str, w: u32, h: u32, rows: Option<&str>, worn: &str, sheet: &[u8]) -> Result<Vec<u8>, String> {
     let mut out = Vec::new();
     let mut encoder = png::Encoder::new(&mut out, w, h);
     encoder.set_color(png::ColorType::Rgba);
@@ -104,6 +109,9 @@ pub(crate) fn encode(keyword: &str, text: &str, w: u32, h: u32, rows: Option<&st
     if let Some(rows) = rows {
         writer.write_text_chunk(&png::text_metadata::TEXtChunk::new(ROWS_KEYWORD, rows)).map_err(|e| e.to_string())?;
     }
+    if !worn.is_empty() {
+        writer.write_text_chunk(&png::text_metadata::TEXtChunk::new(WORN_KEYWORD, worn)).map_err(|e| e.to_string())?;
+    }
     writer.write_image_data(sheet).map_err(|e| e.to_string())?;
     writer.finish().map_err(|e| e.to_string())?;
     Ok(out)
@@ -112,7 +120,7 @@ pub(crate) fn encode(keyword: &str, text: &str, w: u32, h: u32, rows: Option<&st
 /// Reads a card of `kind`; `name` is for messages.
 pub fn read_as(kind: Kind, name: &str, bytes: &[u8]) -> Result<Card, String> {
     let fail = |e: &dyn std::fmt::Display| format!("{name}: {e}");
-    let Decoded { text, w, h, sheet, rows } = decode(kind.keyword(), kind.noun(), name, bytes, MAX_SHEET)?;
+    let Decoded { text, w, h, sheet, rows, worn } = decode(kind.keyword(), kind.noun(), name, bytes, MAX_SHEET)?;
     let rows = match rows.as_deref() {
         None => 5,
         Some("6") => 6,
@@ -129,17 +137,20 @@ pub fn read_as(kind: Kind, name: &str, bytes: &[u8]) -> Result<Card, String> {
     if frame.iter().any(|&side| side > MAX_FRAME) {
         return Err(fail(&format!("its frames are {}x{}, but the game draws them at most {MAX_FRAME} pixels a side", frame[0], frame[1])));
     }
-    Ok(Card { name: name.to_string(), text, frame, sheet })
+    // A chunk this game can't read only costs the card its grenade's place, so a newer card still loads.
+    let worn = worn.filter(|w| kind == Kind::Player && last_harvest_game::worn::parse_card(w).is_ok()).unwrap_or_default();
+    Ok(Card { worn, name: name.to_string(), text, frame, sheet })
 }
 
 /// Writes an enemy card from its text and a five-row RGBA sheet `w` by `h` pixels.
 pub fn write(text: &str, w: u32, h: u32, sheet: &[u8]) -> Result<Vec<u8>, String> {
-    write_as(Kind::Enemy, text, w, h, 5, sheet)
+    write_as(Kind::Enemy, text, "", w, h, 5, sheet)
 }
 
-/// Writes a card of `kind` from its text and an RGBA sheet `w` by `h` pixels, `rows` (5, or 6 with a dead row) down.
-pub fn write_as(kind: Kind, text: &str, w: u32, h: u32, rows: u32, sheet: &[u8]) -> Result<Vec<u8>, String> {
-    encode(kind.keyword(), text, w, h, (rows == 6).then_some("6"), sheet)
+/// Writes a card of `kind` from its text, its worn chunk (none when empty) and an RGBA sheet `w` by `h` pixels, `rows`
+/// (5, or 6 with a dead row) down.
+pub fn write_as(kind: Kind, text: &str, worn: &str, w: u32, h: u32, rows: u32, sheet: &[u8]) -> Result<Vec<u8>, String> {
+    encode(kind.keyword(), text, w, h, (rows == 6).then_some("6"), worn, sheet)
 }
 
 #[cfg(test)]
@@ -161,7 +172,7 @@ mod tests {
     #[test]
     fn a_player_card_keeps_its_own_keyword() {
         let sheet = vec![9u8; 3 * 8 * 5 * 8 * 4];
-        let bytes = write_as(Kind::Player, "[jo]\nname Jo\nabout Up early.", 24, 40, 5, &sheet).unwrap();
+        let bytes = write_as(Kind::Player, "[jo]\nname Jo\nabout Up early.", "", 24, 40, 5, &sheet).unwrap();
         let card = read_as(Kind::Player, "jo.player.png", &bytes).unwrap();
         assert_eq!((card.text.as_str(), card.frame), ("[jo]\nname Jo\nabout Up early.", [8, 8]));
         assert!(read("jo.player.png", &bytes).err().unwrap().contains("not an enemy card"), "an enemy card is a different kind");
@@ -171,9 +182,19 @@ mod tests {
     }
 
     #[test]
+    fn a_player_card_keeps_where_it_wears_its_grenade() {
+        let sheet = vec![9u8; 3 * 8 * 5 * 8 * 4];
+        let card = |kind, worn| read_as(kind, "jo", &write_as(kind, "[jo]", worn, 24, 40, 5, &sheet).unwrap()).unwrap().worn;
+        assert_eq!(card(Kind::Player, "front 5 6\nback hide\n"), "front 5 6\nback hide\n");
+        assert_eq!(card(Kind::Player, ""), "");
+        assert_eq!(card(Kind::Player, "wings 1 1"), "", "a chunk it can't read leaves the card, without it");
+        assert_eq!(card(Kind::Enemy, "front 5 6"), "", "only a player wears one");
+    }
+
+    #[test]
     fn a_rows_chunk_adds_a_dead_row() {
         let sheet = vec![9u8; 3 * 8 * 6 * 8 * 4];
-        let bytes = write_as(Kind::Enemy, "[a]", 24, 48, 6, &sheet).unwrap();
+        let bytes = write_as(Kind::Enemy, "[a]", "", 24, 48, 6, &sheet).unwrap();
         assert_eq!(read("a.enemy.png", &bytes).unwrap().frame, [8, 8]);
         let five = write("[a]", 24, 48, &sheet).unwrap();
         assert!(read("b.enemy.png", &five).is_err(), "48 tall with no chunk is five rows, which doesn't split");
