@@ -261,7 +261,7 @@ The image holds the enemy's frames in five rows:
 
 Each walking row holds as many frames as the card's `walk` line says, 1 to 8. Without a `walk` line, it holds 3. Every frame is the same size, up to 64 pixels. The sheet is as wide as its longest row.
 
-A card can be drawn at detail 2 or 4: that many of its pixels make one game pixel across and down, so the figure keeps its size in the game with finer pixels, and frames run to 128 or 256 pixels. Use it sparingly, since the rest of the game is drawn at 1.
+A card can be drawn at detail 2 or 4: that many of its pixels make one game pixel across and down, so the figure keeps its size in the game with finer pixels, and frames run to 128 pixels: 64 game pixels at detail 2, 32 at detail 4. Use it sparingly, since the rest of the game is drawn at 1.
 
 A flash or hurt frame left fully clear is drawn by the game from that facing's first walking frame. The flash becomes the figure's shape in one pale color. The hurt frame becomes the figure in reds with its outline kept.
 
