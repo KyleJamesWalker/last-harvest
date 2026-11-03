@@ -260,13 +260,17 @@ fn placed(prop: &super::map::Prop, t: f32) -> (Art, Stand, Vec3, [f32; 2]) {
     (a, how, middle, [a.w() * PX, deep * PX])
 }
 
-/// Stands sprite `a` as the map would, the middle of its box on the ground at `at` in map pixels, turned `angle`
-/// radians round it: a prop photo mode drops in.
-pub(super) fn dropped(out: &mut Vec<Card>, eye: Vec3, a: Art, at: [f32; 2], angle: f32) {
-    let how = match a.stand() {
+/// How sprite `a` stands once photo mode drops it in: as it says, else upright as deep as the map would make it.
+pub(super) fn drop_stand(a: Art) -> Stand {
+    match a.stand() {
         None | Some(Stand::Figure) => Stand::Prop { depth: super::map::depth_of(a) },
         Some(how) => how,
-    };
+    }
+}
+
+/// Stands sprite `a` as `how` says, the middle of its box on the ground at `at` in map pixels, turned `angle` radians
+/// round it: a prop photo mode drops in.
+pub(super) fn dropped(out: &mut Vec<Card>, eye: Vec3, a: Art, how: Stand, at: [f32; 2], angle: f32) {
     let deep = match how {
         Stand::Prop { depth } => depth,
         Stand::Fold { rows } => fold_row(a, rows) as f32,

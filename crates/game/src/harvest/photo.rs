@@ -2,7 +2,7 @@
 
 use super::map::TILE;
 use super::{Facing, Flow, Harvest, PAUSE_PHOTO, SCALE, Zombie, len, norm, sub, view3d};
-use crate::art::{self, Art};
+use crate::art::{self, Art, Stand};
 use crate::icon::Orbit;
 use crate::scene3d::CardScene;
 use crate::{Align, Buttons, Canvas, Color, Frame, Input, SCREEN_H, SCREEN_W, Sfx};
@@ -92,18 +92,15 @@ pub(super) struct Photo {
     props: Vec<Dropped>,
 }
 
-/// A prop photo mode dropped: its place in PROPS, the middle of its foot in map pixels, and how far it is turned.
+/// A prop photo mode dropped: its place in PROPS, its sprite and how that stands, the middle of its foot in map
+/// pixels, and how far it is turned.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct Dropped {
     kind: usize,
+    art: Art,
+    stand: Stand,
     at: [f32; 2],
     angle: f32,
-}
-
-impl Dropped {
-    fn art(&self) -> Art {
-        sprite(PROPS[self.kind].1)
-    }
 }
 
 /// The first frame of a sprite by name, or a blank where a mod's art lacks it.
@@ -142,7 +139,8 @@ impl Photo {
         if self.prop == TAKE_BACK {
             self.props.pop();
         } else {
-            self.props.push(Dropped { kind: self.prop, at, angle: yaw + std::f32::consts::FRAC_PI_2 });
+            let art = sprite(PROPS[self.prop].1);
+            self.props.push(Dropped { kind: self.prop, art, stand: view3d::drop_stand(art), at, angle: yaw + std::f32::consts::FRAC_PI_2 });
         }
     }
 
@@ -333,7 +331,7 @@ impl Harvest {
         if let Some(p) = photo {
             p.light(&mut scene);
             for d in &p.props {
-                view3d::dropped(&mut scene.cards, scene.eye, d.art(), d.at, d.angle);
+                view3d::dropped(&mut scene.cards, scene.eye, d.art, d.stand, d.at, d.angle);
             }
         }
         f.top.clear = [scene.fog[0], scene.fog[1], scene.fog[2], 1.0];
@@ -351,7 +349,7 @@ impl Harvest {
         let picked = p.picked.filter(|_| p.setting == Setting::Pose).and_then(|i| self.zombies.get(i));
         let marked = match (p.setting, picked, p.props.last()) {
             (Setting::Pose, Some(z), _) => Some((z.pos, z.art(Facing::Front).h() * if z.boss { 2.0 } else { 1.0 })),
-            (Setting::Props, _, Some(d)) => Some((d.at, d.art().h())),
+            (Setting::Props, _, Some(d)) => Some((d.at, d.art.h())),
             _ => None,
         };
         if let Some(([sx, sy], _)) = marked.and_then(|(at, tall)| view3d::to_screen(view_proj, at, tall + 6.0)) {
@@ -651,7 +649,8 @@ mod tests {
         assert!(help(&h).contains("[Props: Barrier (0 in)]"), "{}", help(&h));
         press(&mut h, Buttons::R2);
         let focus = h.focus();
-        assert_eq!(dropped(&h), vec![Dropped { kind: 0, at: focus, angle: h.view_yaw + std::f32::consts::FRAC_PI_2 }]);
+        let barrier = super::sprite("BARRIER");
+        assert_eq!(dropped(&h), vec![Dropped { kind: 0, art: barrier, stand: view3d::drop_stand(barrier), at: focus, angle: h.view_yaw + std::f32::consts::FRAC_PI_2 }]);
         assert!(top_scene(&h).cards.len() > cards, "the barrier stands in the frozen view");
         hold(&mut h, Buttons::RIGHT, 10);
         hold(&mut h, Buttons::NONE, 1);
@@ -697,10 +696,34 @@ mod tests {
             let a = super::sprite(sprite);
             assert!(a != art::WHITE, "{name}: no sprite {sprite}");
             let mut cards = Vec::new();
-            view3d::dropped(&mut cards, glam::Vec3::new(2.0, 1.5, 7.0), a, [2.0 * TILE, 2.0 * TILE], 0.3);
+            view3d::dropped(&mut cards, glam::Vec3::new(2.0, 1.5, 7.0), a, view3d::drop_stand(a), [2.0 * TILE, 2.0 * TILE], 0.3);
             assert!(!cards.is_empty(), "{name} draws nothing");
             let middle = cards.iter().flat_map(|c| c.corners).sum::<glam::Vec3>() / (cards.len() * 4) as f32;
             assert!((middle.x - 2.0).abs() < 1.0 && (middle.z - 2.0).abs() < 1.0, "{name} stands round where it was dropped: {middle}");
+        }
+    }
+
+    #[test]
+    fn a_dropped_props_front_faces_the_camera_whichever_way_it_looks() {
+        let upright: Vec<Art> = PROPS.iter().map(|p| super::sprite(p.1)).filter(|&a| matches!(view3d::drop_stand(a), Stand::Prop { .. })).take(4).collect();
+        assert!(!upright.is_empty());
+        let at = [6.0 * TILE, 6.0 * TILE];
+        let center = glam::Vec3::new(6.0, 0.0, 6.0);
+        for a in upright {
+            for k in 0..8 {
+                let yaw = k as f32 * std::f32::consts::TAU / 8.0 - 3.0;
+                let mut p = Photo::new(yaw);
+                p.prop = PROPS.iter().position(|q| super::sprite(q.1) == a).unwrap();
+                p.drop_prop(at, yaw);
+                let d = p.props[0];
+                let eye = center - glam::Vec3::new(yaw.cos(), 0.0, yaw.sin()) * 3.0 + glam::Vec3::Y;
+                let mut cards = Vec::new();
+                view3d::dropped(&mut cards, eye, d.art, d.stand, d.at, d.angle);
+                let area = |c: &crate::scene3d::Card| (c.corners[1] - c.corners[0]).cross(c.corners[3] - c.corners[0]).length();
+                let front = cards.iter().max_by(|x, y| area(x).total_cmp(&area(y))).unwrap();
+                let toward = glam::Vec3::new(-yaw.cos(), 0.0, -yaw.sin());
+                assert!(front.normal.normalize().dot(toward) > 0.99, "{a:?} at yaw {yaw}: its front faces {}", front.normal);
+            }
         }
     }
 
