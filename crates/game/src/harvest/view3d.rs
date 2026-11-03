@@ -423,7 +423,7 @@ fn facing_from(dir: [f32; 2], forward: Vec3, right: Vec3) -> (Facing, bool) {
     }
 }
 
-/// The colors of the night, warming toward dawn over the last three minutes.
+/// The colors of the night, warming toward dawn over the last three minutes, or at the time photo mode sets.
 pub struct Sky {
     pub fog: [f32; 3],
     pub ambient: [f32; 3],
@@ -434,7 +434,11 @@ pub struct Sky {
 
 pub fn sky(h: &Harvest) -> Sky {
     let won = matches!(h.phase, Phase::Over { won: true, .. });
-    let k = if won { 1.0 } else { ((h.t - (super::dawn() - 180.0)) / 180.0).clamp(0.0, 1.0) };
+    let k = match h.photo.as_ref().and_then(|p| p.night()) {
+        Some(k) => k,
+        None if won => 1.0,
+        None => ((h.t - (super::dawn() - 180.0)) / 180.0).clamp(0.0, 1.0),
+    };
     let k = k * k * (3.0 - 2.0 * k);
     let mix = |a: [f32; 3], b: [f32; 3]| [0, 1, 2].map(|i| a[i] + (b[i] - a[i]) * k);
     let night = 1.0 - k;

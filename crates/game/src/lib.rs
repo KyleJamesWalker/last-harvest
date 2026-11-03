@@ -1083,6 +1083,26 @@ mod tests {
     }
 
     #[test]
+    fn on_a_phone_the_grenade_and_map_keys_set_up_a_photo_without_taking_one() {
+        let size = [2400.0, 1080.0];
+        let mut game = in_photo_mode(true);
+        game.set_phone(Some(size));
+        let layout = touch::layout(size, true, true);
+        let tap = |game: &mut Game, b: Buttons| {
+            let [kx, ky, ..] = layout.key(b).unwrap();
+            let mut touches = [None; MAX_TOUCHES];
+            touches[0] = Some([kx + 4.0, ky + 4.0]);
+            game.update(&Input { touches, ..Default::default() }, 0.016);
+            game.update(&Input::default(), 0.016);
+        };
+        let help = |game: &Game| game.draw().top.shapes.iter().filter_map(|s| if let Shape::Text { text, .. } = s { Some(text.clone()) } else { None }).collect::<Vec<_>>().join("\n");
+        tap(&mut game, Buttons::L2);
+        tap(&mut game, Buttons::R2);
+        assert!(help(&game).contains("[Fog: Thick]"), "{}", help(&game));
+        assert!(game.in_photo() && game.take_screenshot().is_none());
+    }
+
+    #[test]
     fn without_saving_a_photo_r1_hides_the_guides_for_the_players_own_screenshot() {
         let mut game = in_photo_mode(false);
         press(&mut game, Buttons::R1);
