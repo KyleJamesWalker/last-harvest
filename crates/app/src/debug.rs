@@ -35,16 +35,17 @@ pub enum Command {
 
 pub fn listen() -> Option<Receiver<Command>> {
     std::env::var_os("LAST_HARVEST_DEBUG")?;
-    let _ = std::fs::remove_file(PIPE);
-    if !std::process::Command::new("mkfifo").arg(PIPE).status().is_ok_and(|s| s.success()) {
-        log!("debug: mkfifo {PIPE} failed");
+    let pipe = std::env::var_os("LAST_HARVEST_PIPE").map_or_else(|| PathBuf::from(PIPE), PathBuf::from);
+    let _ = std::fs::remove_file(&pipe);
+    if !std::process::Command::new("mkfifo").arg(&pipe).status().is_ok_and(|s| s.success()) {
+        log!("debug: mkfifo {} failed", pipe.display());
         return None;
     }
-    log!("debug: listening on {PIPE}");
+    log!("debug: listening on {}", pipe.display());
     let (tx, rx) = channel();
     std::thread::spawn(move || {
         // Opening a pipe for reading blocks until a writer connects; each writer's EOF reopens it.
-        while let Ok(f) = File::open(PIPE) {
+        while let Ok(f) = File::open(&pipe) {
             for line in BufReader::new(f).lines().map_while(Result::ok) {
                 match parse(&line) {
                     Some(cmd) => {

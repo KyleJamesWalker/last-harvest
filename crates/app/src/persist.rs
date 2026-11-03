@@ -15,14 +15,14 @@ fn dir() -> PathBuf {
     last_harvest::home().unwrap_or_else(|| PathBuf::from("."))
 }
 
-/// The next unused `screenshots/shot-NNNN.png` beside the save, creating the folder.
-pub fn next_screenshot() -> Option<PathBuf> {
+/// The next unused `screenshots/<kind>-NNNN.png` beside the save, creating the folder.
+pub fn next_screenshot(kind: &str) -> Option<PathBuf> {
     let shots = dir().join("screenshots");
     if let Err(e) = fs::create_dir_all(&shots) {
         log!("screenshot: {}: {e}", shots.display());
         return None;
     }
-    (1..10_000).map(|n| shots.join(format!("shot-{n:04}.png"))).find(|p| !p.exists())
+    (1..10_000).map(|n| shots.join(format!("{kind}-{n:04}.png"))).find(|p| !p.exists())
 }
 
 pub struct Saver {

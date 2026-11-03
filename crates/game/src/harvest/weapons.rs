@@ -1224,7 +1224,7 @@ mod tests {
         let decoy = h.decoys[0].pos;
         let z = h.zombies[0].pos;
         let before = len(sub(z, decoy));
-        h.move_zombies(0.2);
+        h.move_zombies(0.2, &mut Vec::new());
         assert!(len(sub(h.zombies[0].pos, decoy)) < before);
         let life = h.decoys[0].life;
         h.decoys(life, &mut Vec::new());

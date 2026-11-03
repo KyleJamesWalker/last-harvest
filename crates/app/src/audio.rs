@@ -203,6 +203,14 @@ fn notes(sfx: Sfx, out: &mut Vec<Note>) {
             ]);
             place(out, pan, gain);
         }
+        Sfx::Spit { pan, gain } => {
+            out.extend_from_slice(&[note(0.0, 0.16, 700.0, 2600.0, Noise, 0.35), hit(0.0, 0.1, 260.0, 140.0, Triangle, 0.3)]);
+            place(out, pan, gain);
+        }
+        Sfx::Splat { pan, gain } => {
+            out.extend_from_slice(&[hit(0.0, 0.18, 1800.0, 250.0, Noise, 0.45), hit(0.0, 0.12, 180.0, 70.0, Triangle, 0.4)]);
+            place(out, pan, gain);
+        }
         Sfx::Zap => out.extend_from_slice(&[note(0.0, 0.14, 3200.0, 900.0, Square, 0.25), note(0.0, 0.1, 4000.0, 6000.0, Noise, 0.3)]),
         Sfx::Bark => out.extend_from_slice(&[hit(0.0, 0.09, 520.0, 300.0, Square, 0.4), hit(0.12, 0.08, 480.0, 280.0, Square, 0.35)]),
         Sfx::Bell => out.extend_from_slice(&[hit(0.0, 1.4, 660.0, 660.0, Triangle, 0.6), hit(0.0, 1.0, 1320.0, 1320.0, Sine, 0.3), hit(0.0, 0.8, 1650.0, 1650.0, Sine, 0.2)]),
@@ -256,7 +264,12 @@ struct Play {
 /// Stereo pan (-1 to 1) and loudness (0 to 1) for a cue the game placed in the world.
 fn placement(sfx: Sfx) -> (f32, f32) {
     match sfx {
-        Sfx::Boom { pan, gain } | Sfx::Rise { pan, gain } | Sfx::Groan { pan, gain } | Sfx::Caw { pan, gain } => (pan as f32 / 100.0, gain as f32 / 255.0),
+        Sfx::Boom { pan, gain }
+        | Sfx::Rise { pan, gain }
+        | Sfx::Groan { pan, gain }
+        | Sfx::Caw { pan, gain }
+        | Sfx::Spit { pan, gain }
+        | Sfx::Splat { pan, gain } => (pan as f32 / 100.0, gain as f32 / 255.0),
         _ => (0.0, 1.0),
     }
 }
@@ -568,6 +581,7 @@ mod tests {
             Sfx::Boom { pan: 0, gain: 255 }, Sfx::Throw, Sfx::Pickup(20), Sfx::Heal, Sfx::Hurt, Sfx::Heartbeat,
             Sfx::LevelUp, Sfx::Pick(true), Sfx::Rise { pan: -100, gain: 255 }, Sfx::Groan { pan: 100, gain: 255 },
             Sfx::Caw { pan: 0, gain: 255 }, Sfx::Bell, Sfx::Horde, Sfx::Dawn, Sfx::GameOver,
+            Sfx::Spit { pan: 0, gain: 255 }, Sfx::Splat { pan: 0, gain: 255 },
         ];
         for cue in cues {
             let (mut s, tx) = synth();

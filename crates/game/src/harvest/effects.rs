@@ -81,6 +81,9 @@ effects! {
     money,
     crow,
     dog,
+    spit,
+    mound,
+    mound_breaks,
 }
 
 /// An effect as written: its sprite's name and its numbers.
@@ -145,6 +148,11 @@ pub fn colors() -> &'static Palette {
 
 /// Reads `effects.txt`: the game's effects in the order of `NAMES`, which it must all name, then any of its own by
 /// name, each with a sprite. Errors name the line.
+/// The game's own effects.txt.
+const BUILT_IN: &str = include_str!("../../effects.txt");
+/// Sections added after mods could replace effects.txt, which a mod's file may leave out.
+const ADDED_LATER: [&str; 3] = ["spit", "mound", "mound_breaks"];
+
 pub fn parse(text: &str) -> Result<(Vec<Written>, Extra), String> {
     let mut out: Vec<Option<Written>> = vec![None; NAMES.len()];
     let mut extra: Vec<(String, Written)> = Vec::new();
@@ -200,12 +208,16 @@ pub fn parse(text: &str) -> Result<(Vec<Written>, Extra), String> {
             _ => return Err(format!("{n}: {key} isn't something an effect says")),
         }
     }
+    // A mod's file from before a section was added plays the game's own for it.
+    let game = || parse(BUILT_IN).ok().map(|(own, _)| own);
     let own = out
         .into_iter()
         .zip(NAMES)
-        .map(|(e, name)| match e {
+        .enumerate()
+        .map(|(k, (e, name))| match e {
             Some(e) if e.art.is_empty() => Err(format!("[{name}] needs an art line")),
             Some(e) => Ok(e),
+            None if ADDED_LATER.contains(name) && text != BUILT_IN => game().map(|g| g[k].clone()).ok_or_else(|| format!("no [{name}]")),
             None => Err(format!("no [{name}]")),
         })
         .collect::<Result<Vec<_>, _>>()?;
@@ -266,6 +278,10 @@ mod tests {
         assert_eq!(parse(&own.replace("art SLASH\n", "")).unwrap_err(), "[slash] needs an art line");
         assert!(parse("[Sparkle]\nart X").unwrap_err().starts_with("1: [Sparkle]"));
         assert!(parse("[slash]\nart SLASH").unwrap_err().starts_with("no [muzzle_pistol]"));
+        let older = own.replace("[spit]\nart BLOOD_SPLAT\nfps 10\n", "").replace("[mound]\nart MOUND\nfps 6\n", "").replace("[mound_breaks]\nart DIRT_PUFF\nfps 9\n", "");
+        assert_eq!(older.matches('[').count(), own.matches('[').count() - 3);
+        let arts: Vec<_> = parse(&older).unwrap().0.iter().rev().take(3).map(|w| w.art.clone()).collect();
+        assert_eq!(arts, ["DIRT_PUFF", "MOUND", "BLOOD_SPLAT"], "a mod's file from before [spit] and [mound] plays the game's");
         let (_, extra) = parse(&format!("{own}\n[red_slash]\nart SCYTHE_SWING\nfps 9")).unwrap();
         assert_eq!((extra[0].0.as_str(), extra[0].1.fps), ("red_slash", 9.0));
         assert_eq!(e.named("slash"), Some(e.slash));

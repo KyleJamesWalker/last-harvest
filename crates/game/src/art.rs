@@ -13,9 +13,14 @@ struct Live {
     solids: Vec<(Art, Art)>,
     /// Where live frames wear a ready grenade, as `Art::worn` says.
     worn: Vec<(Art, Worn)>,
+    /// Each live sprite's detail, by place, as `Art::detail` says.
+    detail: Vec<u8>,
 }
 
-static LIVE: RwLock<Live> = RwLock::new(Live { rects: Vec::new(), pixels: Vec::new(), solids: Vec::new(), worn: Vec::new() });
+static LIVE: RwLock<Live> = RwLock::new(Live { rects: Vec::new(), pixels: Vec::new(), solids: Vec::new(), worn: Vec::new(), detail: Vec::new() });
+
+/// The details a sprite can be drawn at: how many texture pixels make one game pixel across and down.
+pub const DETAILS: [u8; 3] = [1, 2, 4];
 
 /// Sprites from enemy cards, drawn into the texture's free rows at startup and numbered after the packed ones.
 static ADDED: OnceLock<Vec<[u16; 4]>> = OnceLock::new();
@@ -38,9 +43,13 @@ pub(crate) fn set_added_worn(worn: Vec<(Art, Worn)>) {
     ADDED_WORN.set(worn).ok();
 }
 
-/// Sets the added sprites' rects; the texture the game reads must already hold their pixels.
-pub(crate) fn set_added(rects: Vec<[u16; 4]>) {
+/// Each added sprite's detail, by place, as `Art::detail` says.
+static ADDED_DETAIL: OnceLock<Vec<u8>> = OnceLock::new();
+
+/// Sets the added sprites' rects and details; the texture the game reads must already hold their pixels.
+pub(crate) fn set_added(rects: Vec<[u16; 4]>, detail: Vec<u8>) {
     ADDED.set(rects).ok();
+    ADDED_DETAIL.set(detail).ok();
 }
 
 /// Packed and added sprites, every one but the editor's live ones.
@@ -57,7 +66,7 @@ pub(crate) fn free_top() -> u16 {
 pub fn set_live(rects: Vec<[u16; 4]>, pixels: Vec<u8>) -> Vec<Art> {
     assert_eq!(pixels.len(), self::pixels().len(), "a live texture matches the packed one");
     let arts = (0..rects.len()).map(|i| Art((count() + i) as u16)).collect();
-    *LIVE.write().unwrap() = Live { rects, pixels, solids: Vec::new(), worn: Vec::new() };
+    *LIVE.write().unwrap() = Live { rects, pixels, solids: Vec::new(), worn: Vec::new(), detail: Vec::new() };
     arts
 }
 
@@ -71,9 +80,57 @@ pub fn set_live_worn(worn: Vec<(Art, Worn)>) {
     LIVE.write().unwrap().worn = worn;
 }
 
+/// Sets the live sprites' details, by place; those left out are drawn at 1.
+pub fn set_live_detail(detail: Vec<u8>) {
+    LIVE.write().unwrap().detail = detail;
+}
+
 /// Runs `f` on the texture a sprite's pixels live in.
 pub(crate) fn with_pixels<T>(art: Art, f: impl FnOnce(&[u8]) -> T) -> T {
     if art.is_live() { f(&LIVE.read().unwrap().pixels) } else { f(self::pixels()) }
+}
+
+/// Runs `f` on a sprite's outline in game pixels, solid where any of a pixel's texture pixels is, and its size.
+pub(crate) fn with_outline<T>(art: Art, f: impl FnOnce(&dyn Fn(usize, usize) -> bool, [usize; 2]) -> T) -> T {
+    let [rx, ry, w, h] = art.rect().map(usize::from);
+    let d = art.detail() as usize;
+    with_pixels(art, |px| {
+        let solid = |x: usize, y: usize| x < w && y < h && px[((ry + y) * ATLAS_W as usize + rx + x) * 4 + 3] > 0;
+        f(&|x, y| (0..d).any(|j| (0..d).any(|i| solid(x * d + i, y * d + j))), [w.div_ceil(d), h.div_ceil(d)])
+    })
+}
+
+/// Held by tests that set the live sprites or the players' props, which every test in the run shares.
+#[cfg(test)]
+pub(crate) fn test_lock() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Live copies of packed sprites drawn `d` times finer, each pixel a `d` by `d` block, at detail `d`.
+#[cfg(test)]
+pub(crate) fn live_detailed(arts: &[Art], d: u16) -> Vec<Art> {
+    let mut px = pixels().to_vec();
+    let (mut x, mut y, mut shelf, mut rects) = (0u16, free_top() + 1, 0u16, Vec::new());
+    for a in arts {
+        let [ax, ay, w, h] = a.rect();
+        if x + w * d > ATLAS_W as u16 {
+            (x, y, shelf) = (0, y + shelf + 1, 0);
+        }
+        for j in 0..h * d {
+            for i in 0..w * d {
+                let from = ((ay + j / d) as usize * ATLAS_W as usize + (ax + i / d) as usize) * 4;
+                let to = ((y + j) as usize * ATLAS_W as usize + (x + i) as usize) * 4;
+                px.copy_within(from..from + 4, to);
+            }
+        }
+        rects.push([x, y, w * d, h * d]);
+        (x, shelf) = (x + w * d + 1, shelf.max(h * d));
+    }
+    let n = rects.len();
+    let live = set_live(rects, px);
+    set_live_detail(vec![d as u8; n]);
+    live
 }
 
 /// The packed texture, `ATLAS_W` by `ATLAS_H` RGBA.
@@ -173,12 +230,44 @@ impl Art {
         self.0 as usize >= count()
     }
 
-    pub fn w(self) -> f32 {
-        self.rect()[2] as f32
+    /// How many texture pixels make one game pixel across and down: 1, 2 or 4.
+    pub fn detail(self) -> u8 {
+        let i = self.0 as usize;
+        if let Some(&d) = DETAIL.get(i) {
+            return d;
+        }
+        let d = if i < count() { ADDED_DETAIL.get().and_then(|v| v.get(i - RECTS.len())).copied() } else { LIVE.read().unwrap().detail.get(i - count()).copied() };
+        d.unwrap_or(1)
     }
 
+    /// Width in game pixels: its texture pixels over its detail.
+    pub fn w(self) -> f32 {
+        self.rect()[2] as f32 / self.detail() as f32
+    }
+
+    /// Height in game pixels: its texture pixels over its detail.
     pub fn h(self) -> f32 {
-        self.rect()[3] as f32
+        self.rect()[3] as f32 / self.detail() as f32
+    }
+
+    /// The average color of its opaque pixels, red, green and blue from 0 to 1; None for an editor's live sprite.
+    pub fn mean(self) -> Option<[f32; 3]> {
+        if self.is_live() {
+            return None;
+        }
+        let [x, y, w, h] = self.rect().map(usize::from);
+        let px = pixels();
+        let (mut sum, mut n) = ([0.0f32; 3], 0.0f32);
+        for j in y..y + h {
+            for i in x..x + w {
+                let Some(p) = px.get((j * ATLAS_W as usize + i) * 4..(j * ATLAS_W as usize + i) * 4 + 4) else { continue };
+                if p[3] >= 128 {
+                    (0..3).for_each(|k| sum[k] += p[k] as f32 / 255.0);
+                    n += 1.0;
+                }
+            }
+        }
+        (n > 0.0).then(|| sum.map(|v| v / n))
     }
 }
 

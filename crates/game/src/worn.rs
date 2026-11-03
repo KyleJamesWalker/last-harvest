@@ -14,17 +14,17 @@ pub enum Worn {
 /// The facings a player card's chunk names, in its rows' order.
 pub const FACINGS: [&str; 3] = ["front", "side", "back"];
 
-/// Reads a spec; a frame is at most `crate::CARD_MAX_FRAME` pixels a side, so a pixel past that is refused.
+/// Reads a spec; a pixel is in texture pixels, so a detailed frame's run past 64.
 pub fn parse(spec: &str) -> Result<Vec<Worn>, String> {
     spec.split(';')
         .map(|pair| {
             if pair.trim() == "hide" {
                 return Ok(Worn::Hidden);
             }
-            let n: Vec<u8> = pair.split_whitespace().map(|v| v.parse::<u8>().ok().filter(|&v| (v as u32) < crate::CARD_MAX_FRAME)).collect::<Option<_>>().unwrap_or_default();
+            let n: Vec<u8> = pair.split_whitespace().map(|v| v.parse::<u8>().ok()).collect::<Option<_>>().unwrap_or_default();
             match n[..] {
                 [x, y] => Ok(Worn::At([x, y])),
-                _ => Err(format!("{pair:?} isn't a pixel: X Y, each 0 to {}", crate::CARD_MAX_FRAME - 1)),
+                _ => Err(format!("{pair:?} isn't a pixel: X Y, each 0 to 255")),
             }
         })
         .collect()
@@ -89,7 +89,7 @@ mod tests {
         assert_eq!(parse(" 11 10 ; 11 11 ").unwrap(), [Worn::At([11, 10]), Worn::At([11, 11])]);
         assert_eq!(parse("hide").unwrap(), [Worn::Hidden]);
         assert_eq!(parse("1 2 ; hide").unwrap(), [Worn::At([1, 2]), Worn::Hidden]);
-        for bad in ["", "11", "11 10 2", "-1 4", "64 3", "a b", "11 10 ;"] {
+        for bad in ["", "11", "11 10 2", "-1 4", "256 3", "a b", "11 10 ;"] {
             assert!(parse(bad).is_err(), "{bad:?}");
         }
     }

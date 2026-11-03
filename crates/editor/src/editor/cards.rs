@@ -1,9 +1,10 @@
 //! The editing pane's cards: importing, exporting and deleting them, and their stats pages.
 
 use super::*;
+use last_harvest_pack::card;
 
 /// The spawn mix chart under the stats: its plot, then the legend beside it.
-const MIX: Rect = Rect { x: CANVAS.x + 20.0, y: CANVAS.y + 392.0, w: 370.0, h: 132.0 };
+const MIX: Rect = Rect { x: CANVAS.x + 20.0, y: CANVAS.y + 420.0, w: 370.0, h: 104.0 };
 const MIX_STEPS: usize = 40;
 /// Kinds' colors in the spawn mix chart, in roster order; the open card's is `HOT`.
 const MIX_COLORS: [Color; 6] = [[0.55, 0.62, 0.78, 1.0], [0.5, 0.75, 0.55, 1.0], [0.78, 0.5, 0.62, 1.0], [0.62, 0.55, 0.85, 1.0], [0.45, 0.7, 0.75, 1.0], [0.75, 0.68, 0.5, 1.0]];
@@ -107,20 +108,16 @@ impl Editor {
     /// Keeps `bytes`, an Ogg or WAV file, as the open enemy card's own death sound, and points the card at it.
     /// Returns the sound's file name once kept, for the page to play.
     pub fn attach_sound(&mut self, file: &str, bytes: &[u8]) -> Option<String> {
-        const MAX_KB: usize = 512;
+        const MAX_KB: usize = card::MAX_SOUND / 1024;
         let (Some(id), Some(sprite::CardKind::Enemy)) = (sprite::card_id(&self.sprite.name), sprite::card_kind(&self.sprite.name)) else {
             self.say("Open an enemy card to give it a death sound");
             return None;
         };
-        let ext = match bytes {
-            [b'O', b'g', b'g', b'S', ..] => "ogg",
-            [b'R', b'I', b'F', b'F', _, _, _, _, b'W', b'A', b'V', b'E', ..] => "wav",
-            _ => {
-                self.say(format!("{file} isn't an Ogg or WAV sound"));
-                return None;
-            }
+        let Some(ext) = card::sound_kind(bytes) else {
+            self.say(format!("{file} isn't an Ogg or WAV sound"));
+            return None;
         };
-        if bytes.len() > MAX_KB * 1024 {
+        if bytes.len() > card::MAX_SOUND {
             self.say(format!("{file} is {} KB; a death sound may be at most {MAX_KB} KB", bytes.len() / 1024));
             return None;
         }
@@ -133,10 +130,10 @@ impl Editor {
         self.own_sound = Some(kept.clone());
         let points = self.sprite.card.as_deref().and_then(|t| last_harvest_game::card_fields(t).ok()).is_some_and(|f| f.sound == cue);
         if points {
-            self.say(format!("{id} dies to {file} now; Export all takes it along"));
+            self.say(format!("{id} dies to {file} now; Export and Export all take it along"));
         } else {
             self.set_card("sound", None);
-            self.say(format!("{id} dies to {file} now; Save the card, then Export all takes it along"));
+            self.say(format!("{id} dies to {file} now; Save the card, then Export takes it along"));
         }
         Some(kept)
     }
@@ -180,7 +177,8 @@ impl Editor {
         self.load_other_cards();
     }
 
-    /// The open card's file name and PNG as saved, for Export; None with a word why when there's nothing to give.
+    /// The open card's file name and PNG as saved, carrying its own death sound, for Export; None with a word why
+    /// when there's nothing to give.
     pub fn export_card(&mut self) -> Option<(String, Vec<u8>)> {
         let (Some(id), Some(kind)) = (sprite::card_id(&self.sprite.name), sprite::card_kind(&self.sprite.name)) else {
             self.say("Open a card to export it");
@@ -190,9 +188,19 @@ impl Editor {
             self.say("Save the card first: Export gives the saved copy");
             return None;
         }
-        let bytes = self.store.card_bytes(&self.sprite.name)?;
+        let mut bytes = self.store.card_bytes(&self.sprite.name)?;
         let file = format!("{id}{}", kind.extension());
-        self.say(format!("Exported {file}"));
+        let sound = self.store.card_sound(&id).filter(|_| kind == sprite::CardKind::Enemy);
+        if let Some((_, sound)) = &sound {
+            match card::with_sound(&bytes, Some(sound)) {
+                Ok(b) => bytes = b,
+                Err(e) => {
+                    self.say(format!("Couldn't export {file}: {e}"));
+                    return None;
+                }
+            }
+        }
+        self.say(format!("Exported {file}{}", if sound.is_some() { " with its death sound" } else { "" }));
         Some((file, bytes))
     }
 
@@ -222,7 +230,7 @@ impl Editor {
         if let Err(e) = self.store.delete_card(&self.sprite.name) {
             return self.say(format!("Couldn't delete {id}: {e}"));
         }
-        self.sprite = Sprite { worn: Vec::new(), name: String::new(), frames: vec![Frame::blank(16, 16)], views: None, footprint: None, roof: None, north: None, west: None, top: None, card: None, clear_in_3d: Vec::new(), paint: Default::default() };
+        self.sprite = Sprite { detail: 1, worn: Vec::new(), name: String::new(), frames: vec![Frame::blank(16, 16)], views: None, footprint: None, roof: None, north: None, west: None, top: None, card: None, clear_in_3d: Vec::new(), paint: Default::default() };
         (self.dirty, self.stand_touched, self.stats, self.frame) = (false, false, false, 0);
         self.undo.clear();
         self.redo.clear();
@@ -335,14 +343,14 @@ impl Editor {
                 let mut parts = Vec::new();
                 for (src, name) in source.iter().zip(&names) {
                     let (frames, worn) = if *src == self.sprite.name { (self.sprite.frames.clone(), self.sprite.worn.clone()) } else { self.store.load(src).map(|s| (s.frames, s.worn)).unwrap_or_default() };
-                    parts.push(Sprite { worn, name: name.clone(), frames, views: None, footprint: None, roof: None, north: None, west: None, top: None, card: Some(text.clone()), clear_in_3d: Vec::new(), paint: Default::default() });
+                    parts.push(Sprite { detail: self.sprite.detail, worn, name: name.clone(), frames, views: None, footprint: None, roof: None, north: None, west: None, top: None, card: Some(text.clone()), clear_in_3d: Vec::new(), paint: Default::default() });
                 }
                 parts
             }
             Ask::New | Ask::Palette => {
                 let text = format!("[{id}]\nname        {}\n", id[..1].to_ascii_uppercase() + &id[1..]);
                 let frames = sprite::card_template();
-                names.iter().zip(frames.chunks(sprite::CARD_PART_FRAMES)).map(|(name, f)| Sprite { worn: Vec::new(), name: name.clone(), frames: f.to_vec(), views: None, footprint: None, roof: None, north: None, west: None, top: None, card: Some(text.clone()), clear_in_3d: Vec::new(), paint: Default::default() }).collect()
+                names.iter().zip(frames.chunks(sprite::CARD_PART_FRAMES)).map(|(name, f)| Sprite { detail: 1, worn: Vec::new(), name: name.clone(), frames: f.to_vec(), views: None, footprint: None, roof: None, north: None, west: None, top: None, card: Some(text.clone()), clear_in_3d: Vec::new(), paint: Default::default() }).collect()
             }
         };
         if let Err(e) = parts.iter().try_for_each(|p| self.store.save(p)) {
@@ -437,6 +445,15 @@ impl Editor {
         c.label("Death sound", x, y + 3.0, 16.0, DIM, Align::Left);
         let own = self.own_sound.as_deref().filter(|file| file.starts_with(&format!("{}.", f.sound)));
         c.label(own.map_or(f.sound.clone(), |file| format!("{file}, its own")), CANVAS.x + 380.0, y + 3.0, 16.0, if own.is_some() { HOT } else { TEXT }, Align::Right);
+        let y = y + STAT_ROW;
+        c.label("Blood", x, y + 3.0, 16.0, DIM, Align::Left);
+        match f.blood {
+            Some([r, g, b]) => {
+                c.rect(CANVAS.x + 290.0, y + 2.0, 16.0, 16.0, [r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0, 1.0]);
+                c.label(format!("{r:02X}{g:02X}{b:02X}"), CANVAS.x + 380.0, y + 3.0, 16.0, HOT, Align::Right);
+            }
+            None => c.label("the game's", CANVAS.x + 380.0, y + 3.0, 16.0, TEXT, Align::Right),
+        }
         self.draw_mix(c, &f.id);
         c.label("Shift steps ten times as far.  T: back to the pixels", x, CANVAS.y + CANVAS.h - 22.0, 13.0, DIM, Align::Left);
     }
@@ -472,7 +489,7 @@ impl Editor {
         }
         let lx = m.x + m.w + 12.0;
         for (i, (id, name)) in mix.kinds.iter().enumerate() {
-            let y = plot_y + i as f32 * 18.0;
+            let y = m.y + i as f32 * 18.0;
             let total = mix.shares.iter().map(|s| s[i]).sum::<f32>() / mix.shares.len() as f32;
             c.rect(lx, y + 3.0, 10.0, 10.0, color(i));
             let label: String = name.chars().take(10).collect();
@@ -553,7 +570,9 @@ impl Editor {
             return self.card_rows()?[..3].iter().map(|r| r.first().cloned()).collect();
         }
         let (prefix, _) = self.sprite.name.rsplit_once('_')?;
-        ["FRONT", "SIDE", "BACK"].iter().map(|w| self.store.load(&format!("{prefix}_{w}"))?.frames.into_iter().next()).collect()
+        // Drawn at this sprite's detail, whatever the walk's is, so a still keeps the figure's size.
+        let at_mine = |s: Sprite| s.frames.first().map(|f| f.redetailed(s.detail, self.sprite.detail));
+        ["FRONT", "SIDE", "BACK"].iter().map(|w| at_mine(self.store.load(&format!("{prefix}_{w}"))?)).collect()
     }
 
     /// Whether the open part is a card's dead frames, which the previews show lying down.
@@ -574,7 +593,7 @@ impl Editor {
             return Some(f);
         }
         let a = *self.live.get(i).filter(|_| self.built_in_still() == Some(5) && i < self.sprite.frames.len())?;
-        Some(last_harvest_game::Figure { stand: [a; 3], flash: [a; 3], hurt: [a; 3], dead: Some([a; 3]), gibs: 0 })
+        Some(last_harvest_game::Figure { stand: [a; 3], flash: [a; 3], hurt: [a; 3], dead: Some([a; 3]), gibs: 0, blood: None })
     }
 
     /// Draws the open still sprite's frames, one per facing, as the game draws a card's blank ones, to edit from.

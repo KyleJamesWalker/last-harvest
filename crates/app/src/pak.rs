@@ -78,11 +78,21 @@ fn read_maps(files: Vec<(String, Vec<u8>)>, problems: &mut Vec<String>) -> Vec<M
     .collect()
 }
 
-/// Reads the cards of `kind` among `files`, by name, noting any that aren't.
-fn read_cards(kind: card::Kind, files: Vec<(String, Vec<u8>)>, problems: &mut Vec<String>) -> Vec<Card> {
+/// Each enemy card's own death sound by card name, as `kill-<id>.ogg` or `.wav` and its bytes, in the order read.
+type OwnSounds = Vec<(String, Option<(String, Vec<u8>)>)>;
+
+/// Reads the cards of `kind` among `files`, by name, noting any that aren't, and adds each enemy card's own death
+/// sound, or None, to `own`. A sound that won't read is noted and the card loads without it.
+fn read_cards(kind: card::Kind, files: Vec<(String, Vec<u8>)>, problems: &mut Vec<String>, own: &mut OwnSounds) -> Vec<Card> {
     let mut cards = Vec::new();
     for (name, bytes) in files.into_iter().filter(|(name, _)| name.ends_with(kind.extension())) {
         match card::read_as(kind, &name, &bytes) {
+            Ok(c) if kind == card::Kind::Enemy => {
+                let id = last_harvest_game::card_fields(&c.text).map(|f| f.id).unwrap_or_default();
+                let sound = card::sound(&bytes).map_err(|e| problems.push(format!("{name}: {e}"))).ok().flatten();
+                own.push((name, sound.map(|(ext, s)| (format!("kill-{id}.{ext}"), s.to_vec()))));
+                cards.push(c);
+            }
             Ok(c) => cards.push(c),
             Err(e) => problems.push(e),
         }
@@ -194,8 +204,9 @@ fn install_noting(base: Option<Pak>, missing_pack: Option<String>, more: Vec<(St
     let (powerups, enemies, props_table, tuning, effects) = (text(pack::POWERUPS)?, text(pack::ENEMIES)?, text(pack::PROPS_TABLE)?, text(pack::TUNING)?, text(pack::EFFECTS)?);
     let (ground, farm) = (text(pack::GROUND)?, text(pack::FARM)?);
     let (enemy, player) = (card::Kind::Enemy, card::Kind::Player);
-    let cards = read_cards(enemy, pak.take_dir(pack::ENEMY_CARDS), &mut problems);
-    let players = read_cards(player, pak.take_dir(pack::PLAYER_CARDS), &mut problems);
+    let mut own = OwnSounds::new();
+    let cards = read_cards(enemy, pak.take_dir(pack::ENEMY_CARDS), &mut problems, &mut own);
+    let players = read_cards(player, pak.take_dir(pack::PLAYER_CARDS), &mut problems, &mut Vec::new());
     let maps = read_maps(pak.take_dir(pack::MAPS), &mut problems);
     let props = read_props(pak.take_dir(pack::PROPS), &mut problems);
     let mut data = Data { atlas: pak.take(pack::ATLAS), font: pak.take(pack::FONT), powerups, enemies, props_table, tuning, effects, ground, farm, cards, players, props, maps };
@@ -210,10 +221,10 @@ fn install_noting(base: Option<Pak>, missing_pack: Option<String>, more: Vec<(St
         data.maps.extend(read_maps(samples::read_files(&dir, &[last_harvest_game::MAP_EXTENSION]), &mut problems));
     }
     if let Some(dir) = cards_folder() {
-        data.cards.extend(read_cards(enemy, samples::read_files(&dir, &[enemy.extension()]), &mut problems));
+        data.cards.extend(read_cards(enemy, samples::read_files(&dir, &[enemy.extension()]), &mut problems, &mut own));
     }
     if let Some(dir) = players_folder() {
-        data.players.extend(read_cards(player, samples::read_files(&dir, &[player.extension()]), &mut problems));
+        data.players.extend(read_cards(player, samples::read_files(&dir, &[player.extension()]), &mut problems, &mut Vec::new()));
     }
     keep_last_of_each_name(&mut data.cards);
     keep_last_of_each_name(&mut data.players);
@@ -237,6 +248,7 @@ fn install_noting(base: Option<Pak>, missing_pack: Option<String>, more: Vec<(St
         let folder = samples::read_folder(&dir);
         sounds = if forced { folder } else { overlay_sounds(folder, sounds) };
     }
+    let sounds = with_own_sounds(sounds, own);
     log!("audio: {} sound files", sounds.len());
     Ok(sounds)
 }
@@ -265,6 +277,19 @@ fn overlay_sounds(base: Files, top: Files) -> Files {
     out
 }
 
+/// `sounds` with each card's own death sound, the last read under each card name, where no file has its cue.
+fn with_own_sounds(mut sounds: Files, own: OwnSounds) -> Files {
+    let last: std::collections::HashMap<String, Option<(String, Vec<u8>)>> = own.into_iter().collect();
+    let stem = |file: &str| file.rsplit_once('.').map_or(file, |(s, _)| s).to_string();
+    for (file, bytes) in last.into_values().flatten() {
+        if !sounds.iter().any(|(n, _)| stem(n) == stem(&file)) {
+            sounds.push((file, bytes));
+        }
+    }
+    sounds.sort_by(|a, b| a.0.cmp(&b.0));
+    sounds
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -274,7 +299,7 @@ mod tests {
         let good = card::write("[ghoul]\nname Ghoul", 3, 5, &[0; 3 * 5 * 4]).unwrap();
         let files = vec![("bad.enemy.png".to_string(), b"nope".to_vec()), ("ghoul.enemy.png".to_string(), good), ("notes.txt".to_string(), vec![])];
         let mut problems = Vec::new();
-        let cards = read_cards(card::Kind::Enemy, files, &mut problems);
+        let cards = read_cards(card::Kind::Enemy, files, &mut problems, &mut Vec::new());
         assert_eq!(cards.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["ghoul.enemy.png"]);
         assert_eq!(problems.len(), 1);
         assert!(problems[0].starts_with("bad.enemy.png: "), "{problems:?}");
@@ -282,10 +307,25 @@ mod tests {
 
     #[test]
     fn a_loose_card_stands_in_for_a_packs_of_the_same_name() {
-        let card = |name: &str, text: &str| Card { worn: String::new(), name: name.into(), text: text.into(), frame: [1, 1], sheet: vec![] };
+        let card = |name: &str, text: &str| Card { detail: 1, worn: String::new(), name: name.into(), text: text.into(), frame: [1, 1], sheet: vec![] };
         let mut cards = vec![card("ghoul.enemy.png", "pack"), card("bat.enemy.png", "pack"), card("ghoul.enemy.png", "loose")];
         keep_last_of_each_name(&mut cards);
         assert_eq!(cards.iter().map(|c| (c.name.as_str(), c.text.as_str())).collect::<Vec<_>>(), [("bat.enemy.png", "pack"), ("ghoul.enemy.png", "loose")]);
+    }
+
+    #[test]
+    fn a_cards_own_sound_fills_in_only_where_no_file_has_its_cue() {
+        let (ogg, wav) = (b"OggS".to_vec(), b"RIFF\0\0\0\0WAVE".to_vec());
+        let sound = |file: &str, b: &[u8]| Some((file.to_string(), b.to_vec()));
+        let own = vec![
+            ("bat.enemy.png".to_string(), sound("kill-bat.ogg", &ogg)),
+            ("ghoul.enemy.png".to_string(), sound("kill-ghoul.wav", &wav)),
+            ("old.enemy.png".to_string(), sound("kill-old.ogg", &ogg)),
+            ("old.enemy.png".to_string(), None),
+        ];
+        let files = vec![("kill-ghoul.ogg".to_string(), b"pack".to_vec())];
+        let names: Vec<String> = with_own_sounds(files, own).into_iter().map(|(n, _)| n).collect();
+        assert_eq!(names, ["kill-bat.ogg", "kill-ghoul.ogg"], "the pack's ghoul wins, and a card replaced by one without a sound brings none");
     }
 
     #[test]

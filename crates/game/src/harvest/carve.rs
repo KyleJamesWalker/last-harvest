@@ -26,13 +26,23 @@ pub struct Views {
     pub west: Option<[u16; 4]>,
 }
 
-pub fn carve(pixels: &[u8], stride: usize, v: &Views) -> Vec<Quad> {
+/// Carves the solid from views drawn `k` texture pixels to a game pixel: a view's game pixel is solid where any of its
+/// texture pixels is, the solid is in game pixels, and its faces are textured at full detail.
+pub fn carve(pixels: &[u8], stride: usize, v: &Views, k: u8) -> Vec<Quad> {
+    let k = k.max(1) as usize;
     let alpha = |r: [u16; 4], x: usize, y: usize| {
         let [rx, ry, rw, rh] = r.map(usize::from);
-        x < rw && y < rh && pixels[((ry + y) * stride + rx + x) * 4 + 3] > 0
+        (0..k).any(|j| (0..k).any(|i| {
+            let (tx, ty) = (x * k + i, y * k + j);
+            tx < rw && ty < rh && pixels[((ry + ty) * stride + rx + tx) * 4 + 3] > 0
+        }))
     };
-    let (w, d) = (v.top[2] as usize, v.top[3] as usize);
-    let h = v.south[3].min(v.east[3]) as usize;
+    let size = |n: u16| (n as usize).div_ceil(k);
+    let (w, d) = (size(v.top[2]), size(v.top[3]));
+    let h = size(v.south[3].min(v.east[3]));
+    // A texture coordinate `c` game pixels in from `o`.
+    let kf = k as f32;
+    let t = |o: f32, c: f32| o + c * kf;
     // `up` counts from the ground; the views' rows count down from the top.
     let footprint = v.footprint.unwrap_or(v.top);
     let solid = |x: usize, z: usize, up: usize| alpha(footprint, x, z) && alpha(v.south, x, h - 1 - up) && alpha(v.east, d - 1 - z, h - 1 - up);
@@ -50,7 +60,7 @@ pub fn carve(pixels: &[u8], stride: usize, v: &Views) -> Vec<Quad> {
                 let y = (up + 1) as f32;
                 out.push(Quad {
                     corners: [[x0, y, z0], [x1, y, z0], [x1, y, z1], [x0, y, z1]],
-                    uv: [ux + x0, uy + z0, ux + x1, uy + z1],
+                    uv: [t(ux, x0), t(uy, z0), t(ux, x1), t(uy, z1)],
                     normal: [0.0, 1.0, 0.0],
                 });
             }
@@ -64,7 +74,7 @@ pub fn carve(pixels: &[u8], stride: usize, v: &Views) -> Vec<Quad> {
                 let y = up as f32;
                 out.push(Quad {
                     corners: [[x0, y, z1], [x1, y, z1], [x1, y, z0], [x0, y, z0]],
-                    uv: [ux + x0, uy + z1, ux + x1, uy + z0],
+                    uv: [t(ux, x0), t(uy, z1), t(ux, x1), t(uy, z0)],
                     normal: [0.0, -1.0, 0.0],
                 });
             }
@@ -83,8 +93,8 @@ pub fn carve(pixels: &[u8], stride: usize, v: &Views) -> Vec<Quad> {
                     let zf = if face > 0.0 { z as f32 + 1.0 } else { z as f32 };
                     // Seen from the north, column c is x = w - 1 - c.
                     let uv = match north.filter(|_| own).map(|n| n.map(f32::from)) {
-                        Some([nx, ny, ..]) => [nx + wf - x0, ny + r0, nx + wf - x1, ny + r1],
-                        None => [sx + x0, sy + r0, sx + x1, sy + r1],
+                        Some([nx, ny, ..]) => [t(nx, wf - x0), t(ny, r0), t(nx, wf - x1), t(ny, r1)],
+                        None => [t(sx, x0), t(sy, r0), t(sx, x1), t(sy, r1)],
                     };
                     out.push(Quad { corners: [[x0, hf - r0, zf], [x1, hf - r0, zf], [x1, hf - r1, zf], [x0, hf - r1, zf]], uv, normal: [0.0, 0.0, face] });
                 }
@@ -105,8 +115,8 @@ pub fn carve(pixels: &[u8], stride: usize, v: &Views) -> Vec<Quad> {
                     let xf = if face > 0.0 { x as f32 + 1.0 } else { x as f32 };
                     let (south, north) = (df - c0, df - c1);
                     let uv = match west.filter(|_| own).map(|wv| wv.map(f32::from)) {
-                        Some([wx, wy, ..]) => [wx + south, wy + r0, wx + north, wy + r1],
-                        None => [ex + c0, ey + r0, ex + c1, ey + r1],
+                        Some([wx, wy, ..]) => [t(wx, south), t(wy, r0), t(wx, north), t(wy, r1)],
+                        None => [t(ex, c0), t(ey, r0), t(ex, c1), t(ey, r1)],
                     };
                     out.push(Quad { corners: [[xf, hf - r0, south], [xf, hf - r0, north], [xf, hf - r1, north], [xf, hf - r1, south]], uv, normal: [face, 0.0, 0.0] });
                 }
@@ -171,7 +181,7 @@ mod tests {
     #[test]
     fn a_full_block_is_five_faces() {
         let (px, stride, v) = texture(6, 4, 3, |_, _, _| false);
-        let q = carve(&px, stride, &v);
+        let q = carve(&px, stride, &v, 1);
         assert_eq!(q.len(), 5, "top and four sides; the bottom is never seen");
         let top = q.iter().find(|q| q.normal == [0.0, 1.0, 0.0]).unwrap();
         assert_eq!(top.corners[2], [6.0, 3.0, 4.0]);
@@ -181,7 +191,7 @@ mod tests {
     fn a_notch_in_the_south_view_lowers_the_roof_there() {
         // The south view's top row is clear over its left half: a hood lower than the cabin.
         let (px, stride, v) = texture(4, 2, 3, |k, x, y| k == 1 && y == 0 && x < 2);
-        let q = carve(&px, stride, &v);
+        let q = carve(&px, stride, &v, 1);
         let tops: Vec<f32> = q.iter().filter(|q| q.normal == [0.0, 1.0, 0.0]).map(|q| q.corners[0][1]).collect();
         assert!(tops.contains(&2.0) && tops.contains(&3.0), "{tops:?}");
     }
@@ -190,7 +200,7 @@ mod tests {
     fn the_east_view_is_read_with_south_on_its_left() {
         // Clear the east view's left column: the southern row of the solid disappears.
         let (px, stride, v) = texture(2, 3, 2, |k, x, _| k == 2 && x == 0);
-        let q = carve(&px, stride, &v);
+        let q = carve(&px, stride, &v, 1);
         let south = q.iter().filter(|q| q.normal == [0.0, 0.0, 1.0]).map(|q| q.corners[0][2]).fold(0.0, f32::max);
         assert_eq!(south, 2.0);
     }
@@ -213,7 +223,7 @@ mod tests {
         // The top view is fully opaque, but the footprint (the east view's rect reused) clears column 0.
         let (px, stride, mut v) = texture(3, 3, 3, |k, x, _| k == 2 && x == 0);
         v.footprint = Some(v.east);
-        let q = carve(&px, stride, &v);
+        let q = carve(&px, stride, &v, 1);
         let west = q.iter().filter(|q| q.normal == [0.0, 1.0, 0.0]).map(|q| q.corners[0][0]).fold(f32::MAX, f32::min);
         assert_eq!(west, 1.0, "the footprint's clear column is gone");
         let top = q.iter().find(|q| q.normal == [0.0, 1.0, 0.0]).unwrap();
@@ -225,7 +235,7 @@ mod tests {
         // The sprite (top) is clear in column 0; the footprint (east rect, all opaque) still makes it solid.
         let (px, stride, mut v) = texture(3, 3, 3, |k, x, _| k == 0 && x == 0);
         v.footprint = Some(v.east);
-        let q = carve(&px, stride, &v);
+        let q = carve(&px, stride, &v, 1);
         let tops: Vec<&Quad> = q.iter().filter(|q| q.normal == [0.0, 1.0, 0.0]).collect();
         let edge = tops.iter().find(|q| q.corners[0][0] == 0.0).unwrap();
         assert_eq!(edge.uv[0], v.east[0] as f32, "the clear column is colored from the footprint");
@@ -237,7 +247,7 @@ mod tests {
         // The footprint (the south rect) keeps the solid whole; the sprite (top), clear in column 0, is the north view.
         let (px, stride, mut v) = texture(3, 3, 3, |k, x, _| k == 0 && x == 0);
         (v.footprint, v.north) = (Some(v.south), Some(v.top));
-        let q = carve(&px, stride, &v);
+        let q = carve(&px, stride, &v, 1);
         let uvs = |normal: [f32; 3]| q.iter().filter(|q| q.normal == normal).map(|q| [q.uv[0], q.uv[2]]).collect::<Vec<_>>();
         let (t, s) = (v.top[0] as f32, v.south[0] as f32);
         assert!(uvs([0.0, 0.0, -1.0]).contains(&[t + 3.0, t + 1.0]), "x 0 and 1 from north columns 2 and 1");
@@ -245,14 +255,28 @@ mod tests {
         assert!(uvs([0.0, 0.0, 1.0]).iter().all(|&[u0, _]| u0 >= s && u0 < s + 3.0), "the south faces keep the south view");
         let mut no_north = v;
         no_north.north = None;
-        assert_eq!(carve(&px, stride, &no_north).len() + 1, q.len(), "the north faces split where their colors come from");
+        assert_eq!(carve(&px, stride, &no_north, 1).len() + 1, q.len(), "the north faces split where their colors come from");
+    }
+
+    #[test]
+    fn a_detail_2_copy_carves_the_same_solid_with_its_faces_at_full_detail() {
+        let (px, stride, v) = texture(4, 3, 3, |k, x, y| k == 1 && y == 0 && x < 2);
+        let rows = px.len() / 4 / stride;
+        let fine: Vec<u8> = (0..rows * 2).flat_map(|y| (0..stride * 2).map(move |x| (y / 2 * stride + x / 2) * 4)).flat_map(|i| px[i..i + 4].to_vec()).collect();
+        let up = |r: [u16; 4]| r.map(|n| n * 2);
+        let v2 = Views { top: up(v.top), footprint: None, south: up(v.south), east: up(v.east), north: None, west: None };
+        let (plain, detailed) = (carve(&px, stride, &v, 1), carve(&fine, stride * 2, &v2, 2));
+        assert_eq!(plain.len(), detailed.len());
+        for (a, b) in plain.iter().zip(&detailed) {
+            assert_eq!((a.corners, a.uv.map(|u| u * 2.0)), (b.corners, b.uv));
+        }
     }
 
     #[test]
     fn an_overhang_closes_its_underside() {
         // A south view whose bottom row is clear only at x 0: that column overhangs from one up.
         let (px, stride, v) = texture(3, 3, 3, |k, x, y| k == 1 && x == 0 && y == 2);
-        let q = carve(&px, stride, &v);
+        let q = carve(&px, stride, &v, 1);
         let under: Vec<&Quad> = q.iter().filter(|q| q.normal == [0.0, -1.0, 0.0]).collect();
         assert_eq!(under.len(), 1, "one face under the overhang, none on the ground");
         assert!(under[0].corners.iter().all(|c| c[1] == 1.0 && c[0] <= 1.0), "{:?}", under[0].corners);

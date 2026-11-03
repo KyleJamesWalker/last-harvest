@@ -7,12 +7,12 @@ use last_harvest_game::{Difficulty, kill_sounds, player_looks};
 /// A card of 16-pixel frames, opaque all over, `walk` frames across its walking rows.
 fn card(name: &str, text: &str, walk: u32) -> Card {
     let cols = walk.max(3);
-    Card { worn: String::new(), name: name.into(), text: text.into(), frame: [16, 16], sheet: vec![255; (16 * cols * 16 * 5 * 4) as usize] }
+    Card { detail: 1, worn: String::new(), name: name.into(), text: text.into(), frame: [16, 16], sheet: vec![255; (16 * cols * 16 * 5 * 4) as usize] }
 }
 
 #[test]
 fn enemy_and_player_cards_install_and_reach_the_game() {
-    let cards = vec![card("ghoul.enemy.png", "[ghoul]\nname Ghoul\nabout Quick and quiet.\nsound kill-ghoul\nwalk 5\n", 5)];
+    let cards = vec![card("ghoul.enemy.png", "[ghoul]\nname Ghoul\nabout Quick and quiet.\nsound kill-ghoul\nwalk 5\nblood 7AA062\n", 5)];
     let players = vec![card("jo.player.png", "[jo]\nname Jo\nabout Up with the sun.\nstart normal crows knife crows\nstart hard\n", 3)];
     // A map painted with a code only the mod's own ground.txt has, checked against that file.
     let ground = format!("{}\n[x]\nname Ash\nart DIRT_TUFTS\ncell open\n", last_harvest_game::built_in_table("ground.txt").unwrap());

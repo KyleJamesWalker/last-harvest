@@ -6,6 +6,7 @@ import android.content.Context;
 import android.media.AudioAttributes;
 import android.graphics.PixelFormat;
 import android.hardware.display.DisplayManager;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
@@ -14,6 +15,10 @@ import android.view.MotionEvent;
 import android.view.Surface;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
+import android.view.View;
+import android.view.Window;
+import android.view.WindowInsets;
+import android.view.WindowInsetsController;
 import android.view.WindowManager;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -26,7 +31,8 @@ import java.net.URL;
 /**
  * The game's NativeActivity, with what the NDK can't reach: the vibrator, and a second screen, which Android shows
  * as a separate presentation display. The bottom screen draws into a SurfaceView on that display, and its touches go
- * to the game as bottom-screen touches.
+ * to the game as bottom-screen touches. The game's window keeps the system bars hidden, as a swipe brings them back
+ * only for a moment.
  */
 public class MainActivity extends NativeActivity implements DisplayManager.DisplayListener {
     static {
@@ -49,9 +55,46 @@ public class MainActivity extends NativeActivity implements DisplayManager.Displ
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            WindowManager.LayoutParams layout = getWindow().getAttributes();
+            layout.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+            getWindow().setAttributes(layout);
+        }
+        hideSystemBars();
         displays = (DisplayManager) getSystemService(Context.DISPLAY_SERVICE);
         displays.registerDisplayListener(this, null);
         showSecondScreen();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        hideSystemBars();
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean focused) {
+        super.onWindowFocusChanged(focused);
+        if (focused) {
+            hideSystemBars();
+        }
+    }
+
+    /** Sticky immersive full screen: a swipe shows the status and navigation bars, and they hide again. */
+    private void hideSystemBars() {
+        Window window = getWindow();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            window.setDecorFitsSystemWindows(false);
+            WindowInsetsController bars = window.getInsetsController();
+            if (bars != null) {
+                bars.setSystemBarsBehavior(WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+                bars.hide(WindowInsets.Type.systemBars());
+            }
+        } else {
+            window.getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_FULLSCREEN
+                | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
+        }
     }
 
     @Override

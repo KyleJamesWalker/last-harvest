@@ -13,7 +13,7 @@ use last_harvest_game::SCREEN_W;
 use last_harvest_render::{Profile, Renderer};
 use sprite_editor::editor::Key;
 use sprite_editor::store::Store;
-use sprite_editor::studio::{Pane, Studio};
+use sprite_editor::studio::{Page, Pane, Studio};
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
 use web_sys::{AddEventListenerOptions, Document, Element, Event, EventTarget, HtmlCanvasElement, HtmlElement, HtmlInputElement, KeyboardEvent, PointerEvent, WebGl2RenderingContext, WheelEvent};
@@ -21,8 +21,6 @@ use web_sys::{AddEventListenerOptions, Document, Element, Event, EventTarget, Ht
 /// How far a finger may wander, in CSS pixels, and still tap; and how long it rests, in ms, before it draws.
 const TAP: f32 = 8.0;
 const HOLD: f64 = 120.0;
-/// Room left under the panes for the toolbar, in CSS pixels.
-const TOOLBAR: f32 = 180.0;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Gesture {
@@ -33,8 +31,9 @@ enum Gesture {
     Held { id: i32 },
     /// A finger on the sprite list, scrolling it once it moves.
     List { id: i32, at: [f32; 2], moved: bool },
-    /// Two fingers zooming and panning the pane they began in, until both lift.
-    Pinch { pane: Pane },
+    /// Two fingers zooming and panning the pane they began in, until both lift; or on a phone, off the pixel
+    /// canvas, scrolling the panes.
+    Pinch { pane: Pane, scrolls: bool },
 }
 
 struct Web {
@@ -44,8 +43,10 @@ struct Web {
     canvas: HtmlCanvasElement,
     input: HtmlInputElement,
     document: Document,
-    /// The panes' size in CSS pixels, and device pixels per CSS pixel.
-    size: [f32; 2],
+    /// How the panes fit the window, how far they are scrolled under the canvas in CSS pixels, and device pixels
+    /// per CSS pixel. Pointer positions are on the canvas, so `scroll` turns them into the panes'.
+    page: Page,
+    scroll: [f32; 2],
     dpr: f32,
     last: f64,
     gesture: Gesture,
@@ -75,32 +76,34 @@ fn distance(a: [f32; 2], b: [f32; 2]) -> f32 {
 }
 
 impl Web {
+    /// `p` on the canvas, in the panes.
+    fn on_panes(&self, p: [f32; 2]) -> [f32; 2] {
+        [p[0] + self.scroll[0], p[1] + self.scroll[1]]
+    }
+
     fn locate(&self, p: [f32; 2]) -> (Pane, [f32; 2]) {
-        Studio::locate(self.size, p)
+        Studio::locate(self.page.panes, self.on_panes(p))
     }
 
     fn in_pane(&self, pane: Pane, p: [f32; 2]) -> [f32; 2] {
-        Studio::in_pane(self.size, pane, p)
+        Studio::in_pane(self.page.panes, pane, self.on_panes(p))
     }
 
     fn layout(&mut self) {
         let Some(window) = web_sys::window() else { return };
         let inner = |v: Result<JsValue, JsValue>| v.ok().and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
-        let (iw, ih) = (inner(window.inner_width()), inner(window.inner_height()));
-        let room = (ih - TOOLBAR).max(200.0);
-        self.size = if ih > iw {
-            let w = iw.min(room * 8.0 / 9.0).floor();
-            [w, (w * 9.0 / 8.0).floor()]
-        } else {
-            let w = iw.min(room * 2.0).floor();
-            [w, (w / 2.0).floor()]
-        };
+        self.page = Page::fit([inner(window.inner_width()), inner(window.inner_height())]);
+        self.scroll = self.page.clamp(self.scroll);
         self.dpr = window.device_pixel_ratio() as f32;
+        let [w, h] = self.page.view;
         let style = self.canvas.style();
-        let _ = style.set_property("width", &format!("{}px", self.size[0]));
-        let _ = style.set_property("height", &format!("{}px", self.size[1]));
-        self.canvas.set_width((self.size[0] * self.dpr).round() as u32);
-        self.canvas.set_height((self.size[1] * self.dpr).round() as u32);
+        let _ = style.set_property("width", &format!("{w}px"));
+        let _ = style.set_property("height", &format!("{h}px"));
+        self.canvas.set_width((w * self.dpr).round() as u32);
+        self.canvas.set_height((h * self.dpr).round() as u32);
+        if let Some(body) = self.document.body() {
+            let _ = body.class_list().toggle_with_force("beside", self.page.beside);
+        }
     }
 
     fn frame(&mut self) {
@@ -116,8 +119,9 @@ impl Web {
             self.renderer.set_art(&self.gl, pixels);
         }
         let px = |v: f32| (v * self.dpr).round() as i32;
-        for (canvas, [x, y, w, h]) in self.studio.canvases().iter().zip(Studio::panes(self.size)) {
-            self.renderer.draw(&self.gl, canvas, [px(x), px(self.size[1] - y - h), px(w), px(h)]);
+        let [sx, sy] = self.scroll;
+        for (canvas, [x, y, w, h]) in self.studio.canvases().iter().zip(Studio::panes(self.page.panes)) {
+            self.renderer.draw(&self.gl, canvas, [px(x - sx), px(self.page.view[1] - (y - sy) - h), px(w), px(h)]);
         }
         let title = self.studio.editor.title();
         if title != self.title {
@@ -137,9 +141,9 @@ impl Web {
     }
 
     fn motion(&mut self, p: [f32; 2]) {
-        let (pane, at) = self.studio.locate_move(self.size, p);
+        let (pane, at) = self.studio.locate_move(self.page.panes, self.on_panes(p));
         // Only the 2.5D view turns by how far the pointer moves, so it is measured across a preview.
-        let dx = (p[0] - self.pointer[0]) / Studio::panes(self.size)[1][2] * SCREEN_W;
+        let dx = (p[0] - self.pointer[0]) / Studio::panes(self.page.panes)[1][2] * SCREEN_W;
         self.studio.motion(pane, at, dx);
         self.pointer = p;
     }
@@ -185,9 +189,10 @@ impl Web {
                 if matches!(self.gesture, Gesture::Held { .. }) {
                     self.studio.release();
                 }
-                let pane = self.locate(self.touches[0].1).0;
+                let (pane, at) = self.locate(self.touches[0].1);
+                let scrolls = self.page.scrolls() && !(pane == Pane::Edit && self.studio.editor.on_canvas(at));
                 self.spread = self.spread_now().unwrap_or_default();
-                self.gesture = Gesture::Pinch { pane };
+                self.gesture = Gesture::Pinch { pane, scrolls };
             }
             _ => {}
         }
@@ -225,11 +230,18 @@ impl Web {
                 }
                 self.pointer = p;
             }
-            Gesture::Pinch { pane } => {
+            Gesture::Pinch { pane, scrolls } => {
                 let Some((center, spread)) = self.spread_now() else { return };
                 let (was, before) = self.spread;
-                let [a, b] = [self.in_pane(pane, was), self.in_pane(pane, center)];
-                self.studio.pinch(pane, b, spread / before, [b[0] - a[0], b[1] - a[1]]);
+                if scrolls {
+                    self.scroll = self.page.clamp([0, 1].map(|i| self.scroll[i] - (center[i] - was[i])));
+                    if pane != Pane::Edit {
+                        self.studio.pinch(pane, self.in_pane(pane, center), spread / before, [0.0; 2]);
+                    }
+                } else {
+                    let [a, b] = [self.in_pane(pane, was), self.in_pane(pane, center)];
+                    self.studio.pinch(pane, b, spread / before, [b[0] - a[0], b[1] - a[1]]);
+                }
                 self.spread = (center, spread);
             }
             Gesture::Idle if e.pointer_type() != "touch" => self.motion(p),
@@ -547,7 +559,8 @@ fn start() -> Result<(), String> {
         canvas: canvas.clone(),
         input: input.clone(),
         document: document.clone(),
-        size: [1.0; 2],
+        page: Page::fit([1024.0, 768.0]),
+        scroll: [0.0; 2],
         dpr: 1.0,
         last: now(),
         gesture: Gesture::Idle,

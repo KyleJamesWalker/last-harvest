@@ -32,6 +32,9 @@ pub enum Sfx {
     Rise { pan: i8, gain: u8 },
     Groan { pan: i8, gain: u8 },
     Caw { pan: i8, gain: u8 },
+    /// A ranged zombie spitting, and its spit landing.
+    Spit { pan: i8, gain: u8 },
+    Splat { pan: i8, gain: u8 },
     /// The bug zapper's bolt.
     Zap,
     /// The farm dog getting stuck in.

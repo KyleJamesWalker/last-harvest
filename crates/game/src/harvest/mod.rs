@@ -6,6 +6,7 @@ mod effects;
 mod enemies;
 mod juice;
 mod map;
+mod photo;
 mod props;
 mod players;
 mod powerups;
@@ -24,12 +25,12 @@ pub(crate) use enemies::{install_cards, off_from_ids, off_ids, roster};
 pub use props::{MAX_FRAME as PROP_MAX_FRAME, MAX_FRAMES as PROP_MAX_FRAMES, Named as NamedProp, PREFIX as PROP_PREFIX, ByViews as PropByViews, PropFields, load_for_checks as load_props_for_checks, turned_depth, prop_fields, prop_text, props as named_props, set_props};
 pub(crate) use props::stand_of;
 pub use map::{default_depth as default_prop_depth, ground_codes as map_ground, MAP_EXTENSION, MAP_MAX, MAP_MIN, MAX_HP as PROP_MAX_HP, MapSource, map_props, parse_props, PropKind, PropLine, Tough as PropTough, check_map, valid_map_id};
-pub use enemies::{ABOUT_MAX, MAX_FRAME as CARD_MAX_FRAME, MAX_WALK, flash_pixel, frame_limits, hurt_pixel};
+pub use enemies::{ABOUT_MAX, MAX_FRAME as CARD_MAX_FRAME, card_frame_most, MAX_WALK, flash_pixel, frame_limits, hurt_pixel};
 pub use players::{BASE_KEYS as PLAYER_BASE_KEYS, ID_MAX as PLAYER_ID_MAX, PlayerFields, PlayerLook, default_start, looks as player_looks, player_fields, set_player_start, weapon_slots, weapons};
 pub use enemies::{CardFields, FLAGS as CARD_FLAGS, NUMBERS as CARD_NUMBERS, SpawnMix, card_fields, set_card_field, spawn_mix};
 use juice::{Corpse, Juice, Particle, Tone};
 use map::{Map, TILE};
-pub use powerups::{Progress, Run, found_from_ids, found_ids};
+pub use powerups::{Progress, Run, WeaponLevels, found_from_ids, found_ids, weapon_behaviours, weapon_levels, weapon_sound_names, weapon_stats};
 use powerups::{Kind as Card, book};
 use weapons::{Bolt, Decoy, Dog, Kit, Patch, Swing};
 
@@ -57,6 +58,8 @@ fn spawn_rings() -> ([f32; 2], [f32; 2]) {
 }
 const MAX_STAINS: usize = 160;
 const FLASH_TIME: f32 = 0.08;
+/// How near a spit's path passes the player to splash them.
+const SPIT_REACH: f32 = 6.0;
 /// Seconds the ground churns before a zombie breaks out.
 const TELL_TIME: f32 = 0.6;
 /// Seconds a struck zombie shows its red frame.
@@ -127,7 +130,12 @@ struct Kind(u8);
 
 impl Kind {
     fn stats(self) -> &'static Enemy {
-        &roster().enemies[self.0 as usize]
+        let all = &roster().enemies;
+        #[cfg(test)]
+        if self.0 as usize >= all.len() {
+            return tests::added_kind(self.0 as usize - all.len());
+        }
+        &all[self.0 as usize]
     }
 
     fn common() -> Self {
@@ -256,6 +264,7 @@ pub fn kill_sounds() -> impl Iterator<Item = &'static str> {
     roster().enemies.iter().map(|e| e.sound.as_str())
 }
 
+#[derive(Clone)]
 struct Zombie {
     kind: Kind,
     pos: [f32; 2],
@@ -291,6 +300,10 @@ struct Zombie {
     leader: bool,
     /// Dawn's Harvester: faster, heavier, harder biting, and drawn twice the size.
     boss: bool,
+    /// Seconds until a ranged zombie can spit again.
+    cd: f32,
+    /// Seconds above ground since it last surfaced, which a burrower digs back under after.
+    up: f32,
 }
 
 impl Zombie {
@@ -318,6 +331,8 @@ impl Zombie {
             burn_tick: 0.0,
             leader: false,
             boss: false,
+            cd: 0.0,
+            up: 0.0,
         }
     }
 
@@ -374,6 +389,24 @@ pub enum Rumble {
     Fanfare,
     Hit,
     Blast,
+}
+
+/// A ranged zombie's spit, flying straight at where the player stood.
+struct Spit {
+    kind: Kind,
+    pos: [f32; 2],
+    vel: [f32; 2],
+    damage: f32,
+    life: f32,
+    age: f32,
+}
+
+impl Spit {
+    /// The spit in its kind's own blood, if it has one.
+    fn tint(&self) -> [f32; 3] {
+        let spit = effects::effects().spit;
+        spit.frames.first().map_or([1.0; 3], |&a| juice::blood_tint(a, self.kind.stats().blood))
+    }
 }
 
 struct Bullet {
@@ -508,11 +541,13 @@ fn player_worn(h: &Harvest, facing: Facing) -> Option<([u8; 2], f32)> {
     Some((at, if h.ready_flash > 0.0 { READY_BRIGHT } else { 1.0 }))
 }
 
-/// Where the worn grenade's top-left goes on a frame `w` pixels wide, for its middle at `at`, mirrored with the frame.
-fn worn_corner(at: [u8; 2], w: f32, flip: bool) -> [f32; 2] {
-    let g = art::GRENADE_WORN;
-    let x = if flip { w - 1.0 - at[0] as f32 } else { at[0] as f32 };
-    [x - (g.w() / 2.0).floor(), at[1] as f32 - (g.h() / 2.0).floor()]
+/// Where the worn grenade's top-left goes on frame `a`, in game pixels, for its middle on the frame's texture pixel
+/// `at`, mirrored with the frame.
+fn worn_corner(at: [u8; 2], a: Art, flip: bool) -> [f32; 2] {
+    let (g, k) = (art::GRENADE_WORN, a.detail() as f32);
+    let [x, y] = at.map(|v| (v as f32 + 0.5) / k);
+    let x = if flip { a.w() - x } else { x };
+    [x - 0.5 - (g.w() / 2.0).floor(), y - 0.5 - (g.h() / 2.0).floor()]
 }
 
 /// The player's frame for a facing, and how far out of the ground it stands, 0 to 1. Once dead, it sinks
@@ -536,11 +571,12 @@ struct Fx {
     pos: [f32; 2],
     angle: f32,
     t: f32,
+    tint: [f32; 3],
 }
 
 impl Fx {
     fn play(e: effects::Effect, pos: [f32; 2], angle: f32) -> Self {
-        Fx { frames: e.frames, fps: e.fps, pos, angle, t: 0.0 }
+        Fx { frames: e.frames, fps: e.fps, pos, angle, t: 0.0, tint: [1.0; 3] }
     }
 
     fn done(&self) -> bool {
@@ -576,6 +612,8 @@ pub struct Flow {
     pub ended: Option<Run>,
     /// Powerups found this frame, to keep even if the run is abandoned.
     pub found: u64,
+    /// Photo mode asked for a capture.
+    pub capture: bool,
 }
 
 pub struct Harvest {
@@ -593,6 +631,9 @@ pub struct Harvest {
     walk: f32,
     kit: Kit,
     zombies: Vec<Zombie>,
+    /// Burrowers tunneling toward the player, out of reach of anything that hits.
+    burrowed: Vec<Zombie>,
+    spits: Vec<Spit>,
     bullets: Vec<Bullet>,
     drops: Vec<Drop>,
     fx: Vec<Fx>,
@@ -687,8 +728,8 @@ pub struct Harvest {
     leveling: f32,
     /// Seconds since the kill count last went up, for its bump.
     kill_bump: f32,
-    /// Cooldowns on sounds that would otherwise stack up in a swarm: hits, kills, groans, rising, birds.
-    hush: [f32; 5],
+    /// Cooldowns on sounds that would otherwise stack up in a swarm: hits, kills, groans, rising, birds, spit.
+    hush: [f32; 7],
     heartbeat: f32,
     /// Seconds of the full-screen gold flash when the cards appear.
     glory: f32,
@@ -717,6 +758,9 @@ pub struct Harvest {
     touch_aim: bool,
     /// Touch grenades have the map up.
     touch_map: bool,
+    photo: Option<photo::Photo>,
+    saves_photos: bool,
+    taps: bool,
 }
 
 /// Weapons and passives unlocked so far, out of all of them, and how many are waiting to be found.
@@ -737,6 +781,16 @@ pub fn next_unlock(p: &Progress) -> Option<(String, String)> {
         .map(|d| (d.name.clone(), d.unlock.text()))
 }
 
+/// Whether a shot from one spot on the ground to another crosses nothing that stops bullets.
+fn clear_shot(map: &Map, from: [f32; 2], to: [f32; 2]) -> bool {
+    let d = sub(to, from);
+    let steps = (len(d) / 4.0).ceil() as usize;
+    (1..steps).all(|k| {
+        let f = k as f32 / steps as f32;
+        !map.cover_at(from[0] + d[0] * f, from[1] + d[1] * f)
+    })
+}
+
 fn len(v: [f32; 2]) -> f32 {
     (v[0] * v[0] + v[1] * v[1]).sqrt()
 }
@@ -753,7 +807,7 @@ fn norm(v: [f32; 2]) -> [f32; 2] {
 impl Harvest {
     /// What a keyboard's Esc stands for: Start to pause a run in play, else B to back out of what is open.
     pub fn escape(&self) -> Buttons {
-        if self.menu.is_none() && matches!(self.phase, Phase::Playing) { Buttons::START } else { Buttons::B }
+        if self.menu.is_none() && self.photo.is_none() && matches!(self.phase, Phase::Playing) { Buttons::START } else { Buttons::B }
     }
 
     /// The player's position and the solid cells and props around them, for the debug pipe's `state`.
@@ -853,6 +907,8 @@ impl Harvest {
             walk: 0.0,
             kit,
             zombies: Vec::new(),
+            burrowed: Vec::new(),
+            spits: Vec::new(),
             bullets: Vec::new(),
             drops: Vec::new(),
             fx: Vec::new(),
@@ -884,7 +940,7 @@ impl Harvest {
             chain: (1.0, 0),
             leveling: 0.0,
             kill_bump: 1.0,
-            hush: [0.0; 5],
+            hush: [0.0; 7],
             heartbeat: 0.0,
             glory: 0.0,
             queued_touch: None,
@@ -901,6 +957,9 @@ impl Harvest {
             since_throw: 0.0,
             touch_aim: false,
             touch_map: false,
+            photo: None,
+            saves_photos: false,
+            taps: true,
         }
         .with_birds()
     }
@@ -1004,6 +1063,12 @@ impl Harvest {
         self.enemies_off
     }
 
+    /// Whether the paused whole map is up.
+    #[cfg(test)]
+    pub(crate) fn showing_whole_map(&self) -> bool {
+        self.overview
+    }
+
     #[cfg(test)]
     pub fn grenades_in_the_air(&self) -> usize {
         self.thrown.iter().filter(|g| g.kind == Thrown::Grenade).count()
@@ -1057,6 +1122,10 @@ impl Harvest {
         let mut flow = Flow::default();
         if self.bench {
             self.view_yaw = (self.view_yaw + TAU / 600.0).rem_euclid(TAU);
+            return flow;
+        }
+        if self.photo.is_some() {
+            self.photo(input, dt, sounds, &mut flow);
             return flow;
         }
         self.overview = input.held.contains(if self.single { Buttons::R2 } else { Buttons::L1 });
@@ -1226,9 +1295,11 @@ impl Harvest {
             }
         }
         self.rise(dt, sounds);
-        self.move_zombies(dt);
+        self.move_zombies(dt, sounds);
+        self.tunnel(dt, sounds);
         self.grow_fury(dt);
         self.contact(sounds, flow);
+        self.move_spits(dt, sounds, flow);
         self.fire(dt, sounds);
         self.move_bullets(dt, sounds);
         self.hazards(dt);
@@ -1258,6 +1329,11 @@ impl Harvest {
             self.juice.burst(self.pos, 8.0, 30, [0.0; 2], 0.0, [30.0, 120.0], juice::blood(), 2.0, 0.9, 0.0);
             flow.rumble = Some(Rumble::Blast);
             self.leveling = 0.0;
+            self.spits.clear();
+            for mut z in std::mem::take(&mut self.burrowed) {
+                z.rise = 1.0;
+                self.zombies.push(z);
+            }
             self.phase = Phase::Over { t: 0.0, won: false };
             flow.ended = Some(self.finish(false));
         } else if self.t >= dawn() && len(sub(self.pos, self.map.home)) < crate::tuning::tuning().home {
@@ -1268,6 +1344,8 @@ impl Harvest {
                 self.fx.push(Fx::play(effects::effects().dawn_burns, [z.pos[0], z.pos[1] - 6.0], 0.0));
             }
             self.tells.clear();
+            self.burrowed.clear();
+            self.spits.clear();
             self.juice.flash(self.pos, 40.0, [1.6, 1.1, 0.7], 14.0, 1.5);
             self.juice.shake(0.3);
             flow.rumble = flow.rumble.max(Some(Rumble::Fanfare));
@@ -1322,7 +1400,7 @@ impl Harvest {
         while self.fury_tick >= 1.0 {
             self.fury_tick -= 1.0;
             self.fury *= crate::tuning::tuning().fury;
-            for z in &mut self.zombies {
+            for z in self.zombies.iter_mut().chain(&mut self.burrowed) {
                 z.hp *= crate::tuning::tuning().fury;
             }
             for t in &mut self.tells {
@@ -1343,14 +1421,15 @@ impl Harvest {
             at = (at + n - 1) % n;
             sounds.push(Sfx::Tick(at as u8 * 3));
         }
-        let tapped = input.touch.filter(|_| input.touch_started).and_then(|[_, y]| choice_row(y)).filter(|&i| i < n);
+        let tapped = input.touch.filter(|_| input.touch_started).and_then(|[_, y]| pause_row(y));
         let chosen = tapped.or(input.pressed.any(Buttons::A | Buttons::X).then_some(at));
         self.menu = Some(at);
         match chosen {
             _ if input.pressed.any(Buttons::START | Buttons::B) => self.menu = None,
             Some(0) => self.menu = None,
             Some(1) => flow.settings = true,
-            Some(2) => self.restart(sounds),
+            Some(PAUSE_PHOTO) => self.open_photo(),
+            Some(3) => self.restart(sounds),
             Some(_) => flow.quit = true,
             None => {}
         }
@@ -1523,7 +1602,7 @@ impl Harvest {
             self.owed += 20.0 + minutes * 4.0;
             self.leader_owed = true;
         }
-        while self.owed >= 1.0 && self.zombies.len() + self.tells.len() < (crate::tuning::tuning().max_zombies as usize) {
+        while self.owed >= 1.0 && self.zombies.len() + self.tells.len() + self.burrowed.len() < (crate::tuning::tuning().max_zombies as usize) {
             self.owed -= 1.0;
             let roll = self.rng.range(0.0, 1.0);
             let leader = std::mem::take(&mut self.leader_owed);
@@ -1564,8 +1643,14 @@ impl Harvest {
             z.leader = t.leader;
             z.id = self.next_id;
             self.next_id += 1;
-            self.zombies.push(z);
-            self.fx.push(Fx::play(effects::effects().zombie_rises, [pos[0], pos[1] - 3.0], 0.0));
+            let burrows = t.kind.stats().burrow > 0.0;
+            if burrows {
+                self.burrowed.push(z);
+            } else {
+                self.zombies.push(z);
+            }
+            let puff = if burrows { effects::effects().mound_breaks } else { effects::effects().zombie_rises };
+            self.fx.push(Fx::play(puff, [pos[0], pos[1] - 3.0], 0.0));
             self.juice.burst(pos, 0.0, 8, [0.0; 2], 0.0, [15.0, 45.0], juice::dirt(), 1.6, 0.6, 0.0);
             let (pan, gain) = self.place(pos);
             if self.hush[3] <= 0.0 && gain > 60 {
@@ -1575,7 +1660,7 @@ impl Harvest {
         }
     }
 
-    fn move_zombies(&mut self, dt: f32) {
+    fn move_zombies(&mut self, dt: f32, sounds: &mut Vec<Sfx>) {
         let n = self.zombies.len();
         let mut sep = std::mem::take(&mut self.sep);
         sep.clear();
@@ -1597,14 +1682,17 @@ impl Harvest {
             self.flow_cell = cell;
         }
         let mut bites = Vec::new();
+        let mut spits = Vec::new();
         for (z, &s) in self.zombies.iter_mut().zip(&sep) {
             z.flash = (z.flash - dt).max(0.0);
             z.hurt = (z.hurt - dt).max(0.0);
             z.squash = (z.squash - dt * 5.0).max(0.0);
+            z.cd = (z.cd - dt).max(0.0);
             if z.rise < 1.0 {
                 z.rise = (z.rise + dt / crate::tuning::tuning().rise).min(1.0);
                 continue;
             }
+            z.up += dt;
             if z.stagger > 0.0 {
                 z.stagger -= dt;
                 continue;
@@ -1614,11 +1702,20 @@ impl Harvest {
             let speed = if z.boss { t.harvester_speed } else { z.kind.stats().speed * charge } * (1.0 - z.slow_k);
             let direct = sub(self.pos, z.pos);
             let lure = self.decoys.iter().find(|d| len(sub(d.pos, z.pos)) < d.lure);
+            let ranged = z.kind.stats().ranged;
+            let spitting = !z.boss && lure.is_none() && len(direct) <= ranged && clear_shot(&self.map, z.pos, self.pos);
             let to = match lure {
                 Some(d) => norm(sub(d.pos, z.pos)),
-                None if len(direct) < TILE * 1.5 => norm(direct),
+                None if spitting || len(direct) < TILE * 1.5 => norm(direct),
                 None => self.map.downhill(&self.flow, z.pos).unwrap_or(norm(direct)),
             };
+            let speed = if spitting { 0.0 } else { speed };
+            if spitting && z.cd <= 0.0 {
+                z.cd = t.spit_every.max(0.1);
+                let fly = t.spit_speed.max(1.0);
+                let pos = [z.pos[0], z.pos[1] - 6.0];
+                spits.push(Spit { kind: z.kind, pos, vel: [to[0] * fly, to[1] * fly], damage: z.kind.stats().damage, life: ranged * 1.5 / fly, age: 0.0 });
+            }
             let v = [to[0] * speed + s[0] * 20.0 + z.push[0], to[1] * speed + s[1] * 20.0 + z.push[1]];
             z.pos = self.map.slide_cells(z.pos, [v[0] * dt, v[1] * dt], crate::tuning::tuning().zombie_half());
             z.push = [z.push[0] * (1.0 - 8.0 * dt).max(0.0), z.push[1] * (1.0 - 8.0 * dt).max(0.0)];
@@ -1631,11 +1728,96 @@ impl Harvest {
             }
         }
         self.sep = sep;
+        if let Some(s) = spits.first()
+            && self.hush[5] <= 0.0
+        {
+            let (pan, gain) = self.place(s.pos);
+            sounds.push(Sfx::Spit { pan, gain });
+            self.hush[5] = 0.12;
+        }
+        self.spits.extend(spits);
+        let reach = crate::tuning::tuning().burrow_reach;
+        let mut i = 0;
+        while i < self.zombies.len() {
+            let z = &self.zombies[i];
+            let burrow = z.kind.stats().burrow;
+            if z.boss || burrow <= 0.0 || z.up < burrow || len(sub(self.pos, z.pos)) <= reach {
+                i += 1;
+                continue;
+            }
+            let mut z = self.zombies.swap_remove(i);
+            z.up = 0.0;
+            self.fx.push(Fx::play(effects::effects().mound_breaks, [z.pos[0], z.pos[1] - 3.0], 0.0));
+            self.juice.burst(z.pos, 0.0, 8, [0.0; 2], 0.0, [15.0, 45.0], juice::dirt(), 1.6, 0.6, 0.0);
+            self.burrowed.push(z);
+        }
         for (i, at, damage) in bites {
             self.map.hurt_prop(i, damage, 0.0);
             if self.juice.rng.range(0.0, 1.0) < dt * 3.0 {
                 self.juice.burst(at, 4.0, 2, [0.0; 2], 0.0, [20.0, 50.0], juice::dirt(), 1.0, 0.3, 0.0);
             }
+        }
+    }
+
+    /// Burrowers tunnel along the way the dead walk, churning the dirt above them, and break out near the player.
+    fn tunnel(&mut self, dt: f32, sounds: &mut Vec<Sfx>) {
+        let t = crate::tuning::tuning();
+        for i in (0..self.burrowed.len()).rev() {
+            let z = &mut self.burrowed[i];
+            let direct = sub(self.pos, z.pos);
+            let to = if len(direct) < TILE * 1.5 { norm(direct) } else { self.map.downhill(&self.flow, z.pos).unwrap_or(norm(direct)) };
+            let speed = z.kind.stats().speed;
+            z.pos = self.map.slide_cells(z.pos, [to[0] * speed * dt, to[1] * speed * dt], t.zombie_half());
+            z.dir = to;
+            z.facing = Facing::of(to);
+            let pos = z.pos;
+            if self.juice.rng.range(0.0, 1.0) < dt * 12.0 {
+                self.juice.burst(pos, 0.0, 1, [0.0; 2], 0.0, [6.0, 18.0], juice::dirt(), 1.4, 0.4, 0.0);
+            }
+            if len(sub(self.pos, pos)) > t.burrow_reach {
+                continue;
+            }
+            let mut z = self.burrowed.swap_remove(i);
+            z.rise = 0.0;
+            z.up = 0.0;
+            self.zombies.push(z);
+            self.fx.push(Fx::play(effects::effects().mound_breaks, [pos[0], pos[1] - 3.0], 0.0));
+            self.juice.burst(pos, 0.0, 8, [0.0; 2], 0.0, [15.0, 45.0], juice::dirt(), 1.6, 0.6, 0.0);
+            if self.hush[3] <= 0.0 {
+                let (pan, gain) = self.place(pos);
+                sounds.push(Sfx::Rise { pan, gain });
+                self.hush[3] = 0.3;
+            }
+        }
+    }
+
+    /// Spit flies straight until it splashes on the player or on cover, or falls short.
+    fn move_spits(&mut self, dt: f32, sounds: &mut Vec<Sfx>, flow: &mut Flow) {
+        let mut hit = 0.0f32;
+        let mut splat = None;
+        for s in &mut self.spits {
+            s.pos = [s.pos[0] + s.vel[0] * dt, s.pos[1] + s.vel[1] * dt];
+            s.life -= dt;
+            s.age += dt;
+            let ground = [s.pos[0], s.pos[1] + 6.0];
+            let player = len(sub(ground, self.pos)) < SPIT_REACH;
+            if player || self.map.cover_at(ground[0], ground[1]) {
+                hit = hit.max(if player { s.damage } else { 0.0 });
+                splat = Some(ground);
+                self.juice.burst(ground, 6.0, 4, norm([-s.vel[0], -s.vel[1]]), 0.9, [20.0, 50.0], juice::blood_of(s.kind.stats().blood), 1.0, 0.3, 0.0);
+                s.life = 0.0;
+            }
+        }
+        self.spits.retain(|s| s.life > 0.0);
+        if let Some(at) = splat
+            && self.hush[6] <= 0.0
+        {
+            let (pan, gain) = self.place(at);
+            sounds.push(Sfx::Splat { pan, gain });
+            self.hush[6] = 0.12;
+        }
+        if hit > 0.0 && self.hurt <= 0.0 {
+            self.bitten(hit * self.fury * self.difficulty.damage(), sounds, flow);
         }
     }
 
@@ -1672,15 +1854,20 @@ impl Harvest {
             return;
         }
         let hit = self.zombies.iter().filter(|z| z.rise >= 1.0 && len(sub(z.pos, self.pos)) < crate::tuning::tuning().bite_reach).map(|z| z.kind.stats().damage * if z.boss { crate::tuning::tuning().harvester_bite } else { 1.0 } * self.fury * self.difficulty.damage()).fold(0.0, f32::max);
-        let hit = if hit > 0.0 { (hit - self.kit.mods.armor).max(1.0) } else { 0.0 };
         if hit > 0.0 {
-            self.hp -= hit;
-            self.hurt = self.difficulty.hurt_time();
-            self.juice.popup(self.pos, hit, Tone::Hurt);
-            flow.rumble = flow.rumble.max(Some(Rumble::Hit));
-            sounds.push(Sfx::Hurt);
-            self.ouch(0.45);
+            self.bitten(hit, sounds, flow);
         }
+    }
+
+    /// The player takes `hit`, less armor, and can't be hurt again for a moment.
+    fn bitten(&mut self, hit: f32, sounds: &mut Vec<Sfx>, flow: &mut Flow) {
+        let hit = (hit - self.kit.mods.armor).max(1.0);
+        self.hp -= hit;
+        self.hurt = self.difficulty.hurt_time();
+        self.juice.popup(self.pos, hit, Tone::Hurt);
+        flow.rumble = flow.rumble.max(Some(Rumble::Hit));
+        sounds.push(Sfx::Hurt);
+        self.ouch(0.45);
     }
 
     /// The player takes a hit: the screen flashes red and shakes, and the world catches its breath.
@@ -1846,17 +2033,21 @@ impl Harvest {
         }
     }
 
-    /// A zombie dying at `pos`, knocked toward `fall` and flung `fling` hard: blood, a stain, gibs and its corpse.
-    pub(super) fn gore(&mut self, pos: [f32; 2], fall: [f32; 2], fling: f32, dir: [f32; 2], look: &Look, gibs: usize) {
-        self.fx.push(Fx::play(effects::effects().blood, [pos[0], pos[1] - 4.0], 0.0));
+    /// A zombie dying at `pos`, knocked toward `fall` and flung `fling` hard: blood in its `own` color or the game's, a
+    /// stain, gibs and its corpse.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn gore(&mut self, pos: [f32; 2], fall: [f32; 2], fling: f32, dir: [f32; 2], look: &Look, gibs: usize, own: Option<[u8; 3]>) {
+        let splat = effects::effects().blood;
+        let tint = splat.frames.first().map_or([1.0; 3], |&a| juice::blood_tint(a, own));
+        self.fx.push(Fx { tint, ..Fx::play(splat, [pos[0], pos[1] - 4.0], 0.0) });
         let stain = art::BLOOD_STAIN[self.rng.below(art::BLOOD_STAIN.len())];
-        self.stain((stain, pos[0] - stain.w() / 2.0, pos[1] - stain.h() / 2.0, [1.0; 3]));
+        self.stain((stain, pos[0] - stain.w() / 2.0, pos[1] - stain.h() / 2.0, juice::blood_tint(stain, own)));
         let (vel, vz) = if fling > 0.0 { ([fall[0] * fling, fall[1] * fling], fling * 0.9) } else { ([fall[0] * 25.0, fall[1] * 25.0], 0.0) };
         let flip = self.juice.rng.below(2) == 0;
         let dead = look.dead.map(|d| (d, dir));
         self.juice.corpse(Corpse { art: look.hurt[Facing::Front.index()], dead, flip, pos, z: 0.0, vel, vz, fall, age: 0.0, spin: 0.0 });
-        self.juice.burst(pos, 8.0, gibs, fall, 1.2, [30.0, 110.0], juice::blood(), 1.6, 0.6, 0.0);
-        self.juice.burst(pos, 8.0, gibs / 3, fall, 0.8, [20.0, 60.0], juice::dark_blood(), 2.4, 0.8, 0.0);
+        self.juice.burst(pos, 8.0, gibs, fall, 1.2, [30.0, 110.0], juice::blood_of(own), 1.6, 0.6, 0.0);
+        self.juice.burst(pos, 8.0, gibs / 3, fall, 0.8, [20.0, 60.0], juice::dark_blood_of(own), 2.4, 0.8, 0.0);
     }
 
     fn reap(&mut self, sounds: &mut Vec<Sfx>, flow: &mut Flow) {
@@ -1876,7 +2067,7 @@ impl Harvest {
             });
             let s = z.kind.stats();
             let fall = if z.knock == [0.0; 2] { norm(sub(z.pos, self.pos)) } else { z.knock };
-            self.gore(z.pos, fall, z.fling, z.dir, &s.look, s.gibs as usize);
+            self.gore(z.pos, fall, z.fling, z.dir, &s.look, s.gibs as usize, s.blood);
             if s.heavy {
                 self.juice.stop(0.06);
                 self.juice.shake(0.2);
@@ -2156,10 +2347,18 @@ impl Harvest {
 }
 
 const CHOICE_TOP: f32 = 160.0;
-const PAUSE_CHOICES: [&str; 4] = ["Resume", "Settings", "New farm", "Quit to title"];
+const PAUSE_CHOICES: [&str; 5] = ["Resume", "Settings", "Photo mode", "New farm", "Quit to title"];
+const PAUSE_PHOTO: usize = 2;
 const CHOICE_ROW: f32 = 150.0;
+const PAUSE_ROW: f32 = 110.0;
 
-/// Which level-up or pause row a bottom-screen touch at `y` lands on.
+/// Which pause row a bottom-screen touch at `y` lands on.
+fn pause_row(y: f32) -> Option<usize> {
+    let row = ((y - CHOICE_TOP) / PAUSE_ROW).floor();
+    (0.0..PAUSE_CHOICES.len() as f32).contains(&row).then_some(row as usize)
+}
+
+/// Which level-up card a bottom-screen touch at `y` lands on.
 fn choice_row(y: f32) -> Option<usize> {
     let row = ((y - CHOICE_TOP) / CHOICE_ROW).floor();
     (0.0..4.0).contains(&row).then_some(row as usize)
@@ -2181,7 +2380,7 @@ fn strike(z: &mut Zombie, juice: &mut Juice, damage: f32, dir: [f32; 2], force: 
     if z.kind.stats().heavy && !z.boss && (crit || force > 100.0) {
         z.stagger = crate::tuning::tuning().stagger;
     }
-    juice.burst(z.pos, 8.0, if crit { 6 } else { 3 }, dir, 0.6, [30.0, 90.0], juice::blood(), 1.4, 0.4, 0.0);
+    juice.burst(z.pos, 8.0, if crit { 6 } else { 3 }, dir, 0.6, [30.0, 90.0], juice::blood_of(z.kind.stats().blood), 1.4, 0.4, 0.0);
     crit
 }
 
@@ -2216,6 +2415,133 @@ fn clock(t: f32) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    static ADDED: std::sync::Mutex<Vec<&'static Enemy>> = std::sync::Mutex::new(Vec::new());
+
+    pub(super) fn added_kind(i: usize) -> &'static Enemy {
+        ADDED.lock().unwrap()[i]
+    }
+
+    /// A kind past the roster's end: a skinny with `change` made, for trying a behavior the shipped kinds lack.
+    fn skinny_but(change: impl FnOnce(&mut Enemy)) -> Kind {
+        let mut e = Kind::named("skinny").stats().clone();
+        change(&mut e);
+        let mut added = ADDED.lock().unwrap();
+        added.push(Box::leak(Box::new(e)));
+        Kind((roster().enemies.len() + added.len() - 1) as u8)
+    }
+
+    #[test]
+    fn a_kind_with_its_own_blood_bleeds_splats_and_stains_in_it() {
+        let own = [0x7A, 0xA0, 0x62];
+        let green = skinny_but(|e| e.blood = Some(own));
+        let color = own.map(|v| v as f32 / 255.0);
+        let mut h = Harvest::calm(1);
+        let mut sounds = Vec::new();
+        // A burst shades each speck from 0.8 to 1.15 times its color.
+        let of = |p: &[f32; 3], c: [f32; 3]| (0..3).all(|k| (0.79..1.16).contains(&(p[k] / c[k])));
+        for (kind, blood, dark) in [(green, color, juice::dark_blood_of(Some(own))), (Kind::named("skinny"), juice::blood(), juice::dark_blood())] {
+            h.juice.particles.clear();
+            let mut z = Zombie::new(kind, [h.pos[0] + 40.0, h.pos[1]], 1.0, 1.0, 0.0);
+            strike(&mut z, &mut h.juice, 5.0, [1.0, 0.0], 0.0, 0.0);
+            assert!(h.juice.particles.iter().all(|p| of(&p.color, blood)), "a hit sprays its blood");
+            h.juice.particles.clear();
+            h.zombies.push(z);
+            h.reap(&mut sounds, &mut Flow::default());
+            let colors: Vec<[f32; 3]> = h.juice.particles.iter().map(|p| p.color).collect();
+            assert!(colors.iter().any(|p| of(p, blood)) && colors.iter().any(|p| of(p, dark)), "its death sprays its blood and the darker shade");
+            let (stain, fx) = (h.stains.last().unwrap(), h.fx.last().unwrap());
+            let mean = stain.0.mean().unwrap();
+            let drawn: Vec<f32> = (0..3).map(|k| mean[k] * stain.3[k]).collect();
+            if kind == green {
+                assert!(drawn.iter().zip(blood).all(|(d, b)| (d - b).abs() < 1e-4), "its stain averages its color: {drawn:?}");
+                assert_ne!(fx.tint, [1.0; 3], "its splat is tinted");
+                assert!(dark.iter().zip(blood).all(|(d, b)| d < &b), "the darker shade is darker");
+            } else {
+                assert_eq!((stain.3, fx.tint), ([1.0; 3], [1.0; 3]), "the game's own kinds keep the art's red");
+            }
+            let spit = Spit { kind, pos: h.pos, vel: [0.0; 2], damage: 1.0, life: 1.0, age: 0.0 };
+            assert_eq!(spit.tint() == [1.0; 3], kind != green, "a spit flies in its kind's blood");
+        }
+    }
+
+    #[test]
+    fn a_ranged_zombie_keeps_its_distance_and_spits_until_cover_stops_it() {
+        let mut h = Harvest::calm_on(1, &map::MapSource::new("Field", [20, 14])).unwrap();
+        h.kit.weapons.clear();
+        let spitter = skinny_but(|e| {
+            e.ranged = 60.0;
+            e.damage = 12.0;
+        });
+        h.zombies.push(Zombie::new(spitter, [h.pos[0] + 100.0, h.pos[1]], 1000.0, 1.0, 0.0));
+        let mut sounds = Vec::new();
+        for _ in 0..60 * 3 {
+            h.update(&Input::default(), 1.0 / 60.0, &mut sounds);
+            if !h.spits.is_empty() {
+                break;
+            }
+        }
+        let gap = len(sub(h.zombies[0].pos, h.pos));
+        assert!(!h.spits.is_empty() && gap <= 60.0 && gap > 50.0, "it stopped at its range, {gap}, and spat");
+        assert!(sounds.iter().any(|s| matches!(s, Sfx::Spit { .. })), "with a sound");
+        let before = h.zombies[0].pos;
+        for _ in 0..60 * 2 {
+            h.update(&Input::default(), 1.0 / 60.0, &mut sounds);
+        }
+        assert_eq!(h.zombies[0].pos, before, "and holds its ground");
+        assert!(h.hp < h.kit.max_hp(), "the spit landed");
+        h.hurt = 0.0;
+        h.spits = vec![Spit { kind: Kind(0), pos: [h.pos[0] - 1.0, h.pos[1] - 6.0], vel: [10.0, 0.0], damage: 12.0, life: 1.0, age: 0.0 }];
+        let hp = h.hp;
+        h.hush[6] = 0.0;
+        sounds.clear();
+        h.move_spits(0.016, &mut sounds, &mut Flow::default());
+        assert!(h.spits.is_empty() && h.hp == hp - 12.0, "a spit on the player hurts by its damage");
+        assert!(sounds.iter().any(|s| matches!(s, Sfx::Splat { .. })), "and splats");
+        h.hurt = 0.0;
+        h.spits = vec![Spit { kind: Kind(0), pos: [h.pos[0] - 40.0, h.pos[1] - 6.0], vel: [10.0, 0.0], damage: 12.0, life: 1.0, age: 0.0 }];
+        h.move_spits(0.016, &mut sounds, &mut Flow::default());
+        assert_eq!(h.spits.len(), 1, "one off to the side flies on");
+
+        let mut h = Harvest::calm(6);
+        let house = h.map.props.iter().find(|p| p.frames[0] == art::HOUSE).map(|p| [p.x + TILE / 2.0, p.base - TILE / 2.0]).unwrap();
+        h.spits = vec![Spit { kind: Kind(0), pos: [house[0], house[1] - 6.0], vel: [0.0; 2], damage: 12.0, life: 1.0, age: 0.0 }];
+        h.move_spits(0.016, &mut sounds, &mut Flow::default());
+        assert!(h.spits.is_empty(), "cover that stops a bullet stops spit");
+        assert!(!clear_shot(&h.map, [house[0] - 2.0 * TILE, house[1]], [house[0] + 2.0 * TILE, house[1]]), "nor spits through a house");
+    }
+
+    #[test]
+    fn a_burrower_tunnels_unhittable_and_breaks_out_beside_the_player() {
+        let mut h = Harvest::calm_on(1, &map::MapSource::new("Field", [20, 14])).unwrap();
+        h.kit.weapons.clear();
+        let mole = skinny_but(|e| e.burrow = 2.0);
+        h.tells.push(Tell { kind: mole, pos: [h.pos[0] + 90.0, h.pos[1]], hp: 1000.0, t: 0.0, leader: false });
+        let mut sounds = Vec::new();
+        h.update(&Input::default(), TELL_TIME + 0.01, &mut sounds);
+        assert_eq!((h.zombies.len(), h.burrowed.len()), (0, 1), "it breaks ground straight into a tunnel");
+        h.explode(h.burrowed[0].pos, 40.0, 500.0, &mut sounds);
+        assert_eq!(h.burrowed[0].hp, 1000.0, "nothing reaches it down there");
+        for _ in 0..60 * 6 {
+            h.update(&Input::default(), 1.0 / 60.0, &mut sounds);
+            if !h.zombies.is_empty() {
+                break;
+            }
+        }
+        assert_eq!((h.zombies.len(), h.burrowed.len()), (1, 0), "it surfaced");
+        assert!(h.fx.iter().any(|f| f.frames == effects::effects().mound_breaks.frames), "in a puff of dirt");
+        assert!(len(sub(h.zombies[0].pos, h.pos)) <= crate::tuning::tuning().burrow_reach && h.zombies[0].rise < 1.0, "beside the player");
+        h.zombies[0].rise = 1.0;
+        h.zombies[0].pos = [h.pos[0] + 80.0, h.pos[1]];
+        h.zombies[0].hp = 1000.0;
+        h.update(&Input::default(), 1.0 / 60.0, &mut sounds);
+        assert_eq!(h.zombies.len(), 1, "it stays up a while");
+        h.zombies[0].up = 1.99;
+        for _ in 0..5 {
+            h.update(&Input::default(), 1.0 / 60.0, &mut sounds);
+        }
+        assert_eq!((h.zombies.len(), h.burrowed.len()), (0, 1), "then digs back under");
+    }
 
     #[test]
     fn the_games_own_data_must_be_whole_and_name_its_sprites() {
@@ -2313,10 +2639,11 @@ mod tests {
         assert!(press(&mut h, Buttons::A).settings);
         assert!(h.menu.is_some(), "the run stays paused under the settings");
         press(&mut h, Buttons::DOWN);
+        press(&mut h, Buttons::DOWN);
         press(&mut h, Buttons::A);
         assert!(h.menu.is_none() && h.t == 0.0, "New farm starts over");
         press(&mut h, Buttons::START);
-        let tap = Input { touch: Some([500.0, CHOICE_TOP + CHOICE_ROW * 3.5]), touch_started: true, ..Default::default() };
+        let tap = Input { touch: Some([500.0, CHOICE_TOP + PAUSE_ROW * 4.5]), touch_started: true, ..Default::default() };
         assert!(h.update(&tap, 1.0 / 60.0, &mut Vec::new()).quit, "a tap on the last choice quits");
     }
 
@@ -2367,8 +2694,10 @@ mod tests {
     fn the_worn_grenade_centers_on_its_pixel_and_mirrors_with_the_frame() {
         let g = art::GRENADE_WORN;
         assert_eq!((g.w(), g.h()), (3.0, 4.0));
-        assert_eq!(worn_corner([11, 10], 16.0, false), [10.0, 8.0]);
-        assert_eq!(worn_corner([11, 10], 16.0, true), [3.0, 8.0], "pixel 11 of 16 mirrors to pixel 4");
+        let farmer = art::PLAYER_FRONT[0];
+        assert_eq!(farmer.w(), 16.0);
+        assert_eq!(worn_corner([11, 10], farmer, false), [10.0, 8.0]);
+        assert_eq!(worn_corner([11, 10], farmer, true), [3.0, 8.0], "pixel 11 of 16 mirrors to pixel 4");
     }
 
     #[test]
@@ -2551,7 +2880,7 @@ mod tests {
     #[test]
     fn a_map_smaller_than_the_view_draws_and_takes_a_tap() {
         let mut h = Harvest::calm_on(1, &MapSource::new("Tiny", MAP_MIN)).unwrap();
-        h.draw(&mut crate::Frame::default());
+        h.draw(&mut crate::Frame::default(), false);
         h.throw([SCREEN_W / 2.0, SCREEN_H / 2.0], &mut Vec::new());
         assert_eq!(h.camera(), [0.0; 2]);
     }
@@ -2846,7 +3175,7 @@ mod tests {
         let at = [h.pos[0] + 60.0, h.pos[1]];
         h.zombies.push(big);
         h.zombies[0].pos = at;
-        h.move_zombies(0.1);
+        h.move_zombies(0.1, &mut Vec::new());
         assert_eq!(h.zombies[0].pos, at);
     }
 

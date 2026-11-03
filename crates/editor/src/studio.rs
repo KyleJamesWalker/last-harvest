@@ -17,6 +17,57 @@ const FARTHEST: f32 = 200.0;
 const PLAYER_SWITCH: [f32; 4] = [SCREEN_W - 300.0, 8.0, 290.0, 48.0];
 /// The switch under it for a player facing's ready grenade, shown only for a sprite that wears one.
 const GRENADE_SWITCH: [f32; 4] = [SCREEN_W - 300.0, 64.0, 290.0, 48.0];
+/// Room the web page leaves for its toolbar, in CSS pixels: under the panes, or beside them on a phone held sideways.
+const TOOLBAR: f32 = 180.0;
+const BESIDE: f32 = 220.0;
+/// A window with a shorter side than this, in CSS pixels, is a phone's.
+const PHONE: f32 = 540.0;
+/// The panes on a phone: the tall layout with the editing pane at three quarters size.
+const PHONE_PANES: [f32; 2] = [768.0, 864.0];
+
+/// How the web page fits a window, in CSS pixels.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Page {
+    /// The panes' size, for `Studio::panes`.
+    pub panes: [f32; 2],
+    /// The part of the panes the canvas shows, smaller than them on a phone.
+    pub view: [f32; 2],
+    /// Whether the toolbar goes beside the canvas rather than under it.
+    pub beside: bool,
+}
+
+impl Page {
+    /// A tablet's or a computer's window fits the panes whole with the toolbar under them, a wide window twice
+    /// as wide as tall and a tall one 8 by 9. Whole on a phone they would draw at a third of their size, so it
+    /// shows part of them, near a tablet's size.
+    pub fn fit([w, h]: [f32; 2]) -> Self {
+        if w.min(h) < PHONE {
+            let beside = w > h;
+            let room = if beside { [w - BESIDE, h] } else { [w, h - TOOLBAR] };
+            let view = [0, 1].map(|i| room[i].floor().clamp(100.0, PHONE_PANES[i]));
+            return Self { panes: PHONE_PANES, view, beside };
+        }
+        let room = (h - TOOLBAR).max(200.0);
+        let panes = if h > w {
+            let w = w.min(room * 8.0 / 9.0).floor();
+            [w, (w * 9.0 / 8.0).floor()]
+        } else {
+            let w = w.min(room * 2.0).floor();
+            [w, (w / 2.0).floor()]
+        };
+        Self { panes, view: panes, beside: false }
+    }
+
+    /// Whether the canvas shows only part of the panes, which two fingers then scroll.
+    pub fn scrolls(&self) -> bool {
+        self.view != self.panes
+    }
+
+    /// `scroll`, the panes' offset under the canvas, kept to where the canvas stays on them.
+    pub fn clamp(&self, scroll: [f32; 2]) -> [f32; 2] {
+        [0, 1].map(|i| scroll[i].clamp(0.0, (self.panes[i] - self.view[i]).max(0.0)))
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Pane {
@@ -125,6 +176,7 @@ impl Studio {
         }
         self.showcase.lie(self.editor.lying_figure());
         self.showcase.show(self.editor.shown(), self.editor.stand(), self.editor.fps, self.editor.top_art());
+        art::set_live_detail(self.editor.live_detail());
         let (worn, wears) = self.editor.live_worn();
         last_harvest_game::art::set_live_worn(worn);
         self.showcase.wear_grenade(wears && self.grenade);
@@ -309,6 +361,28 @@ mod tests {
         assert_eq!(Studio::locate([800.0, 900.0], [200.0, 750.0]), (Pane::View, [512.0, 384.0]));
         assert_eq!(Studio::locate([800.0, 900.0], [600.0, 750.0]), (Pane::Map, [512.0, 384.0]));
         assert_eq!(Studio::locate([1536.0, 768.0], [1600.0, 100.0]).0, Pane::View, "past the window's edge, the pane nearest");
+    }
+
+    #[test]
+    fn a_phone_shows_part_of_the_panes_near_a_tablets_size_and_scrolls_them() {
+        let tablet = Page::fit([1180.0, 820.0]);
+        assert_eq!(tablet, Page { panes: [1180.0, 590.0], view: [1180.0, 590.0], beside: false });
+        assert!(!tablet.scrolls());
+        assert_eq!(Page::fit([820.0, 1180.0]).panes, [820.0, 922.0]);
+        assert!(!Page::fit([1280.0, 600.0]).scrolls(), "a short computer window still shows the panes whole");
+        let upright = Page::fit([390.0, 844.0]);
+        assert_eq!(upright, Page { panes: PHONE_PANES, view: [390.0, 664.0], beside: false });
+        let sideways = Page::fit([844.0, 390.0]);
+        assert_eq!(sideways, Page { panes: PHONE_PANES, view: [624.0, 390.0], beside: true });
+        for page in [upright, sideways] {
+            assert!(page.scrolls());
+            let edit = Studio::panes(page.panes)[Pane::Edit as usize];
+            assert!(edit[2] / SCREEN_W >= 0.75, "the editing pane draws at three quarters size");
+            assert_eq!(page.clamp([-5.0, -5.0]), [0.0, 0.0]);
+            let end = page.clamp([1e4, 1e4]);
+            assert_eq!([0, 1].map(|i| end[i] + page.view[i]), page.panes, "scrolled to the end, the canvas ends with the panes");
+        }
+        assert_eq!(Studio::locate(sideways.panes, [700.0, 700.0]).0, Pane::Map, "the previews stay under the editing pane");
     }
 
     #[test]

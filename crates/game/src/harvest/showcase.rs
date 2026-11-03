@@ -38,6 +38,8 @@ pub struct Figure {
     pub hurt: [Art; 3],
     pub dead: Option<[Art; 3]>,
     pub gibs: usize,
+    /// Its own blood color, else effects.txt's.
+    pub blood: Option<[u8; 3]>,
 }
 
 /// The seed hand-made maps are built with in the editor, so their scatter holds still while editing.
@@ -238,8 +240,8 @@ impl Showcase {
             let pos = self.harvest.shown.as_ref().map(|s| s.pos);
             if let Some(pos) = pos.filter(|_| *kill && before < FLASH_TIME && *t >= FLASH_TIME) {
                 let look = Look { walk: figure.stand.map(|a| vec![a]), flash: figure.flash, hurt: figure.hurt, dead: figure.dead };
-                let gibs = figure.gibs;
-                self.harvest.gore(pos, forward, 0.0, [-forward[0], -forward[1]], &look, gibs);
+                let (gibs, blood) = (figure.gibs, figure.blood);
+                self.harvest.gore(pos, forward, 0.0, [-forward[0], -forward[1]], &look, gibs, blood);
             }
             if Self::struck(figure, *kill, *t).is_none() {
                 self.strike = None;
@@ -298,7 +300,7 @@ mod tests {
 
     fn figure(dead: bool) -> Figure {
         let a = [art::SKINNY_HURT[0]; 3];
-        Figure { stand: [art::SKINNY_FRONT[0]; 3], flash: a, hurt: a, dead: dead.then_some(a), gibs: 9 }
+        Figure { stand: [art::SKINNY_FRONT[0]; 3], flash: a, hurt: a, dead: dead.then_some(a), gibs: 9, blood: None }
     }
 
     #[test]

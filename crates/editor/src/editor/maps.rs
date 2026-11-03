@@ -56,10 +56,13 @@ const TOUGH_Y: f32 = PICK_TOP + 30.0;
 /// Where the selected prop's walk-through rows, frame and pace go under Move, a row apart.
 const LINE_Y: f32 = TOUGH_Y + 100.0;
 const LINE_ROW: f32 = 36.0;
-pub(super) const PROP_PALETTE_ROWS: usize = 5;
-pub(super) const PROP_HP_Y: f32 = 474.0;
-pub(super) const PROP_OPEN_Y: f32 = 508.0;
-const PROP_COVER_Y: f32 = 440.0;
+pub(super) const PROP_PALETTE_ROWS: usize = 4;
+/// A player's prop packed for the previews: its fields, how many pictures it packed before its 3D copies, how many
+/// copies, and its detail.
+pub(super) type MapProp = (PropFields, usize, usize, u8);
+pub(super) const PROP_HP_Y: f32 = 440.0;
+pub(super) const PROP_OPEN_Y: f32 = 474.0;
+const PROP_COVER_Y: f32 = 406.0;
 
 pub(super) struct MapEdit {
     pub id: String,
@@ -290,9 +293,9 @@ impl Editor {
 
     /// Every player's prop the store keeps, to pack for the previews while a map is open: their frames, then the
     /// footprint, roof and views of one that stands by them, as `PropFields::stand_by` takes them, then the frames again without the colors it clears in 3D, in
-    /// turn and all again for each coat, and each one's fields, how many it packed before those copies, and how many
-    /// copies.
-    pub(super) fn prop_surfaces(&self) -> (Vec<Frame>, Vec<(PropFields, usize, usize)>) {
+    /// turn and all again for each coat, and each one's fields, how many it packed before those copies, how many
+    /// copies, and its detail.
+    pub(super) fn prop_surfaces(&self) -> (Vec<Frame>, Vec<MapProp>) {
         let (mut frames, mut props) = (Vec::new(), Vec::new());
         for (name, _) in self.names.iter().filter(|(n, _)| n.starts_with(last_harvest_game::PROP_PREFIX)) {
             let Some(s) = self.store.load(name) else { continue };
@@ -311,7 +314,7 @@ impl Editor {
             let group: Vec<Frame> = s.frames.iter().chain(&before).chain(&views).chain(&after).chain(&copies).cloned().collect();
             let paint = &f.paint;
             frames.extend((0..paint.copies()).flat_map(|k| group.iter().map(move |fr| fr.in_coat(paint, k))));
-            props.push((f, packed, copies.len()));
+            props.push((f, packed, copies.len(), s.detail));
         }
         (frames, props)
     }
@@ -321,7 +324,7 @@ impl Editor {
     pub(super) fn register_props(&mut self) {
         let mut at = 0;
         let (mut named, mut solids) = (Vec::new(), Vec::new());
-        for (f, n, copies) in &self.map_props {
+        for (f, n, copies, _) in &self.map_props {
             let Some(all) = self.live.get(at..at + (n + copies) * f.paint.copies()) else { break };
             let coats = all
                 .chunks(n + copies)
@@ -481,7 +484,7 @@ impl Editor {
     fn start_map(&mut self, name: &str, id: &str, src: MapSource) {
         self.map = Some(MapEdit::new(id, src));
         (self.data, self.data_link) = (None, None);
-        self.sprite = Sprite { worn: Vec::new(), name: name.into(), frames: vec![Frame::blank(16, 16)], views: None, footprint: None, roof: None, north: None, west: None, top: None, card: None, clear_in_3d: Vec::new(), paint: Default::default() };
+        self.sprite = Sprite { detail: 1, worn: Vec::new(), name: name.into(), frames: vec![Frame::blank(16, 16)], views: None, footprint: None, roof: None, north: None, west: None, top: None, card: None, clear_in_3d: Vec::new(), paint: Default::default() };
         self.frame = 0;
         self.view = None;
         self.stats = false;
@@ -1202,7 +1205,8 @@ mod prop_tests {
         let frames = e.surfaces();
         assert_eq!(frames.len(), 4, "the prop's frames pack for the previews, then their 3D copies");
         assert!(frames[2].px[..16].iter().all(|p| p[3] == 0) && frames[2].px[16] == [200, 40, 40, 255], "a copy drops only the cleared colors");
-        assert_eq!(e.map_props.iter().map(|(_, n, copies)| (*n, *copies)).collect::<Vec<_>>(), [(2, 2)]);
+        assert_eq!(e.map_props.iter().map(|(_, n, copies, _)| (*n, *copies)).collect::<Vec<_>>(), [(2, 2)]);
+        assert_eq!(e.live_detail(), [1; 4], "each of a prop's pictures at its detail");
         e.set_live(vec![Art(1), Art(2), Art(3), Art(4)]);
         assert!(e.map.as_ref().unwrap().problem.is_none(), "registering the props checks the map again");
         let picks = pickable();

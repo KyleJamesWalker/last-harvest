@@ -105,6 +105,18 @@ fps 12
 art DOG
 fps 10
 
+[spit]
+art BLOOD_SPLAT
+fps 10
+
+[mound]
+art MOUND
+fps 6
+
+[mound_breaks]
+art DIRT_PUFF
+fps 9
+
 # The colors of particles, as red, green and blue from 0 to 1. A mod's file can leave any of them out.
 [colors]
 blood 0.62 0.08 0.06

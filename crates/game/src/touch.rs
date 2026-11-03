@@ -1,6 +1,6 @@
-//! On-screen controls for a phone, in window pixels: a floating stick on the left, and on the right Grenade and Turn
-//! around over a turn strip, a sideways-only floating stick that turns as a right stick does, with Pause above. They
-//! go beside the picture when the window is wide enough and under it when upright.
+//! On-screen controls for a phone, in window pixels: a floating stick on the left with Map above it, and on the right
+//! Grenade and Turn around over a turn strip, a sideways-only floating stick that turns as a right stick does, with
+//! Pause above. They go beside the picture when the window is wide enough and under it when upright.
 
 use crate::art::{self, Art};
 use crate::input::{Buttons, MAX_TOUCHES};
@@ -20,7 +20,7 @@ pub struct Layout {
     stick_r: f32,
     /// Where a thumb puts the turn strip down; empty outside a run.
     turn: Rect,
-    keys: [(Buttons, Art, Rect); 3],
+    keys: [(Buttons, Art, Rect); 4],
 }
 
 impl Layout {
@@ -59,11 +59,12 @@ pub fn layout(size: [f32; 2], run: bool, touch: bool) -> Layout {
     let none = (Buttons::NONE, art::WHITE, [0.0; 4]);
     if !touch {
         let (top, bottom) = if run { (Some(fit([0.0, 0.0, w, h])), None) } else { (None, Some(fit([0.0, 0.0, w, h]))) };
-        return Layout { size, top, bottom, stick: [0.0; 4], stick_r: 0.0, turn: [0.0; 4], keys: [none; 3] };
+        return Layout { size, top, bottom, stick: [0.0; 4], stick_r: 0.0, turn: [0.0; 4], keys: [none; 4] };
     }
     if !run {
-        let (top, bottom) = if wide { (fit([0.0, 0.0, w / 2.0, h]), fit([w / 2.0, 0.0, w / 2.0, h])) } else { (fit([0.0, 0.0, w, h / 2.0]), fit([0.0, h / 2.0, w, h / 2.0])) };
-        return Layout { size, top: Some(top), bottom: Some(bottom), stick: [0.0; 4], stick_r: 0.0, turn: [0.0; 4], keys: [none; 3] };
+        let side_by_side = w * SCREEN_H >= h * SCREEN_W;
+        let (top, bottom) = if side_by_side { (fit([0.0, 0.0, w / 2.0, h]), fit([w / 2.0, 0.0, w / 2.0, h])) } else { (fit([0.0, 0.0, w, h / 2.0]), fit([0.0, h / 2.0, w, h / 2.0])) };
+        return Layout { size, top: Some(top), bottom: Some(bottom), stick: [0.0; 4], stick_r: 0.0, turn: [0.0; 4], keys: [none; 4] };
     }
     let u = w.min(h);
     let (pic, left, right) = if wide {
@@ -87,6 +88,8 @@ pub fn layout(size: [f32; 2], run: bool, touch: bool) -> Layout {
         (Buttons::L2, art::GRENADE, square(cx, right[1] + 1.2 * cell, cell)),
         (Buttons::B, art::TOUCH_AROUND, square(cx, right[1] + 2.3 * cell, 0.85 * cell)),
         (Buttons::START, art::TOUCH_PAUSE, square(right[0] + right[2] - 0.4 * cell, right[1] + 0.4 * cell, 0.6 * cell)),
+        // Held, the whole map paused, as R2 shows it on a pad.
+        (Buttons::R2, art::TOUCH_MAP, square(left[0] + 0.4 * cell, left[1] + 0.4 * cell, 0.6 * cell)),
     ];
     let strip = right[1] + 2.85 * cell;
     let turn = [right[0], strip, right[2], (right[1] + right[3] - strip).max(cell)];
@@ -130,7 +133,7 @@ pub struct Touchpad {
     fingers: [Option<Finger>; MAX_TOUCHES],
     held: Buttons,
     /// Gamepad or keyboard input hides the controls until a finger comes down off the screens.
-    hidden: bool,
+    pub(crate) hidden: bool,
 }
 
 impl Touchpad {
@@ -269,7 +272,11 @@ mod tests {
         assert!(l.bottom.is_none());
         assert!(l.stick[0] + l.stick[2] <= pic[0] + 0.5);
         for &(b, _, r) in &l.keys {
-            assert!(r[0] >= pic[0] + pic[2] - 0.5, "{b:?} sits right of the picture");
+            if b == Buttons::R2 {
+                assert!(r[0] + r[2] <= pic[0] + 0.5, "the map key sits left of the picture, over the stick");
+            } else {
+                assert!(r[0] >= pic[0] + pic[2] - 0.5, "{b:?} sits right of the picture");
+            }
         }
     }
 
@@ -356,11 +363,46 @@ mod tests {
     }
 
     #[test]
+    fn at_every_shape_the_menus_take_the_bigger_of_side_by_side_and_stacked() {
+        for size in (4..=25).map(|tenths| [1000.0 * tenths as f32 / 10.0, 1000.0]).chain([[640.0, 480.0], [720.0, 720.0], [720.0, 480.0]]) {
+            let [w, h] = size;
+            let l = layout(size, false, true);
+            let (t, b) = (l.top.unwrap(), l.bottom.unwrap());
+            let best = (w / 2.0 / SCREEN_W).min(h / SCREEN_H).max((w / SCREEN_W).min(h / 2.0 / SCREEN_H));
+            assert!((t[2] - best * SCREEN_W).abs() < 0.01 && t[2] == b[2], "{size:?}: {t:?} {b:?} could be {}", best * SCREEN_W);
+            for [x, y, rw, rh] in [t, b] {
+                assert!(x >= 0.0 && y >= 0.0 && x + rw <= w + 0.01 && y + rh <= h + 0.01, "{size:?}: clipped");
+            }
+            let apart = t[0] + t[2] <= b[0] + 0.01 || t[1] + t[3] <= b[1] + 0.01;
+            assert!(apart, "{size:?}: the screens overlap");
+        }
+    }
+
+    #[test]
     fn upright_puts_the_controls_under_the_picture() {
         let l = layout([1080.0, 2400.0], true, true);
         let pic = l.top.unwrap();
         assert!(l.stick[1] >= pic[1] + pic[3] - 0.5);
         assert!(l.keys.iter().all(|&(_, _, r)| r[1] >= pic[1] + pic[3] - 0.5));
+    }
+
+    #[test]
+    fn the_map_key_holds_r2_for_the_whole_map_and_clears_the_resting_stick() {
+        for tenths in 4..=25 {
+            let size = [1000.0 * tenths as f32 / 10.0, 1000.0];
+            let l = layout(size, true, true);
+            let map = l.key(Buttons::R2).unwrap();
+            let [x, y] = rest(l.stick, l.stick_r);
+            let ring = [x - l.stick_r, y - l.stick_r, 2.0 * l.stick_r, 2.0 * l.stick_r];
+            let apart = |a: Rect, b: Rect| a[0] + a[2] <= b[0] || b[0] + b[2] <= a[0] || a[1] + a[3] <= b[1] || b[1] + b[3] <= a[1];
+            assert!(apart(map, ring), "{size:?}: the map key {map:?} sits on the stick {ring:?}");
+            assert!(map[0] >= 0.0 && map[1] >= 0.0 && map[0] + map[2] <= size[0] && map[1] + map[3] <= size[1], "{size:?}");
+        }
+        let l = layout([1080.0, 2400.0], true, true);
+        let map = l.key(Buttons::R2).unwrap();
+        let mut pad = Touchpad::default();
+        let out = pad.update(&fingers(&[[map[0] + map[2] / 2.0, map[1] + map[3] / 2.0]]), &l, false);
+        assert!(out.held.contains(Buttons::R2) && out.stick == [0.0; 2], "held, and not the stick");
     }
 
     #[test]

@@ -28,6 +28,28 @@ pub fn dark_blood() -> [f32; 3] {
     super::effects::colors()[1]
 }
 
+/// Blood in a kind's `own` color, or effects.txt's.
+pub fn blood_of(own: Option<[u8; 3]>) -> [f32; 3] {
+    own.map_or_else(blood, |c| c.map(|v| v as f32 / 255.0))
+}
+
+/// The darker shade of a kind's blood: its own color as much darker as effects.txt's dark_blood is than its blood.
+pub fn dark_blood_of(own: Option<[u8; 3]>) -> [f32; 3] {
+    if own.is_none() {
+        return dark_blood();
+    }
+    let sum = |c: [f32; 3]| c.iter().sum::<f32>();
+    let k = (sum(dark_blood()) / sum(blood()).max(0.01)).min(1.0);
+    blood_of(own).map(|v| v * k)
+}
+
+/// What to multiply a blood sprite by to draw it in a kind's `own` color: white for effects.txt's.
+pub fn blood_tint(art: Art, own: Option<[u8; 3]>) -> [f32; 3] {
+    let (Some(_), Some(mean)) = (own, own.and_then(|_| art.mean())) else { return [1.0; 3] };
+    let c = blood_of(own);
+    std::array::from_fn(|k| c[k] / mean[k].max(0.02))
+}
+
 pub fn dirt() -> [f32; 3] {
     super::effects::colors()[2]
 }

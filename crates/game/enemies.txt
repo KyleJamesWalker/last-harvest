@@ -18,6 +18,12 @@
 #   chance      P         see below; 1 when left out
 #   per_minute  P         added to chance for each minute of the night; 0 when left out
 #   charge      N         times its speed once within tuning.txt's charge_reach of the player; 1 when left out
+#   ranged      PIXELS    stops this near the player, with a clear shot, and spits its damage at them, up to 160;
+#                         effects.txt's [spit] is how it looks; 0 when left out, for a biter
+#   burrow      SECONDS   tunnels out of reach to within tuning.txt's burrow_reach of the player, rises, and digs
+#                         back under after this long up unless it's that near; up to 60; 0 when left out, for never
+#   blood       RRGGBB    the color it bleeds, stains and splats, written as palette.txt writes one; effects.txt's
+#                         blood when left out
 #   heavy                 a crit or a hard hit roots it for a moment, and its death shakes the screen
 #   leader                a horde's leader, carrying the chest, is one of these
 #   harvester             dawn's Harvester wears this one's sprites

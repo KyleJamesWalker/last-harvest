@@ -63,10 +63,11 @@ A run plays on one screen with controls beside it, or under it when the phone is
 | Turn around | Around |
 | Show the map | Tap Grenade; tap it again to put the 3D view back. You keep moving |
 | Throw a grenade | While the map is up, tap where it should land |
+| See the whole map, paused | Hold Map, above the stick |
 | Pick an upgrade, or a pause choice | Tap it |
 | Pause | Pause |
 
-Putting the map away never throws, and nothing slows down. That is the Touch style; Settings > Grenades set to Pad makes Grenade (and L2 on a gamepad) aim with a cursor in slowed time instead, held and let go, as on one screen, which suits a handheld with buttons. The controls hide when you use a gamepad or keyboard, and come back at your next touch.
+Putting the map away never throws, and nothing slows down. That is the Touch style; Settings > Grenades set to Pad makes Grenade (and L2 on a gamepad) aim with a cursor in slowed time instead, held and let go, as on one screen, which suits a handheld with buttons. Settings > Touch controls picks when the controls show. Auto, the default, hides them when you use a gamepad or keyboard and brings them back at your next touch; On keeps them up; Off leaves them out for good, as on a handheld with buttons and a touch screen: menus show the bottom screen, the title shows the menu over its picture, and L2 aims grenades. Until you press a button or move a stick, a touch turns Off back to Auto, so a phone without buttons never loses its controls.
 
 In a browser, Esc and Home do nothing, and neither do screenshots, brightness or rumble. Sound starts with your first click or key. A gamepad in the browser's standard layout maps by its labels, as on an Xbox pad:
 
@@ -92,7 +93,7 @@ A night lasts ten minutes, from dusk to dawn. A bell rings each minute.
 - **Getting home.** Run back to the farmhouse's front step to survive the night.
 - **Falling.** If you fall, you sink into the dirt and climb back out as one of the dead. You lead them off to the next farm.
 
-Start pauses a run. The pause menu offers Resume, Settings, New farm and Quit to title.
+Start pauses a run. The pause menu offers Resume, Settings, Photo mode, New farm and Quit to title.
 
 ### Difficulties
 
@@ -142,7 +143,7 @@ The biggest finds appear only in the chest a horde's leader drops. Picking up a 
 The title's bottom screen lists Play, Map, Settings, Stats and Credits. Up and Down choose a row, A or a tap opens it, and B goes back. The top screen shows the game's version in its top-left corner.
 
 - **Map** picks a hand-made map, or a random farm, for every run after. The game saves the choice.
-- **Settings** sets each screen's brightness, the volume, rumble, the frame-rate overlay, your look, which zombies come, and Reset progress.
+- **Settings** sets each screen's brightness, the volume, rumble, the frame-rate overlay, on a phone the touch controls and grenade style, your look, which zombies come, and Reset progress.
     - **Player** picks your look from the player cards, showing each walking on the top screen.
     - **Enemies** shows each kind of zombie walking on the top screen with its numbers. A turns a kind on or off. Nights skip the kinds turned off, and at least one stays on.
     - **Reset progress** clears kills, records and found powerups after a second press. Settings stay.
@@ -153,6 +154,37 @@ The title's bottom screen lists Play, Map, Settings, Stats and Credits. Up and D
 ### Saving screenshots
 
 R1 saves both screens, the top above the bottom, as `screenshots/shot-NNNN.png` beside the save.
+
+### Photo mode
+
+Choose Photo mode from the pause menu to frame a shot of the run, horde and all. Nothing moves until you leave.
+
+| Action | Pad | Keyboard |
+|---|---|---|
+| Turn the camera around you | Left / Right, or the stick | Left / Right arrows |
+| Zoom | Up / Down | Up / Down arrows |
+| Raise or lower the camera | Hold L1 with Up / Down | Hold 1 with Up / Down |
+| Choose a setting: Time, Fog, Lantern, Pose, Props or Place | L2 | Q |
+| Change it; on Pose, pick the next zombie; on Props or Place, drop the chosen prop on the cross | R2 | 2 |
+| On Pose, turn the picked zombie | Left / Right, or the stick | Left / Right arrows |
+| On Pose, step its frame | Up / Down | Up / Down arrows |
+| On Props, choose a prop | Left / Right, or the stick | Left / Right arrows |
+| On Props, turn the last prop dropped | Up / Down | Up / Down arrows |
+| On Place, move the cross where props drop | D-pad, or the stick | Arrows |
+| On Place, put the cross back where the camera looks | X | S |
+| On Props or Place, take back the last prop dropped | Y | A |
+| Take a photo | R1, or tap | W |
+| Back to the pause menu | B or Start | Z, Enter or Esc |
+
+The settings change only the picture, never the run, and go back to the run's own when you leave. Time steps through Midnight, Small hours, First light, Daybreak and Dawn, then back to Now. Fog goes from Clear through Thin, Usual and Thick to Pea soup. Lantern goes from Out through Dim, Usual and Bright to Blazing. The help shows each value and puts the chosen setting in brackets.
+
+Pose lets you set up the zombies in the shot. R2 picks the zombie in the picture nearest where the camera looks, and each press after picks the next of the eight nearest, then back round to the first. A marker points at the one picked. Left and Right then turn it instead of the camera, and Up and Down step its frame forward or back, through its walk and then its hurt, flash and dead frames; the turn strip on a phone still turns the camera, and L1 with Up / Down still raises it. Dead, it lies on the ground as the game lays its corpses, on its card's dead frame or else its front hurt frame, and Left and Right turn it where it lies. A posed zombie starts in its walk, and goes back to how the run left it, standing, when you leave.
+
+Props lets you dress the shot. Left and Right choose a prop: a barrier, barrel, tank, hay bale, haystack, scarecrow, tombstone, sign, mailbox, skull fence, dead or tall tree, stump, log, bush, corpse, gas pump, tractor, truck, car or wreck, then any props of your own loaded from mod packs or the props folder, by name. R2 drops it on the cross on the ground, its front to the camera, and a marker points at it; Up and Down turn the last one dropped. Y takes the last one back, and so does R2 on Take back, the choice after the last prop and before Barrier. The help counts how many are in. Props stand only in the picture: zombies don't see them, and they go when you leave.
+
+The cross starts where the camera looks. After each drop it steps aside to the right of the prop, so props dropped one after another stand in a row; where the edge of the map or the cross's reach stops the row, it grows from its left end instead. To put one somewhere else, choose Place: Left, Right, Up and Down slide the cross across the ground as the camera sees it, Up away from you, up to 12 tiles from you and never off the map, and R2 drops the chosen prop there. X puts the cross back where the camera looks. The help says how far out the cross is; when it is out of the picture, it waits at the edge nearest it, along the bottom when it is behind the camera. On Props and Place the map on the bottom screen shows the cross too. On Take back, R2 on Place takes back the last prop, as on Props.
+
+A photo leaves out the HUD, the guides and the help. It saves the top screen as `screenshots/photo-NNNN.png` beside the save, and its middle square, the one the guide outlines, as `photo-NNNN-square.png`. On a phone the touch stick and turn strip move the camera, the Grenade key chooses a setting and the Map key changes it (on Place the stick moves the cross; on Props, choose Take back to remove one), and a tap on the picture takes the photo. Where the game can't save a file, in a browser, on Android and on muOS, R1 or a tap hides the guides instead, so your device's own screenshot comes out clean.
 
 ## Weapons, passives and zombies
 
@@ -260,6 +292,8 @@ The image holds the enemy's frames in five rows:
 
 Each walking row holds as many frames as the card's `walk` line says, 1 to 8. Without a `walk` line, it holds 3. Every frame is the same size, up to 64 pixels. The sheet is as wide as its longest row.
 
+A card can be drawn at detail 2 or 4: that many of its pixels make one game pixel across and down, so the figure keeps its size in the game with finer pixels, and frames run to 128 pixels: 64 game pixels at detail 2, 32 at detail 4. Use it sparingly, since the rest of the game is drawn at 1.
+
 A flash or hurt frame left fully clear is drawn by the game from that facing's first walking frame. The flash becomes the figure's shape in one pale color. The hurt frame becomes the figure in reds with its outline kept.
 
 An optional sixth row holds dead frames, one per facing. A corpse tips its dead frame over. A card without dead frames tips its front hurt frame instead.
@@ -307,6 +341,8 @@ The prop's text holds its `[id]` and any of these lines that differ from the def
 | `broken yes` | Its last frame shows once it breaks, and the rest animate. It vanishes when left out. |
 
 A prop that carves or turns keeps its south and east views under its frames, `views` pixels tall. Any north and west views follow them, in that order. A carving's footprint and then its top sit after its last frame.
+
+A prop can be drawn at detail 2 or 4, as a card can. Its frames and views are then drawn that many times finer and keep their size in the game, so a prop at detail 2 is up to 128 game pixels a side. It blocks the same tiles, carves the same solid and folds at the same row as a plain one. Its `stand` numbers stay in game pixels, while `views` counts the sheet's pixels.
 
 ### Maps
 
@@ -369,7 +405,7 @@ A pack's `tuning.txt`, and the `[colors]` of its `effects.txt`, need only the li
 - `[player]`: your health, speed, money magnet, critical-hit chance, pickup reach and footprint, before upgrades, and how fast the view turns.
 - `[night]`: the night's length, where zombies rise at dusk and dawn, and how near home counts. It also sets the rare-card chance and the level-up push.
 - `[easy]`, `[normal]` and `[hard]`: how hard bites hit and how long a hit keeps you safe. They also set how often kills drop health, and how much.
-- `[zombies]`: the most alive at once, rising time, stagger, growth each minute, a leader's health, dawn's fury, footprint, walk speed, bite reach, `charge_reach` and how fast zombies chew through a prop.
+- `[zombies]`: the most alive at once, rising time, stagger, growth each minute, a leader's health, dawn's fury, footprint, walk speed, bite reach, `charge_reach`, how fast and how often a ranged zombie spits, how near a burrower surfaces, and how fast zombies chew through a prop.
 - `[harvester]`: dawn's boss, with its health, speed, bite and how far away it rises.
 - `[grenade]`: recharge time, flight time, radius, damage and bomblets.
 - `[barrel]`: health, blast radius and damage.
@@ -419,9 +455,9 @@ Each section names what an effect, swing or animal plays:
 - `life N`: a swing's seconds.
 - `reach N`: how far out a swing sweeps, as a fraction of the weapon's range or area.
 
-A sprite that stands as a slab lies flat and turns with the swing. Anything else faces the camera. A section with a name of your own is a new effect a weapon can use.
+A sprite that stands as a slab lies flat and turns with the swing. Anything else faces the camera. A section with a name of your own is a new effect a weapon can use. A mod's file may leave out `[spit]`, `[mound]` and `[mound_breaks]`, added later, and keep the game's.
 
-The `[colors]` section sets the particle colors: `blood`, `dark_blood`, `dirt`, `spark`, `ember`, `gold` and `firefly`. Each is red, green and blue from 0 to 1.
+The `[colors]` section sets the particle colors: `blood`, `dark_blood`, `dirt`, `spark`, `ember`, `gold` and `firefly`. Each is red, green and blue from 0 to 1. A zombie with its own `blood` bleeds that instead, and its `dark_blood` is as much darker.
 
 #### powerups.txt
 
@@ -490,6 +526,9 @@ Each `[id]` section is one kind of zombie:
 | `chance` | The share of arrivals it takes, 1 when left out |
 | `per_minute` | Added to `chance` for each minute of the night |
 | `charge` | Times its speed once it gets near you. 1 when left out. |
+| `ranged` | How near it stops to spit at you, in pixels, up to 160. 0, a biter, when left out. |
+| `burrow` | Seconds it stays up before it tunnels again, up to 60. 0, never, when left out. |
+| `blood` | The color it bleeds, as `RRGGBB` such as `7AA062`. `effects.txt`'s `blood` when left out. |
 | `heavy` | A crit or hard hit roots it for a moment, and its death shakes the screen |
 | `leader` | A horde's leader, carrying the chest, is one of these |
 | `harvester` | Dawn's Harvester wears its sprites |
@@ -497,6 +536,10 @@ Each `[id]` section is one kind of zombie:
 Each arriving zombie rolls a number from 0 to 1. It becomes the first kind, top to bottom, whose chance is above the roll. Put the rarest kinds first, and end on one with no chance. A lost night's player rises as the last kind.
 
 A `charge` speeds a zombie up once it comes within `tuning.txt`'s `charge_reach` of you. `charge 2` doubles its speed there.
+
+A `ranged` zombie walks in until it is that near and has a clear shot, then stands and spits. Each spit does its `damage`, flies slower than you walk, and splashes on cover as a bullet would. `tuning.txt` sets `spit_speed` and `spit_every`, and `effects.txt`'s `[spit]` sets its look; a mod's `effects.txt` without one keeps the game's. It plays the `spit` sound as it spits and `splat` where it lands. A mod pack replaces either with `sounds/spit.ogg` or `sounds/splat.ogg`.
+
+A `burrow` zombie breaks ground into a tunnel. Underground it shows as a moving dirt mound, and nothing can hit it. It rises within `tuning.txt`'s `burrow_reach` of you, in a puff of dirt. After `burrow` seconds up, it digs back under, unless it is that near you. `effects.txt`'s `[mound]` sets the mound's look and `[mound_breaks]` the puff; a mod's `effects.txt` without them keeps the game's.
 
 ## The card editor
 
@@ -525,6 +568,8 @@ The palette is PICO-8's 32 colors. The previews show your card on a plain floor,
 
 Hurt and Kill play a hit or the game's death on the figure in the previews.
 
+**Detail** - and + redraw a card's or prop's frames 2x finer or coarser, so it keeps its size in the game. A prop's views, footprint, top and north and west drawings go finer or coarser with them. Going finer copies each pixel into a block to paint over; going coarser keeps each block's most common color, and Undo brings the detail back.
+
 On a player card's walking parts, **Grenade** (`W`) places where the player wears a ready grenade. The first click sets every frame; later clicks set the frame on show, and Shift-click sets every frame again. **Hide** leaves it off that facing. **Grenade: shown** in the 3D view hides it in the previews only.
 
 ### The Stats page
@@ -536,8 +581,11 @@ For an enemy card, it steps each number with - and +, ten times as far with Shif
 - Health, Speed, Bite, Money, Weight and Gibs.
 - Arrives after (minutes), Chance and Chance per minute.
 - Charge, its speed near you as a multiple.
+- Spits from, in pixels, and Burrows after, in seconds up. 0 turns either off.
 
 Three toggles set Heavy, Leads hordes and Harvester. The page also shows the card's death sound. **Drop own**, beside it, removes the card's own sound.
+
+Blood's < and > step the card's blood color through the game's palette. A step before the first color goes back to the game's blood.
 
 Under the numbers, a chart shows how a night's spawns split between the game's kinds and your cards, minute by minute from dusk to dawn. Its legend gives each kind's share, and flags any kind that never comes.
 
@@ -555,6 +603,18 @@ A page shows one line a row, with its comment under it:
 - **Up** and **Down** page through a long section.
 - **Revert** goes back to the last save.
 - **Save** keeps the file only when the game would read it.
+
+A weapon's section in `powerups.txt` opens as a weapon page:
+
+- **Does** picks the weapon's behavior from the buttons on the right.
+- Each stat shows its value at every level, from 1 to `max`. Dim values are the game's own, for a stat the section leaves out.
+- A level's number picks that level. **-** and **+** on a stat step its value at that level only, ten times as far with Shift. **Edit** types the whole line.
+- **-** and **+** beside `max` change the highest level.
+- **<** and **>** step the effect and bullet through `effects.txt`, and the sound through the weapon sounds. **Own** removes the line, so the behavior's own plays.
+- The panel under the behaviors plays the chosen effect and bullet.
+- **Lines** shows the section a line a row, as any other page; **Weapon** goes back.
+
+Each change rewrites only its own line, so comments and other lines stay as written, and Undo takes it back.
 
 The card editor keeps a changed file in the browser, and Export all carries it into the mod pack. A sprite that `props.txt` or `effects.txt` names shows a Data button that opens its section.
 
@@ -602,6 +662,7 @@ The left pane lists every sprite. The pixel canvas, tools, color and frames sit 
 | Search the sprite list | `/`, then type. Enter opens the first match, and Esc clears the filter. |
 | Mirror strokes left to right | M |
 | See the previous frame faintly | O, or Onion |
+| Draw finer pixels at the same size in the game | Detail - and + |
 | Place a player's ready grenade | W, or Grenade, on a player's walking part, then click. Shift-click sets every frame. |
 | Compare a sprite with its family side by side | C, or Compare |
 | Draw flash, hurt or dead frames from the walk | Generate, on a `_FLASH`, `_HURT` or `_DEAD` sprite |

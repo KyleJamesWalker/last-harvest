@@ -13,6 +13,7 @@ mod coats;
 mod maps;
 mod palette;
 mod tables;
+mod weapons;
 
 use cards::HeldImport;
 use maps::{MapEdit, MapTool, PROP_HP_Y, PROP_OPEN_Y, PROP_PALETTE_ROWS};
@@ -61,6 +62,10 @@ const OPTIONAL: [usize; 5] = [FOOTPRINT, TOP, ROOF, NORTH, WEST];
 const FIGURE: u8 = 2;
 /// The row of the side pane that places a player's grenade, free beside a figure's stands or a card's Hurt and Kill.
 const GRENADE_Y: f32 = 640.0;
+/// The row that sets a sprite's detail, under the palette and over its stand.
+const DETAIL_Y: f32 = 508.0;
+/// Rows of swatches a sprite's palette shows, above the detail row.
+const PALETTE_ROWS: usize = 8;
 const DIALOG: Rect = Rect { x: 212.0, y: 250.0, w: 600.0, h: 230.0 };
 /// The unsaved-changes dialog's choices: save then switch, discard then switch, or stay.
 const CHOICES: [(&str, Choice); 3] = [("Save and switch  S", Choice::Save), ("Discard  D", Choice::Discard), ("Stay  Esc", Choice::Stay)];
@@ -230,6 +235,8 @@ enum Action {
     Flag(usize),
     Sound(i32),
     DropSound,
+    /// Steps a card's own blood color through the game's palette, or back to effects.txt's.
+    Blood(i32),
     EditName,
     EditAbout,
     /// Turns a weapon, by its place in `weapons()`, on or off in a player card's start at a difficulty.
@@ -281,6 +288,19 @@ enum Action {
     DataRemove(usize),
     DataAdd,
     DataPage(i32),
+    /// Shows the weapon page's lines as the data page does, or the weapon page again.
+    WeaponLines,
+    /// Picks the level whose numbers the weapon page steps.
+    WeaponLevel(usize),
+    WeaponMax(i32),
+    /// Sets the weapon's behaviour, by its place in `weapon_behaviours`.
+    WeaponDoes(usize),
+    /// Steps a weapon stat at the picked level, by its place in `weapon_stats`.
+    WeaponStep(usize, i32),
+    /// Starts typing a weapon stat's line.
+    WeaponType(usize),
+    /// Steps the weapon's effect, bullet or sound through what it can name; 0 leaves its behaviour's own.
+    WeaponPick(usize, i32),
     /// Leaves the paint color out of the 3D view, or puts it back.
     ClearIn3d,
     /// Shows the Coats page on the canvas, or the pixels again.
@@ -295,10 +315,12 @@ enum Action {
     AddCoat,
     /// Hides the ready grenade on the open player facing, or lets the game place it again.
     HideGrenade,
+    /// Steps a figure's detail down or up through `art::DETAILS`, redrawing its frames to keep its size in the game.
+    Detail(i32),
 }
 
 /// What each of a card's numbers is called on its stats page, and how far a press of - or + moves it.
-const STAT_ROWS: [(&str, f32); 10] = [
+const STAT_ROWS: [(&str, f32); 12] = [
     ("Health", 5.0),
     ("Speed", 1.0),
     ("Bite", 1.0),
@@ -309,11 +331,13 @@ const STAT_ROWS: [(&str, f32); 10] = [
     ("Chance", 0.01),
     ("Chance per minute", 0.005),
     ("Charge (times speed near you)", 0.1),
+    ("Spits from (pixels, 0 bites)", 5.0),
+    ("Burrows after (seconds up)", 1.0),
 ];
 const FLAG_NAMES: [&str; 3] = ["Heavy", "Leads hordes", "Harvester"];
 const STAT_TOP: f32 = CANVAS.y + 100.0;
-const STAT_ROW: f32 = 22.0;
-const STAT_BUTTON: f32 = 20.0;
+const STAT_ROW: f32 = 20.0;
+const STAT_BUTTON: f32 = 18.0;
 const NAME_MAX: usize = 24;
 const DELETE_CONFIRM: f32 = 3.0;
 /// A player card's stats: a block per difficulty with its weapon toggles, five across.
@@ -383,7 +407,7 @@ const RESTORE: Rect = Rect { x: LIST.x + 8.0, y: LIST.y + LIST.h - 44.0, w: 88.0
 const BACK: Rect = Rect { x: LIST.x + 104.0, y: LIST.y + LIST.h - 44.0, w: 88.0, h: 36.0 };
 
 /// Everything an undo puts back: the frames, the carving views, and the optional pictures in `OPTIONAL` order.
-type Snapshot = (Vec<Frame>, Option<[Frame; 2]>, [Option<Frame>; 5], Vec<Worn>);
+type Snapshot = (Vec<Frame>, Option<[Frame; 2]>, [Option<Frame>; 5], Vec<Worn>, u8);
 
 /// One of the pictures a sprite may have or not, by its view.
 fn optional(s: &Sprite, view: usize) -> &Option<Frame> {
@@ -407,11 +431,11 @@ fn optional_mut(s: &mut Sprite, view: usize) -> &mut Option<Frame> {
 }
 
 fn snapshot_of(s: &Sprite) -> Snapshot {
-    (s.frames.clone(), s.views.clone(), OPTIONAL.map(|v| optional(s, v).clone()), s.worn.clone())
+    (s.frames.clone(), s.views.clone(), OPTIONAL.map(|v| optional(s, v).clone()), s.worn.clone(), s.detail)
 }
 
-fn restore(s: &mut Sprite, (frames, views, pictures, worn): Snapshot) {
-    (s.frames, s.views, s.worn) = (frames, views, worn);
+fn restore(s: &mut Sprite, (frames, views, pictures, worn, detail): Snapshot) {
+    (s.frames, s.views, s.worn, s.detail) = (frames, views, worn, detail);
     for (v, f) in OPTIONAL.into_iter().zip(pictures) {
         *optional_mut(s, v) = f;
     }
@@ -470,7 +494,7 @@ pub struct Editor {
     /// The data page section that says how the open sprite plays, found when it opens.
     data_link: Option<String>,
     /// Players' props packed for the previews while a map is open, in order: their fields and frame counts.
-    map_props: Vec<(last_harvest_game::PropFields, usize, usize)>,
+    map_props: Vec<maps::MapProp>,
     playing: bool,
     clock: f32,
     /// An index into `STANDS`.
@@ -541,7 +565,7 @@ impl Editor {
     pub fn new(store: Box<dyn Store>, name: &str) -> Self {
         let loaded = store.load(name);
         let broken = loaded.is_none() && store.read(name, "0.png").is_some();
-        let sprite = loaded.unwrap_or(Sprite { worn: Vec::new(), name: if broken { String::new() } else { name.into() }, frames: vec![Frame::blank(16, 16)], views: None, footprint: None, roof: None, north: None, west: None, top: None, card: None, clear_in_3d: Vec::new(), paint: Default::default() });
+        let sprite = loaded.unwrap_or(Sprite { detail: 1, worn: Vec::new(), name: if broken { String::new() } else { name.into() }, frames: vec![Frame::blank(16, 16)], views: None, footprint: None, roof: None, north: None, west: None, top: None, card: None, clear_in_3d: Vec::new(), paint: Default::default() });
         let names = store.names();
         let mut e = Self {
             store,
@@ -676,10 +700,11 @@ impl Editor {
         }
     }
 
-    /// How many columns of the frame on show hold a pixel: how thick it is seen from above.
+    /// How many game pixel columns of the frame on show hold a pixel: how thick it is seen from above.
     fn outline_width(&self) -> f32 {
-        let f = &self.sprite.frames[self.frame];
-        ((0..f.w as i32).filter(|&x| (0..f.h as i32).any(|y| f.get(x, y).is_some_and(|p| p[3] > 0))).count() as f32).max(1.0)
+        let (f, d) = (&self.sprite.frames[self.frame], self.sprite.detail as i32);
+        let filled = |x: i32| (0..f.h as i32).any(|y| f.get(x, y).is_some_and(|p| p[3] > 0));
+        ((0..(f.w as i32 + d - 1) / d).filter(|&b| (b * d..b * d + d).any(filled)).count() as f32).max(1.0)
     }
 
     /// Whether the sprite stands by its views, carved or turned, and has them.
@@ -732,9 +757,10 @@ impl Editor {
         let (k, dead) = self.figure_at?;
         let a = self.live.get(k..k + cards::FIGURE_FRAMES)?;
         let three = |i: usize| [a[i], a[i + 1], a[i + 2]];
-        let gibs = self.sprite.card.as_deref().and_then(|t| last_harvest_game::card_fields(t).ok());
-        let gibs = gibs.and_then(|f| f.numbers.iter().find(|(k, _)| *k == "gibs").map(|(_, v)| *v as usize)).unwrap_or(9);
-        Some(last_harvest_game::Figure { stand: three(0), flash: three(3), hurt: three(6), dead: dead.then(|| three(9)), gibs })
+        let fields = self.sprite.card.as_deref().and_then(|t| last_harvest_game::card_fields(t).ok());
+        let gibs = fields.as_ref().and_then(|f| f.numbers.iter().find(|(k, _)| *k == "gibs").map(|(_, v)| *v as usize)).unwrap_or(9);
+        let blood = fields.and_then(|f| f.blood);
+        Some(last_harvest_game::Figure { stand: three(0), flash: three(3), hurt: three(6), dead: dead.then(|| three(9)), gibs, blood })
     }
 
     fn own_surfaces(&self) -> Vec<Frame> {
@@ -846,8 +872,8 @@ impl Editor {
         self.view = None;
         let packed = last_harvest_game::art::ALL.iter().find(|(n, _)| *n == self.sprite.name).and_then(|(_, a)| a.first().copied());
         let open = self.open_prop_fields().map_or(0, |f| f.open);
-        let f = self.current();
-        self.depth = last_harvest_game::default_prop_depth(f.w as f32, f.h as f32, packed, open);
+        let (f, d) = (self.current(), self.sprite.detail as f32);
+        self.depth = last_harvest_game::default_prop_depth(f.w as f32 / d, f.h as f32 / d, packed, open);
         self.height = 10.0;
         self.lift = 0.0;
         self.fold = 0.0;
@@ -1167,10 +1193,13 @@ impl Editor {
             if self.own_sound.is_some() {
                 push(CANVAS.x + 548.0, y, 110.0, STAT_BUTTON, Action::DropSound, "Drop own", false);
             }
+            let y = y + STAT_ROW;
+            push(CANVAS.x + 400.0, y, 66.0, STAT_BUTTON, Action::Blood(-1), "<", false);
+            push(CANVAS.x + 474.0, y, 66.0, STAT_BUTTON, Action::Blood(1), ">", false);
             let fields = self.sprite.card.as_deref().and_then(|t| last_harvest_game::card_fields(t).ok());
             for (i, name) in FLAG_NAMES.into_iter().enumerate() {
                 let on = fields.as_ref().is_some_and(|f| f.flags[i].1);
-                push(CANVAS.x + 20.0 + i as f32 * 176.0, y + 32.0, 168.0, 28.0, Action::Flag(i), name, on);
+                push(CANVAS.x + 20.0 + i as f32 * 176.0, y + 26.0, 168.0, 24.0, Action::Flag(i), name, on);
             }
         }
         let header = [(Action::Ask(Ask::New), "New"), (Action::Ask(Ask::Copy), "Copy"), (Action::History, "History R"), (Action::Revert, "Revert"), (Action::Save, "Save")];
@@ -1201,7 +1230,7 @@ impl Editor {
         }
         push(SIDE_X + 132.0, 289.0, 100.0, 24.0, Action::Ask(Ask::Palette), "Lospec", self.palette_name.is_some());
         let cols = (SIDE_W / SWATCH) as usize;
-        for (i, &c) in self.palette.iter().enumerate().take(cols * if self.is_prop() { PROP_PALETTE_ROWS } else { 9 }) {
+        for (i, &c) in self.palette.iter().enumerate().take(cols * if self.is_prop() { PROP_PALETTE_ROWS } else { PALETTE_ROWS }) {
             let (x, y) = (SIDE_X + (i % cols) as f32 * SWATCH, 316.0 + (i / cols) as f32 * SWATCH);
             push(x, y, SWATCH - 2.0, SWATCH - 2.0, Action::Color(c), "", self.color == c);
         }
@@ -1231,6 +1260,10 @@ impl Editor {
         if self.stand == 0 && !self.is_card() {
             push(SIDE_X + 130.0, 672.0, 46.0, 28.0, Action::Fold(-1), "-", false);
             push(SIDE_X + 182.0, 672.0, 46.0, 28.0, Action::Fold(1), "+", false);
+        }
+        if self.takes_detail() {
+            push(SIDE_X + 130.0, DETAIL_Y, 46.0, 28.0, Action::Detail(-1), "-", false);
+            push(SIDE_X + 182.0, DETAIL_Y, 46.0, 28.0, Action::Detail(1), "+", false);
         }
         if self.wears_grenade() {
             push(SIDE_X, GRENADE_Y, 114.0, 30.0, Action::Tool(Tool::Grenade), "Grenade W", self.tool_now() == Tool::Grenade);
@@ -1704,6 +1737,7 @@ impl Editor {
         match a {
             Action::MapTool(_) | Action::Ground(_) | Action::PickProp(_) | Action::PickPage(_) | Action::Picket(_) | Action::MapSize(..) | Action::Randomize | Action::MapFit | Action::PropDefaults => {}
             Action::DataStep(..) | Action::DataEdit(_) | Action::DataRemove(_) | Action::DataAdd | Action::DataPage(_) => {}
+            Action::WeaponLines | Action::WeaponLevel(_) | Action::WeaponMax(_) | Action::WeaponDoes(_) | Action::WeaponStep(..) | Action::WeaponType(_) | Action::WeaponPick(..) => {}
             Action::LineFrame(_) | Action::LineFps(_) => {}
             Action::PlayerBase(i, d) => {
                 let t = last_harvest_game::tuning::tuning();
@@ -1798,6 +1832,7 @@ impl Editor {
             }
             Action::Shade(k, j) => self.set_shade(k, j),
             Action::DropCoat(k) => self.drop_coat(k),
+            Action::Detail(by) => self.step_detail(by),
             Action::HideGrenade => {
                 self.remember();
                 self.sprite.worn = if self.sprite.worn == [Worn::Hidden] { Vec::new() } else { vec![Worn::Hidden] };
@@ -1841,6 +1876,17 @@ impl Editor {
                 self.set_card("sound", Some(&next));
             }
             Action::DropSound => self.drop_sound(),
+            Action::Blood(d) => {
+                let Some(f) = self.sprite.card.as_deref().and_then(|t| last_harvest_game::card_fields(t).ok()) else { return };
+                let mut colors: Vec<Option<[u8; 3]>> = vec![None];
+                colors.extend(sprite::palette().into_iter().map(|[r, g, b, _]| Some([r, g, b])));
+                if !colors.contains(&f.blood) {
+                    colors.insert(1, f.blood);
+                }
+                let at = colors.iter().position(|c| *c == f.blood).unwrap_or(0) as i32;
+                let next = colors[(at + d).rem_euclid(colors.len() as i32) as usize];
+                self.set_card("blood", next.map(|[r, g, b]| format!("{r:02X}{g:02X}{b:02X}")).as_deref());
+            }
             Action::StartWeapon(d, w) => {
                 let difficulty = last_harvest_game::Difficulty::ALL[d];
                 let mut have = self.player_starts()[d].clone().unwrap_or_else(|| last_harvest_game::default_start(difficulty));
@@ -1947,7 +1993,8 @@ impl Editor {
                 let top = &self.sprite.frames[self.frame];
                 let (w, h) = (top.w as i32, top.h as i32);
                 let (w, h) = if matches!(a, Action::Width(_)) { (w + d * step, h) } else { (w, h + d * step) };
-                let max = if self.is_card() { sprite::CARD_MAX_FRAME } else { MAX_SIZE } as i32;
+                let detail = self.sprite.detail as usize;
+                let max = if self.is_card() { last_harvest_game::card_frame_most(detail as u8) as usize } else { MAX_SIZE.max(sprite::CARD_MAX_FRAME * detail) } as i32;
                 if (w > max || h > max) && self.is_card() {
                     self.say(format!("A card's frames are at most {max}x{max} pixels"));
                 }
@@ -1993,7 +2040,7 @@ impl Editor {
                     _ => self.view = None,
                 }
             }
-            Action::Depth(d) if self.stand == CARVE => self.resize_views(self.view_height() as i32 + d * step),
+            Action::Depth(d) if self.stand == CARVE => self.resize_views(self.view_height() as i32 + d * step * self.sprite.detail as i32),
             Action::Depth(_) if self.stand == 0 && self.fold > 0.0 => self.say("A folded prop is as deep as its roof: move the fold instead"),
             Action::Depth(d) => {
                 let size = if matches!(self.stand, 0 | TURNED) { &mut self.depth } else { &mut self.height };
@@ -2007,7 +2054,7 @@ impl Editor {
                 self.changed = true;
             }
             Action::Fold(d) => {
-                let rows = self.sprite.frames[self.frame].h as f32 - 1.0;
+                let rows = (self.sprite.frames[self.frame].h / self.sprite.detail as usize) as f32 - 1.0;
                 self.fold = (self.fold + (d * step) as f32).clamp(0.0, rows.max(0.0));
                 self.stand_touched = true;
                 self.changed = true;
@@ -2295,6 +2342,55 @@ impl Editor {
         farmer || (self.is_player_card() && sprite::card_part(&self.sprite.name).is_some_and(|(_, row)| row < 3))
     }
 
+    /// Whether the open sprite takes a detail: any sprite, its frames on show.
+    fn takes_detail(&self) -> bool {
+        !self.none_open() && self.view.is_none() && !self.stats && !self.coats_page && self.map.is_none() && self.data.is_none()
+    }
+
+    /// Steps the detail down or up, redrawing the frames, views, top strip and grenade spots so the sprite keeps its
+    /// size in the game: up copies each pixel into a block to paint over, down keeps each block's most common color.
+    fn step_detail(&mut self, by: i32) {
+        let (from, at) = (self.sprite.detail, art::DETAILS.iter().position(|&d| d == self.sprite.detail).unwrap_or(0));
+        let to = art::DETAILS[(at as i32 + by).clamp(0, art::DETAILS.len() as i32 - 1) as usize];
+        if to == from {
+            return;
+        }
+        self.remember();
+        for f in &mut self.sprite.frames {
+            *f = f.redetailed(from, to);
+        }
+        if let Some(top) = &mut self.sprite.top {
+            let wider = top.redetailed(from, to);
+            *top = Frame { w: wider.w, h: 1, px: wider.px[..wider.w].to_vec() };
+        }
+        let s = &mut self.sprite;
+        for f in s.views.iter_mut().flatten().chain([&mut s.footprint, &mut s.roof, &mut s.north, &mut s.west].into_iter().flatten()) {
+            *f = f.redetailed(from, to);
+        }
+        self.trimmed = Default::default();
+        self.sprite.worn = sprite::redetailed_worn(&self.sprite.worn, from, to);
+        self.sprite.detail = to;
+        self.selection = None;
+        self.dirty = true;
+        self.changed = true;
+        self.fit();
+        self.say(if to > from {
+            format!("Detail {to}x: {to}x{to} of these pixels make one in the game, so paint finer over the copy")
+        } else {
+            format!("Detail {to}x: each block kept its most common color; Undo brings the detail back")
+        });
+    }
+
+    /// The live sprites' details, by place, for the previews: all of a sprite's pictures share its detail, and a map's
+    /// props each their own.
+    pub fn live_detail(&self) -> Vec<u8> {
+        if self.map.is_some() {
+            return self.map_props.iter().flat_map(|(f, n, copies, d)| std::iter::repeat_n(*d, (n + copies) * f.paint.copies())).collect();
+        }
+        let shows = self.sprite.detail > 1 && self.data.is_none();
+        if shows { vec![self.sprite.detail; self.live.len()] } else { Vec::new() }
+    }
+
     /// Whether the grenade can be placed on the canvas now: a player's walking facing, its frames on show.
     fn wears_grenade(&self) -> bool {
         self.player_facing() && self.view.is_none() && !self.stats && !self.coats_page
@@ -2323,7 +2419,7 @@ impl Editor {
     /// every frame, so a look that doesn't bob needs one click.
     fn place_grenade(&mut self, x: i32, y: i32, every: bool) {
         let f = self.current();
-        let fits = |v: i32, n: usize| v >= 0 && (v as usize) < n && (v as u32) < last_harvest_game::CARD_MAX_FRAME;
+        let fits = |v: i32, n: usize| v >= 0 && (v as usize) < n && v < 256;
         if !fits(x, f.w) || !fits(y, f.h) {
             return;
         }
@@ -2453,11 +2549,11 @@ impl Editor {
                         self.say(format!("{name} already exists"));
                     } else {
                         self.ask = None;
-                        let pictures = if kind == Ask::Copy { self.snapshot() } else { (vec![Frame::blank(16, 16)], None, Default::default(), Vec::new()) };
+                        let pictures = if kind == Ask::Copy { self.snapshot() } else { (vec![Frame::blank(16, 16)], None, Default::default(), Vec::new(), 1) };
                         let card = crate::store::props::id(&name).map(|id| last_harvest_game::prop_text(&crate::store::props::blank(&id)));
                         let clear_in_3d = if kind == Ask::Copy { self.sprite.clear_in_3d.clone() } else { Vec::new() };
                         let paint = if kind == Ask::Copy { self.sprite.paint.clone() } else { Default::default() };
-                        self.sprite = Sprite { worn: Vec::new(), name: name.clone(), frames: Vec::new(), views: None, footprint: None, roof: None, north: None, west: None, top: None, card, clear_in_3d, paint };
+                        self.sprite = Sprite { detail: 1, worn: Vec::new(), name: name.clone(), frames: Vec::new(), views: None, footprint: None, roof: None, north: None, west: None, top: None, card, clear_in_3d, paint };
                         restore(&mut self.sprite, pictures);
                         self.fit();
                         self.view = None;
@@ -2754,7 +2850,7 @@ impl Editor {
                 c.label(format!("Height {} px", self.height), SIDE_X, 645.0, 18.0, TEXT, Align::Left);
                 c.label(format!("Float {} px", self.lift), SIDE_X, 676.0, 18.0, TEXT, Align::Left);
             }
-            CARVE => c.label(format!("Height {} px", self.view_height()), SIDE_X, 645.0, 18.0, TEXT, Align::Left),
+            CARVE => c.label(format!("Height {} px", self.view_height() / self.sprite.detail as usize), SIDE_X, 645.0, 18.0, TEXT, Align::Left),
             TURNED => c.label(format!("Depth {} px", self.depth), SIDE_X, 645.0, 18.0, TEXT, Align::Left),
             _ => {}
         }
@@ -2776,7 +2872,10 @@ impl Editor {
                 Some((_, true)) => "Grenade: the game's pick".to_string(),
                 Some(([x, y], false)) => format!("Grenade at {x}, {y}"),
             };
-            c.label(said, SIDE_X, GRENADE_Y + 36.0, 18.0, TEXT, Align::Left);
+            c.label(said, CANVAS.x + CANVAS.w - 8.0, CANVAS.y + 6.0, 16.0, HOT, Align::Right);
+        }
+        if self.takes_detail() {
+            c.label(format!("Detail {}x", self.sprite.detail), SIDE_X, DETAIL_Y + 4.0, 18.0, TEXT, Align::Left);
         }
         let f = self.current();
         if !self.none_open() {
@@ -2939,14 +3038,39 @@ impl Editor {
         if self.mirror {
             clip(c, o[0] + w / 2.0 - 1.0, o[1], 2.0, h, [0.4, 0.8, 1.0, 0.5]);
         }
+        let d = self.sprite.detail as usize;
+        if d > 1 && self.view != Some(TOP) {
+            // The game's pixels, and the blocks only partly filled.
+            let line = [1.0, 1.0, 1.0, 0.25];
+            for x in (0..=f.w).step_by(d) {
+                clip(c, o[0] + x as f32 * zoom, o[1], 1.0, h, line);
+            }
+            for y in (0..=f.h).step_by(d) {
+                clip(c, o[0], o[1] + y as f32 * zoom, w, 1.0, line);
+            }
+            let partial = f.partial_blocks(d);
+            let (s, mark) = (d as f32 * zoom, [1.0, 0.35, 0.65, 0.95]);
+            for &(bx, by) in &partial {
+                let (x, y) = (o[0] + (bx * d) as f32 * zoom, o[1] + (by * d) as f32 * zoom);
+                for (rx, ry, rw, rh) in [(x, y, s, 2.0), (x, y + s - 2.0, s, 2.0), (x, y, 2.0, s), (x + s - 2.0, y, 2.0, s)] {
+                    clip(c, rx, ry, rw, rh, mark);
+                }
+            }
+            if !partial.is_empty() {
+                let said = format!("{} game pixels part filled: their 3D sides take the whole pixel", partial.len());
+                c.label(said, CANVAS.x + 8.0, CANVAS.y + CANVAS.h - 24.0, 16.0, mark, Align::Left);
+            }
+        }
         if let Some(([ax, ay], picked)) = self.grenade_at().filter(|_| self.wears_grenade() && self.tool_now() == Tool::Grenade) {
-            let g = Frame::from_art(art::GRENADE_WORN);
-            let (gx, gy) = (ax as f32 - (g.w / 2) as f32, ay as f32 - (g.h / 2) as f32);
+            // The grenade is drawn in game pixels, `d` of the frame's pixels each.
+            let (g, d) = (Frame::from_art(art::GRENADE_WORN), self.sprite.detail as f32);
+            let corner = |a: u8, n: usize| a as f32 + 0.5 - (0.5 + (n / 2) as f32) * d;
+            let (gx, gy) = (corner(ax, g.w), corner(ay, g.h));
             for y in 0..g.h {
                 for x in 0..g.w {
                     let [r, gr, b, a] = rgba(g.px[y * g.w + x]);
                     if a > 0.0 {
-                        clip(c, o[0] + (gx + x as f32) * zoom, o[1] + (gy + y as f32) * zoom, zoom, zoom, [r, gr, b, if picked { 0.5 } else { 1.0 }]);
+                        clip(c, o[0] + (gx + x as f32 * d) * zoom, o[1] + (gy + y as f32 * d) * zoom, zoom * d, zoom * d, [r, gr, b, if picked { 0.5 } else { 1.0 }]);
                     }
                 }
             }
@@ -3382,6 +3506,22 @@ mod tests {
         e.act(Action::StatStep(1, 1), true);
         e.act(Action::StatStep(9, 1), false);
         assert_eq!(last_harvest_game::card_fields(e.sprite.card.as_deref().unwrap()).unwrap().numbers[9], ("charge", 1.1));
+        e.act(Action::StatStep(10, 1), true);
+        e.act(Action::StatStep(11, 1), false);
+        let f = last_harvest_game::card_fields(e.sprite.card.as_deref().unwrap()).unwrap();
+        assert_eq!((f.numbers[10], f.numbers[11]), (("ranged", 50.0), ("burrow", 1.0)));
+        assert!(e.sprite.card.as_deref().unwrap().contains("ranged      50\nburrow      1\n"), "each a line of the card's text");
+        e.act(Action::Blood(1), false);
+        e.act(Action::Blood(1), false);
+        let [r, g, b, _] = sprite::palette()[1];
+        assert_eq!(last_harvest_game::card_fields(e.sprite.card.as_deref().unwrap()).unwrap().blood, Some([r, g, b]), "> steps through the palette");
+        e.act(Action::Blood(-1), false);
+        e.act(Action::Blood(-1), false);
+        assert!(!e.sprite.card.as_deref().unwrap().contains("blood"), "past the first color is the game's own, and no line");
+        e.act(Action::Blood(-1), false);
+        let [r, g, b, _] = *sprite::palette().last().unwrap();
+        assert!(e.sprite.card.as_deref().unwrap().contains(&format!("blood       {r:02X}{g:02X}{b:02X}\n")), "< wraps to the last color");
+        buttons_fit(&e);
         e.act(Action::Flag(0), false);
         e.act(Action::EditName, false);
         for _ in 0..5 {
@@ -3404,6 +3544,8 @@ mod tests {
         let f = last_harvest_game::card_fields(&saved.text).unwrap();
         assert_eq!((f.id.as_str(), f.name.as_str(), f.about.as_str()), ("ghoul", "Bog Ghoul", "Wet and slow, but it never gives up."));
         assert_eq!((f.numbers[0].1, f.numbers[1].1, f.flags[0].1), (15.0, 30.0, true), "health 10 + 5, speed 20 + 10, heavy");
+        assert_eq!((f.numbers[10].1, f.numbers[11].1), (50.0, 1.0), "it spits and burrows once saved");
+        assert_eq!(f.blood, Some([r, g, b]), "and bleeds its own color");
         assert_eq!(saved.frame, [16, 16]);
         let side = Editor::new(Box::new(store()), "CARD_GHOUL_SIDE");
         assert_eq!(side.sprite.frames[0].get(0, 0), Some(e.color), "the pixel landed in the side row");
@@ -3500,6 +3642,62 @@ mod tests {
         assert_eq!(f.start, [None, Some(vec!["pistol".into(), "knife".into(), "crows".into()]), None], "Normal adds crows to the game's pistol and knife; Hard went back to the default");
         let e = Editor::new(Box::new(store()), "");
         assert!(e.names.iter().any(|(n, _)| n == "PLAYER_CARD_JO_HURT"));
+    }
+
+    #[test]
+    fn a_figures_detail_redraws_its_frames_at_the_same_game_size_and_undoes() {
+        let dir = tmp().join("detail");
+        let _ = std::fs::remove_dir_all(&dir);
+        let store = || FsStore { dir: dir.join("sprites"), catalog: dir.join("art.txt"), cards: dir.join("enemies") };
+        let mut e = Editor::new(Box::new(store()), "PLAYER_SIDE");
+        let plain = e.sprite.frames.clone();
+        e.sprite.worn = vec![Worn::At([3, 10])];
+        assert!(e.takes_detail());
+        buttons_fit(&e);
+        e.draw(&mut Canvas::default());
+        e.act(Action::Detail(1), false);
+        assert_eq!(e.sprite.detail, 2);
+        assert_eq!((e.sprite.frames[0].w, e.sprite.frames[0].h), (plain[0].w * 2, plain[0].h * 2));
+        assert_eq!(e.sprite.frames[0].get(7, 21), plain[0].get(3, 10), "each pixel is a 2x2 block");
+        assert_eq!(e.sprite.worn, [Worn::At([6, 20])], "the grenade stays on the same spot");
+        e.act(Action::Width(1), false);
+        assert_eq!(e.sprite.frames[0].w, plain[0].w * 2 + 1);
+        e.key(Key::Undo);
+        e.act(Action::Save, false);
+        assert_eq!(std::fs::read_to_string(dir.join("sprites/PLAYER_SIDE/detail.txt")).unwrap(), "2\n");
+        let again = Editor::new(Box::new(store()), "PLAYER_SIDE");
+        assert_eq!((again.sprite.detail, again.sprite.frames[0].w), (2, plain[0].w * 2));
+        e.key(Key::Undo);
+        assert_eq!((e.sprite.detail, &e.sprite.frames), (1, &plain), "undo takes the detail back too");
+        e.act(Action::Detail(-1), false);
+        assert_eq!(e.sprite.detail, 1, "1 is the least");
+        e.act(Action::Save, false);
+        assert!(!dir.join("sprites/PLAYER_SIDE/detail.txt").exists(), "detail 1 needs no file");
+        e.view = Some(0);
+        assert!(!e.takes_detail() && !e.buttons().iter().any(|b| matches!(b.action, Action::Detail(_))), "only with the frames on show");
+    }
+
+    #[test]
+    fn a_cards_detail_redraws_the_whole_card_when_one_part_saves() {
+        let dir = tmp().join("detail-card");
+        let _ = std::fs::remove_dir_all(&dir);
+        let store = || FsStore { dir: dir.join("sprites"), catalog: dir.join("art.txt"), cards: dir.join("enemies") };
+        let mut e = Editor::new(Box::new(store()), "");
+        e.act(Action::Ask(Ask::New), false);
+        type_in(&mut e, "card ghost");
+        e.key(Key::Enter);
+        e.act(Action::Save, false);
+        e.act(Action::Detail(1), false);
+        e.act(Action::Detail(1), false);
+        assert_eq!(e.sprite.detail, 4);
+        buttons_fit(&e);
+        e.act(Action::Save, false);
+        let saved = last_harvest_pack::card::read_as(sprite::CardKind::Enemy, "ghost", &std::fs::read(dir.join("enemies/ghost.enemy.png")).unwrap()).unwrap();
+        assert_eq!((saved.detail, saved.frame), (4, [64, 64]));
+        e.switch_to("CARD_GHOST_HURT".into());
+        assert_eq!((e.sprite.detail, e.sprite.frames[0].w), (4, 64), "every part is redrawn at the card's detail");
+        e.act(Action::Width(1), false);
+        assert_eq!(e.sprite.frames[0].w, 65, "a detailed card's frames reach past 64 pixels");
     }
 
     #[test]
@@ -3711,7 +3909,7 @@ mod tests {
     }
 
     #[test]
-    fn a_death_sound_needs_an_enemy_card_and_an_ogg_or_wav() {
+    fn a_death_sound_needs_an_enemy_card_and_rides_inside_it() {
         let dir = tmp().join("sound");
         let _ = std::fs::remove_dir_all(&dir);
         let mut e = Editor::new(Box::new(FsStore { dir: dir.join("sprites"), catalog: dir.join("art.txt"), cards: dir.join("enemies") }), "");
@@ -3722,14 +3920,21 @@ mod tests {
         e.key(Key::Enter);
         assert!(e.attach_sound("boo.mp3", b"ID3....").is_none() && said(&e).contains("isn't an Ogg or WAV"));
         assert!(e.attach_sound("big.ogg", &[b"OggS".as_slice(), &vec![0; 600 * 1024]].concat()).is_none() && said(&e).contains("at most 512 KB"));
-        assert!(e.attach_sound("boo.ogg", b"OggS....").is_none() && said(&e).contains("sounds folder"), "the Mac's store keeps none: {}", said(&e));
         e.stats = true;
         let drop = |e: &Editor| e.buttons().iter().any(|b| b.action == Action::DropSound);
         assert!(!drop(&e), "Drop own shows only for a card with its own sound");
-        e.own_sound = Some("kill-ghoul.ogg".into());
+        let boo = [b"OggS".as_slice(), &[5; 40]].concat();
+        assert_eq!(e.attach_sound("boo.ogg", &boo).as_deref(), Some("kill-ghoul.ogg"), "{}", said(&e));
         assert!(drop(&e));
+        let path = dir.join("enemies/ghoul.enemy.png");
+        let in_card = |bytes: &[u8]| last_harvest_pack::card::sound(bytes).unwrap().map(|(ext, s)| (ext, s.to_vec()));
+        e.act(Action::Save, false);
+        assert_eq!(in_card(&std::fs::read(&path).unwrap()), Some(("ogg", boo.clone())), "saving the card keeps its sound inside it");
+        let (file, bytes) = e.export_card().unwrap();
+        assert_eq!((file.as_str(), in_card(&bytes)), ("ghoul.enemy.png", Some(("ogg", boo.clone()))), "Export carries it");
+        assert!(said(&e).contains("with its death sound"), "{}", said(&e));
         e.act(Action::DropSound, false);
-        assert!(said(&e).starts_with("Couldn't drop the sound") && e.own_sound.is_some(), "{}", said(&e));
+        assert!(e.own_sound.is_none() && in_card(&std::fs::read(&path).unwrap()).is_none(), "{}", said(&e));
     }
 
     #[test]
@@ -3929,6 +4134,53 @@ mod tests {
         let saved = std::fs::read_to_string(dir.join("tuning.txt")).unwrap();
         assert!(saved.contains("hp 101          # health") && saved.contains("speed 52"), "{saved}");
         assert_eq!(last_harvest_game::tuning::parse(&saved, None).unwrap().player_speed, 52.0);
+    }
+
+    #[test]
+    fn the_weapon_page_rewrites_only_the_lines_it_changes() {
+        let dir = tmp().join("weapon");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut e = editor_in(&dir, dir.join("art.txt"));
+        e.switch_to("DATA_POWERUPS_PISTOL".into());
+        assert!(e.data.as_ref().is_some_and(|d| d.weapon.is_some()));
+        buttons_fit(&e);
+        let text = |e: &Editor| e.data.as_ref().unwrap().table.text.clone();
+        let stat = |k: &str| last_harvest_game::weapon_stats().iter().position(|s| s.0 == k).unwrap();
+        let start = text(&e);
+        e.act(Action::WeaponStep(stat("damage"), 1), false);
+        assert_eq!(text(&e), start.replacen("damage    12 12 15", "damage 13 12 15", 1));
+        e.act(Action::WeaponLevel(3), false);
+        e.act(Action::WeaponStep(stat("range"), -1), false);
+        assert!(text(&e).contains("\nrange 150 150 149 150\n"), "a short list grows only to keep the levels after");
+        let gun = last_harvest_game::weapon_behaviours().iter().position(|b| *b == "gun").unwrap();
+        e.act(Action::WeaponDoes(gun), false);
+        e.act(Action::WeaponPick(0, 1), false);
+        e.act(Action::WeaponPick(2, -1), false);
+        e.act(Action::WeaponMax(1), false);
+        assert!(text(&e).contains("max 9\n") && text(&e).contains("spread    8\ndoes gun\neffect muzzle_pistol\nsound throw\n\n"), "{}", text(&e));
+        assert_eq!(e.data.as_ref().unwrap().weapon.as_ref().unwrap().preview[0].0.as_deref(), Some("muzzle_pistol"));
+        e.act(Action::WeaponType(stat("area")), false);
+        e.set_text("area 24");
+        e.key(Key::Enter);
+        let levels = last_harvest_game::weapon_levels(&text(&e), "pistol").unwrap();
+        let at = |k: &str| levels.stats[stat(k)].2.clone();
+        assert_eq!((levels.max, at("damage")[0], at("range")[1..4].to_vec(), at("range")[8], at("area")[8]), (9, 13.0, vec![150.0, 149.0, 150.0], 150.0, 24.0));
+        e.act(Action::WeaponPick(2, 0), false);
+        assert!(!text(&e).contains("sound throw"), "Own drops the line");
+        buttons_fit(&e);
+        e.act(Action::WeaponLines, false);
+        assert!(e.buttons().iter().any(|b| matches!(b.action, Action::DataStep(..))), "Lines shows the data page");
+        buttons_fit(&e);
+        e.act(Action::Save, false);
+        assert!(!e.unsaved(), "the game reads it");
+        for _ in 0..8 {
+            e.key(Key::Undo);
+        }
+        assert_eq!(text(&e), start, "each change undoes, and the rest of the file stays as written");
+        e.key(Key::Redo);
+        assert!(text(&e).contains("damage 13 12 15"));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
@@ -4638,6 +4890,34 @@ mod tests {
         e.act(Action::Hp(-1), true);
         e.act(Action::Hp(-1), true);
         assert_eq!(e.open_prop_fields().unwrap().hp, 0.0, "no lower than none");
+    }
+
+    #[test]
+    fn a_props_detail_redraws_its_views_with_its_frames_and_saves_in_its_png() {
+        let dir = tmp().join("detail-prop");
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut e = Editor::new(Box::new(FsStore { dir: dir.join("sprites"), catalog: dir.join("art.txt"), cards: dir.join("enemies") }), "BARREL");
+        e.act(Action::Ask(Ask::New), false);
+        type_in(&mut e, "prop tank");
+        e.key(Key::Enter);
+        e.act(Action::Stand(CARVE), false);
+        e.act(Action::AddView(FOOTPRINT), false);
+        e.act(Action::AddView(WEST), false);
+        e.view = None;
+        let sizes = |e: &Editor| {
+            let s = &e.sprite;
+            [&s.frames[0], &s.views.as_ref().unwrap()[0], &s.views.as_ref().unwrap()[1], s.footprint.as_ref().unwrap(), s.west.as_ref().unwrap()].map(|f| (f.w, f.h))
+        };
+        let plain = sizes(&e);
+        assert!(e.takes_detail());
+        buttons_fit(&e);
+        e.act(Action::Detail(1), false);
+        assert_eq!(sizes(&e), plain.map(|(w, h)| (w * 2, h * 2)), "every picture goes finer together");
+        e.act(Action::Save, false);
+        let saved = last_harvest_pack::prop::read("t", &std::fs::read(dir.join("props/tank.prop.png")).unwrap()).unwrap();
+        assert_eq!((saved.detail, saved.frame), (2, [plain[0].0 as u32 * 2, plain[0].1 as u32 * 2]));
+        let again = Editor::new(Box::new(FsStore { dir: dir.join("sprites"), catalog: dir.join("art.txt"), cards: dir.join("enemies") }), "PROP_TANK");
+        assert_eq!((again.sprite.detail, sizes(&again)), (2, sizes(&e)));
     }
 
     #[test]

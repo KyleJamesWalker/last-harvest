@@ -45,10 +45,10 @@ struct Face {
 fn faces(art: Art, reach: Reach, top: Option<Art>) -> Cow<'static, [Face]> {
     static ALL: [OnceLock<Vec<Vec<Face>>>; 2] = [OnceLock::new(), OnceLock::new()];
     if art.is_live() || top != art.top() {
-        return Cow::Owned(art::with_pixels(art, |pixels| extrude(pixels, art.rect(), reach, top.map(Art::rect))));
+        return Cow::Owned(art::with_pixels(art, |pixels| extrude(pixels, art.rect(), reach, top.map(Art::rect), art.detail())));
     }
     let all = ALL[reach as usize].get_or_init(|| {
-        (0..art::count()).map(|i| extrude(art::pixels(), Art(i as u16).rect(), reach, Art(i as u16).top().map(Art::rect))).collect()
+        (0..art::count() as u16).map(Art).map(|a| extrude(art::pixels(), a.rect(), reach, a.top().map(Art::rect), a.detail())).collect()
     });
     Cow::Borrowed(&all[art.0 as usize])
 }
@@ -63,9 +63,18 @@ enum Reach {
     Deep = 1,
 }
 
-fn extrude(pixels: &[u8], rect: [u16; 4], reach: Reach, top: Option<[u16; 4]>) -> Vec<Face> {
+/// The faces of the sprite at `rect` in `pixels`, `d` texture pixels to a game pixel: the front and back at full
+/// detail, and the sides along the outline of `d`-pixel blocks, each solid where any of its pixels is, so a detailed
+/// sprite costs about as many faces as a plain one.
+fn extrude(pixels: &[u8], rect: [u16; 4], reach: Reach, top: Option<[u16; 4]>, d: u8) -> Vec<Face> {
     let [rx, ry, w, h] = rect.map(|v| v as i32);
-    let opaque = |x: i32, y: i32| x >= 0 && y >= 0 && x < w && y < h && pixels[(((ry + y) * ATLAS_W as i32 + rx + x) * 4 + 3) as usize] > 0;
+    let d = d.max(1) as i32;
+    let solid = |x: i32, y: i32| x >= 0 && y >= 0 && x < w && y < h && pixels[(((ry + y) * ATLAS_W as i32 + rx + x) * 4 + 3) as usize] > 0;
+    let (cw, ch) = ((w + d - 1) / d, (h + d - 1) / d);
+    let opaque = |x: i32, y: i32| (0..d).any(|j| (0..d).any(|i| solid(x * d + i, y * d + j)));
+    // A block edge in texture pixels.
+    let edge_x = |x: i32| (x * d).min(w);
+    let edge_y = |y: i32| (y * d).min(h);
     let (aw, ah) = (ATLAS_W as f32, ATLAS_H as f32);
     let u = |x: i32| (rx + x) as f32 / aw;
     let v = |y: i32| (ry + y) as f32 / ah;
@@ -75,61 +84,73 @@ fn extrude(pixels: &[u8], rect: [u16; 4], reach: Reach, top: Option<[u16; 4]>) -
         Face { corners: [[0.0, 0.0, 0.0], [wf, 0.0, 0.0], [wf, hf, 0.0], [0.0, hf, 0.0]], uv: full, normal: [0.0, 0.0, -1.0] },
         Face { corners: [[0.0, 0.0, 1.0], [wf, 0.0, 1.0], [wf, hf, 1.0], [0.0, hf, 1.0]], uv: full, normal: [0.0, 0.0, 1.0] },
     ];
-    // Runs of edge pixels become one face each, textured with the pixels just inside the outline
+    // Runs of edge blocks become one face each, textured with the pixels just inside the outline
     // stretched along the depth, so a wall's side shows its planks rather than its black border.
     let dark = |x: i32, y: i32| {
         let i = (((ry + y) * ATLAS_W as i32 + rx + x) * 4) as usize;
         pixels[i] as u32 + pixels[i + 1] as u32 + pixels[i + 2] as u32 <= 40
     };
+    // The block's first solid pixel in from its edge facing away from (dx, dy), row by row or column by column.
+    let start = |x: i32, y: i32, dx: i32, dy: i32| {
+        let (x0, y0) = (if dx < 0 { x * d + d - 1 } else { x * d }, if dy < 0 { y * d + d - 1 } else { y * d });
+        (0..d)
+            .flat_map(|a| (0..d).map(move |k| if dx != 0 { (x0 + dx * k, y * d + a) } else { (x * d + a, y0 + dy * k) }))
+            .find(|&(ix, iy)| solid(ix, iy))
+            .unwrap_or((x0, y0))
+    };
     let inside = |x: i32, y: i32, dx: i32, dy: i32| {
-        let steps = match reach {
+        let steps = d * match reach {
             Reach::Thin if dx != 0 => 1,
             Reach::Thin => 2,
             Reach::Deep => 4,
         };
-        (0..steps).map(|k| (x + dx * k, y + dy * k)).find(|&(ix, iy)| opaque(ix, iy) && !dark(ix, iy)).unwrap_or((x, y))
+        let (sx, sy) = start(x, y, dx, dy);
+        (0..steps).map(|k| (sx + dx * k, sy + dy * k)).find(|&(ix, iy)| solid(ix, iy) && !dark(ix, iy)).unwrap_or((sx, sy))
     };
-    for x in 0..w {
+    for x in 0..cw {
         for (side, at, nx) in [(-1, x, -1.0), (1, x + 1, 1.0)] {
             let edge = |y: i32| opaque(x, y) && !opaque(x + side, y);
             let mut y = 0;
-            while y < h {
+            while y < ch {
                 if !edge(y) {
                     y += 1;
                     continue;
                 }
                 let (y0, col) = (y, inside(x, y, -side, 0).0);
-                while y < h && edge(y) && inside(x, y, -side, 0).0 == col {
+                while y < ch && edge(y) && inside(x, y, -side, 0).0 == col {
                     y += 1;
                 }
-                let (xf, uc) = (at as f32, (rx as f32 + col as f32 + 0.5) / aw);
+                let (xf, uc) = (edge_x(at) as f32, (rx as f32 + col as f32 + 0.5) / aw);
+                let (ya, yb) = (edge_y(y0), edge_y(y));
                 out.push(Face {
-                    corners: [[xf, y0 as f32, 0.0], [xf, y0 as f32, 1.0], [xf, y as f32, 1.0], [xf, y as f32, 0.0]],
-                    uv: [uc, v(y0), uc, v(y)],
+                    corners: [[xf, ya as f32, 0.0], [xf, ya as f32, 1.0], [xf, yb as f32, 1.0], [xf, yb as f32, 0.0]],
+                    uv: [uc, v(ya), uc, v(yb)],
                     normal: [nx, 0.0, 0.0],
                 });
             }
         }
     }
-    // A strip pixel the top of column `x` takes instead, where the strip has one.
+    // A strip pixel the top of block column `x` takes instead, where the strip has one.
     let capped = |x: i32| {
         let [tx, ty, tw, _] = top?.map(|v| v as i32);
-        let i = ((ty * ATLAS_W as i32 + tx + x) * 4 + 3) as usize;
-        (x < tw && pixels[i] > 0).then_some(((tx + x) as f32 + 0.5) / aw).map(|u| (u, (ty as f32 + 0.5) / ah))
+        let c = x * d + d / 2;
+        let i = ((ty * ATLAS_W as i32 + tx + c) * 4 + 3) as usize;
+        (c < tw && pixels[i] > 0).then_some(((tx + c) as f32 + 0.5) / aw).map(|u| (u, (ty as f32 + 0.5) / ah))
     };
-    for y in 0..h {
+    for y in 0..ch {
         for (side, at, ny) in [(-1, y, 1.0), (1, y + 1, -1.0)] {
             let edge = |x: i32| opaque(x, y) && !opaque(x, y + side);
             let mut x = 0;
-            while x < w {
+            while x < cw {
                 if !edge(x) {
                     x += 1;
                     continue;
                 }
+                let yf = edge_y(at) as f32;
                 if let Some((uc, vc)) = capped(x).filter(|_| side == -1) {
-                    let yf = at as f32;
+                    let (xa, xb) = (edge_x(x) as f32, edge_x(x + 1) as f32);
                     out.push(Face {
-                        corners: [[x as f32, yf, 1.0], [x as f32 + 1.0, yf, 1.0], [x as f32 + 1.0, yf, 0.0], [x as f32, yf, 0.0]],
+                        corners: [[xa, yf, 1.0], [xb, yf, 1.0], [xb, yf, 0.0], [xa, yf, 0.0]],
                         uv: [uc, vc, uc, vc],
                         normal: [0.0, ny, 0.0],
                     });
@@ -137,13 +158,14 @@ fn extrude(pixels: &[u8], rect: [u16; 4], reach: Reach, top: Option<[u16; 4]>) -
                     continue;
                 }
                 let (x0, row) = (x, inside(x, y, 0, -side).1);
-                while x < w && edge(x) && inside(x, y, 0, -side).1 == row && (side != -1 || capped(x).is_none()) {
+                while x < cw && edge(x) && inside(x, y, 0, -side).1 == row && (side != -1 || capped(x).is_none()) {
                     x += 1;
                 }
-                let (yf, vc) = (at as f32, (ry as f32 + row as f32 + 0.5) / ah);
+                let vc = (ry as f32 + row as f32 + 0.5) / ah;
+                let (xa, xb) = (edge_x(x0), edge_x(x));
                 out.push(Face {
-                    corners: [[x0 as f32, yf, 1.0], [x as f32, yf, 1.0], [x as f32, yf, 0.0], [x0 as f32, yf, 0.0]],
-                    uv: [u(x0), vc, u(x), vc],
+                    corners: [[xa as f32, yf, 1.0], [xb as f32, yf, 1.0], [xb as f32, yf, 0.0], [xa as f32, yf, 0.0]],
+                    uv: [u(xa), vc, u(xb), vc],
                     normal: [0.0, ny, 0.0],
                 });
             }
@@ -176,17 +198,19 @@ impl Pose {
 /// and alpha-tested fragments cost full price on the device's GPU.
 fn stand(out: &mut Vec<Card>, eye: Vec3, art: Art, flip: bool, pose: Pose, solid: bool) {
     let all = faces(art, pose.reach, pose.top);
-    place(out, eye, if solid { &all[..] } else { &all[..2] }, [art.w(), art.h()], flip, pose);
+    let [_, _, w, h] = art.rect().map(f32::from);
+    place(out, eye, if solid { &all[..] } else { &all[..2] }, [w, h], 1.0 / art.detail() as f32, flip, pose);
 }
 
-/// Places extruded faces of a picture `w` by `h` pixels as `stand` does.
-fn place(out: &mut Vec<Card>, eye: Vec3, used: &[Face], [w, h]: [f32; 2], flip: bool, pose: Pose) {
+/// Places extruded faces of a picture `w` by `h` texture pixels, `k` game pixels each, as `stand` does.
+#[allow(clippy::too_many_arguments)]
+fn place(out: &mut Vec<Card>, eye: Vec3, used: &[Face], [w, h]: [f32; 2], k: f32, flip: bool, pose: Pose) {
     let Pose { origin, right, up, back, depth, tint, .. } = pose;
     let (rn, un) = (right.normalize_or_zero(), up.normalize_or_zero());
     for f in used {
         let place = |[x, y, z]: [f32; 3]| {
             let x = if flip { w - x } else { x };
-            origin + right * (x * PX) + up * ((h - y) * PX) + back * (z * depth)
+            origin + right * (x * k * PX) + up * ((h - y) * k * PX) + back * (z * depth)
         };
         let n = f.normal;
         let normal = rn * if flip { -n[0] } else { n[0] } + un * n[1] + back * n[2];
@@ -236,18 +260,43 @@ fn placed(prop: &super::map::Prop, t: f32) -> (Art, Stand, Vec3, [f32; 2]) {
     (a, how, middle, [a.w() * PX, deep * PX])
 }
 
-/// The faces of part of a sprite, the rows `rows` of it, extruded as `stand` extrudes a whole one; worked out once for
-/// packed sprites and every time for live ones.
+/// How sprite `a` stands once photo mode drops it in: as it says, else upright as deep as the map would make it.
+pub(super) fn drop_stand(a: Art) -> Stand {
+    match a.stand() {
+        None | Some(Stand::Figure) => Stand::Prop { depth: super::map::depth_of(a) },
+        Some(how) => how,
+    }
+}
+
+/// Stands sprite `a` as `how` says, the middle of its box on the ground at `at` in map pixels, turned `angle` radians
+/// round it: a prop photo mode drops in.
+pub(super) fn dropped(out: &mut Vec<Card>, eye: Vec3, a: Art, how: Stand, at: [f32; 2], angle: f32) {
+    let deep = match how {
+        Stand::Prop { depth } => depth,
+        Stand::Fold { rows } => fold_row(a, rows) as f32,
+        _ => a.h(),
+    };
+    let (center, (s, c)) = (world(at), angle.sin_cos());
+    let turn = |v: Vec3| Vec3::new(v.x * c - v.z * s, v.y, v.x * s + v.z * c);
+    let d = eye - center;
+    let mut own = Vec::new();
+    fixed(&mut own, Vec3::new(d.x * c + d.z * s, d.y, d.z * c - d.x * s), a, how, -a.w() / 2.0, deep / 2.0, [1.0; 3]);
+    out.extend(own.into_iter().map(|k| Card { corners: k.corners.map(|v| center + turn(v)), normal: turn(k.normal), ..k }));
+}
+
+/// The faces of part of a sprite, the game rows `rows` of it, extruded as `stand` extrudes a whole one; worked out once
+/// for packed sprites and every time for live ones.
 fn part_faces(a: Art, rows: [u16; 2]) -> Cow<'static, [Face]> {
     type Cache = Mutex<HashMap<(Art, [u16; 2]), &'static [Face]>>;
     static CACHE: OnceLock<Cache> = OnceLock::new();
-    let [rx, ry, w, _] = a.rect();
-    let rect = [rx, ry + rows[0], w, rows[1] - rows[0]];
+    let ([rx, ry, w, h], d) = (a.rect(), a.detail());
+    let [top, bottom] = rows.map(|r| (r * d as u16).min(h));
+    let rect = [rx, ry + top, w, bottom - top];
     if a.is_live() {
-        return Cow::Owned(art::with_pixels(a, |px| extrude(px, rect, Reach::Deep, None)));
+        return Cow::Owned(art::with_pixels(a, |px| extrude(px, rect, Reach::Deep, None, d)));
     }
     let mut cache = CACHE.get_or_init(Default::default).lock().unwrap();
-    Cow::Borrowed(*cache.entry((a, rows)).or_insert_with(|| extrude(art::pixels(), rect, Reach::Deep, None).leak()))
+    Cow::Borrowed(*cache.entry((a, rows)).or_insert_with(|| extrude(art::pixels(), rect, Reach::Deep, None, d).leak()))
 }
 
 /// The top row of a sprite folded at `rows`: the rows above it its roof, the rest its front.
@@ -260,10 +309,11 @@ fn fold_row(a: Art, rows: f32) -> u16 {
 fn folded(out: &mut Vec<Card>, eye: Vec3, a: Art, rows: f32, left: f32, base: f32, tint: [f32; 3]) {
     let (fold, h) = (fold_row(a, rows), a.h() as u16);
     let (roof, wall) = (fold as f32, (h - fold) as f32);
-    let (w, front) = (a.w(), Vec3::new(left * PX, 0.0, base * PX));
-    place(out, eye, &part_faces(a, [fold, h]), [w, wall], false, Pose { tint, ..Pose::upright(front, Vec3::X, -Vec3::Z, roof * PX) });
+    let (d, front) = (a.detail() as f32, Vec3::new(left * PX, 0.0, base * PX));
+    let w = a.rect()[2] as f32;
+    place(out, eye, &part_faces(a, [fold, h]), [w, wall * d], 1.0 / d, false, Pose { tint, ..Pose::upright(front, Vec3::X, -Vec3::Z, roof * PX) });
     let pose = Pose { origin: front + Vec3::Y * ((wall + 1.0) * PX), right: Vec3::X, up: -Vec3::Z, back: -Vec3::Y, depth: PX, tint, reach: Reach::Deep, top: None };
-    place(out, eye, &part_faces(a, [0, fold]), [w, roof], false, pose);
+    place(out, eye, &part_faces(a, [0, fold]), [w, roof * d], 1.0 / d, false, pose);
 }
 
 /// Lays a sprite's 3D copy flat around `center` on the ground, its top row to the north turned `angle` as the 2D
@@ -282,10 +332,10 @@ fn lying(out: &mut Vec<Card>, eye: Vec3, a: Art, center: Vec3, angle: f32, heigh
 /// and stretched `reach` pixels further south.
 #[allow(clippy::too_many_arguments)]
 fn turned(out: &mut Vec<Card>, eye: Vec3, a: Art, east: Art, depth: Option<f32>, left: f32, top: f32, tint: [f32; 3], reach: f32) {
-    let [rx, ry, w, h] = a.rect().map(usize::from);
-    let filled = |x: usize| art::with_pixels(a, |px| (0..h).any(|y| px[((ry + y) * ATLAS_W as usize + rx + x) * 4 + 3] > 0));
-    let x0 = (0..w).find(|&x| filled(x)).unwrap_or(0) as f32;
-    let x1 = (0..w).rev().find(|&x| filled(x)).map_or(w, |x| x + 1) as f32;
+    let (x0, x1) = art::with_outline(a, |solid, [w, h]| {
+        let filled = |x: usize| (0..h).any(|y| solid(x, y));
+        ((0..w).find(|&x| filled(x)).unwrap_or(0) as f32, (0..w).rev().find(|&x| filled(x)).map_or(w, |x| x + 1) as f32)
+    });
     let depth = depth.unwrap_or(x1 - x0);
     let origin = Vec3::new((left + (x0 + x1 - depth) / 2.0) * PX, 0.0, (top + a.h() + reach) * PX);
     let stretch = (a.h() + reach) / a.h();
@@ -332,11 +382,12 @@ fn carving(c: Carving) -> Cow<'static, [carve::Quad]> {
     type Cache = Mutex<HashMap<Carving, &'static [carve::Quad]>>;
     static CACHE: OnceLock<Cache> = OnceLock::new();
     let views = carve::Views { top: c.top.rect(), footprint: c.footprint.map(Art::rect), south: c.south.rect(), east: c.east.rect(), north: c.north.map(Art::rect), west: c.west.map(Art::rect) };
+    let d = c.top.detail();
     if c.top.is_live() {
-        return Cow::Owned(art::with_pixels(c.top, |px| carve::carve(px, ATLAS_W as usize, &views)));
+        return Cow::Owned(art::with_pixels(c.top, |px| carve::carve(px, ATLAS_W as usize, &views, d)));
     }
     let mut cache = CACHE.get_or_init(Default::default).lock().unwrap();
-    Cow::Borrowed(*cache.entry(c).or_insert_with(|| carve::carve(art::pixels(), ATLAS_W as usize, &views).leak()))
+    Cow::Borrowed(*cache.entry(c).or_insert_with(|| carve::carve(art::pixels(), ATLAS_W as usize, &views, d).leak()))
 }
 
 /// Places a carved solid with its north-west ground corner at `origin`.
@@ -356,7 +407,7 @@ fn carved(out: &mut Vec<Card>, eye: Vec3, c: Carving, origin: Vec3) {
 fn flat(out: &mut Vec<Card>, art: Art, x: f32, z: f32, lift: f32, tint: [f32; 3]) {
     let [rx, ry, w, h] = art.rect().map(f32::from);
     let (aw, ah) = (ATLAS_W as f32, ATLAS_H as f32);
-    let (x1, z1) = (x + w * PX, z + h * PX);
+    let (x1, z1) = (x + art.w() * PX, z + art.h() * PX);
     let corners = [Vec3::new(x, lift, z), Vec3::new(x1, lift, z), Vec3::new(x1, lift, z1), Vec3::new(x, lift, z1)];
     out.push(Card { tint, ..Card::new(corners, [rx / aw, ry / ah, (rx + w) / aw, (ry + h) / ah], Vec3::Y) });
 }
@@ -396,7 +447,7 @@ fn facing_from(dir: [f32; 2], forward: Vec3, right: Vec3) -> (Facing, bool) {
     }
 }
 
-/// The colors of the night, warming toward dawn over the last three minutes.
+/// The colors of the night, warming toward dawn over the last three minutes, or at the time photo mode sets.
 pub struct Sky {
     pub fog: [f32; 3],
     pub ambient: [f32; 3],
@@ -407,7 +458,11 @@ pub struct Sky {
 
 pub fn sky(h: &Harvest) -> Sky {
     let won = matches!(h.phase, Phase::Over { won: true, .. });
-    let k = if won { 1.0 } else { ((h.t - (super::dawn() - 180.0)) / 180.0).clamp(0.0, 1.0) };
+    let k = match h.photo.as_ref().and_then(|p| p.night()) {
+        Some(k) => k,
+        None if won => 1.0,
+        None => ((h.t - (super::dawn() - 180.0)) / 180.0).clamp(0.0, 1.0),
+    };
     let k = k * k * (3.0 - 2.0 * k);
     let mix = |a: [f32; 3], b: [f32; 3]| [0, 1, 2].map(|i| a[i] + (b[i] - a[i]) * k);
     let night = 1.0 - k;
@@ -469,7 +524,7 @@ impl Board {
 /// the two never fight over the same depth.
 fn worn_board(a: Art, at: [u8; 2], flip: bool, pos: [f32; 2], bright: f32) -> Board {
     let g = art::GRENADE_WORN;
-    let [gx, gy] = worn_corner(at, a.w(), flip);
+    let [gx, gy] = worn_corner(at, a, flip);
     let mut b = Board::new(g, flip, pos, (a.h() - gy - g.h()) * PX, WORN_DEPTH);
     b.shift = [gx + g.w() / 2.0 - a.w() / 2.0, (CHARACTER_DEPTH + WORN_DEPTH) / 2.0 + 0.1 * PX];
     b.tint = [bright; 3];
@@ -593,7 +648,7 @@ pub fn scene(h: &Harvest) -> CardScene {
         }
     };
     // A full horde swarming the player would bury the GPU; the farthest are lost in the fog anyway.
-    let mut nearest: Vec<&Zombie> = h.zombies.iter().collect();
+    let mut nearest: Vec<&Zombie> = h.zombies.iter().enumerate().filter(|&(i, _)| !h.lies_dead(i)).map(|(_, z)| z).collect();
     if nearest.len() > MAX_ZOMBIES_3D {
         nearest.select_nth_unstable_by(MAX_ZOMBIES_3D, |a, b| len(sub(a.pos, h.pos)).total_cmp(&len(sub(b.pos, h.pos))));
         nearest.truncate(MAX_ZOMBIES_3D);
@@ -751,8 +806,8 @@ pub fn scene(h: &Harvest) -> CardScene {
     for f in &h.fx {
         let a = f.frames[((f.t * f.fps) as usize).min(f.frames.len() - 1)];
         match a.stand() {
-            Some(Stand::Slab { height, lift }) => lying(&mut cards, eye, a, world(f.pos), f.angle, height, lift, [1.0; 3]),
-            _ => board(&mut cards, Board::new(a, false, [f.pos[0], f.pos[1] + 6.0], 0.25, 0.0)),
+            Some(Stand::Slab { height, lift }) => lying(&mut cards, eye, a, world(f.pos), f.angle, height, lift, f.tint),
+            _ => board(&mut cards, Board { tint: f.tint, ..Board::new(a, false, [f.pos[0], f.pos[1] + 6.0], 0.25, 0.0) }),
         }
     }
     for g in &h.thrown {
@@ -787,11 +842,19 @@ pub fn scene(h: &Harvest) -> CardScene {
             }
         }
     }
-    for t in &h.tells {
-        // Churned earth, darkening as the zombie nears the surface.
-        let k = (t.t / TELL_TIME).min(1.0);
-        let mark = art::BLOOD_STAIN[(t.pos[0] as usize) % art::BLOOD_STAIN.len()];
-        let q = world([t.pos[0] - mark.w() / 2.0, t.pos[1] - mark.h() / 2.0]);
+    for s in &h.spits {
+        let a = super::effects::effects().spit.looping(s.age);
+        board(&mut cards, Board { tint: s.tint(), ..Board::new(a, false, [s.pos[0], s.pos[1] + 6.0], 0.35, 0.0) });
+    }
+    for z in &h.burrowed {
+        let a = super::effects::effects().mound.looping(h.t + z.id as f32 * 0.37);
+        board(&mut cards, Board::new(a, z.dir[0] < 0.0, z.pos, 0.0, 0.0));
+    }
+    // Churned earth, darkening as a zombie nears the surface; a burrower's trail is fully dark.
+    let mounds = h.tells.iter().map(|t| (t.pos, (t.t / TELL_TIME).min(1.0), t.pos[0] as usize)).chain(h.burrowed.iter().map(|z| (z.pos, 1.0, z.id as usize)));
+    for (pos, k, pick) in mounds {
+        let mark = art::BLOOD_STAIN[pick % art::BLOOD_STAIN.len()];
+        let q = world([pos[0] - mark.w() / 2.0, pos[1] - mark.h() / 2.0]);
         if near(q) {
             flat(&mut cards, mark, q.x, q.z, DECAL_LIFT + 0.004, [0.45 - 0.2 * k, 0.32 - 0.15 * k, 0.2 - 0.1 * k]);
         }
@@ -956,12 +1019,62 @@ mod tests {
         };
         let on_ground = |cards: &[Card]| cards.iter().filter(|c| (c.corners[0].y - DECAL_LIFT - 0.006).abs() < 1e-4).count();
         assert_eq!(on_ground(&cards(art::HAY)), 0, "nothing lies on the ground without cleared colors");
+        let _lock = art::test_lock();
         let live = art::set_live(vec![art::HAY.rect()], art::pixels().to_vec())[0];
         art::set_live_solids(vec![(live, art::BUSH)]);
         let cleared = cards(live);
         assert_eq!(on_ground(&cleared), 1, "the whole sprite lies on the ground");
         assert_eq!(cleared.len() - 1, cards(art::BUSH).len(), "the raised part is the 3D copy's");
         art::set_live_solids(Vec::new());
+    }
+
+    #[test]
+    fn a_detail_2_prop_stands_folds_carves_and_turns_as_its_plain_sprite_does() {
+        let _lock = art::test_lock();
+        let Some(Stand::Turned { east, .. }) = art::RAIL_SIDE[0].stand() else { panic!("the catalog turns the rail's sides") };
+        let plain = [art::GAS_STATION, art::HAY_STACK, art::CAR_H, art::CAR_V, art::RAIL_SIDE[0], east];
+        let fine = art::live_detailed(&plain, 2);
+        let stands = |a: &[Art]| {
+            let carve = Stand::Carve { footprint: Some(a[2]), roof: None, south: a[2], east: a[3], north: None, west: None };
+            [(a[0], Stand::Fold { rows: 27.0 }), (a[1], Stand::Prop { depth: 6.0 }), (a[1], Stand::Slab { height: 8.0, lift: 2.0 }), (a[1], Stand::Ground), (a[2], carve), (a[4], Stand::Turned { east: a[5], depth: None })]
+        };
+        let eye = Vec3::new(-4.0, 5.0, 9.0);
+        for ((a, how), (b, fine_how)) in stands(&plain).into_iter().zip(stands(&fine)) {
+            assert_eq!((b.detail(), b.w(), b.h()), (2, a.w(), a.h()));
+            assert_eq!(quads(a, how, None), quads(b, fine_how, None), "{how:?}: as many faces");
+            let corners = |a: Art, how: Stand| {
+                let mut out = Vec::new();
+                fixed(&mut out, eye, a, how, 3.0, 60.0, [1.0; 3]);
+                let mut c: Vec<[i32; 3]> = out.iter().flat_map(|c| c.corners).map(|p| (p / PX * 100.0).round().as_ivec3().to_array()).collect();
+                c.sort();
+                c
+            };
+            assert_eq!(corners(a, how), corners(b, fine_how), "{how:?}: the same faces in the world");
+        }
+        assert_eq!(fold_row(fine[0], 27.0), fold_row(art::GAS_STATION, 27.0), "folds at the same game row");
+        art::set_live_detail(Vec::new());
+    }
+
+    #[test]
+    fn a_detailed_sprite_has_the_sides_of_its_plain_outline_and_the_same_size() {
+        // An L of opaque game pixels, drawn once plain and once at detail 2 with a stray pixel cut from one block.
+        let shape = ["##.", "#..", "###"];
+        let mut pixels = vec![0u8; ATLAS_W as usize * 4 * 6];
+        let mut put = |x: usize, y: usize| pixels[(y * ATLAS_W as usize + x) * 4..][..4].copy_from_slice(&[200, 150, 100, 255]);
+        for (y, row) in shape.iter().enumerate() {
+            for (x, _) in row.chars().enumerate().filter(|(_, c)| *c == '#') {
+                put(x, y);
+                for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)].into_iter().filter(|&d| (x, y, d) != (2, 2, (1, 1))) {
+                    put(8 + 2 * x + dx, 2 * y + dy);
+                }
+            }
+        }
+        let plain = extrude(&pixels, [0, 0, 3, 3], Reach::Thin, None, 1);
+        let fine = extrude(&pixels, [8, 0, 6, 6], Reach::Thin, None, 2);
+        assert_eq!(fine.len(), plain.len(), "a block missing a pixel still counts as solid");
+        let reach = |faces: &[Face]| faces.iter().flat_map(|f| f.corners).fold(0.0f32, |m, c| m.max(c[0]).max(c[1]));
+        assert_eq!(reach(&fine), 2.0 * reach(&plain), "in texture pixels; `place` scales them by the detail");
+        assert!(fine.iter().all(|f| f.uv[0] >= 8.0 / ATLAS_W as f32), "sides take their colors from the detailed pixels");
     }
 
     #[test]
@@ -972,7 +1085,7 @@ mod tests {
             pixels[y * ATLAS_W as usize * 4..][..4].copy_from_slice(&[rgb, rgb, rgb, 255]);
         }
         let top_row = |reach| {
-            let top = extrude(&pixels, [0, 0, 1, 4], reach, None).into_iter().find(|f| f.normal == [0.0, 1.0, 0.0]).unwrap();
+            let top = extrude(&pixels, [0, 0, 1, 4], reach, None, 1).into_iter().find(|f| f.normal == [0.0, 1.0, 0.0]).unwrap();
             (top.uv[1] * ATLAS_H as f32) as usize
         };
         assert_eq!(top_row(Reach::Thin), 0, "the hair itself");
@@ -985,7 +1098,7 @@ mod tests {
         let mut pixels = vec![0u8; ATLAS_W as usize * 4];
         pixels[..8].copy_from_slice(&[10, 10, 10, 255, 250, 250, 250, 255]);
         let left_col = |reach| {
-            let side = extrude(&pixels, [0, 0, 2, 1], reach, None).into_iter().find(|f| f.normal == [-1.0, 0.0, 0.0]).unwrap();
+            let side = extrude(&pixels, [0, 0, 2, 1], reach, None, 1).into_iter().find(|f| f.normal == [-1.0, 0.0, 0.0]).unwrap();
             (side.uv[0] * ATLAS_W as f32) as usize
         };
         assert_eq!(left_col(Reach::Thin), 0, "the outline");
@@ -1001,7 +1114,7 @@ mod tests {
             pixels[x * 4..x * 4 + 4].copy_from_slice(&[10, 10, 10, 255]);
         }
         pixels[row * 3..row * 3 + 4].copy_from_slice(&[200, 0, 0, 255]);
-        let tops: Vec<Face> = extrude(&pixels, [0, 0, 2, 1], Reach::Thin, Some([0, 3, 2, 1])).into_iter().filter(|f| f.normal == [0.0, 1.0, 0.0]).collect();
+        let tops: Vec<Face> = extrude(&pixels, [0, 0, 2, 1], Reach::Thin, Some([0, 3, 2, 1]), 1).into_iter().filter(|f| f.normal == [0.0, 1.0, 0.0]).collect();
         let at = |f: &Face| ((f.uv[0] * ATLAS_W as f32) as usize, (f.uv[1] * ATLAS_H as f32) as usize);
         assert_eq!(tops.len(), 2);
         assert_eq!(at(&tops[0]), (0, 3), "the strip's red caps the first column");

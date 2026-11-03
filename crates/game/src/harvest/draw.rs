@@ -7,13 +7,18 @@ use super::map::TILE;
 use crate::art::Stand;
 use super::powerups::{Kind, Zone, book};
 use super::weapons::{BOLT_LIFE, Hazard};
-use super::{CHOICE_ROW, CHOICE_TOP, Choice, DropKind, Facing, GOLD, PAUSE_CHOICES, Harvest, PICK_TIME, PROP_FLASH, Phase, RED, SCALE, TELL_TIME, TURNED, Thrown, WHITE, clock, player_pose, player_worn, view3d, worn_corner};
+use super::{CHOICE_ROW, CHOICE_TOP, Choice, DropKind, Facing, GOLD, PAUSE_CHOICES, PAUSE_ROW, Harvest, PICK_TIME, PROP_FLASH, Phase, RED, SCALE, TELL_TIME, TURNED, Thrown, WHITE, clock, player_pose, player_worn, view3d, worn_corner};
 use crate::art::{self, Art};
 use crate::{Align, Canvas, Color, Frame, SCREEN_H, SCREEN_W};
 
 impl Harvest {
-    pub fn draw(&self, f: &mut Frame) {
-        self.draw_screens(f);
+    /// The run's screens; in photo mode, a `clean` frame is the capture, with no guides.
+    pub fn draw(&self, f: &mut Frame, clean: bool) {
+        if self.photo.is_some() {
+            self.photo_frame(f, clean);
+        } else {
+            self.draw_screens(f);
+        }
         if self.single {
             self.single_frame(f);
         }
@@ -37,13 +42,11 @@ impl Harvest {
 
         let c = &mut f.bottom;
         c.clear = [0.0, 0.0, 0.0, 1.0];
-        // The sky's wash multiplied into the map's colors: the same look as a translucent layer, without its fill cost.
-        let wash = view3d::sky(self).wash;
-        let tint = [0, 1, 2, 3].map(|i| if i == 3 { 1.0 } else { 1.0 - wash[3] + wash[3] * wash[i] });
+        let tint = self.map_tint();
         if self.overview {
             let scale = (SCREEN_W / self.map.width_px()).min(SCREEN_H / self.map.height_px());
             self.world(c, [0.0, 0.0], scale, tint);
-            c.label(if self.single { "Whole map (release R2 to play)" } else { "Whole map (release L1 to play)" }, SCREEN_W / 2.0, SCREEN_H - 40.0, 28.0, WHITE, Align::Center);
+            c.label(if self.single { "Whole map (let go of Map or R2 to play)" } else { "Whole map (release L1 to play)" }, SCREEN_W / 2.0, SCREEN_H - 40.0, 28.0, WHITE, Align::Center);
             return;
         }
         let cam = self.camera();
@@ -57,9 +60,16 @@ impl Harvest {
         if let Phase::LevelUp { choices, selected, t, picked } = &self.phase {
             let fade = picked.map_or(1.0, |p| 1.0 - p / PICK_TIME);
             c.rect(0.0, 0.0, SCREEN_W, SCREEN_H, [0.0, 0.0, 0.0, 0.6 * (t / 0.2).min(1.0) * fade]);
-            c.label("Tap an upgrade, or Up / Down and X", SCREEN_W / 2.0, 60.0, 32.0, [1.0, 1.0, 1.0, fade], Align::Center);
+            let how = if self.taps { "Tap an upgrade, or Up / Down and X" } else { "Up / Down and X: choose an upgrade" };
+            c.label(how, SCREEN_W / 2.0, 60.0, 32.0, [1.0, 1.0, 1.0, fade], Align::Center);
             self.choices(c, choices, *selected, *t, *picked, CHOICE_TOP);
         }
+    }
+
+    /// The sky's wash multiplied into the map's colors: the same look as a translucent layer, without its fill cost.
+    pub(super) fn map_tint(&self) -> Color {
+        let wash = view3d::sky(self).wash;
+        [0, 1, 2, 3].map(|i| if i == 3 { 1.0 } else { 1.0 - wash[3] + wash[3] * wash[i] })
     }
 
     /// Damage numbers over the 3D view, popping up and drifting away.
@@ -135,7 +145,7 @@ impl Harvest {
     }
 
     /// Dots along the edges of what the 3D view can see.
-    fn view_cone(&self, c: &mut Canvas, cam: [f32; 2]) {
+    pub(super) fn view_cone(&self, c: &mut Canvas, cam: [f32; 2]) {
         let half = self.ahead_half();
         let lit = if self.beam > 0.0 { [1.0, 1.0, 0.8, 1.0] } else { [1.0, 0.9, 0.6, 0.8] };
         for edge in [-half, half] {
@@ -220,6 +230,11 @@ impl Harvest {
             let (sx, sy) = at(t.pos[0], t.pos[1]);
             c.circle(sx, sy, (2.0 + 3.0 * k) * scale, [0.2, 0.13, 0.07, 0.8]);
         }
+        for z in &self.burrowed {
+            let a = super::effects::effects().mound.looping(self.t + z.id as f32 * 0.37);
+            let (sx, sy) = at(z.pos[0] - a.w() / 2.0, z.pos[1] - a.h() + 1.0);
+            c.art(a, sx, sy, scale, z.dir[0] < 0.0, lit);
+        }
         for p in &self.patches {
             let fade = ((p.life - p.age) / 0.5).clamp(0.0, 1.0);
             match p.hazard {
@@ -261,7 +276,7 @@ impl Harvest {
             c.art(a, sx, sy, scale, false, lit);
         }
 
-        for z in self.zombies.iter().filter(|z| z.leader || z.boss) {
+        for (_, z) in self.zombies.iter().enumerate().filter(|&(i, z)| (z.leader || z.boss) && !self.lies_dead(i)) {
             let (sx, sy) = at(z.pos[0], z.pos[1]);
             let pulse = 0.35 + 0.25 * (self.t * 6.0).sin();
             let (r, ring) = if z.boss { (16.0, HARVESTER) } else { (9.0, GOLD) };
@@ -283,7 +298,7 @@ impl Harvest {
                 sprites.push((r.pos[1] + a.h(), a, r.pos[0], r.pos[1], false, 1.0, 1.0));
             }
         }
-        for z in &self.zombies {
+        for (_, z) in self.zombies.iter().enumerate().filter(|&(i, _)| !self.lies_dead(i)) {
             let (facing, flip) = z.facing;
             let a = z.art(facing);
             sprites.push((z.pos[1], a, z.pos[0] - a.w() / 2.0, z.pos[1] - a.h() * z.rise + 2.0, flip, z.rise, 1.0));
@@ -293,7 +308,7 @@ impl Harvest {
             let (x, y) = (s.pos[0] - a.w() / 2.0, s.pos[1] - a.h());
             sprites.push((s.pos[1], a, x, y, false, 1.0, 1.0));
             if let Some(at) = a.worn_at().filter(|_| s.worn) {
-                let [gx, gy] = worn_corner(at, a.w(), false);
+                let [gx, gy] = worn_corner(at, a, false);
                 sprites.push((s.pos[1] + 0.01, art::GRENADE_WORN, x + gx, y + gy, false, 1.0, 1.0));
             }
         }
@@ -320,7 +335,7 @@ impl Harvest {
             let (x, y) = (self.pos[0] - a.w() / 2.0, self.pos[1] - a.h() * rise + 2.0);
             sprites.push((self.pos[1], a, x, y, flip, rise, 1.0));
             if let Some((at, bright)) = player_worn(self, facing) {
-                let [gx, gy] = worn_corner(at, a.w(), flip);
+                let [gx, gy] = worn_corner(at, a, flip);
                 sprites.push((self.pos[1] + 0.01, art::GRENADE_WORN, x + gx, y + gy, flip, 1.0, bright));
             }
         }
@@ -335,10 +350,16 @@ impl Harvest {
             let a = b.look.unwrap_or(super::effects::effects().bullet).looping(b.age);
             c.art_rotated(a, sx, sy, scale, b.vel[1].atan2(b.vel[0]), lit);
         }
+        for s in &self.spits {
+            let (sx, sy) = at(s.pos[0], s.pos[1]);
+            let [r, g, b] = s.tint();
+            c.art_rotated(super::effects::effects().spit.looping(s.age), sx, sy, scale, s.vel[1].atan2(s.vel[0]), [lit[0] * r, lit[1] * g, lit[2] * b, lit[3]]);
+        }
         for fx in &self.fx {
             let a = fx.frames[((fx.t * fx.fps) as usize).min(fx.frames.len() - 1)];
             let (sx, sy) = at(fx.pos[0], fx.pos[1]);
-            c.art_rotated(a, sx, sy, scale, fx.angle, lit);
+            let [r, g, b] = fx.tint;
+            c.art_rotated(a, sx, sy, scale, fx.angle, [lit[0] * r, lit[1] * g, lit[2] * b, lit[3]]);
         }
         for s in &self.swings {
             let (angle, r) = s.now();
@@ -515,9 +536,10 @@ impl Harvest {
     fn paused_bottom(&self, c: &mut Canvas) {
         let Some(at) = self.menu else { return };
         c.rect(0.0, 0.0, SCREEN_W, SCREEN_H, [0.0, 0.0, 0.0, 0.6]);
-        c.label("Start or B: resume.   Up / Down and A, or tap", SCREEN_W / 2.0, 60.0, 32.0, WHITE, Align::Center);
+        let how = if self.taps { "Start or B: resume.   Up / Down and A, or tap" } else { "Start or B: resume.   Up / Down and A" };
+        c.label(how, SCREEN_W / 2.0, 60.0, 32.0, WHITE, Align::Center);
         for (i, name) in PAUSE_CHOICES.iter().enumerate() {
-            let (x, y, w, h) = (212.0, CHOICE_TOP + i as f32 * CHOICE_ROW, 600.0, CHOICE_ROW - 30.0);
+            let (x, y, w, h) = (212.0, CHOICE_TOP + i as f32 * PAUSE_ROW, 600.0, PAUSE_ROW - 20.0);
             let on = i == at;
             c.rect(x, y, w, h, if on { [1.0, 0.85, 0.3, 0.35] } else { [1.0, 1.0, 1.0, 0.1] });
             c.label(*name, SCREEN_W / 2.0, y + h / 2.0 - 26.0, 48.0, if on { GOLD } else { WHITE }, Align::Center);

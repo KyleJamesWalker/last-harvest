@@ -30,6 +30,7 @@ pub(crate) enum Setting {
     Rumble,
     Fps,
     Screens,
+    Touch,
     Grenades,
     Player,
     Enemies,
@@ -37,7 +38,7 @@ pub(crate) enum Setting {
 }
 
 impl Setting {
-    const ALL: [Setting; 10] = [Setting::TopBrightness, Setting::BottomBrightness, Setting::Volume, Setting::Rumble, Setting::Fps, Setting::Screens, Setting::Grenades, Setting::Player, Setting::Enemies, Setting::Reset];
+    const ALL: [Setting; 11] = [Setting::TopBrightness, Setting::BottomBrightness, Setting::Volume, Setting::Rumble, Setting::Fps, Setting::Screens, Setting::Touch, Setting::Grenades, Setting::Player, Setting::Enemies, Setting::Reset];
 
     fn name(self) -> &'static str {
         match self {
@@ -47,6 +48,7 @@ impl Setting {
             Setting::Rumble => "Rumble",
             Setting::Fps => "Show FPS",
             Setting::Screens => "Screens",
+            Setting::Touch => "Touch controls",
             Setting::Grenades => "Grenades",
             Setting::Player => "Player",
             Setting::Enemies => "Enemies",
@@ -96,8 +98,8 @@ fn setting_row(i: usize) -> [f32; 4] {
 }
 
 impl Game {
-    /// A run's settings leave out Player, Enemies and Reset; a phone has Grenades where others have Screens; screen
-    /// brightness shows only where the platform sets the backlights.
+    /// A run's settings leave out Player, Enemies and Reset; a phone whose screen takes touches has Touch controls and
+    /// Grenades where others have Screens; screen brightness shows only where the platform sets the backlights.
     pub(crate) fn settings_list(&self) -> Vec<Setting> {
         let phone = self.is_phone();
         Setting::ALL
@@ -106,6 +108,7 @@ impl Game {
                 Setting::Player | Setting::Enemies | Setting::Reset => !self.settings_in_run,
                 Setting::TopBrightness | Setting::BottomBrightness => self.has_backlights(),
                 Setting::Screens => !phone,
+                Setting::Touch => phone && self.touch_screen(),
                 Setting::Grenades => phone && self.has_touch(),
                 _ => true,
             })
@@ -246,6 +249,7 @@ impl Game {
             }
             Setting::Fps if by != 0 || press => self.save.fps = !self.save.fps,
             Setting::Screens if by != 0 || press => self.save.one_screen = !self.save.one_screen,
+            Setting::Touch if by != 0 || press => self.save.touch = self.save.touch.step(if by == 0 { 1 } else { by }),
             Setting::Grenades if by != 0 || press => self.save.touch_grenades = !self.save.touch_grenades,
             Setting::Player if by != 0 || press => {
                 let looks = crate::player_looks();
@@ -339,6 +343,12 @@ impl Game {
         c.label("<", mid - 250.0, y + 6.0, 56.0, arrow(d != Difficulty::Easy), Align::Center);
         c.label(">", mid + 250.0, y + 6.0, 56.0, arrow(d != Difficulty::Hard), Align::Center);
         c.label(d.name(), mid, y + 6.0, 52.0, HOT, Align::Center);
+        if self.title_on_one() {
+            wrap_label(c, d.blurb(), mid, y + 56.0, 36.0, 560.0, 2, DIM, Align::Center);
+            c.label("D-pad: walk.   Y / A: turn.   B: turn around.", SCREEN_W / 2.0, SCREEN_H - 104.0, 40.0, DIM, Align::Center);
+            c.label("L1: map.   L2: aim a grenade.   R2: whole map.", SCREEN_W / 2.0, SCREEN_H - 56.0, 40.0, DIM, Align::Center);
+            return;
+        }
         c.label(d.blurb(), mid, y + 80.0, 26.0, DIM, Align::Center);
         c.label("D-pad: walk and strafe.   Y / A: turn.   B: turn around.   R1: screenshot.", SCREEN_W / 2.0, SCREEN_H - 84.0, 24.0, DIM, Align::Center);
         c.label("Hold X: aim at barrels.   Tap the map: throw.   Left / Right on Play: difficulty.", SCREEN_W / 2.0, SCREEN_H - 50.0, 24.0, DIM, Align::Center);
@@ -365,10 +375,11 @@ impl Game {
                     c.label(if v { "On" } else { "Off" }, (LESS_X + MORE_X) / 2.0, mid - 20.0, 38.0, if v { HOT } else { DIM }, Align::Center);
                     continue;
                 }
-                Setting::Screens | Setting::Grenades => {
+                Setting::Screens | Setting::Touch | Setting::Grenades => {
                     let label = match s {
                         Setting::Screens if self.save.one_screen => "One",
                         Setting::Screens => "Two",
+                        Setting::Touch => self.save.touch.name(),
                         _ if self.save.touch_grenades => "Touch",
                         _ => "Pad",
                     };

@@ -33,8 +33,8 @@ pub trait Store {
         Vec::new()
     }
 
-    /// An enemy card's own death sound, as its file name such as `kill-ghoul.ogg` and its bytes, kept beside the card
-    /// by the mod editor.
+    /// An enemy card's own death sound, as its file name such as `kill-ghoul.ogg` and its bytes: inside the card's
+    /// PNG on this machine, beside it in the browser.
     fn card_sound(&self, _id: &str) -> Option<(String, Vec<u8>)> {
         None
     }
@@ -118,9 +118,9 @@ pub mod props {
         format!("{}{}", last_harvest_game::PROP_PREFIX, id.to_ascii_uppercase())
     }
 
-    /// A prop's pictures as the editor's frames: its text, its frames, its south and east views, and the optional
-    /// pictures it has, by the file each saves as.
-    type Pictures = (String, Vec<Frame>, Option<[Frame; 2]>, Vec<(&'static str, Frame)>);
+    /// A prop's pictures as the editor's frames: its text, its frames, its south and east views, the optional
+    /// pictures it has, by the file each saves as, and its detail.
+    type Pictures = (String, Vec<Frame>, Option<[Frame; 2]>, Vec<(&'static str, Frame)>, u8);
 
     fn pictures(bytes: &[u8]) -> Option<Pictures> {
         let p = prop::read("prop", bytes).ok()?;
@@ -143,14 +143,17 @@ pub mod props {
         ];
         let optional = optional.into_iter().filter(|(on, ..)| carving && *on).map(|(_, file, r)| (file, cut(r))).collect();
         let views = carving.then(|| [cut([0, fh, fw, vh]), cut([fw, fh, fh, vh])]);
-        Some((p.text, frames, views, optional))
+        Some((p.text, frames, views, optional, p.detail))
     }
 
     /// A file of a prop's sprite, as `Store::read` hands it out: a frame, a view, or its text.
     pub fn file(bytes: &[u8], file: &str) -> Option<Vec<u8>> {
-        let (text, frames, views, optional) = pictures(bytes)?;
+        let (text, frames, views, optional, detail) = pictures(bytes)?;
         if file == sprite::CARD_FILE {
             return Some(text.into_bytes());
+        }
+        if file == sprite::DETAIL_FILE {
+            return (detail > 1).then(|| format!("{detail}\n").into_bytes());
         }
         if let Some((_, f)) = optional.iter().find(|(n, _)| *n == file) {
             return Some(sprite::encode_png(f));
@@ -227,7 +230,7 @@ pub mod props {
         if let Some(f) = west {
             put(f, w + h + north.map_or(0, |_| w), h);
         }
-        prop::write(&last_harvest_game::prop_text(&fields), sw as u32, (h + vh) as u32, &sheet)
+        prop::write_at(&last_harvest_game::prop_text(&fields), sprite.detail, sw as u32, (h + vh) as u32, &sheet)
     }
 
     /// The prop with its stand set from how the editor writes one; carving and turning need the views saved first.
@@ -241,7 +244,7 @@ pub mod props {
         }
         (fields.stand, fields.by_views) = (stand.stand, stand.by_views);
         let [fw, fh] = p.frame;
-        prop::write(&last_harvest_game::prop_text(&fields), fields.sheet_w(fw, fh), fh + fields.views, &p.sheet)
+        prop::write_at(&last_harvest_game::prop_text(&fields), p.detail, fields.sheet_w(fw, fh), fh + fields.views, &p.sheet)
     }
 
     pub fn blank(id: &str) -> last_harvest_game::PropFields {
@@ -293,6 +296,10 @@ pub mod cards {
             return Some(text.into_bytes());
         }
         let (_, row) = sprite::card_part(name)?;
+        if file == sprite::DETAIL_FILE {
+            let d = card::read_as(kind, "card", bytes).ok()?.detail;
+            return (d > 1).then(|| format!("{d}\n").into_bytes());
+        }
         if file == sprite::WORN_FILE {
             let facing = worn(kind, bytes).into_iter().nth(row).filter(|w| !w.is_empty())?;
             return Some(format!("{}\n", worn::spec(&facing)).into_bytes());
@@ -302,8 +309,9 @@ pub mod cards {
     }
 
     /// The card with one part's frames and the card's text written in; a card that doesn't exist yet starts from
-    /// the template. A part of a new size resizes the rest of the card to match, and a walking part with a new
-    /// number of frames gives the other two walking parts as many, repeating their last frame or dropping the extra.
+    /// the template. A part at a new detail redraws the rest of the card at it, a part of a new size resizes the rest
+    /// to match, and a walking part with a new number of frames gives the other two walking parts as many, repeating
+    /// their last frame or dropping the extra.
     pub fn with_part(existing: Option<&[u8]>, part: &Sprite) -> Result<Vec<u8>, String> {
         let (id, row) = sprite::card_part(&part.name).ok_or("not a card's part")?;
         let kind = sprite::card_kind(&part.name).ok_or("not a card's part")?;
@@ -322,10 +330,12 @@ pub mod cards {
         if !fits || part.frames.iter().any(|f| (f.w, f.h) != (w, h)) {
             return Err(format!("an enemy's walking part has 1 to {} frames and every other part {CARD_PART_FRAMES}, all one size", last_harvest_game::MAX_WALK));
         }
-        if w > sprite::CARD_MAX_FRAME || h > sprite::CARD_MAX_FRAME {
-            return Err(format!("a card's frames are at most {0}x{0} pixels", sprite::CARD_MAX_FRAME));
+        let most = last_harvest_game::card_frame_most(part.detail) as usize;
+        if w > most || h > most {
+            return Err(format!("a card's frames are at most {most}x{most} pixels at detail {}", part.detail));
         }
-        let mut facings = existing.map(|b| worn(kind, b)).unwrap_or_default();
+        let was = existing.and_then(|b| card::read_as(kind, "card", b).ok()).map_or(1, |c| c.detail);
+        let mut facings = existing.map(|b| worn(kind, b)).unwrap_or_default().map(|f| sprite::redetailed_worn(&f, was, part.detail));
         if kind == CardKind::Player && row < 3 {
             facings[row] = part.worn.clone();
         }
@@ -336,6 +346,9 @@ pub mod cards {
                 std::array::from_fn(|r| t[r * CARD_PART_FRAMES..(r + 1) * CARD_PART_FRAMES].to_vec())
             }
         };
+        for f in rows.iter_mut().flatten().filter(|_| was != part.detail) {
+            *f = f.redetailed(was, part.detail);
+        }
         for f in rows.iter_mut().flatten() {
             if (f.w, f.h) != (w, h) {
                 *f = f.resized(w, h);
@@ -365,7 +378,8 @@ pub mod cards {
                 }
             }
         }
-        card::write_as(kind, &text, &worn::card_text(&facings), (w * cols) as u32, (h * height) as u32, height as u32, &sheet)
+        let bytes = card::write_as(kind, &text, &worn::card_text(&facings), part.detail, (w * cols) as u32, (h * height) as u32, height as u32, &sheet)?;
+        card::with_sound(&bytes, existing.and_then(|b| card::sound(b).ok().flatten()).map(|(_, s)| s))
     }
 
     pub use last_harvest_pack::browser::{from_text, to_text};
@@ -416,7 +430,7 @@ mod tests {
         south.set(0, 4, [1, 2, 3, 255]);
         east.set(2, 0, [4, 5, 6, 255]);
         footprint.set(3, 2, [7, 8, 9, 255]);
-        let blank = Sprite { worn: Vec::new(), name: "PROP_POST".into(), frames: vec![frame.clone(); 2], views: None, footprint: None, roof: None, north: None, west: None, top: None, card: None, clear_in_3d: Vec::new(), paint: Default::default() };
+        let blank = Sprite { detail: 1, worn: Vec::new(), name: "PROP_POST".into(), frames: vec![frame.clone(); 2], views: None, footprint: None, roof: None, north: None, west: None, top: None, card: None, clear_in_3d: Vec::new(), paint: Default::default() };
         assert!(super::props::with_stand(&super::props::from_sprite(&blank).unwrap(), "carve").unwrap_err().contains("views"));
         let s = Sprite { views: Some([south.clone(), east.clone()]), footprint: Some(footprint.clone()), ..blank };
         let bytes = super::props::with_stand(&super::props::from_sprite(&s).unwrap(), "turned").unwrap();
@@ -442,6 +456,7 @@ mod tests {
         let s = Sprite {
             name: "PROP_STACK".into(),
             worn: Vec::new(),
+            detail: 1,
             frames: vec![dot(4, 3, 0, 1)],
             views: Some([dot(4, 5, 1, 2), dot(3, 5, 2, 3)]),
             footprint: None,
@@ -479,8 +494,8 @@ mod tests {
         use crate::sprite::CardKind;
         use last_harvest_pack::card::{Kind, write_as};
         let sheet = vec![0u8; 24 * 40 * 4];
-        let enemy = write_as(Kind::Enemy, "[bat]", "", 24, 40, 5, &sheet).unwrap();
-        let player = write_as(Kind::Player, "[jo]\nname Jo", "", 24, 40, 5, &sheet).unwrap();
+        let enemy = write_as(Kind::Enemy, "[bat]", "", 1, 24, 40, 5, &sheet).unwrap();
+        let player = write_as(Kind::Player, "[jo]\nname Jo", "", 1, 24, 40, 5, &sheet).unwrap();
         assert_eq!(identify("x.png", &enemy), Ok((CardKind::Enemy, "bat".into())));
         assert_eq!(identify("download.png", &player), Ok((CardKind::Player, "jo".into())));
         assert!(identify("jo.enemy.png", &player).is_err(), "a name's ending is believed");
@@ -552,6 +567,17 @@ mod fs {
         fn ids(&self, kind: CardKind) -> Vec<String> {
             let found = std::fs::read_dir(self.folder(kind)).into_iter().flatten().flatten();
             found.filter_map(|e| e.file_name().into_string().ok()?.strip_suffix(kind.extension()).map(str::to_string)).collect()
+        }
+
+        fn enemy_path(&self, id: &str) -> PathBuf {
+            self.folder(CardKind::Enemy).join(format!("{id}{}", CardKind::Enemy.extension()))
+        }
+
+        /// Writes an enemy card's own death sound into its saved PNG, or takes it out with None.
+        fn put_sound(&self, id: &str, sound: Option<&[u8]>) -> Result<(), String> {
+            let path = self.enemy_path(id);
+            let bytes = std::fs::read(&path).map_err(|_| "save the card first".to_string())?;
+            std::fs::write(&path, last_harvest_pack::card::with_sound(&bytes, sound)?).map_err(|e| format!("{}: {e}", path.display()))
         }
     }
 
@@ -646,6 +672,24 @@ mod fs {
             let path = dir.join(format!("{id}{}", kind.extension()));
             std::fs::write(&path, bytes).map_err(|e| format!("{}: {e}", path.display()))?;
             Ok(names[0].clone())
+        }
+
+        fn card_bytes(&self, name: &str) -> Option<Vec<u8>> {
+            std::fs::read(self.card_path(name)?).ok()
+        }
+
+        fn card_sound(&self, id: &str) -> Option<(String, Vec<u8>)> {
+            let bytes = std::fs::read(self.enemy_path(id)).ok()?;
+            let (ext, sound) = last_harvest_pack::card::sound(&bytes).ok()??;
+            Some((format!("kill-{id}.{ext}"), sound.to_vec()))
+        }
+
+        fn set_card_sound(&self, id: &str, _file: &str, bytes: &[u8]) -> Result<(), String> {
+            self.put_sound(id, Some(bytes))
+        }
+
+        fn remove_card_sound(&self, id: &str) -> Result<(), String> {
+            self.put_sound(id, None)
         }
 
         fn prop_bytes(&self, id: &str) -> Option<Vec<u8>> {

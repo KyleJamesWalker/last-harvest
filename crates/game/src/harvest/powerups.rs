@@ -96,32 +96,65 @@ pub enum Pattern {
     Spray,
 }
 
+/// Every weapon behaviour by the name `does` gives it.
+const DOES: [(&str, Does); 20] = [
+    ("pistol", Does::Pistol),
+    ("shotgun", Does::Shotgun),
+    ("rifle", Does::Rifle),
+    ("lantern", Does::Lantern),
+    ("burner", Does::Burner),
+    ("pitchfork", Does::Pitchfork),
+    ("knife", Does::Knife),
+    ("scythe", Does::Scythe),
+    ("crows", Does::Crows),
+    ("zapper", Does::Zapper),
+    ("dog", Does::Dog),
+    ("tacks", Does::Tacks),
+    ("gas", Does::Gas),
+    ("holster", Does::Holster),
+    ("scarecrow", Does::Scarecrow),
+    ("molotov", Does::Molotov),
+    ("flare", Does::Flare),
+    ("gun", Does::Gun),
+    ("blade", Does::Blade),
+    ("lob", Does::Lob),
+];
+
 impl Does {
     fn from_key(key: &str) -> Option<Does> {
-        Some(match key {
-            "pistol" => Does::Pistol,
-            "shotgun" => Does::Shotgun,
-            "rifle" => Does::Rifle,
-            "lantern" => Does::Lantern,
-            "burner" => Does::Burner,
-            "pitchfork" => Does::Pitchfork,
-            "knife" => Does::Knife,
-            "scythe" => Does::Scythe,
-            "crows" => Does::Crows,
-            "zapper" => Does::Zapper,
-            "dog" => Does::Dog,
-            "tacks" => Does::Tacks,
-            "gas" => Does::Gas,
-            "holster" => Does::Holster,
-            "scarecrow" => Does::Scarecrow,
-            "molotov" => Does::Molotov,
-            "flare" => Does::Flare,
-            "gun" => Does::Gun,
-            "blade" => Does::Blade,
-            "lob" => Does::Lob,
-            _ => return None,
-        })
+        DOES.iter().find(|(k, _)| *k == key).map(|(_, d)| *d)
     }
+}
+
+/// The names a weapon's `does` can give, in the file's order.
+pub fn weapon_behaviours() -> [&'static str; 20] {
+    DOES.map(|(k, _)| k)
+}
+
+/// The names a weapon's `sound` can give.
+pub fn weapon_sound_names() -> [&'static str; 6] {
+    WEAPON_SOUNDS.map(|(k, _)| k)
+}
+
+/// Each stat a weapon can set, by its key, with its value when the section leaves it out.
+pub fn weapon_stats() -> Vec<(&'static str, f32)> {
+    Stat::ALL.iter().filter(|s| s.for_weapons()).map(|s| (s.key(), s.weapon_default())).collect()
+}
+
+/// A weapon's numbers as the game reads them from a whole `powerups.txt`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct WeaponLevels {
+    pub max: u32,
+    /// Each weapon stat's key, whether the section sets it, and its value at levels 1 to `max`.
+    pub stats: Vec<(&'static str, bool, Vec<f32>)>,
+}
+
+/// The numbers of the weapon `[id]` in `text` at each level; an error names the line, as the game would.
+pub fn weapon_levels(text: &str, id: &str) -> Result<WeaponLevels, String> {
+    let book = parse(text)?;
+    let def = book.defs.iter().find(|d| d.id == id && d.kind == Kind::Weapon).ok_or_else(|| format!(" no weapon [{id}]"))?;
+    let stats = Stat::ALL.iter().filter(|s| s.for_weapons()).map(|&s| (s.key(), def.stats.iter().any(|(t, _)| *t == s), (1..=def.max).map(|l| def.at(s, l)).collect())).collect();
+    Ok(WeaponLevels { max: def.max, stats })
 }
 
 /// When a powerup can first be found on a card.
@@ -791,6 +824,19 @@ mod tests {
         let b = parse("[pp]\nicon PROP_ICON_NOT_YET\n[cash]\nkind filler\nicon WHITE\n").unwrap();
         assert_eq!((b.defs[0].icon, b.missing.as_slice()), (art::WHITE, ["PROP_ICON_NOT_YET".to_string()].as_slice()));
         assert!(!crate::data::noted().iter().any(|n| n.contains("PROP_ICON_NOT_YET")), "only the book the game plays with reports it");
+    }
+
+    #[test]
+    fn a_weapons_levels_read_as_the_game_plays_them() {
+        let text = crate::harvest::built_in_table("powerups.txt").unwrap();
+        let w = weapon_levels(text, "pistol").unwrap();
+        let stat = |k: &str| w.stats.iter().find(|s| s.0 == k).cloned().unwrap();
+        assert_eq!(w.max, 8);
+        assert_eq!(stat("damage"), ("damage", true, vec![12.0, 12.0, 15.0, 15.0, 18.0, 18.0, 21.0, 24.0]));
+        assert_eq!(stat("area"), ("area", false, vec![20.0; 8]), "a stat left out is its default at every level");
+        assert!(weapon_levels(text, "nope").is_err() && weapon_levels("[x]\n", "x").is_err());
+        assert!(weapon_behaviours().iter().all(|k| Does::from_key(k).is_some()));
+        assert_eq!(weapon_stats().iter().map(|s| s.0).collect::<Vec<_>>(), w.stats.iter().map(|s| s.0).collect::<Vec<_>>());
     }
 
     #[test]

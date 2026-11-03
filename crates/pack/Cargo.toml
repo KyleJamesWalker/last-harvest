@@ -16,6 +16,7 @@ name = "last-harvest-pack"
 required-features = ["packer"]
 
 [dependencies]
+crc32fast = "1.5"
 # zip leaves flate2 without a backend; this picks the pure-Rust one.
 flate2 = { version = "1.1", default-features = false, features = ["rust_backend"], optional = true }
 last-harvest-game.workspace = true

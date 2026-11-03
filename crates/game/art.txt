@@ -136,6 +136,8 @@ FIRE            png placeholder/fire.png x3  @prop 4
 MOLOTOV         png placeholder/molotov.png  @prop 2
 FLARE           png placeholder/flare.png
 CHEST           png placeholder/chest.png
+MOUND           png placeholder/mound.png x3
+DIRT_PUFF       png placeholder/dirt_puff.png x3
 ICON_PISTOL            png placeholder/icon_pistol.png
 ICON_SHOTGUN           png placeholder/icon_shotgun.png
 ICON_RIFLE             png placeholder/icon_rifle.png  @prop 1
@@ -183,3 +185,4 @@ TOUCH_PAD              png placeholder/touch_pad.png
 TOUCH_PAD_DOWN         png placeholder/touch_pad_down.png
 TOUCH_AROUND           png placeholder/touch_around.png
 TOUCH_PAUSE            png placeholder/touch_pause.png
+TOUCH_MAP              png placeholder/touch_map.png

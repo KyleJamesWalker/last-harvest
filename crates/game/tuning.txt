@@ -52,6 +52,9 @@ depth 4
 walk_fps 8      # walking frames a second for the player, and for a zombie at a speed of 20
 bite_reach 9    # how near a zombie bites the player
 charge_reach 48 # how near a zombie with a charge speeds up
+spit_speed 36   # pixels a second a ranged zombie's spit flies, slower than the player walks
+spit_every 2.5  # seconds between a ranged zombie's spits
+burrow_reach 20 # how near the player a burrowing zombie surfaces
 chew 0.5        # bites a second a zombie takes out of a prop in its way
 
 [harvester]

@@ -15,6 +15,7 @@ mod harvest;
 mod input;
 mod menu;
 mod osd;
+pub mod photo;
 mod rng;
 mod save;
 pub mod scene3d;
@@ -29,10 +30,11 @@ pub use draw::{Align, Canvas, Color, Frame, Shape};
 pub use art::Stand;
 pub use harvest::showcase::{Figure, Showcase};
 pub use harvest::{NamedProp, load_props_for_checks, PROP_MAX_FRAME, PROP_MAX_FRAMES, PROP_PREFIX, PropByViews, PropFields, named_props, turned_depth, prop_fields, prop_text, set_props};
+pub use harvest::{WeaponLevels, weapon_behaviours, weapon_levels, weapon_sound_names, weapon_stats};
 pub use harvest::{TABLES, built_in_table, check_own_table, check_table, default_prop_depth, MAP_EXTENSION, map_ground, MAP_MAX, MAP_MIN, map_props, parse_props, MapSource, PROP_MAX_HP, PropKind, PropLine, PropTough, check_map, valid_map_id};
-pub use harvest::{ABOUT_MAX, CARD_FLAGS, CARD_MAX_FRAME, CARD_NUMBERS, MAX_WALK, PLAYER_BASE_KEYS, PLAYER_ID_MAX, PlayerFields, PlayerLook, default_start, flash_pixel, frame_limits, hurt_pixel, player_fields, player_looks, set_player_start, weapon_slots, weapons, CardFields, night_minutes, SpawnMix, card_fields, check_tables, kill_sound, kill_sounds, kill_weight, set_card_field, spawn_mix};
+pub use harvest::{ABOUT_MAX, CARD_FLAGS, CARD_MAX_FRAME, card_frame_most, CARD_NUMBERS, MAX_WALK, PLAYER_BASE_KEYS, PLAYER_ID_MAX, PlayerFields, PlayerLook, default_start, flash_pixel, frame_limits, hurt_pixel, player_fields, player_looks, set_player_start, weapon_slots, weapons, CardFields, night_minutes, SpawnMix, card_fields, check_tables, kill_sound, kill_sounds, kill_weight, set_card_field, spawn_mix};
 pub use input::{Buttons, Input, InputTracker, MAX_TOUCHES, RawInput};
-pub use save::Save;
+pub use save::{Save, TouchControls};
 pub use sfx::Sfx;
 pub use system::{Battery, Outputs, System};
 
@@ -51,6 +53,15 @@ const MAX_TITLE_KINDS: usize = 5;
 const WHITE: Color = [1.0, 1.0, 1.0, 1.0];
 const HOT: Color = [1.0, 0.85, 0.2, 1.0];
 const DIM: Color = [1.0, 1.0, 1.0, 0.55];
+
+/// What the app saves after a draw that asked for a screenshot.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Capture {
+    /// Both screens, as drawn.
+    Screens,
+    /// Photo mode's top screen alone, with its middle square beside it.
+    Photo,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Scene {
@@ -130,7 +141,7 @@ pub struct Game {
     phone: Option<[f32; 2]>,
     /// The platform sets the screens' backlights, so Settings offers their brightness.
     backlights: bool,
-    /// The phone's screen takes touches, so it gets on-screen controls and touch grenades.
+    /// The phone's screen takes touches, so Settings offers the on-screen controls and touch grenades.
     touch_ui: bool,
     /// The main menu offers Quit, where the platform can close the game.
     can_quit: bool,
@@ -152,6 +163,20 @@ pub struct Game {
     shot: bool,
     /// Seconds left of the white flash that says a screenshot was taken.
     shot_flash: f32,
+    /// The platform saves screenshots, so photo mode can take one.
+    captures: bool,
+    /// A button or stick has been used since launch, so Off can't strand a touch-only player.
+    pad_seen: bool,
+}
+
+/// Where the title's menu sits on the top screen when one screen shows both, and its scale.
+const TITLE_MENU: ([f32; 2], f32) = ([(SCREEN_W - SCREEN_W * 0.55) / 2.0, 330.0], 0.55);
+
+/// A touch on the top screen as one on the title's menu placed over it, if it lands there.
+fn title_menu_touch([x, y]: [f32; 2]) -> Option<[f32; 2]> {
+    let ([ax, ay], k) = TITLE_MENU;
+    let p = [(x - ax) / k, (y - ay) / k];
+    ((0.0..SCREEN_W).contains(&p[0]) && (0.0..SCREEN_H).contains(&p[1])).then_some(p)
 }
 
 impl Game {
@@ -191,15 +216,32 @@ impl Game {
             settings_in_run: false,
             shot: false,
             shot_flash: 0.0,
+            captures: false,
+            pad_seen: false,
         }
     }
 
-    /// Whether R1 asked for a screenshot; the app saves the frame it just drew.
-    pub fn take_screenshot(&mut self) -> bool {
-        if self.shot {
-            self.shot_flash = SHOT_FLASH;
+    /// What R1 or photo mode asked to capture, if anything; the app saves the frame it just drew.
+    pub fn take_screenshot(&mut self) -> Option<Capture> {
+        if !std::mem::take(&mut self.shot) {
+            return None;
         }
-        std::mem::take(&mut self.shot)
+        self.shot_flash = SHOT_FLASH;
+        Some(if self.in_photo() { Capture::Photo } else { Capture::Screens })
+    }
+
+    /// The platform saves what `take_screenshot` asks for, so photo mode offers to take photos.
+    pub fn set_captures(&mut self, on: bool) {
+        self.captures = on;
+    }
+
+    fn in_photo(&self) -> bool {
+        matches!(&self.state, State::Harvest(h) if h.in_photo())
+    }
+
+    /// This frame is a photo mode capture, drawn with no guides or overlays.
+    fn clean(&self) -> bool {
+        self.shot && self.captures && self.in_photo()
     }
 
     pub fn load(&mut self, save: Save) {
@@ -318,17 +360,22 @@ impl Game {
     }
 
     /// The title's main page on one screen without touch: the top screen with the menu over it, smaller.
-    fn title_on_one(&self) -> bool {
-        self.phone.is_some() && !self.touch_ui && matches!(self.state, State::Title) && self.page == Page::Main
+    pub(crate) fn title_on_one(&self) -> bool {
+        self.phone.is_some() && !self.has_touch() && matches!(self.state, State::Title) && self.page == Page::Main
     }
 
-    /// Plays as on a phone without touch: no on-screen controls, grenades aimed with L2.
+    /// Plays as on a phone without touch: no on-screen controls, grenades aimed with L2, whatever Settings says.
     pub fn set_touch(&mut self, on: bool) {
         self.touch_ui = on;
     }
 
-    pub(crate) fn has_touch(&self) -> bool {
+    pub(crate) fn touch_screen(&self) -> bool {
         self.touch_ui
+    }
+
+    /// The on-screen controls are laid out, as the screen takes touches and Settings leaves them on.
+    pub(crate) fn has_touch(&self) -> bool {
+        self.touch_ui && self.save.touch.shown()
     }
 
     pub(crate) fn has_backlights(&self) -> bool {
@@ -340,19 +387,26 @@ impl Game {
     }
 
     fn phone_layout(&self, size: [f32; 2]) -> touch::Layout {
-        touch::layout(size, matches!(self.state, State::Harvest(_)) || self.title_on_one(), self.touch_ui)
+        touch::layout(size, matches!(self.state, State::Harvest(_)) || self.title_on_one(), self.has_touch())
     }
 
     /// The input with the on-screen controls' buttons, stick and screen touch in place of raw fingers.
     fn through_touchpad(&mut self, input: &Input, size: [f32; 2]) -> Input {
+        self.pad_seen |= input.held != Buttons::NONE || input.pressed != Buttons::NONE || input.stick != [0.0; 2] || input.look != 0.0;
+        if self.save.touch == TouchControls::Off && !self.pad_seen && self.touch_screen() && input.touches.iter().any(Option::is_some) {
+            self.save.touch = TouchControls::Auto;
+        }
         let layout = self.phone_layout(size);
-        let other = input.held != Buttons::NONE || input.stick != [0.0; 2] || input.look != 0.0;
+        let hides = self.save.touch.hide_at_other_input();
+        let other = hides && (input.held != Buttons::NONE || input.stick != [0.0; 2] || input.look != 0.0);
+        self.touchpad.hidden &= hides;
         let pad = self.touchpad.update(&input.touches, &layout, other);
         let stick = [0, 1].map(|i| (input.stick[i] + pad.stick[i]).clamp(-1.0, 1.0));
         let look = (input.look + pad.look).clamp(-1.0, 1.0);
+        let touch = if self.title_on_one() { pad.touch.and_then(title_menu_touch) } else { pad.touch };
         let mut touches = [None; MAX_TOUCHES];
-        touches[0] = pad.touch;
-        Input { held: input.held | pad.held, pressed: input.pressed | pad.pressed, stick, look, touch: pad.touch, touches, touch_started: pad.touch_started, ..*input }
+        touches[0] = touch;
+        Input { held: input.held | pad.held, pressed: input.pressed | pad.pressed, stick, look, touch, touches, touch_started: pad.touch_started && touch.is_some(), ..*input }
     }
 
     /// Whether the vibration motor should be running this frame.
@@ -426,7 +480,7 @@ impl Game {
             self.sounds.push(Sfx::Tick(self.save.volume));
         }
         self.shot_flash = (self.shot_flash - dt).max(0.0);
-        let own_r1 = matches!(self.state, State::Hardware(_) | State::Gallery(_));
+        let own_r1 = matches!(self.state, State::Hardware(_) | State::Gallery(_)) || self.in_photo();
         if input.pressed.contains(Buttons::R1) && !own_r1 {
             self.shot = true;
             self.sounds.push(Sfx::Tick(LEVELS));
@@ -458,9 +512,17 @@ impl Game {
             State::Harvest(mut h) => {
                 if self.phone.is_some() {
                     h.set_one_screen(true);
-                    h.set_touch_aim(self.save.touch_grenades && self.touch_ui);
+                    h.set_touch_aim(self.save.touch_grenades && self.has_touch());
                 }
+                h.set_saves_photos(self.captures);
+                h.set_taps(self.phone.is_none() || self.touch_screen());
                 let flow = h.update(input, dt, &mut self.sounds);
+                if flow.capture && self.captures {
+                    self.shot = true;
+                    self.sounds.push(Sfx::Tick(LEVELS));
+                } else if flow.capture {
+                    h.toggle_guides();
+                }
                 if flow.settings {
                     self.page = Page::Settings;
                     self.open_settings(true);
@@ -503,7 +565,7 @@ impl Game {
         match &self.state {
             State::Title => self.draw_title(&mut f),
             State::Harvest(h) => {
-                h.draw(&mut f);
+                h.draw(&mut f, self.clean());
                 if self.page == Page::Settings {
                     self.draw_settings(if h.one_screen() { &mut f.top } else { &mut f.bottom });
                 }
@@ -519,15 +581,16 @@ impl Game {
         if self.paused {
             f.top.text_centered(360.0, 16.0, WHITE, "PAUSED");
         }
-        if self.volume_shown > 0.0 {
+        let clean = self.clean();
+        if self.volume_shown > 0.0 && !clean {
             f.top.text_centered(40.0, 8.0, WHITE, &format!("VOL {}", self.save.volume));
         }
-        if self.shot_flash > 0.0 {
+        if self.shot_flash > 0.0 && !clean {
             let a = self.shot_flash / SHOT_FLASH * 0.7;
             f.top.rect(0.0, 0.0, SCREEN_W, SCREEN_H, [1.0, 1.0, 1.0, a]);
             f.bottom.rect(0.0, 0.0, SCREEN_W, SCREEN_H, [1.0, 1.0, 1.0, a]);
         }
-        if self.save.fps {
+        if self.save.fps && !clean {
             let top = if matches!(self.state, State::Harvest(_)) { PERF_UNDER_KILLS } else { 8.0 };
             system::draw_perf(&mut f.top, &self.system, top);
         } else if matches!(self.state, State::Title) {
@@ -535,14 +598,14 @@ impl Game {
         }
         if self.title_on_one() {
             let menu = std::mem::take(&mut f.bottom);
-            let (k, top) = (0.55, 330.0);
-            let at = [(SCREEN_W - SCREEN_W * k) / 2.0, top];
+            let (at, k) = TITLE_MENU;
             f.top.rect(at[0], at[1], SCREEN_W * k, SCREEN_H * k, [0.08, 0.08, 0.1, 0.45]);
             f.top.place(&menu, at, k);
         }
         if let Some(size) = self.phone {
             let layout = self.phone_layout(size);
-            f.phone = Some(touch::Phone { size, top: layout.top, bottom: layout.bottom, pad: self.touchpad.draw(&layout) });
+            let pad = if clean { Canvas { clear: [0.0; 4], size: Some(size), ..Default::default() } } else { self.touchpad.draw(&layout) };
+            f.phone = Some(touch::Phone { size, top: layout.top, bottom: layout.bottom, pad });
         }
         f
     }
@@ -664,6 +727,23 @@ mod tests {
     }
 
     #[test]
+    fn on_a_phone_holding_the_map_key_shows_the_whole_map() {
+        let size = [1080.0, 2400.0];
+        let mut game = Game::new(1);
+        game.set_phone(Some(size));
+        press(&mut game, Buttons::A);
+        let layout = touch::layout(size, true, true);
+        let [kx, ky, ..] = layout.key(Buttons::R2).unwrap();
+        let mut touches = [None; MAX_TOUCHES];
+        touches[0] = Some([kx + 4.0, ky + 4.0]);
+        let whole = |g: &Game| matches!(&g.state, State::Harvest(h) if h.showing_whole_map());
+        game.update(&Input { touches, ..Default::default() }, 0.016);
+        assert!(whole(&game), "held, the whole map is up");
+        game.update(&Input::default(), 0.016);
+        assert!(!whole(&game), "let go, the run is back");
+    }
+
+    #[test]
     fn on_a_phone_the_grenade_key_flips_the_map_up_and_a_tap_on_it_throws() {
         let size = [2400.0, 1080.0];
         let mut game = Game::new(1);
@@ -715,6 +795,90 @@ mod tests {
     }
 
     #[test]
+    fn settings_turn_the_on_screen_controls_auto_on_or_off() {
+        let size = [2400.0, 1080.0];
+        let mut game = Game::new(1);
+        game.set_phone(Some(size));
+        let at = game.settings_list().iter().position(|&s| s == menu::Setting::Touch).expect("a phone offers the controls");
+        settings_row(&mut game, at);
+        assert_eq!(game.save.touch, TouchControls::Auto, "Auto by default");
+        press(&mut game, Buttons::RIGHT);
+        assert_eq!(game.save.touch, TouchControls::On);
+        press(&mut game, Buttons::A);
+        assert_eq!(game.save.touch, TouchControls::Off);
+        assert!(!game.has_touch() && !game.settings_list().contains(&menu::Setting::Grenades), "Off leaves out the grenade style");
+        assert_eq!(Save::parse(&game.save.to_text()).touch, TouchControls::Off);
+        press(&mut game, Buttons::B);
+        let phone = game.draw().phone.unwrap();
+        assert!(phone.top.is_some() && phone.bottom.is_none(), "the title as without touch");
+        press(&mut game, Buttons::UP);
+        press(&mut game, Buttons::UP);
+        press(&mut game, Buttons::A);
+        let State::Harvest(_) = &game.state else { panic!("a run starts") };
+        assert_eq!(game.phone_layout(size).key(Buttons::L2), None, "a run without the controls");
+
+        let walk = Input { held: Buttons::RIGHT, ..Default::default() };
+        for (touch, hidden) in [(TouchControls::Auto, true), (TouchControls::On, false)] {
+            game.load(Save { touch, ..game.save });
+            game.touchpad.hidden = false;
+            game.update(&walk, 0.016);
+            assert!(game.phone_layout(size).key(Buttons::L2).is_some());
+            assert_eq!(game.touchpad.hidden, hidden, "{touch:?}: the pad hides the controls only in Auto");
+        }
+        game.touchpad.hidden = true;
+        game.update(&walk, 0.016);
+        assert!(!game.touchpad.hidden, "On brings them back");
+
+        game.set_touch(false);
+        game.load(Save { touch: TouchControls::On, ..game.save });
+        assert!(!game.has_touch(), "a screen without touch has no controls whatever Settings says");
+        game.page = Page::Settings;
+        game.open_settings(true);
+        assert!(!game.settings_list().contains(&menu::Setting::Touch), "nor the row");
+    }
+
+    fn finger(game: &mut Game, at: [f32; 2]) {
+        let mut touches = [None; MAX_TOUCHES];
+        touches[0] = Some(at);
+        game.update(&Input { touches, ..Default::default() }, 0.016);
+        game.update(&Input::default(), 0.016);
+    }
+
+    #[test]
+    fn off_comes_back_to_auto_at_a_touch_until_a_button_or_stick_is_used() {
+        let mut game = Game::new(1);
+        game.set_phone(Some([720.0, 480.0]));
+        game.load(Save { touch: TouchControls::Off, ..Save::default() });
+        finger(&mut game, [10.0, 10.0]);
+        assert_eq!(game.save().touch, TouchControls::Auto, "a touch-only player is never stranded");
+
+        let mut game = Game::new(1);
+        game.set_phone(Some([720.0, 480.0]));
+        press(&mut game, Buttons::DOWN);
+        game.load(Save { touch: TouchControls::Off, ..Save::default() });
+        finger(&mut game, [10.0, 10.0]);
+        assert_eq!(game.save().touch, TouchControls::Off, "a pad player's Off stays");
+    }
+
+    #[test]
+    fn a_tap_on_the_title_menu_over_the_picture_lands_where_it_is_drawn() {
+        let size = [720.0, 480.0];
+        let mut game = Game::new(1);
+        game.set_phone(Some(size));
+        press(&mut game, Buttons::DOWN);
+        press(&mut game, Buttons::UP);
+        game.load(Save { touch: TouchControls::Off, ..Save::default() });
+        assert!(game.title_on_one());
+        let ([ax, ay], k) = TITLE_MENU;
+        let settings = [SCREEN_W / 2.0, 316.0 + 70.0 + 27.0];
+        let on_top = [ax + settings[0] * k, ay + settings[1] * k];
+        let [px, py, pw, ph] = game.phone_layout(size).top.unwrap();
+        finger(&mut game, [px + on_top[0] / SCREEN_W * pw, py + on_top[1] / SCREEN_H * ph]);
+        assert_eq!(game.page, Page::Settings);
+        assert_eq!(title_menu_touch([ax - 1.0, ay]), None, "a tap beside the menu misses it");
+    }
+
+    #[test]
     fn quit_shows_last_in_the_main_menu_only_where_the_game_can_quit() {
         let mut game = Game::new(1);
         for _ in 0..5 {
@@ -743,6 +907,74 @@ mod tests {
         press(&mut game, Buttons::A);
         let phone = game.draw().phone.unwrap();
         assert!(phone.top.is_none() && phone.bottom.is_some(), "Settings shows full size");
+    }
+
+    #[test]
+    fn at_every_handheld_shape_one_screen_fills_the_window_at_4_3() {
+        let handhelds = [[640.0, 480.0], [720.0, 720.0], [720.0, 480.0], [960.0, 544.0], [480.0, 640.0]];
+        let shapes = (4..=25).map(|tenths| [1000.0 * tenths as f32 / 10.0, 1000.0]);
+        for size in handhelds.into_iter().chain(shapes) {
+            let mut game = Game::new(1);
+            game.set_phone(Some(size));
+            game.set_touch(false);
+            let check = |game: &mut Game, held: Buttons, what: &str| {
+                game.update(&Input { held, ..Default::default() }, 0.016);
+                let phone = game.draw().phone.unwrap();
+                let shown: Vec<_> = [phone.top, phone.bottom].into_iter().flatten().collect();
+                assert_eq!(shown.len(), 1, "{size:?} {what}: one screen");
+                let [x, y, w, h] = shown[0];
+                assert!((w / h - SCREEN_W / SCREEN_H).abs() < 1e-3, "{size:?} {what}: {w}x{h} is stretched");
+                assert!(x >= -0.01 && y >= -0.01 && x + w <= size[0] + 0.01 && y + h <= size[1] + 0.01, "{size:?} {what}: clipped");
+                assert!((w - size[0]).abs() < 0.01 || (h - size[1]).abs() < 0.01, "{size:?} {what}: smaller than the window allows");
+            };
+            check(&mut game, Buttons::NONE, "title");
+            settings_row(&mut game, 0);
+            check(&mut game, Buttons::NONE, "settings");
+            press(&mut game, Buttons::B);
+            press(&mut game, Buttons::UP);
+            press(&mut game, Buttons::UP);
+            press(&mut game, Buttons::A);
+            assert!(matches!(game.state, State::Harvest(_)), "{size:?}: a run");
+            check(&mut game, Buttons::NONE, "run");
+            for (held, what) in [(Buttons::L1, "map"), (Buttons::L2, "grenade aim"), (Buttons::R2, "whole map")] {
+                check(&mut game, held, what);
+                check(&mut game, Buttons::NONE, what);
+            }
+            assert!(matches!(&game.state, State::Harvest(h) if !h.showing_whole_map()), "{size:?}: back to the run");
+            press(&mut game, Buttons::START);
+            check(&mut game, Buttons::NONE, "pause");
+        }
+    }
+
+    #[test]
+    fn the_pause_menu_offers_taps_only_where_the_screen_takes_them() {
+        for (touch, taps) in [(false, false), (true, true)] {
+            let mut game = Game::new(1);
+            game.set_phone(Some([640.0, 480.0]));
+            game.set_touch(touch);
+            press(&mut game, Buttons::A);
+            press(&mut game, Buttons::START);
+            let f = game.draw();
+            let shown = f.top.shapes.iter().chain(&f.bottom.shapes).any(|s| matches!(s, Shape::Text { text, .. } if text.contains("tap")));
+            assert_eq!(shown, taps, "touch {touch}");
+        }
+    }
+
+    #[test]
+    fn the_title_over_the_picture_names_the_pad_keys_in_type_a_handheld_can_read() {
+        let size = [640.0, 480.0];
+        let mut game = Game::new(1);
+        game.set_phone(Some(size));
+        game.set_touch(false);
+        let f = game.draw();
+        let k = size[1] / SCREEN_H;
+        let texts: Vec<_> = f.top.shapes.iter().filter_map(|s| if let Shape::Text { text, size, .. } = s { Some((text.clone(), *size)) } else { None }).collect();
+        let help: Vec<_> = texts.iter().filter(|(t, ..)| t.contains("turn around") || t.contains("L2")).collect();
+        assert_eq!(help.len(), 2, "two lines of keys: {texts:?}");
+        assert!(texts.iter().all(|(t, ..)| !t.contains("Tap")), "no taps without touch");
+        for (text, px) in help {
+            assert!(px * k >= 12.0, "{text}: {} window pixels high", px * k);
+        }
     }
 
     #[test]
@@ -995,12 +1227,66 @@ mod tests {
     fn r1_takes_one_screenshot_and_flashes_after_it() {
         let mut game = Game::new(1);
         press(&mut game, Buttons::R1);
-        assert!(game.take_screenshot());
-        assert!(!game.take_screenshot(), "one press, one shot");
+        assert_eq!(game.take_screenshot(), Some(Capture::Screens));
+        assert_eq!(game.take_screenshot(), None, "one press, one shot");
         assert!(game.shot_flash > 0.0);
         game.open(Scene::Gallery);
         press(&mut game, Buttons::R1);
-        assert!(!game.take_screenshot(), "the gallery keeps R1 for itself");
+        assert_eq!(game.take_screenshot(), None, "the gallery keeps R1 for itself");
+    }
+
+    fn in_photo_mode(captures: bool) -> Game {
+        let mut game = Game::new(1);
+        game.set_captures(captures);
+        game.open(Scene::Harvest);
+        for b in [Buttons::START, Buttons::DOWN, Buttons::DOWN, Buttons::A] {
+            press(&mut game, b);
+        }
+        assert!(game.in_photo());
+        game
+    }
+
+    #[test]
+    fn a_photo_capture_frame_hides_the_guides_and_every_overlay() {
+        let mut game = in_photo_mode(true);
+        game.save.fps = true;
+        press(&mut game, Buttons::VOL_UP);
+        assert!(!game.draw().top.shapes.is_empty(), "guides, volume and frame rate show while setting up");
+        press(&mut game, Buttons::R1);
+        let frame = game.draw();
+        assert!(frame.top.cards.is_some() && frame.top.shapes.is_empty(), "the capture is the scene alone");
+        assert_eq!(game.take_screenshot(), Some(Capture::Photo));
+        assert!(!game.draw().top.shapes.is_empty(), "and the guides come back after it");
+    }
+
+    #[test]
+    fn on_a_phone_the_grenade_and_map_keys_set_up_a_photo_without_taking_one() {
+        let size = [2400.0, 1080.0];
+        let mut game = in_photo_mode(true);
+        game.set_phone(Some(size));
+        let layout = touch::layout(size, true, true);
+        let tap = |game: &mut Game, b: Buttons| {
+            let [kx, ky, ..] = layout.key(b).unwrap();
+            let mut touches = [None; MAX_TOUCHES];
+            touches[0] = Some([kx + 4.0, ky + 4.0]);
+            game.update(&Input { touches, ..Default::default() }, 0.016);
+            game.update(&Input::default(), 0.016);
+        };
+        let help = |game: &Game| game.draw().top.shapes.iter().filter_map(|s| if let Shape::Text { text, .. } = s { Some(text.clone()) } else { None }).collect::<Vec<_>>().join("\n");
+        tap(&mut game, Buttons::L2);
+        tap(&mut game, Buttons::R2);
+        assert!(help(&game).contains("[Fog: Thick]"), "{}", help(&game));
+        assert!(game.in_photo() && game.take_screenshot().is_none());
+    }
+
+    #[test]
+    fn without_saving_a_photo_r1_hides_the_guides_for_the_players_own_screenshot() {
+        let mut game = in_photo_mode(false);
+        press(&mut game, Buttons::R1);
+        assert_eq!(game.take_screenshot(), None);
+        assert!(game.draw().top.shapes.is_empty());
+        press(&mut game, Buttons::R1);
+        assert!(!game.draw().top.shapes.is_empty());
     }
 
     #[test]

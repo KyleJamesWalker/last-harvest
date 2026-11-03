@@ -68,13 +68,12 @@ impl Prop {
             Some(art::Stand::Carve { footprint, .. }) => footprint.unwrap_or(self.frames[0]),
             _ => return Some(clip(self.area, x, y)).filter(|b| b[2] > b[0] && b[3] > b[1]),
         };
-        let [rx, ry, w, h] = outline.rect().map(usize::from);
         let (cx, cy) = (x as f32 * TILE - self.x, y as f32 * TILE - self.y);
         let span = |c: f32, n: usize| (c.max(0.0) as usize).min(n)..((c + TILE).max(0.0) as usize).min(n);
-        art::with_pixels(outline, |px| {
+        art::with_outline(outline, |solid, [w, h]| {
             let mut b: Option<[f32; 4]> = None;
             for j in span(cy, h) {
-                for i in span(cx, w).filter(|&i| px[((ry + j) * art::ATLAS_W as usize + rx + i) * 4 + 3] > 0) {
+                for i in span(cx, w).filter(|&i| solid(i, j)) {
                     let (lx, ly) = (i as f32 - cx, j as f32 - cy);
                     b = Some(b.map_or([lx, ly, lx + 1.0, ly + 1.0], |b| [b[0].min(lx), b[1].min(ly), b[2].max(lx + 1.0), b[3].max(ly + 1.0)]));
                 }
@@ -244,6 +243,11 @@ pub fn default_depth(w: f32, h: f32, art: Option<Art>, open_rows: usize) -> f32 
     thickness(art.unwrap_or(Art(u16::MAX)), tiles(w), tiles(h), open_rows)
 }
 
+/// How far a sprite the game places reaches back in 3D, as the map stands it.
+pub(super) fn depth_of(a: Art) -> f32 {
+    thickness(a, tiles(a.w()), tiles(a.h()), open_of(a))
+}
+
 fn tiles(px: f32) -> usize {
     (px / TILE).ceil() as usize
 }
@@ -265,14 +269,15 @@ fn union(a: [u8; 4], b: [u8; 4]) -> [u8; 4] {
 
 /// Where a picture's opaque pixels are, as x0, y0, x1, y1 from its top-left; the whole picture when none are.
 fn opaque_bounds(a: Art) -> [f32; 4] {
-    let [rx, ry, w, h] = a.rect().map(usize::from);
-    let found = art::with_pixels(a, |px| {
-        let opaque = |x: usize, y: usize| px[((ry + y) * art::ATLAS_W as usize + rx + x) * 4 + 3] > 0;
+    art::with_outline(a, |opaque, [w, h]| {
         let cols: Vec<usize> = (0..w).filter(|&x| (0..h).any(|y| opaque(x, y))).collect();
         let rows: Vec<usize> = (0..h).filter(|&y| (0..w).any(|x| opaque(x, y))).collect();
-        Some([*cols.first()?, *rows.first()?, cols.last()? + 1, rows.last()? + 1])
-    });
-    found.unwrap_or([0, 0, w, h]).map(|v| v as f32)
+        let found = match (cols.first(), rows.first(), cols.last(), rows.last()) {
+            (Some(&x0), Some(&y0), Some(&x1), Some(&y1)) => [x0, y0, x1 + 1, y1 + 1],
+            _ => [0, 0, w, h],
+        };
+        found.map(|v| v as f32)
+    })
 }
 
 impl Map {
@@ -1094,6 +1099,29 @@ mod tests {
         assert!(map.hits((x0 + x1) / 2.0, (y0 + y1) / 2.0, half));
         assert!(!map.hits((x0 + x1) / 2.0, y1 + 3.5, half), "just below it");
         assert!(map.hits((x0 + x1) / 2.0, y1 + 2.5, half));
+    }
+
+    #[test]
+    fn a_detail_2_prop_blocks_what_its_plain_sprite_does() {
+        let _lock = art::test_lock();
+        let plain = [art::WRECK_V[0], art::GAS_STATION, art::HAY];
+        let fine = art::live_detailed(&plain, 2);
+        let named = plain.iter().zip(&fine).enumerate().map(|(i, (&a, &b))| {
+            let mut f = super::super::props::prop_fields(&format!("[detail_test_{i}]")).unwrap();
+            f.open = open_of(a);
+            (f, vec![(vec![b], a.stand())])
+        });
+        super::super::props::set_props(named.collect());
+        for (a, b) in plain.into_iter().zip(fine) {
+            let place = |a: Art| {
+                let mut map = Map::blank(16, 12);
+                map.prop(Vec::leak(vec![a]), 0.0, 2, 2);
+                (map.solid, map.shape, map.props[0].cells, map.props[0].area)
+            };
+            assert_eq!(place(a), place(b), "{a:?}");
+        }
+        super::super::props::set_props(Vec::new());
+        art::set_live_detail(Vec::new());
     }
 
     #[test]

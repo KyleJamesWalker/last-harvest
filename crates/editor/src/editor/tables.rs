@@ -3,6 +3,7 @@
 
 use crate::table::{self, Table};
 
+use super::weapons::{self, Weapon};
 use super::*;
 
 /// Lines the page shows at once.
@@ -23,11 +24,13 @@ pub(super) struct DataEdit {
     pub typing: Option<usize>,
     pub undo: Vec<String>,
     pub redo: Vec<String>,
+    /// For a powerups.txt weapon, what its weapon page shows.
+    pub weapon: Option<Weapon>,
 }
 
 impl DataEdit {
     /// Makes one change to the table as a step to undo; true if it changed anything.
-    fn change(&mut self, f: impl FnOnce(&mut Table, &str) -> bool) -> bool {
+    pub(super) fn change(&mut self, f: impl FnOnce(&mut Table, &str) -> bool) -> bool {
         let before = self.table.text.clone();
         if !f(&mut self.table, &self.section) || self.table.text == before {
             return false;
@@ -86,8 +89,10 @@ impl Editor {
             let t = Table::new(file, &text);
             if let Some(section) = t.sections().into_iter().find(|s| data_name(file, s) == name) {
                 (self.map, self.data_link) = (None, None);
-                self.data = Some(DataEdit { file: file.to_string(), section, table: t, dirty: false, first: 0, typing: None, undo: Vec::new(), redo: Vec::new() });
-                self.sprite = Sprite { worn: Vec::new(), name: name.into(), frames: vec![Frame::blank(16, 16)], views: None, footprint: None, roof: None, north: None, west: None, top: None, card: None, clear_in_3d: Vec::new(), paint: Default::default() };
+                let weapon = weapons::is_weapon(&t, &section).then(Weapon::new);
+                self.data = Some(DataEdit { file: file.to_string(), section, table: t, dirty: false, first: 0, typing: None, undo: Vec::new(), redo: Vec::new(), weapon });
+                self.refresh_weapon();
+                self.sprite = Sprite { detail: 1, worn: Vec::new(), name: name.into(), frames: vec![Frame::blank(16, 16)], views: None, footprint: None, roof: None, north: None, west: None, top: None, card: None, clear_in_3d: Vec::new(), paint: Default::default() };
                 (self.frame, self.view, self.stats, self.selection, self.naming) = (0, None, false, None, None);
                 self.undo.clear();
                 self.redo.clear();
@@ -101,6 +106,12 @@ impl Editor {
     pub(super) fn data_buttons(&self, d: &DataEdit, push: &mut impl FnMut(f32, f32, f32, f32, Action, &str, bool)) {
         for (i, (a, l)) in [(Action::Revert, "Revert"), (Action::Save, "Save")].into_iter().enumerate() {
             push(716.0 + i as f32 * 102.0, 8.0, 94.0, 34.0, a, l, a == Action::Save && d.dirty);
+        }
+        if let Some(w) = &d.weapon {
+            push(614.0, 8.0, 94.0, 34.0, Action::WeaponLines, if w.lines { "Weapon" } else { "Lines" }, false);
+            if !w.lines {
+                return self.weapon_buttons(d, w, push);
+            }
         }
         let entries = d.table.entries(&d.section);
         for (row, e) in entries.iter().enumerate().skip(d.first).take(ROWS) {
@@ -121,6 +132,9 @@ impl Editor {
     }
 
     pub(super) fn data_act(&mut self, a: Action, shift: bool) -> bool {
+        if self.weapon_act(a, shift) {
+            return true;
+        }
         let Some(d) = &mut self.data else { return false };
         match a {
             Action::DataStep(row, by) => {
@@ -171,6 +185,7 @@ impl Editor {
             }
             _ => {}
         }
+        self.refresh_weapon();
     }
 
     /// Saves the open data file, once the game would read it; the list follows any section it adds or drops.
@@ -202,6 +217,7 @@ impl Editor {
                     (d.dirty, d.typing) = (true, None);
                     d.first = d.first.min(d.table.entries(&d.section).len().saturating_sub(ROWS));
                 }
+                self.refresh_weapon();
             }
             // The page has no pixels for these to change.
             Key::Copy | Key::Cut | Key::Paste => {}
@@ -221,6 +237,9 @@ impl Editor {
         self.draw_list(c);
         c.label(format!("{}{}", self.sprite.name, if d.dirty { "  (unsaved)" } else { "" }), 12.0, 12.0, 26.0, TEXT, Align::Left);
         c.rect(CANVAS.x, CANVAS.y, CANVAS.w, CANVAS.h, PANEL);
+        if d.weapon.as_ref().is_some_and(|w| !w.lines) {
+            return self.draw_weapon(c);
+        }
         let title = if d.section.is_empty() { format!("{}, before its first section", d.file) } else { format!("{} [{}]", d.file, d.section) };
         c.label(title, CANVAS.x + 12.0, CANVAS.y + 12.0, 20.0, HOT, Align::Left);
         let entries = d.table.entries(&d.section);

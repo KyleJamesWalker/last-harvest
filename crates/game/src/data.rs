@@ -55,6 +55,9 @@ pub struct Card {
     pub sheet: Vec<u8>,
     /// A player card's `last-harvest-worn` chunk, as `worn::parse_card` reads it; empty without one.
     pub worn: String,
+    /// How many of the sheet's pixels make one game pixel across and down: 1, 2 or 4, from its `last-harvest-detail`
+    /// chunk.
+    pub detail: u8,
 }
 
 static DATA: OnceLock<Data> = OnceLock::new();

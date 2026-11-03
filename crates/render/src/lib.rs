@@ -36,7 +36,7 @@ const FRAG: &str = r#"
 in vec2 v_local;
 in vec4 v_color;
 in float v_kind;
-in vec2 v_uv;
+in highp vec2 v_uv;
 uniform sampler2D u_atlas;
 uniform sampler2D u_art;
 out vec4 o_color;
@@ -103,7 +103,7 @@ void main() {
 
 const CARD_FRAG: &str = r#"
 in vec3 v_world;
-in vec2 v_uv;
+in highp vec2 v_uv;
 in float v_facing;
 #ifdef TINT
 in vec4 v_tint;
@@ -156,6 +156,7 @@ const KIND_RECT: f32 = 0.0;
 const KIND_CIRCLE: f32 = 1.0;
 const KIND_TEXTURE: f32 = 2.0;
 const KIND_ART: f32 = 3.0;
+const UV_INSET: f32 = 0.01;
 
 pub struct Renderer {
     program: glow::Program,
@@ -353,9 +354,11 @@ impl Renderer {
                     let [ax, ay, aw, ah] = art.rect().map(f32::from);
                     let ah = ah * show;
                     let (sw, sh) = (art::ATLAS_W as f32, art::ATLAS_H as f32);
-                    let (u0, u1) = (ax / sw, (ax + aw) / sw);
-                    let uv = [if flip { u1 } else { u0 }, ay / sh, if flip { u0 } else { u1 }, (ay + ah) / sh];
-                    let (hw, hh) = (aw * scale / 2.0, ah * scale / 2.0);
+                    // Nearest sampling at a fractional scale can land a hair outside the sprite and pick up its neighbor.
+                    let (u0, u1) = ((ax + UV_INSET) / sw, (ax + aw - UV_INSET) / sw);
+                    let uv = [if flip { u1 } else { u0 }, (ay + UV_INSET) / sh, if flip { u0 } else { u1 }, (ay + ah - UV_INSET) / sh];
+                    let k = scale / art.detail() as f32;
+                    let (hw, hh) = (aw * k / 2.0, ah * k / 2.0);
                     let (cx, cy, s, c) = (x + hw, y + hh, angle.sin(), angle.cos());
                     let corner = |dx: f32, dy: f32| [cx + dx * c - dy * s, cy + dx * s + dy * c];
                     self.push_quad([corner(-hw, -hh), corner(hw, -hh), corner(hw, hh), corner(-hw, hh)], uv, color, KIND_ART);
