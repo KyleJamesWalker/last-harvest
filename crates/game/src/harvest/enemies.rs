@@ -26,6 +26,10 @@ pub struct Enemy {
     pub per_minute: f32,
     /// Times its speed within tuning.txt's charge reach of the player; 1 for none.
     pub charge: f32,
+    /// How near it stops to spit at the player, in pixels; 0 for a biter that closes in.
+    pub ranged: f32,
+    /// Seconds above ground before it digs back under; 0 for one that never burrows.
+    pub burrow: f32,
     pub heavy: bool,
     /// It came from an enemy card rather than the game's own file.
     pub from_card: bool,
@@ -51,6 +55,9 @@ pub const MAX_WALK: usize = 8;
 /// The most pixels a side of a card's frame can be.
 pub const MAX_FRAME: u32 = 64;
 const PAD: u16 = 1;
+/// The farthest a ranged kind spits from, in pixels, and the longest a burrower stays up, in seconds.
+pub const RANGED_MAX: f32 = 160.0;
+pub const BURROW_MAX: f32 = 60.0;
 /// The longest `about` can be, so it fits the menus in a few lines.
 pub const ABOUT_MAX: usize = 80;
 
@@ -230,6 +237,8 @@ fn entries(text: &str) -> Result<Vec<Entry>, String> {
                 chance: 1.0,
                 per_minute: 0.0,
                 charge: 1.0,
+                ranged: 0.0,
+                burrow: 0.0,
                 heavy: false,
                 from_card: false,
             };
@@ -255,6 +264,8 @@ fn entries(text: &str) -> Result<Vec<Entry>, String> {
             "chance" => e.chance = number()?,
             "per_minute" => e.per_minute = number()?,
             "charge" => e.charge = number()?.clamp(0.1, 10.0),
+            "ranged" => e.ranged = number()?.min(RANGED_MAX),
+            "burrow" => e.burrow = number()?.min(BURROW_MAX),
             "walk" => {
                 entry.walk = rest.parse().ok().filter(|n| (1..=MAX_WALK).contains(n)).ok_or_else(|| format!("{n}: walk is 1 to {MAX_WALK} frames, not {rest:?}"))?;
             }
@@ -333,14 +344,14 @@ pub struct CardFields {
     pub walk: usize,
 }
 
-pub const NUMBERS: [&str; 10] = ["hp", "speed", "damage", "xp", "mass", "gibs", "after", "chance", "per_minute", "charge"];
+pub const NUMBERS: [&str; 12] = ["hp", "speed", "damage", "xp", "mass", "gibs", "after", "chance", "per_minute", "charge", "ranged", "burrow"];
 pub const FLAGS: [&str; 3] = ["heavy", "leader", "harvester"];
 
 /// Reads a card's text as the game would, or says why it can't.
 pub fn card_fields(text: &str) -> Result<CardFields, String> {
     let entry = card_entry(text)?;
     let e = &entry.enemy;
-    let numbers = [e.hp, e.speed, e.damage, e.xp as f32, e.mass, e.gibs as f32, e.after, e.chance, e.per_minute, e.charge];
+    let numbers = [e.hp, e.speed, e.damage, e.xp as f32, e.mass, e.gibs as f32, e.after, e.chance, e.per_minute, e.charge, e.ranged, e.burrow];
     Ok(CardFields {
         id: e.id.clone(),
         name: e.name.clone(),
@@ -754,6 +765,19 @@ mod tests {
         let f = card_fields(&text).unwrap();
         assert_eq!((f.numbers[0].1, f.numbers[1].1, f.flags[0].1, f.flags[1].1), (55.0, 30.0, false, true));
         assert!(card_fields("[a]\nlook SKINNY").is_err());
+    }
+
+    #[test]
+    fn ranged_and_burrow_read_bounded_and_default_off() {
+        let f = card_fields("[spitter]\nranged 80\nburrow 4\n").unwrap();
+        assert_eq!((f.numbers[10], f.numbers[11]), (("ranged", 80.0), ("burrow", 4.0)));
+        let f = card_fields("[spitter]\nranged 9999\nburrow 1e9\n").unwrap();
+        assert_eq!((f.numbers[10].1, f.numbers[11].1), (RANGED_MAX, BURROW_MAX), "untrusted cards are held to the limits");
+        assert!(card_fields("[spitter]\nranged -1").is_err());
+        assert!(card_fields("[spitter]\nburrow NaN").is_err());
+        assert!(roster().enemies.iter().all(|e| e.ranged == 0.0 && e.burrow == 0.0), "the game's own kinds bite and walk");
+        let text = set_card_field("[spitter]\n", "ranged", Some("60"));
+        assert_eq!(text, "[spitter]\nranged      60\n");
     }
 
     #[test]

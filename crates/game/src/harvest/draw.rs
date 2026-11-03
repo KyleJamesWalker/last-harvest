@@ -229,6 +229,10 @@ impl Harvest {
             let (sx, sy) = at(t.pos[0], t.pos[1]);
             c.circle(sx, sy, (2.0 + 3.0 * k) * scale, [0.2, 0.13, 0.07, 0.8]);
         }
+        for z in &self.burrowed {
+            let (sx, sy) = at(z.pos[0], z.pos[1]);
+            c.circle(sx, sy, 5.0 * scale, [0.2, 0.13, 0.07, 0.8]);
+        }
         for p in &self.patches {
             let fade = ((p.life - p.age) / 0.5).clamp(0.0, 1.0);
             match p.hazard {
@@ -343,6 +347,10 @@ impl Harvest {
             let (sx, sy) = at(b.pos[0], b.pos[1]);
             let a = b.look.unwrap_or(super::effects::effects().bullet).looping(b.age);
             c.art_rotated(a, sx, sy, scale, b.vel[1].atan2(b.vel[0]), lit);
+        }
+        for s in &self.spits {
+            let (sx, sy) = at(s.pos[0], s.pos[1]);
+            c.art_rotated(super::effects::effects().spit.looping(s.age), sx, sy, scale, s.vel[1].atan2(s.vel[0]), lit);
         }
         for fx in &self.fx {
             let a = fx.frames[((fx.t * fx.fps) as usize).min(fx.frames.len() - 1)];

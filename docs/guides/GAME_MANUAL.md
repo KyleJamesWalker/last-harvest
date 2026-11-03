@@ -386,7 +386,7 @@ A pack's `tuning.txt`, and the `[colors]` of its `effects.txt`, need only the li
 - `[player]`: your health, speed, money magnet, critical-hit chance, pickup reach and footprint, before upgrades, and how fast the view turns.
 - `[night]`: the night's length, where zombies rise at dusk and dawn, and how near home counts. It also sets the rare-card chance and the level-up push.
 - `[easy]`, `[normal]` and `[hard]`: how hard bites hit and how long a hit keeps you safe. They also set how often kills drop health, and how much.
-- `[zombies]`: the most alive at once, rising time, stagger, growth each minute, a leader's health, dawn's fury, footprint, walk speed, bite reach, `charge_reach` and how fast zombies chew through a prop.
+- `[zombies]`: the most alive at once, rising time, stagger, growth each minute, a leader's health, dawn's fury, footprint, walk speed, bite reach, `charge_reach`, how fast and how often a ranged zombie spits, how near a burrower surfaces, and how fast zombies chew through a prop.
 - `[harvester]`: dawn's boss, with its health, speed, bite and how far away it rises.
 - `[grenade]`: recharge time, flight time, radius, damage and bomblets.
 - `[barrel]`: health, blast radius and damage.
@@ -507,6 +507,8 @@ Each `[id]` section is one kind of zombie:
 | `chance` | The share of arrivals it takes, 1 when left out |
 | `per_minute` | Added to `chance` for each minute of the night |
 | `charge` | Times its speed once it gets near you. 1 when left out. |
+| `ranged` | How near it stops to spit at you, in pixels, up to 160. 0, a biter, when left out. |
+| `burrow` | Seconds it stays up before it tunnels again, up to 60. 0, never, when left out. |
 | `heavy` | A crit or hard hit roots it for a moment, and its death shakes the screen |
 | `leader` | A horde's leader, carrying the chest, is one of these |
 | `harvester` | Dawn's Harvester wears its sprites |
@@ -514,6 +516,10 @@ Each `[id]` section is one kind of zombie:
 Each arriving zombie rolls a number from 0 to 1. It becomes the first kind, top to bottom, whose chance is above the roll. Put the rarest kinds first, and end on one with no chance. A lost night's player rises as the last kind.
 
 A `charge` speeds a zombie up once it comes within `tuning.txt`'s `charge_reach` of you. `charge 2` doubles its speed there.
+
+A `ranged` zombie walks in until it is that near and has a clear shot, then stands and spits. Each spit does its `damage`, flies slower than you walk, and splashes on cover as a bullet would. `tuning.txt` sets `spit_speed` and `spit_every`, and `effects.txt`'s `[spit]` sets its look.
+
+A `burrow` zombie breaks ground into a tunnel. Underground it shows as a dirt mound, and nothing can hit it. It rises within `tuning.txt`'s `burrow_reach` of you. After `burrow` seconds up, it digs back under, unless it is that near you.
 
 ## The card editor
 

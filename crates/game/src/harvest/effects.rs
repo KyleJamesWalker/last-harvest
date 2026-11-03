@@ -81,6 +81,7 @@ effects! {
     money,
     crow,
     dog,
+    spit,
 }
 
 /// An effect as written: its sprite's name and its numbers.

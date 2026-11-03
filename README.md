@@ -116,7 +116,7 @@ The game reads its rules from seven text files in `crates/game/`. The packer put
 | `farm.txt` | How the random farm lays itself out: the ground codes it is laid on, tufts, grass, corpses, fields, the props it strews and how often, and its buildings, where they stand and what goes near each |
 | `effects.txt` | The sprite and speed of each effect, swing, bullet, thrown item, pickup and animal, plus effects a mod names, and the particle colors in `[colors]` |
 | `powerups.txt` | Every weapon and passive |
-| `enemies.txt` | Every kind of zombie, including a `charge` that speeds it up near the player |
+| `enemies.txt` | Every kind of zombie, including a `charge` that speeds it up near the player, `ranged` for one that keeps its distance and spits, and `burrow` for one that tunnels up beside the player |
 
 A mod's `tuning.txt`, and the `[colors]` of its `effects.txt`, need only the lines they change. The other files replace the game's whole file. The packer and the game check a mod's files as the game reads them, and leave out a mod that would break the game.
 
