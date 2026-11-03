@@ -80,7 +80,7 @@ pub fn layout(size: [f32; 2], run: bool, touch: bool) -> Layout {
         let band = pic[1] + pic[3];
         (pic, [0.0, band, w / 2.0, h - band], [w / 2.0, band, w / 2.0, h - band])
     };
-    let cell = (right[2] / 2.0).min(right[3] / 4.0).min(0.2 * u);
+    let cell = (right[2] / 2.0).min(right[3] / 4.4).min(0.2 * u);
     let cx = right[0] + right[2] / 2.0;
     let square = |x: f32, y: f32, s: f32| [x - s / 2.0, y - s / 2.0, s, s];
     let keys = [
@@ -203,7 +203,7 @@ impl Touchpad {
             let k = size / a.w().max(a.h());
             c.art(a, x - a.w() * k / 2.0, y - a.h() * k / 2.0, k, false, color);
         };
-        let rest = |[x, y, w, h]: Rect| [x + w / 2.0, y + h - r * 1.4];
+        let rest = |area: Rect| rest(area, r);
         let stick = self.fingers.iter().flatten().find(|f| f.claim == Claim::Stick);
         let (base, knob) = stick.map_or((rest(l.stick), rest(l.stick)), |f| (f.origin, f.at));
         let tint = if stick.is_some() { used } else { idle };
@@ -225,6 +225,11 @@ impl Touchpad {
         }
         c
     }
+}
+
+/// Where the stick or the turn strip sits in `area` with no thumb on it.
+fn rest([x, y, w, h]: Rect, r: f32) -> [f32; 2] {
+    [x + w / 2.0, y + h - r * 1.4]
 }
 
 fn claim(l: &Layout, p: [f32; 2]) -> Claim {
@@ -356,5 +361,21 @@ mod tests {
         let pic = l.top.unwrap();
         assert!(l.stick[1] >= pic[1] + pic[3] - 0.5);
         assert!(l.keys.iter().all(|&(_, _, r)| r[1] >= pic[1] + pic[3] - 0.5));
+    }
+
+    #[test]
+    fn at_every_shape_the_resting_turn_knob_clears_the_keys() {
+        for tenths in 4..=25 {
+            let size = [1000.0 * tenths as f32 / 10.0, 1000.0];
+            let l = layout(size, true, true);
+            let [x, y] = rest(l.turn, l.stick_r);
+            let half = l.stick_r * 0.45;
+            let knob = [x - half, y - half, 2.0 * half, 2.0 * half];
+            for &(b, _, k) in &l.keys {
+                let apart = k[0] + k[2] <= knob[0] || knob[0] + knob[2] <= k[0] || k[1] + k[3] <= knob[1] || knob[1] + knob[3] <= k[1];
+                assert!(apart, "{size:?}: {b:?} {k:?} overlaps the turn knob {knob:?}");
+            }
+            assert!(knob[1] + knob[3] <= size[1], "{size:?}: the turn knob runs off the window");
+        }
     }
 }
