@@ -312,6 +312,10 @@ impl Harvest {
             p.props.pop();
             sounds.push(Sfx::Tick(0));
         }
+        if placing && input.pressed.contains(Buttons::X) {
+            (p.spot, p.row) = (None, None);
+            sounds.push(Sfx::Tick(0));
+        }
         if input.pressed.contains(Buttons::R2) {
             if propping || placing {
                 p.drop_at_mark(focus, yaw, keep);
@@ -404,6 +408,13 @@ impl Harvest {
         }
     }
 
+    /// Where on the bottom edge of the picture a point behind the camera shows, toward the side it is on.
+    fn behind(&self, at: [f32; 2]) -> [f32; 2] {
+        let off = norm(sub(at, self.pos));
+        let right = off[1] * self.view_yaw.cos() - off[0] * self.view_yaw.sin();
+        [SCREEN_W / 2.0 * (1.0 + right), SCREEN_H]
+    }
+
     /// The picked zombie's name, or "none".
     fn posing(&self) -> &str {
         let picked = self.photo.as_ref().and_then(|p| p.picked);
@@ -445,7 +456,7 @@ impl Harvest {
             }
         }
         let mark = matches!(p.setting, Setting::Props | Setting::Place).then(|| p.spot.unwrap_or(self.focus()));
-        if let Some(([sx, sy], _)) = mark.and_then(|at| view3d::to_screen(view_proj, at, 0.0)) {
+        if let Some([sx, sy]) = mark.map(|at| view3d::to_screen(view_proj, at, 0.0).map_or_else(|| self.behind(at), |s| s.0)) {
             // A cross on the ground where the next prop drops, kept at the edge of the picture when out of it.
             let (sx, sy) = (sx.clamp(12.0, SCREEN_W - 12.0), sy.clamp(12.0, SCREEN_H - 12.0));
             f.top.rect(sx - 12.0, sy - 2.0, 24.0, 4.0, GUIDE);
@@ -462,7 +473,8 @@ impl Harvest {
             (Setting::Pose, None) => "R2: pick the zombie nearest the middle   Left / Right: turn   Up / Down: zoom",
             (Setting::Props, _) if p.prop == p.choices.len() => "R2 or Y: take back the last prop   Left / Right: choose a prop",
             (Setting::Props, _) => "R2: drop on the cross   Left / Right: choose   Up / Down: turn   Y: take back",
-            (Setting::Place, _) => "Left / Right / Up / Down: move the cross   R2: drop it there   Y: take back",
+            (Setting::Place, _) if p.prop == p.choices.len() => "D-pad / stick: move the cross   R2 or Y: take back the last prop   X: reset",
+            (Setting::Place, _) => "D-pad / stick: move the cross   R2: drop it there   X: reset   Y: take back",
             _ => "Left / Right: turn   Up / Down: zoom   L1 + Up / Down: height",
         };
         let [settings, more] = p.settings_lines(self.posing(), &self.placing());
@@ -835,6 +847,41 @@ mod tests {
         press(&mut h, Buttons::R2);
         assert_eq!(dropped(&h)[0].at, at, "R2 drops the prop on the cross");
         assert!(help(&h).contains("tiles out]"), "{}", help(&h));
+    }
+
+    #[test]
+    fn x_on_place_brings_the_cross_back_ahead_and_r2_on_take_back_says_so() {
+        let mut h = placing(23);
+        hold(&mut h, Buttons::RIGHT, 20);
+        press(&mut h, Buttons::R2);
+        assert!(spot(&h).is_some());
+        press(&mut h, Buttons::X);
+        let p = h.photo.as_ref().unwrap();
+        assert_eq!((p.spot, p.row, p.setting), (None, None, Setting::Place), "X puts the cross back ahead");
+        assert!(help(&h).contains("X: reset"), "{}", help(&h));
+        h.photo.as_mut().unwrap().prop = h.photo.as_ref().unwrap().choices.len();
+        assert!(help(&h).contains("R2 or Y: take back the last prop"), "{}", help(&h));
+        press(&mut h, Buttons::R2);
+        assert!(dropped(&h).is_empty());
+    }
+
+    /// The guides' shapes over the picture.
+    fn guides(h: &Harvest) -> usize {
+        let mut f = Frame::default();
+        h.photo_frame(&mut f, false);
+        f.top.shapes.len() + f.bottom.shapes.len()
+    }
+
+    #[test]
+    fn a_cross_behind_the_camera_still_shows_at_the_bottom_edge() {
+        let mut h = placing(24);
+        let ahead = guides(&h);
+        let back = [h.pos[0] - h.view_yaw.cos() * 6.0 * TILE, h.pos[1] - h.view_yaw.sin() * 6.0 * TILE];
+        assert!(view3d::to_screen(view3d::scene(&h).view_proj, back, 0.0).is_none(), "the spot is behind the camera");
+        h.photo.as_mut().unwrap().spot = Some(back);
+        assert_eq!(guides(&h), ahead, "the cross still shows");
+        let [x, y] = h.behind(back);
+        assert!((x - SCREEN_W / 2.0).abs() < 1.0 && y == SCREEN_H, "straight behind is the middle of the bottom edge: {x}, {y}");
     }
 
     #[test]
