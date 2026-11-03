@@ -327,9 +327,9 @@ pub mod cards {
         if !fits || part.frames.iter().any(|f| (f.w, f.h) != (w, h)) {
             return Err(format!("an enemy's walking part has 1 to {} frames and every other part {CARD_PART_FRAMES}, all one size", last_harvest_game::MAX_WALK));
         }
-        let most = sprite::CARD_MAX_FRAME * part.detail as usize;
+        let most = last_harvest_game::card_frame_most(part.detail) as usize;
         if w > most || h > most {
-            return Err(format!("a card's frames are at most {0}x{0} game pixels, {most}x{most} at detail {1}", sprite::CARD_MAX_FRAME, part.detail));
+            return Err(format!("a card's frames are at most {most}x{most} pixels at detail {}", part.detail));
         }
         let was = existing.and_then(|b| card::read_as(kind, "card", b).ok()).map_or(1, |c| c.detail);
         let mut facings = existing.map(|b| worn(kind, b)).unwrap_or_default().map(|f| sprite::redetailed_worn(&f, was, part.detail));
