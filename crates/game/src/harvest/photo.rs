@@ -472,9 +472,10 @@ impl Harvest {
         // The middle square, as the capture's square crop takes it.
         let x = (SCREEN_W - SCREEN_H) / 2.0;
         outline(&mut f.top, x, 0.0, SCREEN_H, GUIDE);
-        let picked = p.picked.filter(|_| p.setting == Setting::Pose).and_then(|i| self.zombies.get(i));
+        let picked = p.picked.filter(|_| p.setting == Setting::Pose).and_then(|i| self.zombies.get(i).map(|z| (z, self.lies_dead(i))));
         let marked = match (p.setting, picked, p.props.last()) {
-            (Setting::Pose, Some(z), _) => Some((z.pos, z.art(Facing::Front).h() * if z.boss { 2.0 } else { 1.0 })),
+            (Setting::Pose, Some((z, true)), _) => Some((z.pos, 4.0)),
+            (Setting::Pose, Some((z, false)), _) => Some((z.pos, z.art(Facing::Front).h() * if z.boss { 2.0 } else { 1.0 })),
             (Setting::Props, _, Some(d)) => Some((d.at, d.art.h())),
             _ => None,
         };
@@ -785,7 +786,7 @@ mod tests {
         let standing = |h: &Harvest| view3d::scene(h).cards.len();
         let lying = standing(&h);
         hold(&mut h, Buttons::UP, 1);
-        assert!(!h.lies_dead(i) && h.juice.corpses.len() == corpses, "Up stands it back up on its flash frame");
+        assert!(!h.lies_dead(i) && h.juice.corpses.len() == corpses, "Up stands it back up on its first walk frame");
         assert!(standing(&h) != lying, "and the picture shows it standing, not lying");
         hold(&mut h, Buttons::NONE, 1);
         hold(&mut h, Buttons::DOWN, 1);
