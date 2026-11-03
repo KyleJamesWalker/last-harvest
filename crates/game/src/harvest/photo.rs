@@ -25,7 +25,8 @@ const PICKS: usize = 8;
 const PICK_REACH: f32 = 16.0 * TILE;
 /// Radians a second Left or Right turns a posed zombie, and Up or Down a dropped prop.
 const POSE_TURN: f32 = 3.0;
-/// The props R2 drops, by name and sprite; the choice after the last takes back the one dropped last.
+/// The game's props R2 drops, by name and sprite; players' props loaded follow them, and then a choice that takes
+/// back the one dropped last.
 const PROPS: [(&str, &str); 21] = [
     ("Barrier", "BARRIER"),
     ("Barrel", "BARREL"),
@@ -49,7 +50,6 @@ const PROPS: [(&str, &str); 21] = [
     ("Car", "CAR_H"),
     ("Wreck", "WRECK_H"),
 ];
-const TAKE_BACK: usize = PROPS.len();
 
 /// The photo mode setting R2 changes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -84,7 +84,9 @@ pub(super) struct Photo {
     posed: Vec<(usize, Zombie)>,
     /// Up (-1) or Down (1) held last frame, so a held push steps one frame.
     pushed: i8,
-    /// The prop R2 drops, an index into PROPS, or TAKE_BACK.
+    /// The props R2 can drop, by name and sprite.
+    choices: Vec<(String, Art)>,
+    /// The one R2 drops, an index into `choices`, or past them to take back the last dropped.
     prop: usize,
     /// Left (-1) or Right (1) held last frame, so a held push chooses once.
     swung: i8,
@@ -92,7 +94,7 @@ pub(super) struct Photo {
     props: Vec<Dropped>,
 }
 
-/// A prop photo mode dropped: its place in PROPS, its sprite and how that stands, the middle of its foot in map
+/// A prop photo mode dropped: its place in the choices, its sprite and how that stands, the middle of its foot in map
 /// pixels, and how far it is turned.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct Dropped {
@@ -108,6 +110,29 @@ fn sprite(name: &str) -> Art {
     art::ALL.iter().find(|(n, _)| *n == name).and_then(|(_, f)| f.first().copied()).unwrap_or(art::WHITE)
 }
 
+/// What R2 can drop: the game's props, then each player's prop loaded that stands in 3D, by its first frame.
+fn choices() -> Vec<(String, Art)> {
+    let own = PROPS.iter().map(|&(name, s)| (name.to_string(), sprite(s)));
+    let theirs = super::props::props().into_iter().filter_map(|n| Some((prop_title(&n.name), *n.frames.first()?)));
+    own.chain(theirs.filter(|&(_, a)| draws(a))).collect()
+}
+
+/// `PROP_RUSTY_TANK` as "Rusty tank".
+fn prop_title(name: &str) -> String {
+    let words = name.strip_prefix(super::props::PREFIX).unwrap_or(name).replace('_', " ").to_lowercase();
+    let mut chars = words.chars();
+    chars.next().map_or(String::new(), |c| c.to_uppercase().chain(chars).collect())
+}
+
+/// Whether sprite `a` stands in the 3D view once dropped.
+fn draws(a: Art) -> bool {
+    let mut cards = Vec::new();
+    if a != art::WHITE && a.w() > 0.0 && a.h() > 0.0 {
+        view3d::dropped(&mut cards, glam::Vec3::new(0.0, 2.0, 4.0), a, view3d::drop_stand(a), [0.0; 2], 0.0);
+    }
+    !cards.is_empty()
+}
+
 /// Which way a push of `v` points: -1, 0 or 1.
 fn push_of(v: f32) -> i8 {
     if v < -0.5 { -1 } else { (v > 0.5) as i8 }
@@ -115,7 +140,7 @@ fn push_of(v: f32) -> i8 {
 
 impl Photo {
     fn new(heading: f32) -> Self {
-        Self { heading, guides: true, setting: Setting::Time, time: None, fog: USUAL_FOG, lantern: USUAL_LANTERN, picked: None, posed: Vec::new(), pushed: 0, prop: 0, swung: 0, props: Vec::new() }
+        Self { heading, guides: true, setting: Setting::Time, time: None, fog: USUAL_FOG, lantern: USUAL_LANTERN, picked: None, posed: Vec::new(), pushed: 0, choices: choices(), prop: 0, swung: 0, props: Vec::new() }
     }
 
     /// Steps the chosen setting to its next value, after the last back round to the first.
@@ -136,11 +161,10 @@ impl Photo {
 
     /// Drops the chosen prop at `at`, its front toward a camera looking along `yaw`, or takes back the last.
     fn drop_prop(&mut self, at: [f32; 2], yaw: f32) {
-        if self.prop == TAKE_BACK {
-            self.props.pop();
-        } else {
-            let art = sprite(PROPS[self.prop].1);
+        if let Some(&(_, art)) = self.choices.get(self.prop) {
             self.props.push(Dropped { kind: self.prop, art, stand: view3d::drop_stand(art), at, angle: yaw + std::f32::consts::FRAC_PI_2 });
+        } else {
+            self.props.pop();
         }
     }
 
@@ -148,7 +172,7 @@ impl Photo {
     fn handle_prop(&mut self, x: f32, turn: f32) {
         let push = push_of(x);
         if push != 0 && push != self.swung {
-            let n = PROPS.len() + 1;
+            let n = self.choices.len() + 1;
             self.prop = (self.prop + if push < 0 { n - 1 } else { 1 }) % n;
         }
         self.swung = push;
@@ -174,7 +198,7 @@ impl Photo {
     /// Each setting and its value in two lines, the chosen one in brackets; `posing` names the picked zombie.
     fn settings_lines(&self, posing: &str) -> [String; 2] {
         let time = self.time.map_or("Now", |i| TIMES[i].0);
-        let prop = PROPS.get(self.prop).map_or("Take back", |p| p.0);
+        let prop = self.choices.get(self.prop).map_or("Take back", |p| p.0.as_str());
         let props = format!("{prop} ({} in)", self.props.len());
         let rows = [(Setting::Time, "Time", time), (Setting::Fog, "Fog", FOGS[self.fog].0), (Setting::Lantern, "Lantern", LANTERNS[self.lantern].0), (Setting::Pose, "Pose", posing), (Setting::Props, "Props", props.as_str())];
         let rows: Vec<String> = rows.iter().map(|&(s, name, value)| if s == self.setting { format!("[{name}: {value}]") } else { format!("{name}: {value}") }).collect();
@@ -367,7 +391,7 @@ impl Harvest {
         let keys = match (p.setting, picked) {
             (Setting::Pose, Some(_)) => "Left / Right: turn it   Up / Down: step its frame   R2: next zombie",
             (Setting::Pose, None) => "R2: pick the zombie nearest the middle   Left / Right: turn   Up / Down: zoom",
-            (Setting::Props, _) if p.prop == TAKE_BACK => "R2 or Y: take back the last prop   Left / Right: choose a prop",
+            (Setting::Props, _) if p.prop == p.choices.len() => "R2 or Y: take back the last prop   Left / Right: choose a prop",
             (Setting::Props, _) => "R2: drop it ahead   Left / Right: choose   Up / Down: turn it   Y: take back",
             _ => "Left / Right: turn   Up / Down: zoom   L1 + Up / Down: height",
         };
@@ -678,7 +702,8 @@ mod tests {
         press(&mut h, Buttons::Y);
         assert_eq!(dropped(&h).len(), 2, "Y takes back the last");
         hold(&mut h, Buttons::LEFT, 1);
-        assert_eq!(h.photo.as_ref().unwrap().prop, TAKE_BACK, "Left from the first comes round to taking back");
+        let p = h.photo.as_ref().unwrap();
+        assert_eq!(p.prop, p.choices.len(), "Left from the first comes round to taking back");
         assert!(help(&h).contains("take back the last prop"));
         press(&mut h, Buttons::R2);
         assert_eq!(dropped(&h).len(), 1, "and R2 on it does too, for a touch screen with no Y");
@@ -701,6 +726,28 @@ mod tests {
             let middle = cards.iter().flat_map(|c| c.corners).sum::<glam::Vec3>() / (cards.len() * 4) as f32;
             assert!((middle.x - 2.0).abs() < 1.0 && (middle.z - 2.0).abs() < 1.0, "{name} stands round where it was dropped: {middle}");
         }
+    }
+
+    #[test]
+    fn a_players_props_follow_the_games_and_drop_into_the_picture_if_they_stand_in_3d() {
+        let _lock = art::test_lock();
+        let read = |text: &str| super::super::props::prop_fields(text).unwrap();
+        let (tank, blank) = (read("[rusty_tank]\nstand slab 4"), read("[blank_test]"));
+        let stand = tank.stand;
+        super::super::props::set_props(vec![(tank, vec![(art::WINDMILL_FAN.to_vec(), stand)]), (blank, vec![(vec![art::WHITE], None)])]);
+        let mut h = propping(16);
+        super::super::props::set_props(Vec::new());
+        let choices = h.photo.as_ref().unwrap().choices.clone();
+        assert_eq!(choices[..PROPS.len()].iter().map(|c| c.0.as_str()).collect::<Vec<_>>(), PROPS.map(|p| p.0), "the game's own come first");
+        assert_eq!(choices[PROPS.len()..], [("Rusty tank".to_string(), art::WINDMILL_FAN[0])], "then the players', leaving out one that can't stand");
+        hold(&mut h, Buttons::LEFT, 1);
+        hold(&mut h, Buttons::NONE, 1);
+        hold(&mut h, Buttons::LEFT, 1);
+        assert!(help(&h).contains("[Props: Rusty tank (0 in)]"), "{}", help(&h));
+        let cards = top_scene(&h).cards.len();
+        press(&mut h, Buttons::R2);
+        assert_eq!(dropped(&h)[0].art, art::WINDMILL_FAN[0]);
+        assert!(top_scene(&h).cards.len() > cards, "it stands in the frozen view");
     }
 
     #[test]
