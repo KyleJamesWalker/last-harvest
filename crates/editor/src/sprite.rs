@@ -94,6 +94,21 @@ impl Frame {
         Self { w, h, px: (0..h).flat_map(|y| (0..w).map(move |x| (x, y))).map(|(x, y)| block(x, y)).collect() }
     }
 
+    /// The `d`-pixel blocks, by column and row, that are only partly filled: the game draws their pixels as painted,
+    /// but their sides in 3D stand at the block's edge.
+    pub fn partial_blocks(&self, d: usize) -> Vec<(usize, usize)> {
+        let d = d.max(1);
+        let (bw, bh) = (self.w.div_ceil(d), self.h.div_ceil(d));
+        (0..bh)
+            .flat_map(|by| (0..bw).map(move |bx| (bx, by)))
+            .filter(|&(bx, by)| {
+                let px = (0..d * d).map(|i| (bx * d + i % d, by * d + i / d)).filter(|&(x, y)| x < self.w && y < self.h);
+                let (filled, all) = px.fold((0, 0), |(f, a), (x, y)| (f + (self.px[y * self.w + x][3] > 0) as usize, a + 1));
+                filled > 0 && filled < all
+            })
+            .collect()
+    }
+
     /// A new size, keeping the pixels anchored at the bottom center, where a sprite meets the ground.
     pub fn resized(&self, w: usize, h: usize) -> Self {
         let mut out = Self::blank(w, h);
@@ -710,6 +725,17 @@ pub fn nearest(c: Rgba, palette: &[Rgba]) -> Rgba {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_blocks_part_filled_and_part_clear_are_partial() {
+        let mut f = Frame::blank(4, 2);
+        f.set(0, 0, [1, 1, 1, 255]);
+        for (x, y) in [(2, 0), (3, 0), (2, 1), (3, 1)] {
+            f.set(x, y, [x as u8, y as u8, 9, 255]);
+        }
+        assert_eq!(f.partial_blocks(2), [(0, 0)], "a full block of mixed colors is fine");
+        assert!(f.partial_blocks(1).is_empty(), "every pixel is its own block at detail 1");
+    }
 
     #[test]
     fn a_frame_redrawn_finer_then_back_is_the_same_and_coarser_keeps_each_blocks_main_color() {
