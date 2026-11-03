@@ -62,7 +62,8 @@ pub fn layout(size: [f32; 2], run: bool, touch: bool) -> Layout {
         return Layout { size, top, bottom, stick: [0.0; 4], stick_r: 0.0, turn: [0.0; 4], keys: [none; 4] };
     }
     if !run {
-        let (top, bottom) = if wide { (fit([0.0, 0.0, w / 2.0, h]), fit([w / 2.0, 0.0, w / 2.0, h])) } else { (fit([0.0, 0.0, w, h / 2.0]), fit([0.0, h / 2.0, w, h / 2.0])) };
+        let side_by_side = w * SCREEN_H >= h * SCREEN_W;
+        let (top, bottom) = if side_by_side { (fit([0.0, 0.0, w / 2.0, h]), fit([w / 2.0, 0.0, w / 2.0, h])) } else { (fit([0.0, 0.0, w, h / 2.0]), fit([0.0, h / 2.0, w, h / 2.0])) };
         return Layout { size, top: Some(top), bottom: Some(bottom), stick: [0.0; 4], stick_r: 0.0, turn: [0.0; 4], keys: [none; 4] };
     }
     let u = w.min(h);
@@ -359,6 +360,22 @@ mod tests {
         let menus = layout([720.0, 480.0], false, false);
         assert!(menus.top.is_none() && menus.bottom.is_some());
         assert!(Touchpad::default().draw(&run).shapes.is_empty());
+    }
+
+    #[test]
+    fn at_every_shape_the_menus_take_the_bigger_of_side_by_side_and_stacked() {
+        for size in (4..=25).map(|tenths| [1000.0 * tenths as f32 / 10.0, 1000.0]).chain([[640.0, 480.0], [720.0, 720.0], [720.0, 480.0]]) {
+            let [w, h] = size;
+            let l = layout(size, false, true);
+            let (t, b) = (l.top.unwrap(), l.bottom.unwrap());
+            let best = (w / 2.0 / SCREEN_W).min(h / SCREEN_H).max((w / SCREEN_W).min(h / 2.0 / SCREEN_H));
+            assert!((t[2] - best * SCREEN_W).abs() < 0.01 && t[2] == b[2], "{size:?}: {t:?} {b:?} could be {}", best * SCREEN_W);
+            for [x, y, rw, rh] in [t, b] {
+                assert!(x >= 0.0 && y >= 0.0 && x + rw <= w + 0.01 && y + rh <= h + 0.01, "{size:?}: clipped");
+            }
+            let apart = t[0] + t[2] <= b[0] + 0.01 || t[1] + t[3] <= b[1] + 0.01;
+            assert!(apart, "{size:?}: the screens overlap");
+        }
     }
 
     #[test]
