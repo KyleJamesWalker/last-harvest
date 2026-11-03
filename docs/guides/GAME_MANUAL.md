@@ -561,6 +561,18 @@ A page shows one line a row, with its comment under it:
 - **Revert** goes back to the last save.
 - **Save** keeps the file only when the game would read it.
 
+A weapon's section in `powerups.txt` opens as a weapon page:
+
+- **Does** picks the weapon's behavior from the buttons on the right.
+- Each stat shows its value at every level, from 1 to `max`. Dim values are the game's own, for a stat the section leaves out.
+- A level's number picks that level. **-** and **+** on a stat step its value at that level only, ten times as far with Shift. **Edit** types the whole line.
+- **-** and **+** beside `max` change the highest level.
+- **<** and **>** step the effect and bullet through `effects.txt`, and the sound through the weapon sounds. **Own** removes the line, so the behavior's own plays.
+- The panel under the behaviors plays the chosen effect and bullet.
+- **Lines** shows the section a line a row, as any other page; **Weapon** goes back.
+
+Each change rewrites only its own line, so comments and other lines stay as written, and Undo takes it back.
+
 The card editor keeps a changed file in the browser, and Export all carries it into the mod pack. A sprite that `props.txt` or `effects.txt` names shows a Data button that opens its section.
 
 ### Props and maps

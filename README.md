@@ -124,7 +124,7 @@ A weapon in `powerups.txt` picks a behavior with `does`. Two behaviors take thei
 
 Any weapon can name an `effect` and a `bullet` from `effects.txt`, and a `sound`. Its `kick`, `punch` and `shake` move the camera on each attack, and `flash` lights the ground: a color, its reach in tiles and its seconds. An `icon` can be a player's prop, `PROP_<ID>`. So a new weapon needs no code.
 
-Both editors edit these files. Each file is a folder under one Data heading, and each section a page in it, such as `tuning.txt`'s `[player]` under Data > tuning. Its page shows one line a row, with the comment under it. Numbers step with - and +, and Edit types any value.
+Both editors edit these files. Each file is a folder under one Data heading, and each section a page in it, such as `tuning.txt`'s `[player]` under Data > tuning. Its page shows one line a row, with the comment under it. Numbers step with - and +, and Edit types any value. A weapon in `powerups.txt` opens as a weapon page instead: buttons pick its `does`, each stat shows its value at every level, - and + step the picked level's value alone, and < and > step its `effect`, `bullet` and `sound` through `effects.txt` and the weapon sounds. A panel plays the effect and bullet, and Lines shows the raw lines. Each change rewrites only its own line.
 
 Save writes the file only when the game would read it. The sprite editor saves into `crates/game/`. The card editor keeps a changed file in the browser, and Export all carries it to the mod pack. A sprite that `props.txt` or `effects.txt` names shows a Data button that opens its section.
 

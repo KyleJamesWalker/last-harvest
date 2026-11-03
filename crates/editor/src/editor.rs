@@ -13,6 +13,7 @@ mod coats;
 mod maps;
 mod palette;
 mod tables;
+mod weapons;
 
 use cards::HeldImport;
 use maps::{MapEdit, MapTool, PROP_HP_Y, PROP_OPEN_Y, PROP_PALETTE_ROWS};
@@ -283,6 +284,19 @@ enum Action {
     DataRemove(usize),
     DataAdd,
     DataPage(i32),
+    /// Shows the weapon page's lines as the data page does, or the weapon page again.
+    WeaponLines,
+    /// Picks the level whose numbers the weapon page steps.
+    WeaponLevel(usize),
+    WeaponMax(i32),
+    /// Sets the weapon's behaviour, by its place in `weapon_behaviours`.
+    WeaponDoes(usize),
+    /// Steps a weapon stat at the picked level, by its place in `weapon_stats`.
+    WeaponStep(usize, i32),
+    /// Starts typing a weapon stat's line.
+    WeaponType(usize),
+    /// Steps the weapon's effect, bullet or sound through what it can name; 0 leaves its behaviour's own.
+    WeaponPick(usize, i32),
     /// Leaves the paint color out of the 3D view, or puts it back.
     ClearIn3d,
     /// Shows the Coats page on the canvas, or the pixels again.
@@ -1712,6 +1726,7 @@ impl Editor {
         match a {
             Action::MapTool(_) | Action::Ground(_) | Action::PickProp(_) | Action::PickPage(_) | Action::Picket(_) | Action::MapSize(..) | Action::Randomize | Action::MapFit | Action::PropDefaults => {}
             Action::DataStep(..) | Action::DataEdit(_) | Action::DataRemove(_) | Action::DataAdd | Action::DataPage(_) => {}
+            Action::WeaponLines | Action::WeaponLevel(_) | Action::WeaponMax(_) | Action::WeaponDoes(_) | Action::WeaponStep(..) | Action::WeaponType(_) | Action::WeaponPick(..) => {}
             Action::LineFrame(_) | Action::LineFps(_) => {}
             Action::PlayerBase(i, d) => {
                 let t = last_harvest_game::tuning::tuning();
@@ -4071,6 +4086,53 @@ mod tests {
         let saved = std::fs::read_to_string(dir.join("tuning.txt")).unwrap();
         assert!(saved.contains("hp 101          # health") && saved.contains("speed 52"), "{saved}");
         assert_eq!(last_harvest_game::tuning::parse(&saved, None).unwrap().player_speed, 52.0);
+    }
+
+    #[test]
+    fn the_weapon_page_rewrites_only_the_lines_it_changes() {
+        let dir = tmp().join("weapon");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut e = editor_in(&dir, dir.join("art.txt"));
+        e.switch_to("DATA_POWERUPS_PISTOL".into());
+        assert!(e.data.as_ref().is_some_and(|d| d.weapon.is_some()));
+        buttons_fit(&e);
+        let text = |e: &Editor| e.data.as_ref().unwrap().table.text.clone();
+        let stat = |k: &str| last_harvest_game::weapon_stats().iter().position(|s| s.0 == k).unwrap();
+        let start = text(&e);
+        e.act(Action::WeaponStep(stat("damage"), 1), false);
+        assert_eq!(text(&e), start.replacen("damage    12 12 15", "damage 13 12 15", 1));
+        e.act(Action::WeaponLevel(3), false);
+        e.act(Action::WeaponStep(stat("range"), -1), false);
+        assert!(text(&e).contains("\nrange 150 150 149 150\n"), "a short list grows only to keep the levels after");
+        let gun = last_harvest_game::weapon_behaviours().iter().position(|b| *b == "gun").unwrap();
+        e.act(Action::WeaponDoes(gun), false);
+        e.act(Action::WeaponPick(0, 1), false);
+        e.act(Action::WeaponPick(2, -1), false);
+        e.act(Action::WeaponMax(1), false);
+        assert!(text(&e).contains("max 9\n") && text(&e).contains("spread    8\ndoes gun\neffect muzzle_pistol\nsound throw\n\n"), "{}", text(&e));
+        assert_eq!(e.data.as_ref().unwrap().weapon.as_ref().unwrap().preview[0].0.as_deref(), Some("muzzle_pistol"));
+        e.act(Action::WeaponType(stat("area")), false);
+        e.set_text("area 24");
+        e.key(Key::Enter);
+        let levels = last_harvest_game::weapon_levels(&text(&e), "pistol").unwrap();
+        let at = |k: &str| levels.stats[stat(k)].2.clone();
+        assert_eq!((levels.max, at("damage")[0], at("range")[1..4].to_vec(), at("range")[8], at("area")[8]), (9, 13.0, vec![150.0, 149.0, 150.0], 150.0, 24.0));
+        e.act(Action::WeaponPick(2, 0), false);
+        assert!(!text(&e).contains("sound throw"), "Own drops the line");
+        buttons_fit(&e);
+        e.act(Action::WeaponLines, false);
+        assert!(e.buttons().iter().any(|b| matches!(b.action, Action::DataStep(..))), "Lines shows the data page");
+        buttons_fit(&e);
+        e.act(Action::Save, false);
+        assert!(!e.unsaved(), "the game reads it");
+        for _ in 0..8 {
+            e.key(Key::Undo);
+        }
+        assert_eq!(text(&e), start, "each change undoes, and the rest of the file stays as written");
+        e.key(Key::Redo);
+        assert!(text(&e).contains("damage 13 12 15"));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
