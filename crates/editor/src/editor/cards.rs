@@ -1,6 +1,7 @@
 //! The editing pane's cards: importing, exporting and deleting them, and their stats pages.
 
 use super::*;
+use last_harvest_pack::card;
 
 /// The spawn mix chart under the stats: its plot, then the legend beside it.
 const MIX: Rect = Rect { x: CANVAS.x + 20.0, y: CANVAS.y + 392.0, w: 370.0, h: 132.0 };
@@ -107,20 +108,16 @@ impl Editor {
     /// Keeps `bytes`, an Ogg or WAV file, as the open enemy card's own death sound, and points the card at it.
     /// Returns the sound's file name once kept, for the page to play.
     pub fn attach_sound(&mut self, file: &str, bytes: &[u8]) -> Option<String> {
-        const MAX_KB: usize = 512;
+        const MAX_KB: usize = card::MAX_SOUND / 1024;
         let (Some(id), Some(sprite::CardKind::Enemy)) = (sprite::card_id(&self.sprite.name), sprite::card_kind(&self.sprite.name)) else {
             self.say("Open an enemy card to give it a death sound");
             return None;
         };
-        let ext = match bytes {
-            [b'O', b'g', b'g', b'S', ..] => "ogg",
-            [b'R', b'I', b'F', b'F', _, _, _, _, b'W', b'A', b'V', b'E', ..] => "wav",
-            _ => {
-                self.say(format!("{file} isn't an Ogg or WAV sound"));
-                return None;
-            }
+        let Some(ext) = card::sound_kind(bytes) else {
+            self.say(format!("{file} isn't an Ogg or WAV sound"));
+            return None;
         };
-        if bytes.len() > MAX_KB * 1024 {
+        if bytes.len() > card::MAX_SOUND {
             self.say(format!("{file} is {} KB; a death sound may be at most {MAX_KB} KB", bytes.len() / 1024));
             return None;
         }
@@ -133,10 +130,10 @@ impl Editor {
         self.own_sound = Some(kept.clone());
         let points = self.sprite.card.as_deref().and_then(|t| last_harvest_game::card_fields(t).ok()).is_some_and(|f| f.sound == cue);
         if points {
-            self.say(format!("{id} dies to {file} now; Export all takes it along"));
+            self.say(format!("{id} dies to {file} now; Export and Export all take it along"));
         } else {
             self.set_card("sound", None);
-            self.say(format!("{id} dies to {file} now; Save the card, then Export all takes it along"));
+            self.say(format!("{id} dies to {file} now; Save the card, then Export takes it along"));
         }
         Some(kept)
     }
@@ -180,7 +177,8 @@ impl Editor {
         self.load_other_cards();
     }
 
-    /// The open card's file name and PNG as saved, for Export; None with a word why when there's nothing to give.
+    /// The open card's file name and PNG as saved, carrying its own death sound, for Export; None with a word why
+    /// when there's nothing to give.
     pub fn export_card(&mut self) -> Option<(String, Vec<u8>)> {
         let (Some(id), Some(kind)) = (sprite::card_id(&self.sprite.name), sprite::card_kind(&self.sprite.name)) else {
             self.say("Open a card to export it");
@@ -190,9 +188,19 @@ impl Editor {
             self.say("Save the card first: Export gives the saved copy");
             return None;
         }
-        let bytes = self.store.card_bytes(&self.sprite.name)?;
+        let mut bytes = self.store.card_bytes(&self.sprite.name)?;
         let file = format!("{id}{}", kind.extension());
-        self.say(format!("Exported {file}"));
+        let sound = self.store.card_sound(&id).filter(|_| kind == sprite::CardKind::Enemy);
+        if let Some((_, sound)) = &sound {
+            match card::with_sound(&bytes, Some(sound)) {
+                Ok(b) => bytes = b,
+                Err(e) => {
+                    self.say(format!("Couldn't export {file}: {e}"));
+                    return None;
+                }
+            }
+        }
+        self.say(format!("Exported {file}{}", if sound.is_some() { " with its death sound" } else { "" }));
         Some((file, bytes))
     }
 

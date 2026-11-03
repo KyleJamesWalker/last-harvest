@@ -33,8 +33,8 @@ pub trait Store {
         Vec::new()
     }
 
-    /// An enemy card's own death sound, as its file name such as `kill-ghoul.ogg` and its bytes, kept beside the card
-    /// by the mod editor.
+    /// An enemy card's own death sound, as its file name such as `kill-ghoul.ogg` and its bytes: inside the card's
+    /// PNG on this machine, beside it in the browser.
     fn card_sound(&self, _id: &str) -> Option<(String, Vec<u8>)> {
         None
     }
@@ -375,7 +375,8 @@ pub mod cards {
                 }
             }
         }
-        card::write_as(kind, &text, &worn::card_text(&facings), part.detail, (w * cols) as u32, (h * height) as u32, height as u32, &sheet)
+        let bytes = card::write_as(kind, &text, &worn::card_text(&facings), part.detail, (w * cols) as u32, (h * height) as u32, height as u32, &sheet)?;
+        card::with_sound(&bytes, existing.and_then(|b| card::sound(b).ok().flatten()).map(|(_, s)| s))
     }
 
     pub use last_harvest_pack::browser::{from_text, to_text};
@@ -564,6 +565,17 @@ mod fs {
             let found = std::fs::read_dir(self.folder(kind)).into_iter().flatten().flatten();
             found.filter_map(|e| e.file_name().into_string().ok()?.strip_suffix(kind.extension()).map(str::to_string)).collect()
         }
+
+        fn enemy_path(&self, id: &str) -> PathBuf {
+            self.folder(CardKind::Enemy).join(format!("{id}{}", CardKind::Enemy.extension()))
+        }
+
+        /// Writes an enemy card's own death sound into its saved PNG, or takes it out with None.
+        fn put_sound(&self, id: &str, sound: Option<&[u8]>) -> Result<(), String> {
+            let path = self.enemy_path(id);
+            let bytes = std::fs::read(&path).map_err(|_| "save the card first".to_string())?;
+            std::fs::write(&path, last_harvest_pack::card::with_sound(&bytes, sound)?).map_err(|e| format!("{}: {e}", path.display()))
+        }
     }
 
     impl Store for FsStore {
@@ -657,6 +669,24 @@ mod fs {
             let path = dir.join(format!("{id}{}", kind.extension()));
             std::fs::write(&path, bytes).map_err(|e| format!("{}: {e}", path.display()))?;
             Ok(names[0].clone())
+        }
+
+        fn card_bytes(&self, name: &str) -> Option<Vec<u8>> {
+            std::fs::read(self.card_path(name)?).ok()
+        }
+
+        fn card_sound(&self, id: &str) -> Option<(String, Vec<u8>)> {
+            let bytes = std::fs::read(self.enemy_path(id)).ok()?;
+            let (ext, sound) = last_harvest_pack::card::sound(&bytes).ok()??;
+            Some((format!("kill-{id}.{ext}"), sound.to_vec()))
+        }
+
+        fn set_card_sound(&self, id: &str, _file: &str, bytes: &[u8]) -> Result<(), String> {
+            self.put_sound(id, Some(bytes))
+        }
+
+        fn remove_card_sound(&self, id: &str) -> Result<(), String> {
+            self.put_sound(id, None)
         }
 
         fn prop_bytes(&self, id: &str) -> Option<Vec<u8>> {

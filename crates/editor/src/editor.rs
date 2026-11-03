@@ -3846,7 +3846,7 @@ mod tests {
     }
 
     #[test]
-    fn a_death_sound_needs_an_enemy_card_and_an_ogg_or_wav() {
+    fn a_death_sound_needs_an_enemy_card_and_rides_inside_it() {
         let dir = tmp().join("sound");
         let _ = std::fs::remove_dir_all(&dir);
         let mut e = Editor::new(Box::new(FsStore { dir: dir.join("sprites"), catalog: dir.join("art.txt"), cards: dir.join("enemies") }), "");
@@ -3857,14 +3857,21 @@ mod tests {
         e.key(Key::Enter);
         assert!(e.attach_sound("boo.mp3", b"ID3....").is_none() && said(&e).contains("isn't an Ogg or WAV"));
         assert!(e.attach_sound("big.ogg", &[b"OggS".as_slice(), &vec![0; 600 * 1024]].concat()).is_none() && said(&e).contains("at most 512 KB"));
-        assert!(e.attach_sound("boo.ogg", b"OggS....").is_none() && said(&e).contains("sounds folder"), "the Mac's store keeps none: {}", said(&e));
         e.stats = true;
         let drop = |e: &Editor| e.buttons().iter().any(|b| b.action == Action::DropSound);
         assert!(!drop(&e), "Drop own shows only for a card with its own sound");
-        e.own_sound = Some("kill-ghoul.ogg".into());
+        let boo = [b"OggS".as_slice(), &[5; 40]].concat();
+        assert_eq!(e.attach_sound("boo.ogg", &boo).as_deref(), Some("kill-ghoul.ogg"), "{}", said(&e));
         assert!(drop(&e));
+        let path = dir.join("enemies/ghoul.enemy.png");
+        let in_card = |bytes: &[u8]| last_harvest_pack::card::sound(bytes).unwrap().map(|(ext, s)| (ext, s.to_vec()));
+        e.act(Action::Save, false);
+        assert_eq!(in_card(&std::fs::read(&path).unwrap()), Some(("ogg", boo.clone())), "saving the card keeps its sound inside it");
+        let (file, bytes) = e.export_card().unwrap();
+        assert_eq!((file.as_str(), in_card(&bytes)), ("ghoul.enemy.png", Some(("ogg", boo.clone()))), "Export carries it");
+        assert!(said(&e).contains("with its death sound"), "{}", said(&e));
         e.act(Action::DropSound, false);
-        assert!(said(&e).starts_with("Couldn't drop the sound") && e.own_sound.is_some(), "{}", said(&e));
+        assert!(e.own_sound.is_none() && in_card(&std::fs::read(&path).unwrap()).is_none(), "{}", said(&e));
     }
 
     #[test]

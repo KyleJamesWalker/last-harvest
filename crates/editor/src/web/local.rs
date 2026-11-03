@@ -120,10 +120,15 @@ impl Store for LocalStore {
         None
     }
 
+    /// A card's own death sound comes out of its PNG into IndexedDB, which local storage has no room for.
     fn import_card(&self, file: &str, bytes: &[u8]) -> Result<String, String> {
+        use last_harvest_pack::card;
         let (kind, id) = cards::identify(file, bytes)?;
         let names = sprite::card_names_of(kind, &id).ok_or_else(|| format!("its id [{id}] needs to be letters, digits and _ to open here"))?;
-        self.put(kind, &id, bytes)?;
+        self.put(kind, &id, &card::with_sound(bytes, None)?)?;
+        if let Some((ext, sound)) = card::sound(bytes).ok().flatten().filter(|_| kind == CardKind::Enemy) {
+            self.set_card_sound(&id, &format!("kill-{id}.{ext}"), sound)?;
+        }
         Ok(names[0].clone())
     }
 
