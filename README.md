@@ -445,10 +445,11 @@ Put Ogg Vorbis or WAV files in `assets/private/sounds/`, named after the cue the
 | `heal`, `hurt`, `heartbeat` | Health is picked up, you are hit, or health is low |
 | `levelup`, `pick`, `pick-rare` | The XP bar fills, or an upgrade is chosen |
 | `rise`, `groan`, `caw` | A zombie breaks out of the ground, groans, or a crow takes off |
+| `spit`, `splat` | A ranged zombie spits, or its spit lands |
 | `bell`, `horde`, `dawn`, `gameover` | Each minute, each horde, surviving, or dying |
 | `start`, `miss` | A run starts, or a tap with no grenade ready |
 
-Every file also plays a few percent sharp or flat at random. Explosions, rising, groans and crows are panned and quieted by where they happen. They live in the private assets submodule, so check each file's license before sharing it anywhere else.
+Every file also plays a few percent sharp or flat at random. Explosions, rising, groans, crows and spit are panned and quieted by where they happen. They live in the private assets submodule, so check each file's license before sharing it anywhere else.
 
 ### Saves and crashes
 

@@ -26,6 +26,7 @@ pub struct Bank {
 const CUES: &[&str] = &[
     "start", "miss", "gameover", "turn", "shot", "blast", "slash", "thud", "crit", "boom", "throw",
     "pickup", "heal", "hurt", "heartbeat", "levelup", "pick", "pick-rare", "rise", "groan", "caw", "bell", "horde", "dawn", "zap", "bark",
+    "spit", "splat",
 ];
 
 /// The file name a cue looks for, and the playback rate it asks for. Pickups climb a pentatonic scale from one file.
@@ -58,6 +59,8 @@ pub fn cue(sfx: Sfx) -> (&'static str, f32) {
         Sfx::Rise { .. } => "rise",
         Sfx::Groan { .. } => "groan",
         Sfx::Caw { .. } => "caw",
+        Sfx::Spit { .. } => "spit",
+        Sfx::Splat { .. } => "splat",
         Sfx::Zap => "zap",
         Sfx::Bark => "bark",
         Sfx::Bell => "bell",
@@ -323,6 +326,7 @@ mod tests {
             Sfx::Kill(0), Sfx::Kill(1), Sfx::Kill(2), Sfx::Boom { pan: 0, gain: 0 }, Sfx::Throw, Sfx::Pickup(0), Sfx::Heal, Sfx::Hurt,
             Sfx::Heartbeat, Sfx::LevelUp, Sfx::Pick(false), Sfx::Pick(true), Sfx::Rise { pan: 0, gain: 0 }, Sfx::Groan { pan: 0, gain: 0 },
             Sfx::Caw { pan: 0, gain: 0 }, Sfx::Bell, Sfx::Horde, Sfx::Dawn, Sfx::Zap, Sfx::Bark,
+            Sfx::Spit { pan: 0, gain: 0 }, Sfx::Splat { pan: 0, gain: 0 },
         ];
         for sfx in all {
             let name = cue(sfx).0;

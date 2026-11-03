@@ -720,8 +720,8 @@ pub struct Harvest {
     leveling: f32,
     /// Seconds since the kill count last went up, for its bump.
     kill_bump: f32,
-    /// Cooldowns on sounds that would otherwise stack up in a swarm: hits, kills, groans, rising, birds.
-    hush: [f32; 5],
+    /// Cooldowns on sounds that would otherwise stack up in a swarm: hits, kills, groans, rising, birds, spit.
+    hush: [f32; 6],
     heartbeat: f32,
     /// Seconds of the full-screen gold flash when the cards appear.
     glory: f32,
@@ -931,7 +931,7 @@ impl Harvest {
             chain: (1.0, 0),
             leveling: 0.0,
             kill_bump: 1.0,
-            hush: [0.0; 5],
+            hush: [0.0; 6],
             heartbeat: 0.0,
             glory: 0.0,
             queued_touch: None,
@@ -1285,7 +1285,7 @@ impl Harvest {
             }
         }
         self.rise(dt, sounds);
-        self.move_zombies(dt);
+        self.move_zombies(dt, sounds);
         self.tunnel(dt, sounds);
         self.grow_fury(dt);
         self.contact(sounds, flow);
@@ -1648,7 +1648,7 @@ impl Harvest {
         }
     }
 
-    fn move_zombies(&mut self, dt: f32) {
+    fn move_zombies(&mut self, dt: f32, sounds: &mut Vec<Sfx>) {
         let n = self.zombies.len();
         let mut sep = std::mem::take(&mut self.sep);
         sep.clear();
@@ -1716,6 +1716,13 @@ impl Harvest {
             }
         }
         self.sep = sep;
+        if let Some(s) = spits.first()
+            && self.hush[5] <= 0.0
+        {
+            let (pan, gain) = self.place(s.pos);
+            sounds.push(Sfx::Spit { pan, gain });
+            self.hush[5] = 0.12;
+        }
         self.spits.extend(spits);
         let reach = crate::tuning::tuning().burrow_reach;
         let mut i = 0;
@@ -1774,6 +1781,7 @@ impl Harvest {
     /// Spit flies straight until it splashes on the player or on cover, or falls short.
     fn move_spits(&mut self, dt: f32, sounds: &mut Vec<Sfx>, flow: &mut Flow) {
         let mut hit = 0.0f32;
+        let mut splat = None;
         for s in &mut self.spits {
             s.pos = [s.pos[0] + s.vel[0] * dt, s.pos[1] + s.vel[1] * dt];
             s.life -= dt;
@@ -1782,11 +1790,19 @@ impl Harvest {
             let player = len(sub(ground, self.pos)) < SPIT_REACH;
             if player || self.map.cover_at(ground[0], ground[1]) {
                 hit = hit.max(if player { s.damage } else { 0.0 });
+                splat = Some(ground);
                 self.juice.burst(ground, 6.0, 4, norm([-s.vel[0], -s.vel[1]]), 0.9, [20.0, 50.0], juice::blood_of(s.kind.stats().blood), 1.0, 0.3, 0.0);
                 s.life = 0.0;
             }
         }
         self.spits.retain(|s| s.life > 0.0);
+        if let Some(at) = splat
+            && self.hush[5] <= 0.0
+        {
+            let (pan, gain) = self.place(at);
+            sounds.push(Sfx::Splat { pan, gain });
+            self.hush[5] = 0.12;
+        }
         if hit > 0.0 && self.hurt <= 0.0 {
             self.bitten(hit * self.fury * self.difficulty.damage(), sounds, flow);
         }
@@ -2452,6 +2468,7 @@ mod tests {
         }
         let gap = len(sub(h.zombies[0].pos, h.pos));
         assert!(!h.spits.is_empty() && gap <= 60.0 && gap > 50.0, "it stopped at its range, {gap}, and spat");
+        assert!(sounds.iter().any(|s| matches!(s, Sfx::Spit { .. })), "with a sound");
         let before = h.zombies[0].pos;
         for _ in 0..60 * 2 {
             h.update(&Input::default(), 1.0 / 60.0, &mut sounds);
@@ -2461,8 +2478,11 @@ mod tests {
         h.hurt = 0.0;
         h.spits = vec![Spit { kind: Kind(0), pos: [h.pos[0] - 1.0, h.pos[1] - 6.0], vel: [10.0, 0.0], damage: 12.0, life: 1.0, age: 0.0 }];
         let hp = h.hp;
+        h.hush[5] = 0.0;
+        sounds.clear();
         h.move_spits(0.016, &mut sounds, &mut Flow::default());
         assert!(h.spits.is_empty() && h.hp == hp - 12.0, "a spit on the player hurts by its damage");
+        assert!(sounds.iter().any(|s| matches!(s, Sfx::Splat { .. })), "and splats");
         h.hurt = 0.0;
         h.spits = vec![Spit { kind: Kind(0), pos: [h.pos[0] - 40.0, h.pos[1] - 6.0], vel: [10.0, 0.0], damage: 12.0, life: 1.0, age: 0.0 }];
         h.move_spits(0.016, &mut sounds, &mut Flow::default());
@@ -3139,7 +3159,7 @@ mod tests {
         let at = [h.pos[0] + 60.0, h.pos[1]];
         h.zombies.push(big);
         h.zombies[0].pos = at;
-        h.move_zombies(0.1);
+        h.move_zombies(0.1, &mut Vec::new());
         assert_eq!(h.zombies[0].pos, at);
     }
 
