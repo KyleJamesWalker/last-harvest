@@ -2,7 +2,7 @@
 # Runs on the device: pauses the stock frontend (and its idle auto-sleep) while the game runs.
 # A deploy drops in last-harvest.new and data/game_data.pak.new and touches /tmp/last-harvest.restart to relaunch without resuming the frontend.
 # A panic (exit 101) also relaunches; any other exit ends the session.
-# Set CAPTURE=1 to also log every input device and the lid sensor, DEBUG=1 for remote control, and TIMEOUT=SECS to
+# Set CAPTURE=1 to also log every input device and the lid sensor, POWERLOG=1 for battery draw, DEBUG=1 for remote control, and TIMEOUT=SECS to
 # stop each run after that long (0, the default, lets it run until it quits).
 cd "$(dirname "$0")"
 . /etc/profile.d/myenv.sh
@@ -15,6 +15,14 @@ if [ -n "$CAPTURE" ]; then
   for e in $(sed -n 's/^H: Handlers=.*\(event[0-9]*\).*/\1/p' /proc/bus/input/devices); do evtest "/dev/input/$e" > "$e.log" 2>&1 & done
   (while :; do echo "$(date +%s) $(cat /sys/class/anbernic_misc/hallkey)"; sleep 0.5; done) > hall.log &
   export LAST_HARVEST_LOG_INPUT=1
+fi
+if [ -n "$POWERLOG" ]; then
+  b=/sys/class/power_supply/battery
+  (while :; do
+    echo "$(date +%s) lid=$(cat /sys/class/anbernic_misc/hallkey) $(cat $b/status) cap=$(cat $b/capacity) uA=$(cat $b/current_now) uV=$(cat $b/voltage_now) soc=$(cat /sys/class/thermal/thermal_zone0/temp) bl=$(cat /sys/class/backlight/*/bl_power | tr '\n' ,)"
+    ps -eo pcpu,args --sort=-pcpu | sed -n '2,5p'
+    sleep 15
+  done) > power.log &
 fi
 [ -n "$DEBUG" ] && export LAST_HARVEST_DEBUG=1
 while :; do
