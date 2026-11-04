@@ -34,11 +34,12 @@ pub(crate) enum Setting {
     Grenades,
     Player,
     Enemies,
+    Folder,
     Reset,
 }
 
 impl Setting {
-    const ALL: [Setting; 11] = [Setting::TopBrightness, Setting::BottomBrightness, Setting::Volume, Setting::Rumble, Setting::Fps, Setting::Screens, Setting::Touch, Setting::Grenades, Setting::Player, Setting::Enemies, Setting::Reset];
+    const ALL: [Setting; 12] = [Setting::TopBrightness, Setting::BottomBrightness, Setting::Volume, Setting::Rumble, Setting::Fps, Setting::Screens, Setting::Touch, Setting::Grenades, Setting::Player, Setting::Enemies, Setting::Folder, Setting::Reset];
 
     fn name(self) -> &'static str {
         match self {
@@ -52,6 +53,7 @@ impl Setting {
             Setting::Grenades => "Grenades",
             Setting::Player => "Player",
             Setting::Enemies => "Enemies",
+            Setting::Folder => "Game folder",
             Setting::Reset => "Reset progress",
         }
     }
@@ -98,7 +100,8 @@ fn setting_row(i: usize) -> [f32; 4] {
 }
 
 impl Game {
-    /// A run's settings leave out Player, Enemies and Reset; a phone whose screen takes touches has Touch controls and
+    /// A run's settings leave out Player, Enemies, Game folder and Reset, and Game folder shows only where the
+    /// platform lets the player choose one; a phone whose screen takes touches has Touch controls and
     /// Grenades where others have Screens; screen brightness shows only where the platform sets the backlights.
     pub(crate) fn settings_list(&self) -> Vec<Setting> {
         let phone = self.is_phone();
@@ -106,6 +109,7 @@ impl Game {
             .into_iter()
             .filter(|s| match s {
                 Setting::Player | Setting::Enemies | Setting::Reset => !self.settings_in_run,
+                Setting::Folder => !self.settings_in_run && self.folder.is_some(),
                 Setting::TopBrightness | Setting::BottomBrightness => self.has_backlights(),
                 Setting::Screens => !phone,
                 Setting::Touch => phone && self.touch_screen(),
@@ -263,6 +267,11 @@ impl Game {
                 self.sounds.push(Sfx::Tick(9));
                 return false;
             }
+            Setting::Folder if press => {
+                self.folder_asked = true;
+                self.sounds.push(Sfx::Tick(9));
+                return false;
+            }
             Setting::Reset if press && self.reset_armed > 0.0 => {
                 self.save = self.save.without_progress();
                 self.reset_armed = 0.0;
@@ -399,6 +408,14 @@ impl Game {
                     let r = roster();
                     let on = (0..r.enemies.len()).filter(|i| self.save.enemies_off & 1 << i == 0).count();
                     c.label(format!("{on} of {} on   >", r.enemies.len()), x + w - 30.0, mid - 20.0, 38.0, if on < r.enemies.len() { HOT } else { DIM }, Align::Right);
+                    continue;
+                }
+                Setting::Folder => {
+                    let (name, color) = match self.folder.as_deref() {
+                        Some("") | None => ("Choose", HOT),
+                        Some(name) => (name, if on { HOT } else { WHITE }),
+                    };
+                    fit_label(c, name, x + w - 30.0, mid - 20.0, 38.0, w - 420.0, color, Align::Right);
                     continue;
                 }
                 Setting::Reset => {
