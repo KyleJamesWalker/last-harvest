@@ -27,7 +27,7 @@ const QUIT_HOLD: f32 = 1.0;
 const WAKE_GRACE: Duration = Duration::from_secs(2);
 const STATS_WINDOW: Duration = Duration::from_secs(1);
 const AUDIO_RETRY: Duration = Duration::from_secs(1);
-const LID_FRAME: Duration = Duration::from_millis(100);
+const LID_FRAME: Duration = Duration::from_secs(1);
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 const LID_SLEEP: Duration = Duration::from_secs(5 * 60);
 const AUDIO_RETRY_MAX: Duration = Duration::from_secs(60);
@@ -462,7 +462,7 @@ impl ApplicationHandler for App {
         std::process::exit(if self.failed { 1 } else { 0 });
     }
 
-    /// Draws every vsync, or a few times a second with the lid closed, which still reads the lid and the keys.
+    /// Draws every vsync, or once a second with the lid closed, which still reads the lid and the keys.
     fn about_to_wait(&mut self, el: &ActiveEventLoop) {
         let Some(g) = &self.gfx else { return };
         if self.game.outputs().screens_on[0] || self.last.elapsed() >= LID_FRAME {
