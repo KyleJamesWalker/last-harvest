@@ -146,14 +146,15 @@ The title's bottom screen lists Play, Map, Settings, Stats and Credits. Up and D
 - **Settings** sets each screen's brightness, the volume, rumble, the frame-rate overlay, on a phone the touch controls and grenade style, your look, which zombies come, and Reset progress.
     - **Player** picks your look from the player cards, showing each walking on the top screen.
     - **Enemies** shows each kind of zombie walking on the top screen with its numbers. A turns a kind on or off. Nights skip the kinds turned off, and at least one stays on.
+    - **Game folder**, on Android only, opens Android's folder picker. See [Where files go](#where-files-go).
     - **Reset progress** clears kills, records and found powerups after a second press. Settings stay.
-    - From the pause menu, Settings changes everything but your look, the zombies and the reset.
+    - From the pause menu, Settings changes everything but your look, the zombies, the game folder and the reset.
 - **Stats** lists the records the save keeps, and counts the cards and mod packs that loaded.
 - **Credits** names who made the game, its art, its template and its font.
 
 ### Saving screenshots
 
-R1 saves both screens, the top above the bottom, as `screenshots/shot-NNNN.png` beside the save.
+R1 saves both screens, the top above the bottom, as `screenshots/shot-NNNN.png` beside the save. On Android it saves them in the game folder's `screenshots/`, and the first screenshot asks you to choose a game folder if you have none.
 
 ### Photo mode
 
@@ -184,7 +185,7 @@ Props lets you dress the shot. Left and Right choose a prop: a barrier, barrel, 
 
 The cross starts where the camera looks. After each drop it steps aside to the right of the prop, so props dropped one after another stand in a row; where the edge of the map or the cross's reach stops the row, it grows from its left end instead. To put one somewhere else, choose Place: Left, Right, Up and Down slide the cross across the ground as the camera sees it, Up away from you, up to 12 tiles from you and never off the map, and R2 drops the chosen prop there. X puts the cross back where the camera looks. The help says how far out the cross is; when it is out of the picture, it waits at the edge nearest it, along the bottom when it is behind the camera. On Props and Place the map on the bottom screen shows the cross too. On Take back, R2 on Place takes back the last prop, as on Props.
 
-A photo leaves out the HUD, the guides and the help. It saves the top screen as `screenshots/photo-NNNN.png` beside the save, and its middle square, the one the guide outlines, as `photo-NNNN-square.png`. On a phone the touch stick and turn strip move the camera, the Grenade key chooses a setting and the Map key changes it (on Place the stick moves the cross; on Props, choose Take back to remove one), and a tap on the picture takes the photo. Where the game can't save a file, in a browser, on Android and on muOS, R1 or a tap hides the guides instead, so your device's own screenshot comes out clean.
+A photo leaves out the HUD, the guides and the help. It saves the top screen as `screenshots/photo-NNNN.png` beside the save, or in the game folder on Android, and its middle square, the one the guide outlines, as `photo-NNNN-square.png`. On a phone the touch stick and turn strip move the camera, the Grenade key chooses a setting and the Map key changes it (on Place the stick moves the cross; on Props, choose Take back to remove one), and a tap on the picture takes the photo. Where the game can't save a file, in a browser and on muOS, R1 or a tap hides the guides instead, so your device's own screenshot comes out clean.
 
 ## Weapons, passives and zombies
 
@@ -276,7 +277,9 @@ The game reads your files from its `data/` folder, beside `game_data.pak`, when 
 | `data/maps/` | Maps, `<id>.map.txt` |
 | `data/mods/` | Mod packs, `<name>.pak` |
 
-A file that cannot load is left out. The title screen shows the first reason. The browser game has no folders: add mod packs on its start screen instead.
+A file that cannot load is left out. The title screen shows the first reason.
+
+On Android, choose a game folder with Settings > Game folder, such as a new `Last Harvest` folder in `Documents`. The game makes `enemies/`, `players/`, `props/`, `maps/`, `mods/` and `screenshots/` in it. Files you add load the next time the game starts. Until you choose one, the game reads `Android/data/com.kylejameswalker.lastharvest/files/data/`, which most file managers cannot open. The browser game has no folders: add mod packs on its start screen instead.
 
 ### Enemy cards
 
