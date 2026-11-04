@@ -9,6 +9,7 @@ CARGO_PROFILE_RELEASE_STRIP=symbols CARGO_PROFILE_RELEASE_OPT_LEVEL=s cargo buil
 rm -rf "$out"
 wasm-bindgen --target web --no-typescript --out-dir "$out" target/wasm32-unknown-unknown/release/sprite-editor.wasm
 cp crates/editor/web/index.html crates/editor/web/sw.js crates/editor/web/manifest.webmanifest "$out/"
+cp -R crates/editor/web/vendor "$out/"
 cp assets/private/icons/editor-32.png "$out/icon.png"
 cp assets/private/icons/editor-176.png "$out/apple-touch-icon.png"
 cp assets/private/icons/editor-512.png "$out/icon-512.png"

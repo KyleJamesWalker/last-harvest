@@ -427,7 +427,7 @@ impl Web {
             #[cfg(feature = "modding")]
             "delete-card" => return self.studio.editor.delete_card(),
             #[cfg(feature = "modding")]
-            "sound" => return modding::call("pick", &[".ogg,.wav".into(), false.into(), "lastharvest-sound".into()]),
+            "sound" => return modding::call("pick", &[".ogg,.wav,.mp3".into(), false.into(), "lastharvest-sound".into()]),
             #[cfg(feature = "modding")]
             "export-all" => {
                 let extra = self.studio.editor.all_maps_and_props();

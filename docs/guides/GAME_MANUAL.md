@@ -556,7 +556,7 @@ The palette is PICO-8's 32 colors. The previews show your card on a plain floor,
 - **Import** opens `.enemy.png`, `.player.png`, `.prop.png` and `.map.txt` files, and every card, map and prop in a `.pak`. It says which saved cards it replaced. Importing a pack also brings back its cards' death sounds.
 - **Export** downloads the open card's saved PNG, `<id>.enemy.png` or `<id>.player.png`. On a prop, it downloads the prop's PNG. On a map, it downloads `<id>.pak`, holding the map and every prop it places.
 - **Export all** downloads every card, map, prop, death sound and changed data file as one mod pack, `my-cards.pak`. Put it in the game's `data/mods`. The game on the same site doesn't need it: it plays your saved work as it is.
-- **Sound** gives the open enemy card its own death sound. Pick an Ogg or WAV file of up to 512 KB. Export all packs it as `sounds/kill-<id>.ogg`.
+- **Sound** gives the open enemy card its own death sound. Pick an Ogg, WAV or MP3 file; the editor converts a WAV or MP3 to Ogg, which must come to 512 KB at most. Export all packs it as `sounds/kill-<id>.ogg`.
 - **Delete card** removes the open card for good. Press it twice to confirm.
 - **Game data** picks your own `game_data.pak`. See [Game data](#game-data).
 - **Help** shows a short guide to making a card.

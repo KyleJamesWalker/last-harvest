@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'sha256-A8PkpqVxRdK0taTsSGoCqyt2rVvgs9O3jZ1BgdmRyAE='; style-src 'unsafe-inline'; media-src blob:; object-src 'none'; base-uri 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'sha256-xVhmiyJgxRoOZ/+Kt6beOR1E53hI3WZvntsSnRQFzBs='; style-src 'unsafe-inline'; media-src blob:; object-src 'none'; base-uri 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -78,7 +78,7 @@
     can't load, the title screen says why.
     <b>Export all</b> instead downloads every card as one <code>my-cards.pak</code> for the game's
     <code>data/mods</code> folder; it also carries each enemy's own death sound, which <b>Sound</b> picks, an
-    <code>.ogg</code> or <code>.wav</code> up to 512 KB. <b>Drop own</b>, beside the death sound on the Stats page, removes it.</li>
+    <code>.ogg</code>, <code>.wav</code> or <code>.mp3</code>, converted to Ogg, of up to 512 KB once converted. <b>Drop own</b>, beside the death sound on the Stats page, removes it.</li>
   </ol>
   <p>Your cards stay in this browser until you delete them. <b>Import</b> opens a card someone shared with you, or
   every card in a <code>.pak</code>; one with the id of a card you have replaces it.
@@ -114,6 +114,19 @@
   });
   const SOUND = "sound:";
   const said = text => window.dispatchEvent(new CustomEvent("lastharvest-said", { detail: text }));
+  const starts = (bytes, magic) => [...magic].every((c, i) => bytes[i] === c.charCodeAt(0));
+
+  let encoder;
+  const oggEncoder = () => encoder ??= new Promise((done, fail) => {
+    const script = Object.assign(document.createElement("script"), { src: "vendor/WasmMediaEncoder.min.js" });
+    script.onload = done;
+    script.onerror = () => fail(new Error("couldn't load the Ogg encoder"));
+    document.head.append(script);
+  }).then(async () => {
+    const wasm = await fetch("vendor/ogg.wasm");
+    if (!wasm.ok) throw new Error("couldn't load the Ogg encoder");
+    return WasmMediaEncoder.createEncoder("audio/ogg", new Uint8Array(await wasm.arrayBuffer()));
+  }).catch(e => { encoder = undefined; throw e; });
 
   window.lastHarvest = {
     // Asks for files, then hands each to the editor as an `event` carrying its name and bytes.
@@ -122,11 +135,40 @@
       Object.assign(input, { type: "file", accept, multiple });
       input.onchange = async () => {
         for (const file of input.files) {
-          const bytes = new Uint8Array(await file.arrayBuffer());
-          window.dispatchEvent(new CustomEvent(event, { detail: { name: file.name, bytes } }));
+          let name = file.name, bytes = new Uint8Array(await file.arrayBuffer());
+          if (event === "lastharvest-sound" && !starts(bytes, "OggS")) {
+            said(`Converting ${name} to Ogg…`);
+            try {
+              bytes = await window.lastHarvest.ogg(bytes);
+              name += " (as Ogg)";
+            } catch (e) {
+              // The game reads WAV too, so one the browser can't convert still goes in as it is.
+              if (!starts(bytes, "RIFF")) {
+                said(`Couldn't convert ${name} to Ogg: ${e?.message ?? e}`);
+                continue;
+              }
+            }
+          }
+          window.dispatchEvent(new CustomEvent(event, { detail: { name, bytes } }));
         }
       };
       input.click();
+    },
+    // Any sound the browser can play, as Ogg Vorbis: the only compressed format the game reads.
+    async ogg(bytes) {
+      if (bytes.length > 64 * 1024 * 1024) throw new Error("it's over 64 MB");
+      const audio = await new OfflineAudioContext(1, 1, 44100).decodeAudioData(bytes.slice().buffer)
+        .catch(() => { throw new Error("this browser can't read it as a sound"); });
+      if (!audio.length) throw new Error("it holds no sound");
+      const enc = await oggEncoder();
+      const channels = Math.min(audio.numberOfChannels, 2);
+      enc.configure({ channels, sampleRate: audio.sampleRate, vbrQuality: 3 });
+      const parts = [];
+      for (let at = 0; at < audio.length; at += 8192) {
+        parts.push(enc.encode(Array.from({ length: channels }, (_, c) => audio.getChannelData(c).subarray(at, at + 8192))).slice());
+      }
+      parts.push(enc.finalize().slice());
+      return new Uint8Array(await new Blob(parts).arrayBuffer());
     },
     // Chrome and Edge ask where to save; other browsers download.
     async save(name, bytes) {
