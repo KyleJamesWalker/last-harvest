@@ -167,6 +167,10 @@ pub struct Game {
     captures: bool,
     /// A button or stick has been used since launch, so Off can't strand a touch-only player.
     pad_seen: bool,
+    /// The game folder's name, empty until one is chosen; None where the platform has no folder to choose.
+    folder: Option<String>,
+    /// Settings asked the platform to choose the game folder.
+    folder_asked: bool,
 }
 
 /// Where the title's menu sits on the top screen when one screen shows both, and its scale.
@@ -218,6 +222,8 @@ impl Game {
             shot_flash: 0.0,
             captures: false,
             pad_seen: false,
+            folder: None,
+            folder_asked: false,
         }
     }
 
@@ -233,6 +239,16 @@ impl Game {
     /// The platform saves what `take_screenshot` asks for, so photo mode offers to take photos.
     pub fn set_captures(&mut self, on: bool) {
         self.captures = on;
+    }
+
+    /// The platform lets the player choose a game folder, this one so far, or "" for none yet: Settings shows it.
+    pub fn set_folder(&mut self, name: &str) {
+        self.folder = Some(name.to_owned());
+    }
+
+    /// Settings' Game folder was pressed since the last call: the platform shows its folder picker.
+    pub fn take_folder_request(&mut self) -> bool {
+        std::mem::take(&mut self.folder_asked)
     }
 
     fn in_photo(&self) -> bool {
@@ -1149,6 +1165,29 @@ mod tests {
         press(&mut game, Buttons::A);
         let State::Harvest(h) = &game.state else { panic!("a run starts") };
         assert_eq!(h.enemies_off(), 0b011, "the run leaves them out");
+    }
+
+    #[test]
+    fn game_folder_shows_only_where_the_platform_offers_one_and_asks_it_to_choose() {
+        let mut game = Game::new(1);
+        assert!(!game.settings_list().contains(&menu::Setting::Folder), "no folder to choose by default");
+        game.set_folder("");
+        settings_row(&mut game, 8);
+        assert_eq!(game.settings_list()[game.setting], menu::Setting::Folder);
+        game.draw();
+        press(&mut game, Buttons::A);
+        assert!(game.take_folder_request());
+        assert!(!game.take_folder_request(), "one press, one picker");
+        game.set_folder("Documents/Last Harvest");
+        game.draw();
+        press(&mut game, Buttons::B);
+        press(&mut game, Buttons::UP);
+        press(&mut game, Buttons::UP);
+        press(&mut game, Buttons::A);
+        press(&mut game, Buttons::START);
+        press(&mut game, Buttons::DOWN);
+        press(&mut game, Buttons::A);
+        assert!(!game.settings_list().contains(&menu::Setting::Folder), "nor over a run");
     }
 
     #[test]

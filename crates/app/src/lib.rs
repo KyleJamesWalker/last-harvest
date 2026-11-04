@@ -6,6 +6,8 @@ pub mod log;
 mod loops;
 pub mod pak;
 pub mod samples;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod shot;
 #[cfg(target_os = "android")]
 mod android;
 #[cfg(target_arch = "wasm32")]
