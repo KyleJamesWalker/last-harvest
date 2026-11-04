@@ -344,7 +344,7 @@ fn save_shot(path: &Path, width: u32, rgba: &[u8]) {
 }
 
 /// Photo mode's capture: the top screen as `photo-NNNN.png`, and its middle square as `photo-NNNN-square.png`.
-fn save_photo(path: &Path, img: &gfx::Shot) {
+fn save_photo(path: &Path, img: &last_harvest::shot::Shot) {
     let (top, full) = photo::crop(&img.rgba, img.width, img.top);
     save_shot(path, top[2], &full);
     let (square, pixels) = photo::crop(&img.rgba, img.width, photo::square(top));
