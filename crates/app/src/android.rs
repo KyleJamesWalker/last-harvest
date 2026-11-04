@@ -4,7 +4,8 @@
 //! `last-harvest`. Input comes straight from `android-activity`: winit drops a gamepad's hat axes, which is where
 //! handhelds such as the Retroid Pocket send their d-pad. On a dual-screen handheld, `MainActivity.java` hands over
 //! the second screen's surface and touches, and the game plays on two screens as on the RG DS; it also runs the
-//! vibrator, which the NDK can't reach.
+//! vibrator, which the NDK can't reach, and the game folder the player chooses in Settings: mods and cards load from
+//! it, and screenshots and photos go into it.
 
 use std::io::Cursor;
 use std::num::NonZeroU32;
@@ -18,11 +19,12 @@ use glutin::config::{Api, Config, ConfigTemplateBuilder, GlConfig};
 use glutin::context::{ContextApi, ContextAttributesBuilder, NotCurrentGlContext, PossiblyCurrentContext, PossiblyCurrentGlContext, Version};
 use glutin::display::{Display, DisplayApiPreference, GlDisplay};
 use glutin::surface::{GlSurface, Surface, SurfaceAttributesBuilder, SwapInterval, WindowSurface};
-use last_harvest_game::{Battery, Buttons, Canvas, Game, InputTracker, MAX_TOUCHES, RawInput, SCREEN_H, SCREEN_W, Save, System};
+use last_harvest_game::{Battery, Buttons, Canvas, Capture, Game, InputTracker, MAX_TOUCHES, RawInput, SCREEN_H, SCREEN_W, Save, System};
 use last_harvest_pack::Pak;
 use last_harvest_render::{Profile, Renderer};
 use raw_window_handle::{AndroidDisplayHandle, AndroidNdkWindowHandle, RawDisplayHandle, RawWindowHandle};
 
+use crate::shot::{self, Shot};
 use crate::{VERSION, audio, log, pak, samples};
 
 /// Seconds a changed save waits for more changes before it is written.
@@ -214,6 +216,76 @@ extern "system" fn Java_com_kylejameswalker_lastharvest_MainActivity_packReady<'
         Err(env.with_env(|env| -> jni::errors::Result<String> { error.try_to_string(env) }).resolve::<jni::errors::LogErrorAndDefault>())
     };
     *PACK.lock().unwrap_or_else(|e| e.into_inner()) = Some(result);
+}
+
+/// The game folder's name `MainActivity.folderChosen` reported, waiting for the frame loop to show it in Settings.
+static CHOSEN: Mutex<Option<String>> = Mutex::new(None);
+
+#[unsafe(no_mangle)]
+extern "system" fn Java_com_kylejameswalker_lastharvest_MainActivity_folderChosen<'local>(mut env: jni::EnvUnowned<'local>, _class: jni::objects::JClass<'local>, name: jni::objects::JString<'local>) {
+    let name = env.with_env(|env| -> jni::errors::Result<String> { name.try_to_string(env) }).resolve::<jni::errors::LogErrorAndDefault>();
+    *CHOSEN.lock().unwrap_or_else(|e| e.into_inner()) = Some(name);
+}
+
+/// Runs `f` on `MainActivity` from the current thread, attaching it to Java; `method` names it in an error.
+fn activity<T>(android: &AndroidApp, method: &str, f: impl FnOnce(&mut jni::Env, &jni::objects::JObject) -> jni::errors::Result<T>) -> Result<T, String> {
+    let vm = unsafe { jni::JavaVM::from_raw(android.vm_as_ptr().cast()) };
+    let done = vm.attach_current_thread(|env| -> jni::errors::Result<T> {
+        let activity = unsafe { jni::objects::JObject::from_raw(env, android.activity_as_ptr().cast()) };
+        f(env, &activity)
+    });
+    done.map_err(|e| format!("{method}: {e}"))
+}
+
+/// The game folder's name as Settings shows it, or "" before the player chooses one.
+fn folder_name(android: &AndroidApp) -> String {
+    let name = activity(android, "folderName", |env, a| {
+        let s = env.call_method(a, jni::jni_str!("folderName"), jni::jni_sig!("()Ljava/lang/String;"), &[])?.l()?;
+        env.cast_local::<jni::objects::JString>(s)?.try_to_string(env)
+    });
+    name.inspect_err(|e| log!("{e}")).unwrap_or_default()
+}
+
+/// Shows Android's folder picker for the game folder.
+fn pick_folder(android: &AndroidApp) {
+    let asked = activity(android, "pickFolder", |env, a| env.call_method(a, jni::jni_str!("pickFolder"), jni::jni_sig!("()V"), &[]).map(drop));
+    if let Err(e) = asked {
+        log!("{e}");
+    }
+}
+
+/// Saves a screenshot, or a photo with its middle square, into the game folder's screenshots folder off the frame
+/// loop's thread. MainActivity asks for a game folder first if there is none.
+fn save_shot(android: &AndroidApp, capture: Capture, img: Shot) {
+    let android = android.clone();
+    std::thread::spawn(move || {
+        let encoded = match capture {
+            Capture::Photo => {
+                let (top, full) = last_harvest_game::photo::crop(&img.rgba, img.width, img.top);
+                let (square, pixels) = last_harvest_game::photo::crop(&img.rgba, img.width, last_harvest_game::photo::square(top));
+                shot::png(top[2], &full).and_then(|f| Ok((f, Some(shot::png(square[2], &pixels)?))))
+            }
+            Capture::Screens => shot::png(img.width, &img.rgba).map(|f| (f, None)),
+        };
+        let (full, square) = match encoded {
+            Ok(pngs) => pngs,
+            Err(e) => return log!("screenshot: {e}"),
+        };
+        let kind = if capture == Capture::Photo { "photo" } else { "shot" };
+        let saved = activity(&android, "saveShot", |env, a| {
+            let kind = env.new_string(kind)?;
+            let full = env.byte_array_from_slice(&full)?;
+            let square = match &square {
+                Some(s) => jni::objects::JObject::from(env.byte_array_from_slice(s)?),
+                None => jni::objects::JObject::null(),
+            };
+            let sig = jni::jni_sig!("(Ljava/lang/String;[B[B)V");
+            env.call_method(a, jni::jni_str!("saveShot"), sig, &[jni::JValue::Object(&kind), jni::JValue::Object(&full), jni::JValue::Object(&square)]).map(drop)
+        });
+        if let Err(e) = saved {
+            log!("{e}");
+        }
+    });
 }
 
 /// The release's game_data.pak, kept in internal storage by version and fetched from the release the first time.
@@ -545,9 +617,15 @@ impl App {
         };
         let raw = RawInput { held, stick: self.stick, look: self.look, touch: touches.iter().flatten().next().copied(), touches, ..Default::default() };
         let input = self.tracker.frame(raw);
+        if let Some(name) = CHOSEN.lock().unwrap_or_else(|e| e.into_inner()).take() {
+            self.game.set_folder(&name);
+        }
         self.game.set_system(self.stats.frame(frame_ms));
         self.game.set_phone(g.bottom.is_none().then_some([w.get() as f32, h.get() as f32]));
         self.game.update(&input, dt);
+        if self.game.take_folder_request() {
+            pick_folder(&self.android);
+        }
         let sounds = self.game.take_sounds();
         if let Some(audio) = &self.audio {
             audio.set_volume(self.game.volume());
@@ -563,6 +641,8 @@ impl App {
             vibrate(&self.android, rumble.then_some(2000));
         }
         let frame = self.game.draw();
+        let capture = self.game.take_screenshot();
+        let mut shots = Vec::new();
         let black = Canvas { clear: [0.0, 0.0, 0.0, 1.0], ..Default::default() };
         if let Some(b) = &g.bottom {
             let (bw, bh) = (b.window.width().max(1) as u32, b.window.height().max(1) as u32);
@@ -572,6 +652,9 @@ impl App {
             if g.context.make_current(&b.surface).is_ok() {
                 g.renderer.draw(&g.gl, &black, [0, 0, bw as i32, bh as i32]);
                 g.renderer.draw(&g.gl, &frame.bottom, fit(bw, bh));
+                if capture.is_some() {
+                    shots.push(shot::read_back(&g.gl, bw, bh));
+                }
                 if let Err(e) = b.surface.swap_buffers(&g.context) {
                     log!("swap bottom: {e}");
                 }
@@ -581,8 +664,29 @@ impl App {
             }
             g.renderer.draw(&g.gl, &black, [0, 0, w.get() as i32, h.get() as i32]);
             g.renderer.draw(&g.gl, &frame.top, fit(w.get(), h.get()));
+            if capture.is_some() {
+                let [x, y, fw, fh] = fit(w.get(), h.get());
+                let top = Shot { top: [x, h.get() as i32 - y - fh, fw, fh].map(|v| v.max(0) as u32), ..shot::read_back(&g.gl, w.get(), h.get()) };
+                // The photo is the top screen's picture, the first of the two stacked.
+                shots.insert(0, top);
+            }
         } else if let Some(phone) = &frame.phone {
             crate::draw_phone(&mut g.renderer, &g.gl, &frame, phone, [w.get() as i32, h.get() as i32]);
+            if capture.is_some() {
+                let pic = phone.top.map(|r| r.map(|v| v.round().max(0.0) as u32));
+                shots.push(Shot { top: pic.unwrap_or([0, 0, w.get(), h.get()]), ..shot::read_back(&g.gl, w.get(), h.get()) });
+            }
+        }
+        if let Some(capture) = capture {
+            let img = if shots.len() > 1 {
+                let top = shots[0].top;
+                Shot { top, ..shot::stack(shots) }
+            } else {
+                shots.pop().unwrap_or(Shot { width: 0, height: 0, rgba: Vec::new(), top: [0; 4] })
+            };
+            if img.width > 0 {
+                save_shot(&self.android, capture, img);
+            }
         }
         if let Err(e) = g.surface.swap_buffers(&g.context) {
             log!("swap: {e}");
@@ -591,10 +695,18 @@ impl App {
     }
 }
 
-/// Points the game at `Android/data/<app>/files/data` for its mods, cards, props and maps, as the handheld has
-/// them beside the binary: the one folder a player reaches over USB without a storage permission.
+/// Points the game at its mods, cards, props and maps: a copy of the game folder's, which `MainActivity` makes before
+/// the game loads them, else `Android/data/<app>/files/data` until the player chooses a game folder.
 fn data_folders(android: &AndroidApp) {
-    let Some(data) = android.external_data_path().map(|d| d.join("data")) else { return };
+    let copied = android.internal_data_path().map(|d| d.join("folder")).filter(|copy| {
+        let copy = copy.to_string_lossy().into_owned();
+        let done = activity(android, "copyFolder", |env, a| {
+            let dest = env.new_string(&copy)?;
+            env.call_method(a, jni::jni_str!("copyFolder"), jni::jni_sig!("(Ljava/lang/String;)Z"), &[jni::JValue::Object(&dest)])?.z()
+        });
+        done.inspect_err(|e| log!("{e}")).unwrap_or(false)
+    });
+    let Some(data) = copied.clone().or_else(|| android.external_data_path().map(|d| d.join("data"))) else { return };
     for (var, dir) in [("LAST_HARVEST_MODS", "mods"), ("LAST_HARVEST_ENEMIES", "enemies"), ("LAST_HARVEST_PLAYERS", "players"), ("LAST_HARVEST_PROPS", "props"), ("LAST_HARVEST_MAPS", "maps")] {
         let path = data.join(dir);
         if let Err(e) = std::fs::create_dir_all(&path) {
@@ -602,6 +714,10 @@ fn data_folders(android: &AndroidApp) {
         }
         // Set before any other thread starts, on the only thread reading the environment.
         unsafe { std::env::set_var(var, &path) };
+    }
+    if copied.is_some() {
+        log!("data: mods and cards from the game folder {}", folder_name(android));
+        return;
     }
     let readme = data.join("README.txt");
     if !readme.exists() {
@@ -625,6 +741,8 @@ fn run(android: AndroidApp) -> Result<(), String> {
     let mut game = Game::new(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.as_nanos() as u64));
     game.load(saved);
     game.set_backlights(false);
+    game.set_captures(true);
+    game.set_folder(&folder_name(&android));
     let mut app = App {
         android: android.clone(),
         game,
