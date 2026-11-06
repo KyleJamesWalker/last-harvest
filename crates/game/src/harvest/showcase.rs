@@ -4,7 +4,7 @@ use std::f32::consts::FRAC_PI_2;
 
 use super::juice::{CORPSE_FALL, Corpse};
 use super::map::TILE;
-use super::{FLASH_TIME, HURT_FRAMES, Harvest, Look, SCALE, VIEW_H, VIEW_W, view3d};
+use super::{FLASH_TIME, HURT_FRAMES, Harvest, Look, map_scale, view_h, view_w, view3d};
 use crate::art::{Art, Stand};
 use crate::{Canvas, Color};
 
@@ -141,7 +141,7 @@ impl Showcase {
     /// The map from above with its top-left at `cam` in map pixels, `scale` screen pixels to a map pixel, drawn
     /// over the whole canvas.
     pub fn plan(&self, c: &mut Canvas, cam: [f32; 2], scale: f32) {
-        self.harvest.world(c, cam, scale, [1.0; 4]);
+        self.harvest.world(c, cam, scale, [1.0; 4], false);
     }
 
     /// Builds the farm again with a barrier on each side just in front of the sprite, or without.
@@ -279,11 +279,11 @@ impl Showcase {
         let mut c = Canvas { clear: [0.0, 0.0, 0.0, 1.0], ..Default::default() };
         let h = &self.harvest;
         let Some(s) = &h.shown else { return c };
-        let scale = SCALE * zoom;
-        let cam = [s.pos[0] - VIEW_W / zoom / 2.0, s.pos[1] - 8.0 - VIEW_H / zoom / 2.0];
+        let scale = map_scale() * zoom;
+        let cam = [s.pos[0] - view_w() / zoom / 2.0, s.pos[1] - 8.0 - view_h() / zoom / 2.0];
         let wash = view3d::sky(h).wash;
         let tint: Color = [0, 1, 2, 3].map(|i| if i == 3 { 1.0 } else { 1.0 - wash[3] + wash[3] * wash[i] });
-        h.world(&mut c, cam, scale, tint);
+        h.world(&mut c, cam, scale, tint, false);
         c
     }
 

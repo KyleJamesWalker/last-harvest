@@ -1,7 +1,7 @@
 //! Single-screen play: the 3D view fills the top screen, and the map takes its place while L1 is held or L2
 //! aims a grenade in slowed time.
 
-use super::{Harvest, Phase, SCALE, VIEW_H, VIEW_W, len};
+use super::{Harvest, Phase, map_scale, view_h, view_w, len};
 use crate::input::{Buttons, Input};
 use crate::sfx::Sfx;
 use crate::{Align, Canvas, Frame, SCREEN_H, SCREEN_W};
@@ -118,7 +118,7 @@ impl Harvest {
     /// A map point kept within the map view around the player.
     fn on_view(&self, p: [f32; 2]) -> [f32; 2] {
         let cam = self.camera();
-        [p[0].clamp(cam[0], cam[0] + VIEW_W), p[1].clamp(cam[1], cam[1] + VIEW_H)]
+        [p[0].clamp(cam[0], cam[0] + view_w()), p[1].clamp(cam[1], cam[1] + view_h())]
     }
 
     fn map_up(&self) -> bool {
@@ -129,9 +129,9 @@ impl Harvest {
     pub(super) fn aim_mark(&self, c: &mut Canvas, cam: [f32; 2]) {
         let Some(aim) = self.aiming else { return };
         let t = crate::tuning::tuning();
-        let (x, y) = ((aim.at[0] - cam[0]) * SCALE, (aim.at[1] - cam[1]) * SCALE);
+        let (x, y) = ((aim.at[0] - cam[0]) * map_scale(), (aim.at[1] - cam[1]) * map_scale());
         let red = [1.0, 0.25, 0.2, 0.9];
-        let r = t.grenade_radius * SCALE;
+        let r = t.grenade_radius * map_scale();
         for k in 0..24 {
             let a = k as f32 / 24.0 * std::f32::consts::TAU;
             c.circle(x + a.cos() * r, y + a.sin() * r, 4.0, red);
