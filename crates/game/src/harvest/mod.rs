@@ -1135,6 +1135,7 @@ impl Harvest {
         let mut flow = Flow::default();
         if self.bench {
             self.view_yaw = (self.view_yaw + TAU / 600.0).rem_euclid(TAU);
+            self.remember(dt);
             return flow;
         }
         if self.photo.is_some() {
