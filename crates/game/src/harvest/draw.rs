@@ -4,10 +4,11 @@ use std::f32::consts::{PI, TAU};
 
 use super::juice::{self, Tone};
 use super::map::TILE;
+use super::sight::Mark;
 use crate::art::Stand;
 use super::powerups::{Kind, Zone, book};
 use super::weapons::{BOLT_LIFE, Hazard};
-use super::{CHOICE_ROW, CHOICE_TOP, Choice, DropKind, Facing, GOLD, PAUSE_CHOICES, PAUSE_ROW, Harvest, PICK_TIME, PROP_FLASH, Phase, RED, SCALE, TELL_TIME, TURNED, Thrown, WHITE, clock, player_pose, player_worn, view3d, worn_corner};
+use super::{CHOICE_ROW, CHOICE_TOP, Choice, DropKind, Facing, GOLD, PAUSE_CHOICES, PAUSE_ROW, Harvest, PICK_TIME, PROP_FLASH, Phase, RED, map_scale, TELL_TIME, TURNED, Thrown, WHITE, clock, player_pose, player_worn, view3d, worn_corner};
 use crate::art::{self, Art};
 use crate::{Align, Canvas, Color, Frame, SCREEN_H, SCREEN_W};
 
@@ -45,12 +46,12 @@ impl Harvest {
         let tint = self.map_tint();
         if self.overview {
             let scale = (SCREEN_W / self.map.width_px()).min(SCREEN_H / self.map.height_px());
-            self.world(c, [0.0, 0.0], scale, tint);
+            self.world(c, [0.0, 0.0], scale, tint, true);
             c.label(if self.single { "Whole map (let go of Map or R2 to play)" } else { "Whole map (release L1 to play)" }, SCREEN_W / 2.0, SCREEN_H - 40.0, 28.0, WHITE, Align::Center);
             return;
         }
         let cam = self.camera();
-        self.world(c, cam, SCALE, tint);
+        self.world(c, cam, map_scale(), tint, true);
         self.view_cone(c, cam);
         self.home_on_map(c, cam);
         self.grenade_tray(c);
@@ -148,11 +149,12 @@ impl Harvest {
     pub(super) fn view_cone(&self, c: &mut Canvas, cam: [f32; 2]) {
         let half = self.ahead_half();
         let lit = if self.beam > 0.0 { [1.0, 1.0, 0.8, 1.0] } else { [1.0, 0.9, 0.6, 0.8] };
+        let sight = crate::tuning::tuning().map_sight;
         for edge in [-half, half] {
             let a = self.view_yaw + edge;
             for k in 1..9 {
-                let r = k as f32 * 14.0;
-                let (x, y) = ((self.pos[0] + a.cos() * r - cam[0]) * SCALE, (self.pos[1] - 6.0 + a.sin() * r - cam[1]) * SCALE);
+                let r = k as f32 / 8.0 * sight;
+                let (x, y) = ((self.pos[0] + a.cos() * r - cam[0]) * map_scale(), (self.pos[1] - 6.0 + a.sin() * r - cam[1]) * map_scale());
                 c.circle(x, y, 5.0, [lit[0], lit[1], lit[2], lit[3] - k as f32 * 0.08]);
             }
         }
@@ -194,7 +196,10 @@ impl Harvest {
     }
 
     /// Draws the map and everything on it, with `cam` at the top-left and each art pixel `scale` screen pixels across.
-    pub(super) fn world(&self, c: &mut Canvas, cam: [f32; 2], scale: f32, tint: Color) {
+    /// `fog` shows zombies as remembered, other moving things only while in sight, and leaves out bullets, blood,
+    /// particles and the dead; terrain and props always show.
+    pub(super) fn world(&self, c: &mut Canvas, cam: [f32; 2], scale: f32, tint: Color, fog: bool) {
+        let known = |p: [f32; 2]| !fog || self.in_sight(p);
         let shade = |k: Color| [k[0] * tint[0], k[1] * tint[1], k[2] * tint[2], k[3]];
         let lit = shade(WHITE);
         let (view_w, view_h) = (SCREEN_W / scale, SCREEN_H / scale);
@@ -213,7 +218,7 @@ impl Harvest {
             }
         }
         let visible = |x: f32, y: f32, w: f32, h: f32| x + w > cam[0] && x < cam[0] + view_w && y + h > cam[1] && y < cam[1] + view_h;
-        let stains = self.stains.iter().map(|&(a, x, y, [r, g, b])| (a, x, y, [r, g, b, 1.0]));
+        let stains = self.stains.iter().filter(|_| !fog).map(|&(a, x, y, [r, g, b])| (a, x, y, [r, g, b, 1.0]));
         for (a, x, y, color) in self.map.decals.iter().map(|&(a, x, y)| (a, x, y, WHITE)).chain(stains) {
             if visible(x, y, a.w(), a.h()) {
                 let (sx, sy) = at(x, y);
@@ -225,12 +230,12 @@ impl Harvest {
             let (sx, sy) = at(s.pos[0] - a.w() / 2.0, s.pos[1] - a.h() / 2.0);
             c.art(a, sx, sy, scale, false, lit);
         }
-        for t in &self.tells {
+        for t in self.tells.iter().filter(|t| known(t.pos)) {
             let k = (t.t / TELL_TIME).min(1.0);
             let (sx, sy) = at(t.pos[0], t.pos[1]);
             c.circle(sx, sy, (2.0 + 3.0 * k) * scale, [0.2, 0.13, 0.07, 0.8]);
         }
-        for z in self.burrowed.iter().filter(|z| z.rise == 0.0) {
+        for z in self.burrowed.iter().filter(|z| z.rise == 0.0 && known(z.pos)) {
             let a = super::effects::effects().mound.looping(self.t + z.id as f32 * 0.37);
             let (sx, sy) = at(z.pos[0] - a.w() / 2.0, z.pos[1] - a.h() + 1.0);
             c.art(a, sx, sy, scale, z.dir[0] < 0.0, lit);
@@ -258,7 +263,7 @@ impl Harvest {
                 }
             }
         }
-        for corpse in &self.juice.corpses {
+        for corpse in self.juice.corpses.iter().filter(|_| !fog) {
             let fade = 1.0 - corpse.sunk() / 8.0;
             let a = corpse.dead.map_or(corpse.art, |(dead, dir)| dead[Facing::of(dir).0.index()]);
             let (sx, sy) = at(corpse.pos[0], corpse.pos[1] - corpse.z - 3.0);
@@ -266,7 +271,7 @@ impl Harvest {
             let angle = if corpse.z > 0.0 { corpse.spin } else { corpse.tipped() * PI / 2.0 * turn };
             c.art_rotated(a, sx, sy, scale, angle, shade([0.8, 0.8, 0.8, fade]));
         }
-        for d in &self.drops {
+        for d in self.drops.iter().filter(|d| known(d.pos)) {
             let a = match d.kind {
                 DropKind::Money(_) => super::effects::effects().money.once(d.age),
                 DropKind::Health => super::effects::effects().health.looping(d.age),
@@ -276,82 +281,87 @@ impl Harvest {
             c.art(a, sx, sy, scale, false, lit);
         }
 
-        for (_, z) in self.zombies.iter().enumerate().filter(|&(i, z)| (z.leader || z.boss) && !self.lies_dead(i)) {
-            let (sx, sy) = at(z.pos[0], z.pos[1]);
+        let shown: Vec<(Mark, f32)> = if fog {
+            self.marks.iter().map(|m| (*m, m.fade())).collect()
+        } else {
+            let live = self.zombies.iter().enumerate().filter(|&(i, _)| !self.lies_dead(i)).map(|(_, z)| z).chain(self.burrowed.iter().filter(|z| z.rise > 0.0));
+            live.map(|z| (Mark::of(z), 1.0)).collect()
+        };
+        for (m, fade) in shown.iter().filter(|(m, _)| m.leader || m.boss) {
+            let (sx, sy) = at(m.pos[0], m.pos[1]);
             let pulse = 0.35 + 0.25 * (self.t * 6.0).sin();
-            let (r, ring) = if z.boss { (16.0, HARVESTER) } else { (9.0, GOLD) };
-            c.circle(sx, sy, r * scale, [ring[0], ring[1], ring[2], pulse]);
+            let (r, ring) = if m.boss { (16.0, HARVESTER) } else { (9.0, GOLD) };
+            c.circle(sx, sy, r * scale, [ring[0], ring[1], ring[2], pulse * fade]);
         }
         // Props, zombies and the player, drawn back to front by where they meet the ground.
         // The last fields are how much of each sprite shows, as zombies still in the ground show only their top,
         // and how bright, as a prop just hit flashes.
-        let mut sprites: Vec<(f32, Art, f32, f32, bool, f32, f32)> = Vec::new();
+        let mut sprites: Vec<(f32, Art, f32, f32, bool, f32, Color)> = Vec::new();
         for p in &self.map.props {
             let a = p.frame(self.t);
             if visible(p.x, p.y, a.w(), a.h()) {
-                sprites.push((p.base, a, p.x, p.y, false, 1.0, if p.flash > 0.0 { PROP_FLASH } else { 1.0 }));
+                let b = if p.flash > 0.0 { PROP_FLASH } else { 1.0 };
+                sprites.push((p.base, a, p.x, p.y, false, 1.0, [b, b, b, 1.0]));
             }
         }
         for r in &self.barrels {
             let a = if r.flash > 0.0 { art::BARREL_FLASH } else { art::BARREL };
             if visible(r.pos[0], r.pos[1], TILE, TILE) {
-                sprites.push((r.pos[1] + a.h(), a, r.pos[0], r.pos[1], false, 1.0, 1.0));
+                sprites.push((r.pos[1] + a.h(), a, r.pos[0], r.pos[1], false, 1.0, [1.0; 4]));
             }
         }
-        let climbing = self.burrowed.iter().filter(|z| z.rise > 0.0);
-        for z in self.zombies.iter().enumerate().filter(|&(i, _)| !self.lies_dead(i)).map(|(_, z)| z).chain(climbing) {
-            let (facing, flip) = z.facing;
-            let a = z.art(facing);
-            sprites.push((z.pos[1], a, z.pos[0] - a.w() / 2.0, z.pos[1] - a.h() * z.rise + 2.0, flip, z.rise, 1.0));
+        for &(m, fade) in &shown {
+            let a = m.art;
+            sprites.push((m.pos[1], a, m.pos[0] - a.w() / 2.0, m.pos[1] - a.h() * m.rise + 2.0, m.flip, m.rise, [1.0, 1.0, 1.0, fade]));
         }
         if let Some(s) = self.shown.as_ref().filter(|s| s.stand != Stand::Ground && !s.frames.is_empty()) {
             let a = s.frame(self.t);
             let (x, y) = (s.pos[0] - a.w() / 2.0, s.pos[1] - a.h());
-            sprites.push((s.pos[1], a, x, y, false, 1.0, 1.0));
+            sprites.push((s.pos[1], a, x, y, false, 1.0, [1.0; 4]));
             if let Some(at) = a.worn_at().filter(|_| s.worn) {
                 let [gx, gy] = worn_corner(at, a, false);
-                sprites.push((s.pos[1] + 0.01, art::GRENADE_WORN, x + gx, y + gy, false, 1.0, 1.0));
+                sprites.push((s.pos[1] + 0.01, art::GRENADE_WORN, x + gx, y + gy, false, 1.0, [1.0; 4]));
             }
         }
         for b in &self.birds {
             let a = b.art();
-            sprites.push((b.pos[1], a, b.pos[0] - a.w() / 2.0, b.pos[1] - a.h() - b.z, b.flip, 1.0, 1.0));
+            sprites.push((b.pos[1], a, b.pos[0] - a.w() / 2.0, b.pos[1] - a.h() - b.z, b.flip, 1.0, [1.0; 4]));
         }
         for d in &self.decoys {
             let a = art::SCARECROW;
-            sprites.push((d.pos[1], a, d.pos[0] - a.w() / 2.0, d.pos[1] - a.h() + 2.0, false, 1.0, 1.0));
+            sprites.push((d.pos[1], a, d.pos[0] - a.w() / 2.0, d.pos[1] - a.h() + 2.0, false, 1.0, [1.0; 4]));
         }
         for d in &self.dogs {
             let a = d.art();
-            sprites.push((d.pos[1], a, d.pos[0] - a.w() / 2.0, d.pos[1] - a.h() + 2.0, d.heading[0] < 0.0, 1.0, 1.0));
+            sprites.push((d.pos[1], a, d.pos[0] - a.w() / 2.0, d.pos[1] - a.h() + 2.0, d.heading[0] < 0.0, 1.0, [1.0; 4]));
         }
         for (i, (p, flip)) in self.crows().into_iter().enumerate() {
             let crow = super::effects::effects().crow;
             let a = crow.looping(self.t + i as f32 / crow.fps);
-            sprites.push((p[1], a, p[0] - a.w() / 2.0, p[1] - a.h() - 12.0, flip, 1.0, 1.0));
+            sprites.push((p[1], a, p[0] - a.w() / 2.0, p[1] - a.h() - 12.0, flip, 1.0, [1.0; 4]));
         }
         let (facing, flip) = self.facing;
         let (a, rise) = player_pose(self, facing);
         if self.shown.as_ref().is_none_or(|s| s.player) {
             let (x, y) = (self.pos[0] - a.w() / 2.0, self.pos[1] - a.h() * rise + 2.0);
-            sprites.push((self.pos[1], a, x, y, flip, rise, 1.0));
+            sprites.push((self.pos[1], a, x, y, flip, rise, [1.0; 4]));
             if let Some((at, bright)) = player_worn(self, facing) {
                 let [gx, gy] = worn_corner(at, a, flip);
-                sprites.push((self.pos[1] + 0.01, art::GRENADE_WORN, x + gx, y + gy, flip, 1.0, bright));
+                sprites.push((self.pos[1] + 0.01, art::GRENADE_WORN, x + gx, y + gy, flip, 1.0, [bright, bright, bright, 1.0]));
             }
         }
         sprites.sort_by(|a, b| a.0.total_cmp(&b.0));
-        for (_, a, x, y, flip, show, bright) in sprites {
+        for (_, a, x, y, flip, show, k) in sprites {
             let (sx, sy) = at(x, y);
-            c.art_top(a, sx, sy, scale, flip, show, [lit[0] * bright, lit[1] * bright, lit[2] * bright, lit[3]]);
+            c.art_top(a, sx, sy, scale, flip, show, [lit[0] * k[0], lit[1] * k[1], lit[2] * k[2], lit[3] * k[3]]);
         }
 
-        for b in &self.bullets {
+        for b in self.bullets.iter().filter(|_| !fog) {
             let (sx, sy) = at(b.pos[0], b.pos[1]);
             let a = b.look.unwrap_or(super::effects::effects().bullet).looping(b.age);
             c.art_rotated(a, sx, sy, scale, b.vel[1].atan2(b.vel[0]), lit);
         }
-        for s in &self.spits {
+        for s in self.spits.iter().filter(|s| known(s.pos)) {
             let (sx, sy) = at(s.pos[0], s.pos[1]);
             let [r, g, b] = s.tint();
             c.art_rotated(super::effects::effects().spit.looping(s.age), sx, sy, scale, s.vel[1].atan2(s.vel[0]), [lit[0] * r, lit[1] * g, lit[2] * b, lit[3]]);
@@ -378,7 +388,7 @@ impl Harvest {
                 }
             }
         }
-        for p in &self.juice.particles {
+        for p in self.juice.particles.iter().filter(|_| !fog) {
             let s = p.size_now() * scale;
             let (sx, sy) = at(p.pos[0], p.pos[1] - p.z);
             c.rect(sx - s / 2.0, sy - s / 2.0, s, s, [p.color[0], p.color[1], p.color[2], 1.0]);
@@ -514,11 +524,11 @@ impl Harvest {
         if self.t < super::dawn() {
             return;
         }
-        let x = ((self.map.home[0] - cam[0]) * SCALE).clamp(40.0, SCREEN_W - 40.0);
-        let y = ((self.map.home[1] - cam[1]) * SCALE).clamp(40.0, SCREEN_H - 40.0);
+        let x = ((self.map.home[0] - cam[0]) * map_scale()).clamp(40.0, SCREEN_W - 40.0);
+        let y = ((self.map.home[1] - cam[1]) * map_scale()).clamp(40.0, SCREEN_H - 40.0);
         let pulse = 0.5 + 0.4 * (self.t * 5.0).sin();
-        c.circle(x, y, 14.0 * SCALE / 2.0, [GOLD[0], GOLD[1], GOLD[2], pulse * 0.5]);
-        c.circle(x, y, 5.0 * SCALE / 2.0, [GOLD[0], GOLD[1], GOLD[2], 1.0]);
+        c.circle(x, y, 14.0 * map_scale() / 2.0, [GOLD[0], GOLD[1], GOLD[2], pulse * 0.5]);
+        c.circle(x, y, 5.0 * map_scale() / 2.0, [GOLD[0], GOLD[1], GOLD[2], 1.0]);
         c.label("HOME", x, y - 52.0, 30.0, GOLD, Align::Center);
     }
 

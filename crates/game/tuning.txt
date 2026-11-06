@@ -94,3 +94,8 @@ fire_burn 1.5   # seconds fire and flares keep a zombie burning after it leaves 
 [blast]
 hurt 15         # damage any blast deals the player, less armor
 near 0.7        # the player is hurt within this fraction of its radius
+
+[map]
+scale 3         # screen pixels per art pixel on the map
+sight 240       # how far the view ahead sees zombies for the map
+memory 6        # seconds a zombie out of sight fades on the map before it's gone

@@ -2,7 +2,7 @@
 
 use super::juice::{CORPSE_FALL, Corpse};
 use super::map::TILE;
-use super::{Facing, Flow, Harvest, PAUSE_PHOTO, SCALE, Zombie, len, norm, sub, view3d};
+use super::{Facing, Flow, Harvest, PAUSE_PHOTO, map_scale, Zombie, len, norm, sub, view3d};
 use crate::art::{self, Art, Stand};
 use crate::icon::Orbit;
 use crate::scene3d::CardScene;
@@ -466,7 +466,7 @@ impl Harvest {
         let c = &mut f.bottom;
         c.clear = [0.0, 0.0, 0.0, 1.0];
         let cam = self.camera();
-        self.world(c, cam, SCALE, self.map_tint());
+        self.world(c, cam, map_scale(), self.map_tint(), false);
         self.view_cone(c, cam);
         let Some(p) = photo.filter(|p| p.guides && !clean) else { return };
         // The middle square, as the capture's square crop takes it.
@@ -489,7 +489,7 @@ impl Harvest {
         if let Some(at) = mark {
             // A cross on the ground where the next prop drops, kept at the edge of the picture when out of it.
             cross(&mut f.top, view3d::to_screen(view_proj, at, 0.0).map_or_else(|| self.behind(at), |s| s.0));
-            cross(&mut f.bottom, [(at[0] - cam[0]) * SCALE, (at[1] - cam[1]) * SCALE]);
+            cross(&mut f.bottom, [(at[0] - cam[0]) * map_scale(), (at[1] - cam[1]) * map_scale()]);
         }
         let shoot = match (self.saves_photos, self.taps) {
             (true, true) => "R1 or tap: take a photo",
@@ -965,7 +965,7 @@ mod tests {
         let mut h = placing(26);
         hold(&mut h, Buttons::UP | Buttons::RIGHT, 20);
         let (at, cam) = (spot(&h).unwrap(), h.camera());
-        let want = [(at[0] - cam[0]) * SCALE, (at[1] - cam[1]) * SCALE];
+        let want = [(at[0] - cam[0]) * map_scale(), (at[1] - cam[1]) * map_scale()];
         assert_eq!(map_crosses(&h, false), [want], "the map marks where the next prop drops");
         assert!(map_crosses(&h, true).is_empty(), "a capture leaves it out");
         press(&mut h, Buttons::L2);

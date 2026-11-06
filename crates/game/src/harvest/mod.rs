@@ -11,6 +11,7 @@ mod props;
 mod players;
 mod powerups;
 pub mod showcase;
+mod sight;
 mod single;
 mod view3d;
 mod weapons;
@@ -34,10 +35,19 @@ pub use powerups::{Progress, Run, WeaponLevels, found_from_ids, found_ids, weapo
 use powerups::{Kind as Card, book};
 use weapons::{Bolt, Decoy, Dog, Kit, Patch, Swing};
 
-/// Screen pixels per art pixel on the bottom screen's map, which shows 512x384 art pixels.
-const SCALE: f32 = 2.0;
-const VIEW_W: f32 = SCREEN_W / SCALE;
-const VIEW_H: f32 = SCREEN_H / SCALE;
+/// Screen pixels per art pixel on the bottom screen's map, as `tuning.txt` [map] sets it.
+fn map_scale() -> f32 {
+    crate::tuning::tuning().map_scale.clamp(1.0, 8.0)
+}
+
+/// The art pixels the map shows across and down.
+fn view_w() -> f32 {
+    SCREEN_W / map_scale()
+}
+
+fn view_h() -> f32 {
+    SCREEN_H / map_scale()
+}
 /// Seconds for the quick 180-degree turn.
 const SPIN_TIME: f32 = 0.2;
 pub const MAP_SIZE: [usize; 2] = [72, 54];
@@ -633,6 +643,8 @@ pub struct Harvest {
     zombies: Vec<Zombie>,
     /// Burrowers tunneling toward the player, out of reach of anything that hits.
     burrowed: Vec<Zombie>,
+    /// Zombies as the map remembers them.
+    marks: Vec<sight::Mark>,
     spits: Vec<Spit>,
     bullets: Vec<Bullet>,
     drops: Vec<Drop>,
@@ -908,6 +920,7 @@ impl Harvest {
             kit,
             zombies: Vec::new(),
             burrowed: Vec::new(),
+            marks: Vec::new(),
             spits: Vec::new(),
             bullets: Vec::new(),
             drops: Vec::new(),
@@ -1122,6 +1135,7 @@ impl Harvest {
         let mut flow = Flow::default();
         if self.bench {
             self.view_yaw = (self.view_yaw + TAU / 600.0).rem_euclid(TAU);
+            self.remember(dt);
             return flow;
         }
         if self.photo.is_some() {
@@ -1319,6 +1333,7 @@ impl Harvest {
         self.fx.retain(|f| !f.done());
         self.juice.tick(dt);
         self.feel(dt);
+        self.remember(dt);
 
         if self.hp <= 0.0 && (self.revived as f32) < self.kit.mods.revive {
             self.revive(sounds, flow);
@@ -2015,7 +2030,7 @@ impl Harvest {
     /// Lobs a grenade at the map point under a bottom-screen touch, if one is ready.
     fn throw(&mut self, touch: [f32; 2], sounds: &mut Vec<Sfx>) {
         let cam = self.camera();
-        self.throw_at([cam[0] + touch[0] / SCALE, cam[1] + touch[1] / SCALE], sounds);
+        self.throw_at([cam[0] + touch[0] / map_scale(), cam[1] + touch[1] / map_scale()], sounds);
     }
 
     fn throw_at(&mut self, to: [f32; 2], sounds: &mut Vec<Sfx>) {
@@ -2352,9 +2367,9 @@ impl Harvest {
 
     /// Top-left of the view in world pixels, rounded to whole screen pixels.
     fn camera(&self) -> [f32; 2] {
-        let x = (self.pos[0] - VIEW_W / 2.0).clamp(0.0, (self.map.width_px() - VIEW_W).max(0.0));
-        let y = (self.pos[1] - 8.0 - VIEW_H / 2.0).clamp(0.0, (self.map.height_px() - VIEW_H).max(0.0));
-        [(x * SCALE).round() / SCALE, (y * SCALE).round() / SCALE]
+        let x = (self.pos[0] - view_w() / 2.0).clamp(0.0, (self.map.width_px() - view_w()).max(0.0));
+        let y = (self.pos[1] - 8.0 - view_h() / 2.0).clamp(0.0, (self.map.height_px() - view_h()).max(0.0));
+        [(x * map_scale()).round() / map_scale(), (y * map_scale()).round() / map_scale()]
     }
 }
 
@@ -2727,7 +2742,7 @@ mod tests {
         let cam = h.camera();
         let target = [h.pos[0] + 60.0, h.pos[1]];
         h.zombies.push(Zombie::new(Kind::named("skinny"), target, 20.0, 1.0, 0.0));
-        let touch = [(target[0] - cam[0]) * SCALE, (target[1] - cam[1]) * SCALE];
+        let touch = [(target[0] - cam[0]) * map_scale(), (target[1] - cam[1]) * map_scale()];
         let mut sounds = Vec::new();
         h.update(&Input { touch: Some(touch), touch_started: true, ..Default::default() }, 0.016, &mut sounds);
         assert_eq!(h.thrown.len(), 1);
