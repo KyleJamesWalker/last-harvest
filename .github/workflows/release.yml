@@ -137,7 +137,8 @@ jobs:
       - name: Check the site holds only the landing page, the manual, the game and the editor
         run: |
           expected="OFL.txt THIRD_PARTY_LICENSES.txt apple-touch-icon.png editor editor/apple-touch-icon.png editor/icon-512.png editor/icon.png editor/index.html"
-          expected="$expected editor/manifest.webmanifest editor/sprite-editor.js editor/sprite-editor_bg.wasm editor/sw.js game_data.pak"
+          expected="$expected editor/manifest.webmanifest editor/sprite-editor.js editor/sprite-editor_bg.wasm editor/sw.js editor/vendor"
+          expected="$expected editor/vendor/LICENSE editor/vendor/README.md editor/vendor/WasmMediaEncoder.min.js editor/vendor/ogg.wasm game_data.pak"
           expected="$expected icon.png index.html manual.html play play/icon.png play/index.html play/last-harvest.js play/last-harvest_bg.wasm sw.js"
           found=$(find target/pages -mindepth 1 -printf '%P\n' | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')
           [ "$found" = "$expected" ] || { echo "unexpected files: $found"; exit 1; }
