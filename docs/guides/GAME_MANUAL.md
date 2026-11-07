@@ -131,6 +131,7 @@ Each weapon covers a zone, shown on its card:
 | Zone | Where it hits |
 |---|---|
 | Ahead | The view the top screen shows. The pistol also shoots anything within 70 pixels, whichever way you face. |
+| Ahead, then all round | A burst's first shot goes ahead. Each later shot goes to the nearest zombie the burst hasn't hit, on any side. |
 | Around | A ring centered on you |
 | Behind | Behind you |
 | Map | Crowds anywhere on the farm |
@@ -156,7 +157,7 @@ These tables list what the game ships with. A mod pack can change any of them, a
 
 | Weapon | Zone | Unlocks | Levels | On its card |
 |---|---|---|---|---|
-| Pistol | Ahead | From the start | 8 | Shoots what's ahead, then fans out to a new zombie with every shot |
+| Pistol | Ahead, then all round | From the start | 8 | Shoots what's ahead, then fans out to a new zombie with every shot |
 | Shotgun | Ahead | From the start | 8 | A spread of pellets at close range |
 | Hunting rifle | Ahead | 500 kills over every run | 8 | A slow, heavy round straight down your heading |
 | Lantern beam | Ahead | Survive 2:00 of one night | 8 | Your light burns and slows what it falls on |
