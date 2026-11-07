@@ -139,18 +139,10 @@ CHEST           png placeholder/chest.png
 MOUND           png placeholder/mound.png x3
 DIRT_PUFF       png placeholder/dirt_puff.png x3
 QUICK_MARK      png placeholder/quick_mark.png
-ICON_PISTOL            png placeholder/icon_pistol.png
-ICON_SHOTGUN           png placeholder/icon_shotgun.png
 ICON_RIFLE             png placeholder/icon_rifle.png  @prop 1
 ICON_LANTERN           png placeholder/icon_lantern.png  @prop 4
 ICON_BURNER            png placeholder/icon_burner.png  @prop 2
-ICON_PITCHFORK         png placeholder/icon_pitchfork.png  @prop 2
 ICON_KNIFE             png placeholder/icon_knife.png
-ICON_SCYTHE            png placeholder/icon_scythe.png
-ICON_CROWS             png placeholder/icon_crows.png
-ICON_ZAPPER            png placeholder/icon_zapper.png
-ICON_DOG               png placeholder/icon_dog.png
-ICON_TACKS             png placeholder/icon_tacks.png
 ICON_GAS               png placeholder/icon_gas.png
 ICON_HOLSTER           png placeholder/icon_holster.png
 ICON_SCARECROW         png placeholder/icon_scarecrow.png
@@ -195,3 +187,13 @@ SHOT_ROUND      png placeholder/shot_round.png
 SHOT_SPARK      png placeholder/shot_spark.png x3
 SHOT_SMOKE      png placeholder/shot_smoke.png x3
 SHOT_FLARE      png placeholder/shot_flare.png x2
+
+# Icons
+ICON_PISTOL            png placeholder/icon_pistol.png
+ICON_SHOTGUN           png placeholder/icon_shotgun.png
+ICON_PITCHFORK         png placeholder/icon_pitchfork.png  @prop 2
+ICON_SCYTHE            png placeholder/icon_scythe.png
+ICON_CROWS             png placeholder/icon_crows.png
+ICON_ZAPPER            png placeholder/icon_zapper.png
+ICON_DOG               png placeholder/icon_dog.png
+ICON_TACKS             png placeholder/icon_tacks.png
