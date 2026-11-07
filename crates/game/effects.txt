@@ -3,12 +3,14 @@
 #   fps N         frames a second
 #   life N        a swing's seconds
 #   reach N       how far out a swing sweeps, as a fraction of the weapon's range or area
-#   color RRGGBB  a shot style: its color, as palette.txt writes one
-#   length N      a shot's streak, in pixels
-#   size N        a shot's specks and sparks, in pixels
-#   sparks N      sparks a gun throws from its muzzle with each shot
-# A section that sets any shot style flies as a streak of particles when a weapon fires it as its bullets, and
-# needs no art; what it leaves out comes from [bullet], which every gun without a `bullet` line fires.
+#   color RRGGBB  a shot style: its tracer's and sparks' color, as palette.txt writes one
+#   length N      a shot's tracer, in pixels
+#   size N        the tracer's width at its head, and about the sparks', in pixels
+#   sparks N      sparks a gun throws forward from its muzzle with each shot
+#   impact N      sparks where each bullet hits a zombie, a prop or the ground
+#   core N        the white-hot core over the muzzle flash, across in pixels
+# A section that sets any shot style flies as a tracer when a weapon fires it as its bullets, and needs no art;
+# what it leaves out comes from [bullet], which a gun without a `bullet` line fires.
 # A sprite standing as a slab lies flat and turns with the swing; anything else faces the camera.
 # A section with a name of your own is an effect a weapon in powerups.txt can play with `effect NAME` or
 # fire as its bullets with `bullet NAME`.
@@ -32,9 +34,11 @@ fps 20
 [bullet]
 art BULLET
 color E8D27A
-length 10
-size 1.2
+length 16
+size 2
 sparks 6
+impact 4
+core 3
 
 [bullet_3d]
 art MUZZLE
@@ -126,6 +130,30 @@ fps 6
 [mound_breaks]
 art DIRT_PUFF
 fps 9
+
+[pistol_shot]
+color E8D27A
+length 16
+size 2
+sparks 6
+impact 4
+core 3
+
+[shotgun_pellet]
+color D98A3C
+length 9
+size 1.5
+sparks 12
+impact 2
+core 4
+
+[rifle_round]
+color FFFFFF
+length 44
+size 2.4
+sparks 10
+impact 7
+core 3.5
 
 # The colors of particles, as red, green and blue from 0 to 1. A mod's file can leave any of them out.
 [colors]

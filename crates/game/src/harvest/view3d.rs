@@ -423,6 +423,32 @@ fn speck(out: &mut Vec<Card>, at: Vec3, size: f32, right: Vec3, color: [f32; 3],
     out.push(Card { tint: color, glow, ..Card::new(corners, uv, right.cross(Vec3::Y)) });
 }
 
+/// A bullet's tracer from `head` back to `tail`: one unbroken ribbon facing `eye` that thins and dims toward the
+/// tail, with a white-hot core along its front.
+fn tracer(out: &mut Vec<Card>, eye: Vec3, head: Vec3, tail: Vec3, width: f32, color: [f32; 3]) {
+    const SEGMENTS: usize = 3;
+    let along = head - tail;
+    let side = along.cross(head - eye).normalize_or_zero();
+    if side == Vec3::ZERO {
+        return;
+    }
+    let normal = (eye - head).normalize_or_zero();
+    let [rx, ry, w, h] = art::WHITE.rect().map(f32::from);
+    let (aw, ah) = (ATLAS_W as f32, ATLAS_H as f32);
+    let uv = [(rx + w * 0.25) / aw, (ry + h * 0.25) / ah, (rx + w * 0.75) / aw, (ry + h * 0.75) / ah];
+    let point = |k: f32| (head - along * k, side * (width * super::effects::Shot::taper(k).0 / 2.0));
+    for i in 0..SEGMENTS {
+        let (k0, k1) = (i as f32 / SEGMENTS as f32, (i + 1) as f32 / SEGMENTS as f32);
+        let ((a, sa), (b, sb)) = (point(k0), point(k1));
+        let bright = super::effects::Shot::taper((k0 + k1) / 2.0).1;
+        out.push(Card { tint: color.map(|c| c * bright), glow: 1.0, ..Card::new([a + sa, b + sb, b - sb, a - sa], uv, normal) });
+    }
+    // Nudged toward the eye so it never fights the ribbon under it for depth.
+    let (front, end) = (head + normal * 0.004, head - along * 0.45 + normal * 0.004);
+    let (s0, s1) = (side * (width * 0.2), side * (width * 0.06));
+    out.push(Card { tint: [1.0; 3], glow: 1.0, ..Card::new([front + s0, end + s1, end - s1, front - s0], uv, normal) });
+}
+
 /// A flat square of color on the ground.
 fn patch(out: &mut Vec<Card>, at: Vec3, size: f32, color: [f32; 3]) {
     let [rx, ry, w, h] = art::WHITE.rect().map(f32::from);
@@ -837,11 +863,10 @@ pub fn scene(h: &Harvest) -> CardScene {
             board(&mut cards, Board::new(a, false, [b.pos[0], b.pos[1] + 6.0], 0.35, 0.0));
             continue;
         };
-        for (at, size, glow) in shot.streak([b.pos[0], b.pos[1] + 6.0], b.vel, b.age) {
-            let q = world(at) + Vec3::Y * 0.42;
-            if near(q) && (q - p).dot(forward) > 0.0 {
-                speck(&mut cards, q, size * PX, right, shot.color, glow);
-            }
+        let at = [b.pos[0], b.pos[1] + 6.0];
+        let head = world(at) + Vec3::Y * 0.42;
+        if near(head) && (head - p).dot(forward) > 0.0 {
+            tracer(&mut cards, eye, head, world(shot.tail(at, b.vel, b.age)) + Vec3::Y * 0.42, shot.size * PX, shot.color);
         }
     }
     for s in &h.spits {

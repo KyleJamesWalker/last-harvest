@@ -1511,6 +1511,7 @@ impl Harvest {
                 drag: 1.0,
                 glow: 1.0,
                 wander: false,
+                grow: 0.0,
             });
         }
     }
@@ -1916,6 +1917,7 @@ impl Harvest {
 
     fn move_bullets(&mut self, dt: f32, sounds: &mut Vec<Sfx>) {
         let crit = crate::tuning::tuning().crit + self.kit.mods.crit;
+        let own_shot = effects::effects().bullet.shot;
         let mut hits = (0, false);
         for b in &mut self.bullets {
             b.pos = [b.pos[0] + b.vel[0] * dt, b.pos[1] + b.vel[1] * dt];
@@ -1923,6 +1925,7 @@ impl Harvest {
             b.age += dt;
             let ground = [b.pos[0], b.pos[1] + 6.0];
             let back = norm([-b.vel[0], -b.vel[1]]);
+            let shot = b.look.map_or(own_shot, |e| e.shot);
             if self.map.cover_at(ground[0], ground[1]) {
                 let cell = |p: [f32; 2]| [(p[0] / TILE).floor(), (p[1] / TILE).floor()];
                 let at = cell(ground);
@@ -1936,9 +1939,13 @@ impl Harvest {
                 } else {
                     self.juice.burst(ground, 6.0, 2, back, 0.9, [20.0, 50.0], juice::dirt(), 1.0, 0.3, 0.0);
                 }
+                if let Some(s) = &shot {
+                    self.juice.impact(ground, 6.0, back, s);
+                }
                 b.life = 0.0;
                 continue;
             }
+            let spent = b.life <= 0.0;
             for z in &mut self.zombies {
                 if b.life <= 0.0 || b.hit.contains(&z.id) {
                     continue;
@@ -1947,6 +1954,9 @@ impl Harvest {
                 if len(d) < 7.0 {
                     hits.1 |= strike(z, &mut self.juice, b.damage, norm(b.vel), b.force, crit);
                     hits.0 += 1;
+                    if let Some(s) = &shot {
+                        self.juice.impact(ground, 6.0, back, s);
+                    }
                     b.hit.push(z.id);
                     if b.pierce == 0 {
                         b.life = 0.0;
@@ -1954,6 +1964,9 @@ impl Harvest {
                         b.pierce -= 1;
                     }
                 }
+            }
+            if let (true, Some(s)) = (spent, &shot) {
+                self.juice.impact(ground, 1.0, back, s);
             }
         }
         self.bullets.retain(|b| b.life > 0.0);
@@ -2289,6 +2302,7 @@ impl Harvest {
                 drag: 0.0,
                 glow: 1.0,
                 wander: true,
+                grow: 0.0,
             });
         }
 
@@ -2311,6 +2325,7 @@ impl Harvest {
                     drag: 0.0,
                     glow: 1.0,
                     wander: false,
+                    grow: 0.0,
                 });
             }
         }
@@ -2778,6 +2793,32 @@ mod tests {
         assert!(h.blow(0.016, &mut sounds));
         assert!(h.zombies[0].hp <= 0.0);
         assert!(!h.map.solid_at(c[0], c[1]));
+    }
+
+    #[test]
+    fn a_bullet_throws_its_impact_sparks_where_it_hits_a_zombie_or_runs_out_on_the_ground() {
+        let look = effects::effects().named("pistol_shot").expect("the pistol's style");
+        let shot = look.shot.unwrap();
+        let sparks = |h: &Harvest| h.juice.particles.iter().filter(|p| p.glow > 0.0 && p.color == shot.color).count();
+        let mut h = Harvest::calm(4);
+        let at = h.pos;
+        h.zombies.push(Zombie::new(Kind::named("big"), [at[0] + 3.0, at[1]], 500.0, 1.0, 0.0));
+        h.bullets = vec![Bullet { pos: [at[0], at[1] - 6.0], vel: [10.0, 0.0], damage: 1.0, pierce: 0, life: 1.0, force: 0.0, hit: Vec::new(), look: Some(look), age: 0.0 }];
+        h.juice.particles.clear();
+        h.move_bullets(0.016, &mut Vec::new());
+        assert!(h.bullets.is_empty());
+        assert_eq!(sparks(&h), shot.impact as usize, "sparks beside the blood");
+        assert!(h.juice.particles.len() > shot.impact as usize + 1, "and the blood still sprays");
+        h.zombies.clear();
+        h.juice.particles.clear();
+        h.bullets = vec![Bullet { pos: [at[0], at[1] - 6.0], vel: [10.0, 0.0], damage: 1.0, pierce: 0, life: 0.01, force: 0.0, hit: Vec::new(), look: Some(look), age: 0.0 }];
+        h.move_bullets(0.016, &mut Vec::new());
+        assert_eq!(sparks(&h), shot.impact as usize, "a bullet that flies its range sparks on the ground");
+        h.juice.particles.clear();
+        let sprite = effects::effects().slash;
+        h.bullets = vec![Bullet { pos: [at[0], at[1] - 6.0], vel: [10.0, 0.0], damage: 1.0, pierce: 0, life: 0.01, force: 0.0, hit: Vec::new(), look: Some(sprite), age: 0.0 }];
+        h.move_bullets(0.016, &mut Vec::new());
+        assert!(h.juice.particles.is_empty(), "a bullet that flies as a sprite throws none");
     }
 
     #[test]

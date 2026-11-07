@@ -365,9 +365,14 @@ impl Harvest {
                 continue;
             };
             let [r, g, bl] = shot.color;
-            for (p, size, glow) in shot.streak(b.pos, b.vel, b.age) {
-                let (sx, sy) = at(p[0] - size / 2.0, p[1] - size / 2.0);
-                c.rect(sx, sy, size * scale, size * scale, [lit[0] * r, lit[1] * g, lit[2] * bl, lit[3] * glow]);
+            let tail = shot.tail(b.pos, b.vel, b.age);
+            // Overlapping dots, close enough at the head to read as one line.
+            let n = ((shot.length / (shot.size * 0.35)).ceil() as usize).clamp(4, 32);
+            for i in 0..n {
+                let k = i as f32 / (n - 1) as f32;
+                let (width, bright) = super::effects::Shot::taper(k);
+                let (sx, sy) = at(b.pos[0] + (tail[0] - b.pos[0]) * k, b.pos[1] + (tail[1] - b.pos[1]) * k);
+                c.circle(sx, sy, shot.size * width * scale / 2.0, [lit[0] * r * bright, lit[1] * g * bright, lit[2] * bl * bright, lit[3]]);
             }
         }
         for s in self.spits.iter().filter(|s| known(s.pos)) {

@@ -15,36 +15,41 @@ pub struct Effect {
     pub shot: Option<Shot>,
 }
 
-/// A shot's look: the streak a bullet flies as and the sparks its gun throws.
+/// A shot's look: the tracer a bullet flies as, the flash and sparks at its muzzle, and the sparks where it hits.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Shot {
     pub color: [f32; 3],
-    /// The streak's length and its specks' width, in map pixels.
+    /// The tracer's length and its width at the head, in map pixels; sparks are about as wide.
     pub length: f32,
     pub size: f32,
-    /// Sparks thrown from the muzzle with each shot.
+    /// Sparks thrown from the muzzle with each shot, and where each bullet hits.
     pub sparks: u32,
+    pub impact: u32,
+    /// The muzzle flash's bright core, across in map pixels.
+    pub core: f32,
 }
 
 pub const MAX_LENGTH: f32 = 64.0;
 pub const MAX_SIZE: f32 = 8.0;
 pub const MAX_SPARKS: u32 = 32;
-/// The most specks one streak draws.
-pub const MAX_SPECKS: usize = 6;
+pub const MAX_CORE: f32 = 16.0;
 
 impl Shot {
-    /// The specks of a bullet at `pos` flying at `vel`, `age` seconds out: each one's place, width and brightness
-    /// from 0 to 1, head first. The tail never reaches back past where the bullet left the gun.
-    pub fn streak(&self, pos: [f32; 2], vel: [f32; 2], age: f32) -> impl Iterator<Item = ([f32; 2], f32, f32)> {
+    /// Where the tracer of a bullet at `pos` flying at `vel`, `age` seconds out, ends behind it: `length` back,
+    /// but never past where it left the gun.
+    pub fn tail(&self, pos: [f32; 2], vel: [f32; 2], age: f32) -> [f32; 2] {
         let speed = (vel[0] * vel[0] + vel[1] * vel[1]).sqrt();
-        let dir = if speed > 0.0 { [vel[0] / speed, vel[1] / speed] } else { [0.0; 2] };
-        let n = ((self.length / self.size).ceil() as usize).clamp(2, MAX_SPECKS);
-        let gap = self.length.min(speed * age.max(0.0)) / (n - 1) as f32;
-        let size = self.size;
-        (0..n).map(move |i| {
-            let k = i as f32 / n as f32;
-            ([pos[0] - dir[0] * gap * i as f32, pos[1] - dir[1] * gap * i as f32], size * (1.0 - 0.6 * k), 1.0 - 0.7 * k)
-        })
+        if speed <= 0.0 {
+            return pos;
+        }
+        let back = self.length.min(speed * age.max(0.0)) / speed;
+        [pos[0] - vel[0] * back, pos[1] - vel[1] * back]
+    }
+
+    /// The tracer's width, as a fraction of `size`, and its brightness, `k` of the way from its head to its tail.
+    pub fn taper(k: f32) -> (f32, f32) {
+        let k = k.clamp(0.0, 1.0);
+        (1.0 - 0.85 * k, 1.0 - 0.75 * k)
     }
 }
 
@@ -132,22 +137,26 @@ pub struct Written {
     pub length: Option<f32>,
     pub size: Option<f32>,
     pub sparks: Option<u32>,
+    pub impact: Option<u32>,
+    pub core: Option<f32>,
 }
 
 impl Written {
     /// Whether it sets any of a shot's style, and so flies as particles.
     pub fn is_shot(&self) -> bool {
-        self.color.is_some() || self.length.is_some() || self.size.is_some() || self.sparks.is_some()
+        self.color.is_some() || self.length.is_some() || self.size.is_some() || self.sparks.is_some() || self.impact.is_some() || self.core.is_some()
     }
 
     /// Its shot style, the rest taken from `base`.
     fn shot(&self, base: Option<Shot>) -> Option<Shot> {
-        let base = base.unwrap_or(Shot { color: [1.0; 3], length: 10.0, size: 1.5, sparks: 6 });
+        let base = base.unwrap_or(Shot { color: [1.0; 3], length: 10.0, size: 1.5, sparks: 6, impact: 4, core: 5.0 });
         self.is_shot().then(|| Shot {
             color: self.color.map_or(base.color, |c| c.map(|v| v as f32 / 255.0)),
             length: self.length.unwrap_or(base.length),
             size: self.size.unwrap_or(base.size),
             sparks: self.sparks.unwrap_or(base.sparks),
+            impact: self.impact.unwrap_or(base.impact),
+            core: self.core.unwrap_or(base.core),
         })
     }
 }
@@ -226,7 +235,7 @@ pub fn parse(text: &str) -> Result<(Vec<Written>, Extra), String> {
             if colors {
                 continue;
             }
-            let fresh = Written { art: String::new(), fps: 10.0, life: 0.2, reach: 1.0, color: None, length: None, size: None, sparks: None };
+            let fresh = Written { art: String::new(), fps: 10.0, life: 0.2, reach: 1.0, color: None, length: None, size: None, sparks: None, impact: None, core: None };
             if !name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_') || name.is_empty() {
                 return Err(format!("{n}: [{name}] isn't a name of lowercase letters, digits and _"));
             }
@@ -264,7 +273,11 @@ pub fn parse(text: &str) -> Result<(Vec<Written>, Extra), String> {
             "reach" => e.reach = number()?,
             "length" => e.length = Some(number()?.min(MAX_LENGTH)),
             "size" => e.size = Some(number()?.min(MAX_SIZE)),
-            "sparks" => e.sparks = Some(value.parse::<u32>().map_err(|_| format!("{n}: sparks is a whole number, 0 or more"))?.min(MAX_SPARKS)),
+            "sparks" | "impact" => {
+                let v = value.parse::<u32>().map_err(|_| format!("{n}: {key} is a whole number, 0 or more"))?.min(MAX_SPARKS);
+                *if key == "sparks" { &mut e.sparks } else { &mut e.impact } = Some(v);
+            }
+            "core" => e.core = Some(number()?.min(MAX_CORE)),
             "color" => e.color = Some(crate::paint::hex(value).filter(|_| value.bytes().all(|b| b.is_ascii_hexdigit())).ok_or_else(|| format!("{n}: color is RRGGBB as palette.txt writes one, such as E8D27A"))?),
             _ => return Err(format!("{n}: {key} isn't something an effect says")),
         }
@@ -288,8 +301,8 @@ pub fn parse(text: &str) -> Result<(Vec<Written>, Extra), String> {
     Ok((own, extra))
 }
 
-/// The shot style a bullet named `name` flies as, with `text` as effects.txt; no name fires [bullet]. None for a
-/// section that sets no style, and so flies as its sprite, or one the file lacks.
+/// The shot style a bullet named `name` flies as, with `text` as effects.txt; no name, or one the file lacks, fires
+/// [bullet]. None for a section that sets no style, and so flies as its sprite.
 pub fn shot_named(text: &str, name: Option<&str>) -> Option<Shot> {
     let (own, extra) = parse(text).ok()?;
     let at = NAMES.iter().position(|n| *n == "bullet")?;
@@ -297,7 +310,10 @@ pub fn shot_named(text: &str, name: Option<&str>) -> Option<Shot> {
     let bullet = own[at].shot(base).or(base);
     match name.unwrap_or("bullet") {
         "bullet" => bullet,
-        n => NAMES.iter().position(|k| *k == n).map(|k| &own[k]).or_else(|| extra.iter().find(|(k, _)| k == n).map(|(_, w)| w))?.shot(bullet),
+        n => match NAMES.iter().position(|k| *k == n).map(|k| &own[k]).or_else(|| extra.iter().find(|(k, _)| k == n).map(|(_, w)| w)) {
+            Some(w) => w.shot(bullet),
+            None => bullet,
+        },
     }
 }
 
@@ -364,7 +380,7 @@ mod tests {
         let arts: Vec<_> = parse(&older).unwrap().0.iter().rev().take(3).map(|w| w.art.clone()).collect();
         assert_eq!(arts, ["DIRT_PUFF", "MOUND", "BLOOD_SPLAT"], "a mod's file from before [spit] and [mound] plays the game's");
         let (_, extra) = parse(&format!("{own}\n[red_slash]\nart SCYTHE_SWING\nfps 9")).unwrap();
-        assert_eq!((extra[0].0.as_str(), extra[0].1.fps), ("red_slash", 9.0));
+        assert_eq!((extra.last().unwrap().0.as_str(), extra.last().unwrap().1.fps), ("red_slash", 9.0));
         assert_eq!(e.named("slash"), Some(e.slash));
         assert_eq!(e.named("red_slash"), None);
     }
@@ -374,16 +390,19 @@ mod tests {
         let own = include_str!("../../effects.txt");
         let shot = effects().bullet.shot.expect("the game's bullet is a streak of particles");
         assert!(shot.length > 0.0 && shot.size > 0.0 && shot.sparks > 0);
-        let (_, extra) = parse(&format!("{own}\n[tracer]\ncolor 7AA062\nlength 20\nsize 2\nsparks 3")).unwrap();
-        let w = &extra[0].1;
+        let (_, extra) = parse(&format!("{own}\n[tracer]\ncolor 7AA062\nlength 20\nsize 2\nsparks 3\nimpact 2\ncore 6")).unwrap();
+        let w = &extra.last().unwrap().1;
         assert_eq!((w.art.as_str(), w.color, w.length, w.size, w.sparks), ("", Some([0x7A, 0xA0, 0x62]), Some(20.0), Some(2.0), Some(3)), "a style needs no art");
+        assert_eq!((w.impact, w.core), (Some(2), Some(6.0)));
         assert_eq!(parse(&format!("{own}\n[plain]\nfps 3")).unwrap_err(), "[plain] needs an art line");
-        let (_, extra) = parse(&format!("{own}\n[odd]\nart SLASH\nlength 1e9\nsize 99\nsparks 5000")).unwrap();
-        assert_eq!((extra[0].1.length, extra[0].1.size, extra[0].1.sparks), (Some(MAX_LENGTH), Some(MAX_SIZE), Some(MAX_SPARKS)), "a mod's numbers are capped");
-        for bad in ["length NaN", "length inf", "length -2", "size 0", "sparks 1.5", "sparks -1", "color 7AA06", "color GGGGGG", "color 0.5 0.5 0.5"] {
+        let (_, extra) = parse(&format!("{own}\n[odd]\nart SLASH\nlength 1e9\nsize 99\nsparks 5000\nimpact 999\ncore 1e30")).unwrap();
+        let w = &extra.last().unwrap().1;
+        assert_eq!((w.length, w.size, w.sparks, w.impact, w.core), (Some(MAX_LENGTH), Some(MAX_SIZE), Some(MAX_SPARKS), Some(MAX_SPARKS), Some(MAX_CORE)), "a mod's numbers are capped");
+        for bad in ["length NaN", "length inf", "length -2", "size 0", "sparks 1.5", "sparks -1", "impact x", "core NaN", "core 0", "color 7AA06", "color GGGGGG", "color 0.5 0.5 0.5"] {
             assert!(parse(&format!("{own}\n[odd]\nart SLASH\n{bad}")).is_err(), "{bad}");
         }
-        let older: String = own.lines().filter(|l| !["color", "length", "size", "sparks"].iter().any(|k| l.starts_with(k))).map(|l| format!("{l}\n")).collect();
+        let guns = own.find("[pistol_shot]").unwrap()..own.find("# The colors of particles").unwrap();
+        let older: String = own.replace(&own[guns], "").lines().filter(|l| !["color", "length", "size", "sparks", "impact", "core"].iter().any(|k| l.starts_with(k))).map(|l| format!("{l}\n")).collect();
         let (mine, _) = parse(&older).unwrap();
         assert!(mine.iter().all(|w| w.color.is_none()), "a mod's file from before shot styles still reads");
     }
@@ -393,7 +412,7 @@ mod tests {
         let own = include_str!("../../effects.txt");
         assert_eq!(shot_named(own, None), effects().bullet.shot);
         assert_eq!(shot_named(own, Some("slash")), None, "a sprite's section is no style");
-        assert_eq!(shot_named(own, Some("nope")), None);
+        assert_eq!(shot_named(own, Some("nope")), shot_named(own, None), "a name the file lacks fires [bullet], as the game does");
         let text = format!("{own}\n[tracer]\nlength 30");
         let tracer = shot_named(&text, Some("tracer")).unwrap();
         assert_eq!((tracer.length, tracer.sparks), (30.0, effects().bullet.shot.unwrap().sparks), "the rest from [bullet]");
@@ -409,15 +428,14 @@ mod tests {
     }
 
     #[test]
-    fn a_streak_trails_behind_its_bullet_and_never_behind_the_gun() {
-        let shot = Shot { color: [1.0; 3], length: 12.0, size: 1.5, sparks: 4 };
-        let specks: Vec<_> = shot.streak([100.0, 0.0], [200.0, 0.0], 1.0).collect();
-        assert!((2..=MAX_SPECKS).contains(&specks.len()));
-        assert_eq!(specks[0].0, [100.0, 0.0], "the head is the bullet");
-        assert!(specks.windows(2).all(|w| w[1].0[0] < w[0].0[0] && w[1].1 <= w[0].1), "the tail trails back and thins");
-        assert!((specks.last().unwrap().0[0] - 88.0).abs() < 1e-3);
-        let fresh: Vec<_> = shot.streak([100.0, 0.0], [200.0, 0.0], 0.01).collect();
-        assert!(fresh.iter().all(|s| s.0[0] >= 98.0 - 1e-3), "a bullet two pixels out trails two pixels");
+    fn a_tracer_trails_behind_its_bullet_and_never_behind_the_gun() {
+        let shot = Shot { color: [1.0; 3], length: 12.0, size: 1.5, sparks: 4, impact: 3, core: 4.0 };
+        assert_eq!(shot.tail([100.0, 0.0], [200.0, 0.0], 1.0), [88.0, 0.0]);
+        let fresh = shot.tail([100.0, 0.0], [200.0, 0.0], 0.01);
+        assert!((fresh[0] - 98.0).abs() < 1e-3, "a bullet two pixels out trails two pixels");
+        assert_eq!(shot.tail([5.0, 5.0], [0.0, 0.0], 1.0), [5.0, 5.0]);
+        let (head, tail) = (Shot::taper(0.0), Shot::taper(1.0));
+        assert!(head.0 > tail.0 && head.1 > tail.1 && tail.0 > 0.0, "it thins and dims toward the tail");
     }
 
     #[test]

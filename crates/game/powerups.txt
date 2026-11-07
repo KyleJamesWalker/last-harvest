@@ -65,6 +65,7 @@ first_level  2
 [pistol]
 name      Pistol
 kind      weapon
+bullet    pistol_shot
 kick      0.015
 flash     1.2 0.85 0.4 3.5 0.07
 zone      ahead
@@ -82,6 +83,7 @@ spread    8
 [shotgun]
 name      Shotgun
 kind      weapon
+bullet    shotgun_pellet
 kick      0.04
 punch     3
 shake     0.12
@@ -102,6 +104,7 @@ knockback 45
 [rifle]
 name      Hunting rifle
 kind      weapon
+bullet    rifle_round
 kick      0.05
 punch     2
 shake     0.1
@@ -271,6 +274,7 @@ duration  3 3 3.5 3.5 4 4 4.5 5
 [holster]
 name      Back holster
 kind      weapon
+bullet    shotgun_pellet
 kick      0.04
 punch     3
 shake     0.12
