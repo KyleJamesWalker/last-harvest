@@ -54,11 +54,16 @@ def cell(text):
     return text.replace('|', '\\|')
 
 
+def zone(f):
+    first = f.get('zone', '').capitalize()
+    return f'{first}, then all round' if f.get('targets') == 'each' else first
+
+
 def powerups(kind):
     rows = [(i, f) for i, f in sections(ROOT / 'crates/game/powerups.txt') if f.get('kind') == kind]
     if kind == 'weapon':
         head = '| Weapon | Zone | Unlocks | Levels | On its card |\n|---|---|---|---|---|'
-        body = [f"| {cell(f.get('name', i))} | {f.get('zone', '').capitalize()} | {unlock(f)} | {f.get('max', '1')} | {cell(f.get('blurb', ''))} |" for i, f in rows]
+        body = [f"| {cell(f.get('name', i))} | {zone(f)} | {unlock(f)} | {f.get('max', '1')} | {cell(f.get('blurb', ''))} |" for i, f in rows]
     else:
         head = '| Passive | Unlocks | Levels | On its card |\n|---|---|---|---|'
         body = [f"| {cell(f.get('name', i))} | {unlock(f)} | {f.get('max', '1')} | {cell(f.get('blurb', ''))} |" for i, f in rows]
