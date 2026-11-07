@@ -309,6 +309,8 @@ enum Action {
     WeaponPick(usize, i32),
     /// Opens the effects.txt section of the weapon's bullet, whose shot style it fires.
     WeaponStyle,
+    /// Opens the game's weapon range on the section as edited, at the picked level.
+    WeaponTry,
     /// Leaves the paint color out of the 3D view, or puts it back.
     ClearIn3d,
     /// Shows the Coats page on the canvas, or the pixels again.
@@ -487,6 +489,8 @@ pub struct Editor {
     pub changed: bool,
     /// A Hurt (false) or Kill (true) for the previews to play.
     pub strike: Option<bool>,
+    /// A weapon range setup Try it asked the platform to open in the game.
+    pub tried: Option<String>,
     /// Where the last packing put a card's figure among the surfaces, and whether it has dead frames.
     figure_at: Option<(usize, bool)>,
     /// Where the last packing put the frames' 3D copies among the surfaces, and how many there are.
@@ -598,6 +602,7 @@ impl Editor {
             dirty: false,
             changed: true,
             strike: None,
+            tried: None,
             figure_at: None,
             solids_at: None,
             coats_at: None,
@@ -1745,7 +1750,7 @@ impl Editor {
         match a {
             Action::MapTool(_) | Action::Ground(_) | Action::PickProp(_) | Action::PickPage(_) | Action::Picket(_) | Action::MapSize(..) | Action::Randomize | Action::MapFit | Action::PropDefaults => {}
             Action::DataStep(..) | Action::DataEdit(_) | Action::DataRemove(_) | Action::DataColor(..) | Action::DataSprite(..) | Action::DataPaint(_) | Action::DataAdd | Action::DataPage(_) => {}
-            Action::WeaponLines | Action::WeaponLevel(_) | Action::WeaponMax(_) | Action::WeaponDoes(_) | Action::WeaponStep(..) | Action::WeaponType(_) | Action::WeaponPick(..) | Action::WeaponStyle => {}
+            Action::WeaponLines | Action::WeaponLevel(_) | Action::WeaponMax(_) | Action::WeaponDoes(_) | Action::WeaponStep(..) | Action::WeaponType(_) | Action::WeaponPick(..) | Action::WeaponStyle | Action::WeaponTry => {}
             Action::LineFrame(_) | Action::LineFps(_) => {}
             Action::PlayerBase(i, d) => {
                 let t = last_harvest_game::tuning::tuning();
@@ -4199,6 +4204,34 @@ mod tests {
         assert_eq!(text(&e), start, "each change undoes, and the rest of the file stays as written");
         e.key(Key::Redo);
         assert!(text(&e).contains("damage 13 15 15"));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn try_it_hands_the_game_the_section_as_edited_at_the_picked_level() {
+        let dir = tmp().join("weapon-try");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut e = editor_in(&dir, dir.join("art.txt"));
+        e.switch_to("DATA_POWERUPS_PISTOL".into());
+        let damage = last_harvest_game::weapon_stats().iter().position(|s| s.0 == "damage").unwrap();
+        e.act(Action::WeaponLevel(3), false);
+        e.act(Action::WeaponStep(damage, 1), false);
+        assert!(e.unsaved());
+        e.act(Action::WeaponTry, false);
+        let setup = last_harvest_game::RangeSetup::read(&e.tried.take().expect("Try it asks for the range")).unwrap();
+        assert_eq!((setup.weapon.as_str(), setup.level), ("pistol", 3));
+        assert!(setup.section.as_deref().is_some_and(|s| s.starts_with("[pistol]\n") && s.contains("damage 12 15 16")), "unsaved changes too: {setup:?}");
+        e.act(Action::WeaponLines, false);
+        e.act(Action::WeaponTry, false);
+        assert!(e.tried.is_some(), "the lines view tries it too");
+        e.tried = None;
+        e.act(Action::WeaponLines, false);
+        e.act(Action::WeaponType(damage), false);
+        e.set_text("damage lots");
+        e.key(Key::Enter);
+        e.act(Action::WeaponTry, false);
+        assert!(e.tried.is_none(), "a section the game won't read isn't tried");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

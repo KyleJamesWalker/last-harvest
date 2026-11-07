@@ -75,22 +75,30 @@ fn handle(store: &FsStore, web: &Path, method: &Method, url: &str, body: &[u8]) 
             Err(e) => text(400, e),
         },
         (_, ["api", ..]) => text(404, "no such call"),
-        (Method::Get, [file]) => {
-            let file = if file.is_empty() { "index.html" } else { file };
-            let kind = match file.rsplit('.').next() {
-                Some("html") => "text/html; charset=utf-8",
-                Some("js") => "text/javascript",
-                Some("wasm") => "application/wasm",
-                Some("css") => "text/css",
-                Some("png") => "image/png",
-                _ => return text(404, "not found"),
-            };
-            match std::fs::read(web.join(file)) {
-                Ok(b) if !file.starts_with('.') => (200, kind, b),
-                _ => text(404, format!("{file} not found: build the web editor with scripts/web-editor.sh")),
-            }
-        }
+        (Method::Get, ["play", file]) => match web.parent().map(|t| t.join("web-game")) {
+            Some(game) => serve(&game, file, "build the web game with scripts/web-game.sh"),
+            None => text(404, "not found"),
+        },
+        (Method::Get, [file]) => serve(web, file, "build the web editor with scripts/web-editor.sh"),
         _ => text(404, "not found"),
+    }
+}
+
+/// A file of a web build in `dir`, by its content type; `missing` says how to build it.
+fn serve(dir: &Path, file: &str, missing: &str) -> Reply {
+    let file = if file.is_empty() { "index.html" } else { file };
+    let kind = match file.rsplit('.').next() {
+        Some("html") => "text/html; charset=utf-8",
+        Some("js") => "text/javascript",
+        Some("wasm") => "application/wasm",
+        Some("css") => "text/css",
+        Some("png") => "image/png",
+        Some("pak") => "application/octet-stream",
+        _ => return text(404, "not found"),
+    };
+    match std::fs::read(dir.join(file)) {
+        Ok(b) if !file.starts_with('.') => (200, kind, b),
+        _ => text(404, format!("{file} not found: {missing}")),
     }
 }
 
@@ -306,5 +314,22 @@ mod tests {
         assert!(!s.dir.exists());
         assert!(!local("8.8.8.8".parse().unwrap()) && local("192.168.1.5".parse().unwrap()) && local("::1".parse().unwrap()));
         std::fs::remove_dir_all(s.dir.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn the_web_game_beside_the_editor_is_served_under_play() {
+        let s = store("play");
+        let root = s.dir.parent().unwrap().to_path_buf();
+        let (web, game) = (root.join("web-editor"), root.join("web-game"));
+        std::fs::create_dir_all(&web).unwrap();
+        std::fs::create_dir_all(&game).unwrap();
+        std::fs::write(game.join("index.html"), "game").unwrap();
+        std::fs::write(game.join("game_data.pak"), "pak").unwrap();
+        let (status, kind, body) = handle(&s, &web, &Method::Get, "/play/?range", &[]);
+        assert_eq!((status, kind, body), (200, "text/html; charset=utf-8", b"game".to_vec()));
+        assert_eq!(handle(&s, &web, &Method::Get, "/play/game_data.pak", &[]).0, 200);
+        assert_eq!(handle(&s, &web, &Method::Get, "/play/..%2Fart.txt", &[]).0, 404);
+        assert_eq!(handle(&s, &web, &Method::Get, "/index.html", &[]).0, 404, "the editor isn't built here");
+        std::fs::remove_dir_all(&root).unwrap();
     }
 }

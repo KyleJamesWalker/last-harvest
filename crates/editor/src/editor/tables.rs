@@ -123,6 +123,7 @@ impl Editor {
             push(716.0 + i as f32 * 102.0, 8.0, 94.0, 34.0, a, l, a == Action::Save && d.dirty);
         }
         if let Some(w) = &d.weapon {
+            push(512.0, 8.0, 94.0, 34.0, Action::WeaponTry, "Try it", false);
             push(614.0, 8.0, 94.0, 34.0, Action::WeaponLines, if w.lines { "Weapon" } else { "Lines" }, false);
             if !w.lines {
                 return self.weapon_buttons(d, w, push);

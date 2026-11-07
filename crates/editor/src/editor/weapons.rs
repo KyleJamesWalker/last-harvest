@@ -169,6 +169,19 @@ impl Editor {
                 self.naming = None;
             }
             Action::WeaponLevel(l) => d.weapon.as_mut().unwrap().level = l.clamp(1, max),
+            Action::WeaponTry => {
+                let level = level.min(max) as u32;
+                let setup = last_harvest_game::RangeSetup { weapon: d.section.clone(), level, section: d.table.section_text(&d.section) };
+                let said = match last_harvest_game::RangeSetup::read(&setup.text()) {
+                    Ok(s) => {
+                        self.tried = Some(s.text());
+                        format!("Trying {} at level {level} in the game's range", s.weapon)
+                    }
+                    Err(e) => format!("The game won't try it: {e}"),
+                };
+                self.say(said);
+                return true;
+            }
             Action::WeaponMax(by) => {
                 if let Some(v) = table::step(&max.to_string(), by, shift).filter(|v| v != "0") {
                     d.change(|t, s| set_key(t, s, "max", Some(&v)));

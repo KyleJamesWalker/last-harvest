@@ -635,8 +635,22 @@ A weapon's section in `powerups.txt` opens as a weapon page:
 - **<** and **>** step the effect and bullet through `effects.txt`, and the sound through the weapon sounds. **Own** removes the line, so the behavior's own plays.
 - The panel under the behaviors plays the chosen effect and bullet. A bullet with a shot style plays as its tracer and muzzle flare, in their sprites, with its color, length, size, sparks, core and impact, and **Style** opens its `effects.txt` section. There each sprite line steps through the sprites, your props among them, with **<** and **>**, and **Paint** opens the sprite to draw.
 - **Lines** shows the section a line a row, as any other page; **Weapon** goes back.
+- **Try it** opens the game's weapon range with the section as it stands, unsaved changes too, at the picked level. A section the game won't read says why instead.
 
 Each change rewrites only its own line, so comments and other lines stay as written, and Undo takes it back.
+
+#### The weapon range
+
+The range is a small field on the game's real rules. You hold only the weapon you're trying, at its level, against a ring of eight zombies of one kind that rise again as they die. Damage numbers, crits, knockback, blood and the weapon's sound play as in a run. The ring never bites, and no level-ups come. The top screen shows the weapon, its level and its damage per second over the last five seconds.
+
+| Do | Buttons | Touch |
+|---|---|---|
+| Step the level | Up and Down | Level - and Level + |
+| Pick the zombie kind, cards included | Left and Right | < Kind and Kind > |
+| Fire by hand, or on cooldown again | Select | By hand / On cooldown |
+| Fire by hand | X | Fire |
+
+Turning, grenades and the pause menu work as in a run. Restart in the pause menu starts the range afresh. The card editor opens the range in the game's page on the same site, in a new tab; allow pop-ups for the editor if the browser blocks it. The sprite editor on the Mac starts the game built beside it, and on an iPad it opens the web game that its server serves under `/play/`.
 
 The card editor keeps a changed file in the browser, and Export all carries it into the mod pack. A sprite that `props.txt` or `effects.txt` names shows a Data button that opens its section.
 
