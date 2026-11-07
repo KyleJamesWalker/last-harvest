@@ -87,6 +87,7 @@ A night lasts ten minutes, from dusk to dawn. A bell rings each minute.
 - **Barrels:** shooting a red barrel sets it off. Hold X, and your guns go for the barrels in view. A blast close to you hurts you too.
 - **Hordes** arrive during the night, each led by a gold-lit leader. The leader drops a chest.
 - **Dawn:** the Harvester wakes behind you, and the dead grow 1% stronger every second. Run back to the farmhouse's front step to survive.
+- **More Harvesters:** kill the Harvester, and 30 seconds later two more rise. Every 30 seconds another wave comes, one bigger, up to six, until you get home.
 - **Falling:** if you fall, you rise as one of the dead and lead them to the next farm.
 
 The pause menu offers Resume, Settings, Photo mode, New farm and Quit to title.
