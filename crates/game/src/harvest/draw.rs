@@ -452,10 +452,11 @@ impl Harvest {
                 c.rect(0.0, 0.0, SCREEN_W, SCREEN_H, [0.0, 0.0, 0.0, 0.6 * k]);
                 let (title, color) = if *won { ("SAFE AT HOME", GOLD) } else { ("YOU TURNED", RED) };
                 let scale = 16.0 * back_out(k);
-                // A lost run keeps the middle clear, where the turned player stands.
-                let (title_y, line_y) = if *won { (260.0, 360.0) } else { (130.0, 560.0) };
+                // The middle stays clear, where the turned player stands, with the damage table to its left.
+                let (title_y, line_y) = (130.0, 560.0);
                 c.text_centered(title_y - scale * 2.5, scale, color, title);
                 let a = ((t - 0.5) / 0.4).clamp(0.0, 1.0);
+                self.damage_table(c, a);
                 let line = if self.t >= super::dawn() {
                     let how = if *won { "Home" } else { "Lasted" };
                     format!("{how} {} past dawn   Level {}   Kills {}", clock(self.t - super::dawn()), self.level, self.kills)
@@ -474,11 +475,36 @@ impl Harvest {
                     },
                 ];
                 for (k, line) in news.into_iter().flatten().enumerate() {
-                    let y = if *won { line_y + 160.0 + k as f32 * 48.0 } else { line_y - 80.0 - k as f32 * 48.0 };
+                    let y = line_y - 80.0 - k as f32 * 48.0;
                     c.label(line, SCREEN_W / 2.0, y, 34.0, [GOLD[0], GOLD[1], GOLD[2], a], Align::Center);
                 }
             }
         }
+    }
+
+    /// The run's damage and damage a second by weapon, most first, then the whole run's, faded in by `a`.
+    fn damage_table(&self, c: &mut Canvas, a: f32) {
+        let tally = &self.juice.tally;
+        let rows = tally.rows();
+        let (x, top, size, row_h) = (24.0, 196.0, 24.0, 26.0);
+        let (damage_x, dps_x) = (x + 300.0, x + 400.0);
+        let lines = rows.len() as f32 + 2.0;
+        c.rect(x - 8.0, top - 8.0, dps_x - x + 16.0, lines * row_h + 16.0, [0.0, 0.0, 0.0, 0.45 * a]);
+        let dim = [1.0, 1.0, 1.0, 0.6 * a];
+        c.label("Damage", damage_x, top, size, dim, Align::Right);
+        c.label("a second", dps_x, top, size, dim, Align::Right);
+        let line = |c: &mut Canvas, i: usize, name: &str, damage: f32, dps: f32, color: Color| {
+            let y = top + (i as f32 + 1.0) * row_h;
+            c.label(name, x, y, size, color, Align::Left);
+            c.label(grouped(damage.round() as u64), damage_x, y, size, color, Align::Right);
+            c.label(per_second(dps), dps_x, y, size, color, Align::Right);
+        };
+        let white = [1.0, 1.0, 1.0, a];
+        for (i, r) in rows.iter().enumerate() {
+            let name = r.by.map_or("Grenades, barrels", |d| book().defs[d].name.as_str());
+            line(c, i, name, r.damage, r.dps, white);
+        }
+        line(c, rows.len(), "Whole run", tally.total(), tally.dps(), [GOLD[0], GOLD[1], GOLD[2], a]);
     }
 
     /// While X is held, a crosshair on the barrel the aimed weapons are going for.
@@ -667,6 +693,24 @@ fn zone_color(zone: Option<Zone>) -> Color {
 }
 
 /// Eases from 0 to 1, overshooting a little before settling.
+/// A whole number with commas between each three digits.
+fn grouped(n: u64) -> String {
+    let digits = n.to_string();
+    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
+    for (i, ch) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(ch);
+    }
+    out
+}
+
+/// Damage a second, to a tenth below ten.
+fn per_second(dps: f32) -> String {
+    if dps < 10.0 { format!("{dps:.1}") } else { format!("{dps:.0}") }
+}
+
 fn back_out(k: f32) -> f32 {
     let c = 1.70158;
     let k = k - 1.0;
