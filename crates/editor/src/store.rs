@@ -248,7 +248,7 @@ pub mod props {
     }
 
     pub fn blank(id: &str) -> last_harvest_game::PropFields {
-        last_harvest_game::PropFields { id: id.into(), frames: 1, fps: 0.0, open: 0, stand: None, by_views: None, views: 0, footprint: false, roof: false, north: false, west: false, clear: Vec::new(), cover: true, hp: 0.0, broken: false, paint: Default::default() }
+        last_harvest_game::PropFields { id: id.into(), frames: 1, fps: 0.0, open: 0, stand: None, by_views: None, views: 0, footprint: false, roof: false, north: false, west: false, clear: Vec::new(), cover: true, hp: 0.0, broken: false, alpha: Vec::new(), paint: Default::default() }
     }
 }
 

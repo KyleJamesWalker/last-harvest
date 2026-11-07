@@ -25,7 +25,7 @@ use crate::{Buttons, Color, Difficulty, Input, SCREEN_H, SCREEN_W, Sfx};
 use enemies::Enemy;
 pub(crate) use enemies::{install_cards, off_from_ids, off_ids, roster};
 pub use props::{MAX_FRAME as PROP_MAX_FRAME, MAX_FRAMES as PROP_MAX_FRAMES, Named as NamedProp, PREFIX as PROP_PREFIX, ByViews as PropByViews, PropFields, load_for_checks as load_props_for_checks, turned_depth, prop_fields, prop_text, props as named_props, set_props};
-pub(crate) use props::stand_of;
+pub(crate) use props::{alpha_of, stand_of};
 pub use map::{default_depth as default_prop_depth, ground_codes as map_ground, MAP_EXTENSION, MAP_MAX, MAP_MIN, MAX_HP as PROP_MAX_HP, MapSource, map_props, parse_props, PropKind, PropLine, Tough as PropTough, check_map, valid_map_id};
 pub use enemies::{ABOUT_MAX, MAX_FRAME as CARD_MAX_FRAME, card_frame_most, MAX_WALK, flash_pixel, frame_limits, hurt_pixel};
 pub use players::{BASE_KEYS as PLAYER_BASE_KEYS, ID_MAX as PLAYER_ID_MAX, PlayerFields, PlayerLook, default_start, looks as player_looks, player_fields, set_player_start, weapon_slots, weapons};
@@ -584,15 +584,25 @@ struct Fx {
     angle: f32,
     t: f32,
     tint: [f32; 3],
+    fade: effects::Fade,
 }
 
 impl Fx {
     fn play(e: effects::Effect, pos: [f32; 2], angle: f32) -> Self {
-        Fx { frames: e.frames, fps: e.fps, pos, angle, t: 0.0, tint: [1.0; 3] }
+        Fx { frames: e.frames, fps: e.fps, pos, angle, t: 0.0, tint: [1.0; 3], fade: e.fade }
     }
 
     fn done(&self) -> bool {
         self.t * self.fps >= self.frames.len() as f32
+    }
+
+    fn frame(&self) -> Art {
+        self.frames[((self.t * self.fps) as usize).min(self.frames.len() - 1)]
+    }
+
+    /// How opaque its effect's fade draws it now, over its sprite's own alpha.
+    fn alpha(&self) -> f32 {
+        self.fade.at(self.t * self.fps / self.frames.len() as f32)
     }
 }
 
@@ -1005,7 +1015,7 @@ impl Harvest {
         None
     }
 
-    /// The same frames every run: 300 zombies, bodies, stains and specks around the player, frozen, with the
+    /// The same frames every run: 300 zombies, bodies, stains, specks and half-faded blasts around the player, frozen, with the
     /// camera turning a full circle every 600 frames, on a generated farm `size` tiles across.
     pub fn bench(size: [usize; 2]) -> Self {
         let [w, hgt] = size.map(|v| v.clamp(16, 400));
@@ -1030,6 +1040,13 @@ impl Harvest {
             h.juice.popup(at, 12.0 + i as f32, if i % 5 == 0 { Tone::Crit } else { Tone::Hit });
             let vel = [a.cos() * 200.0, a.sin() * 200.0];
             h.bullets.push(Bullet { pos: [h.pos[0] + a.cos() * 20.0, h.pos[1] - 6.0 + a.sin() * 20.0], vel, damage: 0.0, pierce: 0, life: 1.0, force: 0.0, hit: Vec::new(), look: None, age: 0.0 });
+        }
+        let e = effects::effects();
+        for (i, fx) in [e.explosion, e.explosion_smoke, e.zombie_rises, e.mound_breaks].into_iter().cycle().take(16).enumerate() {
+            let a = i as f32 * 0.4;
+            let mut f = Fx::play(fx, [h.pos[0] + a.cos() * 40.0, h.pos[1] + a.sin() * 40.0], 0.0);
+            f.t = 0.6 * fx.frames.len() as f32 / fx.fps;
+            h.fx.push(f);
         }
         h.juice.flash(h.pos, 10.0, [1.2, 0.85, 0.4], 3.5, f32::MAX);
         h

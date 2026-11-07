@@ -15,6 +15,7 @@
 //! cover no        # whether it stops shots; yes when left out
 //! hp 40           # hit points before zombies or shots break it, up to 1000; it doesn't break when left out
 //! broken yes      # the last frame shows once it breaks, and the rest animate; it goes when left out
+//! alpha 1 0.6     # how opaque each frame draws, 0.1 to 1, the last carrying on; opaque when left out
 //! paint 91765F    # colors that are paint, light to dark, and a coat line for each coat they come in,
 //! coat 4A6FA5     # as `crate::paint` says
 //! ```
@@ -55,6 +56,8 @@ pub struct PropFields {
     pub cover: bool,
     pub hp: f32,
     pub broken: bool,
+    /// How opaque its frames draw, as `crate::alpha` reads it; empty for opaque.
+    pub alpha: Vec<f32>,
     /// Its paint colors and the coats each frame comes in.
     pub paint: Paint,
 }
@@ -106,7 +109,7 @@ impl PropFields {
 
 /// Reads a prop's text; errors name the line.
 pub fn prop_fields(text: &str) -> Result<PropFields, String> {
-    let mut f = PropFields { id: String::new(), frames: 1, fps: 0.0, open: 0, stand: None, by_views: None, views: 0, footprint: false, roof: false, north: false, west: false, clear: Vec::new(), cover: true, hp: 0.0, broken: false, paint: Paint::default() };
+    let mut f = PropFields { id: String::new(), frames: 1, fps: 0.0, open: 0, stand: None, by_views: None, views: 0, footprint: false, roof: false, north: false, west: false, clear: Vec::new(), cover: true, hp: 0.0, broken: false, alpha: Vec::new(), paint: Paint::default() };
     for (i, raw) in text.lines().enumerate() {
         let n = i + 1;
         let line = raw.split('#').next().unwrap_or("").trim();
@@ -140,6 +143,7 @@ pub fn prop_fields(text: &str) -> Result<PropFields, String> {
             "cover" => f.cover = yes_no(value).ok_or_else(|| format!("{n}: cover is yes or no"))?,
             "hp" => f.hp = Some(number()?).filter(|v| *v <= MAX_HP).ok_or_else(|| format!("{n}: hp is a number from 0 to {MAX_HP}"))?,
             "broken" => f.broken = yes_no(value).ok_or_else(|| format!("{n}: broken is yes or no"))?,
+            "alpha" => f.alpha = crate::alpha::parse(value).map_err(|e| format!("{n}: {e}"))?,
             "clear" if !value.is_empty() => f.clear = value.split_whitespace().map(hex).collect::<Option<_>>().ok_or_else(|| format!("{n}: clear lists colors such as 5A6E3C"))?,
             "clear" => return Err(format!("{n}: clear lists colors such as 5A6E3C, without a #")),
             "paint" | "coat" => f.paint.read(key, value).unwrap_or(Ok(())).map_err(|e| format!("{n}: {e}"))?,
@@ -197,6 +201,9 @@ pub fn prop_text(f: &PropFields) -> String {
     }
     if f.broken {
         s += "broken yes\n";
+    }
+    if let Some(a) = crate::alpha::text(&f.alpha) {
+        s += &format!("alpha {a}\n");
     }
     if !f.clear.is_empty() {
         s += &format!("clear {}\n", f.clear.iter().map(|[r, g, b]| format!("{r:02X}{g:02X}{b:02X}")).collect::<Vec<_>>().join(" "));
@@ -267,6 +274,8 @@ pub struct Named {
     pub cover: bool,
     pub hp: f32,
     pub broken: Option<&'static [Art]>,
+    /// How opaque each frame draws, as `crate::alpha` reads it.
+    pub alpha: Vec<f32>,
 }
 
 impl Named {
@@ -320,7 +329,7 @@ fn named(f: &PropFields, coats: Vec<Coat>) -> Named {
         stands.push(stand);
     }
     let broken: &'static [Art] = broken.leak();
-    Named { name: format!("{PREFIX}{}", f.id.to_ascii_uppercase()), frames: frames.leak(), fps: f.fps, open: f.open, stands, cover: f.cover, hp: f.hp, broken: (!broken.is_empty()).then_some(broken) }
+    Named { name: format!("{PREFIX}{}", f.id.to_ascii_uppercase()), frames: frames.leak(), fps: f.fps, open: f.open, stands, cover: f.cover, hp: f.hp, broken: (!broken.is_empty()).then_some(broken), alpha: f.alpha.clone() }
 }
 
 /// A prop by its sprite name, such as `PROP_RUSTY_TANK`.
@@ -336,6 +345,18 @@ pub fn props() -> Vec<Named> {
 /// How an added sprite stands, if a prop set it.
 pub(crate) fn stand_of(art: Art) -> Option<Stand> {
     named_of(art).and_then(|n| n.stands[n.coat_of(art)])
+}
+
+/// How opaque an added sprite draws, if it is a prop's frame.
+pub(crate) fn alpha_of(art: Art) -> Option<f32> {
+    let named = NAMED.read().ok()?;
+    let n = named.iter().find(|n| n.frames.contains(&art) || n.broken.is_some_and(|b| b.contains(&art)))?;
+    let per = n.frames.len() / n.coats();
+    let frame = match n.frames.iter().position(|a| *a == art) {
+        Some(i) => i % per.max(1),
+        None => per,
+    };
+    Some(crate::alpha::of_frame(&n.alpha, frame))
 }
 
 /// The prop an added sprite is a frame of.
@@ -530,7 +551,7 @@ mod tests {
     #[test]
     fn a_prop_reads_and_writes_its_text() {
         let f = prop_fields("[rusty_tank]\nframes 2\nfps 4\nopen 1\nstand slab 6\ncover no\nhp 40\nbroken yes\n").unwrap();
-        assert_eq!(f, PropFields { id: "rusty_tank".into(), frames: 2, fps: 4.0, open: 1, stand: Some(Stand::Slab { height: 6.0, lift: 0.0 }), by_views: None, views: 0, footprint: false, roof: false, north: false, west: false, clear: Vec::new(), cover: false, hp: 40.0, broken: true, paint: Paint::default() });
+        assert_eq!(f, PropFields { id: "rusty_tank".into(), frames: 2, fps: 4.0, open: 1, stand: Some(Stand::Slab { height: 6.0, lift: 0.0 }), by_views: None, views: 0, footprint: false, roof: false, north: false, west: false, clear: Vec::new(), cover: false, hp: 40.0, broken: true, alpha: Vec::new(), paint: Paint::default() });
         assert_eq!(prop_fields(&prop_text(&f)).unwrap(), f);
         assert_eq!(prop_text(&prop_fields("[a]").unwrap()), "[a]\n", "defaults stay out");
         assert!(prop_fields("frames 2").unwrap_err().contains("[id]"));

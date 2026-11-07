@@ -2,6 +2,7 @@
 //! `Game::update`, which dispatches on `State` to the title, gallery, hardware page or a run's `Harvest::update`,
 //! and the app renders what `Game::draw` returns.
 
+pub mod alpha;
 pub mod art;
 pub mod data;
 pub mod paint;

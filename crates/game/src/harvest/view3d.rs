@@ -433,6 +433,15 @@ fn patch(out: &mut Vec<Card>, at: Vec3, size: f32, color: [f32; 3]) {
     out.push(Card { tint: color, ..Card::new(corners, uv, Vec3::Y) });
 }
 
+/// Runs `draw`, then draws what it added `alpha` as opaque as it was.
+fn faded(out: &mut Vec<Card>, alpha: f32, draw: impl FnOnce(&mut Vec<Card>)) {
+    let from = out.len();
+    draw(out);
+    if alpha < 1.0 {
+        out[from..].iter_mut().for_each(|c| c.alpha *= alpha);
+    }
+}
+
 fn world(p: [f32; 2]) -> Vec3 {
     Vec3::new(p[0] * PX, 0.0, p[1] * PX)
 }
@@ -512,11 +521,13 @@ struct Board {
     top: Option<Art>,
     /// Sprite pixels right of center, and world units toward the camera.
     shift: [f32; 2],
+    /// How opaque it draws, over its sprite's own alpha.
+    alpha: f32,
 }
 
 impl Board {
     fn new(art: Art, flip: bool, at: [f32; 2], lift: f32, depth: f32) -> Self {
-        Self { art, flip, at, lift, depth, scale: [1.0; 2], lean: Vec3::ZERO, tint: [1.0; 3], top: art.top(), shift: [0.0; 2] }
+        Self { art, flip, at, lift, depth, scale: [1.0; 2], lean: Vec3::ZERO, tint: [1.0; 3], top: art.top(), shift: [0.0; 2], alpha: 1.0 }
     }
 }
 
@@ -571,26 +582,28 @@ pub fn scene(h: &Harvest) -> CardScene {
                 continue;
             }
             let (ground, overlay) = h.map.tile(tx as usize, ty as usize);
-            flat(&mut cards, ground, corner.x, corner.z, 0.0, [1.0; 3]);
-            if let Some(Stand::Slab { height, lift }) = ground.stand() {
-                lying(&mut cards, eye, ground, corner + Vec3::new(0.5, 0.0, 0.5), 0.0, height, lift, [1.0; 3]);
-            }
+            faded(&mut cards, ground.alpha(), |cards| {
+                flat(cards, ground, corner.x, corner.z, 0.0, [1.0; 3]);
+                if let Some(Stand::Slab { height, lift }) = ground.stand() {
+                    lying(cards, eye, ground, corner + Vec3::new(0.5, 0.0, 0.5), 0.0, height, lift, [1.0; 3]);
+                }
+            });
             if let Some(crop) = overlay {
-                stand(&mut cards, eye, crop, false, Pose::upright(corner + Vec3::Z, Vec3::X, -Vec3::Z, 2.0 * PX), false);
+                faded(&mut cards, crop.alpha(), |cards| stand(cards, eye, crop, false, Pose::upright(corner + Vec3::Z, Vec3::X, -Vec3::Z, 2.0 * PX), false));
             }
         }
     }
     for &(a, x, y) in &h.map.decals {
         let q = world([x, y]);
         if near(q) {
-            flat(&mut cards, a, q.x, q.z, DECAL_LIFT, [1.0; 3]);
+            faded(&mut cards, a.alpha(), |cards| flat(cards, a, q.x, q.z, DECAL_LIFT, [1.0; 3]));
         }
     }
     for (i, &(a, x, y, tint)) in h.stains.iter().enumerate() {
         let q = world([x, y]);
         if near(q) {
             // Newer stains sit a hair higher, so overlapping ones don't flicker.
-            flat(&mut cards, a, q.x, q.z, DECAL_LIFT + 0.002 + i as f32 * 0.00005, tint);
+            faded(&mut cards, a.alpha(), |cards| flat(cards, a, q.x, q.z, DECAL_LIFT + 0.002 + i as f32 * 0.00005, tint));
         }
     }
     // What stands between the camera and the player would hide them, so it isn't drawn; what stands beside or
@@ -614,26 +627,26 @@ pub fn scene(h: &Harvest) -> CardScene {
         } else {
             let tint = [if prop.flash > 0.0 { super::PROP_FLASH } else { 1.0 }; 3];
             // A prop drawn above its base line, as the windmill's fan is, stands that far up.
-            match how {
+            faded(&mut cards, a.alpha(), |cards| match how {
                 // A fence side that runs on into its corner reaches that corner's board.
-                Stand::Turned { east, depth } if prop.reach > 0.0 => turned(&mut cards, eye, a, east, depth, prop.x, prop.y, tint, prop.reach),
+                Stand::Turned { east, depth } if prop.reach > 0.0 => turned(cards, eye, a, east, depth, prop.x, prop.y, tint, prop.reach),
                 Stand::Prop { depth } if prop.base > bottom + 1.0 => {
                     let origin = Vec3::new(prop.x * PX, (prop.base - bottom) * PX, prop.base * PX);
-                    stand(&mut cards, eye, a.solid(), false, Pose { tint, ..Pose::upright(origin, Vec3::X, -Vec3::Z, depth * PX) }, true);
+                    stand(cards, eye, a.solid(), false, Pose { tint, ..Pose::upright(origin, Vec3::X, -Vec3::Z, depth * PX) }, true);
                 }
-                _ => fixed(&mut cards, eye, a, how, prop.x, if matches!(how, Stand::Prop { .. } | Stand::Fold { .. }) { prop.base } else { bottom }, tint),
-            }
+                _ => fixed(cards, eye, a, how, prop.x, if matches!(how, Stand::Prop { .. } | Stand::Fold { .. }) { prop.base } else { bottom }, tint),
+            });
         }
     }
     if let Some(s) = h.shown.as_ref().filter(|s| !s.frames.is_empty() && s.stand != Stand::Figure) {
         let a = s.frame(h.t);
-        fixed(&mut cards, eye, a, s.stand, s.pos[0] - a.w() / 2.0, s.pos[1], [1.0; 3]);
+        faded(&mut cards, a.alpha(), |cards| fixed(cards, eye, a, s.stand, s.pos[0] - a.w() / 2.0, s.pos[1], [1.0; 3]));
     }
     for b in &h.barrels {
         let a = if b.flash > 0.0 { art::BARREL_FLASH } else { art::BARREL };
         let base = Vec3::new(b.pos[0] * PX, 0.0, (b.pos[1] + a.h()) * PX);
         if ahead(base + Vec3::new(a.w() / 2.0, 0.0, -6.0) * PX, [a.w() * PX, 12.0 * PX]) {
-            stand(&mut cards, eye, a, false, Pose::upright(base, Vec3::X, -Vec3::Z, 12.0 * PX), true);
+            faded(&mut cards, a.alpha(), |cards| stand(cards, eye, a, false, Pose::upright(base, Vec3::X, -Vec3::Z, 12.0 * PX), true));
         }
     }
 
@@ -644,7 +657,7 @@ pub fn scene(h: &Harvest) -> CardScene {
             let r = right * b.scale[0];
             let origin = q + r * ((b.shift[0] - b.art.w() / 2.0) * PX) - forward * (b.depth / 2.0 + b.shift[1]) + Vec3::Y * b.lift;
             let up = (Vec3::Y + b.lean) * b.scale[1];
-            stand(cards, eye, b.art, b.flip, Pose { origin, right: r, up, back: forward, depth: b.depth, tint: b.tint, reach: Reach::Thin, top: b.top }, b.depth > 0.0);
+            faded(cards, b.alpha * b.art.alpha(), |cards| stand(cards, eye, b.art, b.flip, Pose { origin, right: r, up, back: forward, depth: b.depth, tint: b.tint, reach: Reach::Thin, top: b.top }, b.depth > 0.0));
         }
     };
     // A full horde swarming the player would bury the GPU; the farthest are lost in the fog anyway.
@@ -721,8 +734,8 @@ pub fn scene(h: &Harvest) -> CardScene {
         let (angle, r) = s.now();
         let at = [h.pos[0] + angle.cos() * r, h.pos[1] + angle.sin() * r];
         match s.art.stand() {
-            Some(Stand::Slab { height, lift }) => lying(&mut cards, eye, s.art, world(at), angle, height, lift, [1.0; 3]),
-            _ => board(&mut cards, Board::new(s.art, angle.cos() * right.x + angle.sin() * right.z < 0.0, at, 4.0 * PX, 0.0)),
+            Some(Stand::Slab { height, lift }) => faded(&mut cards, s.alpha() * s.art.alpha(), |cards| lying(cards, eye, s.art, world(at), angle, height, lift, [1.0; 3])),
+            _ => board(&mut cards, Board { alpha: s.alpha(), ..Board::new(s.art, angle.cos() * right.x + angle.sin() * right.z < 0.0, at, 4.0 * PX, 0.0) }),
         }
     }
     for patch in &h.patches {
@@ -735,7 +748,7 @@ pub fn scene(h: &Harvest) -> CardScene {
             Hazard::Tacks if (q - p).dot(forward) < 0.0 => {}
             Hazard::Tacks => {
                 let a = super::effects::effects().tacks.looping(h.t);
-                flat(&mut cards, a, q.x - a.w() * PX / 2.0, q.z - a.h() * PX / 2.0, DECAL_LIFT + 0.008, [1.0; 3]);
+                faded(&mut cards, a.alpha(), |cards| flat(cards, a, q.x - a.w() * PX / 2.0, q.z - a.h() * PX / 2.0, DECAL_LIFT + 0.008, [1.0; 3]));
             }
             Hazard::Fire => {
                 let fire = super::effects::effects().fire;
@@ -797,7 +810,7 @@ pub fn scene(h: &Harvest) -> CardScene {
         let back = up.cross(side);
         let lift = c.z * PX + 0.04 - c.sunk() * PX;
         let origin = q - side * (art.w() * PX / 2.0) + Vec3::Y * lift;
-        stand(&mut cards, eye, art, flip, Pose { origin, right: side, up, back, depth: PX, tint: [0.8; 3], reach: Reach::Thin, top: None }, false);
+        faded(&mut cards, art.alpha(), |cards| stand(cards, eye, art, flip, Pose { origin, right: side, up, back, depth: PX, tint: [0.8; 3], reach: Reach::Thin, top: None }, false));
     }
     for b in &h.birds {
         let mut board_b = Board::new(b.art(), b.flip, b.pos, b.z * PX, 0.0);
@@ -805,10 +818,10 @@ pub fn scene(h: &Harvest) -> CardScene {
         board(&mut cards, board_b);
     }
     for f in &h.fx {
-        let a = f.frames[((f.t * f.fps) as usize).min(f.frames.len() - 1)];
+        let a = f.frame();
         match a.stand() {
-            Some(Stand::Slab { height, lift }) => lying(&mut cards, eye, a, world(f.pos), f.angle, height, lift, f.tint),
-            _ => board(&mut cards, Board { tint: f.tint, ..Board::new(a, false, [f.pos[0], f.pos[1] + 6.0], 0.25, 0.0) }),
+            Some(Stand::Slab { height, lift }) => faded(&mut cards, f.alpha() * a.alpha(), |cards| lying(cards, eye, a, world(f.pos), f.angle, height, lift, f.tint)),
+            _ => board(&mut cards, Board { tint: f.tint, alpha: f.alpha(), ..Board::new(a, false, [f.pos[0], f.pos[1] + 6.0], 0.25, 0.0) }),
         }
     }
     for g in &h.thrown {
@@ -857,7 +870,7 @@ pub fn scene(h: &Harvest) -> CardScene {
         let mark = art::BLOOD_STAIN[pick % art::BLOOD_STAIN.len()];
         let q = world([pos[0] - mark.w() / 2.0, pos[1] - mark.h() / 2.0]);
         if near(q) {
-            flat(&mut cards, mark, q.x, q.z, DECAL_LIFT + 0.004, [0.45 - 0.2 * k, 0.32 - 0.15 * k, 0.2 - 0.1 * k]);
+            faded(&mut cards, mark.alpha(), |cards| flat(cards, mark, q.x, q.z, DECAL_LIFT + 0.004, [0.45 - 0.2 * k, 0.32 - 0.15 * k, 0.2 - 0.1 * k]));
         }
     }
     for pt in &h.juice.particles {
@@ -1150,6 +1163,40 @@ mod tests {
         assert!(drawn(&mut h, [3.0, 0.0]), "ahead");
         assert!(!drawn(&mut h, [-1.5, -0.5]), "between the camera and the player");
         assert!(!drawn(&mut h, [-4.0, 1.0]), "behind the camera");
+    }
+
+    #[test]
+    fn a_rising_zombie_stays_solid_while_the_eruption_around_it_fades() {
+        use crate::harvest::{Fx, Kind, Zombie, effects::effects};
+        let mut h = Harvest::calm(7);
+        h.view_yaw = 0.0;
+        let at = [h.pos[0] + 3.0 * TILE, h.pos[1]];
+        let kind = Kind::named("skinny");
+        h.zombies.push(Zombie::new(kind, at, 10.0, 0.0, 0.0));
+        let eruption = effects().zombie_rises;
+        h.fx.push(Fx::play(eruption, [at[0], at[1] - 3.0], 0.0));
+        let life = eruption.frames.len() as f32 / eruption.fps;
+        let shows = |c: &Card, arts: &[Art]| {
+            let (u, v) = ((c.uv[0] + c.uv[2]) / 2.0 * ATLAS_W as f32, (c.uv[1] + c.uv[3]) / 2.0 * ATLAS_H as f32);
+            arts.iter().any(|a| {
+                let [x, y, w, hh] = a.rect().map(f32::from);
+                (x..x + w).contains(&u) && (y..y + hh).contains(&v)
+            })
+        };
+        let walk: Vec<Art> = kind.stats().look.walk.iter().flatten().copied().collect();
+        let mut last = f32::MAX;
+        for k in [0.2, 0.5, 0.75, 0.95] {
+            h.fx[0].t = k * life;
+            h.zombies[0].rise = k;
+            let s = scene(&h);
+            let zombie: Vec<&Card> = s.cards.iter().filter(|c| shows(c, &walk)).collect();
+            assert!(!zombie.is_empty() && zombie.iter().all(|c| c.alpha == 1.0), "the zombie is solid at {k}");
+            let clear: Vec<&Card> = s.cards.iter().filter(|c| c.alpha < 1.0).collect();
+            assert!(!clear.is_empty() && clear.iter().all(|c| shows(c, eruption.frames)), "only the eruption is see-through at {k}");
+            let alpha = clear.iter().map(|c| c.alpha).fold(0.0, f32::max);
+            assert!(alpha < last, "the eruption fades as it plays: {alpha} at {k}, {last} before");
+            last = alpha;
+        }
     }
 
     #[test]

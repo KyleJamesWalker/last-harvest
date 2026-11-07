@@ -449,7 +449,7 @@ impl Renderer {
                     let (hw, hh) = (aw * k / 2.0, ah * k / 2.0);
                     let (cx, cy, s, c) = (x + hw, y + hh, angle.sin(), angle.cos());
                     let corner = |dx: f32, dy: f32| [cx + dx * c - dy * s, cy + dx * s + dy * c];
-                    self.push_quad([corner(-hw, -hh), corner(hw, -hh), corner(hw, hh), corner(-hw, hh)], uv, color, KIND_ART);
+                    self.push_quad([corner(-hw, -hh), corner(hw, -hh), corner(hw, hh), corner(-hw, hh)], uv, [color[0], color[1], color[2], color[3] * art.alpha()], KIND_ART);
                 }
                 Shape::Text { ref text, x, y, size, color, align } => {
                     for g in self.atlas.layout(text, x, y, size, align) {

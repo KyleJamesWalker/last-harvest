@@ -3,6 +3,10 @@
 #   fps N         frames a second
 #   life N        a swing's seconds
 #   reach N       how far out a swing sweeps, as a fraction of the weapon's range or area
+#   alpha N       how opaque it draws, 0.1 to 1; 1 when left out
+#   fade_in N     the fraction of its play, 0 to 1, it takes to come in from clear
+#   fade_out N    the fraction of its play, 0 to 1, it takes to fade away at the end
+# Alpha and fades play on effects that play once where they happen, such as blasts and puffs, and on swings.
 # A sprite standing as a slab lies flat and turns with the swing; anything else faces the camera.
 # A section with a name of your own is an effect a weapon in powerups.txt can play with `effect NAME` or
 # fire as its bullets with `bullet NAME`.
@@ -18,6 +22,7 @@ fps 12
 [shotgun_blast]
 art SHOTGUN_BLAST
 fps 18
+fade_out 0.5
 
 [slash]
 art SLASH
@@ -42,10 +47,13 @@ reach 0.7
 [explosion]
 art EXPLOSION
 fps 14
+fade_out 0.6
 
 [explosion_smoke]
 art SMOKE
 fps 8
+alpha 0.75
+fade_out 0.6
 
 [blood]
 art BLOOD_SPLAT
@@ -54,22 +62,32 @@ fps 12
 [zombie_rises]
 art SMOKE
 fps 7
+alpha 0.7
+fade_out 0.6
 
 [player_rises]
 art SMOKE
 fps 7
+alpha 0.7
+fade_out 0.6
 
 [dawn_burns]
 art SMOKE
 fps 5
+alpha 0.7
+fade_out 0.6
 
 [prop_crumbles]
 art SMOKE
 fps 8
+alpha 0.7
+fade_out 0.6
 
 [drum_returns]
 art SMOKE
 fps 7
+alpha 0.7
+fade_out 0.6
 
 [fire]
 art FIRE
@@ -116,6 +134,8 @@ fps 6
 [mound_breaks]
 art DIRT_PUFF
 fps 9
+alpha 0.85
+fade_out 0.5
 
 # The colors of particles, as red, green and blue from 0 to 1. A mod's file can leave any of them out.
 [colors]
