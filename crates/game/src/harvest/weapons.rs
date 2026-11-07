@@ -22,6 +22,8 @@ pub(super) struct Armed {
     pub level: u32,
     pub cd: f32,
     pub phase: f32,
+    /// Shots left in the burst it is firing.
+    pub burst: u32,
 }
 
 impl Armed {
@@ -38,7 +40,18 @@ fn shot_angle(pattern: Pattern, k: u32, n: u32, base: f32, spread: f32, jitter: 
         Pattern::Fan => base,
         Pattern::Ring => base + k as f32 * TAU / n as f32,
         Pattern::Spray => base + jitter * spread,
+        Pattern::Burst => base,
     }
+}
+
+/// The most shots one burst fires, and the longest gap between them, in seconds.
+const MAX_BURST: u32 = 32;
+const MAX_GAP: f32 = 5.0;
+
+/// For a burst, how many shots it fires and how far apart, `quick` scaling the gap as it does the cooldown; None
+/// for a pattern that fires its count at once.
+fn burst(pattern: Pattern, count: f32, gap: f32, quick: f32) -> Option<(u32, f32)> {
+    (pattern == Pattern::Burst).then(|| (count.clamp(1.0, MAX_BURST as f32) as u32, gap.clamp(0.0, MAX_GAP) * quick))
 }
 
 /// The effect a weapon plays: the one its `effect` line names, else its behaviour's own.
@@ -161,7 +174,7 @@ impl Kit {
 
     /// A kit carrying these weapons at level 1 and the difficulty's grenades, and nothing else.
     pub fn with_weapons(defs: &[usize], difficulty: Difficulty) -> Self {
-        let weapons = defs.iter().map(|&def| Armed { def, level: 1, cd: 0.5, phase: 0.0 }).collect();
+        let weapons = defs.iter().map(|&def| Armed { def, level: 1, cd: 0.5, phase: 0.0, burst: 0 }).collect();
         let t = crate::tuning::tuning();
         Self { weapons, passives: Vec::new(), mods: Mods::of(&[]), base: [t.player_hp, t.player_speed, t.player_magnet], base_grenades: book().grenades[difficulty as usize] }
     }
@@ -192,7 +205,7 @@ impl Kit {
         match d.kind {
             Kind::Weapon => match self.weapons.iter_mut().find(|a| a.def == def) {
                 Some(a) => a.level = to,
-                None => self.weapons.push(Armed { def, level: to, cd: 0.3, phase: 0.0 }),
+                None => self.weapons.push(Armed { def, level: to, cd: 0.3, phase: 0.0, burst: 0 }),
             },
             Kind::Passive => {
                 match self.passives.iter_mut().find(|p| p.0 == def) {
@@ -377,7 +390,18 @@ impl Harvest {
             let mut a = self.kit.weapons[i];
             a.cd -= dt;
             if a.cd <= 0.0 {
-                a.cd = if self.attack(a, sounds) { self.stat(a, Stat::Cooldown) } else { 0.0 };
+                let fired = self.attack(a, sounds);
+                let def = &book().defs[a.def];
+                let shots = burst(def.pattern, self.stat(a, Stat::Count), def.at(Stat::Gap, a.level), self.kit.mods.cooldown).filter(|_| matches!(a.does(), Does::Pistol | Does::Gun));
+                (a.cd, a.burst) = match (fired, shots) {
+                    (true, Some((n, gap))) => match if a.burst == 0 { n - 1 } else { a.burst - 1 } {
+                        0 => (self.stat(a, Stat::Cooldown), 0),
+                        left => (gap, left),
+                    },
+                    (true, None) => (self.stat(a, Stat::Cooldown), 0),
+                    (false, _) if a.burst > 0 => (self.stat(a, Stat::Cooldown), 0),
+                    (false, _) => (0.0, 0),
+                };
             }
             if a.does() == Does::Crows {
                 a.phase = (a.phase + self.stat(a, Stat::Speed).to_radians() * dt).rem_euclid(TAU);
@@ -417,7 +441,8 @@ impl Harvest {
         let range = self.stat(a, Stat::Range);
         let target = self.barrel_in_view(range).or_else(|| self.nearest_in(crate::tuning::tuning().point_blank.min(range), None)).or_else(|| self.nearest_in(range, Some((self.aim, self.ahead_half())))).or_else(|| self.nearest_in(range, None));
         let Some(d) = target.map(norm) else { return false };
-        let (n, speed) = (self.stat(a, Stat::Count) as u32, self.stat(a, Stat::Speed));
+        let one = book().defs[a.def].pattern == Pattern::Burst;
+        let (n, speed) = (if one { 1 } else { self.stat(a, Stat::Count) as u32 }, self.stat(a, Stat::Speed));
         let base = d[1].atan2(d[0]);
         let gap = self.stat(a, Stat::Spread).to_radians();
         for k in 0..n {
@@ -436,7 +461,8 @@ impl Harvest {
         let (aim, pattern) = (def.aim, def.pattern);
         let range = self.stat(a, Stat::Range);
         let Some(d) = self.barrel_in_view(range).map(norm).or_else(|| self.aimed(aim, range)) else { return false };
-        let (n, speed) = (self.stat(a, Stat::Count).max(1.0) as u32, self.stat(a, Stat::Speed));
+        let n = if pattern == Pattern::Burst { 1 } else { self.stat(a, Stat::Count).max(1.0) as u32 };
+        let speed = self.stat(a, Stat::Speed);
         let (base, spread) = (d[1].atan2(d[0]), self.stat(a, Stat::Spread).to_radians());
         let (damage, pierce, force) = (self.stat(a, Stat::Damage), self.stat(a, Stat::Pierce) as u32, self.stat(a, Stat::Knockback));
         for k in 0..n {
@@ -1122,6 +1148,65 @@ mod tests {
         }
         let [pistol, shotgun, rifle] = [styles[0], styles[1], styles[2]];
         assert!(shotgun.length < pistol.length && pistol.length < rifle.length, "pellets are short, the rifle's round long");
+    }
+
+    /// When each bullet left over `secs` of firing, with how it was flying.
+    fn shots(h: &mut Harvest, secs: f32) -> Vec<(f32, [f32; 2])> {
+        let (mut out, mut sounds, dt) = (Vec::new(), Vec::new(), 1.0 / 120.0);
+        for k in 0..(secs / dt) as usize {
+            let before = h.bullets.len();
+            h.fire(dt, &mut sounds);
+            out.extend(h.bullets[before..].iter().map(|b| (k as f32 * dt, b.vel)));
+        }
+        out
+    }
+
+    #[test]
+    fn the_pistol_empties_its_clip_in_a_burst_then_waits_its_cooldown() {
+        let mut h = with("pistol", [40.0, 0.0]);
+        h.kit.weapons[0].level = 8;
+        h.kit.weapons[0].cd = 0.0;
+        let a = h.kit.weapons[0];
+        let (n, gap, cooldown) = (h.stat(a, Stat::Count) as usize, h.stat(a, Stat::Gap), h.stat(a, Stat::Cooldown));
+        let t: Vec<f32> = shots(&mut h, (n - 1) as f32 * gap + cooldown + 0.05).iter().map(|s| s.0).collect();
+        assert_eq!(t.len(), n + 1, "one burst of {n}, then the next: {t:?}");
+        assert!(t.windows(2).take(n - 1).all(|w| (w[1] - w[0] - gap).abs() < 0.01), "{gap}s apart: {t:?}");
+        assert!((t[n] - t[n - 1] - cooldown).abs() < 0.01, "then the cooldown: {t:?}");
+    }
+
+    #[test]
+    fn each_shot_of_a_burst_aims_again_so_turning_mid_burst_moves_the_next() {
+        let mut h = with("pistol", [100.0, 0.0]);
+        h.zombies.push(Zombie::new(ZKind::named("big"), [h.pos[0] - 100.0, h.pos[1]], 500.0, 1.0, 0.0));
+        h.kit.weapons[0].level = 8;
+        h.kit.weapons[0].cd = 0.0;
+        let first = shots(&mut h, 0.01);
+        assert!(first.len() == 1 && first[0].1[0] > 0.0, "the first shot goes ahead: {first:?}");
+        h.aim = [-1.0, 0.0];
+        let next = shots(&mut h, 0.1);
+        assert!(!next.is_empty() && next.iter().all(|s| s.1[0] < 0.0 && s.1[1].abs() < 1e-3), "the next go where the player now looks, straight: {next:?}");
+    }
+
+    #[test]
+    fn the_pistol_at_level_one_fires_one_shot_each_cooldown_as_before() {
+        let mut h = with("pistol", [40.0, 0.0]);
+        h.kit.weapons[0].cd = 0.0;
+        let a = h.kit.weapons[0];
+        assert_eq!((h.stat(a, Stat::Count), h.stat(a, Stat::Cooldown), h.stat(a, Stat::Damage)), (1.0, 0.6, 12.0));
+        let t: Vec<f32> = shots(&mut h, 1.3).iter().map(|s| s.0).collect();
+        assert_eq!(t.len(), 3, "{t:?}");
+        assert!((t[1] - t[0] - 0.6).abs() < 0.01 && (t[2] - t[1] - 0.6).abs() < 0.01, "{t:?}");
+    }
+
+    #[test]
+    fn a_fan_ring_or_spray_still_fires_its_count_at_once() {
+        for pattern in [Pattern::Fan, Pattern::Ring, Pattern::Spray] {
+            assert_eq!(burst(pattern, 5.0, 0.1, 1.0), None, "{pattern:?}");
+        }
+        assert_eq!(burst(Pattern::Burst, 6.0, 0.07, 1.0), Some((6, 0.07)));
+        assert_eq!(burst(Pattern::Burst, 1e9, 1e9, 1.0), Some((MAX_BURST, MAX_GAP)), "a mod's burst is bounded");
+        assert_eq!(burst(Pattern::Burst, -3.0, -1.0, 1.0), Some((1, 0.0)));
+        assert_eq!(burst(Pattern::Burst, 3.0, 0.1, 0.5), Some((3, 0.05)), "quick hands shortens the gap too");
     }
 
     #[test]

@@ -94,6 +94,8 @@ pub enum Pattern {
     Ring,
     /// At random across its spread.
     Spray,
+    /// One after another, `gap` seconds apart, each aimed as it fires.
+    Burst,
 }
 
 /// Every weapon behaviour by the name `does` gives it.
@@ -134,6 +136,11 @@ pub fn weapon_behaviours() -> [&'static str; 20] {
 /// The names a weapon's `sound` can give.
 pub fn weapon_sound_names() -> [&'static str; 6] {
     WEAPON_SOUNDS.map(|(k, _)| k)
+}
+
+/// The patterns a gun's shots can take, by the names `pattern` gives them.
+pub fn weapon_patterns() -> [&'static str; 4] {
+    ["fan", "ring", "spray", "burst"]
 }
 
 /// Each stat a weapon can set, by its key, with its value when the section leaves it out.
@@ -284,6 +291,7 @@ pub enum Stat {
     Spread,
     Knockback,
     Slow,
+    Gap,
     MaxHp,
     Heal,
     Magnet,
@@ -314,7 +322,7 @@ enum Shown {
 }
 
 impl Stat {
-    const ALL: [Stat; 29] = [
+    const ALL: [Stat; 30] = [
         Stat::Cooldown,
         Stat::Damage,
         Stat::Count,
@@ -326,6 +334,7 @@ impl Stat {
         Stat::Spread,
         Stat::Knockback,
         Stat::Slow,
+        Stat::Gap,
         Stat::MaxHp,
         Stat::Heal,
         Stat::Magnet,
@@ -359,6 +368,7 @@ impl Stat {
             Stat::Spread => "spread",
             Stat::Knockback => "knockback",
             Stat::Slow => "slow",
+            Stat::Gap => "gap",
             Stat::MaxHp => "max_hp",
             Stat::Heal => "heal",
             Stat::Magnet => "magnet",
@@ -393,6 +403,7 @@ impl Stat {
             Stat::Spread => "Spread",
             Stat::Knockback => "Knockback",
             Stat::Slow => "Slow",
+            Stat::Gap => "Burst gap",
             Stat::MaxHp => "Max health",
             Stat::Heal => "Heal",
             Stat::Magnet => "Pickup range",
@@ -425,12 +436,12 @@ impl Stat {
     fn for_weapons(self) -> bool {
         matches!(
             self,
-            Stat::Cooldown | Stat::Damage | Stat::Count | Stat::Range | Stat::Area | Stat::Pierce | Stat::Speed | Stat::Duration | Stat::Spread | Stat::Knockback | Stat::Slow
+            Stat::Cooldown | Stat::Damage | Stat::Count | Stat::Range | Stat::Area | Stat::Pierce | Stat::Speed | Stat::Duration | Stat::Spread | Stat::Knockback | Stat::Slow | Stat::Gap
         )
     }
 
     fn for_passives(self) -> bool {
-        !matches!(self, Stat::Count | Stat::Range | Stat::Duration | Stat::Spread | Stat::Slow | Stat::Refill | Stat::Money)
+        !matches!(self, Stat::Count | Stat::Range | Stat::Duration | Stat::Spread | Stat::Slow | Stat::Gap | Stat::Refill | Stat::Money)
     }
 
     /// A weapon's value for a stat the file leaves out.
@@ -442,6 +453,7 @@ impl Stat {
             Stat::Speed => 200.0,
             Stat::Spread => 30.0,
             Stat::Knockback => 30.0,
+            Stat::Gap => 0.1,
             _ => 0.0,
         }
     }
@@ -449,7 +461,7 @@ impl Stat {
     fn shown(self, kind: Kind) -> Shown {
         match self {
             _ if kind == Kind::Passive && self.scales() => Shown::Percent,
-            Stat::Cooldown | Stat::Duration | Stat::Drums => Shown::Seconds,
+            Stat::Cooldown | Stat::Duration | Stat::Drums | Stat::Gap => Shown::Seconds,
             Stat::Crit | Stat::Luck | Stat::Slow => Shown::Chance,
             _ => Shown::Number,
         }
@@ -706,7 +718,8 @@ pub fn parse(text: &str) -> Result<Book, String> {
                     "fan" => Pattern::Fan,
                     "ring" => Pattern::Ring,
                     "spray" => Pattern::Spray,
-                    _ => return Err(format!("{n}: pattern is fan, ring or spray, not {rest:?}")),
+                    "burst" => Pattern::Burst,
+                    _ => return Err(format!("{n}: pattern is fan, ring, spray or burst, not {rest:?}")),
                 }
             }
             "kick" | "punch" | "shake" => {
@@ -832,7 +845,7 @@ mod tests {
         let w = weapon_levels(text, "pistol").unwrap();
         let stat = |k: &str| w.stats.iter().find(|s| s.0 == k).cloned().unwrap();
         assert_eq!(w.max, 8);
-        assert_eq!(stat("damage"), ("damage", true, vec![12.0, 12.0, 15.0, 15.0, 18.0, 18.0, 21.0, 24.0]));
+        assert_eq!(stat("damage"), ("damage", true, vec![12.0, 15.0, 15.0, 22.0, 22.0, 22.0, 29.0, 30.0]));
         assert_eq!(stat("area"), ("area", false, vec![20.0; 8]), "a stat left out is its default at every level");
         assert!(weapon_levels(text, "nope").is_err() && weapon_levels("[x]\n", "x").is_err());
         assert!(weapon_behaviours().iter().all(|k| Does::from_key(k).is_some()));
@@ -864,6 +877,8 @@ mod tests {
         assert!(parse("[a]\nicon WHITE\nlands moon").unwrap_err().starts_with("3: lands is"));
         let g = parse("[nova]\nkind weapon\ndoes gun\naim around\npattern ring\nicon WHITE\n[cash]\nkind filler\nicon WHITE\n").unwrap();
         assert_eq!((g.defs[0].does, g.defs[0].aim, g.defs[0].pattern), (Some(Does::Gun), Aim::Around, Pattern::Ring));
+        let patterns: Vec<Pattern> = weapon_patterns().iter().map(|p| parse(&format!("[g]\nkind weapon\ndoes gun\npattern {p}\nicon WHITE\n[cash]\nkind filler\nicon WHITE\n")).unwrap().defs[0].pattern).collect();
+        assert_eq!(patterns, [Pattern::Fan, Pattern::Ring, Pattern::Spray, Pattern::Burst]);
         assert!(parse("[a]\nicon WHITE\naim up").unwrap_err().starts_with("3: aim is"));
     }
 

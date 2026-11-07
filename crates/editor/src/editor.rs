@@ -4157,7 +4157,7 @@ mod tests {
         let stat = |k: &str| last_harvest_game::weapon_stats().iter().position(|s| s.0 == k).unwrap();
         let start = text(&e);
         e.act(Action::WeaponStep(stat("damage"), 1), false);
-        assert_eq!(text(&e), start.replacen("damage    12 12 15", "damage 13 12 15", 1));
+        assert_eq!(text(&e), start.replacen("damage    12 15 15", "damage 13 15 15", 1));
         e.act(Action::WeaponLevel(3), false);
         e.act(Action::WeaponStep(stat("range"), -1), false);
         assert!(text(&e).contains("\nrange 150 150 149 150\n"), "a short list grows only to keep the levels after");
@@ -4166,7 +4166,18 @@ mod tests {
         e.act(Action::WeaponPick(0, 1), false);
         e.act(Action::WeaponPick(2, -1), false);
         e.act(Action::WeaponMax(1), false);
-        assert!(text(&e).contains("max 9\n") && text(&e).contains("spread    8\ndoes gun\neffect muzzle_pistol\nsound throw\n\n"), "{}", text(&e));
+        assert!(text(&e).contains("max 9\n") && text(&e).contains("pierce    0 0 0 0 1 1 1 1\ndoes gun\neffect muzzle_pistol\nsound throw\n\n"), "{}", text(&e));
+        let pattern = |e: &Editor| e.data.as_ref().and_then(|d| d.table.entries(&d.section).into_iter().find(|l| l.key == "pattern")).map(|l| l.value);
+        e.act(Action::WeaponPick(3, -1), false);
+        assert_eq!(pattern(&e).as_deref(), Some("spray"), "the patterns step from burst");
+        e.act(Action::WeaponPick(3, 1), false);
+        assert_eq!(pattern(&e).as_deref(), Some("burst"));
+        let gap = stat("gap");
+        e.act(Action::WeaponStep(gap, -1), false);
+        assert!(text(&e).contains("\ngap 0.14 0.13 0.11 0.11 0.1"), "the gap steps at the picked level: {}", text(&e));
+        e.key(Key::Undo);
+        e.key(Key::Undo);
+        e.key(Key::Undo);
         assert_eq!(e.data.as_ref().unwrap().weapon.as_ref().unwrap().preview[0].0.as_deref(), Some("muzzle_pistol"));
         e.act(Action::WeaponType(stat("area")), false);
         e.set_text("area 24");
@@ -4187,7 +4198,7 @@ mod tests {
         }
         assert_eq!(text(&e), start, "each change undoes, and the rest of the file stays as written");
         e.key(Key::Redo);
-        assert!(text(&e).contains("damage 13 12 15"));
+        assert!(text(&e).contains("damage 13 15 15"));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

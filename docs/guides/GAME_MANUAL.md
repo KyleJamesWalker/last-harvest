@@ -199,7 +199,7 @@ Weapons attack on their own, each in its zone. Each weapon levels up to its high
 
 | Weapon | Zone | Unlocks | Levels | On its card |
 |---|---|---|---|---|
-| Pistol | Ahead | From the start | 8 | Shoots whatever's in front of you, else the nearest |
+| Pistol | Ahead | From the start | 8 | Shoots what's ahead, else the nearest, in ever faster bursts |
 | Shotgun | Ahead | From the start | 8 | A spread of pellets at close range |
 | Hunting rifle | Ahead | 500 kills over every run | 8 | A slow, heavy round straight down your heading |
 | Lantern beam | Ahead | Survive 2:00 of one night | 8 | Your light burns and slows what it falls on |
@@ -493,7 +493,7 @@ Each `[id]` section is one powerup:
 - `find` sets how often it shows as a find, `after` the earliest minute, and `chest` makes it a chest-only find.
 - `max` is its highest level. Each stat line lists its value at each level, and a short list repeats its last value.
 
-Weapon stats are `cooldown`, `damage`, `count`, `range`, `area`, `pierce`, `speed`, `duration`, `spread`, `knockback` and `slow`. Passive stats are totals that add together. The header lists every passive stat and which ones take a percentage.
+Weapon stats are `cooldown`, `damage`, `count`, `range`, `area`, `pierce`, `speed`, `duration`, `spread`, `knockback`, `slow` and `gap`, the seconds between a burst's shots. Passive stats are totals that add together. The header lists every passive stat and which ones take a percentage.
 
 ##### Making a weapon from data
 
@@ -505,6 +505,7 @@ Three behaviors take their shape from data:
     - `fan`: evenly across `spread` degrees, the default.
     - `ring`: evenly all the way round.
     - `spray`: at random across `spread`.
+    - `burst`: one after another, `gap` seconds apart, each aimed where the gun looks as it fires, so turning mid-burst moves the next shot; then the `cooldown`. `does pistol` takes a burst too, aiming as the pistol does.
 - **`does blade`** cuts everything within `area` across `spread` degrees, toward what its `aim` finds. A `spread` of 360 cuts all round.
 - **`does lob`** throws `count` at a crowd within `range`. `lands` says what happens where it lands, using its `damage`, `area`, `duration` and `slow`:
     - `blast`: an explosion, the default.

@@ -11,14 +11,14 @@ const COL_X: f32 = CANVAS.x + 212.0;
 const COL_W: f32 = 34.0;
 const HEAD_Y: f32 = CANVAS.y + 44.0;
 const STAT_Y: f32 = CANVAS.y + 80.0;
-const STAT_H: f32 = 30.0;
+const STAT_H: f32 = 27.0;
 const PICK_Y: f32 = CANVAS.y + 422.0;
 const DOES_Y: f32 = CANVAS.y + 28.0;
 const DOES_W: f32 = 114.0;
 const PREVIEW: Rect = Rect { x: SIDE_X, y: CANVAS.y + 340.0, w: SIDE_W, h: 220.0 };
 const STYLE: Rect = Rect { x: SIDE_X + SIDE_W / 2.0 + 8.0, y: PREVIEW.y + PREVIEW.h + 6.0, w: SIDE_W / 2.0 - 16.0, h: 28.0 };
 /// The lines the pickers set, in order.
-const PICKS: [&str; 3] = ["effect", "bullet", "sound"];
+const PICKS: [&str; 4] = ["effect", "bullet", "sound", "pattern"];
 
 /// What the weapon page shows of a section, beside the lines it edits.
 pub(super) struct Weapon {
@@ -87,10 +87,12 @@ fn number(v: f32) -> String {
     s.trim_end_matches('0').trim_end_matches('.').to_string()
 }
 
-/// What a picker can name: effects.txt's sections, or the weapon sounds.
+/// What a picker can name: effects.txt's sections, the weapon sounds, or the patterns of a gun's shots.
 fn choices(store: &dyn Store, pick: usize) -> Vec<String> {
-    if PICKS[pick] == "sound" {
-        return last_harvest_game::weapon_sound_names().map(str::to_string).to_vec();
+    match PICKS[pick] {
+        "sound" => return last_harvest_game::weapon_sound_names().map(str::to_string).to_vec(),
+        "pattern" => return last_harvest_game::weapon_patterns().map(str::to_string).to_vec(),
+        _ => {}
     }
     let effects = Table::new("effects.txt", &store.read_table("effects.txt").unwrap_or_default());
     effects.sections().into_iter().filter(|s| s != table::TOP && s != "colors").collect()
@@ -242,7 +244,8 @@ impl Editor {
             let y = PICK_Y + i as f32 * 32.0;
             c.label(key, CANVAS.x + 12.0, y + 5.0, 17.0, TEXT, Align::Left);
             let now = value(&d.table, &d.section, key);
-            c.label(now.unwrap_or_else(|| "its behaviour's own".into()), CANVAS.x + 100.0, y + 5.0, 17.0, TEXT, Align::Left);
+            let own = if key == "pattern" { "fan" } else { "its behaviour's own" };
+            c.label(now.unwrap_or_else(|| own.into()), CANVAS.x + 100.0, y + 5.0, 17.0, TEXT, Align::Left);
         }
         let hint = match &self.naming {
             Some((Line::Value, t)) => format!("{}: {t}_", d.typing.and_then(|r| d.table.entries(&d.section).get(r).map(|e| e.key.clone())).unwrap_or_default()),
