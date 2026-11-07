@@ -39,7 +39,12 @@ pub struct RangeSetup {
     pub weapon: String,
     pub level: u32,
     pub section: Option<String>,
+    /// `effects.txt` sections to lay over the game's, such as the shot style its bullets fly as.
+    pub effects: Option<String>,
 }
+
+/// The line before a setup's `effects.txt` sections.
+const EFFECTS: &str = "effects.txt";
 
 fn heading(line: &str) -> Option<&str> {
     line.split('#').next()?.trim().strip_prefix('[')?.strip_suffix(']')
@@ -49,6 +54,22 @@ impl RangeSetup {
     /// Reads what `LAST_HARVEST_RANGE` or an editor's Try it hands over: `id` or `id:level`, else a weapon's
     /// `powerups.txt` section after an optional `level N` line. An error says why, as the game would.
     pub fn read(text: &str) -> Result<Self, String> {
+        let (text, effects) = match text.lines().position(|l| l.trim() == EFFECTS) {
+            Some(at) => {
+                let lines: Vec<&str> = text.lines().collect();
+                let tail: String = lines[at + 1..].iter().map(|l| format!("{l}\n")).collect();
+                (lines[..at].join("\n"), tail.lines().any(|l| heading(l).is_some()).then_some(tail))
+            }
+            None => (text.to_string(), None),
+        };
+        if let Some(e) = &effects {
+            effects_with(super::built_in_table("effects.txt").unwrap_or_default(), e)?;
+        }
+        let setup = Self::read_weapon(&text)?;
+        Ok(Self { effects, ..setup })
+    }
+
+    fn read_weapon(text: &str) -> Result<Self, String> {
         let text = text.trim();
         let level = |v: &str| v.trim().parse::<u32>().ok().filter(|l| *l > 0).ok_or_else(|| format!("the level is a whole number from 1, not {:?}", v.trim()));
         let Some(start) = text.lines().position(|l| heading(l).is_some()) else {
@@ -56,7 +77,7 @@ impl RangeSetup {
             if id.trim().is_empty() || at == 0 {
                 return Err(format!("{text:?} isn't a weapon id, or id:level"));
             }
-            return Ok(Self { weapon: id.trim().to_string(), level: at, section: None });
+            return Ok(Self { weapon: id.trim().to_string(), level: at, section: None, effects: None });
         };
         let mut at = 1;
         for line in text.lines().take(start).map(|l| l.split('#').next().unwrap_or("").trim()).filter(|l| !l.is_empty()) {
@@ -76,14 +97,18 @@ impl RangeSetup {
         if book.defs.iter().find(|d| d.id == weapon).is_none_or(|d| d.kind != Card::Weapon) {
             return Err(format!("[{weapon}] isn't a weapon"));
         }
-        Ok(Self { weapon, level: at, section: Some(section) })
+        Ok(Self { weapon, level: at, section: Some(section), effects: None })
     }
 
     /// The setup as `read` takes it back.
     pub fn text(&self) -> String {
-        match &self.section {
+        let weapon = match &self.section {
             Some(s) => format!("level {}\n{}", self.level.max(1), s),
-            None => format!("{}:{}", self.weapon, self.level.max(1)),
+            None => format!("{}:{}\n", self.weapon, self.level.max(1)),
+        };
+        match &self.effects {
+            Some(e) => format!("{weapon}{EFFECTS}\n{e}"),
+            None => weapon,
         }
     }
 }
@@ -91,6 +116,30 @@ impl RangeSetup {
 /// `base`, a whole `powerups.txt`, with `section` in place of the one with its heading, or added at the end when it
 /// has none; an error names what the game wouldn't read.
 pub fn powerups_with(base: &str, section: &str) -> Result<String, String> {
+    let out = with_section(base, section)?;
+    powerups::parse(&out).map_err(|e| format!("powerups.txt:{e}"))?;
+    Ok(out)
+}
+
+/// `base`, a whole `effects.txt`, with each of `sections` in place of the one with its heading, or added at the end
+/// when it has none; an error names what the game wouldn't read.
+pub fn effects_with(base: &str, sections: &str) -> Result<String, String> {
+    let mut out = base.to_string();
+    let mut part = String::new();
+    for line in sections.lines().chain(std::iter::once("[]")) {
+        if heading(line).is_some() && !part.trim().is_empty() {
+            out = with_section(&out, &part)?;
+            part.clear();
+        }
+        part += line;
+        part.push('\n');
+    }
+    super::check_table("effects.txt", &out)?;
+    Ok(out)
+}
+
+/// `base` with `section` in place of the one with its heading, or added at the end when it has none.
+fn with_section(base: &str, section: &str) -> Result<String, String> {
     let id = section.lines().find_map(heading).ok_or("the section has no [heading]")?;
     let mut out = String::new();
     let (mut skipping, mut placed) = (false, false);
@@ -113,7 +162,6 @@ pub fn powerups_with(base: &str, section: &str) -> Result<String, String> {
         out += section.trim_end();
         out.push('\n');
     }
-    powerups::parse(&out).map_err(|e| format!("powerups.txt:{e}"))?;
     Ok(out)
 }
 
@@ -204,7 +252,7 @@ impl Harvest {
     /// kind, Select switches to firing by hand and back, and X fires by hand; none of them move the player.
     pub(super) fn range_input(&mut self, input: &Input, sounds: &mut Vec<Sfx>) -> Option<Input> {
         self.range.as_ref()?;
-        if self.menu.is_some() || !matches!(self.phase, Phase::Playing) || self.overview {
+        if self.menu.is_some() || !matches!(self.phase, Phase::Playing) {
             return None;
         }
         let down = if self.single { TOP_KEYS } else { 0.0 };
@@ -309,7 +357,7 @@ impl Harvest {
         let Some(r) = &self.range else { return };
         let (def, kind, by_hand) = (r.def, r.kind, r.by_hand);
         let level = self.kit.weapons.first().map_or(1, |a| a.level);
-        let setup = RangeSetup { weapon: book().defs[def].id.clone(), level, section: None };
+        let setup = RangeSetup { weapon: book().defs[def].id.clone(), level, section: None, effects: None };
         *self = Harvest::range(seed, &setup).single_screen(self.single);
         if let Some(r) = &mut self.range {
             (r.kind, r.by_hand) = (kind, by_hand);
@@ -358,12 +406,12 @@ mod tests {
     }
 
     fn pistol(level: u32) -> Harvest {
-        Harvest::range(3, &RangeSetup { weapon: "pistol".into(), level, section: None })
+        Harvest::range(3, &RangeSetup { weapon: "pistol".into(), level, section: None, effects: None })
     }
 
     #[test]
     fn a_setup_reads_an_id_and_level_or_a_section() {
-        assert_eq!(RangeSetup::read("shotgun").unwrap(), RangeSetup { weapon: "shotgun".into(), level: 1, section: None });
+        assert_eq!(RangeSetup::read("shotgun").unwrap(), RangeSetup { weapon: "shotgun".into(), level: 1, section: None, effects: None });
         assert_eq!(RangeSetup::read("shotgun:3").unwrap().level, 3);
         assert!(RangeSetup::read("shotgun:0").is_err());
         let s = RangeSetup::read("level 4\n[pea]\nkind weapon\ndoes pistol\nicon ICON_PISTOL\nmax 6\ndamage 3 4 5\n").unwrap();
@@ -372,6 +420,19 @@ mod tests {
         assert!(RangeSetup::read("[boots]\nkind passive\nicon ICON_PISTOL\n").unwrap_err().contains("isn't a weapon"));
         assert!(RangeSetup::read("[pea]\nkind weapon\ndoes pistol\ndamage lots\n").unwrap_err().starts_with("powerups.txt:"));
         assert!(RangeSetup::read("hello\n[pea]\nkind weapon\n").is_err());
+    }
+
+    #[test]
+    fn a_setup_carries_the_shot_style_its_bullet_fires_as() {
+        let text = "level 2\n[pistol]\nkind weapon\nbullet pistol_shot\nicon ICON_PISTOL\nmax 8\neffects.txt\n[pistol_shot]\ncolor D98A3C\nlength 30\ntracer SHOT_ROUND\n";
+        let s = RangeSetup::read(text).unwrap();
+        assert_eq!(s.effects.as_deref(), Some("[pistol_shot]\ncolor D98A3C\nlength 30\ntracer SHOT_ROUND\n"));
+        assert_eq!(RangeSetup::read(&s.text()).unwrap(), s, "what text writes, read takes back");
+        let base = super::super::built_in_table("effects.txt").unwrap();
+        let laid = effects_with(base, s.effects.as_deref().unwrap()).unwrap();
+        assert_eq!(super::super::effects::shot_named(&laid, Some("pistol_shot")).map(|shot| shot.length), Some(30.0));
+        assert!(RangeSetup::read(&text.replace("length 30", "length lots")).unwrap_err().starts_with("effects.txt:"));
+        assert!(RangeSetup::read("level 2\n[pistol]\nkind weapon\nicon ICON_PISTOL\neffects.txt\n").unwrap().effects.is_none(), "no sections, nothing to lay over");
     }
 
     #[test]

@@ -3,16 +3,22 @@
 mod carve;
 mod draw;
 mod effects;
+pub use effects::{SPRITES as SHOT_SPRITES, Shot, shot_named, shot_sprite_names};
 mod enemies;
 mod juice;
 mod map;
 mod photo;
 mod props;
+mod quick;
 mod range;
 mod players;
 mod powerups;
 pub mod showcase;
 mod sight;
+mod tally;
+#[cfg(test)]
+pub use powerups::powerup_icon;
+pub(crate) use draw::powerup_icons;
 mod single;
 mod view3d;
 mod weapons;
@@ -32,8 +38,8 @@ pub use players::{BASE_KEYS as PLAYER_BASE_KEYS, ID_MAX as PLAYER_ID_MAX, Player
 pub use enemies::{CardFields, FLAGS as CARD_FLAGS, NUMBERS as CARD_NUMBERS, SpawnMix, card_fields, set_card_field, spawn_mix};
 use juice::{Corpse, Juice, Particle, Tone};
 use map::{Map, TILE};
-pub use range::{RangeSetup, powerups_with};
-pub use powerups::{Progress, Run, WeaponLevels, found_from_ids, found_ids, weapon_behaviours, weapon_levels, weapon_sound_names, weapon_stats};
+pub use range::{RangeSetup, effects_with, powerups_with};
+pub use powerups::{Progress, RUN_KIT, Run, WeaponLevels, found_from_ids, found_ids, powerup_id, powerup_index, weapon_behaviours, weapon_levels, weapon_patterns, weapon_sound_names, weapon_stats, weapon_targets};
 use powerups::{Kind as Card, book};
 use weapons::{Bolt, Decoy, Dog, Kit, Patch, Swing};
 
@@ -223,8 +229,12 @@ pub fn check_own_table(file: &str, text: &str) -> Result<(), String> {
         "effects.txt" => {
             effects::parse_colors(text, None).map_err(fail)?;
             let (own, extra) = effects::parse(text).map_err(fail)?;
-            match own.iter().chain(extra.iter().map(|(_, w)| w)).find(|w| missing(&w.art)) {
-                Some(w) => Err(format!("{file}: no sprite called {} in art.txt", w.art)),
+            let all = || own.iter().chain(extra.iter().map(|(_, w)| w));
+            if let Some(w) = all().find(|w| !(w.art.is_empty() && w.is_shot()) && missing(&w.art)) {
+                return Err(format!("{file}: no sprite called {} in art.txt", w.art));
+            }
+            match all().flat_map(|w| w.sprites.iter().flatten()).find(|n| missing(n)) {
+                Some(n) => Err(format!("{file}: no sprite called {n} in art.txt")),
                 None => Ok(()),
             }
         }
@@ -308,6 +318,8 @@ struct Zombie {
     burn: f32,
     burn_dps: f32,
     burn_tick: f32,
+    /// The weapon that set it burning, for the run's damage by weapon.
+    burn_by: Option<usize>,
     /// A horde's leader, which drops a chest.
     leader: bool,
     /// Dawn's Harvester: faster, heavier, harder biting, and drawn twice the size.
@@ -341,6 +353,7 @@ impl Zombie {
             burn: 0.0,
             burn_dps: 0.0,
             burn_tick: 0.0,
+            burn_by: None,
             leader: false,
             boss: false,
             cd: 0.0,
@@ -432,6 +445,8 @@ struct Bullet {
     /// The effect it flies as, when its weapon names one.
     look: Option<effects::Effect>,
     age: f32,
+    /// The weapon that fired it.
+    by: Option<usize>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -472,6 +487,8 @@ struct Grenade {
     to: [f32; 2],
     t: f32,
     kind: Thrown,
+    /// The weapon that threw it; None for a grenade.
+    by: Option<usize>,
 }
 
 impl Grenade {
@@ -659,6 +676,8 @@ pub struct Harvest {
     marks: Vec<sight::Mark>,
     spits: Vec<Spit>,
     bullets: Vec<Bullet>,
+    /// The zombies each weapon's burst has shot so far, by its section, for `targets each`.
+    burst_shot: Vec<(usize, u32)>,
     drops: Vec<Drop>,
     fx: Vec<Fx>,
     /// Blood and scorch marks: art, top-left, and a tint.
@@ -714,8 +733,6 @@ pub struct Harvest {
     next_xp: u32,
     level: u32,
     kills: u32,
-    /// Holding L1 pauses and shows the whole map.
-    overview: bool,
     /// Steps to the player from each cell, rebuilt when the player changes cell.
     flow: Vec<u16>,
     flow_cell: [usize; 2],
@@ -771,6 +788,8 @@ pub struct Harvest {
     /// One screen: the map shows on the top screen only while looked at.
     single: bool,
     aiming: Option<single::Aiming>,
+    /// Seconds R1 has held a quick throw lined up.
+    quick: Option<f32>,
     /// The map is up on the one screen without a grenade being aimed.
     glance: bool,
     /// A thrown grenade is never spent.
@@ -785,6 +804,8 @@ pub struct Harvest {
     photo: Option<photo::Photo>,
     saves_photos: bool,
     taps: bool,
+    /// The on-screen photo keys show, so the guides name them instead of a pad's buttons.
+    touch_keys: bool,
     /// The weapon range, trying one weapon against a ring of zombies.
     range: Option<range::Range>,
 }
@@ -887,6 +908,8 @@ impl Harvest {
 
     fn with_map(seed: u64, rng: Rng, map: Map) -> Self {
         let kit = Kit::start(Difficulty::Normal);
+        let mut juice = Juice::new(seed);
+        juice.tally = tally::Tally::sized(book().defs.len());
         let own = crate::tuning::tuning().barrel_hp;
         let barrels = map.barrels.iter().enumerate().map(|(i, &pos)| Barrel { pos, hp: map.barrel_hp.get(i).copied().filter(|h| *h > 0.0).unwrap_or(own), flash: 0.0 }).collect();
         Self {
@@ -937,6 +960,7 @@ impl Harvest {
             marks: Vec::new(),
             spits: Vec::new(),
             bullets: Vec::new(),
+            burst_shot: Vec::new(),
             drops: Vec::new(),
             fx: Vec::new(),
             stains: Vec::new(),
@@ -945,7 +969,6 @@ impl Harvest {
             next_xp: book().first_level,
             level: 1,
             kills: 0,
-            overview: false,
             flow: Vec::new(),
             flow_cell: [usize::MAX; 2],
             sep: Vec::new(),
@@ -958,7 +981,7 @@ impl Harvest {
             turn_ready: false,
             calm: false,
             bench: false,
-            juice: Juice::new(seed),
+            juice,
             tells: Vec::new(),
             birds: Vec::new(),
             noise: None,
@@ -978,6 +1001,7 @@ impl Harvest {
             difficulty: Difficulty::Normal,
             single: false,
             aiming: None,
+            quick: None,
             glance: false,
             endless: false,
             last_throw: None,
@@ -987,6 +1011,7 @@ impl Harvest {
             photo: None,
             saves_photos: false,
             taps: true,
+            touch_keys: false,
             range: None,
         }
         .with_birds()
@@ -1039,7 +1064,7 @@ impl Harvest {
             h.juice.burst(at, 8.0, 8, [0.0; 2], 0.0, [10.0, 40.0], juice::blood(), 1.5, 100.0, 0.0);
             h.juice.popup(at, 12.0 + i as f32, if i % 5 == 0 { Tone::Crit } else { Tone::Hit });
             let vel = [a.cos() * 200.0, a.sin() * 200.0];
-            h.bullets.push(Bullet { pos: [h.pos[0] + a.cos() * 20.0, h.pos[1] - 6.0 + a.sin() * 20.0], vel, damage: 0.0, pierce: 0, life: 1.0, force: 0.0, hit: Vec::new(), look: None, age: 0.0 });
+            h.bullets.push(Bullet { pos: [h.pos[0] + a.cos() * 20.0, h.pos[1] - 6.0 + a.sin() * 20.0], vel, damage: 0.0, pierce: 0, life: 1.0, force: 0.0, hit: Vec::new(), look: None, age: 0.0, by: None });
         }
         let e = effects::effects();
         for (i, fx) in [e.explosion, e.explosion_smoke, e.zombie_rises, e.mound_breaks].into_iter().cycle().take(16).enumerate() {
@@ -1098,10 +1123,9 @@ impl Harvest {
         self.enemies_off
     }
 
-    /// Whether the paused whole map is up.
     #[cfg(test)]
-    pub(crate) fn showing_whole_map(&self) -> bool {
-        self.overview
+    pub(crate) fn night_t(&self) -> f32 {
+        self.t
     }
 
     #[cfg(test)]
@@ -1177,10 +1201,6 @@ impl Harvest {
             self.photo(input, dt, sounds, &mut flow);
             return flow;
         }
-        self.overview = input.held.contains(if self.single { Buttons::R2 } else { Buttons::L1 });
-        if self.overview {
-            return flow;
-        }
         let own;
         let (input, dt) = if self.single {
             own = self.single_input(input, dt, sounds);
@@ -1188,6 +1208,7 @@ impl Harvest {
         } else {
             (input, dt)
         };
+        self.quick_off();
         if let Some(at) = self.menu {
             self.pause_menu(at, input, sounds, &mut flow);
             return flow;
@@ -1292,6 +1313,7 @@ impl Harvest {
             dt
         };
         self.t += dt;
+        self.juice.tally.hold(self.kit.weapons.iter().map(|a| a.def), dt);
         self.hurt = (self.hurt - dt).max(0.0);
         // Up and down walk along the heading, left and right strafe, Y and A turn, B turns around.
         let dir = input.dir();
@@ -1332,6 +1354,7 @@ impl Harvest {
         if let Some(touch) = input.touch.filter(|_| input.touch_started).or(self.queued_touch.take()) {
             self.throw(touch, sounds);
         }
+        self.quick_throw(input, dt, sounds);
         self.fly(dt, sounds, flow);
 
         if !self.calm {
@@ -1549,6 +1572,8 @@ impl Harvest {
                 drag: 1.0,
                 glow: 1.0,
                 wander: false,
+                grow: 0.0,
+                art: None,
             });
         }
     }
@@ -1642,7 +1667,12 @@ impl Harvest {
 
     /// How the run went, and what it unlocked.
     fn finish(&mut self, won: bool) -> Run {
-        let run = Run { secs: self.t as u32, kills: self.kills, level: self.level, won };
+        let mut kit = [None; RUN_KIT];
+        let held = self.kit.weapons.iter().map(|a| (a.def, a.level)).chain(self.kit.passives.iter().copied());
+        for (slot, (def, level)) in kit.iter_mut().zip(held) {
+            *slot = Some((def as u16, level.min(u8::MAX as u32) as u8));
+        }
+        let run = Run { secs: self.t as u32, kills: self.kills, level: self.level, won, difficulty: self.difficulty, dps: self.juice.tally.dps().round() as u32, kit };
         let after = self.progress.after(run);
         self.ready = (0..book().defs.len()).filter(|&i| !self.progress.findable(i) && after.findable(i)).count();
         self.progress = after;
@@ -1959,6 +1989,7 @@ impl Harvest {
 
     fn move_bullets(&mut self, dt: f32, sounds: &mut Vec<Sfx>) {
         let crit = crate::tuning::tuning().crit + self.kit.mods.crit;
+        let own_shot = effects::effects().bullet.shot;
         let mut hits = (0, false);
         for b in &mut self.bullets {
             b.pos = [b.pos[0] + b.vel[0] * dt, b.pos[1] + b.vel[1] * dt];
@@ -1966,6 +1997,7 @@ impl Harvest {
             b.age += dt;
             let ground = [b.pos[0], b.pos[1] + 6.0];
             let back = norm([-b.vel[0], -b.vel[1]]);
+            let shot = b.look.map_or(own_shot, |e| e.shot);
             if self.map.cover_at(ground[0], ground[1]) {
                 let cell = |p: [f32; 2]| [(p[0] / TILE).floor(), (p[1] / TILE).floor()];
                 let at = cell(ground);
@@ -1979,17 +2011,25 @@ impl Harvest {
                 } else {
                     self.juice.burst(ground, 6.0, 2, back, 0.9, [20.0, 50.0], juice::dirt(), 1.0, 0.3, 0.0);
                 }
+                if let Some(s) = &shot {
+                    self.juice.impact(ground, 6.0, back, s);
+                }
                 b.life = 0.0;
                 continue;
             }
+            let spent = b.life <= 0.0;
             for z in &mut self.zombies {
                 if b.life <= 0.0 || b.hit.contains(&z.id) {
                     continue;
                 }
                 let d = sub([z.pos[0], z.pos[1] - 6.0], b.pos);
                 if len(d) < 7.0 {
+                    self.juice.tally.by = b.by;
                     hits.1 |= strike(z, &mut self.juice, b.damage, norm(b.vel), b.force, crit);
                     hits.0 += 1;
+                    if let Some(s) = &shot {
+                        self.juice.impact(ground, 6.0, back, s);
+                    }
                     b.hit.push(z.id);
                     if b.pierce == 0 {
                         b.life = 0.0;
@@ -1998,7 +2038,11 @@ impl Harvest {
                     }
                 }
             }
+            if let (true, Some(s)) = (spent, &shot) {
+                self.juice.impact(ground, 1.0, back, s);
+            }
         }
+        self.juice.tally.by = None;
         self.bullets.retain(|b| b.life > 0.0);
         self.thud(hits, sounds);
     }
@@ -2012,6 +2056,7 @@ impl Harvest {
         let c = self.barrels.swap_remove(i).center();
         self.map.open(c[0], c[1]);
         self.flow_cell = [usize::MAX; 2];
+        self.juice.tally.by = None;
         self.explode(c, crate::tuning::tuning().barrel_radius, crate::tuning::tuning().barrel_damage, sounds);
         true
     }
@@ -2085,7 +2130,7 @@ impl Harvest {
         if !self.endless {
             self.grenades -= 1.0;
         }
-        self.thrown.push(Grenade { from: self.pos, to, t: 0.0, kind: Thrown::Grenade });
+        self.thrown.push(Grenade { from: self.pos, to, t: 0.0, kind: Thrown::Grenade, by: None });
         sounds.push(Sfx::Throw);
     }
 
@@ -2096,7 +2141,9 @@ impl Harvest {
         let (landed, flying): (Vec<Grenade>, Vec<Grenade>) = std::mem::take(&mut self.thrown).into_iter().partition(|g| g.t >= crate::tuning::tuning().grenade_flight);
         self.thrown = flying;
         for g in landed {
+            self.juice.tally.by = g.by;
             self.land(&g, sounds);
+            self.juice.tally.by = None;
             let blast = matches!(g.kind, Thrown::Lob { def, .. } if powerups::book().defs[def].lands == powerups::Lands::Blast);
             if blast || matches!(g.kind, Thrown::Grenade | Thrown::Bomblet) {
                 flow.rumble = flow.rumble.max(Some(Rumble::Blast));
@@ -2332,6 +2379,8 @@ impl Harvest {
                 drag: 0.0,
                 glow: 1.0,
                 wander: true,
+                grow: 0.0,
+                art: None,
             });
         }
 
@@ -2354,6 +2403,8 @@ impl Harvest {
                     drag: 0.0,
                     glow: 1.0,
                     wander: false,
+                    grow: 0.0,
+                    art: None,
                 });
             }
         }
@@ -2630,6 +2681,8 @@ mod tests {
         }
         assert!(check_table("tuning.txt", "[player]\nhp 120").is_ok(), "a mod sets only what it changes");
         assert!(check_own_table("tuning.txt", "[player]\nhp 120").unwrap_err().contains("doesn't set"));
+        let sprite = built_in_table("effects.txt").unwrap().replacen("spark SHOT_SPARK", "spark NOPE", 1);
+        assert!(check_table("effects.txt", &sprite).is_ok() && check_own_table("effects.txt", &sprite).is_err(), "the game's own shots draw its own sprites");
         let effects = built_in_table("effects.txt").unwrap().replace("art SLASH", "art NOPE");
         assert_eq!(check_own_table("effects.txt", &effects), Err("effects.txt: no sprite called NOPE in art.txt".into()));
         let farm = built_in_table("farm.txt").unwrap().replace("BUSH 140", "PROP_MINE 140");
@@ -2816,11 +2869,37 @@ mod tests {
         let c = barrel.center();
         h.zombies.push(Zombie::new(Kind::named("big"), [c[0] + 20.0, c[1]], 50.0, 1.0, 0.0));
         let mut sounds = Vec::new();
-        h.bullets.push(Bullet { pos: [c[0], c[1] - 6.0], vel: [1.0, 0.0], damage: 50.0, pierce: 0, life: 1.0, force: 30.0, hit: Vec::new(), look: None, age: 0.0 });
+        h.bullets.push(Bullet { pos: [c[0], c[1] - 6.0], vel: [1.0, 0.0], damage: 50.0, pierce: 0, life: 1.0, force: 30.0, hit: Vec::new(), look: None, age: 0.0, by: None });
         h.move_bullets(0.016, &mut sounds);
         assert!(h.blow(0.016, &mut sounds));
         assert!(h.zombies[0].hp <= 0.0);
         assert!(!h.map.solid_at(c[0], c[1]));
+    }
+
+    #[test]
+    fn a_bullet_throws_its_impact_sparks_where_it_hits_a_zombie_or_runs_out_on_the_ground() {
+        let look = effects::effects().named("pistol_shot").expect("the pistol's style");
+        let shot = look.shot.unwrap();
+        let sparks = |h: &Harvest| h.juice.particles.iter().filter(|p| p.glow > 0.0 && p.color == shot.color).count();
+        let mut h = Harvest::calm(4);
+        let at = h.pos;
+        h.zombies.push(Zombie::new(Kind::named("big"), [at[0] + 3.0, at[1]], 500.0, 1.0, 0.0));
+        h.bullets = vec![Bullet { pos: [at[0], at[1] - 6.0], vel: [10.0, 0.0], damage: 1.0, pierce: 0, life: 1.0, force: 0.0, hit: Vec::new(), look: Some(look), age: 0.0, by: None }];
+        h.juice.particles.clear();
+        h.move_bullets(0.016, &mut Vec::new());
+        assert!(h.bullets.is_empty());
+        assert_eq!(sparks(&h), shot.impact as usize, "sparks beside the blood");
+        assert!(h.juice.particles.len() > shot.impact as usize + 1, "and the blood still sprays");
+        h.zombies.clear();
+        h.juice.particles.clear();
+        h.bullets = vec![Bullet { pos: [at[0], at[1] - 6.0], vel: [10.0, 0.0], damage: 1.0, pierce: 0, life: 0.01, force: 0.0, hit: Vec::new(), look: Some(look), age: 0.0, by: None }];
+        h.move_bullets(0.016, &mut Vec::new());
+        assert_eq!(sparks(&h), shot.impact as usize, "a bullet that flies its range sparks on the ground");
+        h.juice.particles.clear();
+        let sprite = effects::effects().slash;
+        h.bullets = vec![Bullet { pos: [at[0], at[1] - 6.0], vel: [10.0, 0.0], damage: 1.0, pierce: 0, life: 0.01, force: 0.0, hit: Vec::new(), look: Some(sprite), age: 0.0, by: None }];
+        h.move_bullets(0.016, &mut Vec::new());
+        assert!(h.juice.particles.is_empty(), "a bullet that flies as a sprite throws none");
     }
 
     #[test]
@@ -2845,7 +2924,7 @@ mod tests {
         let mut live = Zombie::new(Kind::named("skinny"), at, 1000.0, 1.0, 0.0);
         live.id = 2;
         h.zombies = vec![dead, live];
-        h.bullets = vec![Bullet { pos: [at[0], at[1] - 6.0], vel: [0.0; 2], damage: 10.0, pierce: 5, life: 1.0, force: 0.0, hit: Vec::new(), look: None, age: 0.0 }];
+        h.bullets = vec![Bullet { pos: [at[0], at[1] - 6.0], vel: [0.0; 2], damage: 10.0, pierce: 5, life: 1.0, force: 0.0, hit: Vec::new(), look: None, age: 0.0, by: None }];
         let mut sounds = Vec::new();
         h.move_bullets(0.016, &mut sounds);
         let once = h.zombies[1].hp;
@@ -2862,7 +2941,7 @@ mod tests {
         let (bush, house) = (bottom(art::BUSH), bottom(art::HOUSE));
         assert!(h.map.solid_at(bush[0], bush[1]));
         let mut stops = |at: [f32; 2]| {
-            h.bullets = vec![Bullet { pos: [at[0], at[1] - 6.0], vel: [0.0; 2], damage: 1.0, pierce: 0, life: 1.0, force: 0.0, hit: Vec::new(), look: None, age: 0.0 }];
+            h.bullets = vec![Bullet { pos: [at[0], at[1] - 6.0], vel: [0.0; 2], damage: 1.0, pierce: 0, life: 1.0, force: 0.0, hit: Vec::new(), look: None, age: 0.0, by: None }];
             h.move_bullets(0.016, &mut Vec::new());
             h.bullets.is_empty()
         };
@@ -2897,7 +2976,7 @@ mod tests {
         let mut h = penned();
         let post = [7.5 * TILE, 6.5 * TILE];
         let shoot = |h: &mut Harvest| {
-            h.bullets = vec![Bullet { pos: [post[0], post[1] - 6.0], vel: [0.0; 2], damage: 10.0, pierce: 0, life: 1.0, force: 0.0, hit: Vec::new(), look: None, age: 0.0 }];
+            h.bullets = vec![Bullet { pos: [post[0], post[1] - 6.0], vel: [0.0; 2], damage: 10.0, pierce: 0, life: 1.0, force: 0.0, hit: Vec::new(), look: None, age: 0.0, by: None }];
             h.move_bullets(0.016, &mut Vec::new());
         };
         let i = h.map.breakable_at(post[0], post[1]).unwrap();
@@ -2955,6 +3034,91 @@ mod tests {
         }
         assert!(h.pos[0] - spot[0] > 30.0, "the player walks on the way they faced");
         assert!(len(sub(h.zombies[0].pos, h.pos)) < MARCH_CLOSE * 1.5, "and the dead keep with them");
+    }
+
+    /// A calm run holding its start weapons among a few zombies too tough to kill, played for `secs`, then ended by
+    /// dying and played on until the summary shows.
+    fn fought_then_died(secs: f32) -> (Harvest, f32) {
+        let mut h = Harvest::calm(3);
+        let hp = 1.0e6;
+        h.zombies = (0..4).map(|k| {
+            let mut z = Zombie::new(Kind::named("big"), [h.pos[0] + 16.0, h.pos[1] - 6.0 + k as f32 * 4.0], hp, 1.0, 0.0);
+            z.id = 100 + k;
+            z
+        }).collect();
+        h.hp = 1.0e6;
+        for _ in 0..(secs * 60.0) as usize {
+            h.update(&Input::default(), 1.0 / 60.0, &mut Vec::new());
+        }
+        let hurt: f32 = h.zombies.iter().map(|z| hp - z.hp).sum();
+        h.hp = 0.0;
+        h.update(&Input::default(), 1.0 / 60.0, &mut Vec::new());
+        h.update(&Input::default(), TURNED + 1.5, &mut Vec::new());
+        (h, hurt)
+    }
+
+    fn top_text(h: &Harvest) -> Vec<String> {
+        let mut f = crate::Frame::default();
+        h.draw(&mut f, false);
+        f.top.shapes.iter().filter_map(|s| if let crate::Shape::Text { text, .. } = s { Some(text.clone()) } else { None }).collect()
+    }
+
+    #[test]
+    fn the_end_screen_lists_each_weapon_held_by_damage_then_the_whole_run() {
+        let (h, hurt) = fought_then_died(5.0);
+        assert!(hurt > 0.0);
+        let tally = &h.juice.tally;
+        assert!((tally.total() - hurt).abs() < 0.01 * hurt, "every hit counts: {} of {hurt}", tally.total());
+        assert!((tally.secs - h.t).abs() < 1e-3 && tally.dps() == tally.total() / tally.secs, "over the night's time");
+        let names: Vec<&str> = tally.rows().iter().map(|r| book().defs[r.by.unwrap()].name.as_str()).collect();
+        let held: Vec<&str> = h.kit.weapons.iter().map(|a| book().defs[a.def].name.as_str()).collect();
+        assert_eq!(names.len(), held.len(), "{names:?} {held:?}");
+        assert!(held.iter().all(|n| names.contains(n)));
+        assert!(tally.rows().windows(2).all(|w| w[0].damage >= w[1].damage), "most damage first");
+        let text = top_text(&h);
+        let at = |s: &str| text.iter().position(|t| t == s).unwrap_or_else(|| panic!("{s} not on the end screen: {text:?}"));
+        let order: Vec<usize> = names.iter().map(|n| at(n)).chain([at("Whole run")]).collect();
+        assert!(order.windows(2).all(|w| w[0] < w[1]), "in that order, the whole run last");
+    }
+
+    #[test]
+    fn the_end_screen_shows_the_build_on_the_top_screen_on_one_screen_and_two() {
+        for single in [false, true] {
+            let (mut h, _) = fought_then_died(1.0);
+            h.single = single;
+            let points = book().index("hollow_points").unwrap();
+            h.kit.raise(points, 2);
+            let mut f = crate::Frame::default();
+            h.draw(&mut f, false);
+            let icons: Vec<Art> = f.top.shapes.iter().filter_map(|s| if let crate::Shape::Art { art, .. } = s { Some(*art) } else { None }).collect();
+            for def in h.kit.weapons.iter().map(|a| a.def).chain([points]) {
+                assert!(icons.contains(&book().defs[def].icon), "{} on the top screen, one screen {single}", book().defs[def].id);
+            }
+            assert!(top_text(&h).contains(&"Build".to_string()));
+        }
+    }
+
+    #[test]
+    fn a_runs_record_keeps_its_weapons_then_passives_at_their_levels() {
+        let mut h = Harvest::calm(3);
+        let crows = book().index("crows").unwrap();
+        let points = book().index("hollow_points").unwrap();
+        h.kit.raise(crows, 3);
+        h.kit.raise(points, 2);
+        h.hp = 0.0;
+        let run = h.update(&Input::default(), 1.0 / 60.0, &mut Vec::new()).ended.expect("the run ends");
+        let mut want: Vec<(u16, u8)> = h.kit.weapons.iter().map(|a| (a.def as u16, a.level as u8)).collect();
+        want.push((points as u16, 2));
+        assert!(want.contains(&(crows as u16, 3)));
+        assert_eq!(run.kit.iter().flatten().copied().collect::<Vec<_>>(), want);
+    }
+
+    #[test]
+    fn a_new_run_starts_its_tally_over() {
+        let (mut h, _) = fought_then_died(1.0);
+        h.update(&Input { pressed: Buttons::A, ..Default::default() }, 1.0 / 60.0, &mut Vec::new());
+        assert!(matches!(h.phase, Phase::Playing));
+        assert_eq!((h.juice.tally.total(), h.juice.tally.secs), (0.0, 0.0));
     }
 
     #[test]
@@ -3241,6 +3405,64 @@ mod tests {
         let flow = h.update(&Input::default(), 0.02, &mut Vec::new());
         assert!(matches!(h.phase, Phase::Over { won: true, .. }));
         assert!(flow.ended.is_some_and(|r| r.won));
+    }
+
+    /// Where the bottom map draws a zombie of `kind` standing up, as world spots.
+    fn on_map(h: &Harvest, kind: Kind) -> Vec<[f32; 2]> {
+        let look = &kind.stats().look;
+        let frames: Vec<Art> = look.walk.iter().flatten().chain(&look.flash).chain(&look.hurt).copied().collect();
+        let mut f = crate::Frame::default();
+        h.draw(&mut f, false);
+        let cam = h.camera();
+        f.bottom.shapes.iter().filter_map(|s| match *s {
+            crate::Shape::Art { art: a, x, y, scale, .. } if frames.contains(&a) => Some([x / scale + cam[0] + a.w() / 2.0, y / scale + cam[1] + a.h() - 2.0]),
+            _ => None,
+        }).collect()
+    }
+
+    #[test]
+    fn once_dead_the_map_shows_the_horde_walking_where_it_is() {
+        let mut h = Harvest::calm(4);
+        h.zombies.clear();
+        h.view_yaw = 0.0;
+        h.aim = [1.0, 0.0];
+        let mut z = Zombie::new(Kind::named("skinny"), [h.pos[0] - 40.0, h.pos[1]], 50.0, 1.0, 0.0);
+        z.id = 9;
+        h.zombies.push(z);
+        h.update(&Input::default(), 1.0 / 60.0, &mut Vec::new());
+        assert!(on_map(&h, Kind::named("skinny")).is_empty(), "alive, the map shows only what the view has seen");
+        h.hp = 0.0;
+        h.update(&Input::default(), 1.0 / 60.0, &mut Vec::new());
+        assert!(matches!(h.phase, Phase::Over { won: false, .. }));
+        let mut seen = Vec::new();
+        for _ in 0..3 {
+            for _ in 0..((TURNED / 2.0) * 60.0) as usize {
+                h.update(&Input::default(), 1.0 / 60.0, &mut Vec::new());
+            }
+            let z = &h.zombies[0];
+            let at = on_map(&h, z.kind);
+            assert!(at.iter().any(|p| len(sub(*p, z.pos)) < 0.5), "the map draws the zombie behind the dead player where it is: {at:?} vs {:?}", z.pos);
+            seen.push(z.pos);
+        }
+        assert!(seen[0] != seen[2], "and it walks");
+    }
+
+    #[test]
+    fn home_at_dawn_leaves_no_zombie_on_the_map() {
+        let mut h = before_dawn();
+        h.update(&Input::default(), 0.02, &mut Vec::new());
+        h.pos = h.map.home;
+        h.view_yaw = 0.0;
+        let mut z = Zombie::new(Kind::named("skinny"), [h.pos[0] + 12.0, h.pos[1]], 50.0, 1.0, 0.0);
+        z.id = 9;
+        let kinds: Vec<Kind> = h.zombies.iter().chain([&z]).map(|z| z.kind).collect();
+        h.zombies.push(z);
+        h.update(&Input::default(), 0.02, &mut Vec::new());
+        assert!(matches!(h.phase, Phase::Over { won: true, .. }));
+        h.update(&Input::default(), 0.5, &mut Vec::new());
+        for kind in kinds {
+            assert!(on_map(&h, kind).is_empty(), "first light burned every zombie away");
+        }
     }
 
     #[test]

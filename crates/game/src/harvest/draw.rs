@@ -45,14 +45,10 @@ impl Harvest {
         let c = &mut f.bottom;
         c.clear = [0.0, 0.0, 0.0, 1.0];
         let tint = self.map_tint();
-        if self.overview {
-            let scale = (SCREEN_W / self.map.width_px()).min(SCREEN_H / self.map.height_px());
-            self.world(c, [0.0, 0.0], scale, tint, true);
-            c.label(if self.single { "Whole map (let go of Map or R2 to play)" } else { "Whole map (release L1 to play)" }, SCREEN_W / 2.0, SCREEN_H - 40.0, 28.0, WHITE, Align::Center);
-            return;
-        }
+        // Sight stops counting once the run ends, so the map shows the night as it is.
+        let fog = !matches!(self.phase, Phase::Over { .. });
         let cam = self.camera();
-        self.world(c, cam, map_scale(), tint, true);
+        self.world(c, cam, map_scale(), tint, fog);
         self.view_cone(c, cam);
         self.home_on_map(c, cam);
         self.grenade_tray(c);
@@ -186,13 +182,20 @@ impl Harvest {
         let size = 40.0;
         for (r, row) in rows.iter().enumerate() {
             let y = SCREEN_H - 24.0 - (2 - r) as f32 * (size + 10.0);
-            for (i, &(def, level)) in row.iter().enumerate() {
-                let x = 24.0 + i as f32 * (size + 8.0);
-                c.rect(x - 2.0, y - 2.0, size + 4.0, size + 4.0, [0.0, 0.0, 0.0, 0.6]);
-                c.art(book().defs[def].icon, x, y, size / 16.0, false, WHITE);
-                let top = level >= book().defs[def].max;
-                c.label(level.to_string(), x + size - 2.0, y + size - 20.0, 20.0, if top { GOLD } else { WHITE }, Align::Right);
-            }
+            powerup_icons(c, 24.0, y, size, row.iter().copied(), 1.0);
+        }
+    }
+
+    /// The run's weapons over its passives, at their levels, at the top right of the end screen.
+    fn build_panel(&self, c: &mut Canvas, a: f32) {
+        let (size, gap) = (40.0, 8.0);
+        let x = SCREEN_W - 24.0 - 6.0 * (size + gap) + gap;
+        let top = 196.0;
+        c.rect(x - 8.0, top - 8.0, SCREEN_W - 16.0 - x + 8.0, 30.0 + 2.0 * (size + 10.0) + 16.0, [0.0, 0.0, 0.0, 0.45 * a]);
+        c.label("Build", x, top, 24.0, [1.0, 1.0, 1.0, 0.6 * a], Align::Left);
+        let rows = [self.kit.weapons.iter().map(|w| (w.def, w.level)).collect::<Vec<_>>(), self.kit.passives.clone()];
+        for (r, row) in rows.into_iter().enumerate() {
+            powerup_icons(c, x, top + 30.0 + r as f32 * (size + 10.0), size, row, a);
         }
     }
 
@@ -357,10 +360,31 @@ impl Harvest {
             c.art_top(a, sx, sy, scale, flip, show, [lit[0] * k[0], lit[1] * k[1], lit[2] * k[2], lit[3] * k[3]]);
         }
 
+        let own_shot = super::effects::effects().bullet.shot;
         for b in self.bullets.iter().filter(|_| !fog) {
-            let (sx, sy) = at(b.pos[0], b.pos[1]);
-            let a = b.look.unwrap_or(super::effects::effects().bullet).looping(b.age);
-            c.art_rotated(a, sx, sy, scale, b.vel[1].atan2(b.vel[0]), lit);
+            let Some(shot) = b.look.map_or(own_shot, |e| e.shot) else {
+                let (sx, sy) = at(b.pos[0], b.pos[1]);
+                let a = b.look.unwrap_or(super::effects::effects().bullet).looping(b.age);
+                c.art_rotated(a, sx, sy, scale, b.vel[1].atan2(b.vel[0]), lit);
+                continue;
+            };
+            let [r, g, bl] = shot.color;
+            let tail = shot.tail(b.pos, b.vel, b.age);
+            if let Some(frames) = shot.sprites[super::effects::TRACER] {
+                let a = frames[(b.age * 12.0) as usize % frames.len()];
+                let length = ((b.pos[0] - tail[0]).powi(2) + (b.pos[1] - tail[1]).powi(2)).sqrt();
+                let (sx, sy) = at((b.pos[0] + tail[0]) / 2.0, (b.pos[1] + tail[1]) / 2.0);
+                c.art_rotated(a, sx, sy, scale * length / a.w(), b.vel[1].atan2(b.vel[0]), lit);
+                continue;
+            }
+            // Overlapping dots, close enough at the head to read as one line.
+            let n = ((shot.length / (shot.size * 0.35)).ceil() as usize).clamp(4, 32);
+            for i in 0..n {
+                let k = i as f32 / (n - 1) as f32;
+                let (width, bright) = super::effects::Shot::taper(k);
+                let (sx, sy) = at(b.pos[0] + (tail[0] - b.pos[0]) * k, b.pos[1] + (tail[1] - b.pos[1]) * k);
+                c.circle(sx, sy, shot.size * width * scale / 2.0, [lit[0] * r * bright, lit[1] * g * bright, lit[2] * bl * bright, lit[3]]);
+            }
         }
         for s in self.spits.iter().filter(|s| known(s.pos)) {
             let (sx, sy) = at(s.pos[0], s.pos[1]);
@@ -391,7 +415,13 @@ impl Harvest {
         for p in self.juice.particles.iter().filter(|_| !fog) {
             let s = p.size_now() * scale;
             let (sx, sy) = at(p.pos[0], p.pos[1] - p.z);
-            c.rect(sx - s / 2.0, sy - s / 2.0, s, s, [p.color[0], p.color[1], p.color[2], 1.0]);
+            match p.frame() {
+                Some(a) => c.art_rotated(a, sx, sy, s / a.w(), 0.0, WHITE),
+                None => c.rect(sx - s / 2.0, sy - s / 2.0, s, s, [p.color[0], p.color[1], p.color[2], 1.0]),
+            }
+        }
+        if fog {
+            self.shade_unseen(c, cam, scale);
         }
         for r in &self.juice.rings {
             let rr = r.now();
@@ -451,10 +481,12 @@ impl Harvest {
                 c.rect(0.0, 0.0, SCREEN_W, SCREEN_H, [0.0, 0.0, 0.0, 0.6 * k]);
                 let (title, color) = if *won { ("SAFE AT HOME", GOLD) } else { ("YOU TURNED", RED) };
                 let scale = 16.0 * back_out(k);
-                // A lost run keeps the middle clear, where the turned player stands.
-                let (title_y, line_y) = if *won { (260.0, 360.0) } else { (130.0, 560.0) };
+                // The middle stays clear, where the turned player stands, with the damage table to its left.
+                let (title_y, line_y) = (130.0, 560.0);
                 c.text_centered(title_y - scale * 2.5, scale, color, title);
                 let a = ((t - 0.5) / 0.4).clamp(0.0, 1.0);
+                self.damage_table(c, a);
+                self.build_panel(c, a);
                 let line = if self.t >= super::dawn() {
                     let how = if *won { "Home" } else { "Lasted" };
                     format!("{how} {} past dawn   Level {}   Kills {}", clock(self.t - super::dawn()), self.level, self.kills)
@@ -473,11 +505,36 @@ impl Harvest {
                     },
                 ];
                 for (k, line) in news.into_iter().flatten().enumerate() {
-                    let y = if *won { line_y + 160.0 + k as f32 * 48.0 } else { line_y - 80.0 - k as f32 * 48.0 };
+                    let y = line_y - 80.0 - k as f32 * 48.0;
                     c.label(line, SCREEN_W / 2.0, y, 34.0, [GOLD[0], GOLD[1], GOLD[2], a], Align::Center);
                 }
             }
         }
+    }
+
+    /// The run's damage and damage a second by weapon, most first, then the whole run's, faded in by `a`.
+    fn damage_table(&self, c: &mut Canvas, a: f32) {
+        let tally = &self.juice.tally;
+        let rows = tally.rows();
+        let (x, top, size, row_h) = (24.0, 196.0, 24.0, 26.0);
+        let (damage_x, dps_x) = (x + 290.0, x + 410.0);
+        let lines = rows.len() as f32 + 2.0;
+        c.rect(x - 8.0, top - 8.0, dps_x - x + 16.0, lines * row_h + 16.0, [0.0, 0.0, 0.0, 0.45 * a]);
+        let dim = [1.0, 1.0, 1.0, 0.6 * a];
+        c.label("Damage", damage_x, top, size, dim, Align::Right);
+        c.label("Per sec", dps_x, top, size, dim, Align::Right);
+        let line = |c: &mut Canvas, i: usize, name: &str, damage: f32, dps: f32, color: Color| {
+            let y = top + (i as f32 + 1.0) * row_h;
+            c.label(name, x, y, size, color, Align::Left);
+            c.label(grouped(damage.round() as u64), damage_x, y, size, color, Align::Right);
+            c.label(per_second(dps), dps_x, y, size, color, Align::Right);
+        };
+        let white = [1.0, 1.0, 1.0, a];
+        for (i, r) in rows.iter().enumerate() {
+            let name = r.by.map_or("Grenades, barrels", |d| book().defs[d].name.as_str());
+            line(c, i, name, r.damage, r.dps, white);
+        }
+        line(c, rows.len(), "Whole run", tally.total(), tally.dps(), [GOLD[0], GOLD[1], GOLD[2], a]);
     }
 
     /// While X is held, a crosshair on the barrel the aimed weapons are going for.
@@ -666,6 +723,37 @@ fn zone_color(zone: Option<Zone>) -> Color {
 }
 
 /// Eases from 0 to 1, overshooting a little before settling.
+/// Powerup icons in a row from (x, y), `size` pixels square, each with its level in its corner, gold at its top level.
+pub(crate) fn powerup_icons(c: &mut Canvas, x: f32, y: f32, size: f32, held: impl IntoIterator<Item = (usize, u32)>, alpha: f32) {
+    let label = size / 2.0;
+    for (i, (def, level)) in held.into_iter().enumerate() {
+        let Some(d) = book().defs.get(def) else { continue };
+        let x = x + i as f32 * (size + size / 5.0);
+        c.rect(x - 2.0, y - 2.0, size + 4.0, size + 4.0, [0.0, 0.0, 0.0, 0.6 * alpha]);
+        c.art(d.icon, x, y, size / 16.0, false, [1.0, 1.0, 1.0, alpha]);
+        let color = if level >= d.max { GOLD } else { WHITE };
+        c.label(level.to_string(), x + size - 2.0, y + size - label, label, [color[0], color[1], color[2], alpha], Align::Right);
+    }
+}
+
+/// A whole number with commas between each three digits.
+fn grouped(n: u64) -> String {
+    let digits = n.to_string();
+    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
+    for (i, ch) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(ch);
+    }
+    out
+}
+
+/// Damage a second, to a tenth below ten.
+fn per_second(dps: f32) -> String {
+    if dps < 10.0 { format!("{dps:.1}") } else { format!("{dps:.0}") }
+}
+
 fn back_out(k: f32) -> f32 {
     let c = 1.70158;
     let k = k - 1.0;

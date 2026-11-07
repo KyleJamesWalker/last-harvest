@@ -3,7 +3,7 @@
 use std::f32::consts::{PI, TAU};
 
 use super::juice::{self, Tone};
-use super::powerups::{Aim, Does, Kind, Lands, Pattern, Stat, book};
+use super::powerups::{Aim, Does, Kind, Lands, Pattern, Stat, Targets, book};
 use super::{
     Barrel, Bullet, FLASH_TIME, Fx, Grenade, Harvest, TILE, Thrown, Zombie, len, norm, strike, sub,
 };
@@ -22,6 +22,8 @@ pub(super) struct Armed {
     pub level: u32,
     pub cd: f32,
     pub phase: f32,
+    /// Shots left in the burst it is firing.
+    pub burst: u32,
 }
 
 impl Armed {
@@ -38,7 +40,18 @@ fn shot_angle(pattern: Pattern, k: u32, n: u32, base: f32, spread: f32, jitter: 
         Pattern::Fan => base,
         Pattern::Ring => base + k as f32 * TAU / n as f32,
         Pattern::Spray => base + jitter * spread,
+        Pattern::Burst => base,
     }
+}
+
+/// The most shots one burst fires, and the longest gap between them, in seconds.
+const MAX_BURST: u32 = 32;
+const MAX_GAP: f32 = 5.0;
+
+/// For a burst, how many shots it fires and how far apart, `quick` scaling the gap as it does the cooldown; None
+/// for a pattern that fires its count at once.
+fn burst(pattern: Pattern, count: f32, gap: f32, quick: f32) -> Option<(u32, f32)> {
+    (pattern == Pattern::Burst).then(|| (count.clamp(1.0, MAX_BURST as f32) as u32, gap.clamp(0.0, MAX_GAP) * quick))
 }
 
 /// The effect a weapon plays: the one its `effect` line names, else its behaviour's own.
@@ -49,6 +62,11 @@ fn look(a: Armed, own: super::effects::Effect) -> super::effects::Effect {
 /// What a weapon's bullets fly as, when its `bullet` line names an effect.
 fn bullet(a: Armed) -> Option<super::effects::Effect> {
     book().defs[a.def].bullet.as_deref().and_then(|n| super::effects::effects().named(n))
+}
+
+/// A weapon's shot style: its bullet's, else the game's own bullet's.
+fn shot_style(a: Armed) -> super::effects::Shot {
+    bullet(a).and_then(|e| e.shot).or(super::effects::effects().bullet.shot).expect("the bullet effect is a shot")
 }
 
 /// The sound a weapon makes: the one its `sound` line names, else its behaviour's own.
@@ -156,7 +174,7 @@ impl Kit {
 
     /// A kit carrying these weapons at level 1 and the difficulty's grenades, and nothing else.
     pub fn with_weapons(defs: &[usize], difficulty: Difficulty) -> Self {
-        let weapons = defs.iter().map(|&def| Armed { def, level: 1, cd: 0.5, phase: 0.0 }).collect();
+        let weapons = defs.iter().map(|&def| Armed { def, level: 1, cd: 0.5, phase: 0.0, burst: 0 }).collect();
         let t = crate::tuning::tuning();
         Self { weapons, passives: Vec::new(), mods: Mods::of(&[]), base: [t.player_hp, t.player_speed, t.player_magnet], base_grenades: book().grenades[difficulty as usize] }
     }
@@ -187,7 +205,7 @@ impl Kit {
         match d.kind {
             Kind::Weapon => match self.weapons.iter_mut().find(|a| a.def == def) {
                 Some(a) => a.level = to,
-                None => self.weapons.push(Armed { def, level: to, cd: 0.3, phase: 0.0 }),
+                None => self.weapons.push(Armed { def, level: to, cd: 0.3, phase: 0.0, burst: 0 }),
             },
             Kind::Passive => {
                 match self.passives.iter_mut().find(|p| p.0 == def) {
@@ -236,6 +254,7 @@ pub(super) struct Patch {
     pub age: f32,
     pub life: f32,
     tick: f32,
+    by: Option<usize>,
 }
 
 /// A blade swept around the player: its angle and distance from them run from the first value to the second.
@@ -298,6 +317,7 @@ pub(super) struct Decoy {
     pub lure: f32,
     blast: f32,
     damage: f32,
+    by: Option<usize>,
 }
 
 fn in_cone(d: [f32; 2], dir: [f32; 2], half: f32) -> bool {
@@ -310,9 +330,12 @@ fn polar(at: [f32; 2], angle: f32, r: f32) -> [f32; 2] {
 }
 
 /// Sets a zombie burning, or keeps it burning longer and hotter.
-fn ignite(z: &mut Zombie, dps: f32, secs: f32) {
+fn ignite(z: &mut Zombie, dps: f32, secs: f32, by: Option<usize>) {
     z.burn = z.burn.max(secs);
-    z.burn_dps = z.burn_dps.max(dps);
+    if dps >= z.burn_dps {
+        z.burn_dps = dps;
+        z.burn_by = by;
+    }
 }
 
 /// Damage with no shove, from fire or tacks.
@@ -378,7 +401,19 @@ impl Harvest {
             let mut a = self.kit.weapons[i];
             a.cd -= dt;
             if a.cd <= 0.0 {
-                a.cd = if self.attack(a, sounds) { self.stat(a, Stat::Cooldown) } else { 0.0 };
+                self.juice.tally.by = Some(a.def);
+                let fired = self.attack(a, sounds);
+                let def = &book().defs[a.def];
+                let shots = burst(def.pattern, self.stat(a, Stat::Count), def.at(Stat::Gap, a.level), self.kit.mods.cooldown).filter(|_| matches!(a.does(), Does::Pistol | Does::Gun));
+                (a.cd, a.burst) = match (fired, shots) {
+                    (true, Some((n, gap))) => match if a.burst == 0 { n - 1 } else { a.burst - 1 } {
+                        0 => (self.stat(a, Stat::Cooldown), 0),
+                        left => (a.cd + gap, left),
+                    },
+                    (true, None) => (self.stat(a, Stat::Cooldown), 0),
+                    (false, _) if a.burst > 0 => (self.stat(a, Stat::Cooldown), 0),
+                    (false, _) => (0.0, 0),
+                };
             }
             if a.does() == Does::Crows {
                 a.phase = (a.phase + self.stat(a, Stat::Speed).to_radians() * dt).rem_euclid(TAU);
@@ -387,6 +422,7 @@ impl Harvest {
         }
         self.peck(dt, sounds);
         self.walk_dogs(dt, sounds);
+        self.juice.tally.by = None;
     }
 
     /// Fires a weapon whose cooldown is up; false when there was nothing for it to do.
@@ -416,18 +452,20 @@ impl Harvest {
 
     fn pistol(&mut self, a: Armed, sounds: &mut Vec<Sfx>) -> bool {
         let range = self.stat(a, Stat::Range);
-        let target = self.barrel_in_view(range).or_else(|| self.nearest_in(crate::tuning::tuning().point_blank.min(range), None)).or_else(|| self.nearest_in(range, Some((self.aim, self.ahead_half())))).or_else(|| self.nearest_in(range, None));
-        let Some(d) = target.map(norm) else { return false };
-        let (n, speed) = (self.stat(a, Stat::Count) as u32, self.stat(a, Stat::Speed));
+        let next = self.next_target(a, range);
+        let target = next.or_else(|| self.barrel_in_view(range)).or_else(|| self.nearest_in(crate::tuning::tuning().point_blank.min(range), None)).or_else(|| self.nearest_in(range, Some((self.aim, self.ahead_half())))).or_else(|| self.nearest_in(range, None));
+        let Some(offset) = target else { return false };
+        self.mark_shot(a, offset);
+        let d = norm(offset);
+        let one = book().defs[a.def].pattern == Pattern::Burst;
+        let (n, speed) = (if one { 1 } else { self.stat(a, Stat::Count) as u32 }, self.stat(a, Stat::Speed));
         let base = d[1].atan2(d[0]);
         let gap = self.stat(a, Stat::Spread).to_radians();
         for k in 0..n {
             let angle = base + (k as f32 - (n - 1) as f32 / 2.0) * gap;
             self.shoot(angle, speed, self.stat(a, Stat::Damage), self.stat(a, Stat::Pierce) as u32, range / speed, self.stat(a, Stat::Knockback), bullet(a));
         }
-        let muzzle = [self.pos[0] + d[0] * 8.0, self.pos[1] - 6.0 + d[1] * 8.0];
-        self.fx.push(Fx::play(look(a, super::effects::effects().muzzle_pistol), muzzle, base));
-        self.attack_feel(a, [self.pos[0] + d[0] * 8.0, self.pos[1] + d[1] * 8.0], 10.0);
+        self.muzzle(a, d, 8.0);
         self.noise = Some(self.pos);
         sounds.push(sound(a, Sfx::Shot));
         true
@@ -438,20 +476,33 @@ impl Harvest {
         let def = &book().defs[a.def];
         let (aim, pattern) = (def.aim, def.pattern);
         let range = self.stat(a, Stat::Range);
-        let Some(d) = self.barrel_in_view(range).map(norm).or_else(|| self.aimed(aim, range)) else { return false };
-        let (n, speed) = (self.stat(a, Stat::Count).max(1.0) as u32, self.stat(a, Stat::Speed));
+        let next = self.next_target(a, range);
+        let Some(offset) = next.or_else(|| self.barrel_in_view(range)).or_else(|| self.aimed_at(aim, range)) else { return false };
+        self.mark_shot(a, offset);
+        let d = norm(offset);
+        let n = if pattern == Pattern::Burst { 1 } else { self.stat(a, Stat::Count).max(1.0) as u32 };
+        let speed = self.stat(a, Stat::Speed);
         let (base, spread) = (d[1].atan2(d[0]), self.stat(a, Stat::Spread).to_radians());
         let (damage, pierce, force) = (self.stat(a, Stat::Damage), self.stat(a, Stat::Pierce) as u32, self.stat(a, Stat::Knockback));
         for k in 0..n {
             let angle = shot_angle(pattern, k, n, base, spread, self.juice.rng.range(-0.5, 0.5));
             self.shoot(angle, speed, damage, pierce, range / speed, force, bullet(a));
         }
-        let muzzle = [self.pos[0] + d[0] * 8.0, self.pos[1] - 6.0 + d[1] * 8.0];
-        self.fx.push(Fx::play(look(a, super::effects::effects().muzzle_pistol), muzzle, base));
-        self.attack_feel(a, [self.pos[0] + d[0] * 8.0, self.pos[1] + d[1] * 8.0], 10.0);
+        self.muzzle(a, d, 8.0);
         self.noise = Some(self.pos);
         sounds.push(sound(a, Sfx::Shot));
         true
+    }
+
+    /// A gun's muzzle, `out` pixels along `d`: a flare, sparks and smoke in its shot's style over its light, and the
+    /// effect its `effect` line names.
+    fn muzzle(&mut self, a: Armed, d: [f32; 2], out: f32) {
+        let ground = [self.pos[0] + d[0] * out, self.pos[1] + d[1] * out];
+        if let Some(e) = book().defs[a.def].effect.as_deref().and_then(|n| super::effects::effects().named(n)) {
+            self.fx.push(Fx::play(e, [ground[0], ground[1] - 6.0], d[1].atan2(d[0])));
+        }
+        self.attack_feel(a, ground, 10.0);
+        self.juice.muzzle(ground, 10.0, d, &shot_style(a));
     }
 
     /// Plays a weapon's feel from its section, with its flash at `at`, `z` above the ground.
@@ -465,15 +516,49 @@ impl Harvest {
         }
     }
 
-    /// Where a gun or blade looks for a target within `range`: the way to it, if it finds one.
-    fn aimed(&self, aim: Aim, range: f32) -> Option<[f32; 2]> {
+    /// For a burst that `targets each`, after its first shot: the offset to the nearest zombie in `range` and clear
+    /// line of fire that it hasn't shot yet, whichever way; None to aim as usual. A burst's first shot forgets the last.
+    fn next_target(&mut self, a: Armed, range: f32) -> Option<[f32; 2]> {
+        let def = &book().defs[a.def];
+        if def.pattern != Pattern::Burst || def.targets != Targets::Each {
+            return None;
+        }
+        if a.burst == 0 {
+            self.burst_shot.retain(|(d, _)| *d != a.def);
+            return None;
+        }
+        let shot = &self.burst_shot;
+        self.zombies
+            .iter()
+            .filter(|z| !shot.contains(&(a.def, z.id)))
+            .map(|z| sub(z.pos, self.pos))
+            .filter(|d| len(*d) < range && super::clear_shot(&self.map, self.pos, [self.pos[0] + d[0], self.pos[1] + d[1]]))
+            .min_by(|a, b| len(*a).total_cmp(&len(*b)))
+    }
+
+    /// Notes the zombie at `offset` as shot in a burst that `targets each`.
+    fn mark_shot(&mut self, a: Armed, offset: [f32; 2]) {
+        if book().defs[a.def].targets != Targets::Each {
+            return;
+        }
+        if let Some(z) = self.zombies.iter().find(|z| sub(z.pos, self.pos) == offset) {
+            self.burst_shot.push((a.def, z.id));
+        }
+    }
+
+    /// Where a gun or blade looks for a target within `range`: the offset to it, if it finds one.
+    fn aimed_at(&self, aim: Aim, range: f32) -> Option<[f32; 2]> {
         match aim {
             Aim::Nearest => self.nearest_in(range, None),
             Aim::Ahead => self.nearest_in(range, Some((self.aim, self.ahead_half()))),
             Aim::Behind => self.nearest_in(range, Some(([-self.aim[0], -self.aim[1]], crate::tuning::tuning().behind_half))),
             Aim::Around => self.nearest_in(range, None).map(|_| self.aim),
         }
-        .map(norm)
+    }
+
+    /// Where a gun or blade looks for a target within `range`: the way to it, if it finds one.
+    fn aimed(&self, aim: Aim, range: f32) -> Option<[f32; 2]> {
+        self.aimed_at(aim, range).map(norm)
     }
 
     /// A blade as its section shapes it: everything within its area across its spread, toward what its aim finds.
@@ -510,11 +595,7 @@ impl Harvest {
             let angle = base + (k as f32 / (pellets - 1) as f32 - 0.5) * spread;
             self.shoot(angle, speed, self.stat(a, Stat::Damage), self.stat(a, Stat::Pierce) as u32, range / speed * 0.9, self.stat(a, Stat::Knockback), bullet(a));
         }
-        let at = [self.pos[0] + d[0] * 10.0, self.pos[1] - 6.0 + d[1] * 10.0];
-        self.fx.push(Fx::play(look(a, super::effects::effects().shotgun_blast), at, base));
-        let ground = [self.pos[0] + d[0] * 10.0, self.pos[1] + d[1] * 10.0];
-        self.attack_feel(a, ground, 10.0);
-        self.juice.burst(ground, 8.0, 8, d, 0.35, [80.0, 160.0], juice::spark(), 1.0, 0.18, 1.0);
+        self.muzzle(a, d, 10.0);
         self.noise = Some(self.pos);
         sounds.push(sound(a, Sfx::Blast));
         true
@@ -532,9 +613,7 @@ impl Harvest {
         let way = barrel.map_or(self.aim, norm);
         let angle = way[1].atan2(way[0]);
         self.shoot(angle, speed, self.stat(a, Stat::Damage), self.stat(a, Stat::Pierce) as u32, range / speed, self.stat(a, Stat::Knockback), bullet(a));
-        let muzzle = [self.pos[0] + self.aim[0] * 9.0, self.pos[1] - 6.0 + self.aim[1] * 9.0];
-        self.fx.push(Fx::play(look(a, super::effects::effects().muzzle_rifle), muzzle, angle));
-        self.attack_feel(a, [self.pos[0] + self.aim[0] * 10.0, self.pos[1] + self.aim[1] * 10.0], 10.0);
+        self.muzzle(a, way, 9.0);
         self.noise = Some(self.pos);
         sounds.push(sound(a, Sfx::Blast));
         true
@@ -573,7 +652,7 @@ impl Harvest {
         for z in &mut self.zombies {
             let d = sub(z.pos, self.pos);
             if z.rise >= 1.0 && len(d) < range && in_cone(d, self.aim, half) {
-                ignite(z, dps, secs);
+                ignite(z, dps, secs, Some(a.def));
             }
         }
         let nozzle = [self.pos[0] + self.aim[0] * 6.0, self.pos[1] + self.aim[1] * 6.0];
@@ -672,6 +751,7 @@ impl Harvest {
                 continue;
             }
             let (damage, cd) = (self.stat(a, Stat::Damage), self.stat(a, Stat::Cooldown));
+            self.juice.tally.by = Some(a.def);
             for at in self.crow_spots(a) {
                 for z in &mut self.zombies {
                     if z.rise >= 1.0 && len(sub(z.pos, at)) < crate::tuning::tuning().crow_reach && !self.pecked.iter().any(|p| p.0 == z.id) {
@@ -779,6 +859,7 @@ impl Harvest {
                 && dog.cd <= 0.0
             {
                 dog.cd = cd;
+                self.juice.tally.by = Some(a.def);
                 hits.1 |= strike(&mut self.zombies[t], &mut self.juice, damage, n, force, crit);
                 hits.0 += 1;
                 barked |= self.juice.rng.below(5) == 0;
@@ -820,7 +901,7 @@ impl Harvest {
             return false;
         }
         let (lure, blast, damage, life) = (self.stat(a, Stat::Range), self.stat(a, Stat::Area), self.stat(a, Stat::Damage), self.stat(a, Stat::Duration));
-        self.decoys.push(Decoy { pos: at, age: 0.0, life, lure, blast, damage });
+        self.decoys.push(Decoy { pos: at, age: 0.0, life, lure, blast, damage, by: self.juice.tally.by });
         self.juice.burst(at, 0.0, 8, [0.0; 2], 0.0, [15.0, 40.0], juice::dirt(), 1.4, 0.5, 0.0);
         true
     }
@@ -841,7 +922,7 @@ impl Harvest {
         for _ in 0..self.stat(a, Stat::Count).max(1.0) as u32 {
             let Some(to) = self.crowd(range) else { break };
             let kind = Thrown::Molotov { dps: self.stat(a, Stat::Damage), radius: self.stat(a, Stat::Area), life: self.stat(a, Stat::Duration) };
-            self.thrown.push(Grenade { from: self.pos, to, t: 0.0, kind });
+            self.thrown.push(Grenade { from: self.pos, to, t: 0.0, kind, by: Some(a.def) });
             thrown = true;
         }
         if thrown {
@@ -857,7 +938,7 @@ impl Harvest {
         let mut thrown = false;
         for _ in 0..self.stat(a, Stat::Count).max(1.0) as u32 {
             let Some(to) = self.crowd(range) else { break };
-            self.thrown.push(Grenade { from: self.pos, to, t: 0.0, kind: Thrown::Lob { def: a.def, damage, radius, life, slow } });
+            self.thrown.push(Grenade { from: self.pos, to, t: 0.0, kind: Thrown::Lob { def: a.def, damage, radius, life, slow }, by: Some(a.def) });
             thrown = true;
         }
         if thrown {
@@ -869,7 +950,7 @@ impl Harvest {
     fn lob_flare(&mut self, a: Armed, sounds: &mut Vec<Sfx>) -> bool {
         let Some(to) = self.crowd(self.stat(a, Stat::Range)) else { return false };
         let kind = Thrown::Flare { dps: self.stat(a, Stat::Damage), radius: self.stat(a, Stat::Area), life: self.stat(a, Stat::Duration) };
-        self.thrown.push(Grenade { from: self.pos, to, t: 0.0, kind });
+        self.thrown.push(Grenade { from: self.pos, to, t: 0.0, kind, by: Some(a.def) });
         sounds.push(Sfx::Throw);
         true
     }
@@ -881,7 +962,7 @@ impl Harvest {
                 self.explode(g.to, crate::tuning::tuning().grenade_radius, crate::tuning::tuning().grenade_damage, sounds);
                 for _ in 0..self.kit.mods.cluster.round() as u32 {
                     let to = polar(g.to, self.juice.rng.range(0.0, TAU), self.juice.rng.range(16.0, 34.0));
-                    self.thrown.push(Grenade { from: g.to, to, t: crate::tuning::tuning().grenade_flight * 0.45, kind: Thrown::Bomblet });
+                    self.thrown.push(Grenade { from: g.to, to, t: crate::tuning::tuning().grenade_flight * 0.45, kind: Thrown::Bomblet, by: g.by });
                 }
             }
             Thrown::Bomblet => self.explode(g.to, crate::tuning::tuning().bomblet_radius, crate::tuning::tuning().bomblet_damage, sounds),
@@ -923,7 +1004,7 @@ impl Harvest {
         if self.patches.len() >= MAX_PATCHES {
             self.patches.remove(0);
         }
-        self.patches.push(Patch { hazard, pos, radius, dps, slow, age: 0.0, life, tick: 0.0 });
+        self.patches.push(Patch { hazard, pos, radius, dps, slow, age: 0.0, life, tick: 0.0, by: self.juice.tally.by });
     }
 
     /// Fire, tacks and flares hurt what's in them a few times a second; burning and slowed zombies wear off.
@@ -935,6 +1016,7 @@ impl Harvest {
                 continue;
             }
             p.tick -= PATCH_TICK;
+            self.juice.tally.by = p.by;
             for z in &mut self.zombies {
                 if z.rise < 1.0 || len(sub(z.pos, p.pos)) > p.radius {
                     continue;
@@ -945,7 +1027,7 @@ impl Harvest {
                         z.slow = z.slow.max(0.5);
                         z.slow_k = z.slow_k.max(p.slow);
                     }
-                    Hazard::Fire | Hazard::Flare => ignite(z, p.dps, crate::tuning::tuning().fire_burn),
+                    Hazard::Fire | Hazard::Flare => ignite(z, p.dps, crate::tuning::tuning().fire_burn, p.by),
                 }
             }
             match p.hazard {
@@ -958,6 +1040,7 @@ impl Harvest {
                 Hazard::Tacks => {}
             }
         }
+        self.juice.tally.by = None;
         self.patches.retain(|p| p.age < p.life);
         for z in &mut self.zombies {
             z.slow = (z.slow - dt).max(0.0);
@@ -972,6 +1055,7 @@ impl Harvest {
             z.burn_tick += dt;
             if z.burn_tick >= BURN_TICK {
                 z.burn_tick -= BURN_TICK;
+                self.juice.tally.by = z.burn_by;
                 singe(z, &mut self.juice, z.burn_dps * BURN_TICK);
                 self.juice.burst(z.pos, 8.0, 1, [0.0; 2], 0.0, [5.0, 15.0], juice::ember(), 1.2, 0.5, 1.0);
             }
@@ -994,6 +1078,7 @@ impl Harvest {
         }
         while let Some(i) = self.decoys.iter().position(|d| d.age >= d.life) {
             let d = self.decoys.swap_remove(i);
+            self.juice.tally.by = d.by;
             self.explode(d.pos, d.blast, d.damage / (self.kit.mods.damage * self.kit.mods.blast), sounds);
         }
     }
@@ -1030,7 +1115,7 @@ impl Harvest {
     #[allow(clippy::too_many_arguments)]
     pub(super) fn shoot(&mut self, angle: f32, speed: f32, damage: f32, pierce: u32, life: f32, force: f32, look: Option<super::effects::Effect>) {
         let vel = [angle.cos() * speed, angle.sin() * speed];
-        self.bullets.push(Bullet { pos: [self.pos[0], self.pos[1] - 6.0], vel, damage, pierce, life, force, hit: Vec::new(), look, age: 0.0 });
+        self.bullets.push(Bullet { pos: [self.pos[0], self.pos[1] - 6.0], vel, damage, pierce, life, force, hit: Vec::new(), look, age: 0.0, by: self.juice.tally.by });
     }
 }
 
@@ -1098,6 +1183,187 @@ mod tests {
             let hurt = hurt_after(&mut h, 15.0);
             assert!(hurt > 0.0, "{} did nothing to a zombie at {offset:?}", d.id);
         }
+    }
+
+    #[test]
+    fn every_weapon_in_the_file_is_credited_with_all_the_damage_it_deals() {
+        for (def, d) in book().defs.iter().enumerate().filter(|(_, d)| d.kind == Kind::Weapon) {
+            let offset = match d.zone {
+                _ if d.does == Some(Does::Gas) => [-4.0, 0.0],
+                Some(super::super::powerups::Zone::Behind) => [-20.0, 0.0],
+                _ => [20.0, 0.0],
+            };
+            let mut h = with(&d.id, offset);
+            h.barrels.clear();
+            h.walk = 0.5;
+            let hurt = hurt_after(&mut h, 15.0);
+            let rows = h.juice.tally.rows();
+            assert_eq!(rows.len(), 1, "{}: {rows:?}", d.id);
+            assert_eq!(rows[0].by, Some(def), "{}", d.id);
+            assert!((rows[0].damage - hurt).abs() < 0.01 * hurt, "{}: credited {} of {hurt}", d.id, rows[0].damage);
+        }
+    }
+
+    #[test]
+    fn a_burst_that_targets_each_credits_every_hit_once_to_its_gun() {
+        let mut h = with("pistol", [30.0, 0.0]);
+        h.barrels.clear();
+        h.kit.weapons[0].level = 8;
+        let base = h.zombies[0].pos;
+        for k in 1..6u32 {
+            let mut z = Zombie::new(ZKind::named("big"), [base[0] + k as f32 * 6.0, base[1] + (k as f32 - 3.0) * 8.0], 500.0, 1.0, 0.0);
+            z.id = 50 + k;
+            h.zombies.push(z);
+        }
+        let start: Vec<(u32, f32)> = h.zombies.iter().map(|z| (z.id, z.hp)).collect();
+        let homes: Vec<[f32; 2]> = h.zombies.iter().map(|z| z.pos).collect();
+        let mut sounds = Vec::new();
+        for _ in 0..240 {
+            h.fire(1.0 / 60.0, &mut sounds);
+            h.move_bullets(1.0 / 60.0, &mut sounds);
+            for (z, &home) in h.zombies.iter_mut().zip(&homes) {
+                z.pos = home;
+            }
+        }
+        let hurt: f32 = start.iter().map(|&(id, hp)| hp - h.zombies.iter().find(|z| z.id == id).map_or(0.0, |z| z.hp)).sum();
+        assert!(h.zombies.iter().filter(|z| z.hp < 500.0).count() > 1, "the burst spread over several zombies");
+        let rows = h.juice.tally.rows();
+        assert_eq!((rows.len(), rows[0].by), (1, Some(book().index("pistol").unwrap())), "{rows:?}");
+        assert!((rows[0].damage - hurt).abs() < 0.01 * hurt, "every hit once: credited {} of {hurt}", rows[0].damage);
+    }
+
+    #[test]
+    fn each_gun_fires_its_own_style_with_a_muzzle_flash_sparks_and_smoke() {
+        let mut styles = Vec::new();
+        for id in ["pistol", "shotgun", "rifle"] {
+            let mut h = with(id, [30.0, 0.0]);
+            let shot = shot_style(h.kit.weapons[0]);
+            styles.push(shot);
+            for _ in 0..180 {
+                if !h.bullets.is_empty() {
+                    break;
+                }
+                h.fire(1.0 / 60.0, &mut Vec::new());
+            }
+            assert!(!h.bullets.is_empty(), "{id} fired");
+            let bright = h.juice.particles.iter().filter(|p| p.glow > 0.0).count();
+            assert_eq!((bright, h.juice.flares.len(), h.fx.len()), (shot.sparks as usize, 1, 0), "{id}: a flare and its sparks, no muzzle sprite");
+            assert!(h.juice.particles.iter().any(|p| p.glow == 0.0), "{id} puffs smoke");
+            assert!(!h.juice.flashes.is_empty(), "{id} still lights the ground");
+            assert!(h.bullets.iter().all(|b| b.look.and_then(|e| e.shot) == Some(shot)), "{id}'s bullets fly in its style");
+        }
+        let [pistol, shotgun, rifle] = [styles[0], styles[1], styles[2]];
+        assert!(shotgun.length < pistol.length && pistol.length < rifle.length, "pellets are short, the rifle's round long");
+    }
+
+    /// When each bullet left over `secs` of firing, with how it was flying.
+    fn shots(h: &mut Harvest, secs: f32) -> Vec<(f32, [f32; 2])> {
+        let (mut out, mut sounds, dt) = (Vec::new(), Vec::new(), 1.0 / 120.0);
+        for k in 0..(secs / dt) as usize {
+            let before = h.bullets.len();
+            h.fire(dt, &mut sounds);
+            out.extend(h.bullets[before..].iter().map(|b| (k as f32 * dt, b.vel)));
+        }
+        out
+    }
+
+    #[test]
+    fn the_pistol_empties_its_clip_in_a_burst_then_waits_its_cooldown() {
+        let mut h = with("pistol", [40.0, 0.0]);
+        h.kit.weapons[0].level = 8;
+        h.kit.weapons[0].cd = 0.0;
+        let a = h.kit.weapons[0];
+        let (n, gap, cooldown) = (h.stat(a, Stat::Count) as usize, h.stat(a, Stat::Gap), h.stat(a, Stat::Cooldown));
+        let t: Vec<f32> = shots(&mut h, (n - 1) as f32 * gap + cooldown + 0.02).iter().map(|s| s.0).collect();
+        assert_eq!(t.len(), n + 1, "one burst of {n}, then the next: {t:?}");
+        assert!(t.windows(2).take(n - 1).all(|w| (w[1] - w[0] - gap).abs() < 0.01), "{gap}s apart: {t:?}");
+        assert!((t[n] - t[n - 1] - cooldown).abs() < 0.01, "then the cooldown: {t:?}");
+    }
+
+    #[test]
+    fn each_shot_of_a_burst_aims_again_so_turning_mid_burst_moves_the_next() {
+        let mut h = with("pistol", [100.0, 0.0]);
+        h.zombies.push(Zombie::new(ZKind::named("big"), [h.pos[0] - 100.0, h.pos[1]], 500.0, 1.0, 0.0));
+        h.kit.weapons[0].level = 8;
+        h.kit.weapons[0].cd = 0.0;
+        let first = shots(&mut h, 0.01);
+        assert!(first.len() == 1 && first[0].1[0] > 0.0, "the first shot goes ahead: {first:?}");
+        h.aim = [-1.0, 0.0];
+        let next = shots(&mut h, 0.1);
+        assert!(!next.is_empty() && next.iter().all(|s| s.1[0] < 0.0 && s.1[1].abs() < 1e-3), "the next go where the player now looks, straight: {next:?}");
+    }
+
+    /// A level-8 pistol on a quiet farm with `n` zombies spread evenly all the way round it, each with a clear shot.
+    fn ringed(n: usize) -> (Harvest, Vec<[f32; 2]>) {
+        let mut h = with("pistol", [100.0, 0.0]);
+        h.zombies.clear();
+        h.kit.weapons[0].level = 8;
+        h.kit.weapons[0].cd = 0.0;
+        let mut ways = Vec::new();
+        for k in 0..n {
+            let a = k as f32 * TAU / n as f32;
+            let way = [a.cos(), a.sin()];
+            let at = (0..12).map(|r| 90.0 + r as f32 * 4.0).map(|r| [h.pos[0] + way[0] * r, h.pos[1] + way[1] * r]).find(|p| !h.map.hits(p[0], p[1], crate::tuning::tuning().zombie_half()) && super::super::clear_shot(&h.map, h.pos, *p)).expect("room all round");
+            let mut z = Zombie::new(ZKind::named("big"), at, 500.0, 1.0, 0.0);
+            z.id = k as u32 + 1;
+            h.zombies.push(z);
+            ways.push(way);
+        }
+        (h, ways)
+    }
+
+    /// Which of `ways` each shot flew along.
+    fn aimed_at(shots: &[(f32, [f32; 2])], ways: &[[f32; 2]]) -> Vec<usize> {
+        shots.iter().map(|(_, v)| (0..ways.len()).max_by(|&a, &b| (ways[a][0] * v[0] + ways[a][1] * v[1]).total_cmp(&(ways[b][0] * v[0] + ways[b][1] * v[1]))).unwrap()).collect()
+    }
+
+    #[test]
+    fn a_level_eight_burst_shoots_eight_zombies_all_the_way_round_once_each() {
+        let (mut h, ways) = ringed(8);
+        let a = h.kit.weapons[0];
+        let (n, gap) = (h.stat(a, Stat::Count) as usize, h.stat(a, Stat::Gap));
+        assert_eq!(n, 8);
+        let fired = shots(&mut h, (n - 1) as f32 * gap + 0.02);
+        let mut hit = aimed_at(&fired, &ways);
+        assert_eq!(hit.len(), 8);
+        assert!(fired[7].0 - fired[0].0 < 0.3, "fast enough to read as one draw: {fired:?}");
+        hit.sort();
+        assert_eq!(hit, (0..8).collect::<Vec<_>>(), "a different zombie each shot, from every side");
+    }
+
+    #[test]
+    fn a_burst_shoots_a_zombie_again_only_once_every_one_in_range_has_been_shot() {
+        let (mut h, ways) = ringed(3);
+        let a = h.kit.weapons[0];
+        let gap = h.stat(a, Stat::Gap);
+        let fired = shots(&mut h, 7.0 * gap + 0.02);
+        let hit = aimed_at(&fired, &ways);
+        assert_eq!(hit.len(), 8, "every shot still fires");
+        let mut first: Vec<usize> = hit[..3].to_vec();
+        first.sort();
+        assert_eq!(first, [0, 1, 2], "each of the three before any again: {hit:?}");
+    }
+
+    #[test]
+    fn the_pistol_at_level_one_fires_one_shot_each_cooldown_as_before() {
+        let mut h = with("pistol", [40.0, 0.0]);
+        h.kit.weapons[0].cd = 0.0;
+        let a = h.kit.weapons[0];
+        assert_eq!((h.stat(a, Stat::Count), h.stat(a, Stat::Cooldown), h.stat(a, Stat::Damage)), (1.0, 0.6, 12.0));
+        let t: Vec<f32> = shots(&mut h, 1.3).iter().map(|s| s.0).collect();
+        assert_eq!(t.len(), 3, "{t:?}");
+        assert!((t[1] - t[0] - 0.6).abs() < 0.01 && (t[2] - t[1] - 0.6).abs() < 0.01, "{t:?}");
+    }
+
+    #[test]
+    fn a_fan_ring_or_spray_still_fires_its_count_at_once() {
+        for pattern in [Pattern::Fan, Pattern::Ring, Pattern::Spray] {
+            assert_eq!(burst(pattern, 5.0, 0.1, 1.0), None, "{pattern:?}");
+        }
+        assert_eq!(burst(Pattern::Burst, 6.0, 0.07, 1.0), Some((6, 0.07)));
+        assert_eq!(burst(Pattern::Burst, 1e9, 1e9, 1.0), Some((MAX_BURST, MAX_GAP)), "a mod's burst is bounded");
+        assert_eq!(burst(Pattern::Burst, -3.0, -1.0, 1.0), Some((1, 0.0)));
+        assert_eq!(burst(Pattern::Burst, 3.0, 0.1, 0.5), Some((3, 0.05)), "quick hands shortens the gap too");
     }
 
     #[test]

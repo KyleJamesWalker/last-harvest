@@ -122,7 +122,7 @@ impl Harvest {
     }
 
     fn map_up(&self) -> bool {
-        self.aiming.is_some() || self.glance || self.overview || self.menu.is_some() || matches!(self.phase, Phase::LevelUp { .. })
+        self.aiming.is_some() || self.glance || self.menu.is_some() || matches!(self.phase, Phase::LevelUp { .. })
     }
 
     /// The cursor, its blast ring and the time left, over the map.
@@ -152,7 +152,7 @@ impl Harvest {
         f.bottom.clear = [0.0, 0.0, 0.0, 1.0];
         let dim = [1.0, 1.0, 1.0, 0.45];
         f.bottom.label("One screen: Settings > Screens brings this one back", SCREEN_W / 2.0, SCREEN_H / 2.0 - 30.0, 32.0, dim, Align::Center);
-        f.bottom.label("Hold L1: map.   L2: aim a grenade, release to throw, B cancels.   R2: whole map", SCREEN_W / 2.0, SCREEN_H / 2.0 + 20.0, 24.0, dim, Align::Center);
+        f.bottom.label("Hold L1: map.   L2: aim a grenade, release to throw, B cancels.   R1: throw ahead", SCREEN_W / 2.0, SCREEN_H / 2.0 + 20.0, 24.0, dim, Align::Center);
     }
 }
 
@@ -308,15 +308,15 @@ mod tests {
     }
 
     #[test]
-    fn r2_holds_the_whole_map_paused_and_l1_the_live_one() {
+    fn r2_shows_no_map_and_l1_holds_the_live_one() {
         let mut h = single(12);
         let t = h.t;
         hold(&mut h, Buttons::R2, 0.5);
-        assert!(h.overview && h.map_up());
-        assert_eq!(h.t, t, "paused");
+        assert!(!h.map_up(), "R2 is the screenshot, never a map");
+        assert!(h.t > t + 0.4, "and never pauses");
         hold(&mut h, Buttons::L1, 0.5);
-        assert!(!h.overview && h.glance && h.map_up());
-        assert!(h.t > t + 0.4, "the live map keeps the night going");
+        assert!(h.glance && h.map_up());
+        assert!(h.t > t + 0.9, "the live map keeps the night going");
         hold(&mut h, Buttons::NONE, DT);
         assert!(!h.map_up());
     }

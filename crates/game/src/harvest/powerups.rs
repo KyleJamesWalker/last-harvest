@@ -85,6 +85,16 @@ pub enum Aim {
     Around,
 }
 
+/// Which zombies a burst's shots go to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Targets {
+    /// Each shot where its aim finds, again and again.
+    Same,
+    /// The first where its aim finds, then each the nearest in range and clear line of fire not yet shot in this
+    /// burst, all the way round; one is shot again only once every one has been.
+    Each,
+}
+
 /// How a gun's shots spread.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Pattern {
@@ -94,6 +104,8 @@ pub enum Pattern {
     Ring,
     /// At random across its spread.
     Spray,
+    /// One after another, `gap` seconds apart, each aimed as it fires.
+    Burst,
 }
 
 /// Every weapon behaviour by the name `does` gives it.
@@ -134,6 +146,16 @@ pub fn weapon_behaviours() -> [&'static str; 20] {
 /// The names a weapon's `sound` can give.
 pub fn weapon_sound_names() -> [&'static str; 6] {
     WEAPON_SOUNDS.map(|(k, _)| k)
+}
+
+/// Which zombies a burst's shots go to, by the names `targets` gives them.
+pub fn weapon_targets() -> [&'static str; 2] {
+    ["same", "each"]
+}
+
+/// The patterns a gun's shots can take, by the names `pattern` gives them.
+pub fn weapon_patterns() -> [&'static str; 4] {
+    ["fan", "ring", "spray", "burst"]
 }
 
 /// Each stat a weapon can set, by its key, with its value when the section leaves it out.
@@ -222,12 +244,36 @@ pub fn found_from_ids(ids: &str) -> u64 {
 }
 
 /// How one run went.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Run {
     pub secs: u32,
     pub kills: u32,
     pub level: u32,
     pub won: bool,
+    pub difficulty: crate::Difficulty,
+    /// Damage a second over the whole run.
+    pub dps: u32,
+    /// The weapons, then the passives, it ended with: each by its place in the book, and its level.
+    pub kit: [Option<(u16, u8)>; RUN_KIT],
+}
+
+/// Most powerups a run's record keeps.
+pub const RUN_KIT: usize = 12;
+
+/// A powerup's id, by its place in the book.
+pub fn powerup_id(def: usize) -> Option<&'static str> {
+    book().defs.get(def).map(|d| d.id.as_str())
+}
+
+/// A powerup's icon, by its place in the book.
+#[cfg(test)]
+pub fn powerup_icon(def: usize) -> crate::art::Art {
+    book().defs[def].icon
+}
+
+/// A powerup's place in the book, by its id.
+pub fn powerup_index(id: &str) -> Option<usize> {
+    book().index(id)
 }
 
 impl Unlock {
@@ -284,6 +330,7 @@ pub enum Stat {
     Spread,
     Knockback,
     Slow,
+    Gap,
     MaxHp,
     Heal,
     Magnet,
@@ -314,7 +361,7 @@ enum Shown {
 }
 
 impl Stat {
-    const ALL: [Stat; 29] = [
+    const ALL: [Stat; 30] = [
         Stat::Cooldown,
         Stat::Damage,
         Stat::Count,
@@ -326,6 +373,7 @@ impl Stat {
         Stat::Spread,
         Stat::Knockback,
         Stat::Slow,
+        Stat::Gap,
         Stat::MaxHp,
         Stat::Heal,
         Stat::Magnet,
@@ -359,6 +407,7 @@ impl Stat {
             Stat::Spread => "spread",
             Stat::Knockback => "knockback",
             Stat::Slow => "slow",
+            Stat::Gap => "gap",
             Stat::MaxHp => "max_hp",
             Stat::Heal => "heal",
             Stat::Magnet => "magnet",
@@ -393,6 +442,7 @@ impl Stat {
             Stat::Spread => "Spread",
             Stat::Knockback => "Knockback",
             Stat::Slow => "Slow",
+            Stat::Gap => "Burst gap",
             Stat::MaxHp => "Max health",
             Stat::Heal => "Heal",
             Stat::Magnet => "Pickup range",
@@ -425,12 +475,12 @@ impl Stat {
     fn for_weapons(self) -> bool {
         matches!(
             self,
-            Stat::Cooldown | Stat::Damage | Stat::Count | Stat::Range | Stat::Area | Stat::Pierce | Stat::Speed | Stat::Duration | Stat::Spread | Stat::Knockback | Stat::Slow
+            Stat::Cooldown | Stat::Damage | Stat::Count | Stat::Range | Stat::Area | Stat::Pierce | Stat::Speed | Stat::Duration | Stat::Spread | Stat::Knockback | Stat::Slow | Stat::Gap
         )
     }
 
     fn for_passives(self) -> bool {
-        !matches!(self, Stat::Count | Stat::Range | Stat::Duration | Stat::Spread | Stat::Slow | Stat::Refill | Stat::Money)
+        !matches!(self, Stat::Count | Stat::Range | Stat::Duration | Stat::Spread | Stat::Slow | Stat::Gap | Stat::Refill | Stat::Money)
     }
 
     /// A weapon's value for a stat the file leaves out.
@@ -442,6 +492,7 @@ impl Stat {
             Stat::Speed => 200.0,
             Stat::Spread => 30.0,
             Stat::Knockback => 30.0,
+            Stat::Gap => 0.1,
             _ => 0.0,
         }
     }
@@ -449,7 +500,7 @@ impl Stat {
     fn shown(self, kind: Kind) -> Shown {
         match self {
             _ if kind == Kind::Passive && self.scales() => Shown::Percent,
-            Stat::Cooldown | Stat::Duration | Stat::Drums => Shown::Seconds,
+            Stat::Cooldown | Stat::Duration | Stat::Drums | Stat::Gap => Shown::Seconds,
             Stat::Crit | Stat::Luck | Stat::Slow => Shown::Chance,
             _ => Shown::Number,
         }
@@ -482,6 +533,7 @@ pub struct Def {
     /// For a gun, where it looks and how its shots spread.
     pub aim: Aim,
     pub pattern: Pattern,
+    pub targets: Targets,
     /// For a lob, what it does where it lands.
     pub lands: Lands,
     /// For a weapon, how each attack shakes the camera and lights the ground.
@@ -621,6 +673,7 @@ pub fn parse(text: &str) -> Result<Book, String> {
                 sound: None,
                 aim: Aim::Nearest,
                 pattern: Pattern::Fan,
+                targets: Targets::Same,
                 lands: Lands::Blast,
                 feel: Feel::default(),
                 stats: Vec::new(),
@@ -692,6 +745,13 @@ pub fn parse(text: &str) -> Result<Book, String> {
                     _ => return Err(format!("{n}: aim is nearest, ahead, behind or around, not {rest:?}")),
                 }
             }
+            "targets" => {
+                def.targets = match rest {
+                    "same" => Targets::Same,
+                    "each" => Targets::Each,
+                    _ => return Err(format!("{n}: targets is same or each, not {rest:?}")),
+                }
+            }
             "lands" => {
                 def.lands = match rest {
                     "blast" => Lands::Blast,
@@ -706,7 +766,8 @@ pub fn parse(text: &str) -> Result<Book, String> {
                     "fan" => Pattern::Fan,
                     "ring" => Pattern::Ring,
                     "spray" => Pattern::Spray,
-                    _ => return Err(format!("{n}: pattern is fan, ring or spray, not {rest:?}")),
+                    "burst" => Pattern::Burst,
+                    _ => return Err(format!("{n}: pattern is fan, ring, spray or burst, not {rest:?}")),
                 }
             }
             "kick" | "punch" | "shake" => {
@@ -832,7 +893,7 @@ mod tests {
         let w = weapon_levels(text, "pistol").unwrap();
         let stat = |k: &str| w.stats.iter().find(|s| s.0 == k).cloned().unwrap();
         assert_eq!(w.max, 8);
-        assert_eq!(stat("damage"), ("damage", true, vec![12.0, 12.0, 15.0, 15.0, 18.0, 18.0, 21.0, 24.0]));
+        assert_eq!(stat("damage"), ("damage", true, vec![12.0, 14.0, 14.0, 16.0, 16.0, 16.0, 18.0, 19.0]));
         assert_eq!(stat("area"), ("area", false, vec![20.0; 8]), "a stat left out is its default at every level");
         assert!(weapon_levels(text, "nope").is_err() && weapon_levels("[x]\n", "x").is_err());
         assert!(weapon_behaviours().iter().all(|k| Does::from_key(k).is_some()));
@@ -864,6 +925,11 @@ mod tests {
         assert!(parse("[a]\nicon WHITE\nlands moon").unwrap_err().starts_with("3: lands is"));
         let g = parse("[nova]\nkind weapon\ndoes gun\naim around\npattern ring\nicon WHITE\n[cash]\nkind filler\nicon WHITE\n").unwrap();
         assert_eq!((g.defs[0].does, g.defs[0].aim, g.defs[0].pattern), (Some(Does::Gun), Aim::Around, Pattern::Ring));
+        let patterns: Vec<Pattern> = weapon_patterns().iter().map(|p| parse(&format!("[g]\nkind weapon\ndoes gun\npattern {p}\nicon WHITE\n[cash]\nkind filler\nicon WHITE\n")).unwrap().defs[0].pattern).collect();
+        assert_eq!(patterns, [Pattern::Fan, Pattern::Ring, Pattern::Spray, Pattern::Burst]);
+        let targets: Vec<Targets> = weapon_targets().iter().map(|t| parse(&format!("[g]\nkind weapon\ndoes gun\ntargets {t}\nicon WHITE\n[cash]\nkind filler\nicon WHITE\n")).unwrap().defs[0].targets).collect();
+        assert_eq!((targets, g.defs[0].targets), (vec![Targets::Same, Targets::Each], Targets::Same), "the same when left out");
+        assert!(parse("[g]\nkind weapon\ntargets all\nicon WHITE\n[cash]\nkind filler\nicon WHITE\n").is_err());
         assert!(parse("[a]\nicon WHITE\naim up").unwrap_err().starts_with("3: aim is"));
     }
 
@@ -913,11 +979,11 @@ mod tests {
 
     #[test]
     fn unlocks_follow_progress_over_runs() {
-        let p = Progress::default().after(Run { secs: 130, kills: 120, level: 6, won: false });
+        let p = Progress::default().after(Run { secs: 130, kills: 120, level: 6, won: false, ..Run::default() });
         assert!(Unlock::Kills(100).met(&p) && !Unlock::Kills(250).met(&p));
         assert!(Unlock::Night(120).met(&p) && Unlock::Level(5).met(&p) && Unlock::Nights(1).met(&p));
         assert!(!Unlock::Dawns(1).met(&p));
-        let p = p.after(Run { secs: 600, kills: 10, level: 3, won: true });
+        let p = p.after(Run { secs: 600, kills: 10, level: 3, won: true, ..Run::default() });
         assert_eq!((p.kills, p.best, p.best_level, p.nights, p.dawns), (130, 600, 6, 2, 1));
         assert!(Unlock::Dawns(1).met(&Progress { everything: true, ..Progress::default() }));
         let fresh = Progress::default();

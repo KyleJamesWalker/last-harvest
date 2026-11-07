@@ -31,8 +31,9 @@ pub use draw::{Align, Canvas, Color, Frame, Shape};
 pub use art::Stand;
 pub use harvest::showcase::{Figure, Showcase};
 pub use harvest::{NamedProp, load_props_for_checks, PROP_MAX_FRAME, PROP_MAX_FRAMES, PROP_PREFIX, PropByViews, PropFields, named_props, turned_depth, prop_fields, prop_text, set_props};
-pub use harvest::{RangeSetup, powerups_with};
-pub use harvest::{WeaponLevels, weapon_behaviours, weapon_levels, weapon_sound_names, weapon_stats};
+pub use harvest::{RangeSetup, effects_with, powerups_with};
+pub use harvest::{WeaponLevels, weapon_behaviours, weapon_levels, weapon_patterns, weapon_sound_names, weapon_stats, weapon_targets};
+pub use harvest::{SHOT_SPRITES, Shot, shot_named, shot_sprite_names};
 pub use harvest::{TABLES, built_in_table, check_own_table, check_table, default_prop_depth, MAP_EXTENSION, map_ground, MAP_MAX, MAP_MIN, map_props, parse_props, MapSource, PROP_MAX_HP, PropKind, PropLine, PropTough, check_map, valid_map_id};
 pub use harvest::{ABOUT_MAX, CARD_FLAGS, CARD_MAX_FRAME, card_frame_most, CARD_NUMBERS, MAX_WALK, PLAYER_BASE_KEYS, PLAYER_ID_MAX, PlayerFields, PlayerLook, default_start, flash_pixel, frame_limits, hurt_pixel, player_fields, player_looks, set_player_start, weapon_slots, weapons, CardFields, night_minutes, SpawnMix, card_fields, check_tables, kill_sound, kill_sounds, kill_weight, set_card_field, spawn_mix};
 pub use input::{Buttons, Input, InputTracker, MAX_TOUCHES, RawInput};
@@ -161,12 +162,14 @@ pub struct Game {
     page: Page,
     /// The highlighted row on the title's main page and on the settings page.
     row: usize,
+    /// The History page on show.
+    history_page: usize,
     setting: usize,
     /// The highlighted kind on the Enemies page.
     enemy: usize,
     /// Settings is open over a paused run, rather than from the title.
     settings_in_run: bool,
-    /// R1 asked for a screenshot, which the app takes after the next draw.
+    /// R2 asked for a screenshot, which the app takes after the next draw.
     shot: bool,
     /// Seconds left of the white flash that says a screenshot was taken.
     shot_flash: f32,
@@ -223,6 +226,7 @@ impl Game {
             reset_shown: 0.0,
             page: Page::Main,
             row: 0,
+            history_page: 0,
             setting: 0,
             enemy: 0,
             settings_in_run: false,
@@ -235,7 +239,7 @@ impl Game {
         }
     }
 
-    /// What R1 or photo mode asked to capture, if anything; the app saves the frame it just drew.
+    /// What R2 or photo mode asked to capture, if anything; the app saves the frame it just drew.
     pub fn take_screenshot(&mut self) -> Option<Capture> {
         if !std::mem::take(&mut self.shot) {
             return None;
@@ -417,7 +421,7 @@ impl Game {
     }
 
     fn phone_layout(&self, size: [f32; 2]) -> touch::Layout {
-        touch::layout(size, matches!(self.state, State::Harvest(_)) || self.title_on_one(), self.has_touch())
+        touch::layout(size, matches!(self.state, State::Harvest(_)) || self.title_on_one(), self.has_touch(), self.in_photo())
     }
 
     /// The input with the on-screen controls' buttons, stick and screen touch in place of raw fingers.
@@ -510,8 +514,9 @@ impl Game {
             self.sounds.push(Sfx::Tick(self.save.volume));
         }
         self.shot_flash = (self.shot_flash - dt).max(0.0);
-        let own_r1 = matches!(self.state, State::Hardware(_) | State::Gallery(_)) || self.in_photo();
-        if input.pressed.contains(Buttons::R1) && !own_r1 {
+        // The icon scene keeps R2 for its barricade, so its screenshot stays on R1.
+        let shot_key = if matches!(self.state, State::Icon(_)) { Buttons::R1 } else { Buttons::R2 };
+        if input.pressed.contains(shot_key) && !matches!(self.state, State::Hardware(_)) && !self.in_photo() {
             self.shot = true;
             self.sounds.push(Sfx::Tick(LEVELS));
         }
@@ -544,6 +549,7 @@ impl Game {
                     h.set_one_screen(true);
                     h.set_touch_aim(self.save.touch_grenades && self.has_touch());
                 }
+                h.set_touch_keys(self.phone.is_some() && self.has_touch() && !self.touchpad.hidden);
                 h.set_saves_photos(self.captures);
                 h.set_taps(self.phone.is_none() || self.touch_screen());
                 let flow = h.update(input, dt, &mut self.sounds);
@@ -564,6 +570,7 @@ impl Game {
                 if let Some(run) = flow.ended {
                     let p = self.progress().after(run);
                     (self.save.kills, self.save.best, self.save.best_level, self.save.nights, self.save.dawns) = (p.kills, p.best, p.best_level, p.nights, p.dawns);
+                    self.save.record(run);
                 }
                 if flow.quit { State::Title } else { State::Harvest(h) }
             }
@@ -757,20 +764,17 @@ mod tests {
     }
 
     #[test]
-    fn on_a_phone_holding_the_map_key_shows_the_whole_map() {
+    fn on_a_phone_a_run_has_no_map_key_and_photo_mode_has_change_for_r2() {
         let size = [1080.0, 2400.0];
         let mut game = Game::new(1);
         game.set_phone(Some(size));
         press(&mut game, Buttons::A);
-        let layout = touch::layout(size, true, true);
-        let [kx, ky, ..] = layout.key(Buttons::R2).unwrap();
-        let mut touches = [None; MAX_TOUCHES];
-        touches[0] = Some([kx + 4.0, ky + 4.0]);
-        let whole = |g: &Game| matches!(&g.state, State::Harvest(h) if h.showing_whole_map());
-        game.update(&Input { touches, ..Default::default() }, 0.016);
-        assert!(whole(&game), "held, the whole map is up");
-        game.update(&Input::default(), 0.016);
-        assert!(!whole(&game), "let go, the run is back");
+        assert!(matches!(game.state, State::Harvest(_)));
+        assert_eq!(game.phone_layout(size).key(Buttons::R2), None, "the paused whole map is gone");
+        for b in [Buttons::START, Buttons::DOWN, Buttons::DOWN, Buttons::A] {
+            press(&mut game, b);
+        }
+        assert!(game.in_photo() && game.phone_layout(size).key(Buttons::R2).is_some(), "photo mode still changes its setting");
     }
 
     #[test]
@@ -783,7 +787,7 @@ mod tests {
         let frame = game.draw();
         let phone = frame.phone.expect("a phone frame");
         assert!(phone.top.is_some() && phone.bottom.is_none(), "a run shows one screen");
-        let layout = touch::layout(size, true, true);
+        let layout = touch::layout(size, true, true, false);
         let [kx, ky, ..] = layout.key(Buttons::L2).unwrap();
         let [px, py, pw, ph] = layout.top.unwrap();
         let key = Some([kx + 4.0, ky + 4.0]);
@@ -966,11 +970,10 @@ mod tests {
             press(&mut game, Buttons::A);
             assert!(matches!(game.state, State::Harvest(_)), "{size:?}: a run");
             check(&mut game, Buttons::NONE, "run");
-            for (held, what) in [(Buttons::L1, "map"), (Buttons::L2, "grenade aim"), (Buttons::R2, "whole map")] {
+            for (held, what) in [(Buttons::L1, "map"), (Buttons::L2, "grenade aim"), (Buttons::R1, "quick throw")] {
                 check(&mut game, held, what);
                 check(&mut game, Buttons::NONE, what);
             }
-            assert!(matches!(&game.state, State::Harvest(h) if !h.showing_whole_map()), "{size:?}: back to the run");
             press(&mut game, Buttons::START);
             check(&mut game, Buttons::NONE, "pause");
         }
@@ -1286,15 +1289,101 @@ mod tests {
     }
 
     #[test]
-    fn r1_takes_one_screenshot_and_flashes_after_it() {
+    fn stats_opens_the_run_history_newest_first_and_b_comes_back() {
         let mut game = Game::new(1);
-        press(&mut game, Buttons::R1);
+        game.save.record(harvest::Run { secs: 125, level: 4, difficulty: Difficulty::Hard, dps: 37, ..Default::default() });
+        game.save.record(harvest::Run { secs: 600, level: 9, won: true, dps: 81, ..Default::default() });
+        for _ in 0..3 {
+            press(&mut game, Buttons::DOWN);
+        }
+        press(&mut game, Buttons::A);
+        let text = |game: &Game| game.draw().bottom.shapes.iter().filter_map(|s| if let Shape::Text { text, .. } = s { Some(text.clone()) } else { None }).collect::<Vec<_>>();
+        assert!(text(&game).contains(&"81".to_string()), "Stats shows the best damage a second");
+        press(&mut game, Buttons::A);
+        assert_eq!(game.page, Page::History);
+        let shown = text(&game);
+        let at = |s: &str| shown.iter().position(|t| t == s).unwrap_or_else(|| panic!("{s} missing: {shown:?}"));
+        assert!(at("Home at dawn") < at("Turned"), "newest first");
+        for cell in ["Hard", "2:05", "4", "37", "Easy", "10:00", "9", "81"] {
+            at(cell);
+        }
+        press(&mut game, Buttons::B);
+        assert_eq!(game.page, Page::Stats);
+        press(&mut game, Buttons::B);
+        assert_eq!(game.page, Page::Main);
+    }
+
+    #[test]
+    fn history_shows_each_runs_powerups_five_runs_a_page() {
+        let mut game = Game::new(1);
+        let pistol = harvest::powerup_index("pistol").unwrap();
+        let crows = harvest::powerup_index("crows").unwrap();
+        let mut kit = [None; harvest::RUN_KIT];
+        kit[0] = Some((pistol as u16, 4));
+        kit[1] = Some((crows as u16, 2));
+        game.save.record(harvest::Run { secs: 61, kit, ..Default::default() });
+        for k in 0..6 {
+            game.save.record(harvest::Run { secs: 100 + k, ..Default::default() });
+        }
+        game.page = Page::Stats;
+        press(&mut game, Buttons::A);
+        let shown = |game: &Game| {
+            let f = game.draw();
+            let arts: Vec<crate::art::Art> = f.bottom.shapes.iter().filter_map(|s| if let Shape::Art { art, .. } = s { Some(*art) } else { None }).collect();
+            let text: Vec<String> = f.bottom.shapes.iter().filter_map(|s| if let Shape::Text { text, .. } = s { Some(text.clone()) } else { None }).collect();
+            (arts, text)
+        };
+        let (arts, text) = shown(&game);
+        assert!(text.contains(&"Page 1 of 2".to_string()) && !text.contains(&"1:01".to_string()), "the oldest run is on page two");
+        assert!(!arts.contains(&harvest::powerup_icon(pistol)));
+        press(&mut game, Buttons::RIGHT);
+        let (arts, text) = shown(&game);
+        assert!(text.contains(&"1:01".to_string()) && text.contains(&"Page 2 of 2".to_string()));
+        assert!(arts.contains(&harvest::powerup_icon(pistol)) && arts.contains(&harvest::powerup_icon(crows)), "its powerups as icons");
+        assert!(text.contains(&"4".to_string()) && text.contains(&"2".to_string()), "at their levels");
+        press(&mut game, Buttons::RIGHT);
+        assert!(shown(&game).1.contains(&"Page 1 of 2".to_string()), "and round again");
+    }
+
+    #[test]
+        fn r2_takes_one_screenshot_and_flashes_after_it() {
+        let mut game = Game::new(1);
+        press(&mut game, Buttons::R2);
         assert_eq!(game.take_screenshot(), Some(Capture::Screens));
         assert_eq!(game.take_screenshot(), None, "one press, one shot");
         assert!(game.shot_flash > 0.0);
-        game.open(Scene::Gallery);
         press(&mut game, Buttons::R1);
-        assert_eq!(game.take_screenshot(), None, "the gallery keeps R1 for itself");
+        assert_eq!(game.take_screenshot(), None, "R1 no longer takes one");
+        game.open(Scene::Hardware);
+        press(&mut game, Buttons::R2);
+        assert_eq!(game.take_screenshot(), None, "the hardware check keeps R2 for the motor");
+    }
+
+    #[test]
+    fn in_a_run_on_either_layout_r2_screenshots_r1_quick_throws_and_no_button_pauses_on_a_map() {
+        for one in [false, true] {
+            let mut game = Game::new(1);
+            game.open(Scene::Harvest);
+            let State::Harvest(h) = &mut game.state else { panic!() };
+            h.set_one_screen(one);
+            press(&mut game, Buttons::R2);
+            assert_eq!(game.take_screenshot(), Some(Capture::Screens), "one screen: {one}");
+            game.update(&Input { held: Buttons::R1, pressed: Buttons::R1, ..Default::default() }, 0.016);
+            game.update(&Input::default(), 0.016);
+            assert!(game.take_screenshot().is_none(), "one screen: {one}");
+            assert!(matches!(&game.state, State::Harvest(h) if h.grenades_in_the_air() == 1), "one screen: {one}: R1 threw");
+            let night = |g: &Game| match &g.state {
+                State::Harvest(h) => h.night_t(),
+                _ => f32::NAN,
+            };
+            for held in [Buttons::L1, Buttons::R2] {
+                let before = night(&game);
+                for _ in 0..90 {
+                    game.update(&Input { held, ..Default::default() }, 1.0 / 60.0);
+                }
+                assert!(night(&game) > before + 1.0, "one screen: {one}: holding {held:?} never pauses the night");
+            }
+        }
     }
 
     fn in_photo_mode(captures: bool) -> Game {
@@ -1322,23 +1411,56 @@ mod tests {
     }
 
     #[test]
-    fn on_a_phone_the_grenade_and_map_keys_set_up_a_photo_without_taking_one() {
+    fn on_a_phone_photo_mode_has_a_named_key_for_each_of_its_buttons_and_only_back_leaves() {
         let size = [2400.0, 1080.0];
         let mut game = in_photo_mode(true);
         game.set_phone(Some(size));
-        let layout = touch::layout(size, true, true);
-        let tap = |game: &mut Game, b: Buttons| {
-            let [kx, ky, ..] = layout.key(b).unwrap();
+        let (run, photo) = (touch::layout(size, true, true, false), touch::layout(size, true, true, true));
+        let finger = |at: [f32; 2]| {
             let mut touches = [None; MAX_TOUCHES];
-            touches[0] = Some([kx + 4.0, ky + 4.0]);
-            game.update(&Input { touches, ..Default::default() }, 0.016);
+            touches[0] = Some(at);
+            Input { touches, ..Default::default() }
+        };
+        let middle = |[x, y, w, h]: touch::Rect| [x + w / 2.0, y + h / 2.0];
+        let tap = |game: &mut Game, at: [f32; 2]| {
+            game.update(&finger(at), 0.016);
             game.update(&Input::default(), 0.016);
         };
         let help = |game: &Game| game.draw().top.shapes.iter().filter_map(|s| if let Shape::Text { text, .. } = s { Some(text.clone()) } else { None }).collect::<Vec<_>>().join("\n");
-        tap(&mut game, Buttons::L2);
-        tap(&mut game, Buttons::R2);
+        tap(&mut game, middle(run.key(Buttons::B).unwrap()));
+        assert!(game.in_photo(), "where Turn around was leaves photo mode no more");
+        assert!(help(&game).contains("Setting: choose") && !help(&game).contains("L2"), "the guides name the keys: {}", help(&game));
+        tap(&mut game, middle(photo.key(Buttons::L2).unwrap()));
+        tap(&mut game, middle(photo.key(Buttons::R2).unwrap()));
         assert!(help(&game).contains("[Fog: Thick]"), "{}", help(&game));
-        assert!(game.in_photo() && game.take_screenshot().is_none());
+        let eye = |game: &Game| game.draw().top.cards.unwrap().eye.y;
+        let low = eye(&game);
+        let height = middle(photo.key(Buttons::L1).unwrap());
+        let stick = photo.stick_at();
+        let mut both = finger(height);
+        both.touches[1] = Some(stick);
+        game.update(&both, 0.016);
+        both.touches[1] = Some([stick[0], stick[1] - size[1] * 0.2]);
+        for _ in 0..30 {
+            game.update(&both, 0.016);
+        }
+        game.update(&Input::default(), 0.016);
+        assert!(eye(&game) > low, "Height and the stick raise the camera");
+        for _ in 0..4 {
+            tap(&mut game, middle(photo.key(Buttons::L2).unwrap()));
+        }
+        assert!(help(&game).contains("[Place: ahead]"), "{}", help(&game));
+        game.update(&finger(stick), 0.016);
+        for _ in 0..30 {
+            game.update(&finger([stick[0] + size[1] * 0.2, stick[1]]), 0.016);
+        }
+        game.update(&Input::default(), 0.016);
+        assert!(!help(&game).contains("[Place: ahead]"), "the stick moves the cross");
+        tap(&mut game, middle(photo.key(Buttons::X).unwrap()));
+        assert!(help(&game).contains("[Place: ahead]"), "Reset puts it back: {}", help(&game));
+        assert!(game.in_photo() && game.take_screenshot().is_none(), "and none of them takes a photo");
+        tap(&mut game, middle(photo.key(Buttons::B).unwrap()));
+        assert!(!game.in_photo(), "Back leaves");
     }
 
     #[test]
