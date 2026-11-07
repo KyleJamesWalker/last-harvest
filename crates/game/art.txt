@@ -187,3 +187,11 @@ TOUCH_PAD_DOWN         png placeholder/touch_pad_down.png
 TOUCH_AROUND           png placeholder/touch_around.png
 TOUCH_PAUSE            png placeholder/touch_pause.png
 TOUCH_MAP              png placeholder/touch_map.png
+
+# Gunshots: tracers and the muzzle flare point right; sparks and smoke play over their life
+SHOT_TRACER     png placeholder/shot_tracer.png
+SHOT_PELLET     png placeholder/shot_pellet.png
+SHOT_ROUND      png placeholder/shot_round.png
+SHOT_SPARK      png placeholder/shot_spark.png x3
+SHOT_SMOKE      png placeholder/shot_smoke.png x3
+SHOT_FLARE      png placeholder/shot_flare.png x2

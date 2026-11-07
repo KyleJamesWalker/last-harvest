@@ -286,6 +286,12 @@ enum Action {
     /// Starts typing the data page's line's value.
     DataEdit(usize),
     DataRemove(usize),
+    /// Steps the data page's `color` line through the game's palette.
+    DataColor(usize, i32),
+    /// Steps the data page's shot sprite line through the sprites, a mod's props among them.
+    DataSprite(usize, i32),
+    /// Opens the sprite the data page's line names, to paint it.
+    DataPaint(usize),
     DataAdd,
     DataPage(i32),
     /// Shows the weapon page's lines as the data page does, or the weapon page again.
@@ -301,6 +307,8 @@ enum Action {
     WeaponType(usize),
     /// Steps the weapon's effect, bullet or sound through what it can name; 0 leaves its behaviour's own.
     WeaponPick(usize, i32),
+    /// Opens the effects.txt section of the weapon's bullet, whose shot style it fires.
+    WeaponStyle,
     /// Opens the game's weapon range on the section as edited, at the picked level.
     WeaponTry,
     /// Leaves the paint color out of the 3D view, or puts it back.
@@ -1741,8 +1749,8 @@ impl Editor {
         }
         match a {
             Action::MapTool(_) | Action::Ground(_) | Action::PickProp(_) | Action::PickPage(_) | Action::Picket(_) | Action::MapSize(..) | Action::Randomize | Action::MapFit | Action::PropDefaults => {}
-            Action::DataStep(..) | Action::DataEdit(_) | Action::DataRemove(_) | Action::DataAdd | Action::DataPage(_) => {}
-            Action::WeaponLines | Action::WeaponLevel(_) | Action::WeaponMax(_) | Action::WeaponDoes(_) | Action::WeaponStep(..) | Action::WeaponType(_) | Action::WeaponPick(..) | Action::WeaponTry => {}
+            Action::DataStep(..) | Action::DataEdit(_) | Action::DataRemove(_) | Action::DataColor(..) | Action::DataSprite(..) | Action::DataPaint(_) | Action::DataAdd | Action::DataPage(_) => {}
+            Action::WeaponLines | Action::WeaponLevel(_) | Action::WeaponMax(_) | Action::WeaponDoes(_) | Action::WeaponStep(..) | Action::WeaponType(_) | Action::WeaponPick(..) | Action::WeaponStyle | Action::WeaponTry => {}
             Action::LineFrame(_) | Action::LineFps(_) => {}
             Action::PlayerBase(i, d) => {
                 let t = last_harvest_game::tuning::tuning();
@@ -4166,7 +4174,7 @@ mod tests {
         let stat = |k: &str| last_harvest_game::weapon_stats().iter().position(|s| s.0 == k).unwrap();
         let start = text(&e);
         e.act(Action::WeaponStep(stat("damage"), 1), false);
-        assert_eq!(text(&e), start.replacen("damage    12 12 15", "damage 13 12 15", 1));
+        assert_eq!(text(&e), start.replacen("damage    12 14 14", "damage 13 14 14", 1));
         e.act(Action::WeaponLevel(3), false);
         e.act(Action::WeaponStep(stat("range"), -1), false);
         assert!(text(&e).contains("\nrange 150 150 149 150\n"), "a short list grows only to keep the levels after");
@@ -4175,7 +4183,22 @@ mod tests {
         e.act(Action::WeaponPick(0, 1), false);
         e.act(Action::WeaponPick(2, -1), false);
         e.act(Action::WeaponMax(1), false);
-        assert!(text(&e).contains("max 9\n") && text(&e).contains("spread    8\ndoes gun\neffect muzzle_pistol\nsound throw\n\n"), "{}", text(&e));
+        assert!(text(&e).contains("max 9\n") && text(&e).contains("pierce    0 0 0 0 1 1 1 1\ndoes gun\neffect muzzle_pistol\nsound throw\n\n"), "{}", text(&e));
+        let pattern = |e: &Editor| e.data.as_ref().and_then(|d| d.table.entries(&d.section).into_iter().find(|l| l.key == "pattern")).map(|l| l.value);
+        e.act(Action::WeaponPick(3, -1), false);
+        assert_eq!(pattern(&e).as_deref(), Some("spray"), "the patterns step from burst");
+        e.act(Action::WeaponPick(3, 1), false);
+        assert_eq!(pattern(&e).as_deref(), Some("burst"));
+        let targets = |e: &Editor| e.data.as_ref().and_then(|d| d.table.entries(&d.section).into_iter().find(|l| l.key == "targets")).map(|l| l.value);
+        e.act(Action::WeaponPick(4, -1), false);
+        assert_eq!(targets(&e).as_deref(), Some("same"), "the targets step from each");
+        e.key(Key::Undo);
+        let gap = stat("gap");
+        e.act(Action::WeaponStep(gap, -1), false);
+        assert!(text(&e).contains("\ngap 0.14 0.12 0.0 0.08 0.065"), "the gap steps at the picked level: {}", text(&e));
+        e.key(Key::Undo);
+        e.key(Key::Undo);
+        e.key(Key::Undo);
         assert_eq!(e.data.as_ref().unwrap().weapon.as_ref().unwrap().preview[0].0.as_deref(), Some("muzzle_pistol"));
         e.act(Action::WeaponType(stat("area")), false);
         e.set_text("area 24");
@@ -4196,7 +4219,7 @@ mod tests {
         }
         assert_eq!(text(&e), start, "each change undoes, and the rest of the file stays as written");
         e.key(Key::Redo);
-        assert!(text(&e).contains("damage 13 12 15"));
+        assert!(text(&e).contains("damage 13 14 14"));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -4214,7 +4237,10 @@ mod tests {
         e.act(Action::WeaponTry, false);
         let setup = last_harvest_game::RangeSetup::read(&e.tried.take().expect("Try it asks for the range")).unwrap();
         assert_eq!((setup.weapon.as_str(), setup.level), ("pistol", 3));
-        assert!(setup.section.as_deref().is_some_and(|s| s.starts_with("[pistol]\n") && s.contains("damage 12 12 16")), "unsaved changes too: {setup:?}");
+        assert!(setup.section.as_deref().is_some_and(|s| s.starts_with("[pistol]\n") && s.contains("damage 12 14 15")), "unsaved changes too: {setup:?}");
+        assert!(setup.section.as_deref().is_some_and(|s| s.contains("pattern   burst") && s.contains("targets   each") && s.contains("\ngap ")), "the burst and its targets too");
+        let effects = setup.effects.as_deref().unwrap_or_default();
+        assert!(effects.contains("[bullet]\n") && effects.contains("[pistol_shot]\n") && effects.contains("tracer SHOT_TRACER"), "and the shot style its bullets fly as: {effects}");
         e.act(Action::WeaponLines, false);
         e.act(Action::WeaponTry, false);
         assert!(e.tried.is_some(), "the lines view tries it too");
@@ -4287,6 +4313,66 @@ mod tests {
         assert!(e.is_prop() && e.open_prop_fields().is_some(), "a prop, not a card");
         e.act(Action::Save, false);
         assert!(dir.join("props/post.prop.png").exists());
+    }
+
+    #[test]
+    fn a_shot_style_steps_its_color_through_the_palette_and_the_weapon_page_shows_it() {
+        let dir = tmp().join("shot-style");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut e = editor_in(&dir, dir.join("art.txt"));
+        e.switch_to("DATA_POWERUPS_PISTOL".into());
+        let shown = |e: &Editor| e.data.as_ref().and_then(|d| d.weapon.as_ref()).and_then(|w| w.shot);
+        assert_eq!(shown(&e), last_harvest_game::shot_named(last_harvest_game::built_in_table("effects.txt").unwrap(), Some("pistol_shot")), "the pistol fires its own style");
+        e.act(Action::WeaponStyle, false);
+        assert_eq!(e.sprite.name, "DATA_EFFECTS_PISTOL_SHOT", "Style opens its bullet's section");
+        let d = e.data.as_ref().unwrap();
+        let row = d.table.entries(&d.section).iter().position(|l| l.key == "color").unwrap();
+        assert!(e.buttons().iter().any(|b| b.action == Action::DataColor(row, 1)) && !e.buttons().iter().any(|b| b.action == Action::DataStep(row, 1)));
+        buttons_fit(&e);
+        let palette = sprite::palette();
+        let hex = |c: [u8; 4]| format!("{:02X}{:02X}{:02X}", c[0], c[1], c[2]);
+        let color = |e: &Editor| e.data.as_ref().map(|d| d.table.entries(&d.section)[row].value.clone()).unwrap();
+        let at = palette.iter().position(|c| hex(*c) == color(&e)).expect("the game's own color is the palette's");
+        e.act(Action::DataColor(row, 1), false);
+        assert_eq!(color(&e), hex(palette[(at + 1) % palette.len()]));
+        e.act(Action::DataColor(row, -1), false);
+        e.act(Action::DataColor(row, -1), false);
+        assert_eq!(color(&e), hex(palette[(at + palette.len() - 1) % palette.len()]));
+        e.act(Action::Save, false);
+        assert!(!e.unsaved(), "the game reads it");
+        e.switch_to("DATA_POWERUPS_PISTOL".into());
+        let [r, g, b, _] = palette[(at + palette.len() - 1) % palette.len()];
+        assert_eq!(shown(&e).map(|s| s.color), Some([r, g, b].map(|v| v as f32 / 255.0)), "the weapon page shows the saved style");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_shot_style_steps_its_sprites_and_paints_them_and_the_weapon_page_draws_them() {
+        let dir = tmp().join("shot-sprites");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut e = editor_in(&dir, dir.join("art.txt"));
+        e.switch_to("DATA_POWERUPS_SHOTGUN".into());
+        let art = |e: &Editor| e.data.as_ref().and_then(|d| d.weapon.as_ref()).map(|w| w.shot_art.iter().map(|f| f.len()).collect::<Vec<_>>()).unwrap();
+        assert_eq!(art(&e), [1, 3, 3, 2], "the pellet's tracer, spark, smoke and flare frames");
+        e.act(Action::WeaponStyle, false);
+        assert_eq!(e.sprite.name, "DATA_EFFECTS_SHOTGUN_PELLET");
+        let d = e.data.as_ref().unwrap();
+        let row = d.table.entries(&d.section).iter().position(|l| l.key == "tracer").unwrap();
+        assert!(e.buttons().iter().any(|b| b.action == Action::DataSprite(row, 1)) && e.buttons().iter().any(|b| b.action == Action::DataPaint(row)));
+        buttons_fit(&e);
+        let value = |e: &Editor| e.data.as_ref().map(|d| d.table.entries(&d.section)[row].value.clone()).unwrap();
+        e.act(Action::DataSprite(row, 1), false);
+        let next = value(&e);
+        assert_ne!(next, "SHOT_PELLET");
+        assert!(!next.starts_with(sprite::DATA_PREFIX) && !next.starts_with(sprite::CARD_PREFIX), "only sprites: {next}");
+        e.act(Action::DataSprite(row, -1), false);
+        assert_eq!(value(&e), "SHOT_PELLET");
+        e.act(Action::Save, false);
+        e.act(Action::DataPaint(row), false);
+        assert_eq!(e.sprite.name, "SHOT_PELLET", "Paint opens the sprite to draw");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

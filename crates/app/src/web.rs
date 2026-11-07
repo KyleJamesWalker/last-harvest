@@ -579,9 +579,7 @@ fn range_asked(problems: &mut Vec<String>) -> Option<RangeSetup> {
     let text = window.local_storage().ok().flatten()?.get_item(RANGE_KEY).ok().flatten()?;
     match RangeSetup::read(&text) {
         Ok(setup) => {
-            if let Some(section) = &setup.section {
-                pak::try_section(section);
-            }
+            pak::try_setup(&setup);
             Some(setup)
         }
         Err(e) => {

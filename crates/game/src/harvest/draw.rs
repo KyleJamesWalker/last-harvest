@@ -351,10 +351,31 @@ impl Harvest {
             c.art_top(a, sx, sy, scale, flip, show, [lit[0] * k[0], lit[1] * k[1], lit[2] * k[2], lit[3] * k[3]]);
         }
 
+        let own_shot = super::effects::effects().bullet.shot;
         for b in self.bullets.iter().filter(|_| !fog) {
-            let (sx, sy) = at(b.pos[0], b.pos[1]);
-            let a = b.look.unwrap_or(super::effects::effects().bullet).looping(b.age);
-            c.art_rotated(a, sx, sy, scale, b.vel[1].atan2(b.vel[0]), lit);
+            let Some(shot) = b.look.map_or(own_shot, |e| e.shot) else {
+                let (sx, sy) = at(b.pos[0], b.pos[1]);
+                let a = b.look.unwrap_or(super::effects::effects().bullet).looping(b.age);
+                c.art_rotated(a, sx, sy, scale, b.vel[1].atan2(b.vel[0]), lit);
+                continue;
+            };
+            let [r, g, bl] = shot.color;
+            let tail = shot.tail(b.pos, b.vel, b.age);
+            if let Some(frames) = shot.sprites[super::effects::TRACER] {
+                let a = frames[(b.age * 12.0) as usize % frames.len()];
+                let length = ((b.pos[0] - tail[0]).powi(2) + (b.pos[1] - tail[1]).powi(2)).sqrt();
+                let (sx, sy) = at((b.pos[0] + tail[0]) / 2.0, (b.pos[1] + tail[1]) / 2.0);
+                c.art_rotated(a, sx, sy, scale * length / a.w(), b.vel[1].atan2(b.vel[0]), lit);
+                continue;
+            }
+            // Overlapping dots, close enough at the head to read as one line.
+            let n = ((shot.length / (shot.size * 0.35)).ceil() as usize).clamp(4, 32);
+            for i in 0..n {
+                let k = i as f32 / (n - 1) as f32;
+                let (width, bright) = super::effects::Shot::taper(k);
+                let (sx, sy) = at(b.pos[0] + (tail[0] - b.pos[0]) * k, b.pos[1] + (tail[1] - b.pos[1]) * k);
+                c.circle(sx, sy, shot.size * width * scale / 2.0, [lit[0] * r * bright, lit[1] * g * bright, lit[2] * bl * bright, lit[3]]);
+            }
         }
         for s in self.spits.iter().filter(|s| known(s.pos)) {
             let (sx, sy) = at(s.pos[0], s.pos[1]);
@@ -386,7 +407,10 @@ impl Harvest {
         for p in self.juice.particles.iter().filter(|_| !fog) {
             let s = p.size_now() * scale;
             let (sx, sy) = at(p.pos[0], p.pos[1] - p.z);
-            c.rect(sx - s / 2.0, sy - s / 2.0, s, s, [p.color[0], p.color[1], p.color[2], 1.0]);
+            match p.frame() {
+                Some(a) => c.art_rotated(a, sx, sy, s / a.w(), 0.0, WHITE),
+                None => c.rect(sx - s / 2.0, sy - s / 2.0, s, s, [p.color[0], p.color[1], p.color[2], 1.0]),
+            }
         }
         if fog {
             self.shade_unseen(c, cam, scale);

@@ -202,7 +202,7 @@ Weapons attack on their own, each in its zone. Each weapon levels up to its high
 
 | Weapon | Zone | Unlocks | Levels | On its card |
 |---|---|---|---|---|
-| Pistol | Ahead | From the start | 8 | Shoots whatever's in front of you, else the nearest |
+| Pistol | Ahead | From the start | 8 | Shoots what's ahead, then fans out to a new zombie with every shot |
 | Shotgun | Ahead | From the start | 8 | A spread of pellets at close range |
 | Hunting rifle | Ahead | 500 kills over every run | 8 | A slow, heavy round straight down your heading |
 | Lantern beam | Ahead | Survive 2:00 of one night | 8 | Your light burns and slows what it falls on |
@@ -398,7 +398,7 @@ The game reads its rules from seven text files. A mod pack can replace any of th
 | `props.txt` | The game's own props a map can place, and the defaults for fences and other sprites |
 | `ground.txt` | Each ground code a map paints |
 | `farm.txt` | How the random farm lays itself out |
-| `effects.txt` | The sprite and speed of each effect, swing, bullet, thrown item, pickup and animal, and the particle colors |
+| `effects.txt` | The sprite and speed of each effect, swing, bullet, thrown item, pickup and animal, the shot styles bullets fly as, and the particle colors |
 | `powerups.txt` | Every weapon and passive |
 | `enemies.txt` | Every kind of zombie |
 
@@ -464,6 +464,22 @@ Each section names what an effect, swing or animal plays:
 
 A sprite that stands as a slab lies flat and turns with the swing. Anything else faces the camera. A section with a name of your own is a new effect a weapon can use. A mod's file may leave out `[spit]`, `[mound]` and `[mound_breaks]`, added later, and keep the game's.
 
+A section can instead set a shot style, which a weapon fires with `bullet NAME`. Its bullets fly as a tracer: one bright streak that thins and dims from head to tail, with a white-hot core along its front. Each shot flares white-hot out of the muzzle for a frame or two, throws sparks forward that slow and fade, and puffs a little smoke, over the weapon's `flash`. Where a bullet hits a zombie, a prop or the ground at the end of its range, it throws a spray of sparks.
+
+- `color RRGGBB`: the tracer's and sparks' color, as `palette.txt` writes one, such as `E8D27A`.
+- `length N`: the tracer's length in pixels, up to 64.
+- `size N`: the tracer's width at its head, and about the sparks', in pixels, up to 8.
+- `sparks N`: sparks from the muzzle with each shot, up to 32; 0 for none.
+- `impact N`: sparks where each bullet hits, up to 32; 0 for none.
+- `core N`: how far the muzzle flare reaches, in pixels, up to 16.
+- `tracer NAME`: the sprite the tracer stretches along the bullet's path, drawn with its head to the right.
+- `spark NAME` and `smoke NAME`: the sprites of each spark and smoke puff, their frames played over its life: a spark shrinking, a puff spreading.
+- `flare NAME`: the sprite of the muzzle flare, pointing right, its frames played over the flare's frame or two.
+
+The sprites stand up and face the camera, cut out by their clear pixels. A name can be one of your props, `PROP_<ID>`. Without a sprite, or with a name that isn't one, the tracer, spark, smoke or flare draws as a plain colored shape. The game's own are `SHOT_TRACER`, `SHOT_PELLET`, `SHOT_ROUND`, `SHOT_SPARK`, `SHOT_SMOKE` and `SHOT_FLARE`, placeholders to redraw in the sprite editor.
+
+A section with any of these needs no `art`, and takes what it leaves out from `[bullet]`, the style of a gun without a `bullet` line. The pistol fires `[pistol_shot]`, the shotgun and back holster `[shotgun_pellet]`, and the rifle `[rifle_round]`; a mod's file without one of those fires `[bullet]` for it. A section without a style still flies as its sprite. Guns play no muzzle sprite of their own; a weapon's `effect` line plays one over the flare.
+
 The `[colors]` section sets the particle colors: `blood`, `dark_blood`, `dirt`, `spark`, `ember`, `gold` and `firefly`. Each is red, green and blue from 0 to 1. A zombie with its own `blood` bleeds that instead, and its `dark_blood` is as much darker.
 
 #### powerups.txt
@@ -485,7 +501,7 @@ Each `[id]` section is one powerup:
 - `find` sets how often it shows as a find, `after` the earliest minute, and `chest` makes it a chest-only find.
 - `max` is its highest level. Each stat line lists its value at each level, and a short list repeats its last value.
 
-Weapon stats are `cooldown`, `damage`, `count`, `range`, `area`, `pierce`, `speed`, `duration`, `spread`, `knockback` and `slow`. Passive stats are totals that add together. The header lists every passive stat and which ones take a percentage.
+Weapon stats are `cooldown`, `damage`, `count`, `range`, `area`, `pierce`, `speed`, `duration`, `spread`, `knockback`, `slow` and `gap`, the seconds between a burst's shots. Passive stats are totals that add together. The header lists every passive stat and which ones take a percentage.
 
 ##### Making a weapon from data
 
@@ -497,6 +513,7 @@ Three behaviors take their shape from data:
     - `fan`: evenly across `spread` degrees, the default.
     - `ring`: evenly all the way round.
     - `spray`: at random across `spread`.
+    - `burst`: one after another, `gap` seconds apart, each aimed where the gun looks as it fires, so turning mid-burst moves the next shot; then the `cooldown`. `does pistol` takes a burst too, aiming as the pistol does. With `targets each`, a burst's first shot goes where it aims and each after to the nearest zombie in range and clear line of fire it hasn't shot yet, all the way round, so a fast burst shoots a ring of zombies at once; it shoots one again only once every one has been. `targets same`, the default, keeps every shot on what its aim finds.
 - **`does blade`** cuts everything within `area` across `spread` degrees, toward what its `aim` finds. A `spread` of 360 cuts all round.
 - **`does lob`** throws `count` at a crowd within `range`. `lands` says what happens where it lands, using its `damage`, `area`, `duration` and `slow`:
     - `blast`: an explosion, the default.
@@ -507,7 +524,7 @@ Three behaviors take their shape from data:
 Any weapon can also take these lines:
 
 - `effect NAME`: an `effects.txt` effect it plays in place of its behavior's own. A lob plays it where it lands.
-- `bullet NAME`: an `effects.txt` effect its bullets fly as. A lob flies as it, or as the grenade when left out.
+- `bullet NAME`: an `effects.txt` effect its bullets fly as: a tracer when the section sets a shot style, else its sprite. A lob flies as it, or as the grenade when left out.
 - `sound NAME`: `shot`, `blast`, `slash`, `zap`, `bark` or `throw`, in place of its behavior's own.
 - `kick N`, `punch N` and `shake N`: the camera's kick back, punch in and screen shake on each attack.
 - `flash R G B REACH SECONDS`: a flash of light on each attack. The color can go above 1 for brighter than white. REACH is in tiles.
@@ -605,6 +622,7 @@ Each data file lists under Data, in a folder of its own. Each section of the fil
 A page shows one line a row, with its comment under it:
 
 - **-** and **+** step a number.
+- **<** and **>** step an `effects.txt` `color` line through the game's palette.
 - **Edit** types any value.
 - **x** removes a line, and **Add line** types a new `key value` line.
 - **Up** and **Down** page through a long section.
@@ -618,9 +636,9 @@ A weapon's section in `powerups.txt` opens as a weapon page:
 - A level's number picks that level. **-** and **+** on a stat step its value at that level only, ten times as far with Shift. **Edit** types the whole line.
 - **-** and **+** beside `max` change the highest level.
 - **<** and **>** step the effect and bullet through `effects.txt`, and the sound through the weapon sounds. **Own** removes the line, so the behavior's own plays.
-- The panel under the behaviors plays the chosen effect and bullet.
+- The panel under the behaviors plays the chosen effect and bullet. A bullet with a shot style plays as its tracer and muzzle flare, in their sprites, with its color, length, size, sparks, core and impact, and **Style** opens its `effects.txt` section. There each sprite line steps through the sprites, your props among them, with **<** and **>**, and **Paint** opens the sprite to draw.
 - **Lines** shows the section a line a row, as any other page; **Weapon** goes back.
-- **Try it** opens the game's weapon range with the section as it stands, unsaved changes too, at the picked level. A section the game won't read says why instead.
+- **Try it** opens the game's weapon range with the section as it stands, unsaved changes too, at the picked level, with the saved `effects.txt` shot style its bullets fly as. A section the game won't read says why instead.
 
 Each change rewrites only its own line, so comments and other lines stay as written, and Undo takes it back.
 

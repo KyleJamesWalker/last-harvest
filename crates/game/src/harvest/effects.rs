@@ -11,6 +11,57 @@ pub struct Effect {
     pub fps: f32,
     pub life: f32,
     pub reach: f32,
+    /// A bullet that flies as this effect is a streak of particles in this style, not its sprite.
+    pub shot: Option<Shot>,
+}
+
+/// A shot's look: the tracer a bullet flies as, the flash and sparks at its muzzle, and the sparks where it hits.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Shot {
+    pub color: [f32; 3],
+    /// The tracer's length and its width at the head, in map pixels; sparks are about as wide.
+    pub length: f32,
+    pub size: f32,
+    /// Sparks thrown from the muzzle with each shot, and where each bullet hits.
+    pub sparks: u32,
+    pub impact: u32,
+    /// The white-hot flare out of the muzzle, in map pixels.
+    pub core: f32,
+    /// The sprites it draws in place of plain colored shapes, by `SPRITES`; None draws the shape.
+    pub sprites: [Option<&'static [Art]>; SPRITES.len()],
+}
+
+/// The sprites a shot style can name, in the order `Shot::sprites` holds them: the tracer, stretched along the
+/// bullet's path with its head to the right; a spark and a smoke puff, their frames played over their life; and the
+/// muzzle flare, pointing right.
+pub const SPRITES: [&str; 4] = ["tracer", "spark", "smoke", "flare"];
+pub const TRACER: usize = 0;
+pub const SPARK: usize = 1;
+pub const SMOKE: usize = 2;
+pub const FLARE: usize = 3;
+
+pub const MAX_LENGTH: f32 = 64.0;
+pub const MAX_SIZE: f32 = 8.0;
+pub const MAX_SPARKS: u32 = 32;
+pub const MAX_CORE: f32 = 16.0;
+
+impl Shot {
+    /// Where the tracer of a bullet at `pos` flying at `vel`, `age` seconds out, ends behind it: `length` back,
+    /// but never past where it left the gun.
+    pub fn tail(&self, pos: [f32; 2], vel: [f32; 2], age: f32) -> [f32; 2] {
+        let speed = (vel[0] * vel[0] + vel[1] * vel[1]).sqrt();
+        if speed <= 0.0 {
+            return pos;
+        }
+        let back = self.length.min(speed * age.max(0.0)) / speed;
+        [pos[0] - vel[0] * back, pos[1] - vel[1] * back]
+    }
+
+    /// The tracer's width, as a fraction of `size`, and its brightness, `k` of the way from its head to its tail.
+    pub fn taper(k: f32) -> (f32, f32) {
+        let k = k.clamp(0.0, 1.0);
+        (1.0 - 0.85 * k, 1.0 - 0.75 * k)
+    }
 }
 
 impl Effect {
@@ -93,6 +144,37 @@ pub struct Written {
     pub fps: f32,
     pub life: f32,
     pub reach: f32,
+    pub color: Option<[u8; 3]>,
+    pub length: Option<f32>,
+    pub size: Option<f32>,
+    pub sparks: Option<u32>,
+    pub impact: Option<u32>,
+    pub core: Option<f32>,
+    pub sprites: [Option<String>; SPRITES.len()],
+}
+
+impl Written {
+    /// Whether it sets any of a shot's style, and so flies as particles.
+    pub fn is_shot(&self) -> bool {
+        self.color.is_some() || self.length.is_some() || self.size.is_some() || self.sparks.is_some() || self.impact.is_some() || self.core.is_some() || self.sprites.iter().any(Option::is_some)
+    }
+
+    /// Its shot style, the rest taken from `base`, with its sprites' frames as `frames` finds them.
+    fn shot(&self, base: Option<Shot>, frames: &dyn Fn(&str) -> Option<&'static [Art]>) -> Option<Shot> {
+        let base = base.unwrap_or(Shot { color: [1.0; 3], length: 10.0, size: 1.5, sparks: 6, impact: 4, core: 5.0, sprites: [None; SPRITES.len()] });
+        self.is_shot().then(|| Shot {
+            sprites: std::array::from_fn(|k| match &self.sprites[k] {
+                Some(name) => frames(name),
+                None => base.sprites[k],
+            }),
+            color: self.color.map_or(base.color, |c| c.map(|v| v as f32 / 255.0)),
+            length: self.length.unwrap_or(base.length),
+            size: self.size.unwrap_or(base.size),
+            sparks: self.sparks.unwrap_or(base.sparks),
+            impact: self.impact.unwrap_or(base.impact),
+            core: self.core.unwrap_or(base.core),
+        })
+    }
 }
 
 /// Effects of a mod's own as written, by the name of their section.
@@ -169,7 +251,7 @@ pub fn parse(text: &str) -> Result<(Vec<Written>, Extra), String> {
             if colors {
                 continue;
             }
-            let fresh = Written { art: String::new(), fps: 10.0, life: 0.2, reach: 1.0 };
+            let fresh = Written { art: String::new(), fps: 10.0, life: 0.2, reach: 1.0, color: None, length: None, size: None, sparks: None, impact: None, core: None, sprites: Default::default() };
             if !name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_') || name.is_empty() {
                 return Err(format!("{n}: [{name}] isn't a name of lowercase letters, digits and _"));
             }
@@ -205,6 +287,18 @@ pub fn parse(text: &str) -> Result<(Vec<Written>, Extra), String> {
             "fps" => e.fps = number()?.min(120.0),
             "life" => e.life = number()?,
             "reach" => e.reach = number()?,
+            "length" => e.length = Some(number()?.min(MAX_LENGTH)),
+            "size" => e.size = Some(number()?.min(MAX_SIZE)),
+            "sparks" | "impact" => {
+                let v = value.parse::<u32>().map_err(|_| format!("{n}: {key} is a whole number, 0 or more"))?.min(MAX_SPARKS);
+                *if key == "sparks" { &mut e.sparks } else { &mut e.impact } = Some(v);
+            }
+            "core" => e.core = Some(number()?.min(MAX_CORE)),
+            k if SPRITES.contains(&k) && !value.is_empty() && value.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_') => {
+                e.sprites[SPRITES.iter().position(|s| *s == k).unwrap_or(0)] = Some(value.to_string());
+            }
+            k if SPRITES.contains(&k) => return Err(format!("{n}: {key} is a sprite's name, such as SHOT_SPARK")),
+            "color" => e.color = Some(crate::paint::hex(value).filter(|_| value.bytes().all(|b| b.is_ascii_hexdigit())).ok_or_else(|| format!("{n}: color is RRGGBB as palette.txt writes one, such as E8D27A"))?),
             _ => return Err(format!("{n}: {key} isn't something an effect says")),
         }
     }
@@ -215,20 +309,59 @@ pub fn parse(text: &str) -> Result<(Vec<Written>, Extra), String> {
         .zip(NAMES)
         .enumerate()
         .map(|(k, (e, name))| match e {
-            Some(e) if e.art.is_empty() => Err(format!("[{name}] needs an art line")),
+            Some(e) if e.art.is_empty() && !e.is_shot() => Err(format!("[{name}] needs an art line")),
             Some(e) => Ok(e),
             None if ADDED_LATER.contains(name) && text != BUILT_IN => game().map(|g| g[k].clone()).ok_or_else(|| format!("no [{name}]")),
             None => Err(format!("no [{name}]")),
         })
         .collect::<Result<Vec<_>, _>>()?;
-    if let Some((name, _)) = extra.iter().find(|(_, w)| w.art.is_empty()) {
+    if let Some((name, _)) = extra.iter().find(|(_, w)| w.art.is_empty() && !w.is_shot()) {
         return Err(format!("[{name}] needs an art line"));
     }
     Ok((own, extra))
 }
 
+/// The shot style a bullet named `name` flies as, with `text` as effects.txt; no name, or one the file lacks, fires
+/// [bullet]. None for a section that sets no style, and so flies as its sprite.
+/// Its sprites are the catalog's alone, since a page reads it without the game's data.
+pub fn shot_named(text: &str, name: Option<&str>) -> Option<Shot> {
+    let catalog = |n: &str| art::ALL.iter().find(|(k, _)| *k == n).map(|(_, f)| *f);
+    let (own, extra) = parse(text).ok()?;
+    let at = NAMES.iter().position(|n| *n == "bullet")?;
+    let base = parse(BUILT_IN).ok()?.0[at].shot(None, &catalog);
+    let bullet = own[at].shot(base, &catalog).or(base);
+    match section(&own, &extra, name) {
+        Some(w) => w.shot(bullet, &catalog),
+        None => bullet,
+    }
+}
+
+/// The names of the sprites a bullet named `name` draws, as `shot_named` finds its style; None draws the shape.
+pub fn shot_sprite_names(text: &str, name: Option<&str>) -> [Option<String>; SPRITES.len()] {
+    let Ok((own, extra)) = parse(text) else { return Default::default() };
+    let at = NAMES.iter().position(|n| *n == "bullet").unwrap_or(0);
+    let game = parse(BUILT_IN).map(|(g, _)| g[at].sprites.clone()).unwrap_or_default();
+    let bullet: [Option<String>; SPRITES.len()] = std::array::from_fn(|k| own[at].sprites[k].clone().or_else(|| game[k].clone()));
+    match section(&own, &extra, name) {
+        Some(w) if w.is_shot() => std::array::from_fn(|k| w.sprites[k].clone().or_else(|| bullet[k].clone())),
+        Some(_) => Default::default(),
+        None => bullet,
+    }
+}
+
+/// The section a bullet named `name` flies as, other than [bullet]; None for [bullet] or a name the file lacks.
+fn section<'a>(own: &'a [Written], extra: &'a Extra, name: Option<&str>) -> Option<&'a Written> {
+    match name.unwrap_or("bullet") {
+        "bullet" => None,
+        n => NAMES.iter().position(|k| *k == n).map(|k| &own[k]).or_else(|| extra.iter().find(|(k, _)| k == n).map(|(_, w)| w)),
+    }
+}
+
 /// A sprite's frames by name: the catalog's, else a player's prop's.
 fn frames_of(name: &str) -> Option<&'static [Art]> {
+    if name.is_empty() {
+        return frames_of("BULLET");
+    }
     art::ALL.iter().find(|(n, _)| *n == name).map(|(_, f)| *f).or_else(|| super::props::prop(name).map(|p| p.frames))
 }
 
@@ -238,10 +371,20 @@ pub fn effects() -> &'static Effects {
     E.get_or_init(|| {
         let (own, _) = parse(include_str!("../../effects.txt")).unwrap_or_else(|e| panic!("effects.txt:{e}"));
         let (mine, extra) = parse(crate::data::effects()).unwrap_or_else(|e| panic!("effects.txt:{e}"));
+        let at = NAMES.iter().position(|n| *n == "bullet").expect("a bullet effect");
+        let sprite = |name: &str| {
+            let found = frames_of(name);
+            if found.is_none() {
+                crate::data::note(format!("effects.txt: a shot draws {name}, which isn't a sprite, so it draws a plain shape"));
+            }
+            found
+        };
+        let game = own[at].shot(None, &sprite);
+        let shot = mine[at].shot(game, &sprite).or(game);
         let extra = extra
             .into_iter()
             .filter_map(|(name, w)| match frames_of(&w.art) {
-                Some(frames) => Some((name, Effect { frames, fps: w.fps, life: w.life, reach: w.reach })),
+                Some(frames) => Some((name, Effect { frames, fps: w.fps, life: w.life, reach: w.reach, shot: w.shot(shot, &sprite) })),
                 None => {
                     crate::data::note(format!("effects.txt: [{name}] plays {}, which isn't a sprite", w.art));
                     None
@@ -252,12 +395,14 @@ pub fn effects() -> &'static Effects {
             .iter()
             .zip(&own)
             .zip(NAMES)
-            .map(|((w, o), name)| {
+            .enumerate()
+            .map(|(k, ((w, o), name))| {
                 let frames = frames_of(&w.art).unwrap_or_else(|| {
                     crate::data::note(format!("effects.txt: [{name}] plays {}, which isn't a sprite", w.art));
                     frames_of(&o.art).unwrap_or_else(|| panic!("effects.txt: [{name}] plays {}, which isn't a sprite", o.art))
                 });
-                Effect { frames, fps: w.fps, life: w.life, reach: w.reach }
+                let own_shot = if k == at { shot } else { w.shot(shot, &sprite) };
+                Effect { frames, fps: w.fps, life: w.life, reach: w.reach, shot: own_shot }
             })
             .collect();
         Effects::from_list(&list, extra)
@@ -283,9 +428,83 @@ mod tests {
         let arts: Vec<_> = parse(&older).unwrap().0.iter().rev().take(3).map(|w| w.art.clone()).collect();
         assert_eq!(arts, ["DIRT_PUFF", "MOUND", "BLOOD_SPLAT"], "a mod's file from before [spit] and [mound] plays the game's");
         let (_, extra) = parse(&format!("{own}\n[red_slash]\nart SCYTHE_SWING\nfps 9")).unwrap();
-        assert_eq!((extra[0].0.as_str(), extra[0].1.fps), ("red_slash", 9.0));
+        assert_eq!((extra.last().unwrap().0.as_str(), extra.last().unwrap().1.fps), ("red_slash", 9.0));
         assert_eq!(e.named("slash"), Some(e.slash));
         assert_eq!(e.named("red_slash"), None);
+    }
+
+    #[test]
+    fn a_bullet_flies_as_the_shot_style_its_section_sets() {
+        let own = include_str!("../../effects.txt");
+        let shot = effects().bullet.shot.expect("the game's bullet is a streak of particles");
+        assert!(shot.length > 0.0 && shot.size > 0.0 && shot.sparks > 0);
+        let (_, extra) = parse(&format!("{own}\n[tracer]\ncolor 7AA062\nlength 20\nsize 2\nsparks 3\nimpact 2\ncore 6")).unwrap();
+        let w = &extra.last().unwrap().1;
+        assert_eq!((w.art.as_str(), w.color, w.length, w.size, w.sparks), ("", Some([0x7A, 0xA0, 0x62]), Some(20.0), Some(2.0), Some(3)), "a style needs no art");
+        assert_eq!((w.impact, w.core), (Some(2), Some(6.0)));
+        assert_eq!(parse(&format!("{own}\n[plain]\nfps 3")).unwrap_err(), "[plain] needs an art line");
+        let (_, extra) = parse(&format!("{own}\n[odd]\nart SLASH\nlength 1e9\nsize 99\nsparks 5000\nimpact 999\ncore 1e30")).unwrap();
+        let w = &extra.last().unwrap().1;
+        assert_eq!((w.length, w.size, w.sparks, w.impact, w.core), (Some(MAX_LENGTH), Some(MAX_SIZE), Some(MAX_SPARKS), Some(MAX_SPARKS), Some(MAX_CORE)), "a mod's numbers are capped");
+        for bad in ["length NaN", "length inf", "length -2", "size 0", "sparks 1.5", "sparks -1", "impact x", "core NaN", "core 0", "color 7AA06", "color GGGGGG", "color 0.5 0.5 0.5"] {
+            assert!(parse(&format!("{own}\n[odd]\nart SLASH\n{bad}")).is_err(), "{bad}");
+        }
+        let guns = own.find("[pistol_shot]").unwrap()..own.find("# The colors of particles").unwrap();
+        let older: String = own.replace(&own[guns], "").lines().filter(|l| !["color", "length", "size", "sparks", "impact", "core"].iter().any(|k| l.starts_with(k))).map(|l| format!("{l}\n")).collect();
+        let (mine, _) = parse(&older).unwrap();
+        assert!(mine.iter().all(|w| w.color.is_none()), "a mod's file from before shot styles still reads");
+    }
+
+    #[test]
+    fn a_page_reads_the_shot_a_weapon_fires_as_the_game_does() {
+        let own = include_str!("../../effects.txt");
+        assert_eq!(shot_named(own, None), effects().bullet.shot);
+        assert_eq!(shot_named(own, Some("slash")), None, "a sprite's section is no style");
+        assert_eq!(shot_named(own, Some("nope")), shot_named(own, None), "a name the file lacks fires [bullet], as the game does");
+        let text = format!("{own}\n[tracer]\nlength 30");
+        let tracer = shot_named(&text, Some("tracer")).unwrap();
+        assert_eq!((tracer.length, tracer.sparks), (30.0, effects().bullet.shot.unwrap().sparks), "the rest from [bullet]");
+    }
+
+    #[test]
+    fn a_shot_draws_the_sprites_it_names_and_a_plain_shape_for_any_it_cant_find() {
+        let own = include_str!("../../effects.txt");
+        let pistol = effects().named("pistol_shot").and_then(|e| e.shot).unwrap();
+        assert_eq!(pistol.sprites, [Some(&[art::SHOT_TRACER][..]), Some(&art::SHOT_SPARK[..]), Some(&art::SHOT_SMOKE[..]), Some(&art::SHOT_FLARE[..])]);
+        let names = |name| shot_sprite_names(own, name).map(|n| n.unwrap_or_default());
+        assert_eq!(names(Some("shotgun_pellet")), ["SHOT_PELLET", "SHOT_SPARK", "SHOT_SMOKE", "SHOT_FLARE"]);
+        assert_eq!(names(Some("nope")), names(None), "a name the file lacks draws [bullet]'s");
+        assert_eq!(shot_sprite_names(own, Some("slash")), [None, None, None, None], "a sprite's section is no style");
+        let text = format!("{own}\n[mine]\nlength 30\ntracer SHOT_PELLET\nspark PROP_NOPE");
+        let mine = shot_named(&text, Some("mine")).unwrap();
+        assert_eq!(mine.sprites[TRACER], Some(&[art::SHOT_PELLET][..]));
+        assert_eq!(mine.sprites[SPARK], None, "a sprite that isn't there draws the plain spark");
+        assert_eq!(mine.sprites[SMOKE], Some(&art::SHOT_SMOKE[..]), "the rest from [bullet]");
+        let older: String = own.lines().filter(|l| !SPRITES.iter().any(|k| l.starts_with(&format!("{k} ")))).map(|l| format!("{l}\n")).collect();
+        assert_eq!(shot_named(&older, None).unwrap().sprites[FLARE], Some(&art::SHOT_FLARE[..]), "a mod's [bullet] without sprites keeps the game's");
+        for bad in ["tracer", "spark shot_spark", "smoke Shot", "flare A B"] {
+            assert!(parse(&format!("{own}\n[odd]\nart SLASH\n{bad}")).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn the_games_own_shot_colors_come_from_its_palette() {
+        let (own, extra) = parse(include_str!("../../effects.txt")).unwrap();
+        let palette = crate::paint::palette();
+        for c in own.iter().chain(extra.iter().map(|(_, w)| w)).filter_map(|w| w.color) {
+            assert!(palette.contains(&c), "{c:02X?} isn't in palette.txt");
+        }
+    }
+
+    #[test]
+    fn a_tracer_trails_behind_its_bullet_and_never_behind_the_gun() {
+        let shot = Shot { color: [1.0; 3], length: 12.0, size: 1.5, sparks: 4, impact: 3, core: 4.0, sprites: [None; SPRITES.len()] };
+        assert_eq!(shot.tail([100.0, 0.0], [200.0, 0.0], 1.0), [88.0, 0.0]);
+        let fresh = shot.tail([100.0, 0.0], [200.0, 0.0], 0.01);
+        assert!((fresh[0] - 98.0).abs() < 1e-3, "a bullet two pixels out trails two pixels");
+        assert_eq!(shot.tail([5.0, 5.0], [0.0, 0.0], 1.0), [5.0, 5.0]);
+        let (head, tail) = (Shot::taper(0.0), Shot::taper(1.0));
+        assert!(head.0 > tail.0 && head.1 > tail.1 && tail.0 > 0.0, "it thins and dims toward the tail");
     }
 
     #[test]
