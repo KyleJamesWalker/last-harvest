@@ -3,7 +3,7 @@
 
 use std::f32::consts::TAU;
 
-use super::effects::Shot;
+use super::effects::{FLARE, SMOKE as SMOKE_ART, SPARK, Shot};
 use crate::art::Art;
 use crate::rng::Rng;
 
@@ -97,9 +97,17 @@ pub struct Particle {
     pub wander: bool,
     /// How much wider it grows each second, as a fraction of `size`, as smoke spreads.
     pub grow: f32,
+    /// A sprite drawn `size` wide in place of a plain square, its frames played over its life.
+    pub art: Option<&'static [Art]>,
 }
 
 impl Particle {
+    /// The frame of its sprite showing now.
+    pub fn frame(&self) -> Option<Art> {
+        let frames = self.art?;
+        frames.get(((self.age / self.life * frames.len() as f32) as usize).min(frames.len().saturating_sub(1))).copied()
+    }
+
     pub fn size_now(&self) -> f32 {
         let k = if self.shrink { 1.0 - self.age / self.life } else { 1.0 } * (1.0 + self.grow * self.age);
         let blink = if self.wander { 0.5 + 0.5 * (self.age * 3.0 + self.pos[0]).sin().max(0.0) } else { 1.0 };
@@ -209,9 +217,17 @@ pub struct Flare {
     pub color: [f32; 3],
     pub age: f32,
     pub life: f32,
+    /// A sprite drawn pointing along `dir` in place of the plain rays, its frames played over its life.
+    pub art: Option<&'static [Art]>,
 }
 
 impl Flare {
+    /// The frame of its sprite showing now.
+    pub fn frame(&self) -> Option<Art> {
+        let frames = self.art?;
+        frames.get(((self.age / self.life * frames.len() as f32) as usize).min(frames.len().saturating_sub(1))).copied()
+    }
+
     /// How far its rays reach now, as a fraction of `size`: full, then gone.
     pub fn reach(&self) -> f32 {
         (1.0 - self.age / self.life).clamp(0.0, 1.0).sqrt()
@@ -426,6 +442,7 @@ impl Juice {
                 glow,
                 wander: false,
                 grow: 0.0,
+                art: None,
             });
         }
     }
@@ -436,7 +453,7 @@ impl Juice {
         if self.flares.len() >= MAX_FLARES {
             self.flares.remove(0);
         }
-        self.flares.push(Flare { pos: at, z: height, dir, size: shot.core, color: shot.color, age: 0.0, life: MUZZLE_CORE });
+        self.flares.push(Flare { pos: at, z: height, dir, size: shot.core, color: shot.color, age: 0.0, life: MUZZLE_CORE, art: shot.sprites[FLARE] });
         self.sparks(at, height, dir, 0.3, [140.0, 280.0], shot.sparks, shot);
         let base = dir[1].atan2(dir[0]);
         for _ in 0..SMOKE_PUFFS {
@@ -445,7 +462,7 @@ impl Juice {
             let life = self.fx.range(0.45, 0.7);
             let vz = self.fx.range(6.0, 14.0);
             let pos = [at[0] + dir[0] * 3.0, at[1] + dir[1] * 3.0];
-            self.particle(Particle { pos, z: height, vel: [a.cos() * v, a.sin() * v], vz, age: 0.0, life, color: SMOKE, size: shot.size * 0.8, shrink: true, gravity: -8.0, drag: 2.5, glow: 0.0, wander: false, grow: 2.5 });
+            self.particle(Particle { pos, z: height, vel: [a.cos() * v, a.sin() * v], vz, age: 0.0, life, color: SMOKE, size: shot.size * 0.8, shrink: shot.sprites[SMOKE_ART].is_none(), gravity: -8.0, drag: 2.5, glow: 0.0, wander: false, grow: 2.5, art: shot.sprites[SMOKE_ART] });
         }
     }
 
@@ -455,7 +472,7 @@ impl Juice {
         if shot.impact == 0 {
             return;
         }
-        self.particle(Particle { pos: at, z: height, vel: [0.0; 2], vz: 0.0, age: 0.0, life: MUZZLE_CORE, color: HOT, size: shot.core * 0.45, shrink: true, gravity: 0.0, drag: 0.0, glow: 1.0, wander: false, grow: 0.0 });
+        self.particle(Particle { pos: at, z: height, vel: [0.0; 2], vz: 0.0, age: 0.0, life: MUZZLE_CORE, color: HOT, size: shot.core * 0.45, shrink: true, gravity: 0.0, drag: 0.0, glow: 1.0, wander: false, grow: 0.0, art: shot.sprites[SPARK] });
         self.sparks(at, height, back, 1.0, [50.0, 140.0], shot.impact, shot);
     }
 
@@ -469,7 +486,7 @@ impl Juice {
             let life = self.fx.range(0.12, 0.28);
             let size = shot.size * self.fx.range(0.6, 1.0);
             let vz = self.fx.range(-10.0, 30.0);
-            self.particle(Particle { pos: at, z: height, vel: [a.cos() * v, a.sin() * v], vz, age: 0.0, life, color: shot.color, size, shrink: true, gravity: 120.0, drag: 9.0, glow: 1.0, wander: false, grow: 0.0 });
+            self.particle(Particle { pos: at, z: height, vel: [a.cos() * v, a.sin() * v], vz, age: 0.0, life, color: shot.color, size, shrink: shot.sprites[SPARK].is_none(), gravity: 120.0, drag: 9.0, glow: 1.0, wander: false, grow: 0.0, art: shot.sprites[SPARK] });
         }
     }
 
@@ -537,7 +554,7 @@ mod tests {
 
     #[test]
     fn a_muzzle_flash_is_a_brief_core_sparks_that_slow_and_smoke_that_rises() {
-        let shot = Shot { color: [0.9, 0.8, 0.5], length: 12.0, size: 1.4, sparks: 6, impact: 3, core: 5.0 };
+        let shot = Shot { color: [0.9, 0.8, 0.5], length: 12.0, size: 1.4, sparks: 6, impact: 3, core: 5.0, sprites: [None; 4] };
         let mut j = Juice::new(1);
         j.muzzle([0.0; 2], 10.0, [1.0, 0.0], &shot);
         assert_eq!((j.particles.len(), j.flares.len()), (6 + SMOKE_PUFFS, 1));
@@ -554,6 +571,21 @@ mod tests {
         assert_eq!(j.particles.len(), 1 + 3);
         j.impact([0.0; 2], 6.0, [-1.0, 0.0], &Shot { impact: 0, ..shot });
         assert_eq!(j.particles.len(), 4, "a style with no impact sparks throws none");
+    }
+
+    #[test]
+    fn a_sprite_spark_plays_its_frames_over_its_life() {
+        let frames: &'static [Art] = &[Art(1), Art(2), Art(3)];
+        let shot = Shot { color: [1.0; 3], length: 12.0, size: 1.4, sparks: 4, impact: 0, core: 3.0, sprites: [None, Some(frames), None, Some(frames)] };
+        let mut j = Juice::new(1);
+        j.muzzle([0.0; 2], 10.0, [1.0, 0.0], &shot);
+        let sparks: Vec<&Particle> = j.particles.iter().filter(|p| p.art.is_some()).collect();
+        assert_eq!((sparks.len(), j.flares[0].frame()), (4, Some(Art(1))));
+        assert!(sparks.iter().all(|p| p.frame() == Some(Art(1)) && !p.shrink), "its frames shrink it, not the size");
+        assert!(j.particles.iter().filter(|p| p.color == SMOKE).all(|p| p.art.is_none()), "smoke with no sprite stays a square");
+        let p = &mut j.particles[0];
+        p.age = p.life * 0.99;
+        assert_eq!(p.frame(), Some(Art(3)));
     }
 
     #[test]

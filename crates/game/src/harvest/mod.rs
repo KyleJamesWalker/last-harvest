@@ -3,7 +3,7 @@
 mod carve;
 mod draw;
 mod effects;
-pub use effects::{Shot, shot_named};
+pub use effects::{SPRITES as SHOT_SPRITES, Shot, shot_named, shot_sprite_names};
 mod enemies;
 mod juice;
 mod map;
@@ -222,8 +222,12 @@ pub fn check_own_table(file: &str, text: &str) -> Result<(), String> {
         "effects.txt" => {
             effects::parse_colors(text, None).map_err(fail)?;
             let (own, extra) = effects::parse(text).map_err(fail)?;
-            match own.iter().chain(extra.iter().map(|(_, w)| w)).find(|w| !(w.art.is_empty() && w.is_shot()) && missing(&w.art)) {
-                Some(w) => Err(format!("{file}: no sprite called {} in art.txt", w.art)),
+            let all = || own.iter().chain(extra.iter().map(|(_, w)| w));
+            if let Some(w) = all().find(|w| !(w.art.is_empty() && w.is_shot()) && missing(&w.art)) {
+                return Err(format!("{file}: no sprite called {} in art.txt", w.art));
+            }
+            match all().flat_map(|w| w.sprites.iter().flatten()).find(|n| missing(n)) {
+                Some(n) => Err(format!("{file}: no sprite called {n} in art.txt")),
                 None => Ok(()),
             }
         }
@@ -1512,6 +1516,7 @@ impl Harvest {
                 glow: 1.0,
                 wander: false,
                 grow: 0.0,
+                art: None,
             });
         }
     }
@@ -2303,6 +2308,7 @@ impl Harvest {
                 glow: 1.0,
                 wander: true,
                 grow: 0.0,
+                art: None,
             });
         }
 
@@ -2326,6 +2332,7 @@ impl Harvest {
                     glow: 1.0,
                     wander: false,
                     grow: 0.0,
+                    art: None,
                 });
             }
         }
@@ -2602,6 +2609,8 @@ mod tests {
         }
         assert!(check_table("tuning.txt", "[player]\nhp 120").is_ok(), "a mod sets only what it changes");
         assert!(check_own_table("tuning.txt", "[player]\nhp 120").unwrap_err().contains("doesn't set"));
+        let sprite = built_in_table("effects.txt").unwrap().replacen("spark SHOT_SPARK", "spark NOPE", 1);
+        assert!(check_table("effects.txt", &sprite).is_ok() && check_own_table("effects.txt", &sprite).is_err(), "the game's own shots draw its own sprites");
         let effects = built_in_table("effects.txt").unwrap().replace("art SLASH", "art NOPE");
         assert_eq!(check_own_table("effects.txt", &effects), Err("effects.txt: no sprite called NOPE in art.txt".into()));
         let farm = built_in_table("farm.txt").unwrap().replace("BUSH 140", "PROP_MINE 140");

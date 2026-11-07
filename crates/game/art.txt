@@ -176,6 +176,14 @@ ICON_SNACK             png placeholder/icon_snack.png
 ICON_AMMO_CRATE        png placeholder/icon_ammo_crate.png
 ICON_POCKET_CHANGE     png placeholder/icon_pocket_change.png
 
+# Gunshots: tracers and the muzzle flare point right; sparks and smoke play over their life
+SHOT_TRACER     png placeholder/shot_tracer.png
+SHOT_PELLET     png placeholder/shot_pellet.png
+SHOT_ROUND      png placeholder/shot_round.png
+SHOT_SPARK      png placeholder/shot_spark.png x3
+SHOT_SMOKE      png placeholder/shot_smoke.png x3
+SHOT_FLARE      png placeholder/shot_flare.png x2
+
 # On-screen touch controls: the stick's and turn strip's ring, knob and track, a button plate up and pressed, and
 # their icons
 TOUCH_RING             png placeholder/touch_ring.png

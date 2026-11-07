@@ -9,6 +9,11 @@
 #   sparks N      sparks a gun throws forward from its muzzle with each shot
 #   impact N      sparks where each bullet hits a zombie, a prop or the ground
 #   core N        the white-hot flare out of the muzzle, in pixels
+#   tracer NAME   the sprite a shot's tracer stretches along its path, its head to the right
+#   spark NAME    the sprite of each spark, its frames played over the spark's life
+#   smoke NAME    the sprite of each smoke puff, likewise
+#   flare NAME    the sprite of the muzzle flare, pointing right, its frames played over the flare's life
+# A shot without a sprite named draws a plain colored shape in its place. A sprite can be a player's prop.
 # A section that sets any shot style flies as a tracer when a weapon fires it as its bullets, and needs no art;
 # what it leaves out comes from [bullet], which a gun without a `bullet` line fires.
 # A sprite standing as a slab lies flat and turns with the swing; anything else faces the camera.
@@ -39,6 +44,10 @@ size 2
 sparks 6
 impact 4
 core 3
+tracer SHOT_TRACER
+spark SHOT_SPARK
+smoke SHOT_SMOKE
+flare SHOT_FLARE
 
 [bullet_3d]
 art MUZZLE
@@ -138,6 +147,10 @@ size 2
 sparks 6
 impact 4
 core 3
+tracer SHOT_TRACER
+spark SHOT_SPARK
+smoke SHOT_SMOKE
+flare SHOT_FLARE
 
 [shotgun_pellet]
 color D98A3C
@@ -146,6 +159,10 @@ size 1.5
 sparks 12
 impact 2
 core 4
+tracer SHOT_PELLET
+spark SHOT_SPARK
+smoke SHOT_SMOKE
+flare SHOT_FLARE
 
 [rifle_round]
 color FFFFFF
@@ -154,6 +171,10 @@ size 2.4
 sparks 10
 impact 7
 core 3.5
+tracer SHOT_ROUND
+spark SHOT_SPARK
+smoke SHOT_SMOKE
+flare SHOT_FLARE
 
 # The colors of particles, as red, green and blue from 0 to 1. A mod's file can leave any of them out.
 [colors]

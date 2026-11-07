@@ -17,6 +17,8 @@ use crate::{SCREEN_H, SCREEN_W};
 
 /// World units are tiles; sprite pixels are this big.
 const PX: f32 = 1.0 / TILE;
+/// Frames a second a tracer's sprite plays at.
+const TRACER_FPS: f32 = 12.0;
 const LEADER_TINT: [f32; 3] = [1.6, 1.3, 0.6];
 const HARVESTER_TINT: [f32; 3] = [1.4, 0.5, 0.45];
 const VIEW_RADIUS: f32 = 16.0;
@@ -449,6 +451,28 @@ fn tracer(out: &mut Vec<Card>, eye: Vec3, head: Vec3, tail: Vec3, width: f32, co
     out.push(Card { tint: [1.0; 3], glow: 1.0, ..Card::new([front + s0, end + s1, end - s1, front - s0], uv, normal) });
 }
 
+/// A sprite facing `eye`, stretched from `from` (its left edge) to `to` (its right), `width` across; its clear pixels
+/// cut it out.
+fn stretched(out: &mut Vec<Card>, eye: Vec3, from: Vec3, to: Vec3, width: f32, art: Art) {
+    let side = (to - from).cross(to - eye).normalize_or_zero() * (width / 2.0);
+    if side == Vec3::ZERO {
+        return;
+    }
+    let [rx, ry, w, h] = art.rect().map(f32::from);
+    let (aw, ah) = (ATLAS_W as f32, ATLAS_H as f32);
+    let uv = [rx / aw, ry / ah, (rx + w) / aw, (ry + h) / ah];
+    out.push(Card { glow: 1.0, ..Card::new([from + side, to + side, to - side, from - side], uv, (eye - to).normalize_or_zero()) });
+}
+
+/// A sprite standing up and facing the camera, `size` across, centered on `at`.
+fn sprite_speck(out: &mut Vec<Card>, at: Vec3, size: f32, right: Vec3, art: Art, glow: f32) {
+    let (r, u) = (right * (size / 2.0), Vec3::Y * (size * art.h() / art.w() / 2.0));
+    let [rx, ry, w, h] = art.rect().map(f32::from);
+    let (aw, ah) = (ATLAS_W as f32, ATLAS_H as f32);
+    let uv = [rx / aw, ry / ah, (rx + w) / aw, (ry + h) / ah];
+    out.push(Card { glow, ..Card::new([at - r + u, at + r + u, at + r - u, at - r - u], uv, right.cross(Vec3::Y)) });
+}
+
 /// A flat square of color on the ground.
 fn patch(out: &mut Vec<Card>, at: Vec3, size: f32, color: [f32; 3]) {
     let [rx, ry, w, h] = art::WHITE.rect().map(f32::from);
@@ -866,7 +890,11 @@ pub fn scene(h: &Harvest) -> CardScene {
         let at = [b.pos[0], b.pos[1] + 6.0];
         let head = world(at) + Vec3::Y * 0.42;
         if near(head) && (head - p).dot(forward) > 0.0 {
-            tracer(&mut cards, eye, head, world(shot.tail(at, b.vel, b.age)) + Vec3::Y * 0.42, shot.size * PX, shot.color);
+            let tail = world(shot.tail(at, b.vel, b.age)) + Vec3::Y * 0.42;
+            match shot.sprites[super::effects::TRACER] {
+                Some(frames) => stretched(&mut cards, eye, tail, head, shot.size * 1.5 * PX, frames[(b.age * TRACER_FPS) as usize % frames.len()]),
+                None => tracer(&mut cards, eye, head, tail, shot.size * PX, shot.color),
+            }
         }
     }
     for s in &h.spits {
@@ -889,12 +917,21 @@ pub fn scene(h: &Harvest) -> CardScene {
     for pt in &h.juice.particles {
         let q = world(pt.pos) + Vec3::Y * (pt.z * PX);
         if near(q) && (q - p).dot(forward) > 0.0 {
-            speck(&mut cards, q, pt.size_now() * PX, right, pt.color, pt.glow);
+            match pt.frame() {
+                Some(a) => sprite_speck(&mut cards, q, pt.size_now() * PX, right, a, pt.glow),
+                None => speck(&mut cards, q, pt.size_now() * PX, right, pt.color, pt.glow),
+            }
         }
     }
     for f in &h.juice.flares {
         let at = world(f.pos) + Vec3::Y * (f.z * PX);
         if !near(at) {
+            continue;
+        }
+        if let Some(art) = f.frame() {
+            let reach = f.size * 2.4;
+            let tip = world([f.pos[0] + f.dir[0] * reach, f.pos[1] + f.dir[1] * reach]) + Vec3::Y * (f.z * PX);
+            stretched(&mut cards, eye, at, tip, reach * art.h() / art.w() * PX, art);
             continue;
         }
         let a = f.dir[1].atan2(f.dir[0]);

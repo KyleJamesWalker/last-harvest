@@ -366,6 +366,13 @@ impl Harvest {
             };
             let [r, g, bl] = shot.color;
             let tail = shot.tail(b.pos, b.vel, b.age);
+            if let Some(frames) = shot.sprites[super::effects::TRACER] {
+                let a = frames[(b.age * 12.0) as usize % frames.len()];
+                let length = ((b.pos[0] - tail[0]).powi(2) + (b.pos[1] - tail[1]).powi(2)).sqrt();
+                let (sx, sy) = at((b.pos[0] + tail[0]) / 2.0, (b.pos[1] + tail[1]) / 2.0);
+                c.art_rotated(a, sx, sy, scale * length / a.w(), b.vel[1].atan2(b.vel[0]), lit);
+                continue;
+            }
             // Overlapping dots, close enough at the head to read as one line.
             let n = ((shot.length / (shot.size * 0.35)).ceil() as usize).clamp(4, 32);
             for i in 0..n {
@@ -405,7 +412,10 @@ impl Harvest {
         for p in self.juice.particles.iter().filter(|_| !fog) {
             let s = p.size_now() * scale;
             let (sx, sy) = at(p.pos[0], p.pos[1] - p.z);
-            c.rect(sx - s / 2.0, sy - s / 2.0, s, s, [p.color[0], p.color[1], p.color[2], 1.0]);
+            match p.frame() {
+                Some(a) => c.art_rotated(a, sx, sy, s / a.w(), 0.0, WHITE),
+                None => c.rect(sx - s / 2.0, sy - s / 2.0, s, s, [p.color[0], p.color[1], p.color[2], 1.0]),
+            }
         }
         for r in &self.juice.rings {
             let rr = r.now();
