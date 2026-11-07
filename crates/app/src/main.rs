@@ -13,7 +13,7 @@ use std::path::Path;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use last_harvest::{VERSION, audio, log, pak, samples};
-use last_harvest_game::{photo, Buttons, Capture, Game, InputTracker, MAX_TOUCHES, RawInput, SCREEN_H, SCREEN_W, Scene, System};
+use last_harvest_game::{photo, Buttons, Capture, Game, InputTracker, MAX_TOUCHES, RangeSetup, RawInput, SCREEN_H, SCREEN_W, Scene, System};
 use winit::application::ApplicationHandler;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event::{ElementState, MouseButton, TouchPhase, WindowEvent};
@@ -78,7 +78,7 @@ struct App {
 }
 
 impl App {
-    fn new(sounds: samples::Files) -> Self {
+    fn new(sounds: samples::Files, range: Option<RangeSetup>) -> Self {
         let seed = SystemTime::now().duration_since(UNIX_EPOCH).map_or(1, |d| d.as_nanos() as u64);
         let mut game = Game::new(seed);
         let (saver, save) = persist::Saver::load();
@@ -93,6 +93,7 @@ impl App {
             game.start_clock(secs);
         }
         game.endless_grenades(std::env::var("LAST_HARVEST_GRENADES").is_ok_and(|v| v == "endless"));
+        game.set_range(range.unwrap_or_default());
         if let Some(scene) = std::env::var("LAST_HARVEST_START").ok().and_then(|s| Scene::from_name(&s)) {
             game.open(scene);
         }
@@ -493,6 +494,7 @@ Environment:
   LAST_HARVEST_SAVE        the save file (save.txt beside the binary)
   LAST_HARVEST_TOP         the output for the top screen, such as DSI-2
   LAST_HARVEST_START       a scene to open at launch, by debug scene name
+  LAST_HARVEST_RANGE       the range scene's weapon, such as rifle:3, or a file of its section
   LAST_HARVEST_DEBUG       remote control on /tmp/last-harvest.ctl
   LAST_HARVEST_LOG_INPUT   log every gamepad event
   LAST_HARVEST_UNLOCK_ALL  offer every powerup
@@ -552,8 +554,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     persist::install_crash_log();
     stop::install();
     log!("last-harvest {VERSION}, started at unix {}", log::unix_now());
+    let range = pak::range_setup();
     let sounds = pak::load()?;
     let event_loop = EventLoop::new()?;
-    event_loop.run_app(&mut App::new(sounds))?;
+    event_loop.run_app(&mut App::new(sounds, range))?;
     Ok(())
 }

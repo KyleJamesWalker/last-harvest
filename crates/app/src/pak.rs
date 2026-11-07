@@ -1,6 +1,7 @@
 //! Finds `game_data.pak` and any enemy cards, hands their data to the game, and gathers the sound files.
 
 use std::path::PathBuf;
+use std::sync::Mutex;
 
 use last_harvest_game::art;
 use last_harvest_game::data::{self, Card, Data, MapFile};
@@ -12,6 +13,37 @@ use crate::samples::{self, Files};
 /// The game's data, beside the binary: the pack and the enemy cards. What the game writes stays out of it.
 const DATA: &str = "data";
 const PAK: &str = "data/game_data.pak";
+
+/// The weapon section the range tries, laid over the powerups the game installs.
+static TRIED: Mutex<Option<String>> = Mutex::new(None);
+
+/// Lays a weapon's `powerups.txt` section over the powerups the next install hands the game.
+pub fn try_section(section: &str) {
+    if let Ok(mut t) = TRIED.lock() {
+        *t = Some(section.to_string());
+    }
+}
+
+/// What `LAST_HARVEST_RANGE` asks the range to try: a file holding a setup, or the setup itself, such as `rifle:3`.
+/// Its section, if it has one, is laid over the powerups the game installs.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn range_setup() -> Option<last_harvest_game::RangeSetup> {
+    let value = std::env::var("LAST_HARVEST_RANGE").ok()?;
+    let text = std::fs::read_to_string(&value).unwrap_or(value);
+    match last_harvest_game::RangeSetup::read(&text) {
+        Ok(setup) => {
+            if let Some(section) = &setup.section {
+                try_section(section);
+            }
+            log!("range: {} at level {}", setup.weapon, setup.level);
+            Some(setup)
+        }
+        Err(e) => {
+            log!("range: LAST_HARVEST_RANGE: {e}");
+            None
+        }
+    }
+}
 
 fn data_folder() -> Option<PathBuf> {
     Some(crate::home()?.join(DATA))
@@ -203,6 +235,16 @@ fn install_noting(base: Option<Pak>, missing_pack: Option<String>, more: Vec<(St
     let mut text = |file: &str| pak.take(file).map(String::from_utf8).transpose().map_err(|_| format!("{file} is not UTF-8"));
     let (powerups, enemies, props_table, tuning, effects) = (text(pack::POWERUPS)?, text(pack::ENEMIES)?, text(pack::PROPS_TABLE)?, text(pack::TUNING)?, text(pack::EFFECTS)?);
     let (ground, farm) = (text(pack::GROUND)?, text(pack::FARM)?);
+    let powerups = match TRIED.lock().ok().and_then(|t| t.clone()) {
+        Some(section) => match last_harvest_game::powerups_with(powerups.as_deref().or(last_harvest_game::built_in_table("powerups.txt")).unwrap_or_default(), &section) {
+            Ok(text) => Some(text),
+            Err(e) => {
+                problems.push(format!("the weapon tried: {e}"));
+                powerups
+            }
+        },
+        None => powerups,
+    };
     let (enemy, player) = (card::Kind::Enemy, card::Kind::Player);
     let mut own = OwnSounds::new();
     let cards = read_cards(enemy, pak.take_dir(pack::ENEMY_CARDS), &mut problems, &mut own);
