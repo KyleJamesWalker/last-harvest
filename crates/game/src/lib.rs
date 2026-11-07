@@ -1286,6 +1286,31 @@ mod tests {
     }
 
     #[test]
+    fn stats_opens_the_run_history_newest_first_and_b_comes_back() {
+        let mut game = Game::new(1);
+        game.save.record(harvest::Run { secs: 125, level: 4, difficulty: Difficulty::Hard, dps: 37, ..Default::default() });
+        game.save.record(harvest::Run { secs: 600, level: 9, won: true, dps: 81, ..Default::default() });
+        for _ in 0..3 {
+            press(&mut game, Buttons::DOWN);
+        }
+        press(&mut game, Buttons::A);
+        let text = |game: &Game| game.draw().bottom.shapes.iter().filter_map(|s| if let Shape::Text { text, .. } = s { Some(text.clone()) } else { None }).collect::<Vec<_>>();
+        assert!(text(&game).contains(&"81".to_string()), "Stats shows the best damage a second");
+        press(&mut game, Buttons::A);
+        assert_eq!(game.page, Page::History);
+        let shown = text(&game);
+        let at = |s: &str| shown.iter().position(|t| t == s).unwrap_or_else(|| panic!("{s} missing: {shown:?}"));
+        assert!(at("Home at dawn") < at("Turned"), "newest first");
+        for cell in ["Hard", "2:05", "4", "37", "Easy", "10:00", "9", "81"] {
+            at(cell);
+        }
+        press(&mut game, Buttons::B);
+        assert_eq!(game.page, Page::Stats);
+        press(&mut game, Buttons::B);
+        assert_eq!(game.page, Page::Main);
+    }
+
+    #[test]
     fn r1_takes_one_screenshot_and_flashes_after_it() {
         let mut game = Game::new(1);
         press(&mut game, Buttons::R1);

@@ -13,6 +13,7 @@ pub(crate) enum Page {
     Settings,
     Enemies,
     Stats,
+    History,
     Credits,
 }
 
@@ -74,6 +75,8 @@ const ENEMY_ROWS: usize = 8;
 const LESS_X: f32 = 600.0;
 const MORE_X: f32 = 940.0;
 const BACK: [f32; 4] = [362.0, 660.0, 300.0, 76.0];
+/// Stats' button to the run history, right of Back.
+const HISTORY: [f32; 4] = [702.0, 660.0, 300.0, 76.0];
 /// Seconds a first press on reset waits for the second.
 pub(crate) const RESET_CONFIRM: f32 = 3.0;
 pub(crate) const RESET_SHOWN: f32 = 3.0;
@@ -141,7 +144,15 @@ impl Game {
                 self.page = Page::Main;
                 self.sounds.push(Sfx::Tick(0));
             }
-            Page::Stats | Page::Credits => {}
+            Page::Stats if input.pressed.contains(Buttons::A) || tapped.is_some_and(|p| inside(p, HISTORY)) => {
+                self.page = Page::History;
+                self.sounds.push(Sfx::Tick(3));
+            }
+            Page::History if back => {
+                self.page = Page::Stats;
+                self.sounds.push(Sfx::Tick(0));
+            }
+            Page::Stats | Page::History | Page::Credits => {}
         }
     }
 
@@ -323,6 +334,7 @@ impl Game {
             Page::Settings => self.draw_settings(c),
             Page::Enemies => self.draw_enemies(c),
             Page::Stats => self.draw_stats(c),
+            Page::History => self.draw_history(c),
             Page::Credits => draw_credits(c),
         }
     }
@@ -567,24 +579,55 @@ impl Game {
             ("Zombies killed", s.kills.to_string()),
             ("Nights played", s.nights.to_string()),
             ("Nights survived", s.dawns.to_string()),
+            ("Best damage a second", s.best_dps.to_string()),
             ("Powerups unlocked", format!("{open} of {all}")),
             ("Cards loaded", crate::data::load_report().cards.to_string()),
             ("Mod packs", crate::data::load_report().mods.len().to_string()),
         ];
         c.label("Stats", SCREEN_W / 2.0, 24.0, 48.0, WHITE, Align::Center);
         for (i, (name, value)) in rows.iter().enumerate() {
-            let y = 104.0 + i as f32 * 66.0;
+            let y = 100.0 + i as f32 * 60.0;
             c.label(*name, 160.0, y, 36.0, DIM, Align::Left);
             c.label(value.clone(), SCREEN_W - 160.0, y, 36.0, HOT, Align::Right);
         }
         let mods = &crate::data::load_report().mods;
         if !mods.is_empty() {
             let line: String = mods.iter().map(|m| m.trim_end_matches(".pak")).collect::<Vec<_>>().join(", ").chars().take(60).collect();
-            c.label(line, SCREEN_W - 160.0, 104.0 + rows.len() as f32 * 66.0 - 14.0, 24.0, DIM, Align::Right);
+            c.label(line, SCREEN_W - 160.0, 100.0 + rows.len() as f32 * 60.0 - 14.0, 24.0, DIM, Align::Right);
         }
         let report = crate::data::load_report();
         if !report.version.is_empty() {
             fit_label(c, &format!("Version {}", report.versions()), 24.0, SCREEN_H - 52.0, 24.0, BACK[0] - 48.0, DIM, Align::Left);
+        }
+        back_button(c);
+        let [x, y, w, h] = HISTORY;
+        c.rect(x, y, w, h, [1.0, 1.0, 1.0, 0.08]);
+        c.label("A: History", x + w / 2.0, y + h / 2.0 - 22.0, 40.0, WHITE, Align::Center);
+    }
+
+    /// The last runs, newest first: difficulty, how it ended, how long, the level reached and damage a second.
+    fn draw_history(&self, c: &mut Canvas) {
+        c.label("History", SCREEN_W / 2.0, 24.0, 48.0, WHITE, Align::Center);
+        let cols: [(f32, &str, Align); 5] = [(60.0, "Difficulty", Align::Left), (300.0, "Result", Align::Left), (640.0, "Time", Align::Right), (790.0, "Level", Align::Right), (964.0, "Damage/s", Align::Right)];
+        for (x, name, align) in cols {
+            c.label(name, x, 96.0, 28.0, DIM, align);
+        }
+        let runs: Vec<_> = self.save.history.iter().flatten().collect();
+        if runs.is_empty() {
+            c.label("No runs yet", SCREEN_W / 2.0, 300.0, 36.0, DIM, Align::Center);
+        }
+        for (i, r) in runs.iter().enumerate() {
+            let y = 140.0 + i as f32 * 50.0;
+            let cells = [
+                r.difficulty.name().to_string(),
+                (if r.won { "Home at dawn" } else { "Turned" }).to_string(),
+                format!("{}:{:02}", r.secs / 60, r.secs % 60),
+                r.level.to_string(),
+                r.dps.to_string(),
+            ];
+            for ((x, _, align), text) in cols.into_iter().zip(cells) {
+                c.label(text, x, y, 34.0, if r.won { HOT } else { WHITE }, align);
+            }
         }
         back_button(c);
     }
