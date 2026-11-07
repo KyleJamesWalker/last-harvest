@@ -3,6 +3,7 @@
 mod carve;
 mod draw;
 mod effects;
+pub use effects::{Shot, shot_named};
 mod enemies;
 mod juice;
 mod map;

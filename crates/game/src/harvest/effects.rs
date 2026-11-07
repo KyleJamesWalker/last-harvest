@@ -288,6 +288,19 @@ pub fn parse(text: &str) -> Result<(Vec<Written>, Extra), String> {
     Ok((own, extra))
 }
 
+/// The shot style a bullet named `name` flies as, with `text` as effects.txt; no name fires [bullet]. None for a
+/// section that sets no style, and so flies as its sprite, or one the file lacks.
+pub fn shot_named(text: &str, name: Option<&str>) -> Option<Shot> {
+    let (own, extra) = parse(text).ok()?;
+    let at = NAMES.iter().position(|n| *n == "bullet")?;
+    let base = parse(BUILT_IN).ok()?.0[at].shot(None);
+    let bullet = own[at].shot(base).or(base);
+    match name.unwrap_or("bullet") {
+        "bullet" => bullet,
+        n => NAMES.iter().position(|k| *k == n).map(|k| &own[k]).or_else(|| extra.iter().find(|(k, _)| k == n).map(|(_, w)| w))?.shot(bullet),
+    }
+}
+
 /// A sprite's frames by name: the catalog's, else a player's prop's.
 fn frames_of(name: &str) -> Option<&'static [Art]> {
     if name.is_empty() {
@@ -373,6 +386,17 @@ mod tests {
         let older: String = own.lines().filter(|l| !["color", "length", "size", "sparks"].iter().any(|k| l.starts_with(k))).map(|l| format!("{l}\n")).collect();
         let (mine, _) = parse(&older).unwrap();
         assert!(mine.iter().all(|w| w.color.is_none()), "a mod's file from before shot styles still reads");
+    }
+
+    #[test]
+    fn a_page_reads_the_shot_a_weapon_fires_as_the_game_does() {
+        let own = include_str!("../../effects.txt");
+        assert_eq!(shot_named(own, None), effects().bullet.shot);
+        assert_eq!(shot_named(own, Some("slash")), None, "a sprite's section is no style");
+        assert_eq!(shot_named(own, Some("nope")), None);
+        let text = format!("{own}\n[tracer]\nlength 30");
+        let tracer = shot_named(&text, Some("tracer")).unwrap();
+        assert_eq!((tracer.length, tracer.sparks), (30.0, effects().bullet.shot.unwrap().sparks), "the rest from [bullet]");
     }
 
     #[test]
