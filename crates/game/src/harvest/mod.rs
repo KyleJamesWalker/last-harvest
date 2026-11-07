@@ -8,6 +8,7 @@ mod juice;
 mod map;
 mod photo;
 mod props;
+mod quick;
 mod range;
 mod players;
 mod powerups;
@@ -704,8 +705,6 @@ pub struct Harvest {
     next_xp: u32,
     level: u32,
     kills: u32,
-    /// Holding L1 pauses and shows the whole map.
-    overview: bool,
     /// Steps to the player from each cell, rebuilt when the player changes cell.
     flow: Vec<u16>,
     flow_cell: [usize; 2],
@@ -761,6 +760,8 @@ pub struct Harvest {
     /// One screen: the map shows on the top screen only while looked at.
     single: bool,
     aiming: Option<single::Aiming>,
+    /// Seconds R1 has held a quick throw lined up.
+    quick: Option<f32>,
     /// The map is up on the one screen without a grenade being aimed.
     glance: bool,
     /// A thrown grenade is never spent.
@@ -935,7 +936,6 @@ impl Harvest {
             next_xp: book().first_level,
             level: 1,
             kills: 0,
-            overview: false,
             flow: Vec::new(),
             flow_cell: [usize::MAX; 2],
             sep: Vec::new(),
@@ -968,6 +968,7 @@ impl Harvest {
             difficulty: Difficulty::Normal,
             single: false,
             aiming: None,
+            quick: None,
             glance: false,
             endless: false,
             last_throw: None,
@@ -1081,10 +1082,9 @@ impl Harvest {
         self.enemies_off
     }
 
-    /// Whether the paused whole map is up.
     #[cfg(test)]
-    pub(crate) fn showing_whole_map(&self) -> bool {
-        self.overview
+    pub(crate) fn night_t(&self) -> f32 {
+        self.t
     }
 
     #[cfg(test)]
@@ -1160,10 +1160,6 @@ impl Harvest {
             self.photo(input, dt, sounds, &mut flow);
             return flow;
         }
-        self.overview = input.held.contains(if self.single { Buttons::R2 } else { Buttons::L1 });
-        if self.overview {
-            return flow;
-        }
         let own;
         let (input, dt) = if self.single {
             own = self.single_input(input, dt, sounds);
@@ -1171,6 +1167,7 @@ impl Harvest {
         } else {
             (input, dt)
         };
+        self.quick_off();
         if let Some(at) = self.menu {
             self.pause_menu(at, input, sounds, &mut flow);
             return flow;
@@ -1315,6 +1312,7 @@ impl Harvest {
         if let Some(touch) = input.touch.filter(|_| input.touch_started).or(self.queued_touch.take()) {
             self.throw(touch, sounds);
         }
+        self.quick_throw(input, dt, sounds);
         self.fly(dt, sounds, flow);
 
         if !self.calm {

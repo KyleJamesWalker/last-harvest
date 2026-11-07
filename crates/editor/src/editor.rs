@@ -4142,6 +4142,18 @@ mod tests {
     }
 
     #[test]
+    fn the_grenade_data_page_lists_the_quick_throw_numbers() {
+        let dir = tmp().join("quick");
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut e = editor_in(&dir, dir.join("art.txt"));
+        e.switch_to("DATA_TUNING_GRENADE".into());
+        let keys: Vec<String> = e.data.as_ref().map(|d| d.table.entries(&d.section).into_iter().map(|x| x.key).collect()).unwrap_or_default();
+        for key in ["quick_near", "quick_far", "quick_grow"] {
+            assert!(keys.iter().any(|k| k == key), "{key} in {keys:?}");
+        }
+    }
+
+    #[test]
     fn the_weapon_page_rewrites_only_the_lines_it_changes() {
         let dir = tmp().join("weapon");
         let _ = std::fs::remove_dir_all(&dir);

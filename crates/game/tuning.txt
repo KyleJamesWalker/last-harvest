@@ -75,6 +75,9 @@ aim_slow 0.5    # game speed while aiming
 aim_speed 160   # cursor, map pixels a second
 aim_memory 5    # seconds a throw's angle off the view and distance carry to the next aim
 aim_ahead 64    # how far straight ahead the cursor starts otherwise
+quick_near 64   # R1's quick throw: how far ahead its marker starts, map pixels
+quick_far 128   # how far out holding R1 slides it, at most
+quick_grow 1    # seconds held to slide it from near to far
 
 [barrel]
 hp 20

@@ -30,15 +30,17 @@ Your weapons fire on their own. You move, turn, throw grenades and pick upgrades
 | Turn around | B | Z |
 | Aim at barrels | Hold X | Hold S |
 | Throw a grenade | Tap the map | Click the bottom screen |
+| Throw a grenade straight ahead | Hold R1, then let go | Hold W, then let go |
 | Pick an upgrade | Tap it, or Up, Down and X | Click it, or the arrows and S |
-| Show the whole map | Hold L1 | Hold 1 |
 | Pause | Start | Enter, or Esc |
 | Choose a difficulty | Left and Right on Play | Left and Right arrows on Play |
-| Screenshot | R1 | W |
+| Screenshot | R2 | 2 |
 | Volume | V+ and V- | `=` and `-` |
 | Back to the menu | Back, or B after a run | Tab, or Z after a run |
 | Back out of a menu | B | Z, or Esc |
 | Quit | Hold Home for one second | Cmd+Q, or close a window |
+
+R1 is the quick throw. With a grenade ready, pressing R1 puts a marker on the ground 4 tiles straight ahead; holding R1 slides it out to 8 tiles over a second, and letting go throws the grenade there. Nothing slows down, and the marker follows as you walk and turn. With none ready, R1 clicks. It works the same on one screen.
 
 #### One screen
 
@@ -50,7 +52,7 @@ Settings > Screens set to One plays a run on the top screen alone; the bottom sc
 | Aim a grenade, in slowed time | Hold L2, then the d-pad or stick | Hold Q, then the arrows |
 | Throw it | Let go of L2 | Let go of Q |
 | Cancel the throw | B | Z |
-| Show the whole map, paused | Hold R2 | Hold 2 |
+| Throw a grenade straight ahead | Hold R1, then let go | Hold W, then let go |
 
 Your grenade count shows only on the map; a grenade on your belt means one is ready. With none ready, L2 shows the map at full speed and clicks. While you aim, you keep walking the way you were going, and after 3 seconds the grenade throws itself. The cursor starts where your last throw went, relative to your view, if that was under 5 seconds ago, else straight ahead.
 
@@ -65,7 +67,6 @@ A run plays on one screen with controls beside it, or under it when the phone is
 | Turn around | Around |
 | Show the map | Tap Grenade; tap it again to put the 3D view back. You keep moving |
 | Throw a grenade | While the map is up, tap where it should land |
-| See the whole map, paused | Hold Map, above the stick |
 | Pick an upgrade, or a pause choice | Tap it |
 | Pause | Pause |
 
@@ -156,7 +157,7 @@ The title's bottom screen lists Play, Map, Settings, Stats and Credits. Up and D
 
 ### Saving screenshots
 
-R1 saves both screens, the top above the bottom, as `screenshots/shot-NNNN.png` beside the save. On Android it saves them in the game folder's `screenshots/`, and the first screenshot asks you to choose a game folder if you have none.
+R2 saves both screens, the top above the bottom, as `screenshots/shot-NNNN.png` beside the save. On Android it saves them in the game folder's `screenshots/`, and the first screenshot asks you to choose a game folder if you have none.
 
 ### Photo mode
 
