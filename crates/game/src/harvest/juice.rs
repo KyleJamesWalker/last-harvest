@@ -209,6 +209,8 @@ pub const MOTE_TIME: f32 = 0.4;
 
 pub struct Juice {
     pub rng: Rng,
+    /// What only shows draws from this, so a seed plays the same whatever the effects look like.
+    pub fx: Rng,
     pub motes: Vec<Mote>,
     pub particles: Vec<Particle>,
     pub popups: Vec<Popup>,
@@ -234,6 +236,7 @@ impl Juice {
     pub fn new(seed: u64) -> Self {
         Self {
             rng: Rng::new(seed ^ 0x5EED_1E55),
+            fx: Rng::new(seed ^ 0xF1A5_4E55),
             motes: Vec::new(),
             particles: Vec::new(),
             popups: Vec::new(),
@@ -365,14 +368,14 @@ impl Juice {
         let base = if dir == [0.0, 0.0] { None } else { Some(dir[1].atan2(dir[0])) };
         for _ in 0..n {
             let a = match base {
-                Some(b) => b + self.rng.range(-spread, spread),
-                None => self.rng.range(0.0, TAU),
+                Some(b) => b + self.fx.range(-spread, spread),
+                None => self.fx.range(0.0, TAU),
             };
-            let v = self.rng.range(speed[0], speed[1]);
-            let shade = self.rng.range(0.8, 1.15);
-            let vz = self.rng.range(20.0, 70.0) * speed[1] / 80.0;
-            let life = life * self.rng.range(0.7, 1.3);
-            let size = size * self.rng.range(0.7, 1.3);
+            let v = self.fx.range(speed[0], speed[1]);
+            let shade = self.fx.range(0.8, 1.15);
+            let vz = self.fx.range(20.0, 70.0) * speed[1] / 80.0;
+            let life = life * self.fx.range(0.7, 1.3);
+            let size = size * self.fx.range(0.7, 1.3);
             self.particle(Particle {
                 pos: at,
                 z: height,
@@ -395,7 +398,7 @@ impl Juice {
         if self.popups.len() >= MAX_POPUPS {
             self.popups.remove(0);
         }
-        let jitter = [self.rng.range(-4.0, 4.0), self.rng.range(-2.0, 2.0)];
+        let jitter = [self.fx.range(-4.0, 4.0), self.fx.range(-2.0, 2.0)];
         self.popups.push(Popup { pos: [pos[0] + jitter[0], pos[1] + jitter[1]], value: amount.round().max(1.0) as u32, tone, age: 0.0 });
     }
 
@@ -443,6 +446,14 @@ mod tests {
         j.tick_real(HITSTOP_REST);
         j.stop(0.05);
         assert!(j.frozen());
+    }
+
+    #[test]
+    fn effects_draw_from_their_own_generator_so_a_seed_plays_the_same() {
+        let (mut a, mut b) = (Juice::new(1), Juice::new(1));
+        a.burst([0.0; 2], 4.0, 30, [1.0, 0.0], 0.5, [40.0, 80.0], [1.0; 3], 1.0, 0.3, 1.0);
+        a.popup([0.0; 2], 12.0, Tone::Hit);
+        assert_eq!(a.rng.next_u32(), b.rng.next_u32(), "the game's generator didn't move");
     }
 
     #[test]
