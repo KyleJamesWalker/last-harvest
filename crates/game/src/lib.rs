@@ -161,6 +161,8 @@ pub struct Game {
     page: Page,
     /// The highlighted row on the title's main page and on the settings page.
     row: usize,
+    /// The History page on show.
+    history_page: usize,
     setting: usize,
     /// The highlighted kind on the Enemies page.
     enemy: usize,
@@ -223,6 +225,7 @@ impl Game {
             reset_shown: 0.0,
             page: Page::Main,
             row: 0,
+            history_page: 0,
             setting: 0,
             enemy: 0,
             settings_in_run: false,
@@ -566,6 +569,7 @@ impl Game {
                 if let Some(run) = flow.ended {
                     let p = self.progress().after(run);
                     (self.save.kills, self.save.best, self.save.best_level, self.save.nights, self.save.dawns) = (p.kills, p.best, p.best_level, p.nights, p.dawns);
+                    self.save.record(run);
                 }
                 if flow.quit { State::Title } else { State::Harvest(h) }
             }
@@ -1284,7 +1288,64 @@ mod tests {
     }
 
     #[test]
-    fn r2_takes_one_screenshot_and_flashes_after_it() {
+    fn stats_opens_the_run_history_newest_first_and_b_comes_back() {
+        let mut game = Game::new(1);
+        game.save.record(harvest::Run { secs: 125, level: 4, difficulty: Difficulty::Hard, dps: 37, ..Default::default() });
+        game.save.record(harvest::Run { secs: 600, level: 9, won: true, dps: 81, ..Default::default() });
+        for _ in 0..3 {
+            press(&mut game, Buttons::DOWN);
+        }
+        press(&mut game, Buttons::A);
+        let text = |game: &Game| game.draw().bottom.shapes.iter().filter_map(|s| if let Shape::Text { text, .. } = s { Some(text.clone()) } else { None }).collect::<Vec<_>>();
+        assert!(text(&game).contains(&"81".to_string()), "Stats shows the best damage a second");
+        press(&mut game, Buttons::A);
+        assert_eq!(game.page, Page::History);
+        let shown = text(&game);
+        let at = |s: &str| shown.iter().position(|t| t == s).unwrap_or_else(|| panic!("{s} missing: {shown:?}"));
+        assert!(at("Home at dawn") < at("Turned"), "newest first");
+        for cell in ["Hard", "2:05", "4", "37", "Easy", "10:00", "9", "81"] {
+            at(cell);
+        }
+        press(&mut game, Buttons::B);
+        assert_eq!(game.page, Page::Stats);
+        press(&mut game, Buttons::B);
+        assert_eq!(game.page, Page::Main);
+    }
+
+    #[test]
+    fn history_shows_each_runs_powerups_five_runs_a_page() {
+        let mut game = Game::new(1);
+        let pistol = harvest::powerup_index("pistol").unwrap();
+        let crows = harvest::powerup_index("crows").unwrap();
+        let mut kit = [None; harvest::RUN_KIT];
+        kit[0] = Some((pistol as u16, 4));
+        kit[1] = Some((crows as u16, 2));
+        game.save.record(harvest::Run { secs: 61, kit, ..Default::default() });
+        for k in 0..6 {
+            game.save.record(harvest::Run { secs: 100 + k, ..Default::default() });
+        }
+        game.page = Page::Stats;
+        press(&mut game, Buttons::A);
+        let shown = |game: &Game| {
+            let f = game.draw();
+            let arts: Vec<crate::art::Art> = f.bottom.shapes.iter().filter_map(|s| if let Shape::Art { art, .. } = s { Some(*art) } else { None }).collect();
+            let text: Vec<String> = f.bottom.shapes.iter().filter_map(|s| if let Shape::Text { text, .. } = s { Some(text.clone()) } else { None }).collect();
+            (arts, text)
+        };
+        let (arts, text) = shown(&game);
+        assert!(text.contains(&"Page 1 of 2".to_string()) && !text.contains(&"1:01".to_string()), "the oldest run is on page two");
+        assert!(!arts.contains(&harvest::powerup_icon(pistol)));
+        press(&mut game, Buttons::RIGHT);
+        let (arts, text) = shown(&game);
+        assert!(text.contains(&"1:01".to_string()) && text.contains(&"Page 2 of 2".to_string()));
+        assert!(arts.contains(&harvest::powerup_icon(pistol)) && arts.contains(&harvest::powerup_icon(crows)), "its powerups as icons");
+        assert!(text.contains(&"4".to_string()) && text.contains(&"2".to_string()), "at their levels");
+        press(&mut game, Buttons::RIGHT);
+        assert!(shown(&game).1.contains(&"Page 1 of 2".to_string()), "and round again");
+    }
+
+    #[test]
+        fn r2_takes_one_screenshot_and_flashes_after_it() {
         let mut game = Game::new(1);
         press(&mut game, Buttons::R2);
         assert_eq!(game.take_screenshot(), Some(Capture::Screens));
