@@ -21,6 +21,8 @@ const RING_SHARE: f32 = 0.4;
 const RING_TILES: [f32; 2] = [2.5, 10.0];
 /// The clock goes back this many seconds before it reaches a minute, so no minute call or dawn comes.
 const CLOCK_LOOP: f32 = 50.0;
+/// How far down the top screen the buttons go when the run plays on it alone.
+const TOP_KEYS: f32 = 76.0;
 /// The bottom screen's buttons, as x, y, w, h, in the order of `Key`.
 const KEYS: [[f32; 4]; 6] = [
     [24.0, 96.0, 150.0, 70.0],
@@ -128,8 +130,9 @@ enum Key {
 
 const ALL_KEYS: [Key; 6] = [Key::LevelDown, Key::LevelUp, Key::KindBack, Key::KindOn, Key::Hand, Key::Fire];
 
-fn key_at([x, y]: [f32; 2]) -> Option<Key> {
-    KEYS.iter().position(|&[kx, ky, w, h]| (kx..kx + w).contains(&x) && (ky..ky + h).contains(&y)).map(|i| ALL_KEYS[i])
+/// The button at a touch, with the buttons `down` further down the screen.
+fn key_at([x, y]: [f32; 2], down: f32) -> Option<Key> {
+    KEYS.iter().position(|&[kx, ky, w, h]| (kx..kx + w).contains(&x) && (ky + down..ky + down + h).contains(&y)).map(|i| ALL_KEYS[i])
 }
 
 pub(super) struct Range {
@@ -204,7 +207,8 @@ impl Harvest {
         if self.menu.is_some() || !matches!(self.phase, Phase::Playing) || self.overview {
             return None;
         }
-        let tap = input.touch.filter(|_| input.touch_started && !self.single).and_then(key_at);
+        let down = if self.single { TOP_KEYS } else { 0.0 };
+        let tap = input.touch.filter(|_| input.touch_started).and_then(|p| key_at(p, down));
         let asked = |b: Buttons, k: Key| input.pressed.contains(b) || tap == Some(k);
         if asked(Buttons::UP, Key::LevelUp) {
             self.step_level(1, sounds);
@@ -322,12 +326,15 @@ impl Harvest {
         top.rect(16.0, 64.0, 620.0, 96.0, [0.0, 0.0, 0.0, 0.6]);
         top.label(format!("{}  level {level}/{}  {how}", def.name, def.max), 28.0, 72.0, 32.0, WHITE, Align::Left);
         top.label(format!("{:.0} damage a second   vs {kind}", self.range_dps()), 28.0, 114.0, 32.0, GOLD, Align::Left);
-        bottom.rect(0.0, 0.0, SCREEN_W, 180.0, [0.0, 0.0, 0.0, 0.7]);
-        bottom.label("Up/Down: level   Left/Right: kind   Select: by hand   X: fire", SCREEN_W / 2.0, 20.0, 28.0, WHITE, Align::Center);
+        let (keys, down) = if self.single { (top, TOP_KEYS) } else { (bottom, 0.0) };
+        if !self.single {
+            keys.rect(0.0, 0.0, SCREEN_W, 180.0, [0.0, 0.0, 0.0, 0.7]);
+            keys.label("Up/Down: level   Left/Right: kind   Select: by hand   X: fire", SCREEN_W / 2.0, 20.0, 28.0, WHITE, Align::Center);
+        }
         let labels = ["Level -", "Level +", "< Kind", "Kind >", if r.by_hand { "On cooldown" } else { "By hand" }, "Fire"];
         for (&[x, y, w, h], label) in KEYS.iter().zip(labels) {
-            bottom.rect(x, y, w, h, [1.0, 1.0, 1.0, 0.15]);
-            bottom.label(label, x + w / 2.0, y + h / 2.0 - 16.0, 30.0, WHITE, Align::Center);
+            keys.rect(x, y + down, w, h, [0.0, 0.0, 0.0, 0.5]);
+            keys.label(label, x + w / 2.0, y + down + h / 2.0 - 16.0, 30.0, WHITE, Align::Center);
         }
     }
 }
@@ -446,5 +453,9 @@ mod tests {
         run(&mut h, 0.0, tap);
         assert_eq!(h.kit.weapons[0].level, 2);
         assert!(h.thrown.is_empty());
+        let mut one = pistol(1).single_screen(true);
+        let [x, y, w, hh] = KEYS[5];
+        run(&mut one, 1.0, Input { touch: Some([x + w / 2.0, y + TOP_KEYS + hh / 2.0]), touch_started: true, ..Input::default() });
+        assert!(one.range.as_ref().unwrap().by_hand, "on one screen, the buttons sit on the top one");
     }
 }
