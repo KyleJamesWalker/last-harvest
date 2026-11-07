@@ -461,14 +461,16 @@ Each section names what an effect, swing or animal plays:
 
 A sprite that stands as a slab lies flat and turns with the swing. Anything else faces the camera. A section with a name of your own is a new effect a weapon can use. A mod's file may leave out `[spit]`, `[mound]` and `[mound_breaks]`, added later, and keep the game's.
 
-A section can instead set a shot style, which a weapon fires with `bullet NAME`. Its bullets fly as a short streak of particles, and each shot throws sparks from the muzzle over the weapon's `flash`:
+A section can instead set a shot style, which a weapon fires with `bullet NAME`. Its bullets fly as a tracer: one bright streak that thins and dims from head to tail, with a white-hot core along its front. Each shot flares white-hot out of the muzzle for a frame or two, throws sparks forward that slow and fade, and puffs a little smoke, over the weapon's `flash`. Where a bullet hits a zombie, a prop or the ground at the end of its range, it throws a spray of sparks.
 
-- `color RRGGBB`: the streak's and sparks' color, as `palette.txt` writes one, such as `E8D27A`.
-- `length N`: the streak's length in pixels, up to 64.
-- `size N`: each speck's and spark's width in pixels, up to 8.
-- `sparks N`: sparks with each shot, up to 32; 0 for none.
+- `color RRGGBB`: the tracer's and sparks' color, as `palette.txt` writes one, such as `E8D27A`.
+- `length N`: the tracer's length in pixels, up to 64.
+- `size N`: the tracer's width at its head, and about the sparks', in pixels, up to 8.
+- `sparks N`: sparks from the muzzle with each shot, up to 32; 0 for none.
+- `impact N`: sparks where each bullet hits, up to 32; 0 for none.
+- `core N`: how far the muzzle flare reaches, in pixels, up to 16.
 
-A section with any of these needs no `art`, and takes what it leaves out from `[bullet]`, the style of every gun without a `bullet` line. A section without a style still flies as its sprite. Guns play no muzzle sprite of their own; a weapon's `effect` line plays one over the sparks.
+A section with any of these needs no `art`, and takes what it leaves out from `[bullet]`, the style of a gun without a `bullet` line. The pistol fires `[pistol_shot]`, the shotgun and back holster `[shotgun_pellet]`, and the rifle `[rifle_round]`; a mod's file without one of those fires `[bullet]` for it. A section without a style still flies as its sprite. Guns play no muzzle sprite of their own; a weapon's `effect` line plays one over the flare.
 
 The `[colors]` section sets the particle colors: `blood`, `dark_blood`, `dirt`, `spark`, `ember`, `gold` and `firefly`. Each is red, green and blue from 0 to 1. A zombie with its own `blood` bleeds that instead, and its `dark_blood` is as much darker.
 
@@ -513,7 +515,7 @@ Three behaviors take their shape from data:
 Any weapon can also take these lines:
 
 - `effect NAME`: an `effects.txt` effect it plays in place of its behavior's own. A lob plays it where it lands.
-- `bullet NAME`: an `effects.txt` effect its bullets fly as: a streak of particles when the section sets a shot style, else its sprite. A lob flies as it, or as the grenade when left out.
+- `bullet NAME`: an `effects.txt` effect its bullets fly as: a tracer when the section sets a shot style, else its sprite. A lob flies as it, or as the grenade when left out.
 - `sound NAME`: `shot`, `blast`, `slash`, `zap`, `bark` or `throw`, in place of its behavior's own.
 - `kick N`, `punch N` and `shake N`: the camera's kick back, punch in and screen shake on each attack.
 - `flash R G B REACH SECONDS`: a flash of light on each attack. The color can go above 1 for brighter than white. REACH is in tiles.
@@ -625,7 +627,7 @@ A weapon's section in `powerups.txt` opens as a weapon page:
 - A level's number picks that level. **-** and **+** on a stat step its value at that level only, ten times as far with Shift. **Edit** types the whole line.
 - **-** and **+** beside `max` change the highest level.
 - **<** and **>** step the effect and bullet through `effects.txt`, and the sound through the weapon sounds. **Own** removes the line, so the behavior's own plays.
-- The panel under the behaviors plays the chosen effect and bullet. A bullet with a shot style plays as its streak, with its color, length, size and sparks, and **Style** opens its `effects.txt` section.
+- The panel under the behaviors plays the chosen effect and bullet. A bullet with a shot style plays as its tracer and muzzle flare, with its color, length, size, sparks, core and impact, and **Style** opens its `effects.txt` section.
 - **Lines** shows the section a line a row, as any other page; **Weapon** goes back.
 
 Each change rewrites only its own line, so comments and other lines stay as written, and Undo takes it back.
