@@ -1358,6 +1358,9 @@ impl Editor {
             }
             return;
         }
+        if self.typing && !LIST.contains(p) {
+            return self.cancel_search();
+        }
         if LIST.contains(p) {
             if p[1] < self.list_top() {
                 self.typing = true;
@@ -1382,8 +1385,9 @@ impl Editor {
             return;
         }
         if self.data.is_some() {
-            if let Some(b) = self.buttons().into_iter().find(|b| b.rect.contains(p)) {
-                self.act(b.action, shift);
+            match self.buttons().into_iter().find(|b| b.rect.contains(p)) {
+                Some(b) => self.act(b.action, shift),
+                None => self.naming = None,
             }
             return;
         }
@@ -1403,6 +1407,9 @@ impl Editor {
         }
         if let Some(b) = self.buttons().into_iter().find(|b| b.rect.contains(p)) {
             self.act(b.action, shift);
+            return;
+        }
+        if self.naming.take().is_some() {
             return;
         }
         if let Some((origins, zoom)) = self.compare_layout().filter(|_| CANVAS.contains(p)) {
@@ -2363,6 +2370,13 @@ impl Editor {
         }
     }
 
+    /// Stops typing the search and lists every sprite again, as Esc there does.
+    fn cancel_search(&mut self) {
+        self.typing = false;
+        self.filter.clear();
+        self.reveal();
+    }
+
     /// Closes the naming box after a tap off the editor's pane; whether one was open.
     pub fn tap_away(&mut self) -> bool {
         self.ask.take().is_some()
@@ -2608,11 +2622,7 @@ impl Editor {
                 Key::Backspace => {
                     self.filter.pop();
                 }
-                Key::Escape => {
-                    self.typing = false;
-                    self.filter.clear();
-                    self.reveal();
-                }
+                Key::Escape => self.cancel_search(),
                 Key::Enter => {
                     self.typing = false;
                     let open_one = !self.listed().iter().any(|(n, _)| *n == self.sprite.name);
@@ -5083,6 +5093,15 @@ mod tests {
         [r.x + r.w / 2.0, r.y + r.h / 2.0]
     }
 
+    /// A point on the canvas under no button or color bar.
+    fn bare_canvas(e: &Editor) -> [f32; 2] {
+        let (buttons, bars) = (e.buttons(), e.bars());
+        (0..40)
+            .flat_map(|i| (0..40).map(move |j| [CANVAS.x + 2.0 + i as f32 * CANVAS.w / 40.0, CANVAS.y + 2.0 + j as f32 * CANVAS.h / 40.0]))
+            .find(|p| !buttons.iter().any(|b| b.rect.contains(*p)) && !bars.iter().any(|r| r.contains(*p)))
+            .unwrap()
+    }
+
     #[test]
     fn a_tap_outside_the_naming_box_or_on_cancel_closes_it_and_create_does_what_enter_does() {
         let dir = tmp().join("tap-ask");
@@ -5129,6 +5148,53 @@ mod tests {
         type_in(&mut e, "bat");
         tap(&mut e, middle(ask_rect(0)));
         assert_eq!(e.sprite.name, "CARD_BAT_FRONT");
+    }
+
+    #[test]
+    fn a_tap_off_the_list_ends_a_search_as_esc_does() {
+        let mut e = editor();
+        e.key(Key::Char('/'));
+        type_keys(&mut e, "car_");
+        let first = [LIST.x + 10.0, e.list_top() + 4.0];
+        tap(&mut e, first);
+        assert!(e.wants_text(), "a tap on the list keeps the search going");
+        let px = e.sprite.frames[0].px.clone();
+        tap(&mut e, middle(CANVAS));
+        assert!(!e.wants_text() && e.filter.is_empty());
+        assert_eq!(e.sprite.frames[0].px, px, "the tap only ends the search");
+    }
+
+    #[test]
+    fn a_tap_on_no_button_drops_a_line_being_typed() {
+        let dir = tmp().join("tap-naming");
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut e = editor_in(&dir, dir.join("art.txt"));
+        e.switch_to("DATA_TUNING_PLAYER".into());
+        let value = |e: &Editor| e.data.as_ref().map(|d| d.table.entries(&d.section)[1].value.clone());
+        let before = value(&e);
+        e.act(Action::DataEdit(1), false);
+        e.set_text("52");
+        let p = bare_canvas(&e);
+        tap(&mut e, p);
+        assert!(!e.wants_text() && value(&e) == before && !e.unsaved(), "dropped, as Esc does");
+        e.act(Action::DataEdit(1), false);
+        e.set_text("52");
+        e.key(Key::Enter);
+        assert_ne!(value(&e), before, "and typing still takes");
+
+        let dir = tmp().join("tap-naming-card");
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut e = editor_in(&dir, dir.join("art.txt"));
+        e.act(Action::Ask(Ask::New), false);
+        type_in(&mut e, "card ghoul");
+        e.key(Key::Enter);
+        e.act(Action::Stats, false);
+        let card = e.sprite.card.clone();
+        e.act(Action::EditName, false);
+        e.set_text("Bog Ghoul");
+        let p = bare_canvas(&e);
+        tap(&mut e, p);
+        assert!(!e.wants_text() && e.sprite.card == card && e.stats, "the card keeps its name and its page");
     }
 
     #[test]
