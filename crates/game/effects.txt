@@ -8,7 +8,7 @@
 #   size N        the tracer's width at its head, and about the sparks', in pixels
 #   sparks N      sparks a gun throws forward from its muzzle with each shot
 #   impact N      sparks where each bullet hits a zombie, a prop or the ground
-#   core N        the white-hot core over the muzzle flash, across in pixels
+#   core N        the white-hot flare out of the muzzle, in pixels
 # A section that sets any shot style flies as a tracer when a weapon fires it as its bullets, and needs no art;
 # what it leaves out comes from [bullet], which a gun without a `bullet` line fires.
 # A sprite standing as a slab lies flat and turns with the swing; anything else faces the camera.

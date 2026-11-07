@@ -424,7 +424,7 @@ impl Harvest {
             let angle = base + (k as f32 - (n - 1) as f32 / 2.0) * gap;
             self.shoot(angle, speed, self.stat(a, Stat::Damage), self.stat(a, Stat::Pierce) as u32, range / speed, self.stat(a, Stat::Knockback), bullet(a));
         }
-        self.muzzle(a, d, 8.0, super::effects::effects().muzzle_pistol);
+        self.muzzle(a, d, 8.0);
         self.noise = Some(self.pos);
         sounds.push(sound(a, Sfx::Shot));
         true
@@ -443,17 +443,19 @@ impl Harvest {
             let angle = shot_angle(pattern, k, n, base, spread, self.juice.rng.range(-0.5, 0.5));
             self.shoot(angle, speed, damage, pierce, range / speed, force, bullet(a));
         }
-        self.muzzle(a, d, 8.0, super::effects::effects().muzzle_pistol);
+        self.muzzle(a, d, 8.0);
         self.noise = Some(self.pos);
         sounds.push(sound(a, Sfx::Shot));
         true
     }
 
-    /// A gun's muzzle, `out` pixels along `d`: its flash, the effect its `effect` line names or else `own`, with a
-    /// white-hot core, sparks and smoke in its shot's style, over its light.
-    fn muzzle(&mut self, a: Armed, d: [f32; 2], out: f32, own: super::effects::Effect) {
+    /// A gun's muzzle, `out` pixels along `d`: a flare, sparks and smoke in its shot's style over its light, and the
+    /// effect its `effect` line names.
+    fn muzzle(&mut self, a: Armed, d: [f32; 2], out: f32) {
         let ground = [self.pos[0] + d[0] * out, self.pos[1] + d[1] * out];
-        self.fx.push(Fx::play(look(a, own), [ground[0], ground[1] - 6.0], d[1].atan2(d[0])));
+        if let Some(e) = book().defs[a.def].effect.as_deref().and_then(|n| super::effects::effects().named(n)) {
+            self.fx.push(Fx::play(e, [ground[0], ground[1] - 6.0], d[1].atan2(d[0])));
+        }
         self.attack_feel(a, ground, 10.0);
         self.juice.muzzle(ground, 10.0, d, &shot_style(a));
     }
@@ -514,7 +516,7 @@ impl Harvest {
             let angle = base + (k as f32 / (pellets - 1) as f32 - 0.5) * spread;
             self.shoot(angle, speed, self.stat(a, Stat::Damage), self.stat(a, Stat::Pierce) as u32, range / speed * 0.9, self.stat(a, Stat::Knockback), bullet(a));
         }
-        self.muzzle(a, d, 10.0, super::effects::effects().shotgun_blast);
+        self.muzzle(a, d, 10.0);
         self.noise = Some(self.pos);
         sounds.push(sound(a, Sfx::Blast));
         true
@@ -532,7 +534,7 @@ impl Harvest {
         let way = barrel.map_or(self.aim, norm);
         let angle = way[1].atan2(way[0]);
         self.shoot(angle, speed, self.stat(a, Stat::Damage), self.stat(a, Stat::Pierce) as u32, range / speed, self.stat(a, Stat::Knockback), bullet(a));
-        self.muzzle(a, way, 9.0, super::effects::effects().muzzle_rifle);
+        self.muzzle(a, way, 9.0);
         self.noise = Some(self.pos);
         sounds.push(sound(a, Sfx::Blast));
         true
@@ -1113,7 +1115,7 @@ mod tests {
             }
             assert!(!h.bullets.is_empty(), "{id} fired");
             let bright = h.juice.particles.iter().filter(|p| p.glow > 0.0).count();
-            assert_eq!((bright, h.fx.len()), (1 + shot.sparks as usize, 1), "{id}: its flash, a core and its sparks");
+            assert_eq!((bright, h.juice.flares.len(), h.fx.len()), (shot.sparks as usize, 1, 0), "{id}: a flare and its sparks, no muzzle sprite");
             assert!(h.juice.particles.iter().any(|p| p.glow == 0.0), "{id} puffs smoke");
             assert!(!h.juice.flashes.is_empty(), "{id} still lights the ground");
             assert!(h.bullets.iter().all(|b| b.look.and_then(|e| e.shot) == Some(shot)), "{id}'s bullets fly in its style");

@@ -892,6 +892,18 @@ pub fn scene(h: &Harvest) -> CardScene {
             speck(&mut cards, q, pt.size_now() * PX, right, pt.color, pt.glow);
         }
     }
+    for f in &h.juice.flares {
+        let at = world(f.pos) + Vec3::Y * (f.z * PX);
+        if !near(at) {
+            continue;
+        }
+        let a = f.dir[1].atan2(f.dir[0]);
+        // Rays fanning forward out of the muzzle, the middle one longest.
+        for (turn, reach) in [(0.0, 2.4), (-0.55, 1.3), (0.55, 1.3), (-1.4, 0.6), (1.4, 0.6)] {
+            let tip = world([f.pos[0] + (a + turn).cos() * f.size * reach * f.reach(), f.pos[1] + (a + turn).sin() * f.size * reach * f.reach()]) + Vec3::Y * (f.z * PX);
+            tracer(&mut cards, eye, at, tip, f.size * 0.7 * PX, f.color);
+        }
+    }
     for ring in &h.juice.rings {
         let rr = ring.now() * PX;
         let size = 0.18 * (1.0 - ring.age / ring.life);

@@ -8,8 +8,9 @@ use crate::art::Art;
 use crate::rng::Rng;
 
 const MAX_PARTICLES: usize = 400;
-/// Seconds a muzzle flash's white core shows: a frame or two.
-const MUZZLE_CORE: f32 = 0.03;
+/// Seconds a muzzle flare shows: a frame or two.
+const MUZZLE_CORE: f32 = 0.04;
+const MAX_FLARES: usize = 8;
 const SMOKE_PUFFS: usize = 3;
 /// palette.txt's white, for a flash's core, and its grey, for gun smoke.
 const HOT: [f32; 3] = [1.0, 1.0, 1.0];
@@ -198,6 +199,25 @@ impl Flash {
     }
 }
 
+/// A muzzle flare: white-hot rays out of a gun's muzzle for a frame or two, in map pixels with a height.
+pub struct Flare {
+    pub pos: [f32; 2],
+    pub z: f32,
+    pub dir: [f32; 2],
+    /// Its rays' reach, in map pixels.
+    pub size: f32,
+    pub color: [f32; 3],
+    pub age: f32,
+    pub life: f32,
+}
+
+impl Flare {
+    /// How far its rays reach now, as a fraction of `size`: full, then gone.
+    pub fn reach(&self) -> f32 {
+        (1.0 - self.age / self.life).clamp(0.0, 1.0).sqrt()
+    }
+}
+
 /// A line of text across the top screen that slides in and fades out.
 pub struct Banner {
     pub text: String,
@@ -226,6 +246,7 @@ pub struct Juice {
     pub corpses: Vec<Corpse>,
     pub rings: Vec<Ring>,
     pub flashes: Vec<Flash>,
+    pub flares: Vec<Flare>,
     pub banner: Option<Banner>,
     /// 0 to 1; the camera shakes by its square.
     pub trauma: f32,
@@ -252,6 +273,7 @@ impl Juice {
             corpses: Vec::new(),
             rings: Vec::new(),
             flashes: Vec::new(),
+            flares: Vec::new(),
             banner: None,
             trauma: 0.0,
             kick: 0.0,
@@ -338,6 +360,10 @@ impl Juice {
             f.age += dt;
         }
         self.flashes.retain(|f| f.age < f.life);
+        for f in &mut self.flares {
+            f.age += dt;
+        }
+        self.flares.retain(|f| f.age < f.life);
     }
 
     pub fn frozen(&self) -> bool {
@@ -404,11 +430,13 @@ impl Juice {
         }
     }
 
-    /// A gunshot at its muzzle, `at` and `height` above the ground, firing along `dir`: a white-hot core for a frame
+    /// A gunshot at its muzzle, `at` and `height` above the ground, firing along `dir`: a white-hot flare for a frame
     /// or two, sparks thrown forward that slow and fade, and a puff of smoke, all in `shot`'s style.
     pub fn muzzle(&mut self, at: [f32; 2], height: f32, dir: [f32; 2], shot: &Shot) {
-        let still = |color, size, life| Particle { pos: at, z: height, vel: [0.0; 2], vz: 0.0, age: 0.0, life, color, size, shrink: false, gravity: 0.0, drag: 0.0, glow: 1.0, wander: false, grow: 0.0 };
-        self.particle(still(HOT, shot.core, MUZZLE_CORE));
+        if self.flares.len() >= MAX_FLARES {
+            self.flares.remove(0);
+        }
+        self.flares.push(Flare { pos: at, z: height, dir, size: shot.core, color: shot.color, age: 0.0, life: MUZZLE_CORE });
         self.sparks(at, height, dir, 0.3, [140.0, 280.0], shot.sparks, shot);
         let base = dir[1].atan2(dir[0]);
         for _ in 0..SMOKE_PUFFS {
@@ -417,7 +445,7 @@ impl Juice {
             let life = self.fx.range(0.45, 0.7);
             let vz = self.fx.range(6.0, 14.0);
             let pos = [at[0] + dir[0] * 3.0, at[1] + dir[1] * 3.0];
-            self.particle(Particle { pos, z: height, vel: [a.cos() * v, a.sin() * v], vz, age: 0.0, life, color: SMOKE, size: shot.size * 1.2, shrink: true, gravity: -8.0, drag: 2.5, glow: 0.0, wander: false, grow: 3.0 });
+            self.particle(Particle { pos, z: height, vel: [a.cos() * v, a.sin() * v], vz, age: 0.0, life, color: SMOKE, size: shot.size * 0.8, shrink: true, gravity: -8.0, drag: 2.5, glow: 0.0, wander: false, grow: 2.5 });
         }
     }
 
@@ -512,13 +540,13 @@ mod tests {
         let shot = Shot { color: [0.9, 0.8, 0.5], length: 12.0, size: 1.4, sparks: 6, impact: 3, core: 5.0 };
         let mut j = Juice::new(1);
         j.muzzle([0.0; 2], 10.0, [1.0, 0.0], &shot);
-        assert_eq!(j.particles.len(), 1 + 6 + SMOKE_PUFFS);
+        assert_eq!((j.particles.len(), j.flares.len()), (6 + SMOKE_PUFFS, 1));
         let fast = |j: &Juice| j.particles.iter().filter(|p| p.glow > 0.0 && p.vel != [0.0; 2]).map(|p| p.vel[0]).fold(0.0, f32::max);
         assert!(j.particles.iter().filter(|p| p.vel[0] > 50.0).all(|p| p.vel[0] > 0.0), "sparks fly forward");
         let start = fast(&j);
         j.tick(0.05);
         assert!(fast(&j) < start * 0.7, "and slow hard");
-        assert_eq!(j.particles.iter().filter(|p| p.color == HOT).count(), 0, "the core lasts a frame or two");
+        assert!(j.flares.is_empty(), "the flare lasts a frame or two");
         let smoke: Vec<&Particle> = j.particles.iter().filter(|p| p.color == SMOKE).collect();
         assert!(smoke.len() == SMOKE_PUFFS && smoke.iter().all(|p| p.z > 10.0 && p.size_now() > p.size * 0.9), "smoke rises and spreads");
         let mut j = Juice::new(1);

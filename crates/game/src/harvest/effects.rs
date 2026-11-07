@@ -25,7 +25,7 @@ pub struct Shot {
     /// Sparks thrown from the muzzle with each shot, and where each bullet hits.
     pub sparks: u32,
     pub impact: u32,
-    /// The muzzle flash's bright core, across in map pixels.
+    /// The white-hot flare out of the muzzle, in map pixels.
     pub core: f32,
 }
 
