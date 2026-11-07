@@ -1,9 +1,13 @@
 //! Settings and records kept between runs, as `key=value` lines.
 
 use crate::Difficulty;
-use crate::harvest::{found_from_ids, found_ids, off_from_ids, off_ids};
+use crate::harvest::{RUN_KIT, Run, found_from_ids, found_ids, off_from_ids, off_ids, powerup_id, powerup_index};
 
 pub const LEVELS: u8 = 10;
+/// Runs the history keeps.
+pub const HISTORY: usize = 10;
+/// Most characters a run's powerups take in its `run=` line.
+const KIT_TEXT_MAX: usize = 240;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Save {
@@ -35,6 +39,10 @@ pub struct Save {
     pub player: LookId,
     /// The hand-made map runs start on, by id; empty for a generated farm.
     pub map: LookId,
+    /// Most damage a second over a whole run.
+    pub best_dps: u32,
+    /// The last runs, newest first.
+    pub history: [Option<Run>; HISTORY],
 }
 
 /// Auto shows the on-screen controls and hides them at gamepad or keyboard input until the next touch.
@@ -111,14 +119,14 @@ impl LookId {
 
 impl Default for Save {
     fn default() -> Self {
-        Self { volume: 6, brightness: [4, 4], rumble: true, fps: false, one_screen: false, touch_grenades: true, touch: TouchControls::Auto, best: 0, difficulty: Difficulty::default(), kills: 0, best_level: 0, nights: 0, dawns: 0, found: 0, enemies_off: 0, player: LookId::default(), map: LookId::default() }
+        Self { volume: 6, brightness: [4, 4], rumble: true, fps: false, one_screen: false, touch_grenades: true, touch: TouchControls::Auto, best: 0, difficulty: Difficulty::default(), kills: 0, best_level: 0, nights: 0, dawns: 0, found: 0, enemies_off: 0, player: LookId::default(), map: LookId::default(), best_dps: 0, history: [None; HISTORY] }
     }
 }
 
 impl Save {
     pub fn to_text(&self) -> String {
         format!(
-            "volume={}\nbrightness_top={}\nbrightness_bottom={}\nrumble={}\nfps={}\nlayout={}\ngrenades={}\ntouch={}\nbest={}\ndifficulty={}\nkills={}\nbest_level={}\nnights={}\ndawns={}\nfound={}\nenemies_off={}\nplayer={}\nmap={}\n",
+            "volume={}\nbrightness_top={}\nbrightness_bottom={}\nrumble={}\nfps={}\nlayout={}\ngrenades={}\ntouch={}\nbest={}\ndifficulty={}\nkills={}\nbest_level={}\nnights={}\ndawns={}\nfound={}\nenemies_off={}\nplayer={}\nmap={}\nbest_dps={}\n{}",
             self.volume,
             self.brightness[0],
             self.brightness[1],
@@ -136,18 +144,28 @@ impl Save {
             found_ids(self.found),
             off_ids(self.enemies_off),
             self.player.as_str(),
-            self.map.as_str()
+            self.map.as_str(),
+            self.best_dps,
+            self.history.iter().flatten().map(|r| format!("run={}\n", run_text(r))).collect::<String>()
         )
+    }
+
+    /// Adds a finished run to the history and the best damage a second.
+    pub fn record(&mut self, run: Run) {
+        self.best_dps = self.best_dps.max(run.dps);
+        self.history.rotate_right(1);
+        self.history[0] = Some(run);
     }
 
     /// The run records and found powerups wiped, keeping the settings.
     pub fn without_progress(self) -> Self {
-        Self { best: 0, kills: 0, best_level: 0, nights: 0, dawns: 0, found: 0, ..self }
+        Self { best: 0, kills: 0, best_level: 0, nights: 0, dawns: 0, found: 0, best_dps: 0, history: [None; HISTORY], ..self }
     }
 
     /// Unknown keys and bad values fall back to the defaults, so an old or damaged file still loads.
     pub fn parse(text: &str) -> Self {
         let mut save = Self::default();
+        let mut runs = 0;
         for (key, value) in text.lines().filter_map(|l| l.split_once('=')) {
             let value = value.trim();
             match key.trim() {
@@ -169,11 +187,63 @@ impl Save {
                 "enemies_off" => save.enemies_off = off_from_ids(value),
                 "player" => save.player = LookId::new(value),
                 "map" => save.map = LookId::new(value),
+                "best_dps" => save.best_dps = value.parse().unwrap_or(save.best_dps),
+                "run" if runs < HISTORY => {
+                    if let Some(run) = run_from_text(value) {
+                        save.history[runs] = Some(run);
+                        runs += 1;
+                    }
+                }
                 _ => {}
             }
         }
         save
     }
+}
+
+/// A run as `difficulty,won|lost,level,seconds,damage a second,kills,powerups`, the powerups as `id:level` with
+/// spaces between.
+fn run_text(r: &Run) -> String {
+    let mut kit = String::new();
+    for (id, level) in r.kit.iter().flatten().filter_map(|&(d, l)| Some((powerup_id(d as usize)?, l))) {
+        let one = format!("{id}:{level}");
+        if kit.len() + one.len() + 1 > KIT_TEXT_MAX {
+            break;
+        }
+        if !kit.is_empty() {
+            kit.push(' ');
+        }
+        kit.push_str(&one);
+    }
+    format!("{},{},{},{},{},{},{kit}", r.difficulty.key(), if r.won { "won" } else { "lost" }, r.level, r.secs, r.dps, r.kills)
+}
+
+/// The powerups a `run=` line names that the book still has, at most `RUN_KIT`.
+fn kit_from_text(text: &str) -> [Option<(u16, u8)>; RUN_KIT] {
+    let mut kit = [None; RUN_KIT];
+    let held = text.split_whitespace().filter_map(|w| {
+        let (id, level) = w.split_once(':')?;
+        Some((powerup_index(id)? as u16, level.parse::<u8>().ok()?))
+    });
+    for (slot, held) in kit.iter_mut().zip(held) {
+        *slot = Some(held);
+    }
+    kit
+}
+
+fn run_from_text(text: &str) -> Option<Run> {
+    let f: Vec<&str> = text.split(',').map(str::trim).collect();
+    let (difficulty, result, level, secs, dps, kills, kit) = match f[..] {
+        [a, b, c, d, e, g] => (a, b, c, d, e, g, ""),
+        [a, b, c, d, e, g, k] => (a, b, c, d, e, g, k),
+        _ => return None,
+    };
+    let won = match result {
+        "won" => true,
+        "lost" => false,
+        _ => return None,
+    };
+    Some(Run { difficulty: Difficulty::from_key(difficulty)?, won, level: level.parse().ok()?, secs: secs.parse().ok()?, dps: dps.parse().ok()?, kills: kills.parse().ok()?, kit: kit_from_text(kit) })
 }
 
 fn on_off(b: bool) -> &'static str {
@@ -186,7 +256,7 @@ mod tests {
 
     #[test]
     fn round_trips() {
-        let save = Save { volume: 3, brightness: [7, 2], rumble: false, fps: true, one_screen: true, touch_grenades: false, touch: TouchControls::Off, best: 41, difficulty: Difficulty::Hard, kills: 900, best_level: 12, nights: 7, dawns: 1, found: 0b1010_0000_0000, enemies_off: 0b10, player: LookId::new("jo"), map: LookId::new("old_farm") };
+        let save = Save { volume: 3, brightness: [7, 2], rumble: false, fps: true, one_screen: true, touch_grenades: false, touch: TouchControls::Off, best: 41, difficulty: Difficulty::Hard, kills: 900, best_level: 12, nights: 7, dawns: 1, found: 0b1010_0000_0000, enemies_off: 0b10, player: LookId::new("jo"), map: LookId::new("old_farm"), best_dps: 0, history: [None; HISTORY] };
         assert_eq!(Save::parse(&save.to_text()), save);
     }
 
@@ -215,6 +285,77 @@ mod tests {
         assert_eq!(Save::parse("touch=sometimes").touch, TouchControls::Auto);
         assert_eq!(TouchControls::Auto.step(-1), TouchControls::Off);
         assert_eq!(TouchControls::Off.step(1), TouchControls::Auto);
+    }
+
+    fn run(secs: u32, dps: u32) -> Run {
+        Run { secs, kills: 7, level: 3, won: secs >= 600, difficulty: Difficulty::Hard, dps, kit: [None; RUN_KIT] }
+    }
+
+    fn holding(pairs: &[(&str, u8)]) -> [Option<(u16, u8)>; RUN_KIT] {
+        let mut kit = [None; RUN_KIT];
+        for (slot, &(id, level)) in kit.iter_mut().zip(pairs) {
+            *slot = Some((powerup_index(id).unwrap() as u16, level));
+        }
+        kit
+    }
+
+    #[test]
+    fn a_runs_powerups_round_trip_by_id() {
+        let mut save = Save::default();
+        let kit = holding(&[("pistol", 3), ("knife", 1), ("crows", 5), ("hollow_points", 2)]);
+        save.record(Run { kit, ..run(300, 40) });
+        let text = save.to_text();
+        assert!(text.contains("run=hard,lost,3,300,40,7,pistol:3 knife:1 crows:5 hollow_points:2\n"), "{text}");
+        assert_eq!(Save::parse(&text).history[0].unwrap().kit, kit);
+    }
+
+    #[test]
+    fn a_powerup_the_book_no_longer_has_is_skipped_and_the_run_kept() {
+        let save = Save::parse("run=hard,lost,3,300,40,7,pistol:3 laser_from_v9:4 knife:x crows:5\n");
+        assert_eq!(save.history[0].unwrap().kit, holding(&[("pistol", 3), ("crows", 5)]));
+    }
+
+    #[test]
+    fn a_full_kit_keeps_its_line_short() {
+        let ids: Vec<&str> = (0..40).filter_map(powerup_id).collect();
+        let pairs: Vec<(&str, u8)> = ids.iter().map(|&id| (id, 9)).collect();
+        let kit = holding(&pairs);
+        assert_eq!(kit.iter().flatten().count(), RUN_KIT, "at most RUN_KIT kept");
+        let mut save = Save::default();
+        save.record(Run { kit, ..run(300, 40) });
+        let line = save.to_text().lines().find(|l| l.starts_with("run=")).unwrap().to_string();
+        assert!(line.len() <= KIT_TEXT_MAX + 60, "{line}");
+    }
+
+    #[test]
+    fn the_history_keeps_the_last_runs_newest_first_and_the_best_damage_a_second() {
+        let mut save = Save::default();
+        for k in 0..HISTORY as u32 + 2 {
+            save.record(run(100 + k, 50 - k));
+        }
+        assert_eq!(save.best_dps, 50);
+        assert_eq!(save.history[0], Some(run(100 + HISTORY as u32 + 1, 50 - HISTORY as u32 - 1)), "newest first");
+        assert_eq!(save.history[HISTORY - 1], Some(run(102, 48)), "the oldest two dropped");
+        save.record(run(600, 90));
+        assert_eq!(Save::parse(&save.to_text()), save);
+        assert_eq!(save.without_progress().history, [None; HISTORY]);
+        assert_eq!(save.without_progress().best_dps, 0);
+    }
+
+    #[test]
+    fn a_save_from_before_the_history_loads_with_none() {
+        let old = "volume=3\nbest=320\ndifficulty=hard\nkills=40\nbest_level=6\nnights=4\ndawns=0\nfound=\nplayer=\nmap=\n";
+        let save = Save::parse(old);
+        assert_eq!((save.volume, save.best, save.best_level), (3, 320, 6));
+        assert_eq!((save.best_dps, save.history), (0, [None; HISTORY]));
+    }
+
+    #[test]
+    fn a_damaged_history_line_is_dropped_and_the_rest_kept() {
+        let save = Save::parse("run=hard,lost,3,100,40,7\nrun=nightmare,lost,3,100,40,7\nrun=easy,maybe,1,1,1,1\nrun=easy,won,3\nrun=normal,won,9,600,80,12\n");
+        assert_eq!(save.history[0], Some(run(100, 40)));
+        assert_eq!(save.history[1], Some(Run { difficulty: Difficulty::Normal, won: true, level: 9, secs: 600, dps: 80, kills: 12, kit: [None; RUN_KIT] }), "a line from before powerups loads with none");
+        assert_eq!(save.history[2], None);
     }
 
     #[test]

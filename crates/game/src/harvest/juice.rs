@@ -278,6 +278,7 @@ pub struct Juice {
     pub clock: f32,
     /// Damage dealt to zombies so far, as the numbers show it.
     pub dealt: f32,
+    pub tally: super::tally::Tally,
 }
 
 impl Juice {
@@ -301,6 +302,7 @@ impl Juice {
             hurt: 0.0,
             clock: 0.0,
             dealt: 0.0,
+            tally: Default::default(),
         }
     }
 
@@ -496,6 +498,7 @@ impl Juice {
     pub fn popup(&mut self, pos: [f32; 2], amount: f32, tone: Tone) {
         if matches!(tone, Tone::Hit | Tone::Crit) {
             self.dealt += amount;
+            self.tally.add(amount);
         }
         if self.popups.len() >= MAX_POPUPS {
             self.popups.remove(0);
