@@ -101,7 +101,7 @@ SAVE=1 scripts/capture.sh stream both  # also record the stream to the SD card
 
 ## Performance
 
-With 4x MSAA and both screens at 1024x768, the `bench` scene holds 60 FPS. So does a full horde around the player. The busiest fights dip to the high fifties. The 3D view skips faces turned away from the camera and draws only the nearest 160 zombies.
+With 4x MSAA and both screens at 1024x768, the `bench` scene holds 60 FPS. So does a full horde around the player. The busiest fights dip to the high fifties. The 3D view skips faces turned away from the camera and draws only the nearest 160 zombies. See-through cards, such as a fading blast, take one more draw call after the opaque cards, from their own vertex buffer. A frame without them skips it.
 
 ## Hardware
 

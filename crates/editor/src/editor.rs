@@ -2,7 +2,7 @@
 
 use last_harvest_game::art::{self, Art};
 use last_harvest_game::worn::{self, Worn};
-use last_harvest_game::{Align, Canvas, Color, Stand};
+use last_harvest_game::{Align, Canvas, Color, Stand, alpha};
 
 use crate::history::Commit;
 use crate::sprite::{self, CLEAR, Frame, Rgba, Sprite};
@@ -64,6 +64,8 @@ const FIGURE: u8 = 2;
 const GRENADE_Y: f32 = 640.0;
 /// The row that sets a sprite's detail, under the palette and over its stand.
 const DETAIL_Y: f32 = 508.0;
+/// The row that sets how opaque a sprite's frames draw, under its detail.
+const ALPHA_Y: f32 = 537.0;
 /// Rows of swatches a sprite's palette shows, above the detail row.
 const PALETTE_ROWS: usize = 8;
 const DIALOG: Rect = Rect { x: 212.0, y: 250.0, w: 600.0, h: 230.0 };
@@ -327,6 +329,8 @@ enum Action {
     HideGrenade,
     /// Steps a figure's detail down or up through `art::DETAILS`, redrawing its frames to keep its size in the game.
     Detail(i32),
+    /// Steps the open frame's alpha down or up a tenth, or every frame's with Shift.
+    Alpha(i32),
 }
 
 /// What each of a card's numbers is called on its stats page, and how far a press of - or + moves it.
@@ -577,7 +581,7 @@ impl Editor {
     pub fn new(store: Box<dyn Store>, name: &str) -> Self {
         let loaded = store.load(name);
         let broken = loaded.is_none() && store.read(name, "0.png").is_some();
-        let sprite = loaded.unwrap_or(Sprite { detail: 1, worn: Vec::new(), name: if broken { String::new() } else { name.into() }, frames: vec![Frame::blank(16, 16)], views: None, footprint: None, roof: None, north: None, west: None, top: None, card: None, clear_in_3d: Vec::new(), paint: Default::default() });
+        let sprite = loaded.unwrap_or(Sprite { detail: 1, alpha: Vec::new(), worn: Vec::new(), name: if broken { String::new() } else { name.into() }, frames: vec![Frame::blank(16, 16)], views: None, footprint: None, roof: None, north: None, west: None, top: None, card: None, clear_in_3d: Vec::new(), paint: Default::default() });
         let names = store.names();
         let mut e = Self {
             store,
@@ -1278,6 +1282,10 @@ impl Editor {
             push(SIDE_X + 130.0, DETAIL_Y, 46.0, 28.0, Action::Detail(-1), "-", false);
             push(SIDE_X + 182.0, DETAIL_Y, 46.0, 28.0, Action::Detail(1), "+", false);
         }
+        if self.takes_alpha() {
+            push(SIDE_X + 130.0, ALPHA_Y, 46.0, 26.0, Action::Alpha(-1), "-", false);
+            push(SIDE_X + 182.0, ALPHA_Y, 46.0, 26.0, Action::Alpha(1), "+", false);
+        }
         if self.wears_grenade() {
             push(SIDE_X, GRENADE_Y, 114.0, 30.0, Action::Tool(Tool::Grenade), "Grenade W", self.tool_now() == Tool::Grenade);
             push(SIDE_X + 118.0, GRENADE_Y, 114.0, 30.0, Action::HideGrenade, "Hide", self.sprite.worn == [Worn::Hidden]);
@@ -1846,6 +1854,7 @@ impl Editor {
             Action::Shade(k, j) => self.set_shade(k, j),
             Action::DropCoat(k) => self.drop_coat(k),
             Action::Detail(by) => self.step_detail(by),
+            Action::Alpha(by) => self.step_alpha(by, shift),
             Action::HideGrenade => {
                 self.remember();
                 self.sprite.worn = if self.sprite.worn == [Worn::Hidden] { Vec::new() } else { vec![Worn::Hidden] };
@@ -2394,6 +2403,44 @@ impl Editor {
         });
     }
 
+    /// Whether the open sprite takes an alpha: a game sprite or a prop, its frames on show.
+    fn takes_alpha(&self) -> bool {
+        self.takes_detail() && !self.is_card()
+    }
+
+    /// How opaque the open sprite's frames draw: a prop's `alpha` line, else its `alpha.txt`.
+    fn alpha_spec(&self) -> Vec<f32> {
+        self.open_prop_fields().map_or_else(|| self.sprite.alpha.clone(), |f| f.alpha)
+    }
+
+    /// Steps the open frame's alpha, or every frame's when `all`, a tenth down or up from `alpha::MIN` to 1.
+    fn step_alpha(&mut self, by: i32, all: bool) {
+        let was = self.alpha_spec();
+        let step = |a: f32| ((a * 10.0).round() + by as f32).clamp(alpha::MIN * 10.0, 10.0) / 10.0;
+        let spec: Vec<f32> = (0..self.sprite.frames.len()).map(|i| alpha::of_frame(&was, i)).enumerate().map(|(i, a)| if all || i == self.frame { step(a) } else { a }).collect();
+        if self.is_prop() {
+            self.edit_prop(|f| f.alpha = spec.clone());
+        } else {
+            self.sprite.alpha = spec.clone();
+            self.dirty = true;
+            self.changed = true;
+        }
+        let now = alpha::of_frame(&spec, self.frame);
+        self.say(if all { format!("Every frame draws at alpha {now}") } else { format!("Frame {} draws at alpha {now}; Shift steps every frame", self.frame + 1) });
+    }
+
+    /// The live sprites' alphas, by place, for the previews: the open sprite's frames, or a map's props' frames.
+    pub fn live_alpha(&self) -> Vec<f32> {
+        if self.map.is_some() {
+            return self.map_props.iter().flat_map(|(f, n, copies, _)| (0..f.paint.copies()).flat_map(move |_| (0..n + copies).map(move |i| if i < f.frames as usize { alpha::of_frame(&f.alpha, i) } else { 1.0 }))).collect();
+        }
+        if self.data.is_some() || self.is_card() {
+            return Vec::new();
+        }
+        let spec = self.alpha_spec();
+        (0..self.sprite.frames.len()).map(|i| alpha::of_frame(&spec, i)).collect()
+    }
+
     /// The live sprites' details, by place, for the previews: all of a sprite's pictures share its detail, and a map's
     /// props each their own.
     pub fn live_detail(&self) -> Vec<u8> {
@@ -2566,7 +2613,7 @@ impl Editor {
                         let card = crate::store::props::id(&name).map(|id| last_harvest_game::prop_text(&crate::store::props::blank(&id)));
                         let clear_in_3d = if kind == Ask::Copy { self.sprite.clear_in_3d.clone() } else { Vec::new() };
                         let paint = if kind == Ask::Copy { self.sprite.paint.clone() } else { Default::default() };
-                        self.sprite = Sprite { detail: 1, worn: Vec::new(), name: name.clone(), frames: Vec::new(), views: None, footprint: None, roof: None, north: None, west: None, top: None, card, clear_in_3d, paint };
+                        self.sprite = Sprite { detail: 1, alpha: Vec::new(), worn: Vec::new(), name: name.clone(), frames: Vec::new(), views: None, footprint: None, roof: None, north: None, west: None, top: None, card, clear_in_3d, paint };
                         restore(&mut self.sprite, pictures);
                         self.fit();
                         self.view = None;
@@ -2889,6 +2936,9 @@ impl Editor {
         }
         if self.takes_detail() {
             c.label(format!("Detail {}x", self.sprite.detail), SIDE_X, DETAIL_Y + 4.0, 18.0, TEXT, Align::Left);
+        }
+        if self.takes_alpha() {
+            c.label(format!("Alpha {}", alpha::of_frame(&self.alpha_spec(), self.frame)), SIDE_X, ALPHA_Y + 3.0, 18.0, TEXT, Align::Left);
         }
         let f = self.current();
         if !self.none_open() {
@@ -5049,6 +5099,53 @@ mod tests {
         assert_eq!((saved.detail, saved.frame), (2, [plain[0].0 as u32 * 2, plain[0].1 as u32 * 2]));
         let again = Editor::new(Box::new(FsStore { dir: dir.join("sprites"), catalog: dir.join("art.txt"), cards: dir.join("enemies") }), "PROP_TANK");
         assert_eq!((again.sprite.detail, sizes(&again)), (2, sizes(&e)));
+    }
+
+    #[test]
+    fn a_sprites_alpha_steps_a_frame_or_every_frame_and_saves_beside_its_frames() {
+        let dir = tmp().join("alpha");
+        let _ = std::fs::remove_dir_all(&dir);
+        let store = || FsStore { dir: dir.join("sprites"), catalog: dir.join("art.txt"), cards: dir.join("enemies") };
+        let mut e = Editor::new(Box::new(store()), "SMOKE");
+        assert!(e.takes_alpha() && e.sprite.frames.len() > 2);
+        buttons_fit(&e);
+        e.draw(&mut Canvas::default());
+        e.act(Action::Alpha(-1), true);
+        e.act(Action::Alpha(-1), true);
+        e.frame = 1;
+        e.act(Action::Alpha(-1), false);
+        assert_eq!(e.live_alpha()[..3], [0.8, 0.7, 0.8]);
+        e.act(Action::Save, false);
+        assert_eq!(std::fs::read_to_string(dir.join("sprites/SMOKE/alpha.txt")).unwrap(), "0.8 0.7 0.8\n");
+        assert_eq!(Editor::new(Box::new(store()), "SMOKE").sprite.alpha, [0.8, 0.7, 0.8]);
+        for _ in 0..20 {
+            e.act(Action::Alpha(-1), false);
+        }
+        assert_eq!(e.live_alpha()[1], alpha::MIN, "never quite gone");
+        for _ in 0..20 {
+            e.act(Action::Alpha(1), true);
+        }
+        e.act(Action::Save, false);
+        assert!(!dir.join("sprites/SMOKE/alpha.txt").exists(), "opaque needs no file");
+        e.view = Some(0);
+        assert!(!e.takes_alpha() && !e.buttons().iter().any(|b| matches!(b.action, Action::Alpha(_))), "only with the frames on show");
+    }
+
+    #[test]
+    fn a_props_alpha_saves_as_a_line_of_its_text() {
+        let dir = tmp().join("alpha-prop");
+        let _ = std::fs::remove_dir_all(&dir);
+        let store = || FsStore { dir: dir.join("sprites"), catalog: dir.join("art.txt"), cards: dir.join("enemies") };
+        let mut e = Editor::new(Box::new(store()), "BARREL");
+        e.act(Action::Ask(Ask::New), false);
+        type_in(&mut e, "prop lamp");
+        e.key(Key::Enter);
+        buttons_fit(&e);
+        e.act(Action::Alpha(-1), false);
+        e.act(Action::Save, false);
+        let saved = last_harvest_pack::prop::read("t", &std::fs::read(dir.join("props/lamp.prop.png")).unwrap()).unwrap();
+        assert!(saved.text.contains("alpha 0.9\n"), "{}", saved.text);
+        assert_eq!(Editor::new(Box::new(store()), "PROP_LAMP").alpha_spec(), [0.9]);
     }
 
     #[test]

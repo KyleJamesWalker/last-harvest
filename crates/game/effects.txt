@@ -3,6 +3,11 @@
 #   fps N         frames a second
 #   life N        a swing's seconds
 #   reach N       how far out a swing sweeps, as a fraction of the weapon's range or area
+#   alpha N       how opaque it draws, 0.1 to 1; 1 when left out
+#   fade_in N     the fraction of its play, 0 to 1, it takes to come in from clear
+#   fade_out N    the fraction of its play, 0 to 1, it takes to fade away at the end
+# Alpha and fades play on effects that play once where they happen, such as blasts and puffs, and on swings.
+# In a shot style they play on its smoke puffs; a style without them takes [bullet]'s.
 #   color RRGGBB  a shot style: its tracer's and sparks' color, as palette.txt writes one
 #   length N      a shot's tracer, in pixels
 #   size N        the tracer's width at its head, and about the sparks', in pixels
@@ -31,6 +36,7 @@ fps 12
 [shotgun_blast]
 art SHOTGUN_BLAST
 fps 18
+fade_out 0.5
 
 [slash]
 art SLASH
@@ -48,6 +54,8 @@ tracer SHOT_TRACER
 spark SHOT_SPARK
 smoke SHOT_SMOKE
 flare SHOT_FLARE
+alpha 0.7
+fade_out 0.7
 
 [bullet_3d]
 art MUZZLE
@@ -65,10 +73,13 @@ reach 0.7
 [explosion]
 art EXPLOSION
 fps 14
+fade_out 0.6
 
 [explosion_smoke]
 art SMOKE
 fps 8
+alpha 0.75
+fade_out 0.6
 
 [blood]
 art BLOOD_SPLAT
@@ -77,22 +88,32 @@ fps 12
 [zombie_rises]
 art SMOKE
 fps 7
+alpha 0.7
+fade_out 0.6
 
 [player_rises]
 art SMOKE
 fps 7
+alpha 0.7
+fade_out 0.6
 
 [dawn_burns]
 art SMOKE
 fps 5
+alpha 0.7
+fade_out 0.6
 
 [prop_crumbles]
 art SMOKE
 fps 8
+alpha 0.7
+fade_out 0.6
 
 [drum_returns]
 art SMOKE
 fps 7
+alpha 0.7
+fade_out 0.6
 
 [fire]
 art FIRE
@@ -139,6 +160,8 @@ fps 6
 [mound_breaks]
 art DIRT_PUFF
 fps 9
+alpha 0.85
+fade_out 0.5
 
 [pistol_shot]
 color E8D27A

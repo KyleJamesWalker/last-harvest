@@ -16,6 +16,7 @@ Save writes each frame to `assets/private/sprites/NAME/0.png`, `1.png` and so on
 - A changed stand goes to the sprite's line in `crates/game/art.txt`, such as `@prop 12`, `@fold 20`, `@slab 10`, `@figure` or `@ground`. A new sprite keeps its stand in `stand.txt` in its folder.
 - A carved sprite keeps `south.png`, `east.png`, and the optional `footprint.png`, `roof.png`, `north.png` and `west.png`, with `carve` in `stand.txt`. A build without them, such as a fresh clone, stands it as a slab.
 - Coats go in `paints.txt`.
+- A see-through sprite keeps its [alpha](modding.md#alpha) in `alpha.txt`.
 - The next build packs a saved sprite in place of its cut from the tileset. A folder whose name is not in `art.txt` becomes a new sprite, `art::NAME`, for the code to use.
 - Delete a sprite's folder to go back to the tileset's version.
 
@@ -34,6 +35,7 @@ Edits of the tileset's sprites fall under its license. Commit them in the `asset
 | Mirror strokes left to right | M |
 | Show the previous frame faintly | O, or Onion |
 | Draw at finer pixels, same size in the game | Detail - and +. Going coarser keeps each block's most common color. |
+| Draw a sprite or prop see-through | Alpha - and + step the frame on show by a tenth, from 0.1 to 1. Shift steps every frame. |
 | Place a player's ready grenade | W, or Grenade, on a player's walking part, then click. The first click sets every frame, a later click sets the frame on show, and Shift-click sets every frame. |
 | Compare a sprite with its family | C, or Compare |
 | Draw flash, hurt or dead frames from the walk | Generate, on a `_FLASH`, `_HURT` or `_DEAD` sprite. A three-frame `<KIND>_DEAD` sprite gives that kind its own corpse. |

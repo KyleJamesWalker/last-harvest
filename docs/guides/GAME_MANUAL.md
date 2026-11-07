@@ -331,6 +331,7 @@ Other tools:
 - **Compare** shows the parts side by side.
 - **Hurt** and **Kill** play a hit or a death on the figure in the previews.
 - **Detail** - and + redraw a card or prop 2x finer or coarser at the same size in the game. Use it sparingly, since the rest of the game uses plain pixels.
+- **Alpha** - and + make a prop's frame on show more or less see-through. Shift changes every frame.
 - **Grenade** (W), on a player card's walking parts, places where you wear a ready grenade. **Hide** leaves it off that facing.
 
 The palette is PICO-8's 32 colors. **Palette file** loads a `.hex` palette, such as one downloaded from [Lospec](https://lospec.com/palette-list).

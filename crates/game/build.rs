@@ -9,6 +9,10 @@ use std::path::{Path, PathBuf};
 #[path = "src/paint.rs"]
 mod paint;
 
+#[allow(dead_code)]
+#[path = "src/alpha.rs"]
+mod alpha;
+
 /// The reference sheet lays 16 px cells out with 1 px gaps across and 3 px gaps down.
 const ORIGIN: [u32; 2] = [17, 19];
 const PITCH: [u32; 2] = [17, 19];
@@ -302,6 +306,8 @@ struct Listed {
     worn: Vec<(usize, String)>,
     /// Each frame drawn finer than one texture pixel a game pixel, with how many make one: its folder's `detail.txt`.
     detail: Vec<(usize, u8)>,
+    /// Each see-through frame with its alpha as a byte, from its folder's `alpha.txt`.
+    alpha: Vec<(usize, u8)>,
 }
 
 /// Lists a sprite's frames, each once per coat of its paint, with how each coat stands, its top strip and its
@@ -353,6 +359,12 @@ fn list(out: &mut Listed, drawn: &[Image], how: &str, dir: &Path, line: usize, c
         let specs: Vec<&str> = text.trim().split(';').map(str::trim).collect();
         for (i, &id) in ids.iter().enumerate() {
             out.worn.push((id, specs[(i % drawn.len()).min(specs.len() - 1)].to_string()));
+        }
+    }
+    if let Ok(text) = std::fs::read_to_string(dir.join("alpha.txt")) {
+        let spec = alpha::parse(&text).unwrap_or_else(|e| panic!("{}: {e}", dir.display()));
+        for (i, &id) in ids.iter().enumerate() {
+            out.alpha.push((id, alpha::to_byte(alpha::of_frame(&spec, i % drawn.len()))));
         }
     }
     out.entries.push((name.to_string(), ids));
@@ -501,6 +513,11 @@ fn main() {
         detail_of[id] = d;
     }
     writeln!(src, "pub(crate) static DETAIL: [u8; {}] = {detail_of:?};", detail_of.len()).unwrap();
+    let mut alpha_of = vec![255u8; images.len()];
+    for &(id, a) in &listed.alpha {
+        alpha_of[id] = a;
+    }
+    writeln!(src, "pub(crate) static ALPHA: [u8; {}] = {alpha_of:?};", alpha_of.len()).unwrap();
     writeln!(src, "/// Every catalog entry with its frames, for the art gallery.\npub static ALL: &[(&str, &[Art])] = &[{}];", names.join(", ")).unwrap();
     std::fs::write(out.join("art_gen.rs"), src).unwrap();
 }

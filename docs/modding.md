@@ -65,6 +65,14 @@ An uncompressed `last-harvest-detail` chunk of `2` or `4` draws a card or prop a
 - The game's own sprites take the same from a `detail.txt` beside their frames.
 - A game from before the chunk draws the card that many times bigger.
 
+## Alpha
+
+A sprite can draw see-through. Its alpha is one number from 0.1 to 1, or one number a frame, such as `1 0.8 0.5`. The last number carries on to later frames. The 3D view and the map both draw by it.
+
+- A prop sets it with an `alpha` line. See [Props](#props).
+- The game's own sprites take it from an `alpha.txt` beside their frames.
+- A sprite without one draws opaque, as does a prop from before the line.
+
 ## Props
 
 A prop, `<id>.prop.png`, is a sprite for maps. Its frames sit side by side in one row, each up to 256 pixels a side. A map places it as `PROP_<ID>`, in upper case. A weapon's `icon`, an effect's `art`, a shot style's sprites and the random farm's scatter can also name it. The game draws props into the sprite texture after the cards.
@@ -85,6 +93,7 @@ Its compressed `last-harvest-prop` text chunk holds `[id]` and any of these line
 | `cover no` | It lets shots through | It stops shots |
 | `hp N` | Hit points before it breaks, 0 to 1000 | It never breaks |
 | `broken yes` | Its last frame shows once it breaks, and the rest animate | It vanishes |
+| `alpha N ...` | How opaque each frame draws. See [Alpha](#alpha). | Opaque |
 
 A prop that carves or turns keeps its south and east views under its frames, `views` pixels tall, then any north and west views. A carving's footprint and then its top follow the last frame.
 
@@ -222,6 +231,11 @@ Each section names what an effect, swing, bullet, thrown item, pickup or animal 
 | `fps N` | Frames a second |
 | `life N` | A swing's seconds |
 | `reach N` | How far out a swing sweeps, as a fraction of the weapon's range or area |
+| `alpha N` | How opaque it draws, 0.1 to 1. Default: 1. |
+| `fade_in N` | The fraction of its play, 0 to 1, it takes to come in from clear |
+| `fade_out N` | The fraction of its play, 0 to 1, it takes to fade to clear at the end |
+
+Alpha and fades apply to an effect that plays once where it happens, such as a blast or a puff, and to a swing. The game's blasts, smoke and the eruption around a rising zombie fade out. The zombie stays solid. In a shot style, alpha and fades apply to its smoke puffs over their life, and its sparks and tracer stay opaque. A shot style without them takes `[bullet]`'s.
 
 A slab sprite lies flat and turns with the swing. Any other sprite faces the camera. A mod's file may leave out `[spit]`, `[mound]` and `[mound_breaks]` and keep the game's.
 

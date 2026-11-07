@@ -63,6 +63,10 @@ layout(location = 0) in vec3 a_pos;
 layout(location = 1) in vec2 a_uv;
 layout(location = 2) in vec3 a_normal;
 layout(location = 3) in vec4 a_tint;
+#ifdef ALPHA
+layout(location = 4) in float a_alpha;
+out float v_alpha;
+#endif
 uniform mat4 u_view_proj;
 #ifdef FLASH
 uniform vec3 u_flash_pos[4];
@@ -84,6 +88,9 @@ void main() {
     v_uv = a_uv;
 #ifdef TINT
     v_tint = a_tint;
+#endif
+#ifdef ALPHA
+    v_alpha = a_alpha;
 #endif
     vec3 n = normalize(a_normal);
     v_facing = 0.45 + 0.55 * abs(dot(n, normalize(u_light - a_pos)));
@@ -110,6 +117,9 @@ in vec4 v_tint;
 #endif
 #ifdef FLASH
 in vec3 v_flash;
+#endif
+#ifdef ALPHA
+in float v_alpha;
 #endif
 uniform sampler2D u_art;
 uniform vec3 u_eye;
@@ -144,12 +154,18 @@ void main() {
         lit = mix(vec3(dot(lit, vec3(0.3, 0.59, 0.11))), lit, u_saturation);
     }
     float fog = smoothstep(u_fog_range.x, u_fog_range.y, length(v_world - u_eye)) * (1.0 - 0.7 * glow);
+#ifdef ALPHA
+    o_color = vec4(mix(lit, u_fog, fog), v_alpha);
+#else
     o_color = vec4(mix(lit, u_fog, fog), 1.0);
+#endif
 }
 "#;
 
 /// Position, uv, normal, then tint and glow.
 const CARD_FLOATS: usize = 12;
+/// A see-through card's vertex: an opaque one's, then its alpha.
+const CLEAR_FLOATS: usize = CARD_FLOATS + 1;
 
 const FLOATS_PER_VERT: usize = 11;
 const KIND_RECT: f32 = 0.0;
@@ -172,10 +188,72 @@ pub struct Renderer {
     card_programs: [[CardProgram; 2]; 2],
     card_vao: glow::VertexArray,
     card_vbo: glow::Buffer,
-    card_verts: Vec<f32>,
     card_ibo: glow::Buffer,
     /// How many cards the index buffer covers.
     card_capacity: usize,
+    /// The see-through card shader, tinted, by [flash].
+    clear_programs: [CardProgram; 2],
+    clear_vao: glow::VertexArray,
+    clear_vbo: glow::Buffer,
+    batch: CardBatch,
+}
+
+/// One frame's cards as the renderer draws them: opaque vertices, plain cards first, then the see-through cards'
+/// sorted farthest from the eye first. Kept between frames so building one allocates nothing.
+#[derive(Default)]
+pub struct CardBatch {
+    pub opaque: Vec<f32>,
+    /// Opaque cards with no tint or glow, at the front of `opaque`.
+    pub plain: usize,
+    pub clear: Vec<f32>,
+    order: Vec<(f32, u32)>,
+}
+
+impl CardBatch {
+    pub fn opaque_cards(&self) -> usize {
+        self.opaque.len() / (CARD_FLOATS * 4)
+    }
+
+    pub fn clear_cards(&self) -> usize {
+        self.clear.len() / (CLEAR_FLOATS * 4)
+    }
+
+    /// Fills the batch from `cards` seen from `eye`.
+    pub fn build(&mut self, cards: &[Card], eye: last_harvest_game::scene3d::Vec3) {
+        self.opaque.clear();
+        self.clear.clear();
+        self.order.clear();
+        let plain = |c: &&Card| c.tint == [1.0; 3] && c.glow == 0.0 && c.alpha >= 1.0;
+        let tinted = |c: &&Card| !plain(c) && c.alpha >= 1.0;
+        self.plain = 0;
+        for card in cards.iter().filter(plain) {
+            push_card(&mut self.opaque, card, None);
+            self.plain += 1;
+        }
+        for card in cards.iter().filter(tinted) {
+            push_card(&mut self.opaque, card, None);
+        }
+        for (i, card) in cards.iter().enumerate().filter(|(_, c)| c.alpha < 1.0) {
+            let [a, b, c, d] = card.corners;
+            self.order.push((((a + b + c + d) * 0.25).distance_squared(eye), i as u32));
+        }
+        self.order.sort_unstable_by(|a, b| b.0.total_cmp(&a.0));
+        for &(_, i) in &self.order {
+            push_card(&mut self.clear, &cards[i as usize], Some(cards[i as usize].alpha));
+        }
+    }
+}
+
+fn push_card(out: &mut Vec<f32>, card: &Card, alpha: Option<f32>) {
+    let [u0, v0, u1, v1] = card.uv;
+    let uvs = [[u0, v0], [u1, v0], [u1, v1], [u0, v1]];
+    let n = card.normal.to_array();
+    let [r, g, b] = card.tint;
+    for (corner, uv) in card.corners.iter().zip(uvs) {
+        let p = corner.to_array();
+        out.extend_from_slice(&[p[0], p[1], p[2], uv[0], uv[1], n[0], n[1], n[2], r, g, b, card.glow]);
+        out.extend(alpha);
+    }
 }
 
 /// A card shader and its uniforms' locations; a variant without flashes has none for them.
@@ -286,6 +364,7 @@ impl Renderer {
             let program = link(gl, [vert, frag], VERT, FRAG)?;
             let card = |defines: &str| link(gl, [&format!("{vert}{defines}"), &format!("{frag}{defines}")], CARD_VERT, CARD_FRAG).map(|p| CardProgram::new(gl, p));
             let card_programs = [[card("")?, card("#define FLASH\n")?], [card("#define TINT\n")?, card("#define TINT\n#define FLASH\n")?]];
+            let clear_programs = [card("#define TINT\n#define ALPHA\n")?, card("#define TINT\n#define ALPHA\n#define FLASH\n")?];
             let card_vao = gl.create_vertex_array()?;
             let card_vbo = gl.create_buffer()?;
             let card_ibo = gl.create_buffer()?;
@@ -295,6 +374,15 @@ impl Renderer {
             for (loc, size, offset) in [(0, 3, 0), (1, 2, 3), (2, 3, 5), (3, 4, 8)] {
                 gl.enable_vertex_attrib_array(loc);
                 gl.vertex_attrib_pointer_f32(loc, size, glow::FLOAT, false, (CARD_FLOATS * 4) as i32, offset * 4);
+            }
+            let clear_vao = gl.create_vertex_array()?;
+            let clear_vbo = gl.create_buffer()?;
+            gl.bind_vertex_array(Some(clear_vao));
+            gl.bind_buffer(glow::ARRAY_BUFFER, Some(clear_vbo));
+            gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, Some(card_ibo));
+            for (loc, size, offset) in [(0, 3, 0), (1, 2, 3), (2, 3, 5), (3, 4, 8), (4, 1, 12)] {
+                gl.enable_vertex_attrib_array(loc);
+                gl.vertex_attrib_pointer_f32(loc, size, glow::FLOAT, false, (CLEAR_FLOATS * 4) as i32, offset * 4);
             }
 
             let vao = gl.create_vertex_array()?;
@@ -329,7 +417,7 @@ impl Renderer {
             gl.uniform_1_i32(gl.get_uniform_location(program, "u_art").as_ref(), 1);
 
             let u_size = gl.get_uniform_location(program, "u_size");
-            Ok(Self { program, vao, vbo, u_size, verts: Vec::new(), atlas, texture, art, card_programs, card_vao, card_vbo, card_verts: Vec::new(), card_ibo, card_capacity: 0 })
+            Ok(Self { program, vao, vbo, u_size, verts: Vec::new(), atlas, texture, art, card_programs, card_vao, card_vbo, card_ibo, card_capacity: 0, clear_programs, clear_vao, clear_vbo, batch: CardBatch::default() })
         }
     }
 
@@ -361,7 +449,7 @@ impl Renderer {
                     let (hw, hh) = (aw * k / 2.0, ah * k / 2.0);
                     let (cx, cy, s, c) = (x + hw, y + hh, angle.sin(), angle.cos());
                     let corner = |dx: f32, dy: f32| [cx + dx * c - dy * s, cy + dx * s + dy * c];
-                    self.push_quad([corner(-hw, -hh), corner(hw, -hh), corner(hw, hh), corner(-hw, hh)], uv, color, KIND_ART);
+                    self.push_quad([corner(-hw, -hh), corner(hw, -hh), corner(hw, hh), corner(-hw, hh)], uv, [color[0], color[1], color[2], color[3] * art.alpha()], KIND_ART);
                 }
                 Shape::Text { ref text, x, y, size, color, align } => {
                     for g in self.atlas.layout(text, x, y, size, align) {
@@ -396,27 +484,15 @@ impl Renderer {
             gl.uniform_2_f32(self.u_size.as_ref(), sw, sh);
             gl.bind_vertex_array(Some(self.vao));
             gl.bind_buffer(glow::ARRAY_BUFFER, Some(self.vbo));
-            let bytes = std::slice::from_raw_parts(self.verts.as_ptr().cast::<u8>(), self.verts.len() * 4);
-            gl.buffer_data_u8_slice(glow::ARRAY_BUFFER, bytes, glow::STREAM_DRAW);
+            gl.buffer_data_u8_slice(glow::ARRAY_BUFFER, as_bytes(&self.verts), glow::STREAM_DRAW);
             gl.draw_arrays(glow::TRIANGLES, 0, (self.verts.len() / FLOATS_PER_VERT) as i32);
         }
     }
 
     fn draw_cards(&mut self, gl: &glow::Context, scene: &CardScene) {
-        self.card_verts.clear();
-        let plain = |c: &&Card| c.tint == [1.0; 3] && c.glow == 0.0;
-        let plain_count = scene.cards.iter().filter(plain).count();
-        for card in scene.cards.iter().filter(plain).chain(scene.cards.iter().filter(|c| !plain(c))) {
-            let [u0, v0, u1, v1] = card.uv;
-            let uvs = [[u0, v0], [u1, v0], [u1, v1], [u0, v1]];
-            let n = card.normal.to_array();
-            let [r, g, b] = card.tint;
-            for (corner, uv) in card.corners.iter().zip(uvs) {
-                let p = corner.to_array();
-                self.card_verts.extend_from_slice(&[p[0], p[1], p[2], uv[0], uv[1], n[0], n[1], n[2], r, g, b, card.glow]);
-            }
-        }
-        let count = scene.cards.len();
+        self.batch.build(&scene.cards, scene.eye);
+        let (plain, opaque, clear) = (self.batch.plain, self.batch.opaque_cards(), self.batch.clear_cards());
+        let flash = !scene.flashes.is_empty() as usize;
         unsafe {
             gl.enable(glow::DEPTH_TEST);
             gl.depth_func(glow::LEQUAL);
@@ -425,17 +501,15 @@ impl Renderer {
             gl.bind_texture(glow::TEXTURE_2D, Some(self.art));
             gl.bind_vertex_array(Some(self.card_vao));
             gl.bind_buffer(glow::ARRAY_BUFFER, Some(self.card_vbo));
-            let bytes = std::slice::from_raw_parts(self.card_verts.as_ptr().cast::<u8>(), self.card_verts.len() * 4);
-            gl.buffer_data_u8_slice(glow::ARRAY_BUFFER, bytes, glow::STREAM_DRAW);
-            if count > self.card_capacity {
-                self.card_capacity = count.next_power_of_two();
+            gl.buffer_data_u8_slice(glow::ARRAY_BUFFER, as_bytes(&self.batch.opaque), glow::STREAM_DRAW);
+            let most = opaque.max(clear);
+            if most > self.card_capacity {
+                self.card_capacity = most.next_power_of_two();
                 let indices: Vec<u32> = (0..self.card_capacity as u32).flat_map(|k| [0, 1, 2, 0, 2, 3].map(|i| k * 4 + i)).collect();
-                let bytes = std::slice::from_raw_parts(indices.as_ptr().cast::<u8>(), indices.len() * 4);
                 gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, Some(self.card_ibo));
-                gl.buffer_data_u8_slice(glow::ELEMENT_ARRAY_BUFFER, bytes, glow::STATIC_DRAW);
+                gl.buffer_data_u8_slice(glow::ELEMENT_ARRAY_BUFFER, as_bytes(&indices), glow::STATIC_DRAW);
             }
-            let flash = !scene.flashes.is_empty() as usize;
-            for (tinted, range) in [(0, 0..plain_count), (1, plain_count..count)] {
+            for (tinted, range) in [(0, 0..plain), (1, plain..opaque)] {
                 if range.is_empty() {
                     continue;
                 }
@@ -443,6 +517,19 @@ impl Renderer {
                 gl.use_program(Some(p.program));
                 p.set(gl, scene);
                 gl.draw_elements(glow::TRIANGLES, (range.len() * 6) as i32, glow::UNSIGNED_INT, (range.start * 6 * 4) as i32);
+            }
+            if clear > 0 {
+                gl.enable(glow::BLEND);
+                gl.blend_func(glow::SRC_ALPHA, glow::ONE_MINUS_SRC_ALPHA);
+                gl.depth_mask(false);
+                gl.bind_vertex_array(Some(self.clear_vao));
+                gl.bind_buffer(glow::ARRAY_BUFFER, Some(self.clear_vbo));
+                gl.buffer_data_u8_slice(glow::ARRAY_BUFFER, as_bytes(&self.batch.clear), glow::STREAM_DRAW);
+                let p = &self.clear_programs[flash];
+                gl.use_program(Some(p.program));
+                p.set(gl, scene);
+                gl.draw_elements(glow::TRIANGLES, (clear * 6) as i32, glow::UNSIGNED_INT, 0);
+                gl.depth_mask(true);
             }
             gl.disable(glow::DEPTH_TEST);
         }
@@ -465,5 +552,45 @@ impl Renderer {
             let ([px, py], [lx, ly], [u, v]) = (corners[i], local[i], uvs[i]);
             self.verts.extend_from_slice(&[px, py, lx, ly, r, g, b, a, kind, u, v]);
         }
+    }
+}
+
+fn as_bytes<T: Copy>(v: &[T]) -> &[u8] {
+    // SAFETY: f32 and u32 have no padding, and any bytes read back as them.
+    unsafe { std::slice::from_raw_parts(v.as_ptr().cast::<u8>(), std::mem::size_of_val(v)) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use last_harvest_game::scene3d::Vec3;
+
+    fn card_at(z: f32, alpha: f32) -> Card {
+        let c = |x: f32, y: f32| Vec3::new(x, y, z);
+        Card { alpha, ..Card::new([c(0.0, 1.0), c(1.0, 1.0), c(1.0, 0.0), c(0.0, 0.0)], [0.0, 0.0, 1.0, 1.0], Vec3::Z) }
+    }
+
+    #[test]
+    fn see_through_cards_draw_after_the_opaque_ones_farthest_first() {
+        let cards = [card_at(-2.0, 0.5), card_at(-1.0, 1.0), card_at(-9.0, 0.8), Card { tint: [0.5; 3], ..card_at(-3.0, 1.0) }, card_at(-5.0, 0.3)];
+        let mut batch = CardBatch::default();
+        batch.build(&cards, Vec3::ZERO);
+        assert_eq!((batch.plain, batch.opaque_cards(), batch.clear_cards()), (1, 2, 3));
+        let z_of = |verts: &[f32], floats: usize, k: usize| verts[k * 4 * floats + 2];
+        assert_eq!([0, 1].map(|k| z_of(&batch.opaque, CARD_FLOATS, k)), [-1.0, -3.0], "plain, then tinted");
+        assert_eq!([0, 1, 2].map(|k| z_of(&batch.clear, CLEAR_FLOATS, k)), [-9.0, -5.0, -2.0], "back to front");
+        let alpha_of = |k: usize| batch.clear[k * 4 * CLEAR_FLOATS + CARD_FLOATS];
+        assert_eq!([0, 1, 2].map(alpha_of), [0.8, 0.3, 0.5]);
+    }
+
+    #[test]
+    fn an_opaque_scene_has_no_see_through_cards_and_a_batch_reuses_its_room() {
+        let cards: Vec<Card> = (0..50).map(|i| card_at(-(i as f32), 1.0)).collect();
+        let mut batch = CardBatch::default();
+        batch.build(&cards, Vec3::ZERO);
+        assert_eq!((batch.opaque_cards(), batch.clear_cards()), (50, 0));
+        let room = (batch.opaque.capacity(), batch.opaque.as_ptr());
+        batch.build(&cards, Vec3::ZERO);
+        assert_eq!((batch.opaque.capacity(), batch.opaque.as_ptr()), room, "the next frame builds in the same room");
     }
 }

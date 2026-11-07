@@ -392,15 +392,14 @@ impl Harvest {
             c.art_rotated(super::effects::effects().spit.looping(s.age), sx, sy, scale, s.vel[1].atan2(s.vel[0]), [lit[0] * r, lit[1] * g, lit[2] * b, lit[3]]);
         }
         for fx in &self.fx {
-            let a = fx.frames[((fx.t * fx.fps) as usize).min(fx.frames.len() - 1)];
             let (sx, sy) = at(fx.pos[0], fx.pos[1]);
             let [r, g, b] = fx.tint;
-            c.art_rotated(a, sx, sy, scale, fx.angle, [lit[0] * r, lit[1] * g, lit[2] * b, lit[3]]);
+            c.art_rotated(fx.frame(), sx, sy, scale, fx.angle, [lit[0] * r, lit[1] * g, lit[2] * b, lit[3] * fx.alpha()]);
         }
         for s in &self.swings {
             let (angle, r) = s.now();
             let (sx, sy) = at(self.pos[0] + angle.cos() * r, self.pos[1] - 6.0 + angle.sin() * r);
-            c.art_rotated(s.art, sx, sy, scale, angle, lit);
+            c.art_rotated(s.art, sx, sy, scale, angle, [lit[0], lit[1], lit[2], lit[3] * s.alpha()]);
         }
         for b in &self.bolts {
             let fade = 1.0 - b.age / BOLT_LIFE;
@@ -417,8 +416,8 @@ impl Harvest {
             let s = p.size_now() * scale;
             let (sx, sy) = at(p.pos[0], p.pos[1] - p.z);
             match p.frame() {
-                Some(a) => c.art_rotated(a, sx, sy, s / a.w(), 0.0, WHITE),
-                None => c.rect(sx - s / 2.0, sy - s / 2.0, s, s, [p.color[0], p.color[1], p.color[2], 1.0]),
+                Some(a) => c.art_rotated(a, sx, sy, s / a.w(), 0.0, [1.0, 1.0, 1.0, p.alpha()]),
+                None => c.rect(sx - s / 2.0, sy - s / 2.0, s, s, [p.color[0], p.color[1], p.color[2], p.alpha()]),
             }
         }
         if fog {

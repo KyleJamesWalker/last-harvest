@@ -3,7 +3,7 @@
 #[cfg(not(target_arch = "wasm32"))]
 use std::path::{Path, PathBuf};
 
-use last_harvest_game::Stand;
+use last_harvest_game::{Stand, alpha};
 use last_harvest_game::art::{self, ATLAS_W, Art};
 use last_harvest_game::paint::{self, Paint};
 use last_harvest_game::worn::{self, Worn};
@@ -149,6 +149,8 @@ pub struct Sprite {
     pub worn: Vec<Worn>,
     /// How many of its pixels make one game pixel across and down: 1, 2 or 4.
     pub detail: u8,
+    /// How opaque each frame draws, the last carrying on, as `alpha::parse` reads it; empty for opaque.
+    pub alpha: Vec<f32>,
 }
 
 pub const FOOTPRINT_FILE: &str = "footprint.png";
@@ -163,6 +165,8 @@ pub const CLEAR_FILE: &str = "clear.txt";
 pub const WORN_FILE: &str = "grenade.txt";
 /// A figure's detail, when more than one of its pixels make a game pixel.
 pub const DETAIL_FILE: &str = "detail.txt";
+/// How opaque a sprite's frames draw, as `alpha::parse` reads it.
+pub const ALPHA_FILE: &str = "alpha.txt";
 pub use last_harvest_pack::card::Kind as CardKind;
 
 /// A card lists as six sprites, like the game's own zombies: `CARD_<ID>_FRONT` and so on for an enemy card, or
@@ -483,7 +487,8 @@ impl Sprite {
         let paint = read(paint::FILE).and_then(|b| paint::parse(&String::from_utf8(b).ok()?).ok()).unwrap_or_default();
         let worn = read(WORN_FILE).and_then(|b| worn::parse(&String::from_utf8(b).ok()?).ok()).unwrap_or_default();
         let detail = read(DETAIL_FILE).and_then(|b| String::from_utf8(b).ok()?.trim().parse().ok()).filter(|d| art::DETAILS.contains(d)).unwrap_or(1);
-        let sprite = Self { name: name.to_string(), frames, views, footprint: png(FOOTPRINT_FILE), roof: png(ROOF_FILE), north: png(NORTH_FILE), west: png(WEST_FILE), top: png(TOP_FILE), card, clear_in_3d, paint, worn, detail };
+        let alpha = read(ALPHA_FILE).and_then(|b| alpha::parse(&String::from_utf8(b).ok()?).ok()).unwrap_or_default();
+        let sprite = Self { name: name.to_string(), frames, views, footprint: png(FOOTPRINT_FILE), roof: png(ROOF_FILE), north: png(NORTH_FILE), west: png(WEST_FILE), top: png(TOP_FILE), card, clear_in_3d, paint, worn, detail, alpha };
         (!broken.get()).then_some(sprite)
     }
 
@@ -498,7 +503,8 @@ impl Sprite {
         let paint = Some(self.paint.text()).filter(|t| !t.is_empty()).map(|t| (paint::FILE.to_string(), t.into_bytes()));
         let worn = self.worn_text().map(|t| (WORN_FILE.to_string(), t.into_bytes()));
         let detail = self.detail_text().map(|t| (DETAIL_FILE.to_string(), t.into_bytes()));
-        pngs.chain(self.card.iter().map(|t| (CARD_FILE.to_string(), t.clone().into_bytes()))).chain(clear).chain(paint).chain(worn).chain(detail).collect()
+        let alpha = self.alpha_text().map(|t| (ALPHA_FILE.to_string(), t.into_bytes()));
+        pngs.chain(self.card.iter().map(|t| (CARD_FILE.to_string(), t.clone().into_bytes()))).chain(clear).chain(paint).chain(worn).chain(detail).chain(alpha).collect()
     }
 
     /// The pictures a sprite may have or not, by the file each saves as.
@@ -509,6 +515,11 @@ impl Sprite {
     /// `detail.txt` as written, or None at detail 1.
     pub fn detail_text(&self) -> Option<String> {
         (self.detail > 1).then(|| format!("{}\n", self.detail))
+    }
+
+    /// `alpha.txt` as written, or None when every frame is opaque.
+    pub fn alpha_text(&self) -> Option<String> {
+        alpha::text(&self.alpha).map(|t| format!("{t}\n"))
     }
 
     /// `grenade.txt` as written, or None when the game picks where its frames wear one.
@@ -547,7 +558,7 @@ impl Sprite {
                 }
             }
         }
-        for (file, text) in [(CLEAR_FILE, self.clear_text().unwrap_or_default()), (paint::FILE, self.paint.text()), (WORN_FILE, self.worn_text().unwrap_or_default()), (DETAIL_FILE, self.detail_text().unwrap_or_default())] {
+        for (file, text) in [(CLEAR_FILE, self.clear_text().unwrap_or_default()), (paint::FILE, self.paint.text()), (WORN_FILE, self.worn_text().unwrap_or_default()), (DETAIL_FILE, self.detail_text().unwrap_or_default()), (ALPHA_FILE, self.alpha_text().unwrap_or_default())] {
             if text.is_empty() {
                 let _ = std::fs::remove_file(path.join(file));
             } else {
@@ -836,7 +847,7 @@ mod tests {
     #[test]
     fn saves_and_loads_every_frame_and_drops_leftovers() {
         let dir = std::env::temp_dir().join(format!("lh-sprites-{}", std::process::id()));
-        let mut s = Sprite { detail: 1, worn: Vec::new(), name: "TEST_THING".into(), frames: vec![Frame::blank(3, 2), Frame::blank(3, 2), Frame::blank(3, 2)], views: None, footprint: None, roof: None, north: None, west: None, top: None, card: None, clear_in_3d: Vec::new(), paint: Default::default() };
+        let mut s = Sprite { detail: 1, alpha: Vec::new(), worn: Vec::new(), name: "TEST_THING".into(), frames: vec![Frame::blank(3, 2), Frame::blank(3, 2), Frame::blank(3, 2)], views: None, footprint: None, roof: None, north: None, west: None, top: None, card: None, clear_in_3d: Vec::new(), paint: Default::default() };
         s.frames[1].set(2, 1, [200, 10, 10, 255]);
         s.save(&dir).unwrap();
         s.frames.truncate(2);
@@ -849,7 +860,7 @@ mod tests {
 
     #[test]
     fn a_sprites_files_bundle_and_come_back_whole() {
-        let mut s = Sprite { detail: 1, worn: Vec::new(), name: "THING".into(), frames: vec![Frame::blank(3, 2); 2], views: Some([Frame::blank(3, 4), Frame::blank(2, 4)]), footprint: None, roof: None, north: None, west: None, top: Some(Frame::blank(3, 1)), card: None, clear_in_3d: Vec::new(), paint: Default::default() };
+        let mut s = Sprite { detail: 1, alpha: Vec::new(), worn: Vec::new(), name: "THING".into(), frames: vec![Frame::blank(3, 2); 2], views: Some([Frame::blank(3, 4), Frame::blank(2, 4)]), footprint: None, roof: None, north: None, west: None, top: Some(Frame::blank(3, 1)), card: None, clear_in_3d: Vec::new(), paint: Default::default() };
         s.frames[1].set(1, 1, [1, 2, 3, 255]);
         let files = unbundle(&bundle(&s.files())).unwrap();
         assert_eq!(files.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>(), ["0.png", "1.png", "south.png", "east.png", "top.png"]);

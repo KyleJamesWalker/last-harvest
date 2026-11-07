@@ -260,6 +260,7 @@ pub(super) struct Patch {
 /// A blade swept around the player: its angle and distance from them run from the first value to the second.
 pub(super) struct Swing {
     pub art: Art,
+    pub fade: super::effects::Fade,
     pub age: f32,
     pub life: f32,
     pub angle: [f32; 2],
@@ -267,6 +268,11 @@ pub(super) struct Swing {
 }
 
 impl Swing {
+    /// How opaque its effect's fade draws it now, over its sprite's own alpha.
+    pub fn alpha(&self) -> f32 {
+        self.fade.at(self.age / self.life)
+    }
+
     pub fn now(&self) -> (f32, f32) {
         let k = (self.age / self.life).min(1.0);
         let k = 1.0 - (1.0 - k) * (1.0 - k);
@@ -680,7 +686,7 @@ impl Harvest {
                 }
             }
             let e = look(a, super::effects::effects().pitchfork);
-            self.swings.push(Swing { art: e.frames[0], age: 0.0, life: e.life, angle: [angle; 2], reach: [2.0, range * e.reach] });
+            self.swings.push(Swing { art: e.frames[0], fade: e.fade, age: 0.0, life: e.life, angle: [angle; 2], reach: [2.0, range * e.reach] });
         }
         self.attack_feel(a, [self.pos[0] + self.aim[0] * 8.0, self.pos[1] + self.aim[1] * 8.0], 10.0);
         sounds.push(sound(a, Sfx::Slash));
@@ -724,7 +730,7 @@ impl Harvest {
         }
         let from = self.view_yaw;
         let e = look(a, super::effects::effects().scythe);
-        self.swings.push(Swing { art: e.frames[0], age: 0.0, life: e.life, angle: [from, from + TAU], reach: [reach * e.reach; 2] });
+        self.swings.push(Swing { art: e.frames[0], fade: e.fade, age: 0.0, life: e.life, angle: [from, from + TAU], reach: [reach * e.reach; 2] });
         self.juice.ring(self.pos, reach, 0.3, [0.85, 0.85, 0.8]);
         self.attack_feel(a, self.pos, 10.0);
         sounds.push(sound(a, Sfx::Slash));

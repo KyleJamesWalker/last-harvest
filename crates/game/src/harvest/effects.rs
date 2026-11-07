@@ -11,6 +11,7 @@ pub struct Effect {
     pub fps: f32,
     pub life: f32,
     pub reach: f32,
+    pub fade: Fade,
     /// A bullet that flies as this effect is a streak of particles in this style, not its sprite.
     pub shot: Option<Shot>,
 }
@@ -29,6 +30,8 @@ pub struct Shot {
     pub core: f32,
     /// The sprites it draws in place of plain colored shapes, by `SPRITES`; None draws the shape.
     pub sprites: [Option<&'static [Art]>; SPRITES.len()],
+    /// How its smoke puffs fade over their life: its section's alpha and fades.
+    pub fade: Fade,
 }
 
 /// The sprites a shot style can name, in the order `Shot::sprites` holds them: the tracer, stretched along the
@@ -61,6 +64,27 @@ impl Shot {
     pub fn taper(k: f32) -> (f32, f32) {
         let k = k.clamp(0.0, 1.0);
         (1.0 - 0.85 * k, 1.0 - 0.75 * k)
+    }
+}
+
+/// How opaque an effect draws over its play: `alpha` through the middle, from clear over the first `fade_in` of its
+/// play and back to clear over the last `fade_out`, each a fraction from 0 to 1.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Fade {
+    pub alpha: f32,
+    pub fade_in: f32,
+    pub fade_out: f32,
+}
+
+impl Fade {
+    pub const OPAQUE: Fade = Fade { alpha: 1.0, fade_in: 0.0, fade_out: 0.0 };
+
+    /// The alpha `k` of the way through its play, 0 to 1.
+    pub fn at(&self, k: f32) -> f32 {
+        let k = k.clamp(0.0, 1.0);
+        let rise = if self.fade_in > 0.0 { (k / self.fade_in).min(1.0) } else { 1.0 };
+        let fall = if self.fade_out > 0.0 { ((1.0 - k) / self.fade_out).min(1.0) } else { 1.0 };
+        self.alpha * rise * fall
     }
 }
 
@@ -144,6 +168,7 @@ pub struct Written {
     pub fps: f32,
     pub life: f32,
     pub reach: f32,
+    pub fade: Fade,
     pub color: Option<[u8; 3]>,
     pub length: Option<f32>,
     pub size: Option<f32>,
@@ -161,7 +186,7 @@ impl Written {
 
     /// Its shot style, the rest taken from `base`, with its sprites' frames as `frames` finds them.
     fn shot(&self, base: Option<Shot>, frames: &dyn Fn(&str) -> Option<&'static [Art]>) -> Option<Shot> {
-        let base = base.unwrap_or(Shot { color: [1.0; 3], length: 10.0, size: 1.5, sparks: 6, impact: 4, core: 5.0, sprites: [None; SPRITES.len()] });
+        let base = base.unwrap_or(Shot { color: [1.0; 3], length: 10.0, size: 1.5, sparks: 6, impact: 4, core: 5.0, sprites: [None; SPRITES.len()], fade: Fade::OPAQUE });
         self.is_shot().then(|| Shot {
             sprites: std::array::from_fn(|k| match &self.sprites[k] {
                 Some(name) => frames(name),
@@ -173,6 +198,7 @@ impl Written {
             sparks: self.sparks.unwrap_or(base.sparks),
             impact: self.impact.unwrap_or(base.impact),
             core: self.core.unwrap_or(base.core),
+            fade: if self.fade == Fade::OPAQUE { base.fade } else { self.fade },
         })
     }
 }
@@ -251,7 +277,7 @@ pub fn parse(text: &str) -> Result<(Vec<Written>, Extra), String> {
             if colors {
                 continue;
             }
-            let fresh = Written { art: String::new(), fps: 10.0, life: 0.2, reach: 1.0, color: None, length: None, size: None, sparks: None, impact: None, core: None, sprites: Default::default() };
+            let fresh = Written { art: String::new(), fps: 10.0, life: 0.2, reach: 1.0, color: None, length: None, size: None, sparks: None, impact: None, core: None, sprites: Default::default(), fade: Fade::OPAQUE };
             if !name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_') || name.is_empty() {
                 return Err(format!("{n}: [{name}] isn't a name of lowercase letters, digits and _"));
             }
@@ -287,6 +313,11 @@ pub fn parse(text: &str) -> Result<(Vec<Written>, Extra), String> {
             "fps" => e.fps = number()?.min(120.0),
             "life" => e.life = number()?,
             "reach" => e.reach = number()?,
+            "alpha" => e.fade.alpha = value.parse().ok().filter(|v| (crate::alpha::MIN..=1.0).contains(v)).ok_or_else(|| format!("{n}: alpha is a number from {} to 1", crate::alpha::MIN))?,
+            "fade_in" | "fade_out" => {
+                let v = value.parse().ok().filter(|v| (0.0..=1.0).contains(v)).ok_or_else(|| format!("{n}: {key} is a fraction of its play from 0 to 1"))?;
+                *if key == "fade_in" { &mut e.fade.fade_in } else { &mut e.fade.fade_out } = v;
+            }
             "length" => e.length = Some(number()?.min(MAX_LENGTH)),
             "size" => e.size = Some(number()?.min(MAX_SIZE)),
             "sparks" | "impact" => {
@@ -384,7 +415,7 @@ pub fn effects() -> &'static Effects {
         let extra = extra
             .into_iter()
             .filter_map(|(name, w)| match frames_of(&w.art) {
-                Some(frames) => Some((name, Effect { frames, fps: w.fps, life: w.life, reach: w.reach, shot: w.shot(shot, &sprite) })),
+                Some(frames) => Some((name, Effect { frames, fps: w.fps, life: w.life, reach: w.reach, shot: w.shot(shot, &sprite), fade: w.fade })),
                 None => {
                     crate::data::note(format!("effects.txt: [{name}] plays {}, which isn't a sprite", w.art));
                     None
@@ -402,7 +433,7 @@ pub fn effects() -> &'static Effects {
                     frames_of(&o.art).unwrap_or_else(|| panic!("effects.txt: [{name}] plays {}, which isn't a sprite", o.art))
                 });
                 let own_shot = if k == at { shot } else { w.shot(shot, &sprite) };
-                Effect { frames, fps: w.fps, life: w.life, reach: w.reach, shot: own_shot }
+                Effect { frames, fps: w.fps, life: w.life, reach: w.reach, shot: own_shot, fade: w.fade }
             })
             .collect();
         Effects::from_list(&list, extra)
@@ -431,6 +462,19 @@ mod tests {
         assert_eq!((extra.last().unwrap().0.as_str(), extra.last().unwrap().1.fps), ("red_slash", 9.0));
         assert_eq!(e.named("slash"), Some(e.slash));
         assert_eq!(e.named("red_slash"), None);
+    }
+
+    #[test]
+    fn an_effect_reads_its_alpha_and_fades_and_one_without_them_is_opaque() {
+        let own = include_str!("../../effects.txt");
+        let (_, extra) = parse(&format!("{own}\n[ghost]\nart SMOKE\nalpha 0.5\nfade_in 0.2\nfade_out 0.4\n[plain]\nart SMOKE")).unwrap();
+        assert_eq!(extra[extra.len() - 2].1.fade, Fade { alpha: 0.5, fade_in: 0.2, fade_out: 0.4 });
+        assert_eq!(extra[extra.len() - 1].1.fade, Fade::OPAQUE, "a section from before alpha draws opaque");
+        let f = extra[extra.len() - 2].1.fade;
+        assert_eq!([0.0, 0.1, 0.4, 0.8, 1.0].map(|k| (f.at(k) * 100.0).round() / 100.0), [0.0, 0.25, 0.5, 0.25, 0.0]);
+        for bad in ["alpha 0", "alpha 1.2", "alpha x", "fade_in -0.1", "fade_out 2", "fade_out nan"] {
+            assert!(parse(&format!("{own}\n[ghost]\nart SMOKE\n{bad}")).is_err(), "{bad}");
+        }
     }
 
     #[test]
@@ -488,6 +532,15 @@ mod tests {
     }
 
     #[test]
+    fn blasts_and_eruptions_fade_out_as_they_end() {
+        let e = effects();
+        for (name, fx) in [("explosion", e.explosion), ("explosion_smoke", e.explosion_smoke), ("zombie_rises", e.zombie_rises), ("mound_breaks", e.mound_breaks)] {
+            let a: Vec<f32> = [0.5, 0.7, 0.9, 1.0].iter().map(|&k| fx.fade.at(k)).collect();
+            assert!(a.windows(2).all(|w| w[1] < w[0]) && a[3] == 0.0, "{name} fades to clear: {a:?}");
+        }
+    }
+
+    #[test]
     fn the_games_own_shot_colors_come_from_its_palette() {
         let (own, extra) = parse(include_str!("../../effects.txt")).unwrap();
         let palette = crate::paint::palette();
@@ -498,7 +551,7 @@ mod tests {
 
     #[test]
     fn a_tracer_trails_behind_its_bullet_and_never_behind_the_gun() {
-        let shot = Shot { color: [1.0; 3], length: 12.0, size: 1.5, sparks: 4, impact: 3, core: 4.0, sprites: [None; SPRITES.len()] };
+        let shot = Shot { color: [1.0; 3], length: 12.0, size: 1.5, sparks: 4, impact: 3, core: 4.0, sprites: [None; SPRITES.len()], fade: Fade::OPAQUE };
         assert_eq!(shot.tail([100.0, 0.0], [200.0, 0.0], 1.0), [88.0, 0.0]);
         let fresh = shot.tail([100.0, 0.0], [200.0, 0.0], 0.01);
         assert!((fresh[0] - 98.0).abs() < 1e-3, "a bullet two pixels out trails two pixels");

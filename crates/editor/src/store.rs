@@ -248,7 +248,7 @@ pub mod props {
     }
 
     pub fn blank(id: &str) -> last_harvest_game::PropFields {
-        last_harvest_game::PropFields { id: id.into(), frames: 1, fps: 0.0, open: 0, stand: None, by_views: None, views: 0, footprint: false, roof: false, north: false, west: false, clear: Vec::new(), cover: true, hp: 0.0, broken: false, paint: Default::default() }
+        last_harvest_game::PropFields { id: id.into(), frames: 1, fps: 0.0, open: 0, stand: None, by_views: None, views: 0, footprint: false, roof: false, north: false, west: false, clear: Vec::new(), cover: true, hp: 0.0, broken: false, alpha: Vec::new(), paint: Default::default() }
     }
 }
 
@@ -430,7 +430,7 @@ mod tests {
         south.set(0, 4, [1, 2, 3, 255]);
         east.set(2, 0, [4, 5, 6, 255]);
         footprint.set(3, 2, [7, 8, 9, 255]);
-        let blank = Sprite { detail: 1, worn: Vec::new(), name: "PROP_POST".into(), frames: vec![frame.clone(); 2], views: None, footprint: None, roof: None, north: None, west: None, top: None, card: None, clear_in_3d: Vec::new(), paint: Default::default() };
+        let blank = Sprite { detail: 1, alpha: Vec::new(), worn: Vec::new(), name: "PROP_POST".into(), frames: vec![frame.clone(); 2], views: None, footprint: None, roof: None, north: None, west: None, top: None, card: None, clear_in_3d: Vec::new(), paint: Default::default() };
         assert!(super::props::with_stand(&super::props::from_sprite(&blank).unwrap(), "carve").unwrap_err().contains("views"));
         let s = Sprite { views: Some([south.clone(), east.clone()]), footprint: Some(footprint.clone()), ..blank };
         let bytes = super::props::with_stand(&super::props::from_sprite(&s).unwrap(), "turned").unwrap();
@@ -457,6 +457,7 @@ mod tests {
             name: "PROP_STACK".into(),
             worn: Vec::new(),
             detail: 1,
+            alpha: Vec::new(),
             frames: vec![dot(4, 3, 0, 1)],
             views: Some([dot(4, 5, 1, 2), dot(3, 5, 2, 3)]),
             footprint: None,

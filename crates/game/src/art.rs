@@ -15,9 +15,11 @@ struct Live {
     worn: Vec<(Art, Worn)>,
     /// Each live sprite's detail, by place, as `Art::detail` says.
     detail: Vec<u8>,
+    /// Each live sprite's alpha, by place, as `Art::alpha` says.
+    alpha: Vec<f32>,
 }
 
-static LIVE: RwLock<Live> = RwLock::new(Live { rects: Vec::new(), pixels: Vec::new(), solids: Vec::new(), worn: Vec::new(), detail: Vec::new() });
+static LIVE: RwLock<Live> = RwLock::new(Live { rects: Vec::new(), pixels: Vec::new(), solids: Vec::new(), worn: Vec::new(), detail: Vec::new(), alpha: Vec::new() });
 
 /// The details a sprite can be drawn at: how many texture pixels make one game pixel across and down.
 pub const DETAILS: [u8; 3] = [1, 2, 4];
@@ -66,7 +68,7 @@ pub(crate) fn free_top() -> u16 {
 pub fn set_live(rects: Vec<[u16; 4]>, pixels: Vec<u8>) -> Vec<Art> {
     assert_eq!(pixels.len(), self::pixels().len(), "a live texture matches the packed one");
     let arts = (0..rects.len()).map(|i| Art((count() + i) as u16)).collect();
-    *LIVE.write().unwrap() = Live { rects, pixels, solids: Vec::new(), worn: Vec::new(), detail: Vec::new() };
+    *LIVE.write().unwrap() = Live { rects, pixels, solids: Vec::new(), worn: Vec::new(), detail: Vec::new(), alpha: Vec::new() };
     arts
 }
 
@@ -83,6 +85,11 @@ pub fn set_live_worn(worn: Vec<(Art, Worn)>) {
 /// Sets the live sprites' details, by place; those left out are drawn at 1.
 pub fn set_live_detail(detail: Vec<u8>) {
     LIVE.write().unwrap().detail = detail;
+}
+
+/// Sets the live sprites' alphas, by place; those left out are opaque.
+pub fn set_live_alpha(alpha: Vec<f32>) {
+    LIVE.write().unwrap().alpha = alpha;
 }
 
 /// Runs `f` on the texture a sprite's pixels live in.
@@ -238,6 +245,19 @@ impl Art {
         }
         let d = if i < count() { ADDED_DETAIL.get().and_then(|v| v.get(i - RECTS.len())).copied() } else { LIVE.read().unwrap().detail.get(i - count()).copied() };
         d.unwrap_or(1)
+    }
+
+    /// How opaque it draws, from `alpha::MIN` to 1: its folder's `alpha.txt`, its prop's `alpha` line, or the
+    /// editor's.
+    pub fn alpha(self) -> f32 {
+        let i = self.0 as usize;
+        if let Some(&a) = ALPHA.get(i) {
+            return a as f32 / 255.0;
+        }
+        if i < count() {
+            return crate::harvest::alpha_of(self).unwrap_or(1.0);
+        }
+        LIVE.read().unwrap().alpha.get(i - count()).copied().unwrap_or(1.0)
     }
 
     /// Width in game pixels: its texture pixels over its detail.
