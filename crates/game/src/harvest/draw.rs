@@ -487,12 +487,12 @@ impl Harvest {
         let tally = &self.juice.tally;
         let rows = tally.rows();
         let (x, top, size, row_h) = (24.0, 196.0, 24.0, 26.0);
-        let (damage_x, dps_x) = (x + 300.0, x + 400.0);
+        let (damage_x, dps_x) = (x + 290.0, x + 410.0);
         let lines = rows.len() as f32 + 2.0;
         c.rect(x - 8.0, top - 8.0, dps_x - x + 16.0, lines * row_h + 16.0, [0.0, 0.0, 0.0, 0.45 * a]);
         let dim = [1.0, 1.0, 1.0, 0.6 * a];
         c.label("Damage", damage_x, top, size, dim, Align::Right);
-        c.label("a second", dps_x, top, size, dim, Align::Right);
+        c.label("Per sec", dps_x, top, size, dim, Align::Right);
         let line = |c: &mut Canvas, i: usize, name: &str, damage: f32, dps: f32, color: Color| {
             let y = top + (i as f32 + 1.0) * row_h;
             c.label(name, x, y, size, color, Align::Left);
