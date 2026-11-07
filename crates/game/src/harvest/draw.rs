@@ -44,14 +44,16 @@ impl Harvest {
         let c = &mut f.bottom;
         c.clear = [0.0, 0.0, 0.0, 1.0];
         let tint = self.map_tint();
+        // Sight stops counting once the run ends, so the map shows the night as it is.
+        let fog = !matches!(self.phase, Phase::Over { .. });
         if self.overview {
             let scale = (SCREEN_W / self.map.width_px()).min(SCREEN_H / self.map.height_px());
-            self.world(c, [0.0, 0.0], scale, tint, true);
+            self.world(c, [0.0, 0.0], scale, tint, fog);
             c.label(if self.single { "Whole map (let go of Map or R2 to play)" } else { "Whole map (release L1 to play)" }, SCREEN_W / 2.0, SCREEN_H - 40.0, 28.0, WHITE, Align::Center);
             return;
         }
         let cam = self.camera();
-        self.world(c, cam, map_scale(), tint, true);
+        self.world(c, cam, map_scale(), tint, fog);
         self.view_cone(c, cam);
         self.home_on_map(c, cam);
         self.grenade_tray(c);
