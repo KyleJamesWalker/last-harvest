@@ -129,6 +129,15 @@ impl Web {
             self.title = title;
         }
         self.sync_text(false);
+        self.try_weapon();
+    }
+
+    /// Opens the game's range on the weapon Try it asked for; a pointer's handler calls it first, so a browser
+    /// lets the page open the game's tab.
+    fn try_weapon(&mut self) {
+        if let Some(setup) = self.studio.editor.tried.take() {
+            call("tryWeapon", &[setup.into()]);
+        }
     }
 
     /// Hands a press at `at` to the studio.
@@ -579,9 +588,13 @@ fn start() -> Result<(), String> {
     listen(&canvas, "pointerdown", &web, |w, e: &PointerEvent| {
         e.prevent_default();
         w.down(e);
+        w.try_weapon();
     });
     listen(&canvas, "pointermove", &web, |w, e: &PointerEvent| w.moved(e));
-    listen(&canvas, "pointerup", &web, |w, e: &PointerEvent| w.up(e, false));
+    listen(&canvas, "pointerup", &web, |w, e: &PointerEvent| {
+        w.up(e, false);
+        w.try_weapon();
+    });
     listen(&canvas, "pointercancel", &web, |w, e: &PointerEvent| w.up(e, true));
     listen(&canvas, "contextmenu", &web, |_, e: &Event| e.prevent_default());
     listen(&canvas, "wheel", &web, |w, e: &WheelEvent| {
@@ -653,7 +666,6 @@ fn start() -> Result<(), String> {
             w.studio.editor.import_card(&name, &bytes);
         }
     });
-    #[cfg(feature = "modding")]
     listen(&window, "lastharvest-said", &web, |w, e: &web_sys::CustomEvent| {
         if let Some(text) = e.detail().as_string() {
             w.studio.editor.say(text);
