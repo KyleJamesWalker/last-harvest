@@ -963,7 +963,7 @@ mod tests {
             press(&mut game, Buttons::A);
             assert!(matches!(game.state, State::Harvest(_)), "{size:?}: a run");
             check(&mut game, Buttons::NONE, "run");
-            for (held, what) in [(Buttons::L1, "map"), (Buttons::L2, "grenade aim")] {
+            for (held, what) in [(Buttons::L1, "map"), (Buttons::L2, "grenade aim"), (Buttons::R1, "quick throw")] {
                 check(&mut game, held, what);
                 check(&mut game, Buttons::NONE, what);
             }
@@ -1293,6 +1293,33 @@ mod tests {
         game.open(Scene::Hardware);
         press(&mut game, Buttons::R2);
         assert_eq!(game.take_screenshot(), None, "the hardware check keeps R2 for the motor");
+    }
+
+    #[test]
+    fn in_a_run_on_either_layout_r2_screenshots_r1_quick_throws_and_no_button_pauses_on_a_map() {
+        for one in [false, true] {
+            let mut game = Game::new(1);
+            game.open(Scene::Harvest);
+            let State::Harvest(h) = &mut game.state else { panic!() };
+            h.set_one_screen(one);
+            press(&mut game, Buttons::R2);
+            assert_eq!(game.take_screenshot(), Some(Capture::Screens), "one screen: {one}");
+            game.update(&Input { held: Buttons::R1, pressed: Buttons::R1, ..Default::default() }, 0.016);
+            game.update(&Input::default(), 0.016);
+            assert!(game.take_screenshot().is_none(), "one screen: {one}");
+            assert!(matches!(&game.state, State::Harvest(h) if h.grenades_in_the_air() == 1), "one screen: {one}: R1 threw");
+            let night = |g: &Game| match &g.state {
+                State::Harvest(h) => h.night_t(),
+                _ => f32::NAN,
+            };
+            for held in [Buttons::L1, Buttons::R2] {
+                let before = night(&game);
+                for _ in 0..90 {
+                    game.update(&Input { held, ..Default::default() }, 1.0 / 60.0);
+                }
+                assert!(night(&game) > before + 1.0, "one screen: {one}: holding {held:?} never pauses the night");
+            }
+        }
     }
 
     fn in_photo_mode(captures: bool) -> Game {

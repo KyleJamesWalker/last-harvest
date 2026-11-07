@@ -750,6 +750,13 @@ pub fn scene(h: &Harvest) -> CardScene {
             }
         }
     }
+    if let Some(at) = h.quick_mark() {
+        let (q, a) = (world(at), art::QUICK_MARK);
+        flat(&mut cards, a, q.x - a.w() * PX / 2.0, q.z - a.h() * PX / 2.0, DECAL_LIFT + 0.01, [1.0; 3]);
+        if let Some(card) = cards.last_mut() {
+            card.glow = 1.0;
+        }
+    }
     for b in &h.bolts {
         let fade = 1.0 - b.age / BOLT_LIFE;
         for w in b.points.windows(2) {

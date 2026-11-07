@@ -152,7 +152,7 @@ impl Harvest {
         f.bottom.clear = [0.0, 0.0, 0.0, 1.0];
         let dim = [1.0, 1.0, 1.0, 0.45];
         f.bottom.label("One screen: Settings > Screens brings this one back", SCREEN_W / 2.0, SCREEN_H / 2.0 - 30.0, 32.0, dim, Align::Center);
-        f.bottom.label("Hold L1: map.   L2: aim a grenade, release to throw, B cancels.", SCREEN_W / 2.0, SCREEN_H / 2.0 + 20.0, 24.0, dim, Align::Center);
+        f.bottom.label("Hold L1: map.   L2: aim a grenade, release to throw, B cancels.   R1: throw ahead", SCREEN_W / 2.0, SCREEN_H / 2.0 + 20.0, 24.0, dim, Align::Center);
     }
 }
 

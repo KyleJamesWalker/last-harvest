@@ -8,6 +8,7 @@ mod juice;
 mod map;
 mod photo;
 mod props;
+mod quick;
 mod range;
 mod players;
 mod powerups;
@@ -759,6 +760,8 @@ pub struct Harvest {
     /// One screen: the map shows on the top screen only while looked at.
     single: bool,
     aiming: Option<single::Aiming>,
+    /// Seconds R1 has held a quick throw lined up.
+    quick: Option<f32>,
     /// The map is up on the one screen without a grenade being aimed.
     glance: bool,
     /// A thrown grenade is never spent.
@@ -965,6 +968,7 @@ impl Harvest {
             difficulty: Difficulty::Normal,
             single: false,
             aiming: None,
+            quick: None,
             glance: false,
             endless: false,
             last_throw: None,
@@ -1079,6 +1083,11 @@ impl Harvest {
     }
 
     #[cfg(test)]
+    pub(crate) fn night_t(&self) -> f32 {
+        self.t
+    }
+
+    #[cfg(test)]
     pub fn grenades_in_the_air(&self) -> usize {
         self.thrown.iter().filter(|g| g.kind == Thrown::Grenade).count()
     }
@@ -1158,6 +1167,7 @@ impl Harvest {
         } else {
             (input, dt)
         };
+        self.quick_off();
         if let Some(at) = self.menu {
             self.pause_menu(at, input, sounds, &mut flow);
             return flow;
@@ -1302,6 +1312,7 @@ impl Harvest {
         if let Some(touch) = input.touch.filter(|_| input.touch_started).or(self.queued_touch.take()) {
             self.throw(touch, sounds);
         }
+        self.quick_throw(input, dt, sounds);
         self.fly(dt, sounds, flow);
 
         if !self.calm {
