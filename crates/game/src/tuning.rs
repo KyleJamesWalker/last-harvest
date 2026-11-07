@@ -75,6 +75,8 @@ tuning! {
     harvester_speed = "harvester" "speed",
     harvester_bite = "harvester" "bite",
     harvester_rise = "harvester" "rise",
+    harvester_again = "harvester" "again",
+    harvester_most = "harvester" "most",
     grenade_recharge = "grenade" "recharge",
     grenade_flight = "grenade" "flight",
     grenade_radius = "grenade" "radius",
@@ -131,9 +133,9 @@ pub fn parse(text: &str, base: Option<&Tuning>) -> Result<Tuning, String> {
         }
         let (key, value) = line.split_once(char::is_whitespace).map_or((line, ""), |(k, v)| (k, v.trim()));
         let at = KEYS.iter().position(|(s, k)| *s == section && *k == key).ok_or_else(|| format!("{n}: {key} isn't a number [{section}] sets"))?;
-        // A night, the player's health, a grenade's flight or quick throw's growth and the map's scale divide, or end
-        // the run, at 0.
-        let above = matches!((section.as_str(), key), ("night", "length") | ("player", "hp") | ("grenade", "flight" | "quick_grow") | ("map", "scale"));
+        // A night, the player's health, a grenade's flight or quick throw's growth, the map's scale and the gap between
+        // Harvester waves divide, end the run or flood it at 0.
+        let above = matches!((section.as_str(), key), ("night", "length") | ("player", "hp") | ("grenade", "flight" | "quick_grow") | ("map", "scale") | ("harvester", "again"));
         let ok = |v: &f32| v.is_finite() && if above { *v > 0.0 } else { *v >= 0.0 };
         let v = value.parse::<f32>().ok().filter(ok).ok_or_else(|| format!("{n}: {key} is a number from {}", if above { "above 0" } else { "0 up" }))?;
         values[at] = Some(v);
@@ -187,5 +189,6 @@ mod tests {
         assert!(parse("[night]\nlength 0", Some(&base)).unwrap_err().contains("above 0"));
         assert!(parse("[player]\ncrit 0", Some(&base)).is_ok());
         assert!(parse("[grenade]\nquick_grow 0", Some(&base)).unwrap_err().contains("above 0"));
+        assert!(parse("[harvester]\nagain 0", Some(&base)).unwrap_err().contains("above 0"));
     }
 }
