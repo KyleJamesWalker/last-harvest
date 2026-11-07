@@ -342,6 +342,7 @@ The prop's text holds its `[id]` and any of these lines that differ from the def
 | `cover no` | It lets shots through. It stops them when left out. |
 | `hp N` | Hit points before zombies or shots break it, 0 to 1000. It never breaks when left out. |
 | `broken yes` | Its last frame shows once it breaks, and the rest animate. It vanishes when left out. |
+| `alpha N ...` | How opaque each frame draws, 0.1 to 1, the last number carrying on, such as `alpha 1 0.6`. Opaque when left out. |
 
 A prop that carves or turns keeps its south and east views under its frames, `views` pixels tall. Any north and west views follow them, in that order. A carving's footprint and then its top sit after its last frame.
 
@@ -458,8 +459,10 @@ Each section names what an effect, swing or animal plays:
 - `fps N`: frames a second.
 - `life N`: a swing's seconds.
 - `reach N`: how far out a swing sweeps, as a fraction of the weapon's range or area.
+- `alpha N`: how opaque it draws, 0.1 to 1. Opaque when left out.
+- `fade_in N` and `fade_out N`: the fraction of its play, 0 to 1, it takes to come in from clear and to fade away at the end.
 
-A sprite that stands as a slab lies flat and turns with the swing. Anything else faces the camera. A section with a name of your own is a new effect a weapon can use. A mod's file may leave out `[spit]`, `[mound]` and `[mound_breaks]`, added later, and keep the game's.
+Alpha and fades play on an effect that plays once where it happens, such as a blast, a puff or a muzzle flash, and on a swing. The game's blasts, smoke and the puffs of dirt as the dead climb out fade away as they end; the zombie itself stays solid. A sprite that stands as a slab lies flat and turns with the swing. Anything else faces the camera. A section with a name of your own is a new effect a weapon can use. A mod's file may leave out `[spit]`, `[mound]` and `[mound_breaks]`, added later, and keep the game's.
 
 The `[colors]` section sets the particle colors: `blood`, `dark_blood`, `dirt`, `spark`, `ember`, `gold` and `firefly`. Each is red, green and blue from 0 to 1. A zombie with its own `blood` bleeds that instead, and its `dark_blood` is as much darker.
 
@@ -574,6 +577,8 @@ Hurt and Kill play a hit or the game's death on the figure in the previews.
 
 **Detail** - and + redraw a card's or prop's frames 2x finer or coarser, so it keeps its size in the game. A prop's views, footprint, top and north and west drawings go finer or coarser with them. Going finer copies each pixel into a block to paint over; going coarser keeps each block's most common color, and Undo brings the detail back.
 
+**Alpha** - and + make a prop's frame on show a tenth more or less opaque, from 0.1 to 1, and Shift steps every frame. It saves as the prop's `alpha` line.
+
 On a player card's walking parts, **Grenade** (`W`) places where the player wears a ready grenade. The first click sets every frame; later clicks set the frame on show, and Shift-click sets every frame again. **Hide** leaves it off that facing. **Grenade: shown** in the 3D view hides it in the previews only.
 
 ### The Stats page
@@ -681,6 +686,7 @@ The left pane lists every sprite. The pixel canvas, tools, color and frames sit 
 | Mirror strokes left to right | M |
 | See the previous frame faintly | O, or Onion |
 | Draw finer pixels at the same size in the game | Detail - and + |
+| Draw a sprite or prop see-through | Alpha - and +, for the frame on show; Shift for every frame. A sprite saves it in `alpha.txt`, a prop as its `alpha` line. |
 | Place a player's ready grenade | W, or Grenade, on a player's walking part, then click. Shift-click sets every frame. |
 | Compare a sprite with its family side by side | C, or Compare |
 | Draw flash, hurt or dead frames from the walk | Generate, on a `_FLASH`, `_HURT` or `_DEAD` sprite |
