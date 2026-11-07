@@ -250,13 +250,14 @@ impl Touchpad {
         let tint = if turn.is_some() { used } else { idle };
         sprite(&mut c, art::TOUCH_TRACK, base, 2.0 * r, tint);
         sprite(&mut c, art::TOUCH_KNOB, [knob.clamp(base[0] - r, base[0] + r), base[1]], r * 0.9, tint);
+        let word = l.keys().filter(|k| matches!(k.1, Face::Word(_))).map(|k| k.2[2]).fold(0.0, f32::max) * 0.2;
         for &(b, face, [x, y, w, _]) in l.keys() {
             let down = self.held.contains(b);
             let (mid, tint) = ([x + w / 2.0, y + w / 2.0], if down { used } else { idle });
             sprite(&mut c, if down { art::TOUCH_PAD_DOWN } else { art::TOUCH_PAD }, mid, w, tint);
             match face {
                 Face::Icon(icon) => sprite(&mut c, icon, mid, w * 0.6, tint),
-                Face::Word(word) => c.label(word, mid[0], mid[1] - w * 0.11, w * 0.2, tint, Align::Center),
+                Face::Word(name) => c.label(name, mid[0], mid[1] - word * 0.55, word, tint, Align::Center),
             }
         }
         c
@@ -472,6 +473,14 @@ mod tests {
         let words = |l: &Layout| Touchpad::default().draw(l).shapes.iter().filter_map(|s| if let crate::Shape::Text { text, .. } = s { Some(text.clone()) } else { None }).collect::<Vec<_>>();
         assert_eq!(words(&layout([2400.0, 1080.0], true, true, true)), ["Setting", "Change", "Height", "Reset", "Back"]);
         assert!(words(&layout([2400.0, 1080.0], true, true, false)).is_empty());
+    }
+
+    #[test]
+    fn every_photo_key_names_itself_in_one_size_back_included() {
+        let shapes = Touchpad::default().draw(&layout([2400.0, 1080.0], true, true, true)).shapes;
+        let sizes: Vec<f32> = shapes.iter().filter_map(|s| if let crate::Shape::Text { size, .. } = s { Some(*size) } else { None }).collect();
+        assert_eq!(sizes.len(), 5);
+        assert!(sizes.iter().all(|&s| s == sizes[0]), "label sizes differ: {sizes:?}");
     }
 
     #[test]
