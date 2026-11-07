@@ -11,6 +11,41 @@ pub struct Effect {
     pub fps: f32,
     pub life: f32,
     pub reach: f32,
+    /// A bullet that flies as this effect is a streak of particles in this style, not its sprite.
+    pub shot: Option<Shot>,
+}
+
+/// A shot's look: the streak a bullet flies as and the sparks its gun throws.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Shot {
+    pub color: [f32; 3],
+    /// The streak's length and its specks' width, in map pixels.
+    pub length: f32,
+    pub size: f32,
+    /// Sparks thrown from the muzzle with each shot.
+    pub sparks: u32,
+}
+
+pub const MAX_LENGTH: f32 = 64.0;
+pub const MAX_SIZE: f32 = 8.0;
+pub const MAX_SPARKS: u32 = 32;
+/// The most specks one streak draws.
+pub const MAX_SPECKS: usize = 6;
+
+impl Shot {
+    /// The specks of a bullet at `pos` flying at `vel`, `age` seconds out: each one's place, width and brightness
+    /// from 0 to 1, head first. The tail never reaches back past where the bullet left the gun.
+    pub fn streak(&self, pos: [f32; 2], vel: [f32; 2], age: f32) -> impl Iterator<Item = ([f32; 2], f32, f32)> {
+        let speed = (vel[0] * vel[0] + vel[1] * vel[1]).sqrt();
+        let dir = if speed > 0.0 { [vel[0] / speed, vel[1] / speed] } else { [0.0; 2] };
+        let n = ((self.length / self.size).ceil() as usize).clamp(2, MAX_SPECKS);
+        let gap = self.length.min(speed * age.max(0.0)) / (n - 1) as f32;
+        let size = self.size;
+        (0..n).map(move |i| {
+            let k = i as f32 / n as f32;
+            ([pos[0] - dir[0] * gap * i as f32, pos[1] - dir[1] * gap * i as f32], size * (1.0 - 0.6 * k), 1.0 - 0.7 * k)
+        })
+    }
 }
 
 impl Effect {
@@ -93,6 +128,28 @@ pub struct Written {
     pub fps: f32,
     pub life: f32,
     pub reach: f32,
+    pub color: Option<[u8; 3]>,
+    pub length: Option<f32>,
+    pub size: Option<f32>,
+    pub sparks: Option<u32>,
+}
+
+impl Written {
+    /// Whether it sets any of a shot's style, and so flies as particles.
+    pub fn is_shot(&self) -> bool {
+        self.color.is_some() || self.length.is_some() || self.size.is_some() || self.sparks.is_some()
+    }
+
+    /// Its shot style, the rest taken from `base`.
+    fn shot(&self, base: Option<Shot>) -> Option<Shot> {
+        let base = base.unwrap_or(Shot { color: [1.0; 3], length: 10.0, size: 1.5, sparks: 6 });
+        self.is_shot().then(|| Shot {
+            color: self.color.map_or(base.color, |c| c.map(|v| v as f32 / 255.0)),
+            length: self.length.unwrap_or(base.length),
+            size: self.size.unwrap_or(base.size),
+            sparks: self.sparks.unwrap_or(base.sparks),
+        })
+    }
 }
 
 /// Effects of a mod's own as written, by the name of their section.
@@ -169,7 +226,7 @@ pub fn parse(text: &str) -> Result<(Vec<Written>, Extra), String> {
             if colors {
                 continue;
             }
-            let fresh = Written { art: String::new(), fps: 10.0, life: 0.2, reach: 1.0 };
+            let fresh = Written { art: String::new(), fps: 10.0, life: 0.2, reach: 1.0, color: None, length: None, size: None, sparks: None };
             if !name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_') || name.is_empty() {
                 return Err(format!("{n}: [{name}] isn't a name of lowercase letters, digits and _"));
             }
@@ -205,6 +262,10 @@ pub fn parse(text: &str) -> Result<(Vec<Written>, Extra), String> {
             "fps" => e.fps = number()?.min(120.0),
             "life" => e.life = number()?,
             "reach" => e.reach = number()?,
+            "length" => e.length = Some(number()?.min(MAX_LENGTH)),
+            "size" => e.size = Some(number()?.min(MAX_SIZE)),
+            "sparks" => e.sparks = Some(value.parse::<u32>().map_err(|_| format!("{n}: sparks is a whole number, 0 or more"))?.min(MAX_SPARKS)),
+            "color" => e.color = Some(crate::paint::hex(value).filter(|_| value.bytes().all(|b| b.is_ascii_hexdigit())).ok_or_else(|| format!("{n}: color is RRGGBB as palette.txt writes one, such as E8D27A"))?),
             _ => return Err(format!("{n}: {key} isn't something an effect says")),
         }
     }
@@ -215,13 +276,13 @@ pub fn parse(text: &str) -> Result<(Vec<Written>, Extra), String> {
         .zip(NAMES)
         .enumerate()
         .map(|(k, (e, name))| match e {
-            Some(e) if e.art.is_empty() => Err(format!("[{name}] needs an art line")),
+            Some(e) if e.art.is_empty() && !e.is_shot() => Err(format!("[{name}] needs an art line")),
             Some(e) => Ok(e),
             None if ADDED_LATER.contains(name) && text != BUILT_IN => game().map(|g| g[k].clone()).ok_or_else(|| format!("no [{name}]")),
             None => Err(format!("no [{name}]")),
         })
         .collect::<Result<Vec<_>, _>>()?;
-    if let Some((name, _)) = extra.iter().find(|(_, w)| w.art.is_empty()) {
+    if let Some((name, _)) = extra.iter().find(|(_, w)| w.art.is_empty() && !w.is_shot()) {
         return Err(format!("[{name}] needs an art line"));
     }
     Ok((own, extra))
@@ -229,6 +290,9 @@ pub fn parse(text: &str) -> Result<(Vec<Written>, Extra), String> {
 
 /// A sprite's frames by name: the catalog's, else a player's prop's.
 fn frames_of(name: &str) -> Option<&'static [Art]> {
+    if name.is_empty() {
+        return frames_of("BULLET");
+    }
     art::ALL.iter().find(|(n, _)| *n == name).map(|(_, f)| *f).or_else(|| super::props::prop(name).map(|p| p.frames))
 }
 
@@ -238,10 +302,12 @@ pub fn effects() -> &'static Effects {
     E.get_or_init(|| {
         let (own, _) = parse(include_str!("../../effects.txt")).unwrap_or_else(|e| panic!("effects.txt:{e}"));
         let (mine, extra) = parse(crate::data::effects()).unwrap_or_else(|e| panic!("effects.txt:{e}"));
+        let at = NAMES.iter().position(|n| *n == "bullet").expect("a bullet effect");
+        let shot = mine[at].shot(own[at].shot(None)).or(own[at].shot(None));
         let extra = extra
             .into_iter()
             .filter_map(|(name, w)| match frames_of(&w.art) {
-                Some(frames) => Some((name, Effect { frames, fps: w.fps, life: w.life, reach: w.reach })),
+                Some(frames) => Some((name, Effect { frames, fps: w.fps, life: w.life, reach: w.reach, shot: w.shot(shot) })),
                 None => {
                     crate::data::note(format!("effects.txt: [{name}] plays {}, which isn't a sprite", w.art));
                     None
@@ -252,12 +318,14 @@ pub fn effects() -> &'static Effects {
             .iter()
             .zip(&own)
             .zip(NAMES)
-            .map(|((w, o), name)| {
+            .enumerate()
+            .map(|(k, ((w, o), name))| {
                 let frames = frames_of(&w.art).unwrap_or_else(|| {
                     crate::data::note(format!("effects.txt: [{name}] plays {}, which isn't a sprite", w.art));
                     frames_of(&o.art).unwrap_or_else(|| panic!("effects.txt: [{name}] plays {}, which isn't a sprite", o.art))
                 });
-                Effect { frames, fps: w.fps, life: w.life, reach: w.reach }
+                let own_shot = if k == at { shot } else { w.shot(shot) };
+                Effect { frames, fps: w.fps, life: w.life, reach: w.reach, shot: own_shot }
             })
             .collect();
         Effects::from_list(&list, extra)
@@ -286,6 +354,46 @@ mod tests {
         assert_eq!((extra[0].0.as_str(), extra[0].1.fps), ("red_slash", 9.0));
         assert_eq!(e.named("slash"), Some(e.slash));
         assert_eq!(e.named("red_slash"), None);
+    }
+
+    #[test]
+    fn a_bullet_flies_as_the_shot_style_its_section_sets() {
+        let own = include_str!("../../effects.txt");
+        let shot = effects().bullet.shot.expect("the game's bullet is a streak of particles");
+        assert!(shot.length > 0.0 && shot.size > 0.0 && shot.sparks > 0);
+        let (_, extra) = parse(&format!("{own}\n[tracer]\ncolor 7AA062\nlength 20\nsize 2\nsparks 3")).unwrap();
+        let w = &extra[0].1;
+        assert_eq!((w.art.as_str(), w.color, w.length, w.size, w.sparks), ("", Some([0x7A, 0xA0, 0x62]), Some(20.0), Some(2.0), Some(3)), "a style needs no art");
+        assert_eq!(parse(&format!("{own}\n[plain]\nfps 3")).unwrap_err(), "[plain] needs an art line");
+        let (_, extra) = parse(&format!("{own}\n[odd]\nart SLASH\nlength 1e9\nsize 99\nsparks 5000")).unwrap();
+        assert_eq!((extra[0].1.length, extra[0].1.size, extra[0].1.sparks), (Some(MAX_LENGTH), Some(MAX_SIZE), Some(MAX_SPARKS)), "a mod's numbers are capped");
+        for bad in ["length NaN", "length inf", "length -2", "size 0", "sparks 1.5", "sparks -1", "color 7AA06", "color GGGGGG", "color 0.5 0.5 0.5"] {
+            assert!(parse(&format!("{own}\n[odd]\nart SLASH\n{bad}")).is_err(), "{bad}");
+        }
+        let older: String = own.lines().filter(|l| !["color", "length", "size", "sparks"].iter().any(|k| l.starts_with(k))).map(|l| format!("{l}\n")).collect();
+        let (mine, _) = parse(&older).unwrap();
+        assert!(mine.iter().all(|w| w.color.is_none()), "a mod's file from before shot styles still reads");
+    }
+
+    #[test]
+    fn the_games_own_shot_colors_come_from_its_palette() {
+        let (own, extra) = parse(include_str!("../../effects.txt")).unwrap();
+        let palette = crate::paint::palette();
+        for c in own.iter().chain(extra.iter().map(|(_, w)| w)).filter_map(|w| w.color) {
+            assert!(palette.contains(&c), "{c:02X?} isn't in palette.txt");
+        }
+    }
+
+    #[test]
+    fn a_streak_trails_behind_its_bullet_and_never_behind_the_gun() {
+        let shot = Shot { color: [1.0; 3], length: 12.0, size: 1.5, sparks: 4 };
+        let specks: Vec<_> = shot.streak([100.0, 0.0], [200.0, 0.0], 1.0).collect();
+        assert!((2..=MAX_SPECKS).contains(&specks.len()));
+        assert_eq!(specks[0].0, [100.0, 0.0], "the head is the bullet");
+        assert!(specks.windows(2).all(|w| w[1].0[0] < w[0].0[0] && w[1].1 <= w[0].1), "the tail trails back and thins");
+        assert!((specks.last().unwrap().0[0] - 88.0).abs() < 1e-3);
+        let fresh: Vec<_> = shot.streak([100.0, 0.0], [200.0, 0.0], 0.01).collect();
+        assert!(fresh.iter().all(|s| s.0[0] >= 98.0 - 1e-3), "a bullet two pixels out trails two pixels");
     }
 
     #[test]

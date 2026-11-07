@@ -221,7 +221,7 @@ pub fn check_own_table(file: &str, text: &str) -> Result<(), String> {
         "effects.txt" => {
             effects::parse_colors(text, None).map_err(fail)?;
             let (own, extra) = effects::parse(text).map_err(fail)?;
-            match own.iter().chain(extra.iter().map(|(_, w)| w)).find(|w| missing(&w.art)) {
+            match own.iter().chain(extra.iter().map(|(_, w)| w)).find(|w| !(w.art.is_empty() && w.is_shot()) && missing(&w.art)) {
                 Some(w) => Err(format!("{file}: no sprite called {} in art.txt", w.art)),
                 None => Ok(()),
             }

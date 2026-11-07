@@ -3,6 +3,12 @@
 #   fps N         frames a second
 #   life N        a swing's seconds
 #   reach N       how far out a swing sweeps, as a fraction of the weapon's range or area
+#   color RRGGBB  a shot style: its color, as palette.txt writes one
+#   length N      a shot's streak, in pixels
+#   size N        a shot's specks and sparks, in pixels
+#   sparks N      sparks a gun throws from its muzzle with each shot
+# A section that sets any shot style flies as a streak of particles when a weapon fires it as its bullets, and
+# needs no art; what it leaves out comes from [bullet], which every gun without a `bullet` line fires.
 # A sprite standing as a slab lies flat and turns with the swing; anything else faces the camera.
 # A section with a name of your own is an effect a weapon in powerups.txt can play with `effect NAME` or
 # fire as its bullets with `bullet NAME`.
@@ -25,6 +31,10 @@ fps 20
 
 [bullet]
 art BULLET
+color E8D27A
+length 10
+size 1.2
+sparks 6
 
 [bullet_3d]
 art MUZZLE
