@@ -2,7 +2,7 @@
 
 use std::cell::Cell;
 
-use glam::{Mat4, Vec3};
+pub use glam::{Mat4, Vec3};
 
 /// Short-lived lights on top of the lantern, such as muzzle flashes and explosions.
 pub const MAX_FLASHES: usize = 4;
@@ -60,10 +60,12 @@ pub struct Card {
     pub tint: [f32; 3],
     /// 0 is lit and fogged like everything else; 1 shines at full color through the dark.
     pub glow: f32,
+    /// Below 1, it blends over what is behind it, drawn after every opaque card.
+    pub alpha: f32,
 }
 
 impl Card {
     pub fn new(corners: [Vec3; 4], uv: [f32; 4], normal: Vec3) -> Self {
-        Self { corners, uv, normal, tint: [1.0; 3], glow: 0.0 }
+        Self { corners, uv, normal, tint: [1.0; 3], glow: 0.0, alpha: 1.0 }
     }
 }
