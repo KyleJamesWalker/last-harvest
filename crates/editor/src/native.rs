@@ -24,6 +24,18 @@ use winit::window::{Window, WindowId};
 /// The window's size where the screen has room for it.
 const WINDOW: [f32; 2] = [1500.0, 750.0];
 
+/// Opens the game built beside this editor on its weapon range, trying `setup`.
+fn try_in_game(setup: &str) -> Result<(), String> {
+    let game = std::env::current_exe().map_err(|e| e.to_string())?.with_file_name("last-harvest");
+    if !game.exists() {
+        return Err(format!("No game at {} to try it in: cargo build -p last-harvest", game.display()));
+    }
+    let file = std::env::temp_dir().join(format!("last-harvest-range-{}.txt", std::process::id()));
+    std::fs::write(&file, setup).map_err(|e| format!("{}: {e}", file.display()))?;
+    std::process::Command::new(&game).env("LAST_HARVEST_START", "range").env("LAST_HARVEST_RANGE", &file).spawn().map_err(|e| format!("{}: {e}", game.display()))?;
+    Ok(())
+}
+
 struct Gl {
     window: Window,
     surface: Surface<WindowSurface>,
@@ -69,6 +81,11 @@ impl App {
         let Some(g) = &mut self.gl else { return };
         if let Some(pixels) = self.studio.tick(dt) {
             g.renderer.set_art(&g.gl, pixels);
+        }
+        if let Some(setup) = self.studio.editor.tried.take()
+            && let Err(e) = try_in_game(&setup)
+        {
+            self.studio.editor.say(e);
         }
         g.window.set_title(&self.studio.editor.title());
         let s = g.window.scale_factor() as f32;

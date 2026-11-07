@@ -8,6 +8,7 @@ mod juice;
 mod map;
 mod photo;
 mod props;
+mod range;
 mod players;
 mod powerups;
 pub mod showcase;
@@ -31,6 +32,7 @@ pub use players::{BASE_KEYS as PLAYER_BASE_KEYS, ID_MAX as PLAYER_ID_MAX, Player
 pub use enemies::{CardFields, FLAGS as CARD_FLAGS, NUMBERS as CARD_NUMBERS, SpawnMix, card_fields, set_card_field, spawn_mix};
 use juice::{Corpse, Juice, Particle, Tone};
 use map::{Map, TILE};
+pub use range::{RangeSetup, powerups_with};
 pub use powerups::{Progress, Run, WeaponLevels, found_from_ids, found_ids, weapon_behaviours, weapon_levels, weapon_sound_names, weapon_stats};
 use powerups::{Kind as Card, book};
 use weapons::{Bolt, Decoy, Dog, Kit, Patch, Swing};
@@ -775,6 +777,8 @@ pub struct Harvest {
     taps: bool,
     /// The on-screen photo keys show, so the guides name them instead of a pad's buttons.
     touch_keys: bool,
+    /// The weapon range, trying one weapon against a ring of zombies.
+    range: Option<range::Range>,
 }
 
 /// Weapons and passives unlocked so far, out of all of them, and how many are waiting to be found.
@@ -976,6 +980,7 @@ impl Harvest {
             saves_photos: false,
             taps: true,
             touch_keys: false,
+            range: None,
         }
         .with_birds()
     }
@@ -1131,10 +1136,23 @@ impl Harvest {
     }
 
     pub fn summary(&self) -> String {
+        if let Some(line) = self.range_summary() {
+            return line;
+        }
         format!("harvest {} t={:.0} level={} kills={} zombies={} hp={:.0}", self.difficulty.key(), self.t, self.level, self.kills, self.zombies.len(), self.hp)
     }
 
     pub fn update(&mut self, input: &Input, dt: f32, sounds: &mut Vec<Sfx>) -> Flow {
+        if self.range.is_none() {
+            return self.update_run(input, dt, sounds);
+        }
+        let own = self.range_input(input, sounds);
+        let flow = self.update_run(own.as_ref().unwrap_or(input), dt, sounds);
+        self.range_after(dt);
+        flow
+    }
+
+    fn update_run(&mut self, input: &Input, dt: f32, sounds: &mut Vec<Sfx>) -> Flow {
         let mut flow = Flow::default();
         if self.bench {
             self.view_yaw = (self.view_yaw + TAU / 600.0).rem_euclid(TAU);
@@ -1458,6 +1476,10 @@ impl Harvest {
     /// A fresh farm with the same difficulty, progress, enemies, look and trial powerups.
     fn restart(&mut self, sounds: &mut Vec<Sfx>) {
         let seed = self.rng.next_u32() as u64 + 1;
+        if self.range.is_some() {
+            self.restart_range(seed);
+            return;
+        }
         let kit: Vec<String> = self.trial.iter().map(|&(d, l)| format!("{}:{l}", book().defs[d].id)).collect();
         let look = std::mem::take(&mut self.look);
         *self = Harvest::on(seed, &self.map_id).at(self.difficulty).with_progress(self.progress).without_enemies(self.enemies_off).looking_like(&look).with_kit(&kit.join(",")).starting_at(self.start_t).single_screen(self.single).endless_grenades(self.endless);
@@ -1680,6 +1702,7 @@ impl Harvest {
     }
 
     fn move_zombies(&mut self, dt: f32, sounds: &mut Vec<Sfx>) {
+        let radius = self.ring_radius();
         let n = self.zombies.len();
         let mut sep = std::mem::take(&mut self.sep);
         sep.clear();
@@ -1722,13 +1745,17 @@ impl Harvest {
             let direct = sub(self.pos, z.pos);
             let lure = self.decoys.iter().find(|d| len(sub(d.pos, z.pos)) < d.lure);
             let ranged = z.kind.stats().ranged;
-            let spitting = !z.boss && lure.is_none() && len(direct) <= ranged && clear_shot(&self.map, z.pos, self.pos);
+            let spitting = self.range.is_none() && !z.boss && lure.is_none() && len(direct) <= ranged && clear_shot(&self.map, z.pos, self.pos);
             let to = match lure {
                 Some(d) => norm(sub(d.pos, z.pos)),
                 None if spitting || len(direct) < TILE * 1.5 => norm(direct),
                 None => self.map.downhill(&self.flow, z.pos).unwrap_or(norm(direct)),
             };
             let speed = if spitting { 0.0 } else { speed };
+            let (to, speed) = match &self.range {
+                Some(r) => r.hold(z.pos, self.pos, radius, speed),
+                None => (to, speed),
+            };
             if spitting && z.cd <= 0.0 {
                 z.cd = t.spit_every.max(0.1);
                 let fly = t.spit_speed.max(1.0);
@@ -1880,7 +1907,7 @@ impl Harvest {
     }
 
     fn contact(&mut self, sounds: &mut Vec<Sfx>, flow: &mut Flow) {
-        if self.hurt > 0.0 {
+        if self.hurt > 0.0 || self.range.is_some() {
             return;
         }
         let hit = self.zombies.iter().filter(|z| z.rise >= 1.0 && len(sub(z.pos, self.pos)) < crate::tuning::tuning().bite_reach).map(|z| z.kind.stats().damage * if z.boss { crate::tuning::tuning().harvester_bite } else { 1.0 } * self.fury * self.difficulty.damage()).fold(0.0, f32::max);

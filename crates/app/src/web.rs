@@ -6,7 +6,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use last_harvest_game::{Buttons, Game, InputTracker, MAX_TOUCHES, RawInput, SCREEN_H, SCREEN_W, Save, System};
+use last_harvest_game::{Buttons, Game, InputTracker, MAX_TOUCHES, RangeSetup, RawInput, SCREEN_H, SCREEN_W, Save, Scene, System};
 use last_harvest_pack::Pak;
 use last_harvest_render::{Profile, Renderer};
 use wasm_bindgen::JsCast;
@@ -16,6 +16,8 @@ use web_sys::{AddEventListenerOptions, Document, Element, Event, EventTarget, Ga
 use crate::{audio, pak, samples};
 
 const SAVE_KEY: &str = "last-harvest-save";
+/// Where an editor's Try it leaves the weapon for a page opened with `?range`.
+const RANGE_KEY: &str = "last-harvest-range";
 const STATS_MS: f64 = 1000.0;
 const STICK_DEAD: f32 = 0.15;
 /// The standard gamepad layout's buttons, by index, named as on an Xbox pad.
@@ -380,7 +382,7 @@ fn element<T: JsCast>(document: &Document, id: &str) -> Result<T, String> {
     document.get_element_by_id(id).and_then(|e| e.dyn_into().ok()).ok_or(format!("#{id} missing from the page"))
 }
 
-fn start(pak: Pak, mods: Vec<(String, Pak)>, problems: Vec<String>) -> Result<(), String> {
+fn start(pak: Pak, mods: Vec<(String, Pak)>, problems: Vec<String>, range: Option<RangeSetup>) -> Result<(), String> {
     // The renderer uploads the sprite atlas as it starts, so the data goes in first.
     let sounds = pak::install_with(pak, mods, problems)?;
     let window = web_sys::window().ok_or("no window")?;
@@ -402,6 +404,10 @@ fn start(pak: Pak, mods: Vec<(String, Pak)>, problems: Vec<String>) -> Result<()
     let mut game = Game::new(js_sys::Date::now() as u64);
     game.load(saved);
     game.set_backlights(false);
+    if let Some(setup) = range {
+        game.set_range(setup);
+        game.open(Scene::Range);
+    }
     let phone = !window.location().search().unwrap_or_default().contains("screens=2");
     show_screens(&document, &canvas, &overlay, phone);
     let web = Rc::new(RefCell::new(Web {
@@ -560,5 +566,27 @@ pub fn run(pak: Vec<u8>, mods: js_sys::Array, sounds: js_sys::Array) -> Result<(
     if let Some(p) = editor_mod(&sounds, &mut problems) {
         packs.push((EDITOR_MOD.into(), p));
     }
-    start(base, packs, problems)
+    let range = range_asked(&mut problems);
+    start(base, packs, problems, range)
+}
+
+/// The weapon an editor's Try it left, when the page was opened with `?range`; its section goes over the powerups.
+fn range_asked(problems: &mut Vec<String>) -> Option<RangeSetup> {
+    let window = web_sys::window()?;
+    if !window.location().search().unwrap_or_default().contains("range") {
+        return None;
+    }
+    let text = window.local_storage().ok().flatten()?.get_item(RANGE_KEY).ok().flatten()?;
+    match RangeSetup::read(&text) {
+        Ok(setup) => {
+            if let Some(section) = &setup.section {
+                pak::try_section(section);
+            }
+            Some(setup)
+        }
+        Err(e) => {
+            problems.push(format!("the weapon tried: {e}"));
+            None
+        }
+    }
 }

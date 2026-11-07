@@ -30,6 +30,7 @@ pub use draw::{Align, Canvas, Color, Frame, Shape};
 pub use art::Stand;
 pub use harvest::showcase::{Figure, Showcase};
 pub use harvest::{NamedProp, load_props_for_checks, PROP_MAX_FRAME, PROP_MAX_FRAMES, PROP_PREFIX, PropByViews, PropFields, named_props, turned_depth, prop_fields, prop_text, set_props};
+pub use harvest::{RangeSetup, powerups_with};
 pub use harvest::{WeaponLevels, weapon_behaviours, weapon_levels, weapon_sound_names, weapon_stats};
 pub use harvest::{TABLES, built_in_table, check_own_table, check_table, default_prop_depth, MAP_EXTENSION, map_ground, MAP_MAX, MAP_MIN, map_props, parse_props, MapSource, PROP_MAX_HP, PropKind, PropLine, PropTough, check_map, valid_map_id};
 pub use harvest::{ABOUT_MAX, CARD_FLAGS, CARD_MAX_FRAME, card_frame_most, CARD_NUMBERS, MAX_WALK, PLAYER_BASE_KEYS, PLAYER_ID_MAX, PlayerFields, PlayerLook, default_start, flash_pixel, frame_limits, hurt_pixel, player_fields, player_looks, set_player_start, weapon_slots, weapons, CardFields, night_minutes, SpawnMix, card_fields, check_tables, kill_sound, kill_sounds, kill_weight, set_card_field, spawn_mix};
@@ -80,6 +81,8 @@ pub enum Scene {
     Hardware,
     /// Debug close-up of one figure, in 3D and flat, for making icons.
     Icon,
+    /// The weapon range: one weapon, as `Game::set_range` gives it, against a ring of zombies.
+    Range,
 }
 
 impl Scene {
@@ -97,6 +100,7 @@ impl Scene {
             "art" => Scene::Gallery,
             "hardware" => Scene::Hardware,
             "icon" => Scene::Icon,
+            "range" => Scene::Range,
             _ => return None,
         })
     }
@@ -135,6 +139,8 @@ pub struct Game {
     bench_due: bool,
     /// A thrown grenade is never spent, for trying out aiming.
     endless: bool,
+    /// What the range scene tries.
+    range: RangeSetup,
     /// The `single` scene is open, which plays on one screen whatever Settings says.
     single_scene: bool,
     /// A phone's window, in pixels: one canvas, on-screen controls, runs on one screen.
@@ -204,6 +210,7 @@ impl Game {
             start_t: 0.0,
             bench_due: false,
             endless: false,
+            range: RangeSetup::default(),
             single_scene: false,
             phone: None,
             backlights: true,
@@ -286,6 +293,11 @@ impl Game {
         self.endless = on;
     }
 
+    /// What the range scene tries: the platform installs a setup's section into the data before the game reads it.
+    pub fn set_range(&mut self, setup: RangeSetup) {
+        self.range = setup;
+    }
+
     fn progress(&self) -> harvest::Progress {
         let s = &self.save;
         harvest::Progress { kills: s.kills, best: s.best, best_level: s.best_level, nights: s.nights, dawns: s.dawns, found: s.found, everything: self.unlock_all }
@@ -346,6 +358,7 @@ impl Game {
             }
             Scene::Farm => State::Harvest(Box::new(harvest::Harvest::calm(seed))),
             Scene::Bench(size) => State::Harvest(Box::new(harvest::Harvest::bench(size))),
+            Scene::Range => State::Harvest(Box::new(harvest::Harvest::range(seed, &self.range).single_screen(self.one_screen()))),
             Scene::Gallery => State::Gallery(gallery::Gallery::default()),
             Scene::Hardware => State::Hardware(hardware::Hardware::default()),
             Scene::Icon => State::Icon(Box::default()),
@@ -1047,10 +1060,19 @@ mod tests {
     #[test]
     fn every_scene_opens_by_name() {
         let mut game = Game::new(1);
-        for name in ["title", "harvest", "single", "farm", "bench", "art", "icon", "hardware"] {
+        for name in ["title", "harvest", "single", "farm", "bench", "art", "icon", "range", "hardware"] {
             game.open(Scene::from_name(name).unwrap());
         }
         assert!(matches!(game.state, State::Hardware(_)));
+    }
+
+    #[test]
+    fn the_range_scene_tries_the_weapon_it_was_given() {
+        let mut game = Game::new(1);
+        game.set_range(RangeSetup::read("shotgun:2").unwrap());
+        game.open(Scene::from_name("range").unwrap());
+        let State::Harvest(h) = &game.state else { panic!("the range is a run") };
+        assert!(h.summary().starts_with("range shotgun 2"), "{}", h.summary());
     }
 
     /// Opens Settings from the title and moves to its `row`.

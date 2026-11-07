@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'sha256-xVhmiyJgxRoOZ/+Kt6beOR1E53hI3WZvntsSnRQFzBs='; style-src 'unsafe-inline'; media-src blob:; object-src 'none'; base-uri 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'sha256-bASTv+MoswYAHtNPEYDZBI3MIMQ8Y3B7HAr4blB9tTc='; style-src 'unsafe-inline'; media-src blob:; object-src 'none'; base-uri 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -201,6 +201,15 @@
       const type = name.endsWith(".wav") ? "audio/wav" : "audio/ogg";
       const url = URL.createObjectURL(new Blob([bytes], { type }));
       new Audio(url).play().catch(() => {}).finally(() => setTimeout(() => URL.revokeObjectURL(url), 30000));
+    },
+    // The game page beside this one opens on its weapon range when asked with ?range, reading the setup left here.
+    tryWeapon(setup) {
+      try {
+        localStorage.setItem("last-harvest-range", setup);
+      } catch {
+        return said("This browser keeps no storage for the page, so the game can't take the weapon");
+      }
+      if (!window.open("../play/?range", "last-harvest-range")) said("Allow pop-ups for this page to try the weapon in the game");
     },
     // Only the card editor keeps an offline copy: the game's own editor talks to its server and must never be stale.
     offline() {

@@ -77,6 +77,7 @@ fn main() {
 
 fn run() -> Result<(), String> {
     log!("last-harvest {VERSION} on muOS");
+    let range = pak::range_setup();
     let sounds = pak::load()?;
     let sdl = sdl2::init()?;
     let video = sdl.video()?;
@@ -109,6 +110,7 @@ fn run() -> Result<(), String> {
     if let Some(secs) = std::env::var("LAST_HARVEST_CLOCK").ok().and_then(|s| s.parse().ok()) {
         game.start_clock(secs);
     }
+    game.set_range(range.unwrap_or_default());
     if let Some(scene) = std::env::var("LAST_HARVEST_START").ok().and_then(|s| Scene::from_name(&s)) {
         game.open(scene);
     }
