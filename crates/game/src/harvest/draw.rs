@@ -388,6 +388,9 @@ impl Harvest {
             let (sx, sy) = at(p.pos[0], p.pos[1] - p.z);
             c.rect(sx - s / 2.0, sy - s / 2.0, s, s, [p.color[0], p.color[1], p.color[2], 1.0]);
         }
+        if fog {
+            self.shade_unseen(c, cam, scale);
+        }
         for r in &self.juice.rings {
             let rr = r.now();
             let fade = 1.0 - r.age / r.life;

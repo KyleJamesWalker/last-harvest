@@ -14,6 +14,8 @@ The top screen is the main view, in 2.5D. Every sprite's silhouette stands extru
 
 The bottom screen shows the farm around you from above at three times the art's size. Dots mark what the main view sees. A zombie shows on the map only while you look at it: once it leaves your view, or goes behind cover, the map keeps it where you last saw it and fades it out. Tap the map to throw a grenade.
 
+While you play, the map is at full brightness inside the view's cone and darkens outside it, so you can see which way you face and which parts of the map you aren't watching.
+
 In a browser, pick One screen or Two screens as the game starts. One screen, the default, fills the window: menus show both screens side by side, and a run plays on one screen with on-screen controls (see [On a phone](#on-a-phone)). Two screens share the window, the top screen above the bottom, as on the handheld. The button at the top left fills the whole screen, and a second press, or Esc, leaves it.
 
 ### Controls
@@ -415,7 +417,7 @@ A pack's `tuning.txt`, and the `[colors]` of its `effects.txt`, need only the li
 - `[barrel]`: health, blast radius and damage.
 - `[weapons]`: the view ahead and behind, the pistol's point-blank reach, crow and dog reach, and how long fire keeps burning.
 - `[blast]`: how much any blast hurts you, and how near counts.
-- `[map]`: the map's zoom, how far the view sees zombies for the map, and how long one out of sight takes to fade.
+- `[map]`: the map's zoom, how far the view sees zombies for the map, how long one out of sight takes to fade, and how dark the map gets outside the view.
 
 #### props.txt
 
