@@ -45,6 +45,11 @@ impl DataEdit {
     }
 }
 
+/// Whether a line is a shot style's color, which steps through the palette.
+fn is_color(d: &DataEdit, key: &str) -> bool {
+    d.file == "effects.txt" && key == "color"
+}
+
 /// The list name for a section of a data file: `DATA_POWERUPS_PISTOL`, or `DATA_POWERUPS` for the lines before
 /// its first heading.
 pub(super) fn data_name(file: &str, section: &str) -> String {
@@ -116,7 +121,10 @@ impl Editor {
         let entries = d.table.entries(&d.section);
         for (row, e) in entries.iter().enumerate().skip(d.first).take(ROWS) {
             let y = ROW_TOP + (row - d.first) as f32 * ROW_H;
-            if table::step(&e.value, 1, false).is_some() {
+            if is_color(d, &e.key) {
+                push(CANVAS.x + 384.0, y, 40.0, 30.0, Action::DataColor(row, -1), "<", false);
+                push(CANVAS.x + 428.0, y, 40.0, 30.0, Action::DataColor(row, 1), ">", false);
+            } else if table::step(&e.value, 1, false).is_some() {
                 push(CANVAS.x + 384.0, y, 40.0, 30.0, Action::DataStep(row, -1), "-", false);
                 push(CANVAS.x + 428.0, y, 40.0, 30.0, Action::DataStep(row, 1), "+", false);
             }
@@ -142,6 +150,16 @@ impl Editor {
                 if let Some(v) = table::step(&e.value, by, shift) {
                     d.change(|t, s| t.set(s, row, &v));
                 }
+            }
+            Action::DataColor(row, by) => {
+                let Some(e) = d.table.entries(&d.section).into_iter().nth(row) else { return true };
+                let hex = |[r, g, b, _]: [u8; 4]| format!("{r:02X}{g:02X}{b:02X}");
+                let colors: Vec<String> = sprite::palette().into_iter().map(hex).collect();
+                let next = match colors.iter().position(|c| c.eq_ignore_ascii_case(&e.value)) {
+                    Some(at) => (at as i32 + by).rem_euclid(colors.len() as i32) as usize,
+                    None => 0,
+                };
+                d.change(|t, s| t.set(s, row, &colors[next]));
             }
             Action::DataEdit(row) => {
                 let Some(e) = d.table.entries(&d.section).into_iter().nth(row) else { return true };

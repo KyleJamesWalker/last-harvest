@@ -16,6 +16,7 @@ const PICK_Y: f32 = CANVAS.y + 422.0;
 const DOES_Y: f32 = CANVAS.y + 28.0;
 const DOES_W: f32 = 114.0;
 const PREVIEW: Rect = Rect { x: SIDE_X, y: CANVAS.y + 340.0, w: SIDE_W, h: 220.0 };
+const STYLE: Rect = Rect { x: SIDE_X + SIDE_W / 2.0 + 8.0, y: PREVIEW.y + PREVIEW.h + 6.0, w: SIDE_W / 2.0 - 16.0, h: 28.0 };
 /// The lines the pickers set, in order.
 const PICKS: [&str; 3] = ["effect", "bullet", "sound"];
 
@@ -27,11 +28,13 @@ pub(super) struct Weapon {
     pub level: usize,
     /// The effect and bullet playing: the effects.txt name, its frames and their pace.
     pub preview: [(Option<String>, Vec<Frame>, f32); 2],
+    /// The shot style its bullets fly as, when they fly as particles.
+    pub shot: Option<last_harvest_game::Shot>,
 }
 
 impl Weapon {
     pub fn new() -> Self {
-        Self { lines: false, level: 1, preview: Default::default() }
+        Self { lines: false, level: 1, preview: Default::default(), shot: None }
     }
 }
 
@@ -100,8 +103,10 @@ impl Editor {
     /// Loads the frames of the effect and bullet the section names, where they changed.
     pub(super) fn refresh_weapon(&mut self) {
         let Some(d) = &self.data else { return };
-        let effects = Table::new("effects.txt", &self.store.read_table("effects.txt").unwrap_or_default());
+        let text = self.store.read_table("effects.txt").unwrap_or_default();
+        let effects = Table::new("effects.txt", &text);
         let names = ["effect", "bullet"].map(|k| value(&d.table, &d.section, k));
+        let shot = last_harvest_game::shot_named(&text, names[1].as_deref());
         let mut loaded = Vec::new();
         for (i, name) in names.into_iter().enumerate() {
             if d.weapon.as_ref().is_some_and(|w| w.preview[i].0 == name) {
@@ -113,6 +118,7 @@ impl Editor {
             loaded.push((i, (name, frames, fps)));
         }
         if let Some(w) = self.data.as_mut().and_then(|d| d.weapon.as_mut()) {
+            w.shot = shot;
             for (i, p) in loaded {
                 w.preview[i] = p;
             }
@@ -138,6 +144,7 @@ impl Editor {
             push(CANVAS.x + 432.0, y, 36.0, 28.0, Action::WeaponPick(i, 1), ">", false);
             push(CANVAS.x + 472.0, y, 76.0, 28.0, Action::WeaponPick(i, 0), "Own", false);
         }
+        push(STYLE.x, STYLE.y, STYLE.w, STYLE.h, Action::WeaponStyle, "Style", false);
         let does = value(&d.table, &d.section, "does").unwrap_or_else(|| d.section.clone());
         for (i, name) in last_harvest_game::weapon_behaviours().into_iter().enumerate() {
             let (x, y) = (SIDE_X + (i % 2) as f32 * (DOES_W + 4.0), DOES_Y + (i / 2) as f32 * 30.0);
@@ -198,6 +205,11 @@ impl Editor {
                 let pick = next.checked_sub(1).map(|n| all[n].as_str());
                 d.change(|t, s| set_key(t, s, key, pick));
             }
+            Action::WeaponStyle => {
+                let name = value(&d.table, &d.section, "bullet").unwrap_or_else(|| "bullet".into());
+                self.switch_to(super::tables::data_name("effects.txt", &name));
+                return true;
+            }
             _ => return false,
         }
         self.refresh_weapon();
@@ -244,6 +256,10 @@ impl Editor {
         for (i, (name, frames, fps)) in w.preview.iter().enumerate() {
             let x = PREVIEW.x + i as f32 * PREVIEW.w / 2.0;
             c.label(PICKS[i], x + PREVIEW.w / 4.0, PREVIEW.y + 6.0, 15.0, DIM, Align::Center);
+            if let (1, Some(shot)) = (i, w.shot) {
+                self.draw_shot(c, shot, x);
+                continue;
+            }
             let Some(f) = frames.get((self.clock * fps).max(0.0) as usize % frames.len().max(1)) else {
                 let none = if name.is_some() { "no frames" } else { "none" };
                 c.label(none, x + PREVIEW.w / 4.0, PREVIEW.y + PREVIEW.h / 2.0, 15.0, DIM, Align::Center);
@@ -263,6 +279,23 @@ impl Editor {
         c.label("Levels: pick one; -/+ step its value, Shift by ten   Lines: every line", CANVAS.x, CANVAS.y + CANVAS.h + 12.0, 15.0, DIM, Align::Left);
         c.label("< > pick from effects.txt or the sounds; Own leaves the behaviour's.", CANVAS.x, CANVAS.y + CANVAS.h + 34.0, 15.0, DIM, Align::Left);
         self.draw_overlays(c);
+    }
+
+    /// The bullet's streak flying across the preview's half at `x`, with the numbers of its style under it.
+    fn draw_shot(&self, c: &mut Canvas, shot: last_harvest_game::Shot, x: f32) {
+        const ZOOM: f32 = 4.0;
+        let (w, mid) = (PREVIEW.w / 2.0, PREVIEW.y + PREVIEW.h / 2.0);
+        let speed = 60.0;
+        let age = (self.clock * speed / (w / ZOOM)).fract() * (w / ZOOM) / speed;
+        let [r, g, b] = shot.color;
+        for (p, size, glow) in shot.streak([speed * age, 0.0], [speed, 0.0], age) {
+            let s = size * ZOOM;
+            c.rect(x + p[0] * ZOOM - s / 2.0, mid - s / 2.0, s, s, [r, g, b, glow]);
+        }
+        let hex = format!("{:02X}{:02X}{:02X}", (r * 255.0).round() as u8, (g * 255.0).round() as u8, (b * 255.0).round() as u8);
+        c.label(hex, x + w / 2.0, mid + 30.0, 14.0, TEXT, Align::Center);
+        c.label(format!("length {} size {}", number(shot.length), number(shot.size)), x + w / 2.0, mid + 48.0, 13.0, DIM, Align::Center);
+        c.label(format!("{} sparks", shot.sparks), x + w / 2.0, mid + 64.0, 13.0, DIM, Align::Center);
     }
 }
 

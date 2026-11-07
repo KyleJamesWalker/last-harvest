@@ -286,6 +286,8 @@ enum Action {
     /// Starts typing the data page's line's value.
     DataEdit(usize),
     DataRemove(usize),
+    /// Steps the data page's `color` line through the game's palette.
+    DataColor(usize, i32),
     DataAdd,
     DataPage(i32),
     /// Shows the weapon page's lines as the data page does, or the weapon page again.
@@ -301,6 +303,8 @@ enum Action {
     WeaponType(usize),
     /// Steps the weapon's effect, bullet or sound through what it can name; 0 leaves its behaviour's own.
     WeaponPick(usize, i32),
+    /// Opens the effects.txt section of the weapon's bullet, whose shot style it fires.
+    WeaponStyle,
     /// Leaves the paint color out of the 3D view, or puts it back.
     ClearIn3d,
     /// Shows the Coats page on the canvas, or the pixels again.
@@ -1736,8 +1740,8 @@ impl Editor {
         }
         match a {
             Action::MapTool(_) | Action::Ground(_) | Action::PickProp(_) | Action::PickPage(_) | Action::Picket(_) | Action::MapSize(..) | Action::Randomize | Action::MapFit | Action::PropDefaults => {}
-            Action::DataStep(..) | Action::DataEdit(_) | Action::DataRemove(_) | Action::DataAdd | Action::DataPage(_) => {}
-            Action::WeaponLines | Action::WeaponLevel(_) | Action::WeaponMax(_) | Action::WeaponDoes(_) | Action::WeaponStep(..) | Action::WeaponType(_) | Action::WeaponPick(..) => {}
+            Action::DataStep(..) | Action::DataEdit(_) | Action::DataRemove(_) | Action::DataColor(..) | Action::DataAdd | Action::DataPage(_) => {}
+            Action::WeaponLines | Action::WeaponLevel(_) | Action::WeaponMax(_) | Action::WeaponDoes(_) | Action::WeaponStep(..) | Action::WeaponType(_) | Action::WeaponPick(..) | Action::WeaponStyle => {}
             Action::LineFrame(_) | Action::LineFps(_) => {}
             Action::PlayerBase(i, d) => {
                 let t = last_harvest_game::tuning::tuning();
@@ -4242,6 +4246,38 @@ mod tests {
         assert!(e.is_prop() && e.open_prop_fields().is_some(), "a prop, not a card");
         e.act(Action::Save, false);
         assert!(dir.join("props/post.prop.png").exists());
+    }
+
+    #[test]
+    fn a_shot_style_steps_its_color_through_the_palette_and_the_weapon_page_shows_it() {
+        let dir = tmp().join("shot-style");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut e = editor_in(&dir, dir.join("art.txt"));
+        e.switch_to("DATA_POWERUPS_PISTOL".into());
+        let shown = |e: &Editor| e.data.as_ref().and_then(|d| d.weapon.as_ref()).and_then(|w| w.shot);
+        assert_eq!(shown(&e), last_harvest_game::shot_named(last_harvest_game::built_in_table("effects.txt").unwrap(), None), "no bullet line fires [bullet]");
+        e.act(Action::WeaponStyle, false);
+        assert_eq!(e.sprite.name, "DATA_EFFECTS_BULLET", "Style opens the bullet's section");
+        let d = e.data.as_ref().unwrap();
+        let row = d.table.entries(&d.section).iter().position(|l| l.key == "color").unwrap();
+        assert!(e.buttons().iter().any(|b| b.action == Action::DataColor(row, 1)) && !e.buttons().iter().any(|b| b.action == Action::DataStep(row, 1)));
+        buttons_fit(&e);
+        let palette = sprite::palette();
+        let hex = |c: [u8; 4]| format!("{:02X}{:02X}{:02X}", c[0], c[1], c[2]);
+        let color = |e: &Editor| e.data.as_ref().map(|d| d.table.entries(&d.section)[row].value.clone()).unwrap();
+        let at = palette.iter().position(|c| hex(*c) == color(&e)).expect("the game's own color is the palette's");
+        e.act(Action::DataColor(row, 1), false);
+        assert_eq!(color(&e), hex(palette[(at + 1) % palette.len()]));
+        e.act(Action::DataColor(row, -1), false);
+        e.act(Action::DataColor(row, -1), false);
+        assert_eq!(color(&e), hex(palette[(at + palette.len() - 1) % palette.len()]));
+        e.act(Action::Save, false);
+        assert!(!e.unsaved(), "the game reads it");
+        e.switch_to("DATA_POWERUPS_PISTOL".into());
+        let [r, g, b, _] = palette[(at + palette.len() - 1) % palette.len()];
+        assert_eq!(shown(&e).map(|s| s.color), Some([r, g, b].map(|v| v as f32 / 255.0)), "the weapon page shows the saved style");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
