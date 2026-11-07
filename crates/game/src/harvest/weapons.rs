@@ -1199,6 +1199,34 @@ mod tests {
     }
 
     #[test]
+    fn a_burst_that_targets_each_credits_every_hit_once_to_its_gun() {
+        let mut h = with("pistol", [30.0, 0.0]);
+        h.barrels.clear();
+        h.kit.weapons[0].level = 8;
+        let base = h.zombies[0].pos;
+        for k in 1..6u32 {
+            let mut z = Zombie::new(ZKind::named("big"), [base[0] + k as f32 * 6.0, base[1] + (k as f32 - 3.0) * 8.0], 500.0, 1.0, 0.0);
+            z.id = 50 + k;
+            h.zombies.push(z);
+        }
+        let start: Vec<(u32, f32)> = h.zombies.iter().map(|z| (z.id, z.hp)).collect();
+        let homes: Vec<[f32; 2]> = h.zombies.iter().map(|z| z.pos).collect();
+        let mut sounds = Vec::new();
+        for _ in 0..240 {
+            h.fire(1.0 / 60.0, &mut sounds);
+            h.move_bullets(1.0 / 60.0, &mut sounds);
+            for (z, &home) in h.zombies.iter_mut().zip(&homes) {
+                z.pos = home;
+            }
+        }
+        let hurt: f32 = start.iter().map(|&(id, hp)| hp - h.zombies.iter().find(|z| z.id == id).map_or(0.0, |z| z.hp)).sum();
+        assert!(h.zombies.iter().filter(|z| z.hp < 500.0).count() > 1, "the burst spread over several zombies");
+        let rows = h.juice.tally.rows();
+        assert_eq!((rows.len(), rows[0].by), (1, Some(book().index("pistol").unwrap())), "{rows:?}");
+        assert!((rows[0].damage - hurt).abs() < 0.01 * hurt, "every hit once: credited {} of {hurt}", rows[0].damage);
+    }
+
+    #[test]
     fn each_gun_fires_its_own_style_with_a_muzzle_flash_sparks_and_smoke() {
         let mut styles = Vec::new();
         for id in ["pistol", "shotgun", "rifle"] {
