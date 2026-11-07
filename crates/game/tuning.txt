@@ -62,6 +62,8 @@ hp 2500         # dawn's boss
 speed 40
 bite 2          # times a zombie's bite
 rise 90         # how far from the player it rises, on the side away from home
+again 30        # seconds between waves of them once the first falls, each wave one bigger, from 2
+most 6          # most Harvesters in one wave
 
 [grenade]
 recharge 12     # seconds to earn a grenade back, before upgrades

@@ -723,6 +723,8 @@ pub struct Harvest {
     start_t: f32,
     /// The Harvester has risen this run.
     woke: bool,
+    /// Once the first Harvester falls: seconds to the next wave of them, and how many that wave brings.
+    waves: Option<(f32, u32)>,
     /// Grenades ready to throw; the fraction is the next one recharging.
     grenades: f32,
     /// Seconds left of the worn grenade's flash after one comes ready.
@@ -940,6 +942,7 @@ impl Harvest {
             trial: Vec::new(),
             start_t: 0.0,
             woke: false,
+            waves: None,
             grenades: book().grenades[Difficulty::Normal as usize] as f32,
             ready_flash: 0.0,
             thrown: Vec::new(),
@@ -1370,6 +1373,7 @@ impl Harvest {
         self.move_zombies(dt, sounds);
         self.tunnel(dt, sounds);
         self.grow_fury(dt);
+        self.harvester_waves(dt, sounds, flow);
         self.contact(sounds, flow);
         self.move_spits(dt, sounds, flow);
         self.fire(dt, sounds);
@@ -1444,19 +1448,52 @@ impl Harvest {
         flow.rumble = flow.rumble.max(Some(Rumble::Blast));
         self.juice.shake(0.6);
         self.juice.banner("DAWN.  THE HARVESTER WAKES.  GET HOME.", [1.0, 0.45, 0.3, 1.0], 4.0);
+        self.raise_harvester(0.0);
+    }
+
+    /// Once the first Harvester falls, a wave of them rises every `again` seconds, each one bigger than the last.
+    fn harvester_waves(&mut self, dt: f32, sounds: &mut Vec<Sfx>, flow: &mut Flow) {
+        let t = crate::tuning::tuning();
+        let Some((left, size)) = &mut self.waves else {
+            return;
+        };
+        *left -= dt;
+        if *left > 0.0 {
+            return;
+        }
+        *left += t.harvester_again;
+        let n = (*size).min(t.harvester_most as u32);
+        *size += 1;
+        if n == 0 {
+            return;
+        }
+        sounds.push(Sfx::Horde);
+        flow.rumble = flow.rumble.max(Some(Rumble::Blast));
+        self.juice.shake(0.6);
+        self.juice.banner("MORE HARVESTERS RISE.", [1.0, 0.45, 0.3, 1.0], 2.5);
+        for i in 0..n {
+            self.raise_harvester((i as f32 - (n - 1) as f32 / 2.0) * 0.45);
+        }
+    }
+
+    /// Raises one Harvester `rise` from the player, on the side away from home turned by `turn` radians, at the
+    /// health dawn's fury has grown it to.
+    fn raise_harvester(&mut self, turn: f32) {
+        let t = crate::tuning::tuning();
         let away = norm(sub(self.pos, self.map.home));
         let away = if away == [0.0; 2] { [0.0, 1.0] } else { away };
+        let away = [away[0] * turn.cos() - away[1] * turn.sin(), away[0] * turn.sin() + away[1] * turn.cos()];
         let mut at = self.pos;
         for k in 0..24 {
             let a = (k as f32 * 0.4).sin() * (k as f32 * 0.15);
             let d = [away[0] * a.cos() - away[1] * a.sin(), away[0] * a.sin() + away[1] * a.cos()];
-            let p = [self.pos[0] + d[0] * crate::tuning::tuning().harvester_rise, self.pos[1] + d[1] * crate::tuning::tuning().harvester_rise];
-            if !self.map.hits_cells(p[0], p[1], crate::tuning::tuning().zombie_half()) {
+            let p = [self.pos[0] + d[0] * t.harvester_rise, self.pos[1] + d[1] * t.harvester_rise];
+            if !self.map.hits_cells(p[0], p[1], t.zombie_half()) {
                 at = p;
                 break;
             }
         }
-        let mut z = Zombie::new(Kind(roster().harvester as u8), at, crate::tuning::tuning().harvester_hp, 0.0, 0.0);
+        let mut z = Zombie::new(Kind(roster().harvester as u8), at, t.harvester_hp * self.fury, 0.0, 0.0);
         z.boss = true;
         z.id = self.next_id;
         self.next_id += 1;
@@ -2178,6 +2215,9 @@ impl Harvest {
                 continue;
             }
             let z = self.zombies.swap_remove(i);
+            if z.boss && self.waves.is_none() {
+                self.waves = Some((crate::tuning::tuning().harvester_again, 2));
+            }
             self.kills += 1;
             self.kill_bump = 0.0;
             died = Some(match died {
@@ -3358,6 +3398,59 @@ mod tests {
         if len(to_home) > 1.0 {
             assert!(to_home[0] * to_boss[0] + to_home[1] * to_boss[1] <= 0.0, "it rises on the side away from home");
         }
+    }
+
+    #[test]
+    fn once_the_harvester_falls_its_waves_rise_one_bigger_each_time() {
+        let t = crate::tuning::tuning();
+        let bosses = |h: &Harvest| h.zombies.iter().filter(|z| z.boss).count();
+        let wait = |h: &mut Harvest, secs: f32| {
+            for _ in 0..(secs / 0.5).round() as usize {
+                h.harvester_waves(0.5, &mut Vec::new(), &mut Flow::default());
+            }
+        };
+        let mut h = before_dawn();
+        h.update(&Input::default(), 0.02, &mut Vec::new());
+        wait(&mut h, t.harvester_again * 3.0);
+        assert_eq!(bosses(&h), 1, "no wave while the first lives");
+        h.zombies.iter_mut().filter(|z| z.boss).for_each(|z| z.hp = 0.0);
+        h.reap(&mut Vec::new(), &mut Flow::default());
+        assert_eq!(bosses(&h), 0);
+        wait(&mut h, t.harvester_again - 1.0);
+        assert_eq!(bosses(&h), 0, "not before `again`");
+        wait(&mut h, 1.0);
+        assert_eq!(bosses(&h), 2);
+        let spots: Vec<[f32; 2]> = h.zombies.iter().filter(|z| z.boss).map(|z| z.pos).collect();
+        assert!(len(sub(spots[0], spots[1])) > 10.0, "a wave spreads out");
+        wait(&mut h, t.harvester_again);
+        assert_eq!(bosses(&h), 2 + 3, "the next comes whether or not the last is dead");
+        h.zombies.retain(|z| !z.boss);
+        h.fury = 2.0;
+        wait(&mut h, t.harvester_again * 10.0);
+        let most = t.harvester_most as usize;
+        let waves = (4..14).map(|n| n.min(most)).sum::<usize>();
+        assert_eq!(bosses(&h), waves, "no wave above `most`");
+        assert!(h.zombies.iter().filter(|z| z.boss).all(|z| z.hp >= t.harvester_hp * 2.0 - 0.01), "fury grows them");
+    }
+
+    #[test]
+    fn harvester_waves_stop_when_the_run_ends() {
+        let mut h = before_dawn();
+        h.update(&Input::default(), 0.02, &mut Vec::new());
+        h.zombies.iter_mut().filter(|z| z.boss).for_each(|z| z.hp = 0.0);
+        h.update(&Input::default(), 0.02, &mut Vec::new());
+        assert!(h.waves.is_some());
+        h.zombies.clear();
+        h.pos = h.map.home;
+        // The Harvester's fall holds the world still a moment first.
+        for _ in 0..50 {
+            h.update(&Input::default(), 0.02, &mut Vec::new());
+        }
+        assert!(matches!(h.phase, Phase::Over { won: true, .. }));
+        for _ in 0..(crate::tuning::tuning().harvester_again * 3.0 / 0.1) as usize {
+            h.update(&Input::default(), 0.1, &mut Vec::new());
+        }
+        assert_eq!(h.zombies.iter().filter(|z| z.boss).count(), 0, "home shuts the door on them");
     }
 
     #[test]

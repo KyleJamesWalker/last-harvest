@@ -184,7 +184,7 @@ The game reads its rules from seven text files in `crates/game/`. The packer put
 | `[night]` | The night's length, where zombies rise at dusk and dawn, how near home counts, the rare-card chance and the level-up push |
 | `[easy]`, `[normal]`, `[hard]` | Bite damage, how long a hit keeps the player safe, and how often kills drop health and how much |
 | `[zombies]` | The most alive at once, rising time, stagger, growth each minute, a leader's health, dawn's fury, footprint, walk speed, bite reach, `charge_reach`, spit speed and rate, `burrow_reach`, and chewing speed |
-| `[harvester]` | Dawn's boss: health, speed, bite and how far away it rises |
+| `[harvester]` | Dawn's boss: health, speed, bite, how far away it rises, and the waves after it falls (`again`, `most`) |
 | `[grenade]` | Recharge, flight time, radius, damage, bomblets, one-screen aiming (`aim_`), and R1's quick throw (`quick_near`, `quick_far`, `quick_grow`) |
 | `[barrel]` | Health, blast radius and damage |
 | `[weapons]` | The view ahead and behind, the pistol's point-blank reach, crow and dog reach, and how long fire burns |
