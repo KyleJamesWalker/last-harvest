@@ -11,13 +11,15 @@ const COL_X: f32 = CANVAS.x + 212.0;
 const COL_W: f32 = 34.0;
 const HEAD_Y: f32 = CANVAS.y + 44.0;
 const STAT_Y: f32 = CANVAS.y + 80.0;
-const STAT_H: f32 = 30.0;
-const PICK_Y: f32 = CANVAS.y + 422.0;
+const STAT_H: f32 = 25.0;
+const PICK_Y: f32 = CANVAS.y + 384.0;
+const PICK_H: f32 = 28.0;
 const DOES_Y: f32 = CANVAS.y + 28.0;
 const DOES_W: f32 = 114.0;
 const PREVIEW: Rect = Rect { x: SIDE_X, y: CANVAS.y + 340.0, w: SIDE_W, h: 220.0 };
+const STYLE: Rect = Rect { x: SIDE_X + SIDE_W / 2.0 + 8.0, y: PREVIEW.y + PREVIEW.h + 6.0, w: SIDE_W / 2.0 - 16.0, h: 28.0 };
 /// The lines the pickers set, in order.
-const PICKS: [&str; 3] = ["effect", "bullet", "sound"];
+const PICKS: [&str; 5] = ["effect", "bullet", "sound", "pattern", "targets"];
 
 /// What the weapon page shows of a section, beside the lines it edits.
 pub(super) struct Weapon {
@@ -27,11 +29,15 @@ pub(super) struct Weapon {
     pub level: usize,
     /// The effect and bullet playing: the effects.txt name, its frames and their pace.
     pub preview: [(Option<String>, Vec<Frame>, f32); 2],
+    /// The shot style its bullets fly as, when they fly as particles.
+    pub shot: Option<last_harvest_game::Shot>,
+    /// The frames of the sprites the shot draws, by `SHOT_SPRITES`; none draws the plain shape.
+    pub shot_art: [Vec<Frame>; 4],
 }
 
 impl Weapon {
     pub fn new() -> Self {
-        Self { lines: false, level: 1, preview: Default::default() }
+        Self { lines: false, level: 1, preview: Default::default(), shot: None, shot_art: Default::default() }
     }
 }
 
@@ -82,10 +88,13 @@ fn number(v: f32) -> String {
     s.trim_end_matches('0').trim_end_matches('.').to_string()
 }
 
-/// What a picker can name: effects.txt's sections, or the weapon sounds.
+/// What a picker can name: effects.txt's sections, the weapon sounds, or the patterns of a gun's shots.
 fn choices(store: &dyn Store, pick: usize) -> Vec<String> {
-    if PICKS[pick] == "sound" {
-        return last_harvest_game::weapon_sound_names().map(str::to_string).to_vec();
+    match PICKS[pick] {
+        "sound" => return last_harvest_game::weapon_sound_names().map(str::to_string).to_vec(),
+        "pattern" => return last_harvest_game::weapon_patterns().map(str::to_string).to_vec(),
+        "targets" => return last_harvest_game::weapon_targets().map(str::to_string).to_vec(),
+        _ => {}
     }
     let effects = Table::new("effects.txt", &store.read_table("effects.txt").unwrap_or_default());
     effects.sections().into_iter().filter(|s| s != table::TOP && s != "colors").collect()
@@ -100,8 +109,11 @@ impl Editor {
     /// Loads the frames of the effect and bullet the section names, where they changed.
     pub(super) fn refresh_weapon(&mut self) {
         let Some(d) = &self.data else { return };
-        let effects = Table::new("effects.txt", &self.store.read_table("effects.txt").unwrap_or_default());
+        let text = self.store.read_table("effects.txt").unwrap_or_default();
+        let effects = Table::new("effects.txt", &text);
         let names = ["effect", "bullet"].map(|k| value(&d.table, &d.section, k));
+        let shot = last_harvest_game::shot_named(&text, names[1].as_deref());
+        let shot_art = last_harvest_game::shot_sprite_names(&text, names[1].as_deref()).map(|n| n.and_then(|n| self.store.load(&n)).map(|s| s.frames).unwrap_or_default());
         let mut loaded = Vec::new();
         for (i, name) in names.into_iter().enumerate() {
             if d.weapon.as_ref().is_some_and(|w| w.preview[i].0 == name) {
@@ -113,6 +125,7 @@ impl Editor {
             loaded.push((i, (name, frames, fps)));
         }
         if let Some(w) = self.data.as_mut().and_then(|d| d.weapon.as_mut()) {
+            (w.shot, w.shot_art) = (shot, shot_art);
             for (i, p) in loaded {
                 w.preview[i] = p;
             }
@@ -128,16 +141,17 @@ impl Editor {
         }
         for i in 0..last_harvest_game::weapon_stats().len() {
             let y = STAT_Y + i as f32 * STAT_H;
-            push(CANVAS.x + 100.0, y, 28.0, 26.0, Action::WeaponStep(i, -1), "-", false);
-            push(CANVAS.x + 130.0, y, 28.0, 26.0, Action::WeaponStep(i, 1), "+", false);
-            push(CANVAS.x + 160.0, y, 44.0, 26.0, Action::WeaponType(i), "Edit", false);
+            push(CANVAS.x + 100.0, y, 28.0, 24.0, Action::WeaponStep(i, -1), "-", false);
+            push(CANVAS.x + 130.0, y, 28.0, 24.0, Action::WeaponStep(i, 1), "+", false);
+            push(CANVAS.x + 160.0, y, 44.0, 24.0, Action::WeaponType(i), "Edit", false);
         }
         for i in 0..PICKS.len() {
-            let y = PICK_Y + i as f32 * 32.0;
-            push(CANVAS.x + 392.0, y, 36.0, 28.0, Action::WeaponPick(i, -1), "<", false);
-            push(CANVAS.x + 432.0, y, 36.0, 28.0, Action::WeaponPick(i, 1), ">", false);
-            push(CANVAS.x + 472.0, y, 76.0, 28.0, Action::WeaponPick(i, 0), "Own", false);
+            let y = PICK_Y + i as f32 * PICK_H;
+            push(CANVAS.x + 392.0, y, 36.0, 26.0, Action::WeaponPick(i, -1), "<", false);
+            push(CANVAS.x + 432.0, y, 36.0, 26.0, Action::WeaponPick(i, 1), ">", false);
+            push(CANVAS.x + 472.0, y, 76.0, 26.0, Action::WeaponPick(i, 0), "Own", false);
         }
+        push(STYLE.x, STYLE.y, STYLE.w, STYLE.h, Action::WeaponStyle, "Style", false);
         let does = value(&d.table, &d.section, "does").unwrap_or_else(|| d.section.clone());
         for (i, name) in last_harvest_game::weapon_behaviours().into_iter().enumerate() {
             let (x, y) = (SIDE_X + (i % 2) as f32 * (DOES_W + 4.0), DOES_Y + (i / 2) as f32 * 30.0);
@@ -159,7 +173,12 @@ impl Editor {
             Action::WeaponLevel(l) => d.weapon.as_mut().unwrap().level = l.clamp(1, max),
             Action::WeaponTry => {
                 let level = level.min(max) as u32;
-                let setup = last_harvest_game::RangeSetup { weapon: d.section.clone(), level, section: d.table.section_text(&d.section) };
+                let effects = Table::new("effects.txt", &store.read_table("effects.txt").unwrap_or_default());
+                let mut styles = vec!["bullet".to_string()];
+                styles.extend(value(&d.table, &d.section, "bullet").filter(|b| b != "bullet"));
+                let effects: String = styles.iter().filter_map(|s| effects.section_text(s)).collect();
+                let effects = (!effects.is_empty()).then_some(effects);
+                let setup = last_harvest_game::RangeSetup { weapon: d.section.clone(), level, section: d.table.section_text(&d.section), effects };
                 let said = match last_harvest_game::RangeSetup::read(&setup.text()) {
                     Ok(s) => {
                         self.tried = Some(s.text());
@@ -211,6 +230,11 @@ impl Editor {
                 let pick = next.checked_sub(1).map(|n| all[n].as_str());
                 d.change(|t, s| set_key(t, s, key, pick));
             }
+            Action::WeaponStyle => {
+                let name = value(&d.table, &d.section, "bullet").unwrap_or_else(|| "bullet".into());
+                self.switch_to(super::tables::data_name("effects.txt", &name));
+                return true;
+            }
             _ => return false,
         }
         self.refresh_weapon();
@@ -237,10 +261,15 @@ impl Editor {
             }
         }
         for (i, key) in PICKS.into_iter().enumerate() {
-            let y = PICK_Y + i as f32 * 32.0;
+            let y = PICK_Y + i as f32 * PICK_H;
             c.label(key, CANVAS.x + 12.0, y + 5.0, 17.0, TEXT, Align::Left);
             let now = value(&d.table, &d.section, key);
-            c.label(now.unwrap_or_else(|| "its behaviour's own".into()), CANVAS.x + 100.0, y + 5.0, 17.0, TEXT, Align::Left);
+            let own = match key {
+                "pattern" => "fan",
+                "targets" => "same",
+                _ => "its behaviour's own",
+            };
+            c.label(now.unwrap_or_else(|| own.into()), CANVAS.x + 100.0, y + 5.0, 17.0, TEXT, Align::Left);
         }
         let hint = match &self.naming {
             Some((Line::Value, t)) => format!("{}: {t}_", d.typing.and_then(|r| d.table.entries(&d.section).get(r).map(|e| e.key.clone())).unwrap_or_default()),
@@ -257,6 +286,10 @@ impl Editor {
         for (i, (name, frames, fps)) in w.preview.iter().enumerate() {
             let x = PREVIEW.x + i as f32 * PREVIEW.w / 2.0;
             c.label(PICKS[i], x + PREVIEW.w / 4.0, PREVIEW.y + 6.0, 15.0, DIM, Align::Center);
+            if let (1, Some(shot)) = (i, w.shot) {
+                self.draw_shot(c, shot, &w.shot_art, x);
+                continue;
+            }
             let Some(f) = frames.get((self.clock * fps).max(0.0) as usize % frames.len().max(1)) else {
                 let none = if name.is_some() { "no frames" } else { "none" };
                 c.label(none, x + PREVIEW.w / 4.0, PREVIEW.y + PREVIEW.h / 2.0, 15.0, DIM, Align::Center);
@@ -276,6 +309,68 @@ impl Editor {
         c.label("Levels: pick one; -/+ step its value, Shift by ten   Lines: every line", CANVAS.x, CANVAS.y + CANVAS.h + 12.0, 15.0, DIM, Align::Left);
         c.label("< > pick from effects.txt or the sounds; Own leaves the behaviour's.", CANVAS.x, CANVAS.y + CANVAS.h + 34.0, 15.0, DIM, Align::Left);
         self.draw_overlays(c);
+    }
+
+    /// The bullet's streak flying across the preview's half at `x`, with the numbers of its style under it.
+    fn draw_shot(&self, c: &mut Canvas, shot: last_harvest_game::Shot, art: &[Vec<Frame>; 4], x: f32) {
+        let (w, mid) = (PREVIEW.w / 2.0, PREVIEW.y + PREVIEW.h / 2.0 - 16.0);
+        let zoom = ((w - 16.0) / shot.length).clamp(1.0, 4.0);
+        let (from, run) = (x + 8.0, (w - 16.0) / zoom + shot.length);
+        let speed = 90.0;
+        let age = (self.clock * speed / run).fract() * run / speed;
+        let head = speed * age;
+        let tail = shot.tail([head, 0.0], [speed, 0.0], age)[0];
+        let [r, g, b] = shot.color;
+        let in_panel = |px: f32| (from..x + w - 8.0).contains(&px);
+        let flare_reach = shot.core * 2.4 * zoom;
+        match art[3].first() {
+            Some(f) if head * zoom < flare_reach => stretch(c, f, [from, mid], flare_reach, flare_reach * f.h as f32 / f.w as f32, &in_panel),
+            None if head * zoom < shot.core => {
+                let s = shot.core * zoom;
+                c.rect(from - s / 2.0, mid - s / 2.0, s, s, [1.0; 4]);
+            }
+            _ => {}
+        }
+        if let Some(f) = art[0].get((age * 12.0) as usize % art[0].len().max(1)) {
+            stretch(c, f, [from + tail * zoom, mid], (head - tail) * zoom, shot.size * 1.5 * zoom, &in_panel);
+        }
+        let mut px = 0.0;
+        while art[0].is_empty() && px <= (head - tail) * zoom {
+            let k = px / ((head - tail) * zoom).max(1.0);
+            let (thick, bright) = last_harvest_game::Shot::taper(k);
+            let at = from + head * zoom - px;
+            let h = (shot.size * thick * zoom).max(1.0);
+            if in_panel(at) {
+                let hot = if k < 0.45 { 0.5 } else { 0.0 };
+                c.rect(at, mid - h / 2.0, 1.0, h, [(r * bright + hot).min(1.0), (g * bright + hot).min(1.0), (b * bright + hot).min(1.0), 1.0]);
+            }
+            px += 1.0;
+        }
+        let hex = format!("{:02X}{:02X}{:02X}", (r * 255.0).round() as u8, (g * 255.0).round() as u8, (b * 255.0).round() as u8);
+        c.label(hex, x + w / 2.0, mid + 30.0, 14.0, TEXT, Align::Center);
+        c.label(format!("length {} size {}", number(shot.length), number(shot.size)), x + w / 2.0, mid + 48.0, 13.0, DIM, Align::Center);
+        c.label(format!("{} sparks, core {}", shot.sparks, number(shot.core)), x + w / 2.0, mid + 64.0, 13.0, DIM, Align::Center);
+        c.label(format!("{} on a hit", shot.impact), x + w / 2.0, mid + 80.0, 13.0, DIM, Align::Center);
+        for (k, frames) in art[1..3].iter().enumerate() {
+            for (i, f) in frames.iter().enumerate() {
+                let s = 3.0;
+                let o = [x + 8.0 + (k * 4 + i) as f32 * (f.w as f32 * s + 4.0), mid + 96.0];
+                for (p, px) in f.px.iter().enumerate().filter(|(_, px)| px[3] > 0) {
+                    c.rect(o[0] + (p % f.w) as f32 * s, o[1] + (p / f.w) as f32 * s, s, s, rgba(*px));
+                }
+            }
+        }
+    }
+}
+
+/// Draws a frame `w` by `h` with its left edge's middle at `at`, its pixels clipped to what `shown` allows.
+fn stretch(c: &mut Canvas, f: &Frame, at: [f32; 2], w: f32, h: f32, shown: &dyn Fn(f32) -> bool) {
+    let (sx, sy) = (w / f.w as f32, h / f.h as f32);
+    for (p, px) in f.px.iter().enumerate().filter(|(_, px)| px[3] > 0) {
+        let x = at[0] + (p % f.w) as f32 * sx;
+        if shown(x) {
+            c.rect(x, at[1] - h / 2.0 + (p / f.w) as f32 * sy, sx.max(1.0), sy.max(1.0), rgba(*px));
+        }
     }
 }
 

@@ -17,10 +17,23 @@ const PAK: &str = "data/game_data.pak";
 /// The weapon section the range tries, laid over the powerups the game installs.
 static TRIED: Mutex<Option<String>> = Mutex::new(None);
 
+/// The `effects.txt` sections the range tries, such as its weapon's shot style, laid over the effects installed.
+static TRIED_EFFECTS: Mutex<Option<String>> = Mutex::new(None);
+
 /// Lays a weapon's `powerups.txt` section over the powerups the next install hands the game.
 pub fn try_section(section: &str) {
     if let Ok(mut t) = TRIED.lock() {
         *t = Some(section.to_string());
+    }
+}
+
+/// Lays what a range setup tries over the next install: its weapon's section and its `effects.txt` sections.
+pub fn try_setup(setup: &last_harvest_game::RangeSetup) {
+    if let Some(section) = &setup.section {
+        try_section(section);
+    }
+    if let (Some(effects), Ok(mut t)) = (&setup.effects, TRIED_EFFECTS.lock()) {
+        *t = Some(effects.clone());
     }
 }
 
@@ -32,9 +45,7 @@ pub fn range_setup() -> Option<last_harvest_game::RangeSetup> {
     let text = std::fs::read_to_string(&value).unwrap_or(value);
     match last_harvest_game::RangeSetup::read(&text) {
         Ok(setup) => {
-            if let Some(section) = &setup.section {
-                try_section(section);
-            }
+            try_setup(&setup);
             log!("range: {} at level {}", setup.weapon, setup.level);
             Some(setup)
         }
@@ -244,6 +255,16 @@ fn install_noting(base: Option<Pak>, missing_pack: Option<String>, more: Vec<(St
             }
         },
         None => powerups,
+    };
+    let effects = match TRIED_EFFECTS.lock().ok().and_then(|t| t.clone()) {
+        Some(sections) => match last_harvest_game::effects_with(effects.as_deref().or(last_harvest_game::built_in_table("effects.txt")).unwrap_or_default(), &sections) {
+            Ok(text) => Some(text),
+            Err(e) => {
+                problems.push(format!("the shot tried: {e}"));
+                effects
+            }
+        },
+        None => effects,
     };
     let (enemy, player) = (card::Kind::Enemy, card::Kind::Player);
     let mut own = OwnSounds::new();
