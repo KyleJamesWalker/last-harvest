@@ -575,7 +575,7 @@ mod tests {
         for _ in 0..30 {
             h.update(&Input { held: Buttons::L1 | Buttons::UP, ..Default::default() }, DT, &mut Vec::new());
         }
-        assert!(h.lift > 0.0 && !h.showing_whole_map(), "L1 raises the camera instead of showing the map");
+        assert!(h.lift > 0.0, "L1 raises the camera");
         press(&mut h, Buttons::B);
         assert!(!h.in_photo() && h.menu == Some(PAUSE_PHOTO), "B goes back to the pause menu");
         assert_eq!((h.view_yaw, h.zoom, h.lift), (heading, 1.0, 0.0), "with the player's own view");

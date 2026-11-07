@@ -3,11 +3,13 @@
 mod carve;
 mod draw;
 mod effects;
+pub use effects::{SPRITES as SHOT_SPRITES, Shot, shot_named, shot_sprite_names};
 mod enemies;
 mod juice;
 mod map;
 mod photo;
 mod props;
+mod quick;
 mod range;
 mod players;
 mod powerups;
@@ -36,8 +38,8 @@ pub use players::{BASE_KEYS as PLAYER_BASE_KEYS, ID_MAX as PLAYER_ID_MAX, Player
 pub use enemies::{CardFields, FLAGS as CARD_FLAGS, NUMBERS as CARD_NUMBERS, SpawnMix, card_fields, set_card_field, spawn_mix};
 use juice::{Corpse, Juice, Particle, Tone};
 use map::{Map, TILE};
-pub use range::{RangeSetup, powerups_with};
-pub use powerups::{Progress, RUN_KIT, Run, WeaponLevels, powerup_id, powerup_index, found_from_ids, found_ids, weapon_behaviours, weapon_levels, weapon_sound_names, weapon_stats};
+pub use range::{RangeSetup, effects_with, powerups_with};
+pub use powerups::{Progress, RUN_KIT, Run, WeaponLevels, found_from_ids, found_ids, powerup_id, powerup_index, weapon_behaviours, weapon_levels, weapon_patterns, weapon_sound_names, weapon_stats, weapon_targets};
 use powerups::{Kind as Card, book};
 use weapons::{Bolt, Decoy, Dog, Kit, Patch, Swing};
 
@@ -227,8 +229,12 @@ pub fn check_own_table(file: &str, text: &str) -> Result<(), String> {
         "effects.txt" => {
             effects::parse_colors(text, None).map_err(fail)?;
             let (own, extra) = effects::parse(text).map_err(fail)?;
-            match own.iter().chain(extra.iter().map(|(_, w)| w)).find(|w| missing(&w.art)) {
-                Some(w) => Err(format!("{file}: no sprite called {} in art.txt", w.art)),
+            let all = || own.iter().chain(extra.iter().map(|(_, w)| w));
+            if let Some(w) = all().find(|w| !(w.art.is_empty() && w.is_shot()) && missing(&w.art)) {
+                return Err(format!("{file}: no sprite called {} in art.txt", w.art));
+            }
+            match all().flat_map(|w| w.sprites.iter().flatten()).find(|n| missing(n)) {
+                Some(n) => Err(format!("{file}: no sprite called {n} in art.txt")),
                 None => Ok(()),
             }
         }
@@ -660,6 +666,8 @@ pub struct Harvest {
     marks: Vec<sight::Mark>,
     spits: Vec<Spit>,
     bullets: Vec<Bullet>,
+    /// The zombies each weapon's burst has shot so far, by its section, for `targets each`.
+    burst_shot: Vec<(usize, u32)>,
     drops: Vec<Drop>,
     fx: Vec<Fx>,
     /// Blood and scorch marks: art, top-left, and a tint.
@@ -715,8 +723,6 @@ pub struct Harvest {
     next_xp: u32,
     level: u32,
     kills: u32,
-    /// Holding L1 pauses and shows the whole map.
-    overview: bool,
     /// Steps to the player from each cell, rebuilt when the player changes cell.
     flow: Vec<u16>,
     flow_cell: [usize; 2],
@@ -772,6 +778,8 @@ pub struct Harvest {
     /// One screen: the map shows on the top screen only while looked at.
     single: bool,
     aiming: Option<single::Aiming>,
+    /// Seconds R1 has held a quick throw lined up.
+    quick: Option<f32>,
     /// The map is up on the one screen without a grenade being aimed.
     glance: bool,
     /// A thrown grenade is never spent.
@@ -940,6 +948,7 @@ impl Harvest {
             marks: Vec::new(),
             spits: Vec::new(),
             bullets: Vec::new(),
+            burst_shot: Vec::new(),
             drops: Vec::new(),
             fx: Vec::new(),
             stains: Vec::new(),
@@ -948,7 +957,6 @@ impl Harvest {
             next_xp: book().first_level,
             level: 1,
             kills: 0,
-            overview: false,
             flow: Vec::new(),
             flow_cell: [usize::MAX; 2],
             sep: Vec::new(),
@@ -981,6 +989,7 @@ impl Harvest {
             difficulty: Difficulty::Normal,
             single: false,
             aiming: None,
+            quick: None,
             glance: false,
             endless: false,
             last_throw: None,
@@ -1094,10 +1103,9 @@ impl Harvest {
         self.enemies_off
     }
 
-    /// Whether the paused whole map is up.
     #[cfg(test)]
-    pub(crate) fn showing_whole_map(&self) -> bool {
-        self.overview
+    pub(crate) fn night_t(&self) -> f32 {
+        self.t
     }
 
     #[cfg(test)]
@@ -1173,10 +1181,6 @@ impl Harvest {
             self.photo(input, dt, sounds, &mut flow);
             return flow;
         }
-        self.overview = input.held.contains(if self.single { Buttons::R2 } else { Buttons::L1 });
-        if self.overview {
-            return flow;
-        }
         let own;
         let (input, dt) = if self.single {
             own = self.single_input(input, dt, sounds);
@@ -1184,6 +1188,7 @@ impl Harvest {
         } else {
             (input, dt)
         };
+        self.quick_off();
         if let Some(at) = self.menu {
             self.pause_menu(at, input, sounds, &mut flow);
             return flow;
@@ -1329,6 +1334,7 @@ impl Harvest {
         if let Some(touch) = input.touch.filter(|_| input.touch_started).or(self.queued_touch.take()) {
             self.throw(touch, sounds);
         }
+        self.quick_throw(input, dt, sounds);
         self.fly(dt, sounds, flow);
 
         if !self.calm {
@@ -1546,6 +1552,8 @@ impl Harvest {
                 drag: 1.0,
                 glow: 1.0,
                 wander: false,
+                grow: 0.0,
+                art: None,
             });
         }
     }
@@ -1961,6 +1969,7 @@ impl Harvest {
 
     fn move_bullets(&mut self, dt: f32, sounds: &mut Vec<Sfx>) {
         let crit = crate::tuning::tuning().crit + self.kit.mods.crit;
+        let own_shot = effects::effects().bullet.shot;
         let mut hits = (0, false);
         for b in &mut self.bullets {
             b.pos = [b.pos[0] + b.vel[0] * dt, b.pos[1] + b.vel[1] * dt];
@@ -1968,6 +1977,7 @@ impl Harvest {
             b.age += dt;
             let ground = [b.pos[0], b.pos[1] + 6.0];
             let back = norm([-b.vel[0], -b.vel[1]]);
+            let shot = b.look.map_or(own_shot, |e| e.shot);
             if self.map.cover_at(ground[0], ground[1]) {
                 let cell = |p: [f32; 2]| [(p[0] / TILE).floor(), (p[1] / TILE).floor()];
                 let at = cell(ground);
@@ -1981,9 +1991,13 @@ impl Harvest {
                 } else {
                     self.juice.burst(ground, 6.0, 2, back, 0.9, [20.0, 50.0], juice::dirt(), 1.0, 0.3, 0.0);
                 }
+                if let Some(s) = &shot {
+                    self.juice.impact(ground, 6.0, back, s);
+                }
                 b.life = 0.0;
                 continue;
             }
+            let spent = b.life <= 0.0;
             for z in &mut self.zombies {
                 if b.life <= 0.0 || b.hit.contains(&z.id) {
                     continue;
@@ -1993,6 +2007,9 @@ impl Harvest {
                     self.juice.tally.by = b.by;
                     hits.1 |= strike(z, &mut self.juice, b.damage, norm(b.vel), b.force, crit);
                     hits.0 += 1;
+                    if let Some(s) = &shot {
+                        self.juice.impact(ground, 6.0, back, s);
+                    }
                     b.hit.push(z.id);
                     if b.pierce == 0 {
                         b.life = 0.0;
@@ -2000,6 +2017,9 @@ impl Harvest {
                         b.pierce -= 1;
                     }
                 }
+            }
+            if let (true, Some(s)) = (spent, &shot) {
+                self.juice.impact(ground, 1.0, back, s);
             }
         }
         self.juice.tally.by = None;
@@ -2339,6 +2359,8 @@ impl Harvest {
                 drag: 0.0,
                 glow: 1.0,
                 wander: true,
+                grow: 0.0,
+                art: None,
             });
         }
 
@@ -2361,6 +2383,8 @@ impl Harvest {
                     drag: 0.0,
                     glow: 1.0,
                     wander: false,
+                    grow: 0.0,
+                    art: None,
                 });
             }
         }
@@ -2637,6 +2661,8 @@ mod tests {
         }
         assert!(check_table("tuning.txt", "[player]\nhp 120").is_ok(), "a mod sets only what it changes");
         assert!(check_own_table("tuning.txt", "[player]\nhp 120").unwrap_err().contains("doesn't set"));
+        let sprite = built_in_table("effects.txt").unwrap().replacen("spark SHOT_SPARK", "spark NOPE", 1);
+        assert!(check_table("effects.txt", &sprite).is_ok() && check_own_table("effects.txt", &sprite).is_err(), "the game's own shots draw its own sprites");
         let effects = built_in_table("effects.txt").unwrap().replace("art SLASH", "art NOPE");
         assert_eq!(check_own_table("effects.txt", &effects), Err("effects.txt: no sprite called NOPE in art.txt".into()));
         let farm = built_in_table("farm.txt").unwrap().replace("BUSH 140", "PROP_MINE 140");
@@ -2828,6 +2854,32 @@ mod tests {
         assert!(h.blow(0.016, &mut sounds));
         assert!(h.zombies[0].hp <= 0.0);
         assert!(!h.map.solid_at(c[0], c[1]));
+    }
+
+    #[test]
+    fn a_bullet_throws_its_impact_sparks_where_it_hits_a_zombie_or_runs_out_on_the_ground() {
+        let look = effects::effects().named("pistol_shot").expect("the pistol's style");
+        let shot = look.shot.unwrap();
+        let sparks = |h: &Harvest| h.juice.particles.iter().filter(|p| p.glow > 0.0 && p.color == shot.color).count();
+        let mut h = Harvest::calm(4);
+        let at = h.pos;
+        h.zombies.push(Zombie::new(Kind::named("big"), [at[0] + 3.0, at[1]], 500.0, 1.0, 0.0));
+        h.bullets = vec![Bullet { pos: [at[0], at[1] - 6.0], vel: [10.0, 0.0], damage: 1.0, pierce: 0, life: 1.0, force: 0.0, hit: Vec::new(), look: Some(look), age: 0.0, by: None }];
+        h.juice.particles.clear();
+        h.move_bullets(0.016, &mut Vec::new());
+        assert!(h.bullets.is_empty());
+        assert_eq!(sparks(&h), shot.impact as usize, "sparks beside the blood");
+        assert!(h.juice.particles.len() > shot.impact as usize + 1, "and the blood still sprays");
+        h.zombies.clear();
+        h.juice.particles.clear();
+        h.bullets = vec![Bullet { pos: [at[0], at[1] - 6.0], vel: [10.0, 0.0], damage: 1.0, pierce: 0, life: 0.01, force: 0.0, hit: Vec::new(), look: Some(look), age: 0.0, by: None }];
+        h.move_bullets(0.016, &mut Vec::new());
+        assert_eq!(sparks(&h), shot.impact as usize, "a bullet that flies its range sparks on the ground");
+        h.juice.particles.clear();
+        let sprite = effects::effects().slash;
+        h.bullets = vec![Bullet { pos: [at[0], at[1] - 6.0], vel: [10.0, 0.0], damage: 1.0, pierce: 0, life: 0.01, force: 0.0, hit: Vec::new(), look: Some(sprite), age: 0.0, by: None }];
+        h.move_bullets(0.016, &mut Vec::new());
+        assert!(h.juice.particles.is_empty(), "a bullet that flies as a sprite throws none");
     }
 
     #[test]

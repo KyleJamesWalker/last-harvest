@@ -3,10 +3,18 @@
 
 use std::f32::consts::TAU;
 
+use super::effects::{FLARE, SMOKE as SMOKE_ART, SPARK, Shot};
 use crate::art::Art;
 use crate::rng::Rng;
 
 const MAX_PARTICLES: usize = 400;
+/// Seconds a muzzle flare shows: a frame or two.
+const MUZZLE_CORE: f32 = 0.04;
+const MAX_FLARES: usize = 8;
+const SMOKE_PUFFS: usize = 3;
+/// palette.txt's white, for a flash's core, and its grey, for gun smoke.
+const HOT: [f32; 3] = [1.0, 1.0, 1.0];
+const SMOKE: [f32; 3] = [0x58 as f32 / 255.0, 0x53 as f32 / 255.0, 0x4A as f32 / 255.0];
 const MAX_POPUPS: usize = 40;
 const MAX_CORPSES: usize = 60;
 const MAX_FLASHES: usize = 4;
@@ -87,11 +95,21 @@ pub struct Particle {
     pub glow: f32,
     /// Blinks and drifts, ignoring gravity.
     pub wander: bool,
+    /// How much wider it grows each second, as a fraction of `size`, as smoke spreads.
+    pub grow: f32,
+    /// A sprite drawn `size` wide in place of a plain square, its frames played over its life.
+    pub art: Option<&'static [Art]>,
 }
 
 impl Particle {
+    /// The frame of its sprite showing now.
+    pub fn frame(&self) -> Option<Art> {
+        let frames = self.art?;
+        frames.get(((self.age / self.life * frames.len() as f32) as usize).min(frames.len().saturating_sub(1))).copied()
+    }
+
     pub fn size_now(&self) -> f32 {
-        let k = if self.shrink { 1.0 - self.age / self.life } else { 1.0 };
+        let k = if self.shrink { 1.0 - self.age / self.life } else { 1.0 } * (1.0 + self.grow * self.age);
         let blink = if self.wander { 0.5 + 0.5 * (self.age * 3.0 + self.pos[0]).sin().max(0.0) } else { 1.0 };
         self.size * k * blink
     }
@@ -189,6 +207,33 @@ impl Flash {
     }
 }
 
+/// A muzzle flare: white-hot rays out of a gun's muzzle for a frame or two, in map pixels with a height.
+pub struct Flare {
+    pub pos: [f32; 2],
+    pub z: f32,
+    pub dir: [f32; 2],
+    /// Its rays' reach, in map pixels.
+    pub size: f32,
+    pub color: [f32; 3],
+    pub age: f32,
+    pub life: f32,
+    /// A sprite drawn pointing along `dir` in place of the plain rays, its frames played over its life.
+    pub art: Option<&'static [Art]>,
+}
+
+impl Flare {
+    /// The frame of its sprite showing now.
+    pub fn frame(&self) -> Option<Art> {
+        let frames = self.art?;
+        frames.get(((self.age / self.life * frames.len() as f32) as usize).min(frames.len().saturating_sub(1))).copied()
+    }
+
+    /// How far its rays reach now, as a fraction of `size`: full, then gone.
+    pub fn reach(&self) -> f32 {
+        (1.0 - self.age / self.life).clamp(0.0, 1.0).sqrt()
+    }
+}
+
 /// A line of text across the top screen that slides in and fades out.
 pub struct Banner {
     pub text: String,
@@ -209,12 +254,15 @@ pub const MOTE_TIME: f32 = 0.4;
 
 pub struct Juice {
     pub rng: Rng,
+    /// What only shows draws from this, so a seed plays the same whatever the effects look like.
+    pub fx: Rng,
     pub motes: Vec<Mote>,
     pub particles: Vec<Particle>,
     pub popups: Vec<Popup>,
     pub corpses: Vec<Corpse>,
     pub rings: Vec<Ring>,
     pub flashes: Vec<Flash>,
+    pub flares: Vec<Flare>,
     pub banner: Option<Banner>,
     /// 0 to 1; the camera shakes by its square.
     pub trauma: f32,
@@ -237,12 +285,14 @@ impl Juice {
     pub fn new(seed: u64) -> Self {
         Self {
             rng: Rng::new(seed ^ 0x5EED_1E55),
+            fx: Rng::new(seed ^ 0xF1A5_4E55),
             motes: Vec::new(),
             particles: Vec::new(),
             popups: Vec::new(),
             corpses: Vec::new(),
             rings: Vec::new(),
             flashes: Vec::new(),
+            flares: Vec::new(),
             banner: None,
             trauma: 0.0,
             kick: 0.0,
@@ -331,6 +381,10 @@ impl Juice {
             f.age += dt;
         }
         self.flashes.retain(|f| f.age < f.life);
+        for f in &mut self.flares {
+            f.age += dt;
+        }
+        self.flares.retain(|f| f.age < f.life);
     }
 
     pub fn frozen(&self) -> bool {
@@ -370,14 +424,14 @@ impl Juice {
         let base = if dir == [0.0, 0.0] { None } else { Some(dir[1].atan2(dir[0])) };
         for _ in 0..n {
             let a = match base {
-                Some(b) => b + self.rng.range(-spread, spread),
-                None => self.rng.range(0.0, TAU),
+                Some(b) => b + self.fx.range(-spread, spread),
+                None => self.fx.range(0.0, TAU),
             };
-            let v = self.rng.range(speed[0], speed[1]);
-            let shade = self.rng.range(0.8, 1.15);
-            let vz = self.rng.range(20.0, 70.0) * speed[1] / 80.0;
-            let life = life * self.rng.range(0.7, 1.3);
-            let size = size * self.rng.range(0.7, 1.3);
+            let v = self.fx.range(speed[0], speed[1]);
+            let shade = self.fx.range(0.8, 1.15);
+            let vz = self.fx.range(20.0, 70.0) * speed[1] / 80.0;
+            let life = life * self.fx.range(0.7, 1.3);
+            let size = size * self.fx.range(0.7, 1.3);
             self.particle(Particle {
                 pos: at,
                 z: height,
@@ -392,7 +446,52 @@ impl Juice {
                 drag: 2.0,
                 glow,
                 wander: false,
+                grow: 0.0,
+                art: None,
             });
+        }
+    }
+
+    /// A gunshot at its muzzle, `at` and `height` above the ground, firing along `dir`: a white-hot flare for a frame
+    /// or two, sparks thrown forward that slow and fade, and a puff of smoke, all in `shot`'s style.
+    pub fn muzzle(&mut self, at: [f32; 2], height: f32, dir: [f32; 2], shot: &Shot) {
+        if self.flares.len() >= MAX_FLARES {
+            self.flares.remove(0);
+        }
+        self.flares.push(Flare { pos: at, z: height, dir, size: shot.core, color: shot.color, age: 0.0, life: MUZZLE_CORE, art: shot.sprites[FLARE] });
+        self.sparks(at, height, dir, 0.3, [140.0, 280.0], shot.sparks, shot);
+        let base = dir[1].atan2(dir[0]);
+        for _ in 0..SMOKE_PUFFS {
+            let a = base + self.fx.range(-0.5, 0.5);
+            let v = self.fx.range(8.0, 22.0);
+            let life = self.fx.range(0.45, 0.7);
+            let vz = self.fx.range(6.0, 14.0);
+            let pos = [at[0] + dir[0] * 3.0, at[1] + dir[1] * 3.0];
+            self.particle(Particle { pos, z: height, vel: [a.cos() * v, a.sin() * v], vz, age: 0.0, life, color: SMOKE, size: shot.size * 0.8, shrink: shot.sprites[SMOKE_ART].is_none(), gravity: -8.0, drag: 2.5, glow: 0.0, wander: false, grow: 2.5, art: shot.sprites[SMOKE_ART] });
+        }
+    }
+
+    /// Where a bullet in `shot`'s style hits, `at` and `height` above the ground: a small spray of sparks back
+    /// along `back`, toward where it came from.
+    pub fn impact(&mut self, at: [f32; 2], height: f32, back: [f32; 2], shot: &Shot) {
+        if shot.impact == 0 {
+            return;
+        }
+        self.particle(Particle { pos: at, z: height, vel: [0.0; 2], vz: 0.0, age: 0.0, life: MUZZLE_CORE, color: HOT, size: shot.core * 0.45, shrink: true, gravity: 0.0, drag: 0.0, glow: 1.0, wander: false, grow: 0.0, art: shot.sprites[SPARK] });
+        self.sparks(at, height, back, 1.0, [50.0, 140.0], shot.impact, shot);
+    }
+
+    /// `n` sparks from `at` along `dir`, within `spread` radians of it, that slow hard and fade as they fall.
+    #[allow(clippy::too_many_arguments)]
+    fn sparks(&mut self, at: [f32; 2], height: f32, dir: [f32; 2], spread: f32, speed: [f32; 2], n: u32, shot: &Shot) {
+        let base = dir[1].atan2(dir[0]);
+        for _ in 0..n {
+            let a = base + self.fx.range(-spread, spread);
+            let v = self.fx.range(speed[0], speed[1]);
+            let life = self.fx.range(0.12, 0.28);
+            let size = shot.size * self.fx.range(0.6, 1.0);
+            let vz = self.fx.range(-10.0, 30.0);
+            self.particle(Particle { pos: at, z: height, vel: [a.cos() * v, a.sin() * v], vz, age: 0.0, life, color: shot.color, size, shrink: shot.sprites[SPARK].is_none(), gravity: 120.0, drag: 9.0, glow: 1.0, wander: false, grow: 0.0, art: shot.sprites[SPARK] });
         }
     }
 
@@ -404,7 +503,7 @@ impl Juice {
         if self.popups.len() >= MAX_POPUPS {
             self.popups.remove(0);
         }
-        let jitter = [self.rng.range(-4.0, 4.0), self.rng.range(-2.0, 2.0)];
+        let jitter = [self.fx.range(-4.0, 4.0), self.fx.range(-2.0, 2.0)];
         self.popups.push(Popup { pos: [pos[0] + jitter[0], pos[1] + jitter[1]], value: amount.round().max(1.0) as u32, tone, age: 0.0 });
     }
 
@@ -452,6 +551,50 @@ mod tests {
         j.tick_real(HITSTOP_REST);
         j.stop(0.05);
         assert!(j.frozen());
+    }
+
+    #[test]
+    fn effects_draw_from_their_own_generator_so_a_seed_plays_the_same() {
+        let (mut a, mut b) = (Juice::new(1), Juice::new(1));
+        a.burst([0.0; 2], 4.0, 30, [1.0, 0.0], 0.5, [40.0, 80.0], [1.0; 3], 1.0, 0.3, 1.0);
+        a.popup([0.0; 2], 12.0, Tone::Hit);
+        assert_eq!(a.rng.next_u32(), b.rng.next_u32(), "the game's generator didn't move");
+    }
+
+    #[test]
+    fn a_muzzle_flash_is_a_brief_core_sparks_that_slow_and_smoke_that_rises() {
+        let shot = Shot { color: [0.9, 0.8, 0.5], length: 12.0, size: 1.4, sparks: 6, impact: 3, core: 5.0, sprites: [None; 4] };
+        let mut j = Juice::new(1);
+        j.muzzle([0.0; 2], 10.0, [1.0, 0.0], &shot);
+        assert_eq!((j.particles.len(), j.flares.len()), (6 + SMOKE_PUFFS, 1));
+        let fast = |j: &Juice| j.particles.iter().filter(|p| p.glow > 0.0 && p.vel != [0.0; 2]).map(|p| p.vel[0]).fold(0.0, f32::max);
+        assert!(j.particles.iter().filter(|p| p.vel[0] > 50.0).all(|p| p.vel[0] > 0.0), "sparks fly forward");
+        let start = fast(&j);
+        j.tick(0.05);
+        assert!(fast(&j) < start * 0.7, "and slow hard");
+        assert!(j.flares.is_empty(), "the flare lasts a frame or two");
+        let smoke: Vec<&Particle> = j.particles.iter().filter(|p| p.color == SMOKE).collect();
+        assert!(smoke.len() == SMOKE_PUFFS && smoke.iter().all(|p| p.z > 10.0 && p.size_now() > p.size * 0.9), "smoke rises and spreads");
+        let mut j = Juice::new(1);
+        j.impact([0.0; 2], 6.0, [-1.0, 0.0], &shot);
+        assert_eq!(j.particles.len(), 1 + 3);
+        j.impact([0.0; 2], 6.0, [-1.0, 0.0], &Shot { impact: 0, ..shot });
+        assert_eq!(j.particles.len(), 4, "a style with no impact sparks throws none");
+    }
+
+    #[test]
+    fn a_sprite_spark_plays_its_frames_over_its_life() {
+        let frames: &'static [Art] = &[Art(1), Art(2), Art(3)];
+        let shot = Shot { color: [1.0; 3], length: 12.0, size: 1.4, sparks: 4, impact: 0, core: 3.0, sprites: [None, Some(frames), None, Some(frames)] };
+        let mut j = Juice::new(1);
+        j.muzzle([0.0; 2], 10.0, [1.0, 0.0], &shot);
+        let sparks: Vec<&Particle> = j.particles.iter().filter(|p| p.art.is_some()).collect();
+        assert_eq!((sparks.len(), j.flares[0].frame()), (4, Some(Art(1))));
+        assert!(sparks.iter().all(|p| p.frame() == Some(Art(1)) && !p.shrink), "its frames shrink it, not the size");
+        assert!(j.particles.iter().filter(|p| p.color == SMOKE).all(|p| p.art.is_none()), "smoke with no sprite stays a square");
+        let p = &mut j.particles[0];
+        p.age = p.life * 0.99;
+        assert_eq!(p.frame(), Some(Art(3)));
     }
 
     #[test]

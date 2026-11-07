@@ -793,6 +793,15 @@ mod tests {
     }
 
     #[test]
+    fn the_gunshots_heading_lists_only_the_shot_sprites() {
+        let sections = sections_of(include_str!("../../game/art.txt"));
+        let under = |h: &str| sections.iter().filter(|(_, s)| s == h).map(|(n, _)| n.as_str()).collect::<Vec<_>>();
+        assert_eq!(under("Gunshots"), ["SHOT_TRACER", "SHOT_PELLET", "SHOT_ROUND", "SHOT_SPARK", "SHOT_SMOKE", "SHOT_FLARE"]);
+        let touch: Vec<&str> = sections.iter().filter(|(n, _)| n.starts_with("TOUCH_")).map(|(_, h)| h.as_str()).collect();
+        assert!(!touch.is_empty() && touch.iter().all(|h| *h == touch[0] && *h != "Gunshots"), "{touch:?}");
+    }
+
+    #[test]
     fn headings_come_from_the_comment_that_opens_each_group() {
         let text = "# The file\n# says what it is\n\n# Ground\nDIRT cell 1 1\n# Indexed by connections: N=1\nPATH cell 2 2\n\n# Fences: top row\nRAIL cell 3 3\n";
         let got: Vec<(String, String)> = sections_of(text);
