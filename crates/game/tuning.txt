@@ -75,6 +75,9 @@ aim_slow 0.5    # game speed while aiming
 aim_speed 160   # cursor, map pixels a second
 aim_memory 5    # seconds a throw's angle off the view and distance carry to the next aim
 aim_ahead 64    # how far straight ahead the cursor starts otherwise
+quick_near 64   # R1's quick throw: how far ahead its marker starts, map pixels
+quick_far 128   # how far out holding R1 slides it, at most
+quick_grow 1    # seconds held to slide it from near to far
 
 [barrel]
 hp 20
@@ -99,3 +102,4 @@ near 0.7        # the player is hurt within this fraction of its radius
 scale 3         # screen pixels per art pixel on the map
 sight 240       # how far the view ahead sees zombies for the map
 memory 6        # seconds a zombie out of sight fades on the map before it's gone
+shade 0.55      # how dark the map gets outside the view ahead, 0 for not at all to 1 for black

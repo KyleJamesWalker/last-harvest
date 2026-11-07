@@ -1,7 +1,7 @@
-//! On-screen controls for a phone, in window pixels: a floating stick on the left with Map above it, and on the right
-//! Grenade and Turn around over a turn strip, a sideways-only floating stick that turns as a right stick does, with
-//! Pause above. They go beside the picture when the window is wide enough and under it when upright. In photo mode
-//! the keys become photo keys, each named by a word.
+//! On-screen controls for a phone, in window pixels: a floating stick on the left, and on the right Grenade and Turn
+//! around over a turn strip, a sideways-only floating stick that turns as a right stick does, with Pause above. They go
+//! beside the picture when the window is wide enough and under it when upright. In photo mode the keys become photo
+//! keys, each named by a word.
 
 use crate::art::{self, Art};
 use crate::input::{Buttons, MAX_TOUCHES};
@@ -117,8 +117,7 @@ pub fn layout(size: [f32; 2], run: bool, touch: bool, photo: bool) -> Layout {
             (Buttons::L2, Face::Icon(art::GRENADE), square(cx, right[1] + 1.2 * cell, cell)),
             (Buttons::B, Face::Icon(art::TOUCH_AROUND), square(cx, right[1] + 2.3 * cell, 0.85 * cell)),
             (Buttons::START, Face::Icon(art::TOUCH_PAUSE), corner),
-            // Held, the whole map paused, as R2 shows it on a pad.
-            (Buttons::R2, Face::Icon(art::TOUCH_MAP), square(left[0] + 0.4 * cell, left[1] + 0.4 * cell, 0.6 * cell)),
+            none,
             none,
         ]
     };
@@ -306,12 +305,9 @@ mod tests {
         assert!(l.bottom.is_none());
         assert!(l.stick[0] + l.stick[2] <= pic[0] + 0.5);
         for &(b, _, r) in l.keys() {
-            if b == Buttons::R2 {
-                assert!(r[0] + r[2] <= pic[0] + 0.5, "the map key sits left of the picture, over the stick");
-            } else {
-                assert!(r[0] >= pic[0] + pic[2] - 0.5, "{b:?} sits right of the picture");
-            }
+            assert!(r[0] >= pic[0] + pic[2] - 0.5, "{b:?} sits right of the picture");
         }
+        assert_eq!(l.key(Buttons::R2), None, "a run has no Map key");
     }
 
     #[test]
@@ -421,21 +417,15 @@ mod tests {
     }
 
     #[test]
-    fn the_map_key_holds_r2_for_the_whole_map_and_clears_the_resting_stick() {
+    fn photo_mode_alone_has_an_r2_key_and_change_holds_it() {
         for tenths in 4..=25 {
             let size = [1000.0 * tenths as f32 / 10.0, 1000.0];
-            let l = layout(size, true, true, false);
-            let map = l.key(Buttons::R2).unwrap();
-            let [x, y] = rest(l.stick, l.stick_r);
-            let ring = [x - l.stick_r, y - l.stick_r, 2.0 * l.stick_r, 2.0 * l.stick_r];
-            let apart = |a: Rect, b: Rect| a[0] + a[2] <= b[0] || b[0] + b[2] <= a[0] || a[1] + a[3] <= b[1] || b[1] + b[3] <= a[1];
-            assert!(apart(map, ring), "{size:?}: the map key {map:?} sits on the stick {ring:?}");
-            assert!(map[0] >= 0.0 && map[1] >= 0.0 && map[0] + map[2] <= size[0] && map[1] + map[3] <= size[1], "{size:?}");
+            assert_eq!(layout(size, true, true, false).key(Buttons::R2), None, "{size:?}: a run has no Map key");
         }
-        let l = layout([1080.0, 2400.0], true, true, false);
-        let map = l.key(Buttons::R2).unwrap();
+        let l = layout([1080.0, 2400.0], true, true, true);
+        let change = l.key(Buttons::R2).unwrap();
         let mut pad = Touchpad::default();
-        let out = pad.update(&fingers(&[[map[0] + map[2] / 2.0, map[1] + map[3] / 2.0]]), &l, false);
+        let out = pad.update(&fingers(&[[change[0] + change[2] / 2.0, change[1] + change[3] / 2.0]]), &l, false);
         assert!(out.held.contains(Buttons::R2) && out.stick == [0.0; 2], "held, and not the stick");
     }
 

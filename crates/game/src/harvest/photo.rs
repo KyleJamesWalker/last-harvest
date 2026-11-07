@@ -591,7 +591,7 @@ mod tests {
         for _ in 0..30 {
             h.update(&Input { held: Buttons::L1 | Buttons::UP, ..Default::default() }, DT, &mut Vec::new());
         }
-        assert!(h.lift > 0.0 && !h.showing_whole_map(), "L1 raises the camera instead of showing the map");
+        assert!(h.lift > 0.0, "L1 raises the camera");
         press(&mut h, Buttons::B);
         assert!(!h.in_photo() && h.menu == Some(PAUSE_PHOTO), "B goes back to the pause menu");
         assert_eq!((h.view_yaw, h.zoom, h.lift), (heading, 1.0, 0.0), "with the player's own view");
@@ -1054,7 +1054,7 @@ mod tests {
         assert!(spot(&h).is_some(), "the stick slides the cross");
         assert!(h.view_yaw != yaw, "and the turn strip turns the camera");
         press(&mut h, Buttons::R2);
-        assert_eq!(dropped(&h).len(), 1, "the Map key drops it");
+        assert_eq!(dropped(&h).len(), 1, "Change drops it");
     }
 
     /// Whether each cell's middle blocks the player.

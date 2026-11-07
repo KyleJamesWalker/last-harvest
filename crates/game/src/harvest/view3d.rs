@@ -10,13 +10,15 @@ use super::carve;
 use super::map::TILE;
 use crate::art::Stand;
 use super::weapons::{BOLT_LIFE, Hazard};
-use super::{DropKind, Facing, Harvest, Phase, TELL_TIME, TURN_RISE, TURNED, Thrown, Zombie, len, norm, player_pose, player_worn, sub, worn_corner};
+use super::{DropKind, Facing, Harvest, Phase, TELL_TIME, TURN_RISE, TURNED, Thrown, Zombie, len, player_pose, player_worn, sub, worn_corner};
 use crate::art::{self, ATLAS_H, ATLAS_W, Art};
 use crate::scene3d::{Card, CardScene, Flash};
 use crate::{SCREEN_H, SCREEN_W};
 
 /// World units are tiles; sprite pixels are this big.
 const PX: f32 = 1.0 / TILE;
+/// Frames a second a tracer's sprite plays at.
+const TRACER_FPS: f32 = 12.0;
 const LEADER_TINT: [f32; 3] = [1.6, 1.3, 0.6];
 const HARVESTER_TINT: [f32; 3] = [1.4, 0.5, 0.45];
 const VIEW_RADIUS: f32 = 16.0;
@@ -423,6 +425,54 @@ fn speck(out: &mut Vec<Card>, at: Vec3, size: f32, right: Vec3, color: [f32; 3],
     out.push(Card { tint: color, glow, ..Card::new(corners, uv, right.cross(Vec3::Y)) });
 }
 
+/// A bullet's tracer from `head` back to `tail`: one unbroken ribbon facing `eye` that thins and dims toward the
+/// tail, with a white-hot core along its front.
+fn tracer(out: &mut Vec<Card>, eye: Vec3, head: Vec3, tail: Vec3, width: f32, color: [f32; 3]) {
+    const SEGMENTS: usize = 3;
+    let along = head - tail;
+    let side = along.cross(head - eye).normalize_or_zero();
+    if side == Vec3::ZERO {
+        return;
+    }
+    let normal = (eye - head).normalize_or_zero();
+    let [rx, ry, w, h] = art::WHITE.rect().map(f32::from);
+    let (aw, ah) = (ATLAS_W as f32, ATLAS_H as f32);
+    let uv = [(rx + w * 0.25) / aw, (ry + h * 0.25) / ah, (rx + w * 0.75) / aw, (ry + h * 0.75) / ah];
+    let point = |k: f32| (head - along * k, side * (width * super::effects::Shot::taper(k).0 / 2.0));
+    for i in 0..SEGMENTS {
+        let (k0, k1) = (i as f32 / SEGMENTS as f32, (i + 1) as f32 / SEGMENTS as f32);
+        let ((a, sa), (b, sb)) = (point(k0), point(k1));
+        let bright = super::effects::Shot::taper((k0 + k1) / 2.0).1;
+        out.push(Card { tint: color.map(|c| c * bright), glow: 1.0, ..Card::new([a + sa, b + sb, b - sb, a - sa], uv, normal) });
+    }
+    // Nudged toward the eye so it never fights the ribbon under it for depth.
+    let (front, end) = (head + normal * 0.004, head - along * 0.45 + normal * 0.004);
+    let (s0, s1) = (side * (width * 0.2), side * (width * 0.06));
+    out.push(Card { tint: [1.0; 3], glow: 1.0, ..Card::new([front + s0, end + s1, end - s1, front - s0], uv, normal) });
+}
+
+/// A sprite facing `eye`, stretched from `from` (its left edge) to `to` (its right), `width` across; its clear pixels
+/// cut it out.
+fn stretched(out: &mut Vec<Card>, eye: Vec3, from: Vec3, to: Vec3, width: f32, art: Art) {
+    let side = (to - from).cross(to - eye).normalize_or_zero() * (width / 2.0);
+    if side == Vec3::ZERO {
+        return;
+    }
+    let [rx, ry, w, h] = art.rect().map(f32::from);
+    let (aw, ah) = (ATLAS_W as f32, ATLAS_H as f32);
+    let uv = [rx / aw, ry / ah, (rx + w) / aw, (ry + h) / ah];
+    out.push(Card { glow: 1.0, ..Card::new([from + side, to + side, to - side, from - side], uv, (eye - to).normalize_or_zero()) });
+}
+
+/// A sprite standing up and facing the camera, `size` across, centered on `at`.
+fn sprite_speck(out: &mut Vec<Card>, at: Vec3, size: f32, right: Vec3, art: Art, glow: f32) {
+    let (r, u) = (right * (size / 2.0), Vec3::Y * (size * art.h() / art.w() / 2.0));
+    let [rx, ry, w, h] = art.rect().map(f32::from);
+    let (aw, ah) = (ATLAS_W as f32, ATLAS_H as f32);
+    let uv = [rx / aw, ry / ah, (rx + w) / aw, (ry + h) / ah];
+    out.push(Card { glow, ..Card::new([at - r + u, at + r + u, at + r - u, at - r - u], uv, right.cross(Vec3::Y)) });
+}
+
 /// A flat square of color on the ground.
 fn patch(out: &mut Vec<Card>, at: Vec3, size: f32, color: [f32; 3]) {
     let [rx, ry, w, h] = art::WHITE.rect().map(f32::from);
@@ -750,6 +800,13 @@ pub fn scene(h: &Harvest) -> CardScene {
             }
         }
     }
+    if let Some(at) = h.quick_mark() {
+        let (q, a) = (world(at), art::QUICK_MARK);
+        flat(&mut cards, a, q.x - a.w() * PX / 2.0, q.z - a.h() * PX / 2.0, DECAL_LIFT + 0.01, [1.0; 3]);
+        if let Some(card) = cards.last_mut() {
+            card.glow = 1.0;
+        }
+    }
     for b in &h.bolts {
         let fade = 1.0 - b.age / BOLT_LIFE;
         for w in b.points.windows(2) {
@@ -830,16 +887,20 @@ pub fn scene(h: &Harvest) -> CardScene {
             }
         }
     }
+    let own_shot = super::effects::effects().bullet.shot;
     for b in &h.bullets {
-        let a = b.look.unwrap_or(super::effects::effects().bullet_3d).looping(b.age);
-        board(&mut cards, Board::new(a, false, [b.pos[0], b.pos[1] + 6.0], 0.35, 0.0));
-        // A short glowing tracer behind each bullet.
-        let n = norm(b.vel);
-        for k in 1..4 {
-            let at = [b.pos[0] - n[0] * k as f32 * 3.0, b.pos[1] + 6.0 - n[1] * k as f32 * 3.0];
-            let q = world(at) + Vec3::Y * 0.42;
-            if near(q) && (q - p).dot(forward) > 0.0 {
-                speck(&mut cards, q, 0.07 - 0.015 * k as f32, right, [1.0, 0.8, 0.4], 1.0);
+        let Some(shot) = b.look.map_or(own_shot, |e| e.shot) else {
+            let a = b.look.unwrap_or(super::effects::effects().bullet).looping(b.age);
+            board(&mut cards, Board::new(a, false, [b.pos[0], b.pos[1] + 6.0], 0.35, 0.0));
+            continue;
+        };
+        let at = [b.pos[0], b.pos[1] + 6.0];
+        let head = world(at) + Vec3::Y * 0.42;
+        if near(head) && (head - p).dot(forward) > 0.0 {
+            let tail = world(shot.tail(at, b.vel, b.age)) + Vec3::Y * 0.42;
+            match shot.sprites[super::effects::TRACER] {
+                Some(frames) => stretched(&mut cards, eye, tail, head, shot.size * 1.5 * PX, frames[(b.age * TRACER_FPS) as usize % frames.len()]),
+                None => tracer(&mut cards, eye, head, tail, shot.size * PX, shot.color),
             }
         }
     }
@@ -863,7 +924,28 @@ pub fn scene(h: &Harvest) -> CardScene {
     for pt in &h.juice.particles {
         let q = world(pt.pos) + Vec3::Y * (pt.z * PX);
         if near(q) && (q - p).dot(forward) > 0.0 {
-            speck(&mut cards, q, pt.size_now() * PX, right, pt.color, pt.glow);
+            match pt.frame() {
+                Some(a) => sprite_speck(&mut cards, q, pt.size_now() * PX, right, a, pt.glow),
+                None => speck(&mut cards, q, pt.size_now() * PX, right, pt.color, pt.glow),
+            }
+        }
+    }
+    for f in &h.juice.flares {
+        let at = world(f.pos) + Vec3::Y * (f.z * PX);
+        if !near(at) {
+            continue;
+        }
+        if let Some(art) = f.frame() {
+            let reach = f.size * 2.4;
+            let tip = world([f.pos[0] + f.dir[0] * reach, f.pos[1] + f.dir[1] * reach]) + Vec3::Y * (f.z * PX);
+            stretched(&mut cards, eye, at, tip, reach * art.h() / art.w() * PX, art);
+            continue;
+        }
+        let a = f.dir[1].atan2(f.dir[0]);
+        // Rays fanning forward out of the muzzle, the middle one longest.
+        for (turn, reach) in [(0.0, 2.4), (-0.55, 1.3), (0.55, 1.3), (-1.4, 0.6), (1.4, 0.6)] {
+            let tip = world([f.pos[0] + (a + turn).cos() * f.size * reach * f.reach(), f.pos[1] + (a + turn).sin() * f.size * reach * f.reach()]) + Vec3::Y * (f.z * PX);
+            tracer(&mut cards, eye, at, tip, f.size * 0.7 * PX, f.color);
         }
     }
     for ring in &h.juice.rings {
