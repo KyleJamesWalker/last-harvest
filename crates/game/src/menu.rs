@@ -75,8 +75,10 @@ const ENEMY_ROWS: usize = 8;
 const LESS_X: f32 = 600.0;
 const MORE_X: f32 = 940.0;
 const BACK: [f32; 4] = [362.0, 660.0, 300.0, 76.0];
-/// Stats' button to the run history, right of Back.
+/// Stats' button to the run history, right of Back; on History, the button to its next page.
 const HISTORY: [f32; 4] = [702.0, 660.0, 300.0, 76.0];
+/// Runs on each History page.
+const HISTORY_PAGE: usize = 5;
 /// Seconds a first press on reset waits for the second.
 pub(crate) const RESET_CONFIRM: f32 = 3.0;
 pub(crate) const RESET_SHOWN: f32 = 3.0;
@@ -146,13 +148,23 @@ impl Game {
             }
             Page::Stats if input.pressed.contains(Buttons::A) || tapped.is_some_and(|p| inside(p, HISTORY)) => {
                 self.page = Page::History;
+                self.history_page = 0;
                 self.sounds.push(Sfx::Tick(3));
             }
             Page::History if back => {
                 self.page = Page::Stats;
                 self.sounds.push(Sfx::Tick(0));
             }
-            Page::Stats | Page::History | Page::Credits => {}
+            Page::History => {
+                let next = input.pressed.any(Buttons::RIGHT | Buttons::R1 | Buttons::A) || tapped.is_some_and(|p| inside(p, HISTORY));
+                let by = next as i32 - input.pressed.any(Buttons::LEFT | Buttons::L1) as i32;
+                let pages = self.history_pages() as i32;
+                if by != 0 && pages > 1 {
+                    self.history_page = (self.history_page as i32 + by).rem_euclid(pages) as usize;
+                    self.sounds.push(Sfx::Tick(self.history_page as u8 * 3));
+                }
+            }
+            Page::Stats | Page::Credits => {}
         }
     }
 
@@ -605,7 +617,12 @@ impl Game {
         c.label("A: History", x + w / 2.0, y + h / 2.0 - 22.0, 40.0, WHITE, Align::Center);
     }
 
-    /// The last runs, newest first: difficulty, how it ended, how long, the level reached and damage a second.
+    fn history_pages(&self) -> usize {
+        self.save.history.iter().flatten().count().div_ceil(HISTORY_PAGE).max(1)
+    }
+
+    /// The last runs, newest first, a page at a time: difficulty, how it ended, how long, the level reached and
+    /// damage a second, over the powerups it ended with.
     fn draw_history(&self, c: &mut Canvas) {
         c.label("History", SCREEN_W / 2.0, 24.0, 48.0, WHITE, Align::Center);
         let cols: [(f32, &str, Align); 5] = [(60.0, "Difficulty", Align::Left), (300.0, "Result", Align::Left), (640.0, "Time", Align::Right), (790.0, "Level", Align::Right), (964.0, "Damage/s", Align::Right)];
@@ -616,8 +633,9 @@ impl Game {
         if runs.is_empty() {
             c.label("No runs yet", SCREEN_W / 2.0, 300.0, 36.0, DIM, Align::Center);
         }
-        for (i, r) in runs.iter().enumerate() {
-            let y = 140.0 + i as f32 * 50.0;
+        let page = self.history_page.min(self.history_pages() - 1);
+        for (i, r) in runs.iter().skip(page * HISTORY_PAGE).take(HISTORY_PAGE).enumerate() {
+            let y = 136.0 + i as f32 * 104.0;
             let cells = [
                 r.difficulty.name().to_string(),
                 (if r.won { "Home at dawn" } else { "Turned" }).to_string(),
@@ -628,8 +646,16 @@ impl Game {
             for ((x, _, align), text) in cols.into_iter().zip(cells) {
                 c.label(text, x, y, 34.0, if r.won { HOT } else { WHITE }, align);
             }
+            let kit = r.kit.iter().flatten().map(|&(d, l)| (d as usize, l as u32));
+            harvest::powerup_icons(c, 60.0, y + 44.0, 40.0, kit, 1.0);
         }
         back_button(c);
+        if self.history_pages() > 1 {
+            let [x, y, w, h] = HISTORY;
+            c.rect(x, y, w, h, [1.0, 1.0, 1.0, 0.08]);
+            c.label(format!("Page {} of {}", page + 1, self.history_pages()), x + w / 2.0, y + h / 2.0 - 18.0, 32.0, WHITE, Align::Center);
+            c.label("Left / Right", 24.0, SCREEN_H - 52.0, 24.0, DIM, Align::Left);
+        }
     }
 }
 

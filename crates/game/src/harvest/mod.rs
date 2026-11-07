@@ -14,6 +14,9 @@ mod powerups;
 pub mod showcase;
 mod sight;
 mod tally;
+#[cfg(test)]
+pub use powerups::powerup_icon;
+pub(crate) use draw::powerup_icons;
 mod single;
 mod view3d;
 mod weapons;

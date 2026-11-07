@@ -243,6 +243,12 @@ pub fn powerup_id(def: usize) -> Option<&'static str> {
     book().defs.get(def).map(|d| d.id.as_str())
 }
 
+/// A powerup's icon, by its place in the book.
+#[cfg(test)]
+pub fn powerup_icon(def: usize) -> crate::art::Art {
+    book().defs[def].icon
+}
+
 /// A powerup's place in the book, by its id.
 pub fn powerup_index(id: &str) -> Option<usize> {
     book().index(id)

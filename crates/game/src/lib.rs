@@ -160,6 +160,8 @@ pub struct Game {
     page: Page,
     /// The highlighted row on the title's main page and on the settings page.
     row: usize,
+    /// The History page on show.
+    history_page: usize,
     setting: usize,
     /// The highlighted kind on the Enemies page.
     enemy: usize,
@@ -222,6 +224,7 @@ impl Game {
             reset_shown: 0.0,
             page: Page::Main,
             row: 0,
+            history_page: 0,
             setting: 0,
             enemy: 0,
             settings_in_run: false,
@@ -1308,6 +1311,38 @@ mod tests {
         assert_eq!(game.page, Page::Stats);
         press(&mut game, Buttons::B);
         assert_eq!(game.page, Page::Main);
+    }
+
+    #[test]
+    fn history_shows_each_runs_powerups_five_runs_a_page() {
+        let mut game = Game::new(1);
+        let pistol = harvest::powerup_index("pistol").unwrap();
+        let crows = harvest::powerup_index("crows").unwrap();
+        let mut kit = [None; harvest::RUN_KIT];
+        kit[0] = Some((pistol as u16, 4));
+        kit[1] = Some((crows as u16, 2));
+        game.save.record(harvest::Run { secs: 61, kit, ..Default::default() });
+        for k in 0..6 {
+            game.save.record(harvest::Run { secs: 100 + k, ..Default::default() });
+        }
+        game.page = Page::Stats;
+        press(&mut game, Buttons::A);
+        let shown = |game: &Game| {
+            let f = game.draw();
+            let arts: Vec<crate::art::Art> = f.bottom.shapes.iter().filter_map(|s| if let Shape::Art { art, .. } = s { Some(*art) } else { None }).collect();
+            let text: Vec<String> = f.bottom.shapes.iter().filter_map(|s| if let Shape::Text { text, .. } = s { Some(text.clone()) } else { None }).collect();
+            (arts, text)
+        };
+        let (arts, text) = shown(&game);
+        assert!(text.contains(&"Page 1 of 2".to_string()) && !text.contains(&"1:01".to_string()), "the oldest run is on page two");
+        assert!(!arts.contains(&harvest::powerup_icon(pistol)));
+        press(&mut game, Buttons::RIGHT);
+        let (arts, text) = shown(&game);
+        assert!(text.contains(&"1:01".to_string()) && text.contains(&"Page 2 of 2".to_string()));
+        assert!(arts.contains(&harvest::powerup_icon(pistol)) && arts.contains(&harvest::powerup_icon(crows)), "its powerups as icons");
+        assert!(text.contains(&"4".to_string()) && text.contains(&"2".to_string()), "at their levels");
+        press(&mut game, Buttons::RIGHT);
+        assert!(shown(&game).1.contains(&"Page 1 of 2".to_string()), "and round again");
     }
 
     #[test]
