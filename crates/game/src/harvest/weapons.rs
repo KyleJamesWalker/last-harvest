@@ -51,6 +51,16 @@ fn bullet(a: Armed) -> Option<super::effects::Effect> {
     book().defs[a.def].bullet.as_deref().and_then(|n| super::effects::effects().named(n))
 }
 
+/// A weapon's shot style: its bullet's, else the game's own bullet's.
+fn shot_style(a: Armed) -> super::effects::Shot {
+    bullet(a).and_then(|e| e.shot).or(super::effects::effects().bullet.shot).expect("the bullet effect is a shot")
+}
+
+/// The effect a weapon's `effect` line names, which plays over its muzzle's sparks.
+fn named_look(a: Armed) -> Option<super::effects::Effect> {
+    book().defs[a.def].effect.as_deref().and_then(|n| super::effects::effects().named(n))
+}
+
 /// The sound a weapon makes: the one its `sound` line names, else its behaviour's own.
 fn sound(a: Armed, own: Sfx) -> Sfx {
     book().defs[a.def].sound.unwrap_or(own)
@@ -419,9 +429,7 @@ impl Harvest {
             let angle = base + (k as f32 - (n - 1) as f32 / 2.0) * gap;
             self.shoot(angle, speed, self.stat(a, Stat::Damage), self.stat(a, Stat::Pierce) as u32, range / speed, self.stat(a, Stat::Knockback), bullet(a));
         }
-        let muzzle = [self.pos[0] + d[0] * 8.0, self.pos[1] - 6.0 + d[1] * 8.0];
-        self.fx.push(Fx::play(look(a, super::effects::effects().muzzle_pistol), muzzle, base));
-        self.attack_feel(a, [self.pos[0] + d[0] * 8.0, self.pos[1] + d[1] * 8.0], 10.0);
+        self.muzzle(a, d, 8.0);
         self.noise = Some(self.pos);
         sounds.push(sound(a, Sfx::Shot));
         true
@@ -440,12 +448,21 @@ impl Harvest {
             let angle = shot_angle(pattern, k, n, base, spread, self.juice.rng.range(-0.5, 0.5));
             self.shoot(angle, speed, damage, pierce, range / speed, force, bullet(a));
         }
-        let muzzle = [self.pos[0] + d[0] * 8.0, self.pos[1] - 6.0 + d[1] * 8.0];
-        self.fx.push(Fx::play(look(a, super::effects::effects().muzzle_pistol), muzzle, base));
-        self.attack_feel(a, [self.pos[0] + d[0] * 8.0, self.pos[1] + d[1] * 8.0], 10.0);
+        self.muzzle(a, d, 8.0);
         self.noise = Some(self.pos);
         sounds.push(sound(a, Sfx::Shot));
         true
+    }
+
+    /// A gun's muzzle, `out` pixels along `d`: its sparks over its flash, and the effect its `effect` line names.
+    fn muzzle(&mut self, a: Armed, d: [f32; 2], out: f32) {
+        let ground = [self.pos[0] + d[0] * out, self.pos[1] + d[1] * out];
+        if let Some(e) = named_look(a) {
+            self.fx.push(Fx::play(e, [ground[0], ground[1] - 6.0], d[1].atan2(d[0])));
+        }
+        self.attack_feel(a, ground, 10.0);
+        let s = shot_style(a);
+        self.juice.burst(ground, 10.0, s.sparks as usize, d, 0.35, [80.0, 160.0], s.color, s.size, 0.18, 1.0);
     }
 
     /// Plays a weapon's feel from its section, with its flash at `at`, `z` above the ground.
@@ -504,11 +521,7 @@ impl Harvest {
             let angle = base + (k as f32 / (pellets - 1) as f32 - 0.5) * spread;
             self.shoot(angle, speed, self.stat(a, Stat::Damage), self.stat(a, Stat::Pierce) as u32, range / speed * 0.9, self.stat(a, Stat::Knockback), bullet(a));
         }
-        let at = [self.pos[0] + d[0] * 10.0, self.pos[1] - 6.0 + d[1] * 10.0];
-        self.fx.push(Fx::play(look(a, super::effects::effects().shotgun_blast), at, base));
-        let ground = [self.pos[0] + d[0] * 10.0, self.pos[1] + d[1] * 10.0];
-        self.attack_feel(a, ground, 10.0);
-        self.juice.burst(ground, 8.0, 8, d, 0.35, [80.0, 160.0], juice::spark(), 1.0, 0.18, 1.0);
+        self.muzzle(a, d, 10.0);
         self.noise = Some(self.pos);
         sounds.push(sound(a, Sfx::Blast));
         true
@@ -526,9 +539,7 @@ impl Harvest {
         let way = barrel.map_or(self.aim, norm);
         let angle = way[1].atan2(way[0]);
         self.shoot(angle, speed, self.stat(a, Stat::Damage), self.stat(a, Stat::Pierce) as u32, range / speed, self.stat(a, Stat::Knockback), bullet(a));
-        let muzzle = [self.pos[0] + self.aim[0] * 9.0, self.pos[1] - 6.0 + self.aim[1] * 9.0];
-        self.fx.push(Fx::play(look(a, super::effects::effects().muzzle_rifle), muzzle, angle));
-        self.attack_feel(a, [self.pos[0] + self.aim[0] * 10.0, self.pos[1] + self.aim[1] * 10.0], 10.0);
+        self.muzzle(a, way, 9.0);
         self.noise = Some(self.pos);
         sounds.push(sound(a, Sfx::Blast));
         true
@@ -1091,6 +1102,23 @@ mod tests {
             h.walk = 0.5;
             let hurt = hurt_after(&mut h, 15.0);
             assert!(hurt > 0.0, "{} did nothing to a zombie at {offset:?}", d.id);
+        }
+    }
+
+    #[test]
+    fn a_gun_throws_its_shots_sparks_over_its_flash_and_no_muzzle_sprite() {
+        let sparks = super::super::effects::effects().bullet.shot.unwrap().sparks as usize;
+        for id in ["pistol", "shotgun", "rifle"] {
+            let mut h = with(id, [30.0, 0.0]);
+            for _ in 0..180 {
+                if !h.bullets.is_empty() {
+                    break;
+                }
+                h.fire(1.0 / 60.0, &mut Vec::new());
+            }
+            assert!(!h.bullets.is_empty(), "{id} fired");
+            assert_eq!((h.juice.particles.len(), h.fx.len()), (sparks, 0), "{id}");
+            assert!(!h.juice.flashes.is_empty(), "{id} still lights the ground");
         }
     }
 

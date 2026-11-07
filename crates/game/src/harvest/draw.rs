@@ -356,10 +356,19 @@ impl Harvest {
             c.art_top(a, sx, sy, scale, flip, show, [lit[0] * k[0], lit[1] * k[1], lit[2] * k[2], lit[3] * k[3]]);
         }
 
+        let own_shot = super::effects::effects().bullet.shot;
         for b in self.bullets.iter().filter(|_| !fog) {
-            let (sx, sy) = at(b.pos[0], b.pos[1]);
-            let a = b.look.unwrap_or(super::effects::effects().bullet).looping(b.age);
-            c.art_rotated(a, sx, sy, scale, b.vel[1].atan2(b.vel[0]), lit);
+            let Some(shot) = b.look.map_or(own_shot, |e| e.shot) else {
+                let (sx, sy) = at(b.pos[0], b.pos[1]);
+                let a = b.look.unwrap_or(super::effects::effects().bullet).looping(b.age);
+                c.art_rotated(a, sx, sy, scale, b.vel[1].atan2(b.vel[0]), lit);
+                continue;
+            };
+            let [r, g, bl] = shot.color;
+            for (p, size, glow) in shot.streak(b.pos, b.vel, b.age) {
+                let (sx, sy) = at(p[0] - size / 2.0, p[1] - size / 2.0);
+                c.rect(sx, sy, size * scale, size * scale, [lit[0] * r, lit[1] * g, lit[2] * bl, lit[3] * glow]);
+            }
         }
         for s in self.spits.iter().filter(|s| known(s.pos)) {
             let (sx, sy) = at(s.pos[0], s.pos[1]);

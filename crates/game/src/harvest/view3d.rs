@@ -10,7 +10,7 @@ use super::carve;
 use super::map::TILE;
 use crate::art::Stand;
 use super::weapons::{BOLT_LIFE, Hazard};
-use super::{DropKind, Facing, Harvest, Phase, TELL_TIME, TURN_RISE, TURNED, Thrown, Zombie, len, norm, player_pose, player_worn, sub, worn_corner};
+use super::{DropKind, Facing, Harvest, Phase, TELL_TIME, TURN_RISE, TURNED, Thrown, Zombie, len, player_pose, player_worn, sub, worn_corner};
 use crate::art::{self, ATLAS_H, ATLAS_W, Art};
 use crate::scene3d::{Card, CardScene, Flash};
 use crate::{SCREEN_H, SCREEN_W};
@@ -830,16 +830,17 @@ pub fn scene(h: &Harvest) -> CardScene {
             }
         }
     }
+    let own_shot = super::effects::effects().bullet.shot;
     for b in &h.bullets {
-        let a = b.look.unwrap_or(super::effects::effects().bullet_3d).looping(b.age);
-        board(&mut cards, Board::new(a, false, [b.pos[0], b.pos[1] + 6.0], 0.35, 0.0));
-        // A short glowing tracer behind each bullet.
-        let n = norm(b.vel);
-        for k in 1..4 {
-            let at = [b.pos[0] - n[0] * k as f32 * 3.0, b.pos[1] + 6.0 - n[1] * k as f32 * 3.0];
+        let Some(shot) = b.look.map_or(own_shot, |e| e.shot) else {
+            let a = b.look.unwrap_or(super::effects::effects().bullet).looping(b.age);
+            board(&mut cards, Board::new(a, false, [b.pos[0], b.pos[1] + 6.0], 0.35, 0.0));
+            continue;
+        };
+        for (at, size, glow) in shot.streak([b.pos[0], b.pos[1] + 6.0], b.vel, b.age) {
             let q = world(at) + Vec3::Y * 0.42;
             if near(q) && (q - p).dot(forward) > 0.0 {
-                speck(&mut cards, q, 0.07 - 0.015 * k as f32, right, [1.0, 0.8, 0.4], 1.0);
+                speck(&mut cards, q, size * PX, right, shot.color, glow);
             }
         }
     }
