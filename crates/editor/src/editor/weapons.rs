@@ -12,7 +12,8 @@ const COL_W: f32 = 34.0;
 const HEAD_Y: f32 = CANVAS.y + 44.0;
 const STAT_Y: f32 = CANVAS.y + 80.0;
 const STAT_H: f32 = 27.0;
-const PICK_Y: f32 = CANVAS.y + 422.0;
+const PICK_Y: f32 = CANVAS.y + 408.0;
+const PICK_H: f32 = 29.0;
 const DOES_Y: f32 = CANVAS.y + 28.0;
 const DOES_W: f32 = 114.0;
 const PREVIEW: Rect = Rect { x: SIDE_X, y: CANVAS.y + 340.0, w: SIDE_W, h: 220.0 };
@@ -144,7 +145,7 @@ impl Editor {
             push(CANVAS.x + 160.0, y, 44.0, 26.0, Action::WeaponType(i), "Edit", false);
         }
         for i in 0..PICKS.len() {
-            let y = PICK_Y + i as f32 * 32.0;
+            let y = PICK_Y + i as f32 * PICK_H;
             push(CANVAS.x + 392.0, y, 36.0, 28.0, Action::WeaponPick(i, -1), "<", false);
             push(CANVAS.x + 432.0, y, 36.0, 28.0, Action::WeaponPick(i, 1), ">", false);
             push(CANVAS.x + 472.0, y, 76.0, 28.0, Action::WeaponPick(i, 0), "Own", false);
@@ -259,7 +260,7 @@ impl Editor {
             }
         }
         for (i, key) in PICKS.into_iter().enumerate() {
-            let y = PICK_Y + i as f32 * 32.0;
+            let y = PICK_Y + i as f32 * PICK_H;
             c.label(key, CANVAS.x + 12.0, y + 5.0, 17.0, TEXT, Align::Left);
             let now = value(&d.table, &d.section, key);
             let own = if key == "pattern" { "fan" } else { "its behaviour's own" };
