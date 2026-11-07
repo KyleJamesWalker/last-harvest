@@ -34,7 +34,7 @@ pub use enemies::{CardFields, FLAGS as CARD_FLAGS, NUMBERS as CARD_NUMBERS, Spaw
 use juice::{Corpse, Juice, Particle, Tone};
 use map::{Map, TILE};
 pub use range::{RangeSetup, powerups_with};
-pub use powerups::{Progress, Run, WeaponLevels, found_from_ids, found_ids, weapon_behaviours, weapon_levels, weapon_sound_names, weapon_stats};
+pub use powerups::{Progress, RUN_KIT, Run, WeaponLevels, powerup_id, powerup_index, found_from_ids, found_ids, weapon_behaviours, weapon_levels, weapon_sound_names, weapon_stats};
 use powerups::{Kind as Card, book};
 use weapons::{Bolt, Decoy, Dog, Kit, Patch, Swing};
 
@@ -1636,7 +1636,12 @@ impl Harvest {
 
     /// How the run went, and what it unlocked.
     fn finish(&mut self, won: bool) -> Run {
-        let run = Run { secs: self.t as u32, kills: self.kills, level: self.level, won, difficulty: self.difficulty, dps: self.juice.tally.dps().round() as u32 };
+        let mut kit = [None; RUN_KIT];
+        let held = self.kit.weapons.iter().map(|a| (a.def, a.level)).chain(self.kit.passives.iter().copied());
+        for (slot, (def, level)) in kit.iter_mut().zip(held) {
+            *slot = Some((def as u16, level.min(u8::MAX as u32) as u8));
+        }
+        let run = Run { secs: self.t as u32, kills: self.kills, level: self.level, won, difficulty: self.difficulty, dps: self.juice.tally.dps().round() as u32, kit };
         let after = self.progress.after(run);
         self.ready = (0..book().defs.len()).filter(|&i| !self.progress.findable(i) && after.findable(i)).count();
         self.progress = after;
@@ -2999,6 +3004,21 @@ mod tests {
         let at = |s: &str| text.iter().position(|t| t == s).unwrap_or_else(|| panic!("{s} not on the end screen: {text:?}"));
         let order: Vec<usize> = names.iter().map(|n| at(n)).chain([at("Whole run")]).collect();
         assert!(order.windows(2).all(|w| w[0] < w[1]), "in that order, the whole run last");
+    }
+
+    #[test]
+    fn a_runs_record_keeps_its_weapons_then_passives_at_their_levels() {
+        let mut h = Harvest::calm(3);
+        let crows = book().index("crows").unwrap();
+        let points = book().index("hollow_points").unwrap();
+        h.kit.raise(crows, 3);
+        h.kit.raise(points, 2);
+        h.hp = 0.0;
+        let run = h.update(&Input::default(), 1.0 / 60.0, &mut Vec::new()).ended.expect("the run ends");
+        let mut want: Vec<(u16, u8)> = h.kit.weapons.iter().map(|a| (a.def as u16, a.level as u8)).collect();
+        want.push((points as u16, 2));
+        assert!(want.contains(&(crows as u16, 3)));
+        assert_eq!(run.kit.iter().flatten().copied().collect::<Vec<_>>(), want);
     }
 
     #[test]

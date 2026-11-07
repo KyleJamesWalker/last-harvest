@@ -1,11 +1,13 @@
 //! Settings and records kept between runs, as `key=value` lines.
 
 use crate::Difficulty;
-use crate::harvest::{Run, found_from_ids, found_ids, off_from_ids, off_ids};
+use crate::harvest::{RUN_KIT, Run, found_from_ids, found_ids, off_from_ids, off_ids, powerup_id, powerup_index};
 
 pub const LEVELS: u8 = 10;
 /// Runs the history keeps.
 pub const HISTORY: usize = 10;
+/// Most characters a run's powerups take in its `run=` line.
+const KIT_TEXT_MAX: usize = 240;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Save {
@@ -199,20 +201,49 @@ impl Save {
     }
 }
 
-/// A run as `difficulty,won|lost,level,seconds,damage a second,kills`.
+/// A run as `difficulty,won|lost,level,seconds,damage a second,kills,powerups`, the powerups as `id:level` with
+/// spaces between.
 fn run_text(r: &Run) -> String {
-    format!("{},{},{},{},{},{}", r.difficulty.key(), if r.won { "won" } else { "lost" }, r.level, r.secs, r.dps, r.kills)
+    let mut kit = String::new();
+    for (id, level) in r.kit.iter().flatten().filter_map(|&(d, l)| Some((powerup_id(d as usize)?, l))) {
+        let one = format!("{id}:{level}");
+        if kit.len() + one.len() + 1 > KIT_TEXT_MAX {
+            break;
+        }
+        if !kit.is_empty() {
+            kit.push(' ');
+        }
+        kit.push_str(&one);
+    }
+    format!("{},{},{},{},{},{},{kit}", r.difficulty.key(), if r.won { "won" } else { "lost" }, r.level, r.secs, r.dps, r.kills)
+}
+
+/// The powerups a `run=` line names that the book still has, at most `RUN_KIT`.
+fn kit_from_text(text: &str) -> [Option<(u16, u8)>; RUN_KIT] {
+    let mut kit = [None; RUN_KIT];
+    let held = text.split_whitespace().filter_map(|w| {
+        let (id, level) = w.split_once(':')?;
+        Some((powerup_index(id)? as u16, level.parse::<u8>().ok()?))
+    });
+    for (slot, held) in kit.iter_mut().zip(held) {
+        *slot = Some(held);
+    }
+    kit
 }
 
 fn run_from_text(text: &str) -> Option<Run> {
     let f: Vec<&str> = text.split(',').map(str::trim).collect();
-    let [difficulty, result, level, secs, dps, kills] = f[..] else { return None };
+    let (difficulty, result, level, secs, dps, kills, kit) = match f[..] {
+        [a, b, c, d, e, g] => (a, b, c, d, e, g, ""),
+        [a, b, c, d, e, g, k] => (a, b, c, d, e, g, k),
+        _ => return None,
+    };
     let won = match result {
         "won" => true,
         "lost" => false,
         _ => return None,
     };
-    Some(Run { difficulty: Difficulty::from_key(difficulty)?, won, level: level.parse().ok()?, secs: secs.parse().ok()?, dps: dps.parse().ok()?, kills: kills.parse().ok()? })
+    Some(Run { difficulty: Difficulty::from_key(difficulty)?, won, level: level.parse().ok()?, secs: secs.parse().ok()?, dps: dps.parse().ok()?, kills: kills.parse().ok()?, kit: kit_from_text(kit) })
 }
 
 fn on_off(b: bool) -> &'static str {
@@ -257,7 +288,43 @@ mod tests {
     }
 
     fn run(secs: u32, dps: u32) -> Run {
-        Run { secs, kills: 7, level: 3, won: secs >= 600, difficulty: Difficulty::Hard, dps }
+        Run { secs, kills: 7, level: 3, won: secs >= 600, difficulty: Difficulty::Hard, dps, kit: [None; RUN_KIT] }
+    }
+
+    fn holding(pairs: &[(&str, u8)]) -> [Option<(u16, u8)>; RUN_KIT] {
+        let mut kit = [None; RUN_KIT];
+        for (slot, &(id, level)) in kit.iter_mut().zip(pairs) {
+            *slot = Some((powerup_index(id).unwrap() as u16, level));
+        }
+        kit
+    }
+
+    #[test]
+    fn a_runs_powerups_round_trip_by_id() {
+        let mut save = Save::default();
+        let kit = holding(&[("pistol", 3), ("knife", 1), ("crows", 5), ("hollow_points", 2)]);
+        save.record(Run { kit, ..run(300, 40) });
+        let text = save.to_text();
+        assert!(text.contains("run=hard,lost,3,300,40,7,pistol:3 knife:1 crows:5 hollow_points:2\n"), "{text}");
+        assert_eq!(Save::parse(&text).history[0].unwrap().kit, kit);
+    }
+
+    #[test]
+    fn a_powerup_the_book_no_longer_has_is_skipped_and_the_run_kept() {
+        let save = Save::parse("run=hard,lost,3,300,40,7,pistol:3 laser_from_v9:4 knife:x crows:5\n");
+        assert_eq!(save.history[0].unwrap().kit, holding(&[("pistol", 3), ("crows", 5)]));
+    }
+
+    #[test]
+    fn a_full_kit_keeps_its_line_short() {
+        let ids: Vec<&str> = (0..40).filter_map(powerup_id).collect();
+        let pairs: Vec<(&str, u8)> = ids.iter().map(|&id| (id, 9)).collect();
+        let kit = holding(&pairs);
+        assert_eq!(kit.iter().flatten().count(), RUN_KIT, "at most RUN_KIT kept");
+        let mut save = Save::default();
+        save.record(Run { kit, ..run(300, 40) });
+        let line = save.to_text().lines().find(|l| l.starts_with("run=")).unwrap().to_string();
+        assert!(line.len() <= KIT_TEXT_MAX + 60, "{line}");
     }
 
     #[test]
@@ -287,7 +354,7 @@ mod tests {
     fn a_damaged_history_line_is_dropped_and_the_rest_kept() {
         let save = Save::parse("run=hard,lost,3,100,40,7\nrun=nightmare,lost,3,100,40,7\nrun=easy,maybe,1,1,1,1\nrun=easy,won,3\nrun=normal,won,9,600,80,12\n");
         assert_eq!(save.history[0], Some(run(100, 40)));
-        assert_eq!(save.history[1], Some(Run { difficulty: Difficulty::Normal, won: true, level: 9, secs: 600, dps: 80, kills: 12 }));
+        assert_eq!(save.history[1], Some(Run { difficulty: Difficulty::Normal, won: true, level: 9, secs: 600, dps: 80, kills: 12, kit: [None; RUN_KIT] }), "a line from before powerups loads with none");
         assert_eq!(save.history[2], None);
     }
 

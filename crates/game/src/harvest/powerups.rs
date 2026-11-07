@@ -231,6 +231,21 @@ pub struct Run {
     pub difficulty: crate::Difficulty,
     /// Damage a second over the whole run.
     pub dps: u32,
+    /// The weapons, then the passives, it ended with: each by its place in the book, and its level.
+    pub kit: [Option<(u16, u8)>; RUN_KIT],
+}
+
+/// Most powerups a run's record keeps.
+pub const RUN_KIT: usize = 12;
+
+/// A powerup's id, by its place in the book.
+pub fn powerup_id(def: usize) -> Option<&'static str> {
+    book().defs.get(def).map(|d| d.id.as_str())
+}
+
+/// A powerup's place in the book, by its id.
+pub fn powerup_index(id: &str) -> Option<usize> {
+    book().index(id)
 }
 
 impl Unlock {
