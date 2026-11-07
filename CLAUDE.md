@@ -1,6 +1,6 @@
 # Last Harvest
 
-A survivors-like for a dual-screen Linux handheld, with a web build and sprite/card editors. README.md is the full reference.
+A survivors-like for a dual-screen Linux handheld, with a web build and sprite/card editors. Developer docs live in `docs/` (start at `docs/development.md`); the player manual is `docs/guides/GAME_MANUAL.md`.
 
 ## Workspace
 - `crates/game`: scenes, rules and data tables; no platform code. The loop is `App::tick` (app) → `Game::update` → `Harvest::update`.
