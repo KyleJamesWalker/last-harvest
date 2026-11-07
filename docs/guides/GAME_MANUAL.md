@@ -1,6 +1,6 @@
 # Last Harvest manual
 
-Last Harvest is a zombie survivors-like for the ANBERNIC RG DS Plus, and it also plays in a browser. You walk a farm through one night while your weapons fire on their own, then run home at dawn. This manual covers how to play first. It then shows how to make your own zombies, looks, props, maps and mod packs with the two editors. Build setup, device notes and developer tools live in the [README](../../README.md).
+Last Harvest is a zombie survivors-like for the ANBERNIC RG DS Plus, and it also plays in a browser. You walk a farm through one night while your weapons fire on their own, then run home at dawn. This manual covers how to play first. It then shows how to make your own zombies, looks, props, maps and mod packs with the two editors. Build setup, device notes and developer tools live in [the developer docs](../../docs/development.md).
 
 ## Playing
 
@@ -79,7 +79,7 @@ In a browser, Esc and Home do nothing, and neither do screenshots, brightness or
 - View is Select, and Menu is Start.
 - The d-pad and left stick move you.
 
-The browser keeps your save in its local storage. To add a mod pack, press **Add mod…** on the start screen and pick a `.pak`; × removes one. The browser keeps them for next time. On the game's site, everything you've saved in the card editor plays too, with no Export needed. For the full key map, see [Controls](../../README.md#controls) in the README.
+The browser keeps your save in its local storage. To add a mod pack, press **Add mod…** on the start screen and pick a `.pak`; × removes one. The browser keeps them for next time. On the game's site, everything you've saved in the card editor plays too, with no Export needed.
 
 ### A night
 
@@ -386,7 +386,7 @@ The game lays each pack over `game_data.pak` in file-name order. A pack's file r
 
 A pack lets a card bring its own death sound. Put `enemies/ghoul.enemy.png` and `sounds/kill-ghoul.ogg` in one pack. The card editor's Export all builds packs like this for you.
 
-The game checks a pack's files as it reads them, and leaves out a pack that would break the game. A pack with an atlas must be built for this version of the game. For the command-line packer, see [Cards and mods](../../README.md#cards-and-mods) in the README.
+The game checks a pack's files as it reads them, and leaves out a pack that would break the game. A pack with an atlas must be built for this version of the game. For the command-line packer, see [the modding reference](../../docs/modding.md#the-packer).
 
 ### Data files
 
@@ -684,7 +684,7 @@ On a phone held upright, the editing pane spans the screen with the previews und
 
 ## The sprite editor
 
-The sprite editor is the developer's pixel editor for the game's own sprites. It runs on macOS, or in a browser on an iPad served from the Mac. It needs the private tileset, so it is never published. To set it up, see [Sprite editor](../../README.md#sprite-editor) in the README.
+The sprite editor is the developer's pixel editor for the game's own sprites. It runs on macOS, or in a browser on an iPad served from the Mac. It needs the private tileset, so it is never published. To set it up, see [the sprite editor docs](../../docs/sprite-editor.md).
 
 The left pane lists every sprite. The pixel canvas, tools, color and frames sit around it. The right panes show the sprite as the game draws it, in the 2.5D view and on the map. The 2.5D view counts the quads the sprite is drawn with in 3D, four vertices each, so you can compare stands and drawings by cost. About half of them face the camera at any moment. It starts with nothing open: pick a sprite from the list, or press N for a new one.
 
@@ -825,4 +825,4 @@ The sprite editor also runs in a browser on an iPad on the same network as the M
 | Shift for the next pencil press | Tap a Shift pad in a bottom corner. It lights until the pencil uses it, and a second tap turns it off. |
 | Name a sprite or search | Type in the field that appears |
 
-To serve it, see [Sprite editor on an iPad](../../README.md#sprite-editor-on-an-ipad) in the README.
+To serve it, see [On an iPad](../../docs/sprite-editor.md#on-an-ipad).
