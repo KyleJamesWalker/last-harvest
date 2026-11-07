@@ -102,6 +102,7 @@ tuning! {
     map_scale = "map" "scale",
     map_sight = "map" "sight",
     map_memory = "map" "memory",
+    map_shade = "map" "shade",
 }
 
 /// Reads a `tuning.txt` over `base`, the numbers it doesn't set; with no base, it must set every one. Errors

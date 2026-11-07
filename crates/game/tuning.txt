@@ -99,3 +99,4 @@ near 0.7        # the player is hurt within this fraction of its radius
 scale 3         # screen pixels per art pixel on the map
 sight 240       # how far the view ahead sees zombies for the map
 memory 6        # seconds a zombie out of sight fades on the map before it's gone
+shade 0.55      # how dark the map gets outside the view ahead, 0 for not at all to 1 for black
