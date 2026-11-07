@@ -50,6 +50,16 @@ fn is_color(d: &DataEdit, key: &str) -> bool {
     d.file == "effects.txt" && key == "color"
 }
 
+/// Whether a name in the list is a sprite that can be drawn in the game: the catalog's, or a player's prop.
+fn is_paintable(name: &str) -> bool {
+    ![sprite::DATA_PREFIX, sprite::MAP_PREFIX, sprite::CARD_PREFIX, sprite::PLAYER_CARD_PREFIX].iter().any(|p| name.starts_with(p))
+}
+
+/// Whether a line names one of a shot style's sprites, which step through the sprites.
+fn is_sprite(d: &DataEdit, key: &str) -> bool {
+    d.file == "effects.txt" && last_harvest_game::SHOT_SPRITES.contains(&key)
+}
+
 /// The list name for a section of a data file: `DATA_POWERUPS_PISTOL`, or `DATA_POWERUPS` for the lines before
 /// its first heading.
 pub(super) fn data_name(file: &str, section: &str) -> String {
@@ -121,7 +131,11 @@ impl Editor {
         let entries = d.table.entries(&d.section);
         for (row, e) in entries.iter().enumerate().skip(d.first).take(ROWS) {
             let y = ROW_TOP + (row - d.first) as f32 * ROW_H;
-            if is_color(d, &e.key) {
+            if is_sprite(d, &e.key) {
+                push(CANVAS.x + 318.0, y, 62.0, 30.0, Action::DataPaint(row), "Paint", false);
+                push(CANVAS.x + 384.0, y, 40.0, 30.0, Action::DataSprite(row, -1), "<", false);
+                push(CANVAS.x + 428.0, y, 40.0, 30.0, Action::DataSprite(row, 1), ">", false);
+            } else if is_color(d, &e.key) {
                 push(CANVAS.x + 384.0, y, 40.0, 30.0, Action::DataColor(row, -1), "<", false);
                 push(CANVAS.x + 428.0, y, 40.0, 30.0, Action::DataColor(row, 1), ">", false);
             } else if table::step(&e.value, 1, false).is_some() {
@@ -160,6 +174,26 @@ impl Editor {
                     None => 0,
                 };
                 d.change(|t, s| t.set(s, row, &colors[next]));
+            }
+            Action::DataSprite(row, by) => {
+                let Some(e) = d.table.entries(&d.section).into_iter().nth(row) else { return true };
+                let sprites: Vec<&String> = self.names.iter().map(|(n, _)| n).filter(|n| is_paintable(n)).collect();
+                if sprites.is_empty() {
+                    return true;
+                }
+                let next = match sprites.iter().position(|n| **n == e.value) {
+                    Some(at) => (at as i32 + by).rem_euclid(sprites.len() as i32) as usize,
+                    None => 0,
+                };
+                let name = sprites[next].clone();
+                d.change(|t, s| t.set(s, row, &name));
+            }
+            Action::DataPaint(row) => {
+                let Some(e) = d.table.entries(&d.section).into_iter().nth(row) else { return true };
+                match self.names.iter().any(|(n, _)| *n == e.value) {
+                    true => self.switch_to(e.value),
+                    false => self.say(format!("No sprite called {}", e.value)),
+                }
             }
             Action::DataEdit(row) => {
                 let Some(e) = d.table.entries(&d.section).into_iter().nth(row) else { return true };

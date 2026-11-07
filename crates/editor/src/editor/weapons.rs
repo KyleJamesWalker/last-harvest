@@ -30,11 +30,13 @@ pub(super) struct Weapon {
     pub preview: [(Option<String>, Vec<Frame>, f32); 2],
     /// The shot style its bullets fly as, when they fly as particles.
     pub shot: Option<last_harvest_game::Shot>,
+    /// The frames of the sprites the shot draws, by `SHOT_SPRITES`; none draws the plain shape.
+    pub shot_art: [Vec<Frame>; 4],
 }
 
 impl Weapon {
     pub fn new() -> Self {
-        Self { lines: false, level: 1, preview: Default::default(), shot: None }
+        Self { lines: false, level: 1, preview: Default::default(), shot: None, shot_art: Default::default() }
     }
 }
 
@@ -107,6 +109,7 @@ impl Editor {
         let effects = Table::new("effects.txt", &text);
         let names = ["effect", "bullet"].map(|k| value(&d.table, &d.section, k));
         let shot = last_harvest_game::shot_named(&text, names[1].as_deref());
+        let shot_art = last_harvest_game::shot_sprite_names(&text, names[1].as_deref()).map(|n| n.and_then(|n| self.store.load(&n)).map(|s| s.frames).unwrap_or_default());
         let mut loaded = Vec::new();
         for (i, name) in names.into_iter().enumerate() {
             if d.weapon.as_ref().is_some_and(|w| w.preview[i].0 == name) {
@@ -118,7 +121,7 @@ impl Editor {
             loaded.push((i, (name, frames, fps)));
         }
         if let Some(w) = self.data.as_mut().and_then(|d| d.weapon.as_mut()) {
-            w.shot = shot;
+            (w.shot, w.shot_art) = (shot, shot_art);
             for (i, p) in loaded {
                 w.preview[i] = p;
             }
@@ -257,7 +260,7 @@ impl Editor {
             let x = PREVIEW.x + i as f32 * PREVIEW.w / 2.0;
             c.label(PICKS[i], x + PREVIEW.w / 4.0, PREVIEW.y + 6.0, 15.0, DIM, Align::Center);
             if let (1, Some(shot)) = (i, w.shot) {
-                self.draw_shot(c, shot, x);
+                self.draw_shot(c, shot, &w.shot_art, x);
                 continue;
             }
             let Some(f) = frames.get((self.clock * fps).max(0.0) as usize % frames.len().max(1)) else {
@@ -282,7 +285,7 @@ impl Editor {
     }
 
     /// The bullet's streak flying across the preview's half at `x`, with the numbers of its style under it.
-    fn draw_shot(&self, c: &mut Canvas, shot: last_harvest_game::Shot, x: f32) {
+    fn draw_shot(&self, c: &mut Canvas, shot: last_harvest_game::Shot, art: &[Vec<Frame>; 4], x: f32) {
         let (w, mid) = (PREVIEW.w / 2.0, PREVIEW.y + PREVIEW.h / 2.0 - 16.0);
         let zoom = ((w - 16.0) / shot.length).clamp(1.0, 4.0);
         let (from, run) = (x + 8.0, (w - 16.0) / zoom + shot.length);
@@ -292,12 +295,20 @@ impl Editor {
         let tail = shot.tail([head, 0.0], [speed, 0.0], age)[0];
         let [r, g, b] = shot.color;
         let in_panel = |px: f32| (from..x + w - 8.0).contains(&px);
-        if head * zoom < shot.core {
-            let s = shot.core * zoom;
-            c.rect(from - s / 2.0, mid - s / 2.0, s, s, [1.0; 4]);
+        let flare_reach = shot.core * 2.4 * zoom;
+        match art[3].first() {
+            Some(f) if head * zoom < flare_reach => stretch(c, f, [from, mid], flare_reach, flare_reach * f.h as f32 / f.w as f32, &in_panel),
+            None if head * zoom < shot.core => {
+                let s = shot.core * zoom;
+                c.rect(from - s / 2.0, mid - s / 2.0, s, s, [1.0; 4]);
+            }
+            _ => {}
+        }
+        if let Some(f) = art[0].get((age * 12.0) as usize % art[0].len().max(1)) {
+            stretch(c, f, [from + tail * zoom, mid], (head - tail) * zoom, shot.size * 1.5 * zoom, &in_panel);
         }
         let mut px = 0.0;
-        while px <= (head - tail) * zoom {
+        while art[0].is_empty() && px <= (head - tail) * zoom {
             let k = px / ((head - tail) * zoom).max(1.0);
             let (thick, bright) = last_harvest_game::Shot::taper(k);
             let at = from + head * zoom - px;
@@ -313,6 +324,26 @@ impl Editor {
         c.label(format!("length {} size {}", number(shot.length), number(shot.size)), x + w / 2.0, mid + 48.0, 13.0, DIM, Align::Center);
         c.label(format!("{} sparks, core {}", shot.sparks, number(shot.core)), x + w / 2.0, mid + 64.0, 13.0, DIM, Align::Center);
         c.label(format!("{} on a hit", shot.impact), x + w / 2.0, mid + 80.0, 13.0, DIM, Align::Center);
+        for (k, frames) in art[1..3].iter().enumerate() {
+            for (i, f) in frames.iter().enumerate() {
+                let s = 3.0;
+                let o = [x + 8.0 + (k * 4 + i) as f32 * (f.w as f32 * s + 4.0), mid + 96.0];
+                for (p, px) in f.px.iter().enumerate().filter(|(_, px)| px[3] > 0) {
+                    c.rect(o[0] + (p % f.w) as f32 * s, o[1] + (p / f.w) as f32 * s, s, s, rgba(*px));
+                }
+            }
+        }
+    }
+}
+
+/// Draws a frame `w` by `h` with its left edge's middle at `at`, its pixels clipped to what `shown` allows.
+fn stretch(c: &mut Canvas, f: &Frame, at: [f32; 2], w: f32, h: f32, shown: &dyn Fn(f32) -> bool) {
+    let (sx, sy) = (w / f.w as f32, h / f.h as f32);
+    for (p, px) in f.px.iter().enumerate().filter(|(_, px)| px[3] > 0) {
+        let x = at[0] + (p % f.w) as f32 * sx;
+        if shown(x) {
+            c.rect(x, at[1] - h / 2.0 + (p / f.w) as f32 * sy, sx.max(1.0), sy.max(1.0), rgba(*px));
+        }
     }
 }
 

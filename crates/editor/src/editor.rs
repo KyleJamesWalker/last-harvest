@@ -288,6 +288,10 @@ enum Action {
     DataRemove(usize),
     /// Steps the data page's `color` line through the game's palette.
     DataColor(usize, i32),
+    /// Steps the data page's shot sprite line through the sprites, a mod's props among them.
+    DataSprite(usize, i32),
+    /// Opens the sprite the data page's line names, to paint it.
+    DataPaint(usize),
     DataAdd,
     DataPage(i32),
     /// Shows the weapon page's lines as the data page does, or the weapon page again.
@@ -1740,7 +1744,7 @@ impl Editor {
         }
         match a {
             Action::MapTool(_) | Action::Ground(_) | Action::PickProp(_) | Action::PickPage(_) | Action::Picket(_) | Action::MapSize(..) | Action::Randomize | Action::MapFit | Action::PropDefaults => {}
-            Action::DataStep(..) | Action::DataEdit(_) | Action::DataRemove(_) | Action::DataColor(..) | Action::DataAdd | Action::DataPage(_) => {}
+            Action::DataStep(..) | Action::DataEdit(_) | Action::DataRemove(_) | Action::DataColor(..) | Action::DataSprite(..) | Action::DataPaint(_) | Action::DataAdd | Action::DataPage(_) => {}
             Action::WeaponLines | Action::WeaponLevel(_) | Action::WeaponMax(_) | Action::WeaponDoes(_) | Action::WeaponStep(..) | Action::WeaponType(_) | Action::WeaponPick(..) | Action::WeaponStyle => {}
             Action::LineFrame(_) | Action::LineFps(_) => {}
             Action::PlayerBase(i, d) => {
@@ -4277,6 +4281,34 @@ mod tests {
         e.switch_to("DATA_POWERUPS_PISTOL".into());
         let [r, g, b, _] = palette[(at + palette.len() - 1) % palette.len()];
         assert_eq!(shown(&e).map(|s| s.color), Some([r, g, b].map(|v| v as f32 / 255.0)), "the weapon page shows the saved style");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_shot_style_steps_its_sprites_and_paints_them_and_the_weapon_page_draws_them() {
+        let dir = tmp().join("shot-sprites");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut e = editor_in(&dir, dir.join("art.txt"));
+        e.switch_to("DATA_POWERUPS_SHOTGUN".into());
+        let art = |e: &Editor| e.data.as_ref().and_then(|d| d.weapon.as_ref()).map(|w| w.shot_art.iter().map(|f| f.len()).collect::<Vec<_>>()).unwrap();
+        assert_eq!(art(&e), [1, 3, 3, 2], "the pellet's tracer, spark, smoke and flare frames");
+        e.act(Action::WeaponStyle, false);
+        assert_eq!(e.sprite.name, "DATA_EFFECTS_SHOTGUN_PELLET");
+        let d = e.data.as_ref().unwrap();
+        let row = d.table.entries(&d.section).iter().position(|l| l.key == "tracer").unwrap();
+        assert!(e.buttons().iter().any(|b| b.action == Action::DataSprite(row, 1)) && e.buttons().iter().any(|b| b.action == Action::DataPaint(row)));
+        buttons_fit(&e);
+        let value = |e: &Editor| e.data.as_ref().map(|d| d.table.entries(&d.section)[row].value.clone()).unwrap();
+        e.act(Action::DataSprite(row, 1), false);
+        let next = value(&e);
+        assert_ne!(next, "SHOT_PELLET");
+        assert!(!next.starts_with(sprite::DATA_PREFIX) && !next.starts_with(sprite::CARD_PREFIX), "only sprites: {next}");
+        e.act(Action::DataSprite(row, -1), false);
+        assert_eq!(value(&e), "SHOT_PELLET");
+        e.act(Action::Save, false);
+        e.act(Action::DataPaint(row), false);
+        assert_eq!(e.sprite.name, "SHOT_PELLET", "Paint opens the sprite to draw");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
