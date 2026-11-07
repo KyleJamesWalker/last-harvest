@@ -773,6 +773,8 @@ pub struct Harvest {
     photo: Option<photo::Photo>,
     saves_photos: bool,
     taps: bool,
+    /// The on-screen photo keys show, so the guides name them instead of a pad's buttons.
+    touch_keys: bool,
 }
 
 /// Weapons and passives unlocked so far, out of all of them, and how many are waiting to be found.
@@ -973,6 +975,7 @@ impl Harvest {
             photo: None,
             saves_photos: false,
             taps: true,
+            touch_keys: false,
         }
         .with_birds()
     }
