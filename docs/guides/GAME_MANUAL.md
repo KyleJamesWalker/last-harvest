@@ -92,7 +92,7 @@ A night lasts ten minutes, from dusk to dawn. A bell rings each minute.
 - **Dawn and the Harvester.** At dawn, the Harvester wakes behind you. From then on the dead grow 1% stronger every second.
 - **Getting home.** Run back to the farmhouse's front step to survive the night.
 - **Falling.** If you fall, you sink into the dirt and climb back out as one of the dead. You lead them off to the next farm.
-- **The night's end.** When you fall or get home, the top screen sums up the run. A table on the left lists each weapon you held, most damage first: its damage, and its damage a second over the time you held it. Grenades and barrels share a row. The last row is the whole run's damage and damage a second.
+- **The night's end.** When you fall or get home, the top screen sums up the run. A table on the left lists each weapon you held, most damage first: its damage, and its damage a second over the time you held it. Grenades and barrels share a row. The last row is the whole run's damage and damage a second. On the right, Build shows the weapons you ended with over your passives, each with its level, gold at its top level. Both show on one screen too.
 
 Start pauses a run. The pause menu offers Resume, Settings, Photo mode, New farm and Quit to title.
 
@@ -150,7 +150,7 @@ The title's bottom screen lists Play, Map, Settings, Stats and Credits. Up and D
     - **Game folder**, on Android only, opens Android's folder picker. See [Where files go](#where-files-go).
     - **Reset progress** clears kills, records and found powerups after a second press. Settings stay.
     - From the pause menu, Settings changes everything but your look, the zombies, the game folder and the reset.
-- **Stats** lists the records the save keeps, including the best damage a second over a whole run, and counts the cards and mod packs that loaded. A or the History button opens the last 10 runs, newest first: the difficulty, Turned or Home at dawn, the time, the level reached and the damage a second. B goes back.
+- **Stats** lists the records the save keeps, including the best damage a second over a whole run, and counts the cards and mod packs that loaded. A or the History button opens the last 10 runs, newest first, five to a page: the difficulty, Turned or Home at dawn, the time, the level reached and the damage a second, over the powerups the run ended with and their levels. Left and Right, or the page button, turn the page. B goes back.
 - **Credits** names who made the game, its art, its template and its font.
 
 ### Saving screenshots
