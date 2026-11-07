@@ -283,19 +283,36 @@ impl Editor {
 
     /// The bullet's streak flying across the preview's half at `x`, with the numbers of its style under it.
     fn draw_shot(&self, c: &mut Canvas, shot: last_harvest_game::Shot, x: f32) {
-        const ZOOM: f32 = 4.0;
-        let (w, mid) = (PREVIEW.w / 2.0, PREVIEW.y + PREVIEW.h / 2.0);
-        let speed = 60.0;
-        let age = (self.clock * speed / (w / ZOOM)).fract() * (w / ZOOM) / speed;
+        let (w, mid) = (PREVIEW.w / 2.0, PREVIEW.y + PREVIEW.h / 2.0 - 16.0);
+        let zoom = ((w - 16.0) / shot.length).clamp(1.0, 4.0);
+        let (from, run) = (x + 8.0, (w - 16.0) / zoom + shot.length);
+        let speed = 90.0;
+        let age = (self.clock * speed / run).fract() * run / speed;
+        let head = speed * age;
+        let tail = shot.tail([head, 0.0], [speed, 0.0], age)[0];
         let [r, g, b] = shot.color;
-        for (p, size, glow) in shot.streak([speed * age, 0.0], [speed, 0.0], age) {
-            let s = size * ZOOM;
-            c.rect(x + p[0] * ZOOM - s / 2.0, mid - s / 2.0, s, s, [r, g, b, glow]);
+        let in_panel = |px: f32| (from..x + w - 8.0).contains(&px);
+        if head * zoom < shot.core {
+            let s = shot.core * zoom;
+            c.rect(from - s / 2.0, mid - s / 2.0, s, s, [1.0; 4]);
+        }
+        let mut px = 0.0;
+        while px <= (head - tail) * zoom {
+            let k = px / ((head - tail) * zoom).max(1.0);
+            let (thick, bright) = last_harvest_game::Shot::taper(k);
+            let at = from + head * zoom - px;
+            let h = (shot.size * thick * zoom).max(1.0);
+            if in_panel(at) {
+                let hot = if k < 0.45 { 0.5 } else { 0.0 };
+                c.rect(at, mid - h / 2.0, 1.0, h, [(r * bright + hot).min(1.0), (g * bright + hot).min(1.0), (b * bright + hot).min(1.0), 1.0]);
+            }
+            px += 1.0;
         }
         let hex = format!("{:02X}{:02X}{:02X}", (r * 255.0).round() as u8, (g * 255.0).round() as u8, (b * 255.0).round() as u8);
         c.label(hex, x + w / 2.0, mid + 30.0, 14.0, TEXT, Align::Center);
         c.label(format!("length {} size {}", number(shot.length), number(shot.size)), x + w / 2.0, mid + 48.0, 13.0, DIM, Align::Center);
-        c.label(format!("{} sparks", shot.sparks), x + w / 2.0, mid + 64.0, 13.0, DIM, Align::Center);
+        c.label(format!("{} sparks, core {}", shot.sparks, number(shot.core)), x + w / 2.0, mid + 64.0, 13.0, DIM, Align::Center);
+        c.label(format!("{} on a hit", shot.impact), x + w / 2.0, mid + 80.0, 13.0, DIM, Align::Center);
     }
 }
 

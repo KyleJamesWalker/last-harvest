@@ -4256,9 +4256,9 @@ mod tests {
         let mut e = editor_in(&dir, dir.join("art.txt"));
         e.switch_to("DATA_POWERUPS_PISTOL".into());
         let shown = |e: &Editor| e.data.as_ref().and_then(|d| d.weapon.as_ref()).and_then(|w| w.shot);
-        assert_eq!(shown(&e), last_harvest_game::shot_named(last_harvest_game::built_in_table("effects.txt").unwrap(), None), "no bullet line fires [bullet]");
+        assert_eq!(shown(&e), last_harvest_game::shot_named(last_harvest_game::built_in_table("effects.txt").unwrap(), Some("pistol_shot")), "the pistol fires its own style");
         e.act(Action::WeaponStyle, false);
-        assert_eq!(e.sprite.name, "DATA_EFFECTS_BULLET", "Style opens the bullet's section");
+        assert_eq!(e.sprite.name, "DATA_EFFECTS_PISTOL_SHOT", "Style opens its bullet's section");
         let d = e.data.as_ref().unwrap();
         let row = d.table.entries(&d.section).iter().position(|l| l.key == "color").unwrap();
         assert!(e.buttons().iter().any(|b| b.action == Action::DataColor(row, 1)) && !e.buttons().iter().any(|b| b.action == Action::DataStep(row, 1)));
