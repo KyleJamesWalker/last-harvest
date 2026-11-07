@@ -178,6 +178,19 @@ use super::super::PropLine;
     }
 
     #[test]
+    fn the_cone_draws_over_the_shade_untouched() {
+        let h = facing_one(60.0);
+        let mut f = crate::Frame::default();
+        h.draw(&mut f, false);
+        let mut cone = crate::Canvas::default();
+        h.view_cone(&mut cone, h.camera());
+        let shapes = &f.bottom.shapes;
+        let last_shade = shapes.iter().rposition(|s| matches!(s, crate::Shape::Rect { h: super::SHADE_CELL, color: [0.0, 0.0, 0.0, _], .. })).expect("a shade");
+        let at = shapes.windows(cone.shapes.len()).position(|w| format!("{w:?}") == format!("{:?}", cone.shapes)).expect("the cone's dots as the cone draws them");
+        assert!(at > last_shade, "the cone's dots draw after, so the shade never dims them");
+    }
+
+    #[test]
     fn the_shade_lifts_once_the_run_is_over() {
         let mut h = facing_one(60.0);
         h.phase = super::super::Phase::Over { t: 5.0, won: false };
