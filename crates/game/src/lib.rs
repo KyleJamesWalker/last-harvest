@@ -563,6 +563,7 @@ impl Game {
                 if let Some(run) = flow.ended {
                     let p = self.progress().after(run);
                     (self.save.kills, self.save.best, self.save.best_level, self.save.nights, self.save.dawns) = (p.kills, p.best, p.best_level, p.nights, p.dawns);
+                    self.save.record(run);
                 }
                 if flow.quit { State::Title } else { State::Harvest(h) }
             }

@@ -222,12 +222,15 @@ pub fn found_from_ids(ids: &str) -> u64 {
 }
 
 /// How one run went.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Run {
     pub secs: u32,
     pub kills: u32,
     pub level: u32,
     pub won: bool,
+    pub difficulty: crate::Difficulty,
+    /// Damage a second over the whole run.
+    pub dps: u32,
 }
 
 impl Unlock {
@@ -913,11 +916,11 @@ mod tests {
 
     #[test]
     fn unlocks_follow_progress_over_runs() {
-        let p = Progress::default().after(Run { secs: 130, kills: 120, level: 6, won: false });
+        let p = Progress::default().after(Run { secs: 130, kills: 120, level: 6, won: false, ..Run::default() });
         assert!(Unlock::Kills(100).met(&p) && !Unlock::Kills(250).met(&p));
         assert!(Unlock::Night(120).met(&p) && Unlock::Level(5).met(&p) && Unlock::Nights(1).met(&p));
         assert!(!Unlock::Dawns(1).met(&p));
-        let p = p.after(Run { secs: 600, kills: 10, level: 3, won: true });
+        let p = p.after(Run { secs: 600, kills: 10, level: 3, won: true, ..Run::default() });
         assert_eq!((p.kills, p.best, p.best_level, p.nights, p.dawns), (130, 600, 6, 2, 1));
         assert!(Unlock::Dawns(1).met(&Progress { everything: true, ..Progress::default() }));
         let fresh = Progress::default();

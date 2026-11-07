@@ -1636,7 +1636,7 @@ impl Harvest {
 
     /// How the run went, and what it unlocked.
     fn finish(&mut self, won: bool) -> Run {
-        let run = Run { secs: self.t as u32, kills: self.kills, level: self.level, won };
+        let run = Run { secs: self.t as u32, kills: self.kills, level: self.level, won, difficulty: self.difficulty, dps: self.juice.tally.dps().round() as u32 };
         let after = self.progress.after(run);
         self.ready = (0..book().defs.len()).filter(|&i| !self.progress.findable(i) && after.findable(i)).count();
         self.progress = after;
