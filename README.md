@@ -124,7 +124,7 @@ A weapon in `powerups.txt` picks a behavior with `does`. Two behaviors take thei
 
 Any weapon can name an `effect` and a `bullet` from `effects.txt`, and a `sound`. Its `kick`, `punch` and `shake` move the camera on each attack, and `flash` lights the ground: a color, its reach in tiles and its seconds. An `icon` can be a player's prop, `PROP_<ID>`. So a new weapon needs no code.
 
-Both editors edit these files. Each file is a folder under one Data heading, and each section a page in it, such as `tuning.txt`'s `[player]` under Data > tuning. Its page shows one line a row, with the comment under it. Numbers step with - and +, and Edit types any value. A weapon in `powerups.txt` opens as a weapon page instead: buttons pick its `does`, each stat shows its value at every level, - and + step the picked level's value alone, and < and > step its `effect`, `bullet` and `sound` through `effects.txt` and the weapon sounds. A panel plays the effect and bullet, and Lines shows the raw lines. Each change rewrites only its own line.
+Both editors edit these files. Each file is a folder under one Data heading, and each section a page in it, such as `tuning.txt`'s `[player]` under Data > tuning. Its page shows one line a row, with the comment under it. Numbers step with - and +, and Edit types any value. A weapon in `powerups.txt` opens as a weapon page instead: buttons pick its `does`, each stat shows its value at every level, - and + step the picked level's value alone, and < and > step its `effect`, `bullet` and `sound` through `effects.txt` and the weapon sounds. A panel plays the effect and bullet, Lines shows the raw lines, and Try it opens the game's `range` scene on the section as edited, at the picked level (the native editor starts the `last-harvest` binary beside it; the web editors open `../play/?range`). Each change rewrites only its own line.
 
 Save writes the file only when the game would read it. The sprite editor saves into `crates/game/`. The card editor keeps a changed file in the browser, and Export all carries it to the mod pack. A sprite that `props.txt` or `effects.txt` names shows a Data button that opens its section.
 
@@ -269,7 +269,7 @@ scripts/debug.sh panic                      # crash on purpose to test crash.log
 scripts/debug.sh logs                       # follow the game log, with a perf line each second: FPS, frame times, and CPU ms in update, frame building and rendering
 ```
 
-The scene names are `title`, `harvest`, `farm` (the game without zombies, for looking around; X drops one a few steps ahead), `single` (a run on one screen whatever Settings says; the `aim_` numbers in `tuning.txt` [grenade] shape its grenade aiming), `bench` (a frozen horde of 300 with every effect showing, turning a full circle every 600 frames, for comparing frame rates between builds; `bench-160x120` and the like build it on a farm that many tiles across and log the map's flow field time), `art`, `icon` (photo mode for icons and screenshots: one figure close up in 3D and flat in a 512-pixel square, with zoom, camera height, a barricade, more zombies to place, and walking anywhere on a new random farm; its bottom screen lists the keys) and `hardware`. On macOS, set `LAST_HARVEST_DEBUG=1` and write commands to the pipe directly.
+The scene names are `title`, `harvest`, `farm` (the game without zombies, for looking around; X drops one a few steps ahead), `single` (a run on one screen whatever Settings says; the `aim_` numbers in `tuning.txt` [grenade] shape its grenade aiming), `bench` (a frozen horde of 300 with every effect showing, turning a full circle every 600 frames, for comparing frame rates between builds; `bench-160x120` and the like build it on a farm that many tiles across and log the map's flow field time), `art`, `icon` (photo mode for icons and screenshots: one figure close up in 3D and flat in a 512-pixel square, with zoom, camera height, a barricade, more zombies to place, and walking anywhere on a new random farm; its bottom screen lists the keys), `range` (one weapon against a ring of zombies that rise again as they die, with its damage per second: Up and Down step its level, Left and Right pick the kind, cards included, Select switches between firing on cooldown and by hand, and X fires; `LAST_HARVEST_RANGE` names the weapon, else it holds the first in `powerups.txt`) and `hardware`. On macOS, set `LAST_HARVEST_DEBUG=1` and write commands to the pipe directly.
 
 ### Recording and streaming
 
@@ -294,6 +294,7 @@ The stream reaches the Mac about 240 ms after the device draws it, or about 155 
 | Variable | Effect |
 |---|---|
 | `LAST_HARVEST_START` | Opens a scene at launch, by debug scene name. |
+| `LAST_HARVEST_RANGE` | The weapon the `range` scene holds: `id` or `id:level`, such as `rifle:3`, or a file holding a `level N` line and a weapon's `powerups.txt` section, which the game reads in place of its own. An editor's Try it writes that file. |
 | `LAST_HARVEST_DEBUG` | Turns on debug mode. `DEBUG=1 scripts/deploy.sh` sets it. |
 | `LAST_HARVEST_PIPE` | Sets the debug command pipe. The default is `/tmp/last-harvest.ctl`. |
 | `LAST_HARVEST_WINDOW` | Opens the one desktop window this many pixels across and down, such as `720x720` or `640x480`, to try a handheld's screen. |
@@ -420,7 +421,7 @@ cargo install wasm-bindgen-cli --version 0.2.129   # the version in Cargo.lock
 scripts/web-editor.sh                              # build, then serve on port 8080
 ```
 
-The server prints the address to open on the iPad, such as `http://192.168.1.20:8080/`; add `?open=CAR_H` to start on a sprite. `SPRITE_SERVER_PORT` sets the port, and `scripts/web-editor.sh --build-only` only builds. The server answers only loopback, private-LAN and link-local addresses, so Tailscale clients (100.64.0.0/10) are refused. Safari's Add to Home Screen gives the editor the whole screen.
+The server also serves `target/web-game` under `/play/`, where the weapon page's Try it opens the range; build it with `scripts/web-game.sh`. The server prints the address to open on the iPad, such as `http://192.168.1.20:8080/`; add `?open=CAR_H` to start on a sprite. `SPRITE_SERVER_PORT` sets the port, and `scripts/web-editor.sh --build-only` only builds. The server answers only loopback, private-LAN and link-local addresses, so Tailscale clients (100.64.0.0/10) are refused. Safari's Add to Home Screen gives the editor the whole screen.
 
 | Action | Touch |
 |---|---|

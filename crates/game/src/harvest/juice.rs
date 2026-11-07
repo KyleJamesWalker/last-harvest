@@ -228,6 +228,8 @@ pub struct Juice {
     pub hurt: f32,
     /// Real time, which drives the shake noise.
     pub clock: f32,
+    /// Damage dealt to zombies so far, as the numbers show it.
+    pub dealt: f32,
 }
 
 impl Juice {
@@ -248,6 +250,7 @@ impl Juice {
             rest: 0.0,
             hurt: 0.0,
             clock: 0.0,
+            dealt: 0.0,
         }
     }
 
@@ -392,6 +395,9 @@ impl Juice {
     }
 
     pub fn popup(&mut self, pos: [f32; 2], amount: f32, tone: Tone) {
+        if matches!(tone, Tone::Hit | Tone::Crit) {
+            self.dealt += amount;
+        }
         if self.popups.len() >= MAX_POPUPS {
             self.popups.remove(0);
         }

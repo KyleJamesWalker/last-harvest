@@ -56,6 +56,13 @@ impl Table {
         Some((start, end))
     }
 
+    /// `section` as written, its heading included, from the heading to the next.
+    pub fn section_text(&self, section: &str) -> Option<String> {
+        let (start, end) = self.span(section)?;
+        let lines: Vec<&str> = self.text.lines().collect();
+        Some(lines[start.saturating_sub(1)..end].iter().map(|l| format!("{l}\n")).collect())
+    }
+
     pub fn entries(&self, section: &str) -> Vec<Entry> {
         let Some((start, end)) = self.span(section) else { return Vec::new() };
         let lines: Vec<&str> = self.text.lines().collect();

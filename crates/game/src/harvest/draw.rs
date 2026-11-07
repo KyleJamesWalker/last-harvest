@@ -19,6 +19,7 @@ impl Harvest {
             self.photo_frame(f, clean);
         } else {
             self.draw_screens(f);
+            self.draw_range(&mut f.top, &mut f.bottom);
         }
         if self.single {
             self.single_frame(f);
@@ -581,8 +582,11 @@ impl Harvest {
         let health = self.hp / max;
         let throb = if health < 0.3 { 0.5 + 0.5 * (self.juice.clock * 10.0).sin() } else { 0.0 };
         c.rect(bx, by, bw * health.clamp(0.0, 1.0), bh, [RED[0] + 0.15 * throb, RED[1] + 0.1 * throb, RED[2], 1.0]);
-        c.label(format!("LV {}", self.level), bx, by + 30.0, 32.0, WHITE, Align::Left);
-        if self.t >= super::dawn() {
+        if self.range.is_none() {
+            c.label(format!("LV {}", self.level), bx, by + 30.0, 32.0, WHITE, Align::Left);
+        }
+        if self.range.is_some() {
+        } else if self.t >= super::dawn() {
             c.text_centered(30.0, 6.0, HARVESTER, &format!("DAWN +{}", clock(self.t - super::dawn())));
             c.label(format!("The dead +{:.0}%", (self.fury - 1.0) * 100.0), SCREEN_W / 2.0, 96.0, 30.0, HARVESTER, Align::Center);
         } else {

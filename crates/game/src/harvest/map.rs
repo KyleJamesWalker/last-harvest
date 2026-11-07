@@ -281,7 +281,8 @@ fn opaque_bounds(a: Art) -> [f32; 4] {
 }
 
 impl Map {
-    pub fn generate(rng: &mut Rng, w: usize, h: usize) -> Self {
+    /// The farm's ground inside its fence, with nothing standing on it.
+    fn bare(rng: &mut Rng, w: usize, h: usize) -> Self {
         let f = farm::farm();
         let (dirt, tufted) = (ground_art(f.ground), ground_art(f.tufted));
         let mut ground = Vec::with_capacity(w * h);
@@ -307,6 +308,20 @@ impl Map {
             home: [0.0; 2],
         };
         map.border();
+        map
+    }
+
+    /// An open field `w` by `h` tiles, with the player starting in its middle.
+    pub fn open_field(rng: &mut Rng, w: usize, h: usize) -> Self {
+        let mut map = Self::bare(rng, w, h);
+        map.spawn = [w as f32 * TILE / 2.0, h as f32 * TILE / 2.0];
+        map.home = map.spawn;
+        map
+    }
+
+    pub fn generate(rng: &mut Rng, w: usize, h: usize) -> Self {
+        let f = farm::farm();
+        let mut map = Self::bare(rng, w, h);
         let road = map.road(rng);
         map.gas_station(rng, road);
         let mut stood = Vec::new();
