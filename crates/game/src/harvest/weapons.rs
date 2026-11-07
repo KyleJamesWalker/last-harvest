@@ -3,7 +3,7 @@
 use std::f32::consts::{PI, TAU};
 
 use super::juice::{self, Tone};
-use super::powerups::{Aim, Does, Kind, Lands, Pattern, Stat, book};
+use super::powerups::{Aim, Does, Kind, Lands, Pattern, Stat, Targets, book};
 use super::{
     Barrel, Bullet, FLASH_TIME, Fx, Grenade, Harvest, TILE, Thrown, Zombie, len, norm, strike, sub,
 };
@@ -396,7 +396,7 @@ impl Harvest {
                 (a.cd, a.burst) = match (fired, shots) {
                     (true, Some((n, gap))) => match if a.burst == 0 { n - 1 } else { a.burst - 1 } {
                         0 => (self.stat(a, Stat::Cooldown), 0),
-                        left => (gap, left),
+                        left => (a.cd + gap, left),
                     },
                     (true, None) => (self.stat(a, Stat::Cooldown), 0),
                     (false, _) if a.burst > 0 => (self.stat(a, Stat::Cooldown), 0),
@@ -439,8 +439,11 @@ impl Harvest {
 
     fn pistol(&mut self, a: Armed, sounds: &mut Vec<Sfx>) -> bool {
         let range = self.stat(a, Stat::Range);
-        let target = self.barrel_in_view(range).or_else(|| self.nearest_in(crate::tuning::tuning().point_blank.min(range), None)).or_else(|| self.nearest_in(range, Some((self.aim, self.ahead_half())))).or_else(|| self.nearest_in(range, None));
-        let Some(d) = target.map(norm) else { return false };
+        let next = self.next_target(a, range);
+        let target = next.or_else(|| self.barrel_in_view(range)).or_else(|| self.nearest_in(crate::tuning::tuning().point_blank.min(range), None)).or_else(|| self.nearest_in(range, Some((self.aim, self.ahead_half())))).or_else(|| self.nearest_in(range, None));
+        let Some(offset) = target else { return false };
+        self.mark_shot(a, offset);
+        let d = norm(offset);
         let one = book().defs[a.def].pattern == Pattern::Burst;
         let (n, speed) = (if one { 1 } else { self.stat(a, Stat::Count) as u32 }, self.stat(a, Stat::Speed));
         let base = d[1].atan2(d[0]);
@@ -460,7 +463,10 @@ impl Harvest {
         let def = &book().defs[a.def];
         let (aim, pattern) = (def.aim, def.pattern);
         let range = self.stat(a, Stat::Range);
-        let Some(d) = self.barrel_in_view(range).map(norm).or_else(|| self.aimed(aim, range)) else { return false };
+        let next = self.next_target(a, range);
+        let Some(offset) = next.or_else(|| self.barrel_in_view(range)).or_else(|| self.aimed_at(aim, range)) else { return false };
+        self.mark_shot(a, offset);
+        let d = norm(offset);
         let n = if pattern == Pattern::Burst { 1 } else { self.stat(a, Stat::Count).max(1.0) as u32 };
         let speed = self.stat(a, Stat::Speed);
         let (base, spread) = (d[1].atan2(d[0]), self.stat(a, Stat::Spread).to_radians());
@@ -497,15 +503,49 @@ impl Harvest {
         }
     }
 
-    /// Where a gun or blade looks for a target within `range`: the way to it, if it finds one.
-    fn aimed(&self, aim: Aim, range: f32) -> Option<[f32; 2]> {
+    /// For a burst that `targets each`, after its first shot: the offset to the nearest zombie in `range` and clear
+    /// line of fire that it hasn't shot yet, whichever way; None to aim as usual. A burst's first shot forgets the last.
+    fn next_target(&mut self, a: Armed, range: f32) -> Option<[f32; 2]> {
+        let def = &book().defs[a.def];
+        if def.pattern != Pattern::Burst || def.targets != Targets::Each {
+            return None;
+        }
+        if a.burst == 0 {
+            self.burst_shot.retain(|(d, _)| *d != a.def);
+            return None;
+        }
+        let shot = &self.burst_shot;
+        self.zombies
+            .iter()
+            .filter(|z| !shot.contains(&(a.def, z.id)))
+            .map(|z| sub(z.pos, self.pos))
+            .filter(|d| len(*d) < range && super::clear_shot(&self.map, self.pos, [self.pos[0] + d[0], self.pos[1] + d[1]]))
+            .min_by(|a, b| len(*a).total_cmp(&len(*b)))
+    }
+
+    /// Notes the zombie at `offset` as shot in a burst that `targets each`.
+    fn mark_shot(&mut self, a: Armed, offset: [f32; 2]) {
+        if book().defs[a.def].targets != Targets::Each {
+            return;
+        }
+        if let Some(z) = self.zombies.iter().find(|z| sub(z.pos, self.pos) == offset) {
+            self.burst_shot.push((a.def, z.id));
+        }
+    }
+
+    /// Where a gun or blade looks for a target within `range`: the offset to it, if it finds one.
+    fn aimed_at(&self, aim: Aim, range: f32) -> Option<[f32; 2]> {
         match aim {
             Aim::Nearest => self.nearest_in(range, None),
             Aim::Ahead => self.nearest_in(range, Some((self.aim, self.ahead_half()))),
             Aim::Behind => self.nearest_in(range, Some(([-self.aim[0], -self.aim[1]], crate::tuning::tuning().behind_half))),
             Aim::Around => self.nearest_in(range, None).map(|_| self.aim),
         }
-        .map(norm)
+    }
+
+    /// Where a gun or blade looks for a target within `range`: the way to it, if it finds one.
+    fn aimed(&self, aim: Aim, range: f32) -> Option<[f32; 2]> {
+        self.aimed_at(aim, range).map(norm)
     }
 
     /// A blade as its section shapes it: everything within its area across its spread, toward what its aim finds.
@@ -1168,7 +1208,7 @@ mod tests {
         h.kit.weapons[0].cd = 0.0;
         let a = h.kit.weapons[0];
         let (n, gap, cooldown) = (h.stat(a, Stat::Count) as usize, h.stat(a, Stat::Gap), h.stat(a, Stat::Cooldown));
-        let t: Vec<f32> = shots(&mut h, (n - 1) as f32 * gap + cooldown + 0.05).iter().map(|s| s.0).collect();
+        let t: Vec<f32> = shots(&mut h, (n - 1) as f32 * gap + cooldown + 0.02).iter().map(|s| s.0).collect();
         assert_eq!(t.len(), n + 1, "one burst of {n}, then the next: {t:?}");
         assert!(t.windows(2).take(n - 1).all(|w| (w[1] - w[0] - gap).abs() < 0.01), "{gap}s apart: {t:?}");
         assert!((t[n] - t[n - 1] - cooldown).abs() < 0.01, "then the cooldown: {t:?}");
@@ -1185,6 +1225,57 @@ mod tests {
         h.aim = [-1.0, 0.0];
         let next = shots(&mut h, 0.1);
         assert!(!next.is_empty() && next.iter().all(|s| s.1[0] < 0.0 && s.1[1].abs() < 1e-3), "the next go where the player now looks, straight: {next:?}");
+    }
+
+    /// A level-8 pistol on a quiet farm with `n` zombies spread evenly all the way round it, each with a clear shot.
+    fn ringed(n: usize) -> (Harvest, Vec<[f32; 2]>) {
+        let mut h = with("pistol", [100.0, 0.0]);
+        h.zombies.clear();
+        h.kit.weapons[0].level = 8;
+        h.kit.weapons[0].cd = 0.0;
+        let mut ways = Vec::new();
+        for k in 0..n {
+            let a = k as f32 * TAU / n as f32;
+            let way = [a.cos(), a.sin()];
+            let at = (0..12).map(|r| 90.0 + r as f32 * 4.0).map(|r| [h.pos[0] + way[0] * r, h.pos[1] + way[1] * r]).find(|p| !h.map.hits(p[0], p[1], crate::tuning::tuning().zombie_half()) && super::super::clear_shot(&h.map, h.pos, *p)).expect("room all round");
+            let mut z = Zombie::new(ZKind::named("big"), at, 500.0, 1.0, 0.0);
+            z.id = k as u32 + 1;
+            h.zombies.push(z);
+            ways.push(way);
+        }
+        (h, ways)
+    }
+
+    /// Which of `ways` each shot flew along.
+    fn aimed_at(shots: &[(f32, [f32; 2])], ways: &[[f32; 2]]) -> Vec<usize> {
+        shots.iter().map(|(_, v)| (0..ways.len()).max_by(|&a, &b| (ways[a][0] * v[0] + ways[a][1] * v[1]).total_cmp(&(ways[b][0] * v[0] + ways[b][1] * v[1]))).unwrap()).collect()
+    }
+
+    #[test]
+    fn a_level_eight_burst_shoots_eight_zombies_all_the_way_round_once_each() {
+        let (mut h, ways) = ringed(8);
+        let a = h.kit.weapons[0];
+        let (n, gap) = (h.stat(a, Stat::Count) as usize, h.stat(a, Stat::Gap));
+        assert_eq!(n, 8);
+        let fired = shots(&mut h, (n - 1) as f32 * gap + 0.02);
+        let mut hit = aimed_at(&fired, &ways);
+        assert_eq!(hit.len(), 8);
+        assert!(fired[7].0 - fired[0].0 < 0.3, "fast enough to read as one draw: {fired:?}");
+        hit.sort();
+        assert_eq!(hit, (0..8).collect::<Vec<_>>(), "a different zombie each shot, from every side");
+    }
+
+    #[test]
+    fn a_burst_shoots_a_zombie_again_only_once_every_one_in_range_has_been_shot() {
+        let (mut h, ways) = ringed(3);
+        let a = h.kit.weapons[0];
+        let gap = h.stat(a, Stat::Gap);
+        let fired = shots(&mut h, 7.0 * gap + 0.02);
+        let hit = aimed_at(&fired, &ways);
+        assert_eq!(hit.len(), 8, "every shot still fires");
+        let mut first: Vec<usize> = hit[..3].to_vec();
+        first.sort();
+        assert_eq!(first, [0, 1, 2], "each of the three before any again: {hit:?}");
     }
 
     #[test]

@@ -32,6 +32,9 @@
 #                       the way round, or at random across spread; fan when left out. A burst, for `does gun` and
 #                       `does pistol`, fires them one after another, gap seconds apart, each aimed as it fires,
 #                       then waits its cooldown
+#   targets same | each    for a burst, which zombies its shots go to: each where its aim finds, or the first
+#                       there and each after the nearest in range and clear line of fire not yet shot in this
+#                       burst, all the way round, one shot again only once every one has been; same when left out
 #   kick N | punch N | shake N    for weapons, each attack's camera kick back, punch in and screen shake; none when left out
 #   flash R G B REACH SECONDS     for weapons, a flash of light on each attack: its color, above 1 for brighter than
 #                       white, how far it lights in tiles, and how long; none when left out
@@ -72,13 +75,14 @@ kick      0.015
 flash     1.2 0.85 0.4 3.5 0.07
 zone      ahead
 unlock    start
-blurb     Shoots what's ahead, else the nearest, in ever faster bursts
+blurb     Shoots what's ahead, then fans out to a new zombie with every shot
 pattern   burst
+targets   each
 max       8
-cooldown  0.6 0.55 0.55 0.5 0.5 0.45 0.45 0.4
-damage    12 15 15 22 22 22 29 30
-count     1 2 3 3 4 4 5 6
-gap       0.14 0.13 0.12 0.11 0.1 0.09 0.08 0.07
+cooldown  0.6 0.55 0.55 0.5 0.5 0.5 0.45 0.4
+damage    12 14 14 16 16 16 18 19
+count     1 2 3 4 5 6 7 8
+gap       0.14 0.12 0.1 0.08 0.065 0.06 0.04 0.035
 range     150
 speed     220
 pierce    0 0 0 0 1 1 1 1

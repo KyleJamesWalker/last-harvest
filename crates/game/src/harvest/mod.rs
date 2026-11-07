@@ -34,7 +34,7 @@ pub use enemies::{CardFields, FLAGS as CARD_FLAGS, NUMBERS as CARD_NUMBERS, Spaw
 use juice::{Corpse, Juice, Particle, Tone};
 use map::{Map, TILE};
 pub use range::{RangeSetup, effects_with, powerups_with};
-pub use powerups::{Progress, Run, WeaponLevels, found_from_ids, found_ids, weapon_behaviours, weapon_levels, weapon_patterns, weapon_sound_names, weapon_stats};
+pub use powerups::{Progress, Run, WeaponLevels, found_from_ids, found_ids, weapon_behaviours, weapon_levels, weapon_patterns, weapon_sound_names, weapon_stats, weapon_targets};
 use powerups::{Kind as Card, book};
 use weapons::{Bolt, Decoy, Dog, Kit, Patch, Swing};
 
@@ -654,6 +654,8 @@ pub struct Harvest {
     marks: Vec<sight::Mark>,
     spits: Vec<Spit>,
     bullets: Vec<Bullet>,
+    /// The zombies each weapon's burst has shot so far, by its section, for `targets each`.
+    burst_shot: Vec<(usize, u32)>,
     drops: Vec<Drop>,
     fx: Vec<Fx>,
     /// Blood and scorch marks: art, top-left, and a tint.
@@ -932,6 +934,7 @@ impl Harvest {
             marks: Vec::new(),
             spits: Vec::new(),
             bullets: Vec::new(),
+            burst_shot: Vec::new(),
             drops: Vec::new(),
             fx: Vec::new(),
             stains: Vec::new(),

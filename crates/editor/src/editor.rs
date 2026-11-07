@@ -4162,7 +4162,7 @@ mod tests {
         let stat = |k: &str| last_harvest_game::weapon_stats().iter().position(|s| s.0 == k).unwrap();
         let start = text(&e);
         e.act(Action::WeaponStep(stat("damage"), 1), false);
-        assert_eq!(text(&e), start.replacen("damage    12 15 15", "damage 13 15 15", 1));
+        assert_eq!(text(&e), start.replacen("damage    12 14 14", "damage 13 14 14", 1));
         e.act(Action::WeaponLevel(3), false);
         e.act(Action::WeaponStep(stat("range"), -1), false);
         assert!(text(&e).contains("\nrange 150 150 149 150\n"), "a short list grows only to keep the levels after");
@@ -4177,9 +4177,13 @@ mod tests {
         assert_eq!(pattern(&e).as_deref(), Some("spray"), "the patterns step from burst");
         e.act(Action::WeaponPick(3, 1), false);
         assert_eq!(pattern(&e).as_deref(), Some("burst"));
+        let targets = |e: &Editor| e.data.as_ref().and_then(|d| d.table.entries(&d.section).into_iter().find(|l| l.key == "targets")).map(|l| l.value);
+        e.act(Action::WeaponPick(4, -1), false);
+        assert_eq!(targets(&e).as_deref(), Some("same"), "the targets step from each");
+        e.key(Key::Undo);
         let gap = stat("gap");
         e.act(Action::WeaponStep(gap, -1), false);
-        assert!(text(&e).contains("\ngap 0.14 0.13 0.11 0.11 0.1"), "the gap steps at the picked level: {}", text(&e));
+        assert!(text(&e).contains("\ngap 0.14 0.12 0.0 0.08 0.065"), "the gap steps at the picked level: {}", text(&e));
         e.key(Key::Undo);
         e.key(Key::Undo);
         e.key(Key::Undo);
@@ -4203,7 +4207,7 @@ mod tests {
         }
         assert_eq!(text(&e), start, "each change undoes, and the rest of the file stays as written");
         e.key(Key::Redo);
-        assert!(text(&e).contains("damage 13 15 15"));
+        assert!(text(&e).contains("damage 13 14 14"));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -4221,8 +4225,8 @@ mod tests {
         e.act(Action::WeaponTry, false);
         let setup = last_harvest_game::RangeSetup::read(&e.tried.take().expect("Try it asks for the range")).unwrap();
         assert_eq!((setup.weapon.as_str(), setup.level), ("pistol", 3));
-        assert!(setup.section.as_deref().is_some_and(|s| s.starts_with("[pistol]\n") && s.contains("damage 12 15 16")), "unsaved changes too: {setup:?}");
-        assert!(setup.section.as_deref().is_some_and(|s| s.contains("pattern   burst") && s.contains("\ngap ")), "the burst too");
+        assert!(setup.section.as_deref().is_some_and(|s| s.starts_with("[pistol]\n") && s.contains("damage 12 14 15")), "unsaved changes too: {setup:?}");
+        assert!(setup.section.as_deref().is_some_and(|s| s.contains("pattern   burst") && s.contains("targets   each") && s.contains("\ngap ")), "the burst and its targets too");
         let effects = setup.effects.as_deref().unwrap_or_default();
         assert!(effects.contains("[bullet]\n") && effects.contains("[pistol_shot]\n") && effects.contains("tracer SHOT_TRACER"), "and the shot style its bullets fly as: {effects}");
         e.act(Action::WeaponLines, false);

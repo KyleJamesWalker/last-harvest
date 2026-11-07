@@ -199,7 +199,7 @@ Weapons attack on their own, each in its zone. Each weapon levels up to its high
 
 | Weapon | Zone | Unlocks | Levels | On its card |
 |---|---|---|---|---|
-| Pistol | Ahead | From the start | 8 | Shoots what's ahead, else the nearest, in ever faster bursts |
+| Pistol | Ahead | From the start | 8 | Shoots what's ahead, then fans out to a new zombie with every shot |
 | Shotgun | Ahead | From the start | 8 | A spread of pellets at close range |
 | Hunting rifle | Ahead | 500 kills over every run | 8 | A slow, heavy round straight down your heading |
 | Lantern beam | Ahead | Survive 2:00 of one night | 8 | Your light burns and slows what it falls on |
@@ -510,7 +510,7 @@ Three behaviors take their shape from data:
     - `fan`: evenly across `spread` degrees, the default.
     - `ring`: evenly all the way round.
     - `spray`: at random across `spread`.
-    - `burst`: one after another, `gap` seconds apart, each aimed where the gun looks as it fires, so turning mid-burst moves the next shot; then the `cooldown`. `does pistol` takes a burst too, aiming as the pistol does.
+    - `burst`: one after another, `gap` seconds apart, each aimed where the gun looks as it fires, so turning mid-burst moves the next shot; then the `cooldown`. `does pistol` takes a burst too, aiming as the pistol does. With `targets each`, a burst's first shot goes where it aims and each after to the nearest zombie in range and clear line of fire it hasn't shot yet, all the way round, so a fast burst shoots a ring of zombies at once; it shoots one again only once every one has been. `targets same`, the default, keeps every shot on what its aim finds.
 - **`does blade`** cuts everything within `area` across `spread` degrees, toward what its `aim` finds. A `spread` of 360 cuts all round.
 - **`does lob`** throws `count` at a crowd within `range`. `lands` says what happens where it lands, using its `damage`, `area`, `duration` and `slow`:
     - `blast`: an explosion, the default.
