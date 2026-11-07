@@ -186,13 +186,20 @@ impl Harvest {
         let size = 40.0;
         for (r, row) in rows.iter().enumerate() {
             let y = SCREEN_H - 24.0 - (2 - r) as f32 * (size + 10.0);
-            for (i, &(def, level)) in row.iter().enumerate() {
-                let x = 24.0 + i as f32 * (size + 8.0);
-                c.rect(x - 2.0, y - 2.0, size + 4.0, size + 4.0, [0.0, 0.0, 0.0, 0.6]);
-                c.art(book().defs[def].icon, x, y, size / 16.0, false, WHITE);
-                let top = level >= book().defs[def].max;
-                c.label(level.to_string(), x + size - 2.0, y + size - 20.0, 20.0, if top { GOLD } else { WHITE }, Align::Right);
-            }
+            powerup_icons(c, 24.0, y, size, row.iter().copied(), 1.0);
+        }
+    }
+
+    /// The run's weapons over its passives, at their levels, at the top right of the end screen.
+    fn build_panel(&self, c: &mut Canvas, a: f32) {
+        let (size, gap) = (40.0, 8.0);
+        let x = SCREEN_W - 24.0 - 6.0 * (size + gap) + gap;
+        let top = 196.0;
+        c.rect(x - 8.0, top - 8.0, SCREEN_W - 16.0 - x + 8.0, 30.0 + 2.0 * (size + 10.0) + 16.0, [0.0, 0.0, 0.0, 0.45 * a]);
+        c.label("Build", x, top, 24.0, [1.0, 1.0, 1.0, 0.6 * a], Align::Left);
+        let rows = [self.kit.weapons.iter().map(|w| (w.def, w.level)).collect::<Vec<_>>(), self.kit.passives.clone()];
+        for (r, row) in rows.into_iter().enumerate() {
+            powerup_icons(c, x, top + 30.0 + r as f32 * (size + 10.0), size, row, a);
         }
     }
 
@@ -457,6 +464,7 @@ impl Harvest {
                 c.text_centered(title_y - scale * 2.5, scale, color, title);
                 let a = ((t - 0.5) / 0.4).clamp(0.0, 1.0);
                 self.damage_table(c, a);
+                self.build_panel(c, a);
                 let line = if self.t >= super::dawn() {
                     let how = if *won { "Home" } else { "Lasted" };
                     format!("{how} {} past dawn   Level {}   Kills {}", clock(self.t - super::dawn()), self.level, self.kills)
@@ -693,6 +701,19 @@ fn zone_color(zone: Option<Zone>) -> Color {
 }
 
 /// Eases from 0 to 1, overshooting a little before settling.
+/// Powerup icons in a row from (x, y), `size` pixels square, each with its level in its corner, gold at its top level.
+pub(crate) fn powerup_icons(c: &mut Canvas, x: f32, y: f32, size: f32, held: impl IntoIterator<Item = (usize, u32)>, alpha: f32) {
+    let label = size / 2.0;
+    for (i, (def, level)) in held.into_iter().enumerate() {
+        let Some(d) = book().defs.get(def) else { continue };
+        let x = x + i as f32 * (size + size / 5.0);
+        c.rect(x - 2.0, y - 2.0, size + 4.0, size + 4.0, [0.0, 0.0, 0.0, 0.6 * alpha]);
+        c.art(d.icon, x, y, size / 16.0, false, [1.0, 1.0, 1.0, alpha]);
+        let color = if level >= d.max { GOLD } else { WHITE };
+        c.label(level.to_string(), x + size - 2.0, y + size - label, label, [color[0], color[1], color[2], alpha], Align::Right);
+    }
+}
+
 /// A whole number with commas between each three digits.
 fn grouped(n: u64) -> String {
     let digits = n.to_string();

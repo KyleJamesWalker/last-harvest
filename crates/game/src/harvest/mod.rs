@@ -3007,6 +3007,23 @@ mod tests {
     }
 
     #[test]
+    fn the_end_screen_shows_the_build_on_the_top_screen_on_one_screen_and_two() {
+        for single in [false, true] {
+            let (mut h, _) = fought_then_died(1.0);
+            h.single = single;
+            let points = book().index("hollow_points").unwrap();
+            h.kit.raise(points, 2);
+            let mut f = crate::Frame::default();
+            h.draw(&mut f, false);
+            let icons: Vec<Art> = f.top.shapes.iter().filter_map(|s| if let crate::Shape::Art { art, .. } = s { Some(*art) } else { None }).collect();
+            for def in h.kit.weapons.iter().map(|a| a.def).chain([points]) {
+                assert!(icons.contains(&book().defs[def].icon), "{} on the top screen, one screen {single}", book().defs[def].id);
+            }
+            assert!(top_text(&h).contains(&"Build".to_string()));
+        }
+    }
+
+    #[test]
     fn a_runs_record_keeps_its_weapons_then_passives_at_their_levels() {
         let mut h = Harvest::calm(3);
         let crows = book().index("crows").unwrap();
