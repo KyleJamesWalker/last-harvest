@@ -395,7 +395,7 @@ The game reads its rules from seven text files. A mod pack can replace any of th
 | `props.txt` | The game's own props a map can place, and the defaults for fences and other sprites |
 | `ground.txt` | Each ground code a map paints |
 | `farm.txt` | How the random farm lays itself out |
-| `effects.txt` | The sprite and speed of each effect, swing, bullet, thrown item, pickup and animal, and the particle colors |
+| `effects.txt` | The sprite and speed of each effect, swing, bullet, thrown item, pickup and animal, the shot styles bullets fly as, and the particle colors |
 | `powerups.txt` | Every weapon and passive |
 | `enemies.txt` | Every kind of zombie |
 
@@ -461,6 +461,15 @@ Each section names what an effect, swing or animal plays:
 
 A sprite that stands as a slab lies flat and turns with the swing. Anything else faces the camera. A section with a name of your own is a new effect a weapon can use. A mod's file may leave out `[spit]`, `[mound]` and `[mound_breaks]`, added later, and keep the game's.
 
+A section can instead set a shot style, which a weapon fires with `bullet NAME`. Its bullets fly as a short streak of particles, and each shot throws sparks from the muzzle over the weapon's `flash`:
+
+- `color RRGGBB`: the streak's and sparks' color, as `palette.txt` writes one, such as `E8D27A`.
+- `length N`: the streak's length in pixels, up to 64.
+- `size N`: each speck's and spark's width in pixels, up to 8.
+- `sparks N`: sparks with each shot, up to 32; 0 for none.
+
+A section with any of these needs no `art`, and takes what it leaves out from `[bullet]`, the style of every gun without a `bullet` line. A section without a style still flies as its sprite. Guns play no muzzle sprite of their own; a weapon's `effect` line plays one over the sparks.
+
 The `[colors]` section sets the particle colors: `blood`, `dark_blood`, `dirt`, `spark`, `ember`, `gold` and `firefly`. Each is red, green and blue from 0 to 1. A zombie with its own `blood` bleeds that instead, and its `dark_blood` is as much darker.
 
 #### powerups.txt
@@ -504,7 +513,7 @@ Three behaviors take their shape from data:
 Any weapon can also take these lines:
 
 - `effect NAME`: an `effects.txt` effect it plays in place of its behavior's own. A lob plays it where it lands.
-- `bullet NAME`: an `effects.txt` effect its bullets fly as. A lob flies as it, or as the grenade when left out.
+- `bullet NAME`: an `effects.txt` effect its bullets fly as: a streak of particles when the section sets a shot style, else its sprite. A lob flies as it, or as the grenade when left out.
 - `sound NAME`: `shot`, `blast`, `slash`, `zap`, `bark` or `throw`, in place of its behavior's own.
 - `kick N`, `punch N` and `shake N`: the camera's kick back, punch in and screen shake on each attack.
 - `flash R G B REACH SECONDS`: a flash of light on each attack. The color can go above 1 for brighter than white. REACH is in tiles.
@@ -602,6 +611,7 @@ Each data file lists under Data, in a folder of its own. Each section of the fil
 A page shows one line a row, with its comment under it:
 
 - **-** and **+** step a number.
+- **<** and **>** step an `effects.txt` `color` line through the game's palette.
 - **Edit** types any value.
 - **x** removes a line, and **Add line** types a new `key value` line.
 - **Up** and **Down** page through a long section.
@@ -615,7 +625,7 @@ A weapon's section in `powerups.txt` opens as a weapon page:
 - A level's number picks that level. **-** and **+** on a stat step its value at that level only, ten times as far with Shift. **Edit** types the whole line.
 - **-** and **+** beside `max` change the highest level.
 - **<** and **>** step the effect and bullet through `effects.txt`, and the sound through the weapon sounds. **Own** removes the line, so the behavior's own plays.
-- The panel under the behaviors plays the chosen effect and bullet.
+- The panel under the behaviors plays the chosen effect and bullet. A bullet with a shot style plays as its streak, with its color, length, size and sparks, and **Style** opens its `effects.txt` section.
 - **Lines** shows the section a line a row, as any other page; **Weapon** goes back.
 
 Each change rewrites only its own line, so comments and other lines stay as written, and Undo takes it back.

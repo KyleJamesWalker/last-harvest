@@ -114,7 +114,7 @@ The game reads its rules from seven text files in `crates/game/`. The packer put
 | `props.txt` | The game's own props a map can place, with walk-through rows, cover and hit points, and the defaults for fences and other sprites |
 | `ground.txt` | Each ground code: its label, tile, how a run joins, what the cell is, and any crop on it |
 | `farm.txt` | How the random farm lays itself out: the ground codes it is laid on, tufts, grass, corpses, fields, the props it strews and how often, and its buildings, where they stand and what goes near each |
-| `effects.txt` | The sprite and speed of each effect, swing, bullet, thrown item, pickup and animal, plus effects a mod names, and the particle colors in `[colors]` |
+| `effects.txt` | The sprite and speed of each effect, swing, bullet, thrown item, pickup and animal, plus effects a mod names, the shot styles bullets fly as (`color` from `palette.txt`, `length`, `size`, `sparks`), and the particle colors in `[colors]` |
 | `powerups.txt` | Every weapon and passive |
 | `enemies.txt` | Every kind of zombie, including a `charge` that speeds it up near the player, `ranged` for one that keeps its distance and spits, `burrow` for one that tunnels up beside the player, and `blood` for its own blood color |
 
@@ -124,7 +124,7 @@ A weapon in `powerups.txt` picks a behavior with `does`. Two behaviors take thei
 
 Any weapon can name an `effect` and a `bullet` from `effects.txt`, and a `sound`. Its `kick`, `punch` and `shake` move the camera on each attack, and `flash` lights the ground: a color, its reach in tiles and its seconds. An `icon` can be a player's prop, `PROP_<ID>`. So a new weapon needs no code.
 
-Both editors edit these files. Each file is a folder under one Data heading, and each section a page in it, such as `tuning.txt`'s `[player]` under Data > tuning. Its page shows one line a row, with the comment under it. Numbers step with - and +, and Edit types any value. A weapon in `powerups.txt` opens as a weapon page instead: buttons pick its `does`, each stat shows its value at every level, - and + step the picked level's value alone, and < and > step its `effect`, `bullet` and `sound` through `effects.txt` and the weapon sounds. A panel plays the effect and bullet, and Lines shows the raw lines. Each change rewrites only its own line.
+Both editors edit these files. Each file is a folder under one Data heading, and each section a page in it, such as `tuning.txt`'s `[player]` under Data > tuning. Its page shows one line a row, with the comment under it. Numbers step with - and +, and Edit types any value. A weapon in `powerups.txt` opens as a weapon page instead: buttons pick its `does`, each stat shows its value at every level, - and + step the picked level's value alone, and < and > step its `effect`, `bullet` and `sound` through `effects.txt` and the weapon sounds. A panel plays the effect and bullet, a bullet with a shot style as its streak, and Style opens its `effects.txt` section, where < and > step its `color` through the palette. Lines shows the raw lines. Each change rewrites only its own line.
 
 Save writes the file only when the game would read it. The sprite editor saves into `crates/game/`. The card editor keeps a changed file in the browser, and Export all carries it to the mod pack. A sprite that `props.txt` or `effects.txt` names shows a Data button that opens its section.
 
