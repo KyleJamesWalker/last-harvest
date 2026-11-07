@@ -30,6 +30,8 @@ pub struct Shot {
     pub core: f32,
     /// The sprites it draws in place of plain colored shapes, by `SPRITES`; None draws the shape.
     pub sprites: [Option<&'static [Art]>; SPRITES.len()],
+    /// How its smoke puffs fade over their life: its section's alpha and fades.
+    pub fade: Fade,
 }
 
 /// The sprites a shot style can name, in the order `Shot::sprites` holds them: the tracer, stretched along the
@@ -184,7 +186,7 @@ impl Written {
 
     /// Its shot style, the rest taken from `base`, with its sprites' frames as `frames` finds them.
     fn shot(&self, base: Option<Shot>, frames: &dyn Fn(&str) -> Option<&'static [Art]>) -> Option<Shot> {
-        let base = base.unwrap_or(Shot { color: [1.0; 3], length: 10.0, size: 1.5, sparks: 6, impact: 4, core: 5.0, sprites: [None; SPRITES.len()] });
+        let base = base.unwrap_or(Shot { color: [1.0; 3], length: 10.0, size: 1.5, sparks: 6, impact: 4, core: 5.0, sprites: [None; SPRITES.len()], fade: Fade::OPAQUE });
         self.is_shot().then(|| Shot {
             sprites: std::array::from_fn(|k| match &self.sprites[k] {
                 Some(name) => frames(name),
@@ -196,6 +198,7 @@ impl Written {
             sparks: self.sparks.unwrap_or(base.sparks),
             impact: self.impact.unwrap_or(base.impact),
             core: self.core.unwrap_or(base.core),
+            fade: if self.fade == Fade::OPAQUE { base.fade } else { self.fade },
         })
     }
 }
@@ -548,7 +551,7 @@ mod tests {
 
     #[test]
     fn a_tracer_trails_behind_its_bullet_and_never_behind_the_gun() {
-        let shot = Shot { color: [1.0; 3], length: 12.0, size: 1.5, sparks: 4, impact: 3, core: 4.0, sprites: [None; SPRITES.len()] };
+        let shot = Shot { color: [1.0; 3], length: 12.0, size: 1.5, sparks: 4, impact: 3, core: 4.0, sprites: [None; SPRITES.len()], fade: Fade::OPAQUE };
         assert_eq!(shot.tail([100.0, 0.0], [200.0, 0.0], 1.0), [88.0, 0.0]);
         let fresh = shot.tail([100.0, 0.0], [200.0, 0.0], 0.01);
         assert!((fresh[0] - 98.0).abs() < 1e-3, "a bullet two pixels out trails two pixels");

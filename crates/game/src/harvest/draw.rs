@@ -416,8 +416,8 @@ impl Harvest {
             let s = p.size_now() * scale;
             let (sx, sy) = at(p.pos[0], p.pos[1] - p.z);
             match p.frame() {
-                Some(a) => c.art_rotated(a, sx, sy, s / a.w(), 0.0, WHITE),
-                None => c.rect(sx - s / 2.0, sy - s / 2.0, s, s, [p.color[0], p.color[1], p.color[2], 1.0]),
+                Some(a) => c.art_rotated(a, sx, sy, s / a.w(), 0.0, [1.0, 1.0, 1.0, p.alpha()]),
+                None => c.rect(sx - s / 2.0, sy - s / 2.0, s, s, [p.color[0], p.color[1], p.color[2], p.alpha()]),
             }
         }
         if fog {

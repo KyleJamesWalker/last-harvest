@@ -1559,6 +1559,7 @@ impl Harvest {
             let life = self.juice.rng.range(0.8, 1.4);
             let z = self.juice.rng.range(0.0, 6.0);
             self.juice.particle(Particle {
+                fade: effects::Fade::OPAQUE,
                 pos: [self.pos[0] + a.cos() * r, self.pos[1] + a.sin() * r],
                 z,
                 vel: [a.cos() * 18.0, a.sin() * 18.0],
@@ -2366,6 +2367,7 @@ impl Harvest {
             let pos = [self.pos[0] + a.cos() * r, self.pos[1] + a.sin() * r];
             let z = self.juice.rng.range(4.0, 18.0);
             self.juice.particle(Particle {
+                fade: effects::Fade::OPAQUE,
                 pos,
                 z,
                 vel: [0.0; 2],
@@ -2390,6 +2392,7 @@ impl Harvest {
             let (pos, z) = (d.pos, d.z + 6.0);
             if len(sub(pos, self.pos)) < 150.0 {
                 self.juice.particle(Particle {
+                fade: effects::Fade::OPAQUE,
                     pos,
                     z,
                     vel: [0.0; 2],

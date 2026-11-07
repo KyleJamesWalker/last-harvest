@@ -3,7 +3,7 @@
 
 use std::f32::consts::TAU;
 
-use super::effects::{FLARE, SMOKE as SMOKE_ART, SPARK, Shot};
+use super::effects::{FLARE, Fade, SMOKE as SMOKE_ART, SPARK, Shot};
 use crate::art::Art;
 use crate::rng::Rng;
 
@@ -99,6 +99,8 @@ pub struct Particle {
     pub grow: f32,
     /// A sprite drawn `size` wide in place of a plain square, its frames played over its life.
     pub art: Option<&'static [Art]>,
+    /// How opaque it draws over its life.
+    pub fade: Fade,
 }
 
 impl Particle {
@@ -106,6 +108,11 @@ impl Particle {
     pub fn frame(&self) -> Option<Art> {
         let frames = self.art?;
         frames.get(((self.age / self.life * frames.len() as f32) as usize).min(frames.len().saturating_sub(1))).copied()
+    }
+
+    /// How opaque its fade draws it now, over its sprite's own alpha.
+    pub fn alpha(&self) -> f32 {
+        self.fade.at(self.age / self.life)
     }
 
     pub fn size_now(&self) -> f32 {
@@ -433,6 +440,7 @@ impl Juice {
             let life = life * self.fx.range(0.7, 1.3);
             let size = size * self.fx.range(0.7, 1.3);
             self.particle(Particle {
+                fade: Fade::OPAQUE,
                 pos: at,
                 z: height,
                 vel: [a.cos() * v, a.sin() * v],
@@ -467,7 +475,7 @@ impl Juice {
             let life = self.fx.range(0.45, 0.7);
             let vz = self.fx.range(6.0, 14.0);
             let pos = [at[0] + dir[0] * 3.0, at[1] + dir[1] * 3.0];
-            self.particle(Particle { pos, z: height, vel: [a.cos() * v, a.sin() * v], vz, age: 0.0, life, color: SMOKE, size: shot.size * 0.8, shrink: shot.sprites[SMOKE_ART].is_none(), gravity: -8.0, drag: 2.5, glow: 0.0, wander: false, grow: 2.5, art: shot.sprites[SMOKE_ART] });
+            self.particle(Particle { fade: shot.fade, pos, z: height, vel: [a.cos() * v, a.sin() * v], vz, age: 0.0, life, color: SMOKE, size: shot.size * 0.8, shrink: shot.sprites[SMOKE_ART].is_none(), gravity: -8.0, drag: 2.5, glow: 0.0, wander: false, grow: 2.5, art: shot.sprites[SMOKE_ART] });
         }
     }
 
@@ -477,7 +485,7 @@ impl Juice {
         if shot.impact == 0 {
             return;
         }
-        self.particle(Particle { pos: at, z: height, vel: [0.0; 2], vz: 0.0, age: 0.0, life: MUZZLE_CORE, color: HOT, size: shot.core * 0.45, shrink: true, gravity: 0.0, drag: 0.0, glow: 1.0, wander: false, grow: 0.0, art: shot.sprites[SPARK] });
+        self.particle(Particle { fade: Fade::OPAQUE, pos: at, z: height, vel: [0.0; 2], vz: 0.0, age: 0.0, life: MUZZLE_CORE, color: HOT, size: shot.core * 0.45, shrink: true, gravity: 0.0, drag: 0.0, glow: 1.0, wander: false, grow: 0.0, art: shot.sprites[SPARK] });
         self.sparks(at, height, back, 1.0, [50.0, 140.0], shot.impact, shot);
     }
 
@@ -491,7 +499,7 @@ impl Juice {
             let life = self.fx.range(0.12, 0.28);
             let size = shot.size * self.fx.range(0.6, 1.0);
             let vz = self.fx.range(-10.0, 30.0);
-            self.particle(Particle { pos: at, z: height, vel: [a.cos() * v, a.sin() * v], vz, age: 0.0, life, color: shot.color, size, shrink: shot.sprites[SPARK].is_none(), gravity: 120.0, drag: 9.0, glow: 1.0, wander: false, grow: 0.0, art: shot.sprites[SPARK] });
+            self.particle(Particle { fade: Fade::OPAQUE, pos: at, z: height, vel: [a.cos() * v, a.sin() * v], vz, age: 0.0, life, color: shot.color, size, shrink: shot.sprites[SPARK].is_none(), gravity: 120.0, drag: 9.0, glow: 1.0, wander: false, grow: 0.0, art: shot.sprites[SPARK] });
         }
     }
 
@@ -563,7 +571,7 @@ mod tests {
 
     #[test]
     fn a_muzzle_flash_is_a_brief_core_sparks_that_slow_and_smoke_that_rises() {
-        let shot = Shot { color: [0.9, 0.8, 0.5], length: 12.0, size: 1.4, sparks: 6, impact: 3, core: 5.0, sprites: [None; 4] };
+        let shot = Shot { color: [0.9, 0.8, 0.5], length: 12.0, size: 1.4, sparks: 6, impact: 3, core: 5.0, sprites: [None; 4], fade: Fade::OPAQUE };
         let mut j = Juice::new(1);
         j.muzzle([0.0; 2], 10.0, [1.0, 0.0], &shot);
         assert_eq!((j.particles.len(), j.flares.len()), (6 + SMOKE_PUFFS, 1));
@@ -583,9 +591,24 @@ mod tests {
     }
 
     #[test]
+    fn a_shots_smoke_fades_as_it_drifts_and_its_sparks_stay_opaque() {
+        let shot = super::super::effects::effects().named("pistol_shot").and_then(|e| e.shot).unwrap();
+        assert!(shot.fade != Fade::OPAQUE, "the game's guns fade their smoke");
+        let mut j = Juice::new(1);
+        j.muzzle([0.0; 2], 10.0, [1.0, 0.0], &shot);
+        let smoke = |j: &Juice| j.particles.iter().filter(|p| p.color == SMOKE).map(Particle::alpha).fold(0.0, f32::max);
+        let first = smoke(&j);
+        let life = j.particles.iter().filter(|p| p.color == SMOKE).map(|p| p.life).fold(f32::MAX, f32::min);
+        j.tick(life * 0.6);
+        let later = smoke(&j);
+        assert!(first < 1.0 && later < first, "smoke fades: {first} then {later}");
+        assert!(j.particles.iter().filter(|p| p.color != SMOKE).all(|p| p.alpha() == 1.0), "sparks stay opaque");
+    }
+
+    #[test]
     fn a_sprite_spark_plays_its_frames_over_its_life() {
         let frames: &'static [Art] = &[Art(1), Art(2), Art(3)];
-        let shot = Shot { color: [1.0; 3], length: 12.0, size: 1.4, sparks: 4, impact: 0, core: 3.0, sprites: [None, Some(frames), None, Some(frames)] };
+        let shot = Shot { color: [1.0; 3], length: 12.0, size: 1.4, sparks: 4, impact: 0, core: 3.0, sprites: [None, Some(frames), None, Some(frames)], fade: Fade::OPAQUE };
         let mut j = Juice::new(1);
         j.muzzle([0.0; 2], 10.0, [1.0, 0.0], &shot);
         let sparks: Vec<&Particle> = j.particles.iter().filter(|p| p.art.is_some()).collect();

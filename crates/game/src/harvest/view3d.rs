@@ -938,8 +938,8 @@ pub fn scene(h: &Harvest) -> CardScene {
         let q = world(pt.pos) + Vec3::Y * (pt.z * PX);
         if near(q) && (q - p).dot(forward) > 0.0 {
             match pt.frame() {
-                Some(a) => sprite_speck(&mut cards, q, pt.size_now() * PX, right, a, pt.glow),
-                None => speck(&mut cards, q, pt.size_now() * PX, right, pt.color, pt.glow),
+                Some(a) => faded(&mut cards, pt.alpha() * a.alpha(), |cards| sprite_speck(cards, q, pt.size_now() * PX, right, a, pt.glow)),
+                None => faded(&mut cards, pt.alpha(), |cards| speck(cards, q, pt.size_now() * PX, right, pt.color, pt.glow)),
             }
         }
     }
