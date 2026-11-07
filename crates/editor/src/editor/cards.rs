@@ -230,7 +230,7 @@ impl Editor {
         if let Err(e) = self.store.delete_card(&self.sprite.name) {
             return self.say(format!("Couldn't delete {id}: {e}"));
         }
-        self.sprite = Sprite { detail: 1, worn: Vec::new(), name: String::new(), frames: vec![Frame::blank(16, 16)], views: None, footprint: None, roof: None, north: None, west: None, top: None, card: None, clear_in_3d: Vec::new(), paint: Default::default() };
+        self.sprite = Sprite { detail: 1, alpha: Vec::new(), worn: Vec::new(), name: String::new(), frames: vec![Frame::blank(16, 16)], views: None, footprint: None, roof: None, north: None, west: None, top: None, card: None, clear_in_3d: Vec::new(), paint: Default::default() };
         (self.dirty, self.stand_touched, self.stats, self.frame) = (false, false, false, 0);
         self.undo.clear();
         self.redo.clear();
@@ -343,14 +343,14 @@ impl Editor {
                 let mut parts = Vec::new();
                 for (src, name) in source.iter().zip(&names) {
                     let (frames, worn) = if *src == self.sprite.name { (self.sprite.frames.clone(), self.sprite.worn.clone()) } else { self.store.load(src).map(|s| (s.frames, s.worn)).unwrap_or_default() };
-                    parts.push(Sprite { detail: self.sprite.detail, worn, name: name.clone(), frames, views: None, footprint: None, roof: None, north: None, west: None, top: None, card: Some(text.clone()), clear_in_3d: Vec::new(), paint: Default::default() });
+                    parts.push(Sprite { detail: self.sprite.detail, alpha: Vec::new(), worn, name: name.clone(), frames, views: None, footprint: None, roof: None, north: None, west: None, top: None, card: Some(text.clone()), clear_in_3d: Vec::new(), paint: Default::default() });
                 }
                 parts
             }
             Ask::New | Ask::Palette => {
                 let text = format!("[{id}]\nname        {}\n", id[..1].to_ascii_uppercase() + &id[1..]);
                 let frames = sprite::card_template();
-                names.iter().zip(frames.chunks(sprite::CARD_PART_FRAMES)).map(|(name, f)| Sprite { detail: 1, worn: Vec::new(), name: name.clone(), frames: f.to_vec(), views: None, footprint: None, roof: None, north: None, west: None, top: None, card: Some(text.clone()), clear_in_3d: Vec::new(), paint: Default::default() }).collect()
+                names.iter().zip(frames.chunks(sprite::CARD_PART_FRAMES)).map(|(name, f)| Sprite { detail: 1, alpha: Vec::new(), worn: Vec::new(), name: name.clone(), frames: f.to_vec(), views: None, footprint: None, roof: None, north: None, west: None, top: None, card: Some(text.clone()), clear_in_3d: Vec::new(), paint: Default::default() }).collect()
             }
         };
         if let Err(e) = parts.iter().try_for_each(|p| self.store.save(p)) {
