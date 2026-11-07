@@ -46,7 +46,7 @@ Edits of the tileset's sprites fall under its license. Commit them in the `asset
 | Next and previous sprite | J and K |
 | Previous and next frame | H and L, or Left and Right with nothing selected |
 | Play the animation | Space |
-| New sprite, or a copy | New, Copy |
+| New sprite, or a copy | New, Copy, then a name and Enter or Create. Esc, Cancel or a tap outside the box backs out. |
 | Resize every frame | W and H - and +, 8 at a time with Shift. The bottom center stays put. |
 | Browse earlier versions | R, or History |
 | Save | Cmd+S |

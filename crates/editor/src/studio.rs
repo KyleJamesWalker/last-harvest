@@ -249,6 +249,9 @@ impl Studio {
     }
 
     pub fn press(&mut self, pane: Pane, p: [f32; 2], right: bool, shift: bool) {
+        if pane != Pane::Edit && self.editor.tap_away() {
+            return;
+        }
         let [x, y, w, h] = PLAYER_SWITCH;
         if pane == Pane::View && (x..x + w).contains(&p[0]) && (y..y + h).contains(&p[1]) {
             self.player = !self.player;
@@ -308,7 +311,19 @@ impl Studio {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::editor::Key;
     use crate::store::FsStore;
+
+    #[test]
+    fn a_tap_on_another_pane_closes_the_naming_box_and_does_nothing_else() {
+        let dir = std::env::temp_dir().join(format!("studio-ask-{}", std::process::id()));
+        let mut s = Studio::new(Box::new(FsStore { dir: dir.clone(), catalog: dir.join("art.txt"), cards: dir.join("enemies") }), "BARREL");
+        s.editor.key(Key::Char('n'));
+        assert!(s.editor.wants_text());
+        let [x, y, w, h] = PLAYER_SWITCH;
+        s.press(Pane::View, [x + w / 2.0, y + h / 2.0], false, false);
+        assert!(!s.editor.wants_text() && s.player, "the box closes and the switch stays as it was");
+    }
 
     #[test]
     fn the_view_hides_the_player_on_a_tap_and_comes_closer_without_them() {

@@ -69,6 +69,8 @@ const ALPHA_Y: f32 = 537.0;
 /// Rows of swatches a sprite's palette shows, above the detail row.
 const PALETTE_ROWS: usize = 8;
 const DIALOG: Rect = Rect { x: 212.0, y: 250.0, w: 600.0, h: 230.0 };
+/// The box a new sprite's or a palette's name is typed in.
+const ASK_BOX: Rect = Rect { x: 262.0, y: 280.0, w: 500.0, h: 210.0 };
 /// The unsaved-changes dialog's choices: save then switch, discard then switch, or stay.
 const CHOICES: [(&str, Choice); 3] = [("Save and switch  S", Choice::Save), ("Discard  D", Choice::Discard), ("Stay  Esc", Choice::Stay)];
 
@@ -1337,6 +1339,11 @@ impl Editor {
             return;
         }
         if self.ask.is_some() {
+            if ask_rect(0).contains(p) {
+                self.confirm_ask();
+            } else if ask_rect(1).contains(p) || !ASK_BOX.contains(p) {
+                self.ask = None;
+            }
             return;
         }
         if self.browse.is_some() {
@@ -2311,6 +2318,56 @@ impl Editor {
         self.peek = on;
     }
 
+    /// Creates the sprite or loads the palette the naming box names, as Enter there does.
+    fn confirm_ask(&mut self) {
+        if let Some((Ask::Palette, name)) = &self.ask {
+            let name = name.clone();
+            self.ask = None;
+            return self.load_lospec(&name);
+        }
+        let Some((kind, name)) = self.ask.clone() else { return };
+        let typed = || match name.strip_prefix("PLAYER_") {
+            Some(id) => (sprite::CardKind::Player, id.to_ascii_lowercase()),
+            None => (sprite::CardKind::Enemy, name.to_ascii_lowercase()),
+        };
+        let prop = crate::store::props::id(&name).is_some();
+        let wanted = sprite::card_wanted(&name).or_else(|| (self.modding && !name.is_empty() && !prop).then(typed));
+        if name.starts_with(sprite::MAP_PREFIX) && kind == Ask::New {
+            self.make_map(&name);
+        } else if let Some((card, id)) = wanted {
+            self.make_card(kind, card, &id);
+        } else if !sprite::valid_name(&name) {
+            self.say("Names start with a letter and use A-Z, 0-9 and _");
+        } else if self.names.iter().any(|(n, _)| *n == name) {
+            self.say(format!("{name} already exists"));
+        } else {
+            self.ask = None;
+            let pictures = if kind == Ask::Copy { self.snapshot() } else { (vec![Frame::blank(16, 16)], None, Default::default(), Vec::new(), 1) };
+            let card = crate::store::props::id(&name).map(|id| last_harvest_game::prop_text(&crate::store::props::blank(&id)));
+            let clear_in_3d = if kind == Ask::Copy { self.sprite.clear_in_3d.clone() } else { Vec::new() };
+            let paint = if kind == Ask::Copy { self.sprite.paint.clone() } else { Default::default() };
+            self.sprite = Sprite { detail: 1, alpha: Vec::new(), worn: Vec::new(), name: name.clone(), frames: Vec::new(), views: None, footprint: None, roof: None, north: None, west: None, top: None, card, clear_in_3d, paint };
+            restore(&mut self.sprite, pictures);
+            self.fit();
+            self.view = None;
+            self.frame = 0;
+            self.undo.clear();
+            self.redo.clear();
+            self.dirty = true;
+            self.changed = true;
+            if !self.names.iter().any(|(n, _)| *n == name) {
+                self.names.push((name.clone(), false));
+            }
+            self.reveal();
+            self.say(format!("{name} is new: Save writes it to disk"));
+        }
+    }
+
+    /// Closes the naming box after a tap off the editor's pane; whether one was open.
+    pub fn tap_away(&mut self) -> bool {
+        self.ask.take().is_some()
+    }
+
     /// Whether keys are typing a name or a search, so letters shouldn't act as shortcuts.
     pub fn wants_text(&self) -> bool {
         self.typing || self.ask.is_some() || self.naming.is_some()
@@ -2573,16 +2630,12 @@ impl Editor {
                 Key::Char(c) => name.extend(lospec_char(c).filter(|_| name.len() < 64)),
                 Key::Backspace => _ = name.pop(),
                 Key::Escape => self.ask = None,
-                Key::Enter => {
-                    let name = name.clone();
-                    self.ask = None;
-                    self.load_lospec(&name);
-                }
+                Key::Enter => self.confirm_ask(),
                 _ => {}
             }
             return;
         }
-        if let Some((kind, name)) = &mut self.ask {
+        if let Some((_, name)) = &mut self.ask {
             match key {
                 Key::Char(c) if c.is_ascii_alphanumeric() || c == '_' || c == ' ' => {
                     name.push(if c == ' ' { '_' } else { c.to_ascii_uppercase() });
@@ -2591,44 +2644,7 @@ impl Editor {
                     name.pop();
                 }
                 Key::Escape => self.ask = None,
-                Key::Enter => {
-                    let (kind, name) = (*kind, name.clone());
-                    let typed = || match name.strip_prefix("PLAYER_") {
-                        Some(id) => (sprite::CardKind::Player, id.to_ascii_lowercase()),
-                        None => (sprite::CardKind::Enemy, name.to_ascii_lowercase()),
-                    };
-                    let prop = crate::store::props::id(&name).is_some();
-                    let wanted = sprite::card_wanted(&name).or_else(|| (self.modding && !name.is_empty() && !prop).then(typed));
-                    if name.starts_with(sprite::MAP_PREFIX) && kind == Ask::New {
-                        self.make_map(&name);
-                    } else if let Some((card, id)) = wanted {
-                        self.make_card(kind, card, &id);
-                    } else if !sprite::valid_name(&name) {
-                        self.say("Names start with a letter and use A-Z, 0-9 and _");
-                    } else if self.names.iter().any(|(n, _)| *n == name) {
-                        self.say(format!("{name} already exists"));
-                    } else {
-                        self.ask = None;
-                        let pictures = if kind == Ask::Copy { self.snapshot() } else { (vec![Frame::blank(16, 16)], None, Default::default(), Vec::new(), 1) };
-                        let card = crate::store::props::id(&name).map(|id| last_harvest_game::prop_text(&crate::store::props::blank(&id)));
-                        let clear_in_3d = if kind == Ask::Copy { self.sprite.clear_in_3d.clone() } else { Vec::new() };
-                        let paint = if kind == Ask::Copy { self.sprite.paint.clone() } else { Default::default() };
-                        self.sprite = Sprite { detail: 1, alpha: Vec::new(), worn: Vec::new(), name: name.clone(), frames: Vec::new(), views: None, footprint: None, roof: None, north: None, west: None, top: None, card, clear_in_3d, paint };
-                        restore(&mut self.sprite, pictures);
-                        self.fit();
-                        self.view = None;
-                        self.frame = 0;
-                        self.undo.clear();
-                        self.redo.clear();
-                        self.dirty = true;
-                        self.changed = true;
-                        if !self.names.iter().any(|(n, _)| *n == name) {
-                            self.names.push((name.clone(), false));
-                        }
-                        self.reveal();
-                        self.say(format!("{name} is new: Save writes it to disk"));
-                    }
-                }
+                Key::Enter => self.confirm_ask(),
                 _ => {}
             }
             return;
@@ -2994,7 +3010,8 @@ impl Editor {
         }
         if let Some((kind, name)) = &self.ask {
             c.rect(0.0, 0.0, 1024.0, 768.0, [0.0, 0.0, 0.0, 0.6]);
-            c.rect(262.0, 280.0, 500.0, 170.0, PANEL);
+            let d = ASK_BOX;
+            c.rect(d.x, d.y, d.w, d.h, PANEL);
             let what = match (*kind, self.modding) {
                 (Ask::New, true) => "Name the new enemy card",
                 (Ask::New, false) => "Name the new sprite",
@@ -3012,7 +3029,13 @@ impl Editor {
             c.label(hint, 512.0, 328.0, 15.0, DIM, Align::Center);
             let caret = if (self.clock * 2.0) as i32 % 2 == 0 { "_" } else { " " };
             c.label(format!("{name}{caret}"), 512.0, 350.0, 30.0, HOT, Align::Center);
-            c.label(if *kind == Ask::Palette { "Enter to load, Esc to cancel" } else { "Enter to create, Esc to cancel" }, 512.0, 405.0, 16.0, DIM, Align::Center);
+            let (done, keys) = if *kind == Ask::Palette { ("Load", "Enter to load, Esc or a tap outside to cancel") } else { ("Create", "Enter to create, Esc or a tap outside to cancel") };
+            c.label(keys, 512.0, 396.0, 15.0, DIM, Align::Center);
+            for (i, label) in [done, "Cancel"].into_iter().enumerate() {
+                let r = ask_rect(i);
+                c.rect(r.x, r.y, r.w, r.h, if i == 0 { HOT } else { BUTTON });
+                c.label(label, r.x + r.w / 2.0, r.y + (r.h - 20.0) / 2.0, 20.0, if i == 0 { [0.1, 0.1, 0.1, 1.0] } else { TEXT }, Align::Center);
+            }
         }
     }
 
@@ -3227,6 +3250,12 @@ fn list_label(name: &str) -> String {
     }
     let keep = ROOM.saturating_sub(part.len() + 2).max(1);
     format!("{}~_{part}", id[..keep.min(id.len())].trim_end_matches('_'))
+}
+
+/// The naming box's Create (or Load) button, then its Cancel.
+fn ask_rect(i: usize) -> Rect {
+    let w = 150.0;
+    Rect { x: ASK_BOX.x + ASK_BOX.w / 2.0 - w - 7.0 + i as f32 * (w + 14.0), y: ASK_BOX.y + ASK_BOX.h - 62.0, w, h: 44.0 }
 }
 
 fn choice_rect(i: usize) -> Rect {
@@ -5043,6 +5072,63 @@ mod tests {
         e.set_text("big rock");
         e.key(Key::Enter);
         assert_eq!(e.sprite.name, "BIG_ROCK");
+    }
+
+    fn tap(e: &mut Editor, p: [f32; 2]) {
+        e.mouse_down(p, false, false);
+        e.mouse_up();
+    }
+
+    fn middle(r: Rect) -> [f32; 2] {
+        [r.x + r.w / 2.0, r.y + r.h / 2.0]
+    }
+
+    #[test]
+    fn a_tap_outside_the_naming_box_or_on_cancel_closes_it_and_create_does_what_enter_does() {
+        let dir = tmp().join("tap-ask");
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut e = editor_in(&dir, dir.join("art.txt"));
+        e.act(Action::Ask(Ask::New), false);
+        type_in(&mut e, "rock");
+        tap(&mut e, [ASK_BOX.x + 10.0, ASK_BOX.y + 10.0]);
+        assert_eq!(e.text(), Some("ROCK"), "a tap inside the box, off its buttons, keeps it open");
+        tap(&mut e, [CANVAS.x + 10.0, CANVAS.y + 10.0]);
+        assert_eq!((e.ask.is_none(), e.sprite.name.as_str(), e.unsaved()), (true, "BARREL", false), "a tap outside cancels, as Esc does");
+        e.act(Action::Ask(Ask::Copy), false);
+        type_in(&mut e, "rock");
+        tap(&mut e, middle(ask_rect(1)));
+        assert!(e.ask.is_none() && e.sprite.name == "BARREL", "Cancel");
+        e.act(Action::Ask(Ask::New), false);
+        type_in(&mut e, "big rock");
+        tap(&mut e, middle(ask_rect(0)));
+        assert!(e.ask.is_none() && e.sprite.name == "BIG_ROCK" && e.names.iter().any(|(n, _)| n == "BIG_ROCK"), "Create makes it as Enter does");
+        e.act(Action::Ask(Ask::New), false);
+        type_in(&mut e, "big rock");
+        tap(&mut e, middle(ask_rect(0)));
+        assert!(e.ask.is_some() && e.status.as_ref().is_some_and(|(t, _)| t.contains("already exists")), "a taken name keeps the box open");
+        tap(&mut e, [4.0, 4.0]);
+        assert!(e.ask.is_none());
+        e.act(Action::Ask(Ask::Palette), false);
+        tap(&mut e, middle(ask_rect(1)));
+        assert!(e.ask.is_none());
+        e.act(Action::Ask(Ask::Palette), false);
+        tap(&mut e, middle(ask_rect(0)));
+        assert!(e.ask.is_none() && e.status.as_ref().is_some_and(|(t, _)| t.contains("game's palette")), "Load with no name goes back to the game's");
+    }
+
+    #[test]
+    fn the_mod_editors_naming_box_takes_taps_too() {
+        let dir = tmp().join("tap-ask-mod");
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut e = Editor::new(Box::new(FsStore { dir: dir.join("sprites"), catalog: dir.join("art.txt"), cards: dir.join("enemies") }), "");
+        e.set_modding();
+        e.act(Action::Ask(Ask::New), false);
+        tap(&mut e, middle(LIST));
+        assert!(e.ask.is_none() && e.none_open());
+        e.act(Action::Ask(Ask::New), false);
+        type_in(&mut e, "bat");
+        tap(&mut e, middle(ask_rect(0)));
+        assert_eq!(e.sprite.name, "CARD_BAT_FRONT");
     }
 
     #[test]
