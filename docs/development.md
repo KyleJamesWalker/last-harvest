@@ -132,6 +132,7 @@ CI reads the private submodule with the `ASSETS_DEPLOY_KEY` secret. A pull reque
 | Variable | Effect |
 |---|---|
 | `LAST_HARVEST_VERSION` | At build time, the release that the binary and `game_data.pak` report. |
+| `LAST_HARVEST_NO_PAK` | `1`: `scripts/android.sh` leaves `game_data.pak` out of the APK, which then fetches the release's pack on first run. Release builds set it. |
 | `LAST_HARVEST_SPRITES` | Where the sprite editor saves. Default: `assets/private/sprites`. |
 | `LAST_HARVEST_CATALOG` | The sprite catalog the native sprite editor writes stands to. Default: `crates/game/art.txt`. |
 | `SPRITE_EDITOR_OPEN` | The sprite the editor opens at launch. |
