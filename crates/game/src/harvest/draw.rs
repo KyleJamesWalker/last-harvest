@@ -45,8 +45,10 @@ impl Harvest {
         let c = &mut f.bottom;
         c.clear = [0.0, 0.0, 0.0, 1.0];
         let tint = self.map_tint();
+        // Sight stops counting once the run ends, so the map shows the night as it is.
+        let fog = !matches!(self.phase, Phase::Over { .. });
         let cam = self.camera();
-        self.world(c, cam, map_scale(), tint, true);
+        self.world(c, cam, map_scale(), tint, fog);
         self.view_cone(c, cam);
         self.home_on_map(c, cam);
         self.grenade_tray(c);

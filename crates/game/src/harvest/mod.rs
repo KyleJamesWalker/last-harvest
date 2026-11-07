@@ -794,6 +794,8 @@ pub struct Harvest {
     photo: Option<photo::Photo>,
     saves_photos: bool,
     taps: bool,
+    /// The on-screen photo keys show, so the guides name them instead of a pad's buttons.
+    touch_keys: bool,
     /// The weapon range, trying one weapon against a ring of zombies.
     range: Option<range::Range>,
 }
@@ -999,6 +1001,7 @@ impl Harvest {
             photo: None,
             saves_photos: false,
             taps: true,
+            touch_keys: false,
             range: None,
         }
         .with_birds()
@@ -3385,6 +3388,64 @@ mod tests {
         let flow = h.update(&Input::default(), 0.02, &mut Vec::new());
         assert!(matches!(h.phase, Phase::Over { won: true, .. }));
         assert!(flow.ended.is_some_and(|r| r.won));
+    }
+
+    /// Where the bottom map draws a zombie of `kind` standing up, as world spots.
+    fn on_map(h: &Harvest, kind: Kind) -> Vec<[f32; 2]> {
+        let look = &kind.stats().look;
+        let frames: Vec<Art> = look.walk.iter().flatten().chain(&look.flash).chain(&look.hurt).copied().collect();
+        let mut f = crate::Frame::default();
+        h.draw(&mut f, false);
+        let cam = h.camera();
+        f.bottom.shapes.iter().filter_map(|s| match *s {
+            crate::Shape::Art { art: a, x, y, scale, .. } if frames.contains(&a) => Some([x / scale + cam[0] + a.w() / 2.0, y / scale + cam[1] + a.h() - 2.0]),
+            _ => None,
+        }).collect()
+    }
+
+    #[test]
+    fn once_dead_the_map_shows_the_horde_walking_where_it_is() {
+        let mut h = Harvest::calm(4);
+        h.zombies.clear();
+        h.view_yaw = 0.0;
+        h.aim = [1.0, 0.0];
+        let mut z = Zombie::new(Kind::named("skinny"), [h.pos[0] - 40.0, h.pos[1]], 50.0, 1.0, 0.0);
+        z.id = 9;
+        h.zombies.push(z);
+        h.update(&Input::default(), 1.0 / 60.0, &mut Vec::new());
+        assert!(on_map(&h, Kind::named("skinny")).is_empty(), "alive, the map shows only what the view has seen");
+        h.hp = 0.0;
+        h.update(&Input::default(), 1.0 / 60.0, &mut Vec::new());
+        assert!(matches!(h.phase, Phase::Over { won: false, .. }));
+        let mut seen = Vec::new();
+        for _ in 0..3 {
+            for _ in 0..((TURNED / 2.0) * 60.0) as usize {
+                h.update(&Input::default(), 1.0 / 60.0, &mut Vec::new());
+            }
+            let z = &h.zombies[0];
+            let at = on_map(&h, z.kind);
+            assert!(at.iter().any(|p| len(sub(*p, z.pos)) < 0.5), "the map draws the zombie behind the dead player where it is: {at:?} vs {:?}", z.pos);
+            seen.push(z.pos);
+        }
+        assert!(seen[0] != seen[2], "and it walks");
+    }
+
+    #[test]
+    fn home_at_dawn_leaves_no_zombie_on_the_map() {
+        let mut h = before_dawn();
+        h.update(&Input::default(), 0.02, &mut Vec::new());
+        h.pos = h.map.home;
+        h.view_yaw = 0.0;
+        let mut z = Zombie::new(Kind::named("skinny"), [h.pos[0] + 12.0, h.pos[1]], 50.0, 1.0, 0.0);
+        z.id = 9;
+        let kinds: Vec<Kind> = h.zombies.iter().chain([&z]).map(|z| z.kind).collect();
+        h.zombies.push(z);
+        h.update(&Input::default(), 0.02, &mut Vec::new());
+        assert!(matches!(h.phase, Phase::Over { won: true, .. }));
+        h.update(&Input::default(), 0.5, &mut Vec::new());
+        for kind in kinds {
+            assert!(on_map(&h, kind).is_empty(), "first light burned every zombie away");
+        }
     }
 
     #[test]

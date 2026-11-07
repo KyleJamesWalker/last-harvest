@@ -12,7 +12,7 @@ Choose Play on the title's bottom screen to start a run. Each run takes place on
 
 The top screen is the main view, in 2.5D. Every sprite's silhouette stands extruded into depth, lit by your lantern and fading into fog. You see the farm from just behind yourself.
 
-The bottom screen shows the farm around you from above at three times the art's size. Dots mark what the main view sees. A zombie shows on the map only while you look at it: once it leaves your view, or goes behind cover, the map keeps it where you last saw it and fades it out. Tap the map to throw a grenade.
+The bottom screen shows the farm around you from above at three times the art's size. Dots mark what the main view sees. A zombie shows on the map only while you look at it: once it leaves your view, or goes behind cover, the map keeps it where you last saw it and fades it out. Once the night ends, by turning or reaching home, the map shows the whole horde again. Tap the map to throw a grenade.
 
 While you play, the map is at full brightness inside the view's cone and darkens outside it, so you can see which way you face and which parts of the map you aren't watching.
 
@@ -164,22 +164,22 @@ R2 saves both screens, the top above the bottom, as `screenshots/shot-NNNN.png` 
 
 Choose Photo mode from the pause menu to frame a shot of the run, horde and all. Nothing moves until you leave.
 
-| Action | Pad | Keyboard |
-|---|---|---|
-| Turn the camera around you | Left / Right, or the stick | Left / Right arrows |
-| Zoom | Up / Down | Up / Down arrows |
-| Raise or lower the camera | Hold L1 with Up / Down | Hold 1 with Up / Down |
-| Choose a setting: Time, Fog, Lantern, Pose, Props or Place | L2 | Q |
-| Change it; on Pose, pick the next zombie; on Props or Place, drop the chosen prop on the cross | R2 | 2 |
-| On Pose, turn the picked zombie | Left / Right, or the stick | Left / Right arrows |
-| On Pose, step its frame | Up / Down | Up / Down arrows |
-| On Props, choose a prop | Left / Right, or the stick | Left / Right arrows |
-| On Props, turn the last prop dropped | Up / Down | Up / Down arrows |
-| On Place, move the cross where props drop | D-pad, or the stick | Arrows |
-| On Place, put the cross back where the camera looks | X | S |
-| On Props or Place, take back the last prop dropped | Y | A |
-| Take a photo | R1, or tap | W |
-| Back to the pause menu | B or Start | Z, Enter or Esc |
+| Action | Pad | Keyboard | Touch |
+|---|---|---|---|
+| Turn the camera around you | Left / Right, or the stick | Left / Right arrows | Stick left / right, or the turn strip |
+| Zoom | Up / Down | Up / Down arrows | Stick up / down |
+| Raise or lower the camera | Hold L1 with Up / Down | Hold 1 with Up / Down | Hold Height with the stick up / down |
+| Choose a setting: Time, Fog, Lantern, Pose, Props or Place | L2 | Q | Setting |
+| Change it; on Pose, pick the next zombie; on Props or Place, drop the chosen prop on the cross | R2 | 2 | Change |
+| On Pose, turn the picked zombie | Left / Right, or the stick | Left / Right arrows | Stick left / right |
+| On Pose, step its frame | Up / Down | Up / Down arrows | Stick up / down |
+| On Props, choose a prop | Left / Right, or the stick | Left / Right arrows | Stick left / right |
+| On Props, turn the last prop dropped | Up / Down | Up / Down arrows | Stick up / down |
+| On Place, move the cross where props drop | D-pad, or the stick | Arrows | Stick |
+| On Place, put the cross back where the camera looks | X | S | Reset |
+| On Props or Place, take back the last prop dropped | Y | A | Change on Take back |
+| Take a photo | R1, or tap | W | Tap the picture |
+| Back to the pause menu | B or Start | Z, Enter or Esc | Back |
 
 The settings change only the picture, never the run, and go back to the run's own when you leave. Time steps through Midnight, Small hours, First light, Daybreak and Dawn, then back to Now. Fog goes from Clear through Thin, Usual and Thick to Pea soup. Lantern goes from Out through Dim, Usual and Bright to Blazing. The help shows each value and puts the chosen setting in brackets.
 
@@ -189,7 +189,7 @@ Props lets you dress the shot. Left and Right choose a prop: a barrier, barrel, 
 
 The cross starts where the camera looks. After each drop it steps aside to the right of the prop, so props dropped one after another stand in a row; where the edge of the map or the cross's reach stops the row, it grows from its left end instead. To put one somewhere else, choose Place: Left, Right, Up and Down slide the cross across the ground as the camera sees it, Up away from you, up to 12 tiles from you and never off the map, and R2 drops the chosen prop there. X puts the cross back where the camera looks. The help says how far out the cross is; when it is out of the picture, it waits at the edge nearest it, along the bottom when it is behind the camera. On Props and Place the map on the bottom screen shows the cross too. On Take back, R2 on Place takes back the last prop, as on Props.
 
-A photo leaves out the HUD, the guides and the help. It saves the top screen as `screenshots/photo-NNNN.png` beside the save, or in the game folder on Android, and its middle square, the one the guide outlines, as `photo-NNNN-square.png`. On a phone the touch stick and turn strip move the camera, the Grenade key chooses a setting and the Map key changes it (on Place the stick moves the cross; on Props, choose Take back to remove one), and a tap on the picture takes the photo. Where the game can't save a file, in a browser and on muOS, R1 or a tap hides the guides instead, so your device's own screenshot comes out clean.
+A photo leaves out the HUD, the guides and the help. It saves the top screen as `screenshots/photo-NNNN.png` beside the save, or in the game folder on Android, and its middle square, the one the guide outlines, as `photo-NNNN-square.png`. On a phone the run's keys become photo keys while you are in photo mode: Setting and Change, Height and Reset beside them, and Back in Pause's corner, the only key that leaves; the help names them instead of a pad's buttons until a gamepad or keyboard hides them. Where the game can't save a file, in a browser and on muOS, R1 or a tap hides the guides instead, so your device's own screenshot comes out clean.
 
 ## Weapons, passives and zombies
 
