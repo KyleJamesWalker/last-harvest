@@ -12,7 +12,7 @@ Choose Play on the title's bottom screen to start a run. Each run takes place on
 
 The top screen is the main view, in 2.5D. Every sprite's silhouette stands extruded into depth, lit by your lantern and fading into fog. You see the farm from just behind yourself.
 
-The bottom screen shows the farm around you from above at three times the art's size. Dots mark what the main view sees. A zombie shows on the map only while you look at it: once it leaves your view, or goes behind cover, the map keeps it where you last saw it and fades it out. Tap the map to throw a grenade.
+The bottom screen shows the farm around you from above at three times the art's size. Dots mark what the main view sees. A zombie shows on the map only while you look at it: once it leaves your view, or goes behind cover, the map keeps it where you last saw it and fades it out. Once the night ends, by turning or reaching home, the map shows the whole horde again. Tap the map to throw a grenade.
 
 While you play, the map is at full brightness inside the view's cone and darkens outside it, so you can see which way you face and which parts of the map you aren't watching.
 
