@@ -2956,6 +2956,59 @@ mod tests {
         assert!(len(sub(h.zombies[0].pos, h.pos)) < MARCH_CLOSE * 1.5, "and the dead keep with them");
     }
 
+    /// A calm run holding its start weapons among a few zombies too tough to kill, played for `secs`, then ended by
+    /// dying and played on until the summary shows.
+    fn fought_then_died(secs: f32) -> (Harvest, f32) {
+        let mut h = Harvest::calm(3);
+        let hp = 1.0e6;
+        h.zombies = (0..4).map(|k| {
+            let mut z = Zombie::new(Kind::named("big"), [h.pos[0] + 16.0, h.pos[1] - 6.0 + k as f32 * 4.0], hp, 1.0, 0.0);
+            z.id = 100 + k;
+            z
+        }).collect();
+        h.hp = 1.0e6;
+        for _ in 0..(secs * 60.0) as usize {
+            h.update(&Input::default(), 1.0 / 60.0, &mut Vec::new());
+        }
+        let hurt: f32 = h.zombies.iter().map(|z| hp - z.hp).sum();
+        h.hp = 0.0;
+        h.update(&Input::default(), 1.0 / 60.0, &mut Vec::new());
+        h.update(&Input::default(), TURNED + 1.5, &mut Vec::new());
+        (h, hurt)
+    }
+
+    fn top_text(h: &Harvest) -> Vec<String> {
+        let mut f = crate::Frame::default();
+        h.draw(&mut f, false);
+        f.top.shapes.iter().filter_map(|s| if let crate::Shape::Text { text, .. } = s { Some(text.clone()) } else { None }).collect()
+    }
+
+    #[test]
+    fn the_end_screen_lists_each_weapon_held_by_damage_then_the_whole_run() {
+        let (h, hurt) = fought_then_died(5.0);
+        assert!(hurt > 0.0);
+        let tally = &h.juice.tally;
+        assert!((tally.total() - hurt).abs() < 0.01 * hurt, "every hit counts: {} of {hurt}", tally.total());
+        assert!((tally.secs - h.t).abs() < 1e-3 && tally.dps() == tally.total() / tally.secs, "over the night's time");
+        let names: Vec<&str> = tally.rows().iter().map(|r| book().defs[r.by.unwrap()].name.as_str()).collect();
+        let held: Vec<&str> = h.kit.weapons.iter().map(|a| book().defs[a.def].name.as_str()).collect();
+        assert_eq!(names.len(), held.len(), "{names:?} {held:?}");
+        assert!(held.iter().all(|n| names.contains(n)));
+        assert!(tally.rows().windows(2).all(|w| w[0].damage >= w[1].damage), "most damage first");
+        let text = top_text(&h);
+        let at = |s: &str| text.iter().position(|t| t == s).unwrap_or_else(|| panic!("{s} not on the end screen: {text:?}"));
+        let order: Vec<usize> = names.iter().map(|n| at(n)).chain([at("Whole run")]).collect();
+        assert!(order.windows(2).all(|w| w[0] < w[1]), "in that order, the whole run last");
+    }
+
+    #[test]
+    fn a_new_run_starts_its_tally_over() {
+        let (mut h, _) = fought_then_died(1.0);
+        h.update(&Input { pressed: Buttons::A, ..Default::default() }, 1.0 / 60.0, &mut Vec::new());
+        assert!(matches!(h.phase, Phase::Playing));
+        assert_eq!((h.juice.tally.total(), h.juice.tally.secs), (0.0, 0.0));
+    }
+
     #[test]
     fn a_map_smaller_than_the_view_draws_and_takes_a_tap() {
         let mut h = Harvest::calm_on(1, &MapSource::new("Tiny", MAP_MIN)).unwrap();
@@ -3240,59 +3293,6 @@ mod tests {
         let flow = h.update(&Input::default(), 0.02, &mut Vec::new());
         assert!(matches!(h.phase, Phase::Over { won: true, .. }));
         assert!(flow.ended.is_some_and(|r| r.won));
-    }
-
-    /// A calm run holding its start weapons among a few zombies too tough to kill, played for `secs`, then ended by
-    /// dying and played on until the summary shows.
-    fn fought_then_died(secs: f32) -> (Harvest, f32) {
-        let mut h = Harvest::calm(3);
-        let hp = 1.0e6;
-        h.zombies = (0..4).map(|k| {
-            let mut z = Zombie::new(Kind::named("big"), [h.pos[0] + 16.0, h.pos[1] - 6.0 + k as f32 * 4.0], hp, 1.0, 0.0);
-            z.id = 100 + k;
-            z
-        }).collect();
-        h.hp = 1.0e6;
-        for _ in 0..(secs * 60.0) as usize {
-            h.update(&Input::default(), 1.0 / 60.0, &mut Vec::new());
-        }
-        let hurt: f32 = h.zombies.iter().map(|z| hp - z.hp).sum();
-        h.hp = 0.0;
-        h.update(&Input::default(), 1.0 / 60.0, &mut Vec::new());
-        h.update(&Input::default(), TURNED + 1.5, &mut Vec::new());
-        (h, hurt)
-    }
-
-    fn top_text(h: &Harvest) -> Vec<String> {
-        let mut f = crate::Frame::default();
-        h.draw(&mut f, false);
-        f.top.shapes.iter().filter_map(|s| if let crate::Shape::Text { text, .. } = s { Some(text.clone()) } else { None }).collect()
-    }
-
-    #[test]
-    fn the_end_screen_lists_each_weapon_held_by_damage_then_the_whole_run() {
-        let (h, hurt) = fought_then_died(5.0);
-        assert!(hurt > 0.0);
-        let tally = &h.juice.tally;
-        assert!((tally.total() - hurt).abs() < 0.01 * hurt, "every hit counts: {} of {hurt}", tally.total());
-        assert!((tally.secs - h.t).abs() < 1e-3 && tally.dps() == tally.total() / tally.secs, "over the night's time");
-        let names: Vec<&str> = tally.rows().iter().map(|r| book().defs[r.by.unwrap()].name.as_str()).collect();
-        let held: Vec<&str> = h.kit.weapons.iter().map(|a| book().defs[a.def].name.as_str()).collect();
-        assert_eq!(names.len(), held.len(), "{names:?} {held:?}");
-        assert!(held.iter().all(|n| names.contains(n)));
-        assert!(tally.rows().windows(2).all(|w| w[0].damage >= w[1].damage), "most damage first");
-        let text = top_text(&h);
-        let at = |s: &str| text.iter().position(|t| t == s).unwrap_or_else(|| panic!("{s} not on the end screen: {text:?}"));
-        let order: Vec<usize> = names.iter().map(|n| at(n)).chain([at("Whole run")]).collect();
-        assert!(order.windows(2).all(|w| w[0] < w[1]), "in that order, the whole run last");
-    }
-
-    #[test]
-    fn a_new_run_starts_its_tally_over() {
-        let (mut h, _) = fought_then_died(1.0);
-        h.update(&Input { pressed: Buttons::A, ..Default::default() }, 1.0 / 60.0, &mut Vec::new());
-        assert!(matches!(h.phase, Phase::Playing));
-        assert_eq!((h.juice.tally.total(), h.juice.tally.secs), (0.0, 0.0));
     }
 
     #[test]
