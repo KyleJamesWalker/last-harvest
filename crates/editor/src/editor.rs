@@ -4222,6 +4222,9 @@ mod tests {
         let setup = last_harvest_game::RangeSetup::read(&e.tried.take().expect("Try it asks for the range")).unwrap();
         assert_eq!((setup.weapon.as_str(), setup.level), ("pistol", 3));
         assert!(setup.section.as_deref().is_some_and(|s| s.starts_with("[pistol]\n") && s.contains("damage 12 15 16")), "unsaved changes too: {setup:?}");
+        assert!(setup.section.as_deref().is_some_and(|s| s.contains("pattern   burst") && s.contains("\ngap ")), "the burst too");
+        let effects = setup.effects.as_deref().unwrap_or_default();
+        assert!(effects.contains("[bullet]\n") && effects.contains("[pistol_shot]\n") && effects.contains("tracer SHOT_TRACER"), "and the shot style its bullets fly as: {effects}");
         e.act(Action::WeaponLines, false);
         e.act(Action::WeaponTry, false);
         assert!(e.tried.is_some(), "the lines view tries it too");

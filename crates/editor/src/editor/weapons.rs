@@ -171,7 +171,12 @@ impl Editor {
             Action::WeaponLevel(l) => d.weapon.as_mut().unwrap().level = l.clamp(1, max),
             Action::WeaponTry => {
                 let level = level.min(max) as u32;
-                let setup = last_harvest_game::RangeSetup { weapon: d.section.clone(), level, section: d.table.section_text(&d.section) };
+                let effects = Table::new("effects.txt", &store.read_table("effects.txt").unwrap_or_default());
+                let mut styles = vec!["bullet".to_string()];
+                styles.extend(value(&d.table, &d.section, "bullet").filter(|b| b != "bullet"));
+                let effects: String = styles.iter().filter_map(|s| effects.section_text(s)).collect();
+                let effects = (!effects.is_empty()).then_some(effects);
+                let setup = last_harvest_game::RangeSetup { weapon: d.section.clone(), level, section: d.table.section_text(&d.section), effects };
                 let said = match last_harvest_game::RangeSetup::read(&setup.text()) {
                     Ok(s) => {
                         self.tried = Some(s.text());

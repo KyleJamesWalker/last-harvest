@@ -635,7 +635,7 @@ A weapon's section in `powerups.txt` opens as a weapon page:
 - **<** and **>** step the effect and bullet through `effects.txt`, and the sound through the weapon sounds. **Own** removes the line, so the behavior's own plays.
 - The panel under the behaviors plays the chosen effect and bullet. A bullet with a shot style plays as its tracer and muzzle flare, in their sprites, with its color, length, size, sparks, core and impact, and **Style** opens its `effects.txt` section. There each sprite line steps through the sprites, your props among them, with **<** and **>**, and **Paint** opens the sprite to draw.
 - **Lines** shows the section a line a row, as any other page; **Weapon** goes back.
-- **Try it** opens the game's weapon range with the section as it stands, unsaved changes too, at the picked level. A section the game won't read says why instead.
+- **Try it** opens the game's weapon range with the section as it stands, unsaved changes too, at the picked level, with the saved `effects.txt` shot style its bullets fly as. A section the game won't read says why instead.
 
 Each change rewrites only its own line, so comments and other lines stay as written, and Undo takes it back.
 
