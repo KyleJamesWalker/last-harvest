@@ -469,6 +469,11 @@ A section can instead set a shot style, which a weapon fires with `bullet NAME`.
 - `sparks N`: sparks from the muzzle with each shot, up to 32; 0 for none.
 - `impact N`: sparks where each bullet hits, up to 32; 0 for none.
 - `core N`: how far the muzzle flare reaches, in pixels, up to 16.
+- `tracer NAME`: the sprite the tracer stretches along the bullet's path, drawn with its head to the right.
+- `spark NAME` and `smoke NAME`: the sprites of each spark and smoke puff, their frames played over its life: a spark shrinking, a puff spreading.
+- `flare NAME`: the sprite of the muzzle flare, pointing right, its frames played over the flare's frame or two.
+
+The sprites stand up and face the camera, cut out by their clear pixels. A name can be one of your props, `PROP_<ID>`. Without a sprite, or with a name that isn't one, the tracer, spark, smoke or flare draws as a plain colored shape. The game's own are `SHOT_TRACER`, `SHOT_PELLET`, `SHOT_ROUND`, `SHOT_SPARK`, `SHOT_SMOKE` and `SHOT_FLARE`, placeholders to redraw in the sprite editor.
 
 A section with any of these needs no `art`, and takes what it leaves out from `[bullet]`, the style of a gun without a `bullet` line. The pistol fires `[pistol_shot]`, the shotgun and back holster `[shotgun_pellet]`, and the rifle `[rifle_round]`; a mod's file without one of those fires `[bullet]` for it. A section without a style still flies as its sprite. Guns play no muzzle sprite of their own; a weapon's `effect` line plays one over the flare.
 
@@ -628,7 +633,7 @@ A weapon's section in `powerups.txt` opens as a weapon page:
 - A level's number picks that level. **-** and **+** on a stat step its value at that level only, ten times as far with Shift. **Edit** types the whole line.
 - **-** and **+** beside `max` change the highest level.
 - **<** and **>** step the effect and bullet through `effects.txt`, and the sound through the weapon sounds. **Own** removes the line, so the behavior's own plays.
-- The panel under the behaviors plays the chosen effect and bullet. A bullet with a shot style plays as its tracer and muzzle flare, with its color, length, size, sparks, core and impact, and **Style** opens its `effects.txt` section.
+- The panel under the behaviors plays the chosen effect and bullet. A bullet with a shot style plays as its tracer and muzzle flare, in their sprites, with its color, length, size, sparks, core and impact, and **Style** opens its `effects.txt` section. There each sprite line steps through the sprites, your props among them, with **<** and **>**, and **Paint** opens the sprite to draw.
 - **Lines** shows the section a line a row, as any other page; **Weapon** goes back.
 
 Each change rewrites only its own line, so comments and other lines stay as written, and Undo takes it back.
