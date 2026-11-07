@@ -204,7 +204,7 @@ impl Harvest {
     /// kind, Select switches to firing by hand and back, and X fires by hand; none of them move the player.
     pub(super) fn range_input(&mut self, input: &Input, sounds: &mut Vec<Sfx>) -> Option<Input> {
         self.range.as_ref()?;
-        if self.menu.is_some() || !matches!(self.phase, Phase::Playing) || self.overview {
+        if self.menu.is_some() || !matches!(self.phase, Phase::Playing) {
             return None;
         }
         let down = if self.single { TOP_KEYS } else { 0.0 };

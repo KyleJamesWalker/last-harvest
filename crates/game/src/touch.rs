@@ -1,6 +1,6 @@
-//! On-screen controls for a phone, in window pixels: a floating stick on the left with Map above it, and on the right
-//! Grenade and Turn around over a turn strip, a sideways-only floating stick that turns as a right stick does, with
-//! Pause above. They go beside the picture when the window is wide enough and under it when upright.
+//! On-screen controls for a phone, in window pixels: a floating stick on the left, and on the right Grenade and Turn
+//! around over a turn strip, a sideways-only floating stick that turns as a right stick does, with Pause above. Photo
+//! mode adds Map above the stick. They go beside the picture when the window is wide enough and under it when upright.
 
 use crate::art::{self, Art};
 use crate::input::{Buttons, MAX_TOUCHES};
@@ -52,8 +52,9 @@ fn fit([x, y, w, h]: Rect) -> Rect {
 }
 
 /// A run shows one screen with the controls around it; menus show both screens, side by side or stacked. Without
-/// `touch` there are no controls: a run's screen fills the window, and menus show the bottom screen alone.
-pub fn layout(size: [f32; 2], run: bool, touch: bool) -> Layout {
+/// `touch` there are no controls: a run's screen fills the window, and menus show the bottom screen alone. A run in
+/// `photo` mode has the Map key too.
+pub fn layout(size: [f32; 2], run: bool, touch: bool, photo: bool) -> Layout {
     let [w, h] = size;
     let wide = w >= h;
     let none = (Buttons::NONE, art::WHITE, [0.0; 4]);
@@ -88,8 +89,7 @@ pub fn layout(size: [f32; 2], run: bool, touch: bool) -> Layout {
         (Buttons::L2, art::GRENADE, square(cx, right[1] + 1.2 * cell, cell)),
         (Buttons::B, art::TOUCH_AROUND, square(cx, right[1] + 2.3 * cell, 0.85 * cell)),
         (Buttons::START, art::TOUCH_PAUSE, square(right[0] + right[2] - 0.4 * cell, right[1] + 0.4 * cell, 0.6 * cell)),
-        // Held, the whole map paused, as R2 shows it on a pad.
-        (Buttons::R2, art::TOUCH_MAP, square(left[0] + 0.4 * cell, left[1] + 0.4 * cell, 0.6 * cell)),
+        if photo { (Buttons::R2, art::TOUCH_MAP, square(left[0] + 0.4 * cell, left[1] + 0.4 * cell, 0.6 * cell)) } else { none },
     ];
     let strip = right[1] + 2.85 * cell;
     let turn = [right[0], strip, right[2], (right[1] + right[3] - strip).max(cell)];
@@ -220,7 +220,7 @@ impl Touchpad {
         let tint = if turn.is_some() { used } else { idle };
         sprite(&mut c, art::TOUCH_TRACK, base, 2.0 * r, tint);
         sprite(&mut c, art::TOUCH_KNOB, [knob.clamp(base[0] - r, base[0] + r), base[1]], r * 0.9, tint);
-        for &(b, icon, [x, y, w, _]) in &l.keys {
+        for &(b, icon, [x, y, w, _]) in l.keys.iter().filter(|k| k.0 != Buttons::NONE) {
             let down = self.held.contains(b);
             let mid = [x + w / 2.0, y + w / 2.0];
             sprite(&mut c, if down { art::TOUCH_PAD_DOWN } else { art::TOUCH_PAD }, mid, w, if down { used } else { idle });
@@ -267,22 +267,19 @@ mod tests {
 
     #[test]
     fn a_landscape_run_puts_the_stick_left_and_the_keys_right_of_the_picture() {
-        let l = layout([2400.0, 1080.0], true, true);
+        let l = layout([2400.0, 1080.0], true, true, false);
         let pic = l.top.unwrap();
         assert!(l.bottom.is_none());
         assert!(l.stick[0] + l.stick[2] <= pic[0] + 0.5);
-        for &(b, _, r) in &l.keys {
-            if b == Buttons::R2 {
-                assert!(r[0] + r[2] <= pic[0] + 0.5, "the map key sits left of the picture, over the stick");
-            } else {
-                assert!(r[0] >= pic[0] + pic[2] - 0.5, "{b:?} sits right of the picture");
-            }
+        for &(b, _, r) in l.keys.iter().filter(|k| k.0 != Buttons::NONE) {
+            assert!(r[0] >= pic[0] + pic[2] - 0.5, "{b:?} sits right of the picture");
         }
+        assert_eq!(l.key(Buttons::R2), None, "a run has no Map key");
     }
 
     #[test]
     fn menus_show_both_screens_and_no_controls() {
-        let l = layout([2400.0, 1080.0], false, true);
+        let l = layout([2400.0, 1080.0], false, true, false);
         let (t, b) = (l.top.unwrap(), l.bottom.unwrap());
         assert!(t[0] + t[2] <= b[0] + 0.5);
         assert_eq!(Touchpad::default().draw(&l).shapes.len(), 0);
@@ -290,7 +287,7 @@ mod tests {
 
     #[test]
     fn a_thumb_on_the_left_drags_the_stick_and_keys_press_once() {
-        let l = layout([2400.0, 1080.0], true, true);
+        let l = layout([2400.0, 1080.0], true, true, false);
         let mut pad = Touchpad::default();
         let down = [l.stick[0] + l.stick[2] / 2.0, l.stick[1] + l.stick[3] / 2.0];
         let grenade = l.keys[0].2;
@@ -306,7 +303,7 @@ mod tests {
 
     #[test]
     fn a_thumb_on_the_turn_strip_turns_by_how_far_it_slides_sideways() {
-        let l = layout([2400.0, 1080.0], true, true);
+        let l = layout([2400.0, 1080.0], true, true, false);
         let mut pad = Touchpad::default();
         let down = [l.turn[0] + l.turn[2] / 2.0, l.turn[1] + l.turn[3] / 2.0];
         assert_eq!(pad.update(&fingers(&[down]), &l, false).look, 0.0);
@@ -320,7 +317,7 @@ mod tests {
 
     #[test]
     fn a_tap_on_the_picture_is_a_touch_in_screen_pixels() {
-        let l = layout([2400.0, 1080.0], true, true);
+        let l = layout([2400.0, 1080.0], true, true, false);
         let pic = l.top.unwrap();
         let mut pad = Touchpad::default();
         let out = pad.update(&fingers(&[[pic[0] + pic[2] / 2.0, pic[1] + pic[3] / 4.0]]), &l, false);
@@ -331,7 +328,7 @@ mod tests {
 
     #[test]
     fn on_menus_only_the_bottom_screen_takes_touches() {
-        let l = layout([2400.0, 1080.0], false, true);
+        let l = layout([2400.0, 1080.0], false, true, false);
         let (t, b) = (l.top.unwrap(), l.bottom.unwrap());
         let mut pad = Touchpad::default();
         assert!(pad.update(&fingers(&[[t[0] + 10.0, t[1] + 10.0]]), &l, false).touch.is_none());
@@ -341,7 +338,7 @@ mod tests {
 
     #[test]
     fn a_gamepad_hides_the_controls_until_the_next_touch() {
-        let l = layout([2400.0, 1080.0], true, true);
+        let l = layout([2400.0, 1080.0], true, true, false);
         let mut pad = Touchpad::default();
         pad.update(&fingers(&[]), &l, true);
         assert!(pad.draw(&l).shapes.is_empty());
@@ -355,9 +352,9 @@ mod tests {
 
     #[test]
     fn without_touch_a_run_fills_the_window_and_menus_show_the_bottom_screen() {
-        let run = layout([720.0, 480.0], true, false);
+        let run = layout([720.0, 480.0], true, false, false);
         assert_eq!((run.top, run.bottom), (Some([40.0, 0.0, 640.0, 480.0]), None));
-        let menus = layout([720.0, 480.0], false, false);
+        let menus = layout([720.0, 480.0], false, false, false);
         assert!(menus.top.is_none() && menus.bottom.is_some());
         assert!(Touchpad::default().draw(&run).shapes.is_empty());
     }
@@ -366,7 +363,7 @@ mod tests {
     fn at_every_shape_the_menus_take_the_bigger_of_side_by_side_and_stacked() {
         for size in (4..=25).map(|tenths| [1000.0 * tenths as f32 / 10.0, 1000.0]).chain([[640.0, 480.0], [720.0, 720.0], [720.0, 480.0]]) {
             let [w, h] = size;
-            let l = layout(size, false, true);
+            let l = layout(size, false, true, false);
             let (t, b) = (l.top.unwrap(), l.bottom.unwrap());
             let best = (w / 2.0 / SCREEN_W).min(h / SCREEN_H).max((w / SCREEN_W).min(h / 2.0 / SCREEN_H));
             assert!((t[2] - best * SCREEN_W).abs() < 0.01 && t[2] == b[2], "{size:?}: {t:?} {b:?} could be {}", best * SCREEN_W);
@@ -380,17 +377,18 @@ mod tests {
 
     #[test]
     fn upright_puts_the_controls_under_the_picture() {
-        let l = layout([1080.0, 2400.0], true, true);
+        let l = layout([1080.0, 2400.0], true, true, false);
         let pic = l.top.unwrap();
         assert!(l.stick[1] >= pic[1] + pic[3] - 0.5);
-        assert!(l.keys.iter().all(|&(_, _, r)| r[1] >= pic[1] + pic[3] - 0.5));
+        assert!(l.keys.iter().filter(|k| k.0 != Buttons::NONE).all(|&(_, _, r)| r[1] >= pic[1] + pic[3] - 0.5));
     }
 
     #[test]
-    fn the_map_key_holds_r2_for_the_whole_map_and_clears_the_resting_stick() {
+    fn photo_mode_alone_has_the_map_key_for_r2_and_it_clears_the_resting_stick() {
         for tenths in 4..=25 {
             let size = [1000.0 * tenths as f32 / 10.0, 1000.0];
-            let l = layout(size, true, true);
+            assert_eq!(layout(size, true, true, false).key(Buttons::R2), None, "{size:?}: a run has no Map key");
+            let l = layout(size, true, true, true);
             let map = l.key(Buttons::R2).unwrap();
             let [x, y] = rest(l.stick, l.stick_r);
             let ring = [x - l.stick_r, y - l.stick_r, 2.0 * l.stick_r, 2.0 * l.stick_r];
@@ -398,7 +396,7 @@ mod tests {
             assert!(apart(map, ring), "{size:?}: the map key {map:?} sits on the stick {ring:?}");
             assert!(map[0] >= 0.0 && map[1] >= 0.0 && map[0] + map[2] <= size[0] && map[1] + map[3] <= size[1], "{size:?}");
         }
-        let l = layout([1080.0, 2400.0], true, true);
+        let l = layout([1080.0, 2400.0], true, true, true);
         let map = l.key(Buttons::R2).unwrap();
         let mut pad = Touchpad::default();
         let out = pad.update(&fingers(&[[map[0] + map[2] / 2.0, map[1] + map[3] / 2.0]]), &l, false);
@@ -409,7 +407,7 @@ mod tests {
     fn at_every_shape_the_resting_turn_knob_clears_the_keys() {
         for tenths in 4..=25 {
             let size = [1000.0 * tenths as f32 / 10.0, 1000.0];
-            let l = layout(size, true, true);
+            let l = layout(size, true, true, false);
             let [x, y] = rest(l.turn, l.stick_r);
             let half = l.stick_r * 0.45;
             let knob = [x - half, y - half, 2.0 * half, 2.0 * half];

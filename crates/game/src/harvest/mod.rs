@@ -704,8 +704,6 @@ pub struct Harvest {
     next_xp: u32,
     level: u32,
     kills: u32,
-    /// Holding L1 pauses and shows the whole map.
-    overview: bool,
     /// Steps to the player from each cell, rebuilt when the player changes cell.
     flow: Vec<u16>,
     flow_cell: [usize; 2],
@@ -935,7 +933,6 @@ impl Harvest {
             next_xp: book().first_level,
             level: 1,
             kills: 0,
-            overview: false,
             flow: Vec::new(),
             flow_cell: [usize::MAX; 2],
             sep: Vec::new(),
@@ -1081,12 +1078,6 @@ impl Harvest {
         self.enemies_off
     }
 
-    /// Whether the paused whole map is up.
-    #[cfg(test)]
-    pub(crate) fn showing_whole_map(&self) -> bool {
-        self.overview
-    }
-
     #[cfg(test)]
     pub fn grenades_in_the_air(&self) -> usize {
         self.thrown.iter().filter(|g| g.kind == Thrown::Grenade).count()
@@ -1158,10 +1149,6 @@ impl Harvest {
         }
         if self.photo.is_some() {
             self.photo(input, dt, sounds, &mut flow);
-            return flow;
-        }
-        self.overview = input.held.contains(if self.single { Buttons::R2 } else { Buttons::L1 });
-        if self.overview {
             return flow;
         }
         let own;

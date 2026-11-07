@@ -165,7 +165,7 @@ pub struct Game {
     enemy: usize,
     /// Settings is open over a paused run, rather than from the title.
     settings_in_run: bool,
-    /// R1 asked for a screenshot, which the app takes after the next draw.
+    /// R2 asked for a screenshot, which the app takes after the next draw.
     shot: bool,
     /// Seconds left of the white flash that says a screenshot was taken.
     shot_flash: f32,
@@ -234,7 +234,7 @@ impl Game {
         }
     }
 
-    /// What R1 or photo mode asked to capture, if anything; the app saves the frame it just drew.
+    /// What R2 or photo mode asked to capture, if anything; the app saves the frame it just drew.
     pub fn take_screenshot(&mut self) -> Option<Capture> {
         if !std::mem::take(&mut self.shot) {
             return None;
@@ -416,7 +416,7 @@ impl Game {
     }
 
     fn phone_layout(&self, size: [f32; 2]) -> touch::Layout {
-        touch::layout(size, matches!(self.state, State::Harvest(_)) || self.title_on_one(), self.has_touch())
+        touch::layout(size, matches!(self.state, State::Harvest(_)) || self.title_on_one(), self.has_touch(), self.in_photo())
     }
 
     /// The input with the on-screen controls' buttons, stick and screen touch in place of raw fingers.
@@ -509,8 +509,9 @@ impl Game {
             self.sounds.push(Sfx::Tick(self.save.volume));
         }
         self.shot_flash = (self.shot_flash - dt).max(0.0);
-        let own_r1 = matches!(self.state, State::Hardware(_) | State::Gallery(_)) || self.in_photo();
-        if input.pressed.contains(Buttons::R1) && !own_r1 {
+        // The icon scene keeps R2 for its barricade, so its screenshot stays on R1.
+        let shot_key = if matches!(self.state, State::Icon(_)) { Buttons::R1 } else { Buttons::R2 };
+        if input.pressed.contains(shot_key) && !matches!(self.state, State::Hardware(_)) && !self.in_photo() {
             self.shot = true;
             self.sounds.push(Sfx::Tick(LEVELS));
         }
@@ -756,20 +757,17 @@ mod tests {
     }
 
     #[test]
-    fn on_a_phone_holding_the_map_key_shows_the_whole_map() {
+    fn on_a_phone_a_run_has_no_map_key_and_photo_mode_keeps_it() {
         let size = [1080.0, 2400.0];
         let mut game = Game::new(1);
         game.set_phone(Some(size));
         press(&mut game, Buttons::A);
-        let layout = touch::layout(size, true, true);
-        let [kx, ky, ..] = layout.key(Buttons::R2).unwrap();
-        let mut touches = [None; MAX_TOUCHES];
-        touches[0] = Some([kx + 4.0, ky + 4.0]);
-        let whole = |g: &Game| matches!(&g.state, State::Harvest(h) if h.showing_whole_map());
-        game.update(&Input { touches, ..Default::default() }, 0.016);
-        assert!(whole(&game), "held, the whole map is up");
-        game.update(&Input::default(), 0.016);
-        assert!(!whole(&game), "let go, the run is back");
+        assert!(matches!(game.state, State::Harvest(_)));
+        assert_eq!(game.phone_layout(size).key(Buttons::R2), None, "the paused whole map is gone");
+        for b in [Buttons::START, Buttons::DOWN, Buttons::DOWN, Buttons::A] {
+            press(&mut game, b);
+        }
+        assert!(game.in_photo() && game.phone_layout(size).key(Buttons::R2).is_some(), "photo mode still changes its setting");
     }
 
     #[test]
@@ -782,7 +780,7 @@ mod tests {
         let frame = game.draw();
         let phone = frame.phone.expect("a phone frame");
         assert!(phone.top.is_some() && phone.bottom.is_none(), "a run shows one screen");
-        let layout = touch::layout(size, true, true);
+        let layout = touch::layout(size, true, true, false);
         let [kx, ky, ..] = layout.key(Buttons::L2).unwrap();
         let [px, py, pw, ph] = layout.top.unwrap();
         let key = Some([kx + 4.0, ky + 4.0]);
@@ -965,11 +963,10 @@ mod tests {
             press(&mut game, Buttons::A);
             assert!(matches!(game.state, State::Harvest(_)), "{size:?}: a run");
             check(&mut game, Buttons::NONE, "run");
-            for (held, what) in [(Buttons::L1, "map"), (Buttons::L2, "grenade aim"), (Buttons::R2, "whole map")] {
+            for (held, what) in [(Buttons::L1, "map"), (Buttons::L2, "grenade aim")] {
                 check(&mut game, held, what);
                 check(&mut game, Buttons::NONE, what);
             }
-            assert!(matches!(&game.state, State::Harvest(h) if !h.showing_whole_map()), "{size:?}: back to the run");
             press(&mut game, Buttons::START);
             check(&mut game, Buttons::NONE, "pause");
         }
@@ -1285,15 +1282,17 @@ mod tests {
     }
 
     #[test]
-    fn r1_takes_one_screenshot_and_flashes_after_it() {
+    fn r2_takes_one_screenshot_and_flashes_after_it() {
         let mut game = Game::new(1);
-        press(&mut game, Buttons::R1);
+        press(&mut game, Buttons::R2);
         assert_eq!(game.take_screenshot(), Some(Capture::Screens));
         assert_eq!(game.take_screenshot(), None, "one press, one shot");
         assert!(game.shot_flash > 0.0);
-        game.open(Scene::Gallery);
         press(&mut game, Buttons::R1);
-        assert_eq!(game.take_screenshot(), None, "the gallery keeps R1 for itself");
+        assert_eq!(game.take_screenshot(), None, "R1 no longer takes one");
+        game.open(Scene::Hardware);
+        press(&mut game, Buttons::R2);
+        assert_eq!(game.take_screenshot(), None, "the hardware check keeps R2 for the motor");
     }
 
     fn in_photo_mode(captures: bool) -> Game {
@@ -1325,7 +1324,7 @@ mod tests {
         let size = [2400.0, 1080.0];
         let mut game = in_photo_mode(true);
         game.set_phone(Some(size));
-        let layout = touch::layout(size, true, true);
+        let layout = touch::layout(size, true, true, true);
         let tap = |game: &mut Game, b: Buttons| {
             let [kx, ky, ..] = layout.key(b).unwrap();
             let mut touches = [None; MAX_TOUCHES];
