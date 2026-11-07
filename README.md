@@ -269,7 +269,7 @@ scripts/debug.sh panic                      # crash on purpose to test crash.log
 scripts/debug.sh logs                       # follow the game log, with a perf line each second: FPS, frame times, and CPU ms in update, frame building and rendering
 ```
 
-The scene names are `title`, `harvest`, `farm` (the game without zombies, for looking around; X drops one a few steps ahead), `single` (a run on one screen whatever Settings says; the `aim_` numbers in `tuning.txt` [grenade] shape its grenade aiming), `bench` (a frozen horde of 300 with every effect showing, turning a full circle every 600 frames, for comparing frame rates between builds; `bench-160x120` and the like build it on a farm that many tiles across and log the map's flow field time), `art`, `icon` (photo mode for icons and screenshots: one figure close up in 3D and flat in a 512-pixel square, with zoom, camera height, a barricade, more zombies to place, and walking anywhere on a new random farm; its bottom screen lists the keys) and `hardware`. On macOS, set `LAST_HARVEST_DEBUG=1` and write commands to the pipe directly.
+The scene names are `title`, `harvest`, `farm` (the game without zombies, for looking around; X drops one a few steps ahead), `single` (a run on one screen whatever Settings says; the `aim_` numbers in `tuning.txt` [grenade] shape its grenade aiming), `bench` (a frozen horde of 300 with every effect showing, turning a full circle every 600 frames, for comparing frame rates between builds; `bench-160x120` and the like build it on a farm that many tiles across and log the map's flow field time), `art`, `icon` (photo mode for icons and screenshots: one figure close up in 3D and flat in a 512-pixel square, with zoom, camera height, a barricade, more zombies to place, and walking anywhere on a new random farm; its bottom screen lists the keys), `range` (one weapon against a ring of zombies that rise again as they die, with its damage per second: Up and Down step its level, Left and Right pick the kind, cards included, Select switches between firing on cooldown and by hand, and X fires; `LAST_HARVEST_RANGE` names the weapon, else it holds the first in `powerups.txt`) and `hardware`. On macOS, set `LAST_HARVEST_DEBUG=1` and write commands to the pipe directly.
 
 ### Recording and streaming
 
@@ -294,6 +294,7 @@ The stream reaches the Mac about 240 ms after the device draws it, or about 155 
 | Variable | Effect |
 |---|---|
 | `LAST_HARVEST_START` | Opens a scene at launch, by debug scene name. |
+| `LAST_HARVEST_RANGE` | The weapon the `range` scene holds: `id` or `id:level`, such as `rifle:3`, or a file holding a `level N` line and a weapon's `powerups.txt` section, which the game reads in place of its own. An editor's Try it writes that file. |
 | `LAST_HARVEST_DEBUG` | Turns on debug mode. `DEBUG=1 scripts/deploy.sh` sets it. |
 | `LAST_HARVEST_PIPE` | Sets the debug command pipe. The default is `/tmp/last-harvest.ctl`. |
 | `LAST_HARVEST_WINDOW` | Opens the one desktop window this many pixels across and down, such as `720x720` or `640x480`, to try a handheld's screen. |
