@@ -783,6 +783,8 @@ pub struct Harvest {
     photo: Option<photo::Photo>,
     saves_photos: bool,
     taps: bool,
+    /// The on-screen photo keys show, so the guides name them instead of a pad's buttons.
+    touch_keys: bool,
     /// The weapon range, trying one weapon against a ring of zombies.
     range: Option<range::Range>,
 }
@@ -986,6 +988,7 @@ impl Harvest {
             photo: None,
             saves_photos: false,
             taps: true,
+            touch_keys: false,
             range: None,
         }
         .with_birds()

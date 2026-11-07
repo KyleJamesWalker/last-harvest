@@ -545,6 +545,7 @@ impl Game {
                     h.set_one_screen(true);
                     h.set_touch_aim(self.save.touch_grenades && self.has_touch());
                 }
+                h.set_touch_keys(self.phone.is_some() && self.has_touch() && !self.touchpad.hidden);
                 h.set_saves_photos(self.captures);
                 h.set_taps(self.phone.is_none() || self.touch_screen());
                 let flow = h.update(input, dt, &mut self.sounds);
@@ -758,7 +759,7 @@ mod tests {
     }
 
     #[test]
-    fn on_a_phone_a_run_has_no_map_key_and_photo_mode_keeps_it() {
+    fn on_a_phone_a_run_has_no_map_key_and_photo_mode_has_change_for_r2() {
         let size = [1080.0, 2400.0];
         let mut game = Game::new(1);
         game.set_phone(Some(size));
@@ -1348,23 +1349,56 @@ mod tests {
     }
 
     #[test]
-    fn on_a_phone_the_grenade_and_map_keys_set_up_a_photo_without_taking_one() {
+    fn on_a_phone_photo_mode_has_a_named_key_for_each_of_its_buttons_and_only_back_leaves() {
         let size = [2400.0, 1080.0];
         let mut game = in_photo_mode(true);
         game.set_phone(Some(size));
-        let layout = touch::layout(size, true, true, true);
-        let tap = |game: &mut Game, b: Buttons| {
-            let [kx, ky, ..] = layout.key(b).unwrap();
+        let (run, photo) = (touch::layout(size, true, true, false), touch::layout(size, true, true, true));
+        let finger = |at: [f32; 2]| {
             let mut touches = [None; MAX_TOUCHES];
-            touches[0] = Some([kx + 4.0, ky + 4.0]);
-            game.update(&Input { touches, ..Default::default() }, 0.016);
+            touches[0] = Some(at);
+            Input { touches, ..Default::default() }
+        };
+        let middle = |[x, y, w, h]: touch::Rect| [x + w / 2.0, y + h / 2.0];
+        let tap = |game: &mut Game, at: [f32; 2]| {
+            game.update(&finger(at), 0.016);
             game.update(&Input::default(), 0.016);
         };
         let help = |game: &Game| game.draw().top.shapes.iter().filter_map(|s| if let Shape::Text { text, .. } = s { Some(text.clone()) } else { None }).collect::<Vec<_>>().join("\n");
-        tap(&mut game, Buttons::L2);
-        tap(&mut game, Buttons::R2);
+        tap(&mut game, middle(run.key(Buttons::B).unwrap()));
+        assert!(game.in_photo(), "where Turn around was leaves photo mode no more");
+        assert!(help(&game).contains("Setting: choose") && !help(&game).contains("L2"), "the guides name the keys: {}", help(&game));
+        tap(&mut game, middle(photo.key(Buttons::L2).unwrap()));
+        tap(&mut game, middle(photo.key(Buttons::R2).unwrap()));
         assert!(help(&game).contains("[Fog: Thick]"), "{}", help(&game));
-        assert!(game.in_photo() && game.take_screenshot().is_none());
+        let eye = |game: &Game| game.draw().top.cards.unwrap().eye.y;
+        let low = eye(&game);
+        let height = middle(photo.key(Buttons::L1).unwrap());
+        let stick = photo.stick_at();
+        let mut both = finger(height);
+        both.touches[1] = Some(stick);
+        game.update(&both, 0.016);
+        both.touches[1] = Some([stick[0], stick[1] - size[1] * 0.2]);
+        for _ in 0..30 {
+            game.update(&both, 0.016);
+        }
+        game.update(&Input::default(), 0.016);
+        assert!(eye(&game) > low, "Height and the stick raise the camera");
+        for _ in 0..4 {
+            tap(&mut game, middle(photo.key(Buttons::L2).unwrap()));
+        }
+        assert!(help(&game).contains("[Place: ahead]"), "{}", help(&game));
+        game.update(&finger(stick), 0.016);
+        for _ in 0..30 {
+            game.update(&finger([stick[0] + size[1] * 0.2, stick[1]]), 0.016);
+        }
+        game.update(&Input::default(), 0.016);
+        assert!(!help(&game).contains("[Place: ahead]"), "the stick moves the cross");
+        tap(&mut game, middle(photo.key(Buttons::X).unwrap()));
+        assert!(help(&game).contains("[Place: ahead]"), "Reset puts it back: {}", help(&game));
+        assert!(game.in_photo() && game.take_screenshot().is_none(), "and none of them takes a photo");
+        tap(&mut game, middle(photo.key(Buttons::B).unwrap()));
+        assert!(!game.in_photo(), "Back leaves");
     }
 
     #[test]

@@ -287,6 +287,11 @@ impl Harvest {
         self.taps = on;
     }
 
+    /// Whether the on-screen photo keys show, so the guides name them.
+    pub fn set_touch_keys(&mut self, on: bool) {
+        self.touch_keys = on;
+    }
+
     /// Left and Right turn round the player, Up and Down zoom, and with L1 held raise or lower the camera; L2 chooses
     /// a setting and R2 changes it; R1 or a tap asks for a capture, and B or Start goes back to the pause menu.
     /// Posing, R2 picks a zombie, and Left and Right turn it and Up and Down step its frame. With props, R2 drops one
@@ -491,23 +496,34 @@ impl Harvest {
             cross(&mut f.top, view3d::to_screen(view_proj, at, 0.0).map_or_else(|| self.behind(at), |s| s.0));
             cross(&mut f.bottom, [(at[0] - cam[0]) * map_scale(), (at[1] - cam[1]) * map_scale()]);
         }
-        let shoot = match (self.saves_photos, self.taps) {
-            (true, true) => "R1 or tap: take a photo",
-            (true, false) => "R1: take a photo",
-            (false, true) => "R1 or tap: hide these guides",
-            (false, false) => "R1: hide these guides",
+        let shoot = match (self.saves_photos, self.taps, self.touch_keys) {
+            (true, _, true) => "Tap the picture: take a photo",
+            (false, _, true) => "Tap the picture: hide these guides",
+            (true, true, false) => "R1 or tap: take a photo",
+            (true, false, false) => "R1: take a photo",
+            (false, true, false) => "R1 or tap: hide these guides",
+            (false, false, false) => "R1: hide these guides",
         };
-        let keys = match (p.setting, picked) {
-            (Setting::Pose, Some(_)) => "Left / Right: turn it   Up / Down: step its frame   R2: next zombie",
-            (Setting::Pose, None) => "R2: pick the zombie nearest the middle   Left / Right: turn   Up / Down: zoom",
-            (Setting::Props, _) if p.prop == p.choices.len() => "R2 or Y: take back the last prop   Left / Right: choose a prop",
-            (Setting::Props, _) => "R2: drop on the cross   Left / Right: choose   Up / Down: turn   Y: take back",
-            (Setting::Place, _) if p.prop == p.choices.len() => "D-pad / stick: move the cross   R2 or Y: take back the last prop   X: reset",
-            (Setting::Place, _) => "D-pad / stick: move the cross   R2: drop it there   X: reset   Y: take back",
-            _ => "Left / Right: turn   Up / Down: zoom   L1 + Up / Down: height",
+        let take_back = p.prop == p.choices.len();
+        let keys = match (p.setting, picked, self.touch_keys) {
+            (Setting::Pose, Some(_), false) => "Left / Right: turn it   Up / Down: step its frame   R2: next zombie",
+            (Setting::Pose, None, false) => "R2: pick the zombie nearest the middle   Left / Right: turn   Up / Down: zoom",
+            (Setting::Props, _, false) if take_back => "R2 or Y: take back the last prop   Left / Right: choose a prop",
+            (Setting::Props, _, false) => "R2: drop on the cross   Left / Right: choose   Up / Down: turn   Y: take back",
+            (Setting::Place, _, false) if take_back => "D-pad / stick: move the cross   R2 or Y: take back the last prop   X: reset",
+            (Setting::Place, _, false) => "D-pad / stick: move the cross   R2: drop it there   X: reset   Y: take back",
+            (_, _, false) => "Left / Right: turn   Up / Down: zoom   L1 + Up / Down: height",
+            (Setting::Pose, Some(_), true) => "Stick left / right: turn it   up / down: step its frame   Change: next zombie",
+            (Setting::Pose, None, true) => "Change: pick the zombie nearest the middle   Stick: turn and zoom",
+            (Setting::Props, _, true) if take_back => "Change: take back the last prop   Stick left / right: choose a prop",
+            (Setting::Props, _, true) => "Change: drop on the cross   Stick left / right: choose   up / down: turn",
+            (Setting::Place, _, true) if take_back => "Stick: move the cross   Change: take back the last prop   Reset: ahead",
+            (Setting::Place, _, true) => "Stick: move the cross   Change: drop it there   Reset: back ahead",
+            (_, _, true) => "Stick: turn and zoom   Hold Height, stick up / down: raise or lower",
         };
+        let back = if self.touch_keys { format!("Setting: choose  Change: change   {shoot}   Back: leave") } else { format!("L2: choose  R2: change   {shoot}   B or Start: back") };
         let [settings, more] = p.settings_lines(self.posing(), &self.placing());
-        let lines = ["PHOTO MODE".to_string(), keys.into(), settings, more, format!("L2: choose  R2: change   {shoot}   B or Start: back")];
+        let lines = ["PHOTO MODE".to_string(), keys.into(), settings, more, back];
         // On one screen the help goes over the picture, where the guides already are.
         let (c, y) = if self.single { (&mut f.top, SCREEN_H - 184.0) } else { (&mut f.bottom, 40.0) };
         c.rect(0.0, y - 10.0, SCREEN_W, 176.0, [0.0, 0.0, 0.0, 0.55]);
@@ -1038,7 +1054,7 @@ mod tests {
         assert!(spot(&h).is_some(), "the stick slides the cross");
         assert!(h.view_yaw != yaw, "and the turn strip turns the camera");
         press(&mut h, Buttons::R2);
-        assert_eq!(dropped(&h).len(), 1, "the Map key drops it");
+        assert_eq!(dropped(&h).len(), 1, "Change drops it");
     }
 
     /// Whether each cell's middle blocks the player.
@@ -1125,5 +1141,21 @@ mod tests {
         let mut f = Frame::default();
         h.photo_frame(&mut f, true);
         assert!(f.top.cards.is_some() && f.top.shapes.is_empty(), "a capture has no HUD and no guides");
+    }
+
+    #[test]
+    fn with_the_touch_keys_showing_the_guides_name_them_and_no_pad_buttons() {
+        let mut h = photo_mode(10);
+        h.set_touch_keys(true);
+        for _ in Setting::ALL {
+            let text = help(&h);
+            for pad in ["L1", "L2", "R1", "R2", "B or Start", "X:", "Y:", "D-pad"] {
+                assert!(!text.contains(pad), "{pad} in {text}");
+            }
+            assert!(text.contains("Setting: choose") && text.contains("Back: leave"), "{text}");
+            press(&mut h, Buttons::L2);
+        }
+        h.set_touch_keys(false);
+        assert!(help(&h).contains("L2: choose") && help(&h).contains("B or Start: back"));
     }
 }
