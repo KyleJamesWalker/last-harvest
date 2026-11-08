@@ -83,15 +83,28 @@ impl Editor {
     }
 
     /// The data page section that says how a sprite plays: its props.txt section, else the first effects.txt
-    /// section that plays it.
+    /// section that plays it, else the ground.txt code whose crop it is part of.
     pub(super) fn data_link_for(&self, sprite: &str) -> Option<String> {
-        let props = Table::new("props.txt", &self.store.read_table("props.txt")?);
-        if props.sections().iter().any(|s| s == sprite) {
+        let props = self.store.read_table("props.txt").map(|t| Table::new("props.txt", &t));
+        if props.is_some_and(|p| p.sections().iter().any(|s| s == sprite)) {
             return Some(data_name("props.txt", sprite));
         }
-        let effects = Table::new("effects.txt", &self.store.read_table("effects.txt")?);
-        let plays = |s: &String| effects.entries(s).iter().any(|e| e.key == "art" && e.value == sprite);
-        effects.sections().iter().find(|s| plays(s)).map(|s| data_name("effects.txt", s))
+        let effects = self.store.read_table("effects.txt").map(|t| Table::new("effects.txt", &t));
+        let plays = |t: &Table, s: &String| t.entries(s).iter().any(|e| e.key == "art" && e.value == sprite);
+        let effect = effects.and_then(|t| t.sections().iter().find(|s| plays(&t, s)).map(|s| data_name("effects.txt", s)));
+        effect.or_else(|| self.store.read_table("ground.txt").and_then(|t| super::Crop::find(&t, sprite)).map(|c| data_name("ground.txt", &c.code)))
+    }
+
+    /// Hands the game the store's `ground.txt` for maps to paint and lay, where it isn't the game's own, or always
+    /// with `saved`, just after it is saved.
+    pub(super) fn install_ground(&mut self, saved: bool) {
+        let Some(text) = self.store.read_table("ground.txt") else { return };
+        if !saved && last_harvest_game::built_in_table("ground.txt") == Some(text.as_str()) {
+            return;
+        }
+        if let Err(e) = last_harvest_game::set_map_ground(&text) {
+            self.say(format!("ground.txt: {e}"));
+        }
     }
 
     /// Opens a data file's section from the store; true if `name` is one.
@@ -250,6 +263,9 @@ impl Editor {
                 self.dirty = false;
                 let file = d.file.clone();
                 self.names = self.all_names();
+                if file == "ground.txt" {
+                    self.install_ground(true);
+                }
                 self.say(format!("Saved {file}"));
             }
             Err(e) => self.say(format!("Not saved: {e}")),

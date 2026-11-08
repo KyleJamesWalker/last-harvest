@@ -175,6 +175,7 @@ impl Studio {
             self.on_map = false;
         }
         self.showcase.lie(self.editor.lying_figure());
+        self.showcase.show_crop(self.editor.crop_preview());
         self.showcase.show(self.editor.shown(), self.editor.stand(), self.editor.fps, self.editor.top_art());
         art::set_live_detail(self.editor.live_detail());
         art::set_live_alpha(self.editor.live_alpha());
@@ -352,6 +353,22 @@ mod tests {
         assert!(s.editor.dead_part());
         assert!(s.editor.figure().is_some(), "the figure was packed");
         assert!(s.editor.lying_figure().is_some_and(|f| f.dead.is_none()), "a blank dead part lies as the tipped hurt frame");
+    }
+
+    #[test]
+    fn an_open_crop_piece_stands_live_with_the_others_saved_in_both_previews() {
+        let dir = std::env::temp_dir().join(format!("studio-crop-{}", std::process::id()));
+        let mut s = Studio::new(Box::new(FsStore { dir: dir.clone(), catalog: dir.join("art.txt"), cards: dir.join("enemies") }), "CORN_TOP");
+        s.tick(0.1);
+        let (top, middle, bottom) = s.editor.crop_preview().expect("packed");
+        assert_eq!(top.len(), 2, "every frame of the top, which picks between them");
+        assert_eq!(top[0], s.editor.shown()[0], "the open sprite stands live");
+        assert!([middle, bottom].iter().all(|a| a.0 as usize >= art::count() && !top.contains(a)), "the others packed from their saved frames");
+        let [_, view, map] = s.canvases();
+        let drawn: Vec<art::Art> = map.shapes.iter().filter_map(|sh| if let last_harvest_game::Shape::Art { art, .. } = sh { Some(*art) } else { None }).collect();
+        assert!(top.iter().chain([&middle, &bottom]).all(|a| drawn.contains(a)), "the map stacks every piece");
+        assert!(view.cards.is_some_and(|c| !c.cards.is_empty()));
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
