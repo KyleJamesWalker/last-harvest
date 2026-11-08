@@ -341,13 +341,16 @@ impl Editor {
         }
         last_harvest_game::set_props(named);
         last_harvest_game::art::set_live_solids(solids);
+        // A crop of players' props stands only once they are set.
+        self.install_ground(false);
         if let Some(m) = &mut self.map {
             m.check();
             m.changed = true;
         }
     }
 
-    /// The open map's file and every player's prop it places, as saved, for Export; None with a word why.
+    /// The open map's file, every player's prop it places or its ground's crops stand, and the mod's own
+    /// `ground.txt`, as saved, for Export; None with a word why.
     pub fn export_map(&mut self) -> Option<(String, Files)> {
         let m = self.map.as_ref()?;
         if m.dirty {
@@ -358,9 +361,16 @@ impl Editor {
         let text = self.store.read_map(&id)?;
         let ext = last_harvest_game::MAP_EXTENSION;
         let mut files = vec![(format!("{}{id}{ext}", last_harvest_pack::MAPS), text.into_bytes())];
+        let ground = self.store.read_table("ground.txt").filter(|t| last_harvest_game::built_in_table("ground.txt") != Some(t.as_str()));
+        let mut placed: Vec<String> = m.src.props.iter().filter_map(|(_, p)| if let PropLine::Sprite { name, .. } = p { Some(name.clone()) } else { None }).collect();
+        if let Some(t) = &ground {
+            let table = crate::table::Table::new("ground.txt", t);
+            let used = |code: &String| code.len() == 1 && m.src.ground.contains(&code.as_bytes()[0]);
+            let crops = table.sections().into_iter().filter(used).flat_map(|code| table.entries(&code).into_iter().filter(|e| e.key == "crop"));
+            placed.extend(crops.flat_map(|e| e.value.split_whitespace().map(str::to_string).collect::<Vec<_>>()));
+        }
         let mut missing = Vec::new();
-        for (_, p) in &m.src.props {
-            let PropLine::Sprite { name, .. } = p else { continue };
+        for name in &placed {
             let Some(pid) = crate::store::props::id(name) else { continue };
             let file = format!("{}{pid}{}", last_harvest_pack::PROPS, last_harvest_pack::prop::EXTENSION);
             if files.iter().any(|(f, _)| *f == file) {
@@ -373,6 +383,8 @@ impl Editor {
         }
         let props = files.len() - 1;
         let with = if props == 0 { String::new() } else { format!(" with {props} prop{}", if props == 1 { "" } else { "s" }) };
+        let with = if ground.is_some() { format!("{with}{} its ground.txt", if props == 0 { " with" } else { " and" }) } else { with };
+        files.extend(ground.map(|t| ("ground.txt".to_string(), t.into_bytes())));
         let note = if missing.is_empty() { String::new() } else { format!("; not kept here: {}", missing.join(", ")) };
         self.say(format!("Exported {id}{with} as {id}.pak: put it in the game's data/mods{note}"));
         Some((format!("{id}.pak"), files))

@@ -72,6 +72,7 @@ Open a scene with `scripts/debug.sh scene NAME`, or at launch with `LAST_HARVEST
 | `single` | A run on one screen, whatever Settings says |
 | `farm` | A run without zombies. X drops one a few steps ahead. |
 | `bench` | A frozen horde of 300 with every effect, turning a full circle every 600 frames, to compare frame rates. `bench-160x120` and similar build a farm of that size and log the flow field time. |
+| `bench-corn` | The `bench` horde and effects in a field of `ground.txt`'s corn, `crop_3d`, `sway` and `tall` included, past the view's reach on every side, with the player in a lane between its rows: the worst case for crops. The bench line and each `perf:` line add the crop cells and cards in view. `bench-corn-160x120` and similar set the farm's size. |
 | `art` | Every sprite in the catalog |
 | `icon` | One figure close up in 3D and flat in a 512-pixel square, for icons and screenshots. The bottom screen lists its keys. |
 | `range` | One weapon against a ring of zombies that rise again, with its damage per second. `LAST_HARVEST_RANGE` names the weapon. |

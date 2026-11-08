@@ -10,12 +10,14 @@ use crate::store::Store;
 
 mod cards;
 mod coats;
+mod crops;
 mod maps;
 mod palette;
 mod tables;
 mod weapons;
 
 use cards::HeldImport;
+use crops::Crop;
 use maps::{MapEdit, MapTool, PROP_HP_Y, PROP_OPEN_Y, PROP_PALETTE_ROWS};
 use tables::DataEdit;
 
@@ -511,6 +513,10 @@ pub struct Editor {
     data: Option<DataEdit>,
     /// The data page section that says how the open sprite plays, found when it opens.
     data_link: Option<String>,
+    /// The crop the open sprite is part of, found when it opens.
+    crop: Option<Crop>,
+    /// Where the last packing put the crop's other pieces among the surfaces.
+    crop_at: Option<usize>,
     /// Players' props packed for the previews while a map is open, in order: their fields and frame counts.
     map_props: Vec<maps::MapProp>,
     playing: bool,
@@ -616,6 +622,8 @@ impl Editor {
             map: None,
             data: None,
             data_link: None,
+            crop: None,
+            crop_at: None,
             map_props: Vec::new(),
             playing: false,
             clock: 0.0,
@@ -661,8 +669,10 @@ impl Editor {
         if !e.open_table(name) {
             e.open_map(name);
         }
+        e.install_ground(false);
         e.load_stand();
         e.load_card_parts();
+        e.load_crop();
         e.data_link = e.data_link_for(name);
         e.reveal();
         if broken {
@@ -707,7 +717,7 @@ impl Editor {
 
     /// How many of the packed pictures are the sprite's own frames and views, before any 3D copies or Coats rows.
     fn own_packed(&self) -> usize {
-        self.solids_at.map(|(k, _)| k).or(self.coats_at).unwrap_or(self.live.len()).min(self.live.len())
+        self.solids_at.map(|(k, _)| k).or(self.coats_at).or(self.crop_at).unwrap_or(self.live.len()).min(self.live.len())
     }
 
     /// The stand as the catalog and `stand.txt` write it.
@@ -768,6 +778,8 @@ impl Editor {
             self.coats_at = Some(out.len());
             out.extend(self.coat_rows());
         }
+        self.crop_at = self.crop.is_some().then_some(out.len());
+        out.extend(self.crop_surfaces());
         out
     }
 
@@ -979,6 +991,7 @@ impl Editor {
             self.load_stand();
             self.load_family();
             self.load_card_parts();
+            self.load_crop();
             if let Some(fps) = self.sprite.card.as_deref().filter(|_| crate::store::props::id(name).is_some()).and_then(|t| last_harvest_game::prop_fields(t).ok()).map(|f| f.fps).filter(|v| *v > 0.0) {
                 self.fps = fps;
             }
@@ -2787,6 +2800,10 @@ impl Editor {
         } else {
             self.draw_canvas(c);
         }
+        if let Some(role) = self.crop_role().filter(|_| self.browse.is_none() && !self.stats && !self.coats_page) {
+            c.rect(CANVAS.x, CANVAS.y, (role.chars().count() as f32 * 7.6 + 16.0).min(CANVAS.w), 28.0, [0.0, 0.0, 0.0, 0.6]);
+            c.label(role, CANVAS.x + 8.0, CANVAS.y + 6.0, 16.0, HOT, Align::Left);
+        }
         if let Some(b) = &self.browse {
             let commit = &b.commits[b.at];
             c.rect(CANVAS.x, CANVAS.y, CANVAS.w, 30.0, [0.0, 0.0, 0.0, 0.7]);
@@ -4474,6 +4491,16 @@ mod tests {
         assert_eq!(e.data_link.as_deref(), Some("DATA_EFFECTS_SLASH"));
         e.switch_to("PLAYER_FRONT".into());
         assert_eq!(e.data_link, None);
+    }
+
+    #[test]
+    fn a_crop_piece_says_where_it_stands_in_a_run_and_links_to_its_ground() {
+        let e = editor_on("CORN_TOP");
+        assert_eq!(e.crop_role().as_deref(), Some("Crop: north end of a Corn run (ground c)"));
+        assert_eq!(e.data_link.as_deref(), Some("DATA_GROUND__63"));
+        assert_eq!(editor_on("CORN").crop_role().as_deref(), Some("Crop: middle of a Corn run on the map only (ground c)"));
+        assert_eq!(editor_on("CORN_BOTTOM").crop_role().as_deref(), Some("Crop: south end of a Corn run; in 3D, middle and south end (ground c)"));
+        assert_eq!(editor_on("SOIL").crop_role(), None, "a ground's tile stacks nothing");
     }
 
     #[test]

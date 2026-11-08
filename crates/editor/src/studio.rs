@@ -175,6 +175,7 @@ impl Studio {
             self.on_map = false;
         }
         self.showcase.lie(self.editor.lying_figure());
+        self.showcase.show_crop(self.editor.crop_preview());
         self.showcase.show(self.editor.shown(), self.editor.stand(), self.editor.fps, self.editor.top_art());
         art::set_live_detail(self.editor.live_detail());
         art::set_live_alpha(self.editor.live_alpha());
@@ -314,6 +315,12 @@ mod tests {
     use crate::editor::Key;
     use crate::store::FsStore;
 
+    /// Held by each test that packs the live sprites, which the whole process shares.
+    fn packing() -> std::sync::MutexGuard<'static, ()> {
+        static LIVE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        LIVE.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     #[test]
     fn a_tap_on_another_pane_closes_the_naming_box_and_does_nothing_else() {
         let dir = std::env::temp_dir().join(format!("studio-ask-{}", std::process::id()));
@@ -355,6 +362,7 @@ mod tests {
 
     #[test]
     fn a_cards_dead_part_has_its_figure_to_lay_down() {
+        let _live = packing();
         let dir = std::env::temp_dir().join(format!("studio-dead-{}", std::process::id()));
         std::fs::create_dir_all(dir.join("enemies")).unwrap();
         let sheet: Vec<u8> = (0..16 * 3 * 16 * 5).flat_map(|i| if i % 7 == 0 { [0; 4] } else { [200, 100, 50, 255] }).collect();
@@ -367,6 +375,26 @@ mod tests {
         assert!(s.editor.dead_part());
         assert!(s.editor.figure().is_some(), "the figure was packed");
         assert!(s.editor.lying_figure().is_some_and(|f| f.dead.is_none()), "a blank dead part lies as the tipped hurt frame");
+    }
+
+    #[test]
+    fn an_open_crop_piece_stands_live_with_the_others_saved_in_both_previews() {
+        let _live = packing();
+        let dir = std::env::temp_dir().join(format!("studio-crop-{}", std::process::id()));
+        let mut s = Studio::new(Box::new(FsStore { dir: dir.clone(), catalog: dir.join("art.txt"), cards: dir.join("enemies") }), "CORN_TOP");
+        s.tick(0.1);
+        let crop = s.editor.crop_preview().expect("packed");
+        let (top, middle, bottom) = crop.flat.clone();
+        assert_eq!(top.len(), 2, "every frame of the top, which picks between them");
+        assert_eq!(crop.standing, (top.clone(), bottom, bottom), "corn stands whole stalks in 3D");
+        assert!(crop.sway.degrees > 0.0 && crop.tall == 3, "tall, and swaying");
+        assert_eq!(top[0], s.editor.shown()[0], "the open sprite stands live");
+        assert!([middle, bottom].iter().all(|a| a.0 as usize >= art::count() && !top.contains(a)), "the others packed from their saved frames");
+        let [_, view, map] = s.canvases();
+        let drawn: Vec<art::Art> = map.shapes.iter().filter_map(|sh| if let last_harvest_game::Shape::Art { art, .. } = sh { Some(*art) } else { None }).collect();
+        assert!(top.iter().chain([&middle, &bottom]).all(|a| drawn.contains(a)), "the map stacks every piece");
+        assert!(view.cards.is_some_and(|c| !c.cards.is_empty()));
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
@@ -415,6 +443,7 @@ mod tests {
 
     #[test]
     fn the_view_counts_the_quads_the_sprite_draws() {
+        let _live = packing();
         let dir = std::env::temp_dir().join(format!("studio-quads-{}", std::process::id()));
         let mut s = Studio::new(Box::new(FsStore { dir: dir.clone(), catalog: dir.join("art.txt"), cards: dir.join("enemies") }), "BARREL");
         let count = |s: &mut Studio| {

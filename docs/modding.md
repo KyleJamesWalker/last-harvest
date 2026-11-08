@@ -205,7 +205,34 @@ Each `[c]` section is one single-character ground code. The editors' paint butto
 | `art NAME` | The tile. A tile with several frames picks one by the cell's position. |
 | `joins across`, `joins down` | A run of cells takes the first, middle and last frames |
 | `cell open\|road\|path\|field` | Open ground, a road, a path that joins neighboring paths and roads, or a field the farm grows on |
-| `crop TOP MIDDLE BOTTOM` | A crop on the cell, with TOP at a run's north end |
+| `crop TOP MIDDLE BOTTOM` | A crop on the cell, with TOP at a run's north end. Each is a sprite from the game's art or a `PROP_<ID>`. |
+| `crop_3d TOP MIDDLE BOTTOM` | Optional. The pieces that stand in 3D instead of `crop`'s, for a piece drawn from above. The map always draws `crop`. Needs a `crop` line. |
+| `sway DEGREES SECONDS` | Optional. The crop leans in the wind in 3D, up to DEGREES (0 to 30) each way, once each SECONDS (0.2 to 60). Without it the crop stands still. |
+| `tall N` | Optional. The crop stands N cards high in 3D, 1 to 6. Default: 1. |
+
+#### Making a crop
+
+A crop is three sprites stacked down a north-south run of its ground code. Corn is `crop CORN_TOP CORN CORN_BOTTOM`. Its middle is drawn from above, so in 3D it stands `crop_3d CORN_TOP CORN_BOTTOM CORN_BOTTOM`: whole stalks from the side. It sways with `sway 5 3.5`, and stands `tall 3`, over the player's head.
+
+| Piece | Where it stands | Frames |
+|---|---|---|
+| TOP | The run's north end | Any number. Each cell picks one by its position, so a field mixes them. |
+| MIDDLE | Every cell between the ends | The first only |
+| BOTTOM | The run's south end | The first only |
+
+A run of one cell is a TOP alone, and a run of two a TOP and a BOTTOM. Each piece stands upright on the cell, 2 pixels deep, whatever its own stand.
+
+With `tall N`, each cell stands a column of N cards in 3D. The top card is one of TOP's frames, picked by the cell's position, and the cards under it are the cell's piece. At the run's north end, which the cap already ends, they are MIDDLE. The map still draws one piece a cell. With `sway`, the column bends as one stalk: its base stays put and its top leans east and west the most. Cards stack picture on picture: clear rows under or over a piece's picture are skipped, so the column has no gaps. A wave runs across the field, so neighbors lean at different moments, and slow gusts swell and ease it.
+
+To add a crop such as wheat in the card editor:
+
+1. New `PROP_WHEAT_TOP`, `PROP_WHEAT` and `PROP_WHEAT_BOTTOM`, draw each, and save them. A 16-pixel frame fills one tile.
+2. Open Data > ground, open the last code, Add line `[w]`, and save. The new code lists as `[w]`.
+3. Open `[w]` and add `name Wheat`, `art SOIL`, `cell field` and `crop PROP_WHEAT_TOP PROP_WHEAT PROP_WHEAT_BOTTOM`, then save. Add `sway 5 3.5` for wind, `tall 3` for a crop taller than the player, and a `crop_3d` line if a piece drawn for the map looks wrong standing up.
+4. Open any of the three pieces. A line over the canvas names its place, such as "Crop: north end of a Wheat run (ground w)", and says when it stands only on the map or only in 3D. The previews stand the crop in a small field, with the open piece as drawn: the map with `crop`, the 2.5D view with `crop_3d`, swaying.
+5. Paint Wheat on a map and Export it. The pack carries the map, the three props and the mod's `ground.txt`.
+
+The game's own `ground.txt` names only sprites in `art.txt`. A crop of props that a mod leaves out is left off its ground, and the title screen says so.
 
 ### farm.txt
 

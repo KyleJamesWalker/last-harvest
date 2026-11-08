@@ -357,6 +357,8 @@ For a player card, the Stats page sets the name, the about line, and the weapons
 
 Props list under Props as `PROP_<ID>`. The stand, fps, Cover, Broken frame and HP buttons set how the prop stands and breaks.
 
+Three props can make a crop, such as wheat, that a ground code grows down a field. A crop's piece says over the canvas where it stands, such as "Crop: north end of a Wheat run (ground w)", and the previews show the crop in a small field. See [Making a crop](../../docs/modding.md#making-a-crop).
+
 Maps list under Maps as `MAP_<ID>`. The canvas shows the map from above, and a line under it says whether the game would load it.
 
 | Tool | What it does |
