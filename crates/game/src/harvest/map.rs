@@ -7,6 +7,7 @@ mod farm;
 mod ground;
 mod text;
 pub use farm::parse as parse_farm;
+pub(super) use ground::crop_piece;
 pub use ground::{parse as parse_ground, set as set_ground};
 pub use text::{EXTENSION as MAP_EXTENSION, ground_codes, MAX_SIZE as MAP_MAX, MIN_SIZE as MAP_MIN, MapSource, PropKind, parse_props, props as map_props, PropLine, Tough, check as check_map, valid_id as valid_map_id};
 
@@ -675,6 +676,12 @@ impl Map {
     pub fn tile(&self, x: usize, y: usize) -> (Art, Option<Art>) {
         let i = self.i(x, y);
         (self.ground[i], self.overlay[i])
+    }
+
+    /// Lays `art` over one cell, as a crop stands on it; returns what was there.
+    pub fn set_overlay(&mut self, x: usize, y: usize, art: Option<Art>) -> Option<Art> {
+        let i = self.i(x, y);
+        std::mem::replace(&mut self.overlay[i], art)
     }
 
     fn free(&self, x: usize, y: usize, w: usize, h: usize, margin: usize) -> bool {

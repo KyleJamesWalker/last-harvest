@@ -48,6 +48,14 @@ const SEED: u64 = 7;
 /// Seconds a killed figure stays gone before it stands again.
 const DEAD_TIME: f32 = 3.0;
 
+/// The field a crop on show stands in, in tiles: its top, two middles and its bottom down, and wide enough to show
+/// the top's frames side by side.
+const CROP_ROWS: usize = 4;
+const CROP_COLS: usize = 3;
+
+/// A crop's pieces: its top's frames, its middle and its bottom.
+pub type CropPieces = (Vec<Art>, Art, Art);
+
 pub struct Showcase {
     seed: u64,
     harvest: Harvest,
@@ -55,6 +63,10 @@ pub struct Showcase {
     strike: Option<(Figure, bool, f32)>,
     /// The figure lying dead in its place, as a corpse lies in the game.
     lying: Option<Figure>,
+    /// A crop standing in a small field in the sprite's place.
+    crop: Option<CropPieces>,
+    /// The cells the crop's field covers, with what lay over each before.
+    under: Vec<(usize, usize, Option<Art>)>,
 }
 
 impl Showcase {
@@ -63,7 +75,7 @@ impl Showcase {
         harvest.birds.clear();
         let pos = [harvest.map.spawn[0], harvest.map.spawn[1] - 3.0 * TILE];
         harvest.shown = Some(Shown { frames: Vec::new(), stand: Stand::Figure, fps: 6.0, pos, top: None, player: true, crowd: Vec::new(), worn: false });
-        Self { seed, harvest, strike: None, lying: None }
+        Self { seed, harvest, strike: None, lying: None, crop: None, under: Vec::new() }
     }
 
     /// Hits the figure as a bullet would: a flash, then its hurt frame.
@@ -96,11 +108,32 @@ impl Showcase {
     pub fn show(&mut self, frames: Vec<Art>, stand: Stand, fps: f32, top: Option<Art>) {
         let lying = self.lying.is_some().then(Vec::new);
         let struck = self.strike.as_ref().and_then(|(f, kill, t)| Self::struck(f, *kill, *t)).or(lying);
+        let frames = if self.crop.is_some() { Vec::new() } else { frames };
         if let Some(s) = &mut self.harvest.shown {
             s.frames = struck.unwrap_or(frames);
             s.stand = stand;
             s.fps = fps;
             s.top = top;
+        }
+    }
+
+    /// Stands a crop in the sprite's place, in a field `CROP_ROWS` tiles north to south laid as a hand-made map
+    /// lays one, or takes it away with None.
+    pub fn show_crop(&mut self, crop: Option<CropPieces>) {
+        let h = &mut self.harvest;
+        for (x, y, was) in self.under.drain(..) {
+            h.map.set_overlay(x, y, was);
+        }
+        self.crop = crop;
+        let (Some((top, middle, bottom)), Some(s)) = (&self.crop, &h.shown) else { return };
+        let [tx, ty] = s.pos.map(|v| (v / TILE) as usize);
+        let (x0, y0) = (tx.saturating_sub(CROP_COLS / 2), ty.saturating_sub(CROP_ROWS / 2));
+        let (x1, y1) = ((x0 + CROP_COLS).min(h.map.w), (y0 + CROP_ROWS).min(h.map.h));
+        for y in y0..y1 {
+            for x in x0..x1 {
+                let piece = super::map::crop_piece(top, *middle, *bottom, x, y, y > y0, y + 1 < y1);
+                self.under.push((x, y, h.map.set_overlay(x, y, Some(piece))));
+            }
         }
     }
 
@@ -128,6 +161,7 @@ impl Showcase {
         let shown = self.harvest.shown.take().map(|s| Shown { pos: harvest.map.spawn, ..s });
         harvest.shown = shown;
         self.harvest = harvest;
+        self.under.clear();
         Ok(())
     }
 
@@ -188,6 +222,7 @@ impl Showcase {
         (harvest.zoom, harvest.lift) = (self.harvest.zoom, self.harvest.lift);
         harvest.view_yaw = yaw;
         self.harvest = harvest;
+        self.under.clear();
     }
 
     /// Leaves a copy of the figure on show standing where it is.
@@ -355,6 +390,26 @@ mod tests {
         s.wear_grenade(true);
         let (cards, shapes) = drawn(&s);
         assert!(cards > bare.0 && shapes == bare.1 + 1, "{bare:?} then {:?}", (cards, shapes));
+    }
+
+    #[test]
+    fn a_crop_stands_in_a_field_in_the_sprites_place_top_middles_bottom_and_goes_again() {
+        let mut s = Showcase::new(7);
+        let [tx, ty] = s.shown_at().unwrap().map(|v| (v / TILE) as usize);
+        let before: Vec<_> = (ty - 2..ty + 2).map(|y| s.harvest.map.tile(tx, y).1).collect();
+        let top = vec![art::CORN_TOP[0], art::CORN_TOP[1]];
+        s.show_crop(Some((top.clone(), art::CORN, art::CORN_BOTTOM)));
+        s.show(vec![art::CORN_TOP[0]], Stand::Prop { depth: 2.0 }, 6.0, None);
+        assert!(s.harvest.shown.as_ref().unwrap().frames.is_empty(), "the field stands in its place");
+        let column = |s: &Showcase, x: usize| (ty - 2..ty + 2).map(|y| s.harvest.map.tile(x, y).1.unwrap()).collect::<Vec<_>>();
+        assert_eq!(column(&s, tx)[1..], [art::CORN, art::CORN, art::CORN_BOTTOM]);
+        let tops: Vec<Art> = (tx - 1..=tx + 1).map(|x| column(&s, x)[0]).collect();
+        assert!(top.iter().all(|t| tops.contains(t)), "neighbouring tops show both frames: {tops:?}");
+        assert_eq!(tops[1], super::super::map::crop_piece(&top, art::CORN, art::CORN_BOTTOM, tx, ty - 2, false, true), "as a map picks them");
+        s.show_crop(Some((top.clone(), art::CORN, art::CORN_BOTTOM)));
+        assert_eq!(s.under.len(), CROP_ROWS * CROP_COLS, "showing it again lays it once");
+        s.show_crop(None);
+        assert_eq!((ty - 2..ty + 2).map(|y| s.harvest.map.tile(tx, y).1).collect::<Vec<_>>(), before);
     }
 
     #[test]
