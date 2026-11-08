@@ -31,7 +31,7 @@ Edits of the tileset's sprites fall under its license. Commit them in the `asset
 | Draw a line, box or oval | The Line, Box and Oval buttons, then drag. Hold Shift as the drag starts to fill a shape or keep a line straight. |
 | Draw a straight line | Shift-click with the pencil or eraser, from the last pixel drawn |
 | Pick a color | Hold I or Option and click. Right-click always picks. |
-| Search the sprite list | `/`, then type. Enter opens the first match, and Esc clears the filter. |
+| Search the sprite list | `/`, then type. Enter opens the first match. Esc, or a tap off the list, clears the filter. |
 | Mirror strokes left to right | M |
 | Show the previous frame faintly | O, or Onion |
 | Draw at finer pixels, same size in the game | Detail - and +. Going coarser keeps each block's most common color. |
@@ -46,7 +46,7 @@ Edits of the tileset's sprites fall under its license. Commit them in the `asset
 | Next and previous sprite | J and K |
 | Previous and next frame | H and L, or Left and Right with nothing selected |
 | Play the animation | Space |
-| New sprite, or a copy | New, Copy |
+| New sprite, or a copy | New, Copy, then a name and Enter or Create. Esc, Cancel or a tap outside the box backs out. |
 | Resize every frame | W and H - and +, 8 at a time with Shift. The bottom center stays put. |
 | Browse earlier versions | R, or History |
 | Save | Cmd+S |
