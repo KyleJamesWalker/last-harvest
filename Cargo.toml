@@ -11,7 +11,7 @@ publish = false
 [workspace.dependencies]
 last-harvest-game = { path = "crates/game", default-features = false }
 last-harvest-render = { path = "crates/render" }
-glow = "0.16"
+glow = "0.18"
 
 [profile.release]
 lto = "thin"
