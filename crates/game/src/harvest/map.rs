@@ -7,7 +7,7 @@ mod farm;
 mod ground;
 mod text;
 pub use farm::parse as parse_farm;
-pub use ground::parse as parse_ground;
+pub use ground::{parse as parse_ground, set as set_ground};
 pub use text::{EXTENSION as MAP_EXTENSION, ground_codes, MAX_SIZE as MAP_MAX, MIN_SIZE as MAP_MIN, MapSource, PropKind, parse_props, props as map_props, PropLine, Tough, check as check_map, valid_id as valid_map_id};
 
 pub const TILE: f32 = 16.0;

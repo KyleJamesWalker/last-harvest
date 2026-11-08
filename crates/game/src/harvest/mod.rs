@@ -32,7 +32,7 @@ use enemies::Enemy;
 pub(crate) use enemies::{install_cards, off_from_ids, off_ids, roster};
 pub use props::{MAX_FRAME as PROP_MAX_FRAME, MAX_FRAMES as PROP_MAX_FRAMES, Named as NamedProp, PREFIX as PROP_PREFIX, ByViews as PropByViews, PropFields, load_for_checks as load_props_for_checks, turned_depth, prop_fields, prop_text, props as named_props, set_props};
 pub(crate) use props::{alpha_of, stand_of};
-pub use map::{default_depth as default_prop_depth, ground_codes as map_ground, MAP_EXTENSION, MAP_MAX, MAP_MIN, MAX_HP as PROP_MAX_HP, MapSource, map_props, parse_props, PropKind, PropLine, Tough as PropTough, check_map, valid_map_id};
+pub use map::{default_depth as default_prop_depth, ground_codes as map_ground, set_ground as set_map_ground, MAP_EXTENSION, MAP_MAX, MAP_MIN, MAX_HP as PROP_MAX_HP, MapSource, map_props, parse_props, PropKind, PropLine, Tough as PropTough, check_map, valid_map_id};
 pub use enemies::{ABOUT_MAX, MAX_FRAME as CARD_MAX_FRAME, card_frame_most, MAX_WALK, flash_pixel, frame_limits, hurt_pixel};
 pub use players::{BASE_KEYS as PLAYER_BASE_KEYS, ID_MAX as PLAYER_ID_MAX, PlayerFields, PlayerLook, default_start, looks as player_looks, player_fields, set_player_start, weapon_slots, weapons};
 pub use enemies::{CardFields, FLAGS as CARD_FLAGS, NUMBERS as CARD_NUMBERS, SpawnMix, card_fields, set_card_field, spawn_mix};
@@ -269,6 +269,13 @@ pub fn check_own_table(file: &str, text: &str) -> Result<(), String> {
             let codes = map::ground_codes();
             match [farm.ground, farm.tufted, farm.patch].into_iter().find(|c| !codes.iter().any(|(k, _)| k == c)) {
                 Some(c) => Err(format!("{file}: no ground code {} in ground.txt", c as char)),
+                None => Ok(()),
+            }
+        }
+        "ground.txt" => {
+            let crops = text.lines().filter_map(|l| l.split('#').next()?.trim().strip_prefix("crop "));
+            match crops.flat_map(str::split_whitespace).find(|n| missing(n)) {
+                Some(name) => Err(format!("{file}: no sprite called {name} in art.txt")),
                 None => Ok(()),
             }
         }

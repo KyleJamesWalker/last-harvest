@@ -545,11 +545,7 @@ impl Map {
                 }
                 if let Some((top, middle, bottom)) = g.crop {
                     let (up, down) = (code(x, y.wrapping_sub(1)) == c, code(x, y + 1) == c);
-                    self.overlay[i] = Some(match (up, down) {
-                        (false, _) => top[(x * 7 + y * 13) % top.len()],
-                        (_, false) => bottom,
-                        _ => middle,
-                    });
+                    self.overlay[i] = Some(super::ground::crop_piece(top, middle, bottom, x, y, up, down));
                 }
             }
         }
