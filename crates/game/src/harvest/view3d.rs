@@ -21,7 +21,7 @@ const PX: f32 = 1.0 / TILE;
 const TRACER_FPS: f32 = 12.0;
 const LEADER_TINT: [f32; 3] = [1.6, 1.3, 0.6];
 const HARVESTER_TINT: [f32; 3] = [1.4, 0.5, 0.45];
-const VIEW_RADIUS: f32 = 16.0;
+pub(super) const VIEW_RADIUS: f32 = 16.0;
 /// How far behind the player the camera sits, in tiles.
 const CAMERA_BACK: f32 = 2.4;
 /// How far either side of the line from the camera to the player something is left out, in tiles, once its front is
@@ -53,6 +53,25 @@ fn faces(art: Art, reach: Reach, top: Option<Art>) -> Cow<'static, [Face]> {
         (0..art::count() as u16).map(Art).map(|a| extrude(art::pixels(), a.rect(), reach, a.top().map(Art::rect), a.detail())).collect()
     });
     Cow::Borrowed(&all[art.0 as usize])
+}
+
+/// The crop cells the 3D view stands from where the player looks, and the cards their columns take.
+pub(super) fn crops_in_view(h: &Harvest) -> (usize, usize) {
+    let forward = Vec3::new(h.view_yaw.cos(), 0.0, h.view_yaw.sin());
+    let p = world(h.pos);
+    let r = VIEW_RADIUS as i32;
+    let (cx, cz) = (p.x as i32, p.z as i32);
+    let (mut cells, mut cards) = (0, 0);
+    for ty in (cz - r).max(0)..(cz + r).min(h.map.h as i32) {
+        for tx in (cx - r).max(0)..(cx + r).min(h.map.w as i32) {
+            let d = Vec3::new(tx as f32 + 0.5, 0.0, ty as f32 + 0.5) - p;
+            if let Some(stalk) = h.map.standing(tx as usize, ty as usize).filter(|_| d.length() < VIEW_RADIUS && d.dot(forward) > -4.0) {
+                cells += 1;
+                cards += stalk.tall as usize;
+            }
+        }
+    }
+    (cells, cards)
 }
 
 /// A sprite's clear rows under and over its picture, in game pixels, so a crop's stacked cards meet picture on

@@ -77,6 +77,8 @@ pub enum Scene {
     Farm,
     /// Debug frame-rate benchmark: the same frozen swarm every run, on a farm this many tiles wide and tall.
     Bench([usize; 2]),
+    /// The benchmark's horde standing in a field of the corn ground's crop, past the view's reach on every side.
+    BenchCorn([usize; 2]),
     /// Debug view of every sprite in the art catalog.
     Gallery,
     /// Debug check of every hardware feature, and where screen brightness is set.
@@ -95,6 +97,11 @@ impl Scene {
             "single" => Scene::Single,
             "farm" => Scene::Farm,
             "bench" => Scene::Bench(harvest::MAP_SIZE),
+            "bench-corn" => Scene::BenchCorn(harvest::MAP_SIZE),
+            _ if name.starts_with("bench-corn-") => {
+                let (w, h) = name["bench-corn-".len()..].split_once('x')?;
+                Scene::BenchCorn([w.parse().ok()?, h.parse().ok()?])
+            }
             _ if name.starts_with("bench-") => {
                 let (w, h) = name["bench-".len()..].split_once('x')?;
                 Scene::Bench([w.parse().ok()?, h.parse().ok()?])
@@ -349,7 +356,7 @@ impl Game {
     }
 
     pub fn open(&mut self, scene: Scene) {
-        self.bench_due = matches!(scene, Scene::Bench(_));
+        self.bench_due = matches!(scene, Scene::Bench(_) | Scene::BenchCorn(_));
         let seed = self.rng.next_u32() as u64 + 1;
         self.single_scene = scene == Scene::Single;
         self.state = match scene {
@@ -363,6 +370,7 @@ impl Game {
             }
             Scene::Farm => State::Harvest(Box::new(harvest::Harvest::calm(seed))),
             Scene::Bench(size) => State::Harvest(Box::new(harvest::Harvest::bench(size))),
+            Scene::BenchCorn(size) => State::Harvest(Box::new(harvest::Harvest::bench_corn(size))),
             Scene::Range => State::Harvest(Box::new(harvest::Harvest::range(seed, &self.range).single_screen(self.one_screen()))),
             Scene::Gallery => State::Gallery(gallery::Gallery::default()),
             Scene::Hardware => State::Hardware(hardware::Hardware::default()),
@@ -1063,7 +1071,7 @@ mod tests {
     #[test]
     fn every_scene_opens_by_name() {
         let mut game = Game::new(1);
-        for name in ["title", "harvest", "single", "farm", "bench", "art", "icon", "range", "hardware"] {
+        for name in ["title", "harvest", "single", "farm", "bench", "bench-corn", "art", "icon", "range", "hardware"] {
             game.open(Scene::from_name(name).unwrap());
         }
         assert!(matches!(game.state, State::Hardware(_)));
@@ -1254,6 +1262,8 @@ mod tests {
         }
         game.draw();
         assert!(Scene::from_name("bench-100x80") == Some(Scene::Bench([100, 80])) && Scene::from_name("bench-1x").is_none());
+        assert!(Scene::from_name("bench-corn") == Some(Scene::BenchCorn(harvest::MAP_SIZE)) && Scene::from_name("bench-corn-100x80") == Some(Scene::BenchCorn([100, 80])));
+        assert!(Scene::from_name("bench-corn-1x").is_none());
     }
 
     #[test]

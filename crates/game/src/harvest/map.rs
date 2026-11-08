@@ -684,6 +684,26 @@ impl Map {
         (self.ground[i], self.overlay[i])
     }
 
+    /// Plants the ground `code`'s crop on every cell within `reach` tiles of `at`, as a field of north-south rows
+    /// with a lane through `at` and every seventh column and ninth row left bare, so it reads as planted.
+    pub(super) fn plant(&mut self, code: u8, at: [usize; 2], reach: usize) {
+        let Some(g) = ground::ground().iter().find(|g| g.code == code) else { return };
+        let Some((top, middle, bottom)) = g.crop else { return };
+        let ([ax, ay], [w, h]) = (at, [self.w, self.h]);
+        let sown = move |x: usize, y: usize| {
+            let (dx, dy) = (x.abs_diff(ax), y.abs_diff(ay));
+            x < w && y < h && dx * dx + dy * dy <= reach * reach && dx != 0 && !x.is_multiple_of(7) && !y.is_multiple_of(9)
+        };
+        let cells: Vec<[usize; 2]> = (0..self.h).flat_map(|y| (0..self.w).map(move |x| [x, y])).filter(|&[x, y]| sown(x, y)).collect();
+        for [x, y] in cells {
+            let (up, down) = (y > 0 && sown(x, y - 1), sown(x, y + 1));
+            let i = self.i(x, y);
+            self.ground[i] = g.tile(x, y, up, down);
+            self.overlay[i] = Some(crop_piece(top, middle, bottom, x, y, up, down));
+            self.standing[i] = g.stalk(x, y, up, down);
+        }
+    }
+
     /// The crop standing on one cell in 3D.
     pub fn standing(&self, x: usize, y: usize) -> Option<Stalk> {
         self.standing[self.i(x, y)]

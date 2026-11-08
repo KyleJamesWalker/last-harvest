@@ -1090,6 +1090,15 @@ impl Harvest {
         h
     }
 
+    /// The bench's horde and effects standing in a field of the corn ground's crop, `ground.txt`'s `c`, planted past
+    /// the view's reach on every side, with the player in a lane between its rows.
+    pub fn bench_corn(size: [usize; 2]) -> Self {
+        let mut h = Self::bench(size);
+        let tile = [h.pos[0], h.pos[1]].map(|v| (v / TILE) as usize);
+        h.map.plant(b'c', tile, view3d::VIEW_RADIUS as usize + 4);
+        h
+    }
+
     /// The map's size and prop count and how long a flow field over it takes, which a moving player pays each time
     /// they change tile; `time` runs the work it's given and returns the seconds it took.
     pub fn bench_report(&self, time: impl FnOnce(&mut dyn FnMut()) -> f64) -> String {
@@ -1101,7 +1110,11 @@ impl Harvest {
             }
         });
         let (w, hgt) = (self.map.width_px() / TILE, self.map.height_px() / TILE);
-        format!("bench: {w}x{hgt} tiles, {} props, flow field {:.2} ms", self.map.props.len(), secs * 1000.0 / 20.0)
+        let crops = match view3d::crops_in_view(self) {
+            (0, _) => String::new(),
+            (cells, cards) => format!(", {cells} crop cells and {cards} crop cards in view"),
+        };
+        format!("bench: {w}x{hgt} tiles, {} props, flow field {:.2} ms{crops}", self.map.props.len(), secs * 1000.0 / 20.0)
     }
 
     pub fn at(self, difficulty: Difficulty) -> Self {
@@ -1190,7 +1203,11 @@ impl Harvest {
         if let Some(line) = self.range_summary() {
             return line;
         }
-        format!("harvest {} t={:.0} level={} kills={} zombies={} hp={:.0}", self.difficulty.key(), self.t, self.level, self.kills, self.zombies.len(), self.hp)
+        let crops = match view3d::crops_in_view(self) {
+            (cells, cards) if self.bench && cells > 0 => format!(" crops={cells} crop_cards={cards}"),
+            _ => String::new(),
+        };
+        format!("harvest {} t={:.0} level={} kills={} zombies={} hp={:.0}{crops}", self.difficulty.key(), self.t, self.level, self.kills, self.zombies.len(), self.hp)
     }
 
     pub fn update(&mut self, input: &Input, dt: f32, sounds: &mut Vec<Sfx>) -> Flow {
@@ -2592,6 +2609,23 @@ mod tests {
     use super::*;
 
     static ADDED: std::sync::Mutex<Vec<&'static Enemy>> = std::sync::Mutex::new(Vec::new());
+
+    #[test]
+    fn the_corn_bench_stands_tall_swaying_corn_and_its_horde_in_view_every_way_it_turns() {
+        let mut h = Harvest::bench_corn(MAP_SIZE);
+        assert_eq!(h.zombies.len(), crate::tuning::tuning().max_zombies as usize);
+        let [tx, ty] = h.pos.map(|v| (v / TILE) as usize);
+        assert!(h.map.standing(tx, ty).is_none(), "the player stands in a lane");
+        let stalk = h.map.standing(tx + 1, ty + 1).expect("corn beside the lane");
+        assert!(stalk.tall > 1 && stalk.sway.degrees > 0.0, "the corn ground's own height and sway: {stalk:?}");
+        for k in 0..8 {
+            h.view_yaw = k as f32 * TAU / 8.0;
+            let (cells, cards) = view3d::crops_in_view(&h);
+            assert!(cells > 300 && cards == cells * stalk.tall as usize, "at {k}/8 of a turn: {cells} cells, {cards} cards");
+        }
+        assert!(h.summary().contains(" crops="), "{}", h.summary());
+        assert!(h.bench_report(|_| 0.0).contains("crop cells"));
+    }
 
     pub(super) fn added_kind(i: usize) -> &'static Enemy {
         ADDED.lock().unwrap()[i]
