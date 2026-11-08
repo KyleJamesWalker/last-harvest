@@ -205,7 +205,29 @@ Each `[c]` section is one single-character ground code. The editors' paint butto
 | `art NAME` | The tile. A tile with several frames picks one by the cell's position. |
 | `joins across`, `joins down` | A run of cells takes the first, middle and last frames |
 | `cell open\|road\|path\|field` | Open ground, a road, a path that joins neighboring paths and roads, or a field the farm grows on |
-| `crop TOP MIDDLE BOTTOM` | A crop on the cell, with TOP at a run's north end |
+| `crop TOP MIDDLE BOTTOM` | A crop on the cell, with TOP at a run's north end. Each is a sprite from the game's art or a `PROP_<ID>`. |
+
+#### Making a crop
+
+A crop is three sprites stacked down a north-south run of its ground code. Corn is `crop CORN_TOP CORN CORN_BOTTOM`.
+
+| Piece | Where it stands | Frames |
+|---|---|---|
+| TOP | The run's north end | Any number. Each cell picks one by its position, so a field mixes them. |
+| MIDDLE | Every cell between the ends | The first only |
+| BOTTOM | The run's south end | The first only |
+
+A run of one cell is a TOP alone, and a run of two a TOP and a BOTTOM. Each piece stands upright on the cell, 2 pixels deep, whatever its own stand.
+
+To add a crop such as wheat in the card editor:
+
+1. New `PROP_WHEAT_TOP`, `PROP_WHEAT` and `PROP_WHEAT_BOTTOM`, draw each, and save them. A 16-pixel frame fills one tile.
+2. Open Data > ground, open the last code, Add line `[w]`, and save. The new code lists as `[w]`.
+3. Open `[w]` and add `name Wheat`, `art SOIL`, `cell field` and `crop PROP_WHEAT_TOP PROP_WHEAT PROP_WHEAT_BOTTOM`, then save.
+4. Open any of the three pieces. A line over the canvas names its place, such as "Crop: north end of a Wheat run (ground w)", and the previews stand the crop in a small field, with the open piece as drawn.
+5. Paint Wheat on a map and Export it. The pack carries the map, the three props and the mod's `ground.txt`.
+
+The game's own `ground.txt` names only sprites in `art.txt`. A crop of props that a mod leaves out is left off its ground, and the title screen says so.
 
 ### farm.txt
 
