@@ -55,6 +55,25 @@ fn faces(art: Art, reach: Reach, top: Option<Art>) -> Cow<'static, [Face]> {
     Cow::Borrowed(&all[art.0 as usize])
 }
 
+/// A sprite's clear rows under and over its picture, in game pixels, so a crop's stacked cards meet picture on
+/// picture.
+fn clear_ends(a: Art) -> [f32; 2] {
+    static ALL: OnceLock<Vec<[f32; 2]>> = OnceLock::new();
+    let scan = |pixels: &[u8], a: Art| {
+        let [x, y, w, h] = a.rect().map(usize::from);
+        let clear = |row: usize| (x..x + w).all(|c| pixels[((y + row) * art::ATLAS_W as usize + c) * 4 + 3] == 0);
+        let under = (0..h).rev().take_while(|&r| clear(r)).count();
+        let over = if under == h { 0 } else { (0..h).take_while(|&r| clear(r)).count() };
+        let d = a.detail() as f32;
+        [under as f32 / d, over as f32 / d]
+    };
+    if a.is_live() {
+        return art::with_pixels(a, |p| scan(p, a));
+    }
+    let all = ALL.get_or_init(|| (0..art::count() as u16).map(Art).map(|a| scan(art::pixels(), a)).collect());
+    all.get(a.0 as usize).copied().unwrap_or_else(|| scan(art::pixels(), a))
+}
+
 /// How far inside the outline an extrusion's sides look for their color.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Reach {
@@ -631,15 +650,20 @@ pub fn scene(h: &Harvest) -> CardScene {
             if !near(corner + Vec3::new(0.5, 0.0, 0.5)) {
                 continue;
             }
-            let (ground, overlay) = h.map.tile(tx as usize, ty as usize);
+            let (ground, _) = h.map.tile(tx as usize, ty as usize);
             faded(&mut cards, ground.alpha(), |cards| {
                 flat(cards, ground, corner.x, corner.z, 0.0, [1.0; 3]);
                 if let Some(Stand::Slab { height, lift }) = ground.stand() {
                     lying(cards, eye, ground, corner + Vec3::new(0.5, 0.0, 0.5), 0.0, height, lift, [1.0; 3]);
                 }
             });
-            if let Some(crop) = overlay {
-                faded(&mut cards, crop.alpha(), |cards| stand(cards, eye, crop, false, Pose::upright(corner + Vec3::Z, Vec3::X, -Vec3::Z, 2.0 * PX), false));
+            if let Some(stalk) = h.map.standing(tx as usize, ty as usize) {
+                // Shearing `up` east leans each card's top while its height holds, so stacked cards meet edge to edge.
+                for (crop, base, east, lean) in stalk.bend(h.t, tx as usize, ty as usize, clear_ends) {
+                    let origin = corner + Vec3::Z + Vec3::new(east, base, 0.0) * PX;
+                    let pose = Pose { up: Vec3::new(lean / crop.h(), 1.0, 0.0), ..Pose::upright(origin, Vec3::X, -Vec3::Z, 2.0 * PX) };
+                    faded(&mut cards, crop.alpha(), |cards| stand(cards, eye, crop, false, pose, false));
+                }
             }
         }
     }
@@ -1014,6 +1038,13 @@ pub fn scene(h: &Harvest) -> CardScene {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_sprites_clear_ends_are_the_rows_its_picture_leaves_empty() {
+        let [under, over] = clear_ends(art::CORN_BOTTOM);
+        assert!(under > 0.0 && under + over < art::CORN_BOTTOM.h(), "corn's stalks stop short of its cell's bottom: {under} {over}");
+        assert_eq!(clear_ends(art::SOIL[0]), [0.0, 0.0], "a tile fills its cell");
+    }
 
     #[test]
     fn each_frame_builds_its_cards_in_the_last_frames_room() {

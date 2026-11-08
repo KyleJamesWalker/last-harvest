@@ -36,7 +36,9 @@ fn a_mods_crop_of_three_props_says_where_each_stands_stacks_paints_and_exports()
 
     let mut s = Studio::new(store(&dir), "PROP_WHEAT");
     s.tick(0.1);
-    let (top, middle, _) = s.editor.crop_preview().expect("packed");
+    let crop = s.editor.crop_preview().expect("packed");
+    let (top, middle, _) = crop.flat;
+    assert_eq!(crop.standing.1, middle, "without crop_3d, 3D stands the crop");
     assert_eq!(middle, s.editor.shown()[0], "the open middle stands live");
     assert!(!top.contains(&middle), "beside the top as saved");
 

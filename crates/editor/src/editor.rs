@@ -4459,8 +4459,8 @@ mod tests {
         let e = editor_on("CORN_TOP");
         assert_eq!(e.crop_role().as_deref(), Some("Crop: north end of a Corn run (ground c)"));
         assert_eq!(e.data_link.as_deref(), Some("DATA_GROUND__63"));
-        assert_eq!(editor_on("CORN").crop_role().as_deref(), Some("Crop: middle of a Corn run (ground c)"));
-        assert_eq!(editor_on("CORN_BOTTOM").crop_role().as_deref(), Some("Crop: south end of a Corn run (ground c)"));
+        assert_eq!(editor_on("CORN").crop_role().as_deref(), Some("Crop: middle of a Corn run on the map only (ground c)"));
+        assert_eq!(editor_on("CORN_BOTTOM").crop_role().as_deref(), Some("Crop: south end of a Corn run; in 3D, middle and south end (ground c)"));
         assert_eq!(editor_on("SOIL").crop_role(), None, "a ground's tile stacks nothing");
     }
 

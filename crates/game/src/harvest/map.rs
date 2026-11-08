@@ -8,10 +8,13 @@ mod ground;
 mod text;
 pub use farm::parse as parse_farm;
 pub(super) use ground::crop_piece;
-pub use ground::{parse as parse_ground, set as set_ground};
+pub use ground::{parse as parse_ground, set as set_ground, Stalk, Sway};
 pub use text::{EXTENSION as MAP_EXTENSION, ground_codes, MAX_SIZE as MAP_MAX, MIN_SIZE as MAP_MIN, MapSource, PropKind, parse_props, props as map_props, PropLine, Tough, check as check_map, valid_id as valid_map_id};
 
 pub const TILE: f32 = 16.0;
+
+/// A cell's crop: its piece on the map, and its piece and sway in 3D.
+pub type CellCrop = (Option<Art>, Option<Stalk>);
 const N: u8 = 1;
 const E: u8 = 2;
 const S: u8 = 4;
@@ -200,6 +203,8 @@ pub struct Map {
     pub h: usize,
     ground: Vec<Art>,
     overlay: Vec<Option<Art>>,
+    /// The crop standing on each cell in 3D.
+    standing: Vec<Option<Stalk>>,
     /// Cells nobody walks through.
     solid: Vec<bool>,
     /// Within each solid cell, the box its props fill, which is all the player bumps into there, and a second box
@@ -295,6 +300,7 @@ impl Map {
             h,
             ground,
             overlay: vec![None; w * h],
+            standing: vec![None; w * h],
             solid: vec![false; w * h],
             shape: vec![[WHOLE, NO_BOX]; w * h],
             cover: vec![false; w * h],
@@ -678,10 +684,15 @@ impl Map {
         (self.ground[i], self.overlay[i])
     }
 
-    /// Lays `art` over one cell, as a crop stands on it; returns what was there.
-    pub fn set_overlay(&mut self, x: usize, y: usize, art: Option<Art>) -> Option<Art> {
+    /// The crop standing on one cell in 3D.
+    pub fn standing(&self, x: usize, y: usize) -> Option<Stalk> {
+        self.standing[self.i(x, y)]
+    }
+
+    /// Lays a crop on one cell: its piece on the map, and its piece and sway in 3D; returns what was there.
+    pub fn set_crop(&mut self, x: usize, y: usize, crop: CellCrop) -> CellCrop {
         let i = self.i(x, y);
-        std::mem::replace(&mut self.overlay[i], art)
+        (std::mem::replace(&mut self.overlay[i], crop.0), std::mem::replace(&mut self.standing[i], crop.1))
     }
 
     fn free(&self, x: usize, y: usize, w: usize, h: usize, margin: usize) -> bool {
@@ -872,17 +883,24 @@ impl Map {
                 continue;
             }
             let kind = rng.below(4);
+            let corn = ground::ground().iter().find(|g| g.crop.is_some_and(|c| c.1 == art::CORN));
+
             for yy in y..y + fh {
                 for xx in x..x + fw {
                     let i = self.i(xx, yy);
                     let soil = art::SOIL[rng.below(2)];
                     self.ground[i] = if kind == 1 { art::SPROUTS[rng.below(2)] } else { soil };
                     if kind >= 2 {
-                        self.overlay[i] = Some(match yy {
+                        let flat = match yy {
                             _ if yy == y => art::CORN_TOP[rng.below(2)],
                             _ if yy == y + fh - 1 => art::CORN_BOTTOM,
                             _ => art::CORN,
-                        });
+                        };
+                        let pick = art::CORN_TOP.iter().position(|a| *a == flat).unwrap_or(xx * 7 + yy * 13);
+                        let (up, down) = (yy > y, yy + 1 < y + fh);
+                        let plain = || Stalk { lower: flat, top: flat, tall: 1, sway: Sway::default() };
+                        self.overlay[i] = Some(flat);
+                        self.standing[i] = Some(corn.and_then(|g| Some(Stalk::of(g.standing()?, pick, up, down, g.tall, g.sway))).unwrap_or_else(plain));
                     }
                 }
             }

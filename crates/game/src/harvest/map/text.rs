@@ -508,6 +508,7 @@ impl Map {
             h,
             ground: vec![art::DIRT[0]; w * h],
             overlay: vec![None; w * h],
+            standing: vec![None; w * h],
             solid: vec![false; w * h],
             shape: vec![[super::WHOLE, super::NO_BOX]; w * h],
             cover: vec![false; w * h],
@@ -546,6 +547,7 @@ impl Map {
                 if let Some((top, middle, bottom)) = g.crop {
                     let (up, down) = (code(x, y.wrapping_sub(1)) == c, code(x, y + 1) == c);
                     self.overlay[i] = Some(super::ground::crop_piece(top, middle, bottom, x, y, up, down));
+                    self.standing[i] = g.stalk(x, y, up, down);
                 }
             }
         }
@@ -653,6 +655,12 @@ mod tests {
         assert!(art::PATH.contains(&map.tile(6, 9).0), "paths autotile");
         assert_eq!(map.tile(15, 3).1, Some(art::CORN_TOP[(15 * 7 + 3 * 13) % 2]));
         assert_eq!(map.tile(15, 6).1, Some(art::CORN_BOTTOM));
+        let middle = (4..6).find(|&y| map.tile(15, y).1 == Some(art::CORN)).expect("a middle on the map");
+        let column = |y: usize| map.standing(15, y).unwrap().cards().collect::<Vec<_>>();
+        let cap = |y: usize| art::CORN_TOP[(15 * 7 + y * 13) % 2];
+        assert_eq!(column(middle), [art::CORN_BOTTOM, art::CORN_BOTTOM, cap(middle)], "3D stands tall whole stalks under the top's frame");
+        assert_eq!(column(3), [art::CORN_BOTTOM, art::CORN_BOTTOM, map.tile(15, 3).1.unwrap()], "the north end too, its own top capping it");
+        assert_eq!(column(6), [art::CORN_BOTTOM, art::CORN_BOTTOM, cap(6)], "the cap picks by the cell, as a map's tops do");
         assert!(map.props.iter().any(|p| p.frames[0] == art::HOUSE));
         assert!(map.props.iter().any(|p| p.frames[0] == art::WINDMILL_FAN[0] && p.fps > 0.0), "a windmill brings its fan");
         assert_eq!(map.barrels, vec![[13.0 * TILE, 10.0 * TILE]], "barrels blow up, so they're kept apart");

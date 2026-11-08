@@ -7,6 +7,10 @@
 #                       beside it, picking art's frame by which sides join, or a field the farm grows on
 #   crop TOP MIDDLE BOTTOM   a crop standing on it, from art.txt: TOP at the north end of a run, BOTTOM at the
 #                       south end, MIDDLE between; TOP picks between its frames as art does
+#   crop_3d TOP MIDDLE BOTTOM   the pieces that stand in 3D instead, for a crop drawn from above; the map keeps crop
+#   sway DEGREES SECONDS     the crop leans in the wind in 3D, at most DEGREES (0 to 30), once each SECONDS
+#   tall N              the crop stands N cards high in 3D (1 to 6): N - 1 of the cell's piece, the middle's at the
+#                       north end, under one of TOP's frames, picture on picture; it bends in the wind as one stalk
 # The first code is what a map's new ground is.
 
 [.]
@@ -39,6 +43,9 @@ name Corn
 art SOIL
 cell field
 crop CORN_TOP CORN CORN_BOTTOM
+crop_3d CORN_TOP CORN_BOTTOM CORN_BOTTOM
+sway 5 3.5
+tall 3
 
 [v]
 name Road |
