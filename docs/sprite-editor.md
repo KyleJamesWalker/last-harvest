@@ -119,6 +119,7 @@ The editor lists the cards, props and maps in `assets/private/`.
     - The Stats page (T) works as in the card editor.
 - **Props** list as `PROP_<ID>`. The stand, fps, Cover, Broken frame and HP buttons set the prop's text. New with a name starting `PROP_` starts one.
 - **Maps** list as `MAP_<ID>`. New with a name starting `MAP_` starts a dirt map in `assets/private/maps/`. The map tools match the card editor's.
+- **Delete** in the top row removes the open card, prop or map from `assets/private/`. Press it twice. The game's own sprites have no Delete.
 
 A sprite that a `ground.txt` crop line names shows its place in the crop over the canvas, such as "Crop: north end of a Corn run (ground c)". Data opens that ground code. The line says when the sprite stands only on the map or only in 3D, by the code's `crop_3d` line. The 2.5D view and the map stand the crop in a field 3 tiles wide and 4 deep, in place of the sprite: its top, two middles and its bottom, picked as a map picks them. The map draws `crop`, and the 2.5D view `crop_3d`, `tall` cards high, swaying by `sway`. The open piece shows as drawn, and the other two as saved. See [Making a crop](modding.md#making-a-crop).
 

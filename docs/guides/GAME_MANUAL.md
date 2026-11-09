@@ -315,7 +315,7 @@ The [card editor](https://kylejameswalker.github.io/last-harvest/editor/) makes 
 | Export | Downloads the open card's or prop's PNG. On a map, downloads `<id>.pak` with the map and every prop it places. |
 | Export all | Downloads everything as one mod pack, `my-cards.pak`, for the game's `data/mods`. |
 | Sound | Gives an enemy card its own death sound: an Ogg, WAV or MP3, kept as an Ogg of up to 512 KB |
-| Delete card | Removes the open card. Press it twice. |
+| Delete | Removes the open card, prop or map. Press it twice. |
 | Game data | Picks your own `game_data.pak`. See [Game data](#game-data). |
 | Help | A short guide to making a card |
 
@@ -351,7 +351,7 @@ Rename and About set the name and the one-sentence about line. For an enemy card
 
 A chart under the numbers shows how a night's spawns split between the game's kinds and your cards, minute by minute. Its legend flags any kind that never comes.
 
-For a player card, the Stats page sets the name, the about line, and the weapons each difficulty starts with. Default keeps the game's own.
+For a player card, the Stats page sets the name, the about line, and the weapons each difficulty starts with. The weapon toggles include any weapon the mod's `powerups.txt` adds. Default keeps the game's own.
 
 ### Props and maps
 
@@ -385,6 +385,7 @@ Each data file lists under Data, and each section is a page, such as Data > tuni
 | Edit | Type any value |
 | x, Add line | Remove a line, or add one |
 | Up, Down | Page through a long section |
+| Copy | Copy the section under a new id, in `powerups.txt`, `enemies.txt` and `effects.txt`. The id takes lowercase letters, digits and `_`, and Undo takes the copy back |
 | Revert | Go back to the last save |
 | Save | Keep the file, only when the game would read it |
 

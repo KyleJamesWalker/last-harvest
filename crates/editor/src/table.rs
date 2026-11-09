@@ -112,6 +112,18 @@ impl Table {
         true
     }
 
+    /// Adds a copy of `section`'s lines at the end of the file under the heading `[id]`.
+    pub fn copy(&mut self, section: &str, id: &str) -> bool {
+        let Some(text) = self.section_text(section) else { return false };
+        let body: Vec<&str> = text.lines().skip(usize::from(section != TOP)).collect();
+        let end = body.iter().rposition(|l| !l.trim().is_empty()).map_or(0, |i| i + 1);
+        let mut out = self.text.trim_end().to_string();
+        out += &format!("\n\n[{id}]\n");
+        body[..end].iter().for_each(|l| out += &format!("{l}\n"));
+        self.text = out;
+        true
+    }
+
     pub fn remove(&mut self, section: &str, at: usize) -> bool {
         let Some(e) = self.entries(section).into_iter().nth(at) else { return false };
         self.rewrite(|lines| {

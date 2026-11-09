@@ -49,7 +49,7 @@ A player card, `<id>.player.png`, changes the player's look and can change the s
 
 - `[id]` and a `name` line.
 - An optional `about` line, up to 80 printable ASCII characters.
-- A `start DIFFICULTY WEAPON...` line for each difficulty whose starting weapons it sets, such as `start normal crows knife`. A difficulty without a line keeps the game's own.
+- A `start DIFFICULTY WEAPON...` line for each difficulty whose starting weapons it sets, such as `start normal crows knife`. A weapon can be one the pack's own `powerups.txt` adds. A difficulty without a line keeps the game's own.
 - Optional `hp`, `speed` and `magnet` lines for the start of a run. The rest come from `tuning.txt`.
 
 An optional uncompressed `last-harvest-worn` chunk says where the walking frames wear a ready grenade. Each `front`, `side` or `back` line gives `X Y` per frame, split by `;`, and the last pair carries on. `hide` leaves the grenade off. A facing without a line wears it on the right hip. The game's own player keeps the same in `grenade.txt` beside its frames.
@@ -311,7 +311,7 @@ Each stat line lists its value at each level, and a short list repeats its last 
 
 #### Weapons from data
 
-A new weapon needs no code. Copy a weapon's section under a new id and change its lines. `does` picks the behavior and defaults to the id, so `does scythe` under a new id is a second scythe. Three behaviors take their shape from data:
+A new weapon needs no code. Copy a weapon's section under a new id and change its lines; **Copy** on the weapon's Data page in either editor does it. `does` picks the behavior and defaults to the id, so `does scythe` under a new id is a second scythe. Three behaviors take their shape from data:
 
 - `does gun` fires `count` shots at what its `aim` finds: `nearest` (the default), `ahead`, `behind` or `around`. `pattern` spreads them:
     - `fan`: evenly across `spread` degrees, the default.

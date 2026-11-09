@@ -179,6 +179,14 @@ impl Store for LocalStore {
         Ok(())
     }
 
+    fn delete_prop(&self, id: &str) -> Result<(), String> {
+        self.storage.remove_item(&format!("{PROP_KEY}{id}")).map_err(|_| "the browser wouldn't remove it".to_string())
+    }
+
+    fn delete_map(&self, id: &str) -> Result<(), String> {
+        self.storage.remove_item(&format!("{MAP_KEY}{id}")).map_err(|_| "the browser wouldn't remove it".to_string())
+    }
+
     fn map_ids(&self) -> Vec<String> {
         self.keyed(MAP_KEY)
     }

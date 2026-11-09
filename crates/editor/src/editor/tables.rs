@@ -12,6 +12,8 @@ const ROW_TOP: f32 = CANVAS.y + 48.0;
 const ROW_H: f32 = 34.0;
 /// Characters of a value that fit before the buttons.
 const VALUE_CHARS: usize = 24;
+/// Files whose sections are ids a modder can add to, by copying one.
+const COPYABLE: [&str; 3] = ["powerups.txt", "enemies.txt", "effects.txt"];
 
 pub(super) struct DataEdit {
     pub file: String,
@@ -22,8 +24,9 @@ pub(super) struct DataEdit {
     pub first: usize,
     /// The line whose value is being typed, by its place in the section.
     pub typing: Option<usize>,
-    pub undo: Vec<String>,
-    pub redo: Vec<String>,
+    /// The file's text and the section shown, before each change.
+    pub undo: Vec<(String, String)>,
+    pub redo: Vec<(String, String)>,
     /// For a powerups.txt weapon, what its weapon page shows.
     pub weapon: Option<Weapon>,
 }
@@ -35,7 +38,7 @@ impl DataEdit {
         if !f(&mut self.table, &self.section) || self.table.text == before {
             return false;
         }
-        self.undo.push(before);
+        self.undo.push((before, self.section.clone()));
         if self.undo.len() > UNDO_DEPTH {
             self.undo.remove(0);
         }
@@ -131,9 +134,67 @@ impl Editor {
         false
     }
 
+    /// Whether the page's section can be copied to a new id.
+    pub(super) fn copyable(d: &DataEdit) -> bool {
+        COPYABLE.contains(&d.file.as_str()) && d.section != table::TOP
+    }
+
+    /// Adds a copy of the open section under `[id]` as one step to undo, and shows it.
+    pub(super) fn copy_section(&mut self, id: &str) {
+        let Some(d) = &mut self.data else { return };
+        let why = if id.is_empty() {
+            Some("Name the copy first".to_string())
+        } else if !id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_') {
+            Some("An id uses lowercase letters, digits and _".to_string())
+        } else if d.table.sections().iter().any(|s| s == id) {
+            Some(format!("{} already has [{id}]", d.file))
+        } else {
+            None
+        };
+        if let Some(why) = why {
+            return self.say(why);
+        }
+        self.ask = None;
+        // Lines that default to the id keep the original's value.
+        let mut keep = Vec::new();
+        if d.file == "powerups.txt" {
+            let has = |k: &str| d.table.entries(&d.section).iter().any(|e| e.key == k);
+            if !has("icon") {
+                keep.push(("icon", format!("ICON_{}", d.section.to_ascii_uppercase())));
+            }
+            if d.weapon.is_some() && !has("does") {
+                keep.push(("does", d.section.clone()));
+            }
+        }
+        if d.change(|t, s| t.copy(s, id) && keep.iter().all(|(k, v)| t.add(id, k, v))) {
+            d.section = id.to_string();
+            let file = d.file.clone();
+            self.show_section();
+            self.say(format!("[{id}] is new: Save writes it to {file}"));
+        }
+    }
+
+    /// Shows the data page's section after it changes: its name, and its weapon page if it's a weapon.
+    fn show_section(&mut self) {
+        let Some(d) = &mut self.data else { return };
+        let name = data_name(&d.file, &d.section);
+        if self.sprite.name == name {
+            return;
+        }
+        (d.first, d.typing) = (0, None);
+        d.weapon = weapons::is_weapon(&d.table, &d.section).then(Weapon::new);
+        self.sprite.name = name;
+        self.naming = None;
+        self.changed = true;
+        self.refresh_weapon();
+    }
+
     pub(super) fn data_buttons(&self, d: &DataEdit, push: &mut impl FnMut(f32, f32, f32, f32, Action, &str, bool)) {
         for (i, (a, l)) in [(Action::Revert, "Revert"), (Action::Save, "Save")].into_iter().enumerate() {
             push(716.0 + i as f32 * 102.0, 8.0, 94.0, 34.0, a, l, a == Action::Save && d.dirty);
+        }
+        if Self::copyable(d) {
+            push(if d.weapon.is_some() { 410.0 } else { 614.0 }, 8.0, 94.0, 34.0, Action::Ask(Ask::Copy), "Copy", false);
         }
         if let Some(w) = &d.weapon {
             push(512.0, 8.0, 94.0, 34.0, Action::WeaponTry, "Try it", false);
@@ -281,11 +342,12 @@ impl Editor {
             Key::Undo | Key::Redo => {
                 let Some(d) = &mut self.data else { return true };
                 let (from, to) = if key == Key::Undo { (&mut d.undo, &mut d.redo) } else { (&mut d.redo, &mut d.undo) };
-                if let Some(prev) = from.pop() {
-                    to.push(std::mem::replace(&mut d.table.text, prev));
+                if let Some((text, section)) = from.pop() {
+                    to.push((std::mem::replace(&mut d.table.text, text), std::mem::replace(&mut d.section, section)));
                     (d.dirty, d.typing) = (true, None);
                     d.first = d.first.min(d.table.entries(&d.section).len().saturating_sub(ROWS));
                 }
+                self.show_section();
                 self.refresh_weapon();
             }
             // The page has no pixels for these to change.

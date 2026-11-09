@@ -208,6 +208,7 @@ impl Line {
 enum Action {
     Ask(Ask),
     Save,
+    Delete,
     Revert,
     Tool(Tool),
     Mirror,
@@ -359,11 +360,13 @@ const STAT_ROW: f32 = 20.0;
 const STAT_BUTTON: f32 = 18.0;
 const NAME_MAX: usize = 24;
 const DELETE_CONFIRM: f32 = 3.0;
-/// A player card's stats: a block per difficulty with its weapon toggles, five across.
+/// A player card's stats: a block per difficulty with its weapon toggles, four rows of at least five across.
 const START_TOP: f32 = CANVAS.y + 100.0;
 const START_BLOCK: f32 = 126.0;
 const START_ACROSS: usize = 5;
+const START_ROWS: usize = 4;
 const START_ROW: f32 = 24.0;
+const START_WIDE: f32 = 520.0;
 /// A player card's health, speed and magnet, under its starting weapons.
 const BASE_Y: f32 = START_TOP + 3.0 * START_BLOCK + 4.0;
 /// How far a press of - or + moves a player card's health, speed and magnet.
@@ -581,7 +584,7 @@ pub struct Editor {
     mix: Option<Result<last_harvest_game::SpawnMix, String>>,
     /// The public mod editor: every sprite is an enemy card, and cards come and go by Import and Export.
     modding: bool,
-    /// Seconds left for a second press of Delete card to go ahead.
+    /// Seconds left for a second press of Delete to go ahead.
     delete_armed: f32,
 }
 
@@ -1154,6 +1157,10 @@ impl Editor {
             *name = text.chars().filter_map(lospec_char).take(64).collect();
             return;
         }
+        if let (Some((_, name)), Some(_)) = (&mut self.ask, &self.data) {
+            *name = text.trim().chars().take(NAME_MAX).collect();
+            return;
+        }
         let clean: String = text.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == ' ').map(|c| if c == ' ' { '_' } else { c.to_ascii_uppercase() }).collect();
         if self.typing {
             self.filter = clean;
@@ -1188,9 +1195,14 @@ impl Editor {
         } else if self.data_link.is_some() {
             push(410.0, 8.0, 94.0, 34.0, Action::Data, "Data", false);
         }
+        let coats = if self.built_in_still().is_some() || self.data_link.is_some() { 312.0 } else { 410.0 };
         if !self.is_card() && !self.none_open() {
-            let x = if self.built_in_still().is_some() || self.data_link.is_some() { 312.0 } else { 410.0 };
-            push(x, 8.0, 94.0, 34.0, Action::Coats, "Coats", self.coats_page);
+            push(coats, 8.0, 94.0, 34.0, Action::Coats, "Coats", self.coats_page);
+        }
+        // The card editor's page has Delete in its toolbar.
+        if !self.modding && (self.is_card() || self.is_prop()) {
+            let x = if self.is_card() || coats == 410.0 { 312.0 } else { 214.0 };
+            push(x, 8.0, 94.0, 34.0, Action::Delete, "Delete", self.delete_armed > 0.0);
         }
         if self.coats_page && !self.none_open() {
             self.coat_buttons(&mut push);
@@ -1198,14 +1210,17 @@ impl Editor {
         if self.stats && self.is_player_card() {
             self.line_buttons(&mut push);
             let starts = self.player_starts();
+            let weapons = self.weapon_labels();
+            let across = START_ACROSS.max(weapons.len().div_ceil(START_ROWS));
+            let pitch = START_WIDE / across as f32;
             for (d, start) in starts.iter().enumerate() {
                 let top = START_TOP + d as f32 * START_BLOCK;
                 push(CANVAS.x + 400.0, top, 140.0, 26.0, Action::StartDefault(d), "Default", start.is_none());
                 let have = start.clone().unwrap_or_else(|| last_harvest_game::default_start(last_harvest_game::Difficulty::ALL[d]));
-                for (w, (id, label)) in cards::weapon_labels().into_iter().enumerate() {
-                    let (col, row) = (w % START_ACROSS, w / START_ACROSS);
-                    let on = have.contains(&id);
-                    push(CANVAS.x + 20.0 + col as f32 * 104.0, top + 30.0 + row as f32 * START_ROW, 100.0, 22.0, Action::StartWeapon(d, w), &label, on);
+                for (w, (id, label)) in weapons.iter().enumerate() {
+                    let (col, row) = (w % across, w / across);
+                    let on = have.contains(id);
+                    push(CANVAS.x + 20.0 + col as f32 * pitch, top + 30.0 + row as f32 * START_ROW, pitch - 4.0, 22.0, Action::StartWeapon(d, w), label, on);
                 }
             }
             for i in 0..3 {
@@ -1870,6 +1885,7 @@ impl Editor {
             Action::ClearColor => self.clear_color(),
             Action::ClearIn3d if self.is_card() => self.say("A card stands as a figure, which keeps every color"),
             Action::ClearIn3d => self.clear_in_3d(),
+            Action::Delete => self.delete_card(),
             Action::Coats => {
                 self.coats_page = !self.coats_page;
                 self.changed = true;
@@ -1940,7 +1956,7 @@ impl Editor {
             Action::StartWeapon(d, w) => {
                 let difficulty = last_harvest_game::Difficulty::ALL[d];
                 let mut have = self.player_starts()[d].clone().unwrap_or_else(|| last_harvest_game::default_start(difficulty));
-                let Some((id, _)) = last_harvest_game::weapons().into_iter().nth(w) else { return };
+                let Some((id, _)) = self.weapon_labels().into_iter().nth(w) else { return };
                 match have.iter().position(|h| *h == id) {
                     Some(at) => _ = have.remove(at),
                     None if have.len() >= last_harvest_game::weapon_slots() => return self.say(format!("A run carries at most {} weapons", last_harvest_game::weapon_slots())),
@@ -2346,6 +2362,10 @@ impl Editor {
             self.ask = None;
             return self.load_lospec(&name);
         }
+        if let (Some((Ask::Copy, id)), Some(_)) = (&self.ask, &self.data) {
+            let id = id.clone();
+            return self.copy_section(&id);
+        }
         let Some((kind, name)) = self.ask.clone() else { return };
         let typed = || match name.strip_prefix("PLAYER_") {
             Some(id) => (sprite::CardKind::Player, id.to_ascii_lowercase()),
@@ -2370,7 +2390,7 @@ impl Editor {
             self.sprite = Sprite { detail: 1, alpha: Vec::new(), worn: Vec::new(), name: name.clone(), frames: Vec::new(), views: None, footprint: None, roof: None, north: None, west: None, top: None, card, clear_in_3d, paint };
             restore(&mut self.sprite, pictures);
             self.fit();
-            self.view = None;
+            (self.view, self.stats) = (None, false);
             self.frame = 0;
             self.undo.clear();
             self.redo.clear();
@@ -2659,10 +2679,11 @@ impl Editor {
             }
             return;
         }
+        let id = self.data.is_some();
         if let Some((_, name)) = &mut self.ask {
             match key {
                 Key::Char(c) if c.is_ascii_alphanumeric() || c == '_' || c == ' ' => {
-                    name.push(if c == ' ' { '_' } else { c.to_ascii_uppercase() });
+                    name.push(if c == ' ' { '_' } else if id { c.to_ascii_lowercase() } else { c.to_ascii_uppercase() });
                 }
                 Key::Backspace => {
                     name.pop();
@@ -3040,14 +3061,17 @@ impl Editor {
             c.rect(0.0, 0.0, 1024.0, 768.0, [0.0, 0.0, 0.0, 0.6]);
             let d = ASK_BOX;
             c.rect(d.x, d.y, d.w, d.h, PANEL);
-            let what = match (*kind, self.modding) {
-                (Ask::New, true) => "Name the new enemy card",
-                (Ask::New, false) => "Name the new sprite",
-                (Ask::Copy, _) => "Name the copy",
-                (Ask::Palette, _) => "Draw from a Lospec palette",
+            let what = match (*kind, self.modding, &self.data) {
+                (Ask::Copy, _, Some(d)) => format!("Name the copy of [{}]", d.section),
+                (Ask::New, true, _) => "Name the new enemy card".into(),
+                (Ask::New, false, _) => "Name the new sprite".into(),
+                (Ask::Copy, _, None) => "Name the copy".into(),
+                (Ask::Palette, _, _) => "Draw from a Lospec palette".into(),
             };
             c.label(what, 512.0, 300.0, 24.0, TEXT, Align::Center);
-            let hint = if *kind == Ask::Palette {
+            let hint = if let Some(d) = self.data.as_ref().filter(|_| *kind == Ask::Copy) {
+                format!("Its id in {}: lowercase letters, digits and _", d.file)
+            } else if *kind == Ask::Palette {
                 "Its name from lospec.com/palette-list, such as endesga-32; blank for the game's".to_string()
             } else if self.modding {
                 "Its id: letters, digits and _. PLAYER_ makes a player card, PROP_ a prop, MAP_ a map".to_string()
@@ -3765,6 +3789,111 @@ mod tests {
     }
 
     #[test]
+    fn a_player_card_can_start_with_a_weapon_the_mods_own_data_adds() {
+        let dir = tmp().join("player-mod-weapon");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let built_in = last_harvest_game::built_in_table("powerups.txt").unwrap();
+        std::fs::write(dir.join("powerups.txt"), format!("{built_in}\n[urumi]\nname      Urumi\nkind      weapon\ndoes      blade\n")).unwrap();
+        let store = FsStore { dir: dir.join("sprites"), catalog: dir.join("art.txt"), cards: dir.join("enemies") };
+        let mut e = Editor::new(Box::new(store), "");
+        e.act(Action::Ask(Ask::New), false);
+        type_in(&mut e, "player card kd");
+        e.key(Key::Enter);
+        e.act(Action::Stats, false);
+        buttons_fit(&e);
+        let urumi = e.weapon_labels().iter().position(|(id, _)| id == "urumi").expect("the mod's weapon is offered");
+        e.act(Action::StartWeapon(1, urumi), false);
+        assert!(e.player_starts()[1].as_ref().is_some_and(|s| s.contains(&"urumi".to_string())));
+    }
+
+    #[test]
+    fn copy_on_a_data_page_adds_a_section_under_a_new_id() {
+        let dir = tmp().join("data-copy");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut e = editor_in(&dir, dir.join("art.txt"));
+        e.switch_to("DATA_POWERUPS_SCYTHE".into());
+        buttons_fit(&e);
+        let text = |e: &Editor| e.data.as_ref().unwrap().table.text.clone();
+        let start = text(&e);
+        let scythe = e.data.as_ref().unwrap().table.entries("scythe");
+        for bad in ["", "scythe", "Urumi", "bad-id"] {
+            assert_eq!(e.remote("POST", "/press", b"Copy").0, 200);
+            assert_eq!(e.remote("POST", "/text", bad.as_bytes()).0, 200);
+            e.status = None;
+            e.remote("POST", "/key/enter", b"");
+            assert!(e.ask.is_some() && text(&e) == start && e.sprite.name == "DATA_POWERUPS_SCYTHE", "{bad:?} is refused");
+            assert!(e.status.is_some(), "{bad:?} says why");
+            e.key(Key::Escape);
+        }
+        e.remote("POST", "/press", b"Copy");
+        e.remote("POST", "/text", b"urumi");
+        e.remote("POST", "/key/enter", b"");
+        assert_eq!(e.sprite.name, "DATA_POWERUPS_URUMI");
+        let d = e.data.as_ref().unwrap();
+        assert!(d.dirty && d.weapon.is_some() && d.section == "urumi" && e.unsaved());
+        assert!(d.table.text.starts_with(start.trim_end()) && d.table.sections().iter().filter(|s| *s == "urumi").count() == 1);
+        let keys = |es: Vec<crate::table::Entry>| es.into_iter().map(|e| (e.key, e.value)).collect::<Vec<_>>();
+        let mut kept = keys(scythe.clone());
+        kept.extend([("icon", "ICON_SCYTHE"), ("does", "scythe")].map(|(k, v)| (k.to_string(), v.to_string())));
+        assert_eq!(keys(d.table.entries("urumi")), kept, "lines that default to the id keep the scythe's");
+        e.key(Key::Undo);
+        assert_eq!((text(&e), e.sprite.name.as_str()), (start.clone(), "DATA_POWERUPS_SCYTHE"), "one step undoes the copy");
+        e.key(Key::Redo);
+        assert_eq!(e.sprite.name, "DATA_POWERUPS_URUMI");
+        assert!(!e.weapon_labels().iter().any(|(id, _)| id == "urumi"), "not until it's saved");
+        e.act(Action::Save, false);
+        assert!(!e.unsaved(), "{:?}", e.status);
+        assert!(e.weapon_labels().iter().any(|(id, _)| id == "urumi"));
+        assert!(e.names.iter().any(|(n, _)| n == "DATA_POWERUPS_URUMI"));
+    }
+
+    #[test]
+    fn a_new_sprite_made_from_a_cards_stats_page_closes_it() {
+        let dir = tmp().join("stats-to-prop");
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut e = editor_in(&dir, dir.join("art.txt"));
+        e.act(Action::Ask(Ask::New), false);
+        type_in(&mut e, "card ghoul");
+        e.key(Key::Enter);
+        e.act(Action::Stats, false);
+        assert!(e.stats);
+        e.act(Action::Ask(Ask::New), false);
+        type_in(&mut e, "prop urumi");
+        e.key(Key::Enter);
+        assert_eq!(e.sprite.name, "PROP_URUMI");
+        assert!(!e.stats, "a prop has no stats page");
+    }
+
+    #[test]
+    fn a_long_weapon_list_keeps_each_difficultys_toggles_in_its_block() {
+        let dir = tmp().join("player-many-weapons");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut table = last_harvest_game::built_in_table("powerups.txt").unwrap().to_string();
+        for i in 0..9 {
+            table += &format!("\n[blade{i}]\nname      Blade {i}\nkind      weapon\ndoes      blade\n");
+        }
+        std::fs::write(dir.join("powerups.txt"), table).unwrap();
+        let store = FsStore { dir: dir.join("sprites"), catalog: dir.join("art.txt"), cards: dir.join("enemies") };
+        let mut e = Editor::new(Box::new(store), "");
+        e.act(Action::Ask(Ask::New), false);
+        type_in(&mut e, "player card kd");
+        e.key(Key::Enter);
+        e.act(Action::Stats, false);
+        buttons_fit(&e);
+        let count = e.weapon_labels().len();
+        assert!(count > START_ACROSS * START_ROWS, "{count} weapons");
+        let toggles: Vec<_> = e.buttons().into_iter().filter_map(|b| match b.action { Action::StartWeapon(d, _) => Some((d, b.rect)), _ => None }).collect();
+        assert_eq!(toggles.len(), 3 * count);
+        for (d, r) in toggles {
+            let top = START_TOP + d as f32 * START_BLOCK;
+            assert!(r.y >= top && r.y + r.h <= top + START_BLOCK && r.x >= CANVAS.x && r.x + r.w <= CANVAS.x + CANVAS.w, "{r:?}");
+        }
+    }
+
+    #[test]
     fn a_figures_detail_redraws_its_frames_at_the_same_game_size_and_undoes() {
         let dir = tmp().join("detail");
         let _ = std::fs::remove_dir_all(&dir);
@@ -4112,6 +4241,79 @@ mod tests {
         assert!(e.none_open() && !e.names.iter().any(|(n, _)| n.starts_with("CARD_GONE")));
         assert!(!e.buttons().iter().any(|b| matches!(b.action, Action::Frame(_) | Action::AddFrame | Action::Width(_) | Action::Play)), "nothing open shows no frame controls");
         e.draw(&mut Canvas::default());
+    }
+
+    #[test]
+    fn delete_removes_a_prop_or_a_map_but_never_the_games_own_art() {
+        let dir = tmp().join("delete-prop-map");
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut e = Editor::new(Box::new(FsStore { dir: dir.join("sprites"), catalog: dir.join("art.txt"), cards: dir.join("enemies") }), "");
+        e.act(Action::Ask(Ask::New), false);
+        type_in(&mut e, "prop beacon");
+        e.key(Key::Enter);
+        e.act(Action::Save, false);
+        let prop = dir.join(format!("props/beacon{}", last_harvest_pack::prop::EXTENSION));
+        assert!(prop.exists(), "{:?}", e.status);
+        e.delete_card();
+        assert_eq!(e.status.as_ref().map(|s| s.0.as_str()), Some("Press Delete again to remove PROP_BEACON for good"));
+        e.delete_card();
+        assert_eq!(e.status.as_ref().map(|s| s.0.as_str()), Some("Deleted PROP_BEACON"));
+        assert!(!prop.exists() && e.none_open() && !e.names.iter().any(|(n, _)| n == "PROP_BEACON"));
+
+        e.act(Action::Ask(Ask::New), false);
+        type_in(&mut e, "map beacon farm");
+        e.key(Key::Enter);
+        let map = dir.join(format!("maps/beacon_farm{}", last_harvest_game::MAP_EXTENSION));
+        assert!(map.exists() && e.map.is_some(), "{:?}", e.status);
+        e.delete_card();
+        e.delete_card();
+        assert_eq!(e.status.as_ref().map(|s| s.0.as_str()), Some("Deleted MAP_BEACON_FARM"));
+        assert!(!map.exists() && e.map.is_none() && e.none_open() && !e.names.iter().any(|(n, _)| n == "MAP_BEACON_FARM"));
+
+        e.switch_to("BARREL".into());
+        assert_eq!(e.sprite.name, "BARREL");
+        e.delete_card();
+        e.delete_card();
+        assert_eq!(e.sprite.name, "BARREL", "the game's own art stays");
+        assert!(e.store.delete_prop("../barrel").is_err() && e.store.delete_map("../farm").is_err());
+    }
+
+    #[test]
+    fn the_sprite_editors_delete_button_removes_a_prop_through_the_door() {
+        let dir = tmp().join("door-delete");
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut e = Editor::new(Box::new(FsStore { dir: dir.join("sprites"), catalog: dir.join("art.txt"), cards: dir.join("enemies") }), "");
+        e.act(Action::Ask(Ask::New), false);
+        type_in(&mut e, "prop beacon");
+        e.key(Key::Enter);
+        e.act(Action::Save, false);
+        buttons_fit(&e);
+        let prop = dir.join(format!("props/beacon{}", last_harvest_pack::prop::EXTENSION));
+        assert!(prop.exists() && String::from_utf8(e.remote("GET", "/buttons", b"").2).unwrap().contains("\tDelete\tDelete\t0"));
+        assert_eq!(e.remote("POST", "/press", b"Delete").0, 200);
+        assert!(prop.exists(), "one press only asks");
+        assert_eq!(e.remote("POST", "/press", b"Delete").0, 200);
+        assert!(!prop.exists() && e.none_open());
+        e.act(Action::Ask(Ask::New), false);
+        type_in(&mut e, "map beacon farm");
+        e.key(Key::Enter);
+        buttons_fit(&e);
+        assert!(e.buttons().iter().any(|b| b.action == Action::Delete), "a map has it too");
+        e.modding = true;
+        assert!(!e.buttons().iter().any(|b| b.action == Action::Delete), "the card editor's toolbar has its own");
+    }
+
+    #[test]
+    fn the_games_own_art_has_no_delete_and_survives_one() {
+        let dir = tmp().join("door-delete-own");
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut e = editor_in(&dir, dir.join("art.txt"));
+        assert_eq!(e.sprite.name, "BARREL");
+        assert!(!e.buttons().iter().any(|b| b.action == Action::Delete));
+        e.act(Action::Delete, false);
+        e.act(Action::Delete, false);
+        assert_eq!(e.sprite.name, "BARREL");
+        assert!(e.names.iter().any(|(n, _)| n == "BARREL"));
     }
 
     #[test]

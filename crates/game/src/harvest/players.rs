@@ -140,7 +140,8 @@ fn parse(text: &str, check: bool) -> Result<PlayerFields, String> {
             (None, ["start", d, weapons @ ..]) if id.is_some() => {
                 let d = Difficulty::from_key(d).ok_or_else(|| format!("line {n}: start names easy, normal or hard first, not {d:?}"))?;
                 if check {
-                    if let Some(w) = weapons.iter().find(|w| book().index(w).is_none_or(|i| book().defs[i].kind != Kind::Weapon)) {
+                    // An id the game doesn't know may be a weapon the mod's own powerups.txt adds.
+                    if let Some(w) = weapons.iter().find(|w| book().index(w).is_some_and(|i| book().defs[i].kind != Kind::Weapon)) {
                         return Err(format!("line {n}: {w:?} isn't a weapon"));
                     }
                     if weapons.len() > book().weapon_slots {
@@ -234,7 +235,8 @@ mod tests {
         assert_eq!((f.id.as_str(), f.name.as_str()), ("jo", "Jo the Farmer"));
         assert_eq!(f.start, [None, Some(vec!["crows".into(), "knife".into()]), Some(vec![])]);
         assert_eq!(player_fields("# mine\n[jo]").unwrap().name, "jo");
-        assert!(player_fields("[jo]\nstart normal heal").is_err(), "only weapons");
+        assert!(player_fields("[jo]\nstart normal vaccine").is_err(), "only weapons");
+        assert!(player_fields("[jo]\nstart normal urumi").is_ok(), "a weapon a mod's powerups.txt adds");
         assert!(player_fields("[jo]\nstart nightmare knife").is_err());
         assert_eq!(player_fields("[jo]\nhp 120\nspeed 60").unwrap().base, [Some(120.0), Some(60.0), None]);
         assert!(player_fields("[jo]\nhp 0").err().unwrap().starts_with("line 2: hp"));
