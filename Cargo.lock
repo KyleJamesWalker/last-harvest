@@ -1744,6 +1744,7 @@ dependencies = [
  "objc2-foundation 0.3.2",
  "png",
  "raw-window-handle",
+ "tiny_http",
  "wasm-bindgen",
  "web-sys",
  "winit",

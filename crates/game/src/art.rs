@@ -21,6 +21,13 @@ struct Live {
 
 static LIVE: RwLock<Live> = RwLock::new(Live { rects: Vec::new(), pixels: Vec::new(), solids: Vec::new(), worn: Vec::new(), detail: Vec::new(), alpha: Vec::new() });
 
+/// Counts `set_live` calls, so work done from the live sprites can be kept until they change.
+static LIVE_GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+pub(crate) fn live_generation() -> u64 {
+    LIVE_GENERATION.load(std::sync::atomic::Ordering::Acquire)
+}
+
 /// The details a sprite can be drawn at: how many texture pixels make one game pixel across and down.
 pub const DETAILS: [u8; 3] = [1, 2, 4];
 
@@ -69,6 +76,7 @@ pub fn set_live(rects: Vec<[u16; 4]>, pixels: Vec<u8>) -> Vec<Art> {
     assert_eq!(pixels.len(), self::pixels().len(), "a live texture matches the packed one");
     let arts = (0..rects.len()).map(|i| Art((count() + i) as u16)).collect();
     *LIVE.write().unwrap() = Live { rects, pixels, solids: Vec::new(), worn: Vec::new(), detail: Vec::new(), alpha: Vec::new() };
+    LIVE_GENERATION.fetch_add(1, std::sync::atomic::Ordering::Release);
     arts
 }
 

@@ -21,6 +21,8 @@ use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::keyboard::{Key as WKey, ModifiersState, NamedKey};
 use winit::window::{Window, WindowId};
 
+use crate::remote::{self, Call, Reply};
+
 /// The window's size where the screen has room for it.
 const WINDOW: [f32; 2] = [1500.0, 750.0];
 
@@ -56,12 +58,25 @@ struct App {
     shot: Option<std::path::PathBuf>,
     /// The window's inner size in logical points.
     size: [f32; 2],
+    remote: Option<std::sync::mpsc::Receiver<Call>>,
+    /// Remote requests for a picture of the window, answered at the end of the next frame.
+    shots: Vec<std::sync::mpsc::Sender<Reply>>,
 }
 
 impl App {
     fn new() -> Self {
         let store = FsStore::default();
         eprintln!("sprites: {}", store.dir.display());
+        let remote = std::env::var("SPRITE_EDITOR_REMOTE").ok().and_then(|p| match p.parse().map_err(|e| format!("SPRITE_EDITOR_REMOTE: {e}")).and_then(remote::listen) {
+            Ok(rx) => {
+                eprintln!("remote: http://127.0.0.1:{p}");
+                Some(rx)
+            }
+            Err(e) => {
+                eprintln!("{e}");
+                None
+            }
+        });
         Self {
             gl: None,
             studio: Studio::new(Box::new(store), &std::env::var("SPRITE_EDITOR_OPEN").unwrap_or_default()),
@@ -72,6 +87,8 @@ impl App {
             i_held: false,
             shot: None,
             size: WINDOW,
+            remote,
+            shots: Vec::new(),
         }
     }
 
@@ -79,6 +96,17 @@ impl App {
         let dt = self.last.elapsed().as_secs_f32().min(0.05);
         self.last = Instant::now();
         let Some(g) = &mut self.gl else { return };
+        for call in self.remote.iter().flat_map(|rx| rx.try_iter()) {
+            if call.method == "GET" && call.path == "/shot.png" {
+                self.shots.push(call.reply);
+            } else if call.method == "POST" && call.path.starts_with("/view") {
+                let arg = |k: &str| call.path.split_once('?').into_iter().flat_map(|(_, q)| q.split('&')).find_map(|p| p.strip_prefix(k)?.strip_prefix('=')?.parse::<f32>().ok()).unwrap_or(0.0);
+                self.studio.turn_view(arg("yaw"), arg("closer"));
+                let _ = call.reply.send((200, "text/plain; charset=utf-8", b"turned".to_vec()));
+            } else {
+                let _ = call.reply.send(self.studio.editor.remote(&call.method, &call.path, &call.body));
+            }
+        }
         if let Some(pixels) = self.studio.tick(dt) {
             g.renderer.set_art(&g.gl, pixels);
         }
@@ -104,6 +132,13 @@ impl App {
             }
             if scripted.is_some() {
                 std::process::exit(0);
+            }
+        }
+        if !self.shots.is_empty() {
+            let size = g.window.inner_size();
+            let reply = shot_png(&g.gl, size.width, size.height).map_or_else(|e| (500, "text/plain; charset=utf-8", e.to_string().into_bytes()), |png| (200, "image/png", png));
+            for to in self.shots.drain(..) {
+                let _ = to.send(reply.clone());
             }
         }
         if let Err(e) = g.surface.swap_buffers(&g.context) {
@@ -276,16 +311,21 @@ fn open(el: &ActiveEventLoop) -> Result<Gl, Box<dyn Error>> {
     Ok(Gl { window, surface, context, gl, renderer })
 }
 
-fn save_shot(gl: &glow::Context, w: u32, h: u32, path: &std::path::Path) -> Result<(), Box<dyn Error>> {
+fn shot_png(gl: &glow::Context, w: u32, h: u32) -> Result<Vec<u8>, Box<dyn Error>> {
     use glow::HasContext;
     let mut rgba = vec![0u8; (w * h * 4) as usize];
     unsafe { gl.read_pixels(0, 0, w as i32, h as i32, glow::RGBA, glow::UNSIGNED_BYTE, glow::PixelPackData::Slice(Some(&mut rgba))) };
     let rows: Vec<u8> = rgba.chunks_exact((w * 4) as usize).rev().flatten().copied().collect();
-    let mut enc = png::Encoder::new(std::io::BufWriter::new(std::fs::File::create(path)?), w, h);
+    let mut out = Vec::new();
+    let mut enc = png::Encoder::new(&mut out, w, h);
     enc.set_color(png::ColorType::Rgba);
     enc.set_depth(png::BitDepth::Eight);
     enc.write_header()?.write_image_data(&rows)?;
-    Ok(())
+    Ok(out)
+}
+
+fn save_shot(gl: &glow::Context, w: u32, h: u32, path: &std::path::Path) -> Result<(), Box<dyn Error>> {
+    Ok(std::fs::write(path, shot_png(gl, w, h)?)?)
 }
 
 pub fn main() -> Result<(), Box<dyn Error>> {

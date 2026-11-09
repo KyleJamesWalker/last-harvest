@@ -155,3 +155,23 @@ The build embeds the tileset. The server answers only loopback, private-LAN and 
 | Keyboard shortcuts | The toolbar under the panes. Its Shift stays on until tapped again. |
 | Shift for the next pencil press | Tap a Shift pad in a bottom corner. It lights until the pencil uses it. A second tap turns it off. |
 | Name a sprite or search | Type in the field that appears |
+
+## Remote control
+
+`SPRITE_EDITOR_REMOTE` opens an HTTP door on `127.0.0.1` so a local program, such as an agent's MCP server, can drive the native editor while you watch. It refuses requests that carry an `Origin` header or another `Host`, so a web page can't reach it.
+
+```sh
+SPRITE_EDITOR_REMOTE=8792 SPRITE_EDITOR_OPEN=TRUCK cargo run -p sprite-editor
+```
+
+Each redraw is one undo step and nothing saves until a save is asked for, so Cmd+Z takes any change back. A redraw waits while you're mid-stroke, have a pasted selection floating, browse history or have a page open, and opening another sprite waits for unsaved changes.
+
+| Call | Does |
+|---|---|
+| `GET /state` | The open sprite, its pictures and sizes, the one on show, the status line and any text being typed |
+| `GET /surface/<pic>`, `PUT /surface/<pic>` | Read or redraw a picture as a PNG of the same size. A picture is a frame number, or `south`, `east`, `footprint`, `top`, `roof`, `north` or `west`. |
+| `POST /show/<pic>`, `POST /add/<pic>`, `POST /open/<NAME>` | Show a picture, add a carving's optional picture as its + tile does, open another sprite |
+| `GET /buttons`, `POST /press` | List every button on show; press one by index, action or a label only it has. `?shift` presses as Shift-click. |
+| `POST /key/<key>`, `POST /text` | Send a shortcut by name (`save`, `undo`, `slash`, a letter); type into the field waiting for text |
+| `POST /click?x=&y=`, `POST /drag?x=&y=&x1=&y1=` | Click or drag on canvas pixels with the tool in hand |
+| `POST /view?yaw=&closer=`, `GET /shot.png` | Turn the 2.5D view; a screenshot of the window |

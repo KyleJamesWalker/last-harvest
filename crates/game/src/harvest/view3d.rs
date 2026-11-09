@@ -417,14 +417,23 @@ pub(super) fn quads(a: Art, how: Stand, top: Option<Art>) -> usize {
     }
 }
 
-/// The carved solid for a sprite and its views, worked out once for packed sprites and every time for live ones.
+/// The carved solid for a sprite and its views, worked out once for packed sprites, and for live ones once each
+/// time the editor repacks them.
 fn carving(c: Carving) -> Cow<'static, [carve::Quad]> {
     type Cache = Mutex<HashMap<Carving, &'static [carve::Quad]>>;
     static CACHE: OnceLock<Cache> = OnceLock::new();
     let views = carve::Views { top: c.top.rect(), footprint: c.footprint.map(Art::rect), south: c.south.rect(), east: c.east.rect(), north: c.north.map(Art::rect), west: c.west.map(Art::rect) };
     let d = c.top.detail();
     if c.top.is_live() {
-        return Cow::Owned(art::with_pixels(c.top, |px| carve::carve(px, ATLAS_W as usize, &views, d)));
+        type LiveCache = Mutex<(u64, HashMap<(Carving, u8), Vec<carve::Quad>>)>;
+        static LIVE_CACHE: OnceLock<LiveCache> = OnceLock::new();
+        let generation = art::live_generation();
+        let mut live = LIVE_CACHE.get_or_init(Default::default).lock().unwrap();
+        if live.0 != generation {
+            *live = (generation, HashMap::new());
+        }
+        let quads = live.1.entry((c, d)).or_insert_with(|| art::with_pixels(c.top, |px| carve::carve(px, ATLAS_W as usize, &views, d)));
+        return Cow::Owned(quads.clone());
     }
     let mut cache = CACHE.get_or_init(Default::default).lock().unwrap();
     Cow::Borrowed(*cache.entry(c).or_insert_with(|| carve::carve(art::pixels(), ATLAS_W as usize, &views, d).leak()))
