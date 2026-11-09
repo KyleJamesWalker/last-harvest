@@ -570,6 +570,9 @@ impl Editor {
         for (i, (a, l)) in [(Action::Ask(Ask::New), "New"), (Action::Revert, "Revert"), (Action::Save, "Save")].into_iter().enumerate() {
             push(614.0 + i as f32 * 102.0, 8.0, 94.0, 34.0, a, l, a == Action::Save && m.dirty);
         }
+        if !self.modding {
+            push(512.0, 8.0, 94.0, 34.0, Action::Delete, "Delete", self.delete_armed > 0.0);
+        }
         for (i, (t, l)) in MAP_TOOLS.into_iter().enumerate() {
             push(SIDE_X + (i % 3) as f32 * 79.0, 52.0 + (i / 3) as f32 * 38.0, 74.0, 32.0, Action::MapTool(t), l, m.tool == t);
         }

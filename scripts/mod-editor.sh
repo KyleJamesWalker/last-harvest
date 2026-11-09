@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Builds the public card editor for the browser into target/mod-editor: the sprite editor without the
-# tileset, keeping cards in the browser. --serve also serves it on port 8094 for a look.
+# tileset, keeping cards in the browser. --serve also serves it on port 8094 for a look; --remote serves it
+# with the remote door on SPRITE_EDITOR_REMOTE's port (8792) for an agent, at http://127.0.0.1:8094/?remote.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 out=target/mod-editor
@@ -16,6 +17,9 @@ cp assets/private/icons/editor-512.png "$out/icon-512.png"
 # Only the card editor offers itself as an app.
 sed -i.bak 's|<link rel="icon" href="icon.png">|<link rel="icon" href="icon.png"><link rel="manifest" href="manifest.webmanifest">|' "$out/index.html" && rm "$out/index.html.bak"
 echo "built $out"
+if [ "${1:-}" = "--remote" ]; then
+  exec python3 tools/editor_relay.py "$out" --port 8094 --door "${SPRITE_EDITOR_REMOTE:-8792}"
+fi
 if [ "${1:-}" = "--serve" ]; then
   exec python3 -m http.server 8094 --bind 127.0.0.1 --directory "$out"
 fi

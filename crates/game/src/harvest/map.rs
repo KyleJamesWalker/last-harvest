@@ -7,6 +7,11 @@ mod farm;
 mod ground;
 mod text;
 pub use farm::parse as parse_farm;
+
+/// Checks the ground codes a farm's text names against `ground.txt` as the game reads it.
+pub fn check_farm_codes(f: &farm::Farm) -> Result<(), String> {
+    farm::check_codes(f, ground::ground())
+}
 pub(super) use ground::crop_piece;
 pub use ground::{parse as parse_ground, set as set_ground, Stalk, Sway};
 pub use text::{EXTENSION as MAP_EXTENSION, ground_codes, MAX_SIZE as MAP_MAX, MIN_SIZE as MAP_MIN, MapSource, PropKind, parse_props, props as map_props, PropLine, Tough, check as check_map, valid_id as valid_map_id};
@@ -45,6 +50,8 @@ pub struct Prop {
     /// How far past its picture a fence side runs south to meet its corner's board, in pixels.
     pub reach: f32,
     cover: bool,
+    /// A piece of a fence the map put up, of whatever style.
+    fence: bool,
 }
 
 /// A catalog sprite's frames by name, however many it has.
@@ -59,7 +66,7 @@ impl Prop {
 
     /// A prop that blocks nothing and never breaks.
     fn new(frames: &'static [Art], fps: f32, x: f32, y: f32, base: f32, depth: f32) -> Self {
-        Prop { frames, fps, x, y, base, depth, hp: 0.0, full: 0.0, flash: 0.0, broken: None, cells: [0; 4], area: [0.0; 4], reach: 0.0, cover: false }
+        Prop { frames, fps, x, y, base, depth, hp: 0.0, full: 0.0, flash: 0.0, broken: None, cells: [0; 4], area: [0.0; 4], reach: 0.0, cover: false, fence: false }
     }
 
     pub fn frame(&self, t: f32) -> Art {
@@ -120,10 +127,11 @@ pub const MAX_HP: f32 = 1000.0;
 const NO_OWNER: u32 = u32::MAX;
 
 /// The pieces of one fence style: top row left, middle, right; side posts left, right; bottom row likewise.
+#[derive(Clone, Copy, Debug)]
 struct Fence {
-    top: &'static [Art; 3],
-    side: &'static [Art; 2],
-    bottom: &'static [Art; 3],
+    top: &'static [Art],
+    side: &'static [Art],
+    bottom: &'static [Art],
     /// Drawn on each side of the gate, if the style has gate posts.
     gate_post: Option<&'static [Art]>,
 }
@@ -261,6 +269,12 @@ pub(super) fn depth_of(a: Art) -> f32 {
 
 fn tiles(px: f32) -> usize {
     (px / TILE).ceil() as usize
+}
+
+/// One frame of a sprite the farm puts down, at random when it has several.
+fn one_of(rng: &mut Rng, set: &'static [Art]) -> &'static [Art] {
+    let k = if set.len() > 1 { rng.below(set.len()) } else { 0 };
+    &set[k..k + 1]
 }
 
 /// A whole cell's box, as x0, y0, x1, y1 pixels from its corner.
@@ -651,7 +665,7 @@ impl Map {
         for (k, p) in self.props.iter().enumerate().filter(|(_, p)| matches!(p.frames[0].stand(), Some(art::Stand::Turned { .. }))) {
             let [x0, _, x1, y1] = p.area;
             let (tx, ty) = ((x0 / TILE) as usize, (y1 / TILE) as usize);
-            let fence_below = || self.props.iter().any(|q| q.blocks(tx, ty) && is_fence(q.frames[0]));
+            let fence_below = || self.props.iter().any(|q| q.blocks(tx, ty) && (q.fence || is_fence(q.frames[0])));
             if y1 % TILE != 0.0 || tx >= self.w || ty >= self.h || !self.solid[self.i(tx, ty)] || !fence_below() {
                 continue;
             }
@@ -800,23 +814,24 @@ impl Map {
         self.place_near(rng, frames, at, self.w.max(self.h) / 2, 0);
     }
 
-    /// Dead trees and bushes around the edge keep everyone on the map.
+    /// Props around the edge, as `farm.txt` rings it, keep everyone on the map.
     fn border(&mut self) {
         let (w, h) = (self.w, self.h);
+        let border = &farm::farm().border;
         let ring = (0..w).flat_map(|x| [(x, 0), (x, h - 1)]).chain((1..h - 1).flat_map(|y| [(0, y), (w - 1, y)]));
         for (n, (x, y)) in ring.enumerate() {
-            let art = if n % 3 == 0 { &art::DEAD_TREE[..1] } else { std::slice::from_ref(&art::BUSH) };
-            self.prop(art, 0.0, x, y);
+            self.prop(&border[n % border.len()][..1], 0.0, x, y);
         }
     }
 
     /// A vertical road, three tiles wide; returns its left column.
     fn road(&mut self, rng: &mut Rng) -> usize {
         let x = self.w / 4 + rng.below(self.w / 2);
+        let g = ground::of(farm::farm().road.ground);
         for y in 1..self.h - 1 {
             for k in 0..3 {
                 let i = self.i(x + k, y);
-                self.ground[i] = art::ROAD_V[k];
+                self.ground[i] = g.tile(x + k, y, k > 0, k < 2);
                 self.cells[i] = Cell::Road;
             }
         }
@@ -824,42 +839,48 @@ impl Map {
     }
 
     fn gas_station(&mut self, rng: &mut Rng, road: usize) {
-        let (tw, th) = (tiles(art::GAS_STATION.w()), tiles(art::GAS_STATION.h()));
+        let s = &farm::farm().station;
+        let station = one_of(rng, s.station);
+        let (tw, th) = (tiles(station[0].w()), tiles(station[0].h()));
         let left = rng.below(2) == 0 && road > tw + 3;
         let x = if left { road - tw - 1 } else { road + 4 };
+        if self.h < th + 11 {
+            return;
+        }
         for _ in 0..50 {
             let y = 3 + rng.below(self.h - th - 10);
             if self.free(x, y, tw, th + 3, 0) {
-                self.prop(&[art::GAS_STATION], 0.0, x, y);
-                self.prop(&[art::GAS_PUMP], 0.0, x + 1, y + th);
-                self.prop(&[art::GAS_PUMP], 0.0, x + tw - 3, y + th);
-                if let Some(truck) = named("TRUCK")
-                    && let Some((tx, ty, _, _)) = self.place_near(rng, truck, [x + tw / 2, y + th + 3], 4, 0)
-                {
+                self.prop(station, 0.0, x, y);
+                for px in [x + 1, (x + tw).saturating_sub(3)] {
+                    let pump = one_of(rng, s.pump);
+                    self.prop(pump, 0.0, px, y + th);
+                }
+                if let Some((tx, ty, _, _)) = self.place_near(rng, s.truck, [x + tw / 2, y + th + 3], 4, 0) {
                     let last = self.props.len() - 1;
                     self.props[last].fps = 3.0;
-                    self.drive(truck[0], tx, ty);
+                    self.drive(s.truck[0], s.driver, tx, ty);
                 }
-                self.place_near(rng, &[art::CAR_V], [x + tw / 2, y + th + 2], 4, 0);
+                let car = one_of(rng, s.car);
+                self.place_near(rng, car, [x + tw / 2, y + th + 2], 4, 0);
                 return;
             }
         }
     }
 
     /// Leans the truck's driver on the back of `truck`, placed at tile (x, y), smoking, his feet on its ground line.
-    fn drive(&mut self, truck: Art, x: usize, y: usize) {
-        if let Some(driver) = named("TRUCK_DRIVER") {
-            let h = driver[0].h();
-            let (px, py) = (x as f32 * TILE + truck.w() - 2.0, y as f32 * TILE + truck.h() - h);
-            self.props.push(Prop::new(driver, 3.0, px, py, py + h, 2.0));
-        }
+    fn drive(&mut self, truck: Art, driver: &'static [Art], x: usize, y: usize) {
+        let h = driver[0].h();
+        let (px, py) = (x as f32 * TILE + truck.w() - 2.0, y as f32 * TILE + truck.h() - h);
+        self.props.push(Prop::new(driver, 3.0, px, py, py + h, 2.0));
     }
 
     fn windmill(&mut self, rng: &mut Rng, at: [usize; 2]) {
-        if let Some((x, y, _, _)) = self.place_near(rng, &[art::WINDMILL], at, 8, 1) {
+        let w = &farm::farm().windmill;
+        let mill = one_of(rng, w.mill);
+        if let Some((x, y, _, _)) = self.place_near(rng, mill, at, 8, 1) {
             let (px, py) = (x as f32 * TILE, y as f32 * TILE - 6.0);
-            let base = py + 6.0 + art::WINDMILL.h() + 0.1;
-            self.props.push(Prop::new(&art::WINDMILL_FAN, 8.0, px, py, base, 2.0));
+            let base = py + 6.0 + mill[0].h() + 0.1;
+            self.props.push(Prop::new(w.fan, 8.0, px, py, base, 2.0));
         }
     }
 
@@ -869,12 +890,14 @@ impl Map {
             let x = (at[0] + rng.below(19)).saturating_sub(9);
             let y = (at[1] + rng.below(19)).saturating_sub(9);
             if self.free(x, y, 7, 5, 1) {
+                let g = &farm::farm().graveyard;
                 for (dx, dy) in [(1, 1), (3, 1), (5, 1), (2, 3), (4, 3)] {
                     if rng.below(5) > 0 {
-                        self.prop(&[art::TOMBSTONE], 0.0, x + dx, y + dy);
+                        let stone = one_of(rng, g.tombstone);
+                        self.prop(stone, 0.0, x + dx, y + dy);
                     }
                 }
-                self.fence(rng, &PICKET, x, y, 7, 5);
+                self.fence(rng, &g.fence, x, y, 7, 5);
                 self.claim(x, y, 7, 5, Cell::Taken);
                 return;
             }
@@ -911,42 +934,61 @@ impl Map {
     }
 
     fn field(&mut self, rng: &mut Rng) {
-        let (fw, fh) = (5 + rng.below(7), 4 + rng.below(5));
-        let fenced = rng.below(2) == 0;
+        self.field_of(rng, &farm::farm().field, ground::ground());
+    }
+
+    /// A field as `rule` lays one, with the codes it names from `ground`: every cell a frame of its soil, then a
+    /// bare kind's own frame over it, or a crop kind's crop in rows.
+    fn field_of(&mut self, rng: &mut Rng, rule: &farm::Fields, ground: &[ground::Ground]) {
+        let ([wl, wh], [hl, hh]) = (rule.width, rule.height);
+        let (fw, fh) = (wl + rng.below(wh - wl + 1), hl + rng.below(hh - hl + 1));
+        let fenced = rule.fenced > 0 && rng.below(rule.fenced) == 0;
+        if self.w < fw + 5 || self.h < fh + 5 {
+            return;
+        }
+        let art_of = |code: u8| ground.iter().find(|g| g.code == code).unwrap_or(&ground[0]).art;
+        let soil = art_of(rule.soil);
+        let total: usize = rule.kinds().map(|(_, w, _)| w).sum();
         for _ in 0..200 {
             let x = 2 + rng.below(self.w - fw - 4);
             let y = 2 + rng.below(self.h - fh - 4);
             if !self.free(x, y, fw, fh, 2) {
                 continue;
             }
-            let kind = rng.below(4);
-            let corn = ground::ground().iter().find(|g| g.crop.is_some_and(|c| c.1 == art::CORN));
-
+            let (pick, mut upto) = (rng.below(total), 0);
+            let (code, _, grows) = rule.kinds().find(|&(_, w, _)| {
+                upto += w;
+                pick < upto
+            }).unwrap_or((rule.soil, 0, false));
+            let crop = ground.iter().find(|g| grows && g.code == code).and_then(|g| Some((g, g.crop?)));
+            let own = art_of(code);
             for yy in y..y + fh {
                 for xx in x..x + fw {
                     let i = self.i(xx, yy);
-                    let soil = art::SOIL[rng.below(2)];
-                    self.ground[i] = if kind == 1 { art::SPROUTS[rng.below(2)] } else { soil };
-                    if kind >= 2 {
-                        let flat = match yy {
-                            _ if yy == y => art::CORN_TOP[rng.below(2)],
-                            _ if yy == y + fh - 1 => art::CORN_BOTTOM,
-                            _ => art::CORN,
-                        };
-                        let pick = art::CORN_TOP.iter().position(|a| *a == flat).unwrap_or(xx * 7 + yy * 13);
-                        let (up, down) = (yy > y, yy + 1 < y + fh);
-                        let plain = || Stalk { lower: flat, top: flat, tall: 1, sway: Sway::default() };
-                        self.overlay[i] = Some(flat);
-                        self.standing[i] = Some(corn.and_then(|g| Some(Stalk::of(g.standing()?, pick, up, down, g.tall, g.sway))).unwrap_or_else(plain));
-                    }
+                    let under = soil[rng.below(soil.len())];
+                    self.ground[i] = if crop.is_none() && code != rule.soil { own[rng.below(own.len())] } else { under };
+                    let Some((g, (top, middle, bottom))) = crop else { continue };
+                    let (flat, pick) = match yy {
+                        _ if yy == y => {
+                            let k = rng.below(top.len());
+                            (top[k], k)
+                        }
+                        _ if yy == y + fh - 1 => (bottom, xx * 7 + yy * 13),
+                        _ => (middle, xx * 7 + yy * 13),
+                    };
+                    let (up, down) = (yy > y, yy + 1 < y + fh);
+                    self.overlay[i] = Some(flat);
+                    self.standing[i] = g.standing().map(|p| Stalk::of(p, pick, up, down, g.tall, g.sway));
                 }
             }
             self.claim(x, y, fw, fh, Cell::Taken);
-            if kind < 2 && rng.below(2) == 0 {
-                self.prop(&[art::SCARECROW], 0.0, x + fw / 2, y + fh / 2 - 1);
+            let (scarecrow, every) = rule.scarecrow;
+            if !grows && every > 0 && rng.below(every) == 0 {
+                let set = one_of(rng, scarecrow);
+                self.prop(set, 0.0, x + fw / 2, y + fh / 2 - 1);
             }
             if fenced {
-                self.fence(rng, &RAIL, x - 1, y - 1, fw + 2, fh + 2);
+                self.fence(rng, &rule.fence, x - 1, y - 1, fw + 2, fh + 2);
             }
             return;
         }
@@ -961,6 +1003,7 @@ impl Map {
     /// A fence around the rect, with a two-tile gate in the bottom from column `gate` if any, every piece as
     /// `tough`; `pick` chooses among a style's gate posts.
     fn fence_gated(&mut self, style: &Fence, [x, y, w, h]: [usize; 4], gate: Option<usize>, tough: Toughness, mut pick: impl FnMut(usize) -> usize) {
+        let first = self.props.len();
         for xx in x..x + w {
             let k = if xx == x { 0 } else if xx == x + w - 1 { 2 } else { 1 };
             self.prop_as(&style.top[k..k + 1], 0.0, xx, y, 0, tough);
@@ -980,6 +1023,7 @@ impl Map {
             self.prop_as(&style.side[..1], 0.0, x, yy, 0, tough);
             self.prop_as(&style.side[1..], 0.0, x + w - 1, yy, 0, tough);
         }
+        self.props[first..].iter_mut().for_each(|p| p.fence = true);
     }
 
     /// A barrier on the tile at `x`, `y`, as the road's are.
@@ -989,29 +1033,34 @@ impl Map {
 
     /// Signs on the shoulders and barriers half-closing the road near each end.
     fn roadside(&mut self, rng: &mut Rng, road: usize) {
-        for _ in 0..4 {
+        let r = &farm::farm().road;
+        for _ in 0..r.signs {
             let x = if rng.below(2) == 0 { road - 1 } else { road + 3 };
             let y = 2 + rng.below(self.h - 4);
             if self.cells[self.i(x, y)] == Cell::Open {
-                let set: &'static [Art] = if rng.below(2) == 0 { &art::SIGN } else { &art::SIGN_LOW };
+                let set = r.sign[rng.below(r.sign.len())];
                 let k = rng.below(set.len());
                 self.prop(&set[k..k + 1], 0.0, x, y);
             }
         }
         for (lanes, y) in [([0, 2], 3), ([0, 1], self.h - 4)] {
             for lane in lanes {
-                self.prop(&[art::BARRIER], 0.0, road + lane, y);
+                let barrier = one_of(rng, r.barrier);
+                self.prop(barrier, 0.0, road + lane, y);
             }
         }
     }
 
     /// Wrecked cars on the road, each blocking one lane.
     fn wrecks(&mut self, rng: &mut Rng, road: usize) {
-        for _ in 0..3 + rng.below(3) {
+        let r = &farm::farm().road;
+        let [least, most] = r.wrecks;
+        for _ in 0..least + rng.below(most - least + 1) {
             let (x, y) = (road + rng.below(3), 2 + rng.below(self.h - 6));
-            let k = rng.below(art::WRECK_V.len());
-            if (y..y + 3).all(|yy| !self.solid[self.i(x, yy)]) {
-                self.prop(&art::WRECK_V[k..k + 1], 0.0, x, y);
+            let k = rng.below(r.wreck.len());
+            let long = tiles(r.wreck[k].h());
+            if (y..(y + long).min(self.h)).all(|yy| !self.solid[self.i(x, yy)]) {
+                self.prop(&r.wreck[k..k + 1], 0.0, x, y);
             }
         }
     }
@@ -1042,7 +1091,7 @@ impl Map {
         for _ in 0..corpses {
             let (x, y) = (1 + rng.below(self.w - 2), 1 + rng.below(self.h - 2));
             if self.cells[self.i(x, y)] == Cell::Open {
-                let a = art::CORPSE[rng.below(art::CORPSE.len())];
+                let a = f.corpse[rng.below(f.corpse.len())];
                 self.decals.push((a, x as f32 * TILE, y as f32 * TILE));
             }
         }
@@ -1098,6 +1147,43 @@ impl Map {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Everything a generated farm lays down, hashed, so a change to how farm.txt is read can't move a thing.
+    fn layout_hash(map: &Map) -> u64 {
+        use std::fmt::Write;
+        let mut s = format!("{:?}{:?}{:?}{:?}{:?}{:?}{:?}{:?}", map.ground, map.overlay, map.standing, map.solid, map.shape, map.cover, map.cost, map.cells);
+        for p in &map.props {
+            write!(s, "{:?}{:?}{:?}{:?}{:?}{:?}{:?}{:?}{:?}{:?}{:?}", p.frames, p.fps, p.x, p.y, p.base, p.depth, p.hp, p.cells, p.area, p.reach, p.cover).unwrap();
+        }
+        write!(s, "{:?}{:?}{:?}{:?}{:?}", map.decals, map.barrels, map.barrel_hp, map.spawn, map.home).unwrap();
+        s.bytes().fold(0xcbf29ce484222325, |h, b| (h ^ b as u64).wrapping_mul(0x100000001b3))
+    }
+
+    #[test]
+    fn the_shipped_farm_lays_the_same_farm_from_the_same_seed() {
+        let _lock = art::test_lock();
+        let hashes: Vec<u64> = [(1, 72, 54), (7, 40, 30), (11, 72, 54), (12345, 96, 64)].iter().map(|&(seed, w, h)| layout_hash(&Map::generate(&mut Rng::new(seed), w, h))).collect();
+        assert_eq!(hashes, [0x216474493fffbe8, 0x624ac506f4a60258, 0xea8adc850f90fb5a, 0x662b956b01708bac], "{hashes:#x?}");
+    }
+
+    #[test]
+    fn a_field_grows_the_crop_its_code_names() {
+        let built_in = |f: &str| crate::harvest::built_in_table(f).unwrap();
+        let ground = ground::parse(&format!("{}\n[k]\nname Cane\nart SOIL\ncell field\ncrop SIGN BARRIER TOMBSTONE\ntall 2\n", built_in("ground.txt"))).unwrap();
+        let rule = farm::parse(&format!("{}\n[fields]\nplain\ncrops k 1\nfenced 0", built_in("farm.txt"))).unwrap().field;
+        let mut map = Map::blank(40, 30);
+        map.field_of(&mut Rng::new(5), &rule, &ground);
+        let grown: Vec<usize> = (0..map.w * map.h).filter(|&i| map.overlay[i].is_some()).collect();
+        assert!(grown.len() >= 5 * 4, "a whole field");
+        for &i in &grown {
+            let o = map.overlay[i].unwrap();
+            assert!(art::SIGN.contains(&o) || o == art::BARRIER || o == art::TOMBSTONE, "{o:?}");
+            assert!(art::SOIL.contains(&map.ground[i]));
+            assert_eq!(map.standing[i].map(|s| s.tall), Some(2));
+        }
+        assert!(grown.iter().any(|&i| map.overlay[i] == Some(art::BARRIER)), "rows between its ends");
+        assert!(map.props.is_empty(), "no fence, and no scarecrow in a crop");
+    }
 
     #[test]
     fn every_seed_builds_a_farm_with_a_clear_spawn() {

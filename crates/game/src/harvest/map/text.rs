@@ -372,7 +372,8 @@ impl MapSource {
         let mut props = Vec::new();
         let barrels = map.barrels.iter().map(|&[x, y]| (std::slice::from_ref(&art::BARREL), x, y));
         for (frames, x, y) in map.props.iter().map(|p| (p.frames, p.x, p.y)).chain(barrels) {
-            if frames[0] == art::WINDMILL_FAN[0] || super::named("TRUCK_DRIVER").is_some_and(|d| d[0] == frames[0]) {
+            let f = super::farm::farm();
+            if frames[0] == art::WINDMILL_FAN[0] || frames[0] == f.windmill.fan[0] || frames[0] == f.station.driver[0] || super::named("TRUCK_DRIVER").is_some_and(|d| d[0] == frames[0]) {
                 continue;
             }
             let Some((name, all)) = art::ALL.iter().find(|(_, all)| all.contains(&frames[0])) else { continue };
@@ -587,8 +588,10 @@ impl Map {
                     let base = py + 6.0 + art::WINDMILL.h() + 0.1;
                     self.props.push(Prop::new(&art::WINDMILL_FAN, 8.0, px, py, base, 2.0));
                 }
-                if super::named("TRUCK").is_some_and(|t| t[0] == frames[0]) {
-                    self.drive(frames[0], x, y);
+                if super::named("TRUCK").is_some_and(|t| t[0] == frames[0])
+                    && let Some(driver) = super::named("TRUCK_DRIVER")
+                {
+                    self.drive(frames[0], driver, x, y);
                 }
             }
         }

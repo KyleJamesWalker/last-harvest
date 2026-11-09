@@ -217,26 +217,37 @@ impl Editor {
         cards
     }
 
-    /// Removes the open card from the store on a second press within a few seconds, and leaves nothing open.
+    /// Removes the open card, prop or map from the store on a second press within a few seconds, and leaves
+    /// nothing open.
     pub fn delete_card(&mut self) {
-        let Some(id) = sprite::card_id(&self.sprite.name) else {
-            return self.say("Open a card to delete it");
+        let name = self.sprite.name.clone();
+        let (what, map) = match (sprite::card_id(&name), crate::store::props::id(&name), Self::map_id_of(&name).filter(|_| self.map.is_some())) {
+            (Some(id), _, _) => (format!("card {id}"), None),
+            (None, Some(_), _) => (name.clone(), None),
+            (None, None, Some(id)) => (name.clone(), Some(id)),
+            _ => return self.say("Open a card, a prop or a map to delete it"),
         };
         if self.delete_armed <= 0.0 {
             self.delete_armed = DELETE_CONFIRM;
-            return self.say(format!("Press Delete card again to remove {id} for good"));
+            return self.say(format!("Press Delete again to remove {what} for good"));
         }
         self.delete_armed = 0.0;
-        if let Err(e) = self.store.delete_card(&self.sprite.name) {
-            return self.say(format!("Couldn't delete {id}: {e}"));
+        let gone = match (&map, crate::store::props::id(&name)) {
+            (Some(id), _) => self.store.delete_map(id),
+            (None, Some(id)) => self.store.delete_prop(&id),
+            (None, None) => self.store.delete_card(&name),
+        };
+        if let Err(e) = gone {
+            return self.say(format!("Couldn't delete {what}: {e}"));
         }
+        (self.map, self.data, self.data_link) = (None, None, None);
         self.sprite = Sprite { detail: 1, alpha: Vec::new(), worn: Vec::new(), name: String::new(), frames: vec![Frame::blank(16, 16)], views: None, footprint: None, roof: None, north: None, west: None, top: None, card: None, clear_in_3d: Vec::new(), paint: Default::default() };
         (self.dirty, self.stand_touched, self.stats, self.frame) = (false, false, false, 0);
         self.undo.clear();
         self.redo.clear();
         self.names = self.all_names();
         self.changed = true;
-        self.say(format!("Deleted card {id}"));
+        self.say(format!("Deleted {what}"));
     }
 
     pub(super) fn is_card(&self) -> bool {
@@ -500,10 +511,6 @@ impl Editor {
     }
 }
 
-/// Every weapon by id, with a label short enough for a toggle: its id, capitalized.
-pub(super) fn weapon_labels() -> Vec<(String, String)> {
-    last_harvest_game::weapons().into_iter().map(|(id, _)| (id.clone(), id[..1].to_ascii_uppercase() + &id[1..])).collect()
-}
 
 /// Frames in a card's figure: each facing's first walking frame, then its flash, hurt and dead frames.
 pub(super) const FIGURE_FRAMES: usize = 12;
@@ -618,5 +625,20 @@ impl Editor {
             *f = Frame::blank(f.w, f.h);
         }
         self.say("Cleared: the game draws these from each facing's first walking frame");
+    }
+}
+
+impl Editor {
+    /// Every weapon a player card can start with, by id, with a label short enough for a toggle: its id,
+    /// capitalized. A mod's own `powerups.txt` lists its new weapons too.
+    pub(super) fn weapon_labels(&self) -> Vec<(String, String)> {
+        let ids: Vec<String> = match self.store.read_table("powerups.txt") {
+            Some(text) => {
+                let t = crate::table::Table::new("powerups.txt", &text);
+                t.sections().into_iter().filter(|s| super::weapons::is_weapon(&t, s)).collect()
+            }
+            None => last_harvest_game::weapons().into_iter().map(|(id, _)| id).collect(),
+        };
+        ids.into_iter().map(|id| (id.clone(), id[..1].to_ascii_uppercase() + &id[1..])).collect()
     }
 }

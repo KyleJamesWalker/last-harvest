@@ -52,9 +52,19 @@ pub trait Store {
         Vec::new()
     }
 
-    /// Removes the card the part `name` belongs to for good, as the mod editor's Delete card does.
+    /// Removes the card the part `name` belongs to for good, as the mod editor's Delete does.
     fn delete_card(&self, _name: &str) -> Result<(), String> {
         Err("cards are removed from the enemies and players folders here".into())
+    }
+
+    /// Removes a player's prop for good, by id.
+    fn delete_prop(&self, _id: &str) -> Result<(), String> {
+        Err("props are removed from the props folder here".into())
+    }
+
+    /// Removes a hand-made map for good, by id.
+    fn delete_map(&self, _id: &str) -> Result<(), String> {
+        Err("maps are removed from the maps folder here".into())
     }
 
     /// Every hand-made map kept here, by id.
@@ -500,6 +510,8 @@ mod tests {
         assert_eq!(identify("x.png", &enemy), Ok((CardKind::Enemy, "bat".into())));
         assert_eq!(identify("download.png", &player), Ok((CardKind::Player, "jo".into())));
         assert!(identify("jo.enemy.png", &player).is_err(), "a name's ending is believed");
+        let modded = write_as(Kind::Player, "[jo]\nstart normal urumi", "", 1, 24, 40, 5, &sheet).unwrap();
+        assert_eq!(identify("jo.player.png", &modded), Ok((CardKind::Player, "jo".into())), "a weapon the mod's own data adds");
     }
 }
 
@@ -743,6 +755,23 @@ mod fs {
 
         fn delete_card(&self, name: &str) -> Result<(), String> {
             let path = self.card_path(name).ok_or("not a card")?;
+            std::fs::remove_file(&path).map_err(|e| format!("{}: {e}", path.display()))
+        }
+
+        fn delete_prop(&self, id: &str) -> Result<(), String> {
+            let name = props::name(id);
+            if !last_harvest_game::valid_map_id(id) || last_harvest_game::art::ALL.iter().any(|(n, _)| *n == name) {
+                return Err(format!("{name} is the game's own"));
+            }
+            let path = self.prop_path(id);
+            std::fs::remove_file(&path).map_err(|e| format!("{}: {e}", path.display()))
+        }
+
+        fn delete_map(&self, id: &str) -> Result<(), String> {
+            if !last_harvest_game::valid_map_id(id) {
+                return Err(format!("{id} can't name a map"));
+            }
+            let path = self.maps().join(format!("{id}{}", last_harvest_game::MAP_EXTENSION));
             std::fs::remove_file(&path).map_err(|e| format!("{}: {e}", path.display()))
         }
     }
