@@ -1060,8 +1060,17 @@ mod tests {
 
     #[test]
     fn a_sprites_clear_ends_are_the_rows_its_picture_leaves_empty() {
-        let [under, over] = clear_ends(art::CORN_BOTTOM);
-        assert!(under > 0.0 && under + over < art::CORN_BOTTOM.h(), "corn's stalks stop short of its cell's bottom: {under} {over}");
+        let _lock = art::test_lock();
+        let [x, y, ..] = art::SCRATCH.rect().map(usize::from);
+        let mut px = art::pixels().to_vec();
+        for row in 2..5 {
+            for col in 0..4 {
+                px[((y + row) * ATLAS_W as usize + x + col) * 4 + 3] = 255;
+            }
+        }
+        let stalks = art::set_live(vec![[x as u16, y as u16, 4, 8]], px)[0];
+        art::set_live_detail(vec![1]);
+        assert_eq!(clear_ends(stalks), [3.0, 2.0], "three clear rows under the picture, two over it");
         assert_eq!(clear_ends(art::SOIL[0]), [0.0, 0.0], "a tile fills its cell");
     }
 

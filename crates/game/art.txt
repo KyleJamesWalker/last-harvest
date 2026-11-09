@@ -55,6 +55,7 @@ HAY_STACK       cell 19 0 3 2  @slab 10
 HAY             cell 20 1  @prop 12
 TRACTOR         cell 18 11 2 2  @prop 19
 TRUCK           px 408 242 41 23 ; px 455 242 41 23 ; px 502 242 41 23  @prop 15
+TRUCK_DRIVER    blank 11 23 ; blank 11 23 ; blank 11 23
 CAR_H           px 272 112 33 18  @slab 12
 CAR_V           px 339 153 18 33  @slab 12
 WRECK_H         px 544 226 33 18 ; px 595 188 33 18 ; px 629 226 33 18  @slab 10

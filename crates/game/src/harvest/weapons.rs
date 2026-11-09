@@ -1141,13 +1141,20 @@ mod tests {
     }
 
     /// A quiet farm with one zombie `at` the given offset, holding the given weapon and nothing else.
+    /// Whether a zombie set down at `p` is free to move: clear of every prop's outline and of every solid cell, since
+    /// zombies slide cell by cell.
+    fn open(h: &Harvest, p: [f32; 2]) -> bool {
+        let half = crate::tuning::tuning().zombie_half();
+        !h.map.hits(p[0], p[1], half) && !h.map.hits_cells(p[0], p[1], half)
+    }
+
     fn with(id: &str, offset: [f32; 2]) -> Harvest {
         let mut h = Harvest::calm(3);
         h.kit.weapons.clear();
         armed(&mut h, id, 1);
         h.view_yaw = 0.0;
         h.aim = [1.0, 0.0];
-        h.pos = (0..40).map(|k| [h.pos[0] + k as f32 * 16.0, h.pos[1]]).find(|p| !h.map.hits(p[0] + offset[0], p[1] + offset[1], crate::tuning::tuning().zombie_half())).unwrap();
+        h.pos = (0..40).map(|k| [h.pos[0] + k as f32 * 16.0, h.pos[1]]).find(|p| open(&h, [p[0] + offset[0], p[1] + offset[1]])).unwrap();
         h.zombies.push(Zombie::new(ZKind::named("big"), [h.pos[0] + offset[0], h.pos[1] + offset[1]], 500.0, 1.0, 0.0));
         h
     }
@@ -1299,15 +1306,16 @@ mod tests {
         h.zombies.clear();
         h.kit.weapons[0].level = 8;
         h.kit.weapons[0].cd = 0.0;
-        let mut ways = Vec::new();
-        for k in 0..n {
-            let a = k as f32 * TAU / n as f32;
-            let way = [a.cos(), a.sin()];
-            let at = (0..12).map(|r| 90.0 + r as f32 * 4.0).map(|r| [h.pos[0] + way[0] * r, h.pos[1] + way[1] * r]).find(|p| !h.map.hits(p[0], p[1], crate::tuning::tuning().zombie_half()) && super::super::clear_shot(&h.map, h.pos, *p)).expect("room all round");
+        let ways: Vec<[f32; 2]> = (0..n).map(|k| k as f32 * TAU / n as f32).map(|a| [a.cos(), a.sin()]).collect();
+        let spot = |h: &Harvest, from: [f32; 2], way: [f32; 2]| (0..12).map(|r| 90.0 + r as f32 * 4.0).map(|r| [from[0] + way[0] * r, from[1] + way[1] * r]).find(|&p| open(h, p) && super::super::clear_shot(&h.map, from, p));
+        // The first spot east of the spawn with room all round, wherever the farm's props fall.
+        let start = h.pos;
+        h.pos = (0..60).flat_map(|j: i32| (0..40).map(move |i| [start[0] + i as f32 * 16.0, start[1] + ((j + 1) / 2 * if j % 2 == 0 { 1 } else { -1 }) as f32 * 16.0])).find(|&p| open(&h, p) && ways.iter().all(|&w| spot(&h, p, w).is_some())).expect("room all round");
+        for (k, &way) in ways.iter().enumerate() {
+            let at = spot(&h, h.pos, way).expect("room all round");
             let mut z = Zombie::new(ZKind::named("big"), at, 500.0, 1.0, 0.0);
             z.id = k as u32 + 1;
             h.zombies.push(z);
-            ways.push(way);
         }
         (h, ways)
     }
