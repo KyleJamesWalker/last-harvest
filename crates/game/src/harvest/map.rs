@@ -833,10 +833,12 @@ impl Map {
                 self.prop(&[art::GAS_STATION], 0.0, x, y);
                 self.prop(&[art::GAS_PUMP], 0.0, x + 1, y + th);
                 self.prop(&[art::GAS_PUMP], 0.0, x + tw - 3, y + th);
-                if let Some((tx, ty, _, tth)) = named("TRUCK").and_then(|truck| self.place_near(rng, truck, [x + tw / 2, y + th + 3], 4, 0)) {
+                if let Some(truck) = named("TRUCK")
+                    && let Some((tx, ty, _, _)) = self.place_near(rng, truck, [x + tw / 2, y + th + 3], 4, 0)
+                {
                     let last = self.props.len() - 1;
                     self.props[last].fps = 3.0;
-                    self.drive(tx, ty + tth);
+                    self.drive(truck[0], tx, ty);
                 }
                 self.place_near(rng, &[art::CAR_V], [x + tw / 2, y + th + 2], 4, 0);
                 return;
@@ -844,11 +846,11 @@ impl Map {
         }
     }
 
-    /// Stands the truck's driver at its cab end, smoking, with his feet on the truck's bottom edge at tile row `foot`.
-    fn drive(&mut self, x: usize, foot: usize) {
+    /// Leans the truck's driver on the back of `truck`, placed at tile (x, y), smoking, his feet on its ground line.
+    fn drive(&mut self, truck: Art, x: usize, y: usize) {
         if let Some(driver) = named("TRUCK_DRIVER") {
-            let (w, h) = (driver[0].w(), driver[0].h());
-            let (px, py) = (x as f32 * TILE - w + 2.0, foot as f32 * TILE - h);
+            let h = driver[0].h();
+            let (px, py) = (x as f32 * TILE + truck.w() - 2.0, y as f32 * TILE + truck.h() - h);
             self.props.push(Prop::new(driver, 3.0, px, py, py + h, 2.0));
         }
     }

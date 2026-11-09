@@ -588,7 +588,7 @@ impl Map {
                     self.props.push(Prop::new(&art::WINDMILL_FAN, 8.0, px, py, base, 2.0));
                 }
                 if super::named("TRUCK").is_some_and(|t| t[0] == frames[0]) {
-                    self.drive(x, y + super::tiles(frames[0].h()));
+                    self.drive(frames[0], x, y);
                 }
             }
         }
@@ -652,7 +652,9 @@ mod tests {
         let driver = super::super::named("TRUCK_DRIVER").expect("the catalog lists the driver beside the truck");
         let map = read(&farm("TRUCK 2 2")).unwrap();
         let d = map.props.iter().find(|p| p.frames[0] == driver[0]).expect("a truck brings its driver");
-        assert!(d.fps > 0.0 && d.x < 2.0 * TILE, "he smokes at the cab end, west of the truck: {} {}", d.fps, d.x);
+        let truck = super::super::named("TRUCK").unwrap()[0];
+        assert!(d.fps > 0.0 && d.x > 2.0 * TILE && d.x < 2.0 * TILE + truck.w(), "he smokes leaning on the truck's back: {} {}", d.fps, d.x);
+        assert_eq!(d.y + driver[0].h(), 2.0 * TILE + truck.h(), "his feet on the truck's ground line");
         for seed in 0..8 {
             assert!(!MapSource::random("Farm", [60, 40], seed).to_text().contains("TRUCK_DRIVER"), "a random farm's driver comes with its truck");
         }
