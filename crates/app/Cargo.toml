@@ -23,7 +23,7 @@ required-features = ["muos"]
 [dependencies]
 cpal = "0.18"
 glow.workspace = true
-png = "0.17"
+png = "0.18"
 last-harvest-game.workspace = true
 last-harvest-render.workspace = true
 lewton = "0.10"

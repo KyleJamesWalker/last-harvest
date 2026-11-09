@@ -125,8 +125,8 @@ impl Gfx {
 
 /// The game's icon for its windows, where the system shows one: macOS takes the app bundle's instead.
 fn icon() -> Option<Icon> {
-    let mut reader = png::Decoder::new(&include_bytes!("../../../assets/private/icons/game-32.png")[..]).read_info().ok()?;
-    let mut rgba = vec![0; reader.output_buffer_size()];
+    let mut reader = png::Decoder::new(std::io::Cursor::new(include_bytes!("../../../assets/private/icons/game-32.png"))).read_info().ok()?;
+    let mut rgba = vec![0; reader.output_buffer_size()?];
     let info = reader.next_frame(&mut rgba).ok()?;
     if info.color_type != png::ColorType::Rgba {
         return None;

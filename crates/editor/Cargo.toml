@@ -17,7 +17,7 @@ glow.workspace = true
 last-harvest-game.workspace = true
 last-harvest-pack = { path = "../pack", default-features = false, features = ["pak"] }
 last-harvest-render.workspace = true
-png = "0.17"
+png = "0.18"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 glutin = { version = "0.32", default-features = false, features = ["egl", "wayland"] }
