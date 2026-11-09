@@ -129,10 +129,10 @@ BIG_HURT        cell 31 6 ; cell 31 7 ; cell 31 5
 KID_HURT        cell 37 5 ; cell 37 6 ; cell 37 4
 
 # Placeholders: weapons and upgrade icons, drawn to be replaced in the sprite editor
-SCYTHE_SWING    png placeholder/scythe.png  @prop 2
+SCYTHE_SWING    png placeholder/scythe.png  @slab 2 float 5
 PITCHFORK_THRUST png placeholder/pitchfork.png  @prop 2
 DOG             png placeholder/dog.png x3  @prop 4
-TACKS           png placeholder/tacks.png
+TACKS           png placeholder/tacks.png  @slab 2
 FIRE            png placeholder/fire.png x3  @prop 4
 MOLOTOV         png placeholder/molotov.png  @prop 2
 FLARE           png placeholder/flare.png
