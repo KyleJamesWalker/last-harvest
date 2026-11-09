@@ -8,6 +8,7 @@ This page covers the builds beyond the RG DS: the web game, the card editor, And
 scripts/web-game.sh --serve   # the game, in target/web-game, on http://127.0.0.1:8095
 scripts/web-game.sh --zip     # also packs target/last-harvest-web.zip, for itch.io
 scripts/mod-editor.sh --serve # the card editor, in target/mod-editor, on http://127.0.0.1:8094
+scripts/mod-editor.sh --remote # the same, with the remote door on 8792; see docs/sprite-editor.md
 scripts/pages.sh --serve      # the whole Pages site, in target/pages, on http://127.0.0.1:8093
 ```
 

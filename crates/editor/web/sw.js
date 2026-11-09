@@ -4,7 +4,8 @@ const CACHE = "last-harvest-card-editor";
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (e) => e.waitUntil(self.clients.claim()));
 self.addEventListener("fetch", (e) => {
-  if (e.request.method !== "GET" || new URL(e.request.url).origin !== location.origin) return;
+  const url = new URL(e.request.url);
+  if (e.request.method !== "GET" || url.origin !== location.origin || url.pathname.includes("/remote/")) return;
   e.respondWith(
     fetch(e.request)
       .then((response) => {

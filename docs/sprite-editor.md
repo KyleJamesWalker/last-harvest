@@ -175,3 +175,11 @@ Each redraw is one undo step and nothing saves until a save is asked for, so Cmd
 | `POST /key/<key>`, `POST /text` | Send a shortcut by name (`save`, `undo`, `slash`, a letter); type into the field waiting for text |
 | `POST /click?x=&y=`, `POST /drag?x=&y=&x1=&y1=` | Click or drag on canvas pixels with the tool in hand |
 | `POST /view?yaw=&closer=`, `GET /shot.png` | Turn the 2.5D view; a screenshot of the window |
+
+The card editor in a browser opens the same door through `tools/editor_relay.py`, which serves the page and relays each request to it:
+
+```sh
+scripts/mod-editor.sh --remote   # then open http://127.0.0.1:8094/?remote
+```
+
+Only the page opened with `?remote` answers, and only while it stays open. It adds two calls for its toolbar: `GET /acts` lists the buttons on show, and `POST /act/<name>` presses one by its name, such as `export-all`. `GET /shot.png` pictures the panes, without the toolbar.

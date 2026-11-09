@@ -277,7 +277,7 @@ impl Editor {
                 Err(_) => text(400, "not text"),
             },
             ("POST", ["open", name]) if sprite::valid_name(name) => {
-                if let Some(why) = self.remote_busy().filter(|_| !self.none_open()) {
+                if let Some(why) = self.remote_busy().filter(|_| !self.none_open() && self.map.is_none() && self.data.is_none()) {
                     return text(409, why);
                 }
                 if self.unsaved() {

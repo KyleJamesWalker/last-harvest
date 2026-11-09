@@ -5,6 +5,7 @@
 mod http;
 #[cfg(feature = "modding")]
 mod local;
+mod remote;
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -65,6 +66,8 @@ struct Web {
     key_shift: bool,
     i_held: bool,
     title: String,
+    /// Remote requests for a picture of the panes, answered once they're next drawn.
+    shots: Vec<String>,
 }
 
 fn now() -> f64 {
@@ -122,6 +125,9 @@ impl Web {
         let [sx, sy] = self.scroll;
         for (canvas, [x, y, w, h]) in self.studio.canvases().iter().zip(Studio::panes(self.page.panes)) {
             self.renderer.draw(&self.gl, canvas, [px(x - sx), px(self.page.view[1] - (y - sy) - h), px(w), px(h)]);
+        }
+        for id in self.shots.drain(..) {
+            remote::shoot(&self.canvas, id);
         }
         let title = self.studio.editor.title();
         if title != self.title {
@@ -582,6 +588,7 @@ fn start() -> Result<(), String> {
         key_shift: false,
         i_held: false,
         title: String::new(),
+        shots: Vec::new(),
     }));
     web.borrow_mut().layout();
 
@@ -689,6 +696,10 @@ fn start() -> Result<(), String> {
         e.prevent_default();
         w.press_key(k, false);
     });
+
+    if remote::wanted(&search) {
+        remote::poll(web.clone());
+    }
 
     let tick: Rc<RefCell<Option<Frame>>> = Rc::new(RefCell::new(None));
     let next = tick.clone();
