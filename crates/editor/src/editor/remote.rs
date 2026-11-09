@@ -1,7 +1,7 @@
-//! Requests from a local agent to read and redraw the open sprite while its artist watches. Each redraw is one
-//! undo step and nothing saves: the artist keeps or drops it.
+//! Requests from a local agent to read and redraw the open sprite, or paint the open map, while its artist watches.
+//! Each redraw is one undo step and nothing saves: the artist keeps or drops it.
 
-use super::{Action, CARVE_EXTRAS, Editor, FOOTPRINT, Key, NORTH, ROOF, TOP, WEST, optional, optional_mut};
+use super::{Action, CANVAS, CARVE_EXTRAS, Editor, FOOTPRINT, Key, NORTH, ROOF, TOP, WEST, optional, optional_mut};
 use crate::sprite::{self, Frame};
 
 /// A reply: status, content type and body.
@@ -193,23 +193,57 @@ impl Editor {
         [o[0] + (x + 0.5) * zoom, o[1] + (y + 0.5) * zoom]
     }
 
-    /// Clicks canvas pixel (x, y) with the tool in hand, or drags from it to (x1, y1), as the mouse would.
-    fn remote_pointer(&mut self, path: &str, drag: bool) -> Reply {
-        if self.none_open() || self.map.is_some() || self.data.is_some() {
-            return text(409, "clicks land on a sprite's canvas; open a sprite first");
+    /// The window point at the middle of tile (x, y) of the open map, if the map has that tile.
+    fn map_point(&self, x: f32, y: f32) -> Option<[f32; 2]> {
+        let m = self.map.as_ref()?;
+        let [w, h] = m.src.size;
+        let (x, y) = (x.floor(), y.floor());
+        if x < 0.0 || y < 0.0 || x >= w as f32 || y >= h as f32 {
+            return None;
         }
-        let (Some(x), Some(y)) = (path_query_num(path, "x"), path_query_num(path, "y")) else { return text(400, "give x and y in canvas pixels") };
+        let (x, y) = (x as usize, y as usize);
+        let ([x0, y0], [x1, y1]) = (m.screen([x, y]), m.screen([x + 1, y + 1]));
+        Some([(x0 + x1) / 2.0, (y0 + y1) / 2.0])
+    }
+
+    /// Clicks canvas pixel (x, y) with the tool in hand, or drags from it to (x1, y1), as the mouse would; on an open
+    /// map, tile (x, y) with the map tool in hand.
+    fn remote_pointer(&mut self, path: &str, drag: bool) -> Reply {
+        let on_map = self.map.is_some();
+        if on_map && (self.pending.is_some() || self.ask.is_some() || self.browse.is_some() || self.typing) {
+            return text(409, "a page or question is over the map");
+        }
+        if !on_map && (self.none_open() || self.data.is_some()) {
+            return text(409, "clicks land on a sprite's canvas or a map; open one first");
+        }
+        let unit = if on_map { "map tiles" } else { "canvas pixels" };
+        let (Some(x), Some(y)) = (path_query_num(path, "x"), path_query_num(path, "y")) else { return text(400, format!("give x and y in {unit}")) };
+        let end = match (drag, path_query_num(path, "x1"), path_query_num(path, "y1")) {
+            (false, ..) => None,
+            (true, Some(x1), Some(y1)) => Some((x1, y1)),
+            (true, ..) => return text(400, "a drag gives x1 and y1 too"),
+        };
+        let point = |e: &Self, x: f32, y: f32| if on_map { e.map_point(x, y) } else { Some(e.canvas_point(x, y)) };
+        let ends = [(x, y)].into_iter().chain(end);
+        if on_map {
+            if ends.clone().any(|(x, y)| self.map_point(x, y).is_none()) {
+                let [w, h] = self.map.as_ref().map_or([0, 0], |m| m.src.size);
+                return text(400, format!("the map is {w}x{h} tiles; x and y count from 0"));
+            }
+            if ends.clone().any(|(x, y)| !self.map_point(x, y).is_some_and(|p| CANVAS.contains(p))) {
+                self.act(Action::MapFit, false);
+            }
+        }
         let (right, shift) = (path_query_has(path, "right"), path_query_has(path, "shift"));
-        self.mouse_down(self.canvas_point(x, y), right, shift);
-        if drag {
-            let (Some(x1), Some(y1)) = (path_query_num(path, "x1"), path_query_num(path, "y1")) else {
-                self.mouse_up();
-                return text(400, "a drag gives x1 and y1 too");
-            };
+        let Some(at) = point(self, x, y) else { return text(400, format!("give x and y in {unit}")) };
+        self.mouse_down(at, right, shift);
+        if let Some((x1, y1)) = end {
             let steps = ((x1 - x).abs().max((y1 - y).abs()) as usize).max(1);
             for i in 1..=steps {
                 let f = i as f32 / steps as f32;
-                self.drag(self.canvas_point(x + (x1 - x) * f, y + (y1 - y) * f));
+                if let Some(p) = point(self, x + (x1 - x) * f, y + (y1 - y) * f) {
+                    self.drag(p);
+                }
             }
         }
         self.mouse_up();
@@ -397,6 +431,41 @@ mod tests {
         let f = &e.sprite.frames[0];
         assert!((0..4).all(|x| f.px[x] == [0xE8, 0xD2, 0x7A, 255]), "a drag paints the stroke");
         assert_eq!(e.remote("POST", "/click?x=1", &[]).0, 400);
+    }
+
+    #[test]
+    fn clicks_and_drags_paint_an_open_map_in_tiles_one_undo_step_each_and_never_save() {
+        let mut e = editor();
+        e.act(Action::Ask(super::super::Ask::New), false);
+        "map door paint".chars().for_each(|c| e.key(Key::Char(c)));
+        e.key(Key::Enter);
+        e.act(Action::MapSize(-4, -4), true);
+        let [w, h] = e.map.as_ref().expect("a map is open").src.size;
+        let saved = e.store.read_map("door_paint");
+        let list = String::from_utf8(e.remote("GET", "/buttons", &[]).2).unwrap();
+        assert!(list.contains("\tMapTool(Paint)\t") && list.contains("\tGround(103)\t"), "the map's tools and ground are buttons: {list}");
+        assert_eq!(e.remote("POST", "/press", b"MapTool(Paint)").0, 200);
+        assert_eq!(e.remote("POST", "/press", b"Ground(103)").0, 200);
+        let ground = |e: &Editor| e.map.as_ref().unwrap().src.ground.clone();
+        let before = ground(&e);
+        assert_eq!(e.remote("POST", "/click?x=3&y=4", &[]).0, 200);
+        let clicked = ground(&e);
+        assert_eq!(clicked[4 * w + 3], b'g', "the click paints the tile it names");
+        assert_eq!(clicked.iter().zip(&before).filter(|(a, b)| a != b).count(), 1);
+        assert_eq!(e.remote("POST", "/drag?x=2&y=8&x1=9&y1=8", &[]).0, 200);
+        assert!((2..=9).all(|x| ground(&e)[8 * w + x] == b'g'), "a drag paints the tiles between");
+        e.key(Key::Undo);
+        assert_eq!(ground(&e), clicked, "one undo takes the whole drag back");
+        e.key(Key::Undo);
+        assert_eq!(ground(&e), before);
+        for _ in 0..6 {
+            e.map_wheel([CANVAS.x + 8.0, CANVAS.y + 8.0], -1.0);
+        }
+        assert_eq!(e.remote("POST", "/click?x=1000&y=0", &[]).0, 400);
+        assert_eq!(e.remote("POST", &format!("/click?x={}&y={}", w - 2, h - 2), &[]).0, 200);
+        assert_eq!(ground(&e)[(h - 2) * w + w - 2], b'g', "a tile zoomed out of view is brought back to paint");
+        assert!(e.map.as_ref().unwrap().dirty);
+        assert_eq!(e.store.read_map("door_paint"), saved, "nothing saves");
     }
 
     #[test]

@@ -174,7 +174,7 @@ Each redraw is one undo step and nothing saves until a save is asked for, so Cmd
 | `POST /show/<pic>`, `POST /add/<pic>`, `POST /open/<NAME>` | Show a picture, add a carving's optional picture as its + tile does, open another sprite |
 | `GET /buttons`, `POST /press` | List every button on show; press one by index, action or a label only it has. `?shift` presses as Shift-click. |
 | `POST /key/<key>`, `POST /text` | Send a shortcut by name (`save`, `undo`, `slash`, a letter); type into the field waiting for text |
-| `POST /click?x=&y=`, `POST /drag?x=&y=&x1=&y1=` | Click or drag on canvas pixels with the tool in hand |
+| `POST /click?x=&y=`, `POST /drag?x=&y=&x1=&y1=` | Click or drag on canvas pixels with the tool in hand. On an open map, x and y are tiles and the map tool in hand paints, places or erases; press `MapTool(...)` and `Ground(<code>)` to pick them. |
 | `POST /view?yaw=&closer=`, `GET /shot.png` | Turn the 2.5D view; a screenshot of the window |
 
 The card editor in a browser opens the same door through `tools/editor_relay.py`, which serves the page and relays each request to it:

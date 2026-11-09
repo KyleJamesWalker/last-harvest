@@ -238,8 +238,14 @@ The game's own `ground.txt` names only sprites in `art.txt`. A crop of props tha
 
 `farm.txt` lays out the random farm around its road. A count `N` means one for each N cells of the map.
 
-- `[farm]` sets `tufts`, `grass`, `corpses`, `fields` and `more_fields`. Its `ground`, `tufted` and `patch` lines pick the ground codes.
-- `[scatter]` lists props strewn on free ground, as a sprite and a count. A sprite can be `PROP_<ID>`.
+Ground codes come from `ground.txt`. A sprite can be `PROP_<ID>`; one with several frames puts down one at random. Any line but `[farm]`'s five counts can be left out, which keeps the game's own value; the game's `farm.txt` states each.
+
+- `[farm]` sets `tufts`, `grass`, `corpses`, `fields` and `more_fields`. Its `ground`, `tufted` and `patch` lines pick the ground codes, `border` the sprites ringing the map in turn, and `corpse` a corpse's sprite.
+- `[fields]` shapes each field: `soil` is the code under it, `plain` and `crops` list `CODE WEIGHT` pairs it picks its kind from (a crop code is a `cell field` with a `crop` line, such as `crops c 2 k 1`), `width` and `height` are `LEAST MOST` tiles, `fenced N` fences one in N, `fence TOP SIDE BOTTOM [GATE]` is its fence, and `scarecrow NAME N` stands in one plain field in N.
+- `[road]` sets the road's `ground` code, `signs N NAME ...` on its shoulders, its `barrier`, and `wrecks LEAST MOST NAME` on it.
+- `[gas_station]` sets its `station`, `pump`, `car`, `truck` and the truck's `driver`.
+- `[windmill]` sets its `mill` and turning `fan`; `[graveyard]` its `tombstone` and `fence`.
+- `[scatter]` lists props strewn on free ground, as a sprite and a count.
 - Every other section is a building. The first building that stands is home. Each takes these lines:
     - `sprites NAME ...`: the sprites it picks from at random.
     - `within N`: the most tiles from the middle it may stand.

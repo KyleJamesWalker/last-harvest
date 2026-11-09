@@ -1,15 +1,54 @@
 # How the random farm lays itself out around its road, gas station, house, barn, windmill and graveyard.
-# Counts go by the map's area: `N` means one for each N cells.
+# Counts go by the map's area: `N` means one for each N cells. Codes are ground codes from ground.txt; sprites are
+# names from art.txt or a player's prop (PROP_<ID>), and one with several frames puts down one of them at random.
+# Every line below [farm]'s first five may be left out, which keeps the value shown.
 
 [farm]
 tufts 10        # one dirt cell in this many has tufts; 0 for none
 grass 600       # a small patch of grass for each this many cells
 corpses 300     # a corpse on the ground for each this many cells
-fields 4        # fields at least, each soil, sprouts or corn, some fenced
+fields 4        # fields at least
 more_fields 4   # plus a random number of fields below this; 0 for none
-ground .        # the ground code from ground.txt the farm is laid on; . when left out
-tufted ,        # the code a tufted cell gets; , when left out
-patch g         # the code a grass patch paints; g when left out
+ground .        # the code the farm is laid on
+tufted ,        # the code a tufted cell gets
+patch g         # the code a grass patch paints
+border DEAD_TREE BUSH BUSH   # the sprites ringing the map's edge in turn, each its first frame
+corpse CORPSE   # the sprite a corpse is
+
+# Each field is one kind, picked by weight: a plain code lays its own ground, a crops code (a cell field with a
+# crop line) grows its crop in rows on the soil.
+[fields]
+soil s          # the code under every field
+plain s 1 p 1   # CODE WEIGHT pairs; an empty line for none
+crops c 2       # CODE WEIGHT pairs; an empty line for none
+width 5 11      # the least and most tiles across, from 2 to 40
+height 4 8      # and down
+fenced 2        # one field in this many is fenced; 0 for none
+fence RAIL_TOP RAIL_SIDE RAIL_BOTTOM   # TOP SIDE BOTTOM, of 3, 2 and 3 frames, then a GATE post if any
+scarecrow SCARECROW 2   # stands in one plain field in this many; 0 for none
+
+# The road down the map, three tiles wide.
+[road]
+ground v        # its code, a run across of three
+signs 4 SIGN SIGN_LOW   # tries at a sign on its shoulders, and the sprites a sign picks from
+barrier BARRIER # half-closing it near each end
+wrecks 3 5 WRECK_V      # the least and most wrecks on it, and their sprite
+
+[gas_station]
+station GAS_STATION
+pump GAS_PUMP   # two, in front
+car CAR_V       # parked near
+truck TRUCK     # parked near, every frame in turn
+driver TRUCK_DRIVER     # leaning on the truck, every frame in turn
+
+# The windmill and graveyard a building's `near windmill` and `near graveyard` put down.
+[windmill]
+mill WINDMILL
+fan WINDMILL_FAN        # turning on top, every frame in turn
+
+[graveyard]
+tombstone TOMBSTONE
+fence PICKET_TOP PICKET_SIDE PICKET_BOTTOM SKULL_FENCE
 
 # Props strewn anywhere free, in this order: a sprite from art.txt or a player's prop (PROP_<ID>), and N.
 # A sprite with several frames puts down one of them at random.
@@ -27,7 +66,7 @@ WRECK_H2 2400
 SIGN 1200
 
 # The buildings near the middle, in this order, each with a dirt path from its door to the road. The first that
-# stands is home. Any section but [farm] and [scatter] is one, by a name of your own:
+# stands is home. Any other section is one, by a name of your own:
 #   sprites NAME ...      the sprites it picks one of at random
 #   within N              how far from the middle it may stand, in tiles
 #   margin N              tiles kept clear around it; 0 when left out
