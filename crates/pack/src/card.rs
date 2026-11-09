@@ -88,7 +88,7 @@ pub(crate) fn decode(keyword: &str, noun: &str, name: &str, bytes: &[u8], max: [
     if w > max[0] || h > max[1] {
         return Err(fail(&format!("{w}x{h} is bigger than {noun} can be, {}x{}", max[0], max[1])));
     }
-    let mut buf = vec![0; reader.output_buffer_size()];
+    let mut buf = vec![0; reader.output_buffer_size().ok_or_else(|| fail(&"the image is too big to decode"))?];
     let frame = reader.next_frame(&mut buf).map_err(|e| fail(&e))?;
     buf.truncate(frame.buffer_size());
     let sheet = match frame.color_type {

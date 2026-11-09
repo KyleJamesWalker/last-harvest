@@ -86,7 +86,7 @@ fn decode(path: &Path) -> Result<Image, String> {
     let mut decoder = png::Decoder::new(std::io::BufReader::new(file));
     decoder.set_transformations(png::Transformations::EXPAND);
     let mut reader = decoder.read_info().map_err(|e| e.to_string())?;
-    let mut buf = vec![0; reader.output_buffer_size()];
+    let mut buf = vec![0; reader.output_buffer_size().ok_or("the image is too big to decode")?];
     let info = reader.next_frame(&mut buf).map_err(|e| e.to_string())?;
     if info.bit_depth != png::BitDepth::Eight || !matches!(info.color_type, png::ColorType::Rgba | png::ColorType::Rgb) {
         return Err(format!("expected 8-bit RGBA or RGB, got {:?} {:?}", info.color_type, info.bit_depth));

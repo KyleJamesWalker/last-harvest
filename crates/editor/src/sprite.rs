@@ -665,7 +665,7 @@ pub fn decode_png(bytes: &[u8]) -> Result<Frame, String> {
     let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes));
     decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16 | png::Transformations::ALPHA);
     let mut reader = decoder.read_info().map_err(|e| e.to_string())?;
-    let mut buf = vec![0; reader.output_buffer_size()];
+    let mut buf = vec![0; reader.output_buffer_size().ok_or("the image is too big to decode")?];
     let info = reader.next_frame(&mut buf).map_err(|e| e.to_string())?;
     let buf = &buf[..info.buffer_size()];
     let px = match info.color_type {
