@@ -13,6 +13,7 @@ mod coats;
 mod crops;
 mod maps;
 mod palette;
+mod remote;
 mod tables;
 mod weapons;
 
@@ -3320,7 +3321,7 @@ mod tests {
         Editor::new(Box::new(FsStore { dir: dir.to_path_buf(), catalog, cards: dir.join("enemies") }), "BARREL")
     }
 
-    fn editor() -> Editor {
+    pub(super) fn editor() -> Editor {
         editor_in(&tmp(), tmp().join("art.txt"))
     }
 

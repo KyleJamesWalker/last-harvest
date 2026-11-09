@@ -279,6 +279,12 @@ impl Studio {
         }
     }
 
+    /// Turns the 2.5D view by `yaw` radians and moves it `closer` units in, as a drag and a scroll there would.
+    pub fn turn_view(&mut self, yaw: f32, closer: f32) {
+        self.yaw += yaw;
+        self.distance = (self.distance - closer).clamp(NEAREST, FARTHEST);
+    }
+
     pub fn release(&mut self) {
         self.held = None;
         self.editor.mouse_up();
