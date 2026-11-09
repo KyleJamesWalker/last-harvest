@@ -47,6 +47,11 @@ pub struct Prop {
     cover: bool,
 }
 
+/// A catalog sprite's frames by name, however many it has.
+fn named(name: &str) -> Option<&'static [Art]> {
+    art::ALL.iter().find(|(n, _)| *n == name).map(|(_, f)| *f).filter(|f| !f.is_empty())
+}
+
 impl Prop {
     pub fn cells(&self) -> [usize; 4] {
         self.cells
@@ -828,13 +833,23 @@ impl Map {
                 self.prop(&[art::GAS_STATION], 0.0, x, y);
                 self.prop(&[art::GAS_PUMP], 0.0, x + 1, y + th);
                 self.prop(&[art::GAS_PUMP], 0.0, x + tw - 3, y + th);
-                if self.place_near(rng, &art::TRUCK, [x + tw / 2, y + th + 3], 4, 0).is_some() {
+                if let Some((tx, ty, _, tth)) = named("TRUCK").and_then(|truck| self.place_near(rng, truck, [x + tw / 2, y + th + 3], 4, 0)) {
                     let last = self.props.len() - 1;
                     self.props[last].fps = 3.0;
+                    self.drive(tx, ty + tth);
                 }
                 self.place_near(rng, &[art::CAR_V], [x + tw / 2, y + th + 2], 4, 0);
                 return;
             }
+        }
+    }
+
+    /// Stands the truck's driver at its cab end, smoking, with his feet on the truck's bottom edge at tile row `foot`.
+    fn drive(&mut self, x: usize, foot: usize) {
+        if let Some(driver) = named("TRUCK_DRIVER") {
+            let (w, h) = (driver[0].w(), driver[0].h());
+            let (px, py) = (x as f32 * TILE - w + 2.0, foot as f32 * TILE - h);
+            self.props.push(Prop::new(driver, 3.0, px, py, py + h, 2.0));
         }
     }
 

@@ -355,8 +355,8 @@ impl MapSource {
 
 impl MapSource {
     /// A farm the random generator lays out at `size`, as a map to edit: its ground as codes and every prop it
-    /// placed as a line, fence pieces and all. Corpses on the ground and the windmill's fan, which a windmill
-    /// brings, are left out.
+    /// placed as a line, fence pieces and all. Corpses on the ground, the windmill's fan and the truck's driver,
+    /// which a windmill and a truck bring, are left out.
     pub fn random(name: &str, size: [usize; 2], seed: u64) -> Self {
         let size = std::array::from_fn(|i| size[i].clamp(RANDOM_MIN[i], MAX_SIZE[i]));
         let [w, h] = size;
@@ -372,7 +372,7 @@ impl MapSource {
         let mut props = Vec::new();
         let barrels = map.barrels.iter().map(|&[x, y]| (std::slice::from_ref(&art::BARREL), x, y));
         for (frames, x, y) in map.props.iter().map(|p| (p.frames, p.x, p.y)).chain(barrels) {
-            if frames[0] == art::WINDMILL_FAN[0] {
+            if frames[0] == art::WINDMILL_FAN[0] || super::named("TRUCK_DRIVER").is_some_and(|d| d[0] == frames[0]) {
                 continue;
             }
             let Some((name, all)) = art::ALL.iter().find(|(_, all)| all.contains(&frames[0])) else { continue };
@@ -587,6 +587,9 @@ impl Map {
                     let base = py + 6.0 + art::WINDMILL.h() + 0.1;
                     self.props.push(Prop::new(&art::WINDMILL_FAN, 8.0, px, py, base, 2.0));
                 }
+                if super::named("TRUCK").is_some_and(|t| t[0] == frames[0]) {
+                    self.drive(x, y + super::tiles(frames[0].h()));
+                }
             }
         }
         Ok(())
@@ -642,6 +645,17 @@ mod tests {
 
     fn read(text: &str) -> Result<Map, String> {
         Map::from_text(text, &mut Rng::new(1))
+    }
+
+    #[test]
+    fn a_truck_brings_its_driver_who_never_writes_out_as_his_own_line() {
+        let driver = super::super::named("TRUCK_DRIVER").expect("the catalog lists the driver beside the truck");
+        let map = read(&farm("TRUCK 2 2")).unwrap();
+        let d = map.props.iter().find(|p| p.frames[0] == driver[0]).expect("a truck brings its driver");
+        assert!(d.fps > 0.0 && d.x < 2.0 * TILE, "he smokes at the cab end, west of the truck: {} {}", d.fps, d.x);
+        for seed in 0..8 {
+            assert!(!MapSource::random("Farm", [60, 40], seed).to_text().contains("TRUCK_DRIVER"), "a random farm's driver comes with its truck");
+        }
     }
 
     #[test]
