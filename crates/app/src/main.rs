@@ -7,6 +7,8 @@ mod debug;
 #[cfg(target_os = "linux")]
 mod device;
 mod gfx;
+#[cfg(any(target_os = "macos", windows))]
+mod pads;
 mod persist;
 
 use std::path::Path;
@@ -53,6 +55,8 @@ struct App {
     audio_retry: Option<(Instant, Duration)>,
     #[cfg(target_os = "linux")]
     device: Option<device::Device>,
+    #[cfg(any(target_os = "macos", windows))]
+    pads: pads::Pads,
     keys: Buttons,
     lid_key: bool,
     #[cfg(target_os = "linux")]
@@ -120,6 +124,8 @@ impl App {
             audio_retry: None,
             #[cfg(target_os = "linux")]
             device,
+            #[cfg(any(target_os = "macos", windows))]
+            pads: pads::Pads::open(),
             keys: Buttons::NONE,
             lid_key: false,
             #[cfg(target_os = "linux")]
@@ -250,6 +256,13 @@ impl App {
         }
         if let Some(line) = self.game.bench_report(|work| { let t = Instant::now(); work(); t.elapsed().as_secs_f64() }) { eprintln!("{line}"); }
         let mut raw = self.raw_input();
+        #[cfg(any(target_os = "macos", windows))]
+        {
+            let (held, stick, look) = self.pads.read();
+            raw.held |= held;
+            raw.stick = stick;
+            raw.look = look;
+        }
         let (held, touch) = self.injector.frame(dt);
         raw.held |= held;
         if let Some(t) = touch {

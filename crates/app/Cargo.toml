@@ -51,6 +51,9 @@ jni = "0.22"
 ndk = "0.9"
 raw-window-handle = "0.6"
 
+[target.'cfg(any(target_os = "macos", windows))'.dependencies]
+gilrs = "0.11"
+
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
