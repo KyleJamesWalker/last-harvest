@@ -20,12 +20,12 @@ const SAVE_KEY: &str = "last-harvest-save";
 const RANGE_KEY: &str = "last-harvest-range";
 const STATS_MS: f64 = 1000.0;
 const STICK_DEAD: f32 = 0.15;
-/// The standard gamepad layout's buttons, by index, named as on an Xbox pad.
+/// The standard gamepad layout's buttons, by index. Face buttons map by position, as the RG DS lays them out.
 const PAD: [(u32, Buttons); 14] = [
-    (0, Buttons::A),
-    (1, Buttons::B),
-    (2, Buttons::X),
-    (3, Buttons::Y),
+    (1, Buttons::A),
+    (0, Buttons::B),
+    (3, Buttons::X),
+    (2, Buttons::Y),
     (4, Buttons::L1),
     (5, Buttons::R1),
     (6, Buttons::L2),

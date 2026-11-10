@@ -449,7 +449,7 @@ mod tests {
         let e = effects();
         assert_eq!((e.slash.frames, e.slash.fps), (&art::SLASH[..], 20.0));
         assert_eq!((e.scythe.life, e.scythe.reach), (0.3, 0.7));
-        assert_eq!(e.money.once(10.0), art::MONEY[3]);
+        assert_eq!(e.money.once(10.0), art::ZOMBIE_HEART[5]);
         let own = include_str!("../../effects.txt");
         assert_eq!(parse(&own.replace("art SLASH\n", "")).unwrap_err(), "[slash] needs an art line");
         assert!(parse("[Sparkle]\nart X").unwrap_err().starts_with("1: [Sparkle]"));

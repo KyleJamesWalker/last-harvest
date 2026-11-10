@@ -74,9 +74,11 @@ Two settings change the touch controls:
 
 ### Gamepads
 
-A gamepad maps by its labels, as on an Xbox pad:
+On the desktop and in a browser, a gamepad's face buttons map by position, as on the RG DS. On an Xbox pad:
 
-- A, B, X and Y are the same buttons.
+- Left (X) is Y and right (B) is A, so the left and right buttons turn.
+- Bottom (A) is B, which turns around and backs out of menus.
+- Top (Y) is X, which picks and aims.
 - The bumpers and triggers are L1, R1, L2 and R2.
 - View is Select, and Menu is Start.
 - The d-pad and left stick move you, and the right stick turns.
@@ -87,7 +89,7 @@ A night lasts ten minutes, from dusk to dawn. A bell rings each minute.
 
 - **Zombies rise** out of the ground, at the edge of the fog early on and a few tiles away by the end. They walk around buildings, or chew through a fence when that is quicker. They grow tougher each minute.
 - **Cover:** shots fly past bushes, fences and signs. Buildings, vehicles and trees stop them.
-- **Hearts:** kills drop rotten hearts. Offer enough of them and the ritual levels you up. Each level-up offers three cards, and pushes nearby zombies back. Some cards are rare and count twice.
+- **Hearts:** kills drop rotten zombie hearts, which flop out and settle. Offer enough of them and the ritual levels you up. Each level-up offers three cards, and pushes nearby zombies back. Some cards are rare and count twice.
 - **Health:** some kills drop health instead of a heart. How often depends on the difficulty.
 - **Grenades:** you start with one, or two on Easy. Each recharges in 12 seconds.
 - **Barrels:** shooting a red barrel sets it off. Hold X, and your guns go for the barrels in view. A blast close to you hurts you too.
@@ -235,9 +237,10 @@ The mix of zombies shifts minute by minute, and some kinds arrive only after a s
 
 ## Menus and settings
 
-The title's bottom screen lists Play, Map, Settings, Stats and Credits, and Quit where the game can quit. Up and Down choose a row, A or a tap opens it, and B goes back. The top screen shows the game's version.
+The title's bottom screen lists Play, Map, How to play, Settings, Stats and Credits, and Quit where the game can quit. Up and Down choose a row, A or a tap opens it, and B goes back. The top screen shows the game's version.
 
 - **Map** picks a hand-made map, or a random farm, for every run after.
+- **How to play** sums up the controls, hearts and level-ups, grenades, the map and the run home at dawn, in the buttons or touch controls you play with. A new save shows it at the first Play: A or a tap then starts the run, and B goes back to the menu. Elsewhere A, B, Start or a tap closes it.
 - **Stats** lists your records, including the best damage a second over a whole run. It also counts the cards and mod packs that loaded.
 - **History**, from Stats with A or its button, shows the last 10 runs, newest first, five to a page. Each run lists its difficulty, Turned or Home at dawn, its time, level and damage a second, and the powerups it ended with. Left and Right turn the page.
 - **Credits** names who made the game, its art, its template and its font.

@@ -138,7 +138,7 @@ art HEALTH
 art CHEST
 
 [money]
-art MONEY
+art ZOMBIE_HEART
 fps 10
 
 [crow]

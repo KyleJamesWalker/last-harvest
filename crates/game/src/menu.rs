@@ -15,13 +15,14 @@ pub(crate) enum Page {
     Stats,
     History,
     Credits,
+    HowTo,
 }
 
-const MAIN: [(Page, &str); 6] = [(Page::Main, "Play"), (Page::Main, "Map"), (Page::Settings, "Settings"), (Page::Stats, "Stats"), (Page::Credits, "Credits"), (Page::Main, "Quit")];
+const MAIN: [(Page, &str); 7] = [(Page::Main, "Play"), (Page::Main, "Map"), (Page::HowTo, "How to play"), (Page::Settings, "Settings"), (Page::Stats, "Stats"), (Page::Credits, "Credits"), (Page::Main, "Quit")];
 /// The row that picks the map runs start on rather than opening a page.
 const MAP_ROW: usize = 1;
 /// The last row, shown only where the game can quit.
-const QUIT_ROW: usize = 5;
+const QUIT_ROW: usize = 6;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Setting {
@@ -63,9 +64,9 @@ impl Setting {
 /// The Play button, then the difficulty box under it, as x, y, width and height.
 const PLAY: [f32; 4] = [212.0, 30.0, 600.0, 100.0];
 pub(crate) const DIFFICULTY_Y: f32 = 150.0;
-/// The Map, Settings, Stats and Credits rows, below the difficulty box.
-const ROWS_TOP: f32 = 316.0;
-const ROW_H: f32 = 70.0;
+/// The rows under Play, below the difficulty box.
+pub(crate) const ROWS_TOP: f32 = 316.0;
+pub(crate) const ROW_H: f32 = 58.0;
 /// The settings rows; a run's settings leave out Player, Enemies and Reset.
 const SET_TOP: f32 = 96.0;
 const SET_H: f32 = 62.0;
@@ -79,6 +80,13 @@ const BACK: [f32; 4] = [362.0, 660.0, 300.0, 76.0];
 const HISTORY: [f32; 4] = [702.0, 660.0, 300.0, 76.0];
 /// Runs on each History page.
 const HISTORY_PAGE: usize = 5;
+/// The how-to page's rows: an icon's box, then each row's top and the size of its text.
+const HOW_TO_ICON: f32 = 76.0;
+const HOW_TO_TOP: f32 = 92.0;
+const HOW_TO_H: f32 = 94.0;
+pub(crate) const HOW_TO_SIZE: f32 = 30.0;
+pub(crate) const HOW_TO_ROOM: f32 = SCREEN_W - 80.0 - HOW_TO_ICON - 24.0;
+
 /// Seconds a first press on reset waits for the second.
 pub(crate) const RESET_CONFIRM: f32 = 3.0;
 pub(crate) const RESET_SHOWN: f32 = 3.0;
@@ -97,7 +105,7 @@ pub(crate) fn difficulty_arrow([x, y]: [f32; 2]) -> Option<i32> {
 }
 
 fn main_row(i: usize) -> [f32; 4] {
-    if i == 0 { PLAY } else { [212.0, ROWS_TOP + (i - 1) as f32 * ROW_H, 600.0, ROW_H - 16.0] }
+    if i == 0 { PLAY } else { [212.0, ROWS_TOP + (i - 1) as f32 * ROW_H, 600.0, ROW_H - 12.0] }
 }
 
 fn setting_row(i: usize) -> [f32; 4] {
@@ -165,6 +173,22 @@ impl Game {
                 }
             }
             Page::Stats | Page::Credits => {}
+            Page::HowTo if tapped.is_some() || input.pressed.any(Buttons::A | Buttons::B | Buttons::X | Buttons::Y | Buttons::START) => {
+                self.close_how_to(input.pressed.contains(Buttons::B));
+            }
+            Page::HowTo => {}
+        }
+    }
+
+    /// Marks the how-to page seen; a first Play that opened it goes on into the run, unless B backed out.
+    fn close_how_to(&mut self, back: bool) {
+        self.save.how_to_seen = true;
+        self.how_to_due = false;
+        self.page = Page::Main;
+        if std::mem::take(&mut self.how_to_then_play) && !back {
+            self.open(crate::Scene::Harvest);
+        } else {
+            self.sounds.push(Sfx::Tick(0));
         }
     }
 
@@ -193,6 +217,11 @@ impl Game {
             None => input.pressed.any(Buttons::START | Buttons::A).then_some(self.row),
         };
         match chosen {
+            Some(0) if self.how_to_due => {
+                self.page = Page::HowTo;
+                self.how_to_then_play = true;
+                self.sounds.push(Sfx::Tick(9));
+            }
             Some(0) => self.open(crate::Scene::Harvest),
             Some(QUIT_ROW) => {
                 self.quit_asked = true;
@@ -205,6 +234,7 @@ impl Game {
             Some(i) => {
                 self.row = i;
                 self.page = MAIN[i].0;
+                self.how_to_then_play = false;
                 if self.page == Page::Settings {
                     self.open_settings(false);
                 }
@@ -348,6 +378,7 @@ impl Game {
             Page::Stats => self.draw_stats(c),
             Page::History => self.draw_history(c),
             Page::Credits => draw_credits(c),
+            Page::HowTo => self.draw_how_to(c),
         }
     }
 
@@ -367,7 +398,8 @@ impl Game {
                 fit_label(c, &format!("Map: {name}"), x + w / 2.0, y + h / 2.0 - 22.0, 44.0, w - 120.0, color, Align::Center);
                 continue;
             }
-            c.label(*name, x + w / 2.0, y + h / 2.0 - 26.0, 52.0, color, Align::Center);
+            let size = if i == 0 { 52.0 } else { 42.0 };
+            c.label(*name, x + w / 2.0, y + h / 2.0 - size / 2.0, size, color, Align::Center);
         }
         let d = self.save.difficulty;
         let (y, mid) = (DIFFICULTY_Y, SCREEN_W / 2.0);
@@ -615,6 +647,67 @@ impl Game {
         let [x, y, w, h] = HISTORY;
         c.rect(x, y, w, h, [1.0, 1.0, 1.0, 0.08]);
         c.label("A: History", x + w / 2.0, y + h / 2.0 - 22.0, 40.0, WHITE, Align::Center);
+    }
+
+    /// The how-to page's rows, each an icon and a line or two, worded for touch, one screen or two.
+    pub(crate) fn how_to_lines(&self) -> [(Option<crate::art::Art>, &'static str); 6] {
+        use crate::art;
+        let touch = self.how_to_by_touch();
+        let r = roster();
+        let harvester = r.enemies.get(r.harvester).map(|e| e.look.walk[0][0]);
+        let looks = crate::player_looks();
+        let player = looks.iter().find(|l| l.id == self.save.player.as_str()).or(looks.first()).map(|p| p.look.walk[0][0]);
+        let (walk, cards, grenades, map) = if touch {
+            (
+                "Drag on the left to walk. Slide on the strip under Around to turn; the view turns with you.",
+                "Kills drop zombie hearts. Gather them to level up, then tap a card. Banish, Reroll and Favor help.",
+                if self.save.touch_grenades { "Grenade brings up the map: tap where the grenade should land." } else { "Hold Grenade to aim in slowed time, and let go to throw." },
+                "The map shows where zombies were last seen. Out of sight, they fade where they stood.",
+            )
+        } else {
+            let walk = "D-pad: walk and strafe.   Y / A: turn; the view turns with you.   B: turn around.";
+            let cards = "Kills drop zombie hearts. Gather them to level up and pick a card.   L1: banish.   R1: reroll.   Y: favor.";
+            if self.one_screen() {
+                (walk, cards, "Hold L2: aim a grenade, let go to throw.   Hold R1: throw one ahead.", "Hold L1: the map. It shows where zombies were last seen.")
+            } else {
+                (walk, cards, "Tap the map: throw a grenade there.   Hold R1: throw one ahead.", "The map below shows where zombies were last seen.")
+            }
+        };
+        [
+            (player, walk),
+            (Some(art::ICON_PISTOL), "Your weapons fire on their own. You choose where to face."),
+            (Some(art::MONEY[0]), cards),
+            (Some(art::GRENADE), grenades),
+            (Some(art::TOUCH_MAP), map),
+            (harvester, "Survive the night. At dawn the Harvester rises: run home to the farmhouse before it catches you."),
+        ]
+    }
+
+    /// The on-screen controls are up, so the how-to page names them rather than the pad's buttons.
+    fn how_to_by_touch(&self) -> bool {
+        self.is_phone() && self.has_touch() && !self.touchpad.hidden
+    }
+
+    /// How to play, a row per lesson with its picture, over a button that leaves or, on a first Play, plays.
+    fn draw_how_to(&self, c: &mut Canvas) {
+        c.label("How to play", SCREEN_W / 2.0, 20.0, 48.0, WHITE, Align::Center);
+        for (i, (icon, text)) in self.how_to_lines().into_iter().enumerate() {
+            let y = HOW_TO_TOP + i as f32 * HOW_TO_H;
+            c.rect(40.0, y, SCREEN_W - 80.0, HOW_TO_H - 12.0, [1.0, 1.0, 1.0, 0.06]);
+            if let Some(icon) = icon {
+                let scale = (HOW_TO_ICON - 16.0) / icon.w().max(icon.h());
+                c.art(icon, 40.0 + (HOW_TO_ICON - icon.w() * scale) / 2.0 + 8.0, y + (HOW_TO_H - 12.0 - icon.h() * scale) / 2.0, scale, false, WHITE);
+            }
+            let lines = wrapped(text, HOW_TO_SIZE, HOW_TO_ROOM, 2).len() as f32;
+            let top = y + (HOW_TO_H - 12.0 - lines * HOW_TO_SIZE * 1.25) / 2.0 + 2.0;
+            wrap_label(c, text, 40.0 + HOW_TO_ICON + 24.0, top, HOW_TO_SIZE, HOW_TO_ROOM, 2, WHITE, Align::Left);
+        }
+        if !self.how_to_then_play {
+            return back_button(c);
+        }
+        let [x, y, w, h] = BACK;
+        c.rect(x, y, w, h, [1.0, 0.85, 0.3, 0.3]);
+        c.label(if self.how_to_by_touch() { "Play" } else { "A: Play" }, x + w / 2.0, y + h / 2.0 - 22.0, 40.0, HOT, Align::Center);
     }
 
     fn history_pages(&self) -> usize {
