@@ -3,6 +3,8 @@
 use crate::draw::{Align, Canvas, Color, Frame};
 use crate::harvest::{self, roster};
 use crate::input::{Buttons, Input};
+use crate::controls::{ACTIONS, BINDABLE, Controls};
+use crate::pad::{self, PadFamily};
 use crate::save::LEVELS;
 use crate::{DIM, Difficulty, Game, HOT, SCREEN_H, SCREEN_W, Sfx, WHITE};
 
@@ -34,6 +36,7 @@ pub(crate) enum Setting {
     Screens,
     Touch,
     Grenades,
+    Controls,
     Player,
     Enemies,
     Folder,
@@ -41,7 +44,7 @@ pub(crate) enum Setting {
 }
 
 impl Setting {
-    const ALL: [Setting; 12] = [Setting::TopBrightness, Setting::BottomBrightness, Setting::Volume, Setting::Rumble, Setting::Fps, Setting::Screens, Setting::Touch, Setting::Grenades, Setting::Player, Setting::Enemies, Setting::Folder, Setting::Reset];
+    const ALL: [Setting; 13] = [Setting::TopBrightness, Setting::BottomBrightness, Setting::Volume, Setting::Rumble, Setting::Fps, Setting::Screens, Setting::Touch, Setting::Grenades, Setting::Controls, Setting::Player, Setting::Enemies, Setting::Folder, Setting::Reset];
 
     fn name(self) -> &'static str {
         match self {
@@ -53,6 +56,7 @@ impl Setting {
             Setting::Screens => "Screens",
             Setting::Touch => "Touch controls",
             Setting::Grenades => "Grenades",
+            Setting::Controls => "Controls",
             Setting::Player => "Player",
             Setting::Enemies => "Enemies",
             Setting::Folder => "Game folder",
@@ -72,6 +76,11 @@ const SET_TOP: f32 = 96.0;
 const SET_H: f32 = 62.0;
 /// Enemy rows that fit above the Back button; the list scrolls past that.
 const ENEMY_ROWS: usize = 8;
+/// Controls rows shown at once; the list scrolls past that.
+const CONTROL_ROWS: usize = 9;
+/// Seconds the Controls page waits for the button to bind.
+const REBIND_WAIT: f32 = 5.0;
+const NOTE_SHOWN: f32 = 3.0;
 /// The arrows either side of a level bar, as x centres.
 const LESS_X: f32 = 600.0;
 const MORE_X: f32 = 940.0;
@@ -108,8 +117,45 @@ fn main_row(i: usize) -> [f32; 4] {
     if i == 0 { PLAY } else { [212.0, ROWS_TOP + (i - 1) as f32 * ROW_H, 600.0, ROW_H - 12.0] }
 }
 
-fn setting_row(i: usize) -> [f32; 4] {
-    [40.0, SET_TOP + i as f32 * SET_H, SCREEN_W - 80.0, SET_H - 12.0]
+/// Row `i` of `n`, which shrink to fit above the Back button.
+fn setting_row(i: usize, n: usize) -> [f32; 4] {
+    let h = SET_H.min((BACK[1] - 8.0 - SET_TOP) / n.max(1) as f32);
+    [40.0, SET_TOP + i as f32 * h, SCREEN_W - 80.0, h - 12.0]
+}
+
+#[cfg(test)]
+pub(crate) fn control_row(row: usize) -> [f32; 4] {
+    setting_row(row, CONTROL_ROWS)
+}
+
+/// The Controls page, open over the Settings list: the row chosen, the seconds left to press the button that row
+/// should take, and a word on what the last change did.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct Rebind {
+    row: usize,
+    waiting: f32,
+    note: String,
+    note_t: f32,
+}
+
+impl Rebind {
+    pub(crate) fn tick(&mut self, dt: f32) {
+        self.waiting = (self.waiting - dt).max(0.0);
+        self.note_t = (self.note_t - dt).max(0.0);
+    }
+
+    pub(crate) fn waiting(&self) -> bool {
+        self.waiting > 0.0
+    }
+
+    fn say(&mut self, note: impl Into<String>) {
+        self.note = note.into();
+        self.note_t = NOTE_SHOWN;
+    }
+}
+
+fn action_name(game: Buttons) -> &'static str {
+    ACTIONS.iter().find(|a| a.0 == game).map_or("", |a| a.1)
 }
 
 impl Game {
@@ -259,12 +305,19 @@ impl Game {
 
     pub(crate) fn open_settings(&mut self, in_run: bool) {
         self.settings_in_run = in_run;
+        self.rebind = None;
         self.setting = 0;
         self.reset_armed = 0.0;
     }
 
     /// Up and Down choose, Left and Right (or the arrows) change, A toggles; returns true once B leaves.
     pub(crate) fn settings(&mut self, input: &Input, tapped: Option<[f32; 2]>) -> bool {
+        if self.rebind.is_some() {
+            if self.controls_page(input, tapped) {
+                self.rebind = None;
+            }
+            return false;
+        }
         let list = self.settings_list();
         if input.pressed.any(Buttons::B | Buttons::START) || tapped.is_some_and(|p| inside(p, BACK)) {
             self.reset_armed = 0.0;
@@ -281,7 +334,7 @@ impl Game {
         let mut by = input.pressed.contains(Buttons::RIGHT) as i32 - input.pressed.contains(Buttons::LEFT) as i32;
         let mut press = input.pressed.contains(Buttons::A);
         if let Some(p) = tapped {
-            let Some(i) = (0..list.len()).find(|&i| inside(p, setting_row(i))) else { return false };
+            let Some(i) = (0..list.len()).find(|&i| inside(p, setting_row(i, list.len()))) else { return false };
             self.setting = i;
             match p[0] {
                 x if (x - LESS_X).abs() < 60.0 => by = -1,
@@ -314,6 +367,11 @@ impl Game {
                 let next = (at + if by == 0 { 1 } else { by }).rem_euclid(looks.len() as i32) as usize;
                 self.save.player = crate::save::LookId::new(&looks[next].id);
             }
+            Setting::Controls if by > 0 || press => {
+                self.rebind = Some(Rebind::default());
+                self.sounds.push(Sfx::Tick(9));
+                return false;
+            }
             Setting::Enemies if by > 0 || press => {
                 self.page = Page::Enemies;
                 self.enemy = 0;
@@ -339,6 +397,65 @@ impl Game {
         false
     }
 
+    /// Up and Down choose a game button's job, then A or a tap waits for the pad button or key to send it, which
+    /// swaps with the job that had it; the last row restores them all. Returns true once B leaves.
+    fn controls_page(&mut self, input: &Input, tapped: Option<[f32; 2]>) -> bool {
+        let Some(mut r) = self.rebind.take() else { return true };
+        let leave = self.rebind_input(&mut r, input, tapped);
+        self.rebind = Some(r);
+        leave
+    }
+
+    fn rebind_input(&mut self, r: &mut Rebind, input: &Input, tapped: Option<[f32; 2]>) -> bool {
+        let rows = ACTIONS.len() + 1;
+        if r.waiting() {
+            if tapped.is_some() {
+                r.waiting = 0.0;
+                self.sounds.push(Sfx::Tick(0));
+            } else if let Some(&pad) = BINDABLE.iter().find(|&&b| self.raw_pressed.contains(b)) {
+                let (game, name) = ACTIONS[r.row];
+                match self.save.controls.bind(game, pad) {
+                    Some(other) => r.say(format!("Swapped with {}", action_name(other))),
+                    None => r.say(format!("{name}: no change")),
+                }
+                r.waiting = 0.0;
+                self.sounds.push(Sfx::Tick(9));
+            }
+            return false;
+        }
+        if input.pressed.any(Buttons::B | Buttons::START) || tapped.is_some_and(|p| inside(p, BACK)) {
+            self.sounds.push(Sfx::Tick(0));
+            return true;
+        }
+        let step = input.pressed.contains(Buttons::DOWN) as i32 - input.pressed.contains(Buttons::UP) as i32;
+        if step != 0 {
+            r.row = (r.row as i32 + step).rem_euclid(rows as i32) as usize;
+            self.sounds.push(Sfx::Tick(r.row as u8 * 2));
+            return false;
+        }
+        let first = r.row.saturating_sub(CONTROL_ROWS - 1);
+        let chosen = match tapped {
+            Some(p) => (first..rows.min(first + CONTROL_ROWS)).find(|&i| inside(p, setting_row(i - first, CONTROL_ROWS))),
+            None => input.pressed.contains(Buttons::A).then_some(r.row),
+        };
+        match chosen {
+            Some(i) if i == ACTIONS.len() => {
+                r.row = i;
+                self.save.controls = Controls::default();
+                r.say("Every button is back in its place");
+                self.sounds.push(Sfx::Tick(6));
+            }
+            Some(i) => {
+                r.row = i;
+                r.waiting = REBIND_WAIT;
+                r.note_t = 0.0;
+                self.sounds.push(Sfx::Tick(9));
+            }
+            None => {}
+        }
+        false
+    }
+
     /// Up and Down choose a kind, A, Left, Right or a tap turns it on or off; returns true once B leaves.
     fn enemies_page(&mut self, input: &Input, tapped: Option<[f32; 2]>) -> bool {
         let count = roster().enemies.len();
@@ -354,7 +471,7 @@ impl Game {
         }
         let first = self.enemy.saturating_sub(ENEMY_ROWS - 1);
         let toggle = match tapped {
-            Some(p) => (first..count.min(first + ENEMY_ROWS)).find(|&i| inside(p, setting_row(i - first))).inspect(|&i| self.enemy = i).is_some(),
+            Some(p) => (first..count.min(first + ENEMY_ROWS)).find(|&i| inside(p, setting_row(i - first, ENEMY_ROWS))).inspect(|&i| self.enemy = i).is_some(),
             None => input.pressed.any(Buttons::A | Buttons::LEFT | Buttons::RIGHT),
         };
         if toggle {
@@ -410,26 +527,30 @@ impl Game {
         c.label(d.name(), mid, y + 6.0, 52.0, HOT, Align::Center);
         if self.title_on_one() {
             wrap_label(c, d.blurb(), mid, y + 56.0, 36.0, 560.0, 2, DIM, Align::Center);
-            c.label("D-pad: walk.   Y / A: turn.   B: turn around.", SCREEN_W / 2.0, SCREEN_H - 104.0, 40.0, DIM, Align::Center);
-            c.label("L1: map.   L2: aim a grenade.   R1: throw ahead.", SCREEN_W / 2.0, SCREEN_H - 56.0, 40.0, DIM, Align::Center);
+            c.hint("D-pad: walk.   {Y} / {A}: turn.   {B}: turn around.", SCREEN_W / 2.0, SCREEN_H - 104.0, 40.0, DIM, Align::Center);
+            c.hint("{L1}: map.   {L2}: aim a grenade.   {R1}: throw ahead.", SCREEN_W / 2.0, SCREEN_H - 56.0, 40.0, DIM, Align::Center);
             return;
         }
         c.label(d.blurb(), mid, y + 80.0, 26.0, DIM, Align::Center);
-        c.label("D-pad: walk and strafe.   Y / A: turn.   B: turn around.   R2: screenshot.", SCREEN_W / 2.0, SCREEN_H - 84.0, 24.0, DIM, Align::Center);
-        c.label("Hold X: aim at barrels.   Tap the map, or hold R1: throw.   Left / Right on Play: difficulty.", SCREEN_W / 2.0, SCREEN_H - 50.0, 24.0, DIM, Align::Center);
+        c.hint("D-pad: walk and strafe.   {Y} / {A}: turn.   {B}: turn around.   {R2}: screenshot.", SCREEN_W / 2.0, SCREEN_H - 84.0, 24.0, DIM, Align::Center);
+        c.hint("Hold {X}: aim at barrels.   Tap the map, or hold {R1}: throw.   Left / Right on Play: difficulty.", SCREEN_W / 2.0, SCREEN_H - 50.0, 24.0, DIM, Align::Center);
     }
 
     pub(crate) fn draw_settings(&self, c: &mut Canvas) {
+        if let Some(r) = &self.rebind {
+            return self.draw_controls(c, r);
+        }
         c.rect(0.0, 0.0, SCREEN_W, SCREEN_H, [0.12, 0.12, 0.15, 1.0]);
         c.label("Settings", SCREEN_W / 2.0, 24.0, 48.0, WHITE, Align::Center);
-        for (i, &s) in self.settings_list().iter().enumerate() {
-            let [x, y, w, h] = setting_row(i);
+        let list = self.settings_list();
+        for (i, &s) in list.iter().enumerate() {
+            let [x, y, w, h] = setting_row(i, list.len());
             let on = i == self.setting;
             c.rect(x, y, w, h, if on { [1.0, 0.85, 0.3, 0.25] } else { [1.0, 1.0, 1.0, 0.06] });
             let mid = y + h / 2.0;
             let armed = s == Setting::Reset && self.reset_armed > 0.0;
             let red = [1.0, 0.45, 0.4, 1.0];
-            let name = if armed { "Press A again to erase" } else { s.name() };
+            let name = if armed { pad::hint("Press {A} again to erase") } else { s.name().to_string() };
             c.label(name, x + 30.0, mid - 20.0, 38.0, if armed { red } else if on { HOT } else { WHITE }, Align::Left);
             let (value, lo) = match s {
                 Setting::TopBrightness => (self.save.brightness[0], 1),
@@ -458,6 +579,11 @@ impl Game {
                     c.label("<", LESS_X, mid - 24.0, 44.0, arrow, Align::Center);
                     c.label(">", MORE_X, mid - 24.0, 44.0, arrow, Align::Center);
                     fit_label(c, name, (LESS_X + MORE_X) / 2.0, mid - 20.0, 38.0, MORE_X - LESS_X - 80.0, if on { HOT } else { WHITE }, Align::Center);
+                    continue;
+                }
+                Setting::Controls => {
+                    let changed = !self.save.controls.is_default();
+                    c.label(if changed { "Changed   >" } else { "Default   >" }, x + w - 30.0, mid - 20.0, 38.0, if changed { HOT } else { DIM }, Align::Right);
                     continue;
                 }
                 Setting::Enemies => {
@@ -493,13 +619,60 @@ impl Game {
         back_button(c);
     }
 
+    /// Each job with the pad button that does it, named as the last pad used names it, and the key where there is
+    /// a keyboard; the row awaiting a button pulses.
+    fn draw_controls(&self, c: &mut Canvas, r: &Rebind) {
+        c.rect(0.0, 0.0, SCREEN_W, SCREEN_H, [0.12, 0.12, 0.15, 1.0]);
+        c.label("Controls", SCREEN_W / 2.0, 24.0, 48.0, WHITE, Align::Center);
+        let family = pad::last_pad();
+        let (pad_x, key_x) = if self.keyboard { (700.0, 880.0) } else { (840.0, 0.0) };
+        let head = 74.0;
+        c.label(family.name(), pad_x, head, 22.0, DIM, Align::Center);
+        if self.keyboard {
+            c.label("Keys", key_x, head, 22.0, DIM, Align::Center);
+        }
+        let (status, color) = if r.waiting() {
+            (format!("Press the button for {}   {}", ACTIONS[r.row].1, r.waiting.ceil()), HOT)
+        } else if r.note_t > 0.0 {
+            (r.note.clone(), HOT)
+        } else {
+            (pad::hint("Tap or {A}: change   {B}: back"), DIM)
+        };
+        fit_label(c, &status, 40.0, head, 22.0, pad_x - 120.0, color, Align::Left);
+        let pulse = 0.5 + 0.5 * (self.clock * 6.0).sin().abs();
+        let rows = ACTIONS.len() + 1;
+        let first = r.row.saturating_sub(CONTROL_ROWS - 1);
+        for (row, i) in (first..rows.min(first + CONTROL_ROWS)).enumerate() {
+            let [x, y, w, h] = setting_row(row, CONTROL_ROWS);
+            let sel = i == r.row;
+            let armed = sel && r.waiting();
+            c.rect(x, y, w, h, if armed { [1.0, 0.85, 0.3, 0.25 * pulse + 0.1] } else if sel { [1.0, 0.85, 0.3, 0.25] } else { [1.0, 1.0, 1.0, 0.06] });
+            let mid = y + h / 2.0;
+            let name_color = if sel { HOT } else { WHITE };
+            let Some(&(game, name)) = ACTIONS.get(i) else {
+                c.label("Default", x + 30.0, mid - 20.0, 38.0, name_color, Align::Left);
+                let same = self.save.controls.is_default();
+                c.label(if same { "In use" } else { "Put every button back" }, x + w - 30.0, mid - 14.0, 26.0, if same { DIM } else { HOT }, Align::Right);
+                continue;
+            };
+            fit_label(c, name, x + 30.0, mid - 20.0, 38.0, pad_x - 100.0 - x, name_color, Align::Left);
+            let moved = self.save.controls.physical(game) != game;
+            let shown = if armed { "?" } else { pad::label_as(family, game) };
+            fit_label(c, shown, pad_x, mid - 20.0, 38.0, 170.0, if armed || moved { HOT } else { WHITE }, Align::Center);
+            if self.keyboard {
+                fit_label(c, pad::label_as(PadFamily::Keyboard, game), key_x, mid - 20.0, 38.0, 170.0, if moved { HOT } else { DIM }, Align::Center);
+            }
+        }
+        back_button(c);
+    }
+
     fn draw_enemies(&self, c: &mut Canvas) {
         let r = roster();
         c.rect(0.0, 0.0, SCREEN_W, SCREEN_H, [0.12, 0.12, 0.15, 1.0]);
         c.label("Enemies", SCREEN_W / 2.0, 24.0, 48.0, WHITE, Align::Center);
         let first = self.enemy.saturating_sub(ENEMY_ROWS - 1);
         for (row, i) in (first..r.enemies.len().min(first + ENEMY_ROWS)).enumerate() {
-            let [x, y, w, h] = setting_row(row);
+            let [x, y, w, h] = setting_row(row, ENEMY_ROWS);
             let (sel, on) = (i == self.enemy, self.save.enemies_off & 1 << i == 0);
             c.rect(x, y, w, h, if sel { [1.0, 0.85, 0.3, 0.25] } else { [1.0, 1.0, 1.0, 0.06] });
             let [cr, cg, cb, _] = self.mix_shade(i);
@@ -646,7 +819,7 @@ impl Game {
         back_button(c);
         let [x, y, w, h] = HISTORY;
         c.rect(x, y, w, h, [1.0, 1.0, 1.0, 0.08]);
-        c.label("A: History", x + w / 2.0, y + h / 2.0 - 22.0, 40.0, WHITE, Align::Center);
+        c.label(pad::hint("{A}: History"), x + w / 2.0, y + h / 2.0 - 22.0, 40.0, WHITE, Align::Center);
     }
 
     /// The how-to page's rows, each an icon and a line or two, worded for touch, one screen or two.
@@ -676,7 +849,7 @@ impl Game {
         [
             (player, walk),
             (Some(art::ICON_PISTOL), "Your weapons fire on their own. You choose where to face."),
-            (Some(art::MONEY[0]), cards),
+            (Some(art::ZOMBIE_HEART[0]), cards),
             (Some(art::GRENADE), grenades),
             (Some(art::TOUCH_MAP), map),
             (harvester, "Survive the night. At dawn the Harvester rises: run home to the farmhouse before it catches you."),
@@ -819,7 +992,7 @@ pub(crate) fn fitted(text: &str, size: f32, room: f32, least: f32) -> (String, f
 fn back_button(c: &mut Canvas) {
     let [x, y, w, h] = BACK;
     c.rect(x, y, w, h, [1.0, 1.0, 1.0, 0.08]);
-    c.label("B: Back", x + w / 2.0, y + h / 2.0 - 22.0, 40.0, WHITE, Align::Center);
+    c.label(pad::hint("{B}: Back"), x + w / 2.0, y + h / 2.0 - 22.0, 40.0, WHITE, Align::Center);
 }
 
 #[cfg(test)]

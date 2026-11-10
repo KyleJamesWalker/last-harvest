@@ -71,13 +71,13 @@ impl Hardware {
         let help = [
             "Up / Down: top brightness",
             "Left / Right: bottom brightness",
-            "X: work LED     B: low-power LED",
-            "L1 / R1: left / right speaker",
-            "R2: rumble     any button: tone",
+            "{X}: work LED     {B}: low-power LED",
+            "{L1} / {R1}: left / right speaker",
+            "{R2}: rumble     any button: tone",
             "Back: menu",
         ];
         for (i, line) in help.iter().enumerate() {
-            f.bottom.label(*line, SCREEN_W / 2.0, 90.0 + i as f32 * 52.0, 32.0, DIM, Align::Center);
+            f.bottom.label(crate::pad::hint(line), SCREEN_W / 2.0, 90.0 + i as f32 * 52.0, 32.0, DIM, Align::Center);
         }
         if let Some((side, _)) = self.speaker {
             let (x, label, align) = if side == Sfx::Left { (48.0, "LEFT", Align::Left) } else { (SCREEN_W - 48.0, "RIGHT", Align::Right) };

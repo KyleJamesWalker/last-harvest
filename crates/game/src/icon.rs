@@ -193,10 +193,10 @@ impl Icon {
             let help = [
                 "Keys: arrows turn and zoom   A / X figure   Q + arrows walk   Q + X / Z / S drop, undo, clear zombies",
                 "1 + arrows camera height   tap 1 background   Enter new farm   2 barricade   Z player   S guides   W screenshot",
-                "Pad: Y/A figure, L2 walk (+A/B/X), L1 height (tap: background), Start farm, R2 barricade, B player, X guides, R1 shot",
+                "Pad: {Y}/{A} figure, {L2} walk (+{A}/{B}/{X}), {L1} height (tap: background), {Start} farm, {R2} barricade, {B} player, {X} guides, {R1} shot",
             ];
             for (i, line) in help.iter().enumerate() {
-                b.label(*line, SCREEN_W / 2.0, SCREEN_H - 92.0 + i as f32 * 26.0, 17.0, [0.8, 0.8, 0.85, 1.0], Align::Center);
+                b.label(crate::pad::hint(line), SCREEN_W / 2.0, SCREEN_H - 92.0 + i as f32 * 26.0, 17.0, [0.8, 0.8, 0.85, 1.0], Align::Center);
             }
         }
     }

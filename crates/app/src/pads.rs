@@ -2,7 +2,7 @@
 
 use gilrs::{Axis, Button, EventType, Gilrs};
 use last_harvest::log;
-use last_harvest_game::Buttons;
+use last_harvest_game::{Buttons, PadFamily};
 
 const STICK_DEAD: f32 = 0.15;
 
@@ -31,19 +31,22 @@ impl Pads {
     pub fn open() -> Self {
         let gilrs = Gilrs::new().inspect_err(|e| log!("gamepads off: {e}")).ok();
         for (_, pad) in gilrs.iter().flat_map(|g| g.gamepads()) {
-            log!("gamepad: {}", pad.name());
+            log!("gamepad: {} ({:?})", pad.name(), family(&pad));
         }
         Self { gilrs }
     }
 
-    /// The buttons held, the left stick, and the right stick's sideways push, over every connected pad.
-    pub fn read(&mut self) -> (Buttons, [f32; 2], f32) {
-        let (mut held, mut stick, mut look) = (Buttons::NONE, [0.0f32; 2], 0.0f32);
-        let Some(g) = &mut self.gilrs else { return (held, stick, look) };
+    /// The buttons held, the left stick, and the right stick's sideways push, over every connected pad, and the
+    /// labels of the pad that pressed a button or pushed a stick this frame.
+    pub fn read(&mut self) -> (Buttons, [f32; 2], f32, Option<PadFamily>) {
+        let (mut held, mut stick, mut look, mut used) = (Buttons::NONE, [0.0f32; 2], 0.0f32, None);
+        let Some(g) = &mut self.gilrs else { return (held, stick, look, used) };
         while let Some(event) = g.next_event() {
             match event.event {
-                EventType::Connected => log!("gamepad: {} connected", g.gamepad(event.id).name()),
+                EventType::Connected => log!("gamepad: {} connected ({:?})", g.gamepad(event.id).name(), family(&g.gamepad(event.id))),
                 EventType::Disconnected => log!("gamepad: {} disconnected", g.gamepad(event.id).name()),
+                EventType::ButtonPressed(..) => used = Some(family(&g.gamepad(event.id))),
+                EventType::AxisChanged(_, v, _) if v.abs() >= STICK_DEAD => used = Some(family(&g.gamepad(event.id))),
                 _ => {}
             }
         }
@@ -64,6 +67,10 @@ impl Pads {
                 look = (look + v).clamp(-1.0, 1.0);
             }
         }
-        (held, stick, look)
+        (held, stick, look, used)
     }
+}
+
+fn family(pad: &gilrs::Gamepad) -> PadFamily {
+    PadFamily::detect(pad.vendor_id(), pad.name())
 }

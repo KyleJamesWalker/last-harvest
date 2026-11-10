@@ -496,23 +496,23 @@ impl Harvest {
             cross(&mut f.top, view3d::to_screen(view_proj, at, 0.0).map_or_else(|| self.behind(at), |s| s.0));
             cross(&mut f.bottom, [(at[0] - cam[0]) * map_scale(), (at[1] - cam[1]) * map_scale()]);
         }
-        let shoot = match (self.saves_photos, self.taps, self.touch_keys) {
+        let shoot = crate::pad::hint(match (self.saves_photos, self.taps, self.touch_keys) {
             (true, _, true) => "Tap the picture: take a photo",
             (false, _, true) => "Tap the picture: hide these guides",
-            (true, true, false) => "R1 or tap: take a photo",
-            (true, false, false) => "R1: take a photo",
-            (false, true, false) => "R1 or tap: hide these guides",
-            (false, false, false) => "R1: hide these guides",
-        };
+            (true, true, false) => "{R1} or tap: take a photo",
+            (true, false, false) => "{R1}: take a photo",
+            (false, true, false) => "{R1} or tap: hide these guides",
+            (false, false, false) => "{R1}: hide these guides",
+        });
         let take_back = p.prop == p.choices.len();
-        let keys = match (p.setting, picked, self.touch_keys) {
-            (Setting::Pose, Some(_), false) => "Left / Right: turn it   Up / Down: step its frame   R2: next zombie",
-            (Setting::Pose, None, false) => "R2: pick the zombie nearest the middle   Left / Right: turn   Up / Down: zoom",
-            (Setting::Props, _, false) if take_back => "R2 or Y: take back the last prop   Left / Right: choose a prop",
-            (Setting::Props, _, false) => "R2: drop on the cross   Left / Right: choose   Up / Down: turn   Y: take back",
-            (Setting::Place, _, false) if take_back => "D-pad / stick: move the cross   R2 or Y: take back the last prop   X: reset",
-            (Setting::Place, _, false) => "D-pad / stick: move the cross   R2: drop it there   X: reset   Y: take back",
-            (_, _, false) => "Left / Right: turn   Up / Down: zoom   L1 + Up / Down: height",
+        let keys = crate::pad::hint(match (p.setting, picked, self.touch_keys) {
+            (Setting::Pose, Some(_), false) => "Left / Right: turn it   Up / Down: step its frame   {R2}: next zombie",
+            (Setting::Pose, None, false) => "{R2}: pick the zombie nearest the middle   Left / Right: turn   Up / Down: zoom",
+            (Setting::Props, _, false) if take_back => "{R2} or {Y}: take back the last prop   Left / Right: choose a prop",
+            (Setting::Props, _, false) => "{R2}: drop on the cross   Left / Right: choose   Up / Down: turn   {Y}: take back",
+            (Setting::Place, _, false) if take_back => "D-pad / stick: move the cross   {R2} or {Y}: take back the last prop   {X}: reset",
+            (Setting::Place, _, false) => "D-pad / stick: move the cross   {R2}: drop it there   {X}: reset   {Y}: take back",
+            (_, _, false) => "Left / Right: turn   Up / Down: zoom   {L1} + Up / Down: height",
             (Setting::Pose, Some(_), true) => "Stick left / right: turn it   up / down: step its frame   Change: next zombie",
             (Setting::Pose, None, true) => "Change: pick the zombie nearest the middle   Stick: turn and zoom",
             (Setting::Props, _, true) if take_back => "Change: take back the last prop   Stick left / right: choose a prop",
@@ -520,10 +520,10 @@ impl Harvest {
             (Setting::Place, _, true) if take_back => "Stick: move the cross   Change: take back the last prop   Reset: ahead",
             (Setting::Place, _, true) => "Stick: move the cross   Change: drop it there   Reset: back ahead",
             (_, _, true) => "Stick: turn and zoom   Hold Height, stick up / down: raise or lower",
-        };
-        let back = if self.touch_keys { format!("Setting: choose  Change: change   {shoot}   Back: leave") } else { format!("L2: choose  R2: change   {shoot}   B or Start: back") };
+        });
+        let back = if self.touch_keys { format!("Setting: choose  Change: change   {shoot}   Back: leave") } else { format!("{}{shoot}{}", crate::pad::hint("{L2}: choose  {R2}: change   "), crate::pad::hint("   {B} or {Start}: back")) };
         let [settings, more] = p.settings_lines(self.posing(), &self.placing());
-        let lines = ["PHOTO MODE".to_string(), keys.into(), settings, more, back];
+        let lines = ["PHOTO MODE".to_string(), keys, settings, more, back];
         // On one screen the help goes over the picture, where the guides already are.
         let (c, y) = if self.single { (&mut f.top, SCREEN_H - 184.0) } else { (&mut f.bottom, 40.0) };
         c.rect(0.0, y - 10.0, SCREEN_W, 176.0, [0.0, 0.0, 0.0, 0.55]);
