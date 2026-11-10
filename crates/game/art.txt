@@ -143,8 +143,6 @@ QUICK_MARK      png placeholder/quick_mark.png
 ICON_RIFLE             png placeholder/icon_rifle.png  @prop 1
 ICON_LANTERN           png placeholder/icon_lantern.png  @prop 4
 ICON_BURNER            png placeholder/icon_burner.png  @prop 2
-ICON_KNIFE             png placeholder/icon_knife.png
-ICON_GAS               png placeholder/icon_gas.png
 ICON_HOLSTER           png placeholder/icon_holster.png
 ICON_SCARECROW         png placeholder/icon_scarecrow.png
 ICON_MOLOTOV           png placeholder/icon_molotov.png
@@ -152,21 +150,15 @@ ICON_FLARE             png placeholder/icon_flare.png
 ICON_HOLLOW_POINTS     png placeholder/icon_hollow_points.png
 ICON_QUICK_HANDS       png placeholder/icon_quick_hands.png
 ICON_RUNNING_SHOES     png placeholder/icon_running_shoes.png
-ICON_CANNED_PEACHES    png placeholder/icon_canned_peaches.png
 ICON_DEEP_POCKETS      png placeholder/icon_deep_pockets.png
 ICON_WORK_JACKET       png placeholder/icon_work_jacket.png
-ICON_GARDEN_TEA        png placeholder/icon_garden_tea.png
 ICON_SHARP_EYE         png placeholder/icon_sharp_eye.png
 ICON_BIGGER_BLAST      png placeholder/icon_bigger_blast.png
 ICON_LONG_BARREL       png placeholder/icon_long_barrel.png
 ICON_LUCKY_PENNY       png placeholder/icon_lucky_penny.png
 ICON_PAWN_SHOP         png placeholder/icon_pawn_shop.png
-ICON_HEAVY_ROUNDS      png placeholder/icon_heavy_rounds.png
 ICON_BRIGHTER_LANTERN  png placeholder/icon_brighter_lantern.png
-ICON_VACCINE           png placeholder/icon_vaccine.png
 ICON_GRENADE_BELT      png placeholder/icon_grenade_belt.png
-ICON_FUEL_DRUMS        png placeholder/icon_fuel_drums.png
-ICON_SNACK             png placeholder/icon_snack.png
 ICON_AMMO_CRATE        png placeholder/icon_ammo_crate.png
 ICON_POCKET_CHANGE     png placeholder/icon_pocket_change.png
 
@@ -198,6 +190,14 @@ ICON_CROWS             png placeholder/icon_crows.png
 ICON_ZAPPER            png placeholder/icon_zapper.png
 ICON_DOG               png placeholder/icon_dog.png
 ICON_TACKS             png placeholder/icon_tacks.png
+ICON_KNIFE             png placeholder/icon_knife.png
+ICON_GAS               png placeholder/icon_gas.png
+ICON_CANNED_PEACHES    png placeholder/icon_canned_peaches.png
+ICON_GARDEN_TEA        png placeholder/icon_garden_tea.png
+ICON_HEAVY_ROUNDS      png placeholder/icon_heavy_rounds.png
+ICON_VACCINE           png placeholder/icon_vaccine.png
+ICON_FUEL_DRUMS        png placeholder/icon_fuel_drums.png
+ICON_SNACK             png placeholder/icon_snack.png
 
 # Pickups
 ZOMBIE_HEART    blank 9 11 ; blank 9 11 ; blank 9 11 ; blank 9 11 ; blank 9 11 ; blank 9 11
