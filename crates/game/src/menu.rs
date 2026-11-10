@@ -3,6 +3,7 @@
 use crate::draw::{Align, Canvas, Color, Frame};
 use crate::harvest::{self, roster};
 use crate::input::{Buttons, Input};
+use crate::pad;
 use crate::save::LEVELS;
 use crate::{DIM, Difficulty, Game, HOT, SCREEN_H, SCREEN_W, Sfx, WHITE};
 
@@ -378,13 +379,13 @@ impl Game {
         c.label(d.name(), mid, y + 6.0, 52.0, HOT, Align::Center);
         if self.title_on_one() {
             wrap_label(c, d.blurb(), mid, y + 56.0, 36.0, 560.0, 2, DIM, Align::Center);
-            c.label("D-pad: walk.   Y / A: turn.   B: turn around.", SCREEN_W / 2.0, SCREEN_H - 104.0, 40.0, DIM, Align::Center);
-            c.label("L1: map.   L2: aim a grenade.   R1: throw ahead.", SCREEN_W / 2.0, SCREEN_H - 56.0, 40.0, DIM, Align::Center);
+            c.hint("D-pad: walk.   {Y} / {A}: turn.   {B}: turn around.", SCREEN_W / 2.0, SCREEN_H - 104.0, 40.0, DIM, Align::Center);
+            c.hint("{L1}: map.   {L2}: aim a grenade.   {R1}: throw ahead.", SCREEN_W / 2.0, SCREEN_H - 56.0, 40.0, DIM, Align::Center);
             return;
         }
         c.label(d.blurb(), mid, y + 80.0, 26.0, DIM, Align::Center);
-        c.label("D-pad: walk and strafe.   Y / A: turn.   B: turn around.   R2: screenshot.", SCREEN_W / 2.0, SCREEN_H - 84.0, 24.0, DIM, Align::Center);
-        c.label("Hold X: aim at barrels.   Tap the map, or hold R1: throw.   Left / Right on Play: difficulty.", SCREEN_W / 2.0, SCREEN_H - 50.0, 24.0, DIM, Align::Center);
+        c.hint("D-pad: walk and strafe.   {Y} / {A}: turn.   {B}: turn around.   {R2}: screenshot.", SCREEN_W / 2.0, SCREEN_H - 84.0, 24.0, DIM, Align::Center);
+        c.hint("Hold {X}: aim at barrels.   Tap the map, or hold {R1}: throw.   Left / Right on Play: difficulty.", SCREEN_W / 2.0, SCREEN_H - 50.0, 24.0, DIM, Align::Center);
     }
 
     pub(crate) fn draw_settings(&self, c: &mut Canvas) {
@@ -397,7 +398,7 @@ impl Game {
             let mid = y + h / 2.0;
             let armed = s == Setting::Reset && self.reset_armed > 0.0;
             let red = [1.0, 0.45, 0.4, 1.0];
-            let name = if armed { "Press A again to erase" } else { s.name() };
+            let name = if armed { pad::hint("Press {A} again to erase") } else { s.name().to_string() };
             c.label(name, x + 30.0, mid - 20.0, 38.0, if armed { red } else if on { HOT } else { WHITE }, Align::Left);
             let (value, lo) = match s {
                 Setting::TopBrightness => (self.save.brightness[0], 1),
@@ -614,7 +615,7 @@ impl Game {
         back_button(c);
         let [x, y, w, h] = HISTORY;
         c.rect(x, y, w, h, [1.0, 1.0, 1.0, 0.08]);
-        c.label("A: History", x + w / 2.0, y + h / 2.0 - 22.0, 40.0, WHITE, Align::Center);
+        c.label(pad::hint("{A}: History"), x + w / 2.0, y + h / 2.0 - 22.0, 40.0, WHITE, Align::Center);
     }
 
     fn history_pages(&self) -> usize {
@@ -726,7 +727,7 @@ pub(crate) fn fitted(text: &str, size: f32, room: f32, least: f32) -> (String, f
 fn back_button(c: &mut Canvas) {
     let [x, y, w, h] = BACK;
     c.rect(x, y, w, h, [1.0, 1.0, 1.0, 0.08]);
-    c.label("B: Back", x + w / 2.0, y + h / 2.0 - 22.0, 40.0, WHITE, Align::Center);
+    c.label(pad::hint("{B}: Back"), x + w / 2.0, y + h / 2.0 - 22.0, 40.0, WHITE, Align::Center);
 }
 
 #[cfg(test)]

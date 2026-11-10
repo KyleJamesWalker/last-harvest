@@ -87,6 +87,12 @@ impl Canvas {
         self.shapes.push(Shape::Text { text: text.into(), x, y, size, color, align });
     }
 
+    /// A `pad::hint`, shrunk to the width the RG DS's names give it.
+    pub(crate) fn hint(&mut self, text: &str, x: f32, y: f32, size: f32, color: Color, align: Align) {
+        let (text, fits) = crate::pad::hint_sized(text, size);
+        self.label(text, x, y + (size - fits) / 2.0, fits, color, align);
+    }
+
     pub fn text(&mut self, x: f32, y: f32, scale: f32, color: Color, s: &str) {
         let mut cx = x;
         for ch in s.chars() {
