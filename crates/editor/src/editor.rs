@@ -4434,6 +4434,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let mut e = editor_in(&dir, dir.join("art.txt"));
         assert!(e.names.iter().any(|(n, _)| n == "DATA_TUNING_PLAYER") && e.names.iter().any(|(n, _)| n == "DATA_POWERUPS_PISTOL"));
+        assert!(e.names.iter().any(|(n, _)| n == "DATA_TUNING_DRIVER"), "collection day's numbers");
         assert_eq!(sprite::section("DATA_TUNING_PLAYER"), "Data/tuning");
         assert_eq!((list_label("DATA_GROUND__67"), list_label("DATA_GROUND__47"), list_label("DATA_TUNING_PLAYER")), ("[g]".into(), "[G]".into(), "PLAYER".into()));
         assert!(["DATA_GROUND__2E", "DATA_GROUND__3D", "DATA_GROUND__67"].iter().all(|n| e.names.iter().any(|(m, _)| m == n)), "ground codes list apart");
@@ -4615,6 +4616,7 @@ mod tests {
         let dir = tmp().join("mod-prop");
         let mut e = editor_in(&dir, dir.join("art.txt"));
         e.set_modding();
+        assert!(e.names.iter().any(|(n, _)| n == "DATA_TUNING_DRIVER"), "the card editor's data page lists collection day's numbers");
         e.act(Action::Ask(Ask::New), false);
         e.set_text("PROP_POST");
         e.key(Key::Enter);
