@@ -888,7 +888,7 @@ pub fn scene(h: &Harvest) -> CardScene {
     }
     for d in &h.drops {
         let a = match d.kind {
-            DropKind::Money(_) => super::effects::effects().money.once(f32::MAX),
+            DropKind::Money(_) => super::effects::effects().money.once(d.age),
             DropKind::Health => super::effects::effects().health.looping(d.age),
             DropKind::Chest => super::effects::effects().chest.looping(d.age),
         };

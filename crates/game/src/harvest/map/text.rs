@@ -936,15 +936,26 @@ mod tests {
         assert!(MapSource::parse(&farm("prop_lower 3 3")).unwrap_err().contains("isn't a sprite name"));
     }
 
+    /// Players' props for a test, set while it holds what this returns and cleared when it lets go.
+    struct TestProps {
+        _lock: std::sync::MutexGuard<'static, ()>,
+    }
+
+    impl Drop for TestProps {
+        fn drop(&mut self) {
+            super::super::super::props::set_props(Vec::new());
+        }
+    }
+
     /// Sets the same players' props for every test that needs some, since tests run side by side; hold what it returns.
-    fn test_props() -> std::sync::MutexGuard<'static, ()> {
+    fn test_props() -> TestProps {
         let lock = art::test_lock();
         let read = super::super::super::props::prop_fields;
         let tank = read("[map_test_tank]\nfps 6\nstand slab 4").unwrap();
         let krate = read("[crate_test]\nframes 3\nhp 10\nbroken yes\ncover no").unwrap();
         let (tank_stand, krate_stand) = (tank.stand, krate.stand);
         super::super::super::props::set_props(vec![(tank, vec![(art::WINDMILL_FAN.to_vec(), tank_stand)]), (krate, vec![(art::LOG.to_vec(), krate_stand)])]);
-        lock
+        TestProps { _lock: lock }
     }
 
     #[test]
