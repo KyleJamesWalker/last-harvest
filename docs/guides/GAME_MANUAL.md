@@ -74,14 +74,20 @@ Two settings change the touch controls:
 
 ### Gamepads
 
-On the desktop and in a browser, a gamepad's face buttons map by position, as on the RG DS. On an Xbox pad:
+On the desktop and in a browser, a gamepad's face buttons map by position, as on the RG DS. The hints on screen name the buttons of the pad you used last, by its maker: Microsoft and unrecognized pads show Xbox labels, Sony pads show PlayStation labels, and Nintendo and 8BitDo pads show the RG DS names. After a key press, the hints name the keys.
 
-- Left (X) is Y and right (B) is A, so the left and right buttons turn.
-- Bottom (A) is B, which turns around and backs out of menus.
-- Top (Y) is X, which picks and aims.
-- The bumpers and triggers are L1, R1, L2 and R2.
-- View is Select, and Menu is Start.
-- The d-pad and left stick move you, and the right stick turns.
+| RG DS | Where | Xbox | PlayStation |
+|---|---|---|---|
+| A | Right | B | Circle |
+| B | Bottom | A | Cross |
+| X | Top | Y | Triangle |
+| Y | Left | X | Square |
+| L1 and R1 | Bumpers | LB and RB | L1 and R1 |
+| L2 and R2 | Triggers | LT and RT | L2 and R2 |
+| Select | Left of center | View | Share |
+| Start | Right of center | Menu | Options |
+
+The d-pad and left stick move you, and the right stick turns. On Android and muOS, the hints keep the RG DS names.
 
 ## The night
 
