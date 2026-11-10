@@ -74,9 +74,11 @@ Two settings change the touch controls:
 
 ### Gamepads
 
-A gamepad maps by its labels, as on an Xbox pad:
+On the desktop and in a browser, a gamepad's face buttons map by position, as on the RG DS. On an Xbox pad:
 
-- A, B, X and Y are the same buttons.
+- Left (X) is Y and right (B) is A, so the left and right buttons turn.
+- Bottom (A) is B, which turns around and backs out of menus.
+- Top (Y) is X, which picks and aims.
 - The bumpers and triggers are L1, R1, L2 and R2.
 - View is Select, and Menu is Start.
 - The d-pad and left stick move you, and the right stick turns.
