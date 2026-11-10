@@ -48,6 +48,8 @@ const PICK_TOP: f32 = 194.0;
 const HINT_Y: f32 = 174.0;
 const PICK_CELL: f32 = 57.0;
 const SIZE_Y: f32 = 470.0;
+/// The map page's farm row, under Randomize.
+const FARM_Y: f32 = SIZE_Y + 112.0;
 /// The most zoom, in screen pixels to a map pixel.
 const MAX_SCALE: f32 = 4.0;
 /// Where a prop's hit points and cover show: the selected one's under Move, and an open prop's sprite's under
@@ -385,6 +387,9 @@ impl Editor {
         let with = if props == 0 { String::new() } else { format!(" with {props} prop{}", if props == 1 { "" } else { "s" }) };
         let with = if ground.is_some() { format!("{with}{} its ground.txt", if props == 0 { " with" } else { " and" }) } else { with };
         files.extend(ground.map(|t| ("ground.txt".to_string(), t.into_bytes())));
+        let farm: Files = self.map_farm.iter().flat_map(|id| [last_harvest_game::farm_file(id, false), last_harvest_game::farm_file(id, true)]).filter_map(|f| Some((f.clone(), self.store.read_table(&f)?.into_bytes()))).collect();
+        let with = if farm.is_empty() { with } else { format!("{with}{} the farm {}", if with.is_empty() { " with" } else { " and" }, self.map_farm.as_deref().unwrap_or_default()) };
+        files.extend(farm);
         let note = if missing.is_empty() { String::new() } else { format!("; not kept here: {}", missing.join(", ")) };
         self.say(format!("Exported {id}{with} as {id}.pak: put it in the game's data/mods{note}"));
         Some((format!("{id}.pak"), files))
@@ -414,9 +419,9 @@ impl Editor {
             Some((format!("{}{id}{}", last_harvest_pack::PROPS, last_harvest_pack::prop::EXTENSION), bytes))
         });
         // A data file goes along only where the mod changed it, so the game's own carries on elsewhere.
-        let tables = last_harvest_game::TABLES.into_iter().filter_map(|file| {
-            let text = self.store.read_table(file)?;
-            (last_harvest_game::built_in_table(file) != Some(text.as_str())).then(|| (file.to_string(), text.into_bytes()))
+        let tables = self.table_files().into_iter().filter_map(|file| {
+            let text = self.store.read_table(&file)?;
+            (last_harvest_game::built_in_table(&file) != Some(text.as_str())).then(|| (file, text.into_bytes()))
         });
         maps.chain(props).chain(tables).collect()
     }
@@ -438,7 +443,7 @@ impl Editor {
                 Err(e) => problems.push(e),
             }
         }
-        let (tables, maps): (Files, Files) = maps.into_iter().partition(|(file, _)| last_harvest_game::TABLES.contains(&file.as_str()));
+        let (tables, maps): (Files, Files) = maps.into_iter().partition(|(file, _)| last_harvest_game::table_kind(file).is_some());
         for (file, bytes) in tables {
             let saved = String::from_utf8(bytes).map_err(|_| format!("{file} is not text")).and_then(|t| self.store.save_table(&file, &t));
             match saved {
@@ -625,10 +630,39 @@ impl Editor {
         push(SIDE_X + 182.0, SIZE_Y + 36.0, 46.0, 30.0, Action::MapSize(0, 4), "+", false);
         push(SIDE_X, SIZE_Y + 76.0, 114.0, 30.0, Action::Randomize, "Randomize", false);
         push(SIDE_X + 118.0, SIZE_Y + 76.0, 114.0, 30.0, Action::MapFit, "Fit view", false);
+        push(SIDE_X + 130.0, FARM_Y, 46.0, 30.0, Action::MapFarm(-1), "<", false);
+        push(SIDE_X + 182.0, FARM_Y, 46.0, 30.0, Action::MapFarm(1), ">", false);
+    }
+
+    /// Paints, checks and lays out maps with the map page's farm over the game's, or the game's alone.
+    pub(super) fn use_map_farm(&mut self) {
+        let id = self.map_farm.clone().filter(|id| self.store.farm_ids().contains(id));
+        if id.is_none() && !std::mem::take(&mut self.farm_in_use) {
+            return;
+        }
+        self.farm_in_use = id.is_some();
+        let read = |ground| id.as_ref().and_then(|id| self.store.read_table(&last_harvest_game::farm_file(id, ground)));
+        let (farm, ground) = (read(false), read(true));
+        if let Err(e) = last_harvest_game::use_farm_text(id.as_deref().unwrap_or(""), farm.as_deref(), ground.as_deref()) {
+            _ = last_harvest_game::use_farm_text("", None, None);
+            self.say(format!("Laying out with the game's farm: {e}"));
+        }
+        if let Some(m) = &mut self.map {
+            m.check();
+            m.changed = true;
+        }
+        self.changed = true;
     }
 
     /// Carries out a map action; false if it isn't one.
     pub(super) fn map_act(&mut self, a: Action, shift: bool) -> bool {
+        if let Action::MapFarm(d) = a {
+            self.map_farm = super::step_farm(&self.store.farm_ids(), self.map_farm.as_deref(), d);
+            self.use_map_farm();
+            let which = self.map_farm.as_deref().map_or("the game's farm".to_string(), |id| format!("the farm {id}"));
+            self.say(format!("Painting and Randomize use {which}"));
+            return true;
+        }
         let Some(m) = &mut self.map else { return false };
         match a {
             Action::MapTool(t) => m.tool = t,
@@ -948,6 +982,7 @@ impl Editor {
         let [w, h] = m.src.size;
         c.label(format!("Width {w}"), SIDE_X, SIZE_Y + 6.0, 17.0, TEXT, Align::Left);
         c.label(format!("Height {h}"), SIDE_X, SIZE_Y + 42.0, 17.0, TEXT, Align::Left);
+        c.label(format!("Farm {}", self.map_farm.as_deref().unwrap_or("game's")), SIDE_X, FARM_Y + 6.0, 17.0, TEXT, Align::Left);
         let at = m.hover.map_or(String::new(), |[x, y]| format!("Tile {x} {y}   "));
         c.label(format!("{at}Right-drag or arrows: move   Scroll or pinch: zoom"), CANVAS.x, CANVAS.y + CANVAS.h + 12.0, 16.0, DIM, Align::Left);
         let (line, color) = match &m.problem {
@@ -1245,5 +1280,52 @@ mod prop_tests {
         assert_eq!(fresh.sprite.name, "MAP_BEACON_FARM", "the map opens");
         assert!(other.join("props/beacon.prop.png").exists() && other.join("maps/beacon_farm.map.txt").exists());
         assert!(fresh.names.iter().any(|(n, _)| n == "PROP_BEACON"));
+    }
+
+    #[test]
+    fn a_farm_is_made_given_its_own_ground_and_picked_by_a_map_and_a_player() {
+        let dir = std::env::temp_dir().join(format!("lh-farms-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut e = Editor::new(store(&dir), "DATA_FARM_FIELDS");
+        let typed = |e: &mut Editor, ask: Ask, text: &str| {
+            e.act(Action::Ask(ask), false);
+            text.chars().for_each(|ch| e.key(Key::Char(ch)));
+            e.key(Key::Enter);
+        };
+        typed(&mut e, Ask::Farm, "kd");
+        assert!(dir.join("farms/kd.txt").exists(), "New farm writes it so it lists");
+        assert_eq!((e.sprite.name.as_str(), sprite::section(&e.sprite.name)), ("DATA_FARMS_KD_FIELDS", "Data/farms"));
+        typed(&mut e, Ask::Farm, "kd");
+        assert!(e.status.as_ref().is_some_and(|s| s.0.contains("already")));
+
+        assert!(e.open_table("DATA_GROUND__63"));
+        typed(&mut e, Ask::FarmGround, "kd");
+        assert!(e.open_table("DATA_FARMS_KD_GROUND__63"), "the farm's ground lists with the corn in it");
+        typed(&mut e, Ask::Copy, "K");
+        e.act(Action::Save, false);
+        let ground = std::fs::read_to_string(dir.join("farms/kd.ground.txt")).unwrap();
+        assert!(ground.contains("[c]") && ground.contains("[K]"), "{ground}");
+
+        e.open("BARREL");
+        new(&mut e, "map cane");
+        let has = |code: u8| last_harvest_game::map_ground().iter().any(|(c, _)| *c == code);
+        assert!(!has(b'K'));
+        e.act(Action::MapFarm(1), false);
+        let painted = has(b'K');
+        e.act(Action::MapFarm(1), false);
+        assert!(painted && !has(b'K'), "the map page paints with the farm it picks, then the game's again");
+
+        new(&mut e, "player card kd");
+        e.act(Action::PlayerFarm(-1), false);
+        assert_eq!(last_harvest_game::player_fields(e.sprite.card.as_deref().unwrap()).unwrap().farm.as_deref(), Some("kd"));
+        e.act(Action::PlayerFarm(1), false);
+        assert_eq!(last_harvest_game::player_fields(e.sprite.card.as_deref().unwrap()).unwrap().farm, None, "and back to the game's");
+
+        assert!(e.open_table("DATA_FARMS_KD_GROUND__4B"));
+        e.act(Action::Delete, false);
+        assert!(dir.join("farms/kd.ground.txt").exists(), "the first press only asks");
+        e.act(Action::Delete, false);
+        assert!(!dir.join("farms/kd.ground.txt").exists() && e.none_open());
+        assert_eq!(e.store.farm_ids(), ["kd"], "the farm's rules stay");
     }
 }

@@ -100,6 +100,17 @@ pub trait Store {
         Err("the game's data files aren't kept here".into())
     }
 
+    /// The farms a player card can pick that are kept here, by id, sorted: each a `farms/<id>.txt`, a
+    /// `farms/<id>.ground.txt` or both, read and saved as data files.
+    fn farm_ids(&self) -> Vec<String> {
+        Vec::new()
+    }
+
+    /// Removes a farm's data file for good, as a farm's Delete does; one that isn't kept is no matter.
+    fn delete_table(&self, _file: &str) -> Result<(), String> {
+        Err("farms aren't kept here".into())
+    }
+
     /// The Lospec palette called `name`, as its `.hex` file, fetched where this machine can reach lospec.com.
     fn lospec(&self, _name: &str) -> Result<String, String> {
         Err("This editor can't reach lospec.com: download the palette's .hex file there and load it with Palette file".into())
@@ -109,6 +120,14 @@ pub trait Store {
     fn load(&self, name: &str) -> Option<Sprite> {
         Sprite::load_from(name, |file| self.read(name, file))
     }
+}
+
+/// The farms among data files' paths, by id, sorted, each once.
+pub fn farm_ids(files: impl IntoIterator<Item = String>) -> Vec<String> {
+    let mut ids: Vec<String> = files.into_iter().filter_map(|f| last_harvest_game::farm_of_file(&f).map(|(id, _)| id.to_string())).collect();
+    ids.sort();
+    ids.dedup();
+    ids
 }
 
 /// Players' props as the editor sees them: one PNG each, opened as a sprite `PROP_<ID>` whose text rides along
@@ -559,6 +578,12 @@ mod fs {
             self.cards.with_file_name("maps")
         }
 
+        /// A farm's data file, in a `farms` folder beside the cards.
+        fn farm_path(&self, file: &str) -> Option<PathBuf> {
+            last_harvest_game::farm_of_file(file)?;
+            Some(self.cards.with_file_name("farms").join(file.strip_prefix(last_harvest_game::FARM_DIR)?))
+        }
+
         /// Props keep to a `props` folder beside the cards.
         fn prop_path(&self, id: &str) -> PathBuf {
             self.cards.with_file_name("props").join(format!("{id}{}", last_harvest_pack::prop::EXTENSION))
@@ -741,6 +766,9 @@ mod fs {
         }
 
         fn read_table(&self, file: &str) -> Option<String> {
+            if let Some(path) = self.farm_path(file) {
+                return std::fs::read_to_string(path).ok();
+            }
             last_harvest_game::built_in_table(file)?;
             std::fs::read_to_string(self.catalog.with_file_name(file)).ok().or_else(|| last_harvest_game::built_in_table(file).map(str::to_string))
         }
@@ -748,6 +776,11 @@ mod fs {
         /// Writes a data file beside the catalog, which the game's build takes in, once the game would read it as
         /// its own.
         fn save_table(&self, file: &str, text: &str) -> Result<(), String> {
+            if let Some(path) = self.farm_path(file) {
+                last_harvest_game::check_table(file, text)?;
+                std::fs::create_dir_all(path.parent().unwrap_or(&self.cards)).map_err(|e| e.to_string())?;
+                return std::fs::write(&path, text).map_err(|e| format!("{}: {e}", path.display()));
+            }
             last_harvest_game::check_own_table(file, text)?;
             let path = self.catalog.with_file_name(file);
             std::fs::write(&path, text).map_err(|e| format!("{}: {e}", path.display()))
@@ -765,6 +798,20 @@ mod fs {
             }
             let path = self.prop_path(id);
             std::fs::remove_file(&path).map_err(|e| format!("{}: {e}", path.display()))
+        }
+
+        fn farm_ids(&self) -> Vec<String> {
+            let found = std::fs::read_dir(self.cards.with_file_name("farms")).into_iter().flatten().flatten();
+            let files = found.filter_map(|e| e.file_name().into_string().ok()).map(|n| format!("{}{n}", last_harvest_game::FARM_DIR));
+            super::farm_ids(files)
+        }
+
+        fn delete_table(&self, file: &str) -> Result<(), String> {
+            let path = self.farm_path(file).ok_or_else(|| format!("{file} isn't a farm's"))?;
+            match std::fs::remove_file(&path) {
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(format!("{}: {e}", path.display())),
+                _ => Ok(()),
+            }
         }
 
         fn delete_map(&self, id: &str) -> Result<(), String> {

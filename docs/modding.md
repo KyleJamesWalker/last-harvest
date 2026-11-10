@@ -51,6 +51,7 @@ A player card, `<id>.player.png`, changes the player's look and can change the s
 - An optional `about` line, up to 80 printable ASCII characters.
 - A `start DIFFICULTY WEAPON...` line for each difficulty whose starting weapons it sets, such as `start normal crows knife`. A weapon can be one the pack's own `powerups.txt` adds. A difficulty without a line keeps the game's own.
 - Optional `hp`, `speed` and `magnet` lines for the start of a run. The rest come from `tuning.txt`.
+- An optional `farm ID` line: the [farm](#a-players-own-farm) this player's runs lay out and paint with. Without one, or when no pack brings that farm, the player plays on the game's.
 
 An optional uncompressed `last-harvest-worn` chunk says where the walking frames wear a ready grenade. Each `front`, `side` or `back` line gives `X Y` per frame, split by `;`, and the last pair carries on. `hide` leaves the grenade off. A facing without a line wears it on the right hip. The game's own player keeps the same in `grenade.txt` beside its frames.
 
@@ -128,7 +129,7 @@ A mod pack is a `.pak` file: a ZIP in the same layout as `game_data.pak`. The ga
 - a sound in `sounds/`
 - a card in `enemies/` or `players/`
 - a prop in `props/` or a map in `maps/`
-- a [data file](#data-files)
+- a [data file](#data-files), or a [farm](#a-players-own-farm) in `farms/`
 
 A card in `data/enemies/` or `data/players/` replaces a pack's card with the same file name. A pack with an atlas works only with the game version it came from. The game leaves out a pack that would break it, and Stats counts the cards and packs that loaded.
 
@@ -253,6 +254,23 @@ Ground codes come from `ground.txt`. A sprite can be `PROP_<ID>`; one with sever
     - `door N`: tiles in from its left to its door.
     - `near NAME N [door]`: a sprite within N tiles of the building's middle, or of its door step.
     - `near windmill` or `near graveyard`: the windmill with its fan, or tombstones in a picket fence.
+
+### A player's own farm
+
+A pack's `farm.txt` and `ground.txt` change every player's runs. A farm changes only the runs of a player whose card picks it with a `farm ID` line. It is one or both of:
+
+- `farms/<id>.txt`: a whole [`farm.txt`](#farmtxt), in place of the game's. Without it, the farm lays out as `farm.txt` says.
+- `farms/<id>.ground.txt`: [`ground.txt`](#groundtxt) sections laid over the game's by code. A section replaces the game's code of the same name, and a new code joins the rest. List only the codes that change.
+
+The id is 1 to 24 lowercase letters, digits and `_`. The farm's ground applies to the whole run, hand-made maps included, so a player can repaint the game's own tiles. A hand-made map may paint a code that only a farm brings. The game checks each farm at start and leaves out one that won't read, or whose ground codes are missing; its players play on the game's. Loose farms in `data/farms/` replace a pack's farm of the same id.
+
+In the card editor:
+
+1. Open any page of Data > random farm, or of a farm, and press **New farm**. Name it, such as `kd`. It lists under Data > farms, as `DATA_FARMS_KD_...`, a copy of the farm you were on.
+2. Open a ground code under Data > ground, such as `[c]`, and press **To farm** with the farm's id. The code joins `farms/kd.ground.txt`.
+3. Open it there and change it, or press **Copy** and type one character for a new code, such as `k`. Add the new code to the farm's `crops` line.
+4. On the player card's Stats page, **Plays on the farm** < and > pick it.
+5. On a map, the **Farm** row's < and > pick the farm that painting and **Randomize** use.
 
 ### effects.txt
 

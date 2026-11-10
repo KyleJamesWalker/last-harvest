@@ -191,6 +191,18 @@ impl Store for LocalStore {
         self.keyed(MAP_KEY)
     }
 
+    fn farm_ids(&self) -> Vec<String> {
+        let files = self.keyed(&format!("{TABLE_KEY}{}", last_harvest_game::FARM_DIR));
+        sprite_editor::store::farm_ids(files.into_iter().map(|f| format!("{}{f}", last_harvest_game::FARM_DIR)))
+    }
+
+    fn delete_table(&self, file: &str) -> Result<(), String> {
+        if last_harvest_game::farm_of_file(file).is_none() {
+            return Err(format!("{file} isn't a farm's"));
+        }
+        self.storage.remove_item(&format!("{TABLE_KEY}{file}")).map_err(|_| "the browser wouldn't remove it".to_string())
+    }
+
     fn read_map(&self, id: &str) -> Option<String> {
         self.storage.get_item(&format!("{MAP_KEY}{id}")).ok()?
     }
@@ -200,6 +212,9 @@ impl Store for LocalStore {
     }
 
     fn read_table(&self, file: &str) -> Option<String> {
+        if last_harvest_game::farm_of_file(file).is_some() {
+            return self.storage.get_item(&format!("{TABLE_KEY}{file}")).ok()?;
+        }
         let built_in = last_harvest_game::built_in_table(file)?;
         Some(self.storage.get_item(&format!("{TABLE_KEY}{file}")).ok().flatten().unwrap_or_else(|| built_in.to_string()))
     }
@@ -208,7 +223,7 @@ impl Store for LocalStore {
     fn save_table(&self, file: &str, text: &str) -> Result<(), String> {
         last_harvest_game::check_table(file, text)?;
         let key = format!("{TABLE_KEY}{file}");
-        if last_harvest_game::built_in_table(file) == Some(text) {
+        if last_harvest_game::farm_of_file(file).is_none() && last_harvest_game::built_in_table(file) == Some(text) {
             let _ = self.storage.remove_item(&key);
             return Ok(());
         }

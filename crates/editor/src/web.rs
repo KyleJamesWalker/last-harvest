@@ -807,6 +807,7 @@ mod modding {
         cards.extend(pak.take_dir(last_harvest_pack::PLAYER_CARDS));
         let mut maps = pak.take_dir(last_harvest_pack::MAPS);
         maps.extend(last_harvest_game::TABLES.into_iter().filter_map(|file| Some((file.to_string(), pak.take(file)?))));
+        maps.extend(pak.take_dir(last_harvest_pack::FARMS).into_iter().map(|(name, bytes)| (format!("{}{name}", last_harvest_pack::FARMS), bytes)));
         Ok((cards, pak.take_dir(last_harvest_pack::SOUNDS), maps, pak.take_dir(last_harvest_pack::PROPS)))
     }
 
