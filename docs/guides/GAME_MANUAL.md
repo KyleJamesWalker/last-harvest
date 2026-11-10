@@ -92,7 +92,7 @@ A night lasts ten minutes, from dusk to dawn. A bell rings each minute.
 - **Grenades:** you start with one, or two on Easy. Each recharges in 12 seconds.
 - **Barrels:** shooting a red barrel sets it off. Hold X, and your guns go for the barrels in view. A blast close to you hurts you too.
 - **Hordes** arrive during the night, each led by a gold-lit leader. The leader drops a chest.
-- **Collection day:** five minutes in, the driver by the gas station's truck holds a ticket. Cash bobs over his head, and a gold ring marks him on the map. Walk up to him, and every coin on the farm flies to you at once. That can be several level-ups in a row. He holds a new ticket five minutes after each cash-in.
+- **Soul harvest:** five minutes in, the Collector by the gas station's truck holds a tithe. A heart bobs over his head, and a gold ring marks him on the map. Walk up to him, and every heart on the farm is drawn to you at once. That can be several level-ups in a row. He holds a new tithe five minutes after each soul harvest.
 - **Dawn:** the Harvester wakes behind you, and the dead grow 1% stronger every second. Run back to the farmhouse's front step to survive.
 - **More Harvesters:** kill the Harvester, and 30 seconds later two more rise. Every 30 seconds another wave comes, one bigger, up to six, until you get home.
 - **Falling:** if you fall, you rise as one of the dead and lead them to the next farm.
@@ -375,7 +375,7 @@ Three props can make a crop, such as wheat, that a ground code grows down a fiel
 
 Maps list under Maps as `MAP_<ID>`. The canvas shows the map from above, and a line under it says whether the game would load it.
 
-A truck on a map brings its driver, and with him collection day. A map without a truck has none.
+A truck on a map brings its driver, the Collector, and with him the soul harvest. A map without a truck has none.
 
 | Tool | What it does |
 |---|---|

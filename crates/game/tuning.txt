@@ -74,9 +74,9 @@ again 30        # seconds between waves of them once the first falls, each wave 
 most 6          # most Harvesters in one wave
 
 [driver]
-after 300       # seconds into the night the gas station's driver first holds a collection ticket; 0 for never
-every 300       # seconds from one cash-in to his next ticket
-reach 24        # how near him the player cashes a ticket in, and every coin on the map flies to them
+after 300       # seconds into the night the Collector at the gas station first holds a tithe; 0 for never
+every 300       # seconds from one soul harvest to his next tithe
+reach 24        # how near him the player pays the tithe, and every heart on the map flies to them
 
 [grenade]
 recharge 12     # seconds to earn a grenade back, before upgrades
