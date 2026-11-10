@@ -57,6 +57,7 @@ scripts/debug.sh swipe 300 650 650 250 120  # drag over 120 ms
 scripts/debug.sh shot out.png               # save both screens, top above bottom
 scripts/debug.sh sleep 5                    # suspend, then wake on the RTC alarm
 scripts/debug.sh state                      # log the player's position and the cells and props around them
+scripts/debug.sh pad xbox                   # name buttons as an Xbox pad does: nintendo, xbox, playstation, keyboard
 scripts/debug.sh panic                      # crash on purpose, to test crash.log
 scripts/debug.sh logs                       # follow the log, with FPS and CPU times each second
 ```

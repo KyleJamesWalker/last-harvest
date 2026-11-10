@@ -252,13 +252,17 @@ impl App {
                 #[cfg(not(target_os = "linux"))]
                 debug::Command::Sleep(secs) => log!("debug: sleep {secs} needs the device"),
                 debug::Command::Panic => panic!("debug: panic requested"),
+                debug::Command::Pad(family) => self.game.set_pad_family(family),
             }
         }
         if let Some(line) = self.game.bench_report(|work| { let t = Instant::now(); work(); t.elapsed().as_secs_f64() }) { eprintln!("{line}"); }
         let mut raw = self.raw_input();
         #[cfg(any(target_os = "macos", windows))]
         {
-            let (held, stick, look) = self.pads.read();
+            let (held, stick, look, used) = self.pads.read();
+            if let Some(family) = used {
+                self.game.set_pad_family(family);
+            }
             raw.held |= held;
             raw.stick = stick;
             raw.look = look;
@@ -443,6 +447,10 @@ impl ApplicationHandler for App {
                     _ => {
                         if let Some(b) = key_button(code) {
                             self.keys.set(b, down);
+                            #[cfg(any(target_os = "macos", windows))]
+                            if down {
+                                self.game.set_pad_family(last_harvest_game::PadFamily::Keyboard);
+                            }
                         }
                     }
                 }
