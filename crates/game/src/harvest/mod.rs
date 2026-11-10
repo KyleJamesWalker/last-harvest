@@ -743,6 +743,11 @@ pub struct Harvest {
     rerolls: u32,
     /// Banish is armed from its on-screen key: the next card tapped is banished, not taken.
     banishing: bool,
+    /// The powerup the player favored, by place in the book, and the favors the run has left.
+    favored: Option<usize>,
+    favors: u32,
+    /// Favor is armed from its on-screen key: the next card tapped is taken and favored.
+    favoring: bool,
     /// The level-up's `t` when each card on show was dealt, so a card dealt again slides in again.
     dealt: [f32; 3],
     /// The next zombie to rise leads the horde.
@@ -976,6 +981,9 @@ impl Harvest {
             banishes: crate::tuning::tuning().banish as u32,
             rerolls: crate::tuning::tuning().reroll as u32,
             banishing: false,
+            favored: None,
+            favors: crate::tuning::tuning().favor as u32,
+            favoring: false,
             dealt: [0.0; 3],
             leader_owed: false,
             fury: 1.0,
@@ -1349,7 +1357,7 @@ impl Harvest {
                 sounds.push(Sfx::Tick(selected as u8 * 3));
             }
             let tap = input.touch.filter(|_| input.touch_started);
-            let key = tap.and_then(level_key);
+            let key = tap.and_then(|p| level_key(p, self.level));
             let tapped = tap.and_then(|[_, y]| choice_row(y)).filter(|&i| i < 3);
             // X picks, not A: A turns, and a player still holding it as the cards appear shouldn't pick by accident.
             if input.pressed.contains(Buttons::R1) || key == Some(LevelKey::Reroll) {
@@ -1357,28 +1365,59 @@ impl Harvest {
             } else if key == Some(LevelKey::Banish) {
                 let armed = !self.banishing && self.banishes > 0 && choices.iter().any(|c| book().defs[c.up].kind != Card::Filler);
                 sounds.push(if armed || self.banishing { Sfx::Tick(6) } else { Sfx::Miss });
-                self.banishing = armed;
+                (self.banishing, self.favoring) = (armed, false);
+            } else if key == Some(LevelKey::Favor) {
+                let armed = !self.favoring && self.can_favor() && choices.iter().any(|c| book().defs[c.up].kind != Card::Filler);
+                sounds.push(if armed || self.favoring { Sfx::Tick(9) } else { Sfx::Miss });
+                (self.favoring, self.banishing) = (armed, false);
             } else if let Some(i) = tapped.filter(|_| self.banishing).or(input.pressed.contains(Buttons::L1).then_some(selected)) {
                 self.banish(&mut choices, i, t, sounds);
                 selected = i;
+            } else if let Some(i) = tapped.filter(|_| self.favoring).or(input.pressed.contains(Buttons::Y).then_some(selected)) {
+                self.favoring = false;
+                if self.favor(choices[i].up) {
+                    self.take(choices[i], sounds);
+                    (selected, picked) = (i, Some(0.0));
+                } else {
+                    sounds.push(Sfx::Miss);
+                }
             } else if let Some(i) = tapped.or(input.pressed.contains(Buttons::X).then_some(selected)) {
-                let c = choices[i];
-                self.pick(c);
-                self.chest = false;
-                self.banishing = false;
-                self.xp_shown = 0.0;
-                sounds.push(Sfx::Pick(c.rare));
-                selected = i;
-                picked = Some(0.0);
+                self.take(choices[i], sounds);
+                (selected, picked) = (i, Some(0.0));
             }
         }
         self.phase = Phase::LevelUp { choices, selected, t, picked };
     }
 
+    /// Takes a card as the run's pick.
+    fn take(&mut self, c: Choice, sounds: &mut Vec<Sfx>) {
+        self.pick(c);
+        self.chest = false;
+        (self.banishing, self.favoring) = (false, false);
+        self.xp_shown = 0.0;
+        sounds.push(Sfx::Pick(c.rare));
+    }
+
+    /// Whether the run can favor a card now: it has a favor left and has reached `favor_level`.
+    fn can_favor(&self) -> bool {
+        self.favors > 0 && self.level as f32 >= crate::tuning::tuning().favor_level
+    }
+
+    /// Y, or Favor then a card: `up` becomes `favor_weight` times as likely for the rest of the run, and the card is
+    /// taken. A filler can't be favored. False when it isn't.
+    fn favor(&mut self, up: usize) -> bool {
+        if !self.can_favor() || book().defs[up].kind == Card::Filler {
+            return false;
+        }
+        self.favors -= 1;
+        self.favored = Some(up);
+        true
+    }
+
     /// L1, or Banish then a card: that card's powerup leaves this run's cards, and its place is dealt again. A
     /// filler can't be banished, as fillers only come up once nothing else can.
     fn banish(&mut self, choices: &mut [Choice; 3], i: usize, t: f32, sounds: &mut Vec<Sfx>) {
-        self.banishing = false;
+        (self.banishing, self.favoring) = (false, false);
         let up = choices[i].up;
         if self.banishes == 0 || book().defs[up].kind == Card::Filler {
             sounds.push(Sfx::Miss);
@@ -1395,7 +1434,7 @@ impl Harvest {
     /// R1, or Reroll: three new cards, kept apart from the three on show while the pool allows, with the same chance
     /// of a find, or a chest's find.
     fn reroll(&mut self, choices: &mut [Choice; 3], t: f32, sounds: &mut Vec<Sfx>) {
-        self.banishing = false;
+        (self.banishing, self.favoring) = (false, false);
         if self.rerolls == 0 {
             sounds.push(Sfx::Miss);
             return;
@@ -1412,7 +1451,7 @@ impl Harvest {
             self.leveling -= dt;
             if self.leveling <= 0.0 {
                 self.dealt = [0.0; 3];
-                self.banishing = false;
+                (self.banishing, self.favoring) = (false, false);
                 self.phase = Phase::LevelUp { choices: self.roll_choices(&[]), selected: 0, t: 0.0, picked: None };
                 self.glory = 0.25;
                 return;
@@ -1752,7 +1791,7 @@ impl Harvest {
     }
 
     /// One card that isn't among `shown`, nor among `avoid` while others are left. A powerup the player holds
-    /// counts `held_weight` times in the draw.
+    /// counts `held_weight` times in the draw, and the favored one `favor_weight` times that.
     fn deal(&mut self, shown: &[Choice], avoid: &[Choice]) -> Choice {
         let b = book();
         let free = |i: &usize| !shown.iter().any(|c| c.up == *i);
@@ -1760,7 +1799,8 @@ impl Harvest {
         let fresh: Vec<usize> = pool.iter().copied().filter(|i| !avoid.iter().any(|c| c.up == *i)).collect();
         let up = match if fresh.is_empty() { pool } else { fresh } {
             from if !from.is_empty() => {
-                let weights: Vec<f32> = from.iter().map(|&i| if self.kit.level(i) > 0 { self.held_weight } else { 1.0 }).collect();
+                let favor = crate::tuning::tuning().favor_weight;
+                let weights: Vec<f32> = from.iter().map(|&i| if self.kit.level(i) > 0 { self.held_weight } else { 1.0 } * if self.favored == Some(i) { favor } else { 1.0 }).collect();
                 let mut r = self.rng.range(0.0, weights.iter().sum());
                 let at = weights.iter().position(|w| {
                     r -= w;
@@ -2680,21 +2720,29 @@ fn choice_row(y: f32) -> Option<usize> {
 enum LevelKey {
     Banish,
     Reroll,
+    Favor,
 }
 
 /// The level-up's on-screen keys under the cards, each with its x, y, width and height on the bottom screen.
-const LEVEL_KEYS: [(LevelKey, [f32; 4]); 2] = [
-    (LevelKey::Banish, [112.0, CHOICE_TOP + 3.0 * CHOICE_ROW, 390.0, CHOICE_ROW - 40.0]),
-    (LevelKey::Reroll, [522.0, CHOICE_TOP + 3.0 * CHOICE_ROW, 390.0, CHOICE_ROW - 40.0]),
+const LEVEL_KEYS: [(LevelKey, [f32; 4]); 3] = [
+    (LevelKey::Banish, [112.0, CHOICE_TOP + 3.0 * CHOICE_ROW, 256.0, CHOICE_ROW - 40.0]),
+    (LevelKey::Reroll, [384.0, CHOICE_TOP + 3.0 * CHOICE_ROW, 256.0, CHOICE_ROW - 40.0]),
+    (LevelKey::Favor, [656.0, CHOICE_TOP + 3.0 * CHOICE_ROW, 256.0, CHOICE_ROW - 40.0]),
 ];
 
-/// Which level-up key a bottom-screen touch lands on, if `tuning.txt` gives the run any of it.
-fn level_key([x, y]: [f32; 2]) -> Option<LevelKey> {
+/// Whether a level-up key shows: `tuning.txt` gives the run some of it, and Favor only from `favor_level`.
+fn level_key_shows(key: LevelKey, level: u32) -> bool {
     let t = crate::tuning::tuning();
-    LEVEL_KEYS
-        .iter()
-        .find(|(k, [kx, ky, w, h])| (*kx..kx + w).contains(&x) && (*ky..ky + h).contains(&y) && if *k == LevelKey::Banish { t.banish } else { t.reroll } >= 1.0)
-        .map(|(k, _)| *k)
+    match key {
+        LevelKey::Banish => t.banish >= 1.0,
+        LevelKey::Reroll => t.reroll >= 1.0,
+        LevelKey::Favor => t.favor >= 1.0 && level as f32 >= t.favor_level,
+    }
+}
+
+/// Which level-up key a bottom-screen touch lands on, among those showing at `level`.
+fn level_key([x, y]: [f32; 2], level: u32) -> Option<LevelKey> {
+    LEVEL_KEYS.iter().find(|(k, [kx, ky, w, h])| (*kx..kx + w).contains(&x) && (*ky..ky + h).contains(&y) && level_key_shows(*k, level)).map(|(k, _)| *k)
 }
 
 /// Lands a hit: damage (now and then doubled), knockback, a red flash, a squash, a number and a spray of blood.
@@ -3199,6 +3247,59 @@ mod tests {
         h.update(&Input::default(), CARDS_IN, &mut Vec::new());
         h.update(&tap(card(2.0)), 0.016, &mut Vec::new());
         assert!(matches!(h.phase, Phase::LevelUp { picked: Some(_), .. }), "a plain tap still takes a card");
+    }
+
+    #[test]
+    fn y_favors_and_takes_the_selected_card_only_from_favor_level() {
+        let t = crate::tuning::tuning();
+        let mut h = Harvest::new(2);
+        h.favors = 1;
+        h.level = t.favor_level as u32 - 1;
+        level_up_on(&mut h, ["shotgun", "pistol", "running_shoes"]);
+        let mut sounds = Vec::new();
+        h.update(&Input { pressed: Buttons::Y, ..Default::default() }, 0.016, &mut sounds);
+        assert!(matches!(h.phase, Phase::LevelUp { picked: None, .. }) && h.favored.is_none() && sounds.contains(&Sfx::Miss), "not before favor_level");
+        h.level = t.favor_level as u32;
+        let pistol = book().index("pistol").unwrap();
+        let was = h.kit.level(pistol);
+        h.update(&Input { pressed: Buttons::Y, ..Default::default() }, 0.016, &mut Vec::new());
+        assert!(matches!(h.phase, Phase::LevelUp { picked: Some(_), .. }), "a favor is a pick");
+        assert_eq!((h.favored, h.favors, h.kit.level(pistol)), (Some(pistol), 0, was + 1));
+    }
+
+    #[test]
+    fn a_favored_powerup_comes_up_favor_weight_times_as_often() {
+        let mut h = Harvest::new(2);
+        h.held_weight = 1.0;
+        let pool: Vec<usize> = (0..book().defs.len()).filter(|&i| h.progress.owns(i) && h.kit.offerable(i)).collect();
+        let favored = pool[0];
+        h.favored = Some(favored);
+        let n = 30000;
+        let hits = (0..n).filter(|_| h.deal(&[], &[]).up == favored).count() as f32;
+        let w = crate::tuning::tuning().favor_weight;
+        let expected = w / (w + pool.len() as f32 - 1.0);
+        assert!((hits / n as f32 - expected).abs() < 0.02, "came up {} of the time, for {expected}", hits / n as f32);
+    }
+
+    #[test]
+    fn the_favor_key_shows_from_favor_level_and_a_tap_on_a_card_takes_and_favors_it() {
+        let t = crate::tuning::tuning();
+        let mut h = Harvest::new(2);
+        h.favors = 1;
+        h.level = t.favor_level as u32 - 1;
+        level_up_on(&mut h, ["shotgun", "pistol", "running_shoes"]);
+        let tap = |at: [f32; 2]| Input { touch: Some(at), touch_started: true, ..Default::default() };
+        let mid = LEVEL_KEYS.iter().find(|k| k.0 == LevelKey::Favor).map(|(_, [x, y, w, h])| [x + w / 2.0, y + h / 2.0]).unwrap();
+        assert_eq!(level_key(mid, h.level), None, "hidden before favor_level");
+        h.level += 1;
+        h.update(&tap(mid), 0.016, &mut Vec::new());
+        assert!(h.favoring);
+        h.update(&tap(mid), 0.016, &mut Vec::new());
+        assert!(!h.favoring, "a second tap cancels");
+        h.update(&tap(mid), 0.016, &mut Vec::new());
+        h.update(&tap([500.0, CHOICE_TOP + CHOICE_ROW * 2.5]), 0.016, &mut Vec::new());
+        assert_eq!(h.favored, book().index("running_shoes"));
+        assert!(!h.favoring && matches!(h.phase, Phase::LevelUp { picked: Some(_), .. }));
     }
 
     #[test]
