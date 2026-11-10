@@ -235,9 +235,10 @@ The mix of zombies shifts minute by minute, and some kinds arrive only after a s
 
 ## Menus and settings
 
-The title's bottom screen lists Play, Map, Settings, Stats and Credits, and Quit where the game can quit. Up and Down choose a row, A or a tap opens it, and B goes back. The top screen shows the game's version.
+The title's bottom screen lists Play, Map, How to play, Settings, Stats and Credits, and Quit where the game can quit. Up and Down choose a row, A or a tap opens it, and B goes back. The top screen shows the game's version.
 
 - **Map** picks a hand-made map, or a random farm, for every run after.
+- **How to play** sums up the controls, hearts and level-ups, grenades, the map and the run home at dawn, in the buttons or touch controls you play with. A new save shows it at the first Play: A or a tap then starts the run, and B goes back to the menu. Elsewhere A, B, Start or a tap closes it.
 - **Stats** lists your records, including the best damage a second over a whole run. It also counts the cards and mod packs that loaded.
 - **History**, from Stats with A or its button, shows the last 10 runs, newest first, five to a page. Each run lists its difficulty, Turned or Home at dawn, its time, level and damage a second, and the powerups it ended with. Left and Right turn the page.
 - **Credits** names who made the game, its art, its template and its font.
