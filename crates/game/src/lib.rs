@@ -34,8 +34,8 @@ pub use harvest::{NamedProp, load_props_for_checks, PROP_MAX_FRAME, PROP_MAX_FRA
 pub use harvest::{RangeSetup, effects_with, powerups_with};
 pub use harvest::{WeaponLevels, weapon_behaviours, weapon_levels, weapon_patterns, weapon_sound_names, weapon_stats, weapon_targets};
 pub use harvest::{SHOT_SPRITES, Shot, shot_named, shot_sprite_names};
-pub use harvest::{TABLES, built_in_table, check_own_table, check_table, default_prop_depth, MAP_EXTENSION, map_ground, set_map_ground, CropSway, MAP_MAX, MAP_MIN, map_props, parse_props, MapSource, PROP_MAX_HP, PropKind, PropLine, PropTough, check_map, valid_map_id};
-pub use harvest::{ABOUT_MAX, CARD_FLAGS, CARD_MAX_FRAME, card_frame_most, CARD_NUMBERS, MAX_WALK, PLAYER_BASE_KEYS, PLAYER_ID_MAX, PlayerFields, PlayerLook, default_start, flash_pixel, frame_limits, hurt_pixel, player_fields, player_looks, set_player_start, weapon_slots, weapons, CardFields, night_minutes, SpawnMix, card_fields, check_tables, kill_sound, kill_sounds, kill_weight, set_card_field, spawn_mix};
+pub use harvest::{TABLES, built_in_table, check_own_table, check_table, default_prop_depth, MAP_EXTENSION, map_ground, set_map_ground, CropSway, MAP_MAX, MAP_MIN, map_props, parse_props, MapSource, PROP_MAX_HP, PropKind, PropLine, PropTough, check_map, valid_map_id, FARM_ID_MAX, farm_ids, use_farm, valid_farm_id};
+pub use harvest::{ABOUT_MAX, CARD_FLAGS, CARD_MAX_FRAME, card_frame_most, CARD_NUMBERS, MAX_WALK, PLAYER_BASE_KEYS, PLAYER_ID_MAX, PlayerFields, PlayerLook, default_start, flash_pixel, frame_limits, hurt_pixel, player_fields, player_looks, set_player_farm, set_player_start, use_player_farm, weapon_slots, weapons, CardFields, night_minutes, SpawnMix, card_fields, check_tables, kill_sound, kill_sounds, kill_weight, set_card_field, spawn_mix};
 pub use input::{Buttons, Input, InputTracker, MAX_TOUCHES, RawInput};
 pub use save::{Save, TouchControls};
 pub use sfx::Sfx;
@@ -359,12 +359,14 @@ impl Game {
         self.bench_due = matches!(scene, Scene::Bench(_) | Scene::BenchCorn(_));
         let seed = self.rng.next_u32() as u64 + 1;
         self.single_scene = scene == Scene::Single;
+        harvest::use_farm(None);
         self.state = match scene {
             Scene::Title => {
                 self.page = Page::Main;
                 State::Title
             }
             Scene::Harvest | Scene::Single => {
+                harvest::use_player_farm(self.save.player.as_str());
                 self.sounds.push(Sfx::Start);
                 State::Harvest(Box::new(harvest::Harvest::on(seed, self.save.map.as_str()).at(self.save.difficulty).with_progress(self.progress()).without_enemies(self.save.enemies_off).looking_like(self.save.player.as_str()).with_kit(&self.kit).starting_at(self.start_t).single_screen(self.one_screen()).endless_grenades(self.endless)))
             }

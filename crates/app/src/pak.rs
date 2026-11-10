@@ -246,6 +246,7 @@ fn install_noting(base: Option<Pak>, missing_pack: Option<String>, more: Vec<(St
     let mut text = |file: &str| pak.take(file).map(String::from_utf8).transpose().map_err(|_| format!("{file} is not UTF-8"));
     let (powerups, enemies, props_table, tuning, effects) = (text(pack::POWERUPS)?, text(pack::ENEMIES)?, text(pack::PROPS_TABLE)?, text(pack::TUNING)?, text(pack::EFFECTS)?);
     let (ground, farm) = (text(pack::GROUND)?, text(pack::FARM)?);
+    let farms = pak.farms().into_iter().filter_map(|f| f.map_err(|e| problems.push(e)).ok()).collect();
     let powerups = match TRIED.lock().ok().and_then(|t| t.clone()) {
         Some(section) => match last_harvest_game::powerups_with(powerups.as_deref().or(last_harvest_game::built_in_table("powerups.txt")).unwrap_or_default(), &section) {
             Ok(text) => Some(text),
@@ -272,7 +273,7 @@ fn install_noting(base: Option<Pak>, missing_pack: Option<String>, more: Vec<(St
     let players = read_cards(player, pak.take_dir(pack::PLAYER_CARDS), &mut problems, &mut Vec::new());
     let maps = read_maps(pak.take_dir(pack::MAPS), &mut problems);
     let props = read_props(pak.take_dir(pack::PROPS), &mut problems);
-    let mut data = Data { atlas: pak.take(pack::ATLAS), font: pak.take(pack::FONT), powerups, enemies, props_table, tuning, effects, ground, farm, cards, players, props, maps };
+    let mut data = Data { atlas: pak.take(pack::ATLAS), font: pak.take(pack::FONT), powerups, enemies, props_table, tuning, effects, ground, farm, farms, cards, players, props, maps };
     if missing_pack.is_some() && data.atlas.is_none() {
         data.atlas = Some(vec![0; (art::ATLAS_W * art::ATLAS_H * 4) as usize]);
     }

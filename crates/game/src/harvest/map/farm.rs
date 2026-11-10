@@ -435,8 +435,11 @@ pub fn check_codes(f: &Farm, ground: &[super::ground::Ground]) -> Result<(), Str
     }
 }
 
-/// How the random farm lays itself out, read the first time it's asked for.
+/// How the random farm lays itself out: the farm in use's, else `farm.txt`, read the first time it's asked for.
 pub fn farm() -> &'static Farm {
+    if let Some(f) = super::farms::active_farm() {
+        return f;
+    }
     static F: OnceLock<Farm> = OnceLock::new();
     F.get_or_init(|| parse(crate::data::farm()).unwrap_or_else(|e| panic!("farm.txt:{e}")))
 }

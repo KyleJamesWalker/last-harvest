@@ -4,9 +4,12 @@ use crate::art::{self, Art};
 use crate::rng::Rng;
 
 mod farm;
+mod farms;
 mod ground;
 mod text;
 pub use farm::parse as parse_farm;
+pub use farms::{ID_MAX as FARM_ID_MAX, ids as farm_ids, install as install_farms, use_farm, valid_id as valid_farm_id};
+pub(crate) use farms::with_every_ground;
 
 /// Checks the ground codes a farm's text names against `ground.txt` as the game reads it.
 pub fn check_farm_codes(f: &farm::Farm) -> Result<(), String> {

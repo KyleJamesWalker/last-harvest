@@ -154,7 +154,7 @@ pub fn parse(text: &str) -> Result<Vec<Ground>, String> {
 }
 
 /// Reads `ground.txt`, and names each player's prop a crop asks for that isn't loaded; that crop is left off.
-fn parse_noting(text: &str) -> Result<(Vec<Ground>, Vec<String>), String> {
+pub(super) fn parse_noting(text: &str) -> Result<(Vec<Ground>, Vec<String>), String> {
     let (mut out, mut missing): (Vec<Ground>, Vec<String>) = (Vec::new(), Vec::new());
     // For each code, the line of a crop_3d it says and whether it says a crop.
     let mut said: Vec<(Option<usize>, bool)> = Vec::new();
@@ -244,8 +244,12 @@ fn parse_noting(text: &str) -> Result<(Vec<Ground>, Vec<String>), String> {
 
 static GROUND: RwLock<Option<&'static [Ground]>> = RwLock::new(None);
 
-/// The ground a map can paint: as an editor last set it, else `ground.txt`, read the first time it's asked for.
+/// The ground a map can paint: the farm in use's, else as an editor last set it, else `ground.txt`, read the first
+/// time it's asked for.
 pub fn ground() -> &'static [Ground] {
+    if let Some(g) = super::farms::active_ground() {
+        return g;
+    }
     if let Some(g) = *GROUND.read().unwrap_or_else(|e| e.into_inner()) {
         return g;
     }
