@@ -241,6 +241,8 @@ pub struct Map {
     pub spawn: [f32; 2],
     /// The farmhouse's front step, which the player runs back to once dawn breaks.
     pub home: [f32; 2],
+    /// The truck driver's feet, where collection day cashes in; none without a truck.
+    pub driver: Option<[f32; 2]>,
 }
 
 /// Buildings and vehicles reach back over their solid rows; small things are slabs.
@@ -332,6 +334,7 @@ impl Map {
             barrel_hp: Vec::new(),
             spawn: [0.0; 2],
             home: [0.0; 2],
+            driver: None,
         };
         map.border();
         map
@@ -872,6 +875,7 @@ impl Map {
         let h = driver[0].h();
         let (px, py) = (x as f32 * TILE + truck.w() - 2.0, y as f32 * TILE + truck.h() - h);
         self.props.push(Prop::new(driver, 3.0, px, py, py + h, 2.0));
+        self.driver = Some([px + driver[0].w() / 2.0, py + h]);
     }
 
     fn windmill(&mut self, rng: &mut Rng, at: [usize; 2]) {
@@ -1196,6 +1200,29 @@ mod tests {
             assert!(!map.hits(map.home[0], map.home[1], [4.0, 4.0]), "seed {seed}: the front step is blocked");
             assert!(map.reach(map.home)[map.i((map.spawn[0] / TILE) as usize, (map.spawn[1] / TILE) as usize)] < u16::MAX, "seed {seed}: no way home");
         }
+    }
+
+    #[test]
+    fn the_random_farms_driver_stands_where_the_player_can_reach_him() {
+        let t = crate::tuning::tuning();
+        let driver = farm::farm().station.driver[0];
+        let mut drivers = 0;
+        for seed in 1..40 {
+            let map = Map::generate(&mut Rng::new(seed), 72, 54);
+            let leaning = map.props.iter().any(|p| p.frames[0] == driver);
+            let Some([x, y]) = map.driver else {
+                assert!(!leaning, "seed {seed}: a driver with no place to cash in");
+                continue;
+            };
+            assert!(leaning, "seed {seed}: a place to cash in with no driver");
+            drivers += 1;
+            let from = map.reach([x, y + TILE]);
+            let spawn = map.i((map.spawn[0] / TILE) as usize, (map.spawn[1] / TILE) as usize);
+            let near = (0..16).map(|k| k as f32 / 16.0 * std::f32::consts::TAU).map(|a| [x + a.cos() * (t.driver_reach - 2.0), y + a.sin() * (t.driver_reach - 2.0)]);
+            assert!(near.into_iter().any(|p| !map.hits(p[0], p[1], t.player_half())), "seed {seed}: nowhere to stand by the driver");
+            assert!(from[spawn] < u16::MAX, "seed {seed}: no way from the spawn to the driver");
+        }
+        assert!(drivers > 30, "most farms have a gas station: {drivers}");
     }
 
     #[test]
