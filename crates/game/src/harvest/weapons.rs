@@ -159,6 +159,8 @@ impl Mods {
 pub(super) struct Kit {
     pub weapons: Vec<Armed>,
     pub passives: Vec<(usize, u32)>,
+    /// Fillers taken, each adding its passive stats once more for the rest of the run.
+    pub taken: Vec<usize>,
     pub mods: Mods,
     /// The health, speed and magnet the player has before upgrades: their card's, else tuning.txt's.
     pub base: [f32; 3],
@@ -176,7 +178,7 @@ impl Kit {
     pub fn with_weapons(defs: &[usize], difficulty: Difficulty) -> Self {
         let weapons = defs.iter().map(|&def| Armed { def, level: 1, cd: 0.5, phase: 0.0, burst: 0 }).collect();
         let t = crate::tuning::tuning();
-        Self { weapons, passives: Vec::new(), mods: Mods::of(&[]), base: [t.player_hp, t.player_speed, t.player_magnet], base_grenades: book().grenades[difficulty as usize] }
+        Self { weapons, passives: Vec::new(), taken: Vec::new(), mods: Mods::of(&[]), base: [t.player_hp, t.player_speed, t.player_magnet], base_grenades: book().grenades[difficulty as usize] }
     }
 
     pub fn level(&self, def: usize) -> u32 {
@@ -197,11 +199,19 @@ impl Kit {
         }
     }
 
+    /// The level `by` more takes `def` to: up to its top, or one past it when two land from one below (the level breaker).
+    pub fn raised(&self, def: usize, by: u32) -> u32 {
+        let d = &book().defs[def];
+        let (from, max) = (self.level(def), d.max);
+        let past = d.kind != Kind::Filler && crate::tuning::tuning().breaker > 0.0 && by >= 2 && from + 1 == max;
+        if past { max + 1 } else { (from + by).min(max) }
+    }
+
     /// Raises a weapon or passive `by` levels, up to its top; returns the levels it was at and is at now.
     pub fn raise(&mut self, def: usize, by: u32) -> (u32, u32) {
         let d = &book().defs[def];
         let from = self.level(def);
-        let to = (from + by).min(d.max);
+        let to = self.raised(def, by);
         match d.kind {
             Kind::Weapon => match self.weapons.iter_mut().find(|a| a.def == def) {
                 Some(a) => a.level = to,
@@ -212,11 +222,19 @@ impl Kit {
                     Some(p) => p.1 = to,
                     None => self.passives.push((def, to)),
                 }
-                self.mods = Mods::of(&self.passives);
+                self.remod();
             }
-            Kind::Filler => {}
+            Kind::Filler => {
+                self.taken.push(def);
+                self.remod();
+            }
         }
         (from, to)
+    }
+
+    fn remod(&mut self) {
+        let all: Vec<(usize, u32)> = self.passives.iter().copied().chain(self.taken.iter().map(|&d| (d, 1))).collect();
+        self.mods = Mods::of(&all);
     }
 
     pub fn max_hp(&self) -> f32 {
@@ -1447,6 +1465,34 @@ mod tests {
         h.kit.raise(pistol, 99);
         assert_eq!(h.kit.level(pistol), b.defs[pistol].max);
         assert!(!h.kit.offerable(pistol));
+    }
+
+    #[test]
+    fn a_rare_card_one_below_the_top_breaks_one_past_it() {
+        let b = book();
+        let pistol = b.index("pistol").unwrap();
+        let d = &b.defs[pistol];
+        let mut h = Harvest::new(1);
+        h.kit.raise(pistol, d.max - 2 - h.kit.level(pistol));
+        assert_eq!(h.kit.raised(pistol, 2), d.max, "two below the top, a rare card stops at it");
+        h.kit.raise(pistol, 1);
+        assert_eq!(h.kit.raised(pistol, 1), d.max, "a plain card stops at the top");
+        assert_eq!(h.kit.raise(pistol, 2), (d.max - 1, d.max + 1));
+        assert!(!h.kit.offerable(pistol));
+        let (top, past) = (|s| d.at(s, d.max), |s| d.at(s, d.max + 1));
+        assert!(past(Stat::Count) > top(Stat::Count) && past(Stat::Damage) > top(Stat::Damage) && past(Stat::Cooldown) < top(Stat::Cooldown));
+    }
+
+    #[test]
+    fn a_filler_with_a_passive_stat_stacks_each_time_it_is_taken() {
+        let b = book();
+        let spare = b.index("pocket_change").unwrap();
+        let mut h = Harvest::new(1);
+        h.kit.passives.clear();
+        h.kit.raise(spare, 1);
+        h.kit.raise(spare, 1);
+        assert!((h.kit.mods.damage - 1.03 * 1.03).abs() < 1e-5, "{}", h.kit.mods.damage);
+        assert!(!h.kit.offerable(spare), "a filler still only comes up when nothing else can");
     }
 
     #[test]

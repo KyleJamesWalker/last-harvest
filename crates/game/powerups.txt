@@ -515,5 +515,5 @@ refill    1
 name      Pocket change
 kind      filler
 unlock    start
-blurb     A little money
-money     10
+blurb     Damage +3% for the rest of the run, again each time
+damage    +3%

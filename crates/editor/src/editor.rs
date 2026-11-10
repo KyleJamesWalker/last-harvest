@@ -4557,7 +4557,7 @@ mod tests {
             }
             e.switch_to("DATA_TUNING_LEVELUP".into());
             let keys: Vec<String> = e.data.as_ref().map(|d| d.table.entries(&d.section).into_iter().map(|x| x.key).collect()).unwrap_or_default();
-            assert_eq!(keys, ["held_weight", "banish", "reroll", "favor", "favor_weight", "favor_level"], "modding {modding}");
+            assert_eq!(keys, ["held_weight", "banish", "reroll", "favor", "favor_weight", "favor_level", "breaker"], "modding {modding}");
         }
     }
 
