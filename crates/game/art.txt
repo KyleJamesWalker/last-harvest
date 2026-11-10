@@ -198,3 +198,6 @@ ICON_CROWS             png placeholder/icon_crows.png
 ICON_ZAPPER            png placeholder/icon_zapper.png
 ICON_DOG               png placeholder/icon_dog.png
 ICON_TACKS             png placeholder/icon_tacks.png
+
+# Pickups
+ZOMBIE_HEART    blank 9 11 ; blank 9 11 ; blank 9 11 ; blank 9 11 ; blank 9 11 ; blank 9 11
