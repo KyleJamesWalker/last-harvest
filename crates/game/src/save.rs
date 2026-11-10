@@ -44,6 +44,8 @@ pub struct Save {
     pub best_dps: u32,
     /// The last runs, newest first.
     pub history: [Option<Run>; HISTORY],
+    /// The how-to-play page has been shown, so the first Play no longer opens it.
+    pub how_to_seen: bool,
     /// Which pad button sends each game button.
     pub controls: Controls,
 }
@@ -122,7 +124,7 @@ impl LookId {
 
 impl Default for Save {
     fn default() -> Self {
-        Self { volume: 6, brightness: [4, 4], rumble: true, fps: false, one_screen: false, touch_grenades: true, touch: TouchControls::Auto, best: 0, difficulty: Difficulty::default(), kills: 0, best_level: 0, nights: 0, dawns: 0, found: 0, enemies_off: 0, player: LookId::default(), map: LookId::default(), best_dps: 0, history: [None; HISTORY], controls: Controls::default() }
+        Self { volume: 6, brightness: [4, 4], rumble: true, fps: false, one_screen: false, touch_grenades: true, touch: TouchControls::Auto, best: 0, difficulty: Difficulty::default(), kills: 0, best_level: 0, nights: 0, dawns: 0, found: 0, enemies_off: 0, player: LookId::default(), map: LookId::default(), best_dps: 0, history: [None; HISTORY], how_to_seen: false, controls: Controls::default() }
     }
 }
 
@@ -130,7 +132,7 @@ impl Save {
     pub fn to_text(&self) -> String {
         let controls = if self.controls.is_default() { String::new() } else { format!("controls={}\n", self.controls.key()) };
         format!(
-            "volume={}\nbrightness_top={}\nbrightness_bottom={}\nrumble={}\nfps={}\nlayout={}\ngrenades={}\ntouch={}\nbest={}\ndifficulty={}\nkills={}\nbest_level={}\nnights={}\ndawns={}\nfound={}\nenemies_off={}\nplayer={}\nmap={}\nbest_dps={}\n{controls}{}",
+            "volume={}\nbrightness_top={}\nbrightness_bottom={}\nrumble={}\nfps={}\nlayout={}\ngrenades={}\ntouch={}\nbest={}\ndifficulty={}\nkills={}\nbest_level={}\nnights={}\ndawns={}\nfound={}\nenemies_off={}\nplayer={}\nmap={}\nbest_dps={}\nhow_to={}\n{controls}{}",
             self.volume,
             self.brightness[0],
             self.brightness[1],
@@ -150,6 +152,7 @@ impl Save {
             self.player.as_str(),
             self.map.as_str(),
             self.best_dps,
+            if self.how_to_seen { "seen" } else { "due" },
             self.history.iter().flatten().map(|r| format!("run={}\n", run_text(r))).collect::<String>()
         )
     }
@@ -166,10 +169,12 @@ impl Save {
         Self { best: 0, kills: 0, best_level: 0, nights: 0, dawns: 0, found: 0, best_dps: 0, history: [None; HISTORY], ..self }
     }
 
-    /// Unknown keys and bad values fall back to the defaults, so an old or damaged file still loads.
+    /// Unknown keys and bad values fall back to the defaults, so an old or damaged file still loads; a file from
+    /// before `how_to` counts it seen once a night has been played.
     pub fn parse(text: &str) -> Self {
         let mut save = Self::default();
         let mut runs = 0;
+        let mut how_to = None;
         for (key, value) in text.lines().filter_map(|l| l.split_once('=')) {
             let value = value.trim();
             match key.trim() {
@@ -192,6 +197,7 @@ impl Save {
                 "player" => save.player = LookId::new(value),
                 "map" => save.map = LookId::new(value),
                 "best_dps" => save.best_dps = value.parse().unwrap_or(save.best_dps),
+                "how_to" => how_to = Some(value != "due"),
                 "controls" => save.controls = Controls::from_key(value).unwrap_or_default(),
                 "run" if runs < HISTORY => {
                     if let Some(run) = run_from_text(value) {
@@ -202,6 +208,7 @@ impl Save {
                 _ => {}
             }
         }
+        save.how_to_seen = how_to.unwrap_or(save.nights > 0);
         save
     }
 }
@@ -261,7 +268,7 @@ mod tests {
 
     #[test]
     fn round_trips() {
-        let save = Save { volume: 3, brightness: [7, 2], rumble: false, fps: true, one_screen: true, touch_grenades: false, touch: TouchControls::Off, best: 41, difficulty: Difficulty::Hard, kills: 900, best_level: 12, nights: 7, dawns: 1, found: 0b1010_0000_0000, enemies_off: 0b10, player: LookId::new("jo"), map: LookId::new("old_farm"), best_dps: 0, history: [None; HISTORY], controls: Controls::default() };
+        let save = Save { volume: 3, brightness: [7, 2], rumble: false, fps: true, one_screen: true, touch_grenades: false, touch: TouchControls::Off, best: 41, difficulty: Difficulty::Hard, kills: 900, best_level: 12, nights: 7, dawns: 1, found: 0b1010_0000_0000, enemies_off: 0b10, player: LookId::new("jo"), map: LookId::new("old_farm"), best_dps: 0, history: [None; HISTORY], how_to_seen: true, controls: Controls::default() };
         assert_eq!(Save::parse(&save.to_text()), save);
     }
 
@@ -372,6 +379,20 @@ mod tests {
         assert_eq!(save.history[0], Some(run(100, 40)));
         assert_eq!(save.history[1], Some(Run { difficulty: Difficulty::Normal, won: true, level: 9, secs: 600, dps: 80, kills: 12, kit: [None; RUN_KIT] }), "a line from before powerups loads with none");
         assert_eq!(save.history[2], None);
+    }
+
+    #[test]
+    fn how_to_play_round_trips_and_an_old_save_counts_it_seen_once_a_night_was_played() {
+        for seen in [false, true] {
+            let save = Save { how_to_seen: seen, ..Save::default() };
+            assert_eq!(Save::parse(&save.to_text()).how_to_seen, seen);
+        }
+        assert!(!Save::default().how_to_seen && !Save::parse("").how_to_seen, "a new player hasn't seen it");
+        assert!(Save::parse("volume=3\nnights=4\n").how_to_seen, "an old save that has played");
+        assert!(!Save::parse("volume=3\nnights=0\n").how_to_seen, "an old save that never played");
+        assert!(Save::parse("nights=0\nhow_to=seen\n").how_to_seen);
+        assert!(!Save::parse("nights=4\nhow_to=due\n").how_to_seen);
+        assert!(Save { how_to_seen: true, ..Save::default() }.without_progress().how_to_seen, "a reset keeps it");
     }
 
     #[test]

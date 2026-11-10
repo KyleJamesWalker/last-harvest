@@ -192,6 +192,10 @@ pub struct Game {
     folder: Option<String>,
     /// Settings asked the platform to choose the game folder.
     folder_asked: bool,
+    /// The loaded save hasn't seen the how-to page, so the first Play opens it.
+    how_to_due: bool,
+    /// The how-to page on show was opened by Play, so leaving it starts the run.
+    how_to_then_play: bool,
     /// The Controls page, open over Settings.
     rebind: Option<menu::Rebind>,
     /// The pad buttons pressed this frame before the controls table turned them into game buttons.
@@ -253,6 +257,8 @@ impl Game {
             pad_seen: false,
             folder: None,
             folder_asked: false,
+            how_to_due: false,
+            how_to_then_play: false,
             rebind: None,
             raw_pressed: Buttons::NONE,
             keyboard: false,
@@ -293,6 +299,7 @@ impl Game {
     }
 
     pub fn load(&mut self, save: Save) {
+        self.how_to_due = !save.how_to_seen;
         self.save = save;
         pad::set_controls(save.controls);
     }
@@ -889,8 +896,9 @@ mod tests {
         press(&mut game, Buttons::B);
         let phone = game.draw().phone.unwrap();
         assert!(phone.top.is_some() && phone.bottom.is_none(), "the title as without touch");
-        press(&mut game, Buttons::UP);
-        press(&mut game, Buttons::UP);
+        for _ in 0..3 {
+            press(&mut game, Buttons::UP);
+        }
         press(&mut game, Buttons::A);
         let State::Harvest(_) = &game.state else { panic!("a run starts") };
         assert_eq!(game.phone_layout(size).key(Buttons::L2), None, "a run without the controls");
@@ -948,7 +956,7 @@ mod tests {
         game.load(Save { touch: TouchControls::Off, ..Save::default() });
         assert!(game.title_on_one());
         let ([ax, ay], k) = TITLE_MENU;
-        let settings = [SCREEN_W / 2.0, 316.0 + 70.0 + 27.0];
+        let settings = [SCREEN_W / 2.0, menu::ROWS_TOP + 2.0 * menu::ROW_H + 20.0];
         let on_top = [ax + settings[0] * k, ay + settings[1] * k];
         let [px, py, pw, ph] = game.phone_layout(size).top.unwrap();
         finger(&mut game, [px + on_top[0] / SCREEN_W * pw, py + on_top[1] / SCREEN_H * ph]);
@@ -959,12 +967,12 @@ mod tests {
     #[test]
     fn quit_shows_last_in_the_main_menu_only_where_the_game_can_quit() {
         let mut game = Game::new(1);
-        for _ in 0..5 {
+        for _ in 0..6 {
             press(&mut game, Buttons::DOWN);
         }
-        assert_eq!(game.row, 0, "five rows wrap back to Play");
+        assert_eq!(game.row, 0, "six rows wrap back to Play");
         game.set_quit(true);
-        for _ in 0..5 {
+        for _ in 0..6 {
             press(&mut game, Buttons::DOWN);
         }
         press(&mut game, Buttons::A);
@@ -980,8 +988,9 @@ mod tests {
         let phone = f.phone.unwrap();
         assert!(phone.top.is_some() && phone.bottom.is_none(), "the title's screen, not the menu's");
         assert!(f.top.shapes.iter().any(|s| matches!(s, Shape::Text { text, .. } if text == "Play")), "with the menu on it");
-        press(&mut game, Buttons::DOWN);
-        press(&mut game, Buttons::DOWN);
+        for _ in 0..3 {
+            press(&mut game, Buttons::DOWN);
+        }
         press(&mut game, Buttons::A);
         let phone = game.draw().phone.unwrap();
         assert!(phone.top.is_none() && phone.bottom.is_some(), "Settings shows full size");
@@ -1009,8 +1018,9 @@ mod tests {
             settings_row(&mut game, 0);
             check(&mut game, Buttons::NONE, "settings");
             press(&mut game, Buttons::B);
-            press(&mut game, Buttons::UP);
-            press(&mut game, Buttons::UP);
+            for _ in 0..3 {
+                press(&mut game, Buttons::UP);
+            }
             press(&mut game, Buttons::A);
             assert!(matches!(game.state, State::Harvest(_)), "{size:?}: a run");
             check(&mut game, Buttons::NONE, "run");
@@ -1079,7 +1089,7 @@ mod tests {
         assert!(matches!(game.state, State::Harvest(_)));
         press(&mut game, Buttons::BACK);
         assert!(matches!(game.state, State::Title));
-        game.update(&Input { touch: Some([512.0, 400.0]), touch_started: true, ..Default::default() }, 0.016);
+        game.update(&Input { touch: Some([512.0, menu::ROWS_TOP + 2.0 * menu::ROW_H + 20.0]), touch_started: true, ..Default::default() }, 0.016);
         assert_eq!(game.page, Page::Settings, "a tap on a row opens it");
         press(&mut game, Buttons::B);
         game.update(&Input { touch: Some([512.0, 60.0]), touch_started: true, ..Default::default() }, 0.016);
@@ -1216,8 +1226,9 @@ mod tests {
 
     /// Opens Settings from the title and moves to its `row`.
     fn settings_row(game: &mut Game, row: usize) {
-        press(game, Buttons::DOWN);
-        press(game, Buttons::DOWN);
+        for _ in 0..3 {
+            press(game, Buttons::DOWN);
+        }
         press(game, Buttons::A);
         assert_eq!(game.page, Page::Settings);
         for _ in 0..row {
@@ -1322,8 +1333,9 @@ mod tests {
         press(&mut game, Buttons::B);
         assert_eq!(game.page, Page::Settings);
         press(&mut game, Buttons::B);
-        press(&mut game, Buttons::UP);
-        press(&mut game, Buttons::UP);
+        for _ in 0..3 {
+            press(&mut game, Buttons::UP);
+        }
         press(&mut game, Buttons::A);
         let State::Harvest(h) = &game.state else { panic!("a run starts") };
         assert_eq!(h.enemies_off(), 0b011, "the run leaves them out");
@@ -1343,8 +1355,9 @@ mod tests {
         game.set_folder("Documents/Last Harvest");
         game.draw();
         press(&mut game, Buttons::B);
-        press(&mut game, Buttons::UP);
-        press(&mut game, Buttons::UP);
+        for _ in 0..3 {
+            press(&mut game, Buttons::UP);
+        }
         press(&mut game, Buttons::A);
         press(&mut game, Buttons::START);
         press(&mut game, Buttons::DOWN);
@@ -1360,10 +1373,11 @@ mod tests {
         game.draw();
         press(&mut game, Buttons::RIGHT);
         assert_eq!(game.save().player.as_str(), "", "one look to choose from");
-        game.load(Save { player: save::LookId::new("nobody"), ..game.save() });
+        game.load(Save { player: save::LookId::new("nobody"), how_to_seen: true, ..game.save() });
         press(&mut game, Buttons::B);
-        press(&mut game, Buttons::UP);
-        press(&mut game, Buttons::UP);
+        for _ in 0..3 {
+            press(&mut game, Buttons::UP);
+        }
         press(&mut game, Buttons::A);
         assert!(matches!(game.state, State::Harvest(_)), "a run with a look that's gone plays as the farmer");
         game.draw();
@@ -1411,10 +1425,102 @@ mod tests {
         assert!(game.bench_report(|_| 0.0).is_none(), "and only once");
     }
 
+    fn texts(canvas: &Canvas) -> Vec<String> {
+        canvas.shapes.iter().filter_map(|s| if let Shape::Text { text, .. } = s { Some(text.clone()) } else { None }).collect()
+    }
+
+    #[test]
+    fn the_first_play_shows_how_to_play_then_plays_and_never_again() {
+        let mut game = Game::new(1);
+        game.load(Save::default());
+        press(&mut game, Buttons::A);
+        assert!(matches!(game.state, State::Title) && game.page == Page::HowTo, "a new save's first Play explains first");
+        assert!(texts(&game.draw().bottom).contains(&"A: Play".to_string()));
+        press(&mut game, Buttons::A);
+        assert!(matches!(game.state, State::Harvest(_)), "then plays");
+        assert!(game.save().how_to_seen);
+        press(&mut game, Buttons::BACK);
+        press(&mut game, Buttons::A);
+        assert!(matches!(game.state, State::Harvest(_)), "not again this session");
+        let mut next = Game::new(2);
+        next.load(Save::parse(&game.save().to_text()));
+        press(&mut next, Buttons::A);
+        assert!(matches!(next.state, State::Harvest(_)), "nor from the saved file");
+        let mut old = Game::new(3);
+        old.load(Save::parse("nights=3\n"));
+        press(&mut old, Buttons::A);
+        assert!(matches!(old.state, State::Harvest(_)), "nor for a save from before it that has played");
+    }
+
+    #[test]
+    fn b_leaves_the_first_how_to_play_for_the_menu_and_it_counts_as_seen() {
+        let mut game = Game::new(1);
+        game.load(Save::default());
+        press(&mut game, Buttons::A);
+        press(&mut game, Buttons::B);
+        assert!(matches!(game.state, State::Title) && game.page == Page::Main && game.save().how_to_seen);
+        press(&mut game, Buttons::A);
+        assert!(matches!(game.state, State::Harvest(_)));
+    }
+
+    #[test]
+    fn how_to_play_opens_from_the_title_and_any_button_or_a_tap_closes_it() {
+        for close in [Some(Buttons::A), Some(Buttons::B), Some(Buttons::START), None] {
+            let mut game = Game::new(1);
+            game.load(Save { how_to_seen: true, ..Save::default() });
+            press(&mut game, Buttons::DOWN);
+            press(&mut game, Buttons::DOWN);
+            press(&mut game, Buttons::A);
+            assert_eq!(game.page, Page::HowTo);
+            let shown = texts(&game.draw().bottom);
+            assert!(shown.contains(&"How to play".to_string()) && shown.contains(&"B: Back".to_string()), "{shown:?}");
+            match close {
+                Some(b) => press(&mut game, b),
+                None => game.update(&Input { touch: Some([512.0, 300.0]), touch_started: true, ..Default::default() }, 0.016),
+            }
+            assert!(matches!(game.state, State::Title) && game.page == Page::Main, "{close:?} goes back to the menu, not into a run");
+        }
+    }
+
+    #[test]
+    fn how_to_play_fits_every_layout_and_names_its_keys() {
+        let layouts: [(&str, Option<[f32; 2]>, bool, bool); 5] = [
+            ("two screens", None, false, true),
+            ("one screen", None, true, true),
+            ("phone, touch", Some([2400.0, 1080.0]), false, true),
+            ("phone, pad grenades", Some([2400.0, 1080.0]), false, false),
+            ("muOS", Some([640.0, 480.0]), false, true),
+        ];
+        for (what, phone, one_screen, touch_grenades) in layouts {
+            let mut game = Game::new(1);
+            game.set_phone(phone);
+            game.set_touch(what != "muOS");
+            game.load(Save { one_screen, touch_grenades, how_to_seen: true, ..Save::default() });
+            game.page = Page::HowTo;
+            let lines: Vec<&str> = game.how_to_lines().iter().map(|l| l.1).collect();
+            let all = lines.join(" ");
+            for line in &lines {
+                let wrapped = menu::wrapped(line, menu::HOW_TO_SIZE, menu::HOW_TO_ROOM, 2);
+                assert!(wrapped.iter().all(|l| !menu::fitted(l, menu::HOW_TO_SIZE, menu::HOW_TO_ROOM, menu::HOW_TO_SIZE).0.ends_with("...")), "{what}: {wrapped:?}");
+            }
+            assert!(all.contains("hearts") && all.contains("Harvester") && all.contains("farmhouse") && all.contains("last seen"), "{what}: {all}");
+            let (pad, l2) = (all.contains("D-pad"), all.contains("L2"));
+            match what {
+                "two screens" => assert!(pad && !l2 && all.contains("Tap the map"), "{all}"),
+                "one screen" | "muOS" => assert!(pad && l2 && all.contains("L1"), "{what}: {all}"),
+                _ => assert!(!pad && all.contains("Drag") && !all.contains("R1"), "{what}: {all}"),
+            }
+            let f = game.draw();
+            let shown: Vec<_> = f.phone.map(|p| [p.top, p.bottom].into_iter().flatten().count()).into_iter().collect();
+            assert!(shown.iter().all(|&n| n >= 1), "{what}: the page shows");
+            assert!(texts(&f.bottom).contains(&"How to play".to_string()), "{what}");
+        }
+    }
+
     #[test]
     fn stats_and_credits_open_and_close() {
         let mut game = Game::new(1);
-        for (downs, page) in [(3, Page::Stats), (1, Page::Credits)] {
+        for (downs, page) in [(4, Page::Stats), (1, Page::Credits)] {
             for _ in 0..downs {
                 press(&mut game, Buttons::DOWN);
             }
@@ -1431,7 +1537,7 @@ mod tests {
         let mut game = Game::new(1);
         game.save.record(harvest::Run { secs: 125, level: 4, difficulty: Difficulty::Hard, dps: 37, ..Default::default() });
         game.save.record(harvest::Run { secs: 600, level: 9, won: true, dps: 81, ..Default::default() });
-        for _ in 0..3 {
+        for _ in 0..4 {
             press(&mut game, Buttons::DOWN);
         }
         press(&mut game, Buttons::A);
