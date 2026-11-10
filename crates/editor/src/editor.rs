@@ -1182,7 +1182,7 @@ impl Editor {
             *name = text.chars().filter_map(lospec_char).take(64).collect();
             return;
         }
-        if let (Some((_, name)), Some(_)) = (&mut self.ask, &self.data) {
+        if let (Some((Ask::Copy | Ask::Farm | Ask::FarmGround, name)), Some(_)) = (&mut self.ask, &self.data) {
             *name = text.trim().chars().take(NAME_MAX).collect();
             return;
         }
@@ -2719,7 +2719,7 @@ impl Editor {
             }
             return;
         }
-        let id = self.data.is_some();
+        let id = self.data.is_some() && matches!(&self.ask, Some((Ask::Copy | Ask::Farm | Ask::FarmGround, _)));
         // A ground's code is any one character, and g and G are two.
         let code = matches!(&self.ask, Some((Ask::Copy, _))) && self.data.as_ref().is_some_and(|d| d.file.ends_with("ground.txt"));
         if let Some((_, name)) = &mut self.ask {
@@ -4509,6 +4509,29 @@ mod tests {
         let saved = std::fs::read_to_string(dir.join("tuning.txt")).unwrap();
         assert!(saved.contains("hp 101          # health") && saved.contains("speed 52"), "{saved}");
         assert_eq!(last_harvest_game::tuning::parse(&saved, None).unwrap().player_speed, 52.0);
+    }
+
+    #[test]
+    fn new_from_a_data_page_names_a_sprite_not_a_data_id() {
+        let dir = tmp().join("data-new");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut e = editor_in(&dir, dir.join("art.txt"));
+        e.switch_to("DATA_TUNING_PLAYER".into());
+        e.act(Action::Ask(Ask::New), false);
+        type_in(&mut e, "map cane");
+        assert_eq!(e.ask.as_ref().map(|(_, n)| n.as_str()), Some("MAP_CANE"));
+        e.key(Key::Enter);
+        assert!(e.map.is_some(), "{:?}", e.status);
+        e.switch_to("DATA_TUNING_PLAYER".into());
+        e.act(Action::Ask(Ask::New), false);
+        e.set_text("player card kd");
+        e.key(Key::Enter);
+        assert_eq!(e.sprite.name, "PLAYER_CARD_KD_FRONT", "{:?}", e.status);
+        e.switch_to("DATA_POWERUPS_PISTOL".into());
+        e.act(Action::Ask(Ask::Copy), false);
+        type_in(&mut e, "Blaster");
+        assert_eq!(e.ask.as_ref().map(|(_, n)| n.as_str()), Some("blaster"), "Copy on a data page still takes an id");
     }
 
     #[test]
