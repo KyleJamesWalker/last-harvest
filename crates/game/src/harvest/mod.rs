@@ -1850,6 +1850,10 @@ impl Harvest {
             self.juice.banner(format!("FOUND: {}", def.name.to_uppercase()), [GOLD[0], GOLD[1], GOLD[2], 1.0], 2.4);
         }
         let (from, to) = self.kit.raise(c.up, if c.rare { 2 } else { 1 });
+        if to > def.max {
+            self.juice.banner(format!("LEVEL BREAKER: {} {to}", def.name.to_uppercase()), [GOLD[0], GOLD[1], GOLD[2], 1.0], 2.8);
+            self.juice.shake(0.3);
+        }
         let heal = def.at(powerups::Stat::Heal, to) * (to - from).max(1) as f32;
         self.hp = (self.hp + heal).min(self.kit.max_hp());
         if def.at(powerups::Stat::Refill, 1) > 0.0 {
