@@ -822,6 +822,7 @@ mod tests {
         assert_eq!(section("PLAYER_FRONT"), "Characters");
         assert_eq!(section("ICON_AMMO_CRATE"), "Placeholders");
         assert_eq!(section("ICON_KNIFE"), "Icons");
+        assert_eq!(section("ICON_DEEP_POCKETS"), "Icons");
         assert_eq!(section("ICON_PISTOL"), "Icons");
         assert_eq!(section("NOT_IN_THE_CATALOG"), NEW_SECTION);
     }
