@@ -118,6 +118,7 @@ fence rail 25 4 10 8 gate 4 cover yes
 - **Ground:** one [`ground.txt`](#groundtxt) code per tile. The game's own codes are `.` dirt, `,` dirt with tufts, `g` grass, `s` soil, `p` sprouts and `c` corn. Roads are `v` (north-south) and `h` (east-west), and `=` is a path. Roads and paths join their neighbors, and corn grows a top and bottom at a field's edges.
 - **Props:** a sprite name from [`props.txt`](#propstxt), or `PROP_<ID>`, and its top-left tile.
 - **Fences:** `rail` or `picket` around a rectangle, with an optional two-tile gate that many tiles from its left.
+- **Collection day:** a `TRUCK` brings its driver, who leans on its back. Only a map with a truck has collection day.
 - **Hit points and cover:** `hp` and `cover` on a line override the sprite's own. Zombies chew through what breaks, and shots and blasts break what is cover. A broken prop stops blocking.
 - **Rules:** a ring of trees and bushes always closes the edge. The spawn and home must be open, off the edge, and joined by open ground without breaking anything.
 
@@ -185,6 +186,7 @@ The game reads its rules from seven text files in `crates/game/`. The packer put
 | `[easy]`, `[normal]`, `[hard]` | Bite damage, how long a hit keeps the player safe, and how often kills drop health and how much |
 | `[zombies]` | The most alive at once, rising time, stagger, growth each minute, a leader's health, dawn's fury, footprint, walk speed, bite reach, `charge_reach`, spit speed and rate, `burrow_reach`, and chewing speed |
 | `[harvester]` | Dawn's boss: health, speed, bite, how far away it rises, and the waves after it falls (`again`, `most`) |
+| `[driver]` | Collection day: seconds into the night until the truck driver's first ticket (`after`, 0 turns it off), seconds from a cash-in to the next (`every`), and how near him, in pixels, cashes in (`reach`) |
 | `[grenade]` | Recharge, flight time, radius, damage, bomblets, one-screen aiming (`aim_`), and R1's quick throw (`quick_near`, `quick_far`, `quick_grow`) |
 | `[barrel]` | Health, blast radius and damage |
 | `[weapons]` | The view ahead and behind, the pistol's point-blank reach, crow and dog reach, and how long fire burns |
