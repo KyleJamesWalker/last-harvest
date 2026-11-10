@@ -102,7 +102,6 @@ BLOOD_SPLAT     cell 34 7 x5
 BLOOD_STAIN     cell 34 8 x5
 MONEY           px 37 228 10 7 ; px 53 231 11 8 ; px 70 230 12 11 ; px 87 234 12 7
 HEALTH          px 37 193 10 10  @prop 4
-ZOMBIE_HEART    blank 9 11 ; blank 9 11 ; blank 9 11 ; blank 9 11 ; blank 9 11 ; blank 9 11
 MEDICINE        px 56 194 6 9
 AMMO            px 89 195 8 8  @prop 2
 BULLET          px 105 159 10 3  @slab 2 float 4
@@ -199,3 +198,6 @@ ICON_CROWS             png placeholder/icon_crows.png
 ICON_ZAPPER            png placeholder/icon_zapper.png
 ICON_DOG               png placeholder/icon_dog.png
 ICON_TACKS             png placeholder/icon_tacks.png
+
+# Pickups
+ZOMBIE_HEART    blank 9 11 ; blank 9 11 ; blank 9 11 ; blank 9 11 ; blank 9 11 ; blank 9 11
