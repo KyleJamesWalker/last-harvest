@@ -377,7 +377,7 @@ impl Harvest {
         let (keys, down) = if self.single { (top, TOP_KEYS) } else { (bottom, 0.0) };
         if !self.single {
             keys.rect(0.0, 0.0, SCREEN_W, 180.0, [0.0, 0.0, 0.0, 0.7]);
-            keys.label("Up/Down: level   Left/Right: kind   Select: by hand   X: fire", SCREEN_W / 2.0, 20.0, 28.0, WHITE, Align::Center);
+            keys.label(crate::pad::hint("Up/Down: level   Left/Right: kind   {Select}: by hand   {X}: fire"), SCREEN_W / 2.0, 20.0, 28.0, WHITE, Align::Center);
         }
         let labels = ["Level -", "Level +", "< Kind", "Kind >", if r.by_hand { "On cooldown" } else { "By hand" }, "Fire"];
         for (&[x, y, w, h], label) in KEYS.iter().zip(labels) {

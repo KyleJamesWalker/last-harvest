@@ -74,14 +74,20 @@ Two settings change the touch controls:
 
 ### Gamepads
 
-On the desktop and in a browser, a gamepad's face buttons map by position, as on the RG DS. On an Xbox pad:
+On the desktop and in a browser, a gamepad's face buttons map by position, as on the RG DS. The hints on screen name the buttons of the pad you used last, by its maker: Microsoft and unrecognized pads show Xbox labels, Sony pads show PlayStation labels, and Nintendo and 8BitDo pads show the RG DS names. After a key press, the hints name the keys.
 
-- Left (X) is Y and right (B) is A, so the left and right buttons turn.
-- Bottom (A) is B, which turns around and backs out of menus.
-- Top (Y) is X, which picks and aims.
-- The bumpers and triggers are L1, R1, L2 and R2.
-- View is Select, and Menu is Start.
-- The d-pad and left stick move you, and the right stick turns.
+| RG DS | Where | Xbox | PlayStation |
+|---|---|---|---|
+| A | Right | B | Circle |
+| B | Bottom | A | Cross |
+| X | Top | Y | Triangle |
+| Y | Left | X | Square |
+| L1 and R1 | Bumpers | LB and RB | L1 and R1 |
+| L2 and R2 | Triggers | LT and RT | L2 and R2 |
+| Select | Left of center | View | Share |
+| Start | Right of center | Menu | Options |
+
+The d-pad and left stick move you, and the right stick turns. On Android and muOS, the hints keep the RG DS names.
 
 ## The night
 
@@ -252,12 +258,23 @@ The title's bottom screen lists Play, Map, How to play, Settings, Stats and Cred
 | Show FPS | The frame-rate overlay |
 | Screens | One or two screens for a run. Not shown on a phone. |
 | Touch controls, Grenades | See [Touch](#touch). Shown only where the screen takes touches. |
+| Controls | Moves a button's jobs to another button. See [Controls](#controls). |
 | Player | Your look, from the player cards, shown walking on the top screen |
 | Enemies | Each kind of zombie, walking, with its numbers. A turns a kind on or off. At least one stays on. |
 | Game folder | Android only. See [Where files go](#where-files-go). |
 | Reset progress | Clears kills, records and found powerups after a second press. Settings stay. |
 
 Settings from the pause menu leave out Player, Enemies, Game folder and Reset progress.
+
+### Controls
+
+Settings > Controls lists each button's jobs, the button that does them, named as on the pad you used last, and on a computer the key.
+
+- Choose a row with A or a tap, then press the button or key that should do it. The job that button had moves to the row's old button, and the page says which.
+- Without a button within 5 seconds, or after another tap, the row keeps its button.
+- **Default** puts every button back.
+- The d-pad, the sticks and the RG DS's Home, Back, volume and power buttons stay where they are.
+- A key moves with the pad button it stands for, so the keys and the pad always match.
 
 ## Screenshots and photo mode
 

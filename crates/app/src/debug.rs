@@ -8,6 +8,7 @@
 //! sleep <secs>                 suspend, waking on the RTC alarm
 //! panic                        crash on purpose to test the crash log
 //! shot <path>                  save both screens, top above bottom, as one PNG
+//! pad <family>                 name buttons as this pad does: nintendo xbox playstation keyboard
 //! ```
 
 use std::fs::File;
@@ -16,7 +17,7 @@ use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, channel};
 
 use last_harvest::log;
-use last_harvest_game::Buttons;
+use last_harvest_game::{Buttons, PadFamily};
 
 pub const PIPE: &str = "/tmp/last-harvest.ctl";
 const PRESS_MS: f32 = 120.0;
@@ -31,6 +32,7 @@ pub enum Command {
     State,
     Sleep(u32),
     Panic,
+    Pad(PadFamily),
 }
 
 pub fn listen() -> Option<Receiver<Command>> {
@@ -88,6 +90,13 @@ fn parse(line: &str) -> Option<Command> {
         "state" => Command::State,
         "sleep" => Command::Sleep(num(1)? as u32),
         "panic" => Command::Panic,
+        "pad" => Command::Pad(match *words.get(1)? {
+            "nintendo" => PadFamily::Nintendo,
+            "xbox" => PadFamily::Xbox,
+            "playstation" => PadFamily::PlayStation,
+            "keyboard" => PadFamily::Keyboard,
+            _ => return None,
+        }),
         _ => return None,
     })
 }

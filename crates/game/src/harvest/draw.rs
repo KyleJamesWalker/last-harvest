@@ -10,7 +10,7 @@ use super::powerups::{Kind, Zone, book};
 use super::weapons::{BOLT_LIFE, Hazard};
 use super::{CHOICE_ROW, CHOICE_TOP, Choice, DropKind, Facing, GOLD, LEVEL_KEYS, LevelKey, level_key_shows, PAUSE_CHOICES, PAUSE_ROW, Harvest, PICK_TIME, PROP_FLASH, Phase, RED, map_scale, TELL_TIME, TURNED, Thrown, WHITE, clock, player_pose, player_worn, view3d, worn_corner};
 use crate::art::{self, Art};
-use crate::{Align, Canvas, Color, Frame, SCREEN_H, SCREEN_W};
+use crate::{Align, Buttons, Canvas, Color, Frame, SCREEN_H, SCREEN_W, pad};
 
 impl Harvest {
     /// The run's screens; in photo mode, a `clean` frame is the capture, with no guides.
@@ -63,8 +63,8 @@ impl Harvest {
             let how = match (self.banishing, self.favoring, self.taps) {
                 (true, ..) => "Tap the card to banish, or Banish to keep them all",
                 (_, true, _) => "Tap the card to take and favor, or Favor to cancel",
-                (.., true) => "Tap an upgrade, or Up / Down and X",
-                (.., false) => "Up / Down and X: choose an upgrade",
+                (.., true) => &pad::hint("Tap an upgrade, or Up / Down and {X}"),
+                (.., false) => &pad::hint("Up / Down and {X}: choose an upgrade"),
             };
             c.label(how, SCREEN_W / 2.0, 60.0, 32.0, [1.0, 1.0, 1.0, fade], Align::Center);
             self.choices(c, choices, *selected, *t, *picked, CHOICE_TOP);
@@ -77,9 +77,9 @@ impl Harvest {
     fn level_keys(&self, c: &mut Canvas, fade: f32) {
         for (key, [x, y, w, h]) in LEVEL_KEYS {
             let (name, pad, left) = match key {
-                LevelKey::Banish => ("Banish", "L1", self.banishes),
-                LevelKey::Reroll => ("Reroll", "R1", self.rerolls),
-                LevelKey::Favor => ("Favor", "Y", self.favors),
+                LevelKey::Banish => ("Banish", pad::label(Buttons::L1), self.banishes),
+                LevelKey::Reroll => ("Reroll", pad::label(Buttons::R1), self.rerolls),
+                LevelKey::Favor => ("Favor", pad::label(Buttons::Y), self.favors),
             };
             if !level_key_shows(key, self.level) {
                 continue;
@@ -502,10 +502,10 @@ impl Harvest {
                 let scale = 12.0 * back_out((t / 0.3).min(1.0)) + (t * 4.0).sin() * 0.4;
                 c.text_centered(150.0 - (scale - 12.0) * 2.5, scale, [GOLD[0], GOLD[1], GOLD[2], fade], "LEVEL UP");
                 self.choices(c, choices, *selected, *t, *picked, 270.0);
-                let keys: Vec<String> = [("L1: banish", self.banishes, LevelKey::Banish), ("R1: reroll", self.rerolls, LevelKey::Reroll), ("Y: favor", self.favors, LevelKey::Favor)]
+                let keys: Vec<String> = [("{L1}: banish", self.banishes, LevelKey::Banish), ("{R1}: reroll", self.rerolls, LevelKey::Reroll), ("{Y}: favor", self.favors, LevelKey::Favor)]
                     .into_iter()
                     .filter(|k| level_key_shows(k.2, self.level))
-                    .map(|(name, left, _)| format!("{name}, {left} left"))
+                    .map(|(name, left, _)| format!("{}, {left} left", pad::hint(name)))
                     .collect();
                 c.label(keys.join("      "), SCREEN_W / 2.0, 716.0, 26.0, [1.0, 1.0, 1.0, 0.7 * fade], Align::Center);
             }
@@ -532,7 +532,7 @@ impl Harvest {
                     format!("Survived {}   Level {}   Kills {}", clock(self.t), self.level, self.kills)
                 };
                 c.label(line, SCREEN_W / 2.0, line_y, 40.0, [1.0, 1.0, 1.0, a], Align::Center);
-                c.label("A: try another farm      B: menu", SCREEN_W / 2.0, line_y + 80.0, 32.0, [1.0, 1.0, 1.0, 0.7 * a], Align::Center);
+                c.label(pad::hint("{A}: try another farm      {B}: menu"), SCREEN_W / 2.0, line_y + 80.0, 32.0, [1.0, 1.0, 1.0, 0.7 * a], Align::Center);
                 let names: Vec<&str> = self.newly.iter().map(|&i| book().defs[i].name.as_str()).collect();
                 let news = [
                     (!names.is_empty()).then(|| format!("Found: {}", names.join(", "))),
@@ -606,7 +606,7 @@ impl Harvest {
         let (fwd, right) = ([self.view_yaw.cos(), self.view_yaw.sin()], [-self.view_yaw.sin(), self.view_yaw.cos()]);
         let (ahead, side) = (d[0] * fwd[0] + d[1] * fwd[1], d[0] * right[0] + d[1] * right[1]);
         if ahead < 0.0 && side.abs() < -ahead {
-            c.label(format!("HOME IS BEHIND YOU  {far}   (B turns)"), SCREEN_W / 2.0, SCREEN_H - 70.0, 34.0, pulse, Align::Center);
+            c.label(format!("HOME IS BEHIND YOU  {far}   ({} turns)", pad::label(Buttons::B)), SCREEN_W / 2.0, SCREEN_H - 70.0, 34.0, pulse, Align::Center);
         } else if side > 0.0 {
             c.label(format!("HOME  {far}  >"), SCREEN_W - 24.0, 140.0, 34.0, pulse, Align::Right);
         } else {
@@ -667,7 +667,7 @@ impl Harvest {
     fn paused_bottom(&self, c: &mut Canvas) {
         let Some(at) = self.menu else { return };
         c.rect(0.0, 0.0, SCREEN_W, SCREEN_H, [0.0, 0.0, 0.0, 0.6]);
-        let how = if self.taps { "Start or B: resume.   Up / Down and A, or tap" } else { "Start or B: resume.   Up / Down and A" };
+        let how = pad::hint(if self.taps { "{Start} or {B}: resume.   Up / Down and {A}, or tap" } else { "{Start} or {B}: resume.   Up / Down and {A}" });
         c.label(how, SCREEN_W / 2.0, 60.0, 32.0, WHITE, Align::Center);
         for (i, name) in PAUSE_CHOICES.iter().enumerate() {
             let (x, y, w, h) = (212.0, CHOICE_TOP + i as f32 * PAUSE_ROW, 600.0, PAUSE_ROW - 20.0);
