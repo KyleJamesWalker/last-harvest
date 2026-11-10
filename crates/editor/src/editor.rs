@@ -352,7 +352,7 @@ const STAT_ROWS: [(&str, f32); 12] = [
     ("Health", 5.0),
     ("Speed", 1.0),
     ("Bite", 1.0),
-    ("Money", 1.0),
+    ("Hearts", 1.0),
     ("Weight", 0.1),
     ("Gibs", 1.0),
     ("Arrives after (minutes)", 0.5),

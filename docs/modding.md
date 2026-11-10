@@ -152,7 +152,7 @@ The game synthesizes every sound at runtime. A recorded Ogg Vorbis or WAV file r
 | `thud`, `crit` | A hit lands, or a critical hit |
 | `kill-skinny`, `kill-kid`, `kill-big` | A zombie dies |
 | `throw`, `boom` | A grenade leaves the player's hand, or anything explodes |
-| `pickup` | The player collects money. Quick pickups play it higher, up a scale. |
+| `pickup` | The player collects a heart. Quick pickups play it higher, up a scale. |
 | `heal`, `hurt`, `heartbeat` | The player picks up health, takes a hit, or runs low on health |
 | `levelup`, `pick`, `pick-rare` | The bar fills, or an upgrade is chosen |
 | `rise`, `groan`, `caw` | A zombie breaks out of the ground or groans, or a crow takes off |
@@ -182,7 +182,7 @@ The game reads its rules from seven text files in `crates/game/`. The packer put
 
 | Section | Sets |
 |---|---|
-| `[player]` | Health, speed, money magnet, critical-hit chance, pickup reach and footprint before upgrades, and turn speed |
+| `[player]` | Health, speed, heart magnet, critical-hit chance, pickup reach and footprint before upgrades, and turn speed |
 | `[night]` | The night's length, where zombies rise at dusk and dawn, how near home counts, the rare-card chance and the level-up push |
 | `[levelup]` | How a level-up deals its cards. `held_weight` makes a powerup the player holds that many times as likely as a new one, above 0, and 1 for even odds. `banish`, `reroll` and `favor` are how many of each a run gets, and 0 turns one off. A favored powerup is `favor_weight` times as likely for the rest of the run, on top of `held_weight`, and favor is offered from level `favor_level` on. With `slots` in `powerups.txt`, these set how deep a run's build goes. |
 | `[easy]`, `[normal]`, `[hard]` | Bite damage, how long a hit keeps the player safe, and how often kills drop health and how much |
@@ -321,7 +321,7 @@ The file opens with lines for the whole run:
 | `start DIFFICULTY ID ...` | The starting weapons at each difficulty |
 | `grenades N` | Grenades every run starts with |
 | `finds N` | The most powerups one run can find |
-| `first_level N` | Money for the first level-up |
+| `first_level N` | Hearts for the first level-up |
 
 Each `[id]` section is one powerup:
 
@@ -372,7 +372,7 @@ Each `[id]` section is one kind of zombie:
 | `hp` | Health at dusk. It grows through the night. |
 | `speed` | Pixels a second |
 | `damage` | A bite |
-| `xp` | The money it drops |
+| `xp` | The hearts it drops |
 | `mass` | Divides knockback |
 | `gibs` | Blood specks when it dies |
 | `sound` | Its death sound. Default `kill-<id>`. |

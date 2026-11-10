@@ -567,7 +567,7 @@ impl Game {
             ("Health", e.hp.to_string()),
             ("Speed", e.speed.to_string()),
             ("Bite", e.damage.to_string()),
-            ("Money", e.xp.to_string()),
+            ("Hearts", e.xp.to_string()),
             ("Weight", e.mass.to_string()),
         ];
         for (i, (name, value)) in rows.iter().enumerate() {

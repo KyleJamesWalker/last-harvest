@@ -451,7 +451,7 @@ impl Stat {
             Stat::Crit => "Crit chance",
             Stat::Reach => "Reach",
             Stat::Luck => "Rare chance",
-            Stat::Greed => "Money",
+            Stat::Greed => "Heart worth",
             Stat::Revive => "Revives",
             Stat::View => "View",
             Stat::Grenades => "Grenades",
@@ -460,7 +460,7 @@ impl Stat {
             Stat::Drums => "Barrel every",
             Stat::Blast => "Blast",
             Stat::Refill => "Refill",
-            Stat::Money => "Money",
+            Stat::Money => "Hearts",
         }
     }
 
