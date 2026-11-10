@@ -86,6 +86,7 @@ A night lasts ten minutes, from dusk to dawn. A bell rings each minute.
 - **Grenades:** you start with one, or two on Easy. Each recharges in 12 seconds.
 - **Barrels:** shooting a red barrel sets it off. Hold X, and your guns go for the barrels in view. A blast close to you hurts you too.
 - **Hordes** arrive during the night, each led by a gold-lit leader. The leader drops a chest.
+- **Collection day:** five minutes in, the driver by the gas station's truck holds a ticket. Cash bobs over his head, and a gold ring marks him on the map. Walk up to him, and every coin on the farm flies to you at once. That can be several level-ups in a row. He holds a new ticket five minutes after each cash-in.
 - **Dawn:** the Harvester wakes behind you, and the dead grow 1% stronger every second. Run back to the farmhouse's front step to survive.
 - **More Harvesters:** kill the Harvester, and 30 seconds later two more rise. Every 30 seconds another wave comes, one bigger, up to six, until you get home.
 - **Falling:** if you fall, you rise as one of the dead and lead them to the next farm.
@@ -361,6 +362,8 @@ Props list under Props as `PROP_<ID>`. The stand, fps, Cover, Broken frame and H
 Three props can make a crop, such as wheat, that a ground code grows down a field. A crop's piece says over the canvas where it stands, such as "Crop: north end of a Wheat run (ground w)", and the previews show the crop in a small field. See [Making a crop](../../docs/modding.md#making-a-crop).
 
 Maps list under Maps as `MAP_<ID>`. The canvas shows the map from above, and a line under it says whether the game would load it.
+
+A truck on a map brings its driver, and with him collection day. A map without a truck has none.
 
 | Tool | What it does |
 |---|---|
