@@ -23,8 +23,7 @@ pub const EFFECTS: &str = "effects.txt";
 pub const GROUND: &str = "ground.txt";
 pub const FARM: &str = "farm.txt";
 /// A pack's own farms: `farms/<id>.txt` and `farms/<id>.ground.txt`.
-pub const FARMS: &str = "farms/";
-pub const FARM_GROUND: &str = ".ground.txt";
+pub const FARMS: &str = last_harvest_game::FARM_DIR;
 pub const SOUNDS: &str = "sounds/";
 pub const ENEMY_CARDS: &str = "enemies/";
 pub const PLAYER_CARDS: &str = "players/";
@@ -142,22 +141,20 @@ impl Pak {
 
     /// The pack's own farms, by id, each one or why it won't read. Reads none of the game's data.
     pub fn farms(&self) -> Vec<Result<last_harvest_game::data::FarmFile, String>> {
-        let mut ids: Vec<&str> = self.files.keys().filter_map(|p| p.strip_prefix(FARMS)).filter(|n| !n.contains('/')).map(|n| n.strip_suffix(FARM_GROUND).or_else(|| n.strip_suffix(".txt")).unwrap_or(n)).collect();
-        ids.sort_unstable();
+        let mut paths: Vec<&str> = self.files.keys().map(String::as_str).filter(|p| p.strip_prefix(FARMS).is_some_and(|n| !n.contains('/'))).collect();
+        paths.sort_unstable();
+        let mut ids: Vec<Result<&str, String>> = paths.iter().map(|p| last_harvest_game::farm_of_file(p).map(|(id, _)| id).ok_or_else(|| format!("{p}: a farm's files are farms/<id>.txt and farms/<id>{}, its id 1 to {} of a-z, 0-9 and _", last_harvest_game::FARM_GROUND_END, last_harvest_game::FARM_ID_MAX))).collect();
         ids.dedup();
-        let text = |path: String, file: &str| -> Result<Option<String>, String> {
+        let text = |path: String| -> Result<Option<String>, String> {
             let Some(bytes) = self.get(&path) else { return Ok(None) };
             let text = String::from_utf8(bytes.to_vec()).map_err(|_| format!("{path} is not UTF-8"))?;
-            last_harvest_game::check_table(file, &text).map_err(|e| format!("{FARMS}{}", e.replacen(file, &path[FARMS.len()..], 1)))?;
+            last_harvest_game::check_table(&path, &text)?;
             Ok(Some(text))
         };
         ids.into_iter()
             .map(|id| {
-                let farm = text(format!("{FARMS}{id}.txt"), FARM)?;
-                let ground = text(format!("{FARMS}{id}{FARM_GROUND}"), GROUND)?;
-                if farm.is_none() && ground.is_none() {
-                    return Err(format!("{FARMS}{id}: a farm is {id}.txt or {id}{FARM_GROUND}"));
-                }
+                let id = id?;
+                let (farm, ground) = (text(last_harvest_game::farm_file(id, false))?, text(last_harvest_game::farm_file(id, true))?);
                 Ok(last_harvest_game::data::FarmFile { id: id.to_string(), farm, ground })
             })
             .collect()

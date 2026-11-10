@@ -139,7 +139,7 @@ fn make_mod(dir: &Path, out: &Path) -> Result<(), Box<dyn std::error::Error>> {
             last_harvest_pack::prop::read(path, bytes)?;
         }
         if let Some(file) = map_file(path) {
-            last_harvest_game::check_map(file, String::from_utf8(bytes.clone()).map_err(|_| format!("{path}: not text"))?)?;
+            last_harvest_game::check_map_on_any_farm(file, String::from_utf8(bytes.clone()).map_err(|_| format!("{path}: not text"))?)?;
         }
     }
     files.sort_by(|a, b| a.0.cmp(&b.0));
@@ -209,7 +209,7 @@ fn map_file(path: &str) -> Option<&str> {
 }
 
 fn map_note(name: &str, bytes: &[u8]) -> String {
-    match std::str::from_utf8(bytes).map_err(|_| "not text".to_string()).and_then(|t| last_harvest_game::check_map(name, t.to_string())) {
+    match std::str::from_utf8(bytes).map_err(|_| "not text".to_string()).and_then(|t| last_harvest_game::check_map_on_any_farm(name, t.to_string())) {
         Ok(m) => format!("  map: {}", m.name),
         Err(e) => format!("  not a map: {e}"),
     }

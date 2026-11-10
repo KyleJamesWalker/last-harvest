@@ -8,8 +8,14 @@ mod farms;
 mod ground;
 mod text;
 pub use farm::parse as parse_farm;
-pub use farms::{ID_MAX as FARM_ID_MAX, ids as farm_ids, install as install_farms, use_farm, valid_id as valid_farm_id};
-pub(crate) use farms::with_every_ground;
+pub use farm::set as set_farm;
+pub use farms::{DIR as FARM_DIR, GROUND_END as FARM_GROUND_END, ID_MAX as FARM_ID_MAX, file as farm_file, ids as farm_ids, install as install_farms, of_file as farm_of_file, use_farm, use_farm_text, valid_id as valid_farm_id};
+use farms::with_every_ground;
+
+/// Checks a hand-made map as the game loads it: against the ground of every farm installed.
+pub fn check_map_on_any_farm(file: &str, text: String) -> Result<crate::data::LoadedMap, String> {
+    with_every_ground(|| text::check(file, text))
+}
 
 /// Checks the ground codes a farm's text names against `ground.txt` as the game reads it.
 pub fn check_farm_codes(f: &farm::Farm) -> Result<(), String> {

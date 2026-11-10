@@ -184,7 +184,7 @@ pub fn install(mut data: Data) -> Result<Vec<String>, String> {
     }
     let mut maps: Vec<LoadedMap> = Vec::new();
     for file in files {
-        match crate::harvest::with_every_ground(|| crate::harvest::check_map(&file.file, file.text)) {
+        match crate::harvest::check_map_on_any_farm(&file.file, file.text) {
             Ok(map) => {
                 maps.retain(|m| m.id != map.id);
                 maps.push(map);

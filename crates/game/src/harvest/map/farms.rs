@@ -9,6 +9,25 @@ use crate::data::FarmFile;
 /// The most a farm's id can be, so a player card names it inline.
 pub const ID_MAX: usize = 24;
 
+/// Where a pack keeps its own farms, and the end of a farm's ground file's name.
+pub const DIR: &str = "farms/";
+pub const GROUND_END: &str = ".ground.txt";
+
+/// A farm's file in a pack: `farms/<id>.txt`, or its ground's, `farms/<id>.ground.txt`.
+pub fn file(id: &str, ground: bool) -> String {
+    format!("{DIR}{id}{}", if ground { GROUND_END } else { ".txt" })
+}
+
+/// The farm a pack's file belongs to and whether it's the farm's ground, for a file `file` names.
+pub fn of_file(path: &str) -> Option<(&str, bool)> {
+    let name = path.strip_prefix(DIR)?;
+    let (id, ground) = match name.strip_suffix(GROUND_END) {
+        Some(id) => (id, true),
+        None => (name.strip_suffix(".txt")?, false),
+    };
+    valid_id(id).then_some((id, ground))
+}
+
 struct Named {
     id: String,
     farm: &'static Farm,
@@ -25,7 +44,11 @@ enum Active {
     Game,
     Named(usize),
     All,
+    Edited,
 }
+
+/// A farm an editor reads from its text, in use while `Active::Edited` is.
+static EDITED: RwLock<Option<(&'static Farm, &'static [Ground])>> = RwLock::new(None);
 
 static ACTIVE: RwLock<Active> = RwLock::new(Active::Game);
 
@@ -44,6 +67,20 @@ pub fn lay_over(base: &[Ground], top: Vec<Ground>) -> Vec<Ground> {
         }
     }
     out
+}
+
+/// Lays out and paints with a farm read from its text, over the game's farm and ground as they are now, until told
+/// otherwise, as an editor does with a mod's farm `id`; with neither text, the game's.
+pub fn use_farm_text(id: &str, farm: Option<&str>, ground: Option<&str>) -> Result<(), String> {
+    *ACTIVE.write().unwrap_or_else(|e| e.into_inner()) = Active::Game;
+    if farm.is_none() && ground.is_none() {
+        return Ok(());
+    }
+    let f = FarmFile { id: id.to_string(), farm: farm.map(str::to_string), ground: ground.map(str::to_string) };
+    let (rules, kinds) = read(&f)?;
+    *EDITED.write().unwrap_or_else(|e| e.into_inner()) = Some((Box::leak(Box::new(rules)), kinds.leak()));
+    *ACTIVE.write().unwrap_or_else(|e| e.into_inner()) = Active::Edited;
+    Ok(())
 }
 
 /// A farm as it reads over the game's: its rules, else the game's, and its ground laid over the game's.
@@ -98,11 +135,11 @@ pub fn use_farm(id: Option<&str>) {
     *ACTIVE.write().unwrap_or_else(|e| e.into_inner()) = at.map_or(Active::Game, Active::Named);
 }
 
-/// Runs `f` with every farm's ground at once, as a hand-made map is checked, then goes back to the game's.
+/// Runs `f` with every farm's ground at once, as a hand-made map is checked, then goes back to the farm in use.
 pub(crate) fn with_every_ground<T>(f: impl FnOnce() -> T) -> T {
-    *ACTIVE.write().unwrap_or_else(|e| e.into_inner()) = Active::All;
+    let was = std::mem::replace(&mut *ACTIVE.write().unwrap_or_else(|e| e.into_inner()), Active::All);
     let out = f();
-    *ACTIVE.write().unwrap_or_else(|e| e.into_inner()) = Active::Game;
+    *ACTIVE.write().unwrap_or_else(|e| e.into_inner()) = was;
     out
 }
 
@@ -114,6 +151,7 @@ fn active() -> Active {
 pub(super) fn active_farm() -> Option<&'static Farm> {
     match active() {
         Active::Named(i) => FARMS.get().map(|f| f[i].farm),
+        Active::Edited => EDITED.read().unwrap_or_else(|e| e.into_inner()).map(|e| e.0),
         _ => None,
     }
 }
@@ -123,6 +161,7 @@ pub(super) fn active_ground() -> Option<&'static [Ground]> {
     match active() {
         Active::Named(i) => FARMS.get().map(|f| f[i].ground),
         Active::All => ALL.get().copied(),
+        Active::Edited => EDITED.read().unwrap_or_else(|e| e.into_inner()).map(|e| e.1),
         Active::Game => None,
     }
 }
