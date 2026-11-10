@@ -96,6 +96,7 @@ mod tests {
             (format!("{PROP_KEY}crate"), to_text(b"prop")),
             (format!("{MAP_KEY}yard"), "map".to_string()),
             (format!("{TABLE_KEY}tuning.txt"), "t".to_string()),
+            (format!("{TABLE_KEY}farms/kd.ground.txt"), "g".to_string()),
             ("save.txt".to_string(), "not the editor's".to_string()),
             (card_key(Kind::Enemy, "bad"), "!!!!".to_string()),
         ];
@@ -103,7 +104,7 @@ mod tests {
         let files = editor_files(entries.map(|(k, v)| (k, v)), &mut problems);
         let paths: Vec<&str> = files.iter().map(|(p, _)| p.as_str()).collect();
         let map = format!("maps/yard{}", last_harvest_game::MAP_EXTENSION);
-        assert_eq!(paths, ["enemies/biter.enemy.png", map.as_str(), "players/me.player.png", "props/crate.prop.png", "tuning.txt"]);
+        assert_eq!(paths, ["enemies/biter.enemy.png", "farms/kd.ground.txt", map.as_str(), "players/me.player.png", "props/crate.prop.png", "tuning.txt"]);
         assert_eq!(files[0].1, b"png");
         assert_eq!(problems, ["enemies/bad.enemy.png: the card editor's copy is damaged"]);
     }

@@ -22,6 +22,8 @@ pub const TUNING: &str = "tuning.txt";
 pub const EFFECTS: &str = "effects.txt";
 pub const GROUND: &str = "ground.txt";
 pub const FARM: &str = "farm.txt";
+/// A pack's own farms: `farms/<id>.txt` and `farms/<id>.ground.txt`.
+pub const FARMS: &str = last_harvest_game::FARM_DIR;
 pub const SOUNDS: &str = "sounds/";
 pub const ENEMY_CARDS: &str = "enemies/";
 pub const PLAYER_CARDS: &str = "players/";
@@ -131,7 +133,31 @@ impl Pak {
         if self.get(ATLAS).is_some_and(|a| a.len() != (art::ATLAS_W * art::ATLAS_H * 4) as usize) {
             return Err("its atlas is the wrong size for this build".into());
         }
-        self.table_problems().into_iter().next().map_or(Ok(()), |(_, e)| Err(e))
+        if let Some((_, e)) = self.table_problems().into_iter().next() {
+            return Err(e);
+        }
+        self.farms().into_iter().find_map(Result::err).map_or(Ok(()), Err)
+    }
+
+    /// The pack's own farms, by id, each one or why it won't read. Reads none of the game's data.
+    pub fn farms(&self) -> Vec<Result<last_harvest_game::data::FarmFile, String>> {
+        let mut paths: Vec<&str> = self.files.keys().map(String::as_str).filter(|p| p.strip_prefix(FARMS).is_some_and(|n| !n.contains('/'))).collect();
+        paths.sort_unstable();
+        let mut ids: Vec<Result<&str, String>> = paths.iter().map(|p| last_harvest_game::farm_of_file(p).map(|(id, _)| id).ok_or_else(|| format!("{p}: a farm's files are farms/<id>.txt and farms/<id>{}, its id 1 to {} of a-z, 0-9 and _", last_harvest_game::FARM_GROUND_END, last_harvest_game::FARM_ID_MAX))).collect();
+        ids.dedup();
+        let text = |path: String| -> Result<Option<String>, String> {
+            let Some(bytes) = self.get(&path) else { return Ok(None) };
+            let text = String::from_utf8(bytes.to_vec()).map_err(|_| format!("{path} is not UTF-8"))?;
+            last_harvest_game::check_table(&path, &text)?;
+            Ok(Some(text))
+        };
+        ids.into_iter()
+            .map(|id| {
+                let id = id?;
+                let (farm, ground) = (text(last_harvest_game::farm_file(id, false))?, text(last_harvest_game::farm_file(id, true))?);
+                Ok(last_harvest_game::data::FarmFile { id: id.to_string(), farm, ground })
+            })
+            .collect()
     }
 
     /// Each of the game's tables in this pack that wouldn't read, and why, so a base pack can leave out just those.
@@ -275,6 +301,19 @@ mod tests {
         assert!(check(&[(ENEMIES, b"[x]\nlook NOPE")]).unwrap_err().contains("enemies.txt"));
         assert!(check(&[(POWERUPS, b"[x]\nkind sideways")]).unwrap_err().contains("powerups.txt"));
         assert!(check(&[(ENEMIES, &[0xff, 0xfe])]).unwrap_err().contains("UTF-8"));
+    }
+
+    #[test]
+    fn a_packs_farms_pair_by_id_and_name_the_file_that_wont_read() {
+        let farm = include_bytes!("../../game/farm.txt").to_vec();
+        let ground = b"[k]\nname Cane\nart SOIL\ncell field\n".to_vec();
+        let pak = Pak::from_files(vec![("farms/kd.txt".into(), farm.clone()), ("farms/kd.ground.txt".into(), ground), ("farms/odd.ground.txt".into(), b"[k]\nwings 2".to_vec()), ("farms/only.txt".into(), farm)]);
+        let farms = pak.farms();
+        let kd = farms[0].as_ref().unwrap();
+        assert_eq!((kd.id.as_str(), kd.farm.is_some(), kd.ground.is_some()), ("kd", true, true));
+        assert!(farms[1].as_ref().unwrap_err().starts_with("farms/odd.ground.txt:2: "), "{:?}", farms[1]);
+        assert_eq!(farms[2].as_ref().map(|f| (f.farm.is_some(), f.ground.is_none())), Ok((true, true)));
+        assert!(pak.check_mod().unwrap_err().starts_with("farms/odd.ground.txt"));
     }
 
     #[test]

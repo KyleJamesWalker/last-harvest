@@ -92,4 +92,15 @@ impl Store for HttpStore {
     fn save_table(&self, file: &str, text: &str) -> Result<(), String> {
         put(&format!("api/table/{file}"), text.as_bytes())
     }
+
+    fn farm_ids(&self) -> Vec<String> {
+        get("api/farms").map(utf8).unwrap_or_default().lines().map(str::to_string).collect()
+    }
+
+    fn delete_table(&self, file: &str) -> Result<(), String> {
+        match request("DELETE", &format!("api/table/{file}"), None)? {
+            (200, _) => Ok(()),
+            (status, b) => Err(format!("{status} {}", String::from_utf8_lossy(&b))),
+        }
+    }
 }

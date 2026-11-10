@@ -358,7 +358,7 @@ impl Editor {
                 }
                 parts
             }
-            Ask::New | Ask::Palette => {
+            Ask::New | Ask::Palette | Ask::Farm | Ask::FarmGround => {
                 let text = format!("[{id}]\nname        {}\n", id[..1].to_ascii_uppercase() + &id[1..]);
                 let frames = sprite::card_template();
                 names.iter().zip(frames.chunks(sprite::CARD_PART_FRAMES)).map(|(name, f)| Sprite { detail: 1, alpha: Vec::new(), worn: Vec::new(), name: name.clone(), frames: f.to_vec(), views: None, footprint: None, roof: None, north: None, west: None, top: None, card: Some(text.clone()), clear_in_3d: Vec::new(), paint: Default::default() }).collect()
@@ -424,6 +424,13 @@ impl Editor {
             let (v, ink) = fields.base[i].map_or((own, DIM), |v| (v, TEXT));
             c.label(format!("{label} {v}"), x + i as f32 * 180.0, BASE_Y + 5.0, 16.0, ink, Align::Left);
         }
+        let farm = match &fields.farm {
+            Some(id) if !self.store.farm_ids().contains(id) => (format!("{id}, which isn't kept here"), HOT),
+            Some(id) => (id.clone(), TEXT),
+            None => ("the game's".to_string(), DIM),
+        };
+        c.label("Plays on the farm", x, FARM_Y + 5.0, 16.0, DIM, Align::Left);
+        c.label(farm.0, CANVAS.x + 380.0, FARM_Y + 5.0, 16.0, farm.1, Align::Right);
         let note = format!("Toggle up to {} weapons a run starts with; Default keeps the game's own", last_harvest_game::weapon_slots());
         c.label(note, x, CANVAS.y + CANVAS.h - 22.0, 13.0, DIM, Align::Left);
     }

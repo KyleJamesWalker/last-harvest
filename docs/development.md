@@ -121,6 +121,7 @@ CI reads the private submodule with the `ASSETS_DEPLOY_KEY` secret. A pull reque
 | `LAST_HARVEST_PLAYERS` | Player cards. Default: `data/players`. |
 | `LAST_HARVEST_PROPS` | Props. Default: `data/props`. |
 | `LAST_HARVEST_MAPS` | Maps. Default: `data/maps`. |
+| `LAST_HARVEST_FARMS` | Farms a player card picks: `<id>.txt` and `<id>.ground.txt`. Default: `data/farms`. |
 | `LAST_HARVEST_MODS` | Mod packs. Default: `data/mods`. |
 | `LAST_HARVEST_UNLOCK_ALL` | Offers every powerup, whatever the save has unlocked. |
 | `LAST_HARVEST_KIT` | Starts every run with these powerups, as comma-separated `id` or `id:level`, such as `scythe:3,crows,dog`. |

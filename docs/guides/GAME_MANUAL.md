@@ -295,6 +295,7 @@ The game reads your files from its `data/` folder, beside `game_data.pak`, when 
 | `data/players/` | Player cards, `<id>.player.png`. Each is a look, and may set your starting weapons. |
 | `data/props/` | Props, `<id>.prop.png`: your own sprites for maps |
 | `data/maps/` | Maps, `<id>.map.txt`: hand-made farms |
+| `data/farms/` | A player's own farm, `<id>.txt` and `<id>.ground.txt`, which a player card picks |
 | `data/mods/` | Mod packs, `<name>.pak`, laid over the game's data in name order |
 
 The game skips a file that cannot load, and the title screen shows the first reason. Some apps strip a card's text when they save the PNG again, so share the file itself.
@@ -351,7 +352,7 @@ Rename and About set the name and the one-sentence about line. For an enemy card
 
 A chart under the numbers shows how a night's spawns split between the game's kinds and your cards, minute by minute. Its legend flags any kind that never comes.
 
-For a player card, the Stats page sets the name, the about line, and the weapons each difficulty starts with. The weapon toggles include any weapon the mod's `powerups.txt` adds. Default keeps the game's own.
+For a player card, the Stats page sets the name, the about line, and the weapons each difficulty starts with. The weapon toggles include any weapon the mod's `powerups.txt` adds. Default keeps the game's own. **Plays on the farm** picks the [farm](../../docs/modding.md#a-players-own-farm) that player's runs lay out and paint with, or the game's.
 
 ### Props and maps
 
@@ -371,6 +372,7 @@ Maps list under Maps as `MAP_<ID>`. The canvas shows the map from above, and a l
 | Spawn, Home | Set your start tile and the tile you run home to |
 | Width, Height | Grow or shrink the map 4 tiles at a time, or 16 with Shift |
 | Randomize | Lays out a random farm, every piece a prop to edit |
+| Farm | Picks the farm that Ground paints with and Randomize lays out: the game's, or one under Data > farms |
 
 Scroll or pinch to zoom. Right-drag or the arrows move the view.
 
@@ -385,7 +387,10 @@ Each data file lists under Data, and each section is a page, such as Data > tuni
 | Edit | Type any value |
 | x, Add line | Remove a line, or add one |
 | Up, Down | Page through a long section |
-| Copy | Copy the section under a new id, in `powerups.txt`, `enemies.txt` and `effects.txt`. The id takes lowercase letters, digits and `_`, and Undo takes the copy back |
+| Copy | Copy the section under a new id, in `powerups.txt`, `enemies.txt` and `effects.txt`, or a ground code under a new one-character code. The id takes lowercase letters, digits and `_`, and Undo takes the copy back |
+| New farm | On a page of `farm.txt` or of a farm, make a new farm from it, for a player card to pick |
+| To farm | On a ground code, put it in a farm's own ground, in place of the farm's code of the same name |
+| Delete | On a farm's page, press twice to remove that file of the farm |
 | Revert | Go back to the last save |
 | Save | Keep the file, only when the game would read it |
 
