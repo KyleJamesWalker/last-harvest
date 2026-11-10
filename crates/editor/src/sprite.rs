@@ -820,7 +820,8 @@ mod tests {
         let want = [("DIRT", "Ground"), ("PATH", "Ground"), ("RAIL", "Fences")].map(|(a, b)| (a.to_string(), b.to_string()));
         assert_eq!(got, want);
         assert_eq!(section("PLAYER_FRONT"), "Characters");
-        assert_eq!(section("ICON_KNIFE"), "Placeholders");
+        assert_eq!(section("ICON_AMMO_CRATE"), "Placeholders");
+        assert_eq!(section("ICON_KNIFE"), "Icons");
         assert_eq!(section("ICON_PISTOL"), "Icons");
         assert_eq!(section("NOT_IN_THE_CATALOG"), NEW_SECTION);
     }
