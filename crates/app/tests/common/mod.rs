@@ -21,7 +21,7 @@ pub fn temp_dir(name: &str) -> PathBuf {
 /// Points every folder the app reads beside the binary at an empty one, so nothing on this machine leaks in.
 pub fn isolate(name: &str) -> PathBuf {
     let dir = temp_dir(name);
-    for (var, sub) in [("LAST_HARVEST_ENEMIES", "enemies"), ("LAST_HARVEST_PLAYERS", "players"), ("LAST_HARVEST_MODS", "mods"), ("LAST_HARVEST_MAPS", "maps"), ("LAST_HARVEST_PROPS", "props")] {
+    for (var, sub) in [("LAST_HARVEST_ENEMIES", "enemies"), ("LAST_HARVEST_PLAYERS", "players"), ("LAST_HARVEST_MODS", "mods"), ("LAST_HARVEST_MAPS", "maps"), ("LAST_HARVEST_PROPS", "props"), ("LAST_HARVEST_FARMS", "farms")] {
         std::fs::create_dir_all(dir.join(sub)).unwrap();
         // SAFETY: each test file is its own process, and this runs before anything else reads the environment.
         unsafe { std::env::set_var(var, dir.join(sub)) };

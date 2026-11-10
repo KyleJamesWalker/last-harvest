@@ -21,6 +21,8 @@ pub struct Data {
     pub ground: Option<String>,
     /// `farm.txt`: how the random farm lays itself out.
     pub farm: Option<String>,
+    /// A pack's own farms, which a player card picks.
+    pub farms: Vec<FarmFile>,
     pub cards: Vec<Card>,
     /// Player cards, the same sheet as an enemy's with three walking frames, and an id and name for text.
     pub players: Vec<Card>,
@@ -28,6 +30,15 @@ pub struct Data {
     pub props: Vec<Card>,
     /// Hand-made maps, as found; install keeps the ones that read.
     pub maps: Vec<MapFile>,
+}
+
+/// A pack's own farm: `farms/<id>.txt` lays it out in place of `farm.txt`, and `farms/<id>.ground.txt` lays its
+/// ground over `ground.txt`'s, by code. Either may be left out.
+#[derive(Clone, Debug, Default)]
+pub struct FarmFile {
+    pub id: String,
+    pub farm: Option<String>,
+    pub ground: Option<String>,
 }
 
 /// A hand-made map's file name and text, as found.
@@ -161,11 +172,19 @@ pub fn install(mut data: Data) -> Result<Vec<String>, String> {
         }
     }
     let files = std::mem::take(&mut data.maps);
+    let farms = std::mem::take(&mut data.farms);
     // Maps are checked against the data being installed, its ground and props, so that comes first.
     DATA.set(data).map_err(|_| "the game data was already read".to_string())?;
+    notes.extend(crate::harvest::install_farms(&farms));
+    let known = crate::harvest::farm_ids();
+    for look in crate::harvest::player_looks() {
+        if let Some(f) = look.farm.as_ref().filter(|f| !known.contains(f)) {
+            notes.push(format!("player {}: no farm called {f}, so it plays on the game's", look.id));
+        }
+    }
     let mut maps: Vec<LoadedMap> = Vec::new();
     for file in files {
-        match crate::harvest::check_map(&file.file, file.text) {
+        match crate::harvest::check_map_on_any_farm(&file.file, file.text) {
             Ok(map) => {
                 maps.retain(|m| m.id != map.id);
                 maps.push(map);

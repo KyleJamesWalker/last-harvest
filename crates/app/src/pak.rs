@@ -93,6 +93,20 @@ fn maps_folder() -> Option<PathBuf> {
     Some(data_folder()?.join("maps"))
 }
 
+/// `LAST_HARVEST_FARMS`, else `data/farms` beside the binary.
+fn farms_folder() -> Option<PathBuf> {
+    if let Some(dir) = std::env::var_os("LAST_HARVEST_FARMS") {
+        return Some(dir.into());
+    }
+    Some(data_folder()?.join("farms"))
+}
+
+/// The farms among a farms folder's `files`, by id, noting any that won't read.
+fn read_farms(files: Vec<(String, Vec<u8>)>, problems: &mut Vec<String>) -> Vec<data::FarmFile> {
+    let pak = Pak::from_files(files.into_iter().map(|(name, bytes)| (format!("{}{name}", pack::FARMS), bytes)).collect());
+    pak.farms().into_iter().filter_map(|f| f.map_err(|e| problems.push(e)).ok()).collect()
+}
+
 /// `LAST_HARVEST_PROPS`, else `data/props` beside the binary.
 fn props_folder() -> Option<PathBuf> {
     if let Some(dir) = std::env::var_os("LAST_HARVEST_PROPS") {
@@ -246,6 +260,7 @@ fn install_noting(base: Option<Pak>, missing_pack: Option<String>, more: Vec<(St
     let mut text = |file: &str| pak.take(file).map(String::from_utf8).transpose().map_err(|_| format!("{file} is not UTF-8"));
     let (powerups, enemies, props_table, tuning, effects) = (text(pack::POWERUPS)?, text(pack::ENEMIES)?, text(pack::PROPS_TABLE)?, text(pack::TUNING)?, text(pack::EFFECTS)?);
     let (ground, farm) = (text(pack::GROUND)?, text(pack::FARM)?);
+    let farms = pak.farms().into_iter().filter_map(|f| f.map_err(|e| problems.push(e)).ok()).collect();
     let powerups = match TRIED.lock().ok().and_then(|t| t.clone()) {
         Some(section) => match last_harvest_game::powerups_with(powerups.as_deref().or(last_harvest_game::built_in_table("powerups.txt")).unwrap_or_default(), &section) {
             Ok(text) => Some(text),
@@ -272,7 +287,7 @@ fn install_noting(base: Option<Pak>, missing_pack: Option<String>, more: Vec<(St
     let players = read_cards(player, pak.take_dir(pack::PLAYER_CARDS), &mut problems, &mut Vec::new());
     let maps = read_maps(pak.take_dir(pack::MAPS), &mut problems);
     let props = read_props(pak.take_dir(pack::PROPS), &mut problems);
-    let mut data = Data { atlas: pak.take(pack::ATLAS), font: pak.take(pack::FONT), powerups, enemies, props_table, tuning, effects, ground, farm, cards, players, props, maps };
+    let mut data = Data { atlas: pak.take(pack::ATLAS), font: pak.take(pack::FONT), powerups, enemies, props_table, tuning, effects, ground, farm, farms, cards, players, props, maps };
     if missing_pack.is_some() && data.atlas.is_none() {
         data.atlas = Some(vec![0; (art::ATLAS_W * art::ATLAS_H * 4) as usize]);
     }
@@ -282,6 +297,13 @@ fn install_noting(base: Option<Pak>, missing_pack: Option<String>, more: Vec<(St
     keep_last_of_each_name(&mut data.props);
     if let Some(dir) = maps_folder() {
         data.maps.extend(read_maps(samples::read_files(&dir, &[last_harvest_game::MAP_EXTENSION]), &mut problems));
+    }
+    if let Some(dir) = farms_folder() {
+        // A loose farm stands in for a pack's of the same id.
+        for f in read_farms(samples::read_files(&dir, &[".txt"]), &mut problems) {
+            data.farms.retain(|p| p.id != f.id);
+            data.farms.push(f);
+        }
     }
     if let Some(dir) = cards_folder() {
         data.cards.extend(read_cards(enemy, samples::read_files(&dir, &[enemy.extension()]), &mut problems, &mut own));
@@ -374,6 +396,16 @@ mod tests {
         let mut cards = vec![card("ghoul.enemy.png", "pack"), card("bat.enemy.png", "pack"), card("ghoul.enemy.png", "loose")];
         keep_last_of_each_name(&mut cards);
         assert_eq!(cards.iter().map(|c| (c.name.as_str(), c.text.as_str())).collect::<Vec<_>>(), [("bat.enemy.png", "pack"), ("ghoul.enemy.png", "loose")]);
+    }
+
+    #[test]
+    fn a_farms_folder_pairs_its_files_and_notes_a_stray() {
+        let farm = last_harvest_game::built_in_table("farm.txt").unwrap().as_bytes().to_vec();
+        let files = vec![("kd.ground.txt".to_string(), b"[k]\nname Cane\nart SOIL\ncell field\n".to_vec()), ("kd.txt".to_string(), farm), ("Notes.txt".to_string(), vec![])];
+        let mut problems = Vec::new();
+        let farms = read_farms(files, &mut problems);
+        assert_eq!(farms.iter().map(|f| (f.id.as_str(), f.farm.is_some(), f.ground.is_some())).collect::<Vec<_>>(), [("kd", true, true)]);
+        assert!(problems.len() == 1 && problems[0].starts_with("farms/Notes.txt: "), "{problems:?}");
     }
 
     #[test]

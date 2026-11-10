@@ -124,6 +124,22 @@ impl Table {
         true
     }
 
+    /// Puts `section`'s heading and lines as `from` has them in place of this table's, or at the end without one.
+    pub fn put_section(&mut self, from: &Table, section: &str) -> bool {
+        let Some(text) = from.section_text(section) else { return false };
+        if let Some((start, end)) = self.span(section).filter(|_| section != TOP) {
+            self.rewrite(|lines| _ = lines.drain(start - 1..end));
+        }
+        let mut out = self.text.trim_end().to_string();
+        if !out.is_empty() {
+            out += "\n\n";
+        }
+        out += text.trim_end();
+        out.push('\n');
+        self.text = out;
+        true
+    }
+
     pub fn remove(&mut self, section: &str, at: usize) -> bool {
         let Some(e) = self.entries(section).into_iter().nth(at) else { return false };
         self.rewrite(|lines| {
@@ -134,6 +150,21 @@ impl Table {
 }
 
 /// A number one step up or down: by 1 for whole numbers, else by its last decimal place; Shift steps ten times as far.
+#[cfg(test)]
+mod put_tests {
+    use super::*;
+
+    #[test]
+    fn a_section_put_replaces_its_namesake_or_goes_at_the_end() {
+        let from = Table::new("ground.txt", "[c]\nname Corn\n\n[k]\nname Cane\n");
+        let mut to = Table::new("farms/kd.ground.txt", "");
+        assert!(to.put_section(&from, "k") && to.text == "[k]\nname Cane\n");
+        assert!(to.put_section(&from, "c") && to.put_section(&Table::new("x", "[k]\nname Sugar\n"), "k"));
+        assert_eq!(to.text, "[c]\nname Corn\n\n[k]\nname Sugar\n");
+        assert!(!to.put_section(&from, "q"));
+    }
+}
+
 pub fn step(value: &str, by: i32, shift: bool) -> Option<String> {
     let v: f64 = value.parse().ok()?;
     let places = value.split_once('.').map_or(0, |(_, d)| d.len());

@@ -23,6 +23,8 @@ pub struct PlayerLook {
     /// table can't be read while the cards install.
     pub(crate) start: [Option<Vec<String>>; 3],
     pub(crate) base: [Option<f32>; 3],
+    /// The pack's farm this look plays on, by id; None for the game's.
+    pub farm: Option<String>,
 }
 
 /// What a player card's text says: its id, name and about, and the weapons it starts with at each difficulty, by id;
@@ -36,6 +38,8 @@ pub struct PlayerFields {
     pub start: [Option<Vec<String>>; 3],
     /// Health, speed and magnet before upgrades, where the card sets them over tuning.txt's.
     pub base: [Option<f32>; 3],
+    /// The pack's farm the card plays on, by id; None for the game's.
+    pub farm: Option<String>,
 }
 
 /// The numbers a player card can set over tuning.txt's, by key, in the order of `PlayerFields::base`.
@@ -71,11 +75,27 @@ pub fn set_player_start(text: &str, difficulty: Difficulty, weapons: Option<&[St
     out.join("\n") + "\n"
 }
 
+/// A player card's text with its `farm` line set to `id`, or removed when None.
+pub fn set_player_farm(text: &str, id: Option<&str>) -> String {
+    let mine = |line: &str| line.split('#').next().unwrap_or("").split_whitespace().next() == Some("farm");
+    let mut out: Vec<String> = text.lines().filter(|l| !mine(l)).map(str::to_string).collect();
+    while out.last().is_some_and(|l| l.trim().is_empty()) {
+        out.pop();
+    }
+    out.extend(id.map(|id| format!("farm        {id}")));
+    out.join("\n") + "\n"
+}
+
+/// Lays out and paints with the farm the look `id` plays on, as a run on it starts.
+pub fn use_player_farm(id: &str) {
+    super::use_farm(look(id).farm.as_deref());
+}
+
 static LOOKS: OnceLock<Vec<PlayerLook>> = OnceLock::new();
 
 fn farmer() -> PlayerLook {
     let about = "Up before dawn every day of the year; tonight, dawn is the hard part.".into();
-    PlayerLook { id: String::new(), name: "Farmer".into(), about, look: super::player_look(), start: Default::default(), base: [None; 3] }
+    PlayerLook { id: String::new(), name: "Farmer".into(), about, look: super::player_look(), start: Default::default(), base: [None; 3], farm: None }
 }
 
 /// The looks to choose from: the farmer first, then the player cards.
@@ -114,8 +134,8 @@ pub(super) fn install(cards: Vec<PlayerLook>) {
     LOOKS.set(std::iter::once(farmer()).chain(cards).collect()).ok();
 }
 
-/// A player card's settings, from its text: an `[id]` line, `name` and `about` lines, and a `start DIFFICULTY
-/// WEAPON...` line for any difficulty whose starting weapons it sets.
+/// A player card's settings, from its text: an `[id]` line, `name` and `about` lines, a `start DIFFICULTY
+/// WEAPON...` line for any difficulty whose starting weapons it sets, and a `farm ID` line for a pack's farm.
 pub fn player_fields(text: &str) -> Result<PlayerFields, String> {
     parse(text, true)
 }
@@ -126,6 +146,7 @@ fn parse(text: &str, check: bool) -> Result<PlayerFields, String> {
     let (mut id, mut name, mut start): (Option<String>, Option<String>, [Option<Vec<String>>; 3]) = (None, None, Default::default());
     let mut about = String::new();
     let mut base = [None; 3];
+    let mut farm = None;
     for (i, raw) in text.lines().enumerate() {
         let line = raw.split('#').next().unwrap_or("").trim();
         if line.is_empty() {
@@ -150,11 +171,17 @@ fn parse(text: &str, check: bool) -> Result<PlayerFields, String> {
                 }
                 start[d as usize] = Some(weapons.iter().map(|w| w.to_string()).collect());
             }
+            (None, ["farm", f]) if id.is_some() => {
+                if !super::valid_farm_id(f) {
+                    return Err(format!("line {n}: a farm's id is 1 to {} of a-z, 0-9 and _", super::FARM_ID_MAX));
+                }
+                farm = Some(f.to_string());
+            }
             (None, [key, v]) if id.is_some() && BASE_KEYS.contains(key) => {
                 let at = BASE_KEYS.iter().position(|k| k == key).unwrap_or(0);
                 base[at] = Some(v.parse::<f32>().ok().filter(|v| v.is_finite() && *v > 0.0 && *v <= 1000.0).ok_or_else(|| format!("line {n}: {key} is a number above 0, up to 1000"))?);
             }
-            _ => return Err(format!("line {n}: a player card has its [id], a name, an about, start lines and hp, speed and magnet, nothing else")),
+            _ => return Err(format!("line {n}: a player card has its [id], a name, an about, start lines, hp, speed and magnet, and a farm, nothing else")),
         }
     }
     let id = id.ok_or("a player card starts with its [id]")?;
@@ -162,7 +189,7 @@ fn parse(text: &str, check: bool) -> Result<PlayerFields, String> {
         return Err(format!("[{id}]: a player card's id is 1 to {ID_MAX} of a-z, 0-9 and _"));
     }
     let name = name.unwrap_or_else(|| id.clone());
-    Ok(PlayerFields { id, name, about, start, base })
+    Ok(PlayerFields { id, name, about, start, base, farm })
 }
 
 /// What `pack` makes of the player cards.
@@ -182,7 +209,7 @@ pub(super) struct Packed {
 pub(super) fn pack(cards: &[Card], atlas: &mut [u8], cursor: &mut [u16; 3], first: usize) -> Packed {
     let Packed { mut notes, mut rects, mut looks, mut worn, mut detail } = Packed::default();
     for card in cards {
-        let PlayerFields { id, name, about, start, base } = match parse(&card.text, false) {
+        let PlayerFields { id, name, about, start, base, farm } = match parse(&card.text, false) {
             Ok(f) => f,
             Err(e) => {
                 notes.push(format!("{}: {e}", card.name));
@@ -219,7 +246,7 @@ pub(super) fn pack(cards: &[Card], atlas: &mut [u8], cursor: &mut [u16; 3], firs
         for (f, frames) in facings.iter().enumerate() {
             worn.extend((0..3).filter_map(|k| Some((art(f * 3 + k), crate::worn::frame(frames, k)?))));
         }
-        looks.push(PlayerLook { id, name, about, look, start, base });
+        looks.push(PlayerLook { id, name, about, look, start, base, farm });
     }
     Packed { notes, rects, looks, worn, detail }
 }
@@ -251,6 +278,17 @@ mod tests {
     }
 
     #[test]
+    fn a_farm_line_names_a_packs_farm_and_is_set_and_cleared() {
+        assert_eq!(player_fields("[kd]\nfarm kd_farm").unwrap().farm.as_deref(), Some("kd_farm"));
+        assert_eq!(player_fields("[kd]").unwrap().farm, None);
+        assert!(player_fields("[kd]\nfarm Kd").err().unwrap().starts_with("line 2: a farm's id"));
+        assert!(player_fields("[kd]\nfarm a b").is_err());
+        let text = set_player_farm("[kd]\nname Kd\nfarm old\n\n", Some("cane"));
+        assert_eq!(text, "[kd]\nname Kd\nfarm        cane\n");
+        assert_eq!(set_player_farm(&text, None), "[kd]\nname Kd\n");
+    }
+
+    #[test]
     fn start_lines_are_set_and_cleared_one_difficulty_at_a_time() {
         let text = "[jo]\nname Jo\nstart easy pistol\n";
         let text = set_player_start(text, Difficulty::Hard, Some(&["crows".to_string(), "dog".to_string()]));
@@ -265,7 +303,7 @@ mod tests {
     #[test]
     fn a_start_keeps_each_weapon_once_and_only_weapons() {
         let start = Some(vec!["pistol".into(), "pistol".into(), "heal".into(), "knife".into(), "nope".into()]);
-        let jo = PlayerLook { id: "jo".into(), name: "Jo".into(), about: String::new(), look: super::super::player_look(), start: [None, start, None], base: [None; 3] };
+        let jo = PlayerLook { id: "jo".into(), name: "Jo".into(), about: String::new(), look: super::super::player_look(), start: [None, start, None], base: [None; 3], farm: None };
         assert_eq!(jo.start_names(Difficulty::Normal), ["Pistol", "Knife"]);
     }
 

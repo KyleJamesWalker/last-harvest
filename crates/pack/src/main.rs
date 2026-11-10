@@ -11,7 +11,7 @@
 use std::path::{Path, PathBuf};
 
 use last_harvest_game::art;
-use last_harvest_pack::{ATLAS, ENEMIES, FONT, MANIFEST, EFFECTS, FARM, GROUND, POWERUPS, PROPS_TABLE, SOUNDS, TUNING, card, manifest, mod_manifest, write};
+use last_harvest_pack::{ATLAS, ENEMIES, FONT, MANIFEST, EFFECTS, FARM, FARMS, GROUND, POWERUPS, PROPS_TABLE, SOUNDS, TUNING, card, manifest, mod_manifest, write};
 
 /// Files by path or name, with their bytes.
 type Files = Vec<(String, Vec<u8>)>;
@@ -128,8 +128,9 @@ fn make_mod(dir: &Path, out: &Path) -> Result<(), Box<dyn std::error::Error>> {
         let id = dir.file_name().and_then(|n| n.to_str()).unwrap_or("mod");
         files.push((MANIFEST.to_string(), mod_manifest(id).into_bytes()));
     }
-    install_tables(|name| files.iter().find(|(p, _)| p == name).map(|(_, b)| b.as_slice()))?;
+    let farms = last_harvest_pack::Pak::from_files(files.clone()).farms().into_iter().collect::<Result<Vec<_>, _>>()?;
     load_props(files.iter().map(|(p, b)| (p.as_str(), b.as_slice())))?;
+    install_tables(|name| files.iter().find(|(p, _)| p == name).map(|(_, b)| b.as_slice()), farms)?;
     for (path, bytes) in &files {
         if let Some(kind) = card::Kind::of(path) {
             card::read_as(kind, path, bytes)?;
@@ -138,7 +139,7 @@ fn make_mod(dir: &Path, out: &Path) -> Result<(), Box<dyn std::error::Error>> {
             last_harvest_pack::prop::read(path, bytes)?;
         }
         if let Some(file) = map_file(path) {
-            last_harvest_game::check_map(file, String::from_utf8(bytes.clone()).map_err(|_| format!("{path}: not text"))?)?;
+            last_harvest_game::check_map_on_any_farm(file, String::from_utf8(bytes.clone()).map_err(|_| format!("{path}: not text"))?)?;
         }
     }
     files.sort_by(|a, b| a.0.cmp(&b.0));
@@ -148,16 +149,17 @@ fn make_mod(dir: &Path, out: &Path) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Installs a pack's own ground.txt and props.txt, where it brings them, so its maps are checked against them as
-/// the game will check them.
-fn install_tables<'a>(get: impl Fn(&str) -> Option<&'a [u8]>) -> Result<(), String> {
+/// Installs a pack's own ground.txt, props.txt and farms, where it brings them, so its maps are checked against them
+/// as the game will check them.
+fn install_tables<'a>(get: impl Fn(&str) -> Option<&'a [u8]>, farms: Vec<last_harvest_game::data::FarmFile>) -> Result<(), String> {
     let table = |name: &str| get(name).and_then(|b| String::from_utf8(b.to_vec()).ok());
     for file in [GROUND, PROPS_TABLE] {
         if let Some(t) = table(file) {
             last_harvest_game::check_table(file, &t)?;
         }
     }
-    last_harvest_game::data::install(last_harvest_game::data::Data { ground: table(GROUND), props_table: table(PROPS_TABLE), ..Default::default() }).map(|_| ())
+    last_harvest_game::data::install(last_harvest_game::data::Data { ground: table(GROUND), props_table: table(PROPS_TABLE), farms, ..Default::default() })
+        .and_then(|notes| notes.into_iter().find(|n| n.starts_with(FARMS)).map_or(Ok(()), Err))
 }
 
 /// Reads the props among `files` and loads them so maps that place them can be checked.
@@ -172,11 +174,12 @@ fn load_props<'a>(files: impl Iterator<Item = (&'a str, &'a [u8])>) -> Result<()
 /// Lists a pack's files and whether the game would take it as a mod, reading each card in it.
 fn show_pak(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let pak = last_harvest_pack::Pak::open(path)?;
-    if let Err(e) = install_tables(|name| pak.get(name)) {
-        println!("Its ground or props table won't read, so its maps are checked against the game's: {e}\n");
-    }
     if let Err(e) = load_props(pak.paths().into_iter().map(|p| (p, pak.get(p).unwrap_or_default()))) {
         println!("A prop won't load, so maps that place it won't either: {e}\n");
+    }
+    let farms = pak.farms().into_iter().filter_map(|f| f.map_err(|e| println!("{e}\n")).ok()).collect();
+    if let Err(e) = install_tables(|name| pak.get(name), farms) {
+        println!("Its ground, props table or a farm won't read, so its maps are checked against the game's: {e}\n");
     }
     for file in pak.paths() {
         let size = pak.get(file).map_or(0, <[u8]>::len);
@@ -206,7 +209,7 @@ fn map_file(path: &str) -> Option<&str> {
 }
 
 fn map_note(name: &str, bytes: &[u8]) -> String {
-    match std::str::from_utf8(bytes).map_err(|_| "not text".to_string()).and_then(|t| last_harvest_game::check_map(name, t.to_string())) {
+    match std::str::from_utf8(bytes).map_err(|_| "not text".to_string()).and_then(|t| last_harvest_game::check_map_on_any_farm(name, t.to_string())) {
         Ok(m) => format!("  map: {}", m.name),
         Err(e) => format!("  not a map: {e}"),
     }

@@ -355,6 +355,7 @@ pub fn section(name: &str) -> &'static str {
             Some("EFFECTS") => "Data/effects",
             Some("GROUND") => "Data/ground",
             Some("FARM") => "Data/random farm",
+            Some("FARMS") => "Data/farms",
             Some("POWERUPS") => "Data/powerups",
             Some("ENEMIES") => "Data/enemies",
             _ => "Data",

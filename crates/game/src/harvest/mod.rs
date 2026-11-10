@@ -32,9 +32,10 @@ use enemies::Enemy;
 pub(crate) use enemies::{install_cards, off_from_ids, off_ids, roster};
 pub use props::{MAX_FRAME as PROP_MAX_FRAME, MAX_FRAMES as PROP_MAX_FRAMES, Named as NamedProp, PREFIX as PROP_PREFIX, ByViews as PropByViews, PropFields, load_for_checks as load_props_for_checks, turned_depth, prop_fields, prop_text, props as named_props, set_props};
 pub(crate) use props::{alpha_of, stand_of};
-pub use map::{default_depth as default_prop_depth, ground_codes as map_ground, set_ground as set_map_ground, Sway as CropSway, MAP_EXTENSION, MAP_MAX, MAP_MIN, MAX_HP as PROP_MAX_HP, MapSource, map_props, parse_props, PropKind, PropLine, Tough as PropTough, check_map, valid_map_id};
+pub use map::{default_depth as default_prop_depth, ground_codes as map_ground, set_ground as set_map_ground, Sway as CropSway, MAP_EXTENSION, MAP_MAX, MAP_MIN, MAX_HP as PROP_MAX_HP, MapSource, map_props, parse_props, PropKind, PropLine, Tough as PropTough, check_map, valid_map_id, FARM_DIR, FARM_GROUND_END, FARM_ID_MAX, farm_file, farm_ids, farm_of_file, install_farms, set_farm, use_farm, use_farm_text, valid_farm_id};
+pub use map::check_map_on_any_farm;
 pub use enemies::{ABOUT_MAX, MAX_FRAME as CARD_MAX_FRAME, card_frame_most, MAX_WALK, flash_pixel, frame_limits, hurt_pixel};
-pub use players::{BASE_KEYS as PLAYER_BASE_KEYS, ID_MAX as PLAYER_ID_MAX, PlayerFields, PlayerLook, default_start, looks as player_looks, player_fields, set_player_start, weapon_slots, weapons};
+pub use players::{BASE_KEYS as PLAYER_BASE_KEYS, ID_MAX as PLAYER_ID_MAX, PlayerFields, PlayerLook, default_start, looks as player_looks, player_fields, set_player_farm, set_player_start, use_player_farm, weapon_slots, weapons};
 pub use enemies::{CardFields, FLAGS as CARD_FLAGS, NUMBERS as CARD_NUMBERS, SpawnMix, card_fields, set_card_field, spawn_mix};
 use juice::{Corpse, Juice, Particle, Tone};
 use map::{Map, TILE};
@@ -203,10 +204,18 @@ pub fn built_in_table(file: &str) -> Option<&'static str> {
     }
 }
 
-/// Checks a data file's text as the game will read it; errors name the line.
+/// The kind of data file `file` is: one of `TABLES`, or `farm.txt` or `ground.txt` for a pack farm's files.
+pub fn table_kind(file: &str) -> Option<&'static str> {
+    match map::farm_of_file(file) {
+        Some((_, ground)) => Some(if ground { "ground.txt" } else { "farm.txt" }),
+        None => TABLES.into_iter().find(|t| *t == file),
+    }
+}
+
+/// Checks a data file's text as the game will read it, a pack farm's by its kind; errors name the line.
 pub fn check_table(file: &str, text: &str) -> Result<(), String> {
     let fail = |e: String| format!("{file}:{e}");
-    match file {
+    match table_kind(file).unwrap_or(file) {
         "tuning.txt" => crate::tuning::parse(text, Some(&crate::tuning::built_in())).map(|_| ()).map_err(fail),
         "props.txt" => map::parse_props(text).map(|_| ()).map_err(fail),
         "effects.txt" => effects::parse(text).and_then(|_| effects::parse_colors(text, Some(&effects::built_in_colors()))).map(|_| ()).map_err(fail),
@@ -472,6 +481,14 @@ struct Drop {
     age: f32,
     /// Seconds since the magnet caught it.
     pulled: Option<f32>,
+}
+
+impl Drop {
+    /// The magnet takes it, toward the player along `n`: a flick to one side first makes it swoop in.
+    fn catch(&mut self, n: [f32; 2], side: f32) {
+        self.vel = [-n[1] * side * 70.0 - n[0] * 40.0, n[0] * side * 70.0 - n[1] * 40.0];
+        self.pulled = Some(0.0);
+    }
 }
 
 /// What's in the air.
@@ -741,6 +758,8 @@ pub struct Harvest {
     woke: bool,
     /// Once the first Harvester falls: seconds to the next wave of them, and how many that wave brings.
     waves: Option<(f32, u32)>,
+    /// The night's time the truck driver's next collection ticket is ready.
+    ticket: f32,
     /// Grenades ready to throw; the fraction is the next one recharging.
     grenades: f32,
     /// Seconds left of the worn grenade's flash after one comes ready.
@@ -965,6 +984,7 @@ impl Harvest {
             start_t: 0.0,
             woke: false,
             waves: None,
+            ticket: crate::tuning::tuning().driver_after,
             grenades: book().grenades[Difficulty::Normal as usize] as f32,
             ready_flash: 0.0,
             thrown: Vec::new(),
@@ -1472,6 +1492,7 @@ impl Harvest {
         }
         self.crumble(dt, sounds);
         self.reap(sounds, flow);
+        self.cash_in(sounds);
         self.collect(dt, sounds);
         self.flock(dt, sounds);
         self.ambience(dt, sounds, flow);
@@ -2360,6 +2381,26 @@ impl Harvest {
         }
     }
 
+    /// Where the truck driver stands while he holds a collection ticket.
+    fn ticket(&self) -> Option<[f32; 2]> {
+        let on = crate::tuning::tuning().driver_after > 0.0;
+        self.map.driver.filter(|_| on && self.t >= self.ticket)
+    }
+
+    /// Collection day: at the driver with a ticket ready, every coin on the map flies to the player.
+    fn cash_in(&mut self, sounds: &mut Vec<Sfx>) {
+        let t = crate::tuning::tuning();
+        let Some(at) = self.ticket().filter(|&at| len(sub(self.pos, at)) <= t.driver_reach) else { return };
+        self.ticket = self.t + t.driver_every;
+        for d in self.drops.iter_mut().filter(|d| matches!(d.kind, DropKind::Money(_)) && d.pulled.is_none()) {
+            let side = if self.juice.rng.below(2) == 0 { 1.0 } else { -1.0 };
+            d.catch(norm(sub(self.pos, d.pos)), side);
+        }
+        sounds.push(Sfx::Pick(true));
+        self.juice.banner("COLLECTION DAY", GOLD, 2.4);
+        self.juice.flash(at, 24.0, [1.8, 1.4, 0.6], 9.0, 0.8);
+    }
+
     fn collect(&mut self, dt: f32, sounds: &mut Vec<Sfx>) {
         let mut money = false;
         let mut healed = false;
@@ -2377,10 +2418,8 @@ impl Harvest {
             let dist = len(to);
             let n = norm(to);
             if dist < self.kit.magnet() && d.pulled.is_none() {
-                // A flick to one side first makes it swoop in.
                 let side = if self.juice.rng.below(2) == 0 { 1.0 } else { -1.0 };
-                d.vel = [-n[1] * side * 70.0 - n[0] * 40.0, n[0] * side * 70.0 - n[1] * 40.0];
-                d.pulled = Some(0.0);
+                d.catch(n, side);
             }
             match &mut d.pulled {
                 Some(p) => {
@@ -3859,5 +3898,96 @@ mod tests {
         h.update(&Input::default(), 0.1, &mut sounds);
         h.update(&Input::default(), 0.016, &mut sounds);
         assert_eq!(h.thrown.len(), 1);
+    }
+
+    /// A calm farm with the truck's driver at the player's feet and coins worth `each` strewn far from them.
+    fn collection_day(each: u32) -> Harvest {
+        let mut h = Harvest::calm(5);
+        h.map.driver = Some(h.pos);
+        for (dx, dy) in [(200.0, 0.0), (-200.0, 40.0), (0.0, 180.0), (30.0, -190.0), (150.0, 150.0)] {
+            let pos = [h.pos[0] + dx, h.pos[1] + dy];
+            h.drops.push(Drop { kind: DropKind::Money(each), pos, z: 0.0, vz: 0.0, vel: [0.0; 2], age: 0.0, pulled: None });
+        }
+        h.drops.push(Drop { kind: DropKind::Health, pos: [h.pos[0] + 200.0, h.pos[1] + 200.0], z: 0.0, vz: 0.0, vel: [0.0; 2], age: 0.0, pulled: None });
+        h
+    }
+
+    #[test]
+    fn the_driver_holds_no_ticket_before_after() {
+        let t = crate::tuning::tuning();
+        let mut h = collection_day(1);
+        h.t = t.driver_after - 1.0;
+        assert!(h.ticket().is_none());
+        h.cash_in(&mut Vec::new());
+        assert!(h.drops.iter().all(|d| d.pulled.is_none()), "no ticket, no cash-in");
+        h.t = t.driver_after;
+        assert_eq!(h.ticket(), h.map.driver);
+    }
+
+    #[test]
+    fn cashing_in_pulls_every_coin_on_the_map_and_the_next_ticket_waits_every() {
+        let t = crate::tuning::tuning();
+        let mut h = collection_day(1);
+        h.t = t.driver_after + 5.0;
+        h.map.driver = Some([h.pos[0] + t.driver_reach + 1.0, h.pos[1]]);
+        h.cash_in(&mut Vec::new());
+        assert!(h.drops.iter().all(|d| d.pulled.is_none()), "out of reach of the driver");
+        h.map.driver = Some([h.pos[0] + t.driver_reach - 1.0, h.pos[1]]);
+        let mut sounds = Vec::new();
+        h.cash_in(&mut sounds);
+        assert!(h.drops.iter().filter(|d| matches!(d.kind, DropKind::Money(_))).all(|d| d.pulled.is_some()), "every coin flies in");
+        assert!(h.drops.iter().filter(|d| matches!(d.kind, DropKind::Health)).all(|d| d.pulled.is_none()), "only money");
+        assert!(sounds.contains(&Sfx::Pick(true)));
+        assert!(h.ticket().is_none(), "the ticket is spent");
+        h.t += t.driver_every - 1.0;
+        assert!(h.ticket().is_none());
+        h.t += 1.0;
+        assert!(h.ticket().is_some(), "the next ticket comes `every` after the cash-in");
+        for _ in 0..300 {
+            h.collect(1.0 / 60.0, &mut Vec::new());
+        }
+        assert_eq!(h.drops.iter().filter(|d| matches!(d.kind, DropKind::Money(_))).count(), 0, "every coin reached the player");
+        assert_eq!(h.xp, 5);
+    }
+
+    #[test]
+    fn a_map_without_a_driver_never_offers_a_ticket() {
+        let mut h = collection_day(1);
+        h.map.driver = None;
+        h.t = crate::tuning::tuning().driver_after * 4.0;
+        assert!(h.ticket().is_none());
+        h.cash_in(&mut Vec::new());
+        assert!(h.drops.iter().all(|d| d.pulled.is_none()));
+    }
+
+    #[test]
+    fn one_collection_brings_level_ups_one_after_another() {
+        let mut h = collection_day(0);
+        let mut owed = 0;
+        let mut need = h.next_xp;
+        for _ in 0..3 {
+            owed += need;
+            need = (need as f32 * 1.35).ceil() as u32 + 2;
+        }
+        for d in &mut h.drops {
+            if let DropKind::Money(v) = &mut d.kind {
+                *v = owed.div_ceil(5);
+            }
+        }
+        h.t = crate::tuning::tuning().driver_after;
+        let x = Input { pressed: Buttons::X, ..Default::default() };
+        let mut level_ups = 0;
+        for _ in 0..3000 {
+            if let Phase::LevelUp { picked: None, t, .. } = h.phase
+                && t > CARDS_IN
+            {
+                level_ups += 1;
+                h.update(&x, 0.016, &mut Vec::new());
+            } else {
+                h.update(&Input::default(), 0.016, &mut Vec::new());
+            }
+        }
+        assert!(h.ticket().is_none(), "the player cashed in standing at the driver");
+        assert_eq!((level_ups, h.level), (3, 4), "three levels' worth of cash, three level-ups in a row");
     }
 }

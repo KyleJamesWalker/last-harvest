@@ -59,6 +59,16 @@ fn handle(store: &FsStore, web: &Path, method: &Method, url: &str, body: &[u8]) 
             None => text(404, "not a git repository"),
         },
         (Method::Get, ["api", "version", id, name, file]) if valid_id(id) && named(name) && sprite_file(file) => bytes(store.version(id, name, file)),
+        (Method::Get, ["api", "farms"]) => text(200, store.farm_ids().iter().map(|id| format!("{id}\n")).collect::<String>()),
+        (Method::Get, ["api", "table", "farms", name]) => {
+            let file = format!("{}{name}", last_harvest_game::FARM_DIR);
+            store.read_table(&file).map_or_else(|| text(404, "no such farm"), |t| text(200, t))
+        }
+        (Method::Put, ["api", "table", "farms", name]) => match std::str::from_utf8(body) {
+            Ok(t) => store.save_table(&format!("{}{name}", last_harvest_game::FARM_DIR), t).map_or_else(|e| text(400, e), |()| text(200, "saved")),
+            Err(_) => text(400, "not text"),
+        },
+        (Method::Delete, ["api", "table", "farms", name]) => store.delete_table(&format!("{}{name}", last_harvest_game::FARM_DIR)).map_or_else(|e| text(400, e), |()| text(200, "deleted")),
         (Method::Get, ["api", "table", file]) if last_harvest_game::TABLES.contains(file) => store.read_table(file).map_or_else(|| text(404, "no such table"), |t| text(200, t)),
         (Method::Put, ["api", "table", file]) if last_harvest_game::TABLES.contains(file) => match std::str::from_utf8(body) {
             // Checked as the game reads it, so a save never breaks the build.

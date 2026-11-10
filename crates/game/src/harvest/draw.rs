@@ -38,6 +38,7 @@ impl Harvest {
         self.hud(&mut f.top);
         self.way_home(&mut f.top, view_proj);
         self.barrel_mark(&mut f.top, view_proj);
+        self.ticket_mark(&mut f.top, view_proj);
         self.banner(&mut f.top);
         self.overlays(&mut f.top);
         self.paused_top(&mut f.top);
@@ -51,6 +52,7 @@ impl Harvest {
         self.world(c, cam, map_scale(), tint, fog);
         self.view_cone(c, cam);
         self.home_on_map(c, cam);
+        self.ticket_on_map(c, cam);
         self.grenade_tray(c);
         self.kit_tray(c);
         self.aim_mark(c, cam);
@@ -619,6 +621,31 @@ impl Harvest {
         c.circle(x, y, 14.0 * map_scale() / 2.0, [GOLD[0], GOLD[1], GOLD[2], pulse * 0.5]);
         c.circle(x, y, 5.0 * map_scale() / 2.0, [GOLD[0], GOLD[1], GOLD[2], 1.0]);
         c.label("HOME", x, y - 52.0, 30.0, GOLD, Align::Center);
+    }
+
+    /// While the truck driver holds a collection ticket, a coin bobbing over his head.
+    fn ticket_mark(&self, c: &mut Canvas, view_proj: glam::Mat4) {
+        if !matches!(self.phase, Phase::Playing | Phase::LevelUp { .. }) {
+            return;
+        }
+        let Some(at) = self.ticket() else { return };
+        let Some(([x, y], dist)) = view3d::to_screen(view_proj, at, 30.0 + 2.0 * (self.t * 4.0).sin()) else { return };
+        let a = super::effects::effects().money.once(10.0);
+        let scale = (10.0 / dist).clamp(3.0, 6.0);
+        c.circle(x, y, a.w() * scale, [GOLD[0], GOLD[1], GOLD[2], 0.25 + 0.15 * (self.t * 5.0).sin()]);
+        c.art(a, x - a.w() * scale / 2.0, y - a.h() * scale / 2.0, scale, false, WHITE);
+    }
+
+    /// While the truck driver holds a collection ticket, where he stands on the map, pinned to the edge when off it.
+    fn ticket_on_map(&self, c: &mut Canvas, cam: [f32; 2]) {
+        let Some(at) = self.ticket() else { return };
+        let x = ((at[0] - cam[0]) * map_scale()).clamp(40.0, SCREEN_W - 40.0);
+        let y = ((at[1] - cam[1]) * map_scale()).clamp(40.0, SCREEN_H - 40.0);
+        let pulse = 0.5 + 0.4 * (self.t * 5.0).sin();
+        c.circle(x, y, 14.0 * map_scale() / 2.0, [GOLD[0], GOLD[1], GOLD[2], pulse * 0.5]);
+        c.circle(x, y, 5.0 * map_scale() / 2.0, GOLD);
+        let a = super::effects::effects().money.once(10.0);
+        c.art(a, x - a.w() * map_scale() / 2.0, y - 30.0 - a.h() * map_scale() / 2.0, map_scale(), false, WHITE);
     }
 
     /// Start's pause: the run's numbers over the dimmed view.

@@ -1,6 +1,6 @@
 //! How the random farm lays itself out, read from `farm.txt`.
 
-use std::sync::OnceLock;
+use std::sync::RwLock;
 
 use super::Fence;
 use crate::art::{self, Art};
@@ -435,10 +435,26 @@ pub fn check_codes(f: &Farm, ground: &[super::ground::Ground]) -> Result<(), Str
     }
 }
 
-/// How the random farm lays itself out, read the first time it's asked for.
+static FARM: RwLock<Option<&'static Farm>> = RwLock::new(None);
+
+/// How the random farm lays itself out: the farm in use's, else as an editor last set it, else `farm.txt`, read the
+/// first time it's asked for.
 pub fn farm() -> &'static Farm {
-    static F: OnceLock<Farm> = OnceLock::new();
-    F.get_or_init(|| parse(crate::data::farm()).unwrap_or_else(|e| panic!("farm.txt:{e}")))
+    if let Some(f) = super::farms::active_farm() {
+        return f;
+    }
+    if let Some(f) = *FARM.read().unwrap_or_else(|e| e.into_inner()) {
+        return f;
+    }
+    let f = parse(crate::data::farm()).unwrap_or_else(|e| panic!("farm.txt:{e}"));
+    FARM.write().unwrap_or_else(|e| e.into_inner()).get_or_insert(Box::leak(Box::new(f)))
+}
+
+/// Replaces the random farm's rules with `text`, as an editor does once a mod's `farm.txt` changes.
+pub fn set(text: &str) -> Result<(), String> {
+    let f = parse(text)?;
+    *FARM.write().unwrap_or_else(|e| e.into_inner()) = Some(Box::leak(Box::new(f)));
+    Ok(())
 }
 
 #[cfg(test)]

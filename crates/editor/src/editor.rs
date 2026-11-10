@@ -163,6 +163,10 @@ enum Grab {
 enum Ask {
     New,
     Copy,
+    /// A new farm's id, made from the open farm rules.
+    Farm,
+    /// The farm whose ground takes the open ground kind.
+    FarmGround,
     /// A Lospec palette's name, to draw from its colors.
     Palette,
 }
@@ -251,6 +255,10 @@ enum Action {
     StartWeapon(usize, usize),
     /// Gives a player card the game's own start at a difficulty.
     StartDefault(usize),
+    /// Steps the farm a player card plays on through the game's and each farm kept here.
+    PlayerFarm(i32),
+    /// Steps the farm the map page paints and lays out with through the game's and each farm kept here.
+    MapFarm(i32),
     MapTool(MapTool),
     Ground(u8),
     /// Picks a prop by its place in the map editor's picker.
@@ -369,6 +377,16 @@ const START_ROW: f32 = 24.0;
 const START_WIDE: f32 = 520.0;
 /// A player card's health, speed and magnet, under its starting weapons.
 const BASE_Y: f32 = START_TOP + 3.0 * START_BLOCK + 4.0;
+/// Where a player card's farm sits on its stats page.
+const FARM_Y: f32 = BASE_Y + 30.0;
+
+/// The farm `d` steps on from `now` through the game's, None, and then `ids`; one no longer kept steps from the
+/// game's.
+fn step_farm(ids: &[String], now: Option<&str>, d: i32) -> Option<String> {
+    let at = now.and_then(|n| ids.iter().position(|i| i == n)).map_or(0, |i| i + 1) as i32;
+    let next = (at + d).rem_euclid(ids.len() as i32 + 1) as usize;
+    next.checked_sub(1).map(|i| ids[i].clone())
+}
 /// How far a press of - or + moves a player card's health, speed and magnet.
 const BASE_STEPS: [f32; 3] = [5.0, 2.0, 2.0];
 
@@ -586,6 +604,10 @@ pub struct Editor {
     modding: bool,
     /// Seconds left for a second press of Delete to go ahead.
     delete_armed: f32,
+    /// The farm the map page paints and lays out with, by id; None for the game's.
+    map_farm: Option<String>,
+    /// Whether this editor handed the game a farm, which it must take back for the game's.
+    farm_in_use: bool,
 }
 
 impl Editor {
@@ -668,12 +690,15 @@ impl Editor {
             mix: None,
             modding: false,
             delete_armed: 0.0,
+            map_farm: None,
+            farm_in_use: false,
         };
         e.names = e.all_names();
         if !e.open_table(name) {
             e.open_map(name);
         }
         e.install_ground(false);
+        e.install_farm(false);
         e.load_stand();
         e.load_card_parts();
         e.load_crop();
@@ -1228,6 +1253,8 @@ impl Editor {
                 push(x + 100.0, BASE_Y, 34.0, 26.0, Action::PlayerBase(i, -1), "-", false);
                 push(x + 138.0, BASE_Y, 34.0, 26.0, Action::PlayerBase(i, 1), "+", false);
             }
+            push(CANVAS.x + 400.0, FARM_Y, 66.0, 26.0, Action::PlayerFarm(-1), "<", false);
+            push(CANVAS.x + 474.0, FARM_Y, 66.0, 26.0, Action::PlayerFarm(1), ">", false);
         } else if self.stats {
             self.line_buttons(&mut push);
             for i in 0..STAT_ROWS.len() {
@@ -1965,6 +1992,14 @@ impl Editor {
                 self.set_start(difficulty, Some(&have));
             }
             Action::StartDefault(d) => self.set_start(last_harvest_game::Difficulty::ALL[d], None),
+            Action::PlayerFarm(d) => {
+                let Some(text) = self.sprite.card.clone() else { return };
+                let now = last_harvest_game::player_fields(&text).ok().and_then(|f| f.farm);
+                let next = step_farm(&self.store.farm_ids(), now.as_deref(), d);
+                self.sprite.card = Some(last_harvest_game::set_player_farm(&text, next.as_deref()));
+                self.dirty = true;
+            }
+            Action::MapFarm(_) => {}
             Action::EditName => self.edit_line(Line::Name),
             Action::EditAbout => self.edit_line(Line::About),
             Action::AddFrame | Action::MoveFrame(_) if self.view.is_some() => self.say("Pick a frame first: frames are added and moved from a frame, not a view"),
@@ -2366,6 +2401,11 @@ impl Editor {
             let id = id.clone();
             return self.copy_section(&id);
         }
+        match &self.ask {
+            Some((Ask::Farm, id)) => return self.new_farm(&id.clone()),
+            Some((Ask::FarmGround, id)) => return self.ground_to_farm(&id.clone()),
+            _ => {}
+        }
         let Some((kind, name)) = self.ask.clone() else { return };
         let typed = || match name.strip_prefix("PLAYER_") {
             Some(id) => (sprite::CardKind::Player, id.to_ascii_lowercase()),
@@ -2680,8 +2720,14 @@ impl Editor {
             return;
         }
         let id = self.data.is_some();
+        // A ground's code is any one character, and g and G are two.
+        let code = matches!(&self.ask, Some((Ask::Copy, _))) && self.data.as_ref().is_some_and(|d| d.file.ends_with("ground.txt"));
         if let Some((_, name)) = &mut self.ask {
             match key {
+                Key::Char(c) if code && c.is_ascii_graphic() => {
+                    name.clear();
+                    name.push(c);
+                }
                 Key::Char(c) if c.is_ascii_alphanumeric() || c == '_' || c == ' ' => {
                     name.push(if c == ' ' { '_' } else if id { c.to_ascii_lowercase() } else { c.to_ascii_uppercase() });
                 }
@@ -3066,11 +3112,17 @@ impl Editor {
                 (Ask::New, true, _) => "Name the new enemy card".into(),
                 (Ask::New, false, _) => "Name the new sprite".into(),
                 (Ask::Copy, _, None) => "Name the copy".into(),
+                (Ask::Farm, _, _) => "Name the new farm".into(),
+                (Ask::FarmGround, _, d) => format!("Which farm paints [{}] its own way?", d.as_ref().map_or("", |d| d.section.as_str())),
                 (Ask::Palette, _, _) => "Draw from a Lospec palette".into(),
             };
             c.label(what, 512.0, 300.0, 24.0, TEXT, Align::Center);
             let hint = if let Some(d) = self.data.as_ref().filter(|_| *kind == Ask::Copy) {
-                format!("Its id in {}: lowercase letters, digits and _", d.file)
+                if d.file.ends_with("ground.txt") { format!("Its code in {}: one character", d.file) } else { format!("Its id in {}: lowercase letters, digits and _", d.file) }
+            } else if matches!(kind, Ask::Farm | Ask::FarmGround) {
+                let have = self.store.farm_ids();
+                let have = if have.is_empty() { String::new() } else { format!("; kept here: {}", have.join(", ")) };
+                format!("Its id: lowercase letters, digits and _{have}")
             } else if *kind == Ask::Palette {
                 "Its name from lospec.com/palette-list, such as endesga-32; blank for the game's".to_string()
             } else if self.modding {
@@ -4434,6 +4486,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let mut e = editor_in(&dir, dir.join("art.txt"));
         assert!(e.names.iter().any(|(n, _)| n == "DATA_TUNING_PLAYER") && e.names.iter().any(|(n, _)| n == "DATA_POWERUPS_PISTOL"));
+        assert!(e.names.iter().any(|(n, _)| n == "DATA_TUNING_DRIVER"), "collection day's numbers");
         assert_eq!(sprite::section("DATA_TUNING_PLAYER"), "Data/tuning");
         assert_eq!((list_label("DATA_GROUND__67"), list_label("DATA_GROUND__47"), list_label("DATA_TUNING_PLAYER")), ("[g]".into(), "[G]".into(), "PLAYER".into()));
         assert!(["DATA_GROUND__2E", "DATA_GROUND__3D", "DATA_GROUND__67"].iter().all(|n| e.names.iter().any(|(m, _)| m == n)), "ground codes list apart");
@@ -4630,6 +4683,7 @@ mod tests {
         let dir = tmp().join("mod-prop");
         let mut e = editor_in(&dir, dir.join("art.txt"));
         e.set_modding();
+        assert!(e.names.iter().any(|(n, _)| n == "DATA_TUNING_DRIVER"), "the card editor's data page lists collection day's numbers");
         e.act(Action::Ask(Ask::New), false);
         e.set_text("PROP_POST");
         e.key(Key::Enter);

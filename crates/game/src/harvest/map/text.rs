@@ -522,6 +522,7 @@ impl Map {
             barrel_hp: Vec::new(),
             spawn: [0.0; 2],
             home: [0.0; 2],
+            driver: None,
         }
     }
 
@@ -658,6 +659,8 @@ mod tests {
         let truck = super::super::named("TRUCK").unwrap()[0];
         assert!(d.fps > 0.0 && d.x > 2.0 * TILE && d.x < 2.0 * TILE + truck.w(), "he smokes leaning on the truck's back: {} {}", d.fps, d.x);
         assert_eq!(d.y + driver[0].h(), 2.0 * TILE + truck.h(), "his feet on the truck's ground line");
+        assert_eq!(map.driver, Some([d.x + driver[0].w() / 2.0, d.y + driver[0].h()]), "collection day cashes in at his feet");
+        assert_eq!(read(&farm("BARREL 13 10")).unwrap().driver, None, "no truck, no driver, no collection day");
         for seed in 0..8 {
             assert!(!MapSource::random("Farm", [60, 40], seed).to_text().contains("TRUCK_DRIVER"), "a random farm's driver comes with its truck");
         }

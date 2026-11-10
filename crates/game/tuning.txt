@@ -70,6 +70,11 @@ rise 90         # how far from the player it rises, on the side away from home
 again 30        # seconds between waves of them once the first falls, each wave one bigger, from 2
 most 6          # most Harvesters in one wave
 
+[driver]
+after 300       # seconds into the night the gas station's driver first holds a collection ticket; 0 for never
+every 300       # seconds from one cash-in to his next ticket
+reach 24        # how near him the player cashes a ticket in, and every coin on the map flies to them
+
 [grenade]
 recharge 12     # seconds to earn a grenade back, before upgrades
 flight 0.7      # seconds in the air
