@@ -197,11 +197,19 @@ impl Kit {
         }
     }
 
+    /// The level `by` more takes `def` to: up to its top, or one past it when two land from one below (the level breaker).
+    pub fn raised(&self, def: usize, by: u32) -> u32 {
+        let d = &book().defs[def];
+        let (from, max) = (self.level(def), d.max);
+        let past = d.kind != Kind::Filler && crate::tuning::tuning().breaker > 0.0 && by >= 2 && from + 1 == max;
+        if past { max + 1 } else { (from + by).min(max) }
+    }
+
     /// Raises a weapon or passive `by` levels, up to its top; returns the levels it was at and is at now.
     pub fn raise(&mut self, def: usize, by: u32) -> (u32, u32) {
         let d = &book().defs[def];
         let from = self.level(def);
-        let to = (from + by).min(d.max);
+        let to = self.raised(def, by);
         match d.kind {
             Kind::Weapon => match self.weapons.iter_mut().find(|a| a.def == def) {
                 Some(a) => a.level = to,
@@ -1447,6 +1455,22 @@ mod tests {
         h.kit.raise(pistol, 99);
         assert_eq!(h.kit.level(pistol), b.defs[pistol].max);
         assert!(!h.kit.offerable(pistol));
+    }
+
+    #[test]
+    fn a_rare_card_one_below_the_top_breaks_one_past_it() {
+        let b = book();
+        let pistol = b.index("pistol").unwrap();
+        let d = &b.defs[pistol];
+        let mut h = Harvest::new(1);
+        h.kit.raise(pistol, d.max - 2 - h.kit.level(pistol));
+        assert_eq!(h.kit.raised(pistol, 2), d.max, "two below the top, a rare card stops at it");
+        h.kit.raise(pistol, 1);
+        assert_eq!(h.kit.raised(pistol, 1), d.max, "a plain card stops at the top");
+        assert_eq!(h.kit.raise(pistol, 2), (d.max - 1, d.max + 1));
+        assert!(!h.kit.offerable(pistol));
+        let (top, past) = (|s| d.at(s, d.max), |s| d.at(s, d.max + 1));
+        assert!(past(Stat::Count) > top(Stat::Count) && past(Stat::Damage) > top(Stat::Damage) && past(Stat::Cooldown) < top(Stat::Cooldown));
     }
 
     #[test]

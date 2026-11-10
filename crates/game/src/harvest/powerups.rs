@@ -556,9 +556,10 @@ pub const WEAPON_SOUNDS: [(&str, crate::Sfx); 6] =
     [("shot", crate::Sfx::Shot), ("blast", crate::Sfx::Blast), ("slash", crate::Sfx::Slash), ("zap", crate::Sfx::Zap), ("bark", crate::Sfx::Bark), ("throw", crate::Sfx::Throw)];
 
 impl Def {
-    /// The value of `stat` at `level`, counting from 1.
+    /// The value of `stat` at `level`, counting from 1; one past `max` is the level breaker's.
     pub fn at(&self, stat: Stat, level: u32) -> f32 {
         match self.stats.iter().find(|(s, _)| *s == stat) {
+            Some((_, v)) if level == self.max + 1 => broken(&v[..v.len().min(self.max as usize)], crate::tuning::tuning().breaker),
             Some((_, v)) => v[(level.max(1) as usize - 1).min(v.len() - 1)],
             None if self.kind == Kind::Weapon => stat.weapon_default(),
             None if stat.scales() => 1.0,
@@ -589,6 +590,14 @@ impl Def {
             .collect();
         if parts.is_empty() { self.blurb.clone() } else { parts.join("   ") }
     }
+}
+
+/// The top value plus `steps` of the last step the levels take, never crossing zero.
+fn broken(v: &[f32], steps: f32) -> f32 {
+    let top = v[v.len() - 1];
+    let step = v.windows(2).rev().map(|w| w[1] - w[0]).find(|d| *d != 0.0).unwrap_or(0.0);
+    let out = top + step * steps;
+    if top > 0.0 && out <= 0.0 { top * 0.5 } else { out }
 }
 
 fn trim(v: f32) -> String {
@@ -901,8 +910,16 @@ mod tests {
     }
 
     #[test]
+    fn the_broken_level_adds_the_last_step_and_never_crosses_zero() {
+        assert!((broken(&[0.6, 0.5, 0.5], 2.0) - 0.3).abs() < 1e-6);
+        assert_eq!(broken(&[12.0, 14.0, 19.0], 2.0), 29.0);
+        assert_eq!(broken(&[150.0], 2.0), 150.0, "one value has no step");
+        assert_eq!(broken(&[0.1, 0.05], 2.0), 0.025, "a step down past zero halves instead");
+    }
+
+    #[test]
     fn levels_read_their_value_and_short_lists_repeat_the_last() {
-        let b = parse("[gun]\nkind weapon\ndoes pistol\nicon WHITE\ndamage 1 2 3\n[pp]\nicon WHITE\ndamage +10% +25%\n[cash]\nkind filler\nicon WHITE\n").unwrap();
+        let b = parse("[gun]\nkind weapon\ndoes pistol\nicon WHITE\nmax 3\ndamage 1 2 3\n[pp]\nicon WHITE\nmax 2\ndamage +10% +25%\n[cash]\nkind filler\nicon WHITE\n").unwrap();
         let (gun, pp) = (&b.defs[0], &b.defs[1]);
         assert_eq!([1, 2, 3, 9].map(|l| gun.at(Stat::Damage, l)), [1.0, 2.0, 3.0, 3.0]);
         assert_eq!(gun.at(Stat::Range, 1), 100.0, "left out, a weapon stat has its default");

@@ -50,6 +50,7 @@ tuning! {
     favor = "levelup" "favor",
     favor_weight = "levelup" "favor_weight",
     favor_level = "levelup" "favor_level",
+    breaker = "levelup" "breaker",
     easy_damage = "easy" "damage",
     easy_hurt_time = "easy" "hurt_time",
     easy_health_drop = "easy" "health_drop",

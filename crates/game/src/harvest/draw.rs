@@ -733,6 +733,9 @@ impl Harvest {
                 let back = if doomed { [0.1, 0.03, 0.02] } else if ch.found { [0.02, 0.08, 0.04] } else { [0.1, 0.08, 0.02] };
                 c.rect(x, y, w, h, [back[0], back[1], back[2], alpha]);
             }
+            let def = &book().defs[ch.up];
+            let from = self.kit.level(ch.up);
+            let to = self.kit.raised(ch.up, if ch.rare { 2 } else { 1 });
             let fill = match picked {
                 Some(p) if on => [1.0, 1.0, 1.0, 0.8 * (1.0 - p / PICK_TIME)],
                 _ if on => [1.0, 0.85, 0.3, 0.35],
@@ -745,11 +748,8 @@ impl Harvest {
                 if b1 > b0 {
                     c.rect(b0, y, b1 - b0, h, [1.0, 1.0, 0.9, 0.12 * alpha]);
                 }
-                c.label("RARE  x2", x + w - 28.0, y + 16.0, 30.0, [GOLD[0], GOLD[1], GOLD[2], alpha], Align::Right);
+                c.label(if to > def.max { "LEVEL BREAKER" } else { "RARE  x2" }, x + w - 28.0, y + 16.0, 30.0, [GOLD[0], GOLD[1], GOLD[2], alpha], Align::Right);
             }
-            let def = &book().defs[ch.up];
-            let from = self.kit.level(ch.up);
-            let to = (from + if ch.rare { 2 } else { 1 }).min(def.max);
             let icon = 6.0;
             c.rect(x + 16.0, y + (h - 16.0 * icon) / 2.0, 16.0 * icon, 16.0 * icon, [0.0, 0.0, 0.0, 0.35 * alpha]);
             c.art(def.icon, x + 16.0, y + (h - 16.0 * icon) / 2.0, icon, false, [1.0, 1.0, 1.0, alpha]);

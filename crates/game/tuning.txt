@@ -29,6 +29,7 @@ reroll 2        # times a run can deal all three cards again
 favor 1         # cards a run can favor: taken, and this many times as likely for the rest of the run...
 favor_weight 4  # ...as favor_weight says, on top of held_weight
 favor_level 6   # the level from which favor is offered
+breaker 2       # a rare card one level below the top breaks one past it, adding this many of its last step; 0 is off
 
 [easy]
 damage 0.55     # multiplies the damage zombies deal
