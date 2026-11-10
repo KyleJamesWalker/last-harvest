@@ -1438,7 +1438,7 @@ mod tests {
         }
         assert_eq!(h.kit.weapons.len(), b.weapon_slots);
         for _ in 0..50 {
-            for c in h.roll_choices() {
+            for c in h.roll_choices(&[]) {
                 let d = &b.defs[c.up];
                 assert!(d.kind != Kind::Weapon || h.kit.level(c.up) > 0, "{} offered with no weapon slot free", d.id);
             }
@@ -1458,7 +1458,7 @@ mod tests {
         for (i, d) in b.defs.iter().enumerate().filter(|(_, d)| d.unlock == super::super::powerups::Unlock::Start && d.kind != Kind::Filler) {
             h.kit.raise(i, d.max);
         }
-        let choices = h.roll_choices();
+        let choices = h.roll_choices(&[]);
         assert!(choices.iter().all(|c| b.defs[c.up].kind == Kind::Filler));
         h.hp = 10.0;
         let snack = choices.iter().position(|c| b.defs[c.up].id == "snack").unwrap();
@@ -1473,7 +1473,7 @@ mod tests {
         let b = book();
         let mut h = Harvest::new(1);
         for _ in 0..100 {
-            for c in h.roll_choices() {
+            for c in h.roll_choices(&[]) {
                 assert_eq!(b.defs[c.up].unlock, super::super::powerups::Unlock::Start, "{}", b.defs[c.up].id);
             }
         }
@@ -1540,7 +1540,7 @@ mod tests {
         let mut h = Harvest::new(1).with_progress(super::super::Progress { kills: 100, ..Default::default() });
         let mut seen = 0;
         for _ in 0..200 {
-            for c in h.roll_choices().iter().filter(|c| c.found) {
+            for c in h.roll_choices(&[]).iter().filter(|c| c.found) {
                 assert_eq!(c.up, scythe, "only what has met its unlock");
                 seen += 1;
             }
@@ -1550,10 +1550,10 @@ mod tests {
         for id in ["rifle", "lantern", "burner", "pitchfork", "crows", "zapper"].iter().take(b.weapon_slots - full) {
             armed(&mut h, id, 1);
         }
-        assert!((0..200).all(|_| h.roll_choices().iter().all(|c| !c.found)), "no free weapon slot, no weapon find");
+        assert!((0..200).all(|_| h.roll_choices(&[]).iter().all(|c| !c.found)), "no free weapon slot, no weapon find");
         h.kit.weapons.pop();
         let choices = loop {
-            let c = h.roll_choices();
+            let c = h.roll_choices(&[]);
             if c.iter().any(|c| c.found) {
                 break c;
             }
@@ -1563,7 +1563,7 @@ mod tests {
         let flow = h.update(&Input { pressed: Buttons::X, ..Default::default() }, 0.016, &mut Vec::new());
         assert_eq!(flow.found, 1 << scythe, "the game keeps it right away");
         assert!(h.progress.owns(scythe) && h.kit.level(scythe) == 1);
-        assert!((0..50).all(|_| h.roll_choices().iter().all(|c| !c.found)), "nothing else is waiting");
+        assert!((0..50).all(|_| h.roll_choices(&[]).iter().all(|c| !c.found)), "nothing else is waiting");
     }
 
     #[test]
@@ -1574,11 +1574,11 @@ mod tests {
         h.newly = vec![b.index("scythe").unwrap(); b.finds];
         for _ in 0..100 {
             h.chest = true;
-            assert!(h.roll_choices().iter().all(|c| !c.found), "not even from a chest");
+            assert!(h.roll_choices(&[]).iter().all(|c| !c.found), "not even from a chest");
         }
         h.newly.pop();
         h.chest = true;
-        assert!(h.roll_choices().iter().any(|c| c.found));
+        assert!(h.roll_choices(&[]).iter().any(|c| c.found));
     }
 
     #[test]
@@ -1586,10 +1586,10 @@ mod tests {
         let mut h = Harvest::new(2).with_progress(super::super::Progress { kills: 100, ..Default::default() });
         for _ in 0..20 {
             h.chest = true;
-            assert!(h.roll_choices().iter().any(|c| c.found));
+            assert!(h.roll_choices(&[]).iter().any(|c| c.found));
         }
         let mut h = Harvest::new(2);
         h.chest = true;
-        assert!(h.roll_choices().iter().all(|c| !c.found), "with nothing waiting it's a plain level-up");
+        assert!(h.roll_choices(&[]).iter().all(|c| !c.found), "with nothing waiting it's a plain level-up");
     }
 }
