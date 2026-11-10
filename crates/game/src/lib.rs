@@ -16,6 +16,7 @@ mod harvest;
 mod input;
 mod menu;
 mod osd;
+mod controls;
 pub mod pad;
 pub mod photo;
 mod rng;
@@ -39,6 +40,7 @@ pub use harvest::{TABLES, built_in_table, check_own_table, check_table, default_
 pub use harvest::{ABOUT_MAX, CARD_FLAGS, CARD_MAX_FRAME, card_frame_most, CARD_NUMBERS, MAX_WALK, PLAYER_BASE_KEYS, PLAYER_ID_MAX, PlayerFields, PlayerLook, default_start, flash_pixel, frame_limits, hurt_pixel, player_fields, player_looks, set_player_farm, set_player_start, use_player_farm, weapon_slots, weapons, CardFields, night_minutes, SpawnMix, card_fields, check_tables, kill_sound, kill_sounds, kill_weight, set_card_field, spawn_mix};
 pub use input::{Buttons, Input, InputTracker, MAX_TOUCHES, RawInput};
 pub use pad::PadFamily;
+pub use controls::Controls;
 pub use save::{Save, TouchControls};
 pub use sfx::Sfx;
 pub use system::{Battery, Outputs, System};
@@ -190,6 +192,12 @@ pub struct Game {
     folder: Option<String>,
     /// Settings asked the platform to choose the game folder.
     folder_asked: bool,
+    /// The Controls page, open over Settings.
+    rebind: Option<menu::Rebind>,
+    /// The pad buttons pressed this frame before the controls table turned them into game buttons.
+    raw_pressed: Buttons,
+    /// The platform has a keyboard, so the Controls page shows each job's key.
+    keyboard: bool,
 }
 
 /// Where the title's menu sits on the top screen when one screen shows both, and its scale.
@@ -245,6 +253,9 @@ impl Game {
             pad_seen: false,
             folder: None,
             folder_asked: false,
+            rebind: None,
+            raw_pressed: Buttons::NONE,
+            keyboard: false,
         }
     }
 
@@ -283,6 +294,7 @@ impl Game {
 
     pub fn load(&mut self, save: Save) {
         self.save = save;
+        pad::set_controls(save.controls);
     }
 
     pub fn save(&self) -> Save {
@@ -335,14 +347,20 @@ impl Game {
     /// The labels on the pad or keyboard that last sent input, which every hint that names a button uses.
     pub fn set_pad_family(&mut self, family: PadFamily) {
         pad::set_active(family);
+        self.keyboard |= family == PadFamily::Keyboard;
     }
 
-    /// What a keyboard's Esc stands for, so it pauses a run or backs out of a menu and never quits.
+    /// The platform has a keyboard, before any key is pressed.
+    pub fn set_keyboard(&mut self, on: bool) {
+        self.keyboard = on;
+    }
+
+    /// The pad button a keyboard's Esc stands for, so it pauses a run or backs out of a menu and never quits.
     pub fn escape(&self) -> Buttons {
-        match &self.state {
+        self.save.controls.physical(match &self.state {
             State::Harvest(h) if self.page != Page::Settings => h.escape(),
             _ => Buttons::B,
-        }
+        })
     }
 
     /// A bench scene's flow-field timing, once, the first time it's asked for after the scene opens; `time` runs
@@ -509,6 +527,15 @@ impl Game {
     }
 
     pub fn update(&mut self, input: &Input, dt: f32) {
+        pad::set_controls(self.save.controls);
+        self.raw_pressed = input.pressed;
+        let controls = if matches!(self.state, State::Hardware(_)) { Controls::default() } else { self.save.controls };
+        let mapped = Input { held: controls.apply(input.held), pressed: controls.apply(input.pressed), ..*input };
+        let input = &mapped;
+        let rebinding = self.rebind.as_mut().map(|r| {
+            r.tick(dt);
+            r.waiting()
+        }) == Some(true);
         let padded;
         let input = match self.phone {
             Some(size) => {
@@ -533,11 +560,11 @@ impl Game {
         self.shot_flash = (self.shot_flash - dt).max(0.0);
         // The icon scene keeps R2 for its barricade, so its screenshot stays on R1.
         let shot_key = if matches!(self.state, State::Icon(_)) { Buttons::R1 } else { Buttons::R2 };
-        if input.pressed.contains(shot_key) && !matches!(self.state, State::Hardware(_)) && !self.in_photo() {
+        if input.pressed.contains(shot_key) && !matches!(self.state, State::Hardware(_)) && !self.in_photo() && !rebinding {
             self.shot = true;
             self.sounds.push(Sfx::Tick(LEVELS));
         }
-        if input.pressed.contains(Buttons::SELECT) && !matches!(self.state, State::Hardware(_)) {
+        if input.pressed.contains(Buttons::SELECT) && !matches!(self.state, State::Hardware(_)) && !rebinding {
             self.save.fps = !self.save.fps;
         }
         if self.paused {
@@ -1113,6 +1140,80 @@ mod tests {
         assert!(h.summary().starts_with("range shotgun 2"), "{}", h.summary());
     }
 
+    /// Opens Settings, then its Controls page, from the title.
+    fn open_controls(game: &mut Game) {
+        settings_row(game, 0);
+        let row = game.settings_list().iter().position(|&s| s == menu::Setting::Controls).expect("Settings lists Controls");
+        for _ in 0..row {
+            press(game, Buttons::DOWN);
+        }
+        press(game, Buttons::A);
+        assert!(game.rebind.is_some(), "A opens Controls");
+    }
+
+    fn note(game: &Game) -> String {
+        let f = game.draw();
+        f.bottom.shapes.iter().filter_map(|s| if let Shape::Text { text, .. } = s { Some(text.clone()) } else { None }).collect::<Vec<_>>().join("\n")
+    }
+
+    #[test]
+    fn a_job_moves_to_the_button_pressed_and_swaps_with_the_one_there() {
+        let mut game = Game::new(1);
+        open_controls(&mut game);
+        for _ in 0..3 {
+            press(&mut game, Buttons::DOWN);
+        }
+        assert_eq!(controls::ACTIONS[3].0, Buttons::X);
+        press(&mut game, Buttons::A);
+        assert!(note(&game).contains("Press the button for Pick, aim at barrels"), "{}", note(&game));
+        press(&mut game, Buttons::R1);
+        let c = game.save().controls;
+        assert_eq!((c.physical(Buttons::X), c.physical(Buttons::R1)), (Buttons::R1, Buttons::X));
+        assert!(note(&game).contains("Swapped with Throw ahead, reroll"), "{}", note(&game));
+        assert_eq!(Save::parse(&game.save().to_text()).controls, c, "the save keeps it");
+
+        for _ in 0..3 {
+            press(&mut game, Buttons::UP);
+        }
+        press(&mut game, Buttons::A);
+        press(&mut game, Buttons::R2);
+        assert_eq!(game.take_screenshot(), None, "a button pressed to bind does nothing else");
+        assert_eq!(game.save().controls.physical(Buttons::Y), Buttons::R2);
+    }
+
+    #[test]
+    fn the_moved_button_does_the_job_and_default_puts_them_back() {
+        let mut game = Game::new(1);
+        open_controls(&mut game);
+        press(&mut game, Buttons::DOWN);
+        press(&mut game, Buttons::A);
+        press(&mut game, Buttons::B);
+        assert_eq!(game.save().controls.physical(Buttons::A), Buttons::B, "B chooses now");
+        assert_eq!(game.escape(), Buttons::A, "and Esc backs out on the button B moved to");
+        press(&mut game, Buttons::B);
+        assert!(game.rebind.as_ref().is_some_and(|r| r.waiting()), "the pad's B chose the row instead of leaving");
+        press(&mut game, Buttons::B);
+        press(&mut game, Buttons::UP);
+        press(&mut game, Buttons::UP);
+        press(&mut game, Buttons::B);
+        assert!(game.save().controls.is_default(), "the Default row");
+        press(&mut game, Buttons::B);
+        assert!(game.rebind.is_none() && game.page == Page::Settings, "B leaves Controls for Settings");
+    }
+
+    #[test]
+    fn a_tap_waits_for_a_button_and_another_tap_gives_up() {
+        let mut game = Game::new(1);
+        open_controls(&mut game);
+        let [x, y, w, h] = menu::control_row(2);
+        let at = [x + w / 2.0, y + h / 2.0];
+        let tap = |game: &mut Game| game.update(&Input { touch: Some(at), touch_started: true, ..Default::default() }, 0.016);
+        tap(&mut game);
+        assert!(game.rebind.as_ref().is_some_and(|r| r.waiting()));
+        tap(&mut game);
+        assert!(game.rebind.as_ref().is_some_and(|r| !r.waiting()) && game.save().controls.is_default());
+    }
+
     /// Opens Settings from the title and moves to its `row`.
     fn settings_row(game: &mut Game, row: usize) {
         press(game, Buttons::DOWN);
@@ -1129,7 +1230,7 @@ mod tests {
         let mut game = Game::new(1);
         let kept = Save { volume: 2, difficulty: Difficulty::Hard, ..Save::default() };
         game.load(Save { kills: 900, best: 300, best_level: 9, nights: 4, dawns: 1, found: 0b110, ..kept });
-        settings_row(&mut game, 8);
+        settings_row(&mut game, 9);
         press(&mut game, Buttons::A);
         assert_eq!(game.save().kills, 900, "one press only asks");
         game.update(&Input::default(), RESET_CONFIRM + 0.1);
@@ -1192,7 +1293,7 @@ mod tests {
         press(&mut game, Buttons::DOWN);
         press(&mut game, Buttons::A);
         assert_eq!(game.page, Page::Settings);
-        assert_eq!(game.settings_list().len(), 6);
+        assert_eq!(game.settings_list().len(), 7);
         let t = game.summary();
         game.update(&Input::default(), 1.0);
         assert_eq!(game.summary(), t, "the run stays paused");
@@ -1204,7 +1305,7 @@ mod tests {
     #[test]
     fn the_enemies_page_turns_kinds_off_but_never_the_last() {
         let mut game = Game::new(1);
-        settings_row(&mut game, 7);
+        settings_row(&mut game, 8);
         press(&mut game, Buttons::A);
         assert_eq!(game.page, Page::Enemies);
         game.draw();
@@ -1233,7 +1334,7 @@ mod tests {
         let mut game = Game::new(1);
         assert!(!game.settings_list().contains(&menu::Setting::Folder), "no folder to choose by default");
         game.set_folder("");
-        settings_row(&mut game, 8);
+        settings_row(&mut game, 9);
         assert_eq!(game.settings_list()[game.setting], menu::Setting::Folder);
         game.draw();
         press(&mut game, Buttons::A);
@@ -1254,7 +1355,7 @@ mod tests {
     #[test]
     fn the_player_row_keeps_the_farmer_when_there_are_no_player_cards() {
         let mut game = Game::new(1);
-        settings_row(&mut game, 6);
+        settings_row(&mut game, 7);
         assert_eq!(game.settings_list()[game.setting], menu::Setting::Player);
         game.draw();
         press(&mut game, Buttons::RIGHT);

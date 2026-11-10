@@ -114,6 +114,7 @@ impl App {
         let two = on_device || std::env::var("LAST_HARVEST_WINDOWS").is_ok_and(|v| v == "2");
         game.set_quit(true);
         game.set_captures(true);
+        game.set_keyboard(!on_device);
         game.set_touch(std::env::var("LAST_HARVEST_TOUCH").map_or(true, |v| v != "off"));
         Self {
             game,

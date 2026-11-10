@@ -1,6 +1,7 @@
 //! Settings and records kept between runs, as `key=value` lines.
 
 use crate::Difficulty;
+use crate::controls::Controls;
 use crate::harvest::{RUN_KIT, Run, found_from_ids, found_ids, off_from_ids, off_ids, powerup_id, powerup_index};
 
 pub const LEVELS: u8 = 10;
@@ -43,6 +44,8 @@ pub struct Save {
     pub best_dps: u32,
     /// The last runs, newest first.
     pub history: [Option<Run>; HISTORY],
+    /// Which pad button sends each game button.
+    pub controls: Controls,
 }
 
 /// Auto shows the on-screen controls and hides them at gamepad or keyboard input until the next touch.
@@ -119,14 +122,15 @@ impl LookId {
 
 impl Default for Save {
     fn default() -> Self {
-        Self { volume: 6, brightness: [4, 4], rumble: true, fps: false, one_screen: false, touch_grenades: true, touch: TouchControls::Auto, best: 0, difficulty: Difficulty::default(), kills: 0, best_level: 0, nights: 0, dawns: 0, found: 0, enemies_off: 0, player: LookId::default(), map: LookId::default(), best_dps: 0, history: [None; HISTORY] }
+        Self { volume: 6, brightness: [4, 4], rumble: true, fps: false, one_screen: false, touch_grenades: true, touch: TouchControls::Auto, best: 0, difficulty: Difficulty::default(), kills: 0, best_level: 0, nights: 0, dawns: 0, found: 0, enemies_off: 0, player: LookId::default(), map: LookId::default(), best_dps: 0, history: [None; HISTORY], controls: Controls::default() }
     }
 }
 
 impl Save {
     pub fn to_text(&self) -> String {
+        let controls = if self.controls.is_default() { String::new() } else { format!("controls={}\n", self.controls.key()) };
         format!(
-            "volume={}\nbrightness_top={}\nbrightness_bottom={}\nrumble={}\nfps={}\nlayout={}\ngrenades={}\ntouch={}\nbest={}\ndifficulty={}\nkills={}\nbest_level={}\nnights={}\ndawns={}\nfound={}\nenemies_off={}\nplayer={}\nmap={}\nbest_dps={}\n{}",
+            "volume={}\nbrightness_top={}\nbrightness_bottom={}\nrumble={}\nfps={}\nlayout={}\ngrenades={}\ntouch={}\nbest={}\ndifficulty={}\nkills={}\nbest_level={}\nnights={}\ndawns={}\nfound={}\nenemies_off={}\nplayer={}\nmap={}\nbest_dps={}\n{controls}{}",
             self.volume,
             self.brightness[0],
             self.brightness[1],
@@ -188,6 +192,7 @@ impl Save {
                 "player" => save.player = LookId::new(value),
                 "map" => save.map = LookId::new(value),
                 "best_dps" => save.best_dps = value.parse().unwrap_or(save.best_dps),
+                "controls" => save.controls = Controls::from_key(value).unwrap_or_default(),
                 "run" if runs < HISTORY => {
                     if let Some(run) = run_from_text(value) {
                         save.history[runs] = Some(run);
@@ -256,8 +261,19 @@ mod tests {
 
     #[test]
     fn round_trips() {
-        let save = Save { volume: 3, brightness: [7, 2], rumble: false, fps: true, one_screen: true, touch_grenades: false, touch: TouchControls::Off, best: 41, difficulty: Difficulty::Hard, kills: 900, best_level: 12, nights: 7, dawns: 1, found: 0b1010_0000_0000, enemies_off: 0b10, player: LookId::new("jo"), map: LookId::new("old_farm"), best_dps: 0, history: [None; HISTORY] };
+        let save = Save { volume: 3, brightness: [7, 2], rumble: false, fps: true, one_screen: true, touch_grenades: false, touch: TouchControls::Off, best: 41, difficulty: Difficulty::Hard, kills: 900, best_level: 12, nights: 7, dawns: 1, found: 0b1010_0000_0000, enemies_off: 0b10, player: LookId::new("jo"), map: LookId::new("old_farm"), best_dps: 0, history: [None; HISTORY], controls: Controls::default() };
         assert_eq!(Save::parse(&save.to_text()), save);
+    }
+
+    #[test]
+    fn the_controls_round_trip_and_an_old_or_odd_save_keeps_the_default() {
+        let mut save = Save::default();
+        assert!(!save.to_text().contains("controls="), "the default writes nothing");
+        save.controls.bind(crate::Buttons::X, crate::Buttons::R1);
+        assert!(save.to_text().contains("controls=a b r1 y l1 x l2 r2 select start\n"), "{}", save.to_text());
+        assert_eq!(Save::parse(&save.to_text()), save);
+        assert_eq!(Save::parse("volume=3\nlayout=one").controls, Controls::default(), "a save from before the setting");
+        assert_eq!(Save::parse("controls=a a x y l1 r1 l2 r2 select start").controls, Controls::default(), "a button twice");
     }
 
     #[test]

@@ -4,6 +4,7 @@
 use std::cell::Cell;
 
 use crate::Buttons;
+use crate::controls::Controls;
 
 /// The labels printed on the pad that last sent input.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -65,6 +66,16 @@ impl PadFamily {
         }
     }
 
+    /// What the Controls page calls the family.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Nintendo => "Pad",
+            Self::Xbox => "Xbox",
+            Self::PlayStation => "PlayStation",
+            Self::Keyboard => "Keys",
+        }
+    }
+
     /// The label this family prints on the button that sends game button `b`, or the game's own name for one it lacks.
     pub fn label(self, b: Buttons) -> &'static str {
         use PadFamily::*;
@@ -90,27 +101,46 @@ fn name_vendor(name: &str) -> Option<u16> {
 
 thread_local! {
     static ACTIVE: Cell<PadFamily> = const { Cell::new(PadFamily::Nintendo) };
+    static PAD: Cell<PadFamily> = const { Cell::new(PadFamily::Nintendo) };
+    static CONTROLS: Cell<Controls> = Cell::new(Controls::default());
 }
 
 pub(crate) fn set_active(family: PadFamily) {
     ACTIVE.set(family);
+    if family != PadFamily::Keyboard {
+        PAD.set(family);
+    }
+}
+
+pub(crate) fn set_controls(controls: Controls) {
+    CONTROLS.set(controls);
 }
 
 pub fn active() -> PadFamily {
     ACTIVE.get()
 }
 
-/// What the active pad calls game button `b`.
+/// The pad family last used, whatever keys were pressed since.
+pub fn last_pad() -> PadFamily {
+    PAD.get()
+}
+
+/// What the active pad calls the button that sends game button `b`.
 pub fn label(b: Buttons) -> &'static str {
-    active().label(b)
+    label_as(active(), b)
+}
+
+/// What `family` calls the button that sends game button `b`.
+pub fn label_as(family: PadFamily, b: Buttons) -> &'static str {
+    family.label(CONTROLS.get().physical(b))
 }
 
 /// A hint with each `{A}`, `{L1}`, `{Start}` and so on replaced by the active pad's label for that game button.
 pub fn hint(text: &str) -> String {
-    fill(active(), text)
+    fill(active(), CONTROLS.get(), text)
 }
 
-fn fill(family: PadFamily, text: &str) -> String {
+fn fill(family: PadFamily, controls: Controls, text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut rest = text;
     while let Some(open) = rest.find('{') {
@@ -118,7 +148,7 @@ fn fill(family: PadFamily, text: &str) -> String {
         let after = &rest[open + 1..];
         match after.find('}').and_then(|close| NAMES.iter().find(|(n, _)| *n == &after[..close]).map(|&(_, b)| (close, b))) {
             Some((close, b)) => {
-                out.push_str(family.label(b));
+                out.push_str(family.label(controls.physical(b)));
                 rest = &after[close + 1..];
             }
             None => {
@@ -133,7 +163,7 @@ fn fill(family: PadFamily, text: &str) -> String {
 
 /// `hint(text)` and a size that keeps it as wide as the RG DS's names make it at `size`.
 pub fn hint_sized(text: &str, size: f32) -> (String, f32) {
-    let (shown, own) = (hint(text), fill(PadFamily::Nintendo, text));
+    let (shown, own) = (hint(text), fill(PadFamily::Nintendo, Controls::default(), text));
     let k = own.chars().count() as f32 / shown.chars().count().max(1) as f32;
     (shown, size * k.min(1.0))
 }
