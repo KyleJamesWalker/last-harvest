@@ -1,4 +1,4 @@
-//! Gamepads on the desktop, through gilrs, named as on an Xbox pad as the other builds map them.
+//! Gamepads on the desktop, through gilrs. Face buttons map by position, as the RG DS lays them out.
 
 use gilrs::{Axis, Button, EventType, Gilrs};
 use last_harvest::log;
@@ -7,10 +7,10 @@ use last_harvest_game::Buttons;
 const STICK_DEAD: f32 = 0.15;
 
 const PAD: [(Button, Buttons); 14] = [
-    (Button::South, Buttons::A),
-    (Button::East, Buttons::B),
-    (Button::West, Buttons::X),
-    (Button::North, Buttons::Y),
+    (Button::East, Buttons::A),
+    (Button::South, Buttons::B),
+    (Button::North, Buttons::X),
+    (Button::West, Buttons::Y),
     (Button::LeftTrigger, Buttons::L1),
     (Button::RightTrigger, Buttons::R1),
     (Button::LeftTrigger2, Buttons::L2),
