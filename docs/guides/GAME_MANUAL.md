@@ -81,12 +81,12 @@ A night lasts ten minutes, from dusk to dawn. A bell rings each minute.
 
 - **Zombies rise** out of the ground, at the edge of the fog early on and a few tiles away by the end. They walk around buildings, or chew through a fence when that is quicker. They grow tougher each minute.
 - **Cover:** shots fly past bushes, fences and signs. Buildings, vehicles and trees stop them.
-- **Money:** kills drop money, and money levels you up. Each level-up offers three cards, and pushes nearby zombies back. Some cards are rare and count twice.
-- **Health:** some kills drop health instead of money. How often depends on the difficulty.
+- **Hearts:** kills drop zombie hearts, which flop out and settle. Hearts are money: collecting them levels you up. Each level-up offers three cards, and pushes nearby zombies back. Some cards are rare and count twice.
+- **Health:** some kills drop health instead of a heart. How often depends on the difficulty.
 - **Grenades:** you start with one, or two on Easy. Each recharges in 12 seconds.
 - **Barrels:** shooting a red barrel sets it off. Hold X, and your guns go for the barrels in view. A blast close to you hurts you too.
 - **Hordes** arrive during the night, each led by a gold-lit leader. The leader drops a chest.
-- **Collection day:** five minutes in, the driver by the gas station's truck holds a ticket. Cash bobs over his head, and a gold ring marks him on the map. Walk up to him, and every coin on the farm flies to you at once. That can be several level-ups in a row. He holds a new ticket five minutes after each cash-in.
+- **Collection day:** five minutes in, the driver by the gas station's truck holds a ticket. A heart bobs over his head, and a gold ring marks him on the map. Walk up to him, and every coin on the farm flies to you at once. That can be several level-ups in a row. He holds a new ticket five minutes after each cash-in.
 - **Dawn:** the Harvester wakes behind you, and the dead grow 1% stronger every second. Run back to the farmhouse's front step to survive.
 - **More Harvesters:** kill the Harvester, and 30 seconds later two more rise. Every 30 seconds another wave comes, one bigger, up to six, until you get home.
 - **Falling:** if you fall, you rise as one of the dead and lead them to the next farm.
