@@ -676,7 +676,7 @@ impl Game {
         [
             (player, walk),
             (Some(art::ICON_PISTOL), "Your weapons fire on their own. You choose where to face."),
-            (Some(art::MONEY[0]), cards),
+            (Some(art::ZOMBIE_HEART[0]), cards),
             (Some(art::GRENADE), grenades),
             (Some(art::TOUCH_MAP), map),
             (harvester, "Survive the night. At dawn the Harvester rises: run home to the farmhouse before it catches you."),
