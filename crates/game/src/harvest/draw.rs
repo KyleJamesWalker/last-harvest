@@ -8,7 +8,7 @@ use super::sight::Mark;
 use crate::art::Stand;
 use super::powerups::{Kind, Zone, book};
 use super::weapons::{BOLT_LIFE, Hazard};
-use super::{CHOICE_ROW, CHOICE_TOP, Choice, DropKind, Facing, GOLD, PAUSE_CHOICES, PAUSE_ROW, Harvest, PICK_TIME, PROP_FLASH, Phase, RED, map_scale, TELL_TIME, TURNED, Thrown, WHITE, clock, player_pose, player_worn, view3d, worn_corner};
+use super::{CHOICE_ROW, CHOICE_TOP, Choice, DropKind, Facing, GOLD, LEVEL_KEYS, LevelKey, level_key_shows, PAUSE_CHOICES, PAUSE_ROW, Harvest, PICK_TIME, PROP_FLASH, Phase, RED, map_scale, TELL_TIME, TURNED, Thrown, WHITE, clock, player_pose, player_worn, view3d, worn_corner};
 use crate::art::{self, Art};
 use crate::{Align, Canvas, Color, Frame, SCREEN_H, SCREEN_W};
 
@@ -60,9 +60,39 @@ impl Harvest {
         if let Phase::LevelUp { choices, selected, t, picked } = &self.phase {
             let fade = picked.map_or(1.0, |p| 1.0 - p / PICK_TIME);
             c.rect(0.0, 0.0, SCREEN_W, SCREEN_H, [0.0, 0.0, 0.0, 0.6 * (t / 0.2).min(1.0) * fade]);
-            let how = if self.taps { "Tap an upgrade, or Up / Down and X" } else { "Up / Down and X: choose an upgrade" };
+            let how = match (self.banishing, self.favoring, self.taps) {
+                (true, ..) => "Tap the card to banish, or Banish to keep them all",
+                (_, true, _) => "Tap the card to take and favor, or Favor to cancel",
+                (.., true) => "Tap an upgrade, or Up / Down and X",
+                (.., false) => "Up / Down and X: choose an upgrade",
+            };
             c.label(how, SCREEN_W / 2.0, 60.0, 32.0, [1.0, 1.0, 1.0, fade], Align::Center);
             self.choices(c, choices, *selected, *t, *picked, CHOICE_TOP);
+            self.level_keys(c, fade);
+        }
+    }
+
+    /// Banish, Reroll and Favor under the cards, each with its pad button and how many the run has left. A key that
+    /// `tuning.txt` sets to 0 isn't drawn, nor Favor before `favor_level`.
+    fn level_keys(&self, c: &mut Canvas, fade: f32) {
+        for (key, [x, y, w, h]) in LEVEL_KEYS {
+            let (name, pad, left) = match key {
+                LevelKey::Banish => ("Banish", "L1", self.banishes),
+                LevelKey::Reroll => ("Reroll", "R1", self.rerolls),
+                LevelKey::Favor => ("Favor", "Y", self.favors),
+            };
+            if !level_key_shows(key, self.level) {
+                continue;
+            }
+            let a = if left > 0 { fade } else { 0.4 * fade };
+            let fill = match key {
+                LevelKey::Banish if self.banishing => [RED[0], RED[1], RED[2], 0.6 * a],
+                LevelKey::Favor if self.favoring => [GOLD[0], GOLD[1], GOLD[2], 0.6 * a],
+                _ => [1.0, 1.0, 1.0, 0.1 * a],
+            };
+            c.rect(x, y, w, h, fill);
+            c.label(pad, x + 16.0, y + 10.0, 26.0, [1.0, 1.0, 1.0, 0.6 * a], Align::Left);
+            c.label(format!("{name}  {left}"), x + w / 2.0, y + h / 2.0 - 20.0, 40.0, [WHITE[0], WHITE[1], WHITE[2], a], Align::Center);
         }
     }
 
@@ -472,6 +502,12 @@ impl Harvest {
                 let scale = 12.0 * back_out((t / 0.3).min(1.0)) + (t * 4.0).sin() * 0.4;
                 c.text_centered(150.0 - (scale - 12.0) * 2.5, scale, [GOLD[0], GOLD[1], GOLD[2], fade], "LEVEL UP");
                 self.choices(c, choices, *selected, *t, *picked, 270.0);
+                let keys: Vec<String> = [("L1: banish", self.banishes, LevelKey::Banish), ("R1: reroll", self.rerolls, LevelKey::Reroll), ("Y: favor", self.favors, LevelKey::Favor)]
+                    .into_iter()
+                    .filter(|k| level_key_shows(k.2, self.level))
+                    .map(|(name, left, _)| format!("{name}, {left} left"))
+                    .collect();
+                c.label(keys.join("      "), SCREEN_W / 2.0, 716.0, 26.0, [1.0, 1.0, 1.0, 0.7 * fade], Align::Center);
             }
             Phase::Over { t, won } => {
                 // A death waits for the player to climb back out before the summary shows.
@@ -682,17 +718,19 @@ impl Harvest {
     fn choices(&self, c: &mut Canvas, choices: &[Choice; 3], selected: usize, t: f32, picked: Option<f32>, top: f32) {
         let fade = picked.map_or(1.0, |p| 1.0 - p / PICK_TIME);
         for (i, ch) in choices.iter().enumerate() {
-            let k = back_out(((t - i as f32 * 0.07) / 0.28).clamp(0.0, 1.0));
+            let k = back_out(((t - self.dealt[i] - i as f32 * 0.07) / 0.28).clamp(0.0, 1.0));
             let on = i == selected;
             let grow = if on && picked.is_none() { 4.0 + 4.0 * (t * 6.0).sin() } else { 0.0 };
             let (x, y) = (112.0 + (1.0 - k) * 1000.0 - grow, top + i as f32 * CHOICE_ROW - grow / 2.0);
             let (w, h) = (800.0 + grow * 2.0, CHOICE_ROW - 20.0 + grow);
             let alpha = if on { 1.0 } else { fade };
-            if ch.rare || ch.found {
+            let doomed = self.banishing && book().defs[ch.up].kind != Kind::Filler;
+            let blessed = self.favoring && book().defs[ch.up].kind != Kind::Filler;
+            if ch.rare || ch.found || doomed || blessed {
                 let glint = 0.6 + 0.4 * (t * 5.0).sin();
-                let edge = if ch.found { FIND } else { GOLD };
+                let edge = if doomed { RED } else if ch.found { FIND } else { GOLD };
                 c.rect(x - 5.0, y - 5.0, w + 10.0, h + 10.0, [edge[0], edge[1], edge[2], glint * alpha]);
-                let back = if ch.found { [0.02, 0.08, 0.04] } else { [0.1, 0.08, 0.02] };
+                let back = if doomed { [0.1, 0.03, 0.02] } else if ch.found { [0.02, 0.08, 0.04] } else { [0.1, 0.08, 0.02] };
                 c.rect(x, y, w, h, [back[0], back[1], back[2], alpha]);
             }
             let fill = match picked {
@@ -721,6 +759,7 @@ impl Harvest {
             c.label(def.change(from, to), left, y + 62.0, 26.0, [1.0, 1.0, 1.0, 0.75 * alpha], Align::Left);
             let tag = match def.kind {
                 Kind::Filler => String::new(),
+                _ if self.favored == Some(ch.up) => format!("FAVORED  LV {to}"),
                 _ if from == 0 && to > 1 => format!("NEW  LV {to}"),
                 _ if from == 0 => "NEW".into(),
                 _ => format!("LV {to}"),

@@ -4524,6 +4524,21 @@ mod tests {
     }
 
     #[test]
+    fn the_levelup_data_page_lists_the_draw_numbers_in_both_editors() {
+        for modding in [false, true] {
+            let dir = tmp().join(if modding { "levelup-mod" } else { "levelup" });
+            std::fs::create_dir_all(&dir).unwrap();
+            let mut e = editor_in(&dir, dir.join("art.txt"));
+            if modding {
+                e.set_modding();
+            }
+            e.switch_to("DATA_TUNING_LEVELUP".into());
+            let keys: Vec<String> = e.data.as_ref().map(|d| d.table.entries(&d.section).into_iter().map(|x| x.key).collect()).unwrap_or_default();
+            assert_eq!(keys, ["held_weight", "banish", "reroll", "favor", "favor_weight", "favor_level"], "modding {modding}");
+        }
+    }
+
+    #[test]
     fn the_weapon_page_rewrites_only_the_lines_it_changes() {
         let dir = tmp().join("weapon");
         let _ = std::fs::remove_dir_all(&dir);

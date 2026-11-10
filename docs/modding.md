@@ -184,6 +184,7 @@ The game reads its rules from seven text files in `crates/game/`. The packer put
 |---|---|
 | `[player]` | Health, speed, money magnet, critical-hit chance, pickup reach and footprint before upgrades, and turn speed |
 | `[night]` | The night's length, where zombies rise at dusk and dawn, how near home counts, the rare-card chance and the level-up push |
+| `[levelup]` | How a level-up deals its cards. `held_weight` makes a powerup the player holds that many times as likely as a new one, above 0, and 1 for even odds. `banish`, `reroll` and `favor` are how many of each a run gets, and 0 turns one off. A favored powerup is `favor_weight` times as likely for the rest of the run, on top of `held_weight`, and favor is offered from level `favor_level` on. With `slots` in `powerups.txt`, these set how deep a run's build goes. |
 | `[easy]`, `[normal]`, `[hard]` | Bite damage, how long a hit keeps the player safe, and how often kills drop health and how much |
 | `[zombies]` | The most alive at once, rising time, stagger, growth each minute, a leader's health, dawn's fury, footprint, walk speed, bite reach, `charge_reach`, spit speed and rate, `burrow_reach`, and chewing speed |
 | `[harvester]` | Dawn's boss: health, speed, bite, how far away it rises, and the waves after it falls (`again`, `most`) |

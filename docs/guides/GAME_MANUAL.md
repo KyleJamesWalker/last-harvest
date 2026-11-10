@@ -18,6 +18,9 @@ Your weapons fire on their own. You move, turn, throw grenades and pick upgrades
 | Throw a grenade | Tap the map | Click the bottom screen |
 | Throw a grenade straight ahead | Hold R1, then let go | Hold W, then let go |
 | Pick an upgrade | Tap it, or Up, Down and X | Click it, or the arrows and S |
+| Banish the highlighted upgrade | L1, or Banish then the card | 1, or click Banish then the card |
+| Reroll the upgrades | R1, or Reroll | W, or click Reroll |
+| Take and favor the highlighted upgrade | Y, or Favor then the card | A, or click Favor then the card |
 | Pause | Start | Enter, or Esc |
 | Back out of a menu | B | Z, or Esc |
 | Back to the title | Back, or B after a run | Tab, or Z after a run |
@@ -59,6 +62,9 @@ On a phone, in a browser window, and in a desktop window, a run plays on one scr
 | Show the map | Grenade. Tap it again to put the 3D view back. You keep moving. |
 | Throw a grenade | While the map is up, tap where it should land |
 | Pick an upgrade, or a pause choice | Tap it |
+| Banish an upgrade | Banish, then the card. Tap Banish again to keep them all. |
+| Reroll the upgrades | Reroll |
+| Take and favor an upgrade | Favor, then the card. Tap Favor again to cancel. |
 | Pause | Pause |
 
 Two settings change the touch controls:
@@ -127,6 +133,12 @@ Powerups are the weapons and passives on level-up cards. The first level-up take
 - Each level-up offers three cards, drawn from 17 weapons and 17 passives.
 - A run carries at most six weapons and six passives. Once both are full, the cards only level what you carry.
 - When nothing remains to level, the cards offer a snack, an ammo crate or pocket change.
+
+Each run gets two banishes and two rerolls. The keys under the cards show how many are left.
+
+- **Banish** takes a card's powerup out of the run, and a new card takes its place. A snack, an ammo crate or pocket change can't be banished. Banishing a FOUND card passes on it for this run only.
+- **Reroll** deals three new cards. It avoids the three you had when it can. A chest's level-up still holds its find.
+- **Favor** comes from level 6, once a run. It takes the card and makes that powerup four times as likely for the rest of the run. Its cards say FAVORED. A snack, an ammo crate or pocket change can't be favored.
 
 Each weapon covers a zone, shown on its card:
 
