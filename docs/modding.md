@@ -328,7 +328,7 @@ Each `[id]` section is one powerup:
 | Line | Sets |
 |---|---|
 | `name`, `blurb`, `icon` | Its card. `icon` can be `PROP_<ID>`. |
-| `kind` | `weapon`, `passive` or `filler`. Fillers appear only when nothing else remains. |
+| `kind` | `weapon`, `passive` or `filler`. Fillers appear only when nothing else remains. A filler takes `heal`, `refill`, `money` and any passive stat, and its passive stats add up again each time it is taken. |
 | `zone` | `ahead`, `around`, `behind` or `map` |
 | `unlock` | `start`, `kills N`, `night SECONDS`, `level N`, `nights N` or `dawns N` |
 | `find`, `after`, `chest` | How often it shows as a find, the earliest minute, and chest-only |

@@ -854,7 +854,7 @@ pub fn parse(text: &str) -> Result<Book, String> {
         let wrong = def.stats.iter().find(|(s, _)| match def.kind {
             Kind::Weapon => !s.for_weapons(),
             Kind::Passive => !s.for_passives(),
-            Kind::Filler => !matches!(s, Stat::Heal | Stat::Refill | Stat::Money),
+            Kind::Filler => !matches!(s, Stat::Heal | Stat::Refill | Stat::Money) && !s.for_passives(),
         });
         if let Some((s, _)) = wrong {
             return Err(format!(" [{}] is a {:?} and can't have {}", def.id, def.kind, s.key()).to_lowercase());
