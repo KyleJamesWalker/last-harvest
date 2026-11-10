@@ -119,7 +119,7 @@ fence rail 25 4 10 8 gate 4 cover yes
 - **Ground:** one [`ground.txt`](#groundtxt) code per tile. The game's own codes are `.` dirt, `,` dirt with tufts, `g` grass, `s` soil, `p` sprouts and `c` corn. Roads are `v` (north-south) and `h` (east-west), and `=` is a path. Roads and paths join their neighbors, and corn grows a top and bottom at a field's edges.
 - **Props:** a sprite name from [`props.txt`](#propstxt), or `PROP_<ID>`, and its top-left tile.
 - **Fences:** `rail` or `picket` around a rectangle, with an optional two-tile gate that many tiles from its left.
-- **Collection day:** a `TRUCK` brings its driver, who leans on its back. Only a map with a truck has collection day.
+- **Soul harvest:** a `TRUCK` brings its driver, the Collector, who leans on its back. Only a map with a truck has a soul harvest.
 - **Hit points and cover:** `hp` and `cover` on a line override the sprite's own. Zombies chew through what breaks, and shots and blasts break what is cover. A broken prop stops blocking.
 - **Rules:** a ring of trees and bushes always closes the edge. The spawn and home must be open, off the edge, and joined by open ground without breaking anything.
 
@@ -152,7 +152,7 @@ The game synthesizes every sound at runtime. A recorded Ogg Vorbis or WAV file r
 | `thud`, `crit` | A hit lands, or a critical hit |
 | `kill-skinny`, `kill-kid`, `kill-big` | A zombie dies |
 | `throw`, `boom` | A grenade leaves the player's hand, or anything explodes |
-| `pickup` | The player collects money. Quick pickups play it higher, up a scale. |
+| `pickup` | The player collects a heart. Quick pickups play it higher, up a scale. |
 | `heal`, `hurt`, `heartbeat` | The player picks up health, takes a hit, or runs low on health |
 | `levelup`, `pick`, `pick-rare` | The bar fills, or an upgrade is chosen |
 | `rise`, `groan`, `caw` | A zombie breaks out of the ground or groans, or a crow takes off |
@@ -182,13 +182,13 @@ The game reads its rules from seven text files in `crates/game/`. The packer put
 
 | Section | Sets |
 |---|---|
-| `[player]` | Health, speed, money magnet, critical-hit chance, pickup reach and footprint before upgrades, and turn speed |
+| `[player]` | Health, speed, heart magnet, critical-hit chance, pickup reach and footprint before upgrades, and turn speed |
 | `[night]` | The night's length, where zombies rise at dusk and dawn, how near home counts, the rare-card chance and the level-up push |
 | `[levelup]` | How a level-up deals its cards. `held_weight` makes a powerup the player holds that many times as likely as a new one, above 0, and 1 for even odds. `banish`, `reroll` and `favor` are how many of each a run gets, and 0 turns one off. A favored powerup is `favor_weight` times as likely for the rest of the run, on top of `held_weight`, and favor is offered from level `favor_level` on. A rare card for a powerup one level below its top raises it one past it, the level breaker: each stat adds `breaker` times its last step, and 0 turns it off. With `slots` in `powerups.txt`, these set how deep a run's build goes. |
 | `[easy]`, `[normal]`, `[hard]` | Bite damage, how long a hit keeps the player safe, and how often kills drop health and how much |
 | `[zombies]` | The most alive at once, rising time, stagger, growth each minute, a leader's health, dawn's fury, footprint, walk speed, bite reach, `charge_reach`, spit speed and rate, `burrow_reach`, and chewing speed |
 | `[harvester]` | Dawn's boss: health, speed, bite, how far away it rises, and the waves after it falls (`again`, `most`) |
-| `[driver]` | Collection day: seconds into the night until the truck driver's first ticket (`after`, 0 turns it off), seconds from a cash-in to the next (`every`), and how near him, in pixels, cashes in (`reach`) |
+| `[driver]` | Soul harvest: seconds into the night until the Collector's first tithe (`after`, 0 turns it off), seconds from one soul harvest to the next (`every`), and how near him, in pixels, pays the tithe (`reach`) |
 | `[grenade]` | Recharge, flight time, radius, damage, bomblets, one-screen aiming (`aim_`), and R1's quick throw (`quick_near`, `quick_far`, `quick_grow`) |
 | `[barrel]` | Health, blast radius and damage |
 | `[weapons]` | The view ahead and behind, the pistol's point-blank reach, crow and dog reach, and how long fire burns |
@@ -321,7 +321,7 @@ The file opens with lines for the whole run:
 | `start DIFFICULTY ID ...` | The starting weapons at each difficulty |
 | `grenades N` | Grenades every run starts with |
 | `finds N` | The most powerups one run can find |
-| `first_level N` | Money for the first level-up |
+| `first_level N` | Hearts for the first level-up |
 
 Each `[id]` section is one powerup:
 
@@ -372,7 +372,7 @@ Each `[id]` section is one kind of zombie:
 | `hp` | Health at dusk. It grows through the night. |
 | `speed` | Pixels a second |
 | `damage` | A bite |
-| `xp` | The money it drops |
+| `xp` | The hearts it drops |
 | `mass` | Divides knockback |
 | `gibs` | Blood specks when it dies |
 | `sound` | Its death sound. Default `kill-<id>`. |

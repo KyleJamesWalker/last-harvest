@@ -71,7 +71,7 @@ def powerups(kind):
 
 
 def enemies():
-    head = '| Zombie | Health | Speed | Bite | Money | Comes from minute | What to expect |\n|---|---|---|---|---|---|---|'
+    head = '| Zombie | Health | Speed | Bite | Hearts | Comes from minute | What to expect |\n|---|---|---|---|---|---|---|'
     body = []
     for i, f in sections(ROOT / 'crates/game/enemies.txt'):
         body.append(f"| {cell(f.get('name', i))} | {f.get('hp', '')} | {f.get('speed', '')} | {f.get('damage', '')} | {f.get('xp', '')} | {f.get('after', '0')} | {cell(f.get('about', ''))} |")

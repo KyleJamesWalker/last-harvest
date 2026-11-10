@@ -5,7 +5,7 @@
 [player]
 hp 100          # health before upgrades
 speed 48        # pixels a second before upgrades
-magnet 28       # how near money and health drift in from, before upgrades
+magnet 28       # how near hearts and health drift in from, before upgrades
 crit 0.1        # chance a hit lands double, before upgrades
 pickup 7        # how near the player picks something up
 width 8         # the player's footprint for walls, in pixels
@@ -34,7 +34,7 @@ breaker 2       # a rare card one level below the top breaks one past it, adding
 [easy]
 damage 0.55     # multiplies the damage zombies deal
 hurt_time 0.7   # seconds a hit leaves the player safe from the next
-health_drop 60  # one kill in this many drops health; the rest drop money
+health_drop 60  # one kill in this many drops health; the rest drop hearts
 heal 30         # health a health drop gives back
 
 [normal]
@@ -75,9 +75,9 @@ again 30        # seconds between waves of them once the first falls, each wave 
 most 6          # most Harvesters in one wave
 
 [driver]
-after 300       # seconds into the night the gas station's driver first holds a collection ticket; 0 for never
-every 300       # seconds from one cash-in to his next ticket
-reach 24        # how near him the player cashes a ticket in, and every coin on the map flies to them
+after 300       # seconds into the night the Collector at the gas station first holds a tithe; 0 for never
+every 300       # seconds from one soul harvest to his next tithe
+reach 24        # how near him the player pays the tithe, and every heart on the map flies to them
 
 [grenade]
 recharge 12     # seconds to earn a grenade back, before upgrades

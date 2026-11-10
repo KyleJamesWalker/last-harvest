@@ -10,7 +10,7 @@
 #   hp          N         health at dusk; it grows 8% a minute
 #   speed       N         pixels a second; the walk cycle keeps pace
 #   damage      N         a bite
-#   xp          N         the money it drops
+#   xp          N         the hearts it drops
 #   mass        N         divides knockback
 #   gibs        N         blood specks when it dies
 #   sound       CUE       its death sound; kill-ID when left out

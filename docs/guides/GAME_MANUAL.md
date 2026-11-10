@@ -95,12 +95,12 @@ A night lasts ten minutes, from dusk to dawn. A bell rings each minute.
 
 - **Zombies rise** out of the ground, at the edge of the fog early on and a few tiles away by the end. They walk around buildings, or chew through a fence when that is quicker. They grow tougher each minute.
 - **Cover:** shots fly past bushes, fences and signs. Buildings, vehicles and trees stop them.
-- **Hearts:** kills drop zombie hearts, which flop out and settle. Hearts are money: collecting them levels you up. Each level-up offers three cards, and pushes nearby zombies back. Some cards are rare and count twice.
+- **Hearts:** kills drop rotten zombie hearts, which flop out and settle. Offer enough of them and the ritual levels you up. Each level-up offers three cards, and pushes nearby zombies back. Some cards are rare and count twice.
 - **Health:** some kills drop health instead of a heart. How often depends on the difficulty.
 - **Grenades:** you start with one, or two on Easy. Each recharges in 12 seconds.
 - **Barrels:** shooting a red barrel sets it off. Hold X, and your guns go for the barrels in view. A blast close to you hurts you too.
 - **Hordes** arrive during the night, each led by a gold-lit leader. The leader drops a chest.
-- **Collection day:** five minutes in, the driver by the gas station's truck holds a ticket. A heart bobs over his head, and a gold ring marks him on the map. Walk up to him, and every coin on the farm flies to you at once. That can be several level-ups in a row. He holds a new ticket five minutes after each cash-in.
+- **Soul harvest:** five minutes in, the Collector by the gas station's truck holds a tithe. A heart bobs over his head, and a gold ring marks him on the map. Walk up to him, and every heart on the farm is drawn to you at once. That can be several level-ups in a row. He holds a new tithe five minutes after each soul harvest.
 - **Dawn:** the Harvester wakes behind you, and the dead grow 1% stronger every second. Run back to the farmhouse's front step to survive.
 - **More Harvesters:** kill the Harvester, and 30 seconds later two more rise. Every 30 seconds another wave comes, one bigger, up to six, until you get home.
 - **Falling:** if you fall, you rise as one of the dead and lead them to the next farm.
@@ -136,17 +136,17 @@ A player card can change your starting weapons.
 
 ## Powerups
 
-Powerups are the weapons and passives on level-up cards. The first level-up takes 2 money, and each one after costs more.
+Powerups are the weapons and passives on level-up cards. The first level-up takes 2 hearts, and each one after costs more.
 
 - Each level-up offers three cards, drawn from 17 weapons and 17 passives.
 - A run carries at most six weapons and six passives. Once both are full, the cards only level what you carry.
-- When nothing remains to level, the cards offer a snack, an ammo crate or pocket change.
+- When nothing remains to level, the cards offer a snack, an ammo crate or a spare heart.
 
 Each run gets two banishes and two rerolls. The keys under the cards show how many are left.
 
-- **Banish** takes a card's powerup out of the run, and a new card takes its place. A snack, an ammo crate or pocket change can't be banished. Banishing a FOUND card passes on it for this run only.
+- **Banish** takes a card's powerup out of the run, and a new card takes its place. A snack, an ammo crate or a spare heart can't be banished. Banishing a FOUND card passes on it for this run only.
 - **Reroll** deals three new cards. It avoids the three you had when it can. A chest's level-up still holds its find.
-- **Favor** comes from level 6, once a run. It takes the card and makes that powerup four times as likely for the rest of the run. Its cards say FAVORED. A snack, an ammo crate or pocket change can't be favored.
+- **Favor** comes from level 6, once a run. It takes the card and makes that powerup four times as likely for the rest of the run. Its cards say FAVORED. A snack, an ammo crate or a spare heart can't be favored.
 
 Each weapon covers a zone, shown on its card:
 
@@ -211,14 +211,14 @@ Passives change you or every weapon at once. Their effects add together. A passi
 | Quick hands | From the start | 5 | Every weapon attacks faster |
 | Running shoes | From the start | 5 | Move faster |
 | Canned peaches | From the start | 5 | More max health, and a bite to eat now |
-| Deep pockets | From the start | 5 | Pick up money from further away |
+| Grave pull | From the start | 5 | Draw hearts from further away |
 | Work jacket | Level 5 in one run | 5 | Takes the edge off every bite |
 | Garden tea | 2 nights played | 5 | Slowly heals you |
 | Sharp eye | Level 8 in one run | 5 | A better chance of a critical hit |
 | Bigger blast | Level 12 in one run | 5 | Wider sweeps, pools and explosions |
 | Long barrel | Level 10 in one run | 5 | Weapons reach further |
-| Lucky penny | 5 nights played | 5 | Rare cards turn up more often |
-| Pawn shop | Level 14 in one run | 5 | Money is worth more |
+| Rabbit's foot | 5 nights played | 5 | Rare cards turn up more often |
+| Blood price | Level 14 in one run | 5 | Each heart is worth more |
 | Heavy rounds | 2 dawns survived, then found from minute 3 | 5 | Hits shove harder, and bullets go through |
 | Brighter lantern | 5000 kills over every run | 5 | See wider and further ahead |
 | Vaccine | 5 dawns survived, then found only in a leader's chest | 2 | When you start to turn, you come back as yourself |
@@ -233,7 +233,7 @@ The mix of zombies shifts minute by minute, and some kinds arrive only after a s
 
 <!-- items: enemies -->
 
-| Zombie | Health | Speed | Bite | Money | Comes from minute | What to expect |
+| Zombie | Health | Speed | Bite | Hearts | Comes from minute | What to expect |
 |---|---|---|---|---|---|---|
 | Big | 90 | 12 | 32 | 5 | 2 | Slow and huge; it bites hard, shrugs off knockback and leads the hordes. |
 | Kid | 10 | 32 | 10 | 1 | 1 | Small and quick; it falls to a slap, but it reaches you first. |
@@ -375,7 +375,7 @@ The palette is PICO-8's 32 colors. **Palette file** loads a `.hex` palette, such
 
 Rename and About set the name and the one-sentence about line. For an enemy card, - and + step each number, ten times as far with Shift:
 
-- Health, Speed, Bite, Money, Weight and Gibs.
+- Health, Speed, Bite, Hearts, Weight and Gibs.
 - Arrives after (minutes), Chance and Chance per minute.
 - Charge: its speed near you, as a multiple.
 - Spits from (pixels) and Burrows after (seconds). 0 turns either off.
@@ -395,7 +395,7 @@ Three props can make a crop, such as wheat, that a ground code grows down a fiel
 
 Maps list under Maps as `MAP_<ID>`. The canvas shows the map from above, and a line under it says whether the game would load it.
 
-A truck on a map brings its driver, and with him collection day. A map without a truck has none.
+A truck on a map brings its driver, the Collector, and with him the soul harvest. A map without a truck has none.
 
 | Tool | What it does |
 |---|---|

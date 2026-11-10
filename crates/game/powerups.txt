@@ -4,7 +4,7 @@
 #   start DIFFICULTY ID ...   the weapons a run carries at easy, normal or hard; each must be `unlock start`
 #   grenades [DIFFICULTY] N   grenades a run starts with, before a grenade belt; without a difficulty, for all three
 #   finds N             the most powerups one run can find
-#   first_level N       money for the first level-up; each after costs about 1.35 times the last, plus 2
+#   first_level N       hearts for the first level-up; each after costs about 1.35 times the last, plus 2
 #
 #   [id]                start of a powerup; the id is how the save and the code know it
 #   name    Text        the card's title
@@ -53,7 +53,7 @@
 # Passive stats are the total at that level, and passives add together. Write the ones that scale with a
 # percentage (+10% or -8%): damage, cooldown, speed, magnet, area, reach, greed, knockback, view, recharge,
 # blast. The rest are plain numbers: max_hp, heal, armor, regen (health a second), crit and luck (chances,
-# 0 to 1), pierce, revive, grenades, cluster, drums (seconds between barrels coming back), refill, money.
+# 0 to 1), pierce, revive, grenades, cluster, drums (seconds between barrels coming back), refill, money (hearts).
 
 slots weapons 6
 slots passives 6
@@ -381,10 +381,10 @@ max_hp    20 40 60 80 100
 heal      20
 
 [deep_pockets]
-name      Deep pockets
+name      Grave pull
 kind      passive
 unlock    start
-blurb     Pick up money from further away
+blurb     Draw hearts from further away
 max       5
 magnet    +30% +60% +90% +120% +150%
 
@@ -429,7 +429,7 @@ max       5
 reach     +10% +20% +30% +40% +50%
 
 [lucky_penny]
-name      Lucky penny
+name      Rabbit's foot
 kind      passive
 unlock    nights 5
 blurb     Rare cards turn up more often
@@ -437,10 +437,10 @@ max       5
 luck      0.05 0.1 0.15 0.2 0.25
 
 [pawn_shop]
-name      Pawn shop
+name      Blood price
 kind      passive
 unlock    level 14
-blurb     Money is worth more
+blurb     Each heart is worth more
 max       5
 greed     +20% +40% +60% +80% +100%
 
@@ -512,7 +512,7 @@ blurb     Every grenade, ready now
 refill    1
 
 [pocket_change]
-name      Pocket change
+name      Spare heart
 kind      filler
 unlock    start
 blurb     Damage +3% for the rest of the run, again each time
