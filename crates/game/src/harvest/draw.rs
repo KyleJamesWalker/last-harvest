@@ -63,8 +63,8 @@ impl Harvest {
             let how = match (self.banishing, self.favoring, self.taps) {
                 (true, ..) => "Tap the card to banish, or Banish to keep them all",
                 (_, true, _) => "Tap the card to take and favor, or Favor to cancel",
-                (.., true) => "Tap an upgrade, or Up / Down and X",
-                (.., false) => "Up / Down and X: choose an upgrade",
+                (.., true) => "Offer your hearts: tap a card, or Up / Down and X",
+                (.., false) => "Offer your hearts: Up / Down and X",
             };
             c.label(how, SCREEN_W / 2.0, 60.0, 32.0, [1.0, 1.0, 1.0, fade], Align::Center);
             self.choices(c, choices, *selected, *t, *picked, CHOICE_TOP);
