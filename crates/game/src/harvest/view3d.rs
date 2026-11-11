@@ -837,8 +837,8 @@ pub fn scene(h: &Harvest) -> CardScene {
     for s in &h.swings {
         let (angle, r) = s.now();
         let at = [h.pos[0] + angle.cos() * r, h.pos[1] + angle.sin() * r];
-        match s.art.stand() {
-            Some(Stand::Slab { height, lift }) => faded(&mut cards, s.alpha() * s.art.alpha(), |cards| lying(cards, eye, s.art, world(at), angle, height, lift, [1.0; 3])),
+        match s.stand.or_else(|| s.art.stand()) {
+            Some(Stand::Slab { height, lift }) => faded(&mut cards, s.alpha() * s.art.alpha(), |cards| lying(cards, eye, s.art, world(at), angle + super::weapons::SWING_TURN, height, lift, [1.0; 3])),
             _ => board(&mut cards, Board { alpha: s.alpha(), ..Board::new(s.art, angle.cos() * right.x + angle.sin() * right.z < 0.0, at, 4.0 * PX, 0.0) }),
         }
     }

@@ -283,6 +283,8 @@ pub(super) struct Swing {
     pub life: f32,
     pub angle: [f32; 2],
     pub reach: [f32; 2],
+    /// How it stands in 3D, when not as its art's catalog line says.
+    pub stand: Option<crate::art::Stand>,
 }
 
 impl Swing {
@@ -300,6 +302,35 @@ impl Swing {
 
 /// Lightning from one point to the next.
 pub(super) struct Bolt {
+/// A swing's sprite is drawn pointing up, so it turns a quarter past its angle to lead with its top.
+pub(super) const SWING_TURN: f32 = std::f32::consts::FRAC_PI_2;
+
+/// How a weapon plays the sprite `name` from the player, for the editor's preview.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SwingShow {
+    /// All the way round, as the scythe does, else straight out ahead, as the pitchfork does.
+    pub sweep: bool,
+    pub life: f32,
+    /// How far out it plays at level 1, in map pixels.
+    pub reach: f32,
+    pub fade: super::effects::Fade,
+}
+
+/// The first weapon whose thrust or sweep plays the catalog sprite `name`, if any does.
+pub fn swing_shown(name: &str) -> Option<SwingShow> {
+    let first = crate::art::ALL.iter().find(|(n, _)| *n == name)?.1.first().copied()?;
+    let fx = super::effects::effects();
+    book().defs.iter().find_map(|d| {
+        let (own, stat, sweep) = match d.does? {
+            Does::Pitchfork => (fx.pitchfork, Stat::Range, false),
+            Does::Scythe => (fx.scythe, Stat::Area, true),
+            _ => return None,
+        };
+        let e = d.effect.as_deref().and_then(|n| fx.named(n)).unwrap_or(own);
+        (e.frames.first() == Some(&first)).then(|| SwingShow { sweep, life: e.life, reach: d.at(stat, 1) * e.reach, fade: e.fade })
+    })
+}
+
     pub points: Vec<[f32; 2]>,
     pub age: f32,
 }
@@ -704,7 +735,7 @@ impl Harvest {
                 }
             }
             let e = look(a, super::effects::effects().pitchfork);
-            self.swings.push(Swing { art: e.frames[0], fade: e.fade, age: 0.0, life: e.life, angle: [angle; 2], reach: [2.0, range * e.reach] });
+            self.swings.push(Swing { art: e.frames[0], fade: e.fade, age: 0.0, life: e.life, angle: [angle; 2], reach: [2.0, range * e.reach], stand: None });
         }
         self.attack_feel(a, [self.pos[0] + self.aim[0] * 8.0, self.pos[1] + self.aim[1] * 8.0], 10.0);
         sounds.push(sound(a, Sfx::Slash));
@@ -748,7 +779,7 @@ impl Harvest {
         }
         let from = self.view_yaw;
         let e = look(a, super::effects::effects().scythe);
-        self.swings.push(Swing { art: e.frames[0], fade: e.fade, age: 0.0, life: e.life, angle: [from, from + TAU], reach: [reach * e.reach; 2] });
+        self.swings.push(Swing { art: e.frames[0], fade: e.fade, age: 0.0, life: e.life, angle: [from, from + TAU], reach: [reach * e.reach; 2], stand: None });
         self.juice.ring(self.pos, reach, 0.3, [0.85, 0.85, 0.8]);
         self.attack_feel(a, self.pos, 10.0);
         sounds.push(sound(a, Sfx::Slash));

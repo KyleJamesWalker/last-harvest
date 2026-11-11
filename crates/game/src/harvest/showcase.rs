@@ -1,9 +1,10 @@
 //! One sprite placed on a quiet farm and drawn the way the game draws both screens, for the sprite editor.
 
-use std::f32::consts::FRAC_PI_2;
+use std::f32::consts::{FRAC_PI_2, TAU};
 
 use super::juice::{CORPSE_FALL, Corpse};
 use super::map::{CellCrop, Stalk, Sway, TILE};
+use super::weapons::{Swing, SwingShow};
 use super::{FLASH_TIME, HURT_FRAMES, Harvest, Look, map_scale, view_h, view_w, view3d};
 use crate::art::{Art, Stand};
 use crate::{Canvas, Color};
@@ -53,6 +54,9 @@ const DEAD_TIME: f32 = 3.0;
 const CROP_ROWS: usize = 4;
 const CROP_COLS: usize = 3;
 
+/// Seconds between one swing on show ending and the next starting.
+const SWING_REST: f32 = 0.5;
+
 /// A crop's pieces: its top's frames, its middle and its bottom.
 pub type CropPieces = (Vec<Art>, Art, Art);
 
@@ -77,6 +81,9 @@ pub struct Showcase {
     crop: Option<CropShow>,
     /// The cells the crop's field covers, with what stood on each before.
     under: Vec<(usize, usize, CellCrop)>,
+    /// A weapon's swing the sprite plays as from the player, with its frames and how it stands, and seconds since
+    /// the last one started.
+    swing: Option<(SwingShow, Vec<Art>, Stand, f32)>,
 }
 
 impl Showcase {
@@ -85,7 +92,7 @@ impl Showcase {
         harvest.birds.clear();
         let pos = [harvest.map.spawn[0], harvest.map.spawn[1] - 3.0 * TILE];
         harvest.shown = Some(Shown { frames: Vec::new(), stand: Stand::Figure, fps: 6.0, pos, top: None, player: true, crowd: Vec::new(), worn: false });
-        Self { seed, harvest, strike: None, lying: None, crop: None, under: Vec::new() }
+        Self { seed, harvest, strike: None, lying: None, crop: None, under: Vec::new(), swing: None }
     }
 
     /// Hits the figure as a bullet would: a flash, then its hurt frame.
@@ -114,11 +121,28 @@ impl Showcase {
         }
     }
 
+    /// Plays the sprite as a weapon's swing from the player, over and over, in place of standing it on its own; None
+    /// stands it again.
+    pub fn swing(&mut self, show: Option<SwingShow>) {
+        if self.swing.as_ref().map(|s| s.0) == show {
+            return;
+        }
+        self.harvest.swings.clear();
+        self.swing = show.map(|s| (s, Vec::new(), Stand::Figure, f32::INFINITY));
+    }
+
     /// Shows `frames`, animated at `fps`, standing as `stand`, with `top` capping a figure.
     pub fn show(&mut self, frames: Vec<Art>, stand: Stand, fps: f32, top: Option<Art>) {
         let lying = self.lying.is_some().then(Vec::new);
         let struck = self.strike.as_ref().and_then(|(f, kill, t)| Self::struck(f, *kill, *t)).or(lying);
-        let frames = if self.crop.is_some() { Vec::new() } else { frames };
+        let frames = match &mut self.swing {
+            Some((_, art, how, _)) => {
+                (*art, *how) = (frames, stand);
+                Vec::new()
+            }
+            None if self.crop.is_some() => Vec::new(),
+            None => frames,
+        };
         if let Some(s) = &mut self.harvest.shown {
             s.frames = struck.unwrap_or(frames);
             s.stand = stand;
@@ -313,6 +337,23 @@ impl Showcase {
         h.pos = [s.pos[0] - forward[0] * distance - right[0] * aside, s.pos[1] - forward[1] * distance - right[1] * aside];
         h.view_yaw = yaw;
         h.aim = forward;
+        for s in &mut h.swings {
+            s.age += dt;
+        }
+        h.swings.retain(|s| s.age < s.life);
+        let Some((show, frames, stand, since)) = &mut self.swing else { return };
+        *since += dt;
+        if frames.is_empty() || *since < show.life + SWING_REST {
+            return;
+        }
+        *since = 0.0;
+        let fps = h.shown.as_ref().map_or(6.0, |s| s.fps);
+        let art = frames[(h.t * fps) as usize % frames.len()];
+        let (angle, reach) = match show.sweep {
+            true => ([yaw, yaw + TAU], [show.reach; 2]),
+            false => ([yaw; 2], [2.0, show.reach]),
+        };
+        h.swings.push(Swing { art, fade: show.fade, age: 0.0, life: show.life, angle, reach, stand: Some(*stand) });
     }
 
     /// The 2.5D view, as on the top screen.

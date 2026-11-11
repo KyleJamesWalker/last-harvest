@@ -431,7 +431,7 @@ impl Harvest {
         for s in &self.swings {
             let (angle, r) = s.now();
             let (sx, sy) = at(self.pos[0] + angle.cos() * r, self.pos[1] - 6.0 + angle.sin() * r);
-            c.art_rotated(s.art, sx, sy, scale, angle, [lit[0], lit[1], lit[2], lit[3] * s.alpha()]);
+            c.art_rotated(s.art, sx, sy, scale, angle + super::weapons::SWING_TURN, [lit[0], lit[1], lit[2], lit[3] * s.alpha()]);
         }
         for b in &self.bolts {
             let fade = 1.0 - b.age / BOLT_LIFE;

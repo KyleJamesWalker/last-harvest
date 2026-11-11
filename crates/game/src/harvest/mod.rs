@@ -18,6 +18,7 @@ mod sight;
 mod tally;
 #[cfg(test)]
 pub use powerups::powerup_icon;
+pub use weapons::{SwingShow, swing_shown};
 pub(crate) use draw::powerup_icons;
 mod single;
 mod view3d;

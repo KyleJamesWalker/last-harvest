@@ -176,6 +176,7 @@ impl Studio {
         }
         self.showcase.lie(self.editor.lying_figure());
         self.showcase.show_crop(self.editor.crop_preview());
+        self.showcase.swing(last_harvest_game::swing_shown(&self.editor.sprite.name));
         self.showcase.show(self.editor.shown(), self.editor.stand(), self.editor.fps, self.editor.top_art());
         art::set_live_detail(self.editor.live_detail());
         art::set_live_alpha(self.editor.live_alpha());
