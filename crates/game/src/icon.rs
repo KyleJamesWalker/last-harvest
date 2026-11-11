@@ -153,7 +153,7 @@ impl Icon {
         self.show.zoom(self.cam.zoom, self.cam.lift);
         self.t += dt;
         if let Some((_, walk)) = subjects().into_iter().nth(self.subject) {
-            self.show.show(walk, Stand::Figure, 6.0, None);
+            self.show.show(walk, Stand::Figure { lift: 0.0 }, 6.0, None);
         }
         self.show.update(dt, self.cam.yaw, DISTANCE);
     }

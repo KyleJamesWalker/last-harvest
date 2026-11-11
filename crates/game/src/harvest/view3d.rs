@@ -281,7 +281,7 @@ fn fixed(out: &mut Vec<Card>, eye: Vec3, a: Art, how: Stand, left: f32, base: f3
         Stand::Turned { east, depth } => turned(out, eye, a, east, depth, left, base - a.h(), tint, 0.0),
         Stand::Carve { .. } => carved(out, eye, Carving::of(a, how).unwrap(), Vec3::new(left * PX, 0.0, (base - a.h()) * PX)),
         Stand::Fold { rows } => folded(out, eye, a, rows, left, base, tint),
-        Stand::Figure => {}
+        Stand::Figure { .. } => {}
     }
 }
 
@@ -305,7 +305,7 @@ fn placed(prop: &super::map::Prop, t: f32) -> (Art, Stand, Vec3, [f32; 2]) {
 /// How sprite `a` stands once photo mode drops it in: as it says, else upright as deep as the map would make it.
 pub(super) fn drop_stand(a: Art) -> Stand {
     match a.stand() {
-        None | Some(Stand::Figure) => Stand::Prop { depth: super::map::depth_of(a) },
+        None | Some(Stand::Figure { .. }) => Stand::Prop { depth: super::map::depth_of(a) },
         Some(how) => how,
     }
 }
@@ -411,7 +411,7 @@ pub(super) fn quads(a: Art, how: Stand, top: Option<Art>) -> usize {
         Stand::Ground => 1,
         Stand::Turned { east, .. } => faces(east.solid(), Reach::Deep, None).len(),
         Stand::Carve { .. } => carving(Carving::of(a, how).unwrap()).len(),
-        Stand::Figure => faces(a, Reach::Thin, top).len(),
+        Stand::Figure { .. } => faces(a, Reach::Thin, top).len(),
         Stand::Fold { rows } => {
             let fold = fold_row(a, rows);
             part_faces(a, [0, fold]).len() + part_faces(a, [fold, a.h() as u16]).len()
@@ -729,8 +729,8 @@ pub fn scene(h: &Harvest) -> CardScene {
         if !ahead(middle, size) {
             continue;
         }
-        if how == Stand::Figure {
-            figures.push((a, [prop.x + a.w() / 2.0, bottom]));
+        if let Stand::Figure { lift } = how {
+            figures.push((a, [prop.x + a.w() / 2.0, bottom], lift));
         } else {
             let tint = [if prop.flash > 0.0 { super::PROP_FLASH } else { 1.0 }; 3];
             // A prop drawn above its base line, as the windmill's fan is, stands that far up.
@@ -745,7 +745,7 @@ pub fn scene(h: &Harvest) -> CardScene {
             });
         }
     }
-    if let Some(s) = h.shown.as_ref().filter(|s| !s.frames.is_empty() && s.stand != Stand::Figure) {
+    if let Some(s) = h.shown.as_ref().filter(|s| !s.frames.is_empty() && !matches!(s.stand, Stand::Figure { .. })) {
         let a = s.frame(h.t);
         faded(&mut cards, a.alpha(), |cards| fixed(cards, eye, a, s.stand, s.pos[0] - a.w() / 2.0, s.pos[1], [1.0; 3]));
     }
@@ -799,9 +799,10 @@ pub fn scene(h: &Harvest) -> CardScene {
             board(&mut cards, worn_board(a, at, flip, h.pos, bright));
         }
     }
-    if let Some(s) = h.shown.as_ref().filter(|s| s.stand == Stand::Figure && !s.frames.is_empty()) {
+    if let Some(s) = h.shown.as_ref().filter(|s| matches!(s.stand, Stand::Figure { .. }) && !s.frames.is_empty()) {
         let a = s.frame(h.t);
-        board(&mut cards, Board { top: s.top, ..Board::new(a, false, s.pos, 0.0, CHARACTER_DEPTH) });
+        let lift = if let Stand::Figure { lift } = s.stand { lift * PX } else { 0.0 };
+        board(&mut cards, Board { top: s.top, ..Board::new(a, false, s.pos, lift, CHARACTER_DEPTH) });
         if let Some(at) = a.worn_at().filter(|_| s.worn) {
             board(&mut cards, worn_board(a, at, false, s.pos, 1.0));
         }
@@ -811,8 +812,8 @@ pub fn scene(h: &Harvest) -> CardScene {
             board(&mut cards, Board::new(a, false, *at, 0.0, CHARACTER_DEPTH));
         }
     }
-    for (a, at) in figures {
-        board(&mut cards, Board::new(a, false, at, 0.0, CHARACTER_DEPTH));
+    for (a, at, lift) in figures {
+        board(&mut cards, Board::new(a, false, at, lift * PX, CHARACTER_DEPTH));
     }
     if h.t >= super::dawn() {
         // A shaft of light over the farmhouse step, to run toward.

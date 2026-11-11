@@ -91,7 +91,7 @@ impl Showcase {
         let mut harvest = Harvest::calm(seed);
         harvest.birds.clear();
         let pos = [harvest.map.spawn[0], harvest.map.spawn[1] - 3.0 * TILE];
-        harvest.shown = Some(Shown { frames: Vec::new(), stand: Stand::Figure, fps: 6.0, pos, top: None, player: true, crowd: Vec::new(), worn: false });
+        harvest.shown = Some(Shown { frames: Vec::new(), stand: Stand::Figure { lift: 0.0 }, fps: 6.0, pos, top: None, player: true, crowd: Vec::new(), worn: false });
         Self { seed, harvest, strike: None, lying: None, crop: None, under: Vec::new(), swing: None }
     }
 
@@ -128,7 +128,7 @@ impl Showcase {
             return;
         }
         self.harvest.swings.clear();
-        self.swing = show.map(|s| (s, Vec::new(), Stand::Figure, f32::INFINITY));
+        self.swing = show.map(|s| (s, Vec::new(), Stand::Figure { lift: 0.0 }, f32::INFINITY));
     }
 
     /// Shows `frames`, animated at `fps`, standing as `stand`, with `top` capping a figure.
@@ -395,19 +395,19 @@ mod tests {
     fn kill_flashes_leaves_a_corpse_and_stands_again() {
         let mut s = Showcase::new(7);
         let frames = vec![art::SKINNY_FRONT[0]];
-        s.show(frames.clone(), Stand::Figure, 6.0, None);
+        s.show(frames.clone(), Stand::Figure { lift: 0.0 }, 6.0, None);
         s.kill(figure(true));
         s.update(0.01, Showcase::yaw(), 48.0);
-        s.show(frames.clone(), Stand::Figure, 6.0, None);
+        s.show(frames.clone(), Stand::Figure { lift: 0.0 }, 6.0, None);
         assert_eq!(s.harvest.shown.as_ref().unwrap().frames, vec![art::SKINNY_HURT[0]], "it flashes first");
         s.update(FLASH_TIME, Showcase::yaw(), 48.0);
-        s.show(frames.clone(), Stand::Figure, 6.0, None);
+        s.show(frames.clone(), Stand::Figure { lift: 0.0 }, 6.0, None);
         assert!(s.harvest.shown.as_ref().unwrap().frames.is_empty(), "then it's gone");
         assert_eq!(s.harvest.juice.corpses.len(), 1);
         assert!(s.harvest.juice.corpses[0].dead.is_some(), "its own dead frames");
         assert!(!s.harvest.juice.particles.is_empty(), "with gibs");
         s.update(DEAD_TIME, Showcase::yaw(), 48.0);
-        s.show(frames.clone(), Stand::Figure, 6.0, None);
+        s.show(frames.clone(), Stand::Figure { lift: 0.0 }, 6.0, None);
         assert_eq!(s.harvest.shown.as_ref().unwrap().frames, frames, "and stands again");
     }
 
@@ -419,14 +419,14 @@ mod tests {
         for _ in 0..3 {
             s.update(5.0, Showcase::yaw(), 48.0);
         }
-        s.show(frames.clone(), Stand::Figure, 6.0, None);
+        s.show(frames.clone(), Stand::Figure { lift: 0.0 }, 6.0, None);
         assert!(s.harvest.shown.as_ref().unwrap().frames.is_empty(), "it isn't standing too");
         assert_eq!(s.harvest.juice.corpses.len(), 1);
         assert_eq!(s.harvest.juice.corpses[0].tipped(), 1.0, "tipped flat, as the game leaves one");
         assert_eq!(s.harvest.juice.corpses[0].sunk(), 0.0, "and never sinks");
         s.lie(None);
         s.update(0.01, Showcase::yaw(), 48.0);
-        s.show(frames.clone(), Stand::Figure, 6.0, None);
+        s.show(frames.clone(), Stand::Figure { lift: 0.0 }, 6.0, None);
         assert!(s.harvest.juice.corpses.is_empty());
         assert_eq!(s.harvest.shown.as_ref().unwrap().frames, frames);
     }
@@ -436,7 +436,7 @@ mod tests {
         let mut s = Showcase::new(7);
         s.show_player(false);
         // A sprite with no place of its own wears it where the game picks.
-        s.show(vec![art::SKINNY_FRONT[0]], Stand::Figure, 6.0, None);
+        s.show(vec![art::SKINNY_FRONT[0]], Stand::Figure { lift: 0.0 }, 6.0, None);
         s.update(0.01, Showcase::yaw(), 48.0);
         let drawn = |s: &Showcase| (s.top().cards.unwrap().cards.len(), s.map(1.0).shapes.len());
         let bare = drawn(&s);
@@ -511,11 +511,11 @@ mod tests {
         let frames = vec![art::SKINNY_FRONT[0]];
         s.hurt(figure(false));
         s.update(FLASH_TIME + 0.01, Showcase::yaw(), 48.0);
-        s.show(frames.clone(), Stand::Figure, 6.0, None);
+        s.show(frames.clone(), Stand::Figure { lift: 0.0 }, 6.0, None);
         assert_eq!(s.harvest.shown.as_ref().unwrap().frames, vec![art::SKINNY_HURT[0]]);
         assert!(s.harvest.juice.corpses.is_empty());
         s.update(HURT_FRAMES, Showcase::yaw(), 48.0);
-        s.show(frames.clone(), Stand::Figure, 6.0, None);
+        s.show(frames.clone(), Stand::Figure { lift: 0.0 }, 6.0, None);
         assert_eq!(s.harvest.shown.as_ref().unwrap().frames, frames);
     }
 }

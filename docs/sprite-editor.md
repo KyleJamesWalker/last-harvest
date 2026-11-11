@@ -62,7 +62,7 @@ A stand sets how a sprite stands in the 3D view. Pick one under "Stands in 3D as
 |---|---|---|
 | Prop | Upright and fixed to the map, extruded to a set depth. A fold makes the rows above the fold line lie flat as a roof. | Walls, and buildings drawn with the roof seen from above |
 | Slab | Flat at a height, its edges drawn down to the ground. Float lifts it off the ground as a plate. | Sprites drawn from above, such as cars |
-| Figure | Turns to face the camera. A Top drawing can color each column's top. | Characters |
+| Figure | Turns to face the camera. Float lifts it off the ground. A Top drawing can color each column's top. | Characters |
 | Ground | Flat on the ground | Tiles and stains |
 | Carve | A solid where three views agree. See [Carving](#carving). | Shapes with depth, such as a car with a cabin |
 | Turned | Upright like a prop, but running north to south. Draw it seen from the east, south on the left. | Pieces drawn from above, such as a fence's sides |

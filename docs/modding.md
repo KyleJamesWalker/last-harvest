@@ -85,7 +85,7 @@ Its compressed `last-harvest-prop` text chunk holds `[id]` and any of these line
 | `frames N` | Frames across the sheet, 1 to 16 | 1 |
 | `fps N` | Animation speed | Still |
 | `open N` | Top rows a figure walks through | 0 |
-| `stand prop N`, `fold N`, `slab N`, `slab N float N`, `figure`, `ground`, `carve` or `turned [N]` | How it stands in 3D. See [stands](sprite-editor.md#stands). | Prop |
+| `stand prop N`, `fold N`, `slab N`, `slab N float N`, `figure`, `figure float N`, `ground`, `carve` or `turned [N]` | How it stands in 3D. See [stands](sprite-editor.md#stands). | Prop |
 | `views N` | Height of the south and east views, for a prop that carves or turns | |
 | `footprint yes` | A carving's outline from above comes from a footprint drawing | |
 | `roof yes`, `north yes`, `west yes` | A carving's top, north or west side takes its colors from its own drawing | |

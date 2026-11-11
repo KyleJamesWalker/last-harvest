@@ -161,8 +161,8 @@ pub enum Stand {
     /// Lying flat as a roof `height` pixels up, its edges drawn down to the ground: for sprites drawn from above, like
     /// cars. Floated `lift` pixels off the ground, it is a plate `height` thick there, as an effect seen from above is.
     Slab { height: f32, lift: f32 },
-    /// Turning to face the camera like a character.
-    Figure,
+    /// Turning to face the camera like a character, floated `lift` pixels off the ground.
+    Figure { lift: f32 },
     /// Flat on the ground like a tile or a stain.
     Ground,
     /// A solid carved where the view from above agrees with drawings of it seen from the south and the east.
