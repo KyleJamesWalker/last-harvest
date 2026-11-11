@@ -651,18 +651,21 @@ pub fn scene(h: &Harvest) -> CardScene {
         }
         _ => 0.0,
     };
-    let yaw = h.view_yaw + std::f32::consts::PI * swing;
+    let [turn, back] = h.orbit.unwrap_or_default();
+    let yaw = h.view_yaw + turn + std::f32::consts::PI * swing;
     let forward = Vec3::new(yaw.cos(), 0.0, yaw.sin());
     let right = forward.cross(Vec3::Y);
-    let p = world(h.pos);
+    let focus = h.range_focus();
+    let p = world(focus.unwrap_or(h.pos));
     let [sx, sy, roll] = j.shake_offset();
     let roll = roll + h.lean * 0.035;
     let bob = if h.walk > 0.0 { (h.walk * crate::tuning::tuning().walk_fps * std::f32::consts::PI / 2.0).sin().abs() * 0.04 } else { 0.0 };
     let shake = right * sx + Vec3::Y * (sy + bob);
-    let eye = p - forward * (CAMERA_BACK + 0.2 * swing) + Vec3::Y * (1.5 + h.lift + 0.4 * swing) + shake;
+    let eye = p - forward * (CAMERA_BACK + back + 0.2 * swing) + Vec3::Y * (1.5 + h.lift + back * 0.4 + 0.4 * swing) + shake;
     // Zoomed in for the icon scene, the camera looks at the figure on show instead of down the road.
     let shown = h.shown.as_ref().filter(|_| h.zoom > 1.0).map(|s| world(s.pos) + Vec3::Y * 0.5);
-    let looking = shown.unwrap_or(p + forward * 4.0 + Vec3::Y * (0.7 + j.kick * 6.0));
+    let orbiting = focus.is_some() || h.orbit.is_some_and(|o| o != [0.0; 2]);
+    let looking = shown.or(orbiting.then_some(p + Vec3::Y * 0.6)).unwrap_or(p + forward * 4.0 + Vec3::Y * (0.7 + j.kick * 6.0));
     let target = looking.lerp(p + Vec3::Y * 0.5, swing) + shake;
     let view = glam::camera::rh::view::look_at_mat4(eye, target, Vec3::Y * roll.cos() + right * roll.sin());
     let proj = glam::camera::rh::proj::opengl::perspective(((66.0 + j.punch) / h.zoom).to_radians(), SCREEN_W / SCREEN_H, 0.3, VIEW_RADIUS + 6.0);

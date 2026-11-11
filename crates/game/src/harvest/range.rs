@@ -21,6 +21,10 @@ const RING_SHARE: f32 = 0.4;
 const RING_TILES: [f32; 2] = [2.5, 10.0];
 /// The clock goes back this many seconds before it reaches a minute, so no minute call or dawn comes.
 const CLOCK_LOOP: f32 = 50.0;
+/// Radians the range's camera swings per pixel dragged, and tiles it backs off per wheel step, within `ORBIT_BACK`.
+const ORBIT_TURN: f32 = 0.006;
+const ORBIT_STEP: f32 = 0.5;
+const ORBIT_BACK: [f32; 2] = [-1.5, 8.0];
 /// How far down the top screen the buttons go when the run plays on it alone.
 const TOP_KEYS: f32 = 76.0;
 /// The bottom screen's buttons, as x, y, w, h, in the order of `Key`.
@@ -190,6 +194,8 @@ pub(super) struct Range {
     kind: usize,
     /// The weapon fires only when asked, rather than whenever its cooldown runs out.
     by_hand: bool,
+    /// The dog the camera follows, by its place among the player's dogs.
+    follow: Option<usize>,
     /// The next ring spot a zombie rises at.
     slot: usize,
     /// Real seconds the range has run, and the damage dealt by each of the last `WINDOW` seconds' frames.
@@ -221,7 +227,7 @@ impl Harvest {
         h.hp = h.kit.max_hp();
         h.grenades = h.kit.grenades();
         h.next_xp = u32::MAX;
-        h.range = Some(Range { def, kind: roster().common(), by_hand: false, slot: 0, clock: 0.0, dealt: VecDeque::new() });
+        h.range = Some(Range { def, kind: roster().common(), by_hand: false, follow: None, slot: 0, clock: 0.0, dealt: VecDeque::new() });
         h
     }
 
@@ -249,12 +255,16 @@ impl Harvest {
     }
 
     /// The range's own controls, before the run reads the rest: Up and Down step the level, Left and Right pick the
-    /// kind, Select switches to firing by hand and back, and X fires by hand; none of them move the player.
+    /// kind, Select switches to firing by hand and back, X fires by hand, R1 steps the camera through the dogs and
+    /// back to the player, and a mouse drag or wheel orbits it; none of them move the player.
     pub(super) fn range_input(&mut self, input: &Input, sounds: &mut Vec<Sfx>) -> Option<Input> {
         self.range.as_ref()?;
         if self.menu.is_some() || !matches!(self.phase, Phase::Playing) {
             return None;
         }
+        let o = self.orbit.get_or_insert([0.0; 2]);
+        o[0] += input.orbit[0] * ORBIT_TURN;
+        o[1] = (o[1] - input.orbit[1] * ORBIT_STEP).clamp(ORBIT_BACK[0], ORBIT_BACK[1]);
         let down = if self.single { TOP_KEYS } else { 0.0 };
         let tap = input.touch.filter(|_| input.touch_started).and_then(|p| key_at(p, down));
         let asked = |b: Buttons, k: Key| input.pressed.contains(b) || tap == Some(k);
@@ -269,6 +279,9 @@ impl Harvest {
         }
         if asked(Buttons::LEFT, Key::KindBack) {
             self.step_kind(-1, sounds);
+        }
+        if input.pressed.contains(Buttons::R1) {
+            self.step_follow(sounds);
         }
         let r = self.range.as_mut()?;
         if asked(Buttons::SELECT, Key::Hand) {
@@ -287,7 +300,7 @@ impl Harvest {
                 a.cd = if fire { 0.0 } else { f32::MAX };
             }
         }
-        let mine = Buttons::UP | Buttons::DOWN | Buttons::LEFT | Buttons::RIGHT | Buttons::SELECT | Buttons::X;
+        let mine = Buttons::UP | Buttons::DOWN | Buttons::LEFT | Buttons::RIGHT | Buttons::SELECT | Buttons::X | Buttons::R1;
         let mut own = *input;
         own.held = input.held & !mine;
         own.pressed = input.pressed & !mine;
@@ -297,6 +310,30 @@ impl Harvest {
             own.touch_started = false;
         }
         Some(own)
+    }
+
+    /// Points the camera at the next dog, or back at the player after the last.
+    fn step_follow(&mut self, sounds: &mut Vec<Sfx>) {
+        let dogs = self.dogs.len();
+        let Some(r) = &mut self.range else { return };
+        r.follow = match r.follow {
+            None if dogs > 0 => Some(0),
+            Some(i) if i + 1 < dogs => Some(i + 1),
+            _ => None,
+        };
+        sounds.push(Sfx::Tick(r.follow.map_or(6, |i| i as u8 % 12)));
+        let banner = match r.follow {
+            Some(i) if dogs > 1 => format!("Watching dog {} of {dogs}", i + 1),
+            Some(_) => "Watching the dog".to_string(),
+            None if dogs == 0 => "No dog to watch".to_string(),
+            None => "Watching you".to_string(),
+        };
+        self.juice.banner(banner, WHITE, 1.2);
+    }
+
+    /// Where the range's camera centers: the dog it follows, if any.
+    pub(super) fn range_focus(&self) -> Option<[f32; 2]> {
+        self.range.as_ref()?.follow.and_then(|i| self.dogs.get(i)).map(|d| d.pos)
     }
 
     fn step_level(&mut self, by: i32, sounds: &mut Vec<Sfx>) {
@@ -355,12 +392,14 @@ impl Harvest {
     /// A fresh range with the same weapon, level and kind.
     pub(super) fn restart_range(&mut self, seed: u64) {
         let Some(r) = &self.range else { return };
-        let (def, kind, by_hand) = (r.def, r.kind, r.by_hand);
+        let (def, kind, by_hand, follow) = (r.def, r.kind, r.by_hand, r.follow);
         let level = self.kit.weapons.first().map_or(1, |a| a.level);
         let setup = RangeSetup { weapon: book().defs[def].id.clone(), level, section: None, effects: None };
+        let orbit = self.orbit;
         *self = Harvest::range(seed, &setup).single_screen(self.single);
+        self.orbit = orbit;
         if let Some(r) = &mut self.range {
-            (r.kind, r.by_hand) = (kind, by_hand);
+            (r.kind, r.by_hand, r.follow) = (kind, by_hand, follow);
         }
     }
 
@@ -375,9 +414,13 @@ impl Harvest {
         top.label(format!("{}  level {level}/{}  {how}", def.name, def.max), 28.0, 72.0, 32.0, WHITE, Align::Left);
         top.label(format!("{:.0} damage a second   vs {kind}", self.range_dps()), 28.0, 114.0, 32.0, GOLD, Align::Left);
         let (keys, down) = if self.single { (top, TOP_KEYS) } else { (bottom, 0.0) };
-        if !self.single {
+        let camera = crate::pad::hint(if self.dogs.is_empty() { "Right-drag, wheel: camera" } else { "Right-drag, wheel: camera   {R1}: watch the dog" });
+        if self.single {
+            keys.label(camera, 28.0, KEYS[0][1] + KEYS[0][3] + down + 8.0, 26.0, WHITE, Align::Left);
+        } else {
             keys.rect(0.0, 0.0, SCREEN_W, 180.0, [0.0, 0.0, 0.0, 0.7]);
             keys.label(crate::pad::hint("Up/Down: level   Left/Right: kind   {Select}: by hand   {X}: fire"), SCREEN_W / 2.0, 20.0, 28.0, WHITE, Align::Center);
+            keys.label(camera, SCREEN_W / 2.0, 56.0, 26.0, WHITE, Align::Center);
         }
         let labels = ["Level -", "Level +", "< Kind", "Kind >", if r.by_hand { "On cooldown" } else { "By hand" }, "Fire"];
         for (&[x, y, w, h], label) in KEYS.iter().zip(labels) {
@@ -518,5 +561,48 @@ mod tests {
         let [x, y, w, hh] = KEYS[5];
         run(&mut one, 1.0, Input { touch: Some([x + w / 2.0, y + TOP_KEYS + hh / 2.0]), touch_started: true, ..Input::default() });
         assert!(one.range.as_ref().unwrap().by_hand, "on one screen, the buttons sit on the top one");
+    }
+
+    #[test]
+    fn a_drag_and_the_wheel_orbit_the_camera_within_its_reach() {
+        let mut h = pistol(1);
+        let start = h.pos;
+        run(&mut h, 0.0, Input { orbit: [100.0, 0.0], ..Input::default() });
+        let [turn, back] = h.orbit.unwrap();
+        assert!((turn - 100.0 * ORBIT_TURN).abs() < 1e-5 && back == 0.0);
+        run(&mut h, 0.0, Input { orbit: [0.0, -3.0], ..Input::default() });
+        assert_eq!(h.orbit.unwrap()[1], 3.0 * ORBIT_STEP, "scrolling down backs the camera off");
+        run(&mut h, 0.0, Input { orbit: [0.0, -1000.0], ..Input::default() });
+        assert_eq!(h.orbit.unwrap()[1], ORBIT_BACK[1]);
+        run(&mut h, 0.0, Input { orbit: [0.0, 1000.0], ..Input::default() });
+        assert_eq!(h.orbit.unwrap()[1], ORBIT_BACK[0]);
+        assert_eq!(h.pos, start, "the camera never walked the player");
+        let eye = |h: &Harvest| super::super::view3d::scene(h).eye;
+        let before = eye(&h);
+        run(&mut h, 0.0, Input { orbit: [200.0, 0.0], ..Input::default() });
+        assert_ne!(eye(&h), before, "the 3D view swung");
+    }
+
+    #[test]
+    fn r1_steps_the_camera_through_the_dogs_and_back_to_the_player() {
+        let mut h = pistol(1);
+        run(&mut h, 0.0, press(Buttons::R1));
+        assert_eq!(h.range_focus(), None, "no dog, nothing to watch");
+        let mut h = Harvest::range(3, &RangeSetup { weapon: "dog".into(), level: 8, section: None, effects: None });
+        run(&mut h, 3.0, Input::default());
+        let dogs = h.dogs.len();
+        assert!(dogs > 1, "level 8 runs more than one dog");
+        let start = h.pos;
+        for i in 0..dogs {
+            run(&mut h, 0.0, press(Buttons::R1));
+            assert_eq!(h.range_focus(), Some(h.dogs[i].pos), "dog {i}");
+        }
+        run(&mut h, 1.0, Input::default());
+        assert_eq!(h.range_focus(), Some(h.dogs[dogs - 1].pos), "the camera stays on the running dog");
+        let away = super::super::view3d::scene(&h).eye;
+        run(&mut h, 0.0, press(Buttons::R1));
+        assert_eq!(h.range_focus(), None, "after the last dog, back to the player");
+        assert_ne!(super::super::view3d::scene(&h).eye, away);
+        assert_eq!(h.pos, start, "R1 never walked the player");
     }
 }

@@ -18,7 +18,7 @@ use last_harvest::{VERSION, audio, log, pak, samples};
 use last_harvest_game::{photo, Buttons, Capture, Game, InputTracker, MAX_TOUCHES, RangeSetup, RawInput, SCREEN_H, SCREEN_W, Scene, System};
 use winit::application::ApplicationHandler;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
-use winit::event::{ElementState, MouseButton, TouchPhase, WindowEvent};
+use winit::event::{ElementState, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::WindowId;
@@ -65,6 +65,10 @@ struct App {
     esc: Buttons,
     cursor: Option<[f32; 2]>,
     mouse_down: bool,
+    /// The window and pixel the mouse last moved over, and whether a drag that orbits the range's camera is on.
+    drag_cursor: Option<(WindowId, [f32; 2])>,
+    orbit_drag: bool,
+    orbit: [f32; 2],
     touches: Vec<(u64, [f32; 2])>,
     home_held: f32,
     last: Instant,
@@ -134,6 +138,9 @@ impl App {
             esc: Buttons::NONE,
             cursor: None,
             mouse_down: false,
+            drag_cursor: None,
+            orbit_drag: false,
+            orbit: [0.0; 2],
             touches: Vec::new(),
             home_held: 0.0,
             last: Instant::now(),
@@ -154,6 +161,7 @@ impl App {
             held: self.keys,
             touch: self.touches.first().map(|&(_, p)| p).or(self.cursor.filter(|_| self.mouse_down)),
             lid_closed: self.lid_key,
+            orbit: self.orbit,
             ..Default::default()
         };
         for (slot, &(_, p)) in raw.touches.iter_mut().zip(&self.touches) {
@@ -254,10 +262,12 @@ impl App {
                 debug::Command::Sleep(secs) => log!("debug: sleep {secs} needs the device"),
                 debug::Command::Panic => panic!("debug: panic requested"),
                 debug::Command::Pad(family) => self.game.set_pad_family(family),
+                debug::Command::Orbit(dx, wheel) => self.orbit = [self.orbit[0] + dx, self.orbit[1] + wheel],
             }
         }
         if let Some(line) = self.game.bench_report(|work| { let t = Instant::now(); work(); t.elapsed().as_secs_f64() }) { eprintln!("{line}"); }
         let mut raw = self.raw_input();
+        self.orbit = [0.0; 2];
         #[cfg(any(target_os = "macos", windows))]
         {
             let (held, stick, look, used) = self.pads.read();
@@ -456,9 +466,33 @@ impl ApplicationHandler for App {
                     }
                 }
             }
-            WindowEvent::CursorMoved { position, .. } if self.is_bottom(id) => self.cursor = Some(self.to_screen(id, position)),
+            WindowEvent::CursorMoved { position, .. } => {
+                let p = [position.x as f32, position.y as f32];
+                if let Some((_, was)) = self.drag_cursor.filter(|&(w, _)| self.orbit_drag && w == id) {
+                    self.orbit[0] += p[0] - was[0];
+                }
+                self.drag_cursor = Some((id, p));
+                if self.is_bottom(id) {
+                    self.cursor = Some(self.to_screen(id, position));
+                }
+            }
             WindowEvent::CursorLeft { .. } if self.is_bottom(id) => self.cursor = None,
-            WindowEvent::MouseInput { state, button: MouseButton::Left, .. } => self.mouse_down = state == ElementState::Pressed,
+            WindowEvent::MouseWheel { delta, .. } => {
+                self.orbit[1] += match delta {
+                    MouseScrollDelta::LineDelta(_, y) => y,
+                    MouseScrollDelta::PixelDelta(p) => p.y as f32 / 40.0,
+                };
+            }
+            // A left press on the game's window is a touch, which throws, so only the right button drags the orbit there.
+            WindowEvent::MouseInput { state, button, .. } => {
+                let down = state == ElementState::Pressed;
+                if button == MouseButton::Right || (button == MouseButton::Left && !self.is_bottom(id)) {
+                    self.orbit_drag = down;
+                }
+                if button == MouseButton::Left {
+                    self.mouse_down = down;
+                }
+            }
             // There is one touch panel, so a touch on either window is a bottom-screen touch.
             WindowEvent::Touch(t) => {
                 let p = self.to_screen(id, t.location);

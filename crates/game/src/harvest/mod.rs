@@ -825,6 +825,8 @@ pub struct Harvest {
     zoom: f32,
     /// Tiles the 3D camera is raised, or lowered when negative, for the icon scene; the game keeps 0.
     lift: f32,
+    /// The range's camera swung round the player by this many radians and backed off this many tiles.
+    orbit: Option<[f32; 2]>,
     /// A sprite the editor is showing off.
     shown: Option<showcase::Shown>,
     difficulty: Difficulty,
@@ -1051,6 +1053,7 @@ impl Harvest {
             lean: 0.0,
             zoom: 1.0,
             lift: 0.0,
+            orbit: None,
             shown: None,
             difficulty: Difficulty::Normal,
             single: false,
