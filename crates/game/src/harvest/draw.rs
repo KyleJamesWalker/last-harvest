@@ -369,7 +369,7 @@ impl Harvest {
         }
         for d in &self.dogs {
             let a = d.art();
-            sprites.push((d.pos[1], a, d.pos[0] - a.w() / 2.0, d.pos[1] - a.h() + 2.0, d.heading[0] < 0.0, 1.0, [1.0; 4]));
+            sprites.push((d.pos[1], a, d.pos[0] - a.w() / 2.0, d.pos[1] - a.h() + 2.0 - d.lift(), d.heading[0] < 0.0, 1.0, [1.0; 4]));
         }
         for (i, (p, flip)) in self.crows().into_iter().enumerate() {
             let crow = super::effects::effects().crow;

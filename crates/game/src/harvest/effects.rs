@@ -156,6 +156,7 @@ effects! {
     money,
     crow,
     dog,
+    dog_attack,
     spit,
     mound,
     mound_breaks,
@@ -259,7 +260,7 @@ pub fn colors() -> &'static Palette {
 /// The game's own effects.txt.
 const BUILT_IN: &str = include_str!("../../effects.txt");
 /// Sections added after mods could replace effects.txt, which a mod's file may leave out.
-const ADDED_LATER: [&str; 3] = ["spit", "mound", "mound_breaks"];
+const ADDED_LATER: [&str; 4] = ["dog_attack", "spit", "mound", "mound_breaks"];
 
 pub fn parse(text: &str) -> Result<(Vec<Written>, Extra), String> {
     let mut out: Vec<Option<Written>> = vec![None; NAMES.len()];

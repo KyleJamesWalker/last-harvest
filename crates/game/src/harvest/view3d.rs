@@ -827,7 +827,7 @@ pub fn scene(h: &Harvest) -> CardScene {
     }
     for d in h.dogs.iter().filter(|d| (world(d.pos) - p).dot(forward) >= 0.0) {
         let flip = d.heading[0] * right.x + d.heading[1] * right.z < 0.0;
-        board(&mut cards, Board::new(d.art(), flip, d.pos, 0.0, CHARACTER_DEPTH));
+        board(&mut cards, Board::new(d.art(), flip, d.pos, d.lift() * PX, CHARACTER_DEPTH));
     }
     for (i, (p, flip)) in h.crows().into_iter().enumerate() {
         let crow = super::effects::effects().crow;

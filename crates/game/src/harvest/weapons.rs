@@ -300,8 +300,6 @@ impl Swing {
     }
 }
 
-/// Lightning from one point to the next.
-pub(super) struct Bolt {
 /// A swing's sprite is drawn pointing up, so it turns a quarter past its angle to lead with its top.
 pub(super) const SWING_TURN: f32 = std::f32::consts::FRAC_PI_2;
 
@@ -331,6 +329,8 @@ pub fn swing_shown(name: &str) -> Option<SwingShow> {
     })
 }
 
+/// Lightning from one point to the next.
+pub(super) struct Bolt {
     pub points: Vec<[f32; 2]>,
     pub age: f32,
 }
@@ -350,11 +350,20 @@ pub(super) struct Dog {
     /// Seconds until it picks a new spot.
     rest: f32,
     catching_up: bool,
+    /// Seconds into a pounce, while in the air.
+    leap: Option<f32>,
 }
 
 impl Dog {
     pub fn art(&self) -> Art {
-        super::effects::effects().dog.looping(self.anim)
+        let fx = super::effects::effects();
+        self.leap.map_or_else(|| fx.dog.looping(self.anim), |t| fx.dog_attack.once(t))
+    }
+
+    /// How far off the ground a pounce has it, in pixels.
+    pub fn lift(&self) -> f32 {
+        let t = crate::tuning::tuning();
+        self.leap.map_or(0.0, |a| (a / t.dog_leap_time * PI).sin() * t.dog_leap_height)
     }
 }
 
@@ -862,7 +871,7 @@ impl Harvest {
         self.dogs.retain(|d| want.contains(&(d.def, d.slot)));
         for (def, slot) in want {
             if !self.dogs.iter().any(|d| d.def == def && d.slot == slot) {
-                self.dogs.push(Dog { def, slot, pos: self.pos, heading: [1.0, 0.0], anim: 0.0, cd: 0.0, target: None, vel: [0.0; 2], spot: [0.0; 2], rest: 0.0, catching_up: false });
+                self.dogs.push(Dog { def, slot, pos: self.pos, heading: [1.0, 0.0], anim: 0.0, cd: 0.0, target: None, vel: [0.0; 2], spot: [0.0; 2], rest: 0.0, catching_up: false, leap: None });
             }
         }
         let crit = self.crit();
@@ -882,6 +891,15 @@ impl Harvest {
             dog.cd -= dt;
             dog.rest -= dt;
             dog.target = target.map(|t| self.zombies[t].id);
+            let tune = crate::tuning::tuning();
+            let landed = dog.leap.is_some_and(|age| age + dt >= tune.dog_leap_time);
+            if let Some(age) = dog.leap {
+                dog.pos = [dog.pos[0] + dog.vel[0] * dt, dog.pos[1] + dog.vel[1] * dt];
+                dog.leap = Some(age + dt).filter(|_| !landed);
+                if !landed {
+                    continue;
+                }
+            }
             dog.catching_up = target.is_none() && (away > crate::tuning::tuning().dog_stray || (dog.catching_up && away > crate::tuning::tuning().dog_stray / 2.0));
             if dog.rest <= 0.0 {
                 let rng = &mut self.juice.rng;
@@ -894,6 +912,11 @@ impl Harvest {
                 None => (sub([player[0] + dog.spot[0], player[1] + dog.spot[1]], dog.pos), speed * crate::tuning::tuning().dog_trot, 3.0),
             };
             let n = norm(to);
+            if !landed && goal.is_some() && dog.cd <= 0.0 && len(to) < tune.dog_leap {
+                let pace = (len(to) - tune.dog_reach * 0.5).max(0.0) / tune.dog_leap_time;
+                (dog.vel, dog.heading, dog.leap) = ([n[0] * pace, n[1] * pace], n, Some(0.0));
+                continue;
+            }
             let want = if len(to) > stop { [n[0] * pace, n[1] * pace] } else { [0.0; 2] };
             let k = (dt * 8.0).min(1.0);
             dog.vel = [dog.vel[0] + (want[0] - dog.vel[0]) * k, dog.vel[1] + (want[1] - dog.vel[1]) * k];
@@ -1608,6 +1631,30 @@ mod tests {
             h.walk_dogs(1.0 / 60.0, &mut Vec::new());
         }
         assert!(len(sub(h.dogs[0].pos, h.pos)) < crate::tuning::tuning().dog_stray, "it ran to catch up");
+    }
+
+    #[test]
+    fn a_dog_pounces_on_a_zombie_within_leaping_reach_and_lands_to_bite() {
+        let t = crate::tuning::tuning();
+        let mut h = with("dog", [t.dog_leap - 6.0, 0.0]);
+        let hp = h.zombies[0].hp;
+        h.walk_dogs(1.0 / 60.0, &mut Vec::new());
+        assert!(h.dogs[0].leap.is_some(), "its bite is ready, so it pounces at once");
+        let mut top = 0.0f32;
+        while h.dogs[0].leap.is_some() {
+            h.walk_dogs(1.0 / 60.0, &mut Vec::new());
+            top = top.max(h.dogs[0].lift());
+        }
+        assert!((top - t.dog_leap_height).abs() < 0.5, "it rises the pounce's height, {top}");
+        assert!(len(sub(h.dogs[0].pos, h.zombies[0].pos)) < t.dog_reach, "and lands within biting reach");
+        h.walk_dogs(1.0 / 60.0, &mut Vec::new());
+        assert!(h.zombies[0].hp < hp, "then bites");
+        let (cd, first) = (h.dogs[0].cd, h.zombies[0].hp);
+        for _ in 0..(cd * 60.0) as usize + 2 {
+            h.walk_dogs(1.0 / 60.0, &mut Vec::new());
+            h.zombies[0].pos = h.dogs[0].pos;
+        }
+        assert!(h.dogs[0].leap.is_some() || h.zombies[0].hp < first, "right beside it, the next bite is a pounce too");
     }
 
     #[test]
