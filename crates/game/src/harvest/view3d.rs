@@ -24,6 +24,8 @@ const HARVESTER_TINT: [f32; 3] = [1.4, 0.5, 0.45];
 pub(super) const VIEW_RADIUS: f32 = 16.0;
 /// How far behind the player the camera sits, in tiles.
 const CAMERA_BACK: f32 = 2.4;
+/// Frames a second the quick-throw marker pulses at.
+const QUICK_PULSE: f32 = 4.0;
 /// How far either side of the line from the camera to the player something is left out, in tiles, once its front is
 /// `BEHIND` tiles behind the player.
 const SIGHTLINE: f32 = 0.5;
@@ -866,7 +868,7 @@ pub fn scene(h: &Harvest) -> CardScene {
         }
     }
     if let Some(at) = h.quick_mark() {
-        let (q, a) = (world(at), art::QUICK_MARK);
+        let (q, a) = (world(at), art::QUICK_MARK[(h.t * QUICK_PULSE) as usize % art::QUICK_MARK.len()]);
         flat(&mut cards, a, q.x - a.w() * PX / 2.0, q.z - a.h() * PX / 2.0, DECAL_LIFT + 0.01, [1.0; 3]);
         if let Some(card) = cards.last_mut() {
             card.glow = 1.0;

@@ -115,6 +115,10 @@ PISTOL          px 21 158 8 5  @prop 1
 SHOTGUN         px 17 139 16 5  @prop 2
 GRENADE         px 22 118 7 9  @prop 2
 GRENADE_WORN    png placeholder/grenade_worn.png
+MOUND           png placeholder/mound.png x3
+DIRT_PUFF       png placeholder/dirt_puff.png x3
+CHEST           png placeholder/chest.png  @prop 8
+QUICK_MARK      png placeholder/quick_mark.png x2  @ground
 WHITE           solid 4 4
 # The sprite editor draws the sprite it is working on here.
 SCRATCH         blank 256 256
@@ -128,38 +132,15 @@ SKINNY_HURT     cell 31 3 ; cell 31 4 ; cell 31 2
 BIG_HURT        cell 31 6 ; cell 31 7 ; cell 31 5
 KID_HURT        cell 37 5 ; cell 37 6 ; cell 37 4
 
-# Placeholders: weapons and upgrade icons, drawn to be replaced in the sprite editor
+# Weapons: swings and thrusts are drawn pointing up, their top leading
 SCYTHE_SWING    png placeholder/scythe.png  @slab 2 float 5
-PITCHFORK_THRUST png placeholder/pitchfork.png  @prop 2
+PITCHFORK_THRUST png placeholder/pitchfork.png  @slab 2 float 5
 DOG             png placeholder/dog.png x3  @prop 4
-TACKS           png placeholder/tacks.png  @slab 2
-FIRE            png placeholder/fire.png x3  @prop 4
+DOG_ATTACK      png placeholder/dog_attack.png  @prop 4
+TACKS           png placeholder/tacks.png  @slab 1
+FIRE            png placeholder/fire.png x3  @figure
 MOLOTOV         png placeholder/molotov.png  @prop 2
 FLARE           png placeholder/flare.png
-CHEST           png placeholder/chest.png
-MOUND           png placeholder/mound.png x3
-DIRT_PUFF       png placeholder/dirt_puff.png x3
-QUICK_MARK      png placeholder/quick_mark.png
-ICON_RIFLE             png placeholder/icon_rifle.png  @prop 1
-ICON_LANTERN           png placeholder/icon_lantern.png  @prop 4
-ICON_BURNER            png placeholder/icon_burner.png  @prop 2
-ICON_HOLSTER           png placeholder/icon_holster.png
-ICON_SCARECROW         png placeholder/icon_scarecrow.png
-ICON_MOLOTOV           png placeholder/icon_molotov.png
-ICON_FLARE             png placeholder/icon_flare.png
-ICON_HOLLOW_POINTS     png placeholder/icon_hollow_points.png
-ICON_QUICK_HANDS       png placeholder/icon_quick_hands.png
-ICON_RUNNING_SHOES     png placeholder/icon_running_shoes.png
-ICON_WORK_JACKET       png placeholder/icon_work_jacket.png
-ICON_SHARP_EYE         png placeholder/icon_sharp_eye.png
-ICON_BIGGER_BLAST      png placeholder/icon_bigger_blast.png
-ICON_LONG_BARREL       png placeholder/icon_long_barrel.png
-ICON_LUCKY_PENNY       png placeholder/icon_lucky_penny.png
-ICON_PAWN_SHOP         png placeholder/icon_pawn_shop.png
-ICON_BRIGHTER_LANTERN  png placeholder/icon_brighter_lantern.png
-ICON_GRENADE_BELT      png placeholder/icon_grenade_belt.png
-ICON_AMMO_CRATE        png placeholder/icon_ammo_crate.png
-ICON_POCKET_CHANGE     png placeholder/icon_pocket_change.png
 
 # On-screen touch controls: the stick's and turn strip's ring, knob and track, a button plate up and pressed, and
 # their icons
@@ -198,6 +179,26 @@ ICON_VACCINE           png placeholder/icon_vaccine.png
 ICON_FUEL_DRUMS        png placeholder/icon_fuel_drums.png
 ICON_SNACK             png placeholder/icon_snack.png
 ICON_DEEP_POCKETS      png placeholder/icon_deep_pockets.png
+ICON_RIFLE             png placeholder/icon_rifle.png  @prop 1
+ICON_LANTERN           png placeholder/icon_lantern.png  @prop 4
+ICON_BURNER            png placeholder/icon_burner.png  @prop 2
+ICON_HOLSTER           png placeholder/icon_holster.png
+ICON_SCARECROW         png placeholder/icon_scarecrow.png
+ICON_FLARE             png placeholder/icon_flare.png
+ICON_HOLLOW_POINTS     png placeholder/icon_hollow_points.png
+ICON_RUNNING_SHOES     png placeholder/icon_running_shoes.png
+ICON_WORK_JACKET       png placeholder/icon_work_jacket.png
+ICON_SHARP_EYE         png placeholder/icon_sharp_eye.png
+ICON_BIGGER_BLAST      png placeholder/icon_bigger_blast.png
+ICON_LUCKY_PENNY       png placeholder/icon_lucky_penny.png
+ICON_PAWN_SHOP         png placeholder/icon_pawn_shop.png
+ICON_BRIGHTER_LANTERN  png placeholder/icon_brighter_lantern.png
+ICON_GRENADE_BELT      png placeholder/icon_grenade_belt.png
+ICON_AMMO_CRATE        png placeholder/icon_ammo_crate.png
+ICON_POCKET_CHANGE     png placeholder/icon_pocket_change.png
+ICON_MOLOTOV           png placeholder/icon_molotov.png
+ICON_QUICK_HANDS       png placeholder/icon_quick_hands.png
+ICON_LONG_BARREL       png placeholder/icon_long_barrel.png
 
 # Pickups
 ZOMBIE_HEART    blank 9 11 ; blank 9 11 ; blank 9 11 ; blank 9 11 ; blank 9 11 ; blank 9 11
