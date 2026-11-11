@@ -450,6 +450,8 @@ The range tests one weapon at its level against a ring of eight zombies that ris
 | Pick the zombie kind, cards included | Left and Right | < Kind and Kind > |
 | Switch between firing by hand and on cooldown | Select | By hand / On cooldown |
 | Fire by hand | X | Fire |
+| Point the camera at each dog in turn, then back at you | R1 | |
+| Swing the camera round and back it off | Right-drag and the wheel; left-drag on the top window | |
 
 Restart, in the pause menu, starts the range afresh.
 

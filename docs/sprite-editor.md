@@ -127,7 +127,7 @@ The game's own sprites follow the card rules where the game needs them. A zombie
 
 ## Data pages
 
-The Data pages work as in the card editor. Save writes the file into `crates/game/` only when the game would read it. Try it starts the `last-harvest` binary built beside the editor.
+The Data pages work as in the card editor. Save writes the file into `crates/game/` only when the game would read it. Try it builds the `last-harvest` binary beside the editor, so the game packs the sprites as saved, then starts it on the range.
 
 ## On an iPad
 

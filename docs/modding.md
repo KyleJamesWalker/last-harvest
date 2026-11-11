@@ -291,7 +291,7 @@ Each section names what an effect, swing, bullet, thrown item, pickup or animal 
 
 Alpha and fades apply to an effect that plays once where it happens, such as a blast or a puff, and to a swing. The game's blasts, smoke and the eruption around a rising zombie fade out. The zombie stays solid. In a shot style, alpha and fades apply to its smoke puffs over their life, and its sparks and tracer stay opaque. A shot style without them takes `[bullet]`'s.
 
-A slab sprite lies flat and turns with the swing. Any other sprite faces the camera. A mod's file may leave out `[spit]`, `[mound]` and `[mound_breaks]` and keep the game's.
+A slab sprite lies flat and turns with the swing. Any other sprite faces the camera. Draw a swing's sprite pointing up: its top leads the thrust or sweep. A mod's file may leave out `[dog_attack]`, `[spit]`, `[mound]` and `[mound_breaks]` and keep the game's.
 
 A section can instead set a shot style, which a weapon fires with `bullet NAME`. A shot style draws a tracer, a muzzle flare, sparks and smoke, and sparks where the bullet hits.
 
