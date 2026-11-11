@@ -182,7 +182,7 @@ impl Editor {
                 let said = match last_harvest_game::RangeSetup::read(&setup.text()) {
                     Ok(s) => {
                         self.tried = Some(s.text());
-                        format!("Trying {} at level {level} in the game's range", s.weapon)
+                        format!("Building the game with the saved sprites, then trying {} at level {level} in its range", s.weapon)
                     }
                     Err(e) => format!("The game won't try it: {e}"),
                 };

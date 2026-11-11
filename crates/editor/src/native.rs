@@ -26,15 +26,30 @@ use crate::remote::{self, Call, Reply};
 /// The window's size where the screen has room for it.
 const WINDOW: [f32; 2] = [1500.0, 750.0];
 
-/// Opens the game built beside this editor on its weapon range, trying `setup`.
+/// Builds the game beside this editor, so it packs the sprites as saved, then opens it on its weapon range trying
+/// `setup`; the build runs off the editor's thread and a failed one falls back to the last build.
 fn try_in_game(setup: &str) -> Result<(), String> {
     let game = std::env::current_exe().map_err(|e| e.to_string())?.with_file_name("last-harvest");
-    if !game.exists() {
-        return Err(format!("No game at {} to try it in: cargo build -p last-harvest", game.display()));
-    }
     let file = std::env::temp_dir().join(format!("last-harvest-range-{}.txt", std::process::id()));
     std::fs::write(&file, setup).map_err(|e| format!("{}: {e}", file.display()))?;
-    std::process::Command::new(&game).env("LAST_HARVEST_START", "range").env("LAST_HARVEST_RANGE", &file).spawn().map_err(|e| format!("{}: {e}", game.display()))?;
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    std::thread::spawn(move || {
+        let mut build = std::process::Command::new("cargo");
+        build.current_dir(&root).args(["build", "-p", "last-harvest"]);
+        if !cfg!(debug_assertions) {
+            build.arg("--release");
+        }
+        match build.status() {
+            Ok(s) if s.success() => {}
+            other => eprintln!("Try it: building the game failed ({other:?}); trying the last build"),
+        }
+        if !game.exists() {
+            return eprintln!("Try it: no game at {}: cargo build -p last-harvest", game.display());
+        }
+        if let Err(e) = std::process::Command::new(&game).env("LAST_HARVEST_START", "range").env("LAST_HARVEST_RANGE", &file).spawn() {
+            eprintln!("Try it: {}: {e}", game.display());
+        }
+    });
     Ok(())
 }
 
