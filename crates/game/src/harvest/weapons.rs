@@ -283,6 +283,8 @@ pub(super) struct Swing {
     pub life: f32,
     pub angle: [f32; 2],
     pub reach: [f32; 2],
+    /// How it stands in 3D, when not as its art's catalog line says.
+    pub stand: Option<crate::art::Stand>,
 }
 
 impl Swing {
@@ -296,6 +298,35 @@ impl Swing {
         let k = 1.0 - (1.0 - k) * (1.0 - k);
         (self.angle[0] + (self.angle[1] - self.angle[0]) * k, self.reach[0] + (self.reach[1] - self.reach[0]) * k)
     }
+}
+
+/// A swing's sprite is drawn pointing up, so it turns a quarter past its angle to lead with its top.
+pub(super) const SWING_TURN: f32 = std::f32::consts::FRAC_PI_2;
+
+/// How a weapon plays the sprite `name` from the player, for the editor's preview.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SwingShow {
+    /// All the way round, as the scythe does, else straight out ahead, as the pitchfork does.
+    pub sweep: bool,
+    pub life: f32,
+    /// How far out it plays at level 1, in map pixels.
+    pub reach: f32,
+    pub fade: super::effects::Fade,
+}
+
+/// The first weapon whose thrust or sweep plays the catalog sprite `name`, if any does.
+pub fn swing_shown(name: &str) -> Option<SwingShow> {
+    let first = crate::art::ALL.iter().find(|(n, _)| *n == name)?.1.first().copied()?;
+    let fx = super::effects::effects();
+    book().defs.iter().find_map(|d| {
+        let (own, stat, sweep) = match d.does? {
+            Does::Pitchfork => (fx.pitchfork, Stat::Range, false),
+            Does::Scythe => (fx.scythe, Stat::Area, true),
+            _ => return None,
+        };
+        let e = d.effect.as_deref().and_then(|n| fx.named(n)).unwrap_or(own);
+        (e.frames.first() == Some(&first)).then(|| SwingShow { sweep, life: e.life, reach: d.at(stat, 1) * e.reach, fade: e.fade })
+    })
 }
 
 /// Lightning from one point to the next.
@@ -319,11 +350,20 @@ pub(super) struct Dog {
     /// Seconds until it picks a new spot.
     rest: f32,
     catching_up: bool,
+    /// Seconds into a pounce, while in the air.
+    leap: Option<f32>,
 }
 
 impl Dog {
     pub fn art(&self) -> Art {
-        super::effects::effects().dog.looping(self.anim)
+        let fx = super::effects::effects();
+        self.leap.map_or_else(|| fx.dog.looping(self.anim), |t| fx.dog_attack.once(t))
+    }
+
+    /// How far off the ground a pounce has it, in pixels.
+    pub fn lift(&self) -> f32 {
+        let t = crate::tuning::tuning();
+        self.leap.map_or(0.0, |a| (a / t.dog_leap_time * PI).sin() * t.dog_leap_height)
     }
 }
 
@@ -704,7 +744,7 @@ impl Harvest {
                 }
             }
             let e = look(a, super::effects::effects().pitchfork);
-            self.swings.push(Swing { art: e.frames[0], fade: e.fade, age: 0.0, life: e.life, angle: [angle; 2], reach: [2.0, range * e.reach] });
+            self.swings.push(Swing { art: e.frames[0], fade: e.fade, age: 0.0, life: e.life, angle: [angle; 2], reach: [2.0, range * e.reach], stand: None });
         }
         self.attack_feel(a, [self.pos[0] + self.aim[0] * 8.0, self.pos[1] + self.aim[1] * 8.0], 10.0);
         sounds.push(sound(a, Sfx::Slash));
@@ -748,7 +788,7 @@ impl Harvest {
         }
         let from = self.view_yaw;
         let e = look(a, super::effects::effects().scythe);
-        self.swings.push(Swing { art: e.frames[0], fade: e.fade, age: 0.0, life: e.life, angle: [from, from + TAU], reach: [reach * e.reach; 2] });
+        self.swings.push(Swing { art: e.frames[0], fade: e.fade, age: 0.0, life: e.life, angle: [from, from + TAU], reach: [reach * e.reach; 2], stand: None });
         self.juice.ring(self.pos, reach, 0.3, [0.85, 0.85, 0.8]);
         self.attack_feel(a, self.pos, 10.0);
         sounds.push(sound(a, Sfx::Slash));
@@ -831,7 +871,7 @@ impl Harvest {
         self.dogs.retain(|d| want.contains(&(d.def, d.slot)));
         for (def, slot) in want {
             if !self.dogs.iter().any(|d| d.def == def && d.slot == slot) {
-                self.dogs.push(Dog { def, slot, pos: self.pos, heading: [1.0, 0.0], anim: 0.0, cd: 0.0, target: None, vel: [0.0; 2], spot: [0.0; 2], rest: 0.0, catching_up: false });
+                self.dogs.push(Dog { def, slot, pos: self.pos, heading: [1.0, 0.0], anim: 0.0, cd: 0.0, target: None, vel: [0.0; 2], spot: [0.0; 2], rest: 0.0, catching_up: false, leap: None });
             }
         }
         let crit = self.crit();
@@ -851,6 +891,15 @@ impl Harvest {
             dog.cd -= dt;
             dog.rest -= dt;
             dog.target = target.map(|t| self.zombies[t].id);
+            let tune = crate::tuning::tuning();
+            let landed = dog.leap.is_some_and(|age| age + dt >= tune.dog_leap_time);
+            if let Some(age) = dog.leap {
+                dog.pos = [dog.pos[0] + dog.vel[0] * dt, dog.pos[1] + dog.vel[1] * dt];
+                dog.leap = Some(age + dt).filter(|_| !landed);
+                if !landed {
+                    continue;
+                }
+            }
             dog.catching_up = target.is_none() && (away > crate::tuning::tuning().dog_stray || (dog.catching_up && away > crate::tuning::tuning().dog_stray / 2.0));
             if dog.rest <= 0.0 {
                 let rng = &mut self.juice.rng;
@@ -863,6 +912,11 @@ impl Harvest {
                 None => (sub([player[0] + dog.spot[0], player[1] + dog.spot[1]], dog.pos), speed * crate::tuning::tuning().dog_trot, 3.0),
             };
             let n = norm(to);
+            if !landed && goal.is_some() && dog.cd <= 0.0 && len(to) < tune.dog_leap {
+                let pace = (len(to) - tune.dog_reach * 0.5).max(0.0) / tune.dog_leap_time;
+                (dog.vel, dog.heading, dog.leap) = ([n[0] * pace, n[1] * pace], n, Some(0.0));
+                continue;
+            }
             let want = if len(to) > stop { [n[0] * pace, n[1] * pace] } else { [0.0; 2] };
             let k = (dt * 8.0).min(1.0);
             dog.vel = [dog.vel[0] + (want[0] - dog.vel[0]) * k, dog.vel[1] + (want[1] - dog.vel[1]) * k];
@@ -1577,6 +1631,30 @@ mod tests {
             h.walk_dogs(1.0 / 60.0, &mut Vec::new());
         }
         assert!(len(sub(h.dogs[0].pos, h.pos)) < crate::tuning::tuning().dog_stray, "it ran to catch up");
+    }
+
+    #[test]
+    fn a_dog_pounces_on_a_zombie_within_leaping_reach_and_lands_to_bite() {
+        let t = crate::tuning::tuning();
+        let mut h = with("dog", [t.dog_leap - 6.0, 0.0]);
+        let hp = h.zombies[0].hp;
+        h.walk_dogs(1.0 / 60.0, &mut Vec::new());
+        assert!(h.dogs[0].leap.is_some(), "its bite is ready, so it pounces at once");
+        let mut top = 0.0f32;
+        while h.dogs[0].leap.is_some() {
+            h.walk_dogs(1.0 / 60.0, &mut Vec::new());
+            top = top.max(h.dogs[0].lift());
+        }
+        assert!((top - t.dog_leap_height).abs() < 0.5, "it rises the pounce's height, {top}");
+        assert!(len(sub(h.dogs[0].pos, h.zombies[0].pos)) < t.dog_reach, "and lands within biting reach");
+        h.walk_dogs(1.0 / 60.0, &mut Vec::new());
+        assert!(h.zombies[0].hp < hp, "then bites");
+        let (cd, first) = (h.dogs[0].cd, h.zombies[0].hp);
+        for _ in 0..(cd * 60.0) as usize + 2 {
+            h.walk_dogs(1.0 / 60.0, &mut Vec::new());
+            h.zombies[0].pos = h.dogs[0].pos;
+        }
+        assert!(h.dogs[0].leap.is_some() || h.zombies[0].hp < first, "right beside it, the next bite is a pounce too");
     }
 
     #[test]

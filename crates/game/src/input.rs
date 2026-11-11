@@ -82,6 +82,8 @@ pub struct RawInput {
     pub touch: Option<[f32; 2]>,
     pub touches: [Option<[f32; 2]>; MAX_TOUCHES],
     pub lid_closed: bool,
+    /// A mouse drag across the top screen since the last frame, in pixels, and wheel steps; the range orbits by it.
+    pub orbit: [f32; 2],
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -94,6 +96,7 @@ pub struct Input {
     pub touches: [Option<[f32; 2]>; MAX_TOUCHES],
     pub touch_started: bool,
     pub lid_closed: bool,
+    pub orbit: [f32; 2],
 }
 
 impl Input {
@@ -126,6 +129,7 @@ impl InputTracker {
             touches: raw.touches,
             touch_started: raw.touch.is_some() && self.prev.touch.is_none(),
             lid_closed: raw.lid_closed,
+            orbit: raw.orbit,
         };
         self.prev = raw;
         input

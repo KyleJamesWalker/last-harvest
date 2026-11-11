@@ -168,8 +168,8 @@ mod tests {
     fn the_marker_lies_on_the_ground_in_the_3d_view_and_glows() {
         let mut h = farm(27, false);
         let marks = |h: &Harvest| {
-            let uv = crate::art::QUICK_MARK.rect().map(f32::from);
-            super::super::view3d::scene(h).cards.iter().filter(|c| c.normal == glam::Vec3::Y && c.glow == 1.0 && (c.uv[0] * crate::art::ATLAS_W as f32 - uv[0]).abs() < 0.01).map(|c| (c.corners[0] + c.corners[2]) / 2.0).collect::<Vec<_>>()
+            let lefts: Vec<f32> = crate::art::QUICK_MARK.iter().map(|a| f32::from(a.rect()[0])).collect();
+            super::super::view3d::scene(h).cards.iter().filter(|c| c.normal == glam::Vec3::Y && c.glow == 1.0 && lefts.iter().any(|l| (c.uv[0] * crate::art::ATLAS_W as f32 - l).abs() < 0.01)).map(|c| (c.corners[0] + c.corners[2]) / 2.0).collect::<Vec<_>>()
         };
         assert!(marks(&h).is_empty());
         step(&mut h, Buttons::R1, Buttons::R1);

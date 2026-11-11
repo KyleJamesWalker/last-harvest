@@ -149,6 +149,10 @@ fps 12
 art DOG
 fps 10
 
+[dog_attack]
+art DOG_ATTACK
+fps 10
+
 [spit]
 art BLOOD_SPLAT
 fps 10

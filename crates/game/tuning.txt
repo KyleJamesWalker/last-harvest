@@ -108,6 +108,9 @@ crow_reach 7    # how near a crow pecks
 dog_reach 7     # how near a dog bites
 dog_stray 48    # a dog with nothing to chase runs back once this far from the player
 dog_trot 0.45   # a dog's pace near the player, as a fraction of its speed
+dog_leap 24     # a dog with its bite ready pounces on a zombie this near, biting as it lands; 0 never
+dog_leap_height 6 # how high a pounce rises, in pixels
+dog_leap_time 0.3 # seconds a pounce is in the air
 fire_burn 1.5   # seconds fire and flares keep a zombie burning after it leaves them
 
 [blast]

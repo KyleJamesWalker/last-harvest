@@ -401,7 +401,9 @@ fn sections_of(text: &str) -> Vec<(String, String)> {
         if line.is_empty() {
             (gap, pending) = (true, None);
         } else if let Some(c) = line.strip_prefix('#') {
-            pending = gap.then(|| c.split([',', ':', ';']).next().unwrap_or("").trim().to_string());
+            if gap {
+                pending = Some(c.split([',', ':', ';']).next().unwrap_or("").trim().to_string());
+            }
             gap = false;
         } else {
             if let Some(h) = pending.take() {
@@ -815,15 +817,16 @@ mod tests {
 
     #[test]
     fn headings_come_from_the_comment_that_opens_each_group() {
-        let text = "# The file\n# says what it is\n\n# Ground\nDIRT cell 1 1\n# Indexed by connections: N=1\nPATH cell 2 2\n\n# Fences: top row\nRAIL cell 3 3\n";
+        let text = "# The file\n# says what it is\n\n# Ground\nDIRT cell 1 1\n# Indexed by connections: N=1\nPATH cell 2 2\n\n# Fences: top row,\n# then the posts\nRAIL cell 3 3\n";
         let got: Vec<(String, String)> = sections_of(text);
         let want = [("DIRT", "Ground"), ("PATH", "Ground"), ("RAIL", "Fences")].map(|(a, b)| (a.to_string(), b.to_string()));
         assert_eq!(got, want);
         assert_eq!(section("PLAYER_FRONT"), "Characters");
-        assert_eq!(section("ICON_AMMO_CRATE"), "Placeholders");
+        assert_eq!(section("ICON_AMMO_CRATE"), "Icons");
         assert_eq!(section("ICON_KNIFE"), "Icons");
         assert_eq!(section("ICON_DEEP_POCKETS"), "Icons");
         assert_eq!(section("ICON_PISTOL"), "Icons");
+        assert_eq!(section("TOUCH_RING"), "On-screen touch controls");
         assert_eq!(section("NOT_IN_THE_CATALOG"), NEW_SECTION);
     }
 

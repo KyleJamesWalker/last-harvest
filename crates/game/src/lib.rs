@@ -32,6 +32,7 @@ pub use difficulty::Difficulty;
 pub use draw::{Align, Canvas, Color, Frame, Shape};
 pub use art::Stand;
 pub use harvest::showcase::{CropShow, Figure, Showcase};
+pub use harvest::{SwingShow, swing_shown};
 pub use harvest::{NamedProp, load_props_for_checks, PROP_MAX_FRAME, PROP_MAX_FRAMES, PROP_PREFIX, PropByViews, PropFields, named_props, turned_depth, prop_fields, prop_text, set_props};
 pub use harvest::{RangeSetup, effects_with, powerups_with};
 pub use harvest::{WeaponLevels, weapon_behaviours, weapon_levels, weapon_patterns, weapon_sound_names, weapon_stats, weapon_targets};

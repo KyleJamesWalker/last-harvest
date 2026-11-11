@@ -9,6 +9,7 @@
 //! panic                        crash on purpose to test the crash log
 //! shot <path>                  save both screens, top above bottom, as one PNG
 //! pad <family>                 name buttons as this pad does: nintendo xbox playstation keyboard
+//! orbit <dx> [wheel]           drag the range's camera dx pixels and scroll it wheel steps
 //! ```
 
 use std::fs::File;
@@ -33,6 +34,7 @@ pub enum Command {
     Sleep(u32),
     Panic,
     Pad(PadFamily),
+    Orbit(f32, f32),
 }
 
 pub fn listen() -> Option<Receiver<Command>> {
@@ -90,6 +92,7 @@ fn parse(line: &str) -> Option<Command> {
         "state" => Command::State,
         "sleep" => Command::Sleep(num(1)? as u32),
         "panic" => Command::Panic,
+        "orbit" => Command::Orbit(num(1)?, num(2).unwrap_or(0.0)),
         "pad" => Command::Pad(match *words.get(1)? {
             "nintendo" => PadFamily::Nintendo,
             "xbox" => PadFamily::Xbox,
