@@ -41,6 +41,8 @@ def unlock(fields):
         'level': f'Level {n} in one run',
         'nights': f'{n} night{"s" if n != "1" else ""} played',
         'dawns': f'{n} dawn{"s" if n != "1" else ""} survived',
+        'breakers': 'A level breaker' if n == '1' else f'{n} level breakers',
+        'breaker_dawns': 'A level breaker survived to dawn' if n == '1' else f'{n} level breakers survived to dawn',
     }.get(kind, ' '.join(words))
     extra = []
     if float(fields.get('after', '0') or 0) > 0:

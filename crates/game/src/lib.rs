@@ -334,7 +334,7 @@ impl Game {
 
     fn progress(&self) -> harvest::Progress {
         let s = &self.save;
-        harvest::Progress { kills: s.kills, best: s.best, best_level: s.best_level, nights: s.nights, dawns: s.dawns, found: s.found, everything: self.unlock_all }
+        harvest::Progress { kills: s.kills, best: s.best, best_level: s.best_level, nights: s.nights, dawns: s.dawns, breakers: s.breakers, breaker_dawns: s.breaker_dawns, found: s.found, everything: self.unlock_all }
     }
 
     /// One line describing the current scene, for logs.
@@ -621,7 +621,7 @@ impl Game {
                 self.save.found |= flow.found;
                 if let Some(run) = flow.ended {
                     let p = self.progress().after(run);
-                    (self.save.kills, self.save.best, self.save.best_level, self.save.nights, self.save.dawns) = (p.kills, p.best, p.best_level, p.nights, p.dawns);
+                    (self.save.kills, self.save.best, self.save.best_level, self.save.nights, self.save.dawns, self.save.breakers, self.save.breaker_dawns) = (p.kills, p.best, p.best_level, p.nights, p.dawns, p.breakers, p.breaker_dawns);
                     self.save.record(run);
                 }
                 if flow.quit { State::Title } else { State::Harvest(h) }

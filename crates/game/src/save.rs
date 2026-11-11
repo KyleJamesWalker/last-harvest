@@ -27,11 +27,13 @@ pub struct Save {
     /// Longest night survived, in seconds.
     pub best: u32,
     pub difficulty: Difficulty,
-    /// Zombies killed over every run, highest level reached, nights played and nights survived, which unlock powerups.
+    /// Zombies killed over every run, highest level reached, nights played, nights survived and nights with a level breaker, which unlock powerups.
     pub kills: u32,
     pub best_level: u32,
     pub nights: u32,
     pub dawns: u32,
+    pub breakers: u32,
+    pub breaker_dawns: u32,
     /// Powerups taken from a find card, kept by id.
     pub found: u64,
     /// Zombie kinds turned off, kept by id.
@@ -124,7 +126,7 @@ impl LookId {
 
 impl Default for Save {
     fn default() -> Self {
-        Self { volume: 6, brightness: [4, 4], rumble: true, fps: false, one_screen: false, touch_grenades: true, touch: TouchControls::Auto, best: 0, difficulty: Difficulty::default(), kills: 0, best_level: 0, nights: 0, dawns: 0, found: 0, enemies_off: 0, player: LookId::default(), map: LookId::default(), best_dps: 0, history: [None; HISTORY], how_to_seen: false, controls: Controls::default() }
+        Self { volume: 6, brightness: [4, 4], rumble: true, fps: false, one_screen: false, touch_grenades: true, touch: TouchControls::Auto, best: 0, difficulty: Difficulty::default(), kills: 0, best_level: 0, nights: 0, dawns: 0, breakers: 0, breaker_dawns: 0, found: 0, enemies_off: 0, player: LookId::default(), map: LookId::default(), best_dps: 0, history: [None; HISTORY], how_to_seen: false, controls: Controls::default() }
     }
 }
 
@@ -132,7 +134,7 @@ impl Save {
     pub fn to_text(&self) -> String {
         let controls = if self.controls.is_default() { String::new() } else { format!("controls={}\n", self.controls.key()) };
         format!(
-            "volume={}\nbrightness_top={}\nbrightness_bottom={}\nrumble={}\nfps={}\nlayout={}\ngrenades={}\ntouch={}\nbest={}\ndifficulty={}\nkills={}\nbest_level={}\nnights={}\ndawns={}\nfound={}\nenemies_off={}\nplayer={}\nmap={}\nbest_dps={}\nhow_to={}\n{controls}{}",
+            "volume={}\nbrightness_top={}\nbrightness_bottom={}\nrumble={}\nfps={}\nlayout={}\ngrenades={}\ntouch={}\nbest={}\ndifficulty={}\nkills={}\nbest_level={}\nnights={}\ndawns={}\nbreakers={}\nbreaker_dawns={}\nfound={}\nenemies_off={}\nplayer={}\nmap={}\nbest_dps={}\nhow_to={}\n{controls}{}",
             self.volume,
             self.brightness[0],
             self.brightness[1],
@@ -147,6 +149,8 @@ impl Save {
             self.best_level,
             self.nights,
             self.dawns,
+            self.breakers,
+            self.breaker_dawns,
             found_ids(self.found),
             off_ids(self.enemies_off),
             self.player.as_str(),
@@ -166,7 +170,7 @@ impl Save {
 
     /// The run records and found powerups wiped, keeping the settings.
     pub fn without_progress(self) -> Self {
-        Self { best: 0, kills: 0, best_level: 0, nights: 0, dawns: 0, found: 0, best_dps: 0, history: [None; HISTORY], ..self }
+        Self { best: 0, kills: 0, best_level: 0, nights: 0, dawns: 0, breakers: 0, breaker_dawns: 0, found: 0, best_dps: 0, history: [None; HISTORY], ..self }
     }
 
     /// Unknown keys and bad values fall back to the defaults, so an old or damaged file still loads; a file from
@@ -192,6 +196,8 @@ impl Save {
                 "best_level" => save.best_level = value.parse().unwrap_or(save.best_level),
                 "nights" => save.nights = value.parse().unwrap_or(save.nights),
                 "dawns" => save.dawns = value.parse().unwrap_or(save.dawns),
+                "breakers" => save.breakers = value.parse().unwrap_or(save.breakers),
+                "breaker_dawns" => save.breaker_dawns = value.parse().unwrap_or(save.breaker_dawns),
                 "found" => save.found = found_from_ids(value),
                 "enemies_off" => save.enemies_off = off_from_ids(value),
                 "player" => save.player = LookId::new(value),
@@ -255,7 +261,7 @@ fn run_from_text(text: &str) -> Option<Run> {
         "lost" => false,
         _ => return None,
     };
-    Some(Run { difficulty: Difficulty::from_key(difficulty)?, won, level: level.parse().ok()?, secs: secs.parse().ok()?, dps: dps.parse().ok()?, kills: kills.parse().ok()?, kit: kit_from_text(kit) })
+    Some(Run { difficulty: Difficulty::from_key(difficulty)?, won, level: level.parse().ok()?, secs: secs.parse().ok()?, dps: dps.parse().ok()?, kills: kills.parse().ok()?, kit: kit_from_text(kit), broke: false })
 }
 
 fn on_off(b: bool) -> &'static str {
@@ -268,7 +274,7 @@ mod tests {
 
     #[test]
     fn round_trips() {
-        let save = Save { volume: 3, brightness: [7, 2], rumble: false, fps: true, one_screen: true, touch_grenades: false, touch: TouchControls::Off, best: 41, difficulty: Difficulty::Hard, kills: 900, best_level: 12, nights: 7, dawns: 1, found: 0b1010_0000_0000, enemies_off: 0b10, player: LookId::new("jo"), map: LookId::new("old_farm"), best_dps: 0, history: [None; HISTORY], how_to_seen: true, controls: Controls::default() };
+        let save = Save { volume: 3, brightness: [7, 2], rumble: false, fps: true, one_screen: true, touch_grenades: false, touch: TouchControls::Off, best: 41, difficulty: Difficulty::Hard, kills: 900, best_level: 12, nights: 7, dawns: 1, breakers: 3, breaker_dawns: 1, found: 0b1010_0000_0000, enemies_off: 0b10, player: LookId::new("jo"), map: LookId::new("old_farm"), best_dps: 0, history: [None; HISTORY], how_to_seen: true, controls: Controls::default() };
         assert_eq!(Save::parse(&save.to_text()), save);
     }
 
@@ -311,7 +317,7 @@ mod tests {
     }
 
     fn run(secs: u32, dps: u32) -> Run {
-        Run { secs, kills: 7, level: 3, won: secs >= 600, difficulty: Difficulty::Hard, dps, kit: [None; RUN_KIT] }
+        Run { secs, kills: 7, level: 3, won: secs >= 600, difficulty: Difficulty::Hard, dps, kit: [None; RUN_KIT], broke: false }
     }
 
     fn holding(pairs: &[(&str, u8)]) -> [Option<(u16, u8)>; RUN_KIT] {
@@ -377,7 +383,7 @@ mod tests {
     fn a_damaged_history_line_is_dropped_and_the_rest_kept() {
         let save = Save::parse("run=hard,lost,3,100,40,7\nrun=nightmare,lost,3,100,40,7\nrun=easy,maybe,1,1,1,1\nrun=easy,won,3\nrun=normal,won,9,600,80,12\n");
         assert_eq!(save.history[0], Some(run(100, 40)));
-        assert_eq!(save.history[1], Some(Run { difficulty: Difficulty::Normal, won: true, level: 9, secs: 600, dps: 80, kills: 12, kit: [None; RUN_KIT] }), "a line from before powerups loads with none");
+        assert_eq!(save.history[1], Some(Run { difficulty: Difficulty::Normal, won: true, level: 9, secs: 600, dps: 80, kills: 12, kit: [None; RUN_KIT], ..Run::default() }), "a line from before powerups loads with none");
         assert_eq!(save.history[2], None);
     }
 

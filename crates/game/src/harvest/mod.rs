@@ -732,6 +732,8 @@ pub struct Harvest {
     newly: Vec<usize>,
     ready: usize,
     found_now: u64,
+    /// Whether a level breaker took a weapon past its top this run.
+    broke: bool,
     /// The next level-up comes from a chest, and the chests picked up whose level-up hasn't begun.
     chest: bool,
     chests: u32,
@@ -977,6 +979,7 @@ impl Harvest {
             newly: Vec::new(),
             ready: 0,
             found_now: 0,
+            broke: false,
             chest: false,
             chests: 0,
             held_weight: crate::tuning::tuning().held_weight,
@@ -1855,6 +1858,7 @@ impl Harvest {
         }
         let (from, to) = self.kit.raise(c.up, if c.rare { 2 } else { 1 });
         if to > def.max {
+            self.broke = true;
             self.juice.banner(format!("LEVEL BREAKER: {} {to}", def.name.to_uppercase()), [GOLD[0], GOLD[1], GOLD[2], 1.0], 2.8);
             self.juice.shake(0.3);
         }
@@ -1887,7 +1891,7 @@ impl Harvest {
         for (slot, (def, level)) in kit.iter_mut().zip(held) {
             *slot = Some((def as u16, level.min(u8::MAX as u32) as u8));
         }
-        let run = Run { secs: self.t as u32, kills: self.kills, level: self.level, won, difficulty: self.difficulty, dps: self.juice.tally.dps().round() as u32, kit };
+        let run = Run { secs: self.t as u32, kills: self.kills, level: self.level, won, broke: self.broke, difficulty: self.difficulty, dps: self.juice.tally.dps().round() as u32, kit };
         let after = self.progress.after(run);
         self.ready = (0..book().defs.len()).filter(|&i| !self.progress.findable(i) && after.findable(i)).count();
         self.progress = after;

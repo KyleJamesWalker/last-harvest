@@ -796,6 +796,7 @@ impl Game {
             ("Zombies killed", s.kills.to_string()),
             ("Nights played", s.nights.to_string()),
             ("Nights survived", s.dawns.to_string()),
+            ("Level breakers", format!("{}, {} to dawn", s.breakers, s.breaker_dawns)),
             ("Best damage a second", s.best_dps.to_string()),
             ("Powerups unlocked", format!("{open} of {all}")),
             ("Cards loaded", crate::data::load_report().cards.to_string()),

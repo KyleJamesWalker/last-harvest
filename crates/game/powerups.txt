@@ -13,8 +13,9 @@
 #                       under a new id with `does scythe` is a second scythe with its own numbers
 #   zone    ahead | around | behind | map
 #   icon    SPRITE      the card's picture, a name from art.txt or a player's prop, PROP_<ID>; defaults to ICON_<ID>
-#   unlock  start | kills N | night SECONDS | level N | nights N | dawns N
+#   unlock  start | kills N | night SECONDS | level N | nights N | dawns N | breakers N | breaker_dawns N
 #           kills and nights add up over every run; night and level are the best single run.
+#           breakers counts nights with a level breaker, and breaker_dawns those of them survived until dawn.
 #           Anything but `start` only becomes findable: a level-up may then offer it on a FOUND card,
 #           and taking that card unlocks it for good. A find needs a free slot of its kind.
 #   find    CHANCE      how often a level-up offers it as a find, 0 to 1; 0.25 when left out

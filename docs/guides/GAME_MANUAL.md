@@ -160,7 +160,7 @@ Each weapon covers a zone, shown on its card:
 
 ### Finds and unlocks
 
-Eight powerups are open from the first night. Each of the rest has a condition: kills, a long enough night, a level, nights played or dawns survived. Kills and nights add up over every run. Night length and level count your best single run.
+Eight powerups are open from the first night. Each of the rest has a condition: kills, a long enough night, a level, nights played, dawns survived, or a level breaker (a rare card that takes a weapon one level past its top), alone or followed by dawn in the same night. Kills and nights add up over every run. Night length and level count your best single run.
 
 Meeting a condition makes the powerup findable. A level-up may then offer it on a green FOUND card, and taking that card unlocks it for good.
 
