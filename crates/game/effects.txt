@@ -167,6 +167,33 @@ fps 9
 alpha 0.85
 fade_out 0.5
 
+[maul]
+art MAUL_SMASH
+life 0.22
+reach 0.3
+
+[ground_crack]
+art GROUND_CRACK
+fps 4
+alpha 0.9
+fade_out 0.4
+
+[drone]
+art DRONE
+fps 16
+
+[drone_shot]
+color E8D27A
+length 10
+size 1
+sparks 2
+impact 2
+core 2
+tracer SHOT_TRACER
+spark SHOT_SPARK
+smoke SHOT_SMOKE
+flare SHOT_FLARE
+
 [pistol_shot]
 color E8D27A
 length 16

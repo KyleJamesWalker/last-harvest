@@ -730,7 +730,7 @@ impl Editor {
         match self.stand {
             0 if self.fold > 0.0 => Stand::Fold { rows: self.fold },
             0 => Stand::Prop { depth: self.depth },
-            2 => Stand::Figure,
+            2 => Stand::Figure { lift: self.lift },
             3 => Stand::Ground,
             CARVE if self.own_packed() == n + 2 + self.carve_extras().count() => {
                 let at = |v: usize| optional(&self.sprite, v).as_ref().and_then(|_| self.live.get(self.surface_of(v)).copied());
@@ -940,7 +940,7 @@ impl Editor {
         let guess = || {
             let n = &self.sprite.name;
             if ["PLAYER", "SKINNY", "KID", "BIG", "CROW"].iter().any(|k| n.starts_with(k)) {
-                Stand::Figure
+                Stand::Figure { lift: 0.0 }
             } else if ["DIRT", "GRASS", "PATH", "ROAD", "SOIL", "SPROUTS", "BLOOD", "CORPSE"].iter().any(|k| n.starts_with(k)) {
                 Stand::Ground
             } else {
@@ -970,7 +970,10 @@ impl Editor {
                 (self.height, self.lift) = (height, lift);
                 1
             }
-            Stand::Figure => 2,
+            Stand::Figure { lift } => {
+                self.lift = lift;
+                2
+            }
             Stand::Ground => 3,
             Stand::Carve { .. } => CARVE,
             Stand::Turned { .. } => TURNED,
@@ -1328,7 +1331,7 @@ impl Editor {
             push(SIDE_X + 130.0, 640.0, 46.0, 30.0, Action::Depth(-1), "-", false);
             push(SIDE_X + 182.0, 640.0, 46.0, 30.0, Action::Depth(1), "+", false);
         }
-        if self.stand == 1 && !self.is_card() {
+        if matches!(self.stand, 1 | 2) && !self.is_card() {
             push(SIDE_X + 130.0, 672.0, 46.0, 28.0, Action::Float(-1), "-", false);
             push(SIDE_X + 182.0, 672.0, 46.0, 28.0, Action::Float(1), "+", false);
         }
@@ -3021,6 +3024,7 @@ impl Editor {
                 c.label(format!("Height {} px", self.height), SIDE_X, 645.0, 18.0, TEXT, Align::Left);
                 c.label(format!("Float {} px", self.lift), SIDE_X, 676.0, 18.0, TEXT, Align::Left);
             }
+            2 if !self.is_card() => c.label(format!("Float {} px", self.lift), SIDE_X, 676.0, 18.0, TEXT, Align::Left),
             CARVE => c.label(format!("Height {} px", self.view_height() / self.sprite.detail as usize), SIDE_X, 645.0, 18.0, TEXT, Align::Left),
             TURNED => c.label(format!("Depth {} px", self.depth), SIDE_X, 645.0, 18.0, TEXT, Align::Left),
             _ => {}
@@ -3678,7 +3682,7 @@ mod tests {
         assert_eq!(e.sprite.frames.len(), 3);
         assert!(e.sprite.frames.iter().all(|f| (f.w, f.h) == (16, 16) && f.px.iter().any(|p| p[3] > 0)), "it starts from a figure");
         assert_ne!(e.sprite.frames[0].px, e.sprite.frames[1].px, "whose legs take turns");
-        assert_eq!(e.stand(), Stand::Figure);
+        assert_eq!(e.stand(), Stand::Figure { lift: 0.0 });
         e.act(Action::AddFrame, false);
         assert_eq!(e.sprite.frames.len(), 4, "a walking part takes another frame");
         e.act(Action::Save, false);

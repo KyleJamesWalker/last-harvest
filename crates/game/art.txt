@@ -117,6 +117,7 @@ GRENADE         px 22 118 7 9  @prop 2
 GRENADE_WORN    png placeholder/grenade_worn.png
 MOUND           png placeholder/mound.png x3
 DIRT_PUFF       png placeholder/dirt_puff.png x3
+GROUND_CRACK    png placeholder/ground_crack.png x3  @slab 1
 CHEST           png placeholder/chest.png  @prop 8
 QUICK_MARK      png placeholder/quick_mark.png x2  @ground
 WHITE           solid 4 4
@@ -135,8 +136,10 @@ KID_HURT        cell 37 5 ; cell 37 6 ; cell 37 4
 # Weapons: swings and thrusts are drawn pointing up, their top leading
 SCYTHE_SWING    png placeholder/scythe.png  @slab 2 float 5
 PITCHFORK_THRUST png placeholder/pitchfork.png  @slab 2 float 5
+MAUL_SMASH      png placeholder/maul.png  @slab 2 float 5
 DOG             png placeholder/dog.png x3  @prop 4
 DOG_ATTACK      png placeholder/dog_attack.png  @prop 4
+DRONE           png placeholder/drone.png x3  @figure float 16
 TACKS           png placeholder/tacks.png  @slab 1
 FIRE            png placeholder/fire.png x3  @figure
 MOLOTOV         png placeholder/molotov.png  @prop 2
@@ -199,6 +202,8 @@ ICON_POCKET_CHANGE     png placeholder/icon_pocket_change.png
 ICON_MOLOTOV           png placeholder/icon_molotov.png
 ICON_QUICK_HANDS       png placeholder/icon_quick_hands.png
 ICON_LONG_BARREL       png placeholder/icon_long_barrel.png
+ICON_MAUL              png placeholder/icon_maul.png
+ICON_DRONE             png placeholder/icon_drone.png
 
 # Pickups
 ZOMBIE_HEART    blank 9 11 ; blank 9 11 ; blank 9 11 ; blank 9 11 ; blank 9 11 ; blank 9 11

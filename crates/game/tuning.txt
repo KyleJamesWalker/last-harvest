@@ -111,6 +111,10 @@ dog_trot 0.45   # a dog's pace near the player, as a fraction of its speed
 dog_leap 24     # a dog with its bite ready pounces on a zombie this near, biting as it lands; 0 never
 dog_leap_height 6 # how high a pounce rises, in pixels
 dog_leap_time 0.3 # seconds a pounce is in the air
+maul_shatter 1.5 # past its top, a maul's cracks end in a ring this many times its area across; 0 never
+drone_hold 36   # how far off a crowd a drone hovers to shoot
+drone_reach 70  # how far a drone's gun reaches
+drone_bullet 320 # how fast a drone's rounds fly
 fire_burn 1.5   # seconds fire and flares keep a zombie burning after it leaves them
 
 [blast]

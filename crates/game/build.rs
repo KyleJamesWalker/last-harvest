@@ -224,7 +224,14 @@ fn stand_code(how: &str, line: usize) -> String {
             };
             format!("Stand::Slab {{ height: {:?}, lift: {lift:?} }}", size())
         }
-        Some("figure") => "Stand::Figure".into(),
+        Some("figure") => {
+            let lift = match words.get(1..3) {
+                Some(["float", n]) => n.parse::<f32>().unwrap_or_else(|_| panic!("art.txt:{line}: {how:?} floats a number of pixels")),
+                None if words.len() == 1 => 0.0,
+                _ => panic!("art.txt:{line}: a figure is figure or figure float N"),
+            };
+            format!("Stand::Figure {{ lift: {lift:?} }}")
+        }
         Some("ground") => "Stand::Ground".into(),
         _ => panic!("art.txt:{line}: unknown stand {how:?}; use prop N, fold N, slab N, figure or ground"),
     }

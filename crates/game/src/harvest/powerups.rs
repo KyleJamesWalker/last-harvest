@@ -51,6 +51,10 @@ pub enum Does {
     Scarecrow,
     Molotov,
     Flare,
+    /// Smashes the ground ahead, cracking it in a line.
+    Maul,
+    /// Flies out to a crowd and sprays it with bursts.
+    Drone,
     /// A gun shaped by its section's `aim` and `pattern`.
     Gun,
     /// A blade that cuts everything within its area across its spread, aimed by its section's `aim`.
@@ -109,7 +113,7 @@ pub enum Pattern {
 }
 
 /// Every weapon behaviour by the name `does` gives it.
-const DOES: [(&str, Does); 20] = [
+const DOES: [(&str, Does); 22] = [
     ("pistol", Does::Pistol),
     ("shotgun", Does::Shotgun),
     ("rifle", Does::Rifle),
@@ -127,6 +131,8 @@ const DOES: [(&str, Does); 20] = [
     ("scarecrow", Does::Scarecrow),
     ("molotov", Does::Molotov),
     ("flare", Does::Flare),
+    ("maul", Does::Maul),
+    ("drone", Does::Drone),
     ("gun", Does::Gun),
     ("blade", Does::Blade),
     ("lob", Does::Lob),
@@ -139,7 +145,7 @@ impl Does {
 }
 
 /// The names a weapon's `does` can give, in the file's order.
-pub fn weapon_behaviours() -> [&'static str; 20] {
+pub fn weapon_behaviours() -> [&'static str; 22] {
     DOES.map(|(k, _)| k)
 }
 
@@ -193,6 +199,10 @@ pub enum Unlock {
     Nights(u32),
     /// Nights survived to dawn.
     Dawns(u32),
+    /// Nights with a level breaker.
+    Breakers(u32),
+    /// Nights with a level breaker survived to dawn.
+    BreakerDawns(u32),
 }
 
 /// What the player has done over every run, and the powerups they have found.
@@ -203,6 +213,8 @@ pub struct Progress {
     pub best_level: u32,
     pub nights: u32,
     pub dawns: u32,
+    pub breakers: u32,
+    pub breaker_dawns: u32,
     /// Powerups taken from a find card, one bit each by their place in the book.
     pub found: u64,
     /// Everything unlocked regardless, for trying powerups out.
@@ -218,6 +230,8 @@ impl Progress {
             best_level: self.best_level.max(run.level),
             nights: self.nights + 1,
             dawns: self.dawns + run.won as u32,
+            breakers: self.breakers + run.broke as u32,
+            breaker_dawns: self.breaker_dawns + (run.broke && run.won) as u32,
             ..self
         }
     }
@@ -250,6 +264,8 @@ pub struct Run {
     pub kills: u32,
     pub level: u32,
     pub won: bool,
+    /// Whether a level breaker took a weapon past its top.
+    pub broke: bool,
     pub difficulty: crate::Difficulty,
     /// Damage a second over the whole run.
     pub dps: u32,
@@ -286,6 +302,8 @@ impl Unlock {
                 Unlock::Level(n) => p.best_level >= n,
                 Unlock::Nights(n) => p.nights >= n,
                 Unlock::Dawns(n) => p.dawns >= n,
+                Unlock::Breakers(n) => p.breakers >= n,
+                Unlock::BreakerDawns(n) => p.breaker_dawns >= n,
             }
     }
 
@@ -299,6 +317,8 @@ impl Unlock {
             Unlock::Level(n) => left(p.best_level, n, 40.0),
             Unlock::Nights(n) => left(p.nights, n, 300.0),
             Unlock::Dawns(n) => left(p.dawns, n, 900.0),
+            Unlock::Breakers(n) => left(p.breakers, n, 1200.0),
+            Unlock::BreakerDawns(n) => left(p.breaker_dawns, n, 1800.0),
         }
     }
 
@@ -312,6 +332,10 @@ impl Unlock {
             Unlock::Nights(n) => format!("Play {n} nights"),
             Unlock::Dawns(1) => "Survive until dawn".into(),
             Unlock::Dawns(n) => format!("Survive until dawn {n} times"),
+            Unlock::Breakers(1) => "Break a weapon past its top".into(),
+            Unlock::Breakers(n) => format!("Break a weapon past its top in {n} nights"),
+            Unlock::BreakerDawns(1) => "Break a weapon past its top, then survive until dawn".into(),
+            Unlock::BreakerDawns(n) => format!("Break a weapon past its top and survive until dawn {n} times"),
         }
     }
 }
@@ -802,7 +826,9 @@ pub fn parse(text: &str) -> Result<Book, String> {
                     ["level", v] => Unlock::Level(number(v)?),
                     ["nights", v] => Unlock::Nights(number(v)?),
                     ["dawns", v] => Unlock::Dawns(number(v)?),
-                    _ => return Err(format!("{n}: unlock is start, kills N, night SECONDS, level N, nights N or dawns N")),
+                    ["breakers", v] => Unlock::Breakers(number(v)?),
+                    ["breaker_dawns", v] => Unlock::BreakerDawns(number(v)?),
+                    _ => return Err(format!("{n}: unlock is start, kills N, night SECONDS, level N, nights N, dawns N, breakers N or breaker_dawns N")),
                 }
             }
             _ => {
@@ -1006,5 +1032,17 @@ mod tests {
         let fresh = Progress::default();
         assert!(Unlock::Kills(100).effort(&fresh) < Unlock::Kills(500).effort(&fresh));
         assert!(Unlock::Night(120).effort(&fresh) < Unlock::Dawns(1).effort(&fresh));
+    }
+
+    #[test]
+    fn a_level_breaker_counts_and_counts_again_when_the_night_reaches_dawn() {
+        let p = Progress::default().after(Run { broke: true, ..Run::default() });
+        assert!(Unlock::Breakers(1).met(&p) && !Unlock::BreakerDawns(1).met(&p));
+        let p = p.after(Run { won: true, ..Run::default() });
+        assert!(!Unlock::BreakerDawns(1).met(&p), "a dawn without a breaker");
+        let p = p.after(Run { broke: true, won: true, ..Run::default() });
+        assert_eq!((p.breakers, p.breaker_dawns, p.dawns), (2, 1, 2));
+        assert!(Unlock::BreakerDawns(1).met(&p) && Unlock::Breakers(2).met(&p));
+        assert!(Unlock::Breakers(1).effort(&Progress::default()) < Unlock::BreakerDawns(1).effort(&Progress::default()));
     }
 }

@@ -371,6 +371,10 @@ impl Harvest {
             let a = d.art();
             sprites.push((d.pos[1], a, d.pos[0] - a.w() / 2.0, d.pos[1] - a.h() + 2.0 - d.lift(), d.heading[0] < 0.0, 1.0, [1.0; 4]));
         }
+        for d in &self.drones {
+            let a = d.art();
+            sprites.push((d.pos[1], a, d.pos[0] - a.w() / 2.0, d.pos[1] - a.h() + 2.0 - d.lift(), d.heading[0] < 0.0, 1.0, [1.0; 4]));
+        }
         for (i, (p, flip)) in self.crows().into_iter().enumerate() {
             let crow = super::effects::effects().crow;
             let a = crow.looping(self.t + i as f32 / crow.fps);
@@ -394,18 +398,19 @@ impl Harvest {
 
         let own_shot = super::effects::effects().bullet.shot;
         for b in self.bullets.iter().filter(|_| !fog) {
+            let pos = b.drawn();
             let Some(shot) = b.look.map_or(own_shot, |e| e.shot) else {
-                let (sx, sy) = at(b.pos[0], b.pos[1]);
+                let (sx, sy) = at(pos[0], pos[1]);
                 let a = b.look.unwrap_or(super::effects::effects().bullet).looping(b.age);
                 c.art_rotated(a, sx, sy, scale, b.vel[1].atan2(b.vel[0]), lit);
                 continue;
             };
             let [r, g, bl] = shot.color;
-            let tail = shot.tail(b.pos, b.vel, b.age);
+            let tail = shot.tail(pos, b.vel, b.age);
             if let Some(frames) = shot.sprites[super::effects::TRACER] {
                 let a = frames[(b.age * 12.0) as usize % frames.len()];
-                let length = ((b.pos[0] - tail[0]).powi(2) + (b.pos[1] - tail[1]).powi(2)).sqrt();
-                let (sx, sy) = at((b.pos[0] + tail[0]) / 2.0, (b.pos[1] + tail[1]) / 2.0);
+                let length = ((pos[0] - tail[0]).powi(2) + (pos[1] - tail[1]).powi(2)).sqrt();
+                let (sx, sy) = at((pos[0] + tail[0]) / 2.0, (pos[1] + tail[1]) / 2.0);
                 c.art_rotated(a, sx, sy, scale * length / a.w(), b.vel[1].atan2(b.vel[0]), lit);
                 continue;
             }
@@ -414,7 +419,7 @@ impl Harvest {
             for i in 0..n {
                 let k = i as f32 / (n - 1) as f32;
                 let (width, bright) = super::effects::Shot::taper(k);
-                let (sx, sy) = at(b.pos[0] + (tail[0] - b.pos[0]) * k, b.pos[1] + (tail[1] - b.pos[1]) * k);
+                let (sx, sy) = at(pos[0] + (tail[0] - pos[0]) * k, pos[1] + (tail[1] - pos[1]) * k);
                 c.circle(sx, sy, shot.size * width * scale / 2.0, [lit[0] * r * bright, lit[1] * g * bright, lit[2] * bl * bright, lit[3]]);
             }
         }

@@ -593,7 +593,8 @@ pub fn stand_text(s: Stand) -> String {
         Stand::Fold { rows } => format!("fold {rows}"),
         Stand::Slab { height, lift: 0.0 } => format!("slab {height}"),
         Stand::Slab { height, lift } => format!("slab {height} float {lift}"),
-        Stand::Figure => "figure".into(),
+        Stand::Figure { lift: 0.0 } => "figure".into(),
+        Stand::Figure { lift } => format!("figure float {lift}"),
         Stand::Ground => "ground".into(),
         Stand::Carve { .. } => "carve".into(),
         Stand::Turned { depth: None, .. } => "turned".into(),
@@ -615,7 +616,13 @@ pub fn parse_stand(text: &str) -> Option<Stand> {
             };
             Stand::Slab { height: size()?, lift }
         }
-        "figure" => Stand::Figure,
+        "figure" => Stand::Figure {
+            lift: match words.get(1..3) {
+                Some(["float", n]) => n.parse::<f32>().ok()?,
+                None if words.len() == 1 => 0.0,
+                _ => return None,
+            },
+        },
         "ground" => Stand::Ground,
         _ => return None,
     })
