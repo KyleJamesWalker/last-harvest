@@ -353,7 +353,7 @@ impl Showcase {
             true => ([yaw, yaw + TAU], [show.reach; 2]),
             false => ([yaw; 2], [2.0, show.reach]),
         };
-        h.swings.push(Swing { art, fade: show.fade, age: 0.0, life: show.life, angle, reach, stand: Some(*stand) });
+        h.swings.push(Swing { art, fade: show.fade, age: 0.0, life: show.life, angle, reach, stand: Some(*stand), smash: show.smash });
     }
 
     /// The 2.5D view, as on the top screen.

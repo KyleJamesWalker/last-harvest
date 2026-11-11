@@ -43,7 +43,7 @@ use map::{Map, TILE};
 pub use range::{RangeSetup, effects_with, powerups_with};
 pub use powerups::{Progress, RUN_KIT, Run, WeaponLevels, found_from_ids, found_ids, powerup_id, powerup_index, weapon_behaviours, weapon_levels, weapon_patterns, weapon_sound_names, weapon_stats, weapon_targets};
 use powerups::{Kind as Card, book};
-use weapons::{Bolt, Decoy, Dog, Kit, Patch, Swing};
+use weapons::{Bolt, Decoy, Dog, Drone, Kit, Patch, Swing};
 
 /// Screen pixels per art pixel on the bottom screen's map, as `tuning.txt` [map] sets it.
 fn map_scale() -> f32 {
@@ -462,6 +462,21 @@ struct Bullet {
     age: f32,
     /// The weapon that fired it.
     by: Option<usize>,
+    /// Pixels above a gun's height it was fired from, and the seconds it takes to come down to it.
+    lift: [f32; 2],
+}
+
+impl Bullet {
+    /// Pixels above a gun's height it flies at `age` seconds.
+    fn up(&self, age: f32) -> f32 {
+        let [up, fall] = self.lift;
+        if fall > 0.0 { up * (1.0 - age / fall).clamp(0.0, 1.0) } else { 0.0 }
+    }
+
+    /// Where it draws on the map: its place, raised by how far it has yet to come down.
+    fn drawn(&self) -> [f32; 2] {
+        [self.pos[0], self.pos[1] - self.up(self.age)]
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -714,6 +729,7 @@ pub struct Harvest {
     swings: Vec<Swing>,
     bolts: Vec<Bolt>,
     dogs: Vec<Dog>,
+    drones: Vec<Drone>,
     decoys: Vec<Decoy>,
     /// Zombies a crow pecked lately, by id, and the seconds before it can peck them again.
     pecked: Vec<(u32, f32)>,
@@ -814,8 +830,8 @@ pub struct Harvest {
     leveling: f32,
     /// Seconds since the kill count last went up, for its bump.
     kill_bump: f32,
-    /// Cooldowns on sounds that would otherwise stack up in a swarm: hits, kills, groans, rising, birds, spit.
-    hush: [f32; 7],
+    /// Cooldowns on sounds that would otherwise stack up in a swarm: hits, kills, groans, rising, birds, spit, drones.
+    hush: [f32; 8],
     heartbeat: f32,
     /// Seconds of the full-screen gold flash when the cards appear.
     glory: f32,
@@ -967,6 +983,7 @@ impl Harvest {
             swings: Vec::new(),
             bolts: Vec::new(),
             dogs: Vec::new(),
+            drones: Vec::new(),
             decoys: Vec::new(),
             pecked: Vec::new(),
             beam: 0.0,
@@ -1049,7 +1066,7 @@ impl Harvest {
             chain: (1.0, 0),
             leveling: 0.0,
             kill_bump: 1.0,
-            hush: [0.0; 7],
+            hush: [0.0; 8],
             heartbeat: 0.0,
             glory: 0.0,
             queued_touch: None,
@@ -1124,7 +1141,7 @@ impl Harvest {
             h.juice.burst(at, 8.0, 8, [0.0; 2], 0.0, [10.0, 40.0], juice::blood(), 1.5, 100.0, 0.0);
             h.juice.popup(at, 12.0 + i as f32, if i % 5 == 0 { Tone::Crit } else { Tone::Hit });
             let vel = [a.cos() * 200.0, a.sin() * 200.0];
-            h.bullets.push(Bullet { pos: [h.pos[0] + a.cos() * 20.0, h.pos[1] - 6.0 + a.sin() * 20.0], vel, damage: 0.0, pierce: 0, life: 1.0, force: 0.0, hit: Vec::new(), look: None, age: 0.0, by: None });
+            h.bullets.push(Bullet { pos: [h.pos[0] + a.cos() * 20.0, h.pos[1] - 6.0 + a.sin() * 20.0], vel, damage: 0.0, pierce: 0, life: 1.0, force: 0.0, hit: Vec::new(), look: None, age: 0.0, by: None, lift: [0.0; 2] });
         }
         let e = effects::effects();
         for (i, fx) in [e.explosion, e.explosion_smoke, e.zombie_rises, e.mound_breaks].into_iter().cycle().take(16).enumerate() {
@@ -2217,7 +2234,8 @@ impl Harvest {
             let ground = [b.pos[0], b.pos[1] + 6.0];
             let back = norm([-b.vel[0], -b.vel[1]]);
             let shot = b.look.map_or(own_shot, |e| e.shot);
-            if self.map.cover_at(ground[0], ground[1]) {
+            let from_above = b.by.and_then(|d| book().defs[d].does) == Some(powerups::Does::Drone);
+            if !from_above && self.map.cover_at(ground[0], ground[1]) {
                 let cell = |p: [f32; 2]| [(p[0] / TILE).floor(), (p[1] / TILE).floor()];
                 let at = cell(ground);
                 if let Some(barrel) = self.barrels.iter_mut().find(|r| cell(r.pos) == at) {
@@ -3336,7 +3354,7 @@ mod tests {
         let c = barrel.center();
         h.zombies.push(Zombie::new(Kind::named("big"), [c[0] + 20.0, c[1]], 50.0, 1.0, 0.0));
         let mut sounds = Vec::new();
-        h.bullets.push(Bullet { pos: [c[0], c[1] - 6.0], vel: [1.0, 0.0], damage: 50.0, pierce: 0, life: 1.0, force: 30.0, hit: Vec::new(), look: None, age: 0.0, by: None });
+        h.bullets.push(Bullet { pos: [c[0], c[1] - 6.0], vel: [1.0, 0.0], damage: 50.0, pierce: 0, life: 1.0, force: 30.0, hit: Vec::new(), look: None, age: 0.0, by: None, lift: [0.0; 2] });
         h.move_bullets(0.016, &mut sounds);
         assert!(h.blow(0.016, &mut sounds));
         assert!(h.zombies[0].hp <= 0.0);
@@ -3351,7 +3369,7 @@ mod tests {
         let mut h = Harvest::calm(4);
         let at = h.pos;
         h.zombies.push(Zombie::new(Kind::named("big"), [at[0] + 3.0, at[1]], 500.0, 1.0, 0.0));
-        h.bullets = vec![Bullet { pos: [at[0], at[1] - 6.0], vel: [10.0, 0.0], damage: 1.0, pierce: 0, life: 1.0, force: 0.0, hit: Vec::new(), look: Some(look), age: 0.0, by: None }];
+        h.bullets = vec![Bullet { pos: [at[0], at[1] - 6.0], vel: [10.0, 0.0], damage: 1.0, pierce: 0, life: 1.0, force: 0.0, hit: Vec::new(), look: Some(look), age: 0.0, by: None, lift: [0.0; 2] }];
         h.juice.particles.clear();
         h.move_bullets(0.016, &mut Vec::new());
         assert!(h.bullets.is_empty());
@@ -3359,12 +3377,12 @@ mod tests {
         assert!(h.juice.particles.len() > shot.impact as usize + 1, "and the blood still sprays");
         h.zombies.clear();
         h.juice.particles.clear();
-        h.bullets = vec![Bullet { pos: [at[0], at[1] - 6.0], vel: [10.0, 0.0], damage: 1.0, pierce: 0, life: 0.01, force: 0.0, hit: Vec::new(), look: Some(look), age: 0.0, by: None }];
+        h.bullets = vec![Bullet { pos: [at[0], at[1] - 6.0], vel: [10.0, 0.0], damage: 1.0, pierce: 0, life: 0.01, force: 0.0, hit: Vec::new(), look: Some(look), age: 0.0, by: None, lift: [0.0; 2] }];
         h.move_bullets(0.016, &mut Vec::new());
         assert_eq!(sparks(&h), shot.impact as usize, "a bullet that flies its range sparks on the ground");
         h.juice.particles.clear();
         let sprite = effects::effects().slash;
-        h.bullets = vec![Bullet { pos: [at[0], at[1] - 6.0], vel: [10.0, 0.0], damage: 1.0, pierce: 0, life: 0.01, force: 0.0, hit: Vec::new(), look: Some(sprite), age: 0.0, by: None }];
+        h.bullets = vec![Bullet { pos: [at[0], at[1] - 6.0], vel: [10.0, 0.0], damage: 1.0, pierce: 0, life: 0.01, force: 0.0, hit: Vec::new(), look: Some(sprite), age: 0.0, by: None, lift: [0.0; 2] }];
         h.move_bullets(0.016, &mut Vec::new());
         assert!(h.juice.particles.is_empty(), "a bullet that flies as a sprite throws none");
     }
@@ -3391,7 +3409,7 @@ mod tests {
         let mut live = Zombie::new(Kind::named("skinny"), at, 1000.0, 1.0, 0.0);
         live.id = 2;
         h.zombies = vec![dead, live];
-        h.bullets = vec![Bullet { pos: [at[0], at[1] - 6.0], vel: [0.0; 2], damage: 10.0, pierce: 5, life: 1.0, force: 0.0, hit: Vec::new(), look: None, age: 0.0, by: None }];
+        h.bullets = vec![Bullet { pos: [at[0], at[1] - 6.0], vel: [0.0; 2], damage: 10.0, pierce: 5, life: 1.0, force: 0.0, hit: Vec::new(), look: None, age: 0.0, by: None, lift: [0.0; 2] }];
         let mut sounds = Vec::new();
         h.move_bullets(0.016, &mut sounds);
         let once = h.zombies[1].hp;
@@ -3408,7 +3426,7 @@ mod tests {
         let (bush, house) = (bottom(art::BUSH), bottom(art::HOUSE));
         assert!(h.map.solid_at(bush[0], bush[1]));
         let mut stops = |at: [f32; 2]| {
-            h.bullets = vec![Bullet { pos: [at[0], at[1] - 6.0], vel: [0.0; 2], damage: 1.0, pierce: 0, life: 1.0, force: 0.0, hit: Vec::new(), look: None, age: 0.0, by: None }];
+            h.bullets = vec![Bullet { pos: [at[0], at[1] - 6.0], vel: [0.0; 2], damage: 1.0, pierce: 0, life: 1.0, force: 0.0, hit: Vec::new(), look: None, age: 0.0, by: None, lift: [0.0; 2] }];
             h.move_bullets(0.016, &mut Vec::new());
             h.bullets.is_empty()
         };
@@ -3443,7 +3461,7 @@ mod tests {
         let mut h = penned();
         let post = [7.5 * TILE, 6.5 * TILE];
         let shoot = |h: &mut Harvest| {
-            h.bullets = vec![Bullet { pos: [post[0], post[1] - 6.0], vel: [0.0; 2], damage: 10.0, pierce: 0, life: 1.0, force: 0.0, hit: Vec::new(), look: None, age: 0.0, by: None }];
+            h.bullets = vec![Bullet { pos: [post[0], post[1] - 6.0], vel: [0.0; 2], damage: 10.0, pierce: 0, life: 1.0, force: 0.0, hit: Vec::new(), look: None, age: 0.0, by: None, lift: [0.0; 2] }];
             h.move_bullets(0.016, &mut Vec::new());
         };
         let i = h.map.breakable_at(post[0], post[1]).unwrap();

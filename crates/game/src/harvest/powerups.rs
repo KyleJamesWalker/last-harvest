@@ -51,6 +51,10 @@ pub enum Does {
     Scarecrow,
     Molotov,
     Flare,
+    /// Smashes the ground ahead, cracking it in a line.
+    Maul,
+    /// Flies out to a crowd and sprays it with bursts.
+    Drone,
     /// A gun shaped by its section's `aim` and `pattern`.
     Gun,
     /// A blade that cuts everything within its area across its spread, aimed by its section's `aim`.
@@ -109,7 +113,7 @@ pub enum Pattern {
 }
 
 /// Every weapon behaviour by the name `does` gives it.
-const DOES: [(&str, Does); 20] = [
+const DOES: [(&str, Does); 22] = [
     ("pistol", Does::Pistol),
     ("shotgun", Does::Shotgun),
     ("rifle", Does::Rifle),
@@ -127,6 +131,8 @@ const DOES: [(&str, Does); 20] = [
     ("scarecrow", Does::Scarecrow),
     ("molotov", Does::Molotov),
     ("flare", Does::Flare),
+    ("maul", Does::Maul),
+    ("drone", Does::Drone),
     ("gun", Does::Gun),
     ("blade", Does::Blade),
     ("lob", Does::Lob),
@@ -139,7 +145,7 @@ impl Does {
 }
 
 /// The names a weapon's `does` can give, in the file's order.
-pub fn weapon_behaviours() -> [&'static str; 20] {
+pub fn weapon_behaviours() -> [&'static str; 22] {
     DOES.map(|(k, _)| k)
 }
 

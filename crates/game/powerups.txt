@@ -174,6 +174,26 @@ count     1 1 1 2 2 2 3 3
 spread    40
 knockback 90
 
+[maul]
+name      Post maul
+kind      weapon
+kick      0.04
+punch     2
+shake     0.18
+zone      ahead
+unlock    breakers 1
+blurb     A slow overhead smash that cracks the ground ahead
+max       8
+find      0.15
+cooldown  2.4 2.3 2.2 2.1 2.0 1.9 1.8 1.6
+damage    45 55 65 75 90 105 120 140
+# range is how far the crack runs, area how wide it is; count cracks fan out across spread degrees.
+range     40 44 48 52 56 60 64 70
+area      10 10 11 11 12 12 13 14
+count     1 1 1 2 2 2 3 3
+spread    30
+knockback 70
+
 # Around: a ring centred on you.
 
 [knife]
@@ -345,6 +365,28 @@ damage    8 9 10 12 14 16 18 20
 area      40 42 44 46 50 54 58 60
 duration  6 6 7 7 8 8 9 10
 range     160
+
+[drone]
+name      Drone
+kind      weapon
+bullet    drone_shot
+zone      map
+unlock    breaker_dawns 1
+blurb     Flies out like the dog and sprays full-auto bursts
+max       8
+find      0.12
+after     3
+# range is how far from you it flies to a crowd; each burst lasts duration, a round every gap seconds.
+cooldown  2.5 2.4 2.3 2.2 2.0 1.9 1.8 1.6
+damage    5 6 7 8 9 10 11 13
+count     1 1 1 1 2 2 2 2
+range     130 135 140 145 150 155 160 170
+speed     110 115 120 125 130 135 140 150
+duration  1.0 1.1 1.2 1.3 1.4 1.5 1.6 1.8
+gap       0.1 0.09 0.09 0.08 0.08 0.07 0.07 0.06
+spread    12
+pierce    0 0 0 0 1 1 1 1
+knockback 10
 
 # Passives.
 

@@ -14,6 +14,8 @@ const MAX_PATCHES: usize = 80;
 const PATCH_TICK: f32 = 0.25;
 const BURN_TICK: f32 = 0.3;
 pub(super) const BOLT_LIFE: f32 = 0.18;
+/// A player's gun height less how far a drone's gun hangs below its feet, in pixels; rounds leave from it.
+const DRONE_GUN: f32 = 5.0;
 
 /// A weapon the player carries; `phase` turns the crows around.
 #[derive(Clone, Copy, Debug)]
@@ -285,6 +287,8 @@ pub(super) struct Swing {
     pub reach: [f32; 2],
     /// How it stands in 3D, when not as its art's catalog line says.
     pub stand: Option<crate::art::Stand>,
+    /// Brought down overhead onto the ground ahead, rather than thrust or swept flat.
+    pub smash: bool,
 }
 
 impl Swing {
@@ -308,6 +312,8 @@ pub(super) const SWING_TURN: f32 = std::f32::consts::FRAC_PI_2;
 pub struct SwingShow {
     /// All the way round, as the scythe does, else straight out ahead, as the pitchfork does.
     pub sweep: bool,
+    /// Brought down overhead, as the maul does.
+    pub smash: bool,
     pub life: f32,
     /// How far out it plays at level 1, in map pixels.
     pub reach: f32,
@@ -319,13 +325,14 @@ pub fn swing_shown(name: &str) -> Option<SwingShow> {
     let first = crate::art::ALL.iter().find(|(n, _)| *n == name)?.1.first().copied()?;
     let fx = super::effects::effects();
     book().defs.iter().find_map(|d| {
-        let (own, stat, sweep) = match d.does? {
-            Does::Pitchfork => (fx.pitchfork, Stat::Range, false),
-            Does::Scythe => (fx.scythe, Stat::Area, true),
+        let (own, stat, sweep, smash) = match d.does? {
+            Does::Pitchfork => (fx.pitchfork, Stat::Range, false, false),
+            Does::Scythe => (fx.scythe, Stat::Area, true, false),
+            Does::Maul => (fx.maul, Stat::Range, false, true),
             _ => return None,
         };
         let e = d.effect.as_deref().and_then(|n| fx.named(n)).unwrap_or(own);
-        (e.frames.first() == Some(&first)).then(|| SwingShow { sweep, life: e.life, reach: d.at(stat, 1) * e.reach, fade: e.fade })
+        (e.frames.first() == Some(&first)).then(|| SwingShow { sweep, smash, life: e.life, reach: d.at(stat, 1) * e.reach, fade: e.fade })
     })
 }
 
@@ -364,6 +371,39 @@ impl Dog {
     pub fn lift(&self) -> f32 {
         let t = crate::tuning::tuning();
         self.leap.map_or(0.0, |a| (a / t.dog_leap_time * PI).sin() * t.dog_leap_height)
+    }
+}
+
+pub(super) struct Drone {
+    def: usize,
+    slot: usize,
+    pub pos: [f32; 2],
+    /// The way its gun points; the art faces right.
+    pub heading: [f32; 2],
+    pub anim: f32,
+    cd: f32,
+    /// Seconds left in the burst it is firing, and until its next round.
+    firing: f32,
+    next: f32,
+    target: Option<u32>,
+    vel: [f32; 2],
+    /// Where it means to hover, from the player.
+    spot: [f32; 2],
+    rest: f32,
+}
+
+impl Drone {
+    pub fn art(&self) -> Art {
+        super::effects::effects().drone.looping(self.anim)
+    }
+
+    /// How high it flies, in pixels: its sprite's float, bobbing a little.
+    pub fn lift(&self) -> f32 {
+        let float = match self.art().stand() {
+            Some(crate::art::Stand::Figure { lift } | crate::art::Stand::Slab { lift, .. }) => lift,
+            _ => 0.0,
+        };
+        float + (self.anim * 2.3).sin() * 1.5
     }
 }
 
@@ -480,6 +520,7 @@ impl Harvest {
         }
         self.peck(dt, sounds);
         self.walk_dogs(dt, sounds);
+        self.fly_drones(dt, sounds);
         self.juice.tally.by = None;
     }
 
@@ -504,7 +545,8 @@ impl Harvest {
             Does::Gun => self.gun(a, sounds),
             Does::Blade => self.blade(a, sounds),
             Does::Lob => self.lob(a, sounds),
-            Does::Crows | Does::Dog => false,
+            Does::Maul => self.maul(a, sounds),
+            Does::Crows | Does::Dog | Does::Drone => false,
         }
     }
 
@@ -744,9 +786,61 @@ impl Harvest {
                 }
             }
             let e = look(a, super::effects::effects().pitchfork);
-            self.swings.push(Swing { art: e.frames[0], fade: e.fade, age: 0.0, life: e.life, angle: [angle; 2], reach: [2.0, range * e.reach], stand: None });
+            self.swings.push(Swing { art: e.frames[0], fade: e.fade, age: 0.0, life: e.life, angle: [angle; 2], reach: [2.0, range * e.reach], stand: None, smash: false });
         }
         self.attack_feel(a, [self.pos[0] + self.aim[0] * 8.0, self.pos[1] + self.aim[1] * 8.0], 10.0);
+        sounds.push(sound(a, Sfx::Slash));
+        self.thud(hits, sounds);
+        true
+    }
+
+    /// Smashes the ground ahead: each crack hurts what stands on it and knocks it aside; past its top, each crack
+    /// ends in a ring.
+    fn maul(&mut self, a: Armed, sounds: &mut Vec<Sfx>) -> bool {
+        let range = self.stat(a, Stat::Range);
+        if self.nearest_in(range + 4.0, Some((self.aim, self.ahead_half()))).is_none() {
+            return false;
+        }
+        let def = &book().defs[a.def];
+        let (count, spread) = (self.stat(a, Stat::Count).max(1.0) as u32, self.stat(a, Stat::Spread).to_radians());
+        let (area, damage, force, crit) = (self.stat(a, Stat::Area), self.stat(a, Stat::Damage), self.stat(a, Stat::Knockback), self.crit());
+        let ring = if a.level > def.max { area * crate::tuning::tuning().maul_shatter / 2.0 } else { 0.0 };
+        let fx = super::effects::effects();
+        let (smash, crack) = (look(a, fx.maul), fx.ground_crack);
+        let step = crack.frames[0].w().max(4.0);
+        let base = self.aim[1].atan2(self.aim[0]);
+        let mut hit = vec![false; self.zombies.len()];
+        let mut hits = (0, false);
+        for k in 0..count {
+            let angle = if count == 1 { base } else { base + (k as f32 / (count - 1) as f32 - 0.5) * spread };
+            let dir = [angle.cos(), angle.sin()];
+            let end = polar(self.pos, angle, range);
+            for (i, z) in self.zombies.iter_mut().enumerate() {
+                let d = sub(z.pos, self.pos);
+                let along = d[0] * dir[0] + d[1] * dir[1];
+                let across = d[0] * dir[1] - d[1] * dir[0];
+                let on_crack = (0.0..range).contains(&along) && across.abs() < area / 2.0 + 3.0;
+                if !hit[i] && (on_crack || len(sub(z.pos, end)) < ring) {
+                    hit[i] = true;
+                    let aside = if on_crack { [dir[1] * across.signum(), -dir[0] * across.signum()] } else { norm(sub(z.pos, end)) };
+                    hits.1 |= strike(z, &mut self.juice, damage, aside, force, crit);
+                    hits.0 += 1;
+                }
+            }
+            self.swings.push(Swing { art: smash.frames[0], fade: smash.fade, age: 0.0, life: smash.life, angle: [angle; 2], reach: [2.0, range * smash.reach], stand: None, smash: true });
+            for s in 0..(range / step).ceil() as u32 {
+                self.fx.push(Fx::play(crack, polar(self.pos, angle, (s as f32 + 0.5) * step), angle));
+            }
+            if ring > 0.0 {
+                for s in 0..6 {
+                    let out = angle + s as f32 * TAU / 6.0;
+                    self.fx.push(Fx::play(crack, polar(end, out, step / 2.0), out));
+                }
+                self.juice.ring(end, ring, 0.3, [0.85, 0.75, 0.6]);
+            }
+        }
+        self.fx.push(Fx::play(fx.mound_breaks, polar(self.pos, base, 10.0), 0.0));
+        self.attack_feel(a, polar(self.pos, base, 10.0), 4.0);
         sounds.push(sound(a, Sfx::Slash));
         self.thud(hits, sounds);
         true
@@ -788,7 +882,7 @@ impl Harvest {
         }
         let from = self.view_yaw;
         let e = look(a, super::effects::effects().scythe);
-        self.swings.push(Swing { art: e.frames[0], fade: e.fade, age: 0.0, life: e.life, angle: [from, from + TAU], reach: [reach * e.reach; 2], stand: None });
+        self.swings.push(Swing { art: e.frames[0], fade: e.fade, age: 0.0, life: e.life, angle: [from, from + TAU], reach: [reach * e.reach; 2], stand: None, smash: false });
         self.juice.ring(self.pos, reach, 0.3, [0.85, 0.85, 0.8]);
         self.attack_feel(a, self.pos, 10.0);
         sounds.push(sound(a, Sfx::Slash));
@@ -942,6 +1036,96 @@ impl Harvest {
             self.hush[4] = 1.0;
         }
         self.thud(hits, sounds);
+    }
+
+    /// Drones fly out to the zombie nearest them within their reach of the player, hover off it and fire a burst,
+    /// a round every gap; with nothing to shoot they hover near the player.
+    fn fly_drones(&mut self, dt: f32, sounds: &mut Vec<Sfx>) {
+        let want: Vec<(usize, usize)> = self.kit.weapons.iter().filter(|a| a.does() == Does::Drone).flat_map(|&a| (0..self.stat(a, Stat::Count).max(1.0) as usize).map(move |s| (a.def, s))).collect();
+        self.drones.retain(|d| want.contains(&(d.def, d.slot)));
+        for (def, slot) in want {
+            if !self.drones.iter().any(|d| d.def == def && d.slot == slot) {
+                let anim = slot as f32 * 0.7;
+                self.drones.push(Drone { def, slot, pos: self.pos, heading: [1.0, 0.0], anim, cd: 0.0, firing: 0.0, next: 0.0, target: None, vel: [0.0; 2], spot: [0.0; 2], rest: 0.0 });
+            }
+        }
+        let tune = crate::tuning::tuning();
+        for i in 0..self.drones.len() {
+            let Some(a) = self.kit.weapons.iter().copied().find(|a| a.def == self.drones[i].def) else { continue };
+            let (leash, speed, burst, gap, cooldown) = (self.stat(a, Stat::Range), self.stat(a, Stat::Speed), self.stat(a, Stat::Duration), self.stat(a, Stat::Gap).max(0.02), self.stat(a, Stat::Cooldown));
+            let drone = &self.drones[i];
+            let near_player = |z: &Zombie| z.rise >= 1.0 && len(sub(z.pos, self.pos)) < leash;
+            let held = drone.target.and_then(|id| self.zombies.iter().position(|z| z.id == id && near_player(z)));
+            let target = held.or_else(|| self.zombies.iter().enumerate().filter(|(_, z)| near_player(z)).min_by(|a, b| len(sub(a.1.pos, drone.pos)).total_cmp(&len(sub(b.1.pos, drone.pos)))).map(|(i, _)| i));
+            let (player, yaw) = (self.pos, self.view_yaw);
+            let goal = target.map(|t| self.zombies[t].pos);
+            let drone = &mut self.drones[i];
+            drone.target = target.map(|t| self.zombies[t].id);
+            drone.rest -= dt;
+            drone.anim += dt;
+            if drone.rest <= 0.0 {
+                let rng = &mut self.juice.rng;
+                drone.spot = polar([0.0; 2], yaw + rng.range(-0.6, 0.6) * PI, rng.range(18.0, 34.0));
+                drone.rest = rng.range(1.5, 3.5);
+            }
+            let hover = match goal {
+                Some(g) => {
+                    let off = sub(drone.pos, g);
+                    let off = if len(off) > 0.1 { norm(off) } else { [-drone.heading[0], -drone.heading[1]] };
+                    [g[0] + off[0] * tune.drone_hold, g[1] + off[1] * tune.drone_hold]
+                }
+                None => [player[0] + drone.spot[0], player[1] + drone.spot[1]],
+            };
+            let to = sub(hover, drone.pos);
+            let pace = if goal.is_some() { speed } else { speed * 0.6 };
+            let n = norm(to);
+            let pace = (len(to) / 12.0).min(1.0) * pace;
+            let want = if len(to) > 2.0 { [n[0] * pace, n[1] * pace] } else { [0.0; 2] };
+            let k = (dt * 4.0).min(1.0);
+            drone.vel = [drone.vel[0] + (want[0] - drone.vel[0]) * k, drone.vel[1] + (want[1] - drone.vel[1]) * k];
+            drone.pos = [drone.pos[0] + drone.vel[0] * dt, drone.pos[1] + drone.vel[1] * dt];
+            let aim = goal.map(|g| sub(g, drone.pos));
+            if let Some(d) = aim.filter(|d| len(*d) > 0.1) {
+                drone.heading = norm(d);
+            } else if len(drone.vel) > 5.0 {
+                drone.heading = norm(drone.vel);
+            }
+            drone.cd -= dt;
+            let in_reach = aim.is_some_and(|d| len(d) < tune.drone_reach);
+            if drone.firing <= 0.0 {
+                if drone.cd > 0.0 || !in_reach {
+                    continue;
+                }
+                (drone.firing, drone.next) = (burst, 0.0);
+            }
+            drone.firing -= dt;
+            drone.next -= dt;
+            if drone.firing <= 0.0 {
+                drone.cd = cooldown;
+            }
+            let mut rounds = 0;
+            if in_reach {
+                while drone.next <= 0.0 {
+                    drone.next += gap;
+                    rounds += 1;
+                }
+            } else {
+                drone.next = drone.next.max(0.0);
+            }
+            let (from, heading) = (drone.pos, drone.heading);
+            let lift = [drone.lift() - DRONE_GUN, tune.drone_hold / tune.drone_bullet];
+            let (damage, pierce, force, spread) = (self.stat(a, Stat::Damage), self.stat(a, Stat::Pierce) as u32, self.stat(a, Stat::Knockback), self.stat(a, Stat::Spread).to_radians());
+            for _ in 0..rounds {
+                let angle = heading[1].atan2(heading[0]) + self.juice.rng.range(-0.5, 0.5) * spread;
+                self.juice.tally.by = Some(a.def);
+                self.shoot_from([from[0], from[1] - 6.0], angle, tune.drone_bullet, damage, pierce, tune.drone_reach * 1.2 / tune.drone_bullet, force, bullet(a), lift);
+            }
+            if rounds > 0 && self.hush[7] <= 0.0 {
+                sounds.push(sound(a, Sfx::Shot));
+                self.hush[7] = 0.08;
+                self.noise = Some(from);
+            }
+        }
     }
 
     fn tacks(&mut self, a: Armed) -> bool {
@@ -1186,8 +1370,13 @@ impl Harvest {
 
     #[allow(clippy::too_many_arguments)]
     pub(super) fn shoot(&mut self, angle: f32, speed: f32, damage: f32, pierce: u32, life: f32, force: f32, look: Option<super::effects::Effect>) {
+        self.shoot_from([self.pos[0], self.pos[1] - 6.0], angle, speed, damage, pierce, life, force, look, [0.0; 2]);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn shoot_from(&mut self, pos: [f32; 2], angle: f32, speed: f32, damage: f32, pierce: u32, life: f32, force: f32, look: Option<super::effects::Effect>, lift: [f32; 2]) {
         let vel = [angle.cos() * speed, angle.sin() * speed];
-        self.bullets.push(Bullet { pos: [self.pos[0], self.pos[1] - 6.0], vel, damage, pierce, life, force, hit: Vec::new(), look, age: 0.0, by: self.juice.tally.by });
+        self.bullets.push(Bullet { pos, vel, damage, pierce, life, force, hit: Vec::new(), look, age: 0.0, by: self.juice.tally.by, lift });
     }
 }
 
@@ -1535,6 +1724,74 @@ mod tests {
         assert!(!h.kit.offerable(pistol));
         let (top, past) = (|s| d.at(s, d.max), |s| d.at(s, d.max + 1));
         assert!(past(Stat::Count) > top(Stat::Count) && past(Stat::Damage) > top(Stat::Damage) && past(Stat::Cooldown) < top(Stat::Cooldown));
+    }
+
+    #[test]
+    fn a_level_breaker_marks_the_run_for_the_breaker_unlocks() {
+        let b = book();
+        let pistol = b.index("pistol").unwrap();
+        let mut h = Harvest::new(1);
+        h.kit.raise(pistol, b.defs[pistol].max - 1 - h.kit.level(pistol));
+        assert!(!h.finish(false).broke);
+        h.pick(super::super::Choice { up: pistol, rare: true, found: false });
+        let run = h.finish(true);
+        assert!(run.broke && run.won);
+        assert_eq!((h.progress.breakers, h.progress.breaker_dawns), (1, 1));
+    }
+
+    #[test]
+    fn the_maul_cracks_the_ground_in_a_line_and_knocks_what_stands_on_it_aside() {
+        let mut h = with("maul", [20.0, 3.0]);
+        h.zombies.push(Zombie::new(ZKind::named("big"), [h.pos[0] - 20.0, h.pos[1]], 500.0, 1.0, 0.0));
+        let a = h.kit.weapons[0];
+        let hp = [h.zombies[0].hp, h.zombies[1].hp];
+        assert!(h.maul(a, &mut Vec::new()));
+        assert!(h.zombies[0].hp < hp[0], "the zombie on the crack is hurt");
+        assert_eq!(h.zombies[1].hp, hp[1], "the one behind is not");
+        assert!(h.zombies[0].push[1] > 0.0 && h.zombies[0].push[0].abs() < 1e-3, "it is knocked aside, off the crack: {:?}", h.zombies[0].push);
+        assert!(h.fx.len() >= 3, "the crack runs along the ground");
+    }
+
+    #[test]
+    fn past_its_top_the_maul_ends_each_crack_in_a_ring() {
+        let b = book();
+        let maul = b.index("maul").unwrap();
+        let d = &b.defs[maul];
+        let mut h = with("maul", [20.0, 0.0]);
+        h.kit.raise(maul, d.max - 1 - h.kit.level(maul));
+        let range = d.at(Stat::Range, d.max) * h.kit.mods.reach;
+        h.zombies.push(Zombie::new(ZKind::named("big"), [h.pos[0] + range + 4.0, h.pos[1] + 9.0], 500.0, 1.0, 0.0));
+        let past_end = h.zombies[1].hp;
+        assert!(h.maul(h.kit.weapons[0], &mut Vec::new()));
+        assert_eq!(h.zombies[1].hp, past_end, "at the top, nothing past the crack's end is hurt");
+        h.kit.raise(maul, 2);
+        assert!(h.kit.weapons[0].level > d.max);
+        assert!(h.maul(h.kit.weapons[0], &mut Vec::new()));
+        assert!(h.zombies[1].hp < past_end, "past the top, the ring at the end catches it");
+    }
+
+    #[test]
+    fn a_drone_flies_out_to_a_zombie_hovers_off_it_and_fires_bursts() {
+        let t = crate::tuning::tuning();
+        let mut h = with("drone", [100.0, 0.0]);
+        h.barrels.clear();
+        let hurt = hurt_after(&mut h, 6.0);
+        assert!(hurt > 0.0, "its rounds hit");
+        let d = &h.drones[0];
+        let off = len(sub(d.pos, h.zombies[0].pos));
+        assert!((off - t.drone_hold).abs() < 8.0, "it hovers its hold off the zombie, {off}");
+        assert!(d.lift() > 8.0, "in the air");
+        let rows = h.juice.tally.rows();
+        assert_eq!(rows[0].by, book().index("drone"));
+    }
+
+    #[test]
+    fn a_drone_holds_fire_out_of_reach_and_drifts_near_the_player_with_nothing_to_shoot() {
+        let mut h = with("drone", [400.0, 0.0]);
+        let hurt = hurt_after(&mut h, 4.0);
+        assert_eq!(hurt, 0.0, "a zombie past its range is left alone");
+        assert!(len(sub(h.drones[0].pos, h.pos)) < 50.0, "it stays by the player");
+        assert!(h.bullets.is_empty());
     }
 
     #[test]

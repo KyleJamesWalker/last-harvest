@@ -191,7 +191,7 @@ The game reads its rules from seven text files in `crates/game/`. The packer put
 | `[driver]` | Soul harvest: seconds into the night until the Collector's first tithe (`after`, 0 turns it off), seconds from one soul harvest to the next (`every`), and how near him, in pixels, pays the tithe (`reach`) |
 | `[grenade]` | Recharge, flight time, radius, damage, bomblets, one-screen aiming (`aim_`), and R1's quick throw (`quick_near`, `quick_far`, `quick_grow`) |
 | `[barrel]` | Health, blast radius and damage |
-| `[weapons]` | The view ahead and behind, the pistol's point-blank reach, crow and dog reach, and how long fire burns |
+| `[weapons]` | The view ahead and behind, the pistol's point-blank reach, crow and dog reach, how long fire burns, the ring at the end of a maul's crack past its top (`maul_shatter`, 0 turns it off), and how far off a crowd a drone hovers, its gun's reach and its rounds' speed (`drone_hold`, `drone_reach`, `drone_bullet`) |
 | `[blast]` | How much any blast hurts the player, and how near counts |
 | `[map]` | The map's scale, how far the view sees zombies for the map, how long one out of sight takes to fade, and the shade outside the view |
 
@@ -291,7 +291,7 @@ Each section names what an effect, swing, bullet, thrown item, pickup or animal 
 
 Alpha and fades apply to an effect that plays once where it happens, such as a blast or a puff, and to a swing. The game's blasts, smoke and the eruption around a rising zombie fade out. The zombie stays solid. In a shot style, alpha and fades apply to its smoke puffs over their life, and its sparks and tracer stay opaque. A shot style without them takes `[bullet]`'s.
 
-A slab sprite lies flat and turns with the swing. Any other sprite faces the camera. Draw a swing's sprite pointing up: its top leads the thrust or sweep. A mod's file may leave out `[dog_attack]`, `[spit]`, `[mound]` and `[mound_breaks]` and keep the game's.
+A slab sprite lies flat and turns with the swing. Any other sprite faces the camera. Draw a swing's sprite pointing up: its top leads the thrust or sweep. A mod's file may leave out `[dog_attack]`, `[spit]`, `[mound]`, `[mound_breaks]`, `[maul]`, `[ground_crack]` and `[drone]` and keep the game's. `[ground_crack]` is drawn pointing right and laid end to end along a maul's crack.
 
 A section can instead set a shot style, which a weapon fires with `bullet NAME`. A shot style draws a tracer, a muzzle flare, sparks and smoke, and sparks where the bullet hits.
 
@@ -338,7 +338,7 @@ Each stat line lists its value at each level, and a short list repeats its last 
 
 #### Weapons from data
 
-A new weapon needs no code. Copy a weapon's section under a new id and change its lines; **Copy** on the weapon's Data page in either editor does it. `does` picks the behavior and defaults to the id, so `does scythe` under a new id is a second scythe. Three behaviors take their shape from data:
+A new weapon needs no code. Copy a weapon's section under a new id and change its lines; **Copy** on the weapon's Data page in either editor does it. `does` picks the behavior and defaults to the id, so `does scythe` under a new id is a second scythe. These behaviors take their shape from data:
 
 - `does gun` fires `count` shots at what its `aim` finds: `nearest` (the default), `ahead`, `behind` or `around`. `pattern` spreads them:
     - `fan`: evenly across `spread` degrees, the default.
@@ -347,6 +347,8 @@ A new weapon needs no code. Copy a weapon's section under a new id and change it
     - `burst`: one after another, `gap` seconds apart, each aimed as it fires. `does pistol` also fires bursts.
 - With `targets each`, each later shot of a burst goes to the nearest unshot zombie in range and in clear line of fire. `targets same`, the default, keeps every shot on one target.
 - `does blade` cuts everything within `area` across `spread` degrees, toward what its `aim` finds. A `spread` of 360 cuts all round.
+- `does maul` smashes the ground ahead when a zombie is within `range`: `count` cracks, `range` long and `area` wide, fan out across `spread` degrees. Each zombie on one takes `damage` and is knocked aside by `knockback`. Past its top, each crack ends in a ring (`maul_shatter` in `tuning.txt`).
+- `does drone` flies `count` drones at `speed` to zombies within `range` of the player. Each hovers off its target and fires a burst for `duration` seconds, a round every `gap` seconds across `spread` degrees, then rests for `cooldown`. Its rounds fly over cover.
 - `does lob` throws `count` at a crowd within `range`. `lands` sets what happens there, with its `damage`, `area`, `duration` and `slow`: `blast` (the default), `fire`, `flare` or `tacks`.
 
 Any weapon can also take:

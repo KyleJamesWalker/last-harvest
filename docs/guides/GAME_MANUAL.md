@@ -185,6 +185,7 @@ These tables list what the game ships with. A mod pack can change any of them, a
 | Lantern beam | Ahead | Survive 2:00 of one night | 8 | Your light burns and slows what it falls on |
 | Weed burner | Ahead | 1500 kills over every run | 8 | A short cone of flame that sets them burning |
 | Pitchfork | Ahead | 3000 kills over every run | 8 | Skewers everything in a line in front of you |
+| Post maul | Ahead | A level breaker | 8 | A slow overhead smash that cracks the ground ahead |
 | Knife | Around | From the start | 8 | Slashes everything close by |
 | Scythe | Around | 100 kills over every run | 8 | A full sweep all the way around you |
 | Crows | Around | Survive 4:00 of one night | 8 | Birds circle you and peck at what they touch |
@@ -196,6 +197,7 @@ These tables list what the game ships with. A mod pack can change any of them, a
 | Scarecrow decoy | Behind | 4000 kills over every run, then found only in a leader's chest | 8 | Dropped behind you; draws them in, then bursts |
 | Molotov | Map | 1000 kills over every run | 8 | Lobbed into a crowd, leaving a pool of fire |
 | Flare gun | Map | Survive 9:00 of one night, then found from minute 4 | 8 | Lights up a far crowd, and burns it |
+| Drone | Map | A level breaker survived to dawn, then found from minute 3 | 8 | Flies out like the dog and sprays full-auto bursts |
 
 <!-- /items -->
 
@@ -446,11 +448,11 @@ The range tests one weapon at its level against a ring of eight zombies that ris
 
 | Action | Buttons | Touch |
 |---|---|---|
-| Step the level | Up and Down | Level - and Level + |
+| Step the level, up to the level breaker one past the top | Up and Down | Level - and Level + |
 | Pick the zombie kind, cards included | Left and Right | < Kind and Kind > |
 | Switch between firing by hand and on cooldown | Select | By hand / On cooldown |
 | Fire by hand | X | Fire |
-| Point the camera at each dog in turn, then back at you | R1 | |
+| Point the camera at each dog and drone in turn, then back at you | R1 | |
 | Swing the camera round and back it off | Right-drag and the wheel; left-drag on the top window | |
 
 Restart, in the pause menu, starts the range afresh.

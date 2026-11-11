@@ -194,7 +194,7 @@ pub(super) struct Range {
     kind: usize,
     /// The weapon fires only when asked, rather than whenever its cooldown runs out.
     by_hand: bool,
-    /// The dog the camera follows, by its place among the player's dogs.
+    /// The dog or drone the camera follows, by its place among the dogs then the drones.
     follow: Option<usize>,
     /// The next ring spot a zombie rises at.
     slot: usize,
@@ -223,7 +223,7 @@ impl Harvest {
         let weapon = |i: &usize| b.defs[*i].kind == Card::Weapon;
         let def = b.index(&setup.weapon).filter(weapon).or_else(|| (0..b.defs.len()).find(weapon)).unwrap_or(0);
         h.kit = Kit::with_weapons(&[def], Difficulty::Normal);
-        h.kit.weapons[0].level = setup.level.clamp(1, b.defs[def].max);
+        h.kit.weapons[0].level = setup.level.clamp(1, top_level(def));
         h.hp = h.kit.max_hp();
         h.grenades = h.kit.grenades();
         h.next_xp = u32::MAX;
@@ -312,35 +312,36 @@ impl Harvest {
         Some(own)
     }
 
-    /// Points the camera at the next dog, or back at the player after the last.
+    /// Points the camera at the next dog or drone, or back at the player after the last.
     fn step_follow(&mut self, sounds: &mut Vec<Sfx>) {
-        let dogs = self.dogs.len();
+        let (dogs, drones) = (self.dogs.len(), self.drones.len());
         let Some(r) = &mut self.range else { return };
         r.follow = match r.follow {
-            None if dogs > 0 => Some(0),
-            Some(i) if i + 1 < dogs => Some(i + 1),
+            None if dogs + drones > 0 => Some(0),
+            Some(i) if i + 1 < dogs + drones => Some(i + 1),
             _ => None,
         };
         sounds.push(Sfx::Tick(r.follow.map_or(6, |i| i as u8 % 12)));
+        let one = |i: usize, n: usize, what: &str| if n > 1 { format!("Watching {what} {} of {n}", i + 1) } else { format!("Watching the {what}") };
         let banner = match r.follow {
-            Some(i) if dogs > 1 => format!("Watching dog {} of {dogs}", i + 1),
-            Some(_) => "Watching the dog".to_string(),
-            None if dogs == 0 => "No dog to watch".to_string(),
+            Some(i) if i < dogs => one(i, dogs, "dog"),
+            Some(i) => one(i - dogs, drones, "drone"),
+            None if dogs + drones == 0 => "Nothing to watch".to_string(),
             None => "Watching you".to_string(),
         };
         self.juice.banner(banner, WHITE, 1.2);
     }
 
-    /// Where the range's camera centers: the dog it follows, if any.
+    /// Where the range's camera centers: the dog or drone it follows, if any.
     pub(super) fn range_focus(&self) -> Option<[f32; 2]> {
-        self.range.as_ref()?.follow.and_then(|i| self.dogs.get(i)).map(|d| d.pos)
+        let i = self.range.as_ref()?.follow?;
+        self.dogs.get(i).map(|d| d.pos).or_else(|| self.drones.get(i - self.dogs.len()).map(|d| d.pos))
     }
 
     fn step_level(&mut self, by: i32, sounds: &mut Vec<Sfx>) {
         let Some(r) = &mut self.range else { return };
-        let max = book().defs[r.def].max;
         let Some(a) = self.kit.weapons.first_mut() else { return };
-        let level = (a.level as i32 + by).clamp(1, max as i32) as u32;
+        let level = (a.level as i32 + by).clamp(1, top_level(r.def) as i32) as u32;
         if level == a.level {
             return;
         }
@@ -411,10 +412,15 @@ impl Harvest {
         let how = if r.by_hand { "by hand" } else { "on cooldown" };
         let kind = &roster().enemies[r.kind].name;
         top.rect(16.0, 64.0, 620.0, 96.0, [0.0, 0.0, 0.0, 0.6]);
-        top.label(format!("{}  level {level}/{}  {how}", def.name, def.max), 28.0, 72.0, 32.0, WHITE, Align::Left);
+        let shown = if level > def.max { format!("level breaker {level}") } else { format!("level {level}/{}", def.max) };
+        top.label(format!("{}  {shown}  {how}", def.name), 28.0, 72.0, 32.0, WHITE, Align::Left);
         top.label(format!("{:.0} damage a second   vs {kind}", self.range_dps()), 28.0, 114.0, 32.0, GOLD, Align::Left);
         let (keys, down) = if self.single { (top, TOP_KEYS) } else { (bottom, 0.0) };
-        let camera = crate::pad::hint(if self.dogs.is_empty() { "Right-drag, wheel: camera" } else { "Right-drag, wheel: camera   {R1}: watch the dog" });
+        let camera = crate::pad::hint(match (self.dogs.is_empty(), self.drones.is_empty()) {
+            (true, true) => "Right-drag, wheel: camera",
+            (false, _) => "Right-drag, wheel: camera   {R1}: watch the dog",
+            (true, false) => "Right-drag, wheel: camera   {R1}: watch the drone",
+        });
         if self.single {
             keys.label(camera, 28.0, KEYS[0][1] + KEYS[0][3] + down + 8.0, 26.0, WHITE, Align::Left);
         } else {
@@ -428,6 +434,11 @@ impl Harvest {
             keys.label(label, x + w / 2.0, y + down + h / 2.0 - 16.0, 30.0, WHITE, Align::Center);
         }
     }
+}
+
+/// The highest level the range steps a weapon to: one past its top while the level breaker is on.
+fn top_level(def: usize) -> u32 {
+    book().defs[def].max + (crate::tuning::tuning().breaker > 0.0) as u32
 }
 
 #[cfg(test)]
@@ -604,5 +615,30 @@ mod tests {
         assert_eq!(h.range_focus(), None, "after the last dog, back to the player");
         assert_ne!(super::super::view3d::scene(&h).eye, away);
         assert_eq!(h.pos, start, "R1 never walked the player");
+    }
+
+    #[test]
+    fn the_level_steps_up_to_the_level_breaker_and_no_further() {
+        let mut h = Harvest::range(3, &RangeSetup { weapon: "maul".into(), level: 99, section: None, effects: None });
+        let max = book().defs[h.kit.weapons[0].def].max;
+        assert_eq!(h.kit.weapons[0].level, max + 1);
+        h.step_level(1, &mut Vec::new());
+        assert_eq!(h.kit.weapons[0].level, max + 1);
+        h.step_level(-1, &mut Vec::new());
+        assert_eq!(h.kit.weapons[0].level, max);
+    }
+
+    #[test]
+    fn r1_steps_the_camera_through_the_drones_too() {
+        let mut h = Harvest::range(3, &RangeSetup { weapon: "drone".into(), level: 8, section: None, effects: None });
+        run(&mut h, 3.0, Input::default());
+        let drones = h.drones.len();
+        assert!(drones > 1, "level 8 flies more than one drone");
+        for i in 0..drones {
+            run(&mut h, 0.0, press(Buttons::R1));
+            assert_eq!(h.range_focus(), Some(h.drones[i].pos), "drone {i}");
+        }
+        run(&mut h, 0.0, press(Buttons::R1));
+        assert_eq!(h.range_focus(), None);
     }
 }

@@ -31,6 +31,9 @@ const QUICK_PULSE: f32 = 4.0;
 const SIGHTLINE: f32 = 0.5;
 const BEHIND: f32 = 0.3;
 const CHARACTER_DEPTH: f32 = 3.0 * PX;
+/// How far back from straight up a smash starts, in radians, and how high the hands hold it, in pixels.
+const SMASH_RAISED: f32 = 0.25;
+const SMASH_HAND: f32 = 8.0;
 const WORN_DEPTH: f32 = PX;
 const DECAL_LIFT: f32 = 0.03;
 const MAX_ZOMBIES_3D: usize = 160;
@@ -833,12 +836,27 @@ pub fn scene(h: &Harvest) -> CardScene {
         let flip = d.heading[0] * right.x + d.heading[1] * right.z < 0.0;
         board(&mut cards, Board::new(d.art(), flip, d.pos, d.lift() * PX, CHARACTER_DEPTH));
     }
+    for d in h.drones.iter().filter(|d| (world(d.pos) - p).dot(forward) >= 0.0) {
+        let flip = d.heading[0] * right.x + d.heading[1] * right.z < 0.0;
+        board(&mut cards, Board::new(d.art(), flip, d.pos, d.lift() * PX, CHARACTER_DEPTH));
+    }
     for (i, (p, flip)) in h.crows().into_iter().enumerate() {
         let crow = super::effects::effects().crow;
         let a = crow.looping(h.t + i as f32 / crow.fps);
         board(&mut cards, Board::new(a, flip, p, 12.0 * PX, 0.0));
     }
-    for s in &h.swings {
+    for s in h.swings.iter().filter(|s| s.smash) {
+        let (angle, _) = s.now();
+        let k = (s.age / s.life).min(1.0);
+        let tip = SMASH_RAISED + (std::f32::consts::FRAC_PI_2 - SMASH_RAISED) * k * k;
+        let ahead = Vec3::new(angle.cos(), 0.0, angle.sin());
+        let side = ahead.cross(Vec3::Y);
+        let up = Vec3::Y * tip.cos() + ahead * tip.sin();
+        let origin = world(h.pos) + ahead * (4.0 * PX) - side * (s.art.w() * PX / 2.0) + Vec3::Y * (SMASH_HAND * PX * (1.0 - k) + 0.04);
+        let pose = Pose { origin, right: side, up, back: up.cross(side), depth: PX, tint: [1.0; 3], reach: Reach::Thin, top: None };
+        faded(&mut cards, s.alpha() * s.art.alpha(), |cards| stand(cards, eye, s.art, false, pose, false));
+    }
+    for s in h.swings.iter().filter(|s| !s.smash) {
         let (angle, r) = s.now();
         let at = [h.pos[0] + angle.cos() * r, h.pos[1] + angle.sin() * r];
         match s.stand.or_else(|| s.art.stand()) {
@@ -966,9 +984,11 @@ pub fn scene(h: &Harvest) -> CardScene {
             continue;
         };
         let at = [b.pos[0], b.pos[1] + 6.0];
-        let head = world(at) + Vec3::Y * 0.42;
+        let head = world(at) + Vec3::Y * (0.42 + b.up(b.age) * PX);
         if near(head) && (head - p).dot(forward) > 0.0 {
-            let tail = world(shot.tail(at, b.vel, b.age)) + Vec3::Y * 0.42;
+            let back = shot.tail(at, b.vel, b.age);
+            let behind = len(sub(at, back)) / len(b.vel).max(1.0);
+            let tail = world(back) + Vec3::Y * (0.42 + b.up(b.age - behind) * PX);
             match shot.sprites[super::effects::TRACER] {
                 Some(frames) => stretched(&mut cards, eye, tail, head, shot.size * 1.5 * PX, frames[(b.age * TRACER_FPS) as usize % frames.len()]),
                 None => tracer(&mut cards, eye, head, tail, shot.size * PX, shot.color),
