@@ -4598,6 +4598,33 @@ mod tests {
     }
 
     #[test]
+    fn the_weapon_page_offers_the_sound_groups_found_beside_the_sprites() {
+        let root = tmp().join("sound-groups");
+        let _ = std::fs::remove_dir_all(&root);
+        let dir = root.join("sprites");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::create_dir_all(root.join("sounds")).unwrap();
+        for f in ["rattle.ogg", "rattle-2.ogg", "music.ogg", "shot-3.wav", "notes.txt"] {
+            std::fs::write(root.join("sounds").join(f), b"ogg").unwrap();
+        }
+        let mut e = editor_in(&dir, dir.join("art.txt"));
+        e.switch_to("DATA_POWERUPS_PISTOL".into());
+        let sound = |e: &Editor| e.data.as_ref().and_then(|d| d.table.entries(&d.section).into_iter().find(|l| l.key == "sound")).map(|l| l.value);
+        let offered: Vec<String> = (0..last_harvest_game::weapon_sound_names().len() + 2)
+            .filter_map(|_| {
+                e.act(Action::WeaponPick(2, 1), false);
+                sound(&e)
+            })
+            .collect();
+        assert_eq!(offered, ["shot", "blast", "slash", "zap", "bark", "throw", "rattle"], "the voices, then each group found once, no loops");
+        e.act(Action::WeaponPick(2, -1), false);
+        assert_eq!(sound(&e).as_deref(), Some("rattle"));
+        e.act(Action::Save, false);
+        assert!(!e.unsaved(), "the game reads any group");
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
     fn the_weapon_page_rewrites_only_the_lines_it_changes() {
         let dir = tmp().join("weapon");
         let _ = std::fs::remove_dir_all(&dir);

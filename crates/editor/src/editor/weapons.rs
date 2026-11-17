@@ -90,11 +90,15 @@ fn number(v: f32) -> String {
     s.trim_end_matches('0').trim_end_matches('.').to_string()
 }
 
-/// What a picker can name: effects.txt's sections, the weapon sounds, the patterns of a gun's shots, which zombies a
+/// What a picker can name: effects.txt's sections, the weapon sounds and the sound groups found, the patterns of a gun's shots, which zombies a
 /// burst's shots go to, or how far its later shots reach outside the view.
 fn choices(store: &dyn Store, pick: usize) -> Vec<String> {
     match PICKS[pick] {
-        "sound" => return last_harvest_game::weapon_sound_names().map(str::to_string).to_vec(),
+        "sound" => {
+            let own = last_harvest_game::weapon_sound_names().map(str::to_string);
+            let found = store.sound_groups().into_iter().filter(|g| !own.contains(g));
+            return own.iter().cloned().chain(found).collect();
+        }
         "pattern" => return last_harvest_game::weapon_patterns().map(str::to_string).to_vec(),
         "targets" => return last_harvest_game::weapon_targets().map(str::to_string).to_vec(),
         "outside" => return OUTSIDE.map(str::to_string).to_vec(),
