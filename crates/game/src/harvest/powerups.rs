@@ -17,7 +17,7 @@ pub enum Zone {
     Ahead,
     Around,
     Behind,
-    Map,
+    Far,
 }
 
 impl Zone {
@@ -26,7 +26,7 @@ impl Zone {
             Zone::Ahead => "AHEAD",
             Zone::Around => "AROUND",
             Zone::Behind => "BEHIND",
-            Zone::Map => "MAP",
+            Zone::Far => "FAR",
         }
     }
 }
@@ -157,6 +157,16 @@ pub fn weapon_sound_names() -> [&'static str; 6] {
 /// Which zombies a burst's shots go to, by the names `targets` gives them.
 pub fn weapon_targets() -> [&'static str; 2] {
     ["same", "each"]
+}
+
+/// The zones a powerup's `zone` can give, in the card's order.
+pub fn powerup_zones() -> [&'static str; 4] {
+    ["ahead", "around", "behind", "far"]
+}
+
+/// The conditions a powerup's `unlock` can give; each but `start` takes a number after it.
+pub fn unlock_conditions() -> [&'static str; 8] {
+    ["start", "kills", "night", "level", "nights", "dawns", "breakers", "breaker_dawns"]
 }
 
 /// The patterns a gun's shots can take, by the names `pattern` gives them.
@@ -757,8 +767,8 @@ pub fn parse(text: &str) -> Result<Book, String> {
                     "ahead" => Zone::Ahead,
                     "around" => Zone::Around,
                     "behind" => Zone::Behind,
-                    "map" => Zone::Map,
-                    _ => return Err(format!("{n}: zone is ahead, around, behind or map, not {rest:?}")),
+                    "far" | "map" => Zone::Far,
+                    _ => return Err(format!("{n}: zone is ahead, around, behind or far, not {rest:?}")),
                 })
             }
             "effect" | "bullet" if !rest.is_empty() && rest.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_') => {
@@ -974,6 +984,21 @@ mod tests {
         assert_eq!((targets, g.defs[0].targets), (vec![Targets::Same, Targets::Each], Targets::Same), "the same when left out");
         assert!(parse("[g]\nkind weapon\ntargets all\nicon WHITE\n[cash]\nkind filler\nicon WHITE\n").is_err());
         assert!(parse("[a]\nicon WHITE\naim up").unwrap_err().starts_with("3: aim is"));
+    }
+
+    #[test]
+    fn every_zone_and_unlock_the_editors_offer_reads_and_map_still_reads_as_far() {
+        let one = |line: &str| parse(&format!("[w]\nkind weapon\ndoes gun\nicon WHITE\n{line}\n[cash]\nkind filler\nicon WHITE\n")).map(|b| (b.defs[0].zone, b.defs[0].unlock));
+        let zones: Vec<Option<Zone>> = powerup_zones().iter().map(|z| one(&format!("zone {z}")).unwrap().0).collect();
+        assert_eq!(zones, [Some(Zone::Ahead), Some(Zone::Around), Some(Zone::Behind), Some(Zone::Far)]);
+        assert_eq!(one("zone map").unwrap().0, Some(Zone::Far), "packs written before far still load");
+        assert_eq!(Zone::Far.name(), "FAR");
+        for c in unlock_conditions() {
+            let line = if c == "start" { "unlock start".to_string() } else { format!("unlock {c} 1") };
+            assert!(one(&line).is_ok(), "{line}");
+        }
+        assert_eq!(one("unlock breakers 1").unwrap().1, Unlock::Breakers(1));
+        assert_eq!(one("unlock breaker_dawns 2").unwrap().1, Unlock::BreakerDawns(2));
     }
 
     #[test]

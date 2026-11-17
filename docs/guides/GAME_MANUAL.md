@@ -156,7 +156,7 @@ Each weapon covers a zone, shown on its card:
 | Ahead, then all round | A burst's first shot goes ahead. Each later shot goes to the nearest zombie the burst hasn't hit, on any side. |
 | Around | A ring centered on you |
 | Behind | Behind you |
-| Map | Crowds anywhere on the farm |
+| Far | Crowds out at range, whichever way you face |
 
 ### Finds and unlocks
 
@@ -195,9 +195,9 @@ These tables list what the game ships with. A mod pack can change any of them, a
 | Gas trail | Behind | Survive 7:00 of one night | 8 | Leaves a line of burning fuel where you walk |
 | Back holster | Behind | Survive 5:00 of one night | 8 | A sawn-off that fires behind you |
 | Scarecrow decoy | Behind | 4000 kills over every run, then found only in a leader's chest | 8 | Dropped behind you; draws them in, then bursts |
-| Molotov | Map | 1000 kills over every run | 8 | Lobbed into a crowd, leaving a pool of fire |
-| Flare gun | Map | Survive 9:00 of one night, then found from minute 4 | 8 | Lights up a far crowd, and burns it |
-| Drone | Map | A level breaker survived to dawn, then found from minute 3 | 8 | Flies out like the dog and sprays full-auto bursts |
+| Molotov | Far | 1000 kills over every run | 8 | Lobbed into a crowd, leaving a pool of fire |
+| Flare gun | Far | Survive 9:00 of one night, then found from minute 4 | 8 | Lights up a far crowd, and burns it |
+| Drone | Far | A level breaker survived to dawn, then found from minute 3 | 8 | Flies out like the dog and sprays full-auto bursts |
 
 <!-- /items -->
 

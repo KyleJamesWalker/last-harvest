@@ -11,7 +11,7 @@
 #   kind    weapon | passive | filler      fillers are offered only when nothing else is left; the book needs one
 #   does    behaviour   for weapons, which behaviour it fires with; defaults to the id, so a copy
 #                       under a new id with `does scythe` is a second scythe with its own numbers
-#   zone    ahead | around | behind | map
+#   zone    ahead | around | behind | far
 #   icon    SPRITE      the card's picture, a name from art.txt or a player's prop, PROP_<ID>; defaults to ICON_<ID>
 #   unlock  start | kills N | night SECONDS | level N | nights N | dawns N | breakers N | breaker_dawns N
 #           kills and nights add up over every run; night and level are the best single run.
@@ -335,12 +335,12 @@ area      40 40 44 44 48 48 52 56
 damage    60 70 80 90 100 115 130 150
 duration  4
 
-# Map: anywhere on the farm.
+# Far: crowds out at range, whichever way you face.
 
 [molotov]
 name      Molotov
 kind      weapon
-zone      map
+zone      far
 unlock    kills 1000
 blurb     Lobbed into a crowd, leaving a pool of fire
 max       8
@@ -354,7 +354,7 @@ count     1 1 1 2 2 2 3 3
 [flare]
 name      Flare gun
 kind      weapon
-zone      map
+zone      far
 unlock    night 540
 blurb     Lights up a far crowd, and burns it
 max       8
@@ -370,7 +370,7 @@ range     160
 name      Drone
 kind      weapon
 bullet    drone_shot
-zone      map
+zone      far
 unlock    breaker_dawns 1
 blurb     Flies out like the dog and sprays full-auto bursts
 max       8
@@ -518,7 +518,7 @@ revive    1 2
 [grenade_belt]
 name      Grenade belt
 kind      passive
-zone      map
+zone      far
 unlock    nights 3
 blurb     More grenades, sooner, and they scatter bomblets
 max       5
@@ -530,7 +530,7 @@ cluster   0 2 2 3 4
 [fuel_drums]
 name      Fuel drums
 kind      passive
-zone      map
+zone      far
 unlock    dawns 3
 blurb     Blown barrels come back, and blow bigger
 max       5
