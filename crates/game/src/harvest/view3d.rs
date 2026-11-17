@@ -23,7 +23,7 @@ const LEADER_TINT: [f32; 3] = [1.6, 1.3, 0.6];
 const HARVESTER_TINT: [f32; 3] = [1.4, 0.5, 0.45];
 pub(super) const VIEW_RADIUS: f32 = 16.0;
 /// How far behind the player the camera sits, in tiles.
-const CAMERA_BACK: f32 = 2.4;
+pub(super) const CAMERA_BACK: f32 = 2.4;
 /// Frames a second the quick-throw marker pulses at.
 const QUICK_PULSE: f32 = 4.0;
 /// How far either side of the line from the camera to the player something is left out, in tiles, once its front is

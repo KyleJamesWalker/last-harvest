@@ -24,7 +24,7 @@ mod single;
 mod view3d;
 mod weapons;
 
-use std::f32::consts::{PI, TAU};
+use std::f32::consts::{FRAC_PI_4, PI, TAU};
 
 use crate::art::{self, Art};
 use crate::rng::Rng;
@@ -343,6 +343,8 @@ struct Zombie {
     cd: f32,
     /// Seconds above ground since it last surfaced, which a burrower digs back under after.
     up: f32,
+    /// Seconds off screen and past `[spawn] straggler` from the player.
+    away: f32,
 }
 
 impl Zombie {
@@ -373,6 +375,7 @@ impl Zombie {
             boss: false,
             cd: 0.0,
             up: 0.0,
+            away: 0.0,
         }
     }
 
@@ -793,6 +796,8 @@ pub struct Harvest {
     /// Zombies owed while the night was full, and the release toward the next of them rising.
     banked: f32,
     let_out: f32,
+    /// The way the player last walked.
+    heading: [f32; 2],
     xp: u32,
     next_xp: u32,
     level: u32,
@@ -1046,6 +1051,7 @@ impl Harvest {
             owed: 0.0,
             banked: 0.0,
             let_out: 0.0,
+            heading: [0.0, 1.0],
             xp: 0,
             next_xp: book().first_level,
             level: 1,
@@ -1513,6 +1519,7 @@ impl Harvest {
         self.facing = Facing::of(f);
         if len(mv) > 0.2 {
             let k = self.kit.speed() * dt * len(mv).min(1.0) / len(mv);
+            self.heading = norm(mv);
             self.pos = self.map.slide(self.pos, [mv[0] * k, mv[1] * k], crate::tuning::tuning().player_half());
             let before = (self.walk * crate::tuning::tuning().walk_fps) as u32;
             self.walk += dt;
@@ -1921,10 +1928,11 @@ impl Harvest {
     }
 
     /// Zombies arrive just out of sight, faster and tougher as the night goes on. Once the night is full, what's owed
-    /// banks and rises a few a second as room opens.
+    /// banks and rises a few a second as room opens, and stragglers left far behind rise again ahead.
     fn spawn(&mut self, dt: f32) {
         let t = crate::tuning::tuning();
         let minutes = self.t / 60.0;
+        self.recycle(dt);
         self.owed += (t.spawn_rate + minutes * t.spawn_growth).min(t.spawn_top) * dt;
         if horde_now(self.t, dt) {
             self.owed += t.horde_size + minutes * t.horde_growth;
@@ -1958,15 +1966,18 @@ impl Harvest {
         let r = roster();
         let kind = Kind(if leader && self.enemies_off & 1 << r.leader == 0 { r.leader } else { r.pick(minutes, roll, self.enemies_off) } as u8);
         let hp = kind.stats().hp * (1.0 + minutes * crate::tuning::tuning().growth) * if leader { crate::tuning::tuning().leader_hp } else { 1.0 } * self.fury;
-        if let Some(pos) = self.ring_spot() {
+        if let Some(pos) = self.ring_spot(None) {
             self.tells.push(Tell { kind, pos, hp, t: 0.0, leader });
         }
     }
 
-    /// An open spot on the ring zombies rise in.
-    fn ring_spot(&mut self) -> Option<[f32; 2]> {
+    /// An open spot on the ring zombies rise in, within a quarter turn either side of `ahead` when given.
+    fn ring_spot(&mut self, ahead: Option<[f32; 2]>) -> Option<[f32; 2]> {
         for _ in 0..8 {
-            let a = self.rng.range(0.0, TAU);
+            let a = match ahead {
+                Some(d) => d[1].atan2(d[0]) + self.rng.range(-FRAC_PI_4, FRAC_PI_4),
+                None => self.rng.range(0.0, TAU),
+            };
             let [near, far] = spawn_ring(self.t);
             let r = self.rng.range(near, far);
             let pos = [self.pos[0] + a.cos() * r, self.pos[1] + a.sin() * r];
@@ -1975,6 +1986,38 @@ impl Harvest {
             }
         }
         None
+    }
+
+    /// Whether `pos` shows on either screen: on the map, or near enough for the view ahead to draw it.
+    fn on_screen(&self, pos: [f32; 2]) -> bool {
+        let cam = self.camera();
+        let [x, y] = [pos[0] - cam[0], pos[1] - cam[1]];
+        let on_map = (-TILE..=view_w() + TILE).contains(&x) && (-TILE..=view_h() + TILE).contains(&y);
+        on_map || len(sub(pos, self.pos)) <= (view3d::VIEW_RADIUS + view3d::CAMERA_BACK) * TILE
+    }
+
+    /// A zombie left off screen and far behind long enough rises again ahead of the player, unchanged. The Harvester
+    /// never does.
+    fn recycle(&mut self, dt: f32) {
+        let t = crate::tuning::tuning();
+        let mut i = 0;
+        while i < self.zombies.len() {
+            let z = &self.zombies[i];
+            let far = !z.boss && z.rise >= 1.0 && len(sub(z.pos, self.pos)) > t.straggler_reach && !self.on_screen(z.pos);
+            let z = &mut self.zombies[i];
+            z.away = if far { z.away + dt } else { 0.0 };
+            if !far || z.away < t.straggler_time {
+                i += 1;
+                continue;
+            }
+            match self.ring_spot(Some(self.heading)).or_else(|| self.ring_spot(None)) {
+                Some(pos) => {
+                    let z = self.zombies.swap_remove(i);
+                    self.tells.push(Tell { kind: z.kind, pos, hp: z.hp, t: 0.0, leader: z.leader });
+                }
+                None => i += 1,
+            }
+        }
     }
 
     /// The ground churns where a zombie is coming, then it breaks out in a spray of dirt.
@@ -3745,16 +3788,69 @@ mod tests {
         assert_eq!(h.zombies[0].rise, 0.0);
     }
 
-    /// A calm run on an open field 80 by 60 tiles, the player in its middle.
+    /// A calm run on an open field 80 by 60 tiles, the player walking east from its middle.
     fn open_field() -> Harvest {
         let mut h = Harvest::calm_on(1, &map::MapSource::new("Field", [80, 60])).unwrap();
         h.pos = [640.0, 480.0];
+        h.heading = [1.0, 0.0];
         h.t = 10.0;
         h
     }
 
     fn standing(kind: &str, pos: [f32; 2], hp: f32) -> Zombie {
         Zombie::new(Kind::named(kind), pos, hp, 1.0, 0.0)
+    }
+
+    #[test]
+    fn a_straggler_left_far_off_screen_rises_again_ahead_of_the_player_unchanged() {
+        let mut h = open_field();
+        let t = crate::tuning::tuning();
+        let mut z = standing("big", [h.pos[0] - 400.0, h.pos[1]], 321.0);
+        z.leader = true;
+        h.zombies.push(z);
+        h.recycle(t.straggler_time - 0.1);
+        assert_eq!((h.zombies.len(), h.tells.len()), (1, 0), "not before its time is up");
+        h.recycle(0.2);
+        assert_eq!((h.zombies.len(), h.tells.len()), (0, 1), "then it goes back in the ground");
+        let tell = &h.tells[0];
+        assert_eq!((tell.kind, tell.hp, tell.leader), (Kind::named("big"), 321.0, true), "the same zombie, no boost");
+        let off = sub(tell.pos, h.pos);
+        let [near, far] = spawn_ring(h.t);
+        assert!((near - 0.01..=far + 0.01).contains(&len(off)), "on the ring, {}", len(off));
+        assert!(off[0] / len(off) >= FRAC_PI_4.cos() - 1e-3, "within a quarter turn of the way the player walks, {off:?}");
+    }
+
+    #[test]
+    fn a_zombie_on_screen_near_or_a_harvester_is_never_recycled() {
+        let mut h = open_field();
+        let t = crate::tuning::tuning();
+        let sight = (view3d::VIEW_RADIUS + view3d::CAMERA_BACK) * TILE;
+        assert!(t.straggler_reach >= sight, "the straggler distance reaches past the view ahead");
+        h.pos = [8.0, 480.0];
+        let on_map = [h.pos[0] + t.straggler_reach + 5.0, h.pos[1]];
+        assert!(on_map[0] < view_w() && h.on_screen(on_map), "the map, pinned to the field's edge, still shows it");
+        h.zombies.push(standing("skinny", on_map, 10.0));
+        let mut boss = standing("big", [h.pos[0], h.pos[1] + 420.0], 2500.0);
+        boss.boss = true;
+        h.zombies.push(boss);
+        h.zombies.push(standing("skinny", [h.pos[0] + 20.0, h.pos[1]], 10.0));
+        for _ in 0..10 {
+            h.recycle(t.straggler_time);
+        }
+        assert_eq!((h.zombies.len(), h.tells.len()), (3, 0));
+    }
+
+    #[test]
+    fn a_straggler_that_comes_back_into_view_starts_its_time_again() {
+        let mut h = open_field();
+        let t = crate::tuning::tuning();
+        h.zombies.push(standing("skinny", [h.pos[0] - 400.0, h.pos[1]], 10.0));
+        h.recycle(t.straggler_time * 0.9);
+        h.zombies[0].pos = [h.pos[0] - 100.0, h.pos[1]];
+        h.recycle(0.01);
+        h.zombies[0].pos = [h.pos[0] - 400.0, h.pos[1]];
+        h.recycle(t.straggler_time * 0.9);
+        assert_eq!((h.zombies.len(), h.tells.len()), (1, 0));
     }
 
     #[test]
