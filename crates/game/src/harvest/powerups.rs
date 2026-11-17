@@ -568,6 +568,8 @@ pub struct Def {
     pub aim: Aim,
     pub pattern: Pattern,
     pub targets: Targets,
+    /// For a burst that `targets each`, how far its later shots reach a zombie outside the view; None for its range.
+    pub outside: Option<f32>,
     /// For a lob, what it does where it lands.
     pub lands: Lands,
     /// For a weapon, how each attack shakes the camera and lights the ground.
@@ -717,6 +719,7 @@ pub fn parse(text: &str) -> Result<Book, String> {
                 aim: Aim::Nearest,
                 pattern: Pattern::Fan,
                 targets: Targets::Same,
+                outside: None,
                 lands: Lands::Blast,
                 feel: Feel::default(),
                 stats: Vec::new(),
@@ -795,6 +798,7 @@ pub fn parse(text: &str) -> Result<Book, String> {
                     _ => return Err(format!("{n}: targets is same or each, not {rest:?}")),
                 }
             }
+            "outside" => def.outside = Some(rest.parse::<f32>().ok().filter(|v| v.is_finite() && *v >= 0.0).ok_or_else(|| format!("{n}: outside is pixels, 0 or more, not {rest:?}"))?),
             "lands" => {
                 def.lands = match rest {
                     "blast" => Lands::Blast,
@@ -984,6 +988,9 @@ mod tests {
         assert_eq!((targets, g.defs[0].targets), (vec![Targets::Same, Targets::Each], Targets::Same), "the same when left out");
         assert!(parse("[g]\nkind weapon\ntargets all\nicon WHITE\n[cash]\nkind filler\nicon WHITE\n").is_err());
         assert!(parse("[a]\nicon WHITE\naim up").unwrap_err().starts_with("3: aim is"));
+        let outside = |v: &str| parse(&format!("[g]\nkind weapon\ndoes gun\noutside {v}\nicon WHITE\n[cash]\nkind filler\nicon WHITE\n")).map(|b| b.defs[0].outside);
+        assert_eq!((outside("40"), outside("0"), g.defs[0].outside), (Ok(Some(40.0)), Ok(Some(0.0)), None), "the whole range when left out");
+        assert!(outside("-1").is_err() && outside("far").is_err());
     }
 
     #[test]

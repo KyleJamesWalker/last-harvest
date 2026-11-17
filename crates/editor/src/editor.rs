@@ -4568,6 +4568,36 @@ mod tests {
     }
 
     #[test]
+    fn the_weapon_page_steps_a_bursts_outside_reach_in_both_editors() {
+        for modding in [false, true] {
+            let dir = tmp().join(if modding { "outside-mod" } else { "outside" });
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            let mut e = editor_in(&dir, dir.join("art.txt"));
+            if modding {
+                e.set_modding();
+            }
+            e.switch_to("DATA_POWERUPS_PISTOL".into());
+            let outside = |e: &Editor| e.data.as_ref().and_then(|d| d.table.entries(&d.section).into_iter().find(|l| l.key == "outside")).map(|l| l.value);
+            assert_eq!(outside(&e), None, "the pistol leaves it out: its whole range");
+            let pick = 5;
+            assert!(e.buttons().iter().any(|b| b.action == Action::WeaponPick(pick, 1)));
+            e.act(Action::WeaponPick(pick, 1), false);
+            assert_eq!(outside(&e).as_deref(), Some("0"), "modding {modding}");
+            e.act(Action::WeaponPick(pick, 1), false);
+            e.act(Action::WeaponPick(pick, 1), false);
+            e.act(Action::WeaponPick(pick, 1), false);
+            assert_eq!(outside(&e).as_deref(), Some("30"));
+            buttons_fit(&e);
+            e.act(Action::Save, false);
+            assert!(!e.unsaved(), "the game reads it");
+            e.act(Action::WeaponPick(pick, 0), false);
+            assert_eq!(outside(&e), None, "Own drops the line");
+            std::fs::remove_dir_all(&dir).unwrap();
+        }
+    }
+
+    #[test]
     fn the_weapon_page_rewrites_only_the_lines_it_changes() {
         let dir = tmp().join("weapon");
         let _ = std::fs::remove_dir_all(&dir);

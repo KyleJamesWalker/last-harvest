@@ -36,6 +36,8 @@
 #   targets same | each    for a burst, which zombies its shots go to: each where its aim finds, or the first
 #                       there and each after the nearest in range and clear line of fire not yet shot in this
 #                       burst, all the way round, one shot again only once every one has been; same when left out
+#   outside N           for a burst that `targets each`, how far in pixels its later shots reach a zombie outside
+#                       the view; its whole range when left out, 0 for only what's in view
 #   kick N | punch N | shake N    for weapons, each attack's camera kick back, punch in and screen shake; none when left out
 #   flash R G B REACH SECONDS     for weapons, a flash of light on each attack: its color, above 1 for brighter than
 #                       white, how far it lights in tiles, and how long; none when left out

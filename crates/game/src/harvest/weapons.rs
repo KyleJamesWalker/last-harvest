@@ -552,8 +552,11 @@ impl Harvest {
 
     fn pistol(&mut self, a: Armed, sounds: &mut Vec<Sfx>) -> bool {
         let range = self.stat(a, Stat::Range);
-        let next = self.next_target(a, range);
-        let target = next.or_else(|| self.barrel_in_view(range)).or_else(|| self.nearest_in(crate::tuning::tuning().point_blank.min(range), None)).or_else(|| self.nearest_in(range, Some((self.aim, self.ahead_half())))).or_else(|| self.nearest_in(range, None));
+        let target = match self.next_target(a, range) {
+            Some(Some(next)) => Some(next),
+            Some(None) => self.barrel_in_view(range),
+            None => self.barrel_in_view(range).or_else(|| self.nearest_in(crate::tuning::tuning().point_blank.min(range), None)).or_else(|| self.nearest_in(range, Some((self.aim, self.ahead_half())))).or_else(|| self.nearest_in(range, None)),
+        };
         let Some(offset) = target else { return false };
         self.mark_shot(a, offset);
         let d = norm(offset);
@@ -576,8 +579,12 @@ impl Harvest {
         let def = &book().defs[a.def];
         let (aim, pattern) = (def.aim, def.pattern);
         let range = self.stat(a, Stat::Range);
-        let next = self.next_target(a, range);
-        let Some(offset) = next.or_else(|| self.barrel_in_view(range)).or_else(|| self.aimed_at(aim, range)) else { return false };
+        let target = match self.next_target(a, range) {
+            Some(Some(next)) => Some(next),
+            Some(None) => self.barrel_in_view(range),
+            None => self.barrel_in_view(range).or_else(|| self.aimed_at(aim, range)),
+        };
+        let Some(offset) = target else { return false };
         self.mark_shot(a, offset);
         let d = norm(offset);
         let n = if pattern == Pattern::Burst { 1 } else { self.stat(a, Stat::Count).max(1.0) as u32 };
@@ -616,24 +623,34 @@ impl Harvest {
         }
     }
 
-    /// For a burst that `targets each`, after its first shot: the offset to the nearest zombie in `range` and clear
-    /// line of fire that it hasn't shot yet, whichever way; None to aim as usual. A burst's first shot forgets the last.
-    fn next_target(&mut self, a: Armed, range: f32) -> Option<[f32; 2]> {
+    /// For a burst that `targets each`, after its first shot: where the next goes. None aims as usual; a burst's first
+    /// shot also forgets the last.
+    fn next_target(&mut self, a: Armed, range: f32) -> Option<Option<[f32; 2]>> {
         let def = &book().defs[a.def];
         if def.pattern != Pattern::Burst || def.targets != Targets::Each {
             return None;
         }
+        self.next_target_reaching(a, range, def.outside)
+    }
+
+    /// `next_target` with its section's `outside`: the offset to the nearest zombie in `range` and clear line of fire
+    /// that the burst hasn't shot yet, in view or within `outside`, whichever way. When every one has been shot, with
+    /// `outside` set, the nearest of them again or Some(None) to hold fire; without it, None to aim as usual.
+    fn next_target_reaching(&mut self, a: Armed, range: f32, outside: Option<f32>) -> Option<Option<[f32; 2]>> {
         if a.burst == 0 {
             self.burst_shot.retain(|(d, _)| *d != a.def);
             return None;
         }
+        let (reach, aim, half) = (outside.unwrap_or(range), self.aim, self.ahead_half());
+        let may = |d: &[f32; 2]| len(*d) < range && (len(*d) < reach || in_cone(*d, aim, half));
+        let nearest = |offsets: &mut dyn Iterator<Item = [f32; 2]>| offsets.min_by(|a, b| len(*a).total_cmp(&len(*b)));
         let shot = &self.burst_shot;
-        self.zombies
-            .iter()
-            .filter(|z| !shot.contains(&(a.def, z.id)))
-            .map(|z| sub(z.pos, self.pos))
-            .filter(|d| len(*d) < range && super::clear_shot(&self.map, self.pos, [self.pos[0] + d[0], self.pos[1] + d[1]]))
-            .min_by(|a, b| len(*a).total_cmp(&len(*b)))
+        let unshot = nearest(&mut self.zombies.iter().filter(|z| !shot.contains(&(a.def, z.id))).map(|z| sub(z.pos, self.pos)).filter(|d| may(d) && super::clear_shot(&self.map, self.pos, [self.pos[0] + d[0], self.pos[1] + d[1]])));
+        match (unshot, outside) {
+            (Some(d), _) => Some(Some(d)),
+            (None, None) => None,
+            (None, Some(_)) => Some(nearest(&mut self.zombies.iter().map(|z| sub(z.pos, self.pos)).filter(may))),
+        }
     }
 
     /// Notes the zombie at `offset` as shot in a burst that `targets each`.
@@ -1611,6 +1628,43 @@ mod tests {
         let mut first: Vec<usize> = hit[..3].to_vec();
         first.sort();
         assert_eq!(first, [0, 1, 2], "each of the three before any again: {hit:?}");
+    }
+
+    /// Where each of a burst's later shots would go with `outside`, from a burst's first shot straight ahead.
+    fn follow_ups(h: &mut Harvest, outside: Option<f32>) -> Vec<Option<[f32; 2]>> {
+        let mut a = h.kit.weapons[0];
+        let range = h.stat(a, Stat::Range);
+        assert_eq!(h.next_target_reaching(a, range, outside), None, "the first shot aims as usual");
+        let first = h.nearest_in(range, Some((h.aim, h.ahead_half()))).unwrap();
+        h.mark_shot(a, first);
+        (1..h.stat(a, Stat::Count) as u32)
+            .map(|k| {
+                a.burst = k;
+                let next = h.next_target_reaching(a, range, outside).flatten();
+                if let Some(d) = next {
+                    h.mark_shot(a, d);
+                }
+                next
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_bursts_outside_reach_keeps_its_later_shots_in_view_and_its_default_is_the_whole_range() {
+        assert_eq!(book().defs[book().index("pistol").unwrap()].outside, None, "the pistol reaches its whole range");
+        let (mut h, ways) = ringed(8);
+        let all = follow_ups(&mut h, None);
+        assert!(all.iter().all(Option::is_some), "{all:?}");
+        let mut hit = aimed_at(&all.iter().map(|d| (0.0, d.unwrap())).collect::<Vec<_>>(), &ways);
+        hit.sort();
+        assert_eq!(hit, (1..8).collect::<Vec<_>>(), "left out, the later shots go all the way round");
+        for outside in [0.0, 40.0] {
+            let (mut h, _) = ringed(8);
+            let (aim, half) = (h.aim, h.ahead_half());
+            let near = follow_ups(&mut h, Some(outside));
+            assert!(near.iter().flatten().all(|d| in_cone(*d, aim, half)), "outside {outside}: only in view {near:?}");
+            assert!(near.iter().all(Option::is_some), "outside {outside}: it keeps shooting what's in view");
+        }
     }
 
     #[test]
