@@ -27,16 +27,19 @@ args = ap.parse_args()
 OUT = args.out
 W, P, TOP, ZONE = powerups()
 NIGHT = 600.0
+SETTINGS = {}
 
 
 def load(name):
     p = OUT / f"{name}.csv"
     if not p.exists():
         return None
-    rows = list(csv.DictReader(p.open()))
+    lines = p.read_text().splitlines()
+    SETTINGS[name] = next((l.lstrip("# ") for l in lines if l.startswith("#")), "the defaults of an older sandbox")
+    rows = list(csv.DictReader(l for l in lines if not l.startswith("#")))
     alls, per = {}, defaultdict(dict)
     for r in rows:
-        for k in ("kills", "kills_sd", "useful", "raw", "overkill", "dps", "fell_at", "spawned", "capped", "level_reached", "hearts"):
+        for k in ("kills", "kills_sd", "useful", "raw", "overkill", "dps", "fell_at", "spawned", "capped", "level_reached", "hearts", "survival", "censored", "seeds"):
             r[k] = float(r[k]) if r.get(k) not in (None, "") else math.nan
         if r["weapon"] == "all":
             alls[r["build"]] = r
@@ -46,7 +49,16 @@ def load(name):
 
 
 def fell(r):
+    """Mean time to the first fall, a night that never fell counting as its length; older CSVs only have fell_at."""
+    if not math.isnan(r.get("survival", math.nan)):
+        return r["survival"]
     return NIGHT if math.isnan(r["fell_at"]) else r["fell_at"]
+
+
+def never_fell(r):
+    if not math.isnan(r.get("censored", math.nan)):
+        return r["censored"] / r["seeds"]
+    return float(fell(r) >= NIGHT)
 
 
 def slim(r):
@@ -162,7 +174,7 @@ if d:
     feats = W + P
     idx = {f: i for i, f in enumerate(feats)}
     inter = [(a, b) for a, b in combinations(W, 2)] + [(w, p) for w in W for p in P]
-    rows, yk, yf = [], [], []
+    rows, yk, yf, nf = [], [], [], []
     shares = defaultdict(list)
     for b, r in alls.items():
         lv = {}
@@ -174,6 +186,7 @@ if d:
         rows.append(x)
         yk.append(r["kills"])
         yf.append(fell(r))
+        nf.append(never_fell(r))
         tot = sum(v["useful"] for v in per[b].values()) or 1
         for w, v in per[b].items():
             if w in idx and w in W:
@@ -201,10 +214,10 @@ if d:
     out["useful_share"] = {w: round(sum(s for _, s in v) / len(v), 3) for w, v in shares.items() if v}
     out["mean_kills"] = round(float(np.mean(yk)))
     out["mean_fell"] = round(float(np.mean(yf)))
-    out["never_fell"] = round(float(np.mean([f >= NIGHT for f in yf])), 3)
+    out["never_fell"] = round(float(np.mean(nf)), 3)
     res["t5_random_pressure"] = out
 
-res["weapons"], res["passives"] = W, P
+res["weapons"], res["passives"], res["settings"] = W, P, SETTINGS
 (OUT / "results.json").write_text(json.dumps(res, indent=1))
 findings = args.findings.read_text() if args.findings else "<p>No conclusions written for this run.</p>"
 page = (Path(__file__).resolve().parent / "report.html").read_text()
