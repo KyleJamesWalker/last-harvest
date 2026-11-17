@@ -13,13 +13,15 @@ const HEAD_Y: f32 = CANVAS.y + 44.0;
 const STAT_Y: f32 = CANVAS.y + 80.0;
 const STAT_H: f32 = 25.0;
 const PICK_Y: f32 = CANVAS.y + 384.0;
-const PICK_H: f32 = 26.0;
+const PICK_H: f32 = 22.0;
 const DOES_Y: f32 = CANVAS.y + 28.0;
 const DOES_W: f32 = 114.0;
 const PREVIEW: Rect = Rect { x: SIDE_X, y: CANVAS.y + 340.0, w: SIDE_W, h: 220.0 };
 const STYLE: Rect = Rect { x: SIDE_X + SIDE_W / 2.0 + 8.0, y: PREVIEW.y + PREVIEW.h + 6.0, w: SIDE_W / 2.0 - 16.0, h: 28.0 };
 /// The lines the pickers set, in order.
-const PICKS: [&str; 6] = ["effect", "bullet", "sound", "pattern", "targets", "outside"];
+const PICKS: [&str; 7] = ["effect", "bullet", "sound", "pattern", "targets", "outside", "player"];
+#[cfg(test)]
+pub(super) const PICK_PLAYER: usize = 6;
 /// What `outside` steps through, in pixels; Own leaves a burst its whole range.
 const OUTSIDE: [&str; 9] = ["0", "10", "20", "30", "40", "50", "60", "80", "100"];
 
@@ -91,9 +93,10 @@ fn number(v: f32) -> String {
 }
 
 /// What a picker can name: effects.txt's sections, the weapon sounds and the sound groups found, the patterns of a gun's shots, which zombies a
-/// burst's shots go to, or how far its later shots reach outside the view.
-fn choices(store: &dyn Store, pick: usize) -> Vec<String> {
+/// burst's shots go to, how far its later shots reach outside the view, or the player card whose own it is.
+fn choices(store: &dyn Store, pick: usize, players: &[String]) -> Vec<String> {
     match PICKS[pick] {
+        "player" => return players.to_vec(),
         "sound" => {
             let own = last_harvest_game::weapon_sound_names().map(str::to_string);
             let found = store.sound_groups().into_iter().filter(|g| !own.contains(g));
@@ -153,11 +156,11 @@ impl Editor {
             push(CANVAS.x + 130.0, y, 28.0, 24.0, Action::WeaponStep(i, 1), "+", false);
             push(CANVAS.x + 160.0, y, 44.0, 24.0, Action::WeaponType(i), "Edit", false);
         }
-        for i in 0..PICKS.len() {
+        for (i, key) in PICKS.into_iter().enumerate() {
             let y = PICK_Y + i as f32 * PICK_H;
             push(CANVAS.x + 392.0, y, 36.0, PICK_H - 2.0, Action::WeaponPick(i, -1), "<", false);
             push(CANVAS.x + 432.0, y, 36.0, PICK_H - 2.0, Action::WeaponPick(i, 1), ">", false);
-            push(CANVAS.x + 472.0, y, 76.0, PICK_H - 2.0, Action::WeaponPick(i, 0), "Own", false);
+            push(CANVAS.x + 472.0, y, 76.0, PICK_H - 2.0, Action::WeaponPick(i, 0), if key == "player" { "Everyone" } else { "Own" }, false);
         }
         push(STYLE.x, STYLE.y, STYLE.w, STYLE.h, Action::WeaponStyle, "Style", false);
         let does = value(&d.table, &d.section, "does").unwrap_or_else(|| d.section.clone());
@@ -168,6 +171,7 @@ impl Editor {
     }
 
     pub(super) fn weapon_act(&mut self, a: Action, shift: bool) -> bool {
+        let players = self.player_ids();
         let store = &*self.store;
         let Some(d) = &mut self.data else { return false };
         let Some(level) = d.weapon.as_ref().map(|w| w.level) else { return false };
@@ -231,7 +235,7 @@ impl Editor {
             }
             Action::WeaponPick(i, by) => {
                 let key = PICKS[i];
-                let all = choices(store, i);
+                let all = choices(store, i, &players);
                 let now = value(&d.table, &d.section, key);
                 let at = now.as_ref().and_then(|n| all.iter().position(|c| c == n)).map_or(0, |p| p as i32 + 1);
                 let next = if by == 0 { 0 } else { (at + by).rem_euclid(all.len() as i32 + 1) as usize };
@@ -276,6 +280,7 @@ impl Editor {
                 "pattern" => "fan",
                 "targets" => "same",
                 "outside" => "its whole range",
+                "player" => "every player's",
                 _ => "its behaviour's own",
             };
             c.label(now.unwrap_or_else(|| own.into()), CANVAS.x + 100.0, y + 5.0, 17.0, TEXT, Align::Left);
