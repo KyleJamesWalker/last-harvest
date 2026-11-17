@@ -11,6 +11,7 @@ mod photo;
 mod props;
 mod quick;
 mod range;
+pub mod sandbox;
 mod players;
 mod powerups;
 pub mod showcase;
@@ -813,6 +814,8 @@ pub struct Harvest {
     turn_ready: bool,
     /// No zombies: a walk around the farm, for looking at it.
     calm: bool,
+    /// The player stands straight back up at full health instead of dying, for the sandbox's whole nights.
+    undying: bool,
     /// A frozen swarm with every effect showing, turning in place, for measuring frame rate.
     bench: bool,
     juice: Juice,
@@ -1056,6 +1059,7 @@ impl Harvest {
             targeting: false,
             turn_ready: false,
             calm: false,
+            undying: false,
             bench: false,
             juice,
             tells: Vec::new(),
@@ -1569,7 +1573,11 @@ impl Harvest {
 
         if self.hp <= 0.0 && (self.revived as f32) < self.kit.mods.revive {
             self.revive(sounds, flow);
+        } else if self.hp <= 0.0 && self.undying {
+            self.juice.tally.fell.get_or_insert(self.t);
+            self.hp = self.kit.max_hp();
         } else if self.hp <= 0.0 {
+            self.juice.tally.fell.get_or_insert(self.t);
             self.hp = 0.0;
             sounds.push(Sfx::GameOver);
             self.juice.shake(0.8);
@@ -2508,6 +2516,7 @@ impl Harvest {
             if dist < crate::tuning::tuning().pickup || (d.pulled.is_some() && len(step) >= dist) {
                 match d.kind {
                     DropKind::Money(v) => {
+                        self.juice.tally.hearts += 1;
                         self.xp_frac += v as f32 * self.kit.mods.greed;
                         self.xp += self.xp_frac as u32;
                         self.xp_frac = self.xp_frac.fract();
@@ -2780,6 +2789,7 @@ fn level_key([x, y]: [f32; 2], level: u32) -> Option<LevelKey> {
 fn strike(z: &mut Zombie, juice: &mut Juice, damage: f32, dir: [f32; 2], force: f32, crit_chance: f32) -> bool {
     let crit = juice.rng.range(0.0, 1.0) < crit_chance;
     let dealt = if crit { damage * 2.0 } else { damage };
+    juice.tally.land(dealt, z.hp);
     z.hp -= dealt;
     z.flash = FLASH_TIME;
     z.hurt = HURT_FRAMES;

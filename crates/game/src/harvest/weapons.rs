@@ -183,6 +183,22 @@ impl Kit {
         Self { weapons, passives: Vec::new(), taken: Vec::new(), mods: Mods::of(&[]), base: [t.player_hp, t.player_speed, t.player_magnet], base_grenades: book().grenades[difficulty as usize] }
     }
 
+    /// A kit carrying exactly these weapons and passives at these levels, one past the top being the breaker's.
+    pub fn forced(build: &[(usize, u32)], difficulty: Difficulty) -> Self {
+        let mut kit = Self::with_weapons(&[], difficulty);
+        for &(def, level) in build {
+            let d = &book().defs[def];
+            let level = level.clamp(1, d.max + (d.kind == Kind::Weapon) as u32);
+            match d.kind {
+                Kind::Weapon => kit.weapons.push(Armed { def, level, cd: 0.5, phase: 0.0, burst: 0 }),
+                Kind::Passive => kit.passives.push((def, level)),
+                Kind::Filler => kit.taken.extend(std::iter::repeat_n(def, level as usize)),
+            }
+        }
+        kit.remod();
+        kit
+    }
+
     pub fn level(&self, def: usize) -> u32 {
         self.weapons.iter().find(|a| a.def == def).map(|a| a.level).or_else(|| self.passives.iter().find(|p| p.0 == def).map(|p| p.1)).unwrap_or(0)
     }
@@ -438,6 +454,7 @@ fn ignite(z: &mut Zombie, dps: f32, secs: f32, by: Option<usize>) {
 
 /// Damage with no shove, from fire or tacks.
 fn singe(z: &mut Zombie, juice: &mut juice::Juice, damage: f32) {
+    juice.tally.land(damage, z.hp);
     z.hp -= damage;
     z.flash = FLASH_TIME;
     juice.popup(z.pos, damage, Tone::Hit);
