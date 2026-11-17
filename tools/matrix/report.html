@@ -1,0 +1,215 @@
+<title>Last Harvest Balance Matrix</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one reading column of sections; each grid scrolls sideways inside its own frame. */
+:root {
+  --bg: #f1f0ea; --panel: #fbfaf6; --fg: #23241f; --muted: #6a6a5c; --line: #d8d6ca;
+  --accent: #6f6324; --neg: #4f6b7a; --pos: #a8742a; --mid: #ece9de;
+  --display: "Space Grotesk", "Helvetica Neue", Arial, sans-serif;
+  --body: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #1b1c18; --panel: #23241f; --fg: #e6e4d8; --muted: #a09f8e; --line: #3a3b33;
+  --accent: #c9b765; --neg: #7fa3b5; --pos: #d9a454; --mid: #2b2c26; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #1b1c18; --panel: #23241f; --fg: #e6e4d8; --muted: #a09f8e; --line: #3a3b33;
+  --accent: #c9b765; --neg: #7fa3b5; --pos: #d9a454; --mid: #2b2c26; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font: 15px/1.55 var(--body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 32px 64px; }
+main { max-width: 1080px; margin: 0 auto; display: grid; gap: 40px; }
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; margin: 0; line-height: 1.15; }
+h1 { font-size: 34px; } h2 { font-size: 23px; } h3 { font-size: 16px; }
+p { margin: 0; max-width: 70ch; } .muted { color: var(--muted); }
+header { display: grid; gap: 10px; }
+.eyebrow { font: 500 12px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
+section { display: grid; gap: 14px; min-width: 0; }
+.findings { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 20px 22px; display: grid; gap: 10px; }
+.findings ul { margin: 0; padding-left: 20px; display: grid; gap: 8px; } .findings li { max-width: 80ch; }
+.controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.controls label { font-size: 13px; color: var(--muted); }
+select { font: 14px var(--body); padding: 4px 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); color: var(--fg); }
+select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.frame { overflow-x: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); }
+table { border-collapse: collapse; font: 12.5px var(--mono); font-variant-numeric: tabular-nums; }
+th, td { padding: 4px 7px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--line); }
+th { font-weight: 500; color: var(--muted); background: var(--panel); position: sticky; top: 0; }
+td.name, th.name { text-align: left; font-family: var(--body); position: sticky; left: 0; background: var(--panel); z-index: 1; }
+.heat td.c { min-width: 38px; color: var(--fg); }
+.heat th.rot { writing-mode: vertical-rl; transform: rotate(180deg); text-align: left; padding: 6px 2px; height: 92px; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+.grid2 > * { min-width: 0; }
+.bars { display: grid; gap: 3px; font: 12.5px var(--mono); }
+.bar { display: grid; grid-template-columns: 130px 1fr 64px; gap: 8px; align-items: center; }
+.bar .track { position: relative; height: 12px; background: var(--mid); border-radius: 2px; }
+.bar .fill { position: absolute; top: 0; bottom: 0; border-radius: 2px; }
+.bar .lab { font-family: var(--body); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar .v { text-align: right; }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); align-items: center; }
+.swatch { display: inline-block; width: 26px; height: 10px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
+.tag { font: 11px var(--mono); padding: 1px 5px; border-radius: 3px; background: var(--mid); color: var(--muted); }
+code { font: 13px var(--mono); }
+@media (max-width: 520px) { h1 { font-size: 27px; } .bar { grid-template-columns: 96px 1fr 54px; } }
+</style>
+
+<main>
+<header>
+  <div class="eyebrow">DPS sandbox · tools/matrix</div>
+  <h1>Last Harvest balance matrix</h1>
+  <p class="muted" id="meta"></p>
+</header>
+
+<section class="findings"><h2>What the matrix says</h2><!--FINDINGS--></section>
+
+<section id="s1">
+  <h2>Each weapon alone, level by level</h2>
+  <p class="muted">20 seeds on normal, 10 with the figure-eight walk, 10 under the pressure pack. B is the level breaker. Survival is the time of the scripted player's first fall (600 s means they never fell).</p>
+  <div class="controls">
+    <label for="t1set">Setting</label><select id="t1set"><option value="t1_singles_pressure">Pressure</option><option value="t1_singles_normal">Normal</option><option value="t1_singles_eight">Normal, figure eight</option></select>
+    <label for="t1m">Measure</label><select id="t1m"><option value="kills">Kills</option><option value="dps">Useful DPS</option><option value="fell">Survival (s)</option><option value="overkill">Overkill share</option><option value="capped">Night spent at the zombie cap</option></select>
+  </div>
+  <div class="frame"><table class="heat" id="t1"></table></div>
+</section>
+
+<section id="s2">
+  <h2>Pairs of weapons</h2>
+  <p class="muted">Synergy is the pair's kills minus what a fit on the two weapons' solo kills predicts, so a pair isn't ranked high just for holding two strong weapons. Positive means they cover for each other; negative means they compete for the same zombies.</p>
+  <div class="controls">
+    <label for="t2set">Setting</label><select id="t2set"><option value="t2_pairs_pressure">Pressure, both at level 8</option><option value="t2_pairs4_normal">Normal, both at level 4</option></select>
+    <label for="t2m">Measure</label><select id="t2m"><option value="synergy">Synergy (kills)</option><option value="fell_gain">Survival gain over the better weapon (s)</option><option value="kills">Kills</option></select>
+  </div>
+  <div class="frame"><table class="heat" id="t2"></table></div>
+  <div class="grid2">
+    <div><h3>By zone mix</h3><div class="bars" id="t2z"></div></div>
+    <div><h3>Best and worst pairs</h3><div class="frame"><table id="t2top"></table></div></div>
+  </div>
+</section>
+
+<section id="s3">
+  <h2>Weapon with each passive</h2>
+  <p class="muted">Pressure, weapon at level 8 and passive at its top. Cells show the change in kills against the weapon alone.</p>
+  <div class="controls"><label for="t3m">Measure</label><select id="t3m"><option value="gain_pct">Kills change (%)</option><option value="fell_gain">Survival change (s)</option></select></div>
+  <div class="frame"><table class="heat" id="t3"></table></div>
+  <h3>Average across weapons</h3><div class="bars" id="t3p"></div>
+</section>
+
+<section id="s4">
+  <h2>Three weapons at once</h2>
+  <p class="muted" id="t4meta"></p>
+  <div class="grid2">
+    <div><h3>Longest survival</h3><div class="frame"><table id="t4s"></table></div></div>
+    <div><h3>Shortest survival</h3><div class="frame"><table id="t4w"></table></div></div>
+  </div>
+  <div class="grid2">
+    <div><h3>Share of the top 10% by survival</h3><div class="bars" id="t4share"></div></div>
+    <div><h3>Survival by zones covered</h3><div class="bars" id="t4z"></div></div>
+  </div>
+</section>
+
+<section id="s5">
+  <h2>Random full builds</h2>
+  <p class="muted" id="t5meta"></p>
+  <div class="controls"><label for="t5m">Outcome</label><select id="t5m"><option value="fell">Survival</option><option value="kills">Kills</option></select></div>
+  <div class="grid2">
+    <div><h3>Each powerup's own effect, at its top level</h3><div class="bars" id="t5main"></div></div>
+    <div><h3>Strongest interactions</h3><p class="muted" style="font-size:13px">Extra effect when both are held at top, beyond their own effects.</p><div class="frame"><table id="t5int"></table></div></div>
+  </div>
+  <h3>Share of a build's useful damage</h3><div class="bars" id="t5share"></div>
+</section>
+
+<section>
+  <h2>How it was run</h2>
+  <p class="muted">The scripted player walks a circle (or a figure eight), turns round every 6 s, lobs a grenade ahead every 12 s and never picks a level-up, so a forced build stays fixed. It never dies; its first fall is recorded. Pressure runs lay <code>tools/matrix/pressure</code> over the data: spawns from 2/s rising 2.5/s per minute up to 25/s, hordes of 40 + 8 per minute, and a zombie cap of 600, so strong builds stop hitting the same ceiling. The random-build fit is a ridge regression on level fractions with every weapon pair and weapon–passive pair as interaction terms; R² is shown beside it.</p>
+</section>
+</main>
+
+<script>
+const D = /*DATA*/null;
+const W = D.weapons, P = D.passives;
+const LV = ["1","2","3","4","5","6","7","8","9"];
+const $ = id => document.getElementById(id);
+const nice = s => s.replace(/_/g, " ");
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+function mix(a, b, t) {
+  const p = h => [1,3,5].map(i => parseInt(h.slice(i, i + 2), 16));
+  const x = p(a), y = p(b);
+  return "rgb(" + x.map((v, i) => Math.round(v + (y[i] - v) * t)).join(",") + ")";
+}
+function seq(v, lo, hi) { const t = hi > lo ? Math.max(0, Math.min(1, (v - lo) / (hi - lo))) : 0; return mix(css("--mid"), css("--pos"), t * .85); }
+function div(v, m) { const t = Math.max(-1, Math.min(1, v / (m || 1))); return t >= 0 ? mix(css("--mid"), css("--pos"), t * .85) : mix(css("--mid"), css("--neg"), -t * .85); }
+function fmt(v, m) { if (v == null || isNaN(v)) return "–"; if (m === "overkill" || m === "capped") return Math.round(v * 100) + "%"; return Math.abs(v) >= 100 ? Math.round(v).toLocaleString() : (+v).toFixed(1).replace(/\.0$/, ""); }
+function bars(el, items, opts = {}) {
+  const max = Math.max(...items.map(i => Math.abs(i[1])), 1e-9), signed = items.some(i => i[1] < 0);
+  el.innerHTML = items.map(([k, v]) => {
+    const w = Math.abs(v) / max * (signed ? 50 : 100), left = signed ? (v < 0 ? 50 - w : 50) : 0;
+    const col = v < 0 ? "var(--neg)" : (opts.color || "var(--pos)");
+    return `<div class="bar"><span class="lab" title="${nice(k)}">${nice(k)}</span><span class="track"><span class="fill" style="left:${left}%;width:${w}%;background:${col}"></span></span><span class="v">${opts.fmt ? opts.fmt(v) : fmt(v)}</span></div>`;
+  }).join("");
+}
+function none(el, msg) { el.innerHTML = `<tr><td class="name">${msg || "Not run yet."}</td></tr>`; }
+
+function t1() {
+  const set = D[$("t1set").value], m = $("t1m").value, el = $("t1");
+  if (!set) return none(el);
+  const vals = W.flatMap(w => LV.map(l => set[w]?.[l]?.[m])).filter(v => v != null);
+  const lo = Math.min(...vals), hi = Math.max(...vals);
+  el.innerHTML = "<tr><th class='name'>Weapon</th>" + LV.map(l => `<th>${l === "9" ? "B" : l}</th>`).join("") + "</tr>" +
+    W.map(w => "<tr><td class='name'>" + nice(w) + "</td>" + LV.map(l => { const v = set[w]?.[l]?.[m]; return `<td class="c" style="background:${v == null ? "transparent" : seq(v, lo, hi)}">${fmt(v, m)}</td>`; }).join("") + "</tr>").join("");
+}
+function t2() {
+  const t = D[$("t2set").value], m = $("t2m").value, el = $("t2");
+  if (!t) { none(el); $("t2z").innerHTML = ""; none($("t2top")); return; }
+  const at = {}; t.pairs.forEach(p => { at[p.a + "|" + p.b] = p; at[p.b + "|" + p.a] = p; });
+  const vs = t.pairs.map(p => p[m]), lo = Math.min(...vs), hi = Math.max(...vs), mm = Math.max(Math.abs(lo), Math.abs(hi));
+  el.innerHTML = "<tr><th class='name'></th>" + W.map(w => `<th class="rot">${nice(w)}</th>`).join("") + "</tr>" +
+    W.map(a => "<tr><td class='name'>" + nice(a) + "</td>" + W.map(b => {
+      const p = at[a + "|" + b]; if (!p) return "<td class='c'></td>";
+      const v = p[m], bg = m === "kills" ? seq(v, lo, hi) : div(v, mm);
+      return `<td class="c" style="background:${bg}" title="${nice(a)} + ${nice(b)}: ${p.kills} kills, survives ${p.fell}s">${fmt(v)}</td>`;
+    }).join("") + "</tr>").join("");
+  bars($("t2z"), Object.entries(t.zones).sort((a, b) => b[1].mean - a[1].mean).map(([z, v]) => [z, v.mean]));
+  const s = [...t.pairs].sort((a, b) => b[m] - a[m]), rows = [...s.slice(0, 8), null, ...s.slice(-6)];
+  $("t2top").innerHTML = "<tr><th class='name'>Pair</th><th>Kills</th><th>Synergy</th><th>Survives</th></tr>" +
+    rows.map(p => p ? `<tr><td class="name">${nice(p.a)} + ${nice(p.b)}</td><td>${p.kills.toLocaleString()}</td><td>${fmt(p.synergy)}</td><td>${p.fell}s</td></tr>` : "<tr><td class='name muted'>…</td><td></td><td></td><td></td></tr>").join("");
+}
+function t3() {
+  const t = D.t3_passives_pressure, m = $("t3m").value, el = $("t3");
+  if (!t) { none(el); $("t3p").innerHTML = ""; return; }
+  const at = {}; t.cells.forEach(c => at[c.w + "|" + c.p] = c);
+  const mm = Math.max(...t.cells.map(c => Math.abs(c[m])));
+  el.innerHTML = "<tr><th class='name'></th>" + P.map(p => `<th class="rot">${nice(p)}</th>`).join("") + "</tr>" +
+    W.map(w => "<tr><td class='name'>" + nice(w) + "</td>" + P.map(p => { const c = at[w + "|" + p]; return c ? `<td class="c" style="background:${div(c[m], mm)}" title="${nice(w)} + ${nice(p)}: ${c.kills} kills (${c.base} alone)">${fmt(c[m])}</td>` : "<td class='c'></td>"; }).join("") + "</tr>").join("");
+  bars($("t3p"), Object.entries(t.passive_mean_pct).sort((a, b) => b[1] - a[1]), { fmt: v => v.toFixed(1) + "%" });
+}
+function t4() {
+  const t = D.t4_triples_pressure;
+  if (!t) { $("t4meta").textContent = "Not run yet."; return; }
+  $("t4meta").textContent = `${t.n} sets of three, all at level 8, 3 seeds each, under pressure. ${t.at_ceiling} of them killed nearly everything that rose, so survival ranks them.`;
+  const row = x => `<tr><td class="name">${x.ws.map(nice).join(" + ")}</td><td>${x.fell}s</td><td>${x.kills.toLocaleString()}</td></tr>`;
+  const head = "<tr><th class='name'>Weapons</th><th>Survives</th><th>Kills</th></tr>";
+  $("t4s").innerHTML = head + t.top_survival.slice(0, 12).map(row).join("");
+  $("t4w").innerHTML = head + t.worst.map(row).join("");
+  bars($("t4share"), Object.entries(t.top10_share).sort((a, b) => b[1] - a[1]).slice(0, 12), { fmt: v => Math.round(v * 100) + "%", color: "var(--accent)" });
+  bars($("t4z"), Object.entries(t.by_zone_count).map(([k, v]) => [k + (k === "1" ? " zone" : " zones"), v]), { fmt: v => v + "s", color: "var(--accent)" });
+}
+function t5() {
+  const t = D.t5_random_pressure, m = $("t5m").value;
+  if (!t) { $("t5meta").textContent = "Not run yet."; return; }
+  const o = t[m];
+  $("t5meta").textContent = `${t.n.toLocaleString()} random builds: 6 weapons at random levels and 6 passives, one night each under pressure. Mean survival ${t.mean_fell}s, mean kills ${t.mean_kills.toLocaleString()}; ${Math.round(t.never_fell * 100)}% never fell. The fit explains ${Math.round(o.r2 * 100)}% of the spread in ${m === "fell" ? "survival" : "kills"}.`;
+  bars($("t5main"), Object.entries(o.main).sort((a, b) => b[1] - a[1]), { fmt: v => (m === "fell" ? v.toFixed(0) + "s" : Math.round(v).toLocaleString()) });
+  $("t5int").innerHTML = "<tr><th class='name'>Pair</th><th>Effect</th></tr>" + o.top_interactions.slice(0, 16).map(i => `<tr><td class="name">${nice(i.a)} + ${nice(i.b)}</td><td style="color:${i.coef < 0 ? "var(--neg)" : "var(--pos)"}">${i.coef > 0 ? "+" : ""}${m === "fell" ? i.coef.toFixed(0) + "s" : Math.round(i.coef).toLocaleString()}</td></tr>`).join("");
+  bars($("t5share"), Object.entries(t.useful_share).sort((a, b) => b[1] - a[1]), { fmt: v => Math.round(v * 100) + "%", color: "var(--accent)" });
+}
+function all() { t1(); t2(); t3(); t4(); t5(); }
+["t1set", "t1m"].forEach(i => $(i).onchange = t1);
+["t2set", "t2m"].forEach(i => $(i).onchange = t2);
+$("t3m").onchange = t3; $("t5m").onchange = t5;
+const tiers = Object.keys(D).filter(k => /^t\d/.test(k)).length;
+$("meta").textContent = `Headless nights from the DPS sandbox on a 72×54 farm. ${tiers} of 8 result sets loaded.`;
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", all);
+new MutationObserver(all).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+all();
+</script>

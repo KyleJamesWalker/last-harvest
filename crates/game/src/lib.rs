@@ -34,7 +34,7 @@ pub use art::Stand;
 pub use harvest::showcase::{CropShow, Figure, Showcase};
 pub use harvest::{SwingShow, swing_shown};
 pub use harvest::{NamedProp, load_props_for_checks, PROP_MAX_FRAME, PROP_MAX_FRAMES, PROP_PREFIX, PropByViews, PropFields, named_props, turned_depth, prop_fields, prop_text, set_props};
-pub use harvest::{RangeSetup, effects_with, powerups_with};
+pub use harvest::{RangeSetup, effects_with, powerups_with, sandbox};
 pub use harvest::{WeaponLevels, sound_group, sound_groups, valid_sound_group, powerup_zones, unlock_conditions, weapon_behaviours, weapon_levels, weapon_patterns, weapon_sound_names, weapon_stats, weapon_targets};
 pub use harvest::{SHOT_SPRITES, Shot, shot_named, shot_sprite_names};
 pub use harvest::{TABLES, built_in_table, check_own_table, check_table, default_prop_depth, MAP_EXTENSION, map_ground, set_map_ground, CropSway, MAP_MAX, MAP_MIN, map_props, parse_props, MapSource, PROP_MAX_HP, PropKind, PropLine, PropTough, check_map, check_map_on_any_farm, valid_map_id, FARM_DIR, FARM_GROUND_END, FARM_ID_MAX, farm_file, farm_ids, farm_of_file, set_farm, table_kind, use_farm, use_farm_text, valid_farm_id};
