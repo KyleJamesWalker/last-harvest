@@ -304,6 +304,8 @@ enum Action {
     DataRemove(usize),
     /// Steps the data page's `color` line through the game's palette.
     DataColor(usize, i32),
+    /// Steps the data page's line through the words it can give, such as a powerup's `zone` or `unlock`.
+    DataChoice(usize, i32),
     /// Steps the data page's shot sprite line through the sprites, a mod's props among them.
     DataSprite(usize, i32),
     /// Opens the sprite the data page's line names, to paint it.
@@ -1830,7 +1832,7 @@ impl Editor {
         }
         match a {
             Action::MapTool(_) | Action::Ground(_) | Action::PickProp(_) | Action::PickPage(_) | Action::Picket(_) | Action::MapSize(..) | Action::Randomize | Action::MapFit | Action::PropDefaults => {}
-            Action::DataStep(..) | Action::DataEdit(_) | Action::DataRemove(_) | Action::DataColor(..) | Action::DataSprite(..) | Action::DataPaint(_) | Action::DataAdd | Action::DataPage(_) => {}
+            Action::DataStep(..) | Action::DataEdit(_) | Action::DataRemove(_) | Action::DataColor(..) | Action::DataChoice(..) | Action::DataSprite(..) | Action::DataPaint(_) | Action::DataAdd | Action::DataPage(_) => {}
             Action::WeaponLines | Action::WeaponLevel(_) | Action::WeaponMax(_) | Action::WeaponDoes(_) | Action::WeaponStep(..) | Action::WeaponType(_) | Action::WeaponPick(..) | Action::WeaponStyle | Action::WeaponTry => {}
             Action::LineFrame(_) | Action::LineFps(_) => {}
             Action::PlayerBase(i, d) => {
@@ -4718,6 +4720,43 @@ mod tests {
         assert!(e.is_prop() && e.open_prop_fields().is_some(), "a prop, not a card");
         e.act(Action::Save, false);
         assert!(dir.join("props/post.prop.png").exists());
+    }
+
+    #[test]
+    fn a_powerups_zone_and_unlock_step_through_their_words_in_both_editors() {
+        for modding in [false, true] {
+            let dir = tmp().join(if modding { "choices-mod" } else { "choices" });
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            let mut e = editor_in(&dir, dir.join("art.txt"));
+            if modding {
+                e.set_modding();
+            }
+            e.switch_to("DATA_POWERUPS_MOLOTOV".into());
+            if e.data.as_ref().is_some_and(|d| d.weapon.is_some()) {
+                e.act(Action::WeaponLines, false);
+            }
+            let row = |e: &Editor, key: &str| e.data.as_ref().and_then(|d| d.table.entries(&d.section).iter().position(|l| l.key == key)).unwrap();
+            let value = |e: &Editor, key: &str| e.data.as_ref().map(|d| d.table.entries(&d.section)[row(e, key)].value.clone()).unwrap();
+            let (zone, unlock) = (row(&e, "zone"), row(&e, "unlock"));
+            assert!(e.buttons().iter().any(|b| b.action == Action::DataChoice(zone, 1)), "modding {modding}");
+            buttons_fit(&e);
+            assert_eq!(value(&e, "zone"), "far");
+            e.act(Action::DataChoice(zone, 1), false);
+            assert_eq!(value(&e, "zone"), "ahead", "it wraps round");
+            e.act(Action::DataChoice(zone, -1), false);
+            assert_eq!(value(&e, "zone"), "far");
+            let picked: Vec<String> = (0..last_harvest_game::unlock_conditions().len())
+                .map(|_| {
+                    e.act(Action::DataChoice(unlock, 1), false);
+                    value(&e, "unlock")
+                })
+                .collect();
+            assert!(picked.iter().any(|v| v.starts_with("breakers ")) && picked.iter().any(|v| v.starts_with("breaker_dawns ")) && picked.iter().any(|v| v == "start"), "{picked:?}");
+            e.act(Action::Save, false);
+            assert!(!e.unsaved(), "the game reads every step");
+            std::fs::remove_dir_all(&dir).unwrap();
+        }
     }
 
     #[test]

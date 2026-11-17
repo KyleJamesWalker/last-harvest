@@ -420,7 +420,7 @@ Each data file lists under Data, and each section is a page, such as Data > tuni
 | Control | What it does |
 |---|---|
 | - and + | Step a number |
-| < and > | Step a color through the palette |
+| < and > | Step a color through the palette, or a powerup's `zone` or `unlock` condition through the ones the game reads |
 | Edit | Type any value |
 | x, Add line | Remove a line, or add one |
 | Up, Down | Page through a long section |
