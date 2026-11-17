@@ -22,6 +22,18 @@ home 12         # how near the farmhouse's front step counts as home once dawn b
 rare 0.12       # chance a level-up card is rare and counts twice
 push 80         # how far a level-up pushes zombies back
 
+[spawn]
+rate 0.7        # zombies a second that rise at dusk...
+growth 0.9      # ...plus this many more a second for each minute of the night...
+top 9           # ...up to this many a second
+horde_every 90  # seconds between hordes
+horde 20        # zombies in a horde at dusk...
+horde_growth 4  # ...plus this many for each minute of the night
+bank 40         # most zombies owed while [zombies] max are up, kept to rise once there's room...
+release 3       # ...this many a second
+straggler 320   # a zombie off screen and farther than this from the player...
+straggler_time 4 # ...for this many seconds rises again in the ring ahead of the player, unchanged
+
 [levelup]
 held_weight 1   # a card for a powerup the player holds is this many times as likely as one for a new powerup
 banish 2        # cards a run can banish: gone for the rest of the run, its place dealt again
