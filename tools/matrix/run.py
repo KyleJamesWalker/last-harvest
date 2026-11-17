@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run the sandbox balance matrix, tier by tier, into CSV files.
 
-Usage: tools/matrix/run.py [--out DIR] [--random N] [TIER ...]
+Usage: tools/matrix/run.py [--out DIR] [--random N] [--player WORDS] [TIER ...]
 
 Tiers (all by default; name a prefix such as t2 to run fewer):
   t1_singles_normal     each weapon alone at levels 1..top and its breaker, 20 seeds
@@ -15,6 +15,11 @@ Tiers (all by default; name a prefix such as t2 to run fewer):
 
 The pressure tiers lay tools/matrix/pressure over the game's data, which needs the `[spawn]` section of tuning.txt.
 A finished tier's CSV is kept and skipped on the next run; delete it to run that tier again.
+
+--player sets how the scripted player plays every tier, as comma-separated words: a walk (circle, eight, avoid), a
+pick (none, random, held, first:a+b), nothrow for no grenades and locked for a new player's unlocks. Its tiers go
+in a folder of their own under DIR, named for the words, such as target/matrix/avoid-held. The eight tier keeps its
+figure eight.
 """
 import argparse
 import itertools
@@ -61,6 +66,26 @@ def tiers(weapons, passives, top, random_builds):
     yield "t5_random_pressure", full, 1, True, ()
 
 
+WALKS = ("circle", "eight", "avoid")
+PICKS = ("none", "random", "held")
+
+
+def player_flags(words):
+    flags = []
+    for w in filter(None, (w.strip() for w in words.split(","))):
+        if w in WALKS:
+            flags += ["--walk", w]
+        elif w in PICKS or w.startswith("first:"):
+            flags += ["--pick", w]
+        elif w == "nothrow":
+            flags += ["--no-throw"]
+        elif w == "locked":
+            flags += ["--locked"]
+        else:
+            sys.exit(f"--player: {w} is not a walk, a pick, nothrow or locked")
+    return flags
+
+
 def run(sandbox, out, tier, builds, seeds, extra, chunk=120):
     t0, parts = time.time(), []
     for i in range(0, len(builds), chunk):
@@ -72,7 +97,7 @@ def run(sandbox, out, tier, builds, seeds, extra, chunk=120):
     with out.open("w") as f:
         for n, part in enumerate(parts):
             lines = part.read_text().splitlines(keepends=True)
-            f.writelines(lines if n == 0 else lines[1:])
+            f.writelines(lines if n == 0 else [l for l in lines if not l.startswith("#")][1:])
             part.unlink()
 
 
@@ -80,8 +105,12 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--out", type=Path, default=ROOT / "target/matrix")
     ap.add_argument("--random", type=int, default=5000, help="builds in the random tier (5000)")
+    ap.add_argument("--player", default="", help="how the scripted player plays, such as avoid,held,nothrow")
     ap.add_argument("tiers", nargs="*")
     a = ap.parse_args()
+    player = player_flags(a.player)
+    if player:
+        a.out = a.out / a.player.replace(",", "-").replace(":", "_").replace("+", "_")
     subprocess.run(["cargo", "build", "-q", "--release", "-p", "last-harvest", "--bin", "last-harvest-sandbox", "-p", "last-harvest-pack"], cwd=ROOT, check=True)
     sandbox = ROOT / "target/release/last-harvest-sandbox"
     mods = a.out / "mods"
@@ -99,8 +128,8 @@ def main():
         if pressure and not spawn:
             print(f"{tier}: skipped, tuning.txt has no [spawn] section for the pressure pack")
             continue
-        run(sandbox, out, tier, builds, seeds, (*extra, *(("--mods", str(mods)) if pressure else ())))
-    print("done; tools/matrix/report.py makes the report", flush=True)
+        run(sandbox, out, tier, builds, seeds, (*player, *extra, *(("--mods", str(mods)) if pressure else ())))
+    print(f"done; tools/matrix/report.py --out {a.out} makes the report", flush=True)
 
 
 if __name__ == "__main__":

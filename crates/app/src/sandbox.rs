@@ -8,7 +8,7 @@ use std::time::Instant;
 
 use last_harvest::{VERSION, pak};
 use last_harvest_game::Difficulty;
-use last_harvest_game::sandbox::{self, Night, Plan, Walk};
+use last_harvest_game::sandbox::{self, Night, Pick, Plan, Walk};
 
 const USAGE: &str = "\
 usage: last-harvest-sandbox [options] [BUILD ...]
@@ -23,14 +23,19 @@ hearts and level for each. With no BUILD, measures each weapon alone at each lev
   --seed S            the first seed (1)
   --difficulty D      easy, normal or hard (normal)
   --size WxH          the generated farm's size in tiles (72x54)
-  --walk W            circle, or eight: a loop each way (circle)
-  --turn K            how hard the walk turns, 0 to 1 of the turn buttons' speed (0.25)
-  --turn-every S      seconds between turnarounds, 0 for none (6)
+  --walk W            circle; eight, a loop each way; or avoid, turning away from the zombies on the map (circle)
+  --turn K            how hard circle and eight turn, 0 to 1 of the turn buttons' speed (0.25)
+  --turn-every S      seconds between turnarounds, 0 for none; avoid never turns round (6)
   --throw-every S     seconds between grenades lobbed straight ahead, 0 for none (12)
+  --no-throw          the same as --throw-every 0
+  --pick P            level-up cards: none, the build staying fixed; random; held, what the build holds, with
+                      rerolls and banishes spent to find it; or first:a+b+c, the first named on offer, else as held
+                      (none)
+  --locked            with a pick, only the powerups a new player has unlocked come up; else every one
   --mortal            the player can die, which ends the night; else they stand back up and play on
-  --secs S            stop this many seconds into the night, before dawn
+  --secs S            stop this many seconds into the night; past dawn (600) the night goes on, the Harvester awake
   --jobs N            nights played at once (every core)
-  --csv FILE          one row per build and weapon, and an `all` row per build
+  --csv FILE          one row per build and weapon, and an `all` row per build, under a `#` line of the settings
   --json FILE         every night played
   --pak FILE          the data pack, instead of the built-in data or data/game_data.pak
   --mods DIR          a folder of mod packs to lay over it
@@ -46,6 +51,9 @@ struct Args {
     jobs: usize,
     csv: Option<String>,
     json: Option<String>,
+    /// `--pick` as given, read once the data is loaded.
+    pick: String,
+    locked: bool,
 }
 
 fn main() {
@@ -66,7 +74,7 @@ fn main() {
 }
 
 fn parse(args: &[String]) -> Result<Args, String> {
-    let mut a = Args { builds: Vec::new(), weapons: None, seeds: 3, seed: 1, plan: Plan::new(Vec::new()), jobs: std::thread::available_parallelism().map_or(1, |n| n.get()), csv: None, json: None };
+    let mut a = Args { builds: Vec::new(), weapons: None, seeds: 3, seed: 1, plan: Plan::new(Vec::new()), jobs: std::thread::available_parallelism().map_or(1, |n| n.get()), csv: None, json: None, pick: "none".into(), locked: false };
     let mut it = args.iter();
     while let Some(arg) = it.next() {
         let mut value = || it.next().cloned().ok_or_else(|| format!("{arg} needs a value"));
@@ -88,8 +96,11 @@ fn parse(args: &[String]) -> Result<Args, String> {
             }
             "--walk" => {
                 let v = value()?;
-                a.plan.walk = Walk::from_name(&v).ok_or_else(|| format!("--walk: {v} is not circle or eight"))?;
+                a.plan.walk = Walk::from_name(&v).ok_or_else(|| format!("--walk: {v} is not circle, eight or avoid"))?;
             }
+            "--pick" => a.pick = value()?,
+            "--locked" => a.locked = true,
+            "--no-throw" => a.plan.throw_every = 0.0,
             "--turn" => a.plan.turn = num::<f32>(arg, value()?)?.clamp(0.0, 1.0),
             "--turn-every" => a.plan.turn_every = num(arg, value()?)?,
             "--throw-every" => a.plan.throw_every = num(arg, value()?)?,
@@ -114,8 +125,10 @@ struct Cell {
     nights: Vec<Night>,
 }
 
-fn run(a: Args) -> Result<(), String> {
+fn run(mut a: Args) -> Result<(), String> {
     pak::load()?;
+    a.plan.pick = Pick::from_name(&a.pick).map_err(|e| format!("--pick: {e}"))?;
+    a.plan.unlocked = a.plan.pick != Pick::None && !a.locked;
     let builds = if a.builds.is_empty() { matrix(a.weapons.as_deref())? } else { a.builds.iter().map(|b| sandbox::parse_build(b)).collect::<Result<_, _>>()? };
     let jobs: Vec<(usize, u64)> = (0..builds.len()).flat_map(|b| (0..a.seeds).map(move |s| (b, s))).collect();
     let nights: Vec<Mutex<Option<Night>>> = jobs.iter().map(|_| Mutex::new(None)).collect();
@@ -143,7 +156,7 @@ fn run(a: Args) -> Result<(), String> {
     eprintln!("sandbox: done in {:.0} s", started.elapsed().as_secs_f32());
     print!("{}", table(&cells, &a.plan));
     if let Some(path) = &a.csv {
-        std::fs::write(path, csv(&cells)).map_err(|e| format!("{path}: {e}"))?;
+        std::fs::write(path, csv(&cells, &a.plan)).map_err(|e| format!("{path}: {e}"))?;
     }
     if let Some(path) = &a.json {
         std::fs::write(path, json(&cells, &a)).map_err(|e| format!("{path}: {e}"))?;
@@ -212,15 +225,25 @@ impl Cell {
         Row { weapon: "all".into(), level: 0, secs, kills: mean(n.iter().map(|x| x.kills as f32)), kills_sd: spread(n.iter().map(|x| x.kills as f32)), useful, raw, dps: per(useful), raw_dps: per(raw) }
     }
 
+    /// Each weapon any night ended with, grenades last; a night without it counts nothing for it, and its level is
+    /// the mean of the nights that had it, as a pick can raise it.
     fn lines(&self) -> Vec<Row> {
-        let first = &self.nights[0].lines;
-        (0..first.len())
-            .map(|i| {
-                let of = |f: fn(&sandbox::Line) -> f32| mean(self.nights.iter().map(|x| f(&x.lines[i])));
+        let mut ids: Vec<&str> = Vec::new();
+        for l in self.nights.iter().flat_map(|x| &x.lines).filter(|l| l.id != "grenades") {
+            if !ids.contains(&l.id.as_str()) {
+                ids.push(&l.id);
+            }
+        }
+        ids.push("grenades");
+        ids.into_iter()
+            .map(|id| {
+                let line = |x: &'_ Night| x.lines.iter().find(|l| l.id == id).cloned();
+                let of = |f: fn(&sandbox::Line) -> f32| mean(self.nights.iter().map(|x| line(x).as_ref().map_or(0.0, f)));
                 let (held, useful, raw) = (of(|l| l.held), of(|l| l.useful), of(|l| l.raw));
                 let per = |v: f32| if held > 0.0 { v / held } else { 0.0 };
-                let kills = self.nights.iter().map(|x| x.lines[i].kills as f32);
-                Row { weapon: first[i].id.clone(), level: first[i].level, secs: held, kills: mean(kills.clone()), kills_sd: spread(kills), useful, raw, dps: per(useful), raw_dps: per(raw) }
+                let kills: Vec<f32> = self.nights.iter().map(|x| line(x).map_or(0.0, |l| l.kills as f32)).collect();
+                let level = mean(self.nights.iter().filter_map(line).map(|l| l.level as f32)).round() as u32;
+                Row { weapon: id.to_string(), level, secs: held, kills: mean(kills.iter().copied()), kills_sd: spread(kills), useful, raw, dps: per(useful), raw_dps: per(raw) }
             })
             .collect()
     }
@@ -254,6 +277,12 @@ impl Cell {
         (fell.len(), (!fell.is_empty()).then(|| mean(fell.iter().copied())))
     }
 
+    /// The mean time to the first fall, a night that never fell counting as its whole length: survival restricted to
+    /// the night, censored where it never fell.
+    fn survival(&self) -> f32 {
+        mean(self.nights.iter().map(|x| x.fell.unwrap_or(x.secs)))
+    }
+
     fn spawned(&self) -> f32 {
         mean(self.nights.iter().map(|x| x.spawned as f32))
     }
@@ -272,8 +301,7 @@ impl Cell {
 
 fn table(cells: &[Cell], plan: &Plan) -> String {
     let mut s = String::new();
-    let walk = plan.walk.name();
-    let _ = writeln!(s, "{} nights, {}, {}x{} farm, walk {walk} at {}, turnaround every {} s, grenade every {} s, {}", cells.first().map_or(0, |c| c.nights.len()), plan.difficulty.key(), plan.size[0], plan.size[1], plan.turn, plan.turn_every, plan.throw_every, if plan.mortal { "mortal" } else { "undying" });
+    let _ = writeln!(s, "{} nights, {}", cells.first().map_or(0, |c| c.nights.len()), settings(plan));
     let _ = writeln!(s, "{:<28} {:>11} {:>6} {:>9} {:>9} {:>5} {:>6} {:>7} {:>6} {:>5} {:>5} {:>8} {:>5} {:>4}", "build", "kills", "k/min", "useful", "raw", "over", "dps", "raw dps", "hearts", "lvl5", "lvl", "fell", "cap", "ceil");
     for c in cells {
         let all = c.all();
@@ -311,10 +339,29 @@ fn table(cells: &[Cell], plan: &Plan) -> String {
     s
 }
 
-const CSV_HEAD: &str = "build,weapon,level,seeds,secs,kills,kills_sd,kills_per_min,useful,raw,overkill,dps,raw_dps,hearts,level_reached,fell_nights,fell_at,dawn_nights,spawned,capped,ceiling,kills_by_min,hearts_by_min,level_by_min";
+/// The settings a run played under, as `key=value` words.
+fn settings(p: &Plan) -> String {
+    format!(
+        "difficulty={} size={}x{} walk={} turn={} turn_every={} throw_every={} pick={} unlocked={} mortal={} secs={} step={:.5}",
+        p.difficulty.key(),
+        p.size[0],
+        p.size[1],
+        p.walk.name(),
+        p.turn,
+        p.turn_every,
+        p.throw_every,
+        p.pick.name(),
+        p.unlocked,
+        p.mortal,
+        p.until.unwrap_or(600.0),
+        p.step
+    )
+}
 
-fn csv(cells: &[Cell]) -> String {
-    let mut s = format!("{CSV_HEAD}\n");
+const CSV_HEAD: &str = "build,weapon,level,seeds,secs,kills,kills_sd,kills_per_min,useful,raw,overkill,dps,raw_dps,hearts,level_reached,fell_nights,fell_at,dawn_nights,spawned,capped,ceiling,kills_by_min,hearts_by_min,level_by_min,survival,censored";
+
+fn csv(cells: &[Cell], plan: &Plan) -> String {
+    let mut s = format!("# last-harvest-sandbox {VERSION} {}\n{CSV_HEAD}\n", settings(plan));
     for c in cells {
         let name = c.name();
         let (fell, at) = c.fell();
@@ -324,7 +371,7 @@ fn csv(cells: &[Cell]) -> String {
             let _ = writeln!(s, "\"{name}\",{},{},{},{:.1},{:.2},{:.2},{:.2},{:.1},{:.1},{:.4},{:.2},{:.2},{extra}", r.weapon, r.level, c.nights.len(), r.secs, r.kills, r.kills_sd, r.per_min(), r.useful, r.raw, r.overkill(), r.dps, r.raw_dps);
         };
         let extra = format!(
-            "{:.1},{:.2},{fell},{},{dawns},{:.1},{:.4},{},{},{},{}",
+            "{:.1},{:.2},{fell},{},{dawns},{:.1},{:.4},{},{},{},{},{:.1},{}",
             c.hearts(),
             c.level(),
             at.map_or(String::new(), |t| format!("{t:.1}")),
@@ -333,11 +380,13 @@ fn csv(cells: &[Cell]) -> String {
             c.at_ceiling(),
             c.by_minute(|m| m.kills),
             c.by_minute(|m| m.hearts),
-            c.by_minute(|m| m.level)
+            c.by_minute(|m| m.level),
+            c.survival(),
+            c.nights.len() - fell
         );
         row(&mut s, &all, &extra);
         for l in c.lines() {
-            row(&mut s, &l, ",,,,,,,,,,");
+            row(&mut s, &l, ",,,,,,,,,,,,");
         }
     }
     s
@@ -346,7 +395,7 @@ fn csv(cells: &[Cell]) -> String {
 fn json(cells: &[Cell], a: &Args) -> String {
     let p = &a.plan;
     let mut s = format!(
-        "{{\"version\":\"{VERSION}\",\"difficulty\":\"{}\",\"size\":[{},{}],\"walk\":\"{}\",\"turn\":{},\"turn_every\":{},\"throw_every\":{},\"mortal\":{},\"step\":{},\"builds\":[",
+        "{{\"version\":\"{VERSION}\",\"difficulty\":\"{}\",\"size\":[{},{}],\"walk\":\"{}\",\"turn\":{},\"turn_every\":{},\"throw_every\":{},\"pick\":\"{}\",\"unlocked\":{},\"mortal\":{},\"secs\":{},\"step\":{},\"builds\":[",
         p.difficulty.key(),
         p.size[0],
         p.size[1],
@@ -354,17 +403,21 @@ fn json(cells: &[Cell], a: &Args) -> String {
         p.turn,
         p.turn_every,
         p.throw_every,
+        p.pick.name(),
+        p.unlocked,
         p.mortal,
+        p.until.unwrap_or(600.0),
         p.step
     );
     for (i, c) in cells.iter().enumerate() {
         let _ = write!(s, "{}{{\"build\":\"{}\",\"nights\":[", if i > 0 { "," } else { "" }, c.name());
         for (j, (n, seed)) in c.nights.iter().zip(a.seed..).enumerate() {
             let minutes: Vec<String> = n.minutes.iter().map(|m| format!("{{\"kills\":{},\"hearts\":{},\"level\":{}}}", m.kills, m.hearts, m.level)).collect();
+            let took: Vec<String> = n.took.iter().map(|t| format!("{{\"secs\":{:.2},\"id\":\"{}\",\"rare\":{}}}", t.secs, sandbox::powerup_id(t.up), t.rare)).collect();
             let lines: Vec<String> = n.lines.iter().map(|l| format!("{{\"weapon\":\"{}\",\"level\":{},\"raw\":{:.1},\"useful\":{:.1},\"kills\":{},\"held\":{:.2}}}", l.id, l.level, l.raw, l.useful, l.kills, l.held)).collect();
             let _ = write!(
                 s,
-                "{}{{\"seed\":{seed},\"secs\":{:.2},\"dawn\":{},\"fell\":{},\"kills\":{},\"hearts\":{},\"level\":{},\"spawned\":{},\"capped\":{:.2},\"minutes\":[{}],\"weapons\":[{}]}}",
+                "{}{{\"seed\":{seed},\"secs\":{:.2},\"dawn\":{},\"fell\":{},\"kills\":{},\"hearts\":{},\"level\":{},\"spawned\":{},\"capped\":{:.2},\"build\":\"{}\",\"took\":[{}],\"minutes\":[{}],\"weapons\":[{}]}}",
                 if j > 0 { "," } else { "" },
                 n.secs,
                 n.dawn,
@@ -374,6 +427,8 @@ fn json(cells: &[Cell], a: &Args) -> String {
                 n.level,
                 n.spawned,
                 n.capped,
+                sandbox::build_text(&n.build),
+                took.join(","),
                 minutes.join(","),
                 lines.join(",")
             );
@@ -390,7 +445,7 @@ type CsvRow = ((String, String), Vec<(String, String)>);
 /// A CSV the sandbox wrote.
 fn read_csv(path: &str) -> Result<Vec<CsvRow>, String> {
     let text = std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
-    let mut lines = text.lines();
+    let mut lines = text.lines().filter(|l| !l.starts_with('#'));
     let head: Vec<String> = lines.next().ok_or(format!("{path}: empty"))?.split(',').map(String::from).collect();
     Ok(lines
         .filter_map(|line| {
