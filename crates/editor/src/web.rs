@@ -763,7 +763,10 @@ mod modding {
         let size = (ATLAS_W * ATLAS_H * 4) as usize;
         // A stored pack that can't be used must leave the page working, or Game data could never replace it.
         let (atlas, note) = match pak.map(|v| js_sys::Uint8Array::new(&v).to_vec()) {
-            Some(bytes) => match Pak::read(std::io::Cursor::new(bytes)).map(|mut p| p.take(ATLAS)) {
+            Some(bytes) => match Pak::read(std::io::Cursor::new(bytes)).map(|mut p| (p.take(ATLAS), p.take_dir(last_harvest_pack::SOUNDS))).map(|(atlas, sounds)| {
+                super::local::set_pak_sounds(sounds.into_iter().map(|(name, _)| name).collect());
+                atlas
+            }) {
                 Ok(Some(atlas)) if atlas.len() == size => (Some(atlas), (!shared).then(|| "Previews use your game data".to_string())),
                 Ok(_) => (None, Some("Your game data has no sprites this editor can use".to_string())),
                 Err(e) => (None, Some(format!("Your game data isn't for this editor: {e}"))),

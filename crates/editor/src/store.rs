@@ -52,6 +52,11 @@ pub trait Store {
         Vec::new()
     }
 
+    /// The sound groups among the game's sounds that a weapon's `sound` can name, as `sound_groups` finds them.
+    fn sound_groups(&self) -> Vec<String> {
+        Vec::new()
+    }
+
     /// Removes the card the part `name` belongs to for good, as the mod editor's Delete does.
     fn delete_card(&self, _name: &str) -> Result<(), String> {
         Err("cards are removed from the enemies and players folders here".into())
@@ -123,6 +128,22 @@ pub trait Store {
 }
 
 /// The farms among data files' paths, by id, sorted, each once.
+/// The groups that sound files make, sorted: `shot` for `shot.ogg` and `shot-2.wav`. The long loops are left out.
+pub fn sound_groups<S: AsRef<str>>(files: impl IntoIterator<Item = S>) -> Vec<String> {
+    const LOOPS: [&str; 2] = ["music", "ambience"];
+    let mut groups: Vec<String> = files
+        .into_iter()
+        .filter_map(|f| {
+            let stem = f.as_ref().strip_suffix(".ogg").or_else(|| f.as_ref().strip_suffix(".wav"))?;
+            let group = stem.rsplit_once('-').filter(|(_, n)| n.parse::<u32>().is_ok()).map_or(stem, |(g, _)| g);
+            (last_harvest_game::valid_sound_group(group) && !LOOPS.contains(&group)).then(|| group.to_string())
+        })
+        .collect();
+    groups.sort();
+    groups.dedup();
+    groups
+}
+
 pub fn farm_ids(files: impl IntoIterator<Item = String>) -> Vec<String> {
     let mut ids: Vec<String> = files.into_iter().filter_map(|f| last_harvest_game::farm_of_file(&f).map(|(id, _)| id.to_string())).collect();
     ids.sort();
@@ -620,6 +641,11 @@ mod fs {
     }
 
     impl Store for FsStore {
+        fn sound_groups(&self) -> Vec<String> {
+            let found = std::fs::read_dir(self.dir.with_file_name("sounds")).into_iter().flatten().flatten();
+            super::sound_groups(found.filter_map(|e| e.file_name().into_string().ok()))
+        }
+
         fn names(&self) -> Vec<(String, bool)> {
             let mut names = sprite::catalog(&self.dir);
             for kind in [CardKind::Enemy, CardKind::Player] {

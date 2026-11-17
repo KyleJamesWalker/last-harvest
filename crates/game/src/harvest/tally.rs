@@ -11,6 +11,25 @@ pub(super) struct Tally {
     other: f32,
     /// Seconds of play.
     pub secs: f32,
+    /// Damage up to each zombie's remaining health, and killing blows, by the same keys as `dealt` and `other`.
+    useful: Vec<f32>,
+    useful_other: f32,
+    kills: Vec<u32>,
+    kills_other: u32,
+    /// Hearts picked up.
+    pub hearts: u32,
+    /// The night's time the player first fell, even if the run was undying and stood them back up.
+    pub fell: Option<f32>,
+}
+
+/// What one weapon, or grenades and barrels, did over a run.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Dealt {
+    pub raw: f32,
+    pub useful: f32,
+    pub kills: u32,
+    /// Seconds held, or the whole run for grenades and barrels.
+    pub held: f32,
 }
 
 /// One line of the end screen's table: what dealt the damage (None for grenades and barrels), how much, and how
@@ -25,7 +44,7 @@ pub(super) struct Row {
 impl Tally {
     /// A tally with room for `defs` powerups, so adding never allocates.
     pub fn sized(defs: usize) -> Self {
-        Self { dealt: vec![0.0; defs], held: vec![0.0; defs], ..Self::default() }
+        Self { dealt: vec![0.0; defs], held: vec![0.0; defs], useful: vec![0.0; defs], kills: vec![0; defs], ..Self::default() }
     }
 
     pub fn add(&mut self, amount: f32) {
@@ -40,6 +59,34 @@ impl Tally {
         self.secs += dt;
         for d in defs {
             *grow(&mut self.held, d) += dt;
+        }
+    }
+
+    /// A hit of `dealt` on a zombie with `hp` left: what of it was useful, and whether it was the killing blow.
+    pub fn land(&mut self, dealt: f32, hp: f32) {
+        let useful = dealt.min(hp.max(0.0));
+        let kill = (hp > 0.0 && hp <= dealt) as u32;
+        match self.by {
+            Some(d) => {
+                *grow(&mut self.useful, d) += useful;
+                if d >= self.kills.len() {
+                    self.kills.resize(d + 1, 0);
+                }
+                self.kills[d] += kill;
+            }
+            None => {
+                self.useful_other += useful;
+                self.kills_other += kill;
+            }
+        }
+    }
+
+    /// What weapon `by` did, or grenades and barrels for None.
+    pub fn dealt(&self, by: Option<usize>) -> Dealt {
+        let at = |v: &[f32], d: usize| v.get(d).copied().unwrap_or(0.0);
+        match by {
+            Some(d) => Dealt { raw: at(&self.dealt, d), useful: at(&self.useful, d), kills: self.kills.get(d).copied().unwrap_or(0), held: at(&self.held, d) },
+            None => Dealt { raw: self.other, useful: self.useful_other, kills: self.kills_other, held: self.secs },
         }
     }
 
@@ -102,6 +149,20 @@ mod tests {
             Row { by: Some(0), damage: 100.0, dps: 5.0 },
             Row { by: None, damage: 40.0, dps: 2.0 },
         ]);
+    }
+
+    #[test]
+    fn a_hit_is_useful_only_up_to_the_health_left_and_the_last_one_kills() {
+        let mut t = Tally::sized(2);
+        t.by = Some(1);
+        t.land(150.0, 20.0);
+        t.land(5.0, -130.0);
+        t.land(8.0, 30.0);
+        t.by = None;
+        t.land(40.0, 40.0);
+        assert_eq!(t.dealt(Some(1)), Dealt { raw: 0.0, useful: 28.0, kills: 1, held: 0.0 });
+        assert_eq!(t.dealt(None), Dealt { raw: 0.0, useful: 40.0, kills: 1, held: 0.0 });
+        assert_eq!(t.dealt(Some(0)), Dealt::default());
     }
 
     #[test]

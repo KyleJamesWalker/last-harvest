@@ -13,6 +13,16 @@ use sprite_editor::store::{Store, cards, props};
 
 use last_harvest_pack::browser::{MAP_KEY, PROP_KEY, TABLE_KEY};
 
+thread_local! {
+    /// The sound files of the game data the page installed, by name.
+    static PAK_SOUNDS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Notes the sound files of the game data the page installed, for the weapon page to offer their groups.
+pub fn set_pak_sounds(names: Vec<String>) {
+    PAK_SOUNDS.with(|s| *s.borrow_mut() = names);
+}
+
 fn key(kind: CardKind, id: &str) -> String {
     last_harvest_pack::browser::card_key(kind, id)
 }
@@ -162,6 +172,11 @@ impl Store for LocalStore {
         super::call("dropSound", &[id.into()]);
         self.sounds.borrow_mut().remove(id);
         Ok(())
+    }
+
+    fn sound_groups(&self) -> Vec<String> {
+        let own: Vec<String> = self.sounds.borrow().values().map(|(file, _)| file.clone()).collect();
+        PAK_SOUNDS.with(|s| sprite_editor::store::sound_groups(s.borrow().iter().chain(&own)))
     }
 
     fn all_sounds(&self) -> Vec<(String, Vec<u8>)> {

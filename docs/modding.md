@@ -144,6 +144,7 @@ The game synthesizes every sound at runtime. A recorded Ogg Vorbis or WAV file r
 - WAV files can be 8, 16, 24 or 32-bit PCM or 32-bit float. Either format can be mono or stereo, at any sample rate.
 - Ogg Vorbis is about a tenth the size of WAV and decodes once at start.
 - Every file plays a few percent sharp or flat at random. Explosions, rising, groans, crows and spit pan and fade with distance.
+- A weapon's `sound` line can name a group of its own, such as `sound rattle` for `rattle.ogg` and `rattle-2.ogg`. See [powerups.txt](#powerupstxt).
 - `music.ogg` replaces the synth drone and swells with the danger. `ambience.ogg`, `ambience-2.ogg` and `ambience-3.ogg` play quietly underneath and fade out during a pause. These stream and loop.
 
 | Cue | Plays when |
@@ -330,7 +331,7 @@ Each `[id]` section is one powerup:
 |---|---|
 | `name`, `blurb`, `icon` | Its card. `icon` can be `PROP_<ID>`. |
 | `kind` | `weapon`, `passive` or `filler`. Fillers appear only when nothing else remains. A filler takes `heal`, `refill`, `money` and any passive stat, and its passive stats add up again each time it is taken. |
-| `zone` | `ahead`, `around`, `behind` or `map` |
+| `zone` | `ahead`, `around`, `behind` or `far`. `map`, the old name for `far`, still reads |
 | `unlock` | `start`, `kills N`, `night SECONDS`, `level N`, `nights N`, `dawns N`, `breakers N` or `breaker_dawns N`. `breakers` counts nights with a level breaker, and `breaker_dawns` those of them survived until dawn |
 | `find`, `after`, `chest` | How often it shows as a find, the earliest minute, and chest-only |
 | `max` | Its highest level |
@@ -347,6 +348,7 @@ A new weapon needs no code. Copy a weapon's section under a new id and change it
     - `spray`: at random across `spread`.
     - `burst`: one after another, `gap` seconds apart, each aimed as it fires. `does pistol` also fires bursts.
 - With `targets each`, each later shot of a burst goes to the nearest unshot zombie in range and in clear line of fire. `targets same`, the default, keeps every shot on one target.
+- `outside N` limits how far, in pixels, those later shots reach a zombie outside the view. Left out, they reach the whole `range`; `outside 0` keeps them in view. Once every zombie they may reach has been shot, they go again at the nearest of those, and hold fire when there is none. The burst's first shot aims as usual.
 - `does blade` cuts everything within `area` across `spread` degrees, toward what its `aim` finds. A `spread` of 360 cuts all round.
 - `does maul` smashes the ground ahead when a zombie is within `range`: `count` cracks, `range` long and `area` wide, fan out across `spread` degrees. Each zombie on one takes `damage` and is knocked aside by `knockback`. Past its top, each crack ends in a ring (`maul_shatter` in `tuning.txt`).
 - `does drone` flies `count` drones at `speed` to zombies within `range` of the player. Each hovers off its target and fires a burst for `duration` seconds, a round every `gap` seconds across `spread` degrees, then rests for `cooldown`. Its rounds fly over cover.
@@ -358,7 +360,7 @@ Any weapon can also take:
 |---|---|
 | `effect NAME` | An `effects.txt` effect in place of its behavior's own. A lob plays it where it lands. |
 | `bullet NAME` | An `effects.txt` section its bullets fly as. A lob without one flies as the grenade. |
-| `sound NAME` | `shot`, `blast`, `slash`, `zap`, `bark` or `throw` |
+| `sound NAME` | The sound group it plays: `NAME.ogg`, `NAME-2.ogg` and on in a pack's `sounds/` folder or the sounds folder. NAME takes lowercase letters, digits, `_` and `-`, and can't end in `-N`. `shot`, `blast`, `slash`, `zap`, `bark` and `throw` have a synth voice of their own; any other group with no clips plays the behavior's own sound. |
 | `kick N`, `punch N`, `shake N` | The camera's kick back, punch in and shake on each attack |
 | `flash R G B REACH SECONDS` | A flash of light on each attack. A color above 1 is brighter than white. REACH is in tiles. |
 
