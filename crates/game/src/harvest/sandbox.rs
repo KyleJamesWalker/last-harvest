@@ -448,9 +448,12 @@ mod tests {
         let first = play("first:running_shoes+knife");
         let shoes = book().index("running_shoes").unwrap();
         assert_eq!(first.took[0].up, shoes, "the first card on the list comes first when a reroll finds it");
-        let (held, random) = (play("held"), play("random"));
-        let stacked = |n: &Night| n.build.iter().map(|b| b.1).sum::<u32>() as f32 / n.build.len() as f32;
-        assert!(stacked(&held) > stacked(&random), "held stacks: {} against {}", build_text(&held.build), build_text(&random.build));
+        let stacked = |pick: &str| {
+            let nights: Vec<Night> = (1..=4).map(|seed| night(&Plan { seed, until: Some(240.0), pick: Pick::from_name(pick).unwrap(), ..Plan::new(start.clone()) })).collect();
+            nights.iter().flat_map(|n| &n.build).map(|b| b.1).sum::<u32>() as f32 / nights.iter().map(|n| n.build.len()).sum::<usize>() as f32
+        };
+        let (held, random) = (stacked("held"), stacked("random"));
+        assert!(held > random, "held stacks more levels on each powerup: {held} against {random}");
     }
 
     #[test]
