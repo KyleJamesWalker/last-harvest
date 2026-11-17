@@ -49,7 +49,7 @@ A player card, `<id>.player.png`, changes the player's look and can change the s
 
 - `[id]` and a `name` line.
 - An optional `about` line, up to 80 printable ASCII characters.
-- A `start DIFFICULTY WEAPON...` line for each difficulty whose starting weapons it sets, such as `start normal crows knife`. A weapon can be one the pack's own `powerups.txt` adds. A difficulty without a line keeps the game's own.
+- A `start DIFFICULTY WEAPON...` line for each difficulty whose starting weapons it sets, such as `start normal crows knife`. A weapon can be one the pack's own `powerups.txt` adds, or [this player's own](#a-players-own-weapons). A difficulty without a line keeps the game's own.
 - Optional `hp`, `speed` and `magnet` lines for the start of a run. The rest come from `tuning.txt`.
 - An optional `farm ID` line: the [farm](#a-players-own-farm) this player's runs lay out and paint with. Without one, or when no pack brings that farm, the player plays on the game's.
 
@@ -333,6 +333,7 @@ Each `[id]` section is one powerup:
 | `zone` | `ahead`, `around`, `behind` or `far`. `map`, the old name for `far`, still reads |
 | `unlock` | `start`, `kills N`, `night SECONDS`, `level N`, `nights N`, `dawns N`, `breakers N` or `breaker_dawns N`. `breakers` counts nights with a level breaker, and `breaker_dawns` those of them survived until dawn |
 | `find`, `after`, `chest` | How often it shows as a find, the earliest minute, and chest-only |
+| `player ID` | Makes it the player card `[ID]`'s [own](#a-players-own-weapons). Without it, every player's. |
 | `max` | Its highest level |
 
 Each stat line lists its value at each level, and a short list repeats its last value. Weapon stats are `cooldown`, `damage`, `count`, `range`, `area`, `pierce`, `speed`, `duration`, `spread`, `knockback`, `slow` and `gap`. Passive stats add together. The header lists every passive stat and which ones take a percentage.
@@ -362,6 +363,20 @@ Any weapon can also take:
 | `sound NAME` | The sound group it plays: `NAME.ogg`, `NAME-2.ogg` and on in a pack's `sounds/` folder or the sounds folder. NAME takes lowercase letters, digits, `_` and `-`, and can't end in `-N`. `shot`, `blast`, `slash`, `zap`, `bark` and `throw` have a synth voice of their own; any other group with no clips plays the behavior's own sound. |
 | `kick N`, `punch N`, `shake N` | The camera's kick back, punch in and shake on each attack |
 | `flash R G B REACH SECONDS` | A flash of light on each attack. A color above 1 is brighter than white. REACH is in tiles. |
+
+#### A player's own weapons
+
+Without a `player` line, a powerup is every player's, as before. With `player ID`, it belongs to the player card `[ID]` alone. Picking any other player leaves it out of:
+
+- level-up cards, finds and chests;
+- the unlock count and **Next to find** on the title, and **Powerups unlocked** on Stats;
+- the starting kit: another player card's `start` line passes over it.
+
+The game's own `start` lines can't name one player's weapon, and a filler can't have a `player` line. A run's history still shows what that run carried. The title's problems list a `player` line naming a card no pack brings.
+
+For the Kuldeep pack, `player kd` in `[urumi]` and `[desi_katta]` keeps both with `PLAYER_KD`.
+
+In either editor, the weapon's Data page has a **player** row: < and > step through the player cards, and **Everyone** takes the line out. On the Lines view, the `player` line steps the same way. A player card's Stats page lists only the weapons it can start with.
 
 ### enemies.txt
 
