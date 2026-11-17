@@ -108,6 +108,12 @@ fn choices(store: &dyn Store, pick: usize) -> Vec<String> {
     effects.sections().into_iter().filter(|s| s != table::TOP && s != "colors").collect()
 }
 
+/// Behaviour `i` of `n`'s button, two to a row, the rows squeezed to stay above the preview.
+fn does_rect(i: usize, n: usize) -> Rect {
+    let pitch = ((PREVIEW.y - 6.0 - DOES_Y) / n.div_ceil(2) as f32).min(30.0);
+    Rect { x: SIDE_X + (i % 2) as f32 * (DOES_W + 4.0), y: DOES_Y + (i / 2) as f32 * pitch, w: DOES_W, h: pitch - 4.0 }
+}
+
 impl Editor {
     fn weapon_page(&self) -> Option<(&DataEdit, &Weapon)> {
         let d = self.data.as_ref()?;
@@ -161,9 +167,10 @@ impl Editor {
         }
         push(STYLE.x, STYLE.y, STYLE.w, STYLE.h, Action::WeaponStyle, "Style", false);
         let does = value(&d.table, &d.section, "does").unwrap_or_else(|| d.section.clone());
-        for (i, name) in last_harvest_game::weapon_behaviours().into_iter().enumerate() {
-            let (x, y) = (SIDE_X + (i % 2) as f32 * (DOES_W + 4.0), DOES_Y + (i / 2) as f32 * 30.0);
-            push(x, y, DOES_W, 26.0, Action::WeaponDoes(i), name, name == does);
+        let behaviours = last_harvest_game::weapon_behaviours();
+        for (i, name) in behaviours.into_iter().enumerate() {
+            let r = does_rect(i, behaviours.len());
+            push(r.x, r.y, r.w, r.h, Action::WeaponDoes(i), name, name == does);
         }
     }
 
@@ -395,6 +402,14 @@ mod tests {
         assert_eq!(step_level("0.6 0.55", 2, 2, 1, false).as_deref(), Some("0.6 0.56"));
         assert_eq!(step_level("4", 1, 1, 1, false).as_deref(), Some("5"));
         assert_eq!(step_level("", 1, 8, 1, false), None);
+    }
+
+    #[test]
+    fn every_behaviour_button_stays_above_the_preview() {
+        let n = last_harvest_game::weapon_behaviours().len();
+        let last = does_rect(n - 1, n);
+        assert!(last.y + last.h <= PREVIEW.y, "the last row of Does ends at {}, under the preview's top {}", last.y + last.h, PREVIEW.y);
+        assert!(does_rect(2, n).y >= does_rect(0, n).y + does_rect(0, n).h, "rows don't overlap each other");
     }
 
     #[test]
