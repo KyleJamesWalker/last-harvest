@@ -98,6 +98,18 @@ The table and the CSV give, per build and per weapon in it, mean over seeds:
 
 `grenades` covers grenades and barrels. `--json` writes every night played.
 
+### Balance matrix
+
+`tools/matrix/run.py` runs the sandbox over every weapon alone, every pair, every weapon with every passive, every set of three, and a few thousand random full builds, about 22,000 nights, roughly an hour on a 14-core Mac. `tools/matrix/report.py` turns the CSVs into one page with level curves, pair and passive heatmaps, and a fitted effect for each powerup and each pair.
+
+```sh
+tools/matrix/run.py                     # every tier into target/matrix; a finished tier is kept
+tools/matrix/run.py t1 t2 --random 1000 # some tiers, and a smaller random tier
+uv run --no-project --with numpy tools/matrix/report.py --findings notes.html   # target/matrix/report.html
+```
+
+Under the normal rules most builds kill nearly every zombie that rises by level 8, so kills tie. The pressure tiers lay `tools/matrix/pressure/tuning.txt` over the data (spawns up to 25/s, a cap of 600) to lift that ceiling; they need the `[spawn]` section of `tuning.txt` and are skipped without it. Survival, the time of the undying player's first fall, separates builds that still tie on kills.
+
 ## Continuous integration
 
 | Workflow | Runs on | What it does |

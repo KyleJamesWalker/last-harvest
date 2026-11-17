@@ -1,0 +1,11 @@
+[spawn]
+rate 2
+growth 2.5
+top 25
+horde 40
+horde_growth 8
+bank 80
+release 8
+
+[zombies]
+max 600
