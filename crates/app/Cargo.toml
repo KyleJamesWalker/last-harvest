@@ -16,6 +16,10 @@ name = "last-harvest"
 path = "src/main.rs"
 
 [[bin]]
+name = "last-harvest-sandbox"
+path = "src/sandbox.rs"
+
+[[bin]]
 name = "last-harvest-muos"
 path = "src/muos.rs"
 required-features = ["muos"]
