@@ -4832,6 +4832,52 @@ mod tests {
     }
 
     #[test]
+    fn a_weapon_is_made_one_players_own_in_both_editors() {
+        for modding in [false, true] {
+            let dir = tmp().join(if modding { "player-weapon-mod" } else { "player-weapon" });
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            let mut e = editor_in(&dir, dir.join("art.txt"));
+            if modding {
+                e.set_modding();
+            }
+            for id in ["kd", "jo"] {
+                e.act(Action::Ask(Ask::New), false);
+                e.set_text(&format!("player card {id}"));
+                e.key(Key::Enter);
+                e.act(Action::Save, false);
+            }
+            assert_eq!(e.player_ids(), ["jo", "kd"], "modding {modding}");
+            e.switch_to("DATA_POWERUPS_CROWS".into());
+            let pick = weapons::PICK_PLAYER;
+            let player = |e: &Editor| e.data.as_ref().and_then(|d| d.table.entries(&d.section).into_iter().find(|l| l.key == "player")).map(|l| l.value);
+            assert!(e.buttons().iter().any(|b| b.action == Action::WeaponPick(pick, 1)));
+            buttons_fit(&e);
+            e.act(Action::WeaponPick(pick, 1), false);
+            e.act(Action::WeaponPick(pick, 1), false);
+            assert_eq!(player(&e).as_deref(), Some("kd"));
+            e.act(Action::WeaponLines, false);
+            let row = e.data.as_ref().and_then(|d| d.table.entries(&d.section).iter().position(|l| l.key == "player")).unwrap();
+            assert!(e.buttons().iter().any(|b| b.action == Action::DataChoice(row, 1)), "the lines step it too");
+            e.act(Action::DataChoice(row, 1), false);
+            assert_eq!(player(&e).as_deref(), Some("jo"), "it wraps round");
+            e.act(Action::DataChoice(row, -1), false);
+            e.act(Action::Save, false);
+            assert!(!e.unsaved(), "the game reads it");
+            let starts = |e: &mut Editor, id: &str| {
+                e.switch_to(format!("PLAYER_CARD_{}_FRONT", id.to_ascii_uppercase()));
+                e.weapon_labels().iter().any(|(w, _)| w == "crows")
+            };
+            assert!(starts(&mut e, "kd") && !starts(&mut e, "jo"), "only its player can start with it");
+            e.switch_to("DATA_POWERUPS_CROWS".into());
+            e.act(Action::WeaponLines, false);
+            e.act(Action::WeaponPick(pick, 0), false);
+            assert_eq!(player(&e), None, "Everyone takes the line out");
+            std::fs::remove_dir_all(&dir).unwrap();
+        }
+    }
+
+    #[test]
     fn a_shot_style_steps_its_color_through_the_palette_and_the_weapon_page_shows_it() {
         let dir = tmp().join("shot-style");
         let _ = std::fs::remove_dir_all(&dir);

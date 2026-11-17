@@ -636,13 +636,23 @@ impl Editor {
 }
 
 impl Editor {
+    /// The player cards' ids, sorted, for a powerup to be one player's own.
+    pub(super) fn player_ids(&self) -> Vec<String> {
+        let mut ids: Vec<String> = self.names.iter().filter(|(n, _)| sprite::card_kind(n) == Some(sprite::CardKind::Player)).filter_map(|(n, _)| sprite::card_part(n)).filter(|(_, row)| *row == 0).map(|(id, _)| id).collect();
+        ids.sort();
+        ids.dedup();
+        ids
+    }
+
     /// Every weapon a player card can start with, by id, with a label short enough for a toggle: its id,
     /// capitalized. A mod's own `powerups.txt` lists its new weapons too.
     pub(super) fn weapon_labels(&self) -> Vec<(String, String)> {
+        let mine = sprite::card_part(&self.sprite.name).map(|(id, _)| id).unwrap_or_default();
         let ids: Vec<String> = match self.store.read_table("powerups.txt") {
             Some(text) => {
                 let t = crate::table::Table::new("powerups.txt", &text);
-                t.sections().into_iter().filter(|s| super::weapons::is_weapon(&t, s)).collect()
+                let theirs = |s: &String| t.entries(s).iter().any(|e| e.key == "player" && e.value != mine);
+                t.sections().into_iter().filter(|s| super::weapons::is_weapon(&t, s) && !theirs(s)).collect()
             }
             None => last_harvest_game::weapons().into_iter().map(|(id, _)| id).collect(),
         };

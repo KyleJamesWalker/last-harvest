@@ -58,19 +58,21 @@ fn is_color(d: &DataEdit, key: &str) -> bool {
     d.file == "effects.txt" && key == "color"
 }
 
-/// The words a line's value steps through, for a line that is one of a few: a powerup's `zone`, or the condition
-/// its `unlock` starts with.
-fn choices(d: &DataEdit, key: &str) -> Option<Vec<&'static str>> {
+/// The words a line's value steps through, for a line that is one of a few: a powerup's `zone`, the condition
+/// its `unlock` starts with, or the player card whose own it is.
+fn choices(d: &DataEdit, key: &str, players: &[String]) -> Option<Vec<String>> {
+    let words = |w: &[&str]| Some(w.iter().map(|w| w.to_string()).collect());
     match (d.file.as_str(), key) {
-        ("powerups.txt", "zone") if d.section != table::TOP => Some(last_harvest_game::powerup_zones().to_vec()),
-        ("powerups.txt", "unlock") if d.section != table::TOP => Some(last_harvest_game::unlock_conditions().to_vec()),
+        ("powerups.txt", "zone") if d.section != table::TOP => words(&last_harvest_game::powerup_zones()),
+        ("powerups.txt", "unlock") if d.section != table::TOP => words(&last_harvest_game::unlock_conditions()),
+        ("powerups.txt", "player") if d.section != table::TOP && !players.is_empty() => Some(players.to_vec()),
         _ => None,
     }
 }
 
 /// `value` with its first word stepped `by` through `words`. An unlock keeps its number, `start` takes none, and a
 /// condition that had none takes 1.
-fn step_choice(key: &str, value: &str, words: &[&str], by: i32) -> String {
+fn step_choice(key: &str, value: &str, words: &[String], by: i32) -> String {
     let mut parts = value.split_whitespace();
     let first = match (key, parts.next().unwrap_or("")) {
         ("zone", "map") => "far",
@@ -78,8 +80,8 @@ fn step_choice(key: &str, value: &str, words: &[&str], by: i32) -> String {
     };
     let rest: Vec<&str> = parts.collect();
     let next = match words.iter().position(|w| *w == first) {
-        Some(at) => words[(at as i32 + by).rem_euclid(words.len() as i32) as usize],
-        None => words[0],
+        Some(at) => words[(at as i32 + by).rem_euclid(words.len() as i32) as usize].as_str(),
+        None => words[0].as_str(),
     };
     match key {
         "unlock" if next == "start" => next.to_string(),
@@ -338,13 +340,14 @@ impl Editor {
             }
         }
         let entries = d.table.entries(&d.section);
+        let players = self.player_ids();
         for (row, e) in entries.iter().enumerate().skip(d.first).take(ROWS) {
             let y = ROW_TOP + (row - d.first) as f32 * ROW_H;
             if is_sprite(d, &e.key) {
                 push(CANVAS.x + 318.0, y, 62.0, 30.0, Action::DataPaint(row), "Paint", false);
                 push(CANVAS.x + 384.0, y, 40.0, 30.0, Action::DataSprite(row, -1), "<", false);
                 push(CANVAS.x + 428.0, y, 40.0, 30.0, Action::DataSprite(row, 1), ">", false);
-            } else if is_color(d, &e.key) || choices(d, &e.key).is_some() {
+            } else if is_color(d, &e.key) || choices(d, &e.key, &players).is_some() {
                 let step = if is_color(d, &e.key) { Action::DataColor } else { Action::DataChoice };
                 push(CANVAS.x + 384.0, y, 40.0, 30.0, step(row, -1), "<", false);
                 push(CANVAS.x + 428.0, y, 40.0, 30.0, step(row, 1), ">", false);
@@ -367,6 +370,7 @@ impl Editor {
         if self.weapon_act(a, shift) {
             return true;
         }
+        let players = self.player_ids();
         let Some(d) = &mut self.data else { return false };
         match a {
             Action::DataStep(row, by) => {
@@ -387,7 +391,7 @@ impl Editor {
             }
             Action::DataChoice(row, by) => {
                 let Some(e) = d.table.entries(&d.section).into_iter().nth(row) else { return true };
-                let Some(words) = choices(d, &e.key) else { return true };
+                let Some(words) = choices(d, &e.key, &players) else { return true };
                 let v = step_choice(&e.key, &e.value, &words, by);
                 d.change(|t, s| t.set(s, row, &v));
             }

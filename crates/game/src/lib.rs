@@ -38,7 +38,7 @@ pub use harvest::{RangeSetup, effects_with, powerups_with, sandbox};
 pub use harvest::{WeaponLevels, sound_group, sound_groups, valid_sound_group, powerup_zones, unlock_conditions, weapon_behaviours, weapon_levels, weapon_patterns, weapon_sound_names, weapon_stats, weapon_targets};
 pub use harvest::{SHOT_SPRITES, Shot, shot_named, shot_sprite_names};
 pub use harvest::{TABLES, built_in_table, check_own_table, check_table, default_prop_depth, MAP_EXTENSION, map_ground, set_map_ground, CropSway, MAP_MAX, MAP_MIN, map_props, parse_props, MapSource, PROP_MAX_HP, PropKind, PropLine, PropTough, check_map, check_map_on_any_farm, valid_map_id, FARM_DIR, FARM_GROUND_END, FARM_ID_MAX, farm_file, farm_ids, farm_of_file, set_farm, table_kind, use_farm, use_farm_text, valid_farm_id};
-pub use harvest::{ABOUT_MAX, CARD_FLAGS, CARD_MAX_FRAME, card_frame_most, CARD_NUMBERS, MAX_WALK, PLAYER_BASE_KEYS, PLAYER_ID_MAX, PlayerFields, PlayerLook, default_start, flash_pixel, frame_limits, hurt_pixel, player_fields, player_looks, set_player_farm, set_player_start, use_player_farm, weapon_slots, weapons, CardFields, night_minutes, SpawnMix, card_fields, check_tables, kill_sound, kill_sounds, kill_weight, set_card_field, spawn_mix};
+pub use harvest::{ABOUT_MAX, CARD_FLAGS, CARD_MAX_FRAME, card_frame_most, CARD_NUMBERS, MAX_WALK, PLAYER_BASE_KEYS, PLAYER_ID_MAX, PlayerFields, PlayerLook, default_start, flash_pixel, frame_limits, hurt_pixel, player_fields, player_looks, set_player_farm, set_player_start, use_player_farm, player_powerups, weapon_slots, weapons, CardFields, night_minutes, SpawnMix, card_fields, check_tables, kill_sound, kill_sounds, kill_weight, set_card_field, spawn_mix};
 pub use input::{Buttons, Input, InputTracker, MAX_TOUCHES, RawInput};
 pub use pad::PadFamily;
 pub use controls::Controls;
@@ -334,7 +334,7 @@ impl Game {
 
     fn progress(&self) -> harvest::Progress {
         let s = &self.save;
-        harvest::Progress { kills: s.kills, best: s.best, best_level: s.best_level, nights: s.nights, dawns: s.dawns, breakers: s.breakers, breaker_dawns: s.breaker_dawns, found: s.found, everything: self.unlock_all }
+        harvest::Progress { kills: s.kills, best: s.best, best_level: s.best_level, nights: s.nights, dawns: s.dawns, breakers: s.breakers, breaker_dawns: s.breaker_dawns, found: s.found, everything: self.unlock_all, hidden: harvest::hidden_powerups(s.player.as_str()) }
     }
 
     /// One line describing the current scene, for logs.

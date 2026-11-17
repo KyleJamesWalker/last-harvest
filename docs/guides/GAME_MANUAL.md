@@ -319,7 +319,7 @@ A photo leaves out the HUD and the guides. It saves the top screen as `screensho
 
 ## Make your own
 
-Cards change zombies and your look. Props and maps add your own sprites and farms. Mod packs change anything in the game's data. Make them in the card editor, or see the [modding reference](../../docs/modding.md) for every file format.
+Cards change zombies and your look. Props and maps add your own sprites and farms. Mod packs change anything in the game's data, and a pack's weapon can be its player's alone: picked as anyone else, you never see it. Make them in the card editor, or see the [modding reference](../../docs/modding.md) for every file format.
 
 ### Where files go
 
@@ -388,7 +388,7 @@ Rename and About set the name and the one-sentence about line. For an enemy card
 
 A chart under the numbers shows how a night's spawns split between the game's kinds and your cards, minute by minute. Its legend flags any kind that never comes.
 
-For a player card, the Stats page sets the name, the about line, and the weapons each difficulty starts with. The weapon toggles include any weapon the mod's `powerups.txt` adds. Default keeps the game's own. **Plays on the farm** picks the [farm](../../docs/modding.md#a-players-own-farm) that player's runs lay out and paint with, or the game's.
+For a player card, the Stats page sets the name, the about line, and the weapons each difficulty starts with. The weapon toggles include any weapon the mod's `powerups.txt` adds, but not another player's own. Default keeps the game's own. **Plays on the farm** picks the [farm](../../docs/modding.md#a-players-own-farm) that player's runs lay out and paint with, or the game's.
 
 ### Props and maps
 
@@ -421,7 +421,7 @@ Each data file lists under Data, and each section is a page, such as Data > tuni
 | Control | What it does |
 |---|---|
 | - and + | Step a number |
-| < and > | Step a color through the palette, or a powerup's `zone` or `unlock` condition through the ones the game reads |
+| < and > | Step a color through the palette, a powerup's `zone` or `unlock` condition through the ones the game reads, or its `player` through the player cards |
 | Edit | Type any value |
 | x, Add line | Remove a line, or add one |
 | Up, Down | Page through a long section |
@@ -437,6 +437,7 @@ A weapon in `powerups.txt` opens as a weapon page:
 - **Does** picks its behavior.
 - Each stat shows its value at every level. Pick a level, then - and + step that level's value.
 - < and > step its effect, bullet and sound (the six voices, then each sound group in your game data), a gun's pattern and targets, and `outside`, how far a burst's later shots reach outside the view. **Own** goes back to the behavior's own.
+- **player** makes the weapon one player card's own: < and > step through the player cards, and **Everyone** gives it back to every player. Only that player is offered it, unlocks it or starts with it; see [a player's own weapons](../../docs/modding.md#a-players-own-weapons).
 - A panel plays the effect and bullet. **Style** opens the bullet's shot style, where **Paint** opens a sprite to draw.
 - **Lines** shows the raw lines, and **Weapon** goes back.
 - **Try it** opens the weapon range in a new tab, with unsaved changes. Allow pop-ups if the browser blocks it.
