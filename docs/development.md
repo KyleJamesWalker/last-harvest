@@ -72,7 +72,21 @@ Some tests guard the data and the art:
 
 ## DPS sandbox
 
-`last-harvest-sandbox` plays whole nights headless, with no renderer or audio, to put numbers behind a balance change in `powerups.txt`. Each night runs the normal spawn schedule, enemy mix and zombie cap on a generated farm, from a fixed seed. A scripted player walks a circle or a figure eight, turns round on a schedule, lobs a grenade straight ahead on a timer and takes no level-up card. It never aims. The build is forced from the command line, and the player is undying unless `--mortal` is given.
+`last-harvest-sandbox` plays whole nights headless, with no renderer or audio, to put numbers behind a balance change in `powerups.txt`. Each night runs the normal spawn schedule, enemy mix and zombie cap on a generated farm, from a fixed seed. By default a scripted player walks a circle or a figure eight, turns round on a schedule, lobs a grenade straight ahead on a timer and takes no level-up card. It never aims. The build is forced from the command line, and the player is undying unless `--mortal` is given.
+
+Options make the player closer to a real one. The defaults replay older CSVs exactly.
+
+| Option | The player |
+|---|---|
+| `--walk avoid` | Never stops walking, and turns toward the open way that leads least toward the zombies the map shows: each where the view ahead last saw it, fading as it's forgotten. It uses only the move and turn buttons and what the map shows, would rather veer than turn back, and never turns round on a schedule. Fair to weapons that hit behind or around the player. |
+| `--pick random` | Takes one of the three level-up cards at random, from the game's own draw. |
+| `--pick held` | Takes a card for a powerup it holds, rare first. With none on offer it rerolls, then banishes, while the run allows, then takes a new one. It favors a held weapon from `favor_level`. |
+| `--pick first:a+b+c` | Takes the first powerup on the list that's on offer, rerolling once for one, else picks as `held`. |
+| `--locked` | With a pick, offers only what a new player has unlocked; otherwise every powerup can come up. |
+| `--no-throw` | Lobs no grenades, the same as `--throw-every 0`. The 12 s default flatters blast passives. |
+| `--secs S` | Past 600 the night goes on after dawn, the Harvester awake and the dead growing stronger. A walker that happens home ends its night there. |
+
+With a pick, the forced build is the starting kit and cards add to it; `--json` records each night's final build and the cards taken, with the time of each. The CSV's first line is a `#` comment with the settings it ran under; `--diff` and `report.py` skip it.
 
 ```sh
 cargo build --release -p last-harvest --bin last-harvest-sandbox
@@ -94,6 +108,7 @@ The table and the CSV give, per build and per weapon in it, mean over seeds:
 | `dps`, `raw dps` | Useful and raw damage a second the weapon was held. |
 | `hearts`, `lvl5`, `lvl` | Hearts picked up, and the level at minute 5 and at the end. The CSV has kills, hearts and level by minute. |
 | `fell` | Nights where the player fell, and when on average. An undying player stands back up and plays on. |
+| `survival`, `censored` | CSV only. The mean time to the first fall, a night that never fell counting as its whole length, and how many never fell. Treat those nights as censored at the night's length, not as a time: a build that never falls could have lasted longer. `fell_at` averages only the nights that fell. |
 | `cap`, `ceil` | The share of the night at the zombie cap, and whether the build hit the kill-rate ceiling: the field never filled and nearly every zombie that rose died, so the spawn rate, not the build, held its kills back. |
 
 `grenades` covers grenades and barrels. `--json` writes every night played.
@@ -105,8 +120,11 @@ The table and the CSV give, per build and per weapon in it, mean over seeds:
 ```sh
 tools/matrix/run.py                     # every tier into target/matrix; a finished tier is kept
 tools/matrix/run.py t1 t2 --random 1000 # some tiers, and a smaller random tier
+tools/matrix/run.py t1 --player avoid,held,nothrow   # the player's options for every tier, into target/matrix/avoid-held-nothrow
 uv run --no-project --with numpy tools/matrix/report.py --findings notes.html   # target/matrix/report.html
 ```
+
+`--player` takes a walk (`circle`, `eight`, `avoid`), a pick (`none`, `random`, `held`, `first:a+b`), `nothrow` and `locked`; the report lists each tier's settings under "How it was run".
 
 Under the normal rules most builds kill nearly every zombie that rises by level 8, so kills tie. The pressure tiers lay `tools/matrix/pressure/tuning.txt` over the data (spawns up to 25/s, a cap of 600) to lift that ceiling; they need the `[spawn]` section of `tuning.txt` and are skipped without it. Survival, the time of the undying player's first fall, separates builds that still tie on kills.
 
