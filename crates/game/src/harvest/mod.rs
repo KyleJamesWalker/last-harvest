@@ -41,7 +41,7 @@ pub use enemies::{CardFields, FLAGS as CARD_FLAGS, NUMBERS as CARD_NUMBERS, Spaw
 use juice::{Corpse, Juice, Particle, Tone};
 use map::{Map, TILE};
 pub use range::{RangeSetup, effects_with, powerups_with};
-pub use powerups::{Progress, RUN_KIT, Run, WeaponLevels, found_from_ids, found_ids, powerup_id, powerup_index, powerup_zones, sound_group, sound_groups, valid_sound_group, unlock_conditions, weapon_behaviours, weapon_levels, weapon_patterns, weapon_sound_names, weapon_stats, weapon_targets};
+pub use powerups::{DEFAULT_SOUND_DELAY, Progress, RUN_KIT, Run, WeaponLevels, found_from_ids, found_ids, powerup_id, powerup_index, powerup_zones, sound_group, sound_groups, valid_sound_group, unlock_conditions, weapon_behaviours, weapon_levels, weapon_patterns, weapon_sound_names, weapon_stats, weapon_targets};
 use powerups::{Kind as Card, book};
 use weapons::{Bolt, Decoy, Dog, Drone, Kit, Patch, Swing};
 
@@ -832,6 +832,10 @@ pub struct Harvest {
     kill_bump: f32,
     /// Cooldowns on sounds that would otherwise stack up in a swarm: hits, kills, groans, rising, birds, spit, drones.
     hush: [f32; 8],
+    /// Rounds each weapon has fired toward its next sound, by its def, for a `sound_every`.
+    heard: Vec<u32>,
+    /// Follow-up sounds and the seconds until each plays.
+    later: Vec<(f32, Sfx)>,
     heartbeat: f32,
     /// Seconds of the full-screen gold flash when the cards appear.
     glory: f32,
@@ -1067,6 +1071,8 @@ impl Harvest {
             leveling: 0.0,
             kill_bump: 1.0,
             hush: [0.0; 8],
+            heard: Vec::new(),
+            later: Vec::new(),
             heartbeat: 0.0,
             glory: 0.0,
             queued_touch: None,

@@ -36,10 +36,10 @@ fn a_weapons_own_sound_group_loads_its_clips_from_the_pack() {
     }
     let sounds = pak::install(Some(common::read(&files)), None).expect("the pack installs");
     assert!(last_harvest_game::data::load_report().problems.is_empty(), "{:?}", last_harvest_game::data::load_report().problems);
-    assert_eq!(sound_groups().collect::<Vec<_>>(), ["rattle"], "a name with a voice of its own is no group");
+    assert_eq!(sound_groups().collect::<Vec<_>>(), ["rattle", "rifle", "bolt", "drone"], "a name with a voice of its own is no group");
     assert_eq!(sound_group(0), "rattle");
     assert_eq!(samples::cue(Sfx::group(0, Sfx::Shot)).0, "rattle");
-    assert_eq!(Sfx::group(0, Sfx::Shot).voice(), Sfx::Shot, "without clips it plays the pistol's own voice");
+    assert_eq!(Sfx::group(0, Sfx::Shot).voice(), Some(Sfx::Shot), "without clips it plays the pistol's own voice");
     let bank = samples::Bank::load(&sounds, 48_000.0);
     let (first, second) = (bank.get("rattle", 0.0).unwrap(), bank.get("rattle", 0.99).unwrap());
     assert_ne!(first.frames[0], second.frames[0], "both clips of the group load as its variations");

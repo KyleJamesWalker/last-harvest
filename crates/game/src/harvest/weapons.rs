@@ -80,6 +80,21 @@ fn sound(a: Armed, own: Sfx) -> Sfx {
     }
 }
 
+/// Counts `rounds` more onto `heard`, true when one of them is the first of `every`.
+fn due(every: u32, heard: &mut u32, rounds: u32) -> bool {
+    let (every, before) = (every.max(1), *heard);
+    *heard = (before + rounds) % every;
+    rounds > 0 && (before == 0 || before + rounds > every)
+}
+
+/// What a weapon's `sound_after` plays: nothing when its group has no clips.
+fn after_sound(s: super::powerups::Sound) -> Sfx {
+    match s {
+        super::powerups::Sound::Cue(s) => s,
+        super::powerups::Sound::Group(g) => Sfx::quiet_group(g),
+    }
+}
+
 /// Everything the passives add up to.
 #[derive(Clone, Copy, Debug)]
 pub(super) struct Mods {
@@ -394,6 +409,8 @@ pub(super) struct Drone {
     /// Where it means to hover, from the player.
     spot: [f32; 2],
     rest: f32,
+    /// Rounds toward its next sound in this burst.
+    heard: u32,
 }
 
 impl Drone {
@@ -499,6 +516,11 @@ impl Harvest {
     }
 
     pub(super) fn fire(&mut self, dt: f32, sounds: &mut Vec<Sfx>) {
+        for l in &mut self.later {
+            l.0 -= dt;
+        }
+        sounds.extend(self.later.iter().filter(|l| l.0 <= 0.0).map(|l| l.1));
+        self.later.retain(|l| l.0 > 0.0);
         for i in 0..self.kit.weapons.len() {
             let mut a = self.kit.weapons[i];
             a.cd -= dt;
@@ -516,6 +538,9 @@ impl Harvest {
                     (false, _) if a.burst > 0 => (self.stat(a, Stat::Cooldown), 0),
                     (false, _) => (0.0, 0),
                 };
+                if a.burst == 0 && shots.is_some() && let Some(h) = self.heard.get_mut(a.def) {
+                    *h = 0;
+                }
             }
             if a.does() == Does::Crows {
                 a.phase = (a.phase + self.stat(a, Stat::Speed).to_radians() * dt).rem_euclid(TAU);
@@ -526,6 +551,24 @@ impl Harvest {
         self.walk_dogs(dt, sounds);
         self.fly_drones(dt, sounds);
         self.juice.tally.by = None;
+    }
+
+    /// Plays a weapon's sound for one more round, once every `sound_every`, and queues its `sound_after`.
+    fn weapon_sound(&mut self, a: Armed, own: Sfx, sounds: &mut Vec<Sfx>) {
+        if self.heard.len() <= a.def {
+            self.heard.resize(a.def + 1, 0);
+        }
+        if due(book().defs[a.def].sound_every, &mut self.heard[a.def], 1) {
+            sounds.push(sound(a, own));
+            self.follow_sound(a);
+        }
+    }
+
+    fn follow_sound(&mut self, a: Armed) {
+        let def = &book().defs[a.def];
+        if let Some(after) = def.sound_after {
+            self.later.push((def.sound_delay, after_sound(after)));
+        }
     }
 
     /// Fires a weapon whose cooldown is up; false when there was nothing for it to do.
@@ -574,7 +617,7 @@ impl Harvest {
         }
         self.muzzle(a, d, 8.0);
         self.noise = Some(self.pos);
-        sounds.push(sound(a, Sfx::Shot));
+        self.weapon_sound(a, Sfx::Shot, sounds);
         true
     }
 
@@ -601,7 +644,7 @@ impl Harvest {
         }
         self.muzzle(a, d, 8.0);
         self.noise = Some(self.pos);
-        sounds.push(sound(a, Sfx::Shot));
+        self.weapon_sound(a, Sfx::Shot, sounds);
         true
     }
 
@@ -699,7 +742,7 @@ impl Harvest {
         let at = [self.pos[0] + d[0] * 8.0, self.pos[1] - 5.0 + d[1] * 8.0];
         self.fx.push(Fx::play(look(a, super::effects::effects().slash), at, d[1].atan2(d[0]) - PI / 2.0));
         self.attack_feel(a, [self.pos[0] + d[0] * 8.0, self.pos[1] + d[1] * 8.0], 10.0);
-        sounds.push(sound(a, Sfx::Slash));
+        self.weapon_sound(a, Sfx::Slash, sounds);
         self.thud(hits, sounds);
         true
     }
@@ -718,7 +761,7 @@ impl Harvest {
         }
         self.muzzle(a, d, 10.0);
         self.noise = Some(self.pos);
-        sounds.push(sound(a, Sfx::Blast));
+        self.weapon_sound(a, Sfx::Blast, sounds);
         true
     }
 
@@ -736,7 +779,7 @@ impl Harvest {
         self.shoot(angle, speed, self.stat(a, Stat::Damage), self.stat(a, Stat::Pierce) as u32, range / speed, self.stat(a, Stat::Knockback), bullet(a));
         self.muzzle(a, way, 9.0);
         self.noise = Some(self.pos);
-        sounds.push(sound(a, Sfx::Blast));
+        self.weapon_sound(a, Sfx::Blast, sounds);
         true
     }
 
@@ -810,7 +853,7 @@ impl Harvest {
             self.swings.push(Swing { art: e.frames[0], fade: e.fade, age: 0.0, life: e.life, angle: [angle; 2], reach: [2.0, range * e.reach], stand: None, smash: false });
         }
         self.attack_feel(a, [self.pos[0] + self.aim[0] * 8.0, self.pos[1] + self.aim[1] * 8.0], 10.0);
-        sounds.push(sound(a, Sfx::Slash));
+        self.weapon_sound(a, Sfx::Slash, sounds);
         self.thud(hits, sounds);
         true
     }
@@ -862,7 +905,7 @@ impl Harvest {
         }
         self.fx.push(Fx::play(fx.mound_breaks, polar(self.pos, base, 10.0), 0.0));
         self.attack_feel(a, polar(self.pos, base, 10.0), 4.0);
-        sounds.push(sound(a, Sfx::Slash));
+        self.weapon_sound(a, Sfx::Slash, sounds);
         self.thud(hits, sounds);
         true
     }
@@ -882,7 +925,7 @@ impl Harvest {
         let at = [self.pos[0] + d[0] * 8.0, self.pos[1] - 5.0 + d[1] * 8.0];
         self.fx.push(Fx::play(look(a, super::effects::effects().slash), at, d[1].atan2(d[0]) - PI / 2.0));
         self.attack_feel(a, [self.pos[0] + d[0] * 8.0, self.pos[1] + d[1] * 8.0], 10.0);
-        sounds.push(sound(a, Sfx::Slash));
+        self.weapon_sound(a, Sfx::Slash, sounds);
         self.thud(hits, sounds);
         true
     }
@@ -906,7 +949,7 @@ impl Harvest {
         self.swings.push(Swing { art: e.frames[0], fade: e.fade, age: 0.0, life: e.life, angle: [from, from + TAU], reach: [reach * e.reach; 2], stand: None, smash: false });
         self.juice.ring(self.pos, reach, 0.3, [0.85, 0.85, 0.8]);
         self.attack_feel(a, self.pos, 10.0);
-        sounds.push(sound(a, Sfx::Slash));
+        self.weapon_sound(a, Sfx::Slash, sounds);
         self.thud(hits, sounds);
         true
     }
@@ -975,7 +1018,7 @@ impl Harvest {
         }
         self.attack_feel(a, points[1], 10.0);
         self.bolts.push(Bolt { points, age: 0.0 });
-        sounds.push(sound(a, Sfx::Zap));
+        self.weapon_sound(a, Sfx::Zap, sounds);
         self.thud(hits, sounds);
         true
     }
@@ -1067,7 +1110,7 @@ impl Harvest {
         for (def, slot) in want {
             if !self.drones.iter().any(|d| d.def == def && d.slot == slot) {
                 let anim = slot as f32 * 0.7;
-                self.drones.push(Drone { def, slot, pos: self.pos, heading: [1.0, 0.0], anim, cd: 0.0, firing: 0.0, next: 0.0, target: None, vel: [0.0; 2], spot: [0.0; 2], rest: 0.0 });
+                self.drones.push(Drone { def, slot, pos: self.pos, heading: [1.0, 0.0], anim, cd: 0.0, firing: 0.0, next: 0.0, target: None, vel: [0.0; 2], spot: [0.0; 2], rest: 0.0, heard: 0 });
             }
         }
         let tune = crate::tuning::tuning();
@@ -1117,7 +1160,7 @@ impl Harvest {
                 if drone.cd > 0.0 || !in_reach {
                     continue;
                 }
-                (drone.firing, drone.next) = (burst, 0.0);
+                (drone.firing, drone.next, drone.heard) = (burst, 0.0, 0);
             }
             drone.firing -= dt;
             drone.next -= dt;
@@ -1141,9 +1184,13 @@ impl Harvest {
                 self.juice.tally.by = Some(a.def);
                 self.shoot_from([from[0], from[1] - 6.0], angle, tune.drone_bullet, damage, pierce, tune.drone_reach * 1.2 / tune.drone_bullet, force, bullet(a), lift);
             }
-            if rounds > 0 && self.hush[7] <= 0.0 {
+            let heard = due(book().defs[a.def].sound_every, &mut self.drones[i].heard, rounds);
+            if heard && self.hush[7] <= 0.0 {
                 sounds.push(sound(a, Sfx::Shot));
+                self.follow_sound(a);
                 self.hush[7] = 0.08;
+            }
+            if rounds > 0 {
                 self.noise = Some(from);
             }
         }
@@ -1219,7 +1266,7 @@ impl Harvest {
             thrown = true;
         }
         if thrown {
-            sounds.push(sound(a, Sfx::Throw));
+            self.weapon_sound(a, Sfx::Throw, sounds);
         }
         thrown
     }
@@ -1403,6 +1450,7 @@ impl Harvest {
 
 #[cfg(test)]
 mod tests {
+    use super::super::powerups::Sound;
     use super::super::{Choice, Kind as ZKind, Phase};
     use super::*;
     use crate::{Buttons, Input};
@@ -1841,6 +1889,43 @@ mod tests {
         assert!(d.lift() > 8.0, "in the air");
         let rows = h.juice.tally.rows();
         assert_eq!(rows[0].by, book().index("drone"));
+    }
+
+    #[test]
+    fn a_sound_every_three_rounds_plays_on_the_first_of_each_three() {
+        let mut heard = 0;
+        let played: Vec<bool> = [1, 1, 1, 1, 2, 2, 0, 3].iter().map(|&r| due(3, &mut heard, r)).collect();
+        assert_eq!(played, [true, false, false, true, false, true, false, true]);
+        let mut heard = 0;
+        assert!((0..5).all(|_| due(1, &mut heard, 1)), "every round when it is 1");
+    }
+
+    #[test]
+    fn the_rifle_works_its_bolt_a_beat_after_each_shot() {
+        let mut h = with("rifle", [60.0, 0.0]);
+        h.kit.weapons[0].cd = 0.0;
+        let def = &book().defs[h.kit.weapons[0].def];
+        let (Some(Sound::Group(rifle)), Some(Sound::Group(bolt))) = (def.sound, def.sound_after) else { panic!("the rifle names its groups") };
+        let mut heard = Vec::new();
+        for k in 0..60 {
+            let mut sounds = Vec::new();
+            h.fire(1.0 / 60.0, &mut sounds);
+            heard.extend(sounds.into_iter().map(|s| (k, s)));
+        }
+        assert_eq!(heard.iter().map(|h| h.1).collect::<Vec<_>>(), [Sfx::group(rifle, Sfx::Blast), Sfx::quiet_group(bolt)], "the shot, then the bolt");
+        assert!(((heard[1].0 - heard[0].0) as f32 / 60.0 - def.sound_delay).abs() < 0.03, "{heard:?}");
+    }
+
+    #[test]
+    fn a_drone_plays_its_own_sound_group() {
+        let mut h = with("drone", [100.0, 0.0]);
+        h.barrels.clear();
+        let Some(Sound::Group(drone)) = book().defs[h.kit.weapons[0].def].sound else { panic!("the drone names its group") };
+        let mut sounds = Vec::new();
+        for _ in 0..360 {
+            h.fire(1.0 / 60.0, &mut sounds);
+        }
+        assert!(sounds.contains(&Sfx::group(drone, Sfx::Shot)), "{sounds:?}");
     }
 
     #[test]

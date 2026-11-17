@@ -26,6 +26,11 @@
 #   sound   NAME        for weapons, the sound group it plays in place of its behaviour's own: NAME.ogg, NAME-2.ogg
 #                       and on in the sounds. shot, blast, slash, zap, bark and throw have a voice of their own;
 #                       any other group with no clips plays the behaviour's own
+#   sound_every N       for weapons, plays its sound once every N rounds, for a recording of several; a burst starts
+#                       again from its first round. 1 when left out
+#   sound_after NAME    for weapons, a sound group that follows its sound sound_delay seconds later, such as a bolt
+#                       worked after a shot; one with no clips plays nothing
+#   sound_delay SECONDS for sound_after, how long it waits; 0.4 when left out
 #   aim     nearest | ahead | behind | around     for `does gun` and `does blade`, where it looks for a target;
 #                       nearest when left out. A blade cuts everything within area across spread degrees, 360 all round
 #   lands   blast | fire | flare | tacks     for `does lob`, which throws count at a crowd within range, what it does
@@ -121,6 +126,9 @@ kick      0.05
 punch     2
 shake     0.1
 flash     1.6 1.2 0.7 5 0.1
+sound     rifle
+sound_after bolt
+sound_delay 0.5
 zone      ahead
 unlock    kills 500
 blurb     A slow, heavy round straight down your heading
@@ -374,6 +382,7 @@ range     160
 name      Drone
 kind      weapon
 bullet    drone_shot
+sound     drone
 zone      far
 unlock    breaker_dawns 1
 blurb     Flies out like the dog and sprays full-auto bursts

@@ -224,7 +224,11 @@ fn notes(sfx: Sfx, out: &mut Vec<Note>) {
             out.push(note(0.75, 1.5, 1047.0, 1047.0, Triangle, 0.5));
             out.push(note(0.75, 1.5, 523.0, 523.0, Sine, 0.4));
         }
-        Sfx::Group { .. } => notes(sfx.voice(), out),
+        Sfx::Group { .. } => {
+            if let Some(voice) = sfx.voice() {
+                notes(voice, out);
+            }
+        }
     }
 }
 

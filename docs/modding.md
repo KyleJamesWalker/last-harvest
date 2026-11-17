@@ -144,7 +144,7 @@ The game synthesizes every sound at runtime. A recorded Ogg Vorbis or WAV file r
 - WAV files can be 8, 16, 24 or 32-bit PCM or 32-bit float. Either format can be mono or stereo, at any sample rate.
 - Ogg Vorbis is about a tenth the size of WAV and decodes once at start.
 - Every file plays a few percent sharp or flat at random. Explosions, rising, groans, crows and spit pan and fade with distance.
-- A weapon's `sound` line can name a group of its own, such as `sound rattle` for `rattle.ogg` and `rattle-2.ogg`. See [powerups.txt](#powerupstxt).
+- A weapon's `sound` line can name a group of its own, such as `sound rattle` for `rattle.ogg` and `rattle-2.ogg`. See [powerups.txt](#powerupstxt), which also covers `sound_every` and `sound_after`.
 - `music.ogg` replaces the synth drone and swells with the danger. `ambience.ogg`, `ambience-2.ogg` and `ambience-3.ogg` play quietly underneath and fade out during a pause. These stream and loop.
 
 | Cue | Plays when |
@@ -360,6 +360,9 @@ Any weapon can also take:
 | `effect NAME` | An `effects.txt` effect in place of its behavior's own. A lob plays it where it lands. |
 | `bullet NAME` | An `effects.txt` section its bullets fly as. A lob without one flies as the grenade. |
 | `sound NAME` | The sound group it plays: `NAME.ogg`, `NAME-2.ogg` and on in a pack's `sounds/` folder or the sounds folder. NAME takes lowercase letters, digits, `_` and `-`, and can't end in `-N`. `shot`, `blast`, `slash`, `zap`, `bark` and `throw` have a synth voice of their own; any other group with no clips plays the behavior's own sound. |
+| `sound_every N` | Plays its sound once every N rounds, for a recording of several shots, such as a drone's three-round burst. A burst counts from its first round again. 1 when left out. |
+| `sound_after NAME` | A sound group that follows its own sound, such as a bolt worked after a rifle shot. A group with no clips plays nothing. |
+| `sound_delay SECONDS` | How long `sound_after` waits after the sound. 0.4 when left out. |
 | `kick N`, `punch N`, `shake N` | The camera's kick back, punch in and shake on each attack |
 | `flash R G B REACH SECONDS` | A flash of light on each attack. A color above 1 is brighter than white. REACH is in tiles. |
 

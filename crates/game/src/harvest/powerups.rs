@@ -574,6 +574,11 @@ pub struct Def {
     pub bullet: Option<String>,
     /// For a weapon, the sound it makes in place of its behaviour's own.
     pub sound: Option<Sound>,
+    /// For a weapon, how many rounds go by for each time its sound plays; 1 plays it for every one.
+    pub sound_every: u32,
+    /// For a weapon, a sound that follows its own, and the seconds it waits.
+    pub sound_after: Option<Sound>,
+    pub sound_delay: f32,
     /// For a gun, where it looks and how its shots spread.
     pub aim: Aim,
     pub pattern: Pattern,
@@ -712,6 +717,8 @@ fn sprite(name: &str) -> Option<Art> {
 }
 
 const DEFAULT_FIND: f32 = 0.25;
+/// Seconds a weapon's `sound_after` waits when `sound_delay` is left out.
+pub const DEFAULT_SOUND_DELAY: f32 = 0.4;
 
 /// Reads the powerup file; an error names the line.
 pub fn parse(text: &str) -> Result<Book, String> {
@@ -744,6 +751,9 @@ pub fn parse(text: &str) -> Result<Book, String> {
                 effect: None,
                 bullet: None,
                 sound: None,
+                sound_every: 1,
+                sound_after: None,
+                sound_delay: DEFAULT_SOUND_DELAY,
                 aim: Aim::Nearest,
                 pattern: Pattern::Fan,
                 targets: Targets::Same,
@@ -806,10 +816,10 @@ pub fn parse(text: &str) -> Result<Book, String> {
                 *if key == "effect" { &mut def.effect } else { &mut def.bullet } = Some(rest.to_string());
             }
             "effect" | "bullet" => return Err(format!("{n}: {key} names an effects.txt section, such as slash")),
-            "sound" => {
-                def.sound = Some(match WEAPON_SOUNDS.iter().find(|(k, _)| *k == rest) {
+            "sound" | "sound_after" => {
+                let sound = match WEAPON_SOUNDS.iter().find(|(k, _)| *k == rest) {
                     Some((_, s)) => Sound::Cue(*s),
-                    None if !valid_sound_group(rest) => return Err(format!("{n}: sound names a group of clips in lowercase letters, digits, _ and -, such as shot, not {rest:?}")),
+                    None if !valid_sound_group(rest) => return Err(format!("{n}: {key} names a group of clips in lowercase letters, digits, _ and -, such as shot, not {rest:?}")),
                     None => {
                         let at = book.sounds.iter().position(|s| s == rest).unwrap_or(book.sounds.len());
                         if at == MAX_GROUPS {
@@ -820,8 +830,11 @@ pub fn parse(text: &str) -> Result<Book, String> {
                         }
                         Sound::Group(at as u8)
                     }
-                });
+                };
+                *if key == "sound" { &mut def.sound } else { &mut def.sound_after } = Some(sound);
             }
+            "sound_every" => def.sound_every = rest.parse::<u32>().ok().filter(|v| (1..=100).contains(v)).ok_or_else(|| format!("{n}: sound_every is rounds, 1 to 100, not {rest:?}"))?,
+            "sound_delay" => def.sound_delay = rest.parse::<f32>().ok().filter(|v| (0.0..=10.0).contains(v)).ok_or_else(|| format!("{n}: sound_delay is seconds, 0 to 10, not {rest:?}"))?,
             "aim" => {
                 def.aim = match rest {
                     "nearest" => Aim::Nearest,
@@ -1022,6 +1035,14 @@ mod tests {
             assert!(parse(&format!("[a]\nicon WHITE\nsound {bad}")).unwrap_err().starts_with("3: sound names a group"), "{bad}");
         }
         assert!(parse("[a]\nicon WHITE\neffect Red").unwrap_err().starts_with("3: effect names"));
+        let rifle = parse("[r]\nkind weapon\ndoes gun\nicon WHITE\nsound rifle\nsound_after bolt\nsound_delay 0.5\nsound_every 3\n[cash]\nkind filler\nicon WHITE\n").unwrap();
+        let r = &rifle.defs[0];
+        assert_eq!((r.sound, r.sound_after, r.sound_delay, r.sound_every), (Some(Sound::Group(0)), Some(Sound::Group(1)), 0.5, 3));
+        assert_eq!(rifle.sounds, ["rifle", "bolt"], "a follow-up's clips load with the rest");
+        assert_eq!((groups.defs[0].sound_after, groups.defs[0].sound_delay, groups.defs[0].sound_every), (None, DEFAULT_SOUND_DELAY, 1));
+        for (line, says) in [("sound_after Bolt", "3: sound_after names a group"), ("sound_every 0", "3: sound_every is rounds"), ("sound_delay -1", "3: sound_delay is seconds")] {
+            assert!(parse(&format!("[a]\nicon WHITE\n{line}")).unwrap_err().starts_with(says), "{line}");
+        }
         let lob = parse("[pot]\nkind weapon\ndoes lob\nlands tacks\nicon WHITE\n[cash]\nkind filler\nicon WHITE\n").unwrap();
         assert_eq!((lob.defs[0].does, lob.defs[0].lands), (Some(Does::Lob), Lands::Tacks));
         assert!(parse("[a]\nicon WHITE\nlands moon").unwrap_err().starts_with("3: lands is"));
