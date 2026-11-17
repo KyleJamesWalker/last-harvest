@@ -221,7 +221,7 @@ impl Harvest {
         let mut h = Self { calm: true, ..Self::with_map(seed, rng, map) };
         let b = book();
         let weapon = |i: &usize| b.defs[*i].kind == Card::Weapon;
-        let def = b.index(&setup.weapon).filter(weapon).or_else(|| (0..b.defs.len()).find(weapon)).unwrap_or(0);
+        let def = b.index(&setup.weapon).filter(weapon).or_else(|| (0..b.defs.len()).find(|i| weapon(i) && b.defs[*i].player.is_none())).unwrap_or(0);
         h.kit = Kit::with_weapons(&[def], Difficulty::Normal);
         h.kit.weapons[0].level = setup.level.clamp(1, top_level(def));
         h.hp = h.kit.max_hp();

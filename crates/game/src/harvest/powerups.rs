@@ -239,6 +239,8 @@ pub struct Progress {
     pub found: u64,
     /// Everything unlocked regardless, for trying powerups out.
     pub everything: bool,
+    /// Powerups another player's own, one bit each by their place in the book: never offered, found or counted.
+    pub hidden: u64,
 }
 
 impl Progress {
@@ -258,13 +260,33 @@ impl Progress {
 
     /// Whether the cards can offer powerup `i` as an ordinary level.
     pub fn owns(&self, i: usize) -> bool {
-        self.everything || book().defs[i].unlock == Unlock::Start || self.found & (1 << i) != 0
+        self.hidden & (1 << i) == 0 && (self.everything || book().defs[i].unlock == Unlock::Start || self.found & (1 << i) != 0)
     }
 
     /// Whether powerup `i` has met its condition but not been found yet.
     pub fn findable(&self, i: usize) -> bool {
-        !self.owns(i) && book().defs[i].kind != Kind::Filler && book().defs[i].unlock.met(self)
+        self.hidden & (1 << i) == 0 && !self.owns(i) && book().defs[i].kind != Kind::Filler && book().defs[i].unlock.met(self)
     }
+}
+
+/// The powerups out of the pool of the player with `id`, the farmer's for "": the other players' own.
+pub fn hidden_for(id: &str) -> u64 {
+    book().defs.iter().enumerate().filter(|(_, d)| !d.for_player(id)).fold(0, |m, (i, _)| m | 1 << i)
+}
+
+/// Each powerup that is one player's own in a `powerups.txt`, by its id and the player's, read without the book
+/// so installing can check the players are there.
+pub fn owners(text: &str) -> Vec<(String, String)> {
+    let mut section = None;
+    let mut out = Vec::new();
+    for line in text.lines().map(|l| l.split('#').next().unwrap_or("").trim()) {
+        if let Some(id) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
+            section = Some(id.to_string());
+        } else if let (Some(s), ["player", p]) = (&section, &line.split_whitespace().collect::<Vec<_>>()[..]) {
+            out.push((s.clone(), p.to_string()));
+        }
+    }
+    out
 }
 
 /// Found powerups as their ids, for the save file.
@@ -584,6 +606,8 @@ pub struct Def {
     pub lands: Lands,
     /// For a weapon, how each attack shakes the camera and lights the ground.
     pub feel: Feel,
+    /// The player card whose own it is, offered only when that player is picked; None for every player.
+    pub player: Option<String>,
     stats: Vec<(Stat, Vec<f32>)>,
 }
 
@@ -618,6 +642,11 @@ pub fn valid_sound_group(name: &str) -> bool {
 }
 
 impl Def {
+    /// Whether the player with `id`, the farmer's for "", can be offered it.
+    pub fn for_player(&self, id: &str) -> bool {
+        self.player.as_deref().is_none_or(|p| p == id)
+    }
+
     /// The value of `stat` at `level`, counting from 1; one past `max` is the level breaker's.
     pub fn at(&self, stat: Stat, level: u32) -> f32 {
         match self.stats.iter().find(|(s, _)| *s == stat) {
@@ -713,6 +742,10 @@ fn sprite(name: &str) -> Option<Art> {
 
 const DEFAULT_FIND: f32 = 0.25;
 
+fn valid_player(id: &str) -> bool {
+    !id.is_empty() && id.len() <= super::players::ID_MAX && id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+}
+
 /// Reads the powerup file; an error names the line.
 pub fn parse(text: &str) -> Result<Book, String> {
     let mut book = Book { weapon_slots: 6, passive_slots: 6, start: Default::default(), grenades: [3; 3], finds: 2, first_level: 5, defs: Vec::new(), missing: Vec::new(), sounds: Vec::new() };
@@ -750,6 +783,7 @@ pub fn parse(text: &str) -> Result<Book, String> {
                 outside: None,
                 lands: Lands::Blast,
                 feel: Feel::default(),
+                player: None,
                 stats: Vec::new(),
             });
             icons.push(None);
@@ -785,6 +819,8 @@ pub fn parse(text: &str) -> Result<Book, String> {
             "find" => def.find = rest.parse::<f32>().ok().filter(|f| (0.0..=1.0).contains(f)).ok_or_else(|| format!("{n}: find is a chance from 0 to 1, not {rest:?}"))?,
             "after" => def.after = rest.parse::<f32>().ok().filter(|v| v.is_finite()).ok_or_else(|| format!("{n}: after is minutes into the night, not {rest:?}"))?,
             "chest" if rest.is_empty() => def.chest = true,
+            "player" if valid_player(rest) => def.player = Some(rest.to_string()),
+            "player" => return Err(format!("{n}: player names a player card's id, 1 to {} of a-z, 0-9 and _", super::players::ID_MAX)),
             "kind" => {
                 def.kind = match rest {
                     "weapon" => Kind::Weapon,
@@ -916,10 +952,13 @@ pub fn parse(text: &str) -> Result<Book, String> {
                     if book.defs[i].kind != Kind::Weapon || book.defs[i].unlock != Unlock::Start {
                         return Err(format!("{n}: start takes weapons unlocked from the start, and {id} isn't one"));
                     }
+                    if book.defs[i].player.is_some() {
+                        return Err(format!("{n}: start takes weapons every player can carry, and {id} is one player's own; a player card's start can name it"));
+                    }
                     kit.push(i);
                 }
             }
-            None => kit.extend(book.defs.iter().position(|d| d.kind == Kind::Weapon)),
+            None => kit.extend(book.defs.iter().position(|d| d.kind == Kind::Weapon && d.player.is_none())),
         }
     }
     if book.defs.len() > 64 {
@@ -938,6 +977,9 @@ pub fn parse(text: &str) -> Result<Book, String> {
         });
         if let Some((s, _)) = wrong {
             return Err(format!(" [{}] is a {:?} and can't have {}", def.id, def.kind, s.key()).to_lowercase());
+        }
+        if def.kind == Kind::Filler && def.player.is_some() {
+            return Err(format!(" [{}] is a filler, which every player needs, so it can't be one player's own", def.id));
         }
         if def.kind == Kind::Weapon {
             def.does = Some(def.does.or_else(|| Does::from_key(&def.id)).ok_or_else(|| format!(" [{}] needs `does` to say which weapon it fires", def.id))?);
@@ -1061,6 +1103,33 @@ mod tests {
         assert!(parse("[a]\nicon WHITE\nkick lots").unwrap_err().starts_with("3: kick takes"));
         assert!(parse("[a]\nicon WHITE\nflash 1 1 1").unwrap_err().starts_with("3: flash takes"));
         assert!(parse("[a]\nicon WHITE\nflash 1 1 1 20 0.1 0.2").unwrap_err().starts_with("3: flash takes"), "a number out of range isn't dropped");
+    }
+
+    #[test]
+    fn a_player_line_keeps_a_powerup_to_that_player() {
+        let b = parse("[gun]\nkind weapon\nicon WHITE\ndoes pistol\n[urumi]\nkind weapon\nicon WHITE\ndoes blade\nplayer kd\n[cash]\nkind filler\nicon WHITE\n").unwrap();
+        assert_eq!(b.defs[1].player.as_deref(), Some("kd"));
+        assert!(b.defs[1].for_player("kd") && !b.defs[1].for_player("") && !b.defs[1].for_player("jo"));
+        assert!(b.defs[0].for_player("kd") && b.defs[0].for_player(""), "without the line, every player's");
+        assert_eq!(b.start[0], [0], "the game's start passes over another's own");
+        assert!(parse("[a]\nicon WHITE\nplayer Kd").unwrap_err().starts_with("3: player names"));
+        assert!(parse("[cash]\nkind filler\nicon WHITE\nplayer kd").unwrap_err().contains("filler"));
+        let start = "start normal urumi\n[urumi]\nkind weapon\nicon WHITE\ndoes blade\nplayer kd\n[cash]\nkind filler\nicon WHITE\n";
+        assert!(parse(start).unwrap_err().starts_with("1: start takes weapons every player"));
+        assert_eq!(owners("[a]\n[urumi]  # hers\nplayer kd\n"), [("urumi".to_string(), "kd".to_string())]);
+    }
+
+    #[test]
+    fn a_hidden_powerup_is_never_owned_found_or_counted() {
+        let pistol = book().index("pistol").unwrap();
+        assert_eq!(hidden_for(""), 0, "the game's own are every player's");
+        let p = Progress { everything: true, hidden: 1 << pistol, ..Progress::default() };
+        assert!(!p.owns(pistol) && !p.findable(pistol));
+        let crows = book().index("crows").unwrap();
+        assert!(p.owns(crows));
+        assert!(!Progress { kills: u32::MAX, hidden: 1 << crows, ..Progress::default() }.findable(crows));
+        let (open, all, _) = super::super::unlocked(&p);
+        assert_eq!((open, all + 1), (all, super::super::unlocked(&Progress { everything: true, ..Progress::default() }).1));
     }
 
     #[test]
