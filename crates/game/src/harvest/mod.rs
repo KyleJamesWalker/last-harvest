@@ -790,6 +790,9 @@ pub struct Harvest {
     ready_flash: f32,
     thrown: Vec<Grenade>,
     owed: f32,
+    /// Zombies owed while the night was full, and the release toward the next of them rising.
+    banked: f32,
+    let_out: f32,
     xp: u32,
     next_xp: u32,
     level: u32,
@@ -1041,6 +1044,8 @@ impl Harvest {
             fx: Vec::new(),
             stains: Vec::new(),
             owed: 0.0,
+            banked: 0.0,
+            let_out: 0.0,
             xp: 0,
             next_xp: book().first_level,
             level: 1,
@@ -1915,33 +1920,61 @@ impl Harvest {
         run
     }
 
-    /// Zombies arrive just out of sight, faster and tougher as the night goes on.
+    /// Zombies arrive just out of sight, faster and tougher as the night goes on. Once the night is full, what's owed
+    /// banks and rises a few a second as room opens.
     fn spawn(&mut self, dt: f32) {
+        let t = crate::tuning::tuning();
         let minutes = self.t / 60.0;
-        self.owed += (0.7 + minutes * 0.9).min(9.0) * dt;
+        self.owed += (t.spawn_rate + minutes * t.spawn_growth).min(t.spawn_top) * dt;
         if horde_now(self.t, dt) {
-            self.owed += 20.0 + minutes * 4.0;
+            self.owed += t.horde_size + minutes * t.horde_growth;
             self.leader_owed = true;
         }
-        while self.owed >= 1.0 && self.zombies.len() + self.tells.len() + self.burrowed.len() < (crate::tuning::tuning().max_zombies as usize) {
+        while self.owed >= 1.0 && self.room() {
             self.owed -= 1.0;
-            let roll = self.rng.range(0.0, 1.0);
-            let leader = std::mem::take(&mut self.leader_owed);
-            let r = roster();
-            let kind = Kind(if leader && self.enemies_off & 1 << r.leader == 0 { r.leader } else { r.pick(minutes, roll, self.enemies_off) } as u8);
-            for _ in 0..8 {
-                let a = self.rng.range(0.0, TAU);
-                let [near, far] = spawn_ring(self.t);
-                let r = self.rng.range(near, far);
-                let pos = [self.pos[0] + a.cos() * r, self.pos[1] + a.sin() * r];
-                if !self.map.hits_cells(pos[0], pos[1], crate::tuning::tuning().zombie_half()) {
-                    let hp = kind.stats().hp * (1.0 + minutes * crate::tuning::tuning().growth) * if leader { crate::tuning::tuning().leader_hp } else { 1.0 } * self.fury;
-                    self.tells.push(Tell { kind, pos, hp, t: 0.0, leader });
-                    break;
-                }
+            self.raise(minutes);
+        }
+        self.let_out = (self.let_out + t.bank_release * dt).min(1.0 + t.bank_release * dt);
+        while self.banked >= 1.0 && self.let_out >= 1.0 && self.room() {
+            self.banked -= 1.0;
+            self.let_out -= 1.0;
+            self.raise(minutes);
+        }
+        if self.owed >= 1.0 {
+            self.banked = (self.banked + self.owed.floor()).min(t.bank);
+            self.owed = self.owed.fract();
+        }
+    }
+
+    /// Whether the night has room for another zombie under `[zombies] max`.
+    fn room(&self) -> bool {
+        self.zombies.len() + self.tells.len() + self.burrowed.len() < crate::tuning::tuning().max_zombies as usize
+    }
+
+    /// One zombie starts to rise somewhere on the ring around the player.
+    fn raise(&mut self, minutes: f32) {
+        let roll = self.rng.range(0.0, 1.0);
+        let leader = std::mem::take(&mut self.leader_owed);
+        let r = roster();
+        let kind = Kind(if leader && self.enemies_off & 1 << r.leader == 0 { r.leader } else { r.pick(minutes, roll, self.enemies_off) } as u8);
+        let hp = kind.stats().hp * (1.0 + minutes * crate::tuning::tuning().growth) * if leader { crate::tuning::tuning().leader_hp } else { 1.0 } * self.fury;
+        if let Some(pos) = self.ring_spot() {
+            self.tells.push(Tell { kind, pos, hp, t: 0.0, leader });
+        }
+    }
+
+    /// An open spot on the ring zombies rise in.
+    fn ring_spot(&mut self) -> Option<[f32; 2]> {
+        for _ in 0..8 {
+            let a = self.rng.range(0.0, TAU);
+            let [near, far] = spawn_ring(self.t);
+            let r = self.rng.range(near, far);
+            let pos = [self.pos[0] + a.cos() * r, self.pos[1] + a.sin() * r];
+            if !self.map.hits_cells(pos[0], pos[1], crate::tuning::tuning().zombie_half()) {
+                return Some(pos);
             }
         }
-        self.owed = self.owed.min(40.0);
+        None
     }
 
     /// The ground churns where a zombie is coming, then it breaks out in a spray of dirt.
@@ -2795,9 +2828,10 @@ fn strike(z: &mut Zombie, juice: &mut Juice, damage: f32, dir: [f32; 2], force: 
     crit
 }
 
-/// Whether a horde breaks out during the frame ending at `t`; one comes every ninety seconds.
+/// Whether a horde breaks out during the frame ending at `t`; one comes every `[spawn] horde_every` seconds.
 fn horde_now(t: f32, dt: f32) -> bool {
-    (t - dt).rem_euclid(90.0) > t.rem_euclid(90.0)
+    let every = crate::tuning::tuning().horde_every;
+    (t - dt).rem_euclid(every) > t.rem_euclid(every)
 }
 
 const MINUTE_LINES: [&str; 9] = [
@@ -3709,6 +3743,43 @@ mod tests {
         h.rise(TELL_TIME, &mut sounds);
         assert_eq!((h.tells.len(), h.zombies.len()), (0, 1));
         assert_eq!(h.zombies[0].rise, 0.0);
+    }
+
+    /// A calm run on an open field 80 by 60 tiles, the player in its middle.
+    fn open_field() -> Harvest {
+        let mut h = Harvest::calm_on(1, &map::MapSource::new("Field", [80, 60])).unwrap();
+        h.pos = [640.0, 480.0];
+        h.t = 10.0;
+        h
+    }
+
+    fn standing(kind: &str, pos: [f32; 2], hp: f32) -> Zombie {
+        Zombie::new(Kind::named(kind), pos, hp, 1.0, 0.0)
+    }
+
+    #[test]
+    fn spawns_owed_at_the_cap_bank_and_rise_a_few_a_second_once_there_is_room() {
+        let mut h = open_field();
+        let t = crate::tuning::tuning();
+        let max = t.max_zombies as usize;
+        h.zombies = (0..max).map(|_| standing("skinny", h.pos, 10.0)).collect();
+        h.owed = t.bank + 25.0;
+        h.spawn(0.0);
+        assert!(h.tells.is_empty(), "no room");
+        assert_eq!(h.banked, t.bank, "the bank holds only so many");
+        assert!(h.owed < 1.0);
+        h.zombies.truncate(max - t.bank as usize);
+        let dt = 1.0 / 60.0;
+        let mut risen = Vec::new();
+        for _ in 0..120 {
+            h.owed = 0.0;
+            h.spawn(dt);
+            risen.push(h.tells.len());
+        }
+        let release = t.bank_release;
+        assert!(risen[0] <= 2, "room opening doesn't raise the bank at once, {}", risen[0]);
+        assert!((risen[119] as f32 - release * 2.0).abs() <= 1.0, "{release} a second, {} in two", risen[119]);
+        assert_eq!(h.banked, t.bank - risen[119] as f32);
     }
 
     #[test]
