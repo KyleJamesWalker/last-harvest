@@ -788,7 +788,7 @@ fn zone_color(zone: Option<Zone>) -> Color {
         Some(Zone::Ahead) => [1.0, 0.85, 0.45, 1.0],
         Some(Zone::Around) => [0.6, 0.9, 1.0, 1.0],
         Some(Zone::Behind) => [1.0, 0.55, 0.5, 1.0],
-        Some(Zone::Map) => [0.7, 1.0, 0.6, 1.0],
+        Some(Zone::Far) => [0.7, 1.0, 0.6, 1.0],
         None => [0.8, 0.8, 0.85, 1.0],
     }
 }

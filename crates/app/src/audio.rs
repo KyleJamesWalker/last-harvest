@@ -224,6 +224,7 @@ fn notes(sfx: Sfx, out: &mut Vec<Note>) {
             out.push(note(0.75, 1.5, 1047.0, 1047.0, Triangle, 0.5));
             out.push(note(0.75, 1.5, 523.0, 523.0, Sine, 0.4));
         }
+        Sfx::Group { .. } => notes(sfx.voice(), out),
     }
 }
 
@@ -625,6 +626,11 @@ mod tests {
         render(&mut s, 0.01);
         assert_eq!(s.plays.len(), 1, "the shot plays its clip");
         assert!(!s.voices.is_empty(), "the blast keeps its synth voice");
+        s.voices.clear();
+        tx.send(Sfx::group(200, Sfx::Blast)).unwrap();
+        render(&mut s, 0.01);
+        assert_eq!(s.plays.len(), 1, "a group with no clips plays none");
+        assert!(!s.voices.is_empty(), "but its weapon's own voice");
         render(&mut s, 0.2);
         assert!(s.plays.is_empty());
     }

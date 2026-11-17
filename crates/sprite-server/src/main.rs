@@ -59,6 +59,7 @@ fn handle(store: &FsStore, web: &Path, method: &Method, url: &str, body: &[u8]) 
             None => text(404, "not a git repository"),
         },
         (Method::Get, ["api", "version", id, name, file]) if valid_id(id) && named(name) && sprite_file(file) => bytes(store.version(id, name, file)),
+        (Method::Get, ["api", "sounds"]) => text(200, store.sound_groups().iter().map(|g| format!("{g}\n")).collect::<String>()),
         (Method::Get, ["api", "farms"]) => text(200, store.farm_ids().iter().map(|id| format!("{id}\n")).collect::<String>()),
         (Method::Get, ["api", "table", "farms", name]) => {
             let file = format!("{}{name}", last_harvest_game::FARM_DIR);

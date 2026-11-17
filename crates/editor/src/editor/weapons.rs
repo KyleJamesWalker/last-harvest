@@ -13,13 +13,15 @@ const HEAD_Y: f32 = CANVAS.y + 44.0;
 const STAT_Y: f32 = CANVAS.y + 80.0;
 const STAT_H: f32 = 25.0;
 const PICK_Y: f32 = CANVAS.y + 384.0;
-const PICK_H: f32 = 28.0;
+const PICK_H: f32 = 26.0;
 const DOES_Y: f32 = CANVAS.y + 28.0;
 const DOES_W: f32 = 114.0;
 const PREVIEW: Rect = Rect { x: SIDE_X, y: CANVAS.y + 340.0, w: SIDE_W, h: 220.0 };
 const STYLE: Rect = Rect { x: SIDE_X + SIDE_W / 2.0 + 8.0, y: PREVIEW.y + PREVIEW.h + 6.0, w: SIDE_W / 2.0 - 16.0, h: 28.0 };
 /// The lines the pickers set, in order.
-const PICKS: [&str; 5] = ["effect", "bullet", "sound", "pattern", "targets"];
+const PICKS: [&str; 6] = ["effect", "bullet", "sound", "pattern", "targets", "outside"];
+/// What `outside` steps through, in pixels; Own leaves a burst its whole range.
+const OUTSIDE: [&str; 9] = ["0", "10", "20", "30", "40", "50", "60", "80", "100"];
 
 /// What the weapon page shows of a section, beside the lines it edits.
 pub(super) struct Weapon {
@@ -88,12 +90,18 @@ fn number(v: f32) -> String {
     s.trim_end_matches('0').trim_end_matches('.').to_string()
 }
 
-/// What a picker can name: effects.txt's sections, the weapon sounds, or the patterns of a gun's shots.
+/// What a picker can name: effects.txt's sections, the weapon sounds and the sound groups found, the patterns of a gun's shots, which zombies a
+/// burst's shots go to, or how far its later shots reach outside the view.
 fn choices(store: &dyn Store, pick: usize) -> Vec<String> {
     match PICKS[pick] {
-        "sound" => return last_harvest_game::weapon_sound_names().map(str::to_string).to_vec(),
+        "sound" => {
+            let own = last_harvest_game::weapon_sound_names().map(str::to_string);
+            let found = store.sound_groups().into_iter().filter(|g| !own.contains(g));
+            return own.iter().cloned().chain(found).collect();
+        }
         "pattern" => return last_harvest_game::weapon_patterns().map(str::to_string).to_vec(),
         "targets" => return last_harvest_game::weapon_targets().map(str::to_string).to_vec(),
+        "outside" => return OUTSIDE.map(str::to_string).to_vec(),
         _ => {}
     }
     let effects = Table::new("effects.txt", &store.read_table("effects.txt").unwrap_or_default());
@@ -147,9 +155,9 @@ impl Editor {
         }
         for i in 0..PICKS.len() {
             let y = PICK_Y + i as f32 * PICK_H;
-            push(CANVAS.x + 392.0, y, 36.0, 26.0, Action::WeaponPick(i, -1), "<", false);
-            push(CANVAS.x + 432.0, y, 36.0, 26.0, Action::WeaponPick(i, 1), ">", false);
-            push(CANVAS.x + 472.0, y, 76.0, 26.0, Action::WeaponPick(i, 0), "Own", false);
+            push(CANVAS.x + 392.0, y, 36.0, PICK_H - 2.0, Action::WeaponPick(i, -1), "<", false);
+            push(CANVAS.x + 432.0, y, 36.0, PICK_H - 2.0, Action::WeaponPick(i, 1), ">", false);
+            push(CANVAS.x + 472.0, y, 76.0, PICK_H - 2.0, Action::WeaponPick(i, 0), "Own", false);
         }
         push(STYLE.x, STYLE.y, STYLE.w, STYLE.h, Action::WeaponStyle, "Style", false);
         let does = value(&d.table, &d.section, "does").unwrap_or_else(|| d.section.clone());
@@ -267,6 +275,7 @@ impl Editor {
             let own = match key {
                 "pattern" => "fan",
                 "targets" => "same",
+                "outside" => "its whole range",
                 _ => "its behaviour's own",
             };
             c.label(now.unwrap_or_else(|| own.into()), CANVAS.x + 100.0, y + 5.0, 17.0, TEXT, Align::Left);
@@ -280,7 +289,7 @@ impl Editor {
             },
         };
         let typing = self.naming.is_some() || levels.is_err();
-        c.label(hint, CANVAS.x + 12.0, CANVAS.y + CANVAS.h - 34.0, if typing { 18.0 } else { 15.0 }, if typing { HOT } else { DIM }, Align::Left);
+        c.label(hint, CANVAS.x + 12.0, CANVAS.y + CANVAS.h - 20.0, if typing { 18.0 } else { 15.0 }, if typing { HOT } else { DIM }, Align::Left);
         c.label("Does", SIDE_X, CANVAS.y + 4.0, 17.0, TEXT, Align::Left);
         c.rect(PREVIEW.x, PREVIEW.y, PREVIEW.w, PREVIEW.h, PANEL);
         for (i, (name, frames, fps)) in w.preview.iter().enumerate() {
