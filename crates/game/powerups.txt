@@ -281,7 +281,7 @@ cooldown  0.8 0.75 0.7 0.65 0.6 0.55 0.55 0.5
 damage    15 18 21 24 28 32 38 45
 range     90
 speed     90 95 100 105 110 115 120 130
-count     1 1 1 1 2 2 2 2
+count     1 2 2 3 4 4 5 6
 knockback 50
 
 # Behind: whatever is following you.
