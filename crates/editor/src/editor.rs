@@ -4580,7 +4580,7 @@ mod tests {
             e.switch_to("DATA_POWERUPS_PISTOL".into());
             let outside = |e: &Editor| e.data.as_ref().and_then(|d| d.table.entries(&d.section).into_iter().find(|l| l.key == "outside")).map(|l| l.value);
             assert_eq!(outside(&e), None, "the pistol leaves it out: its whole range");
-            let pick = 5;
+            let pick = 8;
             assert!(e.buttons().iter().any(|b| b.action == Action::WeaponPick(pick, 1)));
             e.act(Action::WeaponPick(pick, 1), false);
             assert_eq!(outside(&e).as_deref(), Some("0"), "modding {modding}");
@@ -4594,6 +4594,43 @@ mod tests {
             e.act(Action::WeaponPick(pick, 0), false);
             assert_eq!(outside(&e), None, "Own drops the line");
             std::fs::remove_dir_all(&dir).unwrap();
+        }
+    }
+
+    #[test]
+    fn the_weapon_page_steps_how_often_a_sound_plays_and_what_follows_it_in_both_editors() {
+        for modding in [false, true] {
+            let root = tmp().join(if modding { "sound-after-mod" } else { "sound-after" });
+            let _ = std::fs::remove_dir_all(&root);
+            let dir = root.join("sprites");
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::create_dir_all(root.join("sounds")).unwrap();
+            std::fs::write(root.join("sounds").join("bolt.ogg"), b"ogg").unwrap();
+            let mut e = editor_in(&dir, dir.join("art.txt"));
+            if modding {
+                e.set_modding();
+            }
+            e.switch_to("DATA_POWERUPS_SHOTGUN".into());
+            let line = |e: &Editor, key: &str| e.data.as_ref().and_then(|d| d.table.entries(&d.section).into_iter().find(|l| l.key == key)).map(|l| l.value);
+            let [every, after, delay] = [3, 4, 5];
+            e.act(Action::WeaponPick(every, 1), false);
+            e.act(Action::WeaponPick(every, 1), false);
+            assert_eq!(line(&e, "sound_every").as_deref(), Some("3"), "modding {modding}");
+            e.act(Action::WeaponPick(after, -1), false);
+            assert!(line(&e, "sound_after").is_some(), "the last sound offered, modding {modding}");
+            if !modding {
+                assert_eq!(line(&e, "sound_after").as_deref(), Some("bolt"), "the groups beside the sprites");
+            }
+            e.act(Action::WeaponPick(delay, 1), false);
+            assert_eq!(line(&e, "sound_delay").as_deref(), Some("0.1"));
+            buttons_fit(&e);
+            e.act(Action::Save, false);
+            assert!(!e.unsaved(), "the game reads them, modding {modding}");
+            for pick in [every, after, delay] {
+                e.act(Action::WeaponPick(pick, 0), false);
+            }
+            assert_eq!(["sound_every", "sound_after", "sound_delay"].map(|k| line(&e, k)), [None, None, None], "Own drops the lines");
+            std::fs::remove_dir_all(&root).unwrap();
         }
     }
 
@@ -4648,12 +4685,12 @@ mod tests {
         e.act(Action::WeaponMax(1), false);
         assert!(text(&e).contains("max 9\n") && text(&e).contains("pierce    0 0 0 0 1 1 1 1\ndoes gun\neffect muzzle_pistol\nsound throw\n\n"), "{}", text(&e));
         let pattern = |e: &Editor| e.data.as_ref().and_then(|d| d.table.entries(&d.section).into_iter().find(|l| l.key == "pattern")).map(|l| l.value);
-        e.act(Action::WeaponPick(3, -1), false);
+        e.act(Action::WeaponPick(6, -1), false);
         assert_eq!(pattern(&e).as_deref(), Some("spray"), "the patterns step from burst");
-        e.act(Action::WeaponPick(3, 1), false);
+        e.act(Action::WeaponPick(6, 1), false);
         assert_eq!(pattern(&e).as_deref(), Some("burst"));
         let targets = |e: &Editor| e.data.as_ref().and_then(|d| d.table.entries(&d.section).into_iter().find(|l| l.key == "targets")).map(|l| l.value);
-        e.act(Action::WeaponPick(4, -1), false);
+        e.act(Action::WeaponPick(7, -1), false);
         assert_eq!(targets(&e).as_deref(), Some("same"), "the targets step from each");
         e.key(Key::Undo);
         let gap = stat("gap");

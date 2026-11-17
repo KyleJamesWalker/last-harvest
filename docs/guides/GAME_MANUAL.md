@@ -435,7 +435,7 @@ A weapon in `powerups.txt` opens as a weapon page:
 
 - **Does** picks its behavior.
 - Each stat shows its value at every level. Pick a level, then - and + step that level's value.
-- < and > step its effect, bullet and sound (the six voices, then each sound group in your game data), a gun's pattern and targets, and `outside`, how far a burst's later shots reach outside the view. **Own** goes back to the behavior's own.
+- < and > step its effect, bullet and sound (the six voices, then each sound group in your game data), how many rounds go by for each sound (`sound_every`), a sound that follows it and how long it waits (`sound_after`, `sound_delay`), a gun's pattern and targets, and `outside`, how far a burst's later shots reach outside the view. **Own** goes back to the behavior's own.
 - A panel plays the effect and bullet. **Style** opens the bullet's shot style, where **Paint** opens a sprite to draw.
 - **Lines** shows the raw lines, and **Weapon** goes back.
 - **Try it** opens the weapon range in a new tab, with unsaved changes. Allow pop-ups if the browser blocks it.

@@ -11,17 +11,20 @@ const COL_X: f32 = CANVAS.x + 212.0;
 const COL_W: f32 = 34.0;
 const HEAD_Y: f32 = CANVAS.y + 44.0;
 const STAT_Y: f32 = CANVAS.y + 80.0;
-const STAT_H: f32 = 25.0;
-const PICK_Y: f32 = CANVAS.y + 384.0;
-const PICK_H: f32 = 26.0;
+const STAT_H: f32 = 22.0;
+const PICK_Y: f32 = CANVAS.y + 348.0;
+const PICK_H: f32 = 21.0;
 const DOES_Y: f32 = CANVAS.y + 28.0;
 const DOES_W: f32 = 114.0;
 const PREVIEW: Rect = Rect { x: SIDE_X, y: CANVAS.y + 340.0, w: SIDE_W, h: 220.0 };
 const STYLE: Rect = Rect { x: SIDE_X + SIDE_W / 2.0 + 8.0, y: PREVIEW.y + PREVIEW.h + 6.0, w: SIDE_W / 2.0 - 16.0, h: 28.0 };
 /// The lines the pickers set, in order.
-const PICKS: [&str; 6] = ["effect", "bullet", "sound", "pattern", "targets", "outside"];
+const PICKS: [&str; 9] = ["effect", "bullet", "sound", "sound_every", "sound_after", "sound_delay", "pattern", "targets", "outside"];
 /// What `outside` steps through, in pixels; Own leaves a burst its whole range.
 const OUTSIDE: [&str; 9] = ["0", "10", "20", "30", "40", "50", "60", "80", "100"];
+/// What `sound_every` steps through, in rounds, and `sound_delay`, in seconds.
+const EVERY: [&str; 5] = ["2", "3", "4", "5", "6"];
+const DELAY: [&str; 9] = ["0.1", "0.2", "0.3", "0.4", "0.5", "0.6", "0.8", "1", "1.2"];
 
 /// What the weapon page shows of a section, beside the lines it edits.
 pub(super) struct Weapon {
@@ -90,11 +93,12 @@ fn number(v: f32) -> String {
     s.trim_end_matches('0').trim_end_matches('.').to_string()
 }
 
-/// What a picker can name: effects.txt's sections, the weapon sounds and the sound groups found, the patterns of a gun's shots, which zombies a
-/// burst's shots go to, or how far its later shots reach outside the view.
+/// What a picker can name: effects.txt's sections, the weapon sounds and the sound groups found, how often and how
+/// late a sound plays, the patterns of a gun's shots, which zombies a burst's shots go to, or how far its later shots
+/// reach outside the view.
 fn choices(store: &dyn Store, pick: usize) -> Vec<String> {
     match PICKS[pick] {
-        "sound" => {
+        "sound" | "sound_after" => {
             let own = last_harvest_game::weapon_sound_names().map(str::to_string);
             let found = store.sound_groups().into_iter().filter(|g| !own.contains(g));
             return own.iter().cloned().chain(found).collect();
@@ -102,6 +106,8 @@ fn choices(store: &dyn Store, pick: usize) -> Vec<String> {
         "pattern" => return last_harvest_game::weapon_patterns().map(str::to_string).to_vec(),
         "targets" => return last_harvest_game::weapon_targets().map(str::to_string).to_vec(),
         "outside" => return OUTSIDE.map(str::to_string).to_vec(),
+        "sound_every" => return EVERY.map(str::to_string).to_vec(),
+        "sound_delay" => return DELAY.map(str::to_string).to_vec(),
         _ => {}
     }
     let effects = Table::new("effects.txt", &store.read_table("effects.txt").unwrap_or_default());
@@ -149,9 +155,9 @@ impl Editor {
         }
         for i in 0..last_harvest_game::weapon_stats().len() {
             let y = STAT_Y + i as f32 * STAT_H;
-            push(CANVAS.x + 100.0, y, 28.0, 24.0, Action::WeaponStep(i, -1), "-", false);
-            push(CANVAS.x + 130.0, y, 28.0, 24.0, Action::WeaponStep(i, 1), "+", false);
-            push(CANVAS.x + 160.0, y, 44.0, 24.0, Action::WeaponType(i), "Edit", false);
+            push(CANVAS.x + 100.0, y, 28.0, STAT_H - 1.0, Action::WeaponStep(i, -1), "-", false);
+            push(CANVAS.x + 130.0, y, 28.0, STAT_H - 1.0, Action::WeaponStep(i, 1), "+", false);
+            push(CANVAS.x + 160.0, y, 44.0, STAT_H - 1.0, Action::WeaponType(i), "Edit", false);
         }
         for i in 0..PICKS.len() {
             let y = PICK_Y + i as f32 * PICK_H;
@@ -259,26 +265,29 @@ impl Editor {
         let level = w.level.min(max);
         for (i, (key, _)) in last_harvest_game::weapon_stats().into_iter().enumerate() {
             let y = STAT_Y + i as f32 * STAT_H;
-            c.label(key, CANVAS.x + 12.0, y + 4.0, 17.0, TEXT, Align::Left);
+            c.label(key, CANVAS.x + 12.0, y + 3.0, 16.0, TEXT, Align::Left);
             let Ok(levels) = &levels else { continue };
             let (_, given, values) = &levels.stats[i];
             for (col, l) in shown(w.level, max).enumerate() {
                 let Some(v) = values.get(l - 1) else { continue };
                 let color = if l == level { HOT } else if *given { TEXT } else { DIM };
-                c.label(number(*v), COL_X + col as f32 * COL_W + (COL_W - 2.0) / 2.0, y + 6.0, 14.0, color, Align::Center);
+                c.label(number(*v), COL_X + col as f32 * COL_W + (COL_W - 2.0) / 2.0, y + 4.0, 14.0, color, Align::Center);
             }
         }
         for (i, key) in PICKS.into_iter().enumerate() {
             let y = PICK_Y + i as f32 * PICK_H;
-            c.label(key, CANVAS.x + 12.0, y + 5.0, 17.0, TEXT, Align::Left);
+            c.label(key, CANVAS.x + 12.0, y + 3.0, 16.0, TEXT, Align::Left);
             let now = value(&d.table, &d.section, key);
             let own = match key {
-                "pattern" => "fan",
-                "targets" => "same",
-                "outside" => "its whole range",
-                _ => "its behaviour's own",
+                "pattern" => "fan".into(),
+                "targets" => "same".into(),
+                "outside" => "its whole range".into(),
+                "sound_every" => "every round".into(),
+                "sound_after" => "none".into(),
+                "sound_delay" => format!("{} seconds", number(last_harvest_game::DEFAULT_SOUND_DELAY)),
+                _ => "its behaviour's own".into(),
             };
-            c.label(now.unwrap_or_else(|| own.into()), CANVAS.x + 100.0, y + 5.0, 17.0, TEXT, Align::Left);
+            c.label(now.unwrap_or(own), CANVAS.x + 120.0, y + 3.0, 16.0, TEXT, Align::Left);
         }
         let hint = match &self.naming {
             Some((Line::Value, t)) => format!("{}: {t}_", d.typing.and_then(|r| d.table.entries(&d.section).get(r).map(|e| e.key.clone())).unwrap_or_default()),
