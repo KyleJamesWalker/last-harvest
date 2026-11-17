@@ -73,7 +73,11 @@ fn shot_style(a: Armed) -> super::effects::Shot {
 
 /// The sound a weapon makes: the one its `sound` line names, else its behaviour's own.
 fn sound(a: Armed, own: Sfx) -> Sfx {
-    book().defs[a.def].sound.unwrap_or(own)
+    match book().defs[a.def].sound {
+        None => own,
+        Some(super::powerups::Sound::Cue(s)) => s,
+        Some(super::powerups::Sound::Group(g)) => Sfx::group(g, own),
+    }
 }
 
 /// Everything the passives add up to.

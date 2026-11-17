@@ -149,9 +149,19 @@ pub fn weapon_behaviours() -> [&'static str; 22] {
     DOES.map(|(k, _)| k)
 }
 
-/// The names a weapon's `sound` can give.
+/// The names of the sounds with a voice of their own; `sound` can also name any group of clips.
 pub fn weapon_sound_names() -> [&'static str; 6] {
     WEAPON_SOUNDS.map(|(k, _)| k)
+}
+
+/// The name of the weapons' sound group `group`, as `Sfx::Group` gives it.
+pub fn sound_group(group: u8) -> &'static str {
+    book().sounds.get(group as usize).map_or("", String::as_str)
+}
+
+/// Every sound group the weapons name, so their clips can be loaded.
+pub fn sound_groups() -> impl Iterator<Item = &'static str> {
+    book().sounds.iter().map(String::as_str)
 }
 
 /// Which zombies a burst's shots go to, by the names `targets` gives them.
@@ -563,7 +573,7 @@ pub struct Def {
     /// For a weapon that shoots, the effect its bullets fly as.
     pub bullet: Option<String>,
     /// For a weapon, the sound it makes in place of its behaviour's own.
-    pub sound: Option<crate::Sfx>,
+    pub sound: Option<Sound>,
     /// For a gun, where it looks and how its shots spread.
     pub aim: Aim,
     pub pattern: Pattern,
@@ -587,9 +597,25 @@ pub struct Feel {
     pub flash: Option<([f32; 3], f32, f32)>,
 }
 
-/// The sounds a weapon can make, by the name `sound` gives them.
+/// The sounds with a voice of their own, by the name `sound` gives them; any other name is a group of clips.
 pub const WEAPON_SOUNDS: [(&str, crate::Sfx); 6] =
     [("shot", crate::Sfx::Shot), ("blast", crate::Sfx::Blast), ("slash", crate::Sfx::Slash), ("zap", crate::Sfx::Zap), ("bark", crate::Sfx::Bark), ("throw", crate::Sfx::Throw)];
+
+/// The most sound groups one `powerups.txt` can name.
+const MAX_GROUPS: usize = 256;
+
+/// A weapon's `sound`: one with a voice of its own, or a group of clips by its place in the book's `sounds`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Sound {
+    Cue(crate::Sfx),
+    Group(u8),
+}
+
+/// Whether `name` can name a sound group: its clips are `NAME.ogg`, `NAME-2.ogg` and on, so it can't end in `-N`.
+pub fn valid_sound_group(name: &str) -> bool {
+    let variation = name.rsplit_once('-').is_some_and(|(_, n)| n.parse::<u32>().is_ok());
+    !name.is_empty() && name.len() <= 32 && !variation && name.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-')
+}
 
 impl Def {
     /// The value of `stat` at `level`, counting from 1; one past `max` is the level breaker's.
@@ -656,6 +682,8 @@ pub struct Book {
     pub defs: Vec<Def>,
     /// Icons named for a player's prop that wasn't installed when this was read, each drawn blank.
     missing: Vec<String>,
+    /// The sound groups the weapons name, in the order first named.
+    pub sounds: Vec<String>,
 }
 
 impl Book {
@@ -687,7 +715,7 @@ const DEFAULT_FIND: f32 = 0.25;
 
 /// Reads the powerup file; an error names the line.
 pub fn parse(text: &str) -> Result<Book, String> {
-    let mut book = Book { weapon_slots: 6, passive_slots: 6, start: Default::default(), grenades: [3; 3], finds: 2, first_level: 5, defs: Vec::new(), missing: Vec::new() };
+    let mut book = Book { weapon_slots: 6, passive_slots: 6, start: Default::default(), grenades: [3; 3], finds: 2, first_level: 5, defs: Vec::new(), missing: Vec::new(), sounds: Vec::new() };
     let mut start: [Option<(usize, Vec<String>)>; 3] = Default::default();
     let mut icons: Vec<Option<String>> = Vec::new();
     for (i, raw) in text.lines().enumerate() {
@@ -779,8 +807,20 @@ pub fn parse(text: &str) -> Result<Book, String> {
             }
             "effect" | "bullet" => return Err(format!("{n}: {key} names an effects.txt section, such as slash")),
             "sound" => {
-                let names: Vec<&str> = WEAPON_SOUNDS.iter().map(|(k, _)| *k).collect();
-                def.sound = Some(WEAPON_SOUNDS.iter().find(|(k, _)| *k == rest).map(|(_, s)| *s).ok_or_else(|| format!("{n}: sound is one of {}", names.join(", ")))?);
+                def.sound = Some(match WEAPON_SOUNDS.iter().find(|(k, _)| *k == rest) {
+                    Some((_, s)) => Sound::Cue(*s),
+                    None if !valid_sound_group(rest) => return Err(format!("{n}: sound names a group of clips in lowercase letters, digits, _ and -, such as shot, not {rest:?}")),
+                    None => {
+                        let at = book.sounds.iter().position(|s| s == rest).unwrap_or(book.sounds.len());
+                        if at == MAX_GROUPS {
+                            return Err(format!("{n}: no more than {MAX_GROUPS} sound groups"));
+                        }
+                        if at == book.sounds.len() {
+                            book.sounds.push(rest.to_string());
+                        }
+                        Sound::Group(at as u8)
+                    }
+                });
             }
             "aim" => {
                 def.aim = match rest {
@@ -974,8 +1014,13 @@ mod tests {
     fn a_weapon_can_play_its_own_effect_bullet_and_sound() {
         let b = parse("[cleaver]\nkind weapon\ndoes knife\nicon WHITE\neffect red_slash\nbullet bullet_3d\nsound blast\n[cash]\nkind filler\nicon WHITE\n").unwrap();
         let d = &b.defs[0];
-        assert_eq!((d.effect.as_deref(), d.bullet.as_deref(), d.sound), (Some("red_slash"), Some("bullet_3d"), Some(crate::Sfx::Blast)));
-        assert!(parse("[a]\nicon WHITE\nsound moo").unwrap_err().starts_with("3: sound is one of shot"));
+        assert_eq!((d.effect.as_deref(), d.bullet.as_deref(), d.sound), (Some("red_slash"), Some("bullet_3d"), Some(Sound::Cue(crate::Sfx::Blast))));
+        let groups = parse("[a]\nkind weapon\ndoes gun\nicon WHITE\nsound moo\n[b]\nkind weapon\ndoes gun\nicon WHITE\nsound kill-big\n[c]\nkind weapon\ndoes gun\nicon WHITE\nsound moo\n[cash]\nkind filler\nicon WHITE\n").unwrap();
+        assert_eq!(groups.defs[..3].iter().map(|d| d.sound).collect::<Vec<_>>(), [Some(Sound::Group(0)), Some(Sound::Group(1)), Some(Sound::Group(0))]);
+        assert_eq!(groups.sounds, ["moo", "kill-big"], "any name is a group, each listed once");
+        for bad in ["Moo", "moo-2", "a b", "moo.ogg"] {
+            assert!(parse(&format!("[a]\nicon WHITE\nsound {bad}")).unwrap_err().starts_with("3: sound names a group"), "{bad}");
+        }
         assert!(parse("[a]\nicon WHITE\neffect Red").unwrap_err().starts_with("3: effect names"));
         let lob = parse("[pot]\nkind weapon\ndoes lob\nlands tacks\nicon WHITE\n[cash]\nkind filler\nicon WHITE\n").unwrap();
         assert_eq!((lob.defs[0].does, lob.defs[0].lands), (Some(Does::Lob), Lands::Tacks));
