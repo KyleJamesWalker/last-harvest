@@ -560,7 +560,7 @@ mod tests {
 
     #[test]
     fn an_old_map_zone_steps_as_far() {
-        let zones = last_harvest_game::powerup_zones();
+        let zones: Vec<String> = last_harvest_game::powerup_zones().iter().map(|z| z.to_string()).collect();
         assert_eq!(step_choice("zone", "map", &zones, -1), "behind");
         assert_eq!(step_choice("zone", "map", &zones, 1), "ahead");
         assert_eq!(step_choice("zone", "far", &zones, -1), "behind");
