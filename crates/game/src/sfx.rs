@@ -44,7 +44,7 @@ pub enum Sfx {
     Horde,
     Dawn,
     /// A weapon's own sound group, by its place among `powerups.txt`'s `sound` names; one with no clips plays
-    /// `or`'s voice, by its place in `Sfx::WEAPON`.
+    /// `or`'s voice, by its place in `Sfx::WEAPON`, or nothing past its end.
     Group { group: u8, or: u8 },
 }
 
@@ -57,11 +57,16 @@ impl Sfx {
         Sfx::Group { group, or: Sfx::WEAPON.iter().position(|s| *s == own).unwrap_or(0) as u8 }
     }
 
-    /// What plays when a group has no clips: its weapon's own voice. Any other cue is itself.
-    pub fn voice(self) -> Sfx {
+    /// The group `group` with no voice to play when it has no clips.
+    pub fn quiet_group(group: u8) -> Sfx {
+        Sfx::Group { group, or: u8::MAX }
+    }
+
+    /// What plays when a group has no clips: its weapon's own voice, if any. Any other cue is itself.
+    pub fn voice(self) -> Option<Sfx> {
         match self {
-            Sfx::Group { or, .. } => Sfx::WEAPON[(or as usize).min(Sfx::WEAPON.len() - 1)],
-            s => s,
+            Sfx::Group { or, .. } => Sfx::WEAPON.get(or as usize).copied(),
+            s => Some(s),
         }
     }
 }
