@@ -72,7 +72,10 @@ fn choices(d: &DataEdit, key: &str) -> Option<Vec<&'static str>> {
 /// condition that had none takes 1.
 fn step_choice(key: &str, value: &str, words: &[&str], by: i32) -> String {
     let mut parts = value.split_whitespace();
-    let first = parts.next().unwrap_or("");
+    let first = match (key, parts.next().unwrap_or("")) {
+        ("zone", "map") => "far",
+        (_, first) => first,
+    };
     let rest: Vec<&str> = parts.collect();
     let next = match words.iter().position(|w| *w == first) {
         Some(at) => words[(at as i32 + by).rem_euclid(words.len() as i32) as usize],
@@ -544,5 +547,18 @@ impl Editor {
         c.label(help, CANVAS.x, CANVAS.y + CANVAS.h + 12.0, 15.0, DIM, Align::Left);
         c.label("The game checks the file as it would read it before it saves.", CANVAS.x, CANVAS.y + CANVAS.h + 34.0, 15.0, DIM, Align::Left);
         self.draw_overlays(c);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_old_map_zone_steps_as_far() {
+        let zones = last_harvest_game::powerup_zones();
+        assert_eq!(step_choice("zone", "map", &zones, -1), "behind");
+        assert_eq!(step_choice("zone", "map", &zones, 1), "ahead");
+        assert_eq!(step_choice("zone", "far", &zones, -1), "behind");
     }
 }
