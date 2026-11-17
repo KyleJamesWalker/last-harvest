@@ -156,7 +156,7 @@ Each weapon covers a zone, shown on its card:
 | Ahead, then all round | A burst's first shot goes ahead. Each later shot goes to the nearest zombie the burst hasn't hit, on any side. |
 | Around | A ring centered on you |
 | Behind | Behind you |
-| Map | Crowds anywhere on the farm |
+| Far | Crowds out at range, whichever way you face |
 
 ### Finds and unlocks
 
@@ -195,9 +195,9 @@ These tables list what the game ships with. A mod pack can change any of them, a
 | Gas trail | Behind | Survive 7:00 of one night | 8 | Leaves a line of burning fuel where you walk |
 | Back holster | Behind | Survive 5:00 of one night | 8 | A sawn-off that fires behind you |
 | Scarecrow decoy | Behind | 4000 kills over every run, then found only in a leader's chest | 8 | Dropped behind you; draws them in, then bursts |
-| Molotov | Map | 1000 kills over every run | 8 | Lobbed into a crowd, leaving a pool of fire |
-| Flare gun | Map | Survive 9:00 of one night, then found from minute 4 | 8 | Lights up a far crowd, and burns it |
-| Drone | Map | A level breaker survived to dawn, then found from minute 3 | 8 | Flies out like the dog and sprays full-auto bursts |
+| Molotov | Far | 1000 kills over every run | 8 | Lobbed into a crowd, leaving a pool of fire |
+| Flare gun | Far | Survive 9:00 of one night, then found from minute 4 | 8 | Lights up a far crowd, and burns it |
+| Drone | Far | A level breaker survived to dawn, then found from minute 3 | 8 | Flies out like the dog and sprays full-auto bursts |
 
 <!-- /items -->
 
@@ -420,7 +420,7 @@ Each data file lists under Data, and each section is a page, such as Data > tuni
 | Control | What it does |
 |---|---|
 | - and + | Step a number |
-| < and > | Step a color through the palette |
+| < and > | Step a color through the palette, or a powerup's `zone` or `unlock` condition through the ones the game reads |
 | Edit | Type any value |
 | x, Add line | Remove a line, or add one |
 | Up, Down | Page through a long section |
@@ -435,7 +435,7 @@ A weapon in `powerups.txt` opens as a weapon page:
 
 - **Does** picks its behavior.
 - Each stat shows its value at every level. Pick a level, then - and + step that level's value.
-- < and > step its effect, bullet and sound. **Own** goes back to the behavior's own.
+- < and > step its effect, bullet and sound (the six voices, then each sound group in your game data), a gun's pattern and targets, and `outside`, how far a burst's later shots reach outside the view. **Own** goes back to the behavior's own.
 - A panel plays the effect and bullet. **Style** opens the bullet's shot style, where **Paint** opens a sprite to draw.
 - **Lines** shows the raw lines, and **Weapon** goes back.
 - **Try it** opens the weapon range in a new tab, with unsaved changes. Allow pop-ups if the browser blocks it.

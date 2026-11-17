@@ -93,6 +93,10 @@ impl Store for HttpStore {
         put(&format!("api/table/{file}"), text.as_bytes())
     }
 
+    fn sound_groups(&self) -> Vec<String> {
+        get("api/sounds").map(utf8).unwrap_or_default().lines().map(str::to_string).collect()
+    }
+
     fn farm_ids(&self) -> Vec<String> {
         get("api/farms").map(utf8).unwrap_or_default().lines().map(str::to_string).collect()
     }

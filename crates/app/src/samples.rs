@@ -66,6 +66,7 @@ pub fn cue(sfx: Sfx) -> (&'static str, f32) {
         Sfx::Bell => "bell",
         Sfx::Horde => "horde",
         Sfx::Dawn => "dawn",
+        Sfx::Group { group, .. } => last_harvest_game::sound_group(group),
     };
     (name, 1.0)
 }
@@ -113,7 +114,7 @@ impl Bank {
                 _ => stem,
             };
             // Loops like music and ambience are long and played another way; only cues are held in memory.
-            if !CUES.contains(&name) && !last_harvest_game::kill_sounds().any(|k| k == name) {
+            if !CUES.contains(&name) && !last_harvest_game::kill_sounds().any(|k| k == name) && !last_harvest_game::sound_groups().any(|g| g == name) {
                 continue;
             }
             match if ext == "ogg" { decode_ogg(bytes, rate) } else { decode(bytes, rate) } {
