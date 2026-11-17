@@ -70,6 +70,34 @@ Some tests guard the data and the art:
 - A palette test fails on any drawing or coat color that `crates/game/palette.txt` does not list.
 - A test that calls `data::install` belongs in `crates/game/tests/` or `crates/app/tests/`, because each process installs the data once.
 
+## DPS sandbox
+
+`last-harvest-sandbox` plays whole nights headless, with no renderer or audio, to put numbers behind a balance change in `powerups.txt`. Each night runs the normal spawn schedule, enemy mix and zombie cap on a generated farm, from a fixed seed. A scripted player walks a circle or a figure eight, turns round on a schedule, lobs a grenade straight ahead on a timer and takes no level-up card. It never aims. The build is forced from the command line, and the player is undying unless `--mortal` is given.
+
+```sh
+cargo build --release -p last-harvest --bin last-harvest-sandbox
+target/release/last-harvest-sandbox                              # each weapon alone at levels 1 to top and its breaker, 3 seeds each
+target/release/last-harvest-sandbox --weapons pistol,knife --seeds 5 --csv before.csv
+target/release/last-harvest-sandbox pistol:top,hollow_points:3 scarecrow:break --mortal --difficulty hard
+target/release/last-harvest-sandbox --diff before.csv after.csv  # what a data change did, by build and weapon
+target/release/last-harvest-sandbox --mods my_mods/              # with mod packs laid over the data; --pak for another base pack
+```
+
+A night takes about a second and a half on one core, and nights run on every core. `--help` lists every option.
+
+The table and the CSV give, per build and per weapon in it, mean over seeds:
+
+| Column | Meaning |
+|---|---|
+| `kills`, `k/min` | Kills, with their spread over seeds. Per weapon, its killing blows. The headline number. |
+| `useful`, `raw`, `over` | Damage capped at each zombie's remaining health, damage as dealt, and the share lost to overkill. |
+| `dps`, `raw dps` | Useful and raw damage a second the weapon was held. |
+| `hearts`, `lvl5`, `lvl` | Hearts picked up, and the level at minute 5 and at the end. The CSV has kills, hearts and level by minute. |
+| `fell` | Nights where the player fell, and when on average. An undying player stands back up and plays on. |
+| `cap`, `ceil` | The share of the night at the zombie cap, and whether the build hit the kill-rate ceiling: the field never filled and nearly every zombie that rose died, so the spawn rate, not the build, held its kills back. |
+
+`grenades` covers grenades and barrels. `--json` writes every night played.
+
 ## Continuous integration
 
 | Workflow | Runs on | What it does |
