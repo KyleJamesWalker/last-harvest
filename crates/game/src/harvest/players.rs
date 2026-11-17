@@ -50,6 +50,11 @@ pub fn weapons() -> Vec<(String, String)> {
     book().defs.iter().filter(|d| d.kind == Kind::Weapon).map(|d| (d.id.clone(), d.name.clone())).collect()
 }
 
+/// The powerups a run as the player with `id`, the farmer's for "", can be offered, by id: all but the others' own.
+pub fn player_powerups(id: &str) -> Vec<String> {
+    book().defs.iter().filter(|d| d.for_player(id)).map(|d| d.id.clone()).collect()
+}
+
 /// How many weapons a run can carry, and so a player card can start with.
 pub fn weapon_slots() -> usize {
     book().weapon_slots
@@ -114,7 +119,7 @@ impl PlayerLook {
     pub(crate) fn start_defs(&self, difficulty: Difficulty) -> Option<Vec<usize>> {
         let ids = self.start[difficulty as usize].as_ref()?;
         let mut defs: Vec<usize> = Vec::new();
-        for def in ids.iter().filter_map(|w| book().index(w)).filter(|&i| book().defs[i].kind == Kind::Weapon) {
+        for def in ids.iter().filter_map(|w| book().index(w)).filter(|&i| book().defs[i].kind == Kind::Weapon && book().defs[i].for_player(&self.id)) {
             // A weapon named twice would sit in two slots, and the second could never level.
             if !defs.contains(&def) && defs.len() < book().weapon_slots {
                 defs.push(def);
@@ -164,6 +169,10 @@ fn parse(text: &str, check: bool) -> Result<PlayerFields, String> {
                     // An id the game doesn't know may be a weapon the mod's own powerups.txt adds.
                     if let Some(w) = weapons.iter().find(|w| book().index(w).is_some_and(|i| book().defs[i].kind != Kind::Weapon)) {
                         return Err(format!("line {n}: {w:?} isn't a weapon"));
+                    }
+                    let mine = id.as_deref().unwrap_or("");
+                    if let Some(d) = weapons.iter().filter_map(|w| book().index(w)).map(|i| &book().defs[i]).find(|d| !d.for_player(mine)) {
+                        return Err(format!("line {n}: {} is player {}'s own", d.id, d.player.as_deref().unwrap_or("")));
                     }
                     if weapons.len() > book().weapon_slots {
                         return Err(format!("line {n}: a run carries at most {} weapons", book().weapon_slots));

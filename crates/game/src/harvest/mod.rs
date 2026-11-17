@@ -37,12 +37,12 @@ pub(crate) use props::{alpha_of, stand_of};
 pub use map::{default_depth as default_prop_depth, ground_codes as map_ground, set_ground as set_map_ground, Sway as CropSway, MAP_EXTENSION, MAP_MAX, MAP_MIN, MAX_HP as PROP_MAX_HP, MapSource, map_props, parse_props, PropKind, PropLine, Tough as PropTough, check_map, valid_map_id, FARM_DIR, FARM_GROUND_END, FARM_ID_MAX, farm_file, farm_ids, farm_of_file, install_farms, set_farm, use_farm, use_farm_text, valid_farm_id};
 pub use map::check_map_on_any_farm;
 pub use enemies::{ABOUT_MAX, MAX_FRAME as CARD_MAX_FRAME, card_frame_most, MAX_WALK, flash_pixel, frame_limits, hurt_pixel};
-pub use players::{BASE_KEYS as PLAYER_BASE_KEYS, ID_MAX as PLAYER_ID_MAX, PlayerFields, PlayerLook, default_start, looks as player_looks, player_fields, set_player_farm, set_player_start, use_player_farm, weapon_slots, weapons};
+pub use players::{BASE_KEYS as PLAYER_BASE_KEYS, ID_MAX as PLAYER_ID_MAX, PlayerFields, PlayerLook, default_start, looks as player_looks, player_fields, set_player_farm, set_player_start, use_player_farm, player_powerups, weapon_slots, weapons};
 pub use enemies::{CardFields, FLAGS as CARD_FLAGS, NUMBERS as CARD_NUMBERS, SpawnMix, card_fields, set_card_field, spawn_mix};
 use juice::{Corpse, Juice, Particle, Tone};
 use map::{Map, TILE};
 pub use range::{RangeSetup, effects_with, powerups_with};
-pub use powerups::{DEFAULT_SOUND_DELAY, Progress, RUN_KIT, Run, WeaponLevels, found_from_ids, found_ids, powerup_id, powerup_index, powerup_zones, sound_group, sound_groups, valid_sound_group, unlock_conditions, weapon_behaviours, weapon_levels, weapon_patterns, weapon_sound_names, weapon_stats, weapon_targets};
+pub use powerups::{DEFAULT_SOUND_DELAY, Progress, RUN_KIT, Run, WeaponLevels, found_from_ids, found_ids, hidden_for as hidden_powerups, owners as powerup_owners, powerup_id, powerup_index, powerup_zones, sound_group, sound_groups, valid_sound_group, unlock_conditions, weapon_behaviours, weapon_levels, weapon_patterns, weapon_sound_names, weapon_stats, weapon_targets};
 use powerups::{Kind as Card, book};
 use weapons::{Bolt, Decoy, Dog, Drone, Kit, Patch, Swing};
 
@@ -890,7 +890,7 @@ pub struct Harvest {
 
 /// Weapons and passives unlocked so far, out of all of them, and how many are waiting to be found.
 pub fn unlocked(p: &Progress) -> (usize, usize, usize) {
-    let all: Vec<usize> = (0..book().defs.len()).filter(|&i| book().defs[i].kind != Card::Filler).collect();
+    let all: Vec<usize> = (0..book().defs.len()).filter(|&i| book().defs[i].kind != Card::Filler && p.hidden & (1 << i) == 0).collect();
     (all.iter().filter(|&&i| p.owns(i)).count(), all.len(), all.iter().filter(|&&i| p.findable(i)).count())
 }
 
@@ -900,7 +900,7 @@ pub fn next_unlock(p: &Progress) -> Option<(String, String)> {
         .defs
         .iter()
         .enumerate()
-        .filter(|&(i, d)| !p.owns(i) && !d.unlock.met(p))
+        .filter(|&(i, d)| p.hidden & (1 << i) == 0 && !p.owns(i) && !d.unlock.met(p))
         .map(|(_, d)| d)
         .min_by(|a, b| a.unlock.effort(p).total_cmp(&b.unlock.effort(p)))
         .map(|d| (d.name.clone(), d.unlock.text()))
@@ -3388,6 +3388,23 @@ mod tests {
         h.update(&Input { pressed: Buttons::Y, ..Default::default() }, 0.016, &mut Vec::new());
         assert!(matches!(h.phase, Phase::LevelUp { picked: Some(_), .. }), "a favor is a pick");
         assert_eq!((h.favored, h.favors, h.kit.level(pistol)), (Some(pistol), 0, was + 1));
+    }
+
+    #[test]
+    fn another_players_own_powerup_is_never_dealt_nor_found() {
+        let crows = book().index("crows").unwrap();
+        let mut h = Harvest::new(2).with_progress(Progress { kills: u32::MAX, everything: true, hidden: 1 << crows, ..Default::default() });
+        h.chest = true;
+        for _ in 0..2000 {
+            assert!(h.roll_choices(&[]).iter().all(|c| c.up != crows));
+        }
+        h.t = 3600.0;
+        let found = |h: &mut Harvest, hidden| {
+            h.progress = Progress { kills: u32::MAX, best: u32::MAX, hidden, ..Default::default() };
+            (0..4000).any(|_| h.find(false) == Some(crows))
+        };
+        assert!(found(&mut h, 0), "found as a rule");
+        assert!(!found(&mut h, 1 << crows));
     }
 
     #[test]

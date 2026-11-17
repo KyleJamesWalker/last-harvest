@@ -1069,6 +1069,11 @@ impl Harvest {
             let tune = crate::tuning::tuning();
             let landed = dog.leap.is_some_and(|age| age + dt >= tune.dog_leap_time);
             if let Some(age) = dog.leap {
+                if let (Some(g), Some(_)) = (goal, held) {
+                    let (to, left) = (sub(g, dog.pos), (tune.dog_leap_time - age).max(dt));
+                    let (n, pace) = (norm(to), (len(to) - tune.dog_reach * 0.5).max(0.0) / left);
+                    dog.vel = [n[0] * pace, n[1] * pace];
+                }
                 dog.pos = [dog.pos[0] + dog.vel[0] * dt, dog.pos[1] + dog.vel[1] * dt];
                 dog.leap = Some(age + dt).filter(|_| !landed);
                 if !landed {
@@ -2072,6 +2077,21 @@ mod tests {
             h.zombies[0].pos = h.dogs[0].pos;
         }
         assert!(h.dogs[0].leap.is_some() || h.zombies[0].hp < first, "right beside it, the next bite is a pounce too");
+    }
+
+    #[test]
+    fn a_pounce_follows_a_zombie_that_walks_on_and_still_bites() {
+        let t = crate::tuning::tuning();
+        let mut h = with("dog", [t.dog_leap - 4.0, 0.0]);
+        let hp = h.zombies[0].hp;
+        h.walk_dogs(1.0 / 60.0, &mut Vec::new());
+        assert!(h.dogs[0].leap.is_some(), "it pounces");
+        while h.dogs[0].leap.is_some() {
+            h.zombies[0].pos[0] += 32.0 / 60.0;
+            h.zombies[0].pos[1] += 12.0 / 60.0;
+            h.walk_dogs(1.0 / 60.0, &mut Vec::new());
+        }
+        assert!(h.zombies[0].hp < hp, "it lands on the zombie where it has walked to, and bites");
     }
 
     #[test]

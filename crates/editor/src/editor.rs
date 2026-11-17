@@ -325,6 +325,8 @@ enum Action {
     WeaponType(usize),
     /// Steps the weapon's effect, bullet or sound through what it can name; 0 leaves its behaviour's own.
     WeaponPick(usize, i32),
+    /// Shows a tab of the weapon page's pickers.
+    WeaponTab(usize),
     /// Opens the effects.txt section of the weapon's bullet, whose shot style it fires.
     WeaponStyle,
     /// Opens the game's weapon range on the section as edited, at the picked level.
@@ -1833,7 +1835,7 @@ impl Editor {
         match a {
             Action::MapTool(_) | Action::Ground(_) | Action::PickProp(_) | Action::PickPage(_) | Action::Picket(_) | Action::MapSize(..) | Action::Randomize | Action::MapFit | Action::PropDefaults => {}
             Action::DataStep(..) | Action::DataEdit(_) | Action::DataRemove(_) | Action::DataColor(..) | Action::DataChoice(..) | Action::DataSprite(..) | Action::DataPaint(_) | Action::DataAdd | Action::DataPage(_) => {}
-            Action::WeaponLines | Action::WeaponLevel(_) | Action::WeaponMax(_) | Action::WeaponDoes(_) | Action::WeaponStep(..) | Action::WeaponType(_) | Action::WeaponPick(..) | Action::WeaponStyle | Action::WeaponTry => {}
+            Action::WeaponLines | Action::WeaponLevel(_) | Action::WeaponMax(_) | Action::WeaponDoes(_) | Action::WeaponStep(..) | Action::WeaponType(_) | Action::WeaponPick(..) | Action::WeaponTab(_) | Action::WeaponStyle | Action::WeaponTry => {}
             Action::LineFrame(_) | Action::LineFps(_) => {}
             Action::PlayerBase(i, d) => {
                 let t = last_harvest_game::tuning::tuning();
@@ -4580,7 +4582,7 @@ mod tests {
             e.switch_to("DATA_POWERUPS_PISTOL".into());
             let outside = |e: &Editor| e.data.as_ref().and_then(|d| d.table.entries(&d.section).into_iter().find(|l| l.key == "outside")).map(|l| l.value);
             assert_eq!(outside(&e), None, "the pistol leaves it out: its whole range");
-            let pick = 8;
+            let pick = weapons::pick("outside");
             assert!(e.buttons().iter().any(|b| b.action == Action::WeaponPick(pick, 1)));
             e.act(Action::WeaponPick(pick, 1), false);
             assert_eq!(outside(&e).as_deref(), Some("0"), "modding {modding}");
@@ -4612,7 +4614,7 @@ mod tests {
             }
             e.switch_to("DATA_POWERUPS_SHOTGUN".into());
             let line = |e: &Editor, key: &str| e.data.as_ref().and_then(|d| d.table.entries(&d.section).into_iter().find(|l| l.key == key)).map(|l| l.value);
-            let [every, after, delay] = [3, 4, 5];
+            let [every, after, delay] = ["sound_every", "sound_after", "sound_delay"].map(weapons::pick);
             e.act(Action::WeaponPick(every, 1), false);
             e.act(Action::WeaponPick(every, 1), false);
             assert_eq!(line(&e, "sound_every").as_deref(), Some("3"), "modding {modding}");
@@ -4649,12 +4651,12 @@ mod tests {
         let sound = |e: &Editor| e.data.as_ref().and_then(|d| d.table.entries(&d.section).into_iter().find(|l| l.key == "sound")).map(|l| l.value);
         let offered: Vec<String> = (0..last_harvest_game::weapon_sound_names().len() + 2)
             .filter_map(|_| {
-                e.act(Action::WeaponPick(2, 1), false);
+                e.act(Action::WeaponPick(weapons::pick("sound"), 1), false);
                 sound(&e)
             })
             .collect();
         assert_eq!(offered, ["shot", "blast", "slash", "zap", "bark", "throw", "rattle"], "the voices, then each group found once, no loops");
-        e.act(Action::WeaponPick(2, -1), false);
+        e.act(Action::WeaponPick(weapons::pick("sound"), -1), false);
         assert_eq!(sound(&e).as_deref(), Some("rattle"));
         e.act(Action::Save, false);
         assert!(!e.unsaved(), "the game reads any group");
@@ -4695,17 +4697,17 @@ mod tests {
         assert!(text(&e).contains("\nrange 150 150 149 150\n"), "a short list grows only to keep the levels after");
         let gun = last_harvest_game::weapon_behaviours().iter().position(|b| *b == "gun").unwrap();
         e.act(Action::WeaponDoes(gun), false);
-        e.act(Action::WeaponPick(0, 1), false);
-        e.act(Action::WeaponPick(2, -1), false);
+        e.act(Action::WeaponPick(weapons::pick("effect"), 1), false);
+        e.act(Action::WeaponPick(weapons::pick("sound"), -1), false);
         e.act(Action::WeaponMax(1), false);
         assert!(text(&e).contains("max 9\n") && text(&e).contains("pierce    0 0 0 0 1 1 1 1\ndoes gun\neffect muzzle_pistol\nsound throw\n\n"), "{}", text(&e));
         let pattern = |e: &Editor| e.data.as_ref().and_then(|d| d.table.entries(&d.section).into_iter().find(|l| l.key == "pattern")).map(|l| l.value);
-        e.act(Action::WeaponPick(6, -1), false);
+        e.act(Action::WeaponPick(weapons::pick("pattern"), -1), false);
         assert_eq!(pattern(&e).as_deref(), Some("spray"), "the patterns step from burst");
-        e.act(Action::WeaponPick(6, 1), false);
+        e.act(Action::WeaponPick(weapons::pick("pattern"), 1), false);
         assert_eq!(pattern(&e).as_deref(), Some("burst"));
         let targets = |e: &Editor| e.data.as_ref().and_then(|d| d.table.entries(&d.section).into_iter().find(|l| l.key == "targets")).map(|l| l.value);
-        e.act(Action::WeaponPick(7, -1), false);
+        e.act(Action::WeaponPick(weapons::pick("targets"), -1), false);
         assert_eq!(targets(&e).as_deref(), Some("same"), "the targets step from each");
         e.key(Key::Undo);
         let gap = stat("gap");
@@ -4721,7 +4723,7 @@ mod tests {
         let levels = last_harvest_game::weapon_levels(&text(&e), "pistol").unwrap();
         let at = |k: &str| levels.stats[stat(k)].2.clone();
         assert_eq!((levels.max, at("damage")[0], at("range")[1..4].to_vec(), at("range")[8], at("area")[8]), (9, 13.0, vec![150.0, 149.0, 150.0], 150.0, 24.0));
-        e.act(Action::WeaponPick(2, 0), false);
+        e.act(Action::WeaponPick(weapons::pick("sound"), 0), false);
         assert!(!text(&e).contains("sound throw"), "Own drops the line");
         buttons_fit(&e);
         e.act(Action::WeaponLines, false);
@@ -4864,6 +4866,54 @@ mod tests {
             assert!(picked.iter().any(|v| v.starts_with("breakers ")) && picked.iter().any(|v| v.starts_with("breaker_dawns ")) && picked.iter().any(|v| v == "start"), "{picked:?}");
             e.act(Action::Save, false);
             assert!(!e.unsaved(), "the game reads every step");
+            std::fs::remove_dir_all(&dir).unwrap();
+        }
+    }
+
+    #[test]
+    fn a_weapon_is_made_one_players_own_in_both_editors() {
+        for modding in [false, true] {
+            let dir = tmp().join(if modding { "player-weapon-mod" } else { "player-weapon" });
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            let mut e = editor_in(&dir, dir.join("art.txt"));
+            if modding {
+                e.set_modding();
+            }
+            for id in ["kd", "jo"] {
+                e.act(Action::Ask(Ask::New), false);
+                e.set_text(&format!("player card {id}"));
+                e.key(Key::Enter);
+                e.act(Action::Save, false);
+            }
+            assert_eq!(e.player_ids(), ["jo", "kd"], "modding {modding}");
+            e.switch_to("DATA_POWERUPS_CROWS".into());
+            let pick = weapons::pick("player");
+            let player = |e: &Editor| e.data.as_ref().and_then(|d| d.table.entries(&d.section).into_iter().find(|l| l.key == "player")).map(|l| l.value);
+            assert!(!e.buttons().iter().any(|b| b.action == Action::WeaponPick(pick, 1)), "on the second tab");
+            e.act(Action::WeaponTab(1), false);
+            assert!(e.buttons().iter().any(|b| b.action == Action::WeaponPick(pick, 1)));
+            buttons_fit(&e);
+            e.act(Action::WeaponPick(pick, 1), false);
+            e.act(Action::WeaponPick(pick, 1), false);
+            assert_eq!(player(&e).as_deref(), Some("kd"));
+            e.act(Action::WeaponLines, false);
+            let row = e.data.as_ref().and_then(|d| d.table.entries(&d.section).iter().position(|l| l.key == "player")).unwrap();
+            assert!(e.buttons().iter().any(|b| b.action == Action::DataChoice(row, 1)), "the lines step it too");
+            e.act(Action::DataChoice(row, 1), false);
+            assert_eq!(player(&e).as_deref(), Some("jo"), "it wraps round");
+            e.act(Action::DataChoice(row, -1), false);
+            e.act(Action::Save, false);
+            assert!(!e.unsaved(), "the game reads it");
+            let starts = |e: &mut Editor, id: &str| {
+                e.switch_to(format!("PLAYER_CARD_{}_FRONT", id.to_ascii_uppercase()));
+                e.weapon_labels().iter().any(|(w, _)| w == "crows")
+            };
+            assert!(starts(&mut e, "kd") && !starts(&mut e, "jo"), "only its player can start with it");
+            e.switch_to("DATA_POWERUPS_CROWS".into());
+            e.act(Action::WeaponLines, false);
+            e.act(Action::WeaponPick(pick, 0), false);
+            assert_eq!(player(&e), None, "Everyone takes the line out");
             std::fs::remove_dir_all(&dir).unwrap();
         }
     }

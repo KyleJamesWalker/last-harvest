@@ -121,13 +121,19 @@ code { font: 13px var(--mono); }
 
 <section>
   <h2>How it was run</h2>
-  <p class="muted">The scripted player walks a circle (or a figure eight), turns round every 6 s, lobs a grenade ahead every 12 s and never picks a level-up, so a forced build stays fixed. It never dies; its first fall is recorded. Pressure runs lay <code>tools/matrix/pressure</code> over the data: spawns from 2/s rising 2.5/s per minute up to 25/s, hordes of 40 + 8 per minute, and a zombie cap of 600, so strong builds stop hitting the same ceiling. The random-build fit is a ridge regression on level fractions with every weapon pair and weapon–passive pair as interaction terms; R² is shown beside it.</p>
+  <p class="muted">By default the scripted player walks a circle (or a figure eight), turns round every 6 s, lobs a grenade ahead every 12 s and never picks a level-up, so a forced build stays fixed; <code>run.py --player</code> changes that, and each tier's settings are listed below. It never dies; its first fall is recorded, and survival is the mean time to it with a night that never fell counted as its whole length. Pressure runs lay <code>tools/matrix/pressure</code> over the data: spawns from 2/s rising 2.5/s per minute up to 25/s, hordes of 40 + 8 per minute, and a zombie cap of 600, so strong builds stop hitting the same ceiling. The random-build fit is a ridge regression on level fractions with every weapon pair and weapon–passive pair as interaction terms; R² is shown beside it.</p>
+  <ul class="muted" id="settings"></ul>
 </section>
 </main>
 
 <script>
 const D = /*DATA*/null;
 const W = D.weapons, P = D.passives;
+for (const [tier, s] of Object.entries(D.settings || {})) {
+  const li = document.createElement("li");
+  li.textContent = `${tier}: ${s}`;
+  document.getElementById("settings").append(li);
+}
 const LV = ["1","2","3","4","5","6","7","8","9"];
 const $ = id => document.getElementById(id);
 const nice = s => s.replace(/_/g, " ");

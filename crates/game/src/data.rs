@@ -173,6 +173,7 @@ pub fn install(mut data: Data) -> Result<Vec<String>, String> {
     }
     let files = std::mem::take(&mut data.maps);
     let farms = std::mem::take(&mut data.farms);
+    let owners = crate::harvest::powerup_owners(data.powerups.as_deref().or(built_in::POWERUPS).unwrap_or_default());
     // Maps are checked against the data being installed, its ground and props, so that comes first.
     DATA.set(data).map_err(|_| "the game data was already read".to_string())?;
     notes.extend(crate::harvest::install_farms(&farms));
@@ -181,6 +182,9 @@ pub fn install(mut data: Data) -> Result<Vec<String>, String> {
         if let Some(f) = look.farm.as_ref().filter(|f| !known.contains(f)) {
             notes.push(format!("player {}: no farm called {f}, so it plays on the game's", look.id));
         }
+    }
+    for (powerup, player) in owners.iter().filter(|(_, p)| !crate::harvest::player_looks().iter().any(|l| l.id == *p)) {
+        notes.push(format!("powerups.txt [{powerup}]: no player card is [{player}], so no one is offered it"));
     }
     let mut maps: Vec<LoadedMap> = Vec::new();
     for file in files {

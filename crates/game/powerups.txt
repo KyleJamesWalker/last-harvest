@@ -21,6 +21,8 @@
 #   find    CHANCE      how often a level-up offers it as a find, 0 to 1; 0.25 when left out
 #   after   MINUTES     the earliest it can be found in a night; 0 when left out
 #   chest   (no value)  found only in the chest a horde's leader drops; a chest holds a find whenever one is waiting
+#   player  ID          one player card's own: offered, found and counted only when [ID] is picked; every player's
+#                       when left out. Not for fillers, nor the start lines above; a player card's start can name it
 #   effect  NAME        for weapons, the effects.txt effect it plays in place of its behaviour's own
 #   bullet  NAME        for weapons that shoot, the effects.txt effect its bullets fly as
 #   sound   NAME        for weapons, the sound group it plays in place of its behaviour's own: NAME.ogg, NAME-2.ogg
