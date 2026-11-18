@@ -180,6 +180,8 @@ pub struct Renderer {
     vbo: glow::Buffer,
     u_size: Option<glow::UniformLocation>,
     verts: Vec<f32>,
+    /// The rectangle 2D shapes are cut to, from the canvas's last `Shape::Clip`.
+    clip: Option<[f32; 4]>,
     atlas: atlas::Atlas,
     texture: glow::Texture,
     art: glow::Texture,
@@ -417,7 +419,7 @@ impl Renderer {
             gl.uniform_1_i32(gl.get_uniform_location(program, "u_art").as_ref(), 1);
 
             let u_size = gl.get_uniform_location(program, "u_size");
-            Ok(Self { program, vao, vbo, u_size, verts: Vec::new(), atlas, texture, art, card_programs, card_vao, card_vbo, card_ibo, card_capacity: 0, clear_programs, clear_vao, clear_vbo, batch: CardBatch::default() })
+            Ok(Self { program, vao, vbo, u_size, verts: Vec::new(), clip: None, atlas, texture, art, card_programs, card_vao, card_vbo, card_ibo, card_capacity: 0, clear_programs, clear_vao, clear_vbo, batch: CardBatch::default() })
         }
     }
 
@@ -434,8 +436,10 @@ impl Renderer {
     /// Draws one screen's canvas into `viewport` (x, y, w, h in framebuffer pixels, GL origin).
     pub fn draw(&mut self, gl: &glow::Context, canvas: &Canvas, viewport: [i32; 4]) {
         self.verts.clear();
+        self.clip = None;
         for shape in &canvas.shapes {
             match *shape {
+                Shape::Clip { rect } => self.clip = rect,
                 Shape::Rect { x, y, w, h, color } => self.quad(x, y, w, h, color, KIND_RECT),
                 Shape::Circle { x, y, r, color } => self.quad(x - r, y - r, 2.0 * r, 2.0 * r, color, KIND_CIRCLE),
                 Shape::Art { art, x, y, scale, flip, angle, show, color } => {
@@ -548,11 +552,40 @@ impl Renderer {
     fn push_quad(&mut self, corners: [[f32; 2]; 4], [u0, v0, u1, v1]: [f32; 4], [r, g, b, a]: [f32; 4], kind: f32) {
         let local = [[-1.0, -1.0], [1.0, -1.0], [1.0, 1.0], [-1.0, 1.0]];
         let uvs = [[u0, v0], [u1, v0], [u1, v1], [u0, v1]];
+        let Some((corners, local, uvs)) = clip_quad(corners, local, uvs, self.clip) else { return };
         for i in [0, 1, 2, 0, 2, 3] {
             let ([px, py], [lx, ly], [u, v]) = (corners[i], local[i], uvs[i]);
             self.verts.extend_from_slice(&[px, py, lx, ly, r, g, b, a, kind, u, v]);
         }
     }
+}
+
+type Quad = [[f32; 2]; 4];
+
+/// Cuts a quad to `clip` (x, y, w, h), its shape coordinates and texture coordinates with it; None if nothing is left.
+/// A turned quad is kept whole unless it lies wholly outside.
+fn clip_quad(corners: Quad, local: Quad, uvs: Quad, clip: Option<[f32; 4]>) -> Option<(Quad, Quad, Quad)> {
+    let Some([cx, cy, cw, ch]) = clip else { return Some((corners, local, uvs)) };
+    let xs = corners.map(|c| c[0]);
+    let ys = corners.map(|c| c[1]);
+    let (lo, hi) = (|v: [f32; 4]| v.into_iter().fold(f32::MAX, f32::min), |v: [f32; 4]| v.into_iter().fold(f32::MIN, f32::max));
+    if hi(xs) <= cx || lo(xs) >= cx + cw || hi(ys) <= cy || lo(ys) >= cy + ch {
+        return None;
+    }
+    let [[x0, y0], [x1, y1b], [x2, y2], [x3, y3]] = corners;
+    let square = y0 == y1b && x1 == x2 && y2 == y3 && x3 == x0 && x1 > x0 && y3 > y0;
+    if !square {
+        return Some((corners, local, uvs));
+    }
+    let (fx0, fx1) = (((cx - x0) / (x1 - x0)).max(0.0), ((cx + cw - x0) / (x1 - x0)).min(1.0));
+    let (fy0, fy1) = (((cy - y0) / (y3 - y0)).max(0.0), ((cy + ch - y0) / (y3 - y0)).min(1.0));
+    let at = |q: &Quad, fx: f32, fy: f32| {
+        let top = [q[0][0] + (q[1][0] - q[0][0]) * fx, q[0][1] + (q[1][1] - q[0][1]) * fx];
+        let bottom = [q[3][0] + (q[2][0] - q[3][0]) * fx, q[3][1] + (q[2][1] - q[3][1]) * fx];
+        [top[0] + (bottom[0] - top[0]) * fy, top[1] + (bottom[1] - top[1]) * fy]
+    };
+    let cut = |q: &Quad| [at(q, fx0, fy0), at(q, fx1, fy0), at(q, fx1, fy1), at(q, fx0, fy1)];
+    Some((cut(&corners), cut(&local), cut(&uvs)))
 }
 
 fn as_bytes<T: Copy>(v: &[T]) -> &[u8] {
@@ -564,6 +597,19 @@ fn as_bytes<T: Copy>(v: &[T]) -> &[u8] {
 mod tests {
     use super::*;
     use last_harvest_game::scene3d::Vec3;
+
+    #[test]
+    fn a_clipped_quad_is_cut_to_the_rectangle_with_its_texture_and_shape() {
+        let corners = [[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0]];
+        let local = [[-1.0, -1.0], [1.0, -1.0], [1.0, 1.0], [-1.0, 1.0]];
+        let uvs = [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]];
+        assert_eq!(clip_quad(corners, local, uvs, None), Some((corners, local, uvs)));
+        assert_eq!(clip_quad(corners, local, uvs, Some([20.0, 0.0, 5.0, 5.0])), None, "wholly outside");
+        let (c, l, u) = clip_quad(corners, local, uvs, Some([5.0, -5.0, 20.0, 10.0])).unwrap();
+        assert_eq!(c, [[5.0, 0.0], [10.0, 0.0], [10.0, 5.0], [5.0, 5.0]]);
+        assert_eq!(l, [[0.0, -1.0], [1.0, -1.0], [1.0, 0.0], [0.0, 0.0]]);
+        assert_eq!(u, [[0.5, 0.0], [1.0, 0.0], [1.0, 0.5], [0.5, 0.5]]);
+    }
 
     fn card_at(z: f32, alpha: f32) -> Card {
         let c = |x: f32, y: f32| Vec3::new(x, y, z);

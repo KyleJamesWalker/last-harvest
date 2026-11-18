@@ -138,6 +138,8 @@ tuning! {
     map_sight = "map" "sight",
     map_memory = "map" "memory",
     map_shade = "map" "shade",
+    map_mini = "map" "mini",
+    map_mini_reach = "map" "mini_reach",
 }
 
 /// Reads a `tuning.txt` over `base`, the numbers it doesn't set; with no base, it must set every one. Errors
