@@ -20,6 +20,8 @@ pub(super) struct Tally {
     pub hearts: u32,
     /// The night's time the player first fell, even if the run was undying and stood them back up.
     pub fell: Option<f32>,
+    /// Set once the run is over: what's still in flight lands, but the run's numbers are final.
+    pub shut: bool,
 }
 
 /// What one weapon, or grenades and barrels, did over a run.
@@ -48,6 +50,9 @@ impl Tally {
     }
 
     pub fn add(&mut self, amount: f32) {
+        if self.shut {
+            return;
+        }
         match self.by {
             Some(d) => *grow(&mut self.dealt, d) += amount,
             None => self.other += amount,
@@ -64,6 +69,9 @@ impl Tally {
 
     /// A hit of `dealt` on a zombie with `hp` left: what of it was useful, and whether it was the killing blow.
     pub fn land(&mut self, dealt: f32, hp: f32) {
+        if self.shut {
+            return;
+        }
         let useful = dealt.min(hp.max(0.0));
         let kill = (hp > 0.0 && hp <= dealt) as u32;
         match self.by {
