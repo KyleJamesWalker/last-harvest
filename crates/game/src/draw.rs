@@ -20,6 +20,8 @@ pub enum Shape {
     Art { art: Art, x: f32, y: f32, scale: f32, flip: bool, angle: f32, show: f32, color: Color },
     /// TrueType text; `y` is the top of the line and `size` its height in pixels.
     Text { text: String, x: f32, y: f32, size: f32, color: Color, align: Align },
+    /// Shapes after this are cut to the rectangle (x, y, w, h), or no longer cut for None.
+    Clip { rect: Option<[f32; 4]> },
 }
 
 #[derive(Clone, Debug, Default)]
@@ -54,8 +56,17 @@ impl Canvas {
                     let (x, y) = p(x, y);
                     Shape::Text { text, x, y, size: size * k, color, align }
                 }
+                Shape::Clip { rect } => Shape::Clip { rect: rect.map(|[x, y, w, h]| {
+                    let (x, y) = p(x, y);
+                    [x, y, w * k, h * k]
+                }) },
             });
         }
+    }
+
+    /// Cuts what's drawn after this to the rectangle (x, y, w, h), or stops cutting for None.
+    pub fn clip(&mut self, rect: Option<[f32; 4]>) {
+        self.shapes.push(Shape::Clip { rect });
     }
 
     pub fn rect(&mut self, x: f32, y: f32, w: f32, h: f32, color: Color) {
