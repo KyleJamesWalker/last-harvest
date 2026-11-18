@@ -2281,6 +2281,7 @@ impl Harvest {
         self.fly(dt, sounds, flow);
         self.rise(dt, sounds);
         self.roam(dt);
+        self.scatter(dt);
         self.move_bullets(dt, sounds);
         self.hazards(dt);
         self.decoys(dt, sounds);

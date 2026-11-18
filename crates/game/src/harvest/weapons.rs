@@ -1124,6 +1124,38 @@ impl Harvest {
         self.thud(hits, sounds);
     }
 
+    /// The player is down: dogs bolt and drones fly off, straight away from them, and bite or fire at nothing.
+    pub(super) fn scatter(&mut self, dt: f32) {
+        let k = (dt * 4.0).min(1.0);
+        let away = |pos: [f32; 2], from: [f32; 2], ahead: [f32; 2]| if len(sub(pos, from)) > 0.1 { norm(sub(pos, from)) } else { ahead };
+        for i in 0..self.dogs.len() {
+            let Some(a) = self.kit.weapons.iter().copied().find(|a| a.def == self.dogs[i].def) else { continue };
+            let speed = self.stat(a, Stat::Speed);
+            let dog = &mut self.dogs[i];
+            let n = away(dog.pos, self.pos, dog.heading);
+            dog.leap = None;
+            dog.vel = [dog.vel[0] + (n[0] * speed - dog.vel[0]) * k, dog.vel[1] + (n[1] * speed - dog.vel[1]) * k];
+            dog.pos = [dog.pos[0] + dog.vel[0] * dt, dog.pos[1] + dog.vel[1] * dt];
+            if len(dog.vel) > 5.0 {
+                dog.heading = norm(dog.vel);
+                dog.anim += dt * (len(dog.vel) / speed * 1.6).min(1.0);
+            }
+        }
+        for i in 0..self.drones.len() {
+            let Some(a) = self.kit.weapons.iter().copied().find(|a| a.def == self.drones[i].def) else { continue };
+            let speed = self.stat(a, Stat::Speed);
+            let drone = &mut self.drones[i];
+            let n = away(drone.pos, self.pos, drone.heading);
+            drone.firing = 0.0;
+            drone.anim += dt;
+            drone.vel = [drone.vel[0] + (n[0] * speed - drone.vel[0]) * k, drone.vel[1] + (n[1] * speed - drone.vel[1]) * k];
+            drone.pos = [drone.pos[0] + drone.vel[0] * dt, drone.pos[1] + drone.vel[1] * dt];
+            if len(drone.vel) > 5.0 {
+                drone.heading = norm(drone.vel);
+            }
+        }
+    }
+
     /// Drones fly out to the zombie nearest them within their reach of the player, hover off it and fire a burst,
     /// a round every gap; with nothing to shoot they hover near the player.
     fn fly_drones(&mut self, dt: f32, sounds: &mut Vec<Sfx>) {
@@ -2031,6 +2063,22 @@ mod tests {
         let life = h.decoys[0].life;
         h.decoys(life, &mut Vec::new());
         assert!(h.decoys.is_empty());
+    }
+
+    #[test]
+    fn once_the_player_is_down_dogs_and_drones_make_off() {
+        let mut h = with("dog", [0.0, 0.0]);
+        h.zombies.clear();
+        armed(&mut h, "drone", 1);
+        h.walk_dogs(1.0 / 60.0, &mut Vec::new());
+        h.fly_drones(1.0 / 60.0, &mut Vec::new());
+        let at = |h: &Harvest| (len(sub(h.dogs[0].pos, h.pos)), len(sub(h.drones[0].pos, h.pos)));
+        let before = at(&h);
+        for _ in 0..60 * 3 {
+            h.scatter(1.0 / 60.0);
+        }
+        let after = at(&h);
+        assert!(after.0 > before.0 + 60.0 && after.1 > before.1 + 60.0, "{before:?} -> {after:?}");
     }
 
     #[test]
