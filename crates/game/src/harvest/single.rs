@@ -143,10 +143,42 @@ impl Harvest {
         c.rect(0.0, 0.0, SCREEN_W * k, 10.0, red);
     }
 
+    /// While playing on one screen, what the bottom screen would show: the map around the player in the top right
+    /// corner, the grenades under it and the kit bottom left.
+    fn corner_hud(&self, top: &mut Canvas) {
+        if !matches!(self.phase, Phase::Playing) || self.photo.is_some() || self.range.is_some() {
+            return;
+        }
+        let t = crate::tuning::tuning();
+        let k = 3.0;
+        let mut below = 76.0;
+        if t.map_mini > 0.0 {
+            let (w, reach, scale) = (t.map_mini, t.map_mini_reach.max(16.0), map_scale());
+            let (h, (x, y)) = (w * 0.75, (SCREEN_W - 24.0 - w, below));
+            let cam = [self.pos[0] - reach, self.pos[1] - 8.0 - reach * 0.75];
+            let mut map = Canvas::default();
+            self.world(&mut map, cam, scale, self.map_tint(), true);
+            self.view_cone(&mut map, cam);
+            self.home_on_map(&mut map, cam);
+            self.ticket_on_map(&mut map, cam);
+            top.rect(x - 4.0, y - 4.0, w + 8.0, h + 8.0, [0.06, 0.05, 0.04, 0.9]);
+            top.rect(x, y, w, h, [0.0, 0.0, 0.0, 1.0]);
+            top.clip(Some([x, y, w, h]));
+            top.place(&map, [x, y], w / (reach * 2.0 * scale));
+            top.clip(None);
+            below = y + h + 12.0;
+        }
+        let tray = crate::art::GRENADE.h() * k + 6.8 * k;
+        self.grenades_at(top, SCREEN_W - 20.0, below + tray, k);
+        self.kit_at(top, 24.0, SCREEN_H - 24.0, 32.0);
+    }
+
     /// Puts the map on the top screen while it's up, and leaves the bottom screen dark.
     pub(super) fn single_frame(&self, f: &mut Frame) {
         if self.map_up() {
             std::mem::swap(&mut f.top, &mut f.bottom);
+        } else {
+            self.corner_hud(&mut f.top);
         }
         f.bottom = Canvas::default();
         f.bottom.clear = [0.0, 0.0, 0.0, 1.0];
@@ -319,6 +351,31 @@ mod tests {
         assert!(h.t > t + 0.9, "the live map keeps the night going");
         hold(&mut h, Buttons::NONE, DT);
         assert!(!h.map_up());
+    }
+
+    #[test]
+    fn one_screen_play_shows_a_corner_map_the_grenades_and_the_kit_and_the_full_map_hides_them() {
+        let mut h = single(12);
+        let shapes = |h: &Harvest| {
+            let mut f = crate::Frame::default();
+            h.draw(&mut f, false);
+            f.top.shapes
+        };
+        let has = |s: &[crate::Shape], art: crate::art::Art| s.iter().any(|x| matches!(x, crate::Shape::Art { art: a, .. } if *a == art));
+        let clips = |s: &[crate::Shape]| s.iter().filter(|x| matches!(x, crate::Shape::Clip { rect: Some(_) })).count();
+        let top = shapes(&h);
+        assert_eq!(clips(&top), 1, "the corner map");
+        assert!(has(&top, crate::art::GRENADE), "the grenades");
+        let pistol = crate::harvest::powerups::book().defs[h.kit.weapons[0].def].icon;
+        assert!(has(&top, pistol), "the kit");
+        hold(&mut h, Buttons::L1, 0.2);
+        let up = shapes(&h);
+        assert_eq!(clips(&up), 0, "the full map needs no corner one");
+        let mut two = Harvest::calm(12);
+        two.view_yaw = 0.0;
+        let mut f = crate::Frame::default();
+        two.draw(&mut f, false);
+        assert_eq!(clips(&f.top.shapes), 0, "two screens keep the map below");
     }
 
     #[test]

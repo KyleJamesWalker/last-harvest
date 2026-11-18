@@ -191,30 +191,40 @@ impl Harvest {
 
     /// Grenades ready, bottom right, with the next one filling in.
     fn grenade_tray(&self, c: &mut Canvas) {
+        self.grenades_at(c, SCREEN_W - 28.0, SCREEN_H - 6.0, 5.0);
+    }
+
+    /// The grenade tray with its right and bottom edges at `right` and `bottom`, each grenade's pixels `k` across.
+    pub(super) fn grenades_at(&self, c: &mut Canvas, right: f32, bottom: f32, k: f32) {
         let a = art::GRENADE;
-        let slot = a.w() * 5.0 + 12.0;
+        let slot = a.w() * k + 2.4 * k;
         let most = self.kit.grenades();
-        let panel = most * slot + 24.0;
-        c.rect(SCREEN_W - 40.0 - panel + 12.0, SCREEN_H - 40.0 - a.h() * 5.0, panel, a.h() * 5.0 + 34.0, [0.0, 0.0, 0.0, 0.6]);
+        let panel = most * slot + 4.8 * k;
+        let top = bottom - a.h() * k - 6.8 * k;
+        c.rect(right - panel, top, panel, a.h() * k + 6.8 * k, [0.0, 0.0, 0.0, 0.6]);
         for i in 0..most as usize {
-            let x = SCREEN_W - 40.0 - (i as f32 + 1.0) * slot;
-            let y = SCREEN_H - 24.0 - a.h() * 5.0;
+            let x = right - 2.4 * k - (i as f32 + 1.0) * slot;
+            let y = bottom - 3.6 * k - a.h() * k;
             let fill = (self.grenades - i as f32).clamp(0.0, 1.0);
             let color = if fill >= 1.0 { WHITE } else { [0.4, 0.4, 0.4, 0.6] };
-            c.art(a, x, y, 5.0, false, color);
+            c.art(a, x, y, k, false, color);
             if fill > 0.0 && fill < 1.0 {
-                c.rect(x, y + a.h() * 5.0 + 4.0, a.w() * 5.0 * fill, 5.0, GOLD);
+                c.rect(x, y + a.h() * k + 0.8 * k, a.w() * k * fill, k, GOLD);
             }
         }
     }
 
     /// The weapons and passives carried, bottom left, each with its level.
     fn kit_tray(&self, c: &mut Canvas) {
+        self.kit_at(c, 24.0, SCREEN_H - 24.0, 40.0);
+    }
+
+    /// The weapons over the passives, left edge `x`, the passives' row ending at `bottom`, icons `size` across.
+    pub(super) fn kit_at(&self, c: &mut Canvas, x: f32, bottom: f32, size: f32) {
         let rows: [Vec<(usize, u32)>; 2] = [self.kit.weapons.iter().map(|a| (a.def, a.level)).collect(), self.kit.passives.clone()];
-        let size = 40.0;
         for (r, row) in rows.iter().enumerate() {
-            let y = SCREEN_H - 24.0 - (2 - r) as f32 * (size + 10.0);
-            powerup_icons(c, 24.0, y, size, row.iter().copied(), 1.0);
+            let y = bottom - (2 - r) as f32 * (size + size / 4.0);
+            powerup_icons(c, x, y, size, row.iter().copied(), 1.0);
         }
     }
 
@@ -620,7 +630,7 @@ impl Harvest {
     }
 
     /// After dawn, the farmhouse's step on the map, pinned to the edge when it's off the map.
-    fn home_on_map(&self, c: &mut Canvas, cam: [f32; 2]) {
+    pub(super) fn home_on_map(&self, c: &mut Canvas, cam: [f32; 2]) {
         if self.t < super::dawn() {
             return;
         }
@@ -646,7 +656,7 @@ impl Harvest {
     }
 
     /// While the truck driver holds a collection ticket, where he stands on the map, pinned to the edge when off it.
-    fn ticket_on_map(&self, c: &mut Canvas, cam: [f32; 2]) {
+    pub(super) fn ticket_on_map(&self, c: &mut Canvas, cam: [f32; 2]) {
         let Some(at) = self.ticket() else { return };
         let x = ((at[0] - cam[0]) * map_scale()).clamp(40.0, SCREEN_W - 40.0);
         let y = ((at[1] - cam[1]) * map_scale()).clamp(40.0, SCREEN_H - 40.0);
