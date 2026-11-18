@@ -78,6 +78,11 @@ spit_every 2.5  # seconds between a ranged zombie's spits
 burrow_reach 20 # how near the player a burrowing zombie surfaces
 chew 0.5        # bites a second a zombie takes out of a prop in its way
 
+[roam]
+speed 0.5       # once the run is over, the dead wander at this fraction of their walk
+turn 3          # about how many seconds one keeps a way before picking another
+after 1.5       # most seconds one stands over the fallen player before it loses interest
+
 [harvester]
 hp 2500         # dawn's boss
 speed 40

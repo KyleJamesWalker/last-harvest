@@ -99,9 +99,8 @@ const TURNED: f32 = 2.6;
 /// Seconds the worn grenade flashes, and how bright, when one comes ready.
 const READY_FLASH: f32 = 0.1;
 const READY_BRIGHT: f32 = 3.0;
-/// How fast the turned player and the dead with them walk off, and how near they gather around the player.
-const MARCH_SPEED: f32 = 16.0;
-const MARCH_CLOSE: f32 = 40.0;
+/// How fast the turned player wanders with the dead.
+const TURNED_SPEED: f32 = 16.0;
 const MAX_BIRDS: usize = 12;
 const WHITE: Color = [1.0; 4];
 const GOLD: Color = [1.0, 0.85, 0.3, 1.0];
@@ -346,6 +345,8 @@ struct Zombie {
     up: f32,
     /// Seconds off screen and past `[spawn] straggler` from the player.
     away: f32,
+    /// Once the run is over: seconds still to stand if below 0, else seconds until it picks a new way to wander.
+    roam: f32,
 }
 
 impl Zombie {
@@ -377,6 +378,7 @@ impl Zombie {
             cd: 0.0,
             up: 0.0,
             away: 0.0,
+            roam: 0.0,
         }
     }
 
@@ -799,6 +801,8 @@ pub struct Harvest {
     let_out: f32,
     /// The way the player last walked.
     heading: [f32; 2],
+    /// Turned: seconds until the player picks a new way to wander.
+    wander: f32,
     xp: u32,
     next_xp: u32,
     level: u32,
@@ -1059,6 +1063,7 @@ impl Harvest {
             banked: 0.0,
             let_out: 0.0,
             heading: [0.0, 1.0],
+            wander: 0.0,
             xp: 0,
             next_xp: book().first_level,
             level: 1,
@@ -1351,8 +1356,9 @@ impl Harvest {
                 let t = before + dt;
                 self.phase = Phase::Over { t, won };
                 self.juice.tick(if t < TURN_SINK { dt * 0.4 } else { dt });
+                self.wind_down(dt, sounds, &mut flow);
                 if !won && t >= TURNED {
-                    self.march(dt);
+                    self.wander_turned(dt);
                 }
                 if !won && before < TURN_RISE && t >= TURN_RISE {
                     self.juice.burst(self.pos, 0.0, 16, [0.0; 2], 0.0, [20.0, 60.0], juice::dirt(), 1.8, 0.7, 0.0);
@@ -1608,6 +1614,7 @@ impl Harvest {
                 self.zombies.push(z);
             }
             self.phase = Phase::Over { t: 0.0, won: false };
+            self.lose_interest();
             flow.ended = Some(self.finish(false));
         } else if self.t >= dawn() && len(sub(self.pos, self.map.home)) < crate::tuning::tuning().home {
             sounds.push(Sfx::Dawn);
@@ -1929,6 +1936,7 @@ impl Harvest {
 
     /// How the run went, and what it unlocked.
     fn finish(&mut self, won: bool) -> Run {
+        self.juice.tally.shut = true;
         let mut kit = [None; RUN_KIT];
         let held = self.kit.weapons.iter().map(|a| (a.def, a.level)).chain(self.kit.passives.iter().copied());
         for (slot, (def, level)) in kit.iter_mut().zip(held) {
@@ -2071,8 +2079,8 @@ impl Harvest {
         }
     }
 
-    fn move_zombies(&mut self, dt: f32, sounds: &mut Vec<Sfx>) {
-        let radius = self.ring_radius();
+    /// How hard each zombie is pushed off its neighbors, in `self.sep`'s buffer; give it back when done.
+    fn spread(&mut self) -> Vec<[f32; 2]> {
         let n = self.zombies.len();
         let mut sep = std::mem::take(&mut self.sep);
         sep.clear();
@@ -2088,6 +2096,12 @@ impl Harvest {
                 }
             }
         }
+        sep
+    }
+
+    fn move_zombies(&mut self, dt: f32, sounds: &mut Vec<Sfx>) {
+        let radius = self.ring_radius();
+        let sep = self.spread();
         let cell = [(self.pos[0] / TILE) as usize, (self.pos[1] / TILE) as usize];
         if cell != self.flow_cell {
             self.map.flow_into(self.pos, &mut self.flow, &mut self.steps);
@@ -2258,21 +2272,114 @@ impl Harvest {
         self.thud((1, false), sounds);
     }
 
-    /// With the player down, the dead lose interest and shamble away.
-    /// Turned, the player shambles on the way they faced, and the dead close in and walk with them to the next farm.
-    fn march(&mut self, dt: f32) {
-        let ahead = self.aim;
-        self.pos = self.map.slide(self.pos, [ahead[0] * MARCH_SPEED * dt, ahead[1] * MARCH_SPEED * dt], crate::tuning::tuning().player_half());
-        for z in self.zombies.iter_mut().filter(|z| z.rise >= 1.0) {
-            let to = sub(self.pos, z.pos);
-            let pull = ((len(to) - MARCH_CLOSE) / MARCH_CLOSE).clamp(0.0, 1.5);
-            let n = norm(to);
-            let way = norm([ahead[0] + n[0] * pull, ahead[1] + n[1] * pull]);
-            let speed = MARCH_SPEED * (1.0 + 0.5 * pull);
-            z.pos = self.map.slide(z.pos, [way[0] * speed * dt, way[1] * speed * dt], crate::tuning::tuning().zombie_half());
-            z.dir = way;
-            z.facing = Facing::of(way);
+    /// The run is over, but what's in flight isn't: shots fly on, grenades land, fires burn down and scarecrows
+    /// burst, still hurting the dead, while the dead wander. Nothing new is fired, and the run's numbers stay final.
+    fn wind_down(&mut self, dt: f32, sounds: &mut Vec<Sfx>, flow: &mut Flow) {
+        for h in &mut self.hush {
+            *h -= dt;
+        }
+        self.fly(dt, sounds, flow);
+        self.rise(dt, sounds);
+        self.roam(dt);
+        self.scatter(dt);
+        self.move_bullets(dt, sounds);
+        self.hazards(dt);
+        self.decoys(dt, sounds);
+        if self.blow(dt, sounds) {
+            flow.rumble = flow.rumble.max(Some(Rumble::Blast));
+        }
+        self.crumble(dt, sounds);
+        self.reap(sounds, flow);
+    }
+
+    /// The player is down: each zombie stands over them a moment, then turns away to look for someone else.
+    fn lose_interest(&mut self) {
+        let after = crate::tuning::tuning().roam_after.max(0.0);
+        for z in &mut self.zombies {
+            let away = sub(z.pos, self.pos);
+            let a = away[1].atan2(away[0]) + self.rng.range(-0.6, 0.6);
+            z.dir = [a.cos(), a.sin()];
+            z.roam = -self.rng.range(0.0, after);
+        }
+        self.heading = self.aim;
+        self.wander = self.leg();
+    }
+
+    /// Seconds a wanderer keeps one way.
+    fn leg(&mut self) -> f32 {
+        crate::tuning::tuning().roam_turn.max(0.1) * self.rng.range(0.5, 1.5)
+    }
+
+    /// A new way to wander from `dir`: a little off it, or well round when the way ahead is blocked.
+    fn veer(&mut self, dir: [f32; 2], blocked: bool) -> [f32; 2] {
+        let turn = if blocked { self.rng.range(PI / 2.0, PI * 1.5) } else { self.rng.range(-1.2, 1.2) };
+        let a = dir[1].atan2(dir[0]) + turn;
+        [a.cos(), a.sin()]
+    }
+
+    /// After the run the dead wander the farm in search of another human, each its own way, turning now and then
+    /// and off whatever stops it. The turned player is one of them, so nothing gathers on them.
+    fn roam(&mut self, dt: f32) {
+        let t = crate::tuning::tuning();
+        let sep = self.spread();
+        for (i, &s) in sep.iter().enumerate() {
+            let z = &mut self.zombies[i];
+            z.flash = (z.flash - dt).max(0.0);
+            z.hurt = (z.hurt - dt).max(0.0);
+            z.squash = (z.squash - dt * 5.0).max(0.0);
+            if z.rise < 1.0 {
+                z.rise = (z.rise + dt / t.rise).min(1.0);
+                continue;
+            }
+            if z.stagger > 0.0 {
+                z.stagger -= dt;
+                continue;
+            }
+            if z.roam < 0.0 {
+                z.roam = (z.roam + dt).min(0.0);
+                continue;
+            }
+            z.roam -= dt;
+            if z.roam <= 0.0 {
+                let dir = z.dir;
+                let dir = self.veer(dir, false);
+                let leg = self.leg();
+                let z = &mut self.zombies[i];
+                (z.dir, z.roam) = (dir, leg);
+            }
+            let z = &mut self.zombies[i];
+            let speed = if z.boss { t.harvester_speed } else { z.kind.stats().speed } * t.roam_speed * (1.0 - z.slow_k);
+            let v = [z.dir[0] * speed + s[0] * 20.0 + z.push[0], z.dir[1] * speed + s[1] * 20.0 + z.push[1]];
+            let from = z.pos;
+            z.pos = self.map.slide_cells(from, [v[0] * dt, v[1] * dt], t.zombie_half());
+            z.push = [z.push[0] * (1.0 - 8.0 * dt).max(0.0), z.push[1] * (1.0 - 8.0 * dt).max(0.0)];
+            z.facing = Facing::of(z.dir);
             z.anim += dt;
+            if speed > 0.0 && len(sub(z.pos, from)) < speed * dt * 0.3 {
+                let dir = z.dir;
+                let dir = self.veer(dir, true);
+                let leg = self.leg();
+                let z = &mut self.zombies[i];
+                (z.dir, z.roam) = (dir, leg);
+            }
+        }
+        self.sep = sep;
+    }
+
+    /// Turned, the player wanders like the rest, starting off the way they faced.
+    fn wander_turned(&mut self, dt: f32) {
+        if self.wander <= 0.0 {
+            self.heading = self.veer(self.heading, false);
+            self.wander = self.leg();
+        }
+        self.wander -= dt;
+        let from = self.pos;
+        let step = TURNED_SPEED * dt;
+        self.pos = self.map.slide(from, [self.heading[0] * step, self.heading[1] * step], crate::tuning::tuning().player_half());
+        self.facing = Facing::of(self.heading);
+        if len(sub(self.pos, from)) < step * 0.3 {
+            self.heading = self.veer(self.heading, true);
+            self.wander = self.leg();
         }
     }
 
@@ -2411,7 +2518,8 @@ impl Harvest {
             self.map.hurt_prop(i, damage, FLASH_TIME);
         }
         let t = crate::tuning::tuning();
-        if len(sub(self.pos, c)) < radius * t.blast_near && self.hurt <= 0.0 {
+        let playing = !matches!(self.phase, Phase::Over { .. });
+        if playing && len(sub(self.pos, c)) < radius * t.blast_near && self.hurt <= 0.0 {
             let hurt = (t.blast_hurt - m.armor).max(1.0);
             self.hp -= hurt;
             self.juice.popup(self.pos, hurt, Tone::Hurt);
@@ -2504,6 +2612,14 @@ impl Harvest {
                 continue;
             }
             let z = self.zombies.swap_remove(i);
+            let over = matches!(self.phase, Phase::Over { .. });
+            if over {
+                let s = z.kind.stats();
+                let fall = if z.knock == [0.0; 2] { norm(sub(z.pos, self.pos)) } else { z.knock };
+                self.gore(z.pos, fall, z.fling, z.dir, &s.look, s.gibs as usize, s.blood);
+                died = Some(z.kind);
+                continue;
+            }
             if z.boss && self.waves.is_none() {
                 self.waves = Some((crate::tuning::tuning().harvester_again, 2));
             }
@@ -3611,24 +3727,59 @@ mod tests {
         assert!(h.hp < h.kit.max_hp());
     }
 
-    #[test]
-    fn the_turned_player_leads_the_dead_off_the_way_they_faced() {
+    /// A calm farm whose player has just gone down at its spawn, ringed by `n` zombies.
+    fn down_among(n: usize) -> Harvest {
         let mut h = Harvest::calm(4);
-        h.zombies.clear();
-        let open = |h: &Harvest, p: [f32; 2]| !h.map.hits(p[0], p[1], crate::tuning::tuning().zombie_half());
-        let rows = (0..21).map(|r| (r as f32 - 10.0) * TILE);
-        let spot = rows.flat_map(|dy| (1..60).map(move |k| [h.map.spawn[0] + k as f32 * 4.0, h.map.spawn[1] + dy])).find(|p| open(&h, *p) && open(&h, [p[0] + 120.0, p[1]]) && (-8..30).all(|i| open(&h, [p[0] + i as f32 * 4.0, p[1]]))).expect("an open run east");
-        h.pos = spot;
-        h.view_yaw = 0.0;
-        h.aim = [1.0, 0.0];
-        h.zombies.push(Zombie::new(Kind::named("skinny"), [spot[0] - 30.0, spot[1]], 50.0, 1.0, 0.0));
+        h.zombies = (0..n).map(|k| {
+            let a = k as f32 * TAU / n as f32;
+            let mut z = Zombie::new(Kind::named("skinny"), [h.pos[0] + a.cos() * 14.0, h.pos[1] + a.sin() * 14.0], 50.0, 1.0, 0.0);
+            z.id = k as u32 + 1;
+            z
+        }).collect();
         h.hp = 0.0;
-        h.phase = Phase::Over { t: TURNED, won: false };
-        for _ in 0..180 {
+        h.phase = Phase::Over { t: 0.0, won: false };
+        h.lose_interest();
+        h.juice.tally.shut = true;
+        h
+    }
+
+    #[test]
+    fn after_the_player_turns_the_dead_wander_off_and_never_gather_on_them() {
+        let mut h = down_among(12);
+        let fell = h.pos;
+        let near = |h: &Harvest, p: [f32; 2]| h.zombies.iter().map(|z| len(sub(z.pos, p))).sum::<f32>() / h.zombies.len() as f32;
+        let before = near(&h, fell);
+        let starts: Vec<[f32; 2]> = h.zombies.iter().map(|z| z.pos).collect();
+        for _ in 0..(12 * 60) {
             h.update(&Input::default(), 1.0 / 60.0, &mut Vec::new());
         }
-        assert!(h.pos[0] - spot[0] > 30.0, "the player walks on the way they faced");
-        assert!(len(sub(h.zombies[0].pos, h.pos)) < MARCH_CLOSE * 1.5, "and the dead keep with them");
+        assert!(near(&h, fell) > before + 20.0, "they drift off where the player fell: {before} -> {}", near(&h, fell));
+        assert!(near(&h, h.pos) > 30.0, "and don't gather on the turned player");
+        let moved = h.zombies.iter().zip(&starts).filter(|(z, s)| len(sub(z.pos, **s)) > 16.0).count();
+        assert!(moved >= 10, "none stands stuck: {moved} of 12 moved");
+        assert!(len(sub(h.pos, fell)) > 30.0, "the turned player wanders too");
+    }
+
+    #[test]
+    fn what_was_in_flight_when_the_run_ended_still_lands_but_the_run_keeps_its_numbers() {
+        for won in [false, true] {
+            let mut h = down_among(0);
+            h.phase = Phase::Over { t: 0.0, won };
+            let target = [h.pos[0] + 40.0, h.pos[1]];
+            let mut z = Zombie::new(Kind::named("skinny"), target, 5.0, 1.0, 0.0);
+            z.id = 99;
+            h.zombies.push(z);
+            h.shoot_from([h.pos[0] + 20.0, h.pos[1] - 6.0], 0.0, 200.0, 50.0, 0, 1.0, 0.0, None, [0.0; 2]);
+            h.thrown.push(Grenade { from: h.pos, to: [h.pos[0] - 60.0, h.pos[1]], t: 0.0, kind: Thrown::Grenade, by: None });
+            let (kills, total, hp) = (h.kills, h.juice.tally.total(), h.hp);
+            for _ in 0..120 {
+                h.update(&Input::default(), 1.0 / 60.0, &mut Vec::new());
+            }
+            assert!(h.bullets.is_empty() && h.thrown.is_empty(), "won {won}: the shot and the grenade finish");
+            assert!(h.zombies.iter().all(|z| z.id != 99), "won {won}: the shot still kills");
+            assert_eq!((h.kills, h.juice.tally.total(), h.hp), (kills, total, hp), "won {won}: no kill, damage or hurt counts");
+            assert!(h.drops.is_empty(), "won {won}: nothing drops");
+        }
     }
 
     /// A calm run holding its start weapons among a few zombies too tough to kill, played for `secs`, then ended by

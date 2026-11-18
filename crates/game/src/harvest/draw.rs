@@ -50,7 +50,9 @@ impl Harvest {
         let fog = !matches!(self.phase, Phase::Over { .. });
         let cam = self.camera();
         self.world(c, cam, map_scale(), tint, fog);
-        self.view_cone(c, cam);
+        if fog {
+            self.view_cone(c, cam);
+        }
         self.home_on_map(c, cam);
         self.ticket_on_map(c, cam);
         self.grenade_tray(c);
