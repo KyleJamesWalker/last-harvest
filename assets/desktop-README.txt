@@ -1,8 +1,8 @@
 LAST HARVEST
 
-Before the first start, download game_data.pak from the same release as this
-package and put it in the data folder here. Without it, the title says which
-release's game_data.pak to copy in.
+The game's data lives in data/game_data.pak beside the game. When it's missing,
+the game downloads it from its release on first start; with no connection, put
+game_data.pak from the same release as this package in the data folder here.
 
 Start the game with last-harvest (last-harvest.exe on Windows, Last Harvest on
 macOS). On macOS, the first start needs a right-click on it, then Open, as the

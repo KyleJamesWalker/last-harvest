@@ -69,6 +69,64 @@ fn find() -> Option<PathBuf> {
     pak.is_file().then_some(pak)
 }
 
+/// Downloads this release's `game_data.pak` into `data/` with the system's `curl`, checking that it reads before
+/// putting it in place. A dev build, or a run with `LAST_HARVEST_PAK` set, does not fetch one.
+#[cfg(not(target_arch = "wasm32"))]
+fn fetch_release_pack() -> Option<(Pak, PathBuf)> {
+    if cfg!(feature = "embed") || std::env::var_os("LAST_HARVEST_PAK").is_some() {
+        return None;
+    }
+    let dir = data_folder()?;
+    let downloads = std::env::var("LAST_HARVEST_DOWNLOADS").ok();
+    let base = downloads.as_deref().unwrap_or("https://github.com/KyleJamesWalker/last-harvest/releases/download");
+    fetch_pack_into(&dir, crate::VERSION, base)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn fetch_pack_into(dir: &std::path::Path, version: &str, downloads: &str) -> Option<(Pak, PathBuf)> {
+    if !version.starts_with('v') {
+        return None;
+    }
+    std::fs::create_dir_all(dir).ok()?;
+    let dest = dir.join("game_data.pak");
+    let part = dir.join("game_data.pak.part");
+    let _ = std::fs::remove_file(&part);
+    let url = format!("{downloads}/{version}/game_data.pak");
+    log!("data: fetching {url}");
+    let curl = if cfg!(windows) { "curl.exe" } else { "curl" };
+    let ok = std::process::Command::new(curl)
+        .args(["-fsSL", "--connect-timeout", "5", "--max-time", "60", "-o"])
+        .arg(&part)
+        .arg(&url)
+        .status()
+        .is_ok_and(|s| s.success());
+    if !ok {
+        log!("data: couldn't download {url}");
+        let _ = std::fs::remove_file(&part);
+        return None;
+    }
+    match Pak::open(&part) {
+        Ok(pak) => {
+            if let Err(e) = std::fs::rename(&part, &dest) {
+                log!("data: {}: {e}", dest.display());
+                let _ = std::fs::remove_file(&part);
+                return None;
+            }
+            Some((pak, dest))
+        }
+        Err(e) => {
+            log!("data: downloaded pack rejected: {e}");
+            let _ = std::fs::remove_file(&part);
+            None
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn fetch_release_pack() -> Option<(Pak, PathBuf)> {
+    None
+}
+
 /// `LAST_HARVEST_ENEMIES`, else `data/enemies` beside the binary.
 fn cards_folder() -> Option<PathBuf> {
     if let Some(dir) = std::env::var_os("LAST_HARVEST_ENEMIES") {
@@ -201,19 +259,29 @@ pub fn load() -> Result<Files, String> {
         // A pack that won't open is a missing one: an update that swapped the binary but not its pack leaves one.
         Some((Err(e), path)) => {
             log!("data: {}: {e}", path.display());
-            problems.push(format!("game_data.pak: {e}"));
-            if cfg!(feature = "embed") {
-                log!("data: built in");
+            if let Some((pak, fetched)) = fetch_release_pack() {
+                log!("data: {} ({})", fetched.display(), pak.version().unwrap_or("no version"));
+                Some(pak)
             } else {
-                missing_pack = Some(folder());
+                problems.push(format!("game_data.pak: {e}"));
+                if cfg!(feature = "embed") {
+                    log!("data: built in");
+                } else {
+                    missing_pack = Some(folder());
+                }
+                None
             }
-            None
         }
         None if !cfg!(feature = "embed") => {
-            let message = folder();
-            log!("data: no {PAK} beside the binary. {message}");
-            missing_pack = Some(message);
-            None
+            if let Some((pak, path)) = fetch_release_pack() {
+                log!("data: {} ({})", path.display(), pak.version().unwrap_or("no version"));
+                Some(pak)
+            } else {
+                let message = folder();
+                log!("data: no {PAK} beside the binary. {message}");
+                missing_pack = Some(message);
+                None
+            }
         }
         None => {
             log!("data: built in");
@@ -429,5 +497,26 @@ mod tests {
         let top = vec![("shot.ogg".to_string(), b"mod".to_vec()), ("kill-ghoul.ogg".to_string(), b"new".to_vec())];
         let names: Vec<(String, Vec<u8>)> = overlay_sounds(base, top);
         assert_eq!(names, [("boom.ogg".into(), b"b".to_vec()), ("kill-ghoul.ogg".into(), b"new".to_vec()), ("shot.ogg".into(), b"mod".to_vec())]);
+    }
+
+    #[test]
+    fn fetching_a_release_pack_saves_it_only_when_it_opens() {
+        let dir = std::env::temp_dir().join(format!("lh-fetch-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let src = dir.join("releases/v0.1.0");
+        let data = dir.join("data");
+        std::fs::create_dir_all(&src).unwrap();
+        let url = format!("file:///{}", dir.join("releases").to_string_lossy().replace('\\', "/"));
+        assert!(fetch_pack_into(&data, "dev-1234", &url).is_none(), "a dev build never fetches a release's pack");
+        std::fs::write(src.join("game_data.pak"), b"not a zip").unwrap();
+        assert!(fetch_pack_into(&data, "v0.1.0", &url).is_none(), "a bad pack is turned away");
+        assert!(!data.join("game_data.pak").exists() && !data.join("game_data.pak.part").exists());
+        let mut buf = std::io::Cursor::new(Vec::new());
+        pack::write(&mut buf, &[(pack::MANIFEST.into(), pack::manifest().into_bytes())]).unwrap();
+        std::fs::write(src.join("game_data.pak"), buf.into_inner()).unwrap();
+        let (_, path) = fetch_pack_into(&data, "v0.1.0", &url).expect("a valid pack is saved");
+        assert_eq!(path, data.join("game_data.pak"));
+        assert!(path.is_file() && !data.join("game_data.pak.part").exists());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
