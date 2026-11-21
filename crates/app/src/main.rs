@@ -89,7 +89,6 @@ struct App {
     failed: bool,
     /// A window per screen, as on the device or with `LAST_HARVEST_WINDOWS=2`; else one window, played as on a phone.
     two: bool,
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
     online: last_harvest::online::Online,
 }
 
@@ -133,7 +132,6 @@ impl App {
         game.set_captures(true);
         game.set_keyboard(!on_device);
         game.set_touch(std::env::var("LAST_HARVEST_TOUCH").map_or(true, |v| v != "off"));
-        #[cfg(any(target_os = "macos", target_os = "linux"))]
         last_harvest::online::set_up(&mut game);
         Self {
             game,
@@ -172,7 +170,6 @@ impl App {
             system: System::default(),
             failed: false,
             two,
-            #[cfg(any(target_os = "macos", target_os = "linux"))]
             online: Default::default(),
         }
     }
@@ -347,13 +344,11 @@ impl App {
             self.game.set_phone(Some([size.width as f32, size.height as f32]));
         }
         let started = Instant::now();
-        #[cfg(any(target_os = "macos", target_os = "linux"))]
         self.online.pump(&mut self.game, dt);
         for inputs in self.ticker.frame_all(frame, std::iter::once(input).chain(others).collect()) {
             self.game.update_all(&inputs, clock::STEP);
         }
         persist::keep_replays(self.game.take_replays());
-        #[cfg(any(target_os = "macos", target_os = "linux"))]
         self.online.send(&mut self.game);
         #[cfg(any(target_os = "macos", windows))]
         self.pads.rumble(&self.seats, |seat| self.game.rumble_for(seat));
