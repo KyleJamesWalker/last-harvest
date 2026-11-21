@@ -58,7 +58,8 @@ def cell(text):
 
 def zone(f):
     first = f.get('zone', '').capitalize()
-    return f'{first}, then all round' if f.get('targets') == 'each' else first
+    all_round = f.get('targets') == 'each' and float(f.get('outside', '1') or 1) != 0 and first != 'Around'
+    return f'{first}, then all round' if all_round else first
 
 
 def powerups(kind):
