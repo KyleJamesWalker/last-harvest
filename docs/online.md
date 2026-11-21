@@ -101,7 +101,7 @@ The wildcard DNS record `*.vps.pocketsquirrel.com` already points at the VPS, an
    The same request with `-H 'Origin: https://example.com'` answers `403`.
 6. Run the smoke test from a checkout (no private assets needed): `cargo run -p last-harvest-net --example relay_smoke`. It fetches `/ice`, checks that another page origin is refused and that `https://www.kylejameswalker.com` is accepted with TURN credentials, then joins two native peers and trades a packet on each channel, first directly and then through TURN alone. It ends with `all checks passed`; pass another relay as its first argument, such as `ws://127.0.0.1:8080`.
 
-The relay accepts WebSockets from `https://www.kylejameswalker.com`, where the web game is published, and from native games, which send no `Origin`. It trusts `X-Forwarded-For` from private addresses (`TRUSTED_PROXIES=private`), which on this host means Caddy on the `caddy` network.
+The relay accepts WebSockets from `https://www.kylejameswalker.com`, where the web game is published (GitHub Pages redirects `kylejameswalker.github.io` there), and from native games, which send no `Origin`. It trusts `X-Forwarded-For` from private addresses (`TRUSTED_PROXIES=private`), which on this host means Caddy on the `caddy` network.
 
 ### Hardening the shared coturn
 
@@ -126,20 +126,35 @@ coturn relays only to public addresses (`denied-peer-ip` in `turnserver.conf`), 
 
 ## Playing online
 
-Title > Online > Host a night opens a room and shows its code; Join with a code takes it on on-screen keys (pad, touch or keyboard). Settings > Online relay, or Online > Relay, sets the relay as `host:port` (a LAN address works) or a `ws`, `wss`, `http` or `https` URL; empty means `localhost:8080`. The game fetches `/ice` from it before joining; TURN credentials arrive over the signaling connection. Every build plays online:
+Title > Online > Host a night opens a room and shows its code; Join with a code takes it on on-screen keys (pad, touch or keyboard). Settings > Online relay, or Online > Relay, sets the relay; empty means `wss://lh-relay.vps.pocketsquirrel.com`. The game fetches `/ice` from it before joining; TURN credentials arrive over the signaling connection. Every build plays online:
 
 | Platform | Notes |
 |---|---|
 | macOS, Linux, Windows | On Windows, the first room may bring up Windows Defender Firewall's prompt: allow private networks, so peers on the same network connect directly. |
-| RG DS, muOS | Host and Join ask for the relay first while none is set. With the lid shut, the night goes on without this device's input. |
-| Android | Pad or touch; Host and Join ask for the relay first. In the background the night goes on as with a lid shut until Android freezes the app; after 10 seconds without word, the host unseats it, or a client leaves. |
-| Web | `?relay=` and `?join=`. The relay must allow the page's origin (`LAST_HARVEST_RELAY_ALLOWED_ORIGINS`). |
+| RG DS, muOS | With the lid shut, the night goes on without this device's input. |
+| Android | Pad or touch. In the background the night goes on as with a lid shut until Android freezes the app; after 10 seconds without word, the host unseats it, or a client leaves. |
+| Web | `?relay=`, `?host=` and `?join=`. The relay must allow the page's origin (`LAST_HARVEST_RELAY_ALLOWED_ORIGINS`). |
+
+| Relay setting | Connects to |
+|---|---|
+| empty | `wss://lh-relay.vps.pocketsquirrel.com` |
+| `ws://`, `wss://`, `http://` or `https://` URL | that scheme; `http` means `ws` and `https` means `wss` |
+| `host:port` with an IP address, `localhost`, a `.local` name or a name with no dot | `ws://`, for a relay on the LAN |
+| any other name, such as `relay.example.com` | `wss://` |
+
+A page served over https, such as the published web game, can open only `wss://`: browsers block `ws://` from it as mixed content. There the game refuses a `ws://` relay or a LAN address before connecting, and says a secure relay is needed. `localhost` and `127.0.0.1` still work, as browsers trust them. To play against a LAN relay from a browser, serve the web build over http (`scripts/web-game.sh --serve`) and allow its origin on the relay.
 
 | Setting | Meaning |
 |---|---|
 | `LAST_HARVEST_RELAY`, `?relay=` on the web | The relay, over the saved one |
-| `LAST_HARVEST_HOST=<code>` | Open room `<code>` at launch (empty for a random code) |
+| `LAST_HARVEST_HOST=<code>`, `?host=<code>` on the web | Open room `<code>` at launch (empty for a random code) |
 | `LAST_HARVEST_JOIN=<code>`, `?join=` on the web | Join room `<code>` at launch |
+
+A browser against a relay on this Mac: run the relay with `LAST_HARVEST_RELAY_ALLOWED_ORIGINS=http://localhost:8095` (the default), `scripts/web-game.sh --serve`, and open `http://localhost:8095/?relay=127.0.0.1:8080&host=HJKMN`; the start overlay's click joins or hosts.
+
+The join check compares `game_data.pak` fingerprints. A release's web, desktop, handheld and Android builds load the same shared pack and agree. A dev build with the `embed` feature (`cargo run -p last-harvest`) prints the same as `target/game_data.pak` of its commit, so it plays the web build of that commit.
+
+A browser runs the game only while its tab shows: a hidden tab draws no frames, so a web host stalls the night for every client, and a hidden web client stops sending input and turns after 10 seconds. Keep the game's tab in front.
 
 Two windows on one Mac: run the relay, then `LAST_HARVEST_RELAY=127.0.0.1:8080 LAST_HARVEST_HOST=HJKMN target/release/last-harvest` and the same with `LAST_HARVEST_JOIN=HJKMN`. With `LAST_HARVEST_DEBUG`, give each its own `LAST_HARVEST_PIPE` and `LAST_HARVEST_SAVE`.
 

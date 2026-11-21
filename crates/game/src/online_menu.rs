@@ -152,8 +152,7 @@ pub(crate) struct Online {
     pub relay: Entry,
     pub relay_from: Page,
     pub fixed: Option<RoomCode>,
-    /// An empty relay can't mean one on this machine, as on a handheld: ask for it before hosting or joining.
-    pub needs_relay: bool,
+    pub secure_page: bool,
 }
 
 impl Game {
@@ -184,9 +183,9 @@ impl Game {
         matches!(self.state, State::Title) && matches!(self.page, Page::Join | Page::Relay)
     }
 
-    /// The Online menu asks for the relay's address before hosting or joining while none is set.
-    pub fn set_needs_relay(&mut self, on: bool) {
-        self.online.needs_relay = on;
+    /// The page was served over https, so it can reach only a secure relay.
+    pub fn set_secure_page(&mut self, on: bool) {
+        self.online.secure_page = on;
     }
 
     pub fn set_relay(&mut self, relay: &str) {
@@ -199,6 +198,20 @@ impl Game {
 
     fn relay(&self) -> String {
         self.online.relay_env.clone().unwrap_or_else(|| self.save.relay.as_str().to_string())
+    }
+
+    fn relay_urls(&mut self) -> Option<(String, String)> {
+        match crate::netplay::relay_urls(&self.relay(), self.online.secure_page) {
+            Ok(urls) => Some(urls),
+            Err(why) => {
+                self.online.message = why;
+                self.sounds.push(Sfx::Miss);
+                if self.page == Page::Main {
+                    self.page = Page::Online;
+                }
+                None
+            }
+        }
     }
 
     #[doc(hidden)]
@@ -220,9 +233,10 @@ impl Game {
     }
 
     pub fn host_online(&mut self, code: Option<&str>) {
+        let Some(relay) = self.relay_urls() else { return };
         let code = code.and_then(|c| RoomCode::parse(c).ok()).or(self.online.fixed).unwrap_or_else(|| RoomCode::from_random(self.rng.next_u32() as u64 * 0x9E37 + self.rng.next_u32() as u64));
         self.online.fixed = Some(code);
-        self.net = Some(Box::new(Net::host(code, self.identity(), self.local_cards(), &self.relay())));
+        self.net = Some(Box::new(Net::host(code, self.identity(), self.local_cards(), relay)));
         self.online.message.clear();
         self.page = Page::Lobby;
     }
@@ -230,13 +244,17 @@ impl Game {
     pub fn join_online(&mut self, code: &str) {
         match RoomCode::parse(code) {
             Ok(code) => {
-                self.net = Some(Box::new(Net::join(code, self.identity(), self.local_cards(), &self.relay())));
+                let Some(relay) = self.relay_urls() else { return };
+                self.net = Some(Box::new(Net::join(code, self.identity(), self.local_cards(), relay)));
                 self.online.message.clear();
                 self.page = Page::Lobby;
             }
             Err(e) => {
                 self.online.message = e.to_string();
                 self.sounds.push(Sfx::Miss);
+                if self.page == Page::Main {
+                    self.page = Page::Online;
+                }
             }
         }
     }
@@ -454,10 +472,6 @@ impl Game {
                 self.online.message = "Online play isn't available on this device yet.".into();
                 self.sounds.push(Sfx::Miss);
             }
-            Some(0 | 1) if self.online.needs_relay && self.relay().trim().is_empty() => {
-                self.open_relay(Page::Online);
-                self.online.message = "Type the relay's address first.".into();
-            }
             Some(0) => {
                 self.sounds.push(Sfx::Tick(9));
                 self.host_online(None);
@@ -484,8 +498,8 @@ impl Game {
     }
 
     fn close_relay(&mut self) {
-        self.online.message.clear();
         self.save.relay = crate::save::Relay::new(&self.online.relay.text);
+        self.online.message = crate::netplay::relay_urls(self.save.relay.as_str(), self.online.secure_page).err().unwrap_or_default();
         self.page = self.online.relay_from;
         self.sounds.push(Sfx::Tick(6));
     }
@@ -553,7 +567,7 @@ impl Game {
             let color = if off { DIM } else if on { HOT } else { WHITE };
             if i == 2 {
                 let relay = self.relay();
-                let shown = if relay.trim().is_empty() { "this machine".to_string() } else { relay };
+                let shown = if relay.trim().is_empty() { crate::netplay::DEFAULT_RELAY.trim_start_matches("wss://").to_string() } else { relay };
                 c.label("Relay", x + 30.0, y + h / 2.0 - 22.0, 44.0, color, Align::Left);
                 fit_label(c, &shown, x + w - 30.0, y + h / 2.0 - 18.0, 36.0, w - 260.0, if on { HOT } else { DIM }, Align::Right);
                 continue;
@@ -593,7 +607,8 @@ impl Game {
         c.label("Relay", SCREEN_W / 2.0, 20.0, 48.0, WHITE, Align::Center);
         let text = &self.online.relay.text;
         c.rect(40.0, 90.0, SCREEN_W - 80.0, 100.0, [1.0, 1.0, 1.0, 0.1]);
-        let shown = if text.is_empty() { "Empty: a relay on this machine" } else { text.as_str() };
+        let default = format!("Empty: {}", crate::netplay::DEFAULT_RELAY.trim_start_matches("wss://"));
+        let shown = if text.is_empty() { default.as_str() } else { text.as_str() };
         fit_label(c, shown, SCREEN_W / 2.0, 120.0, 44.0, SCREEN_W - 120.0, if text.is_empty() { DIM } else { HOT }, Align::Center);
         if self.online.relay_env.is_some() {
             c.label("LAST_HARVEST_RELAY is set and wins over this", SCREEN_W / 2.0, 200.0, 26.0, DIM, Align::Center);
@@ -665,20 +680,66 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_handheld_asks_for_the_relay_first_and_the_typed_relay_is_saved() {
+    fn an_empty_relay_is_the_default_one_and_the_typed_relay_is_saved() {
+        let a = Input { pressed: Buttons::A, ..Input::default() };
         let mut g = Game::new(1);
         g.set_online(true);
-        g.set_needs_relay(true);
         g.page = Page::Online;
-        g.online_page(&Input { pressed: Buttons::A, ..Input::default() }, None);
-        assert_eq!(g.page, Page::Relay, "hosting with no relay opens the relay's keys");
+        g.online_page(&a, None);
+        assert_eq!(g.page, Page::Lobby, "hosting with no relay set uses the default");
+        let Some(crate::netplay::Request::Connect { room, ice }) = g.net_request() else { panic!("no connect") };
+        assert!(room.starts_with("wss://lh-relay.vps.pocketsquirrel.com/signal/"), "{room}");
+        assert_eq!(ice, "https://lh-relay.vps.pocketsquirrel.com/ice");
+        g.lobby_page(&Input { pressed: Buttons::B, ..Input::default() }, None);
+        g.online.row = 2;
+        g.online_page(&a, None);
+        assert_eq!(g.page, Page::Relay);
         g.typed("192.168.1.5:8097\n");
         assert_eq!(g.page, Page::Online);
         assert_eq!(g.save().relay.as_str(), "192.168.1.5:8097");
         assert!(g.save().to_text().contains("relay=192.168.1.5:8097"), "and it goes in save.txt");
         assert_eq!(crate::Save::parse(&g.save().to_text()).relay.as_str(), "192.168.1.5:8097", "and reads back after a restart");
-        g.online_page(&Input { pressed: Buttons::A, ..Input::default() }, None);
+        g.online.row = 0;
+        g.online_page(&a, None);
         assert_eq!(g.page, Page::Lobby, "with one set, Host opens the lobby");
+        let Some(crate::netplay::Request::Connect { room, .. }) = g.net_request() else { panic!("no connect") };
+        assert!(room.starts_with("ws://192.168.1.5:8097/signal/"), "{room}");
+    }
+
+    #[test]
+    fn a_relay_without_a_scheme_is_ws_on_a_lan_and_wss_by_name() {
+        use crate::netplay::relay_urls;
+        let urls = |r: &str| relay_urls(r, false).unwrap();
+        assert_eq!(urls(""), ("wss://lh-relay.vps.pocketsquirrel.com".into(), "https://lh-relay.vps.pocketsquirrel.com/ice".into()));
+        assert_eq!(urls("192.168.1.5:8097").0, "ws://192.168.1.5:8097");
+        assert_eq!(urls("localhost:8080/").1, "http://localhost:8080/ice");
+        assert_eq!(urls("rgds:8097").0, "ws://rgds:8097", "a name with no dot is on the LAN");
+        assert_eq!(urls("mac.local:8097").0, "ws://mac.local:8097");
+        assert_eq!(urls("[::1]:8097").0, "ws://[::1]:8097");
+        assert_eq!(urls("relay.example.com").0, "wss://relay.example.com");
+        assert_eq!(urls("relay.example.com:8443").1, "https://relay.example.com:8443/ice");
+        assert_eq!(urls("WS://relay.example.com").0, "ws://relay.example.com", "a typed scheme wins, in any case");
+        assert_eq!(urls("https://relay.example.com").0, "wss://relay.example.com");
+    }
+
+    #[test]
+    fn an_https_page_refuses_a_plain_relay_but_this_machines() {
+        use crate::netplay::relay_urls;
+        assert_eq!(relay_urls("", true).unwrap().0, "wss://lh-relay.vps.pocketsquirrel.com");
+        assert_eq!(relay_urls("relay.example.com", true).unwrap().0, "wss://relay.example.com");
+        assert_eq!(relay_urls("localhost:8101", true).unwrap().0, "ws://localhost:8101", "browsers let a secure page reach loopback");
+        assert_eq!(relay_urls("ws://127.0.0.1:8101", true).unwrap().0, "ws://127.0.0.1:8101");
+        for r in ["192.168.1.5:8097", "ws://relay.example.com", "http://192.168.1.5:8097", "rgds:8097"] {
+            assert_eq!(relay_urls(r, true), Err(crate::netplay::INSECURE_RELAY.to_string()), "{r}");
+        }
+        let mut g = Game::new(1);
+        g.set_online(true);
+        g.set_secure_page(true);
+        g.set_relay("192.168.1.5:8097");
+        g.join_online("ACDEF");
+        assert_eq!(g.page, Page::Online, "a join at launch shows why it can't");
+        assert!(g.online.message.contains("secure"), "{}", g.online.message);
+        assert!(g.net.is_none());
     }
 
     /// Taps the shown menu screen of a phone at `at`, in that screen's own pixels.
@@ -731,7 +792,6 @@ mod tests {
         g.set_phone(Some(size));
         g.set_touch(true);
         g.set_online(true);
-        g.set_needs_relay(true);
         let phone = g.draw().phone.unwrap();
         let (rect, canvas) = if phone.bottom.is_some() { (phone.bottom, g.draw().bottom) } else { (phone.top, g.draw().top) };
         let [rx, ry, rw, rh] = rect.unwrap();
@@ -746,8 +806,8 @@ mod tests {
         g.update(&Input::default(), 0.016);
         assert_eq!(g.page, Page::Online, "a tap on Online opens it");
 
-        tap(&mut g, size, middle(online_row(1)));
-        assert_eq!(g.page, Page::Relay, "Join with no relay asks for it first");
+        tap(&mut g, size, middle(online_row(2)));
+        assert_eq!(g.page, Page::Relay, "a tap on Relay opens its keys");
         type_by_touch(&mut g, size, "10.0.0.2:8097", RELAY_KEYS, 10);
         assert_eq!((g.page, g.save().relay.as_str()), (Page::Online, "10.0.0.2:8097"));
 

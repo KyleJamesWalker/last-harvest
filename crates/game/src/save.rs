@@ -52,7 +52,7 @@ pub struct Save {
     pub how_to_seen: bool,
     /// Which pad button sends each game button.
     pub controls: Controls,
-    /// The online relay's address; empty for one on this machine.
+    /// The online relay's address; empty for `netplay::DEFAULT_RELAY`.
     pub relay: Relay,
 }
 
