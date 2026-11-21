@@ -1119,6 +1119,7 @@ impl Harvest {
         for i in 0..self.actor().dogs.len() {
             let Some(a) = self.actor().kit.weapons.iter().copied().find(|a| a.def == self.actor().dogs[i].def) else { continue };
             let (leash, speed, damage, cd, force) = (self.stat(a, Stat::Range), self.stat(a, Stat::Speed), self.stat(a, Stat::Damage), self.stat(a, Stat::Cooldown), self.stat(a, Stat::Knockback));
+            let chain = book().defs[a.def].kill_resets;
             let dog = &self.actor().dogs[i];
             let near_player = |z: &Zombie| z.rise >= 1.0 && len(sub(z.pos, self.actor().pos)) < leash;
             let held = dog.target.and_then(|id| self.zombies.iter().position(|z| z.id == id && near_player(z)));
@@ -1176,7 +1177,12 @@ impl Harvest {
             {
                 dog.cd = cd;
                 self.juice.tally.credit(self.actor, Some(a.def));
+                let alive = self.zombies[t].hp > 0.0;
                 hits.1 |= strike(&mut self.zombies[t], &mut self.juice, damage, n, force, crit);
+                if chain && alive && self.zombies[t].hp <= 0.0 {
+                    let dog = &mut self.players[self.actor].dogs[i];
+                    (dog.cd, dog.target) = (0.0, None);
+                }
                 hits.0 += 1;
                 barked |= self.juice.rng.below(5) == 0;
             }
