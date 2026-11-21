@@ -161,9 +161,9 @@ impl Harvest {
             let mut map = Canvas::default();
             self.world(&mut map, cam, scale, self.map_tint(), true);
             self.view_cone(&mut map, cam);
-            self.home_on_map(&mut map, cam);
-            self.ticket_on_map(&mut map, cam);
-            self.teammates_on_map(&mut map, cam);
+            self.home_on_map(&mut map, cam, [SCREEN_W, SCREEN_H]);
+            self.ticket_on_map(&mut map, cam, [SCREEN_W, SCREEN_H]);
+            self.teammates_on_map(&mut map, cam, [SCREEN_W, SCREEN_H]);
             top.rect(x - 4.0, y - 4.0, w + 8.0, h + 8.0, [0.06, 0.05, 0.04, 0.9]);
             top.rect(x, y, w, h, [0.0, 0.0, 0.0, 1.0]);
             top.clip(Some([x, y, w, h]));

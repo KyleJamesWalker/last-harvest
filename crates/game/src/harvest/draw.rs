@@ -53,19 +53,20 @@ impl Harvest {
         let tint = self.map_tint();
         // Sight stops counting once the run ends, so the map shows the night as it is.
         let fog = !matches!(self.phase, Phase::Over { .. });
-        let cam = self.camera();
+        let cam = self.map_camera();
+        c.laid_out();
         self.world(c, cam, map_scale(), tint, fog);
         if fog {
             self.view_cone(c, cam);
         }
-        self.home_on_map(c, cam);
-        self.ticket_on_map(c, cam);
-        self.teammates_on_map(c, cam);
+        self.home_on_map(c, cam, self.canvas);
+        self.ticket_on_map(c, cam, self.canvas);
+        self.teammates_on_map(c, cam, self.canvas);
         c.anchor([1.0, 1.0]);
         self.grenade_tray(c);
         c.anchor([0.0, 1.0]);
         self.kit_tray(c);
-        c.anchor([0.5, 0.5]);
+        c.laid_out();
         self.aim_mark(c, cam);
         c.anchor([0.5, 0.5]);
         self.paused_bottom(c);
@@ -263,7 +264,7 @@ impl Harvest {
         let known = |p: [f32; 2]| !fog || self.in_sight(p);
         let shade = |k: Color| [k[0] * tint[0], k[1] * tint[1], k[2] * tint[2], k[3]];
         let lit = shade(WHITE);
-        let (view_w, view_h) = (SCREEN_W / scale, SCREEN_H / scale);
+        let (view_w, view_h) = (self.canvas[0] / scale, self.canvas[1] / scale);
         let at = |x: f32, y: f32| ((x - cam[0]) * scale, (y - cam[1]) * scale);
 
         let (tx0, ty0) = ((cam[0] / TILE) as usize, (cam[1] / TILE) as usize);
@@ -683,22 +684,22 @@ impl Harvest {
         }
     }
 
-    /// Each other player's number on the map, pinned to the edge when they're off it.
-    pub(super) fn teammates_on_map(&self, c: &mut Canvas, cam: [f32; 2]) {
+    /// Each other player's number on a map `size` pixels across and down, pinned to the edge when they're off it.
+    pub(super) fn teammates_on_map(&self, c: &mut Canvas, cam: [f32; 2], [w, h]: [f32; 2]) {
         for (p, pl) in self.players.iter().enumerate().filter(|&(p, _)| p != ME) {
-            let x = ((pl.pos[0] - cam[0]) * map_scale()).clamp(30.0, SCREEN_W - 30.0);
-            let y = ((pl.pos[1] - cam[1]) * map_scale()).clamp(60.0, SCREEN_H - 30.0);
+            let x = ((pl.pos[0] - cam[0]) * map_scale()).clamp(30.0, w - 30.0);
+            let y = ((pl.pos[1] - cam[1]) * map_scale()).clamp(60.0, h - 30.0);
             c.label(format!("P{}", self.number(p)), x, y - 44.0, 28.0, if pl.alive() { WHITE } else { RED }, Align::Center);
         }
     }
 
     /// After dawn, the farmhouse's step on the map, pinned to the edge when it's off the map.
-    pub(super) fn home_on_map(&self, c: &mut Canvas, cam: [f32; 2]) {
+    pub(super) fn home_on_map(&self, c: &mut Canvas, cam: [f32; 2], [w, h]: [f32; 2]) {
         if self.t < super::dawn() {
             return;
         }
-        let x = ((self.map.home[0] - cam[0]) * map_scale()).clamp(40.0, SCREEN_W - 40.0);
-        let y = ((self.map.home[1] - cam[1]) * map_scale()).clamp(40.0, SCREEN_H - 40.0);
+        let x = ((self.map.home[0] - cam[0]) * map_scale()).clamp(40.0, w - 40.0);
+        let y = ((self.map.home[1] - cam[1]) * map_scale()).clamp(40.0, h - 40.0);
         let pulse = 0.5 + 0.4 * (self.t * 5.0).sin();
         c.circle(x, y, 14.0 * map_scale() / 2.0, [GOLD[0], GOLD[1], GOLD[2], pulse * 0.5]);
         c.circle(x, y, 5.0 * map_scale() / 2.0, [GOLD[0], GOLD[1], GOLD[2], 1.0]);
@@ -719,10 +720,10 @@ impl Harvest {
     }
 
     /// While the truck driver holds a collection ticket, where he stands on the map, pinned to the edge when off it.
-    pub(super) fn ticket_on_map(&self, c: &mut Canvas, cam: [f32; 2]) {
+    pub(super) fn ticket_on_map(&self, c: &mut Canvas, cam: [f32; 2], [w, h]: [f32; 2]) {
         let Some(at) = self.ticket() else { return };
-        let x = ((at[0] - cam[0]) * map_scale()).clamp(40.0, SCREEN_W - 40.0);
-        let y = ((at[1] - cam[1]) * map_scale()).clamp(40.0, SCREEN_H - 40.0);
+        let x = ((at[0] - cam[0]) * map_scale()).clamp(40.0, w - 40.0);
+        let y = ((at[1] - cam[1]) * map_scale()).clamp(40.0, h - 40.0);
         let pulse = 0.5 + 0.4 * (self.t * 5.0).sin();
         c.circle(x, y, 14.0 * map_scale() / 2.0, [GOLD[0], GOLD[1], GOLD[2], pulse * 0.5]);
         c.circle(x, y, 5.0 * map_scale() / 2.0, GOLD);

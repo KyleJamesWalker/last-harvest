@@ -721,6 +721,12 @@ impl Game {
             State::Harvest(h) => h.blend(alpha),
             _ => None,
         };
+        let fitted = |v: usize| self.view_sizes.get(v).map(|&size| fit(size));
+        if let State::Harvest(h) = &mut self.state
+            && h.views() > 1
+        {
+            h.set_canvas(fitted(0));
+        }
         let mut frame = self.draw();
         let clean = self.clean();
         if let State::Harvest(h) = &mut self.state
@@ -728,17 +734,19 @@ impl Game {
         {
             frame.views = (1..h.views()).map(|v| {
                 let mut f = Frame::default();
+                h.set_canvas(fitted(v));
                 h.draw_view(v, &mut f, clean);
                 f.top
             }).collect();
             if h.followed(0) != 0 {
                 let mut f = Frame::default();
+                h.set_canvas(fitted(0));
                 h.draw_view(0, &mut f, clean);
                 frame.top = f.top;
             }
-            for (canvas, &[w, h]) in std::iter::once(&mut frame.top).chain(&mut frame.views).zip(&self.view_sizes) {
-                let aspect = w / h.max(1.0);
-                canvas.refit(if aspect >= SCREEN_W / SCREEN_H { [SCREEN_H * aspect, SCREEN_H] } else { [SCREEN_W, SCREEN_W / aspect.max(0.01)] });
+            h.set_canvas(None);
+            for (canvas, &size) in std::iter::once(&mut frame.top).chain(&mut frame.views).zip(&self.view_sizes) {
+                canvas.refit(fit(size));
             }
         }
         if let (State::Harvest(h), Some(undo)) = (&mut self.state, undo) {
@@ -904,6 +912,12 @@ impl Game {
     }
 }
 
+/// The size a 1024x768 drawing is laid out to for a view `[w, h]` pixels across and down: as wide or as tall as needed.
+fn fit([w, h]: [f32; 2]) -> [f32; 2] {
+    let aspect = w / h.max(1.0);
+    if aspect >= SCREEN_W / SCREEN_H { [SCREEN_H * aspect, SCREEN_H] } else { [SCREEN_W, SCREEN_W / aspect.max(0.01)] }
+}
+
 /// Players 2 and up, named for the title: "P2", "P2 and P3", "P2, P3 and P4".
 fn joined(players: usize) -> Option<String> {
     let names: Vec<String> = (2..=players).map(|n| format!("P{n}")).collect();
@@ -934,6 +948,23 @@ mod tests {
         let mut solo = Game::new(4);
         solo.open(Scene::Harvest);
         assert!(solo.views() == 1 && solo.draw_at(0.0).views.is_empty() && solo.draw_at(0.0).top.size.is_none(), "one player draws as ever");
+    }
+
+    #[test]
+    fn a_tall_views_map_fills_it_from_top_to_bottom() {
+        let mut game = Game::new(4);
+        game.set_phone(Some([1280.0, 720.0]));
+        game.set_players(2);
+        game.open(Scene::Harvest);
+        game.set_view_sizes(vec![[640.0, 720.0], [640.0, 720.0]]);
+        for _ in 0..2 {
+            game.update(&Input { held: Buttons::L1, ..Default::default() }, 0.016);
+        }
+        let f = game.draw_at(0.0);
+        let tiles: Vec<f32> = f.top.shapes.iter().filter_map(|s| if let Shape::Art { y, .. } = s { Some(*y) } else { None }).collect();
+        let (top, bottom) = (tiles.iter().copied().fold(f32::MAX, f32::min), tiles.iter().copied().fold(0.0, f32::max));
+        assert_eq!(f.top.size, Some([1024.0, 1152.0]));
+        assert!(top <= 0.0 && bottom >= 1152.0 - 64.0, "the map reaches the view's edges: {top}..{bottom}");
     }
 
     #[test]

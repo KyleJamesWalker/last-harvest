@@ -891,6 +891,8 @@ pub struct Harvest {
     paused_by: PlayerId,
     /// The player ME stands for while `relabel` has traded them; ME otherwise.
     swapped: PlayerId,
+    /// The size the view being drawn is laid out to, as `Canvas::refit` takes it; a screen's outside split-screen.
+    canvas: [f32; 2],
 }
 
 /// Weapons and passives unlocked so far, out of all of them, and how many are waiting to be found.
@@ -1103,6 +1105,7 @@ impl Harvest {
             locals: Vec::new(),
             paused_by: ME,
             swapped: ME,
+            canvas: [SCREEN_W, SCREEN_H],
         }
         .with_birds()
     }
@@ -3148,9 +3151,24 @@ impl Harvest {
 
     /// Top-left of the view in world pixels, rounded to whole screen pixels.
     fn camera(&self) -> [f32; 2] {
-        let x = (self.me().pos[0] - view_w() / 2.0).clamp(0.0, (self.map.width_px() - view_w()).max(0.0));
-        let y = (self.me().pos[1] - 8.0 - view_h() / 2.0).clamp(0.0, (self.map.height_px() - view_h()).max(0.0));
+        self.camera_over([view_w(), view_h()])
+    }
+
+    /// Top-left of the map as drawn into the view being laid out, which may show more than a screen's worth.
+    pub(super) fn map_camera(&self) -> [f32; 2] {
+        self.camera_over(self.canvas.map(|n| n / map_scale()))
+    }
+
+    /// Top-left of a map view `[w, h]` world pixels across and down around the player, kept on the field.
+    fn camera_over(&self, [w, h]: [f32; 2]) -> [f32; 2] {
+        let x = (self.me().pos[0] - w / 2.0).clamp(0.0, (self.map.width_px() - w).max(0.0));
+        let y = (self.me().pos[1] - 8.0 - h / 2.0).clamp(0.0, (self.map.height_px() - h).max(0.0));
         [(x * map_scale()).round() / map_scale(), (y * map_scale()).round() / map_scale()]
+    }
+
+    /// Lays the views drawn from now on out to `size`, as `Canvas::refit` will; a screen's 1024x768 for None.
+    pub fn set_canvas(&mut self, size: Option<[f32; 2]>) {
+        self.canvas = size.unwrap_or([SCREEN_W, SCREEN_H]);
     }
 }
 
