@@ -29,6 +29,8 @@ use crate::{VERSION, audio, log, pak, samples};
 
 /// Seconds a changed save waits for more changes before it is written.
 const SETTLE: f32 = 1.0;
+/// How often the frame loop wakes in the background to keep an online room's traffic moving.
+const AWAY_POLL: Duration = Duration::from_millis(50);
 const STICK_DEAD: f32 = 0.15;
 /// `AINPUT_SOURCE_CLASS_JOYSTICK`: a gamepad's sticks and hat, as opposed to a finger.
 const JOYSTICK: u32 = 0x10;
@@ -388,6 +390,7 @@ struct App {
     written: Save,
     unsaved: f32,
     stats: Stats,
+    online: crate::online::Online,
     quit: bool,
 }
 
@@ -463,6 +466,8 @@ impl App {
                 self.persist(0.0, true);
             }
             MainEvent::Destroy => {
+                self.game.close_online();
+                self.online.send(&mut self.game);
                 self.persist(0.0, true);
                 self.quit = true;
             }
@@ -588,8 +593,25 @@ impl App {
         }
     }
 
+    /// With no window, an online night goes on as with a handheld's lid shut: the room's traffic keeps moving, and
+    /// this device sends no input.
+    fn away(&mut self) {
+        let now = Instant::now();
+        let frame = now.duration_since(self.last);
+        self.last = now;
+        if self.game.net_traffic().is_none() {
+            return;
+        }
+        let input = self.tracker.frame(RawInput { lid_closed: true, ..Default::default() });
+        self.online.pump(&mut self.game, frame.as_secs_f32().min(0.05));
+        for input in self.ticker.frame(frame, input) {
+            self.game.update(&input, crate::clock::STEP);
+        }
+        self.online.send(&mut self.game);
+    }
+
     fn tick(&mut self) {
-        let Some(g) = &mut self.gl else { return };
+        let Some(g) = &mut self.gl else { return self.away() };
         let now = Instant::now();
         let frame = now.duration_since(self.last);
         let frame_ms = frame.as_secs_f32() * 1000.0;
@@ -624,9 +646,11 @@ impl App {
         }
         self.game.set_system(self.stats.frame(frame_ms));
         self.game.set_phone(g.bottom.is_none().then_some([w.get() as f32, h.get() as f32]));
+        self.online.pump(&mut self.game, dt);
         for input in self.ticker.frame(frame, input) {
             self.game.update(&input, crate::clock::STEP);
         }
+        self.online.send(&mut self.game);
         if self.game.take_folder_request() {
             pick_folder(&self.android);
         }
@@ -747,6 +771,7 @@ fn run(android: AndroidApp) -> Result<(), String> {
     game.set_backlights(false);
     game.set_captures(true);
     game.set_folder(&folder_name(&android));
+    crate::online::set_up(&mut game);
     let mut app = App {
         android: android.clone(),
         game,
@@ -770,6 +795,7 @@ fn run(android: AndroidApp) -> Result<(), String> {
         written: saved,
         unsaved: 0.0,
         stats: Stats::new(),
+        online: Default::default(),
         quit: false,
     };
     if android.native_window().is_some() {
@@ -780,7 +806,7 @@ fn run(android: AndroidApp) -> Result<(), String> {
     }
     while !app.quit {
         // With a window, vsync in swap_buffers paces the loop; without one, wait for Android to give it back.
-        let timeout = if app.gl.is_some() { Some(Duration::ZERO) } else { None };
+        let timeout = if app.gl.is_some() { Some(Duration::ZERO) } else { app.game.net_traffic().map(|_| AWAY_POLL) };
         android.poll_events(timeout, |event| app.event(event));
         app.read_input();
         app.follow_second();
