@@ -1,5 +1,6 @@
 //! The ground a map paints, one code a cell, read from `ground.txt`.
 
+use crate::fmath as fm;
 use std::sync::RwLock;
 
 use super::Cell;
@@ -32,8 +33,8 @@ impl Sway {
         }
         let tau = std::f32::consts::TAU;
         let (x, y) = (x as f32, y as f32);
-        let wave = (tau * t / self.seconds - x * 0.7 - y * 0.35).sin();
-        let gust = 0.65 + 0.35 * (tau * t / (self.seconds * 5.3) - (x + y) * 0.12).sin();
+        let wave = fm::sin(tau * t / self.seconds - x * 0.7 - y * 0.35);
+        let gust = 0.65 + 0.35 * fm::sin(tau * t / (self.seconds * 5.3) - (x + y) * 0.12);
         self.degrees.to_radians() * gust * wave
     }
 }
@@ -79,7 +80,7 @@ impl Stalk {
     /// picture: cards stack picture on picture, the first planted at the ground. The column bends as one stalk,
     /// leaning more the higher it goes, each picture's top where the next picture's bottom is.
     pub fn bend(self, t: f32, x: usize, y: usize, ends: impl Fn(Art) -> [f32; 2] + Copy) -> impl Iterator<Item = (Art, f32, f32, f32)> {
-        let tan = self.sway.lean(t, x, y).tan();
+        let tan = fm::tan(self.sway.lean(t, x, y));
         let seen = move |a: Art| {
             let [under, over] = ends(a);
             (under, (a.h() - under - over).max(0.0))
@@ -364,7 +365,7 @@ mod tests {
             let leans: Vec<f32> = cards.iter().map(|c| (c.3 / c.0.h()).abs()).collect();
             assert!(leans[0] <= leans[1] + 1e-6 && leans[1] <= leans[2] + 1e-6, "higher cards lean more: {leans:?}");
             let tip = at(&cards[2], cards[2].0.h() - 1.0);
-            assert!((tip.1 - stalk.sway.lean(t, 7, 3).tan() * tip.0).abs() < 1e-3, "the tip leans by the sway's angle");
+            assert!((tip.1 - fm::tan(stalk.sway.lean(t, 7, 3)) * tip.0).abs() < 1e-3, "the tip leans by the sway's angle");
             assert_eq!(cards, stalk.bend(t, 7, 3, ends).collect::<Vec<_>>(), "the same time and cell bend alike");
         }
         let still = Stalk { sway: Sway::default(), ..stalk };

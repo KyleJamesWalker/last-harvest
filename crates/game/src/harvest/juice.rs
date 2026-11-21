@@ -1,6 +1,7 @@
 //! Feedback that makes the night feel alive: particles, damage numbers, falling bodies, shockwaves,
 //! light flashes, screen shake and hit-stop. None of it changes the outcome of a run.
 
+use crate::fmath as fm;
 use std::f32::consts::TAU;
 
 use super::effects::{FLARE, Fade, SMOKE as SMOKE_ART, SPARK, Shot};
@@ -117,7 +118,7 @@ impl Particle {
 
     pub fn size_now(&self) -> f32 {
         let k = if self.shrink { 1.0 - self.age / self.life } else { 1.0 } * (1.0 + self.grow * self.age);
-        let blink = if self.wander { 0.5 + 0.5 * (self.age * 3.0 + self.pos[0]).sin().max(0.0) } else { 1.0 };
+        let blink = if self.wander { 0.5 + 0.5 * fm::sin(self.age * 3.0 + self.pos[0]).max(0.0) } else { 1.0 };
         self.size * k * blink
     }
 }
@@ -144,7 +145,7 @@ impl Popup {
     pub fn rise(&self) -> (f32, f32) {
         let k = self.age / POPUP_TIME;
         let pop = if k < 0.15 { 0.6 + k / 0.15 * 0.7 } else { 1.3 - (k - 0.15) * 0.5 };
-        (18.0 + 14.0 * (1.0 - (1.0 - k).powi(2)), pop * if self.tone == Tone::Hit { 1.0 } else { 1.4 })
+        (18.0 + 14.0 * (1.0 - fm::powi(1.0 - k, 2)), pop * if self.tone == Tone::Hit { 1.0 } else { 1.4 })
     }
 
     pub fn fade(&self) -> f32 {
@@ -193,7 +194,7 @@ pub struct Ring {
 impl Ring {
     pub fn now(&self) -> f32 {
         let k = self.age / self.life;
-        self.radius * (1.0 - (1.0 - k).powi(3))
+        self.radius * (1.0 - fm::powi(1.0 - k, 3))
     }
 }
 
@@ -337,9 +338,9 @@ impl Juice {
         for p in &mut self.particles {
             p.age += dt;
             if p.wander {
-                let a = (p.age * 0.7 + p.pos[1] * 0.05).sin() * TAU;
-                p.vel = [p.vel[0] * 0.98 + a.cos() * 6.0 * dt, p.vel[1] * 0.98 + a.sin() * 6.0 * dt];
-                p.z += (p.age * 1.3).sin() * 4.0 * dt;
+                let a = fm::sin(p.age * 0.7 + p.pos[1] * 0.05) * TAU;
+                p.vel = [p.vel[0] * 0.98 + fm::cos(a) * 6.0 * dt, p.vel[1] * 0.98 + fm::sin(a) * 6.0 * dt];
+                p.z += fm::sin(p.age * 1.3) * 4.0 * dt;
             } else {
                 p.vz -= p.gravity * dt;
                 p.z += p.vz * dt;
@@ -431,7 +432,7 @@ impl Juice {
     pub fn shake_offset(&self) -> [f32; 3] {
         let s = self.trauma * self.trauma;
         let t = self.clock * 31.0;
-        let n = |k: f32| (t * k).sin() * 0.6 + (t * k * 2.3 + 1.7).sin() * 0.4;
+        let n = |k: f32| fm::sin(t * k) * 0.6 + fm::sin(t * k * 2.3 + 1.7) * 0.4;
         [n(1.0) * 0.25 * s, n(1.37) * 0.18 * s, n(0.71) * 0.06 * s]
     }
 
@@ -445,7 +446,7 @@ impl Juice {
     /// `n` specks thrown out from `at` at `height`, spraying around `dir` (any way when zero) by up to `spread` radians.
     #[allow(clippy::too_many_arguments)]
     pub fn burst(&mut self, at: [f32; 2], height: f32, n: usize, dir: [f32; 2], spread: f32, speed: [f32; 2], color: [f32; 3], size: f32, life: f32, glow: f32) {
-        let base = if dir == [0.0, 0.0] { None } else { Some(dir[1].atan2(dir[0])) };
+        let base = if dir == [0.0, 0.0] { None } else { Some(fm::atan2(dir[1], dir[0])) };
         for _ in 0..n {
             let a = match base {
                 Some(b) => b + self.fx.range(-spread, spread),
@@ -460,7 +461,7 @@ impl Juice {
                 fade: Fade::OPAQUE,
                 pos: at,
                 z: height,
-                vel: [a.cos() * v, a.sin() * v],
+                vel: [fm::cos(a) * v, fm::sin(a) * v],
                 vz,
                 age: 0.0,
                 life,
@@ -485,14 +486,14 @@ impl Juice {
         }
         self.flares.push(Flare { pos: at, z: height, dir, size: shot.core, color: shot.color, age: 0.0, life: MUZZLE_CORE, art: shot.sprites[FLARE] });
         self.sparks(at, height, dir, 0.3, [140.0, 280.0], shot.sparks, shot);
-        let base = dir[1].atan2(dir[0]);
+        let base = fm::atan2(dir[1], dir[0]);
         for _ in 0..SMOKE_PUFFS {
             let a = base + self.fx.range(-0.5, 0.5);
             let v = self.fx.range(8.0, 22.0);
             let life = self.fx.range(0.45, 0.7);
             let vz = self.fx.range(6.0, 14.0);
             let pos = [at[0] + dir[0] * 3.0, at[1] + dir[1] * 3.0];
-            self.particle(Particle { fade: shot.fade, pos, z: height, vel: [a.cos() * v, a.sin() * v], vz, age: 0.0, life, color: SMOKE, size: shot.size * 0.8, shrink: shot.sprites[SMOKE_ART].is_none(), gravity: -8.0, drag: 2.5, glow: 0.0, wander: false, grow: 2.5, art: shot.sprites[SMOKE_ART] });
+            self.particle(Particle { fade: shot.fade, pos, z: height, vel: [fm::cos(a) * v, fm::sin(a) * v], vz, age: 0.0, life, color: SMOKE, size: shot.size * 0.8, shrink: shot.sprites[SMOKE_ART].is_none(), gravity: -8.0, drag: 2.5, glow: 0.0, wander: false, grow: 2.5, art: shot.sprites[SMOKE_ART] });
         }
     }
 
@@ -509,14 +510,14 @@ impl Juice {
     /// `n` sparks from `at` along `dir`, within `spread` radians of it, that slow hard and fade as they fall.
     #[allow(clippy::too_many_arguments)]
     fn sparks(&mut self, at: [f32; 2], height: f32, dir: [f32; 2], spread: f32, speed: [f32; 2], n: u32, shot: &Shot) {
-        let base = dir[1].atan2(dir[0]);
+        let base = fm::atan2(dir[1], dir[0]);
         for _ in 0..n {
             let a = base + self.fx.range(-spread, spread);
             let v = self.fx.range(speed[0], speed[1]);
             let life = self.fx.range(0.12, 0.28);
             let size = shot.size * self.fx.range(0.6, 1.0);
             let vz = self.fx.range(-10.0, 30.0);
-            self.particle(Particle { fade: Fade::OPAQUE, pos: at, z: height, vel: [a.cos() * v, a.sin() * v], vz, age: 0.0, life, color: shot.color, size, shrink: shot.sprites[SPARK].is_none(), gravity: 120.0, drag: 9.0, glow: 1.0, wander: false, grow: 0.0, art: shot.sprites[SPARK] });
+            self.particle(Particle { fade: Fade::OPAQUE, pos: at, z: height, vel: [fm::cos(a) * v, fm::sin(a) * v], vz, age: 0.0, life, color: shot.color, size, shrink: shot.sprites[SPARK].is_none(), gravity: 120.0, drag: 9.0, glow: 1.0, wander: false, grow: 0.0, art: shot.sprites[SPARK] });
         }
     }
 

@@ -1169,6 +1169,7 @@ impl Map {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fmath as fm;
 
     #[test]
     fn a_flow_from_two_players_leads_each_cell_to_the_nearer() {
@@ -1252,7 +1253,7 @@ mod tests {
             drivers += 1;
             let from = map.reach([x, y + TILE]);
             let spawn = map.i((map.spawn[0] / TILE) as usize, (map.spawn[1] / TILE) as usize);
-            let near = (0..16).map(|k| k as f32 / 16.0 * std::f32::consts::TAU).map(|a| [x + a.cos() * (t.driver_reach - 2.0), y + a.sin() * (t.driver_reach - 2.0)]);
+            let near = (0..16).map(|k| k as f32 / 16.0 * std::f32::consts::TAU).map(|a| [x + fm::cos(a) * (t.driver_reach - 2.0), y + fm::sin(a) * (t.driver_reach - 2.0)]);
             assert!(near.into_iter().any(|p| !map.hits(p[0], p[1], t.player_half())), "seed {seed}: nowhere to stand by the driver");
             assert!(from[spawn] < u16::MAX, "seed {seed}: no way from the spawn to the driver");
         }
@@ -1279,7 +1280,7 @@ mod tests {
                 None => break,
             }
         }
-        let goal = ((map.spawn[0] - pos[0]).powi(2) + (map.spawn[1] - pos[1]).powi(2)).sqrt();
+        let goal = (fm::powi(map.spawn[0] - pos[0], 2) + fm::powi(map.spawn[1] - pos[1], 2)).sqrt();
         assert!(goal < TILE * 1.5, "stuck at {pos:?}, spawn {:?}", map.spawn);
     }
 

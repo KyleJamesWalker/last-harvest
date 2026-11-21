@@ -8,7 +8,7 @@ use super::weapons::Kit;
 use super::{Choice, Harvest, Phase};
 use crate::{Difficulty, Input, MAX_TOUCHES, Sfx};
 
-pub const FORMAT: u32 = 1;
+pub const FORMAT: u32 = 2;
 const MAGIC: &[u8; 4] = b"LHRP";
 /// Ticks between full checkpoints; every tick also keeps one byte of its checksum.
 pub const CHECK_EVERY: u64 = 60;
@@ -759,6 +759,9 @@ impl Replay {
         }
         let mut r = Reader { bytes, at: 4 };
         let format = r.u32()?;
+        if format < FORMAT {
+            return Err(format!("replay format {format}, from an older build whose math differs; this build reads {FORMAT}"));
+        }
         if format != FORMAT {
             return Err(format!("replay format {format}; this build reads {FORMAT}"));
         }
@@ -1025,6 +1028,14 @@ mod tests {
 
     fn short() -> Plan {
         Plan { seed: 3, until: Some(50.0), pick: Pick::Held, walk: Walk::Avoid, players: 2, ..Plan::new(parse_build("pistol:2,dog:2").unwrap()) }
+    }
+
+    #[test]
+    fn an_older_format_says_so() {
+        let mut old = MAGIC.to_vec();
+        old.extend(1u32.to_le_bytes());
+        let err = Replay::read(&old).unwrap_err();
+        assert!(err.contains("older build"), "{err}");
     }
 
     #[test]

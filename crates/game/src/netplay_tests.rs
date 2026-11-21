@@ -1,3 +1,4 @@
+use crate::fmath as fm;
 use crate::netplay::Request;
 use crate::{Buttons, Game, Input};
 
@@ -90,15 +91,15 @@ fn a_host_and_a_client_play_one_night_and_the_client_draws_what_the_host_has() {
             let host = pair.games[0].zombie_spots();
             for (id, at) in pair.games[1].zombie_spots() {
                 if let Some((_, h)) = host.iter().find(|z| z.0 == id) {
-                    drift.push(((at[0] - h[0]).powi(2) + (at[1] - h[1]).powi(2)).sqrt());
+                    drift.push((fm::powi(at[0] - h[0], 2) + fm::powi(at[1] - h[1], 2)).sqrt());
                 }
             }
         }
     }
     let after = pair.games[0].player_spots()[1];
-    assert!(((after[0] - before[0]).powi(2) + (after[1] - before[1]).powi(2)).sqrt() > 40.0, "the client's input walks its player on the host");
+    assert!((fm::powi(after[0] - before[0], 2) + fm::powi(after[1] - before[1], 2)).sqrt() > 40.0, "the client's input walks its player on the host");
     let seen = pair.games[1].player_spots()[0];
-    assert!(((seen[0] - after[0]).powi(2) + (seen[1] - after[1]).powi(2)).sqrt() < 24.0, "the client predicts its own player near where the host has it: {seen:?} {after:?}");
+    assert!((fm::powi(seen[0] - after[0], 2) + fm::powi(seen[1] - after[1], 2)).sqrt() < 24.0, "the client predicts its own player near where the host has it: {seen:?} {after:?}");
     assert!(!drift.is_empty(), "zombies rose and were drawn");
     let mean = drift.iter().sum::<f32>() / drift.len() as f32;    assert!(mean < 12.0, "zombies drift {mean} px on average");
     let t = pair.games[1].net_traffic().unwrap();
@@ -174,10 +175,10 @@ fn a_client_who_turns_leads_the_dead_from_its_own_end_and_picks_its_rise() {
     }
     let crate::State::Harvest(h) = &pair.games[0].state else { panic!() };
     let at = h.lead_for_test(1).unwrap().1;
-    assert!(((at[0] - from[0]).powi(2) + (at[1] - from[1]).powi(2)).sqrt() > 25.0, "the client's pad walks its leader on the host");
+    assert!((fm::powi(at[0] - from[0], 2) + fm::powi(at[1] - from[1], 2)).sqrt() > 25.0, "the client's pad walks its leader on the host");
     let crate::State::Harvest(c) = &pair.games[1].state else { panic!() };
     let seen = c.lead_for_test(0).unwrap().1;
-    assert!(((seen[0] - at[0]).powi(2) + (seen[1] - at[1]).powi(2)).sqrt() < 16.0, "the client predicts its leader near the host's: {seen:?} {at:?}");
+    assert!((fm::powi(seen[0] - at[0], 2) + fm::powi(seen[1] - at[1], 2)).sqrt() < 16.0, "the client predicts its leader near the host's: {seen:?} {at:?}");
     let crate::State::Harvest(h) = &mut pair.games[0].state else { panic!() };
     h.fell_leader_for_test(1);
     pair.idle(0.3);

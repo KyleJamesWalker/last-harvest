@@ -1,5 +1,6 @@
 //! What the player carries, and what each weapon does when its cooldown runs out.
 
+use crate::fmath as fm;
 use std::f32::consts::{PI, TAU};
 
 use super::juice::{self, Tone};
@@ -437,7 +438,7 @@ impl Dog {
     /// How far off the ground a pounce has it, in pixels.
     pub fn lift(&self) -> f32 {
         let t = crate::tuning::tuning();
-        self.leap.map_or(0.0, |a| (a / t.dog_leap_time * PI).sin() * t.dog_leap_height)
+        self.leap.map_or(0.0, |a| fm::sin(a / t.dog_leap_time * PI) * t.dog_leap_height)
     }
 }
 
@@ -472,7 +473,7 @@ impl Drone {
             Some(crate::art::Stand::Figure { lift } | crate::art::Stand::Slab { lift, .. }) => lift,
             _ => 0.0,
         };
-        float + (self.anim * 2.3).sin() * 1.5
+        float + fm::sin(self.anim * 2.3) * 1.5
     }
 }
 
@@ -501,11 +502,11 @@ impl Decoy {
 
 fn in_cone(d: [f32; 2], dir: [f32; 2], half: f32) -> bool {
     let l = len(d);
-    l > 1e-3 && (d[0] * dir[0] + d[1] * dir[1]) / l >= half.cos()
+    l > 1e-3 && (d[0] * dir[0] + d[1] * dir[1]) / l >= fm::cos(half)
 }
 
 fn polar(at: [f32; 2], angle: f32, r: f32) -> [f32; 2] {
-    [at[0] + angle.cos() * r, at[1] + angle.sin() * r]
+    [at[0] + fm::cos(angle) * r, at[1] + fm::sin(angle) * r]
 }
 
 /// Sets a zombie burning, or keeps it burning longer and hotter.
@@ -687,7 +688,7 @@ impl Harvest {
         let d = norm(offset);
         let one = book().defs[a.def].pattern == Pattern::Burst;
         let (n, speed) = (if one { 1 } else { self.stat(a, Stat::Count) as u32 }, self.stat(a, Stat::Speed));
-        let base = d[1].atan2(d[0]);
+        let base = fm::atan2(d[1], d[0]);
         let gap = self.stat(a, Stat::Spread).to_radians();
         for k in 0..n {
             let angle = base + (k as f32 - (n - 1) as f32 / 2.0) * gap;
@@ -714,7 +715,7 @@ impl Harvest {
         let d = norm(offset);
         let n = if pattern == Pattern::Burst { 1 } else { self.stat(a, Stat::Count).max(1.0) as u32 };
         let speed = self.stat(a, Stat::Speed);
-        let (base, spread) = (d[1].atan2(d[0]), self.stat(a, Stat::Spread).to_radians());
+        let (base, spread) = (fm::atan2(d[1], d[0]), self.stat(a, Stat::Spread).to_radians());
         let (damage, pierce, force) = (self.stat(a, Stat::Damage), self.stat(a, Stat::Pierce) as u32, self.stat(a, Stat::Knockback));
         for k in 0..n {
             let angle = shot_angle(pattern, k, n, base, spread, self.juice.rng.range(-0.5, 0.5));
@@ -731,7 +732,7 @@ impl Harvest {
     fn muzzle(&mut self, a: Armed, d: [f32; 2], out: f32) {
         let ground = [self.actor().pos[0] + d[0] * out, self.actor().pos[1] + d[1] * out];
         if let Some(e) = book().defs[a.def].effect.as_deref().and_then(|n| super::effects::effects().named(n)) {
-            self.fx.push(Fx::play(e, [ground[0], ground[1] - 6.0], d[1].atan2(d[0])));
+            self.fx.push(Fx::play(e, [ground[0], ground[1] - 6.0], fm::atan2(d[1], d[0])));
         }
         self.attack_feel(a, ground, 10.0);
         self.juice.muzzle(ground, 10.0, d, &shot_style(a));
@@ -820,7 +821,7 @@ impl Harvest {
             }
         }
         let at = [self.actor().pos[0] + d[0] * 8.0, self.actor().pos[1] - 5.0 + d[1] * 8.0];
-        self.fx.push(Fx::play(look(a, super::effects::effects().slash), at, d[1].atan2(d[0]) - PI / 2.0));
+        self.fx.push(Fx::play(look(a, super::effects::effects().slash), at, fm::atan2(d[1], d[0]) - PI / 2.0));
         self.attack_feel(a, [self.actor().pos[0] + d[0] * 8.0, self.actor().pos[1] + d[1] * 8.0], 10.0);
         self.weapon_sound(a, Sfx::Slash, sounds);
         self.thud(hits, sounds);
@@ -834,7 +835,7 @@ impl Harvest {
         let barrel = if barrels { self.barrel_in_view(range) } else { None };
         let Some(d) = barrel.or_else(|| self.nearest_in(range, Some((dir, half)))).map(norm) else { return false };
         let (pellets, speed) = (self.stat(a, Stat::Count).max(2.0) as u32, self.stat(a, Stat::Speed));
-        let (base, spread) = (d[1].atan2(d[0]), self.stat(a, Stat::Spread).to_radians());
+        let (base, spread) = (fm::atan2(d[1], d[0]), self.stat(a, Stat::Spread).to_radians());
         for k in 0..pellets {
             let angle = base + (k as f32 / (pellets - 1) as f32 - 0.5) * spread;
             self.shoot(angle, speed, self.stat(a, Stat::Damage), self.stat(a, Stat::Pierce) as u32, range / speed * 0.9, self.stat(a, Stat::Knockback), bullet(a));
@@ -855,7 +856,7 @@ impl Harvest {
         }
         let speed = self.stat(a, Stat::Speed);
         let way = barrel.map_or(self.actor().aim, norm);
-        let angle = way[1].atan2(way[0]);
+        let angle = fm::atan2(way[1], way[0]);
         self.shoot(angle, speed, self.stat(a, Stat::Damage), self.stat(a, Stat::Pierce) as u32, range / speed, self.stat(a, Stat::Knockback), bullet(a));
         self.muzzle(a, way, 9.0);
         self.noise = Some(self.actor().pos);
@@ -913,12 +914,12 @@ impl Harvest {
         }
         let (count, spread) = (self.stat(a, Stat::Count).max(1.0) as u32, self.stat(a, Stat::Spread).to_radians());
         let (width, damage, force, crit) = (self.stat(a, Stat::Area) / 2.0 + 3.0, self.stat(a, Stat::Damage), self.stat(a, Stat::Knockback), self.crit());
-        let base = self.actor().aim[1].atan2(self.actor().aim[0]);
+        let base = fm::atan2(self.actor().aim[1], self.actor().aim[0]);
         let mut hit = vec![false; self.zombies.len()];
         let mut hits = (0, false);
         for k in 0..count {
             let angle = if count == 1 { base } else { base + (k as f32 / (count - 1) as f32 - 0.5) * spread };
-            let dir = [angle.cos(), angle.sin()];
+            let dir = [fm::cos(angle), fm::sin(angle)];
             for (i, z) in self.zombies.iter_mut().enumerate() {
                 let d = sub(z.pos, self.players[self.actor].pos);
                 let along = d[0] * dir[0] + d[1] * dir[1];
@@ -952,12 +953,12 @@ impl Harvest {
         let fx = super::effects::effects();
         let (smash, crack) = (look(a, fx.maul), fx.ground_crack);
         let step = crack.frames[0].w().max(4.0);
-        let base = self.actor().aim[1].atan2(self.actor().aim[0]);
+        let base = fm::atan2(self.actor().aim[1], self.actor().aim[0]);
         let mut hit = vec![false; self.zombies.len()];
         let mut hits = (0, false);
         for k in 0..count {
             let angle = if count == 1 { base } else { base + (k as f32 / (count - 1) as f32 - 0.5) * spread };
-            let dir = [angle.cos(), angle.sin()];
+            let dir = [fm::cos(angle), fm::sin(angle)];
             let end = polar(self.actor().pos, angle, range);
             for (i, z) in self.zombies.iter_mut().enumerate() {
                 let d = sub(z.pos, self.players[self.actor].pos);
@@ -1003,7 +1004,7 @@ impl Harvest {
             }
         }
         let at = [self.actor().pos[0] + d[0] * 8.0, self.actor().pos[1] - 5.0 + d[1] * 8.0];
-        self.fx.push(Fx::play(look(a, super::effects::effects().slash), at, d[1].atan2(d[0]) - PI / 2.0));
+        self.fx.push(Fx::play(look(a, super::effects::effects().slash), at, fm::atan2(d[1], d[0]) - PI / 2.0));
         self.attack_feel(a, [self.actor().pos[0] + d[0] * 8.0, self.actor().pos[1] + d[1] * 8.0], 10.0);
         self.weapon_sound(a, Sfx::Slash, sounds);
         self.thud(hits, sounds);
@@ -1079,7 +1080,7 @@ impl Harvest {
     /// Every player's crows, with which way each flies, for drawing.
     pub(super) fn crows(&self) -> Vec<([f32; 2], bool)> {
         let all = self.players.iter().enumerate().flat_map(|(p, pl)| pl.kit.weapons.iter().filter(|a| a.does() == Does::Crows).map(move |&a| (p, a)));
-        all.flat_map(|(p, a)| self.crow_spots_of(p, a).into_iter().map(move |at| (at, a.phase.sin() < 0.0))).collect()
+        all.flat_map(|(p, a)| self.crow_spots_of(p, a).into_iter().map(move |at| (at, fm::sin(a.phase) < 0.0))).collect()
     }
 
     /// Lightning from the zapper to the nearest zombie, then on to the next nearest it hasn't touched.
@@ -1312,7 +1313,7 @@ impl Harvest {
             let lift = [drone.lift() - DRONE_GUN, tune.drone_hold / tune.drone_bullet];
             let (damage, pierce, force, spread) = (self.stat(a, Stat::Damage), self.stat(a, Stat::Pierce) as u32, self.stat(a, Stat::Knockback), self.stat(a, Stat::Spread).to_radians());
             for _ in 0..rounds {
-                let angle = heading[1].atan2(heading[0]) + self.juice.rng.range(-0.5, 0.5) * spread;
+                let angle = fm::atan2(heading[1], heading[0]) + self.juice.rng.range(-0.5, 0.5) * spread;
                 self.juice.tally.credit(self.actor, Some(a.def));
                 self.shoot_from([from[0], from[1] - 6.0], angle, tune.drone_bullet, damage, pierce, tune.drone_reach * 1.2 / tune.drone_bullet, force, bullet(a), lift);
             }
@@ -1577,7 +1578,7 @@ impl Harvest {
 
     #[allow(clippy::too_many_arguments)]
     pub(super) fn shoot_from(&mut self, pos: [f32; 2], angle: f32, speed: f32, damage: f32, pierce: u32, life: f32, force: f32, look: Option<super::effects::Effect>, lift: [f32; 2]) {
-        let vel = [angle.cos() * speed, angle.sin() * speed];
+        let vel = [fm::cos(angle) * speed, fm::sin(angle) * speed];
         self.bullets.push(Bullet { pos, vel, damage, pierce, life, force, hit: Vec::new(), look, age: 0.0, by: self.juice.tally.by, owner: self.juice.tally.owner, lift });
     }
 }
@@ -1770,7 +1771,7 @@ mod tests {
         h.zombies.clear();
         h.me_mut().kit.weapons[0].level = 8;
         h.me_mut().kit.weapons[0].cd = 0.0;
-        let ways: Vec<[f32; 2]> = (0..n).map(|k| k as f32 * TAU / n as f32).map(|a| [a.cos(), a.sin()]).collect();
+        let ways: Vec<[f32; 2]> = (0..n).map(|k| k as f32 * TAU / n as f32).map(|a| [fm::cos(a), fm::sin(a)]).collect();
         let spot = |h: &Harvest, from: [f32; 2], way: [f32; 2]| (0..12).map(|r| 90.0 + r as f32 * 4.0).map(|r| [from[0] + way[0] * r, from[1] + way[1] * r]).find(|&p| open(h, p) && super::super::clear_shot(&h.map, from, p));
         // The first spot east of the spawn with room all round, wherever the farm's props fall.
         let start = h.me().pos;

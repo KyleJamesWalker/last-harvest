@@ -3,6 +3,7 @@
 //! beside the picture when the window is wide enough and under it when upright. In photo mode the keys become photo
 //! keys, each named by a word.
 
+use crate::fmath as fm;
 use crate::art::{self, Art};
 use crate::input::{Buttons, MAX_TOUCHES};
 use crate::{Align, Canvas, Color, SCREEN_H, SCREEN_W};
@@ -180,7 +181,7 @@ impl Touchpad {
                     f.at = p;
                     f.new = false;
                     let d = [p[0] - f.origin[0], if f.claim == Claim::Turn { 0.0 } else { p[1] - f.origin[1] }];
-                    let len = d[0].hypot(d[1]);
+                    let len = fm::hypot(d[0], d[1]);
                     if matches!(f.claim, Claim::Stick | Claim::Turn) && len > l.stick_r {
                         let k = (len - l.stick_r) / len;
                         f.origin = [f.origin[0] + d[0] * k, f.origin[1] + d[1] * k];
@@ -198,7 +199,7 @@ impl Touchpad {
                 Claim::Key(b) => pad.held |= b,
                 Claim::Stick => {
                     let d = [(f.at[0] - f.origin[0]) / l.stick_r, (f.at[1] - f.origin[1]) / l.stick_r];
-                    if d[0].hypot(d[1]) > 0.15 {
+                    if fm::hypot(d[0], d[1]) > 0.15 {
                         pad.stick = d.map(|v| v.clamp(-1.0, 1.0));
                     }
                 }
@@ -243,7 +244,7 @@ impl Touchpad {
         c.circle(base[0], base[1], r, shade);
         sprite(&mut c, art::TOUCH_RING, base, 2.0 * r, tint);
         let d = [knob[0] - base[0], knob[1] - base[1]];
-        let k = (r / d[0].hypot(d[1]).max(r)).min(1.0);
+        let k = (r / fm::hypot(d[0], d[1]).max(r)).min(1.0);
         sprite(&mut c, art::TOUCH_KNOB, [base[0] + d[0] * k, base[1] + d[1] * k], r * 0.9, tint);
         let turn = self.fingers.iter().flatten().find(|f| f.claim == Claim::Turn);
         let (base, knob) = turn.map_or((rest(l.turn), rest(l.turn)[0]), |f| (f.origin, f.at[0]));
