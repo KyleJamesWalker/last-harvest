@@ -1,0 +1,23 @@
+[package]
+name = "last-harvest-net"
+description = "WebRTC peers in one matchbox room: a reliable and an unreliable channel per peer. Copied from supermariowar-rust crates/smw-peer at 2b216eb983aa8c01236652f587eee17c16d7699e."
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde_json = "1"
+uuid = { version = "1", default-features = false }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+webrtc = { version = "=0.17.2", default-features = false }
+tokio = { version = "1", features = ["rt", "sync", "time", "macros"] }
+tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+futures-util = { version = "0.3", default-features = false, features = ["sink"] }
+bytes = "1"
+
+[dev-dependencies]
+matchbox_signaling = "=0.14.0"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
