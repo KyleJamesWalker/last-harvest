@@ -330,3 +330,42 @@ fn a_client_that_hears_nothing_from_the_host_leaves_the_night() {
     assert!(!pair.games[1].in_run());
     assert_eq!(pair.games[1].online.message, "Lost the connection to the host.");
 }
+
+#[test]
+fn a_client_sees_the_drivers_ticket_as_the_host_has_it_and_the_cash_in_whoever_makes_it() {
+    let mut pair = Pair::started();
+    pair.idle(1.0);
+    assert!(host_harvest(&mut pair).ticket_for_test().is_none(), "no ticket this early");
+    host_harvest(&mut pair).ready_ticket_for_test();
+    pair.idle(0.5);
+    let driver = host_harvest(&mut pair).ticket_for_test();
+    assert!(driver.is_some(), "the host's ticket is ready");
+    let crate::State::Harvest(c) = &pair.games[1].state else { panic!() };
+    assert_eq!(c.ticket_for_test(), driver, "the client draws the coin over the driver too");
+    host_harvest(&mut pair).walk_to_driver_for_test(0);
+    pair.idle(0.5);
+    assert!(host_harvest(&mut pair).ticket_for_test().is_none(), "the host cashed in");
+    let crate::State::Harvest(c) = &mut pair.games[1].state else { panic!() };
+    assert!(c.ticket_for_test().is_none(), "and the client's coin is gone with it");
+    let mut f = crate::Frame::default();
+    c.draw(&mut f, false);
+    let said = |s: &crate::Shape| matches!(s, crate::Shape::Text { text, .. } if text.contains("SOUL HARVEST"));
+    assert!(f.top.shapes.iter().chain(&f.bottom.shapes).any(said), "the client hears of the cash-in");
+}
+
+#[test]
+fn a_clients_end_screen_shows_the_hosts_tally_for_its_player() {
+    let mut pair = Pair::started();
+    pair.idle(15.0);
+    let h = host_harvest(&mut pair);
+    h.fall_for_test(0);
+    h.fall_for_test(1);
+    pair.idle(1.0);
+    assert_eq!(host_harvest(&mut pair).phase_for_test(), 2, "the night is over");
+    let want = host_harvest(&mut pair).end_numbers_for_test(1);
+    assert!(want.len() > 7 && want[want.len() - 7] > 0.0, "the client's player held a weapon and dealt damage: {want:?}");
+    let crate::State::Harvest(c) = &pair.games[1].state else { panic!() };
+    let got = c.end_numbers_for_test(0);
+    assert_eq!(got.len(), want.len(), "the same rows: {got:?} {want:?}");
+    assert!(got.iter().zip(&want).all(|(g, w)| (g - w).abs() <= 0.5 + 0.01 * w.abs()), "the same numbers: {got:?} {want:?}");
+}

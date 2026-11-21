@@ -2993,6 +2993,10 @@ impl Harvest {
             d.to = p;
         }
         sounds.push(Sfx::Pick(true));
+        self.soul_harvest(at);
+    }
+
+    fn soul_harvest(&mut self, at: [f32; 2]) {
         self.juice.banner("SOUL HARVEST", GOLD, 2.4);
         self.juice.flash(at, 24.0, [1.8, 1.4, 0.6], 9.0, 0.8);
     }
