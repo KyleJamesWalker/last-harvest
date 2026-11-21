@@ -2206,6 +2206,26 @@ mod tests {
     }
 
     #[test]
+    fn a_dogs_killing_bite_is_ready_again_at_once_and_any_other_waits_its_cooldown() {
+        let t = crate::tuning::tuning();
+        assert!(book().defs[book().index("dog").unwrap()].kill_resets, "the farm dog chains its kills");
+        for (hp, ready) in [(1.0, true), (500.0, false)] {
+            let mut h = with("dog", [t.dog_reach * 0.5, 0.0]);
+            h.zombies[0].hp = hp;
+            for _ in 0..120 {
+                h.walk_dogs(1.0 / 60.0, &mut Vec::new());
+                h.zombies[0].pos = [h.me().pos[0] + t.dog_reach * 0.5, h.me().pos[1]];
+                if h.zombies[0].hp < hp {
+                    break;
+                }
+            }
+            assert!(h.zombies[0].hp < hp, "it bit");
+            let d = &h.me().dogs[0];
+            assert_eq!((d.cd <= 0.0, d.target.is_none()), (ready, ready), "a bite on {hp} hp");
+        }
+    }
+
+    #[test]
     fn a_pounce_follows_a_zombie_that_walks_on_and_still_bites() {
         let t = crate::tuning::tuning();
         let mut h = with("dog", [t.dog_leap - 4.0, 0.0]);
