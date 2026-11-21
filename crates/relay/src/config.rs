@@ -20,13 +20,15 @@ environment:
   LAST_HARVEST_RELAY_CONNECTS_PER_MINUTE  new connections one client address may open per minute, 0 for no limit (default 60)
   LAST_HARVEST_RELAY_TRUSTED_PROXIES  peers whose X-Forwarded-For names the client: none, loopback or private (loopback and
                                       private networks, for a proxy on a Docker network) (default loopback)
-  LAST_HARVEST_RELAY_TURN_URL         the TURN server /ice hands out, such as turn:relay.example.com:3478 (default: none)
-  LAST_HARVEST_RELAY_TURN_SECRET      coturn's static-auth-secret, which /ice mints credentials from
+  LAST_HARVEST_RELAY_TURN_URL         the TURN server signaling peers get, such as turn:relay.example.com:3478 (default: none)
+  LAST_HARVEST_RELAY_TURN_SECRET      coturn's static-auth-secret, which the relay mints credentials from
+  LAST_HARVEST_RELAY_TURN_SECONDS     how long a TURN credential lasts; peers get fresh ones while connected (default 1200)
 
 Loopback clients are exempt from the per-address limits. An IPv6 client address counts by its /56.";
 
 const DEFAULT_ORIGINS: &str = "http://localhost:8095";
 const LONELY_TIMEOUT: Duration = Duration::from_secs(15 * 60);
+const TURN_LIFETIME: Duration = Duration::from_secs(20 * 60);
 
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -48,9 +50,11 @@ pub struct Config {
     /// New connections one client address may open per minute; 0 for no limit.
     pub connects_per_minute: u32,
     pub trusted_proxies: TrustedProxies,
-    /// The TURN server `/ice` names; none without a secret too.
+    /// The TURN server signaling peers get; none without a secret too.
     pub turn_url: Option<String>,
     pub turn_secret: Option<String>,
+    /// How long a TURN credential lasts; a peer gets a fresh one every quarter of it.
+    pub turn_lifetime: Duration,
 }
 
 impl Config {
@@ -70,7 +74,12 @@ impl Config {
             trusted_proxies: TrustedProxies::Loopback,
             turn_url: var("LAST_HARVEST_RELAY_TURN_URL"),
             turn_secret: var("LAST_HARVEST_RELAY_TURN_SECRET"),
+            turn_lifetime: TURN_LIFETIME,
         };
+        if let Some(seconds) = var("LAST_HARVEST_RELAY_TURN_SECONDS") {
+            let seconds: u64 = seconds.parse().ok().filter(|&s| s >= 60).ok_or_else(|| format!("LAST_HARVEST_RELAY_TURN_SECONDS: not a number of seconds, 60 or more: {seconds}"))?;
+            config.turn_lifetime = Duration::from_secs(seconds);
+        }
         if let Some(port) = var("LAST_HARVEST_RELAY_PORT") {
             config.port = port.parse().map_err(|_| format!("LAST_HARVEST_RELAY_PORT: not a port: {port}"))?;
         }
@@ -127,6 +136,7 @@ impl Config {
             trusted_proxies: TrustedProxies::Loopback,
             turn_url: None,
             turn_secret: None,
+            turn_lifetime: TURN_LIFETIME,
         }
     }
 

@@ -9,7 +9,7 @@ use crate::websocket::Poll;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::io::ErrorKind;
-use std::net::TcpStream;
+use std::net::{IpAddr, TcpStream};
 use std::sync::mpsc::{sync_channel, SyncSender};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -156,7 +156,7 @@ fn hold(room: String, me: String, replaced: Arc<AtomicBool>, grace: Duration) {
 }
 
 /// One peer's signaling session in `room`, on its connection's thread, until it closes or goes quiet.
-pub fn run(stream: TcpStream, room: String, resume: Option<(String, String)>, config: &Config) {
+pub fn run(stream: TcpStream, room: String, resume: Option<(String, String)>, client: IpAddr, config: &Config) {
     #[allow(clippy::result_large_err)] // tungstenite's handshake callback signature
     let check_origin = |request: &Request, response: Response| -> Result<Response, ErrorResponse> {
         let origin = request.headers().get("origin").and_then(|v| v.to_str().ok());
@@ -176,6 +176,11 @@ pub fn run(stream: TcpStream, room: String, resume: Option<(String, String)>, co
     let (tx, outgoing) = sync_channel::<String>(OUTBOX_LEN);
     let _ = tx.try_send(json!({ "IdAssigned": me }).to_string());
     let _ = tx.try_send(json!({ "ResumeToken": token }).to_string());
+    let ice_servers = || crate::turn::ice_servers(config, crate::turn::now_unix(), client).map(|s| json!({ "IceServers": s }).to_string());
+    if let Some(servers) = ice_servers() {
+        let _ = tx.try_send(servers);
+    }
+    let mut ice_sent = Instant::now();
     let replaced = Arc::new(AtomicBool::new(false));
     let own = tx.clone();
     // Reading the room's peers and adding this one under one lock: two peers joining at once still pair up.
@@ -200,6 +205,12 @@ pub fn run(stream: TcpStream, room: String, resume: Option<(String, String)>, co
     'session: loop {
         if replaced.load(Ordering::Acquire) {
             return;
+        }
+        if ice_sent.elapsed() >= config.turn_lifetime / 4 {
+            ice_sent = Instant::now();
+            if let Some(servers) = ice_servers() {
+                let _ = own.try_send(servers);
+            }
         }
         if checked.elapsed() >= LONELY_CHECK {
             checked = Instant::now();

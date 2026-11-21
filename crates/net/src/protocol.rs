@@ -1,6 +1,6 @@
 //! The matchbox signaling protocol: server events, relayed WebRTC handshake messages, and a relay's resume URL.
 
-use crate::PeerId;
+use crate::{IceServer, PeerId};
 use serde_json::{json, Value};
 
 /// Sent every few seconds; a relay that resumes peers echoes it.
@@ -18,6 +18,8 @@ pub(crate) enum Signal {
 pub(crate) enum Event {
     IdAssigned(PeerId),
     ResumeToken(String),
+    /// The relay's ICE servers with fresh TURN credentials, sent after joining and again before they expire.
+    IceServers(Vec<IceServer>),
     NewPeer(PeerId),
     PeerLeft(PeerId),
     Signal(PeerId, Signal),
@@ -40,6 +42,9 @@ pub(crate) fn parse_event(text: &str) -> Option<Event> {
     }
     if let Some(token) = event.get("ResumeToken").and_then(Value::as_str) {
         return Some(Event::ResumeToken(token.to_string()));
+    }
+    if let Some(servers) = event.get("IceServers") {
+        return crate::ice::parse_ice_value(servers).ok().map(|ice| Event::IceServers(ice.servers));
     }
     if let Some(peer) = id("NewPeer") {
         return Some(Event::NewPeer(peer));
@@ -99,6 +104,10 @@ mod tests {
         assert_eq!(parse_event(r#"{"ResumeToken":"t0k"}"#), Some(Event::ResumeToken("t0k".into())));
         assert_eq!(parse_event(&format!(r#"{{"NewPeer":"{A}"}}"#)), Some(Event::NewPeer(a)));
         assert_eq!(parse_event(&format!(r#"{{"PeerLeft":"{A}"}}"#)), Some(Event::PeerLeft(a)));
+        let turn = IceServer { urls: vec!["turn:t.example.com:3478".into()], username: "1:lh-ab".into(), credential: "x".into() };
+        let ice = r#"{"IceServers":{"iceServers":[{"urls":["turn:t.example.com:3478"],"username":"1:lh-ab","credential":"x"}]}}"#;
+        assert_eq!(parse_event(ice), Some(Event::IceServers(vec![turn])));
+        assert_eq!(parse_event(r#"{"IceServers":{}}"#), None);
         assert_eq!(parse_event(KEEP_ALIVE), None);
         assert_eq!(parse_event(r#"{"NewPeer":"not a uuid"}"#), None);
         assert_eq!(parse_event("not json"), None);

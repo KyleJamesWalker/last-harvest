@@ -150,7 +150,7 @@ fn handle_connection(
             refuse(&mut stream, head_len, "429 Too Many Requests", "too many signaling peers\n");
             return;
         };
-        crate::signal::run(stream, room.to_string(), crate::signal::parse_resume(&query), config);
+        crate::signal::run(stream, room.to_string(), crate::signal::parse_resume(&query), client, config);
         return;
     }
     let mut consumed = vec![0; head_len];
@@ -164,14 +164,14 @@ fn handle_connection(
     }
 }
 
-/// TURN credentials for a page the relay allows, or a native game.
+/// No ICE servers, for a page the relay allows or a native game: TURN credentials go only to signaling peers.
 fn ice(stream: &mut TcpStream, head: &str, config: &Config) {
     let origin = limits::header(head, "origin");
     if !config.origin_allowed(origin) {
         respond(stream, "403 Forbidden", "text/plain", "origin not allowed\n");
         return;
     }
-    let body = crate::turn::ice_servers(config, crate::turn::now_unix());
+    let body = r#"{"iceServers":[]}"#;
     let allow = origin.map(|o| format!("Access-Control-Allow-Origin: {o}\r\nVary: Origin\r\n")).unwrap_or_default();
     let response = format!(
         "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nCache-Control: no-store\r\n{allow}Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
@@ -460,7 +460,7 @@ mod tests {
     }
 
     #[test]
-    fn healthz_and_ice_answer() {
+    fn healthz_and_ice_answer_without_credentials() {
         let port = relay(|c| {
             c.allowed_origins = vec!["https://game.example.com".into()];
             c.turn_url = Some("turn:relay.example.com:3478".into());
@@ -468,11 +468,51 @@ mod tests {
         });
         assert!(healthcheck(port));
         let native = get(port, "/ice", None);
-        assert!(native.starts_with("HTTP/1.1 200") && native.contains("turn:relay.example.com:3478"), "{native}");
+        assert!(native.starts_with("HTTP/1.1 200") && native.ends_with(r#"{"iceServers":[]}"#), "{native}");
         let page = get(port, "/ice", Some("https://game.example.com"));
-        assert!(page.contains("Access-Control-Allow-Origin: https://game.example.com"), "{page}");
+        assert!(page.contains("Access-Control-Allow-Origin: https://game.example.com") && !page.contains("turn:"), "{page}");
         assert!(get(port, "/ice", Some("https://evil.example")).starts_with("HTTP/1.1 403"));
         assert!(get(port, "/nope", None).starts_with("HTTP/1.1 404"));
+    }
+
+    /// The `IceServers` messages `ws` gets for `time`, and the messages before the first.
+    fn ice_messages(ws: &mut WebSocket<MaybeTlsStream<TcpStream>>, time: Duration) -> (Vec<String>, Vec<serde_json::Value>) {
+        let (mut before, mut ice) = (Vec::new(), Vec::new());
+        let deadline = Instant::now() + time;
+        while let Some(text) = read_text(ws).filter(|_| Instant::now() < deadline) {
+            let value: serde_json::Value = serde_json::from_str(&text).unwrap();
+            match value.get("IceServers") {
+                Some(servers) => ice.push(servers["iceServers"][0].clone()),
+                None if ice.is_empty() => before.push(text),
+                None => {}
+            }
+        }
+        (before, ice)
+    }
+
+    #[test]
+    fn signaling_peers_get_turn_credentials_named_by_address() {
+        let port = relay(|c| {
+            c.turn_url = Some("turn:relay.example.com:3478".into());
+            c.turn_secret = Some("00ff".into());
+            c.turn_lifetime = Duration::from_secs(2);
+        });
+        let mut first = signal_from(port, "turn", Some("203.0.113.5")).unwrap();
+        let (before, ice) = ice_messages(&mut first, Duration::from_millis(1200));
+        assert_eq!(before.len(), 2, "IdAssigned and ResumeToken come first: {before:?}");
+        assert!(ice.len() >= 2, "a fresh credential every quarter of its lifetime: {ice:?}");
+        let name = crate::turn::turn_name("00ff", "203.0.113.5".parse().unwrap());
+        for server in &ice {
+            assert_eq!(server["urls"][0], "turn:relay.example.com:3478");
+            assert!(server["username"].as_str().unwrap().ends_with(&format!(":{name}")), "{server}");
+        }
+
+        let mut other = signal_from(port, "turn", Some("198.51.100.5")).unwrap();
+        let (_, ice) = ice_messages(&mut other, Duration::from_millis(300));
+        assert!(!ice[0]["username"].as_str().unwrap().ends_with(&format!(":{name}")), "another address, another name");
+
+        let mut plain = signal(relay(|_| {}), "no-turn").unwrap();
+        assert!(!drain(&mut plain).iter().any(|t| t.contains("IceServers")), "no TURN, no message");
     }
 
     #[test]

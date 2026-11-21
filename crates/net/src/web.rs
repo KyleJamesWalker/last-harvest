@@ -124,6 +124,8 @@ impl Peer {
 #[derive(Default)]
 struct State {
     url: String,
+    /// The game's own ICE servers, and what new connections use: those and the relay's latest.
+    base_ice: IceConfig,
     ice: IceConfig,
     socket: Option<WebSocket>,
     socket_handlers: Vec<Callback>,
@@ -314,6 +316,16 @@ fn on_event(state: &StateRef, event: Event) {
     match event {
         Event::IdAssigned(id) => state.borrow_mut().id = Some(id),
         Event::ResumeToken(token) => state.borrow_mut().token = Some(token),
+        Event::IceServers(servers) => {
+            let mut s = state.borrow_mut();
+            s.ice = crate::ice::with_relay_servers(&s.base_ice, &servers);
+            let config = rtc_configuration(&s.ice);
+            for peer in s.peers.values() {
+                if let Err(e) = peer.pc.set_configuration_with_configuration(&config) {
+                    warn(&format!("[net] new ICE servers: {}", error_text(&e)));
+                }
+            }
+        }
         Event::NewPeer(id) => spawn_local(offer(state.clone(), id)),
         Event::PeerLeft(id) => drop_peer(state, id, None),
         Event::Signal(sender, signal) => spawn_local(on_signal(state.clone(), sender, signal)),
@@ -641,6 +653,7 @@ impl Socket {
     pub fn connect(room_url: &str, ice: &IceConfig) -> Socket {
         let state = Rc::new(RefCell::new(State {
             url: room_url.to_string(),
+            base_ice: ice.clone(),
             ice: ice.clone(),
             retry_ms: 250.0,
             ..Default::default()

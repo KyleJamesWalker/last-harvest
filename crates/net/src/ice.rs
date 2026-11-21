@@ -1,10 +1,15 @@
-//! The relay's ICE servers, fetched over HTTP(S) before joining a room: `{"iceServers": [...]}` as `/ice` answers.
+//! ICE servers as `{"iceServers": [...]}`: what an HTTP(S) endpoint such as the relay's `/ice` answers, and what the
+//! relay sends a signaling peer, with TURN credentials, as an `IceServers` message.
 
 use crate::{IceConfig, IceServer};
 
 /// Reads the relay's answer; a server without URLs is left out.
 pub fn parse_ice(json: &str) -> Result<IceConfig, String> {
     let v: serde_json::Value = serde_json::from_str(json).map_err(|e| format!("bad ICE answer: {e}"))?;
+    parse_ice_value(&v)
+}
+
+pub(crate) fn parse_ice_value(v: &serde_json::Value) -> Result<IceConfig, String> {
     let list = v.get("iceServers").and_then(|s| s.as_array()).ok_or("no iceServers in the answer")?;
     let text = |s: &serde_json::Value, k: &str| s.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
     let servers = list
@@ -20,6 +25,11 @@ pub fn parse_ice(json: &str) -> Result<IceConfig, String> {
         .filter(|s| !s.urls.is_empty())
         .collect();
     Ok(IceConfig { servers, relay_only: false })
+}
+
+/// `base` with the servers the relay sent over signaling, which replace any it sent before.
+pub(crate) fn with_relay_servers(base: &IceConfig, relay: &[IceServer]) -> IceConfig {
+    IceConfig { servers: base.servers.iter().chain(relay).cloned().collect(), relay_only: base.relay_only }
 }
 
 /// A fetch of the relay's ICE servers in flight; poll it once a frame.
@@ -204,5 +214,13 @@ mod tests {
         assert_eq!(ice.servers[1].username, "");
         assert_eq!(parse_ice(r#"{"iceServers":[]}"#).unwrap(), IceConfig::default());
         assert!(parse_ice("nope").is_err());
+    }
+
+    #[test]
+    fn relay_servers_join_the_games_own() {
+        let stun = IceServer { urls: vec!["stun:s.example.com".into()], ..Default::default() };
+        let turn = IceServer { urls: vec!["turn:t.example.com".into()], username: "1:lh-ab".into(), credential: "x".into() };
+        let base = IceConfig { servers: vec![stun.clone()], relay_only: true };
+        assert_eq!(with_relay_servers(&base, std::slice::from_ref(&turn)), IceConfig { servers: vec![stun, turn], relay_only: true });
     }
 }

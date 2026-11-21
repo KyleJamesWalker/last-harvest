@@ -176,13 +176,21 @@ struct Peer {
 /// What a peer's callbacks need: where packets and state changes go, and how to reach the signaling server.
 #[derive(Clone)]
 struct Context {
-    ice: RTCConfiguration,
+    /// The game's own ICE servers.
+    base: IceConfig,
+    /// What new connections use: `base` and the relay's latest servers.
+    ice: Arc<Mutex<RTCConfiguration>>,
     shared: SharedRef,
     outgoing: UnboundedSender<String>,
     gone: UnboundedSender<Gone>,
 }
 
 impl Context {
+    fn new(base: IceConfig, shared: SharedRef, outgoing: UnboundedSender<String>, gone: UnboundedSender<Gone>) -> Context {
+        let ice = Arc::new(Mutex::new(rtc_configuration(&base)));
+        Context { base, ice, shared, outgoing, gone }
+    }
+
     fn signal(&self, receiver: PeerId, signal: Signal) {
         let _ = self.outgoing.send(protocol::signal_message(receiver, &signal));
     }
@@ -223,12 +231,7 @@ async fn run(
     let (close_signaling, close_rx) = oneshot::channel();
     tokio::spawn(signaling(url, outgoing_rx, incoming, close_rx));
     let (gone, mut gone_rx) = unbounded_channel::<Gone>();
-    let context = Context {
-        ice: rtc_configuration(&ice),
-        shared: shared.clone(),
-        outgoing,
-        gone,
-    };
+    let context = Context::new(ice, shared.clone(), outgoing, gone);
     let mut settings = SettingEngine::default();
     settings.set_ice_timeouts(Some(ICE_DISCONNECTED), Some(ICE_FAILED), None);
     let api = Arc::new(APIBuilder::new().with_setting_engine(settings).build());
@@ -403,6 +406,7 @@ async fn on_event(api: &Arc<API>, context: &Context, peers: &mut HashMap<PeerId,
     match event {
         Event::IdAssigned(id) => lock(&context.shared).id = Some(id),
         Event::ResumeToken(_) => {}
+        Event::IceServers(servers) => *lock(&context.ice) = rtc_configuration(&crate::ice::with_relay_servers(&context.base, &servers)),
         Event::NewPeer(id) => match new_peer(api, context, id, true).await {
             Some(peer) => {
                 peers.insert(id, peer);
@@ -429,7 +433,8 @@ async fn on_event(api: &Arc<API>, context: &Context, peers: &mut HashMap<PeerId,
 
 /// A connection to `id` with negotiated channels 0 and 1. The peer already in the room is the `offerer`.
 async fn new_peer(api: &API, context: &Context, id: PeerId, offerer: bool) -> Option<Peer> {
-    let connection = Arc::new(api.new_peer_connection(context.ice.clone()).await.ok()?);
+    let configuration = lock(&context.ice).clone();
+    let connection = Arc::new(api.new_peer_connection(configuration).await.ok()?);
     let serial = NEXT_SERIAL.fetch_add(1, Ordering::Relaxed);
     let connected = Arc::new(AtomicBool::new(false));
     let opened = Arc::new(AtomicUsize::new(0));
@@ -657,8 +662,7 @@ mod tests {
             let shared = SharedRef::default();
             let (outgoing, _outgoing_rx) = unbounded_channel();
             let (gone, _gone_rx) = unbounded_channel();
-            let ice = rtc_configuration(&IceConfig { servers: Vec::new(), relay_only: false });
-            let context = Context { ice, shared: shared.clone(), outgoing, gone };
+            let context = Context::new(IceConfig::default(), shared.clone(), outgoing, gone);
             let api = APIBuilder::new().build();
             let id = PeerId(9);
             let earlier = new_peer(&api, &context, id, false).await.unwrap();
@@ -670,6 +674,26 @@ mod tests {
             assert!(peers.contains_key(&id));
             drop_peer(&shared, &mut peers, id, Some(current_serial)).await;
             assert!(peers.is_empty());
+        });
+    }
+
+    #[test]
+    fn the_relays_ice_servers_reach_new_connections() {
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        runtime.block_on(async {
+            let (outgoing, _outgoing_rx) = unbounded_channel();
+            let (gone, _gone_rx) = unbounded_channel();
+            let stun = crate::IceServer { urls: vec!["stun:s.example.com:3478".into()], ..Default::default() };
+            let context = Context::new(IceConfig { servers: vec![stun], relay_only: false }, SharedRef::default(), outgoing, gone);
+            let api = Arc::new(APIBuilder::new().build());
+            let mut peers = HashMap::new();
+            let turn = |name: &str| crate::IceServer { urls: vec!["turn:t.example.com:3478".into()], username: format!("1:{name}"), credential: "x".into() };
+            on_event(&api, &context, &mut peers, Event::IceServers(vec![turn("lh-old")])).await;
+            on_event(&api, &context, &mut peers, Event::IceServers(vec![turn("lh-new")])).await;
+            let peer = new_peer(&api, &context, PeerId(3), false).await.unwrap();
+            let servers = peer.connection.get_configuration().await.ice_servers;
+            let users: Vec<_> = servers.iter().map(|s| (s.urls[0].as_str(), s.username.as_str())).collect();
+            assert_eq!(users, [("stun:s.example.com:3478", ""), ("turn:t.example.com:3478", "1:lh-new")]);
         });
     }
 
@@ -702,8 +726,7 @@ mod tests {
             let shared = SharedRef::default();
             let (outgoing, _outgoing_rx) = unbounded_channel();
             let (gone, mut gone_rx) = unbounded_channel();
-            let ice = rtc_configuration(&IceConfig { servers: Vec::new(), relay_only: false });
-            let context = Context { ice, shared: shared.clone(), outgoing, gone };
+            let context = Context::new(IceConfig::default(), shared.clone(), outgoing, gone);
             let api = APIBuilder::new().build();
             let id = PeerId(9);
             let peer = new_peer(&api, &context, id, true).await.unwrap();
