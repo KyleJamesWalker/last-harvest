@@ -105,7 +105,7 @@ A night lasts ten minutes, from dusk to dawn. A bell rings each minute.
 - **Soul harvest:** five minutes in, the Collector by the gas station's truck holds a tithe. A heart bobs over his head, and a gold ring marks him on the map. Walk up to him, and every heart on the farm is drawn to you at once. That can be several level-ups in a row. He holds a new tithe five minutes after each soul harvest.
 - **Dawn:** the Harvester wakes behind you, and the dead grow 1% stronger every second. Run back to the farmhouse's front step to survive.
 - **More Harvesters:** kill the Harvester, and 30 seconds later two more rise. Every 30 seconds another wave comes, one bigger, up to six, until you get home.
-- **Falling:** if you fall, you rise as one of the dead and lead them to the next farm.
+- **Falling:** if you fall, you rise as one of the dead and lead them to the next farm. With others still standing, you [lead the dead](#leading-the-dead) against them.
 
 The pause menu offers Resume, Settings, Photo mode, New farm and Quit to title.
 
@@ -247,13 +247,14 @@ The mix of zombies shifts minute by minute, and some kinds arrive only after a s
 
 ## Menus and settings
 
-The title's bottom screen lists Play, Map, How to play, Settings, Stats and Credits, and Quit where the game can quit. Up and Down choose a row, A or a tap opens it, and B goes back. The top screen shows the game's version.
+The title's bottom screen lists Play, Map, How to play, Settings, Stats, Credits and Online, and Quit where the game can quit. Up and Down choose a row, A or a tap opens it, and B goes back. The top screen shows the game's version.
 
 - **Map** picks a hand-made map, or a random farm, for every run after.
 - **How to play** sums up the controls, hearts and level-ups, grenades, the map and the run home at dawn, in the buttons or touch controls you play with. A new save shows it at the first Play: A or a tap then starts the run, and B goes back to the menu. Elsewhere A, B, Start or a tap closes it.
 - **Stats** lists your records, including the best damage a second over a whole run. It also counts the cards and mod packs that loaded.
 - **History**, from Stats with A or its button, shows the last 10 runs, newest first, five to a page. Each run lists its difficulty, Turned or Home at dawn, its time, level and damage a second, and the powerups it ended with. Left and Right turn the page.
 - **Credits** names who made the game, its art, its template and its font.
+- **Online** hosts or joins a night with players on other devices. See [Online](#online).
 
 | Setting | What it does |
 |---|---|
@@ -267,9 +268,10 @@ The title's bottom screen lists Play, Map, How to play, Settings, Stats and Cred
 | Player | Your look, from the player cards, shown walking on the top screen |
 | Enemies | Each kind of zombie, walking, with its numbers. A turns a kind on or off. At least one stays on. |
 | Game folder | Android only. See [Where files go](#where-files-go). |
+| Online relay | The relay online play connects through. See [Online](#online). |
 | Reset progress | Clears kills, records and found powerups after a second press. Settings stay. |
 
-Settings from the pause menu leave out Player, Enemies, Game folder and Reset progress.
+Settings from the pause menu leave out Player, Enemies, Game folder, Online relay and Reset progress.
 
 ### Controls
 
@@ -280,6 +282,78 @@ Settings > Controls lists each button's jobs, the button that does them, named a
 - **Default** puts every button back.
 - The d-pad, the sticks and the RG DS's Home, Back, volume and power buttons stay where they are.
 - A key moves with the pad button it stands for, so the keys and the pad always match.
+
+## Playing together
+
+Up to four farmers can share one night: on one screen with a pad each, or online with a device each. Everyone plays the same farm, horde and clock, and the night goes on while anyone still stands.
+
+### Split-screen
+
+Split-screen plays in a desktop window, in a browser on one screen without a touch screen, and on muOS. The RG DS, phones and touch screens seat one player.
+
+- At the title, press Start on another pad to join as the next player, up to P4. Start on that pad again leaves. The title names who joined.
+- Player 1 plays with the keyboard and every pad no other player holds.
+- Each player gets a view of their own. Two views sit side by side in a wide or square window and stack in a tall one. Three or four share a grid.
+- Each view plays as on [one screen](#one-screen), with its own corner map, its own map on L1 and its own grenade aim on L2.
+
+The rules change in a few ways:
+
+- **Shared XP:** every heart fills one shared bar. A level-up pauses everyone and deals each player three cards from their own kit. Play resumes once everyone has picked. Banishes, rerolls and favors are each player's own.
+- **Drops:** a heart or a health drop goes to the first player whose pull catches it. The heart counts as theirs on the end screen, and its XP still goes to the shared bar.
+- **No friendly fire:** no weapon hurts another player. A blast hurts only the player who set it off, and a grenade uses its thrower's bonuses, such as Bigger blast and Grenade belt's bomblets.
+- **More dead:** each player past the first brings more zombies and bigger hordes. Zombies rise around each living player in turn and go for the nearest one. Each player can be caught camping on their own.
+- **Home:** at dawn, any living player who reaches the farmhouse's front step wins the night for everyone.
+- **Pause:** Start on any pad pauses everyone. Only the player who paused works the pause menu. Their Settings changes apply to everyone, and their photo mode shows in their view alone.
+
+The end screen names each player's kills. Stats and History record the night once, with player 1's build and damage.
+
+### Online
+
+Each player plays on their own device, and one of them hosts the night. Online is on the title's main menu.
+
+1. The host picks Host a night. The lobby shows a five-letter room code.
+2. Each other player picks Join with a code and types it on the on-screen keys: A types, B deletes and Start joins. Taps work too.
+3. In the lobby, A marks you ready. Once everyone is ready, the host's Start starts the night.
+4. B leaves the lobby. On the host, B closes the room.
+
+Every device needs the same release and the same mod packs. The host turns away a player whose game differs and says why. A player can also join a night already under way: they drop in beside the others.
+
+Settings &gt; Online relay, or Online &gt; Relay, sets the relay that connects the players:
+
+- Empty uses the game's public relay.
+- For a relay on your own network, type its address and port, such as `192.168.1.20:8080`.
+- The published web game, served over https, reaches only a secure `wss://` relay. It refuses a LAN address before it connects.
+
+To run a relay of your own, see the [online guide](../../docs/online.md).
+
+During an online night:
+
+- **Pause:** Start on any device pauses the night for everyone. The host's Start takes the menu over, and a client's pause lifts on its own after 30 seconds. New farm is not offered online.
+- **The host leaves:** Quit to title or Back on the host ends the night for everyone. Each client returns to the Online page with "The host ended the night."
+- **A client leaves:** that farmer sinks into the ground and stays gone. The others play on, and the open seat takes a drop-in.
+- **A quiet player:** a level-up picks a card for a player who sends no input. The host unseats a client it has not heard from for 10 seconds. A client that hears nothing from the host for 10 seconds leaves with "Lost the connection to the host." On the RG DS and muOS, a client's shut lid keeps its seat while its farmer stands still, and the host's shut lid pauses the night.
+- **Soul harvest:** any player who reaches the Collector cashes in his tithe, and every heart flies to that player. Every device sees it.
+
+### Leading the dead
+
+If you fall while another player still stands, you rise as a gold-lit leader of the dead, with a swarm around you. The night ends once every player has turned. Online, you lead from your own device.
+
+| Action | RG DS | Keyboard |
+|---|---|---|
+| Walk and strafe | The d-pad or the stick | The arrows |
+| Turn | Y and A | A and X |
+| Turn around | B | Z |
+| Call the dead near your leader into your swarm | X | S |
+
+- Hunt the living. Your swarm drops no hearts and counts no kills.
+- When your leader falls, your map shows a cross. Move it within 15 seconds to where the next leader rises, at least 10 tiles from every living player, and press A or tap there. Otherwise it rises where a horde's leader would.
+- The end screen adds how long each player led and how many bites their swarm landed.
+
+### Known limits
+
+- A browser runs the game only while its tab shows. A host in a hidden tab freezes the night for everyone, and a client in a hidden tab loses its seat after 10 seconds. Keep the game's tab in front.
+- Nobody has tested online play on Windows or Android hardware yet. On Windows, the first room may bring up the firewall's prompt: allow private networks.
+- Broken props and fences, damage numbers and the end screen's damage table show only on the host.
 
 ## Screenshots and photo mode
 
