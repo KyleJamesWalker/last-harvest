@@ -32,6 +32,25 @@ pub fn split_views(v: &str) -> Option<usize> {
     v.trim().parse().ok().filter(|n| (2..=controllers::MAX_PLAYERS).contains(n))
 }
 
+/// Players 2 onward's input this frame from their seats' pads, each with presses from its own tracker.
+pub fn seated_others(seated: &[(last_harvest_game::Buttons, [f32; 2], f32)], trackers: &mut Vec<last_harvest_game::InputTracker>) -> Vec<last_harvest_game::Input> {
+    trackers.resize_with(seated.len().saturating_sub(1), Default::default);
+    seated.iter().skip(1).zip(trackers).map(|(&(held, stick, look), t)| t.frame(last_harvest_game::RawInput { held, stick, look, ..Default::default() })).collect()
+}
+
+/// How many views to draw on a surface `size` pixels across and down, one per local player during a split run, after
+/// telling the game each one's size.
+pub fn lay_out_views(game: &mut last_harvest_game::Game, splits: bool, [w, h]: [u32; 2]) -> usize {
+    let views = if splits && game.in_run() { game.views() } else { 1 };
+    game.set_view_sizes(last_harvest_render::split::split(views, [w, h]).iter().map(|r| [r[2] as f32, r[3] as f32]).collect());
+    views
+}
+
+/// Player 1's canvas then each other player's, for `draw_split`.
+pub fn frame_views(frame: &last_harvest_game::Frame, n: usize) -> Vec<&last_harvest_game::Canvas> {
+    std::iter::once(&frame.top).chain(&frame.views).take(n).collect()
+}
+
 /// Draws one canvas per local player on a surface `size` pixels across and down, laid out as `split` tiles it, with
 /// black where no view goes.
 pub fn draw_split(renderer: &mut last_harvest_render::Renderer, gl: &glow::Context, views: &[&last_harvest_game::Canvas], [w, h]: [i32; 2]) {

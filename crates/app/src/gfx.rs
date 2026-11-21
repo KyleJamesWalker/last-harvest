@@ -103,7 +103,7 @@ impl Gfx {
         if let (None, Some(n)) = (&bottom, views) {
             context.make_current(&top.surface)?;
             let size = top.window.inner_size();
-            last_harvest::draw_split(renderer, gl, &vec![&frame.top; n], [size.width as i32, size.height as i32]);
+            last_harvest::draw_split(renderer, gl, &last_harvest::frame_views(frame, n), [size.width as i32, size.height as i32]);
             let shot = capture.then(|| read_back(gl, size.width, size.height));
             top.surface.swap_buffers(context)?;
             return Ok(shot);
