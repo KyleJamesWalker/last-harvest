@@ -96,7 +96,7 @@ impl Harvest {
         if !input.held.contains(Buttons::L2) || aim.left <= 0.0 {
             self.aiming = None;
             self.throw_at(aim.at, sounds);
-            let off = [aim.at[0] - self.pos[0], aim.at[1] - self.pos[1]];
+            let off = [aim.at[0] - self.me().pos[0], aim.at[1] - self.me().pos[1]];
             self.last_throw = Some([off[1].atan2(off[0]) - self.view_yaw, len(off)]);
             self.since_throw = 0.0;
             return (own, dt);
@@ -112,7 +112,7 @@ impl Harvest {
         let t = crate::tuning::tuning();
         let [turn, dist] = self.last_throw.filter(|_| self.since_throw < t.aim_memory).unwrap_or([0.0, t.aim_ahead]);
         let a = self.view_yaw + turn;
-        self.on_view([self.pos[0] + a.cos() * dist, self.pos[1] + a.sin() * dist])
+        self.on_view([self.me().pos[0] + a.cos() * dist, self.me().pos[1] + a.sin() * dist])
     }
 
     /// A map point kept within the map view around the player.
@@ -155,7 +155,7 @@ impl Harvest {
         if t.map_mini > 0.0 {
             let (w, reach, scale) = (t.map_mini, t.map_mini_reach.max(16.0), map_scale());
             let (h, (x, y)) = (w * 0.75, (SCREEN_W - 24.0 - w, below));
-            let cam = [self.pos[0] - reach, self.pos[1] - 8.0 - reach * 0.75];
+            let cam = [self.me().pos[0] - reach, self.me().pos[1] - 8.0 - reach * 0.75];
             let mut map = Canvas::default();
             self.world(&mut map, cam, scale, self.map_tint(), true);
             self.view_cone(&mut map, cam);
@@ -226,7 +226,7 @@ mod tests {
     #[test]
     fn aiming_slows_time_keeps_the_walk_and_throws_on_release() {
         let mut h = single(12);
-        let (start, t) = (h.pos, h.t);
+        let (start, t) = (h.me().pos, h.t);
         press(&mut h, Buttons::L2 | Buttons::UP, Buttons::L2 | Buttons::UP);
         let at = h.aiming.unwrap().at;
         let ahead = crate::tuning::tuning().aim_ahead;
@@ -236,7 +236,7 @@ mod tests {
         hold(&mut h, Buttons::L2, 0.5);
         let slow = crate::tuning::tuning().aim_slow;
         assert!((h.t - t - (1.0 + DT) * slow).abs() < 0.02, "time ran at {}", (h.t - t) / (1.0 + DT));
-        assert!(h.pos[0] > start[0] + 1.0, "kept walking along the heading");
+        assert!(h.me().pos[0] > start[0] + 1.0, "kept walking along the heading");
         assert!(h.thrown.is_empty());
         hold(&mut h, Buttons::NONE, DT);
         assert_eq!(h.thrown.len(), 1);
@@ -292,7 +292,7 @@ mod tests {
         hold(&mut h, Buttons::L2 | Buttons::LEFT, 0.2);
         hold(&mut h, Buttons::L2 | Buttons::DOWN, 0.2);
         let first = h.aiming.unwrap().at;
-        let off = [first[0] - h.pos[0], first[1] - h.pos[1]];
+        let off = [first[0] - h.me().pos[0], first[1] - h.me().pos[1]];
         hold(&mut h, Buttons::NONE, DT);
         h.view_yaw = std::f32::consts::FRAC_PI_2;
         hold(&mut h, Buttons::NONE, 1.0);
@@ -300,14 +300,14 @@ mod tests {
         press(&mut h, Buttons::L2, Buttons::L2);
         let again = h.aiming.unwrap().at;
         let turned = [-off[1], off[0]];
-        assert!(len([again[0] - h.pos[0] - turned[0], again[1] - h.pos[1] - turned[1]]) < 1.5, "{again:?} vs {turned:?}");
+        assert!(len([again[0] - h.me().pos[0] - turned[0], again[1] - h.me().pos[1] - turned[1]]) < 1.5, "{again:?} vs {turned:?}");
         hold(&mut h, Buttons::NONE, DT);
         hold(&mut h, Buttons::NONE, crate::tuning::tuning().aim_memory + 0.5);
         h.grenades = 1.0;
         press(&mut h, Buttons::L2, Buttons::L2);
         let late = h.aiming.unwrap().at;
         let ahead = crate::tuning::tuning().aim_ahead;
-        assert!(len([late[0] - h.pos[0], late[1] - h.pos[1] - ahead]) < 1.0, "back to straight ahead: {late:?}");
+        assert!(len([late[0] - h.me().pos[0], late[1] - h.me().pos[1] - ahead]) < 1.0, "back to straight ahead: {late:?}");
     }
 
     #[test]

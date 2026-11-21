@@ -138,7 +138,7 @@ impl Harvest {
 
     /// Red creeping in from the edges: a flash when hit, and a pulse in time with the heart when nearly dead.
     fn vignette(&self, c: &mut Canvas) {
-        let health = self.hp / self.kit.max_hp();
+        let health = self.me().hp / self.kit.max_hp();
         let low = ((0.35 - health) / 0.35).clamp(0.0, 1.0);
         let beat = (1.0 - (self.heartbeat.max(0.0) / (0.5 + health * 2.0)) * 4.0).max(0.0);
         let hit = self.juice.hurt / 0.35;
@@ -185,7 +185,7 @@ impl Harvest {
             let a = self.view_yaw + edge;
             for k in 1..9 {
                 let r = k as f32 / 8.0 * sight;
-                let (x, y) = ((self.pos[0] + a.cos() * r - cam[0]) * map_scale(), (self.pos[1] - 6.0 + a.sin() * r - cam[1]) * map_scale());
+                let (x, y) = ((self.me().pos[0] + a.cos() * r - cam[0]) * map_scale(), (self.me().pos[1] - 6.0 + a.sin() * r - cam[1]) * map_scale());
                 c.circle(x, y, 5.0, [lit[0], lit[1], lit[2], lit[3] - k as f32 * 0.08]);
             }
         }
@@ -395,11 +395,11 @@ impl Harvest {
         let (facing, flip) = self.facing;
         let (a, rise) = player_pose(self, facing);
         if self.shown.as_ref().is_none_or(|s| s.player) {
-            let (x, y) = (self.pos[0] - a.w() / 2.0, self.pos[1] - a.h() * rise + 2.0);
-            sprites.push((self.pos[1], a, x, y, flip, rise, [1.0; 4]));
+            let (x, y) = (self.me().pos[0] - a.w() / 2.0, self.me().pos[1] - a.h() * rise + 2.0);
+            sprites.push((self.me().pos[1], a, x, y, flip, rise, [1.0; 4]));
             if let Some((at, bright)) = player_worn(self, facing) {
                 let [gx, gy] = worn_corner(at, a, flip);
-                sprites.push((self.pos[1] + 0.01, art::GRENADE_WORN, x + gx, y + gy, flip, 1.0, [bright, bright, bright, 1.0]));
+                sprites.push((self.me().pos[1] + 0.01, art::GRENADE_WORN, x + gx, y + gy, flip, 1.0, [bright, bright, bright, 1.0]));
             }
         }
         sprites.sort_by(|a, b| a.0.total_cmp(&b.0));
@@ -447,7 +447,7 @@ impl Harvest {
         }
         for s in &self.swings {
             let (angle, r) = s.now();
-            let (sx, sy) = at(self.pos[0] + angle.cos() * r, self.pos[1] - 6.0 + angle.sin() * r);
+            let (sx, sy) = at(self.me().pos[0] + angle.cos() * r, self.me().pos[1] - 6.0 + angle.sin() * r);
             c.art_rotated(s.art, sx, sy, scale, angle + super::weapons::SWING_TURN, [lit[0], lit[1], lit[2], lit[3] * s.alpha()]);
         }
         for b in &self.bolts {
@@ -595,7 +595,7 @@ impl Harvest {
     /// While X is held, a crosshair on the barrel the aimed weapons are going for.
     fn barrel_mark(&self, c: &mut Canvas, view_proj: glam::Mat4) {
         let Some(d) = self.barrel_reach().and_then(|reach| self.barrel_in_view(reach)) else { return };
-        let Some(([x, y], dist)) = view3d::to_screen(view_proj, [self.pos[0] + d[0], self.pos[1] + d[1]], 8.0) else { return };
+        let Some(([x, y], dist)) = view3d::to_screen(view_proj, [self.me().pos[0] + d[0], self.me().pos[1] + d[1]], 8.0) else { return };
         let r = (90.0 / dist).clamp(18.0, 60.0) * (1.0 + 0.1 * (self.t * 10.0).sin());
         let red = [1.0, 0.3, 0.2, 0.9];
         for (dx, dy) in [(-1.0, 0.0), (1.0, 0.0), (0.0, -1.0), (0.0, 1.0)] {
@@ -611,7 +611,7 @@ impl Harvest {
         if self.t < super::dawn() || !matches!(self.phase, Phase::Playing | Phase::LevelUp { .. }) {
             return;
         }
-        let d = [self.map.home[0] - self.pos[0], self.map.home[1] - self.pos[1]];
+        let d = [self.map.home[0] - self.me().pos[0], self.map.home[1] - self.me().pos[1]];
         let far = format!("{:.0}m", (d[0] * d[0] + d[1] * d[1]).sqrt() / TILE);
         let pulse = [GOLD[0], GOLD[1], GOLD[2], 0.75 + 0.25 * (self.t * 5.0).sin()];
         let shown = view3d::to_screen(view_proj, self.map.home, 30.0).filter(|([x, y], _)| (60.0..SCREEN_W - 60.0).contains(x) && (120.0..SCREEN_H).contains(y));
@@ -713,7 +713,7 @@ impl Harvest {
         let max = self.kit.max_hp();
         c.rect(bx - 3.0, by - 3.0, bw + 6.0, bh + 6.0, [0.0, 0.0, 0.0, 0.7]);
         c.rect(bx, by, bw * (self.hp_shown / max).clamp(0.0, 1.0), bh, [1.0, 0.9, 0.8, 0.85]);
-        let health = self.hp / max;
+        let health = self.me().hp / max;
         let throb = if health < 0.3 { 0.5 + 0.5 * (self.juice.clock * 10.0).sin() } else { 0.0 };
         c.rect(bx, by, bw * health.clamp(0.0, 1.0), bh, [RED[0] + 0.15 * throb, RED[1] + 0.1 * throb, RED[2], 1.0]);
         if self.range.is_none() {

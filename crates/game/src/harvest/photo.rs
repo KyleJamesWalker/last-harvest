@@ -298,7 +298,7 @@ impl Harvest {
     /// on the cross, Left and Right choose which, Up and Down turn the last and Y takes it back; on Place the d-pad or
     /// stick slides the cross. Nothing else moves.
     pub(super) fn photo(&mut self, input: &Input, dt: f32, sounds: &mut Vec<Sfx>, flow: &mut Flow) {
-        let (focus, yaw, pos, size) = (self.focus(), self.view_yaw, self.pos, [self.map.width_px(), self.map.height_px()]);
+        let (focus, yaw, pos, size) = (self.focus(), self.view_yaw, self.me().pos, [self.map.width_px(), self.map.height_px()]);
         let keep = |at| within(at, pos, size);
         let Some(p) = &mut self.photo else { return };
         if input.pressed.any(Buttons::B | Buttons::START) {
@@ -363,7 +363,7 @@ impl Harvest {
 
     /// Where the camera looks, on the ground ahead of the player.
     fn focus(&self) -> [f32; 2] {
-        [self.pos[0] + self.view_yaw.cos() * FOCUS, self.pos[1] + self.view_yaw.sin() * FOCUS]
+        [self.me().pos[0] + self.view_yaw.cos() * FOCUS, self.me().pos[1] + self.view_yaw.sin() * FOCUS]
     }
 
     /// The few zombies in the picture nearest where the camera looks, nearest first.
@@ -371,7 +371,7 @@ impl Harvest {
         let focus = self.focus();
         let view_proj = view3d::scene(self).view_proj;
         let shown = |z: &Zombie| view3d::to_screen(view_proj, z.pos, 12.0).is_some_and(|([x, y], _)| (0.0..SCREEN_W).contains(&x) && (0.0..SCREEN_H).contains(&y));
-        let mut near: Vec<usize> = (0..self.zombies.len()).filter(|&i| len(sub(self.zombies[i].pos, self.pos)) < PICK_REACH && shown(&self.zombies[i])).collect();
+        let mut near: Vec<usize> = (0..self.zombies.len()).filter(|&i| len(sub(self.zombies[i].pos, self.me().pos)) < PICK_REACH && shown(&self.zombies[i])).collect();
         near.sort_by(|&a, &b| len(sub(self.zombies[a].pos, focus)).total_cmp(&len(sub(self.zombies[b].pos, focus))));
         near.truncate(PICKS);
         near
@@ -437,14 +437,14 @@ impl Harvest {
     /// Where the next prop drops: ahead where the camera looks, or how far out the cross is.
     fn placing(&self) -> String {
         match self.photo.as_ref().and_then(|p| p.spot) {
-            Some(at) => format!("{:.0} tiles out", len(sub(at, self.pos)) / TILE),
+            Some(at) => format!("{:.0} tiles out", len(sub(at, self.me().pos)) / TILE),
             None => "ahead".into(),
         }
     }
 
     /// Where on the bottom edge of the picture a point behind the camera shows, toward the side it is on.
     fn behind(&self, at: [f32; 2]) -> [f32; 2] {
-        let off = norm(sub(at, self.pos));
+        let off = norm(sub(at, self.me().pos));
         let right = off[1] * self.view_yaw.cos() - off[0] * self.view_yaw.sin();
         [SCREEN_W / 2.0 * (1.0 + right), SCREEN_H]
     }
@@ -603,13 +603,13 @@ mod tests {
     #[test]
     fn the_run_holds_still_in_photo_mode() {
         let mut h = photo_mode(4);
-        let (t, pos, hp) = (h.t, h.pos, h.hp);
+        let (t, pos, hp) = (h.t, h.me().pos, h.me().hp);
         let zombies: Vec<[f32; 2]> = h.zombies.iter().map(|z| z.pos).collect();
         assert!(!zombies.is_empty());
         for _ in 0..300 {
             h.update(&Input { held: Buttons::LEFT | Buttons::A | Buttons::X, ..Default::default() }, DT, &mut Vec::new());
         }
-        assert_eq!((h.t, h.pos, h.hp), (t, pos, hp));
+        assert_eq!((h.t, h.me().pos, h.me().hp), (t, pos, hp));
         assert_eq!(h.zombies.iter().map(|z| z.pos).collect::<Vec<_>>(), zombies, "the horde stands where it was");
     }
 
@@ -706,7 +706,7 @@ mod tests {
     /// Photo mode on the Pose setting with the zombie nearest the camera's focus picked.
     fn posing(seed: u64) -> Harvest {
         let mut h = photo_mode(seed);
-        let nearest = h.zombies.iter().map(|z| sub(z.pos, h.pos)).min_by(|a, b| len(*a).total_cmp(&len(*b))).unwrap();
+        let nearest = h.zombies.iter().map(|z| sub(z.pos, h.me().pos)).min_by(|a, b| len(*a).total_cmp(&len(*b))).unwrap();
         h.view_yaw = nearest[1].atan2(nearest[0]);
         for _ in 0..3 {
             press(&mut h, Buttons::L2);
@@ -922,7 +922,7 @@ mod tests {
         assert!(help(&h).contains("[Place: ahead]") && help(&h).contains("move the cross"), "{}", help(&h));
         hold(&mut h, Buttons::UP, 20);
         let ahead = spot(&h).unwrap();
-        assert!(len(sub(ahead, h.pos)) > len(sub(focus, h.pos)) + TILE, "Up slides it away from the camera: {ahead:?}");
+        assert!(len(sub(ahead, h.me().pos)) > len(sub(focus, h.me().pos)) + TILE, "Up slides it away from the camera: {ahead:?}");
         assert_eq!((h.view_yaw, h.zoom), (yaw, zoom), "and moves no camera");
         hold(&mut h, Buttons::RIGHT, 20);
         let right = sub(spot(&h).unwrap(), ahead);
@@ -960,7 +960,7 @@ mod tests {
     fn a_cross_behind_the_camera_still_shows_at_the_bottom_edge() {
         let mut h = placing(24);
         let ahead = guides(&h);
-        let back = [h.pos[0] - h.view_yaw.cos() * 6.0 * TILE, h.pos[1] - h.view_yaw.sin() * 6.0 * TILE];
+        let back = [h.me().pos[0] - h.view_yaw.cos() * 6.0 * TILE, h.me().pos[1] - h.view_yaw.sin() * 6.0 * TILE];
         assert!(view3d::to_screen(view3d::scene(&h).view_proj, back, 0.0).is_none(), "the spot is behind the camera");
         h.photo.as_mut().unwrap().spot = Some(back);
         assert_eq!(guides(&h), ahead, "the cross still shows");
@@ -1006,7 +1006,7 @@ mod tests {
         let mut h = placing(22);
         let width = h.map.width_px();
         h.view_yaw = -std::f32::consts::FRAC_PI_2;
-        h.pos = [width - 4.0 * TILE, 12.0 * TILE];
+        h.me_mut().pos = [width - 4.0 * TILE, 12.0 * TILE];
         h.photo.as_mut().unwrap().spot = Some([width - TILE / 2.0, 10.0 * TILE]);
         for _ in 0..4 {
             press(&mut h, Buttons::R2);
@@ -1038,7 +1038,7 @@ mod tests {
         for held in [Buttons::UP, Buttons::DOWN, Buttons::LEFT, Buttons::RIGHT] {
             hold(&mut h, held, 600);
             let [x, y] = spot(&h).unwrap();
-            assert!(len(sub([x, y], h.pos)) <= PLACE_REACH + 0.01, "{held:?}: {x}, {y}");
+            assert!(len(sub([x, y], h.me().pos)) <= PLACE_REACH + 0.01, "{held:?}: {x}, {y}");
             assert!((0.0..size[0]).contains(&x) && (0.0..size[1]).contains(&y), "{held:?}: {x}, {y}");
         }
         assert_eq!(within([-500.0, -500.0], [10.0, 10.0], size), [TILE / 2.0; 2]);
@@ -1065,14 +1065,14 @@ mod tests {
     #[test]
     fn leaving_after_placing_props_leaves_the_run_as_it_was() {
         let mut h = placing(21);
-        let (t, pos, hp, heading) = (h.t, h.pos, h.hp, h.photo.as_ref().unwrap().heading);
+        let (t, pos, hp, heading) = (h.t, h.me().pos, h.me().hp, h.photo.as_ref().unwrap().heading);
         let (map, solid) = (h.map.props.iter().map(|p| (p.x, p.y)).collect::<Vec<_>>(), blocked(&h));
         hold(&mut h, Buttons::UP | Buttons::RIGHT, 30);
         for _ in 0..3 {
             press(&mut h, Buttons::R2);
         }
         press(&mut h, Buttons::B);
-        assert_eq!((h.t, h.pos, h.hp, h.view_yaw, h.zoom, h.lift), (t, pos, hp, heading, 1.0, 0.0));
+        assert_eq!((h.t, h.me().pos, h.me().hp, h.view_yaw, h.zoom, h.lift), (t, pos, hp, heading, 1.0, 0.0));
         assert_eq!(h.map.props.iter().map(|p| (p.x, p.y)).collect::<Vec<_>>(), map, "the run's map never gets them");
         assert_eq!(blocked(&h), solid, "nor anything blocked where they stood");
         press(&mut h, Buttons::A);

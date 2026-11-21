@@ -201,7 +201,7 @@ pub fn weapon_levels() -> Vec<(String, u32)> {
 pub fn night(plan: &Plan) -> Night {
     let mut h = Harvest::sized(plan.seed, plan.size).at(plan.difficulty);
     h.kit = Kit::forced(&plan.build, plan.difficulty);
-    h.hp = h.kit.max_hp();
+    h.me_mut().hp = h.kit.max_hp();
     h.grenades = h.kit.grenades();
     h.undying = !plan.mortal;
     h.progress.everything = plan.unlocked;
@@ -234,7 +234,7 @@ pub fn night(plan: &Plan) -> Night {
         if ever(plan.throw_every, t) > thrown && matches!(h.phase, Phase::Playing) {
             thrown = ever(plan.throw_every, t);
             let reach = crate::tuning::tuning().quick_near;
-            let to = [h.pos[0] + h.aim[0] * reach, h.pos[1] + h.aim[1] * reach];
+            let to = [h.me().pos[0] + h.aim[0] * reach, h.me().pos[1] + h.aim[1] * reach];
             h.throw_at(to, &mut sounds);
         }
         h.update(&input, plan.step, &mut sounds);
@@ -296,7 +296,7 @@ fn avoid(h: &Harvest) -> f32 {
         .marks
         .iter()
         .filter_map(|m| {
-            let d = sub(m.pos, h.pos);
+            let d = sub(m.pos, h.me().pos);
             let r = len(d).max(4.0);
             (r < AVOID_REACH).then(|| ([d[0] / r, d[1] / r], m.fade() * (1.0 - r / AVOID_REACH) * AVOID_DANGER / r))
         })
@@ -304,22 +304,22 @@ fn avoid(h: &Harvest) -> f32 {
     let half = crate::tuning::tuning().player_half();
     let edge = [h.map.width_px() - TILE, h.map.height_px() - TILE];
     let inside = |p: [f32; 2]| p[0] > TILE && p[1] > TILE && p[0] < edge[0] && p[1] < edge[1];
-    let middle = sub([edge[0] / 2.0, edge[1] / 2.0], h.pos);
-    let back = if inside(h.pos) { [0.0; 2] } else { [middle[0] / len(middle), middle[1] / len(middle)] };
+    let middle = sub([edge[0] / 2.0, edge[1] / 2.0], h.me().pos);
+    let back = if inside(h.me().pos) { [0.0; 2] } else { [middle[0] / len(middle), middle[1] / len(middle)] };
     // How far it gets along `dir`, as a share of AVOID_WALL, and how far its first step gets.
     let walk = |dir: [f32; 2]| {
-        let (mut p, mut first) = (h.pos, 0.0);
+        let (mut p, mut first) = (h.me().pos, 0.0);
         for s in 0..8 {
             let next = h.map.slide(p, [dir[0] * AVOID_WALL / 8.0, dir[1] * AVOID_WALL / 8.0], half);
             if s == 0 {
-                first = len(sub(next, h.pos)) * 8.0 / AVOID_WALL;
+                first = len(sub(next, h.me().pos)) * 8.0 / AVOID_WALL;
             }
-            if !inside(next) && inside(h.pos) {
+            if !inside(next) && inside(h.me().pos) {
                 return (0.0, 0.0);
             }
             p = next;
         }
-        let d = sub(p, h.pos);
+        let d = sub(p, h.me().pos);
         ((d[0] * dir[0] + d[1] * dir[1]) / AVOID_WALL, first)
     };
     let best = (-7..=8)
@@ -467,10 +467,10 @@ mod tests {
     fn the_avoiding_walk_turns_from_a_zombie_it_sees_and_not_from_one_it_does_not() {
         let src = super::super::map::MapSource::new("Open", [40, 40]);
         let mut h = Harvest::calm_on(1, &src).unwrap();
-        h.pos = [20.5 * TILE, 20.5 * TILE];
+        h.me_mut().pos = [20.5 * TILE, 20.5 * TILE];
         h.view_yaw = 0.0;
         assert_eq!(avoid(&h), 0.0, "nothing seen, it walks straight on");
-        let mut z = super::super::Zombie::new(super::super::Kind::common(), [h.pos[0] + 30.0, h.pos[1] + 4.0], 1000.0, 1.0, 0.0);
+        let mut z = super::super::Zombie::new(super::super::Kind::common(), [h.me().pos[0] + 30.0, h.me().pos[1] + 4.0], 1000.0, 1.0, 0.0);
         z.id = 9;
         h.zombies = vec![z];
         h.remember(1.0 / 60.0);

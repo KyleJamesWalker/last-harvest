@@ -7,7 +7,7 @@ use std::f32::consts::TAU;
 use super::map::{Map, TILE};
 use super::powerups::{self, Kind as Card, Stat, book};
 use super::weapons::Kit;
-use super::{GOLD, Harvest, Kind, Phase, Tell, WHITE, effects, len, norm, roster, sub, Fx};
+use super::{GOLD, Harvest, ME, Kind, Phase, Tell, WHITE, effects, len, norm, roster, sub, Fx};
 use crate::rng::Rng;
 use crate::{Align, Buttons, Canvas, Difficulty, Input, SCREEN_W, Sfx};
 
@@ -224,7 +224,7 @@ impl Harvest {
         let def = b.index(&setup.weapon).filter(weapon).or_else(|| (0..b.defs.len()).find(|i| weapon(i) && b.defs[*i].player.is_none())).unwrap_or(0);
         h.kit = Kit::with_weapons(&[def], Difficulty::Normal);
         h.kit.weapons[0].level = setup.level.clamp(1, top_level(def));
-        h.hp = h.kit.max_hp();
+        h.me_mut().hp = h.kit.max_hp();
         h.grenades = h.kit.grenades();
         h.next_xp = u32::MAX;
         h.range = Some(Range { def, kind: roster().common(), by_hand: false, follow: None, slot: 0, clock: 0.0, dealt: VecDeque::new() });
@@ -375,14 +375,14 @@ impl Harvest {
         while self.zombies.len() + self.tells.len() + self.burrowed.len() < RING {
             let a = r.slot as f32 * TAU / RING as f32 + (r.slot / RING) as f32 * 0.37;
             r.slot += 1;
-            let pos = [self.pos[0] + a.cos() * radius, self.pos[1] + a.sin() * radius];
+            let pos = [self.players[ME].pos[0] + a.cos() * radius, self.players[ME].pos[1] + a.sin() * radius];
             self.tells.push(Tell { kind, pos, hp: kind.stats().hp, t: 0.0, leader: false });
         }
         if self.t > CLOCK_LOOP {
             self.t -= CLOCK_LOOP;
         }
         self.xp = 0;
-        self.hp = self.kit.max_hp();
+        self.players[ME].hp = self.kit.max_hp();
         r.clock += dt;
         r.dealt.push_back((r.clock, self.juice.dealt));
         while r.dealt.front().is_some_and(|&(t, _)| t < r.clock - WINDOW) {
@@ -510,21 +510,21 @@ mod tests {
         run(&mut h, 0.1, Input::default());
         assert_eq!(h.tells.len() + h.zombies.len(), RING);
         let radius = h.ring_radius();
-        assert!(h.tells.iter().all(|t| (len(sub(t.pos, h.pos)) - radius).abs() < 0.5));
+        assert!(h.tells.iter().all(|t| (len(sub(t.pos, h.me().pos)) - radius).abs() < 0.5));
     }
 
     #[test]
     fn on_cooldown_it_kills_and_the_ring_rises_again() {
         let mut h = pistol(8);
-        let start = h.pos;
+        let start = h.me().pos;
         run(&mut h, 12.0, Input::default());
         assert!(h.kills > 0, "the pistol killed something");
         assert!(h.range_dps() > 0.0);
         assert_eq!(h.zombies.len() + h.tells.len() + h.burrowed.len(), RING, "the dead rise again");
-        assert_eq!(h.pos, start);
-        assert_eq!(h.hp, h.kit.max_hp(), "the ring never bites");
+        assert_eq!(h.me().pos, start);
+        assert_eq!(h.me().hp, h.kit.max_hp(), "the ring never bites");
         assert_eq!(h.level, 1, "no level-ups");
-        assert!(h.zombies.iter().all(|z| len(sub(z.pos, h.pos)) > h.ring_radius() * 0.5), "the ring stands its ground");
+        assert!(h.zombies.iter().all(|z| len(sub(z.pos, h.me().pos)) > h.ring_radius() * 0.5), "the ring stands its ground");
     }
 
     #[test]
@@ -542,7 +542,7 @@ mod tests {
     #[test]
     fn the_pad_steps_the_level_and_the_kind_in_place() {
         let mut h = pistol(1);
-        let start = h.pos;
+        let start = h.me().pos;
         run(&mut h, 0.0, press(Buttons::UP));
         run(&mut h, 0.0, press(Buttons::UP));
         assert_eq!(h.kit.weapons[0].level, 3);
@@ -557,7 +557,7 @@ mod tests {
         let now = h.range.as_ref().unwrap().kind;
         assert_eq!(now, (kind + 1) % roster().enemies.len());
         assert!(h.tells.iter().map(|t| t.kind.0).chain(h.zombies.iter().map(|z| z.kind.0)).all(|k| k as usize == now));
-        assert_eq!(h.pos, start, "the pad never walked");
+        assert_eq!(h.me().pos, start, "the pad never walked");
     }
 
     #[test]
@@ -577,7 +577,7 @@ mod tests {
     #[test]
     fn a_drag_and_the_wheel_orbit_the_camera_within_its_reach() {
         let mut h = pistol(1);
-        let start = h.pos;
+        let start = h.me().pos;
         run(&mut h, 0.0, Input { orbit: [100.0, 0.0], ..Input::default() });
         let [turn, back] = h.orbit.unwrap();
         assert!((turn - 100.0 * ORBIT_TURN).abs() < 1e-5 && back == 0.0);
@@ -587,7 +587,7 @@ mod tests {
         assert_eq!(h.orbit.unwrap()[1], ORBIT_BACK[1]);
         run(&mut h, 0.0, Input { orbit: [0.0, 1000.0], ..Input::default() });
         assert_eq!(h.orbit.unwrap()[1], ORBIT_BACK[0]);
-        assert_eq!(h.pos, start, "the camera never walked the player");
+        assert_eq!(h.me().pos, start, "the camera never walked the player");
         let eye = |h: &Harvest| super::super::view3d::scene(h).eye;
         let before = eye(&h);
         run(&mut h, 0.0, Input { orbit: [200.0, 0.0], ..Input::default() });
@@ -603,7 +603,7 @@ mod tests {
         run(&mut h, 3.0, Input::default());
         let dogs = h.dogs.len();
         assert!(dogs > 1, "level 8 runs more than one dog");
-        let start = h.pos;
+        let start = h.me().pos;
         for i in 0..dogs {
             run(&mut h, 0.0, press(Buttons::R1));
             assert_eq!(h.range_focus(), Some(h.dogs[i].pos), "dog {i}");
@@ -614,7 +614,7 @@ mod tests {
         run(&mut h, 0.0, press(Buttons::R1));
         assert_eq!(h.range_focus(), None, "after the last dog, back to the player");
         assert_ne!(super::super::view3d::scene(&h).eye, away);
-        assert_eq!(h.pos, start, "R1 never walked the player");
+        assert_eq!(h.me().pos, start, "R1 never walked the player");
     }
 
     #[test]

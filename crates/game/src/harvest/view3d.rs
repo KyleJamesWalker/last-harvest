@@ -63,7 +63,7 @@ fn faces(art: Art, reach: Reach, top: Option<Art>) -> Cow<'static, [Face]> {
 /// The crop cells the 3D view stands from where the player looks, and the cards their columns take.
 pub(super) fn crops_in_view(h: &Harvest) -> (usize, usize) {
     let forward = Vec3::new(h.view_yaw.cos(), 0.0, h.view_yaw.sin());
-    let p = world(h.pos);
+    let p = world(h.me().pos);
     let r = VIEW_RADIUS as i32;
     let (cx, cz) = (p.x as i32, p.z as i32);
     let (mut cells, mut cards) = (0, 0);
@@ -659,7 +659,7 @@ pub fn scene(h: &Harvest) -> CardScene {
     let forward = Vec3::new(yaw.cos(), 0.0, yaw.sin());
     let right = forward.cross(Vec3::Y);
     let focus = h.range_focus();
-    let p = world(focus.unwrap_or(h.pos));
+    let p = world(focus.unwrap_or(h.me().pos));
     let [sx, sy, roll] = j.shake_offset();
     let roll = roll + h.lean * 0.035;
     let bob = if h.walk > 0.0 { (h.walk * crate::tuning::tuning().walk_fps * std::f32::consts::PI / 2.0).sin().abs() * 0.04 } else { 0.0 };
@@ -774,7 +774,7 @@ pub fn scene(h: &Harvest) -> CardScene {
     let climbing = h.burrowed.iter().filter(|z| z.rise > 0.0);
     let mut nearest: Vec<&Zombie> = h.zombies.iter().enumerate().filter(|&(i, _)| !h.lies_dead(i)).map(|(_, z)| z).chain(climbing).collect();
     if nearest.len() > MAX_ZOMBIES_3D {
-        nearest.select_nth_unstable_by(MAX_ZOMBIES_3D, |a, b| len(sub(a.pos, h.pos)).total_cmp(&len(sub(b.pos, h.pos))));
+        nearest.select_nth_unstable_by(MAX_ZOMBIES_3D, |a, b| len(sub(a.pos, h.me().pos)).total_cmp(&len(sub(b.pos, h.me().pos))));
         nearest.truncate(MAX_ZOMBIES_3D);
     }
     for z in nearest {
@@ -797,9 +797,9 @@ pub fn scene(h: &Harvest) -> CardScene {
     let (facing, flip) = facing_from(h.showing(), forward, right);
     let (a, rise) = player_pose(h, facing);
     if h.shown.as_ref().is_none_or(|s| s.player) {
-        board(&mut cards, Board::new(a, flip, h.pos, -(1.0 - rise) * a.h() * PX, CHARACTER_DEPTH));
+        board(&mut cards, Board::new(a, flip, h.me().pos, -(1.0 - rise) * a.h() * PX, CHARACTER_DEPTH));
         if let Some((at, bright)) = player_worn(h, facing) {
-            board(&mut cards, worn_board(a, at, flip, h.pos, bright));
+            board(&mut cards, worn_board(a, at, flip, h.me().pos, bright));
         }
     }
     if let Some(s) = h.shown.as_ref().filter(|s| matches!(s.stand, Stand::Figure { .. }) && !s.frames.is_empty()) {
@@ -852,13 +852,13 @@ pub fn scene(h: &Harvest) -> CardScene {
         let ahead = Vec3::new(angle.cos(), 0.0, angle.sin());
         let side = ahead.cross(Vec3::Y);
         let up = Vec3::Y * tip.cos() + ahead * tip.sin();
-        let origin = world(h.pos) + ahead * (4.0 * PX) - side * (s.art.w() * PX / 2.0) + Vec3::Y * (SMASH_HAND * PX * (1.0 - k) + 0.04);
+        let origin = world(h.me().pos) + ahead * (4.0 * PX) - side * (s.art.w() * PX / 2.0) + Vec3::Y * (SMASH_HAND * PX * (1.0 - k) + 0.04);
         let pose = Pose { origin, right: side, up, back: up.cross(side), depth: PX, tint: [1.0; 3], reach: Reach::Thin, top: None };
         faded(&mut cards, s.alpha() * s.art.alpha(), |cards| stand(cards, eye, s.art, false, pose, false));
     }
     for s in h.swings.iter().filter(|s| !s.smash) {
         let (angle, r) = s.now();
-        let at = [h.pos[0] + angle.cos() * r, h.pos[1] + angle.sin() * r];
+        let at = [h.me().pos[0] + angle.cos() * r, h.me().pos[1] + angle.sin() * r];
         match s.stand.or_else(|| s.art.stand()) {
             Some(Stand::Slab { height, lift }) => faded(&mut cards, s.alpha() * s.art.alpha(), |cards| lying(cards, eye, s.art, world(at), angle + super::weapons::SWING_TURN, height, lift, [1.0; 3])),
             _ => board(&mut cards, Board { alpha: s.alpha(), ..Board::new(s.art, angle.cos() * right.x + angle.sin() * right.z < 0.0, at, 4.0 * PX, 0.0) }),
@@ -1058,7 +1058,7 @@ pub fn scene(h: &Harvest) -> CardScene {
         .iter()
         .map(|f| Flash { pos: world(f.pos) + Vec3::Y * (f.z * PX), color: f.color.map(|c| c * f.strength()), range: f.range * (0.5 + 0.5 * f.strength()) })
         .collect();
-    let health = h.hp / h.kit.max_hp();
+    let health = h.me().hp / h.kit.max_hp();
     let dying = matches!(h.phase, Phase::Over { won: false, .. });
     // Once the player has climbed back out, a sickly light comes up on what they've become.
     let turned = match h.phase {
@@ -1329,7 +1329,7 @@ mod tests {
         h.barrels.clear();
         let without = scene(&h).cards.len();
         let drawn = |h: &mut Harvest, tiles: [f32; 2]| {
-            h.barrels = vec![super::super::Barrel { pos: [h.pos[0] + tiles[0] * TILE, h.pos[1] + tiles[1] * TILE], hp: 1.0, flash: 0.0 }];
+            h.barrels = vec![super::super::Barrel { pos: [h.me().pos[0] + tiles[0] * TILE, h.me().pos[1] + tiles[1] * TILE], hp: 1.0, flash: 0.0 }];
             scene(h).cards.len() > without
         };
         assert!(drawn(&mut h, [0.0, 2.0]), "level with the player, off to the side");
@@ -1346,7 +1346,7 @@ mod tests {
         use crate::harvest::{Fx, Kind, Zombie, effects::effects};
         let mut h = Harvest::calm(7);
         h.view_yaw = 0.0;
-        let at = [h.pos[0] + 3.0 * TILE, h.pos[1]];
+        let at = [h.me().pos[0] + 3.0 * TILE, h.me().pos[1]];
         let kind = Kind::named("skinny");
         h.zombies.push(Zombie::new(kind, at, 10.0, 0.0, 0.0));
         let eruption = effects().zombie_rises;
@@ -1397,16 +1397,16 @@ mod tests {
         for i in 0..300 {
             let a = i as f32 * 0.37;
             let r = 12.0 + (i % 40) as f32 * 3.0;
-            h.zombies.push(Zombie::new(Kind::named("skinny"), [h.pos[0] + a.cos() * r, h.pos[1] + a.sin() * r], 10.0, 1.0, 0.0));
+            h.zombies.push(Zombie::new(Kind::named("skinny"), [h.me().pos[0] + a.cos() * r, h.me().pos[1] + a.sin() * r], 10.0, 1.0, 0.0));
         }
         for i in 0..60 {
             let a = i as f32 * 0.5;
-            let at = [h.pos[0] + a.cos() * 40.0, h.pos[1] + a.sin() * 40.0];
+            let at = [h.me().pos[0] + a.cos() * 40.0, h.me().pos[1] + a.sin() * 40.0];
             h.juice.corpse(Corpse { art: art::SKINNY_HURT[0], dead: None, flip: false, pos: at, z: 0.0, vel: [0.0; 2], vz: 0.0, fall: [1.0, 0.0], age: 1.0, spin: 0.0 });
             h.juice.burst(at, 8.0, 12, [0.0; 2], 0.0, [10.0, 40.0], blood(), 1.5, 1.0, 0.0);
         }
-        h.juice.ring(h.pos, 80.0, 1.0, blood());
-        h.juice.ring(h.pos, 40.0, 1.0, blood());
+        h.juice.ring(h.me().pos, 80.0, 1.0, blood());
+        h.juice.ring(h.me().pos, 40.0, 1.0, blood());
         let mut worst = 0;
         for yaw in 0..8 {
             h.view_yaw = yaw as f32 * std::f32::consts::FRAC_PI_4;

@@ -334,7 +334,7 @@ impl Showcase {
         }
         // A step to the side keeps a shown player from standing between the camera and the sprite.
         let aside = if s.player { 14.0 } else { 0.0 };
-        h.pos = [s.pos[0] - forward[0] * distance - right[0] * aside, s.pos[1] - forward[1] * distance - right[1] * aside];
+        h.me_mut().pos = [s.pos[0] - forward[0] * distance - right[0] * aside, s.pos[1] - forward[1] * distance - right[1] * aside];
         h.view_yaw = yaw;
         h.aim = forward;
         for s in &mut h.swings {
@@ -479,7 +479,7 @@ mod tests {
         let rows: String = (0..54).map(|y| format!("{}\n", if (2..52).contains(&y) { "c".repeat(72) } else { ".".repeat(72) })).collect();
         let src = super::super::map::MapSource::parse(&format!("name Corn\nsize 72 54\nspawn 36 1\nhome 37 1\nground\n{rows}props\n")).unwrap();
         let mut h = Harvest::calm_on(7, &src).unwrap();
-        h.pos = [36.0 * TILE, 30.0 * TILE];
+        h.me_mut().pos = [36.0 * TILE, 30.0 * TILE];
         let laid: Vec<Option<Stalk>> = (0..h.map.h).flat_map(|y| (0..h.map.w).map(move |x| (x, y))).map(|(x, y)| h.map.standing(x, y)).collect();
         for (tall, sway) in [(3, true), (3, false), (1, true), (1, false)] {
             for (i, k) in laid.iter().enumerate() {
