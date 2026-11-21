@@ -98,6 +98,7 @@ Options make the player closer to a real one. The defaults replay older CSVs exa
 | `--no-throw` | Lobs no grenades, the same as `--throw-every 0`. The 12 s default flatters blast passives. |
 | `--secs S` | Past 600 the night goes on after dawn, the Harvester awake and the dead growing stronger. A walker that happens home ends its night there. |
 | `--net-sim SPEC` | Plays each seed online instead: a second, scripted player is a client behind a simulated link (`loss=0.1,lat=80,jitter=20`, in ms, any left out), its input crossing to the host and snapshots crossing back. Prints bytes a second each way and how far the client's picture strays from the host's, in pixels. |
+| `--replay FILE` | Plays a recorded night again instead. See [Replays](#replays). |
 | `--players N` | 1 to 4 players, each walking the same script from its own spot by the spawn and carrying the build. A mortal night ends once all have fallen; a fallen player leads the dead at the nearest living one until then. The table adds a line per player (kills, useful damage, hearts, falls) and the first fall of any; the weapon lines are the first player's. |
 
 With a pick, the forced build is the starting kit and cards add to it; `--json` records each night's final build and the cards taken, with the time of each. The CSV's first line is a `#` comment with the settings it ran under; `--diff` and `report.py` skip it.
@@ -126,6 +127,25 @@ The table and the CSV give, per build and per weapon in it, mean over seeds:
 | `cap`, `ceil` | The share of the night at the zombie cap, and whether the build hit the kill-rate ceiling: the field never filled and nearly every zombie that rose died, so the spawn rate, not the build, held its kills back. |
 
 `grenades` covers grenades and barrels. `--json` writes every night played.
+
+### Replays
+
+The game records every night it plays or hosts: the night's setup, each tick's input that changed and a checksum of where every player and zombie stood. It writes the replay, gzipped, when the night ends, is left, or the game closes, into `replays/` beside `save.txt`, and keeps the last 10 as `night-<unix seconds>-<n>.lhr`. A 12-minute night is about 30 to 80 KB. An online client records nothing; the host's replay holds every seat's input as the host played it. The web game and Android don't record yet.
+
+The sandbox plays a replay again headless and checks it tick by tick. It prints the header, then `match`, or the first tick that drifted and the first checkpoint that differs, and exits 1. `--watch dogs` also counts what each player's dogs spent the night doing. `--record` writes a sandbox night as a replay.
+
+```sh
+target/release/last-harvest-sandbox --replay night-1795237918-00.lhr --watch dogs
+target/release/last-harvest-sandbox pistol:3,dog:3 --seed 7 --pick held --walk avoid --record dog.lhr
+```
+
+A replay plays exactly only with the same build and data, on the same kind of device: its header names the game's version, a fingerprint of the data, the pack, the mods and the device, and the sandbox flags any that differ here. Pull replays from a handheld over SSH:
+
+```sh
+scp 'root@anbernic.local:/userdata/last-harvest/replays/*.lhr' .          # RG DS, deploy.sh
+scp 'root@anbernic.local:/mnt/sdcard/PORTS/last-harvest/replays/*.lhr' .  # RG DS, install.sh
+scp 'muos:/mnt/sdcard/MUOS/application/LastHarvest/replays/*.lhr' .       # muOS, card 2; /mnt/mmc for card 1
+```
 
 ### Balance matrix
 

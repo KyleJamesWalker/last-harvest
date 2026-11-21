@@ -39,7 +39,7 @@ PORTS/last-harvest/
   data/maps/*.map.txt          maps
   data/mods/*.pak              mod packs
   data/no-updates              if present, the launcher does not update the game
-  save.txt  log.txt  crash.log  screenshots/
+  save.txt  log.txt  crash.log  screenshots/  replays/
   .update/                     the launcher's downloads in progress
 ```
 
