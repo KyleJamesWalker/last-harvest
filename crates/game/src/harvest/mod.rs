@@ -590,39 +590,42 @@ impl Zombie {
     }
 }
 
-/// Whether the player shows its flash frame this instant, blinking while invulnerable.
-fn blinking(h: &Harvest) -> bool {
-    h.me().hurt > 0.0 && ((h.me().hurt * 20.0) as u32).is_multiple_of(2)
+/// Whether player `p` shows its flash frame this instant, blinking while invulnerable.
+fn blinking(h: &Harvest, p: PlayerId) -> bool {
+    let pl = &h.players[p];
+    pl.hurt > 0.0 && ((pl.hurt * 20.0) as u32).is_multiple_of(2)
 }
 
-/// Which walk frame the player shows: standing, or one of two steps.
-fn walk_frame(h: &Harvest) -> usize {
-    if h.me().walk > 0.0 { 1 + (h.me().walk * crate::tuning::tuning().walk_fps) as usize % 2 } else { 0 }
+/// Which walk frame player `p` shows: standing, or one of two steps.
+fn walk_frame(h: &Harvest, p: PlayerId) -> usize {
+    let pl = &h.players[p];
+    if pl.walk > 0.0 { 1 + (pl.walk * crate::tuning::tuning().walk_fps) as usize % 2 } else { 0 }
 }
 
-/// The player's frame for a facing: flashing while invulnerable, red just after a hit, else walking.
-fn art_for(h: &Harvest, look: &Look, facing: Facing) -> Art {
+/// Player `p`'s frame for a facing: flashing while invulnerable, red just after a hit, else walking.
+fn art_for(h: &Harvest, p: PlayerId, look: &Look, facing: Facing) -> Art {
     let i = facing.index();
-    if blinking(h) {
+    if blinking(h, p) {
         look.flash[i]
-    } else if h.me().hurt > h.difficulty.hurt_time() - 0.2 {
+    } else if h.players[p].hurt > h.difficulty.hurt_time() - 0.2 {
         look.hurt[i]
     } else {
-        look.walk[i][walk_frame(h)]
+        look.walk[i][walk_frame(h, p)]
     }
 }
 
-/// Where the player wears a ready grenade on its frame for `facing`, in that frame's pixels, and how bright it
-/// draws; None with none ready, while the player blinks, once the run is over, or where its look hides it.
-fn player_worn(h: &Harvest, facing: Facing) -> Option<([u8; 2], f32)> {
-    if h.me().grenades < 1.0 || blinking(h) || matches!(h.phase, Phase::Over { .. }) {
+/// Where player `p` wears a ready grenade on its frame for `facing`, in that frame's pixels, and how bright it
+/// draws; None with none ready, while they blink, once they or the run are over, or where their look hides it.
+fn player_worn(h: &Harvest, p: PlayerId, facing: Facing) -> Option<([u8; 2], f32)> {
+    let pl = &h.players[p];
+    if pl.grenades < 1.0 || blinking(h, p) || !pl.alive() || matches!(h.phase, Phase::Over { .. }) {
         return None;
     }
-    let walk = &players::look(&h.me().look).look.walk[facing.index()];
+    let walk = &players::look(&pl.look).look.walk[facing.index()];
     // A hurt frame wears it where the standing frame does.
-    let frame = if h.me().hurt > h.difficulty.hurt_time() - 0.2 { 0 } else { walk_frame(h) };
+    let frame = if pl.hurt > h.difficulty.hurt_time() - 0.2 { 0 } else { walk_frame(h, p) };
     let at = walk[frame.min(walk.len() - 1)].worn_at()?;
-    Some((at, if h.me().ready_flash > 0.0 { READY_BRIGHT } else { 1.0 }))
+    Some((at, if pl.ready_flash > 0.0 { READY_BRIGHT } else { 1.0 }))
 }
 
 /// Where the worn grenade's top-left goes on frame `a`, in game pixels, for its middle on the frame's texture pixel
@@ -634,11 +637,15 @@ fn worn_corner(at: [u8; 2], a: Art, flip: bool) -> [f32; 2] {
     [x - 0.5 - (g.w() / 2.0).floor(), y - 0.5 - (g.h() / 2.0).floor()]
 }
 
-/// The player's frame for a facing, and how far out of the ground it stands, 0 to 1. Once dead, it sinks
+/// Player `p`'s frame for a facing, and how far out of the ground it stands, 0 to 1. Once fallen, it sinks
 /// and climbs back out as a zombie.
-fn player_pose(h: &Harvest, facing: Facing) -> (Art, f32) {
-    let look = &players::look(&h.me().look).look;
-    let Phase::Over { t, won: false } = h.phase else { return (art_for(h, look, facing), 1.0) };
+fn player_pose(h: &Harvest, p: PlayerId, facing: Facing) -> (Art, f32) {
+    let look = &players::look(&h.players[p].look).look;
+    let fallen = match h.phase {
+        Phase::Over { t, won: false } if p == ME => Some(t),
+        _ => h.players[p].down,
+    };
+    let Some(t) = fallen else { return (art_for(h, p, look, facing), 1.0) };
     let i = facing.index();
     if t < TURN_RISE {
         (look.dead.map_or(look.hurt[i], |d| d[i]), 1.0 - ((t - TURN_FALL) / (TURN_SINK - TURN_FALL)).clamp(0.0, 1.0))
@@ -1795,8 +1802,14 @@ impl Harvest {
     }
 
     /// The way the player's sprite faces: the old heading while B swings the camera round, else where they aim.
+    #[cfg(test)]
     fn showing(&self) -> [f32; 2] {
-        if self.me().spin > 0.0 { self.me().turned_from } else { self.me().aim }
+        self.showing_of(ME)
+    }
+
+    fn showing_of(&self, p: PlayerId) -> [f32; 2] {
+        let pl = &self.players[p];
+        if pl.down.is_some() { pl.heading } else if pl.spin > 0.0 { pl.turned_from } else { pl.aim }
     }
 
     /// B: the camera swings round while the player keeps their old heading, so it sweeps past their front.
@@ -3189,6 +3202,9 @@ fn clock(t: f32) -> String {
 }
 
 #[cfg(test)]
+mod coop;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -3485,18 +3501,18 @@ mod tests {
         let look = &players::look(&h.me().look).look;
         // The look may hide it on some facings; this one shows it.
         let Some((facing, at)) = [Facing::Front, Facing::Side, Facing::Back].into_iter().find_map(|f| Some((f, look.walk[f.index()][0].worn_at()?))) else { return };
-        assert_eq!(player_worn(&h, facing), Some((at, 1.0)));
+        assert_eq!(player_worn(&h, ME, facing), Some((at, 1.0)));
         h.me_mut().grenades = 0.5;
-        assert_eq!(player_worn(&h, facing), None, "none ready, none worn");
+        assert_eq!(player_worn(&h, ME, facing), None, "none ready, none worn");
         h.update(&Input::default(), crate::tuning::tuning().grenade_recharge * h.me().kit.mods.recharge, &mut sounds);
-        assert_eq!(player_worn(&h, facing).map(|w| w.1), Some(READY_BRIGHT), "it flashes as it comes ready");
+        assert_eq!(player_worn(&h, ME, facing).map(|w| w.1), Some(READY_BRIGHT), "it flashes as it comes ready");
         h.update(&Input::default(), READY_FLASH, &mut sounds);
-        assert_eq!(player_worn(&h, facing).map(|w| w.1), Some(1.0));
+        assert_eq!(player_worn(&h, ME, facing).map(|w| w.1), Some(1.0));
         h.me_mut().hurt = 0.5;
-        assert!(blinking(&h) && player_worn(&h, facing).is_none(), "it blinks with the player");
+        assert!(blinking(&h, ME) && player_worn(&h, ME, facing).is_none(), "it blinks with the player");
         h.me_mut().hurt = 0.0;
         h.phase = Phase::Over { t: 0.0, won: false };
-        assert_eq!(player_worn(&h, facing), None, "the dead wear nothing");
+        assert_eq!(player_worn(&h, ME, facing), None, "the dead wear nothing");
     }
 
     #[test]
@@ -4041,13 +4057,13 @@ mod tests {
         assert!(matches!(h.phase, Phase::Over { won: false, .. }));
         let a = Input { pressed: Buttons::A, ..Default::default() };
         h.update(&Input::default(), TURN_SINK, &mut sounds);
-        assert_eq!(player_pose(&h, Facing::Front).1, 0.0, "under the dirt");
+        assert_eq!(player_pose(&h, ME, Facing::Front).1, 0.0, "under the dirt");
         h.update(&a, 0.016, &mut sounds);
         assert!(matches!(h.phase, Phase::Over { .. }), "too soon to start over");
         h.update(&Input::default(), TURN_RISE - TURN_SINK, &mut sounds);
         assert!(sounds.contains(&Sfx::Turn));
         h.update(&Input::default(), TURNED - TURN_RISE + 0.7, &mut sounds);
-        let (art, rise) = player_pose(&h, Facing::Front);
+        let (art, rise) = player_pose(&h, ME, Facing::Front);
         assert_eq!(rise, 1.0);
         assert!(art::SKINNY_FRONT.contains(&art), "back up as one of them");
         h.update(&a, 0.016, &mut sounds);

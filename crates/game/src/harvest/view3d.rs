@@ -10,7 +10,7 @@ use super::carve;
 use super::map::TILE;
 use crate::art::Stand;
 use super::weapons::{BOLT_LIFE, Hazard};
-use super::{DropKind, Facing, Harvest, Phase, TELL_TIME, TURN_RISE, TURNED, Thrown, Zombie, len, player_pose, player_worn, sub, worn_corner};
+use super::{DropKind, Facing, Harvest, ME, Phase, TELL_TIME, TURN_RISE, TURNED, Thrown, Zombie, len, player_pose, player_worn, sub, worn_corner};
 use crate::art::{self, ATLAS_H, ATLAS_W, Art};
 use crate::scene3d::{Card, CardScene, Flash};
 use crate::{SCREEN_H, SCREEN_W};
@@ -794,12 +794,15 @@ pub fn scene(h: &Harvest) -> CardScene {
         b.lean = Vec3::new(z.knock[0], 0.0, z.knock[1]) * (0.35 * s);
         board(&mut cards, b);
     }
-    let (facing, flip) = facing_from(h.showing(), forward, right);
-    let (a, rise) = player_pose(h, facing);
-    if h.shown.as_ref().is_none_or(|s| s.player) {
-        board(&mut cards, Board::new(a, flip, h.me().pos, -(1.0 - rise) * a.h() * PX, CHARACTER_DEPTH));
-        if let Some((at, bright)) = player_worn(h, facing) {
-            board(&mut cards, worn_board(a, at, flip, h.me().pos, bright));
+    for (pn, pl) in h.players.iter().enumerate() {
+        if pn == ME && h.shown.as_ref().is_some_and(|s| !s.player) {
+            continue;
+        }
+        let (facing, flip) = facing_from(h.showing_of(pn), forward, right);
+        let (a, rise) = player_pose(h, pn, facing);
+        board(&mut cards, Board::new(a, flip, pl.pos, -(1.0 - rise) * a.h() * PX, CHARACTER_DEPTH));
+        if let Some((at, bright)) = player_worn(h, pn, facing) {
+            board(&mut cards, worn_board(a, at, flip, pl.pos, bright));
         }
     }
     if let Some(s) = h.shown.as_ref().filter(|s| matches!(s.stand, Stand::Figure { .. }) && !s.frames.is_empty()) {
@@ -832,11 +835,11 @@ pub fn scene(h: &Harvest) -> CardScene {
         b.lean = right * ((d.age * (10.0 + 30.0 * k)).sin() * 0.08 * k);
         board(&mut cards, b);
     }
-    for d in h.me().dogs.iter().filter(|d| (world(d.pos) - p).dot(forward) >= 0.0) {
+    for d in h.players.iter().flat_map(|p| &p.dogs).filter(|d| (world(d.pos) - p).dot(forward) >= 0.0) {
         let flip = d.heading[0] * right.x + d.heading[1] * right.z < 0.0;
         board(&mut cards, Board::new(d.art(), flip, d.pos, d.lift() * PX, CHARACTER_DEPTH));
     }
-    for d in h.me().drones.iter().filter(|d| (world(d.pos) - p).dot(forward) >= 0.0) {
+    for d in h.players.iter().flat_map(|p| &p.drones).filter(|d| (world(d.pos) - p).dot(forward) >= 0.0) {
         let flip = d.heading[0] * right.x + d.heading[1] * right.z < 0.0;
         board(&mut cards, Board::new(d.art(), flip, d.pos, d.lift() * PX, CHARACTER_DEPTH));
     }
@@ -845,20 +848,20 @@ pub fn scene(h: &Harvest) -> CardScene {
         let a = crow.looping(h.t + i as f32 / crow.fps);
         board(&mut cards, Board::new(a, flip, p, 12.0 * PX, 0.0));
     }
-    for s in h.me().swings.iter().filter(|s| s.smash) {
+    for (owner, s) in h.players.iter().flat_map(|pl| pl.swings.iter().map(move |s| (pl.pos, s))).filter(|(_, s)| s.smash) {
         let (angle, _) = s.now();
         let k = (s.age / s.life).min(1.0);
         let tip = SMASH_RAISED + (std::f32::consts::FRAC_PI_2 - SMASH_RAISED) * k * k;
         let ahead = Vec3::new(angle.cos(), 0.0, angle.sin());
         let side = ahead.cross(Vec3::Y);
         let up = Vec3::Y * tip.cos() + ahead * tip.sin();
-        let origin = world(h.me().pos) + ahead * (4.0 * PX) - side * (s.art.w() * PX / 2.0) + Vec3::Y * (SMASH_HAND * PX * (1.0 - k) + 0.04);
+        let origin = world(owner) + ahead * (4.0 * PX) - side * (s.art.w() * PX / 2.0) + Vec3::Y * (SMASH_HAND * PX * (1.0 - k) + 0.04);
         let pose = Pose { origin, right: side, up, back: up.cross(side), depth: PX, tint: [1.0; 3], reach: Reach::Thin, top: None };
         faded(&mut cards, s.alpha() * s.art.alpha(), |cards| stand(cards, eye, s.art, false, pose, false));
     }
-    for s in h.me().swings.iter().filter(|s| !s.smash) {
+    for (owner, s) in h.players.iter().flat_map(|pl| pl.swings.iter().map(move |s| (pl.pos, s))).filter(|(_, s)| !s.smash) {
         let (angle, r) = s.now();
-        let at = [h.me().pos[0] + angle.cos() * r, h.me().pos[1] + angle.sin() * r];
+        let at = [owner[0] + angle.cos() * r, owner[1] + angle.sin() * r];
         match s.stand.or_else(|| s.art.stand()) {
             Some(Stand::Slab { height, lift }) => faded(&mut cards, s.alpha() * s.art.alpha(), |cards| lying(cards, eye, s.art, world(at), angle + super::weapons::SWING_TURN, height, lift, [1.0; 3])),
             _ => board(&mut cards, Board { alpha: s.alpha(), ..Board::new(s.art, angle.cos() * right.x + angle.sin() * right.z < 0.0, at, 4.0 * PX, 0.0) }),
