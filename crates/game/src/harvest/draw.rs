@@ -1,5 +1,8 @@
 //! Both screens' 2D drawing: the map below, and the HUD, numbers and overlays over the 3D view above.
 
+// Drawing only: nothing here may feed Harvest::update, so std's float functions are fine.
+#![allow(clippy::disallowed_methods)]
+
 use std::f32::consts::{PI, TAU};
 
 use super::juice::{self, Tone};
@@ -411,7 +414,7 @@ impl Harvest {
             let a = crow.looping(self.t + i as f32 / crow.fps);
             sprites.push((p[1], a, p[0] - a.w() / 2.0, p[1] - a.h() - 12.0, flip, 1.0, [1.0; 4]));
         }
-        for (p, pl) in self.players.iter().enumerate().filter(|(_, pl)| pl.lead.is_none()) {
+        for (p, pl) in self.players.iter().enumerate().filter(|(_, pl)| pl.lead.is_none() && !pl.sunk_away()) {
             let (facing, flip) = pl.facing;
             let (a, rise) = player_pose(self, p, facing);
             if p != ME || self.shown.as_ref().is_none_or(|s| s.player) {
@@ -682,7 +685,7 @@ impl Harvest {
     /// Each other player's number over them in the view ahead, or at the edge they lie past when out of sight.
     fn teammates(&self, c: &mut Canvas, view_proj: glam::Mat4) {
         let (fwd, right) = ([self.me().view_yaw.cos(), self.me().view_yaw.sin()], [-self.me().view_yaw.sin(), self.me().view_yaw.cos()]);
-        for (p, pl) in self.players.iter().enumerate().filter(|&(p, pl)| p != ME && !pl.picking()) {
+        for (p, pl) in self.players.iter().enumerate().filter(|&(p, pl)| p != ME && !pl.picking() && !pl.sunk_away()) {
             let color = if pl.alive() { WHITE } else { RED };
             let name = format!("P{}", self.number(p));
             let [x0, y0, x1, y1] = self.seen_box();
@@ -711,7 +714,7 @@ impl Harvest {
 
     /// Each other player's number on a map `size` pixels across and down, pinned to the edge when they're off it.
     pub(super) fn teammates_on_map(&self, c: &mut Canvas, cam: [f32; 2], [w, h]: [f32; 2]) {
-        for (p, pl) in self.players.iter().enumerate().filter(|&(p, pl)| p != ME && !pl.picking()) {
+        for (p, pl) in self.players.iter().enumerate().filter(|&(p, pl)| p != ME && !pl.picking() && !pl.sunk_away()) {
             let x = ((pl.pos[0] - cam[0]) * map_scale()).clamp(30.0, w - 30.0);
             let y = ((pl.pos[1] - cam[1]) * map_scale()).clamp(60.0, h - 30.0);
             c.label(format!("P{}", self.number(p)), x, y - 44.0, 28.0, if pl.alive() { WHITE } else { RED }, Align::Center);

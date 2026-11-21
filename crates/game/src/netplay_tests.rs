@@ -1,3 +1,4 @@
+use crate::fmath as fm;
 use crate::netplay::Request;
 use crate::{Buttons, Game, Input};
 
@@ -90,15 +91,15 @@ fn a_host_and_a_client_play_one_night_and_the_client_draws_what_the_host_has() {
             let host = pair.games[0].zombie_spots();
             for (id, at) in pair.games[1].zombie_spots() {
                 if let Some((_, h)) = host.iter().find(|z| z.0 == id) {
-                    drift.push(((at[0] - h[0]).powi(2) + (at[1] - h[1]).powi(2)).sqrt());
+                    drift.push((fm::powi(at[0] - h[0], 2) + fm::powi(at[1] - h[1], 2)).sqrt());
                 }
             }
         }
     }
     let after = pair.games[0].player_spots()[1];
-    assert!(((after[0] - before[0]).powi(2) + (after[1] - before[1]).powi(2)).sqrt() > 40.0, "the client's input walks its player on the host");
+    assert!((fm::powi(after[0] - before[0], 2) + fm::powi(after[1] - before[1], 2)).sqrt() > 40.0, "the client's input walks its player on the host");
     let seen = pair.games[1].player_spots()[0];
-    assert!(((seen[0] - after[0]).powi(2) + (seen[1] - after[1]).powi(2)).sqrt() < 24.0, "the client predicts its own player near where the host has it: {seen:?} {after:?}");
+    assert!((fm::powi(seen[0] - after[0], 2) + fm::powi(seen[1] - after[1], 2)).sqrt() < 24.0, "the client predicts its own player near where the host has it: {seen:?} {after:?}");
     assert!(!drift.is_empty(), "zombies rose and were drawn");
     let mean = drift.iter().sum::<f32>() / drift.len() as f32;    assert!(mean < 12.0, "zombies drift {mean} px on average");
     let t = pair.games[1].net_traffic().unwrap();
@@ -174,10 +175,10 @@ fn a_client_who_turns_leads_the_dead_from_its_own_end_and_picks_its_rise() {
     }
     let crate::State::Harvest(h) = &pair.games[0].state else { panic!() };
     let at = h.lead_for_test(1).unwrap().1;
-    assert!(((at[0] - from[0]).powi(2) + (at[1] - from[1]).powi(2)).sqrt() > 25.0, "the client's pad walks its leader on the host");
+    assert!((fm::powi(at[0] - from[0], 2) + fm::powi(at[1] - from[1], 2)).sqrt() > 25.0, "the client's pad walks its leader on the host");
     let crate::State::Harvest(c) = &pair.games[1].state else { panic!() };
     let seen = c.lead_for_test(0).unwrap().1;
-    assert!(((seen[0] - at[0]).powi(2) + (seen[1] - at[1]).powi(2)).sqrt() < 16.0, "the client predicts its leader near the host's: {seen:?} {at:?}");
+    assert!((fm::powi(seen[0] - at[0], 2) + fm::powi(seen[1] - at[1], 2)).sqrt() < 16.0, "the client predicts its leader near the host's: {seen:?} {at:?}");
     let crate::State::Harvest(h) = &mut pair.games[0].state else { panic!() };
     h.fell_leader_for_test(1);
     pair.idle(0.3);
@@ -328,4 +329,43 @@ fn a_client_that_hears_nothing_from_the_host_leaves_the_night() {
     pair.idle(11.0);
     assert!(!pair.games[1].in_run());
     assert_eq!(pair.games[1].online.message, "Lost the connection to the host.");
+}
+
+#[test]
+fn a_client_sees_the_drivers_ticket_as_the_host_has_it_and_the_cash_in_whoever_makes_it() {
+    let mut pair = Pair::started();
+    pair.idle(1.0);
+    assert!(host_harvest(&mut pair).ticket_for_test().is_none(), "no ticket this early");
+    host_harvest(&mut pair).ready_ticket_for_test();
+    pair.idle(0.5);
+    let driver = host_harvest(&mut pair).ticket_for_test();
+    assert!(driver.is_some(), "the host's ticket is ready");
+    let crate::State::Harvest(c) = &pair.games[1].state else { panic!() };
+    assert_eq!(c.ticket_for_test(), driver, "the client draws the coin over the driver too");
+    host_harvest(&mut pair).walk_to_driver_for_test(0);
+    pair.idle(0.5);
+    assert!(host_harvest(&mut pair).ticket_for_test().is_none(), "the host cashed in");
+    let crate::State::Harvest(c) = &mut pair.games[1].state else { panic!() };
+    assert!(c.ticket_for_test().is_none(), "and the client's coin is gone with it");
+    let mut f = crate::Frame::default();
+    c.draw(&mut f, false);
+    let said = |s: &crate::Shape| matches!(s, crate::Shape::Text { text, .. } if text.contains("SOUL HARVEST"));
+    assert!(f.top.shapes.iter().chain(&f.bottom.shapes).any(said), "the client hears of the cash-in");
+}
+
+#[test]
+fn a_clients_end_screen_shows_the_hosts_tally_for_its_player() {
+    let mut pair = Pair::started();
+    pair.idle(15.0);
+    let h = host_harvest(&mut pair);
+    h.fall_for_test(0);
+    h.fall_for_test(1);
+    pair.idle(1.0);
+    assert_eq!(host_harvest(&mut pair).phase_for_test(), 2, "the night is over");
+    let want = host_harvest(&mut pair).end_numbers_for_test(1);
+    assert!(want.len() > 7 && want[want.len() - 7] > 0.0, "the client's player held a weapon and dealt damage: {want:?}");
+    let crate::State::Harvest(c) = &pair.games[1].state else { panic!() };
+    let got = c.end_numbers_for_test(0);
+    assert_eq!(got.len(), want.len(), "the same rows: {got:?} {want:?}");
+    assert!(got.iter().zip(&want).all(|(g, w)| (g - w).abs() <= 0.5 + 0.01 * w.abs()), "the same numbers: {got:?} {want:?}");
 }

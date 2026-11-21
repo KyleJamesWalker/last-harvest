@@ -1,6 +1,7 @@
 //! The client's picture of the host's world: zombies and other players drawn a little in the past between
 //! snapshots, local players predicted from their own input and eased toward where the host has them.
 
+use crate::fmath as fm;
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::f32::consts::{PI, TAU};
 
@@ -88,7 +89,7 @@ impl Track {
 }
 
 fn dist(a: [f32; 2], b: [f32; 2]) -> f32 {
-    ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2)).sqrt()
+    (fm::powi(a[0] - b[0], 2) + fm::powi(a[1] - b[1], 2)).sqrt()
 }
 
 fn wrap(a: f32) -> f32 {
@@ -233,7 +234,7 @@ impl Mirror {
             let spun = own.spin.min(PI / SPIN_TIME * DT);
             own.spin -= spun;
             own.yaw = (own.yaw + turn * turn_speed * DT + spun).rem_euclid(TAU);
-            let f = [own.yaw.cos(), own.yaw.sin()];
+            let f = [fm::cos(own.yaw), fm::sin(own.yaw)];
             let (side, ahead) = (dir[0], -dir[1]);
             let mv = [f[0] * ahead - f[1] * side, f[1] * ahead + f[0] * side];
             let l = (mv[0] * mv[0] + mv[1] * mv[1]).sqrt();

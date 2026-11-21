@@ -1,5 +1,8 @@
 //! Photo mode: the paused run held still, horde and all, while the camera turns, zooms and rises round the player.
 
+// Drawing only: nothing here may feed Harvest::update, so std's float functions are fine.
+#![allow(clippy::disallowed_methods)]
+
 use super::juice::{CORPSE_FALL, Corpse};
 use super::map::TILE;
 use super::{Facing, Flow, Harvest, ME, PAUSE_PHOTO, map_scale, Zombie, len, norm, sub, view3d};

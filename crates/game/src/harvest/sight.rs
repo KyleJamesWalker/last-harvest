@@ -1,5 +1,6 @@
 //! What the map knows: a zombie shows where the view ahead last saw it, and fades once out of sight.
 
+use crate::fmath as fm;
 use std::f32::consts::{PI, TAU};
 
 use super::{Harvest, ME, Phase, PlayerId, Zombie, clear_shot, len, sub};
@@ -55,7 +56,7 @@ impl Harvest {
             return false;
         }
         if r > 1.0 {
-            let off = (d[1].atan2(d[0]) - pl.view_yaw + PI).rem_euclid(TAU) - PI;
+            let off = (fm::atan2(d[1], d[0]) - pl.view_yaw + PI).rem_euclid(TAU) - PI;
             if off.abs() > crate::tuning::tuning().view_half * pl.kit.mods.view {
                 return false;
             }
@@ -71,7 +72,7 @@ impl Harvest {
         let r = len(d);
         let sight = crate::tuning::tuning().map_sight;
         let far = smoothstep((r - sight) / (sight * SHADE_SOFT.1).max(1.0));
-        let off = ((d[1].atan2(d[0]) - self.me().view_yaw + PI).rem_euclid(TAU) - PI).abs() - self.ahead_half();
+        let off = ((fm::atan2(d[1], d[0]) - self.me().view_yaw + PI).rem_euclid(TAU) - PI).abs() - self.ahead_half();
         // Right around the player every way counts as ahead.
         let aside = smoothstep(off / SHADE_SOFT.0) * smoothstep((r - 4.0) / 12.0);
         far.max(aside)
@@ -142,6 +143,7 @@ fn smoothstep(k: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::super::map::{self, TILE};
+    use crate::fmath as fm;
 use super::super::PropLine;
     use super::super::{Harvest, Kind, Zombie};
     use std::f32::consts::PI;
@@ -182,7 +184,7 @@ use super::super::PropLine;
         assert_eq!(shade_over(&h, ahead), 0.0, "the cone is full brightness");
         assert!((shade_over(&h, behind) - dark).abs() < 1e-4, "behind is as dark as [map] shade says");
         let edge = h.ahead_half();
-        let along = |a: f32| h.unseen([h.me().pos[0] + a.cos() * 100.0, h.me().pos[1] - 6.0 + a.sin() * 100.0]);
+        let along = |a: f32| h.unseen([h.me().pos[0] + fm::cos(a) * 100.0, h.me().pos[1] - 6.0 + fm::sin(a) * 100.0]);
         let steps: Vec<f32> = (0..8).map(|i| along(edge + i as f32 * 0.05)).collect();
         assert_eq!(steps[0], 0.0);
         assert!(steps.windows(2).all(|w| w[1] >= w[0]) && steps.iter().any(|&s| s > 0.0 && s < 1.0), "fades in past the edge: {steps:?}");

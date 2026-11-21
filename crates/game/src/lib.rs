@@ -8,6 +8,7 @@ pub mod data;
 pub mod paint;
 mod difficulty;
 mod draw;
+pub mod fmath;
 mod font;
 mod gallery;
 mod hardware;
@@ -53,6 +54,7 @@ pub use save::{Save, TouchControls};
 pub use sfx::Sfx;
 pub use system::{Battery, Outputs, System};
 
+use crate::fmath as fm;
 use rng::Rng;
 use menu::Page;
 use save::LEVELS;
@@ -960,13 +962,13 @@ impl Game {
         }
         for i in 0..30 {
             let seed = i as f32 * 7.31;
-            let x = (seed.sin() * 9000.0).fract().abs() * SCREEN_W + (t * 0.3 + seed).sin() * 30.0;
-            let y = (seed.cos() * 7000.0).fract().abs() * 560.0 + (t * 0.4 + seed * 2.0).cos() * 20.0;
-            let glow = ((t * 1.7 + seed).sin() * 0.5 + 0.5).powi(3);
+            let x = (fm::sin(seed) * 9000.0).fract().abs() * SCREEN_W + fm::sin(t * 0.3 + seed) * 30.0;
+            let y = (fm::cos(seed) * 7000.0).fract().abs() * 560.0 + fm::cos(t * 0.4 + seed * 2.0) * 20.0;
+            let glow = fm::powi(fm::sin(t * 1.7 + seed) * 0.5 + 0.5, 3);
             f.top.circle(x, y, 3.0 + 3.0 * glow, [0.75, 1.0, 0.45, 0.2 + 0.7 * glow]);
         }
-        let flicker = 0.85 + 0.15 * ((t * 13.0).sin() * (t * 7.3).sin()).abs();
-        let bob = if one { 0.0 } else { (t * 1.2).sin() * 4.0 };
+        let flicker = 0.85 + 0.15 * (fm::sin(t * 13.0) * fm::sin(t * 7.3)).abs();
+        let bob = if one { 0.0 } else { fm::sin(t * 1.2) * 4.0 };
         f.top.text_centered(logo_y + 8.0 + bob, 20.0, [0.0, 0.0, 0.0, 0.7], "LAST HARVEST");
         if one {
             let x = (SCREEN_W - crate::font::width("LAST HARVEST") * 20.0) / 2.0;
