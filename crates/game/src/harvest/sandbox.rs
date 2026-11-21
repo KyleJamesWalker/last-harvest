@@ -7,7 +7,7 @@ use std::f32::consts::{PI, TAU};
 use super::map::TILE;
 use super::powerups::{Kind, book};
 use super::weapons::Kit;
-use super::{Choice, Harvest, Phase, dawn, len, sub};
+use super::{Choice, Harvest, ME, Phase, dawn, len, sub};
 use crate::rng::Rng;
 use crate::sfx::Sfx;
 use crate::{Buttons, Difficulty, Input};
@@ -200,9 +200,9 @@ pub fn weapon_levels() -> Vec<(String, u32)> {
 /// Plays the night `plan` describes.
 pub fn night(plan: &Plan) -> Night {
     let mut h = Harvest::sized(plan.seed, plan.size).at(plan.difficulty);
-    h.kit = Kit::forced(&plan.build, plan.difficulty);
-    h.hp = h.kit.max_hp();
-    h.grenades = h.kit.grenades();
+    h.me_mut().kit = Kit::forced(&plan.build, plan.difficulty);
+    h.me_mut().hp = h.me().kit.max_hp();
+    h.me_mut().grenades = h.me().kit.grenades();
     h.undying = !plan.mortal;
     h.progress.everything = plan.unlocked;
     let mut rng = Rng::new(plan.seed.wrapping_mul(0x9E37_79B9_7F4A_7C15));
@@ -234,7 +234,7 @@ pub fn night(plan: &Plan) -> Night {
         if ever(plan.throw_every, t) > thrown && matches!(h.phase, Phase::Playing) {
             thrown = ever(plan.throw_every, t);
             let reach = crate::tuning::tuning().quick_near;
-            let to = [h.pos[0] + h.aim[0] * reach, h.pos[1] + h.aim[1] * reach];
+            let to = [h.me().pos[0] + h.me().aim[0] * reach, h.me().pos[1] + h.me().aim[1] * reach];
             h.throw_at(to, &mut sounds);
         }
         h.update(&input, plan.step, &mut sounds);
@@ -249,27 +249,27 @@ pub fn night(plan: &Plan) -> Night {
             capped += h.t - t;
         }
         while minutes.len() < (h.t / 60.0) as usize {
-            minutes.push(Minute { kills: h.kills, hearts: h.juice.tally.hearts, level: h.level });
+            minutes.push(Minute { kills: h.kills, hearts: h.juice.tally.book(ME).hearts, level: h.level });
         }
     }
     let tally = &h.juice.tally;
-    let build: Vec<(usize, u32)> = h.kit.weapons.iter().map(|a| (a.def, a.level)).chain(h.kit.passives.iter().copied()).collect();
+    let build: Vec<(usize, u32)> = h.me().kit.weapons.iter().map(|a| (a.def, a.level)).chain(h.me().kit.passives.iter().copied()).collect();
     let mut lines: Vec<Line> = build
         .iter()
         .filter(|&&(d, _)| book().defs[d].kind == Kind::Weapon)
         .map(|&(d, level)| {
-            let x = tally.dealt(Some(d));
+            let x = tally.dealt(ME, Some(d));
             Line { id: book().defs[d].id.clone(), level, raw: x.raw, useful: x.useful, kills: x.kills, held: x.held }
         })
         .collect();
-    let x = tally.dealt(None);
+    let x = tally.dealt(ME, None);
     lines.push(Line { id: "grenades".into(), level: 0, raw: x.raw, useful: x.useful, kills: x.kills, held: x.held });
     Night {
         secs: h.t,
         dawn: h.t >= dawn(),
-        fell: tally.fell,
+        fell: tally.book(ME).fell,
         kills: h.kills,
-        hearts: tally.hearts,
+        hearts: tally.book(ME).hearts,
         level: h.level,
         spawned: h.next_id.saturating_sub(1),
         capped,
@@ -293,10 +293,10 @@ const AVOID_DANGER_MOST: f32 = 10.0;
 /// would rather veer than turn back, and keeps off the farm's edge.
 fn avoid(h: &Harvest) -> f32 {
     let near: Vec<([f32; 2], f32)> = h
-        .marks
+        .me().marks
         .iter()
         .filter_map(|m| {
-            let d = sub(m.pos, h.pos);
+            let d = sub(m.pos, h.me().pos);
             let r = len(d).max(4.0);
             (r < AVOID_REACH).then(|| ([d[0] / r, d[1] / r], m.fade() * (1.0 - r / AVOID_REACH) * AVOID_DANGER / r))
         })
@@ -304,28 +304,28 @@ fn avoid(h: &Harvest) -> f32 {
     let half = crate::tuning::tuning().player_half();
     let edge = [h.map.width_px() - TILE, h.map.height_px() - TILE];
     let inside = |p: [f32; 2]| p[0] > TILE && p[1] > TILE && p[0] < edge[0] && p[1] < edge[1];
-    let middle = sub([edge[0] / 2.0, edge[1] / 2.0], h.pos);
-    let back = if inside(h.pos) { [0.0; 2] } else { [middle[0] / len(middle), middle[1] / len(middle)] };
+    let middle = sub([edge[0] / 2.0, edge[1] / 2.0], h.me().pos);
+    let back = if inside(h.me().pos) { [0.0; 2] } else { [middle[0] / len(middle), middle[1] / len(middle)] };
     // How far it gets along `dir`, as a share of AVOID_WALL, and how far its first step gets.
     let walk = |dir: [f32; 2]| {
-        let (mut p, mut first) = (h.pos, 0.0);
+        let (mut p, mut first) = (h.me().pos, 0.0);
         for s in 0..8 {
             let next = h.map.slide(p, [dir[0] * AVOID_WALL / 8.0, dir[1] * AVOID_WALL / 8.0], half);
             if s == 0 {
-                first = len(sub(next, h.pos)) * 8.0 / AVOID_WALL;
+                first = len(sub(next, h.me().pos)) * 8.0 / AVOID_WALL;
             }
-            if !inside(next) && inside(h.pos) {
+            if !inside(next) && inside(h.me().pos) {
                 return (0.0, 0.0);
             }
             p = next;
         }
-        let d = sub(p, h.pos);
+        let d = sub(p, h.me().pos);
         ((d[0] * dir[0] + d[1] * dir[1]) / AVOID_WALL, first)
     };
     let best = (-7..=8)
         .map(|j| {
             let off = j as f32 * PI / 8.0;
-            let dir = [(h.view_yaw + off).cos(), (h.view_yaw + off).sin()];
+            let dir = [(h.me().view_yaw + off).cos(), (h.me().view_yaw + off).sin()];
             let danger: f32 = near.iter().map(|(u, w)| w * (dir[0] * u[0] + dir[1] * u[1]).max(0.0).powi(4)).sum();
             let (free, first) = walk(dir);
             let score = off.cos() - danger.min(AVOID_DANGER_MOST) + 3.0 * (dir[0] * back[0] + dir[1] * back[1]) + 2.0 * free - if first < 0.5 { 100.0 } else { 0.0 };
@@ -355,7 +355,7 @@ fn choose(h: &mut Harvest, pick: &Pick, rng: &mut Rng, sounds: &mut Vec<Sfx>) ->
         }
     };
     let c = choices[i];
-    if *pick != Pick::Random && h.kit.level(c.up) > 0 && book().defs[c.up].kind == Kind::Weapon {
+    if *pick != Pick::Random && h.me().kit.level(c.up) > 0 && book().defs[c.up].kind == Kind::Weapon {
         h.favor(c.up);
     }
     h.take(c, sounds);
@@ -365,7 +365,7 @@ fn choose(h: &mut Harvest, pick: &Pick, rng: &mut Rng, sounds: &mut Vec<Sfx>) ->
 /// A card for a powerup the player holds, rare first; with none, it rerolls, then banishes a card it doesn't hold,
 /// while it can, and failing that takes a new one, rare first.
 fn stack(h: &mut Harvest, choices: &mut [Choice; 3], t: f32, sounds: &mut Vec<Sfx>) -> usize {
-    let held = |h: &Harvest, c: &Choice| h.kit.level(c.up) > 0;
+    let held = |h: &Harvest, c: &Choice| h.me().kit.level(c.up) > 0;
     while !choices.iter().any(|c| held(h, c)) {
         if h.rerolls > 0 {
             h.reroll(choices, t, sounds);
@@ -467,17 +467,17 @@ mod tests {
     fn the_avoiding_walk_turns_from_a_zombie_it_sees_and_not_from_one_it_does_not() {
         let src = super::super::map::MapSource::new("Open", [40, 40]);
         let mut h = Harvest::calm_on(1, &src).unwrap();
-        h.pos = [20.5 * TILE, 20.5 * TILE];
-        h.view_yaw = 0.0;
+        h.me_mut().pos = [20.5 * TILE, 20.5 * TILE];
+        h.me_mut().view_yaw = 0.0;
         assert_eq!(avoid(&h), 0.0, "nothing seen, it walks straight on");
-        let mut z = super::super::Zombie::new(super::super::Kind::common(), [h.pos[0] + 30.0, h.pos[1] + 4.0], 1000.0, 1.0, 0.0);
+        let mut z = super::super::Zombie::new(super::super::Kind::common(), [h.me().pos[0] + 30.0, h.me().pos[1] + 4.0], 1000.0, 1.0, 0.0);
         z.id = 9;
         h.zombies = vec![z];
         h.remember(1.0 / 60.0);
         assert!(avoid(&h) < 0.0, "a zombie ahead and to the right turns it left");
-        h.marks.clear();
-        h.view_yaw = PI;
+        h.me_mut().marks.clear();
+        h.me_mut().view_yaw = PI;
         h.remember(1.0 / 60.0);
-        assert!(h.marks.is_empty() && avoid(&h) == 0.0, "one behind it hasn't seen doesn't sway it");
+        assert!(h.me().marks.is_empty() && avoid(&h) == 0.0, "one behind it hasn't seen doesn't sway it");
     }
 }

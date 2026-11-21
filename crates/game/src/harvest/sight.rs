@@ -42,29 +42,29 @@ impl Mark {
 impl Harvest {
     /// Whether the view ahead sees a spot on the ground: inside the aim cone, near enough, and not behind cover.
     pub(super) fn in_sight(&self, at: [f32; 2]) -> bool {
-        let d = sub(at, self.pos);
+        let d = sub(at, self.me().pos);
         let r = len(d);
         if r > crate::tuning::tuning().map_sight {
             return false;
         }
         if r > 1.0 {
-            let off = (d[1].atan2(d[0]) - self.view_yaw + PI).rem_euclid(TAU) - PI;
+            let off = (d[1].atan2(d[0]) - self.me().view_yaw + PI).rem_euclid(TAU) - PI;
             if off.abs() > self.ahead_half() {
                 return false;
             }
         }
-        clear_shot(&self.map, self.pos, at)
+        clear_shot(&self.map, self.me().pos, at)
     }
 
     /// How far out of the view ahead a spot on the ground is, from 0 inside the cone and in range to 1 well outside;
     /// cover doesn't count.
     pub(super) fn unseen(&self, at: [f32; 2]) -> f32 {
-        let eye = [self.pos[0], self.pos[1] - 6.0];
+        let eye = [self.me().pos[0], self.me().pos[1] - 6.0];
         let d = sub(at, eye);
         let r = len(d);
         let sight = crate::tuning::tuning().map_sight;
         let far = smoothstep((r - sight) / (sight * SHADE_SOFT.1).max(1.0));
-        let off = ((d[1].atan2(d[0]) - self.view_yaw + PI).rem_euclid(TAU) - PI).abs() - self.ahead_half();
+        let off = ((d[1].atan2(d[0]) - self.me().view_yaw + PI).rem_euclid(TAU) - PI).abs() - self.ahead_half();
         // Right around the player every way counts as ahead.
         let aside = smoothstep(off / SHADE_SOFT.0) * smoothstep((r - 4.0) / 12.0);
         far.max(aside)
@@ -109,15 +109,15 @@ impl Harvest {
             .filter(|z| self.in_sight(z.pos))
             .map(Mark::of)
             .collect();
-        let old = std::mem::take(&mut self.marks);
+        let old = std::mem::take(&mut self.me_mut().marks);
         let kept: Vec<Mark> = old
             .into_iter()
             .filter(|m| !seen.iter().any(|s| s.id == m.id))
             .map(|m| Mark { age: m.age + dt, ..m })
             .filter(|m| m.age < memory && !self.in_sight(m.pos))
             .collect();
-        self.marks = kept;
-        self.marks.extend(seen);
+        self.me_mut().marks = kept;
+        self.me_mut().marks.extend(seen);
     }
 }
 
@@ -139,10 +139,10 @@ use super::super::PropLine;
     fn facing_one(ahead: f32) -> Harvest {
         let src = map::MapSource::new("Open", [40, 14]);
         let mut h = Harvest::calm_on(1, &src).unwrap();
-        h.pos = [20.5 * TILE, 7.5 * TILE];
-        h.view_yaw = 0.0;
-        h.marks.clear();
-        let mut z = Zombie::new(Kind::common(), [h.pos[0] + ahead, h.pos[1]], 1000.0, 1.0, 0.0);
+        h.me_mut().pos = [20.5 * TILE, 7.5 * TILE];
+        h.me_mut().view_yaw = 0.0;
+        h.me_mut().marks.clear();
+        let mut z = Zombie::new(Kind::common(), [h.me().pos[0] + ahead, h.me().pos[1]], 1000.0, 1.0, 0.0);
         z.id = 9;
         h.zombies = vec![z];
         h
@@ -164,17 +164,17 @@ use super::super::PropLine;
     fn the_map_darkens_outside_the_view_ahead_and_softly_at_its_edge() {
         let h = facing_one(60.0);
         let dark = crate::tuning::tuning().map_shade;
-        let ahead = [h.pos[0] + 60.0, h.pos[1] - 6.0];
-        let behind = [h.pos[0] - 60.0, h.pos[1] - 6.0];
+        let ahead = [h.me().pos[0] + 60.0, h.me().pos[1] - 6.0];
+        let behind = [h.me().pos[0] - 60.0, h.me().pos[1] - 6.0];
         assert_eq!(shade_over(&h, ahead), 0.0, "the cone is full brightness");
         assert!((shade_over(&h, behind) - dark).abs() < 1e-4, "behind is as dark as [map] shade says");
         let edge = h.ahead_half();
-        let along = |a: f32| h.unseen([h.pos[0] + a.cos() * 100.0, h.pos[1] - 6.0 + a.sin() * 100.0]);
+        let along = |a: f32| h.unseen([h.me().pos[0] + a.cos() * 100.0, h.me().pos[1] - 6.0 + a.sin() * 100.0]);
         let steps: Vec<f32> = (0..8).map(|i| along(edge + i as f32 * 0.05)).collect();
         assert_eq!(steps[0], 0.0);
         assert!(steps.windows(2).all(|w| w[1] >= w[0]) && steps.iter().any(|&s| s > 0.0 && s < 1.0), "fades in past the edge: {steps:?}");
         let sight = crate::tuning::tuning().map_sight;
-        assert_eq!(h.unseen([h.pos[0] + sight * 2.0, h.pos[1] - 6.0]), 1.0, "and past the sight range");
+        assert_eq!(h.unseen([h.me().pos[0] + sight * 2.0, h.me().pos[1] - 6.0]), 1.0, "and past the sight range");
     }
 
     #[test]
@@ -194,14 +194,14 @@ use super::super::PropLine;
     fn the_shade_lifts_once_the_run_is_over() {
         let mut h = facing_one(60.0);
         h.phase = super::super::Phase::Over { t: 5.0, won: false };
-        assert_eq!(shade_over(&h, [h.pos[0] - 60.0, h.pos[1] - 6.0]), 0.0);
+        assert_eq!(shade_over(&h, [h.me().pos[0] - 60.0, h.me().pos[1] - 6.0]), 0.0);
     }
 
     #[test]
     fn a_zombie_ahead_is_marked_where_it_stands() {
         let mut h = facing_one(60.0);
         h.remember(DT);
-        let m = h.marks.iter().find(|m| m.id == 9).expect("a zombie in sight is marked");
+        let m = h.me().marks.iter().find(|m| m.id == 9).expect("a zombie in sight is marked");
         assert_eq!((m.pos, m.age), (h.zombies[0].pos, 0.0));
     }
 
@@ -209,10 +209,10 @@ use super::super::PropLine;
     fn a_zombie_behind_or_too_far_is_not_seen() {
         let mut h = facing_one(-60.0);
         h.remember(DT);
-        assert!(h.marks.is_empty(), "behind the player");
+        assert!(h.me().marks.is_empty(), "behind the player");
         let mut h = facing_one(crate::tuning::tuning().map_sight + 20.0);
         h.remember(DT);
-        assert!(h.marks.is_empty(), "past the map's sight");
+        assert!(h.me().marks.is_empty(), "past the map's sight");
     }
 
     #[test]
@@ -220,37 +220,37 @@ use super::super::PropLine;
         let mut h = facing_one(60.0);
         h.remember(DT);
         let seen_at = h.zombies[0].pos;
-        h.view_yaw = PI;
+        h.me_mut().view_yaw = PI;
         h.zombies[0].pos[1] += 30.0;
         h.remember(DT);
-        let m = h.marks[0];
+        let m = h.me().marks[0];
         assert_eq!(m.pos, seen_at, "a mark stays where the zombie was seen");
         assert!(m.fade() < 1.0);
         h.remember(crate::tuning::tuning().map_memory);
-        assert!(h.marks.is_empty(), "forgotten once its memory runs out");
+        assert!(h.me().marks.is_empty(), "forgotten once its memory runs out");
     }
 
     #[test]
     fn looking_at_an_empty_spot_forgets_its_mark() {
         let mut h = facing_one(60.0);
         h.remember(DT);
-        h.view_yaw = PI;
+        h.me_mut().view_yaw = PI;
         h.zombies[0].pos[1] += 90.0;
         h.remember(DT);
-        assert_eq!(h.marks.len(), 1);
-        h.view_yaw = 0.0;
+        assert_eq!(h.me().marks.len(), 1);
+        h.me_mut().view_yaw = 0.0;
         h.remember(DT);
-        assert!(h.marks.is_empty(), "the zombie moved off out of sight, and its spot is empty");
+        assert!(h.me().marks.is_empty(), "the zombie moved off out of sight, and its spot is empty");
     }
 
     #[test]
     fn a_dead_zombie_out_of_sight_still_shows_until_it_fades() {
         let mut h = facing_one(60.0);
         h.remember(DT);
-        h.view_yaw = PI;
+        h.me_mut().view_yaw = PI;
         h.zombies.clear();
         h.remember(DT);
-        assert_eq!(h.marks.len(), 1);
+        assert_eq!(h.me().marks.len(), 1);
     }
 
     #[test]
@@ -260,14 +260,14 @@ use super::super::PropLine;
             let tough = map::Tough { hp: None, cover: Some(cover) };
             src.props.push((0, PropLine::Fence { picket: false, rect: [17, 4, 7, 6], gate: None, tough }));
             let mut h = Harvest::calm_on(1, &src).unwrap();
-            h.pos = [20.5 * TILE, 7.5 * TILE];
-            h.view_yaw = 0.0;
-            let mut z = Zombie::new(Kind::common(), [h.pos[0] + 96.0, h.pos[1]], 1000.0, 1.0, 0.0);
+            h.me_mut().pos = [20.5 * TILE, 7.5 * TILE];
+            h.me_mut().view_yaw = 0.0;
+            let mut z = Zombie::new(Kind::common(), [h.me().pos[0] + 96.0, h.me().pos[1]], 1000.0, 1.0, 0.0);
             z.id = 9;
             h.zombies = vec![z];
-            h.marks.clear();
+            h.me_mut().marks.clear();
             h.remember(DT);
-            h.marks.len()
+            h.me().marks.len()
         };
         assert_eq!(fenced(false), 1, "a plain fence lets the view through");
         assert_eq!(fenced(true), 0, "cover hides what's behind it");

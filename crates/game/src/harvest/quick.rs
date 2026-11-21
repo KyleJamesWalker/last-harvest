@@ -18,7 +18,7 @@ impl Harvest {
     /// throws on release; with none ready, R1 only clicks.
     pub(super) fn quick_throw(&mut self, input: &Input, dt: f32, sounds: &mut Vec<Sfx>) {
         if input.pressed.contains(Buttons::R1) {
-            if self.grenades >= 1.0 {
+            if self.me().grenades >= 1.0 {
                 self.quick = Some(0.0);
                 return;
             }
@@ -47,7 +47,7 @@ impl Harvest {
     pub(super) fn quick_mark(&self) -> Option<[f32; 2]> {
         let d = reach(self.quick?);
         let (w, h) = (self.map.width_px(), self.map.height_px());
-        Some([(self.pos[0] + self.view_yaw.cos() * d).clamp(0.0, w), (self.pos[1] + self.view_yaw.sin() * d).clamp(0.0, h)])
+        Some([(self.me().pos[0] + self.me().view_yaw.cos() * d).clamp(0.0, w), (self.me().pos[1] + self.me().view_yaw.sin() * d).clamp(0.0, h)])
     }
 }
 
@@ -80,9 +80,9 @@ mod tests {
 
     fn ahead(h: &Harvest) -> f32 {
         let at = h.quick_mark().expect("a marker");
-        let off = [at[0] - h.pos[0], at[1] - h.pos[1]];
-        let along = off[0] * h.view_yaw.cos() + off[1] * h.view_yaw.sin();
-        assert!(len(off) - along < 0.5, "straight ahead: {off:?} along {}", h.view_yaw);
+        let off = [at[0] - h.me().pos[0], at[1] - h.me().pos[1]];
+        let along = off[0] * h.me().view_yaw.cos() + off[1] * h.me().view_yaw.sin();
+        assert!(len(off) - along < 0.5, "straight ahead: {off:?} along {}", h.me().view_yaw);
         along
     }
 
@@ -90,7 +90,7 @@ mod tests {
     fn r1_lines_up_a_marker_straight_ahead_and_throws_there_on_release() {
         for single in [false, true] {
             let mut h = farm(21, single);
-            let before = h.grenades;
+            let before = h.me().grenades;
             step(&mut h, Buttons::R1, Buttons::R1);
             let t = crate::tuning::tuning();
             assert!((ahead(&h) - t.quick_near).abs() < 1.0, "{single}: starts at quick_near, {}", ahead(&h));
@@ -100,7 +100,7 @@ mod tests {
             assert!(sounds.iter().any(|s| matches!(s, Sfx::Throw)));
             assert_eq!(h.thrown.len(), 1, "{single}");
             assert!(len([h.thrown[0].to[0] - at[0], h.thrown[0].to[1] - at[1]]) < 1.0, "{single}: lands on the marker");
-            assert!(h.quick_mark().is_none() && h.grenades < before, "{single}: one grenade spent, as any throw");
+            assert!(h.quick_mark().is_none() && h.me().grenades < before, "{single}: one grenade spent, as any throw");
         }
     }
 
@@ -121,19 +121,19 @@ mod tests {
     #[test]
     fn time_runs_on_and_the_player_walks_and_turns_with_the_marker() {
         let mut h = farm(23, false);
-        let (start, yaw, t) = (h.pos, h.view_yaw, h.t);
+        let (start, yaw, t) = (h.me().pos, h.me().view_yaw, h.t);
         step(&mut h, Buttons::R1, Buttons::R1);
         hold(&mut h, Buttons::R1 | Buttons::UP | Buttons::A, 0.5);
         assert!(h.t - t > 0.5, "no slow motion");
-        assert!(len([h.pos[0] - start[0], h.pos[1] - start[1]]) > 5.0, "kept walking");
-        assert!((h.view_yaw - yaw).abs() > 0.1, "kept turning");
+        assert!(len([h.me().pos[0] - start[0], h.me().pos[1] - start[1]]) > 5.0, "kept walking");
+        assert!((h.me().view_yaw - yaw).abs() > 0.1, "kept turning");
         ahead(&h);
     }
 
     #[test]
     fn without_a_grenade_r1_clicks_and_throws_nothing() {
         let mut h = farm(24, false);
-        h.grenades = 0.0;
+        h.me_mut().grenades = 0.0;
         let sounds = step(&mut h, Buttons::R1, Buttons::R1);
         assert!(sounds.iter().any(|s| matches!(s, Sfx::Miss)));
         assert!(h.quick_mark().is_none());
