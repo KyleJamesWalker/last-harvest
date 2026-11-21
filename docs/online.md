@@ -1,6 +1,6 @@
 # Online co-op: relay and lobby
 
-Online co-op needs three pieces: `last-harvest-relay` pairs players' WebRTC connections, coturn relays traffic for players whose networks block a direct connection, and the lobby protocol (`crates/lobby`) runs between the host and its clients over `crates/net`'s reliable channel. The host runs the game. Nothing is deployed yet, and the game has no Online menu yet.
+Online co-op needs three pieces: `last-harvest-relay` pairs players' WebRTC connections, coturn relays traffic for players whose networks block a direct connection, and the lobby protocol (`crates/lobby`) runs between the host and its clients over `crates/net`'s reliable channel. The host runs the game and sends each client snapshots (`crates/game/src/netsync`); clients draw them and send back their input. Nothing is deployed yet.
 
 ## Pieces
 
@@ -87,8 +87,22 @@ Not done yet. These steps describe how the files in `deploy/` would run on a ser
 
 coturn relays only to public addresses (`denied-peer-ip` in `turnserver.conf`), so it cannot reach the server's private network.
 
+## Playing online
+
+Title > Online > Host a night opens a room and shows its code; Join with a code takes it on on-screen keys (pad, touch or keyboard). Settings > Online relay, or Online > Relay, sets the relay as `host:port` (a LAN address works) or a `ws`, `wss`, `http` or `https` URL; empty means `localhost:8080`. The game fetches `/ice` from it before joining. Online is on for macOS, Linux (the RG DS and muOS builds included) and the web, and off on Android and Windows.
+
+| Setting | Meaning |
+|---|---|
+| `LAST_HARVEST_RELAY`, `?relay=` on the web | The relay, over the saved one |
+| `LAST_HARVEST_HOST=<code>` | Open room `<code>` at launch (empty for a random code) |
+| `LAST_HARVEST_JOIN=<code>`, `?join=` on the web | Join room `<code>` at launch |
+
+Two windows on one Mac: run the relay, then `LAST_HARVEST_RELAY=127.0.0.1:8080 LAST_HARVEST_HOST=HJKMN target/release/last-harvest` and the same with `LAST_HARVEST_JOIN=HJKMN`. With `LAST_HARVEST_DEBUG`, give each its own `LAST_HARVEST_PIPE` and `LAST_HARVEST_SAVE`.
+
+A client that drops turns where it stands and frees its seat for a drop-in. The host closing the room, or the host's end screen, ends the night for every client.
+
 ## Not done yet
 
-- The game's Online menu: Host, Join with a code entry for gamepad and touch, and the lobby list with ready marks.
-- Fetching `/ice` before connecting, and a relay URL setting in the game.
-- Hooking `Start`, `Joined` and `Left` into the simulation, and the snapshots that keep clients in step.
+- A deployed relay.
+- Broken props and fences, the end screen's damage table and damage numbers are the host's alone; a client doesn't see them.
+- New farm from the pause menu or the end screen is not offered online.

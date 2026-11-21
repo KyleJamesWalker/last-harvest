@@ -14,19 +14,175 @@ use crate::netsync::{ClientLink, Event, HostLink, Mirror, Pipe};
 use crate::rng::Rng;
 use crate::sfx::Sfx;
 
-/// Tracks a night tick by tick for one client.
+/// Which end of an online night this run is.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) enum Role {
+    #[default]
+    Off,
+    Host,
+    Client,
+}
+
+/// A shot's start and velocity as sent, which name it while it flies.
+type ShotKey = (u16, u16, i16, i16);
+
+/// A placed sound's pan and gain, and where on the farm it came from.
+pub(super) type Placed = (i8, u8, [f32; 2]);
+
+/// A run's part in online play.
+#[derive(Default)]
+pub(super) struct Net {
+    pub role: Role,
+    /// Views drawn on this device, from ME on; 0 draws every view.
+    pub drawn: usize,
+    /// The seat each place in `players` stands for, where it differs from the place.
+    pub seats: Vec<usize>,
+    /// Sounds placed this tick, with where on the farm they came from.
+    pub placed: std::cell::RefCell<Vec<Placed>>,
+    pub client: Option<Box<super::remote::Client>>,
+}
+
+impl Harvest {
+    /// Hosts an online night: the first `local` players play here, and the rest, each with a view of their own on a
+    /// client, by the input `steer` gives them.
+    pub fn hosting(mut self, local: usize) -> Self {
+        let views = self.players.len();
+        self = self.with_views(views);
+        self.net.role = Role::Host;
+        self.net.drawn = local.clamp(1, views);
+        self.juice.still = true;
+        self
+    }
+
+    pub fn is_host(&self) -> bool {
+        self.net.role == Role::Host
+    }
+
+    #[cfg(test)]
+    pub(crate) fn paused_for_test(&self) -> bool {
+        self.menu.is_some()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn alive_for_test(&self, p: PlayerId) -> bool {
+        self.players[p].alive()
+    }
+
+    pub fn player_count(&self) -> usize {
+        self.players.len()
+    }
+
+    /// Each seat in its card's look and starting kit, where it stands; on a client the seats are in view order.
+    pub fn dressed(mut self, looks: &[(usize, String)]) -> Self {
+        for (i, pl) in self.players.iter_mut().enumerate() {
+            let seat = self.net.seats.get(i).copied().unwrap_or(i);
+            if let Some((_, card)) = looks.iter().find(|l| l.0 == seat) {
+                pl.look = card.clone();
+            }
+        }
+        for i in 0..self.players.len() {
+            let look = super::players::look(&self.players[i].look);
+            self.players[i] = self.new_player(self.players[i].pos, look);
+        }
+        self.juice.tally = super::tally::Tally::sized(super::book().defs.len(), self.players.len());
+        self
+    }
+
+    pub fn zombie_spots(&self) -> Vec<(u32, [f32; 2])> {
+        self.zombies.iter().chain(&self.burrowed).map(|z| (z.id, z.pos)).collect()
+    }
+
+    pub fn player_spots(&self) -> Vec<[f32; 2]> {
+        self.players.iter().map(|p| p.pos).collect()
+    }
+
+    /// Seats a player who joined mid-run at `p`: a new player, or a fresh one in place of one who left, beside
+    /// whoever still stands.
+    pub fn seat(&mut self, p: PlayerId, look: &str) {
+        let look = super::players::look(look);
+        let near = (0..self.players.len()).find(|&q| self.players[q].alive()).map(|q| self.players[q].pos);
+        let half = crate::tuning::tuning().player_half();
+        let pos = match near {
+            Some(at) => self.map.slide(at, [14.0, 0.0], half),
+            None => self.beside_spawn(p),
+        };
+        let fresh = self.new_player(pos, look);
+        if p < self.players.len() {
+            self.players[p] = fresh;
+        } else {
+            while self.players.len() < p {
+                let filler = self.new_player(pos, look);
+                self.players.push(filler);
+                self.players.last_mut().unwrap().down = Some(super::TURNED);
+            }
+            self.players.push(fresh);
+        }
+        self.inputs.resize(self.players.len(), crate::Input::default());
+        self.inputs[p] = crate::Input::default();
+        self.juice.tally.book_mut(p);
+        while self.locals.len() < self.players.len() {
+            let l = super::local::Local::of(self, self.locals.len());
+            self.locals.push(l);
+        }
+        self.locals[p] = super::local::Local::of(self, p);
+        self.views = self.views.max(p + 1);
+        self.juice.still = true;
+    }
+
+    /// Player `p`'s device left: they turn where they stand, and their seat waits for whoever drops in next.
+    pub fn unseat(&mut self, p: PlayerId) {
+        let Some(pl) = self.players.get_mut(p) else { return };
+        if pl.alive() {
+            pl.hp = 0.0;
+            pl.down = Some(0.0);
+            pl.revived = u32::MAX;
+        }
+        if let Some(i) = self.inputs.get_mut(p) {
+            *i = crate::Input::default();
+        }
+        if let Some(l) = self.locals.get_mut(p) {
+            l.cards = None;
+        }
+        if self.paused_by == p {
+            self.menu = None;
+        }
+        if matches!(self.phase, Phase::Playing) && self.players.iter().all(|pl| !pl.alive()) {
+            self.phase = Phase::Over { t: 0.0, won: false };
+        }
+    }
+}
+
+/// Tracks a night tick by tick for its clients.
 #[derive(Default)]
 pub struct Extract {
     /// Each zombie's most health seen, for its share left.
     most_hp: HashMap<u32, f32>,
     last: HashMap<u32, (u8, [f32; 2])>,
     kills: u32,
+    /// Each player's kills so far, which name who made each new one.
+    kills_by: Vec<u32>,
     phase: u8,
-    shots_seen: HashSet<(u16, u16, i16, i16)>,
+    /// Shots and spits in flight by their content key: the spawn id each went out as, its tick and life in ticks.
+    shots_seen: HashMap<ShotKey, (u32, u32, u32)>,
     fx_seen: HashSet<(u16, u16, u16)>,
     next_spawn: u32,
     /// Every critical event sent, in order.
     pub made: Vec<Event>,
+}
+
+/// One tick's news for every client: events, and spawns to play out.
+#[derive(Default)]
+pub struct Fresh {
+    pub tick: u32,
+    pub events: Vec<Event>,
+    pub spawns: Vec<Spawned>,
+}
+
+impl Fresh {
+    pub fn hand(&self, link: &mut HostLink) {
+        self.events.iter().for_each(|&e| link.push_event(self.tick, e));
+        self.spawns.iter().for_each(|s| link.push_spawn(s.clone()));
+    }
 }
 
 fn phase_of(p: &Phase) -> u8 {
@@ -38,32 +194,56 @@ fn phase_of(p: &Phase) -> u8 {
 }
 
 impl Extract {
-    fn emit(&mut self, link: &mut HostLink, tick: u32, ev: Event) {
+    fn emit(&mut self, out: &mut Fresh, ev: Event) {
         if ev.critical() {
             self.made.push(ev);
         }
-        link.push_event(tick, ev);
+        out.events.push(ev);
     }
 
     /// Hands `link` this tick's events and spawns; `sounds` are the cues the tick played.
     pub fn tick(&mut self, h: &Harvest, tick: u32, sounds: &[Sfx], link: &mut HostLink) {
+        self.record(h, tick, sounds).hand(link);
+    }
+
+    /// This tick's events and spawns, for every client; `sounds` are the cues the tick played.
+    pub fn record(&mut self, h: &Harvest, tick: u32, sounds: &[Sfx]) -> Fresh {
+        let mut out = Fresh { tick, ..Fresh::default() };
+        let placed = std::mem::take(&mut *h.net.placed.borrow_mut());
         let mut heard: Vec<Sfx> = Vec::new();
         for s in sounds {
-            if !heard.contains(s) {
-                heard.push(*s);
-                link.push_event(tick, Event::Sound(*s));
+            if heard.contains(s) {
+                continue;
             }
+            heard.push(*s);
+            let at = match *s {
+                Sfx::Boom { pan, gain } | Sfx::Rise { pan, gain } | Sfx::Groan { pan, gain } | Sfx::Caw { pan, gain } | Sfx::Spit { pan, gain } | Sfx::Splat { pan, gain } => placed.iter().find(|p| (p.0, p.1) == (pan, gain)).map(|p| p.2),
+                _ => None,
+            };
+            out.events.push(match at {
+                Some(pos) => Event::SoundAt(*s, q_pos(pos)),
+                None => Event::Sound(*s),
+            });
         }
         let now: HashMap<u32, (u8, [f32; 2])> = h.zombies.iter().chain(&h.burrowed).map(|z| (z.id, (z.kind.0, z.pos))).collect();
         let mut killed = h.kills.saturating_sub(self.kills);
         self.kills = h.kills;
+        let mut killers = Vec::new();
+        self.kills_by.resize(h.players.len(), 0);
+        for (p, before) in self.kills_by.iter_mut().enumerate() {
+            let now = h.juice.tally.sum(p).0;
+            killers.extend(std::iter::repeat_n(p as u8, now.saturating_sub(*before) as usize));
+            *before = now;
+        }
+        let mut killers = killers.into_iter();
         let mut gone: Vec<(u32, (u8, [f32; 2]))> = self.last.iter().filter(|(id, _)| !now.contains_key(id)).map(|(&id, &z)| (id, z)).collect();
         gone.sort_by_key(|g| g.0);
         for (id, (kind, pos)) in gone {
             self.most_hp.remove(&id);
             if killed > 0 {
                 killed -= 1;
-                self.emit(link, tick, Event::Kill { id, kind, pos: q_pos(pos), by: 0 });
+                let by = killers.next().unwrap_or(0);
+                self.emit(&mut out, Event::Kill { id, kind, pos: q_pos(pos), by });
             }
         }
         self.last = now;
@@ -77,29 +257,37 @@ impl Extract {
             };
             self.phase = phase;
             if let Some(ev) = ev {
-                self.emit(link, tick, ev);
+                self.emit(&mut out, ev);
             }
         }
         let mut new = Vec::new();
         let vel8 = |v: [f32; 2]| v.map(|c| (c * 8.0).clamp(i16::MIN as f32, i16::MAX as f32) as i16);
         let life50 = |l: f32| (l * 50.0).clamp(0.0, 255.0) as u8;
-        let mut shots = HashSet::new();
+        let mut shots = HashMap::new();
+        let ticks = |secs: f32| (secs * TICK_HZ as f32).round() as u32;
         for b in &h.bullets {
             let from = q_pos([b.pos[0] - b.vel[0] * b.age, b.pos[1] - b.vel[1] * b.age]);
             let key = (from[0], from[1], vel8(b.vel)[0], vel8(b.vel)[1]);
-            if !self.shots_seen.contains(&key) {
+            let seen = self.shots_seen.get(&key).copied().unwrap_or_else(|| {
                 let look = b.by.map_or(0, |d| d as u16 + 1);
                 new.push(Spawn::Shot { owner: b.owner as u8, look, from, vel: vel8(b.vel), life: life50(b.life + b.age) });
-            }
-            shots.insert(key);
+                (self.next_spawn + new.len() as u32, tick, ticks(b.life + b.age))
+            });
+            shots.insert(key, seen);
         }
         for s in &h.spits {
             let from = q_pos([s.pos[0] - s.vel[0] * s.age, s.pos[1] - s.vel[1] * s.age]);
             let key = (from[0], from[1], vel8(s.vel)[0], vel8(s.vel)[1]);
-            if !self.shots_seen.contains(&key) {
+            let seen = self.shots_seen.get(&key).copied().unwrap_or_else(|| {
                 new.push(Spawn::Spit { kind: s.kind.0, from, vel: vel8(s.vel), life: life50(s.life + s.age) });
+                (self.next_spawn + new.len() as u32, tick, ticks(s.life + s.age))
+            });
+            shots.insert(key, seen);
+        }
+        for (key, &(id, born, life)) in &self.shots_seen {
+            if !shots.contains_key(key) && tick.saturating_sub(born) + 2 < life {
+                out.events.push(Event::Stop { id });
             }
-            shots.insert(key);
         }
         for b in h.bolts.iter().filter(|b| b.age == 0.0) {
             new.push(Spawn::Bolt { points: b.points.iter().map(|&p| q_pos(p)).collect() });
@@ -118,8 +306,9 @@ impl Extract {
         self.fx_seen = fx;
         for what in new {
             self.next_spawn += 1;
-            link.push_spawn(Spawned { id: self.next_spawn, tick, what });
+            out.spawns.push(Spawned { id: self.next_spawn, tick, what });
         }
+        out
     }
 
     /// The world at `tick`, with the last client input the host has played for each player.
@@ -189,7 +378,33 @@ impl Extract {
         for t in &h.tells {
             things.push(Thing { kind: T_TELL, sub: t.kind.0, pos: q_pos(t.pos), data: [t.leader as u16, 0, 0] });
         }
-        World::new(tick, players, zombies, things)
+        let mut world = World::new(tick, players, zombies, things);
+        world.run = run_state(h);
+        world
+    }
+}
+
+/// The run's clock, shared numbers, pause and each viewed player's cards, as a client draws them.
+fn run_state(h: &Harvest) -> RunState {
+    let phase = match h.phase {
+        Phase::Playing if h.leveling > 0.0 => PHASE_LEVELING,
+        Phase::Playing => PHASE_PLAYING,
+        Phase::LevelUp { .. } => PHASE_CARDS,
+        Phase::Over { won: true, .. } => PHASE_WON,
+        Phase::Over { won: false, .. } => PHASE_LOST,
+    };
+    let cards = (0..h.views).filter_map(|p| h.cards_of(p)).collect();
+    RunState {
+        t: (h.t * 10.0).max(0.0) as u32,
+        phase,
+        level: h.level.min(u16::MAX as u32) as u16,
+        xp: h.xp,
+        next_xp: h.next_xp,
+        kills: h.kills,
+        menu: h.menu.map_or(0, |m| m as u8 + 1),
+        paused_by: h.paused_by as u8,
+        chest: h.chest,
+        cards,
     }
 }
 
@@ -398,6 +613,40 @@ fn dist(a: [f32; 2], b: [f32; 2]) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[ignore = "a timing, for cargo test --release -- --ignored --nocapture"]
+    fn snapshot_cost_at_a_crowd() {
+        let mut h = Harvest::bench(crate::harvest::MAP_SIZE);
+        for (i, z) in h.zombies.iter_mut().enumerate() {
+            z.id = i as u32 + 1;
+        }
+        let n = h.zombies.len() + h.burrowed.len();
+        let (mut extract, mut links) = (Extract::default(), vec![HostLink::default(), HostLink::default()]);
+        let start = std::time::Instant::now();
+        let (mut sounds, mut encode) = (Vec::new(), std::time::Duration::ZERO);
+        let ticks = 600u32;
+        for tick in 1..=ticks {
+            h.update(&crate::Input::default(), STEP, &mut sounds);
+            for z in &mut h.zombies {
+                z.pos[0] += 0.3;
+            }
+            let t = std::time::Instant::now();
+            let fresh = extract.record(&h, tick, &sounds);
+            links.iter_mut().for_each(|l| fresh.hand(l));
+            if tick.is_multiple_of(SEND_EVERY) {
+                let world = extract.world(&h, tick, &[0; 4]);
+                for l in &mut links {
+                    l.ack(Some(tick.saturating_sub(SEND_EVERY * 2)), 0);
+                    l.snapshot(world.clone());
+                }
+            }
+            encode += t.elapsed();
+            sounds.clear();
+        }
+        let per_tick = encode.as_secs_f64() * 1000.0 / ticks as f64;
+        eprintln!("{n} zombies, 2 clients: sync {per_tick:.3} ms a tick on average, {:.0} B/s to each, whole run {:.1} s", links[0].bytes as f64 / (ticks as f64 / 60.0), start.elapsed().as_secs_f64());
+    }
 
     #[test]
     fn a_client_over_a_lossy_link_keeps_close_to_the_host() {

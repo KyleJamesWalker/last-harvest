@@ -4,7 +4,7 @@
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::f32::consts::{PI, TAU};
 
-use super::snapshot::{P_DOWN, Part, PlayerState, Spawn, Spawned, TICK_HZ, Thing, ZombieState, unq_angle, unq_pos};
+use super::snapshot::{P_DOWN, Part, PlayerState, RunState, Spawn, Spawned, TICK_HZ, Thing, ZombieState, unq_angle, unq_pos};
 use crate::{Buttons, Input};
 
 /// How far behind the newest snapshot others are drawn, in ticks: two snapshots' worth.
@@ -129,6 +129,10 @@ pub struct Mirror {
     live: Vec<Live>,
     /// Paused for the level-up cards, as the host is.
     pub paused: bool,
+    /// The run as the newest snapshot has it.
+    pub run: RunState,
+    /// The host holds every player still: the pause menu or the level-up cards are up.
+    pub frozen: bool,
 }
 
 impl Mirror {
@@ -167,6 +171,7 @@ impl Mirror {
         if tick >= self.players_tick {
             self.players_tick = tick;
             self.players = part.players.clone();
+            self.run = part.run.clone();
         }
         for (seat, p) in part.players.iter().enumerate() {
             let pos = unq_pos(p.pos);
@@ -211,7 +216,7 @@ impl Mirror {
         if !own.placed {
             (own.pos, own.yaw, own.placed) = (unq_pos(p.pos), unq_angle(p.yaw), true);
         }
-        if !self.paused && p.flags & P_DOWN == 0 {
+        if !self.paused && !self.frozen && p.flags & P_DOWN == 0 {
             let dir = input.dir();
             let turn = (input.held.contains(Buttons::A) as i32 as f32 - input.held.contains(Buttons::Y) as i32 as f32 + input.look).clamp(-1.0, 1.0);
             if input.pressed.contains(Buttons::B) && own.spin <= 0.0 {
@@ -233,6 +238,47 @@ impl Mirror {
         while own.history.len() > 120 {
             own.history.pop_front();
         }
+    }
+
+    /// A shot or spit that hit something early stops being drawn.
+    pub fn stop(&mut self, id: u32) {
+        self.live.retain(|l| l.spawned.id != id);
+    }
+
+    /// The host's tick as the client reckons it now, with no interpolation delay.
+    pub fn clock(&self) -> f64 {
+        self.clock
+    }
+
+    pub fn player_count(&self) -> usize {
+        self.players.len()
+    }
+
+    /// Every shot, spit and bolt in flight: where it is, its age in seconds, and what it is. Shots of the local
+    /// `own` seats play out at the clock from the predicted player, the rest a little in the past as zombies are.
+    pub fn shots_for(&self, own: &[usize]) -> Vec<([f32; 2], f32, &Spawned)> {
+        let mine = |s: &Spawned| matches!(s.what, Spawn::Shot { owner, .. } if own.contains(&(owner as usize)));
+        let lead = |s: &Spawned| -> [f32; 2] {
+            let Spawn::Shot { owner, .. } = s.what else { return [0.0; 2] };
+            let seat = owner as usize;
+            match (self.own.get(&seat).filter(|o| o.placed), self.players.get(seat)) {
+                (Some(o), Some(p)) => {
+                    let host = unq_pos(p.pos);
+                    [o.pos[0] - host[0], o.pos[1] - host[1]]
+                }
+                _ => [0.0; 2],
+            }
+        };
+        let back = self.render_tick();
+        self.live
+            .iter()
+            .filter_map(|l| {
+                let s = &l.spawned;
+                let (at, off) = if mine(s) { (self.clock, lead(s)) } else { (back, [0.0; 2]) };
+                let p = shot_at(s, at)?;
+                Some(([p[0] + off[0], p[1] + off[1]], (at - s.tick as f64) as f32 / TICK_HZ as f32, s))
+            })
+            .collect()
     }
 
     /// Where local player `seat` was predicted at client tick `tick`, as corrected since.

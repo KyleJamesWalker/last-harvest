@@ -1,8 +1,11 @@
 //! WebRTC transport: every peer joins a matchbox signaling room and opens a reliable and an unreliable data channel
 //! to every other peer. Native (webrtc-rs) and browser (web-sys) peers share rooms.
 
+mod ice;
 mod inbox;
 mod protocol;
+
+pub use ice::{IceFetch, parse_ice};
 
 #[cfg(not(target_arch = "wasm32"))]
 mod native;

@@ -78,6 +78,7 @@ struct Web {
     odd_pad: bool,
     /// A pad had a button down or a stick pushed last frame.
     pad_busy: bool,
+    online: crate::online::Online,
     seats: Seats,
     motors: Motors,
     /// Pads may join and the run split: one screen without a touch screen.
@@ -287,6 +288,19 @@ impl Web {
             self.begin();
         }
         let code = e.code();
+        let key = e.key();
+        if self.game.wants_text() && !code.starts_with("Arrow") && code != "Escape" {
+            if down {
+                match key.as_str() {
+                    "Backspace" => self.game.typed("\u{8}"),
+                    "Enter" => self.game.typed("\r"),
+                    k if k.chars().count() == 1 => self.game.typed(k),
+                    _ => return,
+                }
+            }
+            e.prevent_default();
+            return;
+        }
         if code == "KeyC" {
             if down && !e.repeat() {
                 self.lid_key = !self.lid_key;
@@ -365,9 +379,11 @@ impl Web {
         self.game.set_phone(self.phone.then(|| [self.canvas.width() as f32, self.canvas.height() as f32]));
         let input = self.tracker.frame(raw);
         self.game.set_system(self.system);
+        self.online.pump(&mut self.game, (frame_ms / 1000.0) as f32);
         for inputs in self.ticker.frame_all(std::time::Duration::from_secs_f64(frame_ms.max(0.0) / 1000.0), std::iter::once(input).chain(others).collect()) {
             self.game.update_all(&inputs, clock::STEP);
         }
+        self.online.send(&mut self.game);
         for (index, on) in self.motors.changes(&self.seats, &pads, 0, |seat| self.game.rumble_for(seat)) {
             vibrate(index, on);
         }
@@ -457,6 +473,15 @@ fn start(pak: Pak, mods: Vec<(String, Pak)>, problems: Vec<String>, range: Optio
     let splits = window.navigator().max_touch_points() == 0;
     let split = search.split(['?', '&']).find_map(|kv| kv.strip_prefix("split=")).and_then(crate::split_views).filter(|_| splits);
     game.set_split(split.unwrap_or(1));
+    game.set_online(true);
+    game.set_identity(crate::VERSION, 0);
+    let param = |key: &str| search.split(['?', '&']).find_map(|kv| kv.strip_prefix(key)).map(|v| js_sys::decode_uri_component(v).ok().and_then(|s| s.as_string()).unwrap_or_default());
+    if let Some(relay) = param("relay=") {
+        game.set_relay(&relay);
+    }
+    if let Some(code) = param("join=") {
+        game.join_online(&code);
+    }
     show_screens(&document, &canvas, &overlay, phone);
     let web = Rc::new(RefCell::new(Web {
         game,
@@ -480,6 +505,7 @@ fn start(pak: Pak, mods: Vec<(String, Pak)>, problems: Vec<String>, range: Optio
         lost: false,
         odd_pad: false,
         pad_busy: false,
+        online: Default::default(),
         seats: Seats::default(),
         motors: Motors::default(),
         splits,

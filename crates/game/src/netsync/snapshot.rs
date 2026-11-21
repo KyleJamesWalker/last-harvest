@@ -6,7 +6,7 @@ use std::f32::consts::TAU;
 use super::events::Event;
 use super::wire::{Reader, Writer};
 
-pub const VERSION: u8 = 1;
+pub const VERSION: u8 = 2;
 pub const TICK_HZ: u32 = 60;
 /// Host ticks between snapshots: 20 a second.
 pub const SEND_EVERY: u32 = 3;
@@ -105,6 +105,85 @@ impl PlayerState {
             p.kit.push((r.u8()?, r.u8()?));
         }
         Some(p)
+    }
+}
+
+/// The run as a whole: the night's clock, the shared XP and kills, the pause menu and every player's level-up cards.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RunState {
+    /// Tenths of a second into the night.
+    pub t: u32,
+    pub phase: u8,
+    pub level: u16,
+    pub xp: u32,
+    pub next_xp: u32,
+    pub kills: u32,
+    /// The pause menu's row plus one, 0 when not paused, and the seat that opened it.
+    pub menu: u8,
+    pub paused_by: u8,
+    /// The level-up on its way is a chest's.
+    pub chest: bool,
+    pub cards: Vec<SeatCards>,
+}
+
+pub const PHASE_PLAYING: u8 = 0;
+pub const PHASE_LEVELING: u8 = 1;
+pub const PHASE_CARDS: u8 = 2;
+pub const PHASE_WON: u8 = 3;
+pub const PHASE_LOST: u8 = 4;
+
+/// One seat's level-up cards: each as its place in the powerup book with rare and found bits.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SeatCards {
+    pub seat: u8,
+    pub choices: [(u8, u8); 3],
+    pub selected: u8,
+    pub picked: bool,
+    pub banishes: u8,
+    pub rerolls: u8,
+    pub favors: u8,
+}
+
+pub const CARD_RARE: u8 = 1;
+pub const CARD_FOUND: u8 = 2;
+
+impl RunState {
+    fn write(&self, w: &mut Writer) {
+        w.var(self.t);
+        w.u8(self.phase);
+        w.var(self.level as u32);
+        w.var(self.xp);
+        w.var(self.next_xp);
+        w.var(self.kills);
+        w.u8(self.menu);
+        w.u8(self.paused_by);
+        w.u8(self.chest as u8);
+        w.u8(self.cards.len() as u8);
+        for c in &self.cards {
+            w.u8(c.seat);
+            for (up, bits) in c.choices {
+                w.u8(up);
+                w.u8(bits);
+            }
+            w.u8(c.selected);
+            w.u8(c.picked as u8);
+            w.u8(c.banishes);
+            w.u8(c.rerolls);
+            w.u8(c.favors);
+        }
+    }
+
+    fn read(r: &mut Reader) -> Option<Self> {
+        let mut s = RunState { t: r.var()?, phase: r.u8()?, level: r.var()? as u16, xp: r.var()?, next_xp: r.var()?, kills: r.var()?, menu: r.u8()?, paused_by: r.u8()?, chest: r.u8()? != 0, cards: Vec::new() };
+        for _ in 0..r.u8()? {
+            let seat = r.u8()?;
+            let mut choices = [(0, 0); 3];
+            for c in &mut choices {
+                *c = (r.u8()?, r.u8()?);
+            }
+            s.cards.push(SeatCards { seat, choices, selected: r.u8()?, picked: r.u8()? != 0, banishes: r.u8()?, rerolls: r.u8()?, favors: r.u8()? });
+        }
+        Some(s)
     }
 }
 
@@ -310,6 +389,7 @@ impl Spawn {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct World {
     pub tick: u32,
+    pub run: RunState,
     pub players: Vec<PlayerState>,
     pub zombies: Vec<ZombieState>,
     pub things: Vec<(u32, Thing)>,
@@ -333,7 +413,7 @@ impl World {
             }
         }
         keyed.sort();
-        Self { tick, players, zombies, things: keyed }
+        Self { tick, run: RunState::default(), players, zombies, things: keyed }
     }
 
     pub fn zombie(&self, id: u32) -> Option<&ZombieState> {
@@ -350,6 +430,7 @@ impl World {
         parts.sort_by_key(|p| p.index);
         World {
             tick: parts.first().map_or(0, |p| p.tick),
+            run: parts.first().map_or_else(RunState::default, |p| p.run.clone()),
             players: parts.first().map_or_else(Vec::new, |p| p.players.clone()),
             zombies: parts.iter().flat_map(|p| p.zombies.iter().copied()).collect(),
             things: parts.iter().flat_map(|p| p.things.iter().copied()).collect(),
@@ -401,6 +482,7 @@ const PART_OVERHEAD: usize = 40;
 /// whole without one. The first part also carries the events still owed from `first_seq` on and the spawns.
 pub fn encode(world: &World, base: Option<&World>, first_seq: u32, events: &[(u32, Event)], spawns: &[Spawned], budget: usize) -> Vec<Vec<u8>> {
     let mut players = Writer::new();
+    world.run.write(&mut players);
     players.u8(world.players.len() as u8);
     world.players.iter().for_each(|p| p.write(&mut players));
 
@@ -567,6 +649,7 @@ pub struct Part {
     pub count: u8,
     pub zombie_range: (u32, u32),
     pub thing_range: (u32, u32),
+    pub run: RunState,
     pub players: Vec<PlayerState>,
     /// The host's oldest event still owed, and the events this part carries.
     pub events: Option<(u32, Vec<(u32, Event)>)>,
@@ -624,6 +707,7 @@ fn read_part(bytes: &[u8], base: Option<&World>) -> Option<Part> {
         n => z_lo.checked_add(n - 1)?,
     };
     let (zr, tr) = ((z_lo, z_hi), (r.u32()?, r.u32()?));
+    let run = RunState::read(&mut r)?;
     let players = (0..r.u8()?).map(|_| PlayerState::read(&mut r)).collect::<Option<Vec<_>>>()?;
     let (mut events, mut spawns) = (None, Vec::new());
     if flags & 2 != 0 {
@@ -674,5 +758,5 @@ fn read_part(bytes: &[u8], base: Option<&World>) -> Option<Part> {
     things.extend(added.into_iter().filter(|t| in_range(t.0, tr)));
     things.sort();
     things.dedup_by_key(|t| t.0);
-    Some(Part { tick, base: base_tick, index, count, zombie_range: zr, thing_range: tr, players, events, spawns, zombies, things })
+    Some(Part { tick, base: base_tick, index, count, zombie_range: zr, thing_range: tr, run, players, events, spawns, zombies, things })
 }

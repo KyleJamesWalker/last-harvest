@@ -12,6 +12,7 @@ embed = []
 
 [dependencies]
 glam = "0.34"
+last-harvest-lobby = { path = "../lobby" }
 
 [build-dependencies]
 png = "0.18"
