@@ -1871,6 +1871,7 @@ dependencies = [
  "android-activity",
  "cpal",
  "evdev",
+ "flate2",
  "gilrs",
  "glow",
  "glutin",

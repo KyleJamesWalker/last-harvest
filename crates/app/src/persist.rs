@@ -25,6 +25,17 @@ pub fn next_screenshot(kind: &str) -> Option<PathBuf> {
     (1..10_000).map(|n| shots.join(format!("{kind}-{n:04}.png"))).find(|p| !p.exists())
 }
 
+/// Writes each replay into `replays/` beside the save, keeping the last ten.
+pub fn keep_replays(raws: Vec<Vec<u8>>) {
+    let dir = dir().join("replays");
+    for raw in raws {
+        match last_harvest::replays::keep(&dir, &raw, log::unix_now()) {
+            Ok(path) => log!("replay: {} ({} bytes before gzip)", path.display(), raw.len()),
+            Err(e) => log!("replay: {}: {e}", dir.display()),
+        }
+    }
+}
+
 pub struct Saver {
     path: PathBuf,
     written: Save,

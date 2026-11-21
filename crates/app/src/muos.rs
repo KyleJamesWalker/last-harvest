@@ -123,6 +123,7 @@ fn run() -> Result<(), String> {
     let mut game = Game::new(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.as_nanos() as u64));
     game.set_split(std::env::var("LAST_HARVEST_SPLIT").ok().and_then(|v| last_harvest::split_views(&v)).unwrap_or(1));
     game.load(save);
+    game.record_replays(last_harvest::replays::info());
     game.set_backlights(false);
     game.set_touch(false);
     game.set_quit(true);
@@ -155,7 +156,7 @@ fn run() -> Result<(), String> {
     loop {
         for event in events.poll_iter() {
             match event {
-                Event::Quit { .. } => return finish(&mut saver, &game, motor.as_ref()),
+                Event::Quit { .. } => return finish(&mut saver, &mut game, motor.as_ref()),
                 Event::ControllerDeviceAdded { which, .. } => match controllers.open(which) {
                     Ok(pad) => {
                         log!("pad: {}", pad.name());
@@ -213,7 +214,7 @@ fn run() -> Result<(), String> {
         let (held, stick, look) = seated[0];
         menu_held = if frame_pads.iter().any(|p| p.held.contains(Buttons::HOME)) { menu_held + dt } else { 0.0 };
         if menu_held >= QUIT_HOLD || game.quit_asked() {
-            return finish(&mut saver, &game, motor.as_ref());
+            return finish(&mut saver, &mut game, motor.as_ref());
         }
         let input = tracker.frame(RawInput { held, stick, look, ..Default::default() });
         let (w, h) = window.drawable_size();
@@ -223,6 +224,7 @@ fn run() -> Result<(), String> {
         for inputs in ticker.frame_all(frame, std::iter::once(input).chain(others).collect()) {
             game.update_all(&inputs, clock::STEP);
         }
+        persist::keep_replays(game.take_replays());
         online.send(&mut game);
         let sounds = game.take_sounds();
         if let Some(audio) = &audio {
@@ -272,11 +274,12 @@ fn state(states: &mut Vec<PadState>, which: u32) -> &mut PadState {
     &mut states[at]
 }
 
-fn finish(saver: &mut persist::Saver, game: &Game, motor: Option<&Motor>) -> Result<(), String> {
+fn finish(saver: &mut persist::Saver, game: &mut Game, motor: Option<&Motor>) -> Result<(), String> {
     if let Some(m) = motor {
         m.set(false);
     }
     saver.update(game.save(), true);
+    persist::keep_replays(game.end_replays());
     log!("quit");
     Ok(())
 }
