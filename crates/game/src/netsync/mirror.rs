@@ -235,6 +235,11 @@ impl Mirror {
         }
     }
 
+    /// Where local player `seat` was predicted at client tick `tick`, as corrected since.
+    pub fn predicted_at(&self, seat: usize, tick: u32) -> Option<[f32; 2]> {
+        self.own.get(&seat)?.history.iter().find(|h| h.0 == tick).map(|h| h.1)
+    }
+
     pub fn zombies(&self) -> impl Iterator<Item = ([f32; 2], &ZombieState)> {
         self.zombies.values().map(|t| (t.shown, &t.state))
     }

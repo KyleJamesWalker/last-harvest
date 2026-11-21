@@ -198,10 +198,13 @@ pub const T_DECOY: u8 = 6;
 pub const T_TELL: u8 = 7;
 
 /// Something that stays put a while: in the air, on the ground, or about to rise. The meaning of `data` is the
-/// kind's: a grenade's landing spot and the low 16 bits of its throw tick, a patch's radius, birth and life.
+/// kind's: a throw's landing spot and the low 16 bits of its throw tick; a patch's radius, birth tick and life in
+/// tenths of a second.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Thing {
     pub kind: u8,
+    /// Which one of its kind: a drop's, patch's or throw's variety, a tell's zombie kind.
+    pub sub: u8,
     pub pos: [u16; 2],
     pub data: [u16; 3],
 }
@@ -209,13 +212,14 @@ pub struct Thing {
 impl Thing {
     fn write(&self, w: &mut Writer) {
         w.u8(self.kind);
+        w.u8(self.sub);
         w.u16(self.pos[0]);
         w.u16(self.pos[1]);
         self.data.iter().for_each(|&d| w.var(d as u32));
     }
 
     fn read(r: &mut Reader) -> Option<Self> {
-        Some(Thing { kind: r.u8()?, pos: [r.u16()?, r.u16()?], data: [r.var()? as u16, r.var()? as u16, r.var()? as u16] })
+        Some(Thing { kind: r.u8()?, sub: r.u8()?, pos: [r.u16()?, r.u16()?], data: [r.var()? as u16, r.var()? as u16, r.var()? as u16] })
     }
 }
 

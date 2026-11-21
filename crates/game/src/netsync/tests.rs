@@ -61,8 +61,8 @@ impl Sim {
     fn world(&self) -> World {
         let players = vec![PlayerState { pos: q_pos([1200.0, 900.0]), yaw: q_angle(1.0), hp: 400, max_hp: 400, speed: 60 * 16, kit: vec![(1, 3), (7, 2)], ..Default::default() }];
         let zombies = self.zombies.iter().map(|z| ZombieState { id: z.3, kind: z.2, pos: q_pos(z.0), hp: 255, flags: if z.3 % 50 == 0 { Z_LEADER } else { 0 } }).collect();
-        let mut things: Vec<Thing> = self.drops.iter().map(|&p| Thing { kind: T_MONEY, pos: q_pos(p), data: [5, 0, 0] }).collect();
-        things.extend((0..8).map(|i| Thing { kind: T_BARREL, pos: q_pos([100.0 + i as f32 * 64.0, 300.0]), data: [255, 0, 0] }));
+        let mut things: Vec<Thing> = self.drops.iter().map(|&p| Thing { kind: T_MONEY, pos: q_pos(p), data: [5, 0, 0], ..Default::default() }).collect();
+        things.extend((0..8).map(|i| Thing { kind: T_BARREL, pos: q_pos([100.0 + i as f32 * 64.0, 300.0]), data: [255, 0, 0], ..Default::default() }));
         World::new(self.tick, players, zombies, things)
     }
 }
