@@ -54,6 +54,7 @@ pub use save::{Save, TouchControls};
 pub use sfx::Sfx;
 pub use system::{Battery, Outputs, System};
 
+use crate::fmath as fm;
 use rng::Rng;
 use menu::Page;
 use save::LEVELS;
@@ -957,14 +958,14 @@ impl Game {
         }
         for i in 0..30 {
             let seed = i as f32 * 7.31;
-            let x = (seed.sin() * 9000.0).fract().abs() * SCREEN_W + (t * 0.3 + seed).sin() * 30.0;
-            let y = (seed.cos() * 7000.0).fract().abs() * 560.0 + (t * 0.4 + seed * 2.0).cos() * 20.0;
-            let glow = ((t * 1.7 + seed).sin() * 0.5 + 0.5).powi(3);
+            let x = (fm::sin(seed) * 9000.0).fract().abs() * SCREEN_W + fm::sin(t * 0.3 + seed) * 30.0;
+            let y = (fm::cos(seed) * 7000.0).fract().abs() * 560.0 + fm::cos(t * 0.4 + seed * 2.0) * 20.0;
+            let glow = fm::powi(fm::sin(t * 1.7 + seed) * 0.5 + 0.5, 3);
             f.top.circle(x, y, 3.0 + 3.0 * glow, [0.75, 1.0, 0.45, 0.2 + 0.7 * glow]);
         }
-        let flicker = 0.85 + 0.15 * ((t * 13.0).sin() * (t * 7.3).sin()).abs();
+        let flicker = 0.85 + 0.15 * (fm::sin(t * 13.0) * fm::sin(t * 7.3)).abs();
         f.top.text_centered(248.0, 20.0, [0.0, 0.0, 0.0, 0.7], "LAST HARVEST");
-        f.top.text_centered(240.0 + (t * 1.2).sin() * 4.0, 20.0, [flicker, flicker * 0.92, flicker * 0.8, 1.0], "LAST HARVEST");
+        f.top.text_centered(240.0 + fm::sin(t * 1.2) * 4.0, 20.0, [flicker, flicker * 0.92, flicker * 0.8, 1.0], "LAST HARVEST");
         // On one screen the menu sits over the middle, so the records stay on the Stats page and warnings move up.
         let one = self.title_on_one();
         let warn_y = if one { 48.0 } else { 696.0 };

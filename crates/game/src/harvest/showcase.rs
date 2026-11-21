@@ -1,5 +1,6 @@
 //! One sprite placed on a quiet farm and drawn the way the game draws both screens, for the sprite editor.
 
+use crate::fmath as fm;
 use std::f32::consts::{FRAC_PI_2, TAU};
 
 use super::juice::{CORPSE_FALL, Corpse};
@@ -245,7 +246,7 @@ impl Showcase {
         }
         // A tile toward the camera, one to each side of the line to it.
         let yaw = self.harvest.me().view_yaw;
-        let (forward, right) = ([yaw.cos(), yaw.sin()], [-yaw.sin(), yaw.cos()]);
+        let (forward, right) = ([fm::cos(yaw), fm::sin(yaw)], [-fm::sin(yaw), fm::cos(yaw)]);
         if let Some(s) = shown.as_ref().filter(|_| barricade) {
             for side in [-1.0, 1.0] {
                 let [x, y] = [0, 1].map(|i| s.pos[i] - forward[i] * TILE + side * right[i] * TILE);
@@ -304,7 +305,7 @@ impl Showcase {
 
     /// Moves the clock on and walks the player around the sprite to look at it from `yaw`, `distance` map pixels away.
     pub fn update(&mut self, dt: f32, yaw: f32, distance: f32) {
-        let (forward, right) = ([yaw.cos(), yaw.sin()], [-yaw.sin(), yaw.cos()]);
+        let (forward, right) = ([fm::cos(yaw), fm::sin(yaw)], [-fm::sin(yaw), fm::cos(yaw)]);
         if let Some((figure, kill, t)) = &mut self.strike {
             let before = *t;
             *t += dt;

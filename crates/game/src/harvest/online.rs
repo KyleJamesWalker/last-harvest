@@ -1,6 +1,7 @@
 //! Online co-op's host end: the client's view pulled out of a night, and a whole night played to a client over a
 //! simulated network, to measure what the sync costs and how far the client's picture strays.
 
+use crate::fmath as fm;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::f32::consts::TAU;
 
@@ -680,7 +681,7 @@ pub fn net_sim(plan: &Plan, net: NetSim) -> NetReport {
 }
 
 fn dist(a: [f32; 2], b: [f32; 2]) -> f32 {
-    ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2)).sqrt()
+    (fm::powi(a[0] - b[0], 2) + fm::powi(a[1] - b[1], 2)).sqrt()
 }
 
 #[cfg(test)]

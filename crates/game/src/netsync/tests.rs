@@ -1,3 +1,4 @@
+use crate::fmath as fm;
 use super::events::Event;
 use super::input::{InputFrame, InputLog, InputMsg, InputQueue};
 use super::link::{ClientLink, HostLink};
@@ -230,7 +231,7 @@ fn twenty_percent_loss_and_reordering_still_converge_and_events_come_once_in_ord
     let worst = want.zombies.iter().map(|z| {
         let p = mirror.zombie_pos(z.id).expect("drawn");
         let h = unq_pos(z.pos);
-        ((p[0] - h[0]).powi(2) + (p[1] - h[1]).powi(2)).sqrt()
+        (fm::powi(p[0] - h[0], 2) + fm::powi(p[1] - h[1], 2)).sqrt()
     });
     assert!(worst.fold(0.0, f32::max) < 0.1);
 }

@@ -2,6 +2,7 @@
 //! it lays the `Mirror` into the run's own fields, so the drawing, HUD and maps work as in any run, and plays the
 //! host's events as sounds and gore.
 
+use crate::fmath as fm;
 use std::collections::HashMap;
 use std::f32::consts::TAU;
 
@@ -207,7 +208,7 @@ impl Harvest {
             }
             pl.pos = pos;
             pl.view_yaw = yaw;
-            pl.aim = [yaw.cos(), yaw.sin()];
+            pl.aim = [fm::cos(yaw), fm::sin(yaw)];
             pl.facing = Facing::of(pl.aim);
             pl.hurt = ps.hurt as f32 / 100.0;
             let was_down = pl.down.is_some();

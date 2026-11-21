@@ -1,5 +1,6 @@
 //! Each player's own state in a run: where they stand, their health and what they carry.
 
+use crate::fmath as fm;
 use std::f32::consts::PI;
 
 use super::players::{self, PlayerLook};
@@ -186,7 +187,7 @@ impl Harvest {
         for r in [14.0, 22.0, 30.0, 40.0] {
             for k in 0..8 {
                 let a = (p as f32 + k as f32 * 0.5) * PI / 2.0;
-                let at = [spawn[0] + a.cos() * r, spawn[1] + a.sin() * r];
+                let at = [spawn[0] + fm::cos(a) * r, spawn[1] + fm::sin(a) * r];
                 if !self.map.hits(at[0], at[1], half) {
                     return at;
                 }
