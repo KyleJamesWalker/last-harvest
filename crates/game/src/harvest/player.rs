@@ -2,7 +2,7 @@
 
 use std::f32::consts::PI;
 
-use super::weapons::Kit;
+use super::weapons::{Dog, Drone, Kit, Swing};
 use super::{Facing, Harvest, sight};
 
 /// A player's place in `Harvest::players`, which owns what they fire, throw and call up.
@@ -47,6 +47,9 @@ pub(super) struct Player {
     pub pecked: Vec<(u32, f32)>,
     /// Seconds left of the lantern beam's flare.
     pub beam: f32,
+    pub swings: Vec<Swing>,
+    pub dogs: Vec<Dog>,
+    pub drones: Vec<Drone>,
 }
 
 impl Player {
@@ -73,6 +76,9 @@ impl Player {
             heard: Vec::new(),
             pecked: Vec::new(),
             beam: 0.0,
+            swings: Vec::new(),
+            dogs: Vec::new(),
+            drones: Vec::new(),
         }
     }
 }

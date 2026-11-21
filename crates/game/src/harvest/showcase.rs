@@ -127,7 +127,7 @@ impl Showcase {
         if self.swing.as_ref().map(|s| s.0) == show {
             return;
         }
-        self.harvest.swings.clear();
+        self.harvest.me_mut().swings.clear();
         self.swing = show.map(|s| (s, Vec::new(), Stand::Figure { lift: 0.0 }, f32::INFINITY));
     }
 
@@ -337,10 +337,10 @@ impl Showcase {
         h.me_mut().pos = [s.pos[0] - forward[0] * distance - right[0] * aside, s.pos[1] - forward[1] * distance - right[1] * aside];
         h.me_mut().view_yaw = yaw;
         h.me_mut().aim = forward;
-        for s in &mut h.swings {
+        for s in &mut h.me_mut().swings {
             s.age += dt;
         }
-        h.swings.retain(|s| s.age < s.life);
+        h.me_mut().swings.retain(|s| s.age < s.life);
         let Some((show, frames, stand, since)) = &mut self.swing else { return };
         *since += dt;
         if frames.is_empty() || *since < show.life + SWING_REST {
@@ -353,7 +353,7 @@ impl Showcase {
             true => ([yaw, yaw + TAU], [show.reach; 2]),
             false => ([yaw; 2], [2.0, show.reach]),
         };
-        h.swings.push(Swing { art, fade: show.fade, age: 0.0, life: show.life, angle, reach, stand: Some(*stand), smash: show.smash });
+        h.me_mut().swings.push(Swing { art, fade: show.fade, age: 0.0, life: show.life, angle, reach, stand: Some(*stand), smash: show.smash });
     }
 
     /// The 2.5D view, as on the top screen.

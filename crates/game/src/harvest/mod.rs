@@ -46,7 +46,7 @@ pub use range::{RangeSetup, effects_with, powerups_with};
 pub use powerups::{DEFAULT_SOUND_DELAY, Progress, RUN_KIT, Run, WeaponLevels, found_from_ids, found_ids, hidden_for as hidden_powerups, owners as powerup_owners, powerup_id, powerup_index, powerup_zones, sound_group, sound_groups, valid_sound_group, unlock_conditions, weapon_behaviours, weapon_levels, weapon_patterns, weapon_sound_names, weapon_stats, weapon_targets};
 use player::{ME, Player};
 use powerups::{Kind as Card, book};
-use weapons::{Bolt, Decoy, Dog, Drone, Kit, Patch, Swing};
+use weapons::{Bolt, Decoy, Kit, Patch};
 
 /// Screen pixels per art pixel on the bottom screen's map, as `tuning.txt` [map] sets it.
 fn map_scale() -> f32 {
@@ -724,10 +724,7 @@ pub struct Harvest {
     /// Seconds toward the next barrel coming back.
     drum_t: f32,
     patches: Vec<Patch>,
-    swings: Vec<Swing>,
     bolts: Vec<Bolt>,
-    dogs: Vec<Dog>,
-    drones: Vec<Drone>,
     decoys: Vec<Decoy>,
     next_id: u32,
     /// Money's worth of XP not yet a whole point, from a pawn shop's share.
@@ -968,10 +965,7 @@ impl Harvest {
             barrel_spots: map.barrels.clone(),
             drum_t: 0.0,
             patches: Vec::new(),
-            swings: Vec::new(),
             bolts: Vec::new(),
-            dogs: Vec::new(),
-            drones: Vec::new(),
             decoys: Vec::new(),
             next_id: 1,
             xp_frac: 0.0,

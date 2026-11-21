@@ -379,11 +379,11 @@ impl Harvest {
             let a = art::SCARECROW;
             sprites.push((d.pos[1], a, d.pos[0] - a.w() / 2.0, d.pos[1] - a.h() + 2.0, false, 1.0, [1.0; 4]));
         }
-        for d in &self.dogs {
+        for d in &self.me().dogs {
             let a = d.art();
             sprites.push((d.pos[1], a, d.pos[0] - a.w() / 2.0, d.pos[1] - a.h() + 2.0 - d.lift(), d.heading[0] < 0.0, 1.0, [1.0; 4]));
         }
-        for d in &self.drones {
+        for d in &self.me().drones {
             let a = d.art();
             sprites.push((d.pos[1], a, d.pos[0] - a.w() / 2.0, d.pos[1] - a.h() + 2.0 - d.lift(), d.heading[0] < 0.0, 1.0, [1.0; 4]));
         }
@@ -445,7 +445,7 @@ impl Harvest {
             let [r, g, b] = fx.tint;
             c.art_rotated(fx.frame(), sx, sy, scale, fx.angle, [lit[0] * r, lit[1] * g, lit[2] * b, lit[3] * fx.alpha()]);
         }
-        for s in &self.swings {
+        for s in &self.me().swings {
             let (angle, r) = s.now();
             let (sx, sy) = at(self.me().pos[0] + angle.cos() * r, self.me().pos[1] - 6.0 + angle.sin() * r);
             c.art_rotated(s.art, sx, sy, scale, angle + super::weapons::SWING_TURN, [lit[0], lit[1], lit[2], lit[3] * s.alpha()]);

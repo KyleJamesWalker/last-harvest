@@ -832,11 +832,11 @@ pub fn scene(h: &Harvest) -> CardScene {
         b.lean = right * ((d.age * (10.0 + 30.0 * k)).sin() * 0.08 * k);
         board(&mut cards, b);
     }
-    for d in h.dogs.iter().filter(|d| (world(d.pos) - p).dot(forward) >= 0.0) {
+    for d in h.me().dogs.iter().filter(|d| (world(d.pos) - p).dot(forward) >= 0.0) {
         let flip = d.heading[0] * right.x + d.heading[1] * right.z < 0.0;
         board(&mut cards, Board::new(d.art(), flip, d.pos, d.lift() * PX, CHARACTER_DEPTH));
     }
-    for d in h.drones.iter().filter(|d| (world(d.pos) - p).dot(forward) >= 0.0) {
+    for d in h.me().drones.iter().filter(|d| (world(d.pos) - p).dot(forward) >= 0.0) {
         let flip = d.heading[0] * right.x + d.heading[1] * right.z < 0.0;
         board(&mut cards, Board::new(d.art(), flip, d.pos, d.lift() * PX, CHARACTER_DEPTH));
     }
@@ -845,7 +845,7 @@ pub fn scene(h: &Harvest) -> CardScene {
         let a = crow.looping(h.t + i as f32 / crow.fps);
         board(&mut cards, Board::new(a, flip, p, 12.0 * PX, 0.0));
     }
-    for s in h.swings.iter().filter(|s| s.smash) {
+    for s in h.me().swings.iter().filter(|s| s.smash) {
         let (angle, _) = s.now();
         let k = (s.age / s.life).min(1.0);
         let tip = SMASH_RAISED + (std::f32::consts::FRAC_PI_2 - SMASH_RAISED) * k * k;
@@ -856,7 +856,7 @@ pub fn scene(h: &Harvest) -> CardScene {
         let pose = Pose { origin, right: side, up, back: up.cross(side), depth: PX, tint: [1.0; 3], reach: Reach::Thin, top: None };
         faded(&mut cards, s.alpha() * s.art.alpha(), |cards| stand(cards, eye, s.art, false, pose, false));
     }
-    for s in h.swings.iter().filter(|s| !s.smash) {
+    for s in h.me().swings.iter().filter(|s| !s.smash) {
         let (angle, r) = s.now();
         let at = [h.me().pos[0] + angle.cos() * r, h.me().pos[1] + angle.sin() * r];
         match s.stand.or_else(|| s.art.stand()) {

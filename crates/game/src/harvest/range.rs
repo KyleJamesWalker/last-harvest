@@ -314,7 +314,7 @@ impl Harvest {
 
     /// Points the camera at the next dog or drone, or back at the player after the last.
     fn step_follow(&mut self, sounds: &mut Vec<Sfx>) {
-        let (dogs, drones) = (self.dogs.len(), self.drones.len());
+        let (dogs, drones) = (self.me().dogs.len(), self.me().drones.len());
         let Some(r) = &mut self.range else { return };
         r.follow = match r.follow {
             None if dogs + drones > 0 => Some(0),
@@ -335,7 +335,7 @@ impl Harvest {
     /// Where the range's camera centers: the dog or drone it follows, if any.
     pub(super) fn range_focus(&self) -> Option<[f32; 2]> {
         let i = self.range.as_ref()?.follow?;
-        self.dogs.get(i).map(|d| d.pos).or_else(|| self.drones.get(i - self.dogs.len()).map(|d| d.pos))
+        self.me().dogs.get(i).map(|d| d.pos).or_else(|| self.me().drones.get(i - self.me().dogs.len()).map(|d| d.pos))
     }
 
     fn step_level(&mut self, by: i32, sounds: &mut Vec<Sfx>) {
@@ -416,7 +416,7 @@ impl Harvest {
         top.label(format!("{}  {shown}  {how}", def.name), 28.0, 72.0, 32.0, WHITE, Align::Left);
         top.label(format!("{:.0} damage a second   vs {kind}", self.range_dps()), 28.0, 114.0, 32.0, GOLD, Align::Left);
         let (keys, down) = if self.single { (top, TOP_KEYS) } else { (bottom, 0.0) };
-        let camera = crate::pad::hint(match (self.dogs.is_empty(), self.drones.is_empty()) {
+        let camera = crate::pad::hint(match (self.me().dogs.is_empty(), self.me().drones.is_empty()) {
             (true, true) => "Right-drag, wheel: camera",
             (false, _) => "Right-drag, wheel: camera   {R1}: watch the dog",
             (true, false) => "Right-drag, wheel: camera   {R1}: watch the drone",
@@ -601,15 +601,15 @@ mod tests {
         assert_eq!(h.range_focus(), None, "no dog, nothing to watch");
         let mut h = Harvest::range(3, &RangeSetup { weapon: "dog".into(), level: 8, section: None, effects: None });
         run(&mut h, 3.0, Input::default());
-        let dogs = h.dogs.len();
+        let dogs = h.me().dogs.len();
         assert!(dogs > 1, "level 8 runs more than one dog");
         let start = h.me().pos;
         for i in 0..dogs {
             run(&mut h, 0.0, press(Buttons::R1));
-            assert_eq!(h.range_focus(), Some(h.dogs[i].pos), "dog {i}");
+            assert_eq!(h.range_focus(), Some(h.me().dogs[i].pos), "dog {i}");
         }
         run(&mut h, 1.0, Input::default());
-        assert_eq!(h.range_focus(), Some(h.dogs[dogs - 1].pos), "the camera stays on the running dog");
+        assert_eq!(h.range_focus(), Some(h.me().dogs[dogs - 1].pos), "the camera stays on the running dog");
         let away = super::super::view3d::scene(&h).eye;
         run(&mut h, 0.0, press(Buttons::R1));
         assert_eq!(h.range_focus(), None, "after the last dog, back to the player");
@@ -632,11 +632,11 @@ mod tests {
     fn r1_steps_the_camera_through_the_drones_too() {
         let mut h = Harvest::range(3, &RangeSetup { weapon: "drone".into(), level: 8, section: None, effects: None });
         run(&mut h, 3.0, Input::default());
-        let drones = h.drones.len();
+        let drones = h.me().drones.len();
         assert!(drones > 1, "level 8 flies more than one drone");
         for i in 0..drones {
             run(&mut h, 0.0, press(Buttons::R1));
-            assert_eq!(h.range_focus(), Some(h.drones[i].pos), "drone {i}");
+            assert_eq!(h.range_focus(), Some(h.me().drones[i].pos), "drone {i}");
         }
         run(&mut h, 0.0, press(Buttons::R1));
         assert_eq!(h.range_focus(), None);

@@ -868,7 +868,7 @@ impl Harvest {
                 }
             }
             let e = look(a, super::effects::effects().pitchfork);
-            self.swings.push(Swing { art: e.frames[0], fade: e.fade, age: 0.0, life: e.life, angle: [angle; 2], reach: [2.0, range * e.reach], stand: None, smash: false });
+            self.me_mut().swings.push(Swing { art: e.frames[0], fade: e.fade, age: 0.0, life: e.life, angle: [angle; 2], reach: [2.0, range * e.reach], stand: None, smash: false });
         }
         self.attack_feel(a, [self.me().pos[0] + self.me().aim[0] * 8.0, self.me().pos[1] + self.me().aim[1] * 8.0], 10.0);
         self.weapon_sound(a, Sfx::Slash, sounds);
@@ -909,7 +909,7 @@ impl Harvest {
                     hits.0 += 1;
                 }
             }
-            self.swings.push(Swing { art: smash.frames[0], fade: smash.fade, age: 0.0, life: smash.life, angle: [angle; 2], reach: [2.0, range * smash.reach], stand: None, smash: true });
+            self.me_mut().swings.push(Swing { art: smash.frames[0], fade: smash.fade, age: 0.0, life: smash.life, angle: [angle; 2], reach: [2.0, range * smash.reach], stand: None, smash: true });
             for s in 0..(range / step).ceil() as u32 {
                 self.fx.push(Fx::play(crack, polar(self.me().pos, angle, (s as f32 + 0.5) * step), angle));
             }
@@ -964,7 +964,7 @@ impl Harvest {
         }
         let from = self.me().view_yaw;
         let e = look(a, super::effects::effects().scythe);
-        self.swings.push(Swing { art: e.frames[0], fade: e.fade, age: 0.0, life: e.life, angle: [from, from + TAU], reach: [reach * e.reach; 2], stand: None, smash: false });
+        self.me_mut().swings.push(Swing { art: e.frames[0], fade: e.fade, age: 0.0, life: e.life, angle: [from, from + TAU], reach: [reach * e.reach; 2], stand: None, smash: false });
         self.juice.ring(self.me().pos, reach, 0.3, [0.85, 0.85, 0.8]);
         self.attack_feel(a, self.me().pos, 10.0);
         self.weapon_sound(a, Sfx::Slash, sounds);
@@ -1044,26 +1044,27 @@ impl Harvest {
     /// Dogs run down the zombie nearest the player within their leash and bite; with nothing to chase they wander near the player.
     fn walk_dogs(&mut self, dt: f32, sounds: &mut Vec<Sfx>) {
         let want: Vec<(usize, usize)> = self.me().kit.weapons.iter().filter(|a| a.does() == Does::Dog).flat_map(|&a| (0..self.stat(a, Stat::Count).max(1.0) as usize).map(move |s| (a.def, s))).collect();
-        self.dogs.retain(|d| want.contains(&(d.def, d.slot)));
+        self.me_mut().dogs.retain(|d| want.contains(&(d.def, d.slot)));
         for (def, slot) in want {
-            if !self.dogs.iter().any(|d| d.def == def && d.slot == slot) {
-                self.dogs.push(Dog { def, slot, pos: self.me().pos, heading: [1.0, 0.0], anim: 0.0, cd: 0.0, target: None, vel: [0.0; 2], spot: [0.0; 2], rest: 0.0, catching_up: false, leap: None });
+            if !self.me().dogs.iter().any(|d| d.def == def && d.slot == slot) {
+                let me = self.me_mut();
+                me.dogs.push(Dog { def, slot, pos: me.pos, heading: [1.0, 0.0], anim: 0.0, cd: 0.0, target: None, vel: [0.0; 2], spot: [0.0; 2], rest: 0.0, catching_up: false, leap: None });
             }
         }
         let crit = self.crit();
         let mut hits = (0, false);
         let mut barked = false;
-        for i in 0..self.dogs.len() {
-            let Some(a) = self.me().kit.weapons.iter().copied().find(|a| a.def == self.dogs[i].def) else { continue };
+        for i in 0..self.me().dogs.len() {
+            let Some(a) = self.me().kit.weapons.iter().copied().find(|a| a.def == self.me().dogs[i].def) else { continue };
             let (leash, speed, damage, cd, force) = (self.stat(a, Stat::Range), self.stat(a, Stat::Speed), self.stat(a, Stat::Damage), self.stat(a, Stat::Cooldown), self.stat(a, Stat::Knockback));
-            let dog = &self.dogs[i];
+            let dog = &self.me().dogs[i];
             let near_player = |z: &Zombie| z.rise >= 1.0 && len(sub(z.pos, self.me().pos)) < leash;
             let held = dog.target.and_then(|id| self.zombies.iter().position(|z| z.id == id && near_player(z)));
             let target = held.or_else(|| self.zombies.iter().enumerate().filter(|(_, z)| near_player(z)).min_by(|a, b| len(sub(a.1.pos, dog.pos)).total_cmp(&len(sub(b.1.pos, dog.pos)))).map(|(i, _)| i));
             let (player, yaw) = (self.me().pos, self.me().view_yaw);
             let away = len(sub(player, dog.pos));
             let goal = target.map(|t| self.zombies[t].pos);
-            let dog = &mut self.dogs[i];
+            let dog = &mut self.players[ME].dogs[i];
             dog.cd -= dt;
             dog.rest -= dt;
             dog.target = target.map(|t| self.zombies[t].id);
@@ -1129,11 +1130,12 @@ impl Harvest {
     pub(super) fn scatter(&mut self, dt: f32) {
         let k = (dt * 4.0).min(1.0);
         let away = |pos: [f32; 2], from: [f32; 2], ahead: [f32; 2]| if len(sub(pos, from)) > 0.1 { norm(sub(pos, from)) } else { ahead };
-        for i in 0..self.dogs.len() {
-            let Some(a) = self.me().kit.weapons.iter().copied().find(|a| a.def == self.dogs[i].def) else { continue };
+        for i in 0..self.me().dogs.len() {
+            let Some(a) = self.me().kit.weapons.iter().copied().find(|a| a.def == self.me().dogs[i].def) else { continue };
             let speed = self.stat(a, Stat::Speed);
-            let dog = &mut self.dogs[i];
-            let n = away(dog.pos, self.players[ME].pos, dog.heading);
+            let from = self.me().pos;
+            let dog = &mut self.me_mut().dogs[i];
+            let n = away(dog.pos, from, dog.heading);
             dog.leap = None;
             dog.vel = [dog.vel[0] + (n[0] * speed - dog.vel[0]) * k, dog.vel[1] + (n[1] * speed - dog.vel[1]) * k];
             dog.pos = [dog.pos[0] + dog.vel[0] * dt, dog.pos[1] + dog.vel[1] * dt];
@@ -1142,11 +1144,12 @@ impl Harvest {
                 dog.anim += dt * (len(dog.vel) / speed * 1.6).min(1.0);
             }
         }
-        for i in 0..self.drones.len() {
-            let Some(a) = self.me().kit.weapons.iter().copied().find(|a| a.def == self.drones[i].def) else { continue };
+        for i in 0..self.me().drones.len() {
+            let Some(a) = self.me().kit.weapons.iter().copied().find(|a| a.def == self.me().drones[i].def) else { continue };
             let speed = self.stat(a, Stat::Speed);
-            let drone = &mut self.drones[i];
-            let n = away(drone.pos, self.players[ME].pos, drone.heading);
+            let from = self.me().pos;
+            let drone = &mut self.me_mut().drones[i];
+            let n = away(drone.pos, from, drone.heading);
             drone.firing = 0.0;
             drone.anim += dt;
             drone.vel = [drone.vel[0] + (n[0] * speed - drone.vel[0]) * k, drone.vel[1] + (n[1] * speed - drone.vel[1]) * k];
@@ -1161,24 +1164,25 @@ impl Harvest {
     /// a round every gap; with nothing to shoot they hover near the player.
     fn fly_drones(&mut self, dt: f32, sounds: &mut Vec<Sfx>) {
         let want: Vec<(usize, usize)> = self.me().kit.weapons.iter().filter(|a| a.does() == Does::Drone).flat_map(|&a| (0..self.stat(a, Stat::Count).max(1.0) as usize).map(move |s| (a.def, s))).collect();
-        self.drones.retain(|d| want.contains(&(d.def, d.slot)));
+        self.me_mut().drones.retain(|d| want.contains(&(d.def, d.slot)));
         for (def, slot) in want {
-            if !self.drones.iter().any(|d| d.def == def && d.slot == slot) {
+            if !self.me().drones.iter().any(|d| d.def == def && d.slot == slot) {
                 let anim = slot as f32 * 0.7;
-                self.drones.push(Drone { def, slot, pos: self.me().pos, heading: [1.0, 0.0], anim, cd: 0.0, firing: 0.0, next: 0.0, target: None, vel: [0.0; 2], spot: [0.0; 2], rest: 0.0, heard: 0 });
+                let me = self.me_mut();
+                me.drones.push(Drone { def, slot, pos: me.pos, heading: [1.0, 0.0], anim, cd: 0.0, firing: 0.0, next: 0.0, target: None, vel: [0.0; 2], spot: [0.0; 2], rest: 0.0, heard: 0 });
             }
         }
         let tune = crate::tuning::tuning();
-        for i in 0..self.drones.len() {
-            let Some(a) = self.me().kit.weapons.iter().copied().find(|a| a.def == self.drones[i].def) else { continue };
+        for i in 0..self.me().drones.len() {
+            let Some(a) = self.me().kit.weapons.iter().copied().find(|a| a.def == self.me().drones[i].def) else { continue };
             let (leash, speed, burst, gap, cooldown) = (self.stat(a, Stat::Range), self.stat(a, Stat::Speed), self.stat(a, Stat::Duration), self.stat(a, Stat::Gap).max(0.02), self.stat(a, Stat::Cooldown));
-            let drone = &self.drones[i];
+            let drone = &self.me().drones[i];
             let near_player = |z: &Zombie| z.rise >= 1.0 && len(sub(z.pos, self.me().pos)) < leash;
             let held = drone.target.and_then(|id| self.zombies.iter().position(|z| z.id == id && near_player(z)));
             let target = held.or_else(|| self.zombies.iter().enumerate().filter(|(_, z)| near_player(z)).min_by(|a, b| len(sub(a.1.pos, drone.pos)).total_cmp(&len(sub(b.1.pos, drone.pos)))).map(|(i, _)| i));
             let (player, yaw) = (self.me().pos, self.me().view_yaw);
             let goal = target.map(|t| self.zombies[t].pos);
-            let drone = &mut self.drones[i];
+            let drone = &mut self.players[ME].drones[i];
             drone.target = target.map(|t| self.zombies[t].id);
             drone.rest -= dt;
             drone.anim += dt;
@@ -1239,7 +1243,7 @@ impl Harvest {
                 self.juice.tally.by = Some(a.def);
                 self.shoot_from([from[0], from[1] - 6.0], angle, tune.drone_bullet, damage, pierce, tune.drone_reach * 1.2 / tune.drone_bullet, force, bullet(a), lift);
             }
-            let heard = due(book().defs[a.def].sound_every, &mut self.drones[i].heard, rounds);
+            let heard = due(book().defs[a.def].sound_every, &mut self.me_mut().drones[i].heard, rounds);
             if heard && self.hush[7] <= 0.0 {
                 sounds.push(sound(a, Sfx::Shot));
                 self.follow_sound(a);
@@ -1439,10 +1443,10 @@ impl Harvest {
                 self.juice.burst(z.pos, 8.0, 1, [0.0; 2], 0.0, [5.0, 15.0], juice::ember(), 1.2, 0.5, 1.0);
             }
         }
-        for s in &mut self.swings {
+        for s in &mut self.me_mut().swings {
             s.age += dt;
         }
-        self.swings.retain(|s| s.age < s.life);
+        self.me_mut().swings.retain(|s| s.age < s.life);
         for b in &mut self.bolts {
             b.age += dt;
         }
@@ -1941,7 +1945,7 @@ mod tests {
         h.barrels.clear();
         let hurt = hurt_after(&mut h, 6.0);
         assert!(hurt > 0.0, "its rounds hit");
-        let d = &h.drones[0];
+        let d = &h.me().drones[0];
         let off = len(sub(d.pos, h.zombies[0].pos));
         assert!((off - t.drone_hold).abs() < 8.0, "it hovers its hold off the zombie, {off}");
         assert!(d.lift() > 8.0, "in the air");
@@ -1991,7 +1995,7 @@ mod tests {
         let mut h = with("drone", [400.0, 0.0]);
         let hurt = hurt_after(&mut h, 4.0);
         assert_eq!(hurt, 0.0, "a zombie past its range is left alone");
-        assert!(len(sub(h.drones[0].pos, h.me().pos)) < 50.0, "it stays by the player");
+        assert!(len(sub(h.me().drones[0].pos, h.me().pos)) < 50.0, "it stays by the player");
         assert!(h.bullets.is_empty());
     }
 
@@ -2076,7 +2080,7 @@ mod tests {
         armed(&mut h, "drone", 1);
         h.walk_dogs(1.0 / 60.0, &mut Vec::new());
         h.fly_drones(1.0 / 60.0, &mut Vec::new());
-        let at = |h: &Harvest| (len(sub(h.dogs[0].pos, h.me().pos)), len(sub(h.drones[0].pos, h.me().pos)));
+        let at = |h: &Harvest| (len(sub(h.me().dogs[0].pos, h.me().pos)), len(sub(h.me().drones[0].pos, h.me().pos)));
         let before = at(&h);
         for _ in 0..60 * 3 {
             h.scatter(1.0 / 60.0);
@@ -2092,7 +2096,7 @@ mod tests {
         let mut spots = Vec::new();
         for k in 0..60 * 20 {
             h.walk_dogs(1.0 / 60.0, &mut Vec::new());
-            let d = &h.dogs[0];
+            let d = &h.me().dogs[0];
             assert!(len(sub(d.pos, h.me().pos)) < crate::tuning::tuning().dog_stray + 4.0, "it stays close");
             if k % 60 == 0 {
                 spots.push(d.pos);
@@ -2104,7 +2108,7 @@ mod tests {
         for _ in 0..60 * 3 {
             h.walk_dogs(1.0 / 60.0, &mut Vec::new());
         }
-        assert!(len(sub(h.dogs[0].pos, h.me().pos)) < crate::tuning::tuning().dog_stray, "it ran to catch up");
+        assert!(len(sub(h.me().dogs[0].pos, h.me().pos)) < crate::tuning::tuning().dog_stray, "it ran to catch up");
     }
 
     #[test]
@@ -2113,22 +2117,22 @@ mod tests {
         let mut h = with("dog", [t.dog_leap - 6.0, 0.0]);
         let hp = h.zombies[0].hp;
         h.walk_dogs(1.0 / 60.0, &mut Vec::new());
-        assert!(h.dogs[0].leap.is_some(), "its bite is ready, so it pounces at once");
+        assert!(h.me().dogs[0].leap.is_some(), "its bite is ready, so it pounces at once");
         let mut top = 0.0f32;
-        while h.dogs[0].leap.is_some() {
+        while h.me().dogs[0].leap.is_some() {
             h.walk_dogs(1.0 / 60.0, &mut Vec::new());
-            top = top.max(h.dogs[0].lift());
+            top = top.max(h.me().dogs[0].lift());
         }
         assert!((top - t.dog_leap_height).abs() < 0.5, "it rises the pounce's height, {top}");
-        assert!(len(sub(h.dogs[0].pos, h.zombies[0].pos)) < t.dog_reach, "and lands within biting reach");
+        assert!(len(sub(h.me().dogs[0].pos, h.zombies[0].pos)) < t.dog_reach, "and lands within biting reach");
         h.walk_dogs(1.0 / 60.0, &mut Vec::new());
         assert!(h.zombies[0].hp < hp, "then bites");
-        let (cd, first) = (h.dogs[0].cd, h.zombies[0].hp);
+        let (cd, first) = (h.me().dogs[0].cd, h.zombies[0].hp);
         for _ in 0..(cd * 60.0) as usize + 2 {
             h.walk_dogs(1.0 / 60.0, &mut Vec::new());
-            h.zombies[0].pos = h.dogs[0].pos;
+            h.zombies[0].pos = h.me().dogs[0].pos;
         }
-        assert!(h.dogs[0].leap.is_some() || h.zombies[0].hp < first, "right beside it, the next bite is a pounce too");
+        assert!(h.me().dogs[0].leap.is_some() || h.zombies[0].hp < first, "right beside it, the next bite is a pounce too");
     }
 
     #[test]
@@ -2137,8 +2141,8 @@ mod tests {
         let mut h = with("dog", [t.dog_leap - 4.0, 0.0]);
         let hp = h.zombies[0].hp;
         h.walk_dogs(1.0 / 60.0, &mut Vec::new());
-        assert!(h.dogs[0].leap.is_some(), "it pounces");
-        while h.dogs[0].leap.is_some() {
+        assert!(h.me().dogs[0].leap.is_some(), "it pounces");
+        while h.me().dogs[0].leap.is_some() {
             h.zombies[0].pos[0] += 32.0 / 60.0;
             h.zombies[0].pos[1] += 12.0 / 60.0;
             h.walk_dogs(1.0 / 60.0, &mut Vec::new());
