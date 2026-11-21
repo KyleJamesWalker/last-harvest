@@ -488,7 +488,7 @@ fn install_noting(base: Option<Pak>, missing_pack: Option<String>, more: Vec<(St
 fn fingerprint(pak: &Pak) -> u64 {
     let mut paths = pak.paths();
     paths.sort_unstable();
-    data::fingerprint(paths.into_iter().flat_map(|p| [p.as_bytes(), pak.get(p).unwrap_or_default()]))
+    last_harvest_game::replay::fingerprint(paths.into_iter().flat_map(|p| [p.as_bytes(), pak.get(p).unwrap_or_default()]))
 }
 
 /// Which `game_data.pak` to copy into `folder`: the one from this game's release.

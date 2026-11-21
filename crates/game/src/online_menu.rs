@@ -4,7 +4,7 @@
 use last_harvest_lobby::{ALPHABET, Identity, ModPack, RoomCode, Settings, Start};
 
 use crate::draw::{Align, Canvas};
-use crate::harvest::{self, Harvest};
+use crate::harvest::{self, Harvest, replay};
 use crate::input::{Buttons, Input};
 use crate::menu::{Page, fit_label, wrap_label};
 use crate::netplay::{Happening, Net, Packet, Request, Traffic};
@@ -208,7 +208,7 @@ impl Game {
 
     fn identity(&self) -> Identity {
         let version = if self.online.version.is_empty() { "dev".to_string() } else { self.online.version.clone() };
-        let pak = if self.online.pak != 0 { self.online.pak } else { crate::data::rules() };
+        let pak = if self.online.pak != 0 { self.online.pak } else { crate::data::fingerprint().unwrap_or_default() };
         let mods = crate::data::load_report().mod_packs.iter().map(|(name, fingerprint)| ModPack { name: name.clone(), fingerprint: *fingerprint }).collect();
         Identity { game_version: version, pak, mods }
     }
@@ -340,6 +340,7 @@ impl Game {
                 }
                 Happening::End(why) => {
                     if self.online_run() {
+                        self.keep_replays();
                         self.state = State::Title;
                     }
                     if matches!(self.page, Page::Lobby | Page::Main) || self.online_run() {
@@ -393,9 +394,19 @@ impl Game {
         let seats: Vec<usize> = start.players.iter().map(|p| p.seat as usize).collect();
         let n = seats.iter().max().map_or(1, |m| m + 1);
         let difficulty = Difficulty::ALL.get(start.difficulty as usize).copied().unwrap_or_default();
-        let mut h = Harvest::on(start.seed, &start.map).at(difficulty).single_screen(self.one_screen()).with_players(n);
         let looks: Vec<(usize, String)> = seats.iter().map(|&s| (s, card(s))).collect();
-        h = if host { h.with_progress(self.progress()).dressed(&looks).hosting(mine.len()) } else { h.client_of(&mine, &seats).dressed(&looks).with_views(mine.len()) };
+        let h = if host {
+            let kind = replay::Kind::Host { looks, local: mine.len() };
+            let setup = replay::Setup { map: start.map.clone(), difficulty, progress: self.progress(), look: look.clone(), farm: Some(look), one_screen: self.one_screen(), players: n, kind, ..replay::Setup::night(start.seed) };
+            let mut h = setup.build();
+            if let Some(info) = &self.replay_info {
+                h.record(info.clone());
+            }
+            h
+        } else {
+            Harvest::on(start.seed, &start.map).at(difficulty).single_screen(self.one_screen()).with_players(n).client_of(&mine, &seats).dressed(&looks).with_views(mine.len())
+        };
+        self.keep_replays();
         self.sounds.push(Sfx::Start);
         self.state = State::Harvest(Box::new(h));
         self.page = Page::Main;

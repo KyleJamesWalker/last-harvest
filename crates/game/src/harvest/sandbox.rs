@@ -6,9 +6,9 @@ use std::f32::consts::{PI, TAU};
 
 use super::map::TILE;
 use super::powerups::{Kind, book};
-use super::weapons::Kit;
 use super::player::PlayerId;
-use super::{Choice, Harvest, ME, Phase, dawn, len, sub};
+use super::replay::{Kind as Made, Op, Setup};
+use super::{Choice, Harvest, ME, Phase, Progress, dawn, len, sub};
 use crate::rng::Rng;
 use crate::sfx::Sfx;
 use crate::{Buttons, Difficulty, Input};
@@ -112,11 +112,20 @@ pub struct Plan {
     /// Seconds into the night to stop at; past dawn the night goes on, with the Harvester awake.
     pub until: Option<f32>,
     pub step: f32,
+    /// Records the night as a replay headed by these lines.
+    pub record: Option<Vec<(String, String)>>,
 }
 
 impl Plan {
     pub fn new(build: Vec<(usize, u32)>) -> Self {
-        Self { seed: 1, difficulty: Difficulty::Normal, size: super::MAP_SIZE, build, walk: Walk::Circle, pick: Pick::None, unlocked: true, turn: 0.25, turn_every: 6.0, throw_every: 12.0, mortal: false, players: 1, until: None, step: 1.0 / 60.0 }
+        Self { seed: 1, difficulty: Difficulty::Normal, size: super::MAP_SIZE, build, walk: Walk::Circle, pick: Pick::None, unlocked: true, turn: 0.25, turn_every: 6.0, throw_every: 12.0, mortal: false, players: 1, until: None, step: 1.0 / 60.0, record: None }
+    }
+
+    /// What the night is built from, as a replay keeps it.
+    pub fn setup(&self) -> Setup {
+        let kind = Made::Sandbox { size: self.size, build: self.build.clone(), mortal: self.mortal };
+        let progress = Progress { everything: self.unlocked, ..Progress::default() };
+        Setup { seed: self.seed, difficulty: self.difficulty, progress, players: self.players, walk: self.walk, turn: self.turn, turn_every: self.turn_every, throw_every: self.throw_every, kind, ..Setup::night(self.seed) }
     }
 }
 
@@ -175,6 +184,7 @@ pub struct Night {
     pub took: Vec<Took>,
     /// Each player's own numbers, the local player first.
     pub seats: Vec<Seat>,
+    pub replay: Option<Vec<u8>>,
 }
 
 /// A build from `id` or `id:level` items, comma separated; `top` is a weapon's last level and `break` its breaker's.
@@ -216,18 +226,10 @@ pub fn weapon_levels() -> Vec<(String, u32)> {
 
 /// Plays the night `plan` describes.
 pub fn night(plan: &Plan) -> Night {
-    let mut h = Harvest::sized(plan.seed, plan.size).at(plan.difficulty);
-    if plan.players > 1 {
-        h = h.with_players(plan.players).with_views(1);
-        h.bots = (1..h.players.len()).map(|p| (p, Bot::new(plan.walk, plan.turn, plan.turn_every, plan.throw_every))).collect();
+    let mut h = plan.setup().build();
+    if let Some(info) = &plan.record {
+        h.record(info.clone());
     }
-    for pl in &mut h.players {
-        pl.kit = Kit::forced(&plan.build, plan.difficulty);
-        pl.hp = pl.kit.max_hp();
-        pl.grenades = pl.kit.grenades();
-    }
-    h.undying = !plan.mortal;
-    h.progress.everything = plan.unlocked;
     let mut rng = Rng::new(plan.seed.wrapping_mul(0x9E37_79B9_7F4A_7C15));
     let mut took = Vec::new();
     let end = plan.until.unwrap_or(dawn());
@@ -249,15 +251,14 @@ pub fn night(plan: &Plan) -> Night {
             took.extend(choose(&mut h, &plan.pick, &mut rng, &mut sounds));
             for p in 1..h.players.len() {
                 if h.players[p].alive() {
-                    h.relabel(p);
-                    h.phase = Phase::LevelUp { choices: h.roll_choices(&[]), selected: 0, t: 0.0, picked: None };
+                    h.op(Op::Relabel(p), &mut sounds);
+                    h.op(Op::Deal, &mut sounds);
                     choose(&mut h, &plan.pick, &mut rng, &mut sounds);
-                    h.relabel(p);
+                    h.op(Op::Relabel(p), &mut sounds);
                 }
             }
             sounds.clear();
-            h.phase = Phase::Playing;
-            h.chest = false;
+            h.op(Op::Resume, &mut sounds);
         }
         if h.zombies.len() + h.tells.len() + h.burrowed.len() >= cap {
             capped += h.t - t;
@@ -298,6 +299,7 @@ pub fn night(plan: &Plan) -> Night {
                 Seat { fell: b.fell, hearts: b.hearts, kills, useful, led: b.led, bites: b.bites }
             })
             .collect(),
+        replay: h.stop_recording().pop(),
     }
 }
 
@@ -348,7 +350,7 @@ impl Bot {
             let reach = crate::tuning::tuning().quick_near;
             let pl = &h.players[p];
             let to = [pl.pos[0] + pl.aim[0] * reach, pl.pos[1] + pl.aim[1] * reach];
-            h.throw_by(p, to, sounds);
+            h.op(Op::Throw { p, to }, sounds);
         }
         input
     }
@@ -413,43 +415,48 @@ fn avoid(h: &Harvest, p: PlayerId) -> f32 {
 
 /// Takes a card from the level-up on show by `pick`'s strategy: what it took, or None for `Pick::None`.
 fn choose(h: &mut Harvest, pick: &Pick, rng: &mut Rng, sounds: &mut Vec<Sfx>) -> Option<Took> {
-    let Phase::LevelUp { mut choices, t, .. } = h.phase else { return None };
+    let Phase::LevelUp { choices, .. } = h.phase else { return None };
+    if *pick == Pick::None {
+        return None;
+    }
+    h.op(Op::Begin, sounds);
     let i = match pick {
         Pick::None => return None,
         Pick::Random => rng.below(choices.len()),
-        Pick::Held => stack(h, &mut choices, t, sounds),
+        Pick::Held => stack(h, sounds),
         Pick::First(order) => {
             let first = |cs: &[Choice; 3]| cs.iter().enumerate().filter_map(|(i, c)| order.iter().position(|&o| o == c.up).map(|r| (r, i))).min().map(|(_, i)| i);
-            if first(&choices).is_none() && h.rerolls > 0 {
-                h.reroll(&mut choices, t, sounds);
+            if first(&h.picking()).is_none() && h.rerolls > 0 {
+                h.op(Op::Reroll, sounds);
             }
-            match first(&choices) {
+            match first(&h.picking()) {
                 Some(i) => i,
-                None => stack(h, &mut choices, t, sounds),
+                None => stack(h, sounds),
             }
         }
     };
-    let c = choices[i];
+    let c = h.picking()[i];
     if *pick != Pick::Random && h.me().kit.level(c.up) > 0 && book().defs[c.up].kind == Kind::Weapon {
-        h.favor(c.up);
+        h.op(Op::Favor(c.up), sounds);
     }
-    h.take(c, sounds);
+    h.op(Op::Take(i), sounds);
     Some(Took { secs: h.t, up: c.up, rare: c.rare })
 }
 
 /// A card for a powerup the player holds, rare first; with none, it rerolls, then banishes a card it doesn't hold,
 /// while it can, and failing that takes a new one, rare first.
-fn stack(h: &mut Harvest, choices: &mut [Choice; 3], t: f32, sounds: &mut Vec<Sfx>) -> usize {
+fn stack(h: &mut Harvest, sounds: &mut Vec<Sfx>) -> usize {
     let held = |h: &Harvest, c: &Choice| h.me().kit.level(c.up) > 0;
-    while !choices.iter().any(|c| held(h, c)) {
+    while !h.picking().iter().any(|c| held(h, c)) {
         if h.rerolls > 0 {
-            h.reroll(choices, t, sounds);
-        } else if let Some(i) = choices.iter().position(|c| h.banishes > 0 && book().defs[c.up].kind != Kind::Filler) {
-            h.banish(choices, i, t, sounds);
+            h.op(Op::Reroll, sounds);
+        } else if let Some(i) = h.picking().iter().position(|c| h.banishes > 0 && book().defs[c.up].kind != Kind::Filler) {
+            h.op(Op::Banish(i), sounds);
         } else {
             break;
         }
     }
+    let choices = h.picking();
     (0..choices.len()).max_by_key(|&i| (held(h, &choices[i]), choices[i].rare, std::cmp::Reverse(i))).unwrap_or(0)
 }
 

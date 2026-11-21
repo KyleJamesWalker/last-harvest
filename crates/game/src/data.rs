@@ -72,7 +72,6 @@ pub struct Card {
 }
 
 static DATA: OnceLock<Data> = OnceLock::new();
-static RULES: OnceLock<u64> = OnceLock::new();
 static MAPS: OnceLock<Vec<LoadedMap>> = OnceLock::new();
 
 /// What loaded beside the game's own data, and what couldn't, for players who can't read the log.
@@ -102,6 +101,24 @@ impl LoadReport {
 }
 
 static REPORT: OnceLock<LoadReport> = OnceLock::new();
+static PRINT: OnceLock<u64> = OnceLock::new();
+
+/// A hash of the installed data the rules read, or none for the data built in.
+pub fn fingerprint() -> Option<u64> {
+    PRINT.get().copied()
+}
+
+fn print_of(data: &Data) -> u64 {
+    fn text(t: &Option<String>) -> &[u8] {
+        t.as_deref().unwrap_or("").as_bytes()
+    }
+    let built = [built_in::POWERUPS, built_in::ENEMIES, built_in::PROPS, None, built_in::EFFECTS, built_in::GROUND, built_in::FARM];
+    let tables = [&data.powerups, &data.enemies, &data.props_table, &data.tuning, &data.effects, &data.ground, &data.farm].map(text).into_iter().zip(built).map(|(own, b)| if own.is_empty() { b.unwrap_or("").as_bytes() } else { own });
+    let cards = data.cards.iter().chain(&data.players).chain(&data.props).flat_map(|c| [c.name.as_bytes(), c.text.as_bytes(), &c.sheet]);
+    let farms = data.farms.iter().flat_map(|f| [f.id.as_bytes(), f.farm.as_deref().unwrap_or("").as_bytes(), f.ground.as_deref().unwrap_or("").as_bytes()]);
+    let maps = data.maps.iter().flat_map(|m| [m.file.as_bytes(), m.text.as_bytes()]);
+    crate::replay::fingerprint(tables.chain(cards).chain(farms).chain(maps))
+}
 
 /// Keeps the app's account of what it loaded; the first one stays.
 pub fn report(r: LoadReport) {
@@ -160,6 +177,7 @@ pub fn install(mut data: Data) -> Result<Vec<String>, String> {
     if DATA.get().is_some() {
         return Err("the game data was already read".into());
     }
+    PRINT.set(print_of(&data)).ok();
     let mut notes = Vec::new();
     let cards = std::mem::take(&mut data.cards);
     let players = std::mem::take(&mut data.players);
@@ -174,7 +192,6 @@ pub fn install(mut data: Data) -> Result<Vec<String>, String> {
             None => notes = cards.iter().chain(&players).chain(&props).map(|c| format!("{}: no sprite atlas to draw it into", c.name)).collect(),
         }
     }
-    RULES.set(rules_of(&data, &cards, &players, &props)).ok();
     let files = std::mem::take(&mut data.maps);
     let farms = std::mem::take(&mut data.farms);
     let owners = crate::harvest::powerup_owners(data.powerups.as_deref().or(built_in::POWERUPS).unwrap_or_default());
@@ -202,70 +219,6 @@ pub fn install(mut data: Data) -> Result<Vec<String>, String> {
     }
     MAPS.set(maps).ok();
     Ok(notes)
-}
-
-/// A fingerprint of every table, card, farm and map that sets the rules, as installed: two games play the same night
-/// only when theirs match.
-pub fn rules() -> u64 {
-    *RULES.get_or_init(|| rules_of(&Data::default(), &[], &[], &[]))
-}
-
-fn rules_of(data: &Data, cards: &[Card], players: &[Card], props: &[Card]) -> u64 {
-    let tables = [
-        data.powerups.as_deref().or(built_in::POWERUPS),
-        data.enemies.as_deref().or(built_in::ENEMIES),
-        data.props_table.as_deref().or(built_in::PROPS),
-        data.tuning.as_deref(),
-        data.effects.as_deref().or(built_in::EFFECTS),
-        data.ground.as_deref().or(built_in::GROUND),
-        data.farm.as_deref().or(built_in::FARM),
-    ];
-    let mut h = Fnv::default();
-    for t in tables {
-        h.text(t.unwrap_or_default());
-    }
-    for c in cards.iter().chain(players).chain(props) {
-        h.text(&c.name);
-        h.text(&c.text);
-    }
-    for f in &data.farms {
-        h.text(&f.id);
-        h.text(f.farm.as_deref().unwrap_or_default());
-        h.text(f.ground.as_deref().unwrap_or_default());
-    }
-    for m in &data.maps {
-        h.text(&m.file);
-        h.text(&m.text);
-    }
-    h.0
-}
-
-/// FNV-1a, 64-bit, as `last_harvest_lobby::fingerprint`, with each text closed off so neighbours can't run together.
-struct Fnv(u64);
-
-impl Default for Fnv {
-    fn default() -> Self {
-        Fnv(0xcbf2_9ce4_8422_2325)
-    }
-}
-
-impl Fnv {
-    fn text(&mut self, s: &str) {
-        self.bytes(s.as_bytes());
-    }
-
-    fn bytes(&mut self, bytes: &[u8]) {
-        for &b in bytes.iter().chain(&[0xff]) {
-            self.0 = (self.0 ^ b as u64).wrapping_mul(0x0000_0100_0000_01b3);
-        }
-    }
-}
-
-/// One fingerprint of `parts`, in order, such as a mod pack's file names and bytes.
-pub fn fingerprint<'a>(parts: impl IntoIterator<Item = &'a [u8]>) -> u64 {
-    let mut h = Fnv::default();
-    parts.into_iter().for_each(|p| h.bytes(p));
-    h.0
 }
 
 fn data() -> &'static Data {
@@ -331,19 +284,6 @@ pub fn enemies() -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn the_rules_fingerprint_follows_every_table_card_farm_and_map() {
-        let plain = rules_of(&Data::default(), &[], &[], &[]);
-        let tuned = Data { tuning: Some("[player]\nspeed 61\n".into()), ..Data::default() };
-        assert_ne!(rules_of(&tuned, &[], &[], &[]), plain);
-        let card = |text: &str| Card { name: "ghoul.enemy.png".into(), text: text.into(), frame: [1, 1], sheet: vec![], worn: String::new(), detail: 1 };
-        assert_ne!(rules_of(&Data::default(), &[card("[ghoul]\nhp 9")], &[], &[]), plain);
-        assert_ne!(rules_of(&Data::default(), &[card("[ghoul]\nhp 10")], &[], &[]), rules_of(&Data::default(), &[card("[ghoul]\nhp 9")], &[], &[]));
-        let mapped = Data { maps: vec![MapFile { file: "a.map.txt".into(), text: "x".into() }], ..Data::default() };
-        assert_ne!(rules_of(&mapped, &[], &[], &[]), plain);
-        assert_eq!(rules(), plain, "with nothing installed the rules are the built-in ones");
-    }
 
     #[test]
     fn versions_name_the_pack_only_when_it_differs() {

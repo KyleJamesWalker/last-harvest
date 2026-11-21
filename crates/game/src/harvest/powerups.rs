@@ -607,6 +607,8 @@ pub struct Def {
     pub targets: Targets,
     /// For a burst that `targets each`, how far its later shots reach a zombie outside the view; None for its range.
     pub outside: Option<f32>,
+    /// For a dog, a bite that kills is ready again at once.
+    pub kill_resets: bool,
     /// For a lob, what it does where it lands.
     pub lands: Lands,
     /// For a weapon, how each attack shakes the camera and lights the ground.
@@ -797,6 +799,7 @@ pub fn parse(text: &str) -> Result<Book, String> {
                 pattern: Pattern::Fan,
                 targets: Targets::Same,
                 outside: None,
+                kill_resets: false,
                 lands: Lands::Blast,
                 feel: Feel::default(),
                 player: None,
@@ -894,6 +897,13 @@ pub fn parse(text: &str) -> Result<Book, String> {
                 }
             }
             "outside" => def.outside = Some(rest.parse::<f32>().ok().filter(|v| v.is_finite() && *v >= 0.0).ok_or_else(|| format!("{n}: outside is pixels, 0 or more, not {rest:?}"))?),
+            "kill_resets" => {
+                def.kill_resets = match rest {
+                    "1" => true,
+                    "0" => false,
+                    _ => return Err(format!("{n}: kill_resets is 1 or 0, not {rest:?}")),
+                }
+            }
             "lands" => {
                 def.lands = match rest {
                     "blast" => Lands::Blast,
@@ -1104,6 +1114,9 @@ mod tests {
         assert!(parse("[a]\nicon WHITE\naim up").unwrap_err().starts_with("3: aim is"));
         let outside = |v: &str| parse(&format!("[g]\nkind weapon\ndoes gun\noutside {v}\nicon WHITE\n[cash]\nkind filler\nicon WHITE\n")).map(|b| b.defs[0].outside);
         assert_eq!((outside("40"), outside("0"), g.defs[0].outside), (Ok(Some(40.0)), Ok(Some(0.0)), None), "the whole range when left out");
+        let resets = |v: &str| parse(&format!("[d]\nkind weapon\ndoes dog\nkill_resets {v}\nicon WHITE\n[cash]\nkind filler\nicon WHITE\n")).map(|b| b.defs[0].kill_resets);
+        assert_eq!((resets("1"), resets("0"), g.defs[0].kill_resets), (Ok(true), Ok(false), false), "off when left out");
+        assert!(resets("yes").unwrap_err().starts_with("4: kill_resets is 1 or 0"));
         assert!(outside("-1").is_err() && outside("far").is_err());
     }
 

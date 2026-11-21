@@ -26,6 +26,7 @@ required-features = ["muos"]
 
 [dependencies]
 cpal = "0.18"
+flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }
 glow.workspace = true
 png = "0.18"
 last-harvest-game.workspace = true

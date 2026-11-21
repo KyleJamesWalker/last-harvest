@@ -16,6 +16,6 @@ fn the_installed_rules_and_each_mod_reach_the_identity() {
     let report = data::load_report();
     assert_eq!(report.mod_packs.iter().map(|m| m.0.as_str()).collect::<Vec<_>>(), ["t.pak"]);
     let identity = last_harvest_game::Game::new(1).identity_for_test();
-    assert_eq!(identity.pak, data::rules());
+    assert_eq!(Some(identity.pak), data::fingerprint(), "the identity names the installed rules");
     assert_eq!(identity.mods.iter().map(|m| (m.name.clone(), m.fingerprint)).collect::<Vec<_>>(), report.mod_packs);
 }
