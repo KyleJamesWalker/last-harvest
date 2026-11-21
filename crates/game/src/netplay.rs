@@ -524,6 +524,13 @@ fn client_step(c: &mut Joining, unreliable: &mut Vec<Packet>, outbox: &mut Vec<P
     c.mirror.frozen = h.held();
     let turn = crate::tuning::tuning().turn_speed;
     for (v, inp) in mine.iter().enumerate() {
+        let tapped;
+        let inp = if v == 0 {
+            tapped = h.client_taps(inp);
+            &tapped
+        } else {
+            inp
+        };
         c.mirror.play_locally(seats[v]);
         c.mirror.predict(seats[v], c.tick, inp, turn);
         if !away {

@@ -47,6 +47,32 @@ fn effect_of(looks: &mut HashMap<u16, Effect>, art: u16) -> Option<Effect> {
 }
 
 impl Harvest {
+    /// A client's touch on its level-up cards and keys, as the buttons the host's `choose` reads: input crosses
+    /// without touches.
+    pub(crate) fn client_taps(&mut self, input: &Input) -> Input {
+        let Phase::LevelUp { choices, selected, picked: None, .. } = self.phase else { return *input };
+        let Some(p) = input.touch.filter(|_| input.touch_started) else { return *input };
+        let mut out = *input;
+        let fillers = choices.iter().all(|c| book().defs[c.up].kind == Card::Filler);
+        match level_key(p, self.level) {
+            Some(LevelKey::Reroll) => {
+                (self.banishing, self.favoring) = (false, false);
+                out.pressed |= Buttons::R1;
+            }
+            Some(LevelKey::Banish) => (self.banishing, self.favoring) = (!self.banishing && self.banishes > 0 && !fillers, false),
+            Some(LevelKey::Favor) => (self.favoring, self.banishing) = (!self.favoring && self.can_favor() && !fillers, false),
+            None => {
+                if let Some(i) = choice_row(p[1]).filter(|&i| i < choices.len()) {
+                    let step = [Buttons::NONE, Buttons::DOWN, Buttons::UP][(i + choices.len() - selected) % choices.len()];
+                    let act = if self.banishing { Buttons::L1 } else if self.favoring { Buttons::Y } else { Buttons::X };
+                    out.pressed |= step | act;
+                    (self.banishing, self.favoring) = (false, false);
+                }
+            }
+        }
+        out
+    }
+
     /// Turns this run into a client's picture of the host's: `local` are this device's seats, in view order, and
     /// `seats` every seat in the game.
     pub fn client_of(mut self, local: &[usize], seats: &[usize]) -> Self {
