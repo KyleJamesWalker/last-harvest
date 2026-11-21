@@ -32,11 +32,13 @@ impl Harvest {
     }
 
     pub fn set_touch_aim(&mut self, on: bool) {
+        self.tape_set(super::replay::Set::TouchAim(on));
         self.touch_aim = on;
         self.touch_map &= on;
     }
 
     pub fn set_one_screen(&mut self, on: bool) {
+        self.tape_set(super::replay::Set::OneScreen(on));
         self.single = on;
         if !on {
             self.aiming = None;

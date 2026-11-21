@@ -125,6 +125,7 @@ impl Harvest {
     /// Seats a player who joined mid-run at `p`: a new player, or a fresh one in place of one who left, beside
     /// whoever still stands.
     pub fn seat(&mut self, p: PlayerId, look: &str) {
+        self.tape_seat(p, look);
         let look = super::players::look(look);
         let near = (0..self.players.len()).find(|&q| self.players[q].alive()).map(|q| self.players[q].pos);
         let half = crate::tuning::tuning().player_half();
@@ -158,6 +159,7 @@ impl Harvest {
 
     /// Player `p`'s device left: they turn where they stand, and their seat waits for whoever drops in next.
     pub fn unseat(&mut self, p: PlayerId) {
+        self.tape_unseat(p);
         self.drop_lead(p);
         let Some(pl) = self.players.get_mut(p) else { return };
         pl.left = true;

@@ -12,6 +12,7 @@ mod local;
 mod map;
 pub mod online;
 mod photo;
+pub mod replay;
 mod remote;
 mod props;
 mod quick;
@@ -923,6 +924,11 @@ pub struct Harvest {
     net: online::Net,
     /// The size the view being drawn is laid out to, as `Canvas::refit` takes it; a screen's outside split-screen.
     canvas: [f32; 2],
+    setup: Option<Box<replay::Setup>>,
+    tape: Option<Box<replay::Tape>>,
+    /// Inside `update`, where a scripted player's throw is the tick's own and not recorded apart.
+    updating: bool,
+    picking: ([Choice; 3], f32),
 }
 
 /// Weapons and passives unlocked so far, out of all of them, and how many are waiting to be found.
@@ -1137,6 +1143,10 @@ impl Harvest {
             swapped: ME,
             net: online::Net::default(),
             canvas: [SCREEN_W, SCREEN_H],
+            setup: None,
+            tape: None,
+            updating: false,
+            picking: ([Choice { up: 0, rare: false, found: false }; 3], 0.0),
         }
         .with_birds()
     }
@@ -1329,6 +1339,15 @@ impl Harvest {
     }
 
     pub fn update(&mut self, input: &Input, dt: f32, sounds: &mut Vec<Sfx>) -> Flow {
+        self.tape_before(input, dt);
+        self.updating = true;
+        let flow = self.update_tick(input, dt, sounds);
+        self.updating = false;
+        self.tape_after(flow.ended.is_some());
+        flow
+    }
+
+    fn update_tick(&mut self, input: &Input, dt: f32, sounds: &mut Vec<Sfx>) -> Flow {
         self.take_before();
         if self.range.is_none() {
             return self.update_run(input, dt, sounds);
@@ -1879,8 +1898,12 @@ impl Harvest {
         let kit: Vec<String> = self.trial.iter().map(|&(d, l)| format!("{}:{l}", book().defs[d].id)).collect();
         let look = std::mem::take(&mut self.me_mut().look);
         let (count, bots, views) = (self.players.len(), std::mem::take(&mut self.bots), self.views);
+        self.tape_restart();
+        let (tape, progress) = (self.tape.take(), self.progress);
+        let setup = self.setup.take().map(|s| replay::Setup { seed, progress, look: look.clone(), kit: kit.join(","), players: count - bots.len(), bots: bots.len(), views, kind: replay::Kind::Night, ..*s });
         *self = Harvest::on(seed, &self.map_id).at(self.difficulty).with_progress(self.progress).without_enemies(self.enemies_off).looking_like(&look).with_kit(&kit.join(",")).starting_at(self.start_t).single_screen(self.single).endless_grenades(self.endless).with_players(count).with_views(views);
         self.bots = bots.into_iter().map(|(p, b)| (p, b.again())).collect();
+        (self.tape, self.setup) = (tape, setup.map(Box::new));
         sounds.push(Sfx::Start);
     }
 

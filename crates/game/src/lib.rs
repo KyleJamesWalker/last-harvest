@@ -41,6 +41,7 @@ pub use harvest::{SwingShow, swing_shown};
 pub use harvest::{NamedProp, load_props_for_checks, PROP_MAX_FRAME, PROP_MAX_FRAMES, PROP_PREFIX, PropByViews, PropFields, named_props, turned_depth, prop_fields, prop_text, set_props};
 pub use harvest::{RangeSetup, effects_with, powerups_with, sandbox};
 pub use harvest::online;
+pub use harvest::replay;
 pub use harvest::{DEFAULT_SOUND_DELAY, WeaponLevels, sound_group, sound_groups, valid_sound_group, powerup_zones, unlock_conditions, weapon_behaviours, weapon_levels, weapon_patterns, weapon_sound_names, weapon_stats, weapon_targets};
 pub use harvest::{SHOT_SPRITES, Shot, shot_named, shot_sprite_names};
 pub use harvest::{TABLES, built_in_table, check_own_table, check_table, default_prop_depth, MAP_EXTENSION, map_ground, set_map_ground, CropSway, MAP_MAX, MAP_MIN, map_props, parse_props, MapSource, PROP_MAX_HP, PropKind, PropLine, PropTough, check_map, check_map_on_any_farm, valid_map_id, FARM_DIR, FARM_GROUND_END, FARM_ID_MAX, farm_file, farm_ids, farm_of_file, set_farm, table_kind, use_farm, use_farm_text, valid_farm_id};
@@ -223,6 +224,9 @@ pub struct Game {
     others: Vec<Input>,
     net: Option<Box<netplay::Net>>,
     online: online_menu::Online,
+    /// Every night is recorded, each replay headed by these lines; none records nothing.
+    replay_info: Option<Vec<(String, String)>>,
+    replays: Vec<Vec<u8>>,
 }
 
 /// Where the title's menu sits on the top screen when one screen shows both, and its scale.
@@ -290,6 +294,8 @@ impl Game {
             others: Vec::new(),
             net: None,
             online: online_menu::Online::default(),
+            replay_info: None,
+            replays: Vec::new(),
         }
     }
 
@@ -424,6 +430,7 @@ impl Game {
     }
 
     pub fn open(&mut self, scene: Scene) {
+        self.keep_replays();
         self.bench_due = matches!(scene, Scene::Bench(_) | Scene::BenchCorn(_));
         let seed = self.rng.next_u32() as u64 + 1;
         self.single_scene = scene == Scene::Single;
@@ -434,9 +441,14 @@ impl Game {
                 State::Title
             }
             Scene::Harvest | Scene::Single => {
-                harvest::use_player_farm(self.save.player.as_str());
                 self.sounds.push(Sfx::Start);
-                State::Harvest(Box::new(harvest::Harvest::on(seed, self.save.map.as_str()).at(self.save.difficulty).with_progress(self.progress()).without_enemies(self.save.enemies_off).looking_like(self.save.player.as_str()).with_kit(&self.kit).starting_at(self.start_t).single_screen(self.one_screen()).endless_grenades(self.endless).with_players(self.players).with_bots(self.bots).with_views(self.players.max(self.split))))
+                let player = self.save.player.as_str().to_string();
+                let setup = replay::Setup { map: self.save.map.as_str().to_string(), difficulty: self.save.difficulty, progress: self.progress(), enemies_off: self.save.enemies_off, look: player.clone(), farm: Some(player), kit: self.kit.clone(), start_t: self.start_t, one_screen: self.one_screen(), endless: self.endless, players: self.players, bots: self.bots, views: self.players.max(self.split), ..replay::Setup::night(seed) };
+                let mut h = setup.build();
+                if let Some(info) = &self.replay_info {
+                    h.record(info.clone());
+                }
+                State::Harvest(Box::new(h))
             }
             Scene::Farm => State::Harvest(Box::new(harvest::Harvest::calm(seed))),
             Scene::Bench(size) => State::Harvest(Box::new(harvest::Harvest::bench(size))),
@@ -507,6 +519,29 @@ impl Game {
         let Some((first, others)) = inputs.split_first() else { return };
         self.others = others.to_vec();
         self.update(first, dt);
+    }
+
+    pub fn record_replays(&mut self, info: Vec<(String, String)>) {
+        self.replay_info = Some(info);
+    }
+
+    pub fn take_replays(&mut self) -> Vec<Vec<u8>> {
+        if let State::Harvest(h) = &mut self.state {
+            self.replays.extend(h.take_replays());
+        }
+        std::mem::take(&mut self.replays)
+    }
+
+    /// Ends the recording of the night in play where it stands, then takes every replay.
+    pub fn end_replays(&mut self) -> Vec<Vec<u8>> {
+        self.keep_replays();
+        self.take_replays()
+    }
+
+    pub(crate) fn keep_replays(&mut self) {
+        if let State::Harvest(h) = &mut self.state {
+            self.replays.extend(h.stop_recording());
+        }
     }
 
     /// The title's main page is open, where a pad joins or leaves.
@@ -735,7 +770,12 @@ impl Game {
                     (self.save.kills, self.save.best, self.save.best_level, self.save.nights, self.save.dawns, self.save.breakers, self.save.breaker_dawns) = (p.kills, p.best, p.best_level, p.nights, p.dawns, p.breakers, p.breaker_dawns);
                     self.save.record(run);
                 }
-                if flow.quit { State::Title } else { State::Harvest(h) }
+                if flow.quit {
+                    self.replays.extend(h.stop_recording());
+                    State::Title
+                } else {
+                    State::Harvest(h)
+                }
             }
             State::Gallery(mut g) => {
                 g.update(input, dt);

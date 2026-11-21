@@ -424,6 +424,11 @@ pub(super) struct Dog {
 }
 
 impl Dog {
+    /// 0 wandering, 1 chasing a target, 2 catching up with its player, 3 in the air.
+    pub fn doing(&self) -> usize {
+        if self.leap.is_some() { 3 } else if self.catching_up { 2 } else if self.target.is_some() { 1 } else { 0 }
+    }
+
     pub fn art(&self) -> Art {
         let fx = super::effects::effects();
         self.leap.map_or_else(|| fx.dog.looping(self.anim), |t| fx.dog_attack.once(t))
