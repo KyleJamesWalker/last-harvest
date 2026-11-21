@@ -99,6 +99,7 @@ impl App {
         let mut game = Game::new(seed);
         let (saver, save) = persist::Saver::load();
         game.load(save);
+        game.record_replays(last_harvest::replays::info());
         if std::env::var_os("LAST_HARVEST_UNLOCK_ALL").is_some() {
             game.unlock_everything();
         }
@@ -351,6 +352,7 @@ impl App {
         for inputs in self.ticker.frame_all(frame, std::iter::once(input).chain(others).collect()) {
             self.game.update_all(&inputs, clock::STEP);
         }
+        persist::keep_replays(self.game.take_replays());
         #[cfg(any(target_os = "macos", target_os = "linux"))]
         self.online.send(&mut self.game);
         #[cfg(any(target_os = "macos", windows))]
@@ -561,6 +563,7 @@ impl ApplicationHandler for App {
     /// Saves and restores the device, then exits without running the GL and Wayland teardown.
     fn exiting(&mut self, _el: &ActiveEventLoop) {
         self.saver.update(self.game.save(), true);
+        persist::keep_replays(self.game.end_replays());
         #[cfg(target_os = "linux")]
         drop(self.device.take());
         std::process::exit(if self.failed { 1 } else { 0 });

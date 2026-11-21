@@ -272,6 +272,7 @@ impl Harvest {
 
     /// Hides or shows the guides, where the platform can't save a capture and the player takes their own.
     pub fn toggle_guides(&mut self) {
+        self.tape_set(super::replay::Set::Guides);
         if let Some(p) = &mut self.photo {
             p.guides = !p.guides;
         }
@@ -279,16 +280,19 @@ impl Harvest {
 
     /// Whether R1 or a tap takes a capture the app saves; else it hides the guides.
     pub fn set_saves_photos(&mut self, on: bool) {
+        self.tape_set(super::replay::Set::SavesPhotos(on));
         self.saves_photos = on;
     }
 
     /// Whether the screen takes taps, so the guides offer them.
     pub fn set_taps(&mut self, on: bool) {
+        self.tape_set(super::replay::Set::Taps(on));
         self.taps = on;
     }
 
     /// Whether the on-screen photo keys show, so the guides name them.
     pub fn set_touch_keys(&mut self, on: bool) {
+        self.tape_set(super::replay::Set::TouchKeys(on));
         self.touch_keys = on;
     }
 
