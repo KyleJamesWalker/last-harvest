@@ -152,6 +152,7 @@ CI reads the private submodule with the `ASSETS_DEPLOY_KEY` secret. A pull reque
 | `crates/editor` | The sprite editor and the card editor (`web/`). |
 | `crates/sprite-server` | Serves the sprite editor to an iPad on the local network. |
 | `crates/pack` | Reads and writes data packs. Its binary builds `game_data.pak` and mod packs. |
+| `crates/net` | WebRTC peers in a matchbox signaling room, each with a reliable and an unreliable channel. Native and browser builds. Nothing uses it yet. |
 | `scripts` | Build, deploy, install, debug, capture, web and Pages scripts. |
 | `tools` | Python checks and generators for the manual, the CSP hashes and the third-party licenses. |
 | `assets` | The font, the launchers, the data folder README and the Pages site. |
@@ -200,3 +201,15 @@ CI reads the private submodule with the `ASSETS_DEPLOY_KEY` secret. A pull reque
 | `MUOS_HOST` | The muOS device's SSH target. Default: the `muos` SSH alias. |
 | `CAPTURE`, `POWERLOG`, `DEBUG`, `TIMEOUT` | Options for `scripts/deploy.sh`. See [device](device.md#deploy). |
 | `LAST_HARVEST_API`, `LAST_HARVEST_DOWNLOADS`, `LAST_HARVEST_PLATFORM` | Point the launcher at another release source or platform, for testing. See [releasing](releasing.md#the-launcher). |
+
+### Network tests
+
+Native `last-harvest-net` peers read these.
+
+| Variable | Effect |
+|---|---|
+| `LAST_HARVEST_NET_LAG_MS` | Delays each unreliable packet this long. |
+| `LAST_HARVEST_NET_LOSS` | Drops this percentage of unreliable packets. |
+| `LAST_HARVEST_NET_TEST_RESTART_MS` | The offering peer restarts ICE this long after it connects, once. |
+| `LAST_HARVEST_NET_TEST_DROP_SIGNAL_MS` | Drops the signaling connection without a close this long after it opens, once. |
+| `LAST_HARVEST_NET_TURN_URL`, `_USERNAME`, `_CREDENTIAL` | The `echo_peer` example connects through this TURN relay only. |
