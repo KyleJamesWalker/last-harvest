@@ -44,6 +44,10 @@ pub fn unq_angle(a: u16) -> f32 {
 pub const P_DOWN: u8 = 1;
 pub const P_WALKING: u8 = 2;
 pub const P_READY_FLASH: u8 = 4;
+/// Turned, and steering a leader of the dead; its zombie rides in `zombies` with `Z_LEADER`.
+pub const P_LEADING: u8 = 8;
+/// Turned, and picking where the next leader rises; `pos` is the cursor, for that player only.
+pub const P_PICKING: u8 = 16;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct PlayerState {
