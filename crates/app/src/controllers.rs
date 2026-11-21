@@ -91,9 +91,58 @@ impl Seats {
     }
 }
 
+/// Which pads' motors run, so each pad buzzes with the player it plays as.
+#[derive(Clone, Debug, Default)]
+pub struct Motors {
+    on: Vec<usize>,
+}
+
+impl Motors {
+    /// The pads whose motor should start (true) or stop (false) this frame, by pad id, from whether each pad's player
+    /// `buzzing`, by seat from 0; seats before `from` are left alone.
+    pub fn changes(&mut self, seats: &Seats, pads: &[Pad], from: usize, buzzing: impl Fn(usize) -> bool) -> Vec<(usize, bool)> {
+        self.on.retain(|id| pads.iter().any(|p| p.id == *id));
+        let mut out = Vec::new();
+        for p in pads {
+            let seat = seats.player(p.id);
+            let want = seat >= from && buzzing(seat);
+            if want != self.on.contains(&p.id) {
+                out.push((p.id, want));
+                if want {
+                    self.on.push(p.id);
+                } else {
+                    self.on.retain(|&id| id != p.id);
+                }
+            }
+        }
+        out
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn each_pad_buzzes_with_its_own_player_once_per_change() {
+        let mut seats = Seats::default();
+        frame(&mut seats, &[pad(0, Buttons::A), pad(1, Buttons::NONE)], true);
+        tap_start(&mut seats, &[0, 1], 1, true);
+        let pads = [pad(0, Buttons::NONE), pad(1, Buttons::NONE)];
+        let mut m = Motors::default();
+        assert_eq!(m.changes(&seats, &pads, 0, |seat| seat == 1), [(1, true)], "player 2's pad only");
+        assert!(m.changes(&seats, &pads, 0, |seat| seat == 1).is_empty(), "and only when it changes");
+        assert_eq!(m.changes(&seats, &pads, 0, |seat| seat == 0), [(0, true), (1, false)]);
+        assert_eq!(m.changes(&seats, &pads, 1, |_| true), [(0, false), (1, true)], "seats before `from` stay still");
+    }
+
+    #[test]
+    fn with_one_player_every_pad_buzzes_for_them() {
+        let mut seats = Seats::default();
+        let pads = [pad(0, Buttons::A), pad(5, Buttons::NONE)];
+        seats.update(&pads, true);
+        assert_eq!(Motors::default().changes(&seats, &pads, 0, |seat| seat == 0), [(0, true), (5, true)]);
+    }
 
     #[test]
     fn no_pads_is_nothing_held() {

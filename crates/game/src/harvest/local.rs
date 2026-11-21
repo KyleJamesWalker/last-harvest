@@ -492,6 +492,18 @@ mod tests {
     }
 
     #[test]
+    fn a_bite_buzzes_only_the_bitten_players_pad_and_a_level_up_everyones() {
+        let mut h = pair();
+        let mut flow = Flow::default();
+        h.bitten(1, 5.0, &mut Vec::new(), &mut flow);
+        assert_eq!(flow.rumble[..2], [None, Some(Rumble::Hit)]);
+        let mut flow = Flow::default();
+        h.xp = h.next_xp;
+        h.level_up(&mut Vec::new(), &mut flow);
+        assert_eq!(flow.rumble[..2], [Some(Rumble::Fanfare); 2]);
+    }
+
+    #[test]
     fn laid_out_shapes_stay_as_drawn() {
         let mut c = crate::Canvas::default();
         c.laid_out();

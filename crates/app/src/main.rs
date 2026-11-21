@@ -343,6 +343,8 @@ impl App {
         for inputs in self.ticker.frame_all(frame, std::iter::once(input).chain(others).collect()) {
             self.game.update_all(&inputs, clock::STEP);
         }
+        #[cfg(any(target_os = "macos", windows))]
+        self.pads.rumble(&self.seats, |seat| self.game.rumble_for(seat));
         self.stats.work_ms[0] += started.elapsed().as_secs_f32() * 1000.0;
         self.saver.update(self.game.save(), false);
         self.keep_audio();

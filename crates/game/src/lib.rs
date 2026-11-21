@@ -54,6 +54,8 @@ use save::LEVELS;
 
 pub const SCREEN_W: f32 = 1024.0;
 pub const SCREEN_H: f32 = 768.0;
+/// The most players who share one screen, each on their own pad.
+pub const SEATS: usize = 4;
 
 /// Kill ticks closer together than this blur into one buzz.
 const TICK_GAP: f32 = 0.15;
@@ -137,10 +139,10 @@ pub struct Game {
     input: Input,
     system: System,
     rumble: f32,
-    /// Motor pulses as (start, end) on `clock`.
-    pulses: Vec<(f32, f32)>,
+    /// Each seat's motor pulses as (start, end) on `clock`.
+    pulses: [Vec<(f32, f32)>; SEATS],
     clock: f32,
-    last_tick: f32,
+    last_tick: [f32; SEATS],
     sounds: Vec<Sfx>,
     save: Save,
     volume_shown: f32,
@@ -236,9 +238,9 @@ impl Game {
             input: Input::default(),
             system: System::default(),
             rumble: 0.0,
-            pulses: Vec::new(),
+            pulses: Default::default(),
             clock: 0.0,
-            last_tick: f32::MIN,
+            last_tick: [f32::MIN; SEATS],
             sounds: Vec::new(),
             save: Save::default(),
             volume_shown: 0.0,
@@ -558,30 +560,39 @@ impl Game {
 
     /// Whether the vibration motor should be running this frame.
     pub fn rumble(&self) -> bool {
-        self.rumble > 0.0 || self.pulses.iter().any(|&(a, b)| (a..b).contains(&self.clock))
+        self.rumble > 0.0 || self.pulsing(0)
     }
 
-    fn buzz(&mut self, r: harvest::Rumble) {
+    /// Whether the pads of the player in `seat`, from 0, should be buzzing this frame, as Settings allows.
+    pub fn rumble_for(&self, seat: usize) -> bool {
+        let on = if seat == 0 { self.rumble() } else { self.pulsing(seat) };
+        on && (self.save.rumble || matches!(self.state, State::Hardware(_)))
+    }
+
+    fn pulsing(&self, seat: usize) -> bool {
+        self.pulses.get(seat).is_some_and(|p| p.iter().any(|&(a, b)| (a..b).contains(&self.clock)))
+    }
+
+    fn buzz(&mut self, seat: usize, r: harvest::Rumble) {
         use harvest::Rumble;
         let now = self.clock;
         let pattern: &[(f32, f32)] = match r {
-            Rumble::Tick if now - self.last_tick < TICK_GAP => &[],
+            Rumble::Tick if now - self.last_tick[seat] < TICK_GAP => &[],
             Rumble::Tick => {
-                self.last_tick = now;
+                self.last_tick[seat] = now;
                 &[(0.0, 0.05)]
             }
             Rumble::Hit => &[(0.0, 0.25)],
             Rumble::Blast => &[(0.0, 0.4)],
             Rumble::Fanfare => &[(0.0, 0.08), (0.14, 0.22), (0.3, 0.5)],
         };
-        self.pulses.extend(pattern.iter().map(|&(a, b)| (now + a, now + b)));
+        self.pulses[seat].extend(pattern.iter().map(|&(a, b)| (now + a, now + b)));
     }
 
     pub fn outputs(&self) -> Outputs {
         let level = |l: u8| l as f32 / LEVELS as f32;
-        let motor = self.save.rumble || matches!(self.state, State::Hardware(_));
         Outputs {
-            rumble: motor && self.rumble(),
+            rumble: self.rumble_for(0),
             volume: self.volume(),
             dread: match &self.state {
                 State::Harvest(h) if !self.paused => h.dread(),
@@ -630,7 +641,9 @@ impl Game {
         self.rumble = (self.rumble - dt).max(0.0);
         self.clock += dt;
         let now = self.clock;
-        self.pulses.retain(|&(_, end)| end > now);
+        for p in &mut self.pulses {
+            p.retain(|&(_, end)| end > now);
+        }
         self.volume_shown = (self.volume_shown - dt).max(0.0);
         let step = input.pressed.contains(Buttons::VOL_UP) as i8 - input.pressed.contains(Buttons::VOL_DOWN) as i8;
         if step != 0 {
@@ -650,7 +663,7 @@ impl Game {
         }
         if self.paused {
             self.rumble = 0.0;
-            self.pulses.clear();
+            self.pulses.iter_mut().for_each(Vec::clear);
             return;
         }
         if input.pressed.any(Buttons::BACK) {
@@ -695,8 +708,10 @@ impl Game {
                     self.page = Page::Settings;
                     self.open_settings(true);
                 }
-                if let Some(r) = flow.rumble {
-                    self.buzz(r);
+                for (seat, r) in flow.rumble.into_iter().enumerate().take(h.views()) {
+                    if let Some(r) = r {
+                        self.buzz(seat, r);
+                    }
                 }
                 self.save.found |= flow.found;
                 if let Some(run) = flow.ended {
@@ -992,6 +1007,19 @@ mod tests {
         assert!(says(&f.views[0]) && !says(&f.top), "in player 2's view only");
         both(&mut game, Buttons::NONE, Buttons::B);
         assert_eq!(game.page, Page::Main);
+    }
+
+    #[test]
+    fn each_seat_buzzes_on_its_own_and_rumble_off_stills_them_all() {
+        let mut game = Game::new(4);
+        game.buzz(1, harvest::Rumble::Hit);
+        assert!(game.rumble_for(1) && !game.rumble_for(0) && !game.outputs().rumble, "player 2's pad alone");
+        game.update(&Input::default(), 0.3);
+        assert!(!game.rumble_for(1), "the pulse ends");
+        game.buzz(0, harvest::Rumble::Blast);
+        assert!(game.rumble_for(0) && game.outputs().rumble && !game.rumble_for(1));
+        game.save.rumble = false;
+        assert!(!game.rumble_for(0) && !game.outputs().rumble);
     }
 
     #[test]

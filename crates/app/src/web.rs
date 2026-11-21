@@ -7,7 +7,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use crate::clock;
-use crate::controllers::{Pad, Seats};
+use crate::controllers::{Motors, Pad, Seats};
 use last_harvest_game::{Buttons, Game, InputTracker, MAX_TOUCHES, PadFamily, RangeSetup, RawInput, SCREEN_H, SCREEN_W, Save, Scene, System};
 use last_harvest_pack::Pak;
 use last_harvest_render::{Profile, Renderer};
@@ -79,6 +79,7 @@ struct Web {
     /// A pad had a button down or a stick pushed last frame.
     pad_busy: bool,
     seats: Seats,
+    motors: Motors,
     /// Pads may join and the run split: one screen without a touch screen.
     splits: bool,
     /// Players 2 onward's presses, by seat.
@@ -142,6 +143,25 @@ fn gamepads(warned: &mut bool) -> (Vec<Pad>, Option<PadFamily>) {
         out.push(state);
     }
     (out, busy)
+}
+
+/// Starts or stops the gamepad at `index` buzzing, where the browser gives it a vibration actuator.
+fn vibrate(index: usize, on: bool) {
+    let Some(pads) = web_sys::window().and_then(|w| w.navigator().get_gamepads().ok()) else { return };
+    let Some(actuator) = field(&pads.get(index as u32), "vibrationActuator") else { return };
+    let call = |name: &str, args: &js_sys::Array| {
+        if let Some(f) = field(&actuator, name).and_then(|f| f.dyn_into::<js_sys::Function>().ok()) {
+            let _ = f.apply(&actuator, args);
+        }
+    };
+    if !on {
+        return call("reset", &js_sys::Array::new());
+    }
+    let effect = js_sys::Object::new();
+    for (k, v) in [("duration", 2000.0), ("strongMagnitude", 0.8), ("weakMagnitude", 0.4)] {
+        let _ = js_sys::Reflect::set(&effect, &k.into(), &v.into());
+    }
+    call("playEffect", &js_sys::Array::of2(&"dual-rumble".into(), &effect));
 }
 
 impl Web {
@@ -348,6 +368,9 @@ impl Web {
         for inputs in self.ticker.frame_all(std::time::Duration::from_secs_f64(frame_ms.max(0.0) / 1000.0), std::iter::once(input).chain(others).collect()) {
             self.game.update_all(&inputs, clock::STEP);
         }
+        for (index, on) in self.motors.changes(&self.seats, &pads, 0, |seat| self.game.rumble_for(seat)) {
+            vibrate(index, on);
+        }
         self.persist();
         let sounds = self.game.take_sounds();
         if let Some(audio) = &self.audio {
@@ -458,6 +481,7 @@ fn start(pak: Pak, mods: Vec<(String, Pak)>, problems: Vec<String>, range: Optio
         odd_pad: false,
         pad_busy: false,
         seats: Seats::default(),
+        motors: Motors::default(),
         splits,
         trackers: Vec::new(),
         last: now(),
