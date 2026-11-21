@@ -49,6 +49,24 @@ fn keys(chars: &[u8], cols: usize) -> Vec<([f32; 4], Key)> {
     out
 }
 
+/// The key a d-pad step from key `at` lands on: left and right wrap within a row, up and down wrap through the rows,
+/// and the last row is Delete then Done, under the left and right halves of the keys.
+fn step_key(at: usize, dx: i32, dy: i32, chars: usize, cols: usize) -> usize {
+    let rows = chars.div_ceil(cols);
+    let row_len = |r: usize| if r == rows { 2 } else { (chars - r * cols).min(cols) };
+    let (row, col) = if at < chars { (at / cols, at % cols) } else { (rows, at - chars) };
+    let col = (col as i32 + dx).rem_euclid(row_len(row) as i32) as usize;
+    let to = (row as i32 + dy).rem_euclid(rows as i32 + 1) as usize;
+    let col = match (row == rows, to == rows) {
+        _ if to == row => col,
+        (false, true) => usize::from(col * 2 >= cols),
+        (true, false) => if col == 0 { 0 } else { cols - 1 },
+        _ => col,
+    }
+    .min(row_len(to) - 1);
+    if to == rows { chars + col } else { to * cols + col }
+}
+
 /// What a press on the keys did.
 enum Typed {
     Nothing,
@@ -62,11 +80,7 @@ impl Entry {
         let n = all.len();
         let (dx, dy) = (input.pressed.contains(Buttons::RIGHT) as i32 - input.pressed.contains(Buttons::LEFT) as i32, input.pressed.contains(Buttons::DOWN) as i32 - input.pressed.contains(Buttons::UP) as i32);
         if dx != 0 || dy != 0 {
-            let rows = chars.len().div_ceil(cols) as i32;
-            let (mut col, mut row) = if self.at < chars.len() { ((self.at % cols) as i32, (self.at / cols) as i32) } else { (if self.at == n - 1 { cols as i32 - 1 } else { 0 }, rows) };
-            col = (col + dx).rem_euclid(cols as i32);
-            row = (row + dy).rem_euclid(rows + 1);
-            self.at = if row == rows { if col * 2 < cols as i32 { n - 2 } else { n - 1 } } else { ((row * cols as i32 + col) as usize).min(chars.len() - 1) };
+            self.at = step_key(self.at.min(n - 1), dx, dy, chars.len(), cols);
             sounds.push(Sfx::Tick(2));
             return Typed::Nothing;
         }
@@ -138,6 +152,8 @@ pub(crate) struct Online {
     pub relay: Entry,
     pub relay_from: Page,
     pub fixed: Option<RoomCode>,
+    /// An empty relay can't mean one on this machine, as on a handheld: ask for it before hosting or joining.
+    pub needs_relay: bool,
 }
 
 impl Game {
@@ -166,6 +182,11 @@ impl Game {
 
     pub fn wants_text(&self) -> bool {
         matches!(self.state, State::Title) && matches!(self.page, Page::Join | Page::Relay)
+    }
+
+    /// The Online menu asks for the relay's address before hosting or joining while none is set.
+    pub fn set_needs_relay(&mut self, on: bool) {
+        self.online.needs_relay = on;
     }
 
     pub fn set_relay(&mut self, relay: &str) {
@@ -416,6 +437,10 @@ impl Game {
                 self.online.message = "Online play isn't available on this device yet.".into();
                 self.sounds.push(Sfx::Miss);
             }
+            Some(0 | 1) if self.online.needs_relay && self.relay().trim().is_empty() => {
+                self.open_relay(Page::Online);
+                self.online.message = "Type the relay's address first.".into();
+            }
             Some(0) => {
                 self.sounds.push(Sfx::Tick(9));
                 self.host_online(None);
@@ -442,6 +467,7 @@ impl Game {
     }
 
     fn close_relay(&mut self) {
+        self.online.message.clear();
         self.save.relay = crate::save::Relay::new(&self.online.relay.text);
         self.page = self.online.relay_from;
         self.sounds.push(Sfx::Tick(6));
@@ -556,6 +582,7 @@ impl Game {
             c.label("LAST_HARVEST_RELAY is set and wins over this", SCREEN_W / 2.0, 200.0, 26.0, DIM, Align::Center);
         }
         self.online.relay.draw(c, RELAY_KEYS, 10);
+        self.draw_message(c, 700.0);
     }
 
     pub(crate) fn draw_lobby(&self, c: &mut Canvas) {
@@ -614,4 +641,53 @@ fn start_refused(start: &Start, mine: &[usize]) -> Option<&'static str> {
 
 fn online_row(i: usize) -> [f32; 4] {
     [112.0, ROW_TOP + i as f32 * ROW_H, 800.0, ROW_H - 16.0]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_handheld_asks_for_the_relay_first_and_the_typed_relay_is_saved() {
+        let mut g = Game::new(1);
+        g.set_online(true);
+        g.set_needs_relay(true);
+        g.page = Page::Online;
+        g.online_page(&Input { pressed: Buttons::A, ..Input::default() }, None);
+        assert_eq!(g.page, Page::Relay, "hosting with no relay opens the relay's keys");
+        g.typed("192.168.1.5:8097\n");
+        assert_eq!(g.page, Page::Online);
+        assert_eq!(g.save().relay.as_str(), "192.168.1.5:8097");
+        assert!(g.save().to_text().contains("relay=192.168.1.5:8097"), "and it goes in save.txt");
+        assert_eq!(crate::Save::parse(&g.save().to_text()).relay.as_str(), "192.168.1.5:8097", "and reads back after a restart");
+        g.online_page(&Input { pressed: Buttons::A, ..Input::default() }, None);
+        assert_eq!(g.page, Page::Lobby, "with one set, Host opens the lobby");
+    }
+
+    #[test]
+    fn every_key_on_both_keyboards_is_reached_from_its_neighbours_in_all_four_directions() {
+        for (chars, cols) in [(&ALPHABET[..], 7), (RELAY_KEYS, 10)] {
+            let (n, len) = (keys(chars, cols).len(), chars.len());
+            assert_eq!(step_key(n - 2, 1, 0, len, cols), n - 1, "Right from Delete is Done");
+            assert_eq!(step_key(n - 1, 1, 0, len, cols), n - 2, "and wraps back to Delete");
+            assert_eq!(step_key(n - 1, -1, 0, len, cols), n - 2, "Left from Done is Delete");
+            for at in 0..n {
+                for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                    let to = step_key(at, dx, dy, len, cols);
+                    assert!(to < n, "{at} steps ({dx}, {dy}) off the keys to {to}");
+                    if dx != 0 {
+                        assert_eq!(step_key(to, -dx, 0, len, cols), at, "left and right undo each other");
+                    }
+                }
+            }
+            let mut seen = vec![false; n];
+            let mut todo = vec![0];
+            while let Some(at) = todo.pop() {
+                if !std::mem::replace(&mut seen[at], true) {
+                    todo.extend([(1, 0), (-1, 0), (0, 1), (0, -1)].map(|(dx, dy)| step_key(at, dx, dy, len, cols)));
+                }
+            }
+            assert!(seen.iter().all(|&s| s), "every key is reached: {seen:?}");
+        }
+    }
 }
