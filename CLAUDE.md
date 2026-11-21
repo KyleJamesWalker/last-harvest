@@ -12,6 +12,11 @@ A survivors-like for a dual-screen Linux handheld, with a web build and sprite/c
 - Device: `scripts/deploy.sh`, `scripts/install.sh`, `scripts/debug.sh`. Web: `scripts/web-game.sh`, `scripts/mod-editor.sh`, `scripts/pages.sh`, `scripts/web-editor.sh`.
 - After editing an inline `<script>` in a web page, run `tools/csp.py`; after changing `powerups.txt` or `enemies.txt`, `tools/manual_items.py`.
 
+## Worktrees
+- Make worktrees under `.claude/worktrees/` and run `scripts/share-target.sh` once in the main checkout: every worktree there then compiles into the main checkout's `target/`, so dependencies build once instead of 4-8 GB per worktree. Each checkout's own outputs (`game_data.pak`, `target/muos`, `target/web-game`, `target/android`) still go in its own `target/`.
+- Binaries are shared: find them with `cargo metadata` (`scripts/lib/target.sh` sets `$bin`), never a literal `target/release/...` in a script. `target/release/last-harvest` and the sandbox are whichever worktree built last, so build and use them in one go; parallel builds wait on cargo's lock.
+- Remove a worktree once its PR merges.
+
 ## Rules
 - The tileset is licensed: the `embed` (game) and `tileset` (editor) features must never reach a published wasm build. Published builds use `--no-default-features` (`--features modding` for the card editor); CI's `cargo tree` check enforces it.
 - Licensed art and edited sprites live only in the `assets/private` submodule; commit them there.

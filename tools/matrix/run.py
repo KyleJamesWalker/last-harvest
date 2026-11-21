@@ -22,6 +22,7 @@ in a folder of their own under DIR, named for the words, such as target/matrix/a
 figure eight.
 """
 import argparse
+import json
 import itertools
 import random
 import subprocess
@@ -112,10 +113,12 @@ def main():
     if player:
         a.out = a.out / a.player.replace(",", "-").replace(":", "_").replace("+", "_")
     subprocess.run(["cargo", "build", "-q", "--release", "-p", "last-harvest", "--bin", "last-harvest-sandbox", "-p", "last-harvest-pack"], cwd=ROOT, check=True)
-    sandbox = ROOT / "target/release/last-harvest-sandbox"
+    meta = subprocess.run(["cargo", "metadata", "--format-version", "1", "--no-deps"], cwd=ROOT, check=True, capture_output=True, text=True)
+    bin_dir = Path(json.loads(meta.stdout)["target_directory"]) / "release"
+    sandbox = bin_dir / "last-harvest-sandbox"
     mods = a.out / "mods"
     mods.mkdir(parents=True, exist_ok=True)
-    subprocess.run([str(ROOT / "target/release/last-harvest-pack"), "mod", str(ROOT / "tools/matrix/pressure"), str(mods / "pressure.pak")], check=True, stdout=subprocess.DEVNULL)
+    subprocess.run([str(bin_dir / "last-harvest-pack"), "mod", str(ROOT / "tools/matrix/pressure"), str(mods / "pressure.pak")], check=True, stdout=subprocess.DEVNULL)
     spawn = "[spawn]" in (ROOT / "crates/game/tuning.txt").read_text()
     weapons, passives, top, _ = powerups()
     for tier, builds, seeds, pressure, extra in tiers(weapons, passives, top, a.random):

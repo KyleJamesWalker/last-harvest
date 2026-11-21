@@ -4,11 +4,12 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 host="${RGDS_HOST:-root@anbernic.local}"
 ports=/mnt/sdcard/PORTS
+. scripts/lib/target.sh
 scripts/build-device.sh
 cargo run -q -p last-harvest-pack
 game="$ports/last-harvest"
 ssh "$host" "mkdir -p $game/data $ports/Imgs && rm -rf $game/sounds $game/enemies $game/game_data.pak"
-scp -q target/aarch64-unknown-linux-gnu/release/last-harvest "$host:$game/last-harvest"
+scp -q "$bin/aarch64-unknown-linux-gnu/release/last-harvest" "$host:$game/last-harvest"
 scp -q target/game_data.pak "$host:$game/data/game_data.pak"
 scp -q assets/data-README.txt "$host:$game/data/README.txt"
 scripts/sync-data.sh "$host" "$game/data"
