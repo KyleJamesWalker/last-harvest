@@ -1,0 +1,3 @@
+lh-relay.vps.pocketsquirrel.com {
+	reverse_proxy last-harvest-relay:8080
+}

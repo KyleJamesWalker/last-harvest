@@ -1,0 +1,16 @@
+# The relay alone, for a host whose Caddy and coturn already run on the external `caddy` network. See docs/online.md.
+# Needs TURN_SECRET in .env: the shared coturn's static-auth-secret.
+services:
+  last-harvest-relay:
+    image: ghcr.io/kylejameswalker/last-harvest-relay:${RELAY_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      LAST_HARVEST_RELAY_ALLOWED_ORIGINS: https://www.kylejameswalker.com
+      LAST_HARVEST_RELAY_TRUSTED_PROXIES: private
+      LAST_HARVEST_RELAY_TURN_URL: turn:smw-relay.vps.pocketsquirrel.com:3478
+      LAST_HARVEST_RELAY_TURN_SECRET: ${TURN_SECRET:?set TURN_SECRET in .env}
+    networks: [caddy]
+
+networks:
+  caddy:
+    external: true

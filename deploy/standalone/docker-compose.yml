@@ -1,11 +1,9 @@
-# last-harvest-relay behind Caddy, which terminates TLS, plus coturn. See docs/online.md.
+# last-harvest-relay behind its own Caddy, which terminates TLS, plus its own coturn, for a fresh host. See docs/online.md.
 # Needs a .env beside this file with RELAY_DOMAIN, ALLOWED_ORIGINS and TURN_SECRET (hex).
 # Both services join the external `caddy` network: docker network create caddy
 services:
   last-harvest-relay:
-    build:
-      context: ..
-      dockerfile: deploy/relay.Dockerfile
+    image: ghcr.io/kylejameswalker/last-harvest-relay:${RELAY_TAG:-latest}
     restart: unless-stopped
     environment:
       LAST_HARVEST_RELAY_ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:?set ALLOWED_ORIGINS in .env}
@@ -19,7 +17,7 @@ services:
     restart: unless-stopped
     network_mode: host
     volumes:
-      - ./turnserver.conf:/etc/coturn/turnserver.conf:ro
+      - ../turnserver.conf:/etc/coturn/turnserver.conf:ro
     command:
       - -c
       - /etc/coturn/turnserver.conf
