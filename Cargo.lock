@@ -1888,6 +1888,7 @@ dependencies = [
  "png",
  "raw-window-handle",
  "sdl2",
+ "sha2 0.10.9",
  "wasm-bindgen",
  "web-sys",
  "winit",
