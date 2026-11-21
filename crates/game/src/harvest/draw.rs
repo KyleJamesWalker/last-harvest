@@ -37,6 +37,7 @@ impl Harvest {
         f.top.anchor([-1.0, -1.0]);
         self.vignette(&mut f.top);
         self.hud(&mut f.top);
+        self.lead_hud(&mut f.top);
         f.top.anchor([0.5, 0.5]);
         self.way_home(&mut f.top, view_proj);
         self.teammates(&mut f.top, view_proj);
@@ -52,7 +53,7 @@ impl Harvest {
         c.clear = [0.0, 0.0, 0.0, 1.0];
         let tint = self.map_tint();
         // Sight stops counting once the run ends, so the map shows the night as it is.
-        let fog = !matches!(self.phase, Phase::Over { .. });
+        let fog = !matches!(self.phase, Phase::Over { .. }) && self.me().lead.is_none();
         let cam = self.camera();
         self.world(c, cam, map_scale(), tint, fog);
         if fog {
@@ -68,6 +69,7 @@ impl Harvest {
         c.anchor([0.5, 0.5]);
         self.aim_mark(c, cam);
         c.anchor([0.5, 0.5]);
+        self.rise_mark(c, cam);
         self.paused_bottom(c);
         if let Phase::LevelUp { choices, selected, t, picked } = &self.phase {
             let fade = picked.map_or(1.0, |p| 1.0 - p / PICK_TIME);
@@ -405,7 +407,7 @@ impl Harvest {
             let a = crow.looping(self.t + i as f32 / crow.fps);
             sprites.push((p[1], a, p[0] - a.w() / 2.0, p[1] - a.h() - 12.0, flip, 1.0, [1.0; 4]));
         }
-        for (p, pl) in self.players.iter().enumerate() {
+        for (p, pl) in self.players.iter().enumerate().filter(|(_, pl)| pl.lead.is_none()) {
             let (facing, flip) = pl.facing;
             let (a, rise) = player_pose(self, p, facing);
             if p != ME || self.shown.as_ref().is_none_or(|s| s.player) {
@@ -572,7 +574,9 @@ impl Harvest {
                         .into_iter()
                         .map(|p| {
                             let (kills, useful) = self.juice.tally.sum(p);
-                            format!("P{}  {kills} kills  {} damage", self.number(p), grouped(useful.round() as u64))
+                            let b = self.juice.tally.book(p);
+                            let led = if b.led > 0.0 { format!("  led {}, {} bites", clock(b.led), b.bites) } else { String::new() };
+                            format!("P{}  {kills} kills  {} damage{led}", self.number(p), grouped(useful.round() as u64))
                         })
                         .collect();
                     c.label(each.join("      "), SCREEN_W / 2.0, line_y + 130.0, 28.0, [1.0, 1.0, 1.0, a], Align::Center);
@@ -661,7 +665,7 @@ impl Harvest {
     /// Each other player's number over them in the view ahead, or at the edge they lie past when out of sight.
     fn teammates(&self, c: &mut Canvas, view_proj: glam::Mat4) {
         let (fwd, right) = ([self.me().view_yaw.cos(), self.me().view_yaw.sin()], [-self.me().view_yaw.sin(), self.me().view_yaw.cos()]);
-        for (p, pl) in self.players.iter().enumerate().filter(|&(p, _)| p != ME) {
+        for (p, pl) in self.players.iter().enumerate().filter(|&(p, pl)| p != ME && !pl.picking()) {
             let color = if pl.alive() { WHITE } else { RED };
             let name = format!("P{}", self.number(p));
             let shown = view3d::to_screen(view_proj, pl.pos, 22.0).filter(|([x, y], _)| (40.0..SCREEN_W - 40.0).contains(x) && (60.0..SCREEN_H - 40.0).contains(y));
@@ -685,7 +689,7 @@ impl Harvest {
 
     /// Each other player's number on the map, pinned to the edge when they're off it.
     pub(super) fn teammates_on_map(&self, c: &mut Canvas, cam: [f32; 2]) {
-        for (p, pl) in self.players.iter().enumerate().filter(|&(p, _)| p != ME) {
+        for (p, pl) in self.players.iter().enumerate().filter(|&(p, pl)| p != ME && !pl.picking()) {
             let x = ((pl.pos[0] - cam[0]) * map_scale()).clamp(30.0, SCREEN_W - 30.0);
             let y = ((pl.pos[1] - cam[1]) * map_scale()).clamp(60.0, SCREEN_H - 30.0);
             c.label(format!("P{}", self.number(p)), x, y - 44.0, 28.0, if pl.alive() { WHITE } else { RED }, Align::Center);

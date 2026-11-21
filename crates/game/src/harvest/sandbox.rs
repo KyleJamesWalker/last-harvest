@@ -149,6 +149,9 @@ pub struct Seat {
     pub hearts: u32,
     pub kills: u32,
     pub useful: f32,
+    /// Turned: seconds leading the dead, and the bites their swarm landed.
+    pub led: f32,
+    pub bites: u32,
 }
 
 /// How a night went.
@@ -291,7 +294,8 @@ pub fn night(plan: &Plan) -> Night {
         seats: (0..h.players.len())
             .map(|p| {
                 let (kills, useful) = tally.sum(p);
-                Seat { fell: tally.book(p).fell, hearts: tally.book(p).hearts, kills, useful }
+                let b = tally.book(p);
+                Seat { fell: b.fell, hearts: b.hearts, kills, useful, led: b.led, bites: b.bites }
             })
             .collect(),
     }
@@ -323,6 +327,9 @@ impl Bot {
 
     /// Player `p`'s input for the next step, after throwing if its timer is up.
     pub(super) fn step(&mut self, h: &mut Harvest, p: PlayerId, sounds: &mut Vec<Sfx>) -> Input {
+        if let Some(input) = h.lead_bot(p) {
+            return input;
+        }
         let t = h.t;
         let loop_secs = TAU / (self.turn.max(0.01) * crate::tuning::tuning().turn_speed);
         let ever = |every: f32, t: f32| if every > 0.0 { (t / every) as u32 } else { 0 };

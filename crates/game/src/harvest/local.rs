@@ -85,6 +85,14 @@ impl Harvest {
         }
         for z in self.zombies.iter_mut().chain(self.burrowed.iter_mut()) {
             swap(&mut z.burn_owner);
+            if let Some(q) = &mut z.led {
+                swap(q);
+            }
+        }
+        for t in &mut self.tells {
+            if let Some(q) = &mut t.led {
+                swap(q);
+            }
         }
         for b in &mut self.bullets {
             swap(&mut b.owner);
@@ -165,9 +173,10 @@ impl Harvest {
         self.juice.set_feel(mine);
     }
 
-    /// The player view `v` follows: themselves, or once they have turned while others stand, the first who still does.
+    /// The player view `v` follows: themselves, leading the dead included, or else once turned while others stand, the
+    /// first who still does.
     pub fn followed(&self, v: PlayerId) -> PlayerId {
-        if self.players[v].alive() || matches!(self.phase, Phase::Over { .. }) {
+        if self.players[v].alive() || self.players[v].lead.is_some() || matches!(self.phase, Phase::Over { .. }) {
             return v;
         }
         (0..self.players.len()).find(|&p| self.players[p].alive()).unwrap_or(v)

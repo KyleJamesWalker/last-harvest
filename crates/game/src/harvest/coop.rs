@@ -68,9 +68,8 @@ fn the_run_goes_on_while_anyone_stands_and_ends_once_all_have_turned() {
     step(&mut h, 1.0 / 60.0);
     assert!(!h.players[1].alive() && h.players[0].alive());
     assert!(matches!(h.phase, Phase::Playing), "one player left standing plays on");
-    let fell_at = h.players[1].pos;
     step(&mut h, TURNED + 2.0);
-    assert!(len(sub(h.players[1].pos, fell_at)) > 4.0, "the turned player wanders");
+    assert!(h.players[1].lead.is_some(), "the turned player leads the dead");
     h.players[0].hp = 0.0;
     step(&mut h, 1.0 / 60.0);
     assert!(matches!(h.phase, Phase::Over { won: false, .. }), "the last to fall ends it");

@@ -34,6 +34,9 @@ pub(super) struct Book {
     pub hearts: u32,
     /// The night's time the player first fell, even if the run was undying and stood them back up.
     pub fell: Option<f32>,
+    /// Turned: seconds spent leading the dead, and the bites their swarm landed.
+    pub led: f32,
+    pub bites: u32,
 }
 
 /// What one weapon, or grenades and barrels, did over a run.
@@ -84,7 +87,7 @@ impl Tally {
     }
 
     pub fn book(&self, p: PlayerId) -> &Book {
-        static EMPTY: Book = Book { dealt: Vec::new(), held: Vec::new(), other: 0.0, useful: Vec::new(), useful_other: 0.0, kills: Vec::new(), kills_other: 0, hearts: 0, fell: None };
+        static EMPTY: Book = Book { dealt: Vec::new(), held: Vec::new(), other: 0.0, useful: Vec::new(), useful_other: 0.0, kills: Vec::new(), kills_other: 0, hearts: 0, fell: None, led: 0.0, bites: 0 };
         self.books.get(p).unwrap_or(&EMPTY)
     }
 
