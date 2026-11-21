@@ -99,6 +99,24 @@ impl LoadReport {
 }
 
 static REPORT: OnceLock<LoadReport> = OnceLock::new();
+static PRINT: OnceLock<u64> = OnceLock::new();
+
+/// A hash of the installed data the rules read, or none for the data built in.
+pub fn fingerprint() -> Option<u64> {
+    PRINT.get().copied()
+}
+
+fn print_of(data: &Data) -> u64 {
+    fn text(t: &Option<String>) -> &[u8] {
+        t.as_deref().unwrap_or("").as_bytes()
+    }
+    let built = [built_in::POWERUPS, built_in::ENEMIES, built_in::PROPS, None, built_in::EFFECTS, built_in::GROUND, built_in::FARM];
+    let tables = [&data.powerups, &data.enemies, &data.props_table, &data.tuning, &data.effects, &data.ground, &data.farm].map(text).into_iter().zip(built).map(|(own, b)| if own.is_empty() { b.unwrap_or("").as_bytes() } else { own });
+    let cards = data.cards.iter().chain(&data.players).chain(&data.props).flat_map(|c| [c.name.as_bytes(), c.text.as_bytes(), &c.sheet]);
+    let farms = data.farms.iter().flat_map(|f| [f.id.as_bytes(), f.farm.as_deref().unwrap_or("").as_bytes(), f.ground.as_deref().unwrap_or("").as_bytes()]);
+    let maps = data.maps.iter().flat_map(|m| [m.file.as_bytes(), m.text.as_bytes()]);
+    crate::replay::fingerprint(tables.chain(cards).chain(farms).chain(maps))
+}
 
 /// Keeps the app's account of what it loaded; the first one stays.
 pub fn report(r: LoadReport) {
@@ -157,6 +175,7 @@ pub fn install(mut data: Data) -> Result<Vec<String>, String> {
     if DATA.get().is_some() {
         return Err("the game data was already read".into());
     }
+    PRINT.set(print_of(&data)).ok();
     let mut notes = Vec::new();
     let cards = std::mem::take(&mut data.cards);
     let players = std::mem::take(&mut data.players);

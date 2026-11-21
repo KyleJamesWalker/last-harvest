@@ -1,5 +1,5 @@
-//! `last-harvest-relay`: matchbox signaling on `/signal/<room>` for `last-harvest-net` peers, TURN credentials on
-//! `/ice`, and `/healthz`. See docs/online.md.
+//! `last-harvest-relay`: matchbox signaling on `/signal/<room>` for `last-harvest-net` peers, with TURN credentials for
+//! each peer in its room, and `/healthz`. See docs/online.md.
 
 pub mod config;
 mod limits;

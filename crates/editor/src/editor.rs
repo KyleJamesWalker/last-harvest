@@ -4570,6 +4570,36 @@ mod tests {
     }
 
     #[test]
+    fn the_weapon_page_steps_a_dogs_kill_resets_in_both_editors() {
+        for modding in [false, true] {
+            let dir = tmp().join(if modding { "resets-mod" } else { "resets" });
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            let mut e = editor_in(&dir, dir.join("art.txt"));
+            if modding {
+                e.set_modding();
+            }
+            e.switch_to("DATA_POWERUPS_DOG".into());
+            let resets = |e: &Editor| e.data.as_ref().and_then(|d| d.table.entries(&d.section).into_iter().find(|l| l.key == "kill_resets")).map(|l| l.value);
+            let pick = weapons::pick("kill_resets");
+            e.act(Action::WeaponPick(pick, 0), false);
+            assert_eq!(resets(&e), None, "Own leaves it off");
+            e.act(Action::WeaponPick(pick, 1), false);
+            assert_eq!(resets(&e).as_deref(), Some("0"), "modding {modding}");
+            assert!(e.buttons().iter().any(|b| b.action == Action::WeaponPick(pick, 1)), "its tab shows");
+            buttons_fit(&e);
+            e.act(Action::Save, false);
+            assert!(!e.unsaved(), "the game reads it");
+            e.act(Action::WeaponPick(pick, 0), false);
+            assert_eq!(resets(&e), None, "Own drops the line");
+            e.act(Action::WeaponPick(pick, 1), false);
+            e.act(Action::WeaponPick(pick, 1), false);
+            assert_eq!(resets(&e).as_deref(), Some("1"));
+            std::fs::remove_dir_all(&dir).unwrap();
+        }
+    }
+
+    #[test]
     fn the_weapon_page_steps_a_bursts_outside_reach_in_both_editors() {
         for modding in [false, true] {
             let dir = tmp().join(if modding { "outside-mod" } else { "outside" });

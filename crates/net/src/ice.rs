@@ -1,10 +1,15 @@
-//! The relay's ICE servers, fetched over HTTP(S) before joining a room: `{"iceServers": [...]}` as `/ice` answers.
+//! ICE servers as `{"iceServers": [...]}`: what an HTTP(S) endpoint such as the relay's `/ice` answers, and what the
+//! relay sends a signaling peer, with TURN credentials, as an `IceServers` message.
 
 use crate::{IceConfig, IceServer};
 
 /// Reads the relay's answer; a server without URLs is left out.
 pub fn parse_ice(json: &str) -> Result<IceConfig, String> {
     let v: serde_json::Value = serde_json::from_str(json).map_err(|e| format!("bad ICE answer: {e}"))?;
+    parse_ice_value(&v)
+}
+
+pub(crate) fn parse_ice_value(v: &serde_json::Value) -> Result<IceConfig, String> {
     let list = v.get("iceServers").and_then(|s| s.as_array()).ok_or("no iceServers in the answer")?;
     let text = |s: &serde_json::Value, k: &str| s.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
     let servers = list
@@ -20,6 +25,11 @@ pub fn parse_ice(json: &str) -> Result<IceConfig, String> {
         .filter(|s| !s.urls.is_empty())
         .collect();
     Ok(IceConfig { servers, relay_only: false })
+}
+
+/// `base` with the servers the relay sent over signaling, which replace any it sent before.
+pub(crate) fn with_relay_servers(base: &IceConfig, relay: &[IceServer]) -> IceConfig {
+    IceConfig { servers: base.servers.iter().chain(relay).cloned().collect(), relay_only: base.relay_only }
 }
 
 /// A fetch of the relay's ICE servers in flight; poll it once a frame.
@@ -116,27 +126,32 @@ mod native {
         }
     }
 
+    fn split_crlf(bytes: &[u8]) -> Option<(&[u8], &[u8])> {
+        let at = bytes.windows(2).position(|w| w == b"\r\n")?;
+        Some((&bytes[..at], &bytes[at + 2..]))
+    }
+
     fn body(raw: &[u8]) -> Result<String, String> {
-        let text = String::from_utf8_lossy(raw);
-        let (head, body) = text.split_once("\r\n\r\n").ok_or("no HTTP answer")?;
+        let end = raw.windows(4).position(|w| w == b"\r\n\r\n").ok_or("no HTTP answer")?;
+        let (head, body) = (String::from_utf8_lossy(&raw[..end]), &raw[end + 4..]);
         let status = head.lines().next().unwrap_or("");
         if status.split_whitespace().nth(1) != Some("200") {
             return Err(format!("the relay answered {status}"));
         }
         if head.lines().any(|l| l.to_ascii_lowercase().replace(' ', "") == "transfer-encoding:chunked") {
-            let mut out = String::new();
+            let mut out = Vec::new();
             let mut rest = body;
-            while let Some((size, after)) = rest.split_once("\r\n") {
-                let n = usize::from_str_radix(size.trim(), 16).map_err(|_| "bad chunk")?;
+            while let Some((size, after)) = split_crlf(rest) {
+                let n = std::str::from_utf8(size).ok().and_then(|s| usize::from_str_radix(s.trim(), 16).ok()).ok_or("bad chunk")?;
                 if n == 0 || after.len() < n {
                     break;
                 }
-                out.push_str(&after[..n]);
-                rest = after[n..].trim_start_matches("\r\n");
+                out.extend_from_slice(&after[..n]);
+                rest = after[n..].strip_prefix(b"\r\n").unwrap_or(&after[n..]);
             }
-            return Ok(out);
+            return Ok(String::from_utf8_lossy(&out).into_owned());
         }
-        Ok(body.to_string())
+        Ok(String::from_utf8_lossy(body).into_owned())
     }
 
     #[cfg(test)]
@@ -146,6 +161,13 @@ mod native {
             assert_eq!(super::body(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{}").unwrap(), "{}");
             assert_eq!(super::body(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n2\r\n{}\r\n0\r\n\r\n").unwrap(), "{}");
             assert!(super::body(b"HTTP/1.1 403 Forbidden\r\n\r\n").is_err());
+        }
+
+        #[test]
+        fn a_chunk_that_splits_a_character_reads_whole() {
+            let raw = b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n2\r\n\"\xc3\r\n2\r\n\xa9\"\r\n0\r\n\r\n";
+            assert_eq!(super::body(raw).unwrap(), "\"\u{e9}\"");
+            assert_eq!(super::body(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n9\r\n\xc3").unwrap(), "");
         }
     }
 }
@@ -192,5 +214,13 @@ mod tests {
         assert_eq!(ice.servers[1].username, "");
         assert_eq!(parse_ice(r#"{"iceServers":[]}"#).unwrap(), IceConfig::default());
         assert!(parse_ice("nope").is_err());
+    }
+
+    #[test]
+    fn relay_servers_join_the_games_own() {
+        let stun = IceServer { urls: vec!["stun:s.example.com".into()], ..Default::default() };
+        let turn = IceServer { urls: vec!["turn:t.example.com".into()], username: "1:lh-ab".into(), credential: "x".into() };
+        let base = IceConfig { servers: vec![stun.clone()], relay_only: true };
+        assert_eq!(with_relay_servers(&base, std::slice::from_ref(&turn)), IceConfig { servers: vec![stun, turn], relay_only: true });
     }
 }

@@ -260,6 +260,7 @@ The title's bottom screen lists Play, Map, How to play, Settings, Stats and Cred
 | Volume, Rumble | Sound level, and the motor on and off |
 | Show FPS | The frame-rate overlay |
 | Screens | One or two screens for a run. Not shown on a phone. |
+| Corner map | On one screen, the small map in the top right corner of the view while you play. Shown only on one screen. |
 | Touch controls, Grenades | See [Touch](#touch). Shown only where the screen takes touches. |
 | Controls | Moves a button's jobs to another button. See [Controls](#controls). |
 | Player | Your look, from the player cards, shown walking on the top screen |
@@ -436,8 +437,8 @@ A weapon in `powerups.txt` opens as a weapon page:
 
 - **Does** picks its behavior.
 - Each stat shows its value at every level. Pick a level, then - and + step that level's value.
-- The pickers sit on two tabs: **Shots** (effect, bullet, pattern, targets, `outside`) and **Sound & player**.
-- < and > step its effect, bullet and sound (the six voices, then each sound group in your game data), how many rounds go by for each sound (`sound_every`), a sound that follows it and how long it waits (`sound_after`, `sound_delay`), a gun's pattern and targets, and `outside`, how far a burst's later shots reach outside the view. **Own** goes back to the behavior's own.
+- The pickers sit on three tabs: **Shots** (effect, bullet, pattern, targets, `outside`), **Sound & player** and **Dog** (`kill_resets`).
+- < and > step its effect, bullet and sound (the six voices, then each sound group in your game data), how many rounds go by for each sound (`sound_every`), a sound that follows it and how long it waits (`sound_after`, `sound_delay`), a gun's pattern and targets, `outside`, how far a burst's later shots reach outside the view, and a dog's `kill_resets`, 1 to bite again at once after a kill. **Own** goes back to the behavior's own.
 - **player** makes the weapon one player card's own: < and > step through the player cards, and **Everyone** gives it back to every player. Only that player is offered it, unlocks it or starts with it; see [a player's own weapons](../../docs/modding.md#a-players-own-weapons).
 - A panel plays the effect and bullet. **Style** opens the bullet's shot style, where **Paint** opens a sprite to draw.
 - **Lines** shows the raw lines, and **Weapon** goes back.

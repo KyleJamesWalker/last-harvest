@@ -9,6 +9,7 @@ use std::time::Instant;
 use last_harvest::{VERSION, pak};
 use last_harvest_game::Difficulty;
 use last_harvest_game::online::{self, NetReport, NetSim};
+use last_harvest_game::replay::{self, Replay};
 use last_harvest_game::sandbox::{self, Night, Pick, Plan, Walk};
 
 const USAGE: &str = "\
@@ -43,6 +44,9 @@ hearts and level for each. With no BUILD, measures each weapon alone at each lev
   --pak FILE          the data pack, instead of the built-in data or data/game_data.pak
   --mods DIR          a folder of mod packs to lay over it
   --diff OLD NEW      compare two --csv files by build and weapon
+  --record FILE       play the first BUILD's first seed once and write it to FILE as a replay
+  --replay FILE       play a replay again, from the game or --record, and report the first tick it drifts
+  --watch NAME        with --replay, count more as it plays: dogs
   --net-sim SPEC      play each seed online instead: a client on a link of loss=0.1,lat=80,jitter=20 (ms), any
                       left out; prints the bytes sent and how far the client's picture strays. BUILD is the first
                       given, or the starting kit
@@ -61,6 +65,9 @@ struct Args {
     pick: String,
     locked: bool,
     net: Option<NetSim>,
+    record: Option<String>,
+    replay: Option<String>,
+    watch: Option<String>,
 }
 
 fn main() {
@@ -81,7 +88,7 @@ fn main() {
 }
 
 fn parse(args: &[String]) -> Result<Args, String> {
-    let mut a = Args { builds: Vec::new(), weapons: None, seeds: 3, seed: 1, plan: Plan::new(Vec::new()), jobs: std::thread::available_parallelism().map_or(1, |n| n.get()), csv: None, json: None, pick: "none".into(), locked: false, net: None };
+    let mut a = Args { builds: Vec::new(), weapons: None, seeds: 3, seed: 1, plan: Plan::new(Vec::new()), jobs: std::thread::available_parallelism().map_or(1, |n| n.get()), csv: None, json: None, pick: "none".into(), locked: false, net: None, record: None, replay: None, watch: None };
     let mut it = args.iter();
     while let Some(arg) = it.next() {
         let mut value = || it.next().cloned().ok_or_else(|| format!("{arg} needs a value"));
@@ -117,6 +124,9 @@ fn parse(args: &[String]) -> Result<Args, String> {
             "--jobs" => a.jobs = num::<usize>(arg, value()?)?.max(1),
             "--csv" => a.csv = Some(value()?),
             "--json" => a.json = Some(value()?),
+            "--record" => a.record = Some(value()?),
+            "--replay" => a.replay = Some(value()?),
+            "--watch" => a.watch = Some(value()?),
             "--net-sim" => a.net = Some(NetSim::parse(&value()?).map_err(|e| format!("--net-sim: {e}"))?),
             // SAFETY: no other thread has started yet.
             "--pak" => unsafe { std::env::set_var("LAST_HARVEST_PAK", value()?) },
@@ -138,6 +148,12 @@ fn run(mut a: Args) -> Result<(), String> {
     pak::load()?;
     a.plan.pick = Pick::from_name(&a.pick).map_err(|e| format!("--pick: {e}"))?;
     a.plan.unlocked = a.plan.pick != Pick::None && !a.locked;
+    if let Some(path) = &a.replay {
+        return play_replay(path, a.watch.as_deref());
+    }
+    if let Some(path) = &a.record {
+        return record(&a, path);
+    }
     if let Some(net) = a.net {
         return net_sim(&a, net);
     }
@@ -174,6 +190,59 @@ fn run(mut a: Args) -> Result<(), String> {
         std::fs::write(path, json(&cells, &a)).map_err(|e| format!("{path}: {e}"))?;
     }
     Ok(())
+}
+
+/// The first build's first seed, played once and written to `path`.
+fn record(a: &Args, path: &str) -> Result<(), String> {
+    let build = sandbox::parse_build(a.builds.first().ok_or("--record needs a BUILD")?)?;
+    let plan = Plan { seed: a.seed, build, record: Some(last_harvest::replays::info()), ..a.plan.clone() };
+    let night = sandbox::night(&plan);
+    let raw = night.replay.ok_or("the night recorded nothing")?;
+    let packed = last_harvest::replays::pack(&raw);
+    std::fs::write(path, &packed).map_err(|e| format!("{path}: {e}"))?;
+    let r = Replay::read(&raw)?;
+    println!("recorded seed {}: {} ticks, {:.1} s, {} kills, level {}; {} bytes, {} gzipped", plan.seed, r.ticks, night.secs, night.kills, night.level, raw.len(), packed.len());
+    Ok(())
+}
+
+/// Plays the replay at `path` again and says whether it matched, exiting 1 if it drifted.
+fn play_replay(path: &str, watch: Option<&str>) -> Result<(), String> {
+    let bytes = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
+    let r = Replay::read(&last_harvest::replays::unpack(&bytes)?)?;
+    let here = last_harvest::replays::info();
+    for (k, v) in &r.info {
+        let now = here.iter().find(|(h, _)| h == k).map(|(_, v)| v.as_str());
+        let differs = now.is_some_and(|n| n != v);
+        println!("{k:>7}: {v}{}", if differs { format!("  (here: {})", now.unwrap_or("")) } else { String::new() });
+    }
+    let s = &r.setup;
+    println!("  night: seed {}, {}, {}, {} players and {} scripted, {} views, {} ticks", s.seed, if s.map.is_empty() { "a generated farm" } else { &s.map }, s.difficulty.key(), s.players, s.bots, s.views, r.ticks);
+    let mut watcher = match watch {
+        Some(name) => replay::watcher(name).ok_or_else(|| format!("--watch: no watcher called {name}"))?,
+        None => Box::new(replay::Nothing),
+    };
+    let started = Instant::now();
+    let out = replay::play(&r, watcher.as_mut());
+    println!(" played: {} ticks, {:.1} s of night, {} kills, level {}, in {:.1} s", out.ticks, out.secs, out.kills, out.level, started.elapsed().as_secs_f32());
+    for line in watcher.report(out.secs - s.start_t) {
+        println!("  watch: {line}");
+    }
+    match out.drift {
+        None => {
+            println!("  match: every tick and all {} checkpoints", out.checks);
+            Ok(())
+        }
+        Some(d) => {
+            println!("  DRIFT: first at tick {} ({:.2} s into the night)", d.tick, d.secs);
+            if let Some((tick, want, got)) = d.check {
+                println!("         checkpoint after tick {tick}: zombies {} recorded, {} now", want.zombies, got.zombies);
+                for (p, (w, g)) in want.players.iter().zip(&got.players).enumerate() {
+                    println!("         player {} at ({:.2}, {:.2}) recorded, ({:.2}, {:.2}) now", p + 1, w[0], w[1], g[0], g[1]);
+                }
+            }
+            std::process::exit(1);
+        }
+    }
 }
 
 /// Each seed's night played to a client over `net`, one line each.

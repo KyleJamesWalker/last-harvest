@@ -6,6 +6,10 @@ impl Rng {
         Self(seed.max(1))
     }
 
+    pub fn state(&self) -> u64 {
+        self.0
+    }
+
     pub fn next_u32(&mut self) -> u32 {
         self.0 ^= self.0 >> 12;
         self.0 ^= self.0 << 25;

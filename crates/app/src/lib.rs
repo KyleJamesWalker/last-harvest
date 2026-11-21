@@ -9,6 +9,7 @@ mod loops;
 #[cfg(any(target_os = "macos", target_os = "linux", target_arch = "wasm32"))]
 pub mod online;
 pub mod pak;
+pub mod replays;
 pub mod samples;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod shot;

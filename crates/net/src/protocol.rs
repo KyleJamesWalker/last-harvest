@@ -1,6 +1,6 @@
-//! The matchbox signaling protocol: server events, relayed WebRTC handshake messages, and a relay's resume URL.
+//! The matchbox signaling protocol: server events, relayed WebRTC handshake messages, and how a relay resumes a peer.
 
-use crate::PeerId;
+use crate::{IceServer, PeerId};
 use serde_json::{json, Value};
 
 /// Sent every few seconds; a relay that resumes peers echoes it.
@@ -18,6 +18,8 @@ pub(crate) enum Signal {
 pub(crate) enum Event {
     IdAssigned(PeerId),
     ResumeToken(String),
+    /// The relay's ICE servers with fresh TURN credentials, sent after joining and again before they expire.
+    IceServers(Vec<IceServer>),
     NewPeer(PeerId),
     PeerLeft(PeerId),
     Signal(PeerId, Signal),
@@ -40,6 +42,9 @@ pub(crate) fn parse_event(text: &str) -> Option<Event> {
     }
     if let Some(token) = event.get("ResumeToken").and_then(Value::as_str) {
         return Some(Event::ResumeToken(token.to_string()));
+    }
+    if let Some(servers) = event.get("IceServers") {
+        return crate::ice::parse_ice_value(servers).ok().map(|ice| Event::IceServers(ice.servers));
     }
     if let Some(peer) = id("NewPeer") {
         return Some(Event::NewPeer(peer));
@@ -71,18 +76,15 @@ pub(crate) fn signal_message(receiver: PeerId, signal: &Signal) -> String {
     json!({ "Signal": { "receiver": uuid_string(receiver), "data": data } }).to_string()
 }
 
-/// `url` asking the relay to give `id` its place back.
-pub(crate) fn resume_url(url: &str, id: PeerId, token: &str) -> String {
+/// `url` asking the relay for a place back; the connection's first message must be `resume_message`.
+pub(crate) fn resume_url(url: &str) -> String {
     let join = if url.contains('?') { '&' } else { '?' };
-    let mut escaped = String::new();
-    for b in token.bytes() {
-        if b.is_ascii_alphanumeric() || b"-._~".contains(&b) {
-            escaped.push(b as char);
-        } else {
-            escaped.push_str(&format!("%{b:02X}"));
-        }
-    }
-    format!("{url}{join}resume={}&token={escaped}", uuid_string(id))
+    format!("{url}{join}resume")
+}
+
+/// Names the place to resume, so its token never appears in a URL.
+pub(crate) fn resume_message(id: PeerId, token: &str) -> String {
+    json!({ "Resume": { "id": uuid_string(id), "token": token } }).to_string()
 }
 
 #[cfg(test)]
@@ -99,6 +101,10 @@ mod tests {
         assert_eq!(parse_event(r#"{"ResumeToken":"t0k"}"#), Some(Event::ResumeToken("t0k".into())));
         assert_eq!(parse_event(&format!(r#"{{"NewPeer":"{A}"}}"#)), Some(Event::NewPeer(a)));
         assert_eq!(parse_event(&format!(r#"{{"PeerLeft":"{A}"}}"#)), Some(Event::PeerLeft(a)));
+        let turn = IceServer { urls: vec!["turn:t.example.com:3478".into()], username: "1:lh-ab".into(), credential: "x".into() };
+        let ice = r#"{"IceServers":{"iceServers":[{"urls":["turn:t.example.com:3478"],"username":"1:lh-ab","credential":"x"}]}}"#;
+        assert_eq!(parse_event(ice), Some(Event::IceServers(vec![turn])));
+        assert_eq!(parse_event(r#"{"IceServers":{}}"#), None);
         assert_eq!(parse_event(KEEP_ALIVE), None);
         assert_eq!(parse_event(r#"{"NewPeer":"not a uuid"}"#), None);
         assert_eq!(parse_event("not json"), None);
@@ -117,9 +123,11 @@ mod tests {
     }
 
     #[test]
-    fn a_resume_url_carries_the_id_and_an_escaped_token() {
+    fn a_resume_keeps_its_token_out_of_the_url() {
         let a = parse_uuid(A).unwrap();
-        assert_eq!(resume_url("ws://h/room", a, "a b+c"), format!("ws://h/room?resume={A}&token=a%20b%2Bc"));
-        assert_eq!(resume_url("ws://h/room?x=1", a, "t"), format!("ws://h/room?x=1&resume={A}&token=t"));
+        assert_eq!(resume_url("ws://h/room"), "ws://h/room?resume");
+        assert_eq!(resume_url("ws://h/room?x=1"), "ws://h/room?x=1&resume");
+        let message: Value = serde_json::from_str(&resume_message(a, "a b+c")).unwrap();
+        assert_eq!(message, json!({ "Resume": { "id": A, "token": "a b+c" } }));
     }
 }

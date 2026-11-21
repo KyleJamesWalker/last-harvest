@@ -124,6 +124,8 @@ impl Peer {
 #[derive(Default)]
 struct State {
     url: String,
+    /// The game's own ICE servers, and what new connections use: those and the relay's latest.
+    base_ice: IceConfig,
     ice: IceConfig,
     socket: Option<WebSocket>,
     socket_handlers: Vec<Callback>,
@@ -210,9 +212,10 @@ fn open_signaling(state: &StateRef, target: &str, resuming: bool) {
             return;
         }
         s.heard_at = now();
+        let resume = s.id.zip(s.token.clone()).filter(|_| resuming).map(|(id, token)| protocol::resume_message(id, &token));
         let outbox = std::mem::take(&mut s.outbox);
         if let Some(socket) = &s.socket {
-            for text in outbox {
+            for text in resume.into_iter().chain(outbox) {
                 let _ = socket.send_with_str(&text);
             }
         }
@@ -282,10 +285,10 @@ fn lost(state: &StateRef, resuming: bool, heard_any: bool) {
     if s.closed {
         return;
     }
-    let (Some(id), Some(token)) = (s.id, s.token.clone()) else {
+    if s.id.is_none() || s.token.is_none() {
         s.failed = true;
         return;
-    };
+    }
     if resuming && !heard_any {
         s.failed = true;
         return;
@@ -296,7 +299,7 @@ fn lost(state: &StateRef, resuming: bool, heard_any: bool) {
         s.failed = true;
         return;
     }
-    let target = protocol::resume_url(&s.url, id, &token);
+    let target = protocol::resume_url(&s.url);
     let delay = s.retry_ms;
     s.retry_ms = (s.retry_ms * 2.0).min(2000.0);
     let connection = s.connection;
@@ -314,6 +317,16 @@ fn on_event(state: &StateRef, event: Event) {
     match event {
         Event::IdAssigned(id) => state.borrow_mut().id = Some(id),
         Event::ResumeToken(token) => state.borrow_mut().token = Some(token),
+        Event::IceServers(servers) => {
+            let mut s = state.borrow_mut();
+            s.ice = crate::ice::with_relay_servers(&s.base_ice, &servers);
+            let config = rtc_configuration(&s.ice);
+            for peer in s.peers.values() {
+                if let Err(e) = peer.pc.set_configuration_with_configuration(&config) {
+                    warn(&format!("[net] new ICE servers: {}", error_text(&e)));
+                }
+            }
+        }
         Event::NewPeer(id) => spawn_local(offer(state.clone(), id)),
         Event::PeerLeft(id) => drop_peer(state, id, None),
         Event::Signal(sender, signal) => spawn_local(on_signal(state.clone(), sender, signal)),
@@ -641,6 +654,7 @@ impl Socket {
     pub fn connect(room_url: &str, ice: &IceConfig) -> Socket {
         let state = Rc::new(RefCell::new(State {
             url: room_url.to_string(),
+            base_ice: ice.clone(),
             ice: ice.clone(),
             retry_ms: 250.0,
             ..Default::default()
