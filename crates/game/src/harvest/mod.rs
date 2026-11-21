@@ -445,6 +445,22 @@ pub enum Rumble {
     Blast,
 }
 
+impl Flow {
+    /// Buzzes player `p`'s pad, the stronger kind winning; nothing for a player past the seats.
+    fn buzz(&mut self, p: PlayerId, r: Rumble) {
+        if let Some(s) = self.rumble.get_mut(p) {
+            *s = (*s).max(Some(r));
+        }
+    }
+
+    /// Buzzes every player's pad.
+    fn buzz_all(&mut self, r: Rumble) {
+        for p in 0..crate::SEATS {
+            self.buzz(p, r);
+        }
+    }
+}
+
 /// A ranged zombie's spit, flying straight at where the player stood.
 struct Spit {
     kind: Kind,
@@ -708,7 +724,8 @@ enum Phase {
 /// What the run asks of the rest of the game after an update.
 #[derive(Default)]
 pub struct Flow {
-    pub rumble: Option<Rumble>,
+    /// Each seated player's pad's buzz, by place in `players`.
+    pub rumble: [Option<Rumble>; crate::SEATS],
     pub quit: bool,
     /// The pause menu chose Settings; the run stays paused under it.
     pub settings: bool,
@@ -893,6 +910,8 @@ pub struct Harvest {
     /// The player ME stands for while `relabel` has traded them; ME otherwise.
     swapped: PlayerId,
     net: online::Net,
+    /// The size the view being drawn is laid out to, as `Canvas::refit` takes it; a screen's outside split-screen.
+    canvas: [f32; 2],
 }
 
 /// Weapons and passives unlocked so far, out of all of them, and how many are waiting to be found.
@@ -1106,6 +1125,7 @@ impl Harvest {
             paused_by: ME,
             swapped: ME,
             net: online::Net::default(),
+            canvas: [SCREEN_W, SCREEN_H],
         }
         .with_birds()
     }
@@ -1313,6 +1333,10 @@ impl Harvest {
         if self.bench {
             self.me_mut().view_yaw = (self.me().view_yaw + TAU / 600.0).rem_euclid(TAU);
             self.remember(dt);
+            return flow;
+        }
+        if self.photo.is_some() && self.views > 1 {
+            self.photo_coop(input, dt, sounds, &mut flow);
             return flow;
         }
         if self.photo.is_some() {
@@ -1574,8 +1598,8 @@ impl Harvest {
         self.hazards(dt);
         self.decoys(dt, sounds);
         self.restock(dt);
-        if self.blow(dt, sounds) {
-            flow.rumble = flow.rumble.max(Some(Rumble::Blast));
+        if let Some(by) = self.blow(dt, sounds) {
+            flow.buzz(by, Rumble::Blast);
         }
         self.crumble(dt, sounds);
         self.reap(sounds, flow);
@@ -1626,9 +1650,9 @@ impl Harvest {
         }
         if let Some(p) = fell.filter(|_| self.players.iter().all(|pl| !pl.alive())) {
             sounds.push(Sfx::GameOver);
-            self.juice.shake(0.8);
+            self.shake_all(0.8);
             self.juice.burst(self.players[p].pos, 8.0, 30, [0.0; 2], 0.0, [30.0, 120.0], juice::blood(), 2.0, 0.9, 0.0);
-            flow.rumble = Some(Rumble::Blast);
+            flow.buzz_all(Rumble::Blast);
             self.leveling = 0.0;
             self.spits.clear();
             for mut z in std::mem::take(&mut self.burrowed) {
@@ -1653,8 +1677,8 @@ impl Harvest {
             self.burrowed.clear();
             self.spits.clear();
             self.juice.flash(self.me().pos, 40.0, [1.6, 1.1, 0.7], 14.0, 1.5);
-            self.juice.shake(0.3);
-            flow.rumble = flow.rumble.max(Some(Rumble::Fanfare));
+            self.shake_all(0.3);
+            flow.buzz_all(Rumble::Fanfare);
             self.phase = Phase::Over { t: 0.0, won: true };
             flow.ended = Some(self.finish(true));
         } else if self.t >= dawn() && !self.woke {
@@ -1723,8 +1747,8 @@ impl Harvest {
     fn daybreak(&mut self, sounds: &mut Vec<Sfx>, flow: &mut Flow) {
         self.woke = true;
         sounds.push(Sfx::Horde);
-        flow.rumble = flow.rumble.max(Some(Rumble::Blast));
-        self.juice.shake(0.6);
+        flow.buzz_all(Rumble::Blast);
+        self.shake_all(0.6);
         self.juice.banner("DAWN.  THE HARVESTER WAKES.  GET HOME.", [1.0, 0.45, 0.3, 1.0], 4.0);
         self.raise_harvester(0.0);
     }
@@ -1746,8 +1770,8 @@ impl Harvest {
             return;
         }
         sounds.push(Sfx::Horde);
-        flow.rumble = flow.rumble.max(Some(Rumble::Blast));
-        self.juice.shake(0.6);
+        flow.buzz_all(Rumble::Blast);
+        self.shake_all(0.6);
         self.juice.banner("MORE HARVESTERS RISE.", [1.0, 0.45, 0.3, 1.0], 2.5);
         for i in 0..n {
             self.raise_harvester((i as f32 - (n - 1) as f32 / 2.0) * 0.45);
@@ -1874,7 +1898,7 @@ impl Harvest {
         self.xp_shown = self.next_xp as f32;
         self.leveling = LEVEL_SLOW;
         sounds.push(Sfx::LevelUp);
-        flow.rumble = flow.rumble.max(Some(Rumble::Fanfare));
+        flow.buzz_all(Rumble::Fanfare);
         for p in 0..self.players.len() {
             if self.players[p].alive() {
                 self.shove(self.players[p].pos, 320.0);
@@ -1882,8 +1906,7 @@ impl Harvest {
         }
         self.juice.ring(self.me().pos, crate::tuning::tuning().push, 0.5, juice::gold());
         self.juice.flash(self.me().pos, 20.0, [1.8, 1.4, 0.6], 9.0, 0.8);
-        self.juice.punch += 6.0;
-        self.juice.shake(0.3);
+        self.shake_each(|_| 0.3, 6.0);
         self.juice.shout("LEVEL UP", GOLD, 0.9);
         for i in 0..40 {
             let a = i as f32 / 40.0 * TAU;
@@ -2024,10 +2047,11 @@ impl Harvest {
         self.juice.ring(at, crate::tuning::tuning().push, 0.6, [0.4, 1.0, 0.5]);
         self.juice.flash(at, 20.0, [0.6, 1.8, 0.7], 9.0, 0.8);
         self.feel_for(p, |j| j.shake(0.4));
-        if p == ME {
-            self.juice.banner("THE VACCINE HOLDS", [0.5, 1.0, 0.55, 1.0], 2.4);
+        flow.buzz(p, Rumble::Fanfare);
+        if p < self.views {
+            let line = if self.views > 1 { format!("P{}: THE VACCINE HOLDS", self.number(p)) } else { "THE VACCINE HOLDS".into() };
+            self.juice.banner(line, [0.5, 1.0, 0.55, 1.0], 2.4);
             sounds.push(Sfx::Heal);
-            flow.rumble = flow.rumble.max(Some(Rumble::Fanfare));
         }
     }
 
@@ -2424,8 +2448,8 @@ impl Harvest {
         self.move_bullets(dt, sounds);
         self.hazards(dt);
         self.decoys(dt, sounds);
-        if self.blow(dt, sounds) {
-            flow.rumble = flow.rumble.max(Some(Rumble::Blast));
+        if let Some(by) = self.blow(dt, sounds) {
+            flow.buzz(by, Rumble::Blast);
         }
         self.crumble(dt, sounds);
         self.reap(sounds, flow);
@@ -2449,7 +2473,7 @@ impl Harvest {
         let at = self.players[p].pos;
         self.juice.burst(at, 8.0, 30, [0.0; 2], 0.0, [30.0, 120.0], juice::blood(), 2.0, 0.9, 0.0);
         self.juice.banner(format!("PLAYER {} TURNED", self.number(p)), RED, 2.4);
-        if p == ME {
+        if p < self.views {
             sounds.push(Sfx::GameOver);
         }
         self.feel_for(p, |j| j.shake(0.8));
@@ -2469,7 +2493,7 @@ impl Harvest {
             let at = self.players[p].pos;
             self.juice.burst(at, 0.0, 16, [0.0; 2], 0.0, [20.0, 60.0], juice::dirt(), 1.8, 0.7, 0.0);
             self.fx.push(Fx::play(effects::effects().player_rises, [at[0], at[1] - 3.0], 0.0));
-            if p == ME {
+            if p < self.views {
                 sounds.push(Sfx::Turn);
             }
             self.feel_for(p, |j| j.shake(0.35));
@@ -2579,8 +2603,8 @@ impl Harvest {
         pl.hurt = self.difficulty.hurt_time();
         let at = pl.pos;
         self.juice.popup(at, hit, Tone::Hurt);
-        if p == ME {
-            flow.rumble = flow.rumble.max(Some(Rumble::Hit));
+        flow.buzz(p, Rumble::Hit);
+        if p < self.views {
             sounds.push(Sfx::Hurt);
         }
         self.ouch(p, 0.45);
@@ -2669,12 +2693,12 @@ impl Harvest {
         self.thud(hits, sounds);
     }
 
-    /// Sets off a barrel shot to pieces, one per frame so neighbors chain; returns whether one blew.
-    fn blow(&mut self, dt: f32, sounds: &mut Vec<Sfx>) -> bool {
+    /// Sets off a barrel shot to pieces, one per frame so neighbors chain; returns who set off the one that blew.
+    fn blow(&mut self, dt: f32, sounds: &mut Vec<Sfx>) -> Option<PlayerId> {
         for r in &mut self.barrels {
             r.flash = (r.flash - dt).max(0.0);
         }
-        let Some(i) = self.barrels.iter().position(|r| r.hp <= 0.0) else { return false };
+        let i = self.barrels.iter().position(|r| r.hp <= 0.0)?;
         let barrel = self.barrels.swap_remove(i);
         let c = barrel.center();
         self.map.open(c[0], c[1]);
@@ -2683,7 +2707,7 @@ impl Harvest {
         self.actor = barrel.by;
         self.explode(c, crate::tuning::tuning().barrel_radius, crate::tuning::tuning().barrel_damage, sounds);
         self.actor = ME;
-        true
+        Some(barrel.by)
     }
 
     /// Damages zombies in `radius`, sets off barrels in it, and hurts the acting player if too close, never another.
@@ -2724,10 +2748,8 @@ impl Harvest {
         }
         self.fx.push(Fx::play(effects::effects().explosion, c, 0.0));
         self.fx.push(Fx::play(effects::effects().explosion_smoke, [c[0], c[1] - 8.0], 0.0));
-        let near = len(sub(self.me().pos, c));
-        self.juice.shake((0.75 * (1.0 - near / 260.0)).max(0.12));
+        self.shake_each(|at| (0.75 * (1.0 - len(sub(at, c)) / 260.0)).max(0.12), 4.0);
         self.juice.stop(0.07);
-        self.juice.punch += 4.0;
         self.juice.flash(c, 14.0, [2.4, 1.3, 0.5], 8.0, 0.45);
         self.juice.ring(c, radius * 1.3, 0.45, juice::ember());
         self.juice.burst(c, 4.0, 18, [0.0; 2], 0.0, [40.0, 140.0], juice::ember(), 1.2, 0.6, 1.0);
@@ -2761,7 +2783,7 @@ impl Harvest {
     fn throw_by(&mut self, p: PlayerId, to: [f32; 2], sounds: &mut Vec<Sfx>) {
         let pl = &mut self.players[p];
         if pl.grenades < 1.0 || !pl.alive() {
-            if p == ME {
+            if p < self.views {
                 sounds.push(Sfx::Miss);
             }
             return;
@@ -2788,7 +2810,7 @@ impl Harvest {
             self.juice.tally.by = None;
             let blast = matches!(g.kind, Thrown::Lob { def, .. } if powerups::book().defs[def].lands == powerups::Lands::Blast);
             if blast || matches!(g.kind, Thrown::Grenade | Thrown::Bomblet) {
-                flow.rumble = flow.rumble.max(Some(Rumble::Blast));
+                flow.buzz(g.owner, Rumble::Blast);
             }
         }
     }
@@ -2825,6 +2847,7 @@ impl Harvest {
                 let fall = if z.knock == [0.0; 2] { norm(sub(z.pos, self.players[self.nearest_player(z.pos)].pos)) } else { z.knock };
                 self.gore(z.pos, fall, z.fling, z.dir, &s.look, s.gibs as usize, s.blood);
                 died = Some(z.kind);
+                flow.buzz(self.nearest_player(z.pos), Rumble::Tick);
                 continue;
             }
             if z.boss && self.waves.is_none() {
@@ -2832,6 +2855,7 @@ impl Harvest {
             }
             self.kills += 1;
             self.kill_bump = 0.0;
+            flow.buzz(self.nearest_player(z.pos), Rumble::Tick);
             died = Some(match died {
                 Some(k) if k.stats().heavy => k,
                 _ => z.kind,
@@ -2841,7 +2865,7 @@ impl Harvest {
             self.gore(z.pos, fall, z.fling, z.dir, &s.look, s.gibs as usize, s.blood);
             if s.heavy {
                 self.juice.stop(0.06);
-                self.juice.shake(0.2);
+                self.feel_for(self.nearest_player(z.pos), |j| j.shake(0.2));
             }
             let kind = if z.leader || z.boss {
                 DropKind::Chest
@@ -2855,12 +2879,11 @@ impl Harvest {
             let vz = self.juice.rng.range(60.0, 95.0);
             self.drops.push(Drop { kind, pos: z.pos, z: 4.0, vz, vel: [a.cos() * speed, a.sin() * speed], age: 0.0, pulled: None, to: ME });
         }
-        if let Some(kind) = died {
-            if self.hush[1] <= 0.0 || kind.stats().heavy {
-                sounds.push(Sfx::Kill(kind.0));
-                self.hush[1] = 0.05;
-            }
-            flow.rumble = flow.rumble.max(Some(Rumble::Tick));
+        if let Some(kind) = died
+            && (self.hush[1] <= 0.0 || kind.stats().heavy)
+        {
+            sounds.push(Sfx::Kill(kind.0));
+            self.hush[1] = 0.05;
         }
     }
 
@@ -3032,8 +3055,8 @@ impl Harvest {
         let minute = (self.t / 60.0) as usize;
         if horde_now(self.t, dt) && !self.calm {
             self.juice.banner("A HORDE CLAWS UP", RED, 2.6);
-            self.juice.shake(0.3);
-            flow.rumble = flow.rumble.max(Some(Rumble::Hit));
+            self.shake_all(0.3);
+            flow.buzz_all(Rumble::Hit);
             sounds.push(Sfx::Horde);
         } else if minute > ((self.t - dt) / 60.0) as usize && (1..10).contains(&minute) {
             self.juice.banner(format!("{minute}:00   {}", MINUTE_LINES[minute - 1]), WHITE, 3.0);
@@ -3133,10 +3156,29 @@ impl Harvest {
         self.hp_shown = self.hp_shown.max(self.me().hp);
     }
 
-    /// Stereo pan (-100 left to 100 right) and loudness (0 to 255) for a sound at `at`, from where the player faces.
+    /// Shakes every viewed player's camera by `amount` of where they stand, and punches it in by `punch`.
+    fn shake_each(&mut self, amount: impl Fn([f32; 2]) -> f32, punch: f32) {
+        for p in 0..self.views.min(self.players.len()) {
+            let a = amount(self.players[p].pos);
+            self.feel_for(p, |j| {
+                j.shake(a);
+                j.punch += punch;
+            });
+        }
+    }
+
+    fn shake_all(&mut self, amount: f32) {
+        self.shake_each(|_| amount, 0.0);
+    }
+
+    /// Stereo pan (-100 left to 100 right) and loudness (0 to 255) for a sound at `at`, from where the nearest
+    /// player with a view faces.
     fn place(&self, at: [f32; 2]) -> (i8, u8) {
-        let d = sub(at, self.me().pos);
-        let right = [-self.me().view_yaw.sin(), self.me().view_yaw.cos()];
+        let far = |p: &PlayerId| len(sub(at, self.players[*p].pos));
+        let near = (0..self.views.min(self.players.len())).min_by(|a, b| far(a).total_cmp(&far(b))).unwrap_or(ME);
+        let pl = &self.players[near];
+        let d = sub(at, pl.pos);
+        let right = [-pl.view_yaw.sin(), pl.view_yaw.cos()];
         let n = norm(d);
         let pan = (n[0] * right[0] + n[1] * right[1]) * 0.8;
         let gain = (1.0 - len(d) / 260.0).clamp(0.0, 1.0);
@@ -3158,9 +3200,24 @@ impl Harvest {
 
     /// Top-left of the view in world pixels, rounded to whole screen pixels.
     fn camera(&self) -> [f32; 2] {
-        let x = (self.me().pos[0] - view_w() / 2.0).clamp(0.0, (self.map.width_px() - view_w()).max(0.0));
-        let y = (self.me().pos[1] - 8.0 - view_h() / 2.0).clamp(0.0, (self.map.height_px() - view_h()).max(0.0));
+        self.camera_over([view_w(), view_h()])
+    }
+
+    /// Top-left of the map as drawn into the view being laid out, which may show more than a screen's worth.
+    pub(super) fn map_camera(&self) -> [f32; 2] {
+        self.camera_over(self.canvas.map(|n| n / map_scale()))
+    }
+
+    /// Top-left of a map view `[w, h]` world pixels across and down around the player, kept on the field.
+    fn camera_over(&self, [w, h]: [f32; 2]) -> [f32; 2] {
+        let x = (self.me().pos[0] - w / 2.0).clamp(0.0, (self.map.width_px() - w).max(0.0));
+        let y = (self.me().pos[1] - 8.0 - h / 2.0).clamp(0.0, (self.map.height_px() - h).max(0.0));
         [(x * map_scale()).round() / map_scale(), (y * map_scale()).round() / map_scale()]
+    }
+
+    /// Lays the views drawn from now on out to `size`, as `Canvas::refit` will; a screen's 1024x768 for None.
+    pub fn set_canvas(&mut self, size: Option<[f32; 2]>) {
+        self.canvas = size.unwrap_or([SCREEN_W, SCREEN_H]);
     }
 }
 
@@ -3814,7 +3871,7 @@ mod tests {
         let mut sounds = Vec::new();
         h.bullets.push(Bullet { pos: [c[0], c[1] - 6.0], vel: [1.0, 0.0], damage: 50.0, pierce: 0, life: 1.0, force: 30.0, hit: Vec::new(), look: None, age: 0.0, by: None, owner: ME, lift: [0.0; 2] });
         h.move_bullets(0.016, &mut sounds);
-        assert!(h.blow(0.016, &mut sounds));
+        assert!(h.blow(0.016, &mut sounds).is_some());
         assert!(h.zombies[0].hp <= 0.0);
         assert!(!h.map.solid_at(c[0], c[1]));
     }

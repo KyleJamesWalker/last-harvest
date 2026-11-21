@@ -39,12 +39,14 @@ pub(super) struct Local {
     favors: u32,
     pub cards: Option<Cards>,
     feel: [f32; 6],
+    zoom: f32,
+    lift: f32,
 }
 
 impl Local {
     /// A new player's start: the run's banishes, rerolls and favors, and a full health bar.
     pub fn of(h: &Harvest, p: PlayerId) -> Self {
-        Self { banishes: h.banishes, rerolls: h.rerolls, favors: h.favors, hp_shown: h.players[p].hp, ..Self::default() }
+        Self { banishes: h.banishes, rerolls: h.rerolls, favors: h.favors, hp_shown: h.players[p].hp, zoom: h.zoom, lift: h.lift, ..Self::default() }
     }
 
     pub fn set_counts(&mut self, banishes: u32, rerolls: u32, favors: u32) {
@@ -144,6 +146,8 @@ impl Harvest {
         std::mem::swap(&mut self.rerolls, &mut l.rerolls);
         std::mem::swap(&mut self.favored, &mut l.favored);
         std::mem::swap(&mut self.favors, &mut l.favors);
+        std::mem::swap(&mut self.zoom, &mut l.zoom);
+        std::mem::swap(&mut self.lift, &mut l.lift);
         if let (Phase::LevelUp { choices, selected, t, picked }, Some(c)) = (&mut self.phase, &mut l.cards) {
             std::mem::swap(choices, &mut c.choices);
             std::mem::swap(selected, &mut c.selected);
@@ -168,6 +172,28 @@ impl Harvest {
         f(&mut self.juice);
         self.locals[p].feel = self.juice.feel();
         self.juice.set_feel(mine);
+    }
+
+    /// Photo mode, worked by the player who opened it from the pause menu, with their own camera.
+    pub(super) fn photo_coop(&mut self, input: &Input, dt: f32, sounds: &mut Vec<Sfx>, flow: &mut super::Flow) {
+        if let Some(i) = self.inputs.get_mut(ME) {
+            *i = *input;
+        }
+        let v = self.paused_by;
+        self.relabel(v);
+        let own = self.inputs.get(ME).copied().unwrap_or_default();
+        self.photo(&own, dt, sounds, flow);
+        self.relabel(v);
+    }
+
+    /// The player whose Start opened the pause menu, and so works it, Settings and photo mode, by place in `players`.
+    pub fn menu_player(&self) -> PlayerId {
+        self.paused_by
+    }
+
+    /// Another player has photo mode open, so this view waits as in a pause.
+    pub(super) fn photo_by_other(&self) -> bool {
+        self.photo.is_some() && self.paused_by != ME
     }
 
     /// The player view `v` follows: themselves, or once they have turned while others stand, the first who still does.
@@ -455,6 +481,73 @@ mod tests {
         assert!(h.menu.is_some(), "player 1 can't resume player 2's pause");
         step(&mut h, Buttons::NONE, Buttons::B);
         assert!(h.menu.is_none());
+    }
+
+    #[test]
+    fn photo_mode_is_the_pausing_players_with_their_own_camera_while_the_others_wait() {
+        let mut h = pair();
+        let yaw = h.players[0].view_yaw;
+        step(&mut h, Buttons::NONE, Buttons::START);
+        for b in [Buttons::DOWN, Buttons::DOWN, Buttons::A] {
+            step(&mut h, Buttons::NONE, Buttons::NONE);
+            step(&mut h, Buttons::NONE, b);
+        }
+        assert!(h.in_photo() && h.paused_by == 1);
+        let heading = h.players[1].view_yaw;
+        for _ in 0..20 {
+            step(&mut h, Buttons::RIGHT | Buttons::UP, Buttons::LEFT | Buttons::UP);
+        }
+        assert_eq!(h.players[0].view_yaw, yaw, "player 1's pad moves no camera");
+        assert!(h.players[1].view_yaw != heading && h.locals[1].zoom > 1.0, "player 2's turns and zooms");
+        assert_eq!(h.zoom, 1.0, "and player 1's view keeps its own");
+        let mut f = crate::Frame::default();
+        h.draw_view(0, &mut f, false);
+        let says = |c: &crate::Canvas, s: &str| c.shapes.iter().any(|x| matches!(x, crate::Shape::Text { text, .. } if text.contains(s)));
+        assert!(says(&f.top, "P2 is taking a photo") && !says(&f.top, "PHOTO MODE"), "player 1 waits");
+        let mut f = crate::Frame::default();
+        h.draw_view(1, &mut f, false);
+        assert!(says(&f.bottom, "PHOTO MODE") || says(&f.top, "PHOTO MODE"), "player 2 has the guides");
+        step(&mut h, Buttons::B, Buttons::NONE);
+        assert!(h.in_photo(), "only player 2 leaves");
+        step(&mut h, Buttons::NONE, Buttons::B);
+        assert!(!h.in_photo() && h.menu.is_some());
+        assert_eq!((h.players[1].view_yaw, h.locals[1].zoom), (heading, 1.0), "with player 2's own view back");
+    }
+
+    #[test]
+    fn a_bite_buzzes_only_the_bitten_players_pad_and_a_level_up_everyones() {
+        let mut h = pair();
+        let mut flow = Flow::default();
+        h.bitten(1, 5.0, &mut Vec::new(), &mut flow);
+        assert_eq!(flow.rumble[..2], [None, Some(Rumble::Hit)]);
+        let mut flow = Flow::default();
+        h.xp = h.next_xp;
+        h.level_up(&mut Vec::new(), &mut flow);
+        assert_eq!(flow.rumble[..2], [Some(Rumble::Fanfare); 2]);
+    }
+
+    #[test]
+    fn player_twos_hurts_and_shakes_are_their_own_and_sounds_place_from_the_nearest_player() {
+        let mut h = pair();
+        h.players[1].pos = [h.players[0].pos[0] + 250.0, h.players[0].pos[1]];
+        let mut sounds = Vec::new();
+        h.bitten(1, 5.0, &mut sounds, &mut Flow::default());
+        assert!(sounds.contains(&Sfx::Hurt), "player 2's hurt is heard");
+        assert_eq!(h.place(h.players[1].pos).1, 255, "a sound at player 2 is loud though far from player 1");
+        let trauma = h.locals[1].feel[0];
+        h.shake_all(0.3);
+        assert!(h.juice.trauma >= 0.3 && h.locals[1].feel[0] > trauma, "a horde shakes both cameras");
+    }
+
+    #[test]
+    fn laid_out_shapes_stay_as_drawn() {
+        let mut c = crate::Canvas::default();
+        c.laid_out();
+        c.rect(0.0, 100.0, 1100.0, 32.0, [0.0; 4]);
+        c.label("P2", 900.0, 1000.0, 10.0, [1.0; 4], crate::Align::Center);
+        c.refit([1365.0, 1152.0]);
+        assert!(matches!(c.shapes[0], crate::Shape::Rect { x: 0.0, y: 100.0, w: 1100.0, h: 32.0, .. }), "a wide row keeps its width");
+        assert!(matches!(c.shapes[1], crate::Shape::Text { x: 900.0, y: 1000.0, .. }));
     }
 
     #[test]

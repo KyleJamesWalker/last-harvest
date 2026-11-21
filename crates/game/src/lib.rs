@@ -58,6 +58,8 @@ use save::LEVELS;
 
 pub const SCREEN_W: f32 = 1024.0;
 pub const SCREEN_H: f32 = 768.0;
+/// The most players who share one screen, each on their own pad.
+pub const SEATS: usize = 4;
 
 /// Kill ticks closer together than this blur into one buzz.
 const TICK_GAP: f32 = 0.15;
@@ -141,10 +143,10 @@ pub struct Game {
     input: Input,
     system: System,
     rumble: f32,
-    /// Motor pulses as (start, end) on `clock`.
-    pulses: Vec<(f32, f32)>,
+    /// Each seat's motor pulses as (start, end) on `clock`.
+    pulses: [Vec<(f32, f32)>; SEATS],
     clock: f32,
-    last_tick: f32,
+    last_tick: [f32; SEATS],
     sounds: Vec<Sfx>,
     save: Save,
     volume_shown: f32,
@@ -242,9 +244,9 @@ impl Game {
             input: Input::default(),
             system: System::default(),
             rumble: 0.0,
-            pulses: Vec::new(),
+            pulses: Default::default(),
             clock: 0.0,
-            last_tick: f32::MIN,
+            last_tick: [f32::MIN; SEATS],
             sounds: Vec::new(),
             save: Save::default(),
             volume_shown: 0.0,
@@ -492,6 +494,14 @@ impl Game {
         self.view_sizes = sizes;
     }
 
+    /// The view whose player works the pause menu, its Settings and photo mode: 0 outside a co-op run.
+    pub fn menu_view(&self) -> usize {
+        match &self.state {
+            State::Harvest(h) if h.views() > 1 => h.menu_player(),
+            _ => 0,
+        }
+    }
+
     /// Runs a step with each seated player's input, player 1's first.
     pub fn update_all(&mut self, inputs: &[Input], dt: f32) {
         let Some((first, others)) = inputs.split_first() else { return };
@@ -561,30 +571,39 @@ impl Game {
 
     /// Whether the vibration motor should be running this frame.
     pub fn rumble(&self) -> bool {
-        self.rumble > 0.0 || self.pulses.iter().any(|&(a, b)| (a..b).contains(&self.clock))
+        self.rumble > 0.0 || self.pulsing(0)
     }
 
-    fn buzz(&mut self, r: harvest::Rumble) {
+    /// Whether the pads of the player in `seat`, from 0, should be buzzing this frame, as Settings allows.
+    pub fn rumble_for(&self, seat: usize) -> bool {
+        let on = if seat == 0 { self.rumble() } else { self.pulsing(seat) };
+        on && (self.save.rumble || matches!(self.state, State::Hardware(_)))
+    }
+
+    fn pulsing(&self, seat: usize) -> bool {
+        self.pulses.get(seat).is_some_and(|p| p.iter().any(|&(a, b)| (a..b).contains(&self.clock)))
+    }
+
+    fn buzz(&mut self, seat: usize, r: harvest::Rumble) {
         use harvest::Rumble;
         let now = self.clock;
         let pattern: &[(f32, f32)] = match r {
-            Rumble::Tick if now - self.last_tick < TICK_GAP => &[],
+            Rumble::Tick if now - self.last_tick[seat] < TICK_GAP => &[],
             Rumble::Tick => {
-                self.last_tick = now;
+                self.last_tick[seat] = now;
                 &[(0.0, 0.05)]
             }
             Rumble::Hit => &[(0.0, 0.25)],
             Rumble::Blast => &[(0.0, 0.4)],
             Rumble::Fanfare => &[(0.0, 0.08), (0.14, 0.22), (0.3, 0.5)],
         };
-        self.pulses.extend(pattern.iter().map(|&(a, b)| (now + a, now + b)));
+        self.pulses[seat].extend(pattern.iter().map(|&(a, b)| (now + a, now + b)));
     }
 
     pub fn outputs(&self) -> Outputs {
         let level = |l: u8| l as f32 / LEVELS as f32;
-        let motor = self.save.rumble || matches!(self.state, State::Hardware(_));
         Outputs {
-            rumble: motor && self.rumble(),
+            rumble: self.rumble_for(0),
             volume: self.volume(),
             dread: match &self.state {
                 State::Harvest(h) if !self.paused => h.dread(),
@@ -633,7 +652,9 @@ impl Game {
         self.rumble = (self.rumble - dt).max(0.0);
         self.clock += dt;
         let now = self.clock;
-        self.pulses.retain(|&(_, end)| end > now);
+        for p in &mut self.pulses {
+            p.retain(|&(_, end)| end > now);
+        }
         self.volume_shown = (self.volume_shown - dt).max(0.0);
         let step = input.pressed.contains(Buttons::VOL_UP) as i8 - input.pressed.contains(Buttons::VOL_DOWN) as i8;
         if step != 0 {
@@ -653,7 +674,7 @@ impl Game {
         }
         if self.paused {
             self.rumble = 0.0;
-            self.pulses.clear();
+            self.pulses.iter_mut().for_each(Vec::clear);
             return;
         }
         if input.pressed.any(Buttons::BACK) {
@@ -667,6 +688,10 @@ impl Game {
                 return;
             }
             State::Harvest(mut h) if self.page == Page::Settings => {
+                let owner = h.menu_player().checked_sub(1).and_then(|o| self.others.get(o)).filter(|_| h.views() > 1);
+                let controls = self.save.controls;
+                let theirs = owner.map(|i| Input { held: controls.apply(i.held), pressed: controls.apply(i.pressed), ..*i });
+                let input = theirs.as_ref().unwrap_or(input);
                 if self.settings(input, input.touch.filter(|_| input.touch_started)) {
                     self.page = Page::Main;
                 }
@@ -699,8 +724,10 @@ impl Game {
                     self.page = Page::Settings;
                     self.open_settings(true);
                 }
-                if let Some(r) = flow.rumble {
-                    self.buzz(r);
+                for (seat, r) in flow.rumble.into_iter().enumerate().take(h.views()) {
+                    if let Some(r) = r {
+                        self.buzz(seat, r);
+                    }
                 }
                 self.save.found |= flow.found;
                 if let Some(run) = flow.ended {
@@ -737,6 +764,12 @@ impl Game {
             State::Harvest(h) => h.blend(alpha),
             _ => None,
         };
+        let fitted = |v: usize| self.view_sizes.get(v).map(|&size| fit(size));
+        if let State::Harvest(h) = &mut self.state
+            && h.views() > 1
+        {
+            h.set_canvas(fitted(0));
+        }
         let mut frame = self.draw();
         let clean = self.clean();
         if let State::Harvest(h) = &mut self.state
@@ -744,17 +777,26 @@ impl Game {
         {
             frame.views = (1..h.views()).map(|v| {
                 let mut f = Frame::default();
+                h.set_canvas(fitted(v));
                 h.draw_view(v, &mut f, clean);
                 f.top
             }).collect();
             if h.followed(0) != 0 {
                 let mut f = Frame::default();
+                h.set_canvas(fitted(0));
                 h.draw_view(0, &mut f, clean);
                 frame.top = f.top;
             }
-            for (canvas, &[w, h]) in std::iter::once(&mut frame.top).chain(&mut frame.views).zip(&self.view_sizes) {
-                let aspect = w / h.max(1.0);
-                canvas.refit(if aspect >= SCREEN_W / SCREEN_H { [SCREEN_H * aspect, SCREEN_H] } else { [SCREEN_W, SCREEN_W / aspect.max(0.01)] });
+            h.set_canvas(None);
+            let owner = h.menu_player();
+            if self.page == Page::Settings
+                && let Some(c) = std::iter::once(&mut frame.top).chain(&mut frame.views).nth(owner)
+            {
+                c.anchor([0.5, 0.5]);
+                self.draw_settings(c);
+            }
+            for (canvas, &size) in std::iter::once(&mut frame.top).chain(&mut frame.views).zip(&self.view_sizes) {
+                canvas.refit(fit(size));
             }
         }
         if let (State::Harvest(h), Some(undo)) = (&mut self.state, undo) {
@@ -771,7 +813,7 @@ impl Game {
             State::Title => self.draw_title(&mut f),
             State::Harvest(h) => {
                 h.draw(&mut f, self.clean());
-                if self.page == Page::Settings {
+                if self.page == Page::Settings && h.views() == 1 {
                     self.draw_settings(if h.one_screen() { &mut f.top } else { &mut f.bottom });
                 }
             }
@@ -920,6 +962,12 @@ impl Game {
     }
 }
 
+/// The size a 1024x768 drawing is laid out to for a view `[w, h]` pixels across and down: as wide or as tall as needed.
+fn fit([w, h]: [f32; 2]) -> [f32; 2] {
+    let aspect = w / h.max(1.0);
+    if aspect >= SCREEN_W / SCREEN_H { [SCREEN_H * aspect, SCREEN_H] } else { [SCREEN_W, SCREEN_W / aspect.max(0.01)] }
+}
+
 /// Players 2 and up, named for the title: "P2", "P2 and P3", "P2, P3 and P4".
 fn joined(players: usize) -> Option<String> {
     let names: Vec<String> = (2..=players).map(|n| format!("P{n}")).collect();
@@ -950,6 +998,61 @@ mod tests {
         let mut solo = Game::new(4);
         solo.open(Scene::Harvest);
         assert!(solo.views() == 1 && solo.draw_at(0.0).views.is_empty() && solo.draw_at(0.0).top.size.is_none(), "one player draws as ever");
+    }
+
+    #[test]
+    fn settings_from_player_twos_pause_are_theirs_to_work_and_show_in_their_view() {
+        let mut game = Game::new(4);
+        game.set_phone(Some([1280.0, 720.0]));
+        game.set_players(2);
+        game.open(Scene::Harvest);
+        game.set_view_sizes(vec![[640.0, 720.0], [640.0, 720.0]]);
+        let both = |game: &mut Game, one: Buttons, two: Buttons| {
+            game.update_all(&[Input { pressed: one, held: one, ..Default::default() }, Input { pressed: two, held: two, ..Default::default() }], 0.016);
+        };
+        for b in [Buttons::START, Buttons::DOWN, Buttons::A] {
+            both(&mut game, Buttons::NONE, b);
+        }
+        assert_eq!((game.page, game.menu_view()), (Page::Settings, 1));
+        both(&mut game, Buttons::DOWN, Buttons::NONE);
+        assert_eq!(game.setting, 0, "player 1's pad leaves player 2's Settings alone");
+        both(&mut game, Buttons::NONE, Buttons::DOWN);
+        assert_eq!(game.setting, 1);
+        let f = game.draw_at(0.0);
+        let says = |c: &Canvas| c.shapes.iter().any(|s| matches!(s, Shape::Text { text, .. } if text == "Settings"));
+        assert!(says(&f.views[0]) && !says(&f.top), "in player 2's view only");
+        both(&mut game, Buttons::NONE, Buttons::B);
+        assert_eq!(game.page, Page::Main);
+    }
+
+    #[test]
+    fn each_seat_buzzes_on_its_own_and_rumble_off_stills_them_all() {
+        let mut game = Game::new(4);
+        game.buzz(1, harvest::Rumble::Hit);
+        assert!(game.rumble_for(1) && !game.rumble_for(0) && !game.outputs().rumble, "player 2's pad alone");
+        game.update(&Input::default(), 0.3);
+        assert!(!game.rumble_for(1), "the pulse ends");
+        game.buzz(0, harvest::Rumble::Blast);
+        assert!(game.rumble_for(0) && game.outputs().rumble && !game.rumble_for(1));
+        game.save.rumble = false;
+        assert!(!game.rumble_for(0) && !game.outputs().rumble);
+    }
+
+    #[test]
+    fn a_tall_views_map_fills_it_from_top_to_bottom() {
+        let mut game = Game::new(4);
+        game.set_phone(Some([1280.0, 720.0]));
+        game.set_players(2);
+        game.open(Scene::Harvest);
+        game.set_view_sizes(vec![[640.0, 720.0], [640.0, 720.0]]);
+        for _ in 0..2 {
+            game.update(&Input { held: Buttons::L1, ..Default::default() }, 0.016);
+        }
+        let f = game.draw_at(0.0);
+        let tiles: Vec<f32> = f.top.shapes.iter().filter_map(|s| if let Shape::Art { y, .. } = s { Some(*y) } else { None }).collect();
+        let (top, bottom) = (tiles.iter().copied().fold(f32::MAX, f32::min), tiles.iter().copied().fold(0.0, f32::max));
+        assert_eq!(f.top.size, Some([1024.0, 1152.0]));
+        assert!(top <= 0.0 && bottom >= 1152.0 - 64.0, "the map reaches the view's edges: {top}..{bottom}");
     }
 
     #[test]
