@@ -1,4 +1,4 @@
-//! The matchbox signaling protocol: server events, relayed WebRTC handshake messages, and a relay's resume URL.
+//! The matchbox signaling protocol: server events, relayed WebRTC handshake messages, and how a relay resumes a peer.
 
 use crate::{IceServer, PeerId};
 use serde_json::{json, Value};
@@ -76,18 +76,15 @@ pub(crate) fn signal_message(receiver: PeerId, signal: &Signal) -> String {
     json!({ "Signal": { "receiver": uuid_string(receiver), "data": data } }).to_string()
 }
 
-/// `url` asking the relay to give `id` its place back.
-pub(crate) fn resume_url(url: &str, id: PeerId, token: &str) -> String {
+/// `url` asking the relay for a place back; the connection's first message must be `resume_message`.
+pub(crate) fn resume_url(url: &str) -> String {
     let join = if url.contains('?') { '&' } else { '?' };
-    let mut escaped = String::new();
-    for b in token.bytes() {
-        if b.is_ascii_alphanumeric() || b"-._~".contains(&b) {
-            escaped.push(b as char);
-        } else {
-            escaped.push_str(&format!("%{b:02X}"));
-        }
-    }
-    format!("{url}{join}resume={}&token={escaped}", uuid_string(id))
+    format!("{url}{join}resume")
+}
+
+/// Names the place to resume, so its token never appears in a URL.
+pub(crate) fn resume_message(id: PeerId, token: &str) -> String {
+    json!({ "Resume": { "id": uuid_string(id), "token": token } }).to_string()
 }
 
 #[cfg(test)]
@@ -126,9 +123,11 @@ mod tests {
     }
 
     #[test]
-    fn a_resume_url_carries_the_id_and_an_escaped_token() {
+    fn a_resume_keeps_its_token_out_of_the_url() {
         let a = parse_uuid(A).unwrap();
-        assert_eq!(resume_url("ws://h/room", a, "a b+c"), format!("ws://h/room?resume={A}&token=a%20b%2Bc"));
-        assert_eq!(resume_url("ws://h/room?x=1", a, "t"), format!("ws://h/room?x=1&resume={A}&token=t"));
+        assert_eq!(resume_url("ws://h/room"), "ws://h/room?resume");
+        assert_eq!(resume_url("ws://h/room?x=1"), "ws://h/room?x=1&resume");
+        let message: Value = serde_json::from_str(&resume_message(a, "a b+c")).unwrap();
+        assert_eq!(message, json!({ "Resume": { "id": A, "token": "a b+c" } }));
     }
 }

@@ -212,9 +212,10 @@ fn open_signaling(state: &StateRef, target: &str, resuming: bool) {
             return;
         }
         s.heard_at = now();
+        let resume = s.id.zip(s.token.clone()).filter(|_| resuming).map(|(id, token)| protocol::resume_message(id, &token));
         let outbox = std::mem::take(&mut s.outbox);
         if let Some(socket) = &s.socket {
-            for text in outbox {
+            for text in resume.into_iter().chain(outbox) {
                 let _ = socket.send_with_str(&text);
             }
         }
@@ -284,10 +285,10 @@ fn lost(state: &StateRef, resuming: bool, heard_any: bool) {
     if s.closed {
         return;
     }
-    let (Some(id), Some(token)) = (s.id, s.token.clone()) else {
+    if s.id.is_none() || s.token.is_none() {
         s.failed = true;
         return;
-    };
+    }
     if resuming && !heard_any {
         s.failed = true;
         return;
@@ -298,7 +299,7 @@ fn lost(state: &StateRef, resuming: bool, heard_any: bool) {
         s.failed = true;
         return;
     }
-    let target = protocol::resume_url(&s.url, id, &token);
+    let target = protocol::resume_url(&s.url);
     let delay = s.retry_ms;
     s.retry_ms = (s.retry_ms * 2.0).min(2000.0);
     let connection = s.connection;

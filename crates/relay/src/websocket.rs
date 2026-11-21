@@ -150,7 +150,7 @@ fn handle_connection(
             refuse(&mut stream, head_len, "429 Too Many Requests", "too many signaling peers\n");
             return;
         };
-        crate::signal::run(stream, room.to_string(), crate::signal::parse_resume(&query), client, config);
+        crate::signal::run(stream, room.to_string(), crate::signal::wants_resume(&query), client, config);
         return;
     }
     let mut consumed = vec![0; head_len];
@@ -408,6 +408,19 @@ mod tests {
         panic!("the relay kept the connection");
     }
 
+    /// A connection asking to resume, with `message` as its first message.
+    fn resume(port: u16, room: &str, message: Option<String>) -> WebSocket<MaybeTlsStream<TcpStream>> {
+        let mut ws = signal(port, &format!("{room}?resume")).unwrap();
+        if let Some(message) = message {
+            ws.send(Message::Text(message.into())).unwrap();
+        }
+        ws
+    }
+
+    fn resume_message(id: &str, token: &str) -> Option<String> {
+        Some(serde_json::json!({ "Resume": { "id": id, "token": token } }).to_string())
+    }
+
     #[test]
     fn a_dropped_signaling_peer_resumes_its_place() {
         let port = relay(|_| {});
@@ -422,8 +435,10 @@ mod tests {
         drop(first);
         assert!(!drain(&mut second).iter().any(|t| t.contains("PeerLeft")), "no PeerLeft while the place is held");
 
-        assert_eq!(read_text(&mut signal(port, &format!("resume?resume={id}&token=wrong")).unwrap()), None);
-        let mut resumed = signal(port, &format!("resume?resume={id}&token={token}")).unwrap();
+        assert_eq!(read_text(&mut resume(port, "resume", resume_message(&id, "wrong"))), None);
+        assert_eq!(read_text(&mut signal(port, &format!("resume?resume={id}&token={token}")).unwrap()), None, "a token in the URL is not taken");
+        assert_eq!(read_text(&mut resume(port, "resume", Some("\"KeepAlive\"".into()))), None);
+        let mut resumed = resume(port, "resume", resume_message(&id, &token));
         assert_eq!(read_field(&mut resumed, "IdAssigned").unwrap(), id);
         assert!(!drain(&mut second).iter().any(|t| t.contains("NewPeer")), "a resume is not a new peer");
         let hello = serde_json::json!({ "Signal": { "receiver": id, "data": "hello" } });
@@ -446,7 +461,7 @@ mod tests {
         read_field(&mut second, "IdAssigned").unwrap();
         crate::signal::hold_for_test("expire", &id, Duration::from_millis(200));
         assert_eq!(read_field(&mut second, "PeerLeft").unwrap(), id);
-        assert_eq!(read_text(&mut signal(port, &format!("expire?resume={id}&token={token}")).unwrap()), None);
+        assert_eq!(read_text(&mut resume(port, "expire", resume_message(&id, &token))), None);
     }
 
     fn get(port: u16, path: &str, origin: Option<&str>) -> String {

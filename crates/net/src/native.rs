@@ -302,10 +302,11 @@ async fn signaling(
     let mut retry = Duration::from_millis(250);
     let mut test_drop = test_delay("LAST_HARVEST_NET_TEST_DROP_SIGNAL_MS");
     loop {
-        let target = match (&id, &token, lost_at) {
-            (Some(id), Some(token), Some(_)) => protocol::resume_url(&url, *id, token),
-            _ => url.clone(),
+        let resume = match (&id, &token, lost_at) {
+            (Some(id), Some(token), Some(_)) => Some(protocol::resume_message(*id, token)),
+            _ => None,
         };
+        let target = if resume.is_some() { protocol::resume_url(&url) } else { url.clone() };
         let attempt = tokio::time::timeout(CONNECT_TIMEOUT, tokio_tungstenite::connect_async(target.as_str()));
         let stream = tokio::select! {
             result = attempt => match result {
@@ -328,6 +329,9 @@ async fn signaling(
         let mut heard_any = false;
         if let Some(stream) = stream {
             let (mut ws_tx, mut ws_rx) = stream.split();
+            if let Some(resume) = resume {
+                let _ = ws_tx.send(Message::Text(resume.into())).await;
+            }
             let mut keep_alive = tokio::time::interval(KEEP_ALIVE);
             let mut heard = Instant::now();
             let opened = Instant::now();

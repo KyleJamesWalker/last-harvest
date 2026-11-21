@@ -1,8 +1,9 @@
 //! Signaling on `/signal/<room>`: the matchbox protocol (`IdAssigned`, `NewPeer`, `PeerLeft`, `Signal`) as
 //! `matchbox_server` speaks it, so a relay alone can pair a room's WebRTC peers, e.g. on a LAN without internet.
 //! A peer also gets a `ResumeToken`: when its connection ends without a close, it keeps its place and ID for
-//! `RESUME_GRACE`, and `/signal/<room>?resume=<id>&token=<token>` takes them back without a `PeerLeft`. The relay
-//! echoes `KeepAlive`.
+//! `RESUME_GRACE`, and a connection to `/signal/<room>?resume` whose first message is
+//! `{"Resume": {"id": <id>, "token": <token>}}` takes them back without a `PeerLeft`. The token stays out of the URL,
+//! which proxies log. The relay echoes `KeepAlive`.
 
 use crate::config::Config;
 use crate::websocket::Poll;
@@ -31,6 +32,8 @@ const MAX_ROOM_PEERS: usize = 4;
 const RESUME_GRACE: Duration = Duration::from_secs(30);
 /// How often a peer checks whether it is alone in its room.
 const LONELY_CHECK: Duration = Duration::from_millis(250);
+/// How long a resuming connection has to send its `Resume` message.
+const RESUME_MESSAGE_WAIT: Duration = Duration::from_secs(5);
 
 /// A room's peer: the queue of messages to its connection, none while it is discarded, and the secret that resumes it.
 struct Member {
@@ -79,18 +82,31 @@ fn send_to(room: &str, peer: &str, text: String) {
     }
 }
 
-/// The `resume` and `token` of a `/signal` request's query string.
-pub fn parse_resume(query: &str) -> Option<(String, String)> {
-    let mut resume = None;
-    let mut token = None;
-    for pair in query.split('&') {
-        match pair.split_once('=') {
-            Some(("resume", v)) => resume = Some(v.to_string()),
-            Some(("token", v)) => token = Some(v.to_string()),
-            _ => {}
+/// Whether a `/signal` request's query string asks to resume a place.
+pub fn wants_resume(query: &str) -> bool {
+    query.split('&').any(|pair| pair.split('=').next() == Some("resume"))
+}
+
+/// The ID and token of a `Resume` message.
+fn parse_resume(text: &str) -> Option<(String, String)> {
+    let message: Value = serde_json::from_str(text).ok()?;
+    let resume = message.get("Resume")?;
+    let field = |key: &str| resume.get(key).and_then(Value::as_str).map(str::to_string);
+    Some((field("id")?, field("token")?))
+}
+
+/// The first message of a resuming connection, read within `RESUME_MESSAGE_WAIT`.
+fn read_resume(ws: &mut tungstenite::WebSocket<TcpStream>) -> Option<(String, String)> {
+    let deadline = Instant::now() + RESUME_MESSAGE_WAIT;
+    while Instant::now() < deadline {
+        match ws.read() {
+            Ok(Message::Text(text)) => return parse_resume(&text),
+            Ok(Message::Ping(_) | Message::Pong(_)) => {}
+            Err(tungstenite::Error::Io(e)) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {}
+            _ => return None,
         }
     }
-    Some((resume?, token?))
+    None
 }
 
 /// How a peer joins its room: a new peer is told to the others, a resumed one is not.
@@ -156,7 +172,7 @@ fn hold(room: String, me: String, replaced: Arc<AtomicBool>, grace: Duration) {
 }
 
 /// One peer's signaling session in `room`, on its connection's thread, until it closes or goes quiet.
-pub fn run(stream: TcpStream, room: String, resume: Option<(String, String)>, client: IpAddr, config: &Config) {
+pub fn run(stream: TcpStream, room: String, resuming: bool, client: IpAddr, config: &Config) {
     #[allow(clippy::result_large_err)] // tungstenite's handshake callback signature
     let check_origin = |request: &Request, response: Response| -> Result<Response, ErrorResponse> {
         let origin = request.headers().get("origin").and_then(|v| v.to_str().ok());
@@ -171,7 +187,17 @@ pub fn run(stream: TcpStream, room: String, resume: Option<(String, String)>, cl
     let Ok(mut ws) = tungstenite::accept_hdr_with_config(stream, check_origin, Some(ws_config)) else { return };
     let mut poll = Poll::new(ws.get_ref());
 
-    let resuming = resume.is_some();
+    let resume = if resuming {
+        let Some(resume) = read_resume(&mut ws) else {
+            println!("[relay] refused a signaling peer: no Resume message");
+            let _ = ws.close(None);
+            let _ = ws.flush();
+            return;
+        };
+        Some(resume)
+    } else {
+        None
+    };
     let (me, token) = resume.unwrap_or_else(|| (new_peer_id(), new_token()));
     let (tx, outgoing) = sync_channel::<String>(OUTBOX_LEN);
     let _ = tx.try_send(json!({ "IdAssigned": me }).to_string());
