@@ -112,7 +112,7 @@ fn print_of(data: &Data) -> u64 {
     fn text(t: &Option<String>) -> &[u8] {
         t.as_deref().unwrap_or("").as_bytes()
     }
-    let built = [built_in::POWERUPS, built_in::ENEMIES, built_in::PROPS, None, built_in::EFFECTS, built_in::GROUND, built_in::FARM];
+    let built = [built_in::POWERUPS, built_in::ENEMIES, built_in::PROPS, built_in::TUNING, built_in::EFFECTS, built_in::GROUND, built_in::FARM];
     let tables = [&data.powerups, &data.enemies, &data.props_table, &data.tuning, &data.effects, &data.ground, &data.farm].map(text).into_iter().zip(built).map(|(own, b)| if own.is_empty() { b.unwrap_or("").as_bytes() } else { own });
     let cards = data.cards.iter().chain(&data.players).chain(&data.props).flat_map(|c| [c.name.as_bytes(), c.text.as_bytes(), &c.sheet]);
     let farms = data.farms.iter().flat_map(|f| [f.id.as_bytes(), f.farm.as_deref().unwrap_or("").as_bytes(), f.ground.as_deref().unwrap_or("").as_bytes()]);
@@ -164,6 +164,7 @@ mod built_in {
     pub const EFFECTS: Option<&str> = Some(include_str!("../effects.txt"));
     pub const GROUND: Option<&str> = Some(include_str!("../ground.txt"));
     pub const FARM: Option<&str> = Some(include_str!("../farm.txt"));
+    pub const TUNING: Option<&str> = Some(include_str!("../tuning.txt"));
 }
 
 /// Installs a pack's data and draws its cards' sprites into the atlas. It must come before anything reads the
@@ -284,6 +285,13 @@ pub fn enemies() -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_pack_of_the_games_own_tables_prints_as_the_built_in_data() {
+        let own = |t: Option<&str>| t.map(String::from);
+        let pack = Data { powerups: own(built_in::POWERUPS), enemies: own(built_in::ENEMIES), props_table: own(built_in::PROPS), tuning: own(built_in::TUNING), effects: own(built_in::EFFECTS), ground: own(built_in::GROUND), farm: own(built_in::FARM), ..Default::default() };
+        assert_eq!(print_of(&pack), print_of(&Data::default()), "a native dev build and the web build of one commit agree");
+    }
 
     #[test]
     fn versions_name_the_pack_only_when_it_differs() {
