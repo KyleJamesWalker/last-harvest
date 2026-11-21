@@ -86,6 +86,8 @@ pub struct LoadReport {
     pub pack_version: Option<String>,
     /// Where to put which `game_data.pak`, when there is none.
     pub missing_pack: Option<String>,
+    /// Each mod pack laid over the data, by name, with a fingerprint of its files.
+    pub mod_packs: Vec<(String, u64)>,
 }
 
 impl LoadReport {

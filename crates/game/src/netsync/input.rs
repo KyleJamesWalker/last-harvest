@@ -11,6 +11,10 @@ pub const HISTORY: usize = 8;
 pub const SEND_EVERY: u32 = 2;
 /// Ticks of input the host lets queue up before skipping ahead.
 const MOST_QUEUED: usize = 6;
+/// Ticks without new input after which a remote player's held buttons and stick let go.
+pub const STALE_TICKS: u32 = super::snapshot::TICK_HZ / 2;
+/// Ticks without new input after which the host stops waiting on a remote player, such as for its level-up pick.
+pub const AWAY_TICKS: u32 = 5 * super::snapshot::TICK_HZ;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct InputFrame {
@@ -66,7 +70,7 @@ impl InputMsg {
     pub fn encode(&self) -> Vec<u8> {
         let mut w = Writer::new();
         w.u8(super::snapshot::VERSION);
-        w.var(self.ack_snapshot.map_or(0, |t| t + 1));
+        w.var(self.ack_snapshot.and_then(|t| t.checked_add(1)).unwrap_or(0));
         w.var(self.ack_event);
         w.u8(self.seats.len() as u8);
         for s in &self.seats {
@@ -122,15 +126,16 @@ pub struct InputQueue {
     last: InputFrame,
     /// Presses from ticks skipped to catch up, played with the next tick.
     skipped: u32,
+    quiet: u32,
 }
 
 impl InputQueue {
     pub fn receive(&mut self, s: &SeatInputs) {
-        let n = s.frames.len() as u32;
+        let n = s.frames.len() as u64;
         for (i, f) in s.frames.iter().enumerate() {
-            let Some(tick) = (s.last + 1 + i as u32).checked_sub(n) else { continue };
-            if self.played.is_none_or(|p| tick > p) {
-                self.queued.insert(tick, *f);
+            let Some(tick) = (s.last as u64 + 1 + i as u64).checked_sub(n).and_then(|t| u32::try_from(t).ok()) else { continue };
+            if self.played.is_none_or(|p| tick > p) && self.queued.insert(tick, *f).is_none() {
+                self.quiet = 0;
             }
         }
         while self.queued.len() > MOST_QUEUED {
@@ -146,6 +151,7 @@ impl InputQueue {
     pub fn play(&mut self) -> (Input, Option<u32>) {
         match self.queued.pop_first() {
             Some((t, f)) => {
+                self.quiet = 0;
                 self.played = Some(t);
                 self.last = f;
                 let mut i = f.input();
@@ -153,11 +159,16 @@ impl InputQueue {
                 (i, self.played)
             }
             None => {
-                let mut i = self.last.input();
+                self.quiet = self.quiet.saturating_add(1);
+                let mut i = if self.quiet > STALE_TICKS { Input::default() } else { self.last.input() };
                 i.pressed = Buttons(std::mem::take(&mut self.skipped));
                 (i, self.played)
             }
         }
+    }
+
+    pub fn quiet(&self) -> u32 {
+        self.quiet
     }
 }
 

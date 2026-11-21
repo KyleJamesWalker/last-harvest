@@ -40,6 +40,10 @@ pub(super) struct Net {
     /// Sounds placed this tick, with where on the farm they came from.
     pub placed: std::cell::RefCell<Vec<Placed>>,
     pub client: Option<Box<super::remote::Client>>,
+    /// Players whose device has stopped sending input, by place in `players`.
+    pub away: Vec<bool>,
+    /// Seconds a remote player has held the pause menu.
+    pub remote_pause: f32,
 }
 
 impl Harvest {
@@ -56,6 +60,37 @@ impl Harvest {
 
     pub fn is_host(&self) -> bool {
         self.net.role == Role::Host
+    }
+
+    /// Player `p`'s device has sent no input for a while; the night stops waiting on it.
+    pub fn set_away(&mut self, p: PlayerId, away: bool) {
+        if self.net.away.len() <= p {
+            self.net.away.resize(p + 1, false);
+        }
+        self.net.away[p] = away;
+    }
+
+    pub(super) fn away(&self, p: PlayerId) -> bool {
+        self.net.away.get(p).copied().unwrap_or(false)
+    }
+
+    /// The host's lid is shut: its own pause holds the night.
+    pub fn hold_away(&mut self) {
+        if self.menu.is_none() && !matches!(self.phase, Phase::Over { .. }) {
+            self.menu = Some(0);
+            self.paused_by = ME;
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn level_up_for_test(&mut self) {
+        self.xp = self.next_xp;
+        self.level_up(&mut Vec::new(), &mut super::Flow::default());
+    }
+
+    #[cfg(test)]
+    pub(crate) fn phase_for_test(&self) -> u8 {
+        phase_of(&self.phase)
     }
 
     #[cfg(test)]
@@ -177,9 +212,6 @@ impl Harvest {
         if self.paused_by == p {
             self.menu = None;
         }
-        if matches!(self.phase, Phase::Playing) && self.players.iter().all(|pl| !pl.alive()) {
-            self.phase = Phase::Over { t: 0.0, won: false };
-        }
     }
 }
 
@@ -243,7 +275,7 @@ impl Extract {
         let placed = std::mem::take(&mut *h.net.placed.borrow_mut());
         let mut heard: Vec<Sfx> = Vec::new();
         for s in sounds {
-            if heard.contains(s) {
+            if heard.contains(s) || *s == Sfx::Hurt || (*s == Sfx::GameOver && !matches!(h.phase, Phase::Over { .. })) {
                 continue;
             }
             heard.push(*s);

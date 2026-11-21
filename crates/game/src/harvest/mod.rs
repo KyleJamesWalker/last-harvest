@@ -2096,6 +2096,19 @@ impl Harvest {
         }
     }
 
+    /// Every player has turned with no fall this tick to end the night, as when the last device left mid-level-up.
+    pub(super) fn all_turned(&mut self, sounds: &mut Vec<Sfx>, flow: &mut Flow) {
+        sounds.push(Sfx::GameOver);
+        self.leveling = 0.0;
+        self.spits.clear();
+        for mut z in std::mem::take(&mut self.burrowed) {
+            z.rise = 1.0;
+            self.zombies.push(z);
+        }
+        self.phase = Phase::Over { t: 0.0, won: false };
+        flow.ended = Some(self.finish(false));
+    }
+
     /// How the run went, and what it unlocked.
     fn finish(&mut self, won: bool) -> Run {
         self.juice.tally.shut = true;
@@ -2533,7 +2546,7 @@ impl Harvest {
         let at = self.players[p].pos;
         self.juice.burst(at, 8.0, 30, [0.0; 2], 0.0, [30.0, 120.0], juice::blood(), 2.0, 0.9, 0.0);
         self.juice.banner(format!("PLAYER {} TURNED", self.number(p)), RED, 2.4);
-        if p < self.views {
+        if p < self.views() {
             sounds.push(Sfx::GameOver);
         }
         self.feel_for(p, |j| j.shake(0.8));
@@ -2675,7 +2688,7 @@ impl Harvest {
         let at = pl.pos;
         self.juice.popup(at, hit, Tone::Hurt);
         flow.buzz(p, Rumble::Hit);
-        if p < self.views {
+        if p < self.views() {
             sounds.push(Sfx::Hurt);
         }
         self.ouch(p, 0.45);
@@ -3245,7 +3258,7 @@ impl Harvest {
     /// player with a view faces.
     fn place(&self, at: [f32; 2]) -> (i8, u8) {
         let far = |p: &PlayerId| len(sub(at, self.players[*p].pos));
-        let near = (0..self.views.min(self.players.len())).min_by(|a, b| far(a).total_cmp(&far(b))).unwrap_or(ME);
+        let near = (0..self.views().min(self.players.len())).min_by(|a, b| far(a).total_cmp(&far(b))).unwrap_or(ME);
         let pl = &self.players[near];
         let d = sub(at, pl.pos);
         let right = [-pl.view_yaw.sin(), pl.view_yaw.cos()];

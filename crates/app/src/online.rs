@@ -12,6 +12,7 @@ const JOIN_WAIT: f32 = 10.0;
 #[cfg(not(target_arch = "wasm32"))]
 pub fn set_up(game: &mut Game) {
     game.set_online(true);
+    game.set_needs_relay(cfg!(all(target_os = "linux", target_arch = "aarch64")) || cfg!(target_os = "android"));
     game.set_identity(crate::VERSION, 0);
     if let Ok(relay) = std::env::var("LAST_HARVEST_RELAY") {
         game.set_relay(&relay);
@@ -90,6 +91,8 @@ impl Online {
     fn close(&mut self) {
         if let Some(mut s) = self.socket.take() {
             s.close();
+            #[cfg(not(target_arch = "wasm32"))]
+            std::thread::spawn(move || drop(s));
         }
         self.ice = None;
     }

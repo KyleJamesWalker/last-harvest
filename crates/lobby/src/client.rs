@@ -1,4 +1,5 @@
-//! A client's side: it says hello to every peer in the room, and the one that answers is the host.
+//! A client's side: it says hello to every peer in the room, and the first to welcome it is the host; nothing from
+//! any other peer counts after that.
 
 use crate::codec::{decode, encode, DecodeError, Message};
 use crate::{Hello, Member, PeerKey, Refusal, Start, PROTOCOL};
@@ -192,5 +193,28 @@ impl Client {
         if let Some(host) = self.host {
             self.outgoing.push((host, encode(message)));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Identity, Player};
+
+    #[test]
+    fn the_first_peer_to_welcome_is_the_host_and_no_other_peer_is_heard_after() {
+        let hello = Hello { identity: Identity { game_version: "v1".into(), pak: 1, mods: vec![] }, cards: vec![String::new()] };
+        let mut c = Client::new(hello);
+        c.connected(1);
+        c.connected(2);
+        let welcome = encode(&Message::Welcome { room: "ACDEF".into(), seats: vec![1], running: false });
+        assert!(matches!(c.receive(1, &welcome)[..], [ClientEvent::Welcomed { .. }]));
+        assert!(c.receive(2, &welcome).is_empty(), "a second welcome is ignored");
+        let start = Start { seed: 1, map: String::new(), difficulty: 0, players: vec![Player { seat: 1, peer: 9, card: String::new() }], unlocked: vec![], options: vec![] };
+        assert!(c.receive(2, &encode(&Message::Start(start.clone()))).is_empty(), "so is its start");
+        assert!(c.receive(2, &encode(&Message::Closed)).is_empty(), "and its close");
+        assert!(c.receive(2, &encode(&Message::Refuse(Refusal::Pak))).is_empty(), "and its refusal");
+        assert_eq!(c.host(), Some(1));
+        assert!(matches!(c.receive(1, &encode(&Message::Start(start)))[..], [ClientEvent::Started(_)]));
     }
 }

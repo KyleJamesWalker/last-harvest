@@ -143,11 +143,11 @@ impl Harvest {
     }
 
     /// One frame of a client's run: everything laid out from `mirror`, and the effects only this end plays.
-    pub fn client_frame(&mut self, mirror: &Mirror, dt: f32) {
+    pub fn client_frame(&mut self, mirror: &Mirror, dt: f32, sounds: &mut Vec<Sfx>) {
         let Some(mut c) = self.net.client.take() else { return };
         self.juice.still = true;
         self.take_before();
-        self.lay_players(&mut c, mirror, dt);
+        self.lay_players(&mut c, mirror, dt, sounds);
         self.lay_zombies(mirror, dt);
         self.pin_leaders();
         self.lay_things(&mut c, mirror, dt);
@@ -178,8 +178,8 @@ impl Harvest {
         self.remember(dt);
     }
 
-    fn lay_players(&mut self, c: &mut Client, mirror: &Mirror, dt: f32) {
-        let seats = mirror.player_count();
+    fn lay_players(&mut self, c: &mut Client, mirror: &Mirror, dt: f32, sounds: &mut Vec<Sfx>) {
+        let seats = mirror.player_count().min(last_harvest_lobby::MAX_SEATS as usize);
         for seat in 0..seats {
             if !c.order.contains(&seat) {
                 c.order.push(seat);
@@ -210,7 +210,11 @@ impl Harvest {
             pl.aim = [yaw.cos(), yaw.sin()];
             pl.facing = Facing::of(pl.aim);
             pl.hurt = ps.hurt as f32 / 100.0;
+            let was_down = pl.down.is_some();
             pl.down = (ps.flags & P_DOWN != 0).then_some(ps.down as f32 / 10.0);
+            if i < self.views && !was_down && pl.down.is_some() && c.hp[i] != f32::MAX && !matches!(mirror.run.phase, PHASE_WON | PHASE_LOST) {
+                sounds.push(Sfx::GameOver);
+            }
             pl.lead = match ps.flags {
                 f if f & P_LEADING != 0 => Some(super::leader::Lead::Leading(ps.lead)),
                 f if f & P_PICKING != 0 => Some(super::leader::Lead::Picking { at: pos, left: ps.lead as f32 / 10.0 }),
@@ -220,13 +224,14 @@ impl Harvest {
             pl.grenades = ps.grenades as f32 / 16.0;
             pl.ready_flash = if ps.flags & P_READY_FLASH != 0 { pl.ready_flash.max(0.01) } else { 0.0 };
             if c.kits[i] != ps.kit {
-                let build: Vec<(usize, u32)> = ps.kit.iter().map(|&(d, l)| (d as usize, l as u32)).collect();
+                let build: Vec<(usize, u32)> = ps.kit.iter().map(|&(d, l)| (d as usize, l as u32)).filter(|&(d, _)| d < book().defs.len()).collect();
                 pl.kit = pl.kit.rebuilt(&build, difficulty);
                 c.kits[i] = ps.kit.clone();
             }
             pl.hp = ps.hp as f32 / 4.0;
             if i < self.views && pl.hp < c.hp[i] - 0.5 && pl.down.is_none() {
                 self.ouch(i, 0.25);
+                sounds.push(Sfx::Hurt);
             }
             c.hp[i] = self.players[i].hp;
         }
@@ -363,7 +368,7 @@ impl Harvest {
         self.leveling = if run.phase == PHASE_LEVELING { 0.1 } else { 0.0 };
         c.cards.resize(self.views, (0.0, [(0, 0); 3]));
         let mut mine = None;
-        for v in 0..self.views {
+        for v in 0..self.views.min(c.order.len()) {
             let seat = c.order[v];
             let Some(sc) = run.cards.iter().find(|k| k.seat as usize == seat).filter(|_| run.phase == PHASE_CARDS) else {
                 c.cards[v] = (0.0, [(0, 0); 3]);

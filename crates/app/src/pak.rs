@@ -69,39 +69,62 @@ fn find() -> Option<PathBuf> {
     pak.is_file().then_some(pak)
 }
 
-/// Downloads this release's `game_data.pak` into `data/` with the system's `curl`, checking that it reads before
-/// putting it in place. A dev build, or a run with `LAST_HARVEST_PAK` set, does not fetch one.
+/// A fetch that failed this session isn't tried again.
+#[cfg(not(target_arch = "wasm32"))]
+static FETCH_FAILED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Downloads this release's `game_data.pak` into `data/` with the system's `curl`, keeping it only when it matches
+/// the sha256 the release gives and reads. A dev build, or a run with `LAST_HARVEST_PAK` set, does not fetch one.
 #[cfg(not(target_arch = "wasm32"))]
 fn fetch_release_pack() -> Option<(Pak, PathBuf)> {
-    if cfg!(feature = "embed") || std::env::var_os("LAST_HARVEST_PAK").is_some() {
+    use std::sync::atomic::Ordering;
+    if cfg!(feature = "embed") || std::env::var_os("LAST_HARVEST_PAK").is_some() || FETCH_FAILED.load(Ordering::Relaxed) {
         return None;
     }
     let dir = data_folder()?;
     let downloads = std::env::var("LAST_HARVEST_DOWNLOADS").ok();
     let base = downloads.as_deref().unwrap_or("https://github.com/KyleJamesWalker/last-harvest/releases/download");
-    fetch_pack_into(&dir, crate::VERSION, base)
+    let api = std::env::var("LAST_HARVEST_API").ok();
+    let api = api.as_deref().unwrap_or("https://api.github.com/repos/KyleJamesWalker/last-harvest/releases");
+    let got = fetch_pack_into(&dir, crate::VERSION, base, api);
+    FETCH_FAILED.store(got.is_none(), Ordering::Relaxed);
+    got
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn fetch_pack_into(dir: &std::path::Path, version: &str, downloads: &str) -> Option<(Pak, PathBuf)> {
+fn curl() -> std::process::Command {
+    let mut c = std::process::Command::new(if cfg!(windows) { "curl.exe" } else { "curl" });
+    c.args(["-fsSL", "--connect-timeout", "2"]);
+    c
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn fetch_pack_into(dir: &std::path::Path, version: &str, downloads: &str, api: &str) -> Option<(Pak, PathBuf)> {
+    use sha2::Digest;
     if !version.starts_with('v') {
         return None;
     }
+    let index = format!("{api}/tags/{version}");
+    let release = curl().args(["--max-time", "10"]).arg(&index).output().ok().filter(|o| o.status.success());
+    let Some(want) = release.and_then(|o| pak_digest(&String::from_utf8_lossy(&o.stdout))) else {
+        log!("data: no sha256 for game_data.pak from {index}");
+        return None;
+    };
     std::fs::create_dir_all(dir).ok()?;
     let dest = dir.join("game_data.pak");
     let part = dir.join("game_data.pak.part");
     let _ = std::fs::remove_file(&part);
     let url = format!("{downloads}/{version}/game_data.pak");
     log!("data: fetching {url}");
-    let curl = if cfg!(windows) { "curl.exe" } else { "curl" };
-    let ok = std::process::Command::new(curl)
-        .args(["-fsSL", "--connect-timeout", "5", "--max-time", "60", "-o"])
-        .arg(&part)
-        .arg(&url)
-        .status()
-        .is_ok_and(|s| s.success());
+    let ok = curl().args(["--max-time", "60", "-o"]).arg(&part).arg(&url).status().is_ok_and(|s| s.success());
     if !ok {
         log!("data: couldn't download {url}");
+        let _ = std::fs::remove_file(&part);
+        return None;
+    }
+    let sum: String = std::fs::read(&part).map(|b| sha2::Sha256::digest(b).iter().map(|x| format!("{x:02x}")).collect()).unwrap_or_default();
+    if sum != want {
+        log!("data: {url} doesn't match the release's sha256");
         let _ = std::fs::remove_file(&part);
         return None;
     }
@@ -124,6 +147,60 @@ fn fetch_pack_into(dir: &std::path::Path, version: &str, downloads: &str) -> Opt
 
 #[cfg(target_arch = "wasm32")]
 fn fetch_release_pack() -> Option<(Pak, PathBuf)> {
+    None
+}
+
+/// The sha256 a GitHub release's JSON gives its `game_data.pak` asset, whatever the key order and nesting.
+#[cfg(not(target_arch = "wasm32"))]
+fn pak_digest(json: &str) -> Option<String> {
+    let b = json.as_bytes();
+    let (mut i, mut depth, mut key) = (0, 0, None::<String>);
+    let mut objects: Vec<(Option<String>, Option<String>)> = vec![(None, None)];
+    while i < b.len() {
+        match b[i] {
+            b'"' => {
+                let mut s = Vec::new();
+                i += 1;
+                while i < b.len() && b[i] != b'"' {
+                    if b[i] == b'\\' {
+                        i += 1;
+                    }
+                    if let Some(&c) = b.get(i) {
+                        s.push(c);
+                    }
+                    i += 1;
+                }
+                let s = String::from_utf8_lossy(&s).into_owned();
+                let next = b[(i + 1).min(b.len())..].iter().find(|c| !c.is_ascii_whitespace());
+                if next == Some(&b':') {
+                    key = Some(s);
+                } else {
+                    match key.take().as_deref() {
+                        Some("name") => objects[depth].0 = Some(s),
+                        Some("digest") => objects[depth].1 = Some(s),
+                        _ => {}
+                    }
+                }
+            }
+            b'{' => {
+                depth += 1;
+                objects.resize(depth + 1, (None, None));
+                objects[depth] = (None, None);
+                key = None;
+            }
+            b'}' => {
+                if let (Some("game_data.pak"), Some(d)) = (objects[depth].0.as_deref(), objects[depth].1.as_deref())
+                    && let Some(hex) = d.strip_prefix("sha256:")
+                {
+                    return Some(hex.to_ascii_lowercase());
+                }
+                depth = depth.saturating_sub(1);
+            }
+            b'[' | b',' => key = None,
+            _ => {}
+        }
+        i += 1;
+    }
     None
 }
 
@@ -319,6 +396,7 @@ fn install_noting(base: Option<Pak>, missing_pack: Option<String>, more: Vec<(St
     let mut mods = read_mods(&mut problems);
     mods.extend(more);
     let mod_names: Vec<String> = mods.iter().map(|(n, _)| n.clone()).collect();
+    let mod_packs: Vec<(String, u64)> = mods.iter().map(|(n, p)| (n.clone(), fingerprint(p))).collect();
     if !mods.is_empty() {
         log!("mods: {:?}", mods.iter().map(|(n, _)| n).collect::<Vec<_>>());
     }
@@ -391,7 +469,7 @@ fn install_noting(base: Option<Pak>, missing_pack: Option<String>, more: Vec<(St
     for problem in &problems {
         log!("left out: {problem}");
     }
-    data::report(data::LoadReport { cards: loaded, mods: mod_names, problems, version: crate::VERSION.into(), pack_version, missing_pack });
+    data::report(data::LoadReport { cards: loaded, mods: mod_names, problems, version: crate::VERSION.into(), pack_version, missing_pack, mod_packs });
     let mut sounds = pak.take_dir(pack::SOUNDS);
     let forced = std::env::var_os("LAST_HARVEST_SOUNDS").is_some();
     if (forced || !had_base)
@@ -404,6 +482,13 @@ fn install_noting(base: Option<Pak>, missing_pack: Option<String>, more: Vec<(St
     let sounds = with_own_sounds(sounds, own);
     log!("audio: {} sound files", sounds.len());
     Ok(sounds)
+}
+
+/// A pack's files by name and bytes, in name order, as one fingerprint.
+fn fingerprint(pak: &Pak) -> u64 {
+    let mut paths = pak.paths();
+    paths.sort_unstable();
+    last_harvest_game::replay::fingerprint(paths.into_iter().flat_map(|p| [p.as_bytes(), pak.get(p).unwrap_or_default()]))
 }
 
 /// Which `game_data.pak` to copy into `folder`: the one from this game's release.
@@ -500,21 +585,40 @@ mod tests {
     }
 
     #[test]
-    fn fetching_a_release_pack_saves_it_only_when_it_opens() {
+    fn a_release_json_gives_the_packs_sha256_wherever_its_keys_are() {
+        let json = r#"{"tag_name":"v1","assets":[{"name":"x.tar.gz","digest":"sha256:aa"},{"uploader":{"name":"me","digest":"sha256:bb"},"digest":"sha256:CC","name":"game_data.pak"}]}"#;
+        assert_eq!(pak_digest(json).as_deref(), Some("cc"));
+        assert_eq!(pak_digest(r#"{"assets":[{"name":"game_data.pak"}]}"#), None, "no digest, no pack");
+    }
+
+    #[test]
+    fn fetching_a_release_pack_saves_it_only_when_it_matches_its_sha256_and_opens() {
+        use sha2::Digest;
         let dir = std::env::temp_dir().join(format!("lh-fetch-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let src = dir.join("releases/v0.1.0");
         let data = dir.join("data");
         std::fs::create_dir_all(&src).unwrap();
-        let url = format!("file:///{}", dir.join("releases").to_string_lossy().replace('\\', "/"));
-        assert!(fetch_pack_into(&data, "dev-1234", &url).is_none(), "a dev build never fetches a release's pack");
+        std::fs::create_dir_all(dir.join("api/tags")).unwrap();
+        let file_url = |p: &str| format!("file:///{}", dir.join(p).to_string_lossy().replace('\\', "/"));
+        let (url, api) = (file_url("releases"), file_url("api"));
+        let index = |bytes: &[u8]| {
+            let sum: String = sha2::Sha256::digest(bytes).iter().map(|x| format!("{x:02x}")).collect();
+            std::fs::write(dir.join("api/tags/v0.1.0"), format!(r#"{{"tag_name":"v0.1.0","assets":[{{"name":"game_data.pak","digest":"sha256:{sum}"}}]}}"#)).unwrap();
+        };
+        assert!(fetch_pack_into(&data, "dev-1234", &url, &api).is_none(), "a dev build never fetches a release's pack");
         std::fs::write(src.join("game_data.pak"), b"not a zip").unwrap();
-        assert!(fetch_pack_into(&data, "v0.1.0", &url).is_none(), "a bad pack is turned away");
+        index(b"not a zip");
+        assert!(fetch_pack_into(&data, "v0.1.0", &url, &api).is_none(), "a bad pack is turned away");
         assert!(!data.join("game_data.pak").exists() && !data.join("game_data.pak.part").exists());
         let mut buf = std::io::Cursor::new(Vec::new());
         pack::write(&mut buf, &[(pack::MANIFEST.into(), pack::manifest().into_bytes())]).unwrap();
-        std::fs::write(src.join("game_data.pak"), buf.into_inner()).unwrap();
-        let (_, path) = fetch_pack_into(&data, "v0.1.0", &url).expect("a valid pack is saved");
+        let good = buf.into_inner();
+        std::fs::write(src.join("game_data.pak"), &good).unwrap();
+        assert!(fetch_pack_into(&data, "v0.1.0", &url, &api).is_none(), "a pack the release's sha256 doesn't match is turned away");
+        assert!(!data.join("game_data.pak").exists() && !data.join("game_data.pak.part").exists());
+        index(&good);
+        let (_, path) = fetch_pack_into(&data, "v0.1.0", &url, &api).expect("a valid pack is saved");
         assert_eq!(path, data.join("game_data.pak"));
         assert!(path.is_file() && !data.join("game_data.pak.part").exists());
         let _ = std::fs::remove_dir_all(&dir);

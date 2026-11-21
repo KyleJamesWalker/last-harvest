@@ -700,7 +700,7 @@ impl Game {
         self.shot_flash = (self.shot_flash - dt).max(0.0);
         // The icon scene keeps R2 for its barricade, so its screenshot stays on R1.
         let shot_key = if matches!(self.state, State::Icon(_)) { Buttons::R1 } else { Buttons::R2 };
-        if input.pressed.contains(shot_key) && !matches!(self.state, State::Hardware(_)) && !self.in_photo() && !rebinding {
+        if input.pressed.contains(shot_key) && self.captures && !matches!(self.state, State::Hardware(_)) && !self.in_photo() && !rebinding {
             self.shot = true;
             self.sounds.push(Sfx::Tick(LEVELS));
         }
@@ -710,10 +710,13 @@ impl Game {
         if self.paused {
             self.rumble = 0.0;
             self.pulses.iter_mut().for_each(Vec::clear);
+            self.online_away(dt);
             return;
         }
         if input.pressed.any(Buttons::BACK) {
+            let online = self.online_run();
             self.open(Scene::Title);
+            self.leave_online(online);
             return;
         }
         self.pump_net(dt);
@@ -1912,6 +1915,9 @@ mod tests {
         fn r2_takes_one_screenshot_and_flashes_after_it() {
         let mut game = Game::new(1);
         press(&mut game, Buttons::R2);
+        assert_eq!(game.take_screenshot(), None, "a platform that saves no screenshots takes none");
+        game.set_captures(true);
+        press(&mut game, Buttons::R2);
         assert_eq!(game.take_screenshot(), Some(Capture::Screens));
         assert_eq!(game.take_screenshot(), None, "one press, one shot");
         assert!(game.shot_flash > 0.0);
@@ -1926,6 +1932,7 @@ mod tests {
     fn in_a_run_on_either_layout_r2_screenshots_r1_quick_throws_and_no_button_pauses_on_a_map() {
         for one in [false, true] {
             let mut game = Game::new(1);
+            game.set_captures(true);
             game.open(Scene::Harvest);
             let State::Harvest(h) = &mut game.state else { panic!() };
             h.set_one_screen(one);

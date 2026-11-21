@@ -185,7 +185,7 @@ pub struct Outbox {
 
 impl Outbox {
     pub fn push(&mut self, tick: u32, ev: Event) {
-        self.next += 1;
+        self.next = self.next.wrapping_add(1);
         self.queue.push_back((self.next, tick, ev));
     }
 
@@ -205,7 +205,7 @@ impl Outbox {
 
     /// The oldest event still owed.
     pub fn first(&self) -> u32 {
-        self.queue.front().map_or(self.next + 1, |e| e.0)
+        self.queue.front().map_or(self.next.wrapping_add(1), |e| e.0)
     }
 
     pub fn pending(&self, now: u32) -> impl Iterator<Item = (u32, Event)> + '_ {
@@ -220,6 +220,9 @@ impl Outbox {
         self.queue.is_empty()
     }
 }
+
+/// The most events a client holds ahead of the next one it can act on; a host sending further ahead is ignored.
+const HELD_MOST: u32 = 4096;
 
 /// The client's side: each event comes out once, in the order the host made them.
 pub struct Inbox {
@@ -241,7 +244,7 @@ impl Inbox {
             self.next = first;
         }
         for &(seq, ev) in events {
-            if seq >= self.next {
+            if seq >= self.next && seq - self.next < HELD_MOST {
                 self.held.insert(seq, ev);
             }
         }
@@ -252,14 +255,14 @@ impl Inbox {
         let mut out = Vec::new();
         while let Some(ev) = self.held.remove(&self.next) {
             out.push(ev);
-            self.next += 1;
+            self.next = self.next.wrapping_add(1);
         }
         out
     }
 
     /// The last event delivered in order, which the client acks.
     pub fn acked(&self) -> u32 {
-        self.next - 1
+        self.next.wrapping_sub(1)
     }
 }
 

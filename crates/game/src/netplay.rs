@@ -18,6 +18,10 @@ pub const UNRELIABLE: usize = 1;
 const ANSWER_WAIT: f32 = 15.0;
 /// Ticks the host keeps its connections open after closing the room, so the word reaches every client.
 const CLOSE_TICKS: u32 = 30;
+/// Unreliable packets held for the next step; older ones give way.
+const UNRELIABLE_MOST: usize = 256;
+/// Seconds of silence after which the host takes a client for gone.
+const PEER_GONE: f32 = 10.0;
 
 /// What the game asks of the platform's transport.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -61,6 +65,8 @@ pub(crate) enum Happening {
 struct Remote {
     link: HostLink,
     queues: BTreeMap<usize, InputQueue>,
+    /// Seconds since anything came from it.
+    quiet: f32,
 }
 
 pub(crate) struct Hosting {
@@ -79,6 +85,8 @@ pub(crate) struct Joining {
     logs: Vec<InputLog>,
     tick: u32,
     waited: f32,
+    /// Seconds since anything came from the host during the night.
+    quiet: f32,
 }
 
 pub(crate) enum Side {
@@ -123,7 +131,7 @@ impl Net {
 
     /// Joins room `code` with this device's players' `cards`.
     pub fn join(code: RoomCode, identity: Identity, cards: Vec<String>, relay: &str) -> Self {
-        let joining = Joining { lobby: Client::new(Hello { identity, cards }), link: ClientLink::default(), mirror: Mirror::default(), logs: Vec::new(), tick: 0, waited: 0.0 };
+        let joining = Joining { lobby: Client::new(Hello { identity, cards }), link: ClientLink::default(), mirror: Mirror::default(), logs: Vec::new(), tick: 0, waited: 0.0, quiet: 0.0 };
         Self::new(code, Side::Client(Box::new(joining)), relay)
     }
 
@@ -181,6 +189,9 @@ impl Net {
         self.traffic.down += packet.bytes.len() as u64;
         if packet.channel == UNRELIABLE {
             if self.running {
+                if self.unreliable.len() >= UNRELIABLE_MOST {
+                    self.unreliable.remove(0);
+                }
                 self.unreliable.push(packet);
             }
             return;
@@ -313,15 +324,46 @@ impl Net {
         }
         self.flush();
         self.running = false;
+        self.unreliable.clear();
         self.closing = Some(CLOSE_TICKS);
+    }
+
+    /// Whether this device is already letting go of the room.
+    pub fn leaving(&self) -> bool {
+        self.closing.is_some() || !self.running && matches!(self.request, Some(Request::Close))
     }
 
     /// One tick of an online run: the host plays everyone's input and sends snapshots, a client draws them.
     pub fn step(&mut self, h: &mut Harvest, input: &Input, others: &[Input], dt: f32, sounds: &mut Vec<Sfx>) -> Flow {
+        self.step_as(h, input, others, dt, sounds, false)
+    }
+
+    /// A step while this device is away, its lid shut: a host holds the night under its own pause, a client keeps
+    /// acking but sends no input, so the host stops waiting on it.
+    pub fn step_away(&mut self, h: &mut Harvest, dt: f32, sounds: &mut Vec<Sfx>) {
+        if self.is_host() {
+            h.hold_away();
+        }
+        self.step_as(h, &Input::default(), &[], dt, sounds, true);
+    }
+
+    fn step_as(&mut self, h: &mut Harvest, input: &Input, others: &[Input], dt: f32, sounds: &mut Vec<Sfx>, away: bool) -> Flow {
         self.traffic.secs += dt;
         match &mut self.side {
-            Side::Host(s) => host_step(s, &mut self.unreliable, &mut self.outbox, h, input, dt, sounds),
-            Side::Client(c) => client_step(c, &mut self.unreliable, &mut self.outbox, h, input, others, dt, sounds),
+            Side::Host(s) => {
+                let (flow, gone) = host_step(s, &mut self.unreliable, &mut self.outbox, h, input, dt, sounds);
+                let events: Vec<HostEvent> = gone.into_iter().flat_map(|peer| s.lobby.as_mut().map(|l| l.disconnected(peer)).unwrap_or_default()).collect();
+                let happened = host_events(s, events);
+                self.after(happened);
+                flow
+            }
+            Side::Client(c) => {
+                let flow = client_step(c, &mut self.unreliable, &mut self.outbox, h, input, others, dt, sounds, away);
+                if c.quiet > PEER_GONE {
+                    self.end("Lost the connection to the host.".into());
+                }
+                flow
+            }
         }
     }
 
@@ -385,9 +427,14 @@ fn send_world(s: &mut Hosting, outbox: &mut Vec<Packet>, h: &Harvest) {
     }
 }
 
-fn host_step(s: &mut Hosting, unreliable: &mut Vec<Packet>, outbox: &mut Vec<Packet>, h: &mut Harvest, input: &Input, dt: f32, sounds: &mut Vec<Sfx>) -> Flow {
+/// One host tick, and the clients that have gone quiet for good.
+fn host_step(s: &mut Hosting, unreliable: &mut Vec<Packet>, outbox: &mut Vec<Packet>, h: &mut Harvest, input: &Input, dt: f32, sounds: &mut Vec<Sfx>) -> (Flow, Vec<u128>) {
+    for r in s.peers.values_mut() {
+        r.quiet += dt;
+    }
     for p in unreliable.drain(..) {
         let (Some(r), Some(m)) = (s.peers.get_mut(&p.peer), InputMsg::decode(&p.bytes)) else { continue };
+        r.quiet = 0.0;
         r.link.ack(m.ack_snapshot, m.ack_event);
         for seat in &m.seats {
             if let Some(q) = r.queues.get_mut(&(seat.seat as usize)) {
@@ -400,6 +447,7 @@ fn host_step(s: &mut Hosting, unreliable: &mut Vec<Packet>, outbox: &mut Vec<Pac
         for (&seat, q) in &mut r.queues {
             let (inp, at) = q.play();
             h.steer(seat, inp);
+            h.set_away(seat, q.quiet() > input::AWAY_TICKS);
             if let Some(slot) = s.played.get_mut(seat) {
                 *slot = at.unwrap_or(0);
             }
@@ -415,13 +463,16 @@ fn host_step(s: &mut Hosting, unreliable: &mut Vec<Packet>, outbox: &mut Vec<Pac
     if s.tick.is_multiple_of(SEND_EVERY) {
         send_world(s, outbox, h);
     }
-    flow
+    let gone = s.peers.iter().filter(|(_, r)| r.quiet > PEER_GONE).map(|(&p, _)| p).collect();
+    (flow, gone)
 }
 
 #[allow(clippy::too_many_arguments)]
-fn client_step(c: &mut Joining, unreliable: &mut Vec<Packet>, outbox: &mut Vec<Packet>, h: &mut Harvest, input: &Input, others: &[Input], dt: f32, sounds: &mut Vec<Sfx>) -> Flow {
+fn client_step(c: &mut Joining, unreliable: &mut Vec<Packet>, outbox: &mut Vec<Packet>, h: &mut Harvest, input: &Input, others: &[Input], dt: f32, sounds: &mut Vec<Sfx>, away: bool) -> Flow {
     let host = c.lobby.host();
+    c.quiet += dt;
     for p in unreliable.drain(..).filter(|p| Some(p.peer) == host) {
+        c.quiet = 0.0;
         if let Some(part) = c.link.receive(&p.bytes) {
             c.mirror.apply(&part);
             let fresh = c.link.fresh(&part.spawns);
@@ -444,17 +495,20 @@ fn client_step(c: &mut Joining, unreliable: &mut Vec<Packet>, outbox: &mut Vec<P
     for (v, inp) in mine.iter().enumerate() {
         c.mirror.play_locally(seats[v]);
         c.mirror.predict(seats[v], c.tick, inp, turn);
-        c.logs[v].push(c.tick, InputFrame::of(inp));
+        if !away {
+            c.logs[v].push(c.tick, InputFrame::of(inp));
+        }
     }
     if let Some(host) = host
         && c.tick.is_multiple_of(input::SEND_EVERY)
     {
         let (s, e) = c.link.ack();
-        let msg = InputMsg { ack_snapshot: s, ack_event: e, seats: c.logs.iter().zip(&seats).map(|(l, &seat)| l.seat(seat as u8)).collect() };
+        let seats = if away { Vec::new() } else { c.logs.iter().zip(&seats).map(|(l, &seat)| l.seat(seat as u8)).collect() };
+        let msg = InputMsg { ack_snapshot: s, ack_event: e, seats };
         outbox.push(Packet { channel: UNRELIABLE, peer: host, bytes: msg.encode() });
     }
     c.mirror.advance(dt);
-    h.client_frame(&c.mirror, dt);
+    h.client_frame(&c.mirror, dt, sounds);
     let mut flow = Flow::default();
     let pressed = mine.iter().fold(Buttons::NONE, |b, i| b | i.pressed);
     if h.client_wants_out(pressed) {
