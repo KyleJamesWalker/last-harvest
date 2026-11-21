@@ -11,8 +11,8 @@ const CUT: f32 = 1.0;
 #[derive(Default)]
 pub(super) struct Before {
     taken: bool,
-    pos: [f32; 2],
-    yaw: f32,
+    /// Each player's place and yaw, by index.
+    players: Vec<([f32; 2], f32)>,
     lean: f32,
     t: f32,
     over: Option<f32>,
@@ -22,8 +22,7 @@ pub(super) struct Before {
 
 /// What a blend moved, put back once the frame is drawn.
 pub(crate) struct Undo {
-    pos: [f32; 2],
-    yaw: f32,
+    players: Vec<([f32; 2], f32)>,
     lean: f32,
     zombies: Vec<[f32; 2]>,
     movers: Vec<([f32; 2], f32)>,
@@ -62,7 +61,9 @@ impl Harvest {
     /// Notes where everything is, at the start of a step.
     pub(super) fn take_before(&mut self) {
         let b = &mut self.before;
-        (b.taken, b.pos, b.yaw, b.lean, b.t) = (true, self.pos, self.view_yaw, self.lean, self.t);
+        (b.taken, b.lean, b.t) = (true, self.lean, self.t);
+        b.players.clear();
+        b.players.extend(self.players.iter().map(|p| (p.pos, p.view_yaw)));
         b.over = match self.phase {
             Phase::Over { t, .. } => Some(t),
             _ => None,
@@ -108,15 +109,17 @@ impl Harvest {
             let dt = lived(g.t, world);
             out.push(Mover { pos: None, vel: [0.0; 2], clock: Some(&mut g.t), dt });
         }
-        for s in &mut self.swings {
-            let dt = lived(s.age, world);
-            out.push(Mover { pos: None, vel: [0.0; 2], clock: Some(&mut s.age), dt });
-        }
-        for d in &mut self.dogs {
-            out.push(Mover { pos: Some(&mut d.pos), vel: d.vel, clock: None, dt: world });
-        }
-        for d in &mut self.drones {
-            out.push(Mover { pos: Some(&mut d.pos), vel: d.vel, clock: None, dt: world });
+        for p in &mut self.players {
+            for s in &mut p.swings {
+                let dt = lived(s.age, world);
+                out.push(Mover { pos: None, vel: [0.0; 2], clock: Some(&mut s.age), dt });
+            }
+            for d in &mut p.dogs {
+                out.push(Mover { pos: Some(&mut d.pos), vel: d.vel, clock: None, dt: world });
+            }
+            for d in &mut p.drones {
+                out.push(Mover { pos: Some(&mut d.pos), vel: d.vel, clock: None, dt: world });
+            }
         }
         for b in &mut self.birds {
             let dt = if b.flying || b.z > 0.0 { world } else { 0.0 };
@@ -150,9 +153,12 @@ impl Harvest {
         let alpha = alpha.max(0.0);
         let back = 1.0 - alpha;
         let (world, juice) = self.stepped();
-        let mut undo = Undo { pos: self.pos, yaw: self.view_yaw, lean: self.lean, zombies: Vec::new(), movers: Vec::new() };
-        self.pos = between(self.before.pos, self.pos, alpha);
-        self.view_yaw = turn(self.before.yaw, self.view_yaw, alpha);
+        let mut undo = Undo { players: Vec::new(), lean: self.lean, zombies: Vec::new(), movers: Vec::new() };
+        for (p, &(pos, yaw)) in self.players.iter_mut().zip(&self.before.players) {
+            undo.players.push((p.pos, p.view_yaw));
+            p.pos = between(pos, p.pos, alpha);
+            p.view_yaw = turn(yaw, p.view_yaw, alpha);
+        }
         self.lean = lerp(self.before.lean, self.lean, alpha);
         let was = &self.before.zombies;
         for z in self.zombies.iter_mut().chain(&mut self.burrowed) {
@@ -175,7 +181,10 @@ impl Harvest {
     }
 
     pub(crate) fn unblend(&mut self, undo: Undo) {
-        (self.pos, self.view_yaw, self.lean) = (undo.pos, undo.yaw, undo.lean);
+        for (p, (pos, yaw)) in self.players.iter_mut().zip(undo.players) {
+            (p.pos, p.view_yaw) = (pos, yaw);
+        }
+        self.lean = undo.lean;
         for (z, p) in self.zombies.iter_mut().chain(&mut self.burrowed).zip(undo.zombies) {
             z.pos = p;
         }
@@ -212,7 +221,7 @@ mod tests {
         let bullets: Vec<_> = h.bullets.iter().map(|b| (b.pos, b.age)).collect();
         let juice: Vec<_> = h.juice.particles.iter().map(|p| (p.pos, p.age)).chain(h.juice.corpses.iter().map(|c| (c.pos, c.age))).collect();
         let thrown: Vec<_> = h.thrown.iter().map(|g| g.t).collect();
-        format!("{:?} {} {} {} {} {zombies:?} {bullets:?} {juice:?} {thrown:?}", h.pos, h.view_yaw, h.t, h.kills, h.xp)
+        format!("{:?} {} {} {} {} {zombies:?} {bullets:?} {juice:?} {thrown:?}", h.me().pos, h.me().view_yaw, h.t, h.kills, h.xp)
     }
 
     #[test]
@@ -265,13 +274,13 @@ mod tests {
         for _ in 0..30 {
             walk(&mut h);
         }
-        let (now, yaw) = (h.pos, h.view_yaw);
-        let was = h.before.pos;
+        let (now, yaw) = (h.me().pos, h.me().view_yaw);
+        let was = h.before.players[0].0;
         assert_ne!(now, was, "the player walked");
         let undo = h.blend(0.5).expect("a step to blend");
-        assert!((h.pos[0] - (was[0] + now[0]) / 2.0).abs() < 1e-3 && (h.pos[1] - (was[1] + now[1]) / 2.0).abs() < 1e-3, "{:?} between {was:?} and {now:?}", h.pos);
+        assert!((h.me().pos[0] - (was[0] + now[0]) / 2.0).abs() < 1e-3 && (h.me().pos[1] - (was[1] + now[1]) / 2.0).abs() < 1e-3, "{:?} between {was:?} and {now:?}", h.me().pos);
         h.unblend(undo);
-        assert_eq!((h.pos, h.view_yaw), (now, yaw));
+        assert_eq!((h.me().pos, h.me().view_yaw), (now, yaw));
     }
 
     #[test]
@@ -294,10 +303,10 @@ mod tests {
         let mut sounds = Vec::new();
         h.update(&Input { pressed: Buttons::START, held: Buttons::START, ..Default::default() }, STEP, &mut sounds);
         h.update(&Input::default(), STEP, &mut sounds);
-        let now = h.pos;
+        let now = h.me().pos;
         for alpha in [0.0, 0.3, 0.9] {
             let undo = h.blend(alpha).expect("a step");
-            assert_eq!(h.pos, now, "at {alpha}");
+            assert_eq!(h.me().pos, now, "at {alpha}");
             h.unblend(undo);
         }
     }
@@ -306,7 +315,7 @@ mod tests {
     fn a_zombie_new_this_step_or_that_jumped_is_drawn_where_it_is() {
         let mut h = walking();
         walk(&mut h);
-        let mut z = Zombie::new(Kind::common(), [h.pos[0] + 40.0, h.pos[1]], 10.0, 1.0, 0.0);
+        let mut z = Zombie::new(Kind::common(), [h.me().pos[0] + 40.0, h.me().pos[1]], 10.0, 1.0, 0.0);
         z.id = 900;
         h.zombies = vec![z];
         h.burrowed.clear();
@@ -332,7 +341,7 @@ mod tests {
         let mut h = walking();
         h.take_before();
         h.t += STEP;
-        let shot = |age: f32| Bullet { pos: [100.0, 100.0], vel: [60.0, 0.0], damage: 1.0, pierce: 0, life: 1.0, force: 0.0, hit: Vec::new(), look: None, age, by: None, lift: [0.0; 2] };
+        let shot = |age: f32| Bullet { pos: [100.0, 100.0], vel: [60.0, 0.0], damage: 1.0, pierce: 0, life: 1.0, force: 0.0, hit: Vec::new(), look: None, age, by: None, owner: ME, lift: [0.0; 2] };
         h.bullets = vec![shot(STEP), shot(STEP * 4.0)];
         let undo = h.blend(0.5).expect("a step");
         assert_eq!(h.bullets[0].pos, [100.0, 100.0]);
