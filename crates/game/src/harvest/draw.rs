@@ -1,5 +1,8 @@
 //! Both screens' 2D drawing: the map below, and the HUD, numbers and overlays over the 3D view above.
 
+// Drawing only: nothing here may feed Harvest::update, so std's float functions are fine.
+#![allow(clippy::disallowed_methods)]
+
 use std::f32::consts::{PI, TAU};
 
 use super::juice::{self, Tone};
