@@ -1,4 +1,5 @@
 mod atlas;
+pub mod split;
 
 use glow::HasContext;
 use last_harvest_game::scene3d::{Card, CardScene, MAX_FLASHES};
@@ -301,9 +302,9 @@ impl CardProgram {
         }
     }
 
-    unsafe fn set(&self, gl: &glow::Context, scene: &CardScene) {
+    unsafe fn set(&self, gl: &glow::Context, scene: &CardScene, view_proj: &[f32; 16]) {
         unsafe {
-            gl.uniform_matrix_4_f32_slice(self.view_proj.as_ref(), false, &scene.view_proj.to_cols_array());
+            gl.uniform_matrix_4_f32_slice(self.view_proj.as_ref(), false, view_proj);
             gl.uniform_3_f32_slice(self.eye.as_ref(), &scene.eye.to_array());
             gl.uniform_3_f32_slice(self.light.as_ref(), &scene.light.to_array());
             gl.uniform_3_f32_slice(self.light_color.as_ref(), &scene.light_color);
@@ -435,6 +436,19 @@ impl Renderer {
 
     /// Draws one screen's canvas into `viewport` (x, y, w, h in framebuffer pixels, GL origin).
     pub fn draw(&mut self, gl: &glow::Context, canvas: &Canvas, viewport: [i32; 4]) {
+        self.paint(gl, canvas, viewport, viewport, [1.0; 2]);
+    }
+
+    /// Draws a canvas into `view` (GL origin) whatever its shape: the 3D scene fills it at the view's own aspect,
+    /// and the 2D shapes keep their proportions, as large as fits and centred, cut to the view.
+    pub fn draw_view(&mut self, gl: &glow::Context, canvas: &Canvas, view: [i32; 4]) {
+        let size = canvas.size.unwrap_or([SCREEN_W, SCREEN_H]);
+        let aspect = view[2].max(1) as f32 / view[3].max(1) as f32;
+        self.paint(gl, canvas, view, split::fit(view, size), split::widen(aspect, size[0] / size[1]));
+    }
+
+    /// Clears `view` and draws the 3D scene in it, its clip x and y scaled by `widen`, then the 2D shapes in `flat`.
+    fn paint(&mut self, gl: &glow::Context, canvas: &Canvas, view: [i32; 4], flat: [i32; 4], widen: [f32; 2]) {
         self.verts.clear();
         self.clip = None;
         for shape in &canvas.shapes {
@@ -463,7 +477,7 @@ impl Renderer {
                 }
             }
         }
-        let [x, y, w, h] = viewport;
+        let [x, y, w, h] = view;
         let [r, g, b, a] = canvas.clear;
         unsafe {
             gl.viewport(x, y, w, h);
@@ -474,7 +488,13 @@ impl Renderer {
             gl.clear(if a > 0.0 { glow::COLOR_BUFFER_BIT | glow::DEPTH_BUFFER_BIT } else { glow::DEPTH_BUFFER_BIT });
             gl.disable(glow::SCISSOR_TEST);
             if let Some(cards) = &canvas.cards {
-                self.draw_cards(gl, cards);
+                self.draw_cards(gl, cards, widened(cards.view_proj.to_cols_array(), widen));
+            }
+            let [fx, fy, fw, fh] = flat;
+            gl.viewport(fx, fy, fw, fh);
+            let cut = flat != view;
+            if cut {
+                gl.enable(glow::SCISSOR_TEST);
             }
 
             gl.enable(glow::BLEND);
@@ -490,10 +510,13 @@ impl Renderer {
             gl.bind_buffer(glow::ARRAY_BUFFER, Some(self.vbo));
             gl.buffer_data_u8_slice(glow::ARRAY_BUFFER, as_bytes(&self.verts), glow::STREAM_DRAW);
             gl.draw_arrays(glow::TRIANGLES, 0, (self.verts.len() / FLOATS_PER_VERT) as i32);
+            if cut {
+                gl.disable(glow::SCISSOR_TEST);
+            }
         }
     }
 
-    fn draw_cards(&mut self, gl: &glow::Context, scene: &CardScene) {
+    fn draw_cards(&mut self, gl: &glow::Context, scene: &CardScene, view_proj: [f32; 16]) {
         self.batch.build(&scene.cards, scene.eye);
         let (plain, opaque, clear) = (self.batch.plain, self.batch.opaque_cards(), self.batch.clear_cards());
         let flash = !scene.flashes.is_empty() as usize;
@@ -519,7 +542,7 @@ impl Renderer {
                 }
                 let p = &self.card_programs[tinted][flash];
                 gl.use_program(Some(p.program));
-                p.set(gl, scene);
+                p.set(gl, scene, &view_proj);
                 gl.draw_elements(glow::TRIANGLES, (range.len() * 6) as i32, glow::UNSIGNED_INT, (range.start * 6 * 4) as i32);
             }
             if clear > 0 {
@@ -531,7 +554,7 @@ impl Renderer {
                 gl.buffer_data_u8_slice(glow::ARRAY_BUFFER, as_bytes(&self.batch.clear), glow::STREAM_DRAW);
                 let p = &self.clear_programs[flash];
                 gl.use_program(Some(p.program));
-                p.set(gl, scene);
+                p.set(gl, scene, &view_proj);
                 gl.draw_elements(glow::TRIANGLES, (clear * 6) as i32, glow::UNSIGNED_INT, 0);
                 gl.depth_mask(true);
             }
@@ -558,6 +581,15 @@ impl Renderer {
             self.verts.extend_from_slice(&[px, py, lx, ly, r, g, b, a, kind, u, v]);
         }
     }
+}
+
+/// A column-major view-projection with its clip x and y scaled by `[sx, sy]`.
+fn widened(mut m: [f32; 16], [sx, sy]: [f32; 2]) -> [f32; 16] {
+    for col in 0..4 {
+        m[col * 4] *= sx;
+        m[col * 4 + 1] *= sy;
+    }
+    m
 }
 
 type Quad = [[f32; 2]; 4];
@@ -609,6 +641,15 @@ mod tests {
         assert_eq!(c, [[5.0, 0.0], [10.0, 0.0], [10.0, 5.0], [5.0, 5.0]]);
         assert_eq!(l, [[0.0, -1.0], [1.0, -1.0], [1.0, 0.0], [0.0, 0.0]]);
         assert_eq!(u, [[0.5, 0.0], [1.0, 0.0], [1.0, 0.5], [0.5, 0.5]]);
+    }
+
+    #[test]
+    fn a_widened_projection_scales_clip_x_and_y_only() {
+        let m = last_harvest_game::scene3d::Mat4::from_cols_array(&[1.5, 0.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.25, 0.5, -1.0, -1.0, 0.0, 0.0, -0.6, 0.0]);
+        let p = last_harvest_game::scene3d::Vec3::new(2.0, 1.0, -5.0).extend(1.0);
+        let at = |cols: [f32; 16]| last_harvest_game::scene3d::Mat4::from_cols_array(&cols) * p;
+        let (plain, wide) = (at(m.to_cols_array()), at(widened(m.to_cols_array(), [0.5, 0.25])));
+        assert_eq!([wide.x, wide.y, wide.z, wide.w], [plain.x * 0.5, plain.y * 0.25, plain.z, plain.w]);
     }
 
     fn card_at(z: f32, alpha: f32) -> Card {

@@ -95,10 +95,19 @@ impl Gfx {
         }
     }
 
-    /// Draws both screens, or in one window the frame as on a phone. With `capture`, also returns what was drawn,
-    /// two screens stacked top above bottom, as RGBA rows, and where the top screen is in it.
-    pub fn render(&mut self, frame: &Frame, capture: bool) -> Result<Option<Shot>, Box<dyn Error>> {
+    /// Draws both screens, or in one window the frame as on a phone, or its top screen in `views` split-screen views.
+    /// With `capture`, also returns what was drawn, two screens stacked top above bottom, as RGBA rows, and where
+    /// the top screen is in it.
+    pub fn render(&mut self, frame: &Frame, views: Option<usize>, capture: bool) -> Result<Option<Shot>, Box<dyn Error>> {
         let Self { top, bottom, context, gl, renderer } = self;
+        if let (None, Some(n)) = (&bottom, views) {
+            context.make_current(&top.surface)?;
+            let size = top.window.inner_size();
+            last_harvest::draw_split(renderer, gl, &vec![&frame.top; n], [size.width as i32, size.height as i32]);
+            let shot = capture.then(|| read_back(gl, size.width, size.height));
+            top.surface.swap_buffers(context)?;
+            return Ok(shot);
+        }
         if let (None, Some(phone)) = (&bottom, &frame.phone) {
             context.make_current(&top.surface)?;
             let size = top.window.inner_size();

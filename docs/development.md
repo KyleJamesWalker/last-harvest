@@ -46,6 +46,16 @@ The default `embed` feature builds the game data into the binary. The binary sti
 
 On a desktop, `LAST_HARVEST_WINDOWS=2` opens one window per screen, as on the device. The mouse is then a finger on the bottom window.
 
+### Trying split-screen
+
+The game simulates one player, so split-screen has a preview: `LAST_HARVEST_SPLIT=2` (up to `4`) draws a run in that many views, each showing player 1's view and HUD. Use it to check the layout, each view's aspect, clipping, the corner map and frame blending. The web game takes `?split=2` instead.
+
+```sh
+LAST_HARVEST_SPLIT=2 LAST_HARVEST_WINDOW=1280x720 LAST_HARVEST_START=harvest cargo run -p last-harvest
+```
+
+Two views sit side by side in a wide or square window and stack in a tall one; three or four share a 2x2 grid, with the fourth cell black for three. The 3D view fills each view at its own aspect, and the 4:3 HUD fits inside it, centred. With the preview on, Start on a second pad at the title joins it as P2 and again leaves; the title names who joined. Split-screen runs on desktop, web and muOS only, never on a touch screen, a phone or the two-screen handhelds.
+
 ## Test and check
 
 Run these before every commit. CI runs the same checks with `-D warnings`.
@@ -172,6 +182,7 @@ CI reads the private submodule with the `ASSETS_DEPLOY_KEY` secret. A pull reque
 | `LAST_HARVEST_LOG_INPUT` | Logs every gamepad event. |
 | `LAST_HARVEST_WINDOW` | The desktop window's size, such as `720x720`, to try a handheld's screen. |
 | `LAST_HARVEST_WINDOWS` | `2`: one window per screen, top above bottom. |
+| `LAST_HARVEST_SPLIT` | `2` to `4`: a run in that many split-screen views, each showing player 1, and pads may join at the title. See [Trying split-screen](#trying-split-screen). |
 | `LAST_HARVEST_TOUCH` | `off`: the desktop window plays without touch, as on muOS. |
 | `LAST_HARVEST_TOP` | The output for the top screen, such as `DSI-2`. |
 | `LAST_HARVEST_SAVE` | The save file. |

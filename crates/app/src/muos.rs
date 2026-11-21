@@ -8,6 +8,7 @@ mod persist;
 
 use std::time::{Duration, Instant};
 
+use last_harvest::controllers::{Pad, Seats};
 use last_harvest::{VERSION, audio, clock, log, pak};
 use last_harvest_game::{Buttons, Game, InputTracker, RawInput, Scene, System};
 use last_harvest_render::{Profile, Renderer};
@@ -60,6 +61,26 @@ impl Motor {
         if let Err(e) = std::fs::write(&self.path, if on { self.on } else { self.off }) {
             log!("rumble: {}: {e}", self.path);
         }
+    }
+}
+
+/// One controller's state from SDL's events, by its instance id.
+#[derive(Default)]
+struct PadState {
+    id: u32,
+    keys: Buttons,
+    struck: Buttons,
+    stick: [f32; 2],
+    look: f32,
+    triggers: [bool; 2],
+}
+
+impl PadState {
+    fn take(&mut self) -> Pad {
+        let mut held = self.keys | std::mem::take(&mut self.struck);
+        held.set(Buttons::L2, held.contains(Buttons::L2) || self.triggers[0]);
+        held.set(Buttons::R2, held.contains(Buttons::R2) || self.triggers[1]);
+        Pad { id: self.id as usize, held, stick: self.stick, look: self.look }
     }
 }
 
@@ -120,8 +141,9 @@ fn run() -> Result<(), String> {
 
     let mut tracker = InputTracker::default();
     let mut ticker = clock::Ticker::default();
-    let (mut keys, mut struck) = (Buttons::NONE, Buttons::NONE);
-    let (mut stick, mut look, mut triggers) = ([0.0f32; 2], 0.0f32, [false; 2]);
+    let mut states: Vec<PadState> = Vec::new();
+    let mut seats = Seats::default();
+    let split = std::env::var("LAST_HARVEST_SPLIT").ok().and_then(|v| last_harvest::split_views(&v));
     let mut menu_held = 0.0;
     let mut last = Instant::now();
     let mut stats = (0u32, 0.0f32, 0.0f32, Instant::now());
@@ -137,26 +159,33 @@ fn run() -> Result<(), String> {
                     }
                     Err(e) => log!("pad {which}: {e}"),
                 },
-                Event::ControllerDeviceRemoved { which, .. } => pads.retain(|p| p.instance_id() != which),
-                Event::ControllerButtonDown { button: b, .. } => {
+                Event::ControllerDeviceRemoved { which, .. } => {
+                    pads.retain(|p| p.instance_id() != which);
+                    states.retain(|s| s.id != which);
+                }
+                Event::ControllerButtonDown { button: b, which, .. } => {
                     if let Some(b) = button(b) {
-                        keys |= b;
-                        struck |= b;
+                        let s = state(&mut states, which);
+                        s.keys |= b;
+                        s.struck |= b;
                     }
                 }
-                Event::ControllerButtonUp { button: b, .. } => {
+                Event::ControllerButtonUp { button: b, which, .. } => {
                     if let Some(b) = button(b) {
-                        keys.set(b, false);
+                        state(&mut states, which).keys.set(b, false);
                     }
                 }
-                Event::ControllerAxisMotion { axis: a, value, .. } => match a {
-                    Axis::LeftX => stick[0] = axis(value),
-                    Axis::LeftY => stick[1] = axis(value),
-                    Axis::RightX => look = axis(value),
-                    Axis::TriggerLeft => triggers[0] = value > 16384,
-                    Axis::TriggerRight => triggers[1] = value > 16384,
-                    Axis::RightY => {}
-                },
+                Event::ControllerAxisMotion { axis: a, value, which, .. } => {
+                    let s = state(&mut states, which);
+                    match a {
+                        Axis::LeftX => s.stick[0] = axis(value),
+                        Axis::LeftY => s.stick[1] = axis(value),
+                        Axis::RightX => s.look = axis(value),
+                        Axis::TriggerLeft => s.triggers[0] = value > 16384,
+                        Axis::TriggerRight => s.triggers[1] = value > 16384,
+                        Axis::RightY => {}
+                    }
+                }
                 _ => {}
             }
         }
@@ -172,10 +201,11 @@ fn run() -> Result<(), String> {
             stats = (0, 0.0, 0.0, Instant::now());
             log!("perf: fps={:.1} ms={:.1} worst={:.1} {}", system.fps, system.frame_ms, system.worst_ms, game.summary());
         }
-        let mut held = keys | std::mem::take(&mut struck);
-        held.set(Buttons::L2, held.contains(Buttons::L2) || triggers[0]);
-        held.set(Buttons::R2, held.contains(Buttons::R2) || triggers[1]);
-        menu_held = if held.contains(Buttons::HOME) { menu_held + dt } else { 0.0 };
+        let frame_pads: Vec<Pad> = states.iter_mut().map(PadState::take).collect();
+        seats.update(&frame_pads, split.is_some() && game.at_title());
+        game.set_players(seats.players());
+        let (held, stick, look) = seats.inputs(&frame_pads)[0];
+        menu_held = if frame_pads.iter().any(|p| p.held.contains(Buttons::HOME)) { menu_held + dt } else { 0.0 };
         if menu_held >= QUIT_HOLD || game.quit_asked() {
             return finish(&mut saver, &game, motor.as_ref());
         }
@@ -202,12 +232,26 @@ fn run() -> Result<(), String> {
             }
         }
         let frame = game.draw_at(ticker.alpha());
-        if let Some(phone) = &frame.phone {
+        if let Some(n) = split.filter(|_| game.in_run()) {
+            last_harvest::draw_split(&mut renderer, &gl, &vec![&frame.top; n], [w as i32, h as i32]);
+        } else if let Some(phone) = &frame.phone {
             last_harvest::draw_phone(&mut renderer, &gl, &frame, phone, [w as i32, h as i32]);
         }
         window.gl_swap_window();
         saver.update(game.save(), false);
     }
+}
+
+/// The state of the controller with SDL instance id `which`, made on its first event.
+fn state(states: &mut Vec<PadState>, which: u32) -> &mut PadState {
+    let at = match states.iter().position(|s| s.id == which) {
+        Some(at) => at,
+        None => {
+            states.push(PadState { id: which, ..Default::default() });
+            states.len() - 1
+        }
+    };
+    &mut states[at]
 }
 
 fn finish(saver: &mut persist::Saver, game: &Game, motor: Option<&Motor>) -> Result<(), String> {
