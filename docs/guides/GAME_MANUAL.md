@@ -260,6 +260,7 @@ The title's bottom screen lists Play, Map, How to play, Settings, Stats and Cred
 | Volume, Rumble | Sound level, and the motor on and off |
 | Show FPS | The frame-rate overlay |
 | Screens | One or two screens for a run. Not shown on a phone. |
+| Corner map | On one screen, the small map in the top right corner of the view while you play. Shown only on one screen. |
 | Touch controls, Grenades | See [Touch](#touch). Shown only where the screen takes touches. |
 | Controls | Moves a button's jobs to another button. See [Controls](#controls). |
 | Player | Your look, from the player cards, shown walking on the top screen |
