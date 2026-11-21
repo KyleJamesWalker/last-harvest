@@ -566,8 +566,8 @@ impl Game {
             }
         }
         if self.title_on_one() {
-            c.hint("D-pad: walk.   {Y} / {A}: turn.   {B}: turn around.", SCREEN_W / 2.0, SCREEN_H - 104.0, 40.0, DIM, Align::Center);
-            c.hint("{L1}: map.   {L2}: aim a grenade.   {R1}: throw ahead.", SCREEN_W / 2.0, SCREEN_H - 56.0, 40.0, DIM, Align::Center);
+            c.hint("D-pad: walk.   {Y} / {A}: turn.   {B}: turn around.", SCREEN_W / 2.0, SCREEN_H - 86.0, 36.0, DIM, Align::Center);
+            c.hint("{L1}: map.   {L2}: aim a grenade.   {R1}: throw ahead.", SCREEN_W / 2.0, SCREEN_H - 44.0, 36.0, DIM, Align::Center);
             return;
         }
         c.hint("D-pad: walk and strafe.   {Y} / {A}: turn.   {B}: turn around.   {R2}: screenshot.", SCREEN_W / 2.0, SCREEN_H - 84.0, 24.0, DIM, Align::Center);
