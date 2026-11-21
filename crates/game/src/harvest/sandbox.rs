@@ -378,7 +378,7 @@ impl Bot {
             return 0.0;
         }
         let d = sub(at, pl.pos);
-        let off = (d[1].atan2(d[0]) - pl.view_yaw + PI).rem_euclid(TAU) - PI;
+        let off = (fm::atan2(d[1], d[0]) - pl.view_yaw + PI).rem_euclid(TAU) - PI;
         (off * 3.0).clamp(-1.0, 1.0)
     }
 }

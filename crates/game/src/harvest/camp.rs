@@ -6,6 +6,7 @@ use std::f32::consts::TAU;
 use super::map::TILE;
 use super::player::PlayerId;
 use super::{Harvest, Kind, Phase, Tell, len, roster, sub};
+use crate::fmath as fm;
 use crate::tuning::Tuning;
 
 /// Radians between one camp zombie and the next, so any number of them spread round every side.
@@ -54,7 +55,7 @@ impl Harvest {
             }
             let r = ring + (i / 8) as f32 * TILE / 2.0;
             let a = turn + i as f32 * GOLDEN;
-            let spot = (0..8).map(|j| a + j as f32 * GOLDEN).flat_map(|a| [r, r * 0.7, r * 1.4].map(|r| [at[0] + a.cos() * r, at[1] + a.sin() * r])).find(|&s| self.open(s));
+            let spot = (0..8).map(|j| a + j as f32 * GOLDEN).flat_map(|a| [r, r * 0.7, r * 1.4].map(|r| [at[0] + fm::cos(a) * r, at[1] + fm::sin(a) * r])).find(|&s| self.open(s));
             let Some(pos) = spot else { continue };
             let roll = self.rng.range(0.0, 1.0);
             let kind = Kind(roster().pick(minutes, roll, self.enemies_off) as u8);
@@ -95,7 +96,7 @@ mod tests {
         for t in &h.tells {
             let d = sub(t.pos, at);
             assert!(len(d) < 5.0 * TILE, "rises right around them: {:?}", d);
-            out[(d[1].atan2(d[0]).rem_euclid(TAU) / (TAU / 4.0)) as usize % 4] = true;
+            out[(fm::atan2(d[1], d[0]).rem_euclid(TAU) / (TAU / 4.0)) as usize % 4] = true;
         }
         out
     }
@@ -132,7 +133,7 @@ mod tests {
         let mut h = open_farm();
         for s in 0..120 {
             let a = s as f32 * 0.4;
-            h.me_mut().pos = [30.5 * TILE + a.cos() * 8.0 * TILE, 30.5 * TILE + a.sin() * 8.0 * TILE];
+            h.me_mut().pos = [30.5 * TILE + fm::cos(a) * 8.0 * TILE, 30.5 * TILE + fm::sin(a) * 8.0 * TILE];
             stay(&mut h, 1.0);
         }
         assert!(h.tells.is_empty(), "walking a wide loop is never camping");
