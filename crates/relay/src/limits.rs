@@ -132,6 +132,17 @@ impl TrustedProxies {
     }
 }
 
+/// Loopback, a private or link-local network, or carrier-grade NAT space (as Tailscale uses): an address on this network.
+pub fn is_local(address: IpAddr) -> bool {
+    match address {
+        IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
+            Some(v4) => is_local(IpAddr::V4(v4)),
+            None => v6.is_loopback() || v6.is_unique_local() || v6.is_unicast_link_local(),
+        },
+        IpAddr::V4(v4) => v4.is_loopback() || v4.is_private() || v4.is_link_local() || (v4.octets()[0] == 100 && v4.octets()[1] & 0xc0 == 64),
+    }
+}
+
 /// Whether a connection from `address` may be a reverse proxy in front of the relay.
 pub fn may_proxy(address: IpAddr, trusted: TrustedProxies) -> bool {
     let address = match address {
@@ -190,6 +201,16 @@ mod tests {
         assert_eq!(limits.open(ip("203.0.113.1"), now).err(), Some(Refusal::TooFast));
         assert!(limits.open(ip("203.0.113.1"), now + Duration::from_secs(5)).is_err());
         assert!(limits.open(ip("203.0.113.1"), now + Duration::from_secs(10)).is_ok(), "one more every 10 s");
+    }
+
+    #[test]
+    fn local_addresses_are_this_network() {
+        for local in ["127.0.0.1", "10.1.2.3", "172.16.0.9", "192.168.1.5", "169.254.3.4", "100.64.0.1", "100.127.255.254", "::1", "fd12::1", "fe80::1", "::ffff:192.168.1.5"] {
+            assert!(is_local(ip(local)), "{local}");
+        }
+        for public in ["203.0.113.1", "8.8.8.8", "100.128.0.1", "172.32.0.1", "2001:db8::1", "::ffff:8.8.8.8"] {
+            assert!(!is_local(ip(public)), "{public}");
+        }
     }
 
     #[test]

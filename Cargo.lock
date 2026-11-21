@@ -1955,6 +1955,7 @@ dependencies = [
  "hmac 0.13.0",
  "serde_json",
  "sha1 0.11.0",
+ "socket2 0.6.5",
  "tungstenite 0.30.0",
 ]
 

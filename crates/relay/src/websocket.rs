@@ -86,6 +86,9 @@ pub fn serve(config: &Config) -> io::Result<u16> {
         let mut full = false;
         for stream in listener.incoming() {
             let Ok(stream) = stream else { continue };
+            if config.lan_only && !stream.peer_addr().is_ok_and(|a| limits::is_local(a.ip())) {
+                continue;
+            }
             let Some(slot) = Slot::take(&counts.connections, config.max_connections) else {
                 if !full {
                     println!("[relay] refusing connections: {} open", config.max_connections);

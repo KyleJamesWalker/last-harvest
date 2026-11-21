@@ -55,6 +55,10 @@ pub struct Config {
     pub turn_secret: Option<String>,
     /// How long a TURN credential lasts; a peer gets a fresh one every quarter of it.
     pub turn_lifetime: Duration,
+    /// Serve only loopback and local-network clients, so a forwarded port does not make an open relay.
+    pub lan_only: bool,
+    /// Signaling rooms open at once in this process; none for no limit.
+    pub max_rooms: Option<usize>,
 }
 
 impl Config {
@@ -75,6 +79,8 @@ impl Config {
             turn_url: var("LAST_HARVEST_RELAY_TURN_URL"),
             turn_secret: var("LAST_HARVEST_RELAY_TURN_SECRET"),
             turn_lifetime: TURN_LIFETIME,
+            lan_only: false,
+            max_rooms: None,
         };
         if let Some(seconds) = var("LAST_HARVEST_RELAY_TURN_SECONDS") {
             let seconds: u64 = seconds.parse().ok().filter(|&s| s >= 60).ok_or_else(|| format!("LAST_HARVEST_RELAY_TURN_SECONDS: not a number of seconds, 60 or more: {seconds}"))?;
@@ -137,7 +143,14 @@ impl Config {
             turn_url: None,
             turn_secret: None,
             turn_lifetime: TURN_LIFETIME,
+            lan_only: false,
+            max_rooms: None,
         }
+    }
+
+    /// The relay a game runs to host on its own network: `embedded`, serving only local-network clients, one room.
+    pub fn lan_host(port: u16) -> Config {
+        Config { lan_only: true, max_rooms: Some(1), ..Config::embedded(port) }
     }
 
     /// Whether a request with this `Origin` header may proceed.
