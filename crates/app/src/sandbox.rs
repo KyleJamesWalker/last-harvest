@@ -403,6 +403,10 @@ fn seats(c: &Cell) -> String {
         let kills = format!("{:.0}±{:.0}", mean(seat.iter().map(|x| x.kills as f32)), spread(seat.iter().map(|x| x.kills as f32)));
         let _ = writeln!(s, "  player {:<19} {:>11} {:>6} {:>9.0} {:>9} {:>5} {:>6} {:>7} {:>6.0} {:>5} {:>5} {:>8}", p + 1, kills, "", mean(seat.iter().map(|x| x.useful)), "", "", "", "", mean(seat.iter().map(|x| x.hearts as f32)), "", "", fell);
     }
+    let led: Vec<&sandbox::Seat> = c.nights.iter().flat_map(|n| &n.seats).filter(|x| x.led > 0.0).collect();
+    if !led.is_empty() {
+        let _ = writeln!(s, "  led the dead {} times, {:.0}s and {:.1} bites each; nights end at {:.0}s", led.len(), mean(led.iter().map(|x| x.led)), mean(led.iter().map(|x| x.bites as f32)), mean(c.nights.iter().map(|n| n.secs)));
+    }
     s
 }
 

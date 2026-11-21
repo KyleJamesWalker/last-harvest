@@ -44,6 +44,10 @@ pub fn unq_angle(a: u16) -> f32 {
 pub const P_DOWN: u8 = 1;
 pub const P_WALKING: u8 = 2;
 pub const P_READY_FLASH: u8 = 4;
+/// Turned, and steering a leader of the dead; its zombie rides in `zombies` with `Z_LEADER`.
+pub const P_LEADING: u8 = 8;
+/// Turned, and picking where the next leader rises; `pos` is the cursor, for that player only.
+pub const P_PICKING: u8 = 16;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct PlayerState {
@@ -65,6 +69,10 @@ pub struct PlayerState {
     pub input_tick: u32,
     /// Weapons then passives: place in the powerup book and level.
     pub kit: Vec<(u8, u8)>,
+    /// With `P_LEADING`, the leader's zombie id; with `P_PICKING`, tenths of a second left to pick.
+    pub lead: u32,
+    /// With `P_LEADING`, the leader's health left, in 1/255.
+    pub lead_hp: u8,
 }
 
 impl PlayerState {
@@ -85,6 +93,10 @@ impl PlayerState {
             w.u8(d);
             w.u8(l);
         }
+        if self.flags & (P_LEADING | P_PICKING) != 0 {
+            w.var(self.lead);
+            w.u8(self.lead_hp);
+        }
     }
 
     fn read(r: &mut Reader) -> Option<Self> {
@@ -100,9 +112,14 @@ impl PlayerState {
             speed: r.var()? as u16,
             input_tick: r.var()?,
             kit: Vec::new(),
+            lead: 0,
+            lead_hp: 0,
         };
         for _ in 0..r.u8()? {
             p.kit.push((r.u8()?, r.u8()?));
+        }
+        if p.flags & (P_LEADING | P_PICKING) != 0 {
+            (p.lead, p.lead_hp) = (r.var()?, r.u8()?);
         }
         Some(p)
     }

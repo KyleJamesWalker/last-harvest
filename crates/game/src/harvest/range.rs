@@ -376,7 +376,7 @@ impl Harvest {
             let a = r.slot as f32 * TAU / RING as f32 + (r.slot / RING) as f32 * 0.37;
             r.slot += 1;
             let pos = [self.players[ME].pos[0] + a.cos() * radius, self.players[ME].pos[1] + a.sin() * radius];
-            self.tells.push(Tell { kind, pos, hp: kind.stats().hp, t: 0.0, leader: false });
+            self.tells.push(Tell { kind, pos, hp: kind.stats().hp, t: 0.0, leader: false, led: None });
         }
         if self.t > CLOCK_LOOP {
             self.t -= CLOCK_LOOP;

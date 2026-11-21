@@ -147,3 +147,42 @@ fn a_client_leaving_turns_its_player_and_the_host_closing_ends_the_clients_night
     assert!(!pair.games[1].in_run(), "the client's night ended with it");
     assert_eq!(pair.games[1].online.message, "The host ended the night.");
 }
+
+#[test]
+fn a_client_who_turns_leads_the_dead_from_its_own_end_and_picks_its_rise() {
+    let mut pair = Pair::started();
+    pair.idle(1.0);
+    let crate::State::Harvest(h) = &mut pair.games[0].state else { panic!() };
+    h.fall_for_test(1);
+    pair.idle(crate::harvest::TURNED_FOR_TEST + 0.5);
+    let crate::State::Harvest(h) = &pair.games[0].state else { panic!() };
+    let (leading, from) = h.lead_for_test(1).expect("the client's player leads on the host");
+    assert!(leading);
+    let crate::State::Harvest(c) = &mut pair.games[1].state else { panic!() };
+    assert_eq!(c.lead_for_test(0).map(|l| l.0), Some(true), "and the client knows it");
+    let mut f = crate::Frame::default();
+    c.draw(&mut f, false);
+    assert!(f.top.shapes.iter().any(|x| matches!(x, crate::Shape::Text { text, .. } if text.contains("YOU LEAD THE DEAD"))));
+    for _ in 0..(2.0 / DT) as u32 {
+        pair.step(Input::default(), Input { held: Buttons::UP, ..Input::default() });
+    }
+    let crate::State::Harvest(h) = &pair.games[0].state else { panic!() };
+    let at = h.lead_for_test(1).unwrap().1;
+    assert!(((at[0] - from[0]).powi(2) + (at[1] - from[1]).powi(2)).sqrt() > 25.0, "the client's pad walks its leader on the host");
+    let crate::State::Harvest(c) = &pair.games[1].state else { panic!() };
+    let seen = c.lead_for_test(0).unwrap().1;
+    assert!(((seen[0] - at[0]).powi(2) + (seen[1] - at[1]).powi(2)).sqrt() < 16.0, "the client predicts its leader near the host's: {seen:?} {at:?}");
+    let crate::State::Harvest(h) = &mut pair.games[0].state else { panic!() };
+    h.fell_leader_for_test(1);
+    pair.idle(0.3);
+    let crate::State::Harvest(c) = &pair.games[1].state else { panic!() };
+    assert_eq!(c.lead_for_test(0).map(|l| l.0), Some(false), "the client picks its rise");
+    let crate::State::Harvest(h) = &pair.games[0].state else { panic!() };
+    let cross = h.lead_for_test(1).unwrap().1;
+    for _ in 0..(0.5 / DT) as u32 {
+        pair.step(Input::default(), Input { held: Buttons::RIGHT, ..Input::default() });
+    }
+    let crate::State::Harvest(h) = &pair.games[0].state else { panic!() };
+    let moved = h.lead_for_test(1).unwrap().1;
+    assert!(moved[0] > cross[0] + 20.0 || moved[0] >= h.map_width_for_test() - 16.0, "the client's pad moves the cross: {cross:?} {moved:?}");
+}

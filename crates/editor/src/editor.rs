@@ -4679,6 +4679,21 @@ mod tests {
     }
 
     #[test]
+    fn the_leader_data_page_lists_the_turned_players_numbers_in_both_editors() {
+        for modding in [false, true] {
+            let dir = tmp().join(if modding { "leader-mod" } else { "leader" });
+            std::fs::create_dir_all(&dir).unwrap();
+            let mut e = editor_in(&dir, dir.join("art.txt"));
+            if modding {
+                e.set_modding();
+            }
+            e.switch_to("DATA_TUNING_LEADER".into());
+            let keys: Vec<String> = e.data.as_ref().map(|d| d.table.entries(&d.section).into_iter().map(|x| x.key).collect()).unwrap_or_default();
+            assert_eq!(keys, ["respawn_pick", "respawn_min_tiles", "swarm", "speed", "call", "chase"], "modding {modding}");
+        }
+    }
+
+    #[test]
     fn the_weapon_page_rewrites_only_the_lines_it_changes() {
         let dir = tmp().join("weapon");
         let _ = std::fs::remove_dir_all(&dir);

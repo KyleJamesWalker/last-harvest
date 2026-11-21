@@ -58,6 +58,15 @@ pub(super) struct Player {
     pub dogs: Vec<Dog>,
     pub drones: Vec<Drone>,
     pub down: Option<f32>,
+    /// Turned in a run others still play: steering a leader of the dead, or picking where the next one rises.
+    pub lead: Option<super::leader::Lead>,
+    /// Leading: the way the pad steers the leader, as long as the push.
+    pub steer: [f32; 2],
+    /// Leading: the leader's health as it rose, and the share of it left.
+    pub lead_full: f32,
+    pub lead_hp: f32,
+    /// Their device left the online night, so they never lead.
+    pub left: bool,
 }
 
 impl Player {
@@ -88,11 +97,21 @@ impl Player {
             dogs: Vec::new(),
             drones: Vec::new(),
             down: None,
+            lead: None,
+            steer: [0.0; 2],
+            lead_full: 0.0,
+            lead_hp: 0.0,
+            left: false,
         }
     }
 
     pub fn alive(&self) -> bool {
         self.down.is_none()
+    }
+
+    /// Picking where their next leader rises, so where they stand is a cursor nobody else sees.
+    pub fn picking(&self) -> bool {
+        matches!(self.lead, Some(super::leader::Lead::Picking { .. }))
     }
 }
 
@@ -153,7 +172,7 @@ impl Harvest {
     pub(super) fn drive_bots(&mut self, sounds: &mut Vec<Sfx>) {
         let mut bots = std::mem::take(&mut self.bots);
         for (p, bot) in &mut bots {
-            if self.players[*p].alive() {
+            if self.players[*p].alive() || self.players[*p].lead.is_some() {
                 let input = bot.step(self, *p, sounds);
                 self.steer(*p, input);
             }

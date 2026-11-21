@@ -7,6 +7,7 @@ mod effects;
 pub use effects::{SPRITES as SHOT_SPRITES, Shot, shot_named, shot_sprite_names};
 mod enemies;
 mod juice;
+mod leader;
 mod local;
 mod map;
 pub mod online;
@@ -102,6 +103,8 @@ const TURN_FALL: f32 = 0.4;
 const TURN_SINK: f32 = 1.2;
 const TURN_RISE: f32 = 1.6;
 const TURNED: f32 = 2.6;
+#[cfg(test)]
+pub(crate) const TURNED_FOR_TEST: f32 = TURNED;
 /// Seconds the worn grenade flashes, and how bright, when one comes ready.
 const READY_FLASH: f32 = 0.1;
 const READY_BRIGHT: f32 = 3.0;
@@ -354,6 +357,10 @@ struct Zombie {
     away: f32,
     /// Once the run is over: seconds still to stand if below 0, else seconds until it picks a new way to wander.
     roam: f32,
+    /// In the swarm of the turned player who leads it.
+    led: Option<PlayerId>,
+    /// Rose with a turned player's leader: its death drops nothing and counts no kill.
+    barren: bool,
 }
 
 impl Zombie {
@@ -387,6 +394,8 @@ impl Zombie {
             up: 0.0,
             away: 0.0,
             roam: 0.0,
+            led: None,
+            barren: false,
         }
     }
 
@@ -411,6 +420,8 @@ struct Tell {
     hp: f32,
     t: f32,
     leader: bool,
+    /// Rises into this turned player's swarm.
+    led: Option<PlayerId>,
 }
 
 /// A crow pecking at the fields until something startles it.
@@ -1554,6 +1565,9 @@ impl Harvest {
                 self.walk(p, &own, dt);
             }
         }
+        if self.players.len() > 1 {
+            self.steer_leads(input, dt, sounds);
+        }
         self.noise = None;
         for p in 0..self.players.len() {
             if self.players[p].alive() {
@@ -1583,11 +1597,12 @@ impl Harvest {
             let f = self.me().aim;
             let pos = [self.me().pos[0] + f[0] * 50.0, self.me().pos[1] + f[1] * 50.0];
             if !self.map.hits_cells(pos[0], pos[1], crate::tuning::tuning().zombie_half()) {
-                self.tells.push(Tell { kind: Kind::common(), pos, hp: Kind::common().stats().hp, t: 0.0, leader: false });
+                self.tells.push(Tell { kind: Kind::common(), pos, hp: Kind::common().stats().hp, t: 0.0, leader: false, led: None });
             }
         }
         self.rise(dt, sounds);
         self.move_zombies(dt, sounds);
+        self.follow_leads();
         self.tunnel(dt, sounds);
         self.grow_fury(dt);
         self.harvester_waves(dt, sounds, flow);
@@ -2118,7 +2133,7 @@ impl Harvest {
         let hp = kind.stats().hp * (1.0 + minutes * crate::tuning::tuning().growth) * if leader { crate::tuning::tuning().leader_hp } else { 1.0 } * self.fury;
         let p = self.ring_player();
         if let Some(pos) = self.ring_spot(p, None) {
-            self.tells.push(Tell { kind, pos, hp, t: 0.0, leader });
+            self.tells.push(Tell { kind, pos, hp, t: 0.0, leader, led: None });
         }
     }
 
@@ -2167,7 +2182,7 @@ impl Harvest {
         let mut i = 0;
         while i < self.zombies.len() {
             let z = &self.zombies[i];
-            let far = !z.boss && z.rise >= 1.0 && self.players.iter().all(|p| !p.alive() || len(sub(z.pos, p.pos)) > t.straggler_reach) && !self.on_screen(z.pos);
+            let far = !z.boss && z.led.is_none() && z.rise >= 1.0 && self.players.iter().all(|p| !p.alive() || len(sub(z.pos, p.pos)) > t.straggler_reach) && !self.on_screen(z.pos);
             let z = &mut self.zombies[i];
             z.away = if far { z.away + dt } else { 0.0 };
             if !far || z.away < t.straggler_time {
@@ -2179,7 +2194,7 @@ impl Harvest {
             match self.ring_spot(p, Some(ahead)).or_else(|| self.ring_spot(p, None)) {
                 Some(pos) => {
                     let z = self.zombies.swap_remove(i);
-                    self.tells.push(Tell { kind: z.kind, pos, hp: z.hp, t: 0.0, leader: z.leader });
+                    self.tells.push(Tell { kind: z.kind, pos, hp: z.hp, t: 0.0, leader: z.leader, led: None });
                 }
                 None => i += 1,
             }
@@ -2204,6 +2219,7 @@ impl Harvest {
             let anim = self.rng.range(0.0, 1.0);
             let mut z = Zombie::new(t.kind, t.pos, t.hp, 0.0, anim);
             z.leader = t.leader;
+            (z.led, z.barren) = (t.led, t.led.is_some());
             z.id = self.next_id;
             self.next_id += 1;
             let burrows = t.kind.stats().burrow > 0.0;
@@ -2259,6 +2275,7 @@ impl Harvest {
             self.flow_cells = cells;
         }
         let nearest = |at: [f32; 2]| targets.iter().copied().min_by(|a, b| len(sub(*a, at)).total_cmp(&len(sub(*b, at)))).unwrap_or(at);
+        let leaders = self.leaders();
         let mut bites = Vec::new();
         let mut spits = Vec::new();
         for (z, &s) in self.zombies.iter_mut().zip(&sep) {
@@ -2277,22 +2294,36 @@ impl Harvest {
             }
             let t = crate::tuning::tuning();
             let prey = nearest(z.pos);
-            let charge = if len(sub(prey, z.pos)) < t.charge_reach { z.kind.stats().charge } else { 1.0 };
-            let speed = if z.boss { t.harvester_speed } else { z.kind.stats().speed * charge } * (1.0 - z.slow_k);
-            let direct = sub(prey, z.pos);
-            let lure = self.decoys.iter().find(|d| len(sub(d.pos, z.pos)) < d.lure);
             let ranged = z.kind.stats().ranged;
-            let spitting = self.range.is_none() && !z.boss && lure.is_none() && len(direct) <= ranged && clear_shot(&self.map, z.pos, prey);
-            let to = match lure {
-                Some(d) => norm(sub(d.pos, z.pos)),
-                None if spitting || len(direct) < TILE * 1.5 => norm(direct),
-                None => self.map.downhill(&self.flow, z.pos).unwrap_or(norm(direct)),
+            let led = z.led.and_then(|q| leaders.get(q).copied().flatten()).filter(|&(id, ..)| z.id == id || len(sub(prey, z.pos)) > t.leader_chase);
+            let (to, speed, spitting) = if let Some((id, wish, at)) = led {
+                let (to, speed) = if z.id == id {
+                    let k = len(wish).min(1.0);
+                    if k > 0.2 { (norm(wish), t.leader_speed * k) } else { (z.dir, 0.0) }
+                } else {
+                    let d = sub(at, z.pos);
+                    (norm(d), z.kind.stats().speed * ((len(d) - 16.0) / 32.0).clamp(0.0, 1.0))
+                };
+                (to, speed * (1.0 - z.slow_k), false)
+            } else {
+                let charge = if len(sub(prey, z.pos)) < t.charge_reach { z.kind.stats().charge } else { 1.0 };
+                let speed = if z.boss { t.harvester_speed } else { z.kind.stats().speed * charge } * (1.0 - z.slow_k);
+                let direct = sub(prey, z.pos);
+                let lure = self.decoys.iter().find(|d| len(sub(d.pos, z.pos)) < d.lure);
+                let spitting = self.range.is_none() && !z.boss && lure.is_none() && len(direct) <= ranged && clear_shot(&self.map, z.pos, prey);
+                let to = match lure {
+                    Some(d) => norm(sub(d.pos, z.pos)),
+                    None if spitting || len(direct) < TILE * 1.5 => norm(direct),
+                    None => self.map.downhill(&self.flow, z.pos).unwrap_or(norm(direct)),
+                };
+                let speed = if spitting { 0.0 } else { speed };
+                let (to, speed) = match &self.range {
+                    Some(r) => r.hold(z.pos, prey, radius, speed),
+                    None => (to, speed),
+                };
+                (to, speed, spitting)
             };
-            let speed = if spitting { 0.0 } else { speed };
-            let (to, speed) = match &self.range {
-                Some(r) => r.hold(z.pos, prey, radius, speed),
-                None => (to, speed),
-            };
+            let s = if led.is_some_and(|(id, ..)| id == z.id) { [0.0; 2] } else { s };
             if spitting && z.cd <= 0.0 {
                 z.cd = t.spit_every.max(0.1);
                 let fly = t.spit_speed.max(1.0);
@@ -2486,6 +2517,13 @@ impl Harvest {
         let before = self.players[p].down.unwrap_or(0.0);
         let t = before + dt;
         self.players[p].down = Some(t);
+        if self.players[p].lead.is_some() {
+            return self.follow_leads();
+        }
+        if t >= TURNED && before < TURNED && !self.players[p].left && self.may_lead() {
+            let at = self.players[p].pos;
+            return self.rise_leading(p, at, 1.0);
+        }
         if t >= TURNED {
             self.wander_turned(p, dt);
         }
@@ -2588,8 +2626,12 @@ impl Harvest {
             if pl.hurt > 0.0 || !pl.alive() {
                 continue;
             }
-            let hit = self.zombies.iter().filter(|z| z.rise >= 1.0 && len(sub(z.pos, pl.pos)) < crate::tuning::tuning().bite_reach).map(|z| z.kind.stats().damage * if z.boss { crate::tuning::tuning().harvester_bite } else { 1.0 } * self.fury * self.difficulty.damage()).fold(0.0, f32::max);
+            let biters = self.zombies.iter().filter(|z| z.rise >= 1.0 && len(sub(z.pos, pl.pos)) < crate::tuning::tuning().bite_reach);
+            let (hit, by) = biters.map(|z| (z.kind.stats().damage * if z.boss { crate::tuning::tuning().harvester_bite } else { 1.0 } * self.fury * self.difficulty.damage(), z.led)).fold((0.0, None), |a, b| if b.0 > a.0 { b } else { a });
             if hit > 0.0 {
+                if let Some(q) = by {
+                    self.juice.tally.book_mut(q).bites += 1;
+                }
                 self.bitten(p, hit, sounds, flow);
             }
         }
@@ -2841,8 +2883,7 @@ impl Harvest {
                 continue;
             }
             let z = self.zombies.swap_remove(i);
-            let over = matches!(self.phase, Phase::Over { .. });
-            if over {
+            if z.barren || matches!(self.phase, Phase::Over { .. }) {
                 let s = z.kind.stats();
                 let fall = if z.knock == [0.0; 2] { norm(sub(z.pos, self.players[self.nearest_player(z.pos)].pos)) } else { z.knock };
                 self.gore(z.pos, fall, z.fling, z.dir, &s.look, s.gibs as usize, s.blood);
@@ -3442,7 +3483,7 @@ mod tests {
         let mut h = Harvest::calm_on(1, &map::MapSource::new("Field", [20, 14])).unwrap();
         h.me_mut().kit.weapons.clear();
         let mole = skinny_but(|e| e.burrow = 2.0);
-        h.tells.push(Tell { kind: mole, pos: [h.me().pos[0] + 90.0, h.me().pos[1]], hp: 1000.0, t: 0.0, leader: false });
+        h.tells.push(Tell { kind: mole, pos: [h.me().pos[0] + 90.0, h.me().pos[1]], hp: 1000.0, t: 0.0, leader: false, led: None });
         let mut sounds = Vec::new();
         h.update(&Input::default(), TELL_TIME + 0.01, &mut sounds);
         assert_eq!((h.zombies.len(), h.burrowed.len()), (0, 1), "it breaks ground straight into a tunnel");
