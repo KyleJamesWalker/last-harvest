@@ -1,0 +1,3 @@
+{$RELAY_DOMAIN} {
+	reverse_proxy last-harvest-relay:8080
+}

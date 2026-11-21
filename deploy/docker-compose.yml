@@ -1,0 +1,52 @@
+# last-harvest-relay behind Caddy, which terminates TLS, plus coturn. See docs/online.md.
+# Needs a .env beside this file with RELAY_DOMAIN, ALLOWED_ORIGINS and TURN_SECRET (hex).
+# Both services join the external `caddy` network: docker network create caddy
+services:
+  last-harvest-relay:
+    build:
+      context: ..
+      dockerfile: deploy/relay.Dockerfile
+    restart: unless-stopped
+    environment:
+      LAST_HARVEST_RELAY_ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:?set ALLOWED_ORIGINS in .env}
+      LAST_HARVEST_RELAY_TRUSTED_PROXIES: private
+      LAST_HARVEST_RELAY_TURN_URL: turn:${RELAY_DOMAIN:?set RELAY_DOMAIN in .env}:3478
+      LAST_HARVEST_RELAY_TURN_SECRET: ${TURN_SECRET:?set TURN_SECRET in .env}
+    networks: [caddy]
+
+  coturn:
+    image: coturn/coturn:4.7.0
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./turnserver.conf:/etc/coturn/turnserver.conf:ro
+    command:
+      - -c
+      - /etc/coturn/turnserver.conf
+      - --log-file=stdout
+      - --external-ip=$$(detect-external-ip)
+      - --realm=${RELAY_DOMAIN:?set RELAY_DOMAIN in .env}
+      - --static-auth-secret=${TURN_SECRET:?set TURN_SECRET in .env}
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      RELAY_DOMAIN: ${RELAY_DOMAIN:?set RELAY_DOMAIN in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [caddy]
+
+networks:
+  caddy:
+    external: true
+
+volumes:
+  caddy_data:
+  caddy_config:
