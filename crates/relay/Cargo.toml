@@ -1,0 +1,15 @@
+[package]
+name = "last-harvest-relay"
+description = "Signaling and TURN credentials for online co-op. Copied from supermariowar-rust apps/smw_relay at 2b216eb983aa8c01236652f587eee17c16d7699e."
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+base64 = "0.22"
+getrandom = "0.4"
+hmac = "0.13"
+serde_json = "1"
+sha1 = "0.11"
+tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
