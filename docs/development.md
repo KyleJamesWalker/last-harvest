@@ -166,6 +166,9 @@ CI reads the private submodule with the `ASSETS_DEPLOY_KEY` secret. A pull reque
 | `crates/sprite-server` | Serves the sprite editor to an iPad on the local network. |
 | `crates/pack` | Reads and writes data packs. Its binary builds `game_data.pak` and mod packs. |
 | `crates/net` | WebRTC peers in a matchbox signaling room, each with a reliable and an unreliable channel. Native and browser builds. Nothing uses it yet. |
+| `crates/lobby` | The online co-op lobby: room codes, the join handshake, ready-up, start and drop-in. No transport of its own. See [online](online.md). |
+| `crates/relay` | `last-harvest-relay`: signaling and TURN credentials for online co-op. Native only. See [online](online.md). |
+| `deploy` | The relay's Dockerfile and a compose file with Caddy and coturn. Not deployed. |
 | `scripts` | Build, deploy, install, debug, capture, web and Pages scripts. |
 | `tools` | Python checks and generators for the manual, the CSP hashes and the third-party licenses. |
 | `assets` | The font, the launchers, the data folder README and the Pages site. |
@@ -228,3 +231,5 @@ Native `last-harvest-net` peers read these.
 | `LAST_HARVEST_NET_TEST_RESTART_MS` | The offering peer restarts ICE this long after it connects, once. |
 | `LAST_HARVEST_NET_TEST_DROP_SIGNAL_MS` | Drops the signaling connection without a close this long after it opens, once. |
 | `LAST_HARVEST_NET_TURN_URL`, `_USERNAME`, `_CREDENTIAL` | The `echo_peer` example connects through this TURN relay only. |
+
+The relay's own settings (`LAST_HARVEST_RELAY_*`) are in [online](online.md#relay-settings).

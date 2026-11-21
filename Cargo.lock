@@ -1901,6 +1901,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "last-harvest-lobby"
+version = "0.1.0"
+dependencies = [
+ "last-harvest-net",
+ "last-harvest-relay",
+]
+
+[[package]]
 name = "last-harvest-net"
 version = "0.1.0"
 dependencies = [
@@ -1928,6 +1936,18 @@ dependencies = [
  "last-harvest-game",
  "png",
  "zip",
+]
+
+[[package]]
+name = "last-harvest-relay"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "getrandom 0.4.3",
+ "hmac 0.13.0",
+ "serde_json",
+ "sha1 0.11.0",
+ "tungstenite 0.30.0",
 ]
 
 [[package]]

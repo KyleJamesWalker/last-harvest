@@ -74,3 +74,6 @@ jobs:
             | grep -q 'feature "embed"' && { echo "the tileset is built into the editor"; exit 1; } || true
           cargo tree -e features -i last-harvest-game -p last-harvest --no-default-features --target wasm32-unknown-unknown \
             | grep -q 'feature "embed"' && { echo "the tileset is built into the game"; exit 1; } || true
+          cargo check --locked --target wasm32-unknown-unknown -p last-harvest-lobby
+          cargo tree -e normal -p last-harvest --no-default-features --target wasm32-unknown-unknown \
+            | grep -qE 'last-harvest-relay|tungstenite|webrtc v' && { echo "the web game pulls the relay or native WebRTC"; exit 1; } || true
