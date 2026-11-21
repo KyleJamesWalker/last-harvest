@@ -27,6 +27,22 @@ pub fn home() -> Option<std::path::PathBuf> {
 /// The release this binary was built for, or `dev` and its commit.
 pub const VERSION: &str = env!("LAST_HARVEST_BUILD");
 
+/// Views for trying split-screen, from `LAST_HARVEST_SPLIT` or the web page's `?split=`: 2 to 4, else none.
+pub fn split_views(v: &str) -> Option<usize> {
+    v.trim().parse().ok().filter(|n| (2..=controllers::MAX_PLAYERS).contains(n))
+}
+
+/// Draws one canvas per local player on a surface `size` pixels across and down, laid out as `split` tiles it, with
+/// black where no view goes.
+pub fn draw_split(renderer: &mut last_harvest_render::Renderer, gl: &glow::Context, views: &[&last_harvest_game::Canvas], [w, h]: [i32; 2]) {
+    let black = last_harvest_game::Canvas { clear: [0.0, 0.0, 0.0, 1.0], ..Default::default() };
+    renderer.draw(gl, &black, [0, 0, w, h]);
+    let rects = last_harvest_render::split::split(views.len(), [w.max(0) as u32, h.max(0) as u32]);
+    for (canvas, [x, y, vw, vh]) in views.iter().zip(rects) {
+        renderer.draw_view(gl, canvas, [x as i32, h - (y + vh) as i32, vw as i32, vh as i32]);
+    }
+}
+
 /// Draws a phone's frame on a surface `size` pixels across and down: black, then each screen in its rect, then the
 /// on-screen controls over everything.
 pub fn draw_phone(renderer: &mut last_harvest_render::Renderer, gl: &glow::Context, frame: &last_harvest_game::Frame, phone: &last_harvest_game::touch::Phone, [w, h]: [i32; 2]) {
@@ -39,4 +55,12 @@ pub fn draw_phone(renderer: &mut last_harvest_render::Renderer, gl: &glow::Conte
         }
     }
     renderer.draw(gl, &phone.pad, [0, 0, w, h]);
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn split_views_take_two_to_four() {
+        assert_eq!(["2", " 4 ", "1", "5", "", "two"].map(super::split_views), [Some(2), Some(4), None, None, None, None]);
+    }
 }
