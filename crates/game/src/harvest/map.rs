@@ -489,41 +489,50 @@ impl Map {
     #[cfg(test)]
     pub fn flow(&self, target: [f32; 2]) -> Vec<u16> {
         let mut dist = Vec::new();
-        self.steps::<true>(target, &mut dist, &mut Steps::default());
+        self.steps::<true>(&[target], &mut dist, &mut Steps::default());
         dist
     }
 
     /// What it costs a zombie to get to the cell under `target` from every cell, into `dist`: a step for each open
     /// cell, and more through a prop it can chew through; `u16::MAX` where it can't.
     pub fn flow_into(&self, target: [f32; 2], dist: &mut Vec<u16>, steps: &mut Steps) {
-        self.steps::<true>(target, dist, steps);
+        self.steps::<true>(&[target], dist, steps);
+    }
+
+    /// `flow_into` toward whichever of `targets` is cheapest to reach from each cell.
+    pub fn flow_from(&self, targets: &[[f32; 2]], dist: &mut Vec<u16>, steps: &mut Steps) {
+        self.steps::<true>(targets, dist, steps);
     }
 
     /// Steps from every open cell to the cell under `target` over open ground, as the player walks; `u16::MAX`
     /// where unreachable.
     pub fn reach(&self, target: [f32; 2]) -> Vec<u16> {
         let mut dist = Vec::new();
-        self.steps::<false>(target, &mut dist, &mut Steps::default());
+        self.steps::<false>(&[target], &mut dist, &mut Steps::default());
         dist
     }
 
     /// Dial's algorithm: cells a step away queue for the next distance, and those further through something to
     /// chew in a ring of buckets as long as the dearest step. Queued cells carry x in the low half and y in the
     /// high, which saves a division a cell on the device.
-    fn steps<const CHEW: bool>(&self, target: [f32; 2], dist: &mut Vec<u16>, steps: &mut Steps) {
+    fn steps<const CHEW: bool>(&self, targets: &[[f32; 2]], dist: &mut Vec<u16>, steps: &mut Steps) {
         let (w, h) = (self.w, self.h);
         dist.clear();
         dist.resize(w * h, u16::MAX);
-        let (tx, ty) = ((target[0] / TILE) as usize, (target[1] / TILE) as usize);
-        if tx >= w || ty >= h {
-            return;
-        }
         let Steps { ring, now, next } = steps;
         ring.iter_mut().for_each(Vec::clear);
         next.clear();
         now.clear();
-        now.push((ty << 16 | tx) as u32);
-        dist[self.i(tx, ty)] = 0;
+        for target in targets {
+            let (tx, ty) = ((target[0] / TILE) as usize, (target[1] / TILE) as usize);
+            if tx < w && ty < h && dist[ty * w + tx] != 0 {
+                now.push((ty << 16 | tx) as u32);
+                dist[ty * w + tx] = 0;
+            }
+        }
+        if now.is_empty() {
+            return;
+        }
         let (mut d, mut idle) = (0u16, 0);
         while idle <= MAX_STEP && d < u16::MAX - MAX_STEP as u16 {
             now.append(&mut ring[d as usize % ring.len()]);
@@ -1160,6 +1169,22 @@ impl Map {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_flow_from_two_players_leads_each_cell_to_the_nearer() {
+        let map = Map::from_source(&MapSource::new("Open", [40, 40]), &mut Rng::new(1), false).unwrap();
+        let (a, b) = ([5.5 * TILE, 20.5 * TILE], [30.5 * TILE, 20.5 * TILE]);
+        let (mut dist, mut steps) = (Vec::new(), Steps::default());
+        map.flow_from(&[a, b], &mut dist, &mut steps);
+        let at = |x: usize| dist[map.i(x, 20)];
+        assert_eq!([at(5), at(30), at(10), at(25), at(17)], [0, 0, 5, 5, 12]);
+        assert!(map.downhill(&dist, [12.5 * TILE, 20.5 * TILE]).unwrap()[0] < 0.0, "left of the middle goes to the left player");
+        assert!(map.downhill(&dist, [23.5 * TILE, 20.5 * TILE]).unwrap()[0] > 0.0, "right of it to the right one");
+        let mut one = Vec::new();
+        map.flow_into(a, &mut one, &mut steps);
+        map.flow_from(&[a], &mut dist, &mut steps);
+        assert_eq!(one, dist, "one target is the old field");
+    }
 
     /// Everything a generated farm lays down, hashed, so a change to how farm.txt is read can't move a thing.
     fn layout_hash(map: &Map) -> u64 {
