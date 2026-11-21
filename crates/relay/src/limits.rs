@@ -98,14 +98,14 @@ impl Drop for AddressSlot {
     }
 }
 
-/// IPv4 as is; IPv6 by its /64, which one host can use whole.
-fn key(address: IpAddr) -> IpAddr {
+/// IPv4 as is; IPv6 by its /56, a common size for one customer's delegated prefix.
+pub fn key(address: IpAddr) -> IpAddr {
     match address {
         IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
             Some(v4) => IpAddr::V4(v4),
             None => {
                 let s = v6.segments();
-                IpAddr::V6(Ipv6Addr::new(s[0], s[1], s[2], s[3], 0, 0, 0, 0))
+                IpAddr::V6(Ipv6Addr::new(s[0], s[1], s[2], s[3] & 0xff00, 0, 0, 0, 0))
             }
         },
         v4 => v4,
@@ -193,13 +193,15 @@ mod tests {
     }
 
     #[test]
-    fn loopback_is_exempt_and_ipv6_counts_by_64() {
+    fn loopback_is_exempt_and_ipv6_counts_by_56() {
         let limits = AddressLimits::new(1, 1);
         let now = Instant::now();
         let _slots: Vec<_> = (0..5).map(|_| limits.open(ip("127.0.0.1"), now).unwrap()).collect();
         let _v6 = limits.open(ip("2001:db8:1:2::1"), now).unwrap();
         assert!(limits.open(ip("2001:db8:1:2::ffff"), now).is_err());
-        assert!(limits.open(ip("2001:db8:1:3::1"), now).is_ok());
+        assert!(limits.open(ip("2001:db8:1:3::1"), now).is_err(), "another /64 of the same /56");
+        assert!(limits.open(ip("2001:db8:1:ff::1"), now).is_err());
+        assert!(limits.open(ip("2001:db8:1:100::1"), now).is_ok());
     }
 
     #[test]

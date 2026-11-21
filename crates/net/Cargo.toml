@@ -26,5 +26,6 @@ wasm-bindgen-futures = "0.4"
 web-sys = { version = "0.3", features = ["console", "MessageEvent", "Performance", "RtcConfiguration", "RtcDataChannel", "RtcDataChannelInit", "RtcDataChannelState", "RtcDataChannelType", "RtcIceCandidate", "RtcIceCandidateInit", "RtcIceConnectionState", "RtcIceGatheringState", "RtcIceServer", "RtcIceTransportPolicy", "RtcOfferOptions", "RtcPeerConnection", "RtcPeerConnectionIceEvent", "RtcPeerConnectionState", "RtcSdpType", "RtcSessionDescription", "RtcSessionDescriptionInit", "Response", "WebSocket", "Window"] }
 
 [dev-dependencies]
+last-harvest-relay = { path = "../relay" }
 matchbox_signaling = "=0.14.0"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

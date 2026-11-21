@@ -26,6 +26,8 @@ struct Counts {
     connections: Arc<AtomicUsize>,
     signaling: Arc<AtomicUsize>,
     addresses: Arc<AddressLimits>,
+    /// Signaling peers per client address.
+    peers: Arc<AddressLimits>,
 }
 
 /// One place under a limit, given back on drop.
@@ -78,6 +80,7 @@ pub fn serve(config: &Config) -> io::Result<u16> {
         connections: Default::default(),
         signaling: Default::default(),
         addresses: AddressLimits::new(config.max_per_address, config.connects_per_minute),
+        peers: AddressLimits::new(config.max_peers_per_address, 0),
     };
     thread::spawn(move || {
         let mut full = false;
@@ -122,11 +125,12 @@ fn handle_connection(
     let _ = stream.set_nodelay(true);
 
     let Some((head, head_len)) = peek_request_head(&stream) else { return };
+    let peer = stream.peer_addr().map_or(IpAddr::V4(Ipv4Addr::LOCALHOST), |a| a.ip());
+    let client = if limits::may_proxy(peer, config.trusted_proxies) { limits::forwarded_for(&head).unwrap_or(peer) } else { peer };
     let _address = match address {
         Some(address) => address,
         None => {
-            let peer = stream.peer_addr().map_or(IpAddr::V4(Ipv4Addr::LOCALHOST), |a| a.ip());
-            match counts.addresses.open(limits::forwarded_for(&head).unwrap_or(peer), Instant::now()) {
+            match counts.addresses.open(client, Instant::now()) {
                 Ok(address) => address,
                 Err(_) => {
                     refuse(&mut stream, head_len, "429 Too Many Requests", "too many connections\n");
@@ -142,7 +146,11 @@ fn handle_connection(
             refuse(&mut stream, head_len, "503 Service Unavailable", "relay full\n");
             return;
         };
-        crate::signal::run(stream, room.to_string(), crate::signal::parse_resume(&query), config);
+        let Ok(_peer) = counts.peers.open(client, Instant::now()) else {
+            refuse(&mut stream, head_len, "429 Too Many Requests", "too many signaling peers\n");
+            return;
+        };
+        crate::signal::run(stream, room.to_string(), crate::signal::wants_resume(&query), client, config);
         return;
     }
     let mut consumed = vec![0; head_len];
@@ -156,14 +164,14 @@ fn handle_connection(
     }
 }
 
-/// TURN credentials for a page the relay allows, or a native game.
+/// No ICE servers, for a page the relay allows or a native game: TURN credentials go only to signaling peers.
 fn ice(stream: &mut TcpStream, head: &str, config: &Config) {
     let origin = limits::header(head, "origin");
     if !config.origin_allowed(origin) {
         respond(stream, "403 Forbidden", "text/plain", "origin not allowed\n");
         return;
     }
-    let body = crate::turn::ice_servers(config, crate::turn::now_unix());
+    let body = r#"{"iceServers":[]}"#;
     let allow = origin.map(|o| format!("Access-Control-Allow-Origin: {o}\r\nVary: Origin\r\n")).unwrap_or_default();
     let response = format!(
         "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nCache-Control: no-store\r\n{allow}Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
@@ -330,6 +338,42 @@ mod tests {
     }
 
     #[test]
+    fn an_address_holds_at_most_max_peers_per_address() {
+        let port = relay(|c| c.max_peers_per_address = 2);
+        let mut held: Vec<_> = (0..2).map(|i| signal_from(port, &format!("peers-{i}"), Some("2001:db8:7:1::1")).unwrap()).collect();
+        assert!(signal_from(port, "peers-x", Some("2001:db8:7:2::9")).unwrap_err().contains("429"), "the same /56");
+        assert!(signal_from(port, "peers-y", Some("198.51.100.2")).is_ok(), "other addresses are not affected");
+        assert_eq!(get(port, "/healthz", None).lines().next(), Some("HTTP/1.1 200 OK"), "other requests are not affected");
+
+        held[0].close(None).unwrap();
+        let _ = held[0].flush();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while signal_from(port, "peers-z", Some("2001:db8:7:1::1")).is_err() {
+            assert!(Instant::now() < deadline, "a closed peer frees its place");
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+
+    #[test]
+    fn a_peer_alone_in_its_room_is_closed() {
+        let port = relay(|c| c.lonely_timeout = Duration::from_millis(300));
+        let mut alone = signal(port, "lonely-a").unwrap();
+        let mut pair: Vec<_> = (0..2).map(|_| signal(port, "lonely-b").unwrap()).collect();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            match alone.read() {
+                Ok(Message::Close(_)) | Err(tungstenite::Error::ConnectionClosed | tungstenite::Error::AlreadyClosed) => break,
+                Err(tungstenite::Error::Io(ref e)) if !matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => break,
+                _ => assert!(Instant::now() < deadline, "the relay kept a lonely peer"),
+            }
+        }
+        for peer in &mut pair {
+            peer.send(Message::Text("\"KeepAlive\"".into())).unwrap();
+            assert!(drain(peer).iter().any(|t| t.contains("KeepAlive")), "a peer with company stays");
+        }
+    }
+
+    #[test]
     fn signaling_peers_count_against_max_clients() {
         let port = relay(|c| c.max_clients = 1);
         let mut first = signal(port, "limit-a").unwrap();
@@ -364,6 +408,19 @@ mod tests {
         panic!("the relay kept the connection");
     }
 
+    /// A connection asking to resume, with `message` as its first message.
+    fn resume(port: u16, room: &str, message: Option<String>) -> WebSocket<MaybeTlsStream<TcpStream>> {
+        let mut ws = signal(port, &format!("{room}?resume")).unwrap();
+        if let Some(message) = message {
+            ws.send(Message::Text(message.into())).unwrap();
+        }
+        ws
+    }
+
+    fn resume_message(id: &str, token: &str) -> Option<String> {
+        Some(serde_json::json!({ "Resume": { "id": id, "token": token } }).to_string())
+    }
+
     #[test]
     fn a_dropped_signaling_peer_resumes_its_place() {
         let port = relay(|_| {});
@@ -378,8 +435,10 @@ mod tests {
         drop(first);
         assert!(!drain(&mut second).iter().any(|t| t.contains("PeerLeft")), "no PeerLeft while the place is held");
 
-        assert_eq!(read_text(&mut signal(port, &format!("resume?resume={id}&token=wrong")).unwrap()), None);
-        let mut resumed = signal(port, &format!("resume?resume={id}&token={token}")).unwrap();
+        assert_eq!(read_text(&mut resume(port, "resume", resume_message(&id, "wrong"))), None);
+        assert_eq!(read_text(&mut signal(port, &format!("resume?resume={id}&token={token}")).unwrap()), None, "a token in the URL is not taken");
+        assert_eq!(read_text(&mut resume(port, "resume", Some("\"KeepAlive\"".into()))), None);
+        let mut resumed = resume(port, "resume", resume_message(&id, &token));
         assert_eq!(read_field(&mut resumed, "IdAssigned").unwrap(), id);
         assert!(!drain(&mut second).iter().any(|t| t.contains("NewPeer")), "a resume is not a new peer");
         let hello = serde_json::json!({ "Signal": { "receiver": id, "data": "hello" } });
@@ -402,7 +461,7 @@ mod tests {
         read_field(&mut second, "IdAssigned").unwrap();
         crate::signal::hold_for_test("expire", &id, Duration::from_millis(200));
         assert_eq!(read_field(&mut second, "PeerLeft").unwrap(), id);
-        assert_eq!(read_text(&mut signal(port, &format!("expire?resume={id}&token={token}")).unwrap()), None);
+        assert_eq!(read_text(&mut resume(port, "expire", resume_message(&id, &token))), None);
     }
 
     fn get(port: u16, path: &str, origin: Option<&str>) -> String {
@@ -416,7 +475,7 @@ mod tests {
     }
 
     #[test]
-    fn healthz_and_ice_answer() {
+    fn healthz_and_ice_answer_without_credentials() {
         let port = relay(|c| {
             c.allowed_origins = vec!["https://game.example.com".into()];
             c.turn_url = Some("turn:relay.example.com:3478".into());
@@ -424,11 +483,51 @@ mod tests {
         });
         assert!(healthcheck(port));
         let native = get(port, "/ice", None);
-        assert!(native.starts_with("HTTP/1.1 200") && native.contains("turn:relay.example.com:3478"), "{native}");
+        assert!(native.starts_with("HTTP/1.1 200") && native.ends_with(r#"{"iceServers":[]}"#), "{native}");
         let page = get(port, "/ice", Some("https://game.example.com"));
-        assert!(page.contains("Access-Control-Allow-Origin: https://game.example.com"), "{page}");
+        assert!(page.contains("Access-Control-Allow-Origin: https://game.example.com") && !page.contains("turn:"), "{page}");
         assert!(get(port, "/ice", Some("https://evil.example")).starts_with("HTTP/1.1 403"));
         assert!(get(port, "/nope", None).starts_with("HTTP/1.1 404"));
+    }
+
+    /// The `IceServers` messages `ws` gets for `time`, and the messages before the first.
+    fn ice_messages(ws: &mut WebSocket<MaybeTlsStream<TcpStream>>, time: Duration) -> (Vec<String>, Vec<serde_json::Value>) {
+        let (mut before, mut ice) = (Vec::new(), Vec::new());
+        let deadline = Instant::now() + time;
+        while let Some(text) = read_text(ws).filter(|_| Instant::now() < deadline) {
+            let value: serde_json::Value = serde_json::from_str(&text).unwrap();
+            match value.get("IceServers") {
+                Some(servers) => ice.push(servers["iceServers"][0].clone()),
+                None if ice.is_empty() => before.push(text),
+                None => {}
+            }
+        }
+        (before, ice)
+    }
+
+    #[test]
+    fn signaling_peers_get_turn_credentials_named_by_address() {
+        let port = relay(|c| {
+            c.turn_url = Some("turn:relay.example.com:3478".into());
+            c.turn_secret = Some("00ff".into());
+            c.turn_lifetime = Duration::from_secs(2);
+        });
+        let mut first = signal_from(port, "turn", Some("203.0.113.5")).unwrap();
+        let (before, ice) = ice_messages(&mut first, Duration::from_millis(1200));
+        assert_eq!(before.len(), 2, "IdAssigned and ResumeToken come first: {before:?}");
+        assert!(ice.len() >= 2, "a fresh credential every quarter of its lifetime: {ice:?}");
+        let name = crate::turn::turn_name("00ff", "203.0.113.5".parse().unwrap());
+        for server in &ice {
+            assert_eq!(server["urls"][0], "turn:relay.example.com:3478");
+            assert!(server["username"].as_str().unwrap().ends_with(&format!(":{name}")), "{server}");
+        }
+
+        let mut other = signal_from(port, "turn", Some("198.51.100.5")).unwrap();
+        let (_, ice) = ice_messages(&mut other, Duration::from_millis(300));
+        assert!(!ice[0]["username"].as_str().unwrap().ends_with(&format!(":{name}")), "another address, another name");
+
+        let mut plain = signal(relay(|_| {}), "no-turn").unwrap();
+        assert!(!drain(&mut plain).iter().any(|t| t.contains("IceServers")), "no TURN, no message");
     }
 
     #[test]

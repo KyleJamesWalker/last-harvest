@@ -1918,6 +1918,7 @@ dependencies = [
  "bytes",
  "futures-util",
  "js-sys",
+ "last-harvest-relay",
  "matchbox_signaling",
  "rustls",
  "serde_json",
