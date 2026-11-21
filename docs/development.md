@@ -90,6 +90,7 @@ Options make the player closer to a real one. The defaults replay older CSVs exa
 
 | Option | The player |
 |---|---|
+| `--walk corner` | Walks to the farm's nearest corner, turns round to face out and stands there, the way a corner camper plays. It stands wherever it got to after 60 s. |
 | `--walk avoid` | Never stops walking, and turns toward the open way that leads least toward the zombies the map shows: each where the view ahead last saw it, fading as it's forgotten. It uses only the move and turn buttons and what the map shows, would rather veer than turn back, and never turns round on a schedule. Fair to weapons that hit behind or around the player. |
 | `--pick random` | Takes one of the three level-up cards at random, from the game's own draw. |
 | `--pick held` | Takes a card for a powerup it holds, rare first. With none on offer it rerolls, then banishes, while the run allows, then takes a new one. It favors a held weapon from `favor_level`. |
@@ -158,7 +159,7 @@ tools/matrix/run.py t1 --player avoid,held,nothrow   # the player's options for 
 uv run --no-project --with numpy tools/matrix/report.py --findings notes.html   # target/matrix/report.html
 ```
 
-`--player` takes a walk (`circle`, `eight`, `avoid`), a pick (`none`, `random`, `held`, `first:a+b`), `nothrow` and `locked`; the report lists each tier's settings under "How it was run".
+`--player` takes a walk (`circle`, `eight`, `avoid`, `corner`), a pick (`none`, `random`, `held`, `first:a+b`), `nothrow` and `locked`; the report lists each tier's settings under "How it was run".
 
 Under the normal rules most builds kill nearly every zombie that rises by level 8, so kills tie. The pressure tiers lay `tools/matrix/pressure/tuning.txt` over the data (spawns up to 25/s, a cap of 600) to lift that ceiling; they need the `[spawn]` section of `tuning.txt` and are skipped without it. Survival, the time of the undying player's first fall, separates builds that still tie on kills.
 

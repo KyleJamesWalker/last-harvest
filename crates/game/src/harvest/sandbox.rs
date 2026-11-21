@@ -14,14 +14,15 @@ use crate::rng::Rng;
 use crate::sfx::Sfx;
 use crate::{Buttons, Difficulty, Input};
 
-/// How the scripted player walks: always ahead, turning steadily one way, one way a loop then the other, or turning
-/// away from the zombies the map shows near it.
+/// How the scripted player walks: always ahead, turning steadily one way, one way a loop then the other, turning
+/// away from the zombies the map shows near it, or to the farm's nearest corner to stand there facing out.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Walk {
     #[default]
     Circle,
     Eight,
     Avoid,
+    Corner,
 }
 
 impl Walk {
@@ -30,6 +31,7 @@ impl Walk {
             "circle" => Some(Walk::Circle),
             "eight" => Some(Walk::Eight),
             "avoid" => Some(Walk::Avoid),
+            "corner" => Some(Walk::Corner),
             _ => None,
         }
     }
@@ -39,6 +41,7 @@ impl Walk {
             Walk::Circle => "circle",
             Walk::Eight => "eight",
             Walk::Avoid => "avoid",
+            Walk::Corner => "corner",
         }
     }
 }
@@ -314,18 +317,19 @@ pub struct Bot {
     throw_every: f32,
     turned: u32,
     thrown: u32,
+    parked: bool,
 }
 
 impl Bot {
     /// One that walks `walk`, turning at `turn` of the turn buttons' speed, turning round every `turn_every` seconds
     /// and throwing every `throw_every`; 0 for never.
     pub fn new(walk: Walk, turn: f32, turn_every: f32, throw_every: f32) -> Self {
-        Self { walk, turn, turn_every, throw_every, turned: 0, thrown: 0 }
+        Self { walk, turn, turn_every, throw_every, turned: 0, thrown: 0, parked: false }
     }
 
     /// The same script from the start of a night.
     pub(super) fn again(self) -> Self {
-        Self { turned: 0, thrown: 0, ..self }
+        Self { turned: 0, thrown: 0, parked: false, ..self }
     }
 
     /// Player `p`'s input for the next step, after throwing if its timer is up.
@@ -338,11 +342,12 @@ impl Bot {
         let ever = |every: f32, t: f32| if every > 0.0 { (t / every) as u32 } else { 0 };
         let mut input = Input { held: Buttons::UP, ..Input::default() };
         input.look = match self.walk {
+            Walk::Corner => self.head_for_corner(h, p, &mut input),
             Walk::Avoid => avoid(h, p),
             Walk::Eight if (t / loop_secs) as u32 % 2 == 1 => -self.turn,
             _ => self.turn,
         };
-        if ever(self.turn_every, t) > self.turned && self.walk != Walk::Avoid {
+        if ever(self.turn_every, t) > self.turned && !matches!(self.walk, Walk::Avoid | Walk::Corner) {
             self.turned = ever(self.turn_every, t);
             input.pressed = Buttons::B;
         }
@@ -356,6 +361,31 @@ impl Bot {
         input
     }
 }
+
+impl Bot {
+    /// Heads for the farm's nearest corner, and once within `CORNER_NEAR` of it, or after `CORNER_WALK` seconds stuck
+    /// short of it, turns round to face out and stands.
+    fn head_for_corner(&mut self, h: &Harvest, p: PlayerId, input: &mut Input) -> f32 {
+        let pl = &h.players[p];
+        let [w, hh] = [h.map.width_px(), h.map.height_px()];
+        let at = [if pl.pos[0] < w / 2.0 { TILE } else { w - TILE }, if pl.pos[1] < hh / 2.0 { TILE } else { hh - TILE }];
+        if !self.parked && (len(sub(at, pl.pos)) < CORNER_NEAR || h.t > CORNER_WALK) {
+            self.parked = true;
+            input.pressed = Buttons::B;
+        }
+        if self.parked {
+            input.held = Buttons::NONE;
+            return 0.0;
+        }
+        let d = sub(at, pl.pos);
+        let off = (fm::atan2(d[1], d[0]) - pl.view_yaw + PI).rem_euclid(TAU) - PI;
+        (off * 3.0).clamp(-1.0, 1.0)
+    }
+}
+
+/// Seconds the corner walk walks before it stands wherever it got to, and how near the corner it stops.
+const CORNER_WALK: f32 = 60.0;
+const CORNER_NEAR: f32 = 3.0 * TILE;
 
 /// Zombies further than this from the player don't sway the avoiding walk, in world pixels.
 const AVOID_REACH: f32 = 240.0;

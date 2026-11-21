@@ -101,6 +101,7 @@ A night lasts ten minutes, from dusk to dawn. A bell rings each minute.
 - **Barrels:** shooting a red barrel sets it off. Hold X, and your guns go for the barrels in view. A blast close to you hurts you too.
 - **Hordes** arrive during the night, each led by a gold-lit leader. The leader drops a chest.
 - **No outrunning them:** the dead you leave far behind rise again in your path. Once the farm holds all it can, the rest wait, and they climb out a few at a time as you thin the crowd.
+- **No camping:** a farmer keeps moving. Stay within about 3 tiles of one spot for 20 seconds, and the dead climb out of the ground right around you, from every side, more every few seconds until you move on. A corner is no shelter.
 - **Soul harvest:** five minutes in, the Collector by the gas station's truck holds a tithe. A heart bobs over his head, and a gold ring marks him on the map. Walk up to him, and every heart on the farm is drawn to you at once. That can be several level-ups in a row. He holds a new tithe five minutes after each soul harvest.
 - **Dawn:** the Harvester wakes behind you, and the dead grow 1% stronger every second. Run back to the farmhouse's front step to survive.
 - **More Harvesters:** kill the Harvester, and 30 seconds later two more rise. Every 30 seconds another wave comes, one bigger, up to six, until you get home.

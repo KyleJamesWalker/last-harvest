@@ -16,7 +16,7 @@ Tiers (all by default; name a prefix such as t2 to run fewer):
 The pressure tiers lay tools/matrix/pressure over the game's data, which needs the `[spawn]` section of tuning.txt.
 A finished tier's CSV is kept and skipped on the next run; delete it to run that tier again.
 
---player sets how the scripted player plays every tier, as comma-separated words: a walk (circle, eight, avoid), a
+--player sets how the scripted player plays every tier, as comma-separated words: a walk (circle, eight, avoid, corner), a
 pick (none, random, held, first:a+b), nothrow for no grenades and locked for a new player's unlocks. Its tiers go
 in a folder of their own under DIR, named for the words, such as target/matrix/avoid-held. The eight tier keeps its
 figure eight.
@@ -66,7 +66,7 @@ def tiers(weapons, passives, top, random_builds):
     yield "t5_random_pressure", full, 1, True, ()
 
 
-WALKS = ("circle", "eight", "avoid")
+WALKS = ("circle", "eight", "avoid", "corner")
 PICKS = ("none", "random", "held")
 
 

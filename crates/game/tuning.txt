@@ -93,6 +93,15 @@ speed 24        # pixels a second the leader walks
 call 64         # how near the leader X calls the dead into its swarm
 chase 64        # a swarm zombie this near a living player leaves the leader to go for them
 
+[camp]
+after 20        # seconds a living player may stay within radius of one spot before the dead rise around them; 0 never
+radius 3        # tiles they may wander and still be staying
+every 3         # seconds between waves while they stay
+wave 6          # zombies in the first wave...
+grow 2          # ...and this many more in each wave after it
+ring 2.5        # tiles from the player they rise
+over 0.5        # how far past [zombies] max they may rise, as a share of it
+
 [harvester]
 hp 2500         # dawn's boss
 speed 40

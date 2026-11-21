@@ -25,7 +25,8 @@ hearts and level for each. With no BUILD, measures each weapon alone at each lev
   --seed S            the first seed (1)
   --difficulty D      easy, normal or hard (normal)
   --size WxH          the generated farm's size in tiles (72x54)
-  --walk W            circle; eight, a loop each way; or avoid, turning away from the zombies on the map (circle)
+  --walk W            circle; eight, a loop each way; avoid, turning away from the zombies on the map; or corner,
+                      standing in the farm's nearest corner (circle)
   --turn K            how hard circle and eight turn, 0 to 1 of the turn buttons' speed (0.25)
   --turn-every S      seconds between turnarounds, 0 for none; avoid never turns round (6)
   --throw-every S     seconds between grenades lobbed straight ahead, 0 for none (12)
@@ -110,7 +111,7 @@ fn parse(args: &[String]) -> Result<Args, String> {
             }
             "--walk" => {
                 let v = value()?;
-                a.plan.walk = Walk::from_name(&v).ok_or_else(|| format!("--walk: {v} is not circle, eight or avoid"))?;
+                a.plan.walk = Walk::from_name(&v).ok_or_else(|| format!("--walk: {v} is not circle, eight, avoid or corner"))?;
             }
             "--pick" => a.pick = value()?,
             "--locked" => a.locked = true,
