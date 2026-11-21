@@ -344,7 +344,7 @@ impl App {
         }
         if let Some(gfx) = &mut self.gfx {
             let started = Instant::now();
-            let frame = self.game.draw();
+            let frame = self.game.draw_at(self.ticker.alpha());
             if let Some(capture) = self.game.take_screenshot()
                 && shot.is_none()
             {
