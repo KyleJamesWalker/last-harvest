@@ -651,7 +651,7 @@ impl Harvest {
             let far = format!("{:.0}m", (d[0] * d[0] + d[1] * d[1]).sqrt() / TILE);
             let y = 200.0 + p as f32 * 44.0;
             if ahead < 0.0 && side.abs() < -ahead {
-                c.label(format!("{name} BEHIND  {far}"), SCREEN_W / 2.0, SCREEN_H - 110.0 - p as f32 * 40.0, 30.0, color, Align::Center);
+                c.label(format!("{name} BEHIND  {far}"), SCREEN_W / 2.0, 70.0 + p as f32 * 36.0, 30.0, color, Align::Center);
             } else if side > 0.0 {
                 c.label(format!("{name}  {far}  >"), SCREEN_W - 24.0, y, 30.0, color, Align::Right);
             } else {
