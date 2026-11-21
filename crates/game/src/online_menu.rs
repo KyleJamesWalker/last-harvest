@@ -149,6 +149,25 @@ impl Game {
         self.online.available
     }
 
+    pub fn lobby_ready(&self) -> bool {
+        self.net.as_ref().is_some_and(|n| n.status().is_none())
+    }
+
+    pub fn lobby_size(&self) -> usize {
+        self.net.as_ref().map_or(0, |n| n.roster().0.len())
+    }
+
+    pub fn lobby_all_ready(&self) -> bool {
+        self.net.as_ref().is_some_and(|n| {
+            let (list, _) = n.roster();
+            list.len() > 1 && list.iter().all(|m| m.ready)
+        })
+    }
+
+    pub fn wants_text(&self) -> bool {
+        matches!(self.state, State::Title) && matches!(self.page, Page::Join | Page::Relay)
+    }
+
     pub fn set_relay(&mut self, relay: &str) {
         self.online.relay_env = Some(relay.to_string());
     }
@@ -163,7 +182,8 @@ impl Game {
 
     fn identity(&self) -> Identity {
         let version = if self.online.version.is_empty() { "dev".to_string() } else { self.online.version.clone() };
-        Identity { game_version: version, pak: self.online.pak, mods: Vec::new() }
+        let pak = if self.online.pak != 0 { self.online.pak } else { last_harvest_lobby::fingerprint(crate::data::load_report().versions().as_bytes()) };
+        Identity { game_version: version, pak, mods: Vec::new() }
     }
 
     fn local_cards(&self) -> Vec<String> {

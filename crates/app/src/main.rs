@@ -89,6 +89,8 @@ struct App {
     failed: bool,
     /// A window per screen, as on the device or with `LAST_HARVEST_WINDOWS=2`; else one window, played as on a phone.
     two: bool,
+    #[cfg(any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64")))]
+    online: last_harvest::online::Online,
 }
 
 impl App {
@@ -130,6 +132,7 @@ impl App {
         game.set_captures(true);
         game.set_keyboard(!on_device);
         game.set_touch(std::env::var("LAST_HARVEST_TOUCH").map_or(true, |v| v != "off"));
+        set_up_online(&mut game);
         Self {
             game,
             tracker: InputTracker::default(),
@@ -167,6 +170,8 @@ impl App {
             system: System::default(),
             failed: false,
             two,
+            #[cfg(any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64")))]
+            online: Default::default(),
         }
     }
 
@@ -340,9 +345,13 @@ impl App {
             self.game.set_phone(Some([size.width as f32, size.height as f32]));
         }
         let started = Instant::now();
+        #[cfg(any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64")))]
+        self.online.pump(&mut self.game, dt);
         for inputs in self.ticker.frame_all(frame, std::iter::once(input).chain(others).collect()) {
             self.game.update_all(&inputs, clock::STEP);
         }
+        #[cfg(any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64")))]
+        self.online.send(&mut self.game);
         self.stats.work_ms[0] += started.elapsed().as_secs_f32() * 1000.0;
         self.saver.update(self.game.save(), false);
         self.keep_audio();
@@ -404,6 +413,20 @@ impl App {
             bottom.map_or(g.top.window.inner_size(), |b| b.window.inner_size())
         });
         [p.x as f32 / size.width.max(1) as f32 * SCREEN_W, p.y as f32 / size.height.max(1) as f32 * SCREEN_H]
+    }
+}
+
+/// Offers online play where the transport builds, with the relay and a room to host or join from the environment.
+fn set_up_online(game: &mut Game) {
+    game.set_online(cfg!(any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64"))));
+    game.set_identity(VERSION, 0);
+    if let Ok(relay) = std::env::var("LAST_HARVEST_RELAY") {
+        game.set_relay(&relay);
+    }
+    if let Ok(code) = std::env::var("LAST_HARVEST_HOST") {
+        game.host_online(Some(code.as_str()).filter(|c| !c.is_empty()));
+    } else if let Ok(code) = std::env::var("LAST_HARVEST_JOIN") {
+        game.join_online(&code);
     }
 }
 
@@ -480,6 +503,11 @@ impl ApplicationHandler for App {
                     }
                     KeyCode::Escape if !down => self.keys.set(self.esc, false),
                     KeyCode::Escape => {}
+                    _ if self.game.wants_text() && !matches!(code, KeyCode::ArrowUp | KeyCode::ArrowDown | KeyCode::ArrowLeft | KeyCode::ArrowRight) && event.text.as_deref().is_some_and(|t| !t.is_empty()) => {
+                        if down && let Some(text) = event.text.as_deref() {
+                            self.game.typed(text);
+                        }
+                    }
                     KeyCode::KeyC if down && !event.repeat => self.lid_key = !self.lid_key,
                     _ => {
                         if let Some(b) = key_button(code) {
