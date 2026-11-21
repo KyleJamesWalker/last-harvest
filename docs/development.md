@@ -50,7 +50,7 @@ On a desktop, `LAST_HARVEST_WINDOWS=2` opens one window per screen, as on the de
 
 At the title, Start on a second pad joins it as P2, and again leaves; the title names who joined. A run then starts with one player and one view per seat, up to four. Split-screen runs on desktop, web and muOS only, never on a touch screen, a phone or the two-screen handhelds.
 
-Two views sit side by side in a wide or square window and stack in a tall one; three or four share a 2x2 grid, with the fourth cell black for three. The 3D view fills each view at its own aspect, and the HUD keeps to the view's edges. Each player has their own pad, view, corner map, L1 map, kit and cards. XP is shared: a level-up pauses everyone, deals each player three cards from their own kit and resumes once all have picked; banishes, rerolls and favors are each player's own. Start pauses everyone, and only the player who paused works the menu. Hit-stop never freezes the shared night, and grenade aiming never slows it. A turned player watches a living teammate until the run ends. The save records the run as one night, with player 1's build and damage.
+Two views sit side by side in a wide or square window and stack in a tall one; three or four share a 2x2 grid, with the fourth cell black for three. The 3D view fills each view at its own aspect, and the HUD keeps to the view's edges. Each player has their own pad, view, corner map, L1 map, kit and cards. XP is shared: a level-up pauses everyone, deals each player three cards from their own kit and resumes once all have picked; banishes, rerolls and favors are each player's own. Start pauses everyone, and only the player who paused works the menu. Hit-stop never freezes the shared night, and grenade aiming never slows it. A player who turns while others stand leads the dead: a gold-lit leader zombie rises from their body with a swarm around it, their pad steers it (X calls the dead near it into the swarm), and its bites are its only harm. Its swarm drops nothing and counts no kills. Once the leader falls, the player has 15 s to pick, on their map, where the next one rises, at least 10 tiles from the living, or it rises where a horde's leader would (`[leader]` in `tuning.txt`). The end screen adds how long each led and how many bites their swarm landed. The save records the run as one night, with player 1's build and damage.
 
 Without a second pad, `LAST_HARVEST_SPLIT=2` (up to `4`) shows at least that many views, and `LAST_HARVEST_BOTS` players fill the views past the seated ones. The web game takes `?split=2` instead.
 
@@ -98,7 +98,7 @@ Options make the player closer to a real one. The defaults replay older CSVs exa
 | `--no-throw` | Lobs no grenades, the same as `--throw-every 0`. The 12 s default flatters blast passives. |
 | `--secs S` | Past 600 the night goes on after dawn, the Harvester awake and the dead growing stronger. A walker that happens home ends its night there. |
 | `--net-sim SPEC` | Plays each seed online instead: a second, scripted player is a client behind a simulated link (`loss=0.1,lat=80,jitter=20`, in ms, any left out), its input crossing to the host and snapshots crossing back. Prints bytes a second each way and how far the client's picture strays from the host's, in pixels. |
-| `--players N` | 1 to 4 players, each walking the same script from its own spot by the spawn and carrying the build. A mortal night ends once all have fallen. The table adds a line per player (kills, useful damage, hearts, falls) and the first fall of any; the weapon lines are the first player's. |
+| `--players N` | 1 to 4 players, each walking the same script from its own spot by the spawn and carrying the build. A mortal night ends once all have fallen; a fallen player leads the dead at the nearest living one until then. The table adds a line per player (kills, useful damage, hearts, falls) and the first fall of any; the weapon lines are the first player's. |
 
 With a pick, the forced build is the starting kit and cards add to it; `--json` records each night's final build and the cards taken, with the time of each. The CSV's first line is a `#` comment with the settings it ran under; `--diff` and `report.py` skip it.
 
@@ -204,7 +204,7 @@ CI reads the private submodule with the `ASSETS_DEPLOY_KEY` secret. A pull reque
 | `LAST_HARVEST_KIT` | Starts every run with these powerups, as comma-separated `id` or `id:level`, such as `scythe:3,crows,dog`. |
 | `LAST_HARVEST_CLOCK` | Starts every night this many seconds in, such as `590` to try dawn. |
 | `LAST_HARVEST_GRENADES` | `endless`: grenades are never spent. |
-| `LAST_HARVEST_BOTS` | 1 to 3: scripted players start every run beside you, each in another player card's look when there is one. They walk the sandbox's `avoid` script, fight with their own kit, throw a grenade every 12 s and fall on their own. |
+| `LAST_HARVEST_BOTS` | 1 to 3: scripted players start every run beside you, each in another player card's look when there is one. They walk the sandbox's `avoid` script, fight with their own kit, throw a grenade every 12 s and fall on their own. Turned, they steer their leader at the nearest living player and rise again as soon as they may. |
 
 ### Build, editor and scripts
 
