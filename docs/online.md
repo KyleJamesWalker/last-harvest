@@ -96,7 +96,14 @@ coturn relays only to public addresses (`denied-peer-ip` in `turnserver.conf`), 
 
 ## Playing online
 
-Title > Online > Host a night opens a room and shows its code; Join with a code takes it on on-screen keys (pad, touch or keyboard). Settings > Online relay, or Online > Relay, sets the relay as `host:port` (a LAN address works) or a `ws`, `wss`, `http` or `https` URL; empty means `localhost:8080`. The game fetches `/ice` from it before joining; TURN credentials arrive over the signaling connection. Online is on for macOS, Linux (the RG DS and muOS builds included) and the web, and off on Android and Windows.
+Title > Online > Host a night opens a room and shows its code; Join with a code takes it on on-screen keys (pad, touch or keyboard). Settings > Online relay, or Online > Relay, sets the relay as `host:port` (a LAN address works) or a `ws`, `wss`, `http` or `https` URL; empty means `localhost:8080`. The game fetches `/ice` from it before joining; TURN credentials arrive over the signaling connection. Every build plays online:
+
+| Platform | Notes |
+|---|---|
+| macOS, Linux, Windows | On Windows, the first room may bring up Windows Defender Firewall's prompt: allow private networks, so peers on the same network connect directly. |
+| RG DS, muOS | Host and Join ask for the relay first while none is set. With the lid shut, the night goes on without this device's input. |
+| Android | Pad or touch; Host and Join ask for the relay first. In the background the night goes on as with a lid shut until Android freezes the app; after 10 seconds without word, the host unseats it, or a client leaves. |
+| Web | `?relay=` and `?join=`. The relay must allow the page's origin (`LAST_HARVEST_RELAY_ALLOWED_ORIGINS`). |
 
 | Setting | Meaning |
 |---|---|
