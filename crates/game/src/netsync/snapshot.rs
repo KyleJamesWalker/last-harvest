@@ -48,6 +48,8 @@ pub const P_READY_FLASH: u8 = 4;
 pub const P_LEADING: u8 = 8;
 /// Turned, and picking where the next leader rises; `pos` is the cursor, for that player only.
 pub const P_PICKING: u8 = 16;
+/// Their device left the night: once sunk they stay under, unseen and unnamed.
+pub const P_LEFT: u8 = 32;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct PlayerState {

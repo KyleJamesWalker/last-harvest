@@ -246,6 +246,7 @@ impl Harvest {
                 f if f & P_PICKING != 0 => Some(super::leader::Lead::Picking { at: pos, left: ps.lead as f32 / 10.0 }),
                 _ => None,
             };
+            pl.left = ps.flags & P_LEFT != 0;
             pl.lead_hp = ps.lead_hp as f32 / 255.0;
             pl.grenades = ps.grenades as f32 / 16.0;
             pl.ready_flash = if ps.flags & P_READY_FLASH != 0 { pl.ready_flash.max(0.01) } else { 0.0 };

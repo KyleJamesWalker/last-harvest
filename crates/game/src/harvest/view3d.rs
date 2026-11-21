@@ -795,7 +795,7 @@ pub fn scene(h: &Harvest) -> CardScene {
         board(&mut cards, b);
     }
     for (pn, pl) in h.players.iter().enumerate() {
-        if pl.lead.is_some() || (pn == ME && h.shown.as_ref().is_some_and(|s| !s.player)) {
+        if pl.lead.is_some() || pl.sunk_away() || (pn == ME && h.shown.as_ref().is_some_and(|s| !s.player)) {
             continue;
         }
         let (facing, flip) = facing_from(h.showing_of(pn), forward, right);

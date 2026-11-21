@@ -109,6 +109,11 @@ impl Player {
         self.down.is_none()
     }
 
+    /// Left the night and sunk out of it: nothing draws or names them.
+    pub fn sunk_away(&self) -> bool {
+        self.left && self.down.is_some_and(|t| t >= super::TURN_SINK)
+    }
+
     /// Picking where their next leader rises, so where they stand is a cursor nobody else sees.
     pub fn picking(&self) -> bool {
         matches!(self.lead, Some(super::leader::Lead::Picking { .. }))
