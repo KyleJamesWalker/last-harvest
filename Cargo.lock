@@ -1906,12 +1906,16 @@ version = "0.1.0"
 dependencies = [
  "bytes",
  "futures-util",
+ "js-sys",
  "matchbox_signaling",
  "rustls",
  "serde_json",
  "tokio",
  "tokio-tungstenite 0.30.0",
  "uuid",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
  "webrtc",
 ]
 

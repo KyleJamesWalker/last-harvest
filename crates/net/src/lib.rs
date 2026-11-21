@@ -8,6 +8,10 @@ mod protocol;
 mod native;
 #[cfg(not(target_arch = "wasm32"))]
 use native as imp;
+#[cfg(target_arch = "wasm32")]
+mod web;
+#[cfg(target_arch = "wasm32")]
+use web as imp;
 
 /// Ordered and retransmitted.
 pub const RELIABLE: usize = 0;

@@ -18,6 +18,12 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
 bytes = "1"
 
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = "0.3"
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = ["console", "MessageEvent", "Performance", "RtcConfiguration", "RtcDataChannel", "RtcDataChannelInit", "RtcDataChannelState", "RtcDataChannelType", "RtcIceCandidate", "RtcIceCandidateInit", "RtcIceConnectionState", "RtcIceGatheringState", "RtcIceServer", "RtcIceTransportPolicy", "RtcOfferOptions", "RtcPeerConnection", "RtcPeerConnectionIceEvent", "RtcPeerConnectionState", "RtcSdpType", "RtcSessionDescription", "RtcSessionDescriptionInit", "WebSocket", "Window"] }
+
 [dev-dependencies]
 matchbox_signaling = "=0.14.0"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
