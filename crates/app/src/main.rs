@@ -58,6 +58,10 @@ struct App {
     device: Option<device::Device>,
     #[cfg(any(target_os = "macos", windows))]
     pads: pads::Pads,
+    #[cfg(any(target_os = "macos", windows))]
+    seats: last_harvest::controllers::Seats,
+    /// `LAST_HARVEST_SPLIT`'s views, each showing player 1, in the one window during a run.
+    split: Option<usize>,
     keys: Buttons,
     lid_key: bool,
     #[cfg(target_os = "linux")]
@@ -136,6 +140,9 @@ impl App {
             device,
             #[cfg(any(target_os = "macos", windows))]
             pads: pads::Pads::open(),
+            #[cfg(any(target_os = "macos", windows))]
+            seats: Default::default(),
+            split: std::env::var("LAST_HARVEST_SPLIT").ok().and_then(|v| last_harvest::split_views(&v)).filter(|_| !two),
             keys: Buttons::NONE,
             lid_key: false,
             #[cfg(target_os = "linux")]
@@ -279,7 +286,9 @@ impl App {
             if let Some(family) = used {
                 self.game.set_pad_family(family);
             }
-            let (held, stick, look) = last_harvest::controllers::combine(&pads);
+            self.seats.update(&pads, self.split.is_some() && self.game.at_title());
+            self.game.set_players(self.seats.players());
+            let (held, stick, look) = self.seats.inputs(&pads)[0];
             raw.held |= held;
             raw.stick = stick;
             raw.look = look;
@@ -353,7 +362,8 @@ impl App {
             }
             self.stats.work_ms[1] += started.elapsed().as_secs_f32() * 1000.0;
             let started = Instant::now();
-            let rendered = gfx.render(&frame, shot.is_some());
+            let views = self.split.filter(|_| self.game.in_run());
+            let rendered = gfx.render(&frame, views, shot.is_some());
             self.stats.work_ms[2] += started.elapsed().as_secs_f32() * 1000.0;
             match rendered {
                 Ok(Some(img)) => {
@@ -564,6 +574,7 @@ Environment:
   LAST_HARVEST_UNLOCK_ALL  offer every powerup
   LAST_HARVEST_KIT         powerups every run starts with, such as scythe:3,crows
   LAST_HARVEST_CLOCK       seconds into the night every run starts
+  LAST_HARVEST_SPLIT       2 to 4: a run in that many views, each player 1's
   LAST_HARVEST_BOTS        scripted players every run starts with beside you, 1 to 3
 ";
 

@@ -205,6 +205,8 @@ pub struct Game {
     raw_pressed: Buttons,
     /// The platform has a keyboard, so the Controls page shows each job's key.
     keyboard: bool,
+    /// Players sharing the screen, as the platform seated them at the title.
+    players: usize,
 }
 
 /// Where the title's menu sits on the top screen when one screen shows both, and its scale.
@@ -266,6 +268,7 @@ impl Game {
             rebind: None,
             raw_pressed: Buttons::NONE,
             keyboard: false,
+            players: 1,
         }
     }
 
@@ -442,6 +445,21 @@ impl Game {
 
     pub fn quit_asked(&self) -> bool {
         self.quit_asked
+    }
+
+    /// How many players the platform has seated; the title names those who joined.
+    pub fn set_players(&mut self, n: usize) {
+        self.players = n.max(1);
+    }
+
+    /// The title's main page is open, where a pad joins or leaves.
+    pub fn at_title(&self) -> bool {
+        matches!(self.state, State::Title) && self.page == Page::Main
+    }
+
+    /// A run is on, a night or a debug scene that plays like one.
+    pub fn in_run(&self) -> bool {
+        matches!(self.state, State::Harvest(_))
     }
 
     /// The title's main page on one screen without touch: the top screen with the menu over it, smaller.
@@ -743,6 +761,9 @@ impl Game {
         if !report.version.is_empty() {
             f.top.label(format!("Version {}", report.versions()), 16.0, 12.0, 24.0, DIM, Align::Left);
         }
+        if let Some(joined) = joined(self.players) {
+            f.top.label(format!("{joined} joined. Start again on a joined pad to leave"), SCREEN_W / 2.0, 736.0, 24.0, HOT, Align::Center);
+        }
     }
 
     fn draw_title_top(&self, f: &mut Frame) {
@@ -825,6 +846,13 @@ impl Game {
     }
 }
 
+/// Players 2 and up, named for the title: "P2", "P2 and P3", "P2, P3 and P4".
+fn joined(players: usize) -> Option<String> {
+    let names: Vec<String> = (2..=players).map(|n| format!("P{n}")).collect();
+    let (last, rest) = names.split_last()?;
+    Some(if rest.is_empty() { last.clone() } else { format!("{} and {last}", rest.join(", ")) })
+}
+
 /// Where the frame-rate overlay starts during a run, below the kill count.
 const PERF_UNDER_KILLS: f32 = 72.0;
 /// Seconds the screenshot flash lasts.
@@ -834,6 +862,16 @@ const SHOT_FLASH: f32 = 0.25;
 mod tests {
     use super::*;
     use menu::{DIFFICULTY_Y, RESET_CONFIRM};
+
+    #[test]
+    fn the_title_names_the_players_who_joined() {
+        assert_eq!([1, 2, 3, 4].map(joined), [None, Some("P2".into()), Some("P2 and P3".into()), Some("P2, P3 and P4".into())]);
+        let mut game = Game::new(1);
+        let says = |game: &Game| game.draw().top.shapes.iter().any(|s| matches!(s, Shape::Text { text, .. } if text.contains("joined")));
+        assert!(!says(&game) && game.at_title() && !game.in_run());
+        game.set_players(3);
+        assert!(says(&game));
+    }
 
     fn press(game: &mut Game, b: Buttons) {
         game.update(&Input { pressed: b, ..Default::default() }, 0.016);
