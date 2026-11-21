@@ -7,7 +7,7 @@ Online co-op needs three pieces: `last-harvest-relay` pairs players' WebRTC conn
 | Piece | Where | Role |
 |---|---|---|
 | `last-harvest-net` | `crates/net` | WebRTC peers in one signaling room, each with a reliable and an unreliable channel. Native and browser. |
-| `last-harvest-relay` | `crates/relay` | Matchbox signaling on `/signal/<room>`, which also hands each peer TURN credentials, and `/healthz`. Native only. Copied from supermariowar-rust's `smw_relay`, without its lobby. |
+| `last-harvest-relay` | `crates/relay` | Matchbox signaling on `/signal/<room>`, which also hands each peer TURN credentials, and `/healthz`. Native only. Copied from supermariowar-rust's `smw_relay`, without its lobby. Native games also run it in-process to [host on their own network](#playing-on-one-network). |
 | `last-harvest-lobby` | `crates/lobby` | Room codes and the lobby messages, as state machines with no transport. Builds for wasm. |
 | `deploy/` | | The relay's Dockerfile, a compose file and Caddy site block for the shared VPS, coturn's config, and `standalone/` for a fresh host. |
 
@@ -149,6 +149,7 @@ A page served over https, such as the published web game, can open only `wss://`
 | `LAST_HARVEST_RELAY`, `?relay=` on the web | The relay, over the saved one |
 | `LAST_HARVEST_HOST=<code>`, `?host=<code>` on the web | Open room `<code>` at launch (empty for a random code) |
 | `LAST_HARVEST_JOIN=<code>`, `?join=` on the web | Join room `<code>` at launch |
+| `LAST_HARVEST_LAN_HOST=<code>` | Host room `<code>` on this network at launch (empty for a random code); not on the web |
 
 A browser against a relay on this Mac: run the relay with `LAST_HARVEST_RELAY_ALLOWED_ORIGINS=http://localhost:8095` (the default), `scripts/web-game.sh --serve`, and open `http://localhost:8095/?relay=127.0.0.1:8080&host=HJKMN`; the start overlay's click joins or hosts.
 
@@ -156,9 +157,22 @@ The join check compares `game_data.pak` fingerprints. A release's web, desktop, 
 
 A browser runs the game only while its tab shows: a hidden tab draws no frames, so a web host stalls the night for every client, and a hidden web client stops sending input and turns after 10 seconds. Keep the game's tab in front.
 
-Two windows on one Mac: run the relay, then `LAST_HARVEST_RELAY=127.0.0.1:8080 LAST_HARVEST_HOST=HJKMN target/release/last-harvest` and the same with `LAST_HARVEST_JOIN=HJKMN`. With `LAST_HARVEST_DEBUG`, give each its own `LAST_HARVEST_PIPE` and `LAST_HARVEST_SAVE`.
+Two windows on one Mac with no relay: `LAST_HARVEST_LAN_HOST=HJKMN target/release/last-harvest`, then a second copy whose Join page lists the first as a nearby host. With a relay: run it, then `LAST_HARVEST_RELAY=127.0.0.1:8080 LAST_HARVEST_HOST=HJKMN target/release/last-harvest` and the same with `LAST_HARVEST_JOIN=HJKMN`. With `LAST_HARVEST_DEBUG`, give each its own `LAST_HARVEST_PIPE` and `LAST_HARVEST_SAVE`.
 
 A client whose player turns leads the dead from its own device, as in split-screen co-op: its pad steers the leader, and it picks the next leader's rise on its own map. A client that drops turns where it stands and frees its seat for a drop-in; it never leads. The host closing the room, or the host's end screen, ends the night for every client.
+
+
+## Playing on one network
+
+Native builds (desktop, RG DS, muOS, Android) can host with no internet and no outside relay. Online > Host on this network starts the game's own relay on TCP port 12525 (`last_harvest_relay::lan::HOST_PORT`), once per run, and hosts a room on it through `ws://127.0.0.1:12525` like any other: a room code, the lobby, drop-in. The lobby shows this device's address. The web build has no such row: a page cannot serve a relay.
+
+Other games on the network find the host by its beacon: `LHLAN1 <port>` every second over UDP port 12526, to multicast group `239.255.42.100` and to the broadcast address (`crates/relay/src/lan.rs`, copied from supermariowar-rust's `lan_beacon`). A game lists a host it heard in the last 4 seconds whose relay answered `/healthz`. Online shows the first as `Nearby: <address>` on Join with a code, and the Join page joins through it; Y or a tap on that line moves on to the next host, then to the relay setting. The nearby host serves only that session; the saved relay is left alone.
+
+Beacons may not cross some networks: guest Wi-Fi with client isolation, separate subnets or VLANs, some mesh systems. Typing the host's address (`192.168.1.5:12525`, as its lobby shows it) in Online > Relay still works. Android holds a Wi-Fi multicast lock in the foreground (see [platforms](platforms.md#android)), so it hears beacons; if it does not, type the address.
+
+A session on this network uses no STUN or TURN server: the game connects with `IceConfig::default()` (host candidates only) and skips the `/ice` fetch, so nothing waits on the internet.
+
+The game's relay is `Config::lan_host`: `Config::embedded` (any origin, no TURN, at most 8 signaling peers and 32 connections) plus two limits. It serves only loopback, private, link-local and carrier-grade NAT (`100.64.0.0/10`, as Tailscale uses) addresses, so a forwarded port does not make it an open relay, and it holds one room; a peer asking for a second room, such as a mistyped code, is refused. The host's firewall must let other devices reach TCP 12525 and UDP 12526: macOS may ask whether `last-harvest` may accept incoming connections, and Windows Defender Firewall asks the same; allow private networks.
 
 ## Not done yet
 
