@@ -1,6 +1,7 @@
 //! A run's damage by what dealt it, and how long each weapon was held, for the damage per second at its end.
 
 use super::player::PlayerId;
+use crate::netsync::snapshot::BookState;
 
 /// Damage dealt this run, by player and weapon.
 #[derive(Clone, Debug, Default)]
@@ -78,6 +79,35 @@ impl Tally {
         }
         self.books.swap(0, v);
         self.owner = if self.owner == 0 { v } else if self.owner == v { 0 } else { self.owner };
+    }
+
+    /// Player `p`'s book as a client's end screen needs it.
+    pub fn sent(&self, p: PlayerId) -> BookState {
+        let b = self.book(p);
+        let at = |v: &[f32], d: usize| v.get(d).copied().unwrap_or(0.0);
+        let whole = |v: f32| v.max(0.0).round() as u32;
+        let weapons = (0..b.held.len().max(b.dealt.len()).min(256))
+            .map(|d| (d as u8, whole(at(&b.held, d) * 100.0), whole(at(&b.dealt, d))))
+            .filter(|&(_, held, damage)| held > 0 || damage > 0)
+            .collect();
+        let (kills, useful) = self.sum(p);
+        BookState { seat: p as u8, weapons, other: whole(b.other), kills, useful: whole(useful), hearts: b.hearts, fell: b.fell.map_or(0, |t| whole(t * 10.0) + 1), led: whole(b.led * 10.0), bites: b.bites }
+    }
+
+    /// The host's books, each in the place `at` gives its seat, over `secs` of play; a finished run's.
+    pub fn received(defs: usize, players: usize, secs: f32, books: &[BookState], at: impl Fn(usize) -> Option<PlayerId>) -> Self {
+        let mut t = Self { secs, shut: true, ..Self::sized(defs, players) };
+        for s in books {
+            let Some(p) = at(s.seat as usize) else { continue };
+            let b = t.book_mut(p);
+            for &(d, held, damage) in &s.weapons {
+                *grow(&mut b.held, d as usize) = held as f32 / 100.0;
+                *grow(&mut b.dealt, d as usize) = damage as f32;
+            }
+            (b.other, b.kills_other, b.useful_other, b.hearts) = (s.other as f32, s.kills, s.useful as f32, s.hearts);
+            (b.fell, b.led, b.bites) = (s.fell.checked_sub(1).map(|t| t as f32 / 10.0), s.led as f32 / 10.0, s.bites);
+        }
+        t
     }
 
     /// Damage dealt from now on goes to `owner`'s weapon `by`.

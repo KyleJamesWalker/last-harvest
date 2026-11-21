@@ -113,6 +113,33 @@ impl Harvest {
         self.map.width_px()
     }
 
+    #[cfg(test)]
+    pub(crate) fn ticket_for_test(&self) -> Option<[f32; 2]> {
+        self.ticket()
+    }
+
+    /// The truck driver's next collection is ready now.
+    #[cfg(test)]
+    pub(crate) fn ready_ticket_for_test(&mut self) {
+        self.ticket = self.t;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn walk_to_driver_for_test(&mut self, p: PlayerId) {
+        self.players[p].pos = self.map.driver.expect("the farm has a truck driver");
+    }
+
+    /// Every number player `p`'s end screen shows from the tally: each row's weapon, damage and damage a second, then
+    /// the whole run's, the killing blows, useful damage, hearts, time leading and bites.
+    #[cfg(test)]
+    pub(crate) fn end_numbers_for_test(&self, p: PlayerId) -> Vec<f32> {
+        let t = &self.juice.tally;
+        let b = t.book(p);
+        let (kills, useful) = t.sum(p);
+        let rows = t.rows(p).into_iter().flat_map(|r| [r.by.map_or(-1.0, |d| d as f32), r.damage, r.dps]);
+        rows.chain([t.total(p), t.dps(p), kills as f32, useful, b.hearts as f32, b.led, b.bites as f32]).collect()
+    }
+
     /// Player `p` falls on the spot.
     #[cfg(test)]
     pub(crate) fn fall_for_test(&mut self, p: PlayerId) {
@@ -472,6 +499,7 @@ fn run_state(h: &Harvest) -> RunState {
         Phase::Over { won: false, .. } => PHASE_LOST,
     };
     let cards = (0..h.views).filter_map(|p| h.cards_of(p)).collect();
+    let over = matches!(phase, PHASE_WON | PHASE_LOST);
     RunState {
         t: (h.t * 10.0).max(0.0) as u32,
         phase,
@@ -483,6 +511,9 @@ fn run_state(h: &Harvest) -> RunState {
         paused_by: h.paused_by as u8,
         chest: h.chest,
         cards,
+        ticket: (h.ticket * 10.0).ceil().clamp(0.0, u32::MAX as f32) as u32,
+        played: if over { (h.juice.tally.secs * 100.0).round() as u32 } else { 0 },
+        books: if over { (0..h.players.len()).map(|p| h.juice.tally.sent(p)).collect() } else { Vec::new() },
     }
 }
 

@@ -25,6 +25,9 @@ pub(super) struct Client {
     over: f32,
     hp: Vec<f32>,
     looks: HashMap<u16, Effect>,
+    /// The host's last ticket time, once one has come.
+    ticket: Option<u32>,
+    books: Vec<BookState>,
 }
 
 impl Client {
@@ -392,6 +395,19 @@ impl Harvest {
         self.menu = run.menu.checked_sub(1).map(usize::from);
         self.paused_by = c.index(run.paused_by as usize).unwrap_or(ME);
         self.leveling = if run.phase == PHASE_LEVELING { 0.1 } else { 0.0 };
+        if c.ticket.is_some_and(|was| run.ticket > was)
+            && let Some(at) = self.map.driver
+        {
+            self.soul_harvest(at);
+        }
+        c.ticket = Some(run.ticket);
+        self.ticket = run.ticket as f32 / 10.0;
+        if c.books != run.books {
+            c.books = run.books.clone();
+            if !c.books.is_empty() {
+                self.juice.tally = super::tally::Tally::received(book().defs.len(), self.players.len(), run.played as f32 / 100.0, &c.books, |seat| c.index(seat));
+            }
+        }
         c.cards.resize(self.views, (0.0, [(0, 0); 3]));
         let mut mine = None;
         for v in 0..self.views.min(c.order.len()) {
