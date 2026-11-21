@@ -220,6 +220,14 @@ impl Kit {
         kit
     }
 
+    /// This kit's base and grenades carrying exactly `build`, as `forced` takes it.
+    pub fn rebuilt(&self, build: &[(usize, u32)], difficulty: Difficulty) -> Self {
+        let mut kit = Self::forced(build, difficulty);
+        (kit.base, kit.base_grenades) = (self.base, self.base_grenades);
+        kit.remod();
+        kit
+    }
+
     pub fn level(&self, def: usize) -> u32 {
         self.weapons.iter().find(|a| a.def == def).map(|a| a.level).or_else(|| self.passives.iter().find(|p| p.0 == def).map(|p| p.1)).unwrap_or(0)
     }
@@ -316,6 +324,11 @@ pub(super) struct Patch {
 }
 
 impl Patch {
+    /// A patch as a client draws it, doing nothing.
+    pub fn shown(hazard: Hazard, pos: [f32; 2], radius: f32, age: f32, life: f32) -> Self {
+        Self { hazard, pos, radius, dps: 0.0, slow: 0.0, age, life, tick: 0.0, by: None, owner: ME }
+    }
+
     pub fn relabel(&mut self, v: PlayerId) {
         self.owner = swapped(self.owner, v);
     }
@@ -471,6 +484,11 @@ pub(super) struct Decoy {
 }
 
 impl Decoy {
+    /// A decoy as a client draws it, doing nothing.
+    pub fn shown(pos: [f32; 2], age: f32, life: f32) -> Self {
+        Self { pos, age, life, lure: 0.0, blast: 0.0, damage: 0.0, by: None, owner: ME }
+    }
+
     pub fn relabel(&mut self, v: PlayerId) {
         self.owner = swapped(self.owner, v);
     }

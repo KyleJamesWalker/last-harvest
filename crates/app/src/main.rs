@@ -89,6 +89,8 @@ struct App {
     failed: bool,
     /// A window per screen, as on the device or with `LAST_HARVEST_WINDOWS=2`; else one window, played as on a phone.
     two: bool,
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    online: last_harvest::online::Online,
 }
 
 impl App {
@@ -130,6 +132,8 @@ impl App {
         game.set_captures(true);
         game.set_keyboard(!on_device);
         game.set_touch(std::env::var("LAST_HARVEST_TOUCH").map_or(true, |v| v != "off"));
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
+        last_harvest::online::set_up(&mut game);
         Self {
             game,
             tracker: InputTracker::default(),
@@ -167,6 +171,8 @@ impl App {
             system: System::default(),
             failed: false,
             two,
+            #[cfg(any(target_os = "macos", target_os = "linux"))]
+            online: Default::default(),
         }
     }
 
@@ -340,9 +346,13 @@ impl App {
             self.game.set_phone(Some([size.width as f32, size.height as f32]));
         }
         let started = Instant::now();
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
+        self.online.pump(&mut self.game, dt);
         for inputs in self.ticker.frame_all(frame, std::iter::once(input).chain(others).collect()) {
             self.game.update_all(&inputs, clock::STEP);
         }
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
+        self.online.send(&mut self.game);
         #[cfg(any(target_os = "macos", windows))]
         self.pads.rumble(&self.seats, |seat| self.game.rumble_for(seat));
         self.stats.work_ms[0] += started.elapsed().as_secs_f32() * 1000.0;
@@ -486,6 +496,11 @@ impl ApplicationHandler for App {
                     }
                     KeyCode::Escape if !down => self.keys.set(self.esc, false),
                     KeyCode::Escape => {}
+                    _ if self.game.wants_text() && !matches!(code, KeyCode::ArrowUp | KeyCode::ArrowDown | KeyCode::ArrowLeft | KeyCode::ArrowRight) && event.text.as_deref().is_some_and(|t| !t.is_empty()) => {
+                        if down && let Some(text) = event.text.as_deref() {
+                            self.game.typed(text);
+                        }
+                    }
                     KeyCode::KeyC if down && !event.repeat => self.lid_key = !self.lid_key,
                     _ => {
                         if let Some(b) = key_button(code) {

@@ -173,7 +173,7 @@ impl Harvest {
     }
 
     /// An open spot a step from the spawn for player `p`, each player on their own side.
-    fn beside_spawn(&self, p: PlayerId) -> [f32; 2] {
+    pub(super) fn beside_spawn(&self, p: PlayerId) -> [f32; 2] {
         let (spawn, half) = (self.map.spawn, crate::tuning::tuning().player_half());
         for r in [14.0, 22.0, 30.0, 40.0] {
             for k in 0..8 {
@@ -188,7 +188,7 @@ impl Harvest {
     }
 
     /// A player at `pos` dressed as `look`, carrying its starting weapons and the run's trial powerups.
-    fn new_player(&self, pos: [f32; 2], look: &PlayerLook) -> Player {
+    pub(super) fn new_player(&self, pos: [f32; 2], look: &PlayerLook) -> Player {
         let d = self.difficulty;
         let mut kit = look.start_defs(d).map_or_else(|| Kit::start(d), |defs| Kit::with_weapons(&defs, d));
         for (b, theirs) in kit.base.iter_mut().zip(look.base) {

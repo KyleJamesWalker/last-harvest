@@ -1878,7 +1878,9 @@ dependencies = [
  "jni",
  "js-sys",
  "last-harvest-game",
+ "last-harvest-net",
  "last-harvest-pack",
+ "last-harvest-relay",
  "last-harvest-render",
  "lewton",
  "libc",
@@ -1897,6 +1899,7 @@ name = "last-harvest-game"
 version = "0.1.0"
 dependencies = [
  "glam",
+ "last-harvest-lobby",
  "png",
 ]
 
@@ -1924,6 +1927,7 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+ "webpki-roots 1.0.12",
  "webrtc",
 ]
 

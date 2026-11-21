@@ -18,13 +18,17 @@ pub(crate) enum Page {
     History,
     Credits,
     HowTo,
+    Online,
+    Join,
+    Lobby,
+    Relay,
 }
 
-const MAIN: [(Page, &str); 7] = [(Page::Main, "Play"), (Page::Main, "Map"), (Page::HowTo, "How to play"), (Page::Settings, "Settings"), (Page::Stats, "Stats"), (Page::Credits, "Credits"), (Page::Main, "Quit")];
+const MAIN: [(Page, &str); 8] = [(Page::Main, "Play"), (Page::Main, "Map"), (Page::HowTo, "How to play"), (Page::Settings, "Settings"), (Page::Stats, "Stats"), (Page::Credits, "Credits"), (Page::Online, "Online"), (Page::Main, "Quit")];
 /// The row that picks the map runs start on rather than opening a page.
 const MAP_ROW: usize = 1;
 /// The last row, shown only where the game can quit.
-const QUIT_ROW: usize = 6;
+const QUIT_ROW: usize = 7;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Setting {
@@ -40,11 +44,12 @@ pub(crate) enum Setting {
     Player,
     Enemies,
     Folder,
+    Relay,
     Reset,
 }
 
 impl Setting {
-    const ALL: [Setting; 13] = [Setting::TopBrightness, Setting::BottomBrightness, Setting::Volume, Setting::Rumble, Setting::Fps, Setting::Screens, Setting::Touch, Setting::Grenades, Setting::Controls, Setting::Player, Setting::Enemies, Setting::Folder, Setting::Reset];
+    const ALL: [Setting; 14] = [Setting::TopBrightness, Setting::BottomBrightness, Setting::Volume, Setting::Rumble, Setting::Fps, Setting::Screens, Setting::Touch, Setting::Grenades, Setting::Controls, Setting::Player, Setting::Enemies, Setting::Folder, Setting::Relay, Setting::Reset];
 
     fn name(self) -> &'static str {
         match self {
@@ -60,6 +65,7 @@ impl Setting {
             Setting::Player => "Player",
             Setting::Enemies => "Enemies",
             Setting::Folder => "Game folder",
+            Setting::Relay => "Online relay",
             Setting::Reset => "Reset progress",
         }
     }
@@ -70,7 +76,7 @@ const PLAY: [f32; 4] = [212.0, 30.0, 600.0, 100.0];
 pub(crate) const DIFFICULTY_Y: f32 = 150.0;
 /// The rows under Play, below the difficulty box.
 pub(crate) const ROWS_TOP: f32 = 316.0;
-pub(crate) const ROW_H: f32 = 58.0;
+pub(crate) const ROW_H: f32 = 52.0;
 /// The settings rows; a run's settings leave out Player, Enemies and Reset.
 const SET_TOP: f32 = 96.0;
 const SET_H: f32 = 62.0;
@@ -169,6 +175,7 @@ impl Game {
             .filter(|s| match s {
                 Setting::Player | Setting::Enemies | Setting::Reset => !self.settings_in_run,
                 Setting::Folder => !self.settings_in_run && self.folder.is_some(),
+                Setting::Relay => !self.settings_in_run && self.online_available(),
                 Setting::TopBrightness | Setting::BottomBrightness => self.has_backlights(),
                 Setting::Screens => !phone,
                 Setting::Touch => phone && self.touch_screen(),
@@ -219,6 +226,10 @@ impl Game {
                 }
             }
             Page::Stats | Page::Credits => {}
+            Page::Online => self.online_page(input, tapped),
+            Page::Join => self.join_page(input, tapped),
+            Page::Lobby => self.lobby_page(input, tapped),
+            Page::Relay => self.relay_page(input, tapped),
             Page::HowTo if tapped.is_some() || input.pressed.any(Buttons::A | Buttons::B | Buttons::X | Buttons::Y | Buttons::START) => {
                 self.close_how_to(input.pressed.contains(Buttons::B));
             }
@@ -381,6 +392,10 @@ impl Game {
                 self.sounds.push(Sfx::Tick(9));
                 return false;
             }
+            Setting::Relay if press || by > 0 => {
+                self.open_relay(Page::Settings);
+                return false;
+            }
             Setting::Folder if press => {
                 self.folder_asked = true;
                 self.sounds.push(Sfx::Tick(9));
@@ -499,6 +514,10 @@ impl Game {
             Page::History => self.draw_history(c),
             Page::Credits => draw_credits(c),
             Page::HowTo => self.draw_how_to(c),
+            Page::Online => self.draw_online(c),
+            Page::Join => self.draw_join(c),
+            Page::Lobby => self.draw_lobby(c),
+            Page::Relay => self.draw_relay(c),
         }
     }
 
@@ -612,6 +631,12 @@ impl Game {
                         Some("") | None => ("Choose", HOT),
                         Some(name) => (name, if on { HOT } else { WHITE }),
                     };
+                    fit_label(c, name, x + w - 30.0, mid - 20.0, 38.0, w - 420.0, color, Align::Right);
+                    continue;
+                }
+                Setting::Relay => {
+                    let relay = self.save.relay.as_str();
+                    let (name, color) = if relay.is_empty() { ("This machine", DIM) } else { (relay, if on { HOT } else { WHITE }) };
                     fit_label(c, name, x + w - 30.0, mid - 20.0, 38.0, w - 420.0, color, Align::Right);
                     continue;
                 }
@@ -960,7 +985,7 @@ fn draw_credits(c: &mut Canvas) {
 /// Draws `text` within `room` pixels: smaller, down to two thirds of `size`, then cut short, keeping its middle where
 /// a label of `size` at `y` would have it. Widths are estimated, since a label isn't measured until it's drawn.
 #[allow(clippy::too_many_arguments)]
-fn fit_label(c: &mut Canvas, text: &str, x: f32, y: f32, size: f32, room: f32, color: Color, align: Align) {
+pub(crate) fn fit_label(c: &mut Canvas, text: &str, x: f32, y: f32, size: f32, room: f32, color: Color, align: Align) {
     let (text, fits) = fitted(text, size, room, size * 2.0 / 3.0);
     c.label(text, x, y + (size - fits) / 2.0, fits, color, align);
 }
@@ -968,7 +993,7 @@ fn fit_label(c: &mut Canvas, text: &str, x: f32, y: f32, size: f32, room: f32, c
 /// Draws `text` word-wrapped to `room` pixels, in at most `lines` lines of `size` from `y` down, the last one fitted
 /// as `fit_label` fits it.
 #[allow(clippy::too_many_arguments)]
-fn wrap_label(c: &mut Canvas, text: &str, x: f32, y: f32, size: f32, room: f32, lines: usize, color: Color, align: Align) {
+pub(crate) fn wrap_label(c: &mut Canvas, text: &str, x: f32, y: f32, size: f32, room: f32, lines: usize, color: Color, align: Align) {
     for (i, line) in wrapped(text, size, room, lines).into_iter().enumerate() {
         fit_label(c, &line, x, y + i as f32 * size * 1.25, size, room, color, align);
     }

@@ -65,6 +65,12 @@ libc = "0.2"
 evdev = "0.13"
 sdl2 = { version = "0.38", optional = true }
 
+[target.'cfg(any(target_os = "macos", target_os = "linux", target_arch = "wasm32"))'.dependencies]
+last-harvest-net = { path = "../net" }
+
+[target.'cfg(any(target_os = "macos", target_os = "linux"))'.dev-dependencies]
+last-harvest-relay = { path = "../relay" }
+
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 cpal = { version = "0.18", features = ["wasm-bindgen"] }
 js-sys = "0.3"

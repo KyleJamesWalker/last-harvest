@@ -50,6 +50,8 @@ pub struct Save {
     pub how_to_seen: bool,
     /// Which pad button sends each game button.
     pub controls: Controls,
+    /// The online relay's address; empty for one on this machine.
+    pub relay: Relay,
 }
 
 /// Auto shows the on-screen controls and hides them at gamepad or keyboard input until the next touch.
@@ -100,6 +102,37 @@ impl TouchControls {
     }
 }
 
+pub const RELAY_MAX: usize = 96;
+
+/// The relay's address, kept inline so the save stays `Copy`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Relay {
+    bytes: [u8; RELAY_MAX],
+    len: u8,
+}
+
+impl Default for Relay {
+    fn default() -> Self {
+        Self { bytes: [0; RELAY_MAX], len: 0 }
+    }
+}
+
+impl Relay {
+    /// Printable ASCII with no spaces, cut to `RELAY_MAX`; anything else is left out.
+    pub fn new(text: &str) -> Self {
+        let mut out = Self::default();
+        for b in text.bytes().filter(|b| b.is_ascii_graphic()).take(RELAY_MAX) {
+            out.bytes[out.len as usize] = b;
+            out.len += 1;
+        }
+        out
+    }
+
+    pub fn as_str(&self) -> &str {
+        std::str::from_utf8(&self.bytes[..self.len as usize]).unwrap_or("")
+    }
+}
+
 /// A player look's id, kept inline so the save stays `Copy`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct LookId {
@@ -126,13 +159,16 @@ impl LookId {
 
 impl Default for Save {
     fn default() -> Self {
-        Self { volume: 6, brightness: [4, 4], rumble: true, fps: false, one_screen: false, touch_grenades: true, touch: TouchControls::Auto, best: 0, difficulty: Difficulty::default(), kills: 0, best_level: 0, nights: 0, dawns: 0, breakers: 0, breaker_dawns: 0, found: 0, enemies_off: 0, player: LookId::default(), map: LookId::default(), best_dps: 0, history: [None; HISTORY], how_to_seen: false, controls: Controls::default() }
+        Self { volume: 6, brightness: [4, 4], rumble: true, fps: false, one_screen: false, touch_grenades: true, touch: TouchControls::Auto, best: 0, difficulty: Difficulty::default(), kills: 0, best_level: 0, nights: 0, dawns: 0, breakers: 0, breaker_dawns: 0, found: 0, enemies_off: 0, player: LookId::default(), map: LookId::default(), best_dps: 0, history: [None; HISTORY], how_to_seen: false, controls: Controls::default(), relay: Relay::default() }
     }
 }
 
 impl Save {
     pub fn to_text(&self) -> String {
-        let controls = if self.controls.is_default() { String::new() } else { format!("controls={}\n", self.controls.key()) };
+        let mut controls = if self.controls.is_default() { String::new() } else { format!("controls={}\n", self.controls.key()) };
+        if self.relay.len > 0 {
+            controls += &format!("relay={}\n", self.relay.as_str());
+        }
         format!(
             "volume={}\nbrightness_top={}\nbrightness_bottom={}\nrumble={}\nfps={}\nlayout={}\ngrenades={}\ntouch={}\nbest={}\ndifficulty={}\nkills={}\nbest_level={}\nnights={}\ndawns={}\nbreakers={}\nbreaker_dawns={}\nfound={}\nenemies_off={}\nplayer={}\nmap={}\nbest_dps={}\nhow_to={}\n{controls}{}",
             self.volume,
@@ -205,6 +241,7 @@ impl Save {
                 "best_dps" => save.best_dps = value.parse().unwrap_or(save.best_dps),
                 "how_to" => how_to = Some(value != "due"),
                 "controls" => save.controls = Controls::from_key(value).unwrap_or_default(),
+                "relay" => save.relay = Relay::new(value),
                 "run" if runs < HISTORY => {
                     if let Some(run) = run_from_text(value) {
                         save.history[runs] = Some(run);
@@ -274,7 +311,7 @@ mod tests {
 
     #[test]
     fn round_trips() {
-        let save = Save { volume: 3, brightness: [7, 2], rumble: false, fps: true, one_screen: true, touch_grenades: false, touch: TouchControls::Off, best: 41, difficulty: Difficulty::Hard, kills: 900, best_level: 12, nights: 7, dawns: 1, breakers: 3, breaker_dawns: 1, found: 0b1010_0000_0000, enemies_off: 0b10, player: LookId::new("jo"), map: LookId::new("old_farm"), best_dps: 0, history: [None; HISTORY], how_to_seen: true, controls: Controls::default() };
+        let save = Save { volume: 3, brightness: [7, 2], rumble: false, fps: true, one_screen: true, touch_grenades: false, touch: TouchControls::Off, best: 41, difficulty: Difficulty::Hard, kills: 900, best_level: 12, nights: 7, dawns: 1, breakers: 3, breaker_dawns: 1, found: 0b1010_0000_0000, enemies_off: 0b10, player: LookId::new("jo"), map: LookId::new("old_farm"), best_dps: 0, history: [None; HISTORY], how_to_seen: true, controls: Controls::default(), relay: Relay::new("wss://relay.example.com") };
         assert_eq!(Save::parse(&save.to_text()), save);
     }
 

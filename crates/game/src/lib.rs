@@ -15,7 +15,11 @@ mod icon;
 mod harvest;
 mod input;
 mod menu;
+pub mod netplay;
 pub mod netsync;
+mod online_menu;
+#[cfg(test)]
+mod netplay_tests;
 mod osd;
 mod controls;
 pub mod pad;
@@ -217,6 +221,8 @@ pub struct Game {
     view_sizes: Vec<[f32; 2]>,
     /// What players 2 onward press this frame, by seat.
     others: Vec<Input>,
+    net: Option<Box<netplay::Net>>,
+    online: online_menu::Online,
 }
 
 /// Where the title's menu sits on the top screen when one screen shows both, and its scale.
@@ -282,6 +288,8 @@ impl Game {
             split: 1,
             view_sizes: Vec::new(),
             others: Vec::new(),
+            net: None,
+            online: online_menu::Online::default(),
         }
     }
 
@@ -365,7 +373,10 @@ impl Game {
     pub fn summary(&self) -> String {
         match &self.state {
             State::Title => "title".into(),
-            State::Harvest(h) => h.summary(),
+            State::Harvest(h) => match self.net_traffic() {
+                Some(t) if t.secs > 0.0 => format!("{} net down={:.0}B/s up={:.0}B/s", h.summary(), t.down as f32 / t.secs, t.up as f32 / t.secs),
+                _ => h.summary(),
+            },
             State::Gallery(_) => "art".into(),
             State::Hardware(_) => "hardware".into(),
             State::Icon(_) => "icon".into(),
@@ -670,6 +681,7 @@ impl Game {
             self.open(Scene::Title);
             return;
         }
+        self.pump_net(dt);
         self.state = match std::mem::replace(&mut self.state, State::Title) {
             State::Title => {
                 self.title(input, dt);
@@ -683,6 +695,7 @@ impl Game {
                 if self.settings(input, input.touch.filter(|_| input.touch_started)) {
                     self.page = Page::Main;
                 }
+                self.hold_online(&h);
                 h.set_one_screen(self.one_screen());
                 State::Harvest(h)
             }
@@ -697,7 +710,10 @@ impl Game {
                 let controls = self.save.controls;
                 let others: Vec<Input> = self.others.iter().map(|i| Input { held: controls.apply(i.held), pressed: controls.apply(i.pressed), ..*i }).collect();
                 h.set_inputs(&others);
-                let flow = h.update(input, dt, &mut self.sounds);
+                let flow = match self.step_online(&mut h, input, &others, dt) {
+                    Some(flow) => flow,
+                    None => h.update(input, dt, &mut self.sounds),
+                };
                 if flow.capture && self.captures {
                     self.shot = true;
                     self.sounds.push(Sfx::Tick(LEVELS));
@@ -1215,12 +1231,12 @@ mod tests {
     #[test]
     fn quit_shows_last_in_the_main_menu_only_where_the_game_can_quit() {
         let mut game = Game::new(1);
-        for _ in 0..6 {
+        for _ in 0..7 {
             press(&mut game, Buttons::DOWN);
         }
-        assert_eq!(game.row, 0, "six rows wrap back to Play");
+        assert_eq!(game.row, 0, "seven rows wrap back to Play");
         game.set_quit(true);
-        for _ in 0..6 {
+        for _ in 0..7 {
             press(&mut game, Buttons::DOWN);
         }
         press(&mut game, Buttons::A);

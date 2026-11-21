@@ -17,12 +17,16 @@ pub enum Event {
     LevelUp { level: u8 },
     LevelDone,
     RunEnd { won: bool },
+    /// A sound from a spot on the farm, which each client places from its own player.
+    SoundAt(Sfx, [u16; 2]),
+    /// A shot or spit that hit something before its life ran out, by its spawn id.
+    Stop { id: u32 },
 }
 
 impl Event {
     /// Never expires.
     pub fn critical(&self) -> bool {
-        !matches!(self, Event::Sound(_))
+        !matches!(self, Event::Sound(_) | Event::SoundAt(..) | Event::Stop { .. })
     }
 
     pub fn write(&self, w: &mut Writer) {
@@ -48,6 +52,16 @@ impl Event {
                 w.u8(4);
                 w.u8(won as u8);
             }
+            Event::SoundAt(s, pos) => {
+                w.u8(5);
+                write_sfx(s, w);
+                w.u16(pos[0]);
+                w.u16(pos[1]);
+            }
+            Event::Stop { id } => {
+                w.u8(6);
+                w.var(id);
+            }
         }
     }
 
@@ -58,6 +72,8 @@ impl Event {
             2 => Event::LevelUp { level: r.u8()? },
             3 => Event::LevelDone,
             4 => Event::RunEnd { won: r.u8()? != 0 },
+            5 => Event::SoundAt(read_sfx(r)?, [r.u16()?, r.u16()?]),
+            6 => Event::Stop { id: r.var()? },
             _ => return None,
         })
     }
