@@ -8,7 +8,7 @@ mod persist;
 
 use std::time::{Duration, Instant};
 
-use last_harvest::controllers::{Pad, Seats};
+use last_harvest::controllers::{Motors, Pad, Seats};
 use last_harvest::{VERSION, audio, clock, log, pak};
 use last_harvest_game::{Buttons, Game, InputTracker, RawInput, Scene, System};
 use last_harvest_render::{Profile, Renderer};
@@ -144,6 +144,7 @@ fn run() -> Result<(), String> {
     let mut ticker = clock::Ticker::default();
     let mut states: Vec<PadState> = Vec::new();
     let mut seats = Seats::default();
+    let mut motors = Motors::default();
     let mut trackers = Vec::new();
     let mut menu_held = 0.0;
     let mut last = Instant::now();
@@ -232,6 +233,15 @@ fn run() -> Result<(), String> {
             rumbling = rumble;
             if let Some(m) = &motor {
                 m.set(rumble);
+            }
+        }
+        // Player 1 keeps the device's own motor; a joined pad buzzes through SDL.
+        for (id, on) in motors.changes(&seats, &frame_pads, 1, |seat| game.rumble_for(seat)) {
+            if let Some(pad) = pads.iter_mut().find(|p| p.instance_id() as usize == id) {
+                let (k, ms) = if on { (0xC000, 2000) } else { (0, 0) };
+                if let Err(e) = pad.set_rumble(k, k, ms) {
+                    log!("rumble: {e}");
+                }
             }
         }
         let n = last_harvest::lay_out_views(&mut game, true, [w, h]);

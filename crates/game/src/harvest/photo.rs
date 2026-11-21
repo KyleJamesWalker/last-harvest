@@ -263,7 +263,7 @@ impl Photo {
 impl Harvest {
     pub(super) fn open_photo(&mut self) {
         self.menu = None;
-        self.photo = Some(Photo { corpses: self.juice.corpses.len(), ..Photo::new(self.me().view_yaw) });
+        self.photo = Some(Photo { corpses: self.juice.corpses.len(), ..Photo::new(self.players[self.paused_by].view_yaw) });
     }
 
     pub fn in_photo(&self) -> bool {
@@ -475,8 +475,10 @@ impl Harvest {
         self.view_cone(c, cam);
         let Some(p) = photo.filter(|p| p.guides && !clean) else { return };
         // The middle square, as the capture's square crop takes it.
-        let x = (SCREEN_W - SCREEN_H) / 2.0;
-        outline(&mut f.top, x, 0.0, SCREEN_H, GUIDE);
+        let side = self.canvas[0].min(self.canvas[1]);
+        f.top.laid_out();
+        outline(&mut f.top, (self.canvas[0] - side) / 2.0, (self.canvas[1] - side) / 2.0, side, GUIDE);
+        f.top.anchor([0.5, 0.5]);
         let picked = p.picked.filter(|_| p.setting == Setting::Pose).and_then(|i| self.zombies.get(i).map(|z| (z, self.lies_dead(i))));
         let marked = match (p.setting, picked, p.props.last()) {
             (Setting::Pose, Some((z, true)), _) => Some((z.pos, 4.0)),
@@ -526,6 +528,7 @@ impl Harvest {
         let lines = ["PHOTO MODE".to_string(), keys, settings, more, back];
         // On one screen the help goes over the picture, where the guides already are.
         let (c, y) = if self.single { (&mut f.top, SCREEN_H - 184.0) } else { (&mut f.bottom, 40.0) };
+        c.anchor(if self.single { [0.5, 1.0] } else { [0.5, 0.0] });
         c.rect(0.0, y - 10.0, SCREEN_W, 176.0, [0.0, 0.0, 0.0, 0.55]);
         for (i, line) in lines.iter().enumerate() {
             c.label(line.as_str(), SCREEN_W / 2.0, y + i as f32 * 32.0, 26.0, if i == 0 { GUIDE } else { HELP }, Align::Center);

@@ -15,7 +15,7 @@ use crate::{Align, Buttons, Canvas, Color, Frame, SCREEN_H, SCREEN_W, pad};
 impl Harvest {
     /// The run's screens; in photo mode, a `clean` frame is the capture, with no guides.
     pub fn draw(&self, f: &mut Frame, clean: bool) {
-        if self.photo.is_some() {
+        if self.photo.is_some() && !self.photo_by_other() {
             self.photo_frame(f, clean);
         } else {
             self.draw_screens(f);
@@ -53,19 +53,20 @@ impl Harvest {
         let tint = self.map_tint();
         // Sight stops counting once the run ends, so the map shows the night as it is.
         let fog = !matches!(self.phase, Phase::Over { .. });
-        let cam = self.camera();
+        let cam = self.map_camera();
+        c.laid_out();
         self.world(c, cam, map_scale(), tint, fog);
         if fog {
             self.view_cone(c, cam);
         }
-        self.home_on_map(c, cam);
-        self.ticket_on_map(c, cam);
-        self.teammates_on_map(c, cam);
+        self.home_on_map(c, cam, self.canvas);
+        self.ticket_on_map(c, cam, self.canvas);
+        self.teammates_on_map(c, cam, self.canvas);
         c.anchor([1.0, 1.0]);
         self.grenade_tray(c);
         c.anchor([0.0, 1.0]);
         self.kit_tray(c);
-        c.anchor([0.5, 0.5]);
+        c.laid_out();
         self.aim_mark(c, cam);
         c.anchor([0.5, 0.5]);
         self.paused_bottom(c);
@@ -263,7 +264,7 @@ impl Harvest {
         let known = |p: [f32; 2]| !fog || self.in_sight(p);
         let shade = |k: Color| [k[0] * tint[0], k[1] * tint[1], k[2] * tint[2], k[3]];
         let lit = shade(WHITE);
-        let (view_w, view_h) = (SCREEN_W / scale, SCREEN_H / scale);
+        let (view_w, view_h) = (self.canvas[0] / scale, self.canvas[1] / scale);
         let at = |x: f32, y: f32| ((x - cam[0]) * scale, (y - cam[1]) * scale);
 
         let (tx0, ty0) = ((cam[0] / TILE) as usize, (cam[1] / TILE) as usize);
@@ -641,7 +642,8 @@ impl Harvest {
         let d = [self.map.home[0] - self.me().pos[0], self.map.home[1] - self.me().pos[1]];
         let far = format!("{:.0}m", (d[0] * d[0] + d[1] * d[1]).sqrt() / TILE);
         let pulse = [GOLD[0], GOLD[1], GOLD[2], 0.75 + 0.25 * (self.t * 5.0).sin()];
-        let shown = view3d::to_screen(view_proj, self.map.home, 30.0).filter(|([x, y], _)| (60.0..SCREEN_W - 60.0).contains(x) && (120.0..SCREEN_H).contains(y));
+        let [x0, y0, x1, y1] = self.seen_box();
+        let shown = view3d::to_screen(view_proj, self.map.home, 30.0).filter(|([x, y], _)| (x0 + 60.0..x1 - 60.0).contains(x) && (y0 + 120.0..y1).contains(y));
         if let Some(([x, y], _)) = shown {
             c.label(format!("HOME  {far}"), x, y - 40.0, 34.0, pulse, Align::Center);
             c.label("v", x, y - 6.0, 34.0, pulse, Align::Center);
@@ -650,12 +652,23 @@ impl Harvest {
         let (fwd, right) = ([self.me().view_yaw.cos(), self.me().view_yaw.sin()], [-self.me().view_yaw.sin(), self.me().view_yaw.cos()]);
         let (ahead, side) = (d[0] * fwd[0] + d[1] * fwd[1], d[0] * right[0] + d[1] * right[1]);
         if ahead < 0.0 && side.abs() < -ahead {
+            c.anchor([0.5, 1.0]);
             c.label(format!("HOME IS BEHIND YOU  {far}   ({} turns)", pad::label(Buttons::B)), SCREEN_W / 2.0, SCREEN_H - 70.0, 34.0, pulse, Align::Center);
         } else if side > 0.0 {
+            c.anchor([1.0, 0.0]);
             c.label(format!("HOME  {far}  >"), SCREEN_W - 24.0, 140.0, 34.0, pulse, Align::Right);
         } else {
+            c.anchor([0.0, 0.0]);
             c.label(format!("<  HOME  {far}"), 24.0, 140.0, 34.0, pulse, Align::Left);
         }
+        c.anchor([0.5, 0.5]);
+    }
+
+    /// What the view being drawn shows of the 1024x768 drawing laid out in its middle, as [left, top, right, bottom]:
+    /// more than the screen in a view that isn't 4:3.
+    fn seen_box(&self) -> [f32; 4] {
+        let [ex, ey] = [(self.canvas[0] - SCREEN_W) / 2.0, (self.canvas[1] - SCREEN_H) / 2.0];
+        [-ex, -ey, SCREEN_W + ex, SCREEN_H + ey]
     }
 
     /// Each other player's number over them in the view ahead, or at the edge they lie past when out of sight.
@@ -664,7 +677,8 @@ impl Harvest {
         for (p, pl) in self.players.iter().enumerate().filter(|&(p, _)| p != ME) {
             let color = if pl.alive() { WHITE } else { RED };
             let name = format!("P{}", self.number(p));
-            let shown = view3d::to_screen(view_proj, pl.pos, 22.0).filter(|([x, y], _)| (40.0..SCREEN_W - 40.0).contains(x) && (60.0..SCREEN_H - 40.0).contains(y));
+            let [x0, y0, x1, y1] = self.seen_box();
+            let shown = view3d::to_screen(view_proj, pl.pos, 22.0).filter(|([x, y], _)| (x0 + 40.0..x1 - 40.0).contains(x) && (y0 + 60.0..y1 - 40.0).contains(y));
             if let Some(([x, y], _)) = shown {
                 c.label(name, x, y - 30.0, 30.0, color, Align::Center);
                 continue;
@@ -674,31 +688,35 @@ impl Harvest {
             let far = format!("{:.0}m", (d[0] * d[0] + d[1] * d[1]).sqrt() / TILE);
             let y = 200.0 + p as f32 * 44.0;
             if ahead < 0.0 && side.abs() < -ahead {
+                c.anchor([0.5, 0.0]);
                 c.label(format!("{name} BEHIND  {far}"), SCREEN_W / 2.0, 70.0 + p as f32 * 36.0, 30.0, color, Align::Center);
             } else if side > 0.0 {
+                c.anchor([1.0, 0.0]);
                 c.label(format!("{name}  {far}  >"), SCREEN_W - 24.0, y, 30.0, color, Align::Right);
             } else {
+                c.anchor([0.0, 0.0]);
                 c.label(format!("<  {name}  {far}"), 24.0, y, 30.0, color, Align::Left);
             }
+            c.anchor([0.5, 0.5]);
         }
     }
 
-    /// Each other player's number on the map, pinned to the edge when they're off it.
-    pub(super) fn teammates_on_map(&self, c: &mut Canvas, cam: [f32; 2]) {
+    /// Each other player's number on a map `size` pixels across and down, pinned to the edge when they're off it.
+    pub(super) fn teammates_on_map(&self, c: &mut Canvas, cam: [f32; 2], [w, h]: [f32; 2]) {
         for (p, pl) in self.players.iter().enumerate().filter(|&(p, _)| p != ME) {
-            let x = ((pl.pos[0] - cam[0]) * map_scale()).clamp(30.0, SCREEN_W - 30.0);
-            let y = ((pl.pos[1] - cam[1]) * map_scale()).clamp(60.0, SCREEN_H - 30.0);
+            let x = ((pl.pos[0] - cam[0]) * map_scale()).clamp(30.0, w - 30.0);
+            let y = ((pl.pos[1] - cam[1]) * map_scale()).clamp(60.0, h - 30.0);
             c.label(format!("P{}", self.number(p)), x, y - 44.0, 28.0, if pl.alive() { WHITE } else { RED }, Align::Center);
         }
     }
 
     /// After dawn, the farmhouse's step on the map, pinned to the edge when it's off the map.
-    pub(super) fn home_on_map(&self, c: &mut Canvas, cam: [f32; 2]) {
+    pub(super) fn home_on_map(&self, c: &mut Canvas, cam: [f32; 2], [w, h]: [f32; 2]) {
         if self.t < super::dawn() {
             return;
         }
-        let x = ((self.map.home[0] - cam[0]) * map_scale()).clamp(40.0, SCREEN_W - 40.0);
-        let y = ((self.map.home[1] - cam[1]) * map_scale()).clamp(40.0, SCREEN_H - 40.0);
+        let x = ((self.map.home[0] - cam[0]) * map_scale()).clamp(40.0, w - 40.0);
+        let y = ((self.map.home[1] - cam[1]) * map_scale()).clamp(40.0, h - 40.0);
         let pulse = 0.5 + 0.4 * (self.t * 5.0).sin();
         c.circle(x, y, 14.0 * map_scale() / 2.0, [GOLD[0], GOLD[1], GOLD[2], pulse * 0.5]);
         c.circle(x, y, 5.0 * map_scale() / 2.0, [GOLD[0], GOLD[1], GOLD[2], 1.0]);
@@ -719,10 +737,10 @@ impl Harvest {
     }
 
     /// While the truck driver holds a collection ticket, where he stands on the map, pinned to the edge when off it.
-    pub(super) fn ticket_on_map(&self, c: &mut Canvas, cam: [f32; 2]) {
+    pub(super) fn ticket_on_map(&self, c: &mut Canvas, cam: [f32; 2], [w, h]: [f32; 2]) {
         let Some(at) = self.ticket() else { return };
-        let x = ((at[0] - cam[0]) * map_scale()).clamp(40.0, SCREEN_W - 40.0);
-        let y = ((at[1] - cam[1]) * map_scale()).clamp(40.0, SCREEN_H - 40.0);
+        let x = ((at[0] - cam[0]) * map_scale()).clamp(40.0, w - 40.0);
+        let y = ((at[1] - cam[1]) * map_scale()).clamp(40.0, h - 40.0);
         let pulse = 0.5 + 0.4 * (self.t * 5.0).sin();
         c.circle(x, y, 14.0 * map_scale() / 2.0, [GOLD[0], GOLD[1], GOLD[2], pulse * 0.5]);
         c.circle(x, y, 5.0 * map_scale() / 2.0, GOLD);
@@ -732,25 +750,31 @@ impl Harvest {
 
     /// Start's pause: the run's numbers over the dimmed view.
     fn paused_top(&self, c: &mut Canvas) {
-        if self.menu.is_none() {
+        if self.menu.is_none() && !self.photo_by_other() {
             return;
         }
         c.rect(0.0, 0.0, SCREEN_W, SCREEN_H, [0.0, 0.0, 0.0, 0.6]);
         c.text_centered(250.0, 16.0, WHITE, "PAUSED");
         if self.views > 1 {
-            c.label(format!("P{} paused", self.number(self.paused_by)), SCREEN_W / 2.0, 340.0, 40.0, GOLD, Align::Center);
+            c.label(self.paused_line(), SCREEN_W / 2.0, 340.0, 40.0, GOLD, Align::Center);
         }
         let line = format!("{}   Level {}   Kills {}", clock(self.t), self.level, self.kills);
         c.label(line, SCREEN_W / 2.0, 420.0, 40.0, WHITE, Align::Center);
     }
 
+    /// Who holds the night still in co-op, and what for.
+    fn paused_line(&self) -> String {
+        let doing = if self.photo.is_some() { "is taking a photo" } else { "paused" };
+        format!("P{} {doing}", self.number(self.paused_by))
+    }
+
     /// Start's pause choices, in the rows the level-up cards use so a tap lands the same way.
     fn paused_bottom(&self, c: &mut Canvas) {
-        let Some(at) = self.menu else { return };
+        let Some(at) = self.menu.or(self.photo_by_other().then_some(0)) else { return };
         c.rect(0.0, 0.0, SCREEN_W, SCREEN_H, [0.0, 0.0, 0.0, 0.6]);
         if self.paused_by != ME {
             c.text_centered(250.0, 16.0, WHITE, "PAUSED");
-            c.label(format!("P{} paused", self.number(self.paused_by)), SCREEN_W / 2.0, 360.0, 40.0, GOLD, Align::Center);
+            c.label(self.paused_line(), SCREEN_W / 2.0, 360.0, 40.0, GOLD, Align::Center);
             return;
         }
         let how = pad::hint(if self.taps { "{Start} or {B}: resume.   Up / Down and {A}, or tap" } else { "{Start} or {B}: resume.   Up / Down and {A}" });

@@ -33,7 +33,7 @@ pub struct Canvas {
     /// Its width and height in its own pixels, when not a screen's 1024x768.
     pub size: Option<[f32; 2]>,
     /// From each shape index on, the edge `refit` pins what follows to: 0 left or top, 1 right or bottom, below 0
-    /// stretched across. Before the first, the middle.
+    /// stretched across, above 1 left as drawn. Before the first, the middle.
     pub anchors: Vec<(usize, [f32; 2])>,
 }
 
@@ -72,6 +72,11 @@ impl Canvas {
         self.anchors.push((self.shapes.len(), at));
     }
 
+    /// Leaves what's drawn after this as it is, as it was drawn to the size `refit` will lay the canvas out to.
+    pub fn laid_out(&mut self) {
+        self.anchor([2.0, 2.0]);
+    }
+
     /// Lays a screen's 1024x768 drawing out in a canvas `size` across and down, at least that large: each shape keeps
     /// its size and moves with its anchor, and a rectangle as wide or tall as the screen spans the new one.
     pub fn refit(&mut self, size: [f32; 2]) {
@@ -79,9 +84,15 @@ impl Canvas {
         let extra = [size[0] - base[0], size[1] - base[1]];
         let mut at = [0.5, 0.5];
         let mut next = 0;
-        let point = |v: f32, axis: usize, at: [f32; 2]| if at[axis] < 0.0 { v * size[axis] / base[axis] } else { v + at[axis] * extra[axis] };
+        let point = |v: f32, axis: usize, at: [f32; 2]| match at[axis] {
+            a if a < 0.0 => v * size[axis] / base[axis],
+            a if a > 1.0 => v,
+            a => v + a * extra[axis],
+        };
         let span = |v: f32, len: f32, axis: usize, at: [f32; 2]| {
-            if v <= 0.5 && len >= base[axis] - 0.5 {
+            if at[axis] > 1.0 {
+                (v, len)
+            } else if v <= 0.5 && len >= base[axis] - 0.5 {
                 (0.0, size[axis])
             } else if at[axis] < 0.0 {
                 (point(v, axis, at), len * size[axis] / base[axis])

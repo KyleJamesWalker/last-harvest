@@ -4,7 +4,7 @@ use std::f32::consts::{PI, TAU};
 
 use super::{Harvest, ME, Phase, PlayerId, Zombie, clear_shot, len, sub};
 use crate::art::Art;
-use crate::{Canvas, SCREEN_H, SCREEN_W};
+use crate::Canvas;
 
 /// Screen pixels across each square of the map's shade.
 const SHADE_CELL: f32 = 16.0;
@@ -84,7 +84,7 @@ impl Harvest {
         if dark <= 0.0 || matches!(self.phase, Phase::Over { .. }) {
             return;
         }
-        let (cols, rows) = ((SCREEN_W / SHADE_CELL).ceil() as usize, (SCREEN_H / SHADE_CELL).ceil() as usize);
+        let (cols, rows) = ((self.canvas[0] / SHADE_CELL).ceil() as usize, (self.canvas[1] / SHADE_CELL).ceil() as usize);
         let step = |sx: f32, sy: f32| (self.unseen([cam[0] + sx / scale, cam[1] + sy / scale]) * SHADE_STEPS).round();
         for row in 0..rows {
             let y = row as f32 * SHADE_CELL;
