@@ -10,6 +10,7 @@
 use std::io::Cursor;
 use std::num::NonZeroU32;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -214,6 +215,10 @@ extern "system" fn Java_com_kylejameswalker_lastharvest_MainActivity_secondTouch
 
 /// What `MainActivity.fetchPack` reported: nothing yet, then the pack's arrival or its error.
 static PACK: Mutex<Option<Result<(), String>>> = Mutex::new(None);
+/// A `fetchPack` is under way: a later start waits for its answer rather than fetching over the same file.
+static FETCHING: AtomicBool = AtomicBool::new(false);
+/// This process installed the stand-in data that asks for the internet; `data::install` won't take the pack after it.
+static WITHOUT_DATA: AtomicBool = AtomicBool::new(false);
 
 #[unsafe(no_mangle)]
 extern "system" fn Java_com_kylejameswalker_lastharvest_MainActivity_packReady<'local>(mut env: jni::EnvUnowned<'local>, _class: jni::objects::JClass<'local>, error: jni::objects::JString<'local>) {
@@ -299,31 +304,37 @@ fn save_shot(android: &AndroidApp, capture: Capture, img: Shot) {
 /// The APK carries none, as every release shares one pack. Returns `Ok(None)` if the activity is destroyed while
 /// waiting for the download, so the next start can try again.
 fn release_pack(android: &AndroidApp) -> Result<Option<Vec<u8>>, String> {
-    let dir = android.internal_data_path().ok_or("no internal storage")?;
-    let path = dir.join(format!("game_data-{VERSION}.pak"));
+    let path = pack_path(android).ok_or("no internal storage")?;
     if let Ok(bytes) = std::fs::read(&path) {
         return Ok(Some(bytes));
     }
-    for old in std::fs::read_dir(&dir).into_iter().flatten().flatten().map(|e| e.path()) {
-        if old.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("game_data-") && n.ends_with(".pak")) {
-            let _ = std::fs::remove_file(old);
+    if !FETCHING.swap(true, Ordering::SeqCst) {
+        let dir = path.parent().ok_or("no internal storage")?;
+        for old in std::fs::read_dir(dir).into_iter().flatten().flatten().map(|e| e.path()) {
+            if old.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("game_data-") && n.ends_with(".pak")) {
+                let _ = std::fs::remove_file(old);
+            }
+        }
+        let url = format!("https://github.com/KyleJamesWalker/last-harvest/releases/download/{VERSION}/game_data.pak");
+        log!("data: fetching {url}");
+        *PACK.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        let vm = unsafe { jni::JavaVM::from_raw(android.vm_as_ptr().cast()) };
+        let asked = vm.attach_current_thread(|env| -> jni::errors::Result<()> {
+            let activity = unsafe { jni::objects::JObject::from_raw(env, android.activity_as_ptr().cast()) };
+            let (url, to) = (env.new_string(&url)?, env.new_string(path.to_string_lossy())?);
+            let sig = jni::jni_sig!("(Ljava/lang/String;Ljava/lang/String;)V");
+            env.call_method(&activity, jni::jni_str!("fetchPack"), sig, &[jni::JValue::Object(&url), jni::JValue::Object(&to)])?;
+            Ok(())
+        });
+        if let Err(e) = asked {
+            FETCHING.store(false, Ordering::SeqCst);
+            return Err(format!("fetchPack: {e}"));
         }
     }
-    let url = format!("https://github.com/KyleJamesWalker/last-harvest/releases/download/{VERSION}/game_data.pak");
-    log!("data: fetching {url}");
-    *PACK.lock().unwrap_or_else(|e| e.into_inner()) = None;
-    let vm = unsafe { jni::JavaVM::from_raw(android.vm_as_ptr().cast()) };
-    let asked = vm.attach_current_thread(|env| -> jni::errors::Result<()> {
-        let activity = unsafe { jni::objects::JObject::from_raw(env, android.activity_as_ptr().cast()) };
-        let (url, to) = (env.new_string(&url)?, env.new_string(path.to_string_lossy())?);
-        let sig = jni::jni_sig!("(Ljava/lang/String;Ljava/lang/String;)V");
-        env.call_method(&activity, jni::jni_str!("fetchPack"), sig, &[jni::JValue::Object(&url), jni::JValue::Object(&to)])?;
-        Ok(())
-    });
-    asked.map_err(|e| format!("fetchPack: {e}"))?;
     let mut destroyed = false;
     loop {
         if let Some(done) = PACK.lock().unwrap_or_else(|e| e.into_inner()).take() {
+            FETCHING.store(false, Ordering::SeqCst);
             done?;
             return std::fs::read(&path).map(Some).map_err(text);
         }
@@ -337,6 +348,11 @@ fn release_pack(android: &AndroidApp) -> Result<Option<Vec<u8>>, String> {
             return Ok(None);
         }
     }
+}
+
+/// Where this version's release pack is kept in internal storage.
+fn pack_path(android: &AndroidApp) -> Option<PathBuf> {
+    android.internal_data_path().map(|d| d.join(format!("game_data-{VERSION}.pak")))
 }
 
 /// The largest 4:3 rect centered in a `w` by `h` window, as x, y, width and height in GL's bottom-up pixels.
@@ -369,6 +385,7 @@ struct Bottom {
 }
 
 /// What Android takes away while the app is in the background: the window, and with it the surface.
+/// Fields drop in order: GL objects and surfaces before the context, the window last, and `App` drops this before `display`.
 struct Gl {
     renderer: Renderer,
     gl: glow::Context,
@@ -824,11 +841,20 @@ fn load_data(android: &AndroidApp) -> Result<Option<&'static samples::Files>, St
     }
     data_folders(android);
     let bundled = android.asset_manager().open(c"game_data.pak").map(|mut a| a.buffer().map(|b| Some(b.to_vec())).map_err(text));
-    let sounds = match bundled.unwrap_or_else(|| release_pack(android)) {
-        Ok(Some(bytes)) => pak::install(Some(Pak::read(Cursor::new(bytes))?), None)?,
+    let pack = match bundled.unwrap_or_else(|| release_pack(android)) {
+        Ok(Some(bytes)) => Pak::read(Cursor::new(bytes)).inspect_err(|_| {
+            if let Some(path) = pack_path(android) {
+                let _ = std::fs::remove_file(path);
+            }
+        }),
         Ok(None) => return Ok(None),
+        Err(e) => Err(e),
+    };
+    let sounds = match pack {
+        Ok(pack) => pak::install(Some(pack), None)?,
         Err(e) => {
             log!("data: {e}");
+            WITHOUT_DATA.store(true, Ordering::SeqCst);
             pak::install(None, Some(format!("Connect to the internet and start the game again to download its data ({e}).")))?
         }
     };
@@ -889,6 +915,10 @@ fn run(android: AndroidApp) -> Result<(), String> {
         app.read_input();
         app.follow_second();
         app.tick();
+    }
+    if WITHOUT_DATA.load(Ordering::SeqCst) {
+        // Only a new process can install the pack, so the next start must not reuse this one.
+        std::process::exit(0);
     }
     Ok(())
 }
