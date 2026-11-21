@@ -7,7 +7,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use crate::clock;
-use crate::controllers::{self, Pad};
+use crate::controllers::{Pad, Seats};
 use last_harvest_game::{Buttons, Game, InputTracker, MAX_TOUCHES, PadFamily, RangeSetup, RawInput, SCREEN_H, SCREEN_W, Save, Scene, System};
 use last_harvest_pack::Pak;
 use last_harvest_render::{Profile, Renderer};
@@ -78,6 +78,9 @@ struct Web {
     odd_pad: bool,
     /// A pad had a button down or a stick pushed last frame.
     pad_busy: bool,
+    seats: Seats,
+    /// `?split=`'s views, each showing player 1, during a run on one screen; never on a touch screen.
+    split: Option<usize>,
     last: f64,
     stats: (u32, f64, f64),
     system: System,
@@ -318,7 +321,9 @@ impl Web {
         self.measure(frame_ms);
         self.fit();
         let (pads, busy) = gamepads(&mut self.odd_pad);
-        let (pad, stick, look) = controllers::combine(&pads);
+        self.seats.update(&pads, self.split.is_some() && self.game.at_title());
+        self.game.set_players(self.seats.players());
+        let (pad, stick, look) = self.seats.inputs(&pads)[0];
         if let Some(family) = busy.filter(|_| !self.pad_busy) {
             self.game.set_pad_family(family);
         }
@@ -349,6 +354,10 @@ impl Web {
             sounds.into_iter().for_each(|s| audio.play(s));
         }
         let frame = self.game.draw_at(self.ticker.alpha());
+        if let Some(n) = self.split.filter(|_| self.phone && self.game.in_run()) {
+            crate::draw_split(&mut self.renderer, &self.gl, &vec![&frame.top; n], [self.canvas.width() as i32, self.canvas.height() as i32]);
+            return;
+        }
         if let Some(phone) = &frame.phone {
             crate::draw_phone(&mut self.renderer, &self.gl, &frame, phone, [self.canvas.width() as i32, self.canvas.height() as i32]);
             return;
@@ -415,7 +424,9 @@ fn start(pak: Pak, mods: Vec<(String, Pak)>, problems: Vec<String>, range: Optio
         game.set_range(setup);
         game.open(Scene::Range);
     }
-    let phone = !window.location().search().unwrap_or_default().contains("screens=2");
+    let search = window.location().search().unwrap_or_default();
+    let phone = !search.contains("screens=2");
+    let split = search.split(['?', '&']).find_map(|kv| kv.strip_prefix("split=")).and_then(crate::split_views).filter(|_| window.navigator().max_touch_points() == 0);
     show_screens(&document, &canvas, &overlay, phone);
     let web = Rc::new(RefCell::new(Web {
         game,
@@ -439,6 +450,8 @@ fn start(pak: Pak, mods: Vec<(String, Pak)>, problems: Vec<String>, range: Optio
         lost: false,
         odd_pad: false,
         pad_busy: false,
+        seats: Seats::default(),
+        split,
         last: now(),
         stats: (0, 0.0, now()),
         system: System::default(),
