@@ -150,6 +150,12 @@ impl Tally {
         b.dealt.iter().sum::<f32>() + b.other
     }
 
+    /// Player `p`'s killing blows and useful damage over the run, every weapon's and their grenades' and barrels'.
+    pub fn sum(&self, p: PlayerId) -> (u32, f32) {
+        let b = self.book(p);
+        (b.kills.iter().sum::<u32>() + b.kills_other, b.useful.iter().sum::<f32>() + b.useful_other)
+    }
+
     /// Player `p`'s damage a second over the whole run.
     pub fn dps(&self, p: PlayerId) -> f32 {
         per_sec(self.total(p), self.secs)

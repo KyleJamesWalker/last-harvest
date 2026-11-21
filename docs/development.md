@@ -95,6 +95,7 @@ Options make the player closer to a real one. The defaults replay older CSVs exa
 | `--locked` | With a pick, offers only what a new player has unlocked; otherwise every powerup can come up. |
 | `--no-throw` | Lobs no grenades, the same as `--throw-every 0`. The 12 s default flatters blast passives. |
 | `--secs S` | Past 600 the night goes on after dawn, the Harvester awake and the dead growing stronger. A walker that happens home ends its night there. |
+| `--players N` | 1 to 4 players, each walking the same script from its own spot by the spawn and carrying the build. A mortal night ends once all have fallen. The table adds a line per player (kills, useful damage, hearts, falls) and the first fall of any; the weapon lines are the first player's. |
 
 With a pick, the forced build is the starting kit and cards add to it; `--json` records each night's final build and the cards taken, with the time of each. The CSV's first line is a `#` comment with the settings it ran under; `--diff` and `report.py` skip it.
 
@@ -197,6 +198,7 @@ CI reads the private submodule with the `ASSETS_DEPLOY_KEY` secret. A pull reque
 | `LAST_HARVEST_KIT` | Starts every run with these powerups, as comma-separated `id` or `id:level`, such as `scythe:3,crows,dog`. |
 | `LAST_HARVEST_CLOCK` | Starts every night this many seconds in, such as `590` to try dawn. |
 | `LAST_HARVEST_GRENADES` | `endless`: grenades are never spent. |
+| `LAST_HARVEST_BOTS` | 1 to 3: scripted players start every run beside you, each in another player card's look when there is one. They walk the sandbox's `avoid` script, fight with their own kit, throw a grenade every 12 s and fall on their own. |
 
 ### Build, editor and scripts
 

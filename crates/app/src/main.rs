@@ -106,6 +106,9 @@ impl App {
             game.start_clock(secs);
         }
         game.endless_grenades(std::env::var("LAST_HARVEST_GRENADES").is_ok_and(|v| v == "endless"));
+        if let Some(n) = std::env::var("LAST_HARVEST_BOTS").ok().and_then(|s| s.parse().ok()) {
+            game.add_bots(n);
+        }
         game.set_range(range.unwrap_or_default());
         if let Some(scene) = std::env::var("LAST_HARVEST_START").ok().and_then(|s| Scene::from_name(&s)) {
             game.open(scene);
@@ -572,6 +575,7 @@ Environment:
   LAST_HARVEST_KIT         powerups every run starts with, such as scythe:3,crows
   LAST_HARVEST_CLOCK       seconds into the night every run starts
   LAST_HARVEST_SPLIT       2 to 4: a run in that many views, each player 1's
+  LAST_HARVEST_BOTS        scripted players every run starts with beside you, 1 to 3
 ";
 
 fn main() {
