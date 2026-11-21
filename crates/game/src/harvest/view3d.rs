@@ -1329,7 +1329,7 @@ mod tests {
         h.barrels.clear();
         let without = scene(&h).cards.len();
         let drawn = |h: &mut Harvest, tiles: [f32; 2]| {
-            h.barrels = vec![super::super::Barrel { pos: [h.me().pos[0] + tiles[0] * TILE, h.me().pos[1] + tiles[1] * TILE], hp: 1.0, flash: 0.0 }];
+            h.barrels = vec![super::super::Barrel { pos: [h.me().pos[0] + tiles[0] * TILE, h.me().pos[1] + tiles[1] * TILE], hp: 1.0, flash: 0.0, by: super::super::ME }];
             scene(h).cards.len() > without
         };
         assert!(drawn(&mut h, [0.0, 2.0]), "level with the player, off to the side");

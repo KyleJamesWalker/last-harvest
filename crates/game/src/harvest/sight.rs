@@ -2,7 +2,7 @@
 
 use std::f32::consts::{PI, TAU};
 
-use super::{Harvest, Phase, Zombie, clear_shot, len, sub};
+use super::{Harvest, ME, Phase, PlayerId, Zombie, clear_shot, len, sub};
 use crate::art::Art;
 use crate::{Canvas, SCREEN_H, SCREEN_W};
 
@@ -40,20 +40,27 @@ impl Mark {
 }
 
 impl Harvest {
-    /// Whether the view ahead sees a spot on the ground: inside the aim cone, near enough, and not behind cover.
+    /// Whether the local player's view ahead sees a spot on the ground.
     pub(super) fn in_sight(&self, at: [f32; 2]) -> bool {
-        let d = sub(at, self.me().pos);
+        self.in_sight_of(ME, at)
+    }
+
+    /// Whether player `p`'s view ahead sees a spot on the ground: inside their aim cone, near enough, and not behind
+    /// cover.
+    pub(super) fn in_sight_of(&self, p: PlayerId, at: [f32; 2]) -> bool {
+        let pl = &self.players[p];
+        let d = sub(at, pl.pos);
         let r = len(d);
         if r > crate::tuning::tuning().map_sight {
             return false;
         }
         if r > 1.0 {
-            let off = (d[1].atan2(d[0]) - self.me().view_yaw + PI).rem_euclid(TAU) - PI;
-            if off.abs() > self.ahead_half() {
+            let off = (d[1].atan2(d[0]) - pl.view_yaw + PI).rem_euclid(TAU) - PI;
+            if off.abs() > crate::tuning::tuning().view_half * pl.kit.mods.view {
                 return false;
             }
         }
-        clear_shot(&self.map, self.me().pos, at)
+        clear_shot(&self.map, pl.pos, at)
     }
 
     /// How far out of the view ahead a spot on the ground is, from 0 inside the cone and in range to 1 well outside;
@@ -100,24 +107,30 @@ impl Harvest {
     /// Marks every zombie in sight where it stands, and ages the rest. A mark is forgotten once its memory runs
     /// out, or when its spot comes into sight with the zombie gone from it.
     pub(super) fn remember(&mut self, dt: f32) {
+        for p in 0..self.players.len() {
+            self.remember_for(p, dt);
+        }
+    }
+
+    fn remember_for(&mut self, p: PlayerId, dt: f32) {
         let memory = crate::tuning::tuning().map_memory;
         let climbing = self.burrowed.iter().filter(|z| z.rise > 0.0);
         let seen: Vec<Mark> = self
             .zombies
             .iter()
             .chain(climbing)
-            .filter(|z| self.in_sight(z.pos))
+            .filter(|z| self.in_sight_of(p, z.pos))
             .map(Mark::of)
             .collect();
-        let old = std::mem::take(&mut self.me_mut().marks);
+        let old = std::mem::take(&mut self.players[p].marks);
         let kept: Vec<Mark> = old
             .into_iter()
             .filter(|m| !seen.iter().any(|s| s.id == m.id))
             .map(|m| Mark { age: m.age + dt, ..m })
-            .filter(|m| m.age < memory && !self.in_sight(m.pos))
+            .filter(|m| m.age < memory && !self.in_sight_of(p, m.pos))
             .collect();
-        self.me_mut().marks = kept;
-        self.me_mut().marks.extend(seen);
+        self.players[p].marks = kept;
+        self.players[p].marks.extend(seen);
     }
 }
 

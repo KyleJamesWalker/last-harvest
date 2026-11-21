@@ -2,14 +2,21 @@
 
 use std::f32::consts::PI;
 
+use super::players::{self, PlayerLook};
+use super::sandbox::{Bot, Walk};
 use super::weapons::{Dog, Drone, Kit, Swing};
 use super::{Facing, Harvest, sight};
+use crate::Input;
+use crate::sfx::Sfx;
 
 /// A player's place in `Harvest::players`, which owns what they fire, throw and call up.
 pub(super) type PlayerId = usize;
 
-/// The one player a run has until there are more.
+/// The local player: the one the screens follow.
 pub(super) const ME: PlayerId = 0;
+
+/// The most players a run takes.
+pub const MAX_PLAYERS: usize = 4;
 
 pub(super) struct Player {
     pub pos: [f32; 2],
@@ -50,6 +57,7 @@ pub(super) struct Player {
     pub swings: Vec<Swing>,
     pub dogs: Vec<Dog>,
     pub drones: Vec<Drone>,
+    pub down: Option<f32>,
 }
 
 impl Player {
@@ -79,7 +87,12 @@ impl Player {
             swings: Vec::new(),
             dogs: Vec::new(),
             drones: Vec::new(),
+            down: None,
         }
+    }
+
+    pub fn alive(&self) -> bool {
+        self.down.is_none()
     }
 }
 
@@ -90,5 +103,99 @@ impl Harvest {
 
     pub(super) fn me_mut(&mut self) -> &mut Player {
         &mut self.players[ME]
+    }
+
+    /// The player whose weapons, throws and blasts are being played out.
+    pub(super) fn actor(&self) -> &Player {
+        &self.players[self.actor]
+    }
+
+    pub(super) fn actor_mut(&mut self) -> &mut Player {
+        &mut self.players[self.actor]
+    }
+
+    /// Starts the run with `n` players, 1 to `MAX_PLAYERS`: the local one, then each beside the spawn, in another
+    /// look where there is one, with their own kit. Comes after the local player's look and kit are set.
+    pub fn with_players(mut self, n: usize) -> Self {
+        let n = n.clamp(1, MAX_PLAYERS);
+        while self.players.len() < n {
+            let p = self.players.len();
+            let mine = self.me().look.clone();
+            let others: Vec<&'static PlayerLook> = players::looks().iter().filter(|l| l.id != mine).collect();
+            let look = if others.is_empty() { players::look(&mine) } else { others[(p - 1) % others.len()] };
+            let pos = self.beside_spawn(p);
+            let player = self.new_player(pos, look);
+            self.players.push(player);
+        }
+        self.players.truncate(n);
+        self.inputs.resize(n, Input::default());
+        self.juice.tally = super::tally::Tally::sized(super::book().defs.len(), n);
+        self
+    }
+
+    /// Starts the run with `n` scripted players beside the local one, each walking and steering by what its own map
+    /// shows, for trying out several players.
+    pub fn with_bots(self, n: usize) -> Self {
+        let mut h = self.with_players(1 + n);
+        h.bots = (1..h.players.len()).map(|p| (p, Bot::new(Walk::Avoid, 0.25, 0.0, 12.0))).collect();
+        h
+    }
+
+    /// What moves player `p` from the next update on; the local player moves by the input `update` is given.
+    pub fn steer(&mut self, p: PlayerId, input: Input) {
+        if let Some(i) = self.inputs.get_mut(p) {
+            *i = input;
+        }
+    }
+
+    /// The scripted players choose their input for this step.
+    pub(super) fn drive_bots(&mut self, sounds: &mut Vec<Sfx>) {
+        let mut bots = std::mem::take(&mut self.bots);
+        for (p, bot) in &mut bots {
+            if self.players[*p].alive() {
+                let input = bot.step(self, *p, sounds);
+                self.steer(*p, input);
+            }
+        }
+        self.bots = bots;
+    }
+
+    /// An open spot a step from the spawn for player `p`, each player on their own side.
+    fn beside_spawn(&self, p: PlayerId) -> [f32; 2] {
+        let (spawn, half) = (self.map.spawn, crate::tuning::tuning().player_half());
+        for r in [14.0, 22.0, 30.0, 40.0] {
+            for k in 0..8 {
+                let a = (p as f32 + k as f32 * 0.5) * PI / 2.0;
+                let at = [spawn[0] + a.cos() * r, spawn[1] + a.sin() * r];
+                if !self.map.hits(at[0], at[1], half) {
+                    return at;
+                }
+            }
+        }
+        spawn
+    }
+
+    /// A player at `pos` dressed as `look`, carrying its starting weapons and the run's trial powerups.
+    fn new_player(&self, pos: [f32; 2], look: &PlayerLook) -> Player {
+        let d = self.difficulty;
+        let mut kit = look.start_defs(d).map_or_else(|| Kit::start(d), |defs| Kit::with_weapons(&defs, d));
+        for (b, theirs) in kit.base.iter_mut().zip(look.base) {
+            *b = theirs.unwrap_or(*b);
+        }
+        for &(def, level) in &self.trial {
+            kit.raise(def, level);
+        }
+        let grenades = kit.grenades();
+        let mut pl = Player::new(pos, kit, grenades);
+        pl.hp = pl.kit.max_hp();
+        pl.look = look.id.clone();
+        pl.view_yaw = self.me().view_yaw;
+        pl
+    }
+
+    /// The living player nearest `at`, or the local player when none stands.
+    pub(super) fn nearest_player(&self, at: [f32; 2]) -> PlayerId {
+        let living = self.players.iter().enumerate().filter(|(_, p)| p.alive());
+        living.min_by(|a, b| super::len(super::sub(a.1.pos, at)).total_cmp(&super::len(super::sub(b.1.pos, at)))).map_or(ME, |(i, _)| i)
     }
 }
