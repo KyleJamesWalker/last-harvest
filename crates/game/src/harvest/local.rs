@@ -504,6 +504,19 @@ mod tests {
     }
 
     #[test]
+    fn player_twos_hurts_and_shakes_are_their_own_and_sounds_place_from_the_nearest_player() {
+        let mut h = pair();
+        h.players[1].pos = [h.players[0].pos[0] + 250.0, h.players[0].pos[1]];
+        let mut sounds = Vec::new();
+        h.bitten(1, 5.0, &mut sounds, &mut Flow::default());
+        assert!(sounds.contains(&Sfx::Hurt), "player 2's hurt is heard");
+        assert_eq!(h.place(h.players[1].pos).1, 255, "a sound at player 2 is loud though far from player 1");
+        let trauma = h.locals[1].feel[0];
+        h.shake_all(0.3);
+        assert!(h.juice.trauma >= 0.3 && h.locals[1].feel[0] > trauma, "a horde shakes both cameras");
+    }
+
+    #[test]
     fn laid_out_shapes_stay_as_drawn() {
         let mut c = crate::Canvas::default();
         c.laid_out();

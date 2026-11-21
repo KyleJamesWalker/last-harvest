@@ -642,7 +642,8 @@ impl Harvest {
         let d = [self.map.home[0] - self.me().pos[0], self.map.home[1] - self.me().pos[1]];
         let far = format!("{:.0}m", (d[0] * d[0] + d[1] * d[1]).sqrt() / TILE);
         let pulse = [GOLD[0], GOLD[1], GOLD[2], 0.75 + 0.25 * (self.t * 5.0).sin()];
-        let shown = view3d::to_screen(view_proj, self.map.home, 30.0).filter(|([x, y], _)| (60.0..SCREEN_W - 60.0).contains(x) && (120.0..SCREEN_H).contains(y));
+        let [x0, y0, x1, y1] = self.seen_box();
+        let shown = view3d::to_screen(view_proj, self.map.home, 30.0).filter(|([x, y], _)| (x0 + 60.0..x1 - 60.0).contains(x) && (y0 + 120.0..y1).contains(y));
         if let Some(([x, y], _)) = shown {
             c.label(format!("HOME  {far}"), x, y - 40.0, 34.0, pulse, Align::Center);
             c.label("v", x, y - 6.0, 34.0, pulse, Align::Center);
@@ -651,12 +652,23 @@ impl Harvest {
         let (fwd, right) = ([self.me().view_yaw.cos(), self.me().view_yaw.sin()], [-self.me().view_yaw.sin(), self.me().view_yaw.cos()]);
         let (ahead, side) = (d[0] * fwd[0] + d[1] * fwd[1], d[0] * right[0] + d[1] * right[1]);
         if ahead < 0.0 && side.abs() < -ahead {
+            c.anchor([0.5, 1.0]);
             c.label(format!("HOME IS BEHIND YOU  {far}   ({} turns)", pad::label(Buttons::B)), SCREEN_W / 2.0, SCREEN_H - 70.0, 34.0, pulse, Align::Center);
         } else if side > 0.0 {
+            c.anchor([1.0, 0.0]);
             c.label(format!("HOME  {far}  >"), SCREEN_W - 24.0, 140.0, 34.0, pulse, Align::Right);
         } else {
+            c.anchor([0.0, 0.0]);
             c.label(format!("<  HOME  {far}"), 24.0, 140.0, 34.0, pulse, Align::Left);
         }
+        c.anchor([0.5, 0.5]);
+    }
+
+    /// What the view being drawn shows of the 1024x768 drawing laid out in its middle, as [left, top, right, bottom]:
+    /// more than the screen in a view that isn't 4:3.
+    fn seen_box(&self) -> [f32; 4] {
+        let [ex, ey] = [(self.canvas[0] - SCREEN_W) / 2.0, (self.canvas[1] - SCREEN_H) / 2.0];
+        [-ex, -ey, SCREEN_W + ex, SCREEN_H + ey]
     }
 
     /// Each other player's number over them in the view ahead, or at the edge they lie past when out of sight.
@@ -665,7 +677,8 @@ impl Harvest {
         for (p, pl) in self.players.iter().enumerate().filter(|&(p, _)| p != ME) {
             let color = if pl.alive() { WHITE } else { RED };
             let name = format!("P{}", self.number(p));
-            let shown = view3d::to_screen(view_proj, pl.pos, 22.0).filter(|([x, y], _)| (40.0..SCREEN_W - 40.0).contains(x) && (60.0..SCREEN_H - 40.0).contains(y));
+            let [x0, y0, x1, y1] = self.seen_box();
+            let shown = view3d::to_screen(view_proj, pl.pos, 22.0).filter(|([x, y], _)| (x0 + 40.0..x1 - 40.0).contains(x) && (y0 + 60.0..y1 - 40.0).contains(y));
             if let Some(([x, y], _)) = shown {
                 c.label(name, x, y - 30.0, 30.0, color, Align::Center);
                 continue;
@@ -675,12 +688,16 @@ impl Harvest {
             let far = format!("{:.0}m", (d[0] * d[0] + d[1] * d[1]).sqrt() / TILE);
             let y = 200.0 + p as f32 * 44.0;
             if ahead < 0.0 && side.abs() < -ahead {
+                c.anchor([0.5, 0.0]);
                 c.label(format!("{name} BEHIND  {far}"), SCREEN_W / 2.0, 70.0 + p as f32 * 36.0, 30.0, color, Align::Center);
             } else if side > 0.0 {
+                c.anchor([1.0, 0.0]);
                 c.label(format!("{name}  {far}  >"), SCREEN_W - 24.0, y, 30.0, color, Align::Right);
             } else {
+                c.anchor([0.0, 0.0]);
                 c.label(format!("<  {name}  {far}"), 24.0, y, 30.0, color, Align::Left);
             }
+            c.anchor([0.5, 0.5]);
         }
     }
 

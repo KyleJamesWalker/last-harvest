@@ -1647,7 +1647,7 @@ impl Harvest {
         }
         if let Some(p) = fell.filter(|_| self.players.iter().all(|pl| !pl.alive())) {
             sounds.push(Sfx::GameOver);
-            self.juice.shake(0.8);
+            self.shake_all(0.8);
             self.juice.burst(self.players[p].pos, 8.0, 30, [0.0; 2], 0.0, [30.0, 120.0], juice::blood(), 2.0, 0.9, 0.0);
             flow.buzz_all(Rumble::Blast);
             self.leveling = 0.0;
@@ -1674,7 +1674,7 @@ impl Harvest {
             self.burrowed.clear();
             self.spits.clear();
             self.juice.flash(self.me().pos, 40.0, [1.6, 1.1, 0.7], 14.0, 1.5);
-            self.juice.shake(0.3);
+            self.shake_all(0.3);
             flow.buzz_all(Rumble::Fanfare);
             self.phase = Phase::Over { t: 0.0, won: true };
             flow.ended = Some(self.finish(true));
@@ -1745,7 +1745,7 @@ impl Harvest {
         self.woke = true;
         sounds.push(Sfx::Horde);
         flow.buzz_all(Rumble::Blast);
-        self.juice.shake(0.6);
+        self.shake_all(0.6);
         self.juice.banner("DAWN.  THE HARVESTER WAKES.  GET HOME.", [1.0, 0.45, 0.3, 1.0], 4.0);
         self.raise_harvester(0.0);
     }
@@ -1768,7 +1768,7 @@ impl Harvest {
         }
         sounds.push(Sfx::Horde);
         flow.buzz_all(Rumble::Blast);
-        self.juice.shake(0.6);
+        self.shake_all(0.6);
         self.juice.banner("MORE HARVESTERS RISE.", [1.0, 0.45, 0.3, 1.0], 2.5);
         for i in 0..n {
             self.raise_harvester((i as f32 - (n - 1) as f32 / 2.0) * 0.45);
@@ -1900,8 +1900,7 @@ impl Harvest {
         }
         self.juice.ring(self.me().pos, crate::tuning::tuning().push, 0.5, juice::gold());
         self.juice.flash(self.me().pos, 20.0, [1.8, 1.4, 0.6], 9.0, 0.8);
-        self.juice.punch += 6.0;
-        self.juice.shake(0.3);
+        self.shake_each(|_| 0.3, 6.0);
         self.juice.shout("LEVEL UP", GOLD, 0.9);
         for i in 0..40 {
             let a = i as f32 / 40.0 * TAU;
@@ -2043,8 +2042,9 @@ impl Harvest {
         self.juice.flash(at, 20.0, [0.6, 1.8, 0.7], 9.0, 0.8);
         self.feel_for(p, |j| j.shake(0.4));
         flow.buzz(p, Rumble::Fanfare);
-        if p == ME {
-            self.juice.banner("THE VACCINE HOLDS", [0.5, 1.0, 0.55, 1.0], 2.4);
+        if p < self.views {
+            let line = if self.views > 1 { format!("P{}: THE VACCINE HOLDS", self.number(p)) } else { "THE VACCINE HOLDS".into() };
+            self.juice.banner(line, [0.5, 1.0, 0.55, 1.0], 2.4);
             sounds.push(Sfx::Heal);
         }
     }
@@ -2467,7 +2467,7 @@ impl Harvest {
         let at = self.players[p].pos;
         self.juice.burst(at, 8.0, 30, [0.0; 2], 0.0, [30.0, 120.0], juice::blood(), 2.0, 0.9, 0.0);
         self.juice.banner(format!("PLAYER {} TURNED", self.number(p)), RED, 2.4);
-        if p == ME {
+        if p < self.views {
             sounds.push(Sfx::GameOver);
         }
         self.feel_for(p, |j| j.shake(0.8));
@@ -2487,7 +2487,7 @@ impl Harvest {
             let at = self.players[p].pos;
             self.juice.burst(at, 0.0, 16, [0.0; 2], 0.0, [20.0, 60.0], juice::dirt(), 1.8, 0.7, 0.0);
             self.fx.push(Fx::play(effects::effects().player_rises, [at[0], at[1] - 3.0], 0.0));
-            if p == ME {
+            if p < self.views {
                 sounds.push(Sfx::Turn);
             }
             self.feel_for(p, |j| j.shake(0.35));
@@ -2598,7 +2598,7 @@ impl Harvest {
         let at = pl.pos;
         self.juice.popup(at, hit, Tone::Hurt);
         flow.buzz(p, Rumble::Hit);
-        if p == ME {
+        if p < self.views {
             sounds.push(Sfx::Hurt);
         }
         self.ouch(p, 0.45);
@@ -2742,10 +2742,8 @@ impl Harvest {
         }
         self.fx.push(Fx::play(effects::effects().explosion, c, 0.0));
         self.fx.push(Fx::play(effects::effects().explosion_smoke, [c[0], c[1] - 8.0], 0.0));
-        let near = len(sub(self.me().pos, c));
-        self.juice.shake((0.75 * (1.0 - near / 260.0)).max(0.12));
+        self.shake_each(|at| (0.75 * (1.0 - len(sub(at, c)) / 260.0)).max(0.12), 4.0);
         self.juice.stop(0.07);
-        self.juice.punch += 4.0;
         self.juice.flash(c, 14.0, [2.4, 1.3, 0.5], 8.0, 0.45);
         self.juice.ring(c, radius * 1.3, 0.45, juice::ember());
         self.juice.burst(c, 4.0, 18, [0.0; 2], 0.0, [40.0, 140.0], juice::ember(), 1.2, 0.6, 1.0);
@@ -2779,7 +2777,7 @@ impl Harvest {
     fn throw_by(&mut self, p: PlayerId, to: [f32; 2], sounds: &mut Vec<Sfx>) {
         let pl = &mut self.players[p];
         if pl.grenades < 1.0 || !pl.alive() {
-            if p == ME {
+            if p < self.views {
                 sounds.push(Sfx::Miss);
             }
             return;
@@ -2861,7 +2859,7 @@ impl Harvest {
             self.gore(z.pos, fall, z.fling, z.dir, &s.look, s.gibs as usize, s.blood);
             if s.heavy {
                 self.juice.stop(0.06);
-                self.juice.shake(0.2);
+                self.feel_for(self.nearest_player(z.pos), |j| j.shake(0.2));
             }
             let kind = if z.leader || z.boss {
                 DropKind::Chest
@@ -3051,7 +3049,7 @@ impl Harvest {
         let minute = (self.t / 60.0) as usize;
         if horde_now(self.t, dt) && !self.calm {
             self.juice.banner("A HORDE CLAWS UP", RED, 2.6);
-            self.juice.shake(0.3);
+            self.shake_all(0.3);
             flow.buzz_all(Rumble::Hit);
             sounds.push(Sfx::Horde);
         } else if minute > ((self.t - dt) / 60.0) as usize && (1..10).contains(&minute) {
@@ -3152,10 +3150,29 @@ impl Harvest {
         self.hp_shown = self.hp_shown.max(self.me().hp);
     }
 
-    /// Stereo pan (-100 left to 100 right) and loudness (0 to 255) for a sound at `at`, from where the player faces.
+    /// Shakes every viewed player's camera by `amount` of where they stand, and punches it in by `punch`.
+    fn shake_each(&mut self, amount: impl Fn([f32; 2]) -> f32, punch: f32) {
+        for p in 0..self.views.min(self.players.len()) {
+            let a = amount(self.players[p].pos);
+            self.feel_for(p, |j| {
+                j.shake(a);
+                j.punch += punch;
+            });
+        }
+    }
+
+    fn shake_all(&mut self, amount: f32) {
+        self.shake_each(|_| amount, 0.0);
+    }
+
+    /// Stereo pan (-100 left to 100 right) and loudness (0 to 255) for a sound at `at`, from where the nearest
+    /// player with a view faces.
     fn place(&self, at: [f32; 2]) -> (i8, u8) {
-        let d = sub(at, self.me().pos);
-        let right = [-self.me().view_yaw.sin(), self.me().view_yaw.cos()];
+        let far = |p: &PlayerId| len(sub(at, self.players[*p].pos));
+        let near = (0..self.views.min(self.players.len())).min_by(|a, b| far(a).total_cmp(&far(b))).unwrap_or(ME);
+        let pl = &self.players[near];
+        let d = sub(at, pl.pos);
+        let right = [-pl.view_yaw.sin(), pl.view_yaw.cos()];
         let n = norm(d);
         let pan = (n[0] * right[0] + n[1] * right[1]) * 0.8;
         let gain = (1.0 - len(d) / 260.0).clamp(0.0, 1.0);
