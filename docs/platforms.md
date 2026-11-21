@@ -47,7 +47,9 @@ The game is a NativeActivity library (`crates/app/src/android.rs`) with `game_da
 
 `scripts/muxapp.sh` builds `target/muos/LastHarvest.muxapp` for [muOS](https://muos.dev) on the 64-bit H700 Anbernics, such as the RG34XX-SP, RG35XX Plus and RG40XX. Run `scripts/sysroot.sh` once first.
 
-- **Install:** copy the file to `ARCHIVE/` on either card and install it with Applications > Archive Manager. `--install` unpacks it over SSH instead, to `MUOS_HOST` (default: the `muos` SSH alias).
+- **Install:** copy the file to `ARCHIVE/` on either card and install it with Applications > Archive Manager. `--install` builds and unpacks it over SSH instead, to `MUOS_HOST` (default: the `muos` SSH alias). `--install-release <tag>` installs a published release instead of a build: it downloads the release's `.muxapp` and its shared `game_data.pak`, copies the pack into `data/` and writes the tag to `data/pak-version`, so the launcher skips its download.
+- **Card:** the install goes over the `LastHarvest` already in `/mnt/sdcard/MUOS/application` (card 2) or `/mnt/mmc/MUOS/application` (card 1), keeping `save.txt`; card 2 wins when both hold one. On a fresh device it uses card 2 when one is mounted at `/mnt/sdcard`, else card 1. `MUOS_DIR` names the application folder instead.
+- **Trying the install:** `--dry-run` prints the copies and the device script instead of running them. `MUOS_ROOT` points the device side at a local directory laid out like a device (`proc/mounts`, `mnt/...`, `tmp/`), with no SSH.
 - **Libraries:** the binary (`crates/app/src/muos.rs`, the `muos` feature) uses the device's own SDL2 for a GLES 3 window, ALSA for sound, and muOS's SDL controller mapping. The script copies `libSDL2` from the device once. `MUOS_SDL` names a local copy instead.
 - **Play:** one screen, no touch. L2 aims grenades. Rumble drives the motor that muOS's device config names (`board/rumble`).
 - **Launcher:** `mux_launch.sh` sets up SDL, runs the CPU at full speed during play, and writes `log.txt` beside the game.
