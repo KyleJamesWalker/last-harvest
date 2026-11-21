@@ -244,7 +244,7 @@ impl Showcase {
             s.crowd.clear();
         }
         // A tile toward the camera, one to each side of the line to it.
-        let yaw = self.harvest.view_yaw;
+        let yaw = self.harvest.me().view_yaw;
         let (forward, right) = ([yaw.cos(), yaw.sin()], [-yaw.sin(), yaw.cos()]);
         if let Some(s) = shown.as_ref().filter(|_| barricade) {
             for side in [-1.0, 1.0] {
@@ -256,7 +256,7 @@ impl Showcase {
         }
         harvest.shown = shown;
         (harvest.zoom, harvest.lift) = (self.harvest.zoom, self.harvest.lift);
-        harvest.view_yaw = yaw;
+        harvest.me_mut().view_yaw = yaw;
         self.harvest = harvest;
         self.under.clear();
     }
@@ -335,8 +335,8 @@ impl Showcase {
         // A step to the side keeps a shown player from standing between the camera and the sprite.
         let aside = if s.player { 14.0 } else { 0.0 };
         h.me_mut().pos = [s.pos[0] - forward[0] * distance - right[0] * aside, s.pos[1] - forward[1] * distance - right[1] * aside];
-        h.view_yaw = yaw;
-        h.aim = forward;
+        h.me_mut().view_yaw = yaw;
+        h.me_mut().aim = forward;
         for s in &mut h.swings {
             s.age += dt;
         }

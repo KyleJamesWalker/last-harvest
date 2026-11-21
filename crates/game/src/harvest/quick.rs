@@ -47,7 +47,7 @@ impl Harvest {
     pub(super) fn quick_mark(&self) -> Option<[f32; 2]> {
         let d = reach(self.quick?);
         let (w, h) = (self.map.width_px(), self.map.height_px());
-        Some([(self.me().pos[0] + self.view_yaw.cos() * d).clamp(0.0, w), (self.me().pos[1] + self.view_yaw.sin() * d).clamp(0.0, h)])
+        Some([(self.me().pos[0] + self.me().view_yaw.cos() * d).clamp(0.0, w), (self.me().pos[1] + self.me().view_yaw.sin() * d).clamp(0.0, h)])
     }
 }
 
@@ -81,8 +81,8 @@ mod tests {
     fn ahead(h: &Harvest) -> f32 {
         let at = h.quick_mark().expect("a marker");
         let off = [at[0] - h.me().pos[0], at[1] - h.me().pos[1]];
-        let along = off[0] * h.view_yaw.cos() + off[1] * h.view_yaw.sin();
-        assert!(len(off) - along < 0.5, "straight ahead: {off:?} along {}", h.view_yaw);
+        let along = off[0] * h.me().view_yaw.cos() + off[1] * h.me().view_yaw.sin();
+        assert!(len(off) - along < 0.5, "straight ahead: {off:?} along {}", h.me().view_yaw);
         along
     }
 
@@ -121,12 +121,12 @@ mod tests {
     #[test]
     fn time_runs_on_and_the_player_walks_and_turns_with_the_marker() {
         let mut h = farm(23, false);
-        let (start, yaw, t) = (h.me().pos, h.view_yaw, h.t);
+        let (start, yaw, t) = (h.me().pos, h.me().view_yaw, h.t);
         step(&mut h, Buttons::R1, Buttons::R1);
         hold(&mut h, Buttons::R1 | Buttons::UP | Buttons::A, 0.5);
         assert!(h.t - t > 0.5, "no slow motion");
         assert!(len([h.me().pos[0] - start[0], h.me().pos[1] - start[1]]) > 5.0, "kept walking");
-        assert!((h.view_yaw - yaw).abs() > 0.1, "kept turning");
+        assert!((h.me().view_yaw - yaw).abs() > 0.1, "kept turning");
         ahead(&h);
     }
 

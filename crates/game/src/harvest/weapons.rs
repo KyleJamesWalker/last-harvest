@@ -523,7 +523,7 @@ impl Harvest {
         self.barrels
             .iter()
             .map(|b| sub(b.center(), self.me().pos))
-            .filter(|d| len(*d) < range && in_cone(*d, self.aim, self.ahead_half()))
+            .filter(|d| len(*d) < range && in_cone(*d, self.me().aim, self.ahead_half()))
             .min_by(|a, b| len(*a).total_cmp(&len(*b)))
     }
 
@@ -593,8 +593,8 @@ impl Harvest {
     fn attack(&mut self, a: Armed, sounds: &mut Vec<Sfx>) -> bool {
         match a.does() {
             Does::Pistol => self.pistol(a, sounds),
-            Does::Shotgun => self.spray(a, self.aim, self.ahead_half(), true, sounds),
-            Does::Holster => self.spray(a, [-self.aim[0], -self.aim[1]], crate::tuning::tuning().behind_half, false, sounds),
+            Does::Shotgun => self.spray(a, self.me().aim, self.ahead_half(), true, sounds),
+            Does::Holster => self.spray(a, [-self.me().aim[0], -self.me().aim[1]], crate::tuning::tuning().behind_half, false, sounds),
             Does::Rifle => self.rifle(a, sounds),
             Does::Lantern => self.beam(a),
             Does::Burner => self.burner(a),
@@ -620,7 +620,7 @@ impl Harvest {
         let target = match self.next_target(a, range) {
             Some(Some(next)) => Some(next),
             Some(None) => self.barrel_in_view(range),
-            None => self.barrel_in_view(range).or_else(|| self.nearest_in(crate::tuning::tuning().point_blank.min(range), None)).or_else(|| self.nearest_in(range, Some((self.aim, self.ahead_half())))).or_else(|| self.nearest_in(range, None)),
+            None => self.barrel_in_view(range).or_else(|| self.nearest_in(crate::tuning::tuning().point_blank.min(range), None)).or_else(|| self.nearest_in(range, Some((self.me().aim, self.ahead_half())))).or_else(|| self.nearest_in(range, None)),
         };
         let Some(offset) = target else { return false };
         self.mark_shot(a, offset);
@@ -706,7 +706,7 @@ impl Harvest {
             self.burst_shot.retain(|(d, _)| *d != a.def);
             return None;
         }
-        let (reach, aim, half) = (outside.unwrap_or(range), self.aim, self.ahead_half());
+        let (reach, aim, half) = (outside.unwrap_or(range), self.me().aim, self.ahead_half());
         let may = |d: &[f32; 2]| len(*d) < range && (len(*d) < reach || in_cone(*d, aim, half));
         let nearest = |offsets: &mut dyn Iterator<Item = [f32; 2]>| offsets.min_by(|a, b| len(*a).total_cmp(&len(*b)));
         let shot = &self.burst_shot;
@@ -732,9 +732,9 @@ impl Harvest {
     fn aimed_at(&self, aim: Aim, range: f32) -> Option<[f32; 2]> {
         match aim {
             Aim::Nearest => self.nearest_in(range, None),
-            Aim::Ahead => self.nearest_in(range, Some((self.aim, self.ahead_half()))),
-            Aim::Behind => self.nearest_in(range, Some(([-self.aim[0], -self.aim[1]], crate::tuning::tuning().behind_half))),
-            Aim::Around => self.nearest_in(range, None).map(|_| self.aim),
+            Aim::Ahead => self.nearest_in(range, Some((self.me().aim, self.ahead_half()))),
+            Aim::Behind => self.nearest_in(range, Some(([-self.me().aim[0], -self.me().aim[1]], crate::tuning::tuning().behind_half))),
+            Aim::Around => self.nearest_in(range, None).map(|_| self.me().aim),
         }
     }
 
@@ -788,11 +788,11 @@ impl Harvest {
         let range = self.stat(a, Stat::Range);
         let half = self.stat(a, Stat::Spread).to_radians() / 2.0;
         let barrel = self.barrel_in_view(range);
-        if barrel.is_none() && self.nearest_in(range, Some((self.aim, half))).is_none() {
+        if barrel.is_none() && self.nearest_in(range, Some((self.me().aim, half))).is_none() {
             return false;
         }
         let speed = self.stat(a, Stat::Speed);
-        let way = barrel.map_or(self.aim, norm);
+        let way = barrel.map_or(self.me().aim, norm);
         let angle = way[1].atan2(way[0]);
         self.shoot(angle, speed, self.stat(a, Stat::Damage), self.stat(a, Stat::Pierce) as u32, range / speed, self.stat(a, Stat::Knockback), bullet(a));
         self.muzzle(a, way, 9.0);
@@ -809,7 +809,7 @@ impl Harvest {
         let mut lit = 0;
         for z in &mut self.zombies {
             let d = sub(z.pos, self.players[ME].pos);
-            if z.rise >= 1.0 && len(d) < range && in_cone(d, self.aim, half) {
+            if z.rise >= 1.0 && len(d) < range && in_cone(d, self.players[ME].aim, half) {
                 strike(z, &mut self.juice, damage, norm(d), 0.0, crit);
                 z.slow = z.slow.max(secs);
                 z.slow_k = z.slow_k.max(slow);
@@ -827,31 +827,31 @@ impl Harvest {
 
     fn burner(&mut self, a: Armed) -> bool {
         let (range, half) = (self.stat(a, Stat::Range), self.stat(a, Stat::Spread).to_radians() / 2.0);
-        if self.nearest_in(range, Some((self.aim, half))).is_none() {
+        if self.nearest_in(range, Some((self.me().aim, half))).is_none() {
             return false;
         }
         let (dps, secs) = (self.stat(a, Stat::Damage), self.stat(a, Stat::Duration));
         for z in &mut self.zombies {
             let d = sub(z.pos, self.players[ME].pos);
-            if z.rise >= 1.0 && len(d) < range && in_cone(d, self.aim, half) {
+            if z.rise >= 1.0 && len(d) < range && in_cone(d, self.players[ME].aim, half) {
                 ignite(z, dps, secs, Some(a.def));
             }
         }
-        let nozzle = [self.me().pos[0] + self.aim[0] * 6.0, self.me().pos[1] + self.aim[1] * 6.0];
+        let nozzle = [self.me().pos[0] + self.me().aim[0] * 6.0, self.me().pos[1] + self.me().aim[1] * 6.0];
         let reach = range * 3.0;
-        self.juice.burst(nozzle, 6.0, 5, self.aim, half, [reach * 0.6, reach], juice::ember(), 1.6, 0.3, 1.0);
+        self.juice.burst(nozzle, 6.0, 5, self.me().aim, half, [reach * 0.6, reach], juice::ember(), 1.6, 0.3, 1.0);
         self.attack_feel(a, nozzle, 8.0);
         true
     }
 
     fn pitchfork(&mut self, a: Armed, sounds: &mut Vec<Sfx>) -> bool {
         let range = self.stat(a, Stat::Range);
-        if self.nearest_in(range + 4.0, Some((self.aim, self.ahead_half()))).is_none() {
+        if self.nearest_in(range + 4.0, Some((self.me().aim, self.ahead_half()))).is_none() {
             return false;
         }
         let (count, spread) = (self.stat(a, Stat::Count).max(1.0) as u32, self.stat(a, Stat::Spread).to_radians());
         let (width, damage, force, crit) = (self.stat(a, Stat::Area) / 2.0 + 3.0, self.stat(a, Stat::Damage), self.stat(a, Stat::Knockback), self.crit());
-        let base = self.aim[1].atan2(self.aim[0]);
+        let base = self.me().aim[1].atan2(self.me().aim[0]);
         let mut hit = vec![false; self.zombies.len()];
         let mut hits = (0, false);
         for k in 0..count {
@@ -870,7 +870,7 @@ impl Harvest {
             let e = look(a, super::effects::effects().pitchfork);
             self.swings.push(Swing { art: e.frames[0], fade: e.fade, age: 0.0, life: e.life, angle: [angle; 2], reach: [2.0, range * e.reach], stand: None, smash: false });
         }
-        self.attack_feel(a, [self.me().pos[0] + self.aim[0] * 8.0, self.me().pos[1] + self.aim[1] * 8.0], 10.0);
+        self.attack_feel(a, [self.me().pos[0] + self.me().aim[0] * 8.0, self.me().pos[1] + self.me().aim[1] * 8.0], 10.0);
         self.weapon_sound(a, Sfx::Slash, sounds);
         self.thud(hits, sounds);
         true
@@ -880,7 +880,7 @@ impl Harvest {
     /// ends in a ring.
     fn maul(&mut self, a: Armed, sounds: &mut Vec<Sfx>) -> bool {
         let range = self.stat(a, Stat::Range);
-        if self.nearest_in(range + 4.0, Some((self.aim, self.ahead_half()))).is_none() {
+        if self.nearest_in(range + 4.0, Some((self.me().aim, self.ahead_half()))).is_none() {
             return false;
         }
         let def = &book().defs[a.def];
@@ -890,7 +890,7 @@ impl Harvest {
         let fx = super::effects::effects();
         let (smash, crack) = (look(a, fx.maul), fx.ground_crack);
         let step = crack.frames[0].w().max(4.0);
-        let base = self.aim[1].atan2(self.aim[0]);
+        let base = self.me().aim[1].atan2(self.me().aim[0]);
         let mut hit = vec![false; self.zombies.len()];
         let mut hits = (0, false);
         for k in 0..count {
@@ -930,7 +930,7 @@ impl Harvest {
 
     fn knife(&mut self, a: Armed, sounds: &mut Vec<Sfx>) -> bool {
         let reach = self.stat(a, Stat::Area);
-        let Some(d) = self.nearest_in(reach, None).map(norm).or_else(|| self.nearest_in(reach + 6.0, None).map(|_| self.aim)) else { return false };
+        let Some(d) = self.nearest_in(reach, None).map(norm).or_else(|| self.nearest_in(reach + 6.0, None).map(|_| self.me().aim)) else { return false };
         let (damage, force, crit) = (self.stat(a, Stat::Damage), self.stat(a, Stat::Knockback), self.crit());
         let mut hits = (0, false);
         for z in &mut self.zombies {
@@ -962,7 +962,7 @@ impl Harvest {
                 hits.0 += 1;
             }
         }
-        let from = self.view_yaw;
+        let from = self.me().view_yaw;
         let e = look(a, super::effects::effects().scythe);
         self.swings.push(Swing { art: e.frames[0], fade: e.fade, age: 0.0, life: e.life, angle: [from, from + TAU], reach: [reach * e.reach; 2], stand: None, smash: false });
         self.juice.ring(self.me().pos, reach, 0.3, [0.85, 0.85, 0.8]);
@@ -1060,7 +1060,7 @@ impl Harvest {
             let near_player = |z: &Zombie| z.rise >= 1.0 && len(sub(z.pos, self.me().pos)) < leash;
             let held = dog.target.and_then(|id| self.zombies.iter().position(|z| z.id == id && near_player(z)));
             let target = held.or_else(|| self.zombies.iter().enumerate().filter(|(_, z)| near_player(z)).min_by(|a, b| len(sub(a.1.pos, dog.pos)).total_cmp(&len(sub(b.1.pos, dog.pos)))).map(|(i, _)| i));
-            let (player, yaw) = (self.me().pos, self.view_yaw);
+            let (player, yaw) = (self.me().pos, self.me().view_yaw);
             let away = len(sub(player, dog.pos));
             let goal = target.map(|t| self.zombies[t].pos);
             let dog = &mut self.dogs[i];
@@ -1176,7 +1176,7 @@ impl Harvest {
             let near_player = |z: &Zombie| z.rise >= 1.0 && len(sub(z.pos, self.me().pos)) < leash;
             let held = drone.target.and_then(|id| self.zombies.iter().position(|z| z.id == id && near_player(z)));
             let target = held.or_else(|| self.zombies.iter().enumerate().filter(|(_, z)| near_player(z)).min_by(|a, b| len(sub(a.1.pos, drone.pos)).total_cmp(&len(sub(b.1.pos, drone.pos)))).map(|(i, _)| i));
-            let (player, yaw) = (self.me().pos, self.view_yaw);
+            let (player, yaw) = (self.me().pos, self.me().view_yaw);
             let goal = target.map(|t| self.zombies[t].pos);
             let drone = &mut self.drones[i];
             drone.target = target.map(|t| self.zombies[t].id);
@@ -1253,7 +1253,7 @@ impl Harvest {
 
     fn tacks(&mut self, a: Armed) -> bool {
         let n = self.stat(a, Stat::Count).max(1.0) as u32;
-        let behind = [self.me().pos[0] - self.aim[0] * 10.0, self.me().pos[1] - self.aim[1] * 10.0];
+        let behind = [self.me().pos[0] - self.me().aim[0] * 10.0, self.me().pos[1] - self.me().aim[1] * 10.0];
         for _ in 0..n {
             let at = polar(behind, self.juice.rng.range(0.0, TAU), self.juice.rng.range(0.0, 6.0));
             self.lay(Hazard::Tacks, at, self.stat(a, Stat::Area), self.stat(a, Stat::Damage), self.stat(a, Stat::Duration), self.stat(a, Stat::Slow));
@@ -1263,10 +1263,10 @@ impl Harvest {
 
     /// Burning fuel where the player walks; nothing while standing still.
     fn gas(&mut self, a: Armed) -> bool {
-        if self.walk <= 0.0 {
+        if self.me().walk <= 0.0 {
             return false;
         }
-        let at = [self.me().pos[0] - self.aim[0] * 4.0, self.me().pos[1] - self.aim[1] * 4.0];
+        let at = [self.me().pos[0] - self.me().aim[0] * 4.0, self.me().pos[1] - self.me().aim[1] * 4.0];
         self.lay(Hazard::Fire, at, self.stat(a, Stat::Area), self.stat(a, Stat::Damage), self.stat(a, Stat::Duration), 0.0);
         true
     }
@@ -1275,7 +1275,7 @@ impl Harvest {
         if !self.decoys.is_empty() {
             return false;
         }
-        let at = [self.me().pos[0] - self.aim[0] * 12.0, self.me().pos[1] - self.aim[1] * 12.0];
+        let at = [self.me().pos[0] - self.me().aim[0] * 12.0, self.me().pos[1] - self.me().aim[1] * 12.0];
         if self.map.hits(at[0], at[1], crate::tuning::tuning().zombie_half()) {
             return false;
         }
@@ -1537,8 +1537,8 @@ mod tests {
         let mut h = Harvest::calm(3);
         h.kit.weapons.clear();
         armed(&mut h, id, 1);
-        h.view_yaw = 0.0;
-        h.aim = [1.0, 0.0];
+        h.me_mut().view_yaw = 0.0;
+        h.me_mut().aim = [1.0, 0.0];
         h.players[ME].pos = (0..40).map(|k| [h.players[ME].pos[0] + k as f32 * 16.0, h.players[ME].pos[1]]).find(|p| open(&h, [p[0] + offset[0], p[1] + offset[1]])).unwrap();
         h.zombies.push(Zombie::new(ZKind::named("big"), [h.me().pos[0] + offset[0], h.me().pos[1] + offset[1]], 500.0, 1.0, 0.0));
         h
@@ -1571,7 +1571,7 @@ mod tests {
                 _ => [20.0, 0.0],
             };
             let mut h = with(&d.id, offset);
-            h.walk = 0.5;
+            h.me_mut().walk = 0.5;
             let hurt = hurt_after(&mut h, 15.0);
             assert!(hurt > 0.0, "{} did nothing to a zombie at {offset:?}", d.id);
         }
@@ -1587,7 +1587,7 @@ mod tests {
             };
             let mut h = with(&d.id, offset);
             h.barrels.clear();
-            h.walk = 0.5;
+            h.me_mut().walk = 0.5;
             let hurt = hurt_after(&mut h, 15.0);
             let rows = h.juice.tally.rows();
             assert_eq!(rows.len(), 1, "{}: {rows:?}", d.id);
@@ -1680,7 +1680,7 @@ mod tests {
         h.kit.weapons[0].cd = 0.0;
         let first = shots(&mut h, 0.01);
         assert!(first.len() == 1 && first[0].1[0] > 0.0, "the first shot goes ahead: {first:?}");
-        h.aim = [-1.0, 0.0];
+        h.me_mut().aim = [-1.0, 0.0];
         let next = shots(&mut h, 0.1);
         assert!(!next.is_empty() && next.iter().all(|s| s.1[0] < 0.0 && s.1[1].abs() < 1e-3), "the next go where the player now looks, straight: {next:?}");
     }
@@ -1742,7 +1742,7 @@ mod tests {
         let mut a = h.kit.weapons[0];
         let range = h.stat(a, Stat::Range);
         assert_eq!(h.next_target_reaching(a, range, outside), None, "the first shot aims as usual");
-        let first = h.nearest_in(range, Some((h.aim, h.ahead_half()))).unwrap();
+        let first = h.nearest_in(range, Some((h.me().aim, h.ahead_half()))).unwrap();
         h.mark_shot(a, first);
         (1..h.stat(a, Stat::Count) as u32)
             .map(|k| {
@@ -1767,7 +1767,7 @@ mod tests {
         assert_eq!(hit, (1..8).collect::<Vec<_>>(), "left out, the later shots go all the way round");
         for outside in [0.0, 40.0] {
             let (mut h, _) = ringed(8);
-            let (aim, half) = (h.aim, h.ahead_half());
+            let (aim, half) = (h.me().aim, h.ahead_half());
             let near = follow_ups(&mut h, Some(outside));
             assert!(near.iter().flatten().all(|d| in_cone(*d, aim, half)), "outside {outside}: only in view {near:?}");
             assert!(near.iter().all(Option::is_some), "outside {outside}: it keeps shooting what's in view");

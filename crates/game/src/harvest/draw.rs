@@ -182,7 +182,7 @@ impl Harvest {
         let lit = if self.beam > 0.0 { [1.0, 1.0, 0.8, 1.0] } else { [1.0, 0.9, 0.6, 0.8] };
         let sight = crate::tuning::tuning().map_sight;
         for edge in [-half, half] {
-            let a = self.view_yaw + edge;
+            let a = self.me().view_yaw + edge;
             for k in 1..9 {
                 let r = k as f32 / 8.0 * sight;
                 let (x, y) = ((self.me().pos[0] + a.cos() * r - cam[0]) * map_scale(), (self.me().pos[1] - 6.0 + a.sin() * r - cam[1]) * map_scale());
@@ -330,7 +330,7 @@ impl Harvest {
         }
 
         let shown: Vec<(Mark, f32)> = if fog {
-            self.marks.iter().map(|m| (*m, m.fade())).collect()
+            self.me().marks.iter().map(|m| (*m, m.fade())).collect()
         } else {
             let live = self.zombies.iter().enumerate().filter(|&(i, _)| !self.lies_dead(i)).map(|(_, z)| z).chain(self.burrowed.iter().filter(|z| z.rise > 0.0));
             live.map(|z| (Mark::of(z), 1.0)).collect()
@@ -392,7 +392,7 @@ impl Harvest {
             let a = crow.looping(self.t + i as f32 / crow.fps);
             sprites.push((p[1], a, p[0] - a.w() / 2.0, p[1] - a.h() - 12.0, flip, 1.0, [1.0; 4]));
         }
-        let (facing, flip) = self.facing;
+        let (facing, flip) = self.me().facing;
         let (a, rise) = player_pose(self, facing);
         if self.shown.as_ref().is_none_or(|s| s.player) {
             let (x, y) = (self.me().pos[0] - a.w() / 2.0, self.me().pos[1] - a.h() * rise + 2.0);
@@ -620,7 +620,7 @@ impl Harvest {
             c.label("v", x, y - 6.0, 34.0, pulse, Align::Center);
             return;
         }
-        let (fwd, right) = ([self.view_yaw.cos(), self.view_yaw.sin()], [-self.view_yaw.sin(), self.view_yaw.cos()]);
+        let (fwd, right) = ([self.me().view_yaw.cos(), self.me().view_yaw.sin()], [-self.me().view_yaw.sin(), self.me().view_yaw.cos()]);
         let (ahead, side) = (d[0] * fwd[0] + d[1] * fwd[1], d[0] * right[0] + d[1] * right[1]);
         if ahead < 0.0 && side.abs() < -ahead {
             c.label(format!("HOME IS BEHIND YOU  {far}   ({} turns)", pad::label(Buttons::B)), SCREEN_W / 2.0, SCREEN_H - 70.0, 34.0, pulse, Align::Center);

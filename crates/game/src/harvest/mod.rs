@@ -588,7 +588,7 @@ fn blinking(h: &Harvest) -> bool {
 
 /// Which walk frame the player shows: standing, or one of two steps.
 fn walk_frame(h: &Harvest) -> usize {
-    if h.walk > 0.0 { 1 + (h.walk * crate::tuning::tuning().walk_fps) as usize % 2 } else { 0 }
+    if h.me().walk > 0.0 { 1 + (h.me().walk * crate::tuning::tuning().walk_fps) as usize % 2 } else { 0 }
 }
 
 /// The player's frame for a facing: flashing while invulnerable, red just after a hit, else walking.
@@ -609,7 +609,7 @@ fn player_worn(h: &Harvest, facing: Facing) -> Option<([u8; 2], f32)> {
     if h.grenades < 1.0 || blinking(h) || matches!(h.phase, Phase::Over { .. }) {
         return None;
     }
-    let walk = &players::look(&h.look).look.walk[facing.index()];
+    let walk = &players::look(&h.me().look).look.walk[facing.index()];
     // A hurt frame wears it where the standing frame does.
     let frame = if h.me().hurt > h.difficulty.hurt_time() - 0.2 { 0 } else { walk_frame(h) };
     let at = walk[frame.min(walk.len() - 1)].worn_at()?;
@@ -628,7 +628,7 @@ fn worn_corner(at: [u8; 2], a: Art, flip: bool) -> [f32; 2] {
 /// The player's frame for a facing, and how far out of the ground it stands, 0 to 1. Once dead, it sinks
 /// and climbs back out as a zombie.
 fn player_pose(h: &Harvest, facing: Facing) -> (Art, f32) {
-    let look = &players::look(&h.look).look;
+    let look = &players::look(&h.me().look).look;
     let Phase::Over { t, won: false } = h.phase else { return (art_for(h, look, facing), 1.0) };
     let i = facing.index();
     if t < TURN_RISE {
@@ -709,15 +709,10 @@ pub struct Harvest {
     t: f32,
     phase: Phase,
     players: Vec<Player>,
-    facing: (Facing, bool),
-    aim: [f32; 2],
-    walk: f32,
     kit: Kit,
     zombies: Vec<Zombie>,
     /// Burrowers tunneling toward the player, out of reach of anything that hits.
     burrowed: Vec<Zombie>,
-    /// Zombies as the map remembers them.
-    marks: Vec<sight::Mark>,
     spits: Vec<Spit>,
     bullets: Vec<Bullet>,
     /// The zombies each weapon's burst has shot so far, by its section, for `targets each`.
@@ -749,8 +744,6 @@ pub struct Harvest {
     progress: Progress,
     /// Zombie kinds the settings turned off, by place in the roster.
     enemies_off: u64,
-    /// The id of the player's look; the farmer's is empty.
-    look: String,
     newly: Vec<usize>,
     ready: usize,
     found_now: u64,
@@ -799,10 +792,6 @@ pub struct Harvest {
     /// Zombies owed while the night was full, and the release toward the next of them rising.
     banked: f32,
     let_out: f32,
-    /// The way the player last walked.
-    heading: [f32; 2],
-    /// Turned: seconds until the player picks a new way to wander.
-    wander: f32,
     xp: u32,
     next_xp: u32,
     level: u32,
@@ -812,12 +801,6 @@ pub struct Harvest {
     flow_cell: [usize; 2],
     sep: Vec<[f32; 2]>,
     steps: map::Steps,
-    /// The player's heading, which the 3D camera looks along, in radians from +x toward +y.
-    view_yaw: f32,
-    /// Radians left of a quick turn in progress.
-    spin: f32,
-    /// The heading the player keeps while B swings the camera round, so it sweeps past their front.
-    turned_from: [f32; 2],
     /// The pause menu's highlighted choice, while Start has the run paused.
     menu: Option<usize>,
     /// X is held: aimed weapons go for explosive barrels in view first.
@@ -944,7 +927,7 @@ impl Harvest {
         let half = crate::tuning::tuning().player_half();
         let [px, py] = self.me().pos;
         let (tx, ty) = ((px / TILE) as i32, (py / TILE) as i32);
-        let mut s = format!("pos {px:.1},{py:.1} tile {tx},{ty} half {half:?} yaw {:.2}\n", self.view_yaw);
+        let mut s = format!("pos {px:.1},{py:.1} tile {tx},{ty} half {half:?} yaw {:.2}\n", self.me().view_yaw);
         let r = 4;
         for y in ty - r..=ty + r {
             s += &format!("{y:4} ");
@@ -1011,7 +994,6 @@ impl Harvest {
             revived: 0,
             progress: Progress::default(),
             enemies_off: 0,
-            look: String::new(),
             newly: Vec::new(),
             ready: 0,
             found_now: 0,
@@ -1044,13 +1026,9 @@ impl Harvest {
             map_id: String::new(),
             t: 0.0,
             phase: Phase::Playing,
-            facing: (Facing::Front, false),
-            aim: [0.0, 1.0],
-            walk: 0.0,
             kit,
             zombies: Vec::new(),
             burrowed: Vec::new(),
-            marks: Vec::new(),
             spits: Vec::new(),
             bullets: Vec::new(),
             burst_shot: Vec::new(),
@@ -1060,8 +1038,6 @@ impl Harvest {
             owed: 0.0,
             banked: 0.0,
             let_out: 0.0,
-            heading: [0.0, 1.0],
-            wander: 0.0,
             xp: 0,
             next_xp: book().first_level,
             level: 1,
@@ -1070,9 +1046,6 @@ impl Harvest {
             flow_cell: [usize::MAX; 2],
             sep: Vec::new(),
             steps: map::Steps::default(),
-            view_yaw: -PI / 2.0,
-            spin: 0.0,
-            turned_from: [0.0; 2],
             menu: None,
             targeting: false,
             turn_ready: false,
@@ -1231,7 +1204,8 @@ impl Harvest {
             *b = theirs.unwrap_or(*b);
         }
         self.players[ME].hp = kit.max_hp();
-        Self { look: mine.id.clone(), kit, grenades, ..self }
+        self.players[ME].look = mine.id.clone();
+        Self { kit, grenades, ..self }
     }
 
     #[cfg(test)]
@@ -1313,7 +1287,7 @@ impl Harvest {
     fn update_run(&mut self, input: &Input, dt: f32, sounds: &mut Vec<Sfx>) -> Flow {
         let mut flow = Flow::default();
         if self.bench {
-            self.view_yaw = (self.view_yaw + TAU / 600.0).rem_euclid(TAU);
+            self.me_mut().view_yaw = (self.me().view_yaw + TAU / 600.0).rem_euclid(TAU);
             self.remember(dt);
             return flow;
         }
@@ -1524,27 +1498,27 @@ impl Harvest {
         if input.pressed.contains(Buttons::B) {
             self.turn_around();
         }
-        let spun = self.spin.min(PI / SPIN_TIME * dt);
-        self.spin -= spun;
-        self.view_yaw = (self.view_yaw + turn * crate::tuning::tuning().turn_speed * dt + spun).rem_euclid(TAU);
-        let f = [self.view_yaw.cos(), self.view_yaw.sin()];
+        let spun = self.me().spin.min(PI / SPIN_TIME * dt);
+        self.me_mut().spin -= spun;
+        self.me_mut().view_yaw = (self.me().view_yaw + turn * crate::tuning::tuning().turn_speed * dt + spun).rem_euclid(TAU);
+        let f = [self.me().view_yaw.cos(), self.me().view_yaw.sin()];
         let (side, ahead) = (dir[0], -dir[1]);
         self.lean += (side - self.lean) * (8.0 * dt).min(1.0);
         let mv = [f[0] * ahead - f[1] * side, f[1] * ahead + f[0] * side];
-        self.aim = f;
-        self.facing = Facing::of(f);
+        self.me_mut().aim = f;
+        self.me_mut().facing = Facing::of(f);
         if len(mv) > 0.2 {
             let k = self.kit.speed() * dt * len(mv).min(1.0) / len(mv);
-            self.heading = norm(mv);
+            self.me_mut().heading = norm(mv);
             self.players[ME].pos = self.map.slide(self.players[ME].pos, [mv[0] * k, mv[1] * k], crate::tuning::tuning().player_half());
-            let before = (self.walk * crate::tuning::tuning().walk_fps) as u32;
-            self.walk += dt;
-            if (self.walk * crate::tuning::tuning().walk_fps) as u32 / 2 != before / 2 {
+            let before = (self.me().walk * crate::tuning::tuning().walk_fps) as u32;
+            self.me_mut().walk += dt;
+            if (self.me().walk * crate::tuning::tuning().walk_fps) as u32 / 2 != before / 2 {
                 let back = [-mv[0], -mv[1]];
                 self.juice.burst(self.me().pos, 0.5, 2, back, 0.8, [8.0, 20.0], juice::dirt(), 1.0, 0.35, 0.0);
             }
         } else {
-            self.walk = 0.0;
+            self.me_mut().walk = 0.0;
         }
         self.noise = None;
         let before = self.grenades;
@@ -1758,23 +1732,23 @@ impl Harvest {
             return;
         }
         let kit: Vec<String> = self.trial.iter().map(|&(d, l)| format!("{}:{l}", book().defs[d].id)).collect();
-        let look = std::mem::take(&mut self.look);
+        let look = std::mem::take(&mut self.me_mut().look);
         *self = Harvest::on(seed, &self.map_id).at(self.difficulty).with_progress(self.progress).without_enemies(self.enemies_off).looking_like(&look).with_kit(&kit.join(",")).starting_at(self.start_t).single_screen(self.single).endless_grenades(self.endless);
         sounds.push(Sfx::Start);
     }
 
     /// The way the player's sprite faces: the old heading while B swings the camera round, else where they aim.
     fn showing(&self) -> [f32; 2] {
-        if self.spin > 0.0 { self.turned_from } else { self.aim }
+        if self.me().spin > 0.0 { self.me().turned_from } else { self.me().aim }
     }
 
     /// B: the camera swings round while the player keeps their old heading, so it sweeps past their front.
     fn turn_around(&mut self) {
-        if self.spin > 0.0 {
+        if self.me().spin > 0.0 {
             return;
         }
-        self.turned_from = [self.view_yaw.cos(), self.view_yaw.sin()];
-        self.spin = PI;
+        self.me_mut().turned_from = [self.me().view_yaw.cos(), self.me().view_yaw.sin()];
+        self.me_mut().spin = PI;
     }
 
     /// The bar fills: a gold shockwave shoves the nearest zombies back while time slows, then the cards come.
@@ -2032,7 +2006,7 @@ impl Harvest {
                 i += 1;
                 continue;
             }
-            match self.ring_spot(Some(self.heading)).or_else(|| self.ring_spot(None)) {
+            match self.ring_spot(Some(self.me().heading)).or_else(|| self.ring_spot(None)) {
                 Some(pos) => {
                     let z = self.zombies.swap_remove(i);
                     self.tells.push(Tell { kind: z.kind, pos, hp: z.hp, t: 0.0, leader: z.leader });
@@ -2301,8 +2275,8 @@ impl Harvest {
             z.dir = [a.cos(), a.sin()];
             z.roam = -self.rng.range(0.0, after);
         }
-        self.heading = self.aim;
-        self.wander = self.leg();
+        self.me_mut().heading = self.me().aim;
+        self.me_mut().wander = self.leg();
     }
 
     /// Seconds a wanderer keeps one way.
@@ -2368,18 +2342,18 @@ impl Harvest {
 
     /// Turned, the player wanders like the rest, starting off the way they faced.
     fn wander_turned(&mut self, dt: f32) {
-        if self.wander <= 0.0 {
-            self.heading = self.veer(self.heading, false);
-            self.wander = self.leg();
+        if self.me().wander <= 0.0 {
+            self.players[ME].heading = self.veer(self.players[ME].heading, false);
+            self.me_mut().wander = self.leg();
         }
-        self.wander -= dt;
+        self.me_mut().wander -= dt;
         let from = self.me().pos;
         let step = TURNED_SPEED * dt;
-        self.me_mut().pos = self.map.slide(from, [self.heading[0] * step, self.heading[1] * step], crate::tuning::tuning().player_half());
-        self.facing = Facing::of(self.heading);
+        self.me_mut().pos = self.map.slide(from, [self.me().heading[0] * step, self.me().heading[1] * step], crate::tuning::tuning().player_half());
+        self.me_mut().facing = Facing::of(self.me().heading);
         if len(sub(self.me().pos, from)) < step * 0.3 {
-            self.heading = self.veer(self.heading, true);
-            self.wander = self.leg();
+            self.players[ME].heading = self.veer(self.players[ME].heading, true);
+            self.me_mut().wander = self.leg();
         }
     }
 
@@ -2911,7 +2885,7 @@ impl Harvest {
     /// Stereo pan (-100 left to 100 right) and loudness (0 to 255) for a sound at `at`, from where the player faces.
     fn place(&self, at: [f32; 2]) -> (i8, u8) {
         let d = sub(at, self.me().pos);
-        let right = [-self.view_yaw.sin(), self.view_yaw.cos()];
+        let right = [-self.me().view_yaw.sin(), self.me().view_yaw.cos()];
         let n = norm(d);
         let pan = (n[0] * right[0] + n[1] * right[1]) * 0.8;
         let gain = (1.0 - len(d) / 260.0).clamp(0.0, 1.0);
@@ -3047,7 +3021,7 @@ mod tests {
         let stalk = h.map.standing(tx + 1, ty + 1).expect("corn beside the lane");
         assert!(stalk.tall > 1 && stalk.sway.degrees > 0.0, "the corn ground's own height and sway: {stalk:?}");
         for k in 0..8 {
-            h.view_yaw = k as f32 * TAU / 8.0;
+            h.me_mut().view_yaw = k as f32 * TAU / 8.0;
             let (cells, cards) = view3d::crops_in_view(&h);
             assert!(cells > 300 && cards == cells * stalk.tall as usize, "at {k}/8 of a turn: {cells} cells, {cards} cards");
         }
@@ -3241,7 +3215,7 @@ mod tests {
     #[test]
     fn up_walks_along_the_heading_and_walls_stop_it() {
         let mut h = Harvest::calm(9);
-        h.view_yaw = 0.0;
+        h.me_mut().view_yaw = 0.0;
         let start = h.me().pos;
         run(&mut h, &Input { held: Buttons::UP, ..Default::default() }, 0.5);
         assert!(h.me().pos[0] > start[0] && (h.me().pos[1] - start[1]).abs() < 1.0);
@@ -3253,25 +3227,25 @@ mod tests {
     fn y_and_a_turn_without_moving_and_the_shoulder_triggers_do_not() {
         let mut h = Harvest::calm(9);
         run(&mut h, &Input::default(), 0.05);
-        let (start, yaw) = (h.me().pos, h.view_yaw);
+        let (start, yaw) = (h.me().pos, h.me().view_yaw);
         run(&mut h, &Input { held: Buttons::L2 | Buttons::R2, ..Default::default() }, 0.25);
-        assert_eq!(h.view_yaw, yaw);
+        assert_eq!(h.me().view_yaw, yaw);
         run(&mut h, &Input { held: Buttons::A, ..Default::default() }, 0.25);
         assert_eq!(h.me().pos, start);
-        assert!((h.view_yaw - yaw).rem_euclid(TAU) > 0.5);
+        assert!((h.me().view_yaw - yaw).rem_euclid(TAU) > 0.5);
         run(&mut h, &Input { held: Buttons::Y, ..Default::default() }, 0.25);
-        assert!((h.view_yaw - yaw).rem_euclid(TAU) < 0.01 || (h.view_yaw - yaw).rem_euclid(TAU) > TAU - 0.01);
+        assert!((h.me().view_yaw - yaw).rem_euclid(TAU) < 0.01 || (h.me().view_yaw - yaw).rem_euclid(TAU) > TAU - 0.01);
     }
 
     #[test]
     fn the_a_that_starts_a_run_does_not_turn() {
         let mut h = Harvest::calm(9);
-        let yaw = h.view_yaw.rem_euclid(TAU);
+        let yaw = h.me().view_yaw.rem_euclid(TAU);
         run(&mut h, &Input { held: Buttons::A, ..Default::default() }, 0.2);
-        assert_eq!(h.view_yaw, yaw);
+        assert_eq!(h.me().view_yaw, yaw);
         run(&mut h, &Input::default(), 0.05);
         run(&mut h, &Input { held: Buttons::A, ..Default::default() }, 0.2);
-        assert_ne!(h.view_yaw, yaw);
+        assert_ne!(h.me().view_yaw, yaw);
     }
 
     #[test]
@@ -3303,19 +3277,19 @@ mod tests {
     #[test]
     fn b_turns_all_the_way_around_quickly() {
         let mut h = Harvest::calm(9);
-        let yaw = h.view_yaw;
+        let yaw = h.me().view_yaw;
         h.update(&Input { pressed: Buttons::B, ..Default::default() }, 1.0 / 60.0, &mut Vec::new());
         run(&mut h, &Input::default(), SPIN_TIME * 0.8);
-        assert_eq!(h.showing(), h.turned_from, "the player keeps the old heading while the camera swings");
+        assert_eq!(h.showing(), h.me().turned_from, "the player keeps the old heading while the camera swings");
         run(&mut h, &Input::default(), SPIN_TIME * 0.2 + 0.05);
-        assert!(((h.view_yaw - yaw).rem_euclid(TAU) - PI).abs() < 1e-3, "the camera swings right round");
-        assert_eq!(h.showing(), h.aim, "and turns to match as it lands");
+        assert!(((h.me().view_yaw - yaw).rem_euclid(TAU) - PI).abs() < 1e-3, "the camera swings right round");
+        assert_eq!(h.showing(), h.me().aim, "and turns to match as it lands");
     }
 
     #[test]
     fn left_and_right_strafe_across_the_heading() {
         let mut h = Harvest::calm(9);
-        h.view_yaw = -PI / 2.0;
+        h.me_mut().view_yaw = -PI / 2.0;
         let start = h.me().pos;
         run(&mut h, &Input { held: Buttons::RIGHT, ..Default::default() }, 0.3);
         assert!(h.me().pos[0] > start[0] && (h.me().pos[1] - start[1]).abs() < 1.0);
@@ -3326,7 +3300,7 @@ mod tests {
         let mut h = Harvest::calm(12);
         let mut sounds = Vec::new();
         assert!(h.grenades >= 1.0);
-        let look = &players::look(&h.look).look;
+        let look = &players::look(&h.me().look).look;
         // The look may hide it on some facings; this one shows it.
         let Some((facing, at)) = [Facing::Front, Facing::Side, Facing::Back].into_iter().find_map(|f| Some((f, look.walk[f.index()][0].worn_at()?))) else { return };
         assert_eq!(player_worn(&h, facing), Some((at, 1.0)));
@@ -3621,9 +3595,9 @@ mod tests {
         assert_eq!(h.menu, Some(0));
         h.update(&Input { pressed: Buttons::A, held: Buttons::A, ..Default::default() }, 1.0 / 60.0, &mut Vec::new());
         assert_eq!(h.menu, None);
-        let yaw = h.view_yaw;
+        let yaw = h.me().view_yaw;
         h.update(&Input { held: Buttons::A, ..Default::default() }, 0.5, &mut Vec::new());
-        assert_eq!(h.view_yaw, yaw.rem_euclid(TAU), "the A that resumed has to be let go before it turns");
+        assert_eq!(h.me().view_yaw, yaw.rem_euclid(TAU), "the A that resumed has to be let go before it turns");
     }
 
     #[test]
@@ -3899,7 +3873,7 @@ mod tests {
         assert_eq!(h.difficulty, Difficulty::Hard);
         assert_eq!(h.kit.weapons.len(), 2, "and its kit");
         assert_eq!(h.enemies_off, 0b10, "the kinds turned off stay off");
-        assert_eq!(h.look, "", "and the player keeps their look");
+        assert_eq!(h.me().look, "", "and the player keeps their look");
     }
 
     #[test]
@@ -3976,7 +3950,7 @@ mod tests {
     fn open_field() -> Harvest {
         let mut h = Harvest::calm_on(1, &map::MapSource::new("Field", [80, 60])).unwrap();
         h.me_mut().pos = [640.0, 480.0];
-        h.heading = [1.0, 0.0];
+        h.me_mut().heading = [1.0, 0.0];
         h.t = 10.0;
         h
     }
@@ -4313,8 +4287,8 @@ mod tests {
     fn once_dead_the_map_shows_the_horde_walking_where_it_is() {
         let mut h = Harvest::calm(4);
         h.zombies.clear();
-        h.view_yaw = 0.0;
-        h.aim = [1.0, 0.0];
+        h.me_mut().view_yaw = 0.0;
+        h.me_mut().aim = [1.0, 0.0];
         let mut z = Zombie::new(Kind::named("skinny"), [h.me().pos[0] - 40.0, h.me().pos[1]], 50.0, 1.0, 0.0);
         z.id = 9;
         h.zombies.push(z);
@@ -4341,7 +4315,7 @@ mod tests {
         let mut h = before_dawn();
         h.update(&Input::default(), 0.02, &mut Vec::new());
         h.me_mut().pos = h.map.home;
-        h.view_yaw = 0.0;
+        h.me_mut().view_yaw = 0.0;
         let mut z = Zombie::new(Kind::named("skinny"), [h.me().pos[0] + 12.0, h.me().pos[1]], 50.0, 1.0, 0.0);
         z.id = 9;
         let kinds: Vec<Kind> = h.zombies.iter().chain([&z]).map(|z| z.kind).collect();

@@ -234,7 +234,7 @@ pub fn night(plan: &Plan) -> Night {
         if ever(plan.throw_every, t) > thrown && matches!(h.phase, Phase::Playing) {
             thrown = ever(plan.throw_every, t);
             let reach = crate::tuning::tuning().quick_near;
-            let to = [h.me().pos[0] + h.aim[0] * reach, h.me().pos[1] + h.aim[1] * reach];
+            let to = [h.me().pos[0] + h.me().aim[0] * reach, h.me().pos[1] + h.me().aim[1] * reach];
             h.throw_at(to, &mut sounds);
         }
         h.update(&input, plan.step, &mut sounds);
@@ -293,7 +293,7 @@ const AVOID_DANGER_MOST: f32 = 10.0;
 /// would rather veer than turn back, and keeps off the farm's edge.
 fn avoid(h: &Harvest) -> f32 {
     let near: Vec<([f32; 2], f32)> = h
-        .marks
+        .me().marks
         .iter()
         .filter_map(|m| {
             let d = sub(m.pos, h.me().pos);
@@ -325,7 +325,7 @@ fn avoid(h: &Harvest) -> f32 {
     let best = (-7..=8)
         .map(|j| {
             let off = j as f32 * PI / 8.0;
-            let dir = [(h.view_yaw + off).cos(), (h.view_yaw + off).sin()];
+            let dir = [(h.me().view_yaw + off).cos(), (h.me().view_yaw + off).sin()];
             let danger: f32 = near.iter().map(|(u, w)| w * (dir[0] * u[0] + dir[1] * u[1]).max(0.0).powi(4)).sum();
             let (free, first) = walk(dir);
             let score = off.cos() - danger.min(AVOID_DANGER_MOST) + 3.0 * (dir[0] * back[0] + dir[1] * back[1]) + 2.0 * free - if first < 0.5 { 100.0 } else { 0.0 };
@@ -468,16 +468,16 @@ mod tests {
         let src = super::super::map::MapSource::new("Open", [40, 40]);
         let mut h = Harvest::calm_on(1, &src).unwrap();
         h.me_mut().pos = [20.5 * TILE, 20.5 * TILE];
-        h.view_yaw = 0.0;
+        h.me_mut().view_yaw = 0.0;
         assert_eq!(avoid(&h), 0.0, "nothing seen, it walks straight on");
         let mut z = super::super::Zombie::new(super::super::Kind::common(), [h.me().pos[0] + 30.0, h.me().pos[1] + 4.0], 1000.0, 1.0, 0.0);
         z.id = 9;
         h.zombies = vec![z];
         h.remember(1.0 / 60.0);
         assert!(avoid(&h) < 0.0, "a zombie ahead and to the right turns it left");
-        h.marks.clear();
-        h.view_yaw = PI;
+        h.me_mut().marks.clear();
+        h.me_mut().view_yaw = PI;
         h.remember(1.0 / 60.0);
-        assert!(h.marks.is_empty() && avoid(&h) == 0.0, "one behind it hasn't seen doesn't sway it");
+        assert!(h.me().marks.is_empty() && avoid(&h) == 0.0, "one behind it hasn't seen doesn't sway it");
     }
 }

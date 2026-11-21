@@ -62,7 +62,7 @@ fn faces(art: Art, reach: Reach, top: Option<Art>) -> Cow<'static, [Face]> {
 
 /// The crop cells the 3D view stands from where the player looks, and the cards their columns take.
 pub(super) fn crops_in_view(h: &Harvest) -> (usize, usize) {
-    let forward = Vec3::new(h.view_yaw.cos(), 0.0, h.view_yaw.sin());
+    let forward = Vec3::new(h.me().view_yaw.cos(), 0.0, h.me().view_yaw.sin());
     let p = world(h.me().pos);
     let r = VIEW_RADIUS as i32;
     let (cx, cz) = (p.x as i32, p.z as i32);
@@ -655,14 +655,14 @@ pub fn scene(h: &Harvest) -> CardScene {
         _ => 0.0,
     };
     let [turn, back] = h.orbit.unwrap_or_default();
-    let yaw = h.view_yaw + turn + std::f32::consts::PI * swing;
+    let yaw = h.me().view_yaw + turn + std::f32::consts::PI * swing;
     let forward = Vec3::new(yaw.cos(), 0.0, yaw.sin());
     let right = forward.cross(Vec3::Y);
     let focus = h.range_focus();
     let p = world(focus.unwrap_or(h.me().pos));
     let [sx, sy, roll] = j.shake_offset();
     let roll = roll + h.lean * 0.035;
-    let bob = if h.walk > 0.0 { (h.walk * crate::tuning::tuning().walk_fps * std::f32::consts::PI / 2.0).sin().abs() * 0.04 } else { 0.0 };
+    let bob = if h.me().walk > 0.0 { (h.me().walk * crate::tuning::tuning().walk_fps * std::f32::consts::PI / 2.0).sin().abs() * 0.04 } else { 0.0 };
     let shake = right * sx + Vec3::Y * (sy + bob);
     let eye = p - forward * (CAMERA_BACK + back + 0.2 * swing) + Vec3::Y * (1.5 + h.lift + back * 0.4 + 0.4 * swing) + shake;
     // Zoomed in for the icon scene, the camera looks at the figure on show instead of down the road.
@@ -1325,7 +1325,7 @@ mod tests {
     #[test]
     fn what_stands_beside_the_player_shows_and_only_what_blocks_the_camera_hides() {
         let mut h = Harvest::calm(7);
-        h.view_yaw = 0.0;
+        h.me_mut().view_yaw = 0.0;
         h.barrels.clear();
         let without = scene(&h).cards.len();
         let drawn = |h: &mut Harvest, tiles: [f32; 2]| {
@@ -1345,7 +1345,7 @@ mod tests {
     fn a_rising_zombie_stays_solid_while_the_eruption_around_it_fades() {
         use crate::harvest::{Fx, Kind, Zombie, effects::effects};
         let mut h = Harvest::calm(7);
-        h.view_yaw = 0.0;
+        h.me_mut().view_yaw = 0.0;
         let at = [h.me().pos[0] + 3.0 * TILE, h.me().pos[1]];
         let kind = Kind::named("skinny");
         h.zombies.push(Zombie::new(kind, at, 10.0, 0.0, 0.0));
@@ -1381,7 +1381,7 @@ mod tests {
         for seed in 1..20 {
             let mut h = Harvest::new(seed);
             for yaw in 0..8 {
-                h.view_yaw = yaw as f32 * std::f32::consts::FRAC_PI_4;
+                h.me_mut().view_yaw = yaw as f32 * std::f32::consts::FRAC_PI_4;
                 worst = worst.max(scene(&h).cards.len());
             }
         }
@@ -1409,7 +1409,7 @@ mod tests {
         h.juice.ring(h.me().pos, 40.0, 1.0, blood());
         let mut worst = 0;
         for yaw in 0..8 {
-            h.view_yaw = yaw as f32 * std::f32::consts::FRAC_PI_4;
+            h.me_mut().view_yaw = yaw as f32 * std::f32::consts::FRAC_PI_4;
             worst = worst.max(scene(&h).cards.len());
         }
         eprintln!("most cards with everything going: {worst}");

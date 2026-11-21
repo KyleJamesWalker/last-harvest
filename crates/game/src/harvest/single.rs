@@ -97,7 +97,7 @@ impl Harvest {
             self.aiming = None;
             self.throw_at(aim.at, sounds);
             let off = [aim.at[0] - self.me().pos[0], aim.at[1] - self.me().pos[1]];
-            self.last_throw = Some([off[1].atan2(off[0]) - self.view_yaw, len(off)]);
+            self.last_throw = Some([off[1].atan2(off[0]) - self.me().view_yaw, len(off)]);
             self.since_throw = 0.0;
             return (own, dt);
         }
@@ -111,7 +111,7 @@ impl Harvest {
     fn default_target(&self) -> [f32; 2] {
         let t = crate::tuning::tuning();
         let [turn, dist] = self.last_throw.filter(|_| self.since_throw < t.aim_memory).unwrap_or([0.0, t.aim_ahead]);
-        let a = self.view_yaw + turn;
+        let a = self.me().view_yaw + turn;
         self.on_view([self.me().pos[0] + a.cos() * dist, self.me().pos[1] + a.sin() * dist])
     }
 
@@ -218,7 +218,7 @@ mod tests {
 
     fn single(seed: u64) -> Harvest {
         let mut h = Harvest::calm(seed).single_screen(true);
-        h.view_yaw = 0.0;
+        h.me_mut().view_yaw = 0.0;
         hold(&mut h, Buttons::NONE, 0.05);
         h
     }
@@ -271,7 +271,7 @@ mod tests {
         let mut h = single(12);
         press(&mut h, Buttons::L2, Buttons::L2);
         press(&mut h, Buttons::L2 | Buttons::B, Buttons::B);
-        assert!(h.aiming.is_none() && h.spin == 0.0);
+        assert!(h.aiming.is_none() && h.me().spin == 0.0);
         hold(&mut h, Buttons::NONE, DT);
         assert!(h.thrown.is_empty() && h.grenades >= 1.0);
     }
@@ -294,7 +294,7 @@ mod tests {
         let first = h.aiming.unwrap().at;
         let off = [first[0] - h.me().pos[0], first[1] - h.me().pos[1]];
         hold(&mut h, Buttons::NONE, DT);
-        h.view_yaw = std::f32::consts::FRAC_PI_2;
+        h.me_mut().view_yaw = std::f32::consts::FRAC_PI_2;
         hold(&mut h, Buttons::NONE, 1.0);
         h.grenades = 1.0;
         press(&mut h, Buttons::L2, Buttons::L2);
@@ -372,7 +372,7 @@ mod tests {
         let up = shapes(&h);
         assert_eq!(clips(&up), 0, "the full map needs no corner one");
         let mut two = Harvest::calm(12);
-        two.view_yaw = 0.0;
+        two.me_mut().view_yaw = 0.0;
         let mut f = crate::Frame::default();
         two.draw(&mut f, false);
         assert_eq!(clips(&f.top.shapes), 0, "two screens keep the map below");
@@ -383,6 +383,6 @@ mod tests {
         let mut h = single(12);
         h.grenades = 0.0;
         hold(&mut h, Buttons::R2, 0.3);
-        assert_eq!(h.view_yaw, 0.0);
+        assert_eq!(h.me().view_yaw, 0.0);
     }
 }
