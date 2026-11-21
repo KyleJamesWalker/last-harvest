@@ -152,7 +152,7 @@ impl Harvest {
                 self.gore(pos, fall, 0.0, fall, &s.look, s.gibs as usize, s.blood);
                 self.kill_bump = 0.0;
             }
-            Event::LevelUp { .. } | Event::LevelDone | Event::RunEnd { .. } | Event::Stop { .. } => {}
+            Event::LevelUp { .. } | Event::LevelDone | Event::RunEnd { .. } | Event::Stop { .. } | Event::Rumble { .. } => {}
         }
     }
 

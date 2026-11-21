@@ -147,6 +147,15 @@ impl Harvest {
         self.players[p].hp = 0.0;
     }
 
+    /// A tough zombie rises fully grown on player `p`.
+    #[cfg(test)]
+    pub(crate) fn biter_for_test(&mut self, p: PlayerId) {
+        let mut z = super::Zombie::new(super::Kind::common(), self.players[p].pos, 1000.0, 1.0, 0.0);
+        z.id = self.next_id;
+        self.next_id += 1;
+        self.zombies.push(z);
+    }
+
     /// Whether player `p` leads (true) or picks a rise (false), and where they stand.
     #[cfg(test)]
     pub(crate) fn lead_for_test(&self, p: PlayerId) -> Option<(bool, [f32; 2])> {

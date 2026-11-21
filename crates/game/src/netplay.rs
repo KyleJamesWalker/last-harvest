@@ -490,6 +490,11 @@ fn host_step(s: &mut Hosting, unreliable: &mut Vec<Packet>, outbox: &mut Vec<Pac
     let fresh = s.extract.record(h, s.tick, &sounds[before..]);
     for r in s.peers.values_mut() {
         fresh.hand(&mut r.link);
+        for &seat in r.queues.keys() {
+            if let Some(kind) = flow.rumble.get(seat).copied().flatten() {
+                r.link.push_event(s.tick, Event::Rumble { seat: seat as u8, kind });
+            }
+        }
     }
     if s.tick.is_multiple_of(SEND_EVERY) {
         send_world(s, outbox, h);
@@ -511,14 +516,20 @@ fn client_step(c: &mut Joining, unreliable: &mut Vec<Packet>, outbox: &mut Vec<P
             c.mirror.spawn(fresh);
         }
     }
+    let mut flow = Flow::default();
+    let seats = h.local_seats();
     for ev in c.link.events() {
         match ev {
             Event::Stop { id } => c.mirror.stop(id),
+            Event::Rumble { seat, kind } => {
+                if let Some(v) = seats.iter().position(|&s| s == seat as usize) {
+                    flow.buzz(v, kind);
+                }
+            }
             ev => h.client_event(ev, sounds),
         }
     }
     c.tick += 1;
-    let seats = h.local_seats();
     c.logs.resize_with(seats.len(), InputLog::default);
     let mine: Vec<Input> = std::iter::once(*input).chain(others.iter().copied()).take(seats.len()).collect();
     c.mirror.frozen = h.held();
@@ -547,7 +558,6 @@ fn client_step(c: &mut Joining, unreliable: &mut Vec<Packet>, outbox: &mut Vec<P
     }
     c.mirror.advance(dt);
     h.client_frame(&c.mirror, dt, sounds);
-    let mut flow = Flow::default();
     let pressed = mine.iter().fold(Buttons::NONE, |b, i| b | i.pressed);
     if h.client_wants_out(pressed) {
         flow.quit = true;

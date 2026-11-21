@@ -461,7 +461,7 @@ pub enum Rumble {
 
 impl Flow {
     /// Buzzes player `p`'s pad, the stronger kind winning; nothing for a player past the seats.
-    fn buzz(&mut self, p: PlayerId, r: Rumble) {
+    pub(crate) fn buzz(&mut self, p: PlayerId, r: Rumble) {
         if let Some(s) = self.rumble.get_mut(p) {
             *s = (*s).max(Some(r));
         }
