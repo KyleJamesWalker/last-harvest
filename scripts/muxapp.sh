@@ -11,6 +11,7 @@ cd "$(dirname "$0")/.."
 host="${MUOS_HOST:-muos}"
 root="${MUOS_ROOT:-}"
 out=target/muos
+. scripts/lib/target.sh
 release="" install="" tag="" dry=""
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -44,7 +45,7 @@ build() {
   mkdir -p "$app/data" "$app/glyph"
   cp crates/app/muos/mux_launch.sh "$app/"
   cp assets/private/icons/muos-glyph.png "$app/glyph/lastharvest.png"
-  cp target/aarch64-unknown-linux-gnu/release/last-harvest-muos "$app/last-harvest"
+  cp "$bin/aarch64-unknown-linux-gnu/release/last-harvest-muos" "$app/last-harvest"
   if [ -n "$release" ]; then
     echo "${LAST_HARVEST_VERSION:?a release needs LAST_HARVEST_VERSION}" >"$app/version.txt"
   else

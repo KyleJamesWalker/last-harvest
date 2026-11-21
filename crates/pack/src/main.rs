@@ -343,6 +343,9 @@ fn run(args: &[PathBuf], words: &[&str]) -> Result<(), Box<dyn std::error::Error
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2).unwrap();
     let out = args.first().cloned().unwrap_or_else(|| root.join("target/game_data.pak"));
     let files = files(root)?;
+    if let Some(dir) = Path::new(&out).parent().filter(|d| !d.as_os_str().is_empty()) {
+        std::fs::create_dir_all(dir)?;
+    }
     write(std::fs::File::create(&out)?, &files)?;
     let size = std::fs::metadata(&out)?.len();
     println!("{}: {} files, {:.1} MB", out.display(), files.len(), size as f64 / 1e6);

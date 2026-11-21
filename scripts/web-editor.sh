@@ -6,9 +6,10 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 out=target/web-editor
 . scripts/lib/wasm.sh
+. scripts/lib/target.sh
 cargo build --release --target wasm32-unknown-unknown -p sprite-editor --bin sprite-editor
 rm -rf "$out"
-wasm-bindgen --target web --no-typescript --out-dir "$out" target/wasm32-unknown-unknown/release/sprite-editor.wasm
+wasm-bindgen --target web --no-typescript --out-dir "$out" "$bin/wasm32-unknown-unknown/release/sprite-editor.wasm"
 cp crates/editor/web/index.html "$out/"
 cp assets/private/icons/editor-32.png "$out/icon.png"
 cp assets/private/icons/editor-176.png "$out/apple-touch-icon.png"

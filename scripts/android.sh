@@ -16,13 +16,14 @@ fi
 tools="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)"
 jar="$ANDROID_HOME/platforms/android-36/android.jar"
 out=target/android
+. scripts/lib/target.sh
 stage="$out/stage"
 rm -rf "$stage"
 mkdir -p "$stage/assets" "$stage/lib/arm64-v8a" "$stage/res/mipmap" "$stage/classes"
 
 cargo run -q -p last-harvest-pack
 CARGO_PROFILE_RELEASE_STRIP=symbols CARGO_PROFILE_RELEASE_DEBUG=false cargo ndk -t arm64-v8a --platform 26 -- rustc --release -p last-harvest --lib --crate-type cdylib --no-default-features
-cp target/aarch64-linux-android/release/liblast_harvest.so "$stage/lib/arm64-v8a/"
+cp "$bin/aarch64-linux-android/release/liblast_harvest.so" "$stage/lib/arm64-v8a/"
 [ "${LAST_HARVEST_NO_PAK:-}" = 1 ] || cp target/game_data.pak "$stage/assets/"
 cp assets/private/icons/game-512.png "$stage/res/mipmap/icon.png"
 version="${LAST_HARVEST_VERSION:-dev}"

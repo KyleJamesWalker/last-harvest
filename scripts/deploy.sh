@@ -4,12 +4,13 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 host="${RGDS_HOST:-root@anbernic.local}"
 dir=/userdata/last-harvest
+. scripts/lib/target.sh
 scripts/build-device.sh
 cargo run -q -p last-harvest-pack
 ssh "$host" "mkdir -p $dir/data && rm -rf $dir/sounds $dir/enemies $dir/game_data.pak $dir/game_data.pak.new"
 scp -q scripts/device-run.sh "$host:$dir/run.sh"
 scp -q target/game_data.pak "$host:$dir/data/game_data.pak.new"
-scp -q target/aarch64-unknown-linux-gnu/release/last-harvest "$host:$dir/last-harvest.new"
+scp -q "$bin/aarch64-unknown-linux-gnu/release/last-harvest" "$host:$dir/last-harvest.new"
 scripts/sync-data.sh "$host" "$dir/data"
 # A run.sh from before the data folder never swaps data/game_data.pak.new in.
 ssh "$host" "[ -f $dir/data/game_data.pak ] || cp $dir/data/game_data.pak.new $dir/data/game_data.pak"
