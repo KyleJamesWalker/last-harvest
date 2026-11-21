@@ -421,6 +421,14 @@ mod tests {
         let mut f = crate::Frame::default();
         h.draw(&mut f, false);
         assert!(says(&f.top, "RISE AGAIN"), "one screen shows the map while picking");
+        let mut h = pair();
+        turned(&mut h, ME);
+        h.xp = h.next_xp;
+        step(&mut h, Input::default(), 1.0);
+        assert!(matches!(h.phase, Phase::LevelUp { .. }));
+        let mut f = crate::Frame::default();
+        h.draw(&mut f, false);
+        assert!(!says(&f.top, "LEVEL UP") && !says(&f.bottom, "Offer your hearts"), "the dead get no cards");
     }
 
     #[test]

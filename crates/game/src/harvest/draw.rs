@@ -73,7 +73,9 @@ impl Harvest {
         self.rise_mark(c, cam);
         c.anchor([0.5, 0.5]);
         self.paused_bottom(c);
-        if let Phase::LevelUp { choices, selected, t, picked } = &self.phase {
+        if let Phase::LevelUp { choices, selected, t, picked } = &self.phase
+            && self.me().lead.is_none()
+        {
             let fade = picked.map_or(1.0, |p| 1.0 - p / PICK_TIME);
             c.rect(0.0, 0.0, SCREEN_W, SCREEN_H, [0.0, 0.0, 0.0, 0.6 * (t / 0.2).min(1.0) * fade]);
             let how = match (self.banishing, self.favoring, self.taps) {
@@ -522,6 +524,7 @@ impl Harvest {
     fn overlays(&self, c: &mut Canvas) {
         match &self.phase {
             Phase::Playing => {}
+            Phase::LevelUp { .. } if self.me().lead.is_some() => {}
             Phase::LevelUp { choices, selected, t, picked } => {
                 let fade = picked.map_or(1.0, |p| 1.0 - p / PICK_TIME);
                 c.rect(0.0, 0.0, SCREEN_W, SCREEN_H, [0.0, 0.0, 0.0, 0.55 * (t / 0.2).min(1.0) * fade]);
