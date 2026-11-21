@@ -663,6 +663,12 @@ impl Def {
         }
     }
 
+    /// The card's zone tag, empty without a zone.
+    pub fn zone_tag(&self) -> String {
+        let Some(zone) = self.zone else { return String::new() };
+        if self.targets == Targets::Each && self.outside != Some(0.0) && zone != Zone::Around { format!("{}, THEN ALL ROUND", zone.name()) } else { zone.name().into() }
+    }
+
     /// The card's line for going from level `from` to `to`: the blurb when new, else what changes.
     pub fn change(&self, from: u32, to: u32) -> String {
         if from == 0 || self.kind == Kind::Filler {
@@ -1099,6 +1105,20 @@ mod tests {
         let outside = |v: &str| parse(&format!("[g]\nkind weapon\ndoes gun\noutside {v}\nicon WHITE\n[cash]\nkind filler\nicon WHITE\n")).map(|b| b.defs[0].outside);
         assert_eq!((outside("40"), outside("0"), g.defs[0].outside), (Ok(Some(40.0)), Ok(Some(0.0)), None), "the whole range when left out");
         assert!(outside("-1").is_err() && outside("far").is_err());
+    }
+
+    #[test]
+    fn a_card_names_where_a_burst_that_targets_each_reaches() {
+        let tag = |lines: &str| parse(&format!("[w]\nkind weapon\ndoes pistol\npattern burst\nicon WHITE\n{lines}\n[cash]\nkind filler\nicon WHITE\n")).unwrap().defs[0].zone_tag();
+        assert_eq!(tag("zone ahead\ntargets each"), "AHEAD, THEN ALL ROUND");
+        assert_eq!(tag("zone ahead\ntargets each\noutside 40"), "AHEAD, THEN ALL ROUND");
+        assert_eq!(tag("zone ahead\ntargets each\noutside 0"), "AHEAD", "only what's in view");
+        assert_eq!(tag("zone far\ntargets each"), "FAR, THEN ALL ROUND");
+        assert_eq!(tag("zone around\ntargets each"), "AROUND");
+        assert_eq!(tag("zone behind"), "BEHIND");
+        assert_eq!(tag("targets each"), "");
+        let pistol = book().defs.iter().find(|d| d.name == "Pistol").unwrap();
+        assert_eq!(pistol.zone_tag(), "AHEAD, THEN ALL ROUND");
     }
 
     #[test]
