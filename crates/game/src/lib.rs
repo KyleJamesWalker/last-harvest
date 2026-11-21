@@ -15,6 +15,7 @@ mod icon;
 mod harvest;
 mod input;
 mod menu;
+pub mod netsync;
 mod osd;
 mod controls;
 pub mod pad;
