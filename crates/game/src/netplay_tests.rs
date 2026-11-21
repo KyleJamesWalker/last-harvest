@@ -199,6 +199,60 @@ fn host_harvest(pair: &mut Pair) -> &mut crate::harvest::Harvest {
     h
 }
 
+/// Walks the client's players off and puts a biter on the host's `seat`: whether the client's pad for `view` buzzed,
+/// whether its motor was asked to whatever Settings say, and whether the host ever buzzed for a seat it doesn't hold.
+fn bite_the_client(pair: &mut Pair, seat: usize, view: usize) -> (bool, bool, bool) {
+    let right = Input { held: Buttons::RIGHT, ..Input::default() };
+    pair.games[1].others = vec![right];
+    for _ in 0..(1.5 / DT) as u32 {
+        pair.step(Input::default(), right);
+    }
+    pair.games[1].others.clear();
+    host_harvest(pair).biter_for_test(seat);
+    let (mut felt, mut asked, mut host) = (false, false, false);
+    for _ in 0..(1.0 / DT) as u32 {
+        pair.step(Input::default(), Input::default());
+        felt |= pair.games[1].rumble_for(view);
+        asked |= pair.games[1].pulsing(view);
+        host |= pair.games[0].pulses[1..].iter().any(|p| !p.is_empty());
+    }
+    (felt, asked, host)
+}
+
+#[test]
+fn a_bite_on_the_clients_player_buzzes_the_clients_pad_alone_and_rumble_off_keeps_it_still() {
+    let mut pair = Pair::started();
+    pair.idle(1.0);
+    let (felt, _, host) = bite_the_client(&mut pair, 1, 0);
+    assert!(felt, "the client feels its player's bite");
+    assert!(!host, "the host never buzzes for a seat it doesn't hold");
+    let mut pair = Pair::started();
+    pair.games[1].save.rumble = false;
+    pair.idle(1.0);
+    let (felt, asked, _) = bite_the_client(&mut pair, 1, 0);
+    assert!(asked && !felt, "the bite reaches the client, and rumble off keeps its pad still");
+}
+
+#[test]
+fn a_bite_on_a_split_screen_clients_second_player_buzzes_that_players_pad() {
+    let mut pair = Pair::new();
+    pair.games[1].set_players(2);
+    pair.games[0].host_online(Some("ACDEF"));
+    pair.wire();
+    pair.games[1].join_online("acd-ef");
+    pair.wire();
+    pair.idle(0.5);
+    pair.press(1, Buttons::A);
+    pair.press(0, Buttons::A);
+    pair.press(0, Buttons::START);
+    pair.idle(1.0);
+    let crate::State::Harvest(c) = &pair.games[1].state else { panic!("the client is in the night") };
+    assert_eq!(c.local_seats(), [1, 2], "the client holds two seats");
+    let (felt, _, host) = bite_the_client(&mut pair, 2, 1);
+    assert!(felt && pair.games[1].pulses[0].is_empty(), "the second player's pad alone");
+    assert!(!host);
+}
+
 #[test]
 fn a_snapshot_naming_a_powerup_past_the_book_is_drawn_without_it() {
     use crate::netsync::snapshot::*;

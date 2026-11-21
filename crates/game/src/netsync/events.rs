@@ -3,6 +3,7 @@
 use std::collections::{BTreeMap, VecDeque};
 
 use super::wire::{Reader, Writer};
+use crate::harvest::Rumble;
 use crate::sfx::Sfx;
 
 /// Ticks a sound cue is sent for.
@@ -21,12 +22,14 @@ pub enum Event {
     SoundAt(Sfx, [u16; 2]),
     /// A shot or spit that hit something before its life ran out, by its spawn id.
     Stop { id: u32 },
+    /// The pad of the player in `seat` buzzes.
+    Rumble { seat: u8, kind: Rumble },
 }
 
 impl Event {
     /// Never expires.
     pub fn critical(&self) -> bool {
-        !matches!(self, Event::Sound(_) | Event::SoundAt(..) | Event::Stop { .. })
+        !matches!(self, Event::Sound(_) | Event::SoundAt(..) | Event::Stop { .. } | Event::Rumble { .. })
     }
 
     pub fn write(&self, w: &mut Writer) {
@@ -62,6 +65,11 @@ impl Event {
                 w.u8(6);
                 w.var(id);
             }
+            Event::Rumble { seat, kind } => {
+                w.u8(7);
+                w.u8(seat);
+                w.u8(kind as u8);
+            }
         }
     }
 
@@ -74,6 +82,16 @@ impl Event {
             4 => Event::RunEnd { won: r.u8()? != 0 },
             5 => Event::SoundAt(read_sfx(r)?, [r.u16()?, r.u16()?]),
             6 => Event::Stop { id: r.var()? },
+            7 => Event::Rumble {
+                seat: r.u8()?,
+                kind: match r.u8()? {
+                    0 => Rumble::Tick,
+                    1 => Rumble::Fanfare,
+                    2 => Rumble::Hit,
+                    3 => Rumble::Blast,
+                    _ => return None,
+                },
+            },
             _ => return None,
         })
     }
@@ -281,6 +299,8 @@ mod tests {
             Event::LevelUp { level: 9 },
             Event::LevelDone,
             Event::RunEnd { won: true },
+            Event::Rumble { seat: 3, kind: Rumble::Tick },
+            Event::Rumble { seat: 1, kind: Rumble::Blast },
         ];
         let mut w = Writer::new();
         all.iter().for_each(|e| e.write(&mut w));
