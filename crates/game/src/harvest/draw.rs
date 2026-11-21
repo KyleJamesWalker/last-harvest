@@ -15,7 +15,7 @@ use crate::{Align, Buttons, Canvas, Color, Frame, SCREEN_H, SCREEN_W, pad};
 impl Harvest {
     /// The run's screens; in photo mode, a `clean` frame is the capture, with no guides.
     pub fn draw(&self, f: &mut Frame, clean: bool) {
-        if self.photo.is_some() {
+        if self.photo.is_some() && !self.photo_by_other() {
             self.photo_frame(f, clean);
         } else {
             self.draw_screens(f);
@@ -733,25 +733,31 @@ impl Harvest {
 
     /// Start's pause: the run's numbers over the dimmed view.
     fn paused_top(&self, c: &mut Canvas) {
-        if self.menu.is_none() {
+        if self.menu.is_none() && !self.photo_by_other() {
             return;
         }
         c.rect(0.0, 0.0, SCREEN_W, SCREEN_H, [0.0, 0.0, 0.0, 0.6]);
         c.text_centered(250.0, 16.0, WHITE, "PAUSED");
         if self.views > 1 {
-            c.label(format!("P{} paused", self.number(self.paused_by)), SCREEN_W / 2.0, 340.0, 40.0, GOLD, Align::Center);
+            c.label(self.paused_line(), SCREEN_W / 2.0, 340.0, 40.0, GOLD, Align::Center);
         }
         let line = format!("{}   Level {}   Kills {}", clock(self.t), self.level, self.kills);
         c.label(line, SCREEN_W / 2.0, 420.0, 40.0, WHITE, Align::Center);
     }
 
+    /// Who holds the night still in co-op, and what for.
+    fn paused_line(&self) -> String {
+        let doing = if self.photo.is_some() { "is taking a photo" } else { "paused" };
+        format!("P{} {doing}", self.number(self.paused_by))
+    }
+
     /// Start's pause choices, in the rows the level-up cards use so a tap lands the same way.
     fn paused_bottom(&self, c: &mut Canvas) {
-        let Some(at) = self.menu else { return };
+        let Some(at) = self.menu.or(self.photo_by_other().then_some(0)) else { return };
         c.rect(0.0, 0.0, SCREEN_W, SCREEN_H, [0.0, 0.0, 0.0, 0.6]);
         if self.paused_by != ME {
             c.text_centered(250.0, 16.0, WHITE, "PAUSED");
-            c.label(format!("P{} paused", self.number(self.paused_by)), SCREEN_W / 2.0, 360.0, 40.0, GOLD, Align::Center);
+            c.label(self.paused_line(), SCREEN_W / 2.0, 360.0, 40.0, GOLD, Align::Center);
             return;
         }
         let how = pad::hint(if self.taps { "{Start} or {B}: resume.   Up / Down and {A}, or tap" } else { "{Start} or {B}: resume.   Up / Down and {A}" });

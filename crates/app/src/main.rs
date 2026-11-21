@@ -374,7 +374,11 @@ impl App {
             let rendered = gfx.render(&frame, (views > 1).then_some(views), shot.is_some());
             self.stats.work_ms[2] += started.elapsed().as_secs_f32() * 1000.0;
             match rendered {
-                Ok(Some(img)) => {
+                Ok(Some(mut img)) => {
+                    if photo && views > 1 {
+                        let rects = last_harvest_render::split::split(views, [size.width, size.height]);
+                        img.top = rects.get(self.game.menu_view()).copied().unwrap_or(img.top);
+                    }
                     let path = shot.unwrap();
                     std::thread::spawn(move || if photo { save_photo(&path, &img) } else { save_shot(&path, img.width, &img.rgba) });
                 }

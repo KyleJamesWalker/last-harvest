@@ -1315,6 +1315,10 @@ impl Harvest {
             self.remember(dt);
             return flow;
         }
+        if self.photo.is_some() && self.views > 1 {
+            self.photo_coop(input, dt, sounds, &mut flow);
+            return flow;
+        }
         if self.photo.is_some() {
             self.photo(input, dt, sounds, &mut flow);
             return flow;

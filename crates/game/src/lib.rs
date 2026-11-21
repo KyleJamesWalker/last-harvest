@@ -481,6 +481,14 @@ impl Game {
         self.view_sizes = sizes;
     }
 
+    /// The view whose player works the pause menu, its Settings and photo mode: 0 outside a co-op run.
+    pub fn menu_view(&self) -> usize {
+        match &self.state {
+            State::Harvest(h) if h.views() > 1 => h.menu_player(),
+            _ => 0,
+        }
+    }
+
     /// Runs a step with each seated player's input, player 1's first.
     pub fn update_all(&mut self, inputs: &[Input], dt: f32) {
         let Some((first, others)) = inputs.split_first() else { return };
@@ -655,6 +663,10 @@ impl Game {
                 return;
             }
             State::Harvest(mut h) if self.page == Page::Settings => {
+                let owner = h.menu_player().checked_sub(1).and_then(|o| self.others.get(o)).filter(|_| h.views() > 1);
+                let controls = self.save.controls;
+                let theirs = owner.map(|i| Input { held: controls.apply(i.held), pressed: controls.apply(i.pressed), ..*i });
+                let input = theirs.as_ref().unwrap_or(input);
                 if self.settings(input, input.touch.filter(|_| input.touch_started)) {
                     self.page = Page::Main;
                 }
@@ -745,6 +757,13 @@ impl Game {
                 frame.top = f.top;
             }
             h.set_canvas(None);
+            let owner = h.menu_player();
+            if self.page == Page::Settings
+                && let Some(c) = std::iter::once(&mut frame.top).chain(&mut frame.views).nth(owner)
+            {
+                c.anchor([0.5, 0.5]);
+                self.draw_settings(c);
+            }
             for (canvas, &size) in std::iter::once(&mut frame.top).chain(&mut frame.views).zip(&self.view_sizes) {
                 canvas.refit(fit(size));
             }
@@ -763,7 +782,7 @@ impl Game {
             State::Title => self.draw_title(&mut f),
             State::Harvest(h) => {
                 h.draw(&mut f, self.clean());
-                if self.page == Page::Settings {
+                if self.page == Page::Settings && h.views() == 1 {
                     self.draw_settings(if h.one_screen() { &mut f.top } else { &mut f.bottom });
                 }
             }
@@ -948,6 +967,31 @@ mod tests {
         let mut solo = Game::new(4);
         solo.open(Scene::Harvest);
         assert!(solo.views() == 1 && solo.draw_at(0.0).views.is_empty() && solo.draw_at(0.0).top.size.is_none(), "one player draws as ever");
+    }
+
+    #[test]
+    fn settings_from_player_twos_pause_are_theirs_to_work_and_show_in_their_view() {
+        let mut game = Game::new(4);
+        game.set_phone(Some([1280.0, 720.0]));
+        game.set_players(2);
+        game.open(Scene::Harvest);
+        game.set_view_sizes(vec![[640.0, 720.0], [640.0, 720.0]]);
+        let both = |game: &mut Game, one: Buttons, two: Buttons| {
+            game.update_all(&[Input { pressed: one, held: one, ..Default::default() }, Input { pressed: two, held: two, ..Default::default() }], 0.016);
+        };
+        for b in [Buttons::START, Buttons::DOWN, Buttons::A] {
+            both(&mut game, Buttons::NONE, b);
+        }
+        assert_eq!((game.page, game.menu_view()), (Page::Settings, 1));
+        both(&mut game, Buttons::DOWN, Buttons::NONE);
+        assert_eq!(game.setting, 0, "player 1's pad leaves player 2's Settings alone");
+        both(&mut game, Buttons::NONE, Buttons::DOWN);
+        assert_eq!(game.setting, 1);
+        let f = game.draw_at(0.0);
+        let says = |c: &Canvas| c.shapes.iter().any(|s| matches!(s, Shape::Text { text, .. } if text == "Settings"));
+        assert!(says(&f.views[0]) && !says(&f.top), "in player 2's view only");
+        both(&mut game, Buttons::NONE, Buttons::B);
+        assert_eq!(game.page, Page::Main);
     }
 
     #[test]

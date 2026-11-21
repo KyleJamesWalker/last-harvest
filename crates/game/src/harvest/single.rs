@@ -122,7 +122,7 @@ impl Harvest {
     }
 
     fn map_up(&self) -> bool {
-        self.aiming.is_some() || self.glance || self.menu.is_some() || matches!(self.phase, Phase::LevelUp { .. })
+        self.aiming.is_some() || self.glance || self.menu.is_some() || self.photo_by_other() || matches!(self.phase, Phase::LevelUp { .. })
     }
 
     /// The cursor, its blast ring and the time left, over the map.
