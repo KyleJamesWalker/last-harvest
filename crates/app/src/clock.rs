@@ -50,6 +50,11 @@ impl Ticker {
         let after = Input { pressed: Buttons::NONE, touch_started: false, orbit: [0.0; 2], ..input };
         std::iter::once(input).chain(std::iter::repeat_n(after, steps as usize - 1)).collect()
     }
+
+    /// How far the time owed has come toward the next step, 0 to 1, for drawing between the last two.
+    pub fn alpha(&self) -> f32 {
+        self.clock.leftover()
+    }
 }
 
 /// A press or touch that lifted before any step still reaches one, held for that step.
@@ -139,6 +144,16 @@ mod tests {
         c.advance(ms(1000.0 + 8.0));
         assert!(c.leftover() < 1.0);
         assert_eq!(steps(&[0.0, 0.0]), [0, 0]);
+    }
+
+    #[test]
+    fn alpha_is_how_far_the_time_owed_has_come_toward_the_next_step() {
+        let mut t = Ticker::default();
+        let half = Duration::from_nanos(8_333_334);
+        t.frame(half, Input::default());
+        assert!((t.alpha() - 0.5).abs() < 1e-3, "{}", t.alpha());
+        t.frame(half, Input::default());
+        assert!(t.alpha() < 1e-3, "{}", t.alpha());
     }
 
     fn held(b: Buttons) -> RawInput {

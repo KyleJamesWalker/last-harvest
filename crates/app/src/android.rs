@@ -644,7 +644,7 @@ impl App {
             // Longer than any pulse the game asks for; stopVibrate cuts it off when the game's rumble ends.
             vibrate(&self.android, rumble.then_some(2000));
         }
-        let frame = self.game.draw();
+        let frame = self.game.draw_at(self.ticker.alpha());
         let capture = self.game.take_screenshot();
         let mut shots = Vec::new();
         let black = Canvas { clear: [0.0, 0.0, 0.0, 1.0], ..Default::default() };

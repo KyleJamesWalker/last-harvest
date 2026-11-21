@@ -348,7 +348,7 @@ impl Web {
             audio.set_beds(outputs.screens_on[0]);
             sounds.into_iter().for_each(|s| audio.play(s));
         }
-        let frame = self.game.draw();
+        let frame = self.game.draw_at(self.ticker.alpha());
         if let Some(phone) = &frame.phone {
             crate::draw_phone(&mut self.renderer, &self.gl, &frame, phone, [self.canvas.width() as i32, self.canvas.height() as i32]);
             return;
