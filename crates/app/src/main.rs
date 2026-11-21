@@ -14,7 +14,7 @@ mod persist;
 use std::path::Path;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use last_harvest::{VERSION, audio, log, pak, samples};
+use last_harvest::{VERSION, audio, clock, log, pak, samples};
 use last_harvest_game::{photo, Buttons, Capture, Game, InputTracker, MAX_TOUCHES, RangeSetup, RawInput, SCREEN_H, SCREEN_W, Scene, System};
 use winit::application::ApplicationHandler;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
@@ -48,6 +48,7 @@ struct Stats {
 struct App {
     game: Game,
     tracker: InputTracker,
+    ticker: clock::Ticker,
     gfx: Option<gfx::Gfx>,
     audio: Option<audio::Audio>,
     /// The sound files, to open the audio again with, and when to next try after the output went away.
@@ -123,6 +124,7 @@ impl App {
         Self {
             game,
             tracker: InputTracker::default(),
+            ticker: clock::Ticker::default(),
             gfx: None,
             audio: audio::Audio::open(&sounds).inspect_err(|e| log!("audio disabled: {e}")).ok(),
             sounds,
@@ -270,10 +272,11 @@ impl App {
         self.orbit = [0.0; 2];
         #[cfg(any(target_os = "macos", windows))]
         {
-            let (held, stick, look, used) = self.pads.read();
+            let (pads, used) = self.pads.read();
             if let Some(family) = used {
                 self.game.set_pad_family(family);
             }
+            let (held, stick, look) = last_harvest::controllers::combine(&pads);
             raw.held |= held;
             raw.stick = stick;
             raw.look = look;
@@ -318,7 +321,9 @@ impl App {
             self.game.set_phone(Some([size.width as f32, size.height as f32]));
         }
         let started = Instant::now();
-        self.game.update(&input, dt);
+        for input in self.ticker.frame(frame, input) {
+            self.game.update(&input, clock::STEP);
+        }
         self.stats.work_ms[0] += started.elapsed().as_secs_f32() * 1000.0;
         self.saver.update(self.game.save(), false);
         self.keep_audio();

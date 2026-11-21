@@ -8,7 +8,7 @@ mod persist;
 
 use std::time::{Duration, Instant};
 
-use last_harvest::{VERSION, audio, log, pak};
+use last_harvest::{VERSION, audio, clock, log, pak};
 use last_harvest_game::{Buttons, Game, InputTracker, RawInput, Scene, System};
 use last_harvest_render::{Profile, Renderer};
 use sdl2::controller::{Axis, Button, GameController};
@@ -119,6 +119,7 @@ fn run() -> Result<(), String> {
     let mut rumbling = false;
 
     let mut tracker = InputTracker::default();
+    let mut ticker = clock::Ticker::default();
     let (mut keys, mut struck) = (Buttons::NONE, Buttons::NONE);
     let (mut stick, mut look, mut triggers) = ([0.0f32; 2], 0.0f32, [false; 2]);
     let mut menu_held = 0.0;
@@ -182,7 +183,9 @@ fn run() -> Result<(), String> {
         let (w, h) = window.drawable_size();
         game.set_system(system);
         game.set_phone(Some([w as f32, h as f32]));
-        game.update(&input, dt);
+        for input in ticker.frame(frame, input) {
+            game.update(&input, clock::STEP);
+        }
         let sounds = game.take_sounds();
         if let Some(audio) = &audio {
             audio.set_volume(game.volume());

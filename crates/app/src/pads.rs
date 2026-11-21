@@ -1,6 +1,7 @@
 //! Gamepads on the desktop, through gilrs. Face buttons map by position, as the RG DS lays them out.
 
 use gilrs::{Axis, Button, EventType, Gilrs};
+use last_harvest::controllers::Pad;
 use last_harvest::log;
 use last_harvest_game::{Buttons, PadFamily};
 
@@ -36,11 +37,11 @@ impl Pads {
         Self { gilrs }
     }
 
-    /// The buttons held, the left stick, and the right stick's sideways push, over every connected pad, and the
-    /// labels of the pad that pressed a button or pushed a stick this frame.
-    pub fn read(&mut self) -> (Buttons, [f32; 2], f32, Option<PadFamily>) {
-        let (mut held, mut stick, mut look, mut used) = (Buttons::NONE, [0.0f32; 2], 0.0f32, None);
-        let Some(g) = &mut self.gilrs else { return (held, stick, look, used) };
+    /// Each connected pad by its gilrs id, and the labels of the pad that pressed a button or pushed a stick this
+    /// frame.
+    pub fn read(&mut self) -> (Vec<Pad>, Option<PadFamily>) {
+        let mut used = None;
+        let Some(g) = &mut self.gilrs else { return (Vec::new(), used) };
         while let Some(event) = g.next_event() {
             match event.event {
                 EventType::Connected => log!("gamepad: {} connected ({:?})", g.gamepad(event.id).name(), family(&g.gamepad(event.id))),
@@ -50,24 +51,17 @@ impl Pads {
                 _ => {}
             }
         }
-        for (_, pad) in g.gamepads() {
-            for (b, to) in PAD {
-                if pad.is_pressed(b) {
-                    held |= to;
-                }
-            }
-            // gilrs reads up as positive; the game, like SDL and the browser, reads down as positive.
-            for (s, v) in stick.iter_mut().zip([pad.value(Axis::LeftStickX), -pad.value(Axis::LeftStickY)]) {
-                if v.abs() >= STICK_DEAD {
-                    *s = (*s + v).clamp(-1.0, 1.0);
-                }
-            }
-            let v = pad.value(Axis::RightStickX);
-            if v.abs() >= STICK_DEAD {
-                look = (look + v).clamp(-1.0, 1.0);
-            }
-        }
-        (held, stick, look, used)
+        let live = |v: f32| if v.abs() >= STICK_DEAD { v } else { 0.0 };
+        let pads = g
+            .gamepads()
+            .map(|(id, pad)| {
+                let held = PAD.iter().filter(|(b, _)| pad.is_pressed(*b)).fold(Buttons::NONE, |held, &(_, to)| held | to);
+                // gilrs reads up as positive; the game, like SDL and the browser, reads down as positive.
+                let stick = [live(pad.value(Axis::LeftStickX)), live(-pad.value(Axis::LeftStickY))];
+                Pad { id: usize::from(id), held, stick, look: live(pad.value(Axis::RightStickX)) }
+            })
+            .collect();
+        (pads, used)
     }
 }
 

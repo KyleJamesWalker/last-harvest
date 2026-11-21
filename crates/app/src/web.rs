@@ -6,6 +6,8 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use crate::clock;
+use crate::controllers::{self, Pad};
 use last_harvest_game::{Buttons, Game, InputTracker, MAX_TOUCHES, PadFamily, RangeSetup, RawInput, SCREEN_H, SCREEN_W, Save, Scene, System};
 use last_harvest_pack::Pak;
 use last_harvest_render::{Profile, Renderer};
@@ -50,6 +52,7 @@ struct Touch {
 struct Web {
     game: Game,
     tracker: InputTracker,
+    ticker: clock::Ticker,
     gl: glow::Context,
     renderer: Renderer,
     canvas: HtmlCanvasElement,
@@ -107,13 +110,11 @@ fn key_button(code: &str) -> Option<Buttons> {
     })
 }
 
-/// Buttons held and the left stick across every connected gamepad with the standard layout; the first without it is
-/// logged once, and `warned` remembers that.
-/// The buttons held, the left stick, and the right stick's sideways push, over every standard-layout pad, and the
-/// labels of a pad with a button down or a stick pushed.
-fn gamepads(warned: &mut bool) -> (Buttons, [f32; 2], f32, Option<PadFamily>) {
-    let (mut held, mut stick, mut look, mut busy) = (Buttons::NONE, [0.0f32; 2], 0.0f32, None);
-    let Some(pads) = web_sys::window().and_then(|w| w.navigator().get_gamepads().ok()) else { return (held, stick, look, busy) };
+/// Each standard-layout pad by its index, and the labels of a pad with a button down or a stick pushed; the first
+/// pad without the standard layout is logged once, and `warned` remembers that.
+fn gamepads(warned: &mut bool) -> (Vec<Pad>, Option<PadFamily>) {
+    let (mut out, mut busy) = (Vec::new(), None);
+    let Some(pads) = web_sys::window().and_then(|w| w.navigator().get_gamepads().ok()) else { return (out, busy) };
     for pad in pads.iter().filter_map(|p| p.dyn_into::<Gamepad>().ok()) {
         if js_sys::Reflect::get(&pad, &"mapping".into()).ok().and_then(|m| m.as_string()).as_deref() != Some("standard") {
             if !std::mem::replace(warned, true) {
@@ -122,31 +123,20 @@ fn gamepads(warned: &mut bool) -> (Buttons, [f32; 2], f32, Option<PadFamily>) {
             continue;
         }
         let buttons = pad.buttons();
-        let mut used = false;
+        let axes = pad.axes();
+        let live = |i: u32| Some(axes.get(i).as_f64().unwrap_or(0.0) as f32).filter(|v| v.abs() >= STICK_DEAD).unwrap_or(0.0);
+        let mut state = Pad { id: pad.index() as usize, stick: [live(0), live(1)], look: live(2), ..Default::default() };
         for (i, b) in PAD {
             if buttons.get(i).dyn_into::<GamepadButton>().is_ok_and(|b| b.pressed()) {
-                held |= b;
-                used = true;
+                state.held |= b;
             }
         }
-        let axes = pad.axes();
-        for (i, s) in stick.iter_mut().enumerate() {
-            let v = axes.get(i as u32).as_f64().unwrap_or(0.0) as f32;
-            if v.abs() >= STICK_DEAD {
-                *s = (*s + v).clamp(-1.0, 1.0);
-                used = true;
-            }
-        }
-        let v = axes.get(2).as_f64().unwrap_or(0.0) as f32;
-        if v.abs() >= STICK_DEAD {
-            look = (look + v).clamp(-1.0, 1.0);
-            used = true;
-        }
-        if used {
+        if state.held != Buttons::NONE || state.stick != [0.0; 2] || state.look != 0.0 {
             busy = Some(PadFamily::detect(None, &pad.id()));
         }
+        out.push(state);
     }
-    (held, stick, look, busy)
+    (out, busy)
 }
 
 impl Web {
@@ -324,11 +314,11 @@ impl Web {
         }
         let t = now();
         let frame_ms = t - self.last;
-        let dt = (frame_ms / 1000.0).clamp(0.0, 0.05) as f32;
         self.last = t;
         self.measure(frame_ms);
         self.fit();
-        let (pad, stick, look, busy) = gamepads(&mut self.odd_pad);
+        let (pads, busy) = gamepads(&mut self.odd_pad);
+        let (pad, stick, look) = controllers::combine(&pads);
         if let Some(family) = busy.filter(|_| !self.pad_busy) {
             self.game.set_pad_family(family);
         }
@@ -346,7 +336,9 @@ impl Web {
         self.game.set_phone(self.phone.then(|| [self.canvas.width() as f32, self.canvas.height() as f32]));
         let input = self.tracker.frame(raw);
         self.game.set_system(self.system);
-        self.game.update(&input, dt);
+        for input in self.ticker.frame(std::time::Duration::from_secs_f64(frame_ms.max(0.0) / 1000.0), input) {
+            self.game.update(&input, clock::STEP);
+        }
         self.persist();
         let sounds = self.game.take_sounds();
         if let Some(audio) = &self.audio {
@@ -428,6 +420,7 @@ fn start(pak: Pak, mods: Vec<(String, Pak)>, problems: Vec<String>, range: Optio
     let web = Rc::new(RefCell::new(Web {
         game,
         tracker: InputTracker::default(),
+        ticker: clock::Ticker::default(),
         gl,
         renderer,
         canvas: canvas.clone(),

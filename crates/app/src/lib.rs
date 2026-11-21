@@ -2,6 +2,8 @@
 //! in a web page, and `android.rs` on a phone.
 
 pub mod audio;
+pub mod clock;
+pub mod controllers;
 pub mod log;
 mod loops;
 pub mod pak;
