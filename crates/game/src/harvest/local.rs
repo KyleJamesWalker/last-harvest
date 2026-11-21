@@ -617,6 +617,17 @@ mod tests {
     }
 
     #[test]
+    fn a_player_who_leaves_sinks_and_stays_under() {
+        let mut h = pair().hosting(1);
+        h.unseat(1);
+        let at = h.players[1].pos;
+        idle(&mut h, 8.0);
+        assert!(h.players[1].sunk_away(), "they sank and stay down");
+        assert_eq!(h.players[1].pos, at, "and never rise to wander");
+        assert!(h.players[1].lead.is_none());
+    }
+
+    #[test]
     fn laid_out_shapes_stay_as_drawn() {
         let mut c = crate::Canvas::default();
         c.laid_out();

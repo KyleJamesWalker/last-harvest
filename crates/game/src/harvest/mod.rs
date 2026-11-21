@@ -2563,7 +2563,11 @@ impl Harvest {
         if self.players[p].lead.is_some() {
             return self.follow_leads();
         }
-        if t >= TURNED && before < TURNED && !self.players[p].left && self.may_lead() {
+        if self.players[p].left {
+            self.players[p].down = Some(t.min(TURN_SINK));
+            return;
+        }
+        if t >= TURNED && before < TURNED && self.may_lead() {
             let at = self.players[p].pos;
             return self.rise_leading(p, at, 1.0);
         }

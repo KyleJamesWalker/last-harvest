@@ -392,7 +392,7 @@ impl Extract {
                 hp: (pl.hp.max(0.0) * 4.0).min(u16::MAX as f32) as u16,
                 max_hp: (pl.kit.max_hp() * 4.0).min(u16::MAX as f32) as u16,
                 hurt: (pl.hurt * 100.0).clamp(0.0, 255.0) as u8,
-                flags: if pl.down.is_some() { P_DOWN } else { 0 } | if pl.walk > 0.0 { P_WALKING } else { 0 } | if pl.ready_flash > 0.0 { P_READY_FLASH } else { 0 } | match pl.lead {
+                flags: if pl.down.is_some() { P_DOWN } else { 0 } | if pl.walk > 0.0 { P_WALKING } else { 0 } | if pl.ready_flash > 0.0 { P_READY_FLASH } else { 0 } | if pl.left { P_LEFT } else { 0 } | match pl.lead {
                     Some(super::leader::Lead::Leading(_)) => P_LEADING,
                     Some(super::leader::Lead::Picking { .. }) => P_PICKING,
                     None => 0,
