@@ -607,6 +607,8 @@ pub struct Def {
     pub targets: Targets,
     /// For a burst that `targets each`, how far its later shots reach a zombie outside the view; None for its range.
     pub outside: Option<f32>,
+    /// For a dog, a bite that kills is ready again at once.
+    pub kill_resets: bool,
     /// For a lob, what it does where it lands.
     pub lands: Lands,
     /// For a weapon, how each attack shakes the camera and lights the ground.
@@ -661,6 +663,12 @@ impl Def {
             None if stat.scales() => 1.0,
             None => 0.0,
         }
+    }
+
+    /// The card's zone tag, empty without a zone.
+    pub fn zone_tag(&self) -> String {
+        let Some(zone) = self.zone else { return String::new() };
+        if self.targets == Targets::Each && self.outside != Some(0.0) && zone != Zone::Around { format!("{}, THEN ALL ROUND", zone.name()) } else { zone.name().into() }
     }
 
     /// The card's line for going from level `from` to `to`: the blurb when new, else what changes.
@@ -791,6 +799,7 @@ pub fn parse(text: &str) -> Result<Book, String> {
                 pattern: Pattern::Fan,
                 targets: Targets::Same,
                 outside: None,
+                kill_resets: false,
                 lands: Lands::Blast,
                 feel: Feel::default(),
                 player: None,
@@ -888,6 +897,13 @@ pub fn parse(text: &str) -> Result<Book, String> {
                 }
             }
             "outside" => def.outside = Some(rest.parse::<f32>().ok().filter(|v| v.is_finite() && *v >= 0.0).ok_or_else(|| format!("{n}: outside is pixels, 0 or more, not {rest:?}"))?),
+            "kill_resets" => {
+                def.kill_resets = match rest {
+                    "1" => true,
+                    "0" => false,
+                    _ => return Err(format!("{n}: kill_resets is 1 or 0, not {rest:?}")),
+                }
+            }
             "lands" => {
                 def.lands = match rest {
                     "blast" => Lands::Blast,
@@ -1098,7 +1114,24 @@ mod tests {
         assert!(parse("[a]\nicon WHITE\naim up").unwrap_err().starts_with("3: aim is"));
         let outside = |v: &str| parse(&format!("[g]\nkind weapon\ndoes gun\noutside {v}\nicon WHITE\n[cash]\nkind filler\nicon WHITE\n")).map(|b| b.defs[0].outside);
         assert_eq!((outside("40"), outside("0"), g.defs[0].outside), (Ok(Some(40.0)), Ok(Some(0.0)), None), "the whole range when left out");
+        let resets = |v: &str| parse(&format!("[d]\nkind weapon\ndoes dog\nkill_resets {v}\nicon WHITE\n[cash]\nkind filler\nicon WHITE\n")).map(|b| b.defs[0].kill_resets);
+        assert_eq!((resets("1"), resets("0"), g.defs[0].kill_resets), (Ok(true), Ok(false), false), "off when left out");
+        assert!(resets("yes").unwrap_err().starts_with("4: kill_resets is 1 or 0"));
         assert!(outside("-1").is_err() && outside("far").is_err());
+    }
+
+    #[test]
+    fn a_card_names_where_a_burst_that_targets_each_reaches() {
+        let tag = |lines: &str| parse(&format!("[w]\nkind weapon\ndoes pistol\npattern burst\nicon WHITE\n{lines}\n[cash]\nkind filler\nicon WHITE\n")).unwrap().defs[0].zone_tag();
+        assert_eq!(tag("zone ahead\ntargets each"), "AHEAD, THEN ALL ROUND");
+        assert_eq!(tag("zone ahead\ntargets each\noutside 40"), "AHEAD, THEN ALL ROUND");
+        assert_eq!(tag("zone ahead\ntargets each\noutside 0"), "AHEAD", "only what's in view");
+        assert_eq!(tag("zone far\ntargets each"), "FAR, THEN ALL ROUND");
+        assert_eq!(tag("zone around\ntargets each"), "AROUND");
+        assert_eq!(tag("zone behind"), "BEHIND");
+        assert_eq!(tag("targets each"), "");
+        let pistol = book().defs.iter().find(|d| d.name == "Pistol").unwrap();
+        assert_eq!(pistol.zone_tag(), "AHEAD, THEN ALL ROUND");
     }
 
     #[test]

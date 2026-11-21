@@ -20,6 +20,8 @@ pub struct Save {
     pub fps: bool,
     /// Runs play on the top screen alone.
     pub one_screen: bool,
+    /// On one screen, the small map in the corner of the view ahead.
+    pub corner_map: bool,
     /// On a phone, holding the grenade button shows the map and a tap throws; else it aims in slowed time.
     pub touch_grenades: bool,
     /// On a phone's screen, whether the on-screen controls show.
@@ -159,7 +161,7 @@ impl LookId {
 
 impl Default for Save {
     fn default() -> Self {
-        Self { volume: 6, brightness: [4, 4], rumble: true, fps: false, one_screen: false, touch_grenades: true, touch: TouchControls::Auto, best: 0, difficulty: Difficulty::default(), kills: 0, best_level: 0, nights: 0, dawns: 0, breakers: 0, breaker_dawns: 0, found: 0, enemies_off: 0, player: LookId::default(), map: LookId::default(), best_dps: 0, history: [None; HISTORY], how_to_seen: false, controls: Controls::default(), relay: Relay::default() }
+        Self { volume: 6, brightness: [4, 4], rumble: true, fps: false, one_screen: false, corner_map: true, touch_grenades: true, touch: TouchControls::Auto, best: 0, difficulty: Difficulty::default(), kills: 0, best_level: 0, nights: 0, dawns: 0, breakers: 0, breaker_dawns: 0, found: 0, enemies_off: 0, player: LookId::default(), map: LookId::default(), best_dps: 0, history: [None; HISTORY], how_to_seen: false, controls: Controls::default(), relay: Relay::default() }
     }
 }
 
@@ -170,13 +172,14 @@ impl Save {
             controls += &format!("relay={}\n", self.relay.as_str());
         }
         format!(
-            "volume={}\nbrightness_top={}\nbrightness_bottom={}\nrumble={}\nfps={}\nlayout={}\ngrenades={}\ntouch={}\nbest={}\ndifficulty={}\nkills={}\nbest_level={}\nnights={}\ndawns={}\nbreakers={}\nbreaker_dawns={}\nfound={}\nenemies_off={}\nplayer={}\nmap={}\nbest_dps={}\nhow_to={}\n{controls}{}",
+            "volume={}\nbrightness_top={}\nbrightness_bottom={}\nrumble={}\nfps={}\nlayout={}\ncorner_map={}\ngrenades={}\ntouch={}\nbest={}\ndifficulty={}\nkills={}\nbest_level={}\nnights={}\ndawns={}\nbreakers={}\nbreaker_dawns={}\nfound={}\nenemies_off={}\nplayer={}\nmap={}\nbest_dps={}\nhow_to={}\n{controls}{}",
             self.volume,
             self.brightness[0],
             self.brightness[1],
             on_off(self.rumble),
             on_off(self.fps),
             if self.one_screen { "one" } else { "two" },
+            on_off(self.corner_map),
             if self.touch_grenades { "touch" } else { "pad" },
             self.touch.key(),
             self.best,
@@ -224,6 +227,7 @@ impl Save {
                 "rumble" => save.rumble = value == "on",
                 "fps" => save.fps = value == "on",
                 "layout" => save.one_screen = value == "one",
+                "corner_map" => save.corner_map = value != "off",
                 "grenades" => save.touch_grenades = value != "pad",
                 "touch" => save.touch = TouchControls::from_key(value).unwrap_or(save.touch),
                 "best" => save.best = value.parse().unwrap_or(save.best),
@@ -311,7 +315,7 @@ mod tests {
 
     #[test]
     fn round_trips() {
-        let save = Save { volume: 3, brightness: [7, 2], rumble: false, fps: true, one_screen: true, touch_grenades: false, touch: TouchControls::Off, best: 41, difficulty: Difficulty::Hard, kills: 900, best_level: 12, nights: 7, dawns: 1, breakers: 3, breaker_dawns: 1, found: 0b1010_0000_0000, enemies_off: 0b10, player: LookId::new("jo"), map: LookId::new("old_farm"), best_dps: 0, history: [None; HISTORY], how_to_seen: true, controls: Controls::default(), relay: Relay::new("wss://relay.example.com") };
+        let save = Save { volume: 3, brightness: [7, 2], rumble: false, fps: true, one_screen: true, corner_map: false, touch_grenades: false, touch: TouchControls::Off, best: 41, difficulty: Difficulty::Hard, kills: 900, best_level: 12, nights: 7, dawns: 1, breakers: 3, breaker_dawns: 1, found: 0b1010_0000_0000, enemies_off: 0b10, player: LookId::new("jo"), map: LookId::new("old_farm"), best_dps: 0, history: [None; HISTORY], how_to_seen: true, controls: Controls::default(), relay: Relay::new("wss://relay.example.com") };
         assert_eq!(Save::parse(&save.to_text()), save);
     }
 

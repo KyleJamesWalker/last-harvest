@@ -732,9 +732,11 @@ impl Game {
                 }
                 self.hold_online(&h);
                 h.set_one_screen(self.one_screen());
+                h.set_corner_map(self.save.corner_map);
                 State::Harvest(h)
             }
             State::Harvest(mut h) => {
+                h.set_corner_map(self.save.corner_map);
                 if self.phone.is_some() {
                     h.set_one_screen(true);
                     h.set_touch_aim(self.save.touch_grenades && self.has_touch());
@@ -1579,6 +1581,19 @@ mod tests {
         press(&mut game, Buttons::B);
         assert_eq!(game.page, Page::Main);
         assert!(matches!(game.state, State::Title));
+    }
+
+    #[test]
+    fn the_corner_map_row_shows_on_one_screen_and_its_choice_persists() {
+        let mut game = Game::new(1);
+        assert!(!game.settings_list().contains(&menu::Setting::CornerMap), "two screens have no corner map");
+        game.save.one_screen = true;
+        game.page = Page::Settings;
+        game.setting = game.settings_list().iter().position(|&s| s == menu::Setting::CornerMap).expect("the row");
+        press(&mut game, Buttons::A);
+        assert!(!game.save.corner_map);
+        assert!(!crate::save::Save::parse(&game.save.to_text()).corner_map);
+        assert!(crate::save::Save::parse("layout=one\n").corner_map, "on in an old save");
     }
 
     #[test]

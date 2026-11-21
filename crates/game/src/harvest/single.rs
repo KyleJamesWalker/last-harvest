@@ -31,6 +31,10 @@ impl Harvest {
         self.single
     }
 
+    pub fn set_corner_map(&mut self, on: bool) {
+        self.corner_map = on;
+    }
+
     pub fn set_touch_aim(&mut self, on: bool) {
         self.tape_set(super::replay::Set::TouchAim(on));
         self.touch_aim = on;
@@ -156,16 +160,17 @@ impl Harvest {
         let k = 3.0;
         let mut below = 76.0;
         top.anchor([1.0, 0.0]);
-        if t.map_mini > 0.0 {
+        if self.corner_map && t.map_mini > 0.0 {
             let (w, reach, scale) = (t.map_mini, t.map_mini_reach.max(16.0), map_scale());
             let (h, (x, y)) = (w * 0.75, (SCREEN_W - 24.0 - w, below));
             let cam = [self.me().pos[0] - reach, self.me().pos[1] - 8.0 - reach * 0.75];
             let mut map = Canvas::default();
             self.world(&mut map, cam, scale, self.map_tint(), true);
             self.view_cone(&mut map, cam);
-            self.home_on_map(&mut map, cam, [SCREEN_W, SCREEN_H]);
-            self.ticket_on_map(&mut map, cam, [SCREEN_W, SCREEN_H]);
-            self.teammates_on_map(&mut map, cam, [SCREEN_W, SCREEN_H]);
+            let shown = [reach * 2.0 * scale, reach * 1.5 * scale];
+            self.home_on_map(&mut map, cam, shown);
+            self.ticket_on_map(&mut map, cam, shown);
+            self.teammates_on_map(&mut map, cam, shown);
             top.rect(x - 4.0, y - 4.0, w + 8.0, h + 8.0, [0.06, 0.05, 0.04, 0.9]);
             top.rect(x, y, w, h, [0.0, 0.0, 0.0, 1.0]);
             top.clip(Some([x, y, w, h]));
@@ -383,6 +388,26 @@ mod tests {
         let mut f = crate::Frame::default();
         two.draw(&mut f, false);
         assert_eq!(clips(&f.top.shapes), 0, "two screens keep the map below");
+    }
+
+    #[test]
+    fn the_corner_map_turns_off_and_pins_far_marks_inside_its_own_edges() {
+        let mut h = single(12);
+        let draw = |h: &Harvest| {
+            let mut f = crate::Frame::default();
+            h.draw(&mut f, false);
+            f.top.shapes
+        };
+        h.t = super::super::dawn() + 1.0;
+        h.map.home = [h.me().pos[0] + 2000.0, h.me().pos[1] + 1500.0];
+        let top = draw(&h);
+        let [x, y, w, ht] = top.iter().find_map(|s| if let crate::Shape::Clip { rect: Some(r) } = s { Some(*r) } else { None }).expect("the corner map");
+        let home = top.iter().find_map(|s| if let crate::Shape::Text { text, x, y, .. } = s { (text == "HOME").then_some([*x, *y]) } else { None }).expect("home on the corner map");
+        assert!((x..x + w).contains(&home[0]) && (y..y + ht).contains(&home[1]), "{home:?} in {:?}", [x, y, w, ht]);
+        h.set_corner_map(false);
+        let off = draw(&h);
+        assert!(!off.iter().any(|s| matches!(s, crate::Shape::Clip { rect: Some(_) })), "no corner map");
+        assert!(off.iter().any(|s| matches!(s, crate::Shape::Art { art, .. } if *art == crate::art::GRENADE)), "the grenades stay");
     }
 
     #[test]

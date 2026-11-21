@@ -7,7 +7,7 @@ Online co-op needs three pieces: `last-harvest-relay` pairs players' WebRTC conn
 | Piece | Where | Role |
 |---|---|---|
 | `last-harvest-net` | `crates/net` | WebRTC peers in one signaling room, each with a reliable and an unreliable channel. Native and browser. |
-| `last-harvest-relay` | `crates/relay` | Matchbox signaling on `/signal/<room>`, TURN credentials on `/ice`, and `/healthz`. Native only. Copied from supermariowar-rust's `smw_relay`, without its lobby. |
+| `last-harvest-relay` | `crates/relay` | Matchbox signaling on `/signal/<room>`, which also hands each peer TURN credentials, and `/healthz`. Native only. Copied from supermariowar-rust's `smw_relay`, without its lobby. |
 | `last-harvest-lobby` | `crates/lobby` | Room codes and the lobby messages, as state machines with no transport. Builds for wasm. |
 | `deploy/` | | A Dockerfile and a compose file that run the relay behind Caddy, with coturn. |
 
@@ -18,7 +18,7 @@ A room code names a signaling room: `RoomCode::room_url("wss://<relay>")` is `ws
 ```sh
 cargo run -p last-harvest-relay -- --port 8080
 curl http://localhost:8080/healthz   # ok
-curl http://localhost:8080/ice       # {"iceServers":[]} without TURN settings
+curl http://localhost:8080/ice       # {"iceServers":[]}: TURN credentials go only to signaling peers
 ```
 
 Peers on one network need no TURN server: connect each `PeerSocket` to `ws://<host>:8080/signal/last-harvest-<CODE>` with `IceConfig::default()`. `cargo test -p last-harvest-lobby --test relay` runs the relay and three peers in one process through create, join, ready, start and close.
@@ -36,15 +36,22 @@ docker run --rm -p 127.0.0.1:8080:8080 last-harvest-relay:local
 |---|---|
 | `--port`, `LAST_HARVEST_RELAY_PORT` | `8080` |
 | `LAST_HARVEST_RELAY_ALLOWED_ORIGINS` | `http://localhost:8095` (`scripts/web-game.sh --serve`), or `*` for any |
-| `LAST_HARVEST_RELAY_MAX_CLIENTS` | `64` signaling peers |
+| `LAST_HARVEST_RELAY_MAX_CLIENTS` | `128` signaling peers |
 | `LAST_HARVEST_RELAY_MAX_CONNECTIONS` | `256` TCP connections of any kind, handshakes included |
 | `LAST_HARVEST_RELAY_MAX_PER_ADDRESS` | `16` connections from one client address; `0` for no limit |
+| `LAST_HARVEST_RELAY_MAX_PEERS_PER_ADDRESS` | `8` signaling peers from one client address; `0` for no limit |
+| `LAST_HARVEST_RELAY_LONELY_SECONDS` | `900`: a signaling peer alone in its room this long is closed |
 | `LAST_HARVEST_RELAY_CONNECTS_PER_MINUTE` | `60` new connections per client address per minute; `0` for no limit |
 | `LAST_HARVEST_RELAY_TRUSTED_PROXIES` | `loopback`, `private` or `none`: the peers whose `X-Forwarded-For` names the client |
-| `LAST_HARVEST_RELAY_TURN_URL` | unset; the TURN server `/ice` names, such as `turn:relay.example.com:3478` |
+| `LAST_HARVEST_RELAY_TURN_URL` | unset; the TURN server signaling peers get, such as `turn:relay.example.com:3478` |
 | `LAST_HARVEST_RELAY_TURN_SECRET` | unset; coturn's `static-auth-secret` |
+| `LAST_HARVEST_RELAY_TURN_SECONDS` | `1200`: how long a TURN credential lasts |
 
-The relay refuses a WebSocket or an `/ice` request whose `Origin` is not allowed, and accepts one without `Origin` (a native game). A signaling room holds four peers. A peer whose connection drops without a close keeps its place for 30 seconds and resumes it with the `ResumeToken` the relay sent; `crates/net` does this on its own. `/ice` answers `{"iceServers": [...]}` with credentials in coturn's `use-auth-secret` scheme, valid for six hours.
+The relay refuses a WebSocket or an `/ice` request whose `Origin` is not allowed, and accepts one without `Origin` (a native game). Per-address limits count an IPv6 client by its /56, and loopback clients are exempt. A signaling room holds four peers.
+
+A peer whose connection drops without a close keeps its place for 30 seconds. To take it back, a client connects to `/signal/<room>?resume` and sends `{"Resume": {"id": <id>, "token": <token>}}` first, with the `ResumeToken` the relay sent; the token never appears in a URL, so access logs cannot hold it. `crates/net` does this on its own.
+
+With a TURN URL and secret set, the relay sends each signaling peer `{"IceServers": {"iceServers": [...]}}` after `IdAssigned` and `ResumeToken`, and a fresh one every quarter of `LAST_HARVEST_RELAY_TURN_SECONDS` while the peer stays connected. Credentials use coturn's `use-auth-secret` scheme; the name after the expiry is derived from the client's address, so every peer from one address shares coturn's `user-quota`. `crates/net` adds these servers to the game's own for each new connection, and a browser's live connections use them on their next ICE restart. A native connection keeps the credentials it was made with: an ICE restart more than 20 minutes after it was made gathers no TURN candidate, though an allocation already in use lasts. `/ice` still answers, with no servers, for clients that fetch it before joining.
 
 ## Lobby protocol
 
@@ -81,15 +88,15 @@ Not done yet. These steps describe how the files in `deploy/` would run on a ser
 1. Point a DNS record for the relay's domain at the server.
 2. On the server, create the shared network: `docker network create caddy`.
 3. Copy the repository (the compose file builds the image from it), then create `deploy/.env` from `deploy/.env.example`: `RELAY_DOMAIN`, `ALLOWED_ORIGINS` (the web game's page origin) and `TURN_SECRET` (`openssl rand -hex 32`; hex only, because the coturn image evaluates its arguments in a shell). Keep `.env` out of git.
-4. Open TCP and UDP port 3478 and UDP ports 49160-49259 for coturn, which uses host networking, and TCP 80 and 443 for Caddy.
+4. Open TCP and UDP port 3478 and UDP ports 49160-49459 for coturn, which uses host networking, and TCP 80 and 443 for Caddy.
 5. Run `docker compose up -d` in `deploy/`. Caddy gets the certificate and proxies to the relay. If Caddy already runs on the `caddy` network, add the Caddyfile's site block to its config and remove the `caddy` service.
-6. Check `curl https://<domain>/healthz` returns `ok` and `/ice` lists the TURN server.
+6. Check `curl https://<domain>/healthz` returns `ok`, and that a game's log shows the TURN server once it joins a room.
 
-coturn relays only to public addresses (`denied-peer-ip` in `turnserver.conf`), so it cannot reach the server's private network.
+coturn relays only to public addresses (`denied-peer-ip` in `turnserver.conf`), so it cannot reach the server's private network. It relays UDP only (`no-tcp-relay`). One client address holds at most 24 allocations (`user-quota`), the server 200 (`total-quota`), each at most 64 KB/s each way (`max-bps`, within `bps-capacity`).
 
 ## Playing online
 
-Title > Online > Host a night opens a room and shows its code; Join with a code takes it on on-screen keys (pad, touch or keyboard). Settings > Online relay, or Online > Relay, sets the relay as `host:port` (a LAN address works) or a `ws`, `wss`, `http` or `https` URL; empty means `localhost:8080`. The game fetches `/ice` from it before joining. Online is on for macOS, Linux (the RG DS and muOS builds included) and the web, and off on Android and Windows.
+Title > Online > Host a night opens a room and shows its code; Join with a code takes it on on-screen keys (pad, touch or keyboard). Settings > Online relay, or Online > Relay, sets the relay as `host:port` (a LAN address works) or a `ws`, `wss`, `http` or `https` URL; empty means `localhost:8080`. The game fetches `/ice` from it before joining; TURN credentials arrive over the signaling connection. Online is on for macOS, Linux (the RG DS and muOS builds included) and the web, and off on Android and Windows.
 
 | Setting | Meaning |
 |---|---|

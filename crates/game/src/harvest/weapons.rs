@@ -1124,6 +1124,7 @@ impl Harvest {
         for i in 0..self.actor().dogs.len() {
             let Some(a) = self.actor().kit.weapons.iter().copied().find(|a| a.def == self.actor().dogs[i].def) else { continue };
             let (leash, speed, damage, cd, force) = (self.stat(a, Stat::Range), self.stat(a, Stat::Speed), self.stat(a, Stat::Damage), self.stat(a, Stat::Cooldown), self.stat(a, Stat::Knockback));
+            let chain = book().defs[a.def].kill_resets;
             let dog = &self.actor().dogs[i];
             let near_player = |z: &Zombie| z.rise >= 1.0 && len(sub(z.pos, self.actor().pos)) < leash;
             let held = dog.target.and_then(|id| self.zombies.iter().position(|z| z.id == id && near_player(z)));
@@ -1181,7 +1182,12 @@ impl Harvest {
             {
                 dog.cd = cd;
                 self.juice.tally.credit(self.actor, Some(a.def));
+                let alive = self.zombies[t].hp > 0.0;
                 hits.1 |= strike(&mut self.zombies[t], &mut self.juice, damage, n, force, crit);
+                if chain && alive && self.zombies[t].hp <= 0.0 {
+                    let dog = &mut self.players[self.actor].dogs[i];
+                    (dog.cd, dog.target) = (0.0, None);
+                }
                 hits.0 += 1;
                 barked |= self.juice.rng.below(5) == 0;
             }
@@ -2202,6 +2208,26 @@ mod tests {
             h.zombies[0].pos = h.me().dogs[0].pos;
         }
         assert!(h.me().dogs[0].leap.is_some() || h.zombies[0].hp < first, "right beside it, the next bite is a pounce too");
+    }
+
+    #[test]
+    fn a_dogs_killing_bite_is_ready_again_at_once_and_any_other_waits_its_cooldown() {
+        let t = crate::tuning::tuning();
+        assert!(book().defs[book().index("dog").unwrap()].kill_resets, "the farm dog chains its kills");
+        for (hp, ready) in [(1.0, true), (500.0, false)] {
+            let mut h = with("dog", [t.dog_reach * 0.5, 0.0]);
+            h.zombies[0].hp = hp;
+            for _ in 0..120 {
+                h.walk_dogs(1.0 / 60.0, &mut Vec::new());
+                h.zombies[0].pos = [h.me().pos[0] + t.dog_reach * 0.5, h.me().pos[1]];
+                if h.zombies[0].hp < hp {
+                    break;
+                }
+            }
+            assert!(h.zombies[0].hp < hp, "it bit");
+            let d = &h.me().dogs[0];
+            assert_eq!((d.cd <= 0.0, d.target.is_none()), (ready, ready), "a bite on {hp} hp");
+        }
     }
 
     #[test]

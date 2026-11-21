@@ -886,7 +886,7 @@ impl Harvest {
                 _ if from == 0 => "NEW".into(),
                 _ => format!("LV {to}"),
             };
-            let zone = def.zone.map(Zone::name).unwrap_or(if def.kind == Kind::Passive { "PASSIVE" } else { "" });
+            let zone = if def.zone.is_none() && def.kind == Kind::Passive { "PASSIVE".into() } else { def.zone_tag() };
             if ch.found {
                 c.label("FOUND", x + w - 28.0, y + 16.0, 30.0, [FIND[0], FIND[1], FIND[2], alpha], Align::Right);
             }

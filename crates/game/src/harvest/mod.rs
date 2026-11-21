@@ -891,6 +891,8 @@ pub struct Harvest {
     difficulty: Difficulty,
     /// One screen: the map shows on the top screen only while looked at.
     single: bool,
+    /// On one screen, the corner map shows while playing; Settings turns it off.
+    corner_map: bool,
     aiming: Option<single::Aiming>,
     /// Seconds R1 has held a quick throw lined up.
     quick: Option<f32>,
@@ -1123,6 +1125,7 @@ impl Harvest {
             shown: None,
             difficulty: Difficulty::Normal,
             single: false,
+            corner_map: true,
             aiming: None,
             quick: None,
             glance: false,

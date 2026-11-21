@@ -283,6 +283,7 @@ range     90
 speed     90 95 100 105 110 115 120 130
 count     1 2 2 3 4 4 5 6
 knockback 50
+kill_resets 1
 
 # Behind: whatever is following you.
 
