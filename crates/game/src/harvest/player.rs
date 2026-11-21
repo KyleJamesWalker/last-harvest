@@ -67,6 +67,10 @@ pub(super) struct Player {
     pub lead_hp: f32,
     /// Their device left the online night, so they never lead.
     pub left: bool,
+    /// The spot they've stayed within `[camp] radius` of, for how many seconds, and the waves that rose for it.
+    pub camp_at: [f32; 2],
+    pub camp: f32,
+    pub camp_waves: u32,
 }
 
 impl Player {
@@ -102,6 +106,9 @@ impl Player {
             lead_full: 0.0,
             lead_hp: 0.0,
             left: false,
+            camp_at: pos,
+            camp: 0.0,
+            camp_waves: 0,
         }
     }
 

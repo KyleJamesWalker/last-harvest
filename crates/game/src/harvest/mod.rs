@@ -1,6 +1,7 @@
 //! Last Harvest: survive the night on a randomly generated farm while the horde closes in.
 
 mod blend;
+mod camp;
 mod carve;
 mod draw;
 mod effects;
@@ -1621,6 +1622,9 @@ impl Harvest {
             if !self.map.hits_cells(pos[0], pos[1], crate::tuning::tuning().zombie_half()) {
                 self.tells.push(Tell { kind: Kind::common(), pos, hp: Kind::common().stats().hp, t: 0.0, leader: false, led: None });
             }
+        }
+        if !self.calm {
+            self.camp(dt);
         }
         self.rise(dt, sounds);
         self.move_zombies(dt, sounds);
