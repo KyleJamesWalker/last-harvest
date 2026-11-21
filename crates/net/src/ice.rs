@@ -116,27 +116,32 @@ mod native {
         }
     }
 
+    fn split_crlf(bytes: &[u8]) -> Option<(&[u8], &[u8])> {
+        let at = bytes.windows(2).position(|w| w == b"\r\n")?;
+        Some((&bytes[..at], &bytes[at + 2..]))
+    }
+
     fn body(raw: &[u8]) -> Result<String, String> {
-        let text = String::from_utf8_lossy(raw);
-        let (head, body) = text.split_once("\r\n\r\n").ok_or("no HTTP answer")?;
+        let end = raw.windows(4).position(|w| w == b"\r\n\r\n").ok_or("no HTTP answer")?;
+        let (head, body) = (String::from_utf8_lossy(&raw[..end]), &raw[end + 4..]);
         let status = head.lines().next().unwrap_or("");
         if status.split_whitespace().nth(1) != Some("200") {
             return Err(format!("the relay answered {status}"));
         }
         if head.lines().any(|l| l.to_ascii_lowercase().replace(' ', "") == "transfer-encoding:chunked") {
-            let mut out = String::new();
+            let mut out = Vec::new();
             let mut rest = body;
-            while let Some((size, after)) = rest.split_once("\r\n") {
-                let n = usize::from_str_radix(size.trim(), 16).map_err(|_| "bad chunk")?;
+            while let Some((size, after)) = split_crlf(rest) {
+                let n = std::str::from_utf8(size).ok().and_then(|s| usize::from_str_radix(s.trim(), 16).ok()).ok_or("bad chunk")?;
                 if n == 0 || after.len() < n {
                     break;
                 }
-                out.push_str(&after[..n]);
-                rest = after[n..].trim_start_matches("\r\n");
+                out.extend_from_slice(&after[..n]);
+                rest = after[n..].strip_prefix(b"\r\n").unwrap_or(&after[n..]);
             }
-            return Ok(out);
+            return Ok(String::from_utf8_lossy(&out).into_owned());
         }
-        Ok(body.to_string())
+        Ok(String::from_utf8_lossy(body).into_owned())
     }
 
     #[cfg(test)]
@@ -146,6 +151,13 @@ mod native {
             assert_eq!(super::body(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{}").unwrap(), "{}");
             assert_eq!(super::body(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n2\r\n{}\r\n0\r\n\r\n").unwrap(), "{}");
             assert!(super::body(b"HTTP/1.1 403 Forbidden\r\n\r\n").is_err());
+        }
+
+        #[test]
+        fn a_chunk_that_splits_a_character_reads_whole() {
+            let raw = b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n2\r\n\"\xc3\r\n2\r\n\xa9\"\r\n0\r\n\r\n";
+            assert_eq!(super::body(raw).unwrap(), "\"\u{e9}\"");
+            assert_eq!(super::body(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n9\r\n\xc3").unwrap(), "");
         }
     }
 }
