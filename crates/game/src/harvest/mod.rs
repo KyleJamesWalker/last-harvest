@@ -103,6 +103,8 @@ const TURN_FALL: f32 = 0.4;
 const TURN_SINK: f32 = 1.2;
 const TURN_RISE: f32 = 1.6;
 const TURNED: f32 = 2.6;
+#[cfg(test)]
+pub(crate) const TURNED_FOR_TEST: f32 = TURNED;
 /// Seconds the worn grenade flashes, and how bright, when one comes ready.
 const READY_FLASH: f32 = 0.1;
 const READY_BRIGHT: f32 = 3.0;
@@ -2518,7 +2520,7 @@ impl Harvest {
         if self.players[p].lead.is_some() {
             return self.follow_leads();
         }
-        if t >= TURNED && before < TURNED && self.may_lead() {
+        if t >= TURNED && before < TURNED && !self.players[p].left && self.may_lead() {
             let at = self.players[p].pos;
             return self.rise_leading(p, at, 1.0);
         }

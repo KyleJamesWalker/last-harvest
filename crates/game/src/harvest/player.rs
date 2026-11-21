@@ -62,6 +62,11 @@ pub(super) struct Player {
     pub lead: Option<super::leader::Lead>,
     /// Leading: the way the pad steers the leader, as long as the push.
     pub steer: [f32; 2],
+    /// Leading: the leader's health as it rose, and the share of it left.
+    pub lead_full: f32,
+    pub lead_hp: f32,
+    /// Their device left the online night, so they never lead.
+    pub left: bool,
 }
 
 impl Player {
@@ -94,6 +99,9 @@ impl Player {
             down: None,
             lead: None,
             steer: [0.0; 2],
+            lead_full: 0.0,
+            lead_hp: 0.0,
+            left: false,
         }
     }
 

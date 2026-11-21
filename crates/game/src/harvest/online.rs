@@ -68,6 +68,32 @@ impl Harvest {
         self.players[p].alive()
     }
 
+    #[cfg(test)]
+    pub(crate) fn map_width_for_test(&self) -> f32 {
+        self.map.width_px()
+    }
+
+    /// Player `p` falls on the spot.
+    #[cfg(test)]
+    pub(crate) fn fall_for_test(&mut self, p: PlayerId) {
+        self.players[p].hp = 0.0;
+    }
+
+    /// Whether player `p` leads (true) or picks a rise (false), and where they stand.
+    #[cfg(test)]
+    pub(crate) fn lead_for_test(&self, p: PlayerId) -> Option<(bool, [f32; 2])> {
+        let pl = &self.players[p];
+        pl.lead.map(|l| (matches!(l, super::leader::Lead::Leading(_)), pl.pos))
+    }
+
+    /// Player `p`'s leader falls.
+    #[cfg(test)]
+    pub(crate) fn fell_leader_for_test(&mut self, p: PlayerId) {
+        if let Some(super::leader::Lead::Leading(id)) = self.players[p].lead {
+            self.zombies.retain(|z| z.id != id);
+        }
+    }
+
     pub fn player_count(&self) -> usize {
         self.players.len()
     }
@@ -107,6 +133,7 @@ impl Harvest {
             None => self.beside_spawn(p),
         };
         let fresh = self.new_player(pos, look);
+        self.drop_lead(p);
         if p < self.players.len() {
             self.players[p] = fresh;
         } else {
@@ -131,7 +158,9 @@ impl Harvest {
 
     /// Player `p`'s device left: they turn where they stand, and their seat waits for whoever drops in next.
     pub fn unseat(&mut self, p: PlayerId) {
+        self.drop_lead(p);
         let Some(pl) = self.players.get_mut(p) else { return };
+        pl.left = true;
         if pl.alive() {
             pl.hp = 0.0;
             pl.down = Some(0.0);
@@ -330,7 +359,13 @@ impl Extract {
                 },
                 down: pl.down.map_or(0, |t| (t * 10.0).clamp(0.0, 255.0) as u8),
                 grenades: (pl.grenades * 16.0).clamp(0.0, 255.0) as u8,
-                speed: (pl.kit.speed() * 16.0).clamp(0.0, u16::MAX as f32) as u16,
+                speed: (pl.lead.map_or(pl.kit.speed(), super::leader::Lead::speed) * 16.0).clamp(0.0, u16::MAX as f32) as u16,
+                lead: match pl.lead {
+                    Some(super::leader::Lead::Leading(id)) => id,
+                    Some(super::leader::Lead::Picking { left, .. }) => (left * 10.0).ceil() as u32,
+                    None => 0,
+                },
+                lead_hp: (pl.lead_hp * 255.0).round().clamp(0.0, 255.0) as u8,
                 input_tick: input_ticks.get(p).copied().unwrap_or(0),
                 kit: pl.kit.weapons.iter().map(|a| (a.def, a.level)).chain(pl.kit.passives.iter().copied()).map(|(d, l)| (d.min(255) as u8, l.min(255) as u8)).collect(),
             })
@@ -664,3 +699,4 @@ mod tests {
         assert!(r.prediction.mean < 4.0, "{:?}", r.prediction);
     }
 }
+

@@ -21,10 +21,34 @@ pub(in crate::harvest) enum Lead {
     Picking { at: [f32; 2], left: f32 },
 }
 
+impl Lead {
+    /// How fast the pad moves a turned player, as a client predicts it: their leader's walk, or the pick's cross.
+    pub(super) fn speed(self) -> f32 {
+        let t = crate::tuning::tuning();
+        match self {
+            Lead::Leading(_) => t.leader_speed,
+            Lead::Picking { .. } => t.aim_speed,
+        }
+    }
+}
+
 impl Harvest {
     /// Whether a player turning now leads the dead: only while someone else still plays the run.
     pub(super) fn may_lead(&self) -> bool {
         self.players.len() > 1 && self.range.is_none() && matches!(self.phase, Phase::Playing) && self.players.iter().any(|p| p.alive())
+    }
+
+    /// Player `p` stops leading: their swarm joins the ordinary dead.
+    pub(super) fn drop_lead(&mut self, p: PlayerId) {
+        for z in self.zombies.iter_mut().chain(self.burrowed.iter_mut()).filter(|z| z.led == Some(p)) {
+            z.led = None;
+        }
+        for t in self.tells.iter_mut().filter(|t| t.led == Some(p)) {
+            t.led = None;
+        }
+        if let Some(pl) = self.players.get_mut(p) {
+            pl.lead = None;
+        }
     }
 
     /// Whether player `p`'s view is of the dead they lead or the map they pick a rise on.
@@ -37,7 +61,8 @@ impl Harvest {
         let t = crate::tuning::tuning();
         let grow = (1.0 + self.t / 60.0 * t.growth) * self.fury;
         let kind = Kind(roster().leader as u8);
-        let mut z = Zombie::new(kind, at, kind.stats().hp * grow * t.leader_hp, rise, 0.0);
+        let full = kind.stats().hp * grow * t.leader_hp;
+        let mut z = Zombie::new(kind, at, full, rise, 0.0);
         let yaw = self.players[p].view_yaw;
         (z.id, z.leader, z.led, z.barren, z.dir) = (self.next_id, true, Some(p), true, [yaw.cos(), yaw.sin()]);
         z.facing = Facing::of(z.dir);
@@ -48,7 +73,7 @@ impl Harvest {
             self.fx.push(super::Fx::play(super::effects::effects().zombie_rises, [at[0], at[1] - 3.0], 0.0));
         }
         let pl = &mut self.players[p];
-        (pl.lead, pl.pos, pl.steer) = (Some(Lead::Leading(id)), at, [0.0; 2]);
+        (pl.lead, pl.pos, pl.steer, pl.lead_full, pl.lead_hp) = (Some(Lead::Leading(id)), at, [0.0; 2], full, 1.0);
         let common = Kind::common();
         let n = t.leader_swarm as usize;
         for k in 0..n {
@@ -110,12 +135,7 @@ impl Harvest {
 
     /// The leader is down: its swarm scatters among the dead, and player `p` picks where the next one rises.
     fn leader_fell(&mut self, p: PlayerId, sounds: &mut Vec<Sfx>) {
-        for z in self.zombies.iter_mut().chain(self.burrowed.iter_mut()).filter(|z| z.led == Some(p)) {
-            z.led = None;
-        }
-        for t in self.tells.iter_mut().filter(|t| t.led == Some(p)) {
-            t.led = None;
-        }
+        self.drop_lead(p);
         let at = self.rise_start(self.players[p].pos);
         let pl = &mut self.players[p];
         (pl.lead, pl.pos, pl.steer) = (Some(Lead::Picking { at, left: crate::tuning::tuning().leader_pick }), at, [0.0; 2]);
@@ -186,7 +206,18 @@ impl Harvest {
             if let Some(Lead::Leading(id)) = pl.lead
                 && let Some(z) = self.zombies.iter().find(|z| z.id == id)
             {
-                (pl.pos, pl.facing) = (z.pos, z.facing);
+                (pl.pos, pl.facing, pl.lead_hp) = (z.pos, z.facing, (z.hp / pl.lead_full.max(1.0)).clamp(0.0, 1.0));
+            }
+        }
+    }
+
+    /// A client draws its own leaders where it predicts them, as it does its own players.
+    pub(super) fn pin_leaders(&mut self) {
+        for v in 0..self.views.min(self.players.len()) {
+            if let Some(Lead::Leading(id)) = self.players[v].lead
+                && let Some(z) = self.zombies.iter_mut().find(|z| z.id == id)
+            {
+                z.pos = self.players[v].pos;
             }
         }
     }
@@ -219,16 +250,14 @@ impl Harvest {
 
     /// Over the view ahead, while ME leads: who they are now, the leader's health and how to call.
     pub(super) fn lead_hud(&self, c: &mut Canvas) {
-        let Some(Lead::Leading(id)) = self.me().lead.filter(|_| !matches!(self.phase, Phase::Over { .. })) else { return };
-        let Some(z) = self.zombies.iter().find(|z| z.id == id) else { return };
-        let full = z.kind.stats().hp * (1.0 + self.t / 60.0 * crate::tuning::tuning().growth) * crate::tuning::tuning().leader_hp;
+        let Some(Lead::Leading(_)) = self.me().lead.filter(|_| !matches!(self.phase, Phase::Over { .. })) else { return };
         c.anchor([0.5, 0.0]);
         c.rect(0.0, 184.0, SCREEN_W, 96.0, [0.0, 0.0, 0.0, 0.5]);
         c.label("YOU LEAD THE DEAD", SCREEN_W / 2.0, 190.0, 36.0, RED, Align::Center);
         c.hint("Hunt the living.   {X}: call the dead near you", SCREEN_W / 2.0, 234.0, 26.0, WHITE, Align::Center);
         let (w, x) = (300.0, SCREEN_W / 2.0 - 150.0);
         c.rect(x, 270.0, w, 8.0, [0.0, 0.0, 0.0, 0.7]);
-        c.rect(x, 270.0, w * (z.hp / full.max(1.0)).clamp(0.0, 1.0), 8.0, RED);
+        c.rect(x, 270.0, w * self.me().lead_hp.clamp(0.0, 1.0), 8.0, RED);
         c.anchor([0.5, 0.5]);
     }
 

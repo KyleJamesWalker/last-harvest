@@ -4,7 +4,7 @@
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::f32::consts::{PI, TAU};
 
-use super::snapshot::{P_DOWN, Part, PlayerState, RunState, Spawn, Spawned, TICK_HZ, Thing, ZombieState, unq_angle, unq_pos};
+use super::snapshot::{P_DOWN, P_LEADING, P_PICKING, Part, PlayerState, RunState, Spawn, Spawned, TICK_HZ, Thing, ZombieState, unq_angle, unq_pos};
 use crate::{Buttons, Input};
 
 /// How far behind the newest snapshot others are drawn, in ticks: two snapshots' worth.
@@ -216,7 +216,10 @@ impl Mirror {
         if !own.placed {
             (own.pos, own.yaw, own.placed) = (unq_pos(p.pos), unq_angle(p.yaw), true);
         }
-        if !self.paused && !self.frozen && p.flags & P_DOWN == 0 {
+        if !self.paused && !self.frozen && p.flags & P_PICKING != 0 {
+            let (d, k) = (input.dir(), p.speed as f32 / 16.0 * DT);
+            own.pos = [own.pos[0] + d[0] * k, own.pos[1] + d[1] * k];
+        } else if !self.paused && !self.frozen && (p.flags & P_DOWN == 0 || p.flags & P_LEADING != 0) {
             let dir = input.dir();
             let turn = (input.held.contains(Buttons::A) as i32 as f32 - input.held.contains(Buttons::Y) as i32 as f32 + input.look).clamp(-1.0, 1.0);
             if input.pressed.contains(Buttons::B) && own.spin <= 0.0 {

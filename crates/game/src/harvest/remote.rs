@@ -149,6 +149,7 @@ impl Harvest {
         self.take_before();
         self.lay_players(&mut c, mirror, dt);
         self.lay_zombies(mirror, dt);
+        self.pin_leaders();
         self.lay_things(&mut c, mirror, dt);
         self.lay_shots(&c, mirror);
         self.lay_run(&mut c, mirror, dt);
@@ -210,6 +211,12 @@ impl Harvest {
             pl.facing = Facing::of(pl.aim);
             pl.hurt = ps.hurt as f32 / 100.0;
             pl.down = (ps.flags & P_DOWN != 0).then_some(ps.down as f32 / 10.0);
+            pl.lead = match ps.flags {
+                f if f & P_LEADING != 0 => Some(super::leader::Lead::Leading(ps.lead)),
+                f if f & P_PICKING != 0 => Some(super::leader::Lead::Picking { at: pos, left: ps.lead as f32 / 10.0 }),
+                _ => None,
+            };
+            pl.lead_hp = ps.lead_hp as f32 / 255.0;
             pl.grenades = ps.grenades as f32 / 16.0;
             pl.ready_flash = if ps.flags & P_READY_FLASH != 0 { pl.ready_flash.max(0.01) } else { 0.0 };
             if c.kits[i] != ps.kit {
