@@ -26,7 +26,8 @@ const PEER_GONE: f32 = 10.0;
 /// What the game asks of the platform's transport.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Request {
-    /// Join the signaling room at `room`, with the TURN servers the relay hands out at `ice`.
+    /// Join the signaling room at `room`, with the TURN servers the relay hands out at `ice`; an empty `ice` means
+    /// none, for a room on this network.
     Connect { room: String, ice: String },
     Close,
 }
