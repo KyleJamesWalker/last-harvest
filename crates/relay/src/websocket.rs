@@ -26,6 +26,8 @@ struct Counts {
     connections: Arc<AtomicUsize>,
     signaling: Arc<AtomicUsize>,
     addresses: Arc<AddressLimits>,
+    /// Signaling peers per client address.
+    peers: Arc<AddressLimits>,
 }
 
 /// One place under a limit, given back on drop.
@@ -78,6 +80,7 @@ pub fn serve(config: &Config) -> io::Result<u16> {
         connections: Default::default(),
         signaling: Default::default(),
         addresses: AddressLimits::new(config.max_per_address, config.connects_per_minute),
+        peers: AddressLimits::new(config.max_peers_per_address, 0),
     };
     thread::spawn(move || {
         let mut full = false;
@@ -122,11 +125,12 @@ fn handle_connection(
     let _ = stream.set_nodelay(true);
 
     let Some((head, head_len)) = peek_request_head(&stream) else { return };
+    let peer = stream.peer_addr().map_or(IpAddr::V4(Ipv4Addr::LOCALHOST), |a| a.ip());
+    let client = if limits::may_proxy(peer, config.trusted_proxies) { limits::forwarded_for(&head).unwrap_or(peer) } else { peer };
     let _address = match address {
         Some(address) => address,
         None => {
-            let peer = stream.peer_addr().map_or(IpAddr::V4(Ipv4Addr::LOCALHOST), |a| a.ip());
-            match counts.addresses.open(limits::forwarded_for(&head).unwrap_or(peer), Instant::now()) {
+            match counts.addresses.open(client, Instant::now()) {
                 Ok(address) => address,
                 Err(_) => {
                     refuse(&mut stream, head_len, "429 Too Many Requests", "too many connections\n");
@@ -140,6 +144,10 @@ fn handle_connection(
         let Some(_slot) = Slot::take(&counts.signaling, config.max_clients) else {
             println!("[relay] refused a signaling client: relay full");
             refuse(&mut stream, head_len, "503 Service Unavailable", "relay full\n");
+            return;
+        };
+        let Ok(_peer) = counts.peers.open(client, Instant::now()) else {
+            refuse(&mut stream, head_len, "429 Too Many Requests", "too many signaling peers\n");
             return;
         };
         crate::signal::run(stream, room.to_string(), crate::signal::parse_resume(&query), config);
@@ -327,6 +335,42 @@ mod tests {
         assert!(signal_from(port, "addr-x", Some("203.0.113.9")).unwrap_err().contains("429"));
         assert!(signal_from(port, "addr-y", Some("198.51.100.1")).is_ok(), "other addresses are not affected");
         let _loopback: Vec<_> = (0..3).map(|i| signal(port, &format!("addr-lo-{i}")).unwrap()).collect();
+    }
+
+    #[test]
+    fn an_address_holds_at_most_max_peers_per_address() {
+        let port = relay(|c| c.max_peers_per_address = 2);
+        let mut held: Vec<_> = (0..2).map(|i| signal_from(port, &format!("peers-{i}"), Some("2001:db8:7:1::1")).unwrap()).collect();
+        assert!(signal_from(port, "peers-x", Some("2001:db8:7:2::9")).unwrap_err().contains("429"), "the same /56");
+        assert!(signal_from(port, "peers-y", Some("198.51.100.2")).is_ok(), "other addresses are not affected");
+        assert_eq!(get(port, "/healthz", None).lines().next(), Some("HTTP/1.1 200 OK"), "other requests are not affected");
+
+        held[0].close(None).unwrap();
+        let _ = held[0].flush();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while signal_from(port, "peers-z", Some("2001:db8:7:1::1")).is_err() {
+            assert!(Instant::now() < deadline, "a closed peer frees its place");
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+
+    #[test]
+    fn a_peer_alone_in_its_room_is_closed() {
+        let port = relay(|c| c.lonely_timeout = Duration::from_millis(300));
+        let mut alone = signal(port, "lonely-a").unwrap();
+        let mut pair: Vec<_> = (0..2).map(|_| signal(port, "lonely-b").unwrap()).collect();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            match alone.read() {
+                Ok(Message::Close(_)) | Err(tungstenite::Error::ConnectionClosed | tungstenite::Error::AlreadyClosed) => break,
+                Err(tungstenite::Error::Io(ref e)) if !matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => break,
+                _ => assert!(Instant::now() < deadline, "the relay kept a lonely peer"),
+            }
+        }
+        for peer in &mut pair {
+            peer.send(Message::Text("\"KeepAlive\"".into())).unwrap();
+            assert!(drain(peer).iter().any(|t| t.contains("KeepAlive")), "a peer with company stays");
+        }
     }
 
     #[test]

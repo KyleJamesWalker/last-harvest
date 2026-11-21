@@ -29,6 +29,8 @@ const MAX_MESSAGE_LEN: usize = 16 * 1024;
 const MAX_ROOM_PEERS: usize = 4;
 /// How long a disconnected peer keeps its place for a resume.
 const RESUME_GRACE: Duration = Duration::from_secs(30);
+/// How often a peer checks whether it is alone in its room.
+const LONELY_CHECK: Duration = Duration::from_millis(250);
 
 /// A room's peer: the queue of messages to its connection, none while it is discarded, and the secret that resumes it.
 struct Member {
@@ -63,6 +65,11 @@ fn new_peer_id() -> String {
     b[8] = (b[8] & 0x3f) | 0x80;
     let hex: String = b.iter().map(|x| format!("{x:02x}")).collect();
     format!("{}-{}-{}-{}-{}", &hex[0..8], &hex[8..12], &hex[12..16], &hex[16..20], &hex[20..32])
+}
+
+/// Places taken in `room`, held ones included.
+fn room_size(room: &str) -> usize {
+    rooms().lock().unwrap().get(room).map_or(0, HashMap::len)
 }
 
 /// Queues a message to one peer of a room; it is discarded if the peer is gone or its queue is full.
@@ -189,9 +196,22 @@ pub fn run(stream: TcpStream, room: String, resume: Option<(String, String)>, co
 
     let mut last_heard = Instant::now();
     let mut closed = false;
+    let (mut alone_since, mut checked) = (Some(Instant::now()), Instant::now());
     'session: loop {
         if replaced.load(Ordering::Acquire) {
             return;
+        }
+        if checked.elapsed() >= LONELY_CHECK {
+            checked = Instant::now();
+            if room_size(&room) > 1 {
+                alone_since = None;
+            } else if alone_since.get_or_insert(checked).elapsed() >= config.lonely_timeout {
+                println!("[relay] closing a signaling peer left alone in its room");
+                let _ = ws.close(None);
+                let _ = ws.flush();
+                closed = true;
+                break;
+            }
         }
         loop {
             match ws.read() {
