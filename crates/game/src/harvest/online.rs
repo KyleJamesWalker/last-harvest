@@ -225,7 +225,7 @@ impl Harvest {
         self.juice.still = true;
     }
 
-    /// Player `p`'s device left: they turn where they stand, and their seat waits for whoever drops in next.
+    /// Player `p`'s device left: they fall and sink where they stand, and their seat waits for whoever drops in next.
     pub fn unseat(&mut self, p: PlayerId) {
         self.tape_unseat(p);
         self.drop_lead(p);
