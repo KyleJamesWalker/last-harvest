@@ -87,7 +87,7 @@ The relay runs at `wss://lh-relay.vps.pocketsquirrel.com` on the VPS that alread
 
 The wildcard DNS record `*.vps.pocketsquirrel.com` already points at the VPS, and the `caddy` docker network already exists. `<smw-deploy>` below is the directory on the VPS holding SMW's compose file and `.env`.
 
-1. Copy `deploy/docker-compose.yml`, `deploy/Caddyfile` and `deploy/turnserver.conf` to a new directory on the VPS, such as `~/last-harvest-relay`.
+1. Copy `deploy/docker-compose.yml` and `deploy/Caddyfile` to a new directory on the VPS, such as `~/last-harvest-relay`.
 2. Give the relay coturn's secret: `grep '^TURN_SECRET=' <smw-deploy>/.env > ~/last-harvest-relay/.env`. The relay issues TURN credentials with it, so they work on SMW's coturn.
 3. Start the relay: `docker compose up -d` in `~/last-harvest-relay`. It publishes no port; Caddy reaches it as `last-harvest-relay:8080` on the `caddy` network.
 4. Append the site block to SMW's Caddyfile (`cat Caddyfile >> <smw-deploy>/Caddyfile`; appending keeps the file that Caddy's container mounts), then reload Caddy: `docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile` in `<smw-deploy>`. Caddy gets the certificate on the first request.
@@ -105,17 +105,18 @@ The relay accepts WebSockets from `https://www.kylejameswalker.com`, where the w
 
 ### Hardening the shared coturn
 
-Optional: Last Harvest works with SMW's coturn as it stands. `deploy/turnserver.conf` hardens it further, for both games: UDP relay only (`no-tcp-relay`), 24 allocations per user name (`user-quota`), a server-wide cap of 200 allocations (`total-quota`, down from SMW's 400) and of 12.8 MB/s across all sessions (`bps-capacity`), and relay ports 49160-49459 (SMW's are 49160-49259).
+The shared coturn's config lives in supermariowar-rust (`deploy/turnserver.conf`, hardened in KyleJamesWalker/supermariowar-rust#306): UDP relay only (`no-tcp-relay`), 24 allocations per user name (`user-quota`), 300 across the server (`total-quota`) and 19.2 MB/s across all sessions (`bps-capacity`), relay ports 49160-49459. Both relays name TURN credentials per client address, so `user-quota` caps one address in each game. Last Harvest works with SMW's coturn before or after that change.
 
-1. Copy it over SMW's: `cp ~/last-harvest-relay/turnserver.conf <smw-deploy>/turnserver.conf`, then add SMW's realm back: `echo realm=smw-relay.vps.pocketsquirrel.com >> <smw-deploy>/turnserver.conf`.
+1. Deploy SMW's relay and its `turnserver.conf` from that PR, following its `docs/guides/RELAY.md` (relay first, then clients).
 2. Open the wider range: UDP 49260-49459 (with ufw, `sudo ufw allow 49260:49459/udp`).
 3. `docker compose restart coturn` in `<smw-deploy>`. Matches relayed through it at that moment lose their connection.
+4. Play one SMW online match and run this repo's smoke test.
 
-What to check for SMW: its relay mints a random TURN user name per player, so `user-quota` caps one player rather than one address, and only `total-quota` and `bps-capacity` bound SMW's players as a whole. Those two are now shared by both games; raise `total-quota` if busy evenings hit it (coturn logs `Allocation quota exceeded`). SMW plays over UDP data channels, so `no-tcp-relay` does not affect it. Play one SMW online match through the shared coturn after the restart.
+`deploy/turnserver.conf` here is the standalone setup's copy; on the shared VPS, SMW's file is the one coturn reads.
 
 ### Updating and rolling back
 
-`docker compose pull && docker compose up -d` in `~/last-harvest-relay` takes the newest image. To roll back, pin an earlier one: `RELAY_TAG=<short sha>` in `.env`, then `docker compose up -d`. To take the relay down, `docker compose down` and remove its site block from SMW's Caddyfile, then reload Caddy; SMW is unaffected. To undo the coturn hardening, restore SMW's `turnserver.conf` from its repository and restart coturn.
+`docker compose pull && docker compose up -d` in `~/last-harvest-relay` takes the newest image. To roll back, pin an earlier one: `RELAY_TAG=<short sha>` in `.env`, then `docker compose up -d`. To take the relay down, `docker compose down` and remove its site block from SMW's Caddyfile, then reload Caddy; SMW is unaffected. To undo the coturn hardening, restore SMW's previous `turnserver.conf` and restart coturn.
 
 ### A fresh host
 
