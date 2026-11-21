@@ -290,3 +290,77 @@ fn the_host_plays_a_clients_input_once_each_tick_despite_loss() {
     assert!(played.windows(2).all(|w| w[1] > w[0]));
     assert!(played.len() > 560, "played {}", played.len());
 }
+
+#[test]
+fn ticks_at_the_top_of_the_range_neither_overflow_nor_play() {
+    let mut q = InputQueue::default();
+    q.receive(&super::input::SeatInputs { seat: 1, last: u32::MAX, frames: vec![InputFrame::default(); 8] });
+    assert!(q.play().1.is_some_and(|t| t > u32::MAX - 8), "the newest ticks play; nothing wraps");
+    let msg = InputMsg { ack_snapshot: Some(u32::MAX), ack_event: u32::MAX, seats: vec![] };
+    assert!(InputMsg::decode(&msg.encode()).is_some());
+    let mut inbox = super::events::Inbox::default();
+    inbox.receive(u32::MAX, &[(u32::MAX, Event::LevelDone)]);
+    assert_eq!(inbox.drain(), vec![Event::LevelDone]);
+    let _ = inbox.acked();
+}
+
+#[test]
+fn a_quiet_seat_lets_go_of_its_buttons_and_is_marked_away() {
+    let mut log = InputLog::default();
+    let mut q = InputQueue::default();
+    log.push(1, InputFrame { held: crate::Buttons::UP.0, stick: [0, -127], ..Default::default() });
+    q.receive(&log.seat(1));
+    assert!(q.play().0.held.contains(crate::Buttons::UP));
+    for _ in 0..super::input::STALE_TICKS {
+        assert!(q.play().0.held.contains(crate::Buttons::UP), "a short gap holds the last input");
+    }
+    let (i, _) = q.play();
+    assert!(i.held == crate::Buttons::NONE && i.stick == [0.0; 2], "a long one lets go");
+    while q.quiet() <= super::input::AWAY_TICKS {
+        q.play();
+    }
+    log.push(2, InputFrame::default());
+    q.receive(&log.seat(1));
+    assert_eq!(q.quiet(), 0, "new input brings it back");
+}
+
+#[test]
+fn a_hostile_host_cant_grow_the_clients_queues() {
+    let mut inbox = super::events::Inbox::default();
+    let far: Vec<(u32, Event)> = (0..20_000u32).map(|i| (2 + i * 3, Event::LevelDone)).collect();
+    inbox.receive(1, &far);
+    assert!(inbox.drain().is_empty());
+    let mut link = ClientLink::default();
+    let sim = Sim::new(4, 400);
+    let w = sim.world();
+    for t in 0..200u32 {
+        let mut w = w.clone();
+        w.tick = 1000 + t;
+        let packets = encode(&w, None, 1, &[], &[], BUDGET);
+        assert!(packets.len() > 1, "a world big enough to come in parts");
+        link.receive(&packets[0]);
+    }
+    assert!(link.building_for_test() <= 8, "unfinished snapshots are bounded: {}", link.building_for_test());
+}
+
+#[test]
+fn a_shot_held_still_by_the_cards_keeps_flying_after_them() {
+    let mut m = Mirror::default();
+    let mut w = World::new(10, vec![PlayerState::default()], vec![], vec![]);
+    m.apply(&decode(&encode(&w, None, 1, &[], &[], BUDGET)[0], None).unwrap());
+    let shot = Spawned { id: 1, tick: 10, what: Spawn::Shot { owner: 3, from: q_pos([100.0, 100.0]), vel: [80, 0], life: 50, look: 0 } };
+    m.spawn(vec![shot]);
+    m.frozen = true;
+    for t in 0..240u32 {
+        w.tick = 11 + t;
+        m.apply(&decode(&encode(&w, None, 1, &[], &[], BUDGET)[0], None).unwrap());
+        m.advance(1.0 / TICK_HZ as f32);
+    }
+    m.frozen = false;
+    for t in 0..12u32 {
+        w.tick = 251 + t;
+        m.apply(&decode(&encode(&w, None, 1, &[], &[], BUDGET)[0], None).unwrap());
+        m.advance(1.0 / TICK_HZ as f32);
+    }
+    assert_eq!(m.shots().count(), 1, "four seconds of cards don't age the shot");
+}

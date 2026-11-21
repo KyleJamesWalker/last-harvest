@@ -9,6 +9,8 @@ use super::snapshot::{self, BUDGET, Part, Spawned, World};
 pub const HISTORY: usize = 32;
 /// Complete snapshots the client keeps as baselines, more than the host will name.
 const KEPT: usize = HISTORY + 8;
+/// Snapshots a client puts together at once; the oldest unfinished one gives way.
+const BUILDING_MOST: usize = 8;
 /// Ticks a spawn is resent for while the client hasn't acked a snapshot after it.
 pub const SPAWN_TTL: u32 = 30;
 
@@ -86,6 +88,9 @@ impl ClientLink {
         }
         let newest = self.complete.back().map(|w| w.tick);
         if newest.is_none_or(|n| tick > n) {
+            if !self.building.contains_key(&tick) && self.building.len() >= BUILDING_MOST {
+                self.building.pop_first();
+            }
             let parts = self.building.entry(tick).or_default();
             if !parts.iter().any(|p| p.index == part.index) {
                 parts.push(part.clone());
@@ -128,5 +133,10 @@ impl ClientLink {
 
     pub fn events(&mut self) -> Vec<Event> {
         self.inbox.drain()
+    }
+
+    #[cfg(test)]
+    pub fn building_for_test(&self) -> usize {
+        self.building.len()
     }
 }

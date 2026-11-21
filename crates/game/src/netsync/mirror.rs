@@ -112,6 +112,8 @@ struct Other {
 
 struct Live {
     spawned: Spawned,
+    /// Ticks the host held the night still while it flew, left out of its age.
+    held: f64,
 }
 
 #[derive(Default)]
@@ -189,13 +191,16 @@ impl Mirror {
     }
 
     pub fn spawn(&mut self, fresh: Vec<Spawned>) {
-        self.live.extend(fresh.into_iter().map(|spawned| Live { spawned }));
+        self.live.extend(fresh.into_iter().map(|spawned| Live { spawned, held: 0.0 }));
     }
 
     /// Moves the clock and every drawn place on by `dt` seconds.
     pub fn advance(&mut self, dt: f32) {
         if !self.paused {
             self.clock += (dt * TICK_HZ as f32) as f64;
+            if self.frozen {
+                self.live.iter_mut().for_each(|l| l.held += (dt * TICK_HZ as f32) as f64);
+            }
         }
         let at = self.render_tick();
         for t in self.zombies.values_mut() {
@@ -206,7 +211,7 @@ impl Mirror {
             let target = o.track.target(at);
             o.track.follow(target, dt);
         }
-        self.live.retain(|l| !spent(&l.spawned, at));
+        self.live.retain(|l| !spent(&l.spawned, at - l.held));
     }
 
     /// Plays local player `seat`'s input for client tick `tick` as the host will.
@@ -277,7 +282,7 @@ impl Mirror {
             .iter()
             .filter_map(|l| {
                 let s = &l.spawned;
-                let (at, off) = if mine(s) { (self.clock, lead(s)) } else { (back, [0.0; 2]) };
+                let (at, off) = if mine(s) { (self.clock - l.held, lead(s)) } else { (back - l.held, [0.0; 2]) };
                 let p = shot_at(s, at)?;
                 Some(([p[0] + off[0], p[1] + off[1]], (at - s.tick as f64) as f32 / TICK_HZ as f32, s))
             })
@@ -320,7 +325,7 @@ impl Mirror {
     /// Every shot, spit and bolt in flight, with where it is now.
     pub fn shots(&self) -> impl Iterator<Item = ([f32; 2], &Spawn)> {
         let at = self.render_tick();
-        self.live.iter().filter_map(move |l| shot_at(&l.spawned, at).map(|p| (p, &l.spawned.what)))
+        self.live.iter().filter_map(move |l| shot_at(&l.spawned, at - l.held).map(|p| (p, &l.spawned.what)))
     }
 }
 
