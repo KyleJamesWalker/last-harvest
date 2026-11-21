@@ -263,6 +263,9 @@ impl Game {
             None => input.pressed.any(Buttons::START | Buttons::A).then_some(self.row),
         };
         match chosen {
+            Some(0) if crate::data::load_report().missing_pack.is_some() => {
+                self.sounds.push(Sfx::Miss);
+            }
             Some(0) if self.how_to_due => {
                 self.page = Page::HowTo;
                 self.how_to_then_play = true;
@@ -501,11 +504,13 @@ impl Game {
 
     fn draw_main(&self, c: &mut Canvas) {
         let pulse = 0.55 + 0.45 * (self.clock * 3.0).sin().abs();
+        let missing = crate::data::load_report().missing_pack.as_deref();
         for (i, (_, name)) in MAIN.iter().enumerate().take(self.main_rows()) {
             let [x, y, w, h] = main_row(i);
             let on = i == self.row;
-            c.rect(x, y, w, h, if on { [1.0, 0.85, 0.3, 0.3] } else { [1.0, 1.0, 1.0, 0.08] });
-            let color = if on { [HOT[0], HOT[1], HOT[2], if i == 0 { pulse } else { 1.0 }] } else { WHITE };
+            let off = i == 0 && missing.is_some();
+            c.rect(x, y, w, h, if on { [1.0, 0.85, 0.3, if off { 0.12 } else { 0.3 }] } else { [1.0, 1.0, 1.0, 0.08] });
+            let color = if off { DIM } else if on { [HOT[0], HOT[1], HOT[2], if i == 0 { pulse } else { 1.0 }] } else { WHITE };
             if i == MAP_ROW {
                 let maps = crate::data::maps();
                 let name = maps.iter().find(|m| m.id == self.save.map.as_str()).map_or("Random farm", |m| m.name.as_str());
@@ -518,20 +523,30 @@ impl Game {
             let size = if i == 0 { 52.0 } else { 42.0 };
             c.label(*name, x + w / 2.0, y + h / 2.0 - size / 2.0, size, color, Align::Center);
         }
-        let d = self.save.difficulty;
         let (y, mid) = (DIFFICULTY_Y, SCREEN_W / 2.0);
-        c.rect(mid - 300.0, y - 10.0, 600.0, 150.0, [1.0, 1.0, 1.0, 0.06]);
-        let arrow = |on: bool| if on { HOT } else { [1.0, 1.0, 1.0, 0.15] };
-        c.label("<", mid - 250.0, y + 6.0, 56.0, arrow(d != Difficulty::Easy), Align::Center);
-        c.label(">", mid + 250.0, y + 6.0, 56.0, arrow(d != Difficulty::Hard), Align::Center);
-        c.label(d.name(), mid, y + 6.0, 52.0, HOT, Align::Center);
+        if let Some(how) = missing {
+            let red = [1.0, 0.55, 0.5, 1.0];
+            c.rect(mid - 420.0, y - 10.0, 840.0, 150.0, [0.45, 0.12, 0.12, 0.35]);
+            c.label("No game_data.pak", mid, y + 6.0, 44.0, red, Align::Center);
+            wrap_label(c, how, mid, y + 62.0, 28.0, 800.0, 2, WHITE, Align::Center);
+        } else {
+            let d = self.save.difficulty;
+            c.rect(mid - 300.0, y - 10.0, 600.0, 150.0, [1.0, 1.0, 1.0, 0.06]);
+            let arrow = |on: bool| if on { HOT } else { [1.0, 1.0, 1.0, 0.15] };
+            c.label("<", mid - 250.0, y + 6.0, 56.0, arrow(d != Difficulty::Easy), Align::Center);
+            c.label(">", mid + 250.0, y + 6.0, 56.0, arrow(d != Difficulty::Hard), Align::Center);
+            c.label(d.name(), mid, y + 6.0, 52.0, HOT, Align::Center);
+            if self.title_on_one() {
+                wrap_label(c, d.blurb(), mid, y + 56.0, 36.0, 560.0, 2, DIM, Align::Center);
+            } else {
+                c.label(d.blurb(), mid, y + 80.0, 26.0, DIM, Align::Center);
+            }
+        }
         if self.title_on_one() {
-            wrap_label(c, d.blurb(), mid, y + 56.0, 36.0, 560.0, 2, DIM, Align::Center);
             c.hint("D-pad: walk.   {Y} / {A}: turn.   {B}: turn around.", SCREEN_W / 2.0, SCREEN_H - 104.0, 40.0, DIM, Align::Center);
             c.hint("{L1}: map.   {L2}: aim a grenade.   {R1}: throw ahead.", SCREEN_W / 2.0, SCREEN_H - 56.0, 40.0, DIM, Align::Center);
             return;
         }
-        c.label(d.blurb(), mid, y + 80.0, 26.0, DIM, Align::Center);
         c.hint("D-pad: walk and strafe.   {Y} / {A}: turn.   {B}: turn around.   {R2}: screenshot.", SCREEN_W / 2.0, SCREEN_H - 84.0, 24.0, DIM, Align::Center);
         c.hint("Hold {X}: aim at barrels.   Tap the map, or hold {R1}: throw.   Left / Right on Play: difficulty.", SCREEN_W / 2.0, SCREEN_H - 50.0, 24.0, DIM, Align::Center);
     }
