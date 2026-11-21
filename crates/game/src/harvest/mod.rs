@@ -44,7 +44,7 @@ use juice::{Corpse, Juice, Particle, Tone};
 use map::{Map, TILE};
 pub use range::{RangeSetup, effects_with, powerups_with};
 pub use powerups::{DEFAULT_SOUND_DELAY, Progress, RUN_KIT, Run, WeaponLevels, found_from_ids, found_ids, hidden_for as hidden_powerups, owners as powerup_owners, powerup_id, powerup_index, powerup_zones, sound_group, sound_groups, valid_sound_group, unlock_conditions, weapon_behaviours, weapon_levels, weapon_patterns, weapon_sound_names, weapon_stats, weapon_targets};
-use player::{ME, Player};
+use player::{ME, Player, PlayerId};
 use powerups::{Kind as Card, book};
 use weapons::{Bolt, Decoy, Kit, Patch};
 
@@ -337,6 +337,7 @@ struct Zombie {
     burn_tick: f32,
     /// The weapon that set it burning, for the run's damage by weapon.
     burn_by: Option<usize>,
+    burn_owner: PlayerId,
     /// A horde's leader, which drops a chest.
     leader: bool,
     /// Dawn's Harvester: faster, heavier, harder biting, and drawn twice the size.
@@ -375,6 +376,7 @@ impl Zombie {
             burn_dps: 0.0,
             burn_tick: 0.0,
             burn_by: None,
+            burn_owner: ME,
             leader: false,
             boss: false,
             cd: 0.0,
@@ -470,6 +472,7 @@ struct Bullet {
     age: f32,
     /// The weapon that fired it.
     by: Option<usize>,
+    owner: PlayerId,
     /// Pixels above a gun's height it was fired from, and the seconds it takes to come down to it.
     lift: [f32; 2],
 }
@@ -535,6 +538,7 @@ struct Grenade {
     kind: Thrown,
     /// The weapon that threw it; None for a grenade.
     by: Option<usize>,
+    owner: PlayerId,
 }
 
 impl Grenade {
@@ -957,7 +961,7 @@ impl Harvest {
     fn with_map(seed: u64, rng: Rng, map: Map) -> Self {
         let kit = Kit::start(Difficulty::Normal);
         let mut juice = Juice::new(seed);
-        juice.tally = tally::Tally::sized(book().defs.len());
+        juice.tally = tally::Tally::sized(book().defs.len(), 1);
         let own = crate::tuning::tuning().barrel_hp;
         let barrels = map.barrels.iter().enumerate().map(|(i, &pos)| Barrel { pos, hp: map.barrel_hp.get(i).copied().filter(|h| *h > 0.0).unwrap_or(own), flash: 0.0 }).collect();
         Self {
@@ -1110,7 +1114,7 @@ impl Harvest {
             h.juice.burst(at, 8.0, 8, [0.0; 2], 0.0, [10.0, 40.0], juice::blood(), 1.5, 100.0, 0.0);
             h.juice.popup(at, 12.0 + i as f32, if i % 5 == 0 { Tone::Crit } else { Tone::Hit });
             let vel = [a.cos() * 200.0, a.sin() * 200.0];
-            h.bullets.push(Bullet { pos: [h.me().pos[0] + a.cos() * 20.0, h.me().pos[1] - 6.0 + a.sin() * 20.0], vel, damage: 0.0, pierce: 0, life: 1.0, force: 0.0, hit: Vec::new(), look: None, age: 0.0, by: None, lift: [0.0; 2] });
+            h.bullets.push(Bullet { pos: [h.me().pos[0] + a.cos() * 20.0, h.me().pos[1] - 6.0 + a.sin() * 20.0], vel, damage: 0.0, pierce: 0, life: 1.0, force: 0.0, hit: Vec::new(), look: None, age: 0.0, by: None, owner: ME, lift: [0.0; 2] });
         }
         let e = effects::effects();
         for (i, fx) in [e.explosion, e.explosion_smoke, e.zombie_rises, e.mound_breaks].into_iter().cycle().take(16).enumerate() {
@@ -1462,7 +1466,10 @@ impl Harvest {
             dt
         };
         self.t += dt;
-        self.juice.tally.hold(self.players[ME].kit.weapons.iter().map(|a| a.def), dt);
+        self.juice.tally.tick(dt);
+        for (p, player) in self.players.iter().enumerate() {
+            self.juice.tally.hold(p, player.kit.weapons.iter().map(|a| a.def), dt);
+        }
         self.me_mut().hurt = (self.me().hurt - dt).max(0.0);
         // Up and down walk along the heading, left and right strafe, Y and A turn, B turns around.
         let dir = input.dir();
@@ -1548,10 +1555,10 @@ impl Harvest {
         if self.me().hp <= 0.0 && (self.me().revived as f32) < self.me().kit.mods.revive {
             self.revive(sounds, flow);
         } else if self.me().hp <= 0.0 && self.undying {
-            self.juice.tally.fell.get_or_insert(self.t);
+            self.juice.tally.book_mut(ME).fell.get_or_insert(self.t);
             self.me_mut().hp = self.me().kit.max_hp();
         } else if self.me().hp <= 0.0 {
-            self.juice.tally.fell.get_or_insert(self.t);
+            self.juice.tally.book_mut(ME).fell.get_or_insert(self.t);
             self.me_mut().hp = 0.0;
             sounds.push(Sfx::GameOver);
             self.juice.shake(0.8);
@@ -1892,7 +1899,7 @@ impl Harvest {
         for (slot, (def, level)) in kit.iter_mut().zip(held) {
             *slot = Some((def as u16, level.min(u8::MAX as u32) as u8));
         }
-        let run = Run { secs: self.t as u32, kills: self.kills, level: self.level, won, broke: self.broke, difficulty: self.difficulty, dps: self.juice.tally.dps().round() as u32, kit };
+        let run = Run { secs: self.t as u32, kills: self.kills, level: self.level, won, broke: self.broke, difficulty: self.difficulty, dps: self.juice.tally.dps(ME).round() as u32, kit };
         let after = self.progress.after(run);
         self.ready = (0..book().defs.len()).filter(|&i| !self.progress.findable(i) && after.findable(i)).count();
         self.progress = after;
@@ -2408,7 +2415,7 @@ impl Harvest {
                 }
                 let d = sub([z.pos[0], z.pos[1] - 6.0], b.pos);
                 if len(d) < 7.0 {
-                    self.juice.tally.by = b.by;
+                    self.juice.tally.credit(b.owner, b.by);
                     hits.1 |= strike(z, &mut self.juice, b.damage, norm(b.vel), b.force, crit);
                     hits.0 += 1;
                     if let Some(s) = &shot {
@@ -2515,7 +2522,7 @@ impl Harvest {
         if !self.endless {
             self.me_mut().grenades -= 1.0;
         }
-        self.thrown.push(Grenade { from: self.me().pos, to, t: 0.0, kind: Thrown::Grenade, by: None });
+        self.thrown.push(Grenade { from: self.me().pos, to, t: 0.0, kind: Thrown::Grenade, by: None, owner: ME });
         sounds.push(Sfx::Throw);
     }
 
@@ -2526,7 +2533,7 @@ impl Harvest {
         let (landed, flying): (Vec<Grenade>, Vec<Grenade>) = std::mem::take(&mut self.thrown).into_iter().partition(|g| g.t >= crate::tuning::tuning().grenade_flight);
         self.thrown = flying;
         for g in landed {
-            self.juice.tally.by = g.by;
+            self.juice.tally.credit(g.owner, g.by);
             self.land(&g, sounds);
             self.juice.tally.by = None;
             let blast = matches!(g.kind, Thrown::Lob { def, .. } if powerups::book().defs[def].lands == powerups::Lands::Blast);
@@ -2664,7 +2671,7 @@ impl Harvest {
             if dist < crate::tuning::tuning().pickup || (d.pulled.is_some() && len(step) >= dist) {
                 match d.kind {
                     DropKind::Money(v) => {
-                        self.juice.tally.hearts += 1;
+                        self.juice.tally.book_mut(ME).hearts += 1;
                         self.xp_frac += v as f32 * self.players[ME].kit.mods.greed;
                         self.xp += self.xp_frac as u32;
                         self.xp_frac = self.xp_frac.fract();
@@ -3530,7 +3537,7 @@ mod tests {
         let c = barrel.center();
         h.zombies.push(Zombie::new(Kind::named("big"), [c[0] + 20.0, c[1]], 50.0, 1.0, 0.0));
         let mut sounds = Vec::new();
-        h.bullets.push(Bullet { pos: [c[0], c[1] - 6.0], vel: [1.0, 0.0], damage: 50.0, pierce: 0, life: 1.0, force: 30.0, hit: Vec::new(), look: None, age: 0.0, by: None, lift: [0.0; 2] });
+        h.bullets.push(Bullet { pos: [c[0], c[1] - 6.0], vel: [1.0, 0.0], damage: 50.0, pierce: 0, life: 1.0, force: 30.0, hit: Vec::new(), look: None, age: 0.0, by: None, owner: ME, lift: [0.0; 2] });
         h.move_bullets(0.016, &mut sounds);
         assert!(h.blow(0.016, &mut sounds));
         assert!(h.zombies[0].hp <= 0.0);
@@ -3545,7 +3552,7 @@ mod tests {
         let mut h = Harvest::calm(4);
         let at = h.me().pos;
         h.zombies.push(Zombie::new(Kind::named("big"), [at[0] + 3.0, at[1]], 500.0, 1.0, 0.0));
-        h.bullets = vec![Bullet { pos: [at[0], at[1] - 6.0], vel: [10.0, 0.0], damage: 1.0, pierce: 0, life: 1.0, force: 0.0, hit: Vec::new(), look: Some(look), age: 0.0, by: None, lift: [0.0; 2] }];
+        h.bullets = vec![Bullet { pos: [at[0], at[1] - 6.0], vel: [10.0, 0.0], damage: 1.0, pierce: 0, life: 1.0, force: 0.0, hit: Vec::new(), look: Some(look), age: 0.0, by: None, owner: ME, lift: [0.0; 2] }];
         h.juice.particles.clear();
         h.move_bullets(0.016, &mut Vec::new());
         assert!(h.bullets.is_empty());
@@ -3553,12 +3560,12 @@ mod tests {
         assert!(h.juice.particles.len() > shot.impact as usize + 1, "and the blood still sprays");
         h.zombies.clear();
         h.juice.particles.clear();
-        h.bullets = vec![Bullet { pos: [at[0], at[1] - 6.0], vel: [10.0, 0.0], damage: 1.0, pierce: 0, life: 0.01, force: 0.0, hit: Vec::new(), look: Some(look), age: 0.0, by: None, lift: [0.0; 2] }];
+        h.bullets = vec![Bullet { pos: [at[0], at[1] - 6.0], vel: [10.0, 0.0], damage: 1.0, pierce: 0, life: 0.01, force: 0.0, hit: Vec::new(), look: Some(look), age: 0.0, by: None, owner: ME, lift: [0.0; 2] }];
         h.move_bullets(0.016, &mut Vec::new());
         assert_eq!(sparks(&h), shot.impact as usize, "a bullet that flies its range sparks on the ground");
         h.juice.particles.clear();
         let sprite = effects::effects().slash;
-        h.bullets = vec![Bullet { pos: [at[0], at[1] - 6.0], vel: [10.0, 0.0], damage: 1.0, pierce: 0, life: 0.01, force: 0.0, hit: Vec::new(), look: Some(sprite), age: 0.0, by: None, lift: [0.0; 2] }];
+        h.bullets = vec![Bullet { pos: [at[0], at[1] - 6.0], vel: [10.0, 0.0], damage: 1.0, pierce: 0, life: 0.01, force: 0.0, hit: Vec::new(), look: Some(sprite), age: 0.0, by: None, owner: ME, lift: [0.0; 2] }];
         h.move_bullets(0.016, &mut Vec::new());
         assert!(h.juice.particles.is_empty(), "a bullet that flies as a sprite throws none");
     }
@@ -3585,7 +3592,7 @@ mod tests {
         let mut live = Zombie::new(Kind::named("skinny"), at, 1000.0, 1.0, 0.0);
         live.id = 2;
         h.zombies = vec![dead, live];
-        h.bullets = vec![Bullet { pos: [at[0], at[1] - 6.0], vel: [0.0; 2], damage: 10.0, pierce: 5, life: 1.0, force: 0.0, hit: Vec::new(), look: None, age: 0.0, by: None, lift: [0.0; 2] }];
+        h.bullets = vec![Bullet { pos: [at[0], at[1] - 6.0], vel: [0.0; 2], damage: 10.0, pierce: 5, life: 1.0, force: 0.0, hit: Vec::new(), look: None, age: 0.0, by: None, owner: ME, lift: [0.0; 2] }];
         let mut sounds = Vec::new();
         h.move_bullets(0.016, &mut sounds);
         let once = h.zombies[1].hp;
@@ -3602,7 +3609,7 @@ mod tests {
         let (bush, house) = (bottom(art::BUSH), bottom(art::HOUSE));
         assert!(h.map.solid_at(bush[0], bush[1]));
         let mut stops = |at: [f32; 2]| {
-            h.bullets = vec![Bullet { pos: [at[0], at[1] - 6.0], vel: [0.0; 2], damage: 1.0, pierce: 0, life: 1.0, force: 0.0, hit: Vec::new(), look: None, age: 0.0, by: None, lift: [0.0; 2] }];
+            h.bullets = vec![Bullet { pos: [at[0], at[1] - 6.0], vel: [0.0; 2], damage: 1.0, pierce: 0, life: 1.0, force: 0.0, hit: Vec::new(), look: None, age: 0.0, by: None, owner: ME, lift: [0.0; 2] }];
             h.move_bullets(0.016, &mut Vec::new());
             h.bullets.is_empty()
         };
@@ -3637,7 +3644,7 @@ mod tests {
         let mut h = penned();
         let post = [7.5 * TILE, 6.5 * TILE];
         let shoot = |h: &mut Harvest| {
-            h.bullets = vec![Bullet { pos: [post[0], post[1] - 6.0], vel: [0.0; 2], damage: 10.0, pierce: 0, life: 1.0, force: 0.0, hit: Vec::new(), look: None, age: 0.0, by: None, lift: [0.0; 2] }];
+            h.bullets = vec![Bullet { pos: [post[0], post[1] - 6.0], vel: [0.0; 2], damage: 10.0, pierce: 0, life: 1.0, force: 0.0, hit: Vec::new(), look: None, age: 0.0, by: None, owner: ME, lift: [0.0; 2] }];
             h.move_bullets(0.016, &mut Vec::new());
         };
         let i = h.map.breakable_at(post[0], post[1]).unwrap();
@@ -3720,14 +3727,14 @@ mod tests {
             z.id = 99;
             h.zombies.push(z);
             h.shoot_from([h.me().pos[0] + 20.0, h.me().pos[1] - 6.0], 0.0, 200.0, 50.0, 0, 1.0, 0.0, None, [0.0; 2]);
-            h.thrown.push(Grenade { from: h.me().pos, to: [h.me().pos[0] - 60.0, h.me().pos[1]], t: 0.0, kind: Thrown::Grenade, by: None });
-            let (kills, total, hp) = (h.kills, h.juice.tally.total(), h.me().hp);
+            h.thrown.push(Grenade { from: h.me().pos, to: [h.me().pos[0] - 60.0, h.me().pos[1]], t: 0.0, kind: Thrown::Grenade, by: None, owner: ME });
+            let (kills, total, hp) = (h.kills, h.juice.tally.total(ME), h.me().hp);
             for _ in 0..120 {
                 h.update(&Input::default(), 1.0 / 60.0, &mut Vec::new());
             }
             assert!(h.bullets.is_empty() && h.thrown.is_empty(), "won {won}: the shot and the grenade finish");
             assert!(h.zombies.iter().all(|z| z.id != 99), "won {won}: the shot still kills");
-            assert_eq!((h.kills, h.juice.tally.total(), h.me().hp), (kills, total, hp), "won {won}: no kill, damage or hurt counts");
+            assert_eq!((h.kills, h.juice.tally.total(ME), h.me().hp), (kills, total, hp), "won {won}: no kill, damage or hurt counts");
             assert!(h.drops.is_empty(), "won {won}: nothing drops");
         }
     }
@@ -3764,13 +3771,13 @@ mod tests {
         let (h, hurt) = fought_then_died(5.0);
         assert!(hurt > 0.0);
         let tally = &h.juice.tally;
-        assert!((tally.total() - hurt).abs() < 0.01 * hurt, "every hit counts: {} of {hurt}", tally.total());
-        assert!((tally.secs - h.t).abs() < 1e-3 && tally.dps() == tally.total() / tally.secs, "over the night's time");
-        let names: Vec<&str> = tally.rows().iter().map(|r| book().defs[r.by.unwrap()].name.as_str()).collect();
+        assert!((tally.total(ME) - hurt).abs() < 0.01 * hurt, "every hit counts: {} of {hurt}", tally.total(ME));
+        assert!((tally.secs - h.t).abs() < 1e-3 && tally.dps(ME) == tally.total(ME) / tally.secs, "over the night's time");
+        let names: Vec<&str> = tally.rows(ME).iter().map(|r| book().defs[r.by.unwrap()].name.as_str()).collect();
         let held: Vec<&str> = h.me().kit.weapons.iter().map(|a| book().defs[a.def].name.as_str()).collect();
         assert_eq!(names.len(), held.len(), "{names:?} {held:?}");
         assert!(held.iter().all(|n| names.contains(n)));
-        assert!(tally.rows().windows(2).all(|w| w[0].damage >= w[1].damage), "most damage first");
+        assert!(tally.rows(ME).windows(2).all(|w| w[0].damage >= w[1].damage), "most damage first");
         let text = top_text(&h);
         let at = |s: &str| text.iter().position(|t| t == s).unwrap_or_else(|| panic!("{s} not on the end screen: {text:?}"));
         let order: Vec<usize> = names.iter().map(|n| at(n)).chain([at("Whole run")]).collect();
@@ -3814,7 +3821,7 @@ mod tests {
         let (mut h, _) = fought_then_died(1.0);
         h.update(&Input { pressed: Buttons::A, ..Default::default() }, 1.0 / 60.0, &mut Vec::new());
         assert!(matches!(h.phase, Phase::Playing));
-        assert_eq!((h.juice.tally.total(), h.juice.tally.secs), (0.0, 0.0));
+        assert_eq!((h.juice.tally.total(ME), h.juice.tally.secs), (0.0, 0.0));
     }
 
     #[test]

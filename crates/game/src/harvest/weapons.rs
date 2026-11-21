@@ -3,6 +3,7 @@
 use std::f32::consts::{PI, TAU};
 
 use super::juice::{self, Tone};
+use super::player::PlayerId;
 use super::powerups::{Aim, Does, Kind, Lands, Pattern, Stat, Targets, book};
 use super::{
     ME,
@@ -311,6 +312,7 @@ pub(super) struct Patch {
     pub life: f32,
     tick: f32,
     by: Option<usize>,
+    owner: PlayerId,
 }
 
 /// A blade swept around the player: its angle and distance from them run from the first value to the second.
@@ -454,6 +456,7 @@ pub(super) struct Decoy {
     blast: f32,
     damage: f32,
     by: Option<usize>,
+    owner: PlayerId,
 }
 
 fn in_cone(d: [f32; 2], dir: [f32; 2], half: f32) -> bool {
@@ -466,10 +469,11 @@ fn polar(at: [f32; 2], angle: f32, r: f32) -> [f32; 2] {
 }
 
 /// Sets a zombie burning, or keeps it burning longer and hotter.
-fn ignite(z: &mut Zombie, dps: f32, secs: f32, by: Option<usize>) {
+fn ignite(z: &mut Zombie, dps: f32, secs: f32, owner: PlayerId, by: Option<usize>) {
     z.burn = z.burn.max(secs);
     if dps >= z.burn_dps {
         z.burn_dps = dps;
+        z.burn_owner = owner;
         z.burn_by = by;
     }
 }
@@ -543,7 +547,7 @@ impl Harvest {
             let mut a = self.me().kit.weapons[i];
             a.cd -= dt;
             if a.cd <= 0.0 {
-                self.juice.tally.by = Some(a.def);
+                self.juice.tally.credit(ME, Some(a.def));
                 let fired = self.attack(a, sounds);
                 let def = &book().defs[a.def];
                 let shots = burst(def.pattern, self.stat(a, Stat::Count), def.at(Stat::Gap, a.level), self.me().kit.mods.cooldown).filter(|_| matches!(a.does(), Does::Pistol | Does::Gun));
@@ -834,7 +838,7 @@ impl Harvest {
         for z in &mut self.zombies {
             let d = sub(z.pos, self.players[ME].pos);
             if z.rise >= 1.0 && len(d) < range && in_cone(d, self.players[ME].aim, half) {
-                ignite(z, dps, secs, Some(a.def));
+                ignite(z, dps, secs, ME, Some(a.def));
             }
         }
         let nozzle = [self.me().pos[0] + self.me().aim[0] * 6.0, self.me().pos[1] + self.me().aim[1] * 6.0];
@@ -985,7 +989,7 @@ impl Harvest {
                 continue;
             }
             let (damage, cd) = (self.stat(a, Stat::Damage), self.stat(a, Stat::Cooldown));
-            self.juice.tally.by = Some(a.def);
+            self.juice.tally.credit(ME, Some(a.def));
             for at in self.crow_spots(a) {
                 for z in &mut self.zombies {
                     if z.rise >= 1.0 && len(sub(z.pos, at)) < crate::tuning::tuning().crow_reach && !self.players[ME].pecked.iter().any(|p| p.0 == z.id) {
@@ -1113,7 +1117,7 @@ impl Harvest {
                 && dog.cd <= 0.0
             {
                 dog.cd = cd;
-                self.juice.tally.by = Some(a.def);
+                self.juice.tally.credit(ME, Some(a.def));
                 hits.1 |= strike(&mut self.zombies[t], &mut self.juice, damage, n, force, crit);
                 hits.0 += 1;
                 barked |= self.juice.rng.below(5) == 0;
@@ -1240,7 +1244,7 @@ impl Harvest {
             let (damage, pierce, force, spread) = (self.stat(a, Stat::Damage), self.stat(a, Stat::Pierce) as u32, self.stat(a, Stat::Knockback), self.stat(a, Stat::Spread).to_radians());
             for _ in 0..rounds {
                 let angle = heading[1].atan2(heading[0]) + self.juice.rng.range(-0.5, 0.5) * spread;
-                self.juice.tally.by = Some(a.def);
+                self.juice.tally.credit(ME, Some(a.def));
                 self.shoot_from([from[0], from[1] - 6.0], angle, tune.drone_bullet, damage, pierce, tune.drone_reach * 1.2 / tune.drone_bullet, force, bullet(a), lift);
             }
             let heard = due(book().defs[a.def].sound_every, &mut self.me_mut().drones[i].heard, rounds);
@@ -1284,7 +1288,7 @@ impl Harvest {
             return false;
         }
         let (lure, blast, damage, life) = (self.stat(a, Stat::Range), self.stat(a, Stat::Area), self.stat(a, Stat::Damage), self.stat(a, Stat::Duration));
-        self.decoys.push(Decoy { pos: at, age: 0.0, life, lure, blast, damage, by: self.juice.tally.by });
+        self.decoys.push(Decoy { pos: at, age: 0.0, life, lure, blast, damage, by: self.juice.tally.by, owner: self.juice.tally.owner });
         self.juice.burst(at, 0.0, 8, [0.0; 2], 0.0, [15.0, 40.0], juice::dirt(), 1.4, 0.5, 0.0);
         true
     }
@@ -1305,7 +1309,7 @@ impl Harvest {
         for _ in 0..self.stat(a, Stat::Count).max(1.0) as u32 {
             let Some(to) = self.crowd(range) else { break };
             let kind = Thrown::Molotov { dps: self.stat(a, Stat::Damage), radius: self.stat(a, Stat::Area), life: self.stat(a, Stat::Duration) };
-            self.thrown.push(Grenade { from: self.me().pos, to, t: 0.0, kind, by: Some(a.def) });
+            self.thrown.push(Grenade { from: self.me().pos, to, t: 0.0, kind, by: Some(a.def), owner: ME });
             thrown = true;
         }
         if thrown {
@@ -1321,7 +1325,7 @@ impl Harvest {
         let mut thrown = false;
         for _ in 0..self.stat(a, Stat::Count).max(1.0) as u32 {
             let Some(to) = self.crowd(range) else { break };
-            self.thrown.push(Grenade { from: self.me().pos, to, t: 0.0, kind: Thrown::Lob { def: a.def, damage, radius, life, slow }, by: Some(a.def) });
+            self.thrown.push(Grenade { from: self.me().pos, to, t: 0.0, kind: Thrown::Lob { def: a.def, damage, radius, life, slow }, by: Some(a.def), owner: ME });
             thrown = true;
         }
         if thrown {
@@ -1333,7 +1337,7 @@ impl Harvest {
     fn lob_flare(&mut self, a: Armed, sounds: &mut Vec<Sfx>) -> bool {
         let Some(to) = self.crowd(self.stat(a, Stat::Range)) else { return false };
         let kind = Thrown::Flare { dps: self.stat(a, Stat::Damage), radius: self.stat(a, Stat::Area), life: self.stat(a, Stat::Duration) };
-        self.thrown.push(Grenade { from: self.me().pos, to, t: 0.0, kind, by: Some(a.def) });
+        self.thrown.push(Grenade { from: self.me().pos, to, t: 0.0, kind, by: Some(a.def), owner: ME });
         sounds.push(Sfx::Throw);
         true
     }
@@ -1345,7 +1349,7 @@ impl Harvest {
                 self.explode(g.to, crate::tuning::tuning().grenade_radius, crate::tuning::tuning().grenade_damage, sounds);
                 for _ in 0..self.me().kit.mods.cluster.round() as u32 {
                     let to = polar(g.to, self.juice.rng.range(0.0, TAU), self.juice.rng.range(16.0, 34.0));
-                    self.thrown.push(Grenade { from: g.to, to, t: crate::tuning::tuning().grenade_flight * 0.45, kind: Thrown::Bomblet, by: g.by });
+                    self.thrown.push(Grenade { from: g.to, to, t: crate::tuning::tuning().grenade_flight * 0.45, kind: Thrown::Bomblet, by: g.by, owner: g.owner });
                 }
             }
             Thrown::Bomblet => self.explode(g.to, crate::tuning::tuning().bomblet_radius, crate::tuning::tuning().bomblet_damage, sounds),
@@ -1387,7 +1391,7 @@ impl Harvest {
         if self.patches.len() >= MAX_PATCHES {
             self.patches.remove(0);
         }
-        self.patches.push(Patch { hazard, pos, radius, dps, slow, age: 0.0, life, tick: 0.0, by: self.juice.tally.by });
+        self.patches.push(Patch { hazard, pos, radius, dps, slow, age: 0.0, life, tick: 0.0, by: self.juice.tally.by, owner: self.juice.tally.owner });
     }
 
     /// Fire, tacks and flares hurt what's in them a few times a second; burning and slowed zombies wear off.
@@ -1399,7 +1403,7 @@ impl Harvest {
                 continue;
             }
             p.tick -= PATCH_TICK;
-            self.juice.tally.by = p.by;
+            self.juice.tally.credit(p.owner, p.by);
             for z in &mut self.zombies {
                 if z.rise < 1.0 || len(sub(z.pos, p.pos)) > p.radius {
                     continue;
@@ -1410,7 +1414,7 @@ impl Harvest {
                         z.slow = z.slow.max(0.5);
                         z.slow_k = z.slow_k.max(p.slow);
                     }
-                    Hazard::Fire | Hazard::Flare => ignite(z, p.dps, crate::tuning::tuning().fire_burn, p.by),
+                    Hazard::Fire | Hazard::Flare => ignite(z, p.dps, crate::tuning::tuning().fire_burn, p.owner, p.by),
                 }
             }
             match p.hazard {
@@ -1438,7 +1442,7 @@ impl Harvest {
             z.burn_tick += dt;
             if z.burn_tick >= BURN_TICK {
                 z.burn_tick -= BURN_TICK;
-                self.juice.tally.by = z.burn_by;
+                self.juice.tally.credit(z.burn_owner, z.burn_by);
                 singe(z, &mut self.juice, z.burn_dps * BURN_TICK);
                 self.juice.burst(z.pos, 8.0, 1, [0.0; 2], 0.0, [5.0, 15.0], juice::ember(), 1.2, 0.5, 1.0);
             }
@@ -1461,7 +1465,7 @@ impl Harvest {
         }
         while let Some(i) = self.decoys.iter().position(|d| d.age >= d.life) {
             let d = self.decoys.swap_remove(i);
-            self.juice.tally.by = d.by;
+            self.juice.tally.credit(d.owner, d.by);
             self.explode(d.pos, d.blast, d.damage / (self.me().kit.mods.damage * self.me().kit.mods.blast), sounds);
         }
     }
@@ -1503,7 +1507,7 @@ impl Harvest {
     #[allow(clippy::too_many_arguments)]
     pub(super) fn shoot_from(&mut self, pos: [f32; 2], angle: f32, speed: f32, damage: f32, pierce: u32, life: f32, force: f32, look: Option<super::effects::Effect>, lift: [f32; 2]) {
         let vel = [angle.cos() * speed, angle.sin() * speed];
-        self.bullets.push(Bullet { pos, vel, damage, pierce, life, force, hit: Vec::new(), look, age: 0.0, by: self.juice.tally.by, lift });
+        self.bullets.push(Bullet { pos, vel, damage, pierce, life, force, hit: Vec::new(), look, age: 0.0, by: self.juice.tally.by, owner: self.juice.tally.owner, lift });
     }
 }
 
@@ -1593,7 +1597,7 @@ mod tests {
             h.barrels.clear();
             h.me_mut().walk = 0.5;
             let hurt = hurt_after(&mut h, 15.0);
-            let rows = h.juice.tally.rows();
+            let rows = h.juice.tally.rows(ME);
             assert_eq!(rows.len(), 1, "{}: {rows:?}", d.id);
             assert_eq!(rows[0].by, Some(def), "{}", d.id);
             assert!((rows[0].damage - hurt).abs() < 0.01 * hurt, "{}: credited {} of {hurt}", d.id, rows[0].damage);
@@ -1623,7 +1627,7 @@ mod tests {
         }
         let hurt: f32 = start.iter().map(|&(id, hp)| hp - h.zombies.iter().find(|z| z.id == id).map_or(0.0, |z| z.hp)).sum();
         assert!(h.zombies.iter().filter(|z| z.hp < 500.0).count() > 1, "the burst spread over several zombies");
-        let rows = h.juice.tally.rows();
+        let rows = h.juice.tally.rows(ME);
         assert_eq!((rows.len(), rows[0].by), (1, Some(book().index("pistol").unwrap())), "{rows:?}");
         assert!((rows[0].damage - hurt).abs() < 0.01 * hurt, "every hit once: credited {} of {hurt}", rows[0].damage);
     }
@@ -1949,7 +1953,7 @@ mod tests {
         let off = len(sub(d.pos, h.zombies[0].pos));
         assert!((off - t.drone_hold).abs() < 8.0, "it hovers its hold off the zombie, {off}");
         assert!(d.lift() > 8.0, "in the air");
-        let rows = h.juice.tally.rows();
+        let rows = h.juice.tally.rows(ME);
         assert_eq!(rows[0].by, book().index("drone"));
     }
 

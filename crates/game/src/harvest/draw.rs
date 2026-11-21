@@ -8,7 +8,7 @@ use super::sight::Mark;
 use crate::art::Stand;
 use super::powerups::{Kind, Zone, book};
 use super::weapons::{BOLT_LIFE, Hazard};
-use super::{CHOICE_ROW, CHOICE_TOP, Choice, DropKind, Facing, GOLD, LEVEL_KEYS, LevelKey, level_key_shows, PAUSE_CHOICES, PAUSE_ROW, Harvest, PICK_TIME, PROP_FLASH, Phase, RED, map_scale, TELL_TIME, TURNED, Thrown, WHITE, clock, player_pose, player_worn, view3d, worn_corner};
+use super::{CHOICE_ROW, CHOICE_TOP, Choice, DropKind, Facing, GOLD, LEVEL_KEYS, LevelKey, level_key_shows, ME, PAUSE_CHOICES, PAUSE_ROW, Harvest, PICK_TIME, PROP_FLASH, Phase, RED, map_scale, TELL_TIME, TURNED, Thrown, WHITE, clock, player_pose, player_worn, view3d, worn_corner};
 use crate::art::{self, Art};
 use crate::{Align, Buttons, Canvas, Color, Frame, SCREEN_H, SCREEN_W, pad};
 
@@ -570,7 +570,7 @@ impl Harvest {
     /// The run's damage and damage a second by weapon, most first, then the whole run's, faded in by `a`.
     fn damage_table(&self, c: &mut Canvas, a: f32) {
         let tally = &self.juice.tally;
-        let rows = tally.rows();
+        let rows = tally.rows(ME);
         let (x, top, size, row_h) = (24.0, 196.0, 24.0, 26.0);
         let (damage_x, dps_x) = (x + 290.0, x + 410.0);
         let lines = rows.len() as f32 + 2.0;
@@ -589,7 +589,7 @@ impl Harvest {
             let name = r.by.map_or("Grenades, barrels", |d| book().defs[d].name.as_str());
             line(c, i, name, r.damage, r.dps, white);
         }
-        line(c, rows.len(), "Whole run", tally.total(), tally.dps(), [GOLD[0], GOLD[1], GOLD[2], a]);
+        line(c, rows.len(), "Whole run", tally.total(ME), tally.dps(ME), [GOLD[0], GOLD[1], GOLD[2], a]);
     }
 
     /// While X is held, a crosshair on the barrel the aimed weapons are going for.

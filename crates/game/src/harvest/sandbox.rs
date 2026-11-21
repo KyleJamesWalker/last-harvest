@@ -7,7 +7,7 @@ use std::f32::consts::{PI, TAU};
 use super::map::TILE;
 use super::powerups::{Kind, book};
 use super::weapons::Kit;
-use super::{Choice, Harvest, Phase, dawn, len, sub};
+use super::{Choice, Harvest, ME, Phase, dawn, len, sub};
 use crate::rng::Rng;
 use crate::sfx::Sfx;
 use crate::{Buttons, Difficulty, Input};
@@ -249,7 +249,7 @@ pub fn night(plan: &Plan) -> Night {
             capped += h.t - t;
         }
         while minutes.len() < (h.t / 60.0) as usize {
-            minutes.push(Minute { kills: h.kills, hearts: h.juice.tally.hearts, level: h.level });
+            minutes.push(Minute { kills: h.kills, hearts: h.juice.tally.book(ME).hearts, level: h.level });
         }
     }
     let tally = &h.juice.tally;
@@ -258,18 +258,18 @@ pub fn night(plan: &Plan) -> Night {
         .iter()
         .filter(|&&(d, _)| book().defs[d].kind == Kind::Weapon)
         .map(|&(d, level)| {
-            let x = tally.dealt(Some(d));
+            let x = tally.dealt(ME, Some(d));
             Line { id: book().defs[d].id.clone(), level, raw: x.raw, useful: x.useful, kills: x.kills, held: x.held }
         })
         .collect();
-    let x = tally.dealt(None);
+    let x = tally.dealt(ME, None);
     lines.push(Line { id: "grenades".into(), level: 0, raw: x.raw, useful: x.useful, kills: x.kills, held: x.held });
     Night {
         secs: h.t,
         dawn: h.t >= dawn(),
-        fell: tally.fell,
+        fell: tally.book(ME).fell,
         kills: h.kills,
-        hearts: tally.hearts,
+        hearts: tally.book(ME).hearts,
         level: h.level,
         spawned: h.next_id.saturating_sub(1),
         capped,
