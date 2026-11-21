@@ -1901,6 +1901,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "last-harvest-lobby"
+version = "0.1.0"
+dependencies = [
+ "last-harvest-net",
+ "last-harvest-relay",
+]
+
+[[package]]
 name = "last-harvest-net"
 version = "0.1.0"
 dependencies = [

@@ -1,0 +1,11 @@
+[package]
+name = "last-harvest-lobby"
+description = "The online co-op lobby: room codes, the join handshake, ready-up, start, drop-in and leaving. No transport of its own."
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[dev-dependencies]
+last-harvest-net = { path = "../net" }
+last-harvest-relay = { path = "../relay" }
