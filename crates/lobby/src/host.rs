@@ -204,9 +204,6 @@ impl Host {
         if host.game_version != yours.game_version {
             return Some(Refusal::Version { host: host.game_version.clone(), yours: yours.game_version.clone() });
         }
-        if host.pak != yours.pak {
-            return Some(Refusal::Pak);
-        }
         let find = |mods: &[crate::ModPack], name: &str| mods.iter().find(|m| m.name == name).map(|m| m.fingerprint);
         let missing: Vec<String> = host.mods.iter().filter(|m| find(&yours.mods, &m.name).is_none()).map(|m| m.name.clone()).collect();
         let extra: Vec<String> = yours.mods.iter().filter(|m| find(&host.mods, &m.name).is_none()).map(|m| m.name.clone()).collect();
@@ -214,6 +211,9 @@ impl Host {
             host.mods.iter().filter(|m| find(&yours.mods, &m.name).is_some_and(|f| f != m.fingerprint)).map(|m| m.name.clone()).collect();
         if !(missing.is_empty() && extra.is_empty() && different.is_empty()) {
             return Some(Refusal::Mods { missing, extra, different });
+        }
+        if host.pak != yours.pak {
+            return Some(Refusal::Pak);
         }
         if matches!(self.phase, Phase::Running(_)) && !self.config.drop_in {
             return Some(Refusal::Running);

@@ -1,7 +1,7 @@
 //! The title's Online pages: host or join a room, the lobby with its ready marks, and typing a room code or the
 //! relay's address with a pad, a touch screen or a keyboard.
 
-use last_harvest_lobby::{ALPHABET, Identity, RoomCode, Settings, Start};
+use last_harvest_lobby::{ALPHABET, Identity, ModPack, RoomCode, Settings, Start};
 
 use crate::draw::{Align, Canvas};
 use crate::harvest::{self, Harvest};
@@ -180,10 +180,16 @@ impl Game {
         self.online.relay_env.clone().unwrap_or_else(|| self.save.relay.as_str().to_string())
     }
 
+    #[doc(hidden)]
+    pub fn identity_for_test(&self) -> Identity {
+        self.identity()
+    }
+
     fn identity(&self) -> Identity {
         let version = if self.online.version.is_empty() { "dev".to_string() } else { self.online.version.clone() };
-        let pak = if self.online.pak != 0 { self.online.pak } else { last_harvest_lobby::fingerprint(crate::data::load_report().versions().as_bytes()) };
-        Identity { game_version: version, pak, mods: Vec::new() }
+        let pak = if self.online.pak != 0 { self.online.pak } else { crate::data::rules() };
+        let mods = crate::data::load_report().mod_packs.iter().map(|(name, fingerprint)| ModPack { name: name.clone(), fingerprint: *fingerprint }).collect();
+        Identity { game_version: version, pak, mods }
     }
 
     fn local_cards(&self) -> Vec<String> {

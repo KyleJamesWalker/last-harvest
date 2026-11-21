@@ -319,6 +319,7 @@ fn install_noting(base: Option<Pak>, missing_pack: Option<String>, more: Vec<(St
     let mut mods = read_mods(&mut problems);
     mods.extend(more);
     let mod_names: Vec<String> = mods.iter().map(|(n, _)| n.clone()).collect();
+    let mod_packs: Vec<(String, u64)> = mods.iter().map(|(n, p)| (n.clone(), fingerprint(p))).collect();
     if !mods.is_empty() {
         log!("mods: {:?}", mods.iter().map(|(n, _)| n).collect::<Vec<_>>());
     }
@@ -391,7 +392,7 @@ fn install_noting(base: Option<Pak>, missing_pack: Option<String>, more: Vec<(St
     for problem in &problems {
         log!("left out: {problem}");
     }
-    data::report(data::LoadReport { cards: loaded, mods: mod_names, problems, version: crate::VERSION.into(), pack_version, missing_pack });
+    data::report(data::LoadReport { cards: loaded, mods: mod_names, problems, version: crate::VERSION.into(), pack_version, missing_pack, mod_packs });
     let mut sounds = pak.take_dir(pack::SOUNDS);
     let forced = std::env::var_os("LAST_HARVEST_SOUNDS").is_some();
     if (forced || !had_base)
@@ -404,6 +405,13 @@ fn install_noting(base: Option<Pak>, missing_pack: Option<String>, more: Vec<(St
     let sounds = with_own_sounds(sounds, own);
     log!("audio: {} sound files", sounds.len());
     Ok(sounds)
+}
+
+/// A pack's files by name and bytes, in name order, as one fingerprint.
+fn fingerprint(pak: &Pak) -> u64 {
+    let mut paths = pak.paths();
+    paths.sort_unstable();
+    data::fingerprint(paths.into_iter().flat_map(|p| [p.as_bytes(), pak.get(p).unwrap_or_default()]))
 }
 
 /// Which `game_data.pak` to copy into `folder`: the one from this game's release.

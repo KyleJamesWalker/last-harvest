@@ -119,7 +119,7 @@ impl std::fmt::Display for Refusal {
         match self {
             Refusal::Protocol { host, yours } => write!(f, "The host speaks lobby protocol {host}, this game {yours}: update both to the same release."),
             Refusal::Version { host, yours } => write!(f, "The host runs version {host}, this game {yours}: update both to the same release."),
-            Refusal::Pak => write!(f, "The host's game data differs from this game's: install the same release's game_data.pak."),
+            Refusal::Pak => write!(f, "The host's game data differs from this game's: use the same release's game_data.pak, and the same cards, maps and farms."),
             Refusal::Mods { missing, extra, different } => {
                 let mut parts = Vec::new();
                 if !missing.is_empty() {
