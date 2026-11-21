@@ -67,6 +67,9 @@ impl Harvest {
         if self.touch_aim && input.pressed.contains(Buttons::L2) {
             self.touch_map = !self.touch_map;
         }
+        if self.touch_aim && input.pressed.contains(Buttons::R1) {
+            self.touch_map = false;
+        }
         own.touch = None;
         own.touches = Default::default();
         own.touch_started = false;

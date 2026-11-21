@@ -1292,6 +1292,12 @@ impl Harvest {
         self.thrown.iter().filter(|g| g.kind == Thrown::Grenade).count()
     }
 
+    #[cfg(test)]
+    pub(crate) fn last_thrown_distance(&self) -> Option<f32> {
+        let g = self.thrown.iter().rev().find(|g| g.kind == Thrown::Grenade)?;
+        Some(len(sub(g.to, g.from)))
+    }
+
     /// Starts carrying powerups named `id` or `id:level`, comma separated; unknown names are skipped.
     /// Starts the night `secs` in, and every restart on this farm too.
     pub fn endless_grenades(mut self, on: bool) -> Self {

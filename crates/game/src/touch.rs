@@ -1,7 +1,7 @@
-//! On-screen controls for a phone, in window pixels: a floating stick on the left, and on the right Grenade and Turn
-//! around over a turn strip, a sideways-only floating stick that turns as a right stick does, with Pause above. They go
-//! beside the picture when the window is wide enough and under it when upright. In photo mode the keys become photo
-//! keys, each named by a word.
+//! On-screen controls for a phone, in window pixels: a floating stick on the left, and on the right Grenade (hold to
+//! throw straight ahead), Map (for map-targeted throws) and Turn around over a turn strip, a sideways-only floating
+//! stick that turns as a right stick does, with Pause above. They go beside the picture when the window is wide enough
+//! and under it when upright. In photo mode the keys become photo keys, each named by a word.
 
 use crate::fmath as fm;
 use crate::art::{self, Art};
@@ -104,8 +104,8 @@ pub fn layout(size: [f32; 2], run: bool, touch: bool, photo: bool) -> Layout {
     let cx = right[0] + right[2] / 2.0;
     let square = |x: f32, y: f32, s: f32| [x - s / 2.0, y - s / 2.0, s, s];
     let corner = square(right[0] + right[2] - 0.4 * cell, right[1] + 0.4 * cell, 0.6 * cell);
+    let (l, r, s) = (cx - 0.5 * cell, cx + 0.5 * cell, 0.85 * cell);
     let keys = if photo {
-        let (l, r, s) = (cx - 0.5 * cell, cx + 0.5 * cell, 0.85 * cell);
         [
             (Buttons::L2, Face::Word("Setting"), square(l, right[1] + 1.2 * cell, s)),
             (Buttons::R2, Face::Word("Change"), square(r, right[1] + 1.2 * cell, s)),
@@ -115,10 +115,10 @@ pub fn layout(size: [f32; 2], run: bool, touch: bool, photo: bool) -> Layout {
         ]
     } else {
         [
-            (Buttons::L2, Face::Icon(art::GRENADE), square(cx, right[1] + 1.2 * cell, cell)),
-            (Buttons::B, Face::Icon(art::TOUCH_AROUND), square(cx, right[1] + 2.3 * cell, 0.85 * cell)),
+            (Buttons::R1, Face::Icon(art::GRENADE), square(cx, right[1] + 1.2 * cell, cell)),
+            (Buttons::L2, Face::Icon(art::TOUCH_MAP), square(l, right[1] + 2.3 * cell, s)),
+            (Buttons::B, Face::Icon(art::TOUCH_AROUND), square(r, right[1] + 2.3 * cell, s)),
             (Buttons::START, Face::Icon(art::TOUCH_PAUSE), corner),
-            none,
             none,
         ]
     };
@@ -330,10 +330,14 @@ mod tests {
         pad.update(&fingers(&[down]), &l, false);
         let out = pad.update(&fingers(&[[down[0], down[1] - l.stick_r], key]), &l, false);
         assert!(out.stick[1] < -0.9 && out.stick[0].abs() < 0.01);
-        assert!(out.held.contains(Buttons::L2) && out.pressed.contains(Buttons::L2));
+        assert!(out.held.contains(Buttons::R1) && out.pressed.contains(Buttons::R1));
         let again = pad.update(&fingers(&[[down[0], down[1] - l.stick_r], key]), &l, false);
-        assert!(again.held.contains(Buttons::L2) && !again.pressed.contains(Buttons::L2));
+        assert!(again.held.contains(Buttons::R1) && !again.pressed.contains(Buttons::R1));
         assert_eq!(pad.update(&fingers(&[]), &l, false), Pad::default());
+        let map = l.key(Buttons::L2).expect("a lower Map key for map throws");
+        assert!(map[1] > grenade[1], "Map sits under Grenade");
+        let on_map = pad.update(&fingers(&[[map[0] + 5.0, map[1] + 5.0]]), &l, false);
+        assert!(on_map.held.contains(Buttons::L2) && on_map.pressed.contains(Buttons::L2));
     }
 
     #[test]
@@ -433,15 +437,18 @@ mod tests {
 
     #[test]
     fn at_every_shape_the_resting_turn_knob_clears_the_keys() {
-        for tenths in 4..=25 {
-            let size = [1000.0 * tenths as f32 / 10.0, 1000.0];
+        let apart = |a: Rect, b: Rect| a[0] + a[2] <= b[0] || b[0] + b[2] <= a[0] || a[1] + a[3] <= b[1] || b[1] + b[3] <= a[1];
+        for size in (4..=25).map(|tenths| [1000.0 * tenths as f32 / 10.0, 1000.0]).chain([[1080.0, 2400.0]]) {
             let l = layout(size, true, true, false);
             let [x, y] = rest(l.turn, l.stick_r);
             let half = l.stick_r * 0.45;
             let knob = [x - half, y - half, 2.0 * half, 2.0 * half];
-            for &(b, _, k) in l.keys() {
-                let apart = k[0] + k[2] <= knob[0] || knob[0] + knob[2] <= k[0] || k[1] + k[3] <= knob[1] || knob[1] + knob[3] <= k[1];
-                assert!(apart, "{size:?}: {b:?} {k:?} overlaps the turn knob {knob:?}");
+            for (i, &(b, _, k)) in l.keys().enumerate() {
+                assert!(k[0] >= 0.0 && k[1] >= 0.0 && k[0] + k[2] <= size[0] && k[1] + k[3] <= size[1], "{size:?}: {b:?} off the window");
+                assert!(apart(k, knob), "{size:?}: {b:?} {k:?} overlaps the turn knob {knob:?}");
+                for &(o, _, other) in l.keys().skip(i + 1) {
+                    assert!(apart(k, other), "{size:?}: {b:?} overlaps {o:?}");
+                }
             }
             assert!(knob[1] + knob[3] <= size[1], "{size:?}: the turn knob runs off the window");
         }

@@ -1185,6 +1185,32 @@ mod tests {
     }
 
     #[test]
+    fn on_a_phone_holding_the_grenade_key_throws_ahead_and_longer_throws_further() {
+        let size = [2400.0, 1080.0];
+        let layout = touch::layout(size, true, true, false);
+        let [gx, gy, gw, gh] = layout.key(Buttons::R1).expect("a Grenade key for quick throws");
+        let hold_at = Some([gx + gw / 2.0, gy + gh / 2.0]);
+        let throw_after = |frames: usize| {
+            let mut game = Game::new(1);
+            game.set_phone(Some(size));
+            press(&mut game, Buttons::A);
+            let mut touches = [None; MAX_TOUCHES];
+            touches[0] = hold_at;
+            for _ in 0..frames {
+                game.update(&Input { touches, ..Default::default() }, 0.016);
+            }
+            game.update(&Input::default(), 0.016);
+            match &game.state {
+                State::Harvest(h) => h.last_thrown_distance().expect("a thrown grenade"),
+                _ => panic!("not in a run"),
+            }
+        };
+        let short = throw_after(1);
+        let long = throw_after(45);
+        assert!(long > short + 30.0, "holding longer throws further: short={short}, long={long}");
+    }
+
+    #[test]
     fn a_phone_sets_the_grenade_style_where_others_set_the_screens() {
         let mut game = Game::new(1);
         assert!(game.settings_list().contains(&menu::Setting::Screens) && !game.settings_list().contains(&menu::Setting::Grenades));
