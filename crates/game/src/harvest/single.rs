@@ -32,6 +32,7 @@ impl Harvest {
     }
 
     pub fn set_corner_map(&mut self, on: bool) {
+        self.tape_set(super::replay::Set::CornerMap(on));
         self.corner_map = on;
     }
 

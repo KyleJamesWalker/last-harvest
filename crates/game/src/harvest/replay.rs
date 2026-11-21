@@ -220,6 +220,7 @@ pub(super) enum Set {
     Taps(bool),
     Canvas([f32; 2]),
     Guides,
+    CornerMap(bool),
 }
 
 impl Harvest {
@@ -273,6 +274,7 @@ impl Harvest {
             Set::Taps(on) => self.taps != on,
             Set::Canvas(_) => false,
             Set::Guides => self.photo.is_some(),
+            Set::CornerMap(on) => self.corner_map != on,
         };
         if changes {
             self.taping(|r| r.set(set));
@@ -470,6 +472,7 @@ impl Recorder {
                 out.extend(size[1].to_bits().to_le_bytes());
             }
             Set::Guides => out.push(6),
+            Set::CornerMap(on) => out.extend([7, on as u8]),
         }
     }
 
@@ -796,6 +799,7 @@ impl Replay {
                     4 => Set::Taps(r.u8()? != 0),
                     5 => Set::Canvas(r.pair()?),
                     6 => Set::Guides,
+                    7 => Set::CornerMap(r.u8()? != 0),
                     n => return Err(format!("replay: unknown setting {n}")),
                 }),
                 CHECK => {
@@ -939,6 +943,7 @@ impl Harvest {
             Set::Taps(on) => self.set_taps(on),
             Set::Canvas(size) => self.set_canvas(Some(size)),
             Set::Guides => self.toggle_guides(),
+            Set::CornerMap(on) => self.set_corner_map(on),
         }
     }
 }
