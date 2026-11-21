@@ -615,6 +615,40 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ignore = "a timing, for cargo test --release -- --ignored --nocapture"]
+    fn snapshot_cost_at_a_crowd() {
+        let mut h = Harvest::bench(crate::harvest::MAP_SIZE);
+        for (i, z) in h.zombies.iter_mut().enumerate() {
+            z.id = i as u32 + 1;
+        }
+        let n = h.zombies.len() + h.burrowed.len();
+        let (mut extract, mut links) = (Extract::default(), vec![HostLink::default(), HostLink::default()]);
+        let start = std::time::Instant::now();
+        let (mut sounds, mut encode) = (Vec::new(), std::time::Duration::ZERO);
+        let ticks = 600u32;
+        for tick in 1..=ticks {
+            h.update(&crate::Input::default(), STEP, &mut sounds);
+            for z in &mut h.zombies {
+                z.pos[0] += 0.3;
+            }
+            let t = std::time::Instant::now();
+            let fresh = extract.record(&h, tick, &sounds);
+            links.iter_mut().for_each(|l| fresh.hand(l));
+            if tick.is_multiple_of(SEND_EVERY) {
+                let world = extract.world(&h, tick, &[0; 4]);
+                for l in &mut links {
+                    l.ack(Some(tick.saturating_sub(SEND_EVERY * 2)), 0);
+                    l.snapshot(world.clone());
+                }
+            }
+            encode += t.elapsed();
+            sounds.clear();
+        }
+        let per_tick = encode.as_secs_f64() * 1000.0 / ticks as f64;
+        eprintln!("{n} zombies, 2 clients: sync {per_tick:.3} ms a tick on average, {:.0} B/s to each, whole run {:.1} s", links[0].bytes as f64 / (ticks as f64 / 60.0), start.elapsed().as_secs_f64());
+    }
+
+    #[test]
     fn a_client_over_a_lossy_link_keeps_close_to_the_host() {
         let plan = Plan { until: Some(40.0), ..Plan::new(Vec::new()) };
         let r = net_sim(&plan, NetSim { loss: 0.2, latency_ms: 80, jitter_ms: 30 });

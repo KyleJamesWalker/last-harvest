@@ -8,6 +8,21 @@ use last_harvest_net::{IceConfig, IceFetch, PeerId, PeerSocket, PeerState};
 /// Seconds to wait for the relay to give this device an id.
 const JOIN_WAIT: f32 = 10.0;
 
+/// Offers online play, with the relay and a room to host or join at launch from the environment.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn set_up(game: &mut Game) {
+    game.set_online(true);
+    game.set_identity(crate::VERSION, 0);
+    if let Ok(relay) = std::env::var("LAST_HARVEST_RELAY") {
+        game.set_relay(&relay);
+    }
+    if let Ok(code) = std::env::var("LAST_HARVEST_HOST") {
+        game.host_online(Some(code.as_str()).filter(|c| !c.is_empty()));
+    } else if let Ok(code) = std::env::var("LAST_HARVEST_JOIN") {
+        game.join_online(&code);
+    }
+}
+
 #[derive(Default)]
 pub struct Online {
     socket: Option<PeerSocket>,

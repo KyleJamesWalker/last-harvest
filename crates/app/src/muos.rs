@@ -126,6 +126,8 @@ fn run() -> Result<(), String> {
     game.set_backlights(false);
     game.set_touch(false);
     game.set_quit(true);
+    last_harvest::online::set_up(&mut game);
+    let mut online = last_harvest::online::Online::default();
     if let Ok(kit) = std::env::var("LAST_HARVEST_KIT") {
         game.start_with(&kit);
     }
@@ -216,9 +218,11 @@ fn run() -> Result<(), String> {
         let (w, h) = window.drawable_size();
         game.set_system(system);
         game.set_phone(Some([w as f32, h as f32]));
+        online.pump(&mut game, dt);
         for inputs in ticker.frame_all(frame, std::iter::once(input).chain(others).collect()) {
             game.update_all(&inputs, clock::STEP);
         }
+        online.send(&mut game);
         let sounds = game.take_sounds();
         if let Some(audio) = &audio {
             audio.set_volume(game.volume());
