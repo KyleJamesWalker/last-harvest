@@ -373,6 +373,12 @@ impl Game {
         self.page = Page::Online;
     }
 
+    /// Leaves online play as BACK does, for a shell about to close.
+    pub fn close_online(&mut self) {
+        let run = self.online_run();
+        self.leave_online(run);
+    }
+
     pub(crate) fn online_run(&self) -> bool {
         matches!(&self.state, State::Harvest(h) if h.is_host() || h.is_client())
     }
@@ -673,6 +679,86 @@ mod tests {
         assert_eq!(crate::Save::parse(&g.save().to_text()).relay.as_str(), "192.168.1.5:8097", "and reads back after a restart");
         g.online_page(&Input { pressed: Buttons::A, ..Input::default() }, None);
         assert_eq!(g.page, Page::Lobby, "with one set, Host opens the lobby");
+    }
+
+    /// Taps the shown menu screen of a phone at `at`, in that screen's own pixels.
+    fn tap(g: &mut Game, size: [f32; 2], [x, y]: [f32; 2]) {
+        let phone = g.draw().phone.expect("a phone frame");
+        let [rx, ry, rw, rh] = phone.bottom.or(phone.top).expect("a screen");
+        let mut touches = [None; crate::MAX_TOUCHES];
+        touches[0] = Some([rx + x / SCREEN_W * rw, ry + y / crate::SCREEN_H * rh]);
+        assert!(touches[0].is_some_and(|[x, y]| x < size[0] && y < size[1]));
+        g.update(&Input { touches, ..Input::default() }, 0.016);
+        g.update(&Input::default(), 0.016);
+    }
+
+    fn middle([x, y, w, h]: [f32; 4]) -> [f32; 2] {
+        [x + w / 2.0, y + h / 2.0]
+    }
+
+    fn type_by_touch(g: &mut Game, size: [f32; 2], text: &str, chars: &[u8], cols: usize) {
+        let all = keys(chars, cols);
+        for ch in text.bytes() {
+            let (r, _) = all.iter().find(|(_, k)| matches!(k, Key::Char(c) if *c == ch)).expect("a key for each character");
+            tap(g, size, middle(*r));
+        }
+        let (done, _) = all.iter().find(|(_, k)| matches!(k, Key::Done)).unwrap();
+        tap(g, size, middle(*done));
+    }
+
+    #[test]
+    fn close_online_lets_go_of_the_room_as_back_does() {
+        let mut g = Game::new(1);
+        g.set_online(true);
+        g.set_relay("127.0.0.1:9");
+        g.host_online(None);
+        g.close_online();
+        assert_eq!(g.page, Page::Online);
+        let mut closed = false;
+        for _ in 0..600 {
+            g.update(&Input::default(), 0.016);
+            while let Some(r) = g.net_request() {
+                closed |= r == Request::Close;
+            }
+        }
+        assert!(closed && g.net_traffic().is_none(), "the shell is asked to close the socket");
+    }
+
+    #[test]
+    fn a_touch_only_phone_reaches_online_types_the_relay_and_joins_a_room_by_taps() {
+        let size = [2400.0, 1080.0];
+        let mut g = Game::new(1);
+        g.set_phone(Some(size));
+        g.set_touch(true);
+        g.set_online(true);
+        g.set_needs_relay(true);
+        let phone = g.draw().phone.unwrap();
+        let (rect, canvas) = if phone.bottom.is_some() { (phone.bottom, g.draw().bottom) } else { (phone.top, g.draw().top) };
+        let [rx, ry, rw, rh] = rect.unwrap();
+        let at = canvas.shapes.iter().find_map(|s| match s {
+            crate::draw::Shape::Text { text, x, y, size, .. } if text == "Online" => Some([*x, y + size / 2.0]),
+            _ => None,
+        });
+        let [x, y] = at.expect("Online on the title menu");
+        let mut touches = [None; crate::MAX_TOUCHES];
+        touches[0] = Some([rx + x / SCREEN_W * rw, ry + y / crate::SCREEN_H * rh]);
+        g.update(&Input { touches, ..Input::default() }, 0.016);
+        g.update(&Input::default(), 0.016);
+        assert_eq!(g.page, Page::Online, "a tap on Online opens it");
+
+        tap(&mut g, size, middle(online_row(1)));
+        assert_eq!(g.page, Page::Relay, "Join with no relay asks for it first");
+        type_by_touch(&mut g, size, "10.0.0.2:8097", RELAY_KEYS, 10);
+        assert_eq!((g.page, g.save().relay.as_str()), (Page::Online, "10.0.0.2:8097"));
+
+        tap(&mut g, size, middle(online_row(1)));
+        assert_eq!(g.page, Page::Join);
+        let code = RoomCode::from_random(7);
+        type_by_touch(&mut g, size, code.as_str(), ALPHABET, 7);
+        assert_eq!(g.page, Page::Lobby, "Done joins room {}", code.as_str());
+        assert!(g.net_traffic().is_some());
+        tap(&mut g, size, middle(BUTTONS[0]));
+        assert_eq!(g.page, Page::Online, "a tap on Leave leaves the lobby");
     }
 
     #[test]
