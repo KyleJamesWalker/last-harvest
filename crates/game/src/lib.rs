@@ -153,6 +153,8 @@ pub struct Game {
     bench_due: bool,
     /// A thrown grenade is never spent, for trying out aiming.
     endless: bool,
+    /// Scripted players every run starts with beside the local one.
+    bots: usize,
     /// What the range scene tries.
     range: RangeSetup,
     /// The `single` scene is open, which plays on one screen whatever Settings says.
@@ -236,6 +238,7 @@ impl Game {
             start_t: 0.0,
             bench_due: false,
             endless: false,
+            bots: 0,
             range: RangeSetup::default(),
             single_scene: false,
             phone: None,
@@ -327,6 +330,11 @@ impl Game {
         self.endless = on;
     }
 
+    /// Starts every run with `n` scripted players beside the local one.
+    pub fn add_bots(&mut self, n: usize) {
+        self.bots = n;
+    }
+
     /// What the range scene tries: the platform installs a setup's section into the data before the game reads it.
     pub fn set_range(&mut self, setup: RangeSetup) {
         self.range = setup;
@@ -401,7 +409,7 @@ impl Game {
             Scene::Harvest | Scene::Single => {
                 harvest::use_player_farm(self.save.player.as_str());
                 self.sounds.push(Sfx::Start);
-                State::Harvest(Box::new(harvest::Harvest::on(seed, self.save.map.as_str()).at(self.save.difficulty).with_progress(self.progress()).without_enemies(self.save.enemies_off).looking_like(self.save.player.as_str()).with_kit(&self.kit).starting_at(self.start_t).single_screen(self.one_screen()).endless_grenades(self.endless)))
+                State::Harvest(Box::new(harvest::Harvest::on(seed, self.save.map.as_str()).at(self.save.difficulty).with_progress(self.progress()).without_enemies(self.save.enemies_off).looking_like(self.save.player.as_str()).with_kit(&self.kit).starting_at(self.start_t).single_screen(self.one_screen()).endless_grenades(self.endless).with_bots(self.bots)))
             }
             Scene::Farm => State::Harvest(Box::new(harvest::Harvest::calm(seed))),
             Scene::Bench(size) => State::Harvest(Box::new(harvest::Harvest::bench(size))),

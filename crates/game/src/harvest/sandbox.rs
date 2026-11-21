@@ -7,6 +7,7 @@ use std::f32::consts::{PI, TAU};
 use super::map::TILE;
 use super::powerups::{Kind, book};
 use super::weapons::Kit;
+use super::player::PlayerId;
 use super::{Choice, Harvest, ME, Phase, dawn, len, sub};
 use crate::rng::Rng;
 use crate::sfx::Sfx;
@@ -106,6 +107,8 @@ pub struct Plan {
     pub throw_every: f32,
     /// The player can die, which ends the night.
     pub mortal: bool,
+    /// Players in the night, each scripted the same way and carrying the build.
+    pub players: usize,
     /// Seconds into the night to stop at; past dawn the night goes on, with the Harvester awake.
     pub until: Option<f32>,
     pub step: f32,
@@ -113,7 +116,7 @@ pub struct Plan {
 
 impl Plan {
     pub fn new(build: Vec<(usize, u32)>) -> Self {
-        Self { seed: 1, difficulty: Difficulty::Normal, size: super::MAP_SIZE, build, walk: Walk::Circle, pick: Pick::None, unlocked: true, turn: 0.25, turn_every: 6.0, throw_every: 12.0, mortal: false, until: None, step: 1.0 / 60.0 }
+        Self { seed: 1, difficulty: Difficulty::Normal, size: super::MAP_SIZE, build, walk: Walk::Circle, pick: Pick::None, unlocked: true, turn: 0.25, turn_every: 6.0, throw_every: 12.0, mortal: false, players: 1, until: None, step: 1.0 / 60.0 }
     }
 }
 
@@ -139,6 +142,15 @@ pub struct Minute {
     pub level: u32,
 }
 
+/// How one player's night went.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Seat {
+    pub fell: Option<f32>,
+    pub hearts: u32,
+    pub kills: u32,
+    pub useful: f32,
+}
+
 /// How a night went.
 #[derive(Clone, Debug)]
 pub struct Night {
@@ -158,6 +170,8 @@ pub struct Night {
     /// The build at the end of the night, and the cards taken on the way.
     pub build: Vec<(usize, u32)>,
     pub took: Vec<Took>,
+    /// Each player's own numbers, the local player first.
+    pub seats: Vec<Seat>,
 }
 
 /// A build from `id` or `id:level` items, comma separated; `top` is a weapon's last level and `break` its breaker's.
@@ -200,17 +214,21 @@ pub fn weapon_levels() -> Vec<(String, u32)> {
 /// Plays the night `plan` describes.
 pub fn night(plan: &Plan) -> Night {
     let mut h = Harvest::sized(plan.seed, plan.size).at(plan.difficulty);
-    h.me_mut().kit = Kit::forced(&plan.build, plan.difficulty);
-    h.me_mut().hp = h.me().kit.max_hp();
-    h.me_mut().grenades = h.me().kit.grenades();
+    if plan.players > 1 {
+        h = h.with_players(plan.players);
+        h.bots = (1..h.players.len()).map(|p| (p, Bot::new(plan.walk, plan.turn, plan.turn_every, plan.throw_every))).collect();
+    }
+    for pl in &mut h.players {
+        pl.kit = Kit::forced(&plan.build, plan.difficulty);
+        pl.hp = pl.kit.max_hp();
+        pl.grenades = pl.kit.grenades();
+    }
     h.undying = !plan.mortal;
     h.progress.everything = plan.unlocked;
     let mut rng = Rng::new(plan.seed.wrapping_mul(0x9E37_79B9_7F4A_7C15));
     let mut took = Vec::new();
     let end = plan.until.unwrap_or(dawn());
-    let loop_secs = TAU / (plan.turn.max(0.01) * crate::tuning::tuning().turn_speed);
-    let ever = |every: f32, t: f32| if every > 0.0 { (t / every) as u32 } else { 0 };
-    let (mut turned, mut thrown) = (0, 0);
+    let mut me = Bot::new(plan.walk, plan.turn, plan.turn_every, plan.throw_every);
     let mut minutes = Vec::new();
     let mut capped = 0.0;
     let mut sounds = Vec::new();
@@ -221,22 +239,7 @@ pub fn night(plan: &Plan) -> Night {
             break;
         }
         let t = h.t;
-        let mut input = Input { held: Buttons::UP, ..Input::default() };
-        input.look = match plan.walk {
-            Walk::Avoid => avoid(&h),
-            Walk::Eight if (t / loop_secs) as u32 % 2 == 1 => -plan.turn,
-            _ => plan.turn,
-        };
-        if ever(plan.turn_every, t) > turned && plan.walk != Walk::Avoid {
-            turned = ever(plan.turn_every, t);
-            input.pressed = Buttons::B;
-        }
-        if ever(plan.throw_every, t) > thrown && matches!(h.phase, Phase::Playing) {
-            thrown = ever(plan.throw_every, t);
-            let reach = crate::tuning::tuning().quick_near;
-            let to = [h.me().pos[0] + h.me().aim[0] * reach, h.me().pos[1] + h.me().aim[1] * reach];
-            h.throw_at(to, &mut sounds);
-        }
+        let input = me.step(&mut h, ME, &mut sounds);
         h.update(&input, plan.step, &mut sounds);
         sounds.clear();
         if let Phase::LevelUp { .. } = h.phase {
@@ -277,6 +280,62 @@ pub fn night(plan: &Plan) -> Night {
         lines,
         build,
         took,
+        seats: (0..h.players.len())
+            .map(|p| {
+                let (kills, useful) = tally.sum(p);
+                Seat { fell: tally.book(p).fell, hearts: tally.book(p).hearts, kills, useful }
+            })
+            .collect(),
+    }
+}
+
+/// A scripted player: it walks a pattern or steers away from the zombies its map shows, turns round on a schedule
+/// and lobs a grenade straight ahead on a timer. It never aims.
+#[derive(Clone, Debug)]
+pub struct Bot {
+    walk: Walk,
+    turn: f32,
+    turn_every: f32,
+    throw_every: f32,
+    turned: u32,
+    thrown: u32,
+}
+
+impl Bot {
+    /// One that walks `walk`, turning at `turn` of the turn buttons' speed, turning round every `turn_every` seconds
+    /// and throwing every `throw_every`; 0 for never.
+    pub fn new(walk: Walk, turn: f32, turn_every: f32, throw_every: f32) -> Self {
+        Self { walk, turn, turn_every, throw_every, turned: 0, thrown: 0 }
+    }
+
+    /// The same script from the start of a night.
+    pub(super) fn again(self) -> Self {
+        Self { turned: 0, thrown: 0, ..self }
+    }
+
+    /// Player `p`'s input for the next step, after throwing if its timer is up.
+    pub(super) fn step(&mut self, h: &mut Harvest, p: PlayerId, sounds: &mut Vec<Sfx>) -> Input {
+        let t = h.t;
+        let loop_secs = TAU / (self.turn.max(0.01) * crate::tuning::tuning().turn_speed);
+        let ever = |every: f32, t: f32| if every > 0.0 { (t / every) as u32 } else { 0 };
+        let mut input = Input { held: Buttons::UP, ..Input::default() };
+        input.look = match self.walk {
+            Walk::Avoid => avoid(h, p),
+            Walk::Eight if (t / loop_secs) as u32 % 2 == 1 => -self.turn,
+            _ => self.turn,
+        };
+        if ever(self.turn_every, t) > self.turned && self.walk != Walk::Avoid {
+            self.turned = ever(self.turn_every, t);
+            input.pressed = Buttons::B;
+        }
+        if ever(self.throw_every, t) > self.thrown && matches!(h.phase, Phase::Playing) {
+            self.thrown = ever(self.throw_every, t);
+            let reach = crate::tuning::tuning().quick_near;
+            let pl = &h.players[p];
+            let to = [pl.pos[0] + pl.aim[0] * reach, pl.pos[1] + pl.aim[1] * reach];
+            h.throw_by(p, to, sounds);
+        }
+        input
     }
 }
 
@@ -291,12 +350,13 @@ const AVOID_DANGER_MOST: f32 = 10.0;
 /// The turn, -1 to 1, toward the open way that leads least toward the zombies on the map as a player reads it:
 /// each where the view ahead last saw it, fading as it's forgotten, the nearer the stronger. It never stops walking,
 /// would rather veer than turn back, and keeps off the farm's edge.
-fn avoid(h: &Harvest) -> f32 {
-    let near: Vec<([f32; 2], f32)> = h
-        .me().marks
+fn avoid(h: &Harvest, p: PlayerId) -> f32 {
+    let me = &h.players[p];
+    let near: Vec<([f32; 2], f32)> = me
+        .marks
         .iter()
         .filter_map(|m| {
-            let d = sub(m.pos, h.me().pos);
+            let d = sub(m.pos, me.pos);
             let r = len(d).max(4.0);
             (r < AVOID_REACH).then(|| ([d[0] / r, d[1] / r], m.fade() * (1.0 - r / AVOID_REACH) * AVOID_DANGER / r))
         })
@@ -304,28 +364,28 @@ fn avoid(h: &Harvest) -> f32 {
     let half = crate::tuning::tuning().player_half();
     let edge = [h.map.width_px() - TILE, h.map.height_px() - TILE];
     let inside = |p: [f32; 2]| p[0] > TILE && p[1] > TILE && p[0] < edge[0] && p[1] < edge[1];
-    let middle = sub([edge[0] / 2.0, edge[1] / 2.0], h.me().pos);
-    let back = if inside(h.me().pos) { [0.0; 2] } else { [middle[0] / len(middle), middle[1] / len(middle)] };
+    let middle = sub([edge[0] / 2.0, edge[1] / 2.0], me.pos);
+    let back = if inside(me.pos) { [0.0; 2] } else { [middle[0] / len(middle), middle[1] / len(middle)] };
     // How far it gets along `dir`, as a share of AVOID_WALL, and how far its first step gets.
     let walk = |dir: [f32; 2]| {
-        let (mut p, mut first) = (h.me().pos, 0.0);
+        let (mut p, mut first) = (me.pos, 0.0);
         for s in 0..8 {
             let next = h.map.slide(p, [dir[0] * AVOID_WALL / 8.0, dir[1] * AVOID_WALL / 8.0], half);
             if s == 0 {
-                first = len(sub(next, h.me().pos)) * 8.0 / AVOID_WALL;
+                first = len(sub(next, me.pos)) * 8.0 / AVOID_WALL;
             }
-            if !inside(next) && inside(h.me().pos) {
+            if !inside(next) && inside(me.pos) {
                 return (0.0, 0.0);
             }
             p = next;
         }
-        let d = sub(p, h.me().pos);
+        let d = sub(p, me.pos);
         ((d[0] * dir[0] + d[1] * dir[1]) / AVOID_WALL, first)
     };
     let best = (-7..=8)
         .map(|j| {
             let off = j as f32 * PI / 8.0;
-            let dir = [(h.me().view_yaw + off).cos(), (h.me().view_yaw + off).sin()];
+            let dir = [(me.view_yaw + off).cos(), (me.view_yaw + off).sin()];
             let danger: f32 = near.iter().map(|(u, w)| w * (dir[0] * u[0] + dir[1] * u[1]).max(0.0).powi(4)).sum();
             let (free, first) = walk(dir);
             let score = off.cos() - danger.min(AVOID_DANGER_MOST) + 3.0 * (dir[0] * back[0] + dir[1] * back[1]) + 2.0 * free - if first < 0.5 { 100.0 } else { 0.0 };
@@ -469,15 +529,15 @@ mod tests {
         let mut h = Harvest::calm_on(1, &src).unwrap();
         h.me_mut().pos = [20.5 * TILE, 20.5 * TILE];
         h.me_mut().view_yaw = 0.0;
-        assert_eq!(avoid(&h), 0.0, "nothing seen, it walks straight on");
+        assert_eq!(avoid(&h, ME), 0.0, "nothing seen, it walks straight on");
         let mut z = super::super::Zombie::new(super::super::Kind::common(), [h.me().pos[0] + 30.0, h.me().pos[1] + 4.0], 1000.0, 1.0, 0.0);
         z.id = 9;
         h.zombies = vec![z];
         h.remember(1.0 / 60.0);
-        assert!(avoid(&h) < 0.0, "a zombie ahead and to the right turns it left");
+        assert!(avoid(&h, ME) < 0.0, "a zombie ahead and to the right turns it left");
         h.me_mut().marks.clear();
         h.me_mut().view_yaw = PI;
         h.remember(1.0 / 60.0);
-        assert!(h.me().marks.is_empty() && avoid(&h) == 0.0, "one behind it hasn't seen doesn't sway it");
+        assert!(h.me().marks.is_empty() && avoid(&h, ME) == 0.0, "one behind it hasn't seen doesn't sway it");
     }
 }

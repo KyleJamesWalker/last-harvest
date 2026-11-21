@@ -37,6 +37,7 @@ impl Harvest {
         self.vignette(&mut f.top);
         self.hud(&mut f.top);
         self.way_home(&mut f.top, view_proj);
+        self.teammates(&mut f.top, view_proj);
         self.barrel_mark(&mut f.top, view_proj);
         self.ticket_mark(&mut f.top, view_proj);
         self.banner(&mut f.top);
@@ -55,6 +56,7 @@ impl Harvest {
         }
         self.home_on_map(c, cam);
         self.ticket_on_map(c, cam);
+        self.teammates_on_map(c, cam);
         self.grenade_tray(c);
         self.kit_tray(c);
         self.aim_mark(c, cam);
@@ -379,11 +381,11 @@ impl Harvest {
             let a = art::SCARECROW;
             sprites.push((d.pos[1], a, d.pos[0] - a.w() / 2.0, d.pos[1] - a.h() + 2.0, false, 1.0, [1.0; 4]));
         }
-        for d in &self.me().dogs {
+        for d in self.players.iter().flat_map(|p| &p.dogs) {
             let a = d.art();
             sprites.push((d.pos[1], a, d.pos[0] - a.w() / 2.0, d.pos[1] - a.h() + 2.0 - d.lift(), d.heading[0] < 0.0, 1.0, [1.0; 4]));
         }
-        for d in &self.me().drones {
+        for d in self.players.iter().flat_map(|p| &p.drones) {
             let a = d.art();
             sprites.push((d.pos[1], a, d.pos[0] - a.w() / 2.0, d.pos[1] - a.h() + 2.0 - d.lift(), d.heading[0] < 0.0, 1.0, [1.0; 4]));
         }
@@ -392,14 +394,16 @@ impl Harvest {
             let a = crow.looping(self.t + i as f32 / crow.fps);
             sprites.push((p[1], a, p[0] - a.w() / 2.0, p[1] - a.h() - 12.0, flip, 1.0, [1.0; 4]));
         }
-        let (facing, flip) = self.me().facing;
-        let (a, rise) = player_pose(self, facing);
-        if self.shown.as_ref().is_none_or(|s| s.player) {
-            let (x, y) = (self.me().pos[0] - a.w() / 2.0, self.me().pos[1] - a.h() * rise + 2.0);
-            sprites.push((self.me().pos[1], a, x, y, flip, rise, [1.0; 4]));
-            if let Some((at, bright)) = player_worn(self, facing) {
-                let [gx, gy] = worn_corner(at, a, flip);
-                sprites.push((self.me().pos[1] + 0.01, art::GRENADE_WORN, x + gx, y + gy, flip, 1.0, [bright, bright, bright, 1.0]));
+        for (p, pl) in self.players.iter().enumerate() {
+            let (facing, flip) = pl.facing;
+            let (a, rise) = player_pose(self, p, facing);
+            if p != ME || self.shown.as_ref().is_none_or(|s| s.player) {
+                let (x, y) = (pl.pos[0] - a.w() / 2.0, pl.pos[1] - a.h() * rise + 2.0);
+                sprites.push((pl.pos[1], a, x, y, flip, rise, [1.0; 4]));
+                if let Some((at, bright)) = player_worn(self, p, facing) {
+                    let [gx, gy] = worn_corner(at, a, flip);
+                    sprites.push((pl.pos[1] + 0.01, art::GRENADE_WORN, x + gx, y + gy, flip, 1.0, [bright, bright, bright, 1.0]));
+                }
             }
         }
         sprites.sort_by(|a, b| a.0.total_cmp(&b.0));
@@ -445,9 +449,9 @@ impl Harvest {
             let [r, g, b] = fx.tint;
             c.art_rotated(fx.frame(), sx, sy, scale, fx.angle, [lit[0] * r, lit[1] * g, lit[2] * b, lit[3] * fx.alpha()]);
         }
-        for s in &self.me().swings {
+        for (pl, s) in self.players.iter().flat_map(|pl| pl.swings.iter().map(move |s| (pl, s))) {
             let (angle, r) = s.now();
-            let (sx, sy) = at(self.me().pos[0] + angle.cos() * r, self.me().pos[1] - 6.0 + angle.sin() * r);
+            let (sx, sy) = at(pl.pos[0] + angle.cos() * r, pl.pos[1] - 6.0 + angle.sin() * r);
             c.art_rotated(s.art, sx, sy, scale, angle + super::weapons::SWING_TURN, [lit[0], lit[1], lit[2], lit[3] * s.alpha()]);
         }
         for b in &self.bolts {
@@ -628,6 +632,40 @@ impl Harvest {
             c.label(format!("HOME  {far}  >"), SCREEN_W - 24.0, 140.0, 34.0, pulse, Align::Right);
         } else {
             c.label(format!("<  HOME  {far}"), 24.0, 140.0, 34.0, pulse, Align::Left);
+        }
+    }
+
+    /// Each other player's number over them in the view ahead, or at the edge they lie past when out of sight.
+    fn teammates(&self, c: &mut Canvas, view_proj: glam::Mat4) {
+        let (fwd, right) = ([self.me().view_yaw.cos(), self.me().view_yaw.sin()], [-self.me().view_yaw.sin(), self.me().view_yaw.cos()]);
+        for (p, pl) in self.players.iter().enumerate().filter(|&(p, _)| p != ME) {
+            let color = if pl.alive() { WHITE } else { RED };
+            let name = format!("P{}", p + 1);
+            let shown = view3d::to_screen(view_proj, pl.pos, 22.0).filter(|([x, y], _)| (40.0..SCREEN_W - 40.0).contains(x) && (60.0..SCREEN_H - 40.0).contains(y));
+            if let Some(([x, y], _)) = shown {
+                c.label(name, x, y - 30.0, 30.0, color, Align::Center);
+                continue;
+            }
+            let d = [pl.pos[0] - self.me().pos[0], pl.pos[1] - self.me().pos[1]];
+            let (ahead, side) = (d[0] * fwd[0] + d[1] * fwd[1], d[0] * right[0] + d[1] * right[1]);
+            let far = format!("{:.0}m", (d[0] * d[0] + d[1] * d[1]).sqrt() / TILE);
+            let y = 200.0 + p as f32 * 44.0;
+            if ahead < 0.0 && side.abs() < -ahead {
+                c.label(format!("{name} BEHIND  {far}"), SCREEN_W / 2.0, 70.0 + p as f32 * 36.0, 30.0, color, Align::Center);
+            } else if side > 0.0 {
+                c.label(format!("{name}  {far}  >"), SCREEN_W - 24.0, y, 30.0, color, Align::Right);
+            } else {
+                c.label(format!("<  {name}  {far}"), 24.0, y, 30.0, color, Align::Left);
+            }
+        }
+    }
+
+    /// Each other player's number on the map, pinned to the edge when they're off it.
+    fn teammates_on_map(&self, c: &mut Canvas, cam: [f32; 2]) {
+        for (p, pl) in self.players.iter().enumerate().filter(|&(p, _)| p != ME) {
+            let x = ((pl.pos[0] - cam[0]) * map_scale()).clamp(30.0, SCREEN_W - 30.0);
+            let y = ((pl.pos[1] - cam[1]) * map_scale()).clamp(60.0, SCREEN_H - 30.0);
+            c.label(format!("P{}", p + 1), x, y - 44.0, 28.0, if pl.alive() { WHITE } else { RED }, Align::Center);
         }
     }
 

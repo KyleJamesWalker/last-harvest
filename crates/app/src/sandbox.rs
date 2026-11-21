@@ -33,6 +33,8 @@ hearts and level for each. With no BUILD, measures each weapon alone at each lev
                       (none)
   --locked            with a pick, only the powerups a new player has unlocked come up; else every one
   --mortal            the player can die, which ends the night; else they stand back up and play on
+  --players N         players in the night, 1 to 4, each scripted the same way and carrying the build; the
+                      night ends once all have fallen (1)
   --secs S            stop this many seconds into the night; past dawn (600) the night goes on, the Harvester awake
   --jobs N            nights played at once (every core)
   --csv FILE          one row per build and weapon, and an `all` row per build, under a `#` line of the settings
@@ -105,6 +107,7 @@ fn parse(args: &[String]) -> Result<Args, String> {
             "--turn-every" => a.plan.turn_every = num(arg, value()?)?,
             "--throw-every" => a.plan.throw_every = num(arg, value()?)?,
             "--mortal" => a.plan.mortal = true,
+            "--players" => a.plan.players = num::<usize>(arg, value()?)?.clamp(1, 4),
             "--secs" => a.plan.until = Some(num(arg, value()?)?),
             "--jobs" => a.jobs = num::<usize>(arg, value()?)?.max(1),
             "--csv" => a.csv = Some(value()?),
@@ -335,6 +338,25 @@ fn table(cells: &[Cell], plan: &Plan) -> String {
                 let _ = writeln!(s, "  {:<26} {:>11} {:>6.1} {:>9.0} {:>9.0} {:>4.0}% {:>6.1} {:>7.1}", if l.level > 0 { format!("{}:{}", l.weapon, l.level) } else { l.weapon.clone() }, format!("{:.0}±{:.0}", l.kills, l.kills_sd), l.per_min(), l.useful, l.raw, l.overkill() * 100.0, l.dps, l.raw_dps);
             }
         }
+        if plan.players > 1 {
+            s += &seats(c);
+        }
+    }
+    s
+}
+
+/// Each player's own kills, useful damage, hearts and falls in a cell, mean over its nights; the weapon lines above
+/// are the first player's.
+fn seats(c: &Cell) -> String {
+    let mut s = String::new();
+    let first: Vec<f32> = c.nights.iter().filter_map(|n| n.seats.iter().filter_map(|x| x.fell).reduce(f32::min)).collect();
+    let _ = writeln!(s, "  first fall in {} of {} nights{}", first.len(), c.nights.len(), if first.is_empty() { String::new() } else { format!(", at {:.0}s", mean(first.iter().copied())) });
+    for p in 0..c.nights.iter().map(|n| n.seats.len()).max().unwrap_or(0) {
+        let seat: Vec<&sandbox::Seat> = c.nights.iter().filter_map(|n| n.seats.get(p)).collect();
+        let fell: Vec<f32> = seat.iter().filter_map(|x| x.fell).collect();
+        let fell = if fell.is_empty() { "-".into() } else { format!("{}@{:.0}s", fell.len(), mean(fell.iter().copied())) };
+        let kills = format!("{:.0}±{:.0}", mean(seat.iter().map(|x| x.kills as f32)), spread(seat.iter().map(|x| x.kills as f32)));
+        let _ = writeln!(s, "  player {:<19} {:>11} {:>6} {:>9.0} {:>9} {:>5} {:>6} {:>7} {:>6.0} {:>5} {:>5} {:>8}", p + 1, kills, "", mean(seat.iter().map(|x| x.useful)), "", "", "", "", mean(seat.iter().map(|x| x.hearts as f32)), "", "", fell);
     }
     s
 }
@@ -355,7 +377,7 @@ fn settings(p: &Plan) -> String {
         p.mortal,
         p.until.unwrap_or(600.0),
         p.step
-    )
+    ) + &if p.players > 1 { format!(" players={}", p.players) } else { String::new() }
 }
 
 const CSV_HEAD: &str = "build,weapon,level,seeds,secs,kills,kills_sd,kills_per_min,useful,raw,overkill,dps,raw_dps,hearts,level_reached,fell_nights,fell_at,dawn_nights,spawned,capped,ceiling,kills_by_min,hearts_by_min,level_by_min,survival,censored";
