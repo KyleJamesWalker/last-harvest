@@ -140,7 +140,7 @@ target/release/last-harvest-sandbox --replay night-1795237918-00.lhr --watch dog
 target/release/last-harvest-sandbox pistol:3,dog:3 --seed 7 --pick held --walk avoid --record dog.lhr
 ```
 
-A replay plays exactly only with the same build and data, on the same kind of device: its header names the game's version, a fingerprint of the data, the pack, the mods and the device, and the sandbox flags any that differ here. Pull replays from a handheld over SSH:
+A replay plays exactly only with the same build and data: its header names the game's version, a fingerprint of the data, the pack, the mods and the device, and the sandbox flags any that differ here. The device may differ: a night recorded on the Mac replays on the RG DS, muOS, Windows or the web build. That holds only while the game crate's float functions come from `crates/game/src/fmath.rs` (the pure-Rust `libm`) rather than std's `sin`, `cos`, `atan2` or `powi`, which call each platform's own libm and round differently; `crates/game/clippy.toml` makes CI refuse them outside the drawing-only modules. `sqrt`, `rem_euclid`, `to_radians` and arithmetic are exact everywhere and stay on std. A change that moves the simulation's results bumps `replay::FORMAT`, so older replays say so instead of drifting. Pull replays from a handheld over SSH:
 
 ```sh
 scp 'root@anbernic.local:/userdata/last-harvest/replays/*.lhr' .          # RG DS, deploy.sh

@@ -1,5 +1,8 @@
 //! The 2.5D view: the same farm, with every sprite's silhouette extruded into a lantern-lit, fogged 3D scene.
 
+// Drawing only: nothing here may feed Harvest::update, so std's float functions are fine.
+#![allow(clippy::disallowed_methods)]
+
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
@@ -795,7 +798,7 @@ pub fn scene(h: &Harvest) -> CardScene {
         board(&mut cards, b);
     }
     for (pn, pl) in h.players.iter().enumerate() {
-        if pl.lead.is_some() || (pn == ME && h.shown.as_ref().is_some_and(|s| !s.player)) {
+        if pl.lead.is_some() || pl.sunk_away() || (pn == ME && h.shown.as_ref().is_some_and(|s| !s.player)) {
             continue;
         }
         let (facing, flip) = facing_from(h.showing_of(pn), forward, right);

@@ -6,7 +6,7 @@ use std::f32::consts::TAU;
 use super::events::Event;
 use super::wire::{Reader, Writer};
 
-pub const VERSION: u8 = 2;
+pub const VERSION: u8 = 3;
 pub const TICK_HZ: u32 = 60;
 /// Host ticks between snapshots: 20 a second.
 pub const SEND_EVERY: u32 = 3;
@@ -48,6 +48,8 @@ pub const P_READY_FLASH: u8 = 4;
 pub const P_LEADING: u8 = 8;
 /// Turned, and picking where the next leader rises; `pos` is the cursor, for that player only.
 pub const P_PICKING: u8 = 16;
+/// Their device left the night: once sunk they stay under, unseen and unnamed.
+pub const P_LEFT: u8 = 32;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct PlayerState {
@@ -141,6 +143,51 @@ pub struct RunState {
     /// The level-up on its way is a chest's.
     pub chest: bool,
     pub cards: Vec<SeatCards>,
+    /// Tenths of a second into the night the truck driver's next collection is ready, rounded up.
+    pub ticket: u32,
+    /// Once the night is over: hundredths of a second played, and every player's numbers for the end screen.
+    pub played: u32,
+    pub books: Vec<BookState>,
+}
+
+/// One player's damage, hearts and time leading the dead over the night, as the end screen shows them.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct BookState {
+    pub seat: u8,
+    /// Each weapon held or that dealt damage: its place in the powerup book, hundredths of a second held, damage.
+    pub weapons: Vec<(u8, u32, u32)>,
+    /// Grenades' and barrels' damage.
+    pub other: u32,
+    /// Killing blows and useful damage, every weapon's and grenades' and barrels'.
+    pub kills: u32,
+    pub useful: u32,
+    pub hearts: u32,
+    /// Tenths of a second into the night the player first fell, plus one; 0 if they never fell.
+    pub fell: u32,
+    /// Tenths of a second spent leading the dead.
+    pub led: u32,
+    pub bites: u32,
+}
+
+impl BookState {
+    fn write(&self, w: &mut Writer) {
+        w.u8(self.seat);
+        w.u8(self.weapons.len() as u8);
+        for &(d, held, damage) in &self.weapons {
+            w.u8(d);
+            w.var(held);
+            w.var(damage);
+        }
+        for v in [self.other, self.kills, self.useful, self.hearts, self.fell, self.led, self.bites] {
+            w.var(v);
+        }
+    }
+
+    fn read(r: &mut Reader) -> Option<Self> {
+        let seat = r.u8()?;
+        let weapons = (0..r.u8()?).map(|_| Some((r.u8()?, r.var()?, r.var()?))).collect::<Option<Vec<_>>>()?;
+        Some(BookState { seat, weapons, other: r.var()?, kills: r.var()?, useful: r.var()?, hearts: r.var()?, fell: r.var()?, led: r.var()?, bites: r.var()? })
+    }
 }
 
 pub const PHASE_PLAYING: u8 = 0;
@@ -188,10 +235,16 @@ impl RunState {
             w.u8(c.rerolls);
             w.u8(c.favors);
         }
+        w.var(self.ticket);
+        w.u8(self.books.len() as u8);
+        if !self.books.is_empty() {
+            w.var(self.played);
+            self.books.iter().for_each(|b| b.write(w));
+        }
     }
 
     fn read(r: &mut Reader) -> Option<Self> {
-        let mut s = RunState { t: r.var()?, phase: r.u8()?, level: r.var()? as u16, xp: r.var()?, next_xp: r.var()?, kills: r.var()?, menu: r.u8()?, paused_by: r.u8()?, chest: r.u8()? != 0, cards: Vec::new() };
+        let mut s = RunState { t: r.var()?, phase: r.u8()?, level: r.var()? as u16, xp: r.var()?, next_xp: r.var()?, kills: r.var()?, menu: r.u8()?, paused_by: r.u8()?, chest: r.u8()? != 0, ..RunState::default() };
         for _ in 0..r.u8()? {
             let seat = r.u8()?;
             let mut choices = [(0, 0); 3];
@@ -199,6 +252,12 @@ impl RunState {
                 *c = (r.u8()?, r.u8()?);
             }
             s.cards.push(SeatCards { seat, choices, selected: r.u8()?, picked: r.u8()? != 0, banishes: r.u8()?, rerolls: r.u8()?, favors: r.u8()? });
+        }
+        s.ticket = r.var()?;
+        let books = r.u8()?;
+        if books > 0 {
+            s.played = r.var()?;
+            s.books = (0..books).map(|_| BookState::read(r)).collect::<Option<Vec<_>>>()?;
         }
         Some(s)
     }

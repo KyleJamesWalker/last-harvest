@@ -2,6 +2,7 @@
 //! what each weapon in it did. The script never aims: it walks a pattern or steers away from the zombies it has
 //! seen, lobs a grenade straight ahead on a timer, and takes level-up cards by a strategy or none at all.
 
+use crate::fmath as fm;
 use std::f32::consts::{PI, TAU};
 
 use super::map::TILE;
@@ -432,10 +433,10 @@ fn avoid(h: &Harvest, p: PlayerId) -> f32 {
     let best = (-7..=8)
         .map(|j| {
             let off = j as f32 * PI / 8.0;
-            let dir = [(me.view_yaw + off).cos(), (me.view_yaw + off).sin()];
-            let danger: f32 = near.iter().map(|(u, w)| w * (dir[0] * u[0] + dir[1] * u[1]).max(0.0).powi(4)).sum();
+            let dir = [fm::cos(me.view_yaw + off), fm::sin(me.view_yaw + off)];
+            let danger: f32 = near.iter().map(|(u, w)| w * fm::powi((dir[0] * u[0] + dir[1] * u[1]).max(0.0), 4)).sum();
             let (free, first) = walk(dir);
-            let score = off.cos() - danger.min(AVOID_DANGER_MOST) + 3.0 * (dir[0] * back[0] + dir[1] * back[1]) + 2.0 * free - if first < 0.5 { 100.0 } else { 0.0 };
+            let score = fm::cos(off) - danger.min(AVOID_DANGER_MOST) + 3.0 * (dir[0] * back[0] + dir[1] * back[1]) + 2.0 * free - if first < 0.5 { 100.0 } else { 0.0 };
             (off, score)
         })
         .max_by(|a, b| a.1.total_cmp(&b.1))

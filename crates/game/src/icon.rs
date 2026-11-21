@@ -5,6 +5,7 @@
 //! builds a new random farm, B puts the player beside it, R2 puts it behind a barricade, a tap of L1
 //! changes the square's background, X hides the guides, and R1 saves both screens as a screenshot to crop.
 
+use crate::fmath as fm;
 use crate::art::{self, Art, Stand};
 use crate::harvest::{player_looks, roster};
 use crate::{Align, Buttons, Canvas, Color, Frame, Input, SCREEN_H, SCREEN_W, Showcase};
@@ -50,7 +51,7 @@ impl Orbit {
             return y != 0.0;
         }
         self.yaw += (x + input.look).clamp(-1.0, 1.0) * TURN * dt;
-        self.zoom = (self.zoom * (-y * ZOOM_RATE * dt).exp()).clamp(min_zoom, MAX_ZOOM);
+        self.zoom = (self.zoom * fm::exp(-y * ZOOM_RATE * dt)).clamp(min_zoom, MAX_ZOOM);
         false
     }
 }
@@ -138,7 +139,7 @@ impl Icon {
         } else if walking {
             let (ahead, aside) = (axis(Buttons::UP, Buttons::DOWN), axis(Buttons::RIGHT, Buttons::LEFT));
             let yaw = self.cam.yaw;
-            let (forward, right) = ([yaw.cos(), yaw.sin()], [-yaw.sin(), yaw.cos()]);
+            let (forward, right) = ([fm::cos(yaw), fm::sin(yaw)], [-fm::sin(yaw), fm::cos(yaw)]);
             let step = WALK * dt;
             if ahead != 0.0 || aside != 0.0 {
                 self.show.walk([0, 1].map(|i| (forward[i] * ahead + right[i] * aside) * step));

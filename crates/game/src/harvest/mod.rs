@@ -33,6 +33,7 @@ mod single;
 mod view3d;
 mod weapons;
 
+use crate::fmath as fm;
 use std::f32::consts::{FRAC_PI_4, PI, TAU};
 
 use crate::art::{self, Art};
@@ -593,7 +594,7 @@ impl Grenade {
     fn at(&self) -> ([f32; 2], f32) {
         let k = (self.t / crate::tuning::tuning().grenade_flight).min(1.0);
         let p = [self.from[0] + (self.to[0] - self.from[0]) * k, self.from[1] + (self.to[1] - self.from[1]) * k];
-        (p, (k * PI).sin() * 28.0)
+        (p, fm::sin(k * PI) * 28.0)
     }
 }
 
@@ -1187,7 +1188,7 @@ impl Harvest {
         for i in 0..(crate::tuning::tuning().max_zombies as usize) {
             let a = i as f32 * 2.399;
             let r = 14.0 + (i as f32).sqrt() * 9.0;
-            let pos = [h.me().pos[0] + a.cos() * r, h.me().pos[1] + a.sin() * r];
+            let pos = [h.me().pos[0] + fm::cos(a) * r, h.me().pos[1] + fm::sin(a) * r];
             let kinds = roster().enemies.len();
             let mut z = Zombie::new(Kind((kinds - 1 - i % kinds) as u8), pos, 10.0, 1.0, i as f32 * 0.1);
             z.dir = norm(sub(h.me().pos, pos));
@@ -1195,19 +1196,19 @@ impl Harvest {
         }
         for i in 0..40 {
             let a = i as f32 * 0.9;
-            let at = [h.me().pos[0] + a.cos() * 30.0, h.me().pos[1] + a.sin() * 30.0];
+            let at = [h.me().pos[0] + fm::cos(a) * 30.0, h.me().pos[1] + fm::sin(a) * 30.0];
             let stain = art::BLOOD_STAIN[i % art::BLOOD_STAIN.len()];
             h.stains.push((stain, at[0], at[1], [1.0; 3]));
-            h.juice.corpse(Corpse { art: art::SKINNY_HURT[0], dead: None, flip: false, pos: at, z: 0.0, vel: [0.0; 2], vz: 0.0, fall: [a.cos(), a.sin()], age: 1.0, spin: 0.0 });
+            h.juice.corpse(Corpse { art: art::SKINNY_HURT[0], dead: None, flip: false, pos: at, z: 0.0, vel: [0.0; 2], vz: 0.0, fall: [fm::cos(a), fm::sin(a)], age: 1.0, spin: 0.0 });
             h.juice.burst(at, 8.0, 8, [0.0; 2], 0.0, [10.0, 40.0], juice::blood(), 1.5, 100.0, 0.0);
             h.juice.popup(at, 12.0 + i as f32, if i % 5 == 0 { Tone::Crit } else { Tone::Hit });
-            let vel = [a.cos() * 200.0, a.sin() * 200.0];
-            h.bullets.push(Bullet { pos: [h.me().pos[0] + a.cos() * 20.0, h.me().pos[1] - 6.0 + a.sin() * 20.0], vel, damage: 0.0, pierce: 0, life: 1.0, force: 0.0, hit: Vec::new(), look: None, age: 0.0, by: None, owner: ME, lift: [0.0; 2] });
+            let vel = [fm::cos(a) * 200.0, fm::sin(a) * 200.0];
+            h.bullets.push(Bullet { pos: [h.me().pos[0] + fm::cos(a) * 20.0, h.me().pos[1] - 6.0 + fm::sin(a) * 20.0], vel, damage: 0.0, pierce: 0, life: 1.0, force: 0.0, hit: Vec::new(), look: None, age: 0.0, by: None, owner: ME, lift: [0.0; 2] });
         }
         let e = effects::effects();
         for (i, fx) in [e.explosion, e.explosion_smoke, e.zombie_rises, e.mound_breaks].into_iter().cycle().take(16).enumerate() {
             let a = i as f32 * 0.4;
-            let mut f = Fx::play(fx, [h.me().pos[0] + a.cos() * 40.0, h.me().pos[1] + a.sin() * 40.0], 0.0);
+            let mut f = Fx::play(fx, [h.me().pos[0] + fm::cos(a) * 40.0, h.me().pos[1] + fm::sin(a) * 40.0], 0.0);
             f.t = 0.6 * fx.frames.len() as f32 / fx.fps;
             h.fx.push(f);
         }
@@ -1754,7 +1755,7 @@ impl Harvest {
         let spun = pl.spin.min(PI / SPIN_TIME * dt);
         pl.spin -= spun;
         pl.view_yaw = (pl.view_yaw + turn * t.turn_speed * dt + spun).rem_euclid(TAU);
-        let f = [pl.view_yaw.cos(), pl.view_yaw.sin()];
+        let f = [fm::cos(pl.view_yaw), fm::sin(pl.view_yaw)];
         let (side, ahead) = (dir[0], -dir[1]);
         let mv = [f[0] * ahead - f[1] * side, f[1] * ahead + f[0] * side];
         pl.aim = f;
@@ -1827,11 +1828,11 @@ impl Harvest {
         let from = self.players[p].pos;
         let away = norm(sub(from, self.map.home));
         let away = if away == [0.0; 2] { [0.0, 1.0] } else { away };
-        let away = [away[0] * turn.cos() - away[1] * turn.sin(), away[0] * turn.sin() + away[1] * turn.cos()];
+        let away = [away[0] * fm::cos(turn) - away[1] * fm::sin(turn), away[0] * fm::sin(turn) + away[1] * fm::cos(turn)];
         let mut at = from;
         for k in 0..24 {
-            let a = (k as f32 * 0.4).sin() * (k as f32 * 0.15);
-            let d = [away[0] * a.cos() - away[1] * a.sin(), away[0] * a.sin() + away[1] * a.cos()];
+            let a = fm::sin(k as f32 * 0.4) * (k as f32 * 0.15);
+            let d = [away[0] * fm::cos(a) - away[1] * fm::sin(a), away[0] * fm::sin(a) + away[1] * fm::cos(a)];
             let p = [from[0] + d[0] * t.harvester_rise, from[1] + d[1] * t.harvester_rise];
             if !self.map.hits_cells(p[0], p[1], t.zombie_half()) {
                 at = p;
@@ -1931,7 +1932,7 @@ impl Harvest {
         if pl.spin > 0.0 {
             return;
         }
-        pl.turned_from = [pl.view_yaw.cos(), pl.view_yaw.sin()];
+        pl.turned_from = [fm::cos(pl.view_yaw), fm::sin(pl.view_yaw)];
         pl.spin = PI;
     }
 
@@ -1961,9 +1962,9 @@ impl Harvest {
             let z = self.juice.rng.range(0.0, 6.0);
             self.juice.particle(Particle {
                 fade: effects::Fade::OPAQUE,
-                pos: [self.me().pos[0] + a.cos() * r, self.me().pos[1] + a.sin() * r],
+                pos: [self.me().pos[0] + fm::cos(a) * r, self.me().pos[1] + fm::sin(a) * r],
                 z,
-                vel: [a.cos() * 18.0, a.sin() * 18.0],
+                vel: [fm::cos(a) * 18.0, fm::sin(a) * 18.0],
                 vz: rise,
                 age: 0.0,
                 life,
@@ -2196,12 +2197,12 @@ impl Harvest {
         let at = self.players[p].pos;
         for _ in 0..8 {
             let a = match ahead {
-                Some(d) => d[1].atan2(d[0]) + self.rng.range(-FRAC_PI_4, FRAC_PI_4),
+                Some(d) => fm::atan2(d[1], d[0]) + self.rng.range(-FRAC_PI_4, FRAC_PI_4),
                 None => self.rng.range(0.0, TAU),
             };
             let [near, far] = spawn_ring(self.t);
             let r = self.rng.range(near, far);
-            let pos = [at[0] + a.cos() * r, at[1] + a.sin() * r];
+            let pos = [at[0] + fm::cos(a) * r, at[1] + fm::sin(a) * r];
             if !self.map.hits_cells(pos[0], pos[1], crate::tuning::tuning().zombie_half()) {
                 return Some(pos);
             }
@@ -2537,8 +2538,8 @@ impl Harvest {
         let after = crate::tuning::tuning().roam_after.max(0.0);
         for z in &mut self.zombies {
             let away = sub(z.pos, self.players[p].pos);
-            let a = away[1].atan2(away[0]) + self.rng.range(-0.6, 0.6);
-            z.dir = [a.cos(), a.sin()];
+            let a = fm::atan2(away[1], away[0]) + self.rng.range(-0.6, 0.6);
+            z.dir = [fm::cos(a), fm::sin(a)];
             z.roam = -self.rng.range(0.0, after);
         }
         self.players[p].heading = self.players[p].aim;
@@ -2566,7 +2567,11 @@ impl Harvest {
         if self.players[p].lead.is_some() {
             return self.follow_leads();
         }
-        if t >= TURNED && before < TURNED && !self.players[p].left && self.may_lead() {
+        if self.players[p].left {
+            self.players[p].down = Some(t.min(TURN_SINK));
+            return;
+        }
+        if t >= TURNED && before < TURNED && self.may_lead() {
             let at = self.players[p].pos;
             return self.rise_leading(p, at, 1.0);
         }
@@ -2592,8 +2597,8 @@ impl Harvest {
     /// A new way to wander from `dir`: a little off it, or well round when the way ahead is blocked.
     fn veer(&mut self, dir: [f32; 2], blocked: bool) -> [f32; 2] {
         let turn = if blocked { self.rng.range(PI / 2.0, PI * 1.5) } else { self.rng.range(-1.2, 1.2) };
-        let a = dir[1].atan2(dir[0]) + turn;
-        [a.cos(), a.sin()]
+        let a = fm::atan2(dir[1], dir[0]) + turn;
+        [fm::cos(a), fm::sin(a)]
     }
 
     /// After the run the dead wander the farm in search of another human, each its own way, turning now and then
@@ -2964,7 +2969,7 @@ impl Harvest {
             let a = self.juice.rng.range(0.0, TAU);
             let speed = self.juice.rng.range(8.0, 28.0);
             let vz = self.juice.rng.range(60.0, 95.0);
-            self.drops.push(Drop { kind, pos: z.pos, z: 4.0, vz, vel: [a.cos() * speed, a.sin() * speed], age: 0.0, pulled: None, to: ME });
+            self.drops.push(Drop { kind, pos: z.pos, z: 4.0, vz, vel: [fm::cos(a) * speed, fm::sin(a) * speed], age: 0.0, pulled: None, to: ME });
         }
         if let Some(kind) = died
             && (self.hush[1] <= 0.0 || kind.stats().heavy)
@@ -2992,6 +2997,10 @@ impl Harvest {
             d.to = p;
         }
         sounds.push(Sfx::Pick(true));
+        self.soul_harvest(at);
+    }
+
+    fn soul_harvest(&mut self, at: [f32; 2]) {
         self.juice.banner("SOUL HARVEST", GOLD, 2.4);
         self.juice.flash(at, 24.0, [1.8, 1.4, 0.6], 9.0, 0.8);
     }
@@ -3105,9 +3114,9 @@ impl Harvest {
             let startled = len(sub(b.pos, near)) < 40.0 || self.noise.is_some_and(|n| len(sub(b.pos, n)) < 110.0);
             if startled {
                 let away = sub(b.pos, near);
-                let a = away[1].atan2(away[0]) + self.juice.rng.range(-0.7, 0.7);
+                let a = fm::atan2(away[1], away[0]) + self.juice.rng.range(-0.7, 0.7);
                 let speed = self.juice.rng.range(55.0, 85.0);
-                b.vel = [a.cos() * speed, a.sin() * speed];
+                b.vel = [fm::cos(a) * speed, fm::sin(a) * speed];
                 b.vz = self.juice.rng.range(30.0, 55.0);
                 b.flying = true;
                 b.flip = b.vel[0] < 0.0;
@@ -3127,7 +3136,7 @@ impl Harvest {
             && let Some(land) = self.perch(140.0)
         {
             let a = self.juice.rng.range(0.0, TAU);
-            let vel = [a.cos() * 20.0, a.sin() * 20.0];
+            let vel = [fm::cos(a) * 20.0, fm::sin(a) * 20.0];
             let fall = 70.0 / 35.0;
             let pos = [land[0] - vel[0] * fall, land[1] - vel[1] * fall];
             self.birds.push(Bird { pos, z: 70.0, vel, vz: 0.0, flying: false, anim: 0.0, flip: vel[0] < 0.0 });
@@ -3158,7 +3167,7 @@ impl Harvest {
             let a = self.juice.rng.range(0.0, TAU);
             let r = self.juice.rng.range(30.0, 130.0);
             let life = self.juice.rng.range(5.0, 9.0);
-            let pos = [self.me().pos[0] + a.cos() * r, self.me().pos[1] + a.sin() * r];
+            let pos = [self.me().pos[0] + fm::cos(a) * r, self.me().pos[1] + fm::sin(a) * r];
             let z = self.juice.rng.range(4.0, 18.0);
             self.juice.particle(Particle {
                 fade: effects::Fade::OPAQUE,
@@ -3265,7 +3274,7 @@ impl Harvest {
         let near = (0..self.views().min(self.players.len())).min_by(|a, b| far(a).total_cmp(&far(b))).unwrap_or(ME);
         let pl = &self.players[near];
         let d = sub(at, pl.pos);
-        let right = [-pl.view_yaw.sin(), pl.view_yaw.cos()];
+        let right = [-fm::sin(pl.view_yaw), fm::cos(pl.view_yaw)];
         let n = norm(d);
         let pan = (n[0] * right[0] + n[1] * right[1]) * 0.8;
         let gain = (1.0 - len(d) / 260.0).clamp(0.0, 1.0);
@@ -4108,7 +4117,7 @@ mod tests {
         let mut h = Harvest::calm(4);
         h.zombies = (0..n).map(|k| {
             let a = k as f32 * TAU / n as f32;
-            let mut z = Zombie::new(Kind::named("skinny"), [h.me().pos[0] + a.cos() * 14.0, h.me().pos[1] + a.sin() * 14.0], 50.0, 1.0, 0.0);
+            let mut z = Zombie::new(Kind::named("skinny"), [h.me().pos[0] + fm::cos(a) * 14.0, h.me().pos[1] + fm::sin(a) * 14.0], 50.0, 1.0, 0.0);
             z.id = k as u32 + 1;
             z
         }).collect();
@@ -4406,7 +4415,7 @@ mod tests {
         let off = sub(tell.pos, h.me().pos);
         let [near, far] = spawn_ring(h.t);
         assert!((near - 0.01..=far + 0.01).contains(&len(off)), "on the ring, {}", len(off));
-        assert!(off[0] / len(off) >= FRAC_PI_4.cos() - 1e-3, "within a quarter turn of the way the player walks, {off:?}");
+        assert!(off[0] / len(off) >= fm::cos(FRAC_PI_4) - 1e-3, "within a quarter turn of the way the player walks, {off:?}");
     }
 
     #[test]
@@ -4669,9 +4678,9 @@ mod tests {
         for _ in 0..10 {
             h.grow_fury(1.0);
         }
-        assert!((h.fury - 1.01f32.powi(10)).abs() < 1e-4);
+        assert!((h.fury - fm::powi(1.01f32, 10)).abs() < 1e-4);
         let hp = h.zombies.last().unwrap().hp;
-        assert!((hp - 100.0 * 1.01f32.powi(10)).abs() < 0.01, "{hp}");
+        assert!((hp - 100.0 * fm::powi(1.01f32, 10)).abs() < 0.01, "{hp}");
         let bitten = |h: &mut Harvest| {
             h.zombies.retain(|z| !z.boss);
             h.zombies[0].pos = h.me().pos;

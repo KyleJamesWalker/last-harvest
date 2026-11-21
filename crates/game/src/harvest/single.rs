@@ -1,6 +1,7 @@
 //! Single-screen play: the 3D view fills the top screen, and the map takes its place while L1 is held or L2
 //! aims a grenade in slowed time.
 
+use crate::fmath as fm;
 use super::{Harvest, Phase, map_scale, view_h, view_w, len};
 use crate::input::{Buttons, Input};
 use crate::sfx::Sfx;
@@ -104,7 +105,7 @@ impl Harvest {
             self.aiming = None;
             self.throw_at(aim.at, sounds);
             let off = [aim.at[0] - self.me().pos[0], aim.at[1] - self.me().pos[1]];
-            self.last_throw = Some([off[1].atan2(off[0]) - self.me().view_yaw, len(off)]);
+            self.last_throw = Some([fm::atan2(off[1], off[0]) - self.me().view_yaw, len(off)]);
             self.since_throw = 0.0;
             return (own, dt);
         }
@@ -119,7 +120,7 @@ impl Harvest {
         let t = crate::tuning::tuning();
         let [turn, dist] = self.last_throw.filter(|_| self.since_throw < t.aim_memory).unwrap_or([0.0, t.aim_ahead]);
         let a = self.me().view_yaw + turn;
-        self.on_view([self.me().pos[0] + a.cos() * dist, self.me().pos[1] + a.sin() * dist])
+        self.on_view([self.me().pos[0] + fm::cos(a) * dist, self.me().pos[1] + fm::sin(a) * dist])
     }
 
     /// A map point kept within the map view around the player.
@@ -141,7 +142,7 @@ impl Harvest {
         let r = t.grenade_radius * map_scale();
         for k in 0..24 {
             let a = k as f32 / 24.0 * std::f32::consts::TAU;
-            c.circle(x + a.cos() * r, y + a.sin() * r, 4.0, red);
+            c.circle(x + fm::cos(a) * r, y + fm::sin(a) * r, 4.0, red);
         }
         c.rect(x - 14.0, y - 2.0, 28.0, 4.0, red);
         c.rect(x - 2.0, y - 14.0, 4.0, 28.0, red);

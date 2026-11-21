@@ -1,6 +1,7 @@
 //! The weapon range: the player holds one weapon at a level the range steps, in an open field, against a ring of
 //! zombies of one picked kind that rise again as they die, with its damage per second over the last few seconds.
 
+use crate::fmath as fm;
 use std::collections::VecDeque;
 use std::f32::consts::TAU;
 
@@ -375,7 +376,7 @@ impl Harvest {
         while self.zombies.len() + self.tells.len() + self.burrowed.len() < RING {
             let a = r.slot as f32 * TAU / RING as f32 + (r.slot / RING) as f32 * 0.37;
             r.slot += 1;
-            let pos = [self.players[ME].pos[0] + a.cos() * radius, self.players[ME].pos[1] + a.sin() * radius];
+            let pos = [self.players[ME].pos[0] + fm::cos(a) * radius, self.players[ME].pos[1] + fm::sin(a) * radius];
             self.tells.push(Tell { kind, pos, hp: kind.stats().hp, t: 0.0, leader: false, led: None });
         }
         if self.t > CLOCK_LOOP {

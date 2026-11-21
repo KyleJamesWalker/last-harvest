@@ -1,6 +1,7 @@
 //! Online co-op's host end: the client's view pulled out of a night, and a whole night played to a client over a
 //! simulated network, to measure what the sync costs and how far the client's picture strays.
 
+use crate::fmath as fm;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::f32::consts::TAU;
 
@@ -111,6 +112,33 @@ impl Harvest {
     #[cfg(test)]
     pub(crate) fn map_width_for_test(&self) -> f32 {
         self.map.width_px()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn ticket_for_test(&self) -> Option<[f32; 2]> {
+        self.ticket()
+    }
+
+    /// The truck driver's next collection is ready now.
+    #[cfg(test)]
+    pub(crate) fn ready_ticket_for_test(&mut self) {
+        self.ticket = self.t;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn walk_to_driver_for_test(&mut self, p: PlayerId) {
+        self.players[p].pos = self.map.driver.expect("the farm has a truck driver");
+    }
+
+    /// Every number player `p`'s end screen shows from the tally: each row's weapon, damage and damage a second, then
+    /// the whole run's, the killing blows, useful damage, hearts, time leading and bites.
+    #[cfg(test)]
+    pub(crate) fn end_numbers_for_test(&self, p: PlayerId) -> Vec<f32> {
+        let t = &self.juice.tally;
+        let b = t.book(p);
+        let (kills, useful) = t.sum(p);
+        let rows = t.rows(p).into_iter().flat_map(|r| [r.by.map_or(-1.0, |d| d as f32), r.damage, r.dps]);
+        rows.chain([t.total(p), t.dps(p), kills as f32, useful, b.hearts as f32, b.led, b.bites as f32]).collect()
     }
 
     /// Player `p` falls on the spot.
@@ -391,7 +419,7 @@ impl Extract {
                 hp: (pl.hp.max(0.0) * 4.0).min(u16::MAX as f32) as u16,
                 max_hp: (pl.kit.max_hp() * 4.0).min(u16::MAX as f32) as u16,
                 hurt: (pl.hurt * 100.0).clamp(0.0, 255.0) as u8,
-                flags: if pl.down.is_some() { P_DOWN } else { 0 } | if pl.walk > 0.0 { P_WALKING } else { 0 } | if pl.ready_flash > 0.0 { P_READY_FLASH } else { 0 } | match pl.lead {
+                flags: if pl.down.is_some() { P_DOWN } else { 0 } | if pl.walk > 0.0 { P_WALKING } else { 0 } | if pl.ready_flash > 0.0 { P_READY_FLASH } else { 0 } | if pl.left { P_LEFT } else { 0 } | match pl.lead {
                     Some(super::leader::Lead::Leading(_)) => P_LEADING,
                     Some(super::leader::Lead::Picking { .. }) => P_PICKING,
                     None => 0,
@@ -472,6 +500,7 @@ fn run_state(h: &Harvest) -> RunState {
         Phase::Over { won: false, .. } => PHASE_LOST,
     };
     let cards = (0..h.views).filter_map(|p| h.cards_of(p)).collect();
+    let over = matches!(phase, PHASE_WON | PHASE_LOST);
     RunState {
         t: (h.t * 10.0).max(0.0) as u32,
         phase,
@@ -483,6 +512,9 @@ fn run_state(h: &Harvest) -> RunState {
         paused_by: h.paused_by as u8,
         chest: h.chest,
         cards,
+        ticket: (h.ticket * 10.0).ceil().clamp(0.0, u32::MAX as f32) as u32,
+        played: if over { (h.juice.tally.secs * 100.0).round() as u32 } else { 0 },
+        books: if over { (0..h.players.len()).map(|p| h.juice.tally.sent(p)).collect() } else { Vec::new() },
     }
 }
 
@@ -685,7 +717,7 @@ pub fn net_sim(plan: &Plan, net: NetSim) -> NetReport {
 }
 
 fn dist(a: [f32; 2], b: [f32; 2]) -> f32 {
-    ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2)).sqrt()
+    (fm::powi(a[0] - b[0], 2) + fm::powi(a[1] - b[1], 2)).sqrt()
 }
 
 #[cfg(test)]

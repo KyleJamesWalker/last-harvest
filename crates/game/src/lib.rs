@@ -8,6 +8,7 @@ pub mod data;
 pub mod paint;
 mod difficulty;
 mod draw;
+pub mod fmath;
 mod font;
 mod gallery;
 mod hardware;
@@ -53,6 +54,7 @@ pub use save::{Save, TouchControls};
 pub use sfx::Sfx;
 pub use system::{Battery, Outputs, System};
 
+use crate::fmath as fm;
 use rng::Rng;
 use menu::Page;
 use save::LEVELS;
@@ -230,7 +232,7 @@ pub struct Game {
 }
 
 /// Where the title's menu sits on the top screen when one screen shows both, and its scale.
-const TITLE_MENU: ([f32; 2], f32) = ([(SCREEN_W - SCREEN_W * 0.55) / 2.0, 330.0], 0.55);
+const TITLE_MENU: ([f32; 2], f32) = ([(SCREEN_W - SCREEN_W * 0.75) / 2.0, 170.0], 0.75);
 
 /// A touch on the top screen as one on the title's menu placed over it, if it lands there.
 fn title_menu_touch([x, y]: [f32; 2]) -> Option<[f32; 2]> {
@@ -891,7 +893,7 @@ impl Game {
         if self.title_on_one() {
             let menu = std::mem::take(&mut f.bottom);
             let (at, k) = TITLE_MENU;
-            f.top.rect(at[0], at[1], SCREEN_W * k, SCREEN_H * k, [0.08, 0.08, 0.1, 0.45]);
+            f.top.rect(at[0] + 190.0 * k, at[1], (SCREEN_W - 380.0) * k, SCREEN_H * k, [0.08, 0.08, 0.1, 0.45]);
             f.top.place(&menu, at, k);
         }
         if let Some(size) = self.phone {
@@ -940,11 +942,15 @@ impl Game {
             self.draw_menu(f);
             return;
         }
-        // A line of the dead shambling along the horizon, and fireflies drifting over the field.
-        f.top.circle(840.0, 120.0, 90.0, [0.8, 0.8, 0.7, 0.06]);
-        f.top.circle(840.0, 120.0, 48.0, [0.85, 0.85, 0.75, 1.0]);
-        f.top.circle(822.0, 108.0, 10.0, [0.75, 0.75, 0.66, 1.0]);
-        f.top.circle(856.0, 136.0, 7.0, [0.75, 0.75, 0.66, 1.0]);
+        // On one screen the logo takes the top and a bigger moon sits under it, beside the menu.
+        let one = self.title_on_one();
+        let ([mx, my], mk, logo_y) = if one { ([800.0, 100.0], 2.0, 52.0) } else { ([840.0, 120.0], 1.0, 240.0) };
+        // Behind the logo the moon is dimmed, so the light letters stay readable over it.
+        let lit = |c: [f32; 3], a: f32| if one { [c[0] * 0.5, c[1] * 0.5, c[2] * 0.55, a] } else { [c[0], c[1], c[2], a] };
+        f.top.circle(mx, my, 90.0 * mk, lit([0.8, 0.8, 0.7], 0.06));
+        f.top.circle(mx, my, 48.0 * mk, lit([0.85, 0.85, 0.75], 1.0));
+        f.top.circle(mx - 18.0 * mk, my - 12.0 * mk, 10.0 * mk, lit([0.75, 0.75, 0.66], 1.0));
+        f.top.circle(mx + 16.0 * mk, my + 16.0 * mk, 7.0 * mk, lit([0.75, 0.75, 0.66], 1.0));
         f.top.rect(0.0, 600.0, SCREEN_W, 168.0, [0.1, 0.08, 0.07, 1.0]);
         let walkers = self.title_walkers();
         for (i, frames) in walkers.iter().enumerate() {
@@ -956,17 +962,23 @@ impl Game {
         }
         for i in 0..30 {
             let seed = i as f32 * 7.31;
-            let x = (seed.sin() * 9000.0).fract().abs() * SCREEN_W + (t * 0.3 + seed).sin() * 30.0;
-            let y = (seed.cos() * 7000.0).fract().abs() * 560.0 + (t * 0.4 + seed * 2.0).cos() * 20.0;
-            let glow = ((t * 1.7 + seed).sin() * 0.5 + 0.5).powi(3);
+            let x = (fm::sin(seed) * 9000.0).fract().abs() * SCREEN_W + fm::sin(t * 0.3 + seed) * 30.0;
+            let y = (fm::cos(seed) * 7000.0).fract().abs() * 560.0 + fm::cos(t * 0.4 + seed * 2.0) * 20.0;
+            let glow = fm::powi(fm::sin(t * 1.7 + seed) * 0.5 + 0.5, 3);
             f.top.circle(x, y, 3.0 + 3.0 * glow, [0.75, 1.0, 0.45, 0.2 + 0.7 * glow]);
         }
-        let flicker = 0.85 + 0.15 * ((t * 13.0).sin() * (t * 7.3).sin()).abs();
-        f.top.text_centered(248.0, 20.0, [0.0, 0.0, 0.0, 0.7], "LAST HARVEST");
-        f.top.text_centered(240.0 + (t * 1.2).sin() * 4.0, 20.0, [flicker, flicker * 0.92, flicker * 0.8, 1.0], "LAST HARVEST");
-        // On one screen the menu sits over the middle, so the records stay on the Stats page and warnings move up.
-        let one = self.title_on_one();
-        let warn_y = if one { 48.0 } else { 696.0 };
+        let flicker = 0.85 + 0.15 * (fm::sin(t * 13.0) * fm::sin(t * 7.3)).abs();
+        let bob = if one { 0.0 } else { fm::sin(t * 1.2) * 4.0 };
+        f.top.text_centered(logo_y + 8.0 + bob, 20.0, [0.0, 0.0, 0.0, 0.7], "LAST HARVEST");
+        if one {
+            let x = (SCREEN_W - crate::font::width("LAST HARVEST") * 20.0) / 2.0;
+            for (dx, dy) in [(-6.0, 0.0), (6.0, 0.0), (0.0, -6.0), (0.0, 6.0)] {
+                f.top.text(x + dx, logo_y + dy, 20.0, [0.04, 0.04, 0.07, 1.0], "LAST HARVEST");
+            }
+        }
+        f.top.text_centered(logo_y + bob, 20.0, [flicker, flicker * 0.92, flicker * 0.8, 1.0], "LAST HARVEST");
+        // On one screen the menu sits under the logo, so the records stay on the Stats page and warnings go between.
+        let warn_y = if one { 160.0 } else { 696.0 };
         if !one {
             self.draw_title_records(f);
         }

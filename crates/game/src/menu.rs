@@ -1,5 +1,6 @@
 //! The title's bottom-screen menu and its pages; Settings also opens over a paused run.
 
+use crate::fmath as fm;
 use crate::draw::{Align, Canvas, Color, Frame};
 use crate::harvest::{self, roster};
 use crate::input::{Buttons, Input};
@@ -526,7 +527,7 @@ impl Game {
     }
 
     fn draw_main(&self, c: &mut Canvas) {
-        let pulse = 0.55 + 0.45 * (self.clock * 3.0).sin().abs();
+        let pulse = 0.55 + 0.45 * fm::sin(self.clock * 3.0).abs();
         let missing = crate::data::load_report().missing_pack.as_deref();
         for (i, (_, name)) in MAIN.iter().enumerate().take(self.main_rows()) {
             let [x, y, w, h] = main_row(i);
@@ -566,8 +567,8 @@ impl Game {
             }
         }
         if self.title_on_one() {
-            c.hint("D-pad: walk.   {Y} / {A}: turn.   {B}: turn around.", SCREEN_W / 2.0, SCREEN_H - 104.0, 40.0, DIM, Align::Center);
-            c.hint("{L1}: map.   {L2}: aim a grenade.   {R1}: throw ahead.", SCREEN_W / 2.0, SCREEN_H - 56.0, 40.0, DIM, Align::Center);
+            c.hint("D-pad: walk.   {Y} / {A}: turn.   {B}: turn around.", SCREEN_W / 2.0, SCREEN_H - 86.0, 36.0, DIM, Align::Center);
+            c.hint("{L1}: map.   {L2}: aim a grenade.   {R1}: throw ahead.", SCREEN_W / 2.0, SCREEN_H - 44.0, 36.0, DIM, Align::Center);
             return;
         }
         c.hint("D-pad: walk and strafe.   {Y} / {A}: turn.   {B}: turn around.   {R2}: screenshot.", SCREEN_W / 2.0, SCREEN_H - 84.0, 24.0, DIM, Align::Center);
@@ -687,7 +688,7 @@ impl Game {
             (pad::hint("Tap or {A}: change   {B}: back"), DIM)
         };
         fit_label(c, &status, 40.0, head, 22.0, pad_x - 120.0, color, Align::Left);
-        let pulse = 0.5 + 0.5 * (self.clock * 6.0).sin().abs();
+        let pulse = 0.5 + 0.5 * fm::sin(self.clock * 6.0).abs();
         let rows = ACTIONS.len() + 1;
         let first = r.row.saturating_sub(CONTROL_ROWS - 1);
         for (row, i) in (first..rows.min(first + CONTROL_ROWS)).enumerate() {

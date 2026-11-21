@@ -1,6 +1,7 @@
 //! A turned player in a run others still play leads the dead: they steer a leader zombie and the swarm that rose
 //! with it, and once it falls, pick where the next one rises.
 
+use crate::fmath as fm;
 use std::f32::consts::{PI, TAU};
 
 use super::map::TILE;
@@ -64,7 +65,7 @@ impl Harvest {
         let full = kind.stats().hp * grow * t.leader_hp;
         let mut z = Zombie::new(kind, at, full, rise, 0.0);
         let yaw = self.players[p].view_yaw;
-        (z.id, z.leader, z.led, z.barren, z.dir) = (self.next_id, true, Some(p), true, [yaw.cos(), yaw.sin()]);
+        (z.id, z.leader, z.led, z.barren, z.dir) = (self.next_id, true, Some(p), true, [fm::cos(yaw), fm::sin(yaw)]);
         z.facing = Facing::of(z.dir);
         self.next_id += 1;
         let id = z.id;
@@ -78,7 +79,7 @@ impl Harvest {
         let n = t.leader_swarm as usize;
         for k in 0..n {
             let a = k as f32 / n as f32 * TAU;
-            let spot = [14.0, 24.0, 34.0].into_iter().map(|r| [at[0] + a.cos() * r, at[1] + a.sin() * r]).find(|s| !self.map.hits_cells(s[0], s[1], t.zombie_half()));
+            let spot = [14.0, 24.0, 34.0].into_iter().map(|r| [at[0] + fm::cos(a) * r, at[1] + fm::sin(a) * r]).find(|s| !self.map.hits_cells(s[0], s[1], t.zombie_half()));
             if let Some(pos) = spot {
                 self.tells.push(Tell { kind: common, pos, hp: common.stats().hp * grow, t: 0.0, leader: false, led: Some(p) });
             }
@@ -113,7 +114,7 @@ impl Harvest {
         let spun = pl.spin.min(PI / SPIN_TIME * dt);
         pl.spin -= spun;
         pl.view_yaw = (pl.view_yaw + turn * t.turn_speed * dt + spun).rem_euclid(TAU);
-        let f = [pl.view_yaw.cos(), pl.view_yaw.sin()];
+        let f = [fm::cos(pl.view_yaw), fm::sin(pl.view_yaw)];
         let [side, ahead] = [own.dir()[0], -own.dir()[1]];
         pl.steer = [f[0] * ahead - f[1] * side, f[1] * ahead + f[0] * side];
         pl.aim = f;
@@ -241,7 +242,7 @@ impl Harvest {
             Lead::Leading(_) => {
                 let pl = &self.players[p];
                 let d = sub(self.players[self.nearest_player(pl.pos)].pos, pl.pos);
-                let off = (d[1].atan2(d[0]) - pl.view_yaw + PI).rem_euclid(TAU) - PI;
+                let off = (fm::atan2(d[1], d[0]) - pl.view_yaw + PI).rem_euclid(TAU) - PI;
                 let held = if off.abs() < 1.2 { Buttons::UP } else { Buttons::NONE };
                 Some(Input { held, look: (off * 2.0).clamp(-1.0, 1.0), ..Input::default() })
             }
@@ -271,7 +272,7 @@ impl Harvest {
             let (x, y) = ((pl.pos[0] - cam[0]) * map_scale(), (pl.pos[1] - cam[1]) * map_scale());
             for k in 0..48 {
                 let a = k as f32 / 48.0 * TAU;
-                c.circle(x + a.cos() * r, y + a.sin() * r, 4.0, [RED[0], RED[1], RED[2], 0.8]);
+                c.circle(x + fm::cos(a) * r, y + fm::sin(a) * r, 4.0, [RED[0], RED[1], RED[2], 0.8]);
             }
         }
         let ok = self.rise_ok(at);
@@ -357,7 +358,7 @@ mod tests {
         step(&mut h, Input { held: Buttons::UP, ..Input::default() }, 2.0);
         let yaw = h.me().view_yaw;
         let moved = sub(leader(&h, ME).pos, at);
-        assert!((moved[0] * yaw.cos() + moved[1] * yaw.sin()) > 40.0, "walks ahead through its own swarm: {moved:?}");
+        assert!((moved[0] * fm::cos(yaw) + moved[1] * fm::sin(yaw)) > 40.0, "walks ahead through its own swarm: {moved:?}");
         assert_eq!(h.me().pos, leader(&h, ME).pos, "the turned player is where their leader is");
         step(&mut h, Input { held: Buttons::X, pressed: Buttons::X, ..Input::default() }, 1.0 / 60.0);
         assert_eq!(h.zombies.iter().find(|z| z.id == 9999).unwrap().led, Some(ME), "called into the swarm");

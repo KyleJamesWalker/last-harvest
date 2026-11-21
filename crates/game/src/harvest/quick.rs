@@ -1,6 +1,7 @@
 //! R1's quick throw: a marker on the ground straight ahead that slides out while R1 is held, and the grenade lands on
 //! it when R1 is let go. Time runs on and the player keeps moving; it never picks a target.
 
+use crate::fmath as fm;
 use super::{Harvest, Phase};
 use crate::input::{Buttons, Input};
 use crate::sfx::Sfx;
@@ -47,13 +48,14 @@ impl Harvest {
     pub(super) fn quick_mark(&self) -> Option<[f32; 2]> {
         let d = reach(self.quick?);
         let (w, h) = (self.map.width_px(), self.map.height_px());
-        Some([(self.me().pos[0] + self.me().view_yaw.cos() * d).clamp(0.0, w), (self.me().pos[1] + self.me().view_yaw.sin() * d).clamp(0.0, h)])
+        Some([(self.me().pos[0] + fm::cos(self.me().view_yaw) * d).clamp(0.0, w), (self.me().pos[1] + fm::sin(self.me().view_yaw) * d).clamp(0.0, h)])
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::super::{Harvest, len};
+    use crate::fmath as fm;
     use super::reach;
     use crate::input::{Buttons, Input};
     use crate::sfx::Sfx;
@@ -81,7 +83,7 @@ mod tests {
     fn ahead(h: &Harvest) -> f32 {
         let at = h.quick_mark().expect("a marker");
         let off = [at[0] - h.me().pos[0], at[1] - h.me().pos[1]];
-        let along = off[0] * h.me().view_yaw.cos() + off[1] * h.me().view_yaw.sin();
+        let along = off[0] * fm::cos(h.me().view_yaw) + off[1] * fm::sin(h.me().view_yaw);
         assert!(len(off) - along < 0.5, "straight ahead: {off:?} along {}", h.me().view_yaw);
         along
     }
