@@ -114,6 +114,10 @@ The shared coturn's config lives in supermariowar-rust (`deploy/turnserver.conf`
 
 `deploy/turnserver.conf` here is the standalone setup's copy; on the shared VPS, SMW's file is the one coturn reads.
 
+coturn on a Docker bridge network maps its own public address back to its container address, which the private `denied-peer-ip` ranges refuse (`403 Forbidden IP`), so two players who both need TURN can't reach each other. Pin coturn's container address (`ipv4_address`) and allow exactly that one with `allowed-peer-ip`; the shared VPS uses `172.20.0.2`. The smoke test's "through TURN alone" step checks it.
+
+The native WebRTC stack drops a TURN send that takes over 100 ms, so a native player more than about 100 ms from the relay host who needs TURN may fail to connect; browsers aren't affected.
+
 ### Updating and rolling back
 
 `docker compose pull && docker compose up -d` in `~/last-harvest-relay` takes the newest image. To roll back, pin an earlier one: `RELAY_TAG=<short sha>` in `.env`, then `docker compose up -d`. To take the relay down, `docker compose down` and remove its site block from SMW's Caddyfile, then reload Caddy; SMW is unaffected. To undo the coturn hardening, restore SMW's previous `turnserver.conf` and restart coturn.
