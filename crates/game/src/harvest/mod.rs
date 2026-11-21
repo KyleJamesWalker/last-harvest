@@ -2008,9 +2008,10 @@ impl Harvest {
         let t = crate::tuning::tuning();
         let minutes = self.t / 60.0;
         self.recycle(dt);
-        self.owed += (t.spawn_rate + minutes * t.spawn_growth).min(t.spawn_top) * dt;
+        let more = 1.0 + (self.players.len() - 1) as f32 * t.spawn_per_player;
+        self.owed += (t.spawn_rate + minutes * t.spawn_growth).min(t.spawn_top) * more * dt;
         if horde_now(self.t, dt) {
-            self.owed += t.horde_size + minutes * t.horde_growth;
+            self.owed += (t.horde_size + minutes * t.horde_growth) * more;
             self.leader_owed = true;
         }
         while self.owed >= 1.0 && self.room() {
@@ -2029,9 +2030,15 @@ impl Harvest {
         }
     }
 
-    /// Whether the night has room for another zombie under `[zombies] max`.
+    /// Whether the night has room for another zombie under `[zombies] max`, raised for each player past the first.
     fn room(&self) -> bool {
-        self.zombies.len() + self.tells.len() + self.burrowed.len() < crate::tuning::tuning().max_zombies as usize
+        self.zombies.len() + self.tells.len() + self.burrowed.len() < self.cap()
+    }
+
+    /// The most zombies up at once: `[zombies] max`, and `per_player` of it more for each player past the first.
+    pub(super) fn cap(&self) -> usize {
+        let t = crate::tuning::tuning();
+        (t.max_zombies * (1.0 + (self.players.len() - 1) as f32 * t.max_per_player)) as usize
     }
 
     /// One zombie starts to rise somewhere on the ring around the player.

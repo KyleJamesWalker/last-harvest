@@ -232,7 +232,7 @@ pub fn night(plan: &Plan) -> Night {
     let mut minutes = Vec::new();
     let mut capped = 0.0;
     let mut sounds = Vec::new();
-    let cap = crate::tuning::tuning().max_zombies as usize;
+    let cap = h.cap();
     // Hit-stop and the level-up's slow motion hold the night's clock, so ticks are bounded well past the night.
     for _ in 0..(end / plan.step) as u64 * 8 {
         if h.t >= end || matches!(h.phase, Phase::Over { .. }) {

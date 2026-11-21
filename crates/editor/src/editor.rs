@@ -4674,7 +4674,7 @@ mod tests {
             }
             e.switch_to("DATA_TUNING_SPAWN".into());
             let keys: Vec<String> = e.data.as_ref().map(|d| d.table.entries(&d.section).into_iter().map(|x| x.key).collect()).unwrap_or_default();
-            assert_eq!(keys, ["rate", "growth", "top", "horde_every", "horde", "horde_growth", "bank", "release", "straggler", "straggler_time"], "modding {modding}");
+            assert_eq!(keys, ["rate", "growth", "top", "horde_every", "horde", "horde_growth", "bank", "release", "straggler", "straggler_time", "per_player"], "modding {modding}");
         }
     }
 
