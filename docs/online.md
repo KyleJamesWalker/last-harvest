@@ -1,6 +1,6 @@
 # Online co-op: relay and lobby
 
-Online co-op needs three pieces: `last-harvest-relay` pairs players' WebRTC connections, coturn relays traffic for players whose networks block a direct connection, and the lobby protocol (`crates/lobby`) runs between the host and its clients over `crates/net`'s reliable channel. The host runs the game and sends each client snapshots (`crates/game/src/netsync`); clients draw them and send back their input. Nothing is deployed yet.
+Online co-op needs three pieces: `last-harvest-relay` pairs players' WebRTC connections, coturn relays traffic for players whose networks block a direct connection, and the lobby protocol (`crates/lobby`) runs between the host and its clients over `crates/net`'s reliable channel. The host runs the game and sends each client snapshots (`crates/game/src/netsync`); clients draw them and send back their input. The public relay is `wss://lh-relay.vps.pocketsquirrel.com` ([Deploy on the shared VPS](#deploy-on-the-shared-vps)).
 
 ## Pieces
 
@@ -9,7 +9,7 @@ Online co-op needs three pieces: `last-harvest-relay` pairs players' WebRTC conn
 | `last-harvest-net` | `crates/net` | WebRTC peers in one signaling room, each with a reliable and an unreliable channel. Native and browser. |
 | `last-harvest-relay` | `crates/relay` | Matchbox signaling on `/signal/<room>`, which also hands each peer TURN credentials, and `/healthz`. Native only. Copied from supermariowar-rust's `smw_relay`, without its lobby. |
 | `last-harvest-lobby` | `crates/lobby` | Room codes and the lobby messages, as state machines with no transport. Builds for wasm. |
-| `deploy/` | | A Dockerfile and a compose file that run the relay behind Caddy, with coturn. |
+| `deploy/` | | The relay's Dockerfile, a compose file and Caddy site block for the shared VPS, coturn's config, and `standalone/` for a fresh host. |
 
 A room code names a signaling room: `RoomCode::room_url("wss://<relay>")` is `wss://<relay>/signal/last-harvest-<CODE>`. The host and every client connect a `PeerSocket` to that URL, and the relay pairs them into a full mesh. Game traffic never passes through the relay; it goes peer to peer, or through coturn.
 
@@ -81,18 +81,47 @@ The flow:
 
 Seats run from 0 to 3 over every device. A client seats one or two players for split-screen in an online game. A host that hears `Welcome` or `Roster` from another peer has picked a code already in use (`HostEvent::CodeTaken`) and should pick another.
 
-## Deploying
+## Deploy on the shared VPS
 
-Not done yet. These steps describe how the files in `deploy/` would run on a server with Docker.
+The relay runs at `wss://lh-relay.vps.pocketsquirrel.com` on the VPS that already runs Super Mario War's relay, beside it: SMW's Caddy terminates TLS, and SMW's coturn relays traffic for both games. `deploy/docker-compose.yml` runs only the relay, from the image `.github/workflows/relay.yml` publishes (`ghcr.io/kylejameswalker/last-harvest-relay`, `latest` and the commit's short SHA, for linux/amd64 and linux/arm64) on every push to `main` that touches `crates/relay` or `deploy`.
 
-1. Point a DNS record for the relay's domain at the server.
-2. On the server, create the shared network: `docker network create caddy`.
-3. Copy the repository (the compose file builds the image from it), then create `deploy/.env` from `deploy/.env.example`: `RELAY_DOMAIN`, `ALLOWED_ORIGINS` (the web game's page origin) and `TURN_SECRET` (`openssl rand -hex 32`; hex only, because the coturn image evaluates its arguments in a shell). Keep `.env` out of git.
-4. Open TCP and UDP port 3478 and UDP ports 49160-49459 for coturn, which uses host networking, and TCP 80 and 443 for Caddy.
-5. Run `docker compose up -d` in `deploy/`. Caddy gets the certificate and proxies to the relay. If Caddy already runs on the `caddy` network, add the Caddyfile's site block to its config and remove the `caddy` service.
-6. Check `curl https://<domain>/healthz` returns `ok`, and that a game's log shows the TURN server once it joins a room.
+The wildcard DNS record `*.vps.pocketsquirrel.com` already points at the VPS, and the `caddy` docker network already exists. `<smw-deploy>` below is the directory on the VPS holding SMW's compose file and `.env`.
 
-coturn relays only to public addresses (`denied-peer-ip` in `turnserver.conf`), so it cannot reach the server's private network. It relays UDP only (`no-tcp-relay`). One client address holds at most 24 allocations (`user-quota`), the server 200 (`total-quota`), each at most 64 KB/s each way (`max-bps`, within `bps-capacity`).
+1. Copy `deploy/docker-compose.yml`, `deploy/Caddyfile` and `deploy/turnserver.conf` to a new directory on the VPS, such as `~/last-harvest-relay`.
+2. Give the relay coturn's secret: `grep '^TURN_SECRET=' <smw-deploy>/.env > ~/last-harvest-relay/.env`. The relay issues TURN credentials with it, so they work on SMW's coturn.
+3. Start the relay: `docker compose up -d` in `~/last-harvest-relay`. It publishes no port; Caddy reaches it as `last-harvest-relay:8080` on the `caddy` network.
+4. Append the site block to SMW's Caddyfile (`cat Caddyfile >> <smw-deploy>/Caddyfile`; appending keeps the file that Caddy's container mounts), then reload Caddy: `docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile` in `<smw-deploy>`. Caddy gets the certificate on the first request.
+5. Check the relay:
+   ```sh
+   curl https://lh-relay.vps.pocketsquirrel.com/healthz   # ok
+   curl -si --http1.1 --max-time 3 -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebSocket-Version: 13' \
+     -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' -H 'Origin: https://www.kylejameswalker.com' \
+     https://lh-relay.vps.pocketsquirrel.com/signal/last-harvest-check | head -1   # HTTP/1.1 101 Switching Protocols
+   ```
+   The same request with `-H 'Origin: https://example.com'` answers `403`.
+6. Run the smoke test from a checkout (no private assets needed): `cargo run -p last-harvest-net --example relay_smoke`. It fetches `/ice`, checks that another page origin is refused and that `https://www.kylejameswalker.com` is accepted with TURN credentials, then joins two native peers and trades a packet on each channel, first directly and then through TURN alone. It ends with `all checks passed`; pass another relay as its first argument, such as `ws://127.0.0.1:8080`.
+
+The relay accepts WebSockets from `https://www.kylejameswalker.com`, where the web game is published, and from native games, which send no `Origin`. It trusts `X-Forwarded-For` from private addresses (`TRUSTED_PROXIES=private`), which on this host means Caddy on the `caddy` network.
+
+### Hardening the shared coturn
+
+Optional: Last Harvest works with SMW's coturn as it stands. `deploy/turnserver.conf` hardens it further, for both games: UDP relay only (`no-tcp-relay`), 24 allocations per user name (`user-quota`), a server-wide cap of 200 allocations (`total-quota`, down from SMW's 400) and of 12.8 MB/s across all sessions (`bps-capacity`), and relay ports 49160-49459 (SMW's are 49160-49259).
+
+1. Copy it over SMW's: `cp ~/last-harvest-relay/turnserver.conf <smw-deploy>/turnserver.conf`, then add SMW's realm back: `echo realm=smw-relay.vps.pocketsquirrel.com >> <smw-deploy>/turnserver.conf`.
+2. Open the wider range: UDP 49260-49459 (with ufw, `sudo ufw allow 49260:49459/udp`).
+3. `docker compose restart coturn` in `<smw-deploy>`. Matches relayed through it at that moment lose their connection.
+
+What to check for SMW: its relay mints a random TURN user name per player, so `user-quota` caps one player rather than one address, and only `total-quota` and `bps-capacity` bound SMW's players as a whole. Those two are now shared by both games; raise `total-quota` if busy evenings hit it (coturn logs `Allocation quota exceeded`). SMW plays over UDP data channels, so `no-tcp-relay` does not affect it. Play one SMW online match through the shared coturn after the restart.
+
+### Updating and rolling back
+
+`docker compose pull && docker compose up -d` in `~/last-harvest-relay` takes the newest image. To roll back, pin an earlier one: `RELAY_TAG=<short sha>` in `.env`, then `docker compose up -d`. To take the relay down, `docker compose down` and remove its site block from SMW's Caddyfile, then reload Caddy; SMW is unaffected. To undo the coturn hardening, restore SMW's `turnserver.conf` from its repository and restart coturn.
+
+### A fresh host
+
+`deploy/standalone/` runs the relay with its own Caddy and coturn, for a host with neither. Point a DNS record at the host, `docker network create caddy`, copy `deploy/standalone/` and `deploy/turnserver.conf` keeping their layout, and create `standalone/.env` from `.env.example`: `RELAY_DOMAIN`, `ALLOWED_ORIGINS` (the web game's page origin) and `TURN_SECRET` (`openssl rand -hex 32`; hex only, because the coturn image evaluates its arguments in a shell). Open TCP and UDP 3478 and UDP 49160-49459 for coturn, which uses host networking, and TCP 80 and 443 for Caddy, then `docker compose up -d` in `standalone/`.
+
+coturn relays only to public addresses (`denied-peer-ip` in `turnserver.conf`), so it cannot reach the server's private network.
 
 ## Playing online
 
@@ -110,6 +139,5 @@ A client whose player turns leads the dead from its own device, as in split-scre
 
 ## Not done yet
 
-- A deployed relay.
 - Broken props and fences, the end screen's damage table and damage numbers are the host's alone; a client doesn't see them.
 - New farm from the pause menu or the end screen is not offered online.
