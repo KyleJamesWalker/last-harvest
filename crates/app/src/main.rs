@@ -272,10 +272,11 @@ impl App {
         self.orbit = [0.0; 2];
         #[cfg(any(target_os = "macos", windows))]
         {
-            let (held, stick, look, used) = self.pads.read();
+            let (pads, used) = self.pads.read();
             if let Some(family) = used {
                 self.game.set_pad_family(family);
             }
+            let (held, stick, look) = last_harvest::controllers::combine(&pads);
             raw.held |= held;
             raw.stick = stick;
             raw.look = look;

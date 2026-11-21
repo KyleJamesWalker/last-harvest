@@ -3,6 +3,7 @@
 
 pub mod audio;
 pub mod clock;
+pub mod controllers;
 pub mod log;
 mod loops;
 pub mod pak;
