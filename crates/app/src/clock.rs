@@ -33,22 +33,28 @@ impl Clock {
 #[derive(Debug, Default)]
 pub struct Ticker {
     clock: Clock,
-    carried: Option<Input>,
+    carried: Vec<Input>,
 }
 
 impl Ticker {
     pub fn frame(&mut self, frame: Duration, input: Input) -> Vec<Input> {
-        let input = match self.carried.take() {
-            Some(before) => carry(before, input),
-            None => input,
-        };
+        self.frame_all(frame, vec![input]).into_iter().map(|mut each| each.swap_remove(0)).collect()
+    }
+
+    /// As `frame`, for each player's input at once: one list per step, player 1's first.
+    pub fn frame_all(&mut self, frame: Duration, inputs: Vec<Input>) -> Vec<Vec<Input>> {
+        let carried = std::mem::take(&mut self.carried);
+        let inputs: Vec<Input> = inputs.into_iter().enumerate().map(|(i, now)| match carried.get(i) {
+            Some(&before) => carry(before, now),
+            None => now,
+        }).collect();
         let steps = self.clock.advance(frame);
         if steps == 0 {
-            self.carried = Some(input);
+            self.carried = inputs;
             return Vec::new();
         }
-        let after = Input { pressed: Buttons::NONE, touch_started: false, orbit: [0.0; 2], ..input };
-        std::iter::once(input).chain(std::iter::repeat_n(after, steps as usize - 1)).collect()
+        let after: Vec<Input> = inputs.iter().map(|&i| Input { pressed: Buttons::NONE, touch_started: false, orbit: [0.0; 2], ..i }).collect();
+        std::iter::once(inputs).chain(std::iter::repeat_n(after, steps as usize - 1)).collect()
     }
 
     /// How far the time owed has come toward the next step, 0 to 1, for drawing between the last two.

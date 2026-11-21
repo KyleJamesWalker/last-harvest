@@ -138,6 +138,7 @@ impl Harvest {
         }
         c.rect(x - 14.0, y - 2.0, 28.0, 4.0, red);
         c.rect(x - 2.0, y - 14.0, 4.0, 28.0, red);
+        c.anchor([-1.0, 0.0]);
         let k = (aim.left / t.aim_window).clamp(0.0, 1.0);
         c.rect(0.0, 0.0, SCREEN_W, 10.0, [0.0, 0.0, 0.0, 0.6]);
         c.rect(0.0, 0.0, SCREEN_W * k, 10.0, red);
@@ -152,6 +153,7 @@ impl Harvest {
         let t = crate::tuning::tuning();
         let k = 3.0;
         let mut below = 76.0;
+        top.anchor([1.0, 0.0]);
         if t.map_mini > 0.0 {
             let (w, reach, scale) = (t.map_mini, t.map_mini_reach.max(16.0), map_scale());
             let (h, (x, y)) = (w * 0.75, (SCREEN_W - 24.0 - w, below));
@@ -161,6 +163,7 @@ impl Harvest {
             self.view_cone(&mut map, cam);
             self.home_on_map(&mut map, cam);
             self.ticket_on_map(&mut map, cam);
+            self.teammates_on_map(&mut map, cam);
             top.rect(x - 4.0, y - 4.0, w + 8.0, h + 8.0, [0.06, 0.05, 0.04, 0.9]);
             top.rect(x, y, w, h, [0.0, 0.0, 0.0, 1.0]);
             top.clip(Some([x, y, w, h]));
@@ -170,7 +173,9 @@ impl Harvest {
         }
         let tray = crate::art::GRENADE.h() * k + 6.8 * k;
         self.grenades_at(top, SCREEN_W - 20.0, below + tray, k);
+        top.anchor([0.0, 1.0]);
         self.kit_at(top, 24.0, SCREEN_H - 24.0, 32.0);
+        top.anchor([0.5, 0.5]);
     }
 
     /// Puts the map on the top screen while it's up, and leaves the bottom screen dark.

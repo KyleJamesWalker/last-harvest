@@ -444,7 +444,7 @@ impl Renderer {
     pub fn draw_view(&mut self, gl: &glow::Context, canvas: &Canvas, view: [i32; 4]) {
         let size = canvas.size.unwrap_or([SCREEN_W, SCREEN_H]);
         let aspect = view[2].max(1) as f32 / view[3].max(1) as f32;
-        self.paint(gl, canvas, view, split::fit(view, size), split::widen(aspect, size[0] / size[1]));
+        self.paint(gl, canvas, view, split::fit(view, size), split::widen(aspect, SCREEN_W / SCREEN_H));
     }
 
     /// Clears `view` and draws the 3D scene in it, its clip x and y scaled by `widen`, then the 2D shapes in `flat`.

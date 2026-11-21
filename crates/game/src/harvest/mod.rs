@@ -7,6 +7,7 @@ mod effects;
 pub use effects::{SPRITES as SHOT_SPRITES, Shot, shot_named, shot_sprite_names};
 mod enemies;
 mod juice;
+mod local;
 mod map;
 pub mod online;
 mod photo;
@@ -882,6 +883,14 @@ pub struct Harvest {
     /// The weapon range, trying one weapon against a ring of zombies.
     range: Option<range::Range>,
     before: blend::Before,
+    /// Players with a view of their own, from ME on; 1 outside local co-op.
+    views: usize,
+    /// Each viewed player's own controls, cards and camera while another's are in the fields above.
+    locals: Vec<local::Local>,
+    /// The player whose Start opened the pause menu, who alone works it.
+    paused_by: PlayerId,
+    /// The player ME stands for while `relabel` has traded them; ME otherwise.
+    swapped: PlayerId,
 }
 
 /// Weapons and passives unlocked so far, out of all of them, and how many are waiting to be found.
@@ -1090,6 +1099,10 @@ impl Harvest {
             touch_keys: false,
             range: None,
             before: blend::Before::default(),
+            views: 1,
+            locals: Vec::new(),
+            paused_by: ME,
+            swapped: ME,
         }
         .with_birds()
     }
@@ -1303,6 +1316,9 @@ impl Harvest {
             self.photo(input, dt, sounds, &mut flow);
             return flow;
         }
+        if self.views > 1 {
+            return self.update_coop(input, dt, sounds);
+        }
         let own;
         let (input, dt) = if self.single {
             own = self.single_input(input, dt, sounds);
@@ -1369,7 +1385,9 @@ impl Harvest {
         let t = t + dt;
         if let Some(p) = picked {
             let p = p + dt;
-            if p >= PICK_TIME {
+            if p >= PICK_TIME && self.views > 1 {
+                self.phase = Phase::LevelUp { choices, selected, t, picked: Some(PICK_TIME) };
+            } else if p >= PICK_TIME {
                 self.phase = Phase::Playing;
                 self.turn_ready = false;
             } else {
@@ -1486,6 +1504,9 @@ impl Harvest {
                 (self.banishing, self.favoring) = (false, false);
                 self.phase = Phase::LevelUp { choices: self.roll_choices(&[]), selected: 0, t: 0.0, picked: None };
                 self.glory = 0.25;
+                if self.views > 1 {
+                    self.deal_others();
+                }
                 return;
             }
             dt * 0.15
@@ -1516,6 +1537,16 @@ impl Harvest {
             self.throw(touch, sounds);
         }
         self.quick_throw(input, dt, sounds);
+        for v in 1..self.views {
+            if self.players[v].alive() {
+                self.relabel(v);
+                let own = self.inputs[ME];
+                self.targeting = own.held.contains(Buttons::X);
+                self.lean += (own.dir()[0] - self.lean) * (8.0 * dt).min(1.0);
+                self.quick_throw(&own, dt, sounds);
+                self.relabel(v);
+            }
+        }
         self.fly(dt, sounds, flow);
 
         if !self.calm {
@@ -1555,6 +1586,11 @@ impl Harvest {
         self.fx.retain(|f| !f.done());
         self.juice.tick(dt);
         self.feel(dt);
+        for v in 1..self.views {
+            self.relabel(v);
+            self.feel_hp(dt);
+            self.relabel(v);
+        }
         self.remember(dt);
 
         let (mut stood, mut fell) = (false, None);
@@ -1634,11 +1670,12 @@ impl Harvest {
     fn walk(&mut self, p: PlayerId, input: &Input, dt: f32) {
         self.players[p].hurt = (self.players[p].hurt - dt).max(0.0);
         let dir = input.dir();
-        let held = if p == ME {
-            self.turn_ready |= !input.held.any(Buttons::A | Buttons::Y);
-            if self.turn_ready { input.held } else { Buttons::NONE }
-        } else {
-            input.held
+        let held = match self.turn_ready_mut(p) {
+            Some(ready) => {
+                *ready |= !input.held.any(Buttons::A | Buttons::Y);
+                if *ready { input.held } else { Buttons::NONE }
+            }
+            None => input.held,
         };
         let turn = (held.contains(Buttons::A) as i32 as f32 - held.contains(Buttons::Y) as i32 as f32 + input.look).clamp(-1.0, 1.0);
         if input.pressed.contains(Buttons::B) {
@@ -1796,8 +1833,8 @@ impl Harvest {
         }
         let kit: Vec<String> = self.trial.iter().map(|&(d, l)| format!("{}:{l}", book().defs[d].id)).collect();
         let look = std::mem::take(&mut self.me_mut().look);
-        let (count, bots) = (self.players.len(), std::mem::take(&mut self.bots));
-        *self = Harvest::on(seed, &self.map_id).at(self.difficulty).with_progress(self.progress).without_enemies(self.enemies_off).looking_like(&look).with_kit(&kit.join(",")).starting_at(self.start_t).single_screen(self.single).endless_grenades(self.endless).with_players(count);
+        let (count, bots, views) = (self.players.len(), std::mem::take(&mut self.bots), self.views);
+        *self = Harvest::on(seed, &self.map_id).at(self.difficulty).with_progress(self.progress).without_enemies(self.enemies_off).looking_like(&look).with_kit(&kit.join(",")).starting_at(self.start_t).single_screen(self.single).endless_grenades(self.endless).with_players(count).with_views(views);
         self.bots = bots.into_iter().map(|(p, b)| (p, b.again())).collect();
         sounds.push(Sfx::Start);
     }
@@ -1980,8 +2017,8 @@ impl Harvest {
         self.shove(at, 600.0);
         self.juice.ring(at, crate::tuning::tuning().push, 0.6, [0.4, 1.0, 0.5]);
         self.juice.flash(at, 20.0, [0.6, 1.8, 0.7], 9.0, 0.8);
+        self.feel_for(p, |j| j.shake(0.4));
         if p == ME {
-            self.juice.shake(0.4);
             self.juice.banner("THE VACCINE HOLDS", [0.5, 1.0, 0.55, 1.0], 2.4);
             sounds.push(Sfx::Heal);
             flow.rumble = flow.rumble.max(Some(Rumble::Fanfare));
@@ -2009,9 +2046,10 @@ impl Harvest {
         let t = crate::tuning::tuning();
         let minutes = self.t / 60.0;
         self.recycle(dt);
-        self.owed += (t.spawn_rate + minutes * t.spawn_growth).min(t.spawn_top) * dt;
+        let more = 1.0 + (self.players.len() - 1) as f32 * t.spawn_per_player;
+        self.owed += (t.spawn_rate + minutes * t.spawn_growth).min(t.spawn_top) * more * dt;
         if horde_now(self.t, dt) {
-            self.owed += t.horde_size + minutes * t.horde_growth;
+            self.owed += (t.horde_size + minutes * t.horde_growth) * more;
             self.leader_owed = true;
         }
         while self.owed >= 1.0 && self.room() {
@@ -2030,9 +2068,15 @@ impl Harvest {
         }
     }
 
-    /// Whether the night has room for another zombie under `[zombies] max`.
+    /// Whether the night has room for another zombie under `[zombies] max`, raised for each player past the first.
     fn room(&self) -> bool {
-        self.zombies.len() + self.tells.len() + self.burrowed.len() < crate::tuning::tuning().max_zombies as usize
+        self.zombies.len() + self.tells.len() + self.burrowed.len() < self.cap()
+    }
+
+    /// The most zombies up at once: `[zombies] max`, and `per_player` of it more for each player past the first.
+    pub(super) fn cap(&self) -> usize {
+        let t = crate::tuning::tuning();
+        (t.max_zombies * (1.0 + (self.players.len() - 1) as f32 * t.max_per_player)) as usize
     }
 
     /// One zombie starts to rise somewhere on the ring around the player.
@@ -2398,11 +2442,11 @@ impl Harvest {
     fn falls(&mut self, p: PlayerId, sounds: &mut Vec<Sfx>) {
         let at = self.players[p].pos;
         self.juice.burst(at, 8.0, 30, [0.0; 2], 0.0, [30.0, 120.0], juice::blood(), 2.0, 0.9, 0.0);
-        self.juice.banner(format!("PLAYER {} TURNED", p + 1), RED, 2.4);
+        self.juice.banner(format!("PLAYER {} TURNED", self.number(p)), RED, 2.4);
         if p == ME {
-            self.juice.shake(0.8);
             sounds.push(Sfx::GameOver);
         }
+        self.feel_for(p, |j| j.shake(0.8));
         self.players[p].heading = self.players[p].aim;
         self.players[p].wander = self.leg();
     }
@@ -2420,9 +2464,9 @@ impl Harvest {
             self.juice.burst(at, 0.0, 16, [0.0; 2], 0.0, [20.0, 60.0], juice::dirt(), 1.8, 0.7, 0.0);
             self.fx.push(Fx::play(effects::effects().player_rises, [at[0], at[1] - 3.0], 0.0));
             if p == ME {
-                self.juice.shake(0.35);
                 sounds.push(Sfx::Turn);
             }
+            self.feel_for(p, |j| j.shake(0.35));
         }
     }
 
@@ -2539,11 +2583,11 @@ impl Harvest {
     /// Player `p` takes a hit and bleeds; for the local player the screen flashes red and shakes, and the world
     /// catches its breath.
     fn ouch(&mut self, p: PlayerId, shake: f32) {
-        if p == ME {
-            self.juice.hurt = 0.35;
-            self.juice.shake(shake);
-            self.juice.stop(0.08);
-        }
+        self.feel_for(p, |j| {
+            j.hurt = 0.35;
+            j.shake(shake);
+            j.stop(0.08);
+        });
         self.juice.burst(self.players[p].pos, 8.0, 10, [0.0; 2], 0.0, [30.0, 80.0], juice::blood(), 1.6, 0.5, 0.0);
     }
 
@@ -3070,12 +3114,17 @@ impl Harvest {
     /// Bars and counters easing toward their real values.
     fn feel(&mut self, dt: f32) {
         self.xp_shown += (self.xp as f32 - self.xp_shown) * (10.0 * dt).min(1.0);
+        self.feel_hp(dt);
+        self.chain.0 += dt;
+        self.kill_bump += dt;
+    }
+
+    /// The health bar's trailing chunk catches down to ME's health.
+    fn feel_hp(&mut self, dt: f32) {
         if self.me().hurt < self.difficulty.hurt_time() - 0.35 {
             self.hp_shown = (self.hp_shown - 60.0 * dt).max(self.me().hp);
         }
         self.hp_shown = self.hp_shown.max(self.me().hp);
-        self.chain.0 += dt;
-        self.kill_bump += dt;
     }
 
     /// Stereo pan (-100 left to 100 right) and loudness (0 to 255) for a sound at `at`, from where the player faces.

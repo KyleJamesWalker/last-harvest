@@ -1,6 +1,6 @@
 use crate::art::Art;
 use crate::scene3d::CardScene;
-use crate::{SCREEN_W, font};
+use crate::{SCREEN_H, SCREEN_W, font};
 
 pub type Color = [f32; 4];
 
@@ -32,6 +32,9 @@ pub struct Canvas {
     pub shapes: Vec<Shape>,
     /// Its width and height in its own pixels, when not a screen's 1024x768.
     pub size: Option<[f32; 2]>,
+    /// From each shape index on, the edge `refit` pins what follows to: 0 left or top, 1 right or bottom, below 0
+    /// stretched across. Before the first, the middle.
+    pub anchors: Vec<(usize, [f32; 2])>,
 }
 
 impl Canvas {
@@ -62,6 +65,49 @@ impl Canvas {
                 }) },
             });
         }
+    }
+
+    /// Pins what's drawn after this to an edge or the middle of a view not shaped 4:3; see `anchors`.
+    pub fn anchor(&mut self, at: [f32; 2]) {
+        self.anchors.push((self.shapes.len(), at));
+    }
+
+    /// Lays a screen's 1024x768 drawing out in a canvas `size` across and down, at least that large: each shape keeps
+    /// its size and moves with its anchor, and a rectangle as wide or tall as the screen spans the new one.
+    pub fn refit(&mut self, size: [f32; 2]) {
+        let base = [SCREEN_W, SCREEN_H];
+        let extra = [size[0] - base[0], size[1] - base[1]];
+        let mut at = [0.5, 0.5];
+        let mut next = 0;
+        let point = |v: f32, axis: usize, at: [f32; 2]| if at[axis] < 0.0 { v * size[axis] / base[axis] } else { v + at[axis] * extra[axis] };
+        let span = |v: f32, len: f32, axis: usize, at: [f32; 2]| {
+            if v <= 0.5 && len >= base[axis] - 0.5 {
+                (0.0, size[axis])
+            } else if at[axis] < 0.0 {
+                (point(v, axis, at), len * size[axis] / base[axis])
+            } else {
+                (point(v, axis, at), len)
+            }
+        };
+        for (i, shape) in self.shapes.iter_mut().enumerate() {
+            while let Some(&(_, a)) = self.anchors.get(next).filter(|(from, _)| *from <= i) {
+                (at, next) = (a, next + 1);
+            }
+            match shape {
+                Shape::Rect { x, y, w, h, .. } => {
+                    ((*x, *w), (*y, *h)) = (span(*x, *w, 0, at), span(*y, *h, 1, at));
+                }
+                Shape::Clip { rect: Some([x, y, w, h]) } => {
+                    ((*x, *w), (*y, *h)) = (span(*x, *w, 0, at), span(*y, *h, 1, at));
+                }
+                Shape::Clip { rect: None } => {}
+                Shape::Circle { x, y, .. } | Shape::Art { x, y, .. } | Shape::Text { x, y, .. } => {
+                    (*x, *y) = (point(*x, 0, at), point(*y, 1, at));
+                }
+            }
+        }
+        self.anchors.clear();
+        self.size = Some(size);
     }
 
     /// Cuts what's drawn after this to the rectangle (x, y, w, h), or stops cutting for None.
@@ -132,5 +178,7 @@ pub struct Frame {
     pub bottom: Canvas,
     /// On a phone, where the screens go in the window and the controls drawn over them.
     pub phone: Option<crate::touch::Phone>,
+    /// Players 2 onward's views of a split run; `top` is player 1's.
+    pub views: Vec<Canvas>,
 }
 

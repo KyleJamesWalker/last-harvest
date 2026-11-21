@@ -46,15 +46,17 @@ The default `embed` feature builds the game data into the binary. The binary sti
 
 On a desktop, `LAST_HARVEST_WINDOWS=2` opens one window per screen, as on the device. The mouse is then a finger on the bottom window.
 
-### Trying split-screen
+### Split-screen co-op
 
-The game simulates one player, so split-screen has a preview: `LAST_HARVEST_SPLIT=2` (up to `4`) draws a run in that many views, each showing player 1's view and HUD. Use it to check the layout, each view's aspect, clipping, the corner map and frame blending. The web game takes `?split=2` instead.
+At the title, Start on a second pad joins it as P2, and again leaves; the title names who joined. A run then starts with one player and one view per seat, up to four. Split-screen runs on desktop, web and muOS only, never on a touch screen, a phone or the two-screen handhelds.
+
+Two views sit side by side in a wide or square window and stack in a tall one; three or four share a 2x2 grid, with the fourth cell black for three. The 3D view fills each view at its own aspect, and the HUD keeps to the view's edges. Each player has their own pad, view, corner map, L1 map, kit and cards. XP is shared: a level-up pauses everyone, deals each player three cards from their own kit and resumes once all have picked; banishes, rerolls and favors are each player's own. Start pauses everyone, and only the player who paused works the menu. Hit-stop never freezes the shared night, and grenade aiming never slows it. A turned player watches a living teammate until the run ends. The save records the run as one night, with player 1's build and damage.
+
+Without a second pad, `LAST_HARVEST_SPLIT=2` (up to `4`) shows at least that many views, and `LAST_HARVEST_BOTS` players fill the views past the seated ones. The web game takes `?split=2` instead.
 
 ```sh
-LAST_HARVEST_SPLIT=2 LAST_HARVEST_WINDOW=1280x720 LAST_HARVEST_START=harvest cargo run -p last-harvest
+LAST_HARVEST_SPLIT=2 LAST_HARVEST_BOTS=1 LAST_HARVEST_WINDOW=1280x720 LAST_HARVEST_START=harvest cargo run -p last-harvest
 ```
-
-Two views sit side by side in a wide or square window and stack in a tall one; three or four share a 2x2 grid, with the fourth cell black for three. The 3D view fills each view at its own aspect, and the 4:3 HUD fits inside it, centred. With the preview on, Start on a second pad at the title joins it as P2 and again leaves; the title names who joined. Split-screen runs on desktop, web and muOS only, never on a touch screen, a phone or the two-screen handhelds.
 
 ## Test and check
 
@@ -186,7 +188,7 @@ CI reads the private submodule with the `ASSETS_DEPLOY_KEY` secret. A pull reque
 | `LAST_HARVEST_LOG_INPUT` | Logs every gamepad event. |
 | `LAST_HARVEST_WINDOW` | The desktop window's size, such as `720x720`, to try a handheld's screen. |
 | `LAST_HARVEST_WINDOWS` | `2`: one window per screen, top above bottom. |
-| `LAST_HARVEST_SPLIT` | `2` to `4`: a run in that many split-screen views, each showing player 1, and pads may join at the title. See [Trying split-screen](#trying-split-screen). |
+| `LAST_HARVEST_SPLIT` | `2` to `4`: every run shows at least that many split-screen views, `LAST_HARVEST_BOTS` players in those past the seated ones. See [Split-screen co-op](#split-screen-co-op). |
 | `LAST_HARVEST_TOUCH` | `off`: the desktop window plays without touch, as on muOS. |
 | `LAST_HARVEST_TOP` | The output for the top screen, such as `DSI-2`. |
 | `LAST_HARVEST_SAVE` | The save file. |

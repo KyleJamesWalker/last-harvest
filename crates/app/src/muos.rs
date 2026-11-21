@@ -121,6 +121,7 @@ fn run() -> Result<(), String> {
 
     let (mut saver, save) = persist::Saver::load();
     let mut game = Game::new(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.as_nanos() as u64));
+    game.set_split(std::env::var("LAST_HARVEST_SPLIT").ok().and_then(|v| last_harvest::split_views(&v)).unwrap_or(1));
     game.load(save);
     game.set_backlights(false);
     game.set_touch(false);
@@ -143,7 +144,7 @@ fn run() -> Result<(), String> {
     let mut ticker = clock::Ticker::default();
     let mut states: Vec<PadState> = Vec::new();
     let mut seats = Seats::default();
-    let split = std::env::var("LAST_HARVEST_SPLIT").ok().and_then(|v| last_harvest::split_views(&v));
+    let mut trackers = Vec::new();
     let mut menu_held = 0.0;
     let mut last = Instant::now();
     let mut stats = (0u32, 0.0f32, 0.0f32, Instant::now());
@@ -202,9 +203,11 @@ fn run() -> Result<(), String> {
             log!("perf: fps={:.1} ms={:.1} worst={:.1} {}", system.fps, system.frame_ms, system.worst_ms, game.summary());
         }
         let frame_pads: Vec<Pad> = states.iter_mut().map(PadState::take).collect();
-        seats.update(&frame_pads, split.is_some() && game.at_title());
+        seats.update(&frame_pads, game.at_title());
         game.set_players(seats.players());
-        let (held, stick, look) = seats.inputs(&frame_pads)[0];
+        let seated = seats.inputs(&frame_pads);
+        let others = last_harvest::seated_others(&seated, &mut trackers);
+        let (held, stick, look) = seated[0];
         menu_held = if frame_pads.iter().any(|p| p.held.contains(Buttons::HOME)) { menu_held + dt } else { 0.0 };
         if menu_held >= QUIT_HOLD || game.quit_asked() {
             return finish(&mut saver, &game, motor.as_ref());
@@ -213,8 +216,8 @@ fn run() -> Result<(), String> {
         let (w, h) = window.drawable_size();
         game.set_system(system);
         game.set_phone(Some([w as f32, h as f32]));
-        for input in ticker.frame(frame, input) {
-            game.update(&input, clock::STEP);
+        for inputs in ticker.frame_all(frame, std::iter::once(input).chain(others).collect()) {
+            game.update_all(&inputs, clock::STEP);
         }
         let sounds = game.take_sounds();
         if let Some(audio) = &audio {
@@ -231,9 +234,10 @@ fn run() -> Result<(), String> {
                 m.set(rumble);
             }
         }
+        let n = last_harvest::lay_out_views(&mut game, true, [w, h]);
         let frame = game.draw_at(ticker.alpha());
-        if let Some(n) = split.filter(|_| game.in_run()) {
-            last_harvest::draw_split(&mut renderer, &gl, &vec![&frame.top; n], [w as i32, h as i32]);
+        if n > 1 {
+            last_harvest::draw_split(&mut renderer, &gl, &last_harvest::frame_views(&frame, n), [w as i32, h as i32]);
         } else if let Some(phone) = &frame.phone {
             last_harvest::draw_phone(&mut renderer, &gl, &frame, phone, [w as i32, h as i32]);
         }

@@ -215,7 +215,7 @@ pub fn weapon_levels() -> Vec<(String, u32)> {
 pub fn night(plan: &Plan) -> Night {
     let mut h = Harvest::sized(plan.seed, plan.size).at(plan.difficulty);
     if plan.players > 1 {
-        h = h.with_players(plan.players);
+        h = h.with_players(plan.players).with_views(1);
         h.bots = (1..h.players.len()).map(|p| (p, Bot::new(plan.walk, plan.turn, plan.turn_every, plan.throw_every))).collect();
     }
     for pl in &mut h.players {
@@ -232,7 +232,7 @@ pub fn night(plan: &Plan) -> Night {
     let mut minutes = Vec::new();
     let mut capped = 0.0;
     let mut sounds = Vec::new();
-    let cap = crate::tuning::tuning().max_zombies as usize;
+    let cap = h.cap();
     // Hit-stop and the level-up's slow motion hold the night's clock, so ticks are bounded well past the night.
     for _ in 0..(end / plan.step) as u64 * 8 {
         if h.t >= end || matches!(h.phase, Phase::Over { .. }) {
@@ -244,6 +244,14 @@ pub fn night(plan: &Plan) -> Night {
         sounds.clear();
         if let Phase::LevelUp { .. } = h.phase {
             took.extend(choose(&mut h, &plan.pick, &mut rng, &mut sounds));
+            for p in 1..h.players.len() {
+                if h.players[p].alive() {
+                    h.relabel(p);
+                    h.phase = Phase::LevelUp { choices: h.roll_choices(&[]), selected: 0, t: 0.0, picked: None };
+                    choose(&mut h, &plan.pick, &mut rng, &mut sounds);
+                    h.relabel(p);
+                }
+            }
             sounds.clear();
             h.phase = Phase::Playing;
             h.chest = false;

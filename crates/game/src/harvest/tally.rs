@@ -67,6 +67,16 @@ impl Tally {
         Self { books: (0..players).map(|_| Book::sized(defs)).collect(), defs, ..Self::default() }
     }
 
+    /// Players 0 and `v` trade books, as `Harvest::relabel` trades them everywhere.
+    pub fn relabel(&mut self, v: PlayerId) {
+        if v >= self.books.len() {
+            let defs = self.defs;
+            self.books.resize_with(v + 1, || Book::sized(defs));
+        }
+        self.books.swap(0, v);
+        self.owner = if self.owner == 0 { v } else if self.owner == v { 0 } else { self.owner };
+    }
+
     /// Damage dealt from now on goes to `owner`'s weapon `by`.
     pub fn credit(&mut self, owner: PlayerId, by: Option<usize>) {
         self.owner = owner;
