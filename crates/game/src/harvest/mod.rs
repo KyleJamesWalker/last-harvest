@@ -11,6 +11,7 @@ mod local;
 mod map;
 pub mod online;
 mod photo;
+mod remote;
 mod props;
 mod quick;
 mod range;
@@ -891,6 +892,7 @@ pub struct Harvest {
     paused_by: PlayerId,
     /// The player ME stands for while `relabel` has traded them; ME otherwise.
     swapped: PlayerId,
+    net: online::Net,
 }
 
 /// Weapons and passives unlocked so far, out of all of them, and how many are waiting to be found.
@@ -1103,6 +1105,7 @@ impl Harvest {
             locals: Vec::new(),
             paused_by: ME,
             swapped: ME,
+            net: online::Net::default(),
         }
         .with_birds()
     }
@@ -1812,9 +1815,12 @@ impl Harvest {
         let tapped = input.touch.filter(|_| input.touch_started).and_then(|[_, y]| pause_row(y));
         let chosen = tapped.or(input.pressed.any(Buttons::A | Buttons::X).then_some(at));
         self.menu = Some(at);
+        let remote = self.net.role == online::Role::Host && self.paused_by >= self.views();
         match chosen {
             _ if input.pressed.any(Buttons::START | Buttons::B) => self.menu = None,
             Some(0) => self.menu = None,
+            Some(_) if remote => self.menu = None,
+            Some(3) if self.net.role != online::Role::Off => sounds.push(Sfx::Miss),
             Some(1) => flow.settings = true,
             Some(PAUSE_PHOTO) => self.open_photo(),
             Some(3) => self.restart(sounds),
@@ -3134,7 +3140,11 @@ impl Harvest {
         let n = norm(d);
         let pan = (n[0] * right[0] + n[1] * right[1]) * 0.8;
         let gain = (1.0 - len(d) / 260.0).clamp(0.0, 1.0);
-        ((pan * 100.0) as i8, (gain * 255.0) as u8)
+        let placed = ((pan * 100.0) as i8, (gain * 255.0) as u8);
+        if self.net.role == online::Role::Host {
+            self.net.placed.borrow_mut().push((placed.0, placed.1, at));
+        }
+        placed
     }
 
     /// How dread the music should feel, 0 to 1: the night wearing on and the dead closing in.

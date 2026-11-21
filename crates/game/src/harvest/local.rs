@@ -46,6 +46,10 @@ impl Local {
     pub fn of(h: &Harvest, p: PlayerId) -> Self {
         Self { banishes: h.banishes, rerolls: h.rerolls, favors: h.favors, hp_shown: h.players[p].hp, ..Self::default() }
     }
+
+    pub fn set_counts(&mut self, banishes: u32, rerolls: u32, favors: u32) {
+        (self.banishes, self.rerolls, self.favors) = (banishes, rerolls, favors);
+    }
 }
 
 impl Harvest {
@@ -58,9 +62,9 @@ impl Harvest {
         self
     }
 
-    /// How many players have a view of their own.
+    /// How many players have a view of their own on this device.
     pub fn views(&self) -> usize {
-        self.views
+        if self.net.drawn > 0 { self.net.drawn.min(self.views) } else { self.views }
     }
 
     /// Players 0 and `v` trade places everywhere a player is named, so the run reads as `v` saw it from ME; again
@@ -114,7 +118,8 @@ impl Harvest {
     /// The number a player goes by, from 1, whoever is ME just now.
     pub(super) fn number(&self, p: PlayerId) -> usize {
         let s = self.swapped;
-        (if p == ME { s } else if p == s { ME } else { p }) + 1
+        let p = if p == ME { s } else if p == s { ME } else { p };
+        self.net.seats.get(p).copied().unwrap_or(p) + 1
     }
 
     /// Swaps the fields ME's controls, cards and camera live in with player `v`'s keeping.
@@ -267,8 +272,10 @@ impl Harvest {
                 }
                 self.fx.retain(|f| !f.done());
                 let ready = if won { 1.0 } else { super::TURNED + 0.6 };
-                let pressed = (0..views).fold(crate::Buttons::NONE, |b, v| b | self.inputs[v].pressed);
-                if t > ready && pressed.any(crate::Buttons::A | crate::Buttons::START) {
+                let pressed = (0..self.views()).fold(crate::Buttons::NONE, |b, v| b | self.inputs[v].pressed);
+                if t > ready && self.net.role != super::online::Role::Off && pressed.any(crate::Buttons::A | crate::Buttons::START | crate::Buttons::B) {
+                    flow.quit = true;
+                } else if t > ready && pressed.any(crate::Buttons::A | crate::Buttons::START) {
                     self.restart(sounds);
                 } else if t > ready && pressed.contains(crate::Buttons::B) {
                     flow.quit = true;
@@ -277,6 +284,22 @@ impl Harvest {
         }
         flow.found = std::mem::take(&mut self.found_now);
         flow
+    }
+
+    /// Player `p`'s level-up cards as a client draws them, while they have some.
+    pub(super) fn cards_of(&self, p: PlayerId) -> Option<crate::netsync::snapshot::SeatCards> {
+        use crate::netsync::snapshot::{CARD_FOUND, CARD_RARE, SeatCards};
+        let (choices, selected, picked, counts) = if p == ME {
+            let Phase::LevelUp { choices, selected, picked, .. } = self.phase else { return None };
+            (choices, selected, picked, (self.banishes, self.rerolls, self.favors))
+        } else {
+            let l = self.locals.get(p)?;
+            let c = l.cards?;
+            (c.choices, c.selected, c.picked, (l.banishes, l.rerolls, l.favors))
+        };
+        let card = |c: Choice| (c.up.min(255) as u8, if c.rare { CARD_RARE } else { 0 } | if c.found { CARD_FOUND } else { 0 });
+        let n = |v: u32| v.min(255) as u8;
+        Some(SeatCards { seat: p as u8, choices: choices.map(card), selected: selected as u8, picked: picked.is_some(), banishes: n(counts.0), rerolls: n(counts.1), favors: n(counts.2) })
     }
 
     /// The cards come up: every other viewed player gets their own draw from their own kit, after ME's.
