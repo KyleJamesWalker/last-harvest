@@ -201,7 +201,7 @@ fn run() -> Result<(), String> {
                 m.set(rumble);
             }
         }
-        let frame = game.draw();
+        let frame = game.draw_at(ticker.alpha());
         if let Some(phone) = &frame.phone {
             last_harvest::draw_phone(&mut renderer, &gl, &frame, phone, [w as i32, h as i32]);
         }

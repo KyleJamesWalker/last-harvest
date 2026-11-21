@@ -389,7 +389,7 @@ pub(super) struct Dog {
     pub anim: f32,
     cd: f32,
     target: Option<u32>,
-    vel: [f32; 2],
+    pub vel: [f32; 2],
     /// Where it means to wander, from the player.
     spot: [f32; 2],
     /// Seconds until it picks a new spot.
@@ -424,7 +424,7 @@ pub(super) struct Drone {
     firing: f32,
     next: f32,
     target: Option<u32>,
-    vel: [f32; 2],
+    pub vel: [f32; 2],
     /// Where it means to hover, from the player.
     spot: [f32; 2],
     rest: f32,
