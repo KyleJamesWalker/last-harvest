@@ -85,6 +85,14 @@ speed 0.5       # once the run is over, the dead wander at this fraction of thei
 turn 3          # about how many seconds one keeps a way before picking another
 after 1.5       # most seconds one stands over the fallen player before it loses interest
 
+[leader]
+respawn_pick 15 # once a turned player's leader falls, seconds to pick where the next rises...
+respawn_min_tiles 10 # ...at least this many tiles from every living player; else it rises where a horde's leader would
+swarm 8         # zombies that rise around each new leader and follow it
+speed 24        # pixels a second the leader walks
+call 64         # how near the leader X calls the dead into its swarm
+chase 64        # a swarm zombie this near a living player leaves the leader to go for them
+
 [harvester]
 hp 2500         # dawn's boss
 speed 40
