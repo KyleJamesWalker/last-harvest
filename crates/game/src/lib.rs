@@ -535,6 +535,9 @@ impl Game {
     }
 
     pub fn update(&mut self, input: &Input, dt: f32) {
+        if let State::Harvest(h) = &mut self.state {
+            h.hold_still();
+        }
         pad::set_controls(self.save.controls);
         self.raw_pressed = input.pressed;
         let controls = if matches!(self.state, State::Hardware(_)) { Controls::default() } else { self.save.controls };
@@ -645,6 +648,19 @@ impl Game {
                 State::Hardware(hw)
             }
         };
+    }
+
+    /// Draws with what moved in the last step `alpha` of the way from where it was, for a display faster than the step.
+    pub fn draw_at(&mut self, alpha: f32) -> Frame {
+        let undo = match &mut self.state {
+            State::Harvest(h) => h.blend(alpha),
+            _ => None,
+        };
+        let frame = self.draw();
+        if let (State::Harvest(h), Some(undo)) = (&mut self.state, undo) {
+            h.unblend(undo);
+        }
+        frame
     }
 
     pub fn draw(&self) -> Frame {

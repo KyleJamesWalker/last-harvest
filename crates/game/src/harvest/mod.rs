@@ -1,5 +1,6 @@
 //! Last Harvest: survive the night on a randomly generated farm while the horde closes in.
 
+mod blend;
 mod carve;
 mod draw;
 mod effects;
@@ -890,6 +891,7 @@ pub struct Harvest {
     touch_keys: bool,
     /// The weapon range, trying one weapon against a ring of zombies.
     range: Option<range::Range>,
+    before: blend::Before,
 }
 
 /// Weapons and passives unlocked so far, out of all of them, and how many are waiting to be found.
@@ -1116,6 +1118,7 @@ impl Harvest {
             taps: true,
             touch_keys: false,
             range: None,
+            before: blend::Before::default(),
         }
         .with_birds()
     }
@@ -1301,6 +1304,7 @@ impl Harvest {
     }
 
     pub fn update(&mut self, input: &Input, dt: f32, sounds: &mut Vec<Sfx>) -> Flow {
+        self.take_before();
         if self.range.is_none() {
             return self.update_run(input, dt, sounds);
         }
