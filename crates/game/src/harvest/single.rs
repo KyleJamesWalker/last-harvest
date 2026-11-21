@@ -161,9 +161,10 @@ impl Harvest {
             let mut map = Canvas::default();
             self.world(&mut map, cam, scale, self.map_tint(), true);
             self.view_cone(&mut map, cam);
-            self.home_on_map(&mut map, cam, [SCREEN_W, SCREEN_H]);
-            self.ticket_on_map(&mut map, cam, [SCREEN_W, SCREEN_H]);
-            self.teammates_on_map(&mut map, cam, [SCREEN_W, SCREEN_H]);
+            let shown = [reach * 2.0 * scale, reach * 1.5 * scale];
+            self.home_on_map(&mut map, cam, shown);
+            self.ticket_on_map(&mut map, cam, shown);
+            self.teammates_on_map(&mut map, cam, shown);
             top.rect(x - 4.0, y - 4.0, w + 8.0, h + 8.0, [0.06, 0.05, 0.04, 0.9]);
             top.rect(x, y, w, h, [0.0, 0.0, 0.0, 1.0]);
             top.clip(Some([x, y, w, h]));
@@ -381,6 +382,22 @@ mod tests {
         let mut f = crate::Frame::default();
         two.draw(&mut f, false);
         assert_eq!(clips(&f.top.shapes), 0, "two screens keep the map below");
+    }
+
+    #[test]
+    fn the_corner_map_pins_far_marks_inside_its_own_edges() {
+        let mut h = single(12);
+        let draw = |h: &Harvest| {
+            let mut f = crate::Frame::default();
+            h.draw(&mut f, false);
+            f.top.shapes
+        };
+        h.t = super::super::dawn() + 1.0;
+        h.map.home = [h.me().pos[0] + 2000.0, h.me().pos[1] + 1500.0];
+        let top = draw(&h);
+        let [x, y, w, ht] = top.iter().find_map(|s| if let crate::Shape::Clip { rect: Some(r) } = s { Some(*r) } else { None }).expect("the corner map");
+        let home = top.iter().find_map(|s| if let crate::Shape::Text { text, x, y, .. } = s { (text == "HOME").then_some([*x, *y]) } else { None }).expect("home on the corner map");
+        assert!((x..x + w).contains(&home[0]) && (y..y + ht).contains(&home[1]), "{home:?} in {:?}", [x, y, w, ht]);
     }
 
     #[test]
