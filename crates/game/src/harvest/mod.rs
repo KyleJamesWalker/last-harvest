@@ -2357,7 +2357,10 @@ impl Harvest {
                 spits.push(Spit { kind: z.kind, pos, vel: [to[0] * fly, to[1] * fly], damage: z.kind.stats().damage, life: ranged * 1.5 / fly, age: 0.0 });
             }
             let v = [to[0] * speed + s[0] * 20.0 + z.push[0], to[1] * speed + s[1] * 20.0 + z.push[1]];
-            z.pos = self.map.slide_cells(z.pos, [v[0] * dt, v[1] * dt], crate::tuning::tuning().zombie_half());
+            let half = t.zombie_half();
+            // Whole cells can't reach prey in a solid cell's open part, so near it, or caught in one, it bumps as the player does.
+            let as_player = (len(sub(prey, z.pos)) < TILE * 1.5 && self.map.hits_cells(prey[0], prey[1], half)) || self.map.hits_cells(z.pos[0], z.pos[1], half);
+            z.pos = if as_player { self.map.slide(z.pos, [v[0] * dt, v[1] * dt], half) } else { self.map.slide_cells(z.pos, [v[0] * dt, v[1] * dt], half) };
             z.push = [z.push[0] * (1.0 - 8.0 * dt).max(0.0), z.push[1] * (1.0 - 8.0 * dt).max(0.0)];
             z.facing = Facing::of(to);
             z.dir = to;
@@ -4265,6 +4268,34 @@ mod tests {
             let h = Harvest::new(1).at(d).with_kit("lantern");
             assert_eq!(h.me().kit.weapons.len(), 3, "{d:?}");
             assert_eq!((h.me().grenades, h.me().kit.grenades()), (grenades, grenades), "{d:?}");
+        }
+    }
+
+    #[test]
+    fn zombies_bite_a_player_tucked_into_the_edge_rings_open_part() {
+        let t = crate::tuning::tuning();
+        let (ph, zh) = (t.player_half(), t.zombie_half());
+        for (players, hider) in [(1, ME), (2, 1)] {
+            let mut h = Harvest::calm(3).with_players(players);
+            h.birds.clear();
+            for p in &mut h.players {
+                p.kit.weapons.clear();
+            }
+            let walk_in = |y: f32| (0..40).fold([2.5 * TILE, y], |p, _| h.map.slide(p, [-1.0, 0.0], ph));
+            let start = (2..h.map.h - 2).flat_map(|ty| (0..16).map(move |k| ty as f32 * TILE + k as f32)).find(|&y| !h.map.hits(2.5 * TILE, y, ph) && walk_in(y)[0] < 8.0);
+            let at = walk_in(start.expect("a way into the edge ring"));
+            assert!(h.map.hits_cells(at[0], at[1], zh), "{at:?} is somewhere whole cells keep zombies out of");
+            h.players[hider].pos = at;
+            if players > 1 {
+                assert!(len(sub(h.players[ME].pos, at)) > 100.0, "the other player is far off");
+            }
+            let z = (3..8).map(|k| [k as f32 * 0.5 * TILE + TILE, at[1]]).find(|q| !h.map.hits_cells(q[0], q[1], zh)).unwrap();
+            h.zombies.push(Zombie::new(Kind::named("skinny"), z, 1000.0, 1.0, 0.0));
+            let mut sounds = Vec::new();
+            for _ in 0..180 {
+                h.update(&Input::default(), 1.0 / 60.0, &mut sounds);
+            }
+            assert!(h.players[hider].hp < h.players[hider].kit.max_hp(), "{players} players: unbitten at {at:?}, the zombie at {:?}", h.zombies[0].pos);
         }
     }
 
