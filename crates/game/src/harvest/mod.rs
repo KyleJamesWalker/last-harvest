@@ -1277,6 +1277,23 @@ impl Harvest {
         self
     }
 
+    /// The level-up cards are up.
+    pub(crate) fn choosing(&self) -> bool {
+        matches!(self.phase, Phase::LevelUp { .. })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn deal_cards_with_rerolls(&mut self, rerolls: u32) {
+        self.rerolls = rerolls;
+        let choices = self.roll_choices(&[]);
+        self.phase = Phase::LevelUp { choices, selected: 0, t: 1.0, picked: None };
+    }
+
+    #[cfg(test)]
+    pub(crate) fn rerolls_left(&self) -> u32 {
+        self.rerolls
+    }
+
     #[cfg(test)]
     pub fn enemies_off(&self) -> u64 {
         self.enemies_off
