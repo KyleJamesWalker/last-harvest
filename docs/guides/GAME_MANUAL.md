@@ -326,6 +326,8 @@ Settings &gt; Online relay, or Online &gt; Relay, sets the relay that connects t
 
 To run a relay of your own, see the [online guide](../../docs/online.md).
 
+**Playing on one network, with no internet:** on a computer, handheld or Android phone, the host picks Host on this network instead of Host a night. Other players on the same Wi-Fi see the host under Join with a code ("Nearby: 192.168.1.5") and join with the room code as usual. If the host isn't listed, type the address the lobby shows, such as `192.168.1.5:12525`, under Online > Relay. A computer may ask to allow incoming connections the first time; allow it on private networks. The web game can't host on a network, and the published https page can't join one.
+
 During an online night:
 
 - **Pause:** Start on any device pauses the night for everyone. The host's Start takes the menu over, and a client's pause lifts on its own after 30 seconds. New farm is not offered online.

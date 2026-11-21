@@ -116,14 +116,17 @@ enum Join {
 }
 
 /// Adds `me` to `room`, or puts a resumed peer's new connection in its place. None when the room is full or the
-/// resume does not match a peer.
-fn join(room: &str, me: &str, resume: bool, token: &str, tx: SyncSender<String>, replaced: Arc<AtomicBool>) -> Option<Join> {
+/// resume does not match a peer, or when a new room would pass `max_rooms`.
+fn join(room: &str, me: &str, resume: bool, token: &str, tx: SyncSender<String>, replaced: Arc<AtomicBool>, max_rooms: Option<usize>) -> Option<Join> {
     let mut rooms = rooms().lock().unwrap();
     if resume {
         let member = rooms.get_mut(room)?.get_mut(me).filter(|m| m.token == token)?;
         member.replaced.store(true, Ordering::Release);
         *member = Member { tx: Some(tx), token: member.token.clone(), replaced };
         return Some(Join::Resumed);
+    }
+    if !rooms.contains_key(room) && max_rooms.is_some_and(|most| rooms.len() >= most) {
+        return None;
     }
     let peers = rooms.entry(room.to_string()).or_default();
     if peers.len() >= MAX_ROOM_PEERS {
@@ -210,7 +213,7 @@ pub fn run(stream: TcpStream, room: String, resuming: bool, client: IpAddr, conf
     let replaced = Arc::new(AtomicBool::new(false));
     let own = tx.clone();
     // Reading the room's peers and adding this one under one lock: two peers joining at once still pair up.
-    match join(&room, &me, resuming, &token, tx, replaced.clone()) {
+    match join(&room, &me, resuming, &token, tx, replaced.clone(), config.max_rooms) {
         Some(Join::New(others)) => {
             for other in others {
                 let _ = other.try_send(json!({ "NewPeer": me }).to_string());

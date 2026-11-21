@@ -13,9 +13,8 @@ use crate::{DIM, Difficulty, Game, HOT, SCREEN_W, Sfx, State, WHITE};
 const RED: [f32; 4] = [1.0, 0.55, 0.5, 1.0];
 const RELAY_KEYS: &[u8] = b"abcdefghijklmnopqrstuvwxyz0123456789.:-/";
 const RELAY_MAX: usize = crate::save::RELAY_MAX;
-const ONLINE_ROWS: [&str; 4] = ["Host a night", "Join with a code", "Relay", "Back"];
-const ROW_TOP: f32 = 150.0;
-const ROW_H: f32 = 96.0;
+/// The Join page's line naming the relay or nearby host it joins through.
+const THROUGH: [f32; 4] = [40.0, 212.0, SCREEN_W - 80.0, 34.0];
 const KEYS_TOP: f32 = 250.0;
 /// The lobby's buttons: Leave, Ready, Start.
 const BUTTONS: [[f32; 4]; 3] = [[40.0, 650.0, 290.0, 80.0], [367.0, 650.0, 290.0, 80.0], [694.0, 650.0, 290.0, 80.0]];
@@ -29,6 +28,28 @@ fn inside([x, y]: [f32; 2], [rx, ry, w, h]: [f32; 4]) -> bool {
 pub(crate) struct Entry {
     pub text: String,
     pub at: usize,
+}
+
+/// A row of the Online page.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Row {
+    Host,
+    HostLan,
+    Join,
+    Relay,
+    Back,
+}
+
+impl Row {
+    fn name(self) -> &'static str {
+        match self {
+            Row::Host => "Host a night",
+            Row::HostLan => "Host on this network",
+            Row::Join => "Join with a code",
+            Row::Relay => "Relay",
+            Row::Back => "Back",
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -153,6 +174,20 @@ pub(crate) struct Online {
     pub relay_from: Page,
     pub fixed: Option<RoomCode>,
     pub secure_page: bool,
+    /// The port this platform hosts its own relay on, for play on one network; none where it can't (the web).
+    pub lan: Option<u16>,
+    /// This device's address on its network, as the LAN lobby shows it.
+    pub lan_address: Option<String>,
+    /// The platform is to start the LAN relay before it connects.
+    pub lan_wanted: bool,
+    /// The room is hosted on this device's LAN relay.
+    pub lan_session: bool,
+    /// LAN hosts heard nearby, as `address:port`.
+    pub nearby: Vec<String>,
+    /// The nearby host the Join page joins through; none for the relay setting.
+    pub through: Option<String>,
+    /// The player picked `through`, so a host heard later does not take its place.
+    pub through_picked: bool,
 }
 
 impl Game {
@@ -186,6 +221,33 @@ impl Game {
     /// The page was served over https, so it can reach only a secure relay.
     pub fn set_secure_page(&mut self, on: bool) {
         self.online.secure_page = on;
+    }
+
+    /// Offers hosting on this network, on a relay of this device's own at `port`; the web build can't serve one.
+    pub fn set_lan(&mut self, port: Option<u16>) {
+        self.online.lan = port;
+    }
+
+    pub fn set_lan_address(&mut self, address: Option<String>) {
+        self.online.lan_address = address;
+    }
+
+    /// The LAN hosts heard nearby, as `address:port`; the Join page offers the first until the player picks.
+    pub fn set_nearby(&mut self, hosts: Vec<String>) {
+        if !self.online.through_picked && self.online.through.is_none() {
+            self.online.through = hosts.first().cloned();
+        }
+        self.online.nearby = hosts;
+    }
+
+    /// The port to start this device's LAN relay on, once, before the session's connect.
+    pub fn take_lan_host(&mut self) -> Option<u16> {
+        std::mem::take(&mut self.online.lan_wanted).then_some(self.online.lan).flatten()
+    }
+
+    fn online_rows(&self) -> Vec<Row> {
+        let lan = self.online.lan.is_some().then_some(Row::HostLan);
+        [Some(Row::Host), lan, Some(Row::Join), Some(Row::Relay), Some(Row::Back)].into_iter().flatten().collect()
     }
 
     pub fn set_relay(&mut self, relay: &str) {
@@ -234,6 +296,22 @@ impl Game {
 
     pub fn host_online(&mut self, code: Option<&str>) {
         let Some(relay) = self.relay_urls() else { return };
+        self.online.lan_session = false;
+        self.host_through(code, relay);
+    }
+
+    /// Hosts on this device's own relay, for players on its network: no internet and no ICE servers.
+    pub fn host_lan(&mut self, code: Option<&str>) {
+        let Some(port) = self.online.lan else {
+            self.online.message = "Hosting on this network isn't available here.".into();
+            self.sounds.push(Sfx::Miss);
+            return;
+        };
+        (self.online.lan_wanted, self.online.lan_session) = (true, true);
+        self.host_through(code, (format!("ws://127.0.0.1:{port}"), String::new()));
+    }
+
+    fn host_through(&mut self, code: Option<&str>, relay: (String, String)) {
         let code = code.and_then(|c| RoomCode::parse(c).ok()).or(self.online.fixed).unwrap_or_else(|| RoomCode::from_random(self.rng.next_u32() as u64 * 0x9E37 + self.rng.next_u32() as u64));
         self.online.fixed = Some(code);
         self.net = Some(Box::new(Net::host(code, self.identity(), self.local_cards(), relay)));
@@ -244,7 +322,14 @@ impl Game {
     pub fn join_online(&mut self, code: &str) {
         match RoomCode::parse(code) {
             Ok(code) => {
-                let Some(relay) = self.relay_urls() else { return };
+                let relay = match self.online.through.clone() {
+                    Some(host) => (format!("ws://{host}"), String::new()),
+                    None => {
+                        let Some(relay) = self.relay_urls() else { return };
+                        relay
+                    }
+                };
+                self.online.lan_session = false;
                 self.net = Some(Box::new(Net::join(code, self.identity(), self.local_cards(), relay)));
                 self.online.message.clear();
                 self.page = Page::Lobby;
@@ -455,7 +540,9 @@ impl Game {
 
     pub(crate) fn online_page(&mut self, input: &Input, tapped: Option<[f32; 2]>) {
         let back = input.pressed.contains(Buttons::B);
-        let rows = ONLINE_ROWS.len();
+        let all = self.online_rows();
+        let rows = all.len();
+        self.online.row = self.online.row.min(rows - 1);
         let step = input.pressed.contains(Buttons::DOWN) as i32 - input.pressed.contains(Buttons::UP) as i32;
         if step != 0 {
             self.online.row = (self.online.row as i32 + step).rem_euclid(rows as i32) as usize;
@@ -463,26 +550,31 @@ impl Game {
             return;
         }
         let chosen = match tapped {
-            Some(p) => (0..rows).find(|&i| inside(p, online_row(i))),
+            Some(p) => (0..rows).find(|&i| inside(p, online_row(i, rows))),
             None if back => Some(rows - 1),
             None => input.pressed.any(Buttons::A | Buttons::START).then_some(self.online.row),
         };
-        match chosen {
-            Some(0 | 1) if !self.online.available => {
+        match chosen.map(|i| all[i]) {
+            Some(Row::Host | Row::HostLan | Row::Join) if !self.online.available => {
                 self.online.message = "Online play isn't available on this device yet.".into();
                 self.sounds.push(Sfx::Miss);
             }
-            Some(0) => {
+            Some(Row::Host) => {
                 self.sounds.push(Sfx::Tick(9));
                 self.host_online(None);
             }
-            Some(1) => {
+            Some(Row::HostLan) => {
+                self.sounds.push(Sfx::Tick(9));
+                self.host_lan(None);
+            }
+            Some(Row::Join) => {
                 self.page = Page::Join;
                 self.online.code = Entry::default();
+                (self.online.through, self.online.through_picked) = (self.online.nearby.first().cloned(), false);
                 self.sounds.push(Sfx::Tick(9));
             }
-            Some(2) => self.open_relay(Page::Online),
-            Some(_) => {
+            Some(Row::Relay) => self.open_relay(Page::Online),
+            Some(Row::Back) => {
                 self.page = Page::Main;
                 self.sounds.push(Sfx::Tick(0));
             }
@@ -505,6 +597,10 @@ impl Game {
     }
 
     pub(crate) fn join_page(&mut self, input: &Input, tapped: Option<[f32; 2]>) {
+        if !self.online.nearby.is_empty() && (input.pressed.contains(Buttons::Y) || tapped.is_some_and(|p| inside(p, THROUGH))) {
+            self.next_through();
+            return;
+        }
         match self.online.code.input(input, tapped, ALPHABET, 7, last_harvest_lobby::CODE_LEN, &mut self.sounds) {
             Typed::Done => {
                 let code = self.online.code.text.clone();
@@ -516,6 +612,18 @@ impl Game {
             }
             Typed::Nothing => {}
         }
+    }
+
+    /// The next of the nearby hosts, then the relay setting.
+    fn next_through(&mut self) {
+        let nearby = &self.online.nearby;
+        let at = self.online.through.as_ref().and_then(|t| nearby.iter().position(|h| h == t));
+        self.online.through = match at {
+            Some(i) => nearby.get(i + 1).cloned(),
+            None => nearby.first().cloned(),
+        };
+        self.online.through_picked = true;
+        self.sounds.push(Sfx::Tick(6));
     }
 
     pub(crate) fn relay_page(&mut self, input: &Input, tapped: Option<[f32; 2]>) {
@@ -559,20 +667,29 @@ impl Game {
     pub(crate) fn draw_online(&self, c: &mut Canvas) {
         c.rect(0.0, 0.0, SCREEN_W, 768.0, [0.12, 0.12, 0.15, 1.0]);
         c.label("Online", SCREEN_W / 2.0, 24.0, 56.0, WHITE, Align::Center);
-        for (i, name) in ONLINE_ROWS.iter().enumerate() {
-            let [x, y, w, h] = online_row(i);
+        let all = self.online_rows();
+        for (i, row) in all.iter().enumerate() {
+            let [x, y, w, h] = online_row(i, all.len());
             let on = i == self.online.row;
-            let off = i < 2 && !self.online.available;
+            let off = matches!(row, Row::Host | Row::HostLan | Row::Join) && !self.online.available;
             c.rect(x, y, w, h, if on { [1.0, 0.85, 0.3, 0.25] } else { [1.0, 1.0, 1.0, 0.06] });
             let color = if off { DIM } else if on { HOT } else { WHITE };
-            if i == 2 {
-                let relay = self.relay();
-                let shown = if relay.trim().is_empty() { crate::netplay::DEFAULT_RELAY.trim_start_matches("wss://").to_string() } else { relay };
-                c.label("Relay", x + 30.0, y + h / 2.0 - 22.0, 44.0, color, Align::Left);
-                fit_label(c, &shown, x + w - 30.0, y + h / 2.0 - 18.0, 36.0, w - 260.0, if on { HOT } else { DIM }, Align::Right);
-                continue;
+            let side = match row {
+                Row::Relay => {
+                    let relay = self.relay();
+                    Some(if relay.trim().is_empty() { crate::netplay::DEFAULT_RELAY.trim_start_matches("wss://").to_string() } else { relay })
+                }
+                Row::Join => self.online.nearby.first().map(|h| format!("Nearby: {}", h.rsplit_once(':').map_or(h.as_str(), |(a, _)| a))),
+                _ => None,
+            };
+            match side {
+                Some(shown) => {
+                    c.label(row.name(), x + 30.0, y + h / 2.0 - 22.0, 44.0, color, Align::Left);
+                    let left = if *row == Row::Join { 420.0 } else { 260.0 };
+                    fit_label(c, &shown, x + w - 30.0, y + h / 2.0 - 18.0, 36.0, w - left, if on { HOT } else { DIM }, Align::Right);
+                }
+                None => c.label(row.name(), x + w / 2.0, y + h / 2.0 - 24.0, 48.0, color, Align::Center),
             }
-            c.label(*name, x + w / 2.0, y + h / 2.0 - 24.0, 48.0, color, Align::Center);
         }
         self.draw_message(c, 560.0);
     }
@@ -593,6 +710,19 @@ impl Game {
             if let Some(ch) = self.online.code.text.chars().nth(i) {
                 c.label(ch.to_string(), x + 50.0, 110.0, 80.0, HOT, Align::Center);
             }
+        }
+        let (through, color) = match &self.online.through {
+            Some(host) => (format!("Through nearby host {host}"), HOT),
+            None => {
+                let relay = self.relay();
+                (format!("Through relay {}", if relay.trim().is_empty() { crate::netplay::DEFAULT_RELAY.trim_start_matches("wss://") } else { relay.as_str() }), DIM)
+            }
+        };
+        let [x, y, w, _] = THROUGH;
+        if self.online.nearby.is_empty() {
+            fit_label(c, &through, x + w / 2.0, y, 26.0, w, color, Align::Center);
+        } else {
+            c.hint(&format!("{through}   {{Y}}: change"), x + w / 2.0, y, 26.0, color, Align::Center);
         }
         self.online.code.draw(c, ALPHABET, 7);
         if self.online.message.is_empty() {
@@ -626,6 +756,11 @@ impl Game {
             c.label(status, SCREEN_W / 2.0, 110.0, 34.0, DIM, Align::Center);
         } else if net.is_host() {
             c.label("Share the code: players join it from Online", SCREEN_W / 2.0, 110.0, 30.0, DIM, Align::Center);
+        }
+        if self.online.lan_session && net.is_host() {
+            let address = self.online.lan_address.as_deref().unwrap_or("this device's address");
+            let port = self.online.lan.unwrap_or_default();
+            fit_label(c, &format!("On this network: Join lists this host, or set the relay to {address}:{port}"), SCREEN_W / 2.0, 142.0, 24.0, SCREEN_W - 80.0, DIM, Align::Center);
         }
         let looks = crate::player_looks();
         let mut y = 170.0;
@@ -671,8 +806,10 @@ fn start_refused(start: &Start, mine: &[usize]) -> Option<&'static str> {
     }
 }
 
-fn online_row(i: usize) -> [f32; 4] {
-    [112.0, ROW_TOP + i as f32 * ROW_H, 800.0, ROW_H - 16.0]
+/// Row `i` of `n` on the Online page; five rows sit closer to clear the message under them.
+fn online_row(i: usize, n: usize) -> [f32; 4] {
+    let (top, h) = if n > 4 { (110.0, 88.0) } else { (150.0, 96.0) };
+    [112.0, top + i as f32 * h, 800.0, h - 16.0]
 }
 
 #[cfg(test)]
@@ -704,6 +841,79 @@ mod tests {
         assert_eq!(g.page, Page::Lobby, "with one set, Host opens the lobby");
         let Some(crate::netplay::Request::Connect { room, .. }) = g.net_request() else { panic!("no connect") };
         assert!(room.starts_with("ws://192.168.1.5:8097/signal/"), "{room}");
+    }
+
+    fn shown_text(g: &Game) -> Vec<String> {
+        let frame = g.draw();
+        [frame.top, frame.bottom]
+            .iter()
+            .flat_map(|c| c.shapes.iter())
+            .filter_map(|s| match s {
+                crate::draw::Shape::Text { text, .. } => Some(text.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn host_on_this_network_shows_only_where_the_platform_can_serve_a_relay() {
+        let a = Input { pressed: Buttons::A, ..Input::default() };
+        let mut g = Game::new(1);
+        g.set_online(true);
+        g.page = Page::Online;
+        assert_eq!(g.online_rows(), [Row::Host, Row::Join, Row::Relay, Row::Back], "the web build never calls set_lan");
+        assert!(!shown_text(&g).iter().any(|t| t == "Host on this network"));
+
+        g.set_lan(Some(12525));
+        g.set_lan_address(Some("192.168.1.5".into()));
+        assert_eq!(g.online_rows(), [Row::Host, Row::HostLan, Row::Join, Row::Relay, Row::Back]);
+        assert!(shown_text(&g).iter().any(|t| t == "Host on this network"));
+        g.online.row = 1;
+        g.online_page(&a, None);
+        assert_eq!(g.page, Page::Lobby);
+        assert_eq!(g.take_lan_host(), Some(12525), "the platform starts its relay");
+        assert_eq!(g.take_lan_host(), None, "once");
+        let Some(Request::Connect { room, ice }) = g.net_request() else { panic!("no connect") };
+        assert!(room.starts_with("ws://127.0.0.1:12525/signal/"), "{room}");
+        assert!(ice.is_empty(), "no ICE servers to fetch: {ice}");
+        assert!(g.save().relay.as_str().is_empty(), "the relay setting is left alone");
+        assert!(shown_text(&g).iter().any(|t| t.contains("192.168.1.5:12525")), "the lobby shows where others find it");
+
+        g.lobby_page(&Input { pressed: Buttons::B, ..Input::default() }, None);
+        g.online.row = 0;
+        g.online_page(&a, None);
+        assert!(!shown_text(&g).iter().any(|t| t.contains("192.168.1.5:12525")), "a room on the public relay shows no address");
+    }
+
+    #[test]
+    fn a_nearby_host_is_joined_through_for_that_session_only() {
+        let a = Input { pressed: Buttons::A, ..Input::default() };
+        let mut g = Game::new(1);
+        g.set_online(true);
+        g.page = Page::Online;
+        g.set_nearby(vec!["192.168.1.7:12525".into()]);
+        assert!(shown_text(&g).iter().any(|t| t == "Nearby: 192.168.1.7"));
+        g.online.row = 1;
+        g.online_page(&a, None);
+        assert_eq!((g.page, g.online.through.as_deref()), (Page::Join, Some("192.168.1.7:12525")));
+        assert!(shown_text(&g).iter().any(|t| t.contains("Through nearby host 192.168.1.7:12525")));
+        g.typed("ACDEF\n");
+        assert_eq!(g.page, Page::Lobby);
+        let Some(Request::Connect { room, ice }) = g.net_request() else { panic!("no connect") };
+        assert!(room.starts_with("ws://192.168.1.7:12525/signal/"), "{room}");
+        assert!(ice.is_empty());
+        assert!(g.save().relay.as_str().is_empty(), "the saved relay is not overwritten");
+
+        g.lobby_page(&Input { pressed: Buttons::B, ..Input::default() }, None);
+        let _ = g.net_request();
+        g.online_page(&a, None);
+        g.join_page(&Input { pressed: Buttons::Y, ..Input::default() }, None);
+        assert_eq!(g.online.through, None, "{{Y}} moves on to the relay setting");
+        g.set_nearby(vec!["192.168.1.7:12525".into()]);
+        assert_eq!(g.online.through, None, "and a beacon does not undo the pick");
+        g.typed("ACDEF\n");
+        let Some(Request::Connect { room, .. }) = g.net_request() else { panic!("no connect") };
+        assert!(room.starts_with("wss://lh-relay.vps.pocketsquirrel.com/signal/"), "{room}");
     }
 
     #[test]
@@ -806,12 +1016,12 @@ mod tests {
         g.update(&Input::default(), 0.016);
         assert_eq!(g.page, Page::Online, "a tap on Online opens it");
 
-        tap(&mut g, size, middle(online_row(2)));
+        tap(&mut g, size, middle(online_row(2, 4)));
         assert_eq!(g.page, Page::Relay, "a tap on Relay opens its keys");
         type_by_touch(&mut g, size, "10.0.0.2:8097", RELAY_KEYS, 10);
         assert_eq!((g.page, g.save().relay.as_str()), (Page::Online, "10.0.0.2:8097"));
 
-        tap(&mut g, size, middle(online_row(1)));
+        tap(&mut g, size, middle(online_row(1, 4)));
         assert_eq!(g.page, Page::Join);
         let code = RoomCode::from_random(7);
         type_by_touch(&mut g, size, code.as_str(), ALPHABET, 7);

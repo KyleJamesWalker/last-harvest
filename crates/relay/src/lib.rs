@@ -2,6 +2,7 @@
 //! each peer in its room, and `/healthz`. See docs/online.md.
 
 pub mod config;
+pub mod lan;
 mod limits;
 mod signal;
 mod turn;
