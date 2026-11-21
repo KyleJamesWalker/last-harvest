@@ -315,6 +315,17 @@ pub(super) struct Patch {
     owner: PlayerId,
 }
 
+impl Patch {
+    pub fn relabel(&mut self, v: PlayerId) {
+        self.owner = swapped(self.owner, v);
+    }
+}
+
+/// Player `p` as named once players 0 and `v` trade places.
+fn swapped(p: PlayerId, v: PlayerId) -> PlayerId {
+    if p == 0 { v } else if p == v { 0 } else { p }
+}
+
 /// A blade swept around the player: its angle and distance from them run from the first value to the second.
 pub(super) struct Swing {
     pub art: Art,
@@ -459,6 +470,12 @@ pub(super) struct Decoy {
     owner: PlayerId,
 }
 
+impl Decoy {
+    pub fn relabel(&mut self, v: PlayerId) {
+        self.owner = swapped(self.owner, v);
+    }
+}
+
 fn in_cone(d: [f32; 2], dir: [f32; 2], half: f32) -> bool {
     let l = len(d);
     l > 1e-3 && (d[0] * dir[0] + d[1] * dir[1]) / l >= half.cos()
@@ -526,7 +543,7 @@ impl Harvest {
 
     /// While X is held, the offset to the nearest barrel within `range` inside the view.
     pub(super) fn barrel_in_view(&self, range: f32) -> Option<[f32; 2]> {
-        if !self.targeting || self.actor != ME {
+        if !self.targeting_of(self.actor) {
             return None;
         }
         self.barrels
@@ -700,11 +717,11 @@ impl Harvest {
     /// Plays a weapon's feel from its section, with its flash at `at`, `z` above the ground.
     fn attack_feel(&mut self, a: Armed, at: [f32; 2], z: f32) {
         let f = book().defs[a.def].feel;
-        if self.actor == ME {
-            self.juice.kick += f.kick;
-            self.juice.punch += f.punch;
-            self.juice.shake(f.shake);
-        }
+        self.feel_for(self.actor, |j| {
+            j.kick += f.kick;
+            j.punch += f.punch;
+            j.shake(f.shake);
+        });
         if let Some((color, range, life)) = f.flash {
             self.juice.flash(at, z, color, range, life);
         }

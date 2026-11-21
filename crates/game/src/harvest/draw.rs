@@ -34,13 +34,17 @@ impl Harvest {
         self.popups(&mut f.top, &scene);
         self.motes(&mut f.top, &scene);
         f.top.cards = Some(scene);
+        f.top.anchor([-1.0, -1.0]);
         self.vignette(&mut f.top);
         self.hud(&mut f.top);
+        f.top.anchor([0.5, 0.5]);
         self.way_home(&mut f.top, view_proj);
         self.teammates(&mut f.top, view_proj);
         self.barrel_mark(&mut f.top, view_proj);
         self.ticket_mark(&mut f.top, view_proj);
+        f.top.anchor([0.5, 0.0]);
         self.banner(&mut f.top);
+        f.top.anchor([0.5, 0.5]);
         self.overlays(&mut f.top);
         self.paused_top(&mut f.top);
 
@@ -57,9 +61,13 @@ impl Harvest {
         self.home_on_map(c, cam);
         self.ticket_on_map(c, cam);
         self.teammates_on_map(c, cam);
+        c.anchor([1.0, 1.0]);
         self.grenade_tray(c);
+        c.anchor([0.0, 1.0]);
         self.kit_tray(c);
+        c.anchor([0.5, 0.5]);
         self.aim_mark(c, cam);
+        c.anchor([0.5, 0.5]);
         self.paused_bottom(c);
         if let Phase::LevelUp { choices, selected, t, picked } = &self.phase {
             let fade = picked.map_or(1.0, |p| 1.0 - p / PICK_TIME);
@@ -73,6 +81,9 @@ impl Harvest {
             c.label(how, SCREEN_W / 2.0, 60.0, 32.0, [1.0, 1.0, 1.0, fade], Align::Center);
             self.choices(c, choices, *selected, *t, *picked, CHOICE_TOP);
             self.level_keys(c, fade);
+            if self.views > 1 && picked.is_some_and(|p| p >= PICK_TIME) {
+                c.label("Waiting for the others to pick", SCREEN_W / 2.0, SCREEN_H / 2.0 - 20.0, 40.0, WHITE, Align::Center);
+            }
         }
     }
 
@@ -554,6 +565,18 @@ impl Harvest {
                 };
                 c.label(line, SCREEN_W / 2.0, line_y, 40.0, [1.0, 1.0, 1.0, a], Align::Center);
                 c.label(pad::hint("{A}: try another farm      {B}: menu"), SCREEN_W / 2.0, line_y + 80.0, 32.0, [1.0, 1.0, 1.0, 0.7 * a], Align::Center);
+                if self.views > 1 {
+                    let mut seats: Vec<usize> = (0..self.players.len()).collect();
+                    seats.sort_by_key(|&p| self.number(p));
+                    let each: Vec<String> = seats
+                        .into_iter()
+                        .map(|p| {
+                            let (kills, useful) = self.juice.tally.sum(p);
+                            format!("P{}  {kills} kills  {} damage", self.number(p), grouped(useful.round() as u64))
+                        })
+                        .collect();
+                    c.label(each.join("      "), SCREEN_W / 2.0, line_y + 130.0, 28.0, [1.0, 1.0, 1.0, a], Align::Center);
+                }
                 let names: Vec<&str> = self.newly.iter().map(|&i| book().defs[i].name.as_str()).collect();
                 let news = [
                     (!names.is_empty()).then(|| format!("Found: {}", names.join(", "))),
@@ -640,7 +663,7 @@ impl Harvest {
         let (fwd, right) = ([self.me().view_yaw.cos(), self.me().view_yaw.sin()], [-self.me().view_yaw.sin(), self.me().view_yaw.cos()]);
         for (p, pl) in self.players.iter().enumerate().filter(|&(p, _)| p != ME) {
             let color = if pl.alive() { WHITE } else { RED };
-            let name = format!("P{}", p + 1);
+            let name = format!("P{}", self.number(p));
             let shown = view3d::to_screen(view_proj, pl.pos, 22.0).filter(|([x, y], _)| (40.0..SCREEN_W - 40.0).contains(x) && (60.0..SCREEN_H - 40.0).contains(y));
             if let Some(([x, y], _)) = shown {
                 c.label(name, x, y - 30.0, 30.0, color, Align::Center);
@@ -661,11 +684,11 @@ impl Harvest {
     }
 
     /// Each other player's number on the map, pinned to the edge when they're off it.
-    fn teammates_on_map(&self, c: &mut Canvas, cam: [f32; 2]) {
+    pub(super) fn teammates_on_map(&self, c: &mut Canvas, cam: [f32; 2]) {
         for (p, pl) in self.players.iter().enumerate().filter(|&(p, _)| p != ME) {
             let x = ((pl.pos[0] - cam[0]) * map_scale()).clamp(30.0, SCREEN_W - 30.0);
             let y = ((pl.pos[1] - cam[1]) * map_scale()).clamp(60.0, SCREEN_H - 30.0);
-            c.label(format!("P{}", p + 1), x, y - 44.0, 28.0, if pl.alive() { WHITE } else { RED }, Align::Center);
+            c.label(format!("P{}", self.number(p)), x, y - 44.0, 28.0, if pl.alive() { WHITE } else { RED }, Align::Center);
         }
     }
 
@@ -714,6 +737,9 @@ impl Harvest {
         }
         c.rect(0.0, 0.0, SCREEN_W, SCREEN_H, [0.0, 0.0, 0.0, 0.6]);
         c.text_centered(250.0, 16.0, WHITE, "PAUSED");
+        if self.views > 1 {
+            c.label(format!("P{} paused", self.number(self.paused_by)), SCREEN_W / 2.0, 340.0, 40.0, GOLD, Align::Center);
+        }
         let line = format!("{}   Level {}   Kills {}", clock(self.t), self.level, self.kills);
         c.label(line, SCREEN_W / 2.0, 420.0, 40.0, WHITE, Align::Center);
     }
@@ -722,6 +748,11 @@ impl Harvest {
     fn paused_bottom(&self, c: &mut Canvas) {
         let Some(at) = self.menu else { return };
         c.rect(0.0, 0.0, SCREEN_W, SCREEN_H, [0.0, 0.0, 0.0, 0.6]);
+        if self.paused_by != ME {
+            c.text_centered(250.0, 16.0, WHITE, "PAUSED");
+            c.label(format!("P{} paused", self.number(self.paused_by)), SCREEN_W / 2.0, 360.0, 40.0, GOLD, Align::Center);
+            return;
+        }
         let how = pad::hint(if self.taps { "{Start} or {B}: resume.   Up / Down and {A}, or tap" } else { "{Start} or {B}: resume.   Up / Down and {A}" });
         c.label(how, SCREEN_W / 2.0, 60.0, 32.0, WHITE, Align::Center);
         for (i, name) in PAUSE_CHOICES.iter().enumerate() {
@@ -734,6 +765,7 @@ impl Harvest {
 
     fn hud(&self, c: &mut Canvas) {
         // XP across the top, with a bright leading edge; it flashes while full.
+        c.anchor([-1.0, 0.0]);
         let k = (self.xp_shown / self.next_xp as f32).clamp(0.0, 1.0);
         c.rect(0.0, 0.0, SCREEN_W, 14.0, [0.0, 0.0, 0.0, 0.6]);
         let glint = (1.0 - self.chain.0 / 0.15).max(0.0);
@@ -747,6 +779,7 @@ impl Harvest {
             c.rect(SCREEN_W * k - 8.0, 0.0, 8.0, 14.0, [1.0, 1.0, 0.85, 0.9]);
         }
         // Health, with a pale chunk trailing what was just lost; it throbs when low.
+        c.anchor([0.0, 0.0]);
         let (bx, by, bw, bh) = (24.0, 30.0, 240.0, 22.0);
         let max = self.me().kit.max_hp();
         c.rect(bx - 3.0, by - 3.0, bw + 6.0, bh + 6.0, [0.0, 0.0, 0.0, 0.7]);
@@ -757,6 +790,7 @@ impl Harvest {
         if self.range.is_none() {
             c.label(format!("LV {}", self.level), bx, by + 30.0, 32.0, WHITE, Align::Left);
         }
+        c.anchor([0.5, 0.0]);
         if self.range.is_some() {
         } else if self.t >= super::dawn() {
             c.text_centered(30.0, 6.0, HARVESTER, &format!("DAWN +{}", clock(self.t - super::dawn())));
@@ -764,6 +798,7 @@ impl Harvest {
         } else {
             c.text_centered(30.0, 6.0, WHITE, &clock(self.t));
         }
+        c.anchor([1.0, 0.0]);
         let bump = 1.0 + 0.35 * (1.0 - self.kill_bump / 0.15).max(0.0);
         c.label(format!("{} kills", self.kills), SCREEN_W - 24.0, 28.0 - 8.0 * (bump - 1.0), 32.0 * bump, WHITE, Align::Right);
     }

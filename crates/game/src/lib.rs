@@ -207,6 +207,12 @@ pub struct Game {
     keyboard: bool,
     /// Players sharing the screen, as the platform seated them at the title.
     players: usize,
+    /// The fewest views a run shows, for trying split-screen with scripted players in the views past the seated ones.
+    split: usize,
+    /// Each view's size in pixels while a run is split, player 1's first.
+    view_sizes: Vec<[f32; 2]>,
+    /// What players 2 onward press this frame, by seat.
+    others: Vec<Input>,
 }
 
 /// Where the title's menu sits on the top screen when one screen shows both, and its scale.
@@ -269,6 +275,9 @@ impl Game {
             raw_pressed: Buttons::NONE,
             keyboard: false,
             players: 1,
+            split: 1,
+            view_sizes: Vec::new(),
+            others: Vec::new(),
         }
     }
 
@@ -412,7 +421,7 @@ impl Game {
             Scene::Harvest | Scene::Single => {
                 harvest::use_player_farm(self.save.player.as_str());
                 self.sounds.push(Sfx::Start);
-                State::Harvest(Box::new(harvest::Harvest::on(seed, self.save.map.as_str()).at(self.save.difficulty).with_progress(self.progress()).without_enemies(self.save.enemies_off).looking_like(self.save.player.as_str()).with_kit(&self.kit).starting_at(self.start_t).single_screen(self.one_screen()).endless_grenades(self.endless).with_bots(self.bots)))
+                State::Harvest(Box::new(harvest::Harvest::on(seed, self.save.map.as_str()).at(self.save.difficulty).with_progress(self.progress()).without_enemies(self.save.enemies_off).looking_like(self.save.player.as_str()).with_kit(&self.kit).starting_at(self.start_t).single_screen(self.one_screen()).endless_grenades(self.endless).with_players(self.players).with_bots(self.bots).with_views(self.players.max(self.split))))
             }
             Scene::Farm => State::Harvest(Box::new(harvest::Harvest::calm(seed))),
             Scene::Bench(size) => State::Harvest(Box::new(harvest::Harvest::bench(size))),
@@ -450,6 +459,31 @@ impl Game {
     /// How many players the platform has seated; the title names those who joined.
     pub fn set_players(&mut self, n: usize) {
         self.players = n.max(1);
+    }
+
+    /// Every run shows at least `n` views, the ones past the seated players driven by `LAST_HARVEST_BOTS`'s players.
+    pub fn set_split(&mut self, n: usize) {
+        self.split = n.max(1);
+    }
+
+    /// How many views the run on show has, one per local player; 1 outside a run.
+    pub fn views(&self) -> usize {
+        match &self.state {
+            State::Harvest(h) => h.views(),
+            _ => 1,
+        }
+    }
+
+    /// The size in pixels of each view the window splits into, player 1's first, so each lays its HUD out to fit.
+    pub fn set_view_sizes(&mut self, sizes: Vec<[f32; 2]>) {
+        self.view_sizes = sizes;
+    }
+
+    /// Runs a step with each seated player's input, player 1's first.
+    pub fn update_all(&mut self, inputs: &[Input], dt: f32) {
+        let Some((first, others)) = inputs.split_first() else { return };
+        self.others = others.to_vec();
+        self.update(first, dt);
     }
 
     /// The title's main page is open, where a pad joins or leaves.
@@ -633,6 +667,9 @@ impl Game {
                 h.set_touch_keys(self.phone.is_some() && self.has_touch() && !self.touchpad.hidden);
                 h.set_saves_photos(self.captures);
                 h.set_taps(self.phone.is_none() || self.touch_screen());
+                let controls = self.save.controls;
+                let others: Vec<Input> = self.others.iter().map(|i| Input { held: controls.apply(i.held), pressed: controls.apply(i.pressed), ..*i }).collect();
+                h.set_inputs(&others);
                 let flow = h.update(input, dt, &mut self.sounds);
                 if flow.capture && self.captures {
                     self.shot = true;
@@ -682,7 +719,26 @@ impl Game {
             State::Harvest(h) => h.blend(alpha),
             _ => None,
         };
-        let frame = self.draw();
+        let mut frame = self.draw();
+        let clean = self.clean();
+        if let State::Harvest(h) = &mut self.state
+            && h.views() > 1
+        {
+            frame.views = (1..h.views()).map(|v| {
+                let mut f = Frame::default();
+                h.draw_view(v, &mut f, clean);
+                f.top
+            }).collect();
+            if h.followed(0) != 0 {
+                let mut f = Frame::default();
+                h.draw_view(0, &mut f, clean);
+                frame.top = f.top;
+            }
+            for (canvas, &[w, h]) in std::iter::once(&mut frame.top).chain(&mut frame.views).zip(&self.view_sizes) {
+                let aspect = w / h.max(1.0);
+                canvas.refit(if aspect >= SCREEN_W / SCREEN_H { [SCREEN_H * aspect, SCREEN_H] } else { [SCREEN_W, SCREEN_W / aspect.max(0.01)] });
+            }
+        }
         if let (State::Harvest(h), Some(undo)) = (&mut self.state, undo) {
             h.unblend(undo);
         }
@@ -862,6 +918,30 @@ const SHOT_FLASH: f32 = 0.25;
 mod tests {
     use super::*;
     use menu::{DIFFICULTY_Y, RESET_CONFIRM};
+
+    #[test]
+    fn a_run_with_two_seated_shows_two_views_each_laid_out_to_its_size() {
+        let mut game = Game::new(4);
+        game.set_players(2);
+        game.open(Scene::Harvest);
+        assert_eq!(game.views(), 2);
+        game.set_view_sizes(vec![[640.0, 720.0], [640.0, 720.0]]);
+        let f = game.draw_at(0.0);
+        assert_eq!(f.views.len(), 1, "player 2's view");
+        assert_eq!((f.top.size, f.views[0].size), (Some([1024.0, 1152.0]), Some([1024.0, 1152.0])));
+        let mut solo = Game::new(4);
+        solo.open(Scene::Harvest);
+        assert!(solo.views() == 1 && solo.draw_at(0.0).views.is_empty() && solo.draw_at(0.0).top.size.is_none(), "one player draws as ever");
+    }
+
+    #[test]
+    fn a_split_past_the_seated_players_fills_with_scripted_ones() {
+        let mut game = Game::new(4);
+        game.add_bots(1);
+        game.set_split(2);
+        game.open(Scene::Harvest);
+        assert_eq!(game.views(), 2);
+    }
 
     #[test]
     fn the_title_names_the_players_who_joined() {

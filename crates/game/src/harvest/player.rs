@@ -133,11 +133,12 @@ impl Harvest {
         self
     }
 
-    /// Starts the run with `n` scripted players beside the local one, each walking and steering by what its own map
+    /// Adds `n` scripted players after the players already in the run, each walking and steering by what its own map
     /// shows, for trying out several players.
     pub fn with_bots(self, n: usize) -> Self {
-        let mut h = self.with_players(1 + n);
-        h.bots = (1..h.players.len()).map(|p| (p, Bot::new(Walk::Avoid, 0.25, 0.0, 12.0))).collect();
+        let first = self.players.len();
+        let mut h = self.with_players(first + n);
+        h.bots = (first..h.players.len()).map(|p| (p, Bot::new(Walk::Avoid, 0.25, 0.0, 12.0))).collect();
         h
     }
 

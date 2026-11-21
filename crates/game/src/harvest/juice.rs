@@ -286,6 +286,8 @@ pub struct Juice {
     /// Damage dealt to zombies so far, as the numbers show it.
     pub dealt: f32,
     pub tally: super::tally::Tally,
+    /// Hit-stop never freezes the world, which several players share.
+    pub still: bool,
 }
 
 impl Juice {
@@ -310,21 +312,14 @@ impl Juice {
             clock: 0.0,
             dealt: 0.0,
             tally: Default::default(),
+            still: false,
         }
     }
 
     /// Springs, shake and hit-stop run on real time, even while the world is frozen.
     pub fn tick_real(&mut self, dt: f32) {
         self.clock += dt;
-        self.trauma = (self.trauma - TRAUMA_DECAY * dt).max(0.0);
-        self.kick *= (1.0 - 18.0 * dt).max(0.0);
-        self.punch *= (1.0 - 10.0 * dt).max(0.0);
-        self.hurt = (self.hurt - dt).max(0.0);
-        if self.hitstop > 0.0 {
-            self.hitstop -= dt;
-        } else {
-            self.rest = (self.rest - dt).max(0.0);
-        }
+        self.tick_feel(dt);
         for m in &mut self.motes {
             m.age += dt;
         }
@@ -394,13 +389,35 @@ impl Juice {
         self.flares.retain(|f| f.age < f.life);
     }
 
+    /// The camera's springs, shake, red flash and hit-stop wind down.
+    pub fn tick_feel(&mut self, dt: f32) {
+        self.trauma = (self.trauma - TRAUMA_DECAY * dt).max(0.0);
+        self.kick *= (1.0 - 18.0 * dt).max(0.0);
+        self.punch *= (1.0 - 10.0 * dt).max(0.0);
+        self.hurt = (self.hurt - dt).max(0.0);
+        if self.hitstop > 0.0 {
+            self.hitstop -= dt;
+        } else {
+            self.rest = (self.rest - dt).max(0.0);
+        }
+    }
+
+    /// What one player's camera feels: trauma, kick, punch, hit-stop, its rest and the red flash.
+    pub fn feel(&self) -> [f32; 6] {
+        [self.trauma, self.kick, self.punch, self.hitstop, self.rest, self.hurt]
+    }
+
+    pub fn set_feel(&mut self, [trauma, kick, punch, hitstop, rest, hurt]: [f32; 6]) {
+        (self.trauma, self.kick, self.punch, self.hitstop, self.rest, self.hurt) = (trauma, kick, punch, hitstop, rest, hurt);
+    }
+
     pub fn frozen(&self) -> bool {
         self.hitstop > 0.0
     }
 
     /// Freezes the world for `secs`, unless it was frozen a moment ago.
     pub fn stop(&mut self, secs: f32) {
-        if self.rest <= 0.0 && self.hitstop <= 0.0 {
+        if self.rest <= 0.0 && self.hitstop <= 0.0 && !self.still {
             self.hitstop = secs;
             self.rest = HITSTOP_REST;
         }
