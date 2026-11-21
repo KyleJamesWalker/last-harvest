@@ -31,6 +31,10 @@ impl Harvest {
         self.single
     }
 
+    pub fn set_corner_map(&mut self, on: bool) {
+        self.corner_map = on;
+    }
+
     pub fn set_touch_aim(&mut self, on: bool) {
         self.touch_aim = on;
         self.touch_map &= on;
@@ -154,7 +158,7 @@ impl Harvest {
         let k = 3.0;
         let mut below = 76.0;
         top.anchor([1.0, 0.0]);
-        if t.map_mini > 0.0 {
+        if self.corner_map && t.map_mini > 0.0 {
             let (w, reach, scale) = (t.map_mini, t.map_mini_reach.max(16.0), map_scale());
             let (h, (x, y)) = (w * 0.75, (SCREEN_W - 24.0 - w, below));
             let cam = [self.me().pos[0] - reach, self.me().pos[1] - 8.0 - reach * 0.75];
@@ -385,7 +389,7 @@ mod tests {
     }
 
     #[test]
-    fn the_corner_map_pins_far_marks_inside_its_own_edges() {
+    fn the_corner_map_turns_off_and_pins_far_marks_inside_its_own_edges() {
         let mut h = single(12);
         let draw = |h: &Harvest| {
             let mut f = crate::Frame::default();
@@ -398,6 +402,10 @@ mod tests {
         let [x, y, w, ht] = top.iter().find_map(|s| if let crate::Shape::Clip { rect: Some(r) } = s { Some(*r) } else { None }).expect("the corner map");
         let home = top.iter().find_map(|s| if let crate::Shape::Text { text, x, y, .. } = s { (text == "HOME").then_some([*x, *y]) } else { None }).expect("home on the corner map");
         assert!((x..x + w).contains(&home[0]) && (y..y + ht).contains(&home[1]), "{home:?} in {:?}", [x, y, w, ht]);
+        h.set_corner_map(false);
+        let off = draw(&h);
+        assert!(!off.iter().any(|s| matches!(s, crate::Shape::Clip { rect: Some(_) })), "no corner map");
+        assert!(off.iter().any(|s| matches!(s, crate::Shape::Art { art, .. } if *art == crate::art::GRENADE)), "the grenades stay");
     }
 
     #[test]

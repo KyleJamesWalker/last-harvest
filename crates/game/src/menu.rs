@@ -38,6 +38,7 @@ pub(crate) enum Setting {
     Rumble,
     Fps,
     Screens,
+    CornerMap,
     Touch,
     Grenades,
     Controls,
@@ -49,7 +50,7 @@ pub(crate) enum Setting {
 }
 
 impl Setting {
-    const ALL: [Setting; 14] = [Setting::TopBrightness, Setting::BottomBrightness, Setting::Volume, Setting::Rumble, Setting::Fps, Setting::Screens, Setting::Touch, Setting::Grenades, Setting::Controls, Setting::Player, Setting::Enemies, Setting::Folder, Setting::Relay, Setting::Reset];
+    const ALL: [Setting; 15] = [Setting::TopBrightness, Setting::BottomBrightness, Setting::Volume, Setting::Rumble, Setting::Fps, Setting::Screens, Setting::CornerMap, Setting::Touch, Setting::Grenades, Setting::Controls, Setting::Player, Setting::Enemies, Setting::Folder, Setting::Relay, Setting::Reset];
 
     fn name(self) -> &'static str {
         match self {
@@ -59,6 +60,7 @@ impl Setting {
             Setting::Rumble => "Rumble",
             Setting::Fps => "Show FPS",
             Setting::Screens => "Screens",
+            Setting::CornerMap => "Corner map",
             Setting::Touch => "Touch controls",
             Setting::Grenades => "Grenades",
             Setting::Controls => "Controls",
@@ -178,6 +180,7 @@ impl Game {
                 Setting::Relay => !self.settings_in_run && self.online_available(),
                 Setting::TopBrightness | Setting::BottomBrightness => self.has_backlights(),
                 Setting::Screens => !phone,
+                Setting::CornerMap => self.one_screen(),
                 Setting::Touch => phone && self.touch_screen(),
                 Setting::Grenades => phone && self.has_touch(),
                 _ => true,
@@ -373,6 +376,7 @@ impl Game {
             }
             Setting::Fps if by != 0 || press => self.save.fps = !self.save.fps,
             Setting::Screens if by != 0 || press => self.save.one_screen = !self.save.one_screen,
+            Setting::CornerMap if by != 0 || press => self.save.corner_map = !self.save.corner_map,
             Setting::Touch if by != 0 || press => self.save.touch = self.save.touch.step(if by == 0 { 1 } else { by }),
             Setting::Grenades if by != 0 || press => self.save.touch_grenades = !self.save.touch_grenades,
             Setting::Player if by != 0 || press => {
@@ -590,8 +594,12 @@ impl Game {
                 Setting::TopBrightness => (self.save.brightness[0], 1),
                 Setting::BottomBrightness => (self.save.brightness[1], 1),
                 Setting::Volume => (self.save.volume, 0),
-                Setting::Rumble | Setting::Fps => {
-                    let v = if s == Setting::Rumble { self.save.rumble } else { self.save.fps };
+                Setting::Rumble | Setting::Fps | Setting::CornerMap => {
+                    let v = match s {
+                        Setting::Rumble => self.save.rumble,
+                        Setting::Fps => self.save.fps,
+                        _ => self.save.corner_map,
+                    };
                     c.label(if v { "On" } else { "Off" }, (LESS_X + MORE_X) / 2.0, mid - 20.0, 38.0, if v { HOT } else { DIM }, Align::Center);
                     continue;
                 }
