@@ -18,7 +18,7 @@
             android:exported="true"
             android:launchMode="singleTask"
             android:screenOrientation="sensorLandscape"
-            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density">
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density|fontScale|layoutDirection|colorMode|mcc|mnc|touchscreen">
             <meta-data android:name="android.app.lib_name" android:value="last_harvest" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

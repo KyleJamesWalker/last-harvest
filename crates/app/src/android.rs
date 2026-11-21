@@ -10,7 +10,8 @@
 use std::io::Cursor;
 use std::num::NonZeroU32;
 use std::path::PathBuf;
-use std::sync::{Condvar, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use android_activity::input::{Axis, InputEvent, KeyAction, Keycode, MotionAction, MotionEvent};
@@ -170,6 +171,8 @@ struct Second {
     window: Option<ndk::native_window::NativeWindow>,
     /// A new window waits to be drawn on.
     fresh: bool,
+    /// The frame loop holds an EGL surface on the second window.
+    in_use: bool,
     /// The window is going away: the frame loop drops its surface, then clears this, which lets Java go on.
     dropping: bool,
     touches: Vec<(i32, i32, f32, f32)>,
@@ -190,15 +193,18 @@ extern "system" fn Java_com_kylejameswalker_lastharvest_MainActivity_secondSurfa
         let s = guard.get_or_insert_with(Second::default);
         s.window = None;
         s.fresh = false;
-        s.dropping = true;
-        // Android frees the surface once this returns, so wait for the frame loop to stop drawing on it.
-        let _ = DROPPED.wait_timeout_while(guard, Duration::from_secs(2), |s| s.as_ref().is_some_and(|s| s.dropping));
+        if s.in_use {
+            s.dropping = true;
+            // Android frees the surface once this returns, so wait for the frame loop to stop drawing on it.
+            let _ = DROPPED.wait_timeout_while(guard, Duration::from_secs(2), |s| s.as_ref().is_some_and(|s| s.dropping));
+        }
         return;
     }
     let window = unsafe { ndk::native_window::NativeWindow::from_surface(env.cast(), surface) };
     second(|s| {
         s.window = window;
         s.fresh = true;
+        s.dropping = false;
     });
 }
 
@@ -209,6 +215,10 @@ extern "system" fn Java_com_kylejameswalker_lastharvest_MainActivity_secondTouch
 
 /// What `MainActivity.fetchPack` reported: nothing yet, then the pack's arrival or its error.
 static PACK: Mutex<Option<Result<(), String>>> = Mutex::new(None);
+/// A `fetchPack` is under way: a later start waits for its answer rather than fetching over the same file.
+static FETCHING: AtomicBool = AtomicBool::new(false);
+/// This process installed the stand-in data that asks for the internet; `data::install` won't take the pack after it.
+static WITHOUT_DATA: AtomicBool = AtomicBool::new(false);
 
 #[unsafe(no_mangle)]
 extern "system" fn Java_com_kylejameswalker_lastharvest_MainActivity_packReady<'local>(mut env: jni::EnvUnowned<'local>, _class: jni::objects::JClass<'local>, error: jni::objects::JString<'local>) {
@@ -291,37 +301,58 @@ fn save_shot(android: &AndroidApp, capture: Capture, img: Shot) {
 }
 
 /// The release's game_data.pak, kept in internal storage by version and fetched from the release the first time.
-/// The APK carries none, as every release shares one pack.
-fn release_pack(android: &AndroidApp) -> Result<Vec<u8>, String> {
-    let dir = android.internal_data_path().ok_or("no internal storage")?;
-    let path = dir.join(format!("game_data-{VERSION}.pak"));
+/// The APK carries none, as every release shares one pack. Returns `Ok(None)` if the activity is destroyed while
+/// waiting for the download, so the next start can try again.
+fn release_pack(android: &AndroidApp) -> Result<Option<Vec<u8>>, String> {
+    let path = pack_path(android).ok_or("no internal storage")?;
     if let Ok(bytes) = std::fs::read(&path) {
-        return Ok(bytes);
+        return Ok(Some(bytes));
     }
-    for old in std::fs::read_dir(&dir).into_iter().flatten().flatten().map(|e| e.path()) {
-        if old.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("game_data-") && n.ends_with(".pak")) {
-            let _ = std::fs::remove_file(old);
+    if !FETCHING.swap(true, Ordering::SeqCst) {
+        let dir = path.parent().ok_or("no internal storage")?;
+        for old in std::fs::read_dir(dir).into_iter().flatten().flatten().map(|e| e.path()) {
+            if old.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("game_data-") && n.ends_with(".pak")) {
+                let _ = std::fs::remove_file(old);
+            }
+        }
+        let url = format!("https://github.com/KyleJamesWalker/last-harvest/releases/download/{VERSION}/game_data.pak");
+        log!("data: fetching {url}");
+        *PACK.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        let vm = unsafe { jni::JavaVM::from_raw(android.vm_as_ptr().cast()) };
+        let asked = vm.attach_current_thread(|env| -> jni::errors::Result<()> {
+            let activity = unsafe { jni::objects::JObject::from_raw(env, android.activity_as_ptr().cast()) };
+            let (url, to) = (env.new_string(&url)?, env.new_string(path.to_string_lossy())?);
+            let sig = jni::jni_sig!("(Ljava/lang/String;Ljava/lang/String;)V");
+            env.call_method(&activity, jni::jni_str!("fetchPack"), sig, &[jni::JValue::Object(&url), jni::JValue::Object(&to)])?;
+            Ok(())
+        });
+        if let Err(e) = asked {
+            FETCHING.store(false, Ordering::SeqCst);
+            return Err(format!("fetchPack: {e}"));
         }
     }
-    let url = format!("https://github.com/KyleJamesWalker/last-harvest/releases/download/{VERSION}/game_data.pak");
-    log!("data: fetching {url}");
-    let vm = unsafe { jni::JavaVM::from_raw(android.vm_as_ptr().cast()) };
-    let asked = vm.attach_current_thread(|env| -> jni::errors::Result<()> {
-        let activity = unsafe { jni::objects::JObject::from_raw(env, android.activity_as_ptr().cast()) };
-        let (url, to) = (env.new_string(&url)?, env.new_string(path.to_string_lossy())?);
-        let sig = jni::jni_sig!("(Ljava/lang/String;Ljava/lang/String;)V");
-        env.call_method(&activity, jni::jni_str!("fetchPack"), sig, &[jni::JValue::Object(&url), jni::JValue::Object(&to)])?;
-        Ok(())
-    });
-    asked.map_err(|e| format!("fetchPack: {e}"))?;
+    let mut destroyed = false;
     loop {
         if let Some(done) = PACK.lock().unwrap_or_else(|e| e.into_inner()).take() {
+            FETCHING.store(false, Ordering::SeqCst);
             done?;
-            return std::fs::read(&path).map_err(text);
+            return std::fs::read(&path).map(Some).map_err(text);
         }
         // The window and resume this drops are taken up again once the game starts.
-        android.poll_events(Some(Duration::from_millis(100)), |_| {});
+        android.poll_events(Some(Duration::from_millis(100)), |event| {
+            if matches!(event, PollEvent::Main(MainEvent::Destroy)) {
+                destroyed = true;
+            }
+        });
+        if destroyed {
+            return Ok(None);
+        }
     }
+}
+
+/// Where this version's release pack is kept in internal storage.
+fn pack_path(android: &AndroidApp) -> Option<PathBuf> {
+    android.internal_data_path().map(|d| d.join(format!("game_data-{VERSION}.pak")))
 }
 
 /// The largest 4:3 rect centered in a `w` by `h` window, as x, y, width and height in GL's bottom-up pixels.
@@ -349,18 +380,19 @@ fn vibrate(android: &AndroidApp, ms: Option<i32>) {
 
 /// The second screen's window and the surface the bottom screen draws on.
 struct Bottom {
-    window: ndk::native_window::NativeWindow,
     surface: Surface<WindowSurface>,
+    window: ndk::native_window::NativeWindow,
 }
 
 /// What Android takes away while the app is in the background: the window, and with it the surface.
+/// Fields drop in order: GL objects and surfaces before the context, the window last, and `App` drops this before `display`.
 struct Gl {
-    window: ndk::native_window::NativeWindow,
-    surface: Surface<WindowSurface>,
-    bottom: Option<Bottom>,
-    context: PossiblyCurrentContext,
-    gl: glow::Context,
     renderer: Renderer,
+    gl: glow::Context,
+    bottom: Option<Bottom>,
+    surface: Surface<WindowSurface>,
+    context: PossiblyCurrentContext,
+    window: ndk::native_window::NativeWindow,
 }
 
 struct App {
@@ -368,10 +400,10 @@ struct App {
     game: Game,
     tracker: InputTracker,
     ticker: crate::clock::Ticker,
-    display: Option<Display>,
-    config: Option<Config>,
     gl: Option<Gl>,
-    sounds: samples::Files,
+    config: Option<Config>,
+    display: Option<Display>,
+    sounds: &'static samples::Files,
     audio: Option<audio::Audio>,
     fingers: Fingers,
     /// Fingers on the second screen, in its 0..1 coordinates.
@@ -404,7 +436,17 @@ fn size(window: &ndk::native_window::NativeWindow) -> Result<[NonZeroU32; 2], St
 }
 
 impl App {
+    fn drop_gl(&mut self) {
+        self.gl = None;
+        second(|s| {
+            s.in_use = false;
+            s.dropping = false;
+        });
+        DROPPED.notify_all();
+    }
+
     fn start_gl(&mut self) -> Result<(), String> {
+        self.drop_gl();
         let window = self.android.native_window().ok_or("no window")?;
         let raw = RawWindowHandle::AndroidNdk(AndroidNdkWindowHandle::new(window.ptr().cast()));
         let display = match &self.display {
@@ -429,7 +471,7 @@ impl App {
         let renderer = Renderer::new(&gl, Profile::Gles)?;
         self.display = Some(display);
         self.config = Some(config);
-        self.gl = Some(Gl { window, surface, bottom: None, context, gl, renderer });
+        self.gl = Some(Gl { renderer, gl, bottom: None, surface, context, window });
         second(|s| s.fresh |= s.window.is_some());
         self.last = Instant::now();
         Ok(())
@@ -444,12 +486,12 @@ impl App {
                 }
             }
             MainEvent::TerminateWindow { .. } => {
-                self.gl = None;
+                self.drop_gl();
                 self.persist(0.0, true);
             }
             MainEvent::Resume { .. } => {
                 if self.audio.is_none() {
-                    self.audio = audio::Audio::open(&self.sounds).inspect_err(|e| log!("audio disabled: {e}")).ok();
+                    self.audio = audio::Audio::open(self.sounds).inspect_err(|e| log!("audio disabled: {e}")).ok();
                 }
             }
             MainEvent::Pause => {
@@ -466,9 +508,14 @@ impl App {
                 self.persist(0.0, true);
             }
             MainEvent::Destroy => {
+                self.audio = None;
+                if std::mem::take(&mut self.rumbling) {
+                    vibrate(&self.android, None);
+                }
                 self.game.close_online();
                 self.online.send(&mut self.game);
                 self.persist(0.0, true);
+                self.drop_gl();
                 self.quit = true;
             }
             _ => {}
@@ -551,13 +598,34 @@ impl App {
                 g.bottom = None;
             }
             self.bottom_fingers = Fingers::default();
-            second(|s| s.dropping = false);
+            second(|s| {
+                s.in_use = false;
+                s.dropping = false;
+            });
             DROPPED.notify_all();
             log!("second screen: gone");
         }
         let Some(g) = &mut self.gl else { return };
-        let Some(window) = second(|s| if std::mem::take(&mut s.fresh) { s.window.clone() } else { None }) else { return };
-        let (Some(display), Some(config)) = (&self.display, &self.config) else { return };
+        let Some(window) = second(|s| {
+            if std::mem::take(&mut s.fresh) {
+                let w = s.window.clone();
+                s.in_use = w.is_some();
+                w
+            } else {
+                None
+            }
+        }) else {
+            return;
+        };
+        g.bottom = None;
+        let (Some(display), Some(config)) = (&self.display, &self.config) else {
+            second(|s| {
+                s.in_use = false;
+                s.dropping = false;
+            });
+            DROPPED.notify_all();
+            return;
+        };
         let raw = RawWindowHandle::AndroidNdk(AndroidNdkWindowHandle::new(window.ptr().cast()));
         let made = size(&window).and_then(|[w, h]| {
             let attrs = SurfaceAttributesBuilder::<WindowSurface>::new().build(raw, w, h);
@@ -568,9 +636,16 @@ impl App {
                 log!("second screen: {}x{}", window.width(), window.height());
                 // Vsync on the main screen paces the loop; waiting on both would halve the frame rate.
                 surface.set_swap_interval(&g.context, SwapInterval::DontWait).ok();
-                g.bottom = Some(Bottom { window, surface });
+                g.bottom = Some(Bottom { surface, window });
             }
-            Err(e) => log!("second screen: {e}"),
+            Err(e) => {
+                second(|s| {
+                    s.in_use = false;
+                    s.dropping = false;
+                });
+                DROPPED.notify_all();
+                log!("second screen: {e}");
+            }
         }
     }
 
@@ -754,16 +829,42 @@ fn data_folders(android: &AndroidApp) {
     log!("data: mods and cards in {}", data.display());
 }
 
-fn run(android: AndroidApp) -> Result<(), String> {
-    data_folders(&android);
-    let bundled = android.asset_manager().open(c"game_data.pak").map(|mut a| a.buffer().map(<[u8]>::to_vec).map_err(text));
-    let sounds = match bundled.unwrap_or_else(|| release_pack(&android)) {
-        Ok(bytes) => pak::install(Some(Pak::read(Cursor::new(bytes))?), None)?,
+/// Installs the game's data once per process and keeps its sound files for later starts: Android often destroys
+/// and recreates `MainActivity` inside a live process, where `data::install` has already run and refuses a second
+/// install. Returns `Ok(None)` if the activity is destroyed while fetching the release pack.
+fn load_data(android: &AndroidApp) -> Result<Option<&'static samples::Files>, String> {
+    static LOCK: Mutex<()> = Mutex::new(());
+    static SOUNDS: OnceLock<samples::Files> = OnceLock::new();
+    let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(sounds) = SOUNDS.get() {
+        return Ok(Some(sounds));
+    }
+    data_folders(android);
+    let bundled = android.asset_manager().open(c"game_data.pak").map(|mut a| a.buffer().map(|b| Some(b.to_vec())).map_err(text));
+    let pack = match bundled.unwrap_or_else(|| release_pack(android)) {
+        Ok(Some(bytes)) => Pak::read(Cursor::new(bytes)).inspect_err(|_| {
+            if let Some(path) = pack_path(android) {
+                let _ = std::fs::remove_file(path);
+            }
+        }),
+        Ok(None) => return Ok(None),
+        Err(e) => Err(e),
+    };
+    let sounds = match pack {
+        Ok(pack) => pak::install(Some(pack), None)?,
         Err(e) => {
             log!("data: {e}");
+            WITHOUT_DATA.store(true, Ordering::SeqCst);
             pak::install(None, Some(format!("Connect to the internet and start the game again to download its data ({e}).")))?
         }
     };
+    Ok(Some(SOUNDS.get_or_init(|| sounds)))
+}
+
+fn run(android: AndroidApp) -> Result<(), String> {
+    let Some(sounds) = load_data(&android)? else { return Ok(()) };
+    CHOSEN.lock().unwrap_or_else(|e| e.into_inner()).take();
+    second(|s| s.touches.clear());
     let save_path = android.internal_data_path().map(|d| d.join("save.txt"));
     let saved = save_path.as_ref().and_then(|p| std::fs::read_to_string(p).ok()).map(|t| Save::parse(&t)).unwrap_or_default();
     let mut game = Game::new(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.as_nanos() as u64));
@@ -777,9 +878,9 @@ fn run(android: AndroidApp) -> Result<(), String> {
         game,
         tracker: InputTracker::default(),
         ticker: crate::clock::Ticker::default(),
-        display: None,
-        config: None,
         gl: None,
+        config: None,
+        display: None,
         sounds,
         audio: None,
         fingers: Fingers::default(),
@@ -802,15 +903,22 @@ fn run(android: AndroidApp) -> Result<(), String> {
         if let Err(e) = app.start_gl() {
             log!("gl: {e}");
         }
-        app.audio = audio::Audio::open(&app.sounds).inspect_err(|e| log!("audio disabled: {e}")).ok();
+        app.audio = audio::Audio::open(app.sounds).inspect_err(|e| log!("audio disabled: {e}")).ok();
     }
     while !app.quit {
         // With a window, vsync in swap_buffers paces the loop; without one, wait for Android to give it back.
         let timeout = if app.gl.is_some() { Some(Duration::ZERO) } else { app.game.net_traffic().map(|_| AWAY_POLL) };
         android.poll_events(timeout, |event| app.event(event));
+        if app.quit {
+            break;
+        }
         app.read_input();
         app.follow_second();
         app.tick();
+    }
+    if WITHOUT_DATA.load(Ordering::SeqCst) {
+        // Only a new process can install the pack, so the next start must not reuse this one.
+        std::process::exit(0);
     }
     Ok(())
 }

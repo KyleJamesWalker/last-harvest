@@ -1277,6 +1277,23 @@ impl Harvest {
         self
     }
 
+    /// The level-up cards are up.
+    pub(crate) fn choosing(&self) -> bool {
+        matches!(self.phase, Phase::LevelUp { .. })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn deal_cards_with_rerolls(&mut self, rerolls: u32) {
+        self.rerolls = rerolls;
+        let choices = self.roll_choices(&[]);
+        self.phase = Phase::LevelUp { choices, selected: 0, t: 1.0, picked: None };
+    }
+
+    #[cfg(test)]
+    pub(crate) fn rerolls_left(&self) -> u32 {
+        self.rerolls
+    }
+
     #[cfg(test)]
     pub fn enemies_off(&self) -> u64 {
         self.enemies_off
@@ -1290,6 +1307,12 @@ impl Harvest {
     #[cfg(test)]
     pub fn grenades_in_the_air(&self) -> usize {
         self.thrown.iter().filter(|g| g.kind == Thrown::Grenade).count()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn last_thrown_distance(&self) -> Option<f32> {
+        let g = self.thrown.iter().rev().find(|g| g.kind == Thrown::Grenade)?;
+        Some(len(sub(g.to, g.from)))
     }
 
     /// Starts carrying powerups named `id` or `id:level`, comma separated; unknown names are skipped.

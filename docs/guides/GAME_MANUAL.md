@@ -59,8 +59,9 @@ On a phone, in a browser window, and in a desktop window, a run plays on one scr
 | Walk and strafe | Put a thumb down left of the picture and drag. The stick follows it. |
 | Turn | Slide a thumb sideways on the strip under Around. Further turns faster. |
 | Turn around | Around |
-| Show the map | Grenade. Tap it again to put the 3D view back. You keep moving. |
-| Throw a grenade | While the map is up, tap where it should land |
+| Throw a grenade straight ahead | Hold Grenade, then let go. Holding longer slides the marker further out. |
+| Show the map | Map. Tap it again to put the 3D view back. You keep moving. |
+| Throw a grenade on the map | While the map is up, tap where it should land |
 | Pick an upgrade, or a pause choice | Tap it |
 | Banish an upgrade | Banish, then the card. Tap Banish again to keep them all. |
 | Reroll the upgrades | Reroll |
@@ -69,7 +70,7 @@ On a phone, in a browser window, and in a desktop window, a run plays on one scr
 
 Two settings change the touch controls:
 
-- **Grenades:** Touch, the default, works as above. Pad makes Grenade, and L2 on a gamepad, aim a cursor in slowed time, as on one screen.
+- **Grenades:** Touch, the default, makes Map flip the map up so a tap throws there. Pad makes Map, and L2 on a gamepad, aim a cursor in slowed time, as on one screen. Grenade always throws straight ahead on release.
 - **Touch controls:** Auto, the default, hides the controls when you use a gamepad or keyboard and shows them at your next touch. On keeps them up. Off removes them, for a touch screen with buttons. Until you press a button, a touch turns Off back to Auto.
 
 ### Gamepads

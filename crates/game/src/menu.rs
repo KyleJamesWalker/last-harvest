@@ -884,7 +884,11 @@ impl Game {
             (
                 "Drag on the left to walk. Slide on the strip under Around to turn; the view turns with you.",
                 "Kills drop zombie hearts. Gather them to level up, then tap a card. Banish, Reroll and Favor help.",
-                if self.save.touch_grenades { "Grenade brings up the map: tap where the grenade should land." } else { "Hold Grenade to aim in slowed time, and let go to throw." },
+                if self.save.touch_grenades {
+                    "Hold Grenade to throw ahead; longer goes further. Tap Map to throw on the map."
+                } else {
+                    "Hold Grenade to throw ahead; longer goes further. Hold Map to aim in slowed time."
+                },
                 "The map shows where zombies were last seen. Out of sight, they fade where they stood.",
             )
         } else {

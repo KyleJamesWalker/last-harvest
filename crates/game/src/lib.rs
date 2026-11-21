@@ -597,7 +597,12 @@ impl Game {
         let hides = self.save.touch.hide_at_other_input();
         let other = hides && (input.held != Buttons::NONE || input.stick != [0.0; 2] || input.look != 0.0);
         self.touchpad.hidden &= hides;
-        let pad = self.touchpad.update(&input.touches, &layout, other);
+        let mut pad = self.touchpad.update(&input.touches, &layout, other);
+        // The Grenade key is R1, which rerolls the level-up cards; there only the Reroll key rerolls.
+        if matches!(&self.state, State::Harvest(h) if h.choosing()) {
+            pad.held.set(Buttons::R1, false);
+            pad.pressed.set(Buttons::R1, false);
+        }
         let stick = [0, 1].map(|i| (input.stick[i] + pad.stick[i]).clamp(-1.0, 1.0));
         let look = (input.look + pad.look).clamp(-1.0, 1.0);
         let touch = if self.title_on_one() { pad.touch.and_then(title_menu_touch) } else { pad.touch };
@@ -1150,7 +1155,7 @@ mod tests {
     }
 
     #[test]
-    fn on_a_phone_the_grenade_key_flips_the_map_up_and_a_tap_on_it_throws() {
+    fn on_a_phone_the_map_key_flips_the_map_up_and_a_tap_on_it_throws() {
         let size = [2400.0, 1080.0];
         let mut game = Game::new(1);
         game.set_phone(Some(size));
@@ -1182,6 +1187,52 @@ mod tests {
         touches[0] = Some([px + pw * 0.6, py + ph * 0.4]);
         game.update(&Input { touches, ..Default::default() }, 0.016);
         assert_eq!(flying(&game), 1, "a tap on the 3D view does not");
+    }
+
+    #[test]
+    fn on_a_phone_holding_the_grenade_key_throws_ahead_and_longer_throws_further() {
+        let size = [2400.0, 1080.0];
+        let layout = touch::layout(size, true, true, false);
+        let [gx, gy, gw, gh] = layout.key(Buttons::R1).expect("a Grenade key for quick throws");
+        let hold_at = Some([gx + gw / 2.0, gy + gh / 2.0]);
+        let throw_after = |frames: usize| {
+            let mut game = Game::new(1);
+            game.set_phone(Some(size));
+            press(&mut game, Buttons::A);
+            let mut touches = [None; MAX_TOUCHES];
+            touches[0] = hold_at;
+            for _ in 0..frames {
+                game.update(&Input { touches, ..Default::default() }, 0.016);
+            }
+            game.update(&Input::default(), 0.016);
+            match &game.state {
+                State::Harvest(h) => h.last_thrown_distance().expect("a thrown grenade"),
+                _ => panic!("not in a run"),
+            }
+        };
+        let short = throw_after(1);
+        let long = throw_after(45);
+        assert!(long > short + 30.0, "holding longer throws further: short={short}, long={long}");
+    }
+
+    #[test]
+    fn on_a_phone_the_grenade_key_does_not_reroll_the_level_up_cards() {
+        let size = [2400.0, 1080.0];
+        let mut game = Game::new(1);
+        game.set_phone(Some(size));
+        press(&mut game, Buttons::A);
+        let State::Harvest(h) = &mut game.state else { panic!("not in a run") };
+        h.deal_cards_with_rerolls(1);
+        let [gx, gy, gw, gh] = touch::layout(size, true, true, false).key(Buttons::R1).expect("a Grenade key");
+        let mut touches = [None; MAX_TOUCHES];
+        touches[0] = Some([gx + gw / 2.0, gy + gh / 2.0]);
+        game.update(&Input { touches, ..Default::default() }, 0.016);
+        game.update(&Input::default(), 0.016);
+        let State::Harvest(h) = &game.state else { panic!("not in a run") };
+        assert!(h.choosing() && h.rerolls_left() == 1, "a tap on Grenade spent a reroll");
+        press(&mut game, Buttons::R1);
+        let State::Harvest(h) = &game.state else { panic!("not in a run") };
+        assert_eq!(h.rerolls_left(), 0, "a gamepad's R1 still rerolls");
     }
 
     #[test]

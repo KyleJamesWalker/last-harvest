@@ -55,33 +55,39 @@ impl Row {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Key {
     Char(u8),
+    Back,
     Delete,
     Done,
 }
 
-/// Every key with its box: the characters in rows of `cols`, then Delete and Done.
+/// Every key with its box: the characters in rows of `cols`, then Back, Delete and Done.
 fn keys(chars: &[u8], cols: usize) -> Vec<([f32; 4], Key)> {
     let w = (SCREEN_W - 80.0) / cols as f32;
     let h = if cols > 7 { 70.0 } else { 90.0 };
     let mut out: Vec<([f32; 4], Key)> = chars.iter().enumerate().map(|(i, &c)| ([40.0 + (i % cols) as f32 * w, KEYS_TOP + (i / cols) as f32 * h, w - 8.0, h - 8.0], Key::Char(c))).collect();
     let y = KEYS_TOP + chars.len().div_ceil(cols) as f32 * h + 8.0;
-    out.push(([40.0, y, 460.0, 76.0], Key::Delete));
-    out.push(([524.0, y, 460.0, 76.0], Key::Done));
+    out.push(([40.0, y, 300.0, 76.0], Key::Back));
+    out.push(([362.0, y, 300.0, 76.0], Key::Delete));
+    out.push(([684.0, y, 300.0, 76.0], Key::Done));
     out
 }
 
 /// The key a d-pad step from key `at` lands on: left and right wrap within a row, up and down wrap through the rows,
-/// and the last row is Delete then Done, under the left and right halves of the keys.
+/// and the last row is Back, Delete and Done, across the thirds of the keys.
 fn step_key(at: usize, dx: i32, dy: i32, chars: usize, cols: usize) -> usize {
     let rows = chars.div_ceil(cols);
-    let row_len = |r: usize| if r == rows { 2 } else { (chars - r * cols).min(cols) };
+    let row_len = |r: usize| if r == rows { 3 } else { (chars - r * cols).min(cols) };
     let (row, col) = if at < chars { (at / cols, at % cols) } else { (rows, at - chars) };
     let col = (col as i32 + dx).rem_euclid(row_len(row) as i32) as usize;
     let to = (row as i32 + dy).rem_euclid(rows as i32 + 1) as usize;
     let col = match (row == rows, to == rows) {
         _ if to == row => col,
-        (false, true) => usize::from(col * 2 >= cols),
-        (true, false) => if col == 0 { 0 } else { cols - 1 },
+        (false, true) => (col * 3 / cols).min(2),
+        (true, false) => match col {
+            0 => 0,
+            1 => cols / 2,
+            _ => cols - 1,
+        },
         _ => col,
     }
     .min(row_len(to) - 1);
@@ -119,6 +125,7 @@ impl Entry {
                 sounds.push(Sfx::Tick(6));
             }
             Some(Key::Char(_)) => sounds.push(Sfx::Miss),
+            Some(Key::Back) => return Typed::Back,
             Some(Key::Delete) => {
                 self.text.pop();
                 sounds.push(Sfx::Tick(0));
@@ -152,6 +159,7 @@ impl Entry {
             c.rect(r[0], r[1], r[2], r[3], if on { [1.0, 0.85, 0.3, 0.3] } else { [1.0, 1.0, 1.0, 0.08] });
             let (name, size) = match key {
                 Key::Char(ch) => ((ch as char).to_string(), if cols > 7 { 40.0 } else { 52.0 }),
+                Key::Back => ("Back".to_string(), 40.0),
                 Key::Delete => ("Delete".to_string(), 40.0),
                 Key::Done => ("Done".to_string(), 40.0),
             };
@@ -608,6 +616,7 @@ impl Game {
             }
             Typed::Back => {
                 self.page = Page::Online;
+                self.online.message.clear();
                 self.sounds.push(Sfx::Tick(0));
             }
             Typed::Nothing => {}
@@ -1023,6 +1032,24 @@ mod tests {
 
         tap(&mut g, size, middle(online_row(1, 4)));
         assert_eq!(g.page, Page::Join);
+        let join_keys = keys(ALPHABET, 7);
+        let (first_ch, _) = join_keys.iter().find(|(_, k)| matches!(k, Key::Char(_))).unwrap();
+        let (join_back, _) = join_keys.iter().find(|(_, k)| matches!(k, Key::Back)).unwrap();
+        tap(&mut g, size, middle(*first_ch));
+        tap(&mut g, size, middle(*join_back));
+        assert_eq!(g.page, Page::Online, "a tap on Back leaves Join without a gamepad");
+
+        tap(&mut g, size, middle(online_row(2, 4)));
+        assert_eq!(g.page, Page::Relay);
+        let relay_keys = keys(RELAY_KEYS, 10);
+        let (relay_del, _) = relay_keys.iter().find(|(_, k)| matches!(k, Key::Delete)).unwrap();
+        let (relay_back, _) = relay_keys.iter().find(|(_, k)| matches!(k, Key::Back)).unwrap();
+        tap(&mut g, size, middle(*relay_del));
+        tap(&mut g, size, middle(*relay_back));
+        assert_eq!((g.page, g.save().relay.as_str()), (Page::Online, "10.0.0.2:8097"), "Back leaves Relay without saving");
+
+        tap(&mut g, size, middle(online_row(1, 4)));
+        assert_eq!(g.page, Page::Join);
         let code = RoomCode::from_random(7);
         type_by_touch(&mut g, size, code.as_str(), ALPHABET, 7);
         assert_eq!(g.page, Page::Lobby, "Done joins room {}", code.as_str());
@@ -1035,9 +1062,11 @@ mod tests {
     fn every_key_on_both_keyboards_is_reached_from_its_neighbours_in_all_four_directions() {
         for (chars, cols) in [(&ALPHABET[..], 7), (RELAY_KEYS, 10)] {
             let (n, len) = (keys(chars, cols).len(), chars.len());
+            assert_eq!(step_key(n - 3, 1, 0, len, cols), n - 2, "Right from Back is Delete");
             assert_eq!(step_key(n - 2, 1, 0, len, cols), n - 1, "Right from Delete is Done");
-            assert_eq!(step_key(n - 1, 1, 0, len, cols), n - 2, "and wraps back to Delete");
+            assert_eq!(step_key(n - 1, 1, 0, len, cols), n - 3, "and wraps back to Back");
             assert_eq!(step_key(n - 1, -1, 0, len, cols), n - 2, "Left from Done is Delete");
+            assert_eq!(step_key(n - 2, -1, 0, len, cols), n - 3, "Left from Delete is Back");
             for at in 0..n {
                 for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
                     let to = step_key(at, dx, dy, len, cols);
