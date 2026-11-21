@@ -39,15 +39,47 @@ pub struct Packet {
     pub bytes: Vec<u8>,
 }
 
+/// The relay an empty setting means.
+pub const DEFAULT_RELAY: &str = "wss://lh-relay.vps.pocketsquirrel.com";
+
+pub const INSECURE_RELAY: &str = "This page is https, so it can only reach a secure (wss://) relay. For a LAN relay, play the desktop game or the web build served over http.";
+
 /// The relay as a player types it, `host:port` or with a ws, wss, http or https scheme: its signaling base and its
-/// ICE address. Empty means a relay on this machine.
-pub fn relay_urls(relay: &str) -> (String, String) {
+/// ICE address. Empty means `DEFAULT_RELAY`. Without a scheme, a LAN or loopback address is `ws` and a domain name
+/// `wss`. A page served over https (`secure_page`) can reach only `wss`, or `ws` on this machine.
+pub fn relay_urls(relay: &str, secure_page: bool) -> Result<(String, String), String> {
     let r = relay.trim().trim_end_matches('/');
-    let r = if r.is_empty() { "localhost:8080" } else { r };
-    let secure = r.starts_with("wss://") || r.starts_with("https://");
-    let rest = ["wss://", "https://", "ws://", "http://"].iter().find_map(|s| r.strip_prefix(s)).unwrap_or(r);
+    let r = if r.is_empty() { DEFAULT_RELAY } else { r };
+    let scheme = ["wss://", "https://", "ws://", "http://"].into_iter().find(|s| r.get(..s.len()).is_some_and(|p| p.eq_ignore_ascii_case(s)));
+    let rest = &r[scheme.map_or(0, str::len)..];
+    let host = relay_host(rest);
+    let secure = match scheme {
+        Some(s) => s.starts_with("wss") || s.starts_with("https"),
+        None => !is_lan_host(host),
+    };
+    if secure_page && !secure && !is_loopback_host(host) {
+        return Err(INSECURE_RELAY.into());
+    }
     let (ws, http) = if secure { ("wss", "https") } else { ("ws", "http") };
-    (format!("{ws}://{rest}"), format!("{http}://{rest}/ice"))
+    Ok((format!("{ws}://{rest}"), format!("{http}://{rest}/ice")))
+}
+
+/// The host in `host[:port][/path]`, without an IPv6 address's brackets.
+fn relay_host(rest: &str) -> &str {
+    let authority = rest.split('/').next().unwrap_or(rest);
+    match authority.strip_prefix('[') {
+        Some(v6) => v6.split(']').next().unwrap_or(v6),
+        None => authority.rsplit_once(':').map_or(authority, |(h, _)| h),
+    }
+}
+
+fn is_loopback_host(host: &str) -> bool {
+    host.eq_ignore_ascii_case("localhost") || host.parse::<std::net::IpAddr>().is_ok_and(|ip| ip.is_loopback())
+}
+
+/// An address that has no TLS certificate: an IP, `localhost`, a `.local` name or a name with no dot.
+fn is_lan_host(host: &str) -> bool {
+    host.parse::<std::net::IpAddr>().is_ok() || !host.contains('.') || host.to_ascii_lowercase().ends_with(".local")
 }
 
 /// Something the game acts on.
@@ -116,21 +148,20 @@ pub(crate) struct Net {
 }
 
 impl Net {
-    fn new(code: RoomCode, side: Side, relay: &str) -> Self {
-        let (base, ice) = relay_urls(relay);
+    fn new(code: RoomCode, side: Side, (base, ice): (String, String)) -> Self {
         let request = Some(Request::Connect { room: code.room_url(&base), ice });
         Net { code, side, me: None, unreliable: Vec::new(), outbox: Vec::new(), request, happenings: Vec::new(), closing: None, running: false, traffic: Traffic::default() }
     }
 
     /// Opens room `code` for players to join, `cards` being this device's players.
-    pub fn host(code: RoomCode, identity: Identity, cards: Vec<String>, relay: &str) -> Self {
+    pub fn host(code: RoomCode, identity: Identity, cards: Vec<String>, relay: (String, String)) -> Self {
         let config = HostConfig { identity, cards, seats: last_harvest_lobby::MAX_SEATS, drop_in: true };
         let hosting = Hosting { lobby: None, config, peers: BTreeMap::new(), extract: Extract::default(), tick: 0, played: Vec::new() };
         Self::new(code, Side::Host(Box::new(hosting)), relay)
     }
 
     /// Joins room `code` with this device's players' `cards`.
-    pub fn join(code: RoomCode, identity: Identity, cards: Vec<String>, relay: &str) -> Self {
+    pub fn join(code: RoomCode, identity: Identity, cards: Vec<String>, relay: (String, String)) -> Self {
         let joining = Joining { lobby: Client::new(Hello { identity, cards }), link: ClientLink::default(), mirror: Mirror::default(), logs: Vec::new(), tick: 0, waited: 0.0, quiet: 0.0 };
         Self::new(code, Side::Client(Box::new(joining)), relay)
     }
@@ -493,6 +524,13 @@ fn client_step(c: &mut Joining, unreliable: &mut Vec<Packet>, outbox: &mut Vec<P
     c.mirror.frozen = h.held();
     let turn = crate::tuning::tuning().turn_speed;
     for (v, inp) in mine.iter().enumerate() {
+        let tapped;
+        let inp = if v == 0 {
+            tapped = h.client_taps(inp);
+            &tapped
+        } else {
+            inp
+        };
         c.mirror.play_locally(seats[v]);
         c.mirror.predict(seats[v], c.tick, inp, turn);
         if !away {

@@ -259,6 +259,19 @@ fn back_on_the_host_closes_the_room_and_back_on_a_client_leaves_it() {
 }
 
 #[test]
+fn a_client_picks_its_level_up_card_with_a_tap() {
+    let mut pair = Pair::started();
+    pair.idle(1.0);
+    host_harvest(&mut pair).level_up_for_test();
+    pair.idle(3.0);
+    assert_eq!(host_harvest(&mut pair).seat_cards_for_test(1), Some((0, false)), "the client's cards are up, the first selected");
+    let third = Input { touch: Some([512.0, 535.0]), touch_started: true, ..Input::default() };
+    pair.step(Input::default(), third);
+    pair.idle(0.3);
+    assert_eq!(host_harvest(&mut pair).seat_cards_for_test(1), Some((2, true)), "a tap on the third card takes it");
+}
+
+#[test]
 fn a_client_gone_quiet_lets_go_and_the_cards_stop_waiting_for_it() {
     let mut pair = Pair::started();
     pair.idle(1.0);

@@ -479,7 +479,10 @@ fn start(pak: Pak, mods: Vec<(String, Pak)>, problems: Vec<String>, range: Optio
     if let Some(relay) = param("relay=") {
         game.set_relay(&relay);
     }
-    if let Some(code) = param("join=") {
+    game.set_secure_page(window.location().protocol().is_ok_and(|p| p == "https:"));
+    if let Some(code) = param("host=") {
+        game.host_online(Some(code.as_str()).filter(|c| !c.is_empty()));
+    } else if let Some(code) = param("join=") {
         game.join_online(&code);
     }
     show_screens(&document, &canvas, &overlay, phone);

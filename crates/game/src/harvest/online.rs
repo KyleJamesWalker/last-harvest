@@ -89,6 +89,11 @@ impl Harvest {
     }
 
     #[cfg(test)]
+    pub(crate) fn seat_cards_for_test(&self, p: PlayerId) -> Option<(usize, bool)> {
+        self.cards_of(p).map(|c| (c.selected as usize, c.picked))
+    }
+
+    #[cfg(test)]
     pub(crate) fn phase_for_test(&self) -> u8 {
         phase_of(&self.phase)
     }
