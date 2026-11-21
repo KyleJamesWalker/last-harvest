@@ -27,7 +27,7 @@ fn a_weapons_own_sound_group_loads_its_clips_from_the_pack() {
     let mut files = common::base();
     for (path, bytes) in &mut files {
         if path == pack::POWERUPS {
-            let text = String::from_utf8(bytes.clone()).unwrap();
+            let text = String::from_utf8(bytes.clone()).unwrap().replace("\r\n", "\n");
             *bytes = text.replacen("[pistol]\n", "[pistol]\nsound rattle\n", 1).replacen("[shotgun]\n", "[shotgun]\nsound blast\n", 1).into_bytes();
         }
     }

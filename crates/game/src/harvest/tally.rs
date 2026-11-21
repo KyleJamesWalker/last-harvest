@@ -1,16 +1,30 @@
 //! A run's damage by what dealt it, and how long each weapon was held, for the damage per second at its end.
 
-/// Damage dealt this run, by weapon.
+use super::player::PlayerId;
+
+/// Damage dealt this run, by player and weapon.
 #[derive(Clone, Debug, Default)]
 pub(super) struct Tally {
     /// The weapon damage dealt now goes to, by its place in the powerup book; None for grenades and barrels.
     pub by: Option<usize>,
+    /// The player whose book damage dealt now goes in.
+    pub owner: PlayerId,
+    books: Vec<Book>,
+    /// Defs each new book has room for.
+    defs: usize,
+    /// Seconds of play.
+    pub secs: f32,
+    /// Set once the run is over: what's still in flight lands, but the run's numbers are final.
+    pub shut: bool,
+}
+
+/// One player's damage this run, by weapon.
+#[derive(Clone, Debug, Default)]
+pub(super) struct Book {
     dealt: Vec<f32>,
     held: Vec<f32>,
     /// Grenades' and barrels' damage.
     other: f32,
-    /// Seconds of play.
-    pub secs: f32,
     /// Damage up to each zombie's remaining health, and killing blows, by the same keys as `dealt` and `other`.
     useful: Vec<f32>,
     useful_other: f32,
@@ -20,8 +34,6 @@ pub(super) struct Tally {
     pub hearts: u32,
     /// The night's time the player first fell, even if the run was undying and stood them back up.
     pub fell: Option<f32>,
-    /// Set once the run is over: what's still in flight lands, but the run's numbers are final.
-    pub shut: bool,
 }
 
 /// What one weapon, or grenades and barrels, did over a run.
@@ -43,27 +55,59 @@ pub(super) struct Row {
     pub dps: f32,
 }
 
-impl Tally {
-    /// A tally with room for `defs` powerups, so adding never allocates.
-    pub fn sized(defs: usize) -> Self {
+impl Book {
+    fn sized(defs: usize) -> Self {
         Self { dealt: vec![0.0; defs], held: vec![0.0; defs], useful: vec![0.0; defs], kills: vec![0; defs], ..Self::default() }
+    }
+}
+
+impl Tally {
+    /// A tally with room for `defs` powerups for each of `players`, so adding never allocates.
+    pub fn sized(defs: usize, players: usize) -> Self {
+        Self { books: (0..players).map(|_| Book::sized(defs)).collect(), defs, ..Self::default() }
+    }
+
+    /// Damage dealt from now on goes to `owner`'s weapon `by`.
+    pub fn credit(&mut self, owner: PlayerId, by: Option<usize>) {
+        self.owner = owner;
+        self.by = by;
+    }
+
+    pub fn book(&self, p: PlayerId) -> &Book {
+        static EMPTY: Book = Book { dealt: Vec::new(), held: Vec::new(), other: 0.0, useful: Vec::new(), useful_other: 0.0, kills: Vec::new(), kills_other: 0, hearts: 0, fell: None };
+        self.books.get(p).unwrap_or(&EMPTY)
+    }
+
+    pub fn book_mut(&mut self, p: PlayerId) -> &mut Book {
+        if p >= self.books.len() {
+            let defs = self.defs;
+            self.books.resize_with(p + 1, || Book::sized(defs));
+        }
+        &mut self.books[p]
     }
 
     pub fn add(&mut self, amount: f32) {
         if self.shut {
             return;
         }
-        match self.by {
-            Some(d) => *grow(&mut self.dealt, d) += amount,
-            None => self.other += amount,
+        let by = self.by;
+        let b = self.book_mut(self.owner);
+        match by {
+            Some(d) => *grow(&mut b.dealt, d) += amount,
+            None => b.other += amount,
         }
     }
 
-    /// Counts `dt` seconds of play, held by each of `defs`.
-    pub fn hold(&mut self, defs: impl Iterator<Item = usize>, dt: f32) {
+    /// Counts `dt` seconds of play.
+    pub fn tick(&mut self, dt: f32) {
         self.secs += dt;
+    }
+
+    /// Counts `dt` seconds held by each of `defs` in player `p`'s hands.
+    pub fn hold(&mut self, p: PlayerId, defs: impl Iterator<Item = usize>, dt: f32) {
+        let b = self.book_mut(p);
         for d in defs {
-            *grow(&mut self.held, d) += dt;
+            *grow(&mut b.held, d) += dt;
         }
     }
 
@@ -74,50 +118,55 @@ impl Tally {
         }
         let useful = dealt.min(hp.max(0.0));
         let kill = (hp > 0.0 && hp <= dealt) as u32;
-        match self.by {
+        let by = self.by;
+        let b = self.book_mut(self.owner);
+        match by {
             Some(d) => {
-                *grow(&mut self.useful, d) += useful;
-                if d >= self.kills.len() {
-                    self.kills.resize(d + 1, 0);
+                *grow(&mut b.useful, d) += useful;
+                if d >= b.kills.len() {
+                    b.kills.resize(d + 1, 0);
                 }
-                self.kills[d] += kill;
+                b.kills[d] += kill;
             }
             None => {
-                self.useful_other += useful;
-                self.kills_other += kill;
+                b.useful_other += useful;
+                b.kills_other += kill;
             }
         }
     }
 
-    /// What weapon `by` did, or grenades and barrels for None.
-    pub fn dealt(&self, by: Option<usize>) -> Dealt {
+    /// What player `p`'s weapon `by` did, or their grenades and barrels for None.
+    pub fn dealt(&self, p: PlayerId, by: Option<usize>) -> Dealt {
+        let b = self.book(p);
         let at = |v: &[f32], d: usize| v.get(d).copied().unwrap_or(0.0);
         match by {
-            Some(d) => Dealt { raw: at(&self.dealt, d), useful: at(&self.useful, d), kills: self.kills.get(d).copied().unwrap_or(0), held: at(&self.held, d) },
-            None => Dealt { raw: self.other, useful: self.useful_other, kills: self.kills_other, held: self.secs },
+            Some(d) => Dealt { raw: at(&b.dealt, d), useful: at(&b.useful, d), kills: b.kills.get(d).copied().unwrap_or(0), held: at(&b.held, d) },
+            None => Dealt { raw: b.other, useful: b.useful_other, kills: b.kills_other, held: self.secs },
         }
     }
 
-    pub fn total(&self) -> f32 {
-        self.dealt.iter().sum::<f32>() + self.other
+    pub fn total(&self, p: PlayerId) -> f32 {
+        let b = self.book(p);
+        b.dealt.iter().sum::<f32>() + b.other
     }
 
-    /// Damage a second over the whole run.
-    pub fn dps(&self) -> f32 {
-        per_sec(self.total(), self.secs)
+    /// Player `p`'s damage a second over the whole run.
+    pub fn dps(&self, p: PlayerId) -> f32 {
+        per_sec(self.total(p), self.secs)
     }
 
-    /// Each weapon held or that did damage, and grenades and barrels if they did, most damage first.
-    pub fn rows(&self) -> Vec<Row> {
-        let n = self.held.len().max(self.dealt.len());
+    /// Each weapon player `p` held or that did damage, and grenades and barrels if they did, most damage first.
+    pub fn rows(&self, p: PlayerId) -> Vec<Row> {
+        let b = self.book(p);
+        let n = b.held.len().max(b.dealt.len());
         let at = |v: &[f32], d: usize| v.get(d).copied().unwrap_or(0.0);
         let mut rows: Vec<Row> = (0..n)
-            .map(|d| (d, at(&self.held, d), at(&self.dealt, d)))
+            .map(|d| (d, at(&b.held, d), at(&b.dealt, d)))
             .filter(|&(_, held, damage)| held > 0.0 || damage > 0.0)
             .map(|(d, held, damage)| Row { by: Some(d), damage, dps: per_sec(damage, held) })
             .collect();
-        if self.other > 0.0 {
-            rows.push(Row { by: None, damage: self.other, dps: per_sec(self.other, self.secs) });
+        if b.other > 0.0 {
+            rows.push(Row { by: None, damage: b.other, dps: per_sec(b.other, self.secs) });
         }
         rows.sort_by(|a, b| b.damage.total_cmp(&a.damage));
         rows
@@ -141,18 +190,20 @@ mod tests {
 
     #[test]
     fn each_weapon_counts_over_the_time_it_was_held_and_the_run_over_all_of_it() {
-        let mut t = Tally::sized(4);
-        t.hold([0].into_iter(), 10.0);
-        t.hold([0, 2].into_iter(), 10.0);
+        let mut t = Tally::sized(4, 1);
+        t.tick(10.0);
+        t.hold(0, [0].into_iter(), 10.0);
+        t.tick(10.0);
+        t.hold(0, [0, 2].into_iter(), 10.0);
         t.by = Some(0);
         t.add(100.0);
         t.by = Some(2);
         t.add(300.0);
         t.by = None;
         t.add(40.0);
-        assert_eq!(t.total(), 440.0);
-        assert_eq!(t.dps(), 22.0);
-        assert_eq!(t.rows(), [
+        assert_eq!(t.total(0), 440.0);
+        assert_eq!(t.dps(0), 22.0);
+        assert_eq!(t.rows(0), [
             Row { by: Some(2), damage: 300.0, dps: 30.0 },
             Row { by: Some(0), damage: 100.0, dps: 5.0 },
             Row { by: None, damage: 40.0, dps: 2.0 },
@@ -161,23 +212,24 @@ mod tests {
 
     #[test]
     fn a_hit_is_useful_only_up_to_the_health_left_and_the_last_one_kills() {
-        let mut t = Tally::sized(2);
+        let mut t = Tally::sized(2, 1);
         t.by = Some(1);
         t.land(150.0, 20.0);
         t.land(5.0, -130.0);
         t.land(8.0, 30.0);
         t.by = None;
         t.land(40.0, 40.0);
-        assert_eq!(t.dealt(Some(1)), Dealt { raw: 0.0, useful: 28.0, kills: 1, held: 0.0 });
-        assert_eq!(t.dealt(None), Dealt { raw: 0.0, useful: 40.0, kills: 1, held: 0.0 });
-        assert_eq!(t.dealt(Some(0)), Dealt::default());
+        assert_eq!(t.dealt(0, Some(1)), Dealt { raw: 0.0, useful: 28.0, kills: 1, held: 0.0 });
+        assert_eq!(t.dealt(0, None), Dealt { raw: 0.0, useful: 40.0, kills: 1, held: 0.0 });
+        assert_eq!(t.dealt(0, Some(0)), Dealt::default());
     }
 
     #[test]
     fn a_weapon_held_without_a_hit_still_shows_and_an_empty_run_is_zero() {
-        let mut t = Tally::sized(2);
-        assert_eq!((t.dps(), t.rows().len()), (0.0, 0));
-        t.hold([1].into_iter(), 5.0);
-        assert_eq!(t.rows(), [Row { by: Some(1), damage: 0.0, dps: 0.0 }]);
+        let mut t = Tally::sized(2, 1);
+        assert_eq!((t.dps(0), t.rows(0).len()), (0.0, 0));
+        t.tick(5.0);
+        t.hold(0, [1].into_iter(), 5.0);
+        assert_eq!(t.rows(0), [Row { by: Some(1), damage: 0.0, dps: 0.0 }]);
     }
 }

@@ -7,7 +7,7 @@ use std::f32::consts::TAU;
 use super::map::{Map, TILE};
 use super::powerups::{self, Kind as Card, Stat, book};
 use super::weapons::Kit;
-use super::{GOLD, Harvest, Kind, Phase, Tell, WHITE, effects, len, norm, roster, sub, Fx};
+use super::{GOLD, Harvest, ME, Kind, Phase, Tell, WHITE, effects, len, norm, roster, sub, Fx};
 use crate::rng::Rng;
 use crate::{Align, Buttons, Canvas, Difficulty, Input, SCREEN_W, Sfx};
 
@@ -222,10 +222,10 @@ impl Harvest {
         let b = book();
         let weapon = |i: &usize| b.defs[*i].kind == Card::Weapon;
         let def = b.index(&setup.weapon).filter(weapon).or_else(|| (0..b.defs.len()).find(|i| weapon(i) && b.defs[*i].player.is_none())).unwrap_or(0);
-        h.kit = Kit::with_weapons(&[def], Difficulty::Normal);
-        h.kit.weapons[0].level = setup.level.clamp(1, top_level(def));
-        h.hp = h.kit.max_hp();
-        h.grenades = h.kit.grenades();
+        h.me_mut().kit = Kit::with_weapons(&[def], Difficulty::Normal);
+        h.me_mut().kit.weapons[0].level = setup.level.clamp(1, top_level(def));
+        h.me_mut().hp = h.me().kit.max_hp();
+        h.me_mut().grenades = h.me().kit.grenades();
         h.next_xp = u32::MAX;
         h.range = Some(Range { def, kind: roster().common(), by_hand: false, follow: None, slot: 0, clock: 0.0, dealt: VecDeque::new() });
         h
@@ -234,14 +234,14 @@ impl Harvest {
     /// The ring's distance from the player, from the weapon's range at its level.
     pub(super) fn ring_radius(&self) -> f32 {
         let Some(r) = &self.range else { return 0.0 };
-        let level = self.kit.weapons.first().map_or(1, |a| a.level);
+        let level = self.me().kit.weapons.first().map_or(1, |a| a.level);
         (book().defs[r.def].at(Stat::Range, level) * RING_SHARE).clamp(RING_TILES[0] * TILE, RING_TILES[1] * TILE)
     }
 
     /// The range's line for logs: the weapon by id, its level and the damage per second.
     pub(super) fn range_summary(&self) -> Option<String> {
         let r = self.range.as_ref()?;
-        let level = self.kit.weapons.first().map_or(1, |a| a.level);
+        let level = self.me().kit.weapons.first().map_or(1, |a| a.level);
         Some(format!("range {} {level} dps={:.0} kills={}", book().defs[r.def].id, self.range_dps(), self.kills))
     }
 
@@ -287,7 +287,7 @@ impl Harvest {
         if asked(Buttons::SELECT, Key::Hand) {
             r.by_hand ^= true;
             sounds.push(Sfx::Tick(if r.by_hand { 3 } else { 6 }));
-            for a in &mut self.kit.weapons {
+            for a in &mut self.players[ME].kit.weapons {
                 a.cd = 0.0;
             }
         }
@@ -296,7 +296,7 @@ impl Harvest {
             r.by_hand = true;
         }
         if r.by_hand {
-            for a in &mut self.kit.weapons {
+            for a in &mut self.me_mut().kit.weapons {
                 a.cd = if fire { 0.0 } else { f32::MAX };
             }
         }
@@ -314,7 +314,7 @@ impl Harvest {
 
     /// Points the camera at the next dog or drone, or back at the player after the last.
     fn step_follow(&mut self, sounds: &mut Vec<Sfx>) {
-        let (dogs, drones) = (self.dogs.len(), self.drones.len());
+        let (dogs, drones) = (self.me().dogs.len(), self.me().drones.len());
         let Some(r) = &mut self.range else { return };
         r.follow = match r.follow {
             None if dogs + drones > 0 => Some(0),
@@ -335,12 +335,12 @@ impl Harvest {
     /// Where the range's camera centers: the dog or drone it follows, if any.
     pub(super) fn range_focus(&self) -> Option<[f32; 2]> {
         let i = self.range.as_ref()?.follow?;
-        self.dogs.get(i).map(|d| d.pos).or_else(|| self.drones.get(i - self.dogs.len()).map(|d| d.pos))
+        self.me().dogs.get(i).map(|d| d.pos).or_else(|| self.me().drones.get(i - self.me().dogs.len()).map(|d| d.pos))
     }
 
     fn step_level(&mut self, by: i32, sounds: &mut Vec<Sfx>) {
         let Some(r) = &mut self.range else { return };
-        let Some(a) = self.kit.weapons.first_mut() else { return };
+        let Some(a) = self.players[ME].kit.weapons.first_mut() else { return };
         let level = (a.level as i32 + by).clamp(1, top_level(r.def) as i32) as u32;
         if level == a.level {
             return;
@@ -375,14 +375,14 @@ impl Harvest {
         while self.zombies.len() + self.tells.len() + self.burrowed.len() < RING {
             let a = r.slot as f32 * TAU / RING as f32 + (r.slot / RING) as f32 * 0.37;
             r.slot += 1;
-            let pos = [self.pos[0] + a.cos() * radius, self.pos[1] + a.sin() * radius];
+            let pos = [self.players[ME].pos[0] + a.cos() * radius, self.players[ME].pos[1] + a.sin() * radius];
             self.tells.push(Tell { kind, pos, hp: kind.stats().hp, t: 0.0, leader: false });
         }
         if self.t > CLOCK_LOOP {
             self.t -= CLOCK_LOOP;
         }
         self.xp = 0;
-        self.hp = self.kit.max_hp();
+        self.players[ME].hp = self.players[ME].kit.max_hp();
         r.clock += dt;
         r.dealt.push_back((r.clock, self.juice.dealt));
         while r.dealt.front().is_some_and(|&(t, _)| t < r.clock - WINDOW) {
@@ -394,7 +394,7 @@ impl Harvest {
     pub(super) fn restart_range(&mut self, seed: u64) {
         let Some(r) = &self.range else { return };
         let (def, kind, by_hand, follow) = (r.def, r.kind, r.by_hand, r.follow);
-        let level = self.kit.weapons.first().map_or(1, |a| a.level);
+        let level = self.me().kit.weapons.first().map_or(1, |a| a.level);
         let setup = RangeSetup { weapon: book().defs[def].id.clone(), level, section: None, effects: None };
         let orbit = self.orbit;
         *self = Harvest::range(seed, &setup).single_screen(self.single);
@@ -408,7 +408,7 @@ impl Harvest {
     pub(super) fn draw_range(&self, top: &mut Canvas, bottom: &mut Canvas) {
         let Some(r) = &self.range else { return };
         let def = &book().defs[r.def];
-        let level = self.kit.weapons.first().map_or(1, |a| a.level);
+        let level = self.me().kit.weapons.first().map_or(1, |a| a.level);
         let how = if r.by_hand { "by hand" } else { "on cooldown" };
         let kind = &roster().enemies[r.kind].name;
         top.rect(16.0, 64.0, 620.0, 96.0, [0.0, 0.0, 0.0, 0.6]);
@@ -416,7 +416,7 @@ impl Harvest {
         top.label(format!("{}  {shown}  {how}", def.name), 28.0, 72.0, 32.0, WHITE, Align::Left);
         top.label(format!("{:.0} damage a second   vs {kind}", self.range_dps()), 28.0, 114.0, 32.0, GOLD, Align::Left);
         let (keys, down) = if self.single { (top, TOP_KEYS) } else { (bottom, 0.0) };
-        let camera = crate::pad::hint(match (self.dogs.is_empty(), self.drones.is_empty()) {
+        let camera = crate::pad::hint(match (self.me().dogs.is_empty(), self.me().drones.is_empty()) {
             (true, true) => "Right-drag, wheel: camera",
             (false, _) => "Right-drag, wheel: camera   {R1}: watch the dog",
             (true, false) => "Right-drag, wheel: camera   {R1}: watch the drone",
@@ -504,27 +504,27 @@ mod tests {
     #[test]
     fn the_range_holds_only_its_weapon_at_its_level_against_a_ring() {
         let mut h = pistol(3);
-        assert_eq!(h.kit.weapons.len(), 1);
-        assert_eq!((book().defs[h.kit.weapons[0].def].id.as_str(), h.kit.weapons[0].level), ("pistol", 3));
-        assert!(h.kit.passives.is_empty());
+        assert_eq!(h.me().kit.weapons.len(), 1);
+        assert_eq!((book().defs[h.me().kit.weapons[0].def].id.as_str(), h.me().kit.weapons[0].level), ("pistol", 3));
+        assert!(h.me().kit.passives.is_empty());
         run(&mut h, 0.1, Input::default());
         assert_eq!(h.tells.len() + h.zombies.len(), RING);
         let radius = h.ring_radius();
-        assert!(h.tells.iter().all(|t| (len(sub(t.pos, h.pos)) - radius).abs() < 0.5));
+        assert!(h.tells.iter().all(|t| (len(sub(t.pos, h.me().pos)) - radius).abs() < 0.5));
     }
 
     #[test]
     fn on_cooldown_it_kills_and_the_ring_rises_again() {
         let mut h = pistol(8);
-        let start = h.pos;
+        let start = h.me().pos;
         run(&mut h, 12.0, Input::default());
         assert!(h.kills > 0, "the pistol killed something");
         assert!(h.range_dps() > 0.0);
         assert_eq!(h.zombies.len() + h.tells.len() + h.burrowed.len(), RING, "the dead rise again");
-        assert_eq!(h.pos, start);
-        assert_eq!(h.hp, h.kit.max_hp(), "the ring never bites");
+        assert_eq!(h.me().pos, start);
+        assert_eq!(h.me().hp, h.me().kit.max_hp(), "the ring never bites");
         assert_eq!(h.level, 1, "no level-ups");
-        assert!(h.zombies.iter().all(|z| len(sub(z.pos, h.pos)) > h.ring_radius() * 0.5), "the ring stands its ground");
+        assert!(h.zombies.iter().all(|z| len(sub(z.pos, h.me().pos)) > h.ring_radius() * 0.5), "the ring stands its ground");
     }
 
     #[test]
@@ -542,22 +542,22 @@ mod tests {
     #[test]
     fn the_pad_steps_the_level_and_the_kind_in_place() {
         let mut h = pistol(1);
-        let start = h.pos;
+        let start = h.me().pos;
         run(&mut h, 0.0, press(Buttons::UP));
         run(&mut h, 0.0, press(Buttons::UP));
-        assert_eq!(h.kit.weapons[0].level, 3);
+        assert_eq!(h.me().kit.weapons[0].level, 3);
         run(&mut h, 0.0, press(Buttons::DOWN));
-        assert_eq!(h.kit.weapons[0].level, 2);
+        assert_eq!(h.me().kit.weapons[0].level, 2);
         for _ in 0..20 {
             run(&mut h, 0.0, press(Buttons::DOWN));
         }
-        assert_eq!(h.kit.weapons[0].level, 1, "no lower than 1");
+        assert_eq!(h.me().kit.weapons[0].level, 1, "no lower than 1");
         let kind = h.range.as_ref().unwrap().kind;
         run(&mut h, 1.0, press(Buttons::RIGHT));
         let now = h.range.as_ref().unwrap().kind;
         assert_eq!(now, (kind + 1) % roster().enemies.len());
         assert!(h.tells.iter().map(|t| t.kind.0).chain(h.zombies.iter().map(|z| z.kind.0)).all(|k| k as usize == now));
-        assert_eq!(h.pos, start, "the pad never walked");
+        assert_eq!(h.me().pos, start, "the pad never walked");
     }
 
     #[test]
@@ -566,7 +566,7 @@ mod tests {
         let [x, y, w, hh] = KEYS[1];
         let tap = Input { touch: Some([x + w / 2.0, y + hh / 2.0]), touch_started: true, ..Input::default() };
         run(&mut h, 0.0, tap);
-        assert_eq!(h.kit.weapons[0].level, 2);
+        assert_eq!(h.me().kit.weapons[0].level, 2);
         assert!(h.thrown.is_empty());
         let mut one = pistol(1).single_screen(true);
         let [x, y, w, hh] = KEYS[5];
@@ -577,7 +577,7 @@ mod tests {
     #[test]
     fn a_drag_and_the_wheel_orbit_the_camera_within_its_reach() {
         let mut h = pistol(1);
-        let start = h.pos;
+        let start = h.me().pos;
         run(&mut h, 0.0, Input { orbit: [100.0, 0.0], ..Input::default() });
         let [turn, back] = h.orbit.unwrap();
         assert!((turn - 100.0 * ORBIT_TURN).abs() < 1e-5 && back == 0.0);
@@ -587,7 +587,7 @@ mod tests {
         assert_eq!(h.orbit.unwrap()[1], ORBIT_BACK[1]);
         run(&mut h, 0.0, Input { orbit: [0.0, 1000.0], ..Input::default() });
         assert_eq!(h.orbit.unwrap()[1], ORBIT_BACK[0]);
-        assert_eq!(h.pos, start, "the camera never walked the player");
+        assert_eq!(h.me().pos, start, "the camera never walked the player");
         let eye = |h: &Harvest| super::super::view3d::scene(h).eye;
         let before = eye(&h);
         run(&mut h, 0.0, Input { orbit: [200.0, 0.0], ..Input::default() });
@@ -601,42 +601,42 @@ mod tests {
         assert_eq!(h.range_focus(), None, "no dog, nothing to watch");
         let mut h = Harvest::range(3, &RangeSetup { weapon: "dog".into(), level: 8, section: None, effects: None });
         run(&mut h, 3.0, Input::default());
-        let dogs = h.dogs.len();
+        let dogs = h.me().dogs.len();
         assert!(dogs > 1, "level 8 runs more than one dog");
-        let start = h.pos;
+        let start = h.me().pos;
         for i in 0..dogs {
             run(&mut h, 0.0, press(Buttons::R1));
-            assert_eq!(h.range_focus(), Some(h.dogs[i].pos), "dog {i}");
+            assert_eq!(h.range_focus(), Some(h.me().dogs[i].pos), "dog {i}");
         }
         run(&mut h, 1.0, Input::default());
-        assert_eq!(h.range_focus(), Some(h.dogs[dogs - 1].pos), "the camera stays on the running dog");
+        assert_eq!(h.range_focus(), Some(h.me().dogs[dogs - 1].pos), "the camera stays on the running dog");
         let away = super::super::view3d::scene(&h).eye;
         run(&mut h, 0.0, press(Buttons::R1));
         assert_eq!(h.range_focus(), None, "after the last dog, back to the player");
         assert_ne!(super::super::view3d::scene(&h).eye, away);
-        assert_eq!(h.pos, start, "R1 never walked the player");
+        assert_eq!(h.me().pos, start, "R1 never walked the player");
     }
 
     #[test]
     fn the_level_steps_up_to_the_level_breaker_and_no_further() {
         let mut h = Harvest::range(3, &RangeSetup { weapon: "maul".into(), level: 99, section: None, effects: None });
-        let max = book().defs[h.kit.weapons[0].def].max;
-        assert_eq!(h.kit.weapons[0].level, max + 1);
+        let max = book().defs[h.me().kit.weapons[0].def].max;
+        assert_eq!(h.me().kit.weapons[0].level, max + 1);
         h.step_level(1, &mut Vec::new());
-        assert_eq!(h.kit.weapons[0].level, max + 1);
+        assert_eq!(h.me().kit.weapons[0].level, max + 1);
         h.step_level(-1, &mut Vec::new());
-        assert_eq!(h.kit.weapons[0].level, max);
+        assert_eq!(h.me().kit.weapons[0].level, max);
     }
 
     #[test]
     fn r1_steps_the_camera_through_the_drones_too() {
         let mut h = Harvest::range(3, &RangeSetup { weapon: "drone".into(), level: 8, section: None, effects: None });
         run(&mut h, 3.0, Input::default());
-        let drones = h.drones.len();
+        let drones = h.me().drones.len();
         assert!(drones > 1, "level 8 flies more than one drone");
         for i in 0..drones {
             run(&mut h, 0.0, press(Buttons::R1));
-            assert_eq!(h.range_focus(), Some(h.drones[i].pos), "drone {i}");
+            assert_eq!(h.range_focus(), Some(h.me().drones[i].pos), "drone {i}");
         }
         run(&mut h, 0.0, press(Buttons::R1));
         assert_eq!(h.range_focus(), None);

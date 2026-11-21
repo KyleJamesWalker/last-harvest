@@ -62,8 +62,8 @@ fn faces(art: Art, reach: Reach, top: Option<Art>) -> Cow<'static, [Face]> {
 
 /// The crop cells the 3D view stands from where the player looks, and the cards their columns take.
 pub(super) fn crops_in_view(h: &Harvest) -> (usize, usize) {
-    let forward = Vec3::new(h.view_yaw.cos(), 0.0, h.view_yaw.sin());
-    let p = world(h.pos);
+    let forward = Vec3::new(h.me().view_yaw.cos(), 0.0, h.me().view_yaw.sin());
+    let p = world(h.me().pos);
     let r = VIEW_RADIUS as i32;
     let (cx, cz) = (p.x as i32, p.z as i32);
     let (mut cells, mut cards) = (0, 0);
@@ -655,14 +655,14 @@ pub fn scene(h: &Harvest) -> CardScene {
         _ => 0.0,
     };
     let [turn, back] = h.orbit.unwrap_or_default();
-    let yaw = h.view_yaw + turn + std::f32::consts::PI * swing;
+    let yaw = h.me().view_yaw + turn + std::f32::consts::PI * swing;
     let forward = Vec3::new(yaw.cos(), 0.0, yaw.sin());
     let right = forward.cross(Vec3::Y);
     let focus = h.range_focus();
-    let p = world(focus.unwrap_or(h.pos));
+    let p = world(focus.unwrap_or(h.me().pos));
     let [sx, sy, roll] = j.shake_offset();
     let roll = roll + h.lean * 0.035;
-    let bob = if h.walk > 0.0 { (h.walk * crate::tuning::tuning().walk_fps * std::f32::consts::PI / 2.0).sin().abs() * 0.04 } else { 0.0 };
+    let bob = if h.me().walk > 0.0 { (h.me().walk * crate::tuning::tuning().walk_fps * std::f32::consts::PI / 2.0).sin().abs() * 0.04 } else { 0.0 };
     let shake = right * sx + Vec3::Y * (sy + bob);
     let eye = p - forward * (CAMERA_BACK + back + 0.2 * swing) + Vec3::Y * (1.5 + h.lift + back * 0.4 + 0.4 * swing) + shake;
     // Zoomed in for the icon scene, the camera looks at the figure on show instead of down the road.
@@ -774,7 +774,7 @@ pub fn scene(h: &Harvest) -> CardScene {
     let climbing = h.burrowed.iter().filter(|z| z.rise > 0.0);
     let mut nearest: Vec<&Zombie> = h.zombies.iter().enumerate().filter(|&(i, _)| !h.lies_dead(i)).map(|(_, z)| z).chain(climbing).collect();
     if nearest.len() > MAX_ZOMBIES_3D {
-        nearest.select_nth_unstable_by(MAX_ZOMBIES_3D, |a, b| len(sub(a.pos, h.pos)).total_cmp(&len(sub(b.pos, h.pos))));
+        nearest.select_nth_unstable_by(MAX_ZOMBIES_3D, |a, b| len(sub(a.pos, h.me().pos)).total_cmp(&len(sub(b.pos, h.me().pos))));
         nearest.truncate(MAX_ZOMBIES_3D);
     }
     for z in nearest {
@@ -797,9 +797,9 @@ pub fn scene(h: &Harvest) -> CardScene {
     let (facing, flip) = facing_from(h.showing(), forward, right);
     let (a, rise) = player_pose(h, facing);
     if h.shown.as_ref().is_none_or(|s| s.player) {
-        board(&mut cards, Board::new(a, flip, h.pos, -(1.0 - rise) * a.h() * PX, CHARACTER_DEPTH));
+        board(&mut cards, Board::new(a, flip, h.me().pos, -(1.0 - rise) * a.h() * PX, CHARACTER_DEPTH));
         if let Some((at, bright)) = player_worn(h, facing) {
-            board(&mut cards, worn_board(a, at, flip, h.pos, bright));
+            board(&mut cards, worn_board(a, at, flip, h.me().pos, bright));
         }
     }
     if let Some(s) = h.shown.as_ref().filter(|s| matches!(s.stand, Stand::Figure { .. }) && !s.frames.is_empty()) {
@@ -832,11 +832,11 @@ pub fn scene(h: &Harvest) -> CardScene {
         b.lean = right * ((d.age * (10.0 + 30.0 * k)).sin() * 0.08 * k);
         board(&mut cards, b);
     }
-    for d in h.dogs.iter().filter(|d| (world(d.pos) - p).dot(forward) >= 0.0) {
+    for d in h.me().dogs.iter().filter(|d| (world(d.pos) - p).dot(forward) >= 0.0) {
         let flip = d.heading[0] * right.x + d.heading[1] * right.z < 0.0;
         board(&mut cards, Board::new(d.art(), flip, d.pos, d.lift() * PX, CHARACTER_DEPTH));
     }
-    for d in h.drones.iter().filter(|d| (world(d.pos) - p).dot(forward) >= 0.0) {
+    for d in h.me().drones.iter().filter(|d| (world(d.pos) - p).dot(forward) >= 0.0) {
         let flip = d.heading[0] * right.x + d.heading[1] * right.z < 0.0;
         board(&mut cards, Board::new(d.art(), flip, d.pos, d.lift() * PX, CHARACTER_DEPTH));
     }
@@ -845,20 +845,20 @@ pub fn scene(h: &Harvest) -> CardScene {
         let a = crow.looping(h.t + i as f32 / crow.fps);
         board(&mut cards, Board::new(a, flip, p, 12.0 * PX, 0.0));
     }
-    for s in h.swings.iter().filter(|s| s.smash) {
+    for s in h.me().swings.iter().filter(|s| s.smash) {
         let (angle, _) = s.now();
         let k = (s.age / s.life).min(1.0);
         let tip = SMASH_RAISED + (std::f32::consts::FRAC_PI_2 - SMASH_RAISED) * k * k;
         let ahead = Vec3::new(angle.cos(), 0.0, angle.sin());
         let side = ahead.cross(Vec3::Y);
         let up = Vec3::Y * tip.cos() + ahead * tip.sin();
-        let origin = world(h.pos) + ahead * (4.0 * PX) - side * (s.art.w() * PX / 2.0) + Vec3::Y * (SMASH_HAND * PX * (1.0 - k) + 0.04);
+        let origin = world(h.me().pos) + ahead * (4.0 * PX) - side * (s.art.w() * PX / 2.0) + Vec3::Y * (SMASH_HAND * PX * (1.0 - k) + 0.04);
         let pose = Pose { origin, right: side, up, back: up.cross(side), depth: PX, tint: [1.0; 3], reach: Reach::Thin, top: None };
         faded(&mut cards, s.alpha() * s.art.alpha(), |cards| stand(cards, eye, s.art, false, pose, false));
     }
-    for s in h.swings.iter().filter(|s| !s.smash) {
+    for s in h.me().swings.iter().filter(|s| !s.smash) {
         let (angle, r) = s.now();
-        let at = [h.pos[0] + angle.cos() * r, h.pos[1] + angle.sin() * r];
+        let at = [h.me().pos[0] + angle.cos() * r, h.me().pos[1] + angle.sin() * r];
         match s.stand.or_else(|| s.art.stand()) {
             Some(Stand::Slab { height, lift }) => faded(&mut cards, s.alpha() * s.art.alpha(), |cards| lying(cards, eye, s.art, world(at), angle + super::weapons::SWING_TURN, height, lift, [1.0; 3])),
             _ => board(&mut cards, Board { alpha: s.alpha(), ..Board::new(s.art, angle.cos() * right.x + angle.sin() * right.z < 0.0, at, 4.0 * PX, 0.0) }),
@@ -1058,7 +1058,7 @@ pub fn scene(h: &Harvest) -> CardScene {
         .iter()
         .map(|f| Flash { pos: world(f.pos) + Vec3::Y * (f.z * PX), color: f.color.map(|c| c * f.strength()), range: f.range * (0.5 + 0.5 * f.strength()) })
         .collect();
-    let health = h.hp / h.kit.max_hp();
+    let health = h.me().hp / h.me().kit.max_hp();
     let dying = matches!(h.phase, Phase::Over { won: false, .. });
     // Once the player has climbed back out, a sickly light comes up on what they've become.
     let turned = match h.phase {
@@ -1067,7 +1067,7 @@ pub fn scene(h: &Harvest) -> CardScene {
     };
     // The lantern gutters when you're nearly done for.
     let gutter = if health < 0.3 { 0.15 * (h.juice.clock * 23.0).sin().abs() * (h.juice.clock * 7.0).sin().abs() } else { 0.0 };
-    let lantern = if dying { 3.0 + 4.0 * turned } else { 9.0 * h.kit.mods.view + 6.0 * h.beam } * (1.0 - 0.04 * (h.t * 13.0).sin().abs() - gutter);
+    let lantern = if dying { 3.0 + 4.0 * turned } else { 9.0 * h.me().kit.mods.view + 6.0 * h.me().beam } * (1.0 - 0.04 * (h.t * 13.0).sin().abs() - gutter);
     let sky = sky(h);
     let hurt = h.juice.hurt / 0.35;
     let light_color = [sky.lantern[0], sky.lantern[1] * (1.0 - 0.4 * hurt), sky.lantern[2] * (1.0 - 0.5 * hurt)];
@@ -1325,11 +1325,11 @@ mod tests {
     #[test]
     fn what_stands_beside_the_player_shows_and_only_what_blocks_the_camera_hides() {
         let mut h = Harvest::calm(7);
-        h.view_yaw = 0.0;
+        h.me_mut().view_yaw = 0.0;
         h.barrels.clear();
         let without = scene(&h).cards.len();
         let drawn = |h: &mut Harvest, tiles: [f32; 2]| {
-            h.barrels = vec![super::super::Barrel { pos: [h.pos[0] + tiles[0] * TILE, h.pos[1] + tiles[1] * TILE], hp: 1.0, flash: 0.0 }];
+            h.barrels = vec![super::super::Barrel { pos: [h.me().pos[0] + tiles[0] * TILE, h.me().pos[1] + tiles[1] * TILE], hp: 1.0, flash: 0.0 }];
             scene(h).cards.len() > without
         };
         assert!(drawn(&mut h, [0.0, 2.0]), "level with the player, off to the side");
@@ -1345,8 +1345,8 @@ mod tests {
     fn a_rising_zombie_stays_solid_while_the_eruption_around_it_fades() {
         use crate::harvest::{Fx, Kind, Zombie, effects::effects};
         let mut h = Harvest::calm(7);
-        h.view_yaw = 0.0;
-        let at = [h.pos[0] + 3.0 * TILE, h.pos[1]];
+        h.me_mut().view_yaw = 0.0;
+        let at = [h.me().pos[0] + 3.0 * TILE, h.me().pos[1]];
         let kind = Kind::named("skinny");
         h.zombies.push(Zombie::new(kind, at, 10.0, 0.0, 0.0));
         let eruption = effects().zombie_rises;
@@ -1381,7 +1381,7 @@ mod tests {
         for seed in 1..20 {
             let mut h = Harvest::new(seed);
             for yaw in 0..8 {
-                h.view_yaw = yaw as f32 * std::f32::consts::FRAC_PI_4;
+                h.me_mut().view_yaw = yaw as f32 * std::f32::consts::FRAC_PI_4;
                 worst = worst.max(scene(&h).cards.len());
             }
         }
@@ -1397,19 +1397,19 @@ mod tests {
         for i in 0..300 {
             let a = i as f32 * 0.37;
             let r = 12.0 + (i % 40) as f32 * 3.0;
-            h.zombies.push(Zombie::new(Kind::named("skinny"), [h.pos[0] + a.cos() * r, h.pos[1] + a.sin() * r], 10.0, 1.0, 0.0));
+            h.zombies.push(Zombie::new(Kind::named("skinny"), [h.me().pos[0] + a.cos() * r, h.me().pos[1] + a.sin() * r], 10.0, 1.0, 0.0));
         }
         for i in 0..60 {
             let a = i as f32 * 0.5;
-            let at = [h.pos[0] + a.cos() * 40.0, h.pos[1] + a.sin() * 40.0];
+            let at = [h.me().pos[0] + a.cos() * 40.0, h.me().pos[1] + a.sin() * 40.0];
             h.juice.corpse(Corpse { art: art::SKINNY_HURT[0], dead: None, flip: false, pos: at, z: 0.0, vel: [0.0; 2], vz: 0.0, fall: [1.0, 0.0], age: 1.0, spin: 0.0 });
             h.juice.burst(at, 8.0, 12, [0.0; 2], 0.0, [10.0, 40.0], blood(), 1.5, 1.0, 0.0);
         }
-        h.juice.ring(h.pos, 80.0, 1.0, blood());
-        h.juice.ring(h.pos, 40.0, 1.0, blood());
+        h.juice.ring(h.me().pos, 80.0, 1.0, blood());
+        h.juice.ring(h.me().pos, 40.0, 1.0, blood());
         let mut worst = 0;
         for yaw in 0..8 {
-            h.view_yaw = yaw as f32 * std::f32::consts::FRAC_PI_4;
+            h.me_mut().view_yaw = yaw as f32 * std::f32::consts::FRAC_PI_4;
             worst = worst.max(scene(&h).cards.len());
         }
         eprintln!("most cards with everything going: {worst}");

@@ -127,7 +127,7 @@ impl Showcase {
         if self.swing.as_ref().map(|s| s.0) == show {
             return;
         }
-        self.harvest.swings.clear();
+        self.harvest.me_mut().swings.clear();
         self.swing = show.map(|s| (s, Vec::new(), Stand::Figure { lift: 0.0 }, f32::INFINITY));
     }
 
@@ -244,7 +244,7 @@ impl Showcase {
             s.crowd.clear();
         }
         // A tile toward the camera, one to each side of the line to it.
-        let yaw = self.harvest.view_yaw;
+        let yaw = self.harvest.me().view_yaw;
         let (forward, right) = ([yaw.cos(), yaw.sin()], [-yaw.sin(), yaw.cos()]);
         if let Some(s) = shown.as_ref().filter(|_| barricade) {
             for side in [-1.0, 1.0] {
@@ -256,7 +256,7 @@ impl Showcase {
         }
         harvest.shown = shown;
         (harvest.zoom, harvest.lift) = (self.harvest.zoom, self.harvest.lift);
-        harvest.view_yaw = yaw;
+        harvest.me_mut().view_yaw = yaw;
         self.harvest = harvest;
         self.under.clear();
     }
@@ -334,13 +334,13 @@ impl Showcase {
         }
         // A step to the side keeps a shown player from standing between the camera and the sprite.
         let aside = if s.player { 14.0 } else { 0.0 };
-        h.pos = [s.pos[0] - forward[0] * distance - right[0] * aside, s.pos[1] - forward[1] * distance - right[1] * aside];
-        h.view_yaw = yaw;
-        h.aim = forward;
-        for s in &mut h.swings {
+        h.me_mut().pos = [s.pos[0] - forward[0] * distance - right[0] * aside, s.pos[1] - forward[1] * distance - right[1] * aside];
+        h.me_mut().view_yaw = yaw;
+        h.me_mut().aim = forward;
+        for s in &mut h.me_mut().swings {
             s.age += dt;
         }
-        h.swings.retain(|s| s.age < s.life);
+        h.me_mut().swings.retain(|s| s.age < s.life);
         let Some((show, frames, stand, since)) = &mut self.swing else { return };
         *since += dt;
         if frames.is_empty() || *since < show.life + SWING_REST {
@@ -353,7 +353,7 @@ impl Showcase {
             true => ([yaw, yaw + TAU], [show.reach; 2]),
             false => ([yaw; 2], [2.0, show.reach]),
         };
-        h.swings.push(Swing { art, fade: show.fade, age: 0.0, life: show.life, angle, reach, stand: Some(*stand), smash: show.smash });
+        h.me_mut().swings.push(Swing { art, fade: show.fade, age: 0.0, life: show.life, angle, reach, stand: Some(*stand), smash: show.smash });
     }
 
     /// The 2.5D view, as on the top screen.
@@ -479,7 +479,7 @@ mod tests {
         let rows: String = (0..54).map(|y| format!("{}\n", if (2..52).contains(&y) { "c".repeat(72) } else { ".".repeat(72) })).collect();
         let src = super::super::map::MapSource::parse(&format!("name Corn\nsize 72 54\nspawn 36 1\nhome 37 1\nground\n{rows}props\n")).unwrap();
         let mut h = Harvest::calm_on(7, &src).unwrap();
-        h.pos = [36.0 * TILE, 30.0 * TILE];
+        h.me_mut().pos = [36.0 * TILE, 30.0 * TILE];
         let laid: Vec<Option<Stalk>> = (0..h.map.h).flat_map(|y| (0..h.map.w).map(move |x| (x, y))).map(|(x, y)| h.map.standing(x, y)).collect();
         for (tall, sway) in [(3, true), (3, false), (1, true), (1, false)] {
             for (i, k) in laid.iter().enumerate() {
