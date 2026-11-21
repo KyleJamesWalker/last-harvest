@@ -8,6 +8,7 @@ use std::time::Instant;
 
 use last_harvest::{VERSION, pak};
 use last_harvest_game::Difficulty;
+use last_harvest_game::online::{self, NetReport, NetSim};
 use last_harvest_game::sandbox::{self, Night, Pick, Plan, Walk};
 
 const USAGE: &str = "\
@@ -42,6 +43,9 @@ hearts and level for each. With no BUILD, measures each weapon alone at each lev
   --pak FILE          the data pack, instead of the built-in data or data/game_data.pak
   --mods DIR          a folder of mod packs to lay over it
   --diff OLD NEW      compare two --csv files by build and weapon
+  --net-sim SPEC      play each seed online instead: a client on a link of loss=0.1,lat=80,jitter=20 (ms), any
+                      left out; prints the bytes sent and how far the client's picture strays. BUILD is the first
+                      given, or the starting kit
 ";
 
 struct Args {
@@ -56,6 +60,7 @@ struct Args {
     /// `--pick` as given, read once the data is loaded.
     pick: String,
     locked: bool,
+    net: Option<NetSim>,
 }
 
 fn main() {
@@ -76,7 +81,7 @@ fn main() {
 }
 
 fn parse(args: &[String]) -> Result<Args, String> {
-    let mut a = Args { builds: Vec::new(), weapons: None, seeds: 3, seed: 1, plan: Plan::new(Vec::new()), jobs: std::thread::available_parallelism().map_or(1, |n| n.get()), csv: None, json: None, pick: "none".into(), locked: false };
+    let mut a = Args { builds: Vec::new(), weapons: None, seeds: 3, seed: 1, plan: Plan::new(Vec::new()), jobs: std::thread::available_parallelism().map_or(1, |n| n.get()), csv: None, json: None, pick: "none".into(), locked: false, net: None };
     let mut it = args.iter();
     while let Some(arg) = it.next() {
         let mut value = || it.next().cloned().ok_or_else(|| format!("{arg} needs a value"));
@@ -112,6 +117,7 @@ fn parse(args: &[String]) -> Result<Args, String> {
             "--jobs" => a.jobs = num::<usize>(arg, value()?)?.max(1),
             "--csv" => a.csv = Some(value()?),
             "--json" => a.json = Some(value()?),
+            "--net-sim" => a.net = Some(NetSim::parse(&value()?).map_err(|e| format!("--net-sim: {e}"))?),
             // SAFETY: no other thread has started yet.
             "--pak" => unsafe { std::env::set_var("LAST_HARVEST_PAK", value()?) },
             "--mods" => unsafe { std::env::set_var("LAST_HARVEST_MODS", value()?) },
@@ -132,6 +138,9 @@ fn run(mut a: Args) -> Result<(), String> {
     pak::load()?;
     a.plan.pick = Pick::from_name(&a.pick).map_err(|e| format!("--pick: {e}"))?;
     a.plan.unlocked = a.plan.pick != Pick::None && !a.locked;
+    if let Some(net) = a.net {
+        return net_sim(&a, net);
+    }
     let builds = if a.builds.is_empty() { matrix(a.weapons.as_deref())? } else { a.builds.iter().map(|b| sandbox::parse_build(b)).collect::<Result<_, _>>()? };
     let jobs: Vec<(usize, u64)> = (0..builds.len()).flat_map(|b| (0..a.seeds).map(move |s| (b, s))).collect();
     let nights: Vec<Mutex<Option<Night>>> = jobs.iter().map(|_| Mutex::new(None)).collect();
@@ -164,6 +173,42 @@ fn run(mut a: Args) -> Result<(), String> {
     if let Some(path) = &a.json {
         std::fs::write(path, json(&cells, &a)).map_err(|e| format!("{path}: {e}"))?;
     }
+    Ok(())
+}
+
+/// Each seed's night played to a client over `net`, one line each.
+fn net_sim(a: &Args, net: NetSim) -> Result<(), String> {
+    let build = a.builds.first().map(|b| sandbox::parse_build(b)).transpose()?.unwrap_or_default();
+    println!("net-sim: loss {:.0}%, latency {} ms, jitter {} ms each way; snapshots at {} Hz", net.loss * 100.0, net.latency_ms, net.jitter_ms, 60 / last_harvest_game::netsync::snapshot::SEND_EVERY);
+    println!("{:>5} {:>6} {:>9} {:>9} {:>8} {:>7} {:>22} {:>22} {:>22} {:>22} {:>22} {:>9}", "seed", "secs", "zombies", "down B/s", "up B/s", "pkt/s", "zombie drift now", "zombie drift at draw", "host player drift", "own player drift", "own prediction", "events");
+    let drift = |d: online::Drift| format!("{:.1} / {:.1} / {:.0}", d.mean, d.p99, d.worst);
+    for seed in 0..a.seeds {
+        let plan = Plan { seed: a.seed + seed, build: build.clone(), ..a.plan.clone() };
+        let r: NetReport = online::net_sim(&plan, net);
+        let per_s = |n: u64| n as f32 / r.secs.max(1e-3);
+        println!(
+            "{:>5} {:>6.0} {:>4.0}/{:<4} {:>9.0} {:>8.0} {:>7.1} {:>22} {:>22} {:>22} {:>22} {:>22} {:>4}/{:<4}{}",
+            plan.seed,
+            r.secs,
+            r.zombies_mean,
+            r.zombies_most,
+            per_s(r.bytes_down),
+            per_s(r.bytes_up),
+            per_s(r.packets),
+            drift(r.zombies_now),
+            drift(r.zombies_then),
+            drift(r.other_player),
+            drift(r.own_player),
+            drift(r.prediction),
+            r.events_delivered,
+            r.events_made,
+            if r.events_in_order { "" } else { " OUT OF ORDER" }
+        );
+        if r.undecodable > 0 || r.biggest_packet > last_harvest_game::netsync::snapshot::BUDGET {
+            println!("      {} packets undecodable, biggest {} B", r.undecodable, r.biggest_packet);
+        }
+    }
+    println!("drift is mean / p99 / worst px; zombies as mean/most alive; events are critical ones delivered/made");
     Ok(())
 }
 

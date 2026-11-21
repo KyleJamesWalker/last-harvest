@@ -8,6 +8,7 @@ pub use effects::{SPRITES as SHOT_SPRITES, Shot, shot_named, shot_sprite_names};
 mod enemies;
 mod juice;
 mod map;
+pub mod online;
 mod photo;
 mod props;
 mod quick;
