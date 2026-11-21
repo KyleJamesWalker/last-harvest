@@ -365,6 +365,7 @@ struct App {
     android: AndroidApp,
     game: Game,
     tracker: InputTracker,
+    ticker: crate::clock::Ticker,
     display: Option<Display>,
     config: Option<Config>,
     gl: Option<Gl>,
@@ -590,7 +591,8 @@ impl App {
     fn tick(&mut self) {
         let Some(g) = &mut self.gl else { return };
         let now = Instant::now();
-        let frame_ms = now.duration_since(self.last).as_secs_f32() * 1000.0;
+        let frame = now.duration_since(self.last);
+        let frame_ms = frame.as_secs_f32() * 1000.0;
         let dt = (frame_ms / 1000.0).min(0.05);
         self.last = now;
         let Ok([w, h]) = size(&g.window) else { return };
@@ -622,7 +624,9 @@ impl App {
         }
         self.game.set_system(self.stats.frame(frame_ms));
         self.game.set_phone(g.bottom.is_none().then_some([w.get() as f32, h.get() as f32]));
-        self.game.update(&input, dt);
+        for input in self.ticker.frame(frame, input) {
+            self.game.update(&input, crate::clock::STEP);
+        }
         if self.game.take_folder_request() {
             pick_folder(&self.android);
         }
@@ -747,6 +751,7 @@ fn run(android: AndroidApp) -> Result<(), String> {
         android: android.clone(),
         game,
         tracker: InputTracker::default(),
+        ticker: crate::clock::Ticker::default(),
         display: None,
         config: None,
         gl: None,

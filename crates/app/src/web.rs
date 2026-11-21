@@ -6,6 +6,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use crate::clock;
 use last_harvest_game::{Buttons, Game, InputTracker, MAX_TOUCHES, PadFamily, RangeSetup, RawInput, SCREEN_H, SCREEN_W, Save, Scene, System};
 use last_harvest_pack::Pak;
 use last_harvest_render::{Profile, Renderer};
@@ -50,6 +51,7 @@ struct Touch {
 struct Web {
     game: Game,
     tracker: InputTracker,
+    ticker: clock::Ticker,
     gl: glow::Context,
     renderer: Renderer,
     canvas: HtmlCanvasElement,
@@ -324,7 +326,6 @@ impl Web {
         }
         let t = now();
         let frame_ms = t - self.last;
-        let dt = (frame_ms / 1000.0).clamp(0.0, 0.05) as f32;
         self.last = t;
         self.measure(frame_ms);
         self.fit();
@@ -346,7 +347,9 @@ impl Web {
         self.game.set_phone(self.phone.then(|| [self.canvas.width() as f32, self.canvas.height() as f32]));
         let input = self.tracker.frame(raw);
         self.game.set_system(self.system);
-        self.game.update(&input, dt);
+        for input in self.ticker.frame(std::time::Duration::from_secs_f64(frame_ms.max(0.0) / 1000.0), input) {
+            self.game.update(&input, clock::STEP);
+        }
         self.persist();
         let sounds = self.game.take_sounds();
         if let Some(audio) = &self.audio {
@@ -428,6 +431,7 @@ fn start(pak: Pak, mods: Vec<(String, Pak)>, problems: Vec<String>, range: Optio
     let web = Rc::new(RefCell::new(Web {
         game,
         tracker: InputTracker::default(),
+        ticker: clock::Ticker::default(),
         gl,
         renderer,
         canvas: canvas.clone(),
