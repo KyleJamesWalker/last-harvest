@@ -54,7 +54,7 @@ jobs:
       - if: steps.key.outputs.present
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - if: steps.key.outputs.present
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev gcc-mingw-w64-x86-64
 
       - if: steps.key.outputs.present
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
@@ -63,7 +63,7 @@ jobs:
       - name: The Windows and muOS builds compile
         if: steps.key.outputs.present
         run: |
-          cargo check --locked --target x86_64-pc-windows-gnu -p last-harvest --bin last-harvest --no-default-features
+          cargo clippy --locked --target x86_64-pc-windows-gnu -p last-harvest --bin last-harvest --no-default-features -- -D warnings
           cargo clippy --locked -p last-harvest --bin last-harvest-muos --no-default-features --features muos -- -D warnings
       - name: The wasm builds compile, without the tileset
         if: steps.key.outputs.present

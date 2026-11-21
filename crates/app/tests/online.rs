@@ -1,6 +1,6 @@
 //! A host and a client game playing one night through a relay on this machine and `last-harvest-net`'s WebRTC
 //! peers, in real time.
-#![cfg(any(target_os = "macos", target_os = "linux"))]
+#![cfg(not(target_arch = "wasm32"))]
 
 use std::time::{Duration, Instant};
 

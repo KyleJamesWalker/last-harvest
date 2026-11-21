@@ -8,6 +8,7 @@ import android.content.Intent;
 import android.content.UriPermission;
 import android.database.Cursor;
 import android.net.Uri;
+import android.net.wifi.WifiManager;
 import android.provider.DocumentsContract;
 import android.provider.DocumentsContract.Document;
 import android.widget.Toast;
@@ -77,6 +78,8 @@ public class MainActivity extends NativeActivity implements DisplayManager.Displ
 
     private Presentation presentation;
     private DisplayManager displays;
+    /** Lets WebRTC hear mDNS answers, which name a browser peer's address on the same network. */
+    private WifiManager.MulticastLock multicast;
 
     @Override
     protected void onCreate(Bundle state) {
@@ -89,6 +92,11 @@ public class MainActivity extends NativeActivity implements DisplayManager.Displ
         hideSystemBars();
         displays = (DisplayManager) getSystemService(Context.DISPLAY_SERVICE);
         displays.registerDisplayListener(this, null);
+        WifiManager wifi = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+        if (wifi != null) {
+            multicast = wifi.createMulticastLock("last-harvest-mdns");
+            multicast.setReferenceCounted(false);
+        }
         showSecondScreen();
     }
 
@@ -96,6 +104,17 @@ public class MainActivity extends NativeActivity implements DisplayManager.Displ
     protected void onResume() {
         super.onResume();
         hideSystemBars();
+        if (multicast != null) {
+            multicast.acquire();
+        }
+    }
+
+    @Override
+    protected void onPause() {
+        if (multicast != null) {
+            multicast.release();
+        }
+        super.onPause();
     }
 
     @Override
