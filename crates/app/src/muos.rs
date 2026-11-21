@@ -9,8 +9,8 @@ mod persist;
 use std::time::{Duration, Instant};
 
 use last_harvest::controllers::{Motors, Pad, Seats};
-use last_harvest::{VERSION, audio, clock, log, pak};
-use last_harvest_game::{Buttons, Game, InputTracker, RawInput, Scene, System};
+use last_harvest::{VERSION, audio, clock, log, pak, shot};
+use last_harvest_game::{Buttons, Capture, Game, InputTracker, RawInput, Scene, System, photo};
 use last_harvest_render::{Profile, Renderer};
 use sdl2::controller::{Axis, Button, GameController};
 use sdl2::event::Event;
@@ -126,6 +126,7 @@ fn run() -> Result<(), String> {
     game.set_backlights(false);
     game.set_touch(false);
     game.set_quit(true);
+    game.set_captures(true);
     last_harvest::online::set_up(&mut game);
     let mut online = last_harvest::online::Online::default();
     if let Ok(kit) = std::env::var("LAST_HARVEST_KIT") {
@@ -255,9 +256,35 @@ fn run() -> Result<(), String> {
         } else if let Some(phone) = &frame.phone {
             last_harvest::draw_phone(&mut renderer, &gl, &frame, phone, [w as i32, h as i32]);
         }
+        if let Some(capture) = game.take_screenshot() {
+            let photo = capture == Capture::Photo;
+            if let Some(path) = persist::next_screenshot(if photo { "photo" } else { "shot" }) {
+                let mut img = shot::read_back(&gl, w, h);
+                if photo && n > 1 {
+                    img.top = last_harvest_render::split::split(n, [w, h]).get(game.menu_view()).copied().unwrap_or(img.top);
+                }
+                std::thread::spawn(move || save_capture(&path, photo, &img));
+            }
+        }
         window.gl_swap_window();
         saver.update(game.save(), false);
     }
+}
+
+/// A screenshot as `shot-NNNN.png`, or photo mode's top screen as `photo-NNNN.png` and its middle square beside it.
+fn save_capture(path: &std::path::Path, photo: bool, img: &shot::Shot) {
+    let write = |p: &std::path::Path, width: u32, rgba: &[u8]| match shot::png(width, rgba).map_err(|e| e.to_string()).and_then(|b| std::fs::write(p, b).map_err(|e| e.to_string())) {
+        Ok(()) => log!("screenshot: saved {}", p.display()),
+        Err(e) => log!("screenshot: {}: {e}", p.display()),
+    };
+    if !photo {
+        return write(path, img.width, &img.rgba);
+    }
+    let (top, full) = photo::crop(&img.rgba, img.width, img.top);
+    write(path, top[2], &full);
+    let (square, pixels) = photo::crop(&img.rgba, img.width, photo::square(top));
+    let stem = path.file_stem().map_or_else(Default::default, |s| s.to_string_lossy().into_owned());
+    write(&path.with_file_name(format!("{stem}-square.png")), square[2], &pixels);
 }
 
 /// The state of the controller with SDL instance id `which`, made on its first event.
