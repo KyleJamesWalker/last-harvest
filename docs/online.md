@@ -99,7 +99,7 @@ Title > Online > Host a night opens a room and shows its code; Join with a code 
 
 Two windows on one Mac: run the relay, then `LAST_HARVEST_RELAY=127.0.0.1:8080 LAST_HARVEST_HOST=HJKMN target/release/last-harvest` and the same with `LAST_HARVEST_JOIN=HJKMN`. With `LAST_HARVEST_DEBUG`, give each its own `LAST_HARVEST_PIPE` and `LAST_HARVEST_SAVE`.
 
-A client that drops turns where it stands and frees its seat for a drop-in. The host closing the room, or the host's end screen, ends the night for every client.
+A client whose player turns leads the dead from its own device, as in split-screen co-op: its pad steers the leader, and it picks the next leader's rise on its own map. A client that drops turns where it stands and frees its seat for a drop-in; it never leads. The host closing the room, or the host's end screen, ends the night for every client.
 
 ## Not done yet
 
