@@ -606,14 +606,14 @@ fn art_for(h: &Harvest, look: &Look, facing: Facing) -> Art {
 /// Where the player wears a ready grenade on its frame for `facing`, in that frame's pixels, and how bright it
 /// draws; None with none ready, while the player blinks, once the run is over, or where its look hides it.
 fn player_worn(h: &Harvest, facing: Facing) -> Option<([u8; 2], f32)> {
-    if h.grenades < 1.0 || blinking(h) || matches!(h.phase, Phase::Over { .. }) {
+    if h.me().grenades < 1.0 || blinking(h) || matches!(h.phase, Phase::Over { .. }) {
         return None;
     }
     let walk = &players::look(&h.me().look).look.walk[facing.index()];
     // A hurt frame wears it where the standing frame does.
     let frame = if h.me().hurt > h.difficulty.hurt_time() - 0.2 { 0 } else { walk_frame(h) };
     let at = walk[frame.min(walk.len() - 1)].worn_at()?;
-    Some((at, if h.ready_flash > 0.0 { READY_BRIGHT } else { 1.0 }))
+    Some((at, if h.me().ready_flash > 0.0 { READY_BRIGHT } else { 1.0 }))
 }
 
 /// Where the worn grenade's top-left goes on frame `a`, in game pixels, for its middle on the frame's texture pixel
@@ -709,14 +709,11 @@ pub struct Harvest {
     t: f32,
     phase: Phase,
     players: Vec<Player>,
-    kit: Kit,
     zombies: Vec<Zombie>,
     /// Burrowers tunneling toward the player, out of reach of anything that hits.
     burrowed: Vec<Zombie>,
     spits: Vec<Spit>,
     bullets: Vec<Bullet>,
-    /// The zombies each weapon's burst has shot so far, by its section, for `targets each`.
-    burst_shot: Vec<(usize, u32)>,
     drops: Vec<Drop>,
     fx: Vec<Fx>,
     /// Blood and scorch marks: art, top-left, and a tint.
@@ -732,14 +729,9 @@ pub struct Harvest {
     dogs: Vec<Dog>,
     drones: Vec<Drone>,
     decoys: Vec<Decoy>,
-    /// Zombies a crow pecked lately, by id, and the seconds before it can peck them again.
-    pecked: Vec<(u32, f32)>,
-    /// Seconds left of the lantern beam's flare.
-    beam: f32,
     next_id: u32,
     /// Money's worth of XP not yet a whole point, from a pawn shop's share.
     xp_frac: f32,
-    revived: u32,
     /// What earlier runs unlocked, what this one found, and how many more it made findable.
     progress: Progress,
     /// Zombie kinds the settings turned off, by place in the roster.
@@ -783,10 +775,6 @@ pub struct Harvest {
     waves: Option<(f32, u32)>,
     /// The night's time the truck driver's next collection ticket is ready.
     ticket: f32,
-    /// Grenades ready to throw; the fraction is the next one recharging.
-    grenades: f32,
-    /// Seconds left of the worn grenade's flash after one comes ready.
-    ready_flash: f32,
     thrown: Vec<Grenade>,
     owed: f32,
     /// Zombies owed while the night was full, and the release toward the next of them rising.
@@ -830,8 +818,6 @@ pub struct Harvest {
     kill_bump: f32,
     /// Cooldowns on sounds that would otherwise stack up in a swarm: hits, kills, groans, rising, birds, spit, drones.
     hush: [f32; 8],
-    /// Rounds each weapon has fired toward its next sound, by its def, for a `sound_every`.
-    heard: Vec<u32>,
     /// Follow-up sounds and the seconds until each plays.
     later: Vec<(f32, Sfx)>,
     heartbeat: f32,
@@ -987,11 +973,8 @@ impl Harvest {
             dogs: Vec::new(),
             drones: Vec::new(),
             decoys: Vec::new(),
-            pecked: Vec::new(),
-            beam: 0.0,
             next_id: 1,
             xp_frac: 0.0,
-            revived: 0,
             progress: Progress::default(),
             enemies_off: 0,
             newly: Vec::new(),
@@ -1017,21 +1000,17 @@ impl Harvest {
             woke: false,
             waves: None,
             ticket: crate::tuning::tuning().driver_after,
-            grenades: book().grenades[Difficulty::Normal as usize] as f32,
-            ready_flash: 0.0,
             thrown: Vec::new(),
-            players: vec![Player::new(map.spawn, kit.max_hp())],
+            players: vec![Player::new(map.spawn, kit, book().grenades[Difficulty::Normal as usize] as f32)],
             rng,
             map,
             map_id: String::new(),
             t: 0.0,
             phase: Phase::Playing,
-            kit,
             zombies: Vec::new(),
             burrowed: Vec::new(),
             spits: Vec::new(),
             bullets: Vec::new(),
-            burst_shot: Vec::new(),
             drops: Vec::new(),
             fx: Vec::new(),
             stains: Vec::new(),
@@ -1062,7 +1041,6 @@ impl Harvest {
             leveling: 0.0,
             kill_bump: 1.0,
             hush: [0.0; 8],
-            heard: Vec::new(),
             later: Vec::new(),
             heartbeat: 0.0,
             glory: 0.0,
@@ -1180,8 +1158,9 @@ impl Harvest {
 
     pub fn at(mut self, difficulty: Difficulty) -> Self {
         let kit = Kit::start(difficulty);
-        self.me_mut().hp = kit.max_hp();
-        Self { difficulty, grenades: kit.grenades(), kit, ..self }
+        let me = self.me_mut();
+        (me.hp, me.grenades, me.kit) = (kit.max_hp(), kit.grenades(), kit);
+        Self { difficulty, ..self }
     }
 
     /// Offers only what earlier runs have unlocked.
@@ -1198,14 +1177,17 @@ impl Harvest {
     pub fn looking_like(mut self, id: &str) -> Self {
         let mine = players::look(id);
         let own = mine.start_defs(self.difficulty).map(|defs| Kit::with_weapons(&defs, self.difficulty));
-        let grenades = own.as_ref().map_or(self.grenades, Kit::grenades);
-        let mut kit = own.unwrap_or(self.kit);
-        for (b, theirs) in kit.base.iter_mut().zip(mine.base) {
+        let me = self.me_mut();
+        if let Some(kit) = own {
+            me.grenades = kit.grenades();
+            me.kit = kit;
+        }
+        for (b, theirs) in me.kit.base.iter_mut().zip(mine.base) {
             *b = theirs.unwrap_or(*b);
         }
-        self.players[ME].hp = kit.max_hp();
-        self.players[ME].look = mine.id.clone();
-        Self { kit, grenades, ..self }
+        me.hp = me.kit.max_hp();
+        me.look = mine.id.clone();
+        self
     }
 
     #[cfg(test)]
@@ -1245,10 +1227,10 @@ impl Harvest {
             })
             .collect();
         for &(def, level) in &self.trial {
-            self.kit.raise(def, level);
+            self.players[ME].kit.raise(def, level);
         }
-        self.me_mut().hp = self.kit.max_hp();
-        self.grenades = self.kit.grenades();
+        self.me_mut().hp = self.me().kit.max_hp();
+        self.me_mut().grenades = self.me().kit.grenades();
         self
     }
 
@@ -1486,7 +1468,7 @@ impl Harvest {
             dt
         };
         self.t += dt;
-        self.juice.tally.hold(self.kit.weapons.iter().map(|a| a.def), dt);
+        self.juice.tally.hold(self.players[ME].kit.weapons.iter().map(|a| a.def), dt);
         self.me_mut().hurt = (self.me().hurt - dt).max(0.0);
         // Up and down walk along the heading, left and right strafe, Y and A turn, B turns around.
         let dir = input.dir();
@@ -1508,7 +1490,7 @@ impl Harvest {
         self.me_mut().aim = f;
         self.me_mut().facing = Facing::of(f);
         if len(mv) > 0.2 {
-            let k = self.kit.speed() * dt * len(mv).min(1.0) / len(mv);
+            let k = self.me().kit.speed() * dt * len(mv).min(1.0) / len(mv);
             self.me_mut().heading = norm(mv);
             self.players[ME].pos = self.map.slide(self.players[ME].pos, [mv[0] * k, mv[1] * k], crate::tuning::tuning().player_half());
             let before = (self.me().walk * crate::tuning::tuning().walk_fps) as u32;
@@ -1521,10 +1503,10 @@ impl Harvest {
             self.me_mut().walk = 0.0;
         }
         self.noise = None;
-        let before = self.grenades;
-        self.grenades = (self.grenades + dt / (crate::tuning::tuning().grenade_recharge * self.kit.mods.recharge)).min(self.kit.grenades());
-        self.ready_flash = if before < 1.0 && self.grenades >= 1.0 { READY_FLASH } else { (self.ready_flash - dt).max(0.0) };
-        self.me_mut().hp = (self.me().hp + self.kit.mods.regen * dt).min(self.kit.max_hp());
+        let before = self.me().grenades;
+        self.me_mut().grenades = (self.me().grenades + dt / (crate::tuning::tuning().grenade_recharge * self.me().kit.mods.recharge)).min(self.me().kit.grenades());
+        self.me_mut().ready_flash = if before < 1.0 && self.me().grenades >= 1.0 { READY_FLASH } else { (self.me().ready_flash - dt).max(0.0) };
+        self.me_mut().hp = (self.me().hp + self.me().kit.mods.regen * dt).min(self.me().kit.max_hp());
         if let Some(touch) = input.touch.filter(|_| input.touch_started).or(self.queued_touch.take()) {
             self.throw(touch, sounds);
         }
@@ -1569,11 +1551,11 @@ impl Harvest {
         self.feel(dt);
         self.remember(dt);
 
-        if self.me().hp <= 0.0 && (self.revived as f32) < self.kit.mods.revive {
+        if self.me().hp <= 0.0 && (self.me().revived as f32) < self.me().kit.mods.revive {
             self.revive(sounds, flow);
         } else if self.me().hp <= 0.0 && self.undying {
             self.juice.tally.fell.get_or_insert(self.t);
-            self.me_mut().hp = self.kit.max_hp();
+            self.me_mut().hp = self.me().kit.max_hp();
         } else if self.me().hp <= 0.0 {
             self.juice.tally.fell.get_or_insert(self.t);
             self.me_mut().hp = 0.0;
@@ -1826,12 +1808,12 @@ impl Harvest {
     fn deal(&mut self, shown: &[Choice], avoid: &[Choice]) -> Choice {
         let b = book();
         let free = |i: &usize| !shown.iter().any(|c| c.up == *i);
-        let pool: Vec<usize> = (0..b.defs.len()).filter(|&i| self.progress.owns(i) && self.kit.offerable(i) && self.banished & 1 << i == 0).filter(free).collect();
+        let pool: Vec<usize> = (0..b.defs.len()).filter(|&i| self.progress.owns(i) && self.me().kit.offerable(i) && self.banished & 1 << i == 0).filter(free).collect();
         let fresh: Vec<usize> = pool.iter().copied().filter(|i| !avoid.iter().any(|c| c.up == *i)).collect();
         let up = match if fresh.is_empty() { pool } else { fresh } {
             from if !from.is_empty() => {
                 let favor = crate::tuning::tuning().favor_weight;
-                let weights: Vec<f32> = from.iter().map(|&i| if self.kit.level(i) > 0 { self.held_weight } else { 1.0 } * if self.favored == Some(i) { favor } else { 1.0 }).collect();
+                let weights: Vec<f32> = from.iter().map(|&i| if self.me().kit.level(i) > 0 { self.held_weight } else { 1.0 } * if self.favored == Some(i) { favor } else { 1.0 }).collect();
                 let mut r = self.rng.range(0.0, weights.iter().sum());
                 let at = weights.iter().position(|w| {
                     r -= w;
@@ -1846,7 +1828,7 @@ impl Harvest {
                 if from.is_empty() { 0 } else { from[self.rng.below(from.len())] }
             }
         };
-        let rare = crate::tuning::tuning().rare + self.kit.mods.luck;
+        let rare = crate::tuning::tuning().rare + self.me().kit.mods.luck;
         let roll = self.rng.range(0.0, 1.0);
         Choice { up, rare: b.defs[up].kind != Card::Filler && roll < rare, found: false }
     }
@@ -1860,7 +1842,7 @@ impl Harvest {
         }
         let minutes = self.t / 60.0;
         let finds: Vec<usize> = (0..b.defs.len())
-            .filter(|&i| self.progress.findable(i) && self.kit.offerable(i) && self.banished & 1 << i == 0 && minutes >= b.defs[i].after && (chest || !b.defs[i].chest))
+            .filter(|&i| self.progress.findable(i) && self.me().kit.offerable(i) && self.banished & 1 << i == 0 && minutes >= b.defs[i].after && (chest || !b.defs[i].chest))
             .collect();
         if chest {
             let own: Vec<usize> = finds.iter().copied().filter(|&i| b.defs[i].chest).collect();
@@ -1880,24 +1862,24 @@ impl Harvest {
             self.newly.push(c.up);
             self.juice.banner(format!("FOUND: {}", def.name.to_uppercase()), [GOLD[0], GOLD[1], GOLD[2], 1.0], 2.4);
         }
-        let (from, to) = self.kit.raise(c.up, if c.rare { 2 } else { 1 });
+        let (from, to) = self.me_mut().kit.raise(c.up, if c.rare { 2 } else { 1 });
         if to > def.max {
             self.broke = true;
             self.juice.banner(format!("LEVEL BREAKER: {} {to}", def.name.to_uppercase()), [GOLD[0], GOLD[1], GOLD[2], 1.0], 2.8);
             self.juice.shake(0.3);
         }
         let heal = def.at(powerups::Stat::Heal, to) * (to - from).max(1) as f32;
-        self.me_mut().hp = (self.me().hp + heal).min(self.kit.max_hp());
+        self.me_mut().hp = (self.me().hp + heal).min(self.me().kit.max_hp());
         if def.at(powerups::Stat::Refill, 1) > 0.0 {
-            self.grenades = self.kit.grenades();
+            self.me_mut().grenades = self.me().kit.grenades();
         }
         self.xp += def.at(powerups::Stat::Money, 1) as u32;
     }
 
     /// A vaccine pulls the player back from turning: half health, a moment untouchable, and the dead thrown back.
     fn revive(&mut self, sounds: &mut Vec<Sfx>, flow: &mut Flow) {
-        self.revived += 1;
-        self.me_mut().hp = self.kit.max_hp() * 0.5;
+        self.me_mut().revived += 1;
+        self.me_mut().hp = self.me().kit.max_hp() * 0.5;
         self.me_mut().hurt = 2.0;
         self.shove(600.0);
         self.juice.ring(self.me().pos, crate::tuning::tuning().push, 0.6, [0.4, 1.0, 0.5]);
@@ -1912,7 +1894,7 @@ impl Harvest {
     fn finish(&mut self, won: bool) -> Run {
         self.juice.tally.shut = true;
         let mut kit = [None; RUN_KIT];
-        let held = self.kit.weapons.iter().map(|a| (a.def, a.level)).chain(self.kit.passives.iter().copied());
+        let held = self.me().kit.weapons.iter().map(|a| (a.def, a.level)).chain(self.me().kit.passives.iter().copied());
         for (slot, (def, level)) in kit.iter_mut().zip(held) {
             *slot = Some((def as u16, level.min(u8::MAX as u32) as u8));
         }
@@ -2369,7 +2351,7 @@ impl Harvest {
 
     /// The player takes `hit`, less armor, and can't be hurt again for a moment.
     fn bitten(&mut self, hit: f32, sounds: &mut Vec<Sfx>, flow: &mut Flow) {
-        let hit = (hit - self.kit.mods.armor).max(1.0);
+        let hit = (hit - self.me().kit.mods.armor).max(1.0);
         self.me_mut().hp -= hit;
         self.me_mut().hurt = self.difficulty.hurt_time();
         self.juice.popup(self.me().pos, hit, Tone::Hurt);
@@ -2395,7 +2377,7 @@ impl Harvest {
     }
 
     fn move_bullets(&mut self, dt: f32, sounds: &mut Vec<Sfx>) {
-        let crit = crate::tuning::tuning().crit + self.kit.mods.crit;
+        let crit = crate::tuning::tuning().crit + self.me().kit.mods.crit;
         let own_shot = effects::effects().bullet.shot;
         let mut hits = (0, false);
         for b in &mut self.bullets {
@@ -2472,7 +2454,7 @@ impl Harvest {
     /// Damages zombies in `radius`, sets off barrels in it, and hurts the player if too close.
     /// Bigger with a fuel drums' blast, an area passive's reach and the damage passives.
     fn explode(&mut self, c: [f32; 2], radius: f32, damage: f32, sounds: &mut Vec<Sfx>) {
-        let m = self.kit.mods;
+        let m = self.me().kit.mods;
         let (radius, damage, crit) = (radius * m.blast * m.area, damage * m.blast * m.damage, crate::tuning::tuning().crit + m.crit);
         let mut hits = (0, false);
         for z in &mut self.zombies {
@@ -2532,12 +2514,12 @@ impl Harvest {
     }
 
     fn throw_at(&mut self, to: [f32; 2], sounds: &mut Vec<Sfx>) {
-        if self.grenades < 1.0 {
+        if self.me().grenades < 1.0 {
             sounds.push(Sfx::Miss);
             return;
         }
         if !self.endless {
-            self.grenades -= 1.0;
+            self.me_mut().grenades -= 1.0;
         }
         self.thrown.push(Grenade { from: self.me().pos, to, t: 0.0, kind: Thrown::Grenade, by: None });
         sounds.push(Sfx::Throw);
@@ -2667,7 +2649,7 @@ impl Harvest {
             let to = sub(self.players[ME].pos, d.pos);
             let dist = len(to);
             let n = norm(to);
-            if dist < self.kit.magnet() && d.pulled.is_none() {
+            if dist < self.players[ME].kit.magnet() && d.pulled.is_none() {
                 let side = if self.juice.rng.below(2) == 0 { 1.0 } else { -1.0 };
                 d.catch(n, side);
             }
@@ -2689,7 +2671,7 @@ impl Harvest {
                 match d.kind {
                     DropKind::Money(v) => {
                         self.juice.tally.hearts += 1;
-                        self.xp_frac += v as f32 * self.kit.mods.greed;
+                        self.xp_frac += v as f32 * self.players[ME].kit.mods.greed;
                         self.xp += self.xp_frac as u32;
                         self.xp_frac = self.xp_frac.fract();
                         money = true;
@@ -2704,7 +2686,7 @@ impl Harvest {
                         self.juice.flash(self.players[ME].pos, 20.0, [1.8, 1.4, 0.6], 9.0, 0.8);
                     }
                     DropKind::Health => {
-                        let gain = self.difficulty.heal().min(self.kit.max_hp() - self.players[ME].hp);
+                        let gain = self.difficulty.heal().min(self.players[ME].kit.max_hp() - self.players[ME].hp);
                         self.players[ME].hp += gain;
                         healed = gain > 0.0 || healed;
                         if gain > 0.0 {
@@ -2861,7 +2843,7 @@ impl Harvest {
             }
         }
 
-        let health = self.me().hp / self.kit.max_hp();
+        let health = self.me().hp / self.me().kit.max_hp();
         if health < 0.3 {
             self.heartbeat -= dt;
             if self.heartbeat <= 0.0 {
@@ -3079,7 +3061,7 @@ mod tests {
     #[test]
     fn a_ranged_zombie_keeps_its_distance_and_spits_until_cover_stops_it() {
         let mut h = Harvest::calm_on(1, &map::MapSource::new("Field", [20, 14])).unwrap();
-        h.kit.weapons.clear();
+        h.me_mut().kit.weapons.clear();
         let spitter = skinny_but(|e| {
             e.ranged = 60.0;
             e.damage = 12.0;
@@ -3100,7 +3082,7 @@ mod tests {
             h.update(&Input::default(), 1.0 / 60.0, &mut sounds);
         }
         assert_eq!(h.zombies[0].pos, before, "and holds its ground");
-        assert!(h.me().hp < h.kit.max_hp(), "the spit landed");
+        assert!(h.me().hp < h.me().kit.max_hp(), "the spit landed");
         h.me_mut().hurt = 0.0;
         h.spits = vec![Spit { kind: Kind(0), pos: [h.me().pos[0] - 1.0, h.me().pos[1] - 6.0], vel: [10.0, 0.0], damage: 12.0, life: 1.0, age: 0.0 }];
         let hp = h.me().hp;
@@ -3125,7 +3107,7 @@ mod tests {
     #[test]
     fn a_burrower_tunnels_unhittable_and_breaks_out_beside_the_player() {
         let mut h = Harvest::calm_on(1, &map::MapSource::new("Field", [20, 14])).unwrap();
-        h.kit.weapons.clear();
+        h.me_mut().kit.weapons.clear();
         let mole = skinny_but(|e| e.burrow = 2.0);
         h.tells.push(Tell { kind: mole, pos: [h.me().pos[0] + 90.0, h.me().pos[1]], hp: 1000.0, t: 0.0, leader: false });
         let mut sounds = Vec::new();
@@ -3299,14 +3281,14 @@ mod tests {
     fn the_player_wears_a_grenade_only_while_one_is_ready_and_it_flashes_as_one_comes_ready() {
         let mut h = Harvest::calm(12);
         let mut sounds = Vec::new();
-        assert!(h.grenades >= 1.0);
+        assert!(h.me().grenades >= 1.0);
         let look = &players::look(&h.me().look).look;
         // The look may hide it on some facings; this one shows it.
         let Some((facing, at)) = [Facing::Front, Facing::Side, Facing::Back].into_iter().find_map(|f| Some((f, look.walk[f.index()][0].worn_at()?))) else { return };
         assert_eq!(player_worn(&h, facing), Some((at, 1.0)));
-        h.grenades = 0.5;
+        h.me_mut().grenades = 0.5;
         assert_eq!(player_worn(&h, facing), None, "none ready, none worn");
-        h.update(&Input::default(), crate::tuning::tuning().grenade_recharge * h.kit.mods.recharge, &mut sounds);
+        h.update(&Input::default(), crate::tuning::tuning().grenade_recharge * h.me().kit.mods.recharge, &mut sounds);
         assert_eq!(player_worn(&h, facing).map(|w| w.1), Some(READY_BRIGHT), "it flashes as it comes ready");
         h.update(&Input::default(), READY_FLASH, &mut sounds);
         assert_eq!(player_worn(&h, facing).map(|w| w.1), Some(1.0));
@@ -3337,7 +3319,7 @@ mod tests {
         let mut sounds = Vec::new();
         h.update(&Input { touch: Some(touch), touch_started: true, ..Default::default() }, 0.016, &mut sounds);
         assert_eq!(h.thrown.len(), 1);
-        assert!(h.grenades < h.kit.grenades());
+        assert!(h.me().grenades < h.me().kit.grenades());
         h.update(&Input::default(), crate::tuning::tuning().grenade_flight, &mut sounds);
         assert!(h.thrown.is_empty());
         assert!(h.kills == 1 || h.zombies.iter().all(|z| z.hp <= 0.0));
@@ -3349,9 +3331,9 @@ mod tests {
         let choice = |id| Choice { up: book().index(id).unwrap(), rare: false, found: false };
         h.phase = Phase::LevelUp { choices: [choice("shotgun"), choice("pistol"), choice("running_shoes")], selected: 0, t: 1.0, picked: None };
         let tap = Input { touch: Some([500.0, CHOICE_TOP + CHOICE_ROW * 1.5]), touch_started: true, ..Default::default() };
-        let before = h.kit.level(book().index("pistol").unwrap());
+        let before = h.me().kit.level(book().index("pistol").unwrap());
         h.update(&tap, 0.016, &mut Vec::new());
-        assert_eq!(h.kit.level(book().index("pistol").unwrap()), before + 1);
+        assert_eq!(h.me().kit.level(book().index("pistol").unwrap()), before + 1);
         h.update(&Input::default(), PICK_TIME, &mut Vec::new());
         assert!(matches!(h.phase, Phase::Playing));
     }
@@ -3360,8 +3342,8 @@ mod tests {
     fn a_held_powerup_comes_up_held_weight_times_as_often() {
         let mut h = Harvest::new(2);
         h.held_weight = 3.0;
-        let held: Vec<usize> = (0..book().defs.len()).filter(|&i| h.kit.level(i) > 0 && h.kit.offerable(i)).collect();
-        let new: Vec<usize> = (0..book().defs.len()).filter(|&i| h.kit.level(i) == 0 && h.progress.owns(i) && h.kit.offerable(i)).collect();
+        let held: Vec<usize> = (0..book().defs.len()).filter(|&i| h.me().kit.level(i) > 0 && h.me().kit.offerable(i)).collect();
+        let new: Vec<usize> = (0..book().defs.len()).filter(|&i| h.me().kit.level(i) == 0 && h.progress.owns(i) && h.me().kit.offerable(i)).collect();
         assert!(!held.is_empty() && !new.is_empty());
         let (mut on_held, mut on_new) = (0.0, 0.0);
         for _ in 0..20000 {
@@ -3425,7 +3407,7 @@ mod tests {
         let after = shown(&h);
         assert!(after.iter().all(|up| !before.contains(up)), "{before:?} then {after:?}");
         assert_eq!(h.rerolls, 0);
-        let level: Vec<u32> = after.iter().map(|&up| h.kit.level(up)).collect();
+        let level: Vec<u32> = after.iter().map(|&up| h.me().kit.level(up)).collect();
         h.update(&Input { pressed: Buttons::X, ..Default::default() }, 0.016, &mut Vec::new());
         assert!(matches!(h.phase, Phase::LevelUp { picked: None, .. }), "too soon after the deal");
         h.update(&Input::default(), CARDS_IN, &mut Vec::new());
@@ -3433,7 +3415,7 @@ mod tests {
         h.update(&Input { pressed: Buttons::R1, ..Default::default() }, 0.016, &mut sounds);
         assert_eq!(shown(&h), after, "none left");
         assert!(sounds.contains(&Sfx::Miss));
-        assert_eq!(after.iter().map(|&up| h.kit.level(up)).collect::<Vec<_>>(), level, "nothing picked for the player");
+        assert_eq!(after.iter().map(|&up| h.me().kit.level(up)).collect::<Vec<_>>(), level, "nothing picked for the player");
     }
 
     #[test]
@@ -3474,10 +3456,10 @@ mod tests {
         assert!(matches!(h.phase, Phase::LevelUp { picked: None, .. }) && h.favored.is_none() && sounds.contains(&Sfx::Miss), "not before favor_level");
         h.level = t.favor_level as u32;
         let pistol = book().index("pistol").unwrap();
-        let was = h.kit.level(pistol);
+        let was = h.me().kit.level(pistol);
         h.update(&Input { pressed: Buttons::Y, ..Default::default() }, 0.016, &mut Vec::new());
         assert!(matches!(h.phase, Phase::LevelUp { picked: Some(_), .. }), "a favor is a pick");
-        assert_eq!((h.favored, h.favors, h.kit.level(pistol)), (Some(pistol), 0, was + 1));
+        assert_eq!((h.favored, h.favors, h.me().kit.level(pistol)), (Some(pistol), 0, was + 1));
     }
 
     #[test]
@@ -3501,7 +3483,7 @@ mod tests {
     fn a_favored_powerup_comes_up_favor_weight_times_as_often() {
         let mut h = Harvest::new(2);
         h.held_weight = 1.0;
-        let pool: Vec<usize> = (0..book().defs.len()).filter(|&i| h.progress.owns(i) && h.kit.offerable(i)).collect();
+        let pool: Vec<usize> = (0..book().defs.len()).filter(|&i| h.progress.owns(i) && h.me().kit.offerable(i)).collect();
         let favored = pool[0];
         h.favored = Some(favored);
         let n = 30000;
@@ -3648,12 +3630,12 @@ mod tests {
         h.zombies.push(Zombie::new(Kind::named("skinny"), [3.5 * TILE, 7.5 * TILE], 1000.0, 1.0, 0.0));
         for _ in 0..60 * 20 {
             h.update(&Input::default(), 1.0 / 60.0, &mut Vec::new());
-            if h.me().hp < h.kit.max_hp() {
+            if h.me().hp < h.me().kit.max_hp() {
                 break;
             }
         }
         assert!(h.map.props.len() < fence, "a piece of fence is gone");
-        assert!(h.me().hp < h.kit.max_hp(), "and the zombie came through it");
+        assert!(h.me().hp < h.me().kit.max_hp(), "and the zombie came through it");
     }
 
     #[test]
@@ -3694,11 +3676,11 @@ mod tests {
         let mut sounds = Vec::new();
         h.update(&Input::default(), crate::tuning::tuning().rise * 0.5, &mut sounds);
         assert_eq!(h.zombies[0].pos, at);
-        assert_eq!(h.me().hp, h.kit.max_hp());
+        assert_eq!(h.me().hp, h.me().kit.max_hp());
         for _ in 0..60 {
             h.update(&Input::default(), 1.0 / 60.0, &mut sounds);
         }
-        assert!(h.me().hp < h.kit.max_hp());
+        assert!(h.me().hp < h.me().kit.max_hp());
     }
 
     /// A calm farm whose player has just gone down at its spawn, ringed by `n` zombies.
@@ -3791,7 +3773,7 @@ mod tests {
         assert!((tally.total() - hurt).abs() < 0.01 * hurt, "every hit counts: {} of {hurt}", tally.total());
         assert!((tally.secs - h.t).abs() < 1e-3 && tally.dps() == tally.total() / tally.secs, "over the night's time");
         let names: Vec<&str> = tally.rows().iter().map(|r| book().defs[r.by.unwrap()].name.as_str()).collect();
-        let held: Vec<&str> = h.kit.weapons.iter().map(|a| book().defs[a.def].name.as_str()).collect();
+        let held: Vec<&str> = h.me().kit.weapons.iter().map(|a| book().defs[a.def].name.as_str()).collect();
         assert_eq!(names.len(), held.len(), "{names:?} {held:?}");
         assert!(held.iter().all(|n| names.contains(n)));
         assert!(tally.rows().windows(2).all(|w| w[0].damage >= w[1].damage), "most damage first");
@@ -3807,11 +3789,11 @@ mod tests {
             let (mut h, _) = fought_then_died(1.0);
             h.single = single;
             let points = book().index("hollow_points").unwrap();
-            h.kit.raise(points, 2);
+            h.me_mut().kit.raise(points, 2);
             let mut f = crate::Frame::default();
             h.draw(&mut f, false);
             let icons: Vec<Art> = f.top.shapes.iter().filter_map(|s| if let crate::Shape::Art { art, .. } = s { Some(*art) } else { None }).collect();
-            for def in h.kit.weapons.iter().map(|a| a.def).chain([points]) {
+            for def in h.me().kit.weapons.iter().map(|a| a.def).chain([points]) {
                 assert!(icons.contains(&book().defs[def].icon), "{} on the top screen, one screen {single}", book().defs[def].id);
             }
             assert!(top_text(&h).contains(&"Build".to_string()));
@@ -3823,11 +3805,11 @@ mod tests {
         let mut h = Harvest::calm(3);
         let crows = book().index("crows").unwrap();
         let points = book().index("hollow_points").unwrap();
-        h.kit.raise(crows, 3);
-        h.kit.raise(points, 2);
+        h.me_mut().kit.raise(crows, 3);
+        h.me_mut().kit.raise(points, 2);
         h.me_mut().hp = 0.0;
         let run = h.update(&Input::default(), 1.0 / 60.0, &mut Vec::new()).ended.expect("the run ends");
-        let mut want: Vec<(u16, u8)> = h.kit.weapons.iter().map(|a| (a.def as u16, a.level as u8)).collect();
+        let mut want: Vec<(u16, u8)> = h.me().kit.weapons.iter().map(|a| (a.def as u16, a.level as u8)).collect();
         want.push((points as u16, 2));
         assert!(want.contains(&(crows as u16, 3)));
         assert_eq!(run.kit.iter().flatten().copied().collect::<Vec<_>>(), want);
@@ -3871,7 +3853,7 @@ mod tests {
         assert!(matches!(h.phase, Phase::Playing));
         assert_eq!(h.kills, 0);
         assert_eq!(h.difficulty, Difficulty::Hard);
-        assert_eq!(h.kit.weapons.len(), 2, "and its kit");
+        assert_eq!(h.me().kit.weapons.len(), 2, "and its kit");
         assert_eq!(h.enemies_off, 0b10, "the kinds turned off stay off");
         assert_eq!(h.me().look, "", "and the player keeps their look");
     }
@@ -3880,8 +3862,8 @@ mod tests {
     fn every_difficulty_starts_with_a_pistol_and_knife_and_easy_with_two_grenades() {
         for (d, grenades) in [(Difficulty::Easy, 2.0), (Difficulty::Normal, 1.0), (Difficulty::Hard, 1.0)] {
             let h = Harvest::new(1).at(d).with_kit("lantern");
-            assert_eq!(h.kit.weapons.len(), 3, "{d:?}");
-            assert_eq!((h.grenades, h.kit.grenades()), (grenades, grenades), "{d:?}");
+            assert_eq!(h.me().kit.weapons.len(), 3, "{d:?}");
+            assert_eq!((h.me().grenades, h.me().kit.grenades()), (grenades, grenades), "{d:?}");
         }
     }
 
@@ -3891,7 +3873,7 @@ mod tests {
             let mut h = Harvest::calm(3).at(d);
             h.zombies.push(Zombie::new(Kind::named("skinny"), [h.me().pos[0] + 3.0, h.me().pos[1]], 1000.0, 1.0, 0.0));
             h.update(&Input::default(), 1.0 / 60.0, &mut Vec::new());
-            h.kit.max_hp() - h.me().hp
+            h.me().kit.max_hp() - h.me().hp
         };
         let [easy, normal, hard] = Difficulty::ALL.map(bite);
         assert!(easy < normal && normal < hard, "{easy} {normal} {hard}");
@@ -3901,7 +3883,7 @@ mod tests {
     #[test]
     fn a_kill_drops_a_body_a_number_and_money_that_hops() {
         let mut h = Harvest::calm(3);
-        h.kit.raise(book().index("pistol").unwrap(), 1);
+        h.me_mut().kit.raise(book().index("pistol").unwrap(), 1);
         let at = [-30.0, 30.0, 0.0].into_iter().flat_map(|dx| [-30.0, 30.0].map(|dy| [h.me().pos[0] + dx, h.me().pos[1] + dy])).find(|p| !h.map.hits(p[0], p[1], crate::tuning::tuning().zombie_half())).unwrap();
         h.zombies.push(Zombie::new(Kind::named("skinny"), at, 5.0, 1.0, 0.0));
         let mut sounds = Vec::new();
@@ -4069,7 +4051,7 @@ mod tests {
         h.zombies.push(Zombie::new(Kind::named("skinny"), [h.me().pos[0] + 3.0, h.me().pos[1]], 1000.0, 1.0, 0.0));
         let mut sounds = Vec::new();
         h.update(&Input::default(), 1.0 / 60.0, &mut sounds);
-        assert!(h.me().hp < h.kit.max_hp() && h.juice.frozen());
+        assert!(h.me().hp < h.me().kit.max_hp() && h.juice.frozen());
         let t = h.t;
         h.update(&Input::default(), 1.0 / 60.0, &mut sounds);
         assert_eq!(h.t, t);
@@ -4147,7 +4129,7 @@ mod tests {
     /// A farm at the edge of dawn, with the player well away from home and nothing else about.
     fn before_dawn() -> Harvest {
         let mut h = Harvest::calm(4);
-        h.kit.weapons.clear();
+        h.me_mut().kit.weapons.clear();
         h.zombies.clear();
         h.tells.clear();
         h.t = dawn() - 0.01;

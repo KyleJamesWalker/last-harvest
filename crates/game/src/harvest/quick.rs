@@ -18,7 +18,7 @@ impl Harvest {
     /// throws on release; with none ready, R1 only clicks.
     pub(super) fn quick_throw(&mut self, input: &Input, dt: f32, sounds: &mut Vec<Sfx>) {
         if input.pressed.contains(Buttons::R1) {
-            if self.grenades >= 1.0 {
+            if self.me().grenades >= 1.0 {
                 self.quick = Some(0.0);
                 return;
             }
@@ -90,7 +90,7 @@ mod tests {
     fn r1_lines_up_a_marker_straight_ahead_and_throws_there_on_release() {
         for single in [false, true] {
             let mut h = farm(21, single);
-            let before = h.grenades;
+            let before = h.me().grenades;
             step(&mut h, Buttons::R1, Buttons::R1);
             let t = crate::tuning::tuning();
             assert!((ahead(&h) - t.quick_near).abs() < 1.0, "{single}: starts at quick_near, {}", ahead(&h));
@@ -100,7 +100,7 @@ mod tests {
             assert!(sounds.iter().any(|s| matches!(s, Sfx::Throw)));
             assert_eq!(h.thrown.len(), 1, "{single}");
             assert!(len([h.thrown[0].to[0] - at[0], h.thrown[0].to[1] - at[1]]) < 1.0, "{single}: lands on the marker");
-            assert!(h.quick_mark().is_none() && h.grenades < before, "{single}: one grenade spent, as any throw");
+            assert!(h.quick_mark().is_none() && h.me().grenades < before, "{single}: one grenade spent, as any throw");
         }
     }
 
@@ -133,7 +133,7 @@ mod tests {
     #[test]
     fn without_a_grenade_r1_clicks_and_throws_nothing() {
         let mut h = farm(24, false);
-        h.grenades = 0.0;
+        h.me_mut().grenades = 0.0;
         let sounds = step(&mut h, Buttons::R1, Buttons::R1);
         assert!(sounds.iter().any(|s| matches!(s, Sfx::Miss)));
         assert!(h.quick_mark().is_none());

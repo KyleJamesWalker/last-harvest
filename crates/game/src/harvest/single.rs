@@ -71,7 +71,7 @@ impl Harvest {
             return (own, dt);
         }
         if input.pressed.contains(Buttons::L2) && !self.touch_aim {
-            if self.grenades >= 1.0 {
+            if self.me().grenades >= 1.0 {
                 let t = crate::tuning::tuning();
                 self.aiming = Some(Aiming { at: self.default_target(), left: t.aim_window, walk: input.dir(), steer: false });
             } else {
@@ -240,7 +240,7 @@ mod tests {
         assert!(h.thrown.is_empty());
         hold(&mut h, Buttons::NONE, DT);
         assert_eq!(h.thrown.len(), 1);
-        assert!(h.aiming.is_none() && h.grenades < 1.0);
+        assert!(h.aiming.is_none() && h.me().grenades < 1.0);
     }
 
     #[test]
@@ -255,7 +255,7 @@ mod tests {
     #[test]
     fn without_a_grenade_l2_only_shows_the_map_at_full_speed() {
         let mut h = single(12);
-        h.grenades = 0.0;
+        h.me_mut().grenades = 0.0;
         let t = h.t;
         let sounds = press(&mut h, Buttons::L2, Buttons::L2);
         assert!(sounds.iter().any(|s| matches!(s, Sfx::Miss)));
@@ -273,7 +273,7 @@ mod tests {
         press(&mut h, Buttons::L2 | Buttons::B, Buttons::B);
         assert!(h.aiming.is_none() && h.me().spin == 0.0);
         hold(&mut h, Buttons::NONE, DT);
-        assert!(h.thrown.is_empty() && h.grenades >= 1.0);
+        assert!(h.thrown.is_empty() && h.me().grenades >= 1.0);
     }
 
     #[test]
@@ -296,14 +296,14 @@ mod tests {
         hold(&mut h, Buttons::NONE, DT);
         h.me_mut().view_yaw = std::f32::consts::FRAC_PI_2;
         hold(&mut h, Buttons::NONE, 1.0);
-        h.grenades = 1.0;
+        h.me_mut().grenades = 1.0;
         press(&mut h, Buttons::L2, Buttons::L2);
         let again = h.aiming.unwrap().at;
         let turned = [-off[1], off[0]];
         assert!(len([again[0] - h.me().pos[0] - turned[0], again[1] - h.me().pos[1] - turned[1]]) < 1.5, "{again:?} vs {turned:?}");
         hold(&mut h, Buttons::NONE, DT);
         hold(&mut h, Buttons::NONE, crate::tuning::tuning().aim_memory + 0.5);
-        h.grenades = 1.0;
+        h.me_mut().grenades = 1.0;
         press(&mut h, Buttons::L2, Buttons::L2);
         let late = h.aiming.unwrap().at;
         let ahead = crate::tuning::tuning().aim_ahead;
@@ -336,7 +336,7 @@ mod tests {
             hold(&mut h, Buttons::NONE, DT);
         }
         assert_eq!(h.thrown.len(), 3);
-        assert!(h.grenades >= 1.0);
+        assert!(h.me().grenades >= 1.0);
     }
 
     #[test]
@@ -366,7 +366,7 @@ mod tests {
         let top = shapes(&h);
         assert_eq!(clips(&top), 1, "the corner map");
         assert!(has(&top, crate::art::GRENADE), "the grenades");
-        let pistol = crate::harvest::powerups::book().defs[h.kit.weapons[0].def].icon;
+        let pistol = crate::harvest::powerups::book().defs[h.me().kit.weapons[0].def].icon;
         assert!(has(&top, pistol), "the kit");
         hold(&mut h, Buttons::L1, 0.2);
         let up = shapes(&h);
@@ -381,7 +381,7 @@ mod tests {
     #[test]
     fn shoulder_triggers_do_not_turn_on_one_screen() {
         let mut h = single(12);
-        h.grenades = 0.0;
+        h.me_mut().grenades = 0.0;
         hold(&mut h, Buttons::R2, 0.3);
         assert_eq!(h.me().view_yaw, 0.0);
     }

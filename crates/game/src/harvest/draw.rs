@@ -138,7 +138,7 @@ impl Harvest {
 
     /// Red creeping in from the edges: a flash when hit, and a pulse in time with the heart when nearly dead.
     fn vignette(&self, c: &mut Canvas) {
-        let health = self.me().hp / self.kit.max_hp();
+        let health = self.me().hp / self.me().kit.max_hp();
         let low = ((0.35 - health) / 0.35).clamp(0.0, 1.0);
         let beat = (1.0 - (self.heartbeat.max(0.0) / (0.5 + health * 2.0)) * 4.0).max(0.0);
         let hit = self.juice.hurt / 0.35;
@@ -179,7 +179,7 @@ impl Harvest {
     /// Dots along the edges of what the 3D view can see.
     pub(super) fn view_cone(&self, c: &mut Canvas, cam: [f32; 2]) {
         let half = self.ahead_half();
-        let lit = if self.beam > 0.0 { [1.0, 1.0, 0.8, 1.0] } else { [1.0, 0.9, 0.6, 0.8] };
+        let lit = if self.me().beam > 0.0 { [1.0, 1.0, 0.8, 1.0] } else { [1.0, 0.9, 0.6, 0.8] };
         let sight = crate::tuning::tuning().map_sight;
         for edge in [-half, half] {
             let a = self.me().view_yaw + edge;
@@ -200,14 +200,14 @@ impl Harvest {
     pub(super) fn grenades_at(&self, c: &mut Canvas, right: f32, bottom: f32, k: f32) {
         let a = art::GRENADE;
         let slot = a.w() * k + 2.4 * k;
-        let most = self.kit.grenades();
+        let most = self.me().kit.grenades();
         let panel = most * slot + 4.8 * k;
         let top = bottom - a.h() * k - 6.8 * k;
         c.rect(right - panel, top, panel, a.h() * k + 6.8 * k, [0.0, 0.0, 0.0, 0.6]);
         for i in 0..most as usize {
             let x = right - 2.4 * k - (i as f32 + 1.0) * slot;
             let y = bottom - 3.6 * k - a.h() * k;
-            let fill = (self.grenades - i as f32).clamp(0.0, 1.0);
+            let fill = (self.me().grenades - i as f32).clamp(0.0, 1.0);
             let color = if fill >= 1.0 { WHITE } else { [0.4, 0.4, 0.4, 0.6] };
             c.art(a, x, y, k, false, color);
             if fill > 0.0 && fill < 1.0 {
@@ -223,7 +223,7 @@ impl Harvest {
 
     /// The weapons over the passives, left edge `x`, the passives' row ending at `bottom`, icons `size` across.
     pub(super) fn kit_at(&self, c: &mut Canvas, x: f32, bottom: f32, size: f32) {
-        let rows: [Vec<(usize, u32)>; 2] = [self.kit.weapons.iter().map(|a| (a.def, a.level)).collect(), self.kit.passives.clone()];
+        let rows: [Vec<(usize, u32)>; 2] = [self.me().kit.weapons.iter().map(|a| (a.def, a.level)).collect(), self.me().kit.passives.clone()];
         for (r, row) in rows.iter().enumerate() {
             let y = bottom - (2 - r) as f32 * (size + size / 4.0);
             powerup_icons(c, x, y, size, row.iter().copied(), 1.0);
@@ -237,7 +237,7 @@ impl Harvest {
         let top = 196.0;
         c.rect(x - 8.0, top - 8.0, SCREEN_W - 16.0 - x + 8.0, 30.0 + 2.0 * (size + 10.0) + 16.0, [0.0, 0.0, 0.0, 0.45 * a]);
         c.label("Build", x, top, 24.0, [1.0, 1.0, 1.0, 0.6 * a], Align::Left);
-        let rows = [self.kit.weapons.iter().map(|w| (w.def, w.level)).collect::<Vec<_>>(), self.kit.passives.clone()];
+        let rows = [self.me().kit.weapons.iter().map(|w| (w.def, w.level)).collect::<Vec<_>>(), self.me().kit.passives.clone()];
         for (r, row) in rows.into_iter().enumerate() {
             powerup_icons(c, x, top + 30.0 + r as f32 * (size + 10.0), size, row, a);
         }
@@ -710,7 +710,7 @@ impl Harvest {
         }
         // Health, with a pale chunk trailing what was just lost; it throbs when low.
         let (bx, by, bw, bh) = (24.0, 30.0, 240.0, 22.0);
-        let max = self.kit.max_hp();
+        let max = self.me().kit.max_hp();
         c.rect(bx - 3.0, by - 3.0, bw + 6.0, bh + 6.0, [0.0, 0.0, 0.0, 0.7]);
         c.rect(bx, by, bw * (self.hp_shown / max).clamp(0.0, 1.0), bh, [1.0, 0.9, 0.8, 0.85]);
         let health = self.me().hp / max;
@@ -751,8 +751,8 @@ impl Harvest {
                 c.rect(x, y, w, h, [back[0], back[1], back[2], alpha]);
             }
             let def = &book().defs[ch.up];
-            let from = self.kit.level(ch.up);
-            let to = self.kit.raised(ch.up, if ch.rare { 2 } else { 1 });
+            let from = self.me().kit.level(ch.up);
+            let to = self.me().kit.raised(ch.up, if ch.rare { 2 } else { 1 });
             let fill = match picked {
                 Some(p) if on => [1.0, 1.0, 1.0, 0.8 * (1.0 - p / PICK_TIME)],
                 _ if on => [1.0, 0.85, 0.3, 0.35],

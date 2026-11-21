@@ -1058,7 +1058,7 @@ pub fn scene(h: &Harvest) -> CardScene {
         .iter()
         .map(|f| Flash { pos: world(f.pos) + Vec3::Y * (f.z * PX), color: f.color.map(|c| c * f.strength()), range: f.range * (0.5 + 0.5 * f.strength()) })
         .collect();
-    let health = h.me().hp / h.kit.max_hp();
+    let health = h.me().hp / h.me().kit.max_hp();
     let dying = matches!(h.phase, Phase::Over { won: false, .. });
     // Once the player has climbed back out, a sickly light comes up on what they've become.
     let turned = match h.phase {
@@ -1067,7 +1067,7 @@ pub fn scene(h: &Harvest) -> CardScene {
     };
     // The lantern gutters when you're nearly done for.
     let gutter = if health < 0.3 { 0.15 * (h.juice.clock * 23.0).sin().abs() * (h.juice.clock * 7.0).sin().abs() } else { 0.0 };
-    let lantern = if dying { 3.0 + 4.0 * turned } else { 9.0 * h.kit.mods.view + 6.0 * h.beam } * (1.0 - 0.04 * (h.t * 13.0).sin().abs() - gutter);
+    let lantern = if dying { 3.0 + 4.0 * turned } else { 9.0 * h.me().kit.mods.view + 6.0 * h.me().beam } * (1.0 - 0.04 * (h.t * 13.0).sin().abs() - gutter);
     let sky = sky(h);
     let hurt = h.juice.hurt / 0.35;
     let light_color = [sky.lantern[0], sky.lantern[1] * (1.0 - 0.4 * hurt), sky.lantern[2] * (1.0 - 0.5 * hurt)];

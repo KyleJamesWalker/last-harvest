@@ -200,9 +200,9 @@ pub fn weapon_levels() -> Vec<(String, u32)> {
 /// Plays the night `plan` describes.
 pub fn night(plan: &Plan) -> Night {
     let mut h = Harvest::sized(plan.seed, plan.size).at(plan.difficulty);
-    h.kit = Kit::forced(&plan.build, plan.difficulty);
-    h.me_mut().hp = h.kit.max_hp();
-    h.grenades = h.kit.grenades();
+    h.me_mut().kit = Kit::forced(&plan.build, plan.difficulty);
+    h.me_mut().hp = h.me().kit.max_hp();
+    h.me_mut().grenades = h.me().kit.grenades();
     h.undying = !plan.mortal;
     h.progress.everything = plan.unlocked;
     let mut rng = Rng::new(plan.seed.wrapping_mul(0x9E37_79B9_7F4A_7C15));
@@ -253,7 +253,7 @@ pub fn night(plan: &Plan) -> Night {
         }
     }
     let tally = &h.juice.tally;
-    let build: Vec<(usize, u32)> = h.kit.weapons.iter().map(|a| (a.def, a.level)).chain(h.kit.passives.iter().copied()).collect();
+    let build: Vec<(usize, u32)> = h.me().kit.weapons.iter().map(|a| (a.def, a.level)).chain(h.me().kit.passives.iter().copied()).collect();
     let mut lines: Vec<Line> = build
         .iter()
         .filter(|&&(d, _)| book().defs[d].kind == Kind::Weapon)
@@ -355,7 +355,7 @@ fn choose(h: &mut Harvest, pick: &Pick, rng: &mut Rng, sounds: &mut Vec<Sfx>) ->
         }
     };
     let c = choices[i];
-    if *pick != Pick::Random && h.kit.level(c.up) > 0 && book().defs[c.up].kind == Kind::Weapon {
+    if *pick != Pick::Random && h.me().kit.level(c.up) > 0 && book().defs[c.up].kind == Kind::Weapon {
         h.favor(c.up);
     }
     h.take(c, sounds);
@@ -365,7 +365,7 @@ fn choose(h: &mut Harvest, pick: &Pick, rng: &mut Rng, sounds: &mut Vec<Sfx>) ->
 /// A card for a powerup the player holds, rare first; with none, it rerolls, then banishes a card it doesn't hold,
 /// while it can, and failing that takes a new one, rare first.
 fn stack(h: &mut Harvest, choices: &mut [Choice; 3], t: f32, sounds: &mut Vec<Sfx>) -> usize {
-    let held = |h: &Harvest, c: &Choice| h.kit.level(c.up) > 0;
+    let held = |h: &Harvest, c: &Choice| h.me().kit.level(c.up) > 0;
     while !choices.iter().any(|c| held(h, c)) {
         if h.rerolls > 0 {
             h.reroll(choices, t, sounds);

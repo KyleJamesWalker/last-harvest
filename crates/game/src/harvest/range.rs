@@ -222,10 +222,10 @@ impl Harvest {
         let b = book();
         let weapon = |i: &usize| b.defs[*i].kind == Card::Weapon;
         let def = b.index(&setup.weapon).filter(weapon).or_else(|| (0..b.defs.len()).find(|i| weapon(i) && b.defs[*i].player.is_none())).unwrap_or(0);
-        h.kit = Kit::with_weapons(&[def], Difficulty::Normal);
-        h.kit.weapons[0].level = setup.level.clamp(1, top_level(def));
-        h.me_mut().hp = h.kit.max_hp();
-        h.grenades = h.kit.grenades();
+        h.me_mut().kit = Kit::with_weapons(&[def], Difficulty::Normal);
+        h.me_mut().kit.weapons[0].level = setup.level.clamp(1, top_level(def));
+        h.me_mut().hp = h.me().kit.max_hp();
+        h.me_mut().grenades = h.me().kit.grenades();
         h.next_xp = u32::MAX;
         h.range = Some(Range { def, kind: roster().common(), by_hand: false, follow: None, slot: 0, clock: 0.0, dealt: VecDeque::new() });
         h
@@ -234,14 +234,14 @@ impl Harvest {
     /// The ring's distance from the player, from the weapon's range at its level.
     pub(super) fn ring_radius(&self) -> f32 {
         let Some(r) = &self.range else { return 0.0 };
-        let level = self.kit.weapons.first().map_or(1, |a| a.level);
+        let level = self.me().kit.weapons.first().map_or(1, |a| a.level);
         (book().defs[r.def].at(Stat::Range, level) * RING_SHARE).clamp(RING_TILES[0] * TILE, RING_TILES[1] * TILE)
     }
 
     /// The range's line for logs: the weapon by id, its level and the damage per second.
     pub(super) fn range_summary(&self) -> Option<String> {
         let r = self.range.as_ref()?;
-        let level = self.kit.weapons.first().map_or(1, |a| a.level);
+        let level = self.me().kit.weapons.first().map_or(1, |a| a.level);
         Some(format!("range {} {level} dps={:.0} kills={}", book().defs[r.def].id, self.range_dps(), self.kills))
     }
 
@@ -287,7 +287,7 @@ impl Harvest {
         if asked(Buttons::SELECT, Key::Hand) {
             r.by_hand ^= true;
             sounds.push(Sfx::Tick(if r.by_hand { 3 } else { 6 }));
-            for a in &mut self.kit.weapons {
+            for a in &mut self.players[ME].kit.weapons {
                 a.cd = 0.0;
             }
         }
@@ -296,7 +296,7 @@ impl Harvest {
             r.by_hand = true;
         }
         if r.by_hand {
-            for a in &mut self.kit.weapons {
+            for a in &mut self.me_mut().kit.weapons {
                 a.cd = if fire { 0.0 } else { f32::MAX };
             }
         }
@@ -340,7 +340,7 @@ impl Harvest {
 
     fn step_level(&mut self, by: i32, sounds: &mut Vec<Sfx>) {
         let Some(r) = &mut self.range else { return };
-        let Some(a) = self.kit.weapons.first_mut() else { return };
+        let Some(a) = self.players[ME].kit.weapons.first_mut() else { return };
         let level = (a.level as i32 + by).clamp(1, top_level(r.def) as i32) as u32;
         if level == a.level {
             return;
@@ -382,7 +382,7 @@ impl Harvest {
             self.t -= CLOCK_LOOP;
         }
         self.xp = 0;
-        self.players[ME].hp = self.kit.max_hp();
+        self.players[ME].hp = self.players[ME].kit.max_hp();
         r.clock += dt;
         r.dealt.push_back((r.clock, self.juice.dealt));
         while r.dealt.front().is_some_and(|&(t, _)| t < r.clock - WINDOW) {
@@ -394,7 +394,7 @@ impl Harvest {
     pub(super) fn restart_range(&mut self, seed: u64) {
         let Some(r) = &self.range else { return };
         let (def, kind, by_hand, follow) = (r.def, r.kind, r.by_hand, r.follow);
-        let level = self.kit.weapons.first().map_or(1, |a| a.level);
+        let level = self.me().kit.weapons.first().map_or(1, |a| a.level);
         let setup = RangeSetup { weapon: book().defs[def].id.clone(), level, section: None, effects: None };
         let orbit = self.orbit;
         *self = Harvest::range(seed, &setup).single_screen(self.single);
@@ -408,7 +408,7 @@ impl Harvest {
     pub(super) fn draw_range(&self, top: &mut Canvas, bottom: &mut Canvas) {
         let Some(r) = &self.range else { return };
         let def = &book().defs[r.def];
-        let level = self.kit.weapons.first().map_or(1, |a| a.level);
+        let level = self.me().kit.weapons.first().map_or(1, |a| a.level);
         let how = if r.by_hand { "by hand" } else { "on cooldown" };
         let kind = &roster().enemies[r.kind].name;
         top.rect(16.0, 64.0, 620.0, 96.0, [0.0, 0.0, 0.0, 0.6]);
@@ -504,9 +504,9 @@ mod tests {
     #[test]
     fn the_range_holds_only_its_weapon_at_its_level_against_a_ring() {
         let mut h = pistol(3);
-        assert_eq!(h.kit.weapons.len(), 1);
-        assert_eq!((book().defs[h.kit.weapons[0].def].id.as_str(), h.kit.weapons[0].level), ("pistol", 3));
-        assert!(h.kit.passives.is_empty());
+        assert_eq!(h.me().kit.weapons.len(), 1);
+        assert_eq!((book().defs[h.me().kit.weapons[0].def].id.as_str(), h.me().kit.weapons[0].level), ("pistol", 3));
+        assert!(h.me().kit.passives.is_empty());
         run(&mut h, 0.1, Input::default());
         assert_eq!(h.tells.len() + h.zombies.len(), RING);
         let radius = h.ring_radius();
@@ -522,7 +522,7 @@ mod tests {
         assert!(h.range_dps() > 0.0);
         assert_eq!(h.zombies.len() + h.tells.len() + h.burrowed.len(), RING, "the dead rise again");
         assert_eq!(h.me().pos, start);
-        assert_eq!(h.me().hp, h.kit.max_hp(), "the ring never bites");
+        assert_eq!(h.me().hp, h.me().kit.max_hp(), "the ring never bites");
         assert_eq!(h.level, 1, "no level-ups");
         assert!(h.zombies.iter().all(|z| len(sub(z.pos, h.me().pos)) > h.ring_radius() * 0.5), "the ring stands its ground");
     }
@@ -545,13 +545,13 @@ mod tests {
         let start = h.me().pos;
         run(&mut h, 0.0, press(Buttons::UP));
         run(&mut h, 0.0, press(Buttons::UP));
-        assert_eq!(h.kit.weapons[0].level, 3);
+        assert_eq!(h.me().kit.weapons[0].level, 3);
         run(&mut h, 0.0, press(Buttons::DOWN));
-        assert_eq!(h.kit.weapons[0].level, 2);
+        assert_eq!(h.me().kit.weapons[0].level, 2);
         for _ in 0..20 {
             run(&mut h, 0.0, press(Buttons::DOWN));
         }
-        assert_eq!(h.kit.weapons[0].level, 1, "no lower than 1");
+        assert_eq!(h.me().kit.weapons[0].level, 1, "no lower than 1");
         let kind = h.range.as_ref().unwrap().kind;
         run(&mut h, 1.0, press(Buttons::RIGHT));
         let now = h.range.as_ref().unwrap().kind;
@@ -566,7 +566,7 @@ mod tests {
         let [x, y, w, hh] = KEYS[1];
         let tap = Input { touch: Some([x + w / 2.0, y + hh / 2.0]), touch_started: true, ..Input::default() };
         run(&mut h, 0.0, tap);
-        assert_eq!(h.kit.weapons[0].level, 2);
+        assert_eq!(h.me().kit.weapons[0].level, 2);
         assert!(h.thrown.is_empty());
         let mut one = pistol(1).single_screen(true);
         let [x, y, w, hh] = KEYS[5];
@@ -620,12 +620,12 @@ mod tests {
     #[test]
     fn the_level_steps_up_to_the_level_breaker_and_no_further() {
         let mut h = Harvest::range(3, &RangeSetup { weapon: "maul".into(), level: 99, section: None, effects: None });
-        let max = book().defs[h.kit.weapons[0].def].max;
-        assert_eq!(h.kit.weapons[0].level, max + 1);
+        let max = book().defs[h.me().kit.weapons[0].def].max;
+        assert_eq!(h.me().kit.weapons[0].level, max + 1);
         h.step_level(1, &mut Vec::new());
-        assert_eq!(h.kit.weapons[0].level, max + 1);
+        assert_eq!(h.me().kit.weapons[0].level, max + 1);
         h.step_level(-1, &mut Vec::new());
-        assert_eq!(h.kit.weapons[0].level, max);
+        assert_eq!(h.me().kit.weapons[0].level, max);
     }
 
     #[test]

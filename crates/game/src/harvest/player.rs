@@ -2,6 +2,7 @@
 
 use std::f32::consts::PI;
 
+use super::weapons::Kit;
 use super::{Facing, Harvest, sight};
 
 /// A player's place in `Harvest::players`, which owns what they fire, throw and call up.
@@ -31,13 +32,28 @@ pub(super) struct Player {
     pub look: String,
     /// Zombies as the map remembers them.
     pub marks: Vec<sight::Mark>,
+    pub kit: Kit,
+    /// Grenades ready to throw; the fraction is the next one recharging.
+    pub grenades: f32,
+    /// Seconds left of the worn grenade's flash after one comes ready.
+    pub ready_flash: f32,
+    /// Revives the kit has already spent this run.
+    pub revived: u32,
+    /// The zombies each weapon's burst has shot so far, by its section, for `targets each`.
+    pub burst_shot: Vec<(usize, u32)>,
+    /// Rounds each weapon has fired toward its next sound, by its def, for a `sound_every`.
+    pub heard: Vec<u32>,
+    /// Zombies a crow pecked lately, by id, and the seconds before it can peck them again.
+    pub pecked: Vec<(u32, f32)>,
+    /// Seconds left of the lantern beam's flare.
+    pub beam: f32,
 }
 
 impl Player {
-    pub fn new(pos: [f32; 2], hp: f32) -> Self {
+    pub fn new(pos: [f32; 2], kit: Kit, grenades: f32) -> Self {
         Self {
             pos,
-            hp,
+            hp: kit.max_hp(),
             hurt: 0.0,
             facing: (Facing::Front, false),
             aim: [0.0, 1.0],
@@ -49,6 +65,14 @@ impl Player {
             turned_from: [0.0; 2],
             look: String::new(),
             marks: Vec::new(),
+            kit,
+            grenades,
+            ready_flash: 0.0,
+            revived: 0,
+            burst_shot: Vec::new(),
+            heard: Vec::new(),
+            pecked: Vec::new(),
+            beam: 0.0,
         }
     }
 }
