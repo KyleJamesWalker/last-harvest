@@ -12,6 +12,7 @@ embed = []
 
 [dependencies]
 glam = "0.34"
+libm = "0.2"
 last-harvest-lobby = { path = "../lobby" }
 
 [build-dependencies]

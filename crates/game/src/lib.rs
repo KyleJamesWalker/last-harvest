@@ -8,6 +8,7 @@ pub mod data;
 pub mod paint;
 mod difficulty;
 mod draw;
+pub mod fmath;
 mod font;
 mod gallery;
 mod hardware;
