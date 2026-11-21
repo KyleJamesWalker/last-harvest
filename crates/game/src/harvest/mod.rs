@@ -9,6 +9,7 @@ mod enemies;
 mod juice;
 mod local;
 mod map;
+pub mod online;
 mod photo;
 mod props;
 mod quick;
