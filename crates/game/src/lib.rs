@@ -675,10 +675,13 @@ impl Game {
         if self.paused {
             self.rumble = 0.0;
             self.pulses.iter_mut().for_each(Vec::clear);
+            self.online_away(dt);
             return;
         }
         if input.pressed.any(Buttons::BACK) {
+            let online = self.online_run();
             self.open(Scene::Title);
+            self.leave_online(online);
             return;
         }
         self.pump_net(dt);

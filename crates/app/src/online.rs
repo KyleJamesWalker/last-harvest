@@ -90,6 +90,8 @@ impl Online {
     fn close(&mut self) {
         if let Some(mut s) = self.socket.take() {
             s.close();
+            #[cfg(not(target_arch = "wasm32"))]
+            std::thread::spawn(move || drop(s));
         }
         self.ice = None;
     }

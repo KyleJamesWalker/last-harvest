@@ -217,6 +217,7 @@ impl Game {
     pub fn net_request(&mut self) -> Option<Request> {
         let r = self.net.as_mut()?.take_request();
         if r == Some(Request::Close) {
+            self.pump_net(0.0);
             self.net = None;
         }
         r
@@ -323,14 +324,41 @@ impl Game {
         }
     }
 
-    fn online_run(&self) -> bool {
+    /// Keeps an online run's connection alive while this device is away, its lid shut.
+    pub(crate) fn online_away(&mut self, dt: f32) {
+        if !self.online_run() {
+            return;
+        }
+        self.pump_net(dt);
+        let mut state = std::mem::replace(&mut self.state, State::Title);
+        if let (State::Harvest(h), Some(net)) = (&mut state, self.net.as_mut().filter(|n| n.running)) {
+            net.step_away(h, dt, &mut Vec::new());
+        }
+        self.state = state;
+    }
+
+    /// BACK leaves online play, with a word to the room: the host closes it, a client leaves it.
+    pub(crate) fn leave_online(&mut self, in_run: bool) {
+        let Some(net) = self.net.as_mut().filter(|n| !n.leaving()) else { return };
+        net.leave();
+        self.online.message = if !in_run { String::new() } else if net.is_host() { "You closed the room.".into() } else { "You left the night.".into() };
+        self.page = Page::Online;
+    }
+
+    pub(crate) fn online_run(&self) -> bool {
         matches!(&self.state, State::Harvest(h) if h.is_host() || h.is_client())
     }
 
     fn start_online(&mut self, start: Start) {
-        let Some(net) = self.net.as_ref() else { return };
+        let Some(net) = self.net.as_mut() else { return };
         let mine = net.my_seats(&start);
         let host = net.is_host();
+        if let Some(why) = start_refused(&start, &mine) {
+            net.leave();
+            self.online.message = why.into();
+            self.page = Page::Online;
+            return;
+        }
         let card = |seat: usize| start.players.iter().find(|p| p.seat as usize == seat).map_or("", |p| p.card.as_str()).to_string();
         let look = start.options.iter().find(|o| o.0 == "look").map_or_else(|| card(0), |o| o.1.clone());
         harvest::use_farm(None);
@@ -564,6 +592,17 @@ impl Game {
         } else {
             self.draw_message(c, 590.0);
         }
+    }
+}
+
+/// Why a start can't be played here: no players, a seat past the room's, or none of them this device's.
+fn start_refused(start: &Start, mine: &[usize]) -> Option<&'static str> {
+    if start.players.is_empty() || start.players.iter().any(|p| p.seat >= last_harvest_lobby::MAX_SEATS) {
+        Some("The host's start named no seats this game can play.")
+    } else if mine.is_empty() {
+        Some("The host started without a seat for this game.")
+    } else {
+        None
     }
 }
 

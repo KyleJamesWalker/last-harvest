@@ -6,6 +6,9 @@ use super::{Choice, Harvest, Phase};
 use crate::Input;
 use crate::sfx::Sfx;
 
+/// Seconds a remote player's pause holds the night before it lifts on its own.
+const REMOTE_PAUSE_MOST: f32 = 30.0;
+
 /// A level-up's cards as one player sees them: the three on offer, the one selected, and the times as in `Phase::LevelUp`.
 #[derive(Clone, Copy, Debug)]
 pub(super) struct Cards {
@@ -261,8 +264,24 @@ impl Harvest {
             self.relabel(v);
         }
         if let Some(at) = self.menu {
+            let here = self.views();
+            let remote = self.paused_by >= here;
+            self.net.remote_pause = if remote { self.net.remote_pause + dt } else { 0.0 };
+            if remote && let Some(v) = (0..here).find(|&v| self.inputs[v].pressed.any(crate::Buttons::START | crate::Buttons::B)) {
+                (self.menu, self.paused_by) = (Some(0), v);
+                sounds.push(Sfx::Tick(0));
+                return flow;
+            }
+            if remote && self.net.remote_pause > REMOTE_PAUSE_MOST {
+                self.menu = None;
+                return flow;
+            }
             let own = self.inputs.get(self.paused_by).copied().unwrap_or_default();
             self.pause_menu(at, &own, sounds, &mut flow);
+            return flow;
+        }
+        if matches!(self.phase, Phase::Playing | Phase::LevelUp { .. }) && self.players.iter().all(|pl| !pl.alive()) {
+            self.all_turned(sounds, &mut flow);
             return flow;
         }
         if matches!(self.phase, Phase::Playing)
@@ -359,9 +378,10 @@ impl Harvest {
             if !self.players[v].alive() || (v != ME && self.locals[v].cards.is_none()) {
                 continue;
             }
+            let away = self.away(v);
             self.relabel(v);
             let mut own = self.inputs[ME];
-            if self.bots.iter().any(|(b, _)| *b == ME) {
+            if away || self.bots.iter().any(|(b, _)| *b == ME) {
                 own = bot_pick(self);
             }
             self.choose(&own, dt, sounds);
@@ -546,6 +566,54 @@ mod tests {
         let trauma = h.locals[1].feel[0];
         h.shake_all(0.3);
         assert!(h.juice.trauma >= 0.3 && h.locals[1].feel[0] > trauma, "a horde shakes both cameras");
+    }
+
+    #[test]
+    fn a_host_hears_and_places_sounds_only_for_its_own_players() {
+        let mut h = pair().hosting(1);
+        h.players[1].pos = [h.players[0].pos[0] + 250.0, h.players[0].pos[1]];
+        let mut sounds = Vec::new();
+        h.bitten(1, 5.0, &mut sounds, &mut Flow::default());
+        h.falls(1, &mut sounds);
+        assert!(!sounds.contains(&Sfx::Hurt) && !sounds.contains(&Sfx::GameOver), "a remote player's hurt and fall are theirs: {sounds:?}");
+        assert!(h.place(h.players[1].pos).1 < 40, "a sound at the remote player is placed from the host's own");
+    }
+
+    #[test]
+    fn the_host_takes_over_a_remote_pause_and_a_remote_pause_lifts_on_its_own() {
+        let mut h = pair().hosting(1);
+        step(&mut h, Buttons::NONE, Buttons::START);
+        assert_eq!((h.menu, h.paused_by), (Some(0), 1));
+        step(&mut h, Buttons::START, Buttons::NONE);
+        assert_eq!((h.menu, h.paused_by), (Some(0), ME), "the host's Start takes the menu");
+        step(&mut h, Buttons::START, Buttons::NONE);
+        assert!(h.menu.is_none(), "and resumes");
+        step(&mut h, Buttons::NONE, Buttons::START);
+        idle(&mut h, super::REMOTE_PAUSE_MOST + 0.5);
+        assert!(h.menu.is_none(), "a remote pause doesn't hold the night forever");
+    }
+
+    #[test]
+    fn a_level_up_stops_waiting_for_an_away_player() {
+        let mut h = pair().hosting(1);
+        level_up(&mut h);
+        h.set_away(1, true);
+        step(&mut h, Buttons::X, Buttons::NONE);
+        idle(&mut h, 3.0);
+        assert!(matches!(h.phase, Phase::Playing), "the away player's card is picked for them");
+    }
+
+    #[test]
+    fn the_night_ends_and_is_recorded_when_the_last_player_leaves_during_the_cards() {
+        let mut h = pair().hosting(1);
+        h.players[0].hp = 0.0;
+        h.players[0].down = Some(0.0);
+        level_up(&mut h);
+        h.unseat(1);
+        h.set_inputs(&[Input::default()]);
+        let flow = h.update(&Input::default(), DT, &mut Vec::new());
+        assert!(matches!(h.phase, Phase::Over { won: false, .. }), "{:?}", std::mem::discriminant(&h.phase));
+        assert!(flow.ended.is_some(), "and the night is saved");
     }
 
     #[test]
