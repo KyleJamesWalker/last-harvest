@@ -20,6 +20,10 @@ use crate::{audio, pak, samples};
 const SAVE_KEY: &str = "last-harvest-save";
 /// Where an editor's Try it leaves the weapon for a page opened with `?range`.
 const RANGE_KEY: &str = "last-harvest-range";
+/// Each kept replay, gzipped and in Base64, under this prefix and its file name.
+const REPLAY_KEY: &str = "last-harvest-replay:";
+/// Local storage holds a few megabytes for the whole site, the card editor's work included.
+const REPLAYS_KEPT: usize = 5;
 const STATS_MS: f64 = 1000.0;
 const STICK_DEAD: f32 = 0.15;
 /// The standard gamepad layout's buttons, by index. Face buttons map by position, as the RG DS lays them out.
@@ -346,6 +350,45 @@ impl Web {
         }
     }
 
+    /// The kept replays' storage keys, oldest first.
+    fn replay_keys(&self) -> Vec<String> {
+        let Some(s) = &self.storage else { return Vec::new() };
+        let mut keys: Vec<String> = (0..s.length().unwrap_or(0)).filter_map(|i| s.key(i).ok().flatten()).filter(|k| k.starts_with(REPLAY_KEY)).collect();
+        keys.sort();
+        keys
+    }
+
+    /// Keeps each finished replay in local storage, dropping the oldest past `REPLAYS_KEPT` or when storage is full.
+    fn keep_replays(&mut self, raws: Vec<Vec<u8>>) {
+        let unix = (js_sys::Date::now() / 1000.0) as u64;
+        for raw in raws {
+            let mut keys = self.replay_keys();
+            let Some(s) = &self.storage else { return };
+            let key = (0..100).map(|n| format!("{REPLAY_KEY}night-{unix:010}-{n:02}.{}", crate::replays::EXTENSION)).find(|k| !keys.contains(k)).unwrap_or_default();
+            let text = last_harvest_pack::browser::to_text(&crate::replays::pack(&raw));
+            while keys.len() >= REPLAYS_KEPT {
+                let _ = s.remove_item(&keys.remove(0));
+            }
+            while s.set_item(&key, &text).is_err() {
+                if keys.is_empty() {
+                    web_sys::console::warn_1(&"replay: the browser's storage is full, so this night's replay wasn't kept".into());
+                    break;
+                }
+                let _ = s.remove_item(&keys.remove(0));
+            }
+        }
+    }
+
+    /// The kept replays, newest first, as file names and their own bytes.
+    fn saved_replays(&self) -> Vec<(String, Vec<u8>)> {
+        let Some(s) = &self.storage else { return Vec::new() };
+        let read = |k: &String| {
+            let bytes = last_harvest_pack::browser::from_text(&s.get_item(k).ok()??)?;
+            Some((k.strip_prefix(REPLAY_KEY)?.to_string(), crate::replays::unpack(&bytes).ok()?))
+        };
+        self.replay_keys().iter().rev().filter_map(read).collect()
+    }
+
     fn frame(&mut self) {
         if self.lost {
             self.last = now();
@@ -384,6 +427,14 @@ impl Web {
             self.game.update_all(&inputs, clock::STEP);
         }
         self.online.send(&mut self.game);
+        let done = self.game.take_replays();
+        if !done.is_empty() {
+            self.keep_replays(done);
+        }
+        if self.game.take_replays_request() {
+            let saved = self.saved_replays();
+            self.game.set_saved_replays(saved);
+        }
         for (index, on) in self.motors.changes(&self.seats, &pads, 0, |seat| self.game.rumble_for(seat)) {
             vibrate(index, on);
         }
@@ -464,6 +515,7 @@ fn start(pak: Pak, mods: Vec<(String, Pak)>, problems: Vec<String>, range: Optio
     let mut game = Game::new(js_sys::Date::now() as u64);
     game.load(saved);
     game.set_backlights(false);
+    game.record_replays(crate::replays::info());
     if let Some(setup) = range {
         game.set_range(setup);
         game.open(Scene::Range);
@@ -544,6 +596,10 @@ fn start(pak: Pak, mods: Vec<(String, Pak)>, problems: Vec<String>, range: Optio
     // A key let go while the page had no focus would otherwise stay down.
     listen(&window, "blur", &web, |w, _: &Event| w.keys = Buttons::NONE);
     listen(&document, "visibilitychange", &web, |w, _: &Event| w.hidden());
+    listen(&window, "pagehide", &web, |w, _: &Event| {
+        let raws = w.game.end_replays();
+        w.keep_replays(raws);
+    });
 
     let tick: Rc<RefCell<Option<Frame>>> = Rc::new(RefCell::new(None));
     let next = tick.clone();

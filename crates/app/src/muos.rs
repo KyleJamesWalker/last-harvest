@@ -226,6 +226,9 @@ fn run() -> Result<(), String> {
             game.update_all(&inputs, clock::STEP);
         }
         persist::keep_replays(game.take_replays());
+        if game.take_replays_request() {
+            game.set_saved_replays(persist::saved_replays());
+        }
         online.send(&mut game);
         let sounds = game.take_sounds();
         if let Some(audio) = &audio {

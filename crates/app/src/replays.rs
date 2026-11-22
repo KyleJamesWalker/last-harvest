@@ -58,6 +58,14 @@ pub fn keep(dir: &Path, raw: &[u8], unix: u64) -> std::io::Result<PathBuf> {
     Ok(path)
 }
 
+/// Each replay in `dir`, newest first, as its file name and its own bytes; one that won't read is left out.
+pub fn saved(dir: &Path) -> Vec<(String, Vec<u8>)> {
+    let Ok(entries) = fs::read_dir(dir) else { return Vec::new() };
+    let mut all: Vec<PathBuf> = entries.filter_map(|e| e.ok().map(|e| e.path())).filter(|p| p.extension().is_some_and(|e| e == EXTENSION)).collect();
+    all.sort();
+    all.into_iter().rev().filter_map(|p| Some((p.file_name()?.to_string_lossy().into_owned(), unpack(&fs::read(&p).ok()?).ok()?))).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -83,6 +91,10 @@ mod tests {
         assert_eq!(left, paths[3..], "the three oldest went");
         assert_eq!(unpack(&fs::read(&paths[12]).unwrap()).unwrap(), [12; 8]);
         assert!(dir.join("save.txt").exists(), "nothing else is touched");
+        let listed = saved(&dir);
+        assert_eq!(listed.len(), KEEP);
+        assert_eq!((listed[0].0.as_str(), listed[0].1.as_slice()), (paths[12].file_name().unwrap().to_str().unwrap(), [12u8; 8].as_slice()), "newest first, unpacked");
+        assert!(saved(&dir.join("none")).is_empty());
         fs::remove_dir_all(&dir).unwrap();
     }
 }
