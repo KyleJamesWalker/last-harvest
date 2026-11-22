@@ -47,7 +47,8 @@ hearts and level for each. With no BUILD, measures each weapon alone at each lev
   --diff OLD NEW      compare two --csv files by build and weapon
   --record FILE       play the first BUILD's first seed once and write it to FILE as a replay
   --replay FILE       play a replay again, from the game or --record, and report the first tick it drifts
-  --watch NAME        with --replay, count more as it plays: dogs
+  --watch NAME        with --replay, count more as it plays: dogs, or hurt (where and how
+                      the first player is bitten)
   --net-sim SPEC      play each seed online instead: a client on a link of loss=0.1,lat=80,jitter=20 (ms), any
                       left out; prints the bytes sent and how far the client's picture strays. BUILD is the first
                       given, or the starting kit
