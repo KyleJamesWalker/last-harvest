@@ -1003,10 +1003,138 @@ impl Watch for Dogs {
     }
 }
 
+/// Where and how the first player is hurt: by ten seconds of night, and by what they were doing when bitten.
+#[derive(Default)]
+pub struct Hurt {
+    trail: std::collections::VecDeque<[f32; 2]>,
+    hp: Option<f32>,
+    by_ten: Vec<f32>,
+    /// Damage while camping, stuck (moved under a third of a walk in the last second), at the farm's edge, with no
+    /// zombie in bite reach (spit or blast), from a biter behind them, and in all.
+    camping: f32,
+    stuck: f32,
+    edge: f32,
+    unbitten: f32,
+    behind: f32,
+    total: f32,
+    /// Bites and the sides (of four) holding a zombie within 3 tiles at each, summed.
+    bites: u32,
+    sides: u32,
+    near: u32,
+    fell: Vec<f32>,
+    first: Vec<String>,
+    born: std::collections::HashMap<u32, (f32, f32)>,
+    stuck_at: Vec<String>,
+    still: f32,
+    /// Before the first fall: seconds played and seconds within 2 tiles of the farm's edge.
+    before: [f32; 2],
+}
+
+impl Watch for Hurt {
+    fn tick(&mut self, h: &Harvest, dt: f32) {
+        use super::map::TILE;
+        let t = crate::tuning::tuning();
+        let pl = &h.players[0];
+        self.trail.push_back(pl.pos);
+        if self.trail.len() as f32 * dt > 1.0 {
+            self.trail.pop_front();
+        }
+        for z in &h.zombies {
+            self.born.entry(z.id).or_insert((h.t, super::len(super::sub(z.pos, pl.pos))));
+        }
+        let moved = super::len(super::sub(pl.pos, *self.trail.front().unwrap_or(&pl.pos)));
+        self.still = if moved < t.player_speed / 3.0 { self.still + dt } else { 0.0 };
+        if self.still >= 3.0 && self.still - dt < 3.0 && self.stuck_at.len() < 6 {
+            self.stuck_at.push(format!("t={:.0} at {:.0},{:.0} of {:.0}x{:.0} yaw={:.2} camp={:.0}", h.t, pl.pos[0], pl.pos[1], h.map.width_px(), h.map.height_px(), pl.view_yaw, pl.camp));
+        }
+        if h.juice.tally.book(0).fell.is_none() {
+            let edge = pl.pos[0].min(pl.pos[1]).min(h.map.width_px() - pl.pos[0]).min(h.map.height_px() - pl.pos[1]);
+            self.before[0] += dt;
+            self.before[1] += if edge < 2.0 * super::map::TILE { dt } else { 0.0 };
+        }
+        let was = self.hp.replace(pl.hp).unwrap_or(pl.hp);
+        if let Some(f) = h.juice.tally.book(0).fell
+            && self.fell.last() != Some(&f)
+            && pl.hp > was
+        {
+            self.fell.push(h.t);
+        }
+        if pl.hp >= was {
+            return;
+        }
+        let hit = was - pl.hp;
+        if hit <= 0.0 {
+            return;
+        }
+        let b = (h.t / 10.0) as usize;
+        if self.by_ten.len() <= b {
+            self.by_ten.resize(b + 1, 0.0);
+        }
+        self.by_ten[b] += hit;
+        self.total += hit;
+        if moved < t.player_speed / 3.0 {
+            self.stuck += hit;
+        }
+        if pl.camp >= t.camp_after {
+            self.camping += hit;
+        }
+        let [w, hh] = [h.map.width_px(), h.map.height_px()];
+        if pl.pos[0] < 2.0 * TILE || pl.pos[1] < 2.0 * TILE || pl.pos[0] > w - 2.0 * TILE || pl.pos[1] > hh - 2.0 * TILE {
+            self.edge += hit;
+        }
+        let facing = [crate::fmath::cos(pl.view_yaw), crate::fmath::sin(pl.view_yaw)];
+        let biter = h.zombies.iter().filter(|z| z.rise >= 1.0).map(|z| (super::len(super::sub(z.pos, pl.pos)), z.pos)).filter(|(d, _)| *d < t.bite_reach).min_by(|a, b| a.0.total_cmp(&b.0));
+        match biter {
+            None => self.unbitten += hit,
+            Some((_, at)) => {
+                self.bites += 1;
+                let d = super::sub(at, pl.pos);
+                if d[0] * facing[0] + d[1] * facing[1] < 0.0 {
+                    self.behind += hit;
+                }
+                let mut quarters = [false; 4];
+                for z in &h.zombies {
+                    let d = super::sub(z.pos, pl.pos);
+                    if super::len(d) < 3.0 * TILE {
+                        self.near += 1;
+                        let a = (crate::fmath::atan2(d[1], d[0]) - pl.view_yaw).rem_euclid(std::f32::consts::TAU);
+                        quarters[((a + std::f32::consts::FRAC_PI_4) / std::f32::consts::FRAC_PI_2) as usize % 4] = true;
+                    }
+                }
+                self.sides += quarters.iter().filter(|&&q| q).count() as u32;
+                if self.fell.is_empty() {
+                    let z = h.zombies.iter().find(|z| z.pos == at).unwrap();
+                    let seen = pl.marks.iter().find(|m| m.id == z.id).map_or(-1.0, |m| m.age);
+                    let edge = pl.pos[0].min(pl.pos[1]).min(w - pl.pos[0]).min(hh - pl.pos[1]) / TILE;
+                    let ang = ((crate::fmath::atan2(d[1], d[0]) - pl.view_yaw + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI).to_degrees();
+                    let near = h.zombies.iter().filter(|o| super::len(super::sub(o.pos, pl.pos)) < 3.0 * TILE).count();
+                    let (bt, bd) = self.born.get(&z.id).copied().unwrap_or_default();
+                    self.first.push(format!("t={:.1} hp={:.0} edge={edge:.1}t biter speed={} rose {:.1}s ago {:.0}px off, angle={ang:.0} seen_age={seen:.1} near3={near} moved1s={moved:.0}", h.t, pl.hp, z.kind.stats().speed, h.t - bt, bd));
+                }
+            }
+        }
+    }
+
+    fn report(&self, _: f32) -> Vec<String> {
+        let share = |x: f32| format!("{:.0}%", x * 100.0 / self.total.max(1e-3));
+        let per_bite = |x: u32| x as f32 / self.bites.max(1) as f32;
+        vec![
+            format!("hurt {:.0}; fell at {:?}", self.total, self.fell.iter().map(|t| t.round() as u32).collect::<Vec<_>>()),
+            format!("by 10 s: {}", self.by_ten.iter().map(|x| format!("{x:.0}")).collect::<Vec<_>>().join(" ")),
+            format!("camping {}, stuck {}, at the edge {}, no biter {}, bitten from behind {}", share(self.camping), share(self.stuck), share(self.edge), share(self.unbitten), share(self.behind)),
+            self.first.join("\n  "),
+            format!("before the first fall: {:.0} s, {:.0}% of it within 2 tiles of the edge", self.before[0], self.before[1] * 100.0 / self.before[0].max(1e-3)),
+            format!("stuck 3 s: {}", self.stuck_at.join("; ")),
+            format!("{} bites; zombies within 3 tiles {:.1}, sides holding one {:.2} of 4 (ahead, left, behind, right)", self.bites, per_bite(self.near), per_bite(self.sides)),
+        ]
+    }
+}
+
 /// A watcher by name, for the sandbox's `--watch`.
 pub fn watcher(name: &str) -> Option<Box<dyn Watch>> {
     match name {
         "dogs" => Some(Box::<Dogs>::default()),
+        "hurt" => Some(Box::<Hurt>::default()),
         _ => None,
     }
 }
