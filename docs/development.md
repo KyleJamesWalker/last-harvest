@@ -131,7 +131,7 @@ The table and the CSV give, per build and per weapon in it, mean over seeds:
 
 ### Replays
 
-The game records every night it plays or hosts: the night's setup, each tick's input that changed and a checksum of where every player and zombie stood. It writes the replay, gzipped, when the night ends, is left, or the game closes, into `replays/` beside `save.txt`, and keeps the last 10 as `night-<unix seconds>-<n>.lhr`. A 12-minute night is about 30 to 80 KB. An online client records nothing; the host's replay holds every seat's input as the host played it. The web game and Android don't record yet.
+The game records every night it plays or hosts: the night's setup, each tick's input that changed and a checksum of where every player and zombie stood. It writes the replay, gzipped, when the night ends, is left, or the game closes, into `replays/` beside `save.txt`, and keeps the last 10 as `night-<unix seconds>-<n>.lhr`. A 12-minute night is about 30 to 80 KB. An online client records nothing; the host's replay holds every seat's input as the host played it. The web game keeps its last 5 in the browser's local storage instead, and Android doesn't record yet. Stats > Replays plays one back in the game; see the [manual](guides/GAME_MANUAL.md#menus-and-settings).
 
 The sandbox plays a replay again headless and checks it tick by tick. It prints the header, then `match`, or the first tick that drifted and the first checkpoint that differs, and exits 1. `--watch dogs` also counts what each player's dogs spent the night doing. `--record` writes a sandbox night as a replay.
 

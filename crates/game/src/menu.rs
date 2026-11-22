@@ -23,6 +23,7 @@ pub(crate) enum Page {
     Join,
     Lobby,
     Relay,
+    Replays,
 }
 
 const MAIN: [(Page, &str); 8] = [(Page::Main, "Play"), (Page::Main, "Map"), (Page::HowTo, "How to play"), (Page::Settings, "Settings"), (Page::Stats, "Stats"), (Page::Credits, "Credits"), (Page::Online, "Online"), (Page::Main, "Quit")];
@@ -96,6 +97,10 @@ const MORE_X: f32 = 940.0;
 const BACK: [f32; 4] = [362.0, 660.0, 300.0, 76.0];
 /// Stats' button to the run history, right of Back; on History, the button to its next page.
 const HISTORY: [f32; 4] = [702.0, 660.0, 300.0, 76.0];
+/// Stats' button to the saved replays, left of Back.
+const REPLAYS: [f32; 4] = [22.0, 660.0, 300.0, 76.0];
+const REPLAY_TOP: f32 = 96.0;
+const REPLAY_H: f32 = 54.0;
 /// Runs on each History page.
 const HISTORY_PAGE: usize = 5;
 /// The how-to page's rows: an icon's box, then each row's top and the size of its text.
@@ -120,6 +125,10 @@ pub(crate) fn difficulty_arrow([x, y]: [f32; 2]) -> Option<i32> {
     }
     let off = x - SCREEN_W / 2.0;
     (off.abs() > 160.0 && off.abs() < 320.0).then_some(off.signum() as i32)
+}
+
+fn replay_row(i: usize) -> [f32; 4] {
+    [40.0, REPLAY_TOP + i as f32 * REPLAY_H, SCREEN_W - 80.0, REPLAY_H - 8.0]
 }
 
 fn main_row(i: usize) -> [f32; 4] {
@@ -216,6 +225,17 @@ impl Game {
                 self.history_page = 0;
                 self.sounds.push(Sfx::Tick(3));
             }
+            Page::Stats if input.pressed.contains(Buttons::X) || tapped.is_some_and(|p| inside(p, REPLAYS)) => {
+                self.page = Page::Replays;
+                self.replays_asked = true;
+                self.sounds.push(Sfx::Tick(6));
+            }
+            Page::Replays if back => {
+                self.page = Page::Stats;
+                self.saved_replays.clear();
+                self.sounds.push(Sfx::Tick(0));
+            }
+            Page::Replays => self.replays_page(input, tapped),
             Page::History if back => {
                 self.page = Page::Stats;
                 self.sounds.push(Sfx::Tick(0));
@@ -523,6 +543,7 @@ impl Game {
             Page::Join => self.draw_join(c),
             Page::Lobby => self.draw_lobby(c),
             Page::Relay => self.draw_relay(c),
+            Page::Replays => self.draw_replays(c),
         }
     }
 
@@ -864,9 +885,12 @@ impl Game {
         }
         let report = crate::data::load_report();
         if !report.version.is_empty() {
-            fit_label(c, &format!("Version {}", report.versions()), 24.0, SCREEN_H - 52.0, 24.0, BACK[0] - 48.0, DIM, Align::Left);
+            fit_label(c, &format!("Version {}", report.versions()), 24.0, 36.0, 24.0, 300.0, DIM, Align::Left);
         }
         back_button(c);
+        let [x, y, w, h] = REPLAYS;
+        c.rect(x, y, w, h, [1.0, 1.0, 1.0, 0.08]);
+        c.label(pad::hint("{X}: Replays"), x + w / 2.0, y + h / 2.0 - 22.0, 40.0, WHITE, Align::Center);
         let [x, y, w, h] = HISTORY;
         c.rect(x, y, w, h, [1.0, 1.0, 1.0, 0.08]);
         c.label(pad::hint("{A}: History"), x + w / 2.0, y + h / 2.0 - 22.0, 40.0, WHITE, Align::Center);
@@ -935,6 +959,49 @@ impl Game {
         let [x, y, w, h] = BACK;
         c.rect(x, y, w, h, [1.0, 0.85, 0.3, 0.3]);
         c.label(if self.how_to_by_touch() { "Play" } else { "A: Play" }, x + w / 2.0, y + h / 2.0 - 22.0, 40.0, HOT, Align::Center);
+    }
+
+    fn replays_page(&mut self, input: &Input, tapped: Option<[f32; 2]>) {
+        let n = self.saved_replays.len();
+        let step = input.pressed.contains(Buttons::DOWN) as i32 - input.pressed.contains(Buttons::UP) as i32;
+        if step != 0 && n > 0 {
+            self.replay_row = (self.replay_row as i32 + step).rem_euclid(n as i32) as usize;
+            self.sounds.push(Sfx::Tick(self.replay_row as u8 * 2));
+            return;
+        }
+        let chosen = match tapped {
+            Some(p) => (0..n).find(|&i| inside(p, replay_row(i))).or_else(|| inside(p, HISTORY).then_some(self.replay_row)),
+            None => input.pressed.any(Buttons::A | Buttons::START).then_some(self.replay_row),
+        };
+        if let Some(i) = chosen.filter(|&i| i < n) {
+            self.replay_row = i;
+            self.watch_replay(i);
+        }
+    }
+
+    /// The replays this device keeps, newest first, a line each; one from another build says why it won't play.
+    fn draw_replays(&self, c: &mut Canvas) {
+        c.label("Replays", SCREEN_W / 2.0, 24.0, 48.0, WHITE, Align::Center);
+        if self.saved_replays.is_empty() {
+            c.label("No replays yet", SCREEN_W / 2.0, 280.0, 36.0, DIM, Align::Center);
+            c.label("Every night you play is kept here, the last ten.", SCREEN_W / 2.0, 336.0, 28.0, DIM, Align::Center);
+        }
+        for (i, saved) in self.saved_replays.iter().enumerate() {
+            let [x, y, w, h] = replay_row(i);
+            let on = i == self.replay_row;
+            c.rect(x, y, w, h, if on { [1.0, 0.85, 0.3, 0.3] } else { [1.0, 1.0, 1.0, 0.08] });
+            let (text, color) = match &saved.line {
+                Ok(line) => (line.clone(), if on { HOT } else { WHITE }),
+                Err(e) => (format!("{}: {e}", crate::watch::when(&saved.name).unwrap_or_else(|| saved.name.clone())), [1.0, 0.55, 0.5, 1.0]),
+            };
+            fit_label(c, &text, x + 16.0, y + h / 2.0 - 15.0, 30.0, w - 32.0, color, Align::Left);
+        }
+        back_button(c);
+        if !self.saved_replays.is_empty() {
+            let [x, y, w, h] = HISTORY;
+            c.rect(x, y, w, h, [1.0, 1.0, 1.0, 0.08]);
+            c.label(pad::hint("{A}: Watch"), x + w / 2.0, y + h / 2.0 - 22.0, 40.0, WHITE, Align::Center);
+        }
     }
 
     fn history_pages(&self) -> usize {

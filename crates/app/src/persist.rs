@@ -36,6 +36,11 @@ pub fn keep_replays(raws: Vec<Vec<u8>>) {
     }
 }
 
+/// The replays kept beside the save, newest first.
+pub fn saved_replays() -> Vec<(String, Vec<u8>)> {
+    last_harvest::replays::saved(&dir().join("replays"))
+}
+
 pub struct Saver {
     path: PathBuf,
     written: Save,

@@ -254,6 +254,7 @@ The title's bottom screen lists Play, Map, How to play, Settings, Stats, Credits
 - **How to play** sums up the controls, hearts and level-ups, grenades, the map and the run home at dawn, in the buttons or touch controls you play with. A new save shows it at the first Play: A or a tap then starts the run, and B goes back to the menu. Elsewhere A, B, Start or a tap closes it.
 - **Stats** lists your records, including the best damage a second over a whole run. It also counts the cards and mod packs that loaded.
 - **History**, from Stats with A or its button, shows the last 10 runs, newest first, five to a page. Each run lists its difficulty, Turned or Home at dawn, its time, level and damage a second, and the powerups it ended with. Left and Right turn the page.
+- **Replays**, from Stats with X or its button, lists the last 10 nights this device recorded (5 in a browser), newest first, with their date in UTC. A or a tap plays one on the run's screens, as it was played. A pauses, Left and Right set the speed from 0.25x to 8x, and Y steps one tick while paused. L1 and R1 switch whose view it follows in a night with more than one player. B leaves. Faster than 2x it plays without sound. If the replay stops matching the recording, it pauses there and names the time and tick. Watching changes no records or unlocks.
 - **Credits** names who made the game, its art, its template and its font.
 - **Online** hosts or joins a night with players on other devices. See [Online](#online).
 
