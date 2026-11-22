@@ -6,7 +6,7 @@ use std::f32::consts::TAU;
 use super::events::Event;
 use super::wire::{Reader, Writer};
 
-pub const VERSION: u8 = 3;
+pub const VERSION: u8 = 4;
 pub const TICK_HZ: u32 = 60;
 /// Host ticks between snapshots: 20 a second.
 pub const SEND_EVERY: u32 = 3;
@@ -343,6 +343,130 @@ impl ZombieState {
     }
 }
 
+/// A player's dog or drone, as drawn: `owner`, `def` and `slot` name it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PetState {
+    pub owner: u8,
+    /// Place in the powerup book.
+    pub def: u16,
+    pub slot: u8,
+    pub pos: [u16; 2],
+    /// The way it faces, in 1/256 of a turn.
+    pub heading: u8,
+    /// Its animation clock, in 1/64 s, wrapping.
+    pub anim: u16,
+    /// 0 on the ground, else 1 plus how far through its pounce in 1/254.
+    pub leap: u8,
+    /// 0, or 1 plus the money of the heart in its mouth.
+    pub heart: u16,
+}
+
+const PD_POS: u8 = 1;
+const PD_HEADING: u8 = 2;
+const PD_ANIM: u8 = 4;
+const PD_LEAP: u8 = 8;
+const PD_HEART: u8 = 16;
+
+impl PetState {
+    pub fn key(&self) -> (u8, u16, u8) {
+        (self.owner, self.def, self.slot)
+    }
+
+    fn write_full(&self, w: &mut Writer) {
+        w.u16(self.pos[0]);
+        w.u16(self.pos[1]);
+        w.u8(self.heading);
+        w.u16(self.anim);
+        w.u8(self.leap);
+        w.var(self.heart as u32);
+    }
+
+    fn read_full(key: (u8, u16, u8), r: &mut Reader) -> Option<Self> {
+        let (owner, def, slot) = key;
+        Some(PetState { owner, def, slot, pos: [r.u16()?, r.u16()?], heading: r.u8()?, anim: r.u16()?, leap: r.u8()?, heart: r.var()? as u16 })
+    }
+
+    /// A mask byte, 0 when it hasn't changed from `was`, then what changed.
+    fn write_delta(&self, was: &PetState, w: &mut Writer) {
+        let bit = |changed: bool, b: u8| if changed { b } else { 0 };
+        let mask = bit(self.pos != was.pos, PD_POS) | bit(self.heading != was.heading, PD_HEADING) | bit(self.anim != was.anim, PD_ANIM) | bit(self.leap != was.leap, PD_LEAP) | bit(self.heart != was.heart, PD_HEART);
+        w.u8(mask);
+        if mask & PD_POS != 0 {
+            w.svar(self.pos[0] as i32 - was.pos[0] as i32);
+            w.svar(self.pos[1] as i32 - was.pos[1] as i32);
+        }
+        if mask & PD_HEADING != 0 {
+            w.u8(self.heading);
+        }
+        if mask & PD_ANIM != 0 {
+            w.var(self.anim.wrapping_sub(was.anim) as u32);
+        }
+        if mask & PD_LEAP != 0 {
+            w.u8(self.leap);
+        }
+        if mask & PD_HEART != 0 {
+            w.var(self.heart as u32);
+        }
+    }
+
+    fn read_delta(was: &PetState, r: &mut Reader) -> Option<Self> {
+        let mask = r.u8()?;
+        let mut p = *was;
+        if mask & PD_POS != 0 {
+            let step = |v: u16, d: i32| (v as i32 + d).clamp(0, u16::MAX as i32) as u16;
+            p.pos = [step(p.pos[0], r.svar()?), step(p.pos[1], r.svar()?)];
+        }
+        if mask & PD_HEADING != 0 {
+            p.heading = r.u8()?;
+        }
+        if mask & PD_ANIM != 0 {
+            p.anim = p.anim.wrapping_add(r.var()? as u16);
+        }
+        if mask & PD_LEAP != 0 {
+            p.leap = r.u8()?;
+        }
+        if mask & PD_HEART != 0 {
+            p.heart = r.var()? as u16;
+        }
+        Some(p)
+    }
+}
+
+/// Every pet, coded against `base`'s: their keys only when the set of them changed.
+fn write_pets(pets: &[PetState], base: &[PetState], w: &mut Writer) {
+    w.var(pets.len() as u32);
+    let same = pets.len() == base.len() && pets.iter().zip(base).all(|(a, b)| a.key() == b.key());
+    w.u8(same as u8);
+    for p in pets {
+        if !same {
+            w.u8(p.owner);
+            w.var(p.def as u32);
+            w.u8(p.slot);
+        }
+        match base.iter().find(|b| b.key() == p.key()) {
+            Some(was) => p.write_delta(was, w),
+            None => p.write_full(w),
+        }
+    }
+}
+
+fn read_pets(base: &[PetState], r: &mut Reader) -> Option<Vec<PetState>> {
+    let n = r.var()? as usize;
+    let same = r.u8()? != 0;
+    if same && n != base.len() {
+        return None;
+    }
+    (0..n)
+        .map(|i| {
+            let key = if same { base[i].key() } else { (r.u8()?, r.var()? as u16, r.u8()?) };
+            match base.iter().find(|b| b.key() == key) {
+                Some(was) => PetState::read_delta(was, r),
+                None => PetState::read_full(key, r),
+            }
+        })
+        .collect()
+}
+
 pub const T_GRENADE: u8 = 0;
 pub const T_MONEY: u8 = 1;
 pub const T_HEALTH: u8 = 2;
@@ -469,6 +593,8 @@ pub struct World {
     pub players: Vec<PlayerState>,
     pub zombies: Vec<ZombieState>,
     pub things: Vec<(u32, Thing)>,
+    /// Every player's dogs and drones, by key.
+    pub pets: Vec<PetState>,
 }
 
 impl World {
@@ -489,7 +615,7 @@ impl World {
             }
         }
         keyed.sort();
-        Self { tick, run: RunState::default(), players, zombies, things: keyed }
+        Self { tick, run: RunState::default(), players, zombies, things: keyed, pets: Vec::new() }
     }
 
     pub fn zombie(&self, id: u32) -> Option<&ZombieState> {
@@ -510,6 +636,7 @@ impl World {
             players: parts.first().map_or_else(Vec::new, |p| p.players.clone()),
             zombies: parts.iter().flat_map(|p| p.zombies.iter().copied()).collect(),
             things: parts.iter().flat_map(|p| p.things.iter().copied()).collect(),
+            pets: parts.iter().find_map(|p| p.pets.clone()).unwrap_or_default(),
         }
     }
 }
@@ -555,7 +682,7 @@ enum Item {
 const PART_OVERHEAD: usize = 40;
 
 /// `world` as packets of at most `budget` bytes, coded against `base`, the latest snapshot the client acked, or
-/// whole without one. The first part also carries the events still owed from `first_seq` on and the spawns.
+/// whole without one. The first part also carries the events still owed from `first_seq` on, the spawns and the pets.
 pub fn encode(world: &World, base: Option<&World>, first_seq: u32, events: &[(u32, Event)], spawns: &[Spawned], budget: usize) -> Vec<Vec<u8>> {
     let mut players = Writer::new();
     world.run.write(&mut players);
@@ -597,6 +724,7 @@ pub fn encode(world: &World, base: Option<&World>, first_seq: u32, events: &[(u3
     }
     extra.var(n_sp);
     extra.bytes(&sps.buf);
+    write_pets(&world.pets, base.map_or(&[][..], |b| &b.pets), &mut extra);
 
     let mut items = Vec::new();
     let (mut b, empty) = (0, Vec::new());
@@ -730,6 +858,8 @@ pub struct Part {
     /// The host's oldest event still owed, and the events this part carries.
     pub events: Option<(u32, Vec<(u32, Event)>)>,
     pub spawns: Vec<Spawned>,
+    /// Every pet, in the first part only.
+    pub pets: Option<Vec<PetState>>,
     pub zombies: Vec<ZombieState>,
     pub things: Vec<(u32, Thing)>,
 }
@@ -785,7 +915,9 @@ fn read_part(bytes: &[u8], base: Option<&World>) -> Option<Part> {
     let (zr, tr) = ((z_lo, z_hi), (r.u32()?, r.u32()?));
     let run = RunState::read(&mut r)?;
     let players = (0..r.u8()?).map(|_| PlayerState::read(&mut r)).collect::<Option<Vec<_>>>()?;
-    let (mut events, mut spawns) = (None, Vec::new());
+    let empty = World::default();
+    let base_w = base.unwrap_or(&empty);
+    let (mut events, mut spawns, mut pets) = (None, Vec::new(), None);
     if flags & 2 != 0 {
         let first = r.var()?;
         let mut seq = first;
@@ -801,9 +933,8 @@ fn read_part(bytes: &[u8], base: Option<&World>) -> Option<Part> {
             let born = tick.checked_sub(r.var()?)?;
             spawns.push(Spawned { id, tick: born, what: Spawn::read(&mut r)? });
         }
+        pets = Some(read_pets(&base_w.pets, &mut r)?);
     }
-    let empty = World::default();
-    let base_w = base.unwrap_or(&empty);
     let mut changed = Vec::new();
     let mut id = zr.0;
     for _ in 0..r.var()? {
@@ -834,5 +965,5 @@ fn read_part(bytes: &[u8], base: Option<&World>) -> Option<Part> {
     things.extend(added.into_iter().filter(|t| in_range(t.0, tr)));
     things.sort();
     things.dedup_by_key(|t| t.0);
-    Some(Part { tick, base: base_tick, index, count, zombie_range: zr, thing_range: tr, run, players, events, spawns, zombies, things })
+    Some(Part { tick, base: base_tick, index, count, zombie_range: zr, thing_range: tr, run, players, events, spawns, pets, zombies, things })
 }
