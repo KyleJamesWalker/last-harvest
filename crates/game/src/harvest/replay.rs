@@ -55,7 +55,7 @@ pub struct Setup {
 impl Setup {
     /// A night on this device with the game's own scripted players.
     pub fn night(seed: u64) -> Self {
-        Self { seed, map: String::new(), difficulty: Difficulty::Normal, progress: Progress::default(), enemies_off: 0, look: String::new(), farm: None, kit: String::new(), start_t: 0.0, one_screen: false, endless: false, players: 1, bots: 0, views: 1, walk: Walk::Avoid, turn: 0.25, turn_every: 0.0, throw_every: 12.0, kind: Kind::Night }
+        Self { seed, map: String::new(), difficulty: Difficulty::NORMAL, progress: Progress::default(), enemies_off: 0, look: String::new(), farm: None, kit: String::new(), start_t: 0.0, one_screen: false, endless: false, players: 1, bots: 0, views: 1, walk: Walk::Avoid, turn: 0.25, turn_every: 0.0, throw_every: 12.0, kind: Kind::Night }
     }
 
     /// The night, after setting the farm it plays on.
@@ -85,7 +85,7 @@ impl Setup {
                     h.bots = (1..h.players.len()).map(|p| (p, self.bot())).collect();
                 }
                 for pl in &mut h.players {
-                    pl.kit = Kit::forced(build, d);
+                    pl.kit = Kit::forced(build, d.tier());
                     pl.hp = pl.kit.max_hp();
                     pl.grenades = pl.kit.grenades();
                 }
@@ -153,7 +153,7 @@ views {}
             match key {
                 "seed" => s.seed = num(rest, line)?,
                 "map" => s.map = rest.to_string(),
-                "difficulty" => s.difficulty = *Difficulty::ALL.iter().find(|d| d.key() == rest).ok_or_else(|| bad(line))?,
+                "difficulty" => s.difficulty = Difficulty::from_key(rest).ok_or_else(|| bad(line))?,
                 "progress" if w.len() == 10 => {
                     let n = |i: usize| num(w[i], line).map(|v| v as u32);
                     s.progress = Progress { kills: n(0)?, best: n(1)?, best_level: n(2)?, nights: n(3)?, dawns: n(4)?, breakers: n(5)?, breaker_dawns: n(6)?, found: hex(w[7], line)?, everything: w[8] == "1", hidden: hex(w[9], line)? };
@@ -1273,7 +1273,8 @@ mod tests {
     #[test]
     fn a_setup_reads_back_as_written() {
         let night = Setup { map: "orchard".into(), look: "scarecrow".into(), farm: Some("scarecrow".into()), kit: "dog:2,crows".into(), start_t: 12.5, one_screen: true, players: 2, bots: 1, views: 3, progress: Progress { kills: 9, found: 0xf0, everything: true, hidden: 3, ..Progress::default() }, ..Setup::night(77) };
-        let host = Setup { kind: Kind::Host { looks: vec![(0, "".into()), (2, "crow".into())], local: 1 }, ..Setup::night(5) };
+        let host = Setup { kind: Kind::Host { looks: vec![(0, "".into()), (2, "crow".into())], local: 1 }, difficulty: Difficulty::DEAD, ..Setup::night(5) };
+        assert!(host.to_text().contains("\ndifficulty dead\n"), "{}", host.to_text());
         let sandbox = Plan { size: [40, 30], mortal: true, ..short() }.setup();
         for s in [night, host, sandbox] {
             assert_eq!(Setup::from_text(&s.to_text()), Ok(s.clone()), "{}", s.to_text());

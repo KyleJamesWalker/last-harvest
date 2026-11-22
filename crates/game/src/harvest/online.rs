@@ -609,7 +609,7 @@ const STEP: f32 = 1.0 / TICK_HZ as f32;
 pub fn net_sim(plan: &Plan, net: NetSim) -> NetReport {
     let mut h = Harvest::sized(plan.seed, plan.size).at(plan.difficulty).with_players(2);
     for pl in h.players.iter_mut().filter(|_| !plan.build.is_empty()) {
-        pl.kit = Kit::forced(&plan.build, plan.difficulty);
+        pl.kit = Kit::forced(&plan.build, plan.difficulty.tier());
         pl.hp = pl.kit.max_hp();
         pl.grenades = pl.kit.grenades();
     }

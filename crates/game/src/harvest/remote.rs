@@ -175,6 +175,7 @@ impl Harvest {
     /// One frame of a client's run: everything laid out from `mirror`, and the effects only this end plays.
     pub fn client_frame(&mut self, mirror: &Mirror, dt: f32, sounds: &mut Vec<Sfx>) {
         let Some(mut c) = self.net.client.take() else { return };
+        self.difficulty.play();
         self.juice.still = true;
         self.take_before();
         self.lay_players(&mut c, mirror, dt, sounds);
@@ -256,7 +257,7 @@ impl Harvest {
             pl.ready_flash = if ps.flags & P_READY_FLASH != 0 { pl.ready_flash.max(0.01) } else { 0.0 };
             if c.kits[i] != ps.kit {
                 let build: Vec<(usize, u32)> = ps.kit.iter().map(|&(d, l)| (d as usize, l as u32)).filter(|&(d, _)| d < book().defs.len()).collect();
-                pl.kit = pl.kit.rebuilt(&build, difficulty);
+                pl.kit = pl.kit.rebuilt(&build, difficulty.tier());
                 c.kits[i] = ps.kit.clone();
             }
             pl.hp = ps.hp as f32 / 4.0;

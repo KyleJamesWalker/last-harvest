@@ -5,7 +5,7 @@ use std::sync::OnceLock;
 use super::Look;
 use super::enemies::{draw_cell, place};
 use super::powerups::{Kind, book};
-use crate::Difficulty;
+use crate::Tier;
 use crate::art::Art;
 use crate::data::Card;
 use crate::worn::Worn;
@@ -61,12 +61,12 @@ pub fn weapon_slots() -> usize {
 }
 
 /// The weapons the game starts a run with at `difficulty`, by id.
-pub fn default_start(difficulty: Difficulty) -> Vec<String> {
+pub fn default_start(difficulty: Tier) -> Vec<String> {
     book().start[difficulty as usize].iter().map(|&i| book().defs[i].id.clone()).collect()
 }
 
 /// A player card's text with its `start` line for `difficulty` set to `weapons`, or removed when None.
-pub fn set_player_start(text: &str, difficulty: Difficulty, weapons: Option<&[String]>) -> String {
+pub fn set_player_start(text: &str, difficulty: Tier, weapons: Option<&[String]>) -> String {
     let mine = |line: &str| {
         let words: Vec<&str> = line.split('#').next().unwrap_or("").split_whitespace().collect();
         words.first() == Some(&"start") && words.get(1) == Some(&difficulty.key())
@@ -116,7 +116,7 @@ pub fn look(id: &str) -> &'static PlayerLook {
 impl PlayerLook {
     /// The weapons this look starts a run with at `difficulty`, by powerup, when it has its own: the weapons it
     /// names, as many as a run carries.
-    pub(crate) fn start_defs(&self, difficulty: Difficulty) -> Option<Vec<usize>> {
+    pub(crate) fn start_defs(&self, difficulty: Tier) -> Option<Vec<usize>> {
         let ids = self.start[difficulty as usize].as_ref()?;
         let mut defs: Vec<usize> = Vec::new();
         for def in ids.iter().filter_map(|w| book().index(w)).filter(|&i| book().defs[i].kind == Kind::Weapon && book().defs[i].for_player(&self.id)) {
@@ -129,7 +129,7 @@ impl PlayerLook {
     }
 
     /// The names of the weapons this look starts a run with at `difficulty`: its own, else the game's.
-    pub fn start_names(&self, difficulty: Difficulty) -> Vec<String> {
+    pub fn start_names(&self, difficulty: Tier) -> Vec<String> {
         let defs = self.start_defs(difficulty).unwrap_or_else(|| book().start[difficulty as usize].clone());
         defs.iter().map(|&i| book().defs[i].name.clone()).collect()
     }
@@ -164,7 +164,7 @@ fn parse(text: &str, check: bool) -> Result<PlayerFields, String> {
             (None, ["name", ..]) if id.is_some() => name = Some(line["name".len()..].trim().to_string()),
             (None, ["about", ..]) if id.is_some() => about = super::enemies::about(line["about".len()..].trim()).map_err(|e| format!("line {n}: {e}"))?,
             (None, ["start", d, weapons @ ..]) if id.is_some() => {
-                let d = Difficulty::from_key(d).ok_or_else(|| format!("line {n}: start names easy, normal or hard first, not {d:?}"))?;
+                let d = Tier::from_key(d).ok_or_else(|| format!("line {n}: start names easy, normal or hard first, not {d:?}"))?;
                 if check {
                     // An id the game doesn't know may be a weapon the mod's own powerups.txt adds.
                     if let Some(w) = weapons.iter().find(|w| book().index(w).is_some_and(|i| book().defs[i].kind != Kind::Weapon)) {
@@ -300,12 +300,12 @@ mod tests {
     #[test]
     fn start_lines_are_set_and_cleared_one_difficulty_at_a_time() {
         let text = "[jo]\nname Jo\nstart easy pistol\n";
-        let text = set_player_start(text, Difficulty::Hard, Some(&["crows".to_string(), "dog".to_string()]));
-        let text = set_player_start(&text, Difficulty::Easy, None);
+        let text = set_player_start(text, Tier::Hard, Some(&["crows".to_string(), "dog".to_string()]));
+        let text = set_player_start(&text, Tier::Easy, None);
         assert_eq!(text, "[jo]\nname Jo\nstart       hard   crows dog\n");
-        let text = set_player_start(&text, Difficulty::Normal, Some(&[]));
+        let text = set_player_start(&text, Tier::Normal, Some(&[]));
         assert_eq!(player_fields(&text).unwrap().start, [None, Some(vec![]), Some(vec!["crows".into(), "dog".into()])]);
-        assert_eq!(default_start(Difficulty::Easy), ["pistol", "knife"]);
+        assert_eq!(default_start(Tier::Easy), ["pistol", "knife"]);
         assert!(weapons().iter().any(|(id, name)| id == "rifle" && name == "Hunting rifle"));
     }
 
@@ -313,13 +313,13 @@ mod tests {
     fn a_start_keeps_each_weapon_once_and_only_weapons() {
         let start = Some(vec!["pistol".into(), "pistol".into(), "heal".into(), "knife".into(), "nope".into()]);
         let jo = PlayerLook { id: "jo".into(), name: "Jo".into(), about: String::new(), look: super::super::player_look(), start: [None, start, None], base: [None; 3], farm: None };
-        assert_eq!(jo.start_names(Difficulty::Normal), ["Pistol", "Knife"]);
+        assert_eq!(jo.start_names(Tier::Normal), ["Pistol", "Knife"]);
     }
 
     #[test]
     fn a_look_without_its_own_start_names_the_games() {
-        assert_eq!(looks()[0].start_names(Difficulty::Easy), ["Pistol", "Knife"]);
-        assert_eq!(looks()[0].start_names(Difficulty::Hard), ["Pistol", "Knife"]);
+        assert_eq!(looks()[0].start_names(Tier::Easy), ["Pistol", "Knife"]);
+        assert_eq!(looks()[0].start_names(Tier::Hard), ["Pistol", "Knife"]);
     }
 
     #[test]

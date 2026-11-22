@@ -23,7 +23,7 @@ hearts and level for each. With no BUILD, measures each weapon alone at each lev
   --weapons a,b       the matrix only for these weapons
   --seeds N           nights per build, each on its own seed (3)
   --seed S            the first seed (1)
-  --difficulty D      easy, normal or hard (normal)
+  --difficulty D      a difficulty by id: stroll, easy, normal, hard, brutal, dead, or a mod's (normal)
   --size WxH          the generated farm's size in tiles (72x54)
   --walk W            circle; eight, a loop each way; avoid, turning away from the zombies on the map; or corner,
                       standing in the farm's nearest corner (circle)
@@ -63,8 +63,9 @@ struct Args {
     jobs: usize,
     csv: Option<String>,
     json: Option<String>,
-    /// `--pick` as given, read once the data is loaded.
+    /// `--pick` and `--difficulty` as given, read once the data is loaded.
     pick: String,
+    difficulty: String,
     locked: bool,
     net: Option<NetSim>,
     record: Option<String>,
@@ -90,7 +91,7 @@ fn main() {
 }
 
 fn parse(args: &[String]) -> Result<Args, String> {
-    let mut a = Args { builds: Vec::new(), weapons: None, seeds: 3, seed: 1, plan: Plan::new(Vec::new()), jobs: std::thread::available_parallelism().map_or(1, |n| n.get()), csv: None, json: None, pick: "none".into(), locked: false, net: None, record: None, replay: None, watch: None };
+    let mut a = Args { builds: Vec::new(), weapons: None, seeds: 3, seed: 1, plan: Plan::new(Vec::new()), jobs: std::thread::available_parallelism().map_or(1, |n| n.get()), csv: None, json: None, pick: "none".into(), difficulty: "normal".into(), locked: false, net: None, record: None, replay: None, watch: None };
     let mut it = args.iter();
     while let Some(arg) = it.next() {
         let mut value = || it.next().cloned().ok_or_else(|| format!("{arg} needs a value"));
@@ -101,10 +102,7 @@ fn parse(args: &[String]) -> Result<Args, String> {
             "--weapons" => a.weapons = Some(value()?.split(',').map(|s| s.trim().to_string()).collect()),
             "--seeds" => a.seeds = num::<u64>(arg, value()?)?.max(1),
             "--seed" => a.seed = num(arg, value()?)?,
-            "--difficulty" => {
-                let v = value()?;
-                a.plan.difficulty = *Difficulty::ALL.iter().find(|d| d.key() == v).ok_or_else(|| format!("--difficulty: {v} is not easy, normal or hard"))?;
-            }
+            "--difficulty" => a.difficulty = value()?,
             "--size" => {
                 let v = value()?;
                 let (w, h) = v.split_once('x').ok_or_else(|| format!("--size: {v} is not WxH"))?;
@@ -148,6 +146,7 @@ struct Cell {
 
 fn run(mut a: Args) -> Result<(), String> {
     pak::load()?;
+    a.plan.difficulty = Difficulty::from_key(&a.difficulty).ok_or_else(|| format!("--difficulty: no difficulty {}; there are {}", a.difficulty, Difficulty::all().map(Difficulty::key).collect::<Vec<_>>().join(", ")))?;
     a.plan.pick = Pick::from_name(&a.pick).map_err(|e| format!("--pick: {e}"))?;
     a.plan.unlocked = a.plan.pick != Pick::None && !a.locked;
     if let Some(path) = &a.replay {

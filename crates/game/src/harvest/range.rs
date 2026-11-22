@@ -10,7 +10,7 @@ use super::powerups::{self, Kind as Card, Stat, book};
 use super::weapons::Kit;
 use super::{GOLD, Harvest, ME, Kind, Phase, Tell, WHITE, effects, len, norm, roster, sub, Fx};
 use crate::rng::Rng;
-use crate::{Align, Buttons, Canvas, Difficulty, Input, SCREEN_W, Sfx};
+use crate::{Align, Buttons, Canvas, Input, SCREEN_W, Sfx, Tier};
 
 /// Zombies standing in the ring.
 pub(super) const RING: usize = 8;
@@ -223,7 +223,7 @@ impl Harvest {
         let b = book();
         let weapon = |i: &usize| b.defs[*i].kind == Card::Weapon;
         let def = b.index(&setup.weapon).filter(weapon).or_else(|| (0..b.defs.len()).find(|i| weapon(i) && b.defs[*i].player.is_none())).unwrap_or(0);
-        h.me_mut().kit = Kit::with_weapons(&[def], Difficulty::Normal);
+        h.me_mut().kit = Kit::with_weapons(&[def], Tier::Normal);
         h.me_mut().kit.weapons[0].level = setup.level.clamp(1, top_level(def));
         h.me_mut().hp = h.me().kit.max_hp();
         h.me_mut().grenades = h.me().kit.grenades();

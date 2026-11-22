@@ -169,7 +169,7 @@ mod tests {
         stay(&mut h, t.camp_after + 1.0);
         assert!(h.tells.is_empty(), "the night is over");
         h.phase = Phase::Playing;
-        let off = crate::tuning::parse("[camp]\nafter 0\n", Some(t)).unwrap();
+        let off = crate::tuning::parse("[camp]\nafter 0\n", Some(crate::tuning::rules())).unwrap().base;
         for _ in 0..(t.camp_after as u32 + 10) * 60 {
             h.camp_by(&off, 1.0 / 60.0);
         }

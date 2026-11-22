@@ -1248,7 +1248,7 @@ impl Editor {
             for (d, start) in starts.iter().enumerate() {
                 let top = START_TOP + d as f32 * START_BLOCK;
                 push(CANVAS.x + 400.0, top, 140.0, 26.0, Action::StartDefault(d), "Default", start.is_none());
-                let have = start.clone().unwrap_or_else(|| last_harvest_game::default_start(last_harvest_game::Difficulty::ALL[d]));
+                let have = start.clone().unwrap_or_else(|| last_harvest_game::default_start(last_harvest_game::Tier::ALL[d]));
                 for (w, (id, label)) in weapons.iter().enumerate() {
                     let (col, row) = (w % across, w / across);
                     let on = have.contains(id);
@@ -1988,7 +1988,7 @@ impl Editor {
                 self.set_card("blood", next.map(|[r, g, b]| format!("{r:02X}{g:02X}{b:02X}")).as_deref());
             }
             Action::StartWeapon(d, w) => {
-                let difficulty = last_harvest_game::Difficulty::ALL[d];
+                let difficulty = last_harvest_game::Tier::ALL[d];
                 let mut have = self.player_starts()[d].clone().unwrap_or_else(|| last_harvest_game::default_start(difficulty));
                 let Some((id, _)) = self.weapon_labels().into_iter().nth(w) else { return };
                 match have.iter().position(|h| *h == id) {
@@ -1998,7 +1998,7 @@ impl Editor {
                 }
                 self.set_start(difficulty, Some(&have));
             }
-            Action::StartDefault(d) => self.set_start(last_harvest_game::Difficulty::ALL[d], None),
+            Action::StartDefault(d) => self.set_start(last_harvest_game::Tier::ALL[d], None),
             Action::PlayerFarm(d) => {
                 let Some(text) = self.sprite.card.clone() else { return };
                 let now = last_harvest_game::player_fields(&text).ok().and_then(|f| f.farm);
@@ -4520,6 +4520,37 @@ mod tests {
     }
 
     #[test]
+    fn both_editors_list_the_difficulties_on_their_own_page_and_copy_one_to_a_new_one() {
+        for modding in [false, true] {
+            let dir = tmp().join(if modding { "difficulty-mod" } else { "difficulty" });
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            let mut e = editor_in(&dir, dir.join("art.txt"));
+            if modding {
+                e.set_modding();
+            }
+            let listed: Vec<&String> = e.names.iter().map(|(n, _)| n).filter(|n| sprite::section(n) == sprite::DIFFICULTY_SECTION).collect();
+            assert_eq!(listed, ["DATA_TUNING_STROLL", "DATA_TUNING_EASY", "DATA_TUNING_NORMAL", "DATA_TUNING_HARD", "DATA_TUNING_BRUTAL", "DATA_TUNING_DEAD"], "modding {modding}");
+            assert_eq!(sprite::section("DATA_TUNING_SPAWN"), "Data/tuning");
+            e.switch_to("DATA_TUNING_BRUTAL".into());
+            let kit = e.data.as_ref().unwrap().table.entries("brutal").iter().position(|x| x.key == "kit").unwrap();
+            e.act(Action::DataChoice(kit, -1), false);
+            assert_eq!(e.data.as_ref().unwrap().table.entries("brutal")[kit].value, "normal", "kit steps through the tiers");
+            e.act(Action::Ask(Ask::Copy), false);
+            type_in(&mut e, "nightmare");
+            e.key(Key::Enter);
+            assert_eq!(e.sprite.name, "DATA_TUNING_NIGHTMARE", "{:?}", e.status);
+            e.key(Key::Save);
+            assert!(!e.unsaved(), "{:?}", e.status);
+            let saved = std::fs::read_to_string(dir.join("tuning.txt")).unwrap();
+            let rules = last_harvest_game::tuning::parse(&saved, Some(&last_harvest_game::tuning::built_in())).unwrap();
+            let nightmare = rules.presets.last().unwrap();
+            assert_eq!((nightmare.id.as_str(), nightmare.name.as_str(), nightmare.tuning.spawn_rate), ("nightmare", "nightmare", 1.0), "modding {modding}");
+            assert!(e.names.iter().any(|(n, _)| n == "DATA_TUNING_NIGHTMARE"));
+        }
+    }
+
+    #[test]
     fn new_from_a_data_page_names_a_sprite_not_a_data_id() {
         let dir = tmp().join("data-new");
         let _ = std::fs::remove_dir_all(&dir);
@@ -5637,7 +5668,7 @@ mod tests {
         let data = |e: &Editor| rows(e).into_iter().filter(|r| r.starts_with("# Data")).collect::<Vec<_>>();
         assert_eq!(data(&e), ["# Data"], "the data files fold under one heading");
         tap(&mut e, "# Data");
-        assert_eq!(data(&e).len(), 1 + last_harvest_game::TABLES.len(), "a folder per data file");
+        assert_eq!(data(&e).len(), 2 + last_harvest_game::TABLES.len(), "a folder per data file, and one for the difficulties: {:?}", data(&e));
         assert!(!rows(&e).contains(&"DATA_TUNING_PLAYER".to_string()));
         tap(&mut e, "# Data/tuning");
         assert!(rows(&e).contains(&"DATA_TUNING_PLAYER".to_string()), "a data file's folder unfolds its sections");

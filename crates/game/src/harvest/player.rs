@@ -216,7 +216,8 @@ impl Harvest {
     /// A player at `pos` dressed as `look`, carrying its starting weapons and the run's trial powerups.
     pub(super) fn new_player(&self, pos: [f32; 2], look: &PlayerLook) -> Player {
         let d = self.difficulty;
-        let mut kit = look.start_defs(d).map_or_else(|| Kit::start(d), |defs| Kit::with_weapons(&defs, d));
+        let t = d.tier();
+        let mut kit = look.start_defs(t).map_or_else(|| Kit::start(t), |defs| Kit::with_weapons(&defs, t));
         for (b, theirs) in kit.base.iter_mut().zip(look.base) {
             *b = theirs.unwrap_or(*b);
         }

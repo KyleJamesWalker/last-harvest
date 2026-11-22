@@ -187,7 +187,6 @@ The game reads its rules from seven text files in `crates/game/`. The packer put
 | `[night]` | The night's length, where zombies rise at dusk and dawn, how near home counts, the rare-card chance and the level-up push |
 | `[spawn]` | How fast zombies arrive. `rate` a second at dusk, `growth` more a second each minute, up to `top`. A horde every `horde_every` seconds, above 0, of `horde` plus `horde_growth` each minute. Zombies owed while `[zombies]` `max` are up bank, up to `bank`, and rise `release` a second once there's room. A zombie off screen and farther than `straggler` pixels from the player for `straggler_time` seconds rises again in the ring ahead of the player, with the same kind and health. The Harvester never does. Each player past the first adds `per_player` of the rate and of each horde. |
 | `[levelup]` | How a level-up deals its cards. `held_weight` makes a powerup the player holds that many times as likely as a new one, above 0, and 1 for even odds. `banish`, `reroll` and `favor` are how many of each a run gets, and 0 turns one off. A favored powerup is `favor_weight` times as likely for the rest of the run, on top of `held_weight`, and favor is offered from level `favor_level` on. A rare card for a powerup one level below its top raises it one past it, the level breaker: each stat adds `breaker` times its last step, and 0 turns it off. With `slots` in `powerups.txt`, these set how deep a run's build goes. |
-| `[easy]`, `[normal]`, `[hard]` | Bite damage, how long a hit keeps the player safe, and how often kills drop health and how much |
 | `[zombies]` | The most alive at once, and `per_player` of it more for each player past the first, rising time, stagger, growth each minute, a leader's health, dawn's fury, footprint, walk speed, bite reach, `charge_reach`, spit speed and rate, `burrow_reach`, and chewing speed |
 | `[roam]` | Once the run is over, the dead wander: at `speed` times their walk, picking a new way about every `turn` seconds, after standing over the fallen player up to `after` seconds |
 | `[leader]` | With others still playing, a turned player leads the dead. Once their leader falls, `respawn_pick` seconds to pick where the next rises, at least `respawn_min_tiles` tiles from every living player, else it rises where a horde's leader would. The `swarm` that rises with each leader, the leader's walking `speed`, how near X's `call` reaches, and how near a living player a swarm zombie leaves the leader to `chase` them |
@@ -199,6 +198,34 @@ The game reads its rules from seven text files in `crates/game/`. The packer put
 | `[weapons]` | The view ahead and behind, the pistol's point-blank reach, crow and dog reach, how long fire burns, the ring at the end of a maul's crack past its top (`maul_shatter`, 0 turns it off), and how far off a crowd a drone hovers, its gun's reach and its rounds' speed (`drone_hold`, `drone_reach`, `drone_bullet`) |
 | `[blast]` | How much any blast hurts the player, and how near counts |
 | `[map]` | The map's scale, how far the view sees zombies for the map, how long one out of sight takes to fade, the shade outside the view, and one-screen mode's corner map: `mini` its width in screen pixels (0 for none) and `mini_reach` how far it shows from the player |
+
+#### Difficulties
+
+Any other section of `tuning.txt` is a difficulty. The title lists them in file order, the game's own first: `[stroll]`, `[easy]`, `[normal]`, `[hard]`, `[brutal]` and `[dead]`. A pack's `tuning.txt` can change one line of one of them, or add its own after them. The game keeps at most 16.
+
+| Key | Sets |
+|---|---|
+| `name` | The name on the title. A new difficulty must have one, so a misspelt section fails. |
+| `blurb` | The line under it |
+| `kit` | `easy`, `normal` or `hard`: whose starting weapons and grenades it plays with, from `powerups.txt` and player cards' `start` lines. Default: `normal` |
+| `damage` | Multiplies zombies' bite damage |
+| `hurt_time` | Seconds a hit keeps the player safe |
+| `health_drop` | One kill in this many drops health; the rest drop hearts |
+| `heal` | Health a health drop gives back |
+| `section.key` | Any number above for this difficulty only, such as `spawn.rate 1.2`, `zombies.max 400`, `leader.speed 48` or `camp.over 0.25` |
+
+What a difficulty leaves out comes from its kit's difficulty, then from the sections above. Easy, Normal and Hard set only their bites and health, so they play the sections above as they are. Each difficulty keeps its own records and unlocks in the save, by id. Both editors list the difficulties under Data/difficulty; Copy makes a new one.
+
+```
+[nightmare]
+name Nightmare
+blurb Hard's bites and twice the dead
+kit hard
+spawn.rate 1.4
+spawn.per_player 1.2
+```
+
+`last-harvest-sandbox --difficulty nightmare --mods my_mods/` plays it headless.
 
 ### props.txt
 

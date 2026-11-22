@@ -2,7 +2,7 @@
 //! once and for good, so nothing on the way may read it first.
 
 use last_harvest_game::data::{self, Card, Data};
-use last_harvest_game::{Difficulty, kill_sounds, player_looks};
+use last_harvest_game::{Tier, kill_sounds, player_looks};
 
 /// A card of 16-pixel frames, opaque all over, `walk` frames across its walking rows.
 fn card(name: &str, text: &str, walk: u32) -> Card {
@@ -25,7 +25,7 @@ fn enemy_and_player_cards_install_and_reach_the_game() {
     assert!(kill_sounds().any(|s| s == "kill-ghoul"), "the enemy card joins the roster");
     let jo = player_looks().iter().find(|l| l.id == "jo").expect("the player card joins the looks");
     assert_eq!(jo.about, "Up with the sun.");
-    assert_eq!(jo.start_names(Difficulty::Normal), ["Crows", "Knife"]);
-    assert!(jo.start_names(Difficulty::Hard).is_empty());
-    assert_eq!(jo.start_names(Difficulty::Easy), ["Pistol", "Knife"], "a difficulty it doesn't set keeps the game's");
+    assert_eq!(jo.start_names(Tier::Normal), ["Crows", "Knife"]);
+    assert!(jo.start_names(Tier::Hard).is_empty());
+    assert_eq!(jo.start_names(Tier::Easy), ["Pistol", "Knife"], "a difficulty it doesn't set keeps the game's");
 }

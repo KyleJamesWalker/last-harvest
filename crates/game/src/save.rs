@@ -1,6 +1,7 @@
 //! Settings and records kept between runs, as `key=value` lines.
 
 use crate::Difficulty;
+use crate::tuning::{PRESETS_MAX, PRESET_ID_MAX};
 use crate::controls::Controls;
 use crate::harvest::{RUN_KIT, Run, found_from_ids, found_ids, off_from_ids, off_ids, powerup_id, powerup_index};
 
@@ -26,26 +27,15 @@ pub struct Save {
     pub touch_grenades: bool,
     /// On a phone's screen, whether the on-screen controls show.
     pub touch: TouchControls,
-    /// Longest night survived, in seconds.
-    pub best: u32,
     pub difficulty: Difficulty,
-    /// Zombies killed over every run, highest level reached, nights played, nights survived and nights with a level breaker, which unlock powerups.
-    pub kills: u32,
-    pub best_level: u32,
-    pub nights: u32,
-    pub dawns: u32,
-    pub breakers: u32,
-    pub breaker_dawns: u32,
-    /// Powerups taken from a find card, kept by id.
-    pub found: u64,
+    /// Each difficulty's records and unlocks, by its id; an empty id is a free slot.
+    pub records: [(PresetId, Records); PRESETS_MAX],
     /// Zombie kinds turned off, kept by id.
     pub enemies_off: u64,
     /// The player's look, by id; the farmer's is empty.
     pub player: LookId,
     /// The hand-made map runs start on, by id; empty for a generated farm.
     pub map: LookId,
-    /// Most damage a second over a whole run.
-    pub best_dps: u32,
     /// The last runs, newest first.
     pub history: [Option<Run>; HISTORY],
     /// The how-to-play page has been shown, so the first Play no longer opens it.
@@ -159,9 +149,77 @@ impl LookId {
     }
 }
 
+/// A difficulty's id, kept inline so the save stays `Copy`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PresetId {
+    bytes: [u8; PRESET_ID_MAX],
+    len: u8,
+}
+
+impl PresetId {
+    /// An id as `tuning.txt` can have it, else empty.
+    pub fn new(id: &str) -> Self {
+        let mut out = Self::default();
+        if crate::tuning::valid_preset_id(id) {
+            out.bytes[..id.len()].copy_from_slice(id.as_bytes());
+            out.len = id.len() as u8;
+        }
+        out
+    }
+
+    pub fn as_str(&self) -> &str {
+        std::str::from_utf8(&self.bytes[..self.len as usize]).unwrap_or("")
+    }
+}
+
+/// What one difficulty's nights have earned: its records, and the counts and finds that unlock powerups.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Records {
+    /// Longest night survived, in seconds.
+    pub best: u32,
+    /// Zombies killed over every run, highest level reached, nights played, nights survived and nights with a level breaker.
+    pub kills: u32,
+    pub best_level: u32,
+    pub nights: u32,
+    pub dawns: u32,
+    pub breakers: u32,
+    pub breaker_dawns: u32,
+    /// Powerups taken from a find card, kept by id.
+    pub found: u64,
+    /// Most damage a second over a whole run.
+    pub best_dps: u32,
+}
+
+impl Records {
+    fn to_text(self) -> String {
+        format!("best:{} kills:{} level:{} nights:{} dawns:{} breakers:{} breaker_dawns:{} dps:{} found:{}", self.best, self.kills, self.best_level, self.nights, self.dawns, self.breakers, self.breaker_dawns, self.best_dps, found_ids(self.found))
+    }
+
+    /// Words it doesn't know, and numbers that don't read, are left at 0.
+    fn from_text(text: &str) -> Self {
+        let mut r = Self::default();
+        for (key, value) in text.split_whitespace().filter_map(|w| w.split_once(':')) {
+            let n = || value.parse().unwrap_or(0);
+            match key {
+                "best" => r.best = n(),
+                "kills" => r.kills = n(),
+                "level" => r.best_level = n(),
+                "nights" => r.nights = n(),
+                "dawns" => r.dawns = n(),
+                "breakers" => r.breakers = n(),
+                "breaker_dawns" => r.breaker_dawns = n(),
+                "dps" => r.best_dps = n(),
+                "found" => r.found = found_from_ids(value),
+                _ => {}
+            }
+        }
+        r
+    }
+}
+
 impl Default for Save {
     fn default() -> Self {
-        Self { volume: 6, brightness: [4, 4], rumble: true, fps: false, one_screen: false, corner_map: true, touch_grenades: true, touch: TouchControls::Auto, best: 0, difficulty: Difficulty::default(), kills: 0, best_level: 0, nights: 0, dawns: 0, breakers: 0, breaker_dawns: 0, found: 0, enemies_off: 0, player: LookId::default(), map: LookId::default(), best_dps: 0, history: [None; HISTORY], how_to_seen: false, controls: Controls::default(), relay: Relay::default() }
+        Self { volume: 6, brightness: [4, 4], rumble: true, fps: false, one_screen: false, corner_map: true, touch_grenades: true, touch: TouchControls::Auto, difficulty: Difficulty::default(), records: [(PresetId::default(), Records::default()); PRESETS_MAX], enemies_off: 0, player: LookId::default(), map: LookId::default(), history: [None; HISTORY], how_to_seen: false, controls: Controls::default(), relay: Relay::default() }
     }
 }
 
@@ -172,7 +230,7 @@ impl Save {
             controls += &format!("relay={}\n", self.relay.as_str());
         }
         format!(
-            "volume={}\nbrightness_top={}\nbrightness_bottom={}\nrumble={}\nfps={}\nlayout={}\ncorner_map={}\ngrenades={}\ntouch={}\nbest={}\ndifficulty={}\nkills={}\nbest_level={}\nnights={}\ndawns={}\nbreakers={}\nbreaker_dawns={}\nfound={}\nenemies_off={}\nplayer={}\nmap={}\nbest_dps={}\nhow_to={}\n{controls}{}",
+            "volume={}\nbrightness_top={}\nbrightness_bottom={}\nrumble={}\nfps={}\nlayout={}\ncorner_map={}\ngrenades={}\ntouch={}\ndifficulty={}\nenemies_off={}\nplayer={}\nmap={}\nhow_to={}\n{controls}{}{}",
             self.volume,
             self.brightness[0],
             self.brightness[1],
@@ -182,34 +240,46 @@ impl Save {
             on_off(self.corner_map),
             if self.touch_grenades { "touch" } else { "pad" },
             self.touch.key(),
-            self.best,
             self.difficulty.key(),
-            self.kills,
-            self.best_level,
-            self.nights,
-            self.dawns,
-            self.breakers,
-            self.breaker_dawns,
-            found_ids(self.found),
             off_ids(self.enemies_off),
             self.player.as_str(),
             self.map.as_str(),
-            self.best_dps,
             if self.how_to_seen { "seen" } else { "due" },
+            self.records.iter().filter(|(id, _)| id.len > 0).map(|(id, r)| format!("record.{}={}\n", id.as_str(), r.to_text())).collect::<String>(),
             self.history.iter().flatten().map(|r| format!("run={}\n", run_text(r))).collect::<String>()
         )
     }
 
     /// Adds a finished run to the history and the best damage a second.
     pub fn record(&mut self, run: Run) {
-        self.best_dps = self.best_dps.max(run.dps);
+        if let Some(r) = self.records_mut(run.difficulty) {
+            r.best_dps = r.best_dps.max(run.dps);
+        }
         self.history.rotate_right(1);
         self.history[0] = Some(run);
     }
 
     /// The run records and found powerups wiped, keeping the settings.
     pub fn without_progress(self) -> Self {
-        Self { best: 0, kills: 0, best_level: 0, nights: 0, dawns: 0, breakers: 0, breaker_dawns: 0, found: 0, best_dps: 0, history: [None; HISTORY], ..self }
+        Self { records: Save::default().records, history: [None; HISTORY], ..self }
+    }
+
+    /// What `d`'s nights have earned so far.
+    pub fn records(&self, d: Difficulty) -> Records {
+        self.records.iter().find(|(id, _)| id.as_str() == d.key()).map(|(_, r)| *r).unwrap_or_default()
+    }
+
+    /// `d`'s records to change: its own slot, else a free one, else one whose difficulty isn't loaded.
+    pub fn records_mut(&mut self, d: Difficulty) -> Option<&mut Records> {
+        self.records_for(d.key(), |id| Difficulty::from_key(id).is_some())
+    }
+
+    fn records_for(&mut self, key: &str, loaded: impl Fn(&str) -> bool) -> Option<&mut Records> {
+        let at = self.records.iter().position(|(id, _)| id.as_str() == key).or_else(|| self.records.iter().position(|(id, _)| id.len == 0)).or_else(|| self.records.iter().position(|(id, _)| !loaded(id.as_str())))?;
+        if self.records[at].0.as_str() != key {
+            self.records[at] = (PresetId::new(key), Records::default());
+        }
+        Some(&mut self.records[at].1)
     }
 
     /// Unknown keys and bad values fall back to the defaults, so an old or damaged file still loads; a file from
@@ -218,6 +288,7 @@ impl Save {
         let mut save = Self::default();
         let mut runs = 0;
         let mut how_to = None;
+        let (mut legacy, mut any_record) = (Records::default(), false);
         for (key, value) in text.lines().filter_map(|l| l.split_once('=')) {
             let value = value.trim();
             match key.trim() {
@@ -230,19 +301,28 @@ impl Save {
                 "corner_map" => save.corner_map = value != "off",
                 "grenades" => save.touch_grenades = value != "pad",
                 "touch" => save.touch = TouchControls::from_key(value).unwrap_or(save.touch),
-                "best" => save.best = value.parse().unwrap_or(save.best),
+                "best" => legacy.best = value.parse().unwrap_or(legacy.best),
                 "difficulty" => save.difficulty = Difficulty::from_key(value).unwrap_or(save.difficulty),
-                "kills" => save.kills = value.parse().unwrap_or(save.kills),
-                "best_level" => save.best_level = value.parse().unwrap_or(save.best_level),
-                "nights" => save.nights = value.parse().unwrap_or(save.nights),
-                "dawns" => save.dawns = value.parse().unwrap_or(save.dawns),
-                "breakers" => save.breakers = value.parse().unwrap_or(save.breakers),
-                "breaker_dawns" => save.breaker_dawns = value.parse().unwrap_or(save.breaker_dawns),
-                "found" => save.found = found_from_ids(value),
+                "kills" => legacy.kills = value.parse().unwrap_or(legacy.kills),
+                "best_level" => legacy.best_level = value.parse().unwrap_or(legacy.best_level),
+                "nights" => legacy.nights = value.parse().unwrap_or(legacy.nights),
+                "dawns" => legacy.dawns = value.parse().unwrap_or(legacy.dawns),
+                "breakers" => legacy.breakers = value.parse().unwrap_or(legacy.breakers),
+                "breaker_dawns" => legacy.breaker_dawns = value.parse().unwrap_or(legacy.breaker_dawns),
+                "found" => legacy.found = found_from_ids(value),
                 "enemies_off" => save.enemies_off = off_from_ids(value),
                 "player" => save.player = LookId::new(value),
                 "map" => save.map = LookId::new(value),
-                "best_dps" => save.best_dps = value.parse().unwrap_or(save.best_dps),
+                "best_dps" => legacy.best_dps = value.parse().unwrap_or(legacy.best_dps),
+                key if key.starts_with("record.") => {
+                    let id = &key["record.".len()..];
+                    if crate::tuning::valid_preset_id(id)
+                        && let Some(r) = save.records_for(id, |_| true)
+                    {
+                        *r = Records::from_text(value);
+                        any_record = true;
+                    }
+                }
                 "how_to" => how_to = Some(value != "due"),
                 "controls" => save.controls = Controls::from_key(value).unwrap_or_default(),
                 "relay" => save.relay = Relay::new(value),
@@ -255,7 +335,15 @@ impl Save {
                 _ => {}
             }
         }
-        save.how_to_seen = how_to.unwrap_or(save.nights > 0);
+        // A save from before difficulties had their own records earned them on every one it could play.
+        if !any_record && legacy != Records::default() {
+            for key in ["easy", "normal", "hard"] {
+                if let Some(r) = save.records_for(key, |_| true) {
+                    *r = legacy;
+                }
+            }
+        }
+        save.how_to_seen = how_to.unwrap_or(save.records.iter().any(|(_, r)| r.nights > 0));
         save
     }
 }
@@ -315,7 +403,9 @@ mod tests {
 
     #[test]
     fn round_trips() {
-        let save = Save { volume: 3, brightness: [7, 2], rumble: false, fps: true, one_screen: true, corner_map: false, touch_grenades: false, touch: TouchControls::Off, best: 41, difficulty: Difficulty::Hard, kills: 900, best_level: 12, nights: 7, dawns: 1, breakers: 3, breaker_dawns: 1, found: 0b1010_0000_0000, enemies_off: 0b10, player: LookId::new("jo"), map: LookId::new("old_farm"), best_dps: 0, history: [None; HISTORY], how_to_seen: true, controls: Controls::default(), relay: Relay::new("wss://relay.example.com") };
+        let mut save = Save { volume: 3, brightness: [7, 2], rumble: false, fps: true, one_screen: true, corner_map: false, touch_grenades: false, touch: TouchControls::Off, difficulty: Difficulty::HARD, enemies_off: 0b10, player: LookId::new("jo"), map: LookId::new("old_farm"), history: [None; HISTORY], how_to_seen: true, controls: Controls::default(), relay: Relay::new("wss://relay.example.com"), ..Save::default() };
+        *save.records_mut(Difficulty::HARD).unwrap() = Records { best: 41, kills: 900, best_level: 12, nights: 7, dawns: 1, breakers: 3, breaker_dawns: 1, found: 0b1010_0000_0000, best_dps: 0 };
+        *save.records_mut(Difficulty::DEAD).unwrap() = Records { kills: 5, nights: 1, best_dps: 70, ..Records::default() };
         assert_eq!(Save::parse(&save.to_text()), save);
     }
 
@@ -336,8 +426,8 @@ mod tests {
         assert!(rifle.count_ones() == 1 && crows.count_ones() == 1 && rifle != crows);
         let kinds = off_ids(u64::MAX);
         let kind = kinds.rsplit(',').next().unwrap();
-        let save = Save::parse(&format!("found=rifle,laser_from_v9, crows\nenemies_off=dragon,{kind}"));
-        assert_eq!(save.found, rifle | crows, "an unknown powerup is dropped, and every other starts unfound");
+        let save = Save::parse(&format!("record.normal=found:rifle,laser_from_v9,crows\nenemies_off=dragon,{kind}"));
+        assert_eq!(save.records(Difficulty::NORMAL).found, rifle | crows, "an unknown powerup is dropped, and every other starts unfound");
         assert_eq!(save.enemies_off, off_from_ids(kind), "an unknown kind is dropped, and every other starts on");
         assert_eq!(save.enemies_off.count_ones(), 1);
         let text = save.to_text();
@@ -358,7 +448,7 @@ mod tests {
     }
 
     fn run(secs: u32, dps: u32) -> Run {
-        Run { secs, kills: 7, level: 3, won: secs >= 600, difficulty: Difficulty::Hard, dps, kit: [None; RUN_KIT], broke: false }
+        Run { secs, kills: 7, level: 3, won: secs >= 600, difficulty: Difficulty::HARD, dps, kit: [None; RUN_KIT], broke: false }
     }
 
     fn holding(pairs: &[(&str, u8)]) -> [Option<(u16, u8)>; RUN_KIT] {
@@ -403,28 +493,54 @@ mod tests {
         for k in 0..HISTORY as u32 + 2 {
             save.record(run(100 + k, 50 - k));
         }
-        assert_eq!(save.best_dps, 50);
+        assert_eq!(save.records(Difficulty::HARD).best_dps, 50);
         assert_eq!(save.history[0], Some(run(100 + HISTORY as u32 + 1, 50 - HISTORY as u32 - 1)), "newest first");
         assert_eq!(save.history[HISTORY - 1], Some(run(102, 48)), "the oldest two dropped");
         save.record(run(600, 90));
         assert_eq!(Save::parse(&save.to_text()), save);
         assert_eq!(save.without_progress().history, [None; HISTORY]);
-        assert_eq!(save.without_progress().best_dps, 0);
+        assert_eq!(save.without_progress().records(Difficulty::HARD).best_dps, 0);
     }
 
     #[test]
     fn a_save_from_before_the_history_loads_with_none() {
         let old = "volume=3\nbest=320\ndifficulty=hard\nkills=40\nbest_level=6\nnights=4\ndawns=0\nfound=\nplayer=\nmap=\n";
         let save = Save::parse(old);
-        assert_eq!((save.volume, save.best, save.best_level), (3, 320, 6));
-        assert_eq!((save.best_dps, save.history), (0, [None; HISTORY]));
+        let hard = save.records(Difficulty::HARD);
+        assert_eq!((save.volume, hard.best, hard.best_level), (3, 320, 6));
+        assert_eq!((hard.best_dps, save.history), (0, [None; HISTORY]));
+    }
+
+    #[test]
+    fn an_old_saves_records_and_unlocks_carry_to_easy_normal_and_hard() {
+        let old = "difficulty=normal\nbest=320\nkills=40\nbest_level=6\nnights=4\ndawns=1\nbreakers=2\nbreaker_dawns=1\nfound=rifle\nbest_dps=55\n";
+        let save = Save::parse(old);
+        let want = Records { best: 320, kills: 40, best_level: 6, nights: 4, dawns: 1, breakers: 2, breaker_dawns: 1, found: found_from_ids("rifle"), best_dps: 55 };
+        for d in [Difficulty::EASY, Difficulty::NORMAL, Difficulty::HARD] {
+            assert_eq!(save.records(d), want, "{}", d.key());
+        }
+        for d in [Difficulty::STROLL, Difficulty::BRUTAL, Difficulty::DEAD] {
+            assert_eq!(save.records(d), Records::default(), "{} starts fresh", d.key());
+        }
+        assert!(save.how_to_seen);
+        let again = Save::parse(&save.to_text());
+        assert_eq!(again, save, "the next save keeps them per difficulty");
+        assert!(!save.to_text().contains("\nkills="), "{}", save.to_text());
+        assert_eq!(Save::parse(&format!("{old}record.hard=kills:3\n")).records(Difficulty::EASY), Records::default(), "a save with its own records reads only those");
+    }
+
+    #[test]
+    fn a_difficulty_a_mod_no_longer_adds_keeps_its_records() {
+        let save = Save::parse("record.nightmare=kills:12 nights:2\nrecord.Bad-Id=kills:9\n");
+        assert!(save.to_text().contains("record.nightmare=best:0 kills:12 level:0 nights:2"), "{}", save.to_text());
+        assert!(!save.to_text().contains("Bad-Id"));
     }
 
     #[test]
     fn a_damaged_history_line_is_dropped_and_the_rest_kept() {
         let save = Save::parse("run=hard,lost,3,100,40,7\nrun=nightmare,lost,3,100,40,7\nrun=easy,maybe,1,1,1,1\nrun=easy,won,3\nrun=normal,won,9,600,80,12\n");
         assert_eq!(save.history[0], Some(run(100, 40)));
-        assert_eq!(save.history[1], Some(Run { difficulty: Difficulty::Normal, won: true, level: 9, secs: 600, dps: 80, kills: 12, kit: [None; RUN_KIT], ..Run::default() }), "a line from before powerups loads with none");
+        assert_eq!(save.history[1], Some(Run { difficulty: Difficulty::NORMAL, won: true, level: 9, secs: 600, dps: 80, kills: 12, kit: [None; RUN_KIT], ..Run::default() }), "a line from before powerups loads with none");
         assert_eq!(save.history[2], None);
     }
 

@@ -18,6 +18,8 @@ const THROUGH: [f32; 4] = [40.0, 212.0, SCREEN_W - 80.0, 34.0];
 const KEYS_TOP: f32 = 250.0;
 /// The lobby's buttons: Leave, Ready, Start.
 const BUTTONS: [[f32; 4]; 3] = [[40.0, 650.0, 290.0, 80.0], [367.0, 650.0, 290.0, 80.0], [694.0, 650.0, 290.0, 80.0]];
+/// The host's difficulty in the lobby's top right, which a tap steps on.
+const LOBBY_DIFFICULTY: [f32; 4] = [684.0, 16.0, 320.0, 60.0];
 
 fn inside([x, y]: [f32; 2], [rx, ry, w, h]: [f32; 4]) -> bool {
     (rx..rx + w).contains(&x) && (ry..ry + h).contains(&y)
@@ -510,7 +512,7 @@ impl Game {
         harvest::use_player_farm(&look);
         let seats: Vec<usize> = start.players.iter().map(|p| p.seat as usize).collect();
         let n = seats.iter().max().map_or(1, |m| m + 1);
-        let difficulty = Difficulty::ALL.get(start.difficulty as usize).copied().unwrap_or_default();
+        let difficulty = Difficulty::from_index(start.difficulty).unwrap_or_default();
         let looks: Vec<(usize, String)> = seats.iter().map(|&s| (s, card(s))).collect();
         let h = if host {
             let kind = replay::Kind::Host { looks, local: mine.len() };
@@ -653,7 +655,16 @@ impl Game {
         };
         let button = tapped.and_then(|p| BUTTONS.iter().position(|r| inside(p, *r)));
         let (_, ready) = net.roster();
-        if input.pressed.contains(Buttons::B) || button == Some(0) {
+        let by = input.pressed.contains(Buttons::RIGHT) as i32 - input.pressed.contains(Buttons::LEFT) as i32;
+        let tapped_difficulty = tapped.is_some_and(|p| inside(p, LOBBY_DIFFICULTY));
+        if net.is_host() && (by != 0 || tapped_difficulty) {
+            let d = self.save.difficulty;
+            let next = if tapped_difficulty && d.is_last() { Difficulty::from_index(0).unwrap_or(d) } else { d.step(if by == 0 { 1 } else { by }) };
+            if next != d {
+                self.save.difficulty = next;
+                self.sounds.push(Sfx::Tick(next.index() * 2));
+            }
+        } else if input.pressed.contains(Buttons::B) || button == Some(0) {
             net.leave();
             self.page = Page::Online;
             self.online.message.clear();
@@ -662,7 +673,7 @@ impl Game {
             net.set_ready(!ready);
             self.sounds.push(Sfx::Tick(if ready { 0 } else { 9 }));
         } else if net.is_host() && (input.pressed.any(Buttons::START | Buttons::X) || button == Some(2)) {
-            let settings = Settings { seed: self.rng.next_u32() as u64 + 1, map: self.save.map.as_str().to_string(), difficulty: self.save.difficulty as u8, unlocked: Vec::new(), options: vec![("look".into(), self.save.player.as_str().to_string())] };
+            let settings = Settings { seed: self.rng.next_u32() as u64 + 1, map: self.save.map.as_str().to_string(), difficulty: self.save.difficulty.index(), unlocked: Vec::new(), options: vec![("look".into(), self.save.player.as_str().to_string())] };
             match net.start(settings) {
                 Ok(start) => self.start_online(start),
                 Err(why) => {
@@ -761,6 +772,12 @@ impl Game {
         let Some(net) = self.net.as_ref() else { return };
         c.label(format!("Room {}", net.code.as_str()), SCREEN_W / 2.0, 20.0, 64.0, HOT, Align::Center);
         let (members, ready) = net.roster();
+        if net.is_host() {
+            let [x, y, w, _] = LOBBY_DIFFICULTY;
+            let d = self.save.difficulty;
+            let text = format!("{}{}{}", if d.is_first() { "" } else { "< " }, d.name(), if d.is_last() { "" } else { " >" });
+            fit_label(c, &text, x + w, y + 10.0, 34.0, w, HOT, Align::Right);
+        }
         if let Some(status) = net.status() {
             c.label(status, SCREEN_W / 2.0, 110.0, 34.0, DIM, Align::Center);
         } else if net.is_host() {
@@ -796,7 +813,7 @@ impl Game {
             c.label(labels[i], r[0] + r[2] / 2.0, r[1] + 18.0, 42.0, if lit { HOT } else { WHITE }, Align::Center);
         }
         if self.online.message.is_empty() {
-            let hint = if net.is_host() { "{A}: ready.   {START}: start once all are ready.   {B}: close the room." } else { "{A}: ready.   {B}: leave." };
+            let hint = if net.is_host() { "{A}: ready.   Left / Right: difficulty.   {START}: start once all are ready.   {B}: close." } else { "{A}: ready.   {B}: leave." };
             c.hint(hint, SCREEN_W / 2.0, 610.0, 26.0, DIM, Align::Center);
         } else {
             self.draw_message(c, 590.0);
@@ -824,6 +841,23 @@ fn online_row(i: usize, n: usize) -> [f32; 4] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_host_steps_the_difficulty_in_the_lobby() {
+        let mut g = Game::new(1);
+        g.set_online(true);
+        g.page = Page::Online;
+        g.online_page(&Input { pressed: Buttons::A, ..Input::default() }, None);
+        assert_eq!((g.page, g.save.difficulty), (Page::Lobby, Difficulty::EASY));
+        for _ in 0..3 {
+            g.lobby_page(&Input { pressed: Buttons::RIGHT, ..Input::default() }, None);
+        }
+        assert_eq!(g.save.difficulty, Difficulty::BRUTAL, "the start sends the host's difficulty");
+        g.lobby_page(&Input::default(), Some([800.0, 40.0]));
+        g.lobby_page(&Input::default(), Some([800.0, 40.0]));
+        assert_eq!(g.save.difficulty, Difficulty::STROLL, "a tap past the last wraps to the first");
+        assert_eq!(g.page, Page::Lobby);
+    }
 
     #[test]
     fn an_empty_relay_is_the_default_one_and_the_typed_relay_is_saved() {

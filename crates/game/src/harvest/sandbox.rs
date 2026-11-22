@@ -122,7 +122,7 @@ pub struct Plan {
 
 impl Plan {
     pub fn new(build: Vec<(usize, u32)>) -> Self {
-        Self { seed: 1, difficulty: Difficulty::Normal, size: super::MAP_SIZE, build, walk: Walk::Circle, pick: Pick::None, unlocked: true, turn: 0.25, turn_every: 6.0, throw_every: 12.0, mortal: false, players: 1, until: None, step: 1.0 / 60.0, record: None }
+        Self { seed: 1, difficulty: Difficulty::NORMAL, size: super::MAP_SIZE, build, walk: Walk::Circle, pick: Pick::None, unlocked: true, turn: 0.25, turn_every: 6.0, throw_every: 12.0, mortal: false, players: 1, until: None, step: 1.0 / 60.0, record: None }
     }
 
     /// What the night is built from, as a replay keeps it.
@@ -588,7 +588,7 @@ mod tests {
 
     #[test]
     fn an_undying_player_lasts_the_night_where_a_mortal_one_falls() {
-        let unarmed = |mortal| night(&Plan { mortal, difficulty: Difficulty::Hard, until: Some(240.0), throw_every: 0.0, ..Plan::new(Vec::new()) });
+        let unarmed = |mortal| night(&Plan { mortal, difficulty: Difficulty::HARD, until: Some(240.0), throw_every: 0.0, ..Plan::new(Vec::new()) });
         let (undying, mortal) = (unarmed(false), unarmed(true));
         assert!(undying.fell.is_some() && undying.secs >= 240.0 && undying.minutes.len() == 4, "{undying:?}");
         assert!(!mortal.dawn && mortal.secs < 240.0 && mortal.fell == Some(mortal.secs), "{:?} {}", mortal.fell, mortal.secs);

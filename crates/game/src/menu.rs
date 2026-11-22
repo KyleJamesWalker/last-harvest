@@ -7,7 +7,7 @@ use crate::input::{Buttons, Input};
 use crate::controls::{ACTIONS, BINDABLE, Controls};
 use crate::pad::{self, PadFamily};
 use crate::save::LEVELS;
-use crate::{DIM, Difficulty, Game, HOT, SCREEN_H, SCREEN_W, Sfx, WHITE};
+use crate::{DIM, Game, HOT, SCREEN_H, SCREEN_W, Sfx, WHITE};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum Page {
@@ -289,7 +289,7 @@ impl Game {
             let next = self.save.difficulty.step(arrow.unwrap_or(by));
             if next != self.save.difficulty {
                 self.save.difficulty = next;
-                self.sounds.push(Sfx::Tick(next as u8 * 4));
+                self.sounds.push(Sfx::Tick(next.index() * 2));
             }
             return;
         }
@@ -578,9 +578,9 @@ impl Game {
             let d = self.save.difficulty;
             c.rect(mid - 300.0, y - 10.0, 600.0, 150.0, [1.0, 1.0, 1.0, 0.06]);
             let arrow = |on: bool| if on { HOT } else { [1.0, 1.0, 1.0, 0.15] };
-            c.label("<", mid - 250.0, y + 6.0, 56.0, arrow(d != Difficulty::Easy), Align::Center);
-            c.label(">", mid + 250.0, y + 6.0, 56.0, arrow(d != Difficulty::Hard), Align::Center);
-            c.label(d.name(), mid, y + 6.0, 52.0, HOT, Align::Center);
+            c.label("<", mid - 250.0, y + 6.0, 56.0, arrow(!d.is_first()), Align::Center);
+            c.label(">", mid + 250.0, y + 6.0, 56.0, arrow(!d.is_last()), Align::Center);
+            fit_label(c, d.name(), mid, y + 6.0, 52.0, 420.0, HOT, Align::Center);
             if self.title_on_one() {
                 wrap_label(c, d.blurb(), mid, y + 56.0, 36.0, 560.0, 2, DIM, Align::Center);
             } else {
@@ -776,7 +776,7 @@ impl Game {
         let note = if looks.len() > 1 { format!("{} of {}: Left and Right to change", looks.iter().position(|l| l.id == p.id).unwrap_or(0) + 1, looks.len()) } else { "Add a .player.png to data/players for more".to_string() };
         c.label(note, SCREEN_W / 2.0, 200.0, 26.0, DIM, Align::Center);
         let d = self.save.difficulty;
-        let start = p.start_names(d);
+        let start = p.start_names(d.tier());
         let kit = if start.is_empty() { "no weapons".to_string() } else { start.join(", ") };
         fit_label(c, &format!("{} starts with {kit}", d.name()), SCREEN_W / 2.0, 240.0, 28.0, SCREEN_W - 80.0, WHITE, Align::Center);
     }
@@ -858,7 +858,7 @@ impl Game {
     }
 
     fn draw_stats(&self, c: &mut Canvas) {
-        let s = &self.save;
+        let s = self.save.records(self.save.difficulty);
         let (open, all, _) = harvest::unlocked(&self.progress());
         let rows = [
             ("Longest night", format!("{}:{:02}", s.best / 60, s.best % 60)),
@@ -872,7 +872,7 @@ impl Game {
             ("Cards loaded", crate::data::load_report().cards.to_string()),
             ("Mod packs", crate::data::load_report().mods.len().to_string()),
         ];
-        c.label("Stats", SCREEN_W / 2.0, 24.0, 48.0, WHITE, Align::Center);
+        fit_label(c, &format!("Stats: {}", self.save.difficulty.name()), SCREEN_W / 2.0, 24.0, 48.0, SCREEN_W - 80.0, WHITE, Align::Center);
         for (i, (name, value)) in rows.iter().enumerate() {
             let y = 100.0 + i as f32 * 60.0;
             c.label(*name, 160.0, y, 36.0, DIM, Align::Left);
@@ -1030,8 +1030,12 @@ impl Game {
                 r.level.to_string(),
                 r.dps.to_string(),
             ];
-            for ((x, _, align), text) in cols.into_iter().zip(cells) {
-                c.label(text, x, y, 34.0, if r.won { HOT } else { WHITE }, align);
+            for (k, ((x, _, align), text)) in cols.into_iter().zip(cells).enumerate() {
+                let color = if r.won { HOT } else { WHITE };
+                match k {
+                    0 => fit_label(c, &text, x, y, 34.0, 230.0, color, align),
+                    _ => c.label(text, x, y, 34.0, color, align),
+                }
             }
             let kit = r.kit.iter().flatten().map(|&(d, l)| (d as usize, l as u32));
             harvest::powerup_icons(c, 60.0, y + 44.0, 40.0, kit, 1.0);
