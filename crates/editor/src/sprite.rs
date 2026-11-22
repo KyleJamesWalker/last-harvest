@@ -350,6 +350,7 @@ pub fn section(name: &str) -> &'static str {
     }
     if let Some(rest) = name.strip_prefix(DATA_PREFIX) {
         return match rest.split('_').next() {
+            Some("TUNING") if is_difficulty(rest) => DIFFICULTY_SECTION,
             Some("TUNING") => "Data/tuning",
             Some("PROPS") => "Data/props",
             Some("EFFECTS") => "Data/effects",
@@ -385,6 +386,14 @@ pub fn within(section: &str, path: &str) -> bool {
 }
 
 pub const NEW_SECTION: &str = "New sprites";
+/// `tuning.txt`'s difficulties list on their own page, apart from its base numbers.
+pub const DIFFICULTY_SECTION: &str = "Data/difficulty";
+
+/// Whether a `DATA_` name past its prefix, such as `TUNING_BRUTAL`, is one of `tuning.txt`'s difficulties.
+fn is_difficulty(rest: &str) -> bool {
+    let section = rest.strip_prefix("TUNING_").unwrap_or("");
+    !section.is_empty() && !last_harvest_game::tuning::KEYS.iter().any(|(s, _)| s.eq_ignore_ascii_case(section))
+}
 /// A hand-made map lists as `MAP_<ID>` under Maps.
 pub const MAP_PREFIX: &str = "MAP_";
 pub const MAP_SECTION: &str = "Maps";
