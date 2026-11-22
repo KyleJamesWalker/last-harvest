@@ -318,18 +318,20 @@ pub struct Bot {
     turned: u32,
     thrown: u32,
     parked: bool,
+    /// The avoiding walk's last turn.
+    veer: f32,
 }
 
 impl Bot {
     /// One that walks `walk`, turning at `turn` of the turn buttons' speed, turning round every `turn_every` seconds
     /// and throwing every `throw_every`; 0 for never.
     pub fn new(walk: Walk, turn: f32, turn_every: f32, throw_every: f32) -> Self {
-        Self { walk, turn, turn_every, throw_every, turned: 0, thrown: 0, parked: false }
+        Self { walk, turn, turn_every, throw_every, turned: 0, thrown: 0, parked: false, veer: 0.0 }
     }
 
     /// The same script from the start of a night.
     pub(super) fn again(self) -> Self {
-        Self { turned: 0, thrown: 0, parked: false, ..self }
+        Self { turned: 0, thrown: 0, parked: false, veer: 0.0, ..self }
     }
 
     /// Player `p`'s input for the next step, after throwing if its timer is up.
@@ -343,7 +345,10 @@ impl Bot {
         let mut input = Input { held: Buttons::UP, ..Input::default() };
         input.look = match self.walk {
             Walk::Corner => self.head_for_corner(h, p, &mut input),
-            Walk::Avoid => avoid(h, p),
+            Walk::Avoid => {
+                self.veer = avoid(h, p, self.veer);
+                self.veer
+            }
             Walk::Eight if (t / loop_secs) as u32 % 2 == 1 => -self.turn,
             _ => self.turn,
         };
@@ -391,29 +396,38 @@ const CORNER_NEAR: f32 = 3.0 * TILE;
 const AVOID_REACH: f32 = 240.0;
 /// How far along each way it might take the avoiding walk tries walking, sliding on walls as the player does.
 const AVOID_WALL: f32 = 40.0;
-/// How hard one zombie a pixel away weighs against a way, and the most all of them can.
-const AVOID_DANGER: f32 = 20.0;
-const AVOID_DANGER_MOST: f32 = 10.0;
+/// How far ahead the avoiding walk looks for zombies beside its path, and how near the path one counts.
+const AVOID_AHEAD: f32 = 48.0;
+const AVOID_MISS: f32 = 16.0;
+/// How hard the zombies near a way weigh against it.
+const AVOID_DANGER: f32 = 3.0;
+/// Within this many pixels of the farm's edge the avoiding walk leans back toward the middle.
+const AVOID_EDGE: f32 = 4.0 * TILE;
+/// How much the avoiding walk favors turning the way it last turned, so it doesn't dither between two ways.
+const AVOID_KEEP: f32 = 0.5;
 
-/// The turn, -1 to 1, toward the open way that leads least toward the zombies on the map as a player reads it:
+/// The turn, -1 to 1, toward the open way that passes furthest from the zombies on the map as a player reads it:
 /// each where the view ahead last saw it, fading as it's forgotten, the nearer the stronger. It never stops walking,
 /// would rather veer than turn back, and keeps off the farm's edge.
-fn avoid(h: &Harvest, p: PlayerId) -> f32 {
+fn avoid(h: &Harvest, p: PlayerId, veer: f32) -> f32 {
     let me = &h.players[p];
     let near: Vec<([f32; 2], f32)> = me
         .marks
         .iter()
         .filter_map(|m| {
             let d = sub(m.pos, me.pos);
-            let r = len(d).max(4.0);
-            (r < AVOID_REACH).then(|| ([d[0] / r, d[1] / r], m.fade() * (1.0 - r / AVOID_REACH) * AVOID_DANGER / r))
+            let r = len(d);
+            (r < AVOID_REACH).then(|| (d, m.fade() * (1.0 - r / AVOID_REACH)))
         })
         .collect();
     let half = crate::tuning::tuning().player_half();
-    let edge = [h.map.width_px() - TILE, h.map.height_px() - TILE];
+    let [w, hh] = [h.map.width_px(), h.map.height_px()];
+    let edge = [w - TILE, hh - TILE];
     let inside = |p: [f32; 2]| p[0] > TILE && p[1] > TILE && p[0] < edge[0] && p[1] < edge[1];
-    let middle = sub([edge[0] / 2.0, edge[1] / 2.0], me.pos);
-    let back = if inside(me.pos) { [0.0; 2] } else { [middle[0] / len(middle), middle[1] / len(middle)] };
+    let from_edge = me.pos[0].min(me.pos[1]).min(w - me.pos[0]).min(hh - me.pos[1]);
+    let middle = sub([w / 2.0, hh / 2.0], me.pos);
+    let pull = if inside(me.pos) { (1.0 - from_edge / AVOID_EDGE).max(0.0) } else { 1.0 };
+    let back = [pull * middle[0] / len(middle).max(1.0), pull * middle[1] / len(middle).max(1.0)];
     // How far it gets along `dir`, as a share of AVOID_WALL, and how far its first step gets.
     let walk = |dir: [f32; 2]| {
         let (mut p, mut first) = (me.pos, 0.0);
@@ -434,9 +448,16 @@ fn avoid(h: &Harvest, p: PlayerId) -> f32 {
         .map(|j| {
             let off = j as f32 * PI / 8.0;
             let dir = [fm::cos(me.view_yaw + off), fm::sin(me.view_yaw + off)];
-            let danger: f32 = near.iter().map(|(u, w)| w * fm::powi((dir[0] * u[0] + dir[1] * u[1]).max(0.0), 4)).sum();
+            let danger: f32 = near
+                .iter()
+                .map(|(d, w)| {
+                    let along = (d[0] * dir[0] + d[1] * dir[1]).clamp(0.0, AVOID_AHEAD);
+                    let miss = len(sub(*d, [dir[0] * along, dir[1] * along])) / AVOID_MISS;
+                    w * fm::exp(-miss * miss)
+                })
+                .sum();
             let (free, first) = walk(dir);
-            let score = fm::cos(off) - danger.min(AVOID_DANGER_MOST) + 3.0 * (dir[0] * back[0] + dir[1] * back[1]) + 2.0 * free - if first < 0.5 { 100.0 } else { 0.0 };
+            let score = fm::cos(off) - AVOID_DANGER * danger + 3.0 * (dir[0] * back[0] + dir[1] * back[1]) + 2.0 * free - if first < 0.5 { 100.0 } else { 0.0 } + if off * veer > 0.0 { AVOID_KEEP } else { 0.0 };
             (off, score)
         })
         .max_by(|a, b| a.1.total_cmp(&b.1))
@@ -582,15 +603,30 @@ mod tests {
         let mut h = Harvest::calm_on(1, &src).unwrap();
         h.me_mut().pos = [20.5 * TILE, 20.5 * TILE];
         h.me_mut().view_yaw = 0.0;
-        assert_eq!(avoid(&h, ME), 0.0, "nothing seen, it walks straight on");
+        assert_eq!(avoid(&h, ME, 0.0), 0.0, "nothing seen, it walks straight on");
         let mut z = super::super::Zombie::new(super::super::Kind::common(), [h.me().pos[0] + 30.0, h.me().pos[1] + 4.0], 1000.0, 1.0, 0.0);
         z.id = 9;
         h.zombies = vec![z];
         h.remember(1.0 / 60.0);
-        assert!(avoid(&h, ME) < 0.0, "a zombie ahead and to the right turns it left");
+        assert!(avoid(&h, ME, 0.0) < 0.0, "a zombie ahead and to the right turns it left");
         h.me_mut().marks.clear();
         h.me_mut().view_yaw = PI;
         h.remember(1.0 / 60.0);
-        assert!(h.me().marks.is_empty() && avoid(&h, ME) == 0.0, "one behind it hasn't seen doesn't sway it");
+        assert!(h.me().marks.is_empty() && avoid(&h, ME, 0.0) == 0.0, "one behind it hasn't seen doesn't sway it");
+    }
+
+    #[test]
+    fn the_avoiding_walk_leans_off_the_farms_edge_and_from_a_zombie_beside_its_path() {
+        let src = super::super::map::MapSource::new("Open", [40, 40]);
+        let mut h = Harvest::calm_on(1, &src).unwrap();
+        h.me_mut().pos = [20.5 * TILE, 1.5 * TILE];
+        h.me_mut().view_yaw = 0.0;
+        assert!(avoid(&h, ME, 0.0) > 0.0, "walking along the top edge, it turns toward the middle");
+        h.me_mut().pos = [20.5 * TILE, 20.5 * TILE];
+        let mut z = super::super::Zombie::new(super::super::Kind::common(), [h.me().pos[0] + 30.0, h.me().pos[1] + 10.0], 1000.0, 1.0, 0.0);
+        z.id = 9;
+        h.zombies = vec![z];
+        h.remember(1.0 / 60.0);
+        assert!(avoid(&h, ME, 0.0) < 0.0, "a zombie 10 px right of its path turns it left");
     }
 }
