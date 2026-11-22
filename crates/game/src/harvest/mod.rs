@@ -2746,8 +2746,8 @@ impl Harvest {
             if pl.hurt > 0.0 || !pl.alive() {
                 continue;
             }
-            let biters = self.zombies.iter().filter(|z| z.rise >= 1.0 && len(sub(z.pos, pl.pos)) < crate::tuning::tuning().bite_reach);
-            let (hit, by) = biters.map(|z| (z.kind.stats().damage * if z.boss { crate::tuning::tuning().harvester_bite } else { 1.0 } * self.fury * self.difficulty.damage(), z.led)).fold((0.0, None), |a, b| if b.0 > a.0 { b } else { a });
+            let biters = self.zombies.iter().filter(|z| z.rise >= crate::tuning::tuning().rise_bite_from.min(1.0) && len(sub(z.pos, pl.pos)) < crate::tuning::tuning().bite_reach);
+            let (hit, by) = biters.map(|z| (z.kind.stats().damage * if z.rise < 1.0 { z.kind.stats().rise_bite * crate::tuning::tuning().rise_bite } else { 1.0 } * if z.boss { crate::tuning::tuning().harvester_bite } else { 1.0 } * self.fury * self.difficulty.damage(), z.led)).fold((0.0, None), |a, b| if b.0 > a.0 { b } else { a });
             if hit > 0.0 {
                 if let Some(q) = by {
                     self.juice.tally.book_mut(q).bites += 1;
@@ -4183,18 +4183,29 @@ mod tests {
     }
 
     #[test]
-    fn a_rising_zombie_is_rooted_and_harmless_until_it_is_out() {
-        let mut h = Harvest::calm(3);
-        let at = [h.me().pos[0] + 4.0, h.me().pos[1]];
-        h.zombies.push(Zombie::new(Kind::named("skinny"), at, 1000.0, 0.0, 0.0));
-        let mut sounds = Vec::new();
-        h.update(&Input::default(), crate::tuning::tuning().rise * 0.5, &mut sounds);
-        assert_eq!(h.zombies[0].pos, at);
-        assert_eq!(h.me().hp, h.me().kit.max_hp());
-        for _ in 0..60 {
-            h.update(&Input::default(), 1.0 / 60.0, &mut sounds);
-        }
-        assert!(h.me().hp < h.me().kit.max_hp());
+    fn a_rising_zombie_is_rooted_and_bites_its_rise_bite() {
+        let bitten = |kind: Kind| {
+            let mut h = Harvest::calm(3);
+            let at = [h.me().pos[0] + 4.0, h.me().pos[1]];
+            h.zombies.push(Zombie::new(kind, at, 1000.0, 0.0, 0.0));
+            let t = crate::tuning::tuning();
+            h.update(&Input::default(), t.rise * t.rise_bite_from * 0.5, &mut Vec::new());
+            assert_eq!(h.me().hp, h.me().kit.max_hp(), "no bite before rise_bite_from of the climb");
+            h.update(&Input::default(), t.rise * 0.6, &mut Vec::new());
+            assert_eq!(h.zombies[0].pos, at, "rooted while it climbs");
+            h.me().kit.max_hp() - h.me().hp
+        };
+        let full = bitten(Kind::named("skinny"));
+        let half = bitten(skinny_but(|e| e.rise_bite = 0.5));
+        assert!(full > 0.0 && half > 0.0 && half < full, "{full} then {half}");
+        assert_eq!(bitten(skinny_but(|e| e.rise_bite = 0.0)), 0.0, "0 keeps it harmless until it's out");
+    }
+
+    #[test]
+    fn stroll_and_easy_turn_off_every_bite_while_rising() {
+        let r = crate::tuning::rules();
+        let rise_bite = |id: &str| r.presets.iter().find(|p| p.id == id).map(|p| p.tuning.rise_bite);
+        assert_eq!((rise_bite("stroll"), rise_bite("easy"), rise_bite("normal")), (Some(0.0), Some(0.0), Some(r.base.rise_bite)));
     }
 
     /// A calm farm whose player has just gone down at its spawn, ringed by `n` zombies.

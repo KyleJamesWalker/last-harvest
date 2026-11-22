@@ -30,6 +30,8 @@ pub struct Enemy {
     pub ranged: f32,
     /// Seconds above ground before it digs back under; 0 for one that never burrows.
     pub burrow: f32,
+    /// The share of its bite it lands while still climbing out of the ground; 0 for harmless until it's out.
+    pub rise_bite: f32,
     /// Its own blood color, else effects.txt's.
     pub blood: Option<[u8; 3]>,
     pub heavy: bool,
@@ -248,6 +250,7 @@ fn entries(text: &str) -> Result<Vec<Entry>, String> {
                 charge: 1.0,
                 ranged: 0.0,
                 burrow: 0.0,
+                rise_bite: 1.0,
                 blood: None,
                 heavy: false,
                 from_card: false,
@@ -276,6 +279,7 @@ fn entries(text: &str) -> Result<Vec<Entry>, String> {
             "charge" => e.charge = number()?.clamp(0.1, 10.0),
             "ranged" => e.ranged = number()?.min(RANGED_MAX),
             "burrow" => e.burrow = number()?.min(BURROW_MAX),
+            "rise_bite" => e.rise_bite = number()?,
             "blood" => e.blood = Some(crate::paint::hex(rest).filter(|_| rest.bytes().all(|b| b.is_ascii_hexdigit())).ok_or_else(|| format!("{n}: blood is a color as RRGGBB, such as 7AA062, not {rest:?}"))?),
             "walk" => {
                 entry.walk = rest.parse().ok().filter(|n| (1..=MAX_WALK).contains(n)).ok_or_else(|| format!("{n}: walk is 1 to {MAX_WALK} frames, not {rest:?}"))?;
@@ -357,14 +361,14 @@ pub struct CardFields {
     pub walk: usize,
 }
 
-pub const NUMBERS: [&str; 12] = ["hp", "speed", "damage", "xp", "mass", "gibs", "after", "chance", "per_minute", "charge", "ranged", "burrow"];
+pub const NUMBERS: [&str; 13] = ["hp", "speed", "damage", "xp", "mass", "gibs", "after", "chance", "per_minute", "charge", "ranged", "burrow", "rise_bite"];
 pub const FLAGS: [&str; 3] = ["heavy", "leader", "harvester"];
 
 /// Reads a card's text as the game would, or says why it can't.
 pub fn card_fields(text: &str) -> Result<CardFields, String> {
     let entry = card_entry(text)?;
     let e = &entry.enemy;
-    let numbers = [e.hp, e.speed, e.damage, e.xp as f32, e.mass, e.gibs as f32, e.after, e.chance, e.per_minute, e.charge, e.ranged, e.burrow];
+    let numbers = [e.hp, e.speed, e.damage, e.xp as f32, e.mass, e.gibs as f32, e.after, e.chance, e.per_minute, e.charge, e.ranged, e.burrow, e.rise_bite];
     Ok(CardFields {
         id: e.id.clone(),
         name: e.name.clone(),

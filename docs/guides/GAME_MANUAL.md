@@ -94,7 +94,7 @@ The d-pad and left stick move you, and the right stick turns. On Android and muO
 
 A night lasts ten minutes, from dusk to dawn. A bell rings each minute.
 
-- **Zombies rise** out of the ground, at the edge of the fog early on and a few tiles away by the end. They walk around buildings, or chew through a fence when that is quicker. They grow tougher each minute.
+- **Zombies rise** out of the ground, at the edge of the fog early on and a few tiles away by the end. They can't move until they are out, but most can bite as they climb. They walk around buildings, or chew through a fence when that is quicker. They grow tougher each minute.
 - **Cover:** shots fly past bushes, fences and signs. Buildings, vehicles and trees stop them.
 - **Hearts:** kills drop rotten zombie hearts, which flop out and settle. Offer enough of them and the ritual levels you up. Each level-up offers three cards, and pushes nearby zombies back. Some cards are rare and count twice.
 - **Health:** some kills drop health instead of a heart. How often depends on the difficulty.
