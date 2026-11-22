@@ -15,6 +15,6 @@ mod tests;
 pub use events::Event;
 pub use input::{InputFrame, InputLog, InputMsg, InputQueue};
 pub use link::{ClientLink, HostLink};
-pub use mirror::Mirror;
+pub use mirror::{Mirror, ShownPet};
 pub use pipe::Pipe;
 pub use snapshot::{Part, PlayerState, Spawn, Spawned, Thing, World, ZombieState};

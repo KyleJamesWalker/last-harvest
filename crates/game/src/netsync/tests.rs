@@ -345,6 +345,53 @@ fn a_hostile_host_cant_grow_the_clients_queues() {
 }
 
 #[test]
+fn pets_cross_whole_then_as_small_deltas_and_their_set_changing_resends_keys() {
+    let dog = |owner: u8, slot: u8, x: f32| PetState { owner, def: 300, slot, pos: q_pos([x, 50.0]), heading: 64, anim: 640, leap: 0, heart: 0 };
+    let mut a = World::new(10, vec![PlayerState::default()], vec![], vec![]);
+    a.pets = vec![dog(0, 0, 100.0), dog(0, 1, 120.0), dog(1, 0, 400.0)];
+    let whole = decode(&encode(&a, None, 1, &[], &[], BUDGET)[0], None).unwrap();
+    assert_eq!(whole.pets.as_deref(), Some(&a.pets[..]));
+    let mut b = World { tick: 13, ..a.clone() };
+    b.pets[1] = PetState { pos: q_pos([121.5, 50.0]), anim: 643, leap: 128, heart: 4, ..b.pets[1] };
+    let (big, small) = (encode(&a, None, 1, &[], &[], BUDGET)[0].len(), encode(&b, Some(&a), 1, &[], &[], BUDGET)[0].len());
+    let part = decode(&encode(&b, Some(&a), 1, &[], &[], BUDGET)[0], Some(&a)).unwrap();
+    assert_eq!(part.pets.as_deref(), Some(&b.pets[..]));
+    assert!(big - small >= 20, "two still pets cost a byte each, the one moving a handful: {big} then {small}");
+    let mut c = World { tick: 16, ..b.clone() };
+    c.pets.remove(0);
+    c.pets.push(dog(2, 0, 800.0));
+    let part = decode(&encode(&c, Some(&b), 1, &[], &[], BUDGET)[0], Some(&b)).unwrap();
+    assert_eq!(part.pets.as_deref(), Some(&c.pets[..]), "one gone and one new");
+    let w = World::assemble(&[part]);
+    assert_eq!(w.pets, c.pets, "a baseline keeps its pets");
+}
+
+#[test]
+fn a_mirror_draws_pets_where_the_host_had_them_and_carries_their_pounce_on() {
+    let mut m = Mirror::default();
+    let mut w = World::new(10, vec![PlayerState::default()], vec![], vec![]);
+    let time = crate::tuning::tuning().dog_leap_time;
+    w.pets = vec![PetState { owner: 1, def: 7, slot: 2, pos: q_pos([300.0, 200.0]), heading: 128, anim: 64, leap: 1, heart: 3 }];
+    for t in 0..10u32 {
+        w.tick = 10 + t * 3;
+        m.apply(&decode(&encode(&w, None, 1, &[], &[], BUDGET)[0], None).unwrap());
+        m.advance(3.0 / TICK_HZ as f32);
+    }
+    m.advance(1.0 / TICK_HZ as f32);
+    let p: Vec<_> = m.pets().collect();
+    assert_eq!(p.len(), 1);
+    assert_eq!((p[0].owner, p[0].def, p[0].slot, p[0].heart), (1, 7, 2, Some(2)));
+    assert!((p[0].pos[0] - 300.0).abs() < 0.05 && (p[0].pos[1] - 200.0).abs() < 0.05, "{:?}", p[0].pos);
+    assert!((p[0].heading[0] + 1.0).abs() < 1e-3, "faces left: {:?}", p[0].heading);
+    assert!((p[0].anim - 1.0).abs() < 1e-3);
+    assert!(p[0].leap.is_some_and(|l| (l - 1.0 / TICK_HZ as f32).abs() < 1e-3 && l < time), "a pounce goes on between snapshots: {:?}", p[0].leap);
+    w.tick += 3;
+    w.pets.clear();
+    m.apply(&decode(&encode(&w, None, 1, &[], &[], BUDGET)[0], None).unwrap());
+    assert_eq!(m.pets().count(), 0, "a pet gone from the newest snapshot is gone");
+}
+
+#[test]
 fn a_shot_held_still_by_the_cards_keeps_flying_after_them() {
     let mut m = Mirror::default();
     let mut w = World::new(10, vec![PlayerState::default()], vec![], vec![]);

@@ -51,7 +51,7 @@ hearts and level for each. With no BUILD, measures each weapon alone at each lev
                       the first player is bitten)
   --net-sim SPEC      play each seed online instead: a client on a link of loss=0.1,lat=80,jitter=20 (ms), any
                       left out; prints the bytes sent and how far the client's picture strays. BUILD is the first
-                      given, or the starting kit
+                      given, or the starting kit; --players 3 or 4 adds host-side players, each a bot
 ";
 
 struct Args {

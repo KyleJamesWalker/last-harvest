@@ -468,7 +468,7 @@ impl Extract {
             let to = q_pos(g.to);
             things.push(Thing { kind: T_GRENADE, sub, pos: q_pos(g.from), data: [to[0], to[1], born(g.t)] });
         }
-        for d in &h.drops {
+        for d in h.drops.iter().filter(|d| !d.dog.is_some_and(|f| f.carried)) {
             let (kind, value) = match d.kind {
                 DropKind::Money(v) => (T_MONEY, v.min(u16::MAX as u32) as u16),
                 DropKind::Health => (T_HEALTH, 0),
@@ -495,8 +495,33 @@ impl Extract {
         }
         let mut world = World::new(tick, players, zombies, things);
         world.run = run_state(h);
+        world.pets = pets(h);
         world
     }
+}
+
+/// Every player's dogs and drones as a client draws them, with the heart each dog carries.
+fn pets(h: &Harvest) -> Vec<PetState> {
+    let time = crate::tuning::tuning().dog_leap_time;
+    let heading = |v: [f32; 2]| (fm::atan2(v[1], v[0]).rem_euclid(TAU) / TAU * 256.0).round() as u32 as u8;
+    let anim = |a: f32| (a * 64.0).round() as u32 as u16;
+    let mut pets = Vec::new();
+    for (p, pl) in h.players.iter().enumerate() {
+        for d in &pl.dogs {
+            let carried = h.drops.iter().find(|x| x.dog.is_some_and(|f| f.carried && (f.player, f.def, f.slot) == (p, d.def, d.slot)));
+            let heart = carried.map_or(0, |x| match x.kind {
+                DropKind::Money(v) => v.min(u16::MAX as u32 - 1) as u16 + 1,
+                _ => 0,
+            });
+            let leap = d.leap.map_or(0, |a| 1 + (a / time * 254.0).round().clamp(0.0, 254.0) as u8);
+            pets.push(PetState { owner: p as u8, def: d.def as u16, slot: d.slot as u8, pos: q_pos(d.pos), heading: heading(d.heading), anim: anim(d.anim), leap, heart });
+        }
+        for d in &pl.drones {
+            pets.push(PetState { owner: p as u8, def: d.def as u16, slot: d.slot as u8, pos: q_pos(d.pos), heading: heading(d.heading), anim: anim(d.anim), leap: 0, heart: 0 });
+        }
+    }
+    pets.sort_by_key(PetState::key);
+    pets
 }
 
 /// The run's clock, shared numbers, pause and each viewed player's cards, as a client draws them.
@@ -607,7 +632,7 @@ const STEP: f32 = 1.0 / TICK_HZ as f32;
 /// Plays `plan`'s night, an empty build keeping the starting kit, with two players: the host's scripted one, and a client's, also scripted, whose input
 /// crosses `net` to the host and whose picture of the night is a `Mirror` fed by snapshots crossing back.
 pub fn net_sim(plan: &Plan, net: NetSim) -> NetReport {
-    let mut h = Harvest::sized(plan.seed, plan.size).at(plan.difficulty).with_players(2);
+    let mut h = Harvest::sized(plan.seed, plan.size).at(plan.difficulty).with_players(plan.players.clamp(2, 4));
     for pl in h.players.iter_mut().filter(|_| !plan.build.is_empty()) {
         pl.kit = Kit::forced(&plan.build, plan.difficulty.tier());
         pl.hp = pl.kit.max_hp();
@@ -621,6 +646,7 @@ pub fn net_sim(plan: &Plan, net: NetSim) -> NetReport {
     let mut up: Pipe<Vec<u8>> = Pipe::new(plan.seed ^ 0x0F, net.loss, ticks(net.latency_ms), ticks(net.jitter_ms));
     let mut me = Bot::new(plan.walk, plan.turn, plan.turn_every, plan.throw_every);
     let mut them = Bot::new(Walk::Avoid, plan.turn, 0.0, plan.throw_every);
+    let mut rest: Vec<Bot> = (2..h.players.len()).map(|_| Bot::new(Walk::Avoid, plan.turn, 0.0, plan.throw_every)).collect();
     let (mut host, mut client, mut mirror, mut extract) = (HostLink::default(), ClientLink::default(), Mirror::default(), Extract::default());
     mirror.play_locally(CLIENT);
     let (mut log, mut queue) = (InputLog::default(), InputQueue::default());
@@ -656,6 +682,10 @@ pub fn net_sim(plan: &Plan, net: NetSim) -> NetReport {
         let (input, at) = queue.play();
         played[CLIENT] = at.unwrap_or(0);
         h.steer(CLIENT, input);
+        for (p, bot) in rest.iter_mut().enumerate().map(|(i, b)| (i + 2, b)) {
+            let input = if h.players[p].alive() { bot.step(&mut h, p, &mut sounds) } else { crate::Input::default() };
+            h.steer(p, input);
+        }
         h.update(&mine, STEP, &mut sounds);
         if let Some(p) = at.and_then(|k| mirror.predicted_at(CLIENT, k)).filter(|_| h.players[CLIENT].alive()) {
             predicted.push(dist(p, h.players[CLIENT].pos));
@@ -731,6 +761,8 @@ fn dist(a: [f32; 2], b: [f32; 2]) -> f32 {
 
 #[cfg(test)]
 mod tests {
+    use super::super::powerups::book;
+    use super::super::{Drop, Fetch, len, sub};
     use super::*;
 
     #[test]
@@ -765,6 +797,63 @@ mod tests {
         }
         let per_tick = encode.as_secs_f64() * 1000.0 / ticks as f64;
         eprintln!("{n} zombies, 2 clients: sync {per_tick:.3} ms a tick on average, {:.0} B/s to each, whole run {:.1} s", links[0].bytes as f64 / (ticks as f64 / 60.0), start.elapsed().as_secs_f64());
+    }
+
+    #[test]
+    fn a_client_draws_every_players_dogs_where_the_host_has_them_and_the_heart_in_a_dogs_mouth() {
+        let (dog, drone) = (book().index("dog").unwrap(), book().index("drone").unwrap());
+        let mut h = Harvest::calm(3).with_players(2);
+        for pl in &mut h.players {
+            pl.kit = Kit::forced(&[(dog, 8), (drone, 8)], h.difficulty.tier());
+        }
+        let mut sounds = Vec::new();
+        for _ in 0..90 {
+            h.update(&crate::Input::default(), STEP, &mut sounds);
+        }
+        assert_eq!(h.players.iter().map(|p| p.dogs.len()).collect::<Vec<_>>(), [6, 6], "the 6-dog pack, each");
+        let d = &h.players[1].dogs[2];
+        let mouth = [d.pos[0] + d.heading[0] * 5.0, d.pos[1] + d.heading[1] * 2.0];
+        let fetch = Fetch { player: 1, def: d.def, slot: d.slot, carried: true };
+        h.drops.push(Drop { kind: DropKind::Money(2), pos: mouth, z: 4.0, vz: 0.0, vel: [0.0; 2], age: 1.0, pulled: None, to: 1, dog: Some(fetch) });
+
+        let mut client = Harvest::calm(3).with_players(2).client_of(&[1], &[0, 1]);
+        let (mut extract, mut host, mut link, mut mirror) = (Extract::default(), HostLink::default(), ClientLink::default(), Mirror::default());
+        mirror.play_locally(1);
+        for k in 1..=12u32 {
+            let tick = 1000 + k * SEND_EVERY;
+            let world = extract.world(&h, tick, &[0, 0]);
+            assert!(world.things.iter().all(|t| t.1.kind != T_MONEY), "the carried heart rides with its dog, not as a thing");
+            for p in host.snapshot(world) {
+                if let Some(part) = link.receive(&p) {
+                    mirror.apply(&part);
+                }
+            }
+            let (s, e) = link.ack();
+            host.ack(s, e);
+            mirror.advance(SEND_EVERY as f32 / TICK_HZ as f32);
+            client.client_frame(&mirror, SEND_EVERY as f32 / TICK_HZ as f32, &mut sounds);
+        }
+        for (seat, shown) in [(1, 0), (0, 1)] {
+            let (host_dogs, drawn) = (&h.players[seat].dogs, &client.players[shown].dogs);
+            assert_eq!(drawn.len(), host_dogs.len(), "seat {seat}'s dogs, with their own player");
+            for d in host_dogs {
+                let c = drawn.iter().find(|c| (c.def, c.slot) == (d.def, d.slot)).unwrap();
+                assert!(len(sub(c.pos, d.pos)) < 0.05, "seat {seat} dog {}: {:?} for {:?}", d.slot, c.pos, d.pos);
+                assert!(len(sub(c.heading, d.heading)) < 0.03 && (c.anim - d.anim).abs() <= 1.0 / 128.0 && c.leap == d.leap, "drawn as the host draws it");
+            }
+        }
+        for (seat, shown) in [(1, 0), (0, 1)] {
+            assert_eq!(client.players[shown].drones.len(), h.players[seat].drones.len(), "seat {seat}'s drones");
+            for d in &h.players[seat].drones {
+                let c = client.players[shown].drones.iter().find(|c| (c.def, c.slot) == (d.def, d.slot)).unwrap();
+                assert!(len(sub(c.pos, d.pos)) < 0.05 && (c.anim - d.anim).abs() <= 1.0 / 128.0, "seat {seat} drone {}", d.slot);
+            }
+        }
+        let hearts: Vec<&Drop> = client.drops.iter().filter(|d| matches!(d.kind, DropKind::Money(_))).collect();
+        assert_eq!(hearts.len(), 1, "the carried heart, once");
+        assert!(hearts[0].kind == DropKind::Money(2), "the heart's money");
+        assert_eq!(hearts[0].dog.map(|f| (f.player, f.def, f.slot, f.carried)), Some((0, fetch.def, fetch.slot, true)), "in seat 1's dog's mouth, seat 1 being this client's first player");
+        assert!(len(sub(hearts[0].pos, mouth)) < 0.2 && hearts[0].z == 4.0, "{:?} for {:?}", hearts[0].pos, mouth);
     }
 
     #[test]

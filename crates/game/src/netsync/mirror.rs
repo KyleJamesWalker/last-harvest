@@ -5,7 +5,7 @@ use crate::fmath as fm;
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::f32::consts::{PI, TAU};
 
-use super::snapshot::{P_DOWN, P_LEADING, P_PICKING, Part, PlayerState, RunState, Spawn, Spawned, TICK_HZ, Thing, ZombieState, unq_angle, unq_pos};
+use super::snapshot::{P_DOWN, P_LEADING, P_PICKING, Part, PetState, PlayerState, RunState, Spawn, Spawned, TICK_HZ, Thing, ZombieState, unq_angle, unq_pos};
 use crate::{Buttons, Input};
 
 /// How far behind the newest snapshot others are drawn, in ticks: two snapshots' worth.
@@ -111,6 +111,46 @@ struct Other {
     yaw: f32,
 }
 
+struct PetTrack {
+    track: Track,
+    states: VecDeque<(u32, PetState)>,
+}
+
+impl PetTrack {
+    /// Its state at host tick `at`: the latest snapshot's then, its animation eased toward the next and its pounce
+    /// carried on since.
+    fn state_at(&self, at: f64) -> ShownPet {
+        let s = &self.states;
+        let i = s.partition_point(|x| (x.0 as f64) <= at);
+        let (tick, p) = s[i.saturating_sub(1)];
+        let anim = match s.get(i).filter(|_| i > 0) {
+            Some(&(t2, next)) => p.anim as f32 + next.anim.wrapping_sub(p.anim) as f32 * ((at - tick as f64) / (t2 - tick).max(1) as f64) as f32,
+            None => p.anim as f32,
+        } / 64.0;
+        let time = crate::tuning::tuning().dog_leap_time;
+        let since = (at - tick as f64).max(0.0) as f32 / TICK_HZ as f32;
+        let leap = p.leap.checked_sub(1).map(|l| (l as f32 / 254.0 * time + since).min(time * 0.999));
+        let a = p.heading as f32 / 256.0 * TAU;
+        ShownPet { owner: p.owner, def: p.def, slot: p.slot, pos: self.track.shown, heading: [fm::cos(a), fm::sin(a)], anim, leap, heart: p.heart.checked_sub(1).map(u32::from) }
+    }
+}
+
+/// A dog or drone where and as it's drawn now.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ShownPet {
+    /// The host's seat it runs with.
+    pub owner: u8,
+    pub def: u16,
+    pub slot: u8,
+    pub pos: [f32; 2],
+    pub heading: [f32; 2],
+    pub anim: f32,
+    /// Seconds into a pounce.
+    pub leap: Option<f32>,
+    /// The money of the heart in its mouth.
+    pub heart: Option<u32>,
+}
+
 struct Live {
     spawned: Spawned,
     /// Ticks the host held the night still while it flew, left out of its age.
@@ -129,6 +169,8 @@ pub struct Mirror {
     own: BTreeMap<usize, Own>,
     things: BTreeMap<u32, Thing>,
     things_tick: u32,
+    pets: BTreeMap<(u8, u16, u8), PetTrack>,
+    pets_tick: u32,
     live: Vec<Live>,
     /// Paused for the level-up cards, as the host is.
     pub paused: bool,
@@ -171,6 +213,27 @@ impl Mirror {
             self.things.retain(|&k, _| k < lo || (hi != u32::MAX && k >= hi));
             self.things.extend(part.things.iter().copied());
         }
+        if let Some(pets) = &part.pets {
+            if tick >= self.pets_tick {
+                self.pets_tick = tick;
+                self.pets.retain(|k, _| pets.iter().any(|p| p.key() == *k));
+            }
+            for p in pets {
+                let pos = unq_pos(p.pos);
+                if !self.pets.contains_key(&p.key()) && tick < self.pets_tick {
+                    continue;
+                }
+                let t = self.pets.entry(p.key()).or_insert_with(|| PetTrack { track: Track::new(tick, pos, ZombieState::default()), states: VecDeque::new() });
+                t.track.add(tick, pos);
+                let at = t.states.partition_point(|s| s.0 < tick);
+                if t.states.get(at).is_none_or(|s| s.0 != tick) {
+                    t.states.insert(at, (tick, *p));
+                }
+                while t.states.len() > SAMPLES {
+                    t.states.pop_front();
+                }
+            }
+        }
         if tick >= self.players_tick {
             self.players_tick = tick;
             self.players = part.players.clone();
@@ -211,6 +274,10 @@ impl Mirror {
         for o in self.others.values_mut() {
             let target = o.track.target(at);
             o.track.follow(target, dt);
+        }
+        for p in self.pets.values_mut() {
+            let target = p.track.target(at);
+            p.track.follow(target, dt);
         }
         self.live.retain(|l| !spent(&l.spawned, at - l.held));
     }
@@ -317,6 +384,12 @@ impl Mirror {
 
     pub fn player_state(&self, seat: usize) -> Option<&PlayerState> {
         self.players.get(seat)
+    }
+
+    /// Every player's dogs and drones as they're drawn now.
+    pub fn pets(&self) -> impl Iterator<Item = ShownPet> + '_ {
+        let at = self.render_tick();
+        self.pets.values().map(move |p| p.state_at(at))
     }
 
     pub fn things(&self) -> impl Iterator<Item = &Thing> {
