@@ -2076,9 +2076,9 @@ checksum = "dae608c151f68243f2b000364e1f7b186d9c29845f7d2d85bd31b9ad77ad552b"
 
 [[package]]
 name = "matchbox_protocol"
-version = "0.14.0"
+version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "867e83a984f369eabc682318eec2db410aef1dbb5399cb1890e6659dfa9b7449"
+checksum = "aa2a0c21041c2f1ee7bd58d0f2f755e8d7af148fde83e6c8fa4d8eb8e49496c2"
 dependencies = [
  "cfg-if",
  "derive_more",
@@ -2089,9 +2089,9 @@ dependencies = [
 
 [[package]]
 name = "matchbox_signaling"
-version = "0.14.0"
+version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "33d8eeb36f21a45699331d121b4c5d2c7fdd342f0216e4c0033787f5c5fc4470"
+checksum = "98f314396ec108a52ba975f00a7f4103ed78802aafbdabd7f8581ee3b40f65ef"
 dependencies = [
  "async-trait",
  "axum",
@@ -4065,14 +4065,15 @@ dependencies = [
 
 [[package]]
 name = "tower-http"
-version = "0.6.11"
+version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4cfcf7e2740e6fc6d4d688b4ef00650406bb94adf4731e43c096c3a19fe40840"
+checksum = "08a05a66a4fdd61cbbe0a1d755ffe0ca6aba159dd4820936a0ff8a8278245b9c"
 dependencies = [
  "bitflags 2.13.2",
  "bytes",
  "http",
  "http-body",
+ "percent-encoding",
  "pin-project-lite",
  "tower-layer",
  "tower-service",
