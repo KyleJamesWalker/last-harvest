@@ -40,6 +40,8 @@ pub(super) struct Net {
     pub seats: Vec<usize>,
     /// Sounds placed this tick, with where on the farm they came from.
     pub placed: std::cell::RefCell<Vec<Placed>>,
+    /// Blasts this tick, by center and radius, for clients to draw.
+    pub blasts: std::cell::RefCell<Vec<([f32; 2], f32)>>,
     pub client: Option<Box<super::remote::Client>>,
     /// Players whose device has stopped sending input, by place in `players`.
     pub away: Vec<bool>,
@@ -315,6 +317,10 @@ impl Extract {
     pub fn record(&mut self, h: &Harvest, tick: u32, sounds: &[Sfx]) -> Fresh {
         let mut out = Fresh { tick, ..Fresh::default() };
         let placed = std::mem::take(&mut *h.net.placed.borrow_mut());
+        let blasts = std::mem::take(&mut *h.net.blasts.borrow_mut());
+        for &(c, r) in &blasts {
+            out.events.push(Event::Blast { pos: q_pos(c), radius: r.round().min(u16::MAX as f32) as u16 });
+        }
         let mut heard: Vec<Sfx> = Vec::new();
         for s in sounds {
             if heard.contains(s) || *s == Sfx::Hurt || (*s == Sfx::GameOver && !matches!(h.phase, Phase::Over { .. })) {
@@ -403,7 +409,8 @@ impl Extract {
             let pos = q_pos(f.pos);
             let art = f.frames.first().map_or(0, |a| a.0);
             let key = (art, pos[0], pos[1]);
-            if !self.fx_seen.contains(&key) {
+            let blast = blasts.iter().any(|&(c, _)| [c, super::blast_smoke_at(c)].iter().any(|&at| q_pos(at) == pos));
+            if !blast && !self.fx_seen.contains(&key) {
                 new.push(Spawn::Fx { art, pos, angle: (f.angle.rem_euclid(TAU) / TAU * 256.0) as u8 });
             }
             fx.insert(key);
@@ -797,6 +804,26 @@ mod tests {
         }
         let per_tick = encode.as_secs_f64() * 1000.0 / ticks as f64;
         eprintln!("{n} zombies, 2 clients: sync {per_tick:.3} ms a tick on average, {:.0} B/s to each, whole run {:.1} s", links[0].bytes as f64 / (ticks as f64 / 60.0), start.elapsed().as_secs_f64());
+    }
+
+    #[test]
+    fn a_client_sees_a_blast_flash_and_ring_where_the_host_has_it() {
+        let mut h = Harvest::calm(3).with_players(2).hosting(1);
+        let at = [h.players[0].pos[0] + 60.0, h.players[0].pos[1]];
+        let mut sounds = Vec::new();
+        h.explode(at, 40.0, 10.0, &mut sounds);
+        let fresh = Extract::default().record(&h, 1, &sounds);
+        assert!(fresh.spawns.iter().all(|s| !matches!(s.what, Spawn::Fx { .. })), "its sprite and smoke ride with the event, never a spawn that can be cut");
+        let blasts: Vec<Event> = fresh.events.into_iter().filter(|e| matches!(e, Event::Blast { .. })).collect();
+        assert_eq!(blasts.len(), 1, "one blast event for the one blast");
+        assert!(blasts[0].critical(), "sent until the client has it");
+        assert!(h.net.blasts.borrow().is_empty(), "taken for this tick");
+        let mut client = Harvest::calm(3).with_players(2).client_of(&[1], &[0, 1]);
+        assert!(client.juice.flashes.is_empty() && client.juice.rings.is_empty());
+        client.client_event(blasts[0], &mut sounds);
+        assert!(!client.juice.flashes.is_empty() && !client.juice.rings.is_empty(), "the client lights it as the host does");
+        assert!(len(sub(client.juice.rings[0].center, at)) < 0.1, "{:?} for {:?}", client.juice.rings[0].center, at);
+        assert_eq!(client.fx.len(), 2, "the explosion and its smoke");
     }
 
     #[test]

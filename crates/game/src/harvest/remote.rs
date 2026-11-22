@@ -152,6 +152,7 @@ impl Harvest {
                 self.gore(pos, fall, 0.0, fall, &s.look, s.gibs as usize, s.blood);
                 self.kill_bump = 0.0;
             }
+            Event::Blast { pos, radius } => self.blast_juice(unq_pos(pos), radius as f32),
             Event::LevelUp { .. } | Event::LevelDone | Event::RunEnd { .. } | Event::Stop { .. } | Event::Rumble { .. } => {}
         }
     }

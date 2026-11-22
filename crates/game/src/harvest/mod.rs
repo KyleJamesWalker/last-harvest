@@ -78,6 +78,11 @@ pub fn night_minutes() -> f32 {
 }
 
 /// Seconds from dusk to dawn.
+/// Where a blast at `c` puffs its smoke.
+fn blast_smoke_at(c: [f32; 2]) -> [f32; 2] {
+    [c[0], c[1] - 8.0]
+}
+
 fn dawn() -> f32 {
     crate::tuning::tuning().night
 }
@@ -2908,8 +2913,20 @@ impl Harvest {
             self.actor_mut().hurt = self.difficulty.hurt_time();
             self.ouch(self.actor, 0.3);
         }
+        self.blast_juice(c, radius);
+        if self.net.role == online::Role::Host {
+            self.net.blasts.borrow_mut().push((c, radius));
+        }
+        self.noise = Some(c);
+        let (pan, gain) = self.place(c);
+        sounds.push(Sfx::Boom { pan, gain: gain.max(110) });
+        self.thud(hits, sounds);
+    }
+
+    /// How a blast at `c` looks and feels: its sprite and smoke, shake, flash, ring, sparks and scorch.
+    pub(super) fn blast_juice(&mut self, c: [f32; 2], radius: f32) {
         self.fx.push(Fx::play(effects::effects().explosion, c, 0.0));
-        self.fx.push(Fx::play(effects::effects().explosion_smoke, [c[0], c[1] - 8.0], 0.0));
+        self.fx.push(Fx::play(effects::effects().explosion_smoke, blast_smoke_at(c), 0.0));
         self.shake_each(|at| (0.75 * (1.0 - len(sub(at, c)) / 260.0)).max(0.12), 4.0);
         self.juice.stop(0.07);
         self.juice.flash(c, 14.0, [2.4, 1.3, 0.5], 8.0, 0.45);
@@ -2918,10 +2935,6 @@ impl Harvest {
         self.juice.burst(c, 2.0, 14, [0.0; 2], 0.0, [30.0, 90.0], juice::dirt(), 1.8, 0.8, 0.0);
         let scorch = art::BLOOD_STAIN[self.juice.rng.below(art::BLOOD_STAIN.len())];
         self.stain((scorch, c[0] - scorch.w() / 2.0, c[1] - scorch.h() / 2.0, [0.12, 0.1, 0.09]));
-        self.noise = Some(c);
-        let (pan, gain) = self.place(c);
-        sounds.push(Sfx::Boom { pan, gain: gain.max(110) });
-        self.thud(hits, sounds);
     }
 
     fn stain(&mut self, s: (Art, f32, f32, [f32; 3])) {

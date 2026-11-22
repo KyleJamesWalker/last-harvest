@@ -24,6 +24,8 @@ pub enum Event {
     Stop { id: u32 },
     /// The pad of the player in `seat` buzzes.
     Rumble { seat: u8, kind: Rumble },
+    /// A grenade, barrel or bomblet blast, by its center and radius in pixels: never lost, unlike a spawned effect.
+    Blast { pos: [u16; 2], radius: u16 },
 }
 
 impl Event {
@@ -70,6 +72,12 @@ impl Event {
                 w.u8(seat);
                 w.u8(kind as u8);
             }
+            Event::Blast { pos, radius } => {
+                w.u8(8);
+                w.u16(pos[0]);
+                w.u16(pos[1]);
+                w.u16(radius);
+            }
         }
     }
 
@@ -92,6 +100,7 @@ impl Event {
                     _ => return None,
                 },
             },
+            8 => Event::Blast { pos: [r.u16()?, r.u16()?], radius: r.u16()? },
             _ => return None,
         })
     }
@@ -301,6 +310,7 @@ mod tests {
             Event::RunEnd { won: true },
             Event::Rumble { seat: 3, kind: Rumble::Tick },
             Event::Rumble { seat: 1, kind: Rumble::Blast },
+            Event::Blast { pos: [800, 9000], radius: 40 },
         ];
         let mut w = Writer::new();
         all.iter().for_each(|e| e.write(&mut w));
