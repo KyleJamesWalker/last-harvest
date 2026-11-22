@@ -318,8 +318,8 @@ The end screen names each player's kills. Stats and History record the night onc
 
 Each player plays on their own device, and one of them hosts the night. Online is on the title's main menu.
 
-1. The host picks Host a night. The lobby shows a five-letter room code.
-2. Each other player picks Join with a code and types it on the on-screen keys: A types, B deletes and Start joins. Taps work too.
+1. The host picks Host a night. The lobby shows a five-letter room code, the same one each time this device hosts.
+2. Each other player picks Join with a code and types it on the on-screen keys: A types, B deletes and Start joins. Taps work too. The last code you joined is already filled in.
 3. In the lobby, A marks you ready. The host picks the difficulty with Left and Right, or a tap on it at the top right. Once everyone is ready, the host's Start starts the night.
 4. B leaves the lobby. On the host, B closes the room.
 

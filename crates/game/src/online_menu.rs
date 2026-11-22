@@ -322,8 +322,9 @@ impl Game {
     }
 
     fn host_through(&mut self, code: Option<&str>, relay: (String, String)) {
-        let code = code.and_then(|c| RoomCode::parse(c).ok()).or(self.online.fixed).unwrap_or_else(|| RoomCode::from_random(self.rng.next_u32() as u64 * 0x9E37 + self.rng.next_u32() as u64));
+        let code = code.and_then(|c| RoomCode::parse(c).ok()).or(self.online.fixed).or(self.save.hosted).unwrap_or_else(|| RoomCode::from_random(self.rng.next_u32() as u64 * 0x9E37 + self.rng.next_u32() as u64));
         self.online.fixed = Some(code);
+        self.save.hosted = Some(code);
         self.net = Some(Box::new(Net::host(code, self.identity(), self.local_cards(), relay)));
         self.online.message.clear();
         self.page = Page::Lobby;
@@ -340,6 +341,7 @@ impl Game {
                     }
                 };
                 self.online.lan_session = false;
+                self.save.joined = Some(code);
                 self.net = Some(Box::new(Net::join(code, self.identity(), self.local_cards(), relay)));
                 self.online.message.clear();
                 self.page = Page::Lobby;
@@ -579,7 +581,10 @@ impl Game {
             }
             Some(Row::Join) => {
                 self.page = Page::Join;
-                self.online.code = Entry::default();
+                self.online.code.at = 0;
+                if let Some(code) = self.save.joined.filter(|_| self.online.code.text.is_empty()) {
+                    self.online.code.text = code.to_string();
+                }
                 (self.online.through, self.online.through_picked) = (self.online.nearby.first().cloned(), false);
                 self.sounds.push(Sfx::Tick(9));
             }
@@ -957,6 +962,46 @@ mod tests {
         g.typed("ACDEF\n");
         let Some(Request::Connect { room, .. }) = g.net_request() else { panic!("no connect") };
         assert!(room.starts_with("wss://lh-relay.vps.pocketsquirrel.com/signal/"), "{room}");
+    }
+
+    #[test]
+    fn the_join_page_keeps_the_last_code_for_the_next_night() {
+        let a = Input { pressed: Buttons::A, ..Input::default() };
+        let mut g = Game::new(1);
+        g.set_online(true);
+        g.page = Page::Online;
+        g.online.row = 1;
+        g.online_page(&a, None);
+        g.typed("ACDEF\n");
+        assert!(matches!(g.net_request(), Some(Request::Connect { .. })));
+        g.lobby_page(&Input { pressed: Buttons::B, ..Input::default() }, None);
+        let _ = g.net_request();
+        g.online_page(&a, None);
+        assert_eq!((g.page, g.online.code.text.as_str()), (Page::Join, "ACDEF"));
+        g.join_page(&Input { pressed: Buttons::START, ..Input::default() }, None);
+        let Some(Request::Connect { room, .. }) = g.net_request() else { panic!("Start alone joins again") };
+        assert!(room.contains("ACDEF"), "{room}");
+
+        let mut next = Game::new(1);
+        next.save = g.save();
+        next.set_online(true);
+        next.page = Page::Online;
+        next.online.row = 1;
+        next.online_page(&a, None);
+        assert_eq!(next.online.code.text, "ACDEF", "after a relaunch too");
+    }
+
+    #[test]
+    fn a_host_keeps_its_room_code_after_a_relaunch() {
+        let mut g = Game::new(1);
+        g.set_online(true);
+        g.host_online(None);
+        let code = g.save().hosted.expect("the code is saved");
+        let mut next = Game::new(2);
+        next.save = g.save();
+        next.set_online(true);
+        next.host_online(None);
+        assert_eq!(next.online.fixed, Some(code));
     }
 
     #[test]

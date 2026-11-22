@@ -44,6 +44,9 @@ pub struct Save {
     pub controls: Controls,
     /// The online relay's address; empty for `netplay::DEFAULT_RELAY`.
     pub relay: Relay,
+    /// The room code this device last hosted, and the one it last joined.
+    pub hosted: Option<last_harvest_lobby::RoomCode>,
+    pub joined: Option<last_harvest_lobby::RoomCode>,
 }
 
 /// Auto shows the on-screen controls and hides them at gamepad or keyboard input until the next touch.
@@ -219,7 +222,7 @@ impl Records {
 
 impl Default for Save {
     fn default() -> Self {
-        Self { volume: 6, brightness: [4, 4], rumble: true, fps: false, one_screen: false, corner_map: true, touch_grenades: true, touch: TouchControls::Auto, difficulty: Difficulty::default(), records: [(PresetId::default(), Records::default()); PRESETS_MAX], enemies_off: 0, player: LookId::default(), map: LookId::default(), history: [None; HISTORY], how_to_seen: false, controls: Controls::default(), relay: Relay::default() }
+        Self { volume: 6, brightness: [4, 4], rumble: true, fps: false, one_screen: false, corner_map: true, touch_grenades: true, touch: TouchControls::Auto, difficulty: Difficulty::default(), records: [(PresetId::default(), Records::default()); PRESETS_MAX], enemies_off: 0, player: LookId::default(), map: LookId::default(), history: [None; HISTORY], how_to_seen: false, controls: Controls::default(), relay: Relay::default(), hosted: None, joined: None }
     }
 }
 
@@ -228,6 +231,11 @@ impl Save {
         let mut controls = if self.controls.is_default() { String::new() } else { format!("controls={}\n", self.controls.key()) };
         if self.relay.len > 0 {
             controls += &format!("relay={}\n", self.relay.as_str());
+        }
+        for (key, code) in [("hosted", self.hosted), ("joined", self.joined)] {
+            if let Some(code) = code {
+                controls += &format!("{key}={code}\n");
+            }
         }
         format!(
             "volume={}\nbrightness_top={}\nbrightness_bottom={}\nrumble={}\nfps={}\nlayout={}\ncorner_map={}\ngrenades={}\ntouch={}\ndifficulty={}\nenemies_off={}\nplayer={}\nmap={}\nhow_to={}\n{controls}{}{}",
@@ -326,6 +334,8 @@ impl Save {
                 "how_to" => how_to = Some(value != "due"),
                 "controls" => save.controls = Controls::from_key(value).unwrap_or_default(),
                 "relay" => save.relay = Relay::new(value),
+                "hosted" => save.hosted = last_harvest_lobby::RoomCode::parse(value).ok(),
+                "joined" => save.joined = last_harvest_lobby::RoomCode::parse(value).ok(),
                 "run" if runs < HISTORY => {
                     if let Some(run) = run_from_text(value) {
                         save.history[runs] = Some(run);
@@ -403,7 +413,8 @@ mod tests {
 
     #[test]
     fn round_trips() {
-        let mut save = Save { volume: 3, brightness: [7, 2], rumble: false, fps: true, one_screen: true, corner_map: false, touch_grenades: false, touch: TouchControls::Off, difficulty: Difficulty::HARD, enemies_off: 0b10, player: LookId::new("jo"), map: LookId::new("old_farm"), history: [None; HISTORY], how_to_seen: true, controls: Controls::default(), relay: Relay::new("wss://relay.example.com"), ..Save::default() };
+        let mut save = Save { volume: 3, brightness: [7, 2], rumble: false, fps: true, one_screen: true, corner_map: false, touch_grenades: false, touch: TouchControls::Off, difficulty: Difficulty::HARD, enemies_off: 0b10, player: LookId::new("jo"), map: LookId::new("old_farm"), history: [None; HISTORY], how_to_seen: true, controls: Controls::default(), relay: Relay::new("wss://relay.example.com"), hosted: last_harvest_lobby::RoomCode::parse("ACDEF").ok(), joined: last_harvest_lobby::RoomCode::parse("FEDCA").ok(), ..Save::default() };
+        assert!(save.hosted.is_some() && save.joined.is_some());
         *save.records_mut(Difficulty::HARD).unwrap() = Records { best: 41, kills: 900, best_level: 12, nights: 7, dawns: 1, breakers: 3, breaker_dawns: 1, found: 0b1010_0000_0000, best_dps: 0 };
         *save.records_mut(Difficulty::DEAD).unwrap() = Records { kills: 5, nights: 1, best_dps: 70, ..Records::default() };
         assert_eq!(Save::parse(&save.to_text()), save);
