@@ -1041,7 +1041,8 @@ mod tests {
     #[test]
     fn a_setup_reads_back_as_written() {
         let night = Setup { map: "orchard".into(), look: "scarecrow".into(), farm: Some("scarecrow".into()), kit: "dog:2,crows".into(), start_t: 12.5, one_screen: true, players: 2, bots: 1, views: 3, progress: Progress { kills: 9, found: 0xf0, everything: true, hidden: 3, ..Progress::default() }, ..Setup::night(77) };
-        let host = Setup { kind: Kind::Host { looks: vec![(0, "".into()), (2, "crow".into())], local: 1 }, ..Setup::night(5) };
+        let host = Setup { kind: Kind::Host { looks: vec![(0, "".into()), (2, "crow".into())], local: 1 }, difficulty: Difficulty::DEAD, ..Setup::night(5) };
+        assert!(host.to_text().contains("\ndifficulty dead\n"), "{}", host.to_text());
         let sandbox = Plan { size: [40, 30], mortal: true, ..short() }.setup();
         for s in [night, host, sandbox] {
             assert_eq!(Setup::from_text(&s.to_text()), Ok(s.clone()), "{}", s.to_text());
