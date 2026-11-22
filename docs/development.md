@@ -98,7 +98,7 @@ Options make the player closer to a real one. The defaults replay older CSVs exa
 | `--locked` | With a pick, offers only what a new player has unlocked; otherwise every powerup can come up. |
 | `--no-throw` | Lobs no grenades, the same as `--throw-every 0`. The 12 s default flatters blast passives. |
 | `--secs S` | Past 600 the night goes on after dawn, the Harvester awake and the dead growing stronger. A walker that happens home ends its night there. |
-| `--net-sim SPEC` | Plays each seed online instead: a second, scripted player is a client behind a simulated link (`loss=0.1,lat=80,jitter=20`, in ms, any left out), its input crossing to the host and snapshots crossing back. Prints bytes a second each way and how far the client's picture strays from the host's, in pixels. |
+| `--net-sim SPEC` | Plays each seed online instead: a second, scripted player is a client behind a simulated link (`loss=0.1,lat=80,jitter=20`, in ms, any left out), its input crossing to the host and snapshots crossing back. Prints bytes a second each way and how far the client's picture strays from the host's, in pixels. With `--players 3` or `4`, the extra players are bots on the host. |
 | `--replay FILE` | Plays a recorded night again instead. See [Replays](#replays). |
 | `--players N` | 1 to 4 players, each walking the same script from its own spot by the spawn and carrying the build. A mortal night ends once all have fallen; a fallen player leads the dead at the nearest living one until then. The table adds a line per player (kills, useful damage, hearts, falls) and the first fall of any; the weapon lines are the first player's. |
 
