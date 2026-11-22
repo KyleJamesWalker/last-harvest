@@ -337,7 +337,7 @@ impl Harvest {
                         T_HEALTH => DropKind::Health,
                         _ => DropKind::Chest,
                     };
-                    drops.push(Drop { kind, pos, z: 0.0, vz: 0.0, vel: [0.0; 2], age: 1.0, pulled: None, to: ME });
+                    drops.push(Drop { kind, pos, z: 0.0, vz: 0.0, vel: [0.0; 2], age: 1.0, pulled: None, to: ME, dog: None });
                 }
                 T_PATCH => {
                     let hazard = match t.sub {

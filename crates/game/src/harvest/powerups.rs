@@ -609,6 +609,10 @@ pub struct Def {
     pub outside: Option<f32>,
     /// For a dog, a bite that kills is ready again at once.
     pub kill_resets: bool,
+    /// For a dog, with nothing to bite it brings its player a heart lying beyond their magnet.
+    pub fetches: bool,
+    /// For a dog, with nothing to bite or fetch it runs into a horde this far from its player; 0 never.
+    pub charge: f32,
     /// For a lob, what it does where it lands.
     pub lands: Lands,
     /// For a weapon, how each attack shakes the camera and lights the ground.
@@ -800,6 +804,8 @@ pub fn parse(text: &str) -> Result<Book, String> {
                 targets: Targets::Same,
                 outside: None,
                 kill_resets: false,
+                fetches: false,
+                charge: 0.0,
                 lands: Lands::Blast,
                 feel: Feel::default(),
                 player: None,
@@ -904,6 +910,14 @@ pub fn parse(text: &str) -> Result<Book, String> {
                     _ => return Err(format!("{n}: kill_resets is 1 or 0, not {rest:?}")),
                 }
             }
+            "fetches" => {
+                def.fetches = match rest {
+                    "1" => true,
+                    "0" => false,
+                    _ => return Err(format!("{n}: fetches is 1 or 0, not {rest:?}")),
+                }
+            }
+            "charge" => def.charge = rest.parse::<f32>().ok().filter(|v| v.is_finite() && *v >= 0.0).ok_or_else(|| format!("{n}: charge is pixels, 0 or more, not {rest:?}"))?,
             "lands" => {
                 def.lands = match rest {
                     "blast" => Lands::Blast,
@@ -1117,6 +1131,12 @@ mod tests {
         let resets = |v: &str| parse(&format!("[d]\nkind weapon\ndoes dog\nkill_resets {v}\nicon WHITE\n[cash]\nkind filler\nicon WHITE\n")).map(|b| b.defs[0].kill_resets);
         assert_eq!((resets("1"), resets("0"), g.defs[0].kill_resets), (Ok(true), Ok(false), false), "off when left out");
         assert!(resets("yes").unwrap_err().starts_with("4: kill_resets is 1 or 0"));
+        let fetches = |v: &str| parse(&format!("[d]\nkind weapon\ndoes dog\nfetches {v}\nicon WHITE\n[cash]\nkind filler\nicon WHITE\n")).map(|b| b.defs[0].fetches);
+        assert_eq!((fetches("1"), fetches("0"), g.defs[0].fetches), (Ok(true), Ok(false), false), "off when left out");
+        assert!(fetches("yes").unwrap_err().starts_with("4: fetches is 1 or 0"));
+        let charge = |v: &str| parse(&format!("[d]\nkind weapon\ndoes dog\ncharge {v}\nicon WHITE\n[cash]\nkind filler\nicon WHITE\n")).map(|b| b.defs[0].charge);
+        assert_eq!((charge("160"), charge("0"), g.defs[0].charge), (Ok(160.0), Ok(0.0), 0.0), "never when left out");
+        assert!(charge("-1").unwrap_err().starts_with("4: charge is pixels"));
         assert!(outside("-1").is_err() && outside("far").is_err());
     }
 

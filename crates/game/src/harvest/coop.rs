@@ -79,7 +79,7 @@ fn the_run_goes_on_while_anyone_stands_and_ends_once_all_have_turned() {
 fn drops_go_to_whoever_picks_them_up_and_xp_is_shared() {
     let mut h = open_pair(200.0);
     let at = h.players[1].pos;
-    h.drops.push(Drop { kind: DropKind::Money(3), pos: at, z: 0.0, vz: 0.0, vel: [0.0; 2], age: 0.0, pulled: None, to: ME });
+    h.drops.push(Drop { kind: DropKind::Money(3), pos: at, z: 0.0, vz: 0.0, vel: [0.0; 2], age: 0.0, pulled: None, to: ME, dog: None });
     let xp = h.xp;
     step(&mut h, 0.5);
     assert!(h.drops.is_empty());

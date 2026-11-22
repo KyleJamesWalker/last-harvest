@@ -544,6 +544,23 @@ struct Drop {
     pulled: Option<f32>,
     /// The player it flies to once caught.
     to: PlayerId,
+    /// The dog going for it or carrying it.
+    dog: Option<Fetch>,
+}
+
+/// Which dog has a heart: its player's, by card and slot.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Fetch {
+    player: PlayerId,
+    def: usize,
+    slot: usize,
+    carried: bool,
+}
+
+impl Fetch {
+    fn same(self, o: Fetch) -> bool {
+        (self.player, self.def, self.slot) == (o.player, o.def, o.slot)
+    }
 }
 
 impl Drop {
@@ -2992,7 +3009,7 @@ impl Harvest {
             let a = self.juice.rng.range(0.0, TAU);
             let speed = self.juice.rng.range(8.0, 28.0);
             let vz = self.juice.rng.range(60.0, 95.0);
-            self.drops.push(Drop { kind, pos: z.pos, z: 4.0, vz, vel: [fm::cos(a) * speed, fm::sin(a) * speed], age: 0.0, pulled: None, to: ME });
+            self.drops.push(Drop { kind, pos: z.pos, z: 4.0, vz, vel: [fm::cos(a) * speed, fm::sin(a) * speed], age: 0.0, pulled: None, to: ME, dog: None });
         }
         if let Some(kind) = died
             && (self.hush[1] <= 0.0 || kind.stats().heavy)
@@ -3017,7 +3034,7 @@ impl Harvest {
         for d in self.drops.iter_mut().filter(|d| matches!(d.kind, DropKind::Money(_)) && d.pulled.is_none()) {
             let side = if self.juice.rng.below(2) == 0 { 1.0 } else { -1.0 };
             d.catch(norm(sub(self.players[p].pos, d.pos)), side);
-            d.to = p;
+            (d.to, d.dog) = (p, None);
         }
         sounds.push(Sfx::Pick(true));
         self.soul_harvest(at);
@@ -3035,6 +3052,9 @@ impl Harvest {
             let nearest = self.nearest_player(self.drops[i].pos);
             let d = &mut self.drops[i];
             d.age += dt;
+            if d.dog.is_some_and(|f| f.carried) {
+                continue;
+            }
             if d.z > 0.0 || d.vz > 0.0 {
                 d.vz -= 320.0 * dt;
                 d.z += d.vz * dt;
@@ -3051,7 +3071,7 @@ impl Harvest {
             {
                 let side = if self.juice.rng.below(2) == 0 { 1.0 } else { -1.0 };
                 d.catch(norm(sub(self.players[p].pos, d.pos)), side);
-                d.to = p;
+                (d.to, d.dog) = (p, None);
             }
             let to = sub(self.players[d.to].pos, d.pos);
             let dist = len(to);
@@ -4556,7 +4576,7 @@ mod tests {
         let mut h = Harvest::calm(5);
         let mut sounds = Vec::new();
         for _ in 0..3 {
-            h.drops.push(Drop { kind: DropKind::Money(1), pos: h.me().pos, z: 0.0, vz: 0.0, vel: [0.0; 2], age: 0.0, pulled: None, to: ME });
+            h.drops.push(Drop { kind: DropKind::Money(1), pos: h.me().pos, z: 0.0, vz: 0.0, vel: [0.0; 2], age: 0.0, pulled: None, to: ME, dog: None });
             h.collect(0.1, &mut sounds);
         }
         let steps: Vec<u8> = sounds.iter().filter_map(|s| if let Sfx::Pickup(n) = s { Some(*n) } else { None }).collect();
@@ -4570,7 +4590,7 @@ mod tests {
         h.spawn(0.02);
         let leader = h.tells.iter().find(|t| t.leader).expect("the horde has a leader");
         assert!(leader.kind == Kind::named("big") && h.tells.iter().filter(|t| t.leader).count() == 1);
-        h.drops.push(Drop { kind: DropKind::Chest, pos: h.me().pos, z: 0.0, vz: 0.0, vel: [0.0; 2], age: 0.0, pulled: None, to: ME });
+        h.drops.push(Drop { kind: DropKind::Chest, pos: h.me().pos, z: 0.0, vz: 0.0, vel: [0.0; 2], age: 0.0, pulled: None, to: ME, dog: None });
         h.collect(0.016, &mut Vec::new());
         for _ in 0..200 {
             if let Phase::LevelUp { choices, .. } = h.phase {
@@ -4590,7 +4610,7 @@ mod tests {
         h.update(&Input::default(), 1.0 / 60.0, &mut Vec::new());
         assert!(h.leveling > 0.0);
         for _ in 0..2 {
-            h.drops.push(Drop { kind: DropKind::Chest, pos: h.me().pos, z: 0.0, vz: 0.0, vel: [0.0; 2], age: 0.0, pulled: None, to: ME });
+            h.drops.push(Drop { kind: DropKind::Chest, pos: h.me().pos, z: 0.0, vz: 0.0, vel: [0.0; 2], age: 0.0, pulled: None, to: ME, dog: None });
         }
         h.collect(0.016, &mut Vec::new());
         let mut level_ups = 0;
@@ -4825,9 +4845,9 @@ mod tests {
         h.map.driver = Some(h.me().pos);
         for (dx, dy) in [(200.0, 0.0), (-200.0, 40.0), (0.0, 180.0), (30.0, -190.0), (150.0, 150.0)] {
             let pos = [h.me().pos[0] + dx, h.me().pos[1] + dy];
-            h.drops.push(Drop { kind: DropKind::Money(each), pos, z: 0.0, vz: 0.0, vel: [0.0; 2], age: 0.0, pulled: None, to: ME });
+            h.drops.push(Drop { kind: DropKind::Money(each), pos, z: 0.0, vz: 0.0, vel: [0.0; 2], age: 0.0, pulled: None, to: ME, dog: None });
         }
-        h.drops.push(Drop { kind: DropKind::Health, pos: [h.me().pos[0] + 200.0, h.me().pos[1] + 200.0], z: 0.0, vz: 0.0, vel: [0.0; 2], age: 0.0, pulled: None, to: ME });
+        h.drops.push(Drop { kind: DropKind::Health, pos: [h.me().pos[0] + 200.0, h.me().pos[1] + 200.0], z: 0.0, vz: 0.0, vel: [0.0; 2], age: 0.0, pulled: None, to: ME, dog: None });
         h
     }
 

@@ -8,7 +8,7 @@ use super::player::PlayerId;
 use super::powerups::{Aim, Does, Kind, Lands, Pattern, Stat, Targets, book};
 use super::{
     ME,
-    Barrel, Bullet, FLASH_TIME, Fx, Grenade, Harvest, TILE, Thrown, Zombie, len, norm, strike, sub,
+    Barrel, Bullet, Drop, DropKind, FLASH_TIME, Fetch, Fx, Grenade, Harvest, TILE, Thrown, Zombie, len, norm, strike, sub,
 };
 use crate::{Difficulty, Sfx};
 use crate::art::Art;
@@ -422,12 +422,16 @@ pub(super) struct Dog {
     catching_up: bool,
     /// Seconds into a pounce, while in the air.
     leap: Option<f32>,
+    /// Off to fetch a heart or bringing one back.
+    errand: bool,
+    /// Hearts it brought back.
+    pub fetched: u32,
 }
 
 impl Dog {
-    /// 0 wandering, 1 chasing a target, 2 catching up with its player, 3 in the air.
+    /// 0 wandering, 1 chasing a target, 2 catching up with its player, 3 in the air, 4 fetching a heart.
     pub fn doing(&self) -> usize {
-        if self.leap.is_some() { 3 } else if self.catching_up { 2 } else if self.target.is_some() { 1 } else { 0 }
+        if self.leap.is_some() { 3 } else if self.errand { 4 } else if self.catching_up { 2 } else if self.target.is_some() { 1 } else { 0 }
     }
 
     pub fn art(&self) -> Art {
@@ -1109,34 +1113,72 @@ impl Harvest {
         true
     }
 
-    /// Dogs run down the zombie nearest the player within their leash and bite; with nothing to chase they wander near the player.
+    /// Dogs run down the zombie nearest the player within their leash and bite; with nothing to chase they fetch a
+    /// heart or run into a horde if their card says so, else wander near the player.
     fn walk_dogs(&mut self, dt: f32, sounds: &mut Vec<Sfx>) {
         let want: Vec<(usize, usize)> = self.actor().kit.weapons.iter().filter(|a| a.does() == Does::Dog).flat_map(|&a| (0..self.stat(a, Stat::Count).max(1.0) as usize).map(move |s| (a.def, s))).collect();
         self.actor_mut().dogs.retain(|d| want.contains(&(d.def, d.slot)));
-        for (def, slot) in want {
+        let actor = self.actor;
+        for d in &mut self.drops {
+            if d.dog.is_some_and(|f| f.player == actor && !want.contains(&(f.def, f.slot))) {
+                d.dog = None;
+            }
+        }
+        for &(def, slot) in &want {
             if !self.actor().dogs.iter().any(|d| d.def == def && d.slot == slot) {
                 let me = self.actor_mut();
-                me.dogs.push(Dog { def, slot, pos: me.pos, heading: [1.0, 0.0], anim: 0.0, cd: 0.0, target: None, vel: [0.0; 2], spot: [0.0; 2], rest: 0.0, catching_up: false, leap: None });
+                me.dogs.push(Dog { def, slot, pos: me.pos, heading: [1.0, 0.0], anim: 0.0, cd: 0.0, target: None, vel: [0.0; 2], spot: [0.0; 2], rest: 0.0, catching_up: false, leap: None, errand: false, fetched: 0 });
             }
         }
         let crit = self.crit();
         let mut hits = (0, false);
         let mut barked = false;
+        let mut hordes: Option<Vec<usize>> = None;
+        let most = self.actor().kit.weapons.iter().filter(|a| a.does() == Does::Dog).map(|a| book().defs[a.def].charge).fold(0.0, f32::max);
         for i in 0..self.actor().dogs.len() {
             let Some(a) = self.actor().kit.weapons.iter().copied().find(|a| a.def == self.actor().dogs[i].def) else { continue };
             let (leash, speed, damage, cd, force) = (self.stat(a, Stat::Range), self.stat(a, Stat::Speed), self.stat(a, Stat::Damage), self.stat(a, Stat::Cooldown), self.stat(a, Stat::Knockback));
-            let chain = book().defs[a.def].kill_resets;
+            let card = &book().defs[a.def];
+            let (chain, fetches, charge) = (card.kill_resets, card.fetches, card.charge);
             let dog = &self.actor().dogs[i];
+            let tag = Fetch { player: actor, def: dog.def, slot: dog.slot, carried: false };
+            let mine = if fetches { self.drops.iter().position(|d| d.dog.is_some_and(|f| f.same(tag))) } else { None };
+            let carrying = mine.filter(|&m| self.drops[m].dog.is_some_and(|f| f.carried));
+            let reach = leash.max(charge);
             let near_player = |z: &Zombie| z.rise >= 1.0 && len(sub(z.pos, self.actor().pos)) < leash;
-            let held = dog.target.and_then(|id| self.zombies.iter().position(|z| z.id == id && near_player(z)));
-            let target = held.or_else(|| self.zombies.iter().enumerate().filter(|(_, z)| near_player(z)).min_by(|a, b| len(sub(a.1.pos, dog.pos)).total_cmp(&len(sub(b.1.pos, dog.pos)))).map(|(i, _)| i));
+            let in_reach = |z: &Zombie| z.rise >= 1.0 && len(sub(z.pos, self.actor().pos)) < reach;
+            let held = if carrying.is_some() { None } else { dog.target.and_then(|id| self.zombies.iter().position(|z| z.id == id && in_reach(z))) };
+            let mut target = if carrying.is_some() { None } else { held.or_else(|| self.zombies.iter().enumerate().filter(|(_, z)| near_player(z)).min_by(|a, b| len(sub(a.1.pos, dog.pos)).total_cmp(&len(sub(b.1.pos, dog.pos)))).map(|(i, _)| i)) };
             let (player, yaw) = (self.actor().pos, self.actor().view_yaw);
+            let magnet = self.actor().kit.magnet();
+            let heart = match (fetches, target, carrying) {
+                (true, None, None) => mine.or_else(|| {
+                    let free = |d: &&Drop| matches!(d.kind, DropKind::Money(_)) && d.pulled.is_none() && d.dog.is_none() && (magnet..reach).contains(&len(sub(d.pos, player)));
+                    self.drops.iter().enumerate().filter(|(_, d)| free(d)).min_by(|a, b| len(sub(a.1.pos, dog.pos)).total_cmp(&len(sub(b.1.pos, dog.pos)))).map(|(i, _)| i)
+                }),
+                _ => None,
+            };
+            if target.is_none() && heart.is_none() && carrying.is_none() && charge > leash {
+                let hordes = hordes.get_or_insert_with(|| self.hordes(player, most));
+                target = hordes.iter().copied().filter(|&z| len(sub(self.zombies[z].pos, player)) < charge).min_by(|&a, &b| len(sub(self.zombies[a].pos, dog.pos)).total_cmp(&len(sub(self.zombies[b].pos, dog.pos))));
+            }
+            let errand = carrying.map(|_| player).or_else(|| heart.map(|h| self.drops[h].pos));
             let away = len(sub(player, dog.pos));
             let goal = target.map(|t| self.zombies[t].pos);
             let dog = &mut self.players[self.actor].dogs[i];
             dog.cd -= dt;
             dog.rest -= dt;
             dog.target = target.map(|t| self.zombies[t].id);
+            dog.errand = errand.is_some();
+            if let Some(m) = mine
+                && heart != Some(m)
+                && carrying.is_none()
+            {
+                self.drops[m].dog = None;
+            }
+            if let Some(h) = heart {
+                self.drops[h].dog = Some(tag);
+            }
             let tune = crate::tuning::tuning();
             let landed = dog.leap.is_some_and(|age| age + dt >= tune.dog_leap_time);
             if let Some(age) = dog.leap {
@@ -1151,16 +1193,17 @@ impl Harvest {
                     continue;
                 }
             }
-            dog.catching_up = target.is_none() && (away > crate::tuning::tuning().dog_stray || (dog.catching_up && away > crate::tuning::tuning().dog_stray / 2.0));
+            dog.catching_up = target.is_none() && errand.is_none() && (away > crate::tuning::tuning().dog_stray || (dog.catching_up && away > crate::tuning::tuning().dog_stray / 2.0));
             if dog.rest <= 0.0 {
                 let rng = &mut self.juice.rng;
                 dog.spot = polar([0.0; 2], yaw + rng.range(-0.55, 0.55) * PI, rng.range(14.0, 32.0));
                 dog.rest = rng.range(1.5, 4.0);
             }
-            let (to, pace, stop) = match goal {
-                Some(g) => (sub(g, dog.pos), speed, crate::tuning::tuning().dog_reach * 0.6),
-                None if dog.catching_up => (sub(player, dog.pos), speed, 0.0),
-                None => (sub([player[0] + dog.spot[0], player[1] + dog.spot[1]], dog.pos), speed * crate::tuning::tuning().dog_trot, 3.0),
+            let (to, pace, stop) = match (goal, errand) {
+                (Some(g), _) => (sub(g, dog.pos), speed, crate::tuning::tuning().dog_reach * 0.6),
+                (None, Some(e)) => (sub(e, dog.pos), speed, 0.0),
+                (None, None) if dog.catching_up => (sub(player, dog.pos), speed, 0.0),
+                (None, None) => (sub([player[0] + dog.spot[0], player[1] + dog.spot[1]], dog.pos), speed * crate::tuning::tuning().dog_trot, 3.0),
             };
             let n = norm(to);
             if !landed && goal.is_some() && dog.cd <= 0.0 && len(to) < tune.dog_leap {
@@ -1176,6 +1219,20 @@ impl Harvest {
             if moving > 5.0 {
                 dog.heading = norm(dog.vel);
                 dog.anim += dt * (moving / speed * 1.6).min(1.0);
+            }
+            if let Some(m) = carrying.or(heart) {
+                let (mouth, lift, home) = ([dog.pos[0] + dog.heading[0] * 5.0, dog.pos[1] + dog.heading[1] * 2.0], dog.lift() + 4.0, len(sub(player, dog.pos)) < magnet);
+                let picked = carrying.is_some() || len(sub(self.drops[m].pos, dog.pos)) < tune.dog_reach;
+                if carrying.is_some() && home {
+                    dog.fetched += 1;
+                    let side = if self.juice.rng.below(2) == 0 { 1.0 } else { -1.0 };
+                    let d = &mut self.drops[m];
+                    (d.dog, d.to) = (None, actor);
+                    d.catch(norm(sub(player, d.pos)), side);
+                } else if picked {
+                    let d = &mut self.drops[m];
+                    (d.pos, d.z, d.vz, d.vel, d.dog) = (mouth, lift, 0.0, [0.0; 2], Some(Fetch { carried: true, ..tag }));
+                }
             }
             if let Some(t) = target
                 && len(to) < crate::tuning::tuning().dog_reach
@@ -1200,17 +1257,29 @@ impl Harvest {
         self.thud(hits, sounds);
     }
 
+    /// The risen zombies within `reach` of `from` that stand in a horde: `dog_horde` others within `dog_horde_spread`.
+    fn hordes(&self, from: [f32; 2], reach: f32) -> Vec<usize> {
+        let t = crate::tuning::tuning();
+        let (want, spread) = (t.dog_horde.max(1.0) as usize, t.dog_horde_spread);
+        let near: Vec<usize> = (0..self.zombies.len()).filter(|&i| self.zombies[i].rise >= 1.0 && len(sub(self.zombies[i].pos, from)) < reach).collect();
+        near.iter().copied().filter(|&i| near.iter().filter(|&&j| j != i && len(sub(self.zombies[i].pos, self.zombies[j].pos)) < spread).take(want).count() >= want).collect()
+    }
+
     /// The player is down: dogs bolt and drones fly off, straight away from them, and bite or fire at nothing.
     pub(super) fn scatter(&mut self, dt: f32) {
         let k = (dt * 4.0).min(1.0);
         let away = |pos: [f32; 2], from: [f32; 2], ahead: [f32; 2]| if len(sub(pos, from)) > 0.1 { norm(sub(pos, from)) } else { ahead };
+        let actor = self.actor;
+        for d in self.drops.iter_mut().filter(|d| d.dog.is_some_and(|f| f.player == actor)) {
+            d.dog = None;
+        }
         for i in 0..self.actor().dogs.len() {
             let Some(a) = self.actor().kit.weapons.iter().copied().find(|a| a.def == self.actor().dogs[i].def) else { continue };
             let speed = self.stat(a, Stat::Speed);
             let from = self.actor().pos;
             let dog = &mut self.actor_mut().dogs[i];
             let n = away(dog.pos, from, dog.heading);
-            dog.leap = None;
+            (dog.leap, dog.errand) = (None, false);
             dog.vel = [dog.vel[0] + (n[0] * speed - dog.vel[0]) * k, dog.vel[1] + (n[1] * speed - dog.vel[1]) * k];
             dog.pos = [dog.pos[0] + dog.vel[0] * dt, dog.pos[1] + dog.vel[1] * dt];
             if len(dog.vel) > 5.0 {
@@ -2229,6 +2298,68 @@ mod tests {
             let d = &h.me().dogs[0];
             assert_eq!((d.cd <= 0.0, d.target.is_none()), (ready, ready), "a bite on {hp} hp");
         }
+    }
+
+    #[test]
+    fn a_dog_brings_a_heart_past_the_magnet_back_to_its_own_player() {
+        let card = &book().defs[book().index("dog").unwrap()];
+        assert!(card.fetches, "the farm dog fetches");
+        let mut h = Harvest::calm_on(3, &super::super::map::MapSource::new("Open", [60, 60])).unwrap().with_players(2);
+        let def = book().index("dog").unwrap();
+        h.players[1].kit.weapons.clear();
+        h.players[1].kit.raise(def, 1);
+        h.players[ME].pos = [h.players[1].pos[0], h.players[1].pos[1] + 300.0];
+        let (magnet, at) = (h.players[1].kit.magnet(), [h.players[1].pos[0] + 60.0, h.players[1].pos[1]]);
+        assert!(magnet < 60.0, "the heart lies past the magnet, {magnet}");
+        h.drops.push(Drop { kind: DropKind::Money(1), pos: at, z: 0.0, vz: 0.0, vel: [0.0; 2], age: 0.0, pulled: None, to: ME, dog: None });
+        let mut sounds = Vec::new();
+        let mut carried = false;
+        for _ in 0..60 * 6 {
+            h.actor = 1;
+            h.walk_dogs(1.0 / 60.0, &mut sounds);
+            h.actor = ME;
+            h.collect(1.0 / 60.0, &mut sounds);
+            carried |= h.drops.first().is_some_and(|d| d.dog.is_some_and(|f| f.carried) && len(sub(d.pos, at)) > 4.0);
+            if h.drops.is_empty() {
+                break;
+            }
+        }
+        assert!(carried, "the dog carried it");
+        assert!(h.drops.is_empty(), "it was delivered");
+        assert_eq!((h.juice.tally.book(1).hearts, h.juice.tally.book(ME).hearts, h.players[1].dogs[0].fetched), (1, 0, 1), "to the dog's own player");
+    }
+
+    #[test]
+    fn a_dog_runs_into_a_horde_past_its_leash_but_not_at_a_lone_zombie_and_comes_back() {
+        let t = crate::tuning::tuning();
+        let card = &book().defs[book().index("dog").unwrap()];
+        let out = (card.charge + card.at(Stat::Range, 1)) / 2.0;
+        assert!(card.charge > card.at(Stat::Range, 1), "the farm dog charges past its leash");
+        let run = |h: &mut Harvest, secs: f32| {
+            let home: Vec<[f32; 2]> = h.zombies.iter().map(|z| z.pos).collect();
+            let mut far = 0.0f32;
+            for _ in 0..(secs * 60.0) as usize {
+                h.walk_dogs(1.0 / 60.0, &mut Vec::new());
+                h.zombies.iter_mut().zip(&home).for_each(|(z, p)| z.pos = *p);
+                far = far.max(len(sub(h.me().dogs[0].pos, h.me().pos)));
+            }
+            far
+        };
+        let mut lone = with("dog", [out, 0.0]);
+        run(&mut lone, 4.0);
+        assert_eq!(lone.zombies[0].hp, 500.0, "a lone zombie past the leash is left alone");
+        let mut h = with("dog", [out, 0.0]);
+        let c = h.zombies[0].pos;
+        for k in 0..t.dog_horde as usize {
+            let a = k as f32 * TAU / t.dog_horde;
+            h.zombies.push(Zombie::new(ZKind::named("big"), [c[0] + fm::cos(a) * 8.0, c[1] + fm::sin(a) * 8.0], 500.0, 1.0, 0.0));
+        }
+        let far = run(&mut h, 4.0);
+        assert!(far > card.at(Stat::Range, 1), "it ran past its leash, {far}");
+        assert!(h.zombies.iter().any(|z| z.hp < 500.0), "and bit into the horde");
+        h.zombies.clear();
+        run(&mut h, 4.0);
+        assert!(len(sub(h.me().dogs[0].pos, h.me().pos)) < t.dog_stray, "then came back");
     }
 
     #[test]

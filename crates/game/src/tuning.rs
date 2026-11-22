@@ -142,6 +142,8 @@ tuning! {
     dog_leap = "weapons" "dog_leap",
     dog_leap_height = "weapons" "dog_leap_height",
     dog_leap_time = "weapons" "dog_leap_time",
+    dog_horde = "weapons" "dog_horde",
+    dog_horde_spread = "weapons" "dog_horde_spread",
     maul_shatter = "weapons" "maul_shatter",
     drone_hold = "weapons" "drone_hold",
     drone_reach = "weapons" "drone_reach",

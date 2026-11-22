@@ -962,18 +962,20 @@ impl Watch for Nothing {
     }
 }
 
-/// What each player's dogs spend their time doing, and how often they pounce.
+/// What each player's dogs spend their time doing, how often they pounce, and the hearts they bring back.
 #[derive(Default)]
 pub struct Dogs {
-    /// By player: seconds wandering, chasing, catching up and in the air, then pounces begun.
-    by: Vec<([f32; 4], u32)>,
+    /// By player: seconds wandering, chasing, catching up, in the air and fetching, then pounces begun.
+    by: Vec<([f32; 5], u32)>,
     flying: Vec<Vec<bool>>,
+    fetched: Vec<u32>,
 }
 
 impl Watch for Dogs {
     fn tick(&mut self, h: &Harvest, dt: f32) {
-        self.by.resize(h.players.len(), ([0.0; 4], 0));
+        self.by.resize(h.players.len(), ([0.0; 5], 0));
         self.flying.resize(h.players.len(), Vec::new());
+        self.fetched.resize(h.players.len(), 0);
         for (p, pl) in h.players.iter().enumerate() {
             let was = &mut self.flying[p];
             was.resize(pl.dogs.len(), false);
@@ -985,11 +987,12 @@ impl Watch for Dogs {
                 }
                 was[d] = doing == 3;
             }
+            self.fetched[p] = self.fetched[p].max(pl.dogs.iter().map(|d| d.fetched).sum());
         }
     }
 
     fn report(&self, secs: f32) -> Vec<String> {
-        let names = ["wandering", "chasing", "catching up", "pouncing"];
+        let names = ["wandering", "chasing", "catching up", "pouncing", "fetching"];
         self.by
             .iter()
             .enumerate()
@@ -997,7 +1000,8 @@ impl Watch for Dogs {
             .map(|(p, (t, pounces))| {
                 let total: f32 = t.iter().sum();
                 let shares: Vec<String> = names.iter().zip(t).map(|(n, s)| format!("{n} {:.0}%", s * 100.0 / total)).collect();
-                format!("player {} dogs: {}; {pounces} pounces, {:.2} a second", p + 1, shares.join(", "), *pounces as f32 / secs.max(1e-3))
+                let fetched = self.fetched[p];
+                format!("player {} dogs: {}; {pounces} pounces, {:.2} a second; {fetched} hearts fetched, {:.1} a minute", p + 1, shares.join(", "), *pounces as f32 / secs.max(1e-3), fetched as f32 * 60.0 / secs.max(1e-3))
             })
             .collect()
     }
