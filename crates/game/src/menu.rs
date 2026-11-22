@@ -232,6 +232,7 @@ impl Game {
             }
             Page::Replays if back => {
                 self.page = Page::Stats;
+                self.saved_replays.clear();
                 self.sounds.push(Sfx::Tick(0));
             }
             Page::Replays => self.replays_page(input, tapped),
