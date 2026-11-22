@@ -30,11 +30,12 @@ mod save;
 pub mod scene3d;
 mod sfx;
 mod system;
+mod watch;
 pub mod touch;
 pub mod tuning;
 pub mod worn;
 
-pub use difficulty::Difficulty;
+pub use difficulty::{Difficulty, Tier};
 pub use draw::{Align, Canvas, Color, Frame, Shape};
 pub use art::Stand;
 pub use harvest::showcase::{CropShow, Figure, Showcase};
@@ -137,6 +138,8 @@ enum State {
     Gallery(gallery::Gallery),
     Hardware(hardware::Hardware),
     Icon(Box<icon::Icon>),
+    /// A saved replay played back, from the Replays page.
+    Watch(Box<watch::Watching>),
 }
 
 pub struct Game {
@@ -229,6 +232,11 @@ pub struct Game {
     /// Every night is recorded, each replay headed by these lines; none records nothing.
     replay_info: Option<Vec<(String, String)>>,
     replays: Vec<Vec<u8>>,
+    /// The replays the platform kept, newest first, for the Replays page.
+    saved_replays: Vec<watch::Saved>,
+    replay_row: usize,
+    /// The Replays page opened and wants the platform's replays.
+    replays_asked: bool,
 }
 
 /// Where the title's menu sits on the top screen when one screen shows both, and its scale.
@@ -298,6 +306,9 @@ impl Game {
             online: online_menu::Online::default(),
             replay_info: None,
             replays: Vec::new(),
+            saved_replays: Vec::new(),
+            replay_row: 0,
+            replays_asked: false,
         }
     }
 
@@ -373,8 +384,13 @@ impl Game {
     }
 
     fn progress(&self) -> harvest::Progress {
-        let s = &self.save;
-        harvest::Progress { kills: s.kills, best: s.best, best_level: s.best_level, nights: s.nights, dawns: s.dawns, breakers: s.breakers, breaker_dawns: s.breaker_dawns, found: s.found, everything: self.unlock_all, hidden: harvest::hidden_powerups(s.player.as_str()) }
+        self.progress_at(self.save.difficulty)
+    }
+
+    /// What `d`'s nights have unlocked.
+    fn progress_at(&self, d: Difficulty) -> harvest::Progress {
+        let s = self.save.records(d);
+        harvest::Progress { kills: s.kills, best: s.best, best_level: s.best_level, nights: s.nights, dawns: s.dawns, breakers: s.breakers, breaker_dawns: s.breaker_dawns, found: s.found, everything: self.unlock_all, hidden: harvest::hidden_powerups(self.save.player.as_str()) }
     }
 
     /// One line describing the current scene, for logs.
@@ -388,6 +404,7 @@ impl Game {
             State::Gallery(_) => "art".into(),
             State::Hardware(_) => "hardware".into(),
             State::Icon(_) => "icon".into(),
+            State::Watch(_) => "replay".into(),
         }
     }
 
@@ -540,6 +557,39 @@ impl Game {
         self.take_replays()
     }
 
+    /// True once each time the Replays page opens: the platform then hands over its replays with `set_saved_replays`.
+    pub fn take_replays_request(&mut self) -> bool {
+        std::mem::take(&mut self.replays_asked)
+    }
+
+    /// The replays the platform keeps, newest first, as file names and bytes after any gzip.
+    pub fn set_saved_replays(&mut self, saved: Vec<(String, Vec<u8>)>) {
+        self.saved_replays = saved.into_iter().map(|(name, raw)| watch::Saved::new(name, raw)).collect();
+        self.replay_row = self.replay_row.min(self.saved_replays.len().saturating_sub(1));
+    }
+
+    /// Plays saved replay `i` on the run's screens; one that won't read stays on the list with why.
+    pub(crate) fn watch_replay(&mut self, i: usize) {
+        let Some(opened) = self.saved_replays.get(i).map(watch::Saved::open) else { return };
+        match opened {
+            Ok((r, warn)) => {
+                self.keep_replays();
+                harvest::use_farm(None);
+                self.sounds.push(Sfx::Start);
+                self.state = State::Watch(Box::new(watch::Watching::new(r, warn)));
+            }
+            Err(e) => {
+                self.saved_replays[i].line = Err(e);
+                self.sounds.push(Sfx::Miss);
+            }
+        }
+    }
+
+    /// Where a replay's controls go: along the foot of the top screen when it's the only one, else atop the bottom.
+    fn watch_strip_top(&self) -> Option<f32> {
+        self.phone.is_some().then_some(SCREEN_H - watch::STRIP_H)
+    }
+
     pub(crate) fn keep_replays(&mut self) {
         if let State::Harvest(h) = &mut self.state {
             self.replays.extend(h.stop_recording());
@@ -584,6 +634,9 @@ impl Game {
     }
 
     fn phone_layout(&self, size: [f32; 2]) -> touch::Layout {
+        if matches!(self.state, State::Watch(_)) {
+            return touch::layout(size, true, false, false);
+        }
         touch::layout(size, matches!(self.state, State::Harvest(_)) || self.title_on_one(), self.has_touch(), self.in_photo())
     }
 
@@ -649,6 +702,7 @@ impl Game {
             volume: self.volume(),
             dread: match &self.state {
                 State::Harvest(h) if !self.paused => h.dread(),
+                State::Watch(w) if !self.paused => w.dread(),
                 _ => 0.0,
             },
             brightness: self.save.brightness.map(level),
@@ -776,10 +830,14 @@ impl Game {
                         self.buzz(seat, r);
                     }
                 }
-                self.save.found |= flow.found;
+                if let Some(r) = self.save.records_mut(h.difficulty()) {
+                    r.found |= flow.found;
+                }
                 if let Some(run) = flow.ended {
-                    let p = self.progress().after(run);
-                    (self.save.kills, self.save.best, self.save.best_level, self.save.nights, self.save.dawns, self.save.breakers, self.save.breaker_dawns) = (p.kills, p.best, p.best_level, p.nights, p.dawns, p.breakers, p.breaker_dawns);
+                    let p = self.progress_at(run.difficulty).after(run);
+                    if let Some(r) = self.save.records_mut(run.difficulty) {
+                        (r.kills, r.best, r.best_level, r.nights, r.dawns, r.breakers, r.breaker_dawns) = (p.kills, p.best, p.best_level, p.nights, p.dawns, p.breakers, p.breaker_dawns);
+                    }
                     self.save.record(run);
                 }
                 if flow.quit {
@@ -797,6 +855,15 @@ impl Game {
                 i.update(input, dt);
                 State::Icon(i)
             }
+            State::Watch(mut w) => {
+                let top = self.watch_strip_top().unwrap_or(0.0);
+                if w.update(input, input.touch.filter(|_| input.touch_started), top, &mut self.sounds) {
+                    State::Watch(w)
+                } else {
+                    self.page = Page::Replays;
+                    State::Title
+                }
+            }
             State::Hardware(mut hw) => {
                 let controls = hardware::Controls {
                     sounds: &mut self.sounds,
@@ -812,6 +879,18 @@ impl Game {
 
     /// Draws with what moved in the last step `alpha` of the way from where it was, for a display faster than the step.
     pub fn draw_at(&mut self, alpha: f32) -> Frame {
+        if let State::Watch(w) = &mut self.state {
+            let mut night = Frame::default();
+            w.draw(alpha, &mut night);
+            let over = self.draw();
+            for (to, from) in [(&mut night.top, &over.top), (&mut night.bottom, &over.bottom)] {
+                to.clip(None);
+                to.anchor([0.5, 0.5]);
+                to.place(from, [0.0, 0.0], 1.0);
+            }
+            night.phone = over.phone;
+            return night;
+        }
         let undo = match &mut self.state {
             State::Harvest(h) => h.blend(alpha),
             _ => None,
@@ -871,6 +950,14 @@ impl Game {
             }
             State::Gallery(g) => g.draw(&mut f),
             State::Icon(i) => i.draw(&mut f),
+            State::Watch(w) => {
+                let hints = !self.is_phone() || !self.has_touch() || self.touchpad.hidden;
+                w.draw_banner(&mut f.top);
+                match self.watch_strip_top() {
+                    Some(top) => w.draw_strip(&mut f.top, top, hints),
+                    None => w.draw_strip(&mut f.bottom, 0.0, hints),
+                }
+            }
             State::Hardware(hw) => {
                 hw.draw(&mut f, &self.system, self.save.brightness, self.leds);
                 osd::draw(&mut f.top, &self.input, self.rumble(), self.system.headphones);
@@ -1003,8 +1090,9 @@ impl Game {
     /// The title's tagline and records under the logo.
     fn draw_title_records(&self, f: &mut Frame) {
         f.top.label("Survive the night", SCREEN_W / 2.0, 400.0, 44.0, DIM, Align::Center);
-        if self.save.best > 0 {
-            let line = format!("Longest night: {}:{:02}", self.save.best / 60, self.save.best % 60);
+        let best = self.save.records(self.save.difficulty).best;
+        if best > 0 {
+            let line = format!("Longest night: {}:{:02}", best / 60, best % 60);
             f.top.label(line, SCREEN_W / 2.0, 480.0, 34.0, HOT, Align::Center);
         }
         let (open, all, waiting) = harvest::unlocked(&self.progress());
@@ -1336,6 +1424,107 @@ mod tests {
         assert_eq!(title_menu_touch([ax - 1.0, ay]), None, "a tap beside the menu misses it");
     }
 
+    fn recorded_night(ticks: usize) -> Vec<u8> {
+        recorded_night_with(ticks, 0)
+    }
+
+    fn recorded_night_with(ticks: usize, bots: usize) -> Vec<u8> {
+        let mut game = Game::new(11);
+        game.add_bots(bots);
+        game.record_replays(vec![("game".into(), "test".into())]);
+        game.open(Scene::Harvest);
+        for i in 0..ticks {
+            let held = if i % 200 < 100 { Buttons::UP } else { Buttons::LEFT | Buttons::UP };
+            game.update(&Input { held, ..Default::default() }, 1.0 / 60.0);
+        }
+        game.open(Scene::Title);
+        game.take_replays().pop().expect("a replay")
+    }
+
+    #[test]
+    fn stats_opens_the_replays_and_a_replay_plays_to_its_end_without_touching_the_save() {
+        let raw = recorded_night(600);
+        let mut game = Game::new(3);
+        for _ in 0..4 {
+            press(&mut game, Buttons::DOWN);
+        }
+        press(&mut game, Buttons::A);
+        assert_eq!(game.page, Page::Stats);
+        press(&mut game, Buttons::X);
+        assert_eq!(game.page, Page::Replays);
+        assert!(game.take_replays_request() && !game.take_replays_request(), "asked once");
+        game.set_saved_replays(vec![("night-1795237918-00.lhr".into(), raw)]);
+        assert!(game.saved_replays[0].line.as_ref().is_ok_and(|l| l.starts_with("2026-11-21 05:11")), "{:?}", game.saved_replays[0].line);
+        game.record_replays(vec![("game".into(), "test".into())]);
+        let save = game.save().to_text();
+        press(&mut game, Buttons::A);
+        assert!(matches!(game.state, State::Watch(_)));
+        press(&mut game, Buttons::RIGHT);
+        press(&mut game, Buttons::RIGHT);
+        for _ in 0..200 {
+            game.update(&Input::default(), 1.0 / 60.0);
+            game.draw_at(0.5);
+        }
+        let State::Watch(w) = &game.state else { panic!("still watching") };
+        assert!(w.ended() && w.drift().is_none(), "600 ticks at 4x in 200 frames, matching");
+        assert_eq!(game.save().to_text(), save, "the save is untouched");
+        assert!(game.take_replays().is_empty(), "watching records nothing");
+        press(&mut game, Buttons::B);
+        assert!(matches!(game.state, State::Title) && game.page == Page::Replays);
+    }
+
+    #[test]
+    fn a_replay_that_drifts_stops_where_it_drifted() {
+        let mut raw = recorded_night(300);
+        let at = raw.len() - 300 + 120;
+        raw[at] ^= 0xff;
+        let mut game = Game::new(3);
+        game.set_saved_replays(vec![("night-1795237918-00.lhr".into(), raw)]);
+        game.page = Page::Replays;
+        press(&mut game, Buttons::A);
+        for _ in 0..300 {
+            game.update(&Input::default(), 1.0 / 60.0);
+        }
+        let State::Watch(w) = &game.state else { panic!("watching") };
+        assert_eq!(w.drift().map(|d| d.tick), Some(120));
+        assert!(w.paused() && !w.ended(), "it stops at the drift");
+        let f = game.draw_at(1.0);
+        assert!(f.bottom.shapes.iter().chain(&f.top.shapes).any(|s| matches!(s, Shape::Text { text, .. } if text.starts_with("Drifted"))), "and says where");
+    }
+
+    #[test]
+    fn a_replay_with_more_players_follows_the_one_chosen_and_still_matches() {
+        let raw = recorded_night_with(400, 1);
+        let mut game = Game::new(3);
+        game.set_saved_replays(vec![("night-1795237918-00.lhr".into(), raw)]);
+        game.page = Page::Replays;
+        press(&mut game, Buttons::A);
+        press(&mut game, Buttons::R1);
+        for _ in 0..450 {
+            game.update(&Input::default(), 1.0 / 60.0);
+            game.draw_at(0.5);
+        }
+        let f = game.draw_at(1.0);
+        assert!(f.top.shapes.iter().any(|s| matches!(s, Shape::Text { text, .. } if text.contains("P2"))), "names whose view it is");
+        let State::Watch(w) = &game.state else { panic!("watching") };
+        assert!(w.ended() && w.drift().is_none(), "drawing as P2 changes nothing");
+    }
+
+    #[test]
+    fn a_tap_on_the_replay_strip_works_its_buttons() {
+        let raw = recorded_night(120);
+        let mut game = Game::new(3);
+        game.set_saved_replays(vec![("night-1795237918-00.lhr".into(), raw)]);
+        game.page = Page::Replays;
+        press(&mut game, Buttons::A);
+        let tap = |game: &mut Game, x: f32, y: f32| game.update(&Input { touch: Some([x, y]), touch_started: true, ..Default::default() }, 1.0 / 60.0);
+        tap(&mut game, SCREEN_W / 2.0, 90.0);
+        let State::Watch(w) = &game.state else { panic!("watching") };
+        assert!(w.paused(), "the middle button pauses");
+        tap(&mut game, 100.0, 90.0);
+        assert!(matches!(game.state, State::Title), "the first leaves");
+    }
+
     #[test]
     fn quit_shows_last_in_the_main_menu_only_where_the_game_can_quit() {
         let mut game = Game::new(1);
@@ -1477,11 +1666,11 @@ mod tests {
         for i in 0..60 * 60 * 10 {
             let held = if i % 2 == 0 { Buttons::A | Buttons::X } else { Buttons::NONE };
             game.update(&t.frame(RawInput { held, ..Default::default() }), 1.0 / 60.0);
-            if game.save().best > 0 {
+            if game.save().records(game.save().difficulty).best > 0 {
                 break;
             }
         }
-        assert!(game.save().best > 0);
+        assert!(game.save().records(Difficulty::EASY).best > 0, "the first run is on Easy");
     }
 
     #[test]
@@ -1611,14 +1800,16 @@ mod tests {
     #[test]
     fn reset_takes_two_presses_and_keeps_the_settings() {
         let mut game = Game::new(1);
-        let kept = Save { volume: 2, difficulty: Difficulty::Hard, ..Save::default() };
-        game.load(Save { kills: 900, best: 300, best_level: 9, nights: 4, dawns: 1, found: 0b110, ..kept });
+        let kept = Save { volume: 2, difficulty: Difficulty::HARD, ..Save::default() };
+        let mut played = kept;
+        *played.records_mut(Difficulty::HARD).unwrap() = crate::save::Records { kills: 900, best: 300, best_level: 9, nights: 4, dawns: 1, found: 0b110, ..Default::default() };
+        game.load(played);
         settings_row(&mut game, 9);
         press(&mut game, Buttons::A);
-        assert_eq!(game.save().kills, 900, "one press only asks");
+        assert_eq!(game.save().records(Difficulty::HARD).kills, 900, "one press only asks");
         game.update(&Input::default(), RESET_CONFIRM + 0.1);
         press(&mut game, Buttons::A);
-        assert_eq!(game.save().kills, 900, "the question times out");
+        assert_eq!(game.save().records(Difficulty::HARD).kills, 900, "the question times out");
         press(&mut game, Buttons::A);
         assert_eq!(game.save(), kept);
         assert!(game.reset_shown > 0.0, "the title says so");
@@ -1920,7 +2111,7 @@ mod tests {
     #[test]
     fn stats_opens_the_run_history_newest_first_and_b_comes_back() {
         let mut game = Game::new(1);
-        game.save.record(harvest::Run { secs: 125, level: 4, difficulty: Difficulty::Hard, dps: 37, ..Default::default() });
+        game.save.record(harvest::Run { secs: 125, level: 4, difficulty: Difficulty::HARD, dps: 37, ..Default::default() });
         game.save.record(harvest::Run { secs: 600, level: 9, won: true, dps: 81, ..Default::default() });
         for _ in 0..4 {
             press(&mut game, Buttons::DOWN);
@@ -2109,14 +2300,15 @@ mod tests {
     #[test]
     fn the_title_sets_the_difficulty_and_the_run_uses_it() {
         let mut game = Game::new(1);
-        assert_eq!(game.save().difficulty, Difficulty::Easy, "a first run starts on Easy");
+        assert_eq!(game.save().difficulty, Difficulty::EASY, "a first run starts on Easy");
         press(&mut game, Buttons::LEFT);
         press(&mut game, Buttons::LEFT);
-        assert_eq!(game.save().difficulty, Difficulty::Easy, "it stops at the end");
+        assert_eq!(game.save().difficulty, Difficulty::STROLL, "it stops at the end");
         let tap = |game: &mut Game, x: f32| game.update(&Input { touch: Some([x, DIFFICULTY_Y + 40.0]), touch_started: true, ..Default::default() }, 0.016);
-        tap(&mut game, SCREEN_W / 2.0 + 250.0);
-        tap(&mut game, SCREEN_W / 2.0 + 250.0);
-        assert_eq!(game.save().difficulty, Difficulty::Hard);
+        for _ in 0..3 {
+            tap(&mut game, SCREEN_W / 2.0 + 250.0);
+        }
+        assert_eq!(game.save().difficulty, Difficulty::HARD);
         assert!(matches!(game.state, State::Title), "an arrow tap doesn't start a run");
         press(&mut game, Buttons::A);
         assert!(game.summary().starts_with("harvest hard "), "{}", game.summary());

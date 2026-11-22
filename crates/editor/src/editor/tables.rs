@@ -53,6 +53,11 @@ impl DataEdit {
     }
 }
 
+/// Whether the page is one of `tuning.txt`'s difficulties.
+fn is_difficulty(d: &DataEdit) -> bool {
+    d.file == "tuning.txt" && d.section != table::TOP && !last_harvest_game::tuning::is_base_section(&d.section)
+}
+
 /// Whether a line is a shot style's color, which steps through the palette.
 fn is_color(d: &DataEdit, key: &str) -> bool {
     d.file == "effects.txt" && key == "color"
@@ -66,6 +71,7 @@ fn choices(d: &DataEdit, key: &str, players: &[String]) -> Option<Vec<String>> {
         ("powerups.txt", "zone") if d.section != table::TOP => words(&last_harvest_game::powerup_zones()),
         ("powerups.txt", "unlock") if d.section != table::TOP => words(&last_harvest_game::unlock_conditions()),
         ("powerups.txt", "player") if d.section != table::TOP && !players.is_empty() => Some(players.to_vec()),
+        ("tuning.txt", "kit") if is_difficulty(d) => words(&["easy", "normal", "hard"]),
         _ => None,
     }
 }
@@ -125,7 +131,10 @@ impl Editor {
             let file = file.as_str();
             let Some(text) = self.store.read_table(file) else { continue };
             let changed = last_harvest_game::built_in_table(file) != Some(text.as_str());
-            out.extend(Table::new(file, &text).sections().iter().map(|s| (data_name(file, s), changed)));
+            let sections = Table::new(file, &text).sections();
+            // A heading folds only a run of names, so the difficulties go after tuning.txt's base sections.
+            let (base, difficulties): (Vec<&String>, Vec<&String>) = sections.iter().partition(|s| file != "tuning.txt" || s.is_empty() || last_harvest_game::tuning::is_base_section(s));
+            out.extend(base.into_iter().chain(difficulties).map(|s| (data_name(file, s), changed)));
         }
         out
     }
@@ -182,7 +191,7 @@ impl Editor {
 
     /// Whether the page's section can be copied to a new id.
     pub(super) fn copyable(d: &DataEdit) -> bool {
-        COPYABLE.contains(&kind(&d.file)) && d.section != table::TOP
+        (COPYABLE.contains(&kind(&d.file)) && d.section != table::TOP) || is_difficulty(d)
     }
 
     /// Hands the game the store's `farm.txt` for Randomize to lay out, where it isn't the game's own, or always
@@ -294,7 +303,12 @@ impl Editor {
                 keep.push(("does", d.section.clone()));
             }
         }
-        if d.change(|t, s| t.copy(s, id) && keep.iter().all(|(k, v)| t.add(id, k, v))) {
+        let named = |t: &mut Table| match t.entries(id).iter().position(|e| e.key == "name") {
+            Some(at) => t.set(id, at, id),
+            None => t.add(id, "name", id),
+        };
+        let difficulty = is_difficulty(d);
+        if d.change(|t, s| t.copy(s, id) && keep.iter().all(|(k, v)| t.add(id, k, v)) && (!difficulty || named(t))) {
             d.section = id.to_string();
             let file = d.file.clone();
             self.show_section();

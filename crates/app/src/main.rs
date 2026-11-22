@@ -349,6 +349,9 @@ impl App {
             self.game.update_all(&inputs, clock::STEP);
         }
         persist::keep_replays(self.game.take_replays());
+        if self.game.take_replays_request() {
+            self.game.set_saved_replays(persist::saved_replays());
+        }
         self.online.send(&mut self.game);
         #[cfg(any(target_os = "macos", windows))]
         self.pads.rumble(&self.seats, |seat| self.game.rumble_for(seat));

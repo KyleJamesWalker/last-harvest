@@ -2,7 +2,7 @@
 
 use std::sync::OnceLock;
 
-use crate::Difficulty;
+use crate::Tier;
 use crate::art::{self, Art};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -822,12 +822,12 @@ pub fn parse(text: &str) -> Result<Book, String> {
                 ("slots", ["weapons", v]) => book.weapon_slots = number(v)? as usize,
                 ("slots", ["passives", v]) => book.passive_slots = number(v)? as usize,
                 ("start", [d, ids @ ..]) => {
-                    let d = Difficulty::from_key(d).ok_or_else(|| format!("{n}: start names easy, normal or hard first, not {d:?}"))?;
+                    let d = Tier::from_key(d).ok_or_else(|| format!("{n}: start names easy, normal or hard first, not {d:?}"))?;
                     start[d as usize] = Some((n, ids.iter().map(|id| id.to_string()).collect()));
                 }
                 ("grenades", [v]) => book.grenades = [number(v)?; 3],
                 ("grenades", [d, v]) => {
-                    let d = Difficulty::from_key(d).ok_or_else(|| format!("{n}: grenades names easy, normal or hard, or just a number, not {d:?}"))?;
+                    let d = Tier::from_key(d).ok_or_else(|| format!("{n}: grenades names easy, normal or hard, or just a number, not {d:?}"))?;
                     book.grenades[d as usize] = number(v)?;
                 }
                 ("finds", [v]) => book.finds = number(v)? as usize,
@@ -1046,8 +1046,8 @@ mod tests {
         assert!(count(Kind::Filler) >= 3, "fillers fill all three cards when nothing else is left");
         let start = b.defs.iter().filter(|d| d.kind == Kind::Weapon && d.unlock == Unlock::Start).count();
         assert!((2..=4).contains(&start), "a few weapons from the start, the rest unlocked over time");
-        let ids = |d: Difficulty| b.start[d as usize].iter().map(|&i| b.defs[i].id.as_str()).collect::<Vec<_>>();
-        for d in [Difficulty::Easy, Difficulty::Normal, Difficulty::Hard] {
+        let ids = |d: Tier| b.start[d as usize].iter().map(|&i| b.defs[i].id.as_str()).collect::<Vec<_>>();
+        for d in Tier::ALL {
             assert_eq!(ids(d), ["pistol", "knife"], "{d:?}");
         }
         assert_eq!(b.grenades, [2, 1, 1]);

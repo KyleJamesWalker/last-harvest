@@ -23,7 +23,7 @@ hearts and level for each. With no BUILD, measures each weapon alone at each lev
   --weapons a,b       the matrix only for these weapons
   --seeds N           nights per build, each on its own seed (3)
   --seed S            the first seed (1)
-  --difficulty D      easy, normal or hard (normal)
+  --difficulty D      a difficulty by id: stroll, easy, normal, hard, brutal, dead, or a mod's (normal)
   --size WxH          the generated farm's size in tiles (72x54)
   --walk W            circle; eight, a loop each way; avoid, turning away from the zombies on the map; or corner,
                       standing in the farm's nearest corner (circle)
@@ -47,7 +47,8 @@ hearts and level for each. With no BUILD, measures each weapon alone at each lev
   --diff OLD NEW      compare two --csv files by build and weapon
   --record FILE       play the first BUILD's first seed once and write it to FILE as a replay
   --replay FILE       play a replay again, from the game or --record, and report the first tick it drifts
-  --watch NAME        with --replay, count more as it plays: dogs
+  --watch NAME        with --replay, count more as it plays: dogs, or hurt (where and how
+                      the first player is bitten)
   --net-sim SPEC      play each seed online instead: a client on a link of loss=0.1,lat=80,jitter=20 (ms), any
                       left out; prints the bytes sent and how far the client's picture strays. BUILD is the first
                       given, or the starting kit
@@ -62,8 +63,9 @@ struct Args {
     jobs: usize,
     csv: Option<String>,
     json: Option<String>,
-    /// `--pick` as given, read once the data is loaded.
+    /// `--pick` and `--difficulty` as given, read once the data is loaded.
     pick: String,
+    difficulty: String,
     locked: bool,
     net: Option<NetSim>,
     record: Option<String>,
@@ -89,7 +91,7 @@ fn main() {
 }
 
 fn parse(args: &[String]) -> Result<Args, String> {
-    let mut a = Args { builds: Vec::new(), weapons: None, seeds: 3, seed: 1, plan: Plan::new(Vec::new()), jobs: std::thread::available_parallelism().map_or(1, |n| n.get()), csv: None, json: None, pick: "none".into(), locked: false, net: None, record: None, replay: None, watch: None };
+    let mut a = Args { builds: Vec::new(), weapons: None, seeds: 3, seed: 1, plan: Plan::new(Vec::new()), jobs: std::thread::available_parallelism().map_or(1, |n| n.get()), csv: None, json: None, pick: "none".into(), difficulty: "normal".into(), locked: false, net: None, record: None, replay: None, watch: None };
     let mut it = args.iter();
     while let Some(arg) = it.next() {
         let mut value = || it.next().cloned().ok_or_else(|| format!("{arg} needs a value"));
@@ -100,10 +102,7 @@ fn parse(args: &[String]) -> Result<Args, String> {
             "--weapons" => a.weapons = Some(value()?.split(',').map(|s| s.trim().to_string()).collect()),
             "--seeds" => a.seeds = num::<u64>(arg, value()?)?.max(1),
             "--seed" => a.seed = num(arg, value()?)?,
-            "--difficulty" => {
-                let v = value()?;
-                a.plan.difficulty = *Difficulty::ALL.iter().find(|d| d.key() == v).ok_or_else(|| format!("--difficulty: {v} is not easy, normal or hard"))?;
-            }
+            "--difficulty" => a.difficulty = value()?,
             "--size" => {
                 let v = value()?;
                 let (w, h) = v.split_once('x').ok_or_else(|| format!("--size: {v} is not WxH"))?;
@@ -147,6 +146,7 @@ struct Cell {
 
 fn run(mut a: Args) -> Result<(), String> {
     pak::load()?;
+    a.plan.difficulty = Difficulty::from_key(&a.difficulty).ok_or_else(|| format!("--difficulty: no difficulty {}; there are {}", a.difficulty, Difficulty::all().map(Difficulty::key).collect::<Vec<_>>().join(", ")))?;
     a.plan.pick = Pick::from_name(&a.pick).map_err(|e| format!("--pick: {e}"))?;
     a.plan.unlocked = a.plan.pick != Pick::None && !a.locked;
     if let Some(path) = &a.replay {
@@ -536,7 +536,7 @@ fn csv(cells: &[Cell], plan: &Plan) -> String {
 fn json(cells: &[Cell], a: &Args) -> String {
     let p = &a.plan;
     let mut s = format!(
-        "{{\"version\":\"{VERSION}\",\"difficulty\":\"{}\",\"size\":[{},{}],\"walk\":\"{}\",\"turn\":{},\"turn_every\":{},\"throw_every\":{},\"pick\":\"{}\",\"unlocked\":{},\"mortal\":{},\"secs\":{},\"step\":{},\"builds\":[",
+        "{{\"version\":\"{VERSION}\",\"difficulty\":\"{}\",\"size\":[{},{}],\"walk\":\"{}\",\"turn\":{},\"turn_every\":{},\"throw_every\":{},\"pick\":\"{}\",\"unlocked\":{},\"mortal\":{},\"secs\":{},\"step\":{},\"players\":{},\"builds\":[",
         p.difficulty.key(),
         p.size[0],
         p.size[1],
@@ -548,17 +548,19 @@ fn json(cells: &[Cell], a: &Args) -> String {
         p.unlocked,
         p.mortal,
         p.until.unwrap_or(600.0),
-        p.step
+        p.step,
+        p.players
     );
     for (i, c) in cells.iter().enumerate() {
         let _ = write!(s, "{}{{\"build\":\"{}\",\"nights\":[", if i > 0 { "," } else { "" }, c.name());
         for (j, (n, seed)) in c.nights.iter().zip(a.seed..).enumerate() {
-            let minutes: Vec<String> = n.minutes.iter().map(|m| format!("{{\"kills\":{},\"hearts\":{},\"level\":{}}}", m.kills, m.hearts, m.level)).collect();
+            let minutes: Vec<String> = n.minutes.iter().map(|m| format!("{{\"kills\":{},\"hearts\":{},\"level\":{},\"zombies\":{:.1},\"zombies_most\":{},\"shots_most\":{},\"fx_most\":{},\"living\":{}}}", m.kills, m.hearts, m.level, m.zombies, m.zombies_most, m.shots_most, m.fx_most, m.living)).collect();
+            let seats: Vec<String> = n.seats.iter().map(|x| format!("{{\"fell\":{},\"kills\":{},\"hearts\":{},\"led\":{:.1},\"bites\":{}}}", x.fell.map_or("null".into(), |t| format!("{t:.2}")), x.kills, x.hearts, x.led, x.bites)).collect();
             let took: Vec<String> = n.took.iter().map(|t| format!("{{\"secs\":{:.2},\"id\":\"{}\",\"rare\":{}}}", t.secs, sandbox::powerup_id(t.up), t.rare)).collect();
             let lines: Vec<String> = n.lines.iter().map(|l| format!("{{\"weapon\":\"{}\",\"level\":{},\"raw\":{:.1},\"useful\":{:.1},\"kills\":{},\"held\":{:.2}}}", l.id, l.level, l.raw, l.useful, l.kills, l.held)).collect();
             let _ = write!(
                 s,
-                "{}{{\"seed\":{seed},\"secs\":{:.2},\"dawn\":{},\"fell\":{},\"kills\":{},\"hearts\":{},\"level\":{},\"spawned\":{},\"capped\":{:.2},\"build\":\"{}\",\"took\":[{}],\"minutes\":[{}],\"weapons\":[{}]}}",
+                "{}{{\"seed\":{seed},\"secs\":{:.2},\"dawn\":{},\"fell\":{},\"kills\":{},\"hearts\":{},\"level\":{},\"spawned\":{},\"capped\":{:.2},\"cap\":{},\"capped_at\":{},\"build\":\"{}\",\"took\":[{}],\"minutes\":[{}],\"weapons\":[{}],\"seats\":[{}]}}",
                 if j > 0 { "," } else { "" },
                 n.secs,
                 n.dawn,
@@ -568,10 +570,13 @@ fn json(cells: &[Cell], a: &Args) -> String {
                 n.level,
                 n.spawned,
                 n.capped,
+                n.cap,
+                n.capped_at.map_or("null".into(), |t| format!("{t:.2}")),
                 sandbox::build_text(&n.build),
                 took.join(","),
                 minutes.join(","),
-                lines.join(",")
+                lines.join(","),
+                seats.join(",")
             );
         }
         s += "]}";

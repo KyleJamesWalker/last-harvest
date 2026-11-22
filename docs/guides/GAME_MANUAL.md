@@ -127,15 +127,20 @@ When you fall or get home, the top screen sums up the run. It shows on one scree
 
 ### Difficulties
 
-Pick a difficulty under Play with Left and Right, or tap its arrows. A new save starts on Easy, and the game remembers your choice.
+Pick a difficulty under Play with Left and Right, or tap its arrows. A new save starts on Easy, and the game remembers your choice. Online, the host's difficulty plays.
 
-| Difficulty | Bites | Health drops | You start with |
-|---|---|---|---|
-| Easy | Gentle | Often | A pistol, a knife and two grenades |
-| Normal | They hurt | Scarce | A pistol, a knife and a grenade |
-| Hard | Every bite counts | Rarer still | A pistol, a knife and a grenade |
+| Difficulty | Bites | Health drops | The night | You start with |
+|---|---|---|---|---|
+| Stroll | Softest | Most often | Fewer zombies, smaller hordes, no camp waves | A pistol, a knife and two grenades |
+| Easy | Gentle | Often | The usual | A pistol, a knife and two grenades |
+| Normal | They hurt | Scarce | The usual | A pistol, a knife and a grenade |
+| Hard | Every bite counts | Rarer still | The usual | A pistol, a knife and a grenade |
+| Brutal | As Hard | As Hard | More zombies sooner, bigger hordes, zombies toughen faster, a quicker leader in co-op | A pistol, a knife and a grenade |
+| Don't wake the dead | Worst | Almost never | Thick hordes every 70 seconds, more zombies at once, camp waves after 15 seconds | A pistol, a knife and a grenade |
 
-A player card can change your starting weapons.
+A player card can change your starting weapons. A mod pack can change a difficulty or add more; see [modding](../../docs/modding.md#difficulties).
+
+Each difficulty keeps its own records and unlocks: a powerup unlocked on Normal is found again on Brutal. A save from before difficulties kept their own carries its records and unlocks to Easy, Normal and Hard.
 
 ## Powerups
 
@@ -163,7 +168,7 @@ Each weapon covers a zone, shown on its card:
 
 ### Finds and unlocks
 
-Eight powerups are open from the first night. Each of the rest has a condition: kills, a long enough night, a level, nights played, dawns survived, or a level breaker (a rare card that takes a weapon one level past its top), alone or followed by dawn in the same night. Kills and nights add up over every run. Night length and level count your best single run.
+Eight powerups are open from the first night. Each of the rest has a condition: kills, a long enough night, a level, nights played, dawns survived, or a level breaker (a rare card that takes a weapon one level past its top), alone or followed by dawn in the same night. Kills and nights add up over every run on the same difficulty. Night length and level count your best single run on it.
 
 Meeting a condition makes the powerup findable. A level-up may then offer it on a green FOUND card, and taking that card unlocks it for good.
 
@@ -172,7 +177,7 @@ Meeting a condition makes the powerup findable. A level-up may then offer it on 
 - Some finds appear only after a set minute of the night.
 - The biggest finds appear only in a leader's chest. A chest gives a free level-up, which holds a find whenever one is waiting.
 
-The title screen counts your unlocked powerups and the finds that wait for you, and names the condition you are closest to. The game-over screen names what the run found.
+The title screen counts the chosen difficulty's unlocked powerups and the finds that wait for you, and names the condition you are closest to. The game-over screen names what the run found.
 
 ### Weapons
 
@@ -252,8 +257,9 @@ The title's bottom screen lists Play, Map, How to play, Settings, Stats, Credits
 
 - **Map** picks a hand-made map, or a random farm, for every run after.
 - **How to play** sums up the controls, hearts and level-ups, grenades, the map and the run home at dawn, in the buttons or touch controls you play with. A new save shows it at the first Play: A or a tap then starts the run, and B goes back to the menu. Elsewhere A, B, Start or a tap closes it.
-- **Stats** lists your records, including the best damage a second over a whole run. It also counts the cards and mod packs that loaded.
+- **Stats** lists the chosen difficulty's records, including the best damage a second over a whole run. It also counts the cards and mod packs that loaded.
 - **History**, from Stats with A or its button, shows the last 10 runs, newest first, five to a page. Each run lists its difficulty, Turned or Home at dawn, its time, level and damage a second, and the powerups it ended with. Left and Right turn the page.
+- **Replays**, from Stats with X or its button, lists the last 10 nights this device recorded (5 in a browser), newest first, with their date in UTC. A or a tap plays one on the run's screens, as it was played. A pauses, Left and Right set the speed from 0.25x to 8x, and Y steps one tick while paused. L1 and R1 switch whose view it follows in a night with more than one player. B leaves. Faster than 2x it plays without sound. If the replay stops matching the recording, it pauses there and names the time and tick. Watching changes no records or unlocks.
 - **Credits** names who made the game, its art, its template and its font.
 - **Online** hosts or joins a night with players on other devices. See [Online](#online).
 
@@ -314,7 +320,7 @@ Each player plays on their own device, and one of them hosts the night. Online i
 
 1. The host picks Host a night. The lobby shows a five-letter room code.
 2. Each other player picks Join with a code and types it on the on-screen keys: A types, B deletes and Start joins. Taps work too.
-3. In the lobby, A marks you ready. Once everyone is ready, the host's Start starts the night.
+3. In the lobby, A marks you ready. The host picks the difficulty with Left and Right, or a tap on it at the top right. Once everyone is ready, the host's Start starts the night.
 4. B leaves the lobby. On the host, B closes the room.
 
 Every device needs the same release and the same mod packs. The host turns away a player whose game differs and says why. A player can also join a night already under way: they drop in beside the others.

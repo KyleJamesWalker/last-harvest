@@ -1,6 +1,8 @@
 # The numbers the game plays by that no card, prop or powerup sets. Each [section] holds `key number` lines;
 # a mod's tuning.txt only needs the lines it changes. Distances are in pixels (a tile is 16), times in seconds,
-# angles in radians.
+# angles in radians. Any other [section] is a difficulty: name, blurb, kit (easy, normal or hard: whose starting
+# weapons and grenades), damage, hurt_time, health_drop and heal, and any section.key it changes, such as spawn.rate.
+# What it leaves out comes from its kit's difficulty and the sections above. The title lists them in this order.
 
 [player]
 hp 100          # health before upgrades
@@ -44,23 +46,81 @@ favor_weight 4  # ...as favor_weight says, on top of held_weight
 favor_level 6   # the level from which favor is offered
 breaker 2       # a rare card one level below the top breaks one past it, adding this many of its last step; 0 is off
 
+[stroll]
+name Stroll
+blurb Slow nights and soft bites, for learning the farm
+kit easy
+damage 0.4
+hurt_time 0.8
+health_drop 40
+heal 35
+spawn.rate 0.5
+spawn.growth 0.6
+spawn.top 6
+spawn.horde 14
+spawn.horde_growth 3
+zombies.max 220
+camp.after 0
+
 [easy]
+name Easy
+blurb Gentle bites and plenty of health, for a first night
 damage 0.55     # multiplies the damage zombies deal
 hurt_time 0.7   # seconds a hit leaves the player safe from the next
 health_drop 60  # one kill in this many drops health; the rest drop hearts
 heal 30         # health a health drop gives back
 
 [normal]
+name Normal
+blurb Bites hurt and health is scarce
 damage 1
 hurt_time 0.5
 health_drop 200
 heal 20
 
 [hard]
+name Hard
+blurb Every bite counts; health almost never turns up
 damage 1.4
 hurt_time 0.4
 health_drop 400
 heal 15
+
+[brutal]
+name Brutal
+blurb Hard's bites, with more of the dead and sooner
+kit hard
+spawn.rate 1
+spawn.growth 1.2
+spawn.top 12
+spawn.horde 28
+spawn.horde_growth 5
+spawn.per_player 1
+zombies.per_player 0.34
+zombies.growth 0.1
+leader.speed 40
+
+[dead]
+name Don't wake the dead
+blurb Thick hordes, a fast leader and next to no health
+kit hard
+damage 1.8
+hurt_time 0.35
+health_drop 600
+heal 12
+spawn.rate 1.4
+spawn.growth 1.6
+spawn.top 16
+spawn.horde_every 70
+spawn.horde 36
+spawn.horde_growth 6
+spawn.per_player 1.2
+zombies.max 360
+zombies.per_player 0.34
+zombies.growth 0.12
+leader.speed 48
+camp.after 15
+camp.over 0.25
 
 [zombies]
 max 300         # most alive at once

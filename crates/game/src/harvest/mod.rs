@@ -38,7 +38,7 @@ use std::f32::consts::{FRAC_PI_4, PI, TAU};
 
 use crate::art::{self, Art};
 use crate::rng::Rng;
-use crate::{Buttons, Color, Difficulty, Input, SCREEN_H, SCREEN_W, Sfx};
+use crate::{Buttons, Color, Difficulty, Input, SCREEN_H, SCREEN_W, Sfx, Tier};
 use enemies::Enemy;
 pub(crate) use enemies::{install_cards, off_from_ids, off_ids, roster};
 pub use props::{MAX_FRAME as PROP_MAX_FRAME, MAX_FRAMES as PROP_MAX_FRAMES, Named as NamedProp, PREFIX as PROP_PREFIX, ByViews as PropByViews, PropFields, load_for_checks as load_props_for_checks, turned_depth, prop_fields, prop_text, props as named_props, set_props};
@@ -692,7 +692,7 @@ fn worn_corner(at: [u8; 2], a: Art, flip: bool) -> [f32; 2] {
 fn player_pose(h: &Harvest, p: PlayerId, facing: Facing) -> (Art, f32) {
     let look = &players::look(&h.players[p].look).look;
     let fallen = match h.phase {
-        Phase::Over { t, won: false } if p == ME => Some(t),
+        Phase::Over { t, won: false } if p == h.viewer => Some(t),
         _ => h.players[p].down,
     };
     let Some(t) = fallen else { return (art_for(h, p, look, facing), 1.0) };
@@ -942,6 +942,8 @@ pub struct Harvest {
     paused_by: PlayerId,
     /// The player ME stands for while `relabel` has traded them; ME otherwise.
     swapped: PlayerId,
+    /// The player whose view `draw_view` is drawing.
+    viewer: PlayerId,
     net: online::Net,
     /// The size the view being drawn is laid out to, as `Canvas::refit` takes it; a screen's outside split-screen.
     canvas: [f32; 2],
@@ -1049,7 +1051,7 @@ impl Harvest {
     }
 
     fn with_map(seed: u64, rng: Rng, map: Map) -> Self {
-        let kit = Kit::start(Difficulty::Normal);
+        let kit = Kit::start(Tier::Normal);
         let mut juice = Juice::new(seed);
         juice.tally = tally::Tally::sized(book().defs.len(), 1);
         let own = crate::tuning::tuning().barrel_hp;
@@ -1089,7 +1091,7 @@ impl Harvest {
             waves: None,
             ticket: crate::tuning::tuning().driver_after,
             thrown: Vec::new(),
-            players: vec![Player::new(map.spawn, kit, book().grenades[Difficulty::Normal as usize] as f32)],
+            players: vec![Player::new(map.spawn, kit, book().grenades[Tier::Normal as usize] as f32)],
             actor: ME,
             inputs: Vec::new(),
             bots: Vec::new(),
@@ -1142,7 +1144,7 @@ impl Harvest {
             lift: 0.0,
             orbit: None,
             shown: None,
-            difficulty: Difficulty::Normal,
+            difficulty: Difficulty::NORMAL,
             single: false,
             corner_map: true,
             aiming: None,
@@ -1163,6 +1165,7 @@ impl Harvest {
             locals: Vec::new(),
             paused_by: ME,
             swapped: ME,
+            viewer: ME,
             net: online::Net::default(),
             canvas: [SCREEN_W, SCREEN_H],
             setup: None,
@@ -1260,10 +1263,17 @@ impl Harvest {
         format!("bench: {w}x{hgt} tiles, {} props, flow field {:.2} ms{crops}", self.map.props.len(), secs * 1000.0 / 20.0)
     }
 
+    pub fn difficulty(&self) -> Difficulty {
+        self.difficulty
+    }
+
     pub fn at(mut self, difficulty: Difficulty) -> Self {
-        let kit = Kit::start(difficulty);
+        difficulty.play();
+        let kit = Kit::start(difficulty.tier());
         let me = self.me_mut();
         (me.hp, me.grenades, me.kit) = (kit.max_hp(), kit.grenades(), kit);
+        let t = crate::tuning::tuning();
+        (self.held_weight, self.banishes, self.rerolls, self.favors, self.ticket) = (t.held_weight, t.banish as u32, t.reroll as u32, t.favor as u32, t.driver_after);
         Self { difficulty, ..self }
     }
 
@@ -1280,7 +1290,8 @@ impl Harvest {
     /// Comes after `at`, since the look may start the run with its own weapons for that difficulty.
     pub fn looking_like(mut self, id: &str) -> Self {
         let mine = players::look(id);
-        let own = mine.start_defs(self.difficulty).map(|defs| Kit::with_weapons(&defs, self.difficulty));
+        let tier = self.difficulty.tier();
+        let own = mine.start_defs(tier).map(|defs| Kit::with_weapons(&defs, tier));
         let me = self.me_mut();
         if let Some(kit) = own {
             me.grenades = kit.grenades();
@@ -1384,6 +1395,7 @@ impl Harvest {
     }
 
     pub fn update(&mut self, input: &Input, dt: f32, sounds: &mut Vec<Sfx>) -> Flow {
+        self.difficulty.play();
         self.tape_before(input, dt);
         self.updating = true;
         let flow = self.update_tick(input, dt, sounds);
@@ -3349,8 +3361,8 @@ impl Harvest {
 
     /// Top-left of a map view `[w, h]` world pixels across and down around the player, kept on the field.
     fn camera_over(&self, [w, h]: [f32; 2]) -> [f32; 2] {
-        let x = (self.me().pos[0] - w / 2.0).clamp(0.0, (self.map.width_px() - w).max(0.0));
-        let y = (self.me().pos[1] - 8.0 - h / 2.0).clamp(0.0, (self.map.height_px() - h).max(0.0));
+        let x = (self.eye().pos[0] - w / 2.0).clamp(0.0, (self.map.width_px() - w).max(0.0));
+        let y = (self.eye().pos[1] - 8.0 - h / 2.0).clamp(0.0, (self.map.height_px() - h).max(0.0));
         [(x * map_scale()).round() / map_scale(), (y * map_scale()).round() / map_scale()]
     }
 
@@ -4306,7 +4318,7 @@ mod tests {
 
     #[test]
     fn dying_turns_the_player_then_offers_a_new_farm_at_the_same_difficulty() {
-        let mut h = Harvest::new(4).at(Difficulty::Hard).without_enemies(0b10).looking_like("");
+        let mut h = Harvest::new(4).at(Difficulty::HARD).without_enemies(0b10).looking_like("");
         let mut sounds = Vec::new();
         h.me_mut().hp = 0.0;
         h.update(&Input::default(), 0.016, &mut sounds);
@@ -4325,7 +4337,7 @@ mod tests {
         h.update(&a, 0.016, &mut sounds);
         assert!(matches!(h.phase, Phase::Playing));
         assert_eq!(h.kills, 0);
-        assert_eq!(h.difficulty, Difficulty::Hard);
+        assert_eq!(h.difficulty, Difficulty::HARD);
         assert_eq!(h.me().kit.weapons.len(), 2, "and its kit");
         assert_eq!(h.enemies_off, 0b10, "the kinds turned off stay off");
         assert_eq!(h.me().look, "", "and the player keeps their look");
@@ -4333,7 +4345,7 @@ mod tests {
 
     #[test]
     fn every_difficulty_starts_with_a_pistol_and_knife_and_easy_with_two_grenades() {
-        for (d, grenades) in [(Difficulty::Easy, 2.0), (Difficulty::Normal, 1.0), (Difficulty::Hard, 1.0)] {
+        for (d, grenades) in [(Difficulty::EASY, 2.0), (Difficulty::NORMAL, 1.0), (Difficulty::HARD, 1.0)] {
             let h = Harvest::new(1).at(d).with_kit("lantern");
             assert_eq!(h.me().kit.weapons.len(), 3, "{d:?}");
             assert_eq!((h.me().grenades, h.me().kit.grenades()), (grenades, grenades), "{d:?}");
@@ -4369,6 +4381,25 @@ mod tests {
     }
 
     #[test]
+    fn a_night_plays_its_difficultys_numbers_on_its_own_thread() {
+        let mut brutal = Harvest::new(1).at(Difficulty::BRUTAL);
+        assert_eq!(crate::tuning::tuning().spawn_rate, 1.0);
+        let mut normal = Harvest::new(1).at(Difficulty::NORMAL);
+        assert_eq!(crate::tuning::tuning().spawn_rate, 0.7);
+        brutal.update(&Input::default(), 1.0 / 60.0, &mut Vec::new());
+        assert_eq!(crate::tuning::tuning().leader_speed, 40.0, "each update plays its own");
+        normal.update(&Input::default(), 1.0 / 60.0, &mut Vec::new());
+        assert_eq!(crate::tuning::tuning().leader_speed, 24.0);
+        let stroll = Harvest::new(1).at(Difficulty::STROLL);
+        assert_eq!((stroll.me().grenades, stroll.difficulty().tier()), (2.0, Tier::Easy), "Stroll starts with Easy's kit");
+        let dead = std::thread::spawn(|| {
+            let _h = Harvest::new(1).at(Difficulty::DEAD);
+            crate::tuning::tuning().max_zombies
+        });
+        assert_eq!((dead.join().unwrap(), crate::tuning::tuning().max_zombies), (360.0, 220.0), "another thread's night doesn't reach Stroll's here");
+    }
+
+    #[test]
     fn harder_difficulties_hit_harder_and_drop_less_health() {
         let bite = |d: Difficulty| {
             let mut h = Harvest::calm(3).at(d);
@@ -4376,9 +4407,9 @@ mod tests {
             h.update(&Input::default(), 1.0 / 60.0, &mut Vec::new());
             h.me().kit.max_hp() - h.me().hp
         };
-        let [easy, normal, hard] = Difficulty::ALL.map(bite);
+        let [easy, normal, hard] = [Difficulty::EASY, Difficulty::NORMAL, Difficulty::HARD].map(bite);
         assert!(easy < normal && normal < hard, "{easy} {normal} {hard}");
-        assert!(Difficulty::Easy.health_drop() < Difficulty::Hard.health_drop());
+        assert!(Difficulty::EASY.health_drop() < Difficulty::HARD.health_drop());
     }
 
     #[test]

@@ -2,7 +2,7 @@
 //! the game's data once.
 
 use last_harvest_game::data::{self, Card, Data};
-use last_harvest_game::{Difficulty, player_looks, player_powerups};
+use last_harvest_game::{Tier, player_looks, player_powerups};
 
 fn card(name: &str, text: &str) -> Card {
     Card { detail: 1, worn: String::new(), name: name.into(), text: text.into(), frame: [16, 16], sheet: vec![255; 16 * 3 * 16 * 5 * 4] }
@@ -22,6 +22,6 @@ fn a_player_only_weapon_goes_only_to_its_player_and_the_rest_stay_global() {
     assert!(has("jo", "pistol") && !has("kd", "lost"));
 
     let look = |id: &str| player_looks().iter().find(|l| l.id == id).unwrap();
-    assert_eq!(look("kd").start_names(Difficulty::Normal), ["Urumi", "Knife"]);
-    assert_eq!(look("jo").start_names(Difficulty::Normal), ["Pistol"], "another player's start passes over it");
+    assert_eq!(look("kd").start_names(Tier::Normal), ["Urumi", "Knife"]);
+    assert_eq!(look("jo").start_names(Tier::Normal), ["Pistol"], "another player's start passes over it");
 }

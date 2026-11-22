@@ -204,7 +204,7 @@ impl Harvest {
 
     /// Another player has photo mode open, so this view waits as in a pause.
     pub(super) fn photo_by_other(&self) -> bool {
-        self.photo.is_some() && self.paused_by != ME
+        self.photo.is_some() && self.paused_by != self.viewer
     }
 
     /// The player view `v` follows: themselves, leading the dead included, or else once turned while others stand, the
@@ -219,7 +219,12 @@ impl Harvest {
     /// Draws view `v` of a co-op run: what its player sees, or once turned, a living teammate's view under a banner.
     pub fn draw_view(&mut self, v: PlayerId, f: &mut crate::Frame, clean: bool) {
         let seen = self.followed(v);
-        self.relabel(seen);
+        let traded = seen != ME && seen < self.locals.len();
+        if traded {
+            self.trade(seen);
+        }
+        let actor = std::mem::replace(&mut self.actor, seen);
+        self.viewer = seen;
         self.draw(f, clean);
         if seen != v {
             let name = format!("YOU TURNED  -  WATCHING P{}", seen + 1);
@@ -227,7 +232,10 @@ impl Harvest {
             f.top.rect(0.0, 150.0, crate::SCREEN_W, 56.0, [0.0, 0.0, 0.0, 0.5]);
             f.top.label(name, crate::SCREEN_W / 2.0, 158.0, 36.0, super::RED, crate::Align::Center);
         }
-        self.relabel(seen);
+        (self.viewer, self.actor) = (ME, actor);
+        if traded {
+            self.trade(seen);
+        }
     }
 
     /// Whether player `p` holds X, so their aimed weapons go for barrels first.
@@ -456,6 +464,86 @@ mod tests {
         assert_eq!((h.players[0].pos, h.thrown[0].owner, h.juice.tally.book(ME).hearts, h.number(ME), h.number(1)), (b, ME, 7, 2, 1));
         h.relabel(1);
         assert_eq!((h.players[0].pos, h.players[1].pos, h.thrown[0].owner, h.juice.tally.book(1).hearts, h.number(ME)), (a, b, 1, 7, 1));
+    }
+
+    /// Every text view `v` draws, on both its screens.
+    fn texts(h: &mut Harvest, v: PlayerId) -> (crate::Frame, Vec<String>) {
+        let mut f = crate::Frame::default();
+        h.draw_view(v, &mut f, false);
+        let all = f.top.shapes.iter().chain(&f.bottom.shapes).filter_map(|s| match s {
+            crate::Shape::Text { text, .. } => Some(text.clone()),
+            _ => None,
+        });
+        let all = all.collect();
+        (f, all)
+    }
+
+    #[test]
+    fn each_view_marks_only_the_other_players_and_leaves_the_run_as_it_was() {
+        let mut h = pair();
+        h.players[1].pos = [h.players[0].pos[0], h.players[0].pos[1] + 6.0 * TILE];
+        let before = (h.summary(), h.players.iter().map(|p| (p.pos, p.view_yaw, p.hp)).collect::<Vec<_>>(), h.juice.feel(), h.zoom);
+        for v in 0..2 {
+            let (_, said) = texts(&mut h, v);
+            let (own, other) = (format!("P{}", v + 1), format!("P{}", 2 - v));
+            assert!(said.contains(&other), "view {v} names {other} on its map: {said:?}");
+            assert!(!said.iter().any(|t| *t == own || t.starts_with(&format!("{own} ")) || t.contains(&format!(" {own} "))), "view {v} never marks its own player");
+        }
+        let after = (h.summary(), h.players.iter().map(|p| (p.pos, p.view_yaw, p.hp)).collect::<Vec<_>>(), h.juice.feel(), h.zoom);
+        assert_eq!(before, after);
+        assert_eq!((h.viewer, h.actor, h.swapped), (ME, ME, ME), "nothing stays traded");
+    }
+
+    #[test]
+    fn a_view_draws_its_own_players_health_and_grenades() {
+        let mut h = pair();
+        h.players[1].hp = h.players[1].kit.max_hp() * 0.25;
+        h.players[0].grenades = 0.0;
+        h.players[1].grenades = h.players[1].kit.grenades();
+        let health = |f: &crate::Frame| {
+            f.top.shapes.iter().rev().find_map(|s| match *s {
+                crate::Shape::Rect { x: 24.0, y: 30.0, w, h: 22.0, color } if color[3] == 1.0 => Some(w),
+                _ => None,
+            })
+        };
+        let full_grenades = |f: &crate::Frame| {
+            f.bottom.shapes.iter().filter(|s| matches!(s, crate::Shape::Art { art, color, .. } if *art == crate::art::GRENADE && *color == WHITE)).count()
+        };
+        let (one, _) = texts(&mut h, 0);
+        let (two, _) = texts(&mut h, 1);
+        assert_eq!((health(&one), health(&two)), (Some(240.0), Some(60.0)));
+        assert_eq!(full_grenades(&one), 0);
+        assert_eq!(full_grenades(&two), h.players[1].kit.grenades() as usize);
+    }
+
+    #[test]
+    fn a_view_draws_its_own_players_sight_cone_from_their_own_kit() {
+        let mut h = pair();
+        h.players[0].view_yaw = 0.0;
+        h.players[1].view_yaw = std::f32::consts::FRAC_PI_2;
+        h.players[1].kit.mods.view = 1.5;
+        let dots = |f: &crate::Frame| {
+            f.bottom.shapes.iter().filter_map(|s| match *s {
+                crate::Shape::Circle { x, y, r: 5.0, .. } => Some([x, y]),
+                _ => None,
+            }).collect::<Vec<_>>()
+        };
+        for v in 0..2 {
+            h.viewer = v;
+            let cam = h.map_camera();
+            h.viewer = ME;
+            let pl = &h.players[v];
+            let (half, r) = (crate::tuning::tuning().view_half * pl.kit.mods.view, crate::tuning::tuning().map_sight / 8.0);
+            let want = [-half, half].map(|edge| {
+                let a = pl.view_yaw + edge;
+                [(pl.pos[0] + crate::fmath::cos(a) * r - cam[0]) * map_scale(), (pl.pos[1] - 6.0 + crate::fmath::sin(a) * r - cam[1]) * map_scale()]
+            });
+            let (f, _) = texts(&mut h, v);
+            let got = dots(&f);
+            for w in want {
+                assert!(got.iter().any(|d| (d[0] - w[0]).abs() < 0.5 && (d[1] - w[1]).abs() < 0.5), "view {v} has a cone dot at {w:?}: {got:?}");
+            }
+        }
     }
 
     #[test]

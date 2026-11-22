@@ -55,7 +55,7 @@ pub struct Setup {
 impl Setup {
     /// A night on this device with the game's own scripted players.
     pub fn night(seed: u64) -> Self {
-        Self { seed, map: String::new(), difficulty: Difficulty::Normal, progress: Progress::default(), enemies_off: 0, look: String::new(), farm: None, kit: String::new(), start_t: 0.0, one_screen: false, endless: false, players: 1, bots: 0, views: 1, walk: Walk::Avoid, turn: 0.25, turn_every: 0.0, throw_every: 12.0, kind: Kind::Night }
+        Self { seed, map: String::new(), difficulty: Difficulty::NORMAL, progress: Progress::default(), enemies_off: 0, look: String::new(), farm: None, kit: String::new(), start_t: 0.0, one_screen: false, endless: false, players: 1, bots: 0, views: 1, walk: Walk::Avoid, turn: 0.25, turn_every: 0.0, throw_every: 12.0, kind: Kind::Night }
     }
 
     /// The night, after setting the farm it plays on.
@@ -85,7 +85,7 @@ impl Setup {
                     h.bots = (1..h.players.len()).map(|p| (p, self.bot())).collect();
                 }
                 for pl in &mut h.players {
-                    pl.kit = Kit::forced(build, d);
+                    pl.kit = Kit::forced(build, d.tier());
                     pl.hp = pl.kit.max_hp();
                     pl.grenades = pl.kit.grenades();
                 }
@@ -153,7 +153,7 @@ views {}
             match key {
                 "seed" => s.seed = num(rest, line)?,
                 "map" => s.map = rest.to_string(),
-                "difficulty" => s.difficulty = *Difficulty::ALL.iter().find(|d| d.key() == rest).ok_or_else(|| bad(line))?,
+                "difficulty" => s.difficulty = Difficulty::from_key(rest).ok_or_else(|| bad(line))?,
                 "progress" if w.len() == 10 => {
                     let n = |i: usize| num(w[i], line).map(|v| v as u32);
                     s.progress = Progress { kills: n(0)?, best: n(1)?, best_level: n(2)?, nights: n(3)?, dawns: n(4)?, breakers: n(5)?, breaker_dawns: n(6)?, found: hex(w[7], line)?, everything: w[8] == "1", hidden: hex(w[9], line)? };
@@ -893,47 +893,151 @@ pub struct Outcome {
 
 /// Plays `r` again from its setup, tick by tick, with `watch` looking on.
 pub fn play(r: &Replay, watch: &mut dyn Watch) -> Outcome {
-    let mut h = r.setup.build();
-    let (mut seats, mut dt, mut sounds) = (vec![Input::default()], 1.0 / 60.0, Vec::new());
-    let mut events = r.events.iter().peekable();
-    let (mut drift, mut checks) = (None::<Drift>, 0);
-    for tick in 0..r.ticks {
-        while let Some((_, e)) = events.next_if(|(t, e)| *t == tick && !matches!(e, Event::Check(_))) {
+    let mut c = Cursor::new(r);
+    let mut sounds = Vec::new();
+    while c.step(r, &mut sounds) {
+        sounds.clear();
+        watch.tick(&c.h, c.dt);
+    }
+    Outcome { ticks: r.ticks, secs: c.h.t, checks: c.checks, drift: c.drift, kills: c.h.kills, level: c.h.level }
+}
+
+/// A replay part way through: the night as it stands and where its events are up to.
+struct Cursor {
+    h: Harvest,
+    seats: Vec<Input>,
+    dt: f32,
+    /// The next event, by place in `Replay::events`.
+    next: usize,
+    tick: u64,
+    checks: usize,
+    drift: Option<Drift>,
+}
+
+impl Cursor {
+    fn new(r: &Replay) -> Self {
+        Self { h: r.setup.build(), seats: vec![Input::default()], dt: 1.0 / 60.0, next: 0, tick: 0, checks: 0, drift: None }
+    }
+
+    /// Plays the next tick; false once every tick has played.
+    fn step(&mut self, r: &Replay, sounds: &mut Vec<Sfx>) -> bool {
+        let tick = self.tick;
+        if tick >= r.ticks {
+            return false;
+        }
+        while let Some((_, e)) = r.events.get(self.next).filter(|(t, e)| *t == tick && !matches!(e, Event::Check(_))) {
+            self.next += 1;
             match e {
                 Event::Input(seat, i) => {
-                    if seats.len() <= *seat {
-                        seats.resize(seat + 1, Input::default());
+                    if self.seats.len() <= *seat {
+                        self.seats.resize(seat + 1, Input::default());
                     }
-                    seats[*seat] = *i;
+                    self.seats[*seat] = *i;
                 }
-                Event::Dt(d) => dt = *d,
-                Event::Set(s) => h.apply_set(*s),
-                Event::Seat(p, look) => h.seat(*p, look),
-                Event::Unseat(p) => h.unseat(*p),
-                Event::Op(op) => h.op(*op, &mut sounds),
+                Event::Dt(d) => self.dt = *d,
+                Event::Set(s) => self.h.apply_set(*s),
+                Event::Seat(p, look) => self.h.seat(*p, look),
+                Event::Unseat(p) => self.h.unseat(*p),
+                Event::Op(op) => self.h.op(*op, sounds),
                 Event::Check(_) => {}
             }
         }
-        for (i, input) in h.inputs.iter_mut().enumerate() {
-            *input = seats.get(i + 1).copied().unwrap_or_default();
+        for (i, input) in self.h.inputs.iter_mut().enumerate() {
+            *input = self.seats.get(i + 1).copied().unwrap_or_default();
         }
-        h.update(&seats[0], dt, &mut sounds);
-        sounds.clear();
-        watch.tick(&h, dt);
-        let sum = checksum(&h);
-        if drift.is_none() && r.sums.get(tick as usize) != Some(&(sum as u8)) {
-            drift = Some(Drift { tick, secs: h.t, check: None });
+        self.h.update(&self.seats[0], self.dt, sounds);
+        let sum = checksum(&self.h);
+        if self.drift.is_none() && r.sums.get(tick as usize) != Some(&(sum as u8)) {
+            self.drift = Some(Drift { tick, secs: self.h.t, check: None });
         }
-        while let Some((_, Event::Check(want))) = events.next_if(|(t, e)| *t == tick && matches!(e, Event::Check(_))) {
-            checks += 1;
-            let got = Check::of(&h, sum);
+        while let Some((_, Event::Check(want))) = r.events.get(self.next).filter(|(t, e)| *t == tick && matches!(e, Event::Check(_))) {
+            self.next += 1;
+            self.checks += 1;
+            let got = Check::of(&self.h, sum);
             if got.sum != want.sum {
-                let d = drift.get_or_insert(Drift { tick, secs: h.t, check: None });
+                let d = self.drift.get_or_insert(Drift { tick, secs: self.h.t, check: None });
                 d.check.get_or_insert((tick, want.clone(), got));
             }
         }
+        self.tick += 1;
+        true
     }
-    Outcome { ticks: r.ticks, secs: h.t, checks, drift, kills: h.kills, level: h.level }
+}
+
+/// A replay played to watch, a tick at a time, drawn as any player in it saw the night.
+pub struct Viewer {
+    r: Replay,
+    c: Cursor,
+}
+
+impl Viewer {
+    pub fn new(r: Replay) -> Self {
+        let c = Cursor::new(&r);
+        Self { r, c }
+    }
+
+    /// Plays the next tick, its sounds into `sounds`; false once the replay has ended.
+    pub fn step(&mut self, sounds: &mut Vec<Sfx>) -> bool {
+        self.c.step(&self.r, sounds)
+    }
+
+    /// No tick plays this frame, so the night draws where it stands.
+    pub fn hold(&mut self) {
+        self.c.h.hold_still();
+    }
+
+    /// Back to the start of the night.
+    pub fn rewind(&mut self) {
+        self.c = Cursor::new(&self.r);
+    }
+
+    pub fn replay(&self) -> &Replay {
+        &self.r
+    }
+
+    /// Ticks played, then seconds played.
+    pub fn played(&self) -> (u64, f32) {
+        (self.c.tick, self.c.tick as f32 * self.c.dt)
+    }
+
+    pub fn ended(&self) -> bool {
+        self.c.tick >= self.r.ticks
+    }
+
+    /// Where the night first stopped matching its recording, once it has.
+    pub fn drift(&self) -> Option<&Drift> {
+        self.c.drift.as_ref()
+    }
+
+    pub fn players(&self) -> usize {
+        self.c.h.players.len()
+    }
+
+    /// The player view `p` shows: them, or once they've turned while others stand, the first who still does.
+    pub fn shown(&self, p: PlayerId) -> PlayerId {
+        self.c.h.followed(p.min(self.players() - 1))
+    }
+
+    pub fn one_screen(&self) -> bool {
+        self.c.h.one_screen()
+    }
+
+    pub fn dread(&self) -> f32 {
+        self.c.h.dread()
+    }
+
+    /// The night as player `p` saw it, `alpha` of the way through the last tick.
+    pub fn draw(&mut self, p: PlayerId, alpha: f32, f: &mut crate::Frame) {
+        let h = &mut self.c.h;
+        let undo = h.blend(alpha);
+        let seen = h.followed(p.min(h.players.len() - 1));
+        h.relabel(seen);
+        h.draw(f, false);
+        h.relabel(seen);
+        if let Some(undo) = undo {
+            h.unblend(undo);
+        }
+    }
 }
 
 impl Harvest {
@@ -1007,10 +1111,138 @@ impl Watch for Dogs {
     }
 }
 
+/// Where and how the first player is hurt: by ten seconds of night, and by what they were doing when bitten.
+#[derive(Default)]
+pub struct Hurt {
+    trail: std::collections::VecDeque<[f32; 2]>,
+    hp: Option<f32>,
+    by_ten: Vec<f32>,
+    /// Damage while camping, stuck (moved under a third of a walk in the last second), at the farm's edge, with no
+    /// zombie in bite reach (spit or blast), from a biter behind them, and in all.
+    camping: f32,
+    stuck: f32,
+    edge: f32,
+    unbitten: f32,
+    behind: f32,
+    total: f32,
+    /// Bites and the sides (of four) holding a zombie within 3 tiles at each, summed.
+    bites: u32,
+    sides: u32,
+    near: u32,
+    fell: Vec<f32>,
+    first: Vec<String>,
+    born: std::collections::HashMap<u32, (f32, f32)>,
+    stuck_at: Vec<String>,
+    still: f32,
+    /// Before the first fall: seconds played and seconds within 2 tiles of the farm's edge.
+    before: [f32; 2],
+}
+
+impl Watch for Hurt {
+    fn tick(&mut self, h: &Harvest, dt: f32) {
+        use super::map::TILE;
+        let t = crate::tuning::tuning();
+        let pl = &h.players[0];
+        self.trail.push_back(pl.pos);
+        if self.trail.len() as f32 * dt > 1.0 {
+            self.trail.pop_front();
+        }
+        for z in &h.zombies {
+            self.born.entry(z.id).or_insert((h.t, super::len(super::sub(z.pos, pl.pos))));
+        }
+        let moved = super::len(super::sub(pl.pos, *self.trail.front().unwrap_or(&pl.pos)));
+        self.still = if moved < t.player_speed / 3.0 { self.still + dt } else { 0.0 };
+        if self.still >= 3.0 && self.still - dt < 3.0 && self.stuck_at.len() < 6 {
+            self.stuck_at.push(format!("t={:.0} at {:.0},{:.0} of {:.0}x{:.0} yaw={:.2} camp={:.0}", h.t, pl.pos[0], pl.pos[1], h.map.width_px(), h.map.height_px(), pl.view_yaw, pl.camp));
+        }
+        if h.juice.tally.book(0).fell.is_none() {
+            let edge = pl.pos[0].min(pl.pos[1]).min(h.map.width_px() - pl.pos[0]).min(h.map.height_px() - pl.pos[1]);
+            self.before[0] += dt;
+            self.before[1] += if edge < 2.0 * super::map::TILE { dt } else { 0.0 };
+        }
+        let was = self.hp.replace(pl.hp).unwrap_or(pl.hp);
+        if let Some(f) = h.juice.tally.book(0).fell
+            && self.fell.last() != Some(&f)
+            && pl.hp > was
+        {
+            self.fell.push(h.t);
+        }
+        if pl.hp >= was {
+            return;
+        }
+        let hit = was - pl.hp;
+        if hit <= 0.0 {
+            return;
+        }
+        let b = (h.t / 10.0) as usize;
+        if self.by_ten.len() <= b {
+            self.by_ten.resize(b + 1, 0.0);
+        }
+        self.by_ten[b] += hit;
+        self.total += hit;
+        if moved < t.player_speed / 3.0 {
+            self.stuck += hit;
+        }
+        if pl.camp >= t.camp_after {
+            self.camping += hit;
+        }
+        let [w, hh] = [h.map.width_px(), h.map.height_px()];
+        if pl.pos[0] < 2.0 * TILE || pl.pos[1] < 2.0 * TILE || pl.pos[0] > w - 2.0 * TILE || pl.pos[1] > hh - 2.0 * TILE {
+            self.edge += hit;
+        }
+        let facing = [crate::fmath::cos(pl.view_yaw), crate::fmath::sin(pl.view_yaw)];
+        let biter = h.zombies.iter().filter(|z| z.rise >= 1.0).map(|z| (super::len(super::sub(z.pos, pl.pos)), z.pos)).filter(|(d, _)| *d < t.bite_reach).min_by(|a, b| a.0.total_cmp(&b.0));
+        match biter {
+            None => self.unbitten += hit,
+            Some((_, at)) => {
+                self.bites += 1;
+                let d = super::sub(at, pl.pos);
+                if d[0] * facing[0] + d[1] * facing[1] < 0.0 {
+                    self.behind += hit;
+                }
+                let mut quarters = [false; 4];
+                for z in &h.zombies {
+                    let d = super::sub(z.pos, pl.pos);
+                    if super::len(d) < 3.0 * TILE {
+                        self.near += 1;
+                        let a = (crate::fmath::atan2(d[1], d[0]) - pl.view_yaw).rem_euclid(std::f32::consts::TAU);
+                        quarters[((a + std::f32::consts::FRAC_PI_4) / std::f32::consts::FRAC_PI_2) as usize % 4] = true;
+                    }
+                }
+                self.sides += quarters.iter().filter(|&&q| q).count() as u32;
+                if self.fell.is_empty() {
+                    let z = h.zombies.iter().find(|z| z.pos == at).unwrap();
+                    let seen = pl.marks.iter().find(|m| m.id == z.id).map_or(-1.0, |m| m.age);
+                    let edge = pl.pos[0].min(pl.pos[1]).min(w - pl.pos[0]).min(hh - pl.pos[1]) / TILE;
+                    let ang = ((crate::fmath::atan2(d[1], d[0]) - pl.view_yaw + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI).to_degrees();
+                    let near = h.zombies.iter().filter(|o| super::len(super::sub(o.pos, pl.pos)) < 3.0 * TILE).count();
+                    let (bt, bd) = self.born.get(&z.id).copied().unwrap_or_default();
+                    self.first.push(format!("t={:.1} hp={:.0} edge={edge:.1}t biter speed={} rose {:.1}s ago {:.0}px off, angle={ang:.0} seen_age={seen:.1} near3={near} moved1s={moved:.0}", h.t, pl.hp, z.kind.stats().speed, h.t - bt, bd));
+                }
+            }
+        }
+    }
+
+    fn report(&self, _: f32) -> Vec<String> {
+        let share = |x: f32| format!("{:.0}%", x * 100.0 / self.total.max(1e-3));
+        let per_bite = |x: u32| x as f32 / self.bites.max(1) as f32;
+        vec![
+            format!("hurt {:.0}; fell at {:?}", self.total, self.fell.iter().map(|t| t.round() as u32).collect::<Vec<_>>()),
+            format!("by 10 s: {}", self.by_ten.iter().map(|x| format!("{x:.0}")).collect::<Vec<_>>().join(" ")),
+            format!("camping {}, stuck {}, at the edge {}, no biter {}, bitten from behind {}", share(self.camping), share(self.stuck), share(self.edge), share(self.unbitten), share(self.behind)),
+            self.first.join("\n  "),
+            format!("before the first fall: {:.0} s, {:.0}% of it within 2 tiles of the edge", self.before[0], self.before[1] * 100.0 / self.before[0].max(1e-3)),
+            format!("stuck 3 s: {}", self.stuck_at.join("; ")),
+            format!("{} bites; zombies within 3 tiles {:.1}, sides holding one {:.2} of 4 (ahead, left, behind, right)", self.bites, per_bite(self.near), per_bite(self.sides)),
+        ]
+    }
+}
+
 /// A watcher by name, for the sandbox's `--watch`.
 pub fn watcher(name: &str) -> Option<Box<dyn Watch>> {
     match name {
         "dogs" => Some(Box::<Dogs>::default()),
+        "hurt" => Some(Box::<Hurt>::default()),
         _ => None,
     }
 }
@@ -1045,7 +1277,8 @@ mod tests {
     #[test]
     fn a_setup_reads_back_as_written() {
         let night = Setup { map: "orchard".into(), look: "scarecrow".into(), farm: Some("scarecrow".into()), kit: "dog:2,crows".into(), start_t: 12.5, one_screen: true, players: 2, bots: 1, views: 3, progress: Progress { kills: 9, found: 0xf0, everything: true, hidden: 3, ..Progress::default() }, ..Setup::night(77) };
-        let host = Setup { kind: Kind::Host { looks: vec![(0, "".into()), (2, "crow".into())], local: 1 }, ..Setup::night(5) };
+        let host = Setup { kind: Kind::Host { looks: vec![(0, "".into()), (2, "crow".into())], local: 1 }, difficulty: Difficulty::DEAD, ..Setup::night(5) };
+        assert!(host.to_text().contains("\ndifficulty dead\n"), "{}", host.to_text());
         let sandbox = Plan { size: [40, 30], mortal: true, ..short() }.setup();
         for s in [night, host, sandbox] {
             assert_eq!(Setup::from_text(&s.to_text()), Ok(s.clone()), "{}", s.to_text());

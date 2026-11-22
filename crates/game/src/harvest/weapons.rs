@@ -10,7 +10,7 @@ use super::{
     ME,
     Barrel, Bullet, Drop, DropKind, FLASH_TIME, Fetch, Fx, Grenade, Harvest, TILE, Thrown, Zombie, len, norm, strike, sub,
 };
-use crate::{Difficulty, Sfx};
+use crate::{Sfx, Tier};
 use crate::art::Art;
 
 const MAX_PATCHES: usize = 80;
@@ -194,19 +194,19 @@ pub(super) struct Kit {
 
 impl Kit {
     /// The weapons and grenades the file starts a run with at `difficulty`.
-    pub fn start(difficulty: Difficulty) -> Self {
+    pub fn start(difficulty: Tier) -> Self {
         Self::with_weapons(&book().start[difficulty as usize], difficulty)
     }
 
     /// A kit carrying these weapons at level 1 and the difficulty's grenades, and nothing else.
-    pub fn with_weapons(defs: &[usize], difficulty: Difficulty) -> Self {
+    pub fn with_weapons(defs: &[usize], difficulty: Tier) -> Self {
         let weapons = defs.iter().map(|&def| Armed { def, level: 1, cd: 0.5, phase: 0.0, burst: 0 }).collect();
         let t = crate::tuning::tuning();
         Self { weapons, passives: Vec::new(), taken: Vec::new(), mods: Mods::of(&[]), base: [t.player_hp, t.player_speed, t.player_magnet], base_grenades: book().grenades[difficulty as usize] }
     }
 
     /// A kit carrying exactly these weapons and passives at these levels, one past the top being the breaker's.
-    pub fn forced(build: &[(usize, u32)], difficulty: Difficulty) -> Self {
+    pub fn forced(build: &[(usize, u32)], difficulty: Tier) -> Self {
         let mut kit = Self::with_weapons(&[], difficulty);
         for &(def, level) in build {
             let d = &book().defs[def];
@@ -222,7 +222,7 @@ impl Kit {
     }
 
     /// This kit's base and grenades carrying exactly `build`, as `forced` takes it.
-    pub fn rebuilt(&self, build: &[(usize, u32)], difficulty: Difficulty) -> Self {
+    pub fn rebuilt(&self, build: &[(usize, u32)], difficulty: Tier) -> Self {
         let mut kit = Self::forced(build, difficulty);
         (kit.base, kit.base_grenades) = (self.base, self.base_grenades);
         kit.remod();
@@ -574,6 +574,11 @@ impl Harvest {
         if !self.targeting_of(self.actor) {
             return None;
         }
+        self.barrel_ahead(range)
+    }
+
+    /// The offset to the nearest barrel within `range` inside the acting player's view, held X or not.
+    pub(super) fn barrel_ahead(&self, range: f32) -> Option<[f32; 2]> {
         self.barrels
             .iter()
             .map(|b| sub(b.center(), self.actor().pos))

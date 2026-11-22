@@ -13,7 +13,7 @@ use super::carve;
 use super::map::TILE;
 use crate::art::Stand;
 use super::weapons::{BOLT_LIFE, Hazard};
-use super::{DropKind, Facing, Harvest, ME, Phase, TELL_TIME, TURN_RISE, TURNED, Thrown, Zombie, len, player_pose, player_worn, sub, worn_corner};
+use super::{DropKind, Facing, Harvest, Phase, TELL_TIME, TURN_RISE, TURNED, Thrown, Zombie, len, player_pose, player_worn, sub, worn_corner};
 use crate::art::{self, ATLAS_H, ATLAS_W, Art};
 use crate::scene3d::{Card, CardScene, Flash};
 use crate::{SCREEN_H, SCREEN_W};
@@ -65,8 +65,8 @@ fn faces(art: Art, reach: Reach, top: Option<Art>) -> Cow<'static, [Face]> {
 
 /// The crop cells the 3D view stands from where the player looks, and the cards their columns take.
 pub(super) fn crops_in_view(h: &Harvest) -> (usize, usize) {
-    let forward = Vec3::new(h.me().view_yaw.cos(), 0.0, h.me().view_yaw.sin());
-    let p = world(h.me().pos);
+    let forward = Vec3::new(h.eye().view_yaw.cos(), 0.0, h.eye().view_yaw.sin());
+    let p = world(h.eye().pos);
     let r = VIEW_RADIUS as i32;
     let (cx, cz) = (p.x as i32, p.z as i32);
     let (mut cells, mut cards) = (0, 0);
@@ -658,14 +658,14 @@ pub fn scene(h: &Harvest) -> CardScene {
         _ => 0.0,
     };
     let [turn, back] = h.orbit.unwrap_or_default();
-    let yaw = h.me().view_yaw + turn + std::f32::consts::PI * swing;
+    let yaw = h.eye().view_yaw + turn + std::f32::consts::PI * swing;
     let forward = Vec3::new(yaw.cos(), 0.0, yaw.sin());
     let right = forward.cross(Vec3::Y);
     let focus = h.range_focus();
-    let p = world(focus.unwrap_or(h.me().pos));
+    let p = world(focus.unwrap_or(h.eye().pos));
     let [sx, sy, roll] = j.shake_offset();
     let roll = roll + h.lean * 0.035;
-    let bob = if h.me().walk > 0.0 { (h.me().walk * crate::tuning::tuning().walk_fps * std::f32::consts::PI / 2.0).sin().abs() * 0.04 } else { 0.0 };
+    let bob = if h.eye().walk > 0.0 { (h.eye().walk * crate::tuning::tuning().walk_fps * std::f32::consts::PI / 2.0).sin().abs() * 0.04 } else { 0.0 };
     let shake = right * sx + Vec3::Y * (sy + bob);
     let eye = p - forward * (CAMERA_BACK + back + 0.2 * swing) + Vec3::Y * (1.5 + h.lift + back * 0.4 + 0.4 * swing) + shake;
     // Zoomed in for the icon scene, the camera looks at the figure on show instead of down the road.
@@ -777,7 +777,7 @@ pub fn scene(h: &Harvest) -> CardScene {
     let climbing = h.burrowed.iter().filter(|z| z.rise > 0.0);
     let mut nearest: Vec<&Zombie> = h.zombies.iter().enumerate().filter(|&(i, _)| !h.lies_dead(i)).map(|(_, z)| z).chain(climbing).collect();
     if nearest.len() > MAX_ZOMBIES_3D {
-        nearest.select_nth_unstable_by(MAX_ZOMBIES_3D, |a, b| len(sub(a.pos, h.me().pos)).total_cmp(&len(sub(b.pos, h.me().pos))));
+        nearest.select_nth_unstable_by(MAX_ZOMBIES_3D, |a, b| len(sub(a.pos, h.eye().pos)).total_cmp(&len(sub(b.pos, h.eye().pos))));
         nearest.truncate(MAX_ZOMBIES_3D);
     }
     for z in nearest {
@@ -798,7 +798,7 @@ pub fn scene(h: &Harvest) -> CardScene {
         board(&mut cards, b);
     }
     for (pn, pl) in h.players.iter().enumerate() {
-        if pl.lead.is_some() || pl.sunk_away() || (pn == ME && h.shown.as_ref().is_some_and(|s| !s.player)) {
+        if pl.lead.is_some() || pl.sunk_away() || (pn == h.viewer && h.shown.as_ref().is_some_and(|s| !s.player)) {
             continue;
         }
         let (facing, flip) = facing_from(h.showing_of(pn), forward, right);
@@ -1064,7 +1064,7 @@ pub fn scene(h: &Harvest) -> CardScene {
         .iter()
         .map(|f| Flash { pos: world(f.pos) + Vec3::Y * (f.z * PX), color: f.color.map(|c| c * f.strength()), range: f.range * (0.5 + 0.5 * f.strength()) })
         .collect();
-    let health = h.me().hp / h.me().kit.max_hp();
+    let health = h.eye().hp / h.eye().kit.max_hp();
     let dying = matches!(h.phase, Phase::Over { won: false, .. });
     // Once the player has climbed back out, a sickly light comes up on what they've become.
     let turned = match h.phase {
@@ -1073,7 +1073,7 @@ pub fn scene(h: &Harvest) -> CardScene {
     };
     // The lantern gutters when you're nearly done for.
     let gutter = if health < 0.3 { 0.15 * (h.juice.clock * 23.0).sin().abs() * (h.juice.clock * 7.0).sin().abs() } else { 0.0 };
-    let lantern = if dying { 3.0 + 4.0 * turned } else { 9.0 * h.me().kit.mods.view + 6.0 * h.me().beam } * (1.0 - 0.04 * (h.t * 13.0).sin().abs() - gutter);
+    let lantern = if dying { 3.0 + 4.0 * turned } else { 9.0 * h.eye().kit.mods.view + 6.0 * h.eye().beam } * (1.0 - 0.04 * (h.t * 13.0).sin().abs() - gutter);
     let sky = sky(h);
     let hurt = h.juice.hurt / 0.35;
     let light_color = [sky.lantern[0], sky.lantern[1] * (1.0 - 0.4 * hurt), sky.lantern[2] * (1.0 - 0.5 * hurt)];

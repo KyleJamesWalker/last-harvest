@@ -255,7 +255,7 @@ impl Editor {
     }
 
     /// Sets a player card's start at `difficulty`, as `set_player_start` does.
-    pub(super) fn set_start(&mut self, difficulty: last_harvest_game::Difficulty, weapons: Option<&[String]>) {
+    pub(super) fn set_start(&mut self, difficulty: last_harvest_game::Tier, weapons: Option<&[String]>) {
         let Some(text) = &self.sprite.card else { return };
         self.sprite.card = Some(last_harvest_game::set_player_start(text, difficulty, weapons));
         self.dirty = true;
@@ -414,7 +414,7 @@ impl Editor {
         };
         c.label(format!("Player card [{}]", fields.id), x, CANVAS.y + 8.0, 17.0, DIM, Align::Left);
         self.draw_lines(c, &fields.name, &fields.about);
-        for (d, difficulty) in last_harvest_game::Difficulty::ALL.into_iter().enumerate() {
+        for (d, difficulty) in last_harvest_game::Tier::ALL.into_iter().enumerate() {
             let top = START_TOP + d as f32 * START_BLOCK;
             let how = if fields.start[d].is_some() { "starts with" } else { "starts as the game does, with" };
             c.label(format!("{} {how}", difficulty.name()), x, top + 4.0, 16.0, DIM, Align::Left);

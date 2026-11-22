@@ -370,7 +370,7 @@ impl Harvest {
 
     /// Where the camera looks, on the ground ahead of the player.
     fn focus(&self) -> [f32; 2] {
-        [self.me().pos[0] + self.me().view_yaw.cos() * FOCUS, self.me().pos[1] + self.me().view_yaw.sin() * FOCUS]
+        [self.eye().pos[0] + self.eye().view_yaw.cos() * FOCUS, self.eye().pos[1] + self.eye().view_yaw.sin() * FOCUS]
     }
 
     /// The few zombies in the picture nearest where the camera looks, nearest first.
@@ -444,15 +444,15 @@ impl Harvest {
     /// Where the next prop drops: ahead where the camera looks, or how far out the cross is.
     fn placing(&self) -> String {
         match self.photo.as_ref().and_then(|p| p.spot) {
-            Some(at) => format!("{:.0} tiles out", len(sub(at, self.me().pos)) / TILE),
+            Some(at) => format!("{:.0} tiles out", len(sub(at, self.eye().pos)) / TILE),
             None => "ahead".into(),
         }
     }
 
     /// Where on the bottom edge of the picture a point behind the camera shows, toward the side it is on.
     fn behind(&self, at: [f32; 2]) -> [f32; 2] {
-        let off = norm(sub(at, self.me().pos));
-        let right = off[1] * self.me().view_yaw.cos() - off[0] * self.me().view_yaw.sin();
+        let off = norm(sub(at, self.eye().pos));
+        let right = off[1] * self.eye().view_yaw.cos() - off[0] * self.eye().view_yaw.sin();
         [SCREEN_W / 2.0 * (1.0 + right), SCREEN_H]
     }
 

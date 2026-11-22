@@ -133,7 +133,7 @@ impl Harvest {
     }
 
     fn map_up(&self) -> bool {
-        self.aiming.is_some() || self.glance || self.menu.is_some() || self.photo_by_other() || matches!(self.phase, Phase::LevelUp { .. }) || self.me().picking()
+        self.aiming.is_some() || self.glance || self.menu.is_some() || self.photo_by_other() || matches!(self.phase, Phase::LevelUp { .. }) || self.eye().picking()
     }
 
     /// The cursor, its blast ring and the time left, over the map.
@@ -168,7 +168,7 @@ impl Harvest {
         if self.corner_map && t.map_mini > 0.0 {
             let (w, reach, scale) = (t.map_mini, t.map_mini_reach.max(16.0), map_scale());
             let (h, (x, y)) = (w * 0.75, (SCREEN_W - 24.0 - w, below));
-            let cam = [self.me().pos[0] - reach, self.me().pos[1] - 8.0 - reach * 0.75];
+            let cam = [self.eye().pos[0] - reach, self.eye().pos[1] - 8.0 - reach * 0.75];
             let mut map = Canvas::default();
             self.world(&mut map, cam, scale, self.map_tint(), true);
             self.view_cone(&mut map, cam);
