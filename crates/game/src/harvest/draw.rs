@@ -574,20 +574,22 @@ impl Harvest {
                     format!("Survived {}   Level {}   Kills {}", clock(self.t), self.level, self.kills)
                 };
                 c.label(line, SCREEN_W / 2.0, line_y, 40.0, [1.0, 1.0, 1.0, a], Align::Center);
-                c.label(pad::hint("{A}: try another farm      {B}: menu"), SCREEN_W / 2.0, line_y + 80.0, 32.0, [1.0, 1.0, 1.0, 0.7 * a], Align::Center);
+                let (keys_y, keys_size) = if self.views > 1 { (line_y + 52.0, 28.0) } else { (line_y + 80.0, 32.0) };
+                c.label(pad::hint("{A}: try another farm      {B}: menu"), SCREEN_W / 2.0, keys_y, keys_size, [1.0, 1.0, 1.0, 0.7 * a], Align::Center);
                 if self.views > 1 {
                     let mut seats: Vec<usize> = (0..self.players.len()).collect();
                     seats.sort_by_key(|&p| self.number(p));
-                    let each: Vec<String> = seats
+                    let each = seats
                         .into_iter()
                         .map(|p| {
                             let (kills, useful) = self.juice.tally.sum(p);
                             let b = self.juice.tally.book(p);
                             let led = if b.led > 0.0 { format!("  led {}, {} bites", clock(b.led), b.bites) } else { String::new() };
                             format!("P{}  {kills} kills  {} damage{led}", self.number(p), grouped(useful.round() as u64))
-                        })
-                        .collect();
-                    c.label(each.join("      "), SCREEN_W / 2.0, line_y + 130.0, 28.0, [1.0, 1.0, 1.0, a], Align::Center);
+                        });
+                    for (k, line) in each.enumerate() {
+                        c.label(line, SCREEN_W / 2.0, line_y + 92.0 + k as f32 * 28.0, 24.0, [1.0, 1.0, 1.0, a], Align::Center);
+                    }
                 }
                 let names: Vec<&str> = self.newly.iter().map(|&i| book().defs[i].name.as_str()).collect();
                 let news = [
@@ -859,8 +861,10 @@ impl Harvest {
                 c.rect(x, y, w, h, [back[0], back[1], back[2], alpha]);
             }
             let def = &book().defs[ch.up];
-            let from = self.eye().kit.level(ch.up);
-            let to = self.eye().kit.raised(ch.up, if ch.rare { 2 } else { 1 });
+            let (from, to) = match picked {
+                Some(_) => self.card_levels[i],
+                None => (self.eye().kit.level(ch.up), self.eye().kit.raised(ch.up, if ch.rare { 2 } else { 1 })),
+            };
             let fill = match picked {
                 Some(p) if on => [1.0, 1.0, 1.0, 0.8 * (1.0 - p / PICK_TIME)],
                 _ if on => [1.0, 0.85, 0.3, 0.35],

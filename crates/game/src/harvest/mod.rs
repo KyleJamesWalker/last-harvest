@@ -832,6 +832,8 @@ pub struct Harvest {
     favoring: bool,
     /// The level-up's `t` when each card on show was dealt, so a card dealt again slides in again.
     dealt: [f32; 3],
+    /// Each card's levels, from and to, as last shown before the pick raised the kit.
+    card_levels: [(u32, u32); 3],
     /// The next zombie to rise leads the horde.
     leader_owed: bool,
     /// What dawn has multiplied every zombie's health and bite by, and the time toward its next step.
@@ -1082,6 +1084,7 @@ impl Harvest {
             favors: crate::tuning::tuning().favor as u32,
             favoring: false,
             dealt: [0.0; 3],
+            card_levels: [(0, 0); 3],
             leader_owed: false,
             fury: 1.0,
             fury_tick: 0.0,
@@ -1551,6 +1554,15 @@ impl Harvest {
             }
         }
         self.phase = Phase::LevelUp { choices, selected, t, picked };
+        self.hold_card_levels();
+    }
+
+    /// Keeps each card's levels while none is picked, so the picked card goes on showing what it gave.
+    fn hold_card_levels(&mut self) {
+        if let Phase::LevelUp { choices, picked: None, .. } = self.phase {
+            let kit = &self.me().kit;
+            self.card_levels = choices.map(|c| (kit.level(c.up), kit.raised(c.up, if c.rare { 2 } else { 1 })));
+        }
     }
 
     /// Takes a card as the run's pick.
@@ -3836,6 +3848,19 @@ mod tests {
         }
         let ratio = (on_held / held.len() as f32) / (on_new / new.len() as f32);
         assert!((ratio - 3.0).abs() < 0.45, "held cards came up {ratio} times as often, for a weight of 3");
+    }
+
+    #[test]
+    fn a_picked_card_keeps_showing_the_levels_it_gave() {
+        let mut h = Harvest::new(2);
+        level_up_on(&mut h, ["shotgun", "pistol", "running_shoes"]);
+        let pistol = book().index("pistol").unwrap();
+        let before = h.me().kit.level(pistol);
+        h.update(&Input::default(), CARDS_IN, &mut Vec::new());
+        h.update(&Input { pressed: Buttons::X, ..Default::default() }, 0.016, &mut Vec::new());
+        assert!(matches!(h.phase, Phase::LevelUp { picked: Some(_), .. }));
+        assert_eq!(h.me().kit.level(pistol), before + 1);
+        assert_eq!(h.card_levels[1], (before, before + 1));
     }
 
     fn level_up_on(h: &mut Harvest, ids: [&str; 3]) {

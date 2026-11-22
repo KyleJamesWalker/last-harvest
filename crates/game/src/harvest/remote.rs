@@ -478,5 +478,6 @@ impl Harvest {
                 Phase::Playing
             }
         };
+        self.hold_card_levels();
     }
 }
