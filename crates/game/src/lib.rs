@@ -34,7 +34,7 @@ pub mod touch;
 pub mod tuning;
 pub mod worn;
 
-pub use difficulty::Difficulty;
+pub use difficulty::{Difficulty, Tier};
 pub use draw::{Align, Canvas, Color, Frame, Shape};
 pub use art::Stand;
 pub use harvest::showcase::{CropShow, Figure, Showcase};
@@ -373,8 +373,13 @@ impl Game {
     }
 
     fn progress(&self) -> harvest::Progress {
-        let s = &self.save;
-        harvest::Progress { kills: s.kills, best: s.best, best_level: s.best_level, nights: s.nights, dawns: s.dawns, breakers: s.breakers, breaker_dawns: s.breaker_dawns, found: s.found, everything: self.unlock_all, hidden: harvest::hidden_powerups(s.player.as_str()) }
+        self.progress_at(self.save.difficulty)
+    }
+
+    /// What `d`'s nights have unlocked.
+    fn progress_at(&self, d: Difficulty) -> harvest::Progress {
+        let s = self.save.records(d);
+        harvest::Progress { kills: s.kills, best: s.best, best_level: s.best_level, nights: s.nights, dawns: s.dawns, breakers: s.breakers, breaker_dawns: s.breaker_dawns, found: s.found, everything: self.unlock_all, hidden: harvest::hidden_powerups(self.save.player.as_str()) }
     }
 
     /// One line describing the current scene, for logs.
@@ -776,10 +781,14 @@ impl Game {
                         self.buzz(seat, r);
                     }
                 }
-                self.save.found |= flow.found;
+                if let Some(r) = self.save.records_mut(h.difficulty()) {
+                    r.found |= flow.found;
+                }
                 if let Some(run) = flow.ended {
-                    let p = self.progress().after(run);
-                    (self.save.kills, self.save.best, self.save.best_level, self.save.nights, self.save.dawns, self.save.breakers, self.save.breaker_dawns) = (p.kills, p.best, p.best_level, p.nights, p.dawns, p.breakers, p.breaker_dawns);
+                    let p = self.progress_at(run.difficulty).after(run);
+                    if let Some(r) = self.save.records_mut(run.difficulty) {
+                        (r.kills, r.best, r.best_level, r.nights, r.dawns, r.breakers, r.breaker_dawns) = (p.kills, p.best, p.best_level, p.nights, p.dawns, p.breakers, p.breaker_dawns);
+                    }
                     self.save.record(run);
                 }
                 if flow.quit {
@@ -1003,8 +1012,9 @@ impl Game {
     /// The title's tagline and records under the logo.
     fn draw_title_records(&self, f: &mut Frame) {
         f.top.label("Survive the night", SCREEN_W / 2.0, 400.0, 44.0, DIM, Align::Center);
-        if self.save.best > 0 {
-            let line = format!("Longest night: {}:{:02}", self.save.best / 60, self.save.best % 60);
+        let best = self.save.records(self.save.difficulty).best;
+        if best > 0 {
+            let line = format!("Longest night: {}:{:02}", best / 60, best % 60);
             f.top.label(line, SCREEN_W / 2.0, 480.0, 34.0, HOT, Align::Center);
         }
         let (open, all, waiting) = harvest::unlocked(&self.progress());
@@ -1477,11 +1487,11 @@ mod tests {
         for i in 0..60 * 60 * 10 {
             let held = if i % 2 == 0 { Buttons::A | Buttons::X } else { Buttons::NONE };
             game.update(&t.frame(RawInput { held, ..Default::default() }), 1.0 / 60.0);
-            if game.save().best > 0 {
+            if game.save().records(game.save().difficulty).best > 0 {
                 break;
             }
         }
-        assert!(game.save().best > 0);
+        assert!(game.save().records(Difficulty::EASY).best > 0, "the first run is on Easy");
     }
 
     #[test]
@@ -1611,14 +1621,16 @@ mod tests {
     #[test]
     fn reset_takes_two_presses_and_keeps_the_settings() {
         let mut game = Game::new(1);
-        let kept = Save { volume: 2, difficulty: Difficulty::Hard, ..Save::default() };
-        game.load(Save { kills: 900, best: 300, best_level: 9, nights: 4, dawns: 1, found: 0b110, ..kept });
+        let kept = Save { volume: 2, difficulty: Difficulty::HARD, ..Save::default() };
+        let mut played = kept;
+        *played.records_mut(Difficulty::HARD).unwrap() = crate::save::Records { kills: 900, best: 300, best_level: 9, nights: 4, dawns: 1, found: 0b110, ..Default::default() };
+        game.load(played);
         settings_row(&mut game, 9);
         press(&mut game, Buttons::A);
-        assert_eq!(game.save().kills, 900, "one press only asks");
+        assert_eq!(game.save().records(Difficulty::HARD).kills, 900, "one press only asks");
         game.update(&Input::default(), RESET_CONFIRM + 0.1);
         press(&mut game, Buttons::A);
-        assert_eq!(game.save().kills, 900, "the question times out");
+        assert_eq!(game.save().records(Difficulty::HARD).kills, 900, "the question times out");
         press(&mut game, Buttons::A);
         assert_eq!(game.save(), kept);
         assert!(game.reset_shown > 0.0, "the title says so");
@@ -1920,7 +1932,7 @@ mod tests {
     #[test]
     fn stats_opens_the_run_history_newest_first_and_b_comes_back() {
         let mut game = Game::new(1);
-        game.save.record(harvest::Run { secs: 125, level: 4, difficulty: Difficulty::Hard, dps: 37, ..Default::default() });
+        game.save.record(harvest::Run { secs: 125, level: 4, difficulty: Difficulty::HARD, dps: 37, ..Default::default() });
         game.save.record(harvest::Run { secs: 600, level: 9, won: true, dps: 81, ..Default::default() });
         for _ in 0..4 {
             press(&mut game, Buttons::DOWN);
@@ -2109,14 +2121,15 @@ mod tests {
     #[test]
     fn the_title_sets_the_difficulty_and_the_run_uses_it() {
         let mut game = Game::new(1);
-        assert_eq!(game.save().difficulty, Difficulty::Easy, "a first run starts on Easy");
+        assert_eq!(game.save().difficulty, Difficulty::EASY, "a first run starts on Easy");
         press(&mut game, Buttons::LEFT);
         press(&mut game, Buttons::LEFT);
-        assert_eq!(game.save().difficulty, Difficulty::Easy, "it stops at the end");
+        assert_eq!(game.save().difficulty, Difficulty::STROLL, "it stops at the end");
         let tap = |game: &mut Game, x: f32| game.update(&Input { touch: Some([x, DIFFICULTY_Y + 40.0]), touch_started: true, ..Default::default() }, 0.016);
-        tap(&mut game, SCREEN_W / 2.0 + 250.0);
-        tap(&mut game, SCREEN_W / 2.0 + 250.0);
-        assert_eq!(game.save().difficulty, Difficulty::Hard);
+        for _ in 0..3 {
+            tap(&mut game, SCREEN_W / 2.0 + 250.0);
+        }
+        assert_eq!(game.save().difficulty, Difficulty::HARD);
         assert!(matches!(game.state, State::Title), "an arrow tap doesn't start a run");
         press(&mut game, Buttons::A);
         assert!(game.summary().starts_with("harvest hard "), "{}", game.summary());

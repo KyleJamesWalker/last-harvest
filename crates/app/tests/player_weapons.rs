@@ -3,7 +3,7 @@
 mod common;
 
 use last_harvest::pak;
-use last_harvest_game::{Difficulty, data, player_looks, player_powerups};
+use last_harvest_game::{Tier, data, player_looks, player_powerups};
 use last_harvest_pack::{self as pack, card};
 
 #[test]
@@ -21,5 +21,5 @@ fn a_packs_player_only_weapon_is_offered_only_with_its_player() {
     assert!(has("kd", "urumi") && !has("", "urumi"), "the Urumi stays with Kuldeep");
     assert!(has("kd", "desi_katta") && has("", "desi_katta"), "a weapon without the setting is every player's");
     let kd = player_looks().iter().find(|l| l.id == "kd").unwrap();
-    assert_eq!(kd.start_names(Difficulty::Normal), ["Urumi", "Pistol"]);
+    assert_eq!(kd.start_names(Tier::Normal), ["Urumi", "Pistol"]);
 }

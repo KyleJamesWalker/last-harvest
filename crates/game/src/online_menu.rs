@@ -510,7 +510,7 @@ impl Game {
         harvest::use_player_farm(&look);
         let seats: Vec<usize> = start.players.iter().map(|p| p.seat as usize).collect();
         let n = seats.iter().max().map_or(1, |m| m + 1);
-        let difficulty = Difficulty::ALL.get(start.difficulty as usize).copied().unwrap_or_default();
+        let difficulty = Difficulty::from_index(start.difficulty).unwrap_or_default();
         let looks: Vec<(usize, String)> = seats.iter().map(|&s| (s, card(s))).collect();
         let h = if host {
             let kind = replay::Kind::Host { looks, local: mine.len() };
@@ -662,7 +662,7 @@ impl Game {
             net.set_ready(!ready);
             self.sounds.push(Sfx::Tick(if ready { 0 } else { 9 }));
         } else if net.is_host() && (input.pressed.any(Buttons::START | Buttons::X) || button == Some(2)) {
-            let settings = Settings { seed: self.rng.next_u32() as u64 + 1, map: self.save.map.as_str().to_string(), difficulty: self.save.difficulty as u8, unlocked: Vec::new(), options: vec![("look".into(), self.save.player.as_str().to_string())] };
+            let settings = Settings { seed: self.rng.next_u32() as u64 + 1, map: self.save.map.as_str().to_string(), difficulty: self.save.difficulty.index(), unlocked: Vec::new(), options: vec![("look".into(), self.save.player.as_str().to_string())] };
             match net.start(settings) {
                 Ok(start) => self.start_online(start),
                 Err(why) => {

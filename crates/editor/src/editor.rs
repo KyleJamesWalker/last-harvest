@@ -1248,7 +1248,7 @@ impl Editor {
             for (d, start) in starts.iter().enumerate() {
                 let top = START_TOP + d as f32 * START_BLOCK;
                 push(CANVAS.x + 400.0, top, 140.0, 26.0, Action::StartDefault(d), "Default", start.is_none());
-                let have = start.clone().unwrap_or_else(|| last_harvest_game::default_start(last_harvest_game::Difficulty::ALL[d]));
+                let have = start.clone().unwrap_or_else(|| last_harvest_game::default_start(last_harvest_game::Tier::ALL[d]));
                 for (w, (id, label)) in weapons.iter().enumerate() {
                     let (col, row) = (w % across, w / across);
                     let on = have.contains(id);
@@ -1988,7 +1988,7 @@ impl Editor {
                 self.set_card("blood", next.map(|[r, g, b]| format!("{r:02X}{g:02X}{b:02X}")).as_deref());
             }
             Action::StartWeapon(d, w) => {
-                let difficulty = last_harvest_game::Difficulty::ALL[d];
+                let difficulty = last_harvest_game::Tier::ALL[d];
                 let mut have = self.player_starts()[d].clone().unwrap_or_else(|| last_harvest_game::default_start(difficulty));
                 let Some((id, _)) = self.weapon_labels().into_iter().nth(w) else { return };
                 match have.iter().position(|h| *h == id) {
@@ -1998,7 +1998,7 @@ impl Editor {
                 }
                 self.set_start(difficulty, Some(&have));
             }
-            Action::StartDefault(d) => self.set_start(last_harvest_game::Difficulty::ALL[d], None),
+            Action::StartDefault(d) => self.set_start(last_harvest_game::Tier::ALL[d], None),
             Action::PlayerFarm(d) => {
                 let Some(text) = self.sprite.card.clone() else { return };
                 let now = last_harvest_game::player_fields(&text).ok().and_then(|f| f.farm);

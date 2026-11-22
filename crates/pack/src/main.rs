@@ -244,7 +244,7 @@ fn show(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
             let f = last_harvest_game::player_fields(&card.text)?;
             println!("\nAbout: {}", if f.about.is_empty() { "none" } else { &f.about });
             println!("\nStarts with:");
-            for (d, start) in last_harvest_game::Difficulty::ALL.into_iter().zip(&f.start) {
+            for (d, start) in last_harvest_game::Tier::ALL.into_iter().zip(&f.start) {
                 let weapons = start.clone().unwrap_or_else(|| last_harvest_game::default_start(d));
                 let how = if start.is_some() { "" } else { " (the game's own)" };
                 println!("  {:<7}{}{how}", d.name(), if weapons.is_empty() { "nothing".to_string() } else { weapons.join(", ") });
