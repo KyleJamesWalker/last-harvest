@@ -3,5 +3,4 @@
 [advisories]
 ignore = [
     { id = "RUSTSEC-2026-0192", reason = "ttf-parser, under fontdue, is unmaintained with no successor yet; not a vulnerability" },
-    { id = "RUSTSEC-2026-0441", reason = "pin-utils, under webrtc-util's nix 0.26 (last-harvest-net), is unmaintained; not a vulnerability" },
 ]
