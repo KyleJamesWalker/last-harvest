@@ -607,7 +607,7 @@ const STEP: f32 = 1.0 / TICK_HZ as f32;
 /// Plays `plan`'s night, an empty build keeping the starting kit, with two players: the host's scripted one, and a client's, also scripted, whose input
 /// crosses `net` to the host and whose picture of the night is a `Mirror` fed by snapshots crossing back.
 pub fn net_sim(plan: &Plan, net: NetSim) -> NetReport {
-    let mut h = Harvest::sized(plan.seed, plan.size).at(plan.difficulty).with_players(2);
+    let mut h = Harvest::sized(plan.seed, plan.size).at(plan.difficulty).with_players(plan.players.clamp(2, 4));
     for pl in h.players.iter_mut().filter(|_| !plan.build.is_empty()) {
         pl.kit = Kit::forced(&plan.build, plan.difficulty.tier());
         pl.hp = pl.kit.max_hp();
@@ -621,6 +621,7 @@ pub fn net_sim(plan: &Plan, net: NetSim) -> NetReport {
     let mut up: Pipe<Vec<u8>> = Pipe::new(plan.seed ^ 0x0F, net.loss, ticks(net.latency_ms), ticks(net.jitter_ms));
     let mut me = Bot::new(plan.walk, plan.turn, plan.turn_every, plan.throw_every);
     let mut them = Bot::new(Walk::Avoid, plan.turn, 0.0, plan.throw_every);
+    let mut rest: Vec<Bot> = (2..h.players.len()).map(|_| Bot::new(Walk::Avoid, plan.turn, 0.0, plan.throw_every)).collect();
     let (mut host, mut client, mut mirror, mut extract) = (HostLink::default(), ClientLink::default(), Mirror::default(), Extract::default());
     mirror.play_locally(CLIENT);
     let (mut log, mut queue) = (InputLog::default(), InputQueue::default());
@@ -656,6 +657,10 @@ pub fn net_sim(plan: &Plan, net: NetSim) -> NetReport {
         let (input, at) = queue.play();
         played[CLIENT] = at.unwrap_or(0);
         h.steer(CLIENT, input);
+        for (p, bot) in rest.iter_mut().enumerate().map(|(i, b)| (i + 2, b)) {
+            let input = if h.players[p].alive() { bot.step(&mut h, p, &mut sounds) } else { crate::Input::default() };
+            h.steer(p, input);
+        }
         h.update(&mine, STEP, &mut sounds);
         if let Some(p) = at.and_then(|k| mirror.predicted_at(CLIENT, k)).filter(|_| h.players[CLIENT].alive()) {
             predicted.push(dist(p, h.players[CLIENT].pos));
