@@ -551,6 +551,8 @@ struct Drop {
     to: PlayerId,
     /// The dog going for it or carrying it.
     dog: Option<Fetch>,
+    /// The hearts merged into it, each counted on pickup; 1 for any other drop.
+    hearts: u32,
 }
 
 /// Which dog has a heart: its player's, by card and slot.
@@ -569,6 +571,12 @@ impl Fetch {
 }
 
 impl Drop {
+    /// How many times one heart's size it draws at: `[player] merge_grow` more each time its hearts double, up to twice.
+    fn size(&self) -> f32 {
+        let doublings = (u32::BITS - 1 - self.hearts.max(1).leading_zeros()) as f32;
+        (1.0 + crate::tuning::tuning().merge_grow * doublings).min(2.0)
+    }
+
     /// The magnet takes it, toward the player along `n`: a flick to one side first makes it swoop in.
     fn catch(&mut self, n: [f32; 2], side: f32) {
         self.vel = [-n[1] * side * 70.0 - n[0] * 40.0, n[0] * side * 70.0 - n[1] * 40.0];
@@ -2923,6 +2931,21 @@ impl Harvest {
         self.thud(hits, sounds);
     }
 
+    fn merge_heart(&mut self, at: [f32; 2], xp: u32) -> bool {
+        let t = crate::tuning::tuning();
+        let free = |d: &Drop| matches!(d.kind, DropKind::Money(_)) && d.pulled.is_none() && d.dog.is_none();
+        if t.merge_after <= 0.0 || (self.drops.iter().filter(|d| free(d)).count() as f32) < t.merge_after {
+            return false;
+        }
+        let near = self.drops.iter_mut().filter(|d| free(d)).map(|d| (len(sub(d.pos, at)), d)).filter(|(l, _)| *l <= t.merge_reach).min_by(|a, b| a.0.total_cmp(&b.0));
+        let Some((_, d)) = near else { return false };
+        if let DropKind::Money(v) = &mut d.kind {
+            *v += xp;
+        }
+        d.hearts += 1;
+        true
+    }
+
     /// How a blast at `c` looks and feels: its sprite and smoke, shake, flash, ring, sparks and scorch.
     pub(super) fn blast_juice(&mut self, c: [f32; 2], radius: f32) {
         self.fx.push(Fx::play(effects::effects().explosion, c, 0.0));
@@ -3051,7 +3074,9 @@ impl Harvest {
             let a = self.juice.rng.range(0.0, TAU);
             let speed = self.juice.rng.range(8.0, 28.0);
             let vz = self.juice.rng.range(60.0, 95.0);
-            self.drops.push(Drop { kind, pos: z.pos, z: 4.0, vz, vel: [fm::cos(a) * speed, fm::sin(a) * speed], age: 0.0, pulled: None, to: ME, dog: None });
+            if !matches!(kind, DropKind::Money(v) if self.merge_heart(z.pos, v)) {
+                self.drops.push(Drop { kind, pos: z.pos, z: 4.0, vz, vel: [fm::cos(a) * speed, fm::sin(a) * speed], age: 0.0, pulled: None, to: ME, dog: None, hearts: 1 });
+            }
         }
         if let Some(kind) = died
             && (self.hush[1] <= 0.0 || kind.stats().heavy)
@@ -3137,7 +3162,7 @@ impl Harvest {
                 let p = d.to;
                 match d.kind {
                     DropKind::Money(v) => {
-                        self.juice.tally.book_mut(p).hearts += 1;
+                        self.juice.tally.book_mut(p).hearts += d.hearts;
                         self.xp_frac += v as f32 * self.players[p].kit.mods.greed;
                         self.xp += self.xp_frac as u32;
                         self.xp_frac = self.xp_frac.fract();
@@ -4661,7 +4686,7 @@ mod tests {
         let mut h = Harvest::calm(5);
         let mut sounds = Vec::new();
         for _ in 0..3 {
-            h.drops.push(Drop { kind: DropKind::Money(1), pos: h.me().pos, z: 0.0, vz: 0.0, vel: [0.0; 2], age: 0.0, pulled: None, to: ME, dog: None });
+            h.drops.push(Drop { kind: DropKind::Money(1), pos: h.me().pos, z: 0.0, vz: 0.0, vel: [0.0; 2], age: 0.0, pulled: None, to: ME, dog: None, hearts: 1 });
             h.collect(0.1, &mut sounds);
         }
         let steps: Vec<u8> = sounds.iter().filter_map(|s| if let Sfx::Pickup(n) = s { Some(*n) } else { None }).collect();
@@ -4675,7 +4700,7 @@ mod tests {
         h.spawn(0.02);
         let leader = h.tells.iter().find(|t| t.leader).expect("the horde has a leader");
         assert!(leader.kind == Kind::named("big") && h.tells.iter().filter(|t| t.leader).count() == 1);
-        h.drops.push(Drop { kind: DropKind::Chest, pos: h.me().pos, z: 0.0, vz: 0.0, vel: [0.0; 2], age: 0.0, pulled: None, to: ME, dog: None });
+        h.drops.push(Drop { kind: DropKind::Chest, pos: h.me().pos, z: 0.0, vz: 0.0, vel: [0.0; 2], age: 0.0, pulled: None, to: ME, dog: None, hearts: 1 });
         h.collect(0.016, &mut Vec::new());
         for _ in 0..200 {
             if let Phase::LevelUp { choices, .. } = h.phase {
@@ -4695,7 +4720,7 @@ mod tests {
         h.update(&Input::default(), 1.0 / 60.0, &mut Vec::new());
         assert!(h.leveling > 0.0);
         for _ in 0..2 {
-            h.drops.push(Drop { kind: DropKind::Chest, pos: h.me().pos, z: 0.0, vz: 0.0, vel: [0.0; 2], age: 0.0, pulled: None, to: ME, dog: None });
+            h.drops.push(Drop { kind: DropKind::Chest, pos: h.me().pos, z: 0.0, vz: 0.0, vel: [0.0; 2], age: 0.0, pulled: None, to: ME, dog: None, hearts: 1 });
         }
         h.collect(0.016, &mut Vec::new());
         let mut level_ups = 0;
@@ -4924,15 +4949,43 @@ mod tests {
         assert_eq!(h.thrown.len(), 1);
     }
 
+    #[test]
+    fn past_merge_after_a_heart_joins_a_resting_one_and_counts_whole_on_pickup() {
+        let t = crate::tuning::tuning();
+        let mut h = Harvest::calm(5);
+        let heart = |pos: [f32; 2], v| Drop { kind: DropKind::Money(v), pos, z: 0.0, vz: 0.0, vel: [0.0; 2], age: 0.0, pulled: None, to: ME, dog: None, hearts: 1 };
+        let far = [h.me().pos[0] + 300.0, h.me().pos[1]];
+        let apart = t.merge_reach + 6.0;
+        let n = t.merge_after as usize;
+        h.drops.extend((0..n - 1).map(|i| heart([far[0] + (i % 40) as f32 * apart, far[1] + (i / 40) as f32 * apart], 1)));
+        assert!(!h.merge_heart(far, 2), "fewer than merge_after lie free");
+        h.drops.push(heart([far[0], far[1] - 40.0 * apart], 1));
+        assert!(h.merge_heart([far[0] + 3.0, far[1]], 2));
+        assert!(!h.merge_heart([far[0] - 40.0 * apart, far[1]], 2), "none within merge_reach");
+        let i = h.drops.iter().position(|d| d.pos == far).unwrap();
+        assert!(h.drops[i].kind == DropKind::Money(3) && h.drops[i].hearts == 2 && h.drops.len() == n, "one heart worth both");
+        h.drops[i].pos = h.me().pos;
+        h.update(&Input::default(), 1.0 / 60.0, &mut Vec::new());
+        assert_eq!(h.juice.tally.book(ME).hearts, 2, "both hearts it holds");
+    }
+
+    #[test]
+    fn a_merged_heart_draws_bigger_as_its_hearts_double_up_to_twice() {
+        let grow = crate::tuning::tuning().merge_grow;
+        let size = |hearts| Drop { kind: DropKind::Money(1), pos: [0.0; 2], z: 0.0, vz: 0.0, vel: [0.0; 2], age: 0.0, pulled: None, to: ME, dog: None, hearts }.size();
+        assert_eq!((size(1), size(2), size(3), size(4)), (1.0, 1.0 + grow, 1.0 + grow, 1.0 + 2.0 * grow));
+        assert_eq!(size(u32::MAX), 2.0);
+    }
+
     /// A calm farm with the truck's driver at the player's feet and coins worth `each` strewn far from them.
     fn collection_day(each: u32) -> Harvest {
         let mut h = Harvest::calm(5);
         h.map.driver = Some(h.me().pos);
         for (dx, dy) in [(200.0, 0.0), (-200.0, 40.0), (0.0, 180.0), (30.0, -190.0), (150.0, 150.0)] {
             let pos = [h.me().pos[0] + dx, h.me().pos[1] + dy];
-            h.drops.push(Drop { kind: DropKind::Money(each), pos, z: 0.0, vz: 0.0, vel: [0.0; 2], age: 0.0, pulled: None, to: ME, dog: None });
+            h.drops.push(Drop { kind: DropKind::Money(each), pos, z: 0.0, vz: 0.0, vel: [0.0; 2], age: 0.0, pulled: None, to: ME, dog: None, hearts: 1 });
         }
-        h.drops.push(Drop { kind: DropKind::Health, pos: [h.me().pos[0] + 200.0, h.me().pos[1] + 200.0], z: 0.0, vz: 0.0, vel: [0.0; 2], age: 0.0, pulled: None, to: ME, dog: None });
+        h.drops.push(Drop { kind: DropKind::Health, pos: [h.me().pos[0] + 200.0, h.me().pos[1] + 200.0], z: 0.0, vz: 0.0, vel: [0.0; 2], age: 0.0, pulled: None, to: ME, dog: None, hearts: 1 });
         h
     }
 

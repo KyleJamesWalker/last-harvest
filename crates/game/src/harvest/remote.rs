@@ -340,7 +340,7 @@ impl Harvest {
                         T_HEALTH => DropKind::Health,
                         _ => DropKind::Chest,
                     };
-                    drops.push(Drop { kind, pos, z: 0.0, vz: 0.0, vel: [0.0; 2], age: 1.0, pulled: None, to: ME, dog: None });
+                    drops.push(Drop { kind, pos, z: 0.0, vz: 0.0, vel: [0.0; 2], age: 1.0, pulled: None, to: ME, dog: None, hearts: (t.data[1] as u32).max(1) });
                 }
                 T_PATCH => {
                     let hazard = match t.sub {
@@ -380,7 +380,7 @@ impl Harvest {
                     if let Some(v) = s.heart {
                         let mouth = [dog.pos[0] + dog.heading[0] * 5.0, dog.pos[1] + dog.heading[1] * 2.0];
                         let dog_tag = Some(Fetch { player: p, def, slot, carried: true });
-                        self.drops.push(Drop { kind: DropKind::Money(v), pos: mouth, z: dog.lift() + 4.0, vz: 0.0, vel: [0.0; 2], age: 1.0, pulled: None, to: p, dog: dog_tag });
+                        self.drops.push(Drop { kind: DropKind::Money(v), pos: mouth, z: dog.lift() + 4.0, vz: 0.0, vel: [0.0; 2], age: 1.0, pulled: None, to: p, dog: dog_tag, hearts: 1 });
                     }
                     self.players[p].dogs.push(dog);
                 }

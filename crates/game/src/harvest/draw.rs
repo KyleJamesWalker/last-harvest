@@ -347,8 +347,9 @@ impl Harvest {
                 DropKind::Health => super::effects::effects().health.looping(d.age),
                 DropKind::Chest => super::effects::effects().chest.looping(d.age),
             };
-            let (sx, sy) = at(d.pos[0] - a.w() / 2.0, d.pos[1] - a.h() - d.z);
-            c.art(a, sx, sy, scale, false, lit);
+            let size = d.size();
+            let (sx, sy) = at(d.pos[0] - a.w() * size / 2.0, d.pos[1] - a.h() * size - d.z);
+            c.art(a, sx, sy, scale * size, false, lit);
         }
 
         let shown: Vec<(Mark, f32)> = if fog {

@@ -927,6 +927,7 @@ pub fn scene(h: &Harvest) -> CardScene {
         if d.kind != DropKind::Chest {
             b.scale[0] = (h.t * 5.0 + d.pos[1]).cos().abs().max(0.2);
         }
+        b.scale = b.scale.map(|s| s * d.size());
         board(&mut cards, b);
     }
     for c in &h.juice.corpses {

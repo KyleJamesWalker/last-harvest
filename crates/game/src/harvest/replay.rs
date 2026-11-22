@@ -8,7 +8,7 @@ use super::weapons::Kit;
 use super::{Choice, Harvest, Phase};
 use crate::{Difficulty, Input, MAX_TOUCHES, Sfx};
 
-pub const FORMAT: u32 = 2;
+pub const FORMAT: u32 = 3;
 const MAGIC: &[u8; 4] = b"LHRP";
 /// Ticks between full checkpoints; every tick also keeps one byte of its checksum.
 pub const CHECK_EVERY: u64 = 60;

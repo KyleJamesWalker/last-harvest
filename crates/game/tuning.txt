@@ -10,6 +10,9 @@ speed 48        # pixels a second before upgrades
 magnet 28       # how near hearts and health drift in from, before upgrades
 crit 0.1        # chance a hit lands double, before upgrades
 pickup 7        # how near the player picks something up
+merge_after 300 # once this many hearts lie on the ground, a new one joins a resting heart...; 0 never
+merge_reach 24  # ...this near, adding its XP
+merge_grow 0.2  # a merged heart draws this much bigger each time its hearts double, up to twice the size
 width 8         # the player's footprint for walls, in pixels
 depth 6
 turn 2.6        # radians a second the view turns with a turn button held

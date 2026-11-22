@@ -481,7 +481,7 @@ impl Extract {
                 DropKind::Health => (T_HEALTH, 0),
                 DropKind::Chest => (T_CHEST, 0),
             };
-            things.push(Thing { kind, sub: 0, pos: px(d.pos), data: [value, 0, 0] });
+            things.push(Thing { kind, sub: 0, pos: px(d.pos), data: [value, d.hearts.min(u16::MAX as u32) as u16, 0] });
         }
         for p in &h.patches {
             let sub = match p.hazard {
@@ -827,6 +827,15 @@ mod tests {
     }
 
     #[test]
+    fn a_client_draws_a_merged_heart_with_its_hearts() {
+        let mut h = Harvest::calm(3).with_players(2);
+        let at = [h.players[0].pos[0] + 80.0, h.players[0].pos[1]];
+        h.drops.push(Drop { kind: DropKind::Money(9), pos: at, z: 0.0, vz: 0.0, vel: [0.0; 2], age: 1.0, pulled: None, to: 0, dog: None, hearts: 5 });
+        let world = Extract::default().world(&h, 1000, &[0, 0]);
+        assert!(world.things.iter().any(|t| t.1.kind == T_MONEY && t.1.data[..2] == [9, 5]), "its XP and its hearts");
+    }
+
+    #[test]
     fn a_client_draws_every_players_dogs_where_the_host_has_them_and_the_heart_in_a_dogs_mouth() {
         let (dog, drone) = (book().index("dog").unwrap(), book().index("drone").unwrap());
         let mut h = Harvest::calm(3).with_players(2);
@@ -841,7 +850,7 @@ mod tests {
         let d = &h.players[1].dogs[2];
         let mouth = [d.pos[0] + d.heading[0] * 5.0, d.pos[1] + d.heading[1] * 2.0];
         let fetch = Fetch { player: 1, def: d.def, slot: d.slot, carried: true };
-        h.drops.push(Drop { kind: DropKind::Money(2), pos: mouth, z: 4.0, vz: 0.0, vel: [0.0; 2], age: 1.0, pulled: None, to: 1, dog: Some(fetch) });
+        h.drops.push(Drop { kind: DropKind::Money(2), pos: mouth, z: 4.0, vz: 0.0, vel: [0.0; 2], age: 1.0, pulled: None, to: 1, dog: Some(fetch), hearts: 1 });
 
         let mut client = Harvest::calm(3).with_players(2).client_of(&[1], &[0, 1]);
         let (mut extract, mut host, mut link, mut mirror) = (Extract::default(), HostLink::default(), ClientLink::default(), Mirror::default());
