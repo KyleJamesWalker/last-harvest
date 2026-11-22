@@ -893,47 +893,151 @@ pub struct Outcome {
 
 /// Plays `r` again from its setup, tick by tick, with `watch` looking on.
 pub fn play(r: &Replay, watch: &mut dyn Watch) -> Outcome {
-    let mut h = r.setup.build();
-    let (mut seats, mut dt, mut sounds) = (vec![Input::default()], 1.0 / 60.0, Vec::new());
-    let mut events = r.events.iter().peekable();
-    let (mut drift, mut checks) = (None::<Drift>, 0);
-    for tick in 0..r.ticks {
-        while let Some((_, e)) = events.next_if(|(t, e)| *t == tick && !matches!(e, Event::Check(_))) {
+    let mut c = Cursor::new(r);
+    let mut sounds = Vec::new();
+    while c.step(r, &mut sounds) {
+        sounds.clear();
+        watch.tick(&c.h, c.dt);
+    }
+    Outcome { ticks: r.ticks, secs: c.h.t, checks: c.checks, drift: c.drift, kills: c.h.kills, level: c.h.level }
+}
+
+/// A replay part way through: the night as it stands and where its events are up to.
+struct Cursor {
+    h: Harvest,
+    seats: Vec<Input>,
+    dt: f32,
+    /// The next event, by place in `Replay::events`.
+    next: usize,
+    tick: u64,
+    checks: usize,
+    drift: Option<Drift>,
+}
+
+impl Cursor {
+    fn new(r: &Replay) -> Self {
+        Self { h: r.setup.build(), seats: vec![Input::default()], dt: 1.0 / 60.0, next: 0, tick: 0, checks: 0, drift: None }
+    }
+
+    /// Plays the next tick; false once every tick has played.
+    fn step(&mut self, r: &Replay, sounds: &mut Vec<Sfx>) -> bool {
+        let tick = self.tick;
+        if tick >= r.ticks {
+            return false;
+        }
+        while let Some((_, e)) = r.events.get(self.next).filter(|(t, e)| *t == tick && !matches!(e, Event::Check(_))) {
+            self.next += 1;
             match e {
                 Event::Input(seat, i) => {
-                    if seats.len() <= *seat {
-                        seats.resize(seat + 1, Input::default());
+                    if self.seats.len() <= *seat {
+                        self.seats.resize(seat + 1, Input::default());
                     }
-                    seats[*seat] = *i;
+                    self.seats[*seat] = *i;
                 }
-                Event::Dt(d) => dt = *d,
-                Event::Set(s) => h.apply_set(*s),
-                Event::Seat(p, look) => h.seat(*p, look),
-                Event::Unseat(p) => h.unseat(*p),
-                Event::Op(op) => h.op(*op, &mut sounds),
+                Event::Dt(d) => self.dt = *d,
+                Event::Set(s) => self.h.apply_set(*s),
+                Event::Seat(p, look) => self.h.seat(*p, look),
+                Event::Unseat(p) => self.h.unseat(*p),
+                Event::Op(op) => self.h.op(*op, sounds),
                 Event::Check(_) => {}
             }
         }
-        for (i, input) in h.inputs.iter_mut().enumerate() {
-            *input = seats.get(i + 1).copied().unwrap_or_default();
+        for (i, input) in self.h.inputs.iter_mut().enumerate() {
+            *input = self.seats.get(i + 1).copied().unwrap_or_default();
         }
-        h.update(&seats[0], dt, &mut sounds);
-        sounds.clear();
-        watch.tick(&h, dt);
-        let sum = checksum(&h);
-        if drift.is_none() && r.sums.get(tick as usize) != Some(&(sum as u8)) {
-            drift = Some(Drift { tick, secs: h.t, check: None });
+        self.h.update(&self.seats[0], self.dt, sounds);
+        let sum = checksum(&self.h);
+        if self.drift.is_none() && r.sums.get(tick as usize) != Some(&(sum as u8)) {
+            self.drift = Some(Drift { tick, secs: self.h.t, check: None });
         }
-        while let Some((_, Event::Check(want))) = events.next_if(|(t, e)| *t == tick && matches!(e, Event::Check(_))) {
-            checks += 1;
-            let got = Check::of(&h, sum);
+        while let Some((_, Event::Check(want))) = r.events.get(self.next).filter(|(t, e)| *t == tick && matches!(e, Event::Check(_))) {
+            self.next += 1;
+            self.checks += 1;
+            let got = Check::of(&self.h, sum);
             if got.sum != want.sum {
-                let d = drift.get_or_insert(Drift { tick, secs: h.t, check: None });
+                let d = self.drift.get_or_insert(Drift { tick, secs: self.h.t, check: None });
                 d.check.get_or_insert((tick, want.clone(), got));
             }
         }
+        self.tick += 1;
+        true
     }
-    Outcome { ticks: r.ticks, secs: h.t, checks, drift, kills: h.kills, level: h.level }
+}
+
+/// A replay played to watch, a tick at a time, drawn as any player in it saw the night.
+pub struct Viewer {
+    r: Replay,
+    c: Cursor,
+}
+
+impl Viewer {
+    pub fn new(r: Replay) -> Self {
+        let c = Cursor::new(&r);
+        Self { r, c }
+    }
+
+    /// Plays the next tick, its sounds into `sounds`; false once the replay has ended.
+    pub fn step(&mut self, sounds: &mut Vec<Sfx>) -> bool {
+        self.c.step(&self.r, sounds)
+    }
+
+    /// No tick plays this frame, so the night draws where it stands.
+    pub fn hold(&mut self) {
+        self.c.h.hold_still();
+    }
+
+    /// Back to the start of the night.
+    pub fn rewind(&mut self) {
+        self.c = Cursor::new(&self.r);
+    }
+
+    pub fn replay(&self) -> &Replay {
+        &self.r
+    }
+
+    /// Ticks played, then seconds played.
+    pub fn played(&self) -> (u64, f32) {
+        (self.c.tick, self.c.tick as f32 * self.c.dt)
+    }
+
+    pub fn ended(&self) -> bool {
+        self.c.tick >= self.r.ticks
+    }
+
+    /// Where the night first stopped matching its recording, once it has.
+    pub fn drift(&self) -> Option<&Drift> {
+        self.c.drift.as_ref()
+    }
+
+    pub fn players(&self) -> usize {
+        self.c.h.players.len()
+    }
+
+    /// The player view `p` shows: them, or once they've turned while others stand, the first who still does.
+    pub fn shown(&self, p: PlayerId) -> PlayerId {
+        self.c.h.followed(p.min(self.players() - 1))
+    }
+
+    pub fn one_screen(&self) -> bool {
+        self.c.h.one_screen()
+    }
+
+    pub fn dread(&self) -> f32 {
+        self.c.h.dread()
+    }
+
+    /// The night as player `p` saw it, `alpha` of the way through the last tick.
+    pub fn draw(&mut self, p: PlayerId, alpha: f32, f: &mut crate::Frame) {
+        let h = &mut self.c.h;
+        let undo = h.blend(alpha);
+        let seen = h.followed(p.min(h.players.len() - 1));
+        h.relabel(seen);
+        h.draw(f, false);
+        h.relabel(seen);
+        if let Some(undo) = undo {
+            h.unblend(undo);
+        }
+    }
 }
 
 impl Harvest {
