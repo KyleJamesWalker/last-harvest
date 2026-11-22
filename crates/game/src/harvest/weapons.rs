@@ -406,8 +406,8 @@ pub(super) struct Bolt {
 }
 
 pub(super) struct Dog {
-    def: usize,
-    slot: usize,
+    pub def: usize,
+    pub slot: usize,
     pub pos: [f32; 2],
     /// The way it last ran; the art faces right.
     pub heading: [f32; 2],
@@ -421,7 +421,7 @@ pub(super) struct Dog {
     rest: f32,
     catching_up: bool,
     /// Seconds into a pounce, while in the air.
-    leap: Option<f32>,
+    pub leap: Option<f32>,
     /// Off to fetch a heart or bringing one back.
     errand: bool,
     /// Hearts it brought back.
@@ -429,6 +429,11 @@ pub(super) struct Dog {
 }
 
 impl Dog {
+    /// A dog as a client draws it, doing nothing.
+    pub fn shown(def: usize, slot: usize, pos: [f32; 2], heading: [f32; 2], anim: f32, leap: Option<f32>) -> Self {
+        Self { def, slot, pos, heading, anim, cd: 0.0, target: None, vel: [0.0; 2], spot: [0.0; 2], rest: 0.0, catching_up: false, leap, errand: false, fetched: 0 }
+    }
+
     /// 0 wandering, 1 chasing a target, 2 catching up with its player, 3 in the air, 4 fetching a heart.
     pub fn doing(&self) -> usize {
         if self.leap.is_some() { 3 } else if self.errand { 4 } else if self.catching_up { 2 } else if self.target.is_some() { 1 } else { 0 }
@@ -447,8 +452,8 @@ impl Dog {
 }
 
 pub(super) struct Drone {
-    def: usize,
-    slot: usize,
+    pub def: usize,
+    pub slot: usize,
     pub pos: [f32; 2],
     /// The way its gun points; the art faces right.
     pub heading: [f32; 2],
@@ -467,6 +472,11 @@ pub(super) struct Drone {
 }
 
 impl Drone {
+    /// A drone as a client draws it, doing nothing.
+    pub fn shown(def: usize, slot: usize, pos: [f32; 2], heading: [f32; 2], anim: f32) -> Self {
+        Self { def, slot, pos, heading, anim, cd: 0.0, firing: 0.0, next: 0.0, target: None, vel: [0.0; 2], spot: [0.0; 2], rest: 0.0, heard: 0 }
+    }
+
     pub fn art(&self) -> Art {
         super::effects::effects().drone.looping(self.anim)
     }

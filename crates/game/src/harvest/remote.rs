@@ -9,7 +9,7 @@ use std::f32::consts::TAU;
 use super::effects::{self, Effect};
 use super::local::Cards;
 use super::player::{ME, PlayerId};
-use super::weapons::{Bolt, Decoy, Hazard, Patch};
+use super::weapons::{Bolt, Decoy, Dog, Drone, Hazard, Patch};
 use super::*;
 use crate::netsync::snapshot::*;
 use crate::netsync::{Event, Mirror, Spawn, Spawned};
@@ -182,6 +182,7 @@ impl Harvest {
         self.lay_zombies(mirror, dt);
         self.pin_leaders();
         self.lay_things(&mut c, mirror, dt);
+        self.lay_pets(&c, mirror);
         self.lay_shots(&c, mirror);
         self.lay_run(&mut c, mirror, dt);
         self.net.client = Some(c);
@@ -361,6 +362,31 @@ impl Harvest {
         c.tells = tell_t;
         (self.drops, self.thrown, self.patches, self.decoys, self.tells) = (drops, thrown, patches, decoys, tells);
         self.barrels = barrels;
+    }
+
+    /// Every dog and drone with the player it runs with, and each heart carried in a dog's mouth.
+    fn lay_pets(&mut self, c: &Client, mirror: &Mirror) {
+        for pl in &mut self.players {
+            pl.dogs.clear();
+            pl.drones.clear();
+        }
+        for s in mirror.pets() {
+            let (def, slot) = (s.def as usize, s.slot as usize);
+            let Some(p) = c.index(s.owner as usize).filter(|&p| p < self.players.len()) else { continue };
+            match book().defs.get(def).and_then(|d| d.does) {
+                Some(powerups::Does::Dog) => {
+                    let dog = Dog::shown(def, slot, s.pos, s.heading, s.anim, s.leap);
+                    if let Some(v) = s.heart {
+                        let mouth = [dog.pos[0] + dog.heading[0] * 5.0, dog.pos[1] + dog.heading[1] * 2.0];
+                        let dog_tag = Some(Fetch { player: p, def, slot, carried: true });
+                        self.drops.push(Drop { kind: DropKind::Money(v), pos: mouth, z: dog.lift() + 4.0, vz: 0.0, vel: [0.0; 2], age: 1.0, pulled: None, to: p, dog: dog_tag });
+                    }
+                    self.players[p].dogs.push(dog);
+                }
+                Some(powerups::Does::Drone) => self.players[p].drones.push(Drone::shown(def, slot, s.pos, s.heading, s.anim)),
+                _ => {}
+            }
+        }
     }
 
     fn lay_shots(&mut self, c: &Client, mirror: &Mirror) {
