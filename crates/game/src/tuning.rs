@@ -34,6 +34,9 @@ tuning! {
     player_hp = "player" "hp",
     player_speed = "player" "speed",
     player_magnet = "player" "magnet",
+    merge_after = "player" "merge_after",
+    merge_reach = "player" "merge_reach",
+    merge_grow = "player" "merge_grow",
     crit = "player" "crit",
     pickup = "player" "pickup",
     player_width = "player" "width",
@@ -67,7 +70,10 @@ tuning! {
     breaker = "levelup" "breaker",
     max_zombies = "zombies" "max",
     max_per_player = "zombies" "per_player",
+    health_per_player = "zombies" "health_per_player",
     rise = "zombies" "rise",
+    rise_bite = "zombies" "rise_bite",
+    rise_bite_from = "zombies" "rise_bite_from",
     stagger = "zombies" "stagger",
     growth = "zombies" "growth",
     leader_hp = "zombies" "leader_hp",
@@ -391,7 +397,8 @@ mod tests {
         let base = built_in();
         let normal = &base.presets[2];
         assert_eq!(normal.tuning, base.base, "easy, normal and hard play the base numbers");
-        assert!(base.presets[1..4].iter().all(|p| p.tuning == base.base));
+        assert!(base.presets[2..4].iter().all(|p| p.tuning == base.base));
+        assert_eq!(base.presets[1].tuning, Tuning { rise_bite: 0.0, ..base.base }, "easy only spares bites while rising");
         let brutal = base.presets.iter().find(|p| p.id == "brutal").unwrap();
         assert_eq!((brutal.tuning.spawn_rate, brutal.tuning.player_hp, brutal.kit, brutal.damage), (1.0, base.player_hp, Tier::Hard, 1.4), "its kit's bites, the base's health");
         let modded = parse("[spawn]\nrate 2\n\n[brutal]\nleader.speed 60\n\n[nightmare]\nname Nightmare\nkit easy\nzombies.max 50\n", Some(&base)).unwrap();

@@ -352,7 +352,7 @@ enum Action {
 }
 
 /// What each of a card's numbers is called on its stats page, and how far a press of - or + moves it.
-const STAT_ROWS: [(&str, f32); 12] = [
+const STAT_ROWS: [(&str, f32); 13] = [
     ("Health", 5.0),
     ("Speed", 1.0),
     ("Bite", 1.0),
@@ -365,6 +365,7 @@ const STAT_ROWS: [(&str, f32); 12] = [
     ("Charge (times speed near you)", 0.1),
     ("Spits from (pixels, 0 bites)", 5.0),
     ("Burrows after (seconds up)", 1.0),
+    ("Bite while rising (share)", 0.1),
 ];
 const FLAG_NAMES: [&str; 3] = ["Heavy", "Leads hordes", "Harvester"];
 const STAT_TOP: f32 = CANVAS.y + 100.0;

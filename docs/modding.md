@@ -183,11 +183,11 @@ The game reads its rules from seven text files in `crates/game/`. The packer put
 
 | Section | Sets |
 |---|---|
-| `[player]` | Health, speed, heart magnet, critical-hit chance, pickup reach and footprint before upgrades, and turn speed |
+| `[player]` | Health, speed, heart magnet, critical-hit chance, pickup reach and footprint before upgrades, and turn speed. Once `merge_after` hearts lie on the ground, above 0, a new heart joins a resting one within `merge_reach`, which draws `merge_grow` bigger each time its hearts double, up to twice the size. |
 | `[night]` | The night's length, where zombies rise at dusk and dawn, how near home counts, the rare-card chance and the level-up push |
 | `[spawn]` | How fast zombies arrive. `rate` a second at dusk, `growth` more a second each minute, up to `top`. A horde every `horde_every` seconds, above 0, of `horde` plus `horde_growth` each minute. Zombies owed while `[zombies]` `max` are up bank, up to `bank`, and rise `release` a second once there's room. A zombie off screen and farther than `straggler` pixels from the player for `straggler_time` seconds rises again in the ring ahead of the player, with the same kind and health. The Harvester never does. Each player past the first adds `per_player` of the rate and of each horde. |
 | `[levelup]` | How a level-up deals its cards. `held_weight` makes a powerup the player holds that many times as likely as a new one, above 0, and 1 for even odds. `banish`, `reroll` and `favor` are how many of each a run gets, and 0 turns one off. A favored powerup is `favor_weight` times as likely for the rest of the run, on top of `held_weight`, and favor is offered from level `favor_level` on. A rare card for a powerup one level below its top raises it one past it, the level breaker: each stat adds `breaker` times its last step, and 0 turns it off. With `slots` in `powerups.txt`, these set how deep a run's build goes. |
-| `[zombies]` | The most alive at once, and `per_player` of it more for each player past the first, rising time, stagger, growth each minute, a leader's health, dawn's fury, footprint, walk speed, bite reach, `charge_reach`, spit speed and rate, `burrow_reach`, and chewing speed |
+| `[zombies]` | The most alive at once, and `per_player` of it more for each player past the first; `health_per_player`, the share of its health every zombie gains for each player past the first; rising time, with `rise_bite` multiplying each kind's `rise_bite` and `rise_bite_from` the share of the climb before it can bite; stagger, growth each minute, a leader's health, dawn's fury, footprint, walk speed, bite reach, `charge_reach`, spit speed and rate, `burrow_reach`, and chewing speed |
 | `[roam]` | Once the run is over, the dead wander: at `speed` times their walk, picking a new way about every `turn` seconds, after standing over the fallen player up to `after` seconds |
 | `[leader]` | With others still playing, a turned player leads the dead. Once their leader falls, `respawn_pick` seconds to pick where the next rises, at least `respawn_min_tiles` tiles from every living player, else it rises where a horde's leader would. The `swarm` that rises with each leader, the leader's walking `speed`, how near X's `call` reaches, and how near a living player a swarm zombie leaves the leader to `chase` them |
 | `[camp]` | A living player who stays within `radius` tiles of one spot for `after` seconds (0 turns it off) has the dead rise around them on open ground, `ring` tiles away: `wave` zombies, then every `every` seconds another wave of `grow` more than the last, until they move on. Camp waves may rise past `[zombies]` `max` by `over` of it |
@@ -436,6 +436,7 @@ Each `[id]` section is one kind of zombie:
 | `charge` | Its speed multiple within `tuning.txt`'s `charge_reach`. Default 1. |
 | `ranged` | How near it stops to spit, up to 160. Default 0, a biter. |
 | `burrow` | Seconds it stays up before it tunnels again, up to 60. Default 0, never. |
+| `rise_bite` | The share of its bite it lands while still climbing out, rooted, times `tuning.txt`'s `rise_bite`. 0 is harmless until it's out. Default 1. |
 | `blood` | Its blood color as `RRGGBB`. Default: `effects.txt`'s `blood`. |
 | `heavy` | A crit or hard hit roots it, and its death shakes the screen |
 | `leader` | A horde's leader, which carries the chest, is one of these |
@@ -444,4 +445,4 @@ Each `[id]` section is one kind of zombie:
 Each arriving zombie rolls a number from 0 to 1 and becomes the first kind, top to bottom, whose chance is above the roll. Put the rarest kinds first, and end on one with no chance. A fallen player rises as the last kind.
 
 - A `ranged` zombie walks in until it is that near with a clear shot, then stands and spits. Each spit does its `damage`, flies slower than the player walks, and splashes on cover. `effects.txt`'s `[spit]` sets its look.
-- A `burrow` zombie tunnels as a moving dirt mound that nothing can hit. Within `burrow_reach` of the player, it breaks out and is safe until it has climbed out, which takes `rise` seconds. `[mound]` and `[mound_breaks]` in `effects.txt` set its look.
+- A `burrow` zombie tunnels as a moving dirt mound that nothing can hit. Within `burrow_reach` of the player, it breaks out and climbs out over `rise` seconds, biting as its `rise_bite` allows. `[mound]` and `[mound_breaks]` in `effects.txt` set its look.

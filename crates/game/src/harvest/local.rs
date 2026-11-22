@@ -33,6 +33,7 @@ pub(super) struct Local {
     queued_touch: Option<[f32; 2]>,
     hp_shown: f32,
     dealt: [f32; 3],
+    card_levels: [(u32, u32); 3],
     banishing: bool,
     favoring: bool,
     banished: u64,
@@ -150,6 +151,7 @@ impl Harvest {
         std::mem::swap(&mut self.queued_touch, &mut l.queued_touch);
         std::mem::swap(&mut self.hp_shown, &mut l.hp_shown);
         std::mem::swap(&mut self.dealt, &mut l.dealt);
+        std::mem::swap(&mut self.card_levels, &mut l.card_levels);
         std::mem::swap(&mut self.banishing, &mut l.banishing);
         std::mem::swap(&mut self.favoring, &mut l.favoring);
         std::mem::swap(&mut self.banished, &mut l.banished);
@@ -753,8 +755,8 @@ mod tests {
         idle(&mut h, TURNED + 1.5);
         let mut f = crate::Frame::default();
         h.draw(&mut f, false);
-        let both = if matches!(h.phase, Phase::Over { .. }) { [&f.top, &f.bottom].iter().any(|c| c.shapes.iter().any(|x| matches!(x, crate::Shape::Text { text, .. } if text.contains("P1 ") && text.contains("P2 ")))) } else { false };
-        assert!(both, "the end screen names each player's kills");
+        let line = |p: &str| [&f.top, &f.bottom].iter().any(|c| c.shapes.iter().any(|x| matches!(x, crate::Shape::Text { text, .. } if text.starts_with(p) && text.contains("kills"))));
+        assert!(matches!(h.phase, Phase::Over { .. }) && line("P1 ") && line("P2 "), "the end screen gives each player's kills a line");
     }
 
     #[test]
@@ -792,5 +794,15 @@ mod tests {
         };
         let (a, b) = (owed(Harvest::new(1)), owed(Harvest::new(1).with_players(2)));
         assert!((b / a - (1.0 + t.spawn_per_player)).abs() < 0.05, "{a} then {b}");
+    }
+
+    #[test]
+    fn more_players_make_every_zombie_tougher() {
+        let t = crate::tuning::tuning();
+        let mut h = Harvest::new(1).with_players(3);
+        assert_eq!(h.toughness(), 1.0 + 2.0 * t.health_per_player);
+        h.spawn(1.0);
+        let tell = h.tells.iter().find(|t| !t.leader).expect("a zombie owed in the first second");
+        assert!((tell.hp - tell.kind.stats().hp * h.toughness()).abs() < 0.01, "{} for {}", tell.hp, tell.kind.stats().hp);
     }
 }

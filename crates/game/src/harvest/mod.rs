@@ -78,6 +78,11 @@ pub fn night_minutes() -> f32 {
 }
 
 /// Seconds from dusk to dawn.
+/// Where a blast at `c` puffs its smoke.
+fn blast_smoke_at(c: [f32; 2]) -> [f32; 2] {
+    [c[0], c[1] - 8.0]
+}
+
 fn dawn() -> f32 {
     crate::tuning::tuning().night
 }
@@ -546,6 +551,8 @@ struct Drop {
     to: PlayerId,
     /// The dog going for it or carrying it.
     dog: Option<Fetch>,
+    /// The hearts merged into it, each counted on pickup; 1 for any other drop.
+    hearts: u32,
 }
 
 /// Which dog has a heart: its player's, by card and slot.
@@ -564,6 +571,12 @@ impl Fetch {
 }
 
 impl Drop {
+    /// How many times one heart's size it draws at: `[player] merge_grow` more each time its hearts double, up to twice.
+    fn size(&self) -> f32 {
+        let doublings = (u32::BITS - 1 - self.hearts.max(1).leading_zeros()) as f32;
+        (1.0 + crate::tuning::tuning().merge_grow * doublings).min(2.0)
+    }
+
     /// The magnet takes it, toward the player along `n`: a flick to one side first makes it swoop in.
     fn catch(&mut self, n: [f32; 2], side: f32) {
         self.vel = [-n[1] * side * 70.0 - n[0] * 40.0, n[0] * side * 70.0 - n[1] * 40.0];
@@ -832,6 +845,8 @@ pub struct Harvest {
     favoring: bool,
     /// The level-up's `t` when each card on show was dealt, so a card dealt again slides in again.
     dealt: [f32; 3],
+    /// Each card's levels, from and to, as last shown before the pick raised the kit.
+    card_levels: [(u32, u32); 3],
     /// The next zombie to rise leads the horde.
     leader_owed: bool,
     /// What dawn has multiplied every zombie's health and bite by, and the time toward its next step.
@@ -1082,6 +1097,7 @@ impl Harvest {
             favors: crate::tuning::tuning().favor as u32,
             favoring: false,
             dealt: [0.0; 3],
+            card_levels: [(0, 0); 3],
             leader_owed: false,
             fury: 1.0,
             fury_tick: 0.0,
@@ -1551,6 +1567,15 @@ impl Harvest {
             }
         }
         self.phase = Phase::LevelUp { choices, selected, t, picked };
+        self.hold_card_levels();
+    }
+
+    /// Keeps each card's levels while none is picked, so the picked card goes on showing what it gave.
+    fn hold_card_levels(&mut self) {
+        if let Phase::LevelUp { choices, picked: None, .. } = self.phase {
+            let kit = &self.me().kit;
+            self.card_levels = choices.map(|c| (kit.level(c.up), kit.raised(c.up, if c.rare { 2 } else { 1 })));
+        }
     }
 
     /// Takes a card as the run's pick.
@@ -1891,7 +1916,7 @@ impl Harvest {
                 break;
             }
         }
-        let mut z = Zombie::new(Kind(roster().harvester as u8), at, t.harvester_hp * self.fury, 0.0, 0.0);
+        let mut z = Zombie::new(Kind(roster().harvester as u8), at, t.harvester_hp * self.fury * self.toughness(), 0.0, 0.0);
         z.boss = true;
         z.id = self.next_id;
         self.next_id += 1;
@@ -2215,6 +2240,11 @@ impl Harvest {
     }
 
     /// The most zombies up at once: `[zombies] max`, and `per_player` of it more for each player past the first.
+    /// What every zombie's health is multiplied by: `health_per_player` of it more for each player past the first.
+    pub(super) fn toughness(&self) -> f32 {
+        1.0 + (self.players.len() - 1) as f32 * crate::tuning::tuning().health_per_player
+    }
+
     pub(super) fn cap(&self) -> usize {
         let t = crate::tuning::tuning();
         (t.max_zombies * (1.0 + (self.players.len() - 1) as f32 * t.max_per_player)) as usize
@@ -2226,7 +2256,7 @@ impl Harvest {
         let leader = std::mem::take(&mut self.leader_owed);
         let r = roster();
         let kind = Kind(if leader && self.enemies_off & 1 << r.leader == 0 { r.leader } else { r.pick(minutes, roll, self.enemies_off) } as u8);
-        let hp = kind.stats().hp * (1.0 + minutes * crate::tuning::tuning().growth) * if leader { crate::tuning::tuning().leader_hp } else { 1.0 } * self.fury;
+        let hp = kind.stats().hp * (1.0 + minutes * crate::tuning::tuning().growth) * if leader { crate::tuning::tuning().leader_hp } else { 1.0 } * self.fury * self.toughness();
         let p = self.ring_player();
         if let Some(pos) = self.ring_spot(p, None) {
             self.tells.push(Tell { kind, pos, hp, t: 0.0, leader, led: None });
@@ -2729,8 +2759,8 @@ impl Harvest {
             if pl.hurt > 0.0 || !pl.alive() {
                 continue;
             }
-            let biters = self.zombies.iter().filter(|z| z.rise >= 1.0 && len(sub(z.pos, pl.pos)) < crate::tuning::tuning().bite_reach);
-            let (hit, by) = biters.map(|z| (z.kind.stats().damage * if z.boss { crate::tuning::tuning().harvester_bite } else { 1.0 } * self.fury * self.difficulty.damage(), z.led)).fold((0.0, None), |a, b| if b.0 > a.0 { b } else { a });
+            let biters = self.zombies.iter().filter(|z| z.rise >= crate::tuning::tuning().rise_bite_from.min(1.0) && len(sub(z.pos, pl.pos)) < crate::tuning::tuning().bite_reach);
+            let (hit, by) = biters.map(|z| (z.kind.stats().damage * if z.rise < 1.0 { z.kind.stats().rise_bite * crate::tuning::tuning().rise_bite } else { 1.0 } * if z.boss { crate::tuning::tuning().harvester_bite } else { 1.0 } * self.fury * self.difficulty.damage(), z.led)).fold((0.0, None), |a, b| if b.0 > a.0 { b } else { a });
             if hit > 0.0 {
                 if let Some(q) = by {
                     self.juice.tally.book_mut(q).bites += 1;
@@ -2891,8 +2921,35 @@ impl Harvest {
             self.actor_mut().hurt = self.difficulty.hurt_time();
             self.ouch(self.actor, 0.3);
         }
+        self.blast_juice(c, radius);
+        if self.net.role == online::Role::Host {
+            self.net.blasts.borrow_mut().push((c, radius));
+        }
+        self.noise = Some(c);
+        let (pan, gain) = self.place(c);
+        sounds.push(Sfx::Boom { pan, gain: gain.max(110) });
+        self.thud(hits, sounds);
+    }
+
+    fn merge_heart(&mut self, at: [f32; 2], xp: u32) -> bool {
+        let t = crate::tuning::tuning();
+        let free = |d: &Drop| matches!(d.kind, DropKind::Money(_)) && d.pulled.is_none() && d.dog.is_none();
+        if t.merge_after <= 0.0 || (self.drops.iter().filter(|d| free(d)).count() as f32) < t.merge_after {
+            return false;
+        }
+        let near = self.drops.iter_mut().filter(|d| free(d)).map(|d| (len(sub(d.pos, at)), d)).filter(|(l, _)| *l <= t.merge_reach).min_by(|a, b| a.0.total_cmp(&b.0));
+        let Some((_, d)) = near else { return false };
+        if let DropKind::Money(v) = &mut d.kind {
+            *v += xp;
+        }
+        d.hearts += 1;
+        true
+    }
+
+    /// How a blast at `c` looks and feels: its sprite and smoke, shake, flash, ring, sparks and scorch.
+    pub(super) fn blast_juice(&mut self, c: [f32; 2], radius: f32) {
         self.fx.push(Fx::play(effects::effects().explosion, c, 0.0));
-        self.fx.push(Fx::play(effects::effects().explosion_smoke, [c[0], c[1] - 8.0], 0.0));
+        self.fx.push(Fx::play(effects::effects().explosion_smoke, blast_smoke_at(c), 0.0));
         self.shake_each(|at| (0.75 * (1.0 - len(sub(at, c)) / 260.0)).max(0.12), 4.0);
         self.juice.stop(0.07);
         self.juice.flash(c, 14.0, [2.4, 1.3, 0.5], 8.0, 0.45);
@@ -2901,10 +2958,6 @@ impl Harvest {
         self.juice.burst(c, 2.0, 14, [0.0; 2], 0.0, [30.0, 90.0], juice::dirt(), 1.8, 0.8, 0.0);
         let scorch = art::BLOOD_STAIN[self.juice.rng.below(art::BLOOD_STAIN.len())];
         self.stain((scorch, c[0] - scorch.w() / 2.0, c[1] - scorch.h() / 2.0, [0.12, 0.1, 0.09]));
-        self.noise = Some(c);
-        let (pan, gain) = self.place(c);
-        sounds.push(Sfx::Boom { pan, gain: gain.max(110) });
-        self.thud(hits, sounds);
     }
 
     fn stain(&mut self, s: (Art, f32, f32, [f32; 3])) {
@@ -3021,7 +3074,9 @@ impl Harvest {
             let a = self.juice.rng.range(0.0, TAU);
             let speed = self.juice.rng.range(8.0, 28.0);
             let vz = self.juice.rng.range(60.0, 95.0);
-            self.drops.push(Drop { kind, pos: z.pos, z: 4.0, vz, vel: [fm::cos(a) * speed, fm::sin(a) * speed], age: 0.0, pulled: None, to: ME, dog: None });
+            if !matches!(kind, DropKind::Money(v) if self.merge_heart(z.pos, v)) {
+                self.drops.push(Drop { kind, pos: z.pos, z: 4.0, vz, vel: [fm::cos(a) * speed, fm::sin(a) * speed], age: 0.0, pulled: None, to: ME, dog: None, hearts: 1 });
+            }
         }
         if let Some(kind) = died
             && (self.hush[1] <= 0.0 || kind.stats().heavy)
@@ -3107,7 +3162,7 @@ impl Harvest {
                 let p = d.to;
                 match d.kind {
                     DropKind::Money(v) => {
-                        self.juice.tally.book_mut(p).hearts += 1;
+                        self.juice.tally.book_mut(p).hearts += d.hearts;
                         self.xp_frac += v as f32 * self.players[p].kit.mods.greed;
                         self.xp += self.xp_frac as u32;
                         self.xp_frac = self.xp_frac.fract();
@@ -3838,6 +3893,19 @@ mod tests {
         assert!((ratio - 3.0).abs() < 0.45, "held cards came up {ratio} times as often, for a weight of 3");
     }
 
+    #[test]
+    fn a_picked_card_keeps_showing_the_levels_it_gave() {
+        let mut h = Harvest::new(2);
+        level_up_on(&mut h, ["shotgun", "pistol", "running_shoes"]);
+        let pistol = book().index("pistol").unwrap();
+        let before = h.me().kit.level(pistol);
+        h.update(&Input::default(), CARDS_IN, &mut Vec::new());
+        h.update(&Input { pressed: Buttons::X, ..Default::default() }, 0.016, &mut Vec::new());
+        assert!(matches!(h.phase, Phase::LevelUp { picked: Some(_), .. }));
+        assert_eq!(h.me().kit.level(pistol), before + 1);
+        assert_eq!(h.card_levels[1], (before, before + 1));
+    }
+
     fn level_up_on(h: &mut Harvest, ids: [&str; 3]) {
         let choice = |id| Choice { up: book().index(id).unwrap(), rare: false, found: false };
         h.phase = Phase::LevelUp { choices: ids.map(choice), selected: 1, t: 1.0, picked: None };
@@ -4153,18 +4221,29 @@ mod tests {
     }
 
     #[test]
-    fn a_rising_zombie_is_rooted_and_harmless_until_it_is_out() {
-        let mut h = Harvest::calm(3);
-        let at = [h.me().pos[0] + 4.0, h.me().pos[1]];
-        h.zombies.push(Zombie::new(Kind::named("skinny"), at, 1000.0, 0.0, 0.0));
-        let mut sounds = Vec::new();
-        h.update(&Input::default(), crate::tuning::tuning().rise * 0.5, &mut sounds);
-        assert_eq!(h.zombies[0].pos, at);
-        assert_eq!(h.me().hp, h.me().kit.max_hp());
-        for _ in 0..60 {
-            h.update(&Input::default(), 1.0 / 60.0, &mut sounds);
-        }
-        assert!(h.me().hp < h.me().kit.max_hp());
+    fn a_rising_zombie_is_rooted_and_bites_its_rise_bite() {
+        let bitten = |kind: Kind| {
+            let mut h = Harvest::calm(3);
+            let at = [h.me().pos[0] + 4.0, h.me().pos[1]];
+            h.zombies.push(Zombie::new(kind, at, 1000.0, 0.0, 0.0));
+            let t = crate::tuning::tuning();
+            h.update(&Input::default(), t.rise * t.rise_bite_from * 0.5, &mut Vec::new());
+            assert_eq!(h.me().hp, h.me().kit.max_hp(), "no bite before rise_bite_from of the climb");
+            h.update(&Input::default(), t.rise * 0.6, &mut Vec::new());
+            assert_eq!(h.zombies[0].pos, at, "rooted while it climbs");
+            h.me().kit.max_hp() - h.me().hp
+        };
+        let full = bitten(Kind::named("skinny"));
+        let half = bitten(skinny_but(|e| e.rise_bite = 0.5));
+        assert!(full > 0.0 && half > 0.0 && half < full, "{full} then {half}");
+        assert_eq!(bitten(skinny_but(|e| e.rise_bite = 0.0)), 0.0, "0 keeps it harmless until it's out");
+    }
+
+    #[test]
+    fn stroll_and_easy_turn_off_every_bite_while_rising() {
+        let r = crate::tuning::rules();
+        let rise_bite = |id: &str| r.presets.iter().find(|p| p.id == id).map(|p| p.tuning.rise_bite);
+        assert_eq!((rise_bite("stroll"), rise_bite("easy"), rise_bite("normal")), (Some(0.0), Some(0.0), Some(r.base.rise_bite)));
     }
 
     /// A calm farm whose player has just gone down at its spawn, ringed by `n` zombies.
@@ -4607,7 +4686,7 @@ mod tests {
         let mut h = Harvest::calm(5);
         let mut sounds = Vec::new();
         for _ in 0..3 {
-            h.drops.push(Drop { kind: DropKind::Money(1), pos: h.me().pos, z: 0.0, vz: 0.0, vel: [0.0; 2], age: 0.0, pulled: None, to: ME, dog: None });
+            h.drops.push(Drop { kind: DropKind::Money(1), pos: h.me().pos, z: 0.0, vz: 0.0, vel: [0.0; 2], age: 0.0, pulled: None, to: ME, dog: None, hearts: 1 });
             h.collect(0.1, &mut sounds);
         }
         let steps: Vec<u8> = sounds.iter().filter_map(|s| if let Sfx::Pickup(n) = s { Some(*n) } else { None }).collect();
@@ -4621,7 +4700,7 @@ mod tests {
         h.spawn(0.02);
         let leader = h.tells.iter().find(|t| t.leader).expect("the horde has a leader");
         assert!(leader.kind == Kind::named("big") && h.tells.iter().filter(|t| t.leader).count() == 1);
-        h.drops.push(Drop { kind: DropKind::Chest, pos: h.me().pos, z: 0.0, vz: 0.0, vel: [0.0; 2], age: 0.0, pulled: None, to: ME, dog: None });
+        h.drops.push(Drop { kind: DropKind::Chest, pos: h.me().pos, z: 0.0, vz: 0.0, vel: [0.0; 2], age: 0.0, pulled: None, to: ME, dog: None, hearts: 1 });
         h.collect(0.016, &mut Vec::new());
         for _ in 0..200 {
             if let Phase::LevelUp { choices, .. } = h.phase {
@@ -4641,7 +4720,7 @@ mod tests {
         h.update(&Input::default(), 1.0 / 60.0, &mut Vec::new());
         assert!(h.leveling > 0.0);
         for _ in 0..2 {
-            h.drops.push(Drop { kind: DropKind::Chest, pos: h.me().pos, z: 0.0, vz: 0.0, vel: [0.0; 2], age: 0.0, pulled: None, to: ME, dog: None });
+            h.drops.push(Drop { kind: DropKind::Chest, pos: h.me().pos, z: 0.0, vz: 0.0, vel: [0.0; 2], age: 0.0, pulled: None, to: ME, dog: None, hearts: 1 });
         }
         h.collect(0.016, &mut Vec::new());
         let mut level_ups = 0;
@@ -4870,15 +4949,43 @@ mod tests {
         assert_eq!(h.thrown.len(), 1);
     }
 
+    #[test]
+    fn past_merge_after_a_heart_joins_a_resting_one_and_counts_whole_on_pickup() {
+        let t = crate::tuning::tuning();
+        let mut h = Harvest::calm(5);
+        let heart = |pos: [f32; 2], v| Drop { kind: DropKind::Money(v), pos, z: 0.0, vz: 0.0, vel: [0.0; 2], age: 0.0, pulled: None, to: ME, dog: None, hearts: 1 };
+        let far = [h.me().pos[0] + 300.0, h.me().pos[1]];
+        let apart = t.merge_reach + 6.0;
+        let n = t.merge_after as usize;
+        h.drops.extend((0..n - 1).map(|i| heart([far[0] + (i % 40) as f32 * apart, far[1] + (i / 40) as f32 * apart], 1)));
+        assert!(!h.merge_heart(far, 2), "fewer than merge_after lie free");
+        h.drops.push(heart([far[0], far[1] - 40.0 * apart], 1));
+        assert!(h.merge_heart([far[0] + 3.0, far[1]], 2));
+        assert!(!h.merge_heart([far[0] - 40.0 * apart, far[1]], 2), "none within merge_reach");
+        let i = h.drops.iter().position(|d| d.pos == far).unwrap();
+        assert!(h.drops[i].kind == DropKind::Money(3) && h.drops[i].hearts == 2 && h.drops.len() == n, "one heart worth both");
+        h.drops[i].pos = h.me().pos;
+        h.update(&Input::default(), 1.0 / 60.0, &mut Vec::new());
+        assert_eq!(h.juice.tally.book(ME).hearts, 2, "both hearts it holds");
+    }
+
+    #[test]
+    fn a_merged_heart_draws_bigger_as_its_hearts_double_up_to_twice() {
+        let grow = crate::tuning::tuning().merge_grow;
+        let size = |hearts| Drop { kind: DropKind::Money(1), pos: [0.0; 2], z: 0.0, vz: 0.0, vel: [0.0; 2], age: 0.0, pulled: None, to: ME, dog: None, hearts }.size();
+        assert_eq!((size(1), size(2), size(3), size(4)), (1.0, 1.0 + grow, 1.0 + grow, 1.0 + 2.0 * grow));
+        assert_eq!(size(u32::MAX), 2.0);
+    }
+
     /// A calm farm with the truck's driver at the player's feet and coins worth `each` strewn far from them.
     fn collection_day(each: u32) -> Harvest {
         let mut h = Harvest::calm(5);
         h.map.driver = Some(h.me().pos);
         for (dx, dy) in [(200.0, 0.0), (-200.0, 40.0), (0.0, 180.0), (30.0, -190.0), (150.0, 150.0)] {
             let pos = [h.me().pos[0] + dx, h.me().pos[1] + dy];
-            h.drops.push(Drop { kind: DropKind::Money(each), pos, z: 0.0, vz: 0.0, vel: [0.0; 2], age: 0.0, pulled: None, to: ME, dog: None });
+            h.drops.push(Drop { kind: DropKind::Money(each), pos, z: 0.0, vz: 0.0, vel: [0.0; 2], age: 0.0, pulled: None, to: ME, dog: None, hearts: 1 });
         }
-        h.drops.push(Drop { kind: DropKind::Health, pos: [h.me().pos[0] + 200.0, h.me().pos[1] + 200.0], z: 0.0, vz: 0.0, vel: [0.0; 2], age: 0.0, pulled: None, to: ME, dog: None });
+        h.drops.push(Drop { kind: DropKind::Health, pos: [h.me().pos[0] + 200.0, h.me().pos[1] + 200.0], z: 0.0, vz: 0.0, vel: [0.0; 2], age: 0.0, pulled: None, to: ME, dog: None, hearts: 1 });
         h
     }
 

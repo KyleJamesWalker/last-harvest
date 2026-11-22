@@ -2326,7 +2326,7 @@ mod tests {
         h.players[ME].pos = [h.players[1].pos[0], h.players[1].pos[1] + 300.0];
         let (magnet, at) = (h.players[1].kit.magnet(), [h.players[1].pos[0] + 60.0, h.players[1].pos[1]]);
         assert!(magnet < 60.0, "the heart lies past the magnet, {magnet}");
-        h.drops.push(Drop { kind: DropKind::Money(1), pos: at, z: 0.0, vz: 0.0, vel: [0.0; 2], age: 0.0, pulled: None, to: ME, dog: None });
+        h.drops.push(Drop { kind: DropKind::Money(1), pos: at, z: 0.0, vz: 0.0, vel: [0.0; 2], age: 0.0, pulled: None, to: ME, dog: None, hearts: 1 });
         let mut sounds = Vec::new();
         let mut carried = false;
         for _ in 0..60 * 6 {

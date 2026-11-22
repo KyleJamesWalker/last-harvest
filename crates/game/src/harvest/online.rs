@@ -40,6 +40,8 @@ pub(super) struct Net {
     pub seats: Vec<usize>,
     /// Sounds placed this tick, with where on the farm they came from.
     pub placed: std::cell::RefCell<Vec<Placed>>,
+    /// Blasts this tick, by center and radius, for clients to draw.
+    pub blasts: std::cell::RefCell<Vec<([f32; 2], f32)>>,
     pub client: Option<Box<super::remote::Client>>,
     /// Players whose device has stopped sending input, by place in `players`.
     pub away: Vec<bool>,
@@ -315,6 +317,10 @@ impl Extract {
     pub fn record(&mut self, h: &Harvest, tick: u32, sounds: &[Sfx]) -> Fresh {
         let mut out = Fresh { tick, ..Fresh::default() };
         let placed = std::mem::take(&mut *h.net.placed.borrow_mut());
+        let blasts = std::mem::take(&mut *h.net.blasts.borrow_mut());
+        for &(c, r) in &blasts {
+            out.events.push(Event::Blast { pos: q_pos(c), radius: r.round().min(u16::MAX as f32) as u16 });
+        }
         let mut heard: Vec<Sfx> = Vec::new();
         for s in sounds {
             if heard.contains(s) || *s == Sfx::Hurt || (*s == Sfx::GameOver && !matches!(h.phase, Phase::Over { .. })) {
@@ -403,7 +409,8 @@ impl Extract {
             let pos = q_pos(f.pos);
             let art = f.frames.first().map_or(0, |a| a.0);
             let key = (art, pos[0], pos[1]);
-            if !self.fx_seen.contains(&key) {
+            let blast = blasts.iter().any(|&(c, _)| [c, super::blast_smoke_at(c)].iter().any(|&at| q_pos(at) == pos));
+            if !blast && !self.fx_seen.contains(&key) {
                 new.push(Spawn::Fx { art, pos, angle: (f.angle.rem_euclid(TAU) / TAU * 256.0) as u8 });
             }
             fx.insert(key);
@@ -474,7 +481,7 @@ impl Extract {
                 DropKind::Health => (T_HEALTH, 0),
                 DropKind::Chest => (T_CHEST, 0),
             };
-            things.push(Thing { kind, sub: 0, pos: px(d.pos), data: [value, 0, 0] });
+            things.push(Thing { kind, sub: 0, pos: px(d.pos), data: [value, d.hearts.min(u16::MAX as u32) as u16, 0] });
         }
         for p in &h.patches {
             let sub = match p.hazard {
@@ -800,6 +807,35 @@ mod tests {
     }
 
     #[test]
+    fn a_client_sees_a_blast_flash_and_ring_where_the_host_has_it() {
+        let mut h = Harvest::calm(3).with_players(2).hosting(1);
+        let at = [h.players[0].pos[0] + 60.0, h.players[0].pos[1]];
+        let mut sounds = Vec::new();
+        h.explode(at, 40.0, 10.0, &mut sounds);
+        let fresh = Extract::default().record(&h, 1, &sounds);
+        assert!(fresh.spawns.iter().all(|s| !matches!(s.what, Spawn::Fx { .. })), "its sprite and smoke ride with the event, never a spawn that can be cut");
+        let blasts: Vec<Event> = fresh.events.into_iter().filter(|e| matches!(e, Event::Blast { .. })).collect();
+        assert_eq!(blasts.len(), 1, "one blast event for the one blast");
+        assert!(blasts[0].critical(), "sent until the client has it");
+        assert!(h.net.blasts.borrow().is_empty(), "taken for this tick");
+        let mut client = Harvest::calm(3).with_players(2).client_of(&[1], &[0, 1]);
+        assert!(client.juice.flashes.is_empty() && client.juice.rings.is_empty());
+        client.client_event(blasts[0], &mut sounds);
+        assert!(!client.juice.flashes.is_empty() && !client.juice.rings.is_empty(), "the client lights it as the host does");
+        assert!(len(sub(client.juice.rings[0].center, at)) < 0.1, "{:?} for {:?}", client.juice.rings[0].center, at);
+        assert_eq!(client.fx.len(), 2, "the explosion and its smoke");
+    }
+
+    #[test]
+    fn a_client_draws_a_merged_heart_with_its_hearts() {
+        let mut h = Harvest::calm(3).with_players(2);
+        let at = [h.players[0].pos[0] + 80.0, h.players[0].pos[1]];
+        h.drops.push(Drop { kind: DropKind::Money(9), pos: at, z: 0.0, vz: 0.0, vel: [0.0; 2], age: 1.0, pulled: None, to: 0, dog: None, hearts: 5 });
+        let world = Extract::default().world(&h, 1000, &[0, 0]);
+        assert!(world.things.iter().any(|t| t.1.kind == T_MONEY && t.1.data[..2] == [9, 5]), "its XP and its hearts");
+    }
+
+    #[test]
     fn a_client_draws_every_players_dogs_where_the_host_has_them_and_the_heart_in_a_dogs_mouth() {
         let (dog, drone) = (book().index("dog").unwrap(), book().index("drone").unwrap());
         let mut h = Harvest::calm(3).with_players(2);
@@ -814,7 +850,7 @@ mod tests {
         let d = &h.players[1].dogs[2];
         let mouth = [d.pos[0] + d.heading[0] * 5.0, d.pos[1] + d.heading[1] * 2.0];
         let fetch = Fetch { player: 1, def: d.def, slot: d.slot, carried: true };
-        h.drops.push(Drop { kind: DropKind::Money(2), pos: mouth, z: 4.0, vz: 0.0, vel: [0.0; 2], age: 1.0, pulled: None, to: 1, dog: Some(fetch) });
+        h.drops.push(Drop { kind: DropKind::Money(2), pos: mouth, z: 4.0, vz: 0.0, vel: [0.0; 2], age: 1.0, pulled: None, to: 1, dog: Some(fetch), hearts: 1 });
 
         let mut client = Harvest::calm(3).with_players(2).client_of(&[1], &[0, 1]);
         let (mut extract, mut host, mut link, mut mirror) = (Extract::default(), HostLink::default(), ClientLink::default(), Mirror::default());

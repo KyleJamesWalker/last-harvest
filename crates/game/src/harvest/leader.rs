@@ -60,7 +60,7 @@ impl Harvest {
     /// Player `p` takes a leader of the dead at `at`, `rise` out of the ground, and a swarm climbs out around it.
     pub(super) fn rise_leading(&mut self, p: PlayerId, at: [f32; 2], rise: f32) {
         let t = crate::tuning::tuning();
-        let grow = (1.0 + self.t / 60.0 * t.growth) * self.fury;
+        let grow = (1.0 + self.t / 60.0 * t.growth) * self.fury * self.toughness();
         let kind = Kind(roster().leader as u8);
         let full = kind.stats().hp * grow * t.leader_hp;
         let mut z = Zombie::new(kind, at, full, rise, 0.0);

@@ -94,9 +94,9 @@ The d-pad and left stick move you, and the right stick turns. On Android and muO
 
 A night lasts ten minutes, from dusk to dawn. A bell rings each minute.
 
-- **Zombies rise** out of the ground, at the edge of the fog early on and a few tiles away by the end. They walk around buildings, or chew through a fence when that is quicker. They grow tougher each minute.
+- **Zombies rise** out of the ground, at the edge of the fog early on and a few tiles away by the end. They can't move until they are out, but most can bite as they climb. They walk around buildings, or chew through a fence when that is quicker. They grow tougher each minute.
 - **Cover:** shots fly past bushes, fences and signs. Buildings, vehicles and trees stop them.
-- **Hearts:** kills drop rotten zombie hearts, which flop out and settle. Offer enough of them and the ritual levels you up. Each level-up offers three cards, and pushes nearby zombies back. Some cards are rare and count twice.
+- **Hearts:** kills drop rotten zombie hearts, which flop out and settle. Offer enough of them and the ritual levels you up. When the ground is carpeted with them, new hearts gather into the nearest one, which grows. Each level-up offers three cards, and pushes nearby zombies back. Some cards are rare and count twice.
 - **Health:** some kills drop health instead of a heart. How often depends on the difficulty.
 - **Grenades:** you start with one, or two on Easy. Each recharges in 12 seconds.
 - **Barrels:** shooting a red barrel sets it off. Hold X, and your guns go for the barrels in view. A blast close to you hurts you too.
@@ -308,7 +308,7 @@ The rules change in a few ways:
 - **Shared XP:** every heart fills one shared bar. A level-up pauses everyone and deals each player three cards from their own kit. Play resumes once everyone has picked. Banishes, rerolls and favors are each player's own.
 - **Drops:** a heart or a health drop goes to the first player whose pull catches it. The heart counts as theirs on the end screen, and its XP still goes to the shared bar.
 - **No friendly fire:** no weapon hurts another player. A blast hurts only the player who set it off, and a grenade uses its thrower's bonuses, such as Bigger blast and Grenade belt's bomblets.
-- **More dead:** each player past the first brings more zombies and bigger hordes. Zombies rise around each living player in turn and go for the nearest one. Each player can be caught camping on their own.
+- **More dead:** each player past the first brings more zombies, bigger hordes and tougher dead: every zombie has more health. Zombies rise around each living player in turn and go for the nearest one. Each player can be caught camping on their own.
 - **Home:** at dawn, any living player who reaches the farmhouse's front step wins the night for everyone.
 - **Pause:** Start on any pad pauses everyone. Only the player who paused works the pause menu. Their Settings changes apply to everyone, and their photo mode shows in their view alone.
 
@@ -318,8 +318,8 @@ The end screen names each player's kills. Stats and History record the night onc
 
 Each player plays on their own device, and one of them hosts the night. Online is on the title's main menu.
 
-1. The host picks Host a night. The lobby shows a five-letter room code.
-2. Each other player picks Join with a code and types it on the on-screen keys: A types, B deletes and Start joins. Taps work too.
+1. The host picks Host a night. The lobby shows a five-letter room code, the same one each time this device hosts.
+2. Each other player picks Join with a code and types it on the on-screen keys: A types, B deletes and Start joins. Taps work too. The last code you joined is already filled in.
 3. In the lobby, A marks you ready. The host picks the difficulty with Left and Right, or a tap on it at the top right. Once everyone is ready, the host's Start starts the night.
 4. B leaves the lobby. On the host, B closes the room.
 

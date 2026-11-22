@@ -10,6 +10,9 @@ speed 48        # pixels a second before upgrades
 magnet 28       # how near hearts and health drift in from, before upgrades
 crit 0.1        # chance a hit lands double, before upgrades
 pickup 7        # how near the player picks something up
+merge_after 300 # once this many hearts lie on the ground, a new one joins a resting heart...; 0 never
+merge_reach 24  # ...this near, adding its XP
+merge_grow 0.2  # a merged heart draws this much bigger each time its hearts double, up to twice the size
 width 8         # the player's footprint for walls, in pixels
 depth 6
 turn 2.6        # radians a second the view turns with a turn button held
@@ -60,6 +63,7 @@ spawn.top 6
 spawn.horde 14
 spawn.horde_growth 3
 zombies.max 220
+zombies.rise_bite 0
 camp.after 0
 
 [easy]
@@ -69,6 +73,7 @@ damage 0.55     # multiplies the damage zombies deal
 hurt_time 0.7   # seconds a hit leaves the player safe from the next
 health_drop 60  # one kill in this many drops health; the rest drop hearts
 heal 30         # health a health drop gives back
+zombies.rise_bite 0
 
 [normal]
 name Normal
@@ -125,7 +130,10 @@ camp.over 0.25
 [zombies]
 max 300         # most alive at once
 per_player 0.5  # each player past the first adds this share of max
-rise 0.9        # seconds a zombie takes to climb out of the ground, harmless and rooted
+health_per_player 0.5 # each player past the first adds this share of every zombie's health
+rise 0.9        # seconds a zombie takes to climb out of the ground, rooted...
+rise_bite 1     # ...and what each kind's enemies.txt rise_bite is multiplied by meanwhile; 0 harmless until out...
+rise_bite_from 0.3 # ...once this share of the climb is done
 stagger 0.4     # seconds a heavy hit stops a zombie
 growth 0.08     # health added per minute of the night, as a fraction of its own
 leader_hp 4     # times a big zombie's health a horde's leader has
