@@ -133,6 +133,11 @@ impl Harvest {
         &self.players[ME]
     }
 
+    /// The player the view being drawn belongs to; ME outside `draw_view`.
+    pub(super) fn eye(&self) -> &Player {
+        &self.players[self.viewer]
+    }
+
     pub(super) fn me_mut(&mut self) -> &mut Player {
         &mut self.players[ME]
     }

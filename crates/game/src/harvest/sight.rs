@@ -3,7 +3,7 @@
 use crate::fmath as fm;
 use std::f32::consts::{PI, TAU};
 
-use super::{Harvest, ME, Phase, PlayerId, Zombie, clear_shot, len, sub};
+use super::{Harvest, Phase, PlayerId, Zombie, clear_shot, len, sub};
 use crate::art::Art;
 use crate::Canvas;
 
@@ -43,7 +43,7 @@ impl Mark {
 impl Harvest {
     /// Whether the local player's view ahead sees a spot on the ground.
     pub(super) fn in_sight(&self, at: [f32; 2]) -> bool {
-        self.in_sight_of(ME, at)
+        self.in_sight_of(self.viewer, at)
     }
 
     /// Whether player `p`'s view ahead sees a spot on the ground: inside their aim cone, near enough, and not behind
@@ -67,12 +67,12 @@ impl Harvest {
     /// How far out of the view ahead a spot on the ground is, from 0 inside the cone and in range to 1 well outside;
     /// cover doesn't count.
     pub(super) fn unseen(&self, at: [f32; 2]) -> f32 {
-        let eye = [self.me().pos[0], self.me().pos[1] - 6.0];
+        let eye = [self.eye().pos[0], self.eye().pos[1] - 6.0];
         let d = sub(at, eye);
         let r = len(d);
         let sight = crate::tuning::tuning().map_sight;
         let far = smoothstep((r - sight) / (sight * SHADE_SOFT.1).max(1.0));
-        let off = ((fm::atan2(d[1], d[0]) - self.me().view_yaw + PI).rem_euclid(TAU) - PI).abs() - self.ahead_half();
+        let off = ((fm::atan2(d[1], d[0]) - self.eye().view_yaw + PI).rem_euclid(TAU) - PI).abs() - self.ahead_half();
         // Right around the player every way counts as ahead.
         let aside = smoothstep(off / SHADE_SOFT.0) * smoothstep((r - 4.0) / 12.0);
         far.max(aside)

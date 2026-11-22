@@ -251,21 +251,21 @@ impl Harvest {
 
     /// Over the view ahead, while ME leads: who they are now, the leader's health and how to call.
     pub(super) fn lead_hud(&self, c: &mut Canvas) {
-        let Some(Lead::Leading(_)) = self.me().lead.filter(|_| !matches!(self.phase, Phase::Over { .. })) else { return };
+        let Some(Lead::Leading(_)) = self.eye().lead.filter(|_| !matches!(self.phase, Phase::Over { .. })) else { return };
         c.anchor([0.5, 0.0]);
         c.rect(0.0, 184.0, SCREEN_W, 96.0, [0.0, 0.0, 0.0, 0.5]);
         c.label("YOU LEAD THE DEAD", SCREEN_W / 2.0, 190.0, 36.0, RED, Align::Center);
         c.hint("Hunt the living.   {X}: call the dead near you", SCREEN_W / 2.0, 234.0, 26.0, WHITE, Align::Center);
         let (w, x) = (300.0, SCREEN_W / 2.0 - 150.0);
         c.rect(x, 270.0, w, 8.0, [0.0, 0.0, 0.0, 0.7]);
-        c.rect(x, 270.0, w * self.me().lead_hp.clamp(0.0, 1.0), 8.0, RED);
+        c.rect(x, 270.0, w * self.eye().lead_hp.clamp(0.0, 1.0), 8.0, RED);
         c.anchor([0.5, 0.5]);
     }
 
     /// On the map while ME picks a rise: a ring around each living player inside which it can't, the cursor, and the
     /// time left.
     pub(super) fn rise_mark(&self, c: &mut Canvas, cam: [f32; 2]) {
-        let Some(Lead::Picking { at, left }) = self.me().lead else { return };
+        let Some(Lead::Picking { at, left }) = self.eye().lead else { return };
         let t = crate::tuning::tuning();
         let r = t.leader_min_tiles * TILE * map_scale();
         for pl in self.players.iter().filter(|pl| pl.alive()) {

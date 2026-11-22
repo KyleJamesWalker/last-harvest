@@ -48,7 +48,7 @@ impl Harvest {
     pub(super) fn quick_mark(&self) -> Option<[f32; 2]> {
         let d = reach(self.quick?);
         let (w, h) = (self.map.width_px(), self.map.height_px());
-        Some([(self.me().pos[0] + fm::cos(self.me().view_yaw) * d).clamp(0.0, w), (self.me().pos[1] + fm::sin(self.me().view_yaw) * d).clamp(0.0, h)])
+        Some([(self.eye().pos[0] + fm::cos(self.eye().view_yaw) * d).clamp(0.0, w), (self.eye().pos[1] + fm::sin(self.eye().view_yaw) * d).clamp(0.0, h)])
     }
 }
 

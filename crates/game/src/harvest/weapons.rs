@@ -570,6 +570,11 @@ impl Harvest {
         if !self.targeting_of(self.actor) {
             return None;
         }
+        self.barrel_ahead(range)
+    }
+
+    /// The offset to the nearest barrel within `range` inside the acting player's view, held X or not.
+    pub(super) fn barrel_ahead(&self, range: f32) -> Option<[f32; 2]> {
         self.barrels
             .iter()
             .map(|b| sub(b.center(), self.actor().pos))
