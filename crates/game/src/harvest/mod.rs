@@ -675,7 +675,7 @@ fn worn_corner(at: [u8; 2], a: Art, flip: bool) -> [f32; 2] {
 fn player_pose(h: &Harvest, p: PlayerId, facing: Facing) -> (Art, f32) {
     let look = &players::look(&h.players[p].look).look;
     let fallen = match h.phase {
-        Phase::Over { t, won: false } if p == ME => Some(t),
+        Phase::Over { t, won: false } if p == h.viewer => Some(t),
         _ => h.players[p].down,
     };
     let Some(t) = fallen else { return (art_for(h, p, look, facing), 1.0) };
@@ -925,6 +925,8 @@ pub struct Harvest {
     paused_by: PlayerId,
     /// The player ME stands for while `relabel` has traded them; ME otherwise.
     swapped: PlayerId,
+    /// The player whose view `draw_view` is drawing.
+    viewer: PlayerId,
     net: online::Net,
     /// The size the view being drawn is laid out to, as `Canvas::refit` takes it; a screen's outside split-screen.
     canvas: [f32; 2],
@@ -1146,6 +1148,7 @@ impl Harvest {
             locals: Vec::new(),
             paused_by: ME,
             swapped: ME,
+            viewer: ME,
             net: online::Net::default(),
             canvas: [SCREEN_W, SCREEN_H],
             setup: None,
@@ -3329,8 +3332,8 @@ impl Harvest {
 
     /// Top-left of a map view `[w, h]` world pixels across and down around the player, kept on the field.
     fn camera_over(&self, [w, h]: [f32; 2]) -> [f32; 2] {
-        let x = (self.me().pos[0] - w / 2.0).clamp(0.0, (self.map.width_px() - w).max(0.0));
-        let y = (self.me().pos[1] - 8.0 - h / 2.0).clamp(0.0, (self.map.height_px() - h).max(0.0));
+        let x = (self.eye().pos[0] - w / 2.0).clamp(0.0, (self.map.width_px() - w).max(0.0));
+        let y = (self.eye().pos[1] - 8.0 - h / 2.0).clamp(0.0, (self.map.height_px() - h).max(0.0));
         [(x * map_scale()).round() / map_scale(), (y * map_scale()).round() / map_scale()]
     }
 
