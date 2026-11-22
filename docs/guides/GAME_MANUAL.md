@@ -308,7 +308,7 @@ The rules change in a few ways:
 - **Shared XP:** every heart fills one shared bar. A level-up pauses everyone and deals each player three cards from their own kit. Play resumes once everyone has picked. Banishes, rerolls and favors are each player's own.
 - **Drops:** a heart or a health drop goes to the first player whose pull catches it. The heart counts as theirs on the end screen, and its XP still goes to the shared bar.
 - **No friendly fire:** no weapon hurts another player. A blast hurts only the player who set it off, and a grenade uses its thrower's bonuses, such as Bigger blast and Grenade belt's bomblets.
-- **More dead:** each player past the first brings more zombies and bigger hordes. Zombies rise around each living player in turn and go for the nearest one. Each player can be caught camping on their own.
+- **More dead:** each player past the first brings more zombies, bigger hordes and tougher dead: every zombie has more health. Zombies rise around each living player in turn and go for the nearest one. Each player can be caught camping on their own.
 - **Home:** at dawn, any living player who reaches the farmhouse's front step wins the night for everyone.
 - **Pause:** Start on any pad pauses everyone. Only the player who paused works the pause menu. Their Settings changes apply to everyone, and their photo mode shows in their view alone.
 

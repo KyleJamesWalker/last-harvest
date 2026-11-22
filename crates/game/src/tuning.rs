@@ -67,6 +67,7 @@ tuning! {
     breaker = "levelup" "breaker",
     max_zombies = "zombies" "max",
     max_per_player = "zombies" "per_player",
+    health_per_player = "zombies" "health_per_player",
     rise = "zombies" "rise",
     stagger = "zombies" "stagger",
     growth = "zombies" "growth",

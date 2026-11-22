@@ -795,4 +795,14 @@ mod tests {
         let (a, b) = (owed(Harvest::new(1)), owed(Harvest::new(1).with_players(2)));
         assert!((b / a - (1.0 + t.spawn_per_player)).abs() < 0.05, "{a} then {b}");
     }
+
+    #[test]
+    fn more_players_make_every_zombie_tougher() {
+        let t = crate::tuning::tuning();
+        let mut h = Harvest::new(1).with_players(3);
+        assert_eq!(h.toughness(), 1.0 + 2.0 * t.health_per_player);
+        h.spawn(1.0);
+        let tell = h.tells.iter().find(|t| !t.leader).expect("a zombie owed in the first second");
+        assert!((tell.hp - tell.kind.stats().hp * h.toughness()).abs() < 0.01, "{} for {}", tell.hp, tell.kind.stats().hp);
+    }
 }

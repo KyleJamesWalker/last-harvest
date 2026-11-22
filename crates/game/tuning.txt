@@ -125,6 +125,7 @@ camp.over 0.25
 [zombies]
 max 300         # most alive at once
 per_player 0.5  # each player past the first adds this share of max
+health_per_player 0.5 # each player past the first adds this share of every zombie's health
 rise 0.9        # seconds a zombie takes to climb out of the ground, harmless and rooted
 stagger 0.4     # seconds a heavy hit stops a zombie
 growth 0.08     # health added per minute of the night, as a fraction of its own

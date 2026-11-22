@@ -45,7 +45,7 @@ impl Harvest {
         let n = (t.camp_wave + k as f32 * t.camp_grow).round().max(0.0) as usize;
         let most = (self.cap() as f32 * (1.0 + t.camp_over)) as usize;
         let minutes = self.t / 60.0;
-        let grow = (1.0 + minutes * t.growth) * self.fury;
+        let grow = (1.0 + minutes * t.growth) * self.fury * self.toughness();
         let at = self.players[p].pos;
         let ring = t.camp_ring * TILE;
         let turn = self.rng.range(0.0, TAU);

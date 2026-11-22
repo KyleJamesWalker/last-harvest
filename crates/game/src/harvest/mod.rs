@@ -1903,7 +1903,7 @@ impl Harvest {
                 break;
             }
         }
-        let mut z = Zombie::new(Kind(roster().harvester as u8), at, t.harvester_hp * self.fury, 0.0, 0.0);
+        let mut z = Zombie::new(Kind(roster().harvester as u8), at, t.harvester_hp * self.fury * self.toughness(), 0.0, 0.0);
         z.boss = true;
         z.id = self.next_id;
         self.next_id += 1;
@@ -2227,6 +2227,11 @@ impl Harvest {
     }
 
     /// The most zombies up at once: `[zombies] max`, and `per_player` of it more for each player past the first.
+    /// What every zombie's health is multiplied by: `health_per_player` of it more for each player past the first.
+    pub(super) fn toughness(&self) -> f32 {
+        1.0 + (self.players.len() - 1) as f32 * crate::tuning::tuning().health_per_player
+    }
+
     pub(super) fn cap(&self) -> usize {
         let t = crate::tuning::tuning();
         (t.max_zombies * (1.0 + (self.players.len() - 1) as f32 * t.max_per_player)) as usize
@@ -2238,7 +2243,7 @@ impl Harvest {
         let leader = std::mem::take(&mut self.leader_owed);
         let r = roster();
         let kind = Kind(if leader && self.enemies_off & 1 << r.leader == 0 { r.leader } else { r.pick(minutes, roll, self.enemies_off) } as u8);
-        let hp = kind.stats().hp * (1.0 + minutes * crate::tuning::tuning().growth) * if leader { crate::tuning::tuning().leader_hp } else { 1.0 } * self.fury;
+        let hp = kind.stats().hp * (1.0 + minutes * crate::tuning::tuning().growth) * if leader { crate::tuning::tuning().leader_hp } else { 1.0 } * self.fury * self.toughness();
         let p = self.ring_player();
         if let Some(pos) = self.ring_spot(p, None) {
             self.tells.push(Tell { kind, pos, hp, t: 0.0, leader, led: None });
