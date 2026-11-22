@@ -102,7 +102,7 @@ Options make the player closer to a real one. The defaults replay older CSVs exa
 | `--replay FILE` | Plays a recorded night again instead. See [Replays](#replays). |
 | `--players N` | 1 to 4 players, each walking the same script from its own spot by the spawn and carrying the build. A mortal night ends once all have fallen; a fallen player leads the dead at the nearest living one until then. The table adds a line per player (kills, useful damage, hearts, falls) and the first fall of any; the weapon lines are the first player's. |
 
-With a pick, the forced build is the starting kit and cards add to it; `--json` records each night's final build and the cards taken, with the time of each. The CSV's first line is a `#` comment with the settings it ran under; `--diff` and `report.py` skip it.
+With a pick, the forced build is the starting kit and cards add to it; `--json` records each night's final build and the cards taken, with the time of each. It also records the zombie cap and when the field first reached it, each player's falls, kills and time leading the dead, and per minute the zombies on the field (mean and most at once), the most shots in flight and effects at once, and the players still standing: the counts that weigh on the frame rate. The CSV's first line is a `#` comment with the settings it ran under; `--diff` and `report.py` skip it.
 
 ```sh
 cargo build --release -p last-harvest --bin last-harvest-sandbox
