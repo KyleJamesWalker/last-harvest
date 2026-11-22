@@ -153,6 +153,14 @@ pub struct Minute {
     pub kills: u32,
     pub hearts: u32,
     pub level: u32,
+    /// Zombies on the field (risen, rising and burrowed): the mean and the most at once over the minute.
+    pub zombies: f32,
+    pub zombies_most: u32,
+    /// The most shots in flight at once: bullets, grenades, spit and bolts.
+    pub shots_most: u32,
+    pub fx_most: u32,
+    /// Players still standing at the minute's end.
+    pub living: u32,
 }
 
 /// How one player's night went.
@@ -181,6 +189,9 @@ pub struct Night {
     /// Zombies that rose, and seconds the night spent at its zombie cap, where spawns wait for room.
     pub spawned: u32,
     pub capped: f32,
+    /// The zombie cap, and when the field first reached it.
+    pub cap: u32,
+    pub capped_at: Option<f32>,
     pub minutes: Vec<Minute>,
     pub lines: Vec<Line>,
     /// The build at the end of the night, and the cards taken on the way.
@@ -240,6 +251,8 @@ pub fn night(plan: &Plan) -> Night {
     let mut me = Bot::new(plan.walk, plan.turn, plan.turn_every, plan.throw_every);
     let mut minutes = Vec::new();
     let mut capped = 0.0;
+    let mut capped_at = None;
+    let (mut field, mut field_secs, mut field_most, mut shots_most, mut fx_most) = (0.0, 0.0, 0, 0, 0);
     let mut sounds = Vec::new();
     let cap = h.cap();
     // Hit-stop and the level-up's slow motion hold the night's clock, so ticks are bounded well past the night.
@@ -264,11 +277,21 @@ pub fn night(plan: &Plan) -> Night {
             sounds.clear();
             h.op(Op::Resume, &mut sounds);
         }
-        if h.zombies.len() + h.tells.len() + h.burrowed.len() >= cap {
+        let on_field = h.zombies.len() + h.tells.len() + h.burrowed.len();
+        if on_field >= cap {
             capped += h.t - t;
+            capped_at.get_or_insert(h.t);
         }
+        field += on_field as f32 * (h.t - t);
+        field_secs += h.t - t;
+        field_most = field_most.max(on_field as u32);
+        shots_most = shots_most.max((h.bullets.len() + h.thrown.len() + h.spits.len() + h.bolts.len()) as u32);
+        fx_most = fx_most.max(h.fx.len() as u32);
         while minutes.len() < (h.t / 60.0) as usize {
-            minutes.push(Minute { kills: h.kills, hearts: h.juice.tally.book(ME).hearts, level: h.level });
+            let zombies = if field_secs > 0.0 { field / field_secs } else { on_field as f32 };
+            let living = h.players.iter().filter(|p| p.alive()).count() as u32;
+            minutes.push(Minute { kills: h.kills, hearts: h.juice.tally.book(ME).hearts, level: h.level, zombies, zombies_most: field_most, shots_most, fx_most, living });
+            (field, field_secs, field_most, shots_most, fx_most) = (0.0, 0.0, 0, 0, 0);
         }
     }
     let tally = &h.juice.tally;
@@ -292,6 +315,8 @@ pub fn night(plan: &Plan) -> Night {
         level: h.level,
         spawned: h.next_id.saturating_sub(1),
         capped,
+        cap: cap as u32,
+        capped_at,
         minutes,
         lines,
         build,
@@ -529,6 +554,15 @@ mod tests {
         }
         assert!((n.lines[0].held - n.secs).abs() < 0.1 && n.secs >= 45.0);
         assert_eq!(n.minutes.len(), 0, "less than a minute");
+    }
+
+    #[test]
+    fn each_minute_counts_the_field_the_shots_and_the_living() {
+        let n = night(&Plan { seed: 3, until: Some(125.0), players: 2, ..Plan::new(parse_build("pistol:3").unwrap()) });
+        assert_eq!((n.cap, n.minutes.len()), (450, 2), "{n:?}");
+        for m in &n.minutes {
+            assert!(m.zombies > 0.0 && m.zombies <= m.zombies_most as f32 && m.shots_most > 0 && m.living == 2, "{m:?}");
+        }
     }
 
     #[test]

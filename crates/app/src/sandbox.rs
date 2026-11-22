@@ -536,7 +536,7 @@ fn csv(cells: &[Cell], plan: &Plan) -> String {
 fn json(cells: &[Cell], a: &Args) -> String {
     let p = &a.plan;
     let mut s = format!(
-        "{{\"version\":\"{VERSION}\",\"difficulty\":\"{}\",\"size\":[{},{}],\"walk\":\"{}\",\"turn\":{},\"turn_every\":{},\"throw_every\":{},\"pick\":\"{}\",\"unlocked\":{},\"mortal\":{},\"secs\":{},\"step\":{},\"builds\":[",
+        "{{\"version\":\"{VERSION}\",\"difficulty\":\"{}\",\"size\":[{},{}],\"walk\":\"{}\",\"turn\":{},\"turn_every\":{},\"throw_every\":{},\"pick\":\"{}\",\"unlocked\":{},\"mortal\":{},\"secs\":{},\"step\":{},\"players\":{},\"builds\":[",
         p.difficulty.key(),
         p.size[0],
         p.size[1],
@@ -548,17 +548,19 @@ fn json(cells: &[Cell], a: &Args) -> String {
         p.unlocked,
         p.mortal,
         p.until.unwrap_or(600.0),
-        p.step
+        p.step,
+        p.players
     );
     for (i, c) in cells.iter().enumerate() {
         let _ = write!(s, "{}{{\"build\":\"{}\",\"nights\":[", if i > 0 { "," } else { "" }, c.name());
         for (j, (n, seed)) in c.nights.iter().zip(a.seed..).enumerate() {
-            let minutes: Vec<String> = n.minutes.iter().map(|m| format!("{{\"kills\":{},\"hearts\":{},\"level\":{}}}", m.kills, m.hearts, m.level)).collect();
+            let minutes: Vec<String> = n.minutes.iter().map(|m| format!("{{\"kills\":{},\"hearts\":{},\"level\":{},\"zombies\":{:.1},\"zombies_most\":{},\"shots_most\":{},\"fx_most\":{},\"living\":{}}}", m.kills, m.hearts, m.level, m.zombies, m.zombies_most, m.shots_most, m.fx_most, m.living)).collect();
+            let seats: Vec<String> = n.seats.iter().map(|x| format!("{{\"fell\":{},\"kills\":{},\"hearts\":{},\"led\":{:.1},\"bites\":{}}}", x.fell.map_or("null".into(), |t| format!("{t:.2}")), x.kills, x.hearts, x.led, x.bites)).collect();
             let took: Vec<String> = n.took.iter().map(|t| format!("{{\"secs\":{:.2},\"id\":\"{}\",\"rare\":{}}}", t.secs, sandbox::powerup_id(t.up), t.rare)).collect();
             let lines: Vec<String> = n.lines.iter().map(|l| format!("{{\"weapon\":\"{}\",\"level\":{},\"raw\":{:.1},\"useful\":{:.1},\"kills\":{},\"held\":{:.2}}}", l.id, l.level, l.raw, l.useful, l.kills, l.held)).collect();
             let _ = write!(
                 s,
-                "{}{{\"seed\":{seed},\"secs\":{:.2},\"dawn\":{},\"fell\":{},\"kills\":{},\"hearts\":{},\"level\":{},\"spawned\":{},\"capped\":{:.2},\"build\":\"{}\",\"took\":[{}],\"minutes\":[{}],\"weapons\":[{}]}}",
+                "{}{{\"seed\":{seed},\"secs\":{:.2},\"dawn\":{},\"fell\":{},\"kills\":{},\"hearts\":{},\"level\":{},\"spawned\":{},\"capped\":{:.2},\"cap\":{},\"capped_at\":{},\"build\":\"{}\",\"took\":[{}],\"minutes\":[{}],\"weapons\":[{}],\"seats\":[{}]}}",
                 if j > 0 { "," } else { "" },
                 n.secs,
                 n.dawn,
@@ -568,10 +570,13 @@ fn json(cells: &[Cell], a: &Args) -> String {
                 n.level,
                 n.spawned,
                 n.capped,
+                n.cap,
+                n.capped_at.map_or("null".into(), |t| format!("{t:.2}")),
                 sandbox::build_text(&n.build),
                 took.join(","),
                 minutes.join(","),
-                lines.join(",")
+                lines.join(","),
+                seats.join(",")
             );
         }
         s += "]}";
