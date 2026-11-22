@@ -3,7 +3,7 @@
 use crate::inbox::Inbox;
 use crate::protocol::{self, Event, Signal};
 use crate::{IceConfig, PeerId, PeerState, RELIABLE, UNRELIABLE};
-use bytes::Bytes;
+use bytes::BytesMut;
 use futures_util::{SinkExt, StreamExt};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
@@ -12,19 +12,13 @@ use std::time::{Duration, Instant};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio::sync::oneshot;
 use tokio_tungstenite::tungstenite::Message;
-use webrtc::api::setting_engine::SettingEngine;
-use webrtc::api::{APIBuilder, API};
-use webrtc::data_channel::data_channel_init::RTCDataChannelInit;
-use webrtc::data_channel::RTCDataChannel;
-use webrtc::ice_transport::ice_candidate::RTCIceCandidateInit;
-use webrtc::ice_transport::ice_connection_state::RTCIceConnectionState;
-use webrtc::ice_transport::ice_server::RTCIceServer;
-use webrtc::peer_connection::configuration::RTCConfiguration;
-use webrtc::peer_connection::offer_answer_options::RTCOfferOptions;
-use webrtc::peer_connection::peer_connection_state::RTCPeerConnectionState;
-use webrtc::peer_connection::policy::ice_transport_policy::RTCIceTransportPolicy;
-use webrtc::peer_connection::sdp::session_description::RTCSessionDescription;
-use webrtc::peer_connection::RTCPeerConnection;
+use webrtc::data_channel::{DataChannel, DataChannelEvent, RTCDataChannelInit};
+use webrtc::error::Error;
+use webrtc::peer_connection::{
+    PeerConnection, PeerConnectionBuilder, PeerConnectionEventHandler, RTCConfiguration, RTCConfigurationBuilder,
+    RTCIceCandidateInit, RTCIceConnectionState, RTCIceServer, RTCIceTransportPolicy, RTCPeerConnectionIceEvent,
+    RTCPeerConnectionState, RTCSessionDescription, SettingEngine, SettingEngineBuilder,
+};
 
 /// How often an open signaling connection sends `KeepAlive`, which a relay that resumes peers echoes.
 const KEEP_ALIVE: Duration = Duration::from_secs(2);
@@ -166,8 +160,8 @@ static NEXT_SERIAL: AtomicU64 = AtomicU64::new(0);
 
 struct Peer {
     serial: u64,
-    connection: Arc<RTCPeerConnection>,
-    channels: Vec<Arc<RTCDataChannel>>,
+    connection: Arc<dyn PeerConnection>,
+    channels: Vec<Arc<dyn DataChannel>>,
     signals: UnboundedSender<Signal>,
     /// Both data channels are open.
     connected: Arc<AtomicBool>,
@@ -211,11 +205,14 @@ fn rtc_configuration(ice: &IceConfig) -> RTCConfiguration {
     } else {
         RTCIceTransportPolicy::All
     };
-    RTCConfiguration {
-        ice_servers,
-        ice_transport_policy,
-        ..Default::default()
-    }
+    RTCConfigurationBuilder::new()
+        .with_ice_servers(ice_servers)
+        .with_ice_transport_policy(ice_transport_policy)
+        .build()
+}
+
+fn setting_engine() -> SettingEngine {
+    SettingEngineBuilder::new().with_ice_timeouts(Some(ICE_DISCONNECTED), Some(ICE_FAILED), None).build()
 }
 
 /// The tokio thread's loop: the signaling connection, the peers it announces, and the game thread's commands.
@@ -232,9 +229,6 @@ async fn run(
     tokio::spawn(signaling(url, outgoing_rx, incoming, close_rx));
     let (gone, mut gone_rx) = unbounded_channel::<Gone>();
     let context = Context::new(ice, shared.clone(), outgoing, gone);
-    let mut settings = SettingEngine::default();
-    settings.set_ice_timeouts(Some(ICE_DISCONNECTED), Some(ICE_FAILED), None);
-    let api = Arc::new(APIBuilder::new().with_setting_engine(settings).build());
     let mut peers: HashMap<PeerId, Peer> = HashMap::new();
     let impairment = Impairment::from_env();
     let mut signaling_open = true;
@@ -243,7 +237,7 @@ async fn run(
     loop {
         tokio::select! {
             event = incoming_rx.recv(), if signaling_open => match event {
-                Some(event) => on_event(&api, &context, &mut peers, event).await,
+                Some(event) => on_event(&context, &mut peers, event).await,
                 None => {
                     signaling_open = false;
                     lock(&shared).signaling_closed = true;
@@ -256,15 +250,15 @@ async fn run(
                     let index = channel;
                     if let Some(channel) = open.and_then(|p| p.channels.get(channel)) {
                         if index != UNRELIABLE {
-                            let _ = channel.send(&Bytes::from(data)).await;
+                            let _ = channel.send(BytesMut::from(&data[..])).await;
                         } else if !impairment.drop_next() {
                             if impairment.lag.is_zero() {
-                                let _ = channel.send(&Bytes::from(data)).await;
+                                let _ = channel.send(BytesMut::from(&data[..])).await;
                             } else {
                                 let (channel, lag) = (channel.clone(), impairment.lag);
                                 tokio::spawn(async move {
                                     tokio::time::sleep(lag).await;
-                                    let _ = channel.send(&Bytes::from(data)).await;
+                                    let _ = channel.send(BytesMut::from(&data[..])).await;
                                 });
                             }
                         }
@@ -406,12 +400,12 @@ async fn signaling(
 }
 
 /// Handles one signaling server message.
-async fn on_event(api: &Arc<API>, context: &Context, peers: &mut HashMap<PeerId, Peer>, event: Event) {
+async fn on_event(context: &Context, peers: &mut HashMap<PeerId, Peer>, event: Event) {
     match event {
         Event::IdAssigned(id) => lock(&context.shared).id = Some(id),
         Event::ResumeToken(_) => {}
         Event::IceServers(servers) => *lock(&context.ice) = rtc_configuration(&crate::ice::with_relay_servers(&context.base, &servers)),
-        Event::NewPeer(id) => match new_peer(api, context, id, true).await {
+        Event::NewPeer(id) => match new_peer(context, id, true).await {
             Some(peer) => {
                 peers.insert(id, peer);
             }
@@ -422,7 +416,7 @@ async fn on_event(api: &Arc<API>, context: &Context, peers: &mut HashMap<PeerId,
         }
         Event::Signal(sender, signal) => {
             if matches!(signal, Signal::Offer(_)) && !peers.contains_key(&sender) {
-                let Some(peer) = new_peer(api, context, sender, false).await else {
+                let Some(peer) = new_peer(context, sender, false).await else {
                     lock(&context.shared).changes.push((sender, PeerState::Disconnected));
                     return;
                 };
@@ -435,78 +429,105 @@ async fn on_event(api: &Arc<API>, context: &Context, peers: &mut HashMap<PeerId,
     }
 }
 
+/// A peer connection's callbacks: they run on its driver task, so each only hands its event on.
+struct Events {
+    context: Context,
+    id: PeerId,
+    serial: u64,
+    remote_set: Arc<AtomicBool>,
+    pending: Arc<Mutex<Vec<String>>>,
+    ice_state: Arc<Mutex<RTCIceConnectionState>>,
+}
+
+#[async_trait::async_trait]
+impl PeerConnectionEventHandler for Events {
+    async fn on_ice_candidate(&self, event: RTCPeerConnectionIceEvent) {
+        let json = event.candidate.to_json().ok().and_then(|c| serde_json::to_string(&c).ok());
+        if let Some(json) = json {
+            if self.remote_set.load(Ordering::Acquire) {
+                self.context.signal(self.id, Signal::IceCandidate(json));
+            } else {
+                lock(&self.pending).push(json);
+            }
+        }
+    }
+
+    async fn on_ice_connection_state_change(&self, state: RTCIceConnectionState) {
+        *lock(&self.ice_state) = state;
+    }
+
+    async fn on_connection_state_change(&self, state: RTCPeerConnectionState) {
+        if matches!(state, RTCPeerConnectionState::Failed | RTCPeerConnectionState::Closed) {
+            let _ = self.context.gone.send((self.id, Some(self.serial)));
+        }
+    }
+}
+
 /// A connection to `id` with negotiated channels 0 and 1. The peer already in the room is the `offerer`.
-async fn new_peer(api: &API, context: &Context, id: PeerId, offerer: bool) -> Option<Peer> {
+async fn new_peer(context: &Context, id: PeerId, offerer: bool) -> Option<Peer> {
     let configuration = lock(&context.ice).clone();
-    let connection = Arc::new(api.new_peer_connection(configuration).await.ok()?);
     let serial = NEXT_SERIAL.fetch_add(1, Ordering::Relaxed);
+    let remote_set = Arc::new(AtomicBool::new(false));
+    let pending = Arc::new(Mutex::new(Vec::<String>::new()));
+    let ice_state = Arc::new(Mutex::new(RTCIceConnectionState::New));
+    let events = Events {
+        context: context.clone(),
+        id,
+        serial,
+        remote_set: remote_set.clone(),
+        pending: pending.clone(),
+        ice_state: ice_state.clone(),
+    };
+    let connection = PeerConnectionBuilder::new()
+        .with_configuration(configuration)
+        .with_setting_engine(setting_engine())
+        .with_handler(Arc::new(events))
+        .with_udp_addrs(vec!["0.0.0.0:0", "[::]:0"])
+        .build()
+        .await;
+    let connection: Arc<dyn PeerConnection> = match connection {
+        Ok(connection) => Arc::new(connection),
+        Err(e) => {
+            eprintln!("[net] peer connection to {:032x}: {e}", id.0);
+            return None;
+        }
+    };
     let connected = Arc::new(AtomicBool::new(false));
     let opened = Arc::new(AtomicUsize::new(0));
     let mut channels = Vec::new();
-    for (index, ordered, max_retransmits) in [(RELIABLE, true, None), (UNRELIABLE, false, Some(0))]
-    {
+    for (index, ordered, max_retransmits) in [(RELIABLE, true, None), (UNRELIABLE, false, Some(0))] {
         let init = RTCDataChannelInit {
-            ordered: Some(ordered),
+            ordered,
             max_retransmits,
             negotiated: Some(index as u16),
             ..Default::default()
         };
-        let channel = connection
-            .create_data_channel(&format!("matchbox_socket_{index}"), Some(init))
-            .await
-            .ok()?;
-        let (opened, connected, shared) =
-            (opened.clone(), connected.clone(), context.shared.clone());
-        channel.on_open(Box::new(move || {
-            if opened.fetch_add(1, Ordering::AcqRel) + 1 == 2 {
-                connected.store(true, Ordering::Release);
-                lock(&shared).changes.push((id, PeerState::Connected));
-            }
-            Box::pin(async {})
-        }));
-        let (shared, gone) = (context.shared.clone(), context.gone.clone());
-        channel.on_message(Box::new(move |message| {
-            if !lock(&shared).inbox.deliver(index, id, message.data.to_vec()) {
-                eprintln!("[net] peer {:032x} overflowed the reliable inbox; dropping it", id.0);
-                let _ = gone.send((id, Some(serial)));
-            }
-            Box::pin(async {})
-        }));
-        let gone = context.gone.clone();
-        channel.on_close(Box::new(move || {
-            let _ = gone.send((id, Some(serial)));
-            Box::pin(async {})
-        }));
-        channels.push(channel);
-    }
-    let gone = context.gone.clone();
-    connection.on_peer_connection_state_change(Box::new(move |state| {
-        if matches!(
-            state,
-            RTCPeerConnectionState::Failed | RTCPeerConnectionState::Closed
-        ) {
-            let _ = gone.send((id, Some(serial)));
-        }
-        Box::pin(async {})
-    }));
-
-    let remote_set = Arc::new(AtomicBool::new(false));
-    let pending = Arc::new(Mutex::new(Vec::<String>::new()));
-    {
-        let (context, remote_set, pending) = (context.clone(), remote_set.clone(), pending.clone());
-        connection.on_ice_candidate(Box::new(move |candidate| {
-            let json = candidate
-                .and_then(|c| c.to_json().ok())
-                .and_then(|c| serde_json::to_string(&c).ok());
-            if let Some(json) = json {
-                if remote_set.load(Ordering::Acquire) {
-                    context.signal(id, Signal::IceCandidate(json));
-                } else {
-                    lock(&pending).push(json);
+        let channel = connection.create_data_channel(&format!("matchbox_socket_{index}"), Some(init)).await.ok()?;
+        let (opened, connected, shared, gone) =
+            (opened.clone(), connected.clone(), context.shared.clone(), context.gone.clone());
+        let events = channel.clone();
+        tokio::spawn(async move {
+            while let Some(event) = events.poll().await {
+                match event {
+                    DataChannelEvent::OnOpen => {
+                        if opened.fetch_add(1, Ordering::AcqRel) + 1 == 2 {
+                            connected.store(true, Ordering::Release);
+                            lock(&shared).changes.push((id, PeerState::Connected));
+                        }
+                    }
+                    DataChannelEvent::OnMessage(message) => {
+                        if !lock(&shared).inbox.deliver(index, id, message.data.to_vec()) {
+                            eprintln!("[net] peer {:032x} overflowed the reliable inbox; dropping it", id.0);
+                            let _ = gone.send((id, Some(serial)));
+                        }
+                    }
+                    DataChannelEvent::OnClose => break,
+                    _ => {}
                 }
             }
-            Box::pin(async {})
-        }));
+            let _ = gone.send((id, Some(serial)));
+        });
+        channels.push(channel);
     }
 
     let (signals, signals_rx) = unbounded_channel();
@@ -518,6 +539,7 @@ async fn new_peer(api: &API, context: &Context, id: PeerId, offerer: bool) -> Op
         offerer,
         remote_set,
         pending,
+        ice_state,
         connected: connected.clone(),
     };
     tokio::spawn(handshake.run(signals_rx));
@@ -534,13 +556,14 @@ async fn new_peer(api: &API, context: &Context, id: PeerId, offerer: bool) -> Op
 /// Once connected, the offering side restarts ICE while the connection is down, and a failed renegotiation step is
 /// only logged.
 struct Handshake {
-    connection: Arc<RTCPeerConnection>,
+    connection: Arc<dyn PeerConnection>,
     context: Context,
     id: PeerId,
     serial: u64,
     offerer: bool,
     remote_set: Arc<AtomicBool>,
     pending: Arc<Mutex<Vec<String>>>,
+    ice_state: Arc<Mutex<RTCIceConnectionState>>,
     connected: Arc<AtomicBool>,
 }
 
@@ -552,7 +575,7 @@ impl Handshake {
         }
     }
 
-    async fn exchange(&self, signals: &mut UnboundedReceiver<Signal>) -> Result<(), webrtc::Error> {
+    async fn exchange(&self, signals: &mut UnboundedReceiver<Signal>) -> Result<(), Error> {
         let (connection, context, id) = (&self.connection, &self.context, self.id);
         let mut early_candidates = Vec::new();
         if self.offerer {
@@ -579,7 +602,7 @@ impl Handshake {
                     let connected_at = *connected_at.get_or_insert_with(Instant::now);
                     let forced = test_restart.is_some_and(|d| connected_at.elapsed() >= d);
                     // A restart whose answer was lost waits in Checking, so anything short of connected retries.
-                    let down = !matches!(connection.ice_connection_state(), RTCIceConnectionState::Connected | RTCIceConnectionState::Completed);
+                    let down = !matches!(*lock(&self.ice_state), RTCIceConnectionState::Connected | RTCIceConnectionState::Completed);
                     if forced || (down && last_restart.is_none_or(|t| t.elapsed() >= RESTART_EVERY)) {
                         test_restart = test_restart.filter(|_| !forced);
                         last_restart = Some(Instant::now());
@@ -599,9 +622,9 @@ impl Handshake {
     }
 
     /// A new offer with fresh ICE credentials; the answer comes back through `apply`.
-    async fn restart(&self) -> Result<(), webrtc::Error> {
-        let options = RTCOfferOptions { ice_restart: true, ..Default::default() };
-        let offer = self.connection.create_offer(Some(options)).await?;
+    async fn restart(&self) -> Result<(), Error> {
+        self.connection.restart_ice().await?;
+        let offer = self.connection.create_offer(None).await?;
         let sdp = offer.sdp.clone();
         self.connection.set_local_description(offer).await?;
         self.context.signal(self.id, Signal::Offer(sdp));
@@ -609,7 +632,7 @@ impl Handshake {
     }
 
     /// One offer, answer or ICE candidate from the peer.
-    async fn apply(&self, signal: Signal, early_candidates: &mut Vec<RTCIceCandidateInit>) -> Result<(), webrtc::Error> {
+    async fn apply(&self, signal: Signal, early_candidates: &mut Vec<RTCIceCandidateInit>) -> Result<(), Error> {
         let (connection, context, id) = (&self.connection, &self.context, self.id);
         let remote = match signal {
             Signal::Offer(sdp) if !self.offerer => RTCSessionDescription::offer(sdp)?,
@@ -667,10 +690,9 @@ mod tests {
             let (outgoing, _outgoing_rx) = unbounded_channel();
             let (gone, _gone_rx) = unbounded_channel();
             let context = Context::new(IceConfig::default(), shared.clone(), outgoing, gone);
-            let api = APIBuilder::new().build();
             let id = PeerId(9);
-            let earlier = new_peer(&api, &context, id, false).await.unwrap();
-            let current = new_peer(&api, &context, id, false).await.unwrap();
+            let earlier = new_peer(&context, id, false).await.unwrap();
+            let current = new_peer(&context, id, false).await.unwrap();
             let (earlier, current_serial) = (earlier.serial, current.serial);
             let mut peers = HashMap::from([(id, current)]);
 
@@ -689,13 +711,12 @@ mod tests {
             let (gone, _gone_rx) = unbounded_channel();
             let stun = crate::IceServer { urls: vec!["stun:s.example.com:3478".into()], ..Default::default() };
             let context = Context::new(IceConfig { servers: vec![stun], relay_only: false }, SharedRef::default(), outgoing, gone);
-            let api = Arc::new(APIBuilder::new().build());
             let mut peers = HashMap::new();
             let turn = |name: &str| crate::IceServer { urls: vec!["turn:t.example.com:3478".into()], username: format!("1:{name}"), credential: "x".into() };
-            on_event(&api, &context, &mut peers, Event::IceServers(vec![turn("lh-old")])).await;
-            on_event(&api, &context, &mut peers, Event::IceServers(vec![turn("lh-new")])).await;
-            let peer = new_peer(&api, &context, PeerId(3), false).await.unwrap();
-            let servers = peer.connection.get_configuration().await.ice_servers;
+            on_event(&context, &mut peers, Event::IceServers(vec![turn("lh-old")])).await;
+            on_event(&context, &mut peers, Event::IceServers(vec![turn("lh-new")])).await;
+            let peer = new_peer(&context, PeerId(3), false).await.unwrap();
+            let servers = peer.connection.get_configuration().await.ice_servers().to_vec();
             let users: Vec<_> = servers.iter().map(|s| (s.urls[0].as_str(), s.username.as_str())).collect();
             assert_eq!(users, [("stun:s.example.com:3478", ""), ("turn:t.example.com:3478", "1:lh-new")]);
         });
@@ -731,9 +752,8 @@ mod tests {
             let (outgoing, _outgoing_rx) = unbounded_channel();
             let (gone, mut gone_rx) = unbounded_channel();
             let context = Context::new(IceConfig::default(), shared.clone(), outgoing, gone);
-            let api = APIBuilder::new().build();
             let id = PeerId(9);
-            let peer = new_peer(&api, &context, id, true).await.unwrap();
+            let peer = new_peer(&context, id, true).await.unwrap();
             let serial = peer.serial;
             peer.signals.send(Signal::Answer("not an SDP answer".into())).unwrap();
             let mut peers = HashMap::from([(id, peer)]);
