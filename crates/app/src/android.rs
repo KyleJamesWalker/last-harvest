@@ -26,6 +26,7 @@ use last_harvest_render::{Profile, Renderer};
 use raw_window_handle::{AndroidDisplayHandle, AndroidNdkWindowHandle, RawDisplayHandle, RawWindowHandle};
 
 use crate::shot::{self, Shot};
+use crate::controllers::{Pad, Seats};
 use crate::{VERSION, audio, log, pak, samples};
 
 /// Seconds a changed save waits for more changes before it is written.
@@ -33,6 +34,8 @@ const SETTLE: f32 = 1.0;
 /// How often the frame loop wakes in the background to keep an online room's traffic moving.
 const AWAY_POLL: Duration = Duration::from_millis(50);
 const STICK_DEAD: f32 = 0.15;
+/// How often the attached pads are listed, so an unplugged pad gives up its seat at the title.
+const PAD_LIST: Duration = Duration::from_secs(1);
 /// `AINPUT_SOURCE_CLASS_JOYSTICK`: a gamepad's sticks and hat, as opposed to a finger.
 const JOYSTICK: u32 = 0x10;
 
@@ -55,6 +58,53 @@ fn pad_button(key: Keycode) -> Option<Buttons> {
         Keycode::ButtonSelect => Buttons::SELECT,
         _ => return None,
     })
+}
+
+/// One gamepad's state from Android's events, by its device id.
+#[derive(Default)]
+struct PadState {
+    id: i32,
+    keys: Buttons,
+    /// Presses no frame has seen yet, held for one frame even when already let go.
+    struck: Buttons,
+    stick: [f32; 2],
+    /// The right stick's sideways push, which turns.
+    look: f32,
+    hat: [f32; 2],
+}
+
+impl PadState {
+    fn take(&mut self) -> Pad {
+        let mut held = self.keys | std::mem::take(&mut self.struck);
+        let [hx, hy] = self.hat;
+        for (on, b) in [(hx < -0.5, Buttons::LEFT), (hx > 0.5, Buttons::RIGHT), (hy < -0.5, Buttons::UP), (hy > 0.5, Buttons::DOWN)] {
+            if on {
+                held |= b;
+            }
+        }
+        Pad { id: self.id as u32 as usize, held, stick: self.stick, look: self.look }
+    }
+}
+
+/// The state of the pad with device id `id`, made on its first event.
+fn pad_state(pads: &mut Vec<PadState>, id: i32) -> &mut PadState {
+    let at = pads.iter().position(|p| p.id == id).unwrap_or_else(|| {
+        pads.push(PadState { id, ..Default::default() });
+        pads.len() - 1
+    });
+    &mut pads[at]
+}
+
+/// The device ids of the gamepads attached now, or None when Java can't say.
+fn attached_pads(android: &AndroidApp) -> Option<Vec<i32>> {
+    let ids = activity(android, "padIds", |env, a| {
+        let arr = env.call_method(a, jni::jni_str!("padIds"), jni::jni_sig!("()[I"), &[])?.l()?;
+        let arr = env.cast_local::<jni::objects::JIntArray>(arr)?;
+        let mut ids = vec![0; arr.len(env)?];
+        arr.get_region(env, 0, &mut ids)?;
+        Ok(ids)
+    });
+    ids.inspect_err(|e| log!("{e}")).ok()
 }
 
 /// The frame-rate overlay's numbers, gathered over a second, and the thermal zones it reads then.
@@ -410,13 +460,12 @@ struct App {
     bottom_fingers: Fingers,
     /// The vibrator is running, as `Outputs::rumble` last said.
     rumbling: bool,
-    keys: Buttons,
-    /// Presses no frame has seen yet, held for one frame even when already let go.
-    struck: Buttons,
-    stick: [f32; 2],
-    /// The right stick's sideways push, which turns.
-    look: f32,
-    hat: [f32; 2],
+    pads: Vec<PadState>,
+    seats: Seats,
+    /// Players 2 onward's press trackers.
+    trackers: Vec<InputTracker>,
+    /// When the attached pads were last listed, to drop the ones unplugged.
+    listed: Instant,
     last: Instant,
     save_path: Option<PathBuf>,
     written: Save,
@@ -498,13 +547,12 @@ impl App {
                 self.audio = None;
                 self.fingers = Fingers::default();
                 self.bottom_fingers = Fingers::default();
-                self.keys = Buttons::NONE;
                 if std::mem::take(&mut self.rumbling) {
                     vibrate(&self.android, None);
                 }
-                self.stick = [0.0; 2];
-                self.look = 0.0;
-                self.hat = [0.0; 2];
+                for p in &mut self.pads {
+                    *p = PadState { id: p.id, ..Default::default() };
+                }
                 self.persist(0.0, true);
             }
             MainEvent::Destroy => {
@@ -544,22 +592,24 @@ impl App {
                     }
                     return InputStatus::Unhandled;
                 };
+                let pad = pad_state(&mut self.pads, k.device_id());
                 match k.action() {
                     KeyAction::Down => {
-                        self.keys |= b;
-                        self.struck |= b;
+                        pad.keys |= b;
+                        pad.struck |= b;
                     }
-                    KeyAction::Up => self.keys.set(b, false),
+                    KeyAction::Up => pad.keys.set(b, false),
                     _ => {}
                 }
                 InputStatus::Handled
             }
             InputEvent::MotionEvent(m) if u32::from(m.source()) & JOYSTICK != 0 => {
                 let p = m.pointer_at_index(0);
-                self.stick = [p.axis_value(Axis::X), p.axis_value(Axis::Y)].map(|v| if v.abs() < STICK_DEAD { 0.0 } else { v });
-                self.hat = [p.axis_value(Axis::HatX), p.axis_value(Axis::HatY)];
+                let pad = pad_state(&mut self.pads, m.device_id());
+                pad.stick = [p.axis_value(Axis::X), p.axis_value(Axis::Y)].map(|v| if v.abs() < STICK_DEAD { 0.0 } else { v });
+                pad.hat = [p.axis_value(Axis::HatX), p.axis_value(Axis::HatY)];
                 let z = p.axis_value(Axis::Z);
-                self.look = if z.abs() < STICK_DEAD { 0.0 } else { z };
+                pad.look = if z.abs() < STICK_DEAD { 0.0 } else { z };
                 InputStatus::Handled
             }
             InputEvent::MotionEvent(m) => {
@@ -696,13 +746,20 @@ impl App {
         if g.surface.width() != Some(w.get()) || g.surface.height() != Some(h.get()) {
             g.surface.resize(&g.context, w, h);
         }
-        let mut held = self.keys | std::mem::take(&mut self.struck);
-        let [hx, hy] = self.hat;
-        for (on, b) in [(hx < -0.5, Buttons::LEFT), (hx > 0.5, Buttons::RIGHT), (hy < -0.5, Buttons::UP), (hy > 0.5, Buttons::DOWN)] {
-            if on {
-                held |= b;
+        let pads: Vec<Pad> = self.pads.iter_mut().map(PadState::take).collect();
+        if self.listed.elapsed() >= PAD_LIST {
+            self.listed = Instant::now();
+            if let Some(ids) = attached_pads(&self.android) {
+                self.pads.retain(|p| ids.contains(&p.id) || p.keys != Buttons::NONE);
             }
         }
+        // As on the desktop, split-screen is for one screen; two screens seat one player.
+        let splits = g.bottom.is_none();
+        self.seats.update(&pads, splits && self.game.at_title());
+        self.game.set_players(self.seats.players());
+        let seated = self.seats.inputs(&pads);
+        let others = crate::seated_others(&seated, &mut self.trackers);
+        let (held, stick, look) = seated[0];
         let touches = match &g.bottom {
             // Two screens: only the second takes touches, as the bottom screen's, through its letterbox.
             Some(b) => {
@@ -714,7 +771,7 @@ impl App {
             }
             None => self.fingers.frame(|p| p),
         };
-        let raw = RawInput { held, stick: self.stick, look: self.look, touch: touches.iter().flatten().next().copied(), touches, ..Default::default() };
+        let raw = RawInput { held, stick, look, touch: touches.iter().flatten().next().copied(), touches, ..Default::default() };
         let input = self.tracker.frame(raw);
         if let Some(name) = CHOSEN.lock().unwrap_or_else(|e| e.into_inner()).take() {
             self.game.set_folder(&name);
@@ -722,8 +779,8 @@ impl App {
         self.game.set_system(self.stats.frame(frame_ms));
         self.game.set_phone(g.bottom.is_none().then_some([w.get() as f32, h.get() as f32]));
         self.online.pump(&mut self.game, dt);
-        for input in self.ticker.frame(frame, input) {
-            self.game.update(&input, crate::clock::STEP);
+        for inputs in self.ticker.frame_all(frame, std::iter::once(input).chain(others).collect()) {
+            self.game.update_all(&inputs, crate::clock::STEP);
         }
         self.online.send(&mut self.game);
         if self.game.take_folder_request() {
@@ -743,6 +800,7 @@ impl App {
             // Longer than any pulse the game asks for; stopVibrate cuts it off when the game's rumble ends.
             vibrate(&self.android, rumble.then_some(2000));
         }
+        let views = crate::lay_out_views(&mut self.game, splits, [w.get(), h.get()]);
         let frame = self.game.draw_at(self.ticker.alpha());
         let capture = self.game.take_screenshot();
         let mut shots = Vec::new();
@@ -772,6 +830,12 @@ impl App {
                 let top = Shot { top: [x, h.get() as i32 - y - fh, fw, fh].map(|v| v.max(0) as u32), ..shot::read_back(&g.gl, w.get(), h.get()) };
                 // The photo is the top screen's picture, the first of the two stacked.
                 shots.insert(0, top);
+            }
+        } else if views > 1 {
+            crate::draw_split(&mut g.renderer, &g.gl, &crate::frame_views(&frame, views), [w.get() as i32, h.get() as i32]);
+            if capture.is_some() {
+                let mine = last_harvest_render::split::split(views, [w.get(), h.get()]).get(self.game.menu_view()).copied();
+                shots.push(Shot { top: mine.unwrap_or([0, 0, w.get(), h.get()]), ..shot::read_back(&g.gl, w.get(), h.get()) });
             }
         } else if let Some(phone) = &frame.phone {
             crate::draw_phone(&mut g.renderer, &g.gl, &frame, phone, [w.get() as i32, h.get() as i32]);
@@ -886,11 +950,10 @@ fn run(android: AndroidApp) -> Result<(), String> {
         fingers: Fingers::default(),
         bottom_fingers: Fingers::default(),
         rumbling: false,
-        keys: Buttons::NONE,
-        struck: Buttons::NONE,
-        stick: [0.0; 2],
-        look: 0.0,
-        hat: [0.0; 2],
+        pads: Vec::new(),
+        seats: Seats::default(),
+        trackers: Vec::new(),
+        listed: Instant::now(),
         last: Instant::now(),
         save_path,
         written: saved,

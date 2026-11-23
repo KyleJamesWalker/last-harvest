@@ -296,7 +296,7 @@ Up to four farmers can share one night: on one screen with a pad each, or online
 
 ### Split-screen
 
-Split-screen plays in a desktop window, in a browser on one screen without a touch screen, and on muOS. The RG DS, phones and touch screens seat one player.
+Split-screen plays in a desktop window, in a browser on one screen without a touch screen, on muOS, and on Android with one screen. The RG DS, Android with a second screen and touch screens in a browser seat one player.
 
 - At the title, press Start on another pad to join as the next player, up to P4. Start on that pad again leaves. The title names who joined.
 - Player 1 plays with the keyboard and every pad no other player holds.
