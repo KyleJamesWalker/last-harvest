@@ -88,7 +88,7 @@ On the desktop and in a browser, a gamepad's face buttons map by position, as on
 | Select | Left of center | View | Share |
 | Start | Right of center | Menu | Options |
 
-The d-pad and left stick move you, and the right stick turns. On Android and muOS, the hints keep the RG DS names.
+The d-pad and left stick move you, and the right stick turns. On muOS, the hints keep the RG DS names. On Android, a pad's buttons go by the names printed on them, so A is the button marked A, and the hints name them that way: a handheld's own controls and Nintendo pads show the RG DS names, Sony pads show Cross, Circle, Square and Triangle, and other pads show Xbox names.
 
 ## The night
 

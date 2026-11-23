@@ -275,6 +275,16 @@ public class MainActivity extends NativeActivity implements DisplayManager.Displ
         return java.util.Arrays.copyOf(pads, n);
     }
 
+    /** Called from android.rs: whether pad `id` is built in, then its vendor id and name, tab-separated; "" if gone. */
+    public String padInfo(int id) {
+        InputDevice d = InputDevice.getDevice(id);
+        if (d == null) {
+            return "";
+        }
+        boolean builtIn = d.isVirtual() || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && !d.isExternal());
+        return (builtIn ? "1" : "0") + "\t" + d.getVendorId() + "\t" + d.getName();
+    }
+
     /** Called from android.rs when the game's rumble stops. */
     public void stopVibrate() {
         Vibrator v = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);

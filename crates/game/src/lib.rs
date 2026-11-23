@@ -418,6 +418,11 @@ impl Game {
         self.keyboard |= family == PadFamily::Keyboard;
     }
 
+    /// The platform maps a pad's face buttons by the names printed on them, not by position, so hints name them so.
+    pub fn set_buttons_by_name(&mut self, on: bool) {
+        pad::set_by_name(on);
+    }
+
     /// The platform has a keyboard, before any key is pressed.
     pub fn set_keyboard(&mut self, on: bool) {
         self.keyboard = on;

@@ -20,7 +20,7 @@ use glutin::config::{Api, Config, ConfigTemplateBuilder, GlConfig};
 use glutin::context::{ContextApi, ContextAttributesBuilder, NotCurrentGlContext, PossiblyCurrentContext, PossiblyCurrentGlContext, Version};
 use glutin::display::{Display, DisplayApiPreference, GlDisplay};
 use glutin::surface::{GlSurface, Surface, SurfaceAttributesBuilder, SwapInterval, WindowSurface};
-use last_harvest_game::{Battery, Buttons, Canvas, Capture, Game, InputTracker, MAX_TOUCHES, RawInput, SCREEN_H, SCREEN_W, Save, System};
+use last_harvest_game::{Battery, Buttons, Canvas, Capture, Game, InputTracker, MAX_TOUCHES, PadFamily, RawInput, SCREEN_H, SCREEN_W, Save, System};
 use last_harvest_pack::Pak;
 use last_harvest_render::{Profile, Renderer};
 use raw_window_handle::{AndroidDisplayHandle, AndroidNdkWindowHandle, RawDisplayHandle, RawWindowHandle};
@@ -64,6 +64,8 @@ fn pad_button(key: Keycode) -> Option<Buttons> {
 #[derive(Default)]
 struct PadState {
     id: i32,
+    /// The labels printed on it; a handheld's own controls keep the RG DS names.
+    family: PadFamily,
     keys: Buttons,
     /// Presses no frame has seen yet, held for one frame even when already let go.
     struck: Buttons,
@@ -87,12 +89,26 @@ impl PadState {
 }
 
 /// The state of the pad with device id `id`, made on its first event.
-fn pad_state(pads: &mut Vec<PadState>, id: i32) -> &mut PadState {
+fn pad_state<'a>(pads: &'a mut Vec<PadState>, android: &AndroidApp, id: i32) -> &'a mut PadState {
     let at = pads.iter().position(|p| p.id == id).unwrap_or_else(|| {
-        pads.push(PadState { id, ..Default::default() });
+        pads.push(PadState { id, family: pad_family(android, id), ..Default::default() });
         pads.len() - 1
     });
     &mut pads[at]
+}
+
+/// The labels on pad `id`, from its vendor id and name; a built-in or unknown device keeps the RG DS names.
+fn pad_family(android: &AndroidApp, id: i32) -> PadFamily {
+    let info = activity(android, "padInfo", |env, a| {
+        let s = env.call_method(a, jni::jni_str!("padInfo"), jni::jni_sig!("(I)Ljava/lang/String;"), &[jni::JValue::Int(id)])?.l()?;
+        env.cast_local::<jni::objects::JString>(s)?.try_to_string(env)
+    });
+    let info = info.inspect_err(|e| log!("{e}")).unwrap_or_default();
+    let mut parts = info.splitn(3, '\t');
+    let (built_in, vendor, name) = (parts.next() != Some("0"), parts.next().and_then(|v| v.parse::<i32>().ok()), parts.next().unwrap_or(""));
+    let family = if built_in { PadFamily::Nintendo } else { PadFamily::detect(vendor.map(|v| v as u16), name) };
+    log!("gamepad: {id} {name} ({family:?})");
+    family
 }
 
 /// The device ids of the gamepads attached now, or None when Java can't say.
@@ -605,9 +621,10 @@ impl App {
                     }
                     return InputStatus::Unhandled;
                 };
-                let pad = pad_state(&mut self.pads, k.device_id());
+                let pad = pad_state(&mut self.pads, &self.android, k.device_id());
                 match k.action() {
                     KeyAction::Down => {
+                        self.game.set_pad_family(pad.family);
                         pad.keys |= b;
                         pad.struck |= b;
                     }
@@ -618,11 +635,14 @@ impl App {
             }
             InputEvent::MotionEvent(m) if u32::from(m.source()) & JOYSTICK != 0 => {
                 let p = m.pointer_at_index(0);
-                let pad = pad_state(&mut self.pads, m.device_id());
+                let pad = pad_state(&mut self.pads, &self.android, m.device_id());
                 pad.stick = [p.axis_value(Axis::X), p.axis_value(Axis::Y)].map(|v| if v.abs() < STICK_DEAD { 0.0 } else { v });
                 pad.hat = [p.axis_value(Axis::HatX), p.axis_value(Axis::HatY)];
                 let z = p.axis_value(Axis::Z);
                 pad.look = if z.abs() < STICK_DEAD { 0.0 } else { z };
+                if pad.stick != [0.0; 2] || pad.look != 0.0 || pad.hat.iter().any(|v| v.abs() > 0.5) {
+                    self.game.set_pad_family(pad.family);
+                }
                 InputStatus::Handled
             }
             InputEvent::MotionEvent(m) => {
@@ -954,6 +974,7 @@ fn run(android: AndroidApp) -> Result<(), String> {
     game.record_replays(crate::replays::info());
     game.set_backlights(false);
     game.set_captures(true);
+    game.set_buttons_by_name(true);
     game.set_folder(&folder_name(&android));
     crate::online::set_up(&mut game);
     let mut app = App {
