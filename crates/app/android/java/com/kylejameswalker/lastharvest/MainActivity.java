@@ -20,6 +20,7 @@ import android.os.Bundle;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
 import android.view.Display;
+import android.view.InputDevice;
 import android.view.MotionEvent;
 import android.view.Surface;
 import android.view.SurfaceHolder;
@@ -258,6 +259,20 @@ public class MainActivity extends NativeActivity implements DisplayManager.Displ
             AudioAttributes game = new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_GAME).build();
             v.vibrate(VibrationEffect.createOneShot(ms, VibrationEffect.DEFAULT_AMPLITUDE), game);
         }
+    }
+
+    /** Called from android.rs: the device ids of the gamepads attached now. */
+    public int[] padIds() {
+        int[] all = InputDevice.getDeviceIds();
+        int[] pads = new int[all.length];
+        int n = 0;
+        for (int id : all) {
+            InputDevice d = InputDevice.getDevice(id);
+            if (d != null && !d.isVirtual() && (d.supportsSource(InputDevice.SOURCE_GAMEPAD) || d.supportsSource(InputDevice.SOURCE_JOYSTICK))) {
+                pads[n++] = id;
+            }
+        }
+        return java.util.Arrays.copyOf(pads, n);
     }
 
     /** Called from android.rs when the game's rumble stops. */

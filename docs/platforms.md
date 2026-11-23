@@ -41,6 +41,7 @@ The game is a NativeActivity library (`crates/app/src/android.rs`) with `game_da
 
 - **Second screen:** when Android reports a presentation display, `MainActivity` shows the bottom screen there and passes its touches on. To try it, turn on Developer options > Simulate secondary displays, or run `adb shell settings put global overlay_display_devices 1024x768/240`. `adb shell input -d <display> tap X Y` touches it.
 - **Game folder:** Settings > Game folder opens `ACTION_OPEN_DOCUMENT_TREE`, and `MainActivity` keeps the grant, so the game needs no storage permission. At start it copies the folder's `mods/`, `enemies/`, `players/`, `props/` and `maps/` into internal storage. Without a folder, the game reads `Android/data/<app>/files/data`.
+- **Pads:** each gamepad is read by its device id and seated as on muOS, so split-screen works with one screen. `MainActivity.padIds` lists the attached pads once a second, so an unplugged pad gives up its seat at the title. A joined pad doesn't rumble; the device's vibrator follows player 1.
 - **Logs:** `adb logcat -s last-harvest`. The save sits in internal storage.
 - **Online:** as on the other builds; see [online](online.md#playing-online). `MainActivity` holds a Wi-Fi multicast lock while in the foreground, so a browser peer's mDNS address resolves on the same network and the game hears [LAN hosts' beacons](online.md#playing-on-one-network).
 
