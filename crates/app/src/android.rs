@@ -9,7 +9,7 @@
 
 use std::io::Cursor;
 use std::num::NonZeroU32;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
@@ -419,11 +419,23 @@ struct App {
     hat: [f32; 2],
     last: Instant,
     save_path: Option<PathBuf>,
+    replay_dir: Option<PathBuf>,
     written: Save,
     unsaved: f32,
     stats: Stats,
     online: crate::online::Online,
     quit: bool,
+}
+
+/// Writes each finished replay into `dir`, keeping the last ten.
+fn keep_replays(dir: Option<&Path>, raws: Vec<Vec<u8>>) {
+    let Some(dir) = dir else { return };
+    for raw in raws {
+        match crate::replays::keep(dir, &raw, log::unix_now()) {
+            Ok(path) => log!("replay: {} ({} bytes before gzip)", path.display(), raw.len()),
+            Err(e) => log!("replay: {}: {e}", dir.display()),
+        }
+    }
 }
 
 fn text(e: impl std::fmt::Display) -> String {
@@ -515,6 +527,7 @@ impl App {
                 self.game.close_online();
                 self.online.send(&mut self.game);
                 self.persist(0.0, true);
+                keep_replays(self.replay_dir.as_deref(), self.game.end_replays());
                 self.drop_gl();
                 self.quit = true;
             }
@@ -726,6 +739,11 @@ impl App {
             self.game.update(&input, crate::clock::STEP);
         }
         self.online.send(&mut self.game);
+        keep_replays(self.replay_dir.as_deref(), self.game.take_replays());
+        if self.game.take_replays_request() {
+            let saved = self.replay_dir.as_deref().map(crate::replays::saved).unwrap_or_default();
+            self.game.set_saved_replays(saved);
+        }
         if self.game.take_folder_request() {
             pick_folder(&self.android);
         }
@@ -869,6 +887,7 @@ fn run(android: AndroidApp) -> Result<(), String> {
     let saved = save_path.as_ref().and_then(|p| std::fs::read_to_string(p).ok()).map(|t| Save::parse(&t)).unwrap_or_default();
     let mut game = Game::new(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.as_nanos() as u64));
     game.load(saved);
+    game.record_replays(crate::replays::info());
     game.set_backlights(false);
     game.set_captures(true);
     game.set_folder(&folder_name(&android));
@@ -893,6 +912,7 @@ fn run(android: AndroidApp) -> Result<(), String> {
         hat: [0.0; 2],
         last: Instant::now(),
         save_path,
+        replay_dir: android.internal_data_path().map(|d| d.join("replays")),
         written: saved,
         unsaved: 0.0,
         stats: Stats::new(),
