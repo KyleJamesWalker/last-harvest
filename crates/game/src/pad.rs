@@ -103,6 +103,25 @@ thread_local! {
     static ACTIVE: Cell<PadFamily> = const { Cell::new(PadFamily::Nintendo) };
     static PAD: Cell<PadFamily> = const { Cell::new(PadFamily::Nintendo) };
     static CONTROLS: Cell<Controls> = Cell::new(Controls::default());
+    static BY_NAME: Cell<bool> = const { Cell::new(false) };
+}
+
+/// The platform maps a pad's face buttons by the names printed on them rather than by position, as Android does.
+pub(crate) fn set_by_name(on: bool) {
+    BY_NAME.set(on);
+}
+
+/// What `family` prints on the button that sends game button `b`, by position or, with `set_by_name`, by name.
+fn shown(family: PadFamily, b: Buttons) -> &'static str {
+    if !BY_NAME.get() {
+        return family.label(b);
+    }
+    let Some(i) = NAMES.iter().position(|&(_, n)| n == b) else { return "" };
+    match family {
+        PadFamily::Xbox => ["A", "B", "X", "Y", "LB", "RB", "LT", "RT", "View", "Menu"][i],
+        PadFamily::PlayStation => ["Cross", "Circle", "Square", "Triangle", "L1", "R1", "L2", "R2", "Share", "Options"][i],
+        PadFamily::Nintendo | PadFamily::Keyboard => family.label(b),
+    }
 }
 
 pub(crate) fn set_active(family: PadFamily) {
@@ -132,7 +151,7 @@ pub fn label(b: Buttons) -> &'static str {
 
 /// What `family` calls the button that sends game button `b`.
 pub fn label_as(family: PadFamily, b: Buttons) -> &'static str {
-    family.label(CONTROLS.get().physical(b))
+    shown(family, CONTROLS.get().physical(b))
 }
 
 /// A hint with each `{A}`, `{L1}`, `{Start}` and so on replaced by the active pad's label for that game button.
@@ -148,7 +167,7 @@ fn fill(family: PadFamily, controls: Controls, text: &str) -> String {
         let after = &rest[open + 1..];
         match after.find('}').and_then(|close| NAMES.iter().find(|(n, _)| *n == &after[..close]).map(|&(_, b)| (close, b))) {
             Some((close, b)) => {
-                out.push_str(family.label(controls.physical(b)));
+                out.push_str(shown(family, controls.physical(b)));
                 rest = &after[close + 1..];
             }
             None => {
@@ -184,6 +203,19 @@ mod tests {
         assert_eq!(rest.map(|b| PadFamily::Xbox.label(b)), ["LB", "RB", "LT", "RT", "View", "Menu"]);
         assert_eq!(rest.map(|b| PadFamily::Nintendo.label(b)), ["L1", "R1", "L2", "R2", "Select", "Start"]);
         assert_eq!(rest.map(|b| PadFamily::PlayStation.label(b)), ["L1", "R1", "L2", "R2", "Share", "Options"]);
+    }
+
+    #[test]
+    fn by_name_each_family_names_the_button_printed_with_the_game_buttons_name() {
+        set_by_name(true);
+        let all = [Buttons::A, Buttons::B, Buttons::X, Buttons::Y, Buttons::L1, Buttons::SELECT, Buttons::START];
+        assert_eq!(all.map(|b| label_as(PadFamily::Xbox, b)), ["A", "B", "X", "Y", "LB", "View", "Menu"]);
+        assert_eq!(all.map(|b| label_as(PadFamily::PlayStation, b)), ["Cross", "Circle", "Square", "Triangle", "L1", "Share", "Options"]);
+        assert_eq!(all.map(|b| label_as(PadFamily::Nintendo, b)), ["A", "B", "X", "Y", "L1", "Select", "Start"]);
+        set_active(PadFamily::PlayStation);
+        assert_eq!(hint("{A}: pick"), "Cross: pick");
+        set_by_name(false);
+        assert_eq!(hint("{A}: pick"), "Circle: pick");
     }
 
     #[test]
