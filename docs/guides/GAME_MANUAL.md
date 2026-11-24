@@ -196,6 +196,10 @@ These tables list what the game ships with. A mod pack can change any of them, a
 | Post maul | Ahead | A level breaker | 8 | A slow overhead smash that cracks the ground ahead |
 | Knife | Around | From the start | 8 | Slashes everything close by |
 | Scythe | Around | 100 kills over every run | 8 | A full sweep all the way around you |
+| Stump charge | Far | 2 dawns survived, then found from minute 2 | 8 | Dynamite lobbed into the thickest of them |
+| Wire coil | Far | Survive 6:00 of one night | 8 | Barbed wire flung into a far crowd; it cuts and holds them |
+| Nail gun | Ahead | 600 kills over every run | 8 | A framing nailer hosing nails down your heading |
+| Grain shovel | Ahead | Level 10 in one run | 8 | A flat, wide swat that shoves even the big ones back |
 | Crows | Around | Survive 4:00 of one night | 8 | Birds circle you and peck at what they touch |
 | Bug zapper | Around | 2000 kills over every run, then found from minute 2 | 8 | Lightning that jumps from one zombie to the next |
 | Farm dog | Around | 1 dawn survived | 8 | A good dog that runs down whatever comes close |
