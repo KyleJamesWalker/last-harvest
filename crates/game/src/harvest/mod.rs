@@ -2435,7 +2435,7 @@ impl Harvest {
                 let charge = if len(sub(prey, z.pos)) < t.charge_reach { z.kind.stats().charge } else { 1.0 };
                 let speed = if z.boss { t.harvester_speed } else { z.kind.stats().speed * charge } * (1.0 - z.slow_k);
                 let direct = sub(prey, z.pos);
-                let lure = self.decoys.iter().find(|d| len(sub(d.pos, z.pos)) < d.lure);
+                let lure = self.decoys.iter().filter(|d| len(sub(d.pos, z.pos)) < d.lure).min_by(|a, b| len(sub(a.pos, z.pos)).total_cmp(&len(sub(b.pos, z.pos))));
                 let spitting = self.range.is_none() && !z.boss && lure.is_none() && len(direct) <= ranged && clear_shot(&self.map, z.pos, prey);
                 let to = match lure {
                     Some(d) => norm(sub(d.pos, z.pos)),
