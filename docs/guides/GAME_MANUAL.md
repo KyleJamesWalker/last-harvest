@@ -168,7 +168,7 @@ Each weapon covers a zone, shown on its card:
 
 ### Finds and unlocks
 
-Eight powerups are open from the first night. Each of the rest has a condition: kills, a long enough night, a level, nights played, dawns survived, or a level breaker (a rare card that takes a weapon one level past its top), alone or followed by dawn in the same night. Kills and nights add up over every run on the same difficulty. Night length and level count your best single run on it.
+Eleven powerups are open from the first night: six weapons, at least one for every zone, and five passives. Each of the rest has a condition: kills, a long enough night, a level, nights played, dawns survived, or a level breaker (a rare card that takes a weapon one level past its top), alone or followed by dawn in the same night. Kills and nights add up over every run on the same difficulty. Night length and level count your best single run on it.
 
 Meeting a condition makes the powerup findable. A level-up may then offer it on a green FOUND card, and taking that card unlocks it for good.
 
@@ -198,14 +198,14 @@ These tables list what the game ships with. A mod pack can change any of them, a
 | Post maul | Ahead | A level breaker | 8 | A slow overhead smash that cracks the ground ahead |
 | Knife | Around | From the start | 8 | Slashes everything close by |
 | Scythe | Around | 100 kills over every run | 8 | A full sweep all the way around you |
-| Crows | Around | Survive 4:00 of one night | 8 | Birds circle you and peck at what they touch |
+| Crows | Around | From the start | 8 | Birds circle you and peck at what they touch |
 | Bug zapper | Around | 2000 kills over every run, then found from minute 2 | 8 | Lightning that jumps from one zombie to the next |
 | Farm dog | Around | 1 dawn survived | 8 | A good dog that runs down whatever comes close |
-| Tacks | Behind | 250 kills over every run | 8 | Scattered behind you; they hurt and slow |
+| Tacks | Behind | From the start | 8 | Scattered behind you; they hurt and slow |
 | Gas trail | Behind | Survive 7:00 of one night | 8 | Leaves a line of burning fuel where you walk |
 | Back holster | Behind | Survive 5:00 of one night | 8 | A sawn-off that fires behind you |
 | Scarecrow decoy | Behind | 4000 kills over every run, then found only in a leader's chest | 8 | Dropped behind you; draws them in, then bursts |
-| Molotov | Far | 1000 kills over every run | 8 | Lobbed into a crowd, leaving a pool of fire |
+| Molotov | Far | From the start | 8 | Lobbed into a crowd, leaving a pool of fire |
 | Flare gun | Far | Survive 9:00 of one night, then found from minute 4 | 8 | Lights up a far crowd, and burns it |
 | Drone | Far | A level breaker survived to dawn, then found from minute 3 | 8 | Flies out like the dog and sprays full-auto bursts |
 
