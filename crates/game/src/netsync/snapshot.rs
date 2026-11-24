@@ -270,6 +270,7 @@ pub const Z_HURT: u8 = 8;
 pub const Z_BURNING: u8 = 16;
 pub const Z_RISING: u8 = 32;
 pub const Z_SLOWED: u8 = 64;
+pub const Z_SOAKED: u8 = 128;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ZombieState {

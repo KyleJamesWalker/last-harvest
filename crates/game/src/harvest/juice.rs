@@ -79,6 +79,11 @@ pub fn firefly() -> [f32; 3] {
     super::effects::colors()[6]
 }
 
+/// The tint of a zombie soaked in fuel, and the color of the spray.
+pub fn soak() -> [f32; 3] {
+    super::effects::colors()[7]
+}
+
 /// A speck in the world, in map pixels with `z` its height above the ground.
 pub struct Particle {
     pub pos: [f32; 2],
@@ -287,6 +292,8 @@ pub struct Juice {
     /// Damage dealt to zombies so far, as the numbers show it.
     pub dealt: f32,
     pub tally: super::tally::Tally,
+    /// The seconds and burn multiplier the hits dealt now soak a zombie with.
+    pub soak: [f32; 2],
     /// Hit-stop never freezes the world, which several players share.
     pub still: bool,
 }
@@ -313,6 +320,7 @@ impl Juice {
             clock: 0.0,
             dealt: 0.0,
             tally: Default::default(),
+            soak: [0.0; 2],
             still: false,
         }
     }

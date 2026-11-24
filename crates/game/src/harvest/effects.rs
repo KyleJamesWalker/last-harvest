@@ -211,7 +211,7 @@ impl Written {
 type Extra = Vec<(String, Written)>;
 
 /// The particle colors `[colors]` sets, in order.
-pub const COLORS: [&str; 7] = ["blood", "dark_blood", "dirt", "spark", "ember", "gold", "firefly"];
+pub const COLORS: [&str; 8] = ["blood", "dark_blood", "dirt", "spark", "ember", "gold", "firefly", "soak"];
 
 /// Particle colors by `COLORS`, red, green and blue from 0 to 1.
 pub type Palette = [[f32; 3]; COLORS.len()];

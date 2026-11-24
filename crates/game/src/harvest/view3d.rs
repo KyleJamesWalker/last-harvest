@@ -793,6 +793,10 @@ pub fn scene(h: &Harvest) -> CardScene {
         if z.boss {
             b.tint = HARVESTER_TINT;
         }
+        if z.soak > 0.0 {
+            let k = super::juice::soak();
+            b.tint = [b.tint[0] * k[0], b.tint[1] * k[1], b.tint[2] * k[2]];
+        }
         b.scale = [size * (1.0 + 0.3 * s), size * (1.0 - 0.2 * s)];
         b.lean = Vec3::new(z.knock[0], 0.0, z.knock[1]) * (0.35 * s);
         board(&mut cards, b);

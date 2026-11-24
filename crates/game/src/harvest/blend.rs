@@ -341,7 +341,7 @@ mod tests {
         let mut h = walking();
         h.take_before();
         h.t += STEP;
-        let shot = |age: f32| Bullet { pos: [100.0, 100.0], vel: [60.0, 0.0], damage: 1.0, pierce: 0, life: 1.0, force: 0.0, hit: Vec::new(), look: None, age, by: None, owner: ME, lift: [0.0; 2] };
+        let shot = |age: f32| Bullet { pos: [100.0, 100.0], vel: [60.0, 0.0], damage: 1.0, pierce: 0, life: 1.0, force: 0.0, hit: Vec::new(), look: None, age, by: None, owner: ME, soak: [0.0; 2], lift: [0.0; 2] };
         h.bullets = vec![shot(STEP), shot(STEP * 4.0)];
         let undo = h.blend(0.5).expect("a step");
         assert_eq!(h.bullets[0].pos, [100.0, 100.0]);

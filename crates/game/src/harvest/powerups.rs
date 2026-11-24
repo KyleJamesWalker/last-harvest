@@ -61,6 +61,8 @@ pub enum Does {
     Blade,
     /// Throws at a crowd, and lands as its section's `lands` says.
     Lob,
+    /// A cone ahead that wets what it reaches, for its `soak` to work on.
+    Sprayer,
 }
 
 /// What a lobbed weapon does where it lands.
@@ -113,7 +115,7 @@ pub enum Pattern {
 }
 
 /// Every weapon behaviour by the name `does` gives it.
-const DOES: [(&str, Does); 22] = [
+const DOES: [(&str, Does); 23] = [
     ("pistol", Does::Pistol),
     ("shotgun", Does::Shotgun),
     ("rifle", Does::Rifle),
@@ -136,6 +138,7 @@ const DOES: [(&str, Does); 22] = [
     ("gun", Does::Gun),
     ("blade", Does::Blade),
     ("lob", Does::Lob),
+    ("sprayer", Does::Sprayer),
 ];
 
 impl Does {
@@ -145,7 +148,7 @@ impl Does {
 }
 
 /// The names a weapon's `does` can give, in the file's order.
-pub fn weapon_behaviours() -> [&'static str; 22] {
+pub fn weapon_behaviours() -> [&'static str; 23] {
     DOES.map(|(k, _)| k)
 }
 
@@ -415,6 +418,8 @@ pub enum Stat {
     Blast,
     Refill,
     Money,
+    Soak,
+    SoakBurn,
 }
 
 /// How a stat reads on a card.
@@ -427,7 +432,7 @@ enum Shown {
 }
 
 impl Stat {
-    const ALL: [Stat; 30] = [
+    const ALL: [Stat; 32] = [
         Stat::Cooldown,
         Stat::Damage,
         Stat::Count,
@@ -458,6 +463,8 @@ impl Stat {
         Stat::Blast,
         Stat::Refill,
         Stat::Money,
+        Stat::Soak,
+        Stat::SoakBurn,
     ];
 
     fn key(self) -> &'static str {
@@ -492,6 +499,8 @@ impl Stat {
             Stat::Blast => "blast",
             Stat::Refill => "refill",
             Stat::Money => "money",
+            Stat::Soak => "soak",
+            Stat::SoakBurn => "soak_burn",
         }
     }
 
@@ -527,6 +536,8 @@ impl Stat {
             Stat::Blast => "Blast",
             Stat::Refill => "Refill",
             Stat::Money => "Hearts",
+            Stat::Soak => "Soaks",
+            Stat::SoakBurn => "Burns x",
         }
     }
 
@@ -541,12 +552,12 @@ impl Stat {
     fn for_weapons(self) -> bool {
         matches!(
             self,
-            Stat::Cooldown | Stat::Damage | Stat::Count | Stat::Range | Stat::Area | Stat::Pierce | Stat::Speed | Stat::Duration | Stat::Spread | Stat::Knockback | Stat::Slow | Stat::Gap
+            Stat::Cooldown | Stat::Damage | Stat::Count | Stat::Range | Stat::Area | Stat::Pierce | Stat::Speed | Stat::Duration | Stat::Spread | Stat::Knockback | Stat::Slow | Stat::Gap | Stat::Soak | Stat::SoakBurn
         )
     }
 
     fn for_passives(self) -> bool {
-        !matches!(self, Stat::Count | Stat::Range | Stat::Duration | Stat::Spread | Stat::Slow | Stat::Gap | Stat::Refill | Stat::Money)
+        !matches!(self, Stat::Count | Stat::Range | Stat::Duration | Stat::Spread | Stat::Slow | Stat::Gap | Stat::Refill | Stat::Money | Stat::Soak | Stat::SoakBurn)
     }
 
     /// A weapon's value for a stat the file leaves out.
@@ -566,7 +577,7 @@ impl Stat {
     fn shown(self, kind: Kind) -> Shown {
         match self {
             _ if kind == Kind::Passive && self.scales() => Shown::Percent,
-            Stat::Cooldown | Stat::Duration | Stat::Drums | Stat::Gap => Shown::Seconds,
+            Stat::Cooldown | Stat::Duration | Stat::Drums | Stat::Gap | Stat::Soak => Shown::Seconds,
             Stat::Crit | Stat::Luck | Stat::Slow => Shown::Chance,
             _ => Shown::Number,
         }

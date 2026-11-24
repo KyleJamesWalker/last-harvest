@@ -299,6 +299,7 @@ impl Harvest {
             z.flash = (z.flash - dt).max(0.0);
             z.burn = if s.flags & Z_BURNING != 0 { 1.0 } else { 0.0 };
             (z.slow, z.slow_k) = if s.flags & Z_SLOWED != 0 { (1.0, 0.5) } else { (0.0, 0.0) };
+            (z.soak, z.soak_k) = if s.flags & Z_SOAKED != 0 { (1.0, 1.0) } else { (0.0, 0.0) };
             z.leader = s.flags & Z_LEADER != 0;
             z.boss = s.flags & Z_BOSS != 0;
             z.rise = if rising { (z.rise + dt).min(0.95) } else { 1.0 };
@@ -401,7 +402,7 @@ impl Harvest {
                     let look = by.and_then(|d| book().defs[d].bullet.as_deref()).and_then(|n| effects::effects().named(n));
                     let vel = vel.map(|v| v as f32 / 8.0);
                     let owner = c.index(owner as usize).unwrap_or(ME);
-                    self.bullets.push(Bullet { pos, vel, damage: 0.0, pierce: 0, life: (life as f32 / 50.0 - age).max(0.0), force: 0.0, hit: Vec::new(), look, age, by, owner, lift: [0.0; 2] });
+                    self.bullets.push(Bullet { pos, vel, damage: 0.0, pierce: 0, life: (life as f32 / 50.0 - age).max(0.0), force: 0.0, hit: Vec::new(), look, age, by, owner, soak: [0.0; 2], lift: [0.0; 2] });
                 }
                 Spawn::Spit { kind, vel, life, .. } if (kind as usize) < roster().enemies.len() => {
                     self.spits.push(Spit { kind: Kind(kind), pos, vel: vel.map(|v| v as f32 / 8.0), damage: 0.0, life: (life as f32 / 50.0 - age).max(0.0), age });

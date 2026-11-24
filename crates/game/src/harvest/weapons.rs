@@ -523,8 +523,10 @@ fn polar(at: [f32; 2], angle: f32, r: f32) -> [f32; 2] {
     [at[0] + fm::cos(angle) * r, at[1] + fm::sin(angle) * r]
 }
 
-/// Sets a zombie burning, or keeps it burning longer and hotter.
-fn ignite(z: &mut Zombie, dps: f32, secs: f32, owner: PlayerId, by: Option<usize>) {
+/// Sets a zombie burning, or keeps it burning longer and hotter; a soaked one burns its `soak_k` times both.
+pub(super) fn ignite(z: &mut Zombie, dps: f32, secs: f32, owner: PlayerId, by: Option<usize>) {
+    let k = if z.soak > 0.0 { z.soak_k.max(1.0) } else { 1.0 };
+    let (dps, secs) = (dps * k, secs * k);
     z.burn = z.burn.max(secs);
     if dps >= z.burn_dps {
         z.burn_dps = dps;
@@ -542,6 +544,12 @@ fn singe(z: &mut Zombie, juice: &mut juice::Juice, damage: f32) {
 }
 
 impl Harvest {
+    /// Damage dealt from now on goes to the acting player's weapon `a`, and soaks as it says.
+    fn credit(&mut self, a: Armed) {
+        self.juice.tally.credit(self.actor, Some(a.def));
+        self.juice.soak = [self.stat(a, Stat::Soak), self.stat(a, Stat::SoakBurn)];
+    }
+
     /// A weapon's stat at its level, with the passives applied.
     fn stat(&self, a: Armed, s: Stat) -> f32 {
         self.stat_of(self.actor, a, s)
@@ -623,7 +631,7 @@ impl Harvest {
             let mut a = self.actor().kit.weapons[i];
             a.cd -= dt;
             if a.cd <= 0.0 {
-                self.juice.tally.credit(self.actor, Some(a.def));
+                self.credit(a);
                 let fired = self.attack(a, sounds);
                 let def = &book().defs[a.def];
                 let shots = burst(def.pattern, self.stat(a, Stat::Count), def.at(Stat::Gap, a.level), self.actor().kit.mods.cooldown).filter(|_| matches!(a.does(), Does::Pistol | Does::Gun));
@@ -649,6 +657,7 @@ impl Harvest {
         self.walk_dogs(dt, sounds);
         self.fly_drones(dt, sounds);
         self.juice.tally.by = None;
+        self.juice.soak = [0.0; 2];
     }
 
     /// Plays a weapon's sound for one more round, once every `sound_every`, and queues its `sound_after`.
@@ -678,6 +687,7 @@ impl Harvest {
             Does::Rifle => self.rifle(a, sounds),
             Does::Lantern => self.beam(a),
             Does::Burner => self.burner(a),
+            Does::Sprayer => self.sprayer(a),
             Does::Pitchfork => self.pitchfork(a, sounds),
             Does::Knife => self.knife(a, sounds),
             Does::Scythe => self.scythe(a, sounds),
@@ -926,6 +936,25 @@ impl Harvest {
         true
     }
 
+    /// Wets everything in a short cone ahead, hurting it a little.
+    fn sprayer(&mut self, a: Armed) -> bool {
+        let (range, half) = (self.stat(a, Stat::Range), self.stat(a, Stat::Spread).to_radians() / 2.0);
+        if self.nearest_in(range, Some((self.actor().aim, half))).is_none() {
+            return false;
+        }
+        let (damage, force, crit) = (self.stat(a, Stat::Damage), self.stat(a, Stat::Knockback), self.crit());
+        for z in &mut self.zombies {
+            let d = sub(z.pos, self.players[self.actor].pos);
+            if z.rise >= 1.0 && len(d) < range && in_cone(d, self.players[self.actor].aim, half) {
+                strike(z, &mut self.juice, damage, norm(d), force, crit);
+            }
+        }
+        let nozzle = [self.actor().pos[0] + self.actor().aim[0] * 6.0, self.actor().pos[1] + self.actor().aim[1] * 6.0];
+        self.juice.burst(nozzle, 6.0, 6, self.actor().aim, half, [range * 1.5, range * 2.5], juice::soak(), 1.0, 0.35, 0.0);
+        self.attack_feel(a, nozzle, 8.0);
+        true
+    }
+
     fn pitchfork(&mut self, a: Armed, sounds: &mut Vec<Sfx>) -> bool {
         let range = self.stat(a, Stat::Range);
         if self.nearest_in(range + 4.0, Some((self.actor().aim, self.ahead_half()))).is_none() {
@@ -1067,7 +1096,7 @@ impl Harvest {
                 continue;
             }
             let (damage, cd) = (self.stat(a, Stat::Damage), self.stat(a, Stat::Cooldown));
-            self.juice.tally.credit(self.actor, Some(a.def));
+            self.credit(a);
             for at in self.crow_spots(a) {
                 for z in &mut self.zombies {
                     if z.rise >= 1.0 && len(sub(z.pos, at)) < crate::tuning::tuning().crow_reach && !self.players[self.actor].pecked.iter().any(|p| p.0 == z.id) {
@@ -1254,7 +1283,7 @@ impl Harvest {
                 && dog.cd <= 0.0
             {
                 dog.cd = cd;
-                self.juice.tally.credit(self.actor, Some(a.def));
+                self.credit(a);
                 let alive = self.zombies[t].hp > 0.0;
                 hits.1 |= strike(&mut self.zombies[t], &mut self.juice, damage, n, force, crit);
                 if chain && alive && self.zombies[t].hp <= 0.0 {
@@ -1398,7 +1427,7 @@ impl Harvest {
             let (damage, pierce, force, spread) = (self.stat(a, Stat::Damage), self.stat(a, Stat::Pierce) as u32, self.stat(a, Stat::Knockback), self.stat(a, Stat::Spread).to_radians());
             for _ in 0..rounds {
                 let angle = fm::atan2(heading[1], heading[0]) + self.juice.rng.range(-0.5, 0.5) * spread;
-                self.juice.tally.credit(self.actor, Some(a.def));
+                self.credit(a);
                 self.shoot_from([from[0], from[1] - 6.0], angle, tune.drone_bullet, damage, pierce, tune.drone_reach * 1.2 / tune.drone_bullet, force, bullet(a), lift);
             }
             let heard = due(book().defs[a.def].sound_every, &mut self.actor_mut().drones[i].heard, rounds);
@@ -1583,10 +1612,15 @@ impl Harvest {
         }
         self.juice.tally.by = None;
         self.patches.retain(|p| p.age < p.life);
+        let mut spreading = Vec::new();
         for z in &mut self.zombies {
             z.slow = (z.slow - dt).max(0.0);
             if z.slow <= 0.0 {
                 z.slow_k = 0.0;
+            }
+            z.soak = (z.soak - dt).max(0.0);
+            if z.soak <= 0.0 {
+                z.soak_k = 0.0;
             }
             if z.burn <= 0.0 {
                 z.burn_dps = 0.0;
@@ -1599,8 +1633,12 @@ impl Harvest {
                 self.juice.tally.credit(z.burn_owner, z.burn_by);
                 singe(z, &mut self.juice, z.burn_dps * BURN_TICK);
                 self.juice.burst(z.pos, 8.0, 1, [0.0; 2], 0.0, [5.0, 15.0], juice::ember(), 1.2, 0.5, 1.0);
+                if z.soak > 0.0 {
+                    spreading.push((z.pos, z.burn_dps / z.soak_k.max(1.0), z.burn_owner, z.burn_by));
+                }
             }
         }
+        self.spread_fire(&spreading);
         for p in &mut self.players {
             for s in &mut p.swings {
                 s.age += dt;
@@ -1612,6 +1650,19 @@ impl Harvest {
             b.age += dt;
         }
         self.bolts.retain(|b| b.age < BOLT_LIFE);
+    }
+
+    /// Each soaked zombie not yet burning catches from the first of `from` within `[weapons] soak_spread`.
+    fn spread_fire(&mut self, from: &[([f32; 2], f32, PlayerId, Option<usize>)]) {
+        let reach = crate::tuning::tuning().soak_spread;
+        if from.is_empty() || reach <= 0.0 {
+            return;
+        }
+        for z in self.zombies.iter_mut().filter(|z| z.soak > 0.0 && z.burn <= 0.0 && z.rise >= 1.0) {
+            if let Some(&(_, dps, owner, by)) = from.iter().find(|f| len(sub(z.pos, f.0)) < reach) {
+                ignite(z, dps, crate::tuning::tuning().fire_burn, owner, by);
+            }
+        }
     }
 
     /// Scarecrows age, and burst when their time is up.
@@ -1663,7 +1714,7 @@ impl Harvest {
     #[allow(clippy::too_many_arguments)]
     pub(super) fn shoot_from(&mut self, pos: [f32; 2], angle: f32, speed: f32, damage: f32, pierce: u32, life: f32, force: f32, look: Option<super::effects::Effect>, lift: [f32; 2]) {
         let vel = [fm::cos(angle) * speed, fm::sin(angle) * speed];
-        self.bullets.push(Bullet { pos, vel, damage, pierce, life, force, hit: Vec::new(), look, age: 0.0, by: self.juice.tally.by, owner: self.juice.tally.owner, lift });
+        self.bullets.push(Bullet { pos, vel, damage, pierce, life, force, hit: Vec::new(), look, age: 0.0, by: self.juice.tally.by, owner: self.juice.tally.owner, soak: self.juice.soak, lift });
     }
 }
 
@@ -2450,5 +2501,104 @@ mod tests {
         let mut h = Harvest::new(2);
         h.chest = true;
         assert!(h.roll_choices(&[]).iter().all(|c| !c.found), "with nothing waiting it's a plain level-up");
+    }
+    #[test]
+    fn a_soaked_zombie_burns_hotter_and_longer_and_never_compounds() {
+        let mut z = Zombie::new(ZKind::named("big"), [0.0; 2], 500.0, 1.0, 0.0);
+        z.soak = 3.0;
+        z.soak_k = 2.0;
+        ignite(&mut z, 10.0, 2.0, 1, Some(7));
+        assert_eq!((z.burn_dps, z.burn), (20.0, 4.0));
+        ignite(&mut z, 10.0, 2.0, 1, Some(7));
+        assert_eq!((z.burn_dps, z.burn), (20.0, 4.0), "lighting it again keeps the same fire");
+        assert_eq!((z.burn_owner, z.burn_by), (1, Some(7)), "the burn is the lighter's");
+        let mut dry = Zombie::new(ZKind::named("big"), [0.0; 2], 500.0, 1.0, 0.0);
+        ignite(&mut dry, 10.0, 2.0, 1, Some(7));
+        assert_eq!((dry.burn_dps, dry.burn), (10.0, 2.0));
+    }
+
+    #[test]
+    fn the_kerosene_sprayer_soaks_what_is_ahead_and_it_dries_off() {
+        let mut h = with("kerosene", [20.0, 0.0]);
+        let mut sounds = Vec::new();
+        for _ in 0..60 {
+            h.fire(1.0 / 60.0, &mut sounds);
+        }
+        let def = &book().defs[book().index("kerosene").unwrap()];
+        let z = &h.zombies[0];
+        assert_eq!((z.soak, z.soak_k), (def.at(Stat::Soak, 1), def.at(Stat::SoakBurn, 1)));
+        assert!(z.burn <= 0.0, "the spray never lights it");
+        h.me_mut().kit.weapons.clear();
+        for _ in 0..(def.at(Stat::Soak, 1) * 60.0) as usize + 2 {
+            h.hazards(1.0 / 60.0);
+        }
+        assert_eq!((h.zombies[0].soak, h.zombies[0].soak_k), (0.0, 0.0));
+    }
+
+    #[test]
+    fn a_bullet_soaks_what_it_hits_as_its_weapon_did_when_fired() {
+        let mut h = with("pistol", [20.0, 0.0]);
+        h.me_mut().kit.weapons.clear();
+        h.juice.soak = [3.0, 2.5];
+        h.shoot(0.0, 200.0, 1.0, 0, 1.0, 0.0, None);
+        h.juice.soak = [0.0; 2];
+        let mut sounds = Vec::new();
+        for _ in 0..30 {
+            h.move_bullets(1.0 / 60.0, &mut sounds);
+        }
+        assert_eq!((h.zombies[0].soak, h.zombies[0].soak_k), (3.0, 2.5));
+    }
+
+    #[test]
+    fn fire_runs_through_a_soaked_crowd_and_a_blast_lights_it() {
+        let mut h = with("pistol", [20.0, 0.0]);
+        h.me_mut().kit.weapons.clear();
+        let base = h.zombies[0].pos;
+        for k in 1..4 {
+            let mut z = Zombie::new(ZKind::named("big"), [base[0] + k as f32 * 10.0, base[1]], 500.0, 1.0, 0.0);
+            z.id = 10 + k;
+            h.zombies.push(z);
+        }
+        let dry = h.zombies.len() - 1;
+        for z in &mut h.zombies[..dry] {
+            (z.soak, z.soak_k) = (30.0, 2.0);
+        }
+        ignite(&mut h.zombies[0], 10.0, 5.0, ME, None);
+        for _ in 0..120 {
+            h.hazards(1.0 / 60.0);
+        }
+        assert!(h.zombies[..dry].iter().all(|z| z.burn > 0.0), "each soaked one caught from its neighbour");
+        assert!(h.zombies[dry].burn <= 0.0, "a dry one doesn't");
+        assert!((h.zombies[1].burn_dps - 20.0).abs() < 1e-4, "a caught fire burns at the first's own heat: {}", h.zombies[1].burn_dps);
+
+        let mut h = with("pistol", [20.0, 0.0]);
+        h.me_mut().kit.weapons.clear();
+        (h.zombies[0].soak, h.zombies[0].soak_k) = (30.0, 2.0);
+        let mut sounds = Vec::new();
+        h.explode(h.zombies[0].pos, 20.0, 1.0, &mut sounds);
+        assert!(h.zombies[0].burn > 0.0, "a blast lights a soaked zombie");
+    }
+
+    #[test]
+    fn one_player_soaks_and_another_lights_and_the_fire_is_the_lighters() {
+        let burned = |soak: bool| {
+            let mut h = with("burner", [20.0, 0.0]).with_players(2);
+            let (pos, aim) = (h.me().pos, h.me().aim);
+            h.me_mut().kit.weapons.clear();
+            if soak {
+                armed(&mut h, "kerosene", 1);
+            }
+            let burner = book().index("burner").unwrap();
+            let p1 = &mut h.players[1];
+            (p1.pos, p1.aim, p1.view_yaw) = (pos, aim, 0.0);
+            p1.kit.weapons.clear();
+            p1.kit.raise(burner, 1);
+            let hurt = hurt_after(&mut h, 6.0);
+            assert!(h.juice.tally.rows(ME).iter().all(|r| r.by != Some(burner)), "none of the fire is the soaker's");
+            let lit = h.juice.tally.rows(1).iter().find(|r| r.by == Some(burner)).map_or(0.0, |r| r.damage);
+            (hurt, lit)
+        };
+        let ((_, alone), (_, soaked)) = (burned(false), burned(true));
+        assert!(soaked > alone * 1.4, "soaked, the burner dealt {soaked} against {alone} alone");
     }
 }
