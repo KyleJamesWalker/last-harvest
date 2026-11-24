@@ -146,6 +146,8 @@ tuning! {
     drone_reach = "weapons" "drone_reach",
     drone_bullet = "weapons" "drone_bullet",
     fire_burn = "weapons" "fire_burn",
+    soak_spread = "weapons" "soak_spread",
+    soak_blast = "weapons" "soak_blast",
     blast_hurt = "blast" "hurt",
     blast_near = "blast" "near",
     map_scale = "map" "scale",

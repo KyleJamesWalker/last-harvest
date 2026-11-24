@@ -194,6 +194,7 @@ These tables list what the game ships with. A mod pack can change any of them, a
 | Bottle rockets | Around | Survive 5:00 of one night | 8 | A fistful of fireworks that curve onto zombies and pop |
 | Lantern beam | Ahead | Survive 2:00 of one night | 8 | Your light burns and slows what it falls on |
 | Weed burner | Ahead | 1500 kills over every run | 8 | A short cone of flame that sets them burning |
+| Kerosene sprayer | Ahead | 2000 kills over every run | 8 | Soaks them in fuel; fire then burns them hotter and longer |
 | Pitchfork | Ahead | 3000 kills over every run | 8 | Skewers everything in a line in front of you |
 | Post maul | Ahead | A level breaker | 8 | A slow overhead smash that cracks the ground ahead |
 | Knife | Around | From the start | 8 | Slashes everything close by |
@@ -211,6 +212,8 @@ These tables list what the game ships with. A mod pack can change any of them, a
 | Drone | Far | A level breaker survived to dawn, then found from minute 3 | 8 | Flies out like the dog and sprays full-auto bursts |
 
 <!-- /items -->
+
+The Kerosene sprayer barely hurts, but what it soaks shows a dull stain for a few seconds. Fire from any weapon, a blast or a barrel burns a soaked zombie hotter and longer, and a soaked crowd catches from one to the next. In co-op, one player can soak while another lights.
 
 ### Passives
 
@@ -528,7 +531,7 @@ A weapon in `powerups.txt` opens as a weapon page:
 
 - **Does** picks its behavior.
 - Each stat shows its value at every level. Pick a level, then - and + step that level's value.
-- The pickers sit on five tabs: **Shots** (effect, bullet, pattern, `homing`, `explode`), **Aim** (`aim`, `through`, targets, `outside`), **Sound & player**, **Dog** (`kill_resets`, `fetches`, `charge`) and **Cables** (`teammate`).
+- The pickers sit on five tabs: **Shots** (effect, bullet, pattern, `explode`), **Aim** (`aim`, `homing`, `through`, `teammate`), **Burst** (targets, `outside`), **Sound** and **Player & dog** (player, `kill_resets`, `fetches`, `charge`).
 - < and > step its effect, bullet and sound (the six voices, then each sound group in your game data), how many rounds go by for each sound (`sound_every`), a sound that follows it and how long it waits (`sound_after`, `sound_delay`), a gun's pattern, `aim` and targets, its `homing`, degrees a second its shots turn, `explode`, the pixels each pops in, and `through`, 1 for shots that pass every zombie but their target, `outside`, how far a burst's later shots reach outside the view, a dog's `kill_resets`, 1 to bite again at once after a kill, its `fetches`, 1 to bring back hearts, and its `charge`, how far it runs into a horde, and jumper cables' `teammate`, 1 to arc to the nearest teammate too. **Own** goes back to the behavior's own.
 - **player** makes the weapon one player card's own: < and > step through the player cards, and **Everyone** gives it back to every player. Only that player is offered it, unlocks it or starts with it; see [a player's own weapons](../../docs/modding.md#a-players-own-weapons).
 - A panel plays the effect and bullet. **Style** opens the bullet's shot style, where **Paint** opens a sprite to draw.

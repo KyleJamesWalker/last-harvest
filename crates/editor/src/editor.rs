@@ -4675,7 +4675,7 @@ mod tests {
             let line = |e: &Editor| e.data.as_ref().and_then(|d| d.table.entries(&d.section).into_iter().find(|l| l.key == "teammate")).map(|l| l.value);
             assert_eq!(line(&e).as_deref(), Some("1"), "the game's own arcs to a teammate");
             let pick = weapons::pick("teammate");
-            e.act(Action::WeaponTab(4), false);
+            e.act(Action::WeaponTab(weapons::tab_of(pick)), false);
             assert!(e.buttons().iter().any(|b| b.action == Action::WeaponPick(pick, 1)), "its picker shows");
             e.act(Action::WeaponPick(pick, 0), false);
             assert_eq!(line(&e), None, "Own leaves it off");
@@ -4704,7 +4704,7 @@ mod tests {
             let outside = |e: &Editor| e.data.as_ref().and_then(|d| d.table.entries(&d.section).into_iter().find(|l| l.key == "outside")).map(|l| l.value);
             assert_eq!(outside(&e), None, "the pistol leaves it out: its whole range");
             let pick = weapons::pick("outside");
-            e.act(Action::WeaponTab(1), false);
+            e.act(Action::WeaponTab(weapons::tab_of(pick)), false);
             assert!(e.buttons().iter().any(|b| b.action == Action::WeaponPick(pick, 1)));
             e.act(Action::WeaponPick(pick, 1), false);
             assert_eq!(outside(&e).as_deref(), Some("0"), "modding {modding}");
@@ -4834,6 +4834,49 @@ mod tests {
             e.switch_to("DATA_TUNING_CAMP".into());
             let keys: Vec<String> = e.data.as_ref().map(|d| d.table.entries(&d.section).into_iter().map(|x| x.key).collect()).unwrap_or_default();
             assert_eq!(keys, ["after", "radius", "every", "wave", "grow", "ring", "over"], "modding {modding}");
+        }
+    }
+
+    #[test]
+    fn any_weapon_can_be_set_to_soak_in_both_editors() {
+        for modding in [false, true] {
+            let dir = tmp().join(if modding { "soak-mod" } else { "soak" });
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            let mut e = editor_in(&dir, dir.join("art.txt"));
+            if modding {
+                e.set_modding();
+            }
+            e.switch_to("DATA_POWERUPS_SHOTGUN".into());
+            let stat = |k: &str| last_harvest_game::weapon_stats().iter().position(|s| s.0 == k).unwrap();
+            let text = |e: &Editor| e.data.as_ref().unwrap().table.text.clone();
+            for key in ["soak", "soak_burn"] {
+                assert!(e.buttons().iter().any(|b| b.action == Action::WeaponStep(stat(key), 1)), "{key}, modding {modding}");
+            }
+            e.act(Action::WeaponType(stat("soak")), false);
+            e.set_text("soak 3");
+            e.key(Key::Enter);
+            e.act(Action::WeaponType(stat("soak_burn")), false);
+            e.set_text("soak_burn 2");
+            e.key(Key::Enter);
+            let levels = last_harvest_game::weapon_levels(&text(&e), "shotgun").unwrap();
+            assert_eq!((levels.stats[stat("soak")].2[0], levels.stats[stat("soak_burn")].2[0]), (3.0, 2.0), "modding {modding}");
+            buttons_fit(&e);
+            e.act(Action::Save, false);
+            assert!(!e.unsaved(), "the game reads it");
+            for (page, key) in [("DATA_TUNING_WEAPONS", "soak_spread"), ("DATA_TUNING_WEAPONS", "soak_blast"), ("DATA_EFFECTS_COLORS", "soak")] {
+                e.switch_to(page.into());
+                let row = e.data.as_ref().and_then(|d| d.table.entries(&d.section).iter().position(|l| l.key == key)).unwrap_or_else(|| panic!("{page} lists {key}"));
+                let edits = |a: &Action| matches!(*a, Action::DataStep(r, _) | Action::DataEdit(r) | Action::DataColor(r, _) if r == row);
+                for _ in 0..4 {
+                    if !e.buttons().iter().any(|b| edits(&b.action)) {
+                        e.act(Action::DataPage(1), false);
+                    }
+                }
+                assert!(e.buttons().iter().any(|b| edits(&b.action)), "{page} {key}, modding {modding}");
+                buttons_fit(&e);
+            }
+            std::fs::remove_dir_all(&dir).unwrap();
         }
     }
 
@@ -5059,8 +5102,8 @@ mod tests {
             e.switch_to("DATA_POWERUPS_CROWS".into());
             let pick = weapons::pick("player");
             let player = |e: &Editor| e.data.as_ref().and_then(|d| d.table.entries(&d.section).into_iter().find(|l| l.key == "player")).map(|l| l.value);
-            assert!(!e.buttons().iter().any(|b| b.action == Action::WeaponPick(pick, 1)), "on the third tab");
-            e.act(Action::WeaponTab(2), false);
+            assert!(!e.buttons().iter().any(|b| b.action == Action::WeaponPick(pick, 1)), "not on the first tab");
+            e.act(Action::WeaponTab(weapons::tab_of(pick)), false);
             assert!(e.buttons().iter().any(|b| b.action == Action::WeaponPick(pick, 1)));
             buttons_fit(&e);
             e.act(Action::WeaponPick(pick, 1), false);

@@ -207,6 +207,7 @@ ICON_MOLOTOV           png placeholder/icon_molotov.png
 ICON_QUICK_HANDS       png placeholder/icon_quick_hands.png
 ICON_LONG_BARREL       png placeholder/icon_long_barrel.png
 ICON_MAUL              png placeholder/icon_maul.png
+ICON_KEROSENE          png placeholder/icon_burner.png
 ICON_DRONE             png placeholder/icon_drone.png
 ICON_JUMPER_CABLES     png placeholder/icon_zapper.png
 

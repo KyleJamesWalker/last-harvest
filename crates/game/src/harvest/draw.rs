@@ -388,7 +388,8 @@ impl Harvest {
         }
         for &(m, fade) in &shown {
             let a = m.art;
-            sprites.push((m.pos[1], a, m.pos[0] - a.w() / 2.0, m.pos[1] - a.h() * m.rise + 2.0, m.flip, m.rise, [1.0, 1.0, 1.0, fade]));
+            let [r, g, b] = if m.soaked { super::juice::soak() } else { [1.0; 3] };
+            sprites.push((m.pos[1], a, m.pos[0] - a.w() / 2.0, m.pos[1] - a.h() * m.rise + 2.0, m.flip, m.rise, [r, g, b, fade]));
         }
         if let Some(s) = self.shown.as_ref().filter(|s| s.stand != Stand::Ground && !s.frames.is_empty()) {
             let a = s.frame(self.t);

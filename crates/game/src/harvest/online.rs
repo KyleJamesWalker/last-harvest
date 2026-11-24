@@ -459,7 +459,7 @@ impl Extract {
             let most = self.most_hp.entry(z.id).or_insert(z.hp);
             *most = most.max(z.hp);
             let bit = |on: bool, b: u8| if on { b } else { 0 };
-            let flags = bit(under, Z_BURROWED) | bit(z.leader, Z_LEADER) | bit(z.boss, Z_BOSS) | bit(z.hurt > 0.0, Z_HURT) | bit(z.burn > 0.0, Z_BURNING) | bit(z.rise < 1.0, Z_RISING) | bit(z.slow > 0.0, Z_SLOWED);
+            let flags = bit(under, Z_BURROWED) | bit(z.leader, Z_LEADER) | bit(z.boss, Z_BOSS) | bit(z.hurt > 0.0, Z_HURT) | bit(z.burn > 0.0, Z_BURNING) | bit(z.rise < 1.0, Z_RISING) | bit(z.slow > 0.0, Z_SLOWED) | bit(z.soak > 0.0, Z_SOAKED);
             zombies.push(ZombieState { id: z.id, kind: z.kind.0, pos: q_pos(z.pos), hp: (z.hp.max(0.0) / most.max(1e-3) * 255.0).round() as u8, flags });
         }
         let born = |age: f32| (tick as f32 - age * TICK_HZ as f32).round() as i64 as u16;
@@ -838,7 +838,7 @@ mod tests {
         z.id = 77;
         h.zombies.push(z);
         let steer = super::super::Steer { turn: 3.0, target: Some(77), leg: (from, 0.0, [120.0, 0.0]), pop: 14.0, through: false };
-        h.bullets.push(super::super::Bullet { pos: from, vel: [120.0, 0.0], damage: 5.0, pierce: 0, life: 3.0, force: 0.0, hit: Vec::new(), look: None, age: 0.0, by: None, owner: 0, lift: [0.0; 2], steer });
+        h.bullets.push(super::super::Bullet { pos: from, vel: [120.0, 0.0], damage: 5.0, pierce: 0, life: 3.0, force: 0.0, hit: Vec::new(), look: None, age: 0.0, by: None, owner: 0, soak: [0.0; 2], lift: [0.0; 2], steer });
         let mut client = Harvest::calm(3).with_players(2).client_of(&[1], &[0, 1]);
         let (mut extract, mut host, mut link, mut mirror) = (Extract::default(), HostLink::default(), ClientLink::default(), Mirror::default());
         mirror.play_locally(1);

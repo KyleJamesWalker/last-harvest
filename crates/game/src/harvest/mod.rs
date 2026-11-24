@@ -353,6 +353,9 @@ struct Zombie {
     /// The weapon that set it burning, for the run's damage by weapon.
     burn_by: Option<usize>,
     burn_owner: PlayerId,
+    /// Seconds left soaked in fuel, and how many times hotter and longer fire then burns it.
+    soak: f32,
+    soak_k: f32,
     /// A horde's leader, which drops a chest.
     leader: bool,
     /// Dawn's Harvester: faster, heavier, harder biting, and drawn twice the size.
@@ -396,6 +399,8 @@ impl Zombie {
             burn_tick: 0.0,
             burn_by: None,
             burn_owner: ME,
+            soak: 0.0,
+            soak_k: 0.0,
             leader: false,
             boss: false,
             cd: 0.0,
@@ -512,6 +517,8 @@ struct Bullet {
     /// The weapon that fired it.
     by: Option<usize>,
     owner: PlayerId,
+    /// The seconds and burn multiplier it soaks what it hits with.
+    soak: [f32; 2],
     /// Pixels above a gun's height it was fired from, and the seconds it takes to come down to it.
     lift: [f32; 2],
     steer: Steer,
@@ -1303,7 +1310,7 @@ impl Harvest {
             h.juice.burst(at, 8.0, 8, [0.0; 2], 0.0, [10.0, 40.0], juice::blood(), 1.5, 100.0, 0.0);
             h.juice.popup(at, 12.0 + i as f32, if i % 5 == 0 { Tone::Crit } else { Tone::Hit });
             let vel = [fm::cos(a) * 200.0, fm::sin(a) * 200.0];
-            h.bullets.push(Bullet { pos: [h.me().pos[0] + fm::cos(a) * 20.0, h.me().pos[1] - 6.0 + fm::sin(a) * 20.0], vel, damage: 0.0, pierce: 0, life: 1.0, force: 0.0, hit: Vec::new(), look: None, age: 0.0, by: None, owner: ME, lift: [0.0; 2], steer: Default::default() });
+            h.bullets.push(Bullet { pos: [h.me().pos[0] + fm::cos(a) * 20.0, h.me().pos[1] - 6.0 + fm::sin(a) * 20.0], vel, damage: 0.0, pierce: 0, life: 1.0, force: 0.0, hit: Vec::new(), look: None, age: 0.0, by: None, owner: ME, soak: [0.0; 2], lift: [0.0; 2], steer: Default::default() });
         }
         let e = effects::effects();
         for (i, fx) in [e.explosion, e.explosion_smoke, e.zombie_rises, e.mound_breaks].into_iter().cycle().take(16).enumerate() {
@@ -2922,6 +2929,7 @@ impl Harvest {
                     b.life = 0.0;
                 } else if len(d) < 7.0 {
                     self.juice.tally.credit(b.owner, b.by);
+                    self.juice.soak = b.soak;
                     hits.1 |= strike(z, &mut self.juice, b.damage, norm(b.vel), b.force, crits[b.owner]);
                     hits.0 += 1;
                     if let Some(s) = &shot {
@@ -2943,6 +2951,7 @@ impl Harvest {
             }
         }
         self.juice.tally.by = None;
+        self.juice.soak = [0.0; 2];
         self.bullets.retain(|b| b.life > 0.0);
         self.thud(hits, sounds);
         for (at, radius, damage, owner, by) in pops {
@@ -3005,13 +3014,17 @@ impl Harvest {
     /// Bigger with the acting player's fuel drums' blast, area passive's reach and damage passives.
     fn explode(&mut self, c: [f32; 2], radius: f32, damage: f32, sounds: &mut Vec<Sfx>) {
         let m = self.actor().kit.mods;
-        let (radius, damage, crit) = (radius * m.blast * m.area, damage * m.blast * m.damage, crate::tuning::tuning().crit + m.crit);
+        let t = crate::tuning::tuning();
+        let (radius, damage, crit) = (radius * m.blast * m.area, damage * m.blast * m.damage, t.crit + m.crit);
         let mut hits = (0, false);
         for z in &mut self.zombies {
             let d = sub(z.pos, c);
             if len(d) < radius {
                 hits.1 |= strike(z, &mut self.juice, damage, norm(d), 120.0 * m.knockback, crit);
                 hits.0 += 1;
+                if z.soak > 0.0 && t.soak_blast > 0.0 {
+                    weapons::ignite(z, t.soak_blast, t.fire_burn, self.actor, self.juice.tally.by);
+                }
                 z.fling = 60.0 + 150.0 * (1.0 - len(d) / radius);
             }
         }
@@ -3026,7 +3039,6 @@ impl Harvest {
         for i in self.map.breakables_near(c, radius) {
             self.map.hurt_prop(i, damage, FLASH_TIME);
         }
-        let t = crate::tuning::tuning();
         let playing = !matches!(self.phase, Phase::Over { .. });
         let own = self.actor();
         if playing && own.alive() && len(sub(own.pos, c)) < radius * t.blast_near && own.hurt <= 0.0 {
@@ -3606,6 +3618,7 @@ fn strike(z: &mut Zombie, juice: &mut Juice, damage: f32, dir: [f32; 2], force: 
     let dealt = if crit { damage * 2.0 } else { damage };
     juice.tally.land(dealt, z.hp);
     z.hp -= dealt;
+    wet(z, juice.soak);
     z.flash = FLASH_TIME;
     z.hurt = HURT_FRAMES;
     z.squash = 1.0;
@@ -3618,6 +3631,14 @@ fn strike(z: &mut Zombie, juice: &mut Juice, damage: f32, dir: [f32; 2], force: 
     }
     juice.burst(z.pos, 8.0, if crit { 6 } else { 3 }, dir, 0.6, [30.0, 90.0], juice::blood_of(z.kind.stats().blood), 1.4, 0.4, 0.0);
     crit
+}
+
+/// Soaks a zombie for `soak`'s seconds and burn multiplier, when it has any.
+fn wet(z: &mut Zombie, [secs, k]: [f32; 2]) {
+    if secs > 0.0 {
+        z.soak = z.soak.max(secs);
+        z.soak_k = z.soak_k.max(k);
+    }
 }
 
 /// Whether a horde breaks out during the frame ending at `t`; one comes every `[spawn] horde_every` seconds.
@@ -4222,7 +4243,7 @@ mod tests {
         let c = barrel.center();
         h.zombies.push(Zombie::new(Kind::named("big"), [c[0] + 20.0, c[1]], 50.0, 1.0, 0.0));
         let mut sounds = Vec::new();
-        h.bullets.push(Bullet { pos: [c[0], c[1] - 6.0], vel: [1.0, 0.0], damage: 50.0, pierce: 0, life: 1.0, force: 30.0, hit: Vec::new(), look: None, age: 0.0, by: None, owner: ME, lift: [0.0; 2], steer: Default::default() });
+        h.bullets.push(Bullet { pos: [c[0], c[1] - 6.0], vel: [1.0, 0.0], damage: 50.0, pierce: 0, life: 1.0, force: 30.0, hit: Vec::new(), look: None, age: 0.0, by: None, owner: ME, soak: [0.0; 2], lift: [0.0; 2], steer: Default::default() });
         h.move_bullets(0.016, &mut sounds);
         assert!(h.blow(0.016, &mut sounds).is_some());
         assert!(h.zombies[0].hp <= 0.0);
@@ -4237,7 +4258,7 @@ mod tests {
         let mut h = Harvest::calm(4);
         let at = h.me().pos;
         h.zombies.push(Zombie::new(Kind::named("big"), [at[0] + 3.0, at[1]], 500.0, 1.0, 0.0));
-        h.bullets = vec![Bullet { pos: [at[0], at[1] - 6.0], vel: [10.0, 0.0], damage: 1.0, pierce: 0, life: 1.0, force: 0.0, hit: Vec::new(), look: Some(look), age: 0.0, by: None, owner: ME, lift: [0.0; 2], steer: Default::default() }];
+        h.bullets = vec![Bullet { pos: [at[0], at[1] - 6.0], vel: [10.0, 0.0], damage: 1.0, pierce: 0, life: 1.0, force: 0.0, hit: Vec::new(), look: Some(look), age: 0.0, by: None, owner: ME, soak: [0.0; 2], lift: [0.0; 2], steer: Default::default() }];
         h.juice.particles.clear();
         h.move_bullets(0.016, &mut Vec::new());
         assert!(h.bullets.is_empty());
@@ -4245,12 +4266,12 @@ mod tests {
         assert!(h.juice.particles.len() > shot.impact as usize + 1, "and the blood still sprays");
         h.zombies.clear();
         h.juice.particles.clear();
-        h.bullets = vec![Bullet { pos: [at[0], at[1] - 6.0], vel: [10.0, 0.0], damage: 1.0, pierce: 0, life: 0.01, force: 0.0, hit: Vec::new(), look: Some(look), age: 0.0, by: None, owner: ME, lift: [0.0; 2], steer: Default::default() }];
+        h.bullets = vec![Bullet { pos: [at[0], at[1] - 6.0], vel: [10.0, 0.0], damage: 1.0, pierce: 0, life: 0.01, force: 0.0, hit: Vec::new(), look: Some(look), age: 0.0, by: None, owner: ME, soak: [0.0; 2], lift: [0.0; 2], steer: Default::default() }];
         h.move_bullets(0.016, &mut Vec::new());
         assert_eq!(sparks(&h), shot.impact as usize, "a bullet that flies its range sparks on the ground");
         h.juice.particles.clear();
         let sprite = effects::effects().slash;
-        h.bullets = vec![Bullet { pos: [at[0], at[1] - 6.0], vel: [10.0, 0.0], damage: 1.0, pierce: 0, life: 0.01, force: 0.0, hit: Vec::new(), look: Some(sprite), age: 0.0, by: None, owner: ME, lift: [0.0; 2], steer: Default::default() }];
+        h.bullets = vec![Bullet { pos: [at[0], at[1] - 6.0], vel: [10.0, 0.0], damage: 1.0, pierce: 0, life: 0.01, force: 0.0, hit: Vec::new(), look: Some(sprite), age: 0.0, by: None, owner: ME, soak: [0.0; 2], lift: [0.0; 2], steer: Default::default() }];
         h.move_bullets(0.016, &mut Vec::new());
         assert!(h.juice.particles.is_empty(), "a bullet that flies as a sprite throws none");
     }
@@ -4277,7 +4298,7 @@ mod tests {
         let mut live = Zombie::new(Kind::named("skinny"), at, 1000.0, 1.0, 0.0);
         live.id = 2;
         h.zombies = vec![dead, live];
-        h.bullets = vec![Bullet { pos: [at[0], at[1] - 6.0], vel: [0.0; 2], damage: 10.0, pierce: 5, life: 1.0, force: 0.0, hit: Vec::new(), look: None, age: 0.0, by: None, owner: ME, lift: [0.0; 2], steer: Default::default() }];
+        h.bullets = vec![Bullet { pos: [at[0], at[1] - 6.0], vel: [0.0; 2], damage: 10.0, pierce: 5, life: 1.0, force: 0.0, hit: Vec::new(), look: None, age: 0.0, by: None, owner: ME, soak: [0.0; 2], lift: [0.0; 2], steer: Default::default() }];
         let mut sounds = Vec::new();
         h.move_bullets(0.016, &mut sounds);
         let once = h.zombies[1].hp;
@@ -4294,7 +4315,7 @@ mod tests {
         let (bush, house) = (bottom(art::BUSH), bottom(art::HOUSE));
         assert!(h.map.solid_at(bush[0], bush[1]));
         let mut stops = |at: [f32; 2]| {
-            h.bullets = vec![Bullet { pos: [at[0], at[1] - 6.0], vel: [0.0; 2], damage: 1.0, pierce: 0, life: 1.0, force: 0.0, hit: Vec::new(), look: None, age: 0.0, by: None, owner: ME, lift: [0.0; 2], steer: Default::default() }];
+            h.bullets = vec![Bullet { pos: [at[0], at[1] - 6.0], vel: [0.0; 2], damage: 1.0, pierce: 0, life: 1.0, force: 0.0, hit: Vec::new(), look: None, age: 0.0, by: None, owner: ME, soak: [0.0; 2], lift: [0.0; 2], steer: Default::default() }];
             h.move_bullets(0.016, &mut Vec::new());
             h.bullets.is_empty()
         };
@@ -4329,7 +4350,7 @@ mod tests {
         let mut h = penned();
         let post = [7.5 * TILE, 6.5 * TILE];
         let shoot = |h: &mut Harvest| {
-            h.bullets = vec![Bullet { pos: [post[0], post[1] - 6.0], vel: [0.0; 2], damage: 10.0, pierce: 0, life: 1.0, force: 0.0, hit: Vec::new(), look: None, age: 0.0, by: None, owner: ME, lift: [0.0; 2], steer: Default::default() }];
+            h.bullets = vec![Bullet { pos: [post[0], post[1] - 6.0], vel: [0.0; 2], damage: 10.0, pierce: 0, life: 1.0, force: 0.0, hit: Vec::new(), look: None, age: 0.0, by: None, owner: ME, soak: [0.0; 2], lift: [0.0; 2], steer: Default::default() }];
             h.move_bullets(0.016, &mut Vec::new());
         };
         let i = h.map.breakable_at(post[0], post[1]).unwrap();

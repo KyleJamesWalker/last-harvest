@@ -82,6 +82,15 @@ fn a_whole_snapshot_reads_back() {
 }
 
 #[test]
+fn a_soaked_zombies_flag_reads_back_whole_and_as_a_delta() {
+    let zombie = |flags| ZombieState { id: 7, kind: 0, pos: q_pos([100.0, 100.0]), hp: 255, flags };
+    let dry = World::new(1, Vec::new(), vec![zombie(Z_BURNING)], Vec::new());
+    let soaked = World::new(2, Vec::new(), vec![zombie(Z_BURNING | Z_SOAKED)], Vec::new());
+    assert_eq!(decode_all(&encode(&soaked, None, 1, &[], &[], BUDGET), None), soaked);
+    assert_eq!(decode_all(&encode(&soaked, Some(&dry), 1, &[], &[], BUDGET), Some(&dry)), soaked);
+}
+
+#[test]
 fn a_delta_reads_back_over_its_baseline_and_is_smaller() {
     let mut sim = Sim::new(2, 300);
     let base = sim.world();
