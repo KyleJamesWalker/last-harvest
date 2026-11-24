@@ -194,6 +194,10 @@ spark SHOT_SPARK
 smoke SHOT_SMOKE
 flare SHOT_FLARE
 
+[stake]
+art STAKE
+fps 1
+
 [pistol_shot]
 color E8D27A
 length 16

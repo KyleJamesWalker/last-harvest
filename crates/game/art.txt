@@ -140,6 +140,7 @@ MAUL_SMASH      png placeholder/maul.png  @slab 2 float 5
 DOG             png placeholder/dog.png x3  @prop 4
 DOG_ATTACK      png placeholder/dog_attack.png  @prop 4
 DRONE           png placeholder/drone.png x3  @figure float 16
+STAKE           png placeholder/flare.png  @prop 1
 TACKS           png placeholder/tacks.png  @slab 1
 FIRE            png placeholder/fire.png x3  @figure
 POP             png placeholder/fire.png x3  @figure
@@ -207,6 +208,7 @@ ICON_QUICK_HANDS       png placeholder/icon_quick_hands.png
 ICON_LONG_BARREL       png placeholder/icon_long_barrel.png
 ICON_MAUL              png placeholder/icon_maul.png
 ICON_DRONE             png placeholder/icon_drone.png
+ICON_JUMPER_CABLES     png placeholder/icon_zapper.png
 
 # Pickups
 ZOMBIE_HEART    blank 9 11 ; blank 9 11 ; blank 9 11 ; blank 9 11 ; blank 9 11 ; blank 9 11

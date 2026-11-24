@@ -498,6 +498,9 @@ impl Extract {
         for d in &h.decoys {
             things.push(Thing { kind: T_DECOY, sub: 0, pos: q_pos(d.pos), data: [born(d.age), (d.life * 10.0).clamp(0.0, u16::MAX as f32) as u16, 0] });
         }
+        for s in &h.stakes {
+            things.push(Thing { kind: T_STAKE, sub: 0, pos: q_pos(s.pos), data: [born(s.age), (s.life * 10.0).clamp(0.0, u16::MAX as f32) as u16, 0] });
+        }
         for t in &h.tells {
             things.push(Thing { kind: T_TELL, sub: t.kind.0, pos: q_pos(t.pos), data: [t.leader as u16, 0, 0] });
         }
@@ -952,6 +955,62 @@ mod tests {
         assert!(hearts[0].kind == DropKind::Money(2), "the heart's money");
         assert_eq!(hearts[0].dog.map(|f| (f.player, f.def, f.slot, f.carried)), Some((0, fetch.def, fetch.slot, true)), "in seat 1's dog's mouth, seat 1 being this client's first player");
         assert!(len(sub(hearts[0].pos, mouth)) < 0.2 && hearts[0].z == 4.0, "{:?} for {:?}", hearts[0].pos, mouth);
+    }
+
+    #[test]
+    fn a_zapper_bolt_reaches_clients_on_the_tick_it_is_fired() {
+        let def = book().index("zapper").unwrap();
+        let mut h = Harvest::calm(3).with_players(2);
+        h.players[0].kit = Kit::forced(&[(def, 1)], h.difficulty.tier());
+        h.players[1].kit = Kit::forced(&[], h.difficulty.tier());
+        let at = [h.players[0].pos[0] + 30.0, h.players[0].pos[1]];
+        h.zombies.push(super::super::Zombie::new(super::super::Kind::named("big"), at, 5000.0, 1.0, 0.0));
+        let (mut extract, mut sounds) = (Extract::default(), Vec::new());
+        let sent = (1..=300u32).any(|tick| {
+            h.update(&crate::Input::default(), STEP, &mut sounds);
+            sounds.clear();
+            extract.record(&h, tick, &[]).spawns.iter().any(|s| matches!(s.what, Spawn::Bolt { .. }))
+        });
+        assert!(sent);
+    }
+
+    #[test]
+    fn a_client_draws_the_hosts_jumper_cable_stakes_and_their_arcs() {
+        let def = book().index("jumper_cables").unwrap();
+        let mut h = Harvest::calm(3).with_players(2);
+        h.players[0].kit = Kit::forced(&[(def, 1)], h.difficulty.tier());
+        h.players[1].kit = Kit::forced(&[], h.difficulty.tier());
+        let (mut extract, mut sounds, mut bolts) = (Extract::default(), Vec::new(), Vec::new());
+        for tick in 1..=600u32 {
+            h.update(&crate::Input::default(), STEP, &mut sounds);
+            bolts.extend(extract.record(&h, tick, &sounds).spawns.into_iter().filter(|s| matches!(s.what, Spawn::Bolt { .. })));
+            sounds.clear();
+            if !h.stakes.is_empty() && !bolts.is_empty() {
+                break;
+            }
+        }
+        assert_eq!(h.stakes.len(), 1, "the host drove a stake in");
+        assert!(!bolts.is_empty(), "its arc rides to clients as a bolt");
+        let mut client = Harvest::calm(3).with_players(2).client_of(&[1], &[0, 1]);
+        let (mut host, mut link, mut mirror) = (HostLink::default(), ClientLink::default(), Mirror::default());
+        mirror.play_locally(1);
+        for k in 1..=4u32 {
+            let world = extract.world(&h, 2000 + k * SEND_EVERY, &[0, 0]);
+            assert_eq!(world.things.iter().filter(|t| t.1.kind == T_STAKE).count(), 1);
+            for p in host.snapshot(world) {
+                if let Some(part) = link.receive(&p) {
+                    mirror.apply(&part);
+                }
+            }
+            let (s, e) = link.ack();
+            host.ack(s, e);
+            mirror.advance(SEND_EVERY as f32 / TICK_HZ as f32);
+            client.client_frame(&mirror, SEND_EVERY as f32 / TICK_HZ as f32, &mut sounds);
+        }
+        assert_eq!(client.stakes.len(), 1, "the client draws the stake");
+        assert!(len(sub(client.stakes[0].pos, h.stakes[0].pos)) < 0.1);
+        client.client_spawned(&bolts);
+        assert!(!client.bolts.is_empty(), "and its arc");
     }
 
     #[test]

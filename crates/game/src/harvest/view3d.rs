@@ -842,6 +842,9 @@ pub fn scene(h: &Harvest) -> CardScene {
         b.lean = right * ((d.age * (10.0 + 30.0 * k)).sin() * 0.08 * k);
         board(&mut cards, b);
     }
+    for s in &h.stakes {
+        board(&mut cards, Board::new(super::effects::effects().stake.looping(s.age), false, s.pos, 0.0, CHARACTER_DEPTH));
+    }
     for d in h.players.iter().flat_map(|p| &p.dogs).filter(|d| (world(d.pos) - p).dot(forward) >= 0.0) {
         let flip = d.heading[0] * right.x + d.heading[1] * right.z < 0.0;
         board(&mut cards, Board::new(d.art(), flip, d.pos, d.lift() * PX, CHARACTER_DEPTH));

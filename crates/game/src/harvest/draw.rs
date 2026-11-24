@@ -407,6 +407,10 @@ impl Harvest {
             let a = art::SCARECROW;
             sprites.push((d.pos[1], a, d.pos[0] - a.w() / 2.0, d.pos[1] - a.h() + 2.0, false, 1.0, [1.0; 4]));
         }
+        for s in &self.stakes {
+            let a = super::effects::effects().stake.looping(s.age);
+            sprites.push((s.pos[1], a, s.pos[0] - a.w() / 2.0, s.pos[1] - a.h() + 2.0, false, 1.0, [1.0; 4]));
+        }
         for d in self.players.iter().flat_map(|p| &p.dogs) {
             let a = d.art();
             sprites.push((d.pos[1], a, d.pos[0] - a.w() / 2.0, d.pos[1] - a.h() + 2.0 - d.lift(), d.heading[0] < 0.0, 1.0, [1.0; 4]));

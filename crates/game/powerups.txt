@@ -343,6 +343,26 @@ kill_resets 1
 fetches 1
 charge 160
 
+[jumper_cables]
+name      Jumper cables
+kind      weapon
+flash     0.6 0.8 1.8 4 0.1
+zone      behind
+unlock    kills 2500
+blurb     Stakes dropped behind you; current arcs back to them
+max       8
+find      0.15
+after     2
+teammate  1
+# A stake drops each cooldown and stands for duration, count at most; an arc runs to each within range,
+# and to the nearest teammate, hurting what stands on it damage a second, area wide.
+cooldown  3.0 2.9 2.8 2.7 2.6 2.5 2.4 2.2
+damage    14 17 20 24 28 32 38 46
+range     60 64 68 74 80 86 92 100
+area      8 8 9 9 10 10 11 12
+count     1 1 1 2 2 2 2 3
+duration  5 5 5.5 5.5 6 6 6.5 7
+
 # Behind: whatever is following you.
 
 [tacks]

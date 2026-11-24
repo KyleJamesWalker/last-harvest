@@ -55,6 +55,8 @@ pub enum Does {
     Maul,
     /// Flies out to a crowd and sprays it with bursts.
     Drone,
+    /// Drops stakes behind the player; current arcs from them back to the player and to a teammate.
+    JumperCables,
     /// A gun shaped by its section's `aim` and `pattern`.
     Gun,
     /// A blade that cuts everything within its area across its spread, aimed by its section's `aim`.
@@ -119,7 +121,7 @@ pub enum Pattern {
 }
 
 /// Every weapon behaviour by the name `does` gives it.
-const DOES: [(&str, Does); 22] = [
+const DOES: [(&str, Does); 23] = [
     ("pistol", Does::Pistol),
     ("shotgun", Does::Shotgun),
     ("rifle", Does::Rifle),
@@ -139,6 +141,7 @@ const DOES: [(&str, Does); 22] = [
     ("flare", Does::Flare),
     ("maul", Does::Maul),
     ("drone", Does::Drone),
+    ("jumper_cables", Does::JumperCables),
     ("gun", Does::Gun),
     ("blade", Does::Blade),
     ("lob", Does::Lob),
@@ -151,7 +154,7 @@ impl Does {
 }
 
 /// The names a weapon's `does` can give, in the file's order.
-pub fn weapon_behaviours() -> [&'static str; 22] {
+pub fn weapon_behaviours() -> [&'static str; 23] {
     DOES.map(|(k, _)| k)
 }
 
@@ -630,6 +633,8 @@ pub struct Def {
     pub fetches: bool,
     /// For a dog, with nothing to bite or fetch it runs into a horde this far from its player; 0 never.
     pub charge: f32,
+    /// For jumper cables, an arc also runs to the nearest living teammate within range.
+    pub teammate: bool,
     /// For a lob, what it does where it lands.
     pub lands: Lands,
     /// For a weapon, how each attack shakes the camera and lights the ground.
@@ -830,6 +835,7 @@ pub fn parse(text: &str) -> Result<Book, String> {
                 kill_resets: false,
                 fetches: false,
                 charge: 0.0,
+                teammate: false,
                 lands: Lands::Blast,
                 feel: Feel::default(),
                 player: None,
@@ -951,6 +957,13 @@ pub fn parse(text: &str) -> Result<Book, String> {
                     "1" => true,
                     "0" => false,
                     _ => return Err(format!("{n}: through is 1 or 0, not {rest:?}")),
+                }
+            }
+            "teammate" => {
+                def.teammate = match rest {
+                    "1" => true,
+                    "0" => false,
+                    _ => return Err(format!("{n}: teammate is 1 or 0, not {rest:?}")),
                 }
             }
             "charge" => def.charge = rest.parse::<f32>().ok().filter(|v| v.is_finite() && *v >= 0.0).ok_or_else(|| format!("{n}: charge is pixels, 0 or more, not {rest:?}"))?,
@@ -1184,6 +1197,9 @@ mod tests {
         let charge = |v: &str| parse(&format!("[d]\nkind weapon\ndoes dog\ncharge {v}\nicon WHITE\n[cash]\nkind filler\nicon WHITE\n")).map(|b| b.defs[0].charge);
         assert_eq!((charge("160"), charge("0"), g.defs[0].charge), (Ok(160.0), Ok(0.0), 0.0), "never when left out");
         assert!(charge("-1").unwrap_err().starts_with("4: charge is pixels"));
+        let teammate = |v: &str| parse(&format!("[d]\nkind weapon\ndoes jumper_cables\nteammate {v}\nicon WHITE\n[cash]\nkind filler\nicon WHITE\n")).map(|b| b.defs[0].teammate);
+        assert_eq!((teammate("1"), teammate("0"), g.defs[0].teammate), (Ok(true), Ok(false), false), "off when left out");
+        assert!(teammate("yes").unwrap_err().starts_with("4: teammate is 1 or 0"));
         assert!(outside("-1").is_err() && outside("far").is_err());
     }
 

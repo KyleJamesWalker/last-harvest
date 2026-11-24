@@ -17,6 +17,10 @@ const MAX_PATCHES: usize = 80;
 const PATCH_TICK: f32 = 0.25;
 const BURN_TICK: f32 = 0.3;
 pub(super) const BOLT_LIFE: f32 = 0.18;
+/// Seconds between a jumper cable arc's hits; under `BOLT_LIFE`, so its bolt never goes out between them.
+const ARC_TICK: f32 = 0.15;
+/// How far behind the player a stake goes in, in pixels.
+const STAKE_BACK: f32 = 24.0;
 /// A player's gun height less how far a drone's gun hangs below its feet, in pixels; rounds leave from it.
 const DRONE_GUN: f32 = 5.0;
 
@@ -516,6 +520,20 @@ impl Decoy {
     }
 }
 
+/// A jumper cable stake: current arcs from it back to the player who drove it in.
+pub(super) struct Stake {
+    pub pos: [f32; 2],
+    pub age: f32,
+    pub life: f32,
+    pub owner: PlayerId,
+}
+
+impl Stake {
+    pub fn relabel(&mut self, v: PlayerId) {
+        self.owner = swapped(self.owner, v);
+    }
+}
+
 fn in_cone(d: [f32; 2], dir: [f32; 2], half: f32) -> bool {
     let l = len(d);
     l > 1e-3 && (d[0] * dir[0] + d[1] * dir[1]) / l >= fm::cos(half)
@@ -605,6 +623,7 @@ impl Harvest {
     }
 
     pub(super) fn fire(&mut self, dt: f32, sounds: &mut Vec<Sfx>) {
+        self.age_bolts(dt);
         for l in &mut self.later {
             l.0 -= dt;
         }
@@ -644,6 +663,14 @@ impl Harvest {
             }
             if a.does() == Does::Crows {
                 a.phase = (a.phase + self.stat(a, Stat::Speed).to_radians() * dt).rem_euclid(TAU);
+            }
+            if a.does() == Does::JumperCables {
+                a.phase += dt;
+                if a.phase >= ARC_TICK {
+                    a.phase = (a.phase - ARC_TICK).min(ARC_TICK);
+                    self.juice.tally.credit(self.actor, Some(a.def));
+                    self.arcs(a, sounds);
+                }
             }
             self.actor_mut().kit.weapons[i] = a;
         }
@@ -693,6 +720,7 @@ impl Harvest {
             Does::Blade => self.blade(a, sounds),
             Does::Lob => self.lob(a, sounds),
             Does::Maul => self.maul(a, sounds),
+            Does::JumperCables => self.stake(a, sounds),
             Does::Crows | Does::Dog | Does::Drone => false,
         }
     }
@@ -1473,6 +1501,61 @@ impl Harvest {
         true
     }
 
+    /// Drives a stake in behind the player, pulling the oldest of theirs past the most they may have.
+    fn stake(&mut self, a: Armed, sounds: &mut Vec<Sfx>) -> bool {
+        let (me, pos, aim) = (self.actor, self.actor().pos, self.actor().aim);
+        let half = crate::tuning::tuning().zombie_half();
+        let at = [STAKE_BACK, STAKE_BACK / 2.0].iter().map(|&b| [pos[0] - aim[0] * b, pos[1] - aim[1] * b]).find(|p| !self.map.hits(p[0], p[1], half)).unwrap_or(pos);
+        let most = self.stat(a, Stat::Count).max(1.0) as usize;
+        while self.stakes.iter().filter(|s| s.owner == me).count() >= most {
+            let Some(i) = self.stakes.iter().position(|s| s.owner == me) else { break };
+            self.stakes.remove(i);
+        }
+        self.stakes.push(Stake { pos: at, age: 0.0, life: self.stat(a, Stat::Duration), owner: me });
+        self.juice.burst(at, 0.0, 6, [0.0; 2], 0.0, [15.0, 40.0], juice::dirt(), 1.2, 0.4, 0.0);
+        self.attack_feel(a, at, 6.0);
+        self.weapon_sound(a, Sfx::Zap, sounds);
+        true
+    }
+
+    /// Current from the acting player to each of their stakes within range, and with `teammate` to the nearest
+    /// living teammate within it: every zombie on a line takes one tick's damage.
+    fn arcs(&mut self, a: Armed, sounds: &mut Vec<Sfx>) {
+        let (me, from, range) = (self.actor, self.actor().pos, self.stat(a, Stat::Range));
+        let within = |q: [f32; 2]| len(sub(q, from)) <= range;
+        let mut ends: Vec<([f32; 2], f32)> = self.stakes.iter().filter(|s| s.owner == me && within(s.pos)).map(|s| (s.pos, 9.0)).collect();
+        if book().defs[a.def].teammate {
+            let mate = self.players.iter().enumerate().filter(|(p, pl)| *p != me && pl.alive() && pl.lead.is_none() && within(pl.pos)).map(|(_, pl)| pl.pos).min_by(|x, y| len(sub(*x, from)).total_cmp(&len(sub(*y, from))));
+            ends.extend(mate.map(|q| (q, 6.0)));
+        }
+        if ends.is_empty() {
+            return;
+        }
+        let (width, damage, crit) = (self.stat(a, Stat::Area) / 2.0 + 3.0, self.stat(a, Stat::Damage) * ARC_TICK, self.crit());
+        let mut hit = vec![false; self.zombies.len()];
+        let mut hits = (0, false);
+        for (end, top) in ends {
+            let d = sub(end, from);
+            let l = len(d);
+            if l > 1e-3 {
+                let dir = [d[0] / l, d[1] / l];
+                for (i, z) in self.zombies.iter_mut().enumerate() {
+                    let r = sub(z.pos, from);
+                    let along = r[0] * dir[0] + r[1] * dir[1];
+                    let across = r[0] * dir[1] - r[1] * dir[0];
+                    if !hit[i] && (-2.0..=l + 2.0).contains(&along) && across.abs() < width {
+                        hit[i] = true;
+                        let side = if across < 0.0 { [-dir[1], dir[0]] } else { [dir[1], -dir[0]] };
+                        hits.1 |= strike(z, &mut self.juice, damage, side, 0.0, crit);
+                        hits.0 += 1;
+                    }
+                }
+            }
+            self.bolts.push(Bolt { points: vec![[from[0], from[1] - 6.0], [end[0], end[1] - top]], age: 0.0 });
+        }
+        self.thud(hits, sounds);
+    }
+
     /// A zombie in a crowd within `range`: the best of a few picked at random, by how many stand near it.
     fn crowd(&mut self, range: f32) -> Option<[f32; 2]> {
         let near: Vec<[f32; 2]> = self.zombies.iter().filter(|z| z.rise >= 1.0 && len(sub(z.pos, self.actor().pos)) < range).map(|z| z.pos).collect();
@@ -1634,14 +1717,22 @@ impl Harvest {
             p.swings.retain(|s| s.age < s.life);
             p.beam = (p.beam - dt).max(0.0);
         }
+    }
+
+    /// Bolts age before anything fires, so one fired this tick is still new when the tick is sent to clients.
+    pub(super) fn age_bolts(&mut self, dt: f32) {
         for b in &mut self.bolts {
             b.age += dt;
         }
         self.bolts.retain(|b| b.age < BOLT_LIFE);
     }
 
-    /// Scarecrows age, and burst when their time is up.
+    /// Scarecrows age, and burst when their time is up; stakes age, and go when theirs is.
     pub(super) fn decoys(&mut self, dt: f32, sounds: &mut Vec<Sfx>) {
+        for s in &mut self.stakes {
+            s.age += dt;
+        }
+        self.stakes.retain(|s| s.age < s.life);
         for d in &mut self.decoys {
             d.age += dt;
         }
@@ -2365,6 +2456,65 @@ mod tests {
         let life = h.decoys[0].life;
         h.decoys(life, &mut Vec::new());
         assert!(h.decoys.is_empty());
+    }
+
+    #[test]
+    fn jumper_cables_drive_stakes_behind_and_arc_to_them_hurting_only_what_stands_on_the_line() {
+        let mut h = with("jumper_cables", [-20.0, 0.0]);
+        h.zombies.push(Zombie::new(ZKind::named("big"), [h.me().pos[0] - 12.0, h.me().pos[1] + 30.0], 500.0, 1.0, 0.0));
+        let off = h.zombies[1].hp;
+        let hurt = hurt_after(&mut h, 1.0);
+        assert_eq!(h.stakes.len(), 1);
+        assert!(len(sub(h.stakes[0].pos, h.me().pos)) > 20.0, "the stake goes in past the zombie behind");
+        assert!(hurt > 0.0, "the arc hurt the zombie between");
+        assert_eq!(h.zombies[1].hp, off, "nothing off the line");
+        assert!(!h.bolts.is_empty(), "the arc draws as a bolt");
+    }
+
+    #[test]
+    fn jumper_cables_keep_their_count_of_stakes_and_each_goes_when_its_life_is_up() {
+        for (level, most) in [(1, 1), (4, 2)] {
+            let mut h = with("jumper_cables", [-20.0, 0.0]);
+            h.me_mut().kit.weapons[0].level = level;
+            for _ in 0..4 {
+                h.me_mut().kit.weapons[0].cd = 0.0;
+                h.fire(0.016, &mut Vec::new());
+                h.players[ME].pos[0] += 4.0;
+            }
+            assert_eq!(h.stakes.len(), most, "level {level}");
+            let life = h.stakes[0].life;
+            h.decoys(life, &mut Vec::new());
+            assert!(h.stakes.is_empty());
+        }
+    }
+
+    #[test]
+    fn jumper_cables_arc_to_the_nearest_living_teammate_in_range_and_never_hurt_them() {
+        let def = book().index("jumper_cables").unwrap();
+        assert!(book().defs[def].teammate, "the jumper cables reach a teammate");
+        let range = book().defs[def].at(Stat::Range, 1);
+        let between = |gap: f32, down: bool| {
+            let mut h = Harvest::calm_on(3, &super::super::map::MapSource::new("Open", [60, 60])).unwrap().with_players(2);
+            for p in 0..2 {
+                h.players[p].kit.weapons.clear();
+            }
+            h.players[ME].kit.raise(def, 1);
+            h.players[ME].kit.weapons[0].cd = 100.0;
+            let at = h.players[ME].pos;
+            h.players[1].pos = [at[0] + gap, at[1]];
+            if down {
+                h.players[1].down = Some(0.0);
+            }
+            h.zombies.push(Zombie::new(ZKind::named("big"), [at[0] + gap / 2.0, at[1]], 500.0, 1.0, 0.0));
+            let mate = h.players[1].hp;
+            let hurt = hurt_after(&mut h, 1.0);
+            assert!(h.stakes.is_empty());
+            assert_eq!(h.players[1].hp, mate, "no friendly fire");
+            hurt
+        };
+        assert!(between(range * 0.8, false) > 0.0, "the arc to a teammate hurts the zombie between them");
+        assert_eq!(between(range * 1.3, false), 0.0, "out of range");
+        assert_eq!(between(range * 0.8, true), 0.0, "a downed teammate");
     }
 
     #[test]
