@@ -1,4 +1,5 @@
-//! Photo mode: the paused run held still, horde and all, while the camera turns, zooms and rises round the player.
+//! Photo mode: the paused run held still, horde and all, while the camera turns, zooms and rises round the player,
+//! or walks off on its own through the frozen night.
 
 // Drawing only: nothing here may feed Harvest::update, so std's float functions are fine.
 #![allow(clippy::disallowed_methods)]
@@ -32,6 +33,8 @@ const PLACE_SPEED: f32 = 6.0 * TILE;
 const PLACE_REACH: f32 = 12.0 * TILE;
 /// Radians a second Left or Right turns a posed zombie, and Up or Down a dropped prop.
 const POSE_TURN: f32 = 3.0;
+/// How far behind the player the camera stands, in map pixels.
+const BACK: f32 = view3d::CAMERA_BACK * TILE;
 /// The game's props R2 drops, by name and sprite; players' props loaded follow them, and then a choice that takes
 /// back the one dropped last.
 const PROPS: [(&str, &str); 21] = [
@@ -67,10 +70,11 @@ pub(super) enum Setting {
     Pose,
     Props,
     Place,
+    Walk,
 }
 
 impl Setting {
-    const ALL: [Self; 6] = [Self::Time, Self::Fog, Self::Lantern, Self::Pose, Self::Props, Self::Place];
+    const ALL: [Self; 7] = [Self::Time, Self::Fog, Self::Lantern, Self::Pose, Self::Props, Self::Place, Self::Walk];
 
     fn next(self) -> Self {
         Self::ALL[(Self::ALL.iter().position(|&s| s == self).unwrap_or(0) + 1) % Self::ALL.len()]
@@ -108,6 +112,8 @@ pub(super) struct Photo {
     spot: Option<[f32; 2]>,
     /// The props dropped in a row since the cross last moved.
     row: Option<Row>,
+    /// Where the camera stands on the ground, in map pixels, once walked away from the player.
+    walk: Option<[f32; 2]>,
 }
 
 /// A row of props dropped one after another across a camera looking along `yaw`: its right and left ends, and the
@@ -165,7 +171,7 @@ fn push_of(v: f32) -> i8 {
 
 impl Photo {
     fn new(heading: f32) -> Self {
-        Self { heading, guides: true, setting: Setting::Time, time: None, fog: USUAL_FOG, lantern: USUAL_LANTERN, picked: None, posed: Vec::new(), lying: Vec::new(), corpses: 0, pushed: 0, choices: choices(), prop: 0, swung: 0, props: Vec::new(), spot: None, row: None }
+        Self { heading, guides: true, setting: Setting::Time, time: None, fog: USUAL_FOG, lantern: USUAL_LANTERN, picked: None, posed: Vec::new(), lying: Vec::new(), corpses: 0, pushed: 0, choices: choices(), prop: 0, swung: 0, props: Vec::new(), spot: None, row: None, walk: None }
     }
 
     /// Steps the chosen setting to its next value, after the last back round to the first.
@@ -180,7 +186,7 @@ impl Photo {
             }
             Setting::Fog => self.fog = (self.fog + 1) % FOGS.len(),
             Setting::Lantern => self.lantern = (self.lantern + 1) % LANTERNS.len(),
-            Setting::Pose | Setting::Props | Setting::Place => {}
+            Setting::Pose | Setting::Props | Setting::Place | Setting::Walk => {}
         }
     }
 
@@ -224,6 +230,19 @@ impl Photo {
         (self.spot, self.row) = (Some(keep([at[0] + (-s * x - c * y) * v, at[1] + (c * x - s * y) * v])), None);
     }
 
+    /// Walks the camera `ahead` and `aside` (-1 to 1, right) for `dt` seconds along a view looking along `yaw`, from
+    /// where it stands behind the player at `pos` if it hasn't walked yet, kept on a map `size` pixels across.
+    fn step_walk(&mut self, [aside, ahead]: [f32; 2], dt: f32, pos: [f32; 2], yaw: f32, size: [f32; 2]) {
+        if aside == 0.0 && ahead == 0.0 {
+            return;
+        }
+        let (s, c) = yaw.sin_cos();
+        let at = self.walk.unwrap_or([pos[0] - c * BACK, pos[1] - s * BACK]);
+        let v = crate::tuning::tuning().photo_walk * dt;
+        let to = [at[0] + (c * ahead - s * aside) * v, at[1] + (s * ahead + c * aside) * v];
+        self.walk = Some([0, 1].map(|k| to[k].clamp(TILE / 2.0, (size[k] - TILE / 2.0).max(TILE / 2.0))));
+    }
+
     /// Chooses the next prop on a fresh push of `x` left or right, and turns the last dropped by `turn` radians.
     fn handle_prop(&mut self, x: f32, turn: f32) {
         let push = push_of(x);
@@ -251,13 +270,13 @@ impl Photo {
         scene.light_range = (scene.light_range * LANTERNS[self.lantern].1).max(0.01);
     }
 
-    /// Each setting and its value in two lines, the chosen one in brackets; `posing` names the picked zombie and
-    /// `place` says where the next prop drops.
-    fn settings_lines(&self, posing: &str, place: &str) -> [String; 2] {
+    /// Each setting and its value in two lines, the chosen one in brackets; `posing` names the picked zombie, `place`
+    /// says where the next prop drops and `walk` where the camera stands.
+    fn settings_lines(&self, posing: &str, place: &str, walk: &str) -> [String; 2] {
         let time = self.time.map_or("Now", |i| TIMES[i].0);
         let prop = self.choices.get(self.prop).map_or("Take back", |p| p.0.as_str());
         let props = format!("{prop} ({} in)", self.props.len());
-        let rows = [(Setting::Time, "Time", time), (Setting::Fog, "Fog", FOGS[self.fog].0), (Setting::Lantern, "Lantern", LANTERNS[self.lantern].0), (Setting::Pose, "Pose", posing), (Setting::Props, "Props", props.as_str()), (Setting::Place, "Place", place)];
+        let rows = [(Setting::Time, "Time", time), (Setting::Fog, "Fog", FOGS[self.fog].0), (Setting::Lantern, "Lantern", LANTERNS[self.lantern].0), (Setting::Pose, "Pose", posing), (Setting::Props, "Props", props.as_str()), (Setting::Place, "Place", place), (Setting::Walk, "Walk", walk)];
         let rows: Vec<String> = rows.iter().map(|&(s, name, value)| if s == self.setting { format!("[{name}: {value}]") } else { format!("{name}: {value}") }).collect();
         [rows[..3].join("  "), rows[3..].join("  ")]
     }
@@ -303,9 +322,11 @@ impl Harvest {
     /// a setting and R2 changes it; R1 or a tap asks for a capture, and B or Start goes back to the pause menu.
     /// Posing, R2 picks a zombie, and Left and Right turn it and Up and Down step its frame. With props, R2 drops one
     /// on the cross, Left and Right choose which, Up and Down turn the last and Y takes it back; on Place the d-pad or
-    /// stick slides the cross. Nothing else moves.
+    /// stick slides the cross. Walking, Up and Down or the stick walk the camera and Left and Right turn it, and X
+    /// brings it back to the player. Nothing else moves.
     pub(super) fn photo(&mut self, input: &Input, dt: f32, sounds: &mut Vec<Sfx>, flow: &mut Flow) {
-        let (focus, yaw, pos, size) = (self.focus(), self.me().view_yaw, self.me().pos, [self.map.width_px(), self.map.height_px()]);
+        let (focus, yaw, pos, size) = (self.focus(), self.me().view_yaw, self.anchor(), [self.map.width_px(), self.map.height_px()]);
+        let me = self.me().pos;
         let keep = |at| within(at, pos, size);
         let Some(p) = &mut self.photo else { return };
         if input.pressed.any(Buttons::B | Buttons::START) {
@@ -326,6 +347,11 @@ impl Harvest {
         let posing = p.setting == Setting::Pose;
         let propping = p.setting == Setting::Props;
         let placing = p.setting == Setting::Place;
+        let walking = p.setting == Setting::Walk;
+        if walking && input.pressed.contains(Buttons::X) {
+            p.walk = None;
+            sounds.push(Sfx::Tick(0));
+        }
         if (propping || placing) && input.pressed.contains(Buttons::Y) {
             p.props.pop();
             sounds.push(Sfx::Tick(0));
@@ -361,6 +387,11 @@ impl Harvest {
         } else if let Some(p) = self.photo.as_mut().filter(|_| placing && !lifting) {
             p.slide_mark(input.dir(), dt, focus, yaw, keep);
             (steer.held, steer.stick) = (Buttons::NONE, [0.0; 2]);
+        } else if let Some(p) = self.photo.as_mut().filter(|_| walking && !lifting) {
+            // The d-pad walks and turns; a stick walks and steps aside, and the turn strip or right stick turns.
+            let pad = input.held.contains(Buttons::DOWN) as i32 - input.held.contains(Buttons::UP) as i32;
+            p.step_walk([input.stick[0], -(pad as f32 + input.stick[1]).clamp(-1.0, 1.0)], dt, me, yaw, size);
+            (steer.held, steer.stick) = (input.held & (Buttons::LEFT | Buttons::RIGHT), [0.0; 2]);
         }
         let mut cam = Orbit { yaw: self.me().view_yaw, zoom: self.zoom, lift: self.lift };
         cam.steer(&steer, dt, lifting, MIN_ZOOM);
@@ -368,9 +399,23 @@ impl Harvest {
         flow.capture = input.pressed.contains(Buttons::R1) || input.touch_started;
     }
 
-    /// Where the camera looks, on the ground ahead of the player.
+    /// Where the camera looks, on the ground ahead of the player or of the camera walked away.
     fn focus(&self) -> [f32; 2] {
-        [self.eye().pos[0] + self.eye().view_yaw.cos() * FOCUS, self.eye().pos[1] + self.eye().view_yaw.sin() * FOCUS]
+        let at = self.anchor();
+        [at[0] + self.eye().view_yaw.cos() * FOCUS, at[1] + self.eye().view_yaw.sin() * FOCUS]
+    }
+
+    /// Where the camera stands once walked away from the player, in map pixels; None for the view being drawn
+    /// while another player takes a photo.
+    pub(super) fn photo_walk(&self) -> Option<[f32; 2]> {
+        self.photo.as_ref().filter(|_| !self.photo_by_other())?.walk
+    }
+
+    /// What the camera looks over, as the player is when it stands behind them: the player, or as far ahead of a
+    /// walked camera.
+    fn anchor(&self) -> [f32; 2] {
+        let yaw = self.eye().view_yaw;
+        self.photo_walk().map_or(self.eye().pos, |w| [w[0] + yaw.cos() * BACK, w[1] + yaw.sin() * BACK])
     }
 
     /// The few zombies in the picture nearest where the camera looks, nearest first.
@@ -378,7 +423,7 @@ impl Harvest {
         let focus = self.focus();
         let view_proj = view3d::scene(self).view_proj;
         let shown = |z: &Zombie| view3d::to_screen(view_proj, z.pos, 12.0).is_some_and(|([x, y], _)| (0.0..SCREEN_W).contains(&x) && (0.0..SCREEN_H).contains(&y));
-        let mut near: Vec<usize> = (0..self.zombies.len()).filter(|&i| len(sub(self.zombies[i].pos, self.me().pos)) < PICK_REACH && shown(&self.zombies[i])).collect();
+        let mut near: Vec<usize> = (0..self.zombies.len()).filter(|&i| len(sub(self.zombies[i].pos, self.anchor())) < PICK_REACH && shown(&self.zombies[i])).collect();
         near.sort_by(|&a, &b| len(sub(self.zombies[a].pos, focus)).total_cmp(&len(sub(self.zombies[b].pos, focus))));
         near.truncate(PICKS);
         near
@@ -444,16 +489,24 @@ impl Harvest {
     /// Where the next prop drops: ahead where the camera looks, or how far out the cross is.
     fn placing(&self) -> String {
         match self.photo.as_ref().and_then(|p| p.spot) {
-            Some(at) => format!("{:.0} tiles out", len(sub(at, self.eye().pos)) / TILE),
+            Some(at) => format!("{:.0} tiles out", len(sub(at, self.anchor())) / TILE),
             None => "ahead".into(),
         }
     }
 
     /// Where on the bottom edge of the picture a point behind the camera shows, toward the side it is on.
     fn behind(&self, at: [f32; 2]) -> [f32; 2] {
-        let off = norm(sub(at, self.eye().pos));
+        let off = norm(sub(at, self.anchor()));
         let right = off[1] * self.eye().view_yaw.cos() - off[0] * self.eye().view_yaw.sin();
         [SCREEN_W / 2.0 * (1.0 + right), SCREEN_H]
+    }
+
+    /// Where the camera stands: with the player, or how far from them it walked.
+    fn walked(&self) -> String {
+        match self.photo_walk() {
+            Some(at) => format!("{:.0} tiles off", len(sub(at, self.eye().pos)) / TILE),
+            None => "with you".into(),
+        }
     }
 
     /// The picked zombie's name, or "none".
@@ -477,9 +530,14 @@ impl Harvest {
         f.top.cards = Some(scene);
         let c = &mut f.bottom;
         c.clear = [0.0, 0.0, 0.0, 1.0];
-        let cam = self.camera();
+        let walk = self.photo_walk();
+        let cam = walk.map_or_else(|| self.camera(), |w| self.camera_around(w));
         self.world(c, cam, map_scale(), self.map_tint(), false);
-        self.view_cone(c, cam);
+        self.view_cone_from(c, cam, walk.unwrap_or(self.eye().pos));
+        if let Some(w) = walk {
+            // The camera, walked away from the player.
+            c.circle((w[0] - cam[0]) * map_scale(), (w[1] - 6.0 - cam[1]) * map_scale(), 9.0, GUIDE);
+        }
         let Some(p) = photo.filter(|p| p.guides && !clean) else { return };
         // The middle square, as the capture's square crop takes it.
         let side = self.canvas[0].min(self.canvas[1]);
@@ -521,6 +579,7 @@ impl Harvest {
             (Setting::Props, _, false) => "{R2}: drop on the cross   Left / Right: choose   Up / Down: turn   {Y}: take back",
             (Setting::Place, _, false) if take_back => "D-pad / stick: move the cross   {R2} or {Y}: take back the last prop   {X}: reset",
             (Setting::Place, _, false) => "D-pad / stick: move the cross   {R2}: drop it there   {X}: reset   {Y}: take back",
+            (Setting::Walk, _, false) => "Up / Down or stick: walk   Left / Right: turn   {L1} + Up / Down: height   {X}: back to you",
             (_, _, false) => "Left / Right: turn   Up / Down: zoom   {L1} + Up / Down: height",
             (Setting::Pose, Some(_), true) => "Stick left / right: turn it   up / down: step its frame   Change: next zombie",
             (Setting::Pose, None, true) => "Change: pick the zombie nearest the middle   Stick: turn and zoom",
@@ -528,17 +587,18 @@ impl Harvest {
             (Setting::Props, _, true) => "Change: drop on the cross   Stick left / right: choose   up / down: turn",
             (Setting::Place, _, true) if take_back => "Stick: move the cross   Change: take back the last prop   Reset: ahead",
             (Setting::Place, _, true) => "Stick: move the cross   Change: drop it there   Reset: back ahead",
+            (Setting::Walk, _, true) => "Stick: walk   Turn strip: turn   Hold Height: raise or lower   Reset: back to you",
             (_, _, true) => "Stick: turn and zoom   Hold Height, stick up / down: raise or lower",
         });
         let back = if self.touch_keys { format!("Setting: choose  Change: change   {shoot}   Back: leave") } else { format!("{}{shoot}{}", crate::pad::hint("{L2}: choose  {R2}: change   "), crate::pad::hint("   {B} or {Start}: back")) };
-        let [settings, more] = p.settings_lines(self.posing(), &self.placing());
+        let [settings, more] = p.settings_lines(self.posing(), &self.placing(), &self.walked());
         let lines = ["PHOTO MODE".to_string(), keys, settings, more, back];
         // On one screen the help goes over the picture, where the guides already are.
         let (c, y) = if self.single { (&mut f.top, SCREEN_H - 184.0) } else { (&mut f.bottom, 40.0) };
         c.anchor(if self.single { [0.5, 1.0] } else { [0.5, 0.0] });
         c.rect(0.0, y - 10.0, SCREEN_W, 176.0, [0.0, 0.0, 0.0, 0.55]);
         for (i, line) in lines.iter().enumerate() {
-            c.label(line.as_str(), SCREEN_W / 2.0, y + i as f32 * 32.0, 26.0, if i == 0 { GUIDE } else { HELP }, Align::Center);
+            crate::menu::fit_label(c, line, SCREEN_W / 2.0, y + i as f32 * 32.0, 26.0, SCREEN_W - 24.0, if i == 0 { GUIDE } else { HELP }, Align::Center);
         }
     }
 }
@@ -664,6 +724,8 @@ mod tests {
         assert_eq!(p(&h).0, Setting::Props);
         press(&mut h, Buttons::L2);
         assert_eq!(p(&h).0, Setting::Place);
+        press(&mut h, Buttons::L2);
+        assert_eq!(p(&h).0, Setting::Walk);
         press(&mut h, Buttons::L2);
         assert_eq!(p(&h).0, Setting::Time, "and L2 comes back round to the time");
     }
@@ -1168,4 +1230,111 @@ mod tests {
         h.set_touch_keys(false);
         assert!(help(&h).contains("L2: choose") && help(&h).contains("B or Start: back"));
     }
+    fn walking(seed: u64) -> Harvest {
+        let mut h = photo_mode(seed);
+        while h.photo.as_ref().unwrap().setting != Setting::Walk {
+            press(&mut h, Buttons::L2);
+        }
+        h
+    }
+
+    fn walk(h: &Harvest) -> Option<[f32; 2]> {
+        h.photo.as_ref().unwrap().walk
+    }
+
+    #[test]
+    fn walking_starts_where_the_camera_stood_and_the_d_pad_walks_and_turns_it() {
+        let mut h = walking(30);
+        let (yaw, eye) = (h.me().view_yaw, view3d::scene(&h).eye);
+        assert!(help(&h).contains("[Walk: with you]"), "{}", help(&h));
+        hold(&mut h, Buttons::UP, 1);
+        assert!((view3d::scene(&h).eye - eye).length() < 0.1, "the first step leaves the view where it was");
+        hold(&mut h, Buttons::UP, 59);
+        let moved = view3d::scene(&h).eye - eye;
+        let speed = crate::tuning::tuning().photo_walk;
+        assert!((moved.length() - speed / TILE).abs() < 0.05, "a second walks photo_walk pixels: {moved}");
+        assert!(moved.normalize().dot(glam::Vec3::new(yaw.cos(), 0.0, yaw.sin())) > 0.99, "straight ahead");
+        assert!(help(&h).contains("tiles off]"), "{}", help(&h));
+        let at = walk(&h).unwrap();
+        hold(&mut h, Buttons::RIGHT, 30);
+        assert!(h.me().view_yaw != yaw && walk(&h) == Some(at), "Left and Right turn on the spot");
+        hold(&mut h, Buttons::L1 | Buttons::UP, 20);
+        assert!(h.lift > 0.0 && walk(&h) == Some(at), "L1 still raises the camera");
+    }
+
+    #[test]
+    fn a_stick_or_the_touch_stick_steps_aside_and_the_turn_strip_turns() {
+        let mut h = walking(31);
+        let yaw = h.me().view_yaw;
+        h.update(&Input { stick: [1.0, 0.0], ..Default::default() }, DT, &mut Vec::new());
+        let start = walk(&h).unwrap();
+        for _ in 0..30 {
+            h.update(&Input { stick: [1.0, 0.0], ..Default::default() }, DT, &mut Vec::new());
+        }
+        let d = norm(sub(walk(&h).unwrap(), start));
+        assert!((d[0] * -yaw.sin() + d[1] * yaw.cos()) > 0.99, "the stick steps to the view's right: {d:?}");
+        assert_eq!(h.me().view_yaw, yaw, "without turning");
+        h.update(&Input { look: 1.0, ..Default::default() }, DT, &mut Vec::new());
+        assert!(h.me().view_yaw != yaw, "the turn strip turns");
+    }
+
+    #[test]
+    fn the_camera_walks_through_the_horde_and_props_but_stays_on_the_map() {
+        let mut h = walking(32);
+        let size = [h.map.width_px(), h.map.height_px()];
+        for held in [Buttons::UP, Buttons::DOWN] {
+            hold(&mut h, held, 1200);
+            let [x, y] = walk(&h).unwrap();
+            assert!((0.0..size[0]).contains(&x) && (0.0..size[1]).contains(&y), "{held:?}: {x}, {y}");
+        }
+        let far = len(sub(walk(&h).unwrap(), h.me().pos));
+        assert!(far > 20.0 * TILE, "nothing stops it: {far}");
+    }
+
+    #[test]
+    fn the_camera_walked_into_the_horde_frames_it_and_props_drop_ahead_of_it() {
+        let mut h = walking(33);
+        let target = h.zombies.iter().map(|z| z.pos).max_by(|a, b| len(sub(*a, h.me().pos)).total_cmp(&len(sub(*b, h.me().pos)))).unwrap();
+        let p = h.photo.as_mut().unwrap();
+        p.walk = Some(target);
+        assert!(h.pickable().iter().all(|&i| len(sub(h.zombies[i].pos, h.anchor())) < PICK_REACH));
+        let yaw = h.me().view_yaw;
+        let ahead = [target[0] + yaw.cos() * (BACK + FOCUS), target[1] + yaw.sin() * (BACK + FOCUS)];
+        assert!(len(sub(h.focus(), ahead)) < 0.01, "where the camera looks is ahead of where it stands");
+        let eye = view3d::scene(&h).eye;
+        assert!((glam::Vec2::new(eye.x, eye.z) - glam::Vec2::new(target[0], target[1]) / TILE).length() < 0.01, "the camera stands there");
+    }
+
+    #[test]
+    fn the_map_follows_the_walked_camera_and_marks_it() {
+        let mut h = walking(34);
+        hold(&mut h, Buttons::UP, 120);
+        let w = walk(&h).unwrap();
+        let mut f = Frame::default();
+        h.photo_frame(&mut f, true);
+        let cam = h.camera_around(w);
+        let want = [(w[0] - cam[0]) * map_scale(), (w[1] - 6.0 - cam[1]) * map_scale()];
+        let marked = f.bottom.shapes.iter().any(|s| matches!(*s, crate::Shape::Circle { x, y, color, .. } if color == GUIDE && (x - want[0]).abs() < 0.01 && (y - want[1]).abs() < 0.01));
+        assert!(marked, "the map marks where the camera stands, even in a capture");
+    }
+
+    #[test]
+    fn x_brings_the_camera_back_and_leaving_leaves_the_run_and_player_as_they_were() {
+        let mut h = walking(35);
+        let (t, pos, hp, heading) = (h.t, h.me().pos, h.me().hp, h.photo.as_ref().unwrap().heading);
+        let zombies: Vec<[f32; 2]> = h.zombies.iter().map(|z| z.pos).collect();
+        let sum = super::super::replay::checksum(&h);
+        hold(&mut h, Buttons::UP | Buttons::LEFT, 90);
+        press(&mut h, Buttons::X);
+        assert_eq!(walk(&h), None, "X walks it back to the player");
+        hold(&mut h, Buttons::DOWN, 90);
+        assert!(walk(&h).is_some());
+        press(&mut h, Buttons::B);
+        assert_eq!((h.t, h.me().pos, h.me().hp, h.me().view_yaw, h.zoom, h.lift), (t, pos, hp, heading, 1.0, 0.0));
+        assert_eq!(h.zombies.iter().map(|z| z.pos).collect::<Vec<_>>(), zombies);
+        assert_eq!(super::super::replay::checksum(&h), sum, "nothing the replay checks moved");
+        press(&mut h, Buttons::A);
+        assert_eq!(walk(&h), None, "photo mode opens with the camera back on the player");
+    }
 }
+

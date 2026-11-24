@@ -3414,10 +3414,19 @@ impl Harvest {
         self.camera_over(self.canvas.map(|n| n / map_scale()))
     }
 
+    /// Top-left of the view in world pixels around `at` in place of the player.
+    pub(super) fn camera_around(&self, at: [f32; 2]) -> [f32; 2] {
+        self.camera_at(at, [view_w(), view_h()])
+    }
+
     /// Top-left of a map view `[w, h]` world pixels across and down around the player, kept on the field.
-    fn camera_over(&self, [w, h]: [f32; 2]) -> [f32; 2] {
-        let x = (self.eye().pos[0] - w / 2.0).clamp(0.0, (self.map.width_px() - w).max(0.0));
-        let y = (self.eye().pos[1] - 8.0 - h / 2.0).clamp(0.0, (self.map.height_px() - h).max(0.0));
+    fn camera_over(&self, size: [f32; 2]) -> [f32; 2] {
+        self.camera_at(self.eye().pos, size)
+    }
+
+    fn camera_at(&self, at: [f32; 2], [w, h]: [f32; 2]) -> [f32; 2] {
+        let x = (at[0] - w / 2.0).clamp(0.0, (self.map.width_px() - w).max(0.0));
+        let y = (at[1] - 8.0 - h / 2.0).clamp(0.0, (self.map.height_px() - h).max(0.0));
         [(x * map_scale()).round() / map_scale(), (y * map_scale()).round() / map_scale()]
     }
 

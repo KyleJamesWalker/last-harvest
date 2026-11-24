@@ -378,6 +378,9 @@ Photo mode, from the pause menu, freezes the run, horde and all, to frame a shot
 | Choose a setting | L2 | Q | Setting |
 | Change it | R2 | 2 | Change |
 | Put the cross back where the camera looks, on Place | X | S | Reset |
+| Walk the camera, on Walk | Up and Down, or the stick | Up and Down arrows | Stick |
+| Turn while walking | Left and Right, or the right stick | Left and Right arrows | Turn strip |
+| Bring the camera back to you, on Walk | X | S | Reset |
 | Take back the last prop, on Props or Place | Y | A | Change on Take back |
 | Take a photo | R1, or tap | W | Tap the picture |
 | Back to the pause menu | B or Start | Z, Enter or Esc | Back |
@@ -390,8 +393,9 @@ The settings:
 - **Pose:** R2 picks a zombie near where the camera looks, and each press picks the next of the eight nearest. Left and Right turn it. Up and Down step it through its walk, hurt, flash and dead frames.
 - **Props:** Left and Right choose a prop, such as a barrier, barrel, tree, car, or one of your own. R2 drops it on the cross, facing the camera. Up and Down turn the last one dropped.
 - **Place:** the d-pad slides the cross up to 12 tiles away, and R2 drops the chosen prop there.
+- **Walk:** the camera leaves you and walks the frozen farm on its own, through zombies and props, to frame a shot from inside the horde. Up and Down walk, Left and Right turn, and a stick also steps aside. L1 still raises it. The map follows the camera and marks where it stands. Its speed is `walk` in `tuning.txt`'s `[photo]`.
 
-After each drop, the cross steps aside so props stand in a row. The map shows the cross on Props and Place. Props and poses stand only in the picture, and go when you leave.
+After each drop, the cross steps aside so props stand in a row. The map shows the cross on Props and Place. Props, poses and the walked camera stand only in the picture, and go when you leave: you are where you were.
 
 A photo leaves out the HUD and the guides. It saves the top screen as `screenshots/photo-NNNN.png` and its middle square as `photo-NNNN-square.png`. In a browser and on muOS, which cannot save files, R1 or a tap hides the guides for your device's own screenshot.
 

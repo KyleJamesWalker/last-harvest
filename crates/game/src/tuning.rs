@@ -154,6 +154,7 @@ tuning! {
     map_shade = "map" "shade",
     map_mini = "map" "mini",
     map_mini_reach = "map" "mini_reach",
+    photo_walk = "photo" "walk",
 }
 
 /// A difficulty: a `[section]` of `tuning.txt` that isn't one of the base sections. It names itself, says whose

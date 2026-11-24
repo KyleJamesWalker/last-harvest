@@ -662,16 +662,20 @@ pub fn scene(h: &Harvest) -> CardScene {
     let forward = Vec3::new(yaw.cos(), 0.0, yaw.sin());
     let right = forward.cross(Vec3::Y);
     let focus = h.range_focus();
-    let p = world(focus.unwrap_or(h.eye().pos));
+    // A walked photo camera stands at `p`, not behind it.
+    let walk = h.photo_walk();
+    let walked = if walk.is_some() { CAMERA_BACK } else { 0.0 };
+    let around = focus.or(walk).unwrap_or(h.eye().pos);
+    let p = world(around);
     let [sx, sy, roll] = j.shake_offset();
     let roll = roll + h.lean * 0.035;
     let bob = if h.eye().walk > 0.0 { (h.eye().walk * crate::tuning::tuning().walk_fps * std::f32::consts::PI / 2.0).sin().abs() * 0.04 } else { 0.0 };
     let shake = right * sx + Vec3::Y * (sy + bob);
-    let eye = p - forward * (CAMERA_BACK + back + 0.2 * swing) + Vec3::Y * (1.5 + h.lift + back * 0.4 + 0.4 * swing) + shake;
+    let eye = p - forward * (CAMERA_BACK + back + 0.2 * swing - walked) + Vec3::Y * (1.5 + h.lift + back * 0.4 + 0.4 * swing) + shake;
     // Zoomed in for the icon scene, the camera looks at the figure on show instead of down the road.
     let shown = h.shown.as_ref().filter(|_| h.zoom > 1.0).map(|s| world(s.pos) + Vec3::Y * 0.5);
     let orbiting = focus.is_some() || h.orbit.is_some_and(|o| o != [0.0; 2]);
-    let looking = shown.or(orbiting.then_some(p + Vec3::Y * 0.6)).unwrap_or(p + forward * 4.0 + Vec3::Y * (0.7 + j.kick * 6.0));
+    let looking = shown.or(orbiting.then_some(p + Vec3::Y * 0.6)).unwrap_or(p + forward * (4.0 + walked) + Vec3::Y * (0.7 + j.kick * 6.0));
     let target = looking.lerp(p + Vec3::Y * 0.5, swing) + shake;
     let view = glam::camera::rh::view::look_at_mat4(eye, target, Vec3::Y * roll.cos() + right * roll.sin());
     let proj = glam::camera::rh::proj::opengl::perspective(((66.0 + j.punch) / h.zoom).to_radians(), SCREEN_W / SCREEN_H, 0.3, VIEW_RADIUS + 6.0);
@@ -777,7 +781,7 @@ pub fn scene(h: &Harvest) -> CardScene {
     let climbing = h.burrowed.iter().filter(|z| z.rise > 0.0);
     let mut nearest: Vec<&Zombie> = h.zombies.iter().enumerate().filter(|&(i, _)| !h.lies_dead(i)).map(|(_, z)| z).chain(climbing).collect();
     if nearest.len() > MAX_ZOMBIES_3D {
-        nearest.select_nth_unstable_by(MAX_ZOMBIES_3D, |a, b| len(sub(a.pos, h.eye().pos)).total_cmp(&len(sub(b.pos, h.eye().pos))));
+        nearest.select_nth_unstable_by(MAX_ZOMBIES_3D, |a, b| len(sub(a.pos, around)).total_cmp(&len(sub(b.pos, around))));
         nearest.truncate(MAX_ZOMBIES_3D);
     }
     for z in nearest {
@@ -1083,7 +1087,7 @@ pub fn scene(h: &Harvest) -> CardScene {
     CardScene {
         view_proj: proj * view,
         eye,
-        light: p + Vec3::Y * 1.4 + forward * 0.3,
+        light: p + Vec3::Y * 1.4 + forward * (0.3 + walked),
         light_color,
         light_range: lantern,
         flashes,

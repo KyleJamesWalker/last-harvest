@@ -198,6 +198,7 @@ The game reads its rules from seven text files in `crates/game/`. The packer put
 | `[weapons]` | The view ahead and behind, the pistol's point-blank reach, crow and dog reach, how long fire burns, the ring at the end of a maul's crack past its top (`maul_shatter`, 0 turns it off), and how far off a crowd a drone hovers, its gun's reach and its rounds' speed (`drone_hold`, `drone_reach`, `drone_bullet`) |
 | `[blast]` | How much any blast hurts the player, and how near counts |
 | `[map]` | The map's scale, how far the view sees zombies for the map, how long one out of sight takes to fade, the shade outside the view, and one-screen mode's corner map: `mini` its width in screen pixels (0 for none) and `mini_reach` how far it shows from the player |
+| `[photo]` | `walk`: how fast photo mode's camera walks, in pixels a second |
 
 #### Difficulties
 
