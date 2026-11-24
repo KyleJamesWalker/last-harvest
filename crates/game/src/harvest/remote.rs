@@ -9,7 +9,7 @@ use std::f32::consts::TAU;
 use super::effects::{self, Effect};
 use super::local::Cards;
 use super::player::{ME, PlayerId};
-use super::weapons::{Bolt, Decoy, Dog, Drone, Hazard, Patch, Stake};
+use super::weapons::{BOLT_LIFE, Bolt, Decoy, Dog, Drone, Hazard, Patch, Stake};
 use super::*;
 use crate::netsync::snapshot::*;
 use crate::netsync::{Event, Mirror, Spawn, Spawned};
@@ -200,7 +200,7 @@ impl Harvest {
         for b in &mut self.bolts {
             b.age += dt;
         }
-        self.bolts.retain(|b| b.age < 0.3);
+        self.bolts.retain(|b| b.age < BOLT_LIFE);
         self.feel(dt);
         for v in 1..self.views {
             self.relabel(v);
