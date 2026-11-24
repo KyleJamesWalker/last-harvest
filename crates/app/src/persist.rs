@@ -1,4 +1,4 @@
-//! Save file and crash log, kept next to the binary unless `LAST_HARVEST_SAVE` names another save path.
+//! Save file and crash log, kept next to the binary. `LAST_HARVEST_SAVE` moves the save, and the replays and screenshots with it.
 
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
@@ -11,8 +11,21 @@ use last_harvest_game::Save;
 /// Batches bursts of changes, such as holding a volume key, into one write.
 const SETTLE: Duration = Duration::from_secs(1);
 
-fn dir() -> PathBuf {
+fn home() -> PathBuf {
     last_harvest::home().unwrap_or_else(|| PathBuf::from("."))
+}
+
+/// The folder replays and screenshots go in: the save's, else the binary's.
+fn dir() -> PathBuf {
+    folder_of(std::env::var_os("LAST_HARVEST_SAVE").as_deref().map(Path::new), home())
+}
+
+fn folder_of(save: Option<&Path>, home: PathBuf) -> PathBuf {
+    match save.and_then(Path::parent) {
+        Some(p) if p.as_os_str().is_empty() => PathBuf::from("."),
+        Some(p) => p.to_path_buf(),
+        None => home,
+    }
 }
 
 /// The next unused `screenshots/<kind>-NNNN.png` beside the save, creating the folder.
@@ -49,7 +62,7 @@ pub struct Saver {
 
 impl Saver {
     pub fn load() -> (Self, Save) {
-        let path = std::env::var_os("LAST_HARVEST_SAVE").map_or_else(|| dir().join("save.txt"), PathBuf::from);
+        let path = std::env::var_os("LAST_HARVEST_SAVE").map_or_else(|| home().join("save.txt"), PathBuf::from);
         let save = read(&path);
         log!("save: {} {save:?}", path.display());
         (Self { path, written: save, changed_at: None }, save)
@@ -105,7 +118,7 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 
 /// Appends each panic, with a backtrace, to `crash.log` before the default hook prints it.
 pub fn install_crash_log() {
-    let path = dir().join("crash.log");
+    let path = home().join("crash.log");
     let default = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         let report = format!("--- crash at unix {}\n{info}\n{}\n", log::unix_now(), std::backtrace::Backtrace::force_capture());
@@ -120,6 +133,14 @@ pub fn install_crash_log() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn replays_and_screenshots_follow_the_save_the_environment_names() {
+        let home = PathBuf::from("/bin/dir");
+        assert_eq!(folder_of(None, home.clone()), home);
+        assert_eq!(folder_of(Some(Path::new("/tmp/x/save.txt")), home.clone()), Path::new("/tmp/x"));
+        assert_eq!(folder_of(Some(Path::new("save.txt")), home), Path::new("."));
+    }
 
     #[test]
     fn a_save_that_wont_read_is_moved_aside_before_anything_overwrites_it() {
