@@ -144,8 +144,8 @@ TACKS           png placeholder/tacks.png  @slab 1
 FIRE            png placeholder/fire.png x3  @figure
 MOLOTOV         png placeholder/molotov.png  @prop 2
 FLARE           png placeholder/flare.png
-DYNAMITE        png placeholder/dynamite.png  @prop 2
-WIRE_COIL       png placeholder/wire_coil.png  @prop 2
+DYNAMITE        png placeholder/molotov.png  @prop 2
+WIRE_COIL       png placeholder/tacks.png  @prop 2
 
 # On-screen touch controls: the stick's and turn strip's ring, knob and track, a button plate up and pressed, and
 # their icons
@@ -206,10 +206,10 @@ ICON_QUICK_HANDS       png placeholder/icon_quick_hands.png
 ICON_LONG_BARREL       png placeholder/icon_long_barrel.png
 ICON_MAUL              png placeholder/icon_maul.png
 ICON_DRONE             png placeholder/icon_drone.png
-ICON_STUMP_CHARGE      png placeholder/icon_stump_charge.png
-ICON_WIRE_COIL         png placeholder/icon_wire_coil.png
-ICON_NAIL_GUN          png placeholder/icon_nail_gun.png
-ICON_GRAIN_SHOVEL      png placeholder/icon_grain_shovel.png
+ICON_STUMP_CHARGE      png placeholder/icon_molotov.png
+ICON_WIRE_COIL         png placeholder/icon_tacks.png
+ICON_NAIL_GUN          png placeholder/icon_pistol.png
+ICON_GRAIN_SHOVEL      png placeholder/icon_scythe.png
 
 # Pickups
 ZOMBIE_HEART    blank 9 11 ; blank 9 11 ; blank 9 11 ; blank 9 11 ; blank 9 11 ; blank 9 11
