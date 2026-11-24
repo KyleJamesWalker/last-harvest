@@ -142,6 +142,7 @@ DOG_ATTACK      png placeholder/dog_attack.png  @prop 4
 DRONE           png placeholder/drone.png x3  @figure float 16
 TACKS           png placeholder/tacks.png  @slab 1
 FIRE            png placeholder/fire.png x3  @figure
+POP             png placeholder/pop.png x3  @figure
 MOLOTOV         png placeholder/molotov.png  @prop 2
 FLARE           png placeholder/flare.png
 

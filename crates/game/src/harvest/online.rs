@@ -828,42 +828,64 @@ mod tests {
     }
 
     #[test]
-    fn a_client_draws_a_homing_shot_close_to_where_the_host_has_it_in_a_few_straight_runs() {
+    fn a_client_draws_a_homing_shot_without_a_gap_close_to_the_host_and_sees_it_pop() {
         let mut h = Harvest::calm(3).with_players(2).hosting(1);
         let from = [h.players[0].pos[0], h.players[0].pos[1] - 6.0];
-        let mut z = super::super::Zombie::new(super::super::Kind::named("big"), [from[0] + 40.0, from[1] + 90.0], 500.0, 1.0, 0.0);
+        let mut z = super::super::Zombie::new(super::super::Kind::named("big"), [from[0] + 40.0, from[1] + 96.0], 500.0, 1.0, 0.0);
         z.id = 77;
         h.zombies.push(z);
-        let steer = super::super::Steer { turn: 3.0, target: Some(77), leg: (from, 0.0, [120.0, 0.0]), pop: 0.0 };
-        h.bullets.push(super::super::Bullet { pos: from, vel: [120.0, 0.0], damage: 0.0, pierce: 0, life: 2.0, force: 0.0, hit: Vec::new(), look: None, age: 0.0, by: None, owner: 0, lift: [0.0; 2], steer });
-        let mut extract = Extract::default();
-        let (mut live, mut spawned, mut worst) = (HashMap::new(), 0, 0.0f32);
+        let steer = super::super::Steer { turn: 3.0, target: Some(77), leg: (from, 0.0, [120.0, 0.0]), pop: 14.0 };
+        h.bullets.push(super::super::Bullet { pos: from, vel: [120.0, 0.0], damage: 5.0, pierce: 0, life: 3.0, force: 0.0, hit: Vec::new(), look: None, age: 0.0, by: None, owner: 0, lift: [0.0; 2], steer });
+        let mut client = Harvest::calm(3).with_players(2).client_of(&[1], &[0, 1]);
+        let (mut extract, mut host, mut link, mut mirror) = (Extract::default(), HostLink::default(), ClientLink::default(), Mirror::default());
+        mirror.play_locally(1);
+        let (mut past, mut seen, mut worst, mut gaps, mut runs) = (HashMap::new(), 0, 0.0f32, 0, HashSet::new());
         let mut sounds = Vec::new();
-        for tick in 1..=60u32 {
+        for tick in 1..=240u32 {
             h.move_bullets(STEP, &mut sounds);
-            let Some(b) = h.bullets.first() else { break };
-            let fresh = extract.record(&h, tick, &[]);
-            for s in fresh.spawns {
-                if matches!(s.what, Spawn::Shot { .. }) {
-                    spawned += 1;
-                    live.insert(s.id, s);
+            h.fly(STEP, &mut sounds, &mut super::super::Flow::default());
+            if let Some(b) = h.bullets.first() {
+                past.insert(tick, b.pos);
+            }
+            extract.record(&h, tick, &sounds).hand(&mut host);
+            sounds.clear();
+            if tick.is_multiple_of(SEND_EVERY) {
+                for p in host.snapshot(extract.world(&h, tick, &[0, 0])) {
+                    if let Some(part) = link.receive(&p) {
+                        mirror.apply(&part);
+                        let fresh = link.fresh(&part.spawns);
+                        client.client_spawned(&fresh);
+                        mirror.spawn(fresh);
+                    }
+                }
+                let (s, e) = link.ack();
+                host.ack(s, e);
+            }
+            for ev in link.events() {
+                if let Event::Stop { id } = ev {
+                    mirror.stop(id);
                 }
             }
-            for e in fresh.events {
-                if let Event::Stop { id } = e {
-                    live.remove(&id);
+            mirror.advance(STEP);
+            let at = mirror.render_tick();
+            let Some(&host_at) = past.get(&(at.floor() as u32)).filter(|_| at.fract() == 0.0) else { continue };
+            let shots = mirror.shots_for(&[]);
+            match shots.first() {
+                Some((p, _, s)) => {
+                    seen += 1;
+                    runs.insert(s.id);
+                    worst = worst.max(len(sub(*p, host_at)));
                 }
+                None if past.contains_key(&(at as u32 + 1)) => gaps += 1,
+                None => {}
             }
-            assert_eq!(live.len(), 1, "one run drawn at a time, tick {tick}");
-            let s = live.values().next().unwrap();
-            let Spawn::Shot { from, vel, .. } = s.what else { unreachable!() };
-            let age = (tick - s.tick) as f32 / TICK_HZ as f32;
-            let drawn = [unq_pos(from)[0] + vel[0] as f32 / 8.0 * age, unq_pos(from)[1] + vel[1] as f32 / 8.0 * age];
-            worst = worst.max(len(sub(drawn, b.pos)));
         }
-        assert!(h.bullets.first().is_none_or(|b| b.vel[1] > 0.0), "it turned toward the zombie");
-        assert!(worst < 3.0, "drawn {worst} px off");
-        assert!(spawned < 30, "{spawned} runs for 60 ticks");
+        assert!(h.bullets.is_empty() && h.zombies[0].hp < 500.0, "it curved onto the zombie and popped");
+        assert!(seen > 30 && gaps == 0, "drawn {seen} ticks with {gaps} blank");
+        assert!(worst < 4.0, "drawn {worst} px off");
+        assert!(runs.len() > 3, "{} runs", runs.len());
+        let pop = super::super::effects::effects().named("pop").unwrap();
+        assert!(client.fx.iter().any(|f| f.frames == pop.frames), "the client plays its pop");
     }
 
     #[test]

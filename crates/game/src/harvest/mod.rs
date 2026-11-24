@@ -529,10 +529,9 @@ struct Steer {
     pop: f32,
 }
 
-/// The longest a homing shot's straight run is sent to clients for, so one lost stop leaves a short ghost.
-const LEG_LONGEST: f32 = 0.5;
-/// How far a homing shot strays from the run clients draw before it sends them another.
-const LEG_STRAY: f32 = 2.0;
+/// Seconds of each straight run a homing shot is sent to clients as; each ends on its own as the next begins, so
+/// none needs a stop that would blank it for the interpolation delay.
+const LEG: f32 = 0.1;
 /// How far a homing shot looks for another zombie when its own falls.
 const RETARGET: f32 = 160.0;
 
@@ -541,14 +540,13 @@ impl Bullet {
     fn leg(&self) -> ([f32; 2], [f32; 2], f32) {
         if self.steer.turn > 0.0 {
             let (from, age, vel) = self.steer.leg;
-            (from, vel, (self.life + self.age - age).min(LEG_LONGEST))
+            (from, vel, (self.life + self.age - age).min(LEG))
         } else {
             ([self.pos[0] - self.vel[0] * self.age, self.pos[1] - self.vel[1] * self.age], self.vel, self.life + self.age)
         }
     }
 
-    /// Turns a homing shot toward its target, or the nearest zombie to it when that one has fallen, and starts it a
-    /// new run for clients once it strays from theirs.
+    /// Turns a homing shot toward its target, or the nearest zombie to it when that one has fallen.
     fn home(&mut self, zombies: &[Zombie], dt: f32) {
         if self.steer.turn <= 0.0 {
             return;
@@ -573,14 +571,9 @@ impl Bullet {
         }
     }
 
-    /// After it moves: a new run for clients once it strays from theirs or theirs runs out.
+    /// After it moves: a new run for clients once theirs is over.
     fn mark_leg(&mut self) {
-        if self.steer.turn <= 0.0 {
-            return;
-        }
-        let (from, age, vel) = self.steer.leg;
-        let drawn = [from[0] + vel[0] * (self.age - age), from[1] + vel[1] * (self.age - age)];
-        if len(sub(drawn, self.pos)) > LEG_STRAY || self.age - age >= LEG_LONGEST * 0.8 {
+        if self.steer.turn > 0.0 && self.age - self.steer.leg.1 >= LEG - 1e-4 {
             self.steer.leg = (self.pos, self.age, self.vel);
         }
     }

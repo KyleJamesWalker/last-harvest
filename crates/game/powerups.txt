@@ -33,8 +33,11 @@
 #   sound_after NAME    for weapons, a sound group that follows its sound sound_delay seconds later, such as a bolt
 #                       worked after a shot; one with no clips plays nothing
 #   sound_delay SECONDS for sound_after, how long it waits; 0.4 when left out
-#   aim     nearest | ahead | behind | around     for `does gun` and `does blade`, where it looks for a target;
-#                       nearest when left out. A blade cuts everything within area across spread degrees, 360 all round
+#   aim     nearest | ahead | behind | around | strongest | farthest | random     for `does gun` and `does blade`,
+#                       where it looks for a target in range: strongest has the most health left; nearest when left
+#                       out. A blade cuts everything within area across spread degrees, 360 all round
+#   homing  DEGREES     for `does gun`, how fast its shots turn toward their target, onto the nearest when it falls
+#   explode PIXELS      for `does gun`, the blast each shot pops in where it ends, playing effects.txt's [pop]
 #   lands   blast | fire | flare | tacks     for `does lob`, which throws count at a crowd within range, what it does
 #                       where it lands, with damage, area, duration and slow; blast when left out. It flies as its
 #                       bullet effect, the grenade when left out, and plays its effect where it lands
