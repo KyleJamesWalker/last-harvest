@@ -190,6 +190,8 @@ These tables list what the game ships with. A mod pack can change any of them, a
 | Pistol | Ahead, then all round | From the start | 8 | Shoots what's ahead, then fans out to a new zombie with every shot |
 | Shotgun | Ahead | From the start | 8 | A spread of pellets at close range |
 | Hunting rifle | Ahead | 500 kills over every run | 8 | A slow, heavy round straight down your heading |
+| Varmint rifle | Far | 1500 kills over every run | 8 | Always finds the biggest thing out there |
+| Bottle rockets | Around | Survive 5:00 of one night | 8 | A fistful of fireworks that curve onto zombies and pop |
 | Lantern beam | Ahead | Survive 2:00 of one night | 8 | Your light burns and slows what it falls on |
 | Weed burner | Ahead | 1500 kills over every run | 8 | A short cone of flame that sets them burning |
 | Pitchfork | Ahead | 3000 kills over every run | 8 | Skewers everything in a line in front of you |
@@ -525,8 +527,8 @@ A weapon in `powerups.txt` opens as a weapon page:
 
 - **Does** picks its behavior.
 - Each stat shows its value at every level. Pick a level, then - and + step that level's value.
-- The pickers sit on three tabs: **Shots** (effect, bullet, pattern, targets, `outside`), **Sound & player** and **Dog** (`kill_resets`, `fetches`, `charge`).
-- < and > step its effect, bullet and sound (the six voices, then each sound group in your game data), how many rounds go by for each sound (`sound_every`), a sound that follows it and how long it waits (`sound_after`, `sound_delay`), a gun's pattern and targets, `outside`, how far a burst's later shots reach outside the view, a dog's `kill_resets`, 1 to bite again at once after a kill, its `fetches`, 1 to bring back hearts, and its `charge`, how far it runs into a horde. **Own** goes back to the behavior's own.
+- The pickers sit on four tabs: **Shots** (effect, bullet, pattern, `homing`, `explode`), **Aim** (`aim`, `through`, targets, `outside`), **Sound & player** and **Dog** (`kill_resets`, `fetches`, `charge`).
+- < and > step its effect, bullet and sound (the six voices, then each sound group in your game data), how many rounds go by for each sound (`sound_every`), a sound that follows it and how long it waits (`sound_after`, `sound_delay`), a gun's pattern, `aim` and targets, its `homing`, degrees a second its shots turn, `explode`, the pixels each pops in, and `through`, 1 for shots that pass every zombie but their target, `outside`, how far a burst's later shots reach outside the view, a dog's `kill_resets`, 1 to bite again at once after a kill, its `fetches`, 1 to bring back hearts, and its `charge`, how far it runs into a horde. **Own** goes back to the behavior's own.
 - **player** makes the weapon one player card's own: < and > step through the player cards, and **Everyone** gives it back to every player. Only that player is offered it, unlocks it or starts with it; see [a player's own weapons](../../docs/modding.md#a-players-own-weapons).
 - A panel plays the effect and bullet. **Style** opens the bullet's shot style, where **Paint** opens a sprite to draw.
 - **Lines** shows the raw lines, and **Weapon** goes back.

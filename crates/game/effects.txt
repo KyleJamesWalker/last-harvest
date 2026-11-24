@@ -230,6 +230,22 @@ spark SHOT_SPARK
 smoke SHOT_SMOKE
 flare SHOT_FLARE
 
+[bottle_rocket]
+color D98A3C
+length 10
+size 1.6
+sparks 8
+impact 6
+core 2
+tracer SHOT_TRACER
+spark SHOT_SPARK
+smoke SHOT_SMOKE
+flare SHOT_FLARE
+
+[pop]
+art POP
+fps 18
+
 # The colors of particles, as red, green and blue from 0 to 1. A mod's file can leave any of them out.
 [colors]
 blood 0.62 0.08 0.06

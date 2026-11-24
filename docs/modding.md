@@ -374,13 +374,16 @@ Each stat line lists its value at each level, and a short list repeats its last 
 
 A new weapon needs no code. Copy a weapon's section under a new id and change its lines; **Copy** on the weapon's Data page in either editor does it. `does` picks the behavior and defaults to the id, so `does scythe` under a new id is a second scythe. These behaviors take their shape from data:
 
-- `does gun` fires `count` shots at what its `aim` finds: `nearest` (the default), `ahead`, `behind` or `around`. `pattern` spreads them:
+- `does gun` fires `count` shots at what its `aim` finds: `nearest` (the default), `ahead`, `behind`, `around`, `strongest` (the most health left), `farthest` or `random`, all within `range`. `pattern` spreads them:
     - `fan`: evenly across `spread` degrees, the default.
     - `ring`: evenly all the way round.
     - `spray`: at random across `spread`.
     - `burst`: one after another, `gap` seconds apart, each aimed as it fires. `does pistol` also fires bursts.
 - With `targets each`, each later shot of a burst goes to the nearest unshot zombie in range and in clear line of fire. `targets same`, the default, keeps every shot on one target.
 - `outside N` limits how far, in pixels, those later shots reach a zombie outside the view. Left out, they reach the whole `range`; `outside 0` keeps them in view. Once every zombie they may reach has been shot, they go again at the nearest of those, and hold fire when there is none. The burst's first shot aims as usual.
+- `homing N` turns a gun's shots up to N degrees a second toward the zombie each was fired at. When it falls, a shot turns on the nearest zombie to it within 160 pixels. Homing shots fly 1.5 times as long as `range` takes, to curve onto their target. With `aim random`, each shot of a fan, ring or spray picks its own zombie.
+- `explode N` pops a gun's shot in an N-pixel blast where it hits a zombie, cover or runs out, playing the `[pop]` effect from `effects.txt`. The blast deals the shot's `damage` to every zombie in it and sets off barrels, grows with Bigger blast and area passives, and never hurts a player itself, though a barrel it sets off can.
+- `through 1` sends a gun's shots through every zombie but the one each was fired at, while that one stands; after it falls they hit as usual. Cover still stops them. With `aim strongest` it reaches a Big or the Harvester behind a crowd.
 - `does blade` cuts everything within `area` across `spread` degrees, toward what its `aim` finds. A `spread` of 360 cuts all round.
 - `does maul` smashes the ground ahead when a zombie is within `range`: `count` cracks, `range` long and `area` wide, fan out across `spread` degrees. Each zombie on one takes `damage` and is knocked aside by `knockback`. Past its top, each crack ends in a ring (`maul_shatter` in `tuning.txt`).
 - `does drone` flies `count` drones at `speed` to zombies within `range` of the player. Each hovers off its target and fires a burst for `duration` seconds, a round every `gap` seconds across `spread` degrees, then rests for `cooldown`. Its rounds fly over cover.
