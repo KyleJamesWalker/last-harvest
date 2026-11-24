@@ -234,3 +234,6 @@ memory 6        # seconds a zombie out of sight fades on the map before it's gon
 shade 0.55      # how dark the map gets outside the view ahead, 0 for not at all to 1 for black
 mini 280        # on one screen, the corner map's width in screen pixels; 0 for none
 mini_reach 96   # how far it shows from the player to its left and right edges
+
+[photo]
+walk 64         # how fast photo mode's camera walks, in pixels a second

@@ -337,7 +337,11 @@ impl Game {
     }
 
     fn in_photo(&self) -> bool {
-        matches!(&self.state, State::Harvest(h) if h.in_photo())
+        match &self.state {
+            State::Harvest(h) => h.in_photo(),
+            State::Watch(w) => w.in_photo(),
+            _ => false,
+        }
     }
 
     /// This frame is a photo mode capture, drawn with no guides or overlays.
@@ -640,7 +644,8 @@ impl Game {
 
     fn phone_layout(&self, size: [f32; 2]) -> touch::Layout {
         if matches!(self.state, State::Watch(_)) {
-            return touch::layout(size, true, false, false);
+            let photo = self.in_photo() && self.has_touch();
+            return touch::layout(size, true, photo, photo);
         }
         touch::layout(size, matches!(self.state, State::Harvest(_)) || self.title_on_one(), self.has_touch(), self.in_photo())
     }
@@ -862,7 +867,17 @@ impl Game {
             }
             State::Watch(mut w) => {
                 let top = self.watch_strip_top().unwrap_or(0.0);
-                if w.update(input, input.touch.filter(|_| input.touch_started), top, &mut self.sounds) {
+                let touch_keys = self.phone.is_some() && self.has_touch() && !self.touchpad.hidden;
+                w.set_device(replay::Device { one_screen: self.one_screen(), touch_keys, saves_photos: self.captures, taps: self.phone.is_none() || self.touch_screen() });
+                let going = w.update(input, input.touch.filter(|_| input.touch_started), top, dt, &mut self.sounds);
+                let capture = w.take_capture();
+                if capture && self.captures {
+                    self.shot = true;
+                    self.sounds.push(Sfx::Tick(LEVELS));
+                } else if capture {
+                    w.toggle_guides();
+                }
+                if going {
                     State::Watch(w)
                 } else {
                     self.page = Page::Replays;
@@ -884,9 +899,10 @@ impl Game {
 
     /// Draws with what moved in the last step `alpha` of the way from where it was, for a display faster than the step.
     pub fn draw_at(&mut self, alpha: f32) -> Frame {
+        let clean = self.clean();
         if let State::Watch(w) = &mut self.state {
             let mut night = Frame::default();
-            w.draw(alpha, &mut night);
+            w.draw(alpha, &mut night, clean);
             let over = self.draw();
             for (to, from) in [(&mut night.top, &over.top), (&mut night.bottom, &over.bottom)] {
                 to.clip(None);
@@ -955,6 +971,7 @@ impl Game {
             }
             State::Gallery(g) => g.draw(&mut f),
             State::Icon(i) => i.draw(&mut f),
+            State::Watch(w) if w.in_photo() => {}
             State::Watch(w) => {
                 let hints = !self.is_phone() || !self.has_touch() || self.touchpad.hidden;
                 w.draw_banner(&mut f.top);
@@ -1523,11 +1540,178 @@ mod tests {
         game.page = Page::Replays;
         press(&mut game, Buttons::A);
         let tap = |game: &mut Game, x: f32, y: f32| game.update(&Input { touch: Some([x, y]), touch_started: true, ..Default::default() }, 1.0 / 60.0);
-        tap(&mut game, SCREEN_W / 2.0, 90.0);
+        tap(&mut game, 430.0, 90.0);
         let State::Watch(w) = &game.state else { panic!("watching") };
-        assert!(w.paused(), "the middle button pauses");
+        assert!(w.paused(), "the third button pauses");
+        tap(&mut game, SCREEN_W - 100.0, 90.0);
+        assert!(game.in_photo(), "the last opens photo mode");
+        press(&mut game, Buttons::B);
+        assert!(!game.in_photo() && matches!(game.state, State::Watch(_)), "B leaves photo mode, not the replay");
         tap(&mut game, 100.0, 90.0);
         assert!(matches!(game.state, State::Title), "the first leaves");
+    }
+
+    fn watching(raw: Vec<u8>) -> Game {
+        let mut game = Game::new(3);
+        game.set_saved_replays(vec![("night-1795237918-00.lhr".into(), raw)]);
+        game.page = Page::Replays;
+        press(&mut game, Buttons::A);
+        assert!(matches!(game.state, State::Watch(_)));
+        game
+    }
+
+    fn watched(game: &Game) -> &watch::Watching {
+        let State::Watch(w) = &game.state else { panic!("watching") };
+        w
+    }
+
+    fn hold_for(game: &mut Game, held: Buttons, frames: usize) {
+        for _ in 0..frames {
+            game.update(&Input { held, ..Default::default() }, 1.0 / 60.0);
+            game.draw_at(1.0);
+        }
+    }
+
+    /// Opens photo mode on the replay where it stands, walks, poses, drops props and changes the time, then leaves.
+    fn photo_on_the_replay(game: &mut Game) {
+        game.set_captures(true);
+        press(game, Buttons::X);
+        assert!(game.in_photo() && watched(game).paused(), "X pauses and opens photo mode");
+        let f = game.draw_at(1.0);
+        assert!(f.top.shapes.iter().chain(&f.bottom.shapes).any(|s| matches!(s, Shape::Text { text, .. } if text == "PHOTO MODE")), "with its guides");
+        press(game, Buttons::R2);
+        assert!(game.take_screenshot().is_none(), "R2 changes the setting instead of taking a screenshot");
+        for _ in 0..6 {
+            press(game, Buttons::L2);
+        }
+        hold_for(game, Buttons::UP, 90);
+        hold_for(game, Buttons::RIGHT, 20);
+        press(game, Buttons::L2);
+        for _ in 0..3 {
+            press(game, Buttons::L2);
+        }
+        press(game, Buttons::R2);
+        hold_for(game, Buttons::LEFT | Buttons::UP, 10);
+        press(game, Buttons::L2);
+        press(game, Buttons::R2);
+        press(game, Buttons::R2);
+        press(game, Buttons::R1);
+        assert_eq!(game.take_screenshot(), Some(Capture::Photo), "R1 takes a photo");
+        press(game, Buttons::B);
+        assert!(!game.in_photo() && watched(game).paused(), "B goes back to the paused replay");
+    }
+
+    #[test]
+    fn photo_mode_on_a_paused_replay_leaves_it_exactly_where_it_was_and_it_plays_on_matching() {
+        let mut game = watching(recorded_night(600));
+        game.set_captures(true);
+        hold_for(&mut game, Buttons::NONE, 200);
+        press(&mut game, Buttons::A);
+        let at = watched(&game).at();
+        assert!(at.0 > 150, "{at:?}");
+        photo_on_the_replay(&mut game);
+        assert_eq!(watched(&game).at(), at, "the same tick, and nothing the replay checks moved");
+        press(&mut game, Buttons::A);
+        hold_for(&mut game, Buttons::NONE, 500);
+        assert!(watched(&game).ended() && watched(&game).drift().is_none(), "it plays to its end matching the recording");
+    }
+
+    #[test]
+    fn photo_mode_on_a_replay_paused_in_its_own_pause_menu_leaves_that_menu_open() {
+        let mut game = Game::new(11);
+        game.record_replays(vec![("game".into(), "test".into())]);
+        game.open(Scene::Harvest);
+        for i in 0..400 {
+            let pressed = match i {
+                100 => Buttons::START,
+                160 => Buttons::A,
+                _ => Buttons::NONE,
+            };
+            game.update(&Input { held: Buttons::UP, pressed, ..Default::default() }, 1.0 / 60.0);
+        }
+        game.open(Scene::Title);
+        let mut game = watching(game.take_replays().pop().expect("a replay"));
+        hold_for(&mut game, Buttons::NONE, 130);
+        press(&mut game, Buttons::A);
+        let at = watched(&game).at();
+        assert!(at.2.is_some(), "the recording is in its pause menu: {at:?}");
+        photo_on_the_replay(&mut game);
+        assert_eq!(watched(&game).at(), at);
+        press(&mut game, Buttons::A);
+        hold_for(&mut game, Buttons::NONE, 400);
+        assert!(watched(&game).ended() && watched(&game).drift().is_none());
+    }
+
+    #[test]
+    fn photo_mode_on_a_replay_follows_the_player_on_show_and_still_matches() {
+        let mut game = watching(recorded_night_with(400, 1));
+        press(&mut game, Buttons::R1);
+        hold_for(&mut game, Buttons::NONE, 150);
+        let at = watched(&game).at();
+        photo_on_the_replay(&mut game);
+        assert_eq!(watched(&game).at(), at);
+        press(&mut game, Buttons::A);
+        hold_for(&mut game, Buttons::NONE, 400);
+        assert!(watched(&game).ended() && watched(&game).drift().is_none());
+    }
+
+    #[test]
+    fn a_night_recorded_walking_in_photo_mode_replays_and_photo_mode_over_it_puts_its_own_back() {
+        let mut game = Game::new(11);
+        game.record_replays(vec![("game".into(), "test".into())]);
+        game.open(Scene::Harvest);
+        let opens = [(60, Buttons::START), (61, Buttons::DOWN), (62, Buttons::DOWN), (63, Buttons::A)];
+        let presses: Vec<(usize, Buttons)> = opens.into_iter().chain((64..70).map(|i| (i, Buttons::L2))).chain([(220, Buttons::B), (221, Buttons::B)]).collect();
+        for i in 0..300 {
+            let pressed = presses.iter().find(|p| p.0 == i).map_or(Buttons::NONE, |p| p.1);
+            let held = if (80..200).contains(&i) { Buttons::UP | Buttons::RIGHT } else { Buttons::NONE };
+            game.update(&Input { held, pressed, ..Default::default() }, 1.0 / 60.0);
+        }
+        assert!(!game.in_photo());
+        game.open(Scene::Title);
+        let mut game = watching(game.take_replays().pop().expect("a replay"));
+        hold_for(&mut game, Buttons::NONE, 150);
+        press(&mut game, Buttons::A);
+        let says_photo = |game: &mut Game| game.draw_at(1.0).top.shapes.iter().chain(&game.draw_at(1.0).bottom.shapes).any(|s| matches!(s, Shape::Text { text, .. } if text == "PHOTO MODE"));
+        assert!(says_photo(&mut game), "the recording is walking in its own photo mode");
+        let at = watched(&game).at();
+        photo_on_the_replay(&mut game);
+        assert_eq!(watched(&game).at(), at);
+        assert!(says_photo(&mut game), "and its own photo mode is back");
+        press(&mut game, Buttons::A);
+        hold_for(&mut game, Buttons::NONE, 200);
+        assert!(watched(&game).ended() && watched(&game).drift().is_none(), "the walk and the photo mode over it replay matching");
+    }
+
+    #[test]
+    fn paused_left_and_right_step_a_replay_a_tick_back_and_forth() {
+        let mut game = watching(recorded_night(300));
+        hold_for(&mut game, Buttons::NONE, 100);
+        press(&mut game, Buttons::A);
+        let at = watched(&game).at();
+        press(&mut game, Buttons::RIGHT);
+        let next = watched(&game).at();
+        assert_eq!(next.0, at.0 + 1, "Right steps a tick");
+        press(&mut game, Buttons::LEFT);
+        assert_eq!(watched(&game).at(), at, "Left steps back to exactly where it was");
+        press(&mut game, Buttons::LEFT);
+        assert_eq!(watched(&game).at().0, at.0 - 1);
+        assert!(watched(&game).paused() && watched(&game).drift().is_none());
+        press(&mut game, Buttons::RIGHT);
+        press(&mut game, Buttons::RIGHT);
+        assert_eq!(watched(&game).at(), next, "and forward again to the same night");
+    }
+
+    #[test]
+    fn on_a_phone_photo_mode_on_a_replay_has_the_photo_keys() {
+        let size = [2400.0, 1080.0];
+        let mut game = watching(recorded_night(120));
+        game.set_phone(Some(size));
+        game.set_touch(true);
+        game.save.touch = TouchControls::On;
+        assert_eq!(game.phone_layout(size).key(Buttons::R2), None, "watching has only its strip");
+        press(&mut game, Buttons::X);
+        assert!(game.in_photo() && game.phone_layout(size).key(Buttons::R2).is_some(), "photo mode has Change");
     }
 
     #[test]
