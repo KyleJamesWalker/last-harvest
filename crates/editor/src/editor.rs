@@ -4827,6 +4827,18 @@ mod tests {
             buttons_fit(&e);
             e.act(Action::Save, false);
             assert!(!e.unsaved(), "the game reads it");
+            for (page, key) in [("DATA_TUNING_WEAPONS", "soak_spread"), ("DATA_TUNING_WEAPONS", "soak_blast"), ("DATA_EFFECTS_COLORS", "soak")] {
+                e.switch_to(page.into());
+                let row = e.data.as_ref().and_then(|d| d.table.entries(&d.section).iter().position(|l| l.key == key)).unwrap_or_else(|| panic!("{page} lists {key}"));
+                let edits = |a: &Action| matches!(*a, Action::DataStep(r, _) | Action::DataEdit(r) | Action::DataColor(r, _) if r == row);
+                for _ in 0..4 {
+                    if !e.buttons().iter().any(|b| edits(&b.action)) {
+                        e.act(Action::DataPage(1), false);
+                    }
+                }
+                assert!(e.buttons().iter().any(|b| edits(&b.action)), "{page} {key}, modding {modding}");
+                buttons_fit(&e);
+            }
             std::fs::remove_dir_all(&dir).unwrap();
         }
     }

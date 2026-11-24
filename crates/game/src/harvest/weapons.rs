@@ -926,6 +926,7 @@ impl Harvest {
         for z in &mut self.zombies {
             let d = sub(z.pos, self.players[self.actor].pos);
             if z.rise >= 1.0 && len(d) < range && in_cone(d, self.players[self.actor].aim, half) {
+                super::wet(z, self.juice.soak);
                 ignite(z, dps, secs, self.actor, Some(a.def));
             }
         }
@@ -2533,6 +2534,18 @@ mod tests {
             h.hazards(1.0 / 60.0);
         }
         assert_eq!((h.zombies[0].soak, h.zombies[0].soak_k), (0.0, 0.0));
+    }
+
+    #[test]
+    fn a_burner_with_soak_soaks_what_it_lights_and_burns_it_hotter() {
+        let mut h = with("burner", [20.0, 0.0]);
+        let a = h.me().kit.weapons[0];
+        h.juice.soak = [3.0, 2.0];
+        assert!(h.burner(a));
+        let (dps, secs) = (h.stat(a, Stat::Damage), h.stat(a, Stat::Duration));
+        let z = &h.zombies[0];
+        assert_eq!((z.soak, z.soak_k), (3.0, 2.0));
+        assert_eq!((z.burn_dps, z.burn), (dps * 2.0, secs * 2.0));
     }
 
     #[test]

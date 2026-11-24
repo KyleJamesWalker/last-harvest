@@ -3493,10 +3493,7 @@ fn strike(z: &mut Zombie, juice: &mut Juice, damage: f32, dir: [f32; 2], force: 
     let dealt = if crit { damage * 2.0 } else { damage };
     juice.tally.land(dealt, z.hp);
     z.hp -= dealt;
-    if juice.soak[0] > 0.0 {
-        z.soak = z.soak.max(juice.soak[0]);
-        z.soak_k = z.soak_k.max(juice.soak[1]);
-    }
+    wet(z, juice.soak);
     z.flash = FLASH_TIME;
     z.hurt = HURT_FRAMES;
     z.squash = 1.0;
@@ -3509,6 +3506,14 @@ fn strike(z: &mut Zombie, juice: &mut Juice, damage: f32, dir: [f32; 2], force: 
     }
     juice.burst(z.pos, 8.0, if crit { 6 } else { 3 }, dir, 0.6, [30.0, 90.0], juice::blood_of(z.kind.stats().blood), 1.4, 0.4, 0.0);
     crit
+}
+
+/// Soaks a zombie for `soak`'s seconds and burn multiplier, when it has any.
+fn wet(z: &mut Zombie, [secs, k]: [f32; 2]) {
+    if secs > 0.0 {
+        z.soak = z.soak.max(secs);
+        z.soak_k = z.soak_k.max(k);
+    }
 }
 
 /// Whether a horde breaks out during the frame ending at `t`; one comes every `[spawn] horde_every` seconds.

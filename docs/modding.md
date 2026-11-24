@@ -387,7 +387,7 @@ A new weapon needs no code. Copy a weapon's section under a new id and change it
 - `does sprayer` wets everything in a cone `range` long and `spread` degrees wide along the player's heading, for `damage` and `knockback`, once anything is in it. With `soak`, that wets it in fuel.
 - `does lob` throws `count` at a crowd within `range`. `lands` sets what happens there, with its `damage`, `area`, `duration` and `slow`: `blast` (the default), `fire`, `flare` or `tacks`.
 
-Any weapon's `soak` line wets each zombie its hits and bullets reach, crows, dogs and drones included, for that many seconds. Fire then burns a soaked zombie `soak_burn` times hotter and longer, credited to whoever lit it. A burning soaked zombie sets soaked zombies within `soak_spread` alight, and a blast lights the soaked ones it catches. The Kerosene sprayer is `does sprayer` with `soak`.
+Any weapon's `soak` line wets each zombie its hits, bullets and burner flame reach, crows, dogs and drones included, for that many seconds. Fire pools, tacks, throws and blasts don't soak. Fire then burns a soaked zombie `soak_burn` times hotter and longer, credited to whoever lit it. A burning soaked zombie sets soaked zombies within `soak_spread` alight, and a blast lights the soaked ones it catches. The Kerosene sprayer is `does sprayer` with `soak`.
 
 Any weapon can also take:
 
