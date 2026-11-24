@@ -37,7 +37,8 @@
 #                       nearest when left out. A blade cuts everything within area across spread degrees, 360 all round
 #   lands   blast | fire | flare | tacks     for `does lob`, which throws count at a crowd within range, what it does
 #                       where it lands, with damage, area, duration and slow; blast when left out. It flies as its
-#                       bullet effect, the grenade when left out, and plays its effect where it lands
+#                       bullet effect, the grenade when left out, and plays its effect where it lands. A blast
+#                       lands clear of the thrower's hurt, moved out along the throw when the crowd is closer
 #   pattern fan | ring | spray | burst     for `does gun`, how count shots spread: evenly across spread, evenly all
 #                       the way round, or at random across spread; fan when left out. A burst, for `does gun` and
 #                       `does pistol`, fires them one after another, gap seconds apart, each aimed as it fires,
