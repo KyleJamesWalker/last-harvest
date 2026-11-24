@@ -2,7 +2,7 @@
 //! pause, speed and whose view to follow. Nothing here touches the save.
 
 use crate::draw::{Align, Canvas, Color};
-use crate::harvest::replay::{Kind, Replay, Viewer};
+use crate::harvest::replay::{Device, Kind, Replay, Viewer};
 use crate::input::{Buttons, Input};
 use crate::{DIM, HOT, SCREEN_W, Sfx, WHITE, pad};
 
@@ -13,7 +13,7 @@ const LOUDEST: f32 = 2.0;
 const RED: Color = [1.0, 0.45, 0.4, 1.0];
 /// The strip of controls: its height, then each button's width and the gap between them.
 pub(crate) const STRIP_H: f32 = 128.0;
-const BUTTON_W: f32 = 184.0;
+const BUTTON_W: f32 = 152.0;
 const GAP: f32 = 12.0;
 
 /// A replay the platform kept, as read for the list: its file name, its bytes, and a line saying what night it was or
@@ -79,9 +79,10 @@ enum Control {
     Play,
     Faster,
     Player,
+    Photo,
 }
 
-const CONTROLS: [Control; 5] = [Control::Leave, Control::Slower, Control::Play, Control::Faster, Control::Player];
+const CONTROLS: [Control; 6] = [Control::Leave, Control::Slower, Control::Play, Control::Faster, Control::Player, Control::Photo];
 
 fn button(i: usize, top: f32) -> [f32; 4] {
     let x0 = (SCREEN_W - (CONTROLS.len() as f32 * (BUTTON_W + GAP) - GAP)) / 2.0;
@@ -105,20 +106,57 @@ pub(crate) struct Watching {
     /// The replay stopped itself where it drifted, once.
     stopped_at_drift: bool,
     warn: Option<String>,
+    /// The screen photo mode's guides are laid out for.
+    device: Device,
+    /// Photo mode asked for a capture this frame.
+    capture: bool,
 }
 
 impl Watching {
     pub fn new(r: Replay, warn: Option<String>) -> Self {
-        Self { viewer: Viewer::new(r), speed: NORMAL, paused: false, follow: 0, owed: 0.0, stepped: false, stopped_at_drift: false, warn }
+        Self { viewer: Viewer::new(r), speed: NORMAL, paused: false, follow: 0, owed: 0.0, stepped: false, stopped_at_drift: false, warn, device: Device::default(), capture: false }
     }
 
-    /// A frame: the viewer's buttons, or a tap on the strip at `top`, then the ticks due; false once left.
-    pub fn update(&mut self, input: &Input, tap: Option<[f32; 2]>, top: f32, sounds: &mut Vec<Sfx>) -> bool {
+    /// Lays photo mode's guides out for `device`.
+    pub fn set_device(&mut self, device: Device) {
+        self.device = device;
+    }
+
+    pub fn in_photo(&self) -> bool {
+        self.viewer.in_photo()
+    }
+
+    /// Photo mode asked for a capture last frame.
+    pub fn take_capture(&mut self) -> bool {
+        std::mem::take(&mut self.capture)
+    }
+
+    /// Hides or shows photo mode's guides.
+    pub fn toggle_guides(&mut self) {
+        self.viewer.toggle_guides();
+    }
+
+    /// A frame: photo mode while it's open, else the viewer's buttons, or a tap on the strip at `top`, then the ticks
+    /// due; false once left. X or Photo pauses and opens photo mode where the night stands.
+    pub fn update(&mut self, input: &Input, tap: Option<[f32; 2]>, top: f32, dt: f32, sounds: &mut Vec<Sfx>) -> bool {
+        self.stepped = false;
+        if self.viewer.in_photo() {
+            self.capture = self.viewer.photo(input, dt, sounds).capture;
+            self.viewer.hold();
+            return true;
+        }
         let tapped = tap.and_then(|p| (0..CONTROLS.len()).find(|&i| inside(p, button(i, top)))).map(|i| CONTROLS[i]);
         let pressed = |b: Buttons| input.pressed.contains(b);
         if pressed(Buttons::B) || tapped == Some(Control::Leave) {
             sounds.push(Sfx::Tick(0));
             return false;
+        }
+        if pressed(Buttons::X) || tapped == Some(Control::Photo) {
+            (self.paused, self.owed) = (true, 0.0);
+            self.viewer.open_photo(self.follow, self.device);
+            self.viewer.hold();
+            sounds.push(Sfx::Tick(6));
+            return true;
         }
         if pressed(Buttons::A) || pressed(Buttons::START) || tapped == Some(Control::Play) {
             if self.viewer.ended() {
@@ -172,14 +210,20 @@ impl Watching {
     }
 
     /// The night as the followed player saw it; `alpha` of the way through the last tick when one played this frame.
-    pub fn draw(&mut self, alpha: f32, f: &mut crate::Frame) {
+    /// In photo mode, a `clean` frame is the capture.
+    pub fn draw(&mut self, alpha: f32, f: &mut crate::Frame, clean: bool) {
         let alpha = if self.stepped && self.speed == NORMAL { alpha } else { 1.0 };
-        self.viewer.draw(self.follow, alpha, f);
+        self.viewer.draw(self.follow, alpha, f, clean);
     }
 
     #[cfg(test)]
     pub fn paused(&self) -> bool {
         self.paused
+    }
+
+    #[cfg(test)]
+    pub fn at(&self) -> (u64, u64, Option<usize>) {
+        (self.viewer.played().0, self.viewer.checksum(), self.viewer.menu())
     }
 
     #[cfg(test)]
@@ -262,6 +306,8 @@ impl Watching {
                 (Control::Faster, false) => "Faster".into(),
                 (Control::Player, true) => pad::hint("{L1} {R1}: Player"),
                 (Control::Player, false) => "Player".into(),
+                (Control::Photo, true) => pad::hint("{X}: Photo"),
+                (Control::Photo, false) => "Photo".into(),
             };
             crate::menu::fit_label(c, &text, x + w / 2.0, y + h / 2.0 - 13.0, 26.0, w - 12.0, if off { DIM } else { WHITE }, Align::Center);
         }

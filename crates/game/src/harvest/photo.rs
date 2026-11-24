@@ -282,7 +282,68 @@ impl Photo {
     }
 }
 
+/// What photo mode opened over a replay's night set aside, put back on leaving so the night plays on as recorded.
+pub(super) struct Over {
+    seen: super::PlayerId,
+    menu: Option<usize>,
+    photo: Option<Photo>,
+    paused_by: super::PlayerId,
+    zoom: f32,
+    lift: f32,
+    device: Device,
+}
+
+/// The screen photo mode's guides are for: one screen, the touch photo keys shown, photos saved, and taps taken.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Device {
+    pub one_screen: bool,
+    pub touch_keys: bool,
+    pub saves_photos: bool,
+    pub taps: bool,
+}
+
 impl Harvest {
+    fn device(&self) -> Device {
+        Device { one_screen: self.single, touch_keys: self.touch_keys, saves_photos: self.saves_photos, taps: self.taps }
+    }
+
+    /// Fields set directly: the setters would tape them and clear one-screen aiming, which the replay checks.
+    fn set_device(&mut self, d: Device) {
+        (self.single, self.touch_keys, self.saves_photos, self.taps) = (d.one_screen, d.touch_keys, d.saves_photos, d.taps);
+    }
+
+    /// Opens photo mode over a replay's night as player `seen` saw it, its guides laid out for `device`.
+    pub(super) fn open_photo_over(&mut self, seen: super::PlayerId, device: Device) -> Over {
+        let over = Over { seen, menu: self.menu, photo: self.photo.take(), paused_by: self.paused_by, zoom: self.zoom, lift: self.lift, device: self.device() };
+        self.set_device(device);
+        self.paused_by = seen;
+        self.relabel(seen);
+        self.open_photo();
+        self.relabel(seen);
+        over
+    }
+
+    /// A frame of photo mode over a replay's night; once it's left, puts back what `over` set aside and gives None.
+    pub(super) fn photo_over(&mut self, over: Over, input: &Input, dt: f32, sounds: &mut Vec<Sfx>) -> (Flow, Option<Over>) {
+        let mut flow = Flow::default();
+        self.relabel(over.seen);
+        self.photo(input, dt, sounds, &mut flow);
+        self.relabel(over.seen);
+        if self.photo.is_some() {
+            return (flow, Some(over));
+        }
+        (self.menu, self.photo, self.paused_by, self.zoom, self.lift) = (over.menu, over.photo, over.paused_by, over.zoom, over.lift);
+        self.set_device(over.device);
+        (flow, None)
+    }
+
+    /// The night drawn as `over`'s player sees it in photo mode.
+    pub(super) fn draw_photo_over(&mut self, over: &Over, f: &mut Frame, clean: bool) {
+        self.relabel(over.seen);
+        self.draw(f, clean);
+        self.relabel(over.seen);
+    }
+
     pub(super) fn open_photo(&mut self) {
         self.menu = None;
         self.photo = Some(Photo { corpses: self.juice.corpses.len(), ..Photo::new(self.players[self.paused_by].view_yaw) });
