@@ -4016,19 +4016,28 @@ mod tests {
 
     #[test]
     fn another_players_own_powerup_is_never_dealt_nor_found() {
-        let crows = book().index("crows").unwrap();
-        let mut h = Harvest::new(2).with_progress(Progress { kills: u32::MAX, everything: true, hidden: 1 << crows, ..Default::default() });
+        let scythe = book().index("scythe").unwrap();
+        let mut h = Harvest::new(2).with_progress(Progress { kills: u32::MAX, everything: true, hidden: 1 << scythe, ..Default::default() });
         h.chest = true;
         for _ in 0..2000 {
-            assert!(h.roll_choices(&[]).iter().all(|c| c.up != crows));
+            assert!(h.roll_choices(&[]).iter().all(|c| c.up != scythe));
         }
         h.t = 3600.0;
         let found = |h: &mut Harvest, hidden| {
             h.progress = Progress { kills: u32::MAX, best: u32::MAX, hidden, ..Default::default() };
-            (0..4000).any(|_| h.find(false) == Some(crows))
+            (0..4000).any(|_| h.find(false) == Some(scythe))
         };
         assert!(found(&mut h, 0), "found as a rule");
-        assert!(!found(&mut h, 1 << crows));
+        assert!(!found(&mut h, 1 << scythe));
+    }
+
+    #[test]
+    fn a_save_that_found_a_weapon_now_ready_from_the_start_counts_it_once() {
+        let tacks = book().index("tacks").unwrap();
+        let fresh = Progress::default();
+        let found_it = Progress { found: 1 << tacks, ..Default::default() };
+        assert!(fresh.owns(tacks) && found_it.owns(tacks) && !found_it.findable(tacks));
+        assert_eq!(unlocked(&found_it), unlocked(&fresh));
     }
 
     #[test]

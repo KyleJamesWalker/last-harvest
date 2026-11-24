@@ -1044,8 +1044,12 @@ mod tests {
         let count = |k: Kind| b.defs.iter().filter(|d| d.kind == k).count();
         assert!(count(Kind::Weapon) + count(Kind::Passive) >= 30);
         assert!(count(Kind::Filler) >= 3, "fillers fill all three cards when nothing else is left");
-        let start = b.defs.iter().filter(|d| d.kind == Kind::Weapon && d.unlock == Unlock::Start).count();
-        assert!((2..=4).contains(&start), "a few weapons from the start, the rest unlocked over time");
+        let weapons: Vec<&Def> = b.defs.iter().filter(|d| d.kind == Kind::Weapon).collect();
+        let start: Vec<&Def> = weapons.iter().copied().filter(|d| d.unlock == Unlock::Start).collect();
+        assert!(start.len() <= b.weapon_slots && start.len() * 2 < weapons.len(), "a first run spreads out, the rest unlocked over time");
+        for zone in weapons.iter().filter_map(|d| d.zone) {
+            assert!(start.iter().any(|d| d.zone == Some(zone)), "a weapon for {zone:?} from the start");
+        }
         let ids = |d: Tier| b.start[d as usize].iter().map(|&i| b.defs[i].id.as_str()).collect::<Vec<_>>();
         for d in Tier::ALL {
             assert_eq!(ids(d), ["pistol", "knife"], "{d:?}");
