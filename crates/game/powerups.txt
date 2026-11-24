@@ -278,7 +278,7 @@ slow      0.7
 name      Nail gun
 kind      weapon
 does      gun
-aim       around
+aim       ahead
 pattern   spray
 bullet    nail
 sound_every 3
