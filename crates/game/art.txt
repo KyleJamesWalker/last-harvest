@@ -183,6 +183,8 @@ ICON_FUEL_DRUMS        png placeholder/icon_fuel_drums.png
 ICON_SNACK             png placeholder/icon_snack.png
 ICON_DEEP_POCKETS      png placeholder/icon_deep_pockets.png
 ICON_RIFLE             png placeholder/icon_rifle.png  @prop 1
+ICON_VARMINT_RIFLE     png placeholder/icon_varmint_rifle.png
+ICON_BOTTLE_ROCKETS    png placeholder/icon_bottle_rockets.png
 ICON_LANTERN           png placeholder/icon_lantern.png  @prop 4
 ICON_BURNER            png placeholder/icon_burner.png  @prop 2
 ICON_HOLSTER           png placeholder/icon_holster.png
