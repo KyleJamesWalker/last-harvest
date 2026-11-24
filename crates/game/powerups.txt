@@ -41,7 +41,8 @@
 #   through 1 | 0       for `does gun`, its shots pass through every zombie but the one they were fired at; 0 when left out
 #   lands   blast | fire | flare | tacks     for `does lob`, which throws count at a crowd within range, what it does
 #                       where it lands, with damage, area, duration and slow; blast when left out. It flies as its
-#                       bullet effect, the grenade when left out, and plays its effect where it lands
+#                       bullet effect, the grenade when left out, and plays its effect where it lands. A blast
+#                       lands clear of the thrower's hurt, moved out along the throw when the crowd is closer
 #   pattern fan | ring | spray | burst     for `does gun`, how count shots spread: evenly across spread, evenly all
 #                       the way round, or at random across spread; fan when left out. A burst, for `does gun` and
 #                       `does pistol`, fires them one after another, gap seconds apart, each aimed as it fires,
@@ -311,6 +312,80 @@ cooldown  2.4 2.3 2.2 2.0 1.9 1.8 1.6 1.4
 damage    20 25 30 35 40 50 60 70
 area      30 32 34 36 38 42 46 50
 knockback 110
+
+[stump_charge]
+name      Stump charge
+kind      weapon
+does      lob
+lands     blast
+bullet    stump_charge
+zone      far
+unlock    dawns 2
+blurb     Dynamite lobbed into the thickest of them
+max       8
+find      0.15
+after     2
+cooldown  6 5.6 5.2 4.8 4.5 4.2 3.8 3.5
+damage    45 55 65 75 85 95 105 120
+area      30 32 34 36 38 40 43 46
+range     110
+count     1 1 1 2 2 2 3 3
+
+[wire_coil]
+name      Wire coil
+kind      weapon
+does      lob
+lands     tacks
+bullet    wire_coil
+effect    wire_lands
+zone      far
+unlock    night 360
+blurb     Barbed wire flung into a far crowd; it cuts and holds them
+max       8
+cooldown  7 6.5 6 5.5 5 4.6 4.3 4
+damage    6 7 9 10 12 14 16 18
+area      26 28 30 32 34 36 38 40
+duration  6 6.5 7 7.5 8 8.5 9 10
+range     140
+slow      0.7
+
+[nail_gun]
+name      Nail gun
+kind      weapon
+does      gun
+aim       ahead
+pattern   spray
+bullet    nail
+sound_every 3
+zone      ahead
+unlock    kills 600
+blurb     A framing nailer hosing nails down your heading
+max       8
+cooldown  0.22 0.2 0.18 0.16 0.15 0.13 0.12 0.1
+damage    5 5 6 7 8 8 9 10
+spread    14
+range     130
+speed     300
+pierce    0 0 0 1 1 1 2 2
+knockback 8
+
+[grain_shovel]
+name      Grain shovel
+kind      weapon
+does      blade
+aim       around
+effect    grain_shovel
+punch     1
+shake     0.08
+zone      ahead
+unlock    level 10
+blurb     A flat, wide swat that shoves even the big ones back
+max       8
+cooldown  1.4 1.33 1.26 1.19 1.12 1.05 0.97 0.9
+damage    18 22 27 32 38 45 52 60
+area      34 37 40 44 48 52 56 60
+spread    140
+knockback 120
 
 [crows]
 name      Crows

@@ -146,6 +146,8 @@ FIRE            png placeholder/fire.png x3  @figure
 POP             png placeholder/fire.png x3  @figure
 MOLOTOV         png placeholder/molotov.png  @prop 2
 FLARE           png placeholder/flare.png
+DYNAMITE        png placeholder/molotov.png  @prop 2
+WIRE_COIL       png placeholder/tacks.png  @prop 2
 
 # On-screen touch controls: the stick's and turn strip's ring, knob and track, a button plate up and pressed, and
 # their icons
@@ -209,6 +211,10 @@ ICON_LONG_BARREL       png placeholder/icon_long_barrel.png
 ICON_MAUL              png placeholder/icon_maul.png
 ICON_KEROSENE          png placeholder/icon_burner.png
 ICON_DRONE             png placeholder/icon_drone.png
+ICON_STUMP_CHARGE      png placeholder/icon_molotov.png
+ICON_WIRE_COIL         png placeholder/icon_tacks.png
+ICON_NAIL_GUN          png placeholder/icon_pistol.png
+ICON_GRAIN_SHOVEL      png placeholder/icon_scythe.png
 ICON_JUMPER_CABLES     png placeholder/icon_zapper.png
 
 # Pickups

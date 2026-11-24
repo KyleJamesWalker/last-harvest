@@ -891,7 +891,10 @@ pub fn scene(h: &Harvest) -> CardScene {
             Hazard::Tacks if (q - p).dot(forward) < 0.0 => {}
             Hazard::Tacks => {
                 let a = super::effects::effects().tacks.looping(h.t);
-                faded(&mut cards, a.alpha(), |cards| flat(cards, a, q.x - a.w() * PX / 2.0, q.z - a.h() * PX / 2.0, DECAL_LIFT + 0.008, [1.0; 3]));
+                for s in super::weapons::tack_spots(patch.pos, patch.radius) {
+                    let q = world(s);
+                    faded(&mut cards, a.alpha(), |cards| flat(cards, a, q.x - a.w() * PX / 2.0, q.z - a.h() * PX / 2.0, DECAL_LIFT + 0.008, [1.0; 3]));
+                }
             }
             Hazard::Fire => {
                 let fire = super::effects::effects().fire;

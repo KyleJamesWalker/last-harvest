@@ -614,8 +614,9 @@ mod tests {
             assert!(n.lines.iter().map(|l| l.kills).sum::<u32>() == n.kills, "{pick}: every kill is a weapon's or a grenade's");
         }
         let shoes = book().index("running_shoes").unwrap();
-        let first = |seed| night(&Plan { seed, until: Some(150.0), pick: Pick::from_name("first:running_shoes+knife").unwrap(), ..Plan::new(start.clone()) }).took[0].up;
-        assert!((1..=8).any(|seed| first(seed) == shoes), "the first card on the list comes first when a reroll finds it");
+        let first = Pick::from_name("first:running_shoes+knife").unwrap();
+        let found = (1..=12).any(|seed| night(&Plan { seed, until: Some(150.0), pick: first.clone(), ..Plan::new(start.clone()) }).took.first().is_some_and(|t| t.up == shoes));
+        assert!(found, "the first card on the list comes first when a reroll finds it");
         let stacked = |pick: &str| {
             let nights: Vec<Night> = (1..=4).map(|seed| night(&Plan { seed, until: Some(240.0), pick: Pick::from_name(pick).unwrap(), ..Plan::new(start.clone()) })).collect();
             nights.iter().flat_map(|n| &n.build).map(|b| b.1).sum::<u32>() as f32 / nights.iter().map(|n| n.build.len()).sum::<usize>() as f32

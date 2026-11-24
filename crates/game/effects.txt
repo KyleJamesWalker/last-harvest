@@ -178,6 +178,34 @@ fps 4
 alpha 0.9
 fade_out 0.4
 
+[stump_charge]
+art DYNAMITE
+
+[wire_coil]
+art WIRE_COIL
+
+[wire_lands]
+art DIRT_PUFF
+fps 9
+alpha 0.85
+fade_out 0.5
+
+[grain_shovel]
+art SLASH
+fps 16
+
+[nail]
+color 878B94
+length 6
+size 1
+sparks 2
+impact 1
+core 1.5
+tracer SHOT_TRACER
+spark SHOT_SPARK
+smoke SHOT_SMOKE
+flare SHOT_FLARE
+
 [drone]
 art DRONE
 fps 16

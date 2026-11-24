@@ -150,6 +150,7 @@ tuning! {
     soak_blast = "weapons" "soak_blast",
     blast_hurt = "blast" "hurt",
     blast_near = "blast" "near",
+    blast_clear = "blast" "clear",
     map_scale = "map" "scale",
     map_sight = "map" "sight",
     map_memory = "map" "memory",
