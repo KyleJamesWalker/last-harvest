@@ -893,6 +893,23 @@ mod tests {
     }
 
     #[test]
+    fn a_zapper_bolt_reaches_clients_on_the_tick_it_is_fired() {
+        let def = book().index("zapper").unwrap();
+        let mut h = Harvest::calm(3).with_players(2);
+        h.players[0].kit = Kit::forced(&[(def, 1)], h.difficulty.tier());
+        h.players[1].kit = Kit::forced(&[], h.difficulty.tier());
+        let at = [h.players[0].pos[0] + 30.0, h.players[0].pos[1]];
+        h.zombies.push(super::super::Zombie::new(super::super::Kind::named("big"), at, 5000.0, 1.0, 0.0));
+        let (mut extract, mut sounds) = (Extract::default(), Vec::new());
+        let sent = (1..=300u32).any(|tick| {
+            h.update(&crate::Input::default(), STEP, &mut sounds);
+            sounds.clear();
+            extract.record(&h, tick, &[]).spawns.iter().any(|s| matches!(s.what, Spawn::Bolt { .. }))
+        });
+        assert!(sent);
+    }
+
+    #[test]
     fn a_client_over_a_lossy_link_keeps_close_to_the_host() {
         let plan = Plan { until: Some(40.0), ..Plan::new(Vec::new()) };
         let r = net_sim(&plan, NetSim { loss: 0.2, latency_ms: 80, jitter_ms: 30 });

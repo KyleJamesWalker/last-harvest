@@ -2605,6 +2605,7 @@ impl Harvest {
             self.scatter(dt);
         }
         self.actor = ME;
+        self.age_bolts(dt);
         self.move_bullets(dt, sounds);
         self.hazards(dt);
         self.decoys(dt, sounds);

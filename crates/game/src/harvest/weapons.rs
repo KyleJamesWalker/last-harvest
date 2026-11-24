@@ -603,6 +603,7 @@ impl Harvest {
     }
 
     pub(super) fn fire(&mut self, dt: f32, sounds: &mut Vec<Sfx>) {
+        self.age_bolts(dt);
         for l in &mut self.later {
             l.0 -= dt;
         }
@@ -1608,6 +1609,10 @@ impl Harvest {
             p.swings.retain(|s| s.age < s.life);
             p.beam = (p.beam - dt).max(0.0);
         }
+    }
+
+    /// Bolts age before anything fires, so one fired this tick is still new when the tick is sent to clients.
+    pub(super) fn age_bolts(&mut self, dt: f32) {
         for b in &mut self.bolts {
             b.age += dt;
         }
