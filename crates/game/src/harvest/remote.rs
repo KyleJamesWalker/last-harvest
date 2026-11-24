@@ -402,7 +402,10 @@ impl Harvest {
                     let look = by.and_then(|d| book().defs[d].bullet.as_deref()).and_then(|n| effects::effects().named(n));
                     let vel = vel.map(|v| v as f32 / 8.0);
                     let owner = c.index(owner as usize).unwrap_or(ME);
-                    self.bullets.push(Bullet { pos, vel, damage: 0.0, pierce: 0, life: (life as f32 / 50.0 - age).max(0.0), force: 0.0, hit: Vec::new(), look, age, by, owner, lift: [0.0; 2] });
+                    let life = (life as f32 / 50.0 - age).max(0.0);
+                    // Each of a homing shot's runs starts at age 0; a full tail keeps it from flickering short.
+                    let age = if by.is_some_and(|d| book().defs[d].homing > 0.0) { age + 1.0 } else { age };
+                    self.bullets.push(Bullet { pos, vel, damage: 0.0, pierce: 0, life, force: 0.0, hit: Vec::new(), look, age, by, owner, lift: [0.0; 2], steer: Default::default() });
                 }
                 Spawn::Spit { kind, vel, life, .. } if (kind as usize) < roster().enemies.len() => {
                     self.spits.push(Spit { kind: Kind(kind), pos, vel: vel.map(|v| v as f32 / 8.0), damage: 0.0, life: (life as f32 / 50.0 - age).max(0.0), age });

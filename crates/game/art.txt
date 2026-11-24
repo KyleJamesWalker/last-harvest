@@ -143,6 +143,7 @@ DRONE           png placeholder/drone.png x3  @figure float 16
 STAKE           png placeholder/flare.png  @prop 1
 TACKS           png placeholder/tacks.png  @slab 1
 FIRE            png placeholder/fire.png x3  @figure
+POP             png placeholder/fire.png x3  @figure
 MOLOTOV         png placeholder/molotov.png  @prop 2
 FLARE           png placeholder/flare.png
 
@@ -184,6 +185,8 @@ ICON_FUEL_DRUMS        png placeholder/icon_fuel_drums.png
 ICON_SNACK             png placeholder/icon_snack.png
 ICON_DEEP_POCKETS      png placeholder/icon_deep_pockets.png
 ICON_RIFLE             png placeholder/icon_rifle.png  @prop 1
+ICON_VARMINT_RIFLE     png placeholder/icon_rifle.png
+ICON_BOTTLE_ROCKETS    png placeholder/icon_flare.png
 ICON_LANTERN           png placeholder/icon_lantern.png  @prop 4
 ICON_BURNER            png placeholder/icon_burner.png  @prop 2
 ICON_HOLSTER           png placeholder/icon_holster.png

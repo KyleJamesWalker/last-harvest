@@ -377,12 +377,13 @@ impl Extract {
         let mut shots = HashMap::new();
         let ticks = |secs: f32| (secs * TICK_HZ as f32).round() as u32;
         for b in &h.bullets {
-            let from = q_pos([b.pos[0] - b.vel[0] * b.age, b.pos[1] - b.vel[1] * b.age]);
-            let key = (from[0], from[1], vel8(b.vel)[0], vel8(b.vel)[1]);
+            let (from, vel, life) = b.leg();
+            let from = q_pos(from);
+            let key = (from[0], from[1], vel8(vel)[0], vel8(vel)[1]);
             let seen = self.shots_seen.get(&key).copied().unwrap_or_else(|| {
                 let look = b.by.map_or(0, |d| d as u16 + 1);
-                new.push(Spawn::Shot { owner: b.owner as u8, look, from, vel: vel8(b.vel), life: life50(b.life + b.age) });
-                (self.next_spawn + new.len() as u32, tick, ticks(b.life + b.age))
+                new.push(Spawn::Shot { owner: b.owner as u8, look, from, vel: vel8(vel), life: life50(life) });
+                (self.next_spawn + new.len() as u32, tick, ticks(life))
             });
             shots.insert(key, seen);
         }
@@ -827,6 +828,67 @@ mod tests {
         assert!(!client.juice.flashes.is_empty() && !client.juice.rings.is_empty(), "the client lights it as the host does");
         assert!(len(sub(client.juice.rings[0].center, at)) < 0.1, "{:?} for {:?}", client.juice.rings[0].center, at);
         assert_eq!(client.fx.len(), 2, "the explosion and its smoke");
+    }
+
+    #[test]
+    fn a_client_draws_a_homing_shot_without_a_gap_close_to_the_host_and_sees_it_pop() {
+        let mut h = Harvest::calm(3).with_players(2).hosting(1);
+        let from = [h.players[0].pos[0], h.players[0].pos[1] - 6.0];
+        let mut z = super::super::Zombie::new(super::super::Kind::named("big"), [from[0] + 40.0, from[1] + 96.0], 500.0, 1.0, 0.0);
+        z.id = 77;
+        h.zombies.push(z);
+        let steer = super::super::Steer { turn: 3.0, target: Some(77), leg: (from, 0.0, [120.0, 0.0]), pop: 14.0, through: false };
+        h.bullets.push(super::super::Bullet { pos: from, vel: [120.0, 0.0], damage: 5.0, pierce: 0, life: 3.0, force: 0.0, hit: Vec::new(), look: None, age: 0.0, by: None, owner: 0, lift: [0.0; 2], steer });
+        let mut client = Harvest::calm(3).with_players(2).client_of(&[1], &[0, 1]);
+        let (mut extract, mut host, mut link, mut mirror) = (Extract::default(), HostLink::default(), ClientLink::default(), Mirror::default());
+        mirror.play_locally(1);
+        let (mut past, mut seen, mut worst, mut gaps, mut runs) = (HashMap::new(), 0, 0.0f32, 0, HashSet::new());
+        let mut sounds = Vec::new();
+        for tick in 1..=240u32 {
+            h.move_bullets(STEP, &mut sounds);
+            h.fly(STEP, &mut sounds, &mut super::super::Flow::default());
+            if let Some(b) = h.bullets.first() {
+                past.insert(tick, b.pos);
+            }
+            extract.record(&h, tick, &sounds).hand(&mut host);
+            sounds.clear();
+            if tick.is_multiple_of(SEND_EVERY) {
+                for p in host.snapshot(extract.world(&h, tick, &[0, 0])) {
+                    if let Some(part) = link.receive(&p) {
+                        mirror.apply(&part);
+                        let fresh = link.fresh(&part.spawns);
+                        client.client_spawned(&fresh);
+                        mirror.spawn(fresh);
+                    }
+                }
+                let (s, e) = link.ack();
+                host.ack(s, e);
+            }
+            for ev in link.events() {
+                if let Event::Stop { id } = ev {
+                    mirror.stop(id);
+                }
+            }
+            mirror.advance(STEP);
+            let at = mirror.render_tick();
+            let Some(&host_at) = past.get(&(at.floor() as u32)).filter(|_| at.fract() == 0.0) else { continue };
+            let shots = mirror.shots_for(&[]);
+            match shots.first() {
+                Some((p, _, s)) => {
+                    seen += 1;
+                    runs.insert(s.id);
+                    worst = worst.max(len(sub(*p, host_at)));
+                }
+                None if past.contains_key(&(at as u32 + 1)) => gaps += 1,
+                None => {}
+            }
+        }
+        assert!(h.bullets.is_empty() && h.zombies[0].hp < 500.0, "it curved onto the zombie and popped");
+        assert!(seen > 30 && gaps == 0, "drawn {seen} ticks with {gaps} blank");
+        assert!(worst < 4.0, "drawn {worst} px off");
+        assert!(runs.len() > 3, "{} runs", runs.len());
+        let pop = super::super::effects::effects().named("pop").unwrap();
+        assert!(client.fx.iter().any(|f| f.frames == pop.frames), "the client plays its pop");
     }
 
     #[test]
