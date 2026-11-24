@@ -20,15 +20,15 @@ const DOES_W: f32 = 114.0;
 const PREVIEW: Rect = Rect { x: SIDE_X, y: CANVAS.y + 340.0, w: SIDE_W, h: 220.0 };
 const STYLE: Rect = Rect { x: SIDE_X + SIDE_W / 2.0 + 8.0, y: PREVIEW.y + PREVIEW.h + 6.0, w: SIDE_W / 2.0 - 16.0, h: 28.0 };
 /// The lines the pickers set, in order.
-const PICKS: [&str; 13] = ["effect", "bullet", "pattern", "targets", "outside", "sound", "sound_every", "sound_after", "sound_delay", "player", "kill_resets", "fetches", "charge"];
+const PICKS: [&str; 14] = ["effect", "bullet", "pattern", "targets", "outside", "sound", "sound_every", "sound_after", "sound_delay", "player", "kill_resets", "fetches", "charge", "teammate"];
 /// The pickers' tabs and the slice of `PICKS` each shows.
-const PICK_TABS: [(&str, std::ops::Range<usize>); 3] = [("Shots", 0..5), ("Sound & player", 5..10), ("Dog", 10..13)];
+const PICK_TABS: [(&str, std::ops::Range<usize>); 4] = [("Shots", 0..5), ("Sound & player", 5..10), ("Dog", 10..13), ("Cables", 13..14)];
 /// What `outside` steps through, in pixels; Own leaves a burst its whole range.
 const OUTSIDE: [&str; 9] = ["0", "10", "20", "30", "40", "50", "60", "80", "100"];
 /// What `sound_every` steps through, in rounds, and `sound_delay`, in seconds.
 const EVERY: [&str; 5] = ["2", "3", "4", "5", "6"];
 const DELAY: [&str; 9] = ["0.1", "0.2", "0.3", "0.4", "0.5", "0.6", "0.8", "1", "1.2"];
-/// What a dog's `kill_resets` and `fetches` step through; Own leaves them off.
+/// What a dog's `kill_resets` and `fetches`, and jumper cables' `teammate`, step through; Own leaves them off.
 const RESETS: [&str; 2] = ["0", "1"];
 /// What a dog's `charge` steps through, in pixels; Own never charges.
 const CHARGE: [&str; 6] = ["0", "120", "160", "200", "260", "320"];
@@ -121,7 +121,7 @@ fn number(v: f32) -> String {
 /// What a picker can name: effects.txt's sections, the weapon sounds and the sound groups found, how often and how
 /// late a sound plays, the patterns of a gun's shots, which zombies a burst's shots go to, how far its later shots
 /// reach outside the view, whether a dog's killing bite is ready again at once, whether it fetches hearts, how far it
-/// runs into a horde, or the player card whose own it is.
+/// runs into a horde, whether jumper cables arc to a teammate, or the player card whose own it is.
 fn choices(store: &dyn Store, pick: usize, players: &[String]) -> Vec<String> {
     match PICKS[pick] {
         "player" => return players.to_vec(),
@@ -135,7 +135,7 @@ fn choices(store: &dyn Store, pick: usize, players: &[String]) -> Vec<String> {
         "outside" => return OUTSIDE.map(str::to_string).to_vec(),
         "sound_every" => return EVERY.map(str::to_string).to_vec(),
         "sound_delay" => return DELAY.map(str::to_string).to_vec(),
-        "kill_resets" | "fetches" => return RESETS.map(str::to_string).to_vec(),
+        "kill_resets" | "fetches" | "teammate" => return RESETS.map(str::to_string).to_vec(),
         "charge" => return CHARGE.map(str::to_string).to_vec(),
         _ => {}
     }
@@ -326,7 +326,7 @@ impl Editor {
                 "pattern" => "fan".into(),
                 "targets" => "same".into(),
                 "outside" => "its whole range".into(),
-                "kill_resets" | "fetches" => "off".into(),
+                "kill_resets" | "fetches" | "teammate" => "off".into(),
                 "charge" => "never".into(),
                 "player" => "every player's".into(),
                 "sound_every" => "every round".into(),

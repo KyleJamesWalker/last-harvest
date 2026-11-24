@@ -4661,6 +4661,35 @@ mod tests {
     }
 
     #[test]
+    fn the_weapon_page_steps_jumper_cables_teammate_arc_in_both_editors() {
+        for modding in [false, true] {
+            let dir = tmp().join(if modding { "teammate-mod" } else { "teammate" });
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            let mut e = editor_in(&dir, dir.join("art.txt"));
+            if modding {
+                e.set_modding();
+            }
+            e.switch_to("DATA_POWERUPS_JUMPER_CABLES".into());
+            let line = |e: &Editor| e.data.as_ref().and_then(|d| d.table.entries(&d.section).into_iter().find(|l| l.key == "teammate")).map(|l| l.value);
+            assert_eq!(line(&e).as_deref(), Some("1"), "the game's own arcs to a teammate");
+            let pick = weapons::pick("teammate");
+            e.act(Action::WeaponTab(3), false);
+            assert!(e.buttons().iter().any(|b| b.action == Action::WeaponPick(pick, 1)), "its picker shows");
+            e.act(Action::WeaponPick(pick, 0), false);
+            assert_eq!(line(&e), None, "Own leaves it off");
+            e.act(Action::WeaponPick(pick, 1), false);
+            assert_eq!(line(&e).as_deref(), Some("0"), "modding {modding}");
+            e.act(Action::WeaponPick(pick, 1), false);
+            assert_eq!(line(&e).as_deref(), Some("1"), "modding {modding}");
+            buttons_fit(&e);
+            e.act(Action::Save, false);
+            assert!(!e.unsaved(), "the game reads it");
+            std::fs::remove_dir_all(&dir).unwrap();
+        }
+    }
+
+    #[test]
     fn the_weapon_page_steps_a_bursts_outside_reach_in_both_editors() {
         for modding in [false, true] {
             let dir = tmp().join(if modding { "outside-mod" } else { "outside" });
