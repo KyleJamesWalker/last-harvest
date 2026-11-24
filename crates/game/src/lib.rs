@@ -1622,7 +1622,11 @@ mod tests {
         game.record_replays(vec![("game".into(), "test".into())]);
         game.open(Scene::Harvest);
         for i in 0..400 {
-            let pressed = if i == 100 || i == 160 { if i == 100 { Buttons::START } else { Buttons::A } } else { Buttons::NONE };
+            let pressed = match i {
+                100 => Buttons::START,
+                160 => Buttons::A,
+                _ => Buttons::NONE,
+            };
             game.update(&Input { held: Buttons::UP, pressed, ..Default::default() }, 1.0 / 60.0);
         }
         game.open(Scene::Title);

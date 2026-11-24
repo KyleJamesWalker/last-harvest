@@ -597,7 +597,9 @@ impl Harvest {
         self.view_cone_from(c, cam, walk.unwrap_or(self.eye().pos));
         if let Some(w) = walk {
             // The camera, walked away from the player.
-            c.circle((w[0] - cam[0]) * map_scale(), (w[1] - 6.0 - cam[1]) * map_scale(), 9.0, GUIDE);
+            let at = [(w[0] - cam[0]) * map_scale(), (w[1] - 6.0 - cam[1]) * map_scale()];
+            c.circle(at[0], at[1], 15.0, [0.0, 0.0, 0.0, 0.8]);
+            c.circle(at[0], at[1], 10.0, GUIDE);
         }
         let Some(p) = photo.filter(|p| p.guides && !clean) else { return };
         // The middle square, as the capture's square crop takes it.
