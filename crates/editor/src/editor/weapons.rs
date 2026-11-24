@@ -9,11 +9,11 @@ use super::*;
 const COLS: usize = 10;
 const COL_X: f32 = CANVAS.x + 212.0;
 const COL_W: f32 = 34.0;
-const HEAD_Y: f32 = CANVAS.y + 44.0;
-const STAT_Y: f32 = CANVAS.y + 80.0;
+const HEAD_Y: f32 = CANVAS.y + 34.0;
+const STAT_Y: f32 = CANVAS.y + 62.0;
 const STAT_H: f32 = 25.0;
 /// The picker tabs, then each tab's rows.
-const PICK_Y: f32 = CANVAS.y + 384.0;
+const PICK_Y: f32 = CANVAS.y + 412.0;
 const PICK_H: f32 = 26.0;
 const DOES_Y: f32 = CANVAS.y + 28.0;
 const DOES_W: f32 = 114.0;
@@ -22,7 +22,7 @@ const STYLE: Rect = Rect { x: SIDE_X + SIDE_W / 2.0 + 8.0, y: PREVIEW.y + PREVIE
 /// The lines the pickers set, in order.
 const PICKS: [&str; 13] = ["effect", "bullet", "pattern", "targets", "outside", "sound", "sound_every", "sound_after", "sound_delay", "player", "kill_resets", "fetches", "charge"];
 /// The pickers' tabs and the slice of `PICKS` each shows.
-const PICK_TABS: [(&str, std::ops::Range<usize>); 3] = [("Shots", 0..5), ("Sound & player", 5..10), ("Dog", 10..13)];
+const PICK_TABS: [(&str, std::ops::Range<usize>); 4] = [("Shots", 0..3), ("Burst", 3..5), ("Sound", 5..9), ("Player & dog", 9..13)];
 /// What `outside` steps through, in pixels; Own leaves a burst its whole range.
 const OUTSIDE: [&str; 9] = ["0", "10", "20", "30", "40", "50", "60", "80", "100"];
 /// What `sound_every` steps through, in rounds, and `sound_delay`, in seconds.
