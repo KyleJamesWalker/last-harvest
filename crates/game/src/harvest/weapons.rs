@@ -14,6 +14,7 @@ use crate::{Sfx, Tier};
 use crate::art::Art;
 
 const MAX_PATCHES: usize = 80;
+const BLAST_CLEARANCE: f32 = 16.0;
 const PATCH_TICK: f32 = 0.25;
 const BURN_TICK: f32 = 0.3;
 pub(super) const BOLT_LIFE: f32 = 0.18;
@@ -1479,6 +1480,7 @@ impl Harvest {
         let mut thrown = false;
         for _ in 0..self.stat(a, Stat::Count).max(1.0) as u32 {
             let Some(to) = self.crowd(range) else { break };
+            let to = if book().defs[a.def].lands == Lands::Blast { self.clear_of_thrower(to, radius) } else { to };
             self.thrown.push(Grenade { from: self.actor().pos, to, t: 0.0, kind: Thrown::Lob { def: a.def, damage, radius, life, slow }, by: Some(a.def), owner: self.actor });
             thrown = true;
         }
@@ -1486,6 +1488,18 @@ impl Harvest {
             self.weapon_sound(a, Sfx::Throw, sounds);
         }
         thrown
+    }
+
+    /// Where a lobbed blast aimed at `to` lands: moved out along the throw until the thrower stands clear of its hurt.
+    fn clear_of_thrower(&self, to: [f32; 2], radius: f32) -> [f32; 2] {
+        let from = self.actor().pos;
+        let safe = radius * self.actor().kit.mods.blast * crate::tuning::tuning().blast_near + BLAST_CLEARANCE;
+        let d = sub(to, from);
+        if len(d) >= safe {
+            return to;
+        }
+        let way = if len(d) > 0.01 { norm(d) } else { self.actor().aim };
+        [from[0] + way[0] * safe, from[1] + way[1] * safe]
     }
 
     fn lob_flare(&mut self, a: Armed, sounds: &mut Vec<Sfx>) -> bool {
@@ -1724,6 +1738,14 @@ mod tests {
             }
         }
         start - h.zombies.first().map_or(0.0, |z| z.hp)
+    }
+
+    #[test]
+    fn a_lobbed_blast_at_a_zombie_underfoot_lands_clear_of_its_thrower() {
+        let mut h = with("stump_charge", [12.0, 0.0]);
+        let hp = h.me().hp;
+        let hurt = hurt_after(&mut h, 8.0);
+        assert!(hurt > 0.0 && h.me().hp == hp, "the zombie lost {hurt}, the thrower {}", hp - h.me().hp);
     }
 
     #[test]
