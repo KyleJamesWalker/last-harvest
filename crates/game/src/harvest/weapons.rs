@@ -15,6 +15,7 @@ use crate::art::Art;
 
 const MAX_PATCHES: usize = 80;
 const BLAST_CLEARANCE: f32 = 16.0;
+const TACKS_ALONE: f32 = 20.0;
 const PATCH_TICK: f32 = 0.25;
 const BURN_TICK: f32 = 0.3;
 pub(super) const BOLT_LIFE: f32 = 0.18;
@@ -518,6 +519,13 @@ impl Decoy {
 fn in_cone(d: [f32; 2], dir: [f32; 2], half: f32) -> bool {
     let l = len(d);
     l > 1e-3 && (d[0] * dir[0] + d[1] * dir[1]) / l >= fm::cos(half)
+}
+
+/// Where a tacks patch draws its sprite: its middle, and a ring around it once it's wider than tacks scatter.
+pub(super) fn tack_spots(pos: [f32; 2], radius: f32) -> impl Iterator<Item = [f32; 2]> {
+    let ring = if radius > TACKS_ALONE { (radius / 6.0) as usize } else { 0 };
+    let turn = pos[0] * 0.37 + pos[1] * 0.71;
+    std::iter::once(pos).chain((0..ring).map(move |k| polar(pos, turn + k as f32 / ring as f32 * TAU, radius * 0.6)))
 }
 
 fn polar(at: [f32; 2], angle: f32, r: f32) -> [f32; 2] {

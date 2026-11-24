@@ -315,8 +315,10 @@ impl Harvest {
             match p.hazard {
                 Hazard::Tacks => {
                     let a = super::effects::effects().tacks.looping(self.t);
-                    let (sx, sy) = at(p.pos[0] - a.w() / 2.0, p.pos[1] - a.h() / 2.0);
-                    c.art(a, sx, sy, scale, false, shade([1.0, 1.0, 1.0, fade]));
+                    for s in super::weapons::tack_spots(p.pos, p.radius) {
+                        let (sx, sy) = at(s[0] - a.w() / 2.0, s[1] - a.h() / 2.0);
+                        c.art(a, sx, sy, scale, false, shade([1.0, 1.0, 1.0, fade]));
+                    }
                 }
                 Hazard::Fire => {
                     let fire = super::effects::effects().fire;
