@@ -20,11 +20,14 @@ const DOES_W: f32 = 114.0;
 const PREVIEW: Rect = Rect { x: SIDE_X, y: CANVAS.y + 340.0, w: SIDE_W, h: 220.0 };
 const STYLE: Rect = Rect { x: SIDE_X + SIDE_W / 2.0 + 8.0, y: PREVIEW.y + PREVIEW.h + 6.0, w: SIDE_W / 2.0 - 16.0, h: 28.0 };
 /// The lines the pickers set, in order.
-const PICKS: [&str; 13] = ["effect", "bullet", "pattern", "targets", "outside", "sound", "sound_every", "sound_after", "sound_delay", "player", "kill_resets", "fetches", "charge"];
+const PICKS: [&str; 16] = ["effect", "bullet", "pattern", "aim", "targets", "outside", "homing", "explode", "sound", "sound_every", "sound_after", "sound_delay", "player", "kill_resets", "fetches", "charge"];
 /// The pickers' tabs and the slice of `PICKS` each shows.
-const PICK_TABS: [(&str, std::ops::Range<usize>); 3] = [("Shots", 0..5), ("Sound & player", 5..10), ("Dog", 10..13)];
+const PICK_TABS: [(&str, std::ops::Range<usize>); 4] = [("Shots", 0..3), ("Aim", 3..8), ("Sound & player", 8..13), ("Dog", 13..16)];
 /// What `outside` steps through, in pixels; Own leaves a burst its whole range.
 const OUTSIDE: [&str; 9] = ["0", "10", "20", "30", "40", "50", "60", "80", "100"];
+/// What a gun's `homing` steps through, in degrees a second, and `explode`, in pixels; Own leaves them off.
+const HOMING: [&str; 7] = ["60", "120", "180", "240", "360", "540", "720"];
+const EXPLODE: [&str; 7] = ["8", "10", "14", "18", "24", "30", "40"];
 /// What `sound_every` steps through, in rounds, and `sound_delay`, in seconds.
 const EVERY: [&str; 5] = ["2", "3", "4", "5", "6"];
 const DELAY: [&str; 9] = ["0.1", "0.2", "0.3", "0.4", "0.5", "0.6", "0.8", "1", "1.2"];
@@ -119,7 +122,8 @@ fn number(v: f32) -> String {
 }
 
 /// What a picker can name: effects.txt's sections, the weapon sounds and the sound groups found, how often and how
-/// late a sound plays, the patterns of a gun's shots, which zombies a burst's shots go to, how far its later shots
+/// late a sound plays, the patterns of a gun's shots, where it aims, how fast its shots turn and how big they pop,
+/// which zombies a burst's shots go to, how far its later shots
 /// reach outside the view, whether a dog's killing bite is ready again at once, whether it fetches hearts, how far it
 /// runs into a horde, or the player card whose own it is.
 fn choices(store: &dyn Store, pick: usize, players: &[String]) -> Vec<String> {
@@ -131,6 +135,9 @@ fn choices(store: &dyn Store, pick: usize, players: &[String]) -> Vec<String> {
             return own.iter().cloned().chain(found).collect();
         }
         "pattern" => return last_harvest_game::weapon_patterns().map(str::to_string).to_vec(),
+        "aim" => return last_harvest_game::weapon_aims().map(str::to_string).to_vec(),
+        "homing" => return HOMING.map(str::to_string).to_vec(),
+        "explode" => return EXPLODE.map(str::to_string).to_vec(),
         "targets" => return last_harvest_game::weapon_targets().map(str::to_string).to_vec(),
         "outside" => return OUTSIDE.map(str::to_string).to_vec(),
         "sound_every" => return EVERY.map(str::to_string).to_vec(),
@@ -324,6 +331,9 @@ impl Editor {
             let now = value(&d.table, &d.section, key);
             let own = match key {
                 "pattern" => "fan".into(),
+                "aim" => "nearest".into(),
+                "homing" => "flies straight".into(),
+                "explode" => "never".into(),
                 "targets" => "same".into(),
                 "outside" => "its whole range".into(),
                 "kill_resets" | "fetches" => "off".into(),

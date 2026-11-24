@@ -377,12 +377,13 @@ impl Extract {
         let mut shots = HashMap::new();
         let ticks = |secs: f32| (secs * TICK_HZ as f32).round() as u32;
         for b in &h.bullets {
-            let from = q_pos([b.pos[0] - b.vel[0] * b.age, b.pos[1] - b.vel[1] * b.age]);
-            let key = (from[0], from[1], vel8(b.vel)[0], vel8(b.vel)[1]);
+            let (from, vel, life) = b.leg();
+            let from = q_pos(from);
+            let key = (from[0], from[1], vel8(vel)[0], vel8(vel)[1]);
             let seen = self.shots_seen.get(&key).copied().unwrap_or_else(|| {
                 let look = b.by.map_or(0, |d| d as u16 + 1);
-                new.push(Spawn::Shot { owner: b.owner as u8, look, from, vel: vel8(b.vel), life: life50(b.life + b.age) });
-                (self.next_spawn + new.len() as u32, tick, ticks(b.life + b.age))
+                new.push(Spawn::Shot { owner: b.owner as u8, look, from, vel: vel8(vel), life: life50(life) });
+                (self.next_spawn + new.len() as u32, tick, ticks(life))
             });
             shots.insert(key, seen);
         }
@@ -824,6 +825,45 @@ mod tests {
         assert!(!client.juice.flashes.is_empty() && !client.juice.rings.is_empty(), "the client lights it as the host does");
         assert!(len(sub(client.juice.rings[0].center, at)) < 0.1, "{:?} for {:?}", client.juice.rings[0].center, at);
         assert_eq!(client.fx.len(), 2, "the explosion and its smoke");
+    }
+
+    #[test]
+    fn a_client_draws_a_homing_shot_close_to_where_the_host_has_it_in_a_few_straight_runs() {
+        let mut h = Harvest::calm(3).with_players(2).hosting(1);
+        let from = [h.players[0].pos[0], h.players[0].pos[1] - 6.0];
+        let mut z = super::super::Zombie::new(super::super::Kind::named("big"), [from[0] + 40.0, from[1] + 90.0], 500.0, 1.0, 0.0);
+        z.id = 77;
+        h.zombies.push(z);
+        let steer = super::super::Steer { turn: 3.0, target: Some(77), leg: (from, 0.0, [120.0, 0.0]), pop: 0.0 };
+        h.bullets.push(super::super::Bullet { pos: from, vel: [120.0, 0.0], damage: 0.0, pierce: 0, life: 2.0, force: 0.0, hit: Vec::new(), look: None, age: 0.0, by: None, owner: 0, lift: [0.0; 2], steer });
+        let mut extract = Extract::default();
+        let (mut live, mut spawned, mut worst) = (HashMap::new(), 0, 0.0f32);
+        let mut sounds = Vec::new();
+        for tick in 1..=60u32 {
+            h.move_bullets(STEP, &mut sounds);
+            let Some(b) = h.bullets.first() else { break };
+            let fresh = extract.record(&h, tick, &[]);
+            for s in fresh.spawns {
+                if matches!(s.what, Spawn::Shot { .. }) {
+                    spawned += 1;
+                    live.insert(s.id, s);
+                }
+            }
+            for e in fresh.events {
+                if let Event::Stop { id } = e {
+                    live.remove(&id);
+                }
+            }
+            assert_eq!(live.len(), 1, "one run drawn at a time, tick {tick}");
+            let s = live.values().next().unwrap();
+            let Spawn::Shot { from, vel, .. } = s.what else { unreachable!() };
+            let age = (tick - s.tick) as f32 / TICK_HZ as f32;
+            let drawn = [unq_pos(from)[0] + vel[0] as f32 / 8.0 * age, unq_pos(from)[1] + vel[1] as f32 / 8.0 * age];
+            worst = worst.max(len(sub(drawn, b.pos)));
+        }
+        assert!(h.bullets.first().is_none_or(|b| b.vel[1] > 0.0), "it turned toward the zombie");
+        assert!(worst < 3.0, "drawn {worst} px off");
+        assert!(spawned < 30, "{spawned} runs for 60 ticks");
     }
 
     #[test]

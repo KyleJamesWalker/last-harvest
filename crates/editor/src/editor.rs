@@ -4674,6 +4674,7 @@ mod tests {
             let outside = |e: &Editor| e.data.as_ref().and_then(|d| d.table.entries(&d.section).into_iter().find(|l| l.key == "outside")).map(|l| l.value);
             assert_eq!(outside(&e), None, "the pistol leaves it out: its whole range");
             let pick = weapons::pick("outside");
+            e.act(Action::WeaponTab(1), false);
             assert!(e.buttons().iter().any(|b| b.action == Action::WeaponPick(pick, 1)));
             e.act(Action::WeaponPick(pick, 1), false);
             assert_eq!(outside(&e).as_deref(), Some("0"), "modding {modding}");
@@ -4681,6 +4682,12 @@ mod tests {
             e.act(Action::WeaponPick(pick, 1), false);
             e.act(Action::WeaponPick(pick, 1), false);
             assert_eq!(outside(&e).as_deref(), Some("30"));
+            let line = |e: &Editor, k: &str| e.data.as_ref().and_then(|d| d.table.entries(&d.section).into_iter().find(|l| l.key == k)).map(|l| l.value);
+            for (k, want) in [("aim", "nearest"), ("homing", "60"), ("explode", "8")] {
+                assert!(e.buttons().iter().any(|b| b.action == Action::WeaponPick(weapons::pick(k), 1)), "{k} on the aim tab");
+                e.act(Action::WeaponPick(weapons::pick(k), 1), false);
+                assert_eq!(line(&e, k).as_deref(), Some(want), "{k}, modding {modding}");
+            }
             buttons_fit(&e);
             e.act(Action::Save, false);
             assert!(!e.unsaved(), "the game reads it");
@@ -4830,6 +4837,16 @@ mod tests {
         let targets = |e: &Editor| e.data.as_ref().and_then(|d| d.table.entries(&d.section).into_iter().find(|l| l.key == "targets")).map(|l| l.value);
         e.act(Action::WeaponPick(weapons::pick("targets"), -1), false);
         assert_eq!(targets(&e).as_deref(), Some("same"), "the targets step from each");
+        e.key(Key::Undo);
+        let line = |e: &Editor, k: &str| e.data.as_ref().and_then(|d| d.table.entries(&d.section).into_iter().find(|l| l.key == k)).map(|l| l.value);
+        e.act(Action::WeaponPick(weapons::pick("aim"), -1), false);
+        e.act(Action::WeaponPick(weapons::pick("homing"), 1), false);
+        e.act(Action::WeaponPick(weapons::pick("explode"), 1), false);
+        assert_eq!([line(&e, "aim"), line(&e, "homing"), line(&e, "explode")].map(|v| v.unwrap_or_default()), ["random", "60", "8"]);
+        assert!(last_harvest_game::weapon_levels(&text(&e), "pistol").is_ok(), "the game reads what the pickers wrote");
+        buttons_fit(&e);
+        e.key(Key::Undo);
+        e.key(Key::Undo);
         e.key(Key::Undo);
         let gap = stat("gap");
         e.act(Action::WeaponStep(gap, -1), false);
@@ -5011,8 +5028,8 @@ mod tests {
             e.switch_to("DATA_POWERUPS_CROWS".into());
             let pick = weapons::pick("player");
             let player = |e: &Editor| e.data.as_ref().and_then(|d| d.table.entries(&d.section).into_iter().find(|l| l.key == "player")).map(|l| l.value);
-            assert!(!e.buttons().iter().any(|b| b.action == Action::WeaponPick(pick, 1)), "on the second tab");
-            e.act(Action::WeaponTab(1), false);
+            assert!(!e.buttons().iter().any(|b| b.action == Action::WeaponPick(pick, 1)), "on the third tab");
+            e.act(Action::WeaponTab(2), false);
             assert!(e.buttons().iter().any(|b| b.action == Action::WeaponPick(pick, 1)));
             buttons_fit(&e);
             e.act(Action::WeaponPick(pick, 1), false);
