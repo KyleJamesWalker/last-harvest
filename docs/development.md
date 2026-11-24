@@ -212,7 +212,7 @@ CI reads the private submodule with the `ASSETS_DEPLOY_KEY` secret. A pull reque
 | `LAST_HARVEST_SPLIT` | `2` to `4`: every run shows at least that many split-screen views, `LAST_HARVEST_BOTS` players in those past the seated ones. See [Split-screen co-op](#split-screen-co-op). |
 | `LAST_HARVEST_TOUCH` | `off`: the desktop window plays without touch, as on muOS. |
 | `LAST_HARVEST_TOP` | The output for the top screen, such as `DSI-2`. |
-| `LAST_HARVEST_SAVE` | The save file. |
+| `LAST_HARVEST_SAVE` | The save file. `replays/` and `screenshots/` go in its folder; `crash.log` stays beside the binary. |
 | `LAST_HARVEST_PAK` | The data pack. Default: `data/game_data.pak` beside the binary. |
 | `LAST_HARVEST_SOUNDS` | A folder of recorded sounds, over the pack's. Without a pack, the default is `sounds` beside the binary, then `assets/private/sounds`. |
 | `LAST_HARVEST_ENEMIES` | Enemy cards. Default: `data/enemies` beside the binary. |

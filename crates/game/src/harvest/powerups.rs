@@ -55,12 +55,16 @@ pub enum Does {
     Maul,
     /// Flies out to a crowd and sprays it with bursts.
     Drone,
+    /// Drops stakes behind the player; current arcs from them back to the player and to a teammate.
+    JumperCables,
     /// A gun shaped by its section's `aim` and `pattern`.
     Gun,
     /// A blade that cuts everything within its area across its spread, aimed by its section's `aim`.
     Blade,
     /// Throws at a crowd, and lands as its section's `lands` says.
     Lob,
+    /// A cone ahead that wets what it reaches, for its `soak` to work on.
+    Sprayer,
 }
 
 /// What a lobbed weapon does where it lands.
@@ -87,6 +91,12 @@ pub enum Aim {
     Behind,
     /// Wherever the player faces, once anything is in range.
     Around,
+    /// The one in range with the most health left, the nearest of equals.
+    Strongest,
+    /// The farthest in range.
+    Farthest,
+    /// Any one in range, picked at random.
+    Random,
 }
 
 /// Which zombies a burst's shots go to.
@@ -113,7 +123,7 @@ pub enum Pattern {
 }
 
 /// Every weapon behaviour by the name `does` gives it.
-const DOES: [(&str, Does); 22] = [
+const DOES: [(&str, Does); 24] = [
     ("pistol", Does::Pistol),
     ("shotgun", Does::Shotgun),
     ("rifle", Does::Rifle),
@@ -133,9 +143,11 @@ const DOES: [(&str, Does); 22] = [
     ("flare", Does::Flare),
     ("maul", Does::Maul),
     ("drone", Does::Drone),
+    ("jumper_cables", Does::JumperCables),
     ("gun", Does::Gun),
     ("blade", Does::Blade),
     ("lob", Does::Lob),
+    ("sprayer", Does::Sprayer),
 ];
 
 impl Does {
@@ -145,7 +157,7 @@ impl Does {
 }
 
 /// The names a weapon's `does` can give, in the file's order.
-pub fn weapon_behaviours() -> [&'static str; 22] {
+pub fn weapon_behaviours() -> [&'static str; 24] {
     DOES.map(|(k, _)| k)
 }
 
@@ -177,6 +189,11 @@ pub fn powerup_zones() -> [&'static str; 4] {
 /// The conditions a powerup's `unlock` can give; each but `start` takes a number after it.
 pub fn unlock_conditions() -> [&'static str; 8] {
     ["start", "kills", "night", "level", "nights", "dawns", "breakers", "breaker_dawns"]
+}
+
+/// Where a gun or blade can look, by the names `aim` gives them.
+pub fn weapon_aims() -> [&'static str; 7] {
+    ["nearest", "ahead", "behind", "around", "strongest", "farthest", "random"]
 }
 
 /// The patterns a gun's shots can take, by the names `pattern` gives them.
@@ -415,6 +432,8 @@ pub enum Stat {
     Blast,
     Refill,
     Money,
+    Soak,
+    SoakBurn,
 }
 
 /// How a stat reads on a card.
@@ -427,7 +446,7 @@ enum Shown {
 }
 
 impl Stat {
-    const ALL: [Stat; 30] = [
+    const ALL: [Stat; 32] = [
         Stat::Cooldown,
         Stat::Damage,
         Stat::Count,
@@ -458,6 +477,8 @@ impl Stat {
         Stat::Blast,
         Stat::Refill,
         Stat::Money,
+        Stat::Soak,
+        Stat::SoakBurn,
     ];
 
     fn key(self) -> &'static str {
@@ -492,6 +513,8 @@ impl Stat {
             Stat::Blast => "blast",
             Stat::Refill => "refill",
             Stat::Money => "money",
+            Stat::Soak => "soak",
+            Stat::SoakBurn => "soak_burn",
         }
     }
 
@@ -527,6 +550,8 @@ impl Stat {
             Stat::Blast => "Blast",
             Stat::Refill => "Refill",
             Stat::Money => "Hearts",
+            Stat::Soak => "Soaks",
+            Stat::SoakBurn => "Burns x",
         }
     }
 
@@ -541,12 +566,12 @@ impl Stat {
     fn for_weapons(self) -> bool {
         matches!(
             self,
-            Stat::Cooldown | Stat::Damage | Stat::Count | Stat::Range | Stat::Area | Stat::Pierce | Stat::Speed | Stat::Duration | Stat::Spread | Stat::Knockback | Stat::Slow | Stat::Gap
+            Stat::Cooldown | Stat::Damage | Stat::Count | Stat::Range | Stat::Area | Stat::Pierce | Stat::Speed | Stat::Duration | Stat::Spread | Stat::Knockback | Stat::Slow | Stat::Gap | Stat::Soak | Stat::SoakBurn
         )
     }
 
     fn for_passives(self) -> bool {
-        !matches!(self, Stat::Count | Stat::Range | Stat::Duration | Stat::Spread | Stat::Slow | Stat::Gap | Stat::Refill | Stat::Money)
+        !matches!(self, Stat::Count | Stat::Range | Stat::Duration | Stat::Spread | Stat::Slow | Stat::Gap | Stat::Refill | Stat::Money | Stat::Soak | Stat::SoakBurn)
     }
 
     /// A weapon's value for a stat the file leaves out.
@@ -566,7 +591,7 @@ impl Stat {
     fn shown(self, kind: Kind) -> Shown {
         match self {
             _ if kind == Kind::Passive && self.scales() => Shown::Percent,
-            Stat::Cooldown | Stat::Duration | Stat::Drums | Stat::Gap => Shown::Seconds,
+            Stat::Cooldown | Stat::Duration | Stat::Drums | Stat::Gap | Stat::Soak => Shown::Seconds,
             Stat::Crit | Stat::Luck | Stat::Slow => Shown::Chance,
             _ => Shown::Number,
         }
@@ -607,12 +632,20 @@ pub struct Def {
     pub targets: Targets,
     /// For a burst that `targets each`, how far its later shots reach a zombie outside the view; None for its range.
     pub outside: Option<f32>,
+    /// For a gun, degrees a second its shots turn toward their target, finding another if it falls; 0 flies straight.
+    pub homing: f32,
+    /// For a gun, the pixels of the blast each shot pops in where it hits or runs out; 0 for none.
+    pub explode: f32,
+    /// For a gun, its shots pass through every zombie but the one they were fired at while it stands.
+    pub through: bool,
     /// For a dog, a bite that kills is ready again at once.
     pub kill_resets: bool,
     /// For a dog, with nothing to bite it brings its player a heart lying beyond their magnet.
     pub fetches: bool,
     /// For a dog, with nothing to bite or fetch it runs into a horde this far from its player; 0 never.
     pub charge: f32,
+    /// For jumper cables, an arc also runs to the nearest living teammate within range.
+    pub teammate: bool,
     /// For a lob, what it does where it lands.
     pub lands: Lands,
     /// For a weapon, how each attack shakes the camera and lights the ground.
@@ -635,6 +668,10 @@ pub struct Feel {
 /// The sounds with a voice of their own, by the name `sound` gives them; any other name is a group of clips.
 pub const WEAPON_SOUNDS: [(&str, crate::Sfx); 6] =
     [("shot", crate::Sfx::Shot), ("blast", crate::Sfx::Blast), ("slash", crate::Sfx::Slash), ("zap", crate::Sfx::Zap), ("bark", crate::Sfx::Bark), ("throw", crate::Sfx::Throw)];
+
+/// The most a gun's `homing` and `explode` can give.
+pub const MAX_HOMING: f32 = 1440.0;
+pub const MAX_EXPLODE: f32 = 80.0;
 
 /// The most sound groups one `powerups.txt` can name.
 const MAX_GROUPS: usize = 256;
@@ -803,9 +840,13 @@ pub fn parse(text: &str) -> Result<Book, String> {
                 pattern: Pattern::Fan,
                 targets: Targets::Same,
                 outside: None,
+                homing: 0.0,
+                explode: 0.0,
+                through: false,
                 kill_resets: false,
                 fetches: false,
                 charge: 0.0,
+                teammate: false,
                 lands: Lands::Blast,
                 feel: Feel::default(),
                 player: None,
@@ -892,7 +933,10 @@ pub fn parse(text: &str) -> Result<Book, String> {
                     "ahead" => Aim::Ahead,
                     "behind" => Aim::Behind,
                     "around" => Aim::Around,
-                    _ => return Err(format!("{n}: aim is nearest, ahead, behind or around, not {rest:?}")),
+                    "strongest" => Aim::Strongest,
+                    "farthest" => Aim::Farthest,
+                    "random" => Aim::Random,
+                    _ => return Err(format!("{n}: aim is nearest, ahead, behind, around, strongest, farthest or random, not {rest:?}")),
                 }
             }
             "targets" => {
@@ -915,6 +959,22 @@ pub fn parse(text: &str) -> Result<Book, String> {
                     "1" => true,
                     "0" => false,
                     _ => return Err(format!("{n}: fetches is 1 or 0, not {rest:?}")),
+                }
+            }
+            "homing" => def.homing = rest.parse::<f32>().ok().filter(|v| (0.0..=MAX_HOMING).contains(v)).ok_or_else(|| format!("{n}: homing is degrees a second a shot turns, 0 to {MAX_HOMING}, not {rest:?}"))?,
+            "explode" => def.explode = rest.parse::<f32>().ok().filter(|v| (0.0..=MAX_EXPLODE).contains(v)).ok_or_else(|| format!("{n}: explode is a blast's pixels, 0 to {MAX_EXPLODE}, not {rest:?}"))?,
+            "through" => {
+                def.through = match rest {
+                    "1" => true,
+                    "0" => false,
+                    _ => return Err(format!("{n}: through is 1 or 0, not {rest:?}")),
+                }
+            }
+            "teammate" => {
+                def.teammate = match rest {
+                    "1" => true,
+                    "0" => false,
+                    _ => return Err(format!("{n}: teammate is 1 or 0, not {rest:?}")),
                 }
             }
             "charge" => def.charge = rest.parse::<f32>().ok().filter(|v| v.is_finite() && *v >= 0.0).ok_or_else(|| format!("{n}: charge is pixels, 0 or more, not {rest:?}"))?,
@@ -1044,8 +1104,12 @@ mod tests {
         let count = |k: Kind| b.defs.iter().filter(|d| d.kind == k).count();
         assert!(count(Kind::Weapon) + count(Kind::Passive) >= 30);
         assert!(count(Kind::Filler) >= 3, "fillers fill all three cards when nothing else is left");
-        let start = b.defs.iter().filter(|d| d.kind == Kind::Weapon && d.unlock == Unlock::Start).count();
-        assert!((2..=4).contains(&start), "a few weapons from the start, the rest unlocked over time");
+        let weapons: Vec<&Def> = b.defs.iter().filter(|d| d.kind == Kind::Weapon).collect();
+        let start: Vec<&Def> = weapons.iter().copied().filter(|d| d.unlock == Unlock::Start).collect();
+        assert!(start.len() <= b.weapon_slots && start.len() * 2 < weapons.len(), "a first run spreads out, the rest unlocked over time");
+        for zone in weapons.iter().filter_map(|d| d.zone) {
+            assert!(start.iter().any(|d| d.zone == Some(zone)), "a weapon for {zone:?} from the start");
+        }
         let ids = |d: Tier| b.start[d as usize].iter().map(|&i| b.defs[i].id.as_str()).collect::<Vec<_>>();
         for d in Tier::ALL {
             assert_eq!(ids(d), ["pistol", "knife"], "{d:?}");
@@ -1126,6 +1190,13 @@ mod tests {
         assert_eq!((targets, g.defs[0].targets), (vec![Targets::Same, Targets::Each], Targets::Same), "the same when left out");
         assert!(parse("[g]\nkind weapon\ntargets all\nicon WHITE\n[cash]\nkind filler\nicon WHITE\n").is_err());
         assert!(parse("[a]\nicon WHITE\naim up").unwrap_err().starts_with("3: aim is"));
+        let aims: Vec<Aim> = weapon_aims().iter().map(|a| parse(&format!("[g]\nkind weapon\ndoes gun\naim {a}\nicon WHITE\n[cash]\nkind filler\nicon WHITE\n")).unwrap().defs[0].aim).collect();
+        assert_eq!(aims, [Aim::Nearest, Aim::Ahead, Aim::Behind, Aim::Around, Aim::Strongest, Aim::Farthest, Aim::Random]);
+        let g = parse("[g]\nkind weapon\ndoes gun\nhoming 270\nexplode 18\nicon WHITE\n[cash]\nkind filler\nicon WHITE\n").unwrap();
+        assert_eq!((g.defs[0].homing, g.defs[0].explode, g.defs[0].through), (270.0, 18.0, false));
+        assert!(parse("[g]\nkind weapon\ndoes gun\nthrough 1\nicon WHITE\n[cash]\nkind filler\nicon WHITE\n").unwrap().defs[0].through);
+        assert!(parse("[a]\nicon WHITE\nhoming -1").unwrap_err().starts_with("3: homing is"));
+        assert!(parse("[a]\nicon WHITE\nexplode 1000").unwrap_err().starts_with("3: explode is"));
         let outside = |v: &str| parse(&format!("[g]\nkind weapon\ndoes gun\noutside {v}\nicon WHITE\n[cash]\nkind filler\nicon WHITE\n")).map(|b| b.defs[0].outside);
         assert_eq!((outside("40"), outside("0"), g.defs[0].outside), (Ok(Some(40.0)), Ok(Some(0.0)), None), "the whole range when left out");
         let resets = |v: &str| parse(&format!("[d]\nkind weapon\ndoes dog\nkill_resets {v}\nicon WHITE\n[cash]\nkind filler\nicon WHITE\n")).map(|b| b.defs[0].kill_resets);
@@ -1137,6 +1208,9 @@ mod tests {
         let charge = |v: &str| parse(&format!("[d]\nkind weapon\ndoes dog\ncharge {v}\nicon WHITE\n[cash]\nkind filler\nicon WHITE\n")).map(|b| b.defs[0].charge);
         assert_eq!((charge("160"), charge("0"), g.defs[0].charge), (Ok(160.0), Ok(0.0), 0.0), "never when left out");
         assert!(charge("-1").unwrap_err().starts_with("4: charge is pixels"));
+        let teammate = |v: &str| parse(&format!("[d]\nkind weapon\ndoes jumper_cables\nteammate {v}\nicon WHITE\n[cash]\nkind filler\nicon WHITE\n")).map(|b| b.defs[0].teammate);
+        assert_eq!((teammate("1"), teammate("0"), g.defs[0].teammate), (Ok(true), Ok(false), false), "off when left out");
+        assert!(teammate("yes").unwrap_err().starts_with("4: teammate is 1 or 0"));
         assert!(outside("-1").is_err() && outside("far").is_err());
     }
 

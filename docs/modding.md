@@ -195,9 +195,10 @@ The game reads its rules from seven text files in `crates/game/`. The packer put
 | `[driver]` | Soul harvest: seconds into the night until the Collector's first tithe (`after`, 0 turns it off), seconds from one soul harvest to the next (`every`), and how near him, in pixels, pays the tithe (`reach`) |
 | `[grenade]` | Recharge, flight time, radius, damage, bomblets, one-screen aiming (`aim_`), and R1's quick throw (`quick_near`, `quick_far`, `quick_grow`) |
 | `[barrel]` | Health, blast radius and damage |
-| `[weapons]` | The view ahead and behind, the pistol's point-blank reach, crow and dog reach, how long fire burns, the ring at the end of a maul's crack past its top (`maul_shatter`, 0 turns it off), and how far off a crowd a drone hovers, its gun's reach and its rounds' speed (`drone_hold`, `drone_reach`, `drone_bullet`) |
+| `[weapons]` | The view ahead and behind, the pistol's point-blank reach, crow and dog reach, how long fire burns, the ring at the end of a maul's crack past its top (`maul_shatter`, 0 turns it off), how far off a crowd a drone hovers, its gun's reach and its rounds' speed (`drone_hold`, `drone_reach`, `drone_bullet`), how near a burning soaked zombie sets soaked ones alight (`soak_spread`), and the burn a blast lights soaked zombies with (`soak_blast`); 0 turns either off |
 | `[blast]` | How much any blast hurts the player, how near counts, and how far past that a weapon's lobbed blast lands from its thrower (`clear`) |
 | `[map]` | The map's scale, how far the view sees zombies for the map, how long one out of sight takes to fade, the shade outside the view, and one-screen mode's corner map: `mini` its width in screen pixels (0 for none) and `mini_reach` how far it shows from the player |
+| `[photo]` | `walk`: how fast photo mode's camera walks, in pixels a second |
 
 #### Difficulties
 
@@ -341,7 +342,7 @@ A section can instead set a shot style, which a weapon fires with `bullet NAME`.
 
 A shot-style section needs no `art`. It takes what it leaves out from `[bullet]`, the style of a gun without a `bullet` line. The pistol fires `[pistol_shot]`, the shotgun and back holster `[shotgun_pellet]`, and the rifle `[rifle_round]`. A missing or unknown sprite draws as a plain colored shape. The game's own shot sprites are the `SHOT_` placeholders.
 
-`[colors]` sets the particle colors `blood`, `dark_blood`, `dirt`, `spark`, `ember`, `gold` and `firefly`, each as red, green and blue from 0 to 1.
+`[colors]` sets the particle colors `blood`, `dark_blood`, `dirt`, `spark`, `ember`, `gold`, `firefly` and `soak`, each as red, green and blue from 0 to 1. `soak` also tints a zombie soaked in fuel.
 
 ### powerups.txt
 
@@ -367,24 +368,31 @@ Each `[id]` section is one powerup:
 | `player ID` | Makes it the player card `[ID]`'s [own](#a-players-own-weapons). Without it, every player's. |
 | `max` | Its highest level |
 
-Each stat line lists its value at each level, and a short list repeats its last value. Weapon stats are `cooldown`, `damage`, `count`, `range`, `area`, `pierce`, `speed`, `duration`, `spread`, `knockback`, `slow` and `gap`. Passive stats add together. The header lists every passive stat and which ones take a percentage.
+Each stat line lists its value at each level, and a short list repeats its last value. Weapon stats are `cooldown`, `damage`, `count`, `range`, `area`, `pierce`, `speed`, `duration`, `spread`, `knockback`, `slow`, `gap`, `soak` and `soak_burn`. Passive stats add together. The header lists every passive stat and which ones take a percentage.
 
 #### Weapons from data
 
 A new weapon needs no code. Copy a weapon's section under a new id and change its lines; **Copy** on the weapon's Data page in either editor does it. `does` picks the behavior and defaults to the id, so `does scythe` under a new id is a second scythe. These behaviors take their shape from data:
 
-- `does gun` fires `count` shots at what its `aim` finds: `nearest` (the default), `ahead`, `behind` or `around`. `pattern` spreads them:
+- `does gun` fires `count` shots at what its `aim` finds: `nearest` (the default), `ahead`, `behind`, `around`, `strongest` (the most health left), `farthest` or `random`, all within `range`. `pattern` spreads them:
     - `fan`: evenly across `spread` degrees, the default.
     - `ring`: evenly all the way round.
     - `spray`: at random across `spread`.
     - `burst`: one after another, `gap` seconds apart, each aimed as it fires. `does pistol` also fires bursts.
 - With `targets each`, each later shot of a burst goes to the nearest unshot zombie in range and in clear line of fire. `targets same`, the default, keeps every shot on one target.
 - `outside N` limits how far, in pixels, those later shots reach a zombie outside the view. Left out, they reach the whole `range`; `outside 0` keeps them in view. Once every zombie they may reach has been shot, they go again at the nearest of those, and hold fire when there is none. The burst's first shot aims as usual.
+- `homing N` turns a gun's shots up to N degrees a second toward the zombie each was fired at. When it falls, a shot turns on the nearest zombie to it within 160 pixels. Homing shots fly 1.5 times as long as `range` takes, to curve onto their target. With `aim random`, each shot of a fan, ring or spray picks its own zombie.
+- `explode N` pops a gun's shot in an N-pixel blast where it hits a zombie, cover or runs out, playing the `[pop]` effect from `effects.txt`. The blast deals the shot's `damage` to every zombie in it and sets off barrels, grows with Bigger blast and area passives, and never hurts a player itself, though a barrel it sets off can.
+- `through 1` sends a gun's shots through every zombie but the one each was fired at, while that one stands; after it falls they hit as usual. Cover still stops them. With `aim strongest` it reaches a Big or the Harvester behind a crowd.
 - `does blade` cuts everything within `area` across `spread` degrees, toward what its `aim` finds. A `spread` of 360 cuts all round.
 - `does maul` smashes the ground ahead when a zombie is within `range`: `count` cracks, `range` long and `area` wide, fan out across `spread` degrees. Each zombie on one takes `damage` and is knocked aside by `knockback`. Past its top, each crack ends in a ring (`maul_shatter` in `tuning.txt`).
 - `does drone` flies `count` drones at `speed` to zombies within `range` of the player. Each hovers off its target and fires a burst for `duration` seconds, a round every `gap` seconds across `spread` degrees, then rests for `cooldown`. Its rounds fly over cover.
+- `does jumper_cables` drives a stake in behind the player every `cooldown`; each stands for `duration` seconds, and a player has at most `count` standing, the oldest pulled first. Current arcs from the player to each of their stakes within `range`, and every zombie on an arc, `area` wide, takes `damage` a second. With `teammate 1`, an arc also runs to the nearest living teammate within `range`; arcs never hurt players. Left out or 0, it reaches only stakes. The jumper cables have it on.
 - `does dog` runs `count` dogs at `speed` to the zombie nearest the player within `range`, each biting for `damage` every `cooldown`. With `kill_resets 1`, a bite that kills is ready again at once, so a dog runs straight on through weak zombies; left out or 0, every bite waits its `cooldown`. With `fetches 1`, a dog with nothing to bite picks up a heart lying past its player's magnet, within `range` (or `charge`, if farther), and carries it back; the heart counts for that dog's player. With `charge N`, a dog with nothing to bite or fetch runs into a horde up to N pixels from its player: a zombie with `[weapons]` `dog_horde` others within `dog_horde_spread` pixels. Dogs take no damage, so a charge costs only the time away. The farm dog has all three on, with `charge 160`.
+- `does sprayer` wets everything in a cone `range` long and `spread` degrees wide along the player's heading, for `damage` and `knockback`, once anything is in it. With `soak`, that wets it in fuel.
 - `does lob` throws `count` at a crowd within `range`. `lands` sets what happens there, with its `damage`, `area`, `duration` and `slow`: `blast` (the default), `fire`, `flare` or `tacks`. A blast lands far enough out that its thrower stands clear of its hurt, `tuning.txt`'s `[blast] near` of its radius plus `[blast] clear` pixels.
+
+Any weapon's `soak` line wets each zombie its hits, bullets and burner flame reach, crows, dogs and drones included, for that many seconds. Fire pools, tacks, throws and blasts don't soak. Fire then burns a soaked zombie `soak_burn` times hotter and longer, credited to whoever lit it. A burning soaked zombie sets soaked zombies within `soak_spread` alight, and a blast lights the soaked ones it catches. The Kerosene sprayer is `does sprayer` with `soak`.
 
 Any weapon can also take:
 

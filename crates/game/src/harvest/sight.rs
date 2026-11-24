@@ -24,13 +24,14 @@ pub(super) struct Mark {
     pub rise: f32,
     pub leader: bool,
     pub boss: bool,
+    pub soaked: bool,
     /// Seconds out of sight.
     pub age: f32,
 }
 
 impl Mark {
     pub fn of(z: &Zombie) -> Self {
-        Mark { id: z.id, pos: z.pos, art: z.art(z.facing.0), flip: z.facing.1, rise: z.rise, leader: z.leader, boss: z.boss, age: 0.0 }
+        Mark { id: z.id, pos: z.pos, art: z.art(z.facing.0), flip: z.facing.1, rise: z.rise, leader: z.leader, boss: z.boss, soaked: z.soak > 0.0, age: 0.0 }
     }
 
     /// How strongly the map draws it, 1 while in sight down to 0 when forgotten.

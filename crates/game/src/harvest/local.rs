@@ -122,6 +122,9 @@ impl Harvest {
         for d in &mut self.decoys {
             d.relabel(v);
         }
+        for s in &mut self.stakes {
+            s.relabel(v);
+        }
         swap(&mut self.actor);
         swap(&mut self.paused_by);
         self.juice.tally.relabel(v);

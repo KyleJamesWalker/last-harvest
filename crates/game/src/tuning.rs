@@ -146,6 +146,8 @@ tuning! {
     drone_reach = "weapons" "drone_reach",
     drone_bullet = "weapons" "drone_bullet",
     fire_burn = "weapons" "fire_burn",
+    soak_spread = "weapons" "soak_spread",
+    soak_blast = "weapons" "soak_blast",
     blast_hurt = "blast" "hurt",
     blast_near = "blast" "near",
     blast_clear = "blast" "clear",
@@ -155,6 +157,7 @@ tuning! {
     map_shade = "map" "shade",
     map_mini = "map" "mini",
     map_mini_reach = "map" "mini_reach",
+    photo_walk = "photo" "walk",
 }
 
 /// A difficulty: a `[section]` of `tuning.txt` that isn't one of the base sections. It names itself, says whose

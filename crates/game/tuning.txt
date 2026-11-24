@@ -222,6 +222,8 @@ drone_hold 36   # how far off a crowd a drone hovers to shoot
 drone_reach 70  # how far a drone's gun reaches
 drone_bullet 320 # how fast a drone's rounds fly
 fire_burn 1.5   # seconds fire and flares keep a zombie burning after it leaves them
+soak_spread 14  # a burning soaked zombie sets soaked zombies this near burning, in pixels; 0 never
+soak_blast 12   # a blast sets soaked zombies in it burning at this damage a second; 0 never
 
 [blast]
 hurt 15         # damage any blast deals the player, less armor
@@ -235,3 +237,6 @@ memory 6        # seconds a zombie out of sight fades on the map before it's gon
 shade 0.55      # how dark the map gets outside the view ahead, 0 for not at all to 1 for black
 mini 280        # on one screen, the corner map's width in screen pixels; 0 for none
 mini_reach 96   # how far it shows from the player to its left and right edges
+
+[photo]
+walk 64         # how fast photo mode's camera walks, in pixels a second

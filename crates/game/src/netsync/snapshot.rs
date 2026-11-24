@@ -6,7 +6,7 @@ use std::f32::consts::TAU;
 use super::events::Event;
 use super::wire::{Reader, Writer};
 
-pub const VERSION: u8 = 6;
+pub const VERSION: u8 = 7;
 pub const TICK_HZ: u32 = 60;
 /// Host ticks between snapshots: 20 a second.
 pub const SEND_EVERY: u32 = 3;
@@ -270,6 +270,7 @@ pub const Z_HURT: u8 = 8;
 pub const Z_BURNING: u8 = 16;
 pub const Z_RISING: u8 = 32;
 pub const Z_SLOWED: u8 = 64;
+pub const Z_SOAKED: u8 = 128;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ZombieState {
@@ -475,6 +476,7 @@ pub const T_PATCH: u8 = 4;
 pub const T_BARREL: u8 = 5;
 pub const T_DECOY: u8 = 6;
 pub const T_TELL: u8 = 7;
+pub const T_STAKE: u8 = 8;
 
 /// Something that stays put a while: in the air, on the ground, or about to rise. The meaning of `data` is the
 /// kind's: a throw's landing spot and the low 16 bits of its throw tick; a patch's radius, birth tick and life in

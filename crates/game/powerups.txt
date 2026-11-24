@@ -33,8 +33,12 @@
 #   sound_after NAME    for weapons, a sound group that follows its sound sound_delay seconds later, such as a bolt
 #                       worked after a shot; one with no clips plays nothing
 #   sound_delay SECONDS for sound_after, how long it waits; 0.4 when left out
-#   aim     nearest | ahead | behind | around     for `does gun` and `does blade`, where it looks for a target;
-#                       nearest when left out. A blade cuts everything within area across spread degrees, 360 all round
+#   aim     nearest | ahead | behind | around | strongest | farthest | random     for `does gun` and `does blade`,
+#                       where it looks for a target in range: strongest has the most health left; nearest when left
+#                       out. A blade cuts everything within area across spread degrees, 360 all round
+#   homing  DEGREES     for `does gun`, how fast its shots turn toward their target, onto the nearest when it falls
+#   explode PIXELS      for `does gun`, the blast each shot pops in where it ends, playing effects.txt's [pop]
+#   through 1 | 0       for `does gun`, its shots pass through every zombie but the one they were fired at; 0 when left out
 #   lands   blast | fire | flare | tacks     for `does lob`, which throws count at a crowd within range, what it does
 #                       where it lands, with damage, area, duration and slow; blast when left out. It flies as its
 #                       bullet effect, the grenade when left out, and plays its effect where it lands. A blast
@@ -62,6 +66,8 @@
 #   speed 200    pixels per second              duration 1   seconds a pool, trap or burn lasts
 #   spread 30    degrees across a fan of shots  knockback 30
 #   slow 0       fraction of speed taken away   gap 0.1      seconds between a burst's shots
+#   soak 0       seconds each hit, bullet or burner's flame soaks a zombie in fuel; not pools, traps or throws
+#   soak_burn 0  how many times hotter and longer fire burns a zombie it soaked, from 1
 #
 # Passive stats are the total at that level, and passives add together. Write the ones that scale with a
 # percentage (+10% or -8%): damage, cooldown, speed, magnet, area, reach, greed, knockback, view, recharge,
@@ -112,12 +118,12 @@ zone      ahead
 unlock    start
 blurb     A spread of pellets at close range
 max       8
-cooldown  1.5 1.45 1.4 1.35 1.3 1.2 1.1 1.0
+cooldown  1.2 1.15 1.1 1.0 0.95 0.9 0.8 0.7
 damage    8 8 9 9 10 11 12 13
 count     5 7 7 9 9 11 11 13
-range     90
+range     110
 speed     200
-pierce    1
+pierce    1 1 1 2 2 2 3 3
 spread    40
 knockback 45
 
@@ -137,13 +143,65 @@ unlock    kills 500
 blurb     A slow, heavy round straight down your heading
 max       8
 find      0.15
-cooldown  2.0 1.9 1.8 1.7 1.6 1.5 1.4 1.2
+cooldown  1.5 1.4 1.3 1.2 1.1 1.0 0.9 0.75
 damage    40 50 60 70 80 95 110 130
 pierce    3 4 5 6 7 8 9 10
 range     260
 speed     420
 spread    10
 knockback 50
+
+[varmint_rifle]
+name      Varmint rifle
+kind      weapon
+does      gun
+aim       strongest
+through   1
+bullet    rifle_round
+effect    muzzle_rifle
+kick      0.06
+punch     2
+shake     0.12
+flash     1.6 1.2 0.7 5 0.1
+sound     rifle
+sound_after bolt
+sound_delay 0.6
+zone      far
+unlock    kills 1500
+blurb     Always finds the biggest thing out there
+max       8
+find      0.12
+cooldown  3.0 2.85 2.7 2.5 2.3 2.1 1.95 1.8
+damage    60 75 90 110 130 150 175 200
+pierce    0
+range     200
+speed     480
+spread    0
+knockback 60
+
+[bottle_rockets]
+name      Bottle rockets
+kind      weapon
+does      gun
+aim       random
+pattern   spray
+homing    240
+explode   14
+bullet    bottle_rocket
+sound     throw
+zone      around
+unlock    night 300
+blurb     A fistful of fireworks that curve onto zombies and pop
+max       8
+find      0.12
+cooldown  2.2 2.1 2.0 1.9 1.8 1.7 1.6 1.5
+damage    10 12 14 16 18 21 24 28
+count     2 2 3 3 4 4 5 6
+range     180
+speed     110
+spread    120
+pierce    0
+knockback 20
 
 [lantern]
 name      Lantern beam
@@ -171,6 +229,22 @@ damage    6 8 10 12 14 16 18 22
 range     34 36 38 40 44 48 52 56
 spread    50
 duration  2 2 2.5 2.5 3 3 3.5 4
+
+[kerosene]
+name      Kerosene sprayer
+kind      weapon
+does      sprayer
+zone      ahead
+unlock    kills 2000
+blurb     Soaks them in fuel; fire then burns them hotter and longer
+max       8
+cooldown  0.4
+damage    1
+knockback 0
+range     36 38 40 43 46 50 54 60
+spread    60
+soak      4 4 5 5 6 6 7 8
+soak_burn 1.5 1.7 1.9 2.1 2.3 2.5 2.75 3
 
 [pitchfork]
 name      Pitchfork
@@ -200,12 +274,12 @@ unlock    breakers 1
 blurb     A slow overhead smash that cracks the ground ahead
 max       8
 find      0.15
-cooldown  2.4 2.3 2.2 2.1 2.0 1.9 1.8 1.6
+cooldown  1.8 1.7 1.6 1.5 1.4 1.3 1.2 1.0
 damage    45 55 65 75 90 105 120 140
 # range is how far the crack runs, area how wide it is; count cracks fan out across spread degrees.
 range     40 44 48 52 56 60 64 70
-area      10 10 11 11 12 12 13 14
-count     1 1 1 2 2 2 3 3
+area      16 16 18 18 20 20 22 24
+count     1 1 2 2 2 3 3 3
 spread    30
 knockback 70
 
@@ -317,7 +391,7 @@ knockback 120
 name      Crows
 kind      weapon
 zone      around
-unlock    night 240
+unlock    start
 blurb     Birds circle you and peck at what they touch
 max       8
 count     1 2 2 3 3 4 4 5
@@ -362,13 +436,33 @@ kill_resets 1
 fetches 1
 charge 160
 
+[jumper_cables]
+name      Jumper cables
+kind      weapon
+flash     0.6 0.8 1.8 4 0.1
+zone      behind
+unlock    kills 2500
+blurb     Stakes dropped behind you; current arcs back to them
+max       8
+find      0.15
+after     2
+teammate  1
+# A stake drops each cooldown and stands for duration, count at most; an arc runs to each within range,
+# and to the nearest teammate, hurting what stands on it damage a second, area wide.
+cooldown  3.0 2.9 2.8 2.7 2.6 2.5 2.4 2.2
+damage    14 17 20 24 28 32 38 46
+range     60 64 68 74 80 86 92 100
+area      8 8 9 9 10 10 11 12
+count     1 1 1 2 2 2 2 3
+duration  5 5 5.5 5.5 6 6 6.5 7
+
 # Behind: whatever is following you.
 
 [tacks]
 name      Tacks
 kind      weapon
 zone      behind
-unlock    kills 250
+unlock    start
 blurb     Scattered behind you; they hurt and slow
 max       8
 cooldown  1.4 1.3 1.2 1.1 1.0 0.95 0.9 0.8
@@ -433,7 +527,7 @@ duration  4
 name      Molotov
 kind      weapon
 zone      far
-unlock    kills 1000
+unlock    start
 blurb     Lobbed into a crowd, leaving a pool of fire
 max       8
 cooldown  4.0 3.8 3.6 3.3 3.0 2.7 2.4 2.0
