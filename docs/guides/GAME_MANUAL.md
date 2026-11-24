@@ -192,6 +192,7 @@ These tables list what the game ships with. A mod pack can change any of them, a
 | Hunting rifle | Ahead | 500 kills over every run | 8 | A slow, heavy round straight down your heading |
 | Lantern beam | Ahead | Survive 2:00 of one night | 8 | Your light burns and slows what it falls on |
 | Weed burner | Ahead | 1500 kills over every run | 8 | A short cone of flame that sets them burning |
+| Kerosene sprayer | Ahead | 2000 kills over every run | 8 | Soaks them in fuel; fire then burns them hotter and longer |
 | Pitchfork | Ahead | 3000 kills over every run | 8 | Skewers everything in a line in front of you |
 | Post maul | Ahead | A level breaker | 8 | A slow overhead smash that cracks the ground ahead |
 | Knife | Around | From the start | 8 | Slashes everything close by |
@@ -208,6 +209,8 @@ These tables list what the game ships with. A mod pack can change any of them, a
 | Drone | Far | A level breaker survived to dawn, then found from minute 3 | 8 | Flies out like the dog and sprays full-auto bursts |
 
 <!-- /items -->
+
+The Kerosene sprayer barely hurts, but what it soaks shows a dull stain for a few seconds. Fire from any weapon, a blast or a barrel burns a soaked zombie hotter and longer, and a soaked crowd catches from one to the next. In co-op, one player can soak while another lights.
 
 ### Passives
 

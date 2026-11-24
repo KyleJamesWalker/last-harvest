@@ -61,6 +61,8 @@
 #   speed 200    pixels per second              duration 1   seconds a pool, trap or burn lasts
 #   spread 30    degrees across a fan of shots  knockback 30
 #   slow 0       fraction of speed taken away   gap 0.1      seconds between a burst's shots
+#   soak 0       seconds each hit soaks a zombie in fuel, for any weapon's hits and bullets
+#   soak_burn 0  how many times hotter and longer fire burns a zombie it soaked, from 1
 #
 # Passive stats are the total at that level, and passives add together. Write the ones that scale with a
 # percentage (+10% or -8%): damage, cooldown, speed, magnet, area, reach, greed, knockback, view, recharge,
@@ -170,6 +172,22 @@ damage    6 8 10 12 14 16 18 22
 range     34 36 38 40 44 48 52 56
 spread    50
 duration  2 2 2.5 2.5 3 3 3.5 4
+
+[kerosene]
+name      Kerosene sprayer
+kind      weapon
+does      sprayer
+zone      ahead
+unlock    kills 2000
+blurb     Soaks them in fuel; fire then burns them hotter and longer
+max       8
+cooldown  0.4
+damage    1
+knockback 0
+range     36 38 40 43 46 50 54 60
+spread    60
+soak      4 4 5 5 6 6 7 8
+soak_burn 1.5 1.7 1.9 2.1 2.3 2.5 2.75 3
 
 [pitchfork]
 name      Pitchfork
