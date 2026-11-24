@@ -196,7 +196,7 @@ The game reads its rules from seven text files in `crates/game/`. The packer put
 | `[grenade]` | Recharge, flight time, radius, damage, bomblets, one-screen aiming (`aim_`), and R1's quick throw (`quick_near`, `quick_far`, `quick_grow`) |
 | `[barrel]` | Health, blast radius and damage |
 | `[weapons]` | The view ahead and behind, the pistol's point-blank reach, crow and dog reach, how long fire burns, the ring at the end of a maul's crack past its top (`maul_shatter`, 0 turns it off), and how far off a crowd a drone hovers, its gun's reach and its rounds' speed (`drone_hold`, `drone_reach`, `drone_bullet`) |
-| `[blast]` | How much any blast hurts the player, and how near counts |
+| `[blast]` | How much any blast hurts the player, how near counts, and how far past that a weapon's lobbed blast lands from its thrower (`clear`) |
 | `[map]` | The map's scale, how far the view sees zombies for the map, how long one out of sight takes to fade, the shade outside the view, and one-screen mode's corner map: `mini` its width in screen pixels (0 for none) and `mini_reach` how far it shows from the player |
 
 #### Difficulties
@@ -384,7 +384,7 @@ A new weapon needs no code. Copy a weapon's section under a new id and change it
 - `does maul` smashes the ground ahead when a zombie is within `range`: `count` cracks, `range` long and `area` wide, fan out across `spread` degrees. Each zombie on one takes `damage` and is knocked aside by `knockback`. Past its top, each crack ends in a ring (`maul_shatter` in `tuning.txt`).
 - `does drone` flies `count` drones at `speed` to zombies within `range` of the player. Each hovers off its target and fires a burst for `duration` seconds, a round every `gap` seconds across `spread` degrees, then rests for `cooldown`. Its rounds fly over cover.
 - `does dog` runs `count` dogs at `speed` to the zombie nearest the player within `range`, each biting for `damage` every `cooldown`. With `kill_resets 1`, a bite that kills is ready again at once, so a dog runs straight on through weak zombies; left out or 0, every bite waits its `cooldown`. With `fetches 1`, a dog with nothing to bite picks up a heart lying past its player's magnet, within `range` (or `charge`, if farther), and carries it back; the heart counts for that dog's player. With `charge N`, a dog with nothing to bite or fetch runs into a horde up to N pixels from its player: a zombie with `[weapons]` `dog_horde` others within `dog_horde_spread` pixels. Dogs take no damage, so a charge costs only the time away. The farm dog has all three on, with `charge 160`.
-- `does lob` throws `count` at a crowd within `range`. `lands` sets what happens there, with its `damage`, `area`, `duration` and `slow`: `blast` (the default), `fire`, `flare` or `tacks`. A blast lands far enough out that its thrower stands clear of its hurt, `tuning.txt`'s `[blast] near` of its radius plus 16 pixels.
+- `does lob` throws `count` at a crowd within `range`. `lands` sets what happens there, with its `damage`, `area`, `duration` and `slow`: `blast` (the default), `fire`, `flare` or `tacks`. A blast lands far enough out that its thrower stands clear of its hurt, `tuning.txt`'s `[blast] near` of its radius plus `[blast] clear` pixels.
 
 Any weapon can also take:
 

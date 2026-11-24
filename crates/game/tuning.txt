@@ -226,6 +226,7 @@ fire_burn 1.5   # seconds fire and flares keep a zombie burning after it leaves 
 [blast]
 hurt 15         # damage any blast deals the player, less armor
 near 0.7        # the player is hurt within this fraction of its radius
+clear 16        # a weapon's lobbed blast lands at least this many pixels past that from its thrower
 
 [map]
 scale 3         # screen pixels per art pixel on the map

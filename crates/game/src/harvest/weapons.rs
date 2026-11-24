@@ -14,7 +14,6 @@ use crate::{Sfx, Tier};
 use crate::art::Art;
 
 const MAX_PATCHES: usize = 80;
-const BLAST_CLEARANCE: f32 = 16.0;
 const TACKS_ALONE: f32 = 20.0;
 const PATCH_TICK: f32 = 0.25;
 const BURN_TICK: f32 = 0.3;
@@ -1501,7 +1500,8 @@ impl Harvest {
     /// Where a lobbed blast aimed at `to` lands: moved out along the throw until the thrower stands clear of its hurt.
     fn clear_of_thrower(&self, to: [f32; 2], radius: f32) -> [f32; 2] {
         let from = self.actor().pos;
-        let safe = radius * self.actor().kit.mods.blast * crate::tuning::tuning().blast_near + BLAST_CLEARANCE;
+        let t = crate::tuning::tuning();
+        let safe = radius * self.actor().kit.mods.blast * t.blast_near + t.blast_clear;
         let d = sub(to, from);
         if len(d) >= safe {
             return to;

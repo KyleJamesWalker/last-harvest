@@ -148,6 +148,7 @@ tuning! {
     fire_burn = "weapons" "fire_burn",
     blast_hurt = "blast" "hurt",
     blast_near = "blast" "near",
+    blast_clear = "blast" "clear",
     map_scale = "map" "scale",
     map_sight = "map" "sight",
     map_memory = "map" "memory",
