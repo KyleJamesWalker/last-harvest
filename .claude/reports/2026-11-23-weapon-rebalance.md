@@ -1,6 +1,6 @@
 # Weapon rebalance (ROADMAP §24), 2026-11-23
 
-**Bottom line.** Three weapons are dead under every test: the shotgun, the hunting rifle and the post maul. Each got a data-only buff that leaves it below the median weapon, and those are the only game data changes on this branch. No passive is clearly dead; five can't be judged by a scripted player. Nothing strong was touched: the pistol, the four crowd-killers (flare, molotov, tacks, scarecrow), the knife and the dog are flagged below with option packs. For #204's bigger start pool, `[levelup] held_weight 2.5` restores the first-night dawn rate (34% → 67%, against 64% today) and keeps the variety #204 buys; it is a pack here, not applied.
+**Bottom line.** Three weapons are dead under every test: the shotgun, the hunting rifle and the post maul. Each got a data-only buff that leaves it below the median weapon, and those are the only game data changes on this branch. No passive is clearly dead; several can't be judged by a scripted player. Nothing strong was touched: the pistol, the four crowd-killers (flare, molotov, tacks, scarecrow), the knife and the dog are flagged below with option packs. For #204's bigger start pool, `[levelup] held_weight 2.5` restores the first-night dawn rate (34% → 67%, against 64% today) and keeps the variety #204 buys; it is a pack here, not applied.
 
 | Change | Status | Level-8 useful DPS, circle / avoid | Level-8 first fall, circle / avoid (s) |
 |---|---|---|---|
@@ -17,7 +17,7 @@ For scale, the median weapon does about 145 useful DPS at level 8 on the circle 
 
 ## Method
 
-- `last-harvest-sandbox` built from this branch (`dev-0c176e5` for the baseline, `dev-573d6a2` after the buffs), normal difficulty, 72×54 generated farm. About 19,000 nights.
+- `last-harvest-sandbox` built from this branch (`dev-0c176e5` for the baseline, `dev-573d6a2` after the buffs), normal difficulty, 72×54 generated farm. About 24,000 nights. Cells from the level-4 pairs, pressure pairs, co-op and passive batches were replayed at the end from a second build and matched exactly.
 - Every variant ran as a mod pack (`--mods`) on the same binary and the same seeds as its baseline, so differences are paired. After each buff was written into `powerups.txt` the rebuilt binary reproduced the pack's numbers to the last digit.
 - **Useful DPS** is the weapon's own damage capped at each zombie's remaining health, per second held. **First fall** is the undying player's first time at 0 HP, in seconds; a night with no fall counts 600. **Kills** are the whole night's, grenades included.
 
@@ -26,6 +26,7 @@ For scale, the median weapon does about 145 useful DPS at level 8 on the circle 
 | Singles, circle | every weapon at levels 1..8 and its breaker | circle walk, turnaround every 6 s, grenade every 12 s, no picks, undying | 12 |
 | Singles, avoid | levels 1, 4, 8, breaker | `--walk avoid --no-throw` | 12 |
 | Singles, no grenades | levels 4, 8 | circle, `--no-throw` | 12 |
+| Shotgun first | `pistol,knife --pick first:shotgun --locked --mortal --walk avoid`, before and after | Normal | 300 |
 | Pairs, level 4 | all 171 pairs and each weapon alone | circle | 10 |
 | Pairs, top, pressure | all 171 pairs at level 8 | circle, `tools/matrix/pressure` (spawns to 25/s, cap 600) | 10 |
 | Co-op | each weapon at 4 and 8; pistol:4 + knife:4 + each weapon at 4 | `--players 2`, circle | 10 |
@@ -64,6 +65,8 @@ For scale, the median weapon does about 145 useful DPS at level 8 on the circle 
 
 "As a level-4 partner" is the mean change it makes to each of the other 18 weapons' night (kills and first fall) when added at level 4, and how many of those pairs kill less than the other weapon alone. "Random picker takes it" is the share of 400 mortal nights in which a random pick took its card at least once (every powerup unlocked). "`first:`" is the change in survival when the picker takes that powerup first whenever it is offered, against the plain held picker (199 ±9 s); its standard error is about ±12 s and no powerup moves it by more than 20 s, so it separates nothing.
 
+Without the timed grenade the weak weapons' own numbers barely move (level-8 useful DPS: shotgun 30, rifle 30, maul 55), but their nights lose a third of their kills (shotgun:8 971 → 607): the grenade was doing much of the work.
+
 The three buffed weapons now, same seeds: shotgun 14 18 19 31 35 44 61 73 130; rifle 14 14 20 25 30 30 38 45 79; maul 21 27 44 48 61 56 79 88 159.
 
 ## Every passive
@@ -91,8 +94,8 @@ The three buffed weapons now, same seeds: shotgun 14 18 19 31 35 44 61 73 130; r
 
 The kit alone reaches dawn in 33% of the mortal nights, so most passives at top help a held-picking player. The pressure columns are the mean over all 19 weapons of adding the passive at top to that weapon at top.
 
-- **Pulling weight everywhere:** quick hands, hollow points, heavy rounds, bigger blast, canned peaches, vaccine, grave pull (the best dawn rate, 83%, through faster levels).
-- **Not measurable with this player, not dead:** running shoes (the script doesn't use speed to escape, and kills drop 11% under pressure, perhaps because the walker leaves its targets behind), rabbit's foot, blood price and grave pull under a fixed build, brighter lantern, grenade belt (the timer throws one grenade every 12 s whatever the belt holds).
+- **Pulling weight everywhere:** quick hands, hollow points, heavy rounds, bigger blast, canned peaches, vaccine, and grave pull for a player who takes cards (the best dawn rate, 83%, through faster levels).
+- **Not measurable with this player, not dead:** running shoes (the script doesn't use speed to escape, and kills drop 11% under pressure, perhaps because the walker leaves its targets behind), rabbit's foot and blood price (they need a player who takes cards; with the held picker they are mid-table), brighter lantern, grenade belt (the timer throws one grenade every 12 s whatever the belt holds).
 - **Worth a look by hand:** fuel drums. It adds 30% kills under pressure but lowers the mortal walker's survival (393 ±27 s against 472 ±23, dawn 27% against 33%); the walker may be standing in its own bigger barrel blasts. Not changed.
 
 No passive was changed.
@@ -105,7 +108,7 @@ No passive was changed.
 
 **Strong, flagged and left alone:**
 - **Pistol.** Still the survival weapon: first fall 318 s alone at level 8 against 142 for the knife, and +123 s to the average level-4 partner. §26 is still open; its two leading options are rebuilt below on today's data.
-- **Flare, molotov, tacks, scarecrow.** All four sit at the kill ceiling from level 4 (3,000+ of about 3,250 kills a night) and the flare and scarecrow nearly from level 1 (154 and 134 useful DPS at level 1, more than most weapons at level 6). Their upper levels add almost nothing (flare 1.4× from level 1 to 8), so the first card is the whole weapon. None keeps a walking player alive (first fall 55–80 s at level 8).
+- **Flare, molotov, tacks, scarecrow.** All four sit near the kill ceiling from level 4 (2,700–3,100 of about 3,250 kills a night) and the flare and scarecrow nearly from level 1 (154 and 134 useful DPS at level 1, more than most weapons at level 6). Their upper levels add almost nothing (flare 1.4× from level 1 to 8), so the first card is the whole weapon. None keeps a walking player alive (first fall 55–80 s at level 8).
 - **Knife and dog.** The best all-round pairs after the pistol; the dog is fixed (182 DPS at level 8, 229 s first fall) and is now the second-best survival weapon.
 - **Zapper.** Mid-table DPS but the third-best first fall (165 s at level 8, 251 s at the breaker).
 - **Drone.** 34 DPS at level 4, 122 at level 5 when its second drone and pierce arrive: the steepest single step in the game.
@@ -126,7 +129,7 @@ Each is one commit with the numbers in its body. All three attack overkill throu
 | cooldown only | 13 / 23 / 43 / 64 | 65 / 84 / 87 | 1110 | 17 / 28 / 59 / 88 | 88 / 120 / 150 | 2604, 226 ±12 |
 | `shotgun-strong` pack | 21 / 35 / 79 / 126 | 79 / 97 / 110 | 1611 | 27 / 49 / 108 / 179 | 107 / 213 / 381 | 2521, 265 ±11 |
 
-With two players its level-8 kills go 1,349 → 2619; under pressure alone 1,654 → 2830, with the pistol 5,829 → 6611 (first fall 238 → 287 s). It is a start weapon, so the first night was checked: dawn reached 64% → 63% (300 seeds, held picker, fresh save).
+With two players its level-8 kills go 1,349 → 2619; under pressure alone 1,654 → 2830, with the pistol 5,829 → 6611 (first fall 238 → 287 s). It is a start weapon, so the first night was checked two ways on a fresh save (300 seeds each). The held picker, which mostly stacks the pistol and knife and ends holding the shotgun in 28% of nights, is unchanged: dawn 64% → 63%. A picker that takes the shotgun whenever it is offered (`--pick first:shotgun`, holding it in 99% of nights) goes from dawn 6% to 17% and survival 229 ±7 → 307 ±9 s. So the buff helps a shotgun run a good deal, and a shotgun-first run is still far behind stacking the pistol and knife (64%). ROADMAP §20 calls pistol + shotgun a strong first-run pair in play; this needs the owner's confirmation on the device.
 
 **Hunting rifle** (ada8f55)
 
@@ -191,7 +194,7 @@ A side finding: with every powerup unlocked the same held picker almost never se
 | every powerup unlocked, 3 | 15% ±2 | 313 ±8 | 174 | 5.5 |
 | every powerup unlocked, 4 | 24% ±2 | 364 ±9 | 161 | 6.2 |
 
-So a veteran save plays a much harder game than a fresh one at `held_weight 1`, and 2.5 helps there too (between 7% and 15%). A weight that grows with the pool would be a code change; noted for §20.
+So a veteran save plays a much harder game than a fresh one at `held_weight 1`, and a higher weight helps there too (2.5 was not run on the full pool). A weight that grows with the pool would be a code change; noted for §20.
 
 **2. Holster and pitchfork** (`holster-quick.pak`, `pitchfork-quick.pak`)
 
