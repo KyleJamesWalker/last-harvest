@@ -168,7 +168,7 @@ Each weapon covers a zone, shown on its card:
 
 ### Finds and unlocks
 
-Eight powerups are open from the first night. Each of the rest has a condition: kills, a long enough night, a level, nights played, dawns survived, or a level breaker (a rare card that takes a weapon one level past its top), alone or followed by dawn in the same night. Kills and nights add up over every run on the same difficulty. Night length and level count your best single run on it.
+Eleven powerups are open from the first night: six weapons, at least one for every zone, and five passives. Each of the rest has a condition: kills, a long enough night, a level, nights played, dawns survived, or a level breaker (a rare card that takes a weapon one level past its top), alone or followed by dawn in the same night. Kills and nights add up over every run on the same difficulty. Night length and level count your best single run on it.
 
 Meeting a condition makes the powerup findable. A level-up may then offer it on a green FOUND card, and taking that card unlocks it for good.
 
@@ -190,6 +190,8 @@ These tables list what the game ships with. A mod pack can change any of them, a
 | Pistol | Ahead, then all round | From the start | 8 | Shoots what's ahead, then fans out to a new zombie with every shot |
 | Shotgun | Ahead | From the start | 8 | A spread of pellets at close range |
 | Hunting rifle | Ahead | 500 kills over every run | 8 | A slow, heavy round straight down your heading |
+| Varmint rifle | Far | 1500 kills over every run | 8 | Always finds the biggest thing out there |
+| Bottle rockets | Around | Survive 5:00 of one night | 8 | A fistful of fireworks that curve onto zombies and pop |
 | Lantern beam | Ahead | Survive 2:00 of one night | 8 | Your light burns and slows what it falls on |
 | Weed burner | Ahead | 1500 kills over every run | 8 | A short cone of flame that sets them burning |
 | Kerosene sprayer | Ahead | 2000 kills over every run | 8 | Soaks them in fuel; fire then burns them hotter and longer |
@@ -197,14 +199,15 @@ These tables list what the game ships with. A mod pack can change any of them, a
 | Post maul | Ahead | A level breaker | 8 | A slow overhead smash that cracks the ground ahead |
 | Knife | Around | From the start | 8 | Slashes everything close by |
 | Scythe | Around | 100 kills over every run | 8 | A full sweep all the way around you |
-| Crows | Around | Survive 4:00 of one night | 8 | Birds circle you and peck at what they touch |
+| Crows | Around | From the start | 8 | Birds circle you and peck at what they touch |
 | Bug zapper | Around | 2000 kills over every run, then found from minute 2 | 8 | Lightning that jumps from one zombie to the next |
 | Farm dog | Around | 1 dawn survived | 8 | A good dog that runs down whatever comes close |
-| Tacks | Behind | 250 kills over every run | 8 | Scattered behind you; they hurt and slow |
+| Jumper cables | Behind | 2500 kills over every run, then found from minute 2 | 8 | Stakes dropped behind you; current arcs back to them |
+| Tacks | Behind | From the start | 8 | Scattered behind you; they hurt and slow |
 | Gas trail | Behind | Survive 7:00 of one night | 8 | Leaves a line of burning fuel where you walk |
 | Back holster | Behind | Survive 5:00 of one night | 8 | A sawn-off that fires behind you |
 | Scarecrow decoy | Behind | 4000 kills over every run, then found only in a leader's chest | 8 | Dropped behind you; draws them in, then bursts |
-| Molotov | Far | 1000 kills over every run | 8 | Lobbed into a crowd, leaving a pool of fire |
+| Molotov | Far | From the start | 8 | Lobbed into a crowd, leaving a pool of fire |
 | Flare gun | Far | Survive 9:00 of one night, then found from minute 4 | 8 | Lights up a far crowd, and burns it |
 | Drone | Far | A level breaker survived to dawn, then found from minute 3 | 8 | Flies out like the dog and sprays full-auto bursts |
 
@@ -262,7 +265,7 @@ The title's bottom screen lists Play, Map, How to play, Settings, Stats, Credits
 - **How to play** sums up the controls, hearts and level-ups, grenades, the map and the run home at dawn, in the buttons or touch controls you play with. A new save shows it at the first Play: A or a tap then starts the run, and B goes back to the menu. Elsewhere A, B, Start or a tap closes it.
 - **Stats** lists the chosen difficulty's records, including the best damage a second over a whole run. It also counts the cards and mod packs that loaded.
 - **History**, from Stats with A or its button, shows the last 10 runs, newest first, five to a page. Each run lists its difficulty, Turned or Home at dawn, its time, level and damage a second, and the powerups it ended with. Left and Right turn the page.
-- **Replays**, from Stats with X or its button, lists the last 10 nights this device recorded (5 in a browser), newest first, with their date in UTC. A or a tap plays one on the run's screens, as it was played. A pauses, Left and Right set the speed from 0.25x to 8x, and Y steps one tick while paused. L1 and R1 switch whose view it follows in a night with more than one player. B leaves. Faster than 2x it plays without sound. If the replay stops matching the recording, it pauses there and names the time and tick. Watching changes no records or unlocks.
+- **Replays**, from Stats with X or its button, lists the last 10 nights this device recorded (5 in a browser), newest first, with their date in UTC. A or a tap plays one on the run's screens, as it was played. A pauses, and Left and Right set the speed from 0.25x to 8x. While paused, Right or Y steps one tick forward and Left one back; a step back plays the night again from its start, so late in a long night it can take a few seconds on a handheld. L1 and R1 switch whose view it follows in a night with more than one player. X or Photo pauses and opens [photo mode](#screenshots-and-photo-mode) on that moment, from the view it follows, with all its settings; leaving it goes back to the paused replay where it was. B leaves. Faster than 2x it plays without sound. If the replay stops matching the recording, it pauses there and names the time and tick. Watching changes no records or unlocks.
 - **Credits** names who made the game, its art, its template and its font.
 - **Online** hosts or joins a night with players on other devices. See [Online](#online).
 
@@ -371,7 +374,7 @@ If you fall while another player still stands, you rise as a gold-lit leader of 
 
 R2 saves both screens, the top above the bottom, as `screenshots/shot-NNNN.png` beside the save. On Android, screenshots go to the game folder's `screenshots/`. The first screenshot asks you to choose a game folder if you have none.
 
-Photo mode, from the pause menu, freezes the run, horde and all, to frame a shot. Its settings change only the picture.
+Photo mode, from the pause menu or a replay, freezes the run, horde and all, to frame a shot. Its settings change only the picture.
 
 | Action | Pad | Keyboard | Touch |
 |---|---|---|---|
@@ -381,6 +384,9 @@ Photo mode, from the pause menu, freezes the run, horde and all, to frame a shot
 | Choose a setting | L2 | Q | Setting |
 | Change it | R2 | 2 | Change |
 | Put the cross back where the camera looks, on Place | X | S | Reset |
+| Walk the camera, on Walk | Up and Down, or the stick | Up and Down arrows | Stick |
+| Turn while walking | Left and Right, or the right stick | Left and Right arrows | Turn strip |
+| Bring the camera back to you, on Walk | X | S | Reset |
 | Take back the last prop, on Props or Place | Y | A | Change on Take back |
 | Take a photo | R1, or tap | W | Tap the picture |
 | Back to the pause menu | B or Start | Z, Enter or Esc | Back |
@@ -393,8 +399,9 @@ The settings:
 - **Pose:** R2 picks a zombie near where the camera looks, and each press picks the next of the eight nearest. Left and Right turn it. Up and Down step it through its walk, hurt, flash and dead frames.
 - **Props:** Left and Right choose a prop, such as a barrier, barrel, tree, car, or one of your own. R2 drops it on the cross, facing the camera. Up and Down turn the last one dropped.
 - **Place:** the d-pad slides the cross up to 12 tiles away, and R2 drops the chosen prop there.
+- **Walk:** the camera leaves you and walks the frozen farm on its own, through zombies and props, to frame a shot from inside the horde. Up and Down walk, Left and Right turn, and a stick also steps aside. L1 still raises it. The map follows the camera and marks where it stands. Its speed is `walk` in `tuning.txt`'s `[photo]`.
 
-After each drop, the cross steps aside so props stand in a row. The map shows the cross on Props and Place. Props and poses stand only in the picture, and go when you leave.
+After each drop, the cross steps aside so props stand in a row. The map shows the cross on Props and Place. Props, poses and the walked camera stand only in the picture, and go when you leave: you are where you were.
 
 A photo leaves out the HUD and the guides. It saves the top screen as `screenshots/photo-NNNN.png` and its middle square as `photo-NNNN-square.png`. In a browser and on muOS, which cannot save files, R1 or a tap hides the guides for your device's own screenshot.
 
@@ -524,8 +531,8 @@ A weapon in `powerups.txt` opens as a weapon page:
 
 - **Does** picks its behavior.
 - Each stat shows its value at every level. Pick a level, then - and + step that level's value.
-- The pickers sit on three tabs: **Shots** (effect, bullet, pattern, targets, `outside`), **Sound & player** and **Dog** (`kill_resets`, `fetches`, `charge`).
-- < and > step its effect, bullet and sound (the six voices, then each sound group in your game data), how many rounds go by for each sound (`sound_every`), a sound that follows it and how long it waits (`sound_after`, `sound_delay`), a gun's pattern and targets, `outside`, how far a burst's later shots reach outside the view, a dog's `kill_resets`, 1 to bite again at once after a kill, its `fetches`, 1 to bring back hearts, and its `charge`, how far it runs into a horde. **Own** goes back to the behavior's own.
+- The pickers sit on five tabs: **Shots** (effect, bullet, pattern, `explode`), **Aim** (`aim`, `homing`, `through`, `teammate`), **Burst** (targets, `outside`), **Sound** and **Player & dog** (player, `kill_resets`, `fetches`, `charge`).
+- < and > step its effect, bullet and sound (the six voices, then each sound group in your game data), how many rounds go by for each sound (`sound_every`), a sound that follows it and how long it waits (`sound_after`, `sound_delay`), a gun's pattern, `aim` and targets, its `homing`, degrees a second its shots turn, `explode`, the pixels each pops in, and `through`, 1 for shots that pass every zombie but their target, `outside`, how far a burst's later shots reach outside the view, a dog's `kill_resets`, 1 to bite again at once after a kill, its `fetches`, 1 to bring back hearts, and its `charge`, how far it runs into a horde, and jumper cables' `teammate`, 1 to arc to the nearest teammate too. **Own** goes back to the behavior's own.
 - **player** makes the weapon one player card's own: < and > step through the player cards, and **Everyone** gives it back to every player. Only that player is offered it, unlocks it or starts with it; see [a player's own weapons](../../docs/modding.md#a-players-own-weapons).
 - A panel plays the effect and bullet. **Style** opens the bullet's shot style, where **Paint** opens a sprite to draw.
 - **Lines** shows the raw lines, and **Weapon** goes back.

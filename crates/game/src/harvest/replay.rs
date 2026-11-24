@@ -5,7 +5,8 @@ use super::player::PlayerId;
 use super::powerups::Progress;
 use super::sandbox::{Bot, Walk, build_text, parse_build};
 use super::weapons::Kit;
-use super::{Choice, Harvest, Phase};
+use super::{Choice, Flow, Harvest, Phase};
+pub use super::photo::Device;
 use crate::{Difficulty, Input, MAX_TOUCHES, Sfx};
 
 pub const FORMAT: u32 = 3;
@@ -968,12 +969,14 @@ impl Cursor {
 pub struct Viewer {
     r: Replay,
     c: Cursor,
+    /// Photo mode open on the night where it stands.
+    over: Option<super::photo::Over>,
 }
 
 impl Viewer {
     pub fn new(r: Replay) -> Self {
         let c = Cursor::new(&r);
-        Self { r, c }
+        Self { r, c, over: None }
     }
 
     /// Plays the next tick, its sounds into `sounds`; false once the replay has ended.
@@ -986,6 +989,17 @@ impl Viewer {
         self.c.h.hold_still();
     }
 
+    /// Back one tick, the night played again from its start to there, silently; false at the start.
+    pub fn step_back(&mut self) -> bool {
+        let Some(to) = self.c.tick.checked_sub(1) else { return false };
+        self.rewind();
+        let mut quiet = Vec::new();
+        while self.c.tick < to && self.c.step(&self.r, &mut quiet) {
+            quiet.clear();
+        }
+        true
+    }
+
     /// Back to the start of the night.
     pub fn rewind(&mut self) {
         self.c = Cursor::new(&self.r);
@@ -993,6 +1007,16 @@ impl Viewer {
 
     pub fn replay(&self) -> &Replay {
         &self.r
+    }
+
+    #[cfg(test)]
+    pub fn checksum(&self) -> u64 {
+        checksum(&self.c.h)
+    }
+
+    #[cfg(test)]
+    pub fn menu(&self) -> Option<usize> {
+        self.c.h.menu
     }
 
     /// Ticks played, then seconds played.
@@ -1026,8 +1050,40 @@ impl Viewer {
         self.c.h.dread()
     }
 
-    /// The night as player `p` saw it, `alpha` of the way through the last tick.
-    pub fn draw(&mut self, p: PlayerId, alpha: f32, f: &mut crate::Frame) {
+    /// Opens photo mode on the night where it stands, as player `p` saw it, its guides laid out for `device`.
+    pub fn open_photo(&mut self, p: PlayerId, device: super::photo::Device) {
+        if self.over.is_none() {
+            let seen = self.shown(p);
+            self.over = Some(self.c.h.open_photo_over(seen, device));
+        }
+    }
+
+    pub fn in_photo(&self) -> bool {
+        self.over.is_some()
+    }
+
+    /// A frame of photo mode, its guides laid out for `device`; it asks for a capture with `Flow::capture`, and on leaving
+    /// puts the night back as it was.
+    pub fn photo(&mut self, input: &Input, dt: f32, device: super::photo::Device, sounds: &mut Vec<Sfx>) -> Flow {
+        let Some(over) = self.over.take() else { return Flow::default() };
+        self.c.h.set_device(device);
+        let (flow, over) = self.c.h.photo_over(over, input, dt, sounds);
+        self.over = over;
+        flow
+    }
+
+    /// Hides or shows photo mode's guides.
+    pub fn toggle_guides(&mut self) {
+        self.c.h.toggle_guides();
+    }
+
+    /// The night as player `p` saw it, `alpha` of the way through the last tick; in photo mode, a `clean` frame is
+    /// the capture.
+    pub fn draw(&mut self, p: PlayerId, alpha: f32, f: &mut crate::Frame, clean: bool) {
+        if let Some(over) = &self.over {
+            self.c.h.draw_photo_over(over, f, clean);
+            return;
+        }
         let h = &mut self.c.h;
         let undo = h.blend(alpha);
         let seen = h.followed(p.min(h.players.len() - 1));

@@ -9,7 +9,7 @@ use std::f32::consts::TAU;
 use super::effects::{self, Effect};
 use super::local::Cards;
 use super::player::{ME, PlayerId};
-use super::weapons::{Bolt, Decoy, Dog, Drone, Hazard, Patch};
+use super::weapons::{BOLT_LIFE, Bolt, Decoy, Dog, Drone, Hazard, Patch, Stake};
 use super::*;
 use crate::netsync::snapshot::*;
 use crate::netsync::{Event, Mirror, Spawn, Spawned};
@@ -200,7 +200,7 @@ impl Harvest {
         for b in &mut self.bolts {
             b.age += dt;
         }
-        self.bolts.retain(|b| b.age < 0.3);
+        self.bolts.retain(|b| b.age < BOLT_LIFE);
         self.feel(dt);
         for v in 1..self.views {
             self.relabel(v);
@@ -314,7 +314,7 @@ impl Harvest {
     fn lay_things(&mut self, c: &mut Client, mirror: &Mirror, dt: f32) {
         let now = mirror.render_tick().max(0.0) as u32 as u16;
         let age = |born: u16| now.wrapping_sub(born) as f32 / TICK_HZ as f32;
-        let (mut drops, mut thrown, mut patches, mut barrels, mut decoys, mut tells) = (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
+        let (mut drops, mut thrown, mut patches, mut barrels, mut decoys, mut tells, mut stakes) = (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
         let mut tell_t = Vec::new();
         for t in mirror.things() {
             let pos = unq_pos(t.pos);
@@ -353,6 +353,7 @@ impl Harvest {
                 }
                 T_BARREL => barrels.push(Barrel { pos, hp: t.data[0] as f32, flash: 0.0, by: ME }),
                 T_DECOY => decoys.push(Decoy::shown(pos, age(t.data[0]), t.data[1] as f32 / 10.0)),
+                T_STAKE => stakes.push(Stake { pos, age: age(t.data[0]), life: t.data[1] as f32 / 10.0, owner: ME }),
                 T_TELL if (t.sub as usize) < roster().enemies.len() => {
                     let was = c.tells.iter().find(|(p, _)| *p == pos).map_or(0.0, |w| w.1);
                     tell_t.push((pos, was + dt));
@@ -362,7 +363,7 @@ impl Harvest {
             }
         }
         c.tells = tell_t;
-        (self.drops, self.thrown, self.patches, self.decoys, self.tells) = (drops, thrown, patches, decoys, tells);
+        (self.drops, self.thrown, self.patches, self.decoys, self.tells, self.stakes) = (drops, thrown, patches, decoys, tells, stakes);
         self.barrels = barrels;
     }
 
@@ -402,7 +403,10 @@ impl Harvest {
                     let look = by.and_then(|d| book().defs[d].bullet.as_deref()).and_then(|n| effects::effects().named(n));
                     let vel = vel.map(|v| v as f32 / 8.0);
                     let owner = c.index(owner as usize).unwrap_or(ME);
-                    self.bullets.push(Bullet { pos, vel, damage: 0.0, pierce: 0, life: (life as f32 / 50.0 - age).max(0.0), force: 0.0, hit: Vec::new(), look, age, by, owner, soak: [0.0; 2], lift: [0.0; 2] });
+                    let life = (life as f32 / 50.0 - age).max(0.0);
+                    // Each of a homing shot's runs starts at age 0; a full tail keeps it from flickering short.
+                    let age = if by.is_some_and(|d| book().defs[d].homing > 0.0) { age + 1.0 } else { age };
+                    self.bullets.push(Bullet { pos, vel, damage: 0.0, pierce: 0, life, force: 0.0, hit: Vec::new(), look, age, by, owner, soak: [0.0; 2], lift: [0.0; 2], steer: Default::default() });
                 }
                 Spawn::Spit { kind, vel, life, .. } if (kind as usize) < roster().enemies.len() => {
                     self.spits.push(Spit { kind: Kind(kind), pos, vel: vel.map(|v| v as f32 / 8.0), damage: 0.0, life: (life as f32 / 50.0 - age).max(0.0), age });

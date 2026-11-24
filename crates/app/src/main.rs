@@ -595,7 +595,7 @@ Environment:
   LAST_HARVEST_MAPS        the folder of maps (data/maps)
   LAST_HARVEST_PROPS       the folder of players' props (data/props)
   LAST_HARVEST_SOUNDS      a folder of recorded sounds, over the pack's
-  LAST_HARVEST_SAVE        the save file (save.txt beside the binary)
+  LAST_HARVEST_SAVE        the save file (save.txt beside the binary); replays/ and screenshots/ go in its folder
   LAST_HARVEST_TOP         the output for the top screen, such as DSI-2
   LAST_HARVEST_START       a scene to open at launch, by debug scene name
   LAST_HARVEST_RANGE       the range scene's weapon, such as rifle:3, or a file of its section

@@ -200,6 +200,11 @@ impl Harvest {
 
     /// Dots along the edges of what the 3D view can see.
     pub(super) fn view_cone(&self, c: &mut Canvas, cam: [f32; 2]) {
+        self.view_cone_from(c, cam, self.eye().pos);
+    }
+
+    /// The view cone's dots, from a camera standing at `from`.
+    pub(super) fn view_cone_from(&self, c: &mut Canvas, cam: [f32; 2], from: [f32; 2]) {
         let half = self.ahead_half();
         let lit = if self.eye().beam > 0.0 { [1.0, 1.0, 0.8, 1.0] } else { [1.0, 0.9, 0.6, 0.8] };
         let sight = crate::tuning::tuning().map_sight;
@@ -207,7 +212,7 @@ impl Harvest {
             let a = self.eye().view_yaw + edge;
             for k in 1..9 {
                 let r = k as f32 / 8.0 * sight;
-                let (x, y) = ((self.eye().pos[0] + a.cos() * r - cam[0]) * map_scale(), (self.eye().pos[1] - 6.0 + a.sin() * r - cam[1]) * map_scale());
+                let (x, y) = ((from[0] + a.cos() * r - cam[0]) * map_scale(), (from[1] - 6.0 + a.sin() * r - cam[1]) * map_scale());
                 c.circle(x, y, 5.0, [lit[0], lit[1], lit[2], lit[3] - k as f32 * 0.08]);
             }
         }
@@ -402,6 +407,10 @@ impl Harvest {
         for d in &self.decoys {
             let a = art::SCARECROW;
             sprites.push((d.pos[1], a, d.pos[0] - a.w() / 2.0, d.pos[1] - a.h() + 2.0, false, 1.0, [1.0; 4]));
+        }
+        for s in &self.stakes {
+            let a = super::effects::effects().stake.looping(s.age);
+            sprites.push((s.pos[1], a, s.pos[0] - a.w() / 2.0, s.pos[1] - a.h() + 2.0, false, 1.0, [1.0; 4]));
         }
         for d in self.players.iter().flat_map(|p| &p.dogs) {
             let a = d.art();

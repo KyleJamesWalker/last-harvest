@@ -17,6 +17,10 @@ const MAX_PATCHES: usize = 80;
 const PATCH_TICK: f32 = 0.25;
 const BURN_TICK: f32 = 0.3;
 pub(super) const BOLT_LIFE: f32 = 0.18;
+/// Seconds between a jumper cable arc's hits; under `BOLT_LIFE`, so its bolt never goes out between them.
+const ARC_TICK: f32 = 0.15;
+/// How far behind the player a stake goes in, in pixels.
+const STAKE_BACK: f32 = 24.0;
 /// A player's gun height less how far a drone's gun hangs below its feet, in pixels; rounds leave from it.
 const DRONE_GUN: f32 = 5.0;
 
@@ -51,6 +55,8 @@ fn shot_angle(pattern: Pattern, k: u32, n: u32, base: f32, spread: f32, jitter: 
 
 /// The most shots one burst fires, and the longest gap between them, in seconds.
 const MAX_BURST: u32 = 32;
+/// How many times its range's flight a homing shot lasts, to curve onto what it chases.
+const HOMING_LIFE: f32 = 1.5;
 const MAX_GAP: f32 = 5.0;
 
 /// For a burst, how many shots it fires and how far apart, `quick` scaling the gap as it does the cooldown; None
@@ -514,6 +520,20 @@ impl Decoy {
     }
 }
 
+/// A jumper cable stake: current arcs from it back to the player who drove it in.
+pub(super) struct Stake {
+    pub pos: [f32; 2],
+    pub age: f32,
+    pub life: f32,
+    pub owner: PlayerId,
+}
+
+impl Stake {
+    pub fn relabel(&mut self, v: PlayerId) {
+        self.owner = swapped(self.owner, v);
+    }
+}
+
 fn in_cone(d: [f32; 2], dir: [f32; 2], half: f32) -> bool {
     let l = len(d);
     l > 1e-3 && (d[0] * dir[0] + d[1] * dir[1]) / l >= fm::cos(half)
@@ -611,6 +631,7 @@ impl Harvest {
     }
 
     pub(super) fn fire(&mut self, dt: f32, sounds: &mut Vec<Sfx>) {
+        self.age_bolts(dt);
         for l in &mut self.later {
             l.0 -= dt;
         }
@@ -650,6 +671,14 @@ impl Harvest {
             }
             if a.does() == Does::Crows {
                 a.phase = (a.phase + self.stat(a, Stat::Speed).to_radians() * dt).rem_euclid(TAU);
+            }
+            if a.does() == Does::JumperCables {
+                a.phase += dt;
+                if a.phase >= ARC_TICK {
+                    a.phase = (a.phase - ARC_TICK).min(ARC_TICK);
+                    self.juice.tally.credit(self.actor, Some(a.def));
+                    self.arcs(a, sounds);
+                }
             }
             self.actor_mut().kit.weapons[i] = a;
         }
@@ -701,6 +730,7 @@ impl Harvest {
             Does::Blade => self.blade(a, sounds),
             Does::Lob => self.lob(a, sounds),
             Does::Maul => self.maul(a, sounds),
+            Does::JumperCables => self.stake(a, sounds),
             Does::Crows | Does::Dog | Does::Drone => false,
         }
     }
@@ -746,9 +776,19 @@ impl Harvest {
         let speed = self.stat(a, Stat::Speed);
         let (base, spread) = (fm::atan2(d[1], d[0]), self.stat(a, Stat::Spread).to_radians());
         let (damage, pierce, force) = (self.stat(a, Stat::Damage), self.stat(a, Stat::Pierce) as u32, self.stat(a, Stat::Knockback));
+        let (turn, pop, through) = (def.homing.to_radians(), def.explode, def.through);
+        let life = if turn > 0.0 { range / speed * HOMING_LIFE } else { range / speed };
         for k in 0..n {
             let angle = shot_angle(pattern, k, n, base, spread, self.juice.rng.range(-0.5, 0.5));
-            self.shoot(angle, speed, damage, pierce, range / speed, force, bullet(a));
+            self.shoot(angle, speed, damage, pierce, life, force, bullet(a));
+            if turn <= 0.0 && pop <= 0.0 && !through {
+                continue;
+            }
+            let at = if k > 0 && turn > 0.0 && aim == Aim::Random { self.aimed_at(aim, range).unwrap_or(offset) } else { offset };
+            let target = self.zombie_at(at);
+            if let Some(b) = self.bullets.last_mut() {
+                b.steer = super::Steer { turn, target, leg: (b.pos, 0.0, b.vel), pop, through };
+            }
         }
         self.muzzle(a, d, 8.0);
         self.noise = Some(self.actor().pos);
@@ -810,6 +850,12 @@ impl Harvest {
         }
     }
 
+    /// The id of the zombie at `offset` from the acting player.
+    fn zombie_at(&self, offset: [f32; 2]) -> Option<u32> {
+        let from = self.actor().pos;
+        self.zombies.iter().find(|z| sub(z.pos, from) == offset).map(|z| z.id)
+    }
+
     /// Notes the zombie at `offset` as shot in a burst that `targets each`.
     fn mark_shot(&mut self, a: Armed, offset: [f32; 2]) {
         if book().defs[a.def].targets != Targets::Each {
@@ -821,9 +867,17 @@ impl Harvest {
     }
 
     /// Where a gun or blade looks for a target within `range`: the offset to it, if it finds one.
-    fn aimed_at(&self, aim: Aim, range: f32) -> Option<[f32; 2]> {
+    fn aimed_at(&mut self, aim: Aim, range: f32) -> Option<[f32; 2]> {
+        let from = self.actor().pos;
+        let in_range = self.zombies.iter().filter(|z| z.hp > 0.0).map(|z| (sub(z.pos, from), z.hp)).filter(|(d, _)| len(*d) < range);
         match aim {
             Aim::Nearest => self.nearest_in(range, None),
+            Aim::Strongest => in_range.max_by(|a, b| a.1.total_cmp(&b.1).then(len(b.0).total_cmp(&len(a.0)))).map(|(d, _)| d),
+            Aim::Farthest => in_range.max_by(|a, b| len(a.0).total_cmp(&len(b.0))).map(|(d, _)| d),
+            Aim::Random => {
+                let all: Vec<[f32; 2]> = in_range.map(|(d, _)| d).collect();
+                (!all.is_empty()).then(|| all[self.juice.rng.below(all.len())])
+            }
             Aim::Ahead => self.nearest_in(range, Some((self.actor().aim, self.ahead_half()))),
             Aim::Behind => self.nearest_in(range, Some(([-self.actor().aim[0], -self.actor().aim[1]], crate::tuning::tuning().behind_half))),
             Aim::Around => self.nearest_in(range, None).map(|_| self.actor().aim),
@@ -831,7 +885,7 @@ impl Harvest {
     }
 
     /// Where a gun or blade looks for a target within `range`: the way to it, if it finds one.
-    fn aimed(&self, aim: Aim, range: f32) -> Option<[f32; 2]> {
+    fn aimed(&mut self, aim: Aim, range: f32) -> Option<[f32; 2]> {
         self.aimed_at(aim, range).map(norm)
     }
 
@@ -1464,7 +1518,7 @@ impl Harvest {
     }
 
     fn scarecrow(&mut self, a: Armed) -> bool {
-        if !self.decoys.is_empty() {
+        if self.decoys.iter().any(|d| d.owner == self.actor) {
             return false;
         }
         let at = [self.actor().pos[0] - self.actor().aim[0] * 12.0, self.actor().pos[1] - self.actor().aim[1] * 12.0];
@@ -1475,6 +1529,61 @@ impl Harvest {
         self.decoys.push(Decoy { pos: at, age: 0.0, life, lure, blast, damage, by: self.juice.tally.by, owner: self.juice.tally.owner });
         self.juice.burst(at, 0.0, 8, [0.0; 2], 0.0, [15.0, 40.0], juice::dirt(), 1.4, 0.5, 0.0);
         true
+    }
+
+    /// Drives a stake in behind the player, pulling the oldest of theirs past the most they may have.
+    fn stake(&mut self, a: Armed, sounds: &mut Vec<Sfx>) -> bool {
+        let (me, pos, aim) = (self.actor, self.actor().pos, self.actor().aim);
+        let half = crate::tuning::tuning().zombie_half();
+        let at = [STAKE_BACK, STAKE_BACK / 2.0].iter().map(|&b| [pos[0] - aim[0] * b, pos[1] - aim[1] * b]).find(|p| !self.map.hits(p[0], p[1], half)).unwrap_or(pos);
+        let most = self.stat(a, Stat::Count).max(1.0) as usize;
+        while self.stakes.iter().filter(|s| s.owner == me).count() >= most {
+            let Some(i) = self.stakes.iter().position(|s| s.owner == me) else { break };
+            self.stakes.remove(i);
+        }
+        self.stakes.push(Stake { pos: at, age: 0.0, life: self.stat(a, Stat::Duration), owner: me });
+        self.juice.burst(at, 0.0, 6, [0.0; 2], 0.0, [15.0, 40.0], juice::dirt(), 1.2, 0.4, 0.0);
+        self.attack_feel(a, at, 6.0);
+        self.weapon_sound(a, Sfx::Zap, sounds);
+        true
+    }
+
+    /// Current from the acting player to each of their stakes within range, and with `teammate` to the nearest
+    /// living teammate within it: every zombie on a line takes one tick's damage.
+    fn arcs(&mut self, a: Armed, sounds: &mut Vec<Sfx>) {
+        let (me, from, range) = (self.actor, self.actor().pos, self.stat(a, Stat::Range));
+        let within = |q: [f32; 2]| len(sub(q, from)) <= range;
+        let mut ends: Vec<([f32; 2], f32)> = self.stakes.iter().filter(|s| s.owner == me && within(s.pos)).map(|s| (s.pos, 9.0)).collect();
+        if book().defs[a.def].teammate {
+            let mate = self.players.iter().enumerate().filter(|(p, pl)| *p != me && pl.alive() && pl.lead.is_none() && within(pl.pos)).map(|(_, pl)| pl.pos).min_by(|x, y| len(sub(*x, from)).total_cmp(&len(sub(*y, from))));
+            ends.extend(mate.map(|q| (q, 6.0)));
+        }
+        if ends.is_empty() {
+            return;
+        }
+        let (width, damage, crit) = (self.stat(a, Stat::Area) / 2.0 + 3.0, self.stat(a, Stat::Damage) * ARC_TICK, self.crit());
+        let mut hit = vec![false; self.zombies.len()];
+        let mut hits = (0, false);
+        for (end, top) in ends {
+            let d = sub(end, from);
+            let l = len(d);
+            if l > 1e-3 {
+                let dir = [d[0] / l, d[1] / l];
+                for (i, z) in self.zombies.iter_mut().enumerate() {
+                    let r = sub(z.pos, from);
+                    let along = r[0] * dir[0] + r[1] * dir[1];
+                    let across = r[0] * dir[1] - r[1] * dir[0];
+                    if !hit[i] && (-2.0..=l + 2.0).contains(&along) && across.abs() < width {
+                        hit[i] = true;
+                        let side = if across < 0.0 { [-dir[1], dir[0]] } else { [dir[1], -dir[0]] };
+                        hits.1 |= strike(z, &mut self.juice, damage, side, 0.0, crit);
+                        hits.0 += 1;
+                    }
+                }
+            }
+            self.bolts.push(Bolt { points: vec![[from[0], from[1] - 6.0], [end[0], end[1] - top]], age: 0.0 });
+        }
+        self.thud(hits, sounds);
     }
 
     /// A zombie in a crowd within `range`: the best of a few picked at random, by how many stand near it.
@@ -1647,6 +1756,10 @@ impl Harvest {
             p.swings.retain(|s| s.age < s.life);
             p.beam = (p.beam - dt).max(0.0);
         }
+    }
+
+    /// Bolts age before anything fires, so one fired this tick is still new when the tick is sent to clients.
+    pub(super) fn age_bolts(&mut self, dt: f32) {
         for b in &mut self.bolts {
             b.age += dt;
         }
@@ -1666,8 +1779,12 @@ impl Harvest {
         }
     }
 
-    /// Scarecrows age, and burst when their time is up.
+    /// Scarecrows age, and burst when their time is up; stakes age, and go when theirs is.
     pub(super) fn decoys(&mut self, dt: f32, sounds: &mut Vec<Sfx>) {
+        for s in &mut self.stakes {
+            s.age += dt;
+        }
+        self.stakes.retain(|s| s.age < s.life);
         for d in &mut self.decoys {
             d.age += dt;
         }
@@ -1715,7 +1832,7 @@ impl Harvest {
     #[allow(clippy::too_many_arguments)]
     pub(super) fn shoot_from(&mut self, pos: [f32; 2], angle: f32, speed: f32, damage: f32, pierce: u32, life: f32, force: f32, look: Option<super::effects::Effect>, lift: [f32; 2]) {
         let vel = [fm::cos(angle) * speed, fm::sin(angle) * speed];
-        self.bullets.push(Bullet { pos, vel, damage, pierce, life, force, hit: Vec::new(), look, age: 0.0, by: self.juice.tally.by, owner: self.juice.tally.owner, soak: self.juice.soak, lift });
+        self.bullets.push(Bullet { pos, vel, damage, pierce, life, force, hit: Vec::new(), look, age: 0.0, by: self.juice.tally.by, owner: self.juice.tally.owner, soak: self.juice.soak, lift, steer: Default::default() });
     }
 }
 
@@ -1810,6 +1927,114 @@ mod tests {
             assert_eq!(rows[0].by, Some(def), "{}", d.id);
             assert!((rows[0].damage - hurt).abs() < 0.01 * hurt, "{}: credited {} of {hurt}", d.id, rows[0].damage);
         }
+    }
+
+    #[test]
+    fn strongest_farthest_and_random_aims_pick_as_they_say_and_random_follows_the_seed() {
+        let field = || {
+            let mut h = with("rifle", [30.0, 0.0]);
+            let me = h.me().pos;
+            for (k, (off, hp)) in [([60.0, 20.0], 900.0), ([-90.0, 0.0], 100.0), ([0.0, 400.0], 5000.0)].into_iter().enumerate() {
+                let mut z = Zombie::new(ZKind::named("big"), [me[0] + off[0], me[1] + off[1]], hp, 1.0, 0.0);
+                z.id = 90 + k as u32;
+                h.zombies.push(z);
+            }
+            h
+        };
+        let mut h = field();
+        assert_eq!(h.aimed_at(Aim::Strongest, 200.0), Some([60.0, 20.0]), "the most health in range, not the stronger one out of it");
+        assert_eq!(h.aimed_at(Aim::Farthest, 200.0), Some([-90.0, 0.0]));
+        let picks = |h: &mut Harvest| (0..12).map(|_| h.aimed_at(Aim::Random, 200.0).unwrap()).collect::<Vec<_>>();
+        let mut again = field();
+        let seen = picks(&mut h);
+        assert_eq!(seen, picks(&mut again), "the same seed picks the same");
+        assert!(seen.iter().all(|d| len(*d) < 200.0) && seen.iter().any(|d| *d != seen[0]), "{seen:?}");
+        h.zombies.clear();
+        assert_eq!(h.aimed_at(Aim::Random, 200.0), None);
+    }
+
+    #[test]
+    fn a_homing_shot_curves_onto_its_target_finds_another_when_it_falls_and_pops_on_its_neighbours() {
+        let mut h = with("pistol", [0.0, 80.0]);
+        h.barrels.clear();
+        let me = h.me().pos;
+        let mut near = Zombie::new(ZKind::named("big"), [me[0] + 8.0, me[1] + 84.0], 500.0, 1.0, 0.0);
+        near.id = 41;
+        h.zombies.push(near);
+        let (first, steer) = (h.zombies[0].id, super::super::Steer { turn: 4.0, target: Some(h.zombies[0].id), leg: ([0.0; 2], 0.0, [0.0; 2]), pop: 14.0, through: false });
+        h.juice.tally.credit(ME, book().index("pistol"));
+        h.shoot(0.0, 110.0, 10.0, 0, 3.0, 0.0, None);
+        h.juice.tally.by = None;
+        h.bullets[0].steer = steer;
+        h.zombies[0].hp = 0.0;
+        let mut sounds = Vec::new();
+        for _ in 0..240 {
+            if h.bullets.is_empty() {
+                break;
+            }
+            h.move_bullets(1.0 / 60.0, &mut sounds);
+        }
+        assert!(h.bullets.is_empty(), "it found the other zombie, though it was fired straight past");
+        let hurt: Vec<f32> = h.zombies.iter().filter(|z| z.id != first).map(|z| 500.0 - z.hp).collect();
+        assert!(hurt.iter().all(|&d| d > 0.0), "its pop caught {hurt:?}");
+        assert_eq!(h.juice.tally.rows(ME)[0].by, book().index("pistol"), "the pop is its gun's");
+    }
+
+    /// Seconds `id` at `level` takes to kill a zombie of `kind` with `hp` standing 150 px ahead behind a wall of 12
+    /// skinnies that stands back up as it falls, everything held in place; and the wall's kills meanwhile.
+    fn kill_behind_a_wall(id: &str, level: u32, kind: &str, hp: f32) -> (Option<f32>, u32) {
+        let mut h = with(id, [150.0, 0.0]);
+        h.barrels.clear();
+        let start = h.me().pos;
+        h.players[ME].pos = (0..400).map(|k| [start[0] + (k % 20) as f32 * 16.0, start[1] + (k / 20) as f32 * 16.0]).find(|p| (-1..=1).all(|dy| super::super::clear_shot(&h.map, [p[0], p[1] + dy as f32 * 12.0], [p[0] + 160.0, p[1] + dy as f32 * 12.0]))).unwrap();
+        h.zombies[0].pos = [h.me().pos[0] + 150.0, h.me().pos[1]];
+        h.me_mut().kit.weapons[0].level = level;
+        let kind = if kind == "harvester" { ZKind(super::super::roster().harvester as u8) } else { ZKind::named(kind) };
+        h.zombies[0] = Zombie::new(kind, h.zombies[0].pos, hp, 0.0, 0.0);
+        h.zombies[0].boss = kind.0 as usize == super::super::roster().harvester;
+        h.zombies[0].id = 1;
+        let me = h.me().pos;
+        let wall: Vec<[f32; 2]> = (0..12).map(|k| [me[0] + 60.0 + (k % 4) as f32 * 18.0, me[1] + (k / 4) as f32 * 10.0 - 10.0]).collect();
+        for (k, &at) in wall.iter().enumerate() {
+            let mut z = Zombie::new(ZKind::named("skinny"), at, 20.0, 0.0, 0.0);
+            z.id = 100 + k as u32;
+            h.zombies.push(z);
+        }
+        let (homes, mut walled, mut sounds) = (h.zombies.iter().map(|z| z.pos).collect::<Vec<_>>(), 0, Vec::new());
+        for tick in 0..60 * 60 {
+            h.fire(1.0 / 60.0, &mut sounds);
+            h.move_bullets(1.0 / 60.0, &mut sounds);
+            if h.zombies[0].hp <= 0.0 {
+                return (Some(tick as f32 / 60.0), walled);
+            }
+            for (z, &home) in h.zombies.iter_mut().zip(&homes).skip(1) {
+                if z.hp <= 0.0 {
+                    walled += 1;
+                    z.hp = 20.0;
+                }
+                z.pos = home;
+            }
+            h.zombies[0].pos = homes[0];
+        }
+        (None, walled)
+    }
+
+    #[test]
+    #[ignore = "numbers for a PR, for cargo test --release -- --ignored --nocapture"]
+    fn time_to_kill_a_big_and_the_harvester_behind_a_wall() {
+        for id in ["varmint_rifle", "rifle", "shotgun", "pistol", "knife"] {
+            for level in [1, 4, 8] {
+                let big = kill_behind_a_wall(id, level, "big", 400.0);
+                let boss = kill_behind_a_wall(id, level, "harvester", 2500.0);
+                eprintln!("{id}:{level}  big 400hp {:?} s ({} wall kills)  harvester 2500hp {:?} s ({} wall kills)", big.0, big.1, boss.0, boss.1);
+            }
+        }
+    }
+
+    #[test]
+    fn a_shot_that_goes_through_passes_the_wall_to_the_strongest() {
+        let (killed, walled) = kill_behind_a_wall("varmint_rifle", 8, "big", 400.0);
+        assert!(killed.is_some() && walled == 0, "{killed:?} with {walled} of the wall killed on the way");
     }
 
     #[test]
@@ -2283,6 +2508,94 @@ mod tests {
         let life = h.decoys[0].life;
         h.decoys(life, &mut Vec::new());
         assert!(h.decoys.is_empty());
+    }
+
+    #[test]
+    fn jumper_cables_drive_stakes_behind_and_arc_to_them_hurting_only_what_stands_on_the_line() {
+        let mut h = with("jumper_cables", [-20.0, 0.0]);
+        h.zombies.push(Zombie::new(ZKind::named("big"), [h.me().pos[0] - 12.0, h.me().pos[1] + 30.0], 500.0, 1.0, 0.0));
+        let off = h.zombies[1].hp;
+        let hurt = hurt_after(&mut h, 1.0);
+        assert_eq!(h.stakes.len(), 1);
+        assert!(len(sub(h.stakes[0].pos, h.me().pos)) > 20.0, "the stake goes in past the zombie behind");
+        assert!(hurt > 0.0, "the arc hurt the zombie between");
+        assert_eq!(h.zombies[1].hp, off, "nothing off the line");
+        assert!(!h.bolts.is_empty(), "the arc draws as a bolt");
+    }
+
+    #[test]
+    fn jumper_cables_keep_their_count_of_stakes_and_each_goes_when_its_life_is_up() {
+        for (level, most) in [(1, 1), (4, 2)] {
+            let mut h = with("jumper_cables", [-20.0, 0.0]);
+            h.me_mut().kit.weapons[0].level = level;
+            for _ in 0..4 {
+                h.me_mut().kit.weapons[0].cd = 0.0;
+                h.fire(0.016, &mut Vec::new());
+                h.players[ME].pos[0] += 4.0;
+            }
+            assert_eq!(h.stakes.len(), most, "level {level}");
+            let life = h.stakes[0].life;
+            h.decoys(life, &mut Vec::new());
+            assert!(h.stakes.is_empty());
+        }
+    }
+
+    #[test]
+    fn jumper_cables_arc_to_the_nearest_living_teammate_in_range_and_never_hurt_them() {
+        let def = book().index("jumper_cables").unwrap();
+        assert!(book().defs[def].teammate, "the jumper cables reach a teammate");
+        let range = book().defs[def].at(Stat::Range, 1);
+        let between = |gap: f32, down: bool| {
+            let mut h = Harvest::calm_on(3, &super::super::map::MapSource::new("Open", [60, 60])).unwrap().with_players(2);
+            for p in 0..2 {
+                h.players[p].kit.weapons.clear();
+            }
+            h.players[ME].kit.raise(def, 1);
+            h.players[ME].kit.weapons[0].cd = 100.0;
+            let at = h.players[ME].pos;
+            h.players[1].pos = [at[0] + gap, at[1]];
+            if down {
+                h.players[1].down = Some(0.0);
+            }
+            h.zombies.push(Zombie::new(ZKind::named("big"), [at[0] + gap / 2.0, at[1]], 500.0, 1.0, 0.0));
+            let mate = h.players[1].hp;
+            let hurt = hurt_after(&mut h, 1.0);
+            assert!(h.stakes.is_empty());
+            assert_eq!(h.players[1].hp, mate, "no friendly fire");
+            hurt
+        };
+        assert!(between(range * 0.8, false) > 0.0, "the arc to a teammate hurts the zombie between them");
+        assert_eq!(between(range * 1.3, false), 0.0, "out of range");
+        assert_eq!(between(range * 0.8, true), 0.0, "a downed teammate");
+    }
+
+    #[test]
+    fn each_player_can_keep_a_scarecrow_standing() {
+        let mut h = with("scarecrow", [-40.0, 0.0]).with_players(2);
+        let def = book().index("scarecrow").unwrap();
+        h.players[1].kit.weapons.clear();
+        h.players[1].kit.raise(def, 1);
+        h.players[1].pos = h.players[ME].pos;
+        h.players[1].aim = [0.0, 1.0];
+        h.players[1].view_yaw = 0.0;
+        for p in &mut h.players {
+            p.kit.weapons[0].cd = 0.0;
+        }
+        h.fire(0.016, &mut Vec::new());
+        assert_eq!(h.decoys.len(), 2);
+        assert_ne!(h.decoys[0].owner, h.decoys[1].owner);
+        for p in &mut h.players {
+            p.kit.weapons[0].cd = 0.0;
+        }
+        h.fire(0.016, &mut Vec::new());
+        assert_eq!(h.decoys.len(), 2);
+        let z = h.zombies[0].pos;
+        h.decoys[0].lure = 1000.0;
+        h.decoys[1].lure = 1000.0;
+        let near = h.decoys.iter().map(|d| len(sub(d.pos, z))).fold(f32::MAX, f32::min);
+        h.move_zombies(0.2, &mut Vec::new());
+        let after = h.decoys.iter().map(|d| len(sub(d.pos, h.zombies[0].pos))).fold(f32::MAX, f32::min);
+        assert!(after < near);
     }
 
     #[test]

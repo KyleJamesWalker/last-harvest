@@ -377,12 +377,13 @@ impl Extract {
         let mut shots = HashMap::new();
         let ticks = |secs: f32| (secs * TICK_HZ as f32).round() as u32;
         for b in &h.bullets {
-            let from = q_pos([b.pos[0] - b.vel[0] * b.age, b.pos[1] - b.vel[1] * b.age]);
-            let key = (from[0], from[1], vel8(b.vel)[0], vel8(b.vel)[1]);
+            let (from, vel, life) = b.leg();
+            let from = q_pos(from);
+            let key = (from[0], from[1], vel8(vel)[0], vel8(vel)[1]);
             let seen = self.shots_seen.get(&key).copied().unwrap_or_else(|| {
                 let look = b.by.map_or(0, |d| d as u16 + 1);
-                new.push(Spawn::Shot { owner: b.owner as u8, look, from, vel: vel8(b.vel), life: life50(b.life + b.age) });
-                (self.next_spawn + new.len() as u32, tick, ticks(b.life + b.age))
+                new.push(Spawn::Shot { owner: b.owner as u8, look, from, vel: vel8(vel), life: life50(life) });
+                (self.next_spawn + new.len() as u32, tick, ticks(life))
             });
             shots.insert(key, seen);
         }
@@ -496,6 +497,9 @@ impl Extract {
         }
         for d in &h.decoys {
             things.push(Thing { kind: T_DECOY, sub: 0, pos: q_pos(d.pos), data: [born(d.age), (d.life * 10.0).clamp(0.0, u16::MAX as f32) as u16, 0] });
+        }
+        for s in &h.stakes {
+            things.push(Thing { kind: T_STAKE, sub: 0, pos: q_pos(s.pos), data: [born(s.age), (s.life * 10.0).clamp(0.0, u16::MAX as f32) as u16, 0] });
         }
         for t in &h.tells {
             things.push(Thing { kind: T_TELL, sub: t.kind.0, pos: q_pos(t.pos), data: [t.leader as u16, 0, 0] });
@@ -827,6 +831,67 @@ mod tests {
     }
 
     #[test]
+    fn a_client_draws_a_homing_shot_without_a_gap_close_to_the_host_and_sees_it_pop() {
+        let mut h = Harvest::calm(3).with_players(2).hosting(1);
+        let from = [h.players[0].pos[0], h.players[0].pos[1] - 6.0];
+        let mut z = super::super::Zombie::new(super::super::Kind::named("big"), [from[0] + 40.0, from[1] + 96.0], 500.0, 1.0, 0.0);
+        z.id = 77;
+        h.zombies.push(z);
+        let steer = super::super::Steer { turn: 3.0, target: Some(77), leg: (from, 0.0, [120.0, 0.0]), pop: 14.0, through: false };
+        h.bullets.push(super::super::Bullet { pos: from, vel: [120.0, 0.0], damage: 5.0, pierce: 0, life: 3.0, force: 0.0, hit: Vec::new(), look: None, age: 0.0, by: None, owner: 0, soak: [0.0; 2], lift: [0.0; 2], steer });
+        let mut client = Harvest::calm(3).with_players(2).client_of(&[1], &[0, 1]);
+        let (mut extract, mut host, mut link, mut mirror) = (Extract::default(), HostLink::default(), ClientLink::default(), Mirror::default());
+        mirror.play_locally(1);
+        let (mut past, mut seen, mut worst, mut gaps, mut runs) = (HashMap::new(), 0, 0.0f32, 0, HashSet::new());
+        let mut sounds = Vec::new();
+        for tick in 1..=240u32 {
+            h.move_bullets(STEP, &mut sounds);
+            h.fly(STEP, &mut sounds, &mut super::super::Flow::default());
+            if let Some(b) = h.bullets.first() {
+                past.insert(tick, b.pos);
+            }
+            extract.record(&h, tick, &sounds).hand(&mut host);
+            sounds.clear();
+            if tick.is_multiple_of(SEND_EVERY) {
+                for p in host.snapshot(extract.world(&h, tick, &[0, 0])) {
+                    if let Some(part) = link.receive(&p) {
+                        mirror.apply(&part);
+                        let fresh = link.fresh(&part.spawns);
+                        client.client_spawned(&fresh);
+                        mirror.spawn(fresh);
+                    }
+                }
+                let (s, e) = link.ack();
+                host.ack(s, e);
+            }
+            for ev in link.events() {
+                if let Event::Stop { id } = ev {
+                    mirror.stop(id);
+                }
+            }
+            mirror.advance(STEP);
+            let at = mirror.render_tick();
+            let Some(&host_at) = past.get(&(at.floor() as u32)).filter(|_| at.fract() == 0.0) else { continue };
+            let shots = mirror.shots_for(&[]);
+            match shots.first() {
+                Some((p, _, s)) => {
+                    seen += 1;
+                    runs.insert(s.id);
+                    worst = worst.max(len(sub(*p, host_at)));
+                }
+                None if past.contains_key(&(at as u32 + 1)) => gaps += 1,
+                None => {}
+            }
+        }
+        assert!(h.bullets.is_empty() && h.zombies[0].hp < 500.0, "it curved onto the zombie and popped");
+        assert!(seen > 30 && gaps == 0, "drawn {seen} ticks with {gaps} blank");
+        assert!(worst < 4.0, "drawn {worst} px off");
+        assert!(runs.len() > 3, "{} runs", runs.len());
+        let pop = super::super::effects::effects().named("pop").unwrap();
+        assert!(client.fx.iter().any(|f| f.frames == pop.frames), "the client plays its pop");
+    }
+
+    #[test]
     fn a_client_draws_a_merged_heart_with_its_hearts() {
         let mut h = Harvest::calm(3).with_players(2);
         let at = [h.players[0].pos[0] + 80.0, h.players[0].pos[1]];
@@ -890,6 +955,62 @@ mod tests {
         assert!(hearts[0].kind == DropKind::Money(2), "the heart's money");
         assert_eq!(hearts[0].dog.map(|f| (f.player, f.def, f.slot, f.carried)), Some((0, fetch.def, fetch.slot, true)), "in seat 1's dog's mouth, seat 1 being this client's first player");
         assert!(len(sub(hearts[0].pos, mouth)) < 0.2 && hearts[0].z == 4.0, "{:?} for {:?}", hearts[0].pos, mouth);
+    }
+
+    #[test]
+    fn a_zapper_bolt_reaches_clients_on_the_tick_it_is_fired() {
+        let def = book().index("zapper").unwrap();
+        let mut h = Harvest::calm(3).with_players(2);
+        h.players[0].kit = Kit::forced(&[(def, 1)], h.difficulty.tier());
+        h.players[1].kit = Kit::forced(&[], h.difficulty.tier());
+        let at = [h.players[0].pos[0] + 30.0, h.players[0].pos[1]];
+        h.zombies.push(super::super::Zombie::new(super::super::Kind::named("big"), at, 5000.0, 1.0, 0.0));
+        let (mut extract, mut sounds) = (Extract::default(), Vec::new());
+        let sent = (1..=300u32).any(|tick| {
+            h.update(&crate::Input::default(), STEP, &mut sounds);
+            sounds.clear();
+            extract.record(&h, tick, &[]).spawns.iter().any(|s| matches!(s.what, Spawn::Bolt { .. }))
+        });
+        assert!(sent);
+    }
+
+    #[test]
+    fn a_client_draws_the_hosts_jumper_cable_stakes_and_their_arcs() {
+        let def = book().index("jumper_cables").unwrap();
+        let mut h = Harvest::calm(3).with_players(2);
+        h.players[0].kit = Kit::forced(&[(def, 1)], h.difficulty.tier());
+        h.players[1].kit = Kit::forced(&[], h.difficulty.tier());
+        let (mut extract, mut sounds, mut bolts) = (Extract::default(), Vec::new(), Vec::new());
+        for tick in 1..=600u32 {
+            h.update(&crate::Input::default(), STEP, &mut sounds);
+            bolts.extend(extract.record(&h, tick, &sounds).spawns.into_iter().filter(|s| matches!(s.what, Spawn::Bolt { .. })));
+            sounds.clear();
+            if !h.stakes.is_empty() && !bolts.is_empty() {
+                break;
+            }
+        }
+        assert_eq!(h.stakes.len(), 1, "the host drove a stake in");
+        assert!(!bolts.is_empty(), "its arc rides to clients as a bolt");
+        let mut client = Harvest::calm(3).with_players(2).client_of(&[1], &[0, 1]);
+        let (mut host, mut link, mut mirror) = (HostLink::default(), ClientLink::default(), Mirror::default());
+        mirror.play_locally(1);
+        for k in 1..=4u32 {
+            let world = extract.world(&h, 2000 + k * SEND_EVERY, &[0, 0]);
+            assert_eq!(world.things.iter().filter(|t| t.1.kind == T_STAKE).count(), 1);
+            for p in host.snapshot(world) {
+                if let Some(part) = link.receive(&p) {
+                    mirror.apply(&part);
+                }
+            }
+            let (s, e) = link.ack();
+            host.ack(s, e);
+            mirror.advance(SEND_EVERY as f32 / TICK_HZ as f32);
+            client.client_frame(&mirror, SEND_EVERY as f32 / TICK_HZ as f32, &mut sounds);
+        }
+        assert_eq!(client.stakes.len(), 1, "the client draws the stake");
+        assert!(len(sub(client.stakes[0].pos, h.stakes[0].pos)) < 0.1);
+        client.client_spawned(&bolts);
+        assert!(!client.bolts.is_empty(), "and its arc");
     }
 
     #[test]

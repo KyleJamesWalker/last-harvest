@@ -163,6 +163,7 @@ effects! {
     maul,
     ground_crack,
     drone,
+    stake,
 }
 
 /// An effect as written: its sprite's name and its numbers.
@@ -263,7 +264,7 @@ pub fn colors() -> &'static Palette {
 /// The game's own effects.txt.
 const BUILT_IN: &str = include_str!("../../effects.txt");
 /// Sections added after mods could replace effects.txt, which a mod's file may leave out.
-const ADDED_LATER: [&str; 7] = ["dog_attack", "spit", "mound", "mound_breaks", "maul", "ground_crack", "drone"];
+const ADDED_LATER: [&str; 8] = ["dog_attack", "spit", "mound", "mound_breaks", "maul", "ground_crack", "drone", "stake"];
 
 pub fn parse(text: &str) -> Result<(Vec<Written>, Extra), String> {
     let mut out: Vec<Option<Written>> = vec![None; NAMES.len()];
@@ -459,10 +460,10 @@ mod tests {
         assert!(parse("[Sparkle]\nart X").unwrap_err().starts_with("1: [Sparkle]"));
         assert!(parse("[slash]\nart SLASH").unwrap_err().starts_with("no [muzzle_pistol]"));
         let older = own.replace("[spit]\nart BLOOD_SPLAT\nfps 10\n", "").replace("[mound]\nart MOUND\nfps 6\n", "").replace("[mound_breaks]\nart DIRT_PUFF\nfps 9\n", "");
-        let older = older.replace("[maul]\nart MAUL_SMASH\n", "[maul_gone]\nart MAUL_SMASH\n").replace("[ground_crack]\n", "[ground_crack_gone]\n").replace("[drone]\nart DRONE\n", "[drone_gone]\nart DRONE\n");
+        let older = older.replace("[maul]\nart MAUL_SMASH\n", "[maul_gone]\nart MAUL_SMASH\n").replace("[ground_crack]\n", "[ground_crack_gone]\n").replace("[drone]\nart DRONE\n", "[drone_gone]\nart DRONE\n").replace("[stake]\nart STAKE\n", "[stake_gone]\nart STAKE\n");
         assert_eq!(older.matches('[').count(), own.matches('[').count() - 3);
-        let arts: Vec<_> = parse(&older).unwrap().0.iter().rev().take(6).map(|w| w.art.clone()).collect();
-        assert_eq!(arts, ["DRONE", "GROUND_CRACK", "MAUL_SMASH", "DIRT_PUFF", "MOUND", "BLOOD_SPLAT"], "a mod's file from before [spit], [mound], [maul] and [drone] plays the game's");
+        let arts: Vec<_> = parse(&older).unwrap().0.iter().rev().take(7).map(|w| w.art.clone()).collect();
+        assert_eq!(arts, ["STAKE", "DRONE", "GROUND_CRACK", "MAUL_SMASH", "DIRT_PUFF", "MOUND", "BLOOD_SPLAT"], "a mod's file from before [spit], [mound], [maul], [drone] and [stake] plays the game's");
         let (_, extra) = parse(&format!("{own}\n[red_slash]\nart SCYTHE_SWING\nfps 9")).unwrap();
         assert_eq!((extra.last().unwrap().0.as_str(), extra.last().unwrap().1.fps), ("red_slash", 9.0));
         assert_eq!(e.named("slash"), Some(e.slash));
