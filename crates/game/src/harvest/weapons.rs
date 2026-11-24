@@ -1462,7 +1462,7 @@ impl Harvest {
     }
 
     fn scarecrow(&mut self, a: Armed) -> bool {
-        if !self.decoys.is_empty() {
+        if self.decoys.iter().any(|d| d.owner == self.actor) {
             return false;
         }
         let at = [self.actor().pos[0] - self.actor().aim[0] * 12.0, self.actor().pos[1] - self.actor().aim[1] * 12.0];
@@ -2380,6 +2380,35 @@ mod tests {
         assert!(between(range * 0.8, false) > 0.0, "the arc to a teammate hurts the zombie between them");
         assert_eq!(between(range * 1.3, false), 0.0, "out of range");
         assert_eq!(between(range * 0.8, true), 0.0, "a downed teammate");
+    }
+
+    #[test]
+    fn each_player_can_keep_a_scarecrow_standing() {
+        let mut h = with("scarecrow", [-40.0, 0.0]).with_players(2);
+        let def = book().index("scarecrow").unwrap();
+        h.players[1].kit.weapons.clear();
+        h.players[1].kit.raise(def, 1);
+        h.players[1].pos = h.players[ME].pos;
+        h.players[1].aim = [0.0, 1.0];
+        h.players[1].view_yaw = 0.0;
+        for p in &mut h.players {
+            p.kit.weapons[0].cd = 0.0;
+        }
+        h.fire(0.016, &mut Vec::new());
+        assert_eq!(h.decoys.len(), 2);
+        assert_ne!(h.decoys[0].owner, h.decoys[1].owner);
+        for p in &mut h.players {
+            p.kit.weapons[0].cd = 0.0;
+        }
+        h.fire(0.016, &mut Vec::new());
+        assert_eq!(h.decoys.len(), 2);
+        let z = h.zombies[0].pos;
+        h.decoys[0].lure = 1000.0;
+        h.decoys[1].lure = 1000.0;
+        let near = h.decoys.iter().map(|d| len(sub(d.pos, z))).fold(f32::MAX, f32::min);
+        h.move_zombies(0.2, &mut Vec::new());
+        let after = h.decoys.iter().map(|d| len(sub(d.pos, h.zombies[0].pos))).fold(f32::MAX, f32::min);
+        assert!(after < near);
     }
 
     #[test]
