@@ -989,6 +989,17 @@ impl Viewer {
         self.c.h.hold_still();
     }
 
+    /// Back one tick, the night played again from its start to there, silently; false at the start.
+    pub fn step_back(&mut self) -> bool {
+        let Some(to) = self.c.tick.checked_sub(1) else { return false };
+        self.rewind();
+        let mut quiet = Vec::new();
+        while self.c.tick < to && self.c.step(&self.r, &mut quiet) {
+            quiet.clear();
+        }
+        true
+    }
+
     /// Back to the start of the night.
     pub fn rewind(&mut self) {
         self.c = Cursor::new(&self.r);

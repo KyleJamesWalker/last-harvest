@@ -481,10 +481,10 @@ impl Harvest {
 
     /// The few zombies in the picture nearest where the camera looks, nearest first.
     fn pickable(&self) -> Vec<usize> {
-        let focus = self.focus();
+        let (focus, from) = (self.focus(), self.anchor());
         let view_proj = view3d::scene(self).view_proj;
         let shown = |z: &Zombie| view3d::to_screen(view_proj, z.pos, 12.0).is_some_and(|([x, y], _)| (0.0..SCREEN_W).contains(&x) && (0.0..SCREEN_H).contains(&y));
-        let mut near: Vec<usize> = (0..self.zombies.len()).filter(|&i| len(sub(self.zombies[i].pos, self.anchor())) < PICK_REACH && shown(&self.zombies[i])).collect();
+        let mut near: Vec<usize> = (0..self.zombies.len()).filter(|&i| len(sub(self.zombies[i].pos, from)) < PICK_REACH && shown(&self.zombies[i])).collect();
         near.sort_by(|&a, &b| len(sub(self.zombies[a].pos, focus)).total_cmp(&len(sub(self.zombies[b].pos, focus))));
         near.truncate(PICKS);
         near

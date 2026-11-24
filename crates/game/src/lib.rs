@@ -1652,6 +1652,25 @@ mod tests {
     }
 
     #[test]
+    fn paused_left_and_right_step_a_replay_a_tick_back_and_forth() {
+        let mut game = watching(recorded_night(300));
+        hold_for(&mut game, Buttons::NONE, 100);
+        press(&mut game, Buttons::A);
+        let at = watched(&game).at();
+        press(&mut game, Buttons::RIGHT);
+        let next = watched(&game).at();
+        assert_eq!(next.0, at.0 + 1, "Right steps a tick");
+        press(&mut game, Buttons::LEFT);
+        assert_eq!(watched(&game).at(), at, "Left steps back to exactly where it was");
+        press(&mut game, Buttons::LEFT);
+        assert_eq!(watched(&game).at().0, at.0 - 1);
+        assert!(watched(&game).paused() && watched(&game).drift().is_none());
+        press(&mut game, Buttons::RIGHT);
+        press(&mut game, Buttons::RIGHT);
+        assert_eq!(watched(&game).at(), next, "and forward again to the same night");
+    }
+
+    #[test]
     fn on_a_phone_photo_mode_on_a_replay_has_the_photo_keys() {
         let size = [2400.0, 1080.0];
         let mut game = watching(recorded_night(120));

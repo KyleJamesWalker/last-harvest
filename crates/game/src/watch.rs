@@ -167,7 +167,8 @@ impl Watching {
             }
             sounds.push(Sfx::Tick(if self.paused { 0 } else { 6 }));
         }
-        let by = (pressed(Buttons::RIGHT) || tapped == Some(Control::Faster)) as i32 - (pressed(Buttons::LEFT) || tapped == Some(Control::Slower)) as i32;
+        let stepping = self.paused;
+        let by = ((pressed(Buttons::RIGHT) && !stepping) || tapped == Some(Control::Faster)) as i32 - ((pressed(Buttons::LEFT) && !stepping) || tapped == Some(Control::Slower)) as i32;
         let speed = (self.speed as i32 + by).clamp(0, SPEEDS.len() as i32 - 1) as usize;
         if speed != self.speed {
             self.speed = speed;
@@ -180,7 +181,15 @@ impl Watching {
             sounds.push(Sfx::Tick(self.follow as u8 * 3));
         }
         self.stepped = false;
-        let once = self.paused && pressed(Buttons::Y);
+        if stepping && pressed(Buttons::LEFT) {
+            if self.viewer.step_back() {
+                sounds.push(Sfx::Tick(0));
+            }
+            self.owed = 0.0;
+            self.viewer.hold();
+            return true;
+        }
+        let once = self.paused && input.pressed.any(Buttons::Y | Buttons::RIGHT);
         if (self.paused && !once) || self.viewer.ended() {
             self.owed = 0.0;
             self.viewer.hold();
@@ -298,12 +307,12 @@ impl Watching {
             let text = match (control, hints) {
                 (Control::Leave, true) => pad::hint("{B}: Leave"),
                 (Control::Leave, false) => "Leave".into(),
-                (Control::Slower, true) => "Left: Slower".into(),
-                (Control::Slower, false) => "Slower".into(),
+                (Control::Slower, true) if !self.paused => "Left: Slower".into(),
+                (Control::Slower, _) => "Slower".into(),
                 (Control::Play, true) => pad::hint(&format!("{{A}}: {play}")),
                 (Control::Play, false) => play.into(),
-                (Control::Faster, true) => "Right: Faster".into(),
-                (Control::Faster, false) => "Faster".into(),
+                (Control::Faster, true) if !self.paused => "Right: Faster".into(),
+                (Control::Faster, _) => "Faster".into(),
                 (Control::Player, true) => pad::hint("{L1} {R1}: Player"),
                 (Control::Player, false) => "Player".into(),
                 (Control::Photo, true) => pad::hint("{X}: Photo"),
@@ -312,7 +321,7 @@ impl Watching {
             crate::menu::fit_label(c, &text, x + w / 2.0, y + h / 2.0 - 13.0, 26.0, w - 12.0, if off { DIM } else { WHITE }, Align::Center);
         }
         if hints && self.paused && !self.viewer.ended() {
-            c.label(pad::hint("{Y}: one step"), bx + bw, top + STRIP_H - 4.0, 20.0, DIM, Align::Right);
+            c.label(pad::hint("Left / Right or {Y}: step a tick"), bx + bw, top + STRIP_H - 4.0, 20.0, DIM, Align::Right);
         }
     }
 }

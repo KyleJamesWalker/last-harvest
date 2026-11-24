@@ -4533,6 +4533,7 @@ mod tests {
             let listed: Vec<&String> = e.names.iter().map(|(n, _)| n).filter(|n| sprite::section(n) == sprite::DIFFICULTY_SECTION).collect();
             assert_eq!(listed, ["DATA_TUNING_STROLL", "DATA_TUNING_EASY", "DATA_TUNING_NORMAL", "DATA_TUNING_HARD", "DATA_TUNING_BRUTAL", "DATA_TUNING_DEAD"], "modding {modding}");
             assert_eq!(sprite::section("DATA_TUNING_SPAWN"), "Data/tuning");
+            assert!(e.names.iter().any(|(n, _)| n == "DATA_TUNING_PHOTO") && sprite::section("DATA_TUNING_PHOTO") == "Data/tuning", "photo mode's walk speed, modding {modding}");
             e.switch_to("DATA_TUNING_BRUTAL".into());
             let kit = e.data.as_ref().unwrap().table.entries("brutal").iter().position(|x| x.key == "kit").unwrap();
             e.act(Action::DataChoice(kit, -1), false);
