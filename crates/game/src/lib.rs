@@ -1656,6 +1656,34 @@ mod tests {
     }
 
     #[test]
+    fn a_night_recorded_walking_in_photo_mode_replays_and_photo_mode_over_it_puts_its_own_back() {
+        let mut game = Game::new(11);
+        game.record_replays(vec![("game".into(), "test".into())]);
+        game.open(Scene::Harvest);
+        let opens = [(60, Buttons::START), (61, Buttons::DOWN), (62, Buttons::DOWN), (63, Buttons::A)];
+        let presses: Vec<(usize, Buttons)> = opens.into_iter().chain((64..70).map(|i| (i, Buttons::L2))).chain([(220, Buttons::B), (221, Buttons::B)]).collect();
+        for i in 0..300 {
+            let pressed = presses.iter().find(|p| p.0 == i).map_or(Buttons::NONE, |p| p.1);
+            let held = if (80..200).contains(&i) { Buttons::UP | Buttons::RIGHT } else { Buttons::NONE };
+            game.update(&Input { held, pressed, ..Default::default() }, 1.0 / 60.0);
+        }
+        assert!(!game.in_photo());
+        game.open(Scene::Title);
+        let mut game = watching(game.take_replays().pop().expect("a replay"));
+        hold_for(&mut game, Buttons::NONE, 150);
+        press(&mut game, Buttons::A);
+        let says_photo = |game: &mut Game| game.draw_at(1.0).top.shapes.iter().chain(&game.draw_at(1.0).bottom.shapes).any(|s| matches!(s, Shape::Text { text, .. } if text == "PHOTO MODE"));
+        assert!(says_photo(&mut game), "the recording is walking in its own photo mode");
+        let at = watched(&game).at();
+        photo_on_the_replay(&mut game);
+        assert_eq!(watched(&game).at(), at);
+        assert!(says_photo(&mut game), "and its own photo mode is back");
+        press(&mut game, Buttons::A);
+        hold_for(&mut game, Buttons::NONE, 200);
+        assert!(watched(&game).ended() && watched(&game).drift().is_none(), "the walk and the photo mode over it replay matching");
+    }
+
+    #[test]
     fn paused_left_and_right_step_a_replay_a_tick_back_and_forth() {
         let mut game = watching(recorded_night(300));
         hold_for(&mut game, Buttons::NONE, 100);

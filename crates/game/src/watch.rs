@@ -141,7 +141,7 @@ impl Watching {
     pub fn update(&mut self, input: &Input, tap: Option<[f32; 2]>, top: f32, dt: f32, sounds: &mut Vec<Sfx>) -> bool {
         self.stepped = false;
         if self.viewer.in_photo() {
-            self.capture = self.viewer.photo(input, dt, sounds).capture;
+            self.capture = self.viewer.photo(input, dt, self.device, sounds).capture;
             self.viewer.hold();
             return true;
         }

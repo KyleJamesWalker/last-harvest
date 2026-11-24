@@ -1062,9 +1062,11 @@ impl Viewer {
         self.over.is_some()
     }
 
-    /// A frame of photo mode; it asks for a capture with `Flow::capture`, and on leaving puts the night back as it was.
-    pub fn photo(&mut self, input: &Input, dt: f32, sounds: &mut Vec<Sfx>) -> Flow {
+    /// A frame of photo mode, its guides laid out for `device`; it asks for a capture with `Flow::capture`, and on leaving
+    /// puts the night back as it was.
+    pub fn photo(&mut self, input: &Input, dt: f32, device: super::photo::Device, sounds: &mut Vec<Sfx>) -> Flow {
         let Some(over) = self.over.take() else { return Flow::default() };
+        self.c.h.set_device(device);
         let (flow, over) = self.c.h.photo_over(over, input, dt, sounds);
         self.over = over;
         flow

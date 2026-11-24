@@ -308,7 +308,7 @@ impl Harvest {
     }
 
     /// Fields set directly: the setters would tape them and clear one-screen aiming, which the replay checks.
-    fn set_device(&mut self, d: Device) {
+    pub(super) fn set_device(&mut self, d: Device) {
         (self.single, self.touch_keys, self.saves_photos, self.taps) = (d.one_screen, d.touch_keys, d.saves_photos, d.taps);
     }
 
