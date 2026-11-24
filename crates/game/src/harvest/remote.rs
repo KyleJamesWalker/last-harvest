@@ -9,7 +9,7 @@ use std::f32::consts::TAU;
 use super::effects::{self, Effect};
 use super::local::Cards;
 use super::player::{ME, PlayerId};
-use super::weapons::{Bolt, Decoy, Dog, Drone, Hazard, Patch};
+use super::weapons::{Bolt, Decoy, Dog, Drone, Hazard, Patch, Stake};
 use super::*;
 use crate::netsync::snapshot::*;
 use crate::netsync::{Event, Mirror, Spawn, Spawned};
@@ -313,7 +313,7 @@ impl Harvest {
     fn lay_things(&mut self, c: &mut Client, mirror: &Mirror, dt: f32) {
         let now = mirror.render_tick().max(0.0) as u32 as u16;
         let age = |born: u16| now.wrapping_sub(born) as f32 / TICK_HZ as f32;
-        let (mut drops, mut thrown, mut patches, mut barrels, mut decoys, mut tells) = (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
+        let (mut drops, mut thrown, mut patches, mut barrels, mut decoys, mut tells, mut stakes) = (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
         let mut tell_t = Vec::new();
         for t in mirror.things() {
             let pos = unq_pos(t.pos);
@@ -352,6 +352,7 @@ impl Harvest {
                 }
                 T_BARREL => barrels.push(Barrel { pos, hp: t.data[0] as f32, flash: 0.0, by: ME }),
                 T_DECOY => decoys.push(Decoy::shown(pos, age(t.data[0]), t.data[1] as f32 / 10.0)),
+                T_STAKE => stakes.push(Stake { pos, age: age(t.data[0]), life: t.data[1] as f32 / 10.0, owner: ME }),
                 T_TELL if (t.sub as usize) < roster().enemies.len() => {
                     let was = c.tells.iter().find(|(p, _)| *p == pos).map_or(0.0, |w| w.1);
                     tell_t.push((pos, was + dt));
@@ -361,7 +362,7 @@ impl Harvest {
             }
         }
         c.tells = tell_t;
-        (self.drops, self.thrown, self.patches, self.decoys, self.tells) = (drops, thrown, patches, decoys, tells);
+        (self.drops, self.thrown, self.patches, self.decoys, self.tells, self.stakes) = (drops, thrown, patches, decoys, tells, stakes);
         self.barrels = barrels;
     }
 
