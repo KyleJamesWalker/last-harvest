@@ -20,9 +20,9 @@ const DOES_W: f32 = 114.0;
 const PREVIEW: Rect = Rect { x: SIDE_X, y: CANVAS.y + 340.0, w: SIDE_W, h: 220.0 };
 const STYLE: Rect = Rect { x: SIDE_X + SIDE_W / 2.0 + 8.0, y: PREVIEW.y + PREVIEW.h + 6.0, w: SIDE_W / 2.0 - 16.0, h: 28.0 };
 /// The lines the pickers set, in order.
-const PICKS: [&str; 16] = ["effect", "bullet", "pattern", "aim", "targets", "outside", "homing", "explode", "sound", "sound_every", "sound_after", "sound_delay", "player", "kill_resets", "fetches", "charge"];
+const PICKS: [&str; 17] = ["effect", "bullet", "pattern", "homing", "explode", "aim", "through", "targets", "outside", "sound", "sound_every", "sound_after", "sound_delay", "player", "kill_resets", "fetches", "charge"];
 /// The pickers' tabs and the slice of `PICKS` each shows.
-const PICK_TABS: [(&str, std::ops::Range<usize>); 4] = [("Shots", 0..3), ("Aim", 3..8), ("Sound & player", 8..13), ("Dog", 13..16)];
+const PICK_TABS: [(&str, std::ops::Range<usize>); 4] = [("Shots", 0..5), ("Aim", 5..9), ("Sound & player", 9..14), ("Dog", 14..17)];
 /// What `outside` steps through, in pixels; Own leaves a burst its whole range.
 const OUTSIDE: [&str; 9] = ["0", "10", "20", "30", "40", "50", "60", "80", "100"];
 /// What a gun's `homing` steps through, in degrees a second, and `explode`, in pixels; Own leaves them off.
@@ -31,7 +31,7 @@ const EXPLODE: [&str; 7] = ["8", "10", "14", "18", "24", "30", "40"];
 /// What `sound_every` steps through, in rounds, and `sound_delay`, in seconds.
 const EVERY: [&str; 5] = ["2", "3", "4", "5", "6"];
 const DELAY: [&str; 9] = ["0.1", "0.2", "0.3", "0.4", "0.5", "0.6", "0.8", "1", "1.2"];
-/// What a dog's `kill_resets` and `fetches` step through; Own leaves them off.
+/// What a dog's `kill_resets` and `fetches` and a gun's `through` step through; Own leaves them off.
 const RESETS: [&str; 2] = ["0", "1"];
 /// What a dog's `charge` steps through, in pixels; Own never charges.
 const CHARGE: [&str; 6] = ["0", "120", "160", "200", "260", "320"];
@@ -142,7 +142,7 @@ fn choices(store: &dyn Store, pick: usize, players: &[String]) -> Vec<String> {
         "outside" => return OUTSIDE.map(str::to_string).to_vec(),
         "sound_every" => return EVERY.map(str::to_string).to_vec(),
         "sound_delay" => return DELAY.map(str::to_string).to_vec(),
-        "kill_resets" | "fetches" => return RESETS.map(str::to_string).to_vec(),
+        "kill_resets" | "fetches" | "through" => return RESETS.map(str::to_string).to_vec(),
         "charge" => return CHARGE.map(str::to_string).to_vec(),
         _ => {}
     }
@@ -336,7 +336,7 @@ impl Editor {
                 "explode" => "never".into(),
                 "targets" => "same".into(),
                 "outside" => "its whole range".into(),
-                "kill_resets" | "fetches" => "off".into(),
+                "kill_resets" | "fetches" | "through" => "off".into(),
                 "charge" => "never".into(),
                 "player" => "every player's".into(),
                 "sound_every" => "every round".into(),

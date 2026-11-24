@@ -4683,10 +4683,11 @@ mod tests {
             e.act(Action::WeaponPick(pick, 1), false);
             assert_eq!(outside(&e).as_deref(), Some("30"));
             let line = |e: &Editor, k: &str| e.data.as_ref().and_then(|d| d.table.entries(&d.section).into_iter().find(|l| l.key == k)).map(|l| l.value);
-            for (k, want) in [("aim", "nearest"), ("homing", "60"), ("explode", "8")] {
-                assert!(e.buttons().iter().any(|b| b.action == Action::WeaponPick(weapons::pick(k), 1)), "{k} on the aim tab");
+            for (k, want) in [("aim", "nearest"), ("homing", "60"), ("explode", "8"), ("through", "0")] {
                 e.act(Action::WeaponPick(weapons::pick(k), 1), false);
                 assert_eq!(line(&e, k).as_deref(), Some(want), "{k}, modding {modding}");
+                assert!(e.buttons().iter().any(|b| b.action == Action::WeaponPick(weapons::pick(k), 1)), "{k}'s tab shows");
+                buttons_fit(&e);
             }
             buttons_fit(&e);
             e.act(Action::Save, false);

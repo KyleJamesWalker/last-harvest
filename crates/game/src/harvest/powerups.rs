@@ -622,6 +622,8 @@ pub struct Def {
     pub homing: f32,
     /// For a gun, the pixels of the blast each shot pops in where it hits or runs out; 0 for none.
     pub explode: f32,
+    /// For a gun, its shots pass through every zombie but the one they were fired at while it stands.
+    pub through: bool,
     /// For a dog, a bite that kills is ready again at once.
     pub kill_resets: bool,
     /// For a dog, with nothing to bite it brings its player a heart lying beyond their magnet.
@@ -824,6 +826,7 @@ pub fn parse(text: &str) -> Result<Book, String> {
                 outside: None,
                 homing: 0.0,
                 explode: 0.0,
+                through: false,
                 kill_resets: false,
                 fetches: false,
                 charge: 0.0,
@@ -943,6 +946,13 @@ pub fn parse(text: &str) -> Result<Book, String> {
             }
             "homing" => def.homing = rest.parse::<f32>().ok().filter(|v| (0.0..=MAX_HOMING).contains(v)).ok_or_else(|| format!("{n}: homing is degrees a second a shot turns, 0 to {MAX_HOMING}, not {rest:?}"))?,
             "explode" => def.explode = rest.parse::<f32>().ok().filter(|v| (0.0..=MAX_EXPLODE).contains(v)).ok_or_else(|| format!("{n}: explode is a blast's pixels, 0 to {MAX_EXPLODE}, not {rest:?}"))?,
+            "through" => {
+                def.through = match rest {
+                    "1" => true,
+                    "0" => false,
+                    _ => return Err(format!("{n}: through is 1 or 0, not {rest:?}")),
+                }
+            }
             "charge" => def.charge = rest.parse::<f32>().ok().filter(|v| v.is_finite() && *v >= 0.0).ok_or_else(|| format!("{n}: charge is pixels, 0 or more, not {rest:?}"))?,
             "lands" => {
                 def.lands = match rest {
@@ -1155,7 +1165,8 @@ mod tests {
         let aims: Vec<Aim> = weapon_aims().iter().map(|a| parse(&format!("[g]\nkind weapon\ndoes gun\naim {a}\nicon WHITE\n[cash]\nkind filler\nicon WHITE\n")).unwrap().defs[0].aim).collect();
         assert_eq!(aims, [Aim::Nearest, Aim::Ahead, Aim::Behind, Aim::Around, Aim::Strongest, Aim::Farthest, Aim::Random]);
         let g = parse("[g]\nkind weapon\ndoes gun\nhoming 270\nexplode 18\nicon WHITE\n[cash]\nkind filler\nicon WHITE\n").unwrap();
-        assert_eq!((g.defs[0].homing, g.defs[0].explode), (270.0, 18.0));
+        assert_eq!((g.defs[0].homing, g.defs[0].explode, g.defs[0].through), (270.0, 18.0, false));
+        assert!(parse("[g]\nkind weapon\ndoes gun\nthrough 1\nicon WHITE\n[cash]\nkind filler\nicon WHITE\n").unwrap().defs[0].through);
         assert!(parse("[a]\nicon WHITE\nhoming -1").unwrap_err().starts_with("3: homing is"));
         assert!(parse("[a]\nicon WHITE\nexplode 1000").unwrap_err().starts_with("3: explode is"));
         let outside = |v: &str| parse(&format!("[g]\nkind weapon\ndoes gun\noutside {v}\nicon WHITE\n[cash]\nkind filler\nicon WHITE\n")).map(|b| b.defs[0].outside);

@@ -527,6 +527,8 @@ struct Steer {
     leg: ([f32; 2], f32, [f32; 2]),
     /// Pixels of the blast it pops in where it ends; 0 for none.
     pop: f32,
+    /// It passes through every zombie but `target` while that one stands.
+    through: bool,
 }
 
 /// Seconds of each straight run a homing shot is sent to clients as; each ends on its own as the next begins, so
@@ -2905,8 +2907,11 @@ impl Harvest {
                 continue;
             }
             let spent = b.life <= 0.0;
+            if b.steer.through && !b.steer.target.is_some_and(|id| self.zombies.iter().any(|z| z.id == id && z.hp > 0.0)) {
+                b.steer.target = None;
+            }
             for z in &mut self.zombies {
-                if b.life <= 0.0 || b.hit.contains(&z.id) {
+                if b.life <= 0.0 || b.hit.contains(&z.id) || (b.steer.through && b.steer.target.is_some_and(|id| id != z.id)) {
                     continue;
                 }
                 let d = sub([z.pos[0], z.pos[1] - 6.0], b.pos);

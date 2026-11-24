@@ -738,18 +738,18 @@ impl Harvest {
         let speed = self.stat(a, Stat::Speed);
         let (base, spread) = (fm::atan2(d[1], d[0]), self.stat(a, Stat::Spread).to_radians());
         let (damage, pierce, force) = (self.stat(a, Stat::Damage), self.stat(a, Stat::Pierce) as u32, self.stat(a, Stat::Knockback));
-        let (turn, pop) = (def.homing.to_radians(), def.explode);
+        let (turn, pop, through) = (def.homing.to_radians(), def.explode, def.through);
         let life = if turn > 0.0 { range / speed * HOMING_LIFE } else { range / speed };
         for k in 0..n {
             let angle = shot_angle(pattern, k, n, base, spread, self.juice.rng.range(-0.5, 0.5));
             self.shoot(angle, speed, damage, pierce, life, force, bullet(a));
-            if turn <= 0.0 && pop <= 0.0 {
+            if turn <= 0.0 && pop <= 0.0 && !through {
                 continue;
             }
             let at = if k > 0 && turn > 0.0 && aim == Aim::Random { self.aimed_at(aim, range).unwrap_or(offset) } else { offset };
             let target = self.zombie_at(at);
             if let Some(b) = self.bullets.last_mut() {
-                b.steer = super::Steer { turn, target, leg: (b.pos, 0.0, b.vel), pop };
+                b.steer = super::Steer { turn, target, leg: (b.pos, 0.0, b.vel), pop, through };
             }
         }
         self.muzzle(a, d, 8.0);
@@ -1818,7 +1818,7 @@ mod tests {
         let mut near = Zombie::new(ZKind::named("big"), [me[0] + 8.0, me[1] + 84.0], 500.0, 1.0, 0.0);
         near.id = 41;
         h.zombies.push(near);
-        let (first, steer) = (h.zombies[0].id, super::super::Steer { turn: 4.0, target: Some(h.zombies[0].id), leg: ([0.0; 2], 0.0, [0.0; 2]), pop: 14.0 });
+        let (first, steer) = (h.zombies[0].id, super::super::Steer { turn: 4.0, target: Some(h.zombies[0].id), leg: ([0.0; 2], 0.0, [0.0; 2]), pop: 14.0, through: false });
         h.juice.tally.credit(ME, book().index("pistol"));
         h.shoot(0.0, 110.0, 10.0, 0, 3.0, 0.0, None);
         h.juice.tally.by = None;
@@ -1835,6 +1835,63 @@ mod tests {
         let hurt: Vec<f32> = h.zombies.iter().filter(|z| z.id != first).map(|z| 500.0 - z.hp).collect();
         assert!(hurt.iter().all(|&d| d > 0.0), "its pop caught {hurt:?}");
         assert_eq!(h.juice.tally.rows(ME)[0].by, book().index("pistol"), "the pop is its gun's");
+    }
+
+    /// Seconds `id` at `level` takes to kill a zombie of `kind` with `hp` standing 150 px ahead behind a wall of 12
+    /// skinnies that stands back up as it falls, everything held in place; and the wall's kills meanwhile.
+    fn kill_behind_a_wall(id: &str, level: u32, kind: &str, hp: f32) -> (Option<f32>, u32) {
+        let mut h = with(id, [150.0, 0.0]);
+        h.barrels.clear();
+        let start = h.me().pos;
+        h.players[ME].pos = (0..400).map(|k| [start[0] + (k % 20) as f32 * 16.0, start[1] + (k / 20) as f32 * 16.0]).find(|p| (-1..=1).all(|dy| super::super::clear_shot(&h.map, [p[0], p[1] + dy as f32 * 12.0], [p[0] + 160.0, p[1] + dy as f32 * 12.0]))).unwrap();
+        h.zombies[0].pos = [h.me().pos[0] + 150.0, h.me().pos[1]];
+        h.me_mut().kit.weapons[0].level = level;
+        let kind = if kind == "harvester" { ZKind(super::super::roster().harvester as u8) } else { ZKind::named(kind) };
+        h.zombies[0] = Zombie::new(kind, h.zombies[0].pos, hp, 0.0, 0.0);
+        h.zombies[0].boss = kind.0 as usize == super::super::roster().harvester;
+        h.zombies[0].id = 1;
+        let me = h.me().pos;
+        let wall: Vec<[f32; 2]> = (0..12).map(|k| [me[0] + 60.0 + (k % 4) as f32 * 18.0, me[1] + (k / 4) as f32 * 10.0 - 10.0]).collect();
+        for (k, &at) in wall.iter().enumerate() {
+            let mut z = Zombie::new(ZKind::named("skinny"), at, 20.0, 0.0, 0.0);
+            z.id = 100 + k as u32;
+            h.zombies.push(z);
+        }
+        let (homes, mut walled, mut sounds) = (h.zombies.iter().map(|z| z.pos).collect::<Vec<_>>(), 0, Vec::new());
+        for tick in 0..60 * 60 {
+            h.fire(1.0 / 60.0, &mut sounds);
+            h.move_bullets(1.0 / 60.0, &mut sounds);
+            if h.zombies[0].hp <= 0.0 {
+                return (Some(tick as f32 / 60.0), walled);
+            }
+            for (z, &home) in h.zombies.iter_mut().zip(&homes).skip(1) {
+                if z.hp <= 0.0 {
+                    walled += 1;
+                    z.hp = 20.0;
+                }
+                z.pos = home;
+            }
+            h.zombies[0].pos = homes[0];
+        }
+        (None, walled)
+    }
+
+    #[test]
+    #[ignore = "numbers for a PR, for cargo test --release -- --ignored --nocapture"]
+    fn time_to_kill_a_big_and_the_harvester_behind_a_wall() {
+        for id in ["varmint_rifle", "rifle", "shotgun", "pistol", "knife"] {
+            for level in [1, 4, 8] {
+                let big = kill_behind_a_wall(id, level, "big", 400.0);
+                let boss = kill_behind_a_wall(id, level, "harvester", 2500.0);
+                eprintln!("{id}:{level}  big 400hp {:?} s ({} wall kills)  harvester 2500hp {:?} s ({} wall kills)", big.0, big.1, boss.0, boss.1);
+            }
+        }
+    }
+
+    #[test]
+    fn a_shot_that_goes_through_passes_the_wall_to_the_strongest() {
+        let (killed, walled) = kill_behind_a_wall("varmint_rifle", 8, "big", 400.0);
+        assert!(killed.is_some() && walled == 0, "{killed:?} with {walled} of the wall killed on the way");
     }
 
     #[test]

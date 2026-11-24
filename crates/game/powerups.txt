@@ -38,6 +38,7 @@
 #                       out. A blade cuts everything within area across spread degrees, 360 all round
 #   homing  DEGREES     for `does gun`, how fast its shots turn toward their target, onto the nearest when it falls
 #   explode PIXELS      for `does gun`, the blast each shot pops in where it ends, playing effects.txt's [pop]
+#   through 1 | 0       for `does gun`, its shots pass through every zombie but the one they were fired at; 0 when left out
 #   lands   blast | fire | flare | tacks     for `does lob`, which throws count at a crowd within range, what it does
 #                       where it lands, with damage, area, duration and slow; blast when left out. It flies as its
 #                       bullet effect, the grenade when left out, and plays its effect where it lands
@@ -152,6 +153,7 @@ name      Varmint rifle
 kind      weapon
 does      gun
 aim       strongest
+through   1
 bullet    rifle_round
 effect    muzzle_rifle
 kick      0.06
