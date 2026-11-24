@@ -1487,6 +1487,7 @@ impl Harvest {
         }
         self.stakes.push(Stake { pos: at, age: 0.0, life: self.stat(a, Stat::Duration), owner: me });
         self.juice.burst(at, 0.0, 6, [0.0; 2], 0.0, [15.0, 40.0], juice::dirt(), 1.2, 0.4, 0.0);
+        self.attack_feel(a, at, 6.0);
         self.weapon_sound(a, Sfx::Zap, sounds);
         true
     }
