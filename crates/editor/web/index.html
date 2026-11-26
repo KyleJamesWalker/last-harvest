@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'sha256-bASTv+MoswYAHtNPEYDZBI3MIMQ8Y3B7HAr4blB9tTc='; style-src 'unsafe-inline'; media-src blob:; object-src 'none'; base-uri 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'sha256-gEabgotNyXXAyIYtRGk3HYDKh0TyFu2nQjEGzNnlXPk='; style-src 'unsafe-inline'; media-src blob:; object-src 'none'; base-uri 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -59,7 +59,7 @@
   <div class="group"><span>Arrows</span><button data-act="left">&#8592;</button><button data-act="up">&#8593;</button><button data-act="down">&#8595;</button><button data-act="right">&#8594;</button></div>
   <div class="group"><span>Sprite</span><button data-act="prev-sprite">&#8593; K</button><button data-act="next-sprite">&#8595; J</button></div>
   <div class="group"><span>Frame</span><button data-act="prev-frame">&#8592; H</button><button data-act="next-frame">&#8594; L</button></div>
-  <div class="group" id="mod-tools" hidden><span>Cards</span><button data-act="import">Import</button><button data-act="export">Export</button><input id="pack-name" placeholder="Pack name" maxlength="40" autocomplete="off" spellcheck="false" title="The name the game's Mod packs page shows; it also names the file Export all downloads"><button data-act="export-all">Export all</button><button data-act="sound">Sound</button><button data-act="delete-card">Delete</button><button data-act="pak" id="pak">Game data</button><button id="help-open">Help</button></div>
+  <div class="group" id="mod-tools" hidden><span>Cards</span><button data-act="import">Import</button><button data-act="export">Export</button><input id="pack-name" placeholder="Pack name" maxlength="40" autocomplete="off" spellcheck="false" title="The name the game's Mod packs page shows; it also names the file Export all downloads"><button data-act="export-all">Export all</button><button data-act="sound">Sound</button><button data-act="delete-card">Delete</button><button data-act="new-pack" title="Clear every card, prop, map, sound and data file this browser keeps, to start a pack from nothing">New pack</button><button data-act="pak" id="pak">Game data</button><button id="help-open">Help</button></div>
   <div class="group"><button data-act="search">Search</button><button data-act="history">History</button><button data-act="new">New</button><button data-act="play">Play</button><button data-act="mirror">Mirror</button><button data-act="palette" title="Draw from a palette file, such as a .hex from lospec.com">Palette file</button><button data-act="fit">Fit</button><button data-act="save" class="save">Save</button></div>
 </div>
 <div id="help" hidden><div>
@@ -84,7 +84,9 @@
     <code>my-cards.pak</code>. The pack also carries each enemy's own death sound, which <b>Sound</b> picks, an
     <code>.ogg</code>, <code>.wav</code> or <code>.mp3</code>, converted to Ogg, of up to 512 KB once converted. <b>Drop own</b>, beside the death sound on the Stats page, removes it.</li>
   </ol>
-  <p>Your cards stay in this browser until you delete them. <b>Import</b> opens a card someone shared with you, or
+  <p>Your cards stay in this browser until you delete them. <b>New pack</b> deletes all of them at once, with their
+  props, maps, sounds, data files and the pack name, after offering to <b>Export all</b> first; it can't be undone,
+  and it keeps your <b>Game data</b>. <b>Import</b> opens a card someone shared with you, or
   every card in a <code>.pak</code>; one with the id of a card you have replaces it.
   <b>Game data</b> lets you pick your own <code>game_data.pak</code> so the previews show the farm; it never leaves
   your browser.</p>
@@ -197,6 +199,12 @@
     // Death sounds keep to IndexedDB, where Safari's 5 MB local storage limit doesn't reach.
     putSound(id, file, bytes) {
       files("readwrite", s => s.put({ id, file, bytes }, SOUND + id)).catch(e => said(`Couldn't keep ${file}: ${e?.name === "QuotaExceededError" ? "the browser's storage for this page is full" : e}`));
+    },
+    // New pack: every sound, and the weapon setup Try it left for the game; the loaded Game data stays.
+    clearSounds() {
+      localStorage.removeItem("last-harvest-range");
+      for (const key of Object.keys(localStorage).filter(k => k.startsWith("last-harvest-sound:"))) localStorage.removeItem(key);
+      files("readwrite", s => s.delete(IDBKeyRange.bound(SOUND, SOUND + "￿"))).catch(e => said(`Couldn't clear the sounds: ${e}`));
     },
     dropSound(id) {
       files("readwrite", s => s.delete(SOUND + id)).catch(e => said(`Couldn't drop the sound: ${e}`));

@@ -240,6 +240,36 @@ impl Editor {
         if let Err(e) = gone {
             return self.say(format!("Couldn't delete {what}: {e}"));
         }
+        self.close_open();
+        self.say(format!("Deleted {what}"));
+    }
+
+    /// Opens New pack's dialog, which asks before everything this browser keeps goes.
+    pub fn new_pack(&mut self) {
+        self.clearing = true;
+    }
+
+    pub(super) fn decide_clear(&mut self, choice: ClearChoice) {
+        match choice {
+            ClearChoice::Export => {
+                self.export_all_asked = true;
+                return;
+            }
+            ClearChoice::Cancel => {}
+            ClearChoice::Clear => match self.store.clear_all() {
+                Ok(()) => {
+                    self.close_open();
+                    self.cleared = true;
+                    self.say("Cleared everything: the editor is as new");
+                }
+                Err(e) => return self.say(format!("Couldn't clear: {e}")),
+            },
+        }
+        self.clearing = false;
+    }
+
+    /// Leaves the canvas with nothing open, and the list as the store has it.
+    fn close_open(&mut self) {
         (self.map, self.data, self.data_link) = (None, None, None);
         self.sprite = Sprite { detail: 1, alpha: Vec::new(), worn: Vec::new(), name: String::new(), frames: vec![Frame::blank(16, 16)], views: None, footprint: None, roof: None, north: None, west: None, top: None, card: None, clear_in_3d: Vec::new(), paint: Default::default() };
         (self.dirty, self.stand_touched, self.stats, self.frame) = (false, false, false, 0);
@@ -247,7 +277,6 @@ impl Editor {
         self.redo.clear();
         self.names = self.all_names();
         self.changed = true;
-        self.say(format!("Deleted {what}"));
     }
 
     pub(super) fn is_card(&self) -> bool {

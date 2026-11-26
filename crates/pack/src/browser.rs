@@ -58,6 +58,11 @@ pub fn from_text(text: &str) -> Option<Vec<u8>> {
     Some(out)
 }
 
+/// Whether local storage's `key` is something the card editor keeps: a card, prop, map, data file or the pack name.
+pub fn is_editor_key(key: &str) -> bool {
+    key == PACK_NAME_KEY || [ENEMY_KEY, PLAYER_KEY, PROP_KEY, MAP_KEY, TABLE_KEY].iter().any(|p| key.starts_with(p))
+}
+
 /// The editor's work among local storage's `entries`, as the files Export all would pack, by their paths in a pack;
 /// other keys are skipped, and an entry that won't decode is noted.
 pub fn editor_files(entries: impl IntoIterator<Item = (String, String)>, problems: &mut Vec<String>) -> Vec<(String, Vec<u8>)> {
@@ -104,6 +109,22 @@ mod tests {
             assert_eq!(from_text(&to_text(&bytes)), Some(bytes));
         }
         assert_eq!(from_text("a==="), None);
+    }
+
+    #[test]
+    fn clearing_takes_every_kind_of_key_the_editor_keeps_and_nothing_else() {
+        let mut storage: Vec<String> = vec![
+            card_key(Kind::Enemy, "biter"),
+            card_key(Kind::Player, "me"),
+            format!("{PROP_KEY}crate"),
+            format!("{MAP_KEY}yard"),
+            format!("{TABLE_KEY}tuning.txt"),
+            format!("{TABLE_KEY}farms/kd.ground.txt"),
+            PACK_NAME_KEY.to_string(),
+            "save.txt".to_string(),
+        ];
+        storage.retain(|k| !is_editor_key(k));
+        assert_eq!(storage, ["save.txt"]);
     }
 
     #[test]

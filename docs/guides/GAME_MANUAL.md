@@ -465,6 +465,7 @@ The [card editor](https://kylejameswalker.github.io/last-harvest/editor/) makes 
 | Export all | Downloads everything as one mod pack for the game's `data/mods`, named by the Pack name field beside it: Thanksgiving downloads `thanksgiving.pak`, which Settings > Mod packs lists as Thanksgiving. Without a name it is `my-cards.pak`. |
 | Sound | Gives an enemy card its own death sound: an Ogg, WAV or MP3, kept as an Ogg of up to 512 KB |
 | Delete | Removes the open card, prop or map. Press it twice. |
+| New pack | Clears everything this browser keeps for the editor, to start from nothing: every card and its parts, prop, map, death sound, edited data file and farm, and the Pack name. A box asks first, and offers Export all so you can keep a copy; it can't be undone. Your Game data stays. |
 | Game data | Picks your own `game_data.pak`. See [Game data](#game-data). |
 | Help | A short guide to making a card |
 
