@@ -345,11 +345,12 @@ impl Harvest {
                 }
                 T_PATCH => {
                     let hazard = match t.sub {
-                        0 => Hazard::Tacks,
                         1 => Hazard::Fire,
-                        _ => Hazard::Flare,
+                        2 => Hazard::Flare,
+                        _ => Hazard::Tacks,
                     };
-                    patches.push(Patch::shown(hazard, pos, unq(t.data[0]), age(t.data[1]), t.data[2] as f32 / 10.0));
+                    let by = (t.sub >= super::online::PATCH_OF).then(|| (t.sub - super::online::PATCH_OF) as usize).filter(|&d| d < book().defs.len());
+                    patches.push(Patch::shown(hazard, pos, unq(t.data[0]), age(t.data[1]), t.data[2] as f32 / 10.0).with_patch_of(by));
                 }
                 T_BARREL => barrels.push(Barrel { pos, hp: t.data[0] as f32, flash: 0.0, by: ME }),
                 T_DECOY => decoys.push(Decoy::shown(pos, age(t.data[0]), t.data[1] as f32 / 10.0)),
@@ -398,15 +399,23 @@ impl Harvest {
         self.spits.clear();
         for (pos, age, s) in mirror.shots_for(&own) {
             match s.what {
-                Spawn::Shot { owner, look, vel, life, .. } => {
+                Spawn::Shot { owner, look, vel, life, arc, .. } => {
                     let by = (look as usize).checked_sub(1).filter(|&d| d < book().defs.len());
                     let look = by.and_then(|d| book().defs[d].bullet.as_deref()).and_then(|n| effects::effects().named(n));
                     let vel = vel.map(|v| v as f32 / 8.0);
                     let owner = c.index(owner as usize).unwrap_or(ME);
                     let life = (life as f32 / 50.0 - age).max(0.0);
+                    let (peak, flight, start) = (arc[0] as f32, arc[1] as f32 / 1000.0, arc[2] as f32 / 1000.0);
                     // Each of a homing shot's runs starts at age 0; a full tail keeps it from flickering short.
-                    let age = if by.is_some_and(|d| book().defs[d].homing > 0.0) { age + 1.0 } else { age };
-                    self.bullets.push(Bullet { pos, vel, damage: 0.0, pierce: 0, life, force: 0.0, hit: Vec::new(), look, age, by, owner, soak: [0.0; 2], lift: [0.0; 2], steer: Default::default() });
+                    let age = if flight > 0.0 {
+                        start + age
+                    } else if by.is_some_and(|d| book().defs[d].homing > 0.0) {
+                        age + 1.0
+                    } else {
+                        age
+                    };
+                    let steer = Steer { arc: [peak, flight], ..Default::default() };
+                    self.bullets.push(Bullet { pos, vel, damage: 0.0, pierce: 0, life, force: 0.0, hit: Vec::new(), look, age, by, owner, soak: [0.0; 2], lift: [0.0; 2], steer });
                 }
                 Spawn::Spit { kind, vel, life, .. } if (kind as usize) < roster().enemies.len() => {
                     self.spits.push(Spit { kind: Kind(kind), pos, vel: vel.map(|v| v as f32 / 8.0), damage: 0.0, life: (life as f32 / 50.0 - age).max(0.0), age });

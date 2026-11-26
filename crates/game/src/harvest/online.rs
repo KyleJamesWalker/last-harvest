@@ -377,12 +377,14 @@ impl Extract {
         let mut shots = HashMap::new();
         let ticks = |secs: f32| (secs * TICK_HZ as f32).round() as u32;
         for b in &h.bullets {
-            let (from, vel, life) = b.leg();
+            let (from, vel, life, start) = b.leg();
             let from = q_pos(from);
             let key = (from[0], from[1], vel8(vel)[0], vel8(vel)[1]);
             let seen = self.shots_seen.get(&key).copied().unwrap_or_else(|| {
                 let look = b.by.map_or(0, |d| d as u16 + 1);
-                new.push(Spawn::Shot { owner: b.owner as u8, look, from, vel: vel8(vel), life: life50(life) });
+                let [peak, flight] = b.steer.arc;
+                let arc = if flight > 0.0 { [peak, flight * 1000.0, start * 1000.0].map(|v| v.round().clamp(0.0, u16::MAX as f32) as u16) } else { [0; 3] };
+                new.push(Spawn::Shot { owner: b.owner as u8, look, from, vel: vel8(vel), life: life50(life), arc });
                 (self.next_spawn + new.len() as u32, tick, ticks(life))
             });
             shots.insert(key, seen);
@@ -486,7 +488,7 @@ impl Extract {
         }
         for p in &h.patches {
             let sub = match p.hazard {
-                Hazard::Tacks => 0,
+                Hazard::Tacks => p.patch_of().map_or(0, |d| PATCH_OF + d.min(250) as u8),
                 Hazard::Fire => 1,
                 Hazard::Flare => 2,
             };
@@ -638,6 +640,8 @@ pub struct NetReport {
     pub undecodable: u64,
 }
 
+/// A tacks patch whose weapon names its own `patch` goes out as this plus the weapon's index.
+pub(super) const PATCH_OF: u8 = 3;
 const STEP: f32 = 1.0 / TICK_HZ as f32;
 
 /// Plays `plan`'s night, an empty build keeping the starting kit, with two players: the host's scripted one, and a client's, also scripted, whose input
@@ -837,7 +841,7 @@ mod tests {
         let mut z = super::super::Zombie::new(super::super::Kind::named("big"), [from[0] + 40.0, from[1] + 96.0], 500.0, 1.0, 0.0);
         z.id = 77;
         h.zombies.push(z);
-        let steer = super::super::Steer { turn: 3.0, target: Some(77), leg: (from, 0.0, [120.0, 0.0]), pop: 14.0, through: false };
+        let steer = super::super::Steer { turn: 3.0, target: Some(77), leg: (from, 0.0, [120.0, 0.0]), pop: 14.0, through: false, arc: [0.0; 2] };
         h.bullets.push(super::super::Bullet { pos: from, vel: [120.0, 0.0], damage: 5.0, pierce: 0, life: 3.0, force: 0.0, hit: Vec::new(), look: None, age: 0.0, by: None, owner: 0, soak: [0.0; 2], lift: [0.0; 2], steer });
         let mut client = Harvest::calm(3).with_players(2).client_of(&[1], &[0, 1]);
         let (mut extract, mut host, mut link, mut mirror) = (Extract::default(), HostLink::default(), ClientLink::default(), Mirror::default());
@@ -889,6 +893,66 @@ mod tests {
         assert!(runs.len() > 3, "{} runs", runs.len());
         let pop = super::super::effects::effects().named("pop").unwrap();
         assert!(client.fx.iter().any(|f| f.frames == pop.frames), "the client plays its pop");
+    }
+
+    #[test]
+    fn a_client_draws_an_arcing_homing_shot_as_high_as_the_host_across_its_runs() {
+        let mut h = Harvest::calm(3).with_players(2).hosting(1);
+        let from = [h.players[0].pos[0], h.players[0].pos[1] - 6.0];
+        let mut z = super::super::Zombie::new(super::super::Kind::named("big"), [from[0] + 40.0, from[1] + 96.0], 500.0, 1.0, 0.0);
+        z.id = 77;
+        h.zombies.push(z);
+        let steer = super::super::Steer { turn: 3.0, target: Some(77), leg: (from, 0.0, [110.0, 0.0]), pop: 14.0, through: false, arc: [40.0, 1.2] };
+        h.bullets.push(super::super::Bullet { pos: from, vel: [110.0, 0.0], damage: 5.0, pierce: 0, life: 3.0, force: 0.0, hit: Vec::new(), look: None, age: 0.0, by: None, owner: 0, soak: [0.0; 2], lift: [0.0; 2], steer });
+        let mut client = Harvest::calm(3).with_players(2).client_of(&[1], &[0, 1]);
+        let (mut extract, mut host, mut link, mut mirror) = (Extract::default(), HostLink::default(), ClientLink::default(), Mirror::default());
+        mirror.play_locally(1);
+        let (mut past, mut runs, mut worst, mut peak, mut seen) = (HashMap::from([(0, 0.0)]), Vec::new(), 0.0f32, 0.0f32, 0);
+        let mut sounds = Vec::new();
+        for tick in 1..=240u32 {
+            h.move_bullets(STEP, &mut sounds);
+            if let Some(b) = h.bullets.first() {
+                past.insert(tick, b.up(b.age));
+            }
+            extract.record(&h, tick, &sounds).hand(&mut host);
+            sounds.clear();
+            if tick.is_multiple_of(SEND_EVERY) {
+                for p in host.snapshot(extract.world(&h, tick, &[0, 0])) {
+                    if let Some(part) = link.receive(&p) {
+                        mirror.apply(&part);
+                        let fresh = link.fresh(&part.spawns);
+                        client.client_spawned(&fresh);
+                        mirror.spawn(fresh);
+                    }
+                }
+                let (s, e) = link.ack();
+                host.ack(s, e);
+            }
+            for ev in link.events() {
+                if let Event::Stop { id } = ev {
+                    mirror.stop(id);
+                }
+            }
+            mirror.advance(STEP);
+            client.client_frame(&mirror, STEP, &mut sounds);
+            sounds.clear();
+            let at = mirror.render_tick();
+            let (Some(b), Some(id)) = (client.bullets.first(), mirror.shots_for(&[]).first().map(|s| s.2.id)) else { continue };
+            if at.fract() != 0.0 || !past.contains_key(&(at as u32)) {
+                continue;
+            }
+            if !runs.contains(&id) {
+                runs.push(id);
+            }
+            // Its first run is sent from where it was fired, a tick before the host first moved it, so it is drawn there a tick late.
+            let host_at = if runs.len() == 1 { at as u32 - 1 } else { at as u32 };
+            seen += 1;
+            worst = worst.max((b.up(b.age) - past[&host_at]).abs());
+            peak = peak.max(b.up(b.age));
+        }
+        assert!(seen > 30 && runs.len() > 3, "compared {seen} ticks over {} runs", runs.len());
+        assert!(peak > 30.0, "it climbed on the client: {peak}");
+        assert!(worst < 0.1, "drawn {worst} px off the host's height");
     }
 
     #[test]

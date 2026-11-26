@@ -33,11 +33,15 @@
 #   sound_after NAME    for weapons, a sound group that follows its sound sound_delay seconds later, such as a bolt
 #                       worked after a shot; one with no clips plays nothing
 #   sound_delay SECONDS for sound_after, how long it waits; 0.4 when left out
+#   sound_hit NAME      for weapons, a sound group its shots, pops and throws play where they hit or land, in place
+#                       of the thud or boom; one with no clips plays nothing
 #   aim     nearest | ahead | behind | around | strongest | farthest | random     for `does gun` and `does blade`,
 #                       where it looks for a target in range: strongest has the most health left; nearest when left
 #                       out. A blade cuts everything within area across spread degrees, 360 all round
 #   homing  DEGREES     for `does gun`, how fast its shots turn toward their target, onto the nearest when it falls
 #   explode PIXELS      for `does gun`, the blast each shot pops in where it ends, playing effects.txt's [pop]
+#   arc     PIXELS      for `does gun`, how high its shots climb before they dive onto their target; flying over
+#                       zombies and cover while high. 0 when left out
 #   through 1 | 0       for `does gun`, its shots pass through every zombie but the one they were fired at; 0 when left out
 #   lands   blast | fire | flare | tacks     for `does lob`, which throws count at a crowd within range, what it does
 #                       where it lands, with damage, area, duration and slow; blast when left out. It flies as its
@@ -157,15 +161,16 @@ kind      weapon
 does      gun
 aim       strongest
 through   1
-bullet    rifle_round
-effect    muzzle_rifle
-kick      0.06
-punch     2
-shake     0.12
-flash     1.6 1.2 0.7 5 0.1
-sound     rifle
-sound_after bolt
-sound_delay 0.6
+bullet    varmint_round
+effect    muzzle_varmint
+kick      0.03
+punch     1
+shake     0.06
+flash     1.2 1.0 0.6 3 0.07
+sound     varmint
+sound_after casing
+sound_delay 0.35
+sound_hit varmint_hit
 zone      far
 unlock    kills 1500
 blurb     Always finds the biggest thing out there
@@ -187,8 +192,10 @@ aim       random
 pattern   spray
 homing    240
 explode   14
+arc       40
 bullet    bottle_rocket
-sound     throw
+sound     rocket
+sound_hit rocket_pop
 zone      around
 unlock    night 300
 blurb     A fistful of fireworks that curve onto zombies and pop
@@ -234,6 +241,7 @@ duration  2 2 2.5 2.5 3 3 3.5 4
 name      Kerosene sprayer
 kind      weapon
 does      sprayer
+sound     spray
 zone      ahead
 unlock    kills 2000
 blurb     Soaks them in fuel; fire then burns them hotter and longer
@@ -319,6 +327,8 @@ kind      weapon
 does      lob
 lands     blast
 bullet    stump_charge
+sound     detonator
+sound_hit stump_blast
 zone      far
 unlock    dawns 2
 blurb     Dynamite lobbed into the thickest of them
@@ -337,7 +347,9 @@ kind      weapon
 does      lob
 lands     tacks
 bullet    wire_coil
+patch     wire_patch
 effect    wire_lands
+sound_hit wire_land
 zone      far
 unlock    night 360
 blurb     Barbed wire flung into a far crowd; it cuts and holds them
@@ -356,7 +368,7 @@ does      gun
 aim       ahead
 pattern   spray
 bullet    nail
-sound_every 3
+sound     nail
 zone      ahead
 unlock    kills 600
 blurb     A framing nailer hosing nails down your heading
@@ -375,6 +387,7 @@ kind      weapon
 does      blade
 aim       around
 effect    grain_shovel
+sound     shovel
 punch     1
 shake     0.08
 zone      ahead
@@ -440,6 +453,9 @@ charge 160
 name      Jumper cables
 kind      weapon
 flash     0.6 0.8 1.8 4 0.1
+sound     stake
+sound_after arc
+sound_delay 0.15
 zone      behind
 unlock    kills 2500
 blurb     Stakes dropped behind you; current arcs back to them

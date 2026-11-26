@@ -6,7 +6,7 @@ use std::f32::consts::TAU;
 use super::events::Event;
 use super::wire::{Reader, Writer};
 
-pub const VERSION: u8 = 7;
+pub const VERSION: u8 = 8;
 pub const TICK_HZ: u32 = 60;
 /// Host ticks between snapshots: 20 a second.
 pub const SEND_EVERY: u32 = 3;
@@ -520,8 +520,9 @@ pub fn thing_key(t: &Thing, nth: u32) -> u32 {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Spawn {
     /// `look` is the firing weapon's place in the powerup book plus one, 0 for none; velocity in 1/8 px a second
-    /// and life in 1/50 s.
-    Shot { owner: u8, look: u16, from: [u16; 2], vel: [i16; 2], life: u8 },
+    /// and life in 1/50 s. `arc` is an arcing shot's peak in px, then its flight and its age where this run begins
+    /// in ms; all 0 for a flat shot, which keeps tag 0 and its old bytes.
+    Shot { owner: u8, look: u16, from: [u16; 2], vel: [i16; 2], life: u8, arc: [u16; 3] },
     Spit { kind: u8, from: [u16; 2], vel: [i16; 2], life: u8 },
     Bolt { points: Vec<[u16; 2]> },
     /// An effect by its first frame's art.
@@ -542,14 +543,18 @@ impl Spawn {
             w.u16(p[1]);
         };
         match self {
-            Spawn::Shot { owner, look, from, vel, life } => {
-                w.u8(0);
+            Spawn::Shot { owner, look, from, vel, life, arc } => {
+                let arcs = *arc != [0; 3];
+                w.u8(if arcs { 4 } else { 0 });
                 w.u8(*owner);
                 w.var(*look as u32);
                 at(w, *from);
                 w.i16(vel[0]);
                 w.i16(vel[1]);
                 w.u8(*life);
+                if arcs {
+                    arc.iter().for_each(|&a| w.var(a as u32));
+                }
             }
             Spawn::Spit { kind, from, vel, life } => {
                 w.u8(1);
@@ -575,7 +580,11 @@ impl Spawn {
 
     fn read(r: &mut Reader) -> Option<Self> {
         Some(match r.u8()? {
-            0 => Spawn::Shot { owner: r.u8()?, look: r.var()? as u16, from: [r.u16()?, r.u16()?], vel: [r.i16()?, r.i16()?], life: r.u8()? },
+            tag @ (0 | 4) => {
+                let (owner, look, from, vel, life) = (r.u8()?, r.var()? as u16, [r.u16()?, r.u16()?], [r.i16()?, r.i16()?], r.u8()?);
+                let arc = if tag == 4 { [r.var()? as u16, r.var()? as u16, r.var()? as u16] } else { [0; 3] };
+                Spawn::Shot { owner, look, from, vel, life, arc }
+            }
             1 => Spawn::Spit { kind: r.u8()?, from: [r.u16()?, r.u16()?], vel: [r.i16()?, r.i16()?], life: r.u8()? },
             2 => {
                 let n = r.u8()?;

@@ -619,6 +619,8 @@ pub struct Def {
     pub effect: Option<String>,
     /// For a weapon that shoots, the effect its bullets fly as.
     pub bullet: Option<String>,
+    /// For a weapon that lands tacks, the effect its tacks lie as.
+    pub patch: Option<String>,
     /// For a weapon, the sound it makes in place of its behaviour's own.
     pub sound: Option<Sound>,
     /// For a weapon, how many rounds go by for each time its sound plays; 1 plays it for every one.
@@ -626,6 +628,8 @@ pub struct Def {
     /// For a weapon, a sound that follows its own, and the seconds it waits.
     pub sound_after: Option<Sound>,
     pub sound_delay: f32,
+    /// For a weapon, the sound its shots, pops and throws make where they hit or land, in place of the thud or boom.
+    pub sound_hit: Option<Sound>,
     /// For a gun, where it looks and how its shots spread.
     pub aim: Aim,
     pub pattern: Pattern,
@@ -636,6 +640,8 @@ pub struct Def {
     pub homing: f32,
     /// For a gun, the pixels of the blast each shot pops in where it hits or runs out; 0 for none.
     pub explode: f32,
+    /// For a gun, pixels its shots climb on the way to their target before they dive onto it; 0 flies level.
+    pub arc: f32,
     /// For a gun, its shots pass through every zombie but the one they were fired at while it stands.
     pub through: bool,
     /// For a dog, a bite that kills is ready again at once.
@@ -672,6 +678,7 @@ pub const WEAPON_SOUNDS: [(&str, crate::Sfx); 6] =
 /// The most a gun's `homing` and `explode` can give.
 pub const MAX_HOMING: f32 = 1440.0;
 pub const MAX_EXPLODE: f32 = 80.0;
+pub const MAX_ARC: f32 = 200.0;
 
 /// The most sound groups one `powerups.txt` can name.
 const MAX_GROUPS: usize = 256;
@@ -832,9 +839,11 @@ pub fn parse(text: &str) -> Result<Book, String> {
                 chest: false,
                 effect: None,
                 bullet: None,
+                patch: None,
                 sound: None,
                 sound_every: 1,
                 sound_after: None,
+                sound_hit: None,
                 sound_delay: DEFAULT_SOUND_DELAY,
                 aim: Aim::Nearest,
                 pattern: Pattern::Fan,
@@ -842,6 +851,7 @@ pub fn parse(text: &str) -> Result<Book, String> {
                 outside: None,
                 homing: 0.0,
                 explode: 0.0,
+                arc: 0.0,
                 through: false,
                 kill_resets: false,
                 fetches: false,
@@ -904,11 +914,15 @@ pub fn parse(text: &str) -> Result<Book, String> {
                     _ => return Err(format!("{n}: zone is ahead, around, behind or far, not {rest:?}")),
                 })
             }
-            "effect" | "bullet" if !rest.is_empty() && rest.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_') => {
-                *if key == "effect" { &mut def.effect } else { &mut def.bullet } = Some(rest.to_string());
+            "effect" | "bullet" | "patch" if !rest.is_empty() && rest.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_') => {
+                *match key {
+                    "effect" => &mut def.effect,
+                    "bullet" => &mut def.bullet,
+                    _ => &mut def.patch,
+                } = Some(rest.to_string());
             }
-            "effect" | "bullet" => return Err(format!("{n}: {key} names an effects.txt section, such as slash")),
-            "sound" | "sound_after" => {
+            "effect" | "bullet" | "patch" => return Err(format!("{n}: {key} names an effects.txt section, such as slash")),
+            "sound" | "sound_after" | "sound_hit" => {
                 let sound = match WEAPON_SOUNDS.iter().find(|(k, _)| *k == rest) {
                     Some((_, s)) => Sound::Cue(*s),
                     None if !valid_sound_group(rest) => return Err(format!("{n}: {key} names a group of clips in lowercase letters, digits, _ and -, such as shot, not {rest:?}")),
@@ -923,7 +937,11 @@ pub fn parse(text: &str) -> Result<Book, String> {
                         Sound::Group(at as u8)
                     }
                 };
-                *if key == "sound" { &mut def.sound } else { &mut def.sound_after } = Some(sound);
+                *match key {
+                    "sound" => &mut def.sound,
+                    "sound_after" => &mut def.sound_after,
+                    _ => &mut def.sound_hit,
+                } = Some(sound);
             }
             "sound_every" => def.sound_every = rest.parse::<u32>().ok().filter(|v| (1..=100).contains(v)).ok_or_else(|| format!("{n}: sound_every is rounds, 1 to 100, not {rest:?}"))?,
             "sound_delay" => def.sound_delay = rest.parse::<f32>().ok().filter(|v| (0.0..=10.0).contains(v)).ok_or_else(|| format!("{n}: sound_delay is seconds, 0 to 10, not {rest:?}"))?,
@@ -962,6 +980,7 @@ pub fn parse(text: &str) -> Result<Book, String> {
                 }
             }
             "homing" => def.homing = rest.parse::<f32>().ok().filter(|v| (0.0..=MAX_HOMING).contains(v)).ok_or_else(|| format!("{n}: homing is degrees a second a shot turns, 0 to {MAX_HOMING}, not {rest:?}"))?,
+            "arc" => def.arc = rest.parse::<f32>().ok().filter(|v| (0.0..=MAX_ARC).contains(v)).ok_or_else(|| format!("{n}: arc is the pixels a shot climbs, 0 to {MAX_ARC}, not {rest:?}"))?,
             "explode" => def.explode = rest.parse::<f32>().ok().filter(|v| (0.0..=MAX_EXPLODE).contains(v)).ok_or_else(|| format!("{n}: explode is a blast's pixels, 0 to {MAX_EXPLODE}, not {rest:?}"))?,
             "through" => {
                 def.through = match rest {

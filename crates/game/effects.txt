@@ -13,6 +13,7 @@
 #   size N        the tracer's width at its head, and about the sparks', in pixels
 #   sparks N      sparks a gun throws forward from its muzzle with each shot
 #   impact N      sparks where each bullet hits a zombie, a prop or the ground
+#   trail N       sparks a second each bullet sheds behind it as it flies
 #   core N        the white-hot flare out of the muzzle, in pixels
 #   tracer NAME   the sprite a shot's tracer stretches along its path, its head to the right
 #   spark NAME    the sprite of each spark, its frames played over the spark's life
@@ -31,6 +32,10 @@ fps 20
 
 [muzzle_rifle]
 art MUZZLE
+fps 12
+
+[muzzle_varmint]
+art VARMINT_MUZZLE
 fps 12
 
 [shotgun_blast]
@@ -179,10 +184,14 @@ alpha 0.9
 fade_out 0.4
 
 [stump_charge]
-art DYNAMITE
+art STUMP_CHARGE
 
 [wire_coil]
 art WIRE_COIL
+fps 10
+
+[wire_patch]
+art WIRE_PATCH
 
 [wire_lands]
 art DIRT_PUFF
@@ -191,17 +200,17 @@ alpha 0.85
 fade_out 0.5
 
 [grain_shovel]
-art SLASH
+art SHOVEL_SWAT
 fps 16
 
 [nail]
 color 878B94
-length 6
+length 8
 size 1
-sparks 2
+sparks 0
 impact 1
 core 1.5
-tracer SHOT_TRACER
+tracer NAIL
 spark SHOT_SPARK
 smoke SHOT_SMOKE
 flare SHOT_FLARE
@@ -224,7 +233,7 @@ flare SHOT_FLARE
 
 [stake]
 art STAKE
-fps 1
+fps 8
 
 [pistol_shot]
 color E8D27A
@@ -250,6 +259,15 @@ spark SHOT_SPARK
 smoke SHOT_SMOKE
 flare SHOT_FLARE
 
+[varmint_round]
+color D1CBAB
+length 16
+size 1.2
+sparks 3
+impact 3
+core 2
+tracer SHOT_TRACER
+
 [rifle_round]
 color FFFFFF
 length 44
@@ -264,12 +282,13 @@ flare SHOT_FLARE
 
 [bottle_rocket]
 color D98A3C
-length 10
+length 16
 size 1.6
 sparks 8
 impact 6
 core 2
-tracer SHOT_TRACER
+tracer BOTTLE_ROCKET
+trail 30
 spark SHOT_SPARK
 smoke SHOT_SMOKE
 flare SHOT_FLARE

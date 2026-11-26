@@ -26,6 +26,8 @@ pub struct Shot {
     /// Sparks thrown from the muzzle with each shot, and where each bullet hits.
     pub sparks: u32,
     pub impact: u32,
+    /// Sparks a second it sheds behind it as it flies.
+    pub trail: u32,
     /// The white-hot flare out of the muzzle, in map pixels.
     pub core: f32,
     /// The sprites it draws in place of plain colored shapes, by `SPRITES`; None draws the shape.
@@ -46,6 +48,7 @@ pub const FLARE: usize = 3;
 pub const MAX_LENGTH: f32 = 64.0;
 pub const MAX_SIZE: f32 = 8.0;
 pub const MAX_SPARKS: u32 = 32;
+pub const MAX_TRAIL: u32 = 120;
 pub const MAX_CORE: f32 = 16.0;
 
 impl Shot {
@@ -179,6 +182,7 @@ pub struct Written {
     pub size: Option<f32>,
     pub sparks: Option<u32>,
     pub impact: Option<u32>,
+    pub trail: Option<u32>,
     pub core: Option<f32>,
     pub sprites: [Option<String>; SPRITES.len()],
 }
@@ -186,12 +190,12 @@ pub struct Written {
 impl Written {
     /// Whether it sets any of a shot's style, and so flies as particles.
     pub fn is_shot(&self) -> bool {
-        self.color.is_some() || self.length.is_some() || self.size.is_some() || self.sparks.is_some() || self.impact.is_some() || self.core.is_some() || self.sprites.iter().any(Option::is_some)
+        self.color.is_some() || self.length.is_some() || self.size.is_some() || self.sparks.is_some() || self.impact.is_some() || self.trail.is_some() || self.core.is_some() || self.sprites.iter().any(Option::is_some)
     }
 
     /// Its shot style, the rest taken from `base`, with its sprites' frames as `frames` finds them.
     fn shot(&self, base: Option<Shot>, frames: &dyn Fn(&str) -> Option<&'static [Art]>) -> Option<Shot> {
-        let base = base.unwrap_or(Shot { color: [1.0; 3], length: 10.0, size: 1.5, sparks: 6, impact: 4, core: 5.0, sprites: [None; SPRITES.len()], fade: Fade::OPAQUE });
+        let base = base.unwrap_or(Shot { color: [1.0; 3], length: 10.0, size: 1.5, sparks: 6, impact: 4, trail: 0, core: 5.0, sprites: [None; SPRITES.len()], fade: Fade::OPAQUE });
         self.is_shot().then(|| Shot {
             sprites: std::array::from_fn(|k| match &self.sprites[k] {
                 Some(name) => frames(name),
@@ -202,6 +206,7 @@ impl Written {
             size: self.size.unwrap_or(base.size),
             sparks: self.sparks.unwrap_or(base.sparks),
             impact: self.impact.unwrap_or(base.impact),
+            trail: self.trail.unwrap_or(base.trail),
             core: self.core.unwrap_or(base.core),
             fade: if self.fade == Fade::OPAQUE { base.fade } else { self.fade },
         })
@@ -282,7 +287,7 @@ pub fn parse(text: &str) -> Result<(Vec<Written>, Extra), String> {
             if colors {
                 continue;
             }
-            let fresh = Written { art: String::new(), fps: 10.0, life: 0.2, reach: 1.0, color: None, length: None, size: None, sparks: None, impact: None, core: None, sprites: Default::default(), fade: Fade::OPAQUE };
+            let fresh = Written { art: String::new(), fps: 10.0, life: 0.2, reach: 1.0, color: None, length: None, size: None, sparks: None, impact: None, trail: None, core: None, sprites: Default::default(), fade: Fade::OPAQUE };
             if !name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_') || name.is_empty() {
                 return Err(format!("{n}: [{name}] isn't a name of lowercase letters, digits and _"));
             }
@@ -329,6 +334,7 @@ pub fn parse(text: &str) -> Result<(Vec<Written>, Extra), String> {
                 let v = value.parse::<u32>().map_err(|_| format!("{n}: {key} is a whole number, 0 or more"))?.min(MAX_SPARKS);
                 *if key == "sparks" { &mut e.sparks } else { &mut e.impact } = Some(v);
             }
+            "trail" => e.trail = Some(value.parse::<u32>().map_err(|_| format!("{n}: trail is a whole number of sparks a second, 0 or more"))?.min(MAX_TRAIL)),
             "core" => e.core = Some(number()?.min(MAX_CORE)),
             k if SPRITES.contains(&k) && !value.is_empty() && value.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_') => {
                 e.sprites[SPRITES.iter().position(|s| *s == k).unwrap_or(0)] = Some(value.to_string());
@@ -500,7 +506,7 @@ mod tests {
             assert!(parse(&format!("{own}\n[odd]\nart SLASH\n{bad}")).is_err(), "{bad}");
         }
         let guns = own.find("[pistol_shot]").unwrap()..own.find("# The colors of particles").unwrap();
-        let older: String = own.replace(&own[guns], "").lines().filter(|l| !["color", "length", "size", "sparks", "impact", "core"].iter().any(|k| l.starts_with(k))).map(|l| format!("{l}\n")).collect();
+        let older: String = own.replace(&own[guns], "").lines().filter(|l| !["color", "length", "size", "sparks", "impact", "trail", "core"].iter().any(|k| l.starts_with(k))).map(|l| format!("{l}\n")).collect();
         let (mine, _) = parse(&older).unwrap();
         assert!(mine.iter().all(|w| w.color.is_none()), "a mod's file from before shot styles still reads");
     }
@@ -557,7 +563,7 @@ mod tests {
 
     #[test]
     fn a_tracer_trails_behind_its_bullet_and_never_behind_the_gun() {
-        let shot = Shot { color: [1.0; 3], length: 12.0, size: 1.5, sparks: 4, impact: 3, core: 4.0, sprites: [None; SPRITES.len()], fade: Fade::OPAQUE };
+        let shot = Shot { color: [1.0; 3], length: 12.0, size: 1.5, sparks: 4, impact: 3, trail: 0, core: 4.0, sprites: [None; SPRITES.len()], fade: Fade::OPAQUE };
         assert_eq!(shot.tail([100.0, 0.0], [200.0, 0.0], 1.0), [88.0, 0.0]);
         let fresh = shot.tail([100.0, 0.0], [200.0, 0.0], 0.01);
         assert!((fresh[0] - 98.0).abs() < 1e-3, "a bullet two pixels out trails two pixels");

@@ -15,11 +15,19 @@ use crate::art::Art;
 
 const MAX_PATCHES: usize = 80;
 const TACKS_ALONE: f32 = 20.0;
+/// Pixels between the rings of a bigger patch's tacks, and between the tacks around each ring.
+const TACKS_RING_STEP: f32 = 20.0;
+const TACKS_GAP: f32 = 20.0;
 const PATCH_TICK: f32 = 0.25;
 const BURN_TICK: f32 = 0.3;
 pub(super) const BOLT_LIFE: f32 = 0.18;
 /// Seconds between a jumper cable arc's hits; under `BOLT_LIFE`, so its bolt never goes out between them.
 const ARC_TICK: f32 = 0.15;
+/// Seconds between replays of jumper cables' `sound_after` while their current runs.
+const HUM: f32 = 0.45;
+/// An arcing shot's flight, as a share of the straight run to its target, and its shortest.
+const ARC_FLIGHT: f32 = 1.15;
+const MIN_FLIGHT: f32 = 0.35;
 /// How far behind the player a stake goes in, in pixels.
 const STAKE_BACK: f32 = 24.0;
 /// A player's gun height less how far a drone's gun hangs below its feet, in pixels; rounds leave from it.
@@ -95,6 +103,11 @@ fn due(every: u32, heard: &mut u32, rounds: u32) -> bool {
     let (every, before) = (every.max(1), *heard);
     *heard = (before + rounds) % every;
     rounds > 0 && (before == 0 || before + rounds > every)
+}
+
+/// What weapon `def`'s `sound_hit` plays where its shots hit or land, if it has one.
+pub(super) fn hit_sound(def: usize) -> Option<Sfx> {
+    book().defs[def].sound_hit.map(after_sound)
 }
 
 /// What a weapon's `sound_after` plays: nothing when its group has no clips.
@@ -332,6 +345,22 @@ pub(super) struct Patch {
 }
 
 impl Patch {
+    /// What its tacks lie as: the weapon's own `patch`, else the game's tacks.
+    pub fn look(&self) -> super::effects::Effect {
+        let fx = super::effects::effects();
+        self.by.and_then(|d| book().defs[d].patch.as_deref()).and_then(|n| fx.named(n)).unwrap_or(fx.tacks)
+    }
+
+    /// The weapon whose `patch` it lies as, if any, for a client to draw it the same.
+    pub fn patch_of(&self) -> Option<usize> {
+        self.by.filter(|&d| book().defs[d].patch.is_some())
+    }
+
+    pub fn with_patch_of(mut self, by: Option<usize>) -> Self {
+        self.by = by;
+        self
+    }
+
     /// A patch as a client draws it, doing nothing.
     pub fn shown(hazard: Hazard, pos: [f32; 2], radius: f32, age: f32, life: f32) -> Self {
         Self { hazard, pos, radius, dps: 0.0, slow: 0.0, age, life, tick: 0.0, by: None, owner: ME }
@@ -542,9 +571,13 @@ fn in_cone(d: [f32; 2], dir: [f32; 2], half: f32) -> bool {
 
 /// Where a tacks patch draws its sprite: its middle, and a ring around it once it's wider than tacks scatter.
 pub(super) fn tack_spots(pos: [f32; 2], radius: f32) -> impl Iterator<Item = [f32; 2]> {
-    let ring = if radius > TACKS_ALONE { (radius / 6.0) as usize } else { 0 };
+    let rings = if radius > TACKS_ALONE { ((radius * 0.85 / TACKS_RING_STEP).round() as usize).max(1) } else { 0 };
     let turn = pos[0] * 0.37 + pos[1] * 0.71;
-    std::iter::once(pos).chain((0..ring).map(move |k| polar(pos, turn + k as f32 / ring as f32 * TAU, radius * 0.6)))
+    std::iter::once(pos).chain((1..=rings).flat_map(move |r| {
+        let out = radius * 0.85 * r as f32 / rings as f32;
+        let n = ((TAU * out / TACKS_GAP).round() as usize).max(3);
+        (0..n).map(move |k| polar(pos, turn + r as f32 + k as f32 / n as f32 * TAU, out))
+    }))
 }
 
 fn polar(at: [f32; 2], angle: f32, r: f32) -> [f32; 2] {
@@ -724,7 +757,7 @@ impl Harvest {
             Does::Rifle => self.rifle(a, sounds),
             Does::Lantern => self.beam(a),
             Does::Burner => self.burner(a),
-            Does::Sprayer => self.sprayer(a),
+            Does::Sprayer => self.sprayer(a, sounds),
             Does::Pitchfork => self.pitchfork(a, sounds),
             Does::Knife => self.knife(a, sounds),
             Does::Scythe => self.scythe(a, sounds),
@@ -784,18 +817,19 @@ impl Harvest {
         let speed = self.stat(a, Stat::Speed);
         let (base, spread) = (fm::atan2(d[1], d[0]), self.stat(a, Stat::Spread).to_radians());
         let (damage, pierce, force) = (self.stat(a, Stat::Damage), self.stat(a, Stat::Pierce) as u32, self.stat(a, Stat::Knockback));
-        let (turn, pop, through) = (def.homing.to_radians(), def.explode, def.through);
+        let (turn, pop, through, peak) = (def.homing.to_radians(), def.explode, def.through, def.arc);
         let life = if turn > 0.0 { range / speed * HOMING_LIFE } else { range / speed };
         for k in 0..n {
             let angle = shot_angle(pattern, k, n, base, spread, self.juice.rng.range(-0.5, 0.5));
             self.shoot(angle, speed, damage, pierce, life, force, bullet(a));
-            if turn <= 0.0 && pop <= 0.0 && !through {
+            if turn <= 0.0 && pop <= 0.0 && !through && peak <= 0.0 {
                 continue;
             }
             let at = if k > 0 && turn > 0.0 && aim == Aim::Random { self.aimed_at(aim, range).unwrap_or(offset) } else { offset };
             let target = self.zombie_at(at);
             if let Some(b) = self.bullets.last_mut() {
-                b.steer = super::Steer { turn, target, leg: (b.pos, 0.0, b.vel), pop, through };
+                let arc = if peak > 0.0 { [peak, (len(at) / speed * ARC_FLIGHT).max(MIN_FLIGHT)] } else { [0.0; 2] };
+                b.steer = super::Steer { turn, target, leg: (b.pos, 0.0, b.vel), pop, through, arc };
             }
         }
         self.muzzle(a, d, 8.0);
@@ -911,8 +945,10 @@ impl Harvest {
                 hits.0 += 1;
             }
         }
-        let at = [self.actor().pos[0] + d[0] * 8.0, self.actor().pos[1] - 5.0 + d[1] * 8.0];
-        self.fx.push(Fx::play(look(a, super::effects::effects().slash), at, fm::atan2(d[1], d[0]) - PI / 2.0));
+        let swat = look(a, super::effects::effects().slash);
+        let out = swat.frames.first().map_or(8.0, |f| f.h() / 2.0);
+        let at = [self.actor().pos[0] + d[0] * out, self.actor().pos[1] - 5.0 + d[1] * out];
+        self.fx.push(Fx::play(swat, at, fm::atan2(d[1], d[0]) - PI / 2.0));
         self.attack_feel(a, [self.actor().pos[0] + d[0] * 8.0, self.actor().pos[1] + d[1] * 8.0], 10.0);
         self.weapon_sound(a, Sfx::Slash, sounds);
         self.thud(hits, sounds);
@@ -1000,7 +1036,7 @@ impl Harvest {
     }
 
     /// Wets everything in a short cone ahead, hurting it a little.
-    fn sprayer(&mut self, a: Armed) -> bool {
+    fn sprayer(&mut self, a: Armed, sounds: &mut Vec<Sfx>) -> bool {
         let (range, half) = (self.stat(a, Stat::Range), self.stat(a, Stat::Spread).to_radians() / 2.0);
         if self.nearest_in(range, Some((self.actor().aim, half))).is_none() {
             return false;
@@ -1015,6 +1051,7 @@ impl Harvest {
         let nozzle = [self.actor().pos[0] + self.actor().aim[0] * 6.0, self.actor().pos[1] + self.actor().aim[1] * 6.0];
         self.juice.burst(nozzle, 6.0, 6, self.actor().aim, half, [range * 1.5, range * 2.5], juice::soak(), 1.0, 0.35, 0.0);
         self.attack_feel(a, nozzle, 8.0);
+        self.weapon_sound(a, Sfx::Throw, sounds);
         true
     }
 
@@ -1569,6 +1606,11 @@ impl Harvest {
         if ends.is_empty() {
             return;
         }
+        if let Some(hum) = book().defs[a.def].sound_after
+            && (self.t / HUM).floor() != ((self.t - ARC_TICK) / HUM).floor()
+        {
+            sounds.push(after_sound(hum));
+        }
         let (width, damage, crit) = (self.stat(a, Stat::Area) / 2.0 + 3.0, self.stat(a, Stat::Damage) * ARC_TICK, self.crit());
         let mut hit = vec![false; self.zombies.len()];
         let mut hits = (0, false);
@@ -1688,12 +1730,18 @@ impl Harvest {
             }
             Thrown::Lob { def, damage, radius, life, slow } => {
                 let d = &book().defs[def];
+                let before = sounds.len();
                 match d.lands {
                     // A blast adds the area and damage passives itself, so it takes the numbers from before them.
                     Lands::Blast => self.explode(g.to, radius / self.actor().kit.mods.area, damage / self.actor().kit.mods.damage, sounds),
                     Lands::Fire => self.lay(Hazard::Fire, g.to, radius, damage, life, 0.0),
                     Lands::Flare => self.lay(Hazard::Flare, g.to, radius, damage, life, 0.0),
                     Lands::Tacks => self.lay(Hazard::Tacks, g.to, radius, damage, life, slow),
+                }
+                if let Some(s) = hit_sound(def) {
+                    let rest: Vec<Sfx> = sounds.drain(before..).filter(|s| !matches!(s, Sfx::Boom { .. })).collect();
+                    sounds.extend(rest);
+                    sounds.push(s);
                 }
                 if let Some(e) = d.effect.as_deref().and_then(|n| super::effects::effects().named(n)) {
                     self.fx.push(Fx::play(e, g.to, 0.0));
@@ -1991,7 +2039,7 @@ mod tests {
         let mut near = Zombie::new(ZKind::named("big"), [me[0] + 8.0, me[1] + 84.0], 500.0, 1.0, 0.0);
         near.id = 41;
         h.zombies.push(near);
-        let (first, steer) = (h.zombies[0].id, super::super::Steer { turn: 4.0, target: Some(h.zombies[0].id), leg: ([0.0; 2], 0.0, [0.0; 2]), pop: 14.0, through: false });
+        let (first, steer) = (h.zombies[0].id, super::super::Steer { turn: 4.0, target: Some(h.zombies[0].id), leg: ([0.0; 2], 0.0, [0.0; 2]), pop: 14.0, through: false, arc: [0.0; 2] });
         h.juice.tally.credit(ME, book().index("pistol"));
         h.shoot(0.0, 110.0, 10.0, 0, 3.0, 0.0, None);
         h.juice.tally.by = None;
@@ -2443,6 +2491,56 @@ mod tests {
         }
         assert_eq!(heard.iter().map(|h| h.1).collect::<Vec<_>>(), [Sfx::group(rifle, Sfx::Blast), Sfx::quiet_group(bolt)], "the shot, then the bolt");
         assert!(((heard[1].0 - heard[0].0) as f32 / 60.0 - def.sound_delay).abs() < 0.03, "{heard:?}");
+    }
+
+    #[test]
+    fn an_arcing_shot_flies_over_what_it_passes_and_comes_down_on_its_target() {
+        let mut h = with("bottle_rockets", [120.0, 0.0]);
+        let target = h.zombies[0].pos;
+        let mut under = Zombie::new(ZKind::named("big"), [h.me().pos[0] + 50.0, target[1]], 500.0, 1.0, 0.0);
+        under.rise = 1.0;
+        h.zombies.push(under);
+        h.me_mut().kit.weapons[0].cd = 0.0;
+        h.fire(1.0 / 60.0, &mut Vec::new());
+        let b = h.bullets.pop().expect("a rocket");
+        let [peak, flight] = b.steer.arc;
+        assert!(peak > 0.0 && flight > 0.0, "it arcs");
+        assert!((b.climb(flight / 2.0) - peak).abs() < 0.5 && b.climb(flight) < 0.5, "up to its peak halfway, down at the end");
+        h.bullets = vec![b];
+        for _ in 0..(flight * 0.5 * 60.0) as usize {
+            h.move_bullets(1.0 / 60.0, &mut Vec::new());
+        }
+        assert_eq!(h.zombies[1].hp, 500.0, "the zombie it passed over is untouched");
+    }
+
+    #[test]
+    fn a_bigger_patch_lays_more_rings_of_tacks_so_none_of_it_is_bare() {
+        for radius in [26.0, 40.0, 60.0, 90.0] {
+            let spots: Vec<[f32; 2]> = tack_spots([0.0; 2], radius).collect();
+            assert!(spots.iter().all(|s| len(*s) <= radius), "{radius}: every tack inside the patch");
+            for k in 0..64 {
+                let a = k as f32 / 64.0 * TAU;
+                for out in [radius * 0.3, radius * 0.6, radius * 0.9] {
+                    let p = [fm::cos(a) * out, fm::sin(a) * out];
+                    let near = spots.iter().map(|s| len(sub(*s, p))).fold(f32::MAX, f32::min);
+                    assert!(near < 16.0, "{radius}: {p:?} is {near} px from the nearest tack");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_weapons_own_hit_sound_plays_in_place_of_the_thud() {
+        let mut h = with("varmint_rifle", [60.0, 0.0]);
+        h.me_mut().kit.weapons[0].cd = 0.0;
+        let Some(hit) = hit_sound(h.me().kit.weapons[0].def) else { panic!("the varmint rifle names its hit") };
+        let mut heard = Vec::new();
+        for _ in 0..60 {
+            h.fire(1.0 / 60.0, &mut heard);
+            h.move_bullets(1.0 / 60.0, &mut heard);
+        }
+        assert!(heard.contains(&hit), "{heard:?}");
+        assert!(!heard.iter().any(|s| matches!(s, Sfx::Thud(_))), "no thud: {heard:?}");
     }
 
     #[test]
