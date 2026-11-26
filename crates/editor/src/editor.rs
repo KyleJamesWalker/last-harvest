@@ -77,6 +77,16 @@ const ASK_BOX: Rect = Rect { x: 262.0, y: 280.0, w: 500.0, h: 210.0 };
 /// The unsaved-changes dialog's choices: save then switch, discard then switch, or stay.
 const CHOICES: [(&str, Choice); 3] = [("Save and switch  S", Choice::Save), ("Discard  D", Choice::Discard), ("Stay  Esc", Choice::Stay)];
 
+/// New pack's dialog: export first, clear for good, or cancel.
+const CLEAR_CHOICES: [(&str, ClearChoice); 3] = [("Export all first  E", ClearChoice::Export), ("Clear everything  C", ClearChoice::Clear), ("Cancel  Esc", ClearChoice::Cancel)];
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ClearChoice {
+    Export,
+    Clear,
+    Cancel,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Choice {
     Save,
@@ -89,6 +99,7 @@ const DIM: Color = [0.6, 0.6, 0.66, 1.0];
 const PANEL: Color = [0.16, 0.16, 0.19, 1.0];
 const BUTTON: Color = [0.24, 0.24, 0.28, 1.0];
 const HOT: Color = [0.95, 0.75, 0.3, 1.0];
+const DANGER: Color = [0.9, 0.4, 0.35, 1.0];
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Rect {
@@ -526,6 +537,12 @@ pub struct Editor {
     pub strike: Option<bool>,
     /// A weapon range setup Try it asked the platform to open in the game.
     pub tried: Option<String>,
+    /// New pack's dialog is open.
+    clearing: bool,
+    /// The dialog's Export all first, for the platform to carry out.
+    pub export_all_asked: bool,
+    /// Everything was cleared, for the platform to reset what it shows.
+    pub cleared: bool,
     /// Where the last packing put a card's figure among the surfaces, and whether it has dead frames.
     figure_at: Option<(usize, bool)>,
     /// Where the last packing put the frames' 3D copies among the surfaces, and how many there are.
@@ -646,6 +663,9 @@ impl Editor {
             changed: true,
             strike: None,
             tried: None,
+            clearing: false,
+            export_all_asked: false,
+            cleared: false,
             figure_at: None,
             solids_at: None,
             coats_at: None,
@@ -1400,6 +1420,12 @@ impl Editor {
     }
 
     pub fn mouse_down(&mut self, p: [f32; 2], right: bool, shift: bool) {
+        if self.clearing {
+            if let Some(&(_, choice)) = CLEAR_CHOICES.iter().enumerate().find(|(i, _)| clear_rect(*i).contains(p)).map(|(_, c)| c) {
+                self.decide_clear(choice);
+            }
+            return;
+        }
         if self.pending.is_some() {
             if let Some(&(_, choice)) = CHOICES.iter().enumerate().find(|(i, _)| choice_rect(*i).contains(p)).map(|(_, c)| c) {
                 self.decide(choice);
@@ -2661,6 +2687,15 @@ impl Editor {
     }
 
     pub fn key(&mut self, key: Key) {
+        if self.clearing {
+            match key {
+                Key::Char('e') => self.decide_clear(ClearChoice::Export),
+                Key::Char('c') => self.decide_clear(ClearChoice::Clear),
+                Key::Escape => self.decide_clear(ClearChoice::Cancel),
+                _ => {}
+            }
+            return;
+        }
         if let Some(b) = &self.browse {
             let (at, n) = (b.at, b.commits.len());
             match key {
@@ -3098,6 +3133,26 @@ impl Editor {
             c.rect(CANVAS.x, CANVAS.y + CANVAS.h - 40.0, CANVAS.w, 40.0, [0.0, 0.0, 0.0, 0.7 * a]);
             c.label(text.clone(), CANVAS.x + CANVAS.w / 2.0, CANVAS.y + CANVAS.h - 30.0, 18.0, [1.0, 1.0, 1.0, a], Align::Center);
         }
+        if self.clearing {
+            c.rect(0.0, 0.0, 1024.0, 768.0, [0.0, 0.0, 0.0, 0.65]);
+            let d = DIALOG;
+            c.rect(d.x - 3.0, d.y - 3.0, d.w + 6.0, d.h + 6.0, DANGER);
+            c.rect(d.x, d.y, d.w, d.h, PANEL);
+            c.label("Start a new pack?", d.x + d.w / 2.0, d.y + 24.0, 28.0, DANGER, Align::Center);
+            for (i, line) in ["Clearing removes every card and its parts, prop, map, sound,", "edited data file and farm, and the pack name, from this browser.", "It can't be undone: Export all first keeps a copy."].into_iter().enumerate() {
+                c.label(line, d.x + d.w / 2.0, d.y + 66.0 + i as f32 * 26.0, 19.0, TEXT, Align::Center);
+            }
+            for (i, (label, choice)) in CLEAR_CHOICES.iter().enumerate() {
+                let r = clear_rect(i);
+                let (fill, ink) = match choice {
+                    ClearChoice::Export => (HOT, [0.1, 0.1, 0.1, 1.0]),
+                    ClearChoice::Clear => (DANGER, [0.1, 0.1, 0.1, 1.0]),
+                    ClearChoice::Cancel => (BUTTON, TEXT),
+                };
+                c.rect(r.x, r.y, r.w, r.h, fill);
+                c.label(*label, r.x + r.w / 2.0, r.y + (r.h - 18.0) / 2.0, 18.0, ink, Align::Center);
+            }
+        }
         if let Some(name) = &self.pending {
             c.rect(0.0, 0.0, 1024.0, 768.0, [0.0, 0.0, 0.0, 0.65]);
             let d = DIALOG;
@@ -3374,6 +3429,12 @@ fn list_label(name: &str) -> String {
 fn ask_rect(i: usize) -> Rect {
     let w = 150.0;
     Rect { x: ASK_BOX.x + ASK_BOX.w / 2.0 - w - 7.0 + i as f32 * (w + 14.0), y: ASK_BOX.y + ASK_BOX.h - 62.0, w, h: 44.0 }
+}
+
+fn clear_rect(i: usize) -> Rect {
+    let widths = [196.0, 196.0, 150.0];
+    let x = DIALOG.x + 24.0 + widths[..i].iter().map(|w| w + 14.0).sum::<f32>();
+    Rect { x, y: DIALOG.y + DIALOG.h - 76.0, w: widths[i], h: 48.0 }
 }
 
 fn choice_rect(i: usize) -> Rect {
@@ -5392,6 +5453,70 @@ mod tests {
         e.key(Key::Char('d'));
         assert_ne!(e.sprite.name, name);
         assert!(!e.dirty);
+    }
+
+    struct Clearable(FsStore, std::rc::Rc<std::cell::Cell<bool>>);
+
+    impl crate::store::Store for Clearable {
+        fn names(&self) -> Vec<(String, bool)> {
+            self.0.names()
+        }
+        fn read(&self, name: &str, file: &str) -> Option<Vec<u8>> {
+            self.0.read(name, file)
+        }
+        fn save(&self, sprite: &Sprite) -> Result<(), String> {
+            self.0.save(sprite)
+        }
+        fn stand(&self, name: &str) -> Option<String> {
+            self.0.stand(name)
+        }
+        fn save_stand(&self, name: &str, how: &str) -> Result<(), String> {
+            self.0.save_stand(name, how)
+        }
+        fn history(&self, name: &str) -> Option<(Vec<crate::history::Commit>, bool)> {
+            self.0.history(name)
+        }
+        fn version(&self, id: &str, name: &str, file: &str) -> Option<Vec<u8>> {
+            self.0.version(id, name, file)
+        }
+        fn clear_all(&self) -> Result<(), String> {
+            self.1.set(true);
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn new_pack_asks_first_and_clears_only_on_a_yes() {
+        let dir = tmp();
+        let cleared = std::rc::Rc::new(std::cell::Cell::new(false));
+        let store = Clearable(FsStore { dir: dir.clone(), catalog: dir.join("art.txt"), cards: dir.join("enemies") }, cleared.clone());
+        let mut e = Editor::new(Box::new(store), "BARREL");
+        click_pixel(&mut e, 0, 0);
+        e.new_pack();
+        e.key(Key::Char('j'));
+        e.key(Key::Char('b'));
+        assert!(e.clearing && !cleared.get(), "other keys wait, and nothing goes yet");
+        e.key(Key::Char('e'));
+        assert!(e.clearing && e.export_all_asked && !cleared.get(), "exporting first leaves the question open");
+        e.key(Key::Escape);
+        assert!(!e.clearing && !cleared.get() && e.dirty, "cancel changes nothing");
+        e.new_pack();
+        e.mouse_down([clear_rect(2).x + 5.0, clear_rect(2).y + 5.0], false, false);
+        assert!(!e.clearing && !cleared.get(), "a tap on Cancel closes it");
+        e.new_pack();
+        e.mouse_down([clear_rect(1).x + 5.0, clear_rect(1).y + 5.0], false, false);
+        assert!(!e.clearing && cleared.get() && e.cleared, "a tap on Clear everything clears");
+        assert!(e.sprite.name.is_empty() && !e.dirty);
+        let _ = std::fs::remove_dir_all(tmp());
+    }
+
+    #[test]
+    fn new_pack_says_so_where_nothing_can_be_cleared() {
+        let mut e = editor();
+        e.new_pack();
+        e.key(Key::Char('c'));
+        assert!(e.clearing && !e.cleared, "a store that can't clear keeps the question open and says why");
+        assert!(e.status.as_ref().is_some_and(|(s, _)| s.starts_with("Couldn't clear")));
     }
 
     #[test]

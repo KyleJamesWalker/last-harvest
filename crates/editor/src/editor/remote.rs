@@ -109,7 +109,7 @@ impl Editor {
             Some("the artist is mid-stroke; try again")
         } else if self.selection.as_ref().is_some_and(|s| s.float.is_some()) {
             Some("a selection is floating; the artist places or drops it first")
-        } else if self.stats || self.coats_page || self.pending.is_some() || self.ask.is_some() {
+        } else if self.stats || self.coats_page || self.pending.is_some() || self.ask.is_some() || self.clearing {
             Some("a page or question is over the canvas")
         } else {
             None

@@ -136,6 +136,43 @@ impl Web {
         }
         self.sync_text(false);
         self.try_weapon();
+        #[cfg(feature = "modding")]
+        self.new_pack_asks();
+    }
+
+    /// Carries out what New pack's dialog asked of the page: Export all, or a fresh pack name field.
+    #[cfg(feature = "modding")]
+    fn new_pack_asks(&mut self) {
+        if std::mem::take(&mut self.studio.editor.export_all_asked) {
+            self.export_all();
+        }
+        if std::mem::take(&mut self.studio.editor.cleared)
+            && let Some(field) = self.document.get_element_by_id("pack-name").and_then(|e| e.dyn_into::<HtmlInputElement>().ok())
+        {
+            field.set_value("");
+        }
+    }
+
+    #[cfg(feature = "modding")]
+    fn export_all(&mut self) {
+        let extra = self.studio.editor.all_maps_and_props();
+        let cards = self.studio.editor.all_cards();
+        if !cards.is_empty() || !extra.is_empty() {
+            let sounds = self.studio.editor.all_sounds();
+            let name = modding::pack_name();
+            let (id, file) = last_harvest_pack::browser::pack_file(&name);
+            match modding::mod_pack(&id, &name, &cards, &sounds, &extra) {
+                Ok(bytes) => {
+                    modding::call("save", &[file.clone().into(), js_sys::Uint8Array::from(&bytes[..]).into()]);
+                    let with = if sounds.is_empty() { String::new() } else { format!(" and {} death sounds", sounds.len()) };
+                    let maps = if extra.is_empty() { String::new() } else { format!(", {} maps, props and data files", extra.len()) };
+                    self.studio.editor.say(format!("Exported {} cards{with}{maps} as {file}: put it in the game's data/mods", cards.len()));
+                }
+                Err(e) => self.studio.editor.say(format!("Couldn't pack the cards: {e}")),
+            }
+        } else {
+            self.studio.editor.say("Nothing is saved to export yet");
+        }
     }
 
     /// Opens the game's range on the weapon Try it asked for; a pointer's handler calls it first, so a browser
@@ -444,25 +481,9 @@ impl Web {
             #[cfg(feature = "modding")]
             "sound" => return modding::call("pick", &[".ogg,.wav,.mp3".into(), false.into(), "lastharvest-sound".into()]),
             #[cfg(feature = "modding")]
-            "export-all" => {
-                let extra = self.studio.editor.all_maps_and_props();
-                let cards = self.studio.editor.all_cards();
-                if !cards.is_empty() || !extra.is_empty() {
-                    let sounds = self.studio.editor.all_sounds();
-                    let name = modding::pack_name();
-                    let (id, file) = last_harvest_pack::browser::pack_file(&name);
-                    match modding::mod_pack(&id, &name, &cards, &sounds, &extra) {
-                        Ok(bytes) => {
-                            modding::call("save", &[file.clone().into(), js_sys::Uint8Array::from(&bytes[..]).into()]);
-                            let with = if sounds.is_empty() { String::new() } else { format!(" and {} death sounds", sounds.len()) };
-                            let maps = if extra.is_empty() { String::new() } else { format!(", {} maps, props and data files", extra.len()) };
-                            self.studio.editor.say(format!("Exported {} cards{with}{maps} as {file}: put it in the game's data/mods", cards.len()));
-                        }
-                        Err(e) => self.studio.editor.say(format!("Couldn't pack the cards: {e}")),
-                    }
-                }
-                return;
-            }
+            "new-pack" => return self.studio.editor.new_pack(),
+            #[cfg(feature = "modding")]
+            "export-all" => return self.export_all(),
             "shift" => {
                 self.shift = !self.shift;
                 if let Some(b) = self.document.query_selector("[data-act=shift]").ok().flatten() {

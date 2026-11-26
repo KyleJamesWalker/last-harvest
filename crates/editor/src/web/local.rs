@@ -194,6 +194,17 @@ impl Store for LocalStore {
         Ok(())
     }
 
+    fn clear_all(&self) -> Result<(), String> {
+        let n = self.storage.length().unwrap_or(0);
+        let keys: Vec<String> = (0..n).filter_map(|i| self.storage.key(i).ok().flatten()).filter(|k| last_harvest_pack::browser::is_editor_key(k)).collect();
+        for key in keys {
+            self.storage.remove_item(&key).map_err(|_| "the browser wouldn't remove it".to_string())?;
+        }
+        super::call("clearSounds", &[]);
+        self.sounds.borrow_mut().clear();
+        Ok(())
+    }
+
     fn delete_prop(&self, id: &str) -> Result<(), String> {
         self.storage.remove_item(&format!("{PROP_KEY}{id}")).map_err(|_| "the browser wouldn't remove it".to_string())
     }

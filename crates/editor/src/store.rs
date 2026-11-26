@@ -67,6 +67,11 @@ pub trait Store {
         Err("props are removed from the props folder here".into())
     }
 
+    /// Removes everything kept here, as the mod editor's New pack does.
+    fn clear_all(&self) -> Result<(), String> {
+        Err("only the browser keeps a pack to clear".into())
+    }
+
     /// Removes a hand-made map for good, by id.
     fn delete_map(&self, _id: &str) -> Result<(), String> {
         Err("maps are removed from the maps folder here".into())
