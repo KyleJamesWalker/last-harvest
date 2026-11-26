@@ -22,6 +22,7 @@ maps/            Maps, named like orchard.map.txt: hand-made farms. The title sc
 
 mods/            Mod packs, named like loud.pak. Each is laid over game_data.pak in name order: a file in
                  a mod replaces the game's file at the same path, such as a sound or a card.
+                 Settings > Mod packs turns each on or off from the next start.
 
 Make cards in your browser with the card editor:
 https://kylejameswalker.github.io/last-harvest/

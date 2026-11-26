@@ -134,6 +134,15 @@ A mod pack is a `.pak` file: a ZIP in the same layout as `game_data.pak`. The ga
 
 A card in `data/enemies/` or `data/players/` replaces a pack's card with the same file name. A pack with an atlas works only with the game version it came from. The game leaves out a pack that would break it, and Stats counts the cards and packs that loaded.
 
+A pack's `manifest.toml` gives its `id` and, optionally, the `name` that Settings > Mod packs shows. The save keeps a pack turned off by its id, or by its file name when it has no id or shares one with another pack. A pack turned off adds nothing at the next start, and the others still layer in file-name order. The card editor's Export all writes both from its Pack name field.
+
+```toml
+id = "thanksgiving"
+name = "Thanksgiving"
+version = "1"
+format = 1
+```
+
 For a card with its own death sound as a separate file, put `enemies/ghoul.enemy.png` and `sounds/kill-ghoul.ogg` in a folder and run the packer's `mod` command.
 
 ## Sounds
