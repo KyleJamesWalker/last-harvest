@@ -24,13 +24,13 @@ pub(crate) enum Page {
     Lobby,
     Relay,
     Replays,
+    /// Play's page: the player cards, map and difficulty, then Start.
+    Setup,
 }
 
-const MAIN: [(Page, &str); 8] = [(Page::Main, "Play"), (Page::Main, "Map"), (Page::HowTo, "How to play"), (Page::Settings, "Settings"), (Page::Stats, "Stats"), (Page::Credits, "Credits"), (Page::Online, "Online"), (Page::Main, "Quit")];
-/// The row that picks the map runs start on rather than opening a page.
-const MAP_ROW: usize = 1;
+const MAIN: [(Page, &str); 7] = [(Page::Setup, "Play"), (Page::HowTo, "How to play"), (Page::Settings, "Settings"), (Page::Stats, "Stats"), (Page::Credits, "Credits"), (Page::Online, "Online"), (Page::Main, "Quit")];
 /// The last row, shown only where the game can quit.
-const QUIT_ROW: usize = 7;
+const QUIT_ROW: usize = 6;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Setting {
@@ -44,7 +44,6 @@ pub(crate) enum Setting {
     Touch,
     Grenades,
     Controls,
-    Player,
     Enemies,
     Folder,
     Relay,
@@ -52,7 +51,7 @@ pub(crate) enum Setting {
 }
 
 impl Setting {
-    const ALL: [Setting; 15] = [Setting::TopBrightness, Setting::BottomBrightness, Setting::Volume, Setting::Rumble, Setting::Fps, Setting::Screens, Setting::CornerMap, Setting::Touch, Setting::Grenades, Setting::Controls, Setting::Player, Setting::Enemies, Setting::Folder, Setting::Relay, Setting::Reset];
+    const ALL: [Setting; 14] = [Setting::TopBrightness, Setting::BottomBrightness, Setting::Volume, Setting::Rumble, Setting::Fps, Setting::Screens, Setting::CornerMap, Setting::Touch, Setting::Grenades, Setting::Controls, Setting::Enemies, Setting::Folder, Setting::Relay, Setting::Reset];
 
     fn name(self) -> &'static str {
         match self {
@@ -66,7 +65,6 @@ impl Setting {
             Setting::Touch => "Touch controls",
             Setting::Grenades => "Grenades",
             Setting::Controls => "Controls",
-            Setting::Player => "Player",
             Setting::Enemies => "Enemies",
             Setting::Folder => "Game folder",
             Setting::Relay => "Online relay",
@@ -75,13 +73,14 @@ impl Setting {
     }
 }
 
-/// The Play button, then the difficulty box under it, as x, y, width and height.
+/// The Play button, as x, y, width and height.
 const PLAY: [f32; 4] = [212.0, 30.0, 600.0, 100.0];
-pub(crate) const DIFFICULTY_Y: f32 = 150.0;
-/// The rows under Play, below the difficulty box.
-pub(crate) const ROWS_TOP: f32 = 316.0;
-pub(crate) const ROW_H: f32 = 52.0;
-/// The settings rows; a run's settings leave out Player, Enemies and Reset.
+/// The rows under Play.
+pub(crate) const ROWS_TOP: f32 = 170.0;
+pub(crate) const ROW_H: f32 = 60.0;
+/// Where the main page says the game data is missing, under its rows.
+const MISSING_Y: f32 = 560.0;
+/// The settings rows; a run's settings leave out Enemies and Reset.
 const SET_TOP: f32 = 96.0;
 const SET_H: f32 = 62.0;
 /// Enemy rows that fit above the Back button; the list scrolls past that.
@@ -94,7 +93,7 @@ const NOTE_SHOWN: f32 = 3.0;
 /// The arrows either side of a level bar, as x centres.
 const LESS_X: f32 = 600.0;
 const MORE_X: f32 = 940.0;
-const BACK: [f32; 4] = [362.0, 660.0, 300.0, 76.0];
+pub(crate) const BACK: [f32; 4] = [362.0, 660.0, 300.0, 76.0];
 /// Stats' button to the run history, right of Back; on History, the button to its next page.
 const HISTORY: [f32; 4] = [702.0, 660.0, 300.0, 76.0];
 /// Stats' button to the saved replays, left of Back.
@@ -114,17 +113,8 @@ pub(crate) const HOW_TO_ROOM: f32 = SCREEN_W - 80.0 - HOW_TO_ICON - 24.0;
 pub(crate) const RESET_CONFIRM: f32 = 3.0;
 pub(crate) const RESET_SHOWN: f32 = 3.0;
 
-fn inside([x, y]: [f32; 2], [rx, ry, w, h]: [f32; 4]) -> bool {
+pub(crate) fn inside([x, y]: [f32; 2], [rx, ry, w, h]: [f32; 4]) -> bool {
     (rx..rx + w).contains(&x) && (ry..ry + h).contains(&y)
-}
-
-/// Which way a tap steps the difficulty, if it lands on one of its arrows.
-pub(crate) fn difficulty_arrow([x, y]: [f32; 2]) -> Option<i32> {
-    if !(DIFFICULTY_Y - 10.0..DIFFICULTY_Y + 130.0).contains(&y) {
-        return None;
-    }
-    let off = x - SCREEN_W / 2.0;
-    (off.abs() > 160.0 && off.abs() < 320.0).then_some(off.signum() as i32)
 }
 
 fn replay_row(i: usize) -> [f32; 4] {
@@ -177,7 +167,7 @@ fn action_name(game: Buttons) -> &'static str {
 }
 
 impl Game {
-    /// A run's settings leave out Player, Enemies, Game folder and Reset, and Game folder shows only where the
+    /// A run's settings leave out Enemies, Game folder and Reset, and Game folder shows only where the
     /// platform lets the player choose one; a phone whose screen takes touches has Touch controls and
     /// Grenades where others have Screens; screen brightness shows only where the platform sets the backlights.
     pub(crate) fn settings_list(&self) -> Vec<Setting> {
@@ -185,7 +175,7 @@ impl Game {
         Setting::ALL
             .into_iter()
             .filter(|s| match s {
-                Setting::Player | Setting::Enemies | Setting::Reset => !self.settings_in_run,
+                Setting::Enemies | Setting::Reset => !self.settings_in_run,
                 Setting::Folder => !self.settings_in_run && self.folder.is_some(),
                 Setting::Relay => !self.settings_in_run && self.online_available(),
                 Setting::TopBrightness | Setting::BottomBrightness => self.has_backlights(),
@@ -198,7 +188,7 @@ impl Game {
             .collect()
     }
 
-    /// The title screen: Up and Down choose a row, Left and Right the difficulty, A or a tap opens.
+    /// The title screen: Up and Down choose a row, A or a tap opens.
     pub(crate) fn title(&mut self, input: &Input, dt: f32) {
         self.reset_armed = (self.reset_armed - dt).max(0.0);
         self.reset_shown = (self.reset_shown - dt).max(0.0);
@@ -258,15 +248,18 @@ impl Game {
                 self.close_how_to(input.pressed.contains(Buttons::B));
             }
             Page::HowTo => {}
+            Page::Setup => self.setup_page(input, tapped),
         }
     }
 
-    /// Marks the how-to page seen; a first Play that opened it goes on into the run, unless B backed out.
+    /// Marks the how-to page seen; a first Start that opened it goes on into the run, or back to Play's page if B
+    /// backed out.
     fn close_how_to(&mut self, back: bool) {
         self.save.how_to_seen = true;
         self.how_to_due = false;
-        self.page = Page::Main;
-        if std::mem::take(&mut self.how_to_then_play) && !back {
+        let then_play = std::mem::take(&mut self.how_to_then_play);
+        self.page = if then_play && back { Page::Setup } else { Page::Main };
+        if then_play && !back {
             self.open(crate::Scene::Harvest);
         } else {
             self.sounds.push(Sfx::Tick(0));
@@ -280,19 +273,6 @@ impl Game {
             self.sounds.push(Sfx::Tick(self.row as u8 * 3));
             return;
         }
-        let by = input.pressed.contains(Buttons::RIGHT) as i32 - input.pressed.contains(Buttons::LEFT) as i32;
-        if by != 0 && self.row == MAP_ROW {
-            return self.step_map(by);
-        }
-        let arrow = tapped.and_then(difficulty_arrow);
-        if (by != 0 && self.row == 0) || arrow.is_some() {
-            let next = self.save.difficulty.step(arrow.unwrap_or(by));
-            if next != self.save.difficulty {
-                self.save.difficulty = next;
-                self.sounds.push(Sfx::Tick(next.index() * 2));
-            }
-            return;
-        }
         let chosen = match tapped {
             Some(p) => (0..self.main_rows()).find(|&i| inside(p, main_row(i))),
             None => input.pressed.any(Buttons::START | Buttons::A).then_some(self.row),
@@ -301,19 +281,13 @@ impl Game {
             Some(0) if crate::data::load_report().missing_pack.is_some() => {
                 self.sounds.push(Sfx::Miss);
             }
-            Some(0) if self.how_to_due => {
-                self.page = Page::HowTo;
-                self.how_to_then_play = true;
-                self.sounds.push(Sfx::Tick(9));
+            Some(0) => {
+                self.row = 0;
+                self.open_setup();
             }
-            Some(0) => self.open(crate::Scene::Harvest),
             Some(QUIT_ROW) => {
                 self.quit_asked = true;
                 self.sounds.push(Sfx::Tick(0));
-            }
-            Some(MAP_ROW) => {
-                self.row = MAP_ROW;
-                self.step_map(1);
             }
             Some(i) => {
                 self.row = i;
@@ -329,7 +303,7 @@ impl Game {
     }
 
     /// Moves the map runs start on `by` along Random and the hand-made maps.
-    fn step_map(&mut self, by: i32) {
+    pub(crate) fn step_map(&mut self, by: i32) {
         let maps = crate::data::maps();
         let at = maps.iter().position(|m| m.id == self.save.map.as_str()).map_or(0, |i| i + 1) as i32;
         let next = (at + by).rem_euclid(maps.len() as i32 + 1) as usize;
@@ -400,12 +374,6 @@ impl Game {
             Setting::CornerMap if by != 0 || press => self.save.corner_map = !self.save.corner_map,
             Setting::Touch if by != 0 || press => self.save.touch = self.save.touch.step(if by == 0 { 1 } else { by }),
             Setting::Grenades if by != 0 || press => self.save.touch_grenades = !self.save.touch_grenades,
-            Setting::Player if by != 0 || press => {
-                let looks = crate::player_looks();
-                let at = looks.iter().position(|l| l.id == self.save.player.as_str()).unwrap_or(0) as i32;
-                let next = (at + if by == 0 { 1 } else { by }).rem_euclid(looks.len() as i32) as usize;
-                self.save.player = crate::save::LookId::new(&looks[next].id);
-            }
             Setting::Controls if by > 0 || press => {
                 self.rebind = Some(Rebind::default());
                 self.sounds.push(Sfx::Tick(9));
@@ -544,6 +512,7 @@ impl Game {
             Page::Lobby => self.draw_lobby(c),
             Page::Relay => self.draw_relay(c),
             Page::Replays => self.draw_replays(c),
+            Page::Setup => self.draw_setup(c),
         }
     }
 
@@ -556,36 +525,15 @@ impl Game {
             let off = i == 0 && missing.is_some();
             c.rect(x, y, w, h, if on { [1.0, 0.85, 0.3, if off { 0.12 } else { 0.3 }] } else { [1.0, 1.0, 1.0, 0.08] });
             let color = if off { DIM } else if on { [HOT[0], HOT[1], HOT[2], if i == 0 { pulse } else { 1.0 }] } else { WHITE };
-            if i == MAP_ROW {
-                let maps = crate::data::maps();
-                let name = maps.iter().find(|m| m.id == self.save.map.as_str()).map_or("Random farm", |m| m.name.as_str());
-                let arrow = if maps.is_empty() { [1.0, 1.0, 1.0, 0.15] } else if on { HOT } else { DIM };
-                c.label("<", x + 40.0, y + h / 2.0 - 26.0, 48.0, arrow, Align::Center);
-                c.label(">", x + w - 40.0, y + h / 2.0 - 26.0, 48.0, arrow, Align::Center);
-                fit_label(c, &format!("Map: {name}"), x + w / 2.0, y + h / 2.0 - 22.0, 44.0, w - 120.0, color, Align::Center);
-                continue;
-            }
             let size = if i == 0 { 52.0 } else { 42.0 };
             c.label(*name, x + w / 2.0, y + h / 2.0 - size / 2.0, size, color, Align::Center);
         }
-        let (y, mid) = (DIFFICULTY_Y, SCREEN_W / 2.0);
         if let Some(how) = missing {
-            let red = [1.0, 0.55, 0.5, 1.0];
+            let (y, mid, red) = (MISSING_Y, SCREEN_W / 2.0, [1.0, 0.55, 0.5, 1.0]);
             c.rect(mid - 420.0, y - 10.0, 840.0, 150.0, [0.45, 0.12, 0.12, 0.35]);
             c.label("No game_data.pak", mid, y + 6.0, 44.0, red, Align::Center);
             wrap_label(c, how, mid, y + 62.0, 28.0, 800.0, 2, WHITE, Align::Center);
-        } else {
-            let d = self.save.difficulty;
-            c.rect(mid - 300.0, y - 10.0, 600.0, 150.0, [1.0, 1.0, 1.0, 0.06]);
-            let arrow = |on: bool| if on { HOT } else { [1.0, 1.0, 1.0, 0.15] };
-            c.label("<", mid - 250.0, y + 6.0, 56.0, arrow(!d.is_first()), Align::Center);
-            c.label(">", mid + 250.0, y + 6.0, 56.0, arrow(!d.is_last()), Align::Center);
-            fit_label(c, d.name(), mid, y + 6.0, 52.0, 420.0, HOT, Align::Center);
-            if self.title_on_one() {
-                wrap_label(c, d.blurb(), mid, y + 56.0, 36.0, 560.0, 2, DIM, Align::Center);
-            } else {
-                c.label(d.blurb(), mid, y + 80.0, 26.0, DIM, Align::Center);
-            }
+            return;
         }
         if self.title_on_one() {
             c.hint("D-pad: walk.   {Y} / {A}: turn.   {B}: turn around.", SCREEN_W / 2.0, SCREEN_H - 86.0, 36.0, DIM, Align::Center);
@@ -593,7 +541,7 @@ impl Game {
             return;
         }
         c.hint("D-pad: walk and strafe.   {Y} / {A}: turn.   {B}: turn around.   {R2}: screenshot.", SCREEN_W / 2.0, SCREEN_H - 84.0, 24.0, DIM, Align::Center);
-        c.hint("Hold {X}: aim at barrels.   Tap the map, or hold {R1}: throw.   Left / Right on Play: difficulty.", SCREEN_W / 2.0, SCREEN_H - 50.0, 24.0, DIM, Align::Center);
+        c.hint("Hold {X}: aim at barrels.   Tap the map, or hold {R1}: throw.", SCREEN_W / 2.0, SCREEN_H - 50.0, 24.0, DIM, Align::Center);
     }
 
     pub(crate) fn draw_settings(&self, c: &mut Canvas) {
@@ -634,15 +582,6 @@ impl Game {
                         _ => "Pad",
                     };
                     c.label(label, (LESS_X + MORE_X) / 2.0, mid - 20.0, 38.0, HOT, Align::Center);
-                    continue;
-                }
-                Setting::Player => {
-                    let looks = crate::player_looks();
-                    let name = looks.iter().find(|l| l.id == self.save.player.as_str()).map_or("Farmer", |l| l.name.as_str());
-                    let arrow = if looks.len() > 1 { HOT } else { [1.0, 1.0, 1.0, 0.15] };
-                    c.label("<", LESS_X, mid - 24.0, 44.0, arrow, Align::Center);
-                    c.label(">", MORE_X, mid - 24.0, 44.0, arrow, Align::Center);
-                    fit_label(c, name, (LESS_X + MORE_X) / 2.0, mid - 20.0, 38.0, MORE_X - LESS_X - 80.0, if on { HOT } else { WHITE }, Align::Center);
                     continue;
                 }
                 Setting::Controls => {
@@ -761,7 +700,7 @@ impl Game {
         back_button(c);
     }
 
-    /// The player's chosen look walking on the top screen, turning through its facings, under its name.
+    /// Player 1's card walking on the top screen, turning through its facings, under its name.
     pub(crate) fn draw_player(&self, c: &mut Canvas) {
         let looks = crate::player_looks();
         let Some(p) = looks.iter().find(|l| l.id == self.save.player.as_str()).or(looks.first()) else { return };

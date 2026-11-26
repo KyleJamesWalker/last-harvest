@@ -2069,8 +2069,9 @@ impl Harvest {
         let (count, bots, views) = (self.players.len(), std::mem::take(&mut self.bots), self.views);
         self.tape_restart();
         let (tape, progress) = (self.tape.take(), self.progress);
+        let seats = self.setup.as_ref().map(|s| s.seats.clone()).unwrap_or_default();
         let setup = self.setup.take().map(|s| replay::Setup { seed, progress, look: look.clone(), kit: kit.join(","), players: count - bots.len(), bots: bots.len(), views, kind: replay::Kind::Night, ..*s });
-        *self = Harvest::on(seed, &self.map_id).at(self.difficulty).with_progress(self.progress).without_enemies(self.enemies_off).looking_like(&look).with_kit(&kit.join(",")).starting_at(self.start_t).single_screen(self.single).endless_grenades(self.endless).with_players(count).with_views(views);
+        *self = Harvest::on(seed, &self.map_id).at(self.difficulty).with_progress(self.progress).without_enemies(self.enemies_off).looking_like(&look).with_kit(&kit.join(",")).starting_at(self.start_t).single_screen(self.single).endless_grenades(self.endless).with_players(count).seated_as(&seats).with_views(views);
         self.bots = bots.into_iter().map(|(p, b)| (p, b.again())).collect();
         (self.tape, self.setup) = (tape, setup.map(Box::new));
         sounds.push(Sfx::Start);
