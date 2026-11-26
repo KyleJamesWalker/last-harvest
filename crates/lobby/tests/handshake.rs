@@ -170,7 +170,7 @@ fn mismatches_are_refused_with_a_reason() {
     mods.identity.mods = vec![ModPack { name: "owls".into(), fingerprint: 8 }, ModPack { name: "bats".into(), fingerprint: 1 }];
     let reason = refusal(&mut room, 12, mods);
     assert_eq!(reason, Refusal::Mods { missing: vec![], extra: vec!["bats".into()], different: vec!["owls".into()] });
-    assert_eq!(reason.to_string(), "The host's mods differ: remove bats; get the host's copy of owls.");
+    assert_eq!(reason.to_string(), "The host's mods differ: remove or turn off bats; get the host's copy of owls.");
 
     let mut no_mods = hello(&["witch"]);
     no_mods.identity.mods.clear();
