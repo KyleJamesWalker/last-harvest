@@ -601,7 +601,7 @@ pub struct Editor {
     /// The card's name or about as it's being typed.
     naming: Option<(Line, String)>,
     /// The other cards' texts, read when the stats page opens, for the spawn mix.
-    other_cards: Vec<String>,
+    other_cards: Vec<(String, String)>,
     /// The open card's own death sound, by file name, when it has one.
     own_sound: Option<String>,
     mix: Option<Result<last_harvest_game::SpawnMix, String>>,
@@ -1109,7 +1109,11 @@ impl Editor {
             }
         }
         if self.playing && !self.sprite.frames.is_empty() {
-            self.frame = (self.clock * self.fps) as usize % self.sprite.frames.len();
+            let next = (self.clock * self.fps) as usize % self.sprite.frames.len();
+            if next != self.frame {
+                self.deselect();
+            }
+            self.frame = next;
         }
     }
 
@@ -2090,6 +2094,7 @@ impl Editor {
                 self.playing = false;
             }
             Action::Play => {
+                self.deselect();
                 self.playing = !self.playing;
                 self.changed = true;
             }
@@ -4192,6 +4197,31 @@ mod tests {
     }
 
     #[test]
+    fn the_spawn_mix_lists_cards_in_the_order_the_game_reads_them() {
+        let dir = tmp().join("mixorder");
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut e = Editor::new(Box::new(FsStore { dir: dir.join("sprites"), catalog: dir.join("art.txt"), cards: dir.join("enemies") }), "");
+        for id in ["zz", "aa", "mm"] {
+            e.act(Action::Ask(Ask::New), false);
+            type_in(&mut e, &format!("card {id}"));
+            e.key(Key::Enter);
+        }
+        e.act(Action::Stats, false);
+        let mine = e.sprite.card.clone().unwrap();
+        e.other_cards.sort_by(|a, b| b.0.cmp(&a.0));
+        e.refresh_mix();
+        let mut files: Vec<(String, String)> = ["zz", "aa"].iter().map(|id| (format!("{id}.enemy.png"), e.other_cards.iter().find(|(f, _)| f.starts_with(id)).unwrap().1.clone())).collect();
+        files.push(("mm.enemy.png".into(), mine));
+        last_harvest_pack::sort_by_name(&mut files);
+        let texts: Vec<&str> = files.iter().map(|(_, t)| t.as_str()).collect();
+        let game = last_harvest_game::spawn_mix(&texts, &[1.0]).unwrap();
+        let shown = e.mix.as_ref().unwrap().as_ref().unwrap();
+        assert_eq!(shown.kinds, game.kinds);
+        let ids: Vec<&str> = shown.kinds.iter().map(|(id, _)| id.as_str()).collect();
+        assert_eq!(ids[ids.len() - 4..], ["aa", "mm", "zz", "skinny"]);
+    }
+
+    #[test]
     fn importing_says_which_saved_cards_it_replaces() {
         let dir = tmp().join("replace");
         let _ = std::fs::remove_dir_all(&dir);
@@ -5400,6 +5430,46 @@ mod tests {
         assert!(e.selection.is_none());
         e.key(Key::Undo);
         assert_eq!(*e.current(), before);
+    }
+
+    #[test]
+    fn playing_with_a_selection_leaves_every_frames_pixels_alone() {
+        let mut e = editor();
+        e.act(Action::Stand(CARVE), false);
+        e.sprite.frames = vec![Frame::blank(16, 16), Frame::blank(16, 16), Frame::blank(16, 16)];
+        for (i, f) in e.sprite.frames.iter_mut().enumerate() {
+            f.set(1, 1, [200, 0, 0, 255]);
+            f.set(5, i as i32, [0, 200, 0, 255]);
+        }
+        let before = e.sprite.frames.clone();
+        e.frame = 0;
+        e.key(Key::Char('s'));
+        e.mouse_down(at(&e, 0, 0), false, false);
+        e.drag(at(&e, 2, 2));
+        e.mouse_up();
+        e.nudge = 1;
+        e.key(Key::Right);
+        assert!(e.selection.as_ref().is_some_and(|s| s.float.is_some()));
+        e.act(Action::Play, false);
+        for _ in 0..40 {
+            e.tick(1.0 / e.fps);
+        }
+        e.act(Action::Play, false);
+        assert_eq!(e.sprite.frames[1], before[1]);
+        assert_eq!(e.sprite.frames[2], before[2]);
+        assert_eq!(e.sprite.frames[0].get(1, 1), Some(before[0].get(0, 0).unwrap()), "the pixel it moved stays on the frame it was moved on");
+        assert_eq!(e.sprite.frames[0].get(2, 1), Some([200, 0, 0, 255]));
+        let mut e = editor();
+        e.sprite.frames = before.clone();
+        e.frame = 1;
+        e.key(Key::Char('s'));
+        e.mouse_down(at(&e, 0, 0), false, false);
+        e.drag(at(&e, 2, 2));
+        e.mouse_up();
+        e.act(Action::Play, false);
+        e.tick(3.0 / e.fps);
+        e.act(Action::Play, false);
+        assert_eq!(e.sprite.frames, before, "a selection with nothing moved changes nothing either");
     }
 
     #[test]
