@@ -13,12 +13,12 @@ enemies/         Enemy cards, named like ghoul.enemy.png. Each adds a kind of zo
                  replaces one of the game's own. Settings > Enemies lists them, with each one's about line, and turns them on or off.
 
 players/         Player cards, named like jo.player.png. Each is a look for you, and may set the weapons
-                 you start with. Settings > Player picks one.
+                 you start with. Play's page picks one.
 
 props/           Props, named like barn.prop.png: a player's own sprites for maps.
 
-maps/            Maps, named like orchard.map.txt: hand-made farms. The title screen's Map row picks
-                 one, or a random farm.
+maps/            Maps, named like orchard.map.txt: hand-made farms. Play's page picks one, or a
+                 random farm.
 
 mods/            Mod packs, named like loud.pak. Each is laid over game_data.pak in name order: a file in
                  a mod replaces the game's file at the same path, such as a sound or a card.
