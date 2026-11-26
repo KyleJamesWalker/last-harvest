@@ -46,10 +46,11 @@ fn walking(look: &crate::PlayerLook, t: f32) -> (crate::art::Art, bool) {
 impl Game {
     /// The card `seat` plays as: player 1's from the save, the others' as picked here, or as a run dresses them.
     pub(crate) fn seat_card(&self, seat: usize) -> String {
-        let mine = self.save.player.as_str().to_string();
         if seat == 0 {
-            return mine;
+            return self.save.player.as_str().to_string();
         }
+        let looks = crate::player_looks();
+        let mine = looks.iter().find(|l| l.id == self.save.player.as_str()).or(looks.first()).map_or("", |l| l.id.as_str()).to_string();
         if let Some(id) = self.seat_looks.get(seat).copied().flatten() {
             return id.as_str().to_string();
         }
