@@ -283,11 +283,12 @@ The title's bottom screen lists Play, How to play, Settings, Stats, Credits and 
 | Touch controls, Grenades | See [Touch](#touch). Shown only where the screen takes touches. |
 | Controls | Moves a button's jobs to another button. See [Controls](#controls). |
 | Enemies | Each kind of zombie, walking, with its numbers. A turns a kind on or off. At least one stays on. |
+| Mod packs | Each mod pack found, by name, with its file under it. A, Left, Right or a tap turns one on or off. Packs load as the game starts, so a change applies at the next start; until then the page marks each pack it will change. Shown only when there are packs. |
 | Game folder | Android only. See [Where files go](#where-files-go). |
 | Online relay | The relay online play connects through. See [Online](#online). |
 | Reset progress | Clears kills, records and found powerups after a second press. Settings stay. |
 
-Settings from the pause menu leave out Enemies, Game folder, Online relay and Reset progress.
+Settings from the pause menu leave out Enemies, Mod packs, Game folder, Online relay and Reset progress.
 
 ### Play
 
@@ -345,7 +346,7 @@ Each player plays on their own device, and one of them hosts the night. Online i
 3. In the lobby, A marks you ready. Each player plays the card they last picked on [Play's page](#play), and the host's map plays. The host picks the difficulty with Left and Right, or a tap on it at the top right. Once everyone is ready, the host's Start starts the night.
 4. B leaves the lobby. On the host, B closes the room.
 
-Every device needs the same release and the same mod packs. The host turns away a player whose game differs and says why. A player can also join a night already under way: they drop in beside the others.
+Every device needs the same release and the same mod packs turned on; a pack turned off in Settings > Mod packs doesn't count. The host turns away a player whose game differs and names the packs to install, turn on or off, or copy from the host. A player can also join a night already under way: they drop in beside the others.
 
 Settings &gt; Online relay, or Online &gt; Relay, sets the relay that connects the players:
 
@@ -443,12 +444,12 @@ The game reads your files from its `data/` folder, beside `game_data.pak`, when 
 | `data/props/` | Props, `<id>.prop.png`: your own sprites for maps |
 | `data/maps/` | Maps, `<id>.map.txt`: hand-made farms |
 | `data/farms/` | A player's own farm, `<id>.txt` and `<id>.ground.txt`, which a player card picks |
-| `data/mods/` | Mod packs, `<name>.pak`, laid over the game's data in name order |
+| `data/mods/` | Mod packs, `<name>.pak`, laid over the game's data in name order. Settings > Mod packs turns each on or off. |
 
 The game skips a file that cannot load, and the title screen shows the first reason. Some apps strip a card's text when they save the PNG again, so share the file itself.
 
 - **Android:** choose a folder with Settings > Game folder, such as a new `Last Harvest` folder in `Documents`. The game makes the folders above in it, plus `screenshots/`. New files load at the next start. Until you choose one, the game reads `Android/data/com.kylejameswalker.lastharvest/files/data/`.
-- **Browser:** press Add mod on the start screen and pick a `.pak`. × removes one. On the game's site, your saved card editor work also plays, with no export.
+- **Browser:** press Add mod on the start screen and pick a `.pak`. × removes one. On the game's site, your saved card editor work also plays, with no export. Settings > Mod packs turns a pack off without removing it; reload the page to apply.
 
 ## The card editor
 
@@ -461,7 +462,7 @@ The [card editor](https://kylejameswalker.github.io/last-harvest/editor/) makes 
 | New | Starts a card from a plain figure. Start the name with `PLAYER_` for a player card, `PROP_` for a prop, or `MAP_` for a map. |
 | Import | Opens `.enemy.png`, `.player.png`, `.prop.png` and `.map.txt` files, and everything in a `.pak`. It names the saved cards it replaced. |
 | Export | Downloads the open card's or prop's PNG. On a map, downloads `<id>.pak` with the map and every prop it places. |
-| Export all | Downloads everything as one mod pack, `my-cards.pak`, for the game's `data/mods`. |
+| Export all | Downloads everything as one mod pack for the game's `data/mods`, named by the Pack name field beside it: Thanksgiving downloads `thanksgiving.pak`, which Settings > Mod packs lists as Thanksgiving. Without a name it is `my-cards.pak`. |
 | Sound | Gives an enemy card its own death sound: an Ogg, WAV or MP3, kept as an Ogg of up to 512 KB |
 | Delete | Removes the open card, prop or map. Press it twice. |
 | Game data | Picks your own `game_data.pak`. See [Game data](#game-data). |

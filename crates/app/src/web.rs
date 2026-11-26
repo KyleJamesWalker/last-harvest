@@ -494,8 +494,9 @@ fn element<T: JsCast>(document: &Document, id: &str) -> Result<T, String> {
 }
 
 fn start(pak: Pak, mods: Vec<(String, Pak)>, problems: Vec<String>, range: Option<RangeSetup>) -> Result<(), String> {
+    let off = web_sys::window().and_then(|w| w.local_storage().ok().flatten()).and_then(|s| s.get_item(SAVE_KEY).ok().flatten()).map(|t| last_harvest_game::mods_off_in(&t)).unwrap_or_default();
     // The renderer uploads the sprite atlas as it starts, so the data goes in first.
-    let sounds = pak::install_with(pak, mods, problems)?;
+    let sounds = pak::install_with(pak, mods, problems, &off)?;
     let window = web_sys::window().ok_or("no window")?;
     let document = window.document().ok_or("no document")?;
     let canvas: HtmlCanvasElement = element(&document, "screens")?;
@@ -667,6 +668,8 @@ fn editor_mod(sounds: &js_sys::Array, problems: &mut Vec<String>) -> Option<Pak>
     if files.is_empty() {
         return None;
     }
+    let name = storage.get_item(browser::PACK_NAME_KEY).ok().flatten().filter(|n| !n.trim().is_empty()).unwrap_or_else(|| "Card editor work".into());
+    files.push((last_harvest_pack::MANIFEST.into(), last_harvest_pack::named_mod_manifest(browser::EDITOR_PACK_ID, &name).into_bytes()));
     for s in sounds.iter() {
         let (Some(id), Some(file), Some(bytes)) = (field(&s, "id").and_then(|v| v.as_string()), field(&s, "file").and_then(|v| v.as_string()), field(&s, "bytes")) else { continue };
         let card = format!("{}{id}{}", last_harvest_pack::ENEMY_CARDS, last_harvest_pack::card::Kind::Enemy.extension());

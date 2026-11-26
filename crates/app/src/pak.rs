@@ -308,12 +308,12 @@ pub fn read_mod(pak: Result<Pak, String>) -> Result<Pak, String> {
     Ok(pak)
 }
 
-/// The mod packs in the mods folder, in name order, by file name; one that `read_mod` refuses is left out and noted.
+/// The packs in the mods folder, in name order, by file name; one that doesn't read is left out and noted.
 fn read_mods(problems: &mut Vec<String>) -> Vec<(String, Pak)> {
     let Some(dir) = mods_folder() else { return Vec::new() };
     let mut mods = Vec::new();
     for (name, bytes) in samples::read_files(&dir, &[".pak"]) {
-        match read_mod(Pak::read(std::io::Cursor::new(bytes))) {
+        match Pak::read(std::io::Cursor::new(bytes)) {
             Ok(p) => mods.push((name, p)),
             Err(e) => problems.push(format!("{name}: {e}")),
         }
@@ -321,10 +321,52 @@ fn read_mods(problems: &mut Vec<String>) -> Vec<(String, Pak)> {
     mods
 }
 
+/// The id every card editor export had before packs had names, so it names no pack.
+const OLD_EDITOR_ID: &str = "my-cards";
+
+/// Each pack's key for the save: its id, else its file name, and its file name where two share an id.
+fn mod_keys(packs: &[(String, Pak)]) -> Vec<String> {
+    let stem = |file: &str| last_harvest_game::pack_key(file.strip_suffix(".pak").unwrap_or(file));
+    let id = |p: &Pak| p.id().filter(|id| *id != OLD_EDITOR_ID).map(last_harvest_game::pack_key).filter(|k| !k.is_empty());
+    let first: Vec<String> = packs.iter().map(|(file, p)| id(p).unwrap_or_else(|| stem(file))).collect();
+    first.iter().zip(packs).map(|(k, (file, _))| if first.iter().filter(|o| *o == k).count() > 1 { stem(file) } else { k.clone() }).collect()
+}
+
+/// The packs to lay over the data, in order, and every pack found, on or off; an on pack `read_mod` refuses is
+/// left out and noted.
+fn choose_mods(found: Vec<(String, Pak)>, off: &[String], problems: &mut Vec<String>) -> (Vec<(String, Pak)>, Vec<data::FoundPack>) {
+    let keys = mod_keys(&found);
+    let (mut on, mut all) = (Vec::new(), Vec::new());
+    for ((file, p), key) in found.into_iter().zip(keys) {
+        let name = p.name().or(p.id()).map(String::from).unwrap_or_else(|| file.strip_suffix(".pak").unwrap_or(&file).to_string());
+        let wanted = !off.contains(&key);
+        let loaded = wanted && match read_mod(Ok(p)) {
+            Ok(p) => {
+                on.push((file.clone(), p));
+                true
+            }
+            Err(e) => {
+                problems.push(format!("{file}: {e}"));
+                false
+            }
+        };
+        if wanted && !loaded {
+            continue;
+        }
+        all.push(data::FoundPack { file, key, name, on: loaded });
+    }
+    (on, all)
+}
+
 /// Installs the pack's data, with any mods laid over it, and the enemy cards in the game, which must happen before
 /// the game starts, and returns the sound files: a sounds folder named by `LAST_HARVEST_SOUNDS`, else the pack's,
 /// else a sounds folder found nearby, with the mods' sounds over either.
 pub fn load() -> Result<Files, String> {
+    load_without(&[])
+}
+
+/// `load` leaving out the mod packs whose keys are `off`.
+pub fn load_without(off: &[String]) -> Result<Files, String> {
     let mut missing_pack = None;
     let mut problems = Vec::new();
     let folder = || missing(data_folder().map_or_else(|| DATA.into(), |d| d.display().to_string()));
@@ -365,19 +407,24 @@ pub fn load() -> Result<Files, String> {
             None
         }
     };
-    install_noting(base, missing_pack, Vec::new(), problems)
+    install_noting(base, missing_pack, Vec::new(), problems, off)
 }
 
 /// `load` with the pack already open, or none for the built-in data. A web page has no data folder beside it, so
 /// it fetches the pack itself and finds no mods or cards.
 pub fn install(base: Option<Pak>, missing_pack: Option<String>) -> Result<Files, String> {
-    install_noting(base, missing_pack, Vec::new(), Vec::new())
+    install_noting(base, missing_pack, Vec::new(), Vec::new(), &[])
+}
+
+/// `install` leaving out the mod packs whose keys are `off`.
+pub fn install_without(base: Option<Pak>, missing_pack: Option<String>, off: &[String]) -> Result<Files, String> {
+    install_noting(base, missing_pack, Vec::new(), Vec::new(), off)
 }
 
 /// `install` with `mods` laid over the mods folder's, in order, by name, and `problems` already found reading them:
 /// a web page keeps its mods in the browser.
-pub fn install_with(base: Pak, mods: Vec<(String, Pak)>, problems: Vec<String>) -> Result<Files, String> {
-    install_noting(Some(base), None, mods, problems)
+pub fn install_with(base: Pak, mods: Vec<(String, Pak)>, problems: Vec<String>, off: &[String]) -> Result<Files, String> {
+    install_noting(Some(base), None, mods, problems, off)
 }
 
 /// Drops each of the base pack's tables that the game would refuse, noting why, so the built-in one stands in.
@@ -388,13 +435,17 @@ fn drop_refused_tables(pak: &mut Pak, problems: &mut Vec<String>) {
     }
 }
 
-fn install_noting(base: Option<Pak>, missing_pack: Option<String>, more: Vec<(String, Pak)>, mut problems: Vec<String>) -> Result<Files, String> {
+fn install_noting(base: Option<Pak>, missing_pack: Option<String>, more: Vec<(String, Pak)>, mut problems: Vec<String>, off: &[String]) -> Result<Files, String> {
     let pack_version = base.as_ref().and_then(Pak::version).map(String::from);
     let had_base = base.is_some();
     let mut pak = base.unwrap_or_else(Pak::empty);
     drop_refused_tables(&mut pak, &mut problems);
-    let mut mods = read_mods(&mut problems);
-    mods.extend(more);
+    let mut found = read_mods(&mut problems);
+    found.extend(more);
+    let (mods, packs) = choose_mods(found, off, &mut problems);
+    if packs.iter().any(|p| !p.on) {
+        log!("mods off: {:?}", packs.iter().filter(|p| !p.on).map(|p| &p.file).collect::<Vec<_>>());
+    }
     let mod_names: Vec<String> = mods.iter().map(|(n, _)| n.clone()).collect();
     let mod_packs: Vec<(String, u64)> = mods.iter().map(|(n, p)| (n.clone(), fingerprint(p))).collect();
     if !mods.is_empty() {
@@ -469,7 +520,7 @@ fn install_noting(base: Option<Pak>, missing_pack: Option<String>, more: Vec<(St
     for problem in &problems {
         log!("left out: {problem}");
     }
-    data::report(data::LoadReport { cards: loaded, mods: mod_names, problems, version: crate::VERSION.into(), pack_version, missing_pack, mod_packs });
+    data::report(data::LoadReport { cards: loaded, mods: mod_names, problems, version: crate::VERSION.into(), pack_version, missing_pack, mod_packs, packs });
     let mut sounds = pak.take_dir(pack::SOUNDS);
     let forced = std::env::var_os("LAST_HARVEST_SOUNDS").is_some();
     if (forced || !had_base)
@@ -531,6 +582,26 @@ fn with_own_sounds(mut sounds: Files, own: OwnSounds) -> Files {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_pack_is_keyed_by_its_id_or_its_file_where_ids_clash_or_are_missing() {
+        let named = |id: &str| Pak::from_files(vec![(pack::MANIFEST.into(), pack::mod_manifest(id).into_bytes())]);
+        let packs = vec![("a.pak".to_string(), named("my-cards")), ("B Side.pak".into(), named("my-cards")), ("c.pak".into(), named("Thanksgiving")), ("card editor".into(), Pak::empty()), ("d.pak".into(), named("dup")), ("e.pak".into(), named("dup"))];
+        assert_eq!(mod_keys(&packs), ["a", "b-side", "thanksgiving", "card-editor", "d", "e"]);
+        assert_eq!(mod_keys(&packs[..1]), ["a"], "an old export keeps its key when another arrives");
+    }
+
+    #[test]
+    fn an_off_pack_is_listed_but_not_laid_over_and_a_refused_one_is_noted() {
+        let named = |id: &str| Pak::from_files(vec![(pack::MANIFEST.into(), pack::named_mod_manifest(id, &id.to_uppercase()).into_bytes())]);
+        let mut bad = named("bad");
+        bad.overlay(Pak::from_files(vec![(pack::ATLAS.into(), vec![0; 4])]));
+        let mut problems = Vec::new();
+        let (on, all) = choose_mods(vec![("a.pak".into(), named("a")), ("b.pak".into(), named("b")), ("bad.pak".into(), bad)], &["b".into()], &mut problems);
+        assert_eq!(on.iter().map(|(f, _)| f.as_str()).collect::<Vec<_>>(), ["a.pak"]);
+        assert_eq!(all.iter().map(|p| (p.key.as_str(), p.name.as_str(), p.on)).collect::<Vec<_>>(), [("a", "A", true), ("b", "B", false)]);
+        assert!(problems.len() == 1 && problems[0].starts_with("bad.pak: "), "{problems:?}");
+    }
 
     #[test]
     fn a_card_that_wont_read_is_noted_and_the_rest_load() {

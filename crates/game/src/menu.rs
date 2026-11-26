@@ -6,6 +6,7 @@ use crate::harvest::{self, roster};
 use crate::input::{Buttons, Input};
 use crate::controls::{ACTIONS, BINDABLE, Controls};
 use crate::pad::{self, PadFamily};
+use crate::data::FoundPack;
 use crate::save::LEVELS;
 use crate::{DIM, Game, HOT, SCREEN_H, SCREEN_W, Sfx, WHITE};
 
@@ -15,6 +16,7 @@ pub(crate) enum Page {
     Main,
     Settings,
     Enemies,
+    Mods,
     Stats,
     History,
     Credits,
@@ -45,13 +47,14 @@ pub(crate) enum Setting {
     Grenades,
     Controls,
     Enemies,
+    Mods,
     Folder,
     Relay,
     Reset,
 }
 
 impl Setting {
-    const ALL: [Setting; 14] = [Setting::TopBrightness, Setting::BottomBrightness, Setting::Volume, Setting::Rumble, Setting::Fps, Setting::Screens, Setting::CornerMap, Setting::Touch, Setting::Grenades, Setting::Controls, Setting::Enemies, Setting::Folder, Setting::Relay, Setting::Reset];
+    const ALL: [Setting; 15] = [Setting::TopBrightness, Setting::BottomBrightness, Setting::Volume, Setting::Rumble, Setting::Fps, Setting::Screens, Setting::CornerMap, Setting::Touch, Setting::Grenades, Setting::Controls, Setting::Enemies, Setting::Mods, Setting::Folder, Setting::Relay, Setting::Reset];
 
     fn name(self) -> &'static str {
         match self {
@@ -66,6 +69,7 @@ impl Setting {
             Setting::Grenades => "Grenades",
             Setting::Controls => "Controls",
             Setting::Enemies => "Enemies",
+            Setting::Mods => "Mod packs",
             Setting::Folder => "Game folder",
             Setting::Relay => "Online relay",
             Setting::Reset => "Reset progress",
@@ -85,6 +89,7 @@ const SET_TOP: f32 = 96.0;
 const SET_H: f32 = 62.0;
 /// Enemy rows that fit above the Back button; the list scrolls past that.
 const ENEMY_ROWS: usize = 8;
+const MOD_ROWS: usize = 7;
 /// Controls rows shown at once; the list scrolls past that.
 const CONTROL_ROWS: usize = 9;
 /// Seconds the Controls page waits for the button to bind.
@@ -126,7 +131,7 @@ fn main_row(i: usize) -> [f32; 4] {
 }
 
 /// Row `i` of `n`, which shrink to fit above the Back button.
-fn setting_row(i: usize, n: usize) -> [f32; 4] {
+pub(crate) fn setting_row(i: usize, n: usize) -> [f32; 4] {
     let h = SET_H.min((BACK[1] - 8.0 - SET_TOP) / n.max(1) as f32);
     [40.0, SET_TOP + i as f32 * h, SCREEN_W - 80.0, h - 12.0]
 }
@@ -176,6 +181,7 @@ impl Game {
             .into_iter()
             .filter(|s| match s {
                 Setting::Enemies | Setting::Reset => !self.settings_in_run,
+                Setting::Mods => !self.settings_in_run && !self.packs.is_empty(),
                 Setting::Folder => !self.settings_in_run && self.folder.is_some(),
                 Setting::Relay => !self.settings_in_run && self.online_available(),
                 Setting::TopBrightness | Setting::BottomBrightness => self.has_backlights(),
@@ -203,6 +209,11 @@ impl Game {
             }
             Page::Enemies => {
                 if self.enemies_page(input, tapped) {
+                    self.page = Page::Settings;
+                }
+            }
+            Page::Mods => {
+                if self.mods_page(input, tapped) {
                     self.page = Page::Settings;
                 }
             }
@@ -385,6 +396,12 @@ impl Game {
                 self.sounds.push(Sfx::Tick(9));
                 return false;
             }
+            Setting::Mods if by > 0 || press => {
+                self.page = Page::Mods;
+                self.mod_row = 0;
+                self.sounds.push(Sfx::Tick(9));
+                return false;
+            }
             Setting::Relay if press || by > 0 => {
                 self.open_relay(Page::Settings);
                 return false;
@@ -497,12 +514,53 @@ impl Game {
         false
     }
 
+    /// Whether the save asks for the pack on at the next start.
+    fn pack_wanted(&self, p: &FoundPack) -> bool {
+        !self.save.mods_off.is_off(&p.key)
+    }
+
+    /// Up and Down choose a pack, A, Left, Right or a tap turns it on or off from the next start; returns true once
+    /// B leaves.
+    fn mods_page(&mut self, input: &Input, tapped: Option<[f32; 2]>) -> bool {
+        let count = self.packs.len();
+        if input.pressed.any(Buttons::B | Buttons::START) || tapped.is_some_and(|p| inside(p, BACK)) {
+            self.sounds.push(Sfx::Tick(0));
+            return true;
+        }
+        if count == 0 {
+            return false;
+        }
+        let step = input.pressed.contains(Buttons::DOWN) as i32 - input.pressed.contains(Buttons::UP) as i32;
+        if step != 0 {
+            self.mod_row = (self.mod_row as i32 + step).rem_euclid(count as i32) as usize;
+            self.sounds.push(Sfx::Tick(self.mod_row as u8 * 2));
+            return false;
+        }
+        let first = self.mod_row.saturating_sub(MOD_ROWS - 1);
+        let toggle = match tapped {
+            Some(p) => (first..count.min(first + MOD_ROWS)).find(|&i| inside(p, setting_row(i - first, MOD_ROWS))).inspect(|&i| self.mod_row = i).is_some(),
+            None => input.pressed.any(Buttons::A | Buttons::LEFT | Buttons::RIGHT),
+        };
+        if toggle {
+            let pack = &self.packs[self.mod_row];
+            let off = self.pack_wanted(pack);
+            let packs = &self.packs;
+            if self.save.mods_off.set(&pack.key, off, |k| !packs.iter().any(|p| p.key == k)) {
+                self.sounds.push(Sfx::Tick(6));
+            } else {
+                self.sounds.push(Sfx::Miss);
+            }
+        }
+        false
+    }
+
     pub(crate) fn draw_menu(&self, f: &mut Frame) {
         let c = &mut f.bottom;
         match self.page {
             Page::Main => self.draw_main(c),
             Page::Settings => self.draw_settings(c),
             Page::Enemies => self.draw_enemies(c),
+            Page::Mods => self.draw_mods(c),
             Page::Stats => self.draw_stats(c),
             Page::History => self.draw_history(c),
             Page::Credits => draw_credits(c),
@@ -593,6 +651,13 @@ impl Game {
                     let r = roster();
                     let on = (0..r.enemies.len()).filter(|i| self.save.enemies_off & 1 << i == 0).count();
                     c.label(format!("{on} of {} on   >", r.enemies.len()), x + w - 30.0, mid - 20.0, 38.0, if on < r.enemies.len() { HOT } else { DIM }, Align::Right);
+                    continue;
+                }
+                Setting::Mods => {
+                    let pending = self.packs.iter().any(|p| self.pack_wanted(p) != p.on);
+                    let on = self.packs.iter().filter(|p| self.pack_wanted(p)).count();
+                    let text = if pending { "Restart to apply   >".to_string() } else { format!("{on} of {} on   >", self.packs.len()) };
+                    c.label(text, x + w - 30.0, mid - 20.0, 38.0, if pending || on < self.packs.len() { HOT } else { DIM }, Align::Right);
                     continue;
                 }
                 Setting::Folder => {
@@ -700,7 +765,34 @@ impl Game {
         back_button(c);
     }
 
-    /// Player 1's card walking on the top screen, turning through its facings, under its name.
+    /// Each pack by name, with its file and key under it, whether it plays from the next start, and a note on any
+    /// that the next start changes.
+    fn draw_mods(&self, c: &mut Canvas) {
+        c.rect(0.0, 0.0, SCREEN_W, SCREEN_H, [0.12, 0.12, 0.15, 1.0]);
+        c.label("Mod packs", SCREEN_W / 2.0, 24.0, 48.0, WHITE, Align::Center);
+        let first = self.mod_row.saturating_sub(MOD_ROWS - 1);
+        for (row, i) in (first..self.packs.len().min(first + MOD_ROWS)).enumerate() {
+            let [x, y, w, h] = setting_row(row, MOD_ROWS);
+            let p = &self.packs[i];
+            let (sel, on) = (i == self.mod_row, self.pack_wanted(p));
+            c.rect(x, y, w, h, if sel { [1.0, 0.85, 0.3, 0.25] } else { [1.0, 1.0, 1.0, 0.06] });
+            let room = w - 260.0;
+            fit_label(c, &p.name, x + 24.0, y + 1.0, 28.0, room, if sel { HOT } else if on { WHITE } else { DIM }, Align::Left);
+            let stem = p.file.strip_suffix(".pak").unwrap_or(&p.file);
+            let under = if crate::save::pack_key(stem) == p.key { p.file.clone() } else { format!("{}   id {}", p.file, p.key) };
+            fit_label(c, &under, x + 24.0, y + 30.0, 18.0, room, DIM, Align::Left);
+            c.label(if on { "On" } else { "Off" }, x + w - 24.0, y + 1.0, 28.0, if on { HOT } else { DIM }, Align::Right);
+            if on != p.on {
+                c.label(if on { "On after restart" } else { "Off after restart" }, x + w - 24.0, y + 30.0, 18.0, HOT, Align::Right);
+            }
+        }
+        let [_, y, _, h] = setting_row(self.packs.len().min(MOD_ROWS), MOD_ROWS);
+        let note = if self.packs.iter().any(|p| self.pack_wanted(p) != p.on) { "Restart the game to apply the changes" } else { "Packs load as the game starts: a change applies after a restart" };
+        fit_label(c, note, SCREEN_W / 2.0, y + h / 2.0 - 12.0, 24.0, SCREEN_W - 80.0, if note.starts_with("Restart") { HOT } else { DIM }, Align::Center);
+        back_button(c);
+    }
+
+        /// Player 1's card walking on the top screen, turning through its facings, under its name.
     pub(crate) fn draw_player(&self, c: &mut Canvas) {
         let looks = crate::player_looks();
         let Some(p) = looks.iter().find(|l| l.id == self.save.player.as_str()).or(looks.first()) else { return };

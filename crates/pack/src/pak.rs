@@ -33,6 +33,12 @@ pub fn mod_manifest(id: &str) -> String {
     format!("id = \"{id}\"\nversion = \"1\"\nformat = {FORMAT}\n")
 }
 
+/// The manifest of a mod pack `id` that the game's menu lists as `name`.
+pub fn named_mod_manifest(id: &str, name: &str) -> String {
+    let name: String = name.chars().filter(|c| !matches!(c, '"' | '#') && !c.is_control()).collect();
+    format!("id = \"{id}\"\nname = \"{}\"\nversion = \"1\"\nformat = {FORMAT}\n", name.trim())
+}
+
 /// The release a base pack is built for: `LAST_HARVEST_VERSION` when the packer was built, else `dev`.
 pub const VERSION: &str = match option_env!("LAST_HARVEST_VERSION") {
     Some(v) if !v.is_empty() => v,
@@ -182,7 +188,19 @@ impl Pak {
 
     /// The release its manifest names, for a base pack.
     pub fn version(&self) -> Option<&str> {
-        value(std::str::from_utf8(self.get(MANIFEST)?).ok()?, "", "version")
+        self.manifest_value("version")
+    }
+
+    pub fn id(&self) -> Option<&str> {
+        self.manifest_value("id").filter(|v| !v.is_empty())
+    }
+
+    pub fn name(&self) -> Option<&str> {
+        self.manifest_value("name").filter(|v| !v.is_empty())
+    }
+
+    fn manifest_value(&self, key: &str) -> Option<&str> {
+        value(std::str::from_utf8(self.get(MANIFEST)?).ok()?, "", key)
     }
 
     pub fn get(&self, path: &str) -> Option<&[u8]> {
@@ -319,6 +337,15 @@ mod tests {
         assert!(farms[1].as_ref().unwrap_err().starts_with("farms/odd.ground.txt:2: "), "{:?}", farms[1]);
         assert_eq!(farms[2].as_ref().map(|f| (f.farm.is_some(), f.ground.is_none())), Ok((true, true)));
         assert!(pak.check_mod().unwrap_err().starts_with("farms/odd.ground.txt"));
+    }
+
+    #[test]
+    fn a_named_mod_keeps_its_id_and_name() {
+        let named = Pak::read(Cursor::new(pack(&[(MANIFEST, named_mod_manifest("thanksgiving", "Thanks \"giving\" #1").as_bytes())]))).unwrap();
+        assert_eq!((named.id(), named.name()), (Some("thanksgiving"), Some("Thanks giving 1")));
+        let old = Pak::read(Cursor::new(pack(&[(MANIFEST, mod_manifest("my-cards").as_bytes())]))).unwrap();
+        assert_eq!((old.id(), old.name()), (Some("my-cards"), None));
+        assert_eq!(Pak::from_files(Vec::new()).id(), None);
     }
 
     #[test]

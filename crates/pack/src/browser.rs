@@ -10,6 +10,17 @@ pub const PROP_KEY: &str = "last-harvest-prop:";
 pub const MAP_KEY: &str = "last-harvest-map:";
 /// A data file the mod changes, by its file name.
 pub const TABLE_KEY: &str = "last-harvest-table:";
+/// The name Export all gives the pack.
+pub const PACK_NAME_KEY: &str = "last-harvest-pack-name";
+/// The id of the card editor's work as the web game lays it over the data.
+pub const EDITOR_PACK_ID: &str = "card-editor";
+
+/// The id and file name of a pack named `name`; no name gives `my-cards`.
+pub fn pack_file(name: &str) -> (String, String) {
+    let id = Some(last_harvest_game::pack_key(name)).filter(|k| !k.is_empty()).unwrap_or_else(|| "my-cards".into());
+    let file = format!("{id}.pak");
+    (id, file)
+}
 
 /// The storage key of a card of `kind`.
 pub fn card_key(kind: Kind, id: &str) -> String {
@@ -78,6 +89,13 @@ pub fn editor_files(entries: impl IntoIterator<Item = (String, String)>, problem
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_pack_name_gives_its_id_and_file() {
+        assert_eq!(pack_file("Thanksgiving"), ("thanksgiving".into(), "thanksgiving.pak".into()));
+        assert_eq!(pack_file("Night of the Dead!"), ("night-of-the-dead".into(), "night-of-the-dead.pak".into()));
+        assert_eq!(pack_file("  "), ("my-cards".into(), "my-cards.pak".into()));
+    }
 
     #[test]
     fn text_round_trips() {

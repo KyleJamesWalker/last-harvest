@@ -27,6 +27,7 @@
   button:active { background: #5a5a68; }
   button.on { background: #f2bf4d; color: #19191e; }
   button.save { background: #6b5a2a; }
+  #pack-name { width: 170px; height: 56px; padding: 0 12px; border: 1px solid #5a5a68; border-radius: 8px; background: #26262d; color: inherit; font: inherit; font-size: 18px; }
   #text { position: absolute; left: 50%; top: 56px; transform: translateX(-50%); width: min(480px, 60vw); height: 48px;
           font-size: 24px; padding: 0 14px; border: 3px solid #f2bf4d; border-radius: 8px; background: #19191e; color: #f2bf4d;
           text-transform: uppercase; }
@@ -58,7 +59,7 @@
   <div class="group"><span>Arrows</span><button data-act="left">&#8592;</button><button data-act="up">&#8593;</button><button data-act="down">&#8595;</button><button data-act="right">&#8594;</button></div>
   <div class="group"><span>Sprite</span><button data-act="prev-sprite">&#8593; K</button><button data-act="next-sprite">&#8595; J</button></div>
   <div class="group"><span>Frame</span><button data-act="prev-frame">&#8592; H</button><button data-act="next-frame">&#8594; L</button></div>
-  <div class="group" id="mod-tools" hidden><span>Cards</span><button data-act="import">Import</button><button data-act="export">Export</button><button data-act="export-all">Export all</button><button data-act="sound">Sound</button><button data-act="delete-card">Delete</button><button data-act="pak" id="pak">Game data</button><button id="help-open">Help</button></div>
+  <div class="group" id="mod-tools" hidden><span>Cards</span><button data-act="import">Import</button><button data-act="export">Export</button><input id="pack-name" placeholder="Pack name" maxlength="40" autocomplete="off" spellcheck="false" title="The name the game's Mod packs page shows; it also names the file Export all downloads"><button data-act="export-all">Export all</button><button data-act="sound">Sound</button><button data-act="delete-card">Delete</button><button data-act="pak" id="pak">Game data</button><button id="help-open">Help</button></div>
   <div class="group"><button data-act="search">Search</button><button data-act="history">History</button><button data-act="new">New</button><button data-act="play">Play</button><button data-act="mirror">Mirror</button><button data-act="palette" title="Draw from a palette file, such as a .hex from lospec.com">Palette file</button><button data-act="fit">Fit</button><button data-act="save" class="save">Save</button></div>
 </div>
 <div id="help" hidden><div>
@@ -76,8 +77,11 @@
     <li>Copy it into the game's <code>data/enemies</code> or <code>data/players</code> folder, beside
     <code>game_data.pak</code>, and start the game. Settings &gt; Enemies and Play's page show it; if it
     can't load, the title screen says why.
-    <b>Export all</b> instead downloads every card as one <code>my-cards.pak</code> for the game's
-    <code>data/mods</code> folder; it also carries each enemy's own death sound, which <b>Sound</b> picks, an
+    <b>Export all</b> instead downloads every card as one mod pack for the game's
+    <code>data/mods</code> folder, named by the <b>Pack name</b> beside it: Thanksgiving downloads
+    <code>thanksgiving.pak</code>, and the game's Settings &gt; Mod packs lists it as Thanksgiving, where it can be turned
+    off and on again (a change applies the next time the game starts). Give each pack its own name; without one it is
+    <code>my-cards.pak</code>. The pack also carries each enemy's own death sound, which <b>Sound</b> picks, an
     <code>.ogg</code>, <code>.wav</code> or <code>.mp3</code>, converted to Ogg, of up to 512 KB once converted. <b>Drop own</b>, beside the death sound on the Stats page, removes it.</li>
   </ol>
   <p>Your cards stay in this browser until you delete them. <b>Import</b> opens a card someone shared with you, or

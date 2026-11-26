@@ -15,7 +15,7 @@ fn a_pages_mods_lay_over_the_base_in_order() {
     let mods = vec![("added.pak".to_string(), pak::read_mod(Ok(added)).unwrap()), ("card editor".to_string(), pak::read_mod(Ok(editor)).unwrap())];
     let mut base = common::base();
     base.push(("sounds/shot.ogg".into(), b"base".to_vec()));
-    let sounds = pak::install_with(common::read(&base), mods, vec!["broken.pak: no manifest.toml".into()]).expect("the mods install");
+    let sounds = pak::install_with(common::read(&base), mods, vec!["broken.pak: no manifest.toml".into()], &[]).expect("the mods install");
     let report = data::load_report();
     assert_eq!(report.mods, ["added.pak", "card editor"]);
     assert_eq!(report.problems, ["broken.pak: no manifest.toml"]);

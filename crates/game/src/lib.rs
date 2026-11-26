@@ -52,7 +52,7 @@ pub use harvest::{ABOUT_MAX, CARD_FLAGS, CARD_MAX_FRAME, card_frame_most, CARD_N
 pub use input::{Buttons, Input, InputTracker, MAX_TOUCHES, RawInput};
 pub use pad::PadFamily;
 pub use controls::Controls;
-pub use save::{Save, TouchControls};
+pub use save::{ModsOff, Save, TouchControls, mods_off_in, pack_key};
 pub use sfx::Sfx;
 pub use system::{Battery, Outputs, System};
 
@@ -196,6 +196,9 @@ pub struct Game {
     setting: usize,
     /// The highlighted kind on the Enemies page.
     enemy: usize,
+    mod_row: usize,
+    /// The mod packs found as the game started, on or off.
+    packs: Vec<data::FoundPack>,
     /// Settings is open over a paused run, rather than from the title.
     settings_in_run: bool,
     /// R2 asked for a screenshot, which the app takes after the next draw.
@@ -291,6 +294,8 @@ impl Game {
             history_page: 0,
             setting: 0,
             enemy: 0,
+            mod_row: 0,
+            packs: data::load_report().packs.clone(),
             settings_in_run: false,
             shot: false,
             shot_flash: 0.0,
@@ -2130,6 +2135,32 @@ mod tests {
         press(&mut game, Buttons::A);
         let State::Harvest(h) = &game.state else { panic!("a run starts") };
         assert_eq!(h.enemies_off(), 0b011, "the run leaves them out");
+    }
+
+    #[test]
+    fn mod_packs_shows_only_with_packs_and_turns_them_off_from_the_next_start() {
+        let mut game = Game::new(1);
+        assert!(!game.settings_list().contains(&menu::Setting::Mods), "no packs, no row");
+        let pack = |file: &str, key: &str, on: bool| data::FoundPack { file: file.into(), key: key.into(), name: key.to_uppercase(), on };
+        game.packs = vec![pack("a.pak", "autumn", true), pack("b.pak", "thanksgiving", false)];
+        game.load(Save { mods_off: crate::ModsOff::parse("thanksgiving,gone"), ..game.save() });
+        let row = game.settings_list().iter().position(|s| *s == menu::Setting::Mods).expect("the row shows");
+        settings_row(&mut game, row);
+        press(&mut game, Buttons::A);
+        assert_eq!(game.page, Page::Mods);
+        game.draw();
+        press(&mut game, Buttons::A);
+        assert_eq!(game.save().mods_off.to_text(), "thanksgiving,gone,autumn", "an unknown pack stays off");
+        press(&mut game, Buttons::DOWN);
+        press(&mut game, Buttons::RIGHT);
+        assert_eq!(game.save().mods_off.to_text(), "gone,autumn");
+        game.draw();
+        let [x, y, ..] = menu::setting_row(0, 7);
+        game.update(&Input { touch: Some([x + 40.0, y + 10.0]), touch_started: true, ..Default::default() }, 0.016);
+        assert_eq!(game.save().mods_off.to_text(), "gone", "a tap turns it back on");
+        assert_eq!(Save::parse(&game.save().to_text()).mods_off, game.save().mods_off);
+        press(&mut game, Buttons::B);
+        assert_eq!(game.page, Page::Settings);
     }
 
     #[test]

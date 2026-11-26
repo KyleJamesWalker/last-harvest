@@ -123,10 +123,10 @@ impl std::fmt::Display for Refusal {
             Refusal::Mods { missing, extra, different } => {
                 let mut parts = Vec::new();
                 if !missing.is_empty() {
-                    parts.push(format!("install {}", list(missing)));
+                    parts.push(format!("install or turn on {}", list(missing)));
                 }
                 if !extra.is_empty() {
-                    parts.push(format!("remove {}", list(extra)));
+                    parts.push(format!("remove or turn off {}", list(extra)));
                 }
                 if !different.is_empty() {
                     parts.push(format!("get the host's copy of {}", list(different)));

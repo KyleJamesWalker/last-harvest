@@ -449,12 +449,14 @@ impl Web {
                 let cards = self.studio.editor.all_cards();
                 if !cards.is_empty() || !extra.is_empty() {
                     let sounds = self.studio.editor.all_sounds();
-                    match modding::mod_pack(&cards, &sounds, &extra) {
+                    let name = modding::pack_name();
+                    let (id, file) = last_harvest_pack::browser::pack_file(&name);
+                    match modding::mod_pack(&id, &name, &cards, &sounds, &extra) {
                         Ok(bytes) => {
-                            modding::call("save", &[modding::MOD_FILE.into(), js_sys::Uint8Array::from(&bytes[..]).into()]);
+                            modding::call("save", &[file.clone().into(), js_sys::Uint8Array::from(&bytes[..]).into()]);
                             let with = if sounds.is_empty() { String::new() } else { format!(" and {} death sounds", sounds.len()) };
                             let maps = if extra.is_empty() { String::new() } else { format!(", {} maps, props and data files", extra.len()) };
-                            self.studio.editor.say(format!("Exported {} cards{with}{maps} as {}: put it in the game's data/mods", cards.len(), modding::MOD_FILE));
+                            self.studio.editor.say(format!("Exported {} cards{with}{maps} as {file}: put it in the game's data/mods", cards.len()));
                         }
                         Err(e) => self.studio.editor.say(format!("Couldn't pack the cards: {e}")),
                     }
@@ -554,6 +556,8 @@ fn start() -> Result<(), String> {
     let search = window.location().search().unwrap_or_default();
     let open = search.trim_start_matches('?').split('&').find_map(|kv| kv.strip_prefix("open=")).unwrap_or("").to_string();
     #[cfg(feature = "modding")]
+    let pack_name: Option<HtmlInputElement> = element(&document, "pack-name").ok();
+    #[cfg(feature = "modding")]
     let store: Box<dyn Store> = {
         modding::show_tools(&document);
         Box::new(local::LocalStore::open()?)
@@ -647,6 +651,12 @@ fn start() -> Result<(), String> {
         }
     });
     listen(&input, "input", &web, |w, _: &Event| w.typed());
+    #[cfg(feature = "modding")]
+    if let Some(field) = pack_name {
+        field.set_value(&modding::pack_name());
+        let typed = field.clone();
+        listen(&field, "input", &web, move |_, _: &Event| modding::keep_pack_name(&typed.value()));
+    }
     listen(&window, "lastharvest-palette", &web, |w, e: &web_sys::CustomEvent| {
         let detail = e.detail();
         let name = js_sys::Reflect::get(&detail, &"name".into()).ok().and_then(|v| v.as_string()).unwrap_or_default();
@@ -797,7 +807,17 @@ mod modding {
         atlas
     }
 
-    pub const MOD_FILE: &str = "my-cards.pak";
+    /// The pack name typed beside Export all, kept in this browser.
+    pub fn pack_name() -> String {
+        let storage = web_sys::window().and_then(|w| w.local_storage().ok().flatten());
+        storage.and_then(|s| s.get_item(last_harvest_pack::browser::PACK_NAME_KEY).ok().flatten()).unwrap_or_default()
+    }
+
+    pub fn keep_pack_name(name: &str) {
+        if let Some(s) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
+            let _ = if name.trim().is_empty() { s.remove_item(last_harvest_pack::browser::PACK_NAME_KEY) } else { s.set_item(last_harvest_pack::browser::PACK_NAME_KEY, name) };
+        }
+    }
 
     /// The cards in a mod pack, by file name, for Import.
     type Files = Vec<(String, Vec<u8>)>;
@@ -823,11 +843,12 @@ mod modding {
         Ok(out.into_inner())
     }
 
-    /// Every card as one mod pack, enemy cards under `enemies/`, player cards under `players/` and their death
-    /// sounds under `sounds/`, ready for the game's data/mods.
-    pub fn mod_pack(cards: &[(String, Vec<u8>)], sounds: &[(String, Vec<u8>)], extra: &[(String, Vec<u8>)]) -> Result<Vec<u8>, String> {
+    /// Every card as one mod pack `id` named `name`, enemy cards under `enemies/`, player cards under `players/` and
+    /// their death sounds under `sounds/`, ready for the game's data/mods.
+    pub fn mod_pack(id: &str, name: &str, cards: &[(String, Vec<u8>)], sounds: &[(String, Vec<u8>)], extra: &[(String, Vec<u8>)]) -> Result<Vec<u8>, String> {
         use last_harvest_pack::card::Kind;
-        let mut files = vec![(last_harvest_pack::MANIFEST.to_string(), last_harvest_pack::mod_manifest("my-cards").into_bytes())];
+        let name = if name.trim().is_empty() { id } else { name };
+        let mut files = vec![(last_harvest_pack::MANIFEST.to_string(), last_harvest_pack::named_mod_manifest(id, name).into_bytes())];
         for (file, bytes) in cards {
             let dir = match Kind::of(file) {
                 Some(Kind::Player) => last_harvest_pack::PLAYER_CARDS,

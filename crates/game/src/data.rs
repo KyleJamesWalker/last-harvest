@@ -88,6 +88,18 @@ pub struct LoadReport {
     pub missing_pack: Option<String>,
     /// Each mod pack laid over the data, by name, with a fingerprint of its files.
     pub mod_packs: Vec<(String, u64)>,
+    /// Every mod pack found, on or off, in the order they layer.
+    pub packs: Vec<FoundPack>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct FoundPack {
+    pub file: String,
+    /// Its key in the save's `mods_off`.
+    pub key: String,
+    pub name: String,
+    /// Laid over the data at this start.
+    pub on: bool,
 }
 
 impl LoadReport {
