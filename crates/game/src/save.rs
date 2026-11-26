@@ -47,6 +47,8 @@ pub struct Save {
     /// The room code this device last hosted, and the one it last joined.
     pub hosted: Option<last_harvest_lobby::RoomCode>,
     pub joined: Option<last_harvest_lobby::RoomCode>,
+    /// Mod packs turned off from the next start, by key.
+    pub mods_off: ModsOff,
 }
 
 /// Auto shows the on-screen controls and hides them at gamepad or keyboard input until the next touch.
@@ -126,6 +128,82 @@ impl Relay {
     pub fn as_str(&self) -> &str {
         std::str::from_utf8(&self.bytes[..self.len as usize]).unwrap_or("")
     }
+}
+
+pub const MODS_OFF_MAX: usize = 16;
+pub const PACK_KEY_MAX: usize = 32;
+
+/// Lowercase letters, digits and `_`; each run of anything else becomes one `-`.
+pub fn pack_key(text: &str) -> String {
+    let mut out = String::new();
+    for c in text.chars().flat_map(char::to_lowercase) {
+        if out.len() >= PACK_KEY_MAX {
+            break;
+        }
+        if c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' {
+            out.push(c);
+        } else if !out.is_empty() && !out.ends_with('-') {
+            out.push('-');
+        }
+    }
+    out.trim_end_matches('-').to_string()
+}
+
+/// The mod packs turned off, by key, kept inline so the save stays `Copy`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ModsOff {
+    keys: [[u8; PACK_KEY_MAX]; MODS_OFF_MAX],
+    lens: [u8; MODS_OFF_MAX],
+}
+
+impl ModsOff {
+    pub fn parse(text: &str) -> Self {
+        let mut out = Self::default();
+        for key in text.split(',').map(str::trim).filter(|k| !k.is_empty() && pack_key(k) == *k) {
+            out.push(key);
+        }
+        out
+    }
+
+    fn push(&mut self, key: &str) {
+        let Some(at) = self.lens.iter().position(|&l| l == 0) else { return };
+        if !self.is_off(key) {
+            self.keys[at][..key.len()].copy_from_slice(key.as_bytes());
+            self.lens[at] = key.len() as u8;
+        }
+    }
+
+    pub fn keys(&self) -> impl Iterator<Item = &str> {
+        self.keys.iter().zip(self.lens).take_while(|(_, l)| *l > 0).map(|(k, l)| std::str::from_utf8(&k[..l as usize]).unwrap_or(""))
+    }
+
+    pub fn is_off(&self, key: &str) -> bool {
+        self.keys().any(|k| k == key)
+    }
+
+    /// With the list full, turning one off drops the first key `gone` accepts; false when there is none.
+    pub fn set(&mut self, key: &str, off: bool, gone: impl Fn(&str) -> bool) -> bool {
+        let mut kept: Vec<String> = self.keys().filter(|k| *k != key).map(String::from).collect();
+        if off {
+            if kept.len() >= MODS_OFF_MAX {
+                let Some(at) = kept.iter().position(|k| gone(k)) else { return false };
+                kept.remove(at);
+            }
+            kept.push(pack_key(key));
+        }
+        *self = Self::parse(&kept.join(","));
+        true
+    }
+
+    pub fn to_text(&self) -> String {
+        self.keys().collect::<Vec<_>>().join(",")
+    }
+}
+
+/// The save's `mods_off` keys, read without the game's data, which isn't installed yet when the app needs them.
+pub fn mods_off_in(save: &str) -> Vec<String> {
+    let line = save.lines().filter_map(|l| l.split_once('=')).rfind(|(k, _)| k.trim() == "mods_off");
+    line.map(|(_, v)| ModsOff::parse(v.trim()).keys().map(String::from).collect()).unwrap_or_default()
 }
 
 /// A player look's id, kept inline so the save stays `Copy`.
@@ -222,7 +300,7 @@ impl Records {
 
 impl Default for Save {
     fn default() -> Self {
-        Self { volume: 6, brightness: [4, 4], rumble: true, fps: false, one_screen: false, corner_map: true, touch_grenades: true, touch: TouchControls::Auto, difficulty: Difficulty::default(), records: [(PresetId::default(), Records::default()); PRESETS_MAX], enemies_off: 0, player: LookId::default(), map: LookId::default(), history: [None; HISTORY], how_to_seen: false, controls: Controls::default(), relay: Relay::default(), hosted: None, joined: None }
+        Self { volume: 6, brightness: [4, 4], rumble: true, fps: false, one_screen: false, corner_map: true, touch_grenades: true, touch: TouchControls::Auto, difficulty: Difficulty::default(), records: [(PresetId::default(), Records::default()); PRESETS_MAX], enemies_off: 0, player: LookId::default(), map: LookId::default(), history: [None; HISTORY], how_to_seen: false, controls: Controls::default(), relay: Relay::default(), hosted: None, joined: None, mods_off: ModsOff::default() }
     }
 }
 
@@ -231,6 +309,9 @@ impl Save {
         let mut controls = if self.controls.is_default() { String::new() } else { format!("controls={}\n", self.controls.key()) };
         if self.relay.len > 0 {
             controls += &format!("relay={}\n", self.relay.as_str());
+        }
+        if !self.mods_off.to_text().is_empty() {
+            controls += &format!("mods_off={}\n", self.mods_off.to_text());
         }
         for (key, code) in [("hosted", self.hosted), ("joined", self.joined)] {
             if let Some(code) = code {
@@ -334,6 +415,7 @@ impl Save {
                 "how_to" => how_to = Some(value != "due"),
                 "controls" => save.controls = Controls::from_key(value).unwrap_or_default(),
                 "relay" => save.relay = Relay::new(value),
+                "mods_off" => save.mods_off = ModsOff::parse(value),
                 "hosted" => save.hosted = last_harvest_lobby::RoomCode::parse(value).ok(),
                 "joined" => save.joined = last_harvest_lobby::RoomCode::parse(value).ok(),
                 "run" if runs < HISTORY => {
@@ -444,6 +526,42 @@ mod tests {
         let text = save.to_text();
         assert!(!text.contains("laser_from_v9") && !text.contains("dragon"), "the next save forgets them: {text}");
         assert_eq!(Save::parse(&text), save);
+    }
+
+    #[test]
+    fn mods_off_round_trip_keep_unknown_keys_and_read_without_the_data() {
+        assert!(!Save::default().to_text().contains("mods_off"), "nothing off writes nothing");
+        let mut save = Save::default();
+        assert!(save.mods_off.set("thanksgiving", true, |_| false));
+        assert!(save.mods_off.set("my-cards", true, |_| false));
+        let text = save.to_text();
+        assert!(text.contains("mods_off=thanksgiving,my-cards\n"), "{text}");
+        assert_eq!(Save::parse(&text), save);
+        assert_eq!(mods_off_in(&text), ["thanksgiving", "my-cards"]);
+        assert_eq!(Save::parse("mods_off=gone, Bad Key,ok").mods_off.to_text(), "gone,ok", "an unknown pack stays off; a bad key drops");
+        assert!(save.mods_off.set("thanksgiving", false, |_| false));
+        assert_eq!(save.mods_off.to_text(), "my-cards");
+        assert!(mods_off_in("volume=3").is_empty());
+    }
+
+    #[test]
+    fn a_full_list_drops_a_pack_no_longer_found_before_refusing() {
+        let mut off = ModsOff::default();
+        for i in 0..MODS_OFF_MAX {
+            assert!(off.set(&format!("p{i}"), true, |_| false));
+        }
+        assert!(!off.set("new", true, |_| false), "no room and nothing gone");
+        assert!(off.set("new", true, |k| k == "p3"));
+        assert!(off.is_off("new") && !off.is_off("p3"));
+    }
+
+    #[test]
+    fn a_pack_key_is_its_name_cut_to_letters_digits_and_dashes() {
+        assert_eq!(pack_key("Thanksgiving"), "thanksgiving");
+        assert_eq!(pack_key("  Night of the Living Dead! "), "night-of-the-living-dead");
+        assert_eq!(pack_key("my_cards.pak"), "my_cards-pak");
+        assert_eq!(pack_key("!!!"), "");
+        assert!(pack_key(&"a".repeat(80)).len() <= PACK_KEY_MAX);
     }
 
     #[test]

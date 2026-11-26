@@ -51,7 +51,7 @@ pub use harvest::{ABOUT_MAX, CARD_FLAGS, CARD_MAX_FRAME, card_frame_most, CARD_N
 pub use input::{Buttons, Input, InputTracker, MAX_TOUCHES, RawInput};
 pub use pad::PadFamily;
 pub use controls::Controls;
-pub use save::{Save, TouchControls};
+pub use save::{ModsOff, Save, TouchControls, mods_off_in, pack_key};
 pub use sfx::Sfx;
 pub use system::{Battery, Outputs, System};
 
