@@ -952,12 +952,13 @@ fn load_data(android: &AndroidApp) -> Result<Option<&'static samples::Files>, St
         Ok(None) => return Ok(None),
         Err(e) => Err(e),
     };
+    let off = android.internal_data_path().and_then(|d| std::fs::read_to_string(d.join("save.txt")).ok()).map(|t| last_harvest_game::mods_off_in(&t)).unwrap_or_default();
     let sounds = match pack {
-        Ok(pack) => pak::install(Some(pack), None)?,
+        Ok(pack) => pak::install_without(Some(pack), None, &off)?,
         Err(e) => {
             log!("data: {e}");
             WITHOUT_DATA.store(true, Ordering::SeqCst);
-            pak::install(None, Some(format!("Connect to the internet and start the game again to download its data ({e}).")))?
+            pak::install_without(None, Some(format!("Connect to the internet and start the game again to download its data ({e}).")), &off)?
         }
     };
     Ok(Some(SOUNDS.get_or_init(|| sounds)))

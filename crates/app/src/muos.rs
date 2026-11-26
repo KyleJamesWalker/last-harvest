@@ -99,7 +99,7 @@ fn main() {
 fn run() -> Result<(), String> {
     log!("last-harvest {VERSION} on muOS");
     let range = pak::range_setup();
-    let sounds = pak::load()?;
+    let sounds = pak::load_without(&persist::mods_off())?;
     let sdl = sdl2::init()?;
     let video = sdl.video()?;
     let attr = video.gl_attr();

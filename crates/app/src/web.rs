@@ -494,8 +494,9 @@ fn element<T: JsCast>(document: &Document, id: &str) -> Result<T, String> {
 }
 
 fn start(pak: Pak, mods: Vec<(String, Pak)>, problems: Vec<String>, range: Option<RangeSetup>) -> Result<(), String> {
+    let off = web_sys::window().and_then(|w| w.local_storage().ok().flatten()).and_then(|s| s.get_item(SAVE_KEY).ok().flatten()).map(|t| last_harvest_game::mods_off_in(&t)).unwrap_or_default();
     // The renderer uploads the sprite atlas as it starts, so the data goes in first.
-    let sounds = pak::install_with(pak, mods, problems)?;
+    let sounds = pak::install_with(pak, mods, problems, &off)?;
     let window = web_sys::window().ok_or("no window")?;
     let document = window.document().ok_or("no document")?;
     let canvas: HtmlCanvasElement = element(&document, "screens")?;

@@ -661,7 +661,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     stop::install();
     log!("last-harvest {VERSION}, started at unix {}", log::unix_now());
     let range = pak::range_setup();
-    let sounds = pak::load()?;
+    let sounds = pak::load_without(&persist::mods_off())?;
     let event_loop = EventLoop::new()?;
     event_loop.run_app(&mut App::new(sounds, range))?;
     Ok(())

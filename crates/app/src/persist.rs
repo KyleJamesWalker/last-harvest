@@ -60,9 +60,18 @@ pub struct Saver {
     changed_at: Option<Instant>,
 }
 
+fn save_path() -> PathBuf {
+    std::env::var_os("LAST_HARVEST_SAVE").map_or_else(|| home().join("save.txt"), PathBuf::from)
+}
+
+/// The keys of the mod packs the save turns off.
+pub fn mods_off() -> Vec<String> {
+    fs::read_to_string(save_path()).map(|t| last_harvest_game::mods_off_in(&t)).unwrap_or_default()
+}
+
 impl Saver {
     pub fn load() -> (Self, Save) {
-        let path = std::env::var_os("LAST_HARVEST_SAVE").map_or_else(|| home().join("save.txt"), PathBuf::from);
+        let path = save_path();
         let save = read(&path);
         log!("save: {} {save:?}", path.display());
         (Self { path, written: save, changed_at: None }, save)
