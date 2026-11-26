@@ -832,20 +832,19 @@ impl Game {
         c.rect(0.0, 0.0, SCREEN_W, SCREEN_H, [0.12, 0.12, 0.15, 1.0]);
         c.label("Mod packs", SCREEN_W / 2.0, 24.0, 48.0, WHITE, Align::Center);
         let first = self.mod_row.saturating_sub(MOD_ROWS - 1);
-        let mid_x = (LESS_X + MORE_X) / 2.0 + 80.0;
         for (row, i) in (first..self.packs.len().min(first + MOD_ROWS)).enumerate() {
             let [x, y, w, h] = setting_row(row, MOD_ROWS);
             let p = &self.packs[i];
             let (sel, on) = (i == self.mod_row, self.pack_wanted(p));
             c.rect(x, y, w, h, if sel { [1.0, 0.85, 0.3, 0.25] } else { [1.0, 1.0, 1.0, 0.06] });
-            let room = mid_x - 80.0 - x - 24.0;
+            let room = w - 260.0;
             fit_label(c, &p.name, x + 24.0, y + 1.0, 28.0, room, if sel { HOT } else if on { WHITE } else { DIM }, Align::Left);
             let stem = p.file.strip_suffix(".pak").unwrap_or(&p.file);
             let under = if crate::save::pack_key(stem) == p.key { p.file.clone() } else { format!("{}   id {}", p.file, p.key) };
             fit_label(c, &under, x + 24.0, y + 30.0, 18.0, room, DIM, Align::Left);
-            c.label(if on { "On" } else { "Off" }, mid_x, y + h / 2.0 - 18.0, 34.0, if on { HOT } else { DIM }, Align::Center);
+            c.label(if on { "On" } else { "Off" }, x + w - 24.0, y + 1.0, 28.0, if on { HOT } else { DIM }, Align::Right);
             if on != p.on {
-                c.label(if on { "On after restart" } else { "Off after restart" }, x + w - 20.0, y + h / 2.0 - 12.0, 22.0, HOT, Align::Right);
+                c.label(if on { "On after restart" } else { "Off after restart" }, x + w - 24.0, y + 30.0, 18.0, HOT, Align::Right);
             }
         }
         let [_, y, _, h] = setting_row(self.packs.len().min(MOD_ROWS), MOD_ROWS);
