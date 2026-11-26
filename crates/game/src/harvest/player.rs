@@ -170,6 +170,17 @@ impl Harvest {
         self
     }
 
+    /// Dresses players 2 onward in these cards, in order, each starting with its card's kit.
+    pub fn seated_as(mut self, cards: &[String]) -> Self {
+        for (p, card) in cards.iter().enumerate().map(|(i, c)| (i + 1, c)) {
+            if p < self.players.len() {
+                let pos = self.players[p].pos;
+                self.players[p] = self.new_player(pos, players::look(card));
+            }
+        }
+        self
+    }
+
     /// Adds `n` scripted players after the players already in the run, each walking and steering by what its own map
     /// shows, for trying out several players.
     pub fn with_bots(self, n: usize) -> Self {
