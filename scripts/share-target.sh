@@ -6,4 +6,4 @@ cd "$(dirname "$0")/.."
 main=$(cd "$(git rev-parse --git-common-dir)/.." && pwd)
 mkdir -p "$main/.claude/worktrees/.cargo"
 printf '[build]\ntarget-dir = "%s/target"\n' "$main" >"$main/.claude/worktrees/.cargo/config.toml"
-echo "worktrees under $main/.claude/worktrees now build into $main/target"
+echo "worktrees under $main/.claude/worktrees now build into $main/target; scripts/prune-target.sh trims it"
