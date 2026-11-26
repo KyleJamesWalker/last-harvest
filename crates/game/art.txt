@@ -146,7 +146,6 @@ FIRE            png placeholder/fire.png x3  @figure
 POP             png placeholder/fire.png x3  @figure
 MOLOTOV         png placeholder/molotov.png  @prop 2
 FLARE           png placeholder/flare.png
-DYNAMITE        png placeholder/molotov.png  @prop 2
 WIRE_COIL       png placeholder/tacks.png  @prop 2
 
 # On-screen touch controls: the stick's and turn strip's ring, knob and track, a button plate up and pressed, and
