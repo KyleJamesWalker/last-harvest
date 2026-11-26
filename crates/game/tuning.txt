@@ -207,7 +207,7 @@ damage 60
 [weapons]
 view_half 0.6   # half the angle ahead the player sees and aims into, in radians, before a lantern widens it
 behind_half 0.9 # half the angle behind a holster fires into, in radians
-point_blank 70  # the pistol turns on anything this close, whichever way the player faces
+point_blank 30  # the pistol turns on anything this close, whichever way the player faces
 crow_reach 7    # how near a crow pecks
 dog_reach 7     # how near a dog bites
 dog_stray 48    # a dog with nothing to chase runs back once this far from the player

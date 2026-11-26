@@ -4702,10 +4702,12 @@ mod tests {
             }
             e.switch_to("DATA_POWERUPS_PISTOL".into());
             let outside = |e: &Editor| e.data.as_ref().and_then(|d| d.table.entries(&d.section).into_iter().find(|l| l.key == "outside")).map(|l| l.value);
-            assert_eq!(outside(&e), None, "the pistol leaves it out: its whole range");
+            assert_eq!(outside(&e).as_deref(), Some("40"), "the pistol keeps its later shots near the view");
             let pick = weapons::pick("outside");
             e.act(Action::WeaponTab(weapons::tab_of(pick)), false);
             assert!(e.buttons().iter().any(|b| b.action == Action::WeaponPick(pick, 1)));
+            e.act(Action::WeaponPick(pick, 0), false);
+            assert_eq!(outside(&e), None, "Own reaches its whole range");
             e.act(Action::WeaponPick(pick, 1), false);
             assert_eq!(outside(&e).as_deref(), Some("0"), "modding {modding}");
             e.act(Action::WeaponPick(pick, 1), false);
@@ -4987,7 +4989,7 @@ mod tests {
         e.act(Action::WeaponPick(weapons::pick("effect"), 1), false);
         e.act(Action::WeaponPick(weapons::pick("sound"), -1), false);
         e.act(Action::WeaponMax(1), false);
-        assert!(text(&e).contains("max 9\n") && text(&e).contains("pierce    0 0 0 0 1 1 1 1\ndoes gun\neffect muzzle_pistol\nsound throw\n\n"), "{}", text(&e));
+        assert!(text(&e).contains("max 9\n") && text(&e).contains("pierce    0 0 0 0 1 1 1 1\noutside   40\ndoes gun\neffect muzzle_pistol\nsound throw\n\n"), "{}", text(&e));
         let pattern = |e: &Editor| e.data.as_ref().and_then(|d| d.table.entries(&d.section).into_iter().find(|l| l.key == "pattern")).map(|l| l.value);
         e.act(Action::WeaponPick(weapons::pick("pattern"), -1), false);
         assert_eq!(pattern(&e).as_deref(), Some("spray"), "the patterns step from burst");

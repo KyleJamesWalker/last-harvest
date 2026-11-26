@@ -2206,12 +2206,17 @@ mod tests {
 
     /// A level-8 pistol on a quiet farm with `n` zombies spread evenly all the way round it, each with a clear shot.
     fn ringed(n: usize) -> (Harvest, Vec<[f32; 2]>) {
+        ringed_at(n, 90.0)
+    }
+
+    /// As `ringed`, the zombies `out` pixels or a little more from the player.
+    fn ringed_at(n: usize, out: f32) -> (Harvest, Vec<[f32; 2]>) {
         let mut h = with("pistol", [100.0, 0.0]);
         h.zombies.clear();
         h.me_mut().kit.weapons[0].level = 8;
         h.me_mut().kit.weapons[0].cd = 0.0;
         let ways: Vec<[f32; 2]> = (0..n).map(|k| k as f32 * TAU / n as f32).map(|a| [fm::cos(a), fm::sin(a)]).collect();
-        let spot = |h: &Harvest, from: [f32; 2], way: [f32; 2]| (0..12).map(|r| 90.0 + r as f32 * 4.0).map(|r| [from[0] + way[0] * r, from[1] + way[1] * r]).find(|&p| open(h, p) && super::super::clear_shot(&h.map, from, p));
+        let spot = |h: &Harvest, from: [f32; 2], way: [f32; 2]| (0..12).map(|r| out + r as f32 * 4.0).map(|r| [from[0] + way[0] * r, from[1] + way[1] * r]).find(|&p| open(h, p) && super::super::clear_shot(&h.map, from, p));
         // The first spot east of the spawn with room all round, wherever the farm's props fall.
         let start = h.me().pos;
         h.me_mut().pos = (0..60).flat_map(|j: i32| (0..40).map(move |i| [start[0] + i as f32 * 16.0, start[1] + ((j + 1) / 2 * if j % 2 == 0 { 1 } else { -1 }) as f32 * 16.0])).find(|&p| open(&h, p) && ways.iter().all(|&w| spot(&h, p, w).is_some())).expect("room all round");
@@ -2230,27 +2235,29 @@ mod tests {
     }
 
     #[test]
-    fn a_level_eight_burst_shoots_eight_zombies_all_the_way_round_once_each() {
-        let (mut h, ways) = ringed(8);
-        let a = h.me().kit.weapons[0];
-        let (n, gap) = (h.stat(a, Stat::Count) as usize, h.stat(a, Stat::Gap));
-        assert_eq!(n, 8);
+    fn a_level_eight_burst_shoots_a_different_zombie_all_the_way_round_with_each_shot() {
+        let (h, _) = ringed(1);
+        let n = h.stat(h.me().kit.weapons[0], Stat::Count) as usize;
+        assert!(n >= 3, "a burst of several");
+        let (mut h, ways) = ringed_at(n, 20.0);
+        let gap = h.stat(h.me().kit.weapons[0], Stat::Gap);
         let fired = shots(&mut h, (n - 1) as f32 * gap + 0.02);
         let mut hit = aimed_at(&fired, &ways);
-        assert_eq!(hit.len(), 8);
-        assert!(fired[7].0 - fired[0].0 < 0.3, "fast enough to read as one draw: {fired:?}");
+        assert_eq!(hit.len(), n);
+        assert!(fired[n - 1].0 - fired[0].0 < 0.3, "fast enough to read as one draw: {fired:?}");
         hit.sort();
-        assert_eq!(hit, (0..8).collect::<Vec<_>>(), "a different zombie each shot, from every side");
+        assert_eq!(hit, (0..n).collect::<Vec<_>>(), "a different zombie each shot, from every side");
     }
 
     #[test]
     fn a_burst_shoots_a_zombie_again_only_once_every_one_in_range_has_been_shot() {
-        let (mut h, ways) = ringed(3);
+        let (mut h, ways) = ringed_at(3, 20.0);
         let a = h.me().kit.weapons[0];
-        let gap = h.stat(a, Stat::Gap);
-        let fired = shots(&mut h, 7.0 * gap + 0.02);
+        let (n, gap) = (h.stat(a, Stat::Count) as usize, h.stat(a, Stat::Gap));
+        assert!(n > 3, "more shots than zombies");
+        let fired = shots(&mut h, (n - 1) as f32 * gap + 0.02);
         let hit = aimed_at(&fired, &ways);
-        assert_eq!(hit.len(), 8, "every shot still fires");
+        assert_eq!(hit.len(), n, "every shot still fires");
         let mut first: Vec<usize> = hit[..3].to_vec();
         first.sort();
         assert_eq!(first, [0, 1, 2], "each of the three before any again: {hit:?}");
@@ -2276,14 +2283,17 @@ mod tests {
     }
 
     #[test]
-    fn a_bursts_outside_reach_keeps_its_later_shots_in_view_and_its_default_is_the_whole_range() {
-        assert_eq!(book().defs[book().index("pistol").unwrap()].outside, None, "the pistol reaches its whole range");
+    fn a_bursts_outside_reach_keeps_its_later_shots_in_view_and_left_out_reaches_all_round() {
+        assert_eq!(book().defs[book().index("pistol").unwrap()].outside, Some(40.0), "the pistol keeps its later shots near the view");
         let (mut h, ways) = ringed(8);
+        let (aim, half) = (h.me().aim, h.ahead_half());
         let all = follow_ups(&mut h, None);
         assert!(all.iter().all(Option::is_some), "{all:?}");
+        assert!(all.iter().flatten().any(|d| !in_cone(*d, aim, half)), "left out, the later shots go all the way round: {all:?}");
         let mut hit = aimed_at(&all.iter().map(|d| (0.0, d.unwrap())).collect::<Vec<_>>(), &ways);
         hit.sort();
-        assert_eq!(hit, (1..8).collect::<Vec<_>>(), "left out, the later shots go all the way round");
+        hit.dedup();
+        assert_eq!(hit.len(), all.len(), "a different zombie each: {all:?}");
         for outside in [0.0, 40.0] {
             let (mut h, _) = ringed(8);
             let (aim, half) = (h.me().aim, h.ahead_half());
