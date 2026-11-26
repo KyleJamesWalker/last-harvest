@@ -321,10 +321,14 @@ fn read_mods(problems: &mut Vec<String>) -> Vec<(String, Pak)> {
     mods
 }
 
+/// The id every card editor export had before packs had names, so it names no pack.
+const OLD_EDITOR_ID: &str = "my-cards";
+
 /// Each pack's key for the save: its id, else its file name, and its file name where two share an id.
 fn mod_keys(packs: &[(String, Pak)]) -> Vec<String> {
     let stem = |file: &str| last_harvest_game::pack_key(file.strip_suffix(".pak").unwrap_or(file));
-    let first: Vec<String> = packs.iter().map(|(file, p)| p.id().map(last_harvest_game::pack_key).filter(|k| !k.is_empty()).unwrap_or_else(|| stem(file))).collect();
+    let id = |p: &Pak| p.id().filter(|id| *id != OLD_EDITOR_ID).map(last_harvest_game::pack_key).filter(|k| !k.is_empty());
+    let first: Vec<String> = packs.iter().map(|(file, p)| id(p).unwrap_or_else(|| stem(file))).collect();
     first.iter().zip(packs).map(|(k, (file, _))| if first.iter().filter(|o| *o == k).count() > 1 { stem(file) } else { k.clone() }).collect()
 }
 
@@ -582,8 +586,9 @@ mod tests {
     #[test]
     fn a_pack_is_keyed_by_its_id_or_its_file_where_ids_clash_or_are_missing() {
         let named = |id: &str| Pak::from_files(vec![(pack::MANIFEST.into(), pack::mod_manifest(id).into_bytes())]);
-        let packs = vec![("a.pak".to_string(), named("my-cards")), ("B Side.pak".into(), named("my-cards")), ("c.pak".into(), named("Thanksgiving")), ("card editor".into(), Pak::empty())];
-        assert_eq!(mod_keys(&packs), ["a", "b-side", "thanksgiving", "card-editor"]);
+        let packs = vec![("a.pak".to_string(), named("my-cards")), ("B Side.pak".into(), named("my-cards")), ("c.pak".into(), named("Thanksgiving")), ("card editor".into(), Pak::empty()), ("d.pak".into(), named("dup")), ("e.pak".into(), named("dup"))];
+        assert_eq!(mod_keys(&packs), ["a", "b-side", "thanksgiving", "card-editor", "d", "e"]);
+        assert_eq!(mod_keys(&packs[..1]), ["a"], "an old export keeps its key when another arrives");
     }
 
     #[test]

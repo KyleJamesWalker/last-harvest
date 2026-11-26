@@ -24,7 +24,7 @@ fn an_off_pack_adds_nothing_and_the_rest_layer_in_order() {
     assert_eq!(report.mods, ["a.pak", "c.pak"]);
     assert_eq!(report.mod_packs.iter().map(|m| m.0.as_str()).collect::<Vec<_>>(), ["a.pak", "c.pak"], "online compares only the packs on");
     let listed: Vec<(&str, &str, &str, bool)> = report.packs.iter().map(|p| (p.file.as_str(), p.key.as_str(), p.name.as_str(), p.on)).collect();
-    assert_eq!(listed, [("a.pak", "autumn", "Autumn", true), ("b.pak", "thanksgiving", "Thanksgiving", false), ("c.pak", "my-cards", "my-cards", true)]);
+    assert_eq!(listed, [("a.pak", "autumn", "Autumn", true), ("b.pak", "thanksgiving", "Thanksgiving", false), ("c.pak", "c", "my-cards", true)]);
     assert_eq!(sounds, [("boom.ogg".into(), b"c".to_vec()), ("shot.ogg".into(), b"a".to_vec())], "the off pack's sound stays out");
     assert_eq!(data::maps().iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ["ash"], "and its map");
     let identity = last_harvest_game::Game::new(1).identity_for_test();
