@@ -150,10 +150,16 @@ pub fn pack_key(text: &str) -> String {
 }
 
 /// The mod packs turned off, by key, kept inline so the save stays `Copy`.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub struct ModsOff {
     keys: [[u8; PACK_KEY_MAX]; MODS_OFF_MAX],
     lens: [u8; MODS_OFF_MAX],
+}
+
+impl std::fmt::Debug for ModsOff {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_list().entries(self.keys()).finish()
+    }
 }
 
 impl ModsOff {
