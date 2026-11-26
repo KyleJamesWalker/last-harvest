@@ -16,6 +16,7 @@ A survivors-like for a dual-screen Linux handheld, with a web build and sprite/c
 - Make worktrees under `.claude/worktrees/` and run `scripts/share-target.sh` once in the main checkout: every worktree there then compiles into the main checkout's `target/`, so dependencies build once instead of 4-8 GB per worktree. Each checkout's own outputs (`game_data.pak`, `target/muos`, `target/web-game`, `target/android`) still go in its own `target/`.
 - Binaries are shared: find them with `cargo metadata` (`scripts/lib/target.sh` sets `$bin`), never a literal `target/release/...` in a script. `target/release/last-harvest` and the sandbox are whichever worktree built last, so build and use them in one go; parallel builds wait on cargo's lock.
 - Remove a worktree once its PR merges.
+- Run `scripts/prune-target.sh` when `target/` grows: debug builds on macOS leave a few hundred MB of `.o` files per rebuild that cargo never deletes.
 
 ## Rules
 - The tileset is licensed: the `embed` (game) and `tileset` (editor) features must never reach a published wasm build. Published builds use `--no-default-features` (`--features modding` for the card editor); CI's `cargo tree` check enforces it.
