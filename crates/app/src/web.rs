@@ -668,6 +668,8 @@ fn editor_mod(sounds: &js_sys::Array, problems: &mut Vec<String>) -> Option<Pak>
     if files.is_empty() {
         return None;
     }
+    let name = storage.get_item(browser::PACK_NAME_KEY).ok().flatten().filter(|n| !n.trim().is_empty()).unwrap_or_else(|| "Card editor work".into());
+    files.push((last_harvest_pack::MANIFEST.into(), last_harvest_pack::named_mod_manifest(browser::EDITOR_PACK_ID, &name).into_bytes()));
     for s in sounds.iter() {
         let (Some(id), Some(file), Some(bytes)) = (field(&s, "id").and_then(|v| v.as_string()), field(&s, "file").and_then(|v| v.as_string()), field(&s, "bytes")) else { continue };
         let card = format!("{}{id}{}", last_harvest_pack::ENEMY_CARDS, last_harvest_pack::card::Kind::Enemy.extension());
