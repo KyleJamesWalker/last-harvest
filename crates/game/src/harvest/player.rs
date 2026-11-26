@@ -181,6 +181,15 @@ impl Harvest {
         self
     }
 
+    /// Player `p`'s card, health, speed, magnet and weapons as the night starts them, one line, for tests.
+    #[doc(hidden)]
+    pub fn seat_summary(&self, p: PlayerId) -> String {
+        let Some(pl) = self.players.get(p) else { return String::new() };
+        let k = &pl.kit;
+        let weapons: Vec<&str> = k.weapons.iter().map(|w| super::book().defs[w.def].id.as_str()).collect();
+        format!("{} hp={}/{} speed={} magnet={} weapons={}", pl.look, pl.hp, k.max_hp(), k.speed(), k.magnet(), weapons.join(","))
+    }
+
     /// Adds `n` scripted players after the players already in the run, each walking and steering by what its own map
     /// shows, for trying out several players.
     pub fn with_bots(self, n: usize) -> Self {
