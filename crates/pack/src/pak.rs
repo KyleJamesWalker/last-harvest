@@ -197,9 +197,14 @@ impl Pak {
     pub fn take_dir(&mut self, dir: &str) -> Vec<(String, Vec<u8>)> {
         let names: Vec<String> = self.files.keys().filter(|p| p.strip_prefix(dir).is_some_and(|n| !n.is_empty() && !n.contains('/'))).cloned().collect();
         let mut taken: Vec<(String, Vec<u8>)> = names.into_iter().map(|p| (p[dir.len()..].to_string(), self.files.remove(&p).unwrap())).collect();
-        taken.sort_by(|a, b| a.0.cmp(&b.0));
+        sort_by_name(&mut taken);
         taken
     }
+}
+
+/// Puts files in the order the game reads a pack's: by file name.
+pub fn sort_by_name<T>(files: &mut [(String, T)]) {
+    files.sort_by(|a, b| a.0.cmp(&b.0));
 }
 
 /// The value of `key` under `[section]`, or at the top for "", from the flat `key = value` lines manifests use.

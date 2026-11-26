@@ -274,7 +274,8 @@ impl Editor {
         let mine = sprite::card_id(&self.sprite.name);
         let enemy_front = |n: &String| sprite::card_kind(n) == Some(sprite::CardKind::Enemy) && sprite::card_part(n).is_some_and(|(id, row)| row == 0 && Some(&id) != mine.as_ref());
         let fronts: Vec<String> = self.names.iter().map(|(n, _)| n.clone()).filter(enemy_front).collect();
-        self.other_cards = fronts.iter().filter_map(|n| self.store.read(n, sprite::CARD_FILE)).filter_map(|b| String::from_utf8(b).ok()).collect();
+        let file = |n: &String| sprite::card_id(n).map(|id| format!("{id}{}", card::Kind::Enemy.extension()));
+        self.other_cards = fronts.iter().filter_map(|n| Some((file(n)?, String::from_utf8(self.store.read(n, sprite::CARD_FILE)?).ok()?))).collect();
         self.own_sound = mine.and_then(|id| self.store.card_sound(&id)).map(|(file, _)| file);
         self.refresh_mix();
     }
@@ -283,8 +284,11 @@ impl Editor {
     pub(super) fn refresh_mix(&mut self) {
         let enemy = sprite::card_kind(&self.sprite.name) == Some(sprite::CardKind::Enemy);
         self.mix = self.sprite.card.as_ref().filter(|_| self.stats && enemy).map(|mine| {
-            let others = self.other_cards.iter().filter(|t| last_harvest_game::card_fields(t).is_ok()).map(String::as_str);
-            let cards: Vec<&str> = others.chain([mine.as_str()]).collect();
+            let mine_file = sprite::card_id(&self.sprite.name).map(|id| format!("{id}{}", card::Kind::Enemy.extension())).unwrap_or_default();
+            let mut cards: Vec<(String, &str)> = self.other_cards.iter().filter(|(_, t)| last_harvest_game::card_fields(t).is_ok()).map(|(f, t)| (f.clone(), t.as_str())).collect();
+            cards.push((mine_file, mine.as_str()));
+            last_harvest_pack::sort_by_name(&mut cards);
+            let cards: Vec<&str> = cards.into_iter().map(|(_, t)| t).collect();
             let minutes: Vec<f32> = (0..MIX_STEPS).map(|i| (i as f32 + 0.5) / MIX_STEPS as f32 * last_harvest_game::night_minutes()).collect();
             last_harvest_game::spawn_mix(&cards, &minutes)
         });
