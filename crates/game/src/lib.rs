@@ -28,6 +28,7 @@ pub mod photo;
 mod rng;
 mod save;
 pub mod scene3d;
+mod setup;
 mod sfx;
 mod system;
 mod watch;
@@ -237,6 +238,10 @@ pub struct Game {
     replay_row: usize,
     /// The Replays page opened and wants the platform's replays.
     replays_asked: bool,
+    /// The highlighted row on Play's page.
+    setup_row: usize,
+    /// The card each seat past player 1 picked on Play's page; none dresses them as `with_players` does.
+    seat_looks: [Option<save::LookId>; SEATS],
 }
 
 /// Where the title's menu sits on the top screen when one screen shows both, and its scale.
@@ -309,6 +314,8 @@ impl Game {
             saved_replays: Vec::new(),
             replay_row: 0,
             replays_asked: false,
+            setup_row: 0,
+            seat_looks: [None; SEATS],
         }
     }
 
@@ -471,7 +478,7 @@ impl Game {
             Scene::Harvest | Scene::Single => {
                 self.sounds.push(Sfx::Start);
                 let player = self.save.player.as_str().to_string();
-                let setup = replay::Setup { map: self.save.map.as_str().to_string(), difficulty: self.save.difficulty, progress: self.progress(), enemies_off: self.save.enemies_off, look: player.clone(), farm: Some(player), kit: self.kit.clone(), start_t: self.start_t, one_screen: self.one_screen(), endless: self.endless, players: self.players, bots: self.bots, views: self.players.max(self.split), ..replay::Setup::night(seed) };
+                let setup = replay::Setup { map: self.save.map.as_str().to_string(), difficulty: self.save.difficulty, progress: self.progress(), enemies_off: self.save.enemies_off, look: player.clone(), seats: self.seat_cards(self.players).split_off(1), farm: Some(player), kit: self.kit.clone(), start_t: self.start_t, one_screen: self.one_screen(), endless: self.endless, players: self.players, bots: self.bots, views: self.players.max(self.split), ..replay::Setup::night(seed) };
                 let mut h = setup.build();
                 if let Some(info) = &self.replay_info {
                     h.record(info.clone());
@@ -605,9 +612,9 @@ impl Game {
         }
     }
 
-    /// The title's main page is open, where a pad joins or leaves.
+    /// The title's main page or Play's page is open, where a pad joins or leaves.
     pub fn at_title(&self) -> bool {
-        matches!(self.state, State::Title) && self.page == Page::Main
+        matches!(self.state, State::Title) && matches!(self.page, Page::Main | Page::Setup)
     }
 
     /// A run is on, a night or a debug scene that plays like one.
@@ -1051,8 +1058,8 @@ impl Game {
             self.draw_menu(f);
             return;
         }
-        if self.page == Page::Settings && self.settings_list().get(self.setting) == Some(&menu::Setting::Player) {
-            self.draw_player(&mut f.top);
+        if self.page == Page::Setup {
+            self.draw_setup_top(&mut f.top);
             self.draw_menu(f);
             return;
         }
@@ -1155,7 +1162,7 @@ const SHOT_FLASH: f32 = 0.25;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use menu::{DIFFICULTY_Y, RESET_CONFIRM};
+    use menu::RESET_CONFIRM;
 
     #[test]
     fn a_run_with_two_seated_shows_two_views_each_laid_out_to_its_size() {
@@ -1256,6 +1263,7 @@ mod tests {
         let mut game = Game::new(1);
         game.set_phone(Some(size));
         press(&mut game, Buttons::A);
+        press(&mut game, Buttons::A);
         assert!(matches!(game.state, State::Harvest(_)));
         assert_eq!(game.phone_layout(size).key(Buttons::R2), None, "the paused whole map is gone");
         for b in [Buttons::START, Buttons::DOWN, Buttons::DOWN, Buttons::A] {
@@ -1269,6 +1277,7 @@ mod tests {
         let size = [2400.0, 1080.0];
         let mut game = Game::new(1);
         game.set_phone(Some(size));
+        press(&mut game, Buttons::A);
         press(&mut game, Buttons::A);
         assert!(matches!(game.state, State::Harvest(_)));
         let frame = game.draw();
@@ -1309,6 +1318,7 @@ mod tests {
             let mut game = Game::new(1);
             game.set_phone(Some(size));
             press(&mut game, Buttons::A);
+            press(&mut game, Buttons::A);
             let mut touches = [None; MAX_TOUCHES];
             touches[0] = hold_at;
             for _ in 0..frames {
@@ -1330,6 +1340,7 @@ mod tests {
         let size = [2400.0, 1080.0];
         let mut game = Game::new(1);
         game.set_phone(Some(size));
+        press(&mut game, Buttons::A);
         press(&mut game, Buttons::A);
         let State::Harvest(h) = &mut game.state else { panic!("not in a run") };
         h.deal_cards_with_rerolls(1);
@@ -1378,9 +1389,10 @@ mod tests {
         press(&mut game, Buttons::B);
         let phone = game.draw().phone.unwrap();
         assert!(phone.top.is_some() && phone.bottom.is_none(), "the title as without touch");
-        for _ in 0..3 {
+        for _ in 0..2 {
             press(&mut game, Buttons::UP);
         }
+        press(&mut game, Buttons::A);
         press(&mut game, Buttons::A);
         let State::Harvest(_) = &game.state else { panic!("a run starts") };
         assert_eq!(game.phone_layout(size).key(Buttons::L2), None, "a run without the controls");
@@ -1438,7 +1450,7 @@ mod tests {
         game.load(Save { touch: TouchControls::Off, ..Save::default() });
         assert!(game.title_on_one());
         let ([ax, ay], k) = TITLE_MENU;
-        let settings = [SCREEN_W / 2.0, menu::ROWS_TOP + 2.0 * menu::ROW_H + 20.0];
+        let settings = [SCREEN_W / 2.0, menu::ROWS_TOP + menu::ROW_H + 20.0];
         let on_top = [ax + settings[0] * k, ay + settings[1] * k];
         let [px, py, pw, ph] = game.phone_layout(size).top.unwrap();
         finger(&mut game, [px + on_top[0] / SCREEN_W * pw, py + on_top[1] / SCREEN_H * ph]);
@@ -1467,7 +1479,7 @@ mod tests {
     fn stats_opens_the_replays_and_a_replay_plays_to_its_end_without_touching_the_save() {
         let raw = recorded_night(600);
         let mut game = Game::new(3);
-        for _ in 0..4 {
+        for _ in 0..3 {
             press(&mut game, Buttons::DOWN);
         }
         press(&mut game, Buttons::A);
@@ -1717,12 +1729,12 @@ mod tests {
     #[test]
     fn quit_shows_last_in_the_main_menu_only_where_the_game_can_quit() {
         let mut game = Game::new(1);
-        for _ in 0..7 {
+        for _ in 0..6 {
             press(&mut game, Buttons::DOWN);
         }
-        assert_eq!(game.row, 0, "seven rows wrap back to Play");
+        assert_eq!(game.row, 0, "six rows wrap back to Play");
         game.set_quit(true);
-        for _ in 0..7 {
+        for _ in 0..6 {
             press(&mut game, Buttons::DOWN);
         }
         press(&mut game, Buttons::A);
@@ -1768,9 +1780,10 @@ mod tests {
             settings_row(&mut game, 0);
             check(&mut game, Buttons::NONE, "settings");
             press(&mut game, Buttons::B);
-            for _ in 0..3 {
+            for _ in 0..2 {
                 press(&mut game, Buttons::UP);
             }
+            press(&mut game, Buttons::A);
             press(&mut game, Buttons::A);
             assert!(matches!(game.state, State::Harvest(_)), "{size:?}: a run");
             check(&mut game, Buttons::NONE, "run");
@@ -1789,6 +1802,7 @@ mod tests {
             let mut game = Game::new(1);
             game.set_phone(Some([640.0, 480.0]));
             game.set_touch(touch);
+            press(&mut game, Buttons::A);
             press(&mut game, Buttons::A);
             press(&mut game, Buttons::START);
             let f = game.draw();
@@ -1836,19 +1850,28 @@ mod tests {
     fn a_or_a_tap_on_the_title_starts_a_run_and_back_returns() {
         let mut game = Game::new(1);
         press(&mut game, Buttons::A);
-        assert!(matches!(game.state, State::Harvest(_)));
+        assert!(matches!(game.state, State::Title) && game.page == Page::Setup, "Play opens its page");
+        press(&mut game, Buttons::A);
+        assert!(matches!(game.state, State::Harvest(_)), "on Start, so A again plays");
         press(&mut game, Buttons::BACK);
         assert!(matches!(game.state, State::Title));
-        game.update(&Input { touch: Some([512.0, menu::ROWS_TOP + 2.0 * menu::ROW_H + 20.0]), touch_started: true, ..Default::default() }, 0.016);
+        game.update(&Input { touch: Some([512.0, menu::ROWS_TOP + menu::ROW_H + 20.0]), touch_started: true, ..Default::default() }, 0.016);
         assert_eq!(game.page, Page::Settings, "a tap on a row opens it");
         press(&mut game, Buttons::B);
-        game.update(&Input { touch: Some([512.0, 60.0]), touch_started: true, ..Default::default() }, 0.016);
-        assert!(matches!(game.state, State::Harvest(_)));
+        let tap = |game: &mut Game, at: [f32; 2]| game.update(&Input { touch: Some(at), touch_started: true, ..Default::default() }, 0.016);
+        tap(&mut game, [512.0, 60.0]);
+        assert_eq!(game.page, Page::Setup);
+        tap(&mut game, [100.0, 660.0]);
+        assert_eq!(game.page, Page::Main, "its Back goes back");
+        tap(&mut game, [512.0, 60.0]);
+        tap(&mut game, [700.0, 660.0]);
+        assert!(matches!(game.state, State::Harvest(_)), "and a tap on Start plays");
     }
 
     #[test]
     fn a_finished_run_records_the_longest_night() {
         let mut game = Game::new(1);
+        press(&mut game, Buttons::A);
         press(&mut game, Buttons::A);
         let mut t = InputTracker::default();
         // Tapping A and X every other frame starts the run and picks each level-up, so the run plays out.
@@ -1976,7 +1999,7 @@ mod tests {
 
     /// Opens Settings from the title and moves to its `row`.
     fn settings_row(game: &mut Game, row: usize) {
-        for _ in 0..3 {
+        for _ in 0..2 {
             press(game, Buttons::DOWN);
         }
         press(game, Buttons::A);
@@ -1993,7 +2016,7 @@ mod tests {
         let mut played = kept;
         *played.records_mut(Difficulty::HARD).unwrap() = crate::save::Records { kills: 900, best: 300, best_level: 9, nights: 4, dawns: 1, found: 0b110, ..Default::default() };
         game.load(played);
-        settings_row(&mut game, 9);
+        settings_row(&mut game, 8);
         press(&mut game, Buttons::A);
         assert_eq!(game.save().records(Difficulty::HARD).kills, 900, "one press only asks");
         game.update(&Input::default(), RESET_CONFIRM + 0.1);
@@ -2046,6 +2069,7 @@ mod tests {
     fn screens_set_to_one_mid_run_darken_the_bottom_screen_and_persist() {
         let mut game = Game::new(1);
         press(&mut game, Buttons::A);
+        press(&mut game, Buttons::A);
         assert_eq!(game.outputs().screens_on, [true; 2]);
         press(&mut game, Buttons::START);
         press(&mut game, Buttons::DOWN);
@@ -2065,6 +2089,7 @@ mod tests {
     fn the_pause_menu_opens_settings_over_the_run_without_reset() {
         let mut game = Game::new(1);
         press(&mut game, Buttons::A);
+        press(&mut game, Buttons::A);
         press(&mut game, Buttons::START);
         press(&mut game, Buttons::DOWN);
         press(&mut game, Buttons::A);
@@ -2081,7 +2106,7 @@ mod tests {
     #[test]
     fn the_enemies_page_turns_kinds_off_but_never_the_last() {
         let mut game = Game::new(1);
-        settings_row(&mut game, 8);
+        settings_row(&mut game, 7);
         press(&mut game, Buttons::A);
         assert_eq!(game.page, Page::Enemies);
         game.draw();
@@ -2098,9 +2123,10 @@ mod tests {
         press(&mut game, Buttons::B);
         assert_eq!(game.page, Page::Settings);
         press(&mut game, Buttons::B);
-        for _ in 0..3 {
+        for _ in 0..2 {
             press(&mut game, Buttons::UP);
         }
+        press(&mut game, Buttons::A);
         press(&mut game, Buttons::A);
         let State::Harvest(h) = &game.state else { panic!("a run starts") };
         assert_eq!(h.enemies_off(), 0b011, "the run leaves them out");
@@ -2111,7 +2137,7 @@ mod tests {
         let mut game = Game::new(1);
         assert!(!game.settings_list().contains(&menu::Setting::Folder), "no folder to choose by default");
         game.set_folder("");
-        settings_row(&mut game, 9);
+        settings_row(&mut game, 8);
         assert_eq!(game.settings_list()[game.setting], menu::Setting::Folder);
         game.draw();
         press(&mut game, Buttons::A);
@@ -2120,9 +2146,10 @@ mod tests {
         game.set_folder("Documents/Last Harvest");
         game.draw();
         press(&mut game, Buttons::B);
-        for _ in 0..3 {
+        for _ in 0..2 {
             press(&mut game, Buttons::UP);
         }
+        press(&mut game, Buttons::A);
         press(&mut game, Buttons::A);
         press(&mut game, Buttons::START);
         press(&mut game, Buttons::DOWN);
@@ -2133,17 +2160,18 @@ mod tests {
     #[test]
     fn the_player_row_keeps_the_farmer_when_there_are_no_player_cards() {
         let mut game = Game::new(1);
-        settings_row(&mut game, 7);
-        assert_eq!(game.settings_list()[game.setting], menu::Setting::Player);
-        game.draw();
-        press(&mut game, Buttons::RIGHT);
-        assert_eq!(game.save().player.as_str(), "", "one look to choose from");
-        game.load(Save { player: save::LookId::new("nobody"), how_to_seen: true, ..game.save() });
-        press(&mut game, Buttons::B);
+        game.load(Save { how_to_seen: true, ..game.save() });
+        press(&mut game, Buttons::A);
         for _ in 0..3 {
             press(&mut game, Buttons::UP);
         }
-        press(&mut game, Buttons::A);
+        game.draw();
+        press(&mut game, Buttons::RIGHT);
+        assert_eq!(game.save().player.as_str(), "", "one look to choose from");
+        assert!(game.take_sounds().contains(&Sfx::Miss));
+        game.load(Save { player: save::LookId::new("nobody"), ..game.save() });
+        game.draw();
+        press(&mut game, Buttons::START);
         assert!(matches!(game.state, State::Harvest(_)), "a run with a look that's gone plays as the farmer");
         game.draw();
     }
@@ -2162,10 +2190,12 @@ mod tests {
     #[test]
     fn the_map_row_stays_on_the_random_farm_with_no_maps() {
         let mut game = Game::new(1);
-        press(&mut game, Buttons::DOWN);
+        press(&mut game, Buttons::A);
+        press(&mut game, Buttons::UP);
+        press(&mut game, Buttons::UP);
         for button in [Buttons::A, Buttons::RIGHT, Buttons::LEFT] {
             press(&mut game, button);
-            assert_eq!((game.page, game.save.map.as_str()), (Page::Main, ""), "it picks, it doesn't open a page");
+            assert_eq!((game.page, game.save.map.as_str()), (Page::Setup, ""), "it picks, it doesn't open a page");
         }
         game.draw();
         assert!(Scene::from_name("bench-100x80") == Some(Scene::Bench([100, 80])) && Scene::from_name("bench-1x").is_none());
@@ -2199,20 +2229,26 @@ mod tests {
         let mut game = Game::new(1);
         game.load(Save::default());
         press(&mut game, Buttons::A);
-        assert!(matches!(game.state, State::Title) && game.page == Page::HowTo, "a new save's first Play explains first");
+        assert_eq!(game.page, Page::Setup, "Play sets the night up first");
+        press(&mut game, Buttons::A);
+        assert!(matches!(game.state, State::Title) && game.page == Page::HowTo, "a new save's first Start explains first");
         assert!(texts(&game.draw().bottom).contains(&"A: Play".to_string()));
         press(&mut game, Buttons::A);
         assert!(matches!(game.state, State::Harvest(_)), "then plays");
         assert!(game.save().how_to_seen);
         press(&mut game, Buttons::BACK);
+        assert_eq!(game.page, Page::Main, "a night left goes back to the menu");
+        press(&mut game, Buttons::A);
         press(&mut game, Buttons::A);
         assert!(matches!(game.state, State::Harvest(_)), "not again this session");
         let mut next = Game::new(2);
         next.load(Save::parse(&game.save().to_text()));
         press(&mut next, Buttons::A);
+        press(&mut next, Buttons::A);
         assert!(matches!(next.state, State::Harvest(_)), "nor from the saved file");
         let mut old = Game::new(3);
         old.load(Save::parse("nights=3\n"));
+        press(&mut old, Buttons::A);
         press(&mut old, Buttons::A);
         assert!(matches!(old.state, State::Harvest(_)), "nor for a save from before it that has played");
     }
@@ -2222,8 +2258,9 @@ mod tests {
         let mut game = Game::new(1);
         game.load(Save::default());
         press(&mut game, Buttons::A);
+        press(&mut game, Buttons::A);
         press(&mut game, Buttons::B);
-        assert!(matches!(game.state, State::Title) && game.page == Page::Main && game.save().how_to_seen);
+        assert!(matches!(game.state, State::Title) && game.page == Page::Setup && game.save().how_to_seen, "back on Play's page");
         press(&mut game, Buttons::A);
         assert!(matches!(game.state, State::Harvest(_)));
     }
@@ -2233,7 +2270,6 @@ mod tests {
         for close in [Some(Buttons::A), Some(Buttons::B), Some(Buttons::START), None] {
             let mut game = Game::new(1);
             game.load(Save { how_to_seen: true, ..Save::default() });
-            press(&mut game, Buttons::DOWN);
             press(&mut game, Buttons::DOWN);
             press(&mut game, Buttons::A);
             assert_eq!(game.page, Page::HowTo);
@@ -2285,7 +2321,7 @@ mod tests {
     #[test]
     fn stats_and_credits_open_and_close() {
         let mut game = Game::new(1);
-        for (downs, page) in [(4, Page::Stats), (1, Page::Credits)] {
+        for (downs, page) in [(3, Page::Stats), (1, Page::Credits)] {
             for _ in 0..downs {
                 press(&mut game, Buttons::DOWN);
             }
@@ -2302,7 +2338,7 @@ mod tests {
         let mut game = Game::new(1);
         game.save.record(harvest::Run { secs: 125, level: 4, difficulty: Difficulty::HARD, dps: 37, ..Default::default() });
         game.save.record(harvest::Run { secs: 600, level: 9, won: true, dps: 81, ..Default::default() });
-        for _ in 0..4 {
+        for _ in 0..3 {
             press(&mut game, Buttons::DOWN);
         }
         press(&mut game, Buttons::A);
@@ -2487,19 +2523,47 @@ mod tests {
     }
 
     #[test]
-    fn the_title_sets_the_difficulty_and_the_run_uses_it() {
+    fn plays_page_keeps_its_rows_on_the_screen_that_shows_on_every_layout() {
+        let layouts: [(&str, Option<[f32; 2]>, bool, bool); 4] = [("two screens", None, true, true), ("phone, touch", Some([2400.0, 1080.0]), true, true), ("muOS", Some([640.0, 480.0]), false, false), ("square", Some([720.0, 720.0]), false, false)];
+        for (what, phone, touch, top_shows) in layouts {
+            let mut game = Game::new(1);
+            game.set_phone(phone);
+            game.set_touch(touch);
+            press(&mut game, Buttons::A);
+            assert_eq!(game.page, Page::Setup, "{what}");
+            let f = game.draw();
+            let bottom = texts(&f.bottom);
+            for want in ["Farmer", "Map: Random farm", Difficulty::EASY.name(), "Start"] {
+                assert!(bottom.iter().any(|t| t == want), "{what}: {want} in {bottom:?}");
+            }
+            if let Some(p) = f.phone {
+                assert_eq!((p.top.is_some(), p.bottom.is_some()), (top_shows, true), "{what}");
+            }
+            assert!(texts(&f.top).iter().any(|t| t == "Farmer"), "{what}: the card large on top");
+        }
+    }
+
+    #[test]
+    fn plays_page_sets_the_difficulty_and_the_run_uses_it() {
         let mut game = Game::new(1);
+        game.load(Save { how_to_seen: true, ..Save::default() });
         assert_eq!(game.save().difficulty, Difficulty::EASY, "a first run starts on Easy");
+        press(&mut game, Buttons::A);
+        press(&mut game, Buttons::LEFT);
+        assert_eq!(game.save().difficulty, Difficulty::EASY, "Left on Start changes nothing");
+        press(&mut game, Buttons::UP);
         press(&mut game, Buttons::LEFT);
         press(&mut game, Buttons::LEFT);
         assert_eq!(game.save().difficulty, Difficulty::STROLL, "it stops at the end");
-        let tap = |game: &mut Game, x: f32| game.update(&Input { touch: Some([x, DIFFICULTY_Y + 40.0]), touch_started: true, ..Default::default() }, 0.016);
+        let tap = |game: &mut Game, x: f32| game.update(&Input { touch: Some([x, 520.0]), touch_started: true, ..Default::default() }, 0.016);
         for _ in 0..3 {
-            tap(&mut game, SCREEN_W / 2.0 + 250.0);
+            tap(&mut game, SCREEN_W - 80.0);
         }
         assert_eq!(game.save().difficulty, Difficulty::HARD);
-        assert!(matches!(game.state, State::Title), "an arrow tap doesn't start a run");
-        press(&mut game, Buttons::A);
+        tap(&mut game, SCREEN_W / 2.0);
+        assert!(matches!(game.state, State::Title), "a tap on the row doesn't start a run");
+        assert!(texts(&game.draw().bottom).join(" ").contains(Difficulty::HARD.blurb()), "the row says what the difficulty means");
+        press(&mut game, Buttons::START);
         assert!(game.summary().starts_with("harvest hard "), "{}", game.summary());
     }
 }

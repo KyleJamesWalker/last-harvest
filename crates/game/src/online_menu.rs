@@ -299,9 +299,7 @@ impl Game {
     }
 
     fn local_cards(&self) -> Vec<String> {
-        let mine = self.save.player.as_str().to_string();
-        let others: Vec<String> = crate::player_looks().iter().map(|l| l.id.clone()).filter(|id| *id != mine).collect();
-        (0..self.players.clamp(1, last_harvest_lobby::MAX_LOCAL_PLAYERS)).map(|k| if k == 0 || others.is_empty() { mine.clone() } else { others[(k - 1) % others.len()].clone() }).collect()
+        self.seat_cards(self.players.clamp(1, last_harvest_lobby::MAX_LOCAL_PLAYERS))
     }
 
     pub fn host_online(&mut self, code: Option<&str>) {
