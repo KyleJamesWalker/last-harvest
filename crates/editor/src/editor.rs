@@ -4766,6 +4766,91 @@ mod tests {
     }
 
     #[test]
+    fn the_weapon_page_steps_what_a_lobs_tacks_lie_as_in_both_editors() {
+        for modding in [false, true] {
+            let dir = tmp().join(if modding { "patch-mod" } else { "patch" });
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            let mut e = editor_in(&dir, dir.join("art.txt"));
+            if modding {
+                e.set_modding();
+            }
+            e.switch_to("DATA_POWERUPS_WIRE_COIL".into());
+            let line = |e: &Editor| e.data.as_ref().and_then(|d| d.table.entries(&d.section).into_iter().find(|l| l.key == "patch")).map(|l| l.value);
+            let pick = weapons::pick("patch");
+            e.act(Action::WeaponTab(weapons::tab_of(pick)), false);
+            assert!(e.buttons().iter().any(|b| b.action == Action::WeaponPick(pick, 1)), "its picker shows");
+            e.act(Action::WeaponPick(pick, 0), false);
+            assert_eq!(line(&e), None, "Own lies as the game's tacks");
+            e.act(Action::WeaponPick(pick, 1), false);
+            assert!(line(&e).is_some(), "an effect, modding {modding}");
+            buttons_fit(&e);
+            e.act(Action::Save, false);
+            assert!(!e.unsaved(), "the game reads it, modding {modding}");
+            std::fs::remove_dir_all(&dir).unwrap();
+        }
+    }
+
+    #[test]
+    fn the_weapon_page_steps_how_high_a_guns_shots_arc_in_both_editors() {
+        for modding in [false, true] {
+            let dir = tmp().join(if modding { "arc-mod" } else { "arc" });
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            let mut e = editor_in(&dir, dir.join("art.txt"));
+            if modding {
+                e.set_modding();
+            }
+            e.switch_to("DATA_POWERUPS_PISTOL".into());
+            let line = |e: &Editor| e.data.as_ref().and_then(|d| d.table.entries(&d.section).into_iter().find(|l| l.key == "arc")).map(|l| l.value);
+            assert_eq!(line(&e), None, "the pistol flies level");
+            let pick = weapons::pick("arc");
+            e.act(Action::WeaponTab(weapons::tab_of(pick)), false);
+            assert!(e.buttons().iter().any(|b| b.action == Action::WeaponPick(pick, 1)), "its picker shows");
+            e.act(Action::WeaponPick(pick, 1), false);
+            assert_eq!(line(&e).as_deref(), Some("10"), "modding {modding}");
+            buttons_fit(&e);
+            e.act(Action::Save, false);
+            assert!(!e.unsaved(), "the game reads it, modding {modding}");
+            e.act(Action::WeaponPick(pick, 0), false);
+            assert_eq!(line(&e), None, "Own drops the line");
+            std::fs::remove_dir_all(&dir).unwrap();
+        }
+    }
+
+    #[test]
+    fn the_weapon_page_steps_the_sound_a_weapon_hits_with_in_both_editors() {
+        for modding in [false, true] {
+            let root = tmp().join(if modding { "sound-hit-mod" } else { "sound-hit" });
+            let _ = std::fs::remove_dir_all(&root);
+            let dir = root.join("sprites");
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::create_dir_all(root.join("sounds")).unwrap();
+            std::fs::write(root.join("sounds").join("tick.ogg"), b"ogg").unwrap();
+            let mut e = editor_in(&dir, dir.join("art.txt"));
+            if modding {
+                e.set_modding();
+            }
+            e.switch_to("DATA_POWERUPS_SHOTGUN".into());
+            let line = |e: &Editor| e.data.as_ref().and_then(|d| d.table.entries(&d.section).into_iter().find(|l| l.key == "sound_hit")).map(|l| l.value);
+            let pick = weapons::pick("sound_hit");
+            e.act(Action::WeaponTab(weapons::tab_of(pick)), false);
+            assert!(e.buttons().iter().any(|b| b.action == Action::WeaponPick(pick, 1)), "its picker shows");
+            e.act(Action::WeaponPick(pick, -1), false);
+            assert!(line(&e).is_some(), "the last sound offered, modding {modding}");
+            if !modding {
+                assert_eq!(line(&e).as_deref(), Some("tick"), "the groups beside the sprites");
+            }
+            buttons_fit(&e);
+            e.act(Action::Save, false);
+            assert!(!e.unsaved(), "the game reads it, modding {modding}");
+            e.act(Action::WeaponPick(pick, 0), false);
+            assert_eq!(line(&e), None, "Own drops the line");
+            std::fs::remove_dir_all(&root).unwrap();
+        }
+    }
+
+    #[test]
     fn the_weapon_page_offers_the_sound_groups_found_beside_the_sprites() {
         let root = tmp().join("sound-groups");
         let _ = std::fs::remove_dir_all(&root);

@@ -319,7 +319,7 @@ impl Harvest {
             let fade = ((p.life - p.age) / 0.5).clamp(0.0, 1.0);
             match p.hazard {
                 Hazard::Tacks => {
-                    let a = super::effects::effects().tacks.looping(self.t);
+                    let a = p.look().looping(self.t);
                     for s in super::weapons::tack_spots(p.pos, p.radius) {
                         let (sx, sy) = at(s[0] - a.w() / 2.0, s[1] - a.h() / 2.0);
                         c.art(a, sx, sy, scale, false, shade([1.0, 1.0, 1.0, fade]));

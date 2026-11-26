@@ -401,11 +401,32 @@ fn a_mirror_draws_pets_where_the_host_had_them_and_carries_their_pounce_on() {
 }
 
 #[test]
+fn a_flat_shot_keeps_its_old_bytes_and_an_arcing_one_carries_its_arc() {
+    let flat = Spawn::Shot { owner: 1, look: 300, from: [1600, 3200], vel: [-880, 40], life: 75, arc: [0; 3] };
+    let arcing = Spawn::Shot { owner: 2, look: 12, from: [800, 900], vel: [880, 0], life: 5, arc: [40, 1840, 700] };
+    let spawns = vec![Spawned { id: 1, tick: 10, what: flat }, Spawned { id: 2, tick: 10, what: arcing.clone() }];
+    let w = World::new(10, vec![PlayerState::default()], vec![], vec![]);
+    let bytes = &encode(&w, None, 1, &[], &spawns, BUDGET)[0];
+    let mut old = super::wire::Writer::new();
+    old.u8(0);
+    old.u8(1);
+    old.var(300);
+    [1600, 3200].iter().for_each(|&p| old.u16(p));
+    old.i16(-880);
+    old.i16(40);
+    old.u8(75);
+    assert!(bytes.windows(old.buf.len()).any(|b| b == old.buf.as_slice()), "a flat shot goes as tag 0 with the fields it always had");
+    assert_eq!(decode(bytes, None).unwrap().spawns, spawns, "both come back whole");
+    let Spawn::Shot { arc, .. } = arcing else { unreachable!() };
+    assert_ne!(arc, [0; 3]);
+}
+
+#[test]
 fn a_shot_held_still_by_the_cards_keeps_flying_after_them() {
     let mut m = Mirror::default();
     let mut w = World::new(10, vec![PlayerState::default()], vec![], vec![]);
     m.apply(&decode(&encode(&w, None, 1, &[], &[], BUDGET)[0], None).unwrap());
-    let shot = Spawned { id: 1, tick: 10, what: Spawn::Shot { owner: 3, from: q_pos([100.0, 100.0]), vel: [80, 0], life: 50, look: 0 } };
+    let shot = Spawned { id: 1, tick: 10, what: Spawn::Shot { owner: 3, from: q_pos([100.0, 100.0]), vel: [80, 0], life: 50, look: 0, arc: [0; 3] } };
     m.spawn(vec![shot]);
     m.frozen = true;
     for t in 0..240u32 {

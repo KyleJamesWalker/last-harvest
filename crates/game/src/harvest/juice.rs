@@ -515,6 +515,19 @@ impl Juice {
         self.sparks(at, height, back, 1.0, [50.0, 140.0], shot.impact, shot);
     }
 
+    /// `n` sparks a flying shot in `shot`'s style sheds at `at`, drifting back along `back` and hanging as they fall.
+    pub fn trail(&mut self, at: [f32; 2], height: f32, back: [f32; 2], n: u32, shot: &Shot) {
+        let base = fm::atan2(back[1], back[0]);
+        for _ in 0..n {
+            let a = base + self.fx.range(-0.7, 0.7);
+            let v = self.fx.range(8.0, 30.0);
+            let life = self.fx.range(0.25, 0.55);
+            let size = shot.size * self.fx.range(0.5, 0.9);
+            let vz = self.fx.range(-4.0, 10.0);
+            self.particle(Particle { fade: Fade::OPAQUE, pos: at, z: height, vel: [fm::cos(a) * v, fm::sin(a) * v], vz, age: 0.0, life, color: shot.color, size, shrink: shot.sprites[SPARK].is_none(), gravity: 40.0, drag: 3.0, glow: 1.0, wander: false, grow: 0.0, art: shot.sprites[SPARK] });
+        }
+    }
+
     /// `n` sparks from `at` along `dir`, within `spread` radians of it, that slow hard and fade as they fall.
     #[allow(clippy::too_many_arguments)]
     fn sparks(&mut self, at: [f32; 2], height: f32, dir: [f32; 2], spread: f32, speed: [f32; 2], n: u32, shot: &Shot) {
@@ -597,7 +610,7 @@ mod tests {
 
     #[test]
     fn a_muzzle_flash_is_a_brief_core_sparks_that_slow_and_smoke_that_rises() {
-        let shot = Shot { color: [0.9, 0.8, 0.5], length: 12.0, size: 1.4, sparks: 6, impact: 3, core: 5.0, sprites: [None; 4], fade: Fade::OPAQUE };
+        let shot = Shot { color: [0.9, 0.8, 0.5], length: 12.0, size: 1.4, sparks: 6, impact: 3, trail: 0, core: 5.0, sprites: [None; 4], fade: Fade::OPAQUE };
         let mut j = Juice::new(1);
         j.muzzle([0.0; 2], 10.0, [1.0, 0.0], &shot);
         assert_eq!((j.particles.len(), j.flares.len()), (6 + SMOKE_PUFFS, 1));
@@ -634,7 +647,7 @@ mod tests {
     #[test]
     fn a_sprite_spark_plays_its_frames_over_its_life() {
         let frames: &'static [Art] = &[Art(1), Art(2), Art(3)];
-        let shot = Shot { color: [1.0; 3], length: 12.0, size: 1.4, sparks: 4, impact: 0, core: 3.0, sprites: [None, Some(frames), None, Some(frames)], fade: Fade::OPAQUE };
+        let shot = Shot { color: [1.0; 3], length: 12.0, size: 1.4, sparks: 4, impact: 0, trail: 0, core: 3.0, sprites: [None, Some(frames), None, Some(frames)], fade: Fade::OPAQUE };
         let mut j = Juice::new(1);
         j.muzzle([0.0; 2], 10.0, [1.0, 0.0], &shot);
         let sparks: Vec<&Particle> = j.particles.iter().filter(|p| p.art.is_some()).collect();

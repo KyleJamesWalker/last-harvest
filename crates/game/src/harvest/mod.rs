@@ -536,7 +536,12 @@ struct Steer {
     pop: f32,
     /// It passes through every zombie but `target` while that one stands.
     through: bool,
+    /// The pixels it climbs and the seconds it takes to come back down; it flies over what it passes while high.
+    arc: [f32; 2],
 }
+
+/// Pixels up an arcing shot flies over zombies and cover.
+const OVERHEAD: f32 = 6.0;
 
 /// Seconds of each straight run a homing shot is sent to clients as; each ends on its own as the next begins, so
 /// none needs a stop that would blank it for the interpolation delay.
@@ -545,13 +550,14 @@ const LEG: f32 = 0.1;
 const RETARGET: f32 = 160.0;
 
 impl Bullet {
-    /// The straight run clients draw it along: where it began, its velocity, and the seconds it lasts from there.
-    fn leg(&self) -> ([f32; 2], [f32; 2], f32) {
+    /// The straight run clients draw it along: where it began, its velocity, the seconds it lasts from there, and its
+    /// age where it began.
+    fn leg(&self) -> ([f32; 2], [f32; 2], f32, f32) {
         if self.steer.turn > 0.0 {
             let (from, age, vel) = self.steer.leg;
-            (from, vel, (self.life + self.age - age).min(LEG))
+            (from, vel, (self.life + self.age - age).min(LEG), age)
         } else {
-            ([self.pos[0] - self.vel[0] * self.age, self.pos[1] - self.vel[1] * self.age], self.vel, self.life + self.age)
+            ([self.pos[0] - self.vel[0] * self.age, self.pos[1] - self.vel[1] * self.age], self.vel, self.life + self.age, 0.0)
         }
     }
 
@@ -589,7 +595,14 @@ impl Bullet {
     /// Pixels above a gun's height it flies at `age` seconds.
     fn up(&self, age: f32) -> f32 {
         let [up, fall] = self.lift;
-        if fall > 0.0 { up * (1.0 - age / fall).clamp(0.0, 1.0) } else { 0.0 }
+        let lifted = if fall > 0.0 { up * (1.0 - age / fall).clamp(0.0, 1.0) } else { 0.0 };
+        lifted + self.climb(age)
+    }
+
+    /// Pixels an arcing shot is up at `age` seconds: it climbs and comes down again over its flight.
+    fn climb(&self, age: f32) -> f32 {
+        let [peak, flight] = self.steer.arc;
+        if flight > 0.0 { peak * fm::sin(PI * (age / flight).clamp(0.0, 1.0)) } else { 0.0 }
     }
 
     /// Where it draws on the map: its place, raised by how far it has yet to come down.
@@ -2880,8 +2893,10 @@ impl Harvest {
         let crits: Vec<f32> = self.players.iter().map(|p| crate::tuning::tuning().crit + p.kit.mods.crit).collect();
         let own_shot = effects::effects().bullet.shot;
         let mut hits = (0, false);
+        let mut own_hits: Vec<Sfx> = Vec::new();
         let mut pops = Vec::new();
         for b in &mut self.bullets {
+            let own_hit = b.by.and_then(weapons::hit_sound);
             b.home(&self.zombies, dt);
             b.pos = [b.pos[0] + b.vel[0] * dt, b.pos[1] + b.vel[1] * dt];
             b.life -= dt;
@@ -2890,7 +2905,13 @@ impl Harvest {
             let ground = [b.pos[0], b.pos[1] + 6.0];
             let back = norm([-b.vel[0], -b.vel[1]]);
             let shot = b.look.map_or(own_shot, |e| e.shot);
-            let from_above = b.by.and_then(|d| book().defs[d].does) == Some(powerups::Does::Drone);
+            if let Some(s) = shot.filter(|s| s.trail > 0) {
+                let due = s.trail as f32 * dt;
+                let n = due as u32 + u32::from(self.juice.fx.range(0.0, 1.0) < due.fract());
+                self.juice.trail(ground, 6.0 + b.up(b.age), back, n, &s);
+            }
+            let overhead = b.climb(b.age) > OVERHEAD;
+            let from_above = overhead || b.by.and_then(|d| book().defs[d].does) == Some(powerups::Does::Drone);
             if !from_above && self.map.cover_at(ground[0], ground[1]) {
                 let cell = |p: [f32; 2]| [(p[0] / TILE).floor(), (p[1] / TILE).floor()];
                 let at = cell(ground);
@@ -2921,7 +2942,7 @@ impl Harvest {
                 b.steer.target = None;
             }
             for z in &mut self.zombies {
-                if b.life <= 0.0 || b.hit.contains(&z.id) || (b.steer.through && b.steer.target.is_some_and(|id| id != z.id)) {
+                if overhead || b.life <= 0.0 || b.hit.contains(&z.id) || (b.steer.through && b.steer.target.is_some_and(|id| id != z.id)) {
                     continue;
                 }
                 let d = sub([z.pos[0], z.pos[1] - 6.0], b.pos);
@@ -2930,8 +2951,15 @@ impl Harvest {
                 } else if len(d) < 7.0 {
                     self.juice.tally.credit(b.owner, b.by);
                     self.juice.soak = b.soak;
-                    hits.1 |= strike(z, &mut self.juice, b.damage, norm(b.vel), b.force, crits[b.owner]);
-                    hits.0 += 1;
+                    let crit = strike(z, &mut self.juice, b.damage, norm(b.vel), b.force, crits[b.owner]);
+                    match own_hit {
+                        Some(s) if !own_hits.contains(&s) => own_hits.push(s),
+                        Some(_) => {}
+                        None => {
+                            hits.1 |= crit;
+                            hits.0 += 1;
+                        }
+                    }
                     if let Some(s) = &shot {
                         self.juice.impact(ground, 6.0, back, s);
                     }
@@ -2954,6 +2982,7 @@ impl Harvest {
         self.juice.soak = [0.0; 2];
         self.bullets.retain(|b| b.life > 0.0);
         self.thud(hits, sounds);
+        sounds.extend(own_hits);
         for (at, radius, damage, owner, by) in pops {
             self.pop([at[0], at[1] + 6.0], radius, damage, owner, by, sounds);
         }
@@ -2989,7 +3018,7 @@ impl Harvest {
         self.juice.ring(c, radius, 0.25, juice::ember());
         self.juice.burst(c, 6.0, 8, [0.0; 2], 0.0, [30.0, 90.0], juice::ember(), 0.8, 0.4, 1.0);
         let (pan, gain) = self.place(c);
-        sounds.push(Sfx::Boom { pan, gain: gain / 3 });
+        sounds.push(by.and_then(weapons::hit_sound).unwrap_or(Sfx::Boom { pan, gain: gain / 3 }));
         self.thud(hits, sounds);
     }
 

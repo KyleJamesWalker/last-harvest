@@ -20,14 +20,16 @@ const DOES_W: f32 = 114.0;
 const PREVIEW: Rect = Rect { x: SIDE_X, y: CANVAS.y + 340.0, w: SIDE_W, h: 220.0 };
 const STYLE: Rect = Rect { x: SIDE_X + SIDE_W / 2.0 + 8.0, y: PREVIEW.y + PREVIEW.h + 6.0, w: SIDE_W / 2.0 - 16.0, h: 28.0 };
 /// The lines the pickers set, in order.
-const PICKS: [&str; 18] = ["effect", "bullet", "pattern", "explode", "aim", "homing", "through", "teammate", "targets", "outside", "sound", "sound_every", "sound_after", "sound_delay", "player", "kill_resets", "fetches", "charge"];
+const PICKS: [&str; 21] = ["effect", "bullet", "patch", "pattern", "aim", "homing", "through", "teammate", "explode", "arc", "targets", "outside", "sound", "sound_every", "sound_hit", "sound_after", "sound_delay", "player", "kill_resets", "fetches", "charge"];
 /// The pickers' tabs and the slice of `PICKS` each shows.
-const PICK_TABS: [(&str, std::ops::Range<usize>); 5] = [("Shots", 0..4), ("Aim", 4..8), ("Burst", 8..10), ("Sound", 10..14), ("Player & dog", 14..18)];
+const PICK_TABS: [(&str, std::ops::Range<usize>); 6] = [("Shots", 0..4), ("Aim", 4..8), ("Flight", 8..12), ("Sound", 12..15), ("After", 15..17), ("Player & dog", 17..21)];
 /// What `outside` steps through, in pixels; Own leaves a burst its whole range.
 const OUTSIDE: [&str; 9] = ["0", "10", "20", "30", "40", "50", "60", "80", "100"];
 /// What a gun's `homing` steps through, in degrees a second, and `explode`, in pixels; Own leaves them off.
 const HOMING: [&str; 7] = ["60", "120", "180", "240", "360", "540", "720"];
 const EXPLODE: [&str; 7] = ["8", "10", "14", "18", "24", "30", "40"];
+/// What a gun's `arc` steps through, in pixels; Own flies level.
+const ARC: [&str; 7] = ["10", "20", "30", "40", "60", "80", "120"];
 /// What `sound_every` steps through, in rounds, and `sound_delay`, in seconds.
 const EVERY: [&str; 5] = ["2", "3", "4", "5", "6"];
 const DELAY: [&str; 9] = ["0.1", "0.2", "0.3", "0.4", "0.5", "0.6", "0.8", "1", "1.2"];
@@ -129,7 +131,7 @@ fn number(v: f32) -> String {
 fn choices(store: &dyn Store, pick: usize, players: &[String]) -> Vec<String> {
     match PICKS[pick] {
         "player" => return players.to_vec(),
-        "sound" | "sound_after" => {
+        "sound" | "sound_after" | "sound_hit" => {
             let own = last_harvest_game::weapon_sound_names().map(str::to_string);
             let found = store.sound_groups().into_iter().filter(|g| !own.contains(g));
             return own.iter().cloned().chain(found).collect();
@@ -138,6 +140,7 @@ fn choices(store: &dyn Store, pick: usize, players: &[String]) -> Vec<String> {
         "aim" => return last_harvest_game::weapon_aims().map(str::to_string).to_vec(),
         "homing" => return HOMING.map(str::to_string).to_vec(),
         "explode" => return EXPLODE.map(str::to_string).to_vec(),
+        "arc" => return ARC.map(str::to_string).to_vec(),
         "targets" => return last_harvest_game::weapon_targets().map(str::to_string).to_vec(),
         "outside" => return OUTSIDE.map(str::to_string).to_vec(),
         "sound_every" => return EVERY.map(str::to_string).to_vec(),
@@ -334,6 +337,8 @@ impl Editor {
                 "aim" => "nearest".into(),
                 "homing" => "flies straight".into(),
                 "explode" => "never".into(),
+                "patch" => "tacks".into(),
+                "arc" => "flies level".into(),
                 "targets" => "same".into(),
                 "outside" => "its whole range".into(),
                 "kill_resets" | "fetches" | "through" | "teammate" => "off".into(),
@@ -341,6 +346,7 @@ impl Editor {
                 "player" => "every player's".into(),
                 "sound_every" => "every round".into(),
                 "sound_after" => "none".into(),
+                "sound_hit" => "the thud".into(),
                 "sound_delay" => format!("{} seconds", number(last_harvest_game::DEFAULT_SOUND_DELAY)),
                 _ => "its behaviour's own".into(),
             };

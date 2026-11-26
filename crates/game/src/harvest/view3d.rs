@@ -890,7 +890,7 @@ pub fn scene(h: &Harvest) -> CardScene {
             // Underfoot behind the player they'd fill the bottom of the screen.
             Hazard::Tacks if (q - p).dot(forward) < 0.0 => {}
             Hazard::Tacks => {
-                let a = super::effects::effects().tacks.looping(h.t);
+                let a = patch.look().looping(h.t);
                 for s in super::weapons::tack_spots(patch.pos, patch.radius) {
                     let q = world(s);
                     faded(&mut cards, a.alpha(), |cards| flat(cards, a, q.x - a.w() * PX / 2.0, q.z - a.h() * PX / 2.0, DECAL_LIFT + 0.008, [1.0; 3]));
