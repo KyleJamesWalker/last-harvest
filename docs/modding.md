@@ -211,11 +211,11 @@ The game reads its rules from seven text files in `crates/game/`. The packer put
 
 #### Difficulties
 
-Any other section of `tuning.txt` is a difficulty. The title lists them in file order, the game's own first: `[stroll]`, `[easy]`, `[normal]`, `[hard]`, `[brutal]` and `[dead]`. A pack's `tuning.txt` can change one line of one of them, or add its own after them. The game keeps at most 16.
+Any other section of `tuning.txt` is a difficulty. Play's page lists them in file order, the game's own first: `[stroll]`, `[easy]`, `[normal]`, `[hard]`, `[brutal]` and `[dead]`. A pack's `tuning.txt` can change one line of one of them, or add its own after them. The game keeps at most 16.
 
 | Key | Sets |
 |---|---|
-| `name` | The name on the title. A new difficulty must have one, so a misspelt section fails. |
+| `name` | The name on Play's page. A new difficulty must have one, so a misspelt section fails. |
 | `blurb` | The line under it |
 | `kit` | `easy`, `normal` or `hard`: whose starting weapons and grenades it plays with, from `powerups.txt` and player cards' `start` lines. Default: `normal` |
 | `damage` | Multiplies zombies' bite damage |

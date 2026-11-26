@@ -35,6 +35,8 @@ pub struct Setup {
     pub progress: Progress,
     pub enemies_off: u64,
     pub look: String,
+    /// The cards of seated players 2 onward, in order; empty leaves them as `with_players` dresses them.
+    pub seats: Vec<String>,
     /// The player card whose farm the night is on; none leaves the farm in use alone.
     pub farm: Option<String>,
     pub kit: String,
@@ -56,7 +58,7 @@ pub struct Setup {
 impl Setup {
     /// A night on this device with the game's own scripted players.
     pub fn night(seed: u64) -> Self {
-        Self { seed, map: String::new(), difficulty: Difficulty::NORMAL, progress: Progress::default(), enemies_off: 0, look: String::new(), farm: None, kit: String::new(), start_t: 0.0, one_screen: false, endless: false, players: 1, bots: 0, views: 1, walk: Walk::Avoid, turn: 0.25, turn_every: 0.0, throw_every: 12.0, kind: Kind::Night }
+        Self { seed, map: String::new(), difficulty: Difficulty::NORMAL, progress: Progress::default(), enemies_off: 0, look: String::new(), seats: Vec::new(), farm: None, kit: String::new(), start_t: 0.0, one_screen: false, endless: false, players: 1, bots: 0, views: 1, walk: Walk::Avoid, turn: 0.25, turn_every: 0.0, throw_every: 12.0, kind: Kind::Night }
     }
 
     /// The night, after setting the farm it plays on.
@@ -73,7 +75,7 @@ impl Setup {
         let d = self.difficulty;
         let mut h = match &self.kind {
             Kind::Night => {
-                let mut h = Harvest::on(self.seed, &self.map).at(d).with_progress(self.progress).without_enemies(self.enemies_off).looking_like(&self.look).with_kit(&self.kit).starting_at(self.start_t).single_screen(self.one_screen).endless_grenades(self.endless).with_players(self.players).with_bots(self.bots).with_views(self.views);
+                let mut h = Harvest::on(self.seed, &self.map).at(d).with_progress(self.progress).without_enemies(self.enemies_off).looking_like(&self.look).with_kit(&self.kit).starting_at(self.start_t).single_screen(self.one_screen).endless_grenades(self.endless).with_players(self.players).seated_as(&self.seats).with_bots(self.bots).with_views(self.views);
                 let first = self.players.min(h.players.len());
                 h.bots = (first..h.players.len()).map(|p| (p, self.bot())).collect();
                 h
@@ -116,6 +118,9 @@ difficulty {}
         out += &format!("enemies_off {:x}
 look {}
 ", self.enemies_off, self.look);
+        if !self.seats.is_empty() {
+            out += &format!("seats {}\n", self.seats.join(","));
+        }
         if let Some(farm) = &self.farm {
             out += &format!("farm {farm}
 ");
@@ -161,6 +166,7 @@ views {}
                 }
                 "enemies_off" => s.enemies_off = hex(rest, line)?,
                 "look" => s.look = rest.to_string(),
+                "seats" => s.seats = rest.split(',').map(str::to_string).collect(),
                 "farm" => s.farm = Some(rest.to_string()),
                 "kit" => s.kit = rest.to_string(),
                 "start_t" => s.start_t = f(rest, line)?,
@@ -1332,7 +1338,7 @@ mod tests {
 
     #[test]
     fn a_setup_reads_back_as_written() {
-        let night = Setup { map: "orchard".into(), look: "scarecrow".into(), farm: Some("scarecrow".into()), kit: "dog:2,crows".into(), start_t: 12.5, one_screen: true, players: 2, bots: 1, views: 3, progress: Progress { kills: 9, found: 0xf0, everything: true, hidden: 3, ..Progress::default() }, ..Setup::night(77) };
+        let night = Setup { map: "orchard".into(), look: "scarecrow".into(), seats: vec!["crow".into(), String::new()], farm: Some("scarecrow".into()), kit: "dog:2,crows".into(), start_t: 12.5, one_screen: true, players: 2, bots: 1, views: 3, progress: Progress { kills: 9, found: 0xf0, everything: true, hidden: 3, ..Progress::default() }, ..Setup::night(77) };
         let host = Setup { kind: Kind::Host { looks: vec![(0, "".into()), (2, "crow".into())], local: 1 }, difficulty: Difficulty::DEAD, ..Setup::night(5) };
         assert!(host.to_text().contains("\ndifficulty dead\n"), "{}", host.to_text());
         let sandbox = Plan { size: [40, 30], mortal: true, ..short() }.setup();

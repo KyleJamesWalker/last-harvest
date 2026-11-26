@@ -127,7 +127,7 @@ When you fall or get home, the top screen sums up the run. It shows on one scree
 
 ### Difficulties
 
-Pick a difficulty under Play with Left and Right, or tap its arrows. A new save starts on Easy, and the game remembers your choice. Online, the host's difficulty plays.
+Pick a difficulty on [Play's page](#play) with Left and Right, or tap its arrows. A new save starts on Easy, and the game remembers your choice. Online, the host's difficulty plays.
 
 | Difficulty | Bites | Health drops | The night | You start with |
 |---|---|---|---|---|
@@ -263,10 +263,10 @@ The mix of zombies shifts minute by minute, and some kinds arrive only after a s
 
 ## Menus and settings
 
-The title's bottom screen lists Play, Map, How to play, Settings, Stats, Credits and Online, and Quit where the game can quit. Up and Down choose a row, A or a tap opens it, and B goes back. The top screen shows the game's version.
+The title's bottom screen lists Play, How to play, Settings, Stats, Credits and Online, and Quit where the game can quit. Up and Down choose a row, A or a tap opens it, and B goes back. The top screen shows the game's version.
 
-- **Map** picks a hand-made map, or a random farm, for every run after.
-- **How to play** sums up the controls, hearts and level-ups, grenades, the map and the run home at dawn, in the buttons or touch controls you play with. A new save shows it at the first Play: A or a tap then starts the run, and B goes back to the menu. Elsewhere A, B, Start or a tap closes it.
+- **Play** opens Play's page, which sets up the night. See [Play](#play).
+- **How to play** sums up the controls, hearts and level-ups, grenades, the map and the run home at dawn, in the buttons or touch controls you play with. A new save shows it at the first Start: A or a tap then starts the run, and B goes back to Play's page. Elsewhere A, B, Start or a tap closes it.
 - **Stats** lists the chosen difficulty's records, including the best damage a second over a whole run. It also counts the cards and mod packs that loaded.
 - **History**, from Stats with A or its button, shows the last 10 runs, newest first, five to a page. Each run lists its difficulty, Turned or Home at dawn, its time, level and damage a second, and the powerups it ended with. Left and Right turn the page.
 - **Replays**, from Stats with X or its button, lists the last 10 nights this device recorded (5 in a browser), newest first, with their date in UTC. A or a tap plays one on the run's screens, as it was played. A pauses, and Left and Right set the speed from 0.25x to 8x. While paused, Right or Y steps one tick forward and Left one back; a step back plays the night again from its start, so late in a long night it can take a few seconds on a handheld. L1 and R1 switch whose view it follows in a night with more than one player. X or Photo pauses and opens [photo mode](#screenshots-and-photo-mode) on that moment, from the view it follows, with all its settings; leaving it goes back to the paused replay where it was. B leaves. Faster than 2x it plays without sound. If the replay stops matching the recording, it pauses there and names the time and tick. Watching changes no records or unlocks.
@@ -282,14 +282,25 @@ The title's bottom screen lists Play, Map, How to play, Settings, Stats, Credits
 | Corner map | On one screen, the small map in the top right corner of the view while you play. Shown only on one screen. |
 | Touch controls, Grenades | See [Touch](#touch). Shown only where the screen takes touches. |
 | Controls | Moves a button's jobs to another button. See [Controls](#controls). |
-| Player | Your look, from the player cards, shown walking on the top screen |
 | Enemies | Each kind of zombie, walking, with its numbers. A turns a kind on or off. At least one stays on. |
 | Mod packs | Each mod pack found, by name, with its file under it. A, Left, Right or a tap turns one on or off. Packs load as the game starts, so a change applies at the next start; until then the page marks each pack it will change. Shown only when there are packs. |
 | Game folder | Android only. See [Where files go](#where-files-go). |
 | Online relay | The relay online play connects through. See [Online](#online). |
 | Reset progress | Clears kills, records and found powerups after a second press. Settings stay. |
 
-Settings from the pause menu leave out Player, Enemies, Mod packs, Game folder, Online relay and Reset progress.
+Settings from the pause menu leave out Enemies, Mod packs, Game folder, Online relay and Reset progress.
+
+### Play
+
+Play opens a page with a row each for the player, the map and the difficulty, then Start. It remembers your last choices and opens on Start, so A on Play, then A again, plays a night as you last set it up.
+
+- **Up and Down** choose a row; **Left and Right**, or a tap on a row's arrows, change it. A on the player or the map row steps it on.
+- **Player** shows your player card walking, with its name, its about line and the weapons it starts with. On two screens the top screen shows it large. Player cards come from `data/players` and the mod packs.
+- **Map** picks a hand-made map, or a random farm.
+- **Difficulty** names the difficulty and what it means. See [Difficulties](#difficulties).
+- **Start**, A on it or Start anywhere on the page plays. B or Back goes back to the menu.
+
+In split-screen there is a player row for each seated player, and each player's own Left and Right change their card. Pads can join and leave here as on the title.
 
 ### Controls
 
@@ -309,7 +320,8 @@ Up to four farmers can share one night: on one screen with a pad each, or online
 
 Split-screen plays in a desktop window, in a browser on one screen without a touch screen, on muOS, and on Android with one screen. The RG DS, Android with a second screen and touch screens in a browser seat one player.
 
-- At the title, press Start on another pad to join as the next player, up to P4. Start on that pad again leaves. The title names who joined.
+- At the title or on Play's page, press Start on another pad to join as the next player, up to P4. Start on that pad again leaves. The title names who joined.
+- On [Play's page](#play), each player picks their card with Left and Right on their own pad.
 - Player 1 plays with the keyboard and every pad no other player holds.
 - Each player gets a view of their own. Two views sit side by side in a wide or square window and stack in a tall one. Three or four share a grid.
 - Each view plays as on [one screen](#one-screen), with its own corner map, its own map on L1 and its own grenade aim on L2.
@@ -331,7 +343,7 @@ Each player plays on their own device, and one of them hosts the night. Online i
 
 1. The host picks Host a night. The lobby shows a five-letter room code, the same one each time this device hosts.
 2. Each other player picks Join with a code and types it on the on-screen keys: A types, B deletes and Start joins. Taps work too. The last code you joined is already filled in.
-3. In the lobby, A marks you ready. The host picks the difficulty with Left and Right, or a tap on it at the top right. Once everyone is ready, the host's Start starts the night.
+3. In the lobby, A marks you ready. Each player plays the card they last picked on [Play's page](#play), and the host's map plays. The host picks the difficulty with Left and Right, or a tap on it at the top right. Once everyone is ready, the host's Start starts the night.
 4. B leaves the lobby. On the host, B closes the room.
 
 Every device needs the same release and the same mod packs turned on; a pack turned off in Settings > Mod packs doesn't count. The host turns away a player whose game differs and names the packs to install, turn on or off, or copy from the host. A player can also join a night already under way: they drop in beside the others.
@@ -462,7 +474,7 @@ The [card editor](https://kylejameswalker.github.io/last-harvest/editor/) makes 
 - Draw each part from the list: walking front, side and back, then the flash, hurt and dead frames. An enemy's walk takes 1 to 8 frames. Leave flash and hurt clear for the game to draw them.
 - Press **T** for the Stats page, and set the name and numbers.
 - Press **Save**, then **Export**.
-- Copy the PNG into the game's `data/enemies` or `data/players` folder and start the game. Settings > Enemies or Settings > Player shows it.
+- Copy the PNG into the game's `data/enemies` or `data/players` folder and start the game. Settings > Enemies or Play's page shows it.
 
 Other tools:
 
