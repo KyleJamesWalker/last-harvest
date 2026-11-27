@@ -82,12 +82,14 @@ cargo test --workspace
 | `python3 tools/csp.py` | After editing an inline `<script>` in a web page. Each page's Content-Security-Policy allows its inline script by hash. |
 | `python3 tools/manual_items.py` | After changing `powerups.txt` or `enemies.txt`. It fills the manual's weapon, passive and zombie tables. |
 | `shellcheck --severity=error scripts/*.sh assets/LastHarvest.sh` | After editing a shell script. |
+| `python3 tools/third_party.py --credits` | After adding, removing or updating a dependency. It rewrites `crates/game/credits/crates.txt`, the crate list on the Credits screen. |
 
 Some tests guard the data and the art:
 
 - `the_games_own_data_must_be_whole_and_name_its_sprites` fails on any bad entry in a `crates/game/*.txt` file and names the line.
 - A palette test fails on any drawing or coat color that `crates/game/palette.txt` does not list.
 - A test that calls `data::install` belongs in `crates/game/tests/` or `crates/app/tests/`, because each process installs the data once.
+- A credits test fails when a sound in `crates/game/credits/assets.txt` has no row in the Sources table of `assets/private/README.md`, or a row's author and license differ from its credit. Add the row there first, then the credit.
 
 ## DPS sandbox
 
@@ -174,7 +176,7 @@ Under the normal rules most builds kill nearly every zombie that rises by level 
 
 | Workflow | Runs on | What it does |
 |---|---|---|
-| `ci.yml` | Every pull request and push to `main` | Clippy, the tests, the Windows, muOS and wasm builds, the no-tileset check on both wasm builds, `manual_items.py --check`, `csp.py --check` and shellcheck |
+| `ci.yml` | Every pull request and push to `main` | Clippy, the tests, the Windows, muOS and wasm builds, the no-tileset check on both wasm builds, `manual_items.py --check`, `csp.py --check`, `third_party.py --credits --check` and shellcheck |
 | `audit.yml` | Every pull request, push to `main`, and each Monday | `cargo deny check advisories` against `Cargo.lock` |
 | `build.yml` | Called by `release.yml`, and on pull requests that touch the build | The Android, muOS and desktop packages |
 | `release.yml` | A published GitHub release | Every package, GitHub Pages and itch.io. See [releasing](releasing.md). |
