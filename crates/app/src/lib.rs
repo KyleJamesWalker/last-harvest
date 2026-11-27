@@ -13,6 +13,7 @@ extern crate self as last_harvest;
 mod android;
 pub mod audio;
 pub mod clock;
+pub mod cloud;
 pub mod controllers;
 #[cfg(not(any(target_arch = "wasm32", target_os = "android")))]
 pub mod desktop;

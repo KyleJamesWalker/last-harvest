@@ -5,8 +5,10 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use last_harvest::cloud::CloudSave;
 use last_harvest::log;
-use last_harvest_game::Save;
+use last_harvest::platform::CloudSaves;
+use last_harvest_game::{Game, Save};
 
 /// Batches bursts of changes, such as holding a volume key, into one write.
 const SETTLE: Duration = Duration::from_secs(1);
@@ -69,6 +71,7 @@ pub struct Saver {
     path: PathBuf,
     written: Save,
     changed_at: Option<Instant>,
+    cloud: CloudSave,
 }
 
 fn save_path() -> PathBuf {
@@ -84,7 +87,10 @@ pub fn mods_off() -> Vec<String> {
 
 impl Saver {
     pub fn load() -> (Self, Save) {
-        let path = save_path();
+        Self::at(save_path())
+    }
+
+    fn at(path: PathBuf) -> (Self, Save) {
         let save = read(&path);
         log!("save: {} {save:?}", path.display());
         (
@@ -92,24 +98,52 @@ impl Saver {
                 path,
                 written: save,
                 changed_at: None,
+                cloud: CloudSave::default(),
             },
             save,
         )
     }
 
-    /// Writes `save` once it has stopped changing, or right away with `now`.
-    pub fn update(&mut self, save: Save, now: bool) {
+    /// Asks the platform for its cloud copy of the save; call once at launch.
+    pub fn fetch(&mut self, cloud: &mut dyn CloudSaves) {
+        self.cloud.fetch(cloud);
+    }
+
+    /// Merges the cloud copy into `game` the frame it arrives, and writes the result.
+    pub fn sync(&mut self, game: &mut Game, cloud: &mut dyn CloudSaves) {
+        if self.cloud.poll(game, cloud) {
+            self.write(game.save());
+        }
+    }
+
+    /// Writes `save` once it has stopped changing, or right away with `now`, and stores it in the cloud.
+    pub fn update(&mut self, save: Save, now: bool, cloud: &mut dyn CloudSaves) {
         if save == self.written {
             self.changed_at = None;
             return;
         }
         let since = *self.changed_at.get_or_insert_with(Instant::now);
         if now || since.elapsed() >= SETTLE {
-            match write_atomic(&self.path, save.to_text().as_bytes()) {
-                Ok(()) => self.written = save,
-                Err(e) => log!("save: {}: {e}", self.path.display()),
+            if self.write(save) {
+                self.cloud.store(save.to_text().as_bytes(), cloud);
             }
             self.changed_at = None;
+        }
+    }
+
+    fn write(&mut self, save: Save) -> bool {
+        if save == self.written {
+            return false;
+        }
+        match write_atomic(&self.path, save.to_text().as_bytes()) {
+            Ok(()) => {
+                self.written = save;
+                true
+            }
+            Err(e) => {
+                log!("save: {}: {e}", self.path.display());
+                false
+            }
         }
     }
 }
@@ -183,6 +217,49 @@ mod tests {
             Path::new("/tmp/x")
         );
         assert_eq!(folder_of(Some(Path::new("save.txt")), home), Path::new("."));
+    }
+
+    #[test]
+    fn every_write_stores_the_save_once_the_cloud_has_answered() {
+        use last_harvest::platform::{Call, Recorder};
+        let dir = std::env::temp_dir().join(format!("lh-cloud-save-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("save.txt");
+        fs::remove_file(&path).ok();
+        let seen = Recorder::new();
+        let mut cloud = seen.clone();
+        let mut game = Game::new(1);
+        let (mut saver, save) = Saver::at(path.clone());
+        game.load(save);
+        saver.fetch(&mut cloud);
+        let louder = |volume| Save {
+            volume,
+            ..Save::default()
+        };
+
+        saver.update(louder(9), true, &mut cloud);
+        assert_eq!(
+            seen.calls(),
+            [Call::Fetch("save.txt".into())],
+            "held until the answer"
+        );
+        saver.sync(&mut game, &mut cloud);
+        saver.update(louder(3), true, &mut cloud);
+        let stored: Vec<String> = seen
+            .calls()
+            .iter()
+            .filter_map(|c| match c {
+                Call::Store(name, bytes) => {
+                    assert_eq!(name, "save.txt");
+                    Some(String::from_utf8(bytes.clone()).unwrap())
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(stored.len(), 2, "the merged save, then the write after it");
+        assert_eq!(stored[1], louder(3).to_text());
+        assert_eq!(fs::read_to_string(&path).unwrap(), louder(3).to_text());
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
