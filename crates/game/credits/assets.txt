@@ -1,0 +1,11 @@
+# The art, font and sounds the game ships, as Credits lists them: title | author | license | the files it gave.
+# A test checks every sound here against the Sources table in assets/private/README.md, both ways.
+[Art]
+Zombie Apocalypse Tileset | Ittai Manero | |
+[Font]
+Atkinson Hyperlegible | Braille Institute of America | SIL Open Font License 1.1 |
+[Sounds]
+Universal Sound FX | Imphenzia | Unity Asset Store EULA | arc bolt casing casing-2 drone_burst nail rifle rifle-2 rocket rocket-2 rocket_pop shot shot-2 shovel spray stake stump_blast stump_blast-2 wire_land wire_land-2
+Bug Zapper | freesound_community on Pixabay | Pixabay Content License | zap
+Horse Animset Pro (Riding System) | Malbers Animations | Unity Asset Store EULA | varmint
+2D Platformer | Unity Technologies | Unity Asset Store EULA | detonator

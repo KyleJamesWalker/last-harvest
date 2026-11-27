@@ -800,7 +800,7 @@ fn start(
     show_screens(&document, &canvas, &overlay, phone);
     let web = Rc::new(RefCell::new(Web {
         game,
-        platform: crate::platform::backend(None),
+        platform: crate::platform::Hooks::new(crate::platform::backend(), None),
         tracker: InputTracker::default(),
         ticker: clock::Ticker::default(),
         gl,

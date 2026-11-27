@@ -146,7 +146,9 @@ fn run() -> Result<(), String> {
     sdl.mouse().show_cursor(false);
 
     let (mut saver, save) = persist::Saver::load();
-    let mut platform = last_harvest::platform::backend(last_harvest::home());
+    let mut platform =
+        last_harvest::platform::Hooks::new(last_harvest::platform::backend(), last_harvest::home());
+    saver.fetch(platform.backend.as_mut());
     let mut game = Game::new(
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -300,6 +302,7 @@ fn run() -> Result<(), String> {
         for inputs in ticker.frame_all(frame, std::iter::once(input).chain(others).collect()) {
             game.update_all(&inputs, clock::STEP);
         }
+        saver.sync(&mut game, platform.backend.as_mut());
         last_harvest::platform::serve(&mut game, &mut platform, dt);
         persist::keep_replays(game.take_replays());
         if game.take_replays_request() {
@@ -356,7 +359,7 @@ fn run() -> Result<(), String> {
             }
         }
         window.gl_swap_window();
-        saver.update(game.save(), false);
+        saver.update(game.save(), false, platform.backend.as_mut());
     }
 }
 
@@ -409,7 +412,7 @@ fn finish(
     if let Some(m) = motor {
         m.set(false);
     }
-    saver.update(game.save(), true);
+    saver.update(game.save(), true, platform.backend.as_mut());
     persist::keep_replays(game.end_replays());
     platform.exiting();
     log!("quit");
