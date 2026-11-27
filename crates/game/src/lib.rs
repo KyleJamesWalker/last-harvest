@@ -43,6 +43,7 @@ pub use difficulty::{Difficulty, Tier};
 pub use draw::{Align, Canvas, Color, Frame, Shape};
 pub use harvest::achievements;
 pub use harvest::online;
+pub use harvest::powerup_id;
 pub use harvest::replay;
 pub use harvest::showcase::{CropShow, Figure, Showcase};
 pub use harvest::{
@@ -74,7 +75,7 @@ pub use harvest::{SwingShow, swing_shown};
 pub use input::{Buttons, Input, InputTracker, MAX_TOUCHES, RawInput};
 pub use keys::key_button;
 pub use pad::PadFamily;
-pub use save::{ModsOff, Save, TouchControls, mods_off_in, pack_key};
+pub use save::{Consent, ModsOff, Save, TouchControls, mods_off_in, pack_key};
 pub use sfx::Sfx;
 pub use system::{Ask, Battery, Outputs, System};
 
@@ -275,6 +276,8 @@ pub struct Game {
     seat_looks: [Option<save::LookId>; SEATS],
     /// What the game wants of the platform's store or console hooks, until the app takes it.
     asks: Vec<Ask>,
+    /// The platform has somewhere to send play stats, so the game asks the player whether to share them.
+    metrics_offered: bool,
 }
 
 /// Where the title's menu sits on the top screen when one screen shows both, and its scale.
@@ -355,7 +358,13 @@ impl Game {
             setup_row: 0,
             seat_looks: [None; SEATS],
             asks: Vec::new(),
+            metrics_offered: false,
         }
+    }
+
+    /// The platform has a sink for play stats: the title asks once whether to share them, and Settings offers it.
+    pub fn set_metrics_offered(&mut self, on: bool) {
+        self.metrics_offered = on;
     }
 
     /// Drains what the game asked of the platform's hooks; the app hands each to its backend.
@@ -1141,6 +1150,7 @@ impl Game {
                         );
                     }
                     self.save.record(run);
+                    self.asks.push(Ask::RunEnded(run));
                     self.ask_achievements();
                 }
                 if flow.quit {
@@ -3431,6 +3441,43 @@ mod tests {
                 }
             })
             .collect()
+    }
+
+    #[test]
+    fn the_first_launch_asks_to_share_play_stats_once_and_only_where_the_platform_collects_them() {
+        let mut game = Game::new(1);
+        game.load(Save::default());
+        press(&mut game, Buttons::DOWN);
+        assert_eq!(game.page, Page::Main, "no sink, no question");
+        assert!(!game.settings_list().contains(&menu::Setting::Share));
+        game.set_metrics_offered(true);
+        press(&mut game, Buttons::DOWN);
+        assert_eq!(game.page, Page::Share);
+        assert!(texts(&game.draw().bottom).contains(&"Share play stats?".to_string()));
+        press(&mut game, Buttons::B);
+        assert_eq!((game.page, game.save().metrics), (Page::Main, Consent::No));
+        press(&mut game, Buttons::DOWN);
+        assert_eq!(game.page, Page::Main, "asked once");
+
+        let list = game.settings_list();
+        let at = list
+            .iter()
+            .position(|&s| s == menu::Setting::Share)
+            .unwrap();
+        game.page = Page::Settings;
+        game.open_settings(false);
+        game.setting = at;
+        press(&mut game, Buttons::A);
+        assert_eq!(game.save().metrics, Consent::Yes, "Settings changes it");
+        press(&mut game, Buttons::RIGHT);
+        assert_eq!(game.save().metrics, Consent::No);
+
+        let mut yes = Game::new(2);
+        yes.load(Save::default());
+        yes.set_metrics_offered(true);
+        press(&mut yes, Buttons::DOWN);
+        press(&mut yes, Buttons::A);
+        assert_eq!((yes.page, yes.save().metrics), (Page::Main, Consent::Yes));
     }
 
     #[test]

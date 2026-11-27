@@ -13,6 +13,7 @@ pub mod clock;
 pub mod controllers;
 pub mod log;
 mod loops;
+pub mod metrics;
 pub mod online;
 pub mod pak;
 pub mod platform;

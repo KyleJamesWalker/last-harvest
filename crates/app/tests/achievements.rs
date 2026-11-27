@@ -70,9 +70,9 @@ fn the_shells_serve_the_games_asks_once_a_frame() {
         .nights = 1;
     game.load(played);
     let seen = Recorder::new();
-    let mut backend: Box<dyn platform::Platform> = Box::new(seen.clone());
-    platform::serve(&mut game, backend.as_mut());
-    platform::serve(&mut game, backend.as_mut());
+    let mut hooks = platform::Hooks::new(Box::new(seen.clone()), None);
+    platform::serve(&mut game, &mut hooks, 0.016);
+    platform::serve(&mut game, &mut hooks, 0.016);
     assert_eq!(seen.unlocked(), ["first_night"]);
     assert_eq!(
         (seen.calls().len(), seen.ticks()),

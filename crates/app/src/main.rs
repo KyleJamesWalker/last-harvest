@@ -102,7 +102,7 @@ struct App {
     /// A window per screen, as on the device or with `LAST_HARVEST_WINDOWS=2`; else one window, played as on a phone.
     two: bool,
     online: last_harvest::online::Online,
-    platform: Box<dyn last_harvest::platform::Platform>,
+    platform: last_harvest::platform::Hooks,
 }
 
 impl App {
@@ -209,7 +209,7 @@ impl App {
             failed: false,
             two,
             online: Default::default(),
-            platform: last_harvest::platform::backend(),
+            platform: last_harvest::platform::backend(last_harvest::home()),
         }
     }
 
@@ -439,7 +439,7 @@ impl App {
         {
             self.game.update_all(&inputs, clock::STEP);
         }
-        last_harvest::platform::serve(&mut self.game, self.platform.as_mut());
+        last_harvest::platform::serve(&mut self.game, &mut self.platform, dt);
         persist::keep_replays(self.game.take_replays());
         if self.game.take_replays_request() {
             self.game.set_saved_replays(persist::saved_replays());
@@ -731,6 +731,7 @@ impl ApplicationHandler for App {
     fn exiting(&mut self, _el: &ActiveEventLoop) {
         self.saver.update(self.game.save(), true);
         persist::keep_replays(self.game.end_replays());
+        self.platform.exiting();
         #[cfg(target_os = "linux")]
         drop(self.device.take());
         std::process::exit(if self.failed { 1 } else { 0 });
@@ -827,6 +828,9 @@ mod stop {
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     persist::install_crash_log();
+    if let Some(home) = last_harvest::home() {
+        last_harvest::metrics::install_crash_hook(home);
+    }
     stop::install();
     log!(
         "last-harvest {VERSION}, started at unix {}",

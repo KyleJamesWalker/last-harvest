@@ -642,7 +642,7 @@ struct Gl {
 struct App {
     android: AndroidApp,
     game: Game,
-    platform: Box<dyn crate::platform::Platform>,
+    platform: crate::platform::Hooks,
     tracker: InputTracker,
     ticker: crate::clock::Ticker,
     gl: Option<Gl>,
@@ -799,6 +799,7 @@ impl App {
                     };
                 }
                 self.persist(0.0, true);
+                self.platform.exiting();
             }
             MainEvent::Destroy => {
                 self.audio = None;
@@ -808,6 +809,7 @@ impl App {
                 self.game.close_online();
                 self.online.send(&mut self.game);
                 self.persist(0.0, true);
+                self.platform.exiting();
                 keep_replays(self.replay_dir.as_deref(), self.game.end_replays());
                 self.drop_gl();
                 self.quit = true;
@@ -1070,7 +1072,7 @@ impl App {
             self.game.update_all(&inputs, crate::clock::STEP);
         }
         self.online.send(&mut self.game);
-        crate::platform::serve(&mut self.game, self.platform.as_mut());
+        crate::platform::serve(&mut self.game, &mut self.platform, dt);
         keep_replays(self.replay_dir.as_deref(), self.game.take_replays());
         if self.game.take_replays_request() {
             let saved = self
@@ -1316,6 +1318,9 @@ fn run(android: AndroidApp) -> Result<(), String> {
     };
     CHOSEN.lock().unwrap_or_else(|e| e.into_inner()).take();
     second(|s| s.touches.clear());
+    if let Some(dir) = android.internal_data_path() {
+        crate::metrics::install_crash_hook(dir);
+    }
     let save_path = android.internal_data_path().map(|d| d.join("save.txt"));
     let saved = save_path
         .as_ref()
@@ -1337,7 +1342,7 @@ fn run(android: AndroidApp) -> Result<(), String> {
     let mut app = App {
         android: android.clone(),
         game,
-        platform: crate::platform::backend(),
+        platform: crate::platform::backend(android.internal_data_path()),
         tracker: InputTracker::default(),
         ticker: crate::clock::Ticker::default(),
         gl: None,
