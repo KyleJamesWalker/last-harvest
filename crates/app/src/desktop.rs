@@ -1,19 +1,24 @@
-#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 //! The game on the device and macOS: two windows, one per screen, and the hardware beside them. The loop is
 //! `App::tick` on each redraw of the top window, which runs `Game::update` (`crates/game/src/lib.rs`), and so
 //! `Harvest::update` during a run, then draws both screens.
 
+#[path = "debug.rs"]
 mod debug;
 #[cfg(target_os = "linux")]
+#[path = "device.rs"]
 mod device;
+#[path = "gfx.rs"]
 mod gfx;
 #[cfg(any(target_os = "macos", windows))]
+#[path = "pads.rs"]
 mod pads;
+#[path = "persist.rs"]
 mod persist;
 
 use std::path::Path;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use last_harvest::platform::Platform;
 use last_harvest::{VERSION, audio, clock, log, pak, samples};
 use last_harvest_game::{
     Buttons, Capture, Game, InputTracker, MAX_TOUCHES, RangeSetup, RawInput, SCREEN_H, SCREEN_W,
@@ -102,17 +107,20 @@ struct App {
     /// A window per screen, as on the device or with `LAST_HARVEST_WINDOWS=2`; else one window, played as on a phone.
     two: bool,
     online: last_harvest::online::Online,
-    platform: Box<dyn last_harvest::platform::Platform>,
+    platform: Box<dyn Platform>,
 }
 
 impl App {
-    fn new(sounds: samples::Files, range: Option<RangeSetup>) -> Self {
+    fn new(
+        sounds: samples::Files,
+        range: Option<RangeSetup>,
+        mut platform: Box<dyn Platform>,
+    ) -> Self {
         let seed = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(1, |d| d.as_nanos() as u64);
         let mut game = Game::new(seed);
         let (mut saver, save) = persist::Saver::load();
-        let mut platform = last_harvest::platform::backend();
         saver.fetch(platform.as_mut());
         game.load(save);
         game.record_replays(last_harvest::replays::info());
@@ -783,7 +791,8 @@ Environment:
   LAST_HARVEST_SPLIT       2 to 4: at least that many split-screen views, LAST_HARVEST_BOTS's players in the unseated ones
 ";
 
-fn main() {
+/// Runs the desktop and device game with `platform` as its backend, from the command line to exit.
+pub fn run(platform: Box<dyn Platform>) {
     match std::env::args().nth(1).as_deref() {
         Some("--version") => return println!("{VERSION}"),
         Some("--help" | "-h") => return print!("{USAGE}"),
@@ -793,7 +802,7 @@ fn main() {
         }
         None => {}
     }
-    if let Err(e) = run() {
+    if let Err(e) = play(platform) {
         log!("error: {e}");
         std::process::exit(1);
     }
@@ -831,7 +840,7 @@ mod stop {
     }
 }
 
-fn run() -> Result<(), Box<dyn std::error::Error>> {
+fn play(platform: Box<dyn Platform>) -> Result<(), Box<dyn std::error::Error>> {
     persist::install_crash_log();
     stop::install();
     log!(
@@ -841,6 +850,6 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let range = pak::range_setup();
     let sounds = pak::load_without(&persist::mods_off())?;
     let event_loop = EventLoop::new()?;
-    event_loop.run_app(&mut App::new(sounds, range))?;
+    event_loop.run_app(&mut App::new(sounds, range, platform))?;
     Ok(())
 }
