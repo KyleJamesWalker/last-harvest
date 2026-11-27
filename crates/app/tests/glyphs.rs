@@ -52,18 +52,26 @@ fn with_the_no_op_backend_every_label_is_the_games_own() {
 fn the_recorders_labels_show_in_hints_until_it_gives_none() {
     let mut game = Game::new(1);
     let seen = Recorder::new();
-    seen.set_glyph(Button::A, "Steam A");
-    seen.set_glyph(Button::Start, "Steam Menu");
+    seen.set_glyph(Button::A, "Glyph A");
+    seen.set_glyph(Button::Start, "Glyph Menu");
     let mut backend: Box<dyn platform::Platform> = Box::new(seen.clone());
     platform::serve(&mut game, backend.as_mut());
     game.set_pad_family(PadFamily::Xbox);
     assert_eq!(
         pad::hint("{A}: pick   {B}: back   {Start}: menu"),
-        "Steam A: pick   A: back   Steam Menu: menu"
+        "Glyph A: pick   A: back   Glyph Menu: menu"
     );
-    assert_eq!(&*pad::label(Buttons::A), "Steam A");
+    assert_eq!(&*pad::label(Buttons::A), "Glyph A");
     assert_eq!(&*pad::label_as(PadFamily::Keyboard, Buttons::A), "E");
     assert!(seen.calls().is_empty(), "asking for labels is no call");
+
+    seen.set_glyph(Button::B, "Glyph B");
+    platform::serve(&mut game, backend.as_mut());
+    assert_eq!(&*pad::label(Buttons::B), "A", "not asked every frame");
+    for _ in 0..29 {
+        platform::serve(&mut game, backend.as_mut());
+    }
+    assert_eq!(&*pad::label(Buttons::B), "Glyph B", "asked again in time");
 
     platform::glyphs(&mut game, &NoOp);
     assert_own_labels(&mut game);

@@ -439,11 +439,11 @@ mod tests {
     fn the_platforms_labels_name_the_pad_buttons_but_never_the_keys() {
         set_active(PadFamily::Xbox);
         assert!(set_platform_labels([
-            (Buttons::A, "Steam A"),
+            (Buttons::A, "Glyph A"),
             (Buttons::L1, "")
         ]));
-        assert!(!set_platform_labels([(Buttons::A, "Steam A")]), "unchanged");
-        assert_eq!(label(Buttons::A), "Steam A");
+        assert!(!set_platform_labels([(Buttons::A, "Glyph A")]), "unchanged");
+        assert_eq!(label(Buttons::A), "Glyph A");
         assert!(matches!(label(Buttons::A), Label::Platform(_)));
         assert_eq!(
             label(Buttons::L1),
@@ -451,26 +451,26 @@ mod tests {
             "an empty label keeps the family's"
         );
         set_by_name(true);
-        assert_eq!(label_as(PadFamily::PlayStation, Buttons::A), "Steam A");
+        assert_eq!(label_as(PadFamily::PlayStation, Buttons::A), "Glyph A");
         set_by_name(false);
         assert_eq!(label_as(PadFamily::Keyboard, Buttons::A), "E");
         set_mouse(true);
         assert_eq!(label_as(PadFamily::Keyboard, Buttons::R1), "Click");
         set_mouse(false);
-        assert_eq!(hint("{A}: pick   {B}: back"), "Steam A: pick   A: back");
+        assert_eq!(hint("{A}: pick   {B}: back"), "Glyph A: pick   A: back");
 
         let mut swapped = Controls::default();
         swapped.bind(Buttons::B, Buttons::A);
         set_controls(swapped);
         assert_eq!(
             label(Buttons::B),
-            "Steam A",
+            "Glyph A",
             "keyed by the pad button, after the remap"
         );
         set_controls(Controls::default());
 
         let (text, size) = hint_sized("{A}: aim", 24.0);
-        assert_eq!(text, "Steam A: aim");
+        assert_eq!(text, "Glyph A: aim");
         assert!(
             (size - 24.0 * 6.0 / 12.0).abs() < 1e-4,
             "as wide as A: aim at 24: {size}"
