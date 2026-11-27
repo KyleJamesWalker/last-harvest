@@ -1,4 +1,4 @@
-# The art, font and sounds the game ships, as Credits lists them: title | author | licence | the files it gave.
+# The art, font and sounds the game ships, as Credits lists them: title | author | license | the files it gave.
 # A test checks every sound here against the Sources table in assets/private/README.md, both ways.
 [Art]
 Zombie Apocalypse Tileset | Ittai Manero | |
