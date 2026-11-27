@@ -41,6 +41,7 @@ pub use art::Stand;
 pub use controls::Controls;
 pub use difficulty::{Difficulty, Tier};
 pub use draw::{Align, Canvas, Color, Frame, Shape};
+pub use harvest::achievements;
 pub use harvest::online;
 pub use harvest::replay;
 pub use harvest::showcase::{CropShow, Figure, Showcase};

@@ -415,6 +415,30 @@ pub fn powerup_index(id: &str) -> Option<usize> {
 }
 
 impl Unlock {
+    /// A condition as a data file writes it; errors name `key`, the line's own word for it.
+    pub fn parse(key: &str, text: &str) -> Result<Self, String> {
+        let number = |w: &str| {
+            w.parse::<u32>()
+                .map_err(|_| format!("{w:?} isn't a whole number"))
+        };
+        let words: Vec<&str> = text.split_whitespace().collect();
+        Ok(match words[..] {
+            ["start"] => Unlock::Start,
+            ["kills", v] => Unlock::Kills(number(v)?),
+            ["night", v] => Unlock::Night(number(v)?),
+            ["level", v] => Unlock::Level(number(v)?),
+            ["nights", v] => Unlock::Nights(number(v)?),
+            ["dawns", v] => Unlock::Dawns(number(v)?),
+            ["breakers", v] => Unlock::Breakers(number(v)?),
+            ["breaker_dawns", v] => Unlock::BreakerDawns(number(v)?),
+            _ => {
+                return Err(format!(
+                    "{key} is start, kills N, night SECONDS, level N, nights N, dawns N, breakers N or breaker_dawns N"
+                ));
+            }
+        })
+    }
+
     pub fn met(self, p: &Progress) -> bool {
         p.everything
             || match self {
@@ -1203,20 +1227,7 @@ pub fn parse(text: &str) -> Result<Book, String> {
                 def.feel.flash = Some(([r, g, b], range, life));
             }
             "does" => def.does = Some(Does::from_key(rest).ok_or_else(|| format!("{n}: no weapon behaviour called {rest:?}"))?),
-            "unlock" => {
-                let words: Vec<&str> = rest.split_whitespace().collect();
-                def.unlock = match words[..] {
-                    ["start"] => Unlock::Start,
-                    ["kills", v] => Unlock::Kills(number(v)?),
-                    ["night", v] => Unlock::Night(number(v)?),
-                    ["level", v] => Unlock::Level(number(v)?),
-                    ["nights", v] => Unlock::Nights(number(v)?),
-                    ["dawns", v] => Unlock::Dawns(number(v)?),
-                    ["breakers", v] => Unlock::Breakers(number(v)?),
-                    ["breaker_dawns", v] => Unlock::BreakerDawns(number(v)?),
-                    _ => return Err(format!("{n}: unlock is start, kills N, night SECONDS, level N, nights N, dawns N, breakers N or breaker_dawns N")),
-                }
-            }
+            "unlock" => def.unlock = Unlock::parse(key, rest).map_err(|e| format!("{n}: {e}"))?,
             _ => {
                 let stat = Stat::ALL.iter().copied().find(|s| s.key() == key).ok_or_else(|| format!("{n}: no stat called {key:?}"))?;
                 if def.stats.iter().any(|(s, _)| *s == stat) {
