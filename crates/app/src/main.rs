@@ -102,6 +102,7 @@ struct App {
     /// A window per screen, as on the device or with `LAST_HARVEST_WINDOWS=2`; else one window, played as on a phone.
     two: bool,
     online: last_harvest::online::Online,
+    platform: Box<dyn last_harvest::platform::Platform>,
 }
 
 impl App {
@@ -208,6 +209,7 @@ impl App {
             failed: false,
             two,
             online: Default::default(),
+            platform: last_harvest::platform::backend(),
         }
     }
 
@@ -437,6 +439,7 @@ impl App {
         {
             self.game.update_all(&inputs, clock::STEP);
         }
+        last_harvest::platform::serve(&mut self.game, self.platform.as_mut());
         persist::keep_replays(self.game.take_replays());
         if self.game.take_replays_request() {
             self.game.set_saved_replays(persist::saved_replays());

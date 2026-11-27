@@ -642,6 +642,7 @@ struct Gl {
 struct App {
     android: AndroidApp,
     game: Game,
+    platform: Box<dyn crate::platform::Platform>,
     tracker: InputTracker,
     ticker: crate::clock::Ticker,
     gl: Option<Gl>,
@@ -1069,6 +1070,7 @@ impl App {
             self.game.update_all(&inputs, crate::clock::STEP);
         }
         self.online.send(&mut self.game);
+        crate::platform::serve(&mut self.game, self.platform.as_mut());
         keep_replays(self.replay_dir.as_deref(), self.game.take_replays());
         if self.game.take_replays_request() {
             let saved = self
@@ -1325,6 +1327,7 @@ fn run(android: AndroidApp) -> Result<(), String> {
     let mut app = App {
         android: android.clone(),
         game,
+        platform: crate::platform::backend(),
         tracker: InputTracker::default(),
         ticker: crate::clock::Ticker::default(),
         gl: None,
