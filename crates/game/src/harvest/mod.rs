@@ -1,5 +1,6 @@
 //! Last Harvest: survive the night on a randomly generated farm while the horde closes in.
 
+pub mod achievements;
 mod blend;
 mod camp;
 mod carve;
@@ -5429,6 +5430,11 @@ mod tests {
                 "{file}"
             );
         }
+        assert!(
+            achievements::parse(achievements::TEXT).is_ok_and(|a| !a.is_empty()),
+            "achievements.txt: {:?}",
+            achievements::parse(achievements::TEXT)
+        );
         assert!(
             check_table("tuning.txt", "[player]\nhp 120").is_ok(),
             "a mod sets only what it changes"
