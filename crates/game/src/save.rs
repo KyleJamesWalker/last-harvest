@@ -54,6 +54,17 @@ pub struct Save {
     pub joined: Option<last_harvest_lobby::RoomCode>,
     /// Mod packs turned off from the next start, by key.
     pub mods_off: ModsOff,
+    /// Whether the player shares play stats and crash reports.
+    pub metrics: Consent,
+}
+
+/// The player's answer to sharing play stats and crash reports. Only `Yes` shares anything.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Consent {
+    #[default]
+    Unasked,
+    Yes,
+    No,
 }
 
 /// Auto shows the on-screen controls and hides them at gamepad or keyboard input until the next touch.
@@ -388,6 +399,7 @@ impl Default for Save {
             hosted: None,
             joined: None,
             mods_off: ModsOff::default(),
+            metrics: Consent::Unasked,
         }
     }
 }
@@ -412,6 +424,11 @@ impl Save {
             if let Some(code) = code {
                 controls += &format!("{key}={code}\n");
             }
+        }
+        match self.metrics {
+            Consent::Unasked => {}
+            Consent::Yes => controls += "metrics=share\n",
+            Consent::No => controls += "metrics=off\n",
         }
         format!(
             "volume={}\nbrightness_top={}\nbrightness_bottom={}\nrumble={}\nfps={}\nlayout={}\ncorner_map={}\ngrenades={}\ntouch={}\ndifficulty={}\nenemies_off={}\nplayer={}\nmap={}\nhow_to={}\n{controls}{}{}",
@@ -571,6 +588,13 @@ impl Save {
                 "controls" => save.controls = Controls::from_key(value).unwrap_or_default(),
                 "relay" => save.relay = Relay::new(value),
                 "mods_off" => save.mods_off = ModsOff::parse(value),
+                "metrics" => {
+                    save.metrics = match value {
+                        "share" => Consent::Yes,
+                        "off" => Consent::No,
+                        _ => Consent::Unasked,
+                    }
+                }
                 "hosted" => save.hosted = last_harvest_lobby::RoomCode::parse(value).ok(),
                 "joined" => save.joined = last_harvest_lobby::RoomCode::parse(value).ok(),
                 "run" if runs < HISTORY => {
@@ -1125,6 +1149,38 @@ mod tests {
             .how_to_seen,
             "a reset keeps it"
         );
+    }
+
+    #[test]
+    fn sharing_round_trips_and_anything_unclear_reads_as_unasked_never_yes() {
+        for metrics in [Consent::Unasked, Consent::Yes, Consent::No] {
+            let save = Save {
+                metrics,
+                ..Save::default()
+            };
+            assert_eq!(Save::parse(&save.to_text()).metrics, metrics);
+            assert_eq!(save.without_progress().metrics, metrics, "a reset keeps it");
+            for cloud in [Consent::Unasked, Consent::Yes, Consent::No] {
+                let other = Save {
+                    metrics: cloud,
+                    ..Save::default()
+                };
+                assert_eq!(
+                    save.with_progress_of(&other).metrics,
+                    metrics,
+                    "consent is per device: a cloud copy never changes it"
+                );
+            }
+        }
+        for text in [
+            "",
+            "metrics=\n",
+            "metrics=on\n",
+            "metrics=yes\n",
+            "metrics=SHARE\n",
+        ] {
+            assert_eq!(Save::parse(text).metrics, Consent::Unasked, "{text:?}");
+        }
     }
 
     #[test]

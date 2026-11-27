@@ -7,7 +7,7 @@ use crate::fmath as fm;
 use crate::harvest::{self, roster};
 use crate::input::{Buttons, Input};
 use crate::pad::{self, PadFamily};
-use crate::save::LEVELS;
+use crate::save::{Consent, LEVELS};
 use crate::{DIM, Game, HOT, SCREEN_H, SCREEN_W, Sfx, WHITE};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -28,6 +28,8 @@ pub(crate) enum Page {
     Replays,
     /// Play's page: the player cards, map and difficulty, then Start.
     Setup,
+    /// The first launch's question: share play stats and crash reports or not.
+    Share,
 }
 
 const MAIN: [(Page, &str); 7] = [
@@ -59,11 +61,12 @@ pub(crate) enum Setting {
     Mods,
     Folder,
     Relay,
+    Share,
     Reset,
 }
 
 impl Setting {
-    const ALL: [Setting; 16] = [
+    const ALL: [Setting; 17] = [
         Setting::TopBrightness,
         Setting::BottomBrightness,
         Setting::Volume,
@@ -79,6 +82,7 @@ impl Setting {
         Setting::Mods,
         Setting::Folder,
         Setting::Relay,
+        Setting::Share,
         Setting::Reset,
     ];
 
@@ -99,6 +103,7 @@ impl Setting {
             Setting::Mods => "Mod packs",
             Setting::Folder => "Game folder",
             Setting::Relay => "Online relay",
+            Setting::Share => "Share play stats",
             Setting::Reset => "Reset progress",
         }
     }
@@ -140,6 +145,13 @@ const HOW_TO_TOP: f32 = 92.0;
 const HOW_TO_H: f32 = 94.0;
 pub(crate) const HOW_TO_SIZE: f32 = 30.0;
 pub(crate) const HOW_TO_ROOM: f32 = SCREEN_W - 80.0 - HOW_TO_ICON - 24.0;
+
+/// The first launch's Share and Don't share buttons.
+const SHARE_YES: [f32; 4] = [112.0, 560.0, 360.0, 90.0];
+const SHARE_NO: [f32; 4] = [552.0, 560.0, 360.0, 90.0];
+const SHARE_TEXT: &str = "Last Harvest can send play stats to help balance and fix the game: that it was installed, \
+how long you play, how each run ends and the build you took, and a report when it crashes. Nothing names you or \
+this device. You can change this in Settings at any time.";
 
 /// Seconds a first press on reset waits for the second.
 pub(crate) const RESET_CONFIRM: f32 = 3.0;
@@ -225,6 +237,7 @@ impl Game {
                 Setting::Mods => !self.settings_in_run && !self.packs.is_empty(),
                 Setting::Folder => !self.settings_in_run && self.folder.is_some(),
                 Setting::Relay => !self.settings_in_run && self.online_available(),
+                Setting::Share => self.metrics_offered,
                 Setting::TopBrightness | Setting::BottomBrightness => self.has_backlights(),
                 Setting::Mouse => self.mouse,
                 Setting::Screens => !phone,
@@ -242,6 +255,11 @@ impl Game {
         self.reset_shown = (self.reset_shown - dt).max(0.0);
         let tapped = input.touch.filter(|_| input.touch_started);
         let back = input.pressed.contains(Buttons::B) || tapped.is_some_and(|p| inside(p, BACK));
+        if self.page == Page::Main && self.metrics_offered && self.save.metrics == Consent::Unasked
+        {
+            self.page = Page::Share;
+            return;
+        }
         match self.page {
             Page::Main => self.main_page(input, tapped),
             Page::Settings => {
@@ -316,6 +334,19 @@ impl Game {
             }
             Page::HowTo => {}
             Page::Setup => self.setup_page(input, tapped),
+            Page::Share => self.share_page(input, tapped),
+        }
+    }
+
+    /// A or Share shares play stats, B or Don't share doesn't; either way the title opens, and Settings can change it.
+    fn share_page(&mut self, input: &Input, tapped: Option<[f32; 2]>) {
+        let yes =
+            input.pressed.contains(Buttons::A) || tapped.is_some_and(|p| inside(p, SHARE_YES));
+        let no = input.pressed.contains(Buttons::B) || tapped.is_some_and(|p| inside(p, SHARE_NO));
+        if yes || no {
+            self.save.metrics = if yes { Consent::Yes } else { Consent::No };
+            self.page = Page::Main;
+            self.sounds.push(Sfx::Tick(if yes { 9 } else { 0 }));
         }
     }
 
@@ -476,6 +507,13 @@ impl Game {
                 }
             }
             Setting::Fps if by != 0 || press => self.save.fps = !self.save.fps,
+            Setting::Share if by != 0 || press => {
+                self.save.metrics = if self.save.metrics == Consent::Yes {
+                    Consent::No
+                } else {
+                    Consent::Yes
+                }
+            }
             Setting::Screens if by != 0 || press => self.save.one_screen = !self.save.one_screen,
             Setting::CornerMap if by != 0 || press => self.save.corner_map = !self.save.corner_map,
             Setting::Touch if by != 0 || press => {
@@ -715,6 +753,7 @@ impl Game {
             Page::Relay => self.draw_relay(c),
             Page::Replays => self.draw_replays(c),
             Page::Setup => self.draw_setup(c),
+            Page::Share => draw_share(c),
         }
     }
 
@@ -851,10 +890,11 @@ impl Game {
                 Setting::BottomBrightness => (self.save.brightness[1], 1),
                 Setting::Volume => (self.save.volume, 0),
                 Setting::Mouse => (self.save.mouse, 1),
-                Setting::Rumble | Setting::Fps | Setting::CornerMap => {
+                Setting::Rumble | Setting::Fps | Setting::CornerMap | Setting::Share => {
                     let v = match s {
                         Setting::Rumble => self.save.rumble,
                         Setting::Fps => self.save.fps,
+                        Setting::Share => self.save.metrics == Consent::Yes,
                         _ => self.save.corner_map,
                     };
                     c.label(
@@ -1963,6 +2003,44 @@ impl Game {
                 Align::Left,
             );
         }
+    }
+}
+
+fn draw_share(c: &mut Canvas) {
+    c.rect(0.0, 0.0, SCREEN_W, SCREEN_H, [0.12, 0.12, 0.15, 1.0]);
+    c.label(
+        "Share play stats?",
+        SCREEN_W / 2.0,
+        40.0,
+        52.0,
+        WHITE,
+        Align::Center,
+    );
+    wrap_label(
+        c,
+        SHARE_TEXT,
+        SCREEN_W / 2.0,
+        150.0,
+        34.0,
+        SCREEN_W - 120.0,
+        8,
+        WHITE,
+        Align::Center,
+    );
+    for (rect, text, color) in [
+        (SHARE_YES, "{A} Share", HOT),
+        (SHARE_NO, "{B} Don't share", WHITE),
+    ] {
+        let [x, y, w, h] = rect;
+        c.rect(x, y, w, h, [1.0, 1.0, 1.0, 0.1]);
+        c.hint(
+            text,
+            x + w / 2.0,
+            y + h / 2.0 - 21.0,
+            42.0,
+            color,
+            Align::Center,
+        );
     }
 }
 

@@ -19,6 +19,7 @@ pub mod controllers;
 pub mod desktop;
 pub mod log;
 mod loops;
+pub mod metrics;
 pub mod online;
 pub mod pak;
 pub mod platform;

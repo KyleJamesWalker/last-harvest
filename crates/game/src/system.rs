@@ -39,6 +39,8 @@ pub struct Outputs {
 pub enum Ask {
     /// Unlock an achievement by its `achievements.txt` id.
     Unlock(&'static str),
+    /// A run ended: how it went, for the play stats the app sends only if the player shares them.
+    RunEnded(crate::Run),
 }
 
 const PANEL: [f32; 4] = [0.0, 0.0, 0.0, 0.6];

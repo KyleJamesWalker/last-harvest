@@ -115,6 +115,9 @@ fn main() {
 
 fn run() -> Result<(), String> {
     log!("last-harvest {VERSION} on muOS");
+    if let Some(home) = last_harvest::home() {
+        last_harvest::metrics::install_crash_hook(home);
+    }
     let range = pak::range_setup();
     let sounds = pak::load_without(&persist::mods_off())?;
     let sdl = sdl2::init()?;
@@ -143,8 +146,9 @@ fn run() -> Result<(), String> {
     sdl.mouse().show_cursor(false);
 
     let (mut saver, save) = persist::Saver::load();
-    let mut platform = last_harvest::platform::backend();
-    saver.fetch(platform.as_mut());
+    let mut platform =
+        last_harvest::platform::Hooks::new(last_harvest::platform::backend(), last_harvest::home());
+    saver.fetch(platform.backend.as_mut());
     let mut game = Game::new(
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -200,7 +204,7 @@ fn run() -> Result<(), String> {
         for event in events.poll_iter() {
             match event {
                 Event::Quit { .. } => {
-                    return finish(&mut saver, &mut game, platform.as_mut(), motor.as_ref());
+                    return finish(&mut saver, &mut game, &mut platform, motor.as_ref());
                 }
                 Event::ControllerDeviceAdded { which, .. } => match controllers.open(which) {
                     Ok(pad) => {
@@ -283,7 +287,7 @@ fn run() -> Result<(), String> {
             0.0
         };
         if menu_held >= QUIT_HOLD || game.quit_asked() {
-            return finish(&mut saver, &mut game, platform.as_mut(), motor.as_ref());
+            return finish(&mut saver, &mut game, &mut platform, motor.as_ref());
         }
         let input = tracker.frame(RawInput {
             held,
@@ -298,8 +302,8 @@ fn run() -> Result<(), String> {
         for inputs in ticker.frame_all(frame, std::iter::once(input).chain(others).collect()) {
             game.update_all(&inputs, clock::STEP);
         }
-        saver.sync(&mut game, platform.as_mut());
-        last_harvest::platform::serve(&mut game, platform.as_mut());
+        saver.sync(&mut game, platform.backend.as_mut());
+        last_harvest::platform::serve(&mut game, &mut platform, dt);
         persist::keep_replays(game.take_replays());
         if game.take_replays_request() {
             game.set_saved_replays(persist::saved_replays());
@@ -355,7 +359,7 @@ fn run() -> Result<(), String> {
             }
         }
         window.gl_swap_window();
-        saver.update(game.save(), false, platform.as_mut());
+        saver.update(game.save(), false, platform.backend.as_mut());
     }
 }
 
@@ -402,14 +406,15 @@ fn state(states: &mut Vec<PadState>, which: u32) -> &mut PadState {
 fn finish(
     saver: &mut persist::Saver,
     game: &mut Game,
-    platform: &mut dyn last_harvest::platform::Platform,
+    platform: &mut last_harvest::platform::Hooks,
     motor: Option<&Motor>,
 ) -> Result<(), String> {
     if let Some(m) = motor {
         m.set(false);
     }
-    saver.update(game.save(), true, platform);
+    saver.update(game.save(), true, platform.backend.as_mut());
     persist::keep_replays(game.end_replays());
+    platform.exiting();
     log!("quit");
     Ok(())
 }

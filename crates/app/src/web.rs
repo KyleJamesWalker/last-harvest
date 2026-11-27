@@ -62,7 +62,7 @@ struct Touch {
 
 struct Web {
     game: Game,
-    platform: Box<dyn crate::platform::Platform>,
+    platform: crate::platform::Hooks,
     tracker: InputTracker,
     ticker: clock::Ticker,
     gl: glow::Context,
@@ -607,7 +607,11 @@ impl Web {
             self.game.update_all(&inputs, clock::STEP);
         }
         self.online.send(&mut self.game);
-        crate::platform::serve(&mut self.game, self.platform.as_mut());
+        crate::platform::serve(
+            &mut self.game,
+            &mut self.platform,
+            (frame_ms / 1000.0) as f32,
+        );
         let done = self.game.take_replays();
         if !done.is_empty() {
             self.keep_replays(done);
@@ -796,7 +800,7 @@ fn start(
     show_screens(&document, &canvas, &overlay, phone);
     let web = Rc::new(RefCell::new(Web {
         game,
-        platform: crate::platform::backend(),
+        platform: crate::platform::Hooks::new(crate::platform::backend(), None),
         tracker: InputTracker::default(),
         ticker: clock::Ticker::default(),
         gl,

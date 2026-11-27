@@ -34,15 +34,35 @@ pub struct CloudFile {
     pub bytes: Option<Vec<u8>>,
 }
 
-/// A sink for metrics events. Consent, batching and the offline queue are the caller's.
+/// A sink for metrics events and crash reports. Consent, batching and the offline queue are the caller's: it hands
+/// over one batch at a time and offers it again, with the same id, until `poll_sent` answers that id.
 pub trait Metrics {
-    fn send(&mut self, _event: &Event) {}
+    /// Whether this backend has a sink. Without one the game never asks the player to share, and keeps nothing.
+    fn collects(&self) -> bool {
+        false
+    }
+    /// Starts delivering a batch of events.
+    fn send(&mut self, _batch: u64, _events: &[Event]) {}
+    /// Starts delivering a crash report: the panic, a backtrace, the release and the platform, as text.
+    fn send_crash(&mut self, _batch: u64, _report: &str) {}
+    /// The next batch or crash report delivered, by the id it was sent with. A backend that is offline answers
+    /// nothing until it has delivered.
+    fn poll_sent(&mut self) -> Option<u64> {
+        None
+    }
 }
 
+/// One metrics event: its name and fields, as `last_harvest::metrics` documents them.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Event {
     pub name: String,
     pub fields: Vec<(String, Field)>,
+}
+
+impl Event {
+    pub fn field(&self, key: &str) -> Option<&Field> {
+        self.fields.iter().find(|(k, _)| k == key).map(|(_, f)| f)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -110,7 +130,8 @@ pub enum Call {
     Unlock(String),
     Fetch(String),
     Store(String, Vec<u8>),
-    Send(Event),
+    Send(u64, Vec<Event>),
+    SendCrash(u64, String),
     OpenStore,
 }
 
@@ -118,6 +139,10 @@ pub enum Call {
 struct Log {
     calls: Vec<Call>,
     ticks: u64,
+    offline: bool,
+    sent: VecDeque<u64>,
+    delivered: Vec<Event>,
+    crashes: Vec<String>,
     cloud: BTreeMap<String, Vec<u8>>,
     fetched: VecDeque<CloudFile>,
     glyphs: BTreeMap<Button, String>,
@@ -182,6 +207,21 @@ impl Recorder {
         self.log.borrow_mut().overlay = open;
     }
 
+    /// Offline, batches and crash reports are taken but never delivered or answered.
+    pub fn set_online(&self, online: bool) {
+        self.log.borrow_mut().offline = !online;
+    }
+
+    /// Every event delivered, in order, a batch sent twice twice over.
+    pub fn delivered(&self) -> Vec<Event> {
+        self.log.borrow().delivered.clone()
+    }
+
+    /// Every crash report delivered, in order.
+    pub fn crashes(&self) -> Vec<String> {
+        self.log.borrow().crashes.clone()
+    }
+
     fn push(&self, call: Call) {
         self.log.borrow_mut().calls.push(call);
     }
@@ -214,8 +254,30 @@ impl CloudSaves for Recorder {
 }
 
 impl Metrics for Recorder {
-    fn send(&mut self, event: &Event) {
-        self.push(Call::Send(event.clone()));
+    fn collects(&self) -> bool {
+        true
+    }
+
+    fn send(&mut self, batch: u64, events: &[Event]) {
+        self.push(Call::Send(batch, events.to_vec()));
+        let mut log = self.log.borrow_mut();
+        if !log.offline {
+            log.delivered.extend_from_slice(events);
+            log.sent.push_back(batch);
+        }
+    }
+
+    fn send_crash(&mut self, batch: u64, report: &str) {
+        self.push(Call::SendCrash(batch, report.into()));
+        let mut log = self.log.borrow_mut();
+        if !log.offline {
+            log.crashes.push(report.into());
+            log.sent.push_back(batch);
+        }
+    }
+
+    fn poll_sent(&mut self) -> Option<u64> {
+        self.log.borrow_mut().sent.pop_front()
     }
 }
 
@@ -251,10 +313,13 @@ mod tests {
         p.unlock("first_night");
         p.fetch("save.txt");
         p.store("save.txt", b"volume=6\n");
-        p.send(&Event {
-            name: "run_end".into(),
-            fields: vec![("kills".into(), Field::Number(12.0))],
-        });
+        p.send(
+            7,
+            &[Event {
+                name: "run_end".into(),
+                fields: vec![("kills".into(), Field::Number(12.0))],
+            }],
+        );
         p.open_store();
     }
 
@@ -262,6 +327,8 @@ mod tests {
     fn the_no_op_backend_answers_nothing() {
         let mut p = NoOp;
         exercise(&mut p);
+        assert!(!p.collects());
+        assert_eq!(p.poll_sent(), None);
         assert_eq!(p.poll_cloud(), None);
         assert!(!p.open_store() && !p.overlay_open());
         assert_eq!(p.glyph(Button::A), None);
@@ -282,7 +349,7 @@ mod tests {
                 Call::Store("save.txt".into(), b"volume=6\n".to_vec()),
             ]
         );
-        assert!(matches!(seen.calls()[3], Call::Send(ref e) if e.name == "run_end"));
+        assert!(matches!(seen.calls()[3], Call::Send(7, ref e) if e[0].name == "run_end"));
         assert_eq!(seen.calls()[4], Call::OpenStore);
         assert_eq!(seen.unlocked(), ["first_night"], "a repeat unlocks once");
     }
@@ -305,6 +372,32 @@ mod tests {
         assert_eq!(p.poll_cloud().unwrap().bytes, None);
         p.store("save.txt", b"new");
         assert_eq!(seen.cloud("save.txt").as_deref(), Some(&b"new"[..]));
+    }
+
+    #[test]
+    fn the_recorder_answers_a_batch_only_once_it_is_online() {
+        let seen = Recorder::new();
+        let mut p = seen.clone();
+        let e = Event {
+            name: "playtime".into(),
+            fields: vec![("secs".into(), Field::Number(300.0))],
+        };
+        assert!(p.collects());
+        seen.set_online(false);
+        p.send(1, std::slice::from_ref(&e));
+        p.send_crash(2, "boom");
+        assert_eq!(p.poll_sent(), None);
+        assert!(seen.delivered().is_empty() && seen.crashes().is_empty());
+        seen.set_online(true);
+        p.send(1, std::slice::from_ref(&e));
+        p.send_crash(2, "boom");
+        assert_eq!(
+            (p.poll_sent(), p.poll_sent(), p.poll_sent()),
+            (Some(1), Some(2), None)
+        );
+        assert_eq!(seen.delivered(), std::slice::from_ref(&e));
+        assert_eq!(seen.crashes(), ["boom"]);
+        assert_eq!(e.field("secs"), Some(&Field::Number(300.0)));
     }
 
     #[test]
