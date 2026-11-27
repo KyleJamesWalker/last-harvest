@@ -26,6 +26,9 @@ rustc-ice-*.txt
 # Device libraries pulled by scripts/sysroot.sh
 /.sysroot
 
+# Agent worktrees (see CLAUDE.md)
+/.claude/worktrees/
+
 # macOS Finder metadata
 .DS_Store
 __pycache__/
