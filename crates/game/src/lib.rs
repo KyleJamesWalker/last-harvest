@@ -68,7 +68,7 @@ pub use harvest::{
     NamedProp, PROP_MAX_FRAME, PROP_MAX_FRAMES, PROP_PREFIX, PropByViews, PropFields,
     load_props_for_checks, named_props, prop_fields, prop_text, set_props, turned_depth,
 };
-pub use harvest::{RangeSetup, effects_with, powerups_with, sandbox};
+pub use harvest::{Progress, RangeSetup, Run, Unlock, effects_with, powerups_with, sandbox};
 pub use harvest::{SHOT_SPRITES, Shot, shot_named, shot_sprite_names};
 pub use harvest::{SwingShow, swing_shown};
 pub use input::{Buttons, Input, InputTracker, MAX_TOUCHES, RawInput};
@@ -76,7 +76,7 @@ pub use keys::key_button;
 pub use pad::PadFamily;
 pub use save::{ModsOff, Save, TouchControls, mods_off_in, pack_key};
 pub use sfx::Sfx;
-pub use system::{Battery, Outputs, System};
+pub use system::{Ask, Battery, Outputs, System};
 
 use crate::fmath as fm;
 use menu::Page;
@@ -273,6 +273,8 @@ pub struct Game {
     setup_row: usize,
     /// The card each seat past player 1 picked on Play's page; none dresses them as `with_players` does.
     seat_looks: [Option<save::LookId>; SEATS],
+    /// What the game wants of the platform's store or console hooks, until the app takes it.
+    asks: Vec<Ask>,
 }
 
 /// Where the title's menu sits on the top screen when one screen shows both, and its scale.
@@ -352,7 +354,36 @@ impl Game {
             replays_asked: false,
             setup_row: 0,
             seat_looks: [None; SEATS],
+            asks: Vec::new(),
         }
+    }
+
+    /// Drains what the game asked of the platform's hooks; the app hands each to its backend.
+    pub fn take_asks(&mut self) -> Vec<Ask> {
+        std::mem::take(&mut self.asks)
+    }
+
+    /// Asks for every achievement the records have earned, over every difficulty, whether or not it was before.
+    fn ask_achievements(&mut self) {
+        let all = self
+            .save
+            .records
+            .iter()
+            .filter(|(id, _)| !id.as_str().is_empty())
+            .fold(harvest::Progress::default(), |p, (_, r)| {
+                harvest::Progress {
+                    kills: p.kills.saturating_add(r.kills),
+                    best: p.best.max(r.best),
+                    best_level: p.best_level.max(r.best_level),
+                    nights: p.nights.saturating_add(r.nights),
+                    dawns: p.dawns.saturating_add(r.dawns),
+                    breakers: p.breakers.saturating_add(r.breakers),
+                    breaker_dawns: p.breaker_dawns.saturating_add(r.breaker_dawns),
+                    ..p
+                }
+            });
+        self.asks
+            .extend(achievements::reached(&all).map(Ask::Unlock));
     }
 
     /// What R2 or photo mode asked to capture, if anything; the app saves the frame it just drew.
@@ -400,6 +431,7 @@ impl Game {
         self.how_to_due = !save.how_to_seen;
         self.save = save;
         pad::set_controls(save.controls);
+        self.ask_achievements();
     }
 
     pub fn save(&self) -> Save {
@@ -1109,6 +1141,7 @@ impl Game {
                         );
                     }
                     self.save.record(run);
+                    self.ask_achievements();
                 }
                 if flow.quit {
                     self.replays.extend(h.stop_recording());
@@ -2799,6 +2832,29 @@ mod tests {
         assert!(
             game.save().records(Difficulty::EASY).best > 0,
             "the first run is on Easy"
+        );
+        assert!(
+            game.take_asks().contains(&Ask::Unlock("first_night")),
+            "and earns its achievement"
+        );
+        assert!(game.take_asks().is_empty(), "asked once");
+    }
+
+    #[test]
+    fn a_loaded_save_asks_for_what_every_difficultys_records_have_earned() {
+        let mut game = Game::new(1);
+        game.unlock_everything();
+        game.load(Save::default());
+        assert!(game.take_asks().is_empty(), "a try-out earns nothing");
+        let mut played = Save::default();
+        for (d, kills) in [(Difficulty::EASY, 60), (Difficulty::HARD, 40)] {
+            played.records_mut(d).unwrap().kills = kills;
+        }
+        game.load(played);
+        assert_eq!(
+            game.take_asks(),
+            [Ask::Unlock("kills_100")],
+            "kills add up over difficulties"
         );
     }
 
