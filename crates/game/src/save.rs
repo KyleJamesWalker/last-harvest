@@ -328,6 +328,20 @@ impl Records {
         )
     }
 
+    fn max(self, o: Records) -> Self {
+        Self {
+            best: self.best.max(o.best),
+            kills: self.kills.max(o.kills),
+            best_level: self.best_level.max(o.best_level),
+            nights: self.nights.max(o.nights),
+            dawns: self.dawns.max(o.dawns),
+            breakers: self.breakers.max(o.breakers),
+            breaker_dawns: self.breaker_dawns.max(o.breaker_dawns),
+            found: self.found | o.found,
+            best_dps: self.best_dps.max(o.best_dps),
+        }
+    }
+
     /// Words it doesn't know, and numbers that don't read, are left at 0.
     fn from_text(text: &str) -> Self {
         let mut r = Self::default();
@@ -444,6 +458,34 @@ impl Save {
             history: [None; HISTORY],
             ..self
         }
+    }
+
+    /// This save with `other`'s progress folded in, keeping this save's settings: each record the higher of the two,
+    /// found powerups and the how-to page combined, and `other`'s runs that this history lacks after its own.
+    pub fn with_progress_of(self, other: &Save) -> Self {
+        let mut out = self;
+        for (id, theirs) in other.records.iter().filter(|(id, _)| id.len > 0) {
+            if let Some(r) = out.records_for(id.as_str(), |_| true) {
+                *r = r.max(*theirs);
+            }
+        }
+        out.how_to_seen |= other.how_to_seen;
+        let mut runs: Vec<Run> = self.history.iter().flatten().copied().collect();
+        let mut unmatched: Vec<String> = runs.iter().map(run_text).collect();
+        for run in other.history.iter().flatten() {
+            let text = run_text(run);
+            match unmatched.iter().position(|t| *t == text) {
+                Some(at) => {
+                    unmatched.swap_remove(at);
+                }
+                None => runs.push(*run),
+            }
+        }
+        out.history = [None; HISTORY];
+        for (slot, run) in out.history.iter_mut().zip(runs) {
+            *slot = Some(run);
+        }
+        out
     }
 
     /// What `d`'s nights have earned so far.
@@ -812,6 +854,81 @@ mod tests {
             *slot = Some((powerup_index(id).unwrap() as u16, level));
         }
         kit
+    }
+
+    #[test]
+    fn merging_takes_the_higher_record_and_every_unlock_and_keeps_this_saves_settings() {
+        let mut mine = Save {
+            volume: 2,
+            difficulty: Difficulty::HARD,
+            mods_off: ModsOff::parse("old_pack"),
+            ..Save::default()
+        };
+        *mine.records_mut(Difficulty::NORMAL).unwrap() = Records {
+            kills: 100,
+            nights: 5,
+            found: 0b01,
+            ..Records::default()
+        };
+        mine.records_mut(Difficulty::HARD).unwrap().best = 300;
+        mine.record(Run {
+            broke: true,
+            ..run(300, 40)
+        });
+        let mut theirs = Save {
+            volume: 9,
+            mods_off: ModsOff::parse("new_pack"),
+            how_to_seen: true,
+            ..Save::default()
+        };
+        *theirs.records_mut(Difficulty::NORMAL).unwrap() = Records {
+            kills: 50,
+            nights: 9,
+            found: 0b10,
+            ..Records::default()
+        };
+        theirs.records_mut(Difficulty::EASY).unwrap().dawns = 2;
+        theirs.record(run(300, 40));
+        theirs.record(run(600, 90));
+
+        let merged = mine.with_progress_of(&theirs);
+        assert_eq!(
+            merged.records(Difficulty::NORMAL),
+            Records {
+                kills: 100,
+                nights: 9,
+                found: 0b11,
+                ..Records::default()
+            }
+        );
+        assert_eq!(merged.records(Difficulty::HARD).best, 300);
+        assert_eq!(merged.records(Difficulty::EASY).dawns, 2);
+        assert!(merged.how_to_seen);
+        assert_eq!(
+            merged
+                .history
+                .iter()
+                .flatten()
+                .map(|r| r.secs)
+                .collect::<Vec<_>>(),
+            [300, 600],
+            "this save's runs first, then the other's it lacks, once each"
+        );
+        assert_eq!(
+            Save {
+                records: mine.records,
+                history: mine.history,
+                how_to_seen: mine.how_to_seen,
+                ..merged
+            },
+            mine,
+            "every setting stays this save's"
+        );
+        assert_eq!(
+            merged.with_progress_of(&theirs),
+            merged,
+            "merging twice adds nothing"
+        );
     }
 
     #[test]

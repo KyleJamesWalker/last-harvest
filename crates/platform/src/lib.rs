@@ -80,7 +80,8 @@ pub enum Button {
 
 /// What the platform's input layer calls each game button.
 pub trait InputGlyphs {
-    /// The label to show for `button`, or none to keep the game's own.
+    /// The label to show for `button`, or none to keep the game's own. `button` is the pad button the game reads, before
+    /// the player's own remap; the app asks every half second or so, so answer from a cache.
     fn glyph(&self, _button: Button) -> Option<String> {
         None
     }
