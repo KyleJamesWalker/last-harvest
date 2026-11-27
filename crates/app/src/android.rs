@@ -1267,7 +1267,13 @@ fn load_data(android: &AndroidApp) -> Result<Option<&'static samples::Files>, St
         .asset_manager()
         .open(c"game_data.pak")
         .map(|mut a| a.buffer().map(|b| Some(b.to_vec())).map_err(text));
-    let pack = match bundled.unwrap_or_else(|| release_pack(android)) {
+    let pack = match bundled.unwrap_or_else(|| {
+        if cfg!(feature = "store") {
+            Err("the APK carries no game_data.pak".to_string())
+        } else {
+            release_pack(android)
+        }
+    }) {
         Ok(Some(bytes)) => Pak::read(Cursor::new(bytes)).inspect_err(|_| {
             if let Some(path) = pack_path(android) {
                 let _ = std::fs::remove_file(path);
@@ -1288,9 +1294,13 @@ fn load_data(android: &AndroidApp) -> Result<Option<&'static samples::Files>, St
             WITHOUT_DATA.store(true, Ordering::SeqCst);
             pak::install_without(
                 None,
-                Some(format!(
-                    "Connect to the internet and start the game again to download its data ({e})."
-                )),
+                Some(if cfg!(feature = "store") {
+                    format!("Reinstall the game: its data is missing ({e}).")
+                } else {
+                    format!(
+                        "Connect to the internet and start the game again to download its data ({e})."
+                    )
+                }),
                 &off,
             )?
         }
