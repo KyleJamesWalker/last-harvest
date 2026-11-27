@@ -12,7 +12,7 @@
 //! | `build_pick` | as a run ends, one per powerup it ended with | `powerup`, `level`, `difficulty`, `won`, `secs` |
 //!
 //! `won` and `broke` are 1 or 0. Events wait in an outbox, `metrics.txt` in the store folder, so they outlast a
-//! night offline and a power-off; the backend gets them a batch at a time, and each batch stays until the backend
+//! night offline and a power-off (play time is written at most each `PLAYTIME_CHUNK`); the backend gets them a batch at a time, and each batch stays until the backend
 //! answers its id. A panic writes a crash report into `crashes/` for the next start to send. Withdrawing consent
 //! deletes the outbox and every crash report not yet sent.
 
@@ -70,6 +70,7 @@ pub struct Telemetry {
     playtime: f32,
     loaded: bool,
     dirty: bool,
+    purged: bool,
 }
 
 impl Telemetry {
@@ -85,6 +86,7 @@ impl Telemetry {
             playtime: 0.0,
             loaded: false,
             dirty: false,
+            purged: false,
         }
     }
 
@@ -94,11 +96,12 @@ impl Telemetry {
         let sharing = consent == Consent::Yes && backend.collects();
         SHARING.store(sharing, Ordering::Relaxed);
         if !sharing {
-            if consent == Consent::No {
+            if consent == Consent::No && !self.purged {
                 self.purge();
             }
             return;
         }
+        self.purged = false;
         if !self.loaded {
             self.load();
         }
@@ -138,7 +141,7 @@ impl Telemetry {
     }
 
     /// Takes the backend's answers, sends a batch again that went unanswered, and sends the next; true once an
-    /// answer took items out.
+    /// answer took items out. A new batch's id reaches disk before the backend sees it, so no restart reuses it.
     fn deliver(&mut self, backend: &mut dyn Metrics, dt: f32) -> bool {
         let mut done = false;
         while let Some(id) = backend.poll_sent() {
@@ -180,6 +183,7 @@ impl Telemetry {
                         items: n,
                         age: 0.0,
                     });
+                    self.write();
                     self.send(backend, id, n);
                     self.since_flush = 0.0;
                 }
@@ -269,8 +273,7 @@ impl Telemetry {
             return true;
         };
         let path = dir.join(OUTBOX);
-        let tmp = path.with_extension("tmp");
-        match fs::write(&tmp, self.to_text()).and_then(|()| fs::rename(&tmp, &path)) {
+        match write_synced(&path, self.to_text().as_bytes()) {
             Ok(()) => {
                 self.dirty = false;
                 true
@@ -291,6 +294,7 @@ impl Telemetry {
             fs::remove_dir_all(dir.join(CRASHES)).ok();
         }
         *self = Self::new(self.store.take());
+        self.purged = true;
     }
 
     fn to_text(&self) -> String {
@@ -349,6 +353,20 @@ impl Telemetry {
     fn kept(&self) -> usize {
         self.items.len()
     }
+}
+
+/// The SD card is vfat and may lose power at any moment, so sync a temp file, rename it, then sync the folder.
+fn write_synced(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let tmp = path.with_extension("tmp");
+    let mut f = fs::File::create(&tmp)?;
+    f.write_all(bytes)?;
+    f.sync_all()?;
+    fs::rename(&tmp, path)?;
+    if let Some(parent) = path.parent() {
+        fs::File::open(parent).and_then(|d| d.sync_all()).ok();
+    }
+    Ok(())
 }
 
 fn event_from_text(text: &str) -> Option<Event> {
@@ -637,6 +655,29 @@ mod tests {
         let mut again = Telemetry::new(Some(dir.clone()));
         again.load();
         assert_eq!(again.kept(), 0, "the delivered are gone from disk too");
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_batch_id_outlasts_a_power_off_so_the_next_start_never_reuses_it() {
+        let dir = temp("ids");
+        let seen = Recorder::new();
+        seen.set_online(false);
+        let mut backend = seen.clone();
+        let mut t = Telemetry::new(Some(dir.clone()));
+        t.frame(Consent::Yes, &[], &mut backend, FLUSH_EVERY);
+        drop(t);
+        let mut t = Telemetry::new(Some(dir.clone()));
+        t.frame(Consent::Yes, &[], &mut backend, FLUSH_EVERY);
+        let ids: Vec<u64> = seen
+            .calls()
+            .iter()
+            .filter_map(|c| match c {
+                Call::Send(id, _) => Some(*id),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(ids, [1, 2]);
         fs::remove_dir_all(&dir).ok();
     }
 
