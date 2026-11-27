@@ -14,6 +14,10 @@ use crate::samples::{self, Files};
 const DATA: &str = "data";
 const PAK: &str = "data/game_data.pak";
 
+/// A store build's `game_data.pak`, built into the binary so it never looks beside it or downloads one.
+#[cfg(all(feature = "store", not(target_os = "android")))]
+const STORE_PAK: &[u8] = include_bytes!(env!("LAST_HARVEST_BUNDLED_PAK"));
+
 /// The weapon section the range tries, laid over the powerups the game installs.
 static TRIED: Mutex<Option<String>> = Mutex::new(None);
 
@@ -70,12 +74,12 @@ fn find() -> Option<PathBuf> {
 }
 
 /// A fetch that failed this session isn't tried again.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(any(target_arch = "wasm32", feature = "store")))]
 static FETCH_FAILED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Downloads this release's `game_data.pak` into `data/` with the system's `curl`, keeping it only when it matches
 /// the sha256 the release gives and reads. A dev build, or a run with `LAST_HARVEST_PAK` set, does not fetch one.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(any(target_arch = "wasm32", feature = "store")))]
 fn fetch_release_pack() -> Option<(Pak, PathBuf)> {
     use std::sync::atomic::Ordering;
     if cfg!(feature = "embed")
@@ -98,14 +102,14 @@ fn fetch_release_pack() -> Option<(Pak, PathBuf)> {
     got
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(any(target_arch = "wasm32", feature = "store")))]
 fn curl() -> std::process::Command {
     let mut c = std::process::Command::new(if cfg!(windows) { "curl.exe" } else { "curl" });
     c.args(["-fsSL", "--connect-timeout", "2"]);
     c
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(any(target_arch = "wasm32", feature = "store")))]
 fn fetch_pack_into(
     dir: &std::path::Path,
     version: &str,
@@ -174,13 +178,13 @@ fn fetch_pack_into(
     }
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", feature = "store"))]
 fn fetch_release_pack() -> Option<(Pak, PathBuf)> {
     None
 }
 
 /// The sha256 a GitHub release's JSON gives its `game_data.pak` asset, whatever the key order and nesting.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(any(target_arch = "wasm32", feature = "store")))]
 fn pak_digest(json: &str) -> Option<String> {
     let b = json.as_bytes();
     let (mut i, mut depth, mut key) = (0, 0, None::<String>);
@@ -465,6 +469,30 @@ pub fn load() -> Result<Files, String> {
 
 /// `load` leaving out the mod packs whose keys are `off`.
 pub fn load_without(off: &[String]) -> Result<Files, String> {
+    #[cfg(all(feature = "store", not(target_os = "android")))]
+    if std::env::var_os("LAST_HARVEST_PAK").is_none() {
+        return match Pak::read(std::io::Cursor::new(STORE_PAK)) {
+            Ok(pak) => {
+                log!(
+                    "data: built-in game_data.pak ({})",
+                    pak.version().unwrap_or("no version")
+                );
+                install_noting(Some(pak), None, Vec::new(), Vec::new(), off)
+            }
+            Err(e) => {
+                log!("data: built-in game_data.pak: {e}");
+                let missing = (!cfg!(feature = "embed"))
+                    .then(|| format!("This build's game_data.pak won't open: {e}"));
+                install_noting(
+                    None,
+                    missing,
+                    Vec::new(),
+                    vec![format!("game_data.pak: {e}")],
+                    off,
+                )
+            }
+        };
+    }
     let mut missing_pack = None;
     let mut problems = Vec::new();
     let folder = || missing(data_folder().map_or_else(|| DATA.into(), |d| d.display().to_string()));
@@ -1003,6 +1031,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(feature = "store"))]
     #[test]
     fn a_release_json_gives_the_packs_sha256_wherever_its_keys_are() {
         let json = r#"{"tag_name":"v1","assets":[{"name":"x.tar.gz","digest":"sha256:aa"},{"uploader":{"name":"me","digest":"sha256:bb"},"digest":"sha256:CC","name":"game_data.pak"}]}"#;
@@ -1014,6 +1043,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(feature = "store"))]
     #[test]
     fn fetching_a_release_pack_saves_it_only_when_it_matches_its_sha256_and_opens() {
         use sha2::Digest;

@@ -1,6 +1,11 @@
 //! The game's data, sound and music, shared by its shells: `main.rs` in windows on the device and macOS, `web.rs`
 //! in a web page, and `android.rs` on a phone.
 
+#[cfg(all(feature = "store", target_arch = "wasm32"))]
+compile_error!(
+    "the store feature builds in game_data.pak, which holds the licensed tileset: never for the web"
+);
+
 #[cfg(target_os = "android")]
 mod android;
 pub mod audio;
