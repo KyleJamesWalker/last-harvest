@@ -1,7 +1,10 @@
 //! What the player's own pad or keyboard calls each game button, so hints name the button under their thumb.
 //! The game's buttons are the RG DS's, and every platform maps a pad's face buttons to them by position.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
+use std::fmt;
+use std::ops::Deref;
+use std::rc::Rc;
 
 use crate::Buttons;
 use crate::controls::Controls;
@@ -118,6 +121,64 @@ thread_local! {
     static CONTROLS: Cell<Controls> = Cell::new(Controls::default());
     static BY_NAME: Cell<bool> = const { Cell::new(false) };
     static MOUSE: Cell<bool> = const { Cell::new(false) };
+    static PLATFORM: RefCell<[Option<Rc<str>>; 10]> = const { RefCell::new([const { None }; 10]) };
+}
+
+/// A button's label: the game's own, or the one the platform's input layer gave.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Label {
+    Own(&'static str),
+    Platform(Rc<str>),
+}
+
+impl Deref for Label {
+    type Target = str;
+
+    fn deref(&self) -> &str {
+        match self {
+            Self::Own(s) => s,
+            Self::Platform(s) => s,
+        }
+    }
+}
+
+impl fmt::Display for Label {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str(self)
+    }
+}
+
+impl PartialEq<&str> for Label {
+    fn eq(&self, other: &&str) -> bool {
+        **self == **other
+    }
+}
+
+/// Replaces the platform's labels, each keyed by the pad button it names; an empty one keeps the game's own.
+/// Returns whether any changed.
+pub(crate) fn set_platform_labels<'a>(
+    labels: impl IntoIterator<Item = (Buttons, &'a str)>,
+) -> bool {
+    let mut new: [Option<&str>; 10] = [None; 10];
+    for (b, text) in labels {
+        if let Some(i) = NAMES.iter().position(|&(_, n)| n == b)
+            && !text.is_empty()
+        {
+            new[i] = Some(text);
+        }
+    }
+    PLATFORM.with_borrow_mut(|held| {
+        if held.iter().map(Option::as_deref).eq(new) {
+            return false;
+        }
+        *held = new.map(|l| l.map(Rc::from));
+        true
+    })
+}
+
+fn platform(b: Buttons) -> Option<Rc<str>> {
+    let i = NAMES.iter().position(|&(_, n)| n == b)?;
+    PLATFORM.with_borrow(|held| held[i].clone())
 }
 
 /// The platform maps a pad's face buttons by the names printed on them rather than by position, as Android does.
@@ -125,8 +186,18 @@ pub(crate) fn set_by_name(on: bool) {
     BY_NAME.set(on);
 }
 
+/// The platform's label for pad button `b`, else what `family` prints on it. The platform never relabels keys.
+fn shown(family: PadFamily, b: Buttons) -> Label {
+    if family != PadFamily::Keyboard
+        && let Some(l) = platform(b)
+    {
+        return Label::Platform(l);
+    }
+    Label::Own(printed(family, b))
+}
+
 /// What `family` prints on the button that sends game button `b`, by position or, with `set_by_name`, by name.
-fn shown(family: PadFamily, b: Buttons) -> &'static str {
+fn printed(family: PadFamily, b: Buttons) -> &'static str {
     if family == PadFamily::Keyboard && MOUSE.get() {
         match b {
             Buttons::R1 => return "Click",
@@ -175,21 +246,21 @@ pub fn last_pad() -> PadFamily {
 }
 
 /// What the active pad calls the button that sends game button `b`.
-pub fn label(b: Buttons) -> &'static str {
+pub fn label(b: Buttons) -> Label {
     label_as(active(), b)
 }
 
 /// What `family` calls the button that sends game button `b`.
-pub fn label_as(family: PadFamily, b: Buttons) -> &'static str {
+pub fn label_as(family: PadFamily, b: Buttons) -> Label {
     shown(family, CONTROLS.get().physical(b))
 }
 
 /// A hint with each `{A}`, `{L1}`, `{Start}` and so on replaced by the active pad's label for that game button.
 pub fn hint(text: &str) -> String {
-    fill(active(), CONTROLS.get(), text)
+    fill(text, |b| shown(active(), CONTROLS.get().physical(b)))
 }
 
-fn fill(family: PadFamily, controls: Controls, text: &str) -> String {
+fn fill(text: &str, name: impl Fn(Buttons) -> Label) -> String {
     let mut out = String::with_capacity(text.len());
     let mut rest = text;
     while let Some(open) = rest.find('{') {
@@ -202,7 +273,7 @@ fn fill(family: PadFamily, controls: Controls, text: &str) -> String {
                 .map(|&(_, b)| (close, b))
         }) {
             Some((close, b)) => {
-                out.push_str(shown(family, controls.physical(b)));
+                out.push_str(&name(b));
                 rest = &after[close + 1..];
             }
             None => {
@@ -219,7 +290,7 @@ fn fill(family: PadFamily, controls: Controls, text: &str) -> String {
 pub fn hint_sized(text: &str, size: f32) -> (String, f32) {
     let (shown, own) = (
         hint(text),
-        fill(PadFamily::Nintendo, Controls::default(), text),
+        fill(text, |b| Label::Own(PadFamily::Nintendo.label(b))),
     );
     let k = own.chars().count() as f32 / shown.chars().count().max(1) as f32;
     (shown, size * k.min(1.0))
@@ -361,6 +432,52 @@ mod tests {
             "as wide as X: aim at 24: {size}"
         );
         assert_eq!(hint_sized("{L1}: map", 24.0).1, 24.0, "never grows");
+        set_active(PadFamily::Nintendo);
+    }
+
+    #[test]
+    fn the_platforms_labels_name_the_pad_buttons_but_never_the_keys() {
+        set_active(PadFamily::Xbox);
+        assert!(set_platform_labels([
+            (Buttons::A, "Steam A"),
+            (Buttons::L1, "")
+        ]));
+        assert!(!set_platform_labels([(Buttons::A, "Steam A")]), "unchanged");
+        assert_eq!(label(Buttons::A), "Steam A");
+        assert!(matches!(label(Buttons::A), Label::Platform(_)));
+        assert_eq!(
+            label(Buttons::L1),
+            "LB",
+            "an empty label keeps the family's"
+        );
+        set_by_name(true);
+        assert_eq!(label_as(PadFamily::PlayStation, Buttons::A), "Steam A");
+        set_by_name(false);
+        assert_eq!(label_as(PadFamily::Keyboard, Buttons::A), "E");
+        set_mouse(true);
+        assert_eq!(label_as(PadFamily::Keyboard, Buttons::R1), "Click");
+        set_mouse(false);
+        assert_eq!(hint("{A}: pick   {B}: back"), "Steam A: pick   A: back");
+
+        let mut swapped = Controls::default();
+        swapped.bind(Buttons::B, Buttons::A);
+        set_controls(swapped);
+        assert_eq!(
+            label(Buttons::B),
+            "Steam A",
+            "keyed by the pad button, after the remap"
+        );
+        set_controls(Controls::default());
+
+        let (text, size) = hint_sized("{A}: aim", 24.0);
+        assert_eq!(text, "Steam A: aim");
+        assert!(
+            (size - 24.0 * 6.0 / 12.0).abs() < 1e-4,
+            "as wide as A: aim at 24: {size}"
+        );
+
+        assert!(set_platform_labels([]));
+        assert_eq!(label(Buttons::A), "B", "cleared");
         set_active(PadFamily::Nintendo);
     }
 }
