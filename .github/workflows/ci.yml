@@ -71,6 +71,12 @@ jobs:
         run: |
           cargo clippy --locked --target x86_64-pc-windows-gnu -p last-harvest --bin last-harvest --no-default-features -- -D warnings
           cargo clippy --locked -p last-harvest --bin last-harvest-muos --no-default-features --features muos -- -D warnings
+      - name: The store build compiles with its pack built in
+        if: steps.key.outputs.present
+        run: |
+          cargo run -q --locked -p last-harvest-pack
+          cargo clippy --locked -p last-harvest --all-targets --no-default-features --features store -- -D warnings
+          cargo test --locked -p last-harvest --features store
       - name: The wasm builds compile, without the tileset
         if: steps.key.outputs.present
         run: |
