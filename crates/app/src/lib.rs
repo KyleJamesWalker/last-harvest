@@ -1,4 +1,4 @@
-//! The game's data, sound and music, shared by its shells: `main.rs` in windows on the device and macOS, `web.rs`
+//! The game's data, sound and music, shared by its shells: `desktop.rs` in windows on the device and macOS, `web.rs`
 //! in a web page, and `android.rs` on a phone.
 
 #[cfg(all(feature = "store", target_arch = "wasm32"))]
@@ -6,11 +6,16 @@ compile_error!(
     "the store feature builds in game_data.pak, which holds the licensed tileset: never for the web"
 );
 
+// `persist.rs` is compiled here and in the muOS binary, and names this crate the same way in both.
+extern crate self as last_harvest;
+
 #[cfg(target_os = "android")]
 mod android;
 pub mod audio;
 pub mod clock;
 pub mod controllers;
+#[cfg(not(any(target_arch = "wasm32", target_os = "android")))]
+pub mod desktop;
 pub mod log;
 mod loops;
 pub mod online;
