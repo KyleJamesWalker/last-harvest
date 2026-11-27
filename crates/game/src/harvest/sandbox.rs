@@ -9,7 +9,7 @@ use super::map::TILE;
 use super::player::PlayerId;
 use super::powerups::{Kind, book};
 use super::replay::{Kind as Made, Op, Setup};
-use super::{Choice, Harvest, ME, Phase, Progress, dawn, len, sub};
+use super::{Choice, Harvest, ME, Phase, Progress, Run, achievements, dawn, len, sub};
 use crate::rng::Rng;
 use crate::sfx::Sfx;
 use crate::{Buttons, Difficulty, Input};
@@ -256,6 +256,17 @@ pub struct Night {
     /// Each player's own numbers, the local player first.
     pub seats: Vec<Seat>,
     pub replay: Option<Vec<u8>>,
+    /// The night as the first player's record would keep it.
+    pub run: Run,
+}
+
+impl Night {
+    /// What the game would ask of the platform after this night, from a player whose records were `before`.
+    pub fn asks(&self, before: Progress) -> Vec<crate::Ask> {
+        achievements::reached(&before.after(self.run))
+            .map(crate::Ask::Unlock)
+            .collect()
+    }
 }
 
 /// A build from `id` or `id:level` items, comma separated; `top` is a weapon's last level and `break` its breaker's.
@@ -443,6 +454,7 @@ pub fn night(plan: &Plan) -> Night {
             })
             .collect(),
         replay: h.stop_recording().pop(),
+        run: h.run(matches!(h.phase, Phase::Over { won: true, .. })),
     }
 }
 

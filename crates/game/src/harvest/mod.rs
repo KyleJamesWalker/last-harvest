@@ -67,7 +67,7 @@ pub use players::{
     set_player_start, use_player_farm, weapon_slots, weapons,
 };
 pub use powerups::{
-    DEFAULT_SOUND_DELAY, Progress, RUN_KIT, Run, WeaponLevels, found_from_ids, found_ids,
+    DEFAULT_SOUND_DELAY, Progress, RUN_KIT, Run, Unlock, WeaponLevels, found_from_ids, found_ids,
     hidden_for as hidden_powerups, owners as powerup_owners, powerup_id, powerup_index,
     powerup_zones, sound_group, sound_groups, unlock_conditions, valid_sound_group, weapon_aims,
     weapon_behaviours, weapon_levels, weapon_patterns, weapon_sound_names, weapon_stats,
@@ -2964,6 +2964,17 @@ impl Harvest {
     /// How the run went, and what it unlocked.
     fn finish(&mut self, won: bool) -> Run {
         self.juice.tally.shut = true;
+        let run = self.run(won);
+        let after = self.progress.after(run);
+        self.ready = (0..book().defs.len())
+            .filter(|&i| !self.progress.findable(i) && after.findable(i))
+            .count();
+        self.progress = after;
+        run
+    }
+
+    /// How the run stands, as its record would keep it.
+    fn run(&self, won: bool) -> Run {
         let mut kit = [None; RUN_KIT];
         let held = self
             .me()
@@ -2975,7 +2986,7 @@ impl Harvest {
         for (slot, (def, level)) in kit.iter_mut().zip(held) {
             *slot = Some((def as u16, level.min(u8::MAX as u32) as u8));
         }
-        let run = Run {
+        Run {
             secs: self.t as u32,
             kills: self.kills,
             level: self.level,
@@ -2984,13 +2995,7 @@ impl Harvest {
             difficulty: self.difficulty,
             dps: self.juice.tally.dps(ME).round() as u32,
             kit,
-        };
-        let after = self.progress.after(run);
-        self.ready = (0..book().defs.len())
-            .filter(|&i| !self.progress.findable(i) && after.findable(i))
-            .count();
-        self.progress = after;
-        run
+        }
     }
 
     /// Zombies arrive just out of sight, faster and tougher as the night goes on. Once the night is full, what's owed

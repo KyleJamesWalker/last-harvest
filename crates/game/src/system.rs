@@ -34,6 +34,13 @@ pub struct Outputs {
     pub low_led: bool,
 }
 
+/// What the game asks of the platform's store or console hooks.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Ask {
+    /// Unlock an achievement by its `achievements.txt` id.
+    Unlock(&'static str),
+}
+
 const PANEL: [f32; 4] = [0.0, 0.0, 0.0, 0.6];
 const TEXT: [f32; 4] = [1.0, 1.0, 1.0, 0.95];
 const WARN: [f32; 4] = [1.0, 0.45, 0.35, 1.0];
