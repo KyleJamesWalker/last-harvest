@@ -143,6 +143,7 @@ fn run() -> Result<(), String> {
     sdl.mouse().show_cursor(false);
 
     let (mut saver, save) = persist::Saver::load();
+    let mut platform = last_harvest::platform::backend();
     let mut game = Game::new(
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -294,6 +295,7 @@ fn run() -> Result<(), String> {
         for inputs in ticker.frame_all(frame, std::iter::once(input).chain(others).collect()) {
             game.update_all(&inputs, clock::STEP);
         }
+        last_harvest::platform::serve(&mut game, platform.as_mut());
         persist::keep_replays(game.take_replays());
         if game.take_replays_request() {
             game.set_saved_replays(persist::saved_replays());

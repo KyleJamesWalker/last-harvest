@@ -1687,6 +1687,7 @@ dependencies = [
  "last-harvest-game",
  "last-harvest-net",
  "last-harvest-pack",
+ "last-harvest-platform",
  "last-harvest-relay",
  "last-harvest-render",
  "lewton",
@@ -1752,6 +1753,10 @@ dependencies = [
  "png",
  "zip",
 ]
+
+[[package]]
+name = "last-harvest-platform"
+version = "0.1.0"
 
 [[package]]
 name = "last-harvest-relay"

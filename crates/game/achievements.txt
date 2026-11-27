@@ -1,0 +1,37 @@
+# The achievements a store or console can award. The game asks the platform to unlock each one whose condition its
+# records meet, at the end of every night and when a save loads. A store's own achievement list must use these ids.
+# Mods can't change this file.
+#
+#   [id]          start of an achievement: lowercase letters, digits and _, never changed once a store has it
+#   name  Text    its title
+#   when  kills N | night SECONDS | level N | nights N | dawns N | breakers N | breaker_dawns N
+#                 as powerups.txt's unlock, over every difficulty's records: kills, nights, dawns and breakers add
+#                 up, night and level are the best single run
+
+[first_night]
+name  First Night
+when  nights 1
+
+[kills_100]
+name  Pest Control
+when  kills 100
+
+[kills_1000]
+name  Thinning the Herd
+when  kills 1000
+
+[kills_10000]
+name  Harvest of the Dead
+when  kills 10000
+
+[night_300]
+name  Halfway to Dawn
+when  night 300
+
+[level_10]
+name  Seasoned
+when  level 10
+
+[nights_10]
+name  Regular
+when  nights 10

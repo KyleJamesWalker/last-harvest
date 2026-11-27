@@ -5,6 +5,7 @@ A survivors-like for a dual-screen Linux handheld, with a web build and sprite/c
 ## Workspace
 - `crates/game`: scenes, rules and data tables; no platform code. The loop is `App::tick` (app) → `Game::update` → `Harvest::update`.
 - `crates/render`: OpenGL renderer. `crates/app`: the device/macOS binary and the wasm game. `crates/editor`: sprite editor (native, iPad via `crates/sprite-server`) and the public card editor (wasm). `crates/pack`: builds `game_data.pak` and mod packs.
+- `crates/platform`: store and console hooks (achievements, cloud saves, metrics, store overlay, input glyphs) with no-op and recording backends; no vendor SDK code. The game queues `Ask`s; `crates/app/src/platform.rs` picks the backend and hands them to it.
 
 ## Checks
 - `cargo fmt --all`, `cargo clippy --workspace --all-targets` at zero warnings and `cargo test --workspace` before every commit; CI (`.github/workflows/ci.yml`) runs `cargo fmt --all --check` and clippy with `-D warnings`.
