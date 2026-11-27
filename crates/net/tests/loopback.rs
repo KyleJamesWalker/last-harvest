@@ -25,9 +25,15 @@ fn connect_all(n: usize, room: &str) -> Vec<PeerSocket> {
     // matchbox_signaling's full-mesh builder loses NewPeer for two peers that join at once.
     let mut sockets: Vec<PeerSocket> = Vec::new();
     for _ in 0..n {
-        let mut socket = PeerSocket::connect(&format!("ws://127.0.0.1:{port}/{room}"), &IceConfig::default());
+        let mut socket = PeerSocket::connect(
+            &format!("ws://127.0.0.1:{port}/{room}"),
+            &IceConfig::default(),
+        );
         while socket.id().is_none() {
-            assert!(Instant::now() < deadline, "no peer id from the signaling server");
+            assert!(
+                Instant::now() < deadline,
+                "no peer id from the signaling server"
+            );
             std::thread::sleep(Duration::from_millis(10));
         }
         std::thread::sleep(Duration::from_millis(50));
@@ -89,7 +95,12 @@ fn channels_reach_every_peer() {
         assert!(Instant::now() < deadline, "messages missing: {got:?}");
         for (i, socket) in sockets.iter_mut().enumerate() {
             for channel in [RELIABLE, UNRELIABLE] {
-                got[i].extend(socket.receive(channel).into_iter().map(|(p, d)| (channel, p, d)));
+                got[i].extend(
+                    socket
+                        .receive(channel)
+                        .into_iter()
+                        .map(|(p, d)| (channel, p, d)),
+                );
             }
         }
         std::thread::sleep(Duration::from_millis(5));
@@ -98,7 +109,11 @@ fn channels_reach_every_peer() {
         for (channel, from, data) in messages {
             let sender = ids.iter().position(|id| id == from).unwrap();
             assert_ne!(sender, i);
-            let expected = if *channel == RELIABLE { vec![sender as u8; 3] } else { vec![sender as u8 + 10] };
+            let expected = if *channel == RELIABLE {
+                vec![sender as u8; 3]
+            } else {
+                vec![sender as u8 + 10]
+            };
             assert_eq!(data, &expected);
         }
     }

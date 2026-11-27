@@ -41,7 +41,11 @@ impl Client {
 fn effect_of(looks: &mut HashMap<u16, Effect>, art: u16) -> Option<Effect> {
     if looks.is_empty() {
         let all = effects::effects();
-        for e in effects::NAMES.iter().filter_map(|n| all.named(n)).chain(all.extra.iter().map(|x| x.1)) {
+        for e in effects::NAMES
+            .iter()
+            .filter_map(|n| all.named(n))
+            .chain(all.extra.iter().map(|x| x.1))
+        {
             if let Some(a) = e.frames.first() {
                 looks.entry(a.0).or_insert(e);
             }
@@ -54,21 +58,46 @@ impl Harvest {
     /// A client's touch on its level-up cards and keys, as the buttons the host's `choose` reads: input crosses
     /// without touches.
     pub(crate) fn client_taps(&mut self, input: &Input) -> Input {
-        let Phase::LevelUp { choices, selected, picked: None, .. } = self.phase else { return *input };
-        let Some(p) = input.touch.filter(|_| input.touch_started) else { return *input };
+        let Phase::LevelUp {
+            choices,
+            selected,
+            picked: None,
+            ..
+        } = self.phase
+        else {
+            return *input;
+        };
+        let Some(p) = input.touch.filter(|_| input.touch_started) else {
+            return *input;
+        };
         let mut out = *input;
-        let fillers = choices.iter().all(|c| book().defs[c.up].kind == Card::Filler);
+        let fillers = choices
+            .iter()
+            .all(|c| book().defs[c.up].kind == Card::Filler);
         match level_key(p, self.level) {
             Some(LevelKey::Reroll) => {
                 (self.banishing, self.favoring) = (false, false);
                 out.pressed |= Buttons::R1;
             }
-            Some(LevelKey::Banish) => (self.banishing, self.favoring) = (!self.banishing && self.banishes > 0 && !fillers, false),
-            Some(LevelKey::Favor) => (self.favoring, self.banishing) = (!self.favoring && self.can_favor() && !fillers, false),
+            Some(LevelKey::Banish) => {
+                (self.banishing, self.favoring) =
+                    (!self.banishing && self.banishes > 0 && !fillers, false)
+            }
+            Some(LevelKey::Favor) => {
+                (self.favoring, self.banishing) =
+                    (!self.favoring && self.can_favor() && !fillers, false)
+            }
             None => {
                 if let Some(i) = choice_row(p[1]).filter(|&i| i < choices.len()) {
-                    let step = [Buttons::NONE, Buttons::DOWN, Buttons::UP][(i + choices.len() - selected) % choices.len()];
-                    let act = if self.banishing { Buttons::L1 } else if self.favoring { Buttons::Y } else { Buttons::X };
+                    let step = [Buttons::NONE, Buttons::DOWN, Buttons::UP]
+                        [(i + choices.len() - selected) % choices.len()];
+                    let act = if self.banishing {
+                        Buttons::L1
+                    } else if self.favoring {
+                        Buttons::Y
+                    } else {
+                        Buttons::X
+                    };
                     out.pressed |= step | act;
                     (self.banishing, self.favoring) = (false, false);
                 }
@@ -85,7 +114,10 @@ impl Harvest {
         self.net.role = online::Role::Client;
         self.net.seats = order.clone();
         self.juice.still = true;
-        self.net.client = Some(Box::new(Client { order, ..Client::default() }));
+        self.net.client = Some(Box::new(Client {
+            order,
+            ..Client::default()
+        }));
         self
     }
 
@@ -95,7 +127,9 @@ impl Harvest {
 
     /// This device's seats, in view order.
     pub fn local_seats(&self) -> Vec<usize> {
-        self.net.client.as_ref().map_or_else(Vec::new, |c| c.order.iter().take(self.views).copied().collect())
+        self.net.client.as_ref().map_or_else(Vec::new, |c| {
+            c.order.iter().take(self.views).copied().collect()
+        })
     }
 
     /// Whether the host holds every player in place just now.
@@ -106,14 +140,22 @@ impl Harvest {
     /// A client leaves from its own pause menu's last row, or from the end screen.
     pub fn client_wants_out(&self, pressed: Buttons) -> bool {
         match self.phase {
-            Phase::Over { t, .. } => t > 1.0 && pressed.any(Buttons::A | Buttons::B | Buttons::START),
-            _ => self.menu == Some(PAUSE_CHOICES.len() - 1) && self.paused_by < self.views && pressed.any(Buttons::A | Buttons::X),
+            Phase::Over { t, .. } => {
+                t > 1.0 && pressed.any(Buttons::A | Buttons::B | Buttons::START)
+            }
+            _ => {
+                self.menu == Some(PAUSE_CHOICES.len() - 1)
+                    && self.paused_by < self.views
+                    && pressed.any(Buttons::A | Buttons::X)
+            }
         }
     }
 
     /// A seat that joined after the run began.
     pub fn client_seat(&mut self, seat: usize, look: &str) {
-        let Some(c) = self.net.client.as_mut() else { return };
+        let Some(c) = self.net.client.as_mut() else {
+            return;
+        };
         if !c.order.contains(&seat) {
             c.order.push(seat);
             self.net.seats = c.order.clone();
@@ -146,26 +188,43 @@ impl Harvest {
             }
             Event::Kill { kind, pos, by, .. } => {
                 let pos = unq_pos(pos);
-                let Some(s) = roster().enemies.get(kind as usize) else { return };
-                let killer = self.net.client.as_ref().and_then(|c| c.index(by as usize)).unwrap_or(ME);
+                let Some(s) = roster().enemies.get(kind as usize) else {
+                    return;
+                };
+                let killer = self
+                    .net
+                    .client
+                    .as_ref()
+                    .and_then(|c| c.index(by as usize))
+                    .unwrap_or(ME);
                 let fall = norm(sub(pos, self.players[killer].pos));
                 self.gore(pos, fall, 0.0, fall, &s.look, s.gibs as usize, s.blood);
                 self.kill_bump = 0.0;
             }
             Event::Blast { pos, radius } => self.blast_juice(unq_pos(pos), radius as f32),
-            Event::LevelUp { .. } | Event::LevelDone | Event::RunEnd { .. } | Event::Stop { .. } | Event::Rumble { .. } => {}
+            Event::LevelUp { .. }
+            | Event::LevelDone
+            | Event::RunEnd { .. }
+            | Event::Stop { .. }
+            | Event::Rumble { .. } => {}
         }
     }
 
     /// Shots, spits, bolts and effects that just began on the host.
     pub fn client_spawned(&mut self, fresh: &[Spawned]) {
-        let Some(c) = self.net.client.as_mut() else { return };
+        let Some(c) = self.net.client.as_mut() else {
+            return;
+        };
         for s in fresh {
             match &s.what {
-                Spawn::Bolt { points } => self.bolts.push(Bolt { points: points.iter().map(|&p| unq_pos(p)).collect(), age: 0.0 }),
+                Spawn::Bolt { points } => self.bolts.push(Bolt {
+                    points: points.iter().map(|&p| unq_pos(p)).collect(),
+                    age: 0.0,
+                }),
                 &Spawn::Fx { art, pos, angle } => {
                     if let Some(e) = effect_of(&mut c.looks, art) {
-                        self.fx.push(Fx::play(e, unq_pos(pos), angle as f32 / 256.0 * TAU));
+                        self.fx
+                            .push(Fx::play(e, unq_pos(pos), angle as f32 / 256.0 * TAU));
                     }
                 }
                 Spawn::Shot { .. } | Spawn::Spit { .. } => {}
@@ -175,7 +234,9 @@ impl Harvest {
 
     /// One frame of a client's run: everything laid out from `mirror`, and the effects only this end plays.
     pub fn client_frame(&mut self, mirror: &Mirror, dt: f32, sounds: &mut Vec<Sfx>) {
-        let Some(mut c) = self.net.client.take() else { return };
+        let Some(mut c) = self.net.client.take() else {
+            return;
+        };
         self.difficulty.play();
         self.juice.still = true;
         self.take_before();
@@ -212,7 +273,9 @@ impl Harvest {
     }
 
     fn lay_players(&mut self, c: &mut Client, mirror: &Mirror, dt: f32, sounds: &mut Vec<Sfx>) {
-        let seats = mirror.player_count().min(last_harvest_lobby::MAX_SEATS as usize);
+        let seats = mirror
+            .player_count()
+            .min(last_harvest_lobby::MAX_SEATS as usize);
         for seat in 0..seats {
             if !c.order.contains(&seat) {
                 c.order.push(seat);
@@ -228,13 +291,21 @@ impl Harvest {
         c.kits.resize(self.players.len(), Vec::new());
         c.hp.resize(self.players.len(), f32::MAX);
         for (i, &seat) in c.order.iter().enumerate() {
-            let Some(ps) = mirror.player_state(seat) else { continue };
-            let (pos, yaw) = mirror.player(seat).unwrap_or((unq_pos(ps.pos), unq_angle(ps.yaw)));
+            let Some(ps) = mirror.player_state(seat) else {
+                continue;
+            };
+            let (pos, yaw) = mirror
+                .player(seat)
+                .unwrap_or((unq_pos(ps.pos), unq_angle(ps.yaw)));
             let difficulty = self.difficulty;
             let pl = &mut self.players[i];
             let d = sub(pos, pl.pos);
             let moved = len(d) > 0.05;
-            pl.walk = if moved || ps.flags & P_WALKING != 0 { pl.walk + dt } else { 0.0 };
+            pl.walk = if moved || ps.flags & P_WALKING != 0 {
+                pl.walk + dt
+            } else {
+                0.0
+            };
             if moved {
                 pl.heading = norm(d);
             }
@@ -245,20 +316,37 @@ impl Harvest {
             pl.hurt = ps.hurt as f32 / 100.0;
             let was_down = pl.down.is_some();
             pl.down = (ps.flags & P_DOWN != 0).then_some(ps.down as f32 / 10.0);
-            if i < self.views && !was_down && pl.down.is_some() && c.hp[i] != f32::MAX && !matches!(mirror.run.phase, PHASE_WON | PHASE_LOST) {
+            if i < self.views
+                && !was_down
+                && pl.down.is_some()
+                && c.hp[i] != f32::MAX
+                && !matches!(mirror.run.phase, PHASE_WON | PHASE_LOST)
+            {
                 sounds.push(Sfx::GameOver);
             }
             pl.lead = match ps.flags {
                 f if f & P_LEADING != 0 => Some(super::leader::Lead::Leading(ps.lead)),
-                f if f & P_PICKING != 0 => Some(super::leader::Lead::Picking { at: pos, left: ps.lead as f32 / 10.0 }),
+                f if f & P_PICKING != 0 => Some(super::leader::Lead::Picking {
+                    at: pos,
+                    left: ps.lead as f32 / 10.0,
+                }),
                 _ => None,
             };
             pl.left = ps.flags & P_LEFT != 0;
             pl.lead_hp = ps.lead_hp as f32 / 255.0;
             pl.grenades = ps.grenades as f32 / 16.0;
-            pl.ready_flash = if ps.flags & P_READY_FLASH != 0 { pl.ready_flash.max(0.01) } else { 0.0 };
+            pl.ready_flash = if ps.flags & P_READY_FLASH != 0 {
+                pl.ready_flash.max(0.01)
+            } else {
+                0.0
+            };
             if c.kits[i] != ps.kit {
-                let build: Vec<(usize, u32)> = ps.kit.iter().map(|&(d, l)| (d as usize, l as u32)).filter(|&(d, _)| d < book().defs.len()).collect();
+                let build: Vec<(usize, u32)> = ps
+                    .kit
+                    .iter()
+                    .map(|&(d, l)| (d as usize, l as u32))
+                    .filter(|&(d, _)| d < book().defs.len())
+                    .collect();
                 pl.kit = pl.kit.rebuilt(&build, difficulty.tier());
                 c.kits[i] = ps.kit.clone();
             }
@@ -272,7 +360,12 @@ impl Harvest {
     }
 
     fn lay_zombies(&mut self, mirror: &Mirror, dt: f32) {
-        let mut old: HashMap<u32, Zombie> = self.zombies.drain(..).chain(self.burrowed.drain(..)).map(|z| (z.id, z)).collect();
+        let mut old: HashMap<u32, Zombie> = self
+            .zombies
+            .drain(..)
+            .chain(self.burrowed.drain(..))
+            .map(|z| (z.id, z))
+            .collect();
         let roster = roster();
         for (pos, s) in mirror.zombies() {
             if s.kind as usize >= roster.enemies.len() {
@@ -282,7 +375,13 @@ impl Harvest {
             let full = kind.stats().hp;
             let rising = s.flags & Z_RISING != 0;
             let mut z = old.remove(&s.id).unwrap_or_else(|| {
-                let mut z = Zombie::new(kind, pos, full, if rising { 0.0 } else { 1.0 }, s.id as f32 * 0.37);
+                let mut z = Zombie::new(
+                    kind,
+                    pos,
+                    full,
+                    if rising { 0.0 } else { 1.0 },
+                    s.id as f32 * 0.37,
+                );
                 z.id = s.id;
                 z
             });
@@ -295,11 +394,23 @@ impl Harvest {
             z.pos = pos;
             z.kind = kind;
             z.hp = s.hp as f32 / 255.0 * full;
-            z.hurt = if s.flags & Z_HURT != 0 { z.hurt.max(0.05) } else { (z.hurt - dt).max(0.0) };
+            z.hurt = if s.flags & Z_HURT != 0 {
+                z.hurt.max(0.05)
+            } else {
+                (z.hurt - dt).max(0.0)
+            };
             z.flash = (z.flash - dt).max(0.0);
             z.burn = if s.flags & Z_BURNING != 0 { 1.0 } else { 0.0 };
-            (z.slow, z.slow_k) = if s.flags & Z_SLOWED != 0 { (1.0, 0.5) } else { (0.0, 0.0) };
-            (z.soak, z.soak_k) = if s.flags & Z_SOAKED != 0 { (1.0, 1.0) } else { (0.0, 0.0) };
+            (z.slow, z.slow_k) = if s.flags & Z_SLOWED != 0 {
+                (1.0, 0.5)
+            } else {
+                (0.0, 0.0)
+            };
+            (z.soak, z.soak_k) = if s.flags & Z_SOAKED != 0 {
+                (1.0, 1.0)
+            } else {
+                (0.0, 0.0)
+            };
             z.leader = s.flags & Z_LEADER != 0;
             z.boss = s.flags & Z_BOSS != 0;
             z.rise = if rising { (z.rise + dt).min(0.95) } else { 1.0 };
@@ -314,7 +425,15 @@ impl Harvest {
     fn lay_things(&mut self, c: &mut Client, mirror: &Mirror, dt: f32) {
         let now = mirror.render_tick().max(0.0) as u32 as u16;
         let age = |born: u16| now.wrapping_sub(born) as f32 / TICK_HZ as f32;
-        let (mut drops, mut thrown, mut patches, mut barrels, mut decoys, mut tells, mut stakes) = (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
+        let (mut drops, mut thrown, mut patches, mut barrels, mut decoys, mut tells, mut stakes) = (
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        );
         let mut tell_t = Vec::new();
         for t in mirror.things() {
             let pos = unq_pos(t.pos);
@@ -323,17 +442,42 @@ impl Harvest {
                     let kind = match t.sub {
                         0 => Thrown::Grenade,
                         1 => Thrown::Bomblet,
-                        2 => Thrown::Molotov { dps: 0.0, radius: 0.0, life: 0.0 },
-                        3 => Thrown::Flare { dps: 0.0, radius: 0.0, life: 0.0 },
-                        n => Thrown::Lob { def: (n - 4) as usize, damage: 0.0, radius: 0.0, life: 0.0, slow: 0.0 },
+                        2 => Thrown::Molotov {
+                            dps: 0.0,
+                            radius: 0.0,
+                            life: 0.0,
+                        },
+                        3 => Thrown::Flare {
+                            dps: 0.0,
+                            radius: 0.0,
+                            life: 0.0,
+                        },
+                        n => Thrown::Lob {
+                            def: (n - 4) as usize,
+                            damage: 0.0,
+                            radius: 0.0,
+                            life: 0.0,
+                            slow: 0.0,
+                        },
                     };
                     if let Thrown::Lob { def, .. } = kind
                         && def >= book().defs.len()
                     {
                         continue;
                     }
-                    let by = if let Thrown::Lob { def, .. } = kind { Some(def) } else { None };
-                    thrown.push(Grenade { from: pos, to: unq_pos([t.data[0], t.data[1]]), t: age(t.data[2]), kind, by, owner: ME });
+                    let by = if let Thrown::Lob { def, .. } = kind {
+                        Some(def)
+                    } else {
+                        None
+                    };
+                    thrown.push(Grenade {
+                        from: pos,
+                        to: unq_pos([t.data[0], t.data[1]]),
+                        t: age(t.data[2]),
+                        kind,
+                        by,
+                        owner: ME,
+                    });
                 }
                 T_MONEY | T_HEALTH | T_CHEST => {
                     let kind = match t.kind {
@@ -341,7 +485,18 @@ impl Harvest {
                         T_HEALTH => DropKind::Health,
                         _ => DropKind::Chest,
                     };
-                    drops.push(Drop { kind, pos, z: 0.0, vz: 0.0, vel: [0.0; 2], age: 1.0, pulled: None, to: ME, dog: None, hearts: (t.data[1] as u32).max(1) });
+                    drops.push(Drop {
+                        kind,
+                        pos,
+                        z: 0.0,
+                        vz: 0.0,
+                        vel: [0.0; 2],
+                        age: 1.0,
+                        pulled: None,
+                        to: ME,
+                        dog: None,
+                        hearts: (t.data[1] as u32).max(1),
+                    });
                 }
                 T_PATCH => {
                     let hazard = match t.sub {
@@ -349,22 +504,57 @@ impl Harvest {
                         2 => Hazard::Flare,
                         _ => Hazard::Tacks,
                     };
-                    let by = (t.sub >= super::online::PATCH_OF).then(|| (t.sub - super::online::PATCH_OF) as usize).filter(|&d| d < book().defs.len());
-                    patches.push(Patch::shown(hazard, pos, unq(t.data[0]), age(t.data[1]), t.data[2] as f32 / 10.0).with_patch_of(by));
+                    let by = (t.sub >= super::online::PATCH_OF)
+                        .then(|| (t.sub - super::online::PATCH_OF) as usize)
+                        .filter(|&d| d < book().defs.len());
+                    patches.push(
+                        Patch::shown(
+                            hazard,
+                            pos,
+                            unq(t.data[0]),
+                            age(t.data[1]),
+                            t.data[2] as f32 / 10.0,
+                        )
+                        .with_patch_of(by),
+                    );
                 }
-                T_BARREL => barrels.push(Barrel { pos, hp: t.data[0] as f32, flash: 0.0, by: ME }),
+                T_BARREL => barrels.push(Barrel {
+                    pos,
+                    hp: t.data[0] as f32,
+                    flash: 0.0,
+                    by: ME,
+                }),
                 T_DECOY => decoys.push(Decoy::shown(pos, age(t.data[0]), t.data[1] as f32 / 10.0)),
-                T_STAKE => stakes.push(Stake { pos, age: age(t.data[0]), life: t.data[1] as f32 / 10.0, owner: ME }),
+                T_STAKE => stakes.push(Stake {
+                    pos,
+                    age: age(t.data[0]),
+                    life: t.data[1] as f32 / 10.0,
+                    owner: ME,
+                }),
                 T_TELL if (t.sub as usize) < roster().enemies.len() => {
                     let was = c.tells.iter().find(|(p, _)| *p == pos).map_or(0.0, |w| w.1);
                     tell_t.push((pos, was + dt));
-                    tells.push(Tell { kind: Kind(t.sub), pos, hp: 0.0, t: was + dt, leader: t.data[0] != 0, led: None });
+                    tells.push(Tell {
+                        kind: Kind(t.sub),
+                        pos,
+                        hp: 0.0,
+                        t: was + dt,
+                        leader: t.data[0] != 0,
+                        led: None,
+                    });
                 }
                 _ => {}
             }
         }
         c.tells = tell_t;
-        (self.drops, self.thrown, self.patches, self.decoys, self.tells, self.stakes) = (drops, thrown, patches, decoys, tells, stakes);
+        (
+            self.drops,
+            self.thrown,
+            self.patches,
+            self.decoys,
+            self.tells,
+            self.stakes,
+        ) = (drops, thrown, patches, decoys, tells, stakes);
         self.barrels = barrels;
     }
 
@@ -376,18 +566,44 @@ impl Harvest {
         }
         for s in mirror.pets() {
             let (def, slot) = (s.def as usize, s.slot as usize);
-            let Some(p) = c.index(s.owner as usize).filter(|&p| p < self.players.len()) else { continue };
+            let Some(p) = c
+                .index(s.owner as usize)
+                .filter(|&p| p < self.players.len())
+            else {
+                continue;
+            };
             match book().defs.get(def).and_then(|d| d.does) {
                 Some(powerups::Does::Dog) => {
                     let dog = Dog::shown(def, slot, s.pos, s.heading, s.anim, s.leap);
                     if let Some(v) = s.heart {
-                        let mouth = [dog.pos[0] + dog.heading[0] * 5.0, dog.pos[1] + dog.heading[1] * 2.0];
-                        let dog_tag = Some(Fetch { player: p, def, slot, carried: true });
-                        self.drops.push(Drop { kind: DropKind::Money(v), pos: mouth, z: dog.lift() + 4.0, vz: 0.0, vel: [0.0; 2], age: 1.0, pulled: None, to: p, dog: dog_tag, hearts: 1 });
+                        let mouth = [
+                            dog.pos[0] + dog.heading[0] * 5.0,
+                            dog.pos[1] + dog.heading[1] * 2.0,
+                        ];
+                        let dog_tag = Some(Fetch {
+                            player: p,
+                            def,
+                            slot,
+                            carried: true,
+                        });
+                        self.drops.push(Drop {
+                            kind: DropKind::Money(v),
+                            pos: mouth,
+                            z: dog.lift() + 4.0,
+                            vz: 0.0,
+                            vel: [0.0; 2],
+                            age: 1.0,
+                            pulled: None,
+                            to: p,
+                            dog: dog_tag,
+                            hearts: 1,
+                        });
                     }
                     self.players[p].dogs.push(dog);
                 }
-                Some(powerups::Does::Drone) => self.players[p].drones.push(Drone::shown(def, slot, s.pos, s.heading, s.anim)),
+                Some(powerups::Does::Drone) => self.players[p]
+                    .drones
+                    .push(Drone::shown(def, slot, s.pos, s.heading, s.anim)),
                 _ => {}
             }
         }
@@ -399,13 +615,28 @@ impl Harvest {
         self.spits.clear();
         for (pos, age, s) in mirror.shots_for(&own) {
             match s.what {
-                Spawn::Shot { owner, look, vel, life, arc, .. } => {
-                    let by = (look as usize).checked_sub(1).filter(|&d| d < book().defs.len());
-                    let look = by.and_then(|d| book().defs[d].bullet.as_deref()).and_then(|n| effects::effects().named(n));
+                Spawn::Shot {
+                    owner,
+                    look,
+                    vel,
+                    life,
+                    arc,
+                    ..
+                } => {
+                    let by = (look as usize)
+                        .checked_sub(1)
+                        .filter(|&d| d < book().defs.len());
+                    let look = by
+                        .and_then(|d| book().defs[d].bullet.as_deref())
+                        .and_then(|n| effects::effects().named(n));
                     let vel = vel.map(|v| v as f32 / 8.0);
                     let owner = c.index(owner as usize).unwrap_or(ME);
                     let life = (life as f32 / 50.0 - age).max(0.0);
-                    let (peak, flight, start) = (arc[0] as f32, arc[1] as f32 / 1000.0, arc[2] as f32 / 1000.0);
+                    let (peak, flight, start) = (
+                        arc[0] as f32,
+                        arc[1] as f32 / 1000.0,
+                        arc[2] as f32 / 1000.0,
+                    );
                     // Each of a homing shot's runs starts at age 0; a full tail keeps it from flickering short.
                     let age = if flight > 0.0 {
                         start + age
@@ -414,11 +645,38 @@ impl Harvest {
                     } else {
                         age
                     };
-                    let steer = Steer { arc: [peak, flight], ..Default::default() };
-                    self.bullets.push(Bullet { pos, vel, damage: 0.0, pierce: 0, life, force: 0.0, hit: Vec::new(), look, age, by, owner, soak: [0.0; 2], lift: [0.0; 2], steer });
+                    let steer = Steer {
+                        arc: [peak, flight],
+                        ..Default::default()
+                    };
+                    self.bullets.push(Bullet {
+                        pos,
+                        vel,
+                        damage: 0.0,
+                        pierce: 0,
+                        life,
+                        force: 0.0,
+                        hit: Vec::new(),
+                        look,
+                        age,
+                        by,
+                        owner,
+                        soak: [0.0; 2],
+                        lift: [0.0; 2],
+                        steer,
+                    });
                 }
-                Spawn::Spit { kind, vel, life, .. } if (kind as usize) < roster().enemies.len() => {
-                    self.spits.push(Spit { kind: Kind(kind), pos, vel: vel.map(|v| v as f32 / 8.0), damage: 0.0, life: (life as f32 / 50.0 - age).max(0.0), age });
+                Spawn::Spit {
+                    kind, vel, life, ..
+                } if (kind as usize) < roster().enemies.len() => {
+                    self.spits.push(Spit {
+                        kind: Kind(kind),
+                        pos,
+                        vel: vel.map(|v| v as f32 / 8.0),
+                        damage: 0.0,
+                        life: (life as f32 / 50.0 - age).max(0.0),
+                        age,
+                    });
                 }
                 _ => {}
             }
@@ -438,7 +696,11 @@ impl Harvest {
         self.woke = self.t >= dawn();
         self.menu = run.menu.checked_sub(1).map(usize::from);
         self.paused_by = c.index(run.paused_by as usize).unwrap_or(ME);
-        self.leveling = if run.phase == PHASE_LEVELING { 0.1 } else { 0.0 };
+        self.leveling = if run.phase == PHASE_LEVELING {
+            0.1
+        } else {
+            0.0
+        };
         if c.ticket.is_some_and(|was| run.ticket > was)
             && let Some(at) = self.map.driver
         {
@@ -449,14 +711,25 @@ impl Harvest {
         if c.books != run.books {
             c.books = run.books.clone();
             if !c.books.is_empty() {
-                self.juice.tally = super::tally::Tally::received(book().defs.len(), self.players.len(), run.played as f32 / 100.0, &c.books, |seat| c.index(seat));
+                self.juice.tally = super::tally::Tally::received(
+                    book().defs.len(),
+                    self.players.len(),
+                    run.played as f32 / 100.0,
+                    &c.books,
+                    |seat| c.index(seat),
+                );
             }
         }
         c.cards.resize(self.views, (0.0, [(0, 0); 3]));
         let mut mine = None;
         for v in 0..self.views.min(c.order.len()) {
             let seat = c.order[v];
-            let Some(sc) = run.cards.iter().find(|k| k.seat as usize == seat).filter(|_| run.phase == PHASE_CARDS) else {
+            let Some(sc) = run
+                .cards
+                .iter()
+                .find(|k| k.seat as usize == seat)
+                .filter(|_| run.phase == PHASE_CARDS)
+            else {
                 c.cards[v] = (0.0, [(0, 0); 3]);
                 if v > 0 {
                     self.locals[v].cards = None;
@@ -468,11 +741,21 @@ impl Harvest {
                 *shown = sc.choices;
             }
             *t += dt;
-            let choices = sc.choices.map(|(up, bits)| Choice { up: (up as usize).min(book().defs.len() - 1), rare: bits & CARD_RARE != 0, found: bits & CARD_FOUND != 0 });
-            let cards = Cards { choices, selected: sc.selected as usize % 3, t: *t, picked: sc.picked.then_some(PICK_TIME) };
+            let choices = sc.choices.map(|(up, bits)| Choice {
+                up: (up as usize).min(book().defs.len() - 1),
+                rare: bits & CARD_RARE != 0,
+                found: bits & CARD_FOUND != 0,
+            });
+            let cards = Cards {
+                choices,
+                selected: sc.selected as usize % 3,
+                t: *t,
+                picked: sc.picked.then_some(PICK_TIME),
+            };
             if v == ME {
                 mine = Some(cards);
-                (self.banishes, self.rerolls, self.favors) = (sc.banishes as u32, sc.rerolls as u32, sc.favors as u32);
+                (self.banishes, self.rerolls, self.favors) =
+                    (sc.banishes as u32, sc.rerolls as u32, sc.favors as u32);
             } else {
                 self.locals[v].cards = Some(cards);
                 self.locals[v].set_counts(sc.banishes as u32, sc.rerolls as u32, sc.favors as u32);
@@ -481,12 +764,29 @@ impl Harvest {
         self.phase = match run.phase {
             PHASE_WON | PHASE_LOST => {
                 c.over += dt;
-                Phase::Over { t: c.over, won: run.phase == PHASE_WON }
+                Phase::Over {
+                    t: c.over,
+                    won: run.phase == PHASE_WON,
+                }
             }
             _ if run.phase == PHASE_CARDS => {
                 c.over = 0.0;
-                let cards = mine.unwrap_or(Cards { choices: [Choice { up: 0, rare: false, found: false }; 3], selected: 0, t: 0.0, picked: Some(PICK_TIME) });
-                Phase::LevelUp { choices: cards.choices, selected: cards.selected, t: cards.t, picked: cards.picked }
+                let cards = mine.unwrap_or(Cards {
+                    choices: [Choice {
+                        up: 0,
+                        rare: false,
+                        found: false,
+                    }; 3],
+                    selected: 0,
+                    t: 0.0,
+                    picked: Some(PICK_TIME),
+                });
+                Phase::LevelUp {
+                    choices: cards.choices,
+                    selected: cards.selected,
+                    t: cards.t,
+                    picked: cards.picked,
+                }
             }
             _ => {
                 c.over = 0.0;

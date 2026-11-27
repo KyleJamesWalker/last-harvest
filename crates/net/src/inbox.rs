@@ -17,12 +17,16 @@ impl Inbox {
     /// Queues a packet. A full unreliable inbox drops its oldest packets; a full reliable one refuses it and returns
     /// false, and the caller drops the peer.
     pub(crate) fn deliver(&mut self, channel: usize, peer: PeerId, data: Vec<u8>) -> bool {
-        let full = |s: &Inbox| s.packets[channel].len() >= INBOX_PACKETS || s.bytes[channel] + data.len() > INBOX_BYTES;
+        let full = |s: &Inbox| {
+            s.packets[channel].len() >= INBOX_PACKETS || s.bytes[channel] + data.len() > INBOX_BYTES
+        };
         if channel == RELIABLE && full(self) {
             return false;
         }
         while full(self) {
-            let Some((_, old)) = self.packets[channel].pop_front() else { break };
+            let Some((_, old)) = self.packets[channel].pop_front() else {
+                break;
+            };
             self.bytes[channel] -= old.len();
         }
         self.bytes[channel] += data.len();

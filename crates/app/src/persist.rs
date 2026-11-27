@@ -17,7 +17,12 @@ fn home() -> PathBuf {
 
 /// The folder replays and screenshots go in: the save's, else the binary's.
 fn dir() -> PathBuf {
-    folder_of(std::env::var_os("LAST_HARVEST_SAVE").as_deref().map(Path::new), home())
+    folder_of(
+        std::env::var_os("LAST_HARVEST_SAVE")
+            .as_deref()
+            .map(Path::new),
+        home(),
+    )
 }
 
 fn folder_of(save: Option<&Path>, home: PathBuf) -> PathBuf {
@@ -35,7 +40,9 @@ pub fn next_screenshot(kind: &str) -> Option<PathBuf> {
         log!("screenshot: {}: {e}", shots.display());
         return None;
     }
-    (1..10_000).map(|n| shots.join(format!("{kind}-{n:04}.png"))).find(|p| !p.exists())
+    (1..10_000)
+        .map(|n| shots.join(format!("{kind}-{n:04}.png")))
+        .find(|p| !p.exists())
 }
 
 /// Writes each replay into `replays/` beside the save, keeping the last ten.
@@ -43,7 +50,11 @@ pub fn keep_replays(raws: Vec<Vec<u8>>) {
     let dir = dir().join("replays");
     for raw in raws {
         match last_harvest::replays::keep(&dir, &raw, log::unix_now()) {
-            Ok(path) => log!("replay: {} ({} bytes before gzip)", path.display(), raw.len()),
+            Ok(path) => log!(
+                "replay: {} ({} bytes before gzip)",
+                path.display(),
+                raw.len()
+            ),
             Err(e) => log!("replay: {}: {e}", dir.display()),
         }
     }
@@ -66,7 +77,9 @@ fn save_path() -> PathBuf {
 
 /// The keys of the mod packs the save turns off.
 pub fn mods_off() -> Vec<String> {
-    fs::read_to_string(save_path()).map(|t| last_harvest_game::mods_off_in(&t)).unwrap_or_default()
+    fs::read_to_string(save_path())
+        .map(|t| last_harvest_game::mods_off_in(&t))
+        .unwrap_or_default()
 }
 
 impl Saver {
@@ -74,7 +87,14 @@ impl Saver {
         let path = save_path();
         let save = read(&path);
         log!("save: {} {save:?}", path.display());
-        (Self { path, written: save, changed_at: None }, save)
+        (
+            Self {
+                path,
+                written: save,
+                changed_at: None,
+            },
+            save,
+        )
     }
 
     /// Writes `save` once it has stopped changing, or right away with `now`.
@@ -104,8 +124,15 @@ fn read(path: &Path) -> Save {
             bad.push(".bad");
             let bad = PathBuf::from(bad);
             match fs::rename(path, &bad) {
-                Ok(()) => log!("save: {}: {e}; moved it to {} and starting fresh", path.display(), bad.display()),
-                Err(moved) => log!("save: {}: {e}; couldn't move it aside: {moved}", path.display()),
+                Ok(()) => log!(
+                    "save: {}: {e}; moved it to {} and starting fresh",
+                    path.display(),
+                    bad.display()
+                ),
+                Err(moved) => log!(
+                    "save: {}: {e}; couldn't move it aside: {moved}",
+                    path.display()
+                ),
             }
             Save::default()
         }
@@ -130,7 +157,11 @@ pub fn install_crash_log() {
     let path = home().join("crash.log");
     let default = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
-        let report = format!("--- crash at unix {}\n{info}\n{}\n", log::unix_now(), std::backtrace::Backtrace::force_capture());
+        let report = format!(
+            "--- crash at unix {}\n{info}\n{}\n",
+            log::unix_now(),
+            std::backtrace::Backtrace::force_capture()
+        );
         if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(&path) {
             f.write_all(report.as_bytes()).ok();
             f.sync_all().ok();
@@ -147,7 +178,10 @@ mod tests {
     fn replays_and_screenshots_follow_the_save_the_environment_names() {
         let home = PathBuf::from("/bin/dir");
         assert_eq!(folder_of(None, home.clone()), home);
-        assert_eq!(folder_of(Some(Path::new("/tmp/x/save.txt")), home.clone()), Path::new("/tmp/x"));
+        assert_eq!(
+            folder_of(Some(Path::new("/tmp/x/save.txt")), home.clone()),
+            Path::new("/tmp/x")
+        );
         assert_eq!(folder_of(Some(Path::new("save.txt")), home), Path::new("."));
     }
 
@@ -159,8 +193,14 @@ mod tests {
         fs::write(&path, [0xff, 0xfe, 0x00]).unwrap();
         assert!(read(&path) == Save::default());
         assert!(!path.exists());
-        assert_eq!(fs::read(dir.join("save.txt.bad")).unwrap(), [0xff, 0xfe, 0x00]);
-        assert!(read(&dir.join("none.txt")) == Save::default(), "no save is the defaults");
+        assert_eq!(
+            fs::read(dir.join("save.txt.bad")).unwrap(),
+            [0xff, 0xfe, 0x00]
+        );
+        assert!(
+            read(&dir.join("none.txt")) == Save::default(),
+            "no save is the defaults"
+        );
         fs::remove_dir_all(&dir).unwrap();
     }
 }

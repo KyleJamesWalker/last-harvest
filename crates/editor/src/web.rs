@@ -17,7 +17,10 @@ use sprite_editor::store::Store;
 use sprite_editor::studio::{Page, Pane, Studio};
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
-use web_sys::{AddEventListenerOptions, Document, Element, Event, EventTarget, HtmlCanvasElement, HtmlElement, HtmlInputElement, KeyboardEvent, PointerEvent, WebGl2RenderingContext, WheelEvent};
+use web_sys::{
+    AddEventListenerOptions, Document, Element, Event, EventTarget, HtmlCanvasElement, HtmlElement,
+    HtmlInputElement, KeyboardEvent, PointerEvent, WebGl2RenderingContext, WheelEvent,
+};
 
 /// How far a finger may wander, in CSS pixels, and still tap; and how long it rests, in ms, before it draws.
 const TAP: f32 = 8.0;
@@ -27,14 +30,27 @@ const HOLD: f64 = 120.0;
 enum Gesture {
     Idle,
     /// A finger on the pixel canvas, not yet known to be a stroke or the first of a pinch.
-    Waiting { id: i32, at: [f32; 2], since: f64 },
+    Waiting {
+        id: i32,
+        at: [f32; 2],
+        since: f64,
+    },
     /// A press handed to the studio.
-    Held { id: i32 },
+    Held {
+        id: i32,
+    },
     /// A finger on the sprite list, scrolling it once it moves.
-    List { id: i32, at: [f32; 2], moved: bool },
+    List {
+        id: i32,
+        at: [f32; 2],
+        moved: bool,
+    },
     /// Two fingers zooming and panning the pane they began in, until both lift; or on a phone, off the pixel
     /// canvas, scrolling the panes.
-    Pinch { pane: Pane, scrolls: bool },
+    Pinch {
+        pane: Pane,
+        scrolls: bool,
+    },
 }
 
 struct Web {
@@ -71,7 +87,9 @@ struct Web {
 }
 
 fn now() -> f64 {
-    web_sys::window().and_then(|w| w.performance()).map_or(0.0, |p| p.now())
+    web_sys::window()
+        .and_then(|w| w.performance())
+        .map_or(0.0, |p| p.now())
 }
 
 fn distance(a: [f32; 2], b: [f32; 2]) -> f32 {
@@ -93,8 +111,11 @@ impl Web {
     }
 
     fn layout(&mut self) {
-        let Some(window) = web_sys::window() else { return };
-        let inner = |v: Result<JsValue, JsValue>| v.ok().and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+        let Some(window) = web_sys::window() else {
+            return;
+        };
+        let inner =
+            |v: Result<JsValue, JsValue>| v.ok().and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
         self.page = Page::fit([inner(window.inner_width()), inner(window.inner_height())]);
         self.scroll = self.page.clamp(self.scroll);
         self.dpr = window.device_pixel_ratio() as f32;
@@ -105,7 +126,9 @@ impl Web {
         self.canvas.set_width((w * self.dpr).round() as u32);
         self.canvas.set_height((h * self.dpr).round() as u32);
         if let Some(body) = self.document.body() {
-            let _ = body.class_list().toggle_with_force("beside", self.page.beside);
+            let _ = body
+                .class_list()
+                .toggle_with_force("beside", self.page.beside);
         }
     }
 
@@ -123,8 +146,22 @@ impl Web {
         }
         let px = |v: f32| (v * self.dpr).round() as i32;
         let [sx, sy] = self.scroll;
-        for (canvas, [x, y, w, h]) in self.studio.canvases().iter().zip(Studio::panes(self.page.panes)) {
-            self.renderer.draw(&self.gl, canvas, [px(x - sx), px(self.page.view[1] - (y - sy) - h), px(w), px(h)]);
+        for (canvas, [x, y, w, h]) in self
+            .studio
+            .canvases()
+            .iter()
+            .zip(Studio::panes(self.page.panes))
+        {
+            self.renderer.draw(
+                &self.gl,
+                canvas,
+                [
+                    px(x - sx),
+                    px(self.page.view[1] - (y - sy) - h),
+                    px(w),
+                    px(h),
+                ],
+            );
         }
         for id in self.shots.drain(..) {
             remote::shoot(&self.canvas, id);
@@ -147,7 +184,10 @@ impl Web {
             self.export_all();
         }
         if std::mem::take(&mut self.studio.editor.cleared)
-            && let Some(field) = self.document.get_element_by_id("pack-name").and_then(|e| e.dyn_into::<HtmlInputElement>().ok())
+            && let Some(field) = self
+                .document
+                .get_element_by_id("pack-name")
+                .and_then(|e| e.dyn_into::<HtmlInputElement>().ok())
         {
             field.set_value("");
         }
@@ -163,12 +203,32 @@ impl Web {
             let (id, file) = last_harvest_pack::browser::pack_file(&name);
             match modding::mod_pack(&id, &name, &cards, &sounds, &extra) {
                 Ok(bytes) => {
-                    modding::call("save", &[file.clone().into(), js_sys::Uint8Array::from(&bytes[..]).into()]);
-                    let with = if sounds.is_empty() { String::new() } else { format!(" and {} death sounds", sounds.len()) };
-                    let maps = if extra.is_empty() { String::new() } else { format!(", {} maps, props and data files", extra.len()) };
-                    self.studio.editor.say(format!("Exported {} cards{with}{maps} as {file}: put it in the game's data/mods", cards.len()));
+                    modding::call(
+                        "save",
+                        &[
+                            file.clone().into(),
+                            js_sys::Uint8Array::from(&bytes[..]).into(),
+                        ],
+                    );
+                    let with = if sounds.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" and {} death sounds", sounds.len())
+                    };
+                    let maps = if extra.is_empty() {
+                        String::new()
+                    } else {
+                        format!(", {} maps, props and data files", extra.len())
+                    };
+                    self.studio.editor.say(format!(
+                        "Exported {} cards{with}{maps} as {file}: put it in the game's data/mods",
+                        cards.len()
+                    ));
                 }
-                Err(e) => self.studio.editor.say(format!("Couldn't pack the cards: {e}")),
+                Err(e) => self
+                    .studio
+                    .editor
+                    .say(format!("Couldn't pack the cards: {e}")),
             }
         } else {
             self.studio.editor.say("Nothing is saved to export yet");
@@ -201,8 +261,13 @@ impl Web {
     }
 
     fn spread_now(&self) -> Option<([f32; 2], f32)> {
-        let [(_, a), (_, b), ..] = self.touches[..] else { return None };
-        Some(([(a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0], distance(a, b).max(1.0)))
+        let [(_, a), (_, b), ..] = self.touches[..] else {
+            return None;
+        };
+        Some((
+            [(a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0],
+            distance(a, b).max(1.0),
+        ))
     }
 
     fn down(&mut self, e: &PointerEvent) {
@@ -219,7 +284,8 @@ impl Web {
             self.gesture = Gesture::Held { id };
             return;
         }
-        if matches!(self.gesture, Gesture::Held { id: held } if !self.touches.iter().any(|(t, _)| *t == held)) {
+        if matches!(self.gesture, Gesture::Held { id: held } if !self.touches.iter().any(|(t, _)| *t == held))
+        {
             return;
         }
         self.touches.push((id, p));
@@ -228,10 +294,18 @@ impl Web {
                 let (pane, at) = self.locate(p);
                 let editing = pane == Pane::Edit;
                 self.gesture = if editing && self.studio.editor.on_canvas(at) {
-                    Gesture::Waiting { id, at: p, since: now() }
+                    Gesture::Waiting {
+                        id,
+                        at: p,
+                        since: now(),
+                    }
                 } else if editing && self.studio.editor.on_list(at) {
                     self.pointer = p;
-                    Gesture::List { id, at: p, moved: false }
+                    Gesture::List {
+                        id,
+                        at: p,
+                        moved: false,
+                    }
                 } else {
                     self.begin(id, p);
                     self.gesture
@@ -242,7 +316,8 @@ impl Web {
                     self.studio.release();
                 }
                 let (pane, at) = self.locate(self.touches[0].1);
-                let scrolls = self.page.scrolls() && !(pane == Pane::Edit && self.studio.editor.on_canvas(at));
+                let scrolls = self.page.scrolls()
+                    && !(pane == Pane::Edit && self.studio.editor.on_canvas(at));
                 self.spread = self.spread_now().unwrap_or_default();
                 self.gesture = Gesture::Pinch { pane, scrolls };
             }
@@ -276,23 +351,38 @@ impl Web {
             Gesture::Held { id: h } if h == id => self.motion(p),
             Gesture::List { id: l, at, moved } if l == id => {
                 if moved || (p[1] - at[1]).abs() > TAP {
-                    let dy = self.in_pane(Pane::Edit, p)[1] - self.in_pane(Pane::Edit, self.pointer)[1];
+                    let dy =
+                        self.in_pane(Pane::Edit, p)[1] - self.in_pane(Pane::Edit, self.pointer)[1];
                     self.studio.editor.drag_list(dy);
-                    self.gesture = Gesture::List { id, at, moved: true };
+                    self.gesture = Gesture::List {
+                        id,
+                        at,
+                        moved: true,
+                    };
                 }
                 self.pointer = p;
             }
             Gesture::Pinch { pane, scrolls } => {
-                let Some((center, spread)) = self.spread_now() else { return };
+                let Some((center, spread)) = self.spread_now() else {
+                    return;
+                };
                 let (was, before) = self.spread;
                 if scrolls {
-                    self.scroll = self.page.clamp([0, 1].map(|i| self.scroll[i] - (center[i] - was[i])));
+                    self.scroll = self
+                        .page
+                        .clamp([0, 1].map(|i| self.scroll[i] - (center[i] - was[i])));
                     if pane != Pane::Edit {
-                        self.studio.pinch(pane, self.in_pane(pane, center), spread / before, [0.0; 2]);
+                        self.studio.pinch(
+                            pane,
+                            self.in_pane(pane, center),
+                            spread / before,
+                            [0.0; 2],
+                        );
                     }
                 } else {
                     let [a, b] = [self.in_pane(pane, was), self.in_pane(pane, center)];
-                    self.studio.pinch(pane, b, spread / before, [b[0] - a[0], b[1] - a[1]]);
+                    self.studio
+                        .pinch(pane, b, spread / before, [b[0] - a[0], b[1] - a[1]]);
                 }
                 self.spread = (center, spread);
             }
@@ -335,7 +425,11 @@ impl Web {
     fn wheel(&mut self, e: &WheelEvent) {
         let p = [e.offset_x() as f32, e.offset_y() as f32];
         let (pane, at) = self.locate(p);
-        let lines = if e.delta_mode() == 0 { e.delta_y() as f32 / 20.0 } else { e.delta_y() as f32 };
+        let lines = if e.delta_mode() == 0 {
+            e.delta_y() as f32 / 20.0
+        } else {
+            e.delta_y() as f32
+        };
         if e.ctrl_key() {
             // A trackpad pinch arrives as a wheel with Ctrl held.
             self.studio.pinch(pane, at, (-lines * 0.2).exp(), [0.0; 2]);
@@ -384,7 +478,9 @@ impl Web {
             "ArrowDown" => Key::Down,
             "ArrowLeft" => Key::Left,
             "ArrowRight" => Key::Right,
-            k if k.chars().count() == 1 => Key::Char(k.chars().next().unwrap_or(' ').to_ascii_lowercase()),
+            k if k.chars().count() == 1 => {
+                Key::Char(k.chars().next().unwrap_or(' ').to_ascii_lowercase())
+            }
             _ => return false,
         };
         self.press_key(k, e.shift_key());
@@ -419,7 +515,10 @@ impl Web {
     fn light_pads(&self) {
         for (pad, name) in HOLD_PADS.iter().enumerate() {
             if let Some(el) = self.document.get_element_by_id(name) {
-                let _ = el.class_list().toggle_with_force("on", self.armed || self.holding.iter().any(|&(p, _)| p == pad));
+                let _ = el.class_list().toggle_with_force(
+                    "on",
+                    self.armed || self.holding.iter().any(|&(p, _)| p == pad),
+                );
             }
         }
     }
@@ -450,18 +549,38 @@ impl Web {
             "mirror" => Key::Char('m'),
             "save" => Key::Save,
             "fit" => return self.studio.editor.fit(),
-            "palette" => return call("pick", &[".hex,.txt".into(), false.into(), "lastharvest-palette".into()]),
+            "palette" => {
+                return call(
+                    "pick",
+                    &[
+                        ".hex,.txt".into(),
+                        false.into(),
+                        "lastharvest-palette".into(),
+                    ],
+                );
+            }
             #[cfg(feature = "modding")]
-            "import" => return modding::call("pick", &[".png,.pak,.txt".into(), true.into(), "lastharvest-import".into()]),
+            "import" => {
+                return modding::call(
+                    "pick",
+                    &[
+                        ".png,.pak,.txt".into(),
+                        true.into(),
+                        "lastharvest-import".into(),
+                    ],
+                );
+            }
             #[cfg(feature = "modding")]
             "export" => {
                 let editor = &mut self.studio.editor;
                 let out = if editor.map_source().is_some() {
-                    editor.export_map().and_then(|(name, files)| match modding::pack_of(&name, files) {
-                        Ok(bytes) => Some((name, bytes)),
-                        Err(e) => {
-                            editor.say(format!("Couldn't pack the map: {e}"));
-                            None
+                    editor.export_map().and_then(|(name, files)| {
+                        match modding::pack_of(&name, files) {
+                            Ok(bytes) => Some((name, bytes)),
+                            Err(e) => {
+                                editor.say(format!("Couldn't pack the map: {e}"));
+                                None
+                            }
                         }
                     })
                 } else if sprite_editor::store::props::id(&editor.sprite.name).is_some() {
@@ -470,7 +589,10 @@ impl Web {
                     editor.export_card()
                 };
                 if let Some((name, bytes)) = out {
-                    modding::call("save", &[name.into(), js_sys::Uint8Array::from(&bytes[..]).into()]);
+                    modding::call(
+                        "save",
+                        &[name.into(), js_sys::Uint8Array::from(&bytes[..]).into()],
+                    );
                 }
                 return;
             }
@@ -479,14 +601,28 @@ impl Web {
             #[cfg(feature = "modding")]
             "delete-card" => return self.studio.editor.delete_card(),
             #[cfg(feature = "modding")]
-            "sound" => return modding::call("pick", &[".ogg,.wav,.mp3".into(), false.into(), "lastharvest-sound".into()]),
+            "sound" => {
+                return modding::call(
+                    "pick",
+                    &[
+                        ".ogg,.wav,.mp3".into(),
+                        false.into(),
+                        "lastharvest-sound".into(),
+                    ],
+                );
+            }
             #[cfg(feature = "modding")]
             "new-pack" => return self.studio.editor.new_pack(),
             #[cfg(feature = "modding")]
             "export-all" => return self.export_all(),
             "shift" => {
                 self.shift = !self.shift;
-                if let Some(b) = self.document.query_selector("[data-act=shift]").ok().flatten() {
+                if let Some(b) = self
+                    .document
+                    .query_selector("[data-act=shift]")
+                    .ok()
+                    .flatten()
+                {
                     let _ = b.class_list().toggle_with_force("on", self.shift);
                 }
                 return;
@@ -499,13 +635,22 @@ impl Web {
     /// Shows the text field while a name or search is being typed, and hides it after. Focusing it brings up
     /// the system keyboard only while handling a tap, so `focus` says whether this is one.
     fn sync_text(&mut self, focus: bool) {
-        let typing = self.document.active_element().is_some_and(|a| a == **self.input);
+        let typing = self
+            .document
+            .active_element()
+            .is_some_and(|a| a == **self.input);
         match self.studio.editor.text().map(str::to_string) {
             Some(t) => {
                 if self.input.hidden() {
                     let free = self.studio.editor.free_text();
-                    let _ = self.input.set_attribute("autocapitalize", if free { "sentences" } else { "characters" });
-                    let _ = self.input.style().set_property("text-transform", if free { "none" } else { "uppercase" });
+                    let _ = self.input.set_attribute(
+                        "autocapitalize",
+                        if free { "sentences" } else { "characters" },
+                    );
+                    let _ = self
+                        .input
+                        .style()
+                        .set_property("text-transform", if free { "none" } else { "uppercase" });
                     self.input.set_hidden(false);
                     self.input.set_value(&t);
                 } else if self.input.value() != t {
@@ -538,7 +683,12 @@ type Frame = Closure<dyn FnMut()>;
 const HOLD_PADS: [&str; 2] = ["hold-left", "hold-right"];
 
 /// Calls `f` with the page's state on each `kind` event at `target`, which may cancel it.
-fn listen<E: JsCast + 'static>(target: &EventTarget, kind: &str, web: &Rc<RefCell<Web>>, f: impl Fn(&mut Web, &E) + 'static) {
+fn listen<E: JsCast + 'static>(
+    target: &EventTarget,
+    kind: &str,
+    web: &Rc<RefCell<Web>>,
+    f: impl Fn(&mut Web, &E) + 'static,
+) {
     let web = web.clone();
     let cb = Closure::<dyn FnMut(Event)>::new(move |e: Event| {
         if let Ok(mut w) = web.try_borrow_mut() {
@@ -547,12 +697,21 @@ fn listen<E: JsCast + 'static>(target: &EventTarget, kind: &str, web: &Rc<RefCel
     });
     let opts = AddEventListenerOptions::new();
     opts.set_passive(false);
-    target.add_event_listener_with_callback_and_add_event_listener_options(kind, cb.as_ref().unchecked_ref(), &opts).expect("listening");
+    target
+        .add_event_listener_with_callback_and_add_event_listener_options(
+            kind,
+            cb.as_ref().unchecked_ref(),
+            &opts,
+        )
+        .expect("listening");
     cb.forget();
 }
 
 fn element<T: JsCast>(document: &Document, id: &str) -> Result<T, String> {
-    document.get_element_by_id(id).and_then(|e| e.dyn_into().ok()).ok_or(format!("#{id} missing from the page"))
+    document
+        .get_element_by_id(id)
+        .and_then(|e| e.dyn_into().ok())
+        .ok_or(format!("#{id} missing from the page"))
 }
 
 fn start() -> Result<(), String> {
@@ -566,16 +725,32 @@ fn start() -> Result<(), String> {
     let canvas: HtmlCanvasElement = element(&document, "panes")?;
     let input: HtmlInputElement = element(&document, "text")?;
     let toolbar: Element = element(&document, "toolbar")?;
-    let pads: Vec<Element> = HOLD_PADS.iter().map(|id| element(&document, id)).collect::<Result<_, _>>()?;
+    let pads: Vec<Element> = HOLD_PADS
+        .iter()
+        .map(|id| element(&document, id))
+        .collect::<Result<_, _>>()?;
     let options = js_sys::Object::new();
     for (k, v) in [("antialias", true), ("alpha", false), ("depth", true)] {
         js_sys::Reflect::set(&options, &k.into(), &v.into()).map_err(|e| format!("{e:?}"))?;
     }
-    let context = canvas.get_context_with_context_options("webgl2", &options).ok().flatten().ok_or("this browser has no WebGL2")?;
-    let gl = glow::Context::from_webgl2_context(context.dyn_into::<WebGl2RenderingContext>().map_err(|_| "not a WebGL2 context")?);
+    let context = canvas
+        .get_context_with_context_options("webgl2", &options)
+        .ok()
+        .flatten()
+        .ok_or("this browser has no WebGL2")?;
+    let gl = glow::Context::from_webgl2_context(
+        context
+            .dyn_into::<WebGl2RenderingContext>()
+            .map_err(|_| "not a WebGL2 context")?,
+    );
     let renderer = Renderer::new(&gl, Profile::Gles)?;
     let search = window.location().search().unwrap_or_default();
-    let open = search.trim_start_matches('?').split('&').find_map(|kv| kv.strip_prefix("open=")).unwrap_or("").to_string();
+    let open = search
+        .trim_start_matches('?')
+        .split('&')
+        .find_map(|kv| kv.strip_prefix("open="))
+        .unwrap_or("")
+        .to_string();
     #[cfg(feature = "modding")]
     let pack_name: Option<HtmlInputElement> = element(&document, "pack-name").ok();
     #[cfg(feature = "modding")]
@@ -622,13 +797,19 @@ fn start() -> Result<(), String> {
         w.down(e);
         w.try_weapon();
     });
-    listen(&canvas, "pointermove", &web, |w, e: &PointerEvent| w.moved(e));
+    listen(&canvas, "pointermove", &web, |w, e: &PointerEvent| {
+        w.moved(e)
+    });
     listen(&canvas, "pointerup", &web, |w, e: &PointerEvent| {
         w.up(e, false);
         w.try_weapon();
     });
-    listen(&canvas, "pointercancel", &web, |w, e: &PointerEvent| w.up(e, true));
-    listen(&canvas, "contextmenu", &web, |_, e: &Event| e.prevent_default());
+    listen(&canvas, "pointercancel", &web, |w, e: &PointerEvent| {
+        w.up(e, true)
+    });
+    listen(&canvas, "contextmenu", &web, |_, e: &Event| {
+        e.prevent_default()
+    });
     listen(&canvas, "wheel", &web, |w, e: &WheelEvent| {
         e.prevent_default();
         w.wheel(e);
@@ -638,13 +819,20 @@ fn start() -> Result<(), String> {
     }
     // Only the panes and hold pads keep a touch from scrolling, so the toolbar and Help still scroll by touch.
     listen(&document, "touchmove", &web, |_, e: &Event| {
-        if e.target().and_then(|t| t.dyn_into::<Element>().ok()).is_some_and(|t| t.closest("#panes, .hold").ok().flatten().is_some()) {
+        if e.target()
+            .and_then(|t| t.dyn_into::<Element>().ok())
+            .is_some_and(|t| t.closest("#panes, .hold").ok().flatten().is_some())
+        {
             e.prevent_default();
         }
     });
     listen(&window, "resize", &web, |w, _: &Event| w.layout());
     listen(&window, "keydown", &web, |w, e: &KeyboardEvent| {
-        if e.target().and_then(|t| t.dyn_into::<HtmlInputElement>().ok()).is_none() && w.key(e, true) {
+        if e.target()
+            .and_then(|t| t.dyn_into::<HtmlInputElement>().ok())
+            .is_none()
+            && w.key(e, true)
+        {
             e.prevent_default();
         }
     });
@@ -660,13 +848,21 @@ fn start() -> Result<(), String> {
             w.hold(pad, e.pointer_id(), true);
         });
         for kind in ["pointerup", "pointercancel"] {
-            listen(el, kind, &web, move |w, e: &PointerEvent| w.hold(pad, e.pointer_id(), false));
+            listen(el, kind, &web, move |w, e: &PointerEvent| {
+                w.hold(pad, e.pointer_id(), false)
+            });
         }
     }
     listen(&toolbar, "pointerup", &web, |w, e: &PointerEvent| {
-        let act_at = |t: Option<Element>| t.and_then(|t| t.closest("[data-act]").ok().flatten()).and_then(|b| b.get_attribute("data-act"));
+        let act_at = |t: Option<Element>| {
+            t.and_then(|t| t.closest("[data-act]").ok().flatten())
+                .and_then(|b| b.get_attribute("data-act"))
+        };
         let pressed = act_at(e.target().and_then(|t| t.dyn_into::<Element>().ok()));
-        let lifted = act_at(w.document.element_from_point(e.client_x() as f32, e.client_y() as f32));
+        let lifted = act_at(
+            w.document
+                .element_from_point(e.client_x() as f32, e.client_y() as f32),
+        );
         if let Some(act) = pressed.filter(|a| e.button() == 0 && lifted.as_ref() == Some(a)) {
             w.act(&act);
         }
@@ -676,48 +872,111 @@ fn start() -> Result<(), String> {
     if let Some(field) = pack_name {
         field.set_value(&modding::pack_name());
         let typed = field.clone();
-        listen(&field, "input", &web, move |_, _: &Event| modding::keep_pack_name(&typed.value()));
+        listen(&field, "input", &web, move |_, _: &Event| {
+            modding::keep_pack_name(&typed.value())
+        });
     }
-    listen(&window, "lastharvest-palette", &web, |w, e: &web_sys::CustomEvent| {
-        let detail = e.detail();
-        let name = js_sys::Reflect::get(&detail, &"name".into()).ok().and_then(|v| v.as_string()).unwrap_or_default();
-        let bytes = js_sys::Reflect::get(&detail, &"bytes".into()).map(|v| js_sys::Uint8Array::new(&v).to_vec()).unwrap_or_default();
-        let stem = name.rsplit_once('.').map_or(name.as_str(), |(s, _)| s);
-        w.studio.editor.use_palette(stem, &String::from_utf8_lossy(&bytes));
-    });
+    listen(
+        &window,
+        "lastharvest-palette",
+        &web,
+        |w, e: &web_sys::CustomEvent| {
+            let detail = e.detail();
+            let name = js_sys::Reflect::get(&detail, &"name".into())
+                .ok()
+                .and_then(|v| v.as_string())
+                .unwrap_or_default();
+            let bytes = js_sys::Reflect::get(&detail, &"bytes".into())
+                .map(|v| js_sys::Uint8Array::new(&v).to_vec())
+                .unwrap_or_default();
+            let stem = name.rsplit_once('.').map_or(name.as_str(), |(s, _)| s);
+            w.studio
+                .editor
+                .use_palette(stem, &String::from_utf8_lossy(&bytes));
+        },
+    );
     #[cfg(feature = "modding")]
-    listen(&window, "lastharvest-import", &web, |w, e: &web_sys::CustomEvent| {
-        let detail = e.detail();
-        let name = js_sys::Reflect::get(&detail, &"name".into()).ok().and_then(|v| v.as_string()).unwrap_or_default();
-        let bytes = js_sys::Reflect::get(&detail, &"bytes".into()).map(|v| js_sys::Uint8Array::new(&v).to_vec()).unwrap_or_default();
-        if name.ends_with(".pak") {
-            match modding::cards_in(&bytes) {
-                Ok((cards, _, maps, props)) if cards.is_empty() && maps.is_empty() && props.is_empty() => w.studio.editor.say(format!("{name} holds no cards, maps, props or data")),
-                Ok((cards, sounds, maps, props)) => w.studio.editor.import_all(&name, cards, sounds, maps, props),
-                Err(e) => w.studio.editor.say(format!("{name}: {e}")),
+    listen(
+        &window,
+        "lastharvest-import",
+        &web,
+        |w, e: &web_sys::CustomEvent| {
+            let detail = e.detail();
+            let name = js_sys::Reflect::get(&detail, &"name".into())
+                .ok()
+                .and_then(|v| v.as_string())
+                .unwrap_or_default();
+            let bytes = js_sys::Reflect::get(&detail, &"bytes".into())
+                .map(|v| js_sys::Uint8Array::new(&v).to_vec())
+                .unwrap_or_default();
+            if name.ends_with(".pak") {
+                match modding::cards_in(&bytes) {
+                    Ok((cards, _, maps, props))
+                        if cards.is_empty() && maps.is_empty() && props.is_empty() =>
+                    {
+                        w.studio
+                            .editor
+                            .say(format!("{name} holds no cards, maps, props or data"))
+                    }
+                    Ok((cards, sounds, maps, props)) => w
+                        .studio
+                        .editor
+                        .import_all(&name, cards, sounds, maps, props),
+                    Err(e) => w.studio.editor.say(format!("{name}: {e}")),
+                }
+            } else if name.ends_with(last_harvest_game::MAP_EXTENSION) {
+                w.studio.editor.import_all(
+                    &name,
+                    Vec::new(),
+                    Vec::new(),
+                    vec![(name.clone(), bytes)],
+                    Vec::new(),
+                );
+            } else if name.ends_with(last_harvest_pack::prop::EXTENSION) {
+                w.studio.editor.import_all(
+                    &name,
+                    Vec::new(),
+                    Vec::new(),
+                    Vec::new(),
+                    vec![(name.clone(), bytes)],
+                );
+            } else {
+                w.studio.editor.import_card(&name, &bytes);
             }
-        } else if name.ends_with(last_harvest_game::MAP_EXTENSION) {
-            w.studio.editor.import_all(&name, Vec::new(), Vec::new(), vec![(name.clone(), bytes)], Vec::new());
-        } else if name.ends_with(last_harvest_pack::prop::EXTENSION) {
-            w.studio.editor.import_all(&name, Vec::new(), Vec::new(), Vec::new(), vec![(name.clone(), bytes)]);
-        } else {
-            w.studio.editor.import_card(&name, &bytes);
-        }
-    });
-    listen(&window, "lastharvest-said", &web, |w, e: &web_sys::CustomEvent| {
-        if let Some(text) = e.detail().as_string() {
-            w.studio.editor.say(text);
-        }
-    });
+        },
+    );
+    listen(
+        &window,
+        "lastharvest-said",
+        &web,
+        |w, e: &web_sys::CustomEvent| {
+            if let Some(text) = e.detail().as_string() {
+                w.studio.editor.say(text);
+            }
+        },
+    );
     #[cfg(feature = "modding")]
-    listen(&window, "lastharvest-sound", &web, |w, e: &web_sys::CustomEvent| {
-        let detail = e.detail();
-        let name = js_sys::Reflect::get(&detail, &"name".into()).ok().and_then(|v| v.as_string()).unwrap_or_default();
-        let bytes = js_sys::Reflect::get(&detail, &"bytes".into()).map(|v| js_sys::Uint8Array::new(&v).to_vec()).unwrap_or_default();
-        if let Some(kept) = w.studio.editor.attach_sound(&name, &bytes) {
-            modding::call("play", &[kept.into(), js_sys::Uint8Array::from(&bytes[..]).into()]);
-        }
-    });
+    listen(
+        &window,
+        "lastharvest-sound",
+        &web,
+        |w, e: &web_sys::CustomEvent| {
+            let detail = e.detail();
+            let name = js_sys::Reflect::get(&detail, &"name".into())
+                .ok()
+                .and_then(|v| v.as_string())
+                .unwrap_or_default();
+            let bytes = js_sys::Reflect::get(&detail, &"bytes".into())
+                .map(|v| js_sys::Uint8Array::new(&v).to_vec())
+                .unwrap_or_default();
+            if let Some(kept) = w.studio.editor.attach_sound(&name, &bytes) {
+                modding::call(
+                    "play",
+                    &[kept.into(), js_sys::Uint8Array::from(&bytes[..]).into()],
+                );
+            }
+        },
+    );
     listen(&input, "keydown", &web, |w, e: &KeyboardEvent| {
         let k = match e.key().as_str() {
             "Enter" => Key::Enter,
@@ -742,15 +1001,28 @@ fn start() -> Result<(), String> {
             let _ = window.request_animation_frame(cb.as_ref().unchecked_ref());
         }
     }));
-    let _ = window.request_animation_frame(tick.borrow().as_ref().ok_or("no frame callback")?.as_ref().unchecked_ref());
+    let _ = window.request_animation_frame(
+        tick.borrow()
+            .as_ref()
+            .ok_or("no frame callback")?
+            .as_ref()
+            .unchecked_ref(),
+    );
     Ok(())
 }
 
 /// Calls one of the page's helpers on `window.lastHarvest`.
 pub fn call(method: &str, args: &[JsValue]) {
-    let Some(window) = web_sys::window() else { return };
-    let Ok(helpers) = js_sys::Reflect::get(&window, &"lastHarvest".into()) else { return };
-    if let Some(f) = js_sys::Reflect::get(&helpers, &method.into()).ok().and_then(|f| f.dyn_into::<js_sys::Function>().ok()) {
+    let Some(window) = web_sys::window() else {
+        return;
+    };
+    let Ok(helpers) = js_sys::Reflect::get(&window, &"lastHarvest".into()) else {
+        return;
+    };
+    if let Some(f) = js_sys::Reflect::get(&helpers, &method.into())
+        .ok()
+        .and_then(|f| f.dyn_into::<js_sys::Function>().ok())
+    {
         let _ = f.apply(&helpers, &args.iter().collect());
     }
 }
@@ -758,8 +1030,13 @@ pub fn call(method: &str, args: &[JsValue]) {
 /// Shows a failure on the page, where a tablet's user can see it.
 fn fail(text: &str) {
     web_sys::console::error_1(&text.into());
-    if let Some(body) = web_sys::window().and_then(|w| w.document()).and_then(|d| d.body()) {
-        let note = body.owner_document().and_then(|d| d.create_element("pre").ok());
+    if let Some(body) = web_sys::window()
+        .and_then(|w| w.document())
+        .and_then(|d| d.body())
+    {
+        let note = body
+            .owner_document()
+            .and_then(|d| d.create_element("pre").ok());
         if let Some(note) = note.and_then(|n| n.dyn_into::<HtmlElement>().ok()) {
             note.set_class_name("failure");
             note.set_inner_text(text);
@@ -789,37 +1066,68 @@ mod modding {
     /// couldn't be used.
     pub fn install_data() -> Result<Option<String>, String> {
         let window = web_sys::window().ok_or("no window")?;
-        let pak = js_sys::Reflect::get(&window, &"lastHarvestPak".into()).ok().filter(|v| !v.is_undefined() && !v.is_null());
-        let shared = js_sys::Reflect::get(&window, &"lastHarvestPakShared".into()).is_ok_and(|v| v.is_truthy());
+        let pak = js_sys::Reflect::get(&window, &"lastHarvestPak".into())
+            .ok()
+            .filter(|v| !v.is_undefined() && !v.is_null());
+        let shared = js_sys::Reflect::get(&window, &"lastHarvestPakShared".into())
+            .is_ok_and(|v| v.is_truthy());
         let size = (ATLAS_W * ATLAS_H * 4) as usize;
         // A stored pack that can't be used must leave the page working, or Game data could never replace it.
         let (atlas, note) = match pak.map(|v| js_sys::Uint8Array::new(&v).to_vec()) {
-            Some(bytes) => match Pak::read(std::io::Cursor::new(bytes)).map(|mut p| (p.take(ATLAS), p.take_dir(last_harvest_pack::SOUNDS))).map(|(atlas, sounds)| {
-                super::local::set_pak_sounds(sounds.into_iter().map(|(name, _)| name).collect());
-                atlas
-            }) {
-                Ok(Some(atlas)) if atlas.len() == size => (Some(atlas), (!shared).then(|| "Previews use your game data".to_string())),
-                Ok(_) => (None, Some("Your game data has no sprites this editor can use".to_string())),
-                Err(e) => (None, Some(format!("Your game data isn't for this editor: {e}"))),
+            Some(bytes) => match Pak::read(std::io::Cursor::new(bytes))
+                .map(|mut p| (p.take(ATLAS), p.take_dir(last_harvest_pack::SOUNDS)))
+                .map(|(atlas, sounds)| {
+                    super::local::set_pak_sounds(
+                        sounds.into_iter().map(|(name, _)| name).collect(),
+                    );
+                    atlas
+                }) {
+                Ok(Some(atlas)) if atlas.len() == size => (
+                    Some(atlas),
+                    (!shared).then(|| "Previews use your game data".to_string()),
+                ),
+                Ok(_) => (
+                    None,
+                    Some("Your game data has no sprites this editor can use".to_string()),
+                ),
+                Err(e) => (
+                    None,
+                    Some(format!("Your game data isn't for this editor: {e}")),
+                ),
             },
             None => (None, None),
         };
-        data::install(Data { atlas: Some(atlas.unwrap_or_else(plain_ground)), ..Data::default() })?;
+        data::install(Data {
+            atlas: Some(atlas.unwrap_or_else(plain_ground)),
+            ..Data::default()
+        })?;
         Ok(note)
     }
 
     /// An atlas with nothing of the tileset in it but flat colors where the ground tiles go, so a card in the
     /// previews walks on a plain floor rather than in the dark.
     fn plain_ground() -> Vec<u8> {
-        const GROUND: [(&str, [u8; 3]); 7] =
-            [("DIRT", [74, 60, 44]), ("DIRT_TUFTS", [74, 60, 44]), ("GRASS", [66, 84, 52]), ("PATH", [110, 96, 70]), ("ROAD_V", [52, 52, 58]), ("ROAD_H", [52, 52, 58]), ("SOIL", [88, 64, 44])];
+        const GROUND: [(&str, [u8; 3]); 7] = [
+            ("DIRT", [74, 60, 44]),
+            ("DIRT_TUFTS", [74, 60, 44]),
+            ("GRASS", [66, 84, 52]),
+            ("PATH", [110, 96, 70]),
+            ("ROAD_V", [52, 52, 58]),
+            ("ROAD_H", [52, 52, 58]),
+            ("SOIL", [88, 64, 44]),
+        ];
         let mut atlas = vec![0; (ATLAS_W * ATLAS_H * 4) as usize];
         for (name, frames) in art::ALL {
-            let Some((_, [r, g, b])) = GROUND.iter().find(|(n, _)| n == name) else { continue };
+            let Some((_, [r, g, b])) = GROUND.iter().find(|(n, _)| n == name) else {
+                continue;
+            };
             for a in frames.iter() {
                 let [x, y, w, h] = a.rect().map(usize::from);
                 for row in y..y + h {
-                    for px in atlas[(row * ATLAS_W as usize + x) * 4..(row * ATLAS_W as usize + x + w) * 4].chunks_exact_mut(4) {
+                    for px in atlas
+                        [(row * ATLAS_W as usize + x) * 4..(row * ATLAS_W as usize + x + w) * 4]
+                        .chunks_exact_mut(4)
+                    {
                         px.copy_from_slice(&[*r, *g, *b, 255]);
                     }
                 }
@@ -831,12 +1139,22 @@ mod modding {
     /// The pack name typed beside Export all, kept in this browser.
     pub fn pack_name() -> String {
         let storage = web_sys::window().and_then(|w| w.local_storage().ok().flatten());
-        storage.and_then(|s| s.get_item(last_harvest_pack::browser::PACK_NAME_KEY).ok().flatten()).unwrap_or_default()
+        storage
+            .and_then(|s| {
+                s.get_item(last_harvest_pack::browser::PACK_NAME_KEY)
+                    .ok()
+                    .flatten()
+            })
+            .unwrap_or_default()
     }
 
     pub fn keep_pack_name(name: &str) {
         if let Some(s) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
-            let _ = if name.trim().is_empty() { s.remove_item(last_harvest_pack::browser::PACK_NAME_KEY) } else { s.set_item(last_harvest_pack::browser::PACK_NAME_KEY, name) };
+            let _ = if name.trim().is_empty() {
+                s.remove_item(last_harvest_pack::browser::PACK_NAME_KEY)
+            } else {
+                s.set_item(last_harvest_pack::browser::PACK_NAME_KEY, name)
+            };
         }
     }
 
@@ -850,15 +1168,34 @@ mod modding {
         let mut cards = pak.take_dir(last_harvest_pack::ENEMY_CARDS);
         cards.extend(pak.take_dir(last_harvest_pack::PLAYER_CARDS));
         let mut maps = pak.take_dir(last_harvest_pack::MAPS);
-        maps.extend(last_harvest_game::TABLES.into_iter().filter_map(|file| Some((file.to_string(), pak.take(file)?))));
-        maps.extend(pak.take_dir(last_harvest_pack::FARMS).into_iter().map(|(name, bytes)| (format!("{}{name}", last_harvest_pack::FARMS), bytes)));
-        Ok((cards, pak.take_dir(last_harvest_pack::SOUNDS), maps, pak.take_dir(last_harvest_pack::PROPS)))
+        maps.extend(
+            last_harvest_game::TABLES
+                .into_iter()
+                .filter_map(|file| Some((file.to_string(), pak.take(file)?))),
+        );
+        maps.extend(
+            pak.take_dir(last_harvest_pack::FARMS)
+                .into_iter()
+                .map(|(name, bytes)| (format!("{}{name}", last_harvest_pack::FARMS), bytes)),
+        );
+        Ok((
+            cards,
+            pak.take_dir(last_harvest_pack::SOUNDS),
+            maps,
+            pak.take_dir(last_harvest_pack::PROPS),
+        ))
     }
 
     /// A mod pack named after `name` holding `files` by their paths in it.
     pub fn pack_of(name: &str, mut files: Files) -> Result<Vec<u8>, String> {
         let id = name.strip_suffix(".pak").unwrap_or(name);
-        files.insert(0, (last_harvest_pack::MANIFEST.to_string(), last_harvest_pack::mod_manifest(id).into_bytes()));
+        files.insert(
+            0,
+            (
+                last_harvest_pack::MANIFEST.to_string(),
+                last_harvest_pack::mod_manifest(id).into_bytes(),
+            ),
+        );
         let mut out = std::io::Cursor::new(Vec::new());
         last_harvest_pack::write(&mut out, &files).map_err(|e| e.to_string())?;
         Ok(out.into_inner())
@@ -866,10 +1203,19 @@ mod modding {
 
     /// Every card as one mod pack `id` named `name`, enemy cards under `enemies/`, player cards under `players/` and
     /// their death sounds under `sounds/`, ready for the game's data/mods.
-    pub fn mod_pack(id: &str, name: &str, cards: &[(String, Vec<u8>)], sounds: &[(String, Vec<u8>)], extra: &[(String, Vec<u8>)]) -> Result<Vec<u8>, String> {
+    pub fn mod_pack(
+        id: &str,
+        name: &str,
+        cards: &[(String, Vec<u8>)],
+        sounds: &[(String, Vec<u8>)],
+        extra: &[(String, Vec<u8>)],
+    ) -> Result<Vec<u8>, String> {
         use last_harvest_pack::card::Kind;
         let name = if name.trim().is_empty() { id } else { name };
-        let mut files = vec![(last_harvest_pack::MANIFEST.to_string(), last_harvest_pack::named_mod_manifest(id, name).into_bytes())];
+        let mut files = vec![(
+            last_harvest_pack::MANIFEST.to_string(),
+            last_harvest_pack::named_mod_manifest(id, name).into_bytes(),
+        )];
         for (file, bytes) in cards {
             let dir = match Kind::of(file) {
                 Some(Kind::Player) => last_harvest_pack::PLAYER_CARDS,
@@ -877,7 +1223,12 @@ mod modding {
             };
             files.push((format!("{dir}{file}"), bytes.clone()));
         }
-        files.extend(sounds.iter().map(|(file, bytes)| (format!("{}{file}", last_harvest_pack::SOUNDS), bytes.clone())));
+        files.extend(sounds.iter().map(|(file, bytes)| {
+            (
+                format!("{}{file}", last_harvest_pack::SOUNDS),
+                bytes.clone(),
+            )
+        }));
         files.extend(extra.iter().cloned());
         let mut out = std::io::Cursor::new(Vec::new());
         last_harvest_pack::write(&mut out, &files).map_err(|e| e.to_string())?;
@@ -886,10 +1237,18 @@ mod modding {
 
     /// Shows the Cards group and hides what only the game's own editor has.
     pub fn show_tools(document: &Document) {
-        if let Some(tools) = document.get_element_by_id("mod-tools").and_then(|e| e.dyn_into::<HtmlElement>().ok()) {
+        if let Some(tools) = document
+            .get_element_by_id("mod-tools")
+            .and_then(|e| e.dyn_into::<HtmlElement>().ok())
+        {
             tools.set_hidden(false);
         }
-        if let Some(history) = document.query_selector("[data-act=history]").ok().flatten().and_then(|e| e.dyn_into::<HtmlElement>().ok()) {
+        if let Some(history) = document
+            .query_selector("[data-act=history]")
+            .ok()
+            .flatten()
+            .and_then(|e| e.dyn_into::<HtmlElement>().ok())
+        {
             history.set_hidden(true);
         }
         call("offline", &[]);

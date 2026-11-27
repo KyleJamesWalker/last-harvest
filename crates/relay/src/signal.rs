@@ -7,18 +7,18 @@
 
 use crate::config::Config;
 use crate::websocket::Poll;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::io::ErrorKind;
 use std::net::{IpAddr, TcpStream};
-use std::sync::mpsc::{sync_channel, SyncSender};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{SyncSender, sync_channel};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
+use tungstenite::Message;
 use tungstenite::handshake::server::{ErrorResponse, Request, Response};
 use tungstenite::http::StatusCode;
 use tungstenite::protocol::WebSocketConfig;
-use tungstenite::Message;
 
 /// A signaling peer silent this long leaves its room.
 const IDLE_TIMEOUT: Duration = Duration::from_secs(60);
@@ -67,7 +67,14 @@ fn new_peer_id() -> String {
     b[6] = (b[6] & 0x0f) | 0x40;
     b[8] = (b[8] & 0x3f) | 0x80;
     let hex: String = b.iter().map(|x| format!("{x:02x}")).collect();
-    format!("{}-{}-{}-{}-{}", &hex[0..8], &hex[8..12], &hex[12..16], &hex[16..20], &hex[20..32])
+    format!(
+        "{}-{}-{}-{}-{}",
+        &hex[0..8],
+        &hex[8..12],
+        &hex[12..16],
+        &hex[16..20],
+        &hex[20..32]
+    )
 }
 
 /// Places taken in `room`, held ones included.
@@ -77,14 +84,22 @@ fn room_size(room: &str) -> usize {
 
 /// Queues a message to one peer of a room; it is discarded if the peer is gone or its queue is full.
 fn send_to(room: &str, peer: &str, text: String) {
-    if let Some(tx) = rooms().lock().unwrap().get(room).and_then(|r| r.get(peer)).and_then(|m| m.tx.as_ref()) {
+    if let Some(tx) = rooms()
+        .lock()
+        .unwrap()
+        .get(room)
+        .and_then(|r| r.get(peer))
+        .and_then(|m| m.tx.as_ref())
+    {
         let _ = tx.try_send(text);
     }
 }
 
 /// Whether a `/signal` request's query string asks to resume a place.
 pub fn wants_resume(query: &str) -> bool {
-    query.split('&').any(|pair| pair.split('=').next() == Some("resume"))
+    query
+        .split('&')
+        .any(|pair| pair.split('=').next() == Some("resume"))
 }
 
 /// The ID and token of a `Resume` message.
@@ -102,7 +117,8 @@ fn read_resume(ws: &mut tungstenite::WebSocket<TcpStream>) -> Option<(String, St
         match ws.read() {
             Ok(Message::Text(text)) => return parse_resume(&text),
             Ok(Message::Ping(_) | Message::Pong(_)) => {}
-            Err(tungstenite::Error::Io(e)) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {}
+            Err(tungstenite::Error::Io(e))
+                if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {}
             _ => return None,
         }
     }
@@ -117,12 +133,27 @@ enum Join {
 
 /// Adds `me` to `room`, or puts a resumed peer's new connection in its place. None when the room is full or the
 /// resume does not match a peer, or when a new room would pass `max_rooms`.
-fn join(room: &str, me: &str, resume: bool, token: &str, tx: SyncSender<String>, replaced: Arc<AtomicBool>, max_rooms: Option<usize>) -> Option<Join> {
+fn join(
+    room: &str,
+    me: &str,
+    resume: bool,
+    token: &str,
+    tx: SyncSender<String>,
+    replaced: Arc<AtomicBool>,
+    max_rooms: Option<usize>,
+) -> Option<Join> {
     let mut rooms = rooms().lock().unwrap();
     if resume {
-        let member = rooms.get_mut(room)?.get_mut(me).filter(|m| m.token == token)?;
+        let member = rooms
+            .get_mut(room)?
+            .get_mut(me)
+            .filter(|m| m.token == token)?;
         member.replaced.store(true, Ordering::Release);
-        *member = Member { tx: Some(tx), token: member.token.clone(), replaced };
+        *member = Member {
+            tx: Some(tx),
+            token: member.token.clone(),
+            replaced,
+        };
         return Some(Join::Resumed);
     }
     if !rooms.contains_key(room) && max_rooms.is_some_and(|most| rooms.len() >= most) {
@@ -133,7 +164,14 @@ fn join(room: &str, me: &str, resume: bool, token: &str, tx: SyncSender<String>,
         return None;
     }
     let others = peers.values().filter_map(|m| m.tx.clone()).collect();
-    peers.insert(me.to_string(), Member { tx: Some(tx), token: token.to_string(), replaced });
+    peers.insert(
+        me.to_string(),
+        Member {
+            tx: Some(tx),
+            token: token.to_string(),
+            replaced,
+        },
+    );
     Some(Join::New(others))
 }
 
@@ -144,7 +182,9 @@ fn leave(room: &str, me: &str, replaced: &AtomicBool) {
         if replaced.load(Ordering::Acquire) {
             return;
         }
-        let Some(peers) = rooms.get_mut(room) else { return };
+        let Some(peers) = rooms.get_mut(room) else {
+            return;
+        };
         peers.remove(me);
         let remaining = peers.values().filter_map(|m| m.tx.clone()).collect();
         if peers.is_empty() {
@@ -178,7 +218,10 @@ fn hold(room: String, me: String, replaced: Arc<AtomicBool>, grace: Duration) {
 pub fn run(stream: TcpStream, room: String, resuming: bool, client: IpAddr, config: &Config) {
     #[allow(clippy::result_large_err)] // tungstenite's handshake callback signature
     let check_origin = |request: &Request, response: Response| -> Result<Response, ErrorResponse> {
-        let origin = request.headers().get("origin").and_then(|v| v.to_str().ok());
+        let origin = request
+            .headers()
+            .get("origin")
+            .and_then(|v| v.to_str().ok());
         if config.origin_allowed(origin) {
             return Ok(response);
         }
@@ -186,8 +229,13 @@ pub fn run(stream: TcpStream, room: String, resuming: bool, client: IpAddr, conf
         *refusal.status_mut() = StatusCode::FORBIDDEN;
         Err(refusal)
     };
-    let ws_config = WebSocketConfig::default().max_message_size(Some(MAX_MESSAGE_LEN)).max_frame_size(Some(MAX_MESSAGE_LEN));
-    let Ok(mut ws) = tungstenite::accept_hdr_with_config(stream, check_origin, Some(ws_config)) else { return };
+    let ws_config = WebSocketConfig::default()
+        .max_message_size(Some(MAX_MESSAGE_LEN))
+        .max_frame_size(Some(MAX_MESSAGE_LEN));
+    let Ok(mut ws) = tungstenite::accept_hdr_with_config(stream, check_origin, Some(ws_config))
+    else {
+        return;
+    };
     let mut poll = Poll::new(ws.get_ref());
 
     let resume = if resuming {
@@ -205,7 +253,10 @@ pub fn run(stream: TcpStream, room: String, resuming: bool, client: IpAddr, conf
     let (tx, outgoing) = sync_channel::<String>(OUTBOX_LEN);
     let _ = tx.try_send(json!({ "IdAssigned": me }).to_string());
     let _ = tx.try_send(json!({ "ResumeToken": token }).to_string());
-    let ice_servers = || crate::turn::ice_servers(config, crate::turn::now_unix(), client).map(|s| json!({ "IceServers": s }).to_string());
+    let ice_servers = || {
+        crate::turn::ice_servers(config, crate::turn::now_unix(), client)
+            .map(|s| json!({ "IceServers": s }).to_string())
+    };
     if let Some(servers) = ice_servers() {
         let _ = tx.try_send(servers);
     }
@@ -213,7 +264,15 @@ pub fn run(stream: TcpStream, room: String, resuming: bool, client: IpAddr, conf
     let replaced = Arc::new(AtomicBool::new(false));
     let own = tx.clone();
     // Reading the room's peers and adding this one under one lock: two peers joining at once still pair up.
-    match join(&room, &me, resuming, &token, tx, replaced.clone(), config.max_rooms) {
+    match join(
+        &room,
+        &me,
+        resuming,
+        &token,
+        tx,
+        replaced.clone(),
+        config.max_rooms,
+    ) {
         Some(Join::New(others)) => {
             for other in others {
                 let _ = other.try_send(json!({ "NewPeer": me }).to_string());
@@ -221,7 +280,14 @@ pub fn run(stream: TcpStream, room: String, resuming: bool, client: IpAddr, conf
         }
         Some(Join::Resumed) => println!("[relay] signaling peer resumed"),
         None => {
-            println!("[relay] refused a signaling peer: {}", if resuming { "no place to resume" } else { "room full" });
+            println!(
+                "[relay] refused a signaling peer: {}",
+                if resuming {
+                    "no place to resume"
+                } else {
+                    "room full"
+                }
+            );
             let _ = ws.close(None);
             let _ = ws.flush();
             return;
@@ -258,15 +324,26 @@ pub fn run(stream: TcpStream, room: String, resuming: bool, client: IpAddr, conf
                 Ok(Message::Text(text)) => {
                     last_heard = Instant::now();
                     poll.active();
-                    let Ok(request) = serde_json::from_str::<Value>(&text) else { continue };
+                    let Ok(request) = serde_json::from_str::<Value>(&text) else {
+                        continue;
+                    };
                     // Echoed, so a client learns within seconds that a connection has died.
                     if request == "KeepAlive" {
                         let _ = own.try_send(text.to_string());
                         continue;
                     }
                     if let Some(signal) = request.get("Signal") {
-                        let (Some(receiver), Some(data)) = (signal.get("receiver").and_then(Value::as_str), signal.get("data")) else { continue };
-                        send_to(&room, receiver, json!({ "Signal": { "sender": me, "data": data } }).to_string());
+                        let (Some(receiver), Some(data)) = (
+                            signal.get("receiver").and_then(Value::as_str),
+                            signal.get("data"),
+                        ) else {
+                            continue;
+                        };
+                        send_to(
+                            &room,
+                            receiver,
+                            json!({ "Signal": { "sender": me, "data": data } }).to_string(),
+                        );
                     }
                 }
                 Ok(Message::Close(_)) => {
@@ -274,7 +351,11 @@ pub fn run(stream: TcpStream, room: String, resuming: bool, client: IpAddr, conf
                     break 'session;
                 }
                 Ok(_) => last_heard = Instant::now(),
-                Err(tungstenite::Error::Io(e)) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => break,
+                Err(tungstenite::Error::Io(e))
+                    if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) =>
+                {
+                    break;
+                }
                 Err(_) => break 'session,
             }
         }
@@ -308,7 +389,12 @@ pub fn run(stream: TcpStream, room: String, resuming: bool, client: IpAddr, conf
 #[cfg(test)]
 pub fn hold_for_test(room: &str, me: &str, grace: Duration) {
     let replaced = Arc::new(AtomicBool::new(false));
-    if let Some(member) = rooms().lock().unwrap().get_mut(room).and_then(|r| r.get_mut(me)) {
+    if let Some(member) = rooms()
+        .lock()
+        .unwrap()
+        .get_mut(room)
+        .and_then(|r| r.get_mut(me))
+    {
         member.replaced.store(true, Ordering::Release);
         member.replaced = replaced.clone();
     }

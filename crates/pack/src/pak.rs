@@ -35,8 +35,14 @@ pub fn mod_manifest(id: &str) -> String {
 
 /// The manifest of a mod pack `id` that the game's menu lists as `name`.
 pub fn named_mod_manifest(id: &str, name: &str) -> String {
-    let name: String = name.chars().filter(|c| !matches!(c, '"' | '#') && !c.is_control()).collect();
-    format!("id = \"{id}\"\nname = \"{}\"\nversion = \"1\"\nformat = {FORMAT}\n", name.trim())
+    let name: String = name
+        .chars()
+        .filter(|c| !matches!(c, '"' | '#') && !c.is_control())
+        .collect();
+    format!(
+        "id = \"{id}\"\nname = \"{}\"\nversion = \"1\"\nformat = {FORMAT}\n",
+        name.trim()
+    )
 }
 
 /// The release a base pack is built for: `LAST_HARVEST_VERSION` when the packer was built, else `dev`.
@@ -58,15 +64,24 @@ pub fn manifest() -> String {
 
 /// Media that deflate would barely shrink, only slow down.
 fn stored(path: &str) -> bool {
-    [".ogg", ".png", ".wav"].iter().any(|ext| path.ends_with(ext))
+    [".ogg", ".png", ".wav"]
+        .iter()
+        .any(|ext| path.ends_with(ext))
 }
 
 /// Writes `files` in the order given, with fixed timestamps so the same files give the same bytes.
 pub fn write(out: impl Write + Seek, files: &[(String, Vec<u8>)]) -> zip::result::ZipResult<()> {
     let mut zip = ZipWriter::new(out);
     for (path, bytes) in files {
-        let method = if stored(path) { CompressionMethod::Stored } else { CompressionMethod::Deflated };
-        let options = SimpleFileOptions::default().compression_method(method).last_modified_time(DateTime::default()).unix_permissions(0o644);
+        let method = if stored(path) {
+            CompressionMethod::Stored
+        } else {
+            CompressionMethod::Deflated
+        };
+        let options = SimpleFileOptions::default()
+            .compression_method(method)
+            .last_modified_time(DateTime::default())
+            .unix_permissions(0o644);
         zip.start_file(path, options)?;
         zip.write_all(bytes)?;
     }
@@ -97,21 +112,34 @@ impl Pak {
             let name = entry.name().map_err(|e| e.to_string())?.into_owned();
             total += entry.size();
             if entry.size() > MAX_FILE || total > MAX_PACK {
-                return Err(format!("{name} makes the pack bigger than the game reads: {} MB a file, {} MB in all", MAX_FILE >> 20, MAX_PACK >> 20));
+                return Err(format!(
+                    "{name} makes the pack bigger than the game reads: {} MB a file, {} MB in all",
+                    MAX_FILE >> 20,
+                    MAX_PACK >> 20
+                ));
             }
             let mut bytes = Vec::with_capacity(entry.size() as usize);
             // A pack may come from anyone: read no more than a file declares, whatever its data would unpack to.
             let declared = entry.size();
-            (&mut entry).take(declared).read_to_end(&mut bytes).map_err(|e| format!("{name}: {e}"))?;
+            (&mut entry)
+                .take(declared)
+                .read_to_end(&mut bytes)
+                .map_err(|e| format!("{name}: {e}"))?;
             files.insert(name, bytes);
         }
         let text = files.get(MANIFEST).ok_or("no manifest.toml")?;
         let text = std::str::from_utf8(text).map_err(|_| "manifest.toml is not UTF-8")?;
-        let format = value(text, "", "format").and_then(|v| v.parse::<u32>().ok()).ok_or("manifest.toml has no format")?;
+        let format = value(text, "", "format")
+            .and_then(|v| v.parse::<u32>().ok())
+            .ok_or("manifest.toml has no format")?;
         if format != FORMAT {
-            return Err(format!("format {format}, but this build reads format {FORMAT}"));
+            return Err(format!(
+                "format {format}, but this build reads format {FORMAT}"
+            ));
         }
-        if files.contains_key(ATLAS) && value(text, "atlas", "hash") != Some(&format!("{:016x}", art::ART_HASH)) {
+        if files.contains_key(ATLAS)
+            && value(text, "atlas", "hash") != Some(&format!("{:016x}", art::ART_HASH))
+        {
             return Err("its atlas was built for a different build of the game".into());
         }
         Ok(Self { files })
@@ -119,12 +147,16 @@ impl Pak {
 
     /// A mod made of `files` by their paths in it, such as the card editor's work, held in memory.
     pub fn from_files(files: Vec<(String, Vec<u8>)>) -> Self {
-        Self { files: files.into_iter().collect() }
+        Self {
+            files: files.into_iter().collect(),
+        }
     }
 
     /// No files, for mods to lay over when there's no base pack.
     pub fn empty() -> Self {
-        Self { files: HashMap::new() }
+        Self {
+            files: HashMap::new(),
+        }
     }
 
     /// Lays a mod over this pack: each of its files replaces the one at the same path, all but its manifest.
@@ -136,32 +168,53 @@ impl Pak {
     /// Whether a mod's files that replace the game's own would read: its atlas the right size, its tables UTF-8 that
     /// parse.
     pub fn check_mod(&self) -> Result<(), String> {
-        if self.get(ATLAS).is_some_and(|a| a.len() != (art::ATLAS_W * art::ATLAS_H * 4) as usize) {
+        if self
+            .get(ATLAS)
+            .is_some_and(|a| a.len() != (art::ATLAS_W * art::ATLAS_H * 4) as usize)
+        {
             return Err("its atlas is the wrong size for this build".into());
         }
         if let Some((_, e)) = self.table_problems().into_iter().next() {
             return Err(e);
         }
-        self.farms().into_iter().find_map(Result::err).map_or(Ok(()), Err)
+        self.farms()
+            .into_iter()
+            .find_map(Result::err)
+            .map_or(Ok(()), Err)
     }
 
     /// The pack's own farms, by id, each one or why it won't read. Reads none of the game's data.
     pub fn farms(&self) -> Vec<Result<last_harvest_game::data::FarmFile, String>> {
-        let mut paths: Vec<&str> = self.files.keys().map(String::as_str).filter(|p| p.strip_prefix(FARMS).is_some_and(|n| !n.contains('/'))).collect();
+        let mut paths: Vec<&str> = self
+            .files
+            .keys()
+            .map(String::as_str)
+            .filter(|p| p.strip_prefix(FARMS).is_some_and(|n| !n.contains('/')))
+            .collect();
         paths.sort_unstable();
         let mut ids: Vec<Result<&str, String>> = paths.iter().map(|p| last_harvest_game::farm_of_file(p).map(|(id, _)| id).ok_or_else(|| format!("{p}: a farm's files are farms/<id>.txt and farms/<id>{}, its id 1 to {} of a-z, 0-9 and _", last_harvest_game::FARM_GROUND_END, last_harvest_game::FARM_ID_MAX))).collect();
         ids.dedup();
         let text = |path: String| -> Result<Option<String>, String> {
-            let Some(bytes) = self.get(&path) else { return Ok(None) };
-            let text = String::from_utf8(bytes.to_vec()).map_err(|_| format!("{path} is not UTF-8"))?;
+            let Some(bytes) = self.get(&path) else {
+                return Ok(None);
+            };
+            let text =
+                String::from_utf8(bytes.to_vec()).map_err(|_| format!("{path} is not UTF-8"))?;
             last_harvest_game::check_table(&path, &text)?;
             Ok(Some(text))
         };
         ids.into_iter()
             .map(|id| {
                 let id = id?;
-                let (farm, ground) = (text(last_harvest_game::farm_file(id, false))?, text(last_harvest_game::farm_file(id, true))?);
-                Ok(last_harvest_game::data::FarmFile { id: id.to_string(), farm, ground })
+                let (farm, ground) = (
+                    text(last_harvest_game::farm_file(id, false))?,
+                    text(last_harvest_game::farm_file(id, true))?,
+                );
+                Ok(last_harvest_game::data::FarmFile {
+                    id: id.to_string(),
+                    farm,
+                    ground,
+                })
             })
             .collect()
     }
@@ -176,7 +229,18 @@ impl Pak {
             };
             Some((file, e))
         };
-        [PROPS_TABLE, POWERUPS, ENEMIES, EFFECTS, GROUND, FARM, TUNING].into_iter().filter_map(check).collect()
+        [
+            PROPS_TABLE,
+            POWERUPS,
+            ENEMIES,
+            EFFECTS,
+            GROUND,
+            FARM,
+            TUNING,
+        ]
+        .into_iter()
+        .filter_map(check)
+        .collect()
     }
 
     /// Every file's path, sorted.
@@ -213,8 +277,19 @@ impl Pak {
 
     /// Takes every file directly under `dir`, by its name within it, sorted by name.
     pub fn take_dir(&mut self, dir: &str) -> Vec<(String, Vec<u8>)> {
-        let names: Vec<String> = self.files.keys().filter(|p| p.strip_prefix(dir).is_some_and(|n| !n.is_empty() && !n.contains('/'))).cloned().collect();
-        let mut taken: Vec<(String, Vec<u8>)> = names.into_iter().map(|p| (p[dir.len()..].to_string(), self.files.remove(&p).unwrap())).collect();
+        let names: Vec<String> = self
+            .files
+            .keys()
+            .filter(|p| {
+                p.strip_prefix(dir)
+                    .is_some_and(|n| !n.is_empty() && !n.contains('/'))
+            })
+            .cloned()
+            .collect();
+        let mut taken: Vec<(String, Vec<u8>)> = names
+            .into_iter()
+            .map(|p| (p[dir.len()..].to_string(), self.files.remove(&p).unwrap()))
+            .collect();
         sort_by_name(&mut taken);
         taken
     }
@@ -247,7 +322,10 @@ mod tests {
     use std::io::Cursor;
 
     fn pack(files: &[(&str, &[u8])]) -> Vec<u8> {
-        let files: Vec<(String, Vec<u8>)> = files.iter().map(|(p, b)| (p.to_string(), b.to_vec())).collect();
+        let files: Vec<(String, Vec<u8>)> = files
+            .iter()
+            .map(|(p, b)| (p.to_string(), b.to_vec()))
+            .collect();
         let mut buf = Cursor::new(Vec::new());
         write(&mut buf, &files).unwrap();
         buf.into_inner()
@@ -255,11 +333,25 @@ mod tests {
 
     #[test]
     fn media_is_stored_and_text_and_the_atlas_are_deflated() {
-        let bytes = pack(&[(MANIFEST, manifest().as_bytes()), (ATLAS, &[0; 64]), ("sounds/shot.ogg", &[1; 64])]);
+        let bytes = pack(&[
+            (MANIFEST, manifest().as_bytes()),
+            (ATLAS, &[0; 64]),
+            ("sounds/shot.ogg", &[1; 64]),
+        ]);
         let mut zip = ZipArchive::new(Cursor::new(bytes)).unwrap();
-        assert_eq!(zip.by_name(ATLAS).unwrap().compression(), CompressionMethod::Deflated, "mostly clear pixels, it packs small");
-        assert_eq!(zip.by_name("sounds/shot.ogg").unwrap().compression(), CompressionMethod::Stored);
-        assert_eq!(zip.by_name(MANIFEST).unwrap().compression(), CompressionMethod::Deflated);
+        assert_eq!(
+            zip.by_name(ATLAS).unwrap().compression(),
+            CompressionMethod::Deflated,
+            "mostly clear pixels, it packs small"
+        );
+        assert_eq!(
+            zip.by_name("sounds/shot.ogg").unwrap().compression(),
+            CompressionMethod::Stored
+        );
+        assert_eq!(
+            zip.by_name(MANIFEST).unwrap().compression(),
+            CompressionMethod::Deflated
+        );
     }
 
     #[test]
@@ -270,38 +362,81 @@ mod tests {
 
     #[test]
     fn reads_back_what_was_written() {
-        let bytes = pack(&[(MANIFEST, manifest().as_bytes()), (ATLAS, &[7; 16]), ("sounds/shot.ogg", b"a"), ("sounds/shot-2.ogg", b"b"), ("sounds/deep/x.ogg", b"c")]);
+        let bytes = pack(&[
+            (MANIFEST, manifest().as_bytes()),
+            (ATLAS, &[7; 16]),
+            ("sounds/shot.ogg", b"a"),
+            ("sounds/shot-2.ogg", b"b"),
+            ("sounds/deep/x.ogg", b"c"),
+        ]);
         let mut pak = Pak::read(Cursor::new(bytes)).unwrap();
         assert_eq!(pak.take(ATLAS), Some(vec![7; 16]));
         assert_eq!(pak.take(ATLAS), None);
         let sounds = pak.take_dir(SOUNDS);
-        assert_eq!(sounds, [("shot-2.ogg".to_string(), b"b".to_vec()), ("shot.ogg".to_string(), b"a".to_vec())]);
+        assert_eq!(
+            sounds,
+            [
+                ("shot-2.ogg".to_string(), b"b".to_vec()),
+                ("shot.ogg".to_string(), b"a".to_vec())
+            ]
+        );
     }
 
     #[test]
     fn rejects_an_atlas_from_another_build() {
         let stale = manifest().replace(&format!("{:016x}", art::ART_HASH), "0000000000000000");
-        let err = Pak::read(Cursor::new(pack(&[(MANIFEST, stale.as_bytes()), (ATLAS, &[0; 4])]))).err().unwrap();
+        let err = Pak::read(Cursor::new(pack(&[
+            (MANIFEST, stale.as_bytes()),
+            (ATLAS, &[0; 4]),
+        ])))
+        .err()
+        .unwrap();
         assert!(err.contains("different build"), "{err}");
-        assert!(Pak::read(Cursor::new(pack(&[(MANIFEST, stale.as_bytes())]))).is_ok(), "a pack without an atlas doesn't care");
+        assert!(
+            Pak::read(Cursor::new(pack(&[(MANIFEST, stale.as_bytes())]))).is_ok(),
+            "a pack without an atlas doesn't care"
+        );
     }
 
     #[test]
     fn rejects_other_formats_and_missing_manifests() {
         let newer = manifest().replace(&format!("format = {FORMAT}"), "format = 99");
-        assert!(Pak::read(Cursor::new(pack(&[(MANIFEST, newer.as_bytes())]))).err().unwrap().contains("format 99"));
+        assert!(
+            Pak::read(Cursor::new(pack(&[(MANIFEST, newer.as_bytes())])))
+                .err()
+                .unwrap()
+                .contains("format 99")
+        );
         assert!(Pak::read(Cursor::new(pack(&[(POWERUPS, b"x")]))).is_err());
     }
 
     #[test]
     fn a_mod_replaces_files_at_the_same_path_and_adds_the_rest() {
-        let base = pack(&[(MANIFEST, manifest().as_bytes()), ("sounds/shot.ogg", b"base"), (POWERUPS, b"base")]);
-        let top = pack(&[(MANIFEST, mod_manifest("loud").as_bytes()), ("sounds/shot.ogg", b"mod"), ("sounds/kill-ghoul.ogg", b"new")]);
+        let base = pack(&[
+            (MANIFEST, manifest().as_bytes()),
+            ("sounds/shot.ogg", b"base"),
+            (POWERUPS, b"base"),
+        ]);
+        let top = pack(&[
+            (MANIFEST, mod_manifest("loud").as_bytes()),
+            ("sounds/shot.ogg", b"mod"),
+            ("sounds/kill-ghoul.ogg", b"new"),
+        ]);
         let mut pak = Pak::read(Cursor::new(base)).unwrap();
         pak.overlay(Pak::read(Cursor::new(top)).unwrap());
         assert_eq!(pak.take(POWERUPS), Some(b"base".to_vec()));
-        assert_eq!(pak.take_dir(SOUNDS), [("kill-ghoul.ogg".to_string(), b"new".to_vec()), ("shot.ogg".to_string(), b"mod".to_vec())]);
-        assert_eq!(pak.version(), Some(VERSION), "the base keeps its own manifest");
+        assert_eq!(
+            pak.take_dir(SOUNDS),
+            [
+                ("kill-ghoul.ogg".to_string(), b"new".to_vec()),
+                ("shot.ogg".to_string(), b"mod".to_vec())
+            ]
+        );
+        assert_eq!(
+            pak.version(),
+            Some(VERSION),
+            "the base keeps its own manifest"
+        );
     }
 
     #[test]
@@ -309,7 +444,12 @@ mod tests {
         let zeros = vec![0u8; (MAX_FILE + 1) as usize];
         let bytes = pack(&[(MANIFEST, manifest().as_bytes()), (POWERUPS, &zeros)]);
         assert!(bytes.len() < 1 << 20, "it packs small");
-        assert!(Pak::read(Cursor::new(bytes)).err().unwrap().contains("bigger than the game reads"));
+        assert!(
+            Pak::read(Cursor::new(bytes))
+                .err()
+                .unwrap()
+                .contains("bigger than the game reads")
+        );
     }
 
     #[test]
@@ -321,29 +461,76 @@ mod tests {
             Pak::read(Cursor::new(pack(&all))).unwrap().check_mod()
         };
         assert!(check(&[(ENEMIES, include_bytes!("../../game/enemies.txt"))]).is_ok());
-        assert!(check(&[(ENEMIES, b"[x]\nlook NOPE")]).unwrap_err().contains("enemies.txt"));
-        assert!(check(&[(POWERUPS, b"[x]\nkind sideways")]).unwrap_err().contains("powerups.txt"));
-        assert!(check(&[(ENEMIES, &[0xff, 0xfe])]).unwrap_err().contains("UTF-8"));
+        assert!(
+            check(&[(ENEMIES, b"[x]\nlook NOPE")])
+                .unwrap_err()
+                .contains("enemies.txt")
+        );
+        assert!(
+            check(&[(POWERUPS, b"[x]\nkind sideways")])
+                .unwrap_err()
+                .contains("powerups.txt")
+        );
+        assert!(
+            check(&[(ENEMIES, &[0xff, 0xfe])])
+                .unwrap_err()
+                .contains("UTF-8")
+        );
     }
 
     #[test]
     fn a_packs_farms_pair_by_id_and_name_the_file_that_wont_read() {
         let farm = include_bytes!("../../game/farm.txt").to_vec();
         let ground = b"[k]\nname Cane\nart SOIL\ncell field\n".to_vec();
-        let pak = Pak::from_files(vec![("farms/kd.txt".into(), farm.clone()), ("farms/kd.ground.txt".into(), ground), ("farms/odd.ground.txt".into(), b"[k]\nwings 2".to_vec()), ("farms/only.txt".into(), farm)]);
+        let pak = Pak::from_files(vec![
+            ("farms/kd.txt".into(), farm.clone()),
+            ("farms/kd.ground.txt".into(), ground),
+            ("farms/odd.ground.txt".into(), b"[k]\nwings 2".to_vec()),
+            ("farms/only.txt".into(), farm),
+        ]);
         let farms = pak.farms();
         let kd = farms[0].as_ref().unwrap();
-        assert_eq!((kd.id.as_str(), kd.farm.is_some(), kd.ground.is_some()), ("kd", true, true));
-        assert!(farms[1].as_ref().unwrap_err().starts_with("farms/odd.ground.txt:2: "), "{:?}", farms[1]);
-        assert_eq!(farms[2].as_ref().map(|f| (f.farm.is_some(), f.ground.is_none())), Ok((true, true)));
-        assert!(pak.check_mod().unwrap_err().starts_with("farms/odd.ground.txt"));
+        assert_eq!(
+            (kd.id.as_str(), kd.farm.is_some(), kd.ground.is_some()),
+            ("kd", true, true)
+        );
+        assert!(
+            farms[1]
+                .as_ref()
+                .unwrap_err()
+                .starts_with("farms/odd.ground.txt:2: "),
+            "{:?}",
+            farms[1]
+        );
+        assert_eq!(
+            farms[2]
+                .as_ref()
+                .map(|f| (f.farm.is_some(), f.ground.is_none())),
+            Ok((true, true))
+        );
+        assert!(
+            pak.check_mod()
+                .unwrap_err()
+                .starts_with("farms/odd.ground.txt")
+        );
     }
 
     #[test]
     fn a_named_mod_keeps_its_id_and_name() {
-        let named = Pak::read(Cursor::new(pack(&[(MANIFEST, named_mod_manifest("thanksgiving", "Thanks \"giving\" #1").as_bytes())]))).unwrap();
-        assert_eq!((named.id(), named.name()), (Some("thanksgiving"), Some("Thanks giving 1")));
-        let old = Pak::read(Cursor::new(pack(&[(MANIFEST, mod_manifest("my-cards").as_bytes())]))).unwrap();
+        let named = Pak::read(Cursor::new(pack(&[(
+            MANIFEST,
+            named_mod_manifest("thanksgiving", "Thanks \"giving\" #1").as_bytes(),
+        )])))
+        .unwrap();
+        assert_eq!(
+            (named.id(), named.name()),
+            (Some("thanksgiving"), Some("Thanks giving 1"))
+        );
+        let old = Pak::read(Cursor::new(pack(&[(
+            MANIFEST,
+            mod_manifest("my-cards").as_bytes(),
+        )])))
+        .unwrap();
         assert_eq!((old.id(), old.name()), (Some("my-cards"), None));
         assert_eq!(Pak::from_files(Vec::new()).id(), None);
     }

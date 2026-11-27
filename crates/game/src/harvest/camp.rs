@@ -26,12 +26,20 @@ impl Harvest {
         let every = t.camp_every.max(0.25);
         for p in 0..self.players.len() {
             let pl = &mut self.players[p];
-            if !pl.alive() || pl.lead.is_some() || pl.left || len(sub(pl.pos, pl.camp_at)) > t.camp_radius * TILE {
+            if !pl.alive()
+                || pl.lead.is_some()
+                || pl.left
+                || len(sub(pl.pos, pl.camp_at)) > t.camp_radius * TILE
+            {
                 (pl.camp_at, pl.camp, pl.camp_waves) = (pl.pos, 0.0, 0);
                 continue;
             }
             pl.camp += dt;
-            let due = if pl.camp >= t.camp_after { ((pl.camp - t.camp_after) / every) as u32 + 1 } else { 0 };
+            let due = if pl.camp >= t.camp_after {
+                ((pl.camp - t.camp_after) / every) as u32 + 1
+            } else {
+                0
+            };
             while self.players[p].camp_waves < due {
                 let k = self.players[p].camp_waves;
                 self.camp_wave(t, p, k);
@@ -55,18 +63,32 @@ impl Harvest {
             }
             let r = ring + (i / 8) as f32 * TILE / 2.0;
             let a = turn + i as f32 * GOLDEN;
-            let spot = (0..8).map(|j| a + j as f32 * GOLDEN).flat_map(|a| [r, r * 0.7, r * 1.4].map(|r| [at[0] + fm::cos(a) * r, at[1] + fm::sin(a) * r])).find(|&s| self.open(s));
+            let spot = (0..8)
+                .map(|j| a + j as f32 * GOLDEN)
+                .flat_map(|a| {
+                    [r, r * 0.7, r * 1.4].map(|r| [at[0] + fm::cos(a) * r, at[1] + fm::sin(a) * r])
+                })
+                .find(|&s| self.open(s));
             let Some(pos) = spot else { continue };
             let roll = self.rng.range(0.0, 1.0);
             let kind = Kind(roster().pick(minutes, roll, self.enemies_off) as u8);
-            self.tells.push(Tell { kind, pos, hp: kind.stats().hp * grow, t: 0.0, leader: false, led: None });
+            self.tells.push(Tell {
+                kind,
+                pos,
+                hp: kind.stats().hp * grow,
+                t: 0.0,
+                leader: false,
+                led: None,
+            });
         }
     }
 
     /// Whether a zombie fits at `at`: on the map and on open ground.
     fn open(&self, at: [f32; 2]) -> bool {
         let half = crate::tuning::tuning().zombie_half();
-        (half[0]..self.map.width_px() - half[0]).contains(&at[0]) && (half[1]..self.map.height_px() - half[1]).contains(&at[1]) && !self.map.hits_cells(at[0], at[1], half)
+        (half[0]..self.map.width_px() - half[0]).contains(&at[0])
+            && (half[1]..self.map.height_px() - half[1]).contains(&at[1])
+            && !self.map.hits_cells(at[0], at[1], half)
     }
 }
 
@@ -112,7 +134,11 @@ mod tests {
         assert_eq!(first, t.camp_wave as usize);
         assert_eq!(sides(&h, h.me().pos), [true; 4]);
         stay(&mut h, t.camp_every);
-        assert_eq!(h.tells.len() - first, (t.camp_wave + t.camp_grow) as usize, "each wave is bigger");
+        assert_eq!(
+            h.tells.len() - first,
+            (t.camp_wave + t.camp_grow) as usize,
+            "each wave is bigger"
+        );
     }
 
     #[test]
@@ -121,7 +147,10 @@ mod tests {
         let mut h = open_farm();
         let start = h.me().pos;
         for s in 0..(t.camp_after as u32 + 1) {
-            h.me_mut().pos = [start[0] + if s % 2 == 0 { 1.0 } else { -1.0 } * (t.camp_radius - 0.5) * TILE, start[1]];
+            h.me_mut().pos = [
+                start[0] + if s % 2 == 0 { 1.0 } else { -1.0 } * (t.camp_radius - 0.5) * TILE,
+                start[1],
+            ];
             stay(&mut h, 1.0);
         }
         assert!(!h.tells.is_empty());
@@ -133,7 +162,10 @@ mod tests {
         let mut h = open_farm();
         for s in 0..120 {
             let a = s as f32 * 0.4;
-            h.me_mut().pos = [30.5 * TILE + fm::cos(a) * 8.0 * TILE, 30.5 * TILE + fm::sin(a) * 8.0 * TILE];
+            h.me_mut().pos = [
+                30.5 * TILE + fm::cos(a) * 8.0 * TILE,
+                30.5 * TILE + fm::sin(a) * 8.0 * TILE,
+            ];
             stay(&mut h, 1.0);
         }
         assert!(h.tells.is_empty(), "walking a wide loop is never camping");
@@ -153,7 +185,11 @@ mod tests {
         let corner = [TILE, TILE];
         (h.me_mut().pos, h.me_mut().camp_at) = (corner, corner);
         stay(&mut h, t.camp_after + 0.1);
-        assert_eq!(h.tells.len(), t.camp_wave as usize, "a full wave still finds room");
+        assert_eq!(
+            h.tells.len(),
+            t.camp_wave as usize,
+            "a full wave still finds room"
+        );
         assert!(h.tells.iter().all(|z| h.open(z.pos)));
     }
 
@@ -169,12 +205,17 @@ mod tests {
         stay(&mut h, t.camp_after + 1.0);
         assert!(h.tells.is_empty(), "the night is over");
         h.phase = Phase::Playing;
-        let off = crate::tuning::parse("[camp]\nafter 0\n", Some(crate::tuning::rules())).unwrap().base;
+        let off = crate::tuning::parse("[camp]\nafter 0\n", Some(crate::tuning::rules()))
+            .unwrap()
+            .base;
         for _ in 0..(t.camp_after as u32 + 10) * 60 {
             h.camp_by(&off, 1.0 / 60.0);
         }
         assert!(h.tells.is_empty(), "after 0 is off");
-        h.me_mut().lead = Some(crate::harvest::leader::Lead::Picking { at: h.me().pos, left: 1.0 });
+        h.me_mut().lead = Some(crate::harvest::leader::Lead::Picking {
+            at: h.me().pos,
+            left: 1.0,
+        });
         stay(&mut h, t.camp_after + 1.0);
         assert!(h.tells.is_empty(), "leading the dead");
     }
@@ -189,6 +230,12 @@ mod tests {
             h.players[ME].pos[0] = (30.5 + if s % 2 == 0 { 6.0 } else { -6.0 }) * TILE;
             stay(&mut h, 1.0);
         }
-        assert!(!h.tells.is_empty() && h.tells.iter().all(|z| len(sub(z.pos, h.players[1].pos)) < 5.0 * TILE), "only round the one who stayed");
+        assert!(
+            !h.tells.is_empty()
+                && h.tells
+                    .iter()
+                    .all(|z| len(sub(z.pos, h.players[1].pos)) < 5.0 * TILE),
+            "only round the one who stayed"
+        );
     }
 }

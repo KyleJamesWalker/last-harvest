@@ -13,25 +13,45 @@ pub const SOUND_TTL: u32 = 15;
 pub enum Event {
     Sound(Sfx),
     /// A zombie killed, where it fell, by which player.
-    Kill { id: u32, kind: u8, pos: [u16; 2], by: u8 },
+    Kill {
+        id: u32,
+        kind: u8,
+        pos: [u16; 2],
+        by: u8,
+    },
     /// The level-up cards appear for this level, and close again.
-    LevelUp { level: u8 },
+    LevelUp {
+        level: u8,
+    },
     LevelDone,
-    RunEnd { won: bool },
+    RunEnd {
+        won: bool,
+    },
     /// A sound from a spot on the farm, which each client places from its own player.
     SoundAt(Sfx, [u16; 2]),
     /// A shot or spit that hit something before its life ran out, by its spawn id.
-    Stop { id: u32 },
+    Stop {
+        id: u32,
+    },
     /// The pad of the player in `seat` buzzes.
-    Rumble { seat: u8, kind: Rumble },
+    Rumble {
+        seat: u8,
+        kind: Rumble,
+    },
     /// A grenade, barrel or bomblet blast, by its center and radius in pixels: never lost, unlike a spawned effect.
-    Blast { pos: [u16; 2], radius: u16 },
+    Blast {
+        pos: [u16; 2],
+        radius: u16,
+    },
 }
 
 impl Event {
     /// Never expires.
     pub fn critical(&self) -> bool {
-        !matches!(self, Event::Sound(_) | Event::SoundAt(..) | Event::Stop { .. } | Event::Rumble { .. })
+        !matches!(
+            self,
+            Event::Sound(_) | Event::SoundAt(..) | Event::Stop { .. } | Event::Rumble { .. }
+        )
     }
 
     pub fn write(&self, w: &mut Writer) {
@@ -84,7 +104,12 @@ impl Event {
     pub fn read(r: &mut Reader) -> Option<Self> {
         Some(match r.u8()? {
             0 => Event::Sound(read_sfx(r)?),
-            1 => Event::Kill { id: r.var()?, kind: r.u8()?, pos: [r.u16()?, r.u16()?], by: r.u8()? },
+            1 => Event::Kill {
+                id: r.var()?,
+                kind: r.u8()?,
+                pos: [r.u16()?, r.u16()?],
+                by: r.u8()?,
+            },
             2 => Event::LevelUp { level: r.u8()? },
             3 => Event::LevelDone,
             4 => Event::RunEnd { won: r.u8()? != 0 },
@@ -100,7 +125,10 @@ impl Event {
                     _ => return None,
                 },
             },
-            8 => Event::Blast { pos: [r.u16()?, r.u16()?], radius: r.u16()? },
+            8 => Event::Blast {
+                pos: [r.u16()?, r.u16()?],
+                radius: r.u16()?,
+            },
             _ => return None,
         })
     }
@@ -180,7 +208,10 @@ fn read_sfx(r: &mut Reader) -> Option<Sfx> {
         9 => Sfx::Slash,
         10 => Sfx::Thud(r.u8()? != 0),
         11 => Sfx::Kill(r.u8()?),
-        12 => Sfx::Boom { pan: r.i8()?, gain: r.u8()? },
+        12 => Sfx::Boom {
+            pan: r.i8()?,
+            gain: r.u8()?,
+        },
         13 => Sfx::Throw,
         14 => Sfx::Pickup(r.u8()?),
         15 => Sfx::Heal,
@@ -188,17 +219,35 @@ fn read_sfx(r: &mut Reader) -> Option<Sfx> {
         17 => Sfx::Heartbeat,
         18 => Sfx::LevelUp,
         19 => Sfx::Pick(r.u8()? != 0),
-        20 => Sfx::Rise { pan: r.i8()?, gain: r.u8()? },
-        21 => Sfx::Groan { pan: r.i8()?, gain: r.u8()? },
-        22 => Sfx::Caw { pan: r.i8()?, gain: r.u8()? },
-        23 => Sfx::Spit { pan: r.i8()?, gain: r.u8()? },
-        24 => Sfx::Splat { pan: r.i8()?, gain: r.u8()? },
+        20 => Sfx::Rise {
+            pan: r.i8()?,
+            gain: r.u8()?,
+        },
+        21 => Sfx::Groan {
+            pan: r.i8()?,
+            gain: r.u8()?,
+        },
+        22 => Sfx::Caw {
+            pan: r.i8()?,
+            gain: r.u8()?,
+        },
+        23 => Sfx::Spit {
+            pan: r.i8()?,
+            gain: r.u8()?,
+        },
+        24 => Sfx::Splat {
+            pan: r.i8()?,
+            gain: r.u8()?,
+        },
         25 => Sfx::Zap,
         26 => Sfx::Bark,
         27 => Sfx::Bell,
         28 => Sfx::Horde,
         29 => Sfx::Dawn,
-        30 => Sfx::Group { group: r.u8()?, or: r.u8()? },
+        30 => Sfx::Group {
+            group: r.u8()?,
+            or: r.u8()?,
+        },
         _ => return None,
     })
 }
@@ -225,18 +274,27 @@ impl Outbox {
 
     /// Drops stale sound cues from the front; a client still missing one skips past it once `first` moves on.
     pub fn expire(&mut self, now: u32) {
-        while self.queue.front().is_some_and(|&(_, t, e)| !e.critical() && now.saturating_sub(t) > SOUND_TTL) {
+        while self
+            .queue
+            .front()
+            .is_some_and(|&(_, t, e)| !e.critical() && now.saturating_sub(t) > SOUND_TTL)
+        {
             self.queue.pop_front();
         }
     }
 
     /// The oldest event still owed.
     pub fn first(&self) -> u32 {
-        self.queue.front().map_or(self.next.wrapping_add(1), |e| e.0)
+        self.queue
+            .front()
+            .map_or(self.next.wrapping_add(1), |e| e.0)
     }
 
     pub fn pending(&self, now: u32) -> impl Iterator<Item = (u32, Event)> + '_ {
-        self.queue.iter().filter(move |&&(_, t, e)| e.critical() || now.saturating_sub(t) <= SOUND_TTL).map(|&(s, _, e)| (s, e))
+        self.queue
+            .iter()
+            .filter(move |&&(_, t, e)| e.critical() || now.saturating_sub(t) <= SOUND_TTL)
+            .map(|&(s, _, e)| (s, e))
     }
 
     pub fn len(&self) -> usize {
@@ -259,7 +317,10 @@ pub struct Inbox {
 
 impl Default for Inbox {
     fn default() -> Self {
-        Self { next: 1, held: BTreeMap::new() }
+        Self {
+            next: 1,
+            held: BTreeMap::new(),
+        }
     }
 }
 
@@ -301,16 +362,33 @@ mod tests {
     fn every_event_reads_back() {
         let all = [
             Event::Sound(Sfx::Tick(3)),
-            Event::Sound(Sfx::Boom { pan: -40, gain: 200 }),
+            Event::Sound(Sfx::Boom {
+                pan: -40,
+                gain: 200,
+            }),
             Event::Sound(Sfx::Group { group: 2, or: 255 }),
             Event::Sound(Sfx::Thud(true)),
-            Event::Kill { id: 70_000, kind: 4, pos: [123, 4567], by: 1 },
+            Event::Kill {
+                id: 70_000,
+                kind: 4,
+                pos: [123, 4567],
+                by: 1,
+            },
             Event::LevelUp { level: 9 },
             Event::LevelDone,
             Event::RunEnd { won: true },
-            Event::Rumble { seat: 3, kind: Rumble::Tick },
-            Event::Rumble { seat: 1, kind: Rumble::Blast },
-            Event::Blast { pos: [800, 9000], radius: 40 },
+            Event::Rumble {
+                seat: 3,
+                kind: Rumble::Tick,
+            },
+            Event::Rumble {
+                seat: 1,
+                kind: Rumble::Blast,
+            },
+            Event::Blast {
+                pos: [800, 9000],
+                radius: 40,
+            },
         ];
         let mut w = Writer::new();
         all.iter().for_each(|e| e.write(&mut w));
@@ -334,7 +412,10 @@ mod tests {
         assert!(inbox.drain().is_empty());
         out.expire(30);
         inbox.receive(out.first(), &late);
-        assert_eq!(inbox.drain(), vec![Event::LevelUp { level: 2 }, Event::Sound(Sfx::Hurt)]);
+        assert_eq!(
+            inbox.drain(),
+            vec![Event::LevelUp { level: 2 }, Event::Sound(Sfx::Hurt)]
+        );
         inbox.receive(out.first(), &late);
         assert!(inbox.drain().is_empty());
         out.ack(inbox.acked());

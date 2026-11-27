@@ -24,9 +24,34 @@ pub struct Bank {
 
 /// Every name `cue` gives, which are the files held in memory.
 const CUES: &[&str] = &[
-    "start", "miss", "gameover", "turn", "shot", "blast", "slash", "thud", "crit", "boom", "throw",
-    "pickup", "heal", "hurt", "heartbeat", "levelup", "pick", "pick-rare", "rise", "groan", "caw", "bell", "horde", "dawn", "zap", "bark",
-    "spit", "splat",
+    "start",
+    "miss",
+    "gameover",
+    "turn",
+    "shot",
+    "blast",
+    "slash",
+    "thud",
+    "crit",
+    "boom",
+    "throw",
+    "pickup",
+    "heal",
+    "hurt",
+    "heartbeat",
+    "levelup",
+    "pick",
+    "pick-rare",
+    "rise",
+    "groan",
+    "caw",
+    "bell",
+    "horde",
+    "dawn",
+    "zap",
+    "bark",
+    "spit",
+    "splat",
 ];
 
 /// The file name a cue looks for, and the playback rate it asks for. Pickups climb a pentatonic scale from one file.
@@ -48,7 +73,10 @@ pub fn cue(sfx: Sfx) -> (&'static str, f32) {
         // Sped up past an octave, a recorded sound turns into chipmunk noise, so a run tops out there.
         Sfx::Pickup(n) => {
             const SCALE: [f32; 6] = [0.0, 2.0, 4.0, 7.0, 9.0, 12.0];
-            return ("pickup", 2f32.powf(SCALE[(n as usize).min(SCALE.len() - 1)] / 12.0));
+            return (
+                "pickup",
+                2f32.powf(SCALE[(n as usize).min(SCALE.len() - 1)] / 12.0),
+            );
         }
         Sfx::Heal => "heal",
         Sfx::Hurt => "hurt",
@@ -77,7 +105,9 @@ pub fn folder() -> Option<PathBuf> {
         return Some(dir.into());
     }
     let beside = crate::home()?.join("sounds");
-    [beside, PathBuf::from("assets/private/sounds")].into_iter().find(|d| d.is_dir())
+    [beside, PathBuf::from("assets/private/sounds")]
+        .into_iter()
+        .find(|d| d.is_dir())
 }
 
 /// The Ogg Vorbis and WAV files in `dir`.
@@ -87,13 +117,23 @@ pub fn read_folder(dir: &Path) -> Files {
 
 /// The files in `dir` ending in one of `exts`, sorted by name; none when it can't be read.
 pub fn read_files(dir: &Path, exts: &[&str]) -> Files {
-    let Ok(entries) = std::fs::read_dir(dir) else { return Files::new() };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Files::new();
+    };
     let mut files: Files = entries
         .flatten()
         .filter_map(|e| {
             let name = e.file_name().into_string().ok()?;
-            let read = || std::fs::read(e.path()).inspect_err(|err| log!("{}: {err}", e.path().display())).ok();
-            exts.iter().any(|ext| name.ends_with(ext)).then(read).flatten().map(|bytes| (name, bytes))
+            let read = || {
+                std::fs::read(e.path())
+                    .inspect_err(|err| log!("{}: {err}", e.path().display()))
+                    .ok()
+            };
+            exts.iter()
+                .any(|ext| name.ends_with(ext))
+                .then(read)
+                .flatten()
+                .map(|bytes| (name, bytes))
         })
         .collect();
     files.sort_by(|a, b| a.0.cmp(&b.0));
@@ -104,7 +144,9 @@ impl Bank {
     pub fn load(files: &[(String, Vec<u8>)], rate: f32) -> Self {
         let mut bank = Bank::default();
         for (file, bytes) in files {
-            let Some((stem, ext)) = file.rsplit_once('.') else { continue };
+            let Some((stem, ext)) = file.rsplit_once('.') else {
+                continue;
+            };
             if ext != "wav" && ext != "ogg" {
                 continue;
             }
@@ -114,11 +156,22 @@ impl Bank {
                 _ => stem,
             };
             // Loops like music and ambience are long and played another way; only cues are held in memory.
-            if !CUES.contains(&name) && !last_harvest_game::kill_sounds().any(|k| k == name) && !last_harvest_game::sound_groups().any(|g| g == name) {
+            if !CUES.contains(&name)
+                && !last_harvest_game::kill_sounds().any(|k| k == name)
+                && !last_harvest_game::sound_groups().any(|g| g == name)
+            {
                 continue;
             }
-            match if ext == "ogg" { decode_ogg(bytes, rate) } else { decode(bytes, rate) } {
-                Ok(clip) => bank.clips.entry(name.to_string()).or_default().push(Arc::new(clip)),
+            match if ext == "ogg" {
+                decode_ogg(bytes, rate)
+            } else {
+                decode(bytes, rate)
+            } {
+                Ok(clip) => bank
+                    .clips
+                    .entry(name.to_string())
+                    .or_default()
+                    .push(Arc::new(clip)),
                 Err(e) => {
                     log!("audio: {file}: {e}");
                     last_harvest_game::data::note(format!("{file}: {e}"));
@@ -141,8 +194,18 @@ impl Bank {
 /// Reads a PCM (8, 16, 24 or 32-bit) or float WAV, mono or stereo, resampled to `rate`.
 pub fn decode(bytes: &[u8], rate: f32) -> Result<Clip, String> {
     let cut = || "a chunk is cut short".to_string();
-    let u16_at = |i: usize| bytes.get(i..i + 2).map(|b| u16::from_le_bytes([b[0], b[1]])).ok_or_else(cut);
-    let u32_at = |i: usize| bytes.get(i..i + 4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]])).ok_or_else(cut);
+    let u16_at = |i: usize| {
+        bytes
+            .get(i..i + 2)
+            .map(|b| u16::from_le_bytes([b[0], b[1]]))
+            .ok_or_else(cut)
+    };
+    let u32_at = |i: usize| {
+        bytes
+            .get(i..i + 4)
+            .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+            .ok_or_else(cut)
+    };
     if bytes.len() < 12 || &bytes[0..4] != b"RIFF" || &bytes[8..12] != b"WAVE" {
         return Err("not a WAV file".into());
     }
@@ -154,8 +217,17 @@ pub fn decode(bytes: &[u8], rate: f32) -> Result<Clip, String> {
         match &bytes[i..i + 4] {
             b"fmt " if size >= 16 => {
                 // An extensible header keeps the real format in the first two bytes of its subformat GUID.
-                let format = if u16_at(i + 8)? == 0xFFFE && size >= 40 { u16_at(i + 32)? } else { u16_at(i + 8)? };
-                fmt = Some((format, u16_at(i + 10)? as usize, u32_at(i + 12)? as f32, u16_at(i + 22)? as usize));
+                let format = if u16_at(i + 8)? == 0xFFFE && size >= 40 {
+                    u16_at(i + 32)?
+                } else {
+                    u16_at(i + 8)?
+                };
+                fmt = Some((
+                    format,
+                    u16_at(i + 10)? as usize,
+                    u32_at(i + 12)? as f32,
+                    u16_at(i + 22)? as usize,
+                ));
             }
             b"data" => data = Some(body),
             _ => {}
@@ -187,7 +259,11 @@ pub fn decode(bytes: &[u8], rate: f32) -> Result<Clip, String> {
     let source: Vec<[f32; 2]> = (0..data.len() / frame)
         .map(|f| {
             let l = sample(f * frame);
-            let r = if channels > 1 { sample(f * frame + width) } else { l };
+            let r = if channels > 1 {
+                sample(f * frame + width)
+            } else {
+                l
+            };
             [l, r]
         })
         .collect();
@@ -196,7 +272,8 @@ pub fn decode(bytes: &[u8], rate: f32) -> Result<Clip, String> {
 
 /// Reads an Ogg Vorbis file, mono or stereo, resampled to `rate`.
 pub fn decode_ogg(bytes: &[u8], rate: f32) -> Result<Clip, String> {
-    let mut reader = lewton::inside_ogg::OggStreamReader::new(std::io::Cursor::new(bytes)).map_err(|e| e.to_string())?;
+    let mut reader = lewton::inside_ogg::OggStreamReader::new(std::io::Cursor::new(bytes))
+        .map_err(|e| e.to_string())?;
     let channels = reader.ident_hdr.audio_channels as usize;
     let source_rate = reader.ident_hdr.audio_sample_rate as f32;
     if channels == 0 {
@@ -222,7 +299,11 @@ const RATES: std::ops::RangeInclusive<f32> = 1000.0..=384_000.0;
 const MAX_SECONDS: f32 = 30.0;
 
 fn checked_rate(rate: f32) -> Result<f32, String> {
-    if RATES.contains(&rate) { Ok(rate) } else { Err(format!("a rate of {rate} Hz")) }
+    if RATES.contains(&rate) {
+        Ok(rate)
+    } else {
+        Err(format!("a rate of {rate} Hz"))
+    }
 }
 
 fn too_long() -> String {
@@ -275,7 +356,12 @@ mod tests {
     fn a_wav_cut_short_or_with_a_made_up_rate_is_refused() {
         let good = wav(1, 24_000, &[0, 16384, -16384, 0]);
         let fmt = good.windows(4).position(|w| w == b"fmt ").unwrap();
-        assert!(decode(&good[..fmt + 14], 48_000.0).err().unwrap().contains("cut short"));
+        assert!(
+            decode(&good[..fmt + 14], 48_000.0)
+                .err()
+                .unwrap()
+                .contains("cut short")
+        );
         let mut zero = good.clone();
         zero[fmt + 12..fmt + 16].copy_from_slice(&0u32.to_le_bytes());
         assert!(decode(&zero, 48_000.0).err().unwrap().contains("rate"));
@@ -323,15 +409,44 @@ mod tests {
     #[test]
     fn every_cue_name_is_one_the_bank_keeps() {
         let all = [
-            Sfx::Start, Sfx::Miss, Sfx::GameOver, Sfx::Turn, Sfx::Shot, Sfx::Blast, Sfx::Slash, Sfx::Thud(false), Sfx::Thud(true),
-            Sfx::Kill(0), Sfx::Kill(1), Sfx::Kill(2), Sfx::Boom { pan: 0, gain: 0 }, Sfx::Throw, Sfx::Pickup(0), Sfx::Heal, Sfx::Hurt,
-            Sfx::Heartbeat, Sfx::LevelUp, Sfx::Pick(false), Sfx::Pick(true), Sfx::Rise { pan: 0, gain: 0 }, Sfx::Groan { pan: 0, gain: 0 },
-            Sfx::Caw { pan: 0, gain: 0 }, Sfx::Bell, Sfx::Horde, Sfx::Dawn, Sfx::Zap, Sfx::Bark,
-            Sfx::Spit { pan: 0, gain: 0 }, Sfx::Splat { pan: 0, gain: 0 },
+            Sfx::Start,
+            Sfx::Miss,
+            Sfx::GameOver,
+            Sfx::Turn,
+            Sfx::Shot,
+            Sfx::Blast,
+            Sfx::Slash,
+            Sfx::Thud(false),
+            Sfx::Thud(true),
+            Sfx::Kill(0),
+            Sfx::Kill(1),
+            Sfx::Kill(2),
+            Sfx::Boom { pan: 0, gain: 0 },
+            Sfx::Throw,
+            Sfx::Pickup(0),
+            Sfx::Heal,
+            Sfx::Hurt,
+            Sfx::Heartbeat,
+            Sfx::LevelUp,
+            Sfx::Pick(false),
+            Sfx::Pick(true),
+            Sfx::Rise { pan: 0, gain: 0 },
+            Sfx::Groan { pan: 0, gain: 0 },
+            Sfx::Caw { pan: 0, gain: 0 },
+            Sfx::Bell,
+            Sfx::Horde,
+            Sfx::Dawn,
+            Sfx::Zap,
+            Sfx::Bark,
+            Sfx::Spit { pan: 0, gain: 0 },
+            Sfx::Splat { pan: 0, gain: 0 },
         ];
         for sfx in all {
             let name = cue(sfx).0;
-            assert!(CUES.contains(&name) || last_harvest_game::kill_sounds().any(|k| k == name), "{sfx:?}");
+            assert!(
+                CUES.contains(&name) || last_harvest_game::kill_sounds().any(|k| k == name),
+                "{sfx:?}"
+            );
         }
     }
 
@@ -340,8 +455,22 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("lh-ogg-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let tone = dir.join("tone.wav");
-        std::fs::write(&tone, wav(1, 22_050, &(0..2205).map(|i| ((i as f32 * 0.1).sin() * 8000.0) as i16).collect::<Vec<_>>())).unwrap();
-        let ok = std::process::Command::new("sox").arg(&tone).arg(dir.join("shot.ogg")).status().is_ok_and(|s| s.success());
+        std::fs::write(
+            &tone,
+            wav(
+                1,
+                22_050,
+                &(0..2205)
+                    .map(|i| ((i as f32 * 0.1).sin() * 8000.0) as i16)
+                    .collect::<Vec<_>>(),
+            ),
+        )
+        .unwrap();
+        let ok = std::process::Command::new("sox")
+            .arg(&tone)
+            .arg(dir.join("shot.ogg"))
+            .status()
+            .is_ok_and(|s| s.success());
         if !ok {
             eprintln!("sox isn't installed; skipping");
             return;
@@ -351,7 +480,11 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
         let clip = bank.get("shot", 0.0).expect("the ogg cue loads");
         // Vorbis pads the stream's end with a few milliseconds the decoder doesn't trim.
-        assert!((4800..5800).contains(&clip.frames.len()), "{}", clip.frames.len());
+        assert!(
+            (4800..5800).contains(&clip.frames.len()),
+            "{}",
+            clip.frames.len()
+        );
         assert!(clip.frames.iter().any(|f| f[0].abs() > 0.1));
         assert!(bank.get("music", 0.0).is_none());
     }

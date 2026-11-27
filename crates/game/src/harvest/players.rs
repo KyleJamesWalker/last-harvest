@@ -47,12 +47,22 @@ pub const BASE_KEYS: [&str; 3] = ["hp", "speed", "magnet"];
 
 /// Every weapon a player card can start with, by id and name.
 pub fn weapons() -> Vec<(String, String)> {
-    book().defs.iter().filter(|d| d.kind == Kind::Weapon).map(|d| (d.id.clone(), d.name.clone())).collect()
+    book()
+        .defs
+        .iter()
+        .filter(|d| d.kind == Kind::Weapon)
+        .map(|d| (d.id.clone(), d.name.clone()))
+        .collect()
 }
 
 /// The powerups a run as the player with `id`, the farmer's for "", can be offered, by id: all but the others' own.
 pub fn player_powerups(id: &str) -> Vec<String> {
-    book().defs.iter().filter(|d| d.for_player(id)).map(|d| d.id.clone()).collect()
+    book()
+        .defs
+        .iter()
+        .filter(|d| d.for_player(id))
+        .map(|d| d.id.clone())
+        .collect()
 }
 
 /// How many weapons a run can carry, and so a player card can start with.
@@ -62,17 +72,33 @@ pub fn weapon_slots() -> usize {
 
 /// The weapons the game starts a run with at `difficulty`, by id.
 pub fn default_start(difficulty: Tier) -> Vec<String> {
-    book().start[difficulty as usize].iter().map(|&i| book().defs[i].id.clone()).collect()
+    book().start[difficulty as usize]
+        .iter()
+        .map(|&i| book().defs[i].id.clone())
+        .collect()
 }
 
 /// A player card's text with its `start` line for `difficulty` set to `weapons`, or removed when None.
 pub fn set_player_start(text: &str, difficulty: Tier, weapons: Option<&[String]>) -> String {
     let mine = |line: &str| {
-        let words: Vec<&str> = line.split('#').next().unwrap_or("").split_whitespace().collect();
+        let words: Vec<&str> = line
+            .split('#')
+            .next()
+            .unwrap_or("")
+            .split_whitespace()
+            .collect();
         words.first() == Some(&"start") && words.get(1) == Some(&difficulty.key())
     };
-    let line = weapons.map(|w| format!("start       {:<6} {}", difficulty.key(), w.join(" ")).trim_end().to_string());
-    let mut out: Vec<String> = text.lines().filter(|l| !mine(l)).map(str::to_string).collect();
+    let line = weapons.map(|w| {
+        format!("start       {:<6} {}", difficulty.key(), w.join(" "))
+            .trim_end()
+            .to_string()
+    });
+    let mut out: Vec<String> = text
+        .lines()
+        .filter(|l| !mine(l))
+        .map(str::to_string)
+        .collect();
     while out.last().is_some_and(|l| l.trim().is_empty()) {
         out.pop();
     }
@@ -82,8 +108,19 @@ pub fn set_player_start(text: &str, difficulty: Tier, weapons: Option<&[String]>
 
 /// A player card's text with its `farm` line set to `id`, or removed when None.
 pub fn set_player_farm(text: &str, id: Option<&str>) -> String {
-    let mine = |line: &str| line.split('#').next().unwrap_or("").split_whitespace().next() == Some("farm");
-    let mut out: Vec<String> = text.lines().filter(|l| !mine(l)).map(str::to_string).collect();
+    let mine = |line: &str| {
+        line.split('#')
+            .next()
+            .unwrap_or("")
+            .split_whitespace()
+            .next()
+            == Some("farm")
+    };
+    let mut out: Vec<String> = text
+        .lines()
+        .filter(|l| !mine(l))
+        .map(str::to_string)
+        .collect();
     while out.last().is_some_and(|l| l.trim().is_empty()) {
         out.pop();
     }
@@ -100,7 +137,15 @@ static LOOKS: OnceLock<Vec<PlayerLook>> = OnceLock::new();
 
 fn farmer() -> PlayerLook {
     let about = "Up before dawn every day of the year; tonight, dawn is the hard part.".into();
-    PlayerLook { id: String::new(), name: "Farmer".into(), about, look: super::player_look(), start: Default::default(), base: [None; 3], farm: None }
+    PlayerLook {
+        id: String::new(),
+        name: "Farmer".into(),
+        about,
+        look: super::player_look(),
+        start: Default::default(),
+        base: [None; 3],
+        farm: None,
+    }
 }
 
 /// The looks to choose from: the farmer first, then the player cards.
@@ -119,7 +164,11 @@ impl PlayerLook {
     pub(crate) fn start_defs(&self, difficulty: Tier) -> Option<Vec<usize>> {
         let ids = self.start[difficulty as usize].as_ref()?;
         let mut defs: Vec<usize> = Vec::new();
-        for def in ids.iter().filter_map(|w| book().index(w)).filter(|&i| book().defs[i].kind == Kind::Weapon && book().defs[i].for_player(&self.id)) {
+        for def in ids
+            .iter()
+            .filter_map(|w| book().index(w))
+            .filter(|&i| book().defs[i].kind == Kind::Weapon && book().defs[i].for_player(&self.id))
+        {
             // A weapon named twice would sit in two slots, and the second could never level.
             if !defs.contains(&def) && defs.len() < book().weapon_slots {
                 defs.push(def);
@@ -130,13 +179,17 @@ impl PlayerLook {
 
     /// The names of the weapons this look starts a run with at `difficulty`: its own, else the game's.
     pub fn start_names(&self, difficulty: Tier) -> Vec<String> {
-        let defs = self.start_defs(difficulty).unwrap_or_else(|| book().start[difficulty as usize].clone());
+        let defs = self
+            .start_defs(difficulty)
+            .unwrap_or_else(|| book().start[difficulty as usize].clone());
         defs.iter().map(|&i| book().defs[i].name.clone()).collect()
     }
 }
 
 pub(super) fn install(cards: Vec<PlayerLook>) {
-    LOOKS.set(std::iter::once(farmer()).chain(cards).collect()).ok();
+    LOOKS
+        .set(std::iter::once(farmer()).chain(cards).collect())
+        .ok();
 }
 
 /// A player card's settings, from its text: an `[id]` line, `name` and `about` lines, a `start DIFFICULTY
@@ -148,7 +201,8 @@ pub fn player_fields(text: &str) -> Result<PlayerFields, String> {
 /// Reads a player card's text, checking its weapons against the powerup table when `check` says to; installing
 /// cards can't, since that comes before the table can be read.
 fn parse(text: &str, check: bool) -> Result<PlayerFields, String> {
-    let (mut id, mut name, mut start): (Option<String>, Option<String>, [Option<Vec<String>>; 3]) = (None, None, Default::default());
+    let (mut id, mut name, mut start): (Option<String>, Option<String>, [Option<Vec<String>>; 3]) =
+        (None, None, Default::default());
     let mut about = String::new();
     let mut base = [None; 3];
     let mut farm = None;
@@ -159,46 +213,100 @@ fn parse(text: &str, check: bool) -> Result<PlayerFields, String> {
         }
         let n = i + 1;
         let words: Vec<&str> = line.split_whitespace().collect();
-        match (line.strip_prefix('[').and_then(|l| l.strip_suffix(']')), &words[..]) {
+        match (
+            line.strip_prefix('[').and_then(|l| l.strip_suffix(']')),
+            &words[..],
+        ) {
             (Some(v), _) if id.is_none() => id = Some(v.to_string()),
-            (None, ["name", ..]) if id.is_some() => name = Some(line["name".len()..].trim().to_string()),
-            (None, ["about", ..]) if id.is_some() => about = super::enemies::about(line["about".len()..].trim()).map_err(|e| format!("line {n}: {e}"))?,
+            (None, ["name", ..]) if id.is_some() => {
+                name = Some(line["name".len()..].trim().to_string())
+            }
+            (None, ["about", ..]) if id.is_some() => {
+                about = super::enemies::about(line["about".len()..].trim())
+                    .map_err(|e| format!("line {n}: {e}"))?
+            }
             (None, ["start", d, weapons @ ..]) if id.is_some() => {
-                let d = Tier::from_key(d).ok_or_else(|| format!("line {n}: start names easy, normal or hard first, not {d:?}"))?;
+                let d = Tier::from_key(d).ok_or_else(|| {
+                    format!("line {n}: start names easy, normal or hard first, not {d:?}")
+                })?;
                 if check {
                     // An id the game doesn't know may be a weapon the mod's own powerups.txt adds.
-                    if let Some(w) = weapons.iter().find(|w| book().index(w).is_some_and(|i| book().defs[i].kind != Kind::Weapon)) {
+                    if let Some(w) = weapons.iter().find(|w| {
+                        book()
+                            .index(w)
+                            .is_some_and(|i| book().defs[i].kind != Kind::Weapon)
+                    }) {
                         return Err(format!("line {n}: {w:?} isn't a weapon"));
                     }
                     let mine = id.as_deref().unwrap_or("");
-                    if let Some(d) = weapons.iter().filter_map(|w| book().index(w)).map(|i| &book().defs[i]).find(|d| !d.for_player(mine)) {
-                        return Err(format!("line {n}: {} is player {}'s own", d.id, d.player.as_deref().unwrap_or("")));
+                    if let Some(d) = weapons
+                        .iter()
+                        .filter_map(|w| book().index(w))
+                        .map(|i| &book().defs[i])
+                        .find(|d| !d.for_player(mine))
+                    {
+                        return Err(format!(
+                            "line {n}: {} is player {}'s own",
+                            d.id,
+                            d.player.as_deref().unwrap_or("")
+                        ));
                     }
                     if weapons.len() > book().weapon_slots {
-                        return Err(format!("line {n}: a run carries at most {} weapons", book().weapon_slots));
+                        return Err(format!(
+                            "line {n}: a run carries at most {} weapons",
+                            book().weapon_slots
+                        ));
                     }
                 }
                 start[d as usize] = Some(weapons.iter().map(|w| w.to_string()).collect());
             }
             (None, ["farm", f]) if id.is_some() => {
                 if !super::valid_farm_id(f) {
-                    return Err(format!("line {n}: a farm's id is 1 to {} of a-z, 0-9 and _", super::FARM_ID_MAX));
+                    return Err(format!(
+                        "line {n}: a farm's id is 1 to {} of a-z, 0-9 and _",
+                        super::FARM_ID_MAX
+                    ));
                 }
                 farm = Some(f.to_string());
             }
             (None, [key, v]) if id.is_some() && BASE_KEYS.contains(key) => {
                 let at = BASE_KEYS.iter().position(|k| k == key).unwrap_or(0);
-                base[at] = Some(v.parse::<f32>().ok().filter(|v| v.is_finite() && *v > 0.0 && *v <= 1000.0).ok_or_else(|| format!("line {n}: {key} is a number above 0, up to 1000"))?);
+                base[at] = Some(
+                    v.parse::<f32>()
+                        .ok()
+                        .filter(|v| v.is_finite() && *v > 0.0 && *v <= 1000.0)
+                        .ok_or_else(|| {
+                            format!("line {n}: {key} is a number above 0, up to 1000")
+                        })?,
+                );
             }
-            _ => return Err(format!("line {n}: a player card has its [id], a name, an about, start lines, hp, speed and magnet, and a farm, nothing else")),
+            _ => {
+                return Err(format!(
+                    "line {n}: a player card has its [id], a name, an about, start lines, hp, speed and magnet, and a farm, nothing else"
+                ));
+            }
         }
     }
     let id = id.ok_or("a player card starts with its [id]")?;
-    if id.is_empty() || id.len() > ID_MAX || !id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_') {
-        return Err(format!("[{id}]: a player card's id is 1 to {ID_MAX} of a-z, 0-9 and _"));
+    if id.is_empty()
+        || id.len() > ID_MAX
+        || !id
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+    {
+        return Err(format!(
+            "[{id}]: a player card's id is 1 to {ID_MAX} of a-z, 0-9 and _"
+        ));
     }
     let name = name.unwrap_or_else(|| id.clone());
-    Ok(PlayerFields { id, name, about, start, base, farm })
+    Ok(PlayerFields {
+        id,
+        name,
+        about,
+        start,
+        base,
+        farm,
+    })
 }
 
 /// What `pack` makes of the player cards.
@@ -215,10 +323,28 @@ pub(super) struct Packed {
 }
 
 /// The player cards' looks with their frames drawn into `atlas` from `cursor` on, numbered from `first`.
-pub(super) fn pack(cards: &[Card], atlas: &mut [u8], cursor: &mut [u16; 3], first: usize) -> Packed {
-    let Packed { mut notes, mut rects, mut looks, mut worn, mut detail } = Packed::default();
+pub(super) fn pack(
+    cards: &[Card],
+    atlas: &mut [u8],
+    cursor: &mut [u16; 3],
+    first: usize,
+) -> Packed {
+    let Packed {
+        mut notes,
+        mut rects,
+        mut looks,
+        mut worn,
+        mut detail,
+    } = Packed::default();
     for card in cards {
-        let PlayerFields { id, name, about, start, base, farm } = match parse(&card.text, false) {
+        let PlayerFields {
+            id,
+            name,
+            about,
+            start,
+            base,
+            farm,
+        } = match parse(&card.text, false) {
             Ok(f) => f,
             Err(e) => {
                 notes.push(format!("{}: {e}", card.name));
@@ -227,17 +353,30 @@ pub(super) fn pack(cards: &[Card], atlas: &mut [u8], cursor: &mut [u16; 3], firs
         };
         let [fw, fh] = card.frame;
         let Some(rows) = super::enemies::rows(card, 3) else {
-            notes.push(format!("{}: frames are 1 to 64 game pixels, 3 across and five or six down", card.name));
+            notes.push(format!(
+                "{}: frames are 1 to 64 game pixels, 3 across and five or six down",
+                card.name
+            ));
             continue;
         };
         if looks.iter().any(|l| l.id == id) {
             notes.push(format!("{}: another player card is [{id}] too", card.name));
             continue;
         }
-        let rows = if super::enemies::has_dead(card, 3) { rows } else { 5 };
-        let cells: Vec<(u32, u32)> = (0..rows).flat_map(|row| (0..3).map(move |col| (col, row))).collect();
+        let rows = if super::enemies::has_dead(card, 3) {
+            rows
+        } else {
+            5
+        };
+        let cells: Vec<(u32, u32)> = (0..rows)
+            .flat_map(|row| (0..3).map(move |col| (col, row)))
+            .collect();
         let mut try_cursor = *cursor;
-        let Some(spots) = cells.iter().map(|_| place(&mut try_cursor, [fw as u16, fh as u16])).collect::<Option<Vec<_>>>() else {
+        let Some(spots) = cells
+            .iter()
+            .map(|_| place(&mut try_cursor, [fw as u16, fh as u16]))
+            .collect::<Option<Vec<_>>>()
+        else {
             notes.push(format!("{}: no room left in the sprite texture", card.name));
             continue;
         };
@@ -249,15 +388,36 @@ pub(super) fn pack(cards: &[Card], atlas: &mut [u8], cursor: &mut [u16; 3], firs
             detail.push(card.detail);
         }
         let art = |k: usize| Art((at + k) as u16);
-        let look = Look { walk: std::array::from_fn(|f| (f * 3..f * 3 + 3).map(art).collect()), flash: [art(9), art(10), art(11)], hurt: [art(12), art(13), art(14)], dead: (rows == 6).then(|| [art(15), art(16), art(17)]) };
+        let look = Look {
+            walk: std::array::from_fn(|f| (f * 3..f * 3 + 3).map(art).collect()),
+            flash: [art(9), art(10), art(11)],
+            hurt: [art(12), art(13), art(14)],
+            dead: (rows == 6).then(|| [art(15), art(16), art(17)]),
+        };
         // The card format checked the chunk on reading.
         let facings = crate::worn::parse_card(&card.worn).unwrap_or_default();
         for (f, frames) in facings.iter().enumerate() {
-            worn.extend((0..3).filter_map(|k| Some((art(f * 3 + k), crate::worn::frame(frames, k)?))));
+            worn.extend(
+                (0..3).filter_map(|k| Some((art(f * 3 + k), crate::worn::frame(frames, k)?))),
+            );
         }
-        looks.push(PlayerLook { id, name, about, look, start, base, farm });
+        looks.push(PlayerLook {
+            id,
+            name,
+            about,
+            look,
+            start,
+            base,
+            farm,
+        });
     }
-    Packed { notes, rects, looks, worn, detail }
+    Packed {
+        notes,
+        rects,
+        looks,
+        worn,
+        detail,
+    }
 }
 
 #[cfg(test)]
@@ -267,30 +427,80 @@ mod tests {
 
     #[test]
     fn a_player_card_reads_its_id_and_name_and_nothing_else() {
-        let f = player_fields("[jo]\nname Jo the Farmer\nstart normal crows knife\nstart hard\n").unwrap();
+        let f = player_fields("[jo]\nname Jo the Farmer\nstart normal crows knife\nstart hard\n")
+            .unwrap();
         assert_eq!((f.id.as_str(), f.name.as_str()), ("jo", "Jo the Farmer"));
-        assert_eq!(f.start, [None, Some(vec!["crows".into(), "knife".into()]), Some(vec![])]);
+        assert_eq!(
+            f.start,
+            [
+                None,
+                Some(vec!["crows".into(), "knife".into()]),
+                Some(vec![])
+            ]
+        );
         assert_eq!(player_fields("# mine\n[jo]").unwrap().name, "jo");
-        assert!(player_fields("[jo]\nstart normal vaccine").is_err(), "only weapons");
-        assert!(player_fields("[jo]\nstart normal urumi").is_ok(), "a weapon a mod's powerups.txt adds");
+        assert!(
+            player_fields("[jo]\nstart normal vaccine").is_err(),
+            "only weapons"
+        );
+        assert!(
+            player_fields("[jo]\nstart normal urumi").is_ok(),
+            "a weapon a mod's powerups.txt adds"
+        );
         assert!(player_fields("[jo]\nstart nightmare knife").is_err());
-        assert_eq!(player_fields("[jo]\nhp 120\nspeed 60").unwrap().base, [Some(120.0), Some(60.0), None]);
-        assert!(player_fields("[jo]\nhp 0").err().unwrap().starts_with("line 2: hp"));
+        assert_eq!(
+            player_fields("[jo]\nhp 120\nspeed 60").unwrap().base,
+            [Some(120.0), Some(60.0), None]
+        );
+        assert!(
+            player_fields("[jo]\nhp 0")
+                .err()
+                .unwrap()
+                .starts_with("line 2: hp")
+        );
         assert!(player_fields("[jo]\nwings 2").is_err());
         assert!(player_fields("[Jo!]").is_err());
         assert!(player_fields("name Jo").is_err());
-        assert_eq!(player_fields("[jo]\nabout Up with the sun.").unwrap().about, "Up with the sun.");
-        assert_eq!(player_fields("[jo]").unwrap().about, "", "an old card without one still reads");
-        assert!(player_fields("[jo]\nabout").err().unwrap().starts_with("line 2: about"));
-        assert!(player_fields(&format!("[jo]\nabout {}", "y".repeat(81))).err().unwrap().contains("at most 80"));
-        assert!(super::super::enemies::about(&looks()[0].about).is_ok(), "the farmer's own fits the limits");
+        assert_eq!(
+            player_fields("[jo]\nabout Up with the sun.").unwrap().about,
+            "Up with the sun."
+        );
+        assert_eq!(
+            player_fields("[jo]").unwrap().about,
+            "",
+            "an old card without one still reads"
+        );
+        assert!(
+            player_fields("[jo]\nabout")
+                .err()
+                .unwrap()
+                .starts_with("line 2: about")
+        );
+        assert!(
+            player_fields(&format!("[jo]\nabout {}", "y".repeat(81)))
+                .err()
+                .unwrap()
+                .contains("at most 80")
+        );
+        assert!(
+            super::super::enemies::about(&looks()[0].about).is_ok(),
+            "the farmer's own fits the limits"
+        );
     }
 
     #[test]
     fn a_farm_line_names_a_packs_farm_and_is_set_and_cleared() {
-        assert_eq!(player_fields("[kd]\nfarm kd_farm").unwrap().farm.as_deref(), Some("kd_farm"));
+        assert_eq!(
+            player_fields("[kd]\nfarm kd_farm").unwrap().farm.as_deref(),
+            Some("kd_farm")
+        );
         assert_eq!(player_fields("[kd]").unwrap().farm, None);
-        assert!(player_fields("[kd]\nfarm Kd").err().unwrap().starts_with("line 2: a farm's id"));
+        assert!(
+            player_fields("[kd]\nfarm Kd")
+                .err()
+                .unwrap()
+                .starts_with("line 2: a farm's id")
+        );
         assert!(player_fields("[kd]\nfarm a b").is_err());
         let text = set_player_farm("[kd]\nname Kd\nfarm old\n\n", Some("cane"));
         assert_eq!(text, "[kd]\nname Kd\nfarm        cane\n");
@@ -300,19 +510,44 @@ mod tests {
     #[test]
     fn start_lines_are_set_and_cleared_one_difficulty_at_a_time() {
         let text = "[jo]\nname Jo\nstart easy pistol\n";
-        let text = set_player_start(text, Tier::Hard, Some(&["crows".to_string(), "dog".to_string()]));
+        let text = set_player_start(
+            text,
+            Tier::Hard,
+            Some(&["crows".to_string(), "dog".to_string()]),
+        );
         let text = set_player_start(&text, Tier::Easy, None);
         assert_eq!(text, "[jo]\nname Jo\nstart       hard   crows dog\n");
         let text = set_player_start(&text, Tier::Normal, Some(&[]));
-        assert_eq!(player_fields(&text).unwrap().start, [None, Some(vec![]), Some(vec!["crows".into(), "dog".into()])]);
+        assert_eq!(
+            player_fields(&text).unwrap().start,
+            [None, Some(vec![]), Some(vec!["crows".into(), "dog".into()])]
+        );
         assert_eq!(default_start(Tier::Easy), ["pistol", "knife"]);
-        assert!(weapons().iter().any(|(id, name)| id == "rifle" && name == "Hunting rifle"));
+        assert!(
+            weapons()
+                .iter()
+                .any(|(id, name)| id == "rifle" && name == "Hunting rifle")
+        );
     }
 
     #[test]
     fn a_start_keeps_each_weapon_once_and_only_weapons() {
-        let start = Some(vec!["pistol".into(), "pistol".into(), "heal".into(), "knife".into(), "nope".into()]);
-        let jo = PlayerLook { id: "jo".into(), name: "Jo".into(), about: String::new(), look: super::super::player_look(), start: [None, start, None], base: [None; 3], farm: None };
+        let start = Some(vec![
+            "pistol".into(),
+            "pistol".into(),
+            "heal".into(),
+            "knife".into(),
+            "nope".into(),
+        ]);
+        let jo = PlayerLook {
+            id: "jo".into(),
+            name: "Jo".into(),
+            about: String::new(),
+            look: super::super::player_look(),
+            start: [None, start, None],
+            base: [None; 3],
+            farm: None,
+        };
         assert_eq!(jo.start_names(Tier::Normal), ["Pistol", "Knife"]);
     }
 
@@ -325,17 +560,53 @@ mod tests {
     #[test]
     fn player_cards_pack_after_the_others_and_skip_repeats() {
         let mut atlas = vec![0u8; (ATLAS_W * ATLAS_H * 4) as usize];
-        let card = |text: &str| Card { detail: 1, worn: String::new(), name: "p.player.png".into(), text: text.into(), frame: [8, 8], sheet: vec![255; 3 * 8 * 5 * 8 * 4] };
+        let card = |text: &str| Card {
+            detail: 1,
+            worn: String::new(),
+            name: "p.player.png".into(),
+            text: text.into(),
+            frame: [8, 8],
+            sheet: vec![255; 3 * 8 * 5 * 8 * 4],
+        };
         let mut cursor = super::super::enemies::start();
-        let jo = Card { worn: "side 1 2 ; 3 4\nback hide\n".into(), ..card("[jo]\nname Jo\nabout Calm.") };
-        let Packed { notes, rects, looks, worn, .. } = pack(&[jo, card("[jo]"), card("[x]\nwings 1")], &mut atlas, &mut cursor, 500);
+        let jo = Card {
+            worn: "side 1 2 ; 3 4\nback hide\n".into(),
+            ..card("[jo]\nname Jo\nabout Calm.")
+        };
+        let Packed {
+            notes,
+            rects,
+            looks,
+            worn,
+            ..
+        } = pack(
+            &[jo, card("[jo]"), card("[x]\nwings 1")],
+            &mut atlas,
+            &mut cursor,
+            500,
+        );
         let at = |a: u16, x, y| (Art(a), Worn::At([x, y]));
-        assert_eq!(worn, [at(503, 1, 2), at(504, 3, 4), at(505, 3, 4), (Art(506), Worn::Hidden), (Art(507), Worn::Hidden), (Art(508), Worn::Hidden)], "the front says nothing");
+        assert_eq!(
+            worn,
+            [
+                at(503, 1, 2),
+                at(504, 3, 4),
+                at(505, 3, 4),
+                (Art(506), Worn::Hidden),
+                (Art(507), Worn::Hidden),
+                (Art(508), Worn::Hidden)
+            ],
+            "the front says nothing"
+        );
         assert_eq!(notes.len(), 2, "{notes:?}");
         assert_eq!(looks[0].about, "Calm.");
         assert_eq!((rects.len(), looks.len()), (15, 1));
         assert_eq!(looks[0].look.walk[1][0], Art(503));
         assert_eq!(looks[0].look.hurt[2], Art(514));
-        assert_eq!(look("nobody").name, "Farmer", "an unknown id falls back to the farmer");
+        assert_eq!(
+            look("nobody").name,
+            "Farmer",
+            "an unknown id falls back to the farmer"
+        );
     }
 }

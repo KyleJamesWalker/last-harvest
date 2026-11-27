@@ -1,7 +1,7 @@
 //! A forced ICE restart (`LAST_HARVEST_NET_TEST_RESTART_MS`) renegotiates a live connection without dropping it.
 
-use matchbox_signaling::SignalingServer;
 use last_harvest_net::{IceConfig, PeerSocket, PeerState, UNRELIABLE};
+use matchbox_signaling::SignalingServer;
 use std::time::{Duration, Instant};
 
 fn signaling_server() -> u16 {
@@ -53,12 +53,20 @@ fn a_restarted_connection_keeps_carrying_packets() {
         if !a.receive(UNRELIABLE).is_empty() {
             last_heard.1 = Instant::now();
         }
-        worst = worst.max(last_heard.0.elapsed()).max(last_heard.1.elapsed());
+        worst = worst
+            .max(last_heard.0.elapsed())
+            .max(last_heard.1.elapsed());
         for (peer, state) in a.update_peers().into_iter().chain(b.update_peers()) {
             assert_ne!(state, PeerState::Disconnected, "{peer:?} dropped");
         }
     }
     // A restart closes the old candidates' sockets, so packets pause while the new pair is checked.
-    assert!(worst < Duration::from_secs(5), "packets stopped for {worst:?}");
-    assert!(last_heard.0.elapsed().max(last_heard.1.elapsed()) < Duration::from_millis(500), "packets did not resume");
+    assert!(
+        worst < Duration::from_secs(5),
+        "packets stopped for {worst:?}"
+    );
+    assert!(
+        last_heard.0.elapsed().max(last_heard.1.elapsed()) < Duration::from_millis(500),
+        "packets did not resume"
+    );
 }

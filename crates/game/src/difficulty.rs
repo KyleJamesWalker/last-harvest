@@ -49,7 +49,8 @@ impl Difficulty {
 
     fn preset(self) -> &'static Preset {
         let all = &rules().presets;
-        all.get(self.0 as usize).unwrap_or(&all[Self::NORMAL.0 as usize])
+        all.get(self.0 as usize)
+            .unwrap_or(&all[Self::NORMAL.0 as usize])
     }
 
     /// Every difficulty, in order.
@@ -79,7 +80,11 @@ impl Difficulty {
     }
 
     pub fn from_key(key: &str) -> Option<Self> {
-        rules().presets.iter().position(|p| p.id == key).map(|i| Difficulty(i as u8))
+        rules()
+            .presets
+            .iter()
+            .position(|p| p.id == key)
+            .map(|i| Difficulty(i as u8))
     }
 
     /// Whose starting weapons and grenades it plays with.
@@ -134,7 +139,11 @@ mod tests {
     fn the_games_own_difficulties_come_in_order() {
         let ids: Vec<&str> = Difficulty::all().map(Difficulty::key).collect();
         assert_eq!(ids, ["stroll", "easy", "normal", "hard", "brutal", "dead"]);
-        for (d, tier) in [(Difficulty::EASY, Tier::Easy), (Difficulty::NORMAL, Tier::Normal), (Difficulty::HARD, Tier::Hard)] {
+        for (d, tier) in [
+            (Difficulty::EASY, Tier::Easy),
+            (Difficulty::NORMAL, Tier::Normal),
+            (Difficulty::HARD, Tier::Hard),
+        ] {
             assert_eq!((d.key(), d.tier()), (tier.key(), tier));
         }
         assert!(Difficulty::STROLL.is_first() && Difficulty::DEAD.is_last());

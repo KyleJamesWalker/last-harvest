@@ -23,7 +23,10 @@ const RECHECK_AFTER: Duration = Duration::from_secs(10);
 const MAX_CHECKING: usize = 4;
 const CHECK_TIMEOUT: Duration = Duration::from_secs(1);
 
-static DISCOVERY: Mutex<Discovery> = Mutex::new(Discovery { heard: BTreeMap::new(), checks: BTreeMap::new() });
+static DISCOVERY: Mutex<Discovery> = Mutex::new(Discovery {
+    heard: BTreeMap::new(),
+    checks: BTreeMap::new(),
+});
 static HOSTING: Mutex<bool> = Mutex::new(false);
 
 enum Check {
@@ -50,7 +53,13 @@ impl Discovery {
             Some(Check::Checking) => false,
             Some(Check::Failed(at)) if now.duration_since(*at) < RECHECK_AFTER => false,
             _ => {
-                if self.checks.values().filter(|c| matches!(c, Check::Checking)).count() >= MAX_CHECKING {
+                if self
+                    .checks
+                    .values()
+                    .filter(|c| matches!(c, Check::Checking))
+                    .count()
+                    >= MAX_CHECKING
+                {
                     return false;
                 }
                 self.checks.insert(host.to_string(), Check::Checking);
@@ -71,7 +80,8 @@ impl Discovery {
 
     /// Forgets hosts silent for `FORGET_AFTER`, so one that beacons again is checked again.
     fn forget_old(&mut self, now: Instant) {
-        self.heard.retain(|_, at| now.duration_since(*at) < FORGET_AFTER);
+        self.heard
+            .retain(|_, at| now.duration_since(*at) < FORGET_AFTER);
         let heard = &self.heard;
         self.checks.retain(|host, check| match check {
             Check::Checking => true,
@@ -103,10 +113,15 @@ pub fn parse_beacon(text: &str) -> Option<u16> {
 
 /// Whether a relay at `address` answers `GET /healthz` with `ok`.
 fn relay_answers(address: SocketAddr) -> bool {
-    let Ok(mut stream) = TcpStream::connect_timeout(&address, CHECK_TIMEOUT) else { return false };
+    let Ok(mut stream) = TcpStream::connect_timeout(&address, CHECK_TIMEOUT) else {
+        return false;
+    };
     let _ = stream.set_read_timeout(Some(CHECK_TIMEOUT));
     let _ = stream.set_write_timeout(Some(CHECK_TIMEOUT));
-    if stream.write_all(b"GET /healthz HTTP/1.1\r\nHost: last-harvest\r\nConnection: close\r\n\r\n").is_err() {
+    if stream
+        .write_all(b"GET /healthz HTTP/1.1\r\nHost: last-harvest\r\nConnection: close\r\n\r\n")
+        .is_err()
+    {
         return false;
     }
     let mut response = String::new();
@@ -136,19 +151,23 @@ pub fn host(port: u16) -> Result<(), String> {
 /// Announces the relay on `port` to the local network until the process ends.
 fn broadcast(port: u16) {
     let message = beacon_message(port);
-    let _ = std::thread::Builder::new().name("lh-lan-beacon".into()).spawn(move || {
-        let Ok(socket) = UdpSocket::bind("0.0.0.0:0") else { return };
-        let _ = socket.set_broadcast(true);
-        let _ = socket.set_multicast_ttl_v4(1);
-        // Multicast also reaches listeners on this machine; some systems never loop a broadcast back.
-        let targets = [BEACON_GROUP, Ipv4Addr::BROADCAST];
-        loop {
-            for target in &targets {
-                let _ = socket.send_to(message.as_bytes(), (*target, BEACON_PORT));
+    let _ = std::thread::Builder::new()
+        .name("lh-lan-beacon".into())
+        .spawn(move || {
+            let Ok(socket) = UdpSocket::bind("0.0.0.0:0") else {
+                return;
+            };
+            let _ = socket.set_broadcast(true);
+            let _ = socket.set_multicast_ttl_v4(1);
+            // Multicast also reaches listeners on this machine; some systems never loop a broadcast back.
+            let targets = [BEACON_GROUP, Ipv4Addr::BROADCAST];
+            loop {
+                for target in &targets {
+                    let _ = socket.send_to(message.as_bytes(), (*target, BEACON_PORT));
+                }
+                std::thread::sleep(Duration::from_secs(1));
             }
-            std::thread::sleep(Duration::from_secs(1));
-        }
-    });
+        });
 }
 
 /// The beacon port, shared with other games on this device (several players may run on one machine).
@@ -158,7 +177,9 @@ fn shared_listener() -> Option<UdpSocket> {
     socket.set_reuse_address(true).ok()?;
     #[cfg(unix)]
     socket.set_reuse_port(true).ok()?;
-    socket.bind(&SocketAddr::from(([0, 0, 0, 0], BEACON_PORT)).into()).ok()?;
+    socket
+        .bind(&SocketAddr::from(([0, 0, 0, 0], BEACON_PORT)).into())
+        .ok()?;
     let _ = socket.join_multicast_v4(&BEACON_GROUP, &Ipv4Addr::UNSPECIFIED);
     Some(socket.into())
 }
@@ -167,22 +188,31 @@ fn shared_listener() -> Option<UdpSocket> {
 pub fn listen() {
     static STARTED: Once = Once::new();
     STARTED.call_once(|| {
-        let _ = std::thread::Builder::new().name("lh-lan-listen".into()).spawn(|| {
-            let Some(socket) = shared_listener() else { return };
-            let mut buf = [0u8; 256];
-            while let Ok((len, from)) = socket.recv_from(&mut buf) {
-                let Some(port) = std::str::from_utf8(&buf[..len]).ok().and_then(parse_beacon) else { continue };
-                let relay = SocketAddr::new(from.ip(), port);
-                let host = relay.to_string();
-                if !discovery().beacon(&host, Instant::now()) {
-                    continue;
+        let _ = std::thread::Builder::new()
+            .name("lh-lan-listen".into())
+            .spawn(|| {
+                let Some(socket) = shared_listener() else {
+                    return;
+                };
+                let mut buf = [0u8; 256];
+                while let Ok((len, from)) = socket.recv_from(&mut buf) {
+                    let Some(port) = std::str::from_utf8(&buf[..len]).ok().and_then(parse_beacon)
+                    else {
+                        continue;
+                    };
+                    let relay = SocketAddr::new(from.ip(), port);
+                    let host = relay.to_string();
+                    if !discovery().beacon(&host, Instant::now()) {
+                        continue;
+                    }
+                    let _ = std::thread::Builder::new()
+                        .name("lh-lan-check".into())
+                        .spawn(move || {
+                            let answered = relay_answers(relay);
+                            discovery().checked(&host, answered, Instant::now());
+                        });
                 }
-                let _ = std::thread::Builder::new().name("lh-lan-check".into()).spawn(move || {
-                    let answered = relay_answers(relay);
-                    discovery().checked(&host, answered, Instant::now());
-                });
-            }
-        });
+            });
     });
 }
 
@@ -201,14 +231,26 @@ mod tests {
     use std::net::TcpListener;
 
     fn empty() -> Discovery {
-        Discovery { heard: BTreeMap::new(), checks: BTreeMap::new() }
+        Discovery {
+            heard: BTreeMap::new(),
+            checks: BTreeMap::new(),
+        }
     }
 
     #[test]
     fn a_beacon_reads_back_and_nothing_else_does() {
         assert_eq!(parse_beacon(&beacon_message(HOST_PORT)), Some(HOST_PORT));
         assert_eq!(parse_beacon("LHLAN1 8097"), Some(8097));
-        for other in ["", "LHLAN1", "LHLAN1 0", "LHLAN1 70000", "LHLAN1 12525 x", "LHLAN2 12525", "SMWLAN1 1.0 12523", "lhlan1 12525"] {
+        for other in [
+            "",
+            "LHLAN1",
+            "LHLAN1 0",
+            "LHLAN1 70000",
+            "LHLAN1 12525 x",
+            "LHLAN2 12525",
+            "SMWLAN1 1.0 12523",
+            "lhlan1 12525",
+        ] {
             assert_eq!(parse_beacon(other), None, "{other:?}");
         }
     }
@@ -223,9 +265,19 @@ mod tests {
         d.checked("10.0.0.5:12525", true, now);
         assert_eq!(d.nearby(now), ["10.0.0.5:12525"]);
         assert!(!d.beacon("10.0.0.5:12525", now + Duration::from_secs(3)));
-        assert_eq!(d.nearby(now + Duration::from_secs(6)), ["10.0.0.5:12525"], "its beacons keep it listed");
-        assert!(d.nearby(now + Duration::from_secs(10)).is_empty(), "a host gone quiet expires");
-        assert!(d.beacon("10.0.0.5:12525", now + Duration::from_secs(10)), "a forgotten host is checked again");
+        assert_eq!(
+            d.nearby(now + Duration::from_secs(6)),
+            ["10.0.0.5:12525"],
+            "its beacons keep it listed"
+        );
+        assert!(
+            d.nearby(now + Duration::from_secs(10)).is_empty(),
+            "a host gone quiet expires"
+        );
+        assert!(
+            d.beacon("10.0.0.5:12525", now + Duration::from_secs(10)),
+            "a forgotten host is checked again"
+        );
     }
 
     #[test]
@@ -243,7 +295,9 @@ mod tests {
     fn at_most_a_few_hosts_are_checked_at_once() {
         let mut d = empty();
         let now = Instant::now();
-        let started = (0..10).filter(|i| d.beacon(&format!("10.0.0.{i}:1"), now)).count();
+        let started = (0..10)
+            .filter(|i| d.beacon(&format!("10.0.0.{i}:1"), now))
+            .count();
         assert_eq!(started, MAX_CHECKING);
     }
 
@@ -260,10 +314,17 @@ mod tests {
 
     #[test]
     fn only_a_relay_health_answer_counts() {
-        assert!(relay_answers(serve_once("HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nok\n")));
-        assert!(!relay_answers(serve_once("HTTP/1.1 404 Not Found\r\n\r\nnot found\n")));
+        assert!(relay_answers(serve_once(
+            "HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nok\n"
+        )));
+        assert!(!relay_answers(serve_once(
+            "HTTP/1.1 404 Not Found\r\n\r\nnot found\n"
+        )));
         assert!(!relay_answers(serve_once("LHLAN1\n")));
-        let closed = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
+        let closed = TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap();
         assert!(!relay_answers(closed));
     }
 

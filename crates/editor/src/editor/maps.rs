@@ -14,8 +14,19 @@ type Files = Vec<(String, Vec<u8>)>;
 /// What the picker offers: players' props as packed for the previews, then the game's own, each with its sprite
 /// name, walk-through rows and a frame to show.
 fn pickable() -> Vec<(String, usize, Option<Art>)> {
-    let own = last_harvest_game::map_props().iter().map(|k| (k.name.to_string(), k.open, last_harvest_game::art::ALL.iter().find(|(a, _)| *a == k.name).map(|(_, f)| f[0])));
-    let players = last_harvest_game::named_props().into_iter().map(|p| (p.name, p.open, p.frames.first().copied()));
+    let own = last_harvest_game::map_props().iter().map(|k| {
+        (
+            k.name.to_string(),
+            k.open,
+            last_harvest_game::art::ALL
+                .iter()
+                .find(|(a, _)| *a == k.name)
+                .map(|(_, f)| f[0]),
+        )
+    });
+    let players = last_harvest_game::named_props()
+        .into_iter()
+        .map(|p| (p.name, p.open, p.frames.first().copied()));
     players.chain(own).collect()
 }
 
@@ -137,7 +148,10 @@ impl MapEdit {
     fn fit(&mut self) {
         let [w, h] = self.src.size.map(|v| v as f32 * TILE);
         self.scale = (CANVAS.w / w).min(CANVAS.h / h);
-        self.cam = [(w - CANVAS.w / self.scale) / 2.0, (h - CANVAS.h / self.scale) / 2.0];
+        self.cam = [
+            (w - CANVAS.w / self.scale) / 2.0,
+            (h - CANVAS.h / self.scale) / 2.0,
+        ];
     }
 
     /// The tile under a point on the pane, if it's on the map.
@@ -145,12 +159,16 @@ impl MapEdit {
         let x = (p[0] - CANVAS.x) / self.scale + self.cam[0];
         let y = (p[1] - CANVAS.y) / self.scale + self.cam[1];
         let [w, h] = self.src.size;
-        (x >= 0.0 && y >= 0.0 && (x / TILE) < w as f32 && (y / TILE) < h as f32).then(|| [(x / TILE) as usize, (y / TILE) as usize])
+        (x >= 0.0 && y >= 0.0 && (x / TILE) < w as f32 && (y / TILE) < h as f32)
+            .then(|| [(x / TILE) as usize, (y / TILE) as usize])
     }
 
     /// Where a tile's top-left lands on the pane.
     pub(super) fn screen(&self, [x, y]: [usize; 2]) -> [f32; 2] {
-        [CANVAS.x + (x as f32 * TILE - self.cam[0]) * self.scale, CANVAS.y + (y as f32 * TILE - self.cam[1]) * self.scale]
+        [
+            CANVAS.x + (x as f32 * TILE - self.cam[0]) * self.scale,
+            CANVAS.y + (y as f32 * TILE - self.cam[1]) * self.scale,
+        ]
     }
 
     fn remember(&mut self) {
@@ -170,7 +188,9 @@ impl MapEdit {
     /// What would keep the game from loading the map as it stands.
     fn check(&mut self) {
         let file = format!("{}{}", self.id, last_harvest_game::MAP_EXTENSION);
-        self.problem = last_harvest_game::check_map(&file, self.src.to_text()).err().map(|e| e.trim_start_matches(&format!("{file}: ")).to_string());
+        self.problem = last_harvest_game::check_map(&file, self.src.to_text())
+            .err()
+            .map(|e| e.trim_start_matches(&format!("{file}: ")).to_string());
     }
 
     /// Paints the tile, and for a road the tiles either side of it across the road, so a stroke lays all three lanes.
@@ -202,7 +222,10 @@ impl MapEdit {
         let steps = dx.abs().max(dy.abs()).max(1);
         for k in 0..=steps {
             let t = k as f32 / steps as f32;
-            let at = [(a[0] as f32 + dx as f32 * t).round() as usize, (a[1] as f32 + dy as f32 * t).round() as usize];
+            let at = [
+                (a[0] as f32 + dx as f32 * t).round() as usize,
+                (a[1] as f32 + dy as f32 * t).round() as usize,
+            ];
             self.paint(at);
         }
     }
@@ -217,7 +240,9 @@ impl MapEdit {
 
     /// Moves a prop so its top-left sits on `to`.
     fn move_prop(&mut self, i: usize, to: [usize; 2]) {
-        let Some((_, p)) = self.src.props.get_mut(i) else { return };
+        let Some((_, p)) = self.src.props.get_mut(i) else {
+            return;
+        };
         let at = match p {
             PropLine::Sprite { at, .. } => at,
             PropLine::Fence { rect, .. } => {
@@ -242,12 +267,16 @@ impl MapEdit {
 
     /// The selected prop's line, if it's still there.
     fn selected_line(&self) -> Option<&PropLine> {
-        self.selected.and_then(|i| self.src.props.get(i)).map(|(_, p)| p)
+        self.selected
+            .and_then(|i| self.src.props.get(i))
+            .map(|(_, p)| p)
     }
 
     /// Changes the selected prop's line, as one step to undo.
     fn retough(&mut self, change: impl FnOnce(&mut PropLine)) {
-        let Some(i) = self.selected.filter(|&i| i < self.src.props.len()) else { return };
+        let Some(i) = self.selected.filter(|&i| i < self.src.props.len()) else {
+            return;
+        };
         self.remember();
         change(&mut self.src.props[i].1);
         self.edited();
@@ -268,12 +297,18 @@ impl Editor {
 
     /// The open prop's text, read.
     pub(super) fn open_prop_fields(&self) -> Option<PropFields> {
-        self.sprite.card.as_deref().filter(|_| self.is_prop()).and_then(|t| last_harvest_game::prop_fields(t).ok())
+        self.sprite
+            .card
+            .as_deref()
+            .filter(|_| self.is_prop())
+            .and_then(|t| last_harvest_game::prop_fields(t).ok())
     }
 
     /// Changes the open prop's text, its frame count kept to its frames so a broken frame always has one.
     pub(super) fn edit_prop(&mut self, change: impl FnOnce(&mut PropFields)) {
-        let Some(mut f) = self.open_prop_fields() else { return };
+        let Some(mut f) = self.open_prop_fields() else {
+            return;
+        };
         change(&mut f);
         f.frames = (self.sprite.frames.len() as u32).clamp(1, last_harvest_game::PROP_MAX_FRAMES);
         f.broken &= f.frames > 1;
@@ -283,14 +318,67 @@ impl Editor {
     }
 
     /// An open prop's Cover, Broken frame and hit point buttons, under the palette.
-    pub(super) fn prop_buttons(&self, push: &mut impl FnMut(f32, f32, f32, f32, Action, &str, bool)) {
-        let Some(f) = self.open_prop_fields() else { return };
-        push(SIDE_X, PROP_COVER_Y, 114.0, 30.0, Action::Cover, "Cover", f.cover);
-        push(SIDE_X + 118.0, PROP_COVER_Y, 114.0, 30.0, Action::Broken, "Broken frame", f.broken);
-        push(SIDE_X + 130.0, PROP_HP_Y, 46.0, 30.0, Action::Hp(-1), "-", false);
-        push(SIDE_X + 182.0, PROP_HP_Y, 46.0, 30.0, Action::Hp(1), "+", false);
-        push(SIDE_X + 130.0, PROP_OPEN_Y, 46.0, 30.0, Action::Open(-1), "-", false);
-        push(SIDE_X + 182.0, PROP_OPEN_Y, 46.0, 30.0, Action::Open(1), "+", false);
+    pub(super) fn prop_buttons(
+        &self,
+        push: &mut impl FnMut(f32, f32, f32, f32, Action, &str, bool),
+    ) {
+        let Some(f) = self.open_prop_fields() else {
+            return;
+        };
+        push(
+            SIDE_X,
+            PROP_COVER_Y,
+            114.0,
+            30.0,
+            Action::Cover,
+            "Cover",
+            f.cover,
+        );
+        push(
+            SIDE_X + 118.0,
+            PROP_COVER_Y,
+            114.0,
+            30.0,
+            Action::Broken,
+            "Broken frame",
+            f.broken,
+        );
+        push(
+            SIDE_X + 130.0,
+            PROP_HP_Y,
+            46.0,
+            30.0,
+            Action::Hp(-1),
+            "-",
+            false,
+        );
+        push(
+            SIDE_X + 182.0,
+            PROP_HP_Y,
+            46.0,
+            30.0,
+            Action::Hp(1),
+            "+",
+            false,
+        );
+        push(
+            SIDE_X + 130.0,
+            PROP_OPEN_Y,
+            46.0,
+            30.0,
+            Action::Open(-1),
+            "-",
+            false,
+        );
+        push(
+            SIDE_X + 182.0,
+            PROP_OPEN_Y,
+            46.0,
+            30.0,
+            Action::Open(1),
+            "+",
+            false,
+        );
     }
 
     /// Every player's prop the store keeps, to pack for the previews while a map is open: their frames, then the
@@ -299,23 +387,72 @@ impl Editor {
     /// copies, and its detail.
     pub(super) fn prop_surfaces(&self) -> (Vec<Frame>, Vec<MapProp>) {
         let (mut frames, mut props) = (Vec::new(), Vec::new());
-        for (name, _) in self.names.iter().filter(|(n, _)| n.starts_with(last_harvest_game::PROP_PREFIX)) {
-            let Some(s) = self.store.load(name) else { continue };
-            let Some(mut f) = s.card.as_deref().and_then(|t| last_harvest_game::prop_fields(t).ok()) else { continue };
+        for (name, _) in self
+            .names
+            .iter()
+            .filter(|(n, _)| n.starts_with(last_harvest_game::PROP_PREFIX))
+        {
+            let Some(s) = self.store.load(name) else {
+                continue;
+            };
+            let Some(mut f) = s
+                .card
+                .as_deref()
+                .and_then(|t| last_harvest_game::prop_fields(t).ok())
+            else {
+                continue;
+            };
             f.frames = s.frames.len() as u32;
             let views = s.views.filter(|_| f.by_views.is_some());
             let has = |on: bool, fr: Option<Frame>| fr.filter(|_| views.is_some() && on);
-            let (footprint, roof, north, west) = (has(f.footprint, s.footprint), has(f.roof, s.roof), has(f.north, s.north), has(f.west, s.west));
-            (f.footprint, f.roof, f.north, f.west) = (footprint.is_some(), roof.is_some(), north.is_some(), west.is_some());
+            let (footprint, roof, north, west) = (
+                has(f.footprint, s.footprint),
+                has(f.roof, s.roof),
+                has(f.north, s.north),
+                has(f.west, s.west),
+            );
+            (f.footprint, f.roof, f.north, f.west) = (
+                footprint.is_some(),
+                roof.is_some(),
+                north.is_some(),
+                west.is_some(),
+            );
             let before: Vec<Frame> = footprint.into_iter().chain(roof).collect();
             let after: Vec<Frame> = north.into_iter().chain(west).collect();
             let views: Vec<Frame> = views.into_iter().flatten().collect();
             let packed = s.frames.len() + before.len() + views.len() + after.len();
-            let cleared = |fr: &Frame| Frame { px: fr.px.iter().map(|p| if p[3] > 0 && f.clear.contains(&[p[0], p[1], p[2]]) { CLEAR } else { *p }).collect(), ..fr.clone() };
-            let copies: Vec<Frame> = if f.clear.is_empty() { Vec::new() } else { s.frames.iter().map(cleared).collect() };
-            let group: Vec<Frame> = s.frames.iter().chain(&before).chain(&views).chain(&after).chain(&copies).cloned().collect();
+            let cleared = |fr: &Frame| Frame {
+                px: fr
+                    .px
+                    .iter()
+                    .map(|p| {
+                        if p[3] > 0 && f.clear.contains(&[p[0], p[1], p[2]]) {
+                            CLEAR
+                        } else {
+                            *p
+                        }
+                    })
+                    .collect(),
+                ..fr.clone()
+            };
+            let copies: Vec<Frame> = if f.clear.is_empty() {
+                Vec::new()
+            } else {
+                s.frames.iter().map(cleared).collect()
+            };
+            let group: Vec<Frame> = s
+                .frames
+                .iter()
+                .chain(&before)
+                .chain(&views)
+                .chain(&after)
+                .chain(&copies)
+                .cloned()
+                .collect();
             let paint = &f.paint;
-            frames.extend((0..paint.copies()).flat_map(|k| group.iter().map(move |fr| fr.in_coat(paint, k))));
+            frames.extend(
+                (0..paint.copies()).flat_map(|k| group.iter().map(move |fr| fr.in_coat(paint, k))),
+            );
             props.push((f, packed, copies.len(), s.detail));
         }
         (frames, props)
@@ -327,7 +464,9 @@ impl Editor {
         let mut at = 0;
         let (mut named, mut solids) = (Vec::new(), Vec::new());
         for (f, n, copies, _) in &self.map_props {
-            let Some(all) = self.live.get(at..at + (n + copies) * f.paint.copies()) else { break };
+            let Some(all) = self.live.get(at..at + (n + copies) * f.paint.copies()) else {
+                break;
+            };
             let coats = all
                 .chunks(n + copies)
                 .map(|arts| {
@@ -362,19 +501,52 @@ impl Editor {
         let id = m.id.clone();
         let text = self.store.read_map(&id)?;
         let ext = last_harvest_game::MAP_EXTENSION;
-        let mut files = vec![(format!("{}{id}{ext}", last_harvest_pack::MAPS), text.into_bytes())];
-        let ground = self.store.read_table("ground.txt").filter(|t| last_harvest_game::built_in_table("ground.txt") != Some(t.as_str()));
-        let mut placed: Vec<String> = m.src.props.iter().filter_map(|(_, p)| if let PropLine::Sprite { name, .. } = p { Some(name.clone()) } else { None }).collect();
+        let mut files = vec![(
+            format!("{}{id}{ext}", last_harvest_pack::MAPS),
+            text.into_bytes(),
+        )];
+        let ground = self
+            .store
+            .read_table("ground.txt")
+            .filter(|t| last_harvest_game::built_in_table("ground.txt") != Some(t.as_str()));
+        let mut placed: Vec<String> = m
+            .src
+            .props
+            .iter()
+            .filter_map(|(_, p)| {
+                if let PropLine::Sprite { name, .. } = p {
+                    Some(name.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
         if let Some(t) = &ground {
             let table = crate::table::Table::new("ground.txt", t);
-            let used = |code: &String| code.len() == 1 && m.src.ground.contains(&code.as_bytes()[0]);
-            let crops = table.sections().into_iter().filter(used).flat_map(|code| table.entries(&code).into_iter().filter(|e| e.key == "crop"));
-            placed.extend(crops.flat_map(|e| e.value.split_whitespace().map(str::to_string).collect::<Vec<_>>()));
+            let used =
+                |code: &String| code.len() == 1 && m.src.ground.contains(&code.as_bytes()[0]);
+            let crops = table
+                .sections()
+                .into_iter()
+                .filter(used)
+                .flat_map(|code| table.entries(&code).into_iter().filter(|e| e.key == "crop"));
+            placed.extend(crops.flat_map(|e| {
+                e.value
+                    .split_whitespace()
+                    .map(str::to_string)
+                    .collect::<Vec<_>>()
+            }));
         }
         let mut missing = Vec::new();
         for name in &placed {
-            let Some(pid) = crate::store::props::id(name) else { continue };
-            let file = format!("{}{pid}{}", last_harvest_pack::PROPS, last_harvest_pack::prop::EXTENSION);
+            let Some(pid) = crate::store::props::id(name) else {
+                continue;
+            };
+            let file = format!(
+                "{}{pid}{}",
+                last_harvest_pack::PROPS,
+                last_harvest_pack::prop::EXTENSION
+            );
             if files.iter().any(|(f, _)| *f == file) {
                 continue;
             }
@@ -384,14 +556,49 @@ impl Editor {
             }
         }
         let props = files.len() - 1;
-        let with = if props == 0 { String::new() } else { format!(" with {props} prop{}", if props == 1 { "" } else { "s" }) };
-        let with = if ground.is_some() { format!("{with}{} its ground.txt", if props == 0 { " with" } else { " and" }) } else { with };
+        let with = if props == 0 {
+            String::new()
+        } else {
+            format!(" with {props} prop{}", if props == 1 { "" } else { "s" })
+        };
+        let with = if ground.is_some() {
+            format!(
+                "{with}{} its ground.txt",
+                if props == 0 { " with" } else { " and" }
+            )
+        } else {
+            with
+        };
         files.extend(ground.map(|t| ("ground.txt".to_string(), t.into_bytes())));
-        let farm: Files = self.map_farm.iter().flat_map(|id| [last_harvest_game::farm_file(id, false), last_harvest_game::farm_file(id, true)]).filter_map(|f| Some((f.clone(), self.store.read_table(&f)?.into_bytes()))).collect();
-        let with = if farm.is_empty() { with } else { format!("{with}{} the farm {}", if with.is_empty() { " with" } else { " and" }, self.map_farm.as_deref().unwrap_or_default()) };
+        let farm: Files = self
+            .map_farm
+            .iter()
+            .flat_map(|id| {
+                [
+                    last_harvest_game::farm_file(id, false),
+                    last_harvest_game::farm_file(id, true),
+                ]
+            })
+            .filter_map(|f| Some((f.clone(), self.store.read_table(&f)?.into_bytes())))
+            .collect();
+        let with = if farm.is_empty() {
+            with
+        } else {
+            format!(
+                "{with}{} the farm {}",
+                if with.is_empty() { " with" } else { " and" },
+                self.map_farm.as_deref().unwrap_or_default()
+            )
+        };
         files.extend(farm);
-        let note = if missing.is_empty() { String::new() } else { format!("; not kept here: {}", missing.join(", ")) };
-        self.say(format!("Exported {id}{with} as {id}.pak: put it in the game's data/mods{note}"));
+        let note = if missing.is_empty() {
+            String::new()
+        } else {
+            format!("; not kept here: {}", missing.join(", "))
+        };
+        self.say(format!(
+            "Exported {id}{with} as {id}.pak: put it in the game's data/mods{note}"
+        ));
         Some((format!("{id}.pak"), files))
     }
 
@@ -412,16 +619,35 @@ impl Editor {
     pub fn all_maps_and_props(&self) -> Files {
         let maps = self.store.map_ids().into_iter().filter_map(|id| {
             let text = self.store.read_map(&id)?;
-            Some((format!("{}{id}{}", last_harvest_pack::MAPS, last_harvest_game::MAP_EXTENSION), text.into_bytes()))
+            Some((
+                format!(
+                    "{}{id}{}",
+                    last_harvest_pack::MAPS,
+                    last_harvest_game::MAP_EXTENSION
+                ),
+                text.into_bytes(),
+            ))
         });
-        let props = self.names.iter().filter_map(|(n, _)| crate::store::props::id(n)).filter_map(|id| {
-            let bytes = self.store.prop_bytes(&id)?;
-            Some((format!("{}{id}{}", last_harvest_pack::PROPS, last_harvest_pack::prop::EXTENSION), bytes))
-        });
+        let props = self
+            .names
+            .iter()
+            .filter_map(|(n, _)| crate::store::props::id(n))
+            .filter_map(|id| {
+                let bytes = self.store.prop_bytes(&id)?;
+                Some((
+                    format!(
+                        "{}{id}{}",
+                        last_harvest_pack::PROPS,
+                        last_harvest_pack::prop::EXTENSION
+                    ),
+                    bytes,
+                ))
+            });
         // A data file goes along only where the mod changed it, so the game's own carries on elsewhere.
         let tables = self.table_files().into_iter().filter_map(|file| {
             let text = self.store.read_table(&file)?;
-            (last_harvest_game::built_in_table(&file) != Some(text.as_str())).then(|| (file, text.into_bytes()))
+            (last_harvest_game::built_in_table(&file) != Some(text.as_str()))
+                .then(|| (file, text.into_bytes()))
         });
         maps.chain(props).chain(tables).collect()
     }
@@ -434,7 +660,9 @@ impl Editor {
         }
         let (mut took, mut problems, mut first) = (Vec::new(), Vec::new(), None);
         for (file, bytes) in &props {
-            let read = last_harvest_pack::prop::read(file, bytes).and_then(|p| last_harvest_game::prop_fields(&p.text).map_err(|e| format!("{file}: {e}")));
+            let read = last_harvest_pack::prop::read(file, bytes).and_then(|p| {
+                last_harvest_game::prop_fields(&p.text).map_err(|e| format!("{file}: {e}"))
+            });
             match read.and_then(|f| self.store.put_prop(&f.id, bytes).map(|()| f.id)) {
                 Ok(id) => {
                     took.push(crate::store::props::name(&id));
@@ -443,9 +671,13 @@ impl Editor {
                 Err(e) => problems.push(e),
             }
         }
-        let (tables, maps): (Files, Files) = maps.into_iter().partition(|(file, _)| last_harvest_game::table_kind(file).is_some());
+        let (tables, maps): (Files, Files) = maps
+            .into_iter()
+            .partition(|(file, _)| last_harvest_game::table_kind(file).is_some());
         for (file, bytes) in tables {
-            let saved = String::from_utf8(bytes).map_err(|_| format!("{file} is not text")).and_then(|t| self.store.save_table(&file, &t));
+            let saved = String::from_utf8(bytes)
+                .map_err(|_| format!("{file} is not text"))
+                .and_then(|t| self.store.save_table(&file, &t));
             match saved {
                 Ok(()) => took.push(file),
                 Err(e) => problems.push(e),
@@ -453,9 +685,25 @@ impl Editor {
         }
         let mut first_map = None;
         for (file, bytes) in &maps {
-            let id = file.strip_suffix(last_harvest_game::MAP_EXTENSION).unwrap_or(file);
-            let read = std::str::from_utf8(bytes).map_err(|_| format!("{file}: not text")).and_then(|t| MapSource::parse(t).map(|s| s.to_text()).map_err(|e| format!("{file}: {e}")));
-            match read.and_then(|text| if last_harvest_game::valid_map_id(id) { self.store.save_map(id, &text) } else { Err(format!("{file}: a map's file name is lowercase letters, digits and _")) }) {
+            let id = file
+                .strip_suffix(last_harvest_game::MAP_EXTENSION)
+                .unwrap_or(file);
+            let read = std::str::from_utf8(bytes)
+                .map_err(|_| format!("{file}: not text"))
+                .and_then(|t| {
+                    MapSource::parse(t)
+                        .map(|s| s.to_text())
+                        .map_err(|e| format!("{file}: {e}"))
+                });
+            match read.and_then(|text| {
+                if last_harvest_game::valid_map_id(id) {
+                    self.store.save_map(id, &text)
+                } else {
+                    Err(format!(
+                        "{file}: a map's file name is lowercase letters, digits and _"
+                    ))
+                }
+            }) {
                 Ok(()) => {
                     let name = format!("{}{}", sprite::MAP_PREFIX, id.to_ascii_uppercase());
                     took.push(name.clone());
@@ -469,8 +717,14 @@ impl Editor {
             self.open(&name);
             self.reveal();
         }
-        let took = if took.is_empty() { format!("Nothing came in from {source}") } else { format!("Imported {} from {source}", took.join(", ")) };
-        let note = problems.first().map_or(String::new(), |p| format!("; left out {}: {p}", problems.len()));
+        let took = if took.is_empty() {
+            format!("Nothing came in from {source}")
+        } else {
+            format!("Imported {} from {source}", took.join(", "))
+        };
+        let note = problems.first().map_or(String::new(), |p| {
+            format!("; left out {}: {p}", problems.len())
+        });
         self.say(format!("{took}{note}"));
     }
 
@@ -482,15 +736,24 @@ impl Editor {
     /// Every name for the list: the store's sprites, then its maps.
     pub(super) fn all_names(&self) -> Vec<(String, bool)> {
         let mut names = self.store.names();
-        names.extend(self.store.map_ids().into_iter().map(|id| (format!("{}{}", sprite::MAP_PREFIX, id.to_ascii_uppercase()), true)));
+        names.extend(self.store.map_ids().into_iter().map(|id| {
+            (
+                format!("{}{}", sprite::MAP_PREFIX, id.to_ascii_uppercase()),
+                true,
+            )
+        }));
         names.extend(self.data_names());
         names
     }
 
     /// Opens a map from the store; true if `name` is one.
     pub(super) fn open_map(&mut self, name: &str) -> bool {
-        let Some(id) = Self::map_id_of(name) else { return false };
-        let Some(text) = self.store.read_map(&id) else { return false };
+        let Some(id) = Self::map_id_of(name) else {
+            return false;
+        };
+        let Some(text) = self.store.read_map(&id) else {
+            return false;
+        };
         match MapSource::parse(&text) {
             Ok(src) => self.start_map(name, &id, src),
             Err(e) => self.say(format!("{name} can't be opened: {e}")),
@@ -501,7 +764,22 @@ impl Editor {
     fn start_map(&mut self, name: &str, id: &str, src: MapSource) {
         self.map = Some(MapEdit::new(id, src));
         (self.data, self.data_link) = (None, None);
-        self.sprite = Sprite { detail: 1, alpha: Vec::new(), worn: Vec::new(), name: name.into(), frames: vec![Frame::blank(16, 16)], views: None, footprint: None, roof: None, north: None, west: None, top: None, card: None, clear_in_3d: Vec::new(), paint: Default::default() };
+        self.sprite = Sprite {
+            detail: 1,
+            alpha: Vec::new(),
+            worn: Vec::new(),
+            name: name.into(),
+            frames: vec![Frame::blank(16, 16)],
+            views: None,
+            footprint: None,
+            roof: None,
+            north: None,
+            west: None,
+            top: None,
+            card: None,
+            clear_in_3d: Vec::new(),
+            paint: Default::default(),
+        };
         self.frame = 0;
         self.view = None;
         self.stats = false;
@@ -516,12 +794,20 @@ impl Editor {
     /// Makes a new map of dirt for `name` and saves it, so it lists.
     pub(super) fn make_map(&mut self, name: &str) {
         let Some(id) = Self::map_id_of(name) else {
-            return self.say(format!("A map's name is MAP_ then up to {} letters, digits and _", last_harvest_game::PLAYER_ID_MAX));
+            return self.say(format!(
+                "A map's name is MAP_ then up to {} letters, digits and _",
+                last_harvest_game::PLAYER_ID_MAX
+            ));
         };
         if self.store.read_map(&id).is_some() {
             return self.say(format!("{name} already exists"));
         }
-        let title: String = id.split('_').filter(|w| !w.is_empty()).map(|w| w[..1].to_ascii_uppercase() + &w[1..]).collect::<Vec<_>>().join(" ");
+        let title: String = id
+            .split('_')
+            .filter(|w| !w.is_empty())
+            .map(|w| w[..1].to_ascii_uppercase() + &w[1..])
+            .collect::<Vec<_>>()
+            .join(" ");
         let src = MapSource::new(&title, MAP_SIZE);
         if let Err(e) = self.store.save_map(&id, &src.to_text()) {
             return self.say(format!("Couldn't make {name}: {e}"));
@@ -530,7 +816,9 @@ impl Editor {
         self.names = self.all_names();
         self.start_map(name, &id, src);
         self.reveal();
-        self.say(format!("Made {name}: paint ground, place props, and set the spawn and home"));
+        self.say(format!(
+            "Made {name}: paint ground, place props, and set the spawn and home"
+        ));
     }
 
     pub(super) fn save_map(&mut self) {
@@ -540,7 +828,10 @@ impl Editor {
             Ok(()) => {
                 m.dirty = false;
                 let note = match &m.problem {
-                    Some(p) => format!("Saved {}, but the game will leave it out: {p}", self.sprite.name),
+                    Some(p) => format!(
+                        "Saved {}, but the game will leave it out: {p}",
+                        self.sprite.name
+                    ),
                     None => format!("Saved {}. Restart the game to play it.", self.sprite.name),
                 };
                 self.say(note);
@@ -552,7 +843,10 @@ impl Editor {
     /// The map's view for the canvas: the map pixel at the pane's top-left and the scale, for drawing it there.
     pub fn map_view(&self) -> Option<([f32; 2], f32)> {
         let m = self.map.as_ref()?;
-        Some(([m.cam[0] - CANVAS.x / m.scale, m.cam[1] - CANVAS.y / m.scale], m.scale))
+        Some((
+            [m.cam[0] - CANVAS.x / m.scale, m.cam[1] - CANVAS.y / m.scale],
+            m.scale,
+        ))
     }
 
     /// The open map, for the previews to build.
@@ -571,20 +865,63 @@ impl Editor {
         self.map.as_ref().map(|m| m.focus)
     }
 
-    pub(super) fn map_buttons(&self, m: &MapEdit, push: &mut impl FnMut(f32, f32, f32, f32, Action, &str, bool)) {
-        for (i, (a, l)) in [(Action::Ask(Ask::New), "New"), (Action::Revert, "Revert"), (Action::Save, "Save")].into_iter().enumerate() {
-            push(614.0 + i as f32 * 102.0, 8.0, 94.0, 34.0, a, l, a == Action::Save && m.dirty);
+    pub(super) fn map_buttons(
+        &self,
+        m: &MapEdit,
+        push: &mut impl FnMut(f32, f32, f32, f32, Action, &str, bool),
+    ) {
+        for (i, (a, l)) in [
+            (Action::Ask(Ask::New), "New"),
+            (Action::Revert, "Revert"),
+            (Action::Save, "Save"),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            push(
+                614.0 + i as f32 * 102.0,
+                8.0,
+                94.0,
+                34.0,
+                a,
+                l,
+                a == Action::Save && m.dirty,
+            );
         }
         if !self.modding {
-            push(512.0, 8.0, 94.0, 34.0, Action::Delete, "Delete", self.delete_armed > 0.0);
+            push(
+                512.0,
+                8.0,
+                94.0,
+                34.0,
+                Action::Delete,
+                "Delete",
+                self.delete_armed > 0.0,
+            );
         }
         for (i, (t, l)) in MAP_TOOLS.into_iter().enumerate() {
-            push(SIDE_X + (i % 3) as f32 * 79.0, 52.0 + (i / 3) as f32 * 38.0, 74.0, 32.0, Action::MapTool(t), l, m.tool == t);
+            push(
+                SIDE_X + (i % 3) as f32 * 79.0,
+                52.0 + (i / 3) as f32 * 38.0,
+                74.0,
+                32.0,
+                Action::MapTool(t),
+                l,
+                m.tool == t,
+            );
         }
         match m.tool {
             MapTool::Paint => {
                 for (i, (code, l)) in last_harvest_game::map_ground().into_iter().enumerate() {
-                    push(SIDE_X + (i % 3) as f32 * 79.0, PICK_TOP + (i / 3) as f32 * 34.0, 74.0, 30.0, Action::Ground(code), &l, m.ground == code);
+                    push(
+                        SIDE_X + (i % 3) as f32 * 79.0,
+                        PICK_TOP + (i / 3) as f32 * 34.0,
+                        74.0,
+                        30.0,
+                        Action::Ground(code),
+                        &l,
+                        m.ground == code,
+                    );
                 }
             }
             MapTool::Prop => {
@@ -592,29 +929,103 @@ impl Editor {
                 for k in 0..PICK_ACROSS * PICK_ROWS {
                     let i = m.pick_scroll * PICK_ACROSS + k;
                     if i < count {
-                        let (x, y) = (SIDE_X + (k % PICK_ACROSS) as f32 * PICK_CELL, PICK_TOP + (k / PICK_ACROSS) as f32 * PICK_CELL);
-                        push(x, y, PICK_CELL - 4.0, PICK_CELL - 4.0, Action::PickProp(i), "", m.prop == i);
+                        let (x, y) = (
+                            SIDE_X + (k % PICK_ACROSS) as f32 * PICK_CELL,
+                            PICK_TOP + (k / PICK_ACROSS) as f32 * PICK_CELL,
+                        );
+                        push(
+                            x,
+                            y,
+                            PICK_CELL - 4.0,
+                            PICK_CELL - 4.0,
+                            Action::PickProp(i),
+                            "",
+                            m.prop == i,
+                        );
                     }
                 }
                 if count > PICK_ACROSS * PICK_ROWS {
                     let y = PICK_TOP + PICK_ROWS as f32 * PICK_CELL + 2.0;
                     push(SIDE_X, y, 114.0, 30.0, Action::PickPage(-1), "<", false);
-                    push(SIDE_X + 118.0, y, 114.0, 30.0, Action::PickPage(1), ">", false);
+                    push(
+                        SIDE_X + 118.0,
+                        y,
+                        114.0,
+                        30.0,
+                        Action::PickPage(1),
+                        ">",
+                        false,
+                    );
                 }
             }
             MapTool::Fence => {
-                push(SIDE_X, PICK_TOP, 114.0, 30.0, Action::Picket(false), "Rail", !m.picket);
-                push(SIDE_X + 118.0, PICK_TOP, 114.0, 30.0, Action::Picket(true), "Picket", m.picket);
+                push(
+                    SIDE_X,
+                    PICK_TOP,
+                    114.0,
+                    30.0,
+                    Action::Picket(false),
+                    "Rail",
+                    !m.picket,
+                );
+                push(
+                    SIDE_X + 118.0,
+                    PICK_TOP,
+                    114.0,
+                    30.0,
+                    Action::Picket(true),
+                    "Picket",
+                    m.picket,
+                );
             }
             MapTool::Move => {
                 if let Some(p) = m.selected_line() {
                     let (_, cover) = p.hp_and_cover();
-                    push(SIDE_X + 130.0, TOUGH_Y, 46.0, 30.0, Action::Hp(-1), "-", false);
-                    push(SIDE_X + 182.0, TOUGH_Y, 46.0, 30.0, Action::Hp(1), "+", false);
-                    push(SIDE_X, TOUGH_Y + 36.0, 114.0, 30.0, Action::Cover, "Cover", cover);
-                    push(SIDE_X + 118.0, TOUGH_Y + 36.0, 114.0, 30.0, Action::PropDefaults, "Defaults", false);
+                    push(
+                        SIDE_X + 130.0,
+                        TOUGH_Y,
+                        46.0,
+                        30.0,
+                        Action::Hp(-1),
+                        "-",
+                        false,
+                    );
+                    push(
+                        SIDE_X + 182.0,
+                        TOUGH_Y,
+                        46.0,
+                        30.0,
+                        Action::Hp(1),
+                        "+",
+                        false,
+                    );
+                    push(
+                        SIDE_X,
+                        TOUGH_Y + 36.0,
+                        114.0,
+                        30.0,
+                        Action::Cover,
+                        "Cover",
+                        cover,
+                    );
+                    push(
+                        SIDE_X + 118.0,
+                        TOUGH_Y + 36.0,
+                        114.0,
+                        30.0,
+                        Action::PropDefaults,
+                        "Defaults",
+                        false,
+                    );
                     if matches!(p, PropLine::Sprite { .. }) {
-                        for (i, (minus, plus)) in [(Action::Open(-1), Action::Open(1)), (Action::LineFrame(-1), Action::LineFrame(1)), (Action::LineFps(-1), Action::LineFps(1))].into_iter().enumerate() {
+                        for (i, (minus, plus)) in [
+                            (Action::Open(-1), Action::Open(1)),
+                            (Action::LineFrame(-1), Action::LineFrame(1)),
+                            (Action::LineFps(-1), Action::LineFps(1)),
+                        ]
+                        .into_iter()
+                        .enumerate()
+                        {
                             let y = LINE_Y + i as f32 * LINE_ROW;
                             push(SIDE_X + 130.0, y, 46.0, 30.0, minus, "-", false);
                             push(SIDE_X + 182.0, y, 46.0, 30.0, plus, "+", false);
@@ -624,26 +1035,102 @@ impl Editor {
             }
             _ => {}
         }
-        push(SIDE_X + 130.0, SIZE_Y, 46.0, 30.0, Action::MapSize(-4, 0), "-", false);
-        push(SIDE_X + 182.0, SIZE_Y, 46.0, 30.0, Action::MapSize(4, 0), "+", false);
-        push(SIDE_X + 130.0, SIZE_Y + 36.0, 46.0, 30.0, Action::MapSize(0, -4), "-", false);
-        push(SIDE_X + 182.0, SIZE_Y + 36.0, 46.0, 30.0, Action::MapSize(0, 4), "+", false);
-        push(SIDE_X, SIZE_Y + 76.0, 114.0, 30.0, Action::Randomize, "Randomize", false);
-        push(SIDE_X + 118.0, SIZE_Y + 76.0, 114.0, 30.0, Action::MapFit, "Fit view", false);
-        push(SIDE_X + 130.0, FARM_Y, 46.0, 30.0, Action::MapFarm(-1), "<", false);
-        push(SIDE_X + 182.0, FARM_Y, 46.0, 30.0, Action::MapFarm(1), ">", false);
+        push(
+            SIDE_X + 130.0,
+            SIZE_Y,
+            46.0,
+            30.0,
+            Action::MapSize(-4, 0),
+            "-",
+            false,
+        );
+        push(
+            SIDE_X + 182.0,
+            SIZE_Y,
+            46.0,
+            30.0,
+            Action::MapSize(4, 0),
+            "+",
+            false,
+        );
+        push(
+            SIDE_X + 130.0,
+            SIZE_Y + 36.0,
+            46.0,
+            30.0,
+            Action::MapSize(0, -4),
+            "-",
+            false,
+        );
+        push(
+            SIDE_X + 182.0,
+            SIZE_Y + 36.0,
+            46.0,
+            30.0,
+            Action::MapSize(0, 4),
+            "+",
+            false,
+        );
+        push(
+            SIDE_X,
+            SIZE_Y + 76.0,
+            114.0,
+            30.0,
+            Action::Randomize,
+            "Randomize",
+            false,
+        );
+        push(
+            SIDE_X + 118.0,
+            SIZE_Y + 76.0,
+            114.0,
+            30.0,
+            Action::MapFit,
+            "Fit view",
+            false,
+        );
+        push(
+            SIDE_X + 130.0,
+            FARM_Y,
+            46.0,
+            30.0,
+            Action::MapFarm(-1),
+            "<",
+            false,
+        );
+        push(
+            SIDE_X + 182.0,
+            FARM_Y,
+            46.0,
+            30.0,
+            Action::MapFarm(1),
+            ">",
+            false,
+        );
     }
 
     /// Paints, checks and lays out maps with the map page's farm over the game's, or the game's alone.
     pub(super) fn use_map_farm(&mut self) {
-        let id = self.map_farm.clone().filter(|id| self.store.farm_ids().contains(id));
+        let id = self
+            .map_farm
+            .clone()
+            .filter(|id| self.store.farm_ids().contains(id));
         if id.is_none() && !std::mem::take(&mut self.farm_in_use) {
             return;
         }
         self.farm_in_use = id.is_some();
-        let read = |ground| id.as_ref().and_then(|id| self.store.read_table(&last_harvest_game::farm_file(id, ground)));
+        let read = |ground| {
+            id.as_ref().and_then(|id| {
+                self.store
+                    .read_table(&last_harvest_game::farm_file(id, ground))
+            })
+        };
         let (farm, ground) = (read(false), read(true));
-        if let Err(e) = last_harvest_game::use_farm_text(id.as_deref().unwrap_or(""), farm.as_deref(), ground.as_deref()) {
+        if let Err(e) = last_harvest_game::use_farm_text(
+            id.as_deref().unwrap_or(""),
+            farm.as_deref(),
+            ground.as_deref(),
+        ) {
             _ = last_harvest_game::use_farm_text("", None, None);
             self.say(format!("Laying out with the game's farm: {e}"));
         }
@@ -659,7 +1146,10 @@ impl Editor {
         if let Action::MapFarm(d) = a {
             self.map_farm = super::step_farm(&self.store.farm_ids(), self.map_farm.as_deref(), d);
             self.use_map_farm();
-            let which = self.map_farm.as_deref().map_or("the game's farm".to_string(), |id| format!("the farm {id}"));
+            let which = self
+                .map_farm
+                .as_deref()
+                .map_or("the game's farm".to_string(), |id| format!("the farm {id}"));
             self.say(format!("Painting and Randomize use {which}"));
             return true;
         }
@@ -702,7 +1192,9 @@ impl Editor {
             Action::Randomize => {
                 m.remember();
                 m.rolls += 1;
-                let seed = m.id.bytes().fold(m.rolls, |h, b| h.wrapping_mul(31).wrapping_add(b as u64));
+                let seed =
+                    m.id.bytes()
+                        .fold(m.rolls, |h, b| h.wrapping_mul(31).wrapping_add(b as u64));
                 let before = m.src.size;
                 m.src = MapSource::random(&m.src.name, m.src.size, seed);
                 if m.src.size != before {
@@ -711,8 +1203,14 @@ impl Editor {
                 m.focus = m.src.spawn;
                 m.edited();
                 let [w, h] = m.src.size;
-                let grown = if m.src.size != before { format!(", grown to {w}x{h} to fit one") } else { String::new() };
-                self.say(format!("A random farm{grown}. Press again for another, or Undo to go back"));
+                let grown = if m.src.size != before {
+                    format!(", grown to {w}x{h} to fit one")
+                } else {
+                    String::new()
+                };
+                self.say(format!(
+                    "A random farm{grown}. Press again for another, or Undo to go back"
+                ));
             }
             Action::MapSize(dw, dh) => {
                 let by = if shift { 4 } else { 1 };
@@ -766,7 +1264,17 @@ impl Editor {
             }
             MapTool::Prop => {
                 if let Some((name, open, _)) = pickable().into_iter().nth(m.prop) {
-                    m.src.props.push((0, PropLine::Sprite { name, at, frame: None, fps: 0.0, open, tough: Default::default() }));
+                    m.src.props.push((
+                        0,
+                        PropLine::Sprite {
+                            name,
+                            at,
+                            frame: None,
+                            fps: 0.0,
+                            open,
+                            tough: Default::default(),
+                        },
+                    ));
                     m.selected = Some(m.src.props.len() - 1);
                     m.edited();
                 }
@@ -792,16 +1300,24 @@ impl Editor {
     pub(super) fn map_drag(&mut self, p: [f32; 2]) {
         let Some(m) = &mut self.map else { return };
         if let Some(from) = m.pan_from {
-            m.cam = [m.cam[0] - (p[0] - from[0]) / m.scale, m.cam[1] - (p[1] - from[1]) / m.scale];
+            m.cam = [
+                m.cam[0] - (p[0] - from[0]) / m.scale,
+                m.cam[1] - (p[1] - from[1]) / m.scale,
+            ];
             m.pan_from = Some(p);
             return;
         }
         m.hover = m.tile_at(p);
         if let (Some((i, by)), Some(at)) = (m.grab, m.hover) {
-            m.move_prop(i, [at[0].saturating_sub(by[0]), at[1].saturating_sub(by[1])]);
+            m.move_prop(
+                i,
+                [at[0].saturating_sub(by[0]), at[1].saturating_sub(by[1])],
+            );
             return;
         }
-        let Some(at) = m.hover.filter(|_| m.stroke) else { return };
+        let Some(at) = m.hover.filter(|_| m.stroke) else {
+            return;
+        };
         match m.tool {
             MapTool::Paint => match m.last_tile {
                 Some(from) if from != at => m.paint_line(from, at),
@@ -822,7 +1338,15 @@ impl Editor {
             let [_, _, w, h] = rect;
             if w >= 4 && h >= 3 {
                 let gate = Some(((w - 2) / 2).clamp(1, w - 3));
-                m.src.props.push((0, PropLine::Fence { picket: m.picket, rect, gate, tough: Default::default() }));
+                m.src.props.push((
+                    0,
+                    PropLine::Fence {
+                        picket: m.picket,
+                        rect,
+                        gate,
+                        tough: Default::default(),
+                    },
+                ));
                 m.selected = Some(m.src.props.len() - 1);
                 m.edited();
             } else {
@@ -840,7 +1364,10 @@ impl Editor {
     /// Scrolls the prop picker over it, else zooms the map about the point.
     pub(super) fn map_wheel(&mut self, p: [f32; 2], dy: f32) {
         let Some(m) = &mut self.map else { return };
-        if m.tool == MapTool::Prop && p[0] >= SIDE_X && (PICK_TOP..PICK_TOP + PICK_ROWS as f32 * PICK_CELL).contains(&p[1]) {
+        if m.tool == MapTool::Prop
+            && p[0] >= SIDE_X
+            && (PICK_TOP..PICK_TOP + PICK_ROWS as f32 * PICK_CELL).contains(&p[1])
+        {
             m.scroll_picker(dy.signum() as i32);
         } else if CANVAS.contains(p) {
             m.zoom(p, if dy < 0.0 { 1.25 } else { 0.8 });
@@ -858,7 +1385,11 @@ impl Editor {
         let Some(m) = &mut self.map else { return false };
         match key {
             Key::Undo | Key::Redo => {
-                let (from, to) = if key == Key::Undo { (&mut m.undo, &mut m.redo) } else { (&mut m.redo, &mut m.undo) };
+                let (from, to) = if key == Key::Undo {
+                    (&mut m.undo, &mut m.redo)
+                } else {
+                    (&mut m.redo, &mut m.undo)
+                };
                 if let Some(prev) = from.pop() {
                     to.push(std::mem::replace(&mut m.src, prev));
                     m.edited();
@@ -892,15 +1423,31 @@ impl Editor {
             let [x, y] = m.screen(at);
             if CANVAS.contains([x + tile / 2.0, y + tile / 2.0]) {
                 c.rect(x, y, tile, tile, [color[0], color[1], color[2], 0.45]);
-                c.label(label, x + tile / 2.0, y + tile / 2.0 - 9.0, 18.0, TEXT, Align::Center);
+                c.label(
+                    label,
+                    x + tile / 2.0,
+                    y + tile / 2.0 - 9.0,
+                    18.0,
+                    TEXT,
+                    Align::Center,
+                );
             }
         };
         mark(c, m.src.spawn, "S", [0.3, 0.6, 1.0, 1.0]);
         mark(c, m.src.home, "H", [0.3, 0.9, 0.4, 1.0]);
-        if let Some([x, y, w, h]) = m.selected_line().filter(|_| m.tool == MapTool::Move).map(PropLine::rect) {
+        if let Some([x, y, w, h]) = m
+            .selected_line()
+            .filter(|_| m.tool == MapTool::Move)
+            .map(PropLine::rect)
+        {
             let ([sx, sy], (w, h)) = (m.screen([x, y]), (w as f32 * tile, h as f32 * tile));
             let pick = [0.45, 0.8, 1.0, 1.0];
-            for [rx, ry, rw, rh] in [[sx, sy, w, 2.0], [sx, sy + h - 2.0, w, 2.0], [sx, sy, 2.0, h], [sx + w - 2.0, sy, 2.0, h]] {
+            for [rx, ry, rw, rh] in [
+                [sx, sy, w, 2.0],
+                [sx, sy + h - 2.0, w, 2.0],
+                [sx, sy, 2.0, h],
+                [sx + w - 2.0, sy, 2.0, h],
+            ] {
                 c.rect(rx, ry, rw, rh, pick);
             }
         }
@@ -909,12 +1456,28 @@ impl Editor {
             let (w, h) = match (m.tool, m.fence_rect(at)) {
                 (MapTool::Fence, Some([fx, fy, fw, fh])) => {
                     let [sx, sy] = m.screen([fx, fy]);
-                    c.rect(sx, sy, fw as f32 * tile, fh as f32 * tile, [1.0, 0.85, 0.3, 0.25]);
+                    c.rect(
+                        sx,
+                        sy,
+                        fw as f32 * tile,
+                        fh as f32 * tile,
+                        [1.0, 0.85, 0.3, 0.25],
+                    );
                     (0.0, 0.0)
                 }
                 (MapTool::Prop, _) => {
-                    let name = pickable().into_iter().nth(m.prop).map_or_else(String::new, |(n, _, _)| n);
-                    let probe = PropLine::Sprite { name, at, frame: None, fps: 0.0, open: 0, tough: Default::default() };
+                    let name = pickable()
+                        .into_iter()
+                        .nth(m.prop)
+                        .map_or_else(String::new, |(n, _, _)| n);
+                    let probe = PropLine::Sprite {
+                        name,
+                        at,
+                        frame: None,
+                        fps: 0.0,
+                        open: 0,
+                        tough: Default::default(),
+                    };
                     let [_, _, pw, ph] = probe.rect();
                     (pw as f32 * tile, ph as f32 * tile)
                 }
@@ -929,7 +1492,18 @@ impl Editor {
         }
         c.rect(LIST.x, LIST.y, LIST.w, LIST.h, PANEL);
         self.draw_list(c);
-        c.label(format!("{}{}", self.sprite.name, if m.dirty { "  (unsaved)" } else { "" }), 12.0, 12.0, 26.0, TEXT, Align::Left);
+        c.label(
+            format!(
+                "{}{}",
+                self.sprite.name,
+                if m.dirty { "  (unsaved)" } else { "" }
+            ),
+            12.0,
+            12.0,
+            26.0,
+            TEXT,
+            Align::Left,
+        );
         let picks = pickable();
         for b in self.buttons() {
             let r = b.rect;
@@ -937,17 +1511,40 @@ impl Editor {
             if let Action::PickProp(i) = b.action {
                 if let Some(a) = picks.get(i).and_then(|(_, _, a)| *a) {
                     let s = ((r.w - 8.0) / a.w().max(a.h())).min(3.0);
-                    c.rect(r.x + 2.0, r.y + 2.0, r.w - 4.0, r.h - 4.0, [0.22, 0.22, 0.25, 1.0]);
-                    c.art(a, r.x + (r.w - a.w() * s) / 2.0, r.y + (r.h - a.h() * s) / 2.0, s, false, [1.0; 4]);
+                    c.rect(
+                        r.x + 2.0,
+                        r.y + 2.0,
+                        r.w - 4.0,
+                        r.h - 4.0,
+                        [0.22, 0.22, 0.25, 1.0],
+                    );
+                    c.art(
+                        a,
+                        r.x + (r.w - a.w() * s) / 2.0,
+                        r.y + (r.h - a.h() * s) / 2.0,
+                        s,
+                        false,
+                        [1.0; 4],
+                    );
                 }
                 continue;
             }
-            c.label(b.label, r.x + r.w / 2.0, r.y + (r.h - 18.0) / 2.0, 18.0, if b.on { [0.1, 0.1, 0.1, 1.0] } else { TEXT }, Align::Center);
+            c.label(
+                b.label,
+                r.x + r.w / 2.0,
+                r.y + (r.h - 18.0) / 2.0,
+                18.0,
+                if b.on { [0.1, 0.1, 0.1, 1.0] } else { TEXT },
+                Align::Center,
+            );
         }
         let what = match m.tool {
             MapTool::Paint => "Drag to paint; Shift-click: a line".to_string(),
             MapTool::Move => "Drag a prop or fence to move it; set its HP and cover".to_string(),
-            MapTool::Prop => format!("{}: click to place", picks.get(m.prop).map_or("", |(n, _, _)| n.as_str())),
+            MapTool::Prop => format!(
+                "{}: click to place",
+                picks.get(m.prop).map_or("", |(n, _, _)| n.as_str())
+            ),
             MapTool::Erase => "Click a prop to take it off".to_string(),
             MapTool::Fence => "Drag a rectangle; the gate goes mid-bottom".to_string(),
             MapTool::Spawn => "Click where the player starts".to_string(),
@@ -958,35 +1555,118 @@ impl Editor {
             let [x, y, ..] = p.rect();
             let what = match p {
                 PropLine::Sprite { name, .. } => name.clone(),
-                PropLine::Fence { picket, .. } => if *picket { "Picket fence" } else { "Rail fence" }.to_string(),
+                PropLine::Fence { picket, .. } => if *picket {
+                    "Picket fence"
+                } else {
+                    "Rail fence"
+                }
+                .to_string(),
             };
-            c.label(format!("{what} at {x} {y}"), SIDE_X, PICK_TOP + 4.0, 16.0, TEXT, Align::Left);
+            c.label(
+                format!("{what} at {x} {y}"),
+                SIDE_X,
+                PICK_TOP + 4.0,
+                16.0,
+                TEXT,
+                Align::Left,
+            );
             let (hp, _) = p.hp_and_cover();
-            c.label(if hp > 0.0 { format!("HP {hp}") } else { "Won't break".into() }, SIDE_X, TOUGH_Y + 5.0, 18.0, TEXT, Align::Left);
+            c.label(
+                if hp > 0.0 {
+                    format!("HP {hp}")
+                } else {
+                    "Won't break".into()
+                },
+                SIDE_X,
+                TOUGH_Y + 5.0,
+                18.0,
+                TEXT,
+                Align::Left,
+            );
             let own = p.tough() == Default::default();
-            c.label(if own { "As its sprite says" } else { "Set on this map" }, SIDE_X, TOUGH_Y + 74.0, 15.0, DIM, Align::Left);
-            if let PropLine::Sprite { frame, fps, open, .. } = p {
+            c.label(
+                if own {
+                    "As its sprite says"
+                } else {
+                    "Set on this map"
+                },
+                SIDE_X,
+                TOUGH_Y + 74.0,
+                15.0,
+                DIM,
+                Align::Left,
+            );
+            if let PropLine::Sprite {
+                frame, fps, open, ..
+            } = p
+            {
                 let lines = [
                     match open {
                         0 => "Blocks every row".to_string(),
                         n => format!("Top {n} open"),
                     },
-                    frame.map_or("All frames".to_string(), |f| format!("Frame {} of {}", f + 1, p.frame_count())),
-                    if *fps > 0.0 { format!("{fps} fps") } else { "Its own pace".to_string() },
+                    frame.map_or("All frames".to_string(), |f| {
+                        format!("Frame {} of {}", f + 1, p.frame_count())
+                    }),
+                    if *fps > 0.0 {
+                        format!("{fps} fps")
+                    } else {
+                        "Its own pace".to_string()
+                    },
                 ];
                 for (i, line) in lines.into_iter().enumerate() {
-                    c.label(line, SIDE_X, LINE_Y + i as f32 * LINE_ROW + 6.0, 16.0, TEXT, Align::Left);
+                    c.label(
+                        line,
+                        SIDE_X,
+                        LINE_Y + i as f32 * LINE_ROW + 6.0,
+                        16.0,
+                        TEXT,
+                        Align::Left,
+                    );
                 }
             }
         }
         let [w, h] = m.src.size;
-        c.label(format!("Width {w}"), SIDE_X, SIZE_Y + 6.0, 17.0, TEXT, Align::Left);
-        c.label(format!("Height {h}"), SIDE_X, SIZE_Y + 42.0, 17.0, TEXT, Align::Left);
-        c.label(format!("Farm {}", self.map_farm.as_deref().unwrap_or("game's")), SIDE_X, FARM_Y + 6.0, 17.0, TEXT, Align::Left);
-        let at = m.hover.map_or(String::new(), |[x, y]| format!("Tile {x} {y}   "));
-        c.label(format!("{at}Right-drag or arrows: move   Scroll or pinch: zoom"), CANVAS.x, CANVAS.y + CANVAS.h + 12.0, 16.0, DIM, Align::Left);
+        c.label(
+            format!("Width {w}"),
+            SIDE_X,
+            SIZE_Y + 6.0,
+            17.0,
+            TEXT,
+            Align::Left,
+        );
+        c.label(
+            format!("Height {h}"),
+            SIDE_X,
+            SIZE_Y + 42.0,
+            17.0,
+            TEXT,
+            Align::Left,
+        );
+        c.label(
+            format!("Farm {}", self.map_farm.as_deref().unwrap_or("game's")),
+            SIDE_X,
+            FARM_Y + 6.0,
+            17.0,
+            TEXT,
+            Align::Left,
+        );
+        let at = m
+            .hover
+            .map_or(String::new(), |[x, y]| format!("Tile {x} {y}   "));
+        c.label(
+            format!("{at}Right-drag or arrows: move   Scroll or pinch: zoom"),
+            CANVAS.x,
+            CANVAS.y + CANVAS.h + 12.0,
+            16.0,
+            DIM,
+            Align::Left,
+        );
         let (line, color) = match &m.problem {
-            Some(p) => (format!("The game would leave it out: {p}"), [1.0, 0.5, 0.45, 1.0]),
+            Some(p) => (
+                format!("The game would leave it out: {p}"),
+                [1.0, 0.5, 0.45, 1.0],
+            ),
             None => ("Ready to play".to_string(), [0.5, 0.9, 0.55, 1.0]),
         };
         let mut y = CANVAS.y + CANVAS.h + 36.0;
@@ -1023,15 +1703,25 @@ fn wrap(text: &str, width: usize) -> Vec<String> {
 impl MapEdit {
     /// Moves the prop picker `rows` rows on, or back for fewer than none, within what it holds.
     fn scroll_picker(&mut self, rows: i32) {
-        let last = pickable().len().div_ceil(PICK_ACROSS).saturating_sub(PICK_ROWS);
+        let last = pickable()
+            .len()
+            .div_ceil(PICK_ACROSS)
+            .saturating_sub(PICK_ROWS);
         self.pick_scroll = (self.pick_scroll as i32 + rows).clamp(0, last as i32) as usize;
     }
 
     fn zoom(&mut self, about: [f32; 2], factor: f32) {
-        let fit = (CANVAS.w / (self.src.size[0] as f32 * TILE)).min(CANVAS.h / (self.src.size[1] as f32 * TILE));
+        let fit = (CANVAS.w / (self.src.size[0] as f32 * TILE))
+            .min(CANVAS.h / (self.src.size[1] as f32 * TILE));
         let scale = (self.scale * factor).clamp(fit.min(1.0) * 0.8, MAX_SCALE);
-        let at = [(about[0] - CANVAS.x) / self.scale + self.cam[0], (about[1] - CANVAS.y) / self.scale + self.cam[1]];
-        self.cam = [at[0] - (about[0] - CANVAS.x) / scale, at[1] - (about[1] - CANVAS.y) / scale];
+        let at = [
+            (about[0] - CANVAS.x) / self.scale + self.cam[0],
+            (about[1] - CANVAS.y) / self.scale + self.cam[1],
+        ];
+        self.cam = [
+            at[0] - (about[0] - CANVAS.x) / scale,
+            at[1] - (about[1] - CANVAS.y) / scale,
+        ];
         self.scale = scale;
     }
 }
@@ -1042,7 +1732,11 @@ mod tests {
     use crate::store::FsStore;
 
     fn store(dir: &std::path::Path) -> Box<FsStore> {
-        Box::new(FsStore { dir: dir.join("sprites"), catalog: dir.join("art.txt"), cards: dir.join("enemies") })
+        Box::new(FsStore {
+            dir: dir.join("sprites"),
+            catalog: dir.join("art.txt"),
+            cards: dir.join("enemies"),
+        })
     }
 
     fn click(e: &mut Editor, at: [usize; 2]) {
@@ -1061,9 +1755,18 @@ mod tests {
         "map old farm".chars().for_each(|ch| e.key(Key::Char(ch)));
         e.key(Key::Enter);
         assert_eq!(e.sprite.name, "MAP_OLD_FARM");
-        assert!(dir.join("maps/old_farm.map.txt").exists(), "New writes the map so it lists");
-        assert!(e.names.iter().any(|(n, _)| n == "MAP_OLD_FARM") && sprite::section("MAP_OLD_FARM") == sprite::MAP_SECTION);
-        assert!(e.surfaces().is_empty(), "no sprite to pack while a map is open");
+        assert!(
+            dir.join("maps/old_farm.map.txt").exists(),
+            "New writes the map so it lists"
+        );
+        assert!(
+            e.names.iter().any(|(n, _)| n == "MAP_OLD_FARM")
+                && sprite::section("MAP_OLD_FARM") == sprite::MAP_SECTION
+        );
+        assert!(
+            e.surfaces().is_empty(),
+            "no sprite to pack while a map is open"
+        );
 
         e.act(Action::MapTool(MapTool::Paint), false);
         e.act(Action::Ground(b'g'), false);
@@ -1072,11 +1775,25 @@ mod tests {
         e.act(Action::MapTool(MapTool::Prop), false);
         e.act(Action::MapTool(MapTool::Prop), false);
         e.act(Action::PickPage(1), false);
-        assert_eq!(e.map.as_ref().unwrap().pick_scroll, PICK_ROWS, "> turns a page");
-        assert!(e.buttons().iter().any(|b| b.action == Action::PickPage(-1)), "and < is there to turn back");
+        assert_eq!(
+            e.map.as_ref().unwrap().pick_scroll,
+            PICK_ROWS,
+            "> turns a page"
+        );
+        assert!(
+            e.buttons().iter().any(|b| b.action == Action::PickPage(-1)),
+            "and < is there to turn back"
+        );
         e.act(Action::PickPage(-5), false);
-        assert_eq!(e.map.as_ref().unwrap().pick_scroll, 0, "no further back than the start");
-        let house = pickable().iter().position(|(n, _, _)| n == "HOUSE").unwrap();
+        assert_eq!(
+            e.map.as_ref().unwrap().pick_scroll,
+            0,
+            "no further back than the start"
+        );
+        let house = pickable()
+            .iter()
+            .position(|(n, _, _)| n == "HOUSE")
+            .unwrap();
         e.act(Action::PickProp(house), false);
         click(&mut e, [5, 5]);
         e.act(Action::MapTool(MapTool::Spawn), false);
@@ -1088,10 +1805,17 @@ mod tests {
         e.drag([to[0] + 1.0, to[1] + 1.0]);
         e.mouse_up();
         let m = e.map.as_ref().unwrap();
-        assert_eq!(m.src.props.last().map(|(_, p)| p.rect()), Some([30, 30, 7, 5]));
+        assert_eq!(
+            m.src.props.last().map(|(_, p)| p.rect()),
+            Some([30, 30, 7, 5])
+        );
         assert!(m.dirty && m.problem.is_none(), "{:?}", m.problem);
         e.key(Key::Undo);
-        assert_eq!(e.map.as_ref().unwrap().src.props.len(), 1, "undo takes the fence back off");
+        assert_eq!(
+            e.map.as_ref().unwrap().src.props.len(),
+            1,
+            "undo takes the fence back off"
+        );
         e.key(Key::Redo);
 
         e.act(Action::MapTool(MapTool::Paint), false);
@@ -1101,7 +1825,10 @@ mod tests {
         e.mouse_down([p[0] + 1.0, p[1] + 1.0], false, true);
         e.mouse_up();
         let g = &e.map.as_ref().unwrap().src.ground;
-        assert!((5..=15).all(|y| (49..=51).all(|x| g[y * 72 + x] == b'v')), "a shift-click road runs all the way, three lanes wide");
+        assert!(
+            (5..=15).all(|y| (49..=51).all(|x| g[y * 72 + x] == b'v')),
+            "a shift-click road runs all the way, three lanes wide"
+        );
         assert_eq!(g[16 * 72 + 50], b'.');
         e.act(Action::Ground(b'.'), false);
         click(&mut e, [60, 40]);
@@ -1115,41 +1842,89 @@ mod tests {
         e.mouse_down([from[0] + 1.0, from[1] + 1.0], false, false);
         e.drag([to[0] + 1.0, to[1] + 1.0]);
         e.mouse_up();
-        assert_eq!(e.map.as_ref().unwrap().src.props[0].1.rect()[..2], [11, 8], "the house moves by where it was grabbed");
+        assert_eq!(
+            e.map.as_ref().unwrap().src.props[0].1.rect()[..2],
+            [11, 8],
+            "the house moves by where it was grabbed"
+        );
         e.key(Key::Undo);
-        assert_eq!(e.map.as_ref().unwrap().src.props[0].1.rect()[..2], [5, 5], "one undo puts it back");
+        assert_eq!(
+            e.map.as_ref().unwrap().src.props[0].1.rect()[..2],
+            [5, 5],
+            "one undo puts it back"
+        );
         e.key(Key::Redo);
         e.key(Key::Undo);
 
         e.act(Action::Save, false);
-        let saved = MapSource::parse(&std::fs::read_to_string(dir.join("maps/old_farm.map.txt")).unwrap()).unwrap();
-        assert_eq!((saved.spawn, saved.props.len(), saved.ground[10 * 72 + 10], saved.name.as_str()), ([20, 20], 2, b'g', "Old Farm"));
+        let saved =
+            MapSource::parse(&std::fs::read_to_string(dir.join("maps/old_farm.map.txt")).unwrap())
+                .unwrap();
+        assert_eq!(
+            (
+                saved.spawn,
+                saved.props.len(),
+                saved.ground[10 * 72 + 10],
+                saved.name.as_str()
+            ),
+            ([20, 20], 2, b'g', "Old Farm")
+        );
         assert!(!e.unsaved());
 
         e.act(Action::MapSize(-4, 4), false);
         assert_eq!(e.map.as_ref().unwrap().src.size, [68, 58]);
         e.act(Action::MapSize(4, 0), true);
-        assert_eq!(e.map.as_ref().unwrap().src.size, [84, 58], "Shift steps by 16");
+        assert_eq!(
+            e.map.as_ref().unwrap().src.size,
+            [84, 58],
+            "Shift steps by 16"
+        );
         e.key(Key::Undo);
         e.act(Action::MapTool(MapTool::Home), false);
         let walled = e.map.as_ref().unwrap().src.size[0] - 1;
         click(&mut e, [walled, 5]);
-        assert!(e.map.as_ref().unwrap().problem.as_deref().is_some_and(|p| p.contains("home")), "a home on the edge is a problem");
+        assert!(
+            e.map
+                .as_ref()
+                .unwrap()
+                .problem
+                .as_deref()
+                .is_some_and(|p| p.contains("home")),
+            "a home on the edge is a problem"
+        );
         let before = e.map.as_ref().unwrap().src.clone();
         e.act(Action::Randomize, false);
         let m = e.map.as_ref().unwrap();
-        assert!(m.src.props.len() > 20 && m.problem.is_none() && m.src.size == [68, 58], "a whole farm that plays, at the map's size");
+        assert!(
+            m.src.props.len() > 20 && m.problem.is_none() && m.src.size == [68, 58],
+            "a whole farm that plays, at the map's size"
+        );
         e.act(Action::Randomize, false);
-        assert_ne!(e.map.as_ref().unwrap().src, before, "another press, another farm");
+        assert_ne!(
+            e.map.as_ref().unwrap().src,
+            before,
+            "another press, another farm"
+        );
         e.key(Key::Undo);
         e.key(Key::Undo);
-        assert_eq!(e.map.as_ref().unwrap().src, before, "undo goes back to the hand-made map");
+        assert_eq!(
+            e.map.as_ref().unwrap().src,
+            before,
+            "undo goes back to the hand-made map"
+        );
 
         let again = Editor::new(store(&dir), "MAP_OLD_FARM");
-        assert_eq!(again.map.as_ref().map(|m| m.src.props.len()), Some(2), "opens straight onto a map");
+        assert_eq!(
+            again.map.as_ref().map(|m| m.src.props.len()),
+            Some(2),
+            "opens straight onto a map"
+        );
         e.switch_to("BARREL".into());
         e.decide(Choice::Discard);
-        assert!(e.map.is_none() && e.sprite.name == "BARREL", "a sprite opens in place of the map");
+        assert!(
+            e.map.is_none() && e.sprite.name == "BARREL",
+            "a sprite opens in place of the map"
+        );
     }
 }
 
@@ -1162,28 +1937,57 @@ mod tough_tests {
     fn move_picks_a_prop_whose_hit_points_and_cover_it_sets() {
         let dir = std::env::temp_dir().join(format!("lh-tough-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
-        let mut e = Editor::new(Box::new(FsStore { dir: dir.join("sprites"), catalog: dir.join("art.txt"), cards: dir.join("enemies") }), "BARREL");
+        let mut e = Editor::new(
+            Box::new(FsStore {
+                dir: dir.join("sprites"),
+                catalog: dir.join("art.txt"),
+                cards: dir.join("enemies"),
+            }),
+            "BARREL",
+        );
         e.act(Action::Ask(Ask::New), false);
         "map pen".chars().for_each(|ch| e.key(Key::Char(ch)));
         e.key(Key::Enter);
         let m = e.map.as_mut().unwrap();
-        m.src.props.push((0, PropLine::Fence { picket: false, rect: [30, 30, 7, 5], gate: Some(2), tough: Default::default() }));
+        m.src.props.push((
+            0,
+            PropLine::Fence {
+                picket: false,
+                rect: [30, 30, 7, 5],
+                gate: Some(2),
+                tough: Default::default(),
+            },
+        ));
         e.act(Action::MapTool(MapTool::Move), false);
         let line = |e: &Editor| e.map.as_ref().unwrap().src.props[0].1.clone();
         e.act(Action::Hp(1), false);
-        assert_eq!(line(&e).tough(), Default::default(), "nothing picked, nothing set");
+        assert_eq!(
+            line(&e).tough(),
+            Default::default(),
+            "nothing picked, nothing set"
+        );
         let p = e.map.as_ref().unwrap().screen([30, 32]);
         e.mouse_down([p[0] + 1.0, p[1] + 1.0], false, false);
         e.mouse_up();
-        assert!(e.buttons().iter().any(|b| b.action == Action::PropDefaults), "the picked fence's settings show");
+        assert!(
+            e.buttons().iter().any(|b| b.action == Action::PropDefaults),
+            "the picked fence's settings show"
+        );
         e.act(Action::Hp(1), false);
         e.act(Action::Cover, false);
         assert_eq!(line(&e).hp_and_cover(), (50.0, true));
         e.act(Action::Save, false);
         let saved = std::fs::read_to_string(dir.join("maps/pen.map.txt")).unwrap();
-        assert!(saved.contains("fence rail 30 30 7 5 gate 2 hp 50 cover yes"), "{saved}");
+        assert!(
+            saved.contains("fence rail 30 30 7 5 gate 2 hp 50 cover yes"),
+            "{saved}"
+        );
         e.key(Key::Undo);
-        assert_eq!(line(&e).hp_and_cover(), (50.0, false), "each press undoes on its own");
+        assert_eq!(
+            line(&e).hp_and_cover(),
+            (50.0, false),
+            "each press undoes on its own"
+        );
         e.act(Action::PropDefaults, false);
         assert_eq!(line(&e).tough(), Default::default());
     }
@@ -1192,27 +1996,63 @@ mod tough_tests {
     fn move_sets_a_props_walk_through_rows_frame_and_pace() {
         let dir = std::env::temp_dir().join(format!("lh-line-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
-        let mut e = Editor::new(Box::new(FsStore { dir: dir.join("sprites"), catalog: dir.join("art.txt"), cards: dir.join("enemies") }), "BARREL");
+        let mut e = Editor::new(
+            Box::new(FsStore {
+                dir: dir.join("sprites"),
+                catalog: dir.join("art.txt"),
+                cards: dir.join("enemies"),
+            }),
+            "BARREL",
+        );
         e.act(Action::Ask(Ask::New), false);
         "map yard".chars().for_each(|ch| e.key(Key::Char(ch)));
         e.key(Key::Enter);
         let m = e.map.as_mut().unwrap();
-        let sign = PropLine::Sprite { name: "SIGN".into(), at: [30, 30], frame: None, fps: 0.0, open: 0, tough: Default::default() };
+        let sign = PropLine::Sprite {
+            name: "SIGN".into(),
+            at: [30, 30],
+            frame: None,
+            fps: 0.0,
+            open: 0,
+            tough: Default::default(),
+        };
         let n = sign.frame_count();
         m.src.props.push((0, sign));
         m.selected = Some(0);
         e.act(Action::MapTool(MapTool::Move), false);
         e.map.as_mut().unwrap().selected = Some(0);
         let b = e.buttons();
-        let apart = |x: &Button, y: &Button| x.rect.x + x.rect.w <= y.rect.x || y.rect.x + y.rect.w <= x.rect.x || x.rect.y + x.rect.h <= y.rect.y || y.rect.y + y.rect.h <= x.rect.y;
-        assert!(b.iter().enumerate().all(|(i, x)| b.iter().skip(i + 1).all(|y| apart(x, y))), "no two buttons overlap");
-        for a in [Action::Open(1), Action::LineFrame(1), Action::LineFps(1), Action::LineFps(1)] {
+        let apart = |x: &Button, y: &Button| {
+            x.rect.x + x.rect.w <= y.rect.x
+                || y.rect.x + y.rect.w <= x.rect.x
+                || x.rect.y + x.rect.h <= y.rect.y
+                || y.rect.y + y.rect.h <= x.rect.y
+        };
+        assert!(
+            b.iter()
+                .enumerate()
+                .all(|(i, x)| b.iter().skip(i + 1).all(|y| apart(x, y))),
+            "no two buttons overlap"
+        );
+        for a in [
+            Action::Open(1),
+            Action::LineFrame(1),
+            Action::LineFps(1),
+            Action::LineFps(1),
+        ] {
             e.act(a, false);
         }
-        let PropLine::Sprite { frame, fps, open, .. } = e.map.as_ref().unwrap().src.props[0].1.clone() else { unreachable!() };
+        let PropLine::Sprite {
+            frame, fps, open, ..
+        } = e.map.as_ref().unwrap().src.props[0].1.clone()
+        else {
+            unreachable!()
+        };
         assert_eq!((frame, fps, open), (Some(0), 2.0, 1));
         e.act(Action::LineFrame(-1), false);
-        let PropLine::Sprite { frame, .. } = e.map.as_ref().unwrap().src.props[0].1.clone() else { unreachable!() };
+        let PropLine::Sprite { frame, .. } = e.map.as_ref().unwrap().src.props[0].1.clone() else {
+            unreachable!()
+        };
         assert_eq!(frame, None, "back before the first frame, they all animate");
         assert!(n > 1);
     }
@@ -1224,7 +2064,11 @@ mod prop_tests {
     use crate::store::FsStore;
 
     fn store(dir: &std::path::Path) -> Box<FsStore> {
-        Box::new(FsStore { dir: dir.join("sprites"), catalog: dir.join("art.txt"), cards: dir.join("enemies") })
+        Box::new(FsStore {
+            dir: dir.join("sprites"),
+            catalog: dir.join("art.txt"),
+            cards: dir.join("enemies"),
+        })
     }
 
     fn new(e: &mut Editor, name: &str) {
@@ -1239,7 +2083,10 @@ mod prop_tests {
         let _ = std::fs::remove_dir_all(&dir);
         let mut e = Editor::new(store(&dir), "BARREL");
         new(&mut e, "prop beacon");
-        assert_eq!((e.sprite.name.as_str(), sprite::section("PROP_BEACON")), ("PROP_BEACON", sprite::PROP_SECTION));
+        assert_eq!(
+            (e.sprite.name.as_str(), sprite::section("PROP_BEACON")),
+            ("PROP_BEACON", sprite::PROP_SECTION)
+        );
         let mut px = vec![[200, 40, 40, 255]; 16 * 24];
         px[..16].fill([9, 9, 9, 255]);
         e.sprite.frames = vec![Frame { w: 16, h: 24, px }; 2];
@@ -1247,26 +2094,61 @@ mod prop_tests {
         e.act(Action::Fps(1), false);
         e.dirty = true;
         e.act(Action::Save, false);
-        let saved = last_harvest_pack::prop::read("b", &std::fs::read(dir.join("props/beacon.prop.png")).unwrap()).unwrap();
+        let saved = last_harvest_pack::prop::read(
+            "b",
+            &std::fs::read(dir.join("props/beacon.prop.png")).unwrap(),
+        )
+        .unwrap();
         assert_eq!(saved.frame, [16, 24]);
-        assert!(saved.text.contains("frames 2") && saved.text.contains("fps 7"), "{}", saved.text);
+        assert!(
+            saved.text.contains("frames 2") && saved.text.contains("fps 7"),
+            "{}",
+            saved.text
+        );
 
         new(&mut e, "map beacon farm");
         let frames = e.surfaces();
-        assert_eq!(frames.len(), 4, "the prop's frames pack for the previews, then their 3D copies");
-        assert!(frames[2].px[..16].iter().all(|p| p[3] == 0) && frames[2].px[16] == [200, 40, 40, 255], "a copy drops only the cleared colors");
-        assert_eq!(e.map_props.iter().map(|(_, n, copies, _)| (*n, *copies)).collect::<Vec<_>>(), [(2, 2)]);
-        assert_eq!(e.live_detail(), [1; 4], "each of a prop's pictures at its detail");
+        assert_eq!(
+            frames.len(),
+            4,
+            "the prop's frames pack for the previews, then their 3D copies"
+        );
+        assert!(
+            frames[2].px[..16].iter().all(|p| p[3] == 0) && frames[2].px[16] == [200, 40, 40, 255],
+            "a copy drops only the cleared colors"
+        );
+        assert_eq!(
+            e.map_props
+                .iter()
+                .map(|(_, n, copies, _)| (*n, *copies))
+                .collect::<Vec<_>>(),
+            [(2, 2)]
+        );
+        assert_eq!(
+            e.live_detail(),
+            [1; 4],
+            "each of a prop's pictures at its detail"
+        );
         e.set_live(vec![Art(1), Art(2), Art(3), Art(4)]);
-        assert!(e.map.as_ref().unwrap().problem.is_none(), "registering the props checks the map again");
+        assert!(
+            e.map.as_ref().unwrap().problem.is_none(),
+            "registering the props checks the map again"
+        );
         let picks = pickable();
-        let at = picks.iter().position(|(n, _, _)| n == "PROP_BEACON").expect("the picker offers it");
+        let at = picks
+            .iter()
+            .position(|(n, _, _)| n == "PROP_BEACON")
+            .expect("the picker offers it");
         e.act(Action::MapTool(MapTool::Prop), false);
         e.act(Action::PickProp(at), false);
         let p = e.map.as_ref().unwrap().screen([10, 10]);
         e.mouse_down([p[0] + 1.0, p[1] + 1.0], false, false);
         e.mouse_up();
-        assert!(e.map.as_ref().unwrap().problem.is_none(), "{:?}", e.map.as_ref().unwrap().problem);
+        assert!(
+            e.map.as_ref().unwrap().problem.is_none(),
+            "{:?}",
+            e.map.as_ref().unwrap().problem
+        );
         e.act(Action::Save, false);
         let (pak, files) = e.export_map().unwrap();
         assert_eq!(pak, "beacon_farm.pak");
@@ -1275,10 +2157,19 @@ mod prop_tests {
 
         let other = dir.join("elsewhere");
         let mut fresh = Editor::new(store(&other), "BARREL");
-        let take = |dir: &str| files.iter().filter(|(f, _)| f.starts_with(dir)).map(|(f, b)| (f[dir.len()..].to_string(), b.clone())).collect::<Vec<_>>();
+        let take = |dir: &str| {
+            files
+                .iter()
+                .filter(|(f, _)| f.starts_with(dir))
+                .map(|(f, b)| (f[dir.len()..].to_string(), b.clone()))
+                .collect::<Vec<_>>()
+        };
         fresh.import_maps("beacon_farm.pak", take("maps/"), take("props/"));
         assert_eq!(fresh.sprite.name, "MAP_BEACON_FARM", "the map opens");
-        assert!(other.join("props/beacon.prop.png").exists() && other.join("maps/beacon_farm.map.txt").exists());
+        assert!(
+            other.join("props/beacon.prop.png").exists()
+                && other.join("maps/beacon_farm.map.txt").exists()
+        );
         assert!(fresh.names.iter().any(|(n, _)| n == "PROP_BEACON"));
     }
 
@@ -1293,14 +2184,23 @@ mod prop_tests {
             e.key(Key::Enter);
         };
         typed(&mut e, Ask::Farm, "kd");
-        assert!(dir.join("farms/kd.txt").exists(), "New farm writes it so it lists");
-        assert_eq!((e.sprite.name.as_str(), sprite::section(&e.sprite.name)), ("DATA_FARMS_KD_FIELDS", "Data/farms"));
+        assert!(
+            dir.join("farms/kd.txt").exists(),
+            "New farm writes it so it lists"
+        );
+        assert_eq!(
+            (e.sprite.name.as_str(), sprite::section(&e.sprite.name)),
+            ("DATA_FARMS_KD_FIELDS", "Data/farms")
+        );
         typed(&mut e, Ask::Farm, "kd");
         assert!(e.status.as_ref().is_some_and(|s| s.0.contains("already")));
 
         assert!(e.open_table("DATA_GROUND__63"));
         typed(&mut e, Ask::FarmGround, "kd");
-        assert!(e.open_table("DATA_FARMS_KD_GROUND__63"), "the farm's ground lists with the corn in it");
+        assert!(
+            e.open_table("DATA_FARMS_KD_GROUND__63"),
+            "the farm's ground lists with the corn in it"
+        );
         typed(&mut e, Ask::Copy, "K");
         e.act(Action::Save, false);
         let ground = std::fs::read_to_string(dir.join("farms/kd.ground.txt")).unwrap();
@@ -1308,22 +2208,44 @@ mod prop_tests {
 
         e.open("BARREL");
         new(&mut e, "map cane");
-        let has = |code: u8| last_harvest_game::map_ground().iter().any(|(c, _)| *c == code);
+        let has = |code: u8| {
+            last_harvest_game::map_ground()
+                .iter()
+                .any(|(c, _)| *c == code)
+        };
         assert!(!has(b'K'));
         e.act(Action::MapFarm(1), false);
         let painted = has(b'K');
         e.act(Action::MapFarm(1), false);
-        assert!(painted && !has(b'K'), "the map page paints with the farm it picks, then the game's again");
+        assert!(
+            painted && !has(b'K'),
+            "the map page paints with the farm it picks, then the game's again"
+        );
 
         new(&mut e, "player card kd");
         e.act(Action::PlayerFarm(-1), false);
-        assert_eq!(last_harvest_game::player_fields(e.sprite.card.as_deref().unwrap()).unwrap().farm.as_deref(), Some("kd"));
+        assert_eq!(
+            last_harvest_game::player_fields(e.sprite.card.as_deref().unwrap())
+                .unwrap()
+                .farm
+                .as_deref(),
+            Some("kd")
+        );
         e.act(Action::PlayerFarm(1), false);
-        assert_eq!(last_harvest_game::player_fields(e.sprite.card.as_deref().unwrap()).unwrap().farm, None, "and back to the game's");
+        assert_eq!(
+            last_harvest_game::player_fields(e.sprite.card.as_deref().unwrap())
+                .unwrap()
+                .farm,
+            None,
+            "and back to the game's"
+        );
 
         assert!(e.open_table("DATA_FARMS_KD_GROUND__4B"));
         e.act(Action::Delete, false);
-        assert!(dir.join("farms/kd.ground.txt").exists(), "the first press only asks");
+        assert!(
+            dir.join("farms/kd.ground.txt").exists(),
+            "the first press only asks"
+        );
         e.act(Action::Delete, false);
         assert!(!dir.join("farms/kd.ground.txt").exists() && e.none_open());
         assert_eq!(e.store.farm_ids(), ["kd"], "the farm's rules stay");

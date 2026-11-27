@@ -15,7 +15,13 @@ pub fn crop(rgba: &[u8], width: u32, [x, y, w, h]: Px) -> (Px, Vec<u8>) {
     let (x, y) = (x.min(width), y.min(height));
     let (w, h) = (w.min(width - x), h.min(height - y));
     let row = width as usize * 4;
-    let out = rgba.chunks_exact(row).skip(y as usize).take(h as usize).flat_map(|r| &r[x as usize * 4..(x + w) as usize * 4]).copied().collect();
+    let out = rgba
+        .chunks_exact(row)
+        .skip(y as usize)
+        .take(h as usize)
+        .flat_map(|r| &r[x as usize * 4..(x + w) as usize * 4])
+        .copied()
+        .collect();
     ([x, y, w, h], out)
 }
 
@@ -27,8 +33,16 @@ mod tests {
     fn the_square_is_the_middle_of_the_picture() {
         assert_eq!(square([0, 0, 1024, 768]), [128, 0, 768, 768]);
         assert_eq!(square([0, 0, 600, 800]), [0, 100, 600, 600]);
-        assert_eq!(square([40, 10, 400, 300]), [90, 10, 300, 300], "inside a phone's window, offset by the picture");
-        assert_eq!(square([0, 0, 5, 2]), [1, 0, 2, 2], "an odd margin rounds down");
+        assert_eq!(
+            square([40, 10, 400, 300]),
+            [90, 10, 300, 300],
+            "inside a phone's window, offset by the picture"
+        );
+        assert_eq!(
+            square([0, 0, 5, 2]),
+            [1, 0, 2, 2],
+            "an odd margin rounds down"
+        );
     }
 
     #[test]
@@ -37,7 +51,10 @@ mod tests {
         let img: Vec<u8> = (0..12u8).flat_map(|i| [i; 4]).collect();
         let (rect, out) = crop(&img, 4, [1, 1, 2, 2]);
         assert_eq!(rect, [1, 1, 2, 2]);
-        assert_eq!(out.chunks(4).map(|p| p[0]).collect::<Vec<_>>(), [5, 6, 9, 10]);
+        assert_eq!(
+            out.chunks(4).map(|p| p[0]).collect::<Vec<_>>(),
+            [5, 6, 9, 10]
+        );
         let (rect, out) = crop(&img, 4, [3, 2, 9, 9]);
         assert_eq!((rect, out.len()), ([3, 2, 1, 1], 4));
     }

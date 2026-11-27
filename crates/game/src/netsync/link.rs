@@ -46,9 +46,15 @@ impl HostLink {
     pub fn snapshot(&mut self, world: World) -> Vec<Vec<u8>> {
         let now = world.tick;
         self.outbox.expire(now);
-        let base = self.acked.and_then(|t| self.sent.iter().find(|w| w.tick == t));
+        let base = self
+            .acked
+            .and_then(|t| self.sent.iter().find(|w| w.tick == t));
         let since = base.map_or(0, |b| b.tick);
-        while self.spawns.front().is_some_and(|s| s.tick <= since || now.saturating_sub(s.tick) > SPAWN_TTL) {
+        while self
+            .spawns
+            .front()
+            .is_some_and(|s| s.tick <= since || now.saturating_sub(s.tick) > SPAWN_TTL)
+        {
             self.spawns.pop_front();
         }
         let spawns: Vec<Spawned> = self.spawns.iter().cloned().collect();

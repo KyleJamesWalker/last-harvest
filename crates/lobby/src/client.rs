@@ -1,8 +1,8 @@
 //! A client's side: it says hello to every peer in the room, and the first to welcome it is the host; nothing from
 //! any other peer counts after that.
 
-use crate::codec::{decode, encode, DecodeError, Message};
-use crate::{Hello, Member, PeerKey, Refusal, Start, PROTOCOL};
+use crate::codec::{DecodeError, Message, decode, encode};
+use crate::{Hello, Member, PROTOCOL, PeerKey, Refusal, Start};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EndReason {
@@ -25,7 +25,9 @@ pub enum ClientState {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ClientEvent {
-    Welcomed { seats: Vec<u8> },
+    Welcomed {
+        seats: Vec<u8>,
+    },
     Refused(Refusal),
     /// The lobby list or its ready marks changed.
     Roster,
@@ -34,7 +36,10 @@ pub enum ClientEvent {
     /// Another device joined the run in progress: spawn its players.
     Joined(Member),
     /// A device left the run: its players leave with it.
-    Left { peer: PeerKey, seats: Vec<u8> },
+    Left {
+        peer: PeerKey,
+        seats: Vec<u8>,
+    },
     Ended(EndReason),
 }
 
@@ -94,7 +99,8 @@ impl Client {
     pub fn connected(&mut self, peer: PeerKey) {
         if self.state == ClientState::Joining && !self.greeted.contains(&peer) {
             self.greeted.push(peer);
-            self.outgoing.push((peer, encode(&Message::Hello(self.hello.clone()))));
+            self.outgoing
+                .push((peer, encode(&Message::Hello(self.hello.clone()))));
         }
     }
 
@@ -136,7 +142,10 @@ impl Client {
         let message = match decode(bytes) {
             Ok(message) => message,
             Err(DecodeError::Protocol(host)) if self.state == ClientState::Joining => {
-                Message::Refuse(Refusal::Protocol { host, yours: PROTOCOL })
+                Message::Refuse(Refusal::Protocol {
+                    host,
+                    yours: PROTOCOL,
+                })
             }
             Err(_) => return Vec::new(),
         };
@@ -157,14 +166,22 @@ impl Client {
                 self.roster = members;
                 vec![ClientEvent::Roster]
             }
-            (ClientState::Lobby | ClientState::Joining, Message::Start(start)) if self.host.is_some() => {
+            (ClientState::Lobby | ClientState::Joining, Message::Start(start))
+                if self.host.is_some() =>
+            {
                 self.state = ClientState::Running;
                 self.start = Some(start.clone());
                 vec![ClientEvent::Started(start)]
             }
             (ClientState::Running, Message::Joined(member)) => {
                 if let Some(start) = &mut self.start {
-                    start.players.extend(member.seats.iter().map(|s| crate::Player { seat: s.seat, peer: member.peer, card: s.card.clone() }));
+                    start
+                        .players
+                        .extend(member.seats.iter().map(|s| crate::Player {
+                            seat: s.seat,
+                            peer: member.peer,
+                            card: s.card.clone(),
+                        }));
                     start.players.sort_by_key(|p| p.seat);
                 }
                 vec![ClientEvent::Joined(member)]
@@ -175,13 +192,19 @@ impl Client {
                 }
                 vec![ClientEvent::Left { peer, seats }]
             }
-            (ClientState::Lobby | ClientState::Running, Message::Closed) => self.end(EndReason::HostLeft),
+            (ClientState::Lobby | ClientState::Running, Message::Closed) => {
+                self.end(EndReason::HostLeft)
+            }
             _ => Vec::new(),
         }
     }
 
     fn is_seated(&self) -> bool {
-        self.host.is_some() && matches!(self.state, ClientState::Joining | ClientState::Lobby | ClientState::Running)
+        self.host.is_some()
+            && matches!(
+                self.state,
+                ClientState::Joining | ClientState::Lobby | ClientState::Running
+            )
     }
 
     fn end(&mut self, reason: EndReason) -> Vec<ClientEvent> {
@@ -203,18 +226,60 @@ mod tests {
 
     #[test]
     fn the_first_peer_to_welcome_is_the_host_and_no_other_peer_is_heard_after() {
-        let hello = Hello { identity: Identity { game_version: "v1".into(), pak: 1, mods: vec![] }, cards: vec![String::new()] };
+        let hello = Hello {
+            identity: Identity {
+                game_version: "v1".into(),
+                pak: 1,
+                mods: vec![],
+            },
+            cards: vec![String::new()],
+        };
         let mut c = Client::new(hello);
         c.connected(1);
         c.connected(2);
-        let welcome = encode(&Message::Welcome { room: "ACDEF".into(), seats: vec![1], running: false });
-        assert!(matches!(c.receive(1, &welcome)[..], [ClientEvent::Welcomed { .. }]));
-        assert!(c.receive(2, &welcome).is_empty(), "a second welcome is ignored");
-        let start = Start { seed: 1, map: String::new(), difficulty: 0, players: vec![Player { seat: 1, peer: 9, card: String::new() }], unlocked: vec![], options: vec![] };
-        assert!(c.receive(2, &encode(&Message::Start(start.clone()))).is_empty(), "so is its start");
-        assert!(c.receive(2, &encode(&Message::Closed)).is_empty(), "and its close");
-        assert!(c.receive(2, &encode(&Message::Refuse(Refusal::Pak))).is_empty(), "and its refusal");
+        let welcome = encode(&Message::Welcome {
+            room: "ACDEF".into(),
+            seats: vec![1],
+            running: false,
+        });
+        assert!(matches!(
+            c.receive(1, &welcome)[..],
+            [ClientEvent::Welcomed { .. }]
+        ));
+        assert!(
+            c.receive(2, &welcome).is_empty(),
+            "a second welcome is ignored"
+        );
+        let start = Start {
+            seed: 1,
+            map: String::new(),
+            difficulty: 0,
+            players: vec![Player {
+                seat: 1,
+                peer: 9,
+                card: String::new(),
+            }],
+            unlocked: vec![],
+            options: vec![],
+        };
+        assert!(
+            c.receive(2, &encode(&Message::Start(start.clone())))
+                .is_empty(),
+            "so is its start"
+        );
+        assert!(
+            c.receive(2, &encode(&Message::Closed)).is_empty(),
+            "and its close"
+        );
+        assert!(
+            c.receive(2, &encode(&Message::Refuse(Refusal::Pak)))
+                .is_empty(),
+            "and its refusal"
+        );
         assert_eq!(c.host(), Some(1));
-        assert!(matches!(c.receive(1, &encode(&Message::Start(start)))[..], [ClientEvent::Started(_)]));
+        assert!(matches!(
+            c.receive(1, &encode(&Message::Start(start)))[..],
+            [ClientEvent::Started(_)]
+        ));
     }
 }

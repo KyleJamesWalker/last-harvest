@@ -1,12 +1,12 @@
 //! Run replays: how a night was set up, each tick's input that changed, and checksums of where everything stood, so
 //! the night plays again exactly and says the first tick it stopped matching.
 
+pub use super::photo::Device;
 use super::player::PlayerId;
 use super::powerups::Progress;
 use super::sandbox::{Bot, Walk, build_text, parse_build};
 use super::weapons::Kit;
 use super::{Choice, Flow, Harvest, Phase};
-pub use super::photo::Device;
 use crate::{Difficulty, Input, MAX_TOUCHES, Sfx};
 
 pub const FORMAT: u32 = 3;
@@ -20,9 +20,16 @@ pub enum Kind {
     /// A night on this device: one player or split-screen, with scripted players past the seated ones.
     Night,
     /// An online night this device hosts: each seat's card, and how many seats play here.
-    Host { looks: Vec<(usize, String)>, local: usize },
+    Host {
+        looks: Vec<(usize, String)>,
+        local: usize,
+    },
     /// A sandbox night: a generated farm of this size, every player carrying the forced build.
-    Sandbox { size: [usize; 2], build: Vec<(usize, u32)>, mortal: bool },
+    Sandbox {
+        size: [usize; 2],
+        build: Vec<(usize, u32)>,
+        mortal: bool,
+    },
 }
 
 /// Everything a night is built from, so a replay builds the same one.
@@ -58,7 +65,28 @@ pub struct Setup {
 impl Setup {
     /// A night on this device with the game's own scripted players.
     pub fn night(seed: u64) -> Self {
-        Self { seed, map: String::new(), difficulty: Difficulty::NORMAL, progress: Progress::default(), enemies_off: 0, look: String::new(), seats: Vec::new(), farm: None, kit: String::new(), start_t: 0.0, one_screen: false, endless: false, players: 1, bots: 0, views: 1, walk: Walk::Avoid, turn: 0.25, turn_every: 0.0, throw_every: 12.0, kind: Kind::Night }
+        Self {
+            seed,
+            map: String::new(),
+            difficulty: Difficulty::NORMAL,
+            progress: Progress::default(),
+            enemies_off: 0,
+            look: String::new(),
+            seats: Vec::new(),
+            farm: None,
+            kit: String::new(),
+            start_t: 0.0,
+            one_screen: false,
+            endless: false,
+            players: 1,
+            bots: 0,
+            views: 1,
+            walk: Walk::Avoid,
+            turn: 0.25,
+            turn_every: 0.0,
+            throw_every: 12.0,
+            kind: Kind::Night,
+        }
     }
 
     /// The night, after setting the farm it plays on.
@@ -75,13 +103,35 @@ impl Setup {
         let d = self.difficulty;
         let mut h = match &self.kind {
             Kind::Night => {
-                let mut h = Harvest::on(self.seed, &self.map).at(d).with_progress(self.progress).without_enemies(self.enemies_off).looking_like(&self.look).with_kit(&self.kit).starting_at(self.start_t).single_screen(self.one_screen).endless_grenades(self.endless).with_players(self.players).seated_as(&self.seats).with_bots(self.bots).with_views(self.views);
+                let mut h = Harvest::on(self.seed, &self.map)
+                    .at(d)
+                    .with_progress(self.progress)
+                    .without_enemies(self.enemies_off)
+                    .looking_like(&self.look)
+                    .with_kit(&self.kit)
+                    .starting_at(self.start_t)
+                    .single_screen(self.one_screen)
+                    .endless_grenades(self.endless)
+                    .with_players(self.players)
+                    .seated_as(&self.seats)
+                    .with_bots(self.bots)
+                    .with_views(self.views);
                 let first = self.players.min(h.players.len());
                 h.bots = (first..h.players.len()).map(|p| (p, self.bot())).collect();
                 h
             }
-            Kind::Host { looks, local } => Harvest::on(self.seed, &self.map).at(d).single_screen(self.one_screen).with_players(self.players).with_progress(self.progress).dressed(looks).hosting(*local),
-            Kind::Sandbox { size, build, mortal } => {
+            Kind::Host { looks, local } => Harvest::on(self.seed, &self.map)
+                .at(d)
+                .single_screen(self.one_screen)
+                .with_players(self.players)
+                .with_progress(self.progress)
+                .dressed(looks)
+                .hosting(*local),
+            Kind::Sandbox {
+                size,
+                build,
+                mortal,
+            } => {
                 let mut h = Harvest::sized(self.seed, *size).at(d);
                 if self.players > 1 {
                     h = h.with_players(self.players).with_views(1);
@@ -109,40 +159,95 @@ impl Setup {
     pub fn to_text(&self) -> String {
         let p = &self.progress;
         let f = |v: f32| format!("{:08x}", v.to_bits());
-        let mut out = format!("seed {}
+        let mut out = format!(
+            "seed {}
 map {}
 difficulty {}
-", self.seed, self.map, self.difficulty.key());
-        out += &format!("progress {} {} {} {} {} {} {} {:x} {} {:x}
-", p.kills, p.best, p.best_level, p.nights, p.dawns, p.breakers, p.breaker_dawns, p.found, p.everything as u8, p.hidden);
-        out += &format!("enemies_off {:x}
+",
+            self.seed,
+            self.map,
+            self.difficulty.key()
+        );
+        out += &format!(
+            "progress {} {} {} {} {} {} {} {:x} {} {:x}
+",
+            p.kills,
+            p.best,
+            p.best_level,
+            p.nights,
+            p.dawns,
+            p.breakers,
+            p.breaker_dawns,
+            p.found,
+            p.everything as u8,
+            p.hidden
+        );
+        out += &format!(
+            "enemies_off {:x}
 look {}
-", self.enemies_off, self.look);
+",
+            self.enemies_off, self.look
+        );
         if !self.seats.is_empty() {
             out += &format!("seats {}\n", self.seats.join(","));
         }
         if let Some(farm) = &self.farm {
-            out += &format!("farm {farm}
-");
+            out += &format!(
+                "farm {farm}
+"
+            );
         }
-        out += &format!("kit {}
+        out += &format!(
+            "kit {}
 start_t {}
 one_screen {}
 endless {}
-", self.kit, f(self.start_t), self.one_screen as u8, self.endless as u8);
-        out += &format!("players {}
+",
+            self.kit,
+            f(self.start_t),
+            self.one_screen as u8,
+            self.endless as u8
+        );
+        out += &format!(
+            "players {}
 bots {}
 views {}
-", self.players, self.bots, self.views);
-        out += &format!("bot {} {} {} {}
-", self.walk.name(), f(self.turn), f(self.turn_every), f(self.throw_every));
+",
+            self.players, self.bots, self.views
+        );
+        out += &format!(
+            "bot {} {} {} {}
+",
+            self.walk.name(),
+            f(self.turn),
+            f(self.turn_every),
+            f(self.throw_every)
+        );
         out += &match &self.kind {
             Kind::Night => "kind night
-".to_string(),
-            Kind::Host { looks, local } => format!("kind host {local} {}
-", looks.iter().map(|(s, c)| format!("{s}={c}")).collect::<Vec<_>>().join(";")),
-            Kind::Sandbox { size, build, mortal } => format!("kind sandbox {}x{} {} {}
-", size[0], size[1], *mortal as u8, build_text(build)),
+"
+            .to_string(),
+            Kind::Host { looks, local } => format!(
+                "kind host {local} {}
+",
+                looks
+                    .iter()
+                    .map(|(s, c)| format!("{s}={c}"))
+                    .collect::<Vec<_>>()
+                    .join(";")
+            ),
+            Kind::Sandbox {
+                size,
+                build,
+                mortal,
+            } => format!(
+                "kind sandbox {}x{} {} {}
+",
+                size[0],
+                size[1],
+                *mortal as u8,
+                build_text(build)
+            ),
         };
         out
     }
@@ -152,17 +257,34 @@ views {}
         let bad = |line: &str| format!("replay setup: can't read {line:?}");
         let num = |v: &str, line: &str| v.parse::<u64>().map_err(|_| bad(line));
         let hex = |v: &str, line: &str| u64::from_str_radix(v, 16).map_err(|_| bad(line));
-        let f = |v: &str, line: &str| u32::from_str_radix(v, 16).map(f32::from_bits).map_err(|_| bad(line));
+        let f = |v: &str, line: &str| {
+            u32::from_str_radix(v, 16)
+                .map(f32::from_bits)
+                .map_err(|_| bad(line))
+        };
         for line in text.lines().filter(|l| !l.is_empty()) {
             let (key, rest) = line.split_once(' ').unwrap_or((line, ""));
             let w: Vec<&str> = rest.split(' ').collect();
             match key {
                 "seed" => s.seed = num(rest, line)?,
                 "map" => s.map = rest.to_string(),
-                "difficulty" => s.difficulty = Difficulty::from_key(rest).ok_or_else(|| bad(line))?,
+                "difficulty" => {
+                    s.difficulty = Difficulty::from_key(rest).ok_or_else(|| bad(line))?
+                }
                 "progress" if w.len() == 10 => {
                     let n = |i: usize| num(w[i], line).map(|v| v as u32);
-                    s.progress = Progress { kills: n(0)?, best: n(1)?, best_level: n(2)?, nights: n(3)?, dawns: n(4)?, breakers: n(5)?, breaker_dawns: n(6)?, found: hex(w[7], line)?, everything: w[8] == "1", hidden: hex(w[9], line)? };
+                    s.progress = Progress {
+                        kills: n(0)?,
+                        best: n(1)?,
+                        best_level: n(2)?,
+                        nights: n(3)?,
+                        dawns: n(4)?,
+                        breakers: n(5)?,
+                        breaker_dawns: n(6)?,
+                        found: hex(w[7], line)?,
+                        everything: w[8] == "1",
+                        hidden: hex(w[9], line)?,
+                    };
                 }
                 "enemies_off" => s.enemies_off = hex(rest, line)?,
                 "look" => s.look = rest.to_string(),
@@ -177,18 +299,33 @@ views {}
                 "views" => s.views = num(rest, line)? as usize,
                 "bot" if w.len() == 4 => {
                     s.walk = Walk::from_name(w[0]).ok_or_else(|| bad(line))?;
-                    (s.turn, s.turn_every, s.throw_every) = (f(w[1], line)?, f(w[2], line)?, f(w[3], line)?);
+                    (s.turn, s.turn_every, s.throw_every) =
+                        (f(w[1], line)?, f(w[2], line)?, f(w[3], line)?);
                 }
                 "kind" => {
                     s.kind = match w.as_slice() {
                         ["night"] => Kind::Night,
                         ["host", local, looks] => Kind::Host {
                             local: num(local, line)? as usize,
-                            looks: looks.split(';').filter(|l| !l.is_empty()).map(|l| l.split_once('=').and_then(|(seat, card)| Some((seat.parse().ok()?, card.to_string()))).ok_or_else(|| bad(line))).collect::<Result<_, _>>()?,
+                            looks: looks
+                                .split(';')
+                                .filter(|l| !l.is_empty())
+                                .map(|l| {
+                                    l.split_once('=')
+                                        .and_then(|(seat, card)| {
+                                            Some((seat.parse().ok()?, card.to_string()))
+                                        })
+                                        .ok_or_else(|| bad(line))
+                                })
+                                .collect::<Result<_, _>>()?,
                         },
                         ["sandbox", size, mortal, build @ ..] => {
                             let (w, h) = size.split_once('x').ok_or_else(|| bad(line))?;
-                            Kind::Sandbox { size: [num(w, line)? as usize, num(h, line)? as usize], mortal: *mortal == "1", build: parse_build(&build.join(" "))? }
+                            Kind::Sandbox {
+                                size: [num(w, line)? as usize, num(h, line)? as usize],
+                                mortal: *mortal == "1",
+                                build: parse_build(&build.join(" "))?,
+                            }
                         }
                         _ => return Err(bad(line)),
                     }
@@ -203,7 +340,10 @@ views {}
 /// What a sandbox's scripted player does to the night between ticks, where the game's player only presses buttons.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) enum Op {
-    Throw { p: PlayerId, to: [f32; 2] },
+    Throw {
+        p: PlayerId,
+        to: [f32; 2],
+    },
     /// The level-up's cards on show become the ones the ops below work on.
     Begin,
     Reroll,
@@ -258,7 +398,14 @@ impl Harvest {
             }
             Op::Take(i) => self.take(self.picking.0[i], sounds),
             Op::Relabel(p) => self.relabel(p),
-            Op::Deal => self.phase = Phase::LevelUp { choices: self.roll_choices(&[]), selected: 0, t: 0.0, picked: None },
+            Op::Deal => {
+                self.phase = Phase::LevelUp {
+                    choices: self.roll_choices(&[]),
+                    selected: 0,
+                    t: 0.0,
+                    picked: None,
+                }
+            }
             Op::Resume => {
                 self.phase = Phase::Playing;
                 self.chest = false;
@@ -274,7 +421,9 @@ impl Harvest {
     /// Keeps a setting's change in the replay; the setter calls it before it changes anything.
     pub(super) fn tape_set(&mut self, set: Set) {
         let changes = match set {
-            Set::OneScreen(on) => self.single != on || (!on && (self.aiming.is_some() || self.glance)),
+            Set::OneScreen(on) => {
+                self.single != on || (!on && (self.aiming.is_some() || self.glance))
+            }
             Set::TouchAim(on) => self.touch_aim != on || (self.touch_map && !on),
             Set::TouchKeys(on) => self.touch_keys != on,
             Set::SavesPhotos(on) => self.saves_photos != on,
@@ -296,18 +445,29 @@ impl Harvest {
 
     /// Records this night and each one it restarts into, each headed by `info`; a night with no setup isn't recorded.
     pub fn record(&mut self, info: Vec<(String, String)>) {
-        let Some(setup) = self.setup.as_deref() else { return };
+        let Some(setup) = self.setup.as_deref() else {
+            return;
+        };
         let rec = Recorder::new(&info, setup);
-        self.tape = Some(Box::new(Tape { info, rec: Some(rec), done: Vec::new(), restarted: false }));
+        self.tape = Some(Box::new(Tape {
+            info,
+            rec: Some(rec),
+            done: Vec::new(),
+            restarted: false,
+        }));
     }
 
     pub fn take_replays(&mut self) -> Vec<Vec<u8>> {
-        self.tape.as_mut().map_or_else(Vec::new, |t| std::mem::take(&mut t.done))
+        self.tape
+            .as_mut()
+            .map_or_else(Vec::new, |t| std::mem::take(&mut t.done))
     }
 
     /// Ends the recording where it stands, as when the night is left before its end, and stops recording.
     pub fn stop_recording(&mut self) -> Vec<Vec<u8>> {
-        let Some(mut t) = self.tape.take() else { return Vec::new() };
+        let Some(mut t) = self.tape.take() else {
+            return Vec::new();
+        };
         t.finish();
         t.done
     }
@@ -325,7 +485,9 @@ impl Harvest {
 
     /// After a tick: its checksum, and the recording's end with the night's.
     pub(super) fn tape_after(&mut self, ended: bool) {
-        let Some(t) = self.tape.as_deref_mut() else { return };
+        let Some(t) = self.tape.as_deref_mut() else {
+            return;
+        };
         if std::mem::take(&mut t.restarted) {
             if let Some(setup) = self.setup.as_deref() {
                 t.rec = Some(Recorder::new(&t.info, setup));
@@ -396,15 +558,25 @@ impl Recorder {
     fn new(info: &[(String, String)], setup: &Setup) -> Self {
         let mut head = String::new();
         for (k, v) in info {
-            head += &format!("info {k} {v}
-");
+            head += &format!(
+                "info {k} {v}
+"
+            );
         }
         head += &setup.to_text();
         let mut bytes = MAGIC.to_vec();
         bytes.extend(FORMAT.to_le_bytes());
         varint(&mut bytes, head.len() as u64);
         bytes.extend(head.as_bytes());
-        Self { bytes, tick: 0, at: 0, seats: Vec::new(), dt: None, canvas: None, sums: Vec::new() }
+        Self {
+            bytes,
+            tick: 0,
+            at: 0,
+            seats: Vec::new(),
+            dt: None,
+            canvas: None,
+            sums: Vec::new(),
+        }
     }
 
     fn event(&mut self, tag: u8) -> &mut Vec<u8> {
@@ -554,9 +726,18 @@ fn write_input(out: &mut Vec<u8>, was: &Input, now: &Input) -> u16 {
         out.push(now.touch.is_some() as u8);
         put_f32s(out, &now.touch.unwrap_or_default());
     }
-    if was.touches.iter().map(spot).ne(now.touches.iter().map(spot)) {
+    if was
+        .touches
+        .iter()
+        .map(spot)
+        .ne(now.touches.iter().map(spot))
+    {
         mask |= 32;
-        let some = now.touches.iter().enumerate().fold(0u16, |m, (i, t)| m | (t.is_some() as u16) << i);
+        let some = now
+            .touches
+            .iter()
+            .enumerate()
+            .fold(0u16, |m, (i, t)| m | (t.is_some() as u16) << i);
         out.extend(some.to_le_bytes());
         for t in now.touches.iter().flatten() {
             put_f32s(out, t);
@@ -598,7 +779,11 @@ pub struct Check {
 
 impl Check {
     fn of(h: &Harvest, sum: u64) -> Self {
-        Self { sum, zombies: (h.zombies.len() + h.burrowed.len()) as u32, players: h.players.iter().map(|p| p.pos).collect() }
+        Self {
+            sum,
+            zombies: (h.zombies.len() + h.burrowed.len()) as u32,
+            players: h.players.iter().map(|p| p.pos).collect(),
+        }
     }
 
     fn write(&self, out: &mut Vec<u8>) {
@@ -627,7 +812,10 @@ pub(super) fn checksum(h: &Harvest) -> u64 {
         Phase::Over { .. } => 2,
     });
     for pl in &h.players {
-        pl.pos.iter().chain(&[pl.hp, pl.view_yaw, pl.grenades]).for_each(|&v| s.f(v));
+        pl.pos
+            .iter()
+            .chain(&[pl.hp, pl.view_yaw, pl.grenades])
+            .for_each(|&v| s.f(v));
         for d in &pl.dogs {
             d.pos.iter().for_each(|&v| s.f(v));
         }
@@ -637,7 +825,12 @@ pub(super) fn checksum(h: &Harvest) -> u64 {
         s.u(z.id as u64);
         [z.pos[0], z.pos[1], z.hp].iter().for_each(|&v| s.f(v));
     }
-    for n in [h.thrown.len(), h.bullets.len(), h.drops.len(), h.spits.len()] {
+    for n in [
+        h.thrown.len(),
+        h.bullets.len(),
+        h.drops.len(),
+        h.spits.len(),
+    ] {
         s.u(n as u64);
     }
     s.0
@@ -699,7 +892,10 @@ struct Reader<'a> {
 
 impl Reader<'_> {
     fn take(&mut self, n: usize) -> Result<&[u8], String> {
-        let out = self.bytes.get(self.at..self.at + n).ok_or("replay: cut short")?;
+        let out = self
+            .bytes
+            .get(self.at..self.at + n)
+            .ok_or("replay: cut short")?;
         self.at += n;
         Ok(out)
     }
@@ -759,7 +955,11 @@ impl Reader<'_> {
         if mask & 32 != 0 {
             let some = self.u16()?;
             for t in 0..MAX_TOUCHES {
-                i.touches[t] = if some & 1 << t != 0 { Some(self.pair()?) } else { None };
+                i.touches[t] = if some & 1 << t != 0 {
+                    Some(self.pair()?)
+                } else {
+                    None
+                };
             }
         }
         i.touch_started ^= mask & 64 != 0;
@@ -791,13 +991,16 @@ impl Replay {
         let mut r = Reader { bytes, at: 4 };
         let format = r.u32()?;
         if format < FORMAT {
-            return Err(format!("replay format {format}, from an older build whose math differs; this build reads {FORMAT}"));
+            return Err(format!(
+                "replay format {format}, from an older build whose math differs; this build reads {FORMAT}"
+            ));
         }
         if format != FORMAT {
             return Err(format!("replay format {format}; this build reads {FORMAT}"));
         }
         let len = r.varint()? as usize;
-        let head = std::str::from_utf8(r.take(len)?).map_err(|_| "replay: the header isn't UTF-8")?;
+        let head =
+            std::str::from_utf8(r.take(len)?).map_err(|_| "replay: the header isn't UTF-8")?;
         let mut info = Vec::new();
         let mut setup = String::new();
         for line in head.lines() {
@@ -806,8 +1009,12 @@ impl Replay {
                     let (k, v) = kv.split_once(' ').unwrap_or((kv, ""));
                     info.push((k.to_string(), v.to_string()));
                 }
-                None => setup += &format!("{line}
-"),
+                None => {
+                    setup += &format!(
+                        "{line}
+"
+                    )
+                }
             }
         }
         let setup = Setup::from_text(&setup)?;
@@ -840,7 +1047,11 @@ impl Replay {
                     let sum = u64::from_le_bytes(r.take(8)?.try_into().unwrap());
                     let zombies = r.varint()? as u32;
                     let n = r.u8()? as usize;
-                    Event::Check(Check { sum, zombies, players: (0..n).map(|_| r.pair()).collect::<Result<_, _>>()? })
+                    Event::Check(Check {
+                        sum,
+                        zombies,
+                        players: (0..n).map(|_| r.pair()).collect::<Result<_, _>>()?,
+                    })
                 }
                 SEAT => {
                     let p = r.u8()? as usize;
@@ -849,7 +1060,10 @@ impl Replay {
                 }
                 UNSEAT => Event::Unseat(r.u8()? as usize),
                 OP => Event::Op(match r.u8()? {
-                    0 => Op::Throw { p: r.u8()? as usize, to: r.pair()? },
+                    0 => Op::Throw {
+                        p: r.u8()? as usize,
+                        to: r.pair()?,
+                    },
                     1 => Op::Begin,
                     2 => Op::Reroll,
                     3 => Op::Banish(r.u8()? as usize),
@@ -866,12 +1080,21 @@ impl Replay {
         }
         let ticks = r.varint()?;
         let sums = r.take(ticks as usize)?.to_vec();
-        Ok(Self { info, setup, events, ticks, sums })
+        Ok(Self {
+            info,
+            setup,
+            events,
+            ticks,
+            sums,
+        })
     }
 
     /// The header's `key`, if it has one.
     pub fn info(&self, key: &str) -> Option<&str> {
-        self.info.iter().find(|(k, _)| k == key).map(|(_, v)| v.as_str())
+        self.info
+            .iter()
+            .find(|(k, _)| k == key)
+            .map(|(_, v)| v.as_str())
     }
 
     /// The checkpoints, by the tick after which each was taken.
@@ -884,7 +1107,11 @@ impl Replay {
 
     #[cfg(test)]
     fn nudge_input(&mut self, from: u64) -> u64 {
-        let (t, e) = self.events.iter_mut().find(|(t, e)| *t >= from && matches!(e, Event::Input(0, _))).expect("an input to nudge");
+        let (t, e) = self
+            .events
+            .iter_mut()
+            .find(|(t, e)| *t >= from && matches!(e, Event::Input(0, _)))
+            .expect("an input to nudge");
         if let Event::Input(_, i) = e {
             i.look = if i.look == 0.0 { 0.5 } else { -i.look };
         }
@@ -930,7 +1157,14 @@ pub fn play(r: &Replay, watch: &mut dyn Watch) -> Outcome {
         sounds.clear();
         watch.tick(&c.h, c.dt);
     }
-    Outcome { ticks: r.ticks, secs: c.h.t, checks: c.checks, drift: c.drift, kills: c.h.kills, level: c.h.level }
+    Outcome {
+        ticks: r.ticks,
+        secs: c.h.t,
+        checks: c.checks,
+        drift: c.drift,
+        kills: c.h.kills,
+        level: c.h.level,
+    }
 }
 
 /// A replay part way through: the night as it stands and where its events are up to.
@@ -947,7 +1181,15 @@ struct Cursor {
 
 impl Cursor {
     fn new(r: &Replay) -> Self {
-        Self { h: r.setup.build(), seats: vec![Input::default()], dt: 1.0 / 60.0, next: 0, tick: 0, checks: 0, drift: None }
+        Self {
+            h: r.setup.build(),
+            seats: vec![Input::default()],
+            dt: 1.0 / 60.0,
+            next: 0,
+            tick: 0,
+            checks: 0,
+            drift: None,
+        }
     }
 
     /// Plays the next tick; false once every tick has played.
@@ -956,7 +1198,11 @@ impl Cursor {
         if tick >= r.ticks {
             return false;
         }
-        while let Some((_, e)) = r.events.get(self.next).filter(|(t, e)| *t == tick && !matches!(e, Event::Check(_))) {
+        while let Some((_, e)) = r
+            .events
+            .get(self.next)
+            .filter(|(t, e)| *t == tick && !matches!(e, Event::Check(_)))
+        {
             self.next += 1;
             match e {
                 Event::Input(seat, i) => {
@@ -979,14 +1225,26 @@ impl Cursor {
         self.h.update(&self.seats[0], self.dt, sounds);
         let sum = checksum(&self.h);
         if self.drift.is_none() && r.sums.get(tick as usize) != Some(&(sum as u8)) {
-            self.drift = Some(Drift { tick, secs: self.h.t, check: None });
+            self.drift = Some(Drift {
+                tick,
+                secs: self.h.t,
+                check: None,
+            });
         }
-        while let Some((_, Event::Check(want))) = r.events.get(self.next).filter(|(t, e)| *t == tick && matches!(e, Event::Check(_))) {
+        while let Some((_, Event::Check(want))) = r
+            .events
+            .get(self.next)
+            .filter(|(t, e)| *t == tick && matches!(e, Event::Check(_)))
+        {
             self.next += 1;
             self.checks += 1;
             let got = Check::of(&self.h, sum);
             if got.sum != want.sum {
-                let d = self.drift.get_or_insert(Drift { tick, secs: self.h.t, check: None });
+                let d = self.drift.get_or_insert(Drift {
+                    tick,
+                    secs: self.h.t,
+                    check: None,
+                });
                 d.check.get_or_insert((tick, want.clone(), got));
             }
         }
@@ -1021,7 +1279,9 @@ impl Viewer {
 
     /// Back one tick, the night played again from its start to there, silently; false at the start.
     pub fn step_back(&mut self) -> bool {
-        let Some(to) = self.c.tick.checked_sub(1) else { return false };
+        let Some(to) = self.c.tick.checked_sub(1) else {
+            return false;
+        };
         self.rewind();
         let mut quiet = Vec::new();
         while self.c.tick < to && self.c.step(&self.r, &mut quiet) {
@@ -1094,8 +1354,16 @@ impl Viewer {
 
     /// A frame of photo mode, its guides laid out for `device`; it asks for a capture with `Flow::capture`, and on leaving
     /// puts the night back as it was.
-    pub fn photo(&mut self, input: &Input, dt: f32, device: super::photo::Device, sounds: &mut Vec<Sfx>) -> Flow {
-        let Some(over) = self.over.take() else { return Flow::default() };
+    pub fn photo(
+        &mut self,
+        input: &Input,
+        dt: f32,
+        device: super::photo::Device,
+        sounds: &mut Vec<Sfx>,
+    ) -> Flow {
+        let Some(over) = self.over.take() else {
+            return Flow::default();
+        };
         self.c.h.set_device(device);
         let (flow, over) = self.c.h.photo_over(over, input, dt, sounds);
         self.over = over;
@@ -1182,7 +1450,13 @@ impl Watch for Dogs {
     }
 
     fn report(&self, secs: f32) -> Vec<String> {
-        let names = ["wandering", "chasing", "catching up", "pouncing", "fetching"];
+        let names = [
+            "wandering",
+            "chasing",
+            "catching up",
+            "pouncing",
+            "fetching",
+        ];
         self.by
             .iter()
             .enumerate()
@@ -1234,17 +1508,39 @@ impl Watch for Hurt {
             self.trail.pop_front();
         }
         for z in &h.zombies {
-            self.born.entry(z.id).or_insert((h.t, super::len(super::sub(z.pos, pl.pos))));
+            self.born
+                .entry(z.id)
+                .or_insert((h.t, super::len(super::sub(z.pos, pl.pos))));
         }
         let moved = super::len(super::sub(pl.pos, *self.trail.front().unwrap_or(&pl.pos)));
-        self.still = if moved < t.player_speed / 3.0 { self.still + dt } else { 0.0 };
+        self.still = if moved < t.player_speed / 3.0 {
+            self.still + dt
+        } else {
+            0.0
+        };
         if self.still >= 3.0 && self.still - dt < 3.0 && self.stuck_at.len() < 6 {
-            self.stuck_at.push(format!("t={:.0} at {:.0},{:.0} of {:.0}x{:.0} yaw={:.2} camp={:.0}", h.t, pl.pos[0], pl.pos[1], h.map.width_px(), h.map.height_px(), pl.view_yaw, pl.camp));
+            self.stuck_at.push(format!(
+                "t={:.0} at {:.0},{:.0} of {:.0}x{:.0} yaw={:.2} camp={:.0}",
+                h.t,
+                pl.pos[0],
+                pl.pos[1],
+                h.map.width_px(),
+                h.map.height_px(),
+                pl.view_yaw,
+                pl.camp
+            ));
         }
         if h.juice.tally.book(0).fell.is_none() {
-            let edge = pl.pos[0].min(pl.pos[1]).min(h.map.width_px() - pl.pos[0]).min(h.map.height_px() - pl.pos[1]);
+            let edge = pl.pos[0]
+                .min(pl.pos[1])
+                .min(h.map.width_px() - pl.pos[0])
+                .min(h.map.height_px() - pl.pos[1]);
             self.before[0] += dt;
-            self.before[1] += if edge < 2.0 * super::map::TILE { dt } else { 0.0 };
+            self.before[1] += if edge < 2.0 * super::map::TILE {
+                dt
+            } else {
+                0.0
+            };
         }
         let was = self.hp.replace(pl.hp).unwrap_or(pl.hp);
         if let Some(f) = h.juice.tally.book(0).fell
@@ -1273,11 +1569,24 @@ impl Watch for Hurt {
             self.camping += hit;
         }
         let [w, hh] = [h.map.width_px(), h.map.height_px()];
-        if pl.pos[0] < 2.0 * TILE || pl.pos[1] < 2.0 * TILE || pl.pos[0] > w - 2.0 * TILE || pl.pos[1] > hh - 2.0 * TILE {
+        if pl.pos[0] < 2.0 * TILE
+            || pl.pos[1] < 2.0 * TILE
+            || pl.pos[0] > w - 2.0 * TILE
+            || pl.pos[1] > hh - 2.0 * TILE
+        {
             self.edge += hit;
         }
-        let facing = [crate::fmath::cos(pl.view_yaw), crate::fmath::sin(pl.view_yaw)];
-        let biter = h.zombies.iter().filter(|z| z.rise >= 1.0).map(|z| (super::len(super::sub(z.pos, pl.pos)), z.pos)).filter(|(d, _)| *d < t.bite_reach).min_by(|a, b| a.0.total_cmp(&b.0));
+        let facing = [
+            crate::fmath::cos(pl.view_yaw),
+            crate::fmath::sin(pl.view_yaw),
+        ];
+        let biter = h
+            .zombies
+            .iter()
+            .filter(|z| z.rise >= 1.0)
+            .map(|z| (super::len(super::sub(z.pos, pl.pos)), z.pos))
+            .filter(|(d, _)| *d < t.bite_reach)
+            .min_by(|a, b| a.0.total_cmp(&b.0));
         match biter {
             None => self.unbitten += hit,
             Some((_, at)) => {
@@ -1291,17 +1600,36 @@ impl Watch for Hurt {
                     let d = super::sub(z.pos, pl.pos);
                     if super::len(d) < 3.0 * TILE {
                         self.near += 1;
-                        let a = (crate::fmath::atan2(d[1], d[0]) - pl.view_yaw).rem_euclid(std::f32::consts::TAU);
-                        quarters[((a + std::f32::consts::FRAC_PI_4) / std::f32::consts::FRAC_PI_2) as usize % 4] = true;
+                        let a = (crate::fmath::atan2(d[1], d[0]) - pl.view_yaw)
+                            .rem_euclid(std::f32::consts::TAU);
+                        quarters[((a + std::f32::consts::FRAC_PI_4) / std::f32::consts::FRAC_PI_2)
+                            as usize
+                            % 4] = true;
                     }
                 }
                 self.sides += quarters.iter().filter(|&&q| q).count() as u32;
                 if self.fell.is_empty() {
                     let z = h.zombies.iter().find(|z| z.pos == at).unwrap();
-                    let seen = pl.marks.iter().find(|m| m.id == z.id).map_or(-1.0, |m| m.age);
-                    let edge = pl.pos[0].min(pl.pos[1]).min(w - pl.pos[0]).min(hh - pl.pos[1]) / TILE;
-                    let ang = ((crate::fmath::atan2(d[1], d[0]) - pl.view_yaw + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI).to_degrees();
-                    let near = h.zombies.iter().filter(|o| super::len(super::sub(o.pos, pl.pos)) < 3.0 * TILE).count();
+                    let seen = pl
+                        .marks
+                        .iter()
+                        .find(|m| m.id == z.id)
+                        .map_or(-1.0, |m| m.age);
+                    let edge = pl.pos[0]
+                        .min(pl.pos[1])
+                        .min(w - pl.pos[0])
+                        .min(hh - pl.pos[1])
+                        / TILE;
+                    let ang = ((crate::fmath::atan2(d[1], d[0]) - pl.view_yaw
+                        + std::f32::consts::PI)
+                        .rem_euclid(std::f32::consts::TAU)
+                        - std::f32::consts::PI)
+                        .to_degrees();
+                    let near = h
+                        .zombies
+                        .iter()
+                        .filter(|o| super::len(super::sub(o.pos, pl.pos)) < 3.0 * TILE)
+                        .count();
                     let (bt, bd) = self.born.get(&z.id).copied().unwrap_or_default();
                     self.first.push(format!("t={:.1} hp={:.0} edge={edge:.1}t biter speed={} rose {:.1}s ago {:.0}px off, angle={ang:.0} seen_age={seen:.1} near3={near} moved1s={moved:.0}", h.t, pl.hp, z.kind.stats().speed, h.t - bt, bd));
                 }
@@ -1313,13 +1641,43 @@ impl Watch for Hurt {
         let share = |x: f32| format!("{:.0}%", x * 100.0 / self.total.max(1e-3));
         let per_bite = |x: u32| x as f32 / self.bites.max(1) as f32;
         vec![
-            format!("hurt {:.0}; fell at {:?}", self.total, self.fell.iter().map(|t| t.round() as u32).collect::<Vec<_>>()),
-            format!("by 10 s: {}", self.by_ten.iter().map(|x| format!("{x:.0}")).collect::<Vec<_>>().join(" ")),
-            format!("camping {}, stuck {}, at the edge {}, no biter {}, bitten from behind {}", share(self.camping), share(self.stuck), share(self.edge), share(self.unbitten), share(self.behind)),
+            format!(
+                "hurt {:.0}; fell at {:?}",
+                self.total,
+                self.fell
+                    .iter()
+                    .map(|t| t.round() as u32)
+                    .collect::<Vec<_>>()
+            ),
+            format!(
+                "by 10 s: {}",
+                self.by_ten
+                    .iter()
+                    .map(|x| format!("{x:.0}"))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            ),
+            format!(
+                "camping {}, stuck {}, at the edge {}, no biter {}, bitten from behind {}",
+                share(self.camping),
+                share(self.stuck),
+                share(self.edge),
+                share(self.unbitten),
+                share(self.behind)
+            ),
             self.first.join("\n  "),
-            format!("before the first fall: {:.0} s, {:.0}% of it within 2 tiles of the edge", self.before[0], self.before[1] * 100.0 / self.before[0].max(1e-3)),
+            format!(
+                "before the first fall: {:.0} s, {:.0}% of it within 2 tiles of the edge",
+                self.before[0],
+                self.before[1] * 100.0 / self.before[0].max(1e-3)
+            ),
             format!("stuck 3 s: {}", self.stuck_at.join("; ")),
-            format!("{} bites; zombies within 3 tiles {:.1}, sides holding one {:.2} of 4 (ahead, left, behind, right)", self.bites, per_bite(self.near), per_bite(self.sides)),
+            format!(
+                "{} bites; zombies within 3 tiles {:.1}, sides holding one {:.2} of 4 (ahead, left, behind, right)",
+                self.bites,
+                per_bite(self.near),
+                per_bite(self.sides)
+            ),
         ]
     }
 }
@@ -1344,12 +1702,22 @@ mod tests {
     }
 
     fn recorded(plan: Plan) -> Replay {
-        let n = night(&Plan { record: Some(info()), ..plan });
+        let n = night(&Plan {
+            record: Some(info()),
+            ..plan
+        });
         Replay::read(&n.replay.expect("a recording")).unwrap()
     }
 
     fn short() -> Plan {
-        Plan { seed: 3, until: Some(50.0), pick: Pick::Held, walk: Walk::Avoid, players: 2, ..Plan::new(parse_build("pistol:2,dog:2").unwrap()) }
+        Plan {
+            seed: 3,
+            until: Some(50.0),
+            pick: Pick::Held,
+            walk: Walk::Avoid,
+            players: 2,
+            ..Plan::new(parse_build("pistol:2,dog:2").unwrap())
+        }
     }
 
     #[test]
@@ -1362,12 +1730,52 @@ mod tests {
 
     #[test]
     fn a_setup_reads_back_as_written() {
-        let night = Setup { map: "orchard".into(), look: "scarecrow".into(), seats: vec!["crow".into(), String::new()], farm: Some("scarecrow".into()), kit: "dog:2,crows".into(), start_t: 12.5, one_screen: true, players: 2, bots: 1, views: 3, progress: Progress { kills: 9, found: 0xf0, everything: true, hidden: 3, ..Progress::default() }, ..Setup::night(77) };
-        let host = Setup { kind: Kind::Host { looks: vec![(0, "".into()), (2, "crow".into())], local: 1 }, difficulty: Difficulty::DEAD, ..Setup::night(5) };
-        assert!(host.to_text().contains("\ndifficulty dead\n"), "{}", host.to_text());
-        let sandbox = Plan { size: [40, 30], mortal: true, ..short() }.setup();
+        let night = Setup {
+            map: "orchard".into(),
+            look: "scarecrow".into(),
+            seats: vec!["crow".into(), String::new()],
+            farm: Some("scarecrow".into()),
+            kit: "dog:2,crows".into(),
+            start_t: 12.5,
+            one_screen: true,
+            players: 2,
+            bots: 1,
+            views: 3,
+            progress: Progress {
+                kills: 9,
+                found: 0xf0,
+                everything: true,
+                hidden: 3,
+                ..Progress::default()
+            },
+            ..Setup::night(77)
+        };
+        let host = Setup {
+            kind: Kind::Host {
+                looks: vec![(0, "".into()), (2, "crow".into())],
+                local: 1,
+            },
+            difficulty: Difficulty::DEAD,
+            ..Setup::night(5)
+        };
+        assert!(
+            host.to_text().contains("\ndifficulty dead\n"),
+            "{}",
+            host.to_text()
+        );
+        let sandbox = Plan {
+            size: [40, 30],
+            mortal: true,
+            ..short()
+        }
+        .setup();
         for s in [night, host, sandbox] {
-            assert_eq!(Setup::from_text(&s.to_text()), Ok(s.clone()), "{}", s.to_text());
+            assert_eq!(
+                Setup::from_text(&s.to_text()),
+                Ok(s.clone()),
+                "{}",
+                s.to_text()
+            );
         }
     }
 
@@ -1375,8 +1783,30 @@ mod tests {
     fn every_field_of_an_input_survives_the_trip() {
         let mut touches = [None; MAX_TOUCHES];
         (touches[1], touches[7]) = (Some([1.5, -2.0]), Some([0.25, 99.0]));
-        let a = Input { held: Buttons::A | Buttons::UP, pressed: Buttons::A, stick: [0.3, -0.7], look: -0.0, touch: Some([3.0, 4.0]), touches, touch_started: true, lid_closed: true, orbit: [2.0, 1.0], yaw: 0.0021, pitch: -0.003, hover: Some([5.0, 6.0]), wheel: 0.0 };
-        let b = Input { held: Buttons::B, touches: [None; MAX_TOUCHES], touch: None, look: 0.125, yaw: -0.5, hover: None, ..a };
+        let a = Input {
+            held: Buttons::A | Buttons::UP,
+            pressed: Buttons::A,
+            stick: [0.3, -0.7],
+            look: -0.0,
+            touch: Some([3.0, 4.0]),
+            touches,
+            touch_started: true,
+            lid_closed: true,
+            orbit: [2.0, 1.0],
+            yaw: 0.0021,
+            pitch: -0.003,
+            hover: Some([5.0, 6.0]),
+            wheel: 0.0,
+        };
+        let b = Input {
+            held: Buttons::B,
+            touches: [None; MAX_TOUCHES],
+            touch: None,
+            look: 0.125,
+            yaw: -0.5,
+            hover: None,
+            ..a
+        };
         let mut seen = Input::default();
         for want in [a, b, Input::default()] {
             let mut bytes = Vec::new();
@@ -1391,14 +1821,25 @@ mod tests {
     #[test]
     fn a_recorded_sandbox_night_replays_identically() {
         let plan = short();
-        let n = night(&Plan { record: Some(info()), ..plan.clone() });
+        let n = night(&Plan {
+            record: Some(info()),
+            ..plan.clone()
+        });
         assert_eq!(n.kills, night(&plan).kills, "recording changes nothing");
         let r = Replay::read(n.replay.as_ref().unwrap()).unwrap();
-        assert_eq!((r.info("game"), r.setup.clone()), (Some("test"), plan.setup()));
+        assert_eq!(
+            (r.info("game"), r.setup.clone()),
+            (Some("test"), plan.setup())
+        );
         let out = play(&r, &mut Nothing);
         assert_eq!(out.drift, None);
         assert_eq!((out.kills, out.level, out.secs), (n.kills, n.level, n.secs));
-        assert!(out.checks as u64 >= r.ticks / CHECK_EVERY && r.ticks > 2900, "{} checks over {} ticks", out.checks, r.ticks);
+        assert!(
+            out.checks as u64 >= r.ticks / CHECK_EVERY && r.ticks > 2900,
+            "{} checks over {} ticks",
+            out.checks,
+            r.ticks
+        );
     }
 
     #[test]
@@ -1409,7 +1850,10 @@ mod tests {
         let d = out.drift.expect("it drifts");
         assert_eq!(d.tick, at);
         let (check, want, got) = d.check.expect("a checkpoint differs too");
-        assert!(check >= at && check < at + CHECK_EVERY && want != got, "{check}");
+        assert!(
+            check >= at && check < at + CHECK_EVERY && want != got,
+            "{check}"
+        );
     }
 
     #[test]
@@ -1418,14 +1862,36 @@ mod tests {
         game.add_bots(1);
         game.record_replays(info());
         game.open(crate::Scene::Harvest);
-        let press = |b: Buttons| Input { held: b, pressed: b, ..Input::default() };
-        let walk = |b: Buttons| Input { held: b, ..Input::default() };
+        let press = |b: Buttons| Input {
+            held: b,
+            pressed: b,
+            ..Input::default()
+        };
+        let walk = |b: Buttons| Input {
+            held: b,
+            ..Input::default()
+        };
         let mut script: Vec<Input> = Vec::new();
-        for (b, n) in [(Buttons::UP, 200), (Buttons::Y, 60), (Buttons::LEFT | Buttons::UP, 300), (Buttons::A, 100)] {
+        for (b, n) in [
+            (Buttons::UP, 200),
+            (Buttons::Y, 60),
+            (Buttons::LEFT | Buttons::UP, 300),
+            (Buttons::A, 100),
+        ] {
             script.push(press(b));
             script.extend(std::iter::repeat_n(walk(b), n));
         }
-        script.extend([press(Buttons::START), Input::default(), press(Buttons::DOWN), Input::default(), press(Buttons::DOWN), Input::default(), press(Buttons::DOWN), Input::default(), press(Buttons::A)]);
+        script.extend([
+            press(Buttons::START),
+            Input::default(),
+            press(Buttons::DOWN),
+            Input::default(),
+            press(Buttons::DOWN),
+            Input::default(),
+            press(Buttons::DOWN),
+            Input::default(),
+            press(Buttons::A),
+        ]);
         script.extend(std::iter::repeat_n(walk(Buttons::UP | Buttons::RIGHT), 400));
         for i in &script {
             game.update(i, 1.0 / 60.0);
@@ -1443,12 +1909,23 @@ mod tests {
         let first = Replay::read(&replays[0]).unwrap();
         let second = Replay::read(&replays[1]).unwrap();
         assert_ne!(first.setup.seed, second.setup.seed);
-        assert_eq!(first.ticks + second.ticks + 1, script.len() as u64, "the tick that restarts belongs to neither");
+        assert_eq!(
+            first.ticks + second.ticks + 1,
+            script.len() as u64,
+            "the tick that restarts belongs to neither"
+        );
     }
 
     #[test]
     fn a_hosted_night_replays_with_the_seats_that_came_and_went() {
-        let setup = Setup { players: 2, kind: Kind::Host { looks: vec![(0, String::new()), (1, String::new())], local: 1 }, ..Setup::night(21) };
+        let setup = Setup {
+            players: 2,
+            kind: Kind::Host {
+                looks: vec![(0, String::new()), (1, String::new())],
+                local: 1,
+            },
+            ..Setup::night(21)
+        };
         let mut h = setup.build();
         h.record(info());
         let mut sounds = Vec::new();
@@ -1458,11 +1935,26 @@ mod tests {
                 500 => h.unseat(1),
                 _ => {}
             }
-            let them = Input { held: if tick % 90 < 45 { Buttons::UP } else { Buttons::LEFT }, look: 0.3, ..Input::default() };
+            let them = Input {
+                held: if tick % 90 < 45 {
+                    Buttons::UP
+                } else {
+                    Buttons::LEFT
+                },
+                look: 0.3,
+                ..Input::default()
+            };
             for p in 1..h.inputs.len() {
                 h.steer(p, them);
             }
-            h.update(&Input { held: Buttons::DOWN, ..Input::default() }, 1.0 / 60.0, &mut sounds);
+            h.update(
+                &Input {
+                    held: Buttons::DOWN,
+                    ..Input::default()
+                },
+                1.0 / 60.0,
+                &mut sounds,
+            );
         }
         let r = Replay::read(&h.stop_recording()[0]).unwrap();
         assert_eq!((r.ticks, &r.setup), (900, &setup));
@@ -1471,10 +1963,16 @@ mod tests {
 
     #[test]
     fn dogs_are_watched() {
-        let r = recorded(Plan { players: 1, ..short() });
+        let r = recorded(Plan {
+            players: 1,
+            ..short()
+        });
         let mut dogs = Dogs::default();
         play(&r, &mut dogs);
         let report = dogs.report(50.0);
-        assert!(report.len() == 1 && report[0].contains("pounces"), "{report:?}");
+        assert!(
+            report.len() == 1 && report[0].contains("pounces"),
+            "{report:?}"
+        );
     }
 }

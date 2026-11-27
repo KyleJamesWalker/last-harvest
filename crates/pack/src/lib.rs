@@ -3,9 +3,9 @@
 #[cfg(feature = "pak")]
 pub mod browser;
 pub mod card;
-pub mod prop;
 #[cfg(feature = "pak")]
 mod pak;
+pub mod prop;
 
 #[cfg(feature = "pak")]
 pub use pak::*;

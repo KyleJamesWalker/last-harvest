@@ -188,12 +188,29 @@ pub fn powerup_zones() -> [&'static str; 4] {
 
 /// The conditions a powerup's `unlock` can give; each but `start` takes a number after it.
 pub fn unlock_conditions() -> [&'static str; 8] {
-    ["start", "kills", "night", "level", "nights", "dawns", "breakers", "breaker_dawns"]
+    [
+        "start",
+        "kills",
+        "night",
+        "level",
+        "nights",
+        "dawns",
+        "breakers",
+        "breaker_dawns",
+    ]
 }
 
 /// Where a gun or blade can look, by the names `aim` gives them.
 pub fn weapon_aims() -> [&'static str; 7] {
-    ["nearest", "ahead", "behind", "around", "strongest", "farthest", "random"]
+    [
+        "nearest",
+        "ahead",
+        "behind",
+        "around",
+        "strongest",
+        "farthest",
+        "random",
+    ]
 }
 
 /// The patterns a gun's shots can take, by the names `pattern` gives them.
@@ -203,7 +220,11 @@ pub fn weapon_patterns() -> [&'static str; 4] {
 
 /// Each stat a weapon can set, by its key, with its value when the section leaves it out.
 pub fn weapon_stats() -> Vec<(&'static str, f32)> {
-    Stat::ALL.iter().filter(|s| s.for_weapons()).map(|s| (s.key(), s.weapon_default())).collect()
+    Stat::ALL
+        .iter()
+        .filter(|s| s.for_weapons())
+        .map(|s| (s.key(), s.weapon_default()))
+        .collect()
 }
 
 /// A weapon's numbers as the game reads them from a whole `powerups.txt`.
@@ -217,9 +238,26 @@ pub struct WeaponLevels {
 /// The numbers of the weapon `[id]` in `text` at each level; an error names the line, as the game would.
 pub fn weapon_levels(text: &str, id: &str) -> Result<WeaponLevels, String> {
     let book = parse(text)?;
-    let def = book.defs.iter().find(|d| d.id == id && d.kind == Kind::Weapon).ok_or_else(|| format!(" no weapon [{id}]"))?;
-    let stats = Stat::ALL.iter().filter(|s| s.for_weapons()).map(|&s| (s.key(), def.stats.iter().any(|(t, _)| *t == s), (1..=def.max).map(|l| def.at(s, l)).collect())).collect();
-    Ok(WeaponLevels { max: def.max, stats })
+    let def = book
+        .defs
+        .iter()
+        .find(|d| d.id == id && d.kind == Kind::Weapon)
+        .ok_or_else(|| format!(" no weapon [{id}]"))?;
+    let stats = Stat::ALL
+        .iter()
+        .filter(|s| s.for_weapons())
+        .map(|&s| {
+            (
+                s.key(),
+                def.stats.iter().any(|(t, _)| *t == s),
+                (1..=def.max).map(|l| def.at(s, l)).collect(),
+            )
+        })
+        .collect();
+    Ok(WeaponLevels {
+        max: def.max,
+        stats,
+    })
 }
 
 /// When a powerup can first be found on a card.
@@ -277,18 +315,29 @@ impl Progress {
 
     /// Whether the cards can offer powerup `i` as an ordinary level.
     pub fn owns(&self, i: usize) -> bool {
-        self.hidden & (1 << i) == 0 && (self.everything || book().defs[i].unlock == Unlock::Start || self.found & (1 << i) != 0)
+        self.hidden & (1 << i) == 0
+            && (self.everything
+                || book().defs[i].unlock == Unlock::Start
+                || self.found & (1 << i) != 0)
     }
 
     /// Whether powerup `i` has met its condition but not been found yet.
     pub fn findable(&self, i: usize) -> bool {
-        self.hidden & (1 << i) == 0 && !self.owns(i) && book().defs[i].kind != Kind::Filler && book().defs[i].unlock.met(self)
+        self.hidden & (1 << i) == 0
+            && !self.owns(i)
+            && book().defs[i].kind != Kind::Filler
+            && book().defs[i].unlock.met(self)
     }
 }
 
 /// The powerups out of the pool of the player with `id`, the farmer's for "": the other players' own.
 pub fn hidden_for(id: &str) -> u64 {
-    book().defs.iter().enumerate().filter(|(_, d)| !d.for_player(id)).fold(0, |m, (i, _)| m | 1 << i)
+    book()
+        .defs
+        .iter()
+        .enumerate()
+        .filter(|(_, d)| !d.for_player(id))
+        .fold(0, |m, (i, _)| m | 1 << i)
 }
 
 /// Each powerup that is one player's own in a `powerups.txt`, by its id and the player's, read without the book
@@ -296,10 +345,15 @@ pub fn hidden_for(id: &str) -> u64 {
 pub fn owners(text: &str) -> Vec<(String, String)> {
     let mut section = None;
     let mut out = Vec::new();
-    for line in text.lines().map(|l| l.split('#').next().unwrap_or("").trim()) {
+    for line in text
+        .lines()
+        .map(|l| l.split('#').next().unwrap_or("").trim())
+    {
         if let Some(id) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
             section = Some(id.to_string());
-        } else if let (Some(s), ["player", p]) = (&section, &line.split_whitespace().collect::<Vec<_>>()[..]) {
+        } else if let (Some(s), ["player", p]) =
+            (&section, &line.split_whitespace().collect::<Vec<_>>()[..])
+        {
             out.push((s.clone(), p.to_string()));
         }
     }
@@ -308,12 +362,21 @@ pub fn owners(text: &str) -> Vec<(String, String)> {
 
 /// Found powerups as their ids, for the save file.
 pub fn found_ids(found: u64) -> String {
-    book().defs.iter().enumerate().filter(|(i, _)| found & (1 << i) != 0).map(|(_, d)| d.id.as_str()).collect::<Vec<_>>().join(",")
+    book()
+        .defs
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| found & (1 << i) != 0)
+        .map(|(_, d)| d.id.as_str())
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 /// The bits for a list of ids; ones the book no longer has are dropped.
 pub fn found_from_ids(ids: &str) -> u64 {
-    ids.split(',').filter_map(|id| book().index(id.trim())).fold(0, |m, i| m | 1 << i)
+    ids.split(',')
+        .filter_map(|id| book().index(id.trim()))
+        .fold(0, |m, i| m | 1 << i)
 }
 
 /// How one run went.
@@ -368,7 +431,8 @@ impl Unlock {
 
     /// Roughly how many seconds of play are left before it's met, to rank conditions of different kinds.
     pub fn effort(self, p: &Progress) -> f32 {
-        let left = |have: u32, need: u32, secs_each: f32| need.saturating_sub(have) as f32 * secs_each;
+        let left =
+            |have: u32, need: u32, secs_each: f32| need.saturating_sub(have) as f32 * secs_each;
         match self {
             Unlock::Start => 0.0,
             Unlock::Kills(n) => left(p.kills, n, 1.5),
@@ -393,8 +457,12 @@ impl Unlock {
             Unlock::Dawns(n) => format!("Survive until dawn {n} times"),
             Unlock::Breakers(1) => "Break a weapon past its top".into(),
             Unlock::Breakers(n) => format!("Break a weapon past its top in {n} nights"),
-            Unlock::BreakerDawns(1) => "Break a weapon past its top, then survive until dawn".into(),
-            Unlock::BreakerDawns(n) => format!("Break a weapon past its top and survive until dawn {n} times"),
+            Unlock::BreakerDawns(1) => {
+                "Break a weapon past its top, then survive until dawn".into()
+            }
+            Unlock::BreakerDawns(n) => {
+                format!("Break a weapon past its top and survive until dawn {n} times")
+            }
         }
     }
 }
@@ -559,19 +627,54 @@ impl Stat {
     pub fn scales(self) -> bool {
         matches!(
             self,
-            Stat::Damage | Stat::Cooldown | Stat::Speed | Stat::Magnet | Stat::Area | Stat::Reach | Stat::Greed | Stat::Knockback | Stat::View | Stat::Recharge | Stat::Blast
+            Stat::Damage
+                | Stat::Cooldown
+                | Stat::Speed
+                | Stat::Magnet
+                | Stat::Area
+                | Stat::Reach
+                | Stat::Greed
+                | Stat::Knockback
+                | Stat::View
+                | Stat::Recharge
+                | Stat::Blast
         )
     }
 
     fn for_weapons(self) -> bool {
         matches!(
             self,
-            Stat::Cooldown | Stat::Damage | Stat::Count | Stat::Range | Stat::Area | Stat::Pierce | Stat::Speed | Stat::Duration | Stat::Spread | Stat::Knockback | Stat::Slow | Stat::Gap | Stat::Soak | Stat::SoakBurn
+            Stat::Cooldown
+                | Stat::Damage
+                | Stat::Count
+                | Stat::Range
+                | Stat::Area
+                | Stat::Pierce
+                | Stat::Speed
+                | Stat::Duration
+                | Stat::Spread
+                | Stat::Knockback
+                | Stat::Slow
+                | Stat::Gap
+                | Stat::Soak
+                | Stat::SoakBurn
         )
     }
 
     fn for_passives(self) -> bool {
-        !matches!(self, Stat::Count | Stat::Range | Stat::Duration | Stat::Spread | Stat::Slow | Stat::Gap | Stat::Refill | Stat::Money | Stat::Soak | Stat::SoakBurn)
+        !matches!(
+            self,
+            Stat::Count
+                | Stat::Range
+                | Stat::Duration
+                | Stat::Spread
+                | Stat::Slow
+                | Stat::Gap
+                | Stat::Refill
+                | Stat::Money
+                | Stat::Soak
+                | Stat::SoakBurn
+        )
     }
 
     /// A weapon's value for a stat the file leaves out.
@@ -591,7 +694,9 @@ impl Stat {
     fn shown(self, kind: Kind) -> Shown {
         match self {
             _ if kind == Kind::Passive && self.scales() => Shown::Percent,
-            Stat::Cooldown | Stat::Duration | Stat::Drums | Stat::Gap | Stat::Soak => Shown::Seconds,
+            Stat::Cooldown | Stat::Duration | Stat::Drums | Stat::Gap | Stat::Soak => {
+                Shown::Seconds
+            }
             Stat::Crit | Stat::Luck | Stat::Slow => Shown::Chance,
             _ => Shown::Number,
         }
@@ -672,8 +777,14 @@ pub struct Feel {
 }
 
 /// The sounds with a voice of their own, by the name `sound` gives them; any other name is a group of clips.
-pub const WEAPON_SOUNDS: [(&str, crate::Sfx); 6] =
-    [("shot", crate::Sfx::Shot), ("blast", crate::Sfx::Blast), ("slash", crate::Sfx::Slash), ("zap", crate::Sfx::Zap), ("bark", crate::Sfx::Bark), ("throw", crate::Sfx::Throw)];
+pub const WEAPON_SOUNDS: [(&str, crate::Sfx); 6] = [
+    ("shot", crate::Sfx::Shot),
+    ("blast", crate::Sfx::Blast),
+    ("slash", crate::Sfx::Slash),
+    ("zap", crate::Sfx::Zap),
+    ("bark", crate::Sfx::Bark),
+    ("throw", crate::Sfx::Throw),
+];
 
 /// The most a gun's `homing` and `explode` can give.
 pub const MAX_HOMING: f32 = 1440.0;
@@ -692,8 +803,15 @@ pub enum Sound {
 
 /// Whether `name` can name a sound group: its clips are `NAME.ogg`, `NAME-2.ogg` and on, so it can't end in `-N`.
 pub fn valid_sound_group(name: &str) -> bool {
-    let variation = name.rsplit_once('-').is_some_and(|(_, n)| n.parse::<u32>().is_ok());
-    !name.is_empty() && name.len() <= 32 && !variation && name.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-')
+    let variation = name
+        .rsplit_once('-')
+        .is_some_and(|(_, n)| n.parse::<u32>().is_ok());
+    !name.is_empty()
+        && name.len() <= 32
+        && !variation
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-')
 }
 
 impl Def {
@@ -705,7 +823,10 @@ impl Def {
     /// The value of `stat` at `level`, counting from 1; one past `max` is the level breaker's.
     pub fn at(&self, stat: Stat, level: u32) -> f32 {
         match self.stats.iter().find(|(s, _)| *s == stat) {
-            Some((_, v)) if level == self.max + 1 => broken(&v[..v.len().min(self.max as usize)], crate::tuning::tuning().breaker),
+            Some((_, v)) if level == self.max + 1 => broken(
+                &v[..v.len().min(self.max as usize)],
+                crate::tuning::tuning().breaker,
+            ),
             Some((_, v)) => v[(level.max(1) as usize - 1).min(v.len() - 1)],
             None if self.kind == Kind::Weapon => stat.weapon_default(),
             None if stat.scales() => 1.0,
@@ -715,8 +836,14 @@ impl Def {
 
     /// The card's zone tag, empty without a zone.
     pub fn zone_tag(&self) -> String {
-        let Some(zone) = self.zone else { return String::new() };
-        if self.targets == Targets::Each && self.outside != Some(0.0) && zone != Zone::Around { format!("{}, THEN ALL ROUND", zone.name()) } else { zone.name().into() }
+        let Some(zone) = self.zone else {
+            return String::new();
+        };
+        if self.targets == Targets::Each && self.outside != Some(0.0) && zone != Zone::Around {
+            format!("{}, THEN ALL ROUND", zone.name())
+        } else {
+            zone.name().into()
+        }
     }
 
     /// The card's line for going from level `from` to `to`: the blurb when new, else what changes.
@@ -740,16 +867,29 @@ impl Def {
             })
             .take(3)
             .collect();
-        if parts.is_empty() { self.blurb.clone() } else { parts.join("   ") }
+        if parts.is_empty() {
+            self.blurb.clone()
+        } else {
+            parts.join("   ")
+        }
     }
 }
 
 /// The top value plus `steps` of the last step the levels take, never crossing zero.
 fn broken(v: &[f32], steps: f32) -> f32 {
     let top = v[v.len() - 1];
-    let step = v.windows(2).rev().map(|w| w[1] - w[0]).find(|d| *d != 0.0).unwrap_or(0.0);
+    let step = v
+        .windows(2)
+        .rev()
+        .map(|w| w[1] - w[0])
+        .find(|d| *d != 0.0)
+        .unwrap_or(0.0);
     let out = top + step * steps;
-    if top > 0.0 && out <= 0.0 { top * 0.5 } else { out }
+    if top > 0.0 && out <= 0.0 {
+        top * 0.5
+    } else {
+        out
+    }
 }
 
 fn trim(v: f32) -> String {
@@ -797,8 +937,12 @@ pub fn book() -> &'static Book {
 /// A sprite by name: the catalog's, else a player's prop's. A prop that isn't installed yet, as when a mod is
 /// checked before it loads, stands in as a blank, and `book` reports it.
 fn sprite(name: &str) -> Option<Art> {
-    let own = art::ALL.iter().find(|(n, _)| *n == name).map(|(_, frames)| frames[0]);
-    own.or_else(|| super::props::prop(name).and_then(|p| p.frames.first().copied())).or_else(|| name.starts_with(super::props::PREFIX).then_some(art::WHITE))
+    let own = art::ALL
+        .iter()
+        .find(|(n, _)| *n == name)
+        .map(|(_, frames)| frames[0]);
+    own.or_else(|| super::props::prop(name).and_then(|p| p.frames.first().copied()))
+        .or_else(|| name.starts_with(super::props::PREFIX).then_some(art::WHITE))
 }
 
 const DEFAULT_FIND: f32 = 0.25;
@@ -806,12 +950,26 @@ const DEFAULT_FIND: f32 = 0.25;
 pub const DEFAULT_SOUND_DELAY: f32 = 0.4;
 
 fn valid_player(id: &str) -> bool {
-    !id.is_empty() && id.len() <= super::players::ID_MAX && id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+    !id.is_empty()
+        && id.len() <= super::players::ID_MAX
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
 }
 
 /// Reads the powerup file; an error names the line.
 pub fn parse(text: &str) -> Result<Book, String> {
-    let mut book = Book { weapon_slots: 6, passive_slots: 6, start: Default::default(), grenades: [3; 3], finds: 2, first_level: 5, defs: Vec::new(), missing: Vec::new(), sounds: Vec::new() };
+    let mut book = Book {
+        weapon_slots: 6,
+        passive_slots: 6,
+        start: Default::default(),
+        grenades: [3; 3],
+        finds: 2,
+        first_level: 5,
+        defs: Vec::new(),
+        missing: Vec::new(),
+        sounds: Vec::new(),
+    };
     let mut start: [Option<(usize, Vec<String>)>; 3] = Default::default();
     let mut icons: Vec<Option<String>> = Vec::new();
     for (i, raw) in text.lines().enumerate() {
@@ -865,25 +1023,41 @@ pub fn parse(text: &str) -> Result<Book, String> {
             icons.push(None);
             continue;
         }
-        let (key, rest) = line.split_once(char::is_whitespace).map(|(k, r)| (k, r.trim())).unwrap_or((line, ""));
-        let number = |w: &str| w.parse::<u32>().map_err(|_| format!("{n}: {w:?} isn't a whole number"));
+        let (key, rest) = line
+            .split_once(char::is_whitespace)
+            .map(|(k, r)| (k, r.trim()))
+            .unwrap_or((line, ""));
+        let number = |w: &str| {
+            w.parse::<u32>()
+                .map_err(|_| format!("{n}: {w:?} isn't a whole number"))
+        };
         let Some(def) = book.defs.last_mut() else {
             let words: Vec<&str> = rest.split_whitespace().collect();
             match (key, &words[..]) {
                 ("slots", ["weapons", v]) => book.weapon_slots = number(v)? as usize,
                 ("slots", ["passives", v]) => book.passive_slots = number(v)? as usize,
                 ("start", [d, ids @ ..]) => {
-                    let d = Tier::from_key(d).ok_or_else(|| format!("{n}: start names easy, normal or hard first, not {d:?}"))?;
+                    let d = Tier::from_key(d).ok_or_else(|| {
+                        format!("{n}: start names easy, normal or hard first, not {d:?}")
+                    })?;
                     start[d as usize] = Some((n, ids.iter().map(|id| id.to_string()).collect()));
                 }
                 ("grenades", [v]) => book.grenades = [number(v)?; 3],
                 ("grenades", [d, v]) => {
-                    let d = Tier::from_key(d).ok_or_else(|| format!("{n}: grenades names easy, normal or hard, or just a number, not {d:?}"))?;
+                    let d = Tier::from_key(d).ok_or_else(|| {
+                        format!(
+                            "{n}: grenades names easy, normal or hard, or just a number, not {d:?}"
+                        )
+                    })?;
                     book.grenades[d as usize] = number(v)?;
                 }
                 ("finds", [v]) => book.finds = number(v)? as usize,
                 ("first_level", [v]) => book.first_level = number(v)?.max(1),
-                _ => return Err(format!("{n}: expected slots, start, grenades, finds, first_level or a [powerup]")),
+                _ => {
+                    return Err(format!(
+                        "{n}: expected slots, start, grenades, finds, first_level or a [powerup]"
+                    ));
+                }
             }
             continue;
         };
@@ -1070,17 +1244,27 @@ pub fn parse(text: &str) -> Result<Book, String> {
         match start {
             Some((n, ids)) => {
                 for id in ids {
-                    let i = book.defs.iter().position(|d| d.id == id).ok_or_else(|| format!("{n}: start names {id:?}, which has no [section]"))?;
+                    let i = book.defs.iter().position(|d| d.id == id).ok_or_else(|| {
+                        format!("{n}: start names {id:?}, which has no [section]")
+                    })?;
                     if book.defs[i].kind != Kind::Weapon || book.defs[i].unlock != Unlock::Start {
-                        return Err(format!("{n}: start takes weapons unlocked from the start, and {id} isn't one"));
+                        return Err(format!(
+                            "{n}: start takes weapons unlocked from the start, and {id} isn't one"
+                        ));
                     }
                     if book.defs[i].player.is_some() {
-                        return Err(format!("{n}: start takes weapons every player can carry, and {id} is one player's own; a player card's start can name it"));
+                        return Err(format!(
+                            "{n}: start takes weapons every player can carry, and {id} is one player's own; a player card's start can name it"
+                        ));
                     }
                     kit.push(i);
                 }
             }
-            None => kit.extend(book.defs.iter().position(|d| d.kind == Kind::Weapon && d.player.is_none())),
+            None => kit.extend(
+                book.defs
+                    .iter()
+                    .position(|d| d.kind == Kind::Weapon && d.player.is_none()),
+            ),
         }
     }
     if book.defs.len() > 64 {
@@ -1088,23 +1272,48 @@ pub fn parse(text: &str) -> Result<Book, String> {
     }
     for (def, icon) in book.defs.iter_mut().zip(icons) {
         let icon = icon.unwrap_or_else(|| format!("ICON_{}", def.id.to_ascii_uppercase()));
-        def.icon = sprite(&icon).ok_or_else(|| format!(" [{}] has no sprite called {icon}; add it to art.txt", def.id))?;
-        if def.icon == art::WHITE && icon.starts_with(super::props::PREFIX) && super::props::prop(&icon).is_none() {
+        def.icon = sprite(&icon).ok_or_else(|| {
+            format!(
+                " [{}] has no sprite called {icon}; add it to art.txt",
+                def.id
+            )
+        })?;
+        if def.icon == art::WHITE
+            && icon.starts_with(super::props::PREFIX)
+            && super::props::prop(&icon).is_none()
+        {
             book.missing.push(icon);
         }
         let wrong = def.stats.iter().find(|(s, _)| match def.kind {
             Kind::Weapon => !s.for_weapons(),
             Kind::Passive => !s.for_passives(),
-            Kind::Filler => !matches!(s, Stat::Heal | Stat::Refill | Stat::Money) && !s.for_passives(),
+            Kind::Filler => {
+                !matches!(s, Stat::Heal | Stat::Refill | Stat::Money) && !s.for_passives()
+            }
         });
         if let Some((s, _)) = wrong {
-            return Err(format!(" [{}] is a {:?} and can't have {}", def.id, def.kind, s.key()).to_lowercase());
+            return Err(format!(
+                " [{}] is a {:?} and can't have {}",
+                def.id,
+                def.kind,
+                s.key()
+            )
+            .to_lowercase());
         }
         if def.kind == Kind::Filler && def.player.is_some() {
-            return Err(format!(" [{}] is a filler, which every player needs, so it can't be one player's own", def.id));
+            return Err(format!(
+                " [{}] is a filler, which every player needs, so it can't be one player's own",
+                def.id
+            ));
         }
         if def.kind == Kind::Weapon {
-            def.does = Some(def.does.or_else(|| Does::from_key(&def.id)).ok_or_else(|| format!(" [{}] needs `does` to say which weapon it fires", def.id))?);
+            def.does = Some(
+                def.does
+                    .or_else(|| Does::from_key(&def.id))
+                    .ok_or_else(|| {
+                        format!(" [{}] needs `does` to say which weapon it fires", def.id)
+                    })?,
+            );
         }
     }
     if !book.defs.iter().any(|d| d.kind == Kind::Filler) {
@@ -1122,26 +1331,57 @@ mod tests {
         let b = book();
         let count = |k: Kind| b.defs.iter().filter(|d| d.kind == k).count();
         assert!(count(Kind::Weapon) + count(Kind::Passive) >= 30);
-        assert!(count(Kind::Filler) >= 3, "fillers fill all three cards when nothing else is left");
+        assert!(
+            count(Kind::Filler) >= 3,
+            "fillers fill all three cards when nothing else is left"
+        );
         let weapons: Vec<&Def> = b.defs.iter().filter(|d| d.kind == Kind::Weapon).collect();
-        let start: Vec<&Def> = weapons.iter().copied().filter(|d| d.unlock == Unlock::Start).collect();
-        assert!(start.len() <= b.weapon_slots && start.len() * 2 < weapons.len(), "a first run spreads out, the rest unlocked over time");
+        let start: Vec<&Def> = weapons
+            .iter()
+            .copied()
+            .filter(|d| d.unlock == Unlock::Start)
+            .collect();
+        assert!(
+            start.len() <= b.weapon_slots && start.len() * 2 < weapons.len(),
+            "a first run spreads out, the rest unlocked over time"
+        );
         for zone in weapons.iter().filter_map(|d| d.zone) {
-            assert!(start.iter().any(|d| d.zone == Some(zone)), "a weapon for {zone:?} from the start");
+            assert!(
+                start.iter().any(|d| d.zone == Some(zone)),
+                "a weapon for {zone:?} from the start"
+            );
         }
-        let ids = |d: Tier| b.start[d as usize].iter().map(|&i| b.defs[i].id.as_str()).collect::<Vec<_>>();
+        let ids = |d: Tier| {
+            b.start[d as usize]
+                .iter()
+                .map(|&i| b.defs[i].id.as_str())
+                .collect::<Vec<_>>()
+        };
         for d in Tier::ALL {
             assert_eq!(ids(d), ["pistol", "knife"], "{d:?}");
         }
         assert_eq!(b.grenades, [2, 1, 1]);
-        assert!(b.defs.iter().filter(|d| d.kind == Kind::Weapon).all(|d| d.zone.is_some()));
+        assert!(
+            b.defs
+                .iter()
+                .filter(|d| d.kind == Kind::Weapon)
+                .all(|d| d.zone.is_some())
+        );
     }
 
     #[test]
     fn checking_a_mod_before_its_props_load_leaves_no_problem_behind() {
         let b = parse("[pp]\nicon PROP_ICON_NOT_YET\n[cash]\nkind filler\nicon WHITE\n").unwrap();
-        assert_eq!((b.defs[0].icon, b.missing.as_slice()), (art::WHITE, ["PROP_ICON_NOT_YET".to_string()].as_slice()));
-        assert!(!crate::data::noted().iter().any(|n| n.contains("PROP_ICON_NOT_YET")), "only the book the game plays with reports it");
+        assert_eq!(
+            (b.defs[0].icon, b.missing.as_slice()),
+            (art::WHITE, ["PROP_ICON_NOT_YET".to_string()].as_slice())
+        );
+        assert!(
+            !crate::data::noted()
+                .iter()
+                .any(|n| n.contains("PROP_ICON_NOT_YET")),
+            "only the book the game plays with reports it"
+        );
     }
 
     #[test]
@@ -1150,11 +1390,29 @@ mod tests {
         let w = weapon_levels(text, "pistol").unwrap();
         let stat = |k: &str| w.stats.iter().find(|s| s.0 == k).cloned().unwrap();
         assert_eq!(w.max, 8);
-        assert_eq!(stat("damage"), ("damage", true, vec![12.0, 14.0, 14.0, 16.0, 16.0, 16.0, 18.0, 19.0]));
-        assert_eq!(stat("area"), ("area", false, vec![20.0; 8]), "a stat left out is its default at every level");
+        assert_eq!(
+            stat("damage"),
+            (
+                "damage",
+                true,
+                vec![12.0, 14.0, 14.0, 16.0, 16.0, 16.0, 18.0, 19.0]
+            )
+        );
+        assert_eq!(
+            stat("area"),
+            ("area", false, vec![20.0; 8]),
+            "a stat left out is its default at every level"
+        );
         assert!(weapon_levels(text, "nope").is_err() && weapon_levels("[x]\n", "x").is_err());
-        assert!(weapon_behaviours().iter().all(|k| Does::from_key(k).is_some()));
-        assert_eq!(weapon_stats().iter().map(|s| s.0).collect::<Vec<_>>(), w.stats.iter().map(|s| s.0).collect::<Vec<_>>());
+        assert!(
+            weapon_behaviours()
+                .iter()
+                .all(|k| Does::from_key(k).is_some())
+        );
+        assert_eq!(
+            weapon_stats().iter().map(|s| s.0).collect::<Vec<_>>(),
+            w.stats.iter().map(|s| s.0).collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -1162,17 +1420,32 @@ mod tests {
         assert!((broken(&[0.6, 0.5, 0.5], 2.0) - 0.3).abs() < 1e-6);
         assert_eq!(broken(&[12.0, 14.0, 19.0], 2.0), 29.0);
         assert_eq!(broken(&[150.0], 2.0), 150.0, "one value has no step");
-        assert_eq!(broken(&[0.1, 0.05], 2.0), 0.025, "a step down past zero halves instead");
+        assert_eq!(
+            broken(&[0.1, 0.05], 2.0),
+            0.025,
+            "a step down past zero halves instead"
+        );
     }
 
     #[test]
     fn levels_read_their_value_and_short_lists_repeat_the_last() {
         let b = parse("[gun]\nkind weapon\ndoes pistol\nicon WHITE\nmax 3\ndamage 1 2 3\n[pp]\nicon WHITE\nmax 2\ndamage +10% +25%\n[cash]\nkind filler\nicon WHITE\n").unwrap();
         let (gun, pp) = (&b.defs[0], &b.defs[1]);
-        assert_eq!([1, 2, 3, 9].map(|l| gun.at(Stat::Damage, l)), [1.0, 2.0, 3.0, 3.0]);
-        assert_eq!(gun.at(Stat::Range, 1), 100.0, "left out, a weapon stat has its default");
+        assert_eq!(
+            [1, 2, 3, 9].map(|l| gun.at(Stat::Damage, l)),
+            [1.0, 2.0, 3.0, 3.0]
+        );
+        assert_eq!(
+            gun.at(Stat::Range, 1),
+            100.0,
+            "left out, a weapon stat has its default"
+        );
         assert!((pp.at(Stat::Damage, 2) - 1.25).abs() < 1e-6);
-        assert_eq!(pp.at(Stat::Greed, 1), 1.0, "a percentage left out changes nothing");
+        assert_eq!(
+            pp.at(Stat::Greed, 1),
+            1.0,
+            "a percentage left out changes nothing"
+        );
         assert_eq!(pp.at(Stat::Armor, 1), 0.0);
         assert_eq!(pp.change(1, 2), "Damage +10% > +25%");
         assert_eq!(gun.change(0, 1), "", "a new card shows its blurb");
@@ -1182,63 +1455,210 @@ mod tests {
     fn a_weapon_can_play_its_own_effect_bullet_and_sound() {
         let b = parse("[cleaver]\nkind weapon\ndoes knife\nicon WHITE\neffect red_slash\nbullet bullet_3d\nsound blast\n[cash]\nkind filler\nicon WHITE\n").unwrap();
         let d = &b.defs[0];
-        assert_eq!((d.effect.as_deref(), d.bullet.as_deref(), d.sound), (Some("red_slash"), Some("bullet_3d"), Some(Sound::Cue(crate::Sfx::Blast))));
+        assert_eq!(
+            (d.effect.as_deref(), d.bullet.as_deref(), d.sound),
+            (
+                Some("red_slash"),
+                Some("bullet_3d"),
+                Some(Sound::Cue(crate::Sfx::Blast))
+            )
+        );
         let groups = parse("[a]\nkind weapon\ndoes gun\nicon WHITE\nsound moo\n[b]\nkind weapon\ndoes gun\nicon WHITE\nsound kill-big\n[c]\nkind weapon\ndoes gun\nicon WHITE\nsound moo\n[cash]\nkind filler\nicon WHITE\n").unwrap();
-        assert_eq!(groups.defs[..3].iter().map(|d| d.sound).collect::<Vec<_>>(), [Some(Sound::Group(0)), Some(Sound::Group(1)), Some(Sound::Group(0))]);
-        assert_eq!(groups.sounds, ["moo", "kill-big"], "any name is a group, each listed once");
+        assert_eq!(
+            groups.defs[..3].iter().map(|d| d.sound).collect::<Vec<_>>(),
+            [
+                Some(Sound::Group(0)),
+                Some(Sound::Group(1)),
+                Some(Sound::Group(0))
+            ]
+        );
+        assert_eq!(
+            groups.sounds,
+            ["moo", "kill-big"],
+            "any name is a group, each listed once"
+        );
         for bad in ["Moo", "moo-2", "a b", "moo.ogg"] {
-            assert!(parse(&format!("[a]\nicon WHITE\nsound {bad}")).unwrap_err().starts_with("3: sound names a group"), "{bad}");
+            assert!(
+                parse(&format!("[a]\nicon WHITE\nsound {bad}"))
+                    .unwrap_err()
+                    .starts_with("3: sound names a group"),
+                "{bad}"
+            );
         }
-        assert!(parse("[a]\nicon WHITE\neffect Red").unwrap_err().starts_with("3: effect names"));
+        assert!(
+            parse("[a]\nicon WHITE\neffect Red")
+                .unwrap_err()
+                .starts_with("3: effect names")
+        );
         let rifle = parse("[r]\nkind weapon\ndoes gun\nicon WHITE\nsound rifle\nsound_after bolt\nsound_delay 0.5\nsound_every 3\n[cash]\nkind filler\nicon WHITE\n").unwrap();
         let r = &rifle.defs[0];
-        assert_eq!((r.sound, r.sound_after, r.sound_delay, r.sound_every), (Some(Sound::Group(0)), Some(Sound::Group(1)), 0.5, 3));
-        assert_eq!(rifle.sounds, ["rifle", "bolt"], "a follow-up's clips load with the rest");
-        assert_eq!((groups.defs[0].sound_after, groups.defs[0].sound_delay, groups.defs[0].sound_every), (None, DEFAULT_SOUND_DELAY, 1));
-        for (line, says) in [("sound_after Bolt", "3: sound_after names a group"), ("sound_every 0", "3: sound_every is rounds"), ("sound_delay -1", "3: sound_delay is seconds")] {
-            assert!(parse(&format!("[a]\nicon WHITE\n{line}")).unwrap_err().starts_with(says), "{line}");
+        assert_eq!(
+            (r.sound, r.sound_after, r.sound_delay, r.sound_every),
+            (Some(Sound::Group(0)), Some(Sound::Group(1)), 0.5, 3)
+        );
+        assert_eq!(
+            rifle.sounds,
+            ["rifle", "bolt"],
+            "a follow-up's clips load with the rest"
+        );
+        assert_eq!(
+            (
+                groups.defs[0].sound_after,
+                groups.defs[0].sound_delay,
+                groups.defs[0].sound_every
+            ),
+            (None, DEFAULT_SOUND_DELAY, 1)
+        );
+        for (line, says) in [
+            ("sound_after Bolt", "3: sound_after names a group"),
+            ("sound_every 0", "3: sound_every is rounds"),
+            ("sound_delay -1", "3: sound_delay is seconds"),
+        ] {
+            assert!(
+                parse(&format!("[a]\nicon WHITE\n{line}"))
+                    .unwrap_err()
+                    .starts_with(says),
+                "{line}"
+            );
         }
         let lob = parse("[pot]\nkind weapon\ndoes lob\nlands tacks\nicon WHITE\n[cash]\nkind filler\nicon WHITE\n").unwrap();
-        assert_eq!((lob.defs[0].does, lob.defs[0].lands), (Some(Does::Lob), Lands::Tacks));
-        assert!(parse("[a]\nicon WHITE\nlands moon").unwrap_err().starts_with("3: lands is"));
+        assert_eq!(
+            (lob.defs[0].does, lob.defs[0].lands),
+            (Some(Does::Lob), Lands::Tacks)
+        );
+        assert!(
+            parse("[a]\nicon WHITE\nlands moon")
+                .unwrap_err()
+                .starts_with("3: lands is")
+        );
         let g = parse("[nova]\nkind weapon\ndoes gun\naim around\npattern ring\nicon WHITE\n[cash]\nkind filler\nicon WHITE\n").unwrap();
-        assert_eq!((g.defs[0].does, g.defs[0].aim, g.defs[0].pattern), (Some(Does::Gun), Aim::Around, Pattern::Ring));
+        assert_eq!(
+            (g.defs[0].does, g.defs[0].aim, g.defs[0].pattern),
+            (Some(Does::Gun), Aim::Around, Pattern::Ring)
+        );
         let patterns: Vec<Pattern> = weapon_patterns().iter().map(|p| parse(&format!("[g]\nkind weapon\ndoes gun\npattern {p}\nicon WHITE\n[cash]\nkind filler\nicon WHITE\n")).unwrap().defs[0].pattern).collect();
-        assert_eq!(patterns, [Pattern::Fan, Pattern::Ring, Pattern::Spray, Pattern::Burst]);
+        assert_eq!(
+            patterns,
+            [Pattern::Fan, Pattern::Ring, Pattern::Spray, Pattern::Burst]
+        );
         let targets: Vec<Targets> = weapon_targets().iter().map(|t| parse(&format!("[g]\nkind weapon\ndoes gun\ntargets {t}\nicon WHITE\n[cash]\nkind filler\nicon WHITE\n")).unwrap().defs[0].targets).collect();
-        assert_eq!((targets, g.defs[0].targets), (vec![Targets::Same, Targets::Each], Targets::Same), "the same when left out");
-        assert!(parse("[g]\nkind weapon\ntargets all\nicon WHITE\n[cash]\nkind filler\nicon WHITE\n").is_err());
-        assert!(parse("[a]\nicon WHITE\naim up").unwrap_err().starts_with("3: aim is"));
+        assert_eq!(
+            (targets, g.defs[0].targets),
+            (vec![Targets::Same, Targets::Each], Targets::Same),
+            "the same when left out"
+        );
+        assert!(
+            parse("[g]\nkind weapon\ntargets all\nicon WHITE\n[cash]\nkind filler\nicon WHITE\n")
+                .is_err()
+        );
+        assert!(
+            parse("[a]\nicon WHITE\naim up")
+                .unwrap_err()
+                .starts_with("3: aim is")
+        );
         let aims: Vec<Aim> = weapon_aims().iter().map(|a| parse(&format!("[g]\nkind weapon\ndoes gun\naim {a}\nicon WHITE\n[cash]\nkind filler\nicon WHITE\n")).unwrap().defs[0].aim).collect();
-        assert_eq!(aims, [Aim::Nearest, Aim::Ahead, Aim::Behind, Aim::Around, Aim::Strongest, Aim::Farthest, Aim::Random]);
+        assert_eq!(
+            aims,
+            [
+                Aim::Nearest,
+                Aim::Ahead,
+                Aim::Behind,
+                Aim::Around,
+                Aim::Strongest,
+                Aim::Farthest,
+                Aim::Random
+            ]
+        );
         let g = parse("[g]\nkind weapon\ndoes gun\nhoming 270\nexplode 18\nicon WHITE\n[cash]\nkind filler\nicon WHITE\n").unwrap();
-        assert_eq!((g.defs[0].homing, g.defs[0].explode, g.defs[0].through), (270.0, 18.0, false));
+        assert_eq!(
+            (g.defs[0].homing, g.defs[0].explode, g.defs[0].through),
+            (270.0, 18.0, false)
+        );
         assert!(parse("[g]\nkind weapon\ndoes gun\nthrough 1\nicon WHITE\n[cash]\nkind filler\nicon WHITE\n").unwrap().defs[0].through);
-        assert!(parse("[a]\nicon WHITE\nhoming -1").unwrap_err().starts_with("3: homing is"));
-        assert!(parse("[a]\nicon WHITE\nexplode 1000").unwrap_err().starts_with("3: explode is"));
-        let outside = |v: &str| parse(&format!("[g]\nkind weapon\ndoes gun\noutside {v}\nicon WHITE\n[cash]\nkind filler\nicon WHITE\n")).map(|b| b.defs[0].outside);
-        assert_eq!((outside("40"), outside("0"), g.defs[0].outside), (Ok(Some(40.0)), Ok(Some(0.0)), None), "the whole range when left out");
-        let resets = |v: &str| parse(&format!("[d]\nkind weapon\ndoes dog\nkill_resets {v}\nicon WHITE\n[cash]\nkind filler\nicon WHITE\n")).map(|b| b.defs[0].kill_resets);
-        assert_eq!((resets("1"), resets("0"), g.defs[0].kill_resets), (Ok(true), Ok(false), false), "off when left out");
-        assert!(resets("yes").unwrap_err().starts_with("4: kill_resets is 1 or 0"));
-        let fetches = |v: &str| parse(&format!("[d]\nkind weapon\ndoes dog\nfetches {v}\nicon WHITE\n[cash]\nkind filler\nicon WHITE\n")).map(|b| b.defs[0].fetches);
-        assert_eq!((fetches("1"), fetches("0"), g.defs[0].fetches), (Ok(true), Ok(false), false), "off when left out");
-        assert!(fetches("yes").unwrap_err().starts_with("4: fetches is 1 or 0"));
-        let charge = |v: &str| parse(&format!("[d]\nkind weapon\ndoes dog\ncharge {v}\nicon WHITE\n[cash]\nkind filler\nicon WHITE\n")).map(|b| b.defs[0].charge);
-        assert_eq!((charge("160"), charge("0"), g.defs[0].charge), (Ok(160.0), Ok(0.0), 0.0), "never when left out");
+        assert!(
+            parse("[a]\nicon WHITE\nhoming -1")
+                .unwrap_err()
+                .starts_with("3: homing is")
+        );
+        assert!(
+            parse("[a]\nicon WHITE\nexplode 1000")
+                .unwrap_err()
+                .starts_with("3: explode is")
+        );
+        let outside = |v: &str| {
+            parse(&format!("[g]\nkind weapon\ndoes gun\noutside {v}\nicon WHITE\n[cash]\nkind filler\nicon WHITE\n")).map(|b| b.defs[0].outside)
+        };
+        assert_eq!(
+            (outside("40"), outside("0"), g.defs[0].outside),
+            (Ok(Some(40.0)), Ok(Some(0.0)), None),
+            "the whole range when left out"
+        );
+        let resets = |v: &str| {
+            parse(&format!("[d]\nkind weapon\ndoes dog\nkill_resets {v}\nicon WHITE\n[cash]\nkind filler\nicon WHITE\n")).map(|b| b.defs[0].kill_resets)
+        };
+        assert_eq!(
+            (resets("1"), resets("0"), g.defs[0].kill_resets),
+            (Ok(true), Ok(false), false),
+            "off when left out"
+        );
+        assert!(
+            resets("yes")
+                .unwrap_err()
+                .starts_with("4: kill_resets is 1 or 0")
+        );
+        let fetches = |v: &str| {
+            parse(&format!("[d]\nkind weapon\ndoes dog\nfetches {v}\nicon WHITE\n[cash]\nkind filler\nicon WHITE\n")).map(|b| b.defs[0].fetches)
+        };
+        assert_eq!(
+            (fetches("1"), fetches("0"), g.defs[0].fetches),
+            (Ok(true), Ok(false), false),
+            "off when left out"
+        );
+        assert!(
+            fetches("yes")
+                .unwrap_err()
+                .starts_with("4: fetches is 1 or 0")
+        );
+        let charge = |v: &str| {
+            parse(&format!("[d]\nkind weapon\ndoes dog\ncharge {v}\nicon WHITE\n[cash]\nkind filler\nicon WHITE\n")).map(|b| b.defs[0].charge)
+        };
+        assert_eq!(
+            (charge("160"), charge("0"), g.defs[0].charge),
+            (Ok(160.0), Ok(0.0), 0.0),
+            "never when left out"
+        );
         assert!(charge("-1").unwrap_err().starts_with("4: charge is pixels"));
-        let teammate = |v: &str| parse(&format!("[d]\nkind weapon\ndoes jumper_cables\nteammate {v}\nicon WHITE\n[cash]\nkind filler\nicon WHITE\n")).map(|b| b.defs[0].teammate);
-        assert_eq!((teammate("1"), teammate("0"), g.defs[0].teammate), (Ok(true), Ok(false), false), "off when left out");
-        assert!(teammate("yes").unwrap_err().starts_with("4: teammate is 1 or 0"));
+        let teammate = |v: &str| {
+            parse(&format!("[d]\nkind weapon\ndoes jumper_cables\nteammate {v}\nicon WHITE\n[cash]\nkind filler\nicon WHITE\n")).map(|b| b.defs[0].teammate)
+        };
+        assert_eq!(
+            (teammate("1"), teammate("0"), g.defs[0].teammate),
+            (Ok(true), Ok(false), false),
+            "off when left out"
+        );
+        assert!(
+            teammate("yes")
+                .unwrap_err()
+                .starts_with("4: teammate is 1 or 0")
+        );
         assert!(outside("-1").is_err() && outside("far").is_err());
     }
 
     #[test]
     fn a_card_names_where_a_burst_that_targets_each_reaches() {
-        let tag = |lines: &str| parse(&format!("[w]\nkind weapon\ndoes pistol\npattern burst\nicon WHITE\n{lines}\n[cash]\nkind filler\nicon WHITE\n")).unwrap().defs[0].zone_tag();
+        let tag = |lines: &str| {
+            parse(&format!("[w]\nkind weapon\ndoes pistol\npattern burst\nicon WHITE\n{lines}\n[cash]\nkind filler\nicon WHITE\n")).unwrap().defs[0].zone_tag()
+        };
         assert_eq!(tag("zone ahead\ntargets each"), "AHEAD, THEN ALL ROUND");
-        assert_eq!(tag("zone ahead\ntargets each\noutside 40"), "AHEAD, THEN ALL ROUND");
-        assert_eq!(tag("zone ahead\ntargets each\noutside 0"), "AHEAD", "only what's in view");
+        assert_eq!(
+            tag("zone ahead\ntargets each\noutside 40"),
+            "AHEAD, THEN ALL ROUND"
+        );
+        assert_eq!(
+            tag("zone ahead\ntargets each\noutside 0"),
+            "AHEAD",
+            "only what's in view"
+        );
         assert_eq!(tag("zone far\ntargets each"), "FAR, THEN ALL ROUND");
         assert_eq!(tag("zone around\ntargets each"), "AROUND");
         assert_eq!(tag("zone behind"), "BEHIND");
@@ -1249,65 +1669,180 @@ mod tests {
 
     #[test]
     fn every_zone_and_unlock_the_editors_offer_reads_and_map_still_reads_as_far() {
-        let one = |line: &str| parse(&format!("[w]\nkind weapon\ndoes gun\nicon WHITE\n{line}\n[cash]\nkind filler\nicon WHITE\n")).map(|b| (b.defs[0].zone, b.defs[0].unlock));
-        let zones: Vec<Option<Zone>> = powerup_zones().iter().map(|z| one(&format!("zone {z}")).unwrap().0).collect();
-        assert_eq!(zones, [Some(Zone::Ahead), Some(Zone::Around), Some(Zone::Behind), Some(Zone::Far)]);
-        assert_eq!(one("zone map").unwrap().0, Some(Zone::Far), "packs written before far still load");
+        let one = |line: &str| {
+            parse(&format!(
+                "[w]\nkind weapon\ndoes gun\nicon WHITE\n{line}\n[cash]\nkind filler\nicon WHITE\n"
+            ))
+            .map(|b| (b.defs[0].zone, b.defs[0].unlock))
+        };
+        let zones: Vec<Option<Zone>> = powerup_zones()
+            .iter()
+            .map(|z| one(&format!("zone {z}")).unwrap().0)
+            .collect();
+        assert_eq!(
+            zones,
+            [
+                Some(Zone::Ahead),
+                Some(Zone::Around),
+                Some(Zone::Behind),
+                Some(Zone::Far)
+            ]
+        );
+        assert_eq!(
+            one("zone map").unwrap().0,
+            Some(Zone::Far),
+            "packs written before far still load"
+        );
         assert_eq!(Zone::Far.name(), "FAR");
         for c in unlock_conditions() {
-            let line = if c == "start" { "unlock start".to_string() } else { format!("unlock {c} 1") };
+            let line = if c == "start" {
+                "unlock start".to_string()
+            } else {
+                format!("unlock {c} 1")
+            };
             assert!(one(&line).is_ok(), "{line}");
         }
         assert_eq!(one("unlock breakers 1").unwrap().1, Unlock::Breakers(1));
-        assert_eq!(one("unlock breaker_dawns 2").unwrap().1, Unlock::BreakerDawns(2));
+        assert_eq!(
+            one("unlock breaker_dawns 2").unwrap().1,
+            Unlock::BreakerDawns(2)
+        );
     }
 
     #[test]
     fn a_weapon_reads_its_feel_and_the_shipped_ones_keep_theirs() {
         let rifle = &book().defs[book().index("rifle").unwrap()].feel;
-        assert_eq!(*rifle, Feel { kick: 0.05, punch: 2.0, shake: 0.1, flash: Some(([1.6, 1.2, 0.7], 5.0, 0.1)) });
-        assert_eq!(book().defs[book().index("crows").unwrap()].feel, Feel::default(), "none when left out");
-        assert!(parse("[a]\nicon WHITE\nkick lots").unwrap_err().starts_with("3: kick takes"));
-        assert!(parse("[a]\nicon WHITE\nflash 1 1 1").unwrap_err().starts_with("3: flash takes"));
-        assert!(parse("[a]\nicon WHITE\nflash 1 1 1 20 0.1 0.2").unwrap_err().starts_with("3: flash takes"), "a number out of range isn't dropped");
+        assert_eq!(
+            *rifle,
+            Feel {
+                kick: 0.05,
+                punch: 2.0,
+                shake: 0.1,
+                flash: Some(([1.6, 1.2, 0.7], 5.0, 0.1))
+            }
+        );
+        assert_eq!(
+            book().defs[book().index("crows").unwrap()].feel,
+            Feel::default(),
+            "none when left out"
+        );
+        assert!(
+            parse("[a]\nicon WHITE\nkick lots")
+                .unwrap_err()
+                .starts_with("3: kick takes")
+        );
+        assert!(
+            parse("[a]\nicon WHITE\nflash 1 1 1")
+                .unwrap_err()
+                .starts_with("3: flash takes")
+        );
+        assert!(
+            parse("[a]\nicon WHITE\nflash 1 1 1 20 0.1 0.2")
+                .unwrap_err()
+                .starts_with("3: flash takes"),
+            "a number out of range isn't dropped"
+        );
     }
 
     #[test]
     fn a_player_line_keeps_a_powerup_to_that_player() {
         let b = parse("[gun]\nkind weapon\nicon WHITE\ndoes pistol\n[urumi]\nkind weapon\nicon WHITE\ndoes blade\nplayer kd\n[cash]\nkind filler\nicon WHITE\n").unwrap();
         assert_eq!(b.defs[1].player.as_deref(), Some("kd"));
-        assert!(b.defs[1].for_player("kd") && !b.defs[1].for_player("") && !b.defs[1].for_player("jo"));
-        assert!(b.defs[0].for_player("kd") && b.defs[0].for_player(""), "without the line, every player's");
-        assert_eq!(b.start[0], [0], "the game's start passes over another's own");
-        assert!(parse("[a]\nicon WHITE\nplayer Kd").unwrap_err().starts_with("3: player names"));
-        assert!(parse("[cash]\nkind filler\nicon WHITE\nplayer kd").unwrap_err().contains("filler"));
+        assert!(
+            b.defs[1].for_player("kd") && !b.defs[1].for_player("") && !b.defs[1].for_player("jo")
+        );
+        assert!(
+            b.defs[0].for_player("kd") && b.defs[0].for_player(""),
+            "without the line, every player's"
+        );
+        assert_eq!(
+            b.start[0],
+            [0],
+            "the game's start passes over another's own"
+        );
+        assert!(
+            parse("[a]\nicon WHITE\nplayer Kd")
+                .unwrap_err()
+                .starts_with("3: player names")
+        );
+        assert!(
+            parse("[cash]\nkind filler\nicon WHITE\nplayer kd")
+                .unwrap_err()
+                .contains("filler")
+        );
         let start = "start normal urumi\n[urumi]\nkind weapon\nicon WHITE\ndoes blade\nplayer kd\n[cash]\nkind filler\nicon WHITE\n";
-        assert!(parse(start).unwrap_err().starts_with("1: start takes weapons every player"));
-        assert_eq!(owners("[a]\n[urumi]  # hers\nplayer kd\n"), [("urumi".to_string(), "kd".to_string())]);
+        assert!(
+            parse(start)
+                .unwrap_err()
+                .starts_with("1: start takes weapons every player")
+        );
+        assert_eq!(
+            owners("[a]\n[urumi]  # hers\nplayer kd\n"),
+            [("urumi".to_string(), "kd".to_string())]
+        );
     }
 
     #[test]
     fn a_hidden_powerup_is_never_owned_found_or_counted() {
         let pistol = book().index("pistol").unwrap();
         assert_eq!(hidden_for(""), 0, "the game's own are every player's");
-        let p = Progress { everything: true, hidden: 1 << pistol, ..Progress::default() };
+        let p = Progress {
+            everything: true,
+            hidden: 1 << pistol,
+            ..Progress::default()
+        };
         assert!(!p.owns(pistol) && !p.findable(pistol));
         let crows = book().index("crows").unwrap();
         assert!(p.owns(crows));
-        assert!(!Progress { kills: u32::MAX, hidden: 1 << crows, ..Progress::default() }.findable(crows));
+        assert!(
+            !Progress {
+                kills: u32::MAX,
+                hidden: 1 << crows,
+                ..Progress::default()
+            }
+            .findable(crows)
+        );
         let (open, all, _) = super::super::unlocked(&p);
-        assert_eq!((open, all + 1), (all, super::super::unlocked(&Progress { everything: true, ..Progress::default() }).1));
+        assert_eq!(
+            (open, all + 1),
+            (
+                all,
+                super::super::unlocked(&Progress {
+                    everything: true,
+                    ..Progress::default()
+                })
+                .1
+            )
+        );
     }
 
     #[test]
     fn finds_read_their_chance_minute_and_chest() {
         let b = parse("[a]\nicon WHITE\n[b]\nicon WHITE\nfind 0.1\nafter 3\nchest\n[cash]\nkind filler\nicon WHITE\n").unwrap();
-        assert_eq!((b.defs[0].find, b.defs[0].after, b.defs[0].chest), (DEFAULT_FIND, 0.0, false));
-        assert_eq!((b.defs[1].find, b.defs[1].after, b.defs[1].chest), (0.1, 3.0, true));
-        assert!(parse("[a]\nicon WHITE\nfind 2").unwrap_err().starts_with("3:"));
-        assert!(parse("[a]\nicon WHITE\nchest yes").unwrap_err().starts_with("3:"));
+        assert_eq!(
+            (b.defs[0].find, b.defs[0].after, b.defs[0].chest),
+            (DEFAULT_FIND, 0.0, false)
+        );
+        assert_eq!(
+            (b.defs[1].find, b.defs[1].after, b.defs[1].chest),
+            (0.1, 3.0, true)
+        );
+        assert!(
+            parse("[a]\nicon WHITE\nfind 2")
+                .unwrap_err()
+                .starts_with("3:")
+        );
+        assert!(
+            parse("[a]\nicon WHITE\nchest yes")
+                .unwrap_err()
+                .starts_with("3:")
+        );
         assert_eq!(found_from_ids(&found_ids(0b101)), 0b101);
-        assert_eq!(found_from_ids("pistol, nope"), 1, "an id the book lost is dropped");
+        assert_eq!(
+            found_from_ids("pistol, nope"),
+            1,
+            "an id the book lost is dropped"
+        );
     }
 
     #[test]
@@ -1324,24 +1859,60 @@ mod tests {
             let e = parse(text).err().unwrap();
             assert!(e.starts_with(line), "{text:?}: {e}");
         }
-        assert!(parse("[laser]\nkind weapon\nicon WHITE").unwrap_err().contains("does"));
+        assert!(
+            parse("[laser]\nkind weapon\nicon WHITE")
+                .unwrap_err()
+                .contains("does")
+        );
         assert!(parse("[a]\nicon NOPE").unwrap_err().contains("NOPE"));
-        assert!(parse("[a]\nkind weapon\ndoes knife\nicon WHITE\narmor 2").unwrap_err().contains("armor"));
+        assert!(
+            parse("[a]\nkind weapon\ndoes knife\nicon WHITE\narmor 2")
+                .unwrap_err()
+                .contains("armor")
+        );
         assert!(parse("[a]\nicon WHITE").unwrap_err().contains("no filler"));
         assert!(parse("# nothing").unwrap_err().contains("no filler"));
-        assert!(parse("[a]\nicon WHITE\ndamage +10% inf").unwrap_err().starts_with("3: damage"));
-        assert!(parse("[a]\nicon WHITE\nafter NaN").unwrap_err().starts_with("3: after"));
+        assert!(
+            parse("[a]\nicon WHITE\ndamage +10% inf")
+                .unwrap_err()
+                .starts_with("3: damage")
+        );
+        assert!(
+            parse("[a]\nicon WHITE\nafter NaN")
+                .unwrap_err()
+                .starts_with("3: after")
+        );
     }
 
     #[test]
     fn unlocks_follow_progress_over_runs() {
-        let p = Progress::default().after(Run { secs: 130, kills: 120, level: 6, won: false, ..Run::default() });
+        let p = Progress::default().after(Run {
+            secs: 130,
+            kills: 120,
+            level: 6,
+            won: false,
+            ..Run::default()
+        });
         assert!(Unlock::Kills(100).met(&p) && !Unlock::Kills(250).met(&p));
-        assert!(Unlock::Night(120).met(&p) && Unlock::Level(5).met(&p) && Unlock::Nights(1).met(&p));
+        assert!(
+            Unlock::Night(120).met(&p) && Unlock::Level(5).met(&p) && Unlock::Nights(1).met(&p)
+        );
         assert!(!Unlock::Dawns(1).met(&p));
-        let p = p.after(Run { secs: 600, kills: 10, level: 3, won: true, ..Run::default() });
-        assert_eq!((p.kills, p.best, p.best_level, p.nights, p.dawns), (130, 600, 6, 2, 1));
-        assert!(Unlock::Dawns(1).met(&Progress { everything: true, ..Progress::default() }));
+        let p = p.after(Run {
+            secs: 600,
+            kills: 10,
+            level: 3,
+            won: true,
+            ..Run::default()
+        });
+        assert_eq!(
+            (p.kills, p.best, p.best_level, p.nights, p.dawns),
+            (130, 600, 6, 2, 1)
+        );
+        assert!(Unlock::Dawns(1).met(&Progress {
+            everything: true,
+            ..Progress::default()
+        }));
         let fresh = Progress::default();
         assert!(Unlock::Kills(100).effort(&fresh) < Unlock::Kills(500).effort(&fresh));
         assert!(Unlock::Night(120).effort(&fresh) < Unlock::Dawns(1).effort(&fresh));
@@ -1349,13 +1920,26 @@ mod tests {
 
     #[test]
     fn a_level_breaker_counts_and_counts_again_when_the_night_reaches_dawn() {
-        let p = Progress::default().after(Run { broke: true, ..Run::default() });
+        let p = Progress::default().after(Run {
+            broke: true,
+            ..Run::default()
+        });
         assert!(Unlock::Breakers(1).met(&p) && !Unlock::BreakerDawns(1).met(&p));
-        let p = p.after(Run { won: true, ..Run::default() });
+        let p = p.after(Run {
+            won: true,
+            ..Run::default()
+        });
         assert!(!Unlock::BreakerDawns(1).met(&p), "a dawn without a breaker");
-        let p = p.after(Run { broke: true, won: true, ..Run::default() });
+        let p = p.after(Run {
+            broke: true,
+            won: true,
+            ..Run::default()
+        });
         assert_eq!((p.breakers, p.breaker_dawns, p.dawns), (2, 1, 2));
         assert!(Unlock::BreakerDawns(1).met(&p) && Unlock::Breakers(2).met(&p));
-        assert!(Unlock::Breakers(1).effort(&Progress::default()) < Unlock::BreakerDawns(1).effort(&Progress::default()));
+        assert!(
+            Unlock::Breakers(1).effort(&Progress::default())
+                < Unlock::BreakerDawns(1).effort(&Progress::default())
+        );
     }
 }

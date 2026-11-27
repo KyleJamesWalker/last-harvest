@@ -17,16 +17,24 @@ use std::time::{Duration, Instant};
 use android_activity::input::{Axis, InputEvent, KeyAction, Keycode, MotionAction, MotionEvent};
 use android_activity::{AndroidApp, InputStatus, MainEvent, PollEvent};
 use glutin::config::{Api, Config, ConfigTemplateBuilder, GlConfig};
-use glutin::context::{ContextApi, ContextAttributesBuilder, NotCurrentGlContext, PossiblyCurrentContext, PossiblyCurrentGlContext, Version};
+use glutin::context::{
+    ContextApi, ContextAttributesBuilder, NotCurrentGlContext, PossiblyCurrentContext,
+    PossiblyCurrentGlContext, Version,
+};
 use glutin::display::{Display, DisplayApiPreference, GlDisplay};
 use glutin::surface::{GlSurface, Surface, SurfaceAttributesBuilder, SwapInterval, WindowSurface};
-use last_harvest_game::{Battery, Buttons, Canvas, Capture, Game, InputTracker, MAX_TOUCHES, PadFamily, RawInput, SCREEN_H, SCREEN_W, Save, System};
+use last_harvest_game::{
+    Battery, Buttons, Canvas, Capture, Game, InputTracker, MAX_TOUCHES, PadFamily, RawInput,
+    SCREEN_H, SCREEN_W, Save, System,
+};
 use last_harvest_pack::Pak;
 use last_harvest_render::{Profile, Renderer};
-use raw_window_handle::{AndroidDisplayHandle, AndroidNdkWindowHandle, RawDisplayHandle, RawWindowHandle};
+use raw_window_handle::{
+    AndroidDisplayHandle, AndroidNdkWindowHandle, RawDisplayHandle, RawWindowHandle,
+};
 
-use crate::shot::{self, Shot};
 use crate::controllers::{Pad, Seats};
+use crate::shot::{self, Shot};
 use crate::{VERSION, audio, log, pak, samples};
 
 /// Seconds a changed save waits for more changes before it is written.
@@ -79,19 +87,33 @@ impl PadState {
     fn take(&mut self) -> Pad {
         let mut held = self.keys | std::mem::take(&mut self.struck);
         let [hx, hy] = self.hat;
-        for (on, b) in [(hx < -0.5, Buttons::LEFT), (hx > 0.5, Buttons::RIGHT), (hy < -0.5, Buttons::UP), (hy > 0.5, Buttons::DOWN)] {
+        for (on, b) in [
+            (hx < -0.5, Buttons::LEFT),
+            (hx > 0.5, Buttons::RIGHT),
+            (hy < -0.5, Buttons::UP),
+            (hy > 0.5, Buttons::DOWN),
+        ] {
             if on {
                 held |= b;
             }
         }
-        Pad { id: self.id as u32 as usize, held, stick: self.stick, look: self.look }
+        Pad {
+            id: self.id as u32 as usize,
+            held,
+            stick: self.stick,
+            look: self.look,
+        }
     }
 }
 
 /// The state of the pad with device id `id`, made on its first event.
 fn pad_state<'a>(pads: &'a mut Vec<PadState>, android: &AndroidApp, id: i32) -> &'a mut PadState {
     let at = pads.iter().position(|p| p.id == id).unwrap_or_else(|| {
-        pads.push(PadState { id, family: pad_family(android, id), ..Default::default() });
+        pads.push(PadState {
+            id,
+            family: pad_family(android, id),
+            ..Default::default()
+        });
         pads.len() - 1
     });
     &mut pads[at]
@@ -100,13 +122,29 @@ fn pad_state<'a>(pads: &'a mut Vec<PadState>, android: &AndroidApp, id: i32) -> 
 /// The labels on pad `id`, from its vendor id and name; a built-in or unknown device keeps the RG DS names.
 fn pad_family(android: &AndroidApp, id: i32) -> PadFamily {
     let info = activity(android, "padInfo", |env, a| {
-        let s = env.call_method(a, jni::jni_str!("padInfo"), jni::jni_sig!("(I)Ljava/lang/String;"), &[jni::JValue::Int(id)])?.l()?;
-        env.cast_local::<jni::objects::JString>(s)?.try_to_string(env)
+        let s = env
+            .call_method(
+                a,
+                jni::jni_str!("padInfo"),
+                jni::jni_sig!("(I)Ljava/lang/String;"),
+                &[jni::JValue::Int(id)],
+            )?
+            .l()?;
+        env.cast_local::<jni::objects::JString>(s)?
+            .try_to_string(env)
     });
     let info = info.inspect_err(|e| log!("{e}")).unwrap_or_default();
     let mut parts = info.splitn(3, '\t');
-    let (built_in, vendor, name) = (parts.next() != Some("0"), parts.next().and_then(|v| v.parse::<i32>().ok()), parts.next().unwrap_or(""));
-    let family = if built_in { PadFamily::Nintendo } else { PadFamily::detect(vendor.map(|v| v as u16), name) };
+    let (built_in, vendor, name) = (
+        parts.next() != Some("0"),
+        parts.next().and_then(|v| v.parse::<i32>().ok()),
+        parts.next().unwrap_or(""),
+    );
+    let family = if built_in {
+        PadFamily::Nintendo
+    } else {
+        PadFamily::detect(vendor.map(|v| v as u16), name)
+    };
     log!("gamepad: {id} {name} ({family:?})");
     family
 }
@@ -114,7 +152,9 @@ fn pad_family(android: &AndroidApp, id: i32) -> PadFamily {
 /// The device ids of the gamepads attached now, or None when Java can't say.
 fn attached_pads(android: &AndroidApp) -> Option<Vec<i32>> {
     let ids = activity(android, "padIds", |env, a| {
-        let arr = env.call_method(a, jni::jni_str!("padIds"), jni::jni_sig!("()[I"), &[])?.l()?;
+        let arr = env
+            .call_method(a, jni::jni_str!("padIds"), jni::jni_sig!("()[I"), &[])?
+            .l()?;
         let arr = env.cast_local::<jni::objects::JIntArray>(arr)?;
         let mut ids = vec![0; arr.len(env)?];
         arr.get_region(env, 0, &mut ids)?;
@@ -136,13 +176,36 @@ struct Stats {
 
 /// The hottest of `zones`, in Celsius, or None when Android won't let the app read any.
 fn hottest(zones: &[PathBuf]) -> Option<f32> {
-    zones.iter().filter_map(|z| std::fs::read_to_string(z.join("temp")).ok()?.trim().parse::<f32>().ok()).map(|m| m / 1000.0).reduce(f32::max)
+    zones
+        .iter()
+        .filter_map(|z| {
+            std::fs::read_to_string(z.join("temp"))
+                .ok()?
+                .trim()
+                .parse::<f32>()
+                .ok()
+        })
+        .map(|m| m / 1000.0)
+        .reduce(f32::max)
 }
 
 impl Stats {
     fn new() -> Self {
-        let mut s = Self { frames: 0, total_ms: 0.0, worst_ms: 0.0, since: Instant::now(), cpu: Vec::new(), gpu: Vec::new(), system: System::default() };
-        for zone in std::fs::read_dir("/sys/class/thermal").into_iter().flatten().flatten().map(|e| e.path()) {
+        let mut s = Self {
+            frames: 0,
+            total_ms: 0.0,
+            worst_ms: 0.0,
+            since: Instant::now(),
+            cpu: Vec::new(),
+            gpu: Vec::new(),
+            system: System::default(),
+        };
+        for zone in std::fs::read_dir("/sys/class/thermal")
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|e| e.path())
+        {
             let kind = std::fs::read_to_string(zone.join("type")).unwrap_or_default();
             let kind = kind.trim();
             if kind.ends_with("-usr") && kind.starts_with("cpu-") {
@@ -164,11 +227,24 @@ impl Stats {
         let secs = self.since.elapsed().as_secs_f32();
         if secs >= 1.0 {
             let battery = || {
-                let read = |f: &str| std::fs::read_to_string(format!("/sys/class/power_supply/battery/{f}")).ok();
+                let read = |f: &str| {
+                    std::fs::read_to_string(format!("/sys/class/power_supply/battery/{f}")).ok()
+                };
                 let percent = read("capacity")?.trim().parse().ok()?;
-                Some(Battery { percent, charging: read("status").is_some_and(|s| s.trim() == "Charging") })
+                Some(Battery {
+                    percent,
+                    charging: read("status").is_some_and(|s| s.trim() == "Charging"),
+                })
             };
-            self.system = System { fps: self.frames as f32 / secs, frame_ms: self.total_ms / self.frames as f32, worst_ms: self.worst_ms, soc_c: hottest(&self.cpu), gpu_c: hottest(&self.gpu), battery: battery(), ..self.system };
+            self.system = System {
+                fps: self.frames as f32 / secs,
+                frame_ms: self.total_ms / self.frames as f32,
+                worst_ms: self.worst_ms,
+                soc_c: hottest(&self.cpu),
+                gpu_c: hottest(&self.gpu),
+                battery: battery(),
+                ..self.system
+            };
             (self.frames, self.total_ms, self.worst_ms, self.since) = (0, 0.0, 0.0, Instant::now());
         }
         self.system
@@ -191,12 +267,22 @@ struct Fingers([Option<Finger>; MAX_TOUCHES]);
 impl Fingers {
     fn down(&mut self, id: i32, at: [f32; 2]) {
         if let Some(slot) = self.0.iter_mut().find(|f| f.is_none()) {
-            *slot = Some(Finger { id, at, seen: false, lifted: false });
+            *slot = Some(Finger {
+                id,
+                at,
+                seen: false,
+                lifted: false,
+            });
         }
     }
 
     fn moved(&mut self, id: i32, at: [f32; 2]) {
-        if let Some(f) = self.0.iter_mut().flatten().find(|f| f.id == id && !f.lifted) {
+        if let Some(f) = self
+            .0
+            .iter_mut()
+            .flatten()
+            .find(|f| f.id == id && !f.lifted)
+        {
             f.at = at;
         }
     }
@@ -253,7 +339,11 @@ fn second<R>(f: impl FnOnce(&mut Second) -> R) -> R {
 }
 
 #[unsafe(no_mangle)]
-extern "system" fn Java_com_kylejameswalker_lastharvest_MainActivity_secondSurface(env: *mut jni::sys::JNIEnv, _class: jni::sys::jclass, surface: jni::sys::jobject) {
+extern "system" fn Java_com_kylejameswalker_lastharvest_MainActivity_secondSurface(
+    env: *mut jni::sys::JNIEnv,
+    _class: jni::sys::jclass,
+    surface: jni::sys::jobject,
+) {
     if surface.is_null() {
         let mut guard = SECOND.lock().unwrap_or_else(|e| e.into_inner());
         let s = guard.get_or_insert_with(Second::default);
@@ -262,7 +352,9 @@ extern "system" fn Java_com_kylejameswalker_lastharvest_MainActivity_secondSurfa
         if s.in_use {
             s.dropping = true;
             // Android frees the surface once this returns, so wait for the frame loop to stop drawing on it.
-            let _ = DROPPED.wait_timeout_while(guard, Duration::from_secs(2), |s| s.as_ref().is_some_and(|s| s.dropping));
+            let _ = DROPPED.wait_timeout_while(guard, Duration::from_secs(2), |s| {
+                s.as_ref().is_some_and(|s| s.dropping)
+            });
         }
         return;
     }
@@ -275,7 +367,14 @@ extern "system" fn Java_com_kylejameswalker_lastharvest_MainActivity_secondSurfa
 }
 
 #[unsafe(no_mangle)]
-extern "system" fn Java_com_kylejameswalker_lastharvest_MainActivity_secondTouch(_env: *mut jni::sys::JNIEnv, _class: jni::sys::jclass, phase: i32, id: i32, x: f32, y: f32) {
+extern "system" fn Java_com_kylejameswalker_lastharvest_MainActivity_secondTouch(
+    _env: *mut jni::sys::JNIEnv,
+    _class: jni::sys::jclass,
+    phase: i32,
+    id: i32,
+    x: f32,
+    y: f32,
+) {
     second(|s| s.touches.push((phase, id, x, y)));
 }
 
@@ -287,11 +386,17 @@ static FETCHING: AtomicBool = AtomicBool::new(false);
 static WITHOUT_DATA: AtomicBool = AtomicBool::new(false);
 
 #[unsafe(no_mangle)]
-extern "system" fn Java_com_kylejameswalker_lastharvest_MainActivity_packReady<'local>(mut env: jni::EnvUnowned<'local>, _class: jni::objects::JClass<'local>, error: jni::objects::JString<'local>) {
+extern "system" fn Java_com_kylejameswalker_lastharvest_MainActivity_packReady<'local>(
+    mut env: jni::EnvUnowned<'local>,
+    _class: jni::objects::JClass<'local>,
+    error: jni::objects::JString<'local>,
+) {
     let result = if error.is_null() {
         Ok(())
     } else {
-        Err(env.with_env(|env| -> jni::errors::Result<String> { error.try_to_string(env) }).resolve::<jni::errors::LogErrorAndDefault>())
+        Err(env
+            .with_env(|env| -> jni::errors::Result<String> { error.try_to_string(env) })
+            .resolve::<jni::errors::LogErrorAndDefault>())
     };
     *PACK.lock().unwrap_or_else(|e| e.into_inner()) = Some(result);
 }
@@ -300,16 +405,27 @@ extern "system" fn Java_com_kylejameswalker_lastharvest_MainActivity_packReady<'
 static CHOSEN: Mutex<Option<String>> = Mutex::new(None);
 
 #[unsafe(no_mangle)]
-extern "system" fn Java_com_kylejameswalker_lastharvest_MainActivity_folderChosen<'local>(mut env: jni::EnvUnowned<'local>, _class: jni::objects::JClass<'local>, name: jni::objects::JString<'local>) {
-    let name = env.with_env(|env| -> jni::errors::Result<String> { name.try_to_string(env) }).resolve::<jni::errors::LogErrorAndDefault>();
+extern "system" fn Java_com_kylejameswalker_lastharvest_MainActivity_folderChosen<'local>(
+    mut env: jni::EnvUnowned<'local>,
+    _class: jni::objects::JClass<'local>,
+    name: jni::objects::JString<'local>,
+) {
+    let name = env
+        .with_env(|env| -> jni::errors::Result<String> { name.try_to_string(env) })
+        .resolve::<jni::errors::LogErrorAndDefault>();
     *CHOSEN.lock().unwrap_or_else(|e| e.into_inner()) = Some(name);
 }
 
 /// Runs `f` on `MainActivity` from the current thread, attaching it to Java; `method` names it in an error.
-fn activity<T>(android: &AndroidApp, method: &str, f: impl FnOnce(&mut jni::Env, &jni::objects::JObject) -> jni::errors::Result<T>) -> Result<T, String> {
+fn activity<T>(
+    android: &AndroidApp,
+    method: &str,
+    f: impl FnOnce(&mut jni::Env, &jni::objects::JObject) -> jni::errors::Result<T>,
+) -> Result<T, String> {
     let vm = unsafe { jni::JavaVM::from_raw(android.vm_as_ptr().cast()) };
     let done = vm.attach_current_thread(|env| -> jni::errors::Result<T> {
-        let activity = unsafe { jni::objects::JObject::from_raw(env, android.activity_as_ptr().cast()) };
+        let activity =
+            unsafe { jni::objects::JObject::from_raw(env, android.activity_as_ptr().cast()) };
         f(env, &activity)
     });
     done.map_err(|e| format!("{method}: {e}"))
@@ -318,15 +434,26 @@ fn activity<T>(android: &AndroidApp, method: &str, f: impl FnOnce(&mut jni::Env,
 /// The game folder's name as Settings shows it, or "" before the player chooses one.
 fn folder_name(android: &AndroidApp) -> String {
     let name = activity(android, "folderName", |env, a| {
-        let s = env.call_method(a, jni::jni_str!("folderName"), jni::jni_sig!("()Ljava/lang/String;"), &[])?.l()?;
-        env.cast_local::<jni::objects::JString>(s)?.try_to_string(env)
+        let s = env
+            .call_method(
+                a,
+                jni::jni_str!("folderName"),
+                jni::jni_sig!("()Ljava/lang/String;"),
+                &[],
+            )?
+            .l()?;
+        env.cast_local::<jni::objects::JString>(s)?
+            .try_to_string(env)
     });
     name.inspect_err(|e| log!("{e}")).unwrap_or_default()
 }
 
 /// Shows Android's folder picker for the game folder.
 fn pick_folder(android: &AndroidApp) {
-    let asked = activity(android, "pickFolder", |env, a| env.call_method(a, jni::jni_str!("pickFolder"), jni::jni_sig!("()V"), &[]).map(drop));
+    let asked = activity(android, "pickFolder", |env, a| {
+        env.call_method(a, jni::jni_str!("pickFolder"), jni::jni_sig!("()V"), &[])
+            .map(drop)
+    });
     if let Err(e) = asked {
         log!("{e}");
     }
@@ -340,7 +467,11 @@ fn save_shot(android: &AndroidApp, capture: Capture, img: Shot) {
         let encoded = match capture {
             Capture::Photo => {
                 let (top, full) = last_harvest_game::photo::crop(&img.rgba, img.width, img.top);
-                let (square, pixels) = last_harvest_game::photo::crop(&img.rgba, img.width, last_harvest_game::photo::square(top));
+                let (square, pixels) = last_harvest_game::photo::crop(
+                    &img.rgba,
+                    img.width,
+                    last_harvest_game::photo::square(top),
+                );
                 shot::png(top[2], &full).and_then(|f| Ok((f, Some(shot::png(square[2], &pixels)?))))
             }
             Capture::Screens => shot::png(img.width, &img.rgba).map(|f| (f, None)),
@@ -349,7 +480,11 @@ fn save_shot(android: &AndroidApp, capture: Capture, img: Shot) {
             Ok(pngs) => pngs,
             Err(e) => return log!("screenshot: {e}"),
         };
-        let kind = if capture == Capture::Photo { "photo" } else { "shot" };
+        let kind = if capture == Capture::Photo {
+            "photo"
+        } else {
+            "shot"
+        };
         let saved = activity(&android, "saveShot", |env, a| {
             let kind = env.new_string(kind)?;
             let full = env.byte_array_from_slice(&full)?;
@@ -358,7 +493,17 @@ fn save_shot(android: &AndroidApp, capture: Capture, img: Shot) {
                 None => jni::objects::JObject::null(),
             };
             let sig = jni::jni_sig!("(Ljava/lang/String;[B[B)V");
-            env.call_method(a, jni::jni_str!("saveShot"), sig, &[jni::JValue::Object(&kind), jni::JValue::Object(&full), jni::JValue::Object(&square)]).map(drop)
+            env.call_method(
+                a,
+                jni::jni_str!("saveShot"),
+                sig,
+                &[
+                    jni::JValue::Object(&kind),
+                    jni::JValue::Object(&full),
+                    jni::JValue::Object(&square),
+                ],
+            )
+            .map(drop)
         });
         if let Err(e) = saved {
             log!("{e}");
@@ -376,20 +521,40 @@ fn release_pack(android: &AndroidApp) -> Result<Option<Vec<u8>>, String> {
     }
     if !FETCHING.swap(true, Ordering::SeqCst) {
         let dir = path.parent().ok_or("no internal storage")?;
-        for old in std::fs::read_dir(dir).into_iter().flatten().flatten().map(|e| e.path()) {
-            if old.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("game_data-") && n.ends_with(".pak")) {
+        for old in std::fs::read_dir(dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|e| e.path())
+        {
+            if old
+                .file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("game_data-") && n.ends_with(".pak"))
+            {
                 let _ = std::fs::remove_file(old);
             }
         }
-        let url = format!("https://github.com/KyleJamesWalker/last-harvest/releases/download/{VERSION}/game_data.pak");
+        let url = format!(
+            "https://github.com/KyleJamesWalker/last-harvest/releases/download/{VERSION}/game_data.pak"
+        );
         log!("data: fetching {url}");
         *PACK.lock().unwrap_or_else(|e| e.into_inner()) = None;
         let vm = unsafe { jni::JavaVM::from_raw(android.vm_as_ptr().cast()) };
         let asked = vm.attach_current_thread(|env| -> jni::errors::Result<()> {
-            let activity = unsafe { jni::objects::JObject::from_raw(env, android.activity_as_ptr().cast()) };
-            let (url, to) = (env.new_string(&url)?, env.new_string(path.to_string_lossy())?);
+            let activity =
+                unsafe { jni::objects::JObject::from_raw(env, android.activity_as_ptr().cast()) };
+            let (url, to) = (
+                env.new_string(&url)?,
+                env.new_string(path.to_string_lossy())?,
+            );
             let sig = jni::jni_sig!("(Ljava/lang/String;Ljava/lang/String;)V");
-            env.call_method(&activity, jni::jni_str!("fetchPack"), sig, &[jni::JValue::Object(&url), jni::JValue::Object(&to)])?;
+            env.call_method(
+                &activity,
+                jni::jni_str!("fetchPack"),
+                sig,
+                &[jni::JValue::Object(&url), jni::JValue::Object(&to)],
+            )?;
             Ok(())
         });
         if let Err(e) = asked {
@@ -418,7 +583,9 @@ fn release_pack(android: &AndroidApp) -> Result<Option<Vec<u8>>, String> {
 
 /// Where this version's release pack is kept in internal storage.
 fn pack_path(android: &AndroidApp) -> Option<PathBuf> {
-    android.internal_data_path().map(|d| d.join(format!("game_data-{VERSION}.pak")))
+    android
+        .internal_data_path()
+        .map(|d| d.join(format!("game_data-{VERSION}.pak")))
 }
 
 /// The largest 4:3 rect centered in a `w` by `h` window, as x, y, width and height in GL's bottom-up pixels.
@@ -432,10 +599,21 @@ fn fit(w: u32, h: u32) -> [i32; 4] {
 fn vibrate(android: &AndroidApp, ms: Option<i32>) {
     let vm = unsafe { jni::JavaVM::from_raw(android.vm_as_ptr().cast()) };
     let result = vm.attach_current_thread(|env| -> jni::errors::Result<()> {
-        let activity = unsafe { jni::objects::JObject::from_raw(env, android.activity_as_ptr().cast()) };
+        let activity =
+            unsafe { jni::objects::JObject::from_raw(env, android.activity_as_ptr().cast()) };
         match ms {
-            Some(ms) => env.call_method(&activity, jni::jni_str!("vibrate"), jni::jni_sig!("(I)V"), &[jni::JValue::Int(ms)])?,
-            None => env.call_method(&activity, jni::jni_str!("stopVibrate"), jni::jni_sig!("()V"), &[])?,
+            Some(ms) => env.call_method(
+                &activity,
+                jni::jni_str!("vibrate"),
+                jni::jni_sig!("(I)V"),
+                &[jni::JValue::Int(ms)],
+            )?,
+            None => env.call_method(
+                &activity,
+                jni::jni_str!("stopVibrate"),
+                jni::jni_sig!("()V"),
+                &[],
+            )?,
         };
         Ok(())
     });
@@ -497,7 +675,11 @@ fn keep_replays(dir: Option<&Path>, raws: Vec<Vec<u8>>) {
     let Some(dir) = dir else { return };
     for raw in raws {
         match crate::replays::keep(dir, &raw, log::unix_now()) {
-            Ok(path) => log!("replay: {} ({} bytes before gzip)", path.display(), raw.len()),
+            Ok(path) => log!(
+                "replay: {} ({} bytes before gzip)",
+                path.display(),
+                raw.len()
+            ),
             Err(e) => log!("replay: {}: {e}", dir.display()),
         }
     }
@@ -528,34 +710,63 @@ impl App {
         let raw = RawWindowHandle::AndroidNdk(AndroidNdkWindowHandle::new(window.ptr().cast()));
         let display = match &self.display {
             Some(d) => d.clone(),
-            None => unsafe { Display::new(RawDisplayHandle::Android(AndroidDisplayHandle::new()), DisplayApiPreference::Egl) }.map_err(text)?,
+            None => unsafe {
+                Display::new(
+                    RawDisplayHandle::Android(AndroidDisplayHandle::new()),
+                    DisplayApiPreference::Egl,
+                )
+            }
+            .map_err(text)?,
         };
         let config = match &self.config {
             Some(c) => c.clone(),
             None => {
-                let template = ConfigTemplateBuilder::new().with_depth_size(24).with_api(Api::GLES3).compatible_with_native_window(raw).build();
-                unsafe { display.find_configs(template) }.map_err(text)?.max_by_key(|c| c.depth_size().min(24)).ok_or("no GL config")?
+                let template = ConfigTemplateBuilder::new()
+                    .with_depth_size(24)
+                    .with_api(Api::GLES3)
+                    .compatible_with_native_window(raw)
+                    .build();
+                unsafe { display.find_configs(template) }
+                    .map_err(text)?
+                    .max_by_key(|c| c.depth_size().min(24))
+                    .ok_or("no GL config")?
             }
         };
-        let context_attrs = ContextAttributesBuilder::new().with_context_api(ContextApi::Gles(Some(Version::new(3, 0)))).build(Some(raw));
-        let not_current = unsafe { display.create_context(&config, &context_attrs) }.map_err(text)?;
+        let context_attrs = ContextAttributesBuilder::new()
+            .with_context_api(ContextApi::Gles(Some(Version::new(3, 0))))
+            .build(Some(raw));
+        let not_current =
+            unsafe { display.create_context(&config, &context_attrs) }.map_err(text)?;
         let [w, h] = size(&window)?;
         let surface_attrs = SurfaceAttributesBuilder::<WindowSurface>::new().build(raw, w, h);
-        let surface = unsafe { display.create_window_surface(&config, &surface_attrs) }.map_err(text)?;
+        let surface =
+            unsafe { display.create_window_surface(&config, &surface_attrs) }.map_err(text)?;
         let context = not_current.make_current(&surface).map_err(text)?;
-        surface.set_swap_interval(&context, SwapInterval::Wait(NonZeroU32::MIN)).ok();
-        let gl = unsafe { glow::Context::from_loader_function_cstr(|s| display.get_proc_address(s)) };
+        surface
+            .set_swap_interval(&context, SwapInterval::Wait(NonZeroU32::MIN))
+            .ok();
+        let gl =
+            unsafe { glow::Context::from_loader_function_cstr(|s| display.get_proc_address(s)) };
         let renderer = Renderer::new(&gl, Profile::Gles)?;
         self.display = Some(display);
         self.config = Some(config);
-        self.gl = Some(Gl { renderer, gl, bottom: None, surface, context, window });
+        self.gl = Some(Gl {
+            renderer,
+            gl,
+            bottom: None,
+            surface,
+            context,
+            window,
+        });
         second(|s| s.fresh |= s.window.is_some());
         self.last = Instant::now();
         Ok(())
     }
 
     fn event(&mut self, event: PollEvent) {
-        let PollEvent::Main(event) = event else { return };
+        let PollEvent::Main(event) = event else {
+            return;
+        };
         match event {
             MainEvent::InitWindow { .. } => {
                 if let Err(e) = self.start_gl() {
@@ -568,7 +779,9 @@ impl App {
             }
             MainEvent::Resume { .. } => {
                 if self.audio.is_none() {
-                    self.audio = audio::Audio::open(self.sounds).inspect_err(|e| log!("audio disabled: {e}")).ok();
+                    self.audio = audio::Audio::open(self.sounds)
+                        .inspect_err(|e| log!("audio disabled: {e}"))
+                        .ok();
                 }
             }
             MainEvent::Pause => {
@@ -579,7 +792,10 @@ impl App {
                     vibrate(&self.android, None);
                 }
                 for p in &mut self.pads {
-                    *p = PadState { id: p.id, ..Default::default() };
+                    *p = PadState {
+                        id: p.id,
+                        ..Default::default()
+                    };
                 }
                 self.persist(0.0, true);
             }
@@ -608,7 +824,9 @@ impl App {
             }
         }
         let android = self.android.clone();
-        let Ok(mut events) = android.input_events_iter() else { return };
+        let Ok(mut events) = android.input_events_iter() else {
+            return;
+        };
         while events.next(|e| self.input(e)) {}
     }
 
@@ -636,11 +854,13 @@ impl App {
             InputEvent::MotionEvent(m) if u32::from(m.source()) & JOYSTICK != 0 => {
                 let p = m.pointer_at_index(0);
                 let pad = pad_state(&mut self.pads, &self.android, m.device_id());
-                pad.stick = [p.axis_value(Axis::X), p.axis_value(Axis::Y)].map(|v| if v.abs() < STICK_DEAD { 0.0 } else { v });
+                pad.stick = [p.axis_value(Axis::X), p.axis_value(Axis::Y)]
+                    .map(|v| if v.abs() < STICK_DEAD { 0.0 } else { v });
                 pad.hat = [p.axis_value(Axis::HatX), p.axis_value(Axis::HatY)];
                 let z = p.axis_value(Axis::Z);
                 pad.look = if z.abs() < STICK_DEAD { 0.0 } else { z };
-                if pad.stick != [0.0; 2] || pad.look != 0.0 || pad.hat.iter().any(|v| v.abs() > 0.5) {
+                if pad.stick != [0.0; 2] || pad.look != 0.0 || pad.hat.iter().any(|v| v.abs() > 0.5)
+                {
                     self.game.set_pad_family(pad.family);
                 }
                 InputStatus::Handled
@@ -664,7 +884,9 @@ impl App {
                     self.fingers.moved(p.pointer_id(), [p.x(), p.y()]);
                 }
             }
-            MotionAction::Up | MotionAction::PointerUp => self.fingers.up(m.pointer_at_index(m.pointer_index()).pointer_id()),
+            MotionAction::Up | MotionAction::PointerUp => self
+                .fingers
+                .up(m.pointer_at_index(m.pointer_index()).pointer_id()),
             MotionAction::Cancel => {
                 for p in m.pointers() {
                     self.fingers.up(p.pointer_id());
@@ -718,7 +940,9 @@ impl App {
             Ok(surface) => {
                 log!("second screen: {}x{}", window.width(), window.height());
                 // Vsync on the main screen paces the loop; waiting on both would halve the frame rate.
-                surface.set_swap_interval(&g.context, SwapInterval::DontWait).ok();
+                surface
+                    .set_swap_interval(&g.context, SwapInterval::DontWait)
+                    .ok();
                 g.bottom = Some(Bottom { surface, window });
             }
             Err(e) => {
@@ -760,8 +984,12 @@ impl App {
         if self.game.net_traffic().is_none() {
             return;
         }
-        let input = self.tracker.frame(RawInput { lid_closed: true, ..Default::default() });
-        self.online.pump(&mut self.game, frame.as_secs_f32().min(0.05));
+        let input = self.tracker.frame(RawInput {
+            lid_closed: true,
+            ..Default::default()
+        });
+        self.online
+            .pump(&mut self.game, frame.as_secs_f32().min(0.05));
         for input in self.ticker.frame(frame, input) {
             self.game.update(&input, crate::clock::STEP);
         }
@@ -769,7 +997,9 @@ impl App {
     }
 
     fn tick(&mut self) {
-        let Some(g) = &mut self.gl else { return self.away() };
+        let Some(g) = &mut self.gl else {
+            return self.away();
+        };
         let now = Instant::now();
         let frame = now.duration_since(self.last);
         let frame_ms = frame.as_secs_f32() * 1000.0;
@@ -783,7 +1013,8 @@ impl App {
         if self.listed.elapsed() >= PAD_LIST {
             self.listed = Instant::now();
             if let Some(ids) = attached_pads(&self.android) {
-                self.pads.retain(|p| ids.contains(&p.id) || p.keys != Buttons::NONE);
+                self.pads
+                    .retain(|p| ids.contains(&p.id) || p.keys != Buttons::NONE);
             }
         }
         // As on the desktop, split-screen is for one screen; two screens seat one player.
@@ -796,29 +1027,55 @@ impl App {
         let touches = match &g.bottom {
             // Two screens: only the second takes touches, as the bottom screen's, through its letterbox.
             Some(b) => {
-                let (bw, bh) = (b.window.width().max(1) as u32, b.window.height().max(1) as u32);
+                let (bw, bh) = (
+                    b.window.width().max(1) as u32,
+                    b.window.height().max(1) as u32,
+                );
                 let [x, y, fw, fh] = fit(bw, bh);
                 let top = bh as i32 - y - fh;
                 self.fingers.frame(|p| p);
-                self.bottom_fingers.frame(|[nx, ny]| [(nx * bw as f32 - x as f32) / fw as f32 * SCREEN_W, (ny * bh as f32 - top as f32) / fh as f32 * SCREEN_H])
+                self.bottom_fingers.frame(|[nx, ny]| {
+                    [
+                        (nx * bw as f32 - x as f32) / fw as f32 * SCREEN_W,
+                        (ny * bh as f32 - top as f32) / fh as f32 * SCREEN_H,
+                    ]
+                })
             }
             None => self.fingers.frame(|p| p),
         };
-        let raw = RawInput { held, stick, look, touch: touches.iter().flatten().next().copied(), touches, ..Default::default() };
+        let raw = RawInput {
+            held,
+            stick,
+            look,
+            touch: touches.iter().flatten().next().copied(),
+            touches,
+            ..Default::default()
+        };
         let input = self.tracker.frame(raw);
         if let Some(name) = CHOSEN.lock().unwrap_or_else(|e| e.into_inner()).take() {
             self.game.set_folder(&name);
         }
         self.game.set_system(self.stats.frame(frame_ms));
-        self.game.set_phone(g.bottom.is_none().then_some([w.get() as f32, h.get() as f32]));
+        self.game.set_phone(
+            g.bottom
+                .is_none()
+                .then_some([w.get() as f32, h.get() as f32]),
+        );
         self.online.pump(&mut self.game, dt);
-        for inputs in self.ticker.frame_all(frame, std::iter::once(input).chain(others).collect()) {
+        for inputs in self
+            .ticker
+            .frame_all(frame, std::iter::once(input).chain(others).collect())
+        {
             self.game.update_all(&inputs, crate::clock::STEP);
         }
         self.online.send(&mut self.game);
         keep_replays(self.replay_dir.as_deref(), self.game.take_replays());
         if self.game.take_replays_request() {
-            let saved = self.replay_dir.as_deref().map(crate::replays::saved).unwrap_or_default();
+            let saved = self
+                .replay_dir
+                .as_deref()
+                .map(crate::replays::saved)
+                .unwrap_or_default();
             self.game.set_saved_replays(saved);
         }
         if self.game.take_folder_request() {
@@ -842,11 +1099,21 @@ impl App {
         let frame = self.game.draw_at(self.ticker.alpha());
         let capture = self.game.take_screenshot();
         let mut shots = Vec::new();
-        let black = Canvas { clear: [0.0, 0.0, 0.0, 1.0], ..Default::default() };
+        let black = Canvas {
+            clear: [0.0, 0.0, 0.0, 1.0],
+            ..Default::default()
+        };
         if let Some(b) = &g.bottom {
-            let (bw, bh) = (b.window.width().max(1) as u32, b.window.height().max(1) as u32);
+            let (bw, bh) = (
+                b.window.width().max(1) as u32,
+                b.window.height().max(1) as u32,
+            );
             if b.surface.width() != Some(bw) || b.surface.height() != Some(bh) {
-                b.surface.resize(&g.context, NonZeroU32::new(bw).unwrap_or(NonZeroU32::MIN), NonZeroU32::new(bh).unwrap_or(NonZeroU32::MIN));
+                b.surface.resize(
+                    &g.context,
+                    NonZeroU32::new(bw).unwrap_or(NonZeroU32::MIN),
+                    NonZeroU32::new(bh).unwrap_or(NonZeroU32::MIN),
+                );
             }
             if g.context.make_current(&b.surface).is_ok() {
                 g.renderer.draw(&g.gl, &black, [0, 0, bw as i32, bh as i32]);
@@ -861,33 +1128,64 @@ impl App {
             if let Err(e) = g.context.make_current(&g.surface) {
                 log!("gl: {e}");
             }
-            g.renderer.draw(&g.gl, &black, [0, 0, w.get() as i32, h.get() as i32]);
+            g.renderer
+                .draw(&g.gl, &black, [0, 0, w.get() as i32, h.get() as i32]);
             g.renderer.draw(&g.gl, &frame.top, fit(w.get(), h.get()));
             if capture.is_some() {
                 let [x, y, fw, fh] = fit(w.get(), h.get());
-                let top = Shot { top: [x, h.get() as i32 - y - fh, fw, fh].map(|v| v.max(0) as u32), ..shot::read_back(&g.gl, w.get(), h.get()) };
+                let top = Shot {
+                    top: [x, h.get() as i32 - y - fh, fw, fh].map(|v| v.max(0) as u32),
+                    ..shot::read_back(&g.gl, w.get(), h.get())
+                };
                 // The photo is the top screen's picture, the first of the two stacked.
                 shots.insert(0, top);
             }
         } else if views > 1 {
-            crate::draw_split(&mut g.renderer, &g.gl, &crate::frame_views(&frame, views), [w.get() as i32, h.get() as i32]);
+            crate::draw_split(
+                &mut g.renderer,
+                &g.gl,
+                &crate::frame_views(&frame, views),
+                [w.get() as i32, h.get() as i32],
+            );
             if capture.is_some() {
-                let mine = last_harvest_render::split::split(views, [w.get(), h.get()]).get(self.game.menu_view()).copied();
-                shots.push(Shot { top: mine.unwrap_or([0, 0, w.get(), h.get()]), ..shot::read_back(&g.gl, w.get(), h.get()) });
+                let mine = last_harvest_render::split::split(views, [w.get(), h.get()])
+                    .get(self.game.menu_view())
+                    .copied();
+                shots.push(Shot {
+                    top: mine.unwrap_or([0, 0, w.get(), h.get()]),
+                    ..shot::read_back(&g.gl, w.get(), h.get())
+                });
             }
         } else if let Some(phone) = &frame.phone {
-            crate::draw_phone(&mut g.renderer, &g.gl, &frame, phone, [w.get() as i32, h.get() as i32]);
+            crate::draw_phone(
+                &mut g.renderer,
+                &g.gl,
+                &frame,
+                phone,
+                [w.get() as i32, h.get() as i32],
+            );
             if capture.is_some() {
                 let pic = phone.top.map(|r| r.map(|v| v.round().max(0.0) as u32));
-                shots.push(Shot { top: pic.unwrap_or([0, 0, w.get(), h.get()]), ..shot::read_back(&g.gl, w.get(), h.get()) });
+                shots.push(Shot {
+                    top: pic.unwrap_or([0, 0, w.get(), h.get()]),
+                    ..shot::read_back(&g.gl, w.get(), h.get())
+                });
             }
         }
         if let Some(capture) = capture {
             let img = if shots.len() > 1 {
                 let top = shots[0].top;
-                Shot { top, ..shot::stack(shots) }
+                Shot {
+                    top,
+                    ..shot::stack(shots)
+                }
             } else {
-                shots.pop().unwrap_or(Shot { width: 0, height: 0, rgba: Vec::new(), top: [0; 4] })
+                shots.pop().unwrap_or(Shot {
+                    width: 0,
+                    height: 0,
+                    rgba: Vec::new(),
+                    top: [0; 4],
+                })
             };
             if img.width > 0 {
                 save_shot(&self.android, capture, img);
@@ -903,16 +1201,36 @@ impl App {
 /// Points the game at its mods, cards, props and maps: a copy of the game folder's, which `MainActivity` makes before
 /// the game loads them, else `Android/data/<app>/files/data` until the player chooses a game folder.
 fn data_folders(android: &AndroidApp) {
-    let copied = android.internal_data_path().map(|d| d.join("folder")).filter(|copy| {
-        let copy = copy.to_string_lossy().into_owned();
-        let done = activity(android, "copyFolder", |env, a| {
-            let dest = env.new_string(&copy)?;
-            env.call_method(a, jni::jni_str!("copyFolder"), jni::jni_sig!("(Ljava/lang/String;)Z"), &[jni::JValue::Object(&dest)])?.z()
+    let copied = android
+        .internal_data_path()
+        .map(|d| d.join("folder"))
+        .filter(|copy| {
+            let copy = copy.to_string_lossy().into_owned();
+            let done = activity(android, "copyFolder", |env, a| {
+                let dest = env.new_string(&copy)?;
+                env.call_method(
+                    a,
+                    jni::jni_str!("copyFolder"),
+                    jni::jni_sig!("(Ljava/lang/String;)Z"),
+                    &[jni::JValue::Object(&dest)],
+                )?
+                .z()
+            });
+            done.inspect_err(|e| log!("{e}")).unwrap_or(false)
         });
-        done.inspect_err(|e| log!("{e}")).unwrap_or(false)
-    });
-    let Some(data) = copied.clone().or_else(|| android.external_data_path().map(|d| d.join("data"))) else { return };
-    for (var, dir) in [("LAST_HARVEST_MODS", "mods"), ("LAST_HARVEST_ENEMIES", "enemies"), ("LAST_HARVEST_PLAYERS", "players"), ("LAST_HARVEST_PROPS", "props"), ("LAST_HARVEST_MAPS", "maps")] {
+    let Some(data) = copied
+        .clone()
+        .or_else(|| android.external_data_path().map(|d| d.join("data")))
+    else {
+        return;
+    };
+    for (var, dir) in [
+        ("LAST_HARVEST_MODS", "mods"),
+        ("LAST_HARVEST_ENEMIES", "enemies"),
+        ("LAST_HARVEST_PLAYERS", "players"),
+        ("LAST_HARVEST_PROPS", "props"),
+        ("LAST_HARVEST_MAPS", "maps"),
+    ] {
         let path = data.join(dir);
         if let Err(e) = std::fs::create_dir_all(&path) {
             log!("data: {}: {e}", path.display());
@@ -921,7 +1239,10 @@ fn data_folders(android: &AndroidApp) {
         unsafe { std::env::set_var(var, &path) };
     }
     if copied.is_some() {
-        log!("data: mods and cards from the game folder {}", folder_name(android));
+        log!(
+            "data: mods and cards from the game folder {}",
+            folder_name(android)
+        );
         return;
     }
     let readme = data.join("README.txt");
@@ -942,7 +1263,10 @@ fn load_data(android: &AndroidApp) -> Result<Option<&'static samples::Files>, St
         return Ok(Some(sounds));
     }
     data_folders(android);
-    let bundled = android.asset_manager().open(c"game_data.pak").map(|mut a| a.buffer().map(|b| Some(b.to_vec())).map_err(text));
+    let bundled = android
+        .asset_manager()
+        .open(c"game_data.pak")
+        .map(|mut a| a.buffer().map(|b| Some(b.to_vec())).map_err(text));
     let pack = match bundled.unwrap_or_else(|| release_pack(android)) {
         Ok(Some(bytes)) => Pak::read(Cursor::new(bytes)).inspect_err(|_| {
             if let Some(path) = pack_path(android) {
@@ -952,25 +1276,45 @@ fn load_data(android: &AndroidApp) -> Result<Option<&'static samples::Files>, St
         Ok(None) => return Ok(None),
         Err(e) => Err(e),
     };
-    let off = android.internal_data_path().and_then(|d| std::fs::read_to_string(d.join("save.txt")).ok()).map(|t| last_harvest_game::mods_off_in(&t)).unwrap_or_default();
+    let off = android
+        .internal_data_path()
+        .and_then(|d| std::fs::read_to_string(d.join("save.txt")).ok())
+        .map(|t| last_harvest_game::mods_off_in(&t))
+        .unwrap_or_default();
     let sounds = match pack {
         Ok(pack) => pak::install_without(Some(pack), None, &off)?,
         Err(e) => {
             log!("data: {e}");
             WITHOUT_DATA.store(true, Ordering::SeqCst);
-            pak::install_without(None, Some(format!("Connect to the internet and start the game again to download its data ({e}).")), &off)?
+            pak::install_without(
+                None,
+                Some(format!(
+                    "Connect to the internet and start the game again to download its data ({e})."
+                )),
+                &off,
+            )?
         }
     };
     Ok(Some(SOUNDS.get_or_init(|| sounds)))
 }
 
 fn run(android: AndroidApp) -> Result<(), String> {
-    let Some(sounds) = load_data(&android)? else { return Ok(()) };
+    let Some(sounds) = load_data(&android)? else {
+        return Ok(());
+    };
     CHOSEN.lock().unwrap_or_else(|e| e.into_inner()).take();
     second(|s| s.touches.clear());
     let save_path = android.internal_data_path().map(|d| d.join("save.txt"));
-    let saved = save_path.as_ref().and_then(|p| std::fs::read_to_string(p).ok()).map(|t| Save::parse(&t)).unwrap_or_default();
-    let mut game = Game::new(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.as_nanos() as u64));
+    let saved = save_path
+        .as_ref()
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .map(|t| Save::parse(&t))
+        .unwrap_or_default();
+    let mut game = Game::new(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(1, |d| d.as_nanos() as u64),
+    );
     game.load(saved);
     game.record_replays(crate::replays::info());
     game.set_backlights(false);
@@ -1008,11 +1352,17 @@ fn run(android: AndroidApp) -> Result<(), String> {
         if let Err(e) = app.start_gl() {
             log!("gl: {e}");
         }
-        app.audio = audio::Audio::open(app.sounds).inspect_err(|e| log!("audio disabled: {e}")).ok();
+        app.audio = audio::Audio::open(app.sounds)
+            .inspect_err(|e| log!("audio disabled: {e}"))
+            .ok();
     }
     while !app.quit {
         // With a window, vsync in swap_buffers paces the loop; without one, wait for Android to give it back.
-        let timeout = if app.gl.is_some() { Some(Duration::ZERO) } else { app.game.net_traffic().map(|_| AWAY_POLL) };
+        let timeout = if app.gl.is_some() {
+            Some(Duration::ZERO)
+        } else {
+            app.game.net_traffic().map(|_| AWAY_POLL)
+        };
         android.poll_events(timeout, |event| app.event(event));
         if app.quit {
             break;

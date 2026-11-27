@@ -25,7 +25,8 @@ struct Entry {
 
 impl Entry {
     fn refill(&mut self, per_minute: u32, now: Instant) {
-        let earned = now.saturating_duration_since(self.at).as_secs_f64() * per_minute as f64 / 60.0;
+        let earned =
+            now.saturating_duration_since(self.at).as_secs_f64() * per_minute as f64 / 60.0;
         self.allowance = (self.allowance + earned).min(per_minute as f64);
         self.at = now;
     }
@@ -40,14 +41,21 @@ pub struct AddressLimits {
 
 impl AddressLimits {
     pub fn new(max_open: usize, per_minute: u32) -> Arc<AddressLimits> {
-        Arc::new(AddressLimits { max_open, per_minute, addresses: Mutex::default() })
+        Arc::new(AddressLimits {
+            max_open,
+            per_minute,
+            addresses: Mutex::default(),
+        })
     }
 
     /// Counts a new connection from `address` until the slot drops. Loopback is exempt.
     pub fn open(self: &Arc<Self>, address: IpAddr, now: Instant) -> Result<AddressSlot, Refusal> {
         let address = key(address);
         if address.is_loopback() || (self.max_open == 0 && self.per_minute == 0) {
-            return Ok(AddressSlot { limits: self.clone(), address: None });
+            return Ok(AddressSlot {
+                limits: self.clone(),
+                address: None,
+            });
         }
         let mut addresses = self.addresses.lock().unwrap_or_else(|e| e.into_inner());
         if addresses.len() >= PRUNE_AT {
@@ -58,7 +66,12 @@ impl AddressLimits {
             });
         }
         let full = self.per_minute as f64;
-        let entry = addresses.entry(address).or_insert(Entry { open: 0, allowance: full, at: now, logged_refusal: false });
+        let entry = addresses.entry(address).or_insert(Entry {
+            open: 0,
+            allowance: full,
+            at: now,
+            logged_refusal: false,
+        });
         entry.refill(self.per_minute, now);
         let refusal = if self.max_open > 0 && entry.open >= self.max_open {
             Some(Refusal::TooManyOpen)
@@ -69,7 +82,14 @@ impl AddressLimits {
         };
         if let Some(refusal) = refusal {
             if !entry.logged_refusal {
-                println!("[relay] refusing {address}: {}", if refusal == Refusal::TooFast { "too many new connections" } else { "too many open" });
+                println!(
+                    "[relay] refusing {address}: {}",
+                    if refusal == Refusal::TooFast {
+                        "too many new connections"
+                    } else {
+                        "too many open"
+                    }
+                );
             }
             entry.logged_refusal = true;
             return Err(refusal);
@@ -79,7 +99,10 @@ impl AddressLimits {
         if self.per_minute > 0 {
             entry.allowance -= 1.0;
         }
-        Ok(AddressSlot { limits: self.clone(), address: Some(address) })
+        Ok(AddressSlot {
+            limits: self.clone(),
+            address: Some(address),
+        })
     }
 }
 
@@ -92,7 +115,13 @@ pub struct AddressSlot {
 impl Drop for AddressSlot {
     fn drop(&mut self) {
         let Some(address) = self.address else { return };
-        if let Some(entry) = self.limits.addresses.lock().unwrap_or_else(|e| e.into_inner()).get_mut(&address) {
+        if let Some(entry) = self
+            .limits
+            .addresses
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get_mut(&address)
+        {
             entry.open = entry.open.saturating_sub(1);
         }
     }
@@ -139,7 +168,12 @@ pub fn is_local(address: IpAddr) -> bool {
             Some(v4) => is_local(IpAddr::V4(v4)),
             None => v6.is_loopback() || v6.is_unique_local() || v6.is_unicast_link_local(),
         },
-        IpAddr::V4(v4) => v4.is_loopback() || v4.is_private() || v4.is_link_local() || (v4.octets()[0] == 100 && v4.octets()[1] & 0xc0 == 64),
+        IpAddr::V4(v4) => {
+            v4.is_loopback()
+                || v4.is_private()
+                || v4.is_link_local()
+                || (v4.octets()[0] == 100 && v4.octets()[1] & 0xc0 == 64)
+        }
     }
 }
 
@@ -162,12 +196,17 @@ pub fn may_proxy(address: IpAddr, trusted: TrustedProxies) -> bool {
 
 /// The value of the last `name` header in an HTTP request head.
 pub fn header<'a>(head: &'a str, name: &str) -> Option<&'a str> {
-    head.lines().filter_map(|l| l.split_once(':')).rfind(|(n, _)| n.trim().eq_ignore_ascii_case(name)).map(|(_, v)| v.trim())
+    head.lines()
+        .filter_map(|l| l.split_once(':'))
+        .rfind(|(n, _)| n.trim().eq_ignore_ascii_case(name))
+        .map(|(_, v)| v.trim())
 }
 
 /// The client address a proxy put last in `X-Forwarded-For`, if `head` has one.
 pub fn forwarded_for(head: &str) -> Option<IpAddr> {
-    header(head, "x-forwarded-for").and_then(|value| value.rsplit(',').next()).and_then(|last| last.trim().parse().ok())
+    header(head, "x-forwarded-for")
+        .and_then(|value| value.rsplit(',').next())
+        .and_then(|last| last.trim().parse().ok())
 }
 
 #[cfg(test)]
@@ -185,8 +224,14 @@ mod tests {
         let now = Instant::now();
         let a = limits.open(ip("203.0.113.1"), now).unwrap();
         let _b = limits.open(ip("203.0.113.1"), now).unwrap();
-        assert_eq!(limits.open(ip("203.0.113.1"), now).err(), Some(Refusal::TooManyOpen));
-        assert!(limits.open(ip("203.0.113.2"), now).is_ok(), "other addresses are not affected");
+        assert_eq!(
+            limits.open(ip("203.0.113.1"), now).err(),
+            Some(Refusal::TooManyOpen)
+        );
+        assert!(
+            limits.open(ip("203.0.113.2"), now).is_ok(),
+            "other addresses are not affected"
+        );
         drop(a);
         assert!(limits.open(ip("203.0.113.1"), now).is_ok());
     }
@@ -198,17 +243,48 @@ mod tests {
         for _ in 0..6 {
             drop(limits.open(ip("203.0.113.1"), now).unwrap());
         }
-        assert_eq!(limits.open(ip("203.0.113.1"), now).err(), Some(Refusal::TooFast));
-        assert!(limits.open(ip("203.0.113.1"), now + Duration::from_secs(5)).is_err());
-        assert!(limits.open(ip("203.0.113.1"), now + Duration::from_secs(10)).is_ok(), "one more every 10 s");
+        assert_eq!(
+            limits.open(ip("203.0.113.1"), now).err(),
+            Some(Refusal::TooFast)
+        );
+        assert!(
+            limits
+                .open(ip("203.0.113.1"), now + Duration::from_secs(5))
+                .is_err()
+        );
+        assert!(
+            limits
+                .open(ip("203.0.113.1"), now + Duration::from_secs(10))
+                .is_ok(),
+            "one more every 10 s"
+        );
     }
 
     #[test]
     fn local_addresses_are_this_network() {
-        for local in ["127.0.0.1", "10.1.2.3", "172.16.0.9", "192.168.1.5", "169.254.3.4", "100.64.0.1", "100.127.255.254", "::1", "fd12::1", "fe80::1", "::ffff:192.168.1.5"] {
+        for local in [
+            "127.0.0.1",
+            "10.1.2.3",
+            "172.16.0.9",
+            "192.168.1.5",
+            "169.254.3.4",
+            "100.64.0.1",
+            "100.127.255.254",
+            "::1",
+            "fd12::1",
+            "fe80::1",
+            "::ffff:192.168.1.5",
+        ] {
             assert!(is_local(ip(local)), "{local}");
         }
-        for public in ["203.0.113.1", "8.8.8.8", "100.128.0.1", "172.32.0.1", "2001:db8::1", "::ffff:8.8.8.8"] {
+        for public in [
+            "203.0.113.1",
+            "8.8.8.8",
+            "100.128.0.1",
+            "172.32.0.1",
+            "2001:db8::1",
+            "::ffff:8.8.8.8",
+        ] {
             assert!(!is_local(ip(public)), "{public}");
         }
     }
@@ -217,10 +293,15 @@ mod tests {
     fn loopback_is_exempt_and_ipv6_counts_by_56() {
         let limits = AddressLimits::new(1, 1);
         let now = Instant::now();
-        let _slots: Vec<_> = (0..5).map(|_| limits.open(ip("127.0.0.1"), now).unwrap()).collect();
+        let _slots: Vec<_> = (0..5)
+            .map(|_| limits.open(ip("127.0.0.1"), now).unwrap())
+            .collect();
         let _v6 = limits.open(ip("2001:db8:1:2::1"), now).unwrap();
         assert!(limits.open(ip("2001:db8:1:2::ffff"), now).is_err());
-        assert!(limits.open(ip("2001:db8:1:3::1"), now).is_err(), "another /64 of the same /56");
+        assert!(
+            limits.open(ip("2001:db8:1:3::1"), now).is_err(),
+            "another /64 of the same /56"
+        );
         assert!(limits.open(ip("2001:db8:1:ff::1"), now).is_err());
         assert!(limits.open(ip("2001:db8:1:100::1"), now).is_ok());
     }
@@ -228,11 +309,21 @@ mod tests {
     #[test]
     fn proxies_and_forwarded_addresses() {
         let private = TrustedProxies::Private;
-        assert!(may_proxy(ip("127.0.0.1"), private) && may_proxy(ip("172.18.0.3"), private) && may_proxy(ip("fd00::1"), private));
+        assert!(
+            may_proxy(ip("127.0.0.1"), private)
+                && may_proxy(ip("172.18.0.3"), private)
+                && may_proxy(ip("fd00::1"), private)
+        );
         assert!(may_proxy(ip("::ffff:192.168.1.5"), private));
         assert!(!may_proxy(ip("203.0.113.1"), private));
-        assert!(may_proxy(ip("127.0.0.1"), TrustedProxies::Loopback) && may_proxy(ip("::1"), TrustedProxies::Loopback));
-        assert!(!may_proxy(ip("192.168.1.5"), TrustedProxies::Loopback), "a LAN peer is not a proxy by default");
+        assert!(
+            may_proxy(ip("127.0.0.1"), TrustedProxies::Loopback)
+                && may_proxy(ip("::1"), TrustedProxies::Loopback)
+        );
+        assert!(
+            !may_proxy(ip("192.168.1.5"), TrustedProxies::Loopback),
+            "a LAN peer is not a proxy by default"
+        );
         assert!(!may_proxy(ip("127.0.0.1"), TrustedProxies::None));
         let head = "GET / HTTP/1.1\r\nHost: x\r\nX-Forwarded-For: 198.51.100.7, 203.0.113.9\r\nUpgrade: websocket";
         assert_eq!(forwarded_for(head), Some(ip("203.0.113.9")));

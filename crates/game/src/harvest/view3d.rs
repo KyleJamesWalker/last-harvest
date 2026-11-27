@@ -11,9 +11,12 @@ use glam::{Mat4, Vec3};
 
 use super::carve;
 use super::map::TILE;
-use crate::art::Stand;
 use super::weapons::{BOLT_LIFE, Hazard};
-use super::{DropKind, Facing, Harvest, Phase, TELL_TIME, TURN_RISE, TURNED, Thrown, Zombie, len, player_pose, player_worn, sub, worn_corner};
+use super::{
+    DropKind, Facing, Harvest, Phase, TELL_TIME, TURN_RISE, TURNED, Thrown, Zombie, len,
+    player_pose, player_worn, sub, worn_corner,
+};
+use crate::art::Stand;
 use crate::art::{self, ATLAS_H, ATLAS_W, Art};
 use crate::scene3d::{Card, CardScene, Flash};
 use crate::{SCREEN_H, SCREEN_W};
@@ -55,10 +58,23 @@ struct Face {
 fn faces(art: Art, reach: Reach, top: Option<Art>) -> Cow<'static, [Face]> {
     static ALL: [OnceLock<Vec<Vec<Face>>>; 2] = [OnceLock::new(), OnceLock::new()];
     if art.is_live() || top != art.top() {
-        return Cow::Owned(art::with_pixels(art, |pixels| extrude(pixels, art.rect(), reach, top.map(Art::rect), art.detail())));
+        return Cow::Owned(art::with_pixels(art, |pixels| {
+            extrude(pixels, art.rect(), reach, top.map(Art::rect), art.detail())
+        }));
     }
     let all = ALL[reach as usize].get_or_init(|| {
-        (0..art::count() as u16).map(Art).map(|a| extrude(art::pixels(), a.rect(), reach, a.top().map(Art::rect), a.detail())).collect()
+        (0..art::count() as u16)
+            .map(Art)
+            .map(|a| {
+                extrude(
+                    art::pixels(),
+                    a.rect(),
+                    reach,
+                    a.top().map(Art::rect),
+                    a.detail(),
+                )
+            })
+            .collect()
     });
     Cow::Borrowed(&all[art.0 as usize])
 }
@@ -73,7 +89,11 @@ pub(super) fn crops_in_view(h: &Harvest) -> (usize, usize) {
     for ty in (cz - r).max(0)..(cz + r).min(h.map.h as i32) {
         for tx in (cx - r).max(0)..(cx + r).min(h.map.w as i32) {
             let d = Vec3::new(tx as f32 + 0.5, 0.0, ty as f32 + 0.5) - p;
-            if let Some(stalk) = h.map.standing(tx as usize, ty as usize).filter(|_| d.length() < VIEW_RADIUS && d.dot(forward) > -4.0) {
+            if let Some(stalk) = h
+                .map
+                .standing(tx as usize, ty as usize)
+                .filter(|_| d.length() < VIEW_RADIUS && d.dot(forward) > -4.0)
+            {
                 cells += 1;
                 cards += stalk.tall as usize;
             }
@@ -88,17 +108,30 @@ fn clear_ends(a: Art) -> [f32; 2] {
     static ALL: OnceLock<Vec<[f32; 2]>> = OnceLock::new();
     let scan = |pixels: &[u8], a: Art| {
         let [x, y, w, h] = a.rect().map(usize::from);
-        let clear = |row: usize| (x..x + w).all(|c| pixels[((y + row) * art::ATLAS_W as usize + c) * 4 + 3] == 0);
+        let clear = |row: usize| {
+            (x..x + w).all(|c| pixels[((y + row) * art::ATLAS_W as usize + c) * 4 + 3] == 0)
+        };
         let under = (0..h).rev().take_while(|&r| clear(r)).count();
-        let over = if under == h { 0 } else { (0..h).take_while(|&r| clear(r)).count() };
+        let over = if under == h {
+            0
+        } else {
+            (0..h).take_while(|&r| clear(r)).count()
+        };
         let d = a.detail() as f32;
         [under as f32 / d, over as f32 / d]
     };
     if a.is_live() {
         return art::with_pixels(a, |p| scan(p, a));
     }
-    let all = ALL.get_or_init(|| (0..art::count() as u16).map(Art).map(|a| scan(art::pixels(), a)).collect());
-    all.get(a.0 as usize).copied().unwrap_or_else(|| scan(art::pixels(), a))
+    let all = ALL.get_or_init(|| {
+        (0..art::count() as u16)
+            .map(Art)
+            .map(|a| scan(art::pixels(), a))
+            .collect()
+    });
+    all.get(a.0 as usize)
+        .copied()
+        .unwrap_or_else(|| scan(art::pixels(), a))
 }
 
 /// How far inside the outline an extrusion's sides look for their color.
@@ -117,7 +150,13 @@ enum Reach {
 fn extrude(pixels: &[u8], rect: [u16; 4], reach: Reach, top: Option<[u16; 4]>, d: u8) -> Vec<Face> {
     let [rx, ry, w, h] = rect.map(|v| v as i32);
     let d = d.max(1) as i32;
-    let solid = |x: i32, y: i32| x >= 0 && y >= 0 && x < w && y < h && pixels[(((ry + y) * ATLAS_W as i32 + rx + x) * 4 + 3) as usize] > 0;
+    let solid = |x: i32, y: i32| {
+        x >= 0
+            && y >= 0
+            && x < w
+            && y < h
+            && pixels[(((ry + y) * ATLAS_W as i32 + rx + x) * 4 + 3) as usize] > 0
+    };
     let (cw, ch) = ((w + d - 1) / d, (h + d - 1) / d);
     let opaque = |x: i32, y: i32| (0..d).any(|j| (0..d).any(|i| solid(x * d + i, y * d + j)));
     // A block edge in texture pixels.
@@ -129,8 +168,26 @@ fn extrude(pixels: &[u8], rect: [u16; 4], reach: Reach, top: Option<[u16; 4]>, d
     let (wf, hf) = (w as f32, h as f32);
     let full = [u(0), v(0), u(w), v(h)];
     let mut out = vec![
-        Face { corners: [[0.0, 0.0, 0.0], [wf, 0.0, 0.0], [wf, hf, 0.0], [0.0, hf, 0.0]], uv: full, normal: [0.0, 0.0, -1.0] },
-        Face { corners: [[0.0, 0.0, 1.0], [wf, 0.0, 1.0], [wf, hf, 1.0], [0.0, hf, 1.0]], uv: full, normal: [0.0, 0.0, 1.0] },
+        Face {
+            corners: [
+                [0.0, 0.0, 0.0],
+                [wf, 0.0, 0.0],
+                [wf, hf, 0.0],
+                [0.0, hf, 0.0],
+            ],
+            uv: full,
+            normal: [0.0, 0.0, -1.0],
+        },
+        Face {
+            corners: [
+                [0.0, 0.0, 1.0],
+                [wf, 0.0, 1.0],
+                [wf, hf, 1.0],
+                [0.0, hf, 1.0],
+            ],
+            uv: full,
+            normal: [0.0, 0.0, 1.0],
+        },
     ];
     // Runs of edge blocks become one face each, textured with the pixels just inside the outline
     // stretched along the depth, so a wall's side shows its planks rather than its black border.
@@ -140,9 +197,20 @@ fn extrude(pixels: &[u8], rect: [u16; 4], reach: Reach, top: Option<[u16; 4]>, d
     };
     // The block's first solid pixel in from its edge facing away from (dx, dy), row by row or column by column.
     let start = |x: i32, y: i32, dx: i32, dy: i32| {
-        let (x0, y0) = (if dx < 0 { x * d + d - 1 } else { x * d }, if dy < 0 { y * d + d - 1 } else { y * d });
+        let (x0, y0) = (
+            if dx < 0 { x * d + d - 1 } else { x * d },
+            if dy < 0 { y * d + d - 1 } else { y * d },
+        );
         (0..d)
-            .flat_map(|a| (0..d).map(move |k| if dx != 0 { (x0 + dx * k, y * d + a) } else { (x * d + a, y0 + dy * k) }))
+            .flat_map(|a| {
+                (0..d).map(move |k| {
+                    if dx != 0 {
+                        (x0 + dx * k, y * d + a)
+                    } else {
+                        (x * d + a, y0 + dy * k)
+                    }
+                })
+            })
             .find(|&(ix, iy)| solid(ix, iy))
             .unwrap_or((x0, y0))
     };
@@ -153,7 +221,10 @@ fn extrude(pixels: &[u8], rect: [u16; 4], reach: Reach, top: Option<[u16; 4]>, d
             Reach::Deep => 4,
         };
         let (sx, sy) = start(x, y, dx, dy);
-        (0..steps).map(|k| (sx + dx * k, sy + dy * k)).find(|&(ix, iy)| solid(ix, iy) && !dark(ix, iy)).unwrap_or((sx, sy))
+        (0..steps)
+            .map(|k| (sx + dx * k, sy + dy * k))
+            .find(|&(ix, iy)| solid(ix, iy) && !dark(ix, iy))
+            .unwrap_or((sx, sy))
     };
     for x in 0..cw {
         for (side, at, nx) in [(-1, x, -1.0), (1, x + 1, 1.0)] {
@@ -171,7 +242,12 @@ fn extrude(pixels: &[u8], rect: [u16; 4], reach: Reach, top: Option<[u16; 4]>, d
                 let (xf, uc) = (edge_x(at) as f32, (rx as f32 + col as f32 + 0.5) / aw);
                 let (ya, yb) = (edge_y(y0), edge_y(y));
                 out.push(Face {
-                    corners: [[xf, ya as f32, 0.0], [xf, ya as f32, 1.0], [xf, yb as f32, 1.0], [xf, yb as f32, 0.0]],
+                    corners: [
+                        [xf, ya as f32, 0.0],
+                        [xf, ya as f32, 1.0],
+                        [xf, yb as f32, 1.0],
+                        [xf, yb as f32, 0.0],
+                    ],
                     uv: [uc, v(ya), uc, v(yb)],
                     normal: [nx, 0.0, 0.0],
                 });
@@ -183,7 +259,9 @@ fn extrude(pixels: &[u8], rect: [u16; 4], reach: Reach, top: Option<[u16; 4]>, d
         let [tx, ty, tw, _] = top?.map(|v| v as i32);
         let c = x * d + d / 2;
         let i = ((ty * ATLAS_W as i32 + tx + c) * 4 + 3) as usize;
-        (c < tw && pixels[i] > 0).then_some(((tx + c) as f32 + 0.5) / aw).map(|u| (u, (ty as f32 + 0.5) / ah))
+        (c < tw && pixels[i] > 0)
+            .then_some(((tx + c) as f32 + 0.5) / aw)
+            .map(|u| (u, (ty as f32 + 0.5) / ah))
     };
     for y in 0..ch {
         for (side, at, ny) in [(-1, y, 1.0), (1, y + 1, -1.0)] {
@@ -206,13 +284,22 @@ fn extrude(pixels: &[u8], rect: [u16; 4], reach: Reach, top: Option<[u16; 4]>, d
                     continue;
                 }
                 let (x0, row) = (x, inside(x, y, 0, -side).1);
-                while x < cw && edge(x) && inside(x, y, 0, -side).1 == row && (side != -1 || capped(x).is_none()) {
+                while x < cw
+                    && edge(x)
+                    && inside(x, y, 0, -side).1 == row
+                    && (side != -1 || capped(x).is_none())
+                {
                     x += 1;
                 }
                 let vc = (ry as f32 + row as f32 + 0.5) / ah;
                 let (xa, xb) = (edge_x(x0), edge_x(x));
                 out.push(Face {
-                    corners: [[xa as f32, yf, 1.0], [xb as f32, yf, 1.0], [xb as f32, yf, 0.0], [xa as f32, yf, 0.0]],
+                    corners: [
+                        [xa as f32, yf, 1.0],
+                        [xb as f32, yf, 1.0],
+                        [xb as f32, yf, 0.0],
+                        [xa as f32, yf, 0.0],
+                    ],
                     uv: [u(xa), vc, u(xb), vc],
                     normal: [0.0, ny, 0.0],
                 });
@@ -237,7 +324,16 @@ struct Pose {
 
 impl Pose {
     fn upright(origin: Vec3, right: Vec3, back: Vec3, depth: f32) -> Self {
-        Self { origin, right, up: Vec3::Y, back, depth, tint: [1.0; 3], reach: Reach::Deep, top: None }
+        Self {
+            origin,
+            right,
+            up: Vec3::Y,
+            back,
+            depth,
+            tint: [1.0; 3],
+            reach: Reach::Deep,
+            top: None,
+        }
     }
 }
 
@@ -247,13 +343,37 @@ impl Pose {
 fn stand(out: &mut Vec<Card>, eye: Vec3, art: Art, flip: bool, pose: Pose, solid: bool) {
     let all = faces(art, pose.reach, pose.top);
     let [_, _, w, h] = art.rect().map(f32::from);
-    place(out, eye, if solid { &all[..] } else { &all[..2] }, [w, h], 1.0 / art.detail() as f32, flip, pose);
+    place(
+        out,
+        eye,
+        if solid { &all[..] } else { &all[..2] },
+        [w, h],
+        1.0 / art.detail() as f32,
+        flip,
+        pose,
+    );
 }
 
 /// Places extruded faces of a picture `w` by `h` texture pixels, `k` game pixels each, as `stand` does.
 #[allow(clippy::too_many_arguments)]
-fn place(out: &mut Vec<Card>, eye: Vec3, used: &[Face], [w, h]: [f32; 2], k: f32, flip: bool, pose: Pose) {
-    let Pose { origin, right, up, back, depth, tint, .. } = pose;
+fn place(
+    out: &mut Vec<Card>,
+    eye: Vec3,
+    used: &[Face],
+    [w, h]: [f32; 2],
+    k: f32,
+    flip: bool,
+    pose: Pose,
+) {
+    let Pose {
+        origin,
+        right,
+        up,
+        back,
+        depth,
+        tint,
+        ..
+    } = pose;
     let (rn, un) = (right.normalize_or_zero(), up.normalize_or_zero());
     for f in used {
         let place = |[x, y, z]: [f32; 3]| {
@@ -264,7 +384,10 @@ fn place(out: &mut Vec<Card>, eye: Vec3, used: &[Face], [w, h]: [f32; 2], k: f32
         let normal = rn * if flip { -n[0] } else { n[0] } + un * n[1] + back * n[2];
         let corners = f.corners.map(place);
         if normal.dot(eye - corners[0]) > 0.0 {
-            out.push(Card { tint, ..Card::new(corners, f.uv, normal) });
+            out.push(Card {
+                tint,
+                ..Card::new(corners, f.uv, normal)
+            });
         }
     }
 }
@@ -273,19 +396,55 @@ fn place(out: &mut Vec<Card>, eye: Vec3, used: &[Face], [w, h]: [f32; 2], k: f32
 /// both in map pixels, tinted by `tint`. Figures turn to face the camera, so the caller draws those.
 fn fixed(out: &mut Vec<Card>, eye: Vec3, a: Art, how: Stand, left: f32, base: f32, tint: [f32; 3]) {
     match how {
-        Stand::Prop { depth } => stand(out, eye, a.solid(), false, Pose { tint, ..Pose::upright(Vec3::new(left * PX, 0.0, base * PX), Vec3::X, -Vec3::Z, depth * PX) }, true),
+        Stand::Prop { depth } => stand(
+            out,
+            eye,
+            a.solid(),
+            false,
+            Pose {
+                tint,
+                ..Pose::upright(
+                    Vec3::new(left * PX, 0.0, base * PX),
+                    Vec3::X,
+                    -Vec3::Z,
+                    depth * PX,
+                )
+            },
+            true,
+        ),
         // The sprite is the roof, its top row to the north, and its edges run down to the ground.
         // Colors cleared in 3D stay on the ground beneath it.
         Stand::Slab { height, lift } => {
             if a.solid() != a && lift == 0.0 {
-                flat(out, a, left * PX, (base - a.h()) * PX, DECAL_LIFT + 0.006, tint);
+                flat(
+                    out,
+                    a,
+                    left * PX,
+                    (base - a.h()) * PX,
+                    DECAL_LIFT + 0.006,
+                    tint,
+                );
             }
             let center = Vec3::new((left + a.w() / 2.0) * PX, 0.0, (base - a.h() / 2.0) * PX);
             lying(out, eye, a, center, 0.0, height, lift, tint);
         }
-        Stand::Ground => flat(out, a, left * PX, (base - a.h()) * PX, DECAL_LIFT + 0.006, tint),
-        Stand::Turned { east, depth } => turned(out, eye, a, east, depth, left, base - a.h(), tint, 0.0),
-        Stand::Carve { .. } => carved(out, eye, Carving::of(a, how).unwrap(), Vec3::new(left * PX, 0.0, (base - a.h()) * PX)),
+        Stand::Ground => flat(
+            out,
+            a,
+            left * PX,
+            (base - a.h()) * PX,
+            DECAL_LIFT + 0.006,
+            tint,
+        ),
+        Stand::Turned { east, depth } => {
+            turned(out, eye, a, east, depth, left, base - a.h(), tint, 0.0)
+        }
+        Stand::Carve { .. } => carved(
+            out,
+            eye,
+            Carving::of(a, how).unwrap(),
+            Vec3::new(left * PX, 0.0, (base - a.h()) * PX),
+        ),
         Stand::Fold { rows } => folded(out, eye, a, rows, left, base, tint),
         Stand::Figure { .. } => {}
     }
@@ -298,12 +457,33 @@ fn placed(prop: &super::map::Prop, t: f32) -> (Art, Stand, Vec3, [f32; 2]) {
     let how = a.stand().unwrap_or(Stand::Prop { depth: prop.depth });
     let bottom = prop.y + a.h();
     let (middle, deep) = match how {
-        Stand::Prop { depth } => (Vec3::new((prop.x + a.w() * 0.5) * PX, 0.0, (prop.base - depth * 0.5) * PX), depth),
+        Stand::Prop { depth } => (
+            Vec3::new(
+                (prop.x + a.w() * 0.5) * PX,
+                0.0,
+                (prop.base - depth * 0.5) * PX,
+            ),
+            depth,
+        ),
         Stand::Fold { rows } => {
             let roof = fold_row(a, rows) as f32;
-            (Vec3::new((prop.x + a.w() * 0.5) * PX, 0.0, (prop.base - roof * 0.5) * PX), roof)
+            (
+                Vec3::new(
+                    (prop.x + a.w() * 0.5) * PX,
+                    0.0,
+                    (prop.base - roof * 0.5) * PX,
+                ),
+                roof,
+            )
         }
-        _ => (Vec3::new((prop.x + a.w() * 0.5) * PX, 0.0, (bottom - a.h() * 0.5) * PX), a.h()),
+        _ => (
+            Vec3::new(
+                (prop.x + a.w() * 0.5) * PX,
+                0.0,
+                (bottom - a.h() * 0.5) * PX,
+            ),
+            a.h(),
+        ),
     };
     (a, how, middle, [a.w() * PX, deep * PX])
 }
@@ -311,14 +491,23 @@ fn placed(prop: &super::map::Prop, t: f32) -> (Art, Stand, Vec3, [f32; 2]) {
 /// How sprite `a` stands once photo mode drops it in: as it says, else upright as deep as the map would make it.
 pub(super) fn drop_stand(a: Art) -> Stand {
     match a.stand() {
-        None | Some(Stand::Figure { .. }) => Stand::Prop { depth: super::map::depth_of(a) },
+        None | Some(Stand::Figure { .. }) => Stand::Prop {
+            depth: super::map::depth_of(a),
+        },
         Some(how) => how,
     }
 }
 
 /// Stands sprite `a` as `how` says, the middle of its box on the ground at `at` in map pixels, turned `angle` radians
 /// round it: a prop photo mode drops in.
-pub(super) fn dropped(out: &mut Vec<Card>, eye: Vec3, a: Art, how: Stand, at: [f32; 2], angle: f32) {
+pub(super) fn dropped(
+    out: &mut Vec<Card>,
+    eye: Vec3,
+    a: Art,
+    how: Stand,
+    at: [f32; 2],
+    angle: f32,
+) {
     let deep = match how {
         Stand::Prop { depth } => depth,
         Stand::Fold { rows } => fold_row(a, rows) as f32,
@@ -328,8 +517,20 @@ pub(super) fn dropped(out: &mut Vec<Card>, eye: Vec3, a: Art, how: Stand, at: [f
     let turn = |v: Vec3| Vec3::new(v.x * c - v.z * s, v.y, v.x * s + v.z * c);
     let d = eye - center;
     let mut own = Vec::new();
-    fixed(&mut own, Vec3::new(d.x * c + d.z * s, d.y, d.z * c - d.x * s), a, how, -a.w() / 2.0, deep / 2.0, [1.0; 3]);
-    out.extend(own.into_iter().map(|k| Card { corners: k.corners.map(|v| center + turn(v)), normal: turn(k.normal), ..k }));
+    fixed(
+        &mut own,
+        Vec3::new(d.x * c + d.z * s, d.y, d.z * c - d.x * s),
+        a,
+        how,
+        -a.w() / 2.0,
+        deep / 2.0,
+        [1.0; 3],
+    );
+    out.extend(own.into_iter().map(|k| Card {
+        corners: k.corners.map(|v| center + turn(v)),
+        normal: turn(k.normal),
+        ..k
+    }));
 }
 
 /// The faces of part of a sprite, the game rows `rows` of it, extruded as `stand` extrudes a whole one; worked out once
@@ -341,10 +542,16 @@ fn part_faces(a: Art, rows: [u16; 2]) -> Cow<'static, [Face]> {
     let [top, bottom] = rows.map(|r| (r * d as u16).min(h));
     let rect = [rx, ry + top, w, bottom - top];
     if a.is_live() {
-        return Cow::Owned(art::with_pixels(a, |px| extrude(px, rect, Reach::Deep, None, d)));
+        return Cow::Owned(art::with_pixels(a, |px| {
+            extrude(px, rect, Reach::Deep, None, d)
+        }));
     }
     let mut cache = CACHE.get_or_init(Default::default).lock().unwrap();
-    Cow::Borrowed(*cache.entry((a, rows)).or_insert_with(|| extrude(art::pixels(), rect, Reach::Deep, None, d).leak()))
+    Cow::Borrowed(
+        *cache
+            .entry((a, rows))
+            .or_insert_with(|| extrude(art::pixels(), rect, Reach::Deep, None, d).leak()),
+    )
 }
 
 /// The top row of a sprite folded at `rows`: the rows above it its roof, the rest its front.
@@ -359,19 +566,68 @@ fn folded(out: &mut Vec<Card>, eye: Vec3, a: Art, rows: f32, left: f32, base: f3
     let (roof, wall) = (fold as f32, (h - fold) as f32);
     let (d, front) = (a.detail() as f32, Vec3::new(left * PX, 0.0, base * PX));
     let w = a.rect()[2] as f32;
-    place(out, eye, &part_faces(a, [fold, h]), [w, wall * d], 1.0 / d, false, Pose { tint, ..Pose::upright(front, Vec3::X, -Vec3::Z, roof * PX) });
-    let pose = Pose { origin: front + Vec3::Y * ((wall + 1.0) * PX), right: Vec3::X, up: -Vec3::Z, back: -Vec3::Y, depth: PX, tint, reach: Reach::Deep, top: None };
-    place(out, eye, &part_faces(a, [0, fold]), [w, roof * d], 1.0 / d, false, pose);
+    place(
+        out,
+        eye,
+        &part_faces(a, [fold, h]),
+        [w, wall * d],
+        1.0 / d,
+        false,
+        Pose {
+            tint,
+            ..Pose::upright(front, Vec3::X, -Vec3::Z, roof * PX)
+        },
+    );
+    let pose = Pose {
+        origin: front + Vec3::Y * ((wall + 1.0) * PX),
+        right: Vec3::X,
+        up: -Vec3::Z,
+        back: -Vec3::Y,
+        depth: PX,
+        tint,
+        reach: Reach::Deep,
+        top: None,
+    };
+    place(
+        out,
+        eye,
+        &part_faces(a, [0, fold]),
+        [w, roof * d],
+        1.0 / d,
+        false,
+        pose,
+    );
 }
 
 /// Lays a sprite's 3D copy flat around `center` on the ground, its top row to the north turned `angle` as the 2D
 /// view turns it, as a plate `height` map pixels thick whose underside floats `lift` up.
 #[allow(clippy::too_many_arguments)]
-fn lying(out: &mut Vec<Card>, eye: Vec3, a: Art, center: Vec3, angle: f32, height: f32, lift: f32, tint: [f32; 3]) {
-    let (right, down) = (Vec3::new(angle.cos(), 0.0, angle.sin()), Vec3::new(-angle.sin(), 0.0, angle.cos()));
+fn lying(
+    out: &mut Vec<Card>,
+    eye: Vec3,
+    a: Art,
+    center: Vec3,
+    angle: f32,
+    height: f32,
+    lift: f32,
+    tint: [f32; 3],
+) {
+    let (right, down) = (
+        Vec3::new(angle.cos(), 0.0, angle.sin()),
+        Vec3::new(-angle.sin(), 0.0, angle.cos()),
+    );
     let corner = center - right * (a.w() / 2.0 * PX) + down * (a.h() / 2.0 * PX);
     let origin = Vec3::new(corner.x, (lift + height) * PX, corner.z);
-    let pose = Pose { origin, right, up: -down, back: -Vec3::Y, depth: height * PX, tint, reach: Reach::Deep, top: None };
+    let pose = Pose {
+        origin,
+        right,
+        up: -down,
+        back: -Vec3::Y,
+        depth: height * PX,
+        tint,
+        reach: Reach::Deep,
+        top: None,
+    };
     stand(out, eye, a.solid(), false, pose, true);
 }
 
@@ -379,15 +635,42 @@ fn lying(out: &mut Vec<Card>, eye: Vec3, a: Art, center: Vec3, angle: f32, heigh
 /// `left`, `top` in map pixels, centered on `a`'s outline from above and `depth` thick, or as thick as the outline,
 /// and stretched `reach` pixels further south.
 #[allow(clippy::too_many_arguments)]
-fn turned(out: &mut Vec<Card>, eye: Vec3, a: Art, east: Art, depth: Option<f32>, left: f32, top: f32, tint: [f32; 3], reach: f32) {
+fn turned(
+    out: &mut Vec<Card>,
+    eye: Vec3,
+    a: Art,
+    east: Art,
+    depth: Option<f32>,
+    left: f32,
+    top: f32,
+    tint: [f32; 3],
+    reach: f32,
+) {
     let (x0, x1) = art::with_outline(a, |solid, [w, h]| {
         let filled = |x: usize| (0..h).any(|y| solid(x, y));
-        ((0..w).find(|&x| filled(x)).unwrap_or(0) as f32, (0..w).rev().find(|&x| filled(x)).map_or(w, |x| x + 1) as f32)
+        (
+            (0..w).find(|&x| filled(x)).unwrap_or(0) as f32,
+            (0..w).rev().find(|&x| filled(x)).map_or(w, |x| x + 1) as f32,
+        )
     });
     let depth = depth.unwrap_or(x1 - x0);
-    let origin = Vec3::new((left + (x0 + x1 - depth) / 2.0) * PX, 0.0, (top + a.h() + reach) * PX);
+    let origin = Vec3::new(
+        (left + (x0 + x1 - depth) / 2.0) * PX,
+        0.0,
+        (top + a.h() + reach) * PX,
+    );
     let stretch = (a.h() + reach) / a.h();
-    stand(out, eye, east.solid(), false, Pose { tint, ..Pose::upright(origin, -Vec3::Z * stretch, Vec3::X, depth * PX) }, true);
+    stand(
+        out,
+        eye,
+        east.solid(),
+        false,
+        Pose {
+            tint,
+            ..Pose::upright(origin, -Vec3::Z * stretch, Vec3::X, depth * PX)
+        },
+        true,
+    );
 }
 
 /// The pictures a solid is carved from, as `carve::Views` takes them: `top` colors it from above.
@@ -403,9 +686,26 @@ struct Carving {
 
 impl Carving {
     fn of(a: Art, how: Stand) -> Option<Self> {
-        let Stand::Carve { footprint, roof, south, east, north, west } = how else { return None };
+        let Stand::Carve {
+            footprint,
+            roof,
+            south,
+            east,
+            north,
+            west,
+        } = how
+        else {
+            return None;
+        };
         // A roof colors the top in the sprite's place, which then only shapes it, unless a footprint does.
-        Some(Self { top: roof.unwrap_or(a), footprint: footprint.or(roof.map(|_| a)), south, east, north, west })
+        Some(Self {
+            top: roof.unwrap_or(a),
+            footprint: footprint.or(roof.map(|_| a)),
+            south,
+            east,
+            north,
+            west,
+        })
     }
 }
 
@@ -413,7 +713,9 @@ impl Carving {
 pub(super) fn quads(a: Art, how: Stand, top: Option<Art>) -> usize {
     match how {
         Stand::Prop { .. } => faces(a.solid(), Reach::Deep, None).len(),
-        Stand::Slab { lift, .. } => faces(a.solid(), Reach::Deep, None).len() + (a.solid() != a && lift == 0.0) as usize,
+        Stand::Slab { lift, .. } => {
+            faces(a.solid(), Reach::Deep, None).len() + (a.solid() != a && lift == 0.0) as usize
+        }
         Stand::Ground => 1,
         Stand::Turned { east, .. } => faces(east.solid(), Reach::Deep, None).len(),
         Stand::Carve { .. } => carving(Carving::of(a, how).unwrap()).len(),
@@ -430,7 +732,14 @@ pub(super) fn quads(a: Art, how: Stand, top: Option<Art>) -> usize {
 fn carving(c: Carving) -> Cow<'static, [carve::Quad]> {
     type Cache = Mutex<HashMap<Carving, &'static [carve::Quad]>>;
     static CACHE: OnceLock<Cache> = OnceLock::new();
-    let views = carve::Views { top: c.top.rect(), footprint: c.footprint.map(Art::rect), south: c.south.rect(), east: c.east.rect(), north: c.north.map(Art::rect), west: c.west.map(Art::rect) };
+    let views = carve::Views {
+        top: c.top.rect(),
+        footprint: c.footprint.map(Art::rect),
+        south: c.south.rect(),
+        east: c.east.rect(),
+        north: c.north.map(Art::rect),
+        west: c.west.map(Art::rect),
+    };
     let d = c.top.detail();
     if c.top.is_live() {
         type LiveCache = Mutex<(u64, HashMap<(Carving, u8), Vec<carve::Quad>>)>;
@@ -440,11 +749,17 @@ fn carving(c: Carving) -> Cow<'static, [carve::Quad]> {
         if live.0 != generation {
             *live = (generation, HashMap::new());
         }
-        let quads = live.1.entry((c, d)).or_insert_with(|| art::with_pixels(c.top, |px| carve::carve(px, ATLAS_W as usize, &views, d)));
+        let quads = live.1.entry((c, d)).or_insert_with(|| {
+            art::with_pixels(c.top, |px| carve::carve(px, ATLAS_W as usize, &views, d))
+        });
         return Cow::Owned(quads.clone());
     }
     let mut cache = CACHE.get_or_init(Default::default).lock().unwrap();
-    Cow::Borrowed(*cache.entry(c).or_insert_with(|| carve::carve(art::pixels(), ATLAS_W as usize, &views, d).leak()))
+    Cow::Borrowed(
+        *cache
+            .entry(c)
+            .or_insert_with(|| carve::carve(art::pixels(), ATLAS_W as usize, &views, d).leak()),
+    )
 }
 
 /// Places a carved solid with its north-west ground corner at `origin`.
@@ -455,7 +770,11 @@ fn carved(out: &mut Vec<Card>, eye: Vec3, c: Carving, origin: Vec3) {
         let normal = Vec3::from(q.normal);
         if normal.dot(eye - corners[0]) > 0.0 {
             let [u0, v0, u1, v1] = q.uv;
-            out.push(Card::new(corners, [u0 / aw, v0 / ah, u1 / aw, v1 / ah], normal));
+            out.push(Card::new(
+                corners,
+                [u0 / aw, v0 / ah, u1 / aw, v1 / ah],
+                normal,
+            ));
         }
     }
 }
@@ -465,8 +784,20 @@ fn flat(out: &mut Vec<Card>, art: Art, x: f32, z: f32, lift: f32, tint: [f32; 3]
     let [rx, ry, w, h] = art.rect().map(f32::from);
     let (aw, ah) = (ATLAS_W as f32, ATLAS_H as f32);
     let (x1, z1) = (x + art.w() * PX, z + art.h() * PX);
-    let corners = [Vec3::new(x, lift, z), Vec3::new(x1, lift, z), Vec3::new(x1, lift, z1), Vec3::new(x, lift, z1)];
-    out.push(Card { tint, ..Card::new(corners, [rx / aw, ry / ah, (rx + w) / aw, (ry + h) / ah], Vec3::Y) });
+    let corners = [
+        Vec3::new(x, lift, z),
+        Vec3::new(x1, lift, z),
+        Vec3::new(x1, lift, z1),
+        Vec3::new(x, lift, z1),
+    ];
+    out.push(Card {
+        tint,
+        ..Card::new(
+            corners,
+            [rx / aw, ry / ah, (rx + w) / aw, (ry + h) / ah],
+            Vec3::Y,
+        )
+    });
 }
 
 /// A solid square of color facing the camera, `size` world units across, centered on `at`.
@@ -475,9 +806,18 @@ fn speck(out: &mut Vec<Card>, at: Vec3, size: f32, right: Vec3, color: [f32; 3],
     let [rx, ry, w, h] = art::WHITE.rect().map(f32::from);
     let (aw, ah) = (ATLAS_W as f32, ATLAS_H as f32);
     // The middle of the white square, so filtering never reaches its edge.
-    let uv = [(rx + w * 0.25) / aw, (ry + h * 0.25) / ah, (rx + w * 0.75) / aw, (ry + h * 0.75) / ah];
+    let uv = [
+        (rx + w * 0.25) / aw,
+        (ry + h * 0.25) / ah,
+        (rx + w * 0.75) / aw,
+        (ry + h * 0.75) / ah,
+    ];
     let corners = [at - r + u, at + r + u, at + r - u, at - r - u];
-    out.push(Card { tint: color, glow, ..Card::new(corners, uv, right.cross(Vec3::Y)) });
+    out.push(Card {
+        tint: color,
+        glow,
+        ..Card::new(corners, uv, right.cross(Vec3::Y))
+    });
 }
 
 /// A bullet's tracer from `head` back to `tail`: one unbroken ribbon facing `eye` that thins and dims toward the
@@ -492,18 +832,36 @@ fn tracer(out: &mut Vec<Card>, eye: Vec3, head: Vec3, tail: Vec3, width: f32, co
     let normal = (eye - head).normalize_or_zero();
     let [rx, ry, w, h] = art::WHITE.rect().map(f32::from);
     let (aw, ah) = (ATLAS_W as f32, ATLAS_H as f32);
-    let uv = [(rx + w * 0.25) / aw, (ry + h * 0.25) / ah, (rx + w * 0.75) / aw, (ry + h * 0.75) / ah];
-    let point = |k: f32| (head - along * k, side * (width * super::effects::Shot::taper(k).0 / 2.0));
+    let uv = [
+        (rx + w * 0.25) / aw,
+        (ry + h * 0.25) / ah,
+        (rx + w * 0.75) / aw,
+        (ry + h * 0.75) / ah,
+    ];
+    let point = |k: f32| {
+        (
+            head - along * k,
+            side * (width * super::effects::Shot::taper(k).0 / 2.0),
+        )
+    };
     for i in 0..SEGMENTS {
         let (k0, k1) = (i as f32 / SEGMENTS as f32, (i + 1) as f32 / SEGMENTS as f32);
         let ((a, sa), (b, sb)) = (point(k0), point(k1));
         let bright = super::effects::Shot::taper((k0 + k1) / 2.0).1;
-        out.push(Card { tint: color.map(|c| c * bright), glow: 1.0, ..Card::new([a + sa, b + sb, b - sb, a - sa], uv, normal) });
+        out.push(Card {
+            tint: color.map(|c| c * bright),
+            glow: 1.0,
+            ..Card::new([a + sa, b + sb, b - sb, a - sa], uv, normal)
+        });
     }
     // Nudged toward the eye so it never fights the ribbon under it for depth.
     let (front, end) = (head + normal * 0.004, head - along * 0.45 + normal * 0.004);
     let (s0, s1) = (side * (width * 0.2), side * (width * 0.06));
-    out.push(Card { tint: [1.0; 3], glow: 1.0, ..Card::new([front + s0, end + s1, end - s1, front - s0], uv, normal) });
+    out.push(Card {
+        tint: [1.0; 3],
+        glow: 1.0,
+        ..Card::new([front + s0, end + s1, end - s1, front - s0], uv, normal)
+    });
 }
 
 /// A sprite facing `eye`, stretched from `from` (its left edge) to `to` (its right), `width` across; its clear pixels
@@ -516,26 +874,56 @@ fn stretched(out: &mut Vec<Card>, eye: Vec3, from: Vec3, to: Vec3, width: f32, a
     let [rx, ry, w, h] = art.rect().map(f32::from);
     let (aw, ah) = (ATLAS_W as f32, ATLAS_H as f32);
     let uv = [rx / aw, ry / ah, (rx + w) / aw, (ry + h) / ah];
-    out.push(Card { glow: 1.0, ..Card::new([from + side, to + side, to - side, from - side], uv, (eye - to).normalize_or_zero()) });
+    out.push(Card {
+        glow: 1.0,
+        ..Card::new(
+            [from + side, to + side, to - side, from - side],
+            uv,
+            (eye - to).normalize_or_zero(),
+        )
+    });
 }
 
 /// A sprite standing up and facing the camera, `size` across, centered on `at`.
 fn sprite_speck(out: &mut Vec<Card>, at: Vec3, size: f32, right: Vec3, art: Art, glow: f32) {
-    let (r, u) = (right * (size / 2.0), Vec3::Y * (size * art.h() / art.w() / 2.0));
+    let (r, u) = (
+        right * (size / 2.0),
+        Vec3::Y * (size * art.h() / art.w() / 2.0),
+    );
     let [rx, ry, w, h] = art.rect().map(f32::from);
     let (aw, ah) = (ATLAS_W as f32, ATLAS_H as f32);
     let uv = [rx / aw, ry / ah, (rx + w) / aw, (ry + h) / ah];
-    out.push(Card { glow, ..Card::new([at - r + u, at + r + u, at + r - u, at - r - u], uv, right.cross(Vec3::Y)) });
+    out.push(Card {
+        glow,
+        ..Card::new(
+            [at - r + u, at + r + u, at + r - u, at - r - u],
+            uv,
+            right.cross(Vec3::Y),
+        )
+    });
 }
 
 /// A flat square of color on the ground.
 fn patch(out: &mut Vec<Card>, at: Vec3, size: f32, color: [f32; 3]) {
     let [rx, ry, w, h] = art::WHITE.rect().map(f32::from);
     let (aw, ah) = (ATLAS_W as f32, ATLAS_H as f32);
-    let uv = [(rx + w * 0.25) / aw, (ry + h * 0.25) / ah, (rx + w * 0.75) / aw, (ry + h * 0.75) / ah];
+    let uv = [
+        (rx + w * 0.25) / aw,
+        (ry + h * 0.25) / ah,
+        (rx + w * 0.75) / aw,
+        (ry + h * 0.75) / ah,
+    ];
     let s = size / 2.0;
-    let corners = [at + Vec3::new(-s, 0.0, -s), at + Vec3::new(s, 0.0, -s), at + Vec3::new(s, 0.0, s), at + Vec3::new(-s, 0.0, s)];
-    out.push(Card { tint: color, ..Card::new(corners, uv, Vec3::Y) });
+    let corners = [
+        at + Vec3::new(-s, 0.0, -s),
+        at + Vec3::new(s, 0.0, -s),
+        at + Vec3::new(s, 0.0, s),
+        at + Vec3::new(-s, 0.0, s),
+    ];
+    out.push(Card {
+        tint: color,
+        ..Card::new(corners, uv, Vec3::Y)
+    });
 }
 
 /// Runs `draw`, then draws what it added `alpha` as opaque as it was.
@@ -553,7 +941,10 @@ fn world(p: [f32; 2]) -> Vec3 {
 
 /// Which frames show a character moving along `dir` (map space), seen by a camera looking along `forward`.
 fn facing_from(dir: [f32; 2], forward: Vec3, right: Vec3) -> (Facing, bool) {
-    let (a, b) = (dir[0] * forward.x + dir[1] * forward.z, dir[0] * right.x + dir[1] * right.z);
+    let (a, b) = (
+        dir[0] * forward.x + dir[1] * forward.z,
+        dir[0] * right.x + dir[1] * right.z,
+    );
     if a.abs() >= b.abs() {
         (if a > 0.0 { Facing::Back } else { Facing::Front }, false)
     } else {
@@ -584,12 +975,24 @@ pub fn sky(h: &Harvest) -> Sky {
         fog: mix([0.07, 0.08, 0.12], [0.45, 0.32, 0.3]),
         ambient: mix([0.18, 0.19, 0.27], [0.62, 0.52, 0.48]),
         lantern: mix([1.0, 0.86, 0.66], [0.6, 0.5, 0.4]),
-        wash: [0.05 + 0.9 * k, 0.07 + 0.5 * k, 0.2 + 0.1 * k, 0.22 * night + 0.1 * k],
+        wash: [
+            0.05 + 0.9 * k,
+            0.07 + 0.5 * k,
+            0.2 + 0.1 * k,
+            0.22 * night + 0.1 * k,
+        ],
     }
 }
 
 /// A ring of glowing specks on the ground.
-fn patch_ring(out: &mut Vec<Card>, center: Vec3, radius: f32, color: [f32; 3], right: Vec3, near: impl Fn(Vec3) -> bool) {
+fn patch_ring(
+    out: &mut Vec<Card>,
+    center: Vec3,
+    radius: f32,
+    color: [f32; 3],
+    right: Vec3,
+    near: impl Fn(Vec3) -> bool,
+) {
     for i in 0..16 {
         let a = i as f32 / 16.0 * std::f32::consts::TAU;
         let q = center + Vec3::new(a.cos() * radius, 0.05, a.sin() * radius);
@@ -607,7 +1010,10 @@ pub fn to_screen(view_proj: Mat4, at: [f32; 2], height: f32) -> Option<([f32; 2]
         return None;
     }
     let (x, y) = (c.x / c.w, c.y / c.w);
-    Some(([(x + 1.0) * 0.5 * SCREEN_W, (1.0 - y) * 0.5 * SCREEN_H], c.w))
+    Some((
+        [(x + 1.0) * 0.5 * SCREEN_W, (1.0 - y) * 0.5 * SCREEN_H],
+        c.w,
+    ))
 }
 
 /// A camera-facing sprite: a character, pickup or effect.
@@ -632,7 +1038,19 @@ struct Board {
 
 impl Board {
     fn new(art: Art, flip: bool, at: [f32; 2], lift: f32, depth: f32) -> Self {
-        Self { art, flip, at, lift, depth, scale: [1.0; 2], lean: Vec3::ZERO, tint: [1.0; 3], top: art.top(), shift: [0.0; 2], alpha: 1.0 }
+        Self {
+            art,
+            flip,
+            at,
+            lift,
+            depth,
+            scale: [1.0; 2],
+            lean: Vec3::ZERO,
+            tint: [1.0; 3],
+            top: art.top(),
+            shift: [0.0; 2],
+            alpha: 1.0,
+        }
     }
 }
 
@@ -642,7 +1060,10 @@ fn worn_board(a: Art, at: [u8; 2], flip: bool, pos: [f32; 2], bright: f32) -> Bo
     let g = art::GRENADE_WORN;
     let [gx, gy] = worn_corner(at, a, flip);
     let mut b = Board::new(g, flip, pos, (a.h() - gy - g.h()) * PX, WORN_DEPTH);
-    b.shift = [gx + g.w() / 2.0 - a.w() / 2.0, (CHARACTER_DEPTH + WORN_DEPTH) / 2.0 + 0.1 * PX];
+    b.shift = [
+        gx + g.w() / 2.0 - a.w() / 2.0,
+        (CHARACTER_DEPTH + WORN_DEPTH) / 2.0 + 0.1 * PX,
+    ];
     b.tint = [bright; 3];
     b
 }
@@ -669,16 +1090,40 @@ pub fn scene(h: &Harvest) -> CardScene {
     let p = world(around);
     let [sx, sy, roll] = j.shake_offset();
     let roll = roll + h.lean * 0.035;
-    let bob = if h.eye().walk > 0.0 { (h.eye().walk * crate::tuning::tuning().walk_fps * std::f32::consts::PI / 2.0).sin().abs() * 0.04 } else { 0.0 };
+    let bob = if h.eye().walk > 0.0 {
+        (h.eye().walk * crate::tuning::tuning().walk_fps * std::f32::consts::PI / 2.0)
+            .sin()
+            .abs()
+            * 0.04
+    } else {
+        0.0
+    };
     let shake = right * sx + Vec3::Y * (sy + bob);
-    let eye = p - forward * (CAMERA_BACK + back + 0.2 * swing - walked) + Vec3::Y * (1.5 + h.lift + back * 0.4 + 0.4 * swing) + shake;
+    let eye = p - forward * (CAMERA_BACK + back + 0.2 * swing - walked)
+        + Vec3::Y * (1.5 + h.lift + back * 0.4 + 0.4 * swing)
+        + shake;
     // Zoomed in for the icon scene, the camera looks at the figure on show instead of down the road.
-    let shown = h.shown.as_ref().filter(|_| h.zoom > 1.0).map(|s| world(s.pos) + Vec3::Y * 0.5);
+    let shown = h
+        .shown
+        .as_ref()
+        .filter(|_| h.zoom > 1.0)
+        .map(|s| world(s.pos) + Vec3::Y * 0.5);
     let orbiting = focus.is_some() || h.orbit.is_some_and(|o| o != [0.0; 2]);
-    let looking = shown.or(orbiting.then_some(p + Vec3::Y * 0.6)).unwrap_or(p + forward * (4.0 + walked) + Vec3::Y * (0.7 + j.kick * 6.0));
+    let looking = shown
+        .or(orbiting.then_some(p + Vec3::Y * 0.6))
+        .unwrap_or(p + forward * (4.0 + walked) + Vec3::Y * (0.7 + j.kick * 6.0));
     let target = looking.lerp(p + Vec3::Y * 0.5, swing) + shake;
-    let view = glam::camera::rh::view::look_at_mat4(eye, target, Vec3::Y * roll.cos() + right * roll.sin());
-    let proj = glam::camera::rh::proj::opengl::perspective(((66.0 + j.punch) / h.zoom).to_radians(), SCREEN_W / SCREEN_H, 0.3, VIEW_RADIUS + 6.0);
+    let view = glam::camera::rh::view::look_at_mat4(
+        eye,
+        target,
+        Vec3::Y * roll.cos() + right * roll.sin(),
+    );
+    let proj = glam::camera::rh::proj::opengl::perspective(
+        ((66.0 + j.punch) / h.zoom).to_radians(),
+        SCREEN_W / SCREEN_H,
+        0.3,
+        VIEW_RADIUS + 6.0,
+    );
     let near = |q: Vec3| {
         let d = q - p;
         d.length() < VIEW_RADIUS && d.dot(forward) > -4.0
@@ -697,15 +1142,31 @@ pub fn scene(h: &Harvest) -> CardScene {
             faded(&mut cards, ground.alpha(), |cards| {
                 flat(cards, ground, corner.x, corner.z, 0.0, [1.0; 3]);
                 if let Some(Stand::Slab { height, lift }) = ground.stand() {
-                    lying(cards, eye, ground, corner + Vec3::new(0.5, 0.0, 0.5), 0.0, height, lift, [1.0; 3]);
+                    lying(
+                        cards,
+                        eye,
+                        ground,
+                        corner + Vec3::new(0.5, 0.0, 0.5),
+                        0.0,
+                        height,
+                        lift,
+                        [1.0; 3],
+                    );
                 }
             });
             if let Some(stalk) = h.map.standing(tx as usize, ty as usize) {
                 // Shearing `up` east leans each card's top while its height holds, so stacked cards meet edge to edge.
-                for (crop, base, east, lean) in stalk.bend(h.t, tx as usize, ty as usize, clear_ends) {
+                for (crop, base, east, lean) in
+                    stalk.bend(h.t, tx as usize, ty as usize, clear_ends)
+                {
                     let origin = corner + Vec3::Z + Vec3::new(east, base, 0.0) * PX;
-                    let pose = Pose { up: Vec3::new(lean / crop.h(), 1.0, 0.0), ..Pose::upright(origin, Vec3::X, -Vec3::Z, 2.0 * PX) };
-                    faded(&mut cards, crop.alpha(), |cards| stand(cards, eye, crop, false, pose, false));
+                    let pose = Pose {
+                        up: Vec3::new(lean / crop.h(), 1.0, 0.0),
+                        ..Pose::upright(origin, Vec3::X, -Vec3::Z, 2.0 * PX)
+                    };
+                    faded(&mut cards, crop.alpha(), |cards| {
+                        stand(cards, eye, crop, false, pose, false)
+                    });
                 }
             }
         }
@@ -713,14 +1174,25 @@ pub fn scene(h: &Harvest) -> CardScene {
     for &(a, x, y) in &h.map.decals {
         let q = world([x, y]);
         if near(q) {
-            faded(&mut cards, a.alpha(), |cards| flat(cards, a, q.x, q.z, DECAL_LIFT, [1.0; 3]));
+            faded(&mut cards, a.alpha(), |cards| {
+                flat(cards, a, q.x, q.z, DECAL_LIFT, [1.0; 3])
+            });
         }
     }
     for (i, &(a, x, y, tint)) in h.stains.iter().enumerate() {
         let q = world([x, y]);
         if near(q) {
             // Newer stains sit a hair higher, so overlapping ones don't flicker.
-            faded(&mut cards, a.alpha(), |cards| flat(cards, a, q.x, q.z, DECAL_LIFT + 0.002 + i as f32 * 0.00005, tint));
+            faded(&mut cards, a.alpha(), |cards| {
+                flat(
+                    cards,
+                    a,
+                    q.x,
+                    q.z,
+                    DECAL_LIFT + 0.002 + i as f32 * 0.00005,
+                    tint,
+                )
+            });
         }
     }
     // What stands between the camera and the player would hide them, so it isn't drawn; what stands beside or
@@ -729,7 +1201,10 @@ pub fn scene(h: &Harvest) -> CardScene {
     let ahead = |q: Vec3, size: [f32; 2]| {
         let reach = |dir: Vec3| (dir.x.abs() * size[0] + dir.z.abs() * size[1]) / 2.0;
         let d = q - p;
-        let (front, aside) = (d.dot(forward) + reach(forward), d.dot(right).abs() - reach(right));
+        let (front, aside) = (
+            d.dot(forward) + reach(forward),
+            d.dot(right).abs() - reach(right),
+        );
         near(q) && front > -CAMERA_BACK && (front > -BEHIND || aside > SIGHTLINE)
     };
     let mut figures = Vec::new();
@@ -742,28 +1217,86 @@ pub fn scene(h: &Harvest) -> CardScene {
         if let Stand::Figure { lift } = how {
             figures.push((a, [prop.x + a.w() / 2.0, bottom], lift));
         } else {
-            let tint = [if prop.flash > 0.0 { super::PROP_FLASH } else { 1.0 }; 3];
+            let tint = [if prop.flash > 0.0 {
+                super::PROP_FLASH
+            } else {
+                1.0
+            }; 3];
             // A prop drawn above its base line, as the windmill's fan is, stands that far up.
             faded(&mut cards, a.alpha(), |cards| match how {
                 // A fence side that runs on into its corner reaches that corner's board.
-                Stand::Turned { east, depth } if prop.reach > 0.0 => turned(cards, eye, a, east, depth, prop.x, prop.y, tint, prop.reach),
+                Stand::Turned { east, depth } if prop.reach > 0.0 => {
+                    turned(cards, eye, a, east, depth, prop.x, prop.y, tint, prop.reach)
+                }
                 Stand::Prop { depth } if prop.base > bottom + 1.0 => {
                     let origin = Vec3::new(prop.x * PX, (prop.base - bottom) * PX, prop.base * PX);
-                    stand(cards, eye, a.solid(), false, Pose { tint, ..Pose::upright(origin, Vec3::X, -Vec3::Z, depth * PX) }, true);
+                    stand(
+                        cards,
+                        eye,
+                        a.solid(),
+                        false,
+                        Pose {
+                            tint,
+                            ..Pose::upright(origin, Vec3::X, -Vec3::Z, depth * PX)
+                        },
+                        true,
+                    );
                 }
-                _ => fixed(cards, eye, a, how, prop.x, if matches!(how, Stand::Prop { .. } | Stand::Fold { .. }) { prop.base } else { bottom }, tint),
+                _ => fixed(
+                    cards,
+                    eye,
+                    a,
+                    how,
+                    prop.x,
+                    if matches!(how, Stand::Prop { .. } | Stand::Fold { .. }) {
+                        prop.base
+                    } else {
+                        bottom
+                    },
+                    tint,
+                ),
             });
         }
     }
-    if let Some(s) = h.shown.as_ref().filter(|s| !s.frames.is_empty() && !matches!(s.stand, Stand::Figure { .. })) {
+    if let Some(s) = h
+        .shown
+        .as_ref()
+        .filter(|s| !s.frames.is_empty() && !matches!(s.stand, Stand::Figure { .. }))
+    {
         let a = s.frame(h.t);
-        faded(&mut cards, a.alpha(), |cards| fixed(cards, eye, a, s.stand, s.pos[0] - a.w() / 2.0, s.pos[1], [1.0; 3]));
+        faded(&mut cards, a.alpha(), |cards| {
+            fixed(
+                cards,
+                eye,
+                a,
+                s.stand,
+                s.pos[0] - a.w() / 2.0,
+                s.pos[1],
+                [1.0; 3],
+            )
+        });
     }
     for b in &h.barrels {
-        let a = if b.flash > 0.0 { art::BARREL_FLASH } else { art::BARREL };
+        let a = if b.flash > 0.0 {
+            art::BARREL_FLASH
+        } else {
+            art::BARREL
+        };
         let base = Vec3::new(b.pos[0] * PX, 0.0, (b.pos[1] + a.h()) * PX);
-        if ahead(base + Vec3::new(a.w() / 2.0, 0.0, -6.0) * PX, [a.w() * PX, 12.0 * PX]) {
-            faded(&mut cards, a.alpha(), |cards| stand(cards, eye, a, false, Pose::upright(base, Vec3::X, -Vec3::Z, 12.0 * PX), true));
+        if ahead(
+            base + Vec3::new(a.w() / 2.0, 0.0, -6.0) * PX,
+            [a.w() * PX, 12.0 * PX],
+        ) {
+            faded(&mut cards, a.alpha(), |cards| {
+                stand(
+                    cards,
+                    eye,
+                    a,
+                    false,
+                    Pose::upright(base, Vec3::X, -Vec3::Z, 12.0 * PX),
+                    true,
+                )
+            });
         }
     }
 
@@ -772,16 +1305,45 @@ pub fn scene(h: &Harvest) -> CardScene {
         // Close to the lens a character fills the screen without showing anything useful.
         if near(q) && (q - p).dot(forward) > -0.8 && (q - eye).length() > 1.4 {
             let r = right * b.scale[0];
-            let origin = q + r * ((b.shift[0] - b.art.w() / 2.0) * PX) - forward * (b.depth / 2.0 + b.shift[1]) + Vec3::Y * b.lift;
+            let origin = q + r * ((b.shift[0] - b.art.w() / 2.0) * PX)
+                - forward * (b.depth / 2.0 + b.shift[1])
+                + Vec3::Y * b.lift;
             let up = (Vec3::Y + b.lean) * b.scale[1];
-            faded(cards, b.alpha * b.art.alpha(), |cards| stand(cards, eye, b.art, b.flip, Pose { origin, right: r, up, back: forward, depth: b.depth, tint: b.tint, reach: Reach::Thin, top: b.top }, b.depth > 0.0));
+            faded(cards, b.alpha * b.art.alpha(), |cards| {
+                stand(
+                    cards,
+                    eye,
+                    b.art,
+                    b.flip,
+                    Pose {
+                        origin,
+                        right: r,
+                        up,
+                        back: forward,
+                        depth: b.depth,
+                        tint: b.tint,
+                        reach: Reach::Thin,
+                        top: b.top,
+                    },
+                    b.depth > 0.0,
+                )
+            });
         }
     };
     // A full horde swarming the player would bury the GPU; the farthest are lost in the fog anyway.
     let climbing = h.burrowed.iter().filter(|z| z.rise > 0.0);
-    let mut nearest: Vec<&Zombie> = h.zombies.iter().enumerate().filter(|&(i, _)| !h.lies_dead(i)).map(|(_, z)| z).chain(climbing).collect();
+    let mut nearest: Vec<&Zombie> = h
+        .zombies
+        .iter()
+        .enumerate()
+        .filter(|&(i, _)| !h.lies_dead(i))
+        .map(|(_, z)| z)
+        .chain(climbing)
+        .collect();
     if nearest.len() > MAX_ZOMBIES_3D {
-        nearest.select_nth_unstable_by(MAX_ZOMBIES_3D, |a, b| len(sub(a.pos, around)).total_cmp(&len(sub(b.pos, around))));
+        nearest.select_nth_unstable_by(MAX_ZOMBIES_3D, |a, b| {
+            len(sub(a.pos, around)).total_cmp(&len(sub(b.pos, around)))
+        });
         nearest.truncate(MAX_ZOMBIES_3D);
     }
     for z in nearest {
@@ -789,7 +1351,13 @@ pub fn scene(h: &Harvest) -> CardScene {
         let a = z.art(facing);
         let s = z.squash;
         // A rising zombie starts below the ground plane, which hides the part still buried.
-        let mut b = Board::new(a, flip, z.pos, -(1.0 - z.rise) * a.h() * PX, CHARACTER_DEPTH);
+        let mut b = Board::new(
+            a,
+            flip,
+            z.pos,
+            -(1.0 - z.rise) * a.h() * PX,
+            CHARACTER_DEPTH,
+        );
         if z.leader {
             b.tint = LEADER_TINT;
         }
@@ -806,20 +1374,40 @@ pub fn scene(h: &Harvest) -> CardScene {
         board(&mut cards, b);
     }
     for (pn, pl) in h.players.iter().enumerate() {
-        if pl.lead.is_some() || pl.sunk_away() || (pn == h.viewer && h.shown.as_ref().is_some_and(|s| !s.player)) {
+        if pl.lead.is_some()
+            || pl.sunk_away()
+            || (pn == h.viewer && h.shown.as_ref().is_some_and(|s| !s.player))
+        {
             continue;
         }
         let (facing, flip) = facing_from(h.showing_of(pn), forward, right);
         let (a, rise) = player_pose(h, pn, facing);
-        board(&mut cards, Board::new(a, flip, pl.pos, -(1.0 - rise) * a.h() * PX, CHARACTER_DEPTH));
+        board(
+            &mut cards,
+            Board::new(a, flip, pl.pos, -(1.0 - rise) * a.h() * PX, CHARACTER_DEPTH),
+        );
         if let Some((at, bright)) = player_worn(h, pn, facing) {
             board(&mut cards, worn_board(a, at, flip, pl.pos, bright));
         }
     }
-    if let Some(s) = h.shown.as_ref().filter(|s| matches!(s.stand, Stand::Figure { .. }) && !s.frames.is_empty()) {
+    if let Some(s) = h
+        .shown
+        .as_ref()
+        .filter(|s| matches!(s.stand, Stand::Figure { .. }) && !s.frames.is_empty())
+    {
         let a = s.frame(h.t);
-        let lift = if let Stand::Figure { lift } = s.stand { lift * PX } else { 0.0 };
-        board(&mut cards, Board { top: s.top, ..Board::new(a, false, s.pos, lift, CHARACTER_DEPTH) });
+        let lift = if let Stand::Figure { lift } = s.stand {
+            lift * PX
+        } else {
+            0.0
+        };
+        board(
+            &mut cards,
+            Board {
+                top: s.top,
+                ..Board::new(a, false, s.pos, lift, CHARACTER_DEPTH)
+            },
+        );
         if let Some(at) = a.worn_at().filter(|_| s.worn) {
             board(&mut cards, worn_board(a, at, false, s.pos, 1.0));
         }
@@ -830,7 +1418,10 @@ pub fn scene(h: &Harvest) -> CardScene {
         }
     }
     for (a, at, lift) in figures {
-        board(&mut cards, Board::new(a, false, at, lift * PX, CHARACTER_DEPTH));
+        board(
+            &mut cards,
+            Board::new(a, false, at, lift * PX, CHARACTER_DEPTH),
+        );
     }
     if h.t >= super::dawn() {
         // A shaft of light over the farmhouse step, to run toward.
@@ -847,38 +1438,110 @@ pub fn scene(h: &Harvest) -> CardScene {
         board(&mut cards, b);
     }
     for s in &h.stakes {
-        board(&mut cards, Board::new(super::effects::effects().stake.looping(s.age), false, s.pos, 0.0, CHARACTER_DEPTH));
+        board(
+            &mut cards,
+            Board::new(
+                super::effects::effects().stake.looping(s.age),
+                false,
+                s.pos,
+                0.0,
+                CHARACTER_DEPTH,
+            ),
+        );
     }
-    for d in h.players.iter().flat_map(|p| &p.dogs).filter(|d| (world(d.pos) - p).dot(forward) >= 0.0) {
+    for d in h
+        .players
+        .iter()
+        .flat_map(|p| &p.dogs)
+        .filter(|d| (world(d.pos) - p).dot(forward) >= 0.0)
+    {
         let flip = d.heading[0] * right.x + d.heading[1] * right.z < 0.0;
-        board(&mut cards, Board::new(d.art(), flip, d.pos, d.lift() * PX, CHARACTER_DEPTH));
+        board(
+            &mut cards,
+            Board::new(d.art(), flip, d.pos, d.lift() * PX, CHARACTER_DEPTH),
+        );
     }
-    for d in h.players.iter().flat_map(|p| &p.drones).filter(|d| (world(d.pos) - p).dot(forward) >= 0.0) {
+    for d in h
+        .players
+        .iter()
+        .flat_map(|p| &p.drones)
+        .filter(|d| (world(d.pos) - p).dot(forward) >= 0.0)
+    {
         let flip = d.heading[0] * right.x + d.heading[1] * right.z < 0.0;
-        board(&mut cards, Board::new(d.art(), flip, d.pos, d.lift() * PX, CHARACTER_DEPTH));
+        board(
+            &mut cards,
+            Board::new(d.art(), flip, d.pos, d.lift() * PX, CHARACTER_DEPTH),
+        );
     }
     for (i, (p, flip)) in h.crows().into_iter().enumerate() {
         let crow = super::effects::effects().crow;
         let a = crow.looping(h.t + i as f32 / crow.fps);
         board(&mut cards, Board::new(a, flip, p, 12.0 * PX, 0.0));
     }
-    for (owner, s) in h.players.iter().flat_map(|pl| pl.swings.iter().map(move |s| (pl.pos, s))).filter(|(_, s)| s.smash) {
+    for (owner, s) in h
+        .players
+        .iter()
+        .flat_map(|pl| pl.swings.iter().map(move |s| (pl.pos, s)))
+        .filter(|(_, s)| s.smash)
+    {
         let (angle, _) = s.now();
         let k = (s.age / s.life).min(1.0);
         let tip = SMASH_RAISED + (std::f32::consts::FRAC_PI_2 - SMASH_RAISED) * k * k;
         let ahead = Vec3::new(angle.cos(), 0.0, angle.sin());
         let side = ahead.cross(Vec3::Y);
         let up = Vec3::Y * tip.cos() + ahead * tip.sin();
-        let origin = world(owner) + ahead * (4.0 * PX) - side * (s.art.w() * PX / 2.0) + Vec3::Y * (SMASH_HAND * PX * (1.0 - k) + 0.04);
-        let pose = Pose { origin, right: side, up, back: up.cross(side), depth: PX, tint: [1.0; 3], reach: Reach::Thin, top: None };
-        faded(&mut cards, s.alpha() * s.art.alpha(), |cards| stand(cards, eye, s.art, false, pose, false));
+        let origin = world(owner) + ahead * (4.0 * PX) - side * (s.art.w() * PX / 2.0)
+            + Vec3::Y * (SMASH_HAND * PX * (1.0 - k) + 0.04);
+        let pose = Pose {
+            origin,
+            right: side,
+            up,
+            back: up.cross(side),
+            depth: PX,
+            tint: [1.0; 3],
+            reach: Reach::Thin,
+            top: None,
+        };
+        faded(&mut cards, s.alpha() * s.art.alpha(), |cards| {
+            stand(cards, eye, s.art, false, pose, false)
+        });
     }
-    for (owner, s) in h.players.iter().flat_map(|pl| pl.swings.iter().map(move |s| (pl.pos, s))).filter(|(_, s)| !s.smash) {
+    for (owner, s) in h
+        .players
+        .iter()
+        .flat_map(|pl| pl.swings.iter().map(move |s| (pl.pos, s)))
+        .filter(|(_, s)| !s.smash)
+    {
         let (angle, r) = s.now();
         let at = [owner[0] + angle.cos() * r, owner[1] + angle.sin() * r];
         match s.stand.or_else(|| s.art.stand()) {
-            Some(Stand::Slab { height, lift }) => faded(&mut cards, s.alpha() * s.art.alpha(), |cards| lying(cards, eye, s.art, world(at), angle + super::weapons::SWING_TURN, height, lift, [1.0; 3])),
-            _ => board(&mut cards, Board { alpha: s.alpha(), ..Board::new(s.art, angle.cos() * right.x + angle.sin() * right.z < 0.0, at, 4.0 * PX, 0.0) }),
+            Some(Stand::Slab { height, lift }) => {
+                faded(&mut cards, s.alpha() * s.art.alpha(), |cards| {
+                    lying(
+                        cards,
+                        eye,
+                        s.art,
+                        world(at),
+                        angle + super::weapons::SWING_TURN,
+                        height,
+                        lift,
+                        [1.0; 3],
+                    )
+                })
+            }
+            _ => board(
+                &mut cards,
+                Board {
+                    alpha: s.alpha(),
+                    ..Board::new(
+                        s.art,
+                        angle.cos() * right.x + angle.sin() * right.z < 0.0,
+                        at,
+                        4.0 * PX,
+                        0.0,
+                    )
+                },
+            ),
         }
     }
     for patch in &h.patches {
@@ -893,7 +1556,16 @@ pub fn scene(h: &Harvest) -> CardScene {
                 let a = patch.look().looping(h.t);
                 for s in super::weapons::tack_spots(patch.pos, patch.radius) {
                     let q = world(s);
-                    faded(&mut cards, a.alpha(), |cards| flat(cards, a, q.x - a.w() * PX / 2.0, q.z - a.h() * PX / 2.0, DECAL_LIFT + 0.008, [1.0; 3]));
+                    faded(&mut cards, a.alpha(), |cards| {
+                        flat(
+                            cards,
+                            a,
+                            q.x - a.w() * PX / 2.0,
+                            q.z - a.h() * PX / 2.0,
+                            DECAL_LIFT + 0.008,
+                            [1.0; 3],
+                        )
+                    });
                 }
             }
             Hazard::Fire => {
@@ -904,14 +1576,40 @@ pub fn scene(h: &Harvest) -> CardScene {
                 board(&mut cards, b);
             }
             Hazard::Flare => {
-                board(&mut cards, Board::new(super::effects::effects().flare.looping(h.t), false, patch.pos, 0.0, 0.0));
-                patch_ring(&mut cards, q, patch.radius * PX, [1.0, 0.3, 0.2], right, near);
+                board(
+                    &mut cards,
+                    Board::new(
+                        super::effects::effects().flare.looping(h.t),
+                        false,
+                        patch.pos,
+                        0.0,
+                        0.0,
+                    ),
+                );
+                patch_ring(
+                    &mut cards,
+                    q,
+                    patch.radius * PX,
+                    [1.0, 0.3, 0.2],
+                    right,
+                    near,
+                );
             }
         }
     }
     if let Some(at) = h.quick_mark() {
-        let (q, a) = (world(at), art::QUICK_MARK[(h.t * QUICK_PULSE) as usize % art::QUICK_MARK.len()]);
-        flat(&mut cards, a, q.x - a.w() * PX / 2.0, q.z - a.h() * PX / 2.0, DECAL_LIFT + 0.01, [1.0; 3]);
+        let (q, a) = (
+            world(at),
+            art::QUICK_MARK[(h.t * QUICK_PULSE) as usize % art::QUICK_MARK.len()],
+        );
+        flat(
+            &mut cards,
+            a,
+            q.x - a.w() * PX / 2.0,
+            q.z - a.h() * PX / 2.0,
+            DECAL_LIFT + 0.01,
+            [1.0; 3],
+        );
         if let Some(card) = cards.last_mut() {
             card.glow = 1.0;
         }
@@ -922,7 +1620,10 @@ pub fn scene(h: &Harvest) -> CardScene {
             for k in 0..10 {
                 let t = k as f32 / 10.0;
                 let jitter = (k as f32 * 7.3 + b.age * 90.0).sin() * 2.0;
-                let at = [w[0][0] + (w[1][0] - w[0][0]) * t + jitter, w[0][1] + (w[1][1] - w[0][1]) * t + 6.0];
+                let at = [
+                    w[0][0] + (w[1][0] - w[0][0]) * t + jitter,
+                    w[0][1] + (w[1][1] - w[0][1]) * t + 6.0,
+                ];
                 let q = world(at) + Vec3::Y * (0.5 + jitter * PX);
                 if near(q) && (q - p).dot(forward) > 0.0 {
                     speck(&mut cards, q, 0.07 * fade, right, [0.7, 0.85, 1.0], 1.0);
@@ -936,7 +1637,13 @@ pub fn scene(h: &Harvest) -> CardScene {
             DropKind::Health => super::effects::effects().health.looping(d.age),
             DropKind::Chest => super::effects::effects().chest.looping(d.age),
         };
-        let mut b = Board::new(a, false, d.pos, 0.1 + d.z * PX + (h.t * 4.0 + d.pos[0]).sin().abs() * 0.1, 0.0);
+        let mut b = Board::new(
+            a,
+            false,
+            d.pos,
+            0.1 + d.z * PX + (h.t * 4.0 + d.pos[0]).sin().abs() * 0.1,
+            0.0,
+        );
         // Coins spin; never quite edge-on, or they vanish.
         if d.kind != DropKind::Chest {
             b.scale[0] = (h.t * 5.0 + d.pos[1]).cos().abs().max(0.2);
@@ -964,7 +1671,25 @@ pub fn scene(h: &Harvest) -> CardScene {
         let back = up.cross(side);
         let lift = c.z * PX + 0.04 - c.sunk() * PX;
         let origin = q - side * (art.w() * PX / 2.0) + Vec3::Y * lift;
-        faded(&mut cards, art.alpha(), |cards| stand(cards, eye, art, flip, Pose { origin, right: side, up, back, depth: PX, tint: [0.8; 3], reach: Reach::Thin, top: None }, false));
+        faded(&mut cards, art.alpha(), |cards| {
+            stand(
+                cards,
+                eye,
+                art,
+                flip,
+                Pose {
+                    origin,
+                    right: side,
+                    up,
+                    back,
+                    depth: PX,
+                    tint: [0.8; 3],
+                    reach: Reach::Thin,
+                    top: None,
+                },
+                false,
+            )
+        });
     }
     for b in &h.birds {
         let mut board_b = Board::new(b.art(), b.flip, b.pos, b.z * PX, 0.0);
@@ -974,8 +1699,19 @@ pub fn scene(h: &Harvest) -> CardScene {
     for f in &h.fx {
         let a = f.frame();
         match a.stand() {
-            Some(Stand::Slab { height, lift }) => faded(&mut cards, f.alpha() * a.alpha(), |cards| lying(cards, eye, a, world(f.pos), f.angle, height, lift, f.tint)),
-            _ => board(&mut cards, Board { tint: f.tint, alpha: f.alpha(), ..Board::new(a, false, [f.pos[0], f.pos[1] + 6.0], 0.25, 0.0) }),
+            Some(Stand::Slab { height, lift }) => {
+                faded(&mut cards, f.alpha() * a.alpha(), |cards| {
+                    lying(cards, eye, a, world(f.pos), f.angle, height, lift, f.tint)
+                })
+            }
+            _ => board(
+                &mut cards,
+                Board {
+                    tint: f.tint,
+                    alpha: f.alpha(),
+                    ..Board::new(a, false, [f.pos[0], f.pos[1] + 6.0], 0.25, 0.0)
+                },
+            ),
         }
     }
     for g in &h.thrown {
@@ -986,7 +1722,12 @@ pub fn scene(h: &Harvest) -> CardScene {
         }
         // A shadow that grows as the grenade comes down, and a ring of red marks where it will land.
         let k = (g.t / crate::tuning::tuning().grenade_flight).min(1.0);
-        patch(&mut cards, world(at) + Vec3::Y * (DECAL_LIFT + 0.01), 0.15 + 0.15 * k, [0.02; 3]);
+        patch(
+            &mut cards,
+            world(at) + Vec3::Y * (DECAL_LIFT + 0.01),
+            0.15 + 0.15 * k,
+            [0.02; 3],
+        );
         let spin = g.t * 3.0;
         for i in 0..10 {
             let a = spin + i as f32 / 10.0 * std::f32::consts::TAU;
@@ -1000,8 +1741,14 @@ pub fn scene(h: &Harvest) -> CardScene {
     let own_shot = super::effects::effects().bullet.shot;
     for b in &h.bullets {
         let Some(shot) = b.look.map_or(own_shot, |e| e.shot) else {
-            let a = b.look.unwrap_or(super::effects::effects().bullet).looping(b.age);
-            board(&mut cards, Board::new(a, false, [b.pos[0], b.pos[1] + 6.0], 0.35, 0.0));
+            let a = b
+                .look
+                .unwrap_or(super::effects::effects().bullet)
+                .looping(b.age);
+            board(
+                &mut cards,
+                Board::new(a, false, [b.pos[0], b.pos[1] + 6.0], 0.35, 0.0),
+            );
             continue;
         };
         let at = [b.pos[0], b.pos[1] + 6.0];
@@ -1011,34 +1758,66 @@ pub fn scene(h: &Harvest) -> CardScene {
             let behind = len(sub(at, back)) / len(b.vel).max(1.0);
             let tail = world(back) + Vec3::Y * (0.42 + b.up(b.age - behind) * PX);
             match shot.sprites[super::effects::TRACER] {
-                Some(frames) => stretched(&mut cards, eye, tail, head, shot.size * 1.5 * PX, frames[(b.age * TRACER_FPS) as usize % frames.len()]),
+                Some(frames) => stretched(
+                    &mut cards,
+                    eye,
+                    tail,
+                    head,
+                    shot.size * 1.5 * PX,
+                    frames[(b.age * TRACER_FPS) as usize % frames.len()],
+                ),
                 None => tracer(&mut cards, eye, head, tail, shot.size * PX, shot.color),
             }
         }
     }
     for s in &h.spits {
         let a = super::effects::effects().spit.looping(s.age);
-        board(&mut cards, Board { tint: s.tint(), ..Board::new(a, false, [s.pos[0], s.pos[1] + 6.0], 0.35, 0.0) });
+        board(
+            &mut cards,
+            Board {
+                tint: s.tint(),
+                ..Board::new(a, false, [s.pos[0], s.pos[1] + 6.0], 0.35, 0.0)
+            },
+        );
     }
     for z in h.burrowed.iter().filter(|z| z.rise == 0.0) {
-        let a = super::effects::effects().mound.looping(h.t + z.id as f32 * 0.37);
+        let a = super::effects::effects()
+            .mound
+            .looping(h.t + z.id as f32 * 0.37);
         board(&mut cards, Board::new(a, z.dir[0] < 0.0, z.pos, 0.0, 0.0));
     }
     // Churned earth, darkening as a zombie nears the surface; a burrower's trail is fully dark.
-    let mounds = h.tells.iter().map(|t| (t.pos, (t.t / TELL_TIME).min(1.0), t.pos[0] as usize)).chain(h.burrowed.iter().map(|z| (z.pos, 1.0, z.id as usize)));
+    let mounds = h
+        .tells
+        .iter()
+        .map(|t| (t.pos, (t.t / TELL_TIME).min(1.0), t.pos[0] as usize))
+        .chain(h.burrowed.iter().map(|z| (z.pos, 1.0, z.id as usize)));
     for (pos, k, pick) in mounds {
         let mark = art::BLOOD_STAIN[pick % art::BLOOD_STAIN.len()];
         let q = world([pos[0] - mark.w() / 2.0, pos[1] - mark.h() / 2.0]);
         if near(q) {
-            faded(&mut cards, mark.alpha(), |cards| flat(cards, mark, q.x, q.z, DECAL_LIFT + 0.004, [0.45 - 0.2 * k, 0.32 - 0.15 * k, 0.2 - 0.1 * k]));
+            faded(&mut cards, mark.alpha(), |cards| {
+                flat(
+                    cards,
+                    mark,
+                    q.x,
+                    q.z,
+                    DECAL_LIFT + 0.004,
+                    [0.45 - 0.2 * k, 0.32 - 0.15 * k, 0.2 - 0.1 * k],
+                )
+            });
         }
     }
     for pt in &h.juice.particles {
         let q = world(pt.pos) + Vec3::Y * (pt.z * PX);
         if near(q) && (q - p).dot(forward) > 0.0 {
             match pt.frame() {
-                Some(a) => faded(&mut cards, pt.alpha() * a.alpha(), |cards| sprite_speck(cards, q, pt.size_now() * PX, right, a, pt.glow)),
-                None => faded(&mut cards, pt.alpha(), |cards| speck(cards, q, pt.size_now() * PX, right, pt.color, pt.glow)),
+                Some(a) => faded(&mut cards, pt.alpha() * a.alpha(), |cards| {
+                    sprite_speck(cards, q, pt.size_now() * PX, right, a, pt.glow)
+                }),
+                None => faded(&mut cards, pt.alpha(), |cards| {
+                    speck(cards, q, pt.size_now() * PX, right, pt.color, pt.glow)
+                }),
             }
         }
     }
@@ -1049,14 +1828,31 @@ pub fn scene(h: &Harvest) -> CardScene {
         }
         if let Some(art) = f.frame() {
             let reach = f.size * 2.4;
-            let tip = world([f.pos[0] + f.dir[0] * reach, f.pos[1] + f.dir[1] * reach]) + Vec3::Y * (f.z * PX);
-            stretched(&mut cards, eye, at, tip, reach * art.h() / art.w() * PX, art);
+            let tip = world([f.pos[0] + f.dir[0] * reach, f.pos[1] + f.dir[1] * reach])
+                + Vec3::Y * (f.z * PX);
+            stretched(
+                &mut cards,
+                eye,
+                at,
+                tip,
+                reach * art.h() / art.w() * PX,
+                art,
+            );
             continue;
         }
         let a = f.dir[1].atan2(f.dir[0]);
         // Rays fanning forward out of the muzzle, the middle one longest.
-        for (turn, reach) in [(0.0, 2.4), (-0.55, 1.3), (0.55, 1.3), (-1.4, 0.6), (1.4, 0.6)] {
-            let tip = world([f.pos[0] + (a + turn).cos() * f.size * reach * f.reach(), f.pos[1] + (a + turn).sin() * f.size * reach * f.reach()]) + Vec3::Y * (f.z * PX);
+        for (turn, reach) in [
+            (0.0, 2.4),
+            (-0.55, 1.3),
+            (0.55, 1.3),
+            (-1.4, 0.6),
+            (1.4, 0.6),
+        ] {
+            let tip = world([
+                f.pos[0] + (a + turn).cos() * f.size * reach * f.reach(),
+                f.pos[1] + (a + turn).sin() * f.size * reach * f.reach(),
+            ]) + Vec3::Y * (f.z * PX);
             tracer(&mut cards, eye, at, tip, f.size * 0.7 * PX, f.color);
         }
     }
@@ -1077,7 +1873,11 @@ pub fn scene(h: &Harvest) -> CardScene {
         .juice
         .flashes
         .iter()
-        .map(|f| Flash { pos: world(f.pos) + Vec3::Y * (f.z * PX), color: f.color.map(|c| c * f.strength()), range: f.range * (0.5 + 0.5 * f.strength()) })
+        .map(|f| Flash {
+            pos: world(f.pos) + Vec3::Y * (f.z * PX),
+            color: f.color.map(|c| c * f.strength()),
+            range: f.range * (0.5 + 0.5 * f.strength()),
+        })
         .collect();
     let health = h.eye().hp / h.eye().kit.max_hp();
     let dying = matches!(h.phase, Phase::Over { won: false, .. });
@@ -1087,11 +1887,23 @@ pub fn scene(h: &Harvest) -> CardScene {
         _ => 0.0,
     };
     // The lantern gutters when you're nearly done for.
-    let gutter = if health < 0.3 { 0.15 * (h.juice.clock * 23.0).sin().abs() * (h.juice.clock * 7.0).sin().abs() } else { 0.0 };
-    let lantern = if dying { 3.0 + 4.0 * turned } else { 9.0 * h.eye().kit.mods.view + 6.0 * h.eye().beam } * (1.0 - 0.04 * (h.t * 13.0).sin().abs() - gutter);
+    let gutter = if health < 0.3 {
+        0.15 * (h.juice.clock * 23.0).sin().abs() * (h.juice.clock * 7.0).sin().abs()
+    } else {
+        0.0
+    };
+    let lantern = if dying {
+        3.0 + 4.0 * turned
+    } else {
+        9.0 * h.eye().kit.mods.view + 6.0 * h.eye().beam
+    } * (1.0 - 0.04 * (h.t * 13.0).sin().abs() - gutter);
     let sky = sky(h);
     let hurt = h.juice.hurt / 0.35;
-    let light_color = [sky.lantern[0], sky.lantern[1] * (1.0 - 0.4 * hurt), sky.lantern[2] * (1.0 - 0.5 * hurt)];
+    let light_color = [
+        sky.lantern[0],
+        sky.lantern[1] * (1.0 - 0.4 * hurt),
+        sky.lantern[2] * (1.0 - 0.5 * hurt),
+    ];
     let sickly = [0.55, 1.0, 0.45];
     let light_color = [0, 1, 2].map(|i| light_color[i] + (sickly[i] - light_color[i]) * turned);
     CardScene {
@@ -1103,7 +1915,11 @@ pub fn scene(h: &Harvest) -> CardScene {
         flashes,
         ambient: sky.ambient,
         // Color drains away as the player nears death, and is gone once they fall.
-        saturation: if dying { 0.15 + 0.45 * turned } else { 0.35 + 0.65 * (health / 0.3).min(1.0) },
+        saturation: if dying {
+            0.15 + 0.45 * turned
+        } else {
+            0.35 + 0.65 * (health / 0.3).min(1.0)
+        },
         fog: sky.fog,
         fog_range: [6.0, VIEW_RADIUS],
         cards,
@@ -1126,8 +1942,16 @@ mod tests {
         }
         let stalks = art::set_live(vec![[x as u16, y as u16, 4, 8]], px)[0];
         art::set_live_detail(vec![1]);
-        assert_eq!(clear_ends(stalks), [3.0, 2.0], "three clear rows under the picture, two over it");
-        assert_eq!(clear_ends(art::SOIL[0]), [0.0, 0.0], "a tile fills its cell");
+        assert_eq!(
+            clear_ends(stalks),
+            [3.0, 2.0],
+            "three clear rows under the picture, two over it"
+        );
+        assert_eq!(
+            clear_ends(art::SOIL[0]),
+            [0.0, 0.0],
+            "a tile fills its cell"
+        );
     }
 
     #[test]
@@ -1149,43 +1973,112 @@ mod tests {
             out.iter().flat_map(|c| c.corners).collect::<Vec<_>>()
         };
         let flat = corners(0.0);
-        assert!(flat.iter().all(|c| (6.0 * PX - 1e-5..=7.0 * PX + 1e-5).contains(&c.y)), "a plate 1 thick, 6 up");
-        let reach = |cs: &[Vec3], f: fn(&Vec3) -> f32| cs.iter().map(f).fold(0.0f32, |m, v| m.max(v.abs()));
+        assert!(
+            flat.iter()
+                .all(|c| (6.0 * PX - 1e-5..=7.0 * PX + 1e-5).contains(&c.y)),
+            "a plate 1 thick, 6 up"
+        );
+        let reach =
+            |cs: &[Vec3], f: fn(&Vec3) -> f32| cs.iter().map(f).fold(0.0f32, |m, v| m.max(v.abs()));
         let turned = corners(std::f32::consts::FRAC_PI_2);
-        assert!((reach(&flat, |c| c.x) - reach(&turned, |c| c.z)).abs() < 1e-4, "a quarter turn swaps its width onto z");
+        assert!(
+            (reach(&flat, |c| c.x) - reach(&turned, |c| c.z)).abs() < 1e-4,
+            "a quarter turn swaps its width onto z"
+        );
     }
 
     #[test]
     fn a_fence_side_turns_to_run_north_along_its_strip() {
         let side = art::RAIL_SIDE[0];
-        let Some(Stand::Turned { east, depth: None }) = side.stand() else { panic!("the catalog turns the rail's sides") };
+        let Some(Stand::Turned { east, depth: None }) = side.stand() else {
+            panic!("the catalog turns the rail's sides")
+        };
         assert_eq!(east.rect()[2..], art::RAIL_TOP[1].rect()[2..]);
         let thin = |depth| {
             let mut cards = Vec::new();
-            fixed(&mut cards, Vec3::new(-3.0, 2.0, 3.0), side, Stand::Turned { east, depth }, 0.0, 16.0, [1.0; 3]);
-            let xs: Vec<f32> = cards.iter().flat_map(|c| c.corners).map(|c| c.x / PX).collect();
-            (xs.iter().copied().fold(f32::MAX, f32::min), xs.iter().copied().fold(f32::MIN, f32::max))
+            fixed(
+                &mut cards,
+                Vec3::new(-3.0, 2.0, 3.0),
+                side,
+                Stand::Turned { east, depth },
+                0.0,
+                16.0,
+                [1.0; 3],
+            );
+            let xs: Vec<f32> = cards
+                .iter()
+                .flat_map(|c| c.corners)
+                .map(|c| c.x / PX)
+                .collect();
+            (
+                xs.iter().copied().fold(f32::MAX, f32::min),
+                xs.iter().copied().fold(f32::MIN, f32::max),
+            )
         };
-        assert_eq!(thin(Some(1.0)), (2.0, 3.0), "a set depth stays centered on the strip");
+        assert_eq!(
+            thin(Some(1.0)),
+            (2.0, 3.0),
+            "a set depth stays centered on the strip"
+        );
         let mut cards = Vec::new();
-        fixed(&mut cards, Vec3::new(-3.0, 2.0, 3.0), side, Stand::Turned { east, depth: None }, 0.0, 16.0, [1.0; 3]);
+        fixed(
+            &mut cards,
+            Vec3::new(-3.0, 2.0, 3.0),
+            side,
+            Stand::Turned { east, depth: None },
+            0.0,
+            16.0,
+            [1.0; 3],
+        );
         let corners = || cards.iter().flat_map(|c| c.corners);
         let (xs, zs): (Vec<f32>, Vec<f32>) = corners().map(|c| (c.x / PX, c.z / PX)).unzip();
-        let span = |v: &[f32]| (v.iter().copied().fold(f32::MAX, f32::min), v.iter().copied().fold(f32::MIN, f32::max));
-        assert_eq!(span(&xs), (1.0, 4.0), "as thick as the strip drawn from above");
+        let span = |v: &[f32]| {
+            (
+                v.iter().copied().fold(f32::MAX, f32::min),
+                v.iter().copied().fold(f32::MIN, f32::max),
+            )
+        };
+        assert_eq!(
+            span(&xs),
+            (1.0, 4.0),
+            "as thick as the strip drawn from above"
+        );
         assert_eq!(span(&zs), (0.0, 16.0), "the length of the tile");
     }
 
     #[test]
     fn the_quads_counted_are_all_a_stand_draws_from_any_side() {
         let a = art::HAY_STACK;
-        let carve = Stand::Carve { footprint: None, roof: None, south: art::CAR_H, east: art::CAR_V, north: None, west: None };
-        for how in [Stand::Prop { depth: 6.0 }, Stand::Slab { height: 8.0, lift: 0.0 }, Stand::Ground, carve] {
+        let carve = Stand::Carve {
+            footprint: None,
+            roof: None,
+            south: art::CAR_H,
+            east: art::CAR_V,
+            north: None,
+            west: None,
+        };
+        for how in [
+            Stand::Prop { depth: 6.0 },
+            Stand::Slab {
+                height: 8.0,
+                lift: 0.0,
+            },
+            Stand::Ground,
+            carve,
+        ] {
             let n = quads(a, how, None);
-            for eye in [Vec3::new(0.0, 9.0, 0.0), Vec3::new(-9.0, 1.0, 9.0), Vec3::new(9.0, 1.0, -9.0)] {
+            for eye in [
+                Vec3::new(0.0, 9.0, 0.0),
+                Vec3::new(-9.0, 1.0, 9.0),
+                Vec3::new(9.0, 1.0, -9.0),
+            ] {
                 let mut out = Vec::new();
                 fixed(&mut out, eye, a, how, 0.0, 16.0, [1.0; 3]);
-                assert!(!out.is_empty() && out.len() <= n, "{how:?}: drew {} of {n}", out.len());
+                assert!(
+                    !out.is_empty() && out.len() <= n,
+                    "{how:?}: drew {} of {n}",
+                    out.len()
+                );
             }
         }
         assert_eq!(quads(a, Stand::Ground, None), 1);
@@ -1196,14 +2089,52 @@ mod tests {
         let a = art::GAS_STATION;
         let (rows, h) = (20.0, a.h());
         let mut out = Vec::new();
-        folded(&mut out, Vec3::new(3.0, 6.0, 9.0), a, rows, 0.0, 100.0, [1.0; 3]);
-        let ys: Vec<f32> = out.iter().flat_map(|c| c.corners).map(|c| c.y / PX).collect();
-        let zs: Vec<f32> = out.iter().flat_map(|c| c.corners).map(|c| c.z / PX).collect();
-        let span = |v: &[f32]| (v.iter().copied().fold(f32::MAX, f32::min), v.iter().copied().fold(f32::MIN, f32::max));
-        assert_eq!(span(&ys), (0.0, h - rows + 1.0), "the front as tall as the rows below the fold, the roof a pixel over it");
-        assert_eq!(span(&zs), (100.0 - rows, 100.0), "as deep as the roof's rows");
-        assert!(out.iter().any(|c| c.normal == Vec3::Y && c.corners.iter().all(|p| (p.y / PX - (h - rows + 1.0)).abs() < 1e-3)), "the roof faces up");
-        assert_eq!(quads(a, Stand::Fold { rows }, None), part_faces(a, [0, 20]).len() + part_faces(a, [20, h as u16]).len());
+        folded(
+            &mut out,
+            Vec3::new(3.0, 6.0, 9.0),
+            a,
+            rows,
+            0.0,
+            100.0,
+            [1.0; 3],
+        );
+        let ys: Vec<f32> = out
+            .iter()
+            .flat_map(|c| c.corners)
+            .map(|c| c.y / PX)
+            .collect();
+        let zs: Vec<f32> = out
+            .iter()
+            .flat_map(|c| c.corners)
+            .map(|c| c.z / PX)
+            .collect();
+        let span = |v: &[f32]| {
+            (
+                v.iter().copied().fold(f32::MAX, f32::min),
+                v.iter().copied().fold(f32::MIN, f32::max),
+            )
+        };
+        assert_eq!(
+            span(&ys),
+            (0.0, h - rows + 1.0),
+            "the front as tall as the rows below the fold, the roof a pixel over it"
+        );
+        assert_eq!(
+            span(&zs),
+            (100.0 - rows, 100.0),
+            "as deep as the roof's rows"
+        );
+        assert!(
+            out.iter().any(|c| c.normal == Vec3::Y
+                && c.corners
+                    .iter()
+                    .all(|p| (p.y / PX - (h - rows + 1.0)).abs() < 1e-3)),
+            "the roof faces up"
+        );
+        assert_eq!(
+            quads(a, Stand::Fold { rows }, None),
+            part_faces(a, [0, 20]).len() + part_faces(a, [20, h as u16]).len()
+        );
     }
 
     #[test]
@@ -1211,10 +2142,30 @@ mod tests {
         let (a, roof) = (art::CAR_H, art::WRECK_H[0]);
         let from_roof = |r: Option<Art>| {
             let mut out = Vec::new();
-            fixed(&mut out, Vec3::new(0.2, 9.0, 0.1), a, Stand::Carve { footprint: None, roof: r, south: art::CAR_H, east: art::CAR_V, north: None, west: None }, 0.0, 16.0, [1.0; 3]);
+            fixed(
+                &mut out,
+                Vec3::new(0.2, 9.0, 0.1),
+                a,
+                Stand::Carve {
+                    footprint: None,
+                    roof: r,
+                    south: art::CAR_H,
+                    east: art::CAR_V,
+                    north: None,
+                    west: None,
+                },
+                0.0,
+                16.0,
+                [1.0; 3],
+            );
             let [rx, ry, rw, rh] = roof.rect().map(f32::from);
-            let inside = |c: &Card| (rx..=rx + rw).contains(&(c.uv[0] * ATLAS_W as f32)) && (ry..=ry + rh).contains(&(c.uv[1] * ATLAS_H as f32));
-            out.iter().filter(|c| c.normal == Vec3::Y && inside(c)).count()
+            let inside = |c: &Card| {
+                (rx..=rx + rw).contains(&(c.uv[0] * ATLAS_W as f32))
+                    && (ry..=ry + rh).contains(&(c.uv[1] * ATLAS_H as f32))
+            };
+            out.iter()
+                .filter(|c| c.normal == Vec3::Y && inside(c))
+                .count()
         };
         assert_eq!(from_roof(None), 0);
         assert!(from_roof(Some(roof)) > 0);
@@ -1225,44 +2176,123 @@ mod tests {
         let eye = Vec3::new(0.5, 3.0, 4.0);
         let cards = |a: Art| {
             let mut out = Vec::new();
-            fixed(&mut out, eye, a, Stand::Slab { height: 4.0, lift: 0.0 }, 0.0, 16.0, [1.0; 3]);
+            fixed(
+                &mut out,
+                eye,
+                a,
+                Stand::Slab {
+                    height: 4.0,
+                    lift: 0.0,
+                },
+                0.0,
+                16.0,
+                [1.0; 3],
+            );
             out
         };
-        let on_ground = |cards: &[Card]| cards.iter().filter(|c| (c.corners[0].y - DECAL_LIFT - 0.006).abs() < 1e-4).count();
-        assert_eq!(on_ground(&cards(art::HAY)), 0, "nothing lies on the ground without cleared colors");
+        let on_ground = |cards: &[Card]| {
+            cards
+                .iter()
+                .filter(|c| (c.corners[0].y - DECAL_LIFT - 0.006).abs() < 1e-4)
+                .count()
+        };
+        assert_eq!(
+            on_ground(&cards(art::HAY)),
+            0,
+            "nothing lies on the ground without cleared colors"
+        );
         let _lock = art::test_lock();
         let live = art::set_live(vec![art::HAY.rect()], art::pixels().to_vec())[0];
         art::set_live_solids(vec![(live, art::BUSH)]);
         let cleared = cards(live);
-        assert_eq!(on_ground(&cleared), 1, "the whole sprite lies on the ground");
-        assert_eq!(cleared.len() - 1, cards(art::BUSH).len(), "the raised part is the 3D copy's");
+        assert_eq!(
+            on_ground(&cleared),
+            1,
+            "the whole sprite lies on the ground"
+        );
+        assert_eq!(
+            cleared.len() - 1,
+            cards(art::BUSH).len(),
+            "the raised part is the 3D copy's"
+        );
         art::set_live_solids(Vec::new());
     }
 
     #[test]
     fn a_detail_2_prop_stands_folds_carves_and_turns_as_its_plain_sprite_does() {
         let _lock = art::test_lock();
-        let Some(Stand::Turned { east, .. }) = art::RAIL_SIDE[0].stand() else { panic!("the catalog turns the rail's sides") };
-        let plain = [art::GAS_STATION, art::HAY_STACK, art::CAR_H, art::CAR_V, art::RAIL_SIDE[0], east];
+        let Some(Stand::Turned { east, .. }) = art::RAIL_SIDE[0].stand() else {
+            panic!("the catalog turns the rail's sides")
+        };
+        let plain = [
+            art::GAS_STATION,
+            art::HAY_STACK,
+            art::CAR_H,
+            art::CAR_V,
+            art::RAIL_SIDE[0],
+            east,
+        ];
         let fine = art::live_detailed(&plain, 2);
         let stands = |a: &[Art]| {
-            let carve = Stand::Carve { footprint: Some(a[2]), roof: None, south: a[2], east: a[3], north: None, west: None };
-            [(a[0], Stand::Fold { rows: 27.0 }), (a[1], Stand::Prop { depth: 6.0 }), (a[1], Stand::Slab { height: 8.0, lift: 2.0 }), (a[1], Stand::Ground), (a[2], carve), (a[4], Stand::Turned { east: a[5], depth: None })]
+            let carve = Stand::Carve {
+                footprint: Some(a[2]),
+                roof: None,
+                south: a[2],
+                east: a[3],
+                north: None,
+                west: None,
+            };
+            [
+                (a[0], Stand::Fold { rows: 27.0 }),
+                (a[1], Stand::Prop { depth: 6.0 }),
+                (
+                    a[1],
+                    Stand::Slab {
+                        height: 8.0,
+                        lift: 2.0,
+                    },
+                ),
+                (a[1], Stand::Ground),
+                (a[2], carve),
+                (
+                    a[4],
+                    Stand::Turned {
+                        east: a[5],
+                        depth: None,
+                    },
+                ),
+            ]
         };
         let eye = Vec3::new(-4.0, 5.0, 9.0);
         for ((a, how), (b, fine_how)) in stands(&plain).into_iter().zip(stands(&fine)) {
             assert_eq!((b.detail(), b.w(), b.h()), (2, a.w(), a.h()));
-            assert_eq!(quads(a, how, None), quads(b, fine_how, None), "{how:?}: as many faces");
+            assert_eq!(
+                quads(a, how, None),
+                quads(b, fine_how, None),
+                "{how:?}: as many faces"
+            );
             let corners = |a: Art, how: Stand| {
                 let mut out = Vec::new();
                 fixed(&mut out, eye, a, how, 3.0, 60.0, [1.0; 3]);
-                let mut c: Vec<[i32; 3]> = out.iter().flat_map(|c| c.corners).map(|p| (p / PX * 100.0).round().as_ivec3().to_array()).collect();
+                let mut c: Vec<[i32; 3]> = out
+                    .iter()
+                    .flat_map(|c| c.corners)
+                    .map(|p| (p / PX * 100.0).round().as_ivec3().to_array())
+                    .collect();
                 c.sort();
                 c
             };
-            assert_eq!(corners(a, how), corners(b, fine_how), "{how:?}: the same faces in the world");
+            assert_eq!(
+                corners(a, how),
+                corners(b, fine_how),
+                "{how:?}: the same faces in the world"
+            );
         }
-        assert_eq!(fold_row(fine[0], 27.0), fold_row(art::GAS_STATION, 27.0), "folds at the same game row");
+        assert_eq!(
+            fold_row(fine[0], 27.0),
+            fold_row(art::GAS_STATION, 27.0),
+            "folds at the same game row"
+        );
         art::set_live_detail(Vec::new());
     }
 
@@ -1271,21 +2301,42 @@ mod tests {
         // An L of opaque game pixels, drawn once plain and once at detail 2 with a stray pixel cut from one block.
         let shape = ["##.", "#..", "###"];
         let mut pixels = vec![0u8; ATLAS_W as usize * 4 * 6];
-        let mut put = |x: usize, y: usize| pixels[(y * ATLAS_W as usize + x) * 4..][..4].copy_from_slice(&[200, 150, 100, 255]);
+        let mut put = |x: usize, y: usize| {
+            pixels[(y * ATLAS_W as usize + x) * 4..][..4].copy_from_slice(&[200, 150, 100, 255])
+        };
         for (y, row) in shape.iter().enumerate() {
             for (x, _) in row.chars().enumerate().filter(|(_, c)| *c == '#') {
                 put(x, y);
-                for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)].into_iter().filter(|&d| (x, y, d) != (2, 2, (1, 1))) {
+                for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)]
+                    .into_iter()
+                    .filter(|&d| (x, y, d) != (2, 2, (1, 1)))
+                {
                     put(8 + 2 * x + dx, 2 * y + dy);
                 }
             }
         }
         let plain = extrude(&pixels, [0, 0, 3, 3], Reach::Thin, None, 1);
         let fine = extrude(&pixels, [8, 0, 6, 6], Reach::Thin, None, 2);
-        assert_eq!(fine.len(), plain.len(), "a block missing a pixel still counts as solid");
-        let reach = |faces: &[Face]| faces.iter().flat_map(|f| f.corners).fold(0.0f32, |m, c| m.max(c[0]).max(c[1]));
-        assert_eq!(reach(&fine), 2.0 * reach(&plain), "in texture pixels; `place` scales them by the detail");
-        assert!(fine.iter().all(|f| f.uv[0] >= 8.0 / ATLAS_W as f32), "sides take their colors from the detailed pixels");
+        assert_eq!(
+            fine.len(),
+            plain.len(),
+            "a block missing a pixel still counts as solid"
+        );
+        let reach = |faces: &[Face]| {
+            faces
+                .iter()
+                .flat_map(|f| f.corners)
+                .fold(0.0f32, |m, c| m.max(c[0]).max(c[1]))
+        };
+        assert_eq!(
+            reach(&fine),
+            2.0 * reach(&plain),
+            "in texture pixels; `place` scales them by the detail"
+        );
+        assert!(
+            fine.iter().all(|f| f.uv[0] >= 8.0 / ATLAS_W as f32),
+            "sides take their colors from the detailed pixels"
+        );
     }
 
     #[test]
@@ -1296,7 +2347,10 @@ mod tests {
             pixels[y * ATLAS_W as usize * 4..][..4].copy_from_slice(&[rgb, rgb, rgb, 255]);
         }
         let top_row = |reach| {
-            let top = extrude(&pixels, [0, 0, 1, 4], reach, None, 1).into_iter().find(|f| f.normal == [0.0, 1.0, 0.0]).unwrap();
+            let top = extrude(&pixels, [0, 0, 1, 4], reach, None, 1)
+                .into_iter()
+                .find(|f| f.normal == [0.0, 1.0, 0.0])
+                .unwrap();
             (top.uv[1] * ATLAS_H as f32) as usize
         };
         assert_eq!(top_row(Reach::Thin), 0, "the hair itself");
@@ -1309,7 +2363,10 @@ mod tests {
         let mut pixels = vec![0u8; ATLAS_W as usize * 4];
         pixels[..8].copy_from_slice(&[10, 10, 10, 255, 250, 250, 250, 255]);
         let left_col = |reach| {
-            let side = extrude(&pixels, [0, 0, 2, 1], reach, None, 1).into_iter().find(|f| f.normal == [-1.0, 0.0, 0.0]).unwrap();
+            let side = extrude(&pixels, [0, 0, 2, 1], reach, None, 1)
+                .into_iter()
+                .find(|f| f.normal == [-1.0, 0.0, 0.0])
+                .unwrap();
             (side.uv[0] * ATLAS_W as f32) as usize
         };
         assert_eq!(left_col(Reach::Thin), 0, "the outline");
@@ -1325,10 +2382,22 @@ mod tests {
             pixels[x * 4..x * 4 + 4].copy_from_slice(&[10, 10, 10, 255]);
         }
         pixels[row * 3..row * 3 + 4].copy_from_slice(&[200, 0, 0, 255]);
-        let tops: Vec<Face> = extrude(&pixels, [0, 0, 2, 1], Reach::Thin, Some([0, 3, 2, 1]), 1).into_iter().filter(|f| f.normal == [0.0, 1.0, 0.0]).collect();
-        let at = |f: &Face| ((f.uv[0] * ATLAS_W as f32) as usize, (f.uv[1] * ATLAS_H as f32) as usize);
+        let tops: Vec<Face> = extrude(&pixels, [0, 0, 2, 1], Reach::Thin, Some([0, 3, 2, 1]), 1)
+            .into_iter()
+            .filter(|f| f.normal == [0.0, 1.0, 0.0])
+            .collect();
+        let at = |f: &Face| {
+            (
+                (f.uv[0] * ATLAS_W as f32) as usize,
+                (f.uv[1] * ATLAS_H as f32) as usize,
+            )
+        };
         assert_eq!(tops.len(), 2);
-        assert_eq!(at(&tops[0]), (0, 3), "the strip's red caps the first column");
+        assert_eq!(
+            at(&tops[0]),
+            (0, 3),
+            "the strip's red caps the first column"
+        );
         assert_eq!(at(&tops[1]).1, 0, "the second keeps its own color");
     }
 
@@ -1338,7 +2407,11 @@ mod tests {
             for &a in *frames {
                 let f = faces(a, Reach::Deep, a.top());
                 assert!(f.len() >= 2, "{name}");
-                assert!(f.iter().all(|f| f.uv.iter().all(|v| (0.0..=1.0).contains(v))), "{name}: uv out of range");
+                assert!(
+                    f.iter()
+                        .all(|f| f.uv.iter().all(|v| (0.0..=1.0).contains(v))),
+                    "{name}: uv out of range"
+                );
             }
         }
     }
@@ -1350,15 +2423,35 @@ mod tests {
         h.barrels.clear();
         let without = scene(&h).cards.len();
         let drawn = |h: &mut Harvest, tiles: [f32; 2]| {
-            h.barrels = vec![super::super::Barrel { pos: [h.me().pos[0] + tiles[0] * TILE, h.me().pos[1] + tiles[1] * TILE], hp: 1.0, flash: 0.0, by: super::super::ME }];
+            h.barrels = vec![super::super::Barrel {
+                pos: [
+                    h.me().pos[0] + tiles[0] * TILE,
+                    h.me().pos[1] + tiles[1] * TILE,
+                ],
+                hp: 1.0,
+                flash: 0.0,
+                by: super::super::ME,
+            }];
             scene(h).cards.len() > without
         };
-        assert!(drawn(&mut h, [0.0, 2.0]), "level with the player, off to the side");
-        assert!(drawn(&mut h, [-0.5, 0.4]), "right against the player's side");
+        assert!(
+            drawn(&mut h, [0.0, 2.0]),
+            "level with the player, off to the side"
+        );
+        assert!(
+            drawn(&mut h, [-0.5, 0.4]),
+            "right against the player's side"
+        );
         assert!(drawn(&mut h, [-0.5, -1.4]), "right against the other side");
-        assert!(drawn(&mut h, [-1.0, 2.0]), "a little behind, still on screen");
+        assert!(
+            drawn(&mut h, [-1.0, 2.0]),
+            "a little behind, still on screen"
+        );
         assert!(drawn(&mut h, [3.0, 0.0]), "ahead");
-        assert!(!drawn(&mut h, [-1.5, -0.5]), "between the camera and the player");
+        assert!(
+            !drawn(&mut h, [-1.5, -0.5]),
+            "between the camera and the player"
+        );
         assert!(!drawn(&mut h, [-4.0, 1.0]), "behind the camera");
     }
 
@@ -1374,7 +2467,10 @@ mod tests {
         h.fx.push(Fx::play(eruption, [at[0], at[1] - 3.0], 0.0));
         let life = eruption.frames.len() as f32 / eruption.fps;
         let shows = |c: &Card, arts: &[Art]| {
-            let (u, v) = ((c.uv[0] + c.uv[2]) / 2.0 * ATLAS_W as f32, (c.uv[1] + c.uv[3]) / 2.0 * ATLAS_H as f32);
+            let (u, v) = (
+                (c.uv[0] + c.uv[2]) / 2.0 * ATLAS_W as f32,
+                (c.uv[1] + c.uv[3]) / 2.0 * ATLAS_H as f32,
+            );
             arts.iter().any(|a| {
                 let [x, y, w, hh] = a.rect().map(f32::from);
                 (x..x + w).contains(&u) && (y..y + hh).contains(&v)
@@ -1387,11 +2483,20 @@ mod tests {
             h.zombies[0].rise = k;
             let s = scene(&h);
             let zombie: Vec<&Card> = s.cards.iter().filter(|c| shows(c, &walk)).collect();
-            assert!(!zombie.is_empty() && zombie.iter().all(|c| c.alpha == 1.0), "the zombie is solid at {k}");
+            assert!(
+                !zombie.is_empty() && zombie.iter().all(|c| c.alpha == 1.0),
+                "the zombie is solid at {k}"
+            );
             let clear: Vec<&Card> = s.cards.iter().filter(|c| c.alpha < 1.0).collect();
-            assert!(!clear.is_empty() && clear.iter().all(|c| shows(c, eruption.frames)), "only the eruption is see-through at {k}");
+            assert!(
+                !clear.is_empty() && clear.iter().all(|c| shows(c, eruption.frames)),
+                "only the eruption is see-through at {k}"
+            );
             let alpha = clear.iter().map(|c| c.alpha).fold(0.0, f32::max);
-            assert!(alpha < last, "the eruption fades as it plays: {alpha} at {k}, {last} before");
+            assert!(
+                alpha < last,
+                "the eruption fades as it plays: {alpha} at {k}, {last} before"
+            );
             last = alpha;
         }
     }
@@ -1418,13 +2523,44 @@ mod tests {
         for i in 0..300 {
             let a = i as f32 * 0.37;
             let r = 12.0 + (i % 40) as f32 * 3.0;
-            h.zombies.push(Zombie::new(Kind::named("skinny"), [h.me().pos[0] + a.cos() * r, h.me().pos[1] + a.sin() * r], 10.0, 1.0, 0.0));
+            h.zombies.push(Zombie::new(
+                Kind::named("skinny"),
+                [h.me().pos[0] + a.cos() * r, h.me().pos[1] + a.sin() * r],
+                10.0,
+                1.0,
+                0.0,
+            ));
         }
         for i in 0..60 {
             let a = i as f32 * 0.5;
-            let at = [h.me().pos[0] + a.cos() * 40.0, h.me().pos[1] + a.sin() * 40.0];
-            h.juice.corpse(Corpse { art: art::SKINNY_HURT[0], dead: None, flip: false, pos: at, z: 0.0, vel: [0.0; 2], vz: 0.0, fall: [1.0, 0.0], age: 1.0, spin: 0.0 });
-            h.juice.burst(at, 8.0, 12, [0.0; 2], 0.0, [10.0, 40.0], blood(), 1.5, 1.0, 0.0);
+            let at = [
+                h.me().pos[0] + a.cos() * 40.0,
+                h.me().pos[1] + a.sin() * 40.0,
+            ];
+            h.juice.corpse(Corpse {
+                art: art::SKINNY_HURT[0],
+                dead: None,
+                flip: false,
+                pos: at,
+                z: 0.0,
+                vel: [0.0; 2],
+                vz: 0.0,
+                fall: [1.0, 0.0],
+                age: 1.0,
+                spin: 0.0,
+            });
+            h.juice.burst(
+                at,
+                8.0,
+                12,
+                [0.0; 2],
+                0.0,
+                [10.0, 40.0],
+                blood(),
+                1.5,
+                1.0,
+                0.0,
+            );
         }
         h.juice.ring(h.me().pos, 80.0, 1.0, blood());
         h.juice.ring(h.me().pos, 40.0, 1.0, blood());

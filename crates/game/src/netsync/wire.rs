@@ -133,7 +133,16 @@ mod tests {
             w.svar(v);
         }
         let mut r = Reader::new(&w.buf);
-        assert_eq!((r.u8(), r.i8(), r.u16(), r.i16(), r.u32()), (Some(7), Some(-3), Some(65000), Some(-30000), Some(0xDEAD_BEEF)));
+        assert_eq!(
+            (r.u8(), r.i8(), r.u16(), r.i16(), r.u32()),
+            (
+                Some(7),
+                Some(-3),
+                Some(65000),
+                Some(-30000),
+                Some(0xDEAD_BEEF)
+            )
+        );
         for v in [0, 1, 127, 128, 16_383, 16_384, u32::MAX] {
             assert_eq!(r.var(), Some(v));
         }

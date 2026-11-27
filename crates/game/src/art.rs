@@ -19,7 +19,14 @@ struct Live {
     alpha: Vec<f32>,
 }
 
-static LIVE: RwLock<Live> = RwLock::new(Live { rects: Vec::new(), pixels: Vec::new(), solids: Vec::new(), worn: Vec::new(), detail: Vec::new(), alpha: Vec::new() });
+static LIVE: RwLock<Live> = RwLock::new(Live {
+    rects: Vec::new(),
+    pixels: Vec::new(),
+    solids: Vec::new(),
+    worn: Vec::new(),
+    detail: Vec::new(),
+    alpha: Vec::new(),
+});
 
 /// Counts `set_live` calls, so work done from the live sprites can be kept until they change.
 static LIVE_GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -73,9 +80,22 @@ pub(crate) fn free_top() -> u16 {
 
 /// Replaces the live sprites with `rects` into `pixels`, a full texture the size of the packed one, and returns them.
 pub fn set_live(rects: Vec<[u16; 4]>, pixels: Vec<u8>) -> Vec<Art> {
-    assert_eq!(pixels.len(), self::pixels().len(), "a live texture matches the packed one");
-    let arts = (0..rects.len()).map(|i| Art((count() + i) as u16)).collect();
-    *LIVE.write().unwrap() = Live { rects, pixels, solids: Vec::new(), worn: Vec::new(), detail: Vec::new(), alpha: Vec::new() };
+    assert_eq!(
+        pixels.len(),
+        self::pixels().len(),
+        "a live texture matches the packed one"
+    );
+    let arts = (0..rects.len())
+        .map(|i| Art((count() + i) as u16))
+        .collect();
+    *LIVE.write().unwrap() = Live {
+        rects,
+        pixels,
+        solids: Vec::new(),
+        worn: Vec::new(),
+        detail: Vec::new(),
+        alpha: Vec::new(),
+    };
     LIVE_GENERATION.fetch_add(1, std::sync::atomic::Ordering::Release);
     arts
 }
@@ -102,16 +122,28 @@ pub fn set_live_alpha(alpha: Vec<f32>) {
 
 /// Runs `f` on the texture a sprite's pixels live in.
 pub(crate) fn with_pixels<T>(art: Art, f: impl FnOnce(&[u8]) -> T) -> T {
-    if art.is_live() { f(&LIVE.read().unwrap().pixels) } else { f(self::pixels()) }
+    if art.is_live() {
+        f(&LIVE.read().unwrap().pixels)
+    } else {
+        f(self::pixels())
+    }
 }
 
 /// Runs `f` on a sprite's outline in game pixels, solid where any of a pixel's texture pixels is, and its size.
-pub(crate) fn with_outline<T>(art: Art, f: impl FnOnce(&dyn Fn(usize, usize) -> bool, [usize; 2]) -> T) -> T {
+pub(crate) fn with_outline<T>(
+    art: Art,
+    f: impl FnOnce(&dyn Fn(usize, usize) -> bool, [usize; 2]) -> T,
+) -> T {
     let [rx, ry, w, h] = art.rect().map(usize::from);
     let d = art.detail() as usize;
     with_pixels(art, |px| {
-        let solid = |x: usize, y: usize| x < w && y < h && px[((ry + y) * ATLAS_W as usize + rx + x) * 4 + 3] > 0;
-        f(&|x, y| (0..d).any(|j| (0..d).any(|i| solid(x * d + i, y * d + j))), [w.div_ceil(d), h.div_ceil(d)])
+        let solid = |x: usize, y: usize| {
+            x < w && y < h && px[((ry + y) * ATLAS_W as usize + rx + x) * 4 + 3] > 0
+        };
+        f(
+            &|x, y| (0..d).any(|j| (0..d).any(|i| solid(x * d + i, y * d + j))),
+            [w.div_ceil(d), h.div_ceil(d)],
+        )
     })
 }
 
@@ -168,7 +200,14 @@ pub enum Stand {
     /// A solid carved where the view from above agrees with drawings of it seen from the south and the east.
     /// The outline from above is `footprint` when given, else the sprite's own; `roof` colors the top when given,
     /// else the sprite does. `north` and `west` color those sides when given, else the south and east views do.
-    Carve { footprint: Option<Art>, roof: Option<Art>, south: Art, east: Art, north: Option<Art>, west: Option<Art> },
+    Carve {
+        footprint: Option<Art>,
+        roof: Option<Art>,
+        south: Art,
+        east: Art,
+        north: Option<Art>,
+        west: Option<Art>,
+    },
     /// Upright like a prop below row `rows`, with the rows above it laid flat over it as its roof, as deep as they are
     /// tall: for buildings drawn with their roof seen from above and their front seen from the south.
     Fold { rows: f32 },
@@ -208,22 +247,40 @@ impl Art {
     /// What the 3D view stands up for this sprite: a copy without the colors the editor clears in 3D, else itself.
     pub fn solid(self) -> Art {
         if self.is_live() {
-            return LIVE.read().unwrap().solids.iter().find(|(a, _)| *a == self).map_or(self, |&(_, s)| s);
+            return LIVE
+                .read()
+                .unwrap()
+                .solids
+                .iter()
+                .find(|(a, _)| *a == self)
+                .map_or(self, |&(_, s)| s);
         }
         match SOLIDS.get(self.0 as usize) {
             Some(s) => s.unwrap_or(self),
-            None => ADDED_SOLIDS.get().and_then(|v| v.iter().find(|(a, _)| *a == self)).map_or(self, |&(_, s)| s),
+            None => ADDED_SOLIDS
+                .get()
+                .and_then(|v| v.iter().find(|(a, _)| *a == self))
+                .map_or(self, |&(_, s)| s),
         }
     }
 
     /// Where this frame wears a ready grenade, when its sprite or card says.
     pub fn worn(self) -> Option<Worn> {
         if self.is_live() {
-            return LIVE.read().unwrap().worn.iter().find(|(a, _)| *a == self).map(|&(_, w)| w);
+            return LIVE
+                .read()
+                .unwrap()
+                .worn
+                .iter()
+                .find(|(a, _)| *a == self)
+                .map(|&(_, w)| w);
         }
         match WORN.get(self.0 as usize) {
             Some(spec) => spec.and_then(|s| crate::worn::parse(s).ok()?.first().copied()),
-            None => ADDED_WORN.get().and_then(|v| v.iter().find(|(a, _)| *a == self)).map(|&(_, w)| w),
+            None => ADDED_WORN
+                .get()
+                .and_then(|v| v.iter().find(|(a, _)| *a == self))
+                .map(|&(_, w)| w),
         }
     }
 
@@ -235,7 +292,9 @@ impl Art {
             None => {
                 let [x, y, w, h] = self.rect().map(usize::from);
                 let stride = (ATLAS_W as usize) * 4;
-                Some(with_pixels(self, |px| crate::worn::default_at(w, h, |i, j| px[(y + j) * stride + (x + i) * 4 + 3] > 0)))
+                Some(with_pixels(self, |px| {
+                    crate::worn::default_at(w, h, |i, j| px[(y + j) * stride + (x + i) * 4 + 3] > 0)
+                }))
             }
         }
     }
@@ -251,7 +310,14 @@ impl Art {
         if let Some(&d) = DETAIL.get(i) {
             return d;
         }
-        let d = if i < count() { ADDED_DETAIL.get().and_then(|v| v.get(i - RECTS.len())).copied() } else { LIVE.read().unwrap().detail.get(i - count()).copied() };
+        let d = if i < count() {
+            ADDED_DETAIL
+                .get()
+                .and_then(|v| v.get(i - RECTS.len()))
+                .copied()
+        } else {
+            LIVE.read().unwrap().detail.get(i - count()).copied()
+        };
         d.unwrap_or(1)
     }
 
@@ -265,7 +331,12 @@ impl Art {
         if i < count() {
             return crate::harvest::alpha_of(self).unwrap_or(1.0);
         }
-        LIVE.read().unwrap().alpha.get(i - count()).copied().unwrap_or(1.0)
+        LIVE.read()
+            .unwrap()
+            .alpha
+            .get(i - count())
+            .copied()
+            .unwrap_or(1.0)
     }
 
     /// Width in game pixels: its texture pixels over its detail.
@@ -288,7 +359,11 @@ impl Art {
         let (mut sum, mut n) = ([0.0f32; 3], 0.0f32);
         for j in y..y + h {
             for i in x..x + w {
-                let Some(p) = px.get((j * ATLAS_W as usize + i) * 4..(j * ATLAS_W as usize + i) * 4 + 4) else { continue };
+                let Some(p) =
+                    px.get((j * ATLAS_W as usize + i) * 4..(j * ATLAS_W as usize + i) * 4 + 4)
+                else {
+                    continue;
+                };
                 if p[3] >= 128 {
                     (0..3).for_each(|k| sum[k] += p[k] as f32 / 255.0);
                     n += 1.0;

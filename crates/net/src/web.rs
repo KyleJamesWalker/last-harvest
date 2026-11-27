@@ -8,12 +8,13 @@ use std::collections::HashMap;
 use std::rc::{Rc, Weak};
 use wasm_bindgen::closure::Closure;
 use wasm_bindgen::{JsCast, JsValue};
-use wasm_bindgen_futures::{spawn_local, JsFuture};
+use wasm_bindgen_futures::{JsFuture, spawn_local};
 use web_sys::{
-    MessageEvent, RtcConfiguration, RtcDataChannel, RtcDataChannelInit, RtcDataChannelState, RtcDataChannelType,
-    RtcIceCandidateInit, RtcIceConnectionState, RtcIceGatheringState, RtcIceServer, RtcIceTransportPolicy,
-    RtcOfferOptions, RtcPeerConnection, RtcPeerConnectionIceEvent, RtcPeerConnectionState, RtcSdpType,
-    RtcSessionDescriptionInit, WebSocket,
+    MessageEvent, RtcConfiguration, RtcDataChannel, RtcDataChannelInit, RtcDataChannelState,
+    RtcDataChannelType, RtcIceCandidateInit, RtcIceConnectionState, RtcIceGatheringState,
+    RtcIceServer, RtcIceTransportPolicy, RtcOfferOptions, RtcPeerConnection,
+    RtcPeerConnectionIceEvent, RtcPeerConnectionState, RtcSdpType, RtcSessionDescriptionInit,
+    WebSocket,
 };
 
 const KEEP_ALIVE_MS: i32 = 2000;
@@ -30,7 +31,9 @@ type Callback = Closure<dyn FnMut(JsValue)>;
 type StateRef = Rc<RefCell<State>>;
 
 fn now() -> f64 {
-    web_sys::window().and_then(|w| w.performance()).map_or(0.0, |p| p.now())
+    web_sys::window()
+        .and_then(|w| w.performance())
+        .map_or(0.0, |p| p.now())
 }
 
 fn warn(message: &str) {
@@ -38,7 +41,10 @@ fn warn(message: &str) {
 }
 
 fn error_text(e: &JsValue) -> String {
-    js_sys::Reflect::get(e, &"message".into()).ok().and_then(|m| m.as_string()).unwrap_or_else(|| format!("{e:?}"))
+    js_sys::Reflect::get(e, &"message".into())
+        .ok()
+        .and_then(|m| m.as_string())
+        .unwrap_or_else(|| format!("{e:?}"))
 }
 
 fn callback(f: impl FnMut(JsValue) + 'static) -> Callback {
@@ -53,7 +59,8 @@ fn defer(f: impl FnOnce() + 'static) {
 fn set_timeout(ms: f64, f: impl FnOnce() + 'static) {
     if let Some(window) = web_sys::window() {
         let f = Closure::once_into_js(f);
-        let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(f.unchecked_ref(), ms as i32);
+        let _ = window
+            .set_timeout_with_callback_and_timeout_and_arguments_0(f.unchecked_ref(), ms as i32);
     }
 }
 
@@ -76,9 +83,15 @@ impl Interval {
     fn new(ms: i32, f: impl FnMut() + 'static) -> Option<Interval> {
         let callback = Closure::<dyn FnMut()>::new(f);
         let id = web_sys::window()?
-            .set_interval_with_callback_and_timeout_and_arguments_0(callback.as_ref().unchecked_ref(), ms)
+            .set_interval_with_callback_and_timeout_and_arguments_0(
+                callback.as_ref().unchecked_ref(),
+                ms,
+            )
             .ok()?;
-        Some(Interval { id, _callback: callback })
+        Some(Interval {
+            id,
+            _callback: callback,
+        })
     }
 }
 
@@ -181,7 +194,9 @@ fn drop_peer(state: &StateRef, id: PeerId, serial: Option<u32>) {
     if serial.is_some_and(|serial| s.peers.get(&id).is_some_and(|p| p.serial != serial)) {
         return;
     }
-    let Some(peer) = s.peers.remove(&id) else { return };
+    let Some(peer) = s.peers.remove(&id) else {
+        return;
+    };
     s.changes.push((id, PeerState::Disconnected));
     drop(s);
     peer.close();
@@ -212,7 +227,10 @@ fn open_signaling(state: &StateRef, target: &str, resuming: bool) {
             return;
         }
         s.heard_at = now();
-        let resume = s.id.zip(s.token.clone()).filter(|_| resuming).map(|(id, token)| protocol::resume_message(id, &token));
+        let resume =
+            s.id.zip(s.token.clone())
+                .filter(|_| resuming)
+                .map(|(id, token)| protocol::resume_message(id, &token));
         let outbox = std::mem::take(&mut s.outbox);
         if let Some(socket) = &s.socket {
             for text in resume.into_iter().chain(outbox) {
@@ -223,13 +241,17 @@ fn open_signaling(state: &StateRef, target: &str, resuming: bool) {
     let (weak, heard) = (Rc::downgrade(state), heard_any.clone());
     let on_message = callback(move |e| {
         let Some(state) = weak.upgrade() else { return };
-        let Some(text) = e.unchecked_into::<MessageEvent>().data().as_string() else { return };
+        let Some(text) = e.unchecked_into::<MessageEvent>().data().as_string() else {
+            return;
+        };
         let mut s = state.borrow_mut();
         if !current(&s) {
             return;
         }
         s.heard_at = now();
-        let Some(event) = protocol::parse_event(&text) else { return };
+        let Some(event) = protocol::parse_event(&text) else {
+            return;
+        };
         if !heard.get() && resuming {
             web_sys::console::log_1(&"[net] signaling resumed".into());
         }
@@ -273,7 +295,11 @@ fn open_signaling(state: &StateRef, target: &str, resuming: bool) {
             defer(move || lost(&state, resuming, heard));
             return;
         }
-        if let Some(socket) = s.socket.as_ref().filter(|s| s.ready_state() == WebSocket::OPEN) {
+        if let Some(socket) = s
+            .socket
+            .as_ref()
+            .filter(|s| s.ready_state() == WebSocket::OPEN)
+        {
             let _ = socket.send_with_str(protocol::KEEP_ALIVE);
         }
     });
@@ -306,7 +332,10 @@ fn lost(state: &StateRef, resuming: bool, heard_any: bool) {
     let weak = Rc::downgrade(state);
     set_timeout(delay, move || {
         let Some(state) = weak.upgrade() else { return };
-        let current = { let s = state.borrow(); s.connection == connection && !s.closed };
+        let current = {
+            let s = state.borrow();
+            s.connection == connection && !s.closed
+        };
         if current {
             open_signaling(&state, &target, true);
         }
@@ -352,7 +381,11 @@ fn rtc_configuration(ice: &IceConfig) -> RtcConfiguration {
     }
     let config = RtcConfiguration::new();
     config.set_ice_servers(&servers);
-    config.set_ice_transport_policy(if ice.relay_only { RtcIceTransportPolicy::Relay } else { RtcIceTransportPolicy::All });
+    config.set_ice_transport_policy(if ice.relay_only {
+        RtcIceTransportPolicy::Relay
+    } else {
+        RtcIceTransportPolicy::All
+    });
     config
 }
 
@@ -372,10 +405,19 @@ fn new_peer(state: &StateRef, id: PeerId, offerer: bool) -> Option<(u32, RtcPeer
     let weak = Rc::downgrade(state);
     let on_candidate = callback(move |e| {
         let Some(state) = weak.upgrade() else { return };
-        let Some(candidate) = e.unchecked_into::<RtcPeerConnectionIceEvent>().candidate() else { return };
-        let Some(json) = js_sys::JSON::stringify(&candidate.to_json()).ok().and_then(|j| j.as_string()) else { return };
+        let Some(candidate) = e.unchecked_into::<RtcPeerConnectionIceEvent>().candidate() else {
+            return;
+        };
+        let Some(json) = js_sys::JSON::stringify(&candidate.to_json())
+            .ok()
+            .and_then(|j| j.as_string())
+        else {
+            return;
+        };
         let mut s = state.borrow_mut();
-        let Some(peer) = s.peer(id, serial) else { return };
+        let Some(peer) = s.peer(id, serial) else {
+            return;
+        };
         if peer.remote_set {
             s.signal(id, Signal::IceCandidate(json));
         } else {
@@ -398,7 +440,8 @@ fn new_peer(state: &StateRef, id: PeerId, offerer: bool) -> Option<(u32, RtcPeer
     handlers.push(on_state);
 
     let mut channels = Vec::new();
-    for (index, ordered, max_retransmits) in [(RELIABLE, true, None), (UNRELIABLE, false, Some(0))] {
+    for (index, ordered, max_retransmits) in [(RELIABLE, true, None), (UNRELIABLE, false, Some(0))]
+    {
         let init = RtcDataChannelInit::new();
         init.set_ordered(ordered);
         init.set_negotiated(true);
@@ -406,14 +449,17 @@ fn new_peer(state: &StateRef, id: PeerId, offerer: bool) -> Option<(u32, RtcPeer
         if let Some(max) = max_retransmits {
             init.set_max_retransmits(max);
         }
-        let channel = pc.create_data_channel_with_data_channel_dict(&format!("matchbox_socket_{index}"), &init);
+        let channel = pc
+            .create_data_channel_with_data_channel_dict(&format!("matchbox_socket_{index}"), &init);
         channel.set_binary_type(RtcDataChannelType::Arraybuffer);
 
         let weak = Rc::downgrade(state);
         let on_open = callback(move |_| {
             let Some(state) = weak.upgrade() else { return };
             let mut s = state.borrow_mut();
-            let Some(peer) = s.peer(id, serial) else { return };
+            let Some(peer) = s.peer(id, serial) else {
+                return;
+            };
             peer.open += 1;
             if peer.open == 2 {
                 peer.connected = true;
@@ -423,13 +469,25 @@ fn new_peer(state: &StateRef, id: PeerId, offerer: bool) -> Option<(u32, RtcPeer
         let weak = Rc::downgrade(state);
         let on_message = callback(move |e| {
             let Some(state) = weak.upgrade() else { return };
-            let Ok(buffer) = e.unchecked_into::<MessageEvent>().data().dyn_into::<js_sys::ArrayBuffer>() else { return };
+            let Ok(buffer) = e
+                .unchecked_into::<MessageEvent>()
+                .data()
+                .dyn_into::<js_sys::ArrayBuffer>()
+            else {
+                return;
+            };
             let mut s = state.borrow_mut();
             if s.peer(id, serial).is_none() {
                 return;
             }
-            if !s.inbox.deliver(index, id, js_sys::Uint8Array::new(&buffer).to_vec()) {
-                warn(&format!("[net] peer {:032x} overflowed the reliable inbox; dropping it", id.0));
+            if !s
+                .inbox
+                .deliver(index, id, js_sys::Uint8Array::new(&buffer).to_vec())
+            {
+                warn(&format!(
+                    "[net] peer {:032x} overflowed the reliable inbox; dropping it",
+                    id.0
+                ));
                 drop(s);
                 defer(move || drop_peer(&state, id, Some(serial)));
             }
@@ -470,39 +528,54 @@ fn new_peer(state: &StateRef, id: PeerId, offerer: bool) -> Option<(u32, RtcPeer
 
 async fn gathered(pc: &RtcPeerConnection) {
     let start = now();
-    while pc.ice_gathering_state() != RtcIceGatheringState::Complete && now() - start < GATHER_TIMEOUT_MS {
+    while pc.ice_gathering_state() != RtcIceGatheringState::Complete
+        && now() - start < GATHER_TIMEOUT_MS
+    {
         sleep(50).await;
     }
 }
 
 fn local_sdp(pc: &RtcPeerConnection) -> Result<String, JsValue> {
-    pc.local_description().map(|d| d.sdp()).ok_or_else(|| "no local description".into())
+    pc.local_description()
+        .map(|d| d.sdp())
+        .ok_or_else(|| "no local description".into())
 }
 
 async fn set_remote(pc: &RtcPeerConnection, kind: RtcSdpType, sdp: &str) -> Result<(), JsValue> {
     let description = RtcSessionDescriptionInit::new(kind);
     description.set_sdp(sdp);
-    JsFuture::from(pc.set_remote_description(&description)).await.map(drop)
+    JsFuture::from(pc.set_remote_description(&description))
+        .await
+        .map(drop)
 }
 
 async fn set_local(pc: &RtcPeerConnection, description: JsValue) -> Result<(), JsValue> {
-    JsFuture::from(pc.set_local_description(description.unchecked_ref())).await.map(drop)
+    JsFuture::from(pc.set_local_description(description.unchecked_ref()))
+        .await
+        .map(drop)
 }
 
 async fn add_candidate(pc: &RtcPeerConnection, json: &str) {
-    let Ok(candidate) = js_sys::JSON::parse(json) else { return };
+    let Ok(candidate) = js_sys::JSON::parse(json) else {
+        return;
+    };
     if candidate.is_null() {
         return;
     }
     let candidate: RtcIceCandidateInit = candidate.unchecked_into();
-    if let Err(e) = JsFuture::from(pc.add_ice_candidate_with_opt_rtc_ice_candidate_init(Some(&candidate))).await {
+    if let Err(e) =
+        JsFuture::from(pc.add_ice_candidate_with_opt_rtc_ice_candidate_init(Some(&candidate))).await
+    {
         warn(&format!("[net] ice candidate: {}", error_text(&e)));
     }
 }
 
 async fn offer(state: StateRef, id: PeerId) {
     let Some((serial, pc)) = new_peer(&state, id, true) else {
-        state.borrow_mut().changes.push((id, PeerState::Disconnected));
+        state
+            .borrow_mut()
+            .changes
+            .push((id, PeerState::Disconnected));
         return;
     };
     let sdp = async {
@@ -528,7 +601,9 @@ async fn offer(state: StateRef, id: PeerId) {
 async fn remote_set(state: &StateRef, id: PeerId, serial: u32) {
     let (pc, candidates) = {
         let mut s = state.borrow_mut();
-        let Some(peer) = s.peer(id, serial) else { return };
+        let Some(peer) = s.peer(id, serial) else {
+            return;
+        };
         peer.remote_set = true;
         let pending = std::mem::take(&mut peer.pending);
         let candidates = std::mem::take(&mut peer.candidates);
@@ -544,7 +619,11 @@ async fn remote_set(state: &StateRef, id: PeerId, serial: u32) {
 }
 
 async fn on_signal(state: StateRef, id: PeerId, signal: Signal) {
-    let existing = state.borrow().peers.get(&id).map(|p| (p.serial, p.pc.clone(), p.connected, p.remote_set));
+    let existing = state
+        .borrow()
+        .peers
+        .get(&id)
+        .map(|p| (p.serial, p.pc.clone(), p.connected, p.remote_set));
     let (serial, connected, result) = match (signal, existing) {
         (Signal::Offer(sdp), existing) => {
             let (serial, pc, connected) = match existing {
@@ -552,7 +631,10 @@ async fn on_signal(state: StateRef, id: PeerId, signal: Signal) {
                 None => match new_peer(&state, id, false) {
                     Some((serial, pc)) => (serial, pc, false),
                     None => {
-                        state.borrow_mut().changes.push((id, PeerState::Disconnected));
+                        state
+                            .borrow_mut()
+                            .changes
+                            .push((id, PeerState::Disconnected));
                         return;
                     }
                 },
@@ -613,10 +695,16 @@ fn check_peers(state: &StateRef) {
         if !peer.offerer || !peer.connected {
             continue;
         }
-        if matches!(peer.pc.ice_connection_state(), RtcIceConnectionState::Connected | RtcIceConnectionState::Completed) {
+        if matches!(
+            peer.pc.ice_connection_state(),
+            RtcIceConnectionState::Connected | RtcIceConnectionState::Completed
+        ) {
             continue;
         }
-        if peer.restarted_at.is_some_and(|t| now - t < RESTART_EVERY_MS) {
+        if peer
+            .restarted_at
+            .is_some_and(|t| now - t < RESTART_EVERY_MS)
+        {
             continue;
         }
         peer.restarted_at = Some(now);
@@ -629,7 +717,11 @@ fn check_peers(state: &StateRef) {
             let options = RtcOfferOptions::new();
             options.set_ice_restart(true);
             let sdp = async {
-                set_local(&pc, JsFuture::from(pc.create_offer_with_rtc_offer_options(&options)).await?).await?;
+                set_local(
+                    &pc,
+                    JsFuture::from(pc.create_offer_with_rtc_offer_options(&options)).await?,
+                )
+                .await?;
                 local_sdp(&pc)
             };
             match sdp.await {
@@ -685,7 +777,11 @@ impl Socket {
 
     pub fn send(&mut self, channel: usize, peer: PeerId, data: &[u8]) {
         let s = self.state.borrow();
-        let open = s.peers.get(&peer).filter(|p| p.connected).and_then(|p| p.channels.get(channel));
+        let open = s
+            .peers
+            .get(&peer)
+            .filter(|p| p.connected)
+            .and_then(|p| p.channels.get(channel));
         if let Some(channel) = open.filter(|c| c.ready_state() == RtcDataChannelState::Open) {
             let _ = channel.send_with_u8_array(data);
         }

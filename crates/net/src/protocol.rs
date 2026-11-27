@@ -1,7 +1,7 @@
 //! The matchbox signaling protocol: server events, relayed WebRTC handshake messages, and how a relay resumes a peer.
 
 use crate::{IceServer, PeerId};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 /// Sent every few seconds; a relay that resumes peers echoes it.
 pub(crate) const KEEP_ALIVE: &str = "\"KeepAlive\"";
@@ -30,7 +30,9 @@ pub(crate) fn uuid_string(peer: PeerId) -> String {
 }
 
 pub(crate) fn parse_uuid(text: &str) -> Option<PeerId> {
-    uuid::Uuid::parse_str(text).ok().map(|u| PeerId(u.as_u128()))
+    uuid::Uuid::parse_str(text)
+        .ok()
+        .map(|u| PeerId(u.as_u128()))
 }
 
 /// One message from the signaling server; None for anything else, such as an echoed keep-alive.
@@ -44,7 +46,9 @@ pub(crate) fn parse_event(text: &str) -> Option<Event> {
         return Some(Event::ResumeToken(token.to_string()));
     }
     if let Some(servers) = event.get("IceServers") {
-        return crate::ice::parse_ice_value(servers).ok().map(|ice| Event::IceServers(ice.servers));
+        return crate::ice::parse_ice_value(servers)
+            .ok()
+            .map(|ice| Event::IceServers(ice.servers));
     }
     if let Some(peer) = id("NewPeer") {
         return Some(Event::NewPeer(peer));
@@ -53,7 +57,10 @@ pub(crate) fn parse_event(text: &str) -> Option<Event> {
         return Some(Event::PeerLeft(peer));
     }
     let signal = event.get("Signal")?;
-    let sender = signal.get("sender").and_then(Value::as_str).and_then(parse_uuid)?;
+    let sender = signal
+        .get("sender")
+        .and_then(Value::as_str)
+        .and_then(parse_uuid)?;
     let data = signal.get("data")?;
     let text = |key: &str| data.get(key).and_then(Value::as_str).map(str::to_string);
     let signal = if let Some(sdp) = text("Offer") {
@@ -97,11 +104,27 @@ mod tests {
     fn server_events_parse() {
         let a = parse_uuid(A).unwrap();
         assert_eq!(uuid_string(a), A);
-        assert_eq!(parse_event(&format!(r#"{{"IdAssigned":"{A}"}}"#)), Some(Event::IdAssigned(a)));
-        assert_eq!(parse_event(r#"{"ResumeToken":"t0k"}"#), Some(Event::ResumeToken("t0k".into())));
-        assert_eq!(parse_event(&format!(r#"{{"NewPeer":"{A}"}}"#)), Some(Event::NewPeer(a)));
-        assert_eq!(parse_event(&format!(r#"{{"PeerLeft":"{A}"}}"#)), Some(Event::PeerLeft(a)));
-        let turn = IceServer { urls: vec!["turn:t.example.com:3478".into()], username: "1:lh-ab".into(), credential: "x".into() };
+        assert_eq!(
+            parse_event(&format!(r#"{{"IdAssigned":"{A}"}}"#)),
+            Some(Event::IdAssigned(a))
+        );
+        assert_eq!(
+            parse_event(r#"{"ResumeToken":"t0k"}"#),
+            Some(Event::ResumeToken("t0k".into()))
+        );
+        assert_eq!(
+            parse_event(&format!(r#"{{"NewPeer":"{A}"}}"#)),
+            Some(Event::NewPeer(a))
+        );
+        assert_eq!(
+            parse_event(&format!(r#"{{"PeerLeft":"{A}"}}"#)),
+            Some(Event::PeerLeft(a))
+        );
+        let turn = IceServer {
+            urls: vec!["turn:t.example.com:3478".into()],
+            username: "1:lh-ab".into(),
+            credential: "x".into(),
+        };
         let ice = r#"{"IceServers":{"iceServers":[{"urls":["turn:t.example.com:3478"],"username":"1:lh-ab","credential":"x"}]}}"#;
         assert_eq!(parse_event(ice), Some(Event::IceServers(vec![turn])));
         assert_eq!(parse_event(r#"{"IceServers":{}}"#), None);
@@ -113,11 +136,16 @@ mod tests {
     #[test]
     fn a_relayed_signal_reads_back_as_the_receiver_gets_it() {
         let (a, b) = (parse_uuid(A).unwrap(), PeerId(0xbeef));
-        for signal in [Signal::Offer("v=0 offer".into()), Signal::Answer("v=0 answer".into()), Signal::IceCandidate("null".into())] {
+        for signal in [
+            Signal::Offer("v=0 offer".into()),
+            Signal::Answer("v=0 answer".into()),
+            Signal::IceCandidate("null".into()),
+        ] {
             let sent: Value = serde_json::from_str(&signal_message(b, &signal)).unwrap();
             assert_eq!(sent["Signal"]["receiver"], uuid_string(b));
             // The server swaps the receiver for the sender and passes `data` through untouched.
-            let relayed = json!({ "Signal": { "sender": A, "data": sent["Signal"]["data"] } }).to_string();
+            let relayed =
+                json!({ "Signal": { "sender": A, "data": sent["Signal"]["data"] } }).to_string();
             assert_eq!(parse_event(&relayed), Some(Event::Signal(a, signal)));
         }
     }

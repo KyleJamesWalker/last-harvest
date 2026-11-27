@@ -15,10 +15,15 @@ use std::path::Path;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use last_harvest::{VERSION, audio, clock, log, pak, samples};
-use last_harvest_game::{photo, Buttons, Capture, Game, InputTracker, MAX_TOUCHES, RangeSetup, RawInput, SCREEN_H, SCREEN_W, Scene, System};
+use last_harvest_game::{
+    Buttons, Capture, Game, InputTracker, MAX_TOUCHES, RangeSetup, RawInput, SCREEN_H, SCREEN_W,
+    Scene, System, photo,
+};
 use winit::application::ApplicationHandler;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
-use winit::event::{DeviceEvent, DeviceId, ElementState, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent};
+use winit::event::{
+    DeviceEvent, DeviceId, ElementState, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent,
+};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{CursorGrabMode, WindowId};
@@ -101,7 +106,9 @@ struct App {
 
 impl App {
     fn new(sounds: samples::Files, range: Option<RangeSetup>) -> Self {
-        let seed = SystemTime::now().duration_since(UNIX_EPOCH).map_or(1, |d| d.as_nanos() as u64);
+        let seed = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(1, |d| d.as_nanos() as u64);
         let mut game = Game::new(seed);
         let (saver, save) = persist::Saver::load();
         game.load(save);
@@ -112,16 +119,30 @@ impl App {
         if let Ok(kit) = std::env::var("LAST_HARVEST_KIT") {
             game.start_with(&kit);
         }
-        if let Some(secs) = std::env::var("LAST_HARVEST_CLOCK").ok().and_then(|s| s.parse().ok()) {
+        if let Some(secs) = std::env::var("LAST_HARVEST_CLOCK")
+            .ok()
+            .and_then(|s| s.parse().ok())
+        {
             game.start_clock(secs);
         }
         game.endless_grenades(std::env::var("LAST_HARVEST_GRENADES").is_ok_and(|v| v == "endless"));
-        if let Some(n) = std::env::var("LAST_HARVEST_BOTS").ok().and_then(|s| s.parse().ok()) {
+        if let Some(n) = std::env::var("LAST_HARVEST_BOTS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+        {
             game.add_bots(n);
         }
         game.set_range(range.unwrap_or_default());
-        game.set_split(std::env::var("LAST_HARVEST_SPLIT").ok().and_then(|v| last_harvest::split_views(&v)).unwrap_or(1));
-        if let Some(scene) = std::env::var("LAST_HARVEST_START").ok().and_then(|s| Scene::from_name(&s)) {
+        game.set_split(
+            std::env::var("LAST_HARVEST_SPLIT")
+                .ok()
+                .and_then(|v| last_harvest::split_views(&v))
+                .unwrap_or(1),
+        );
+        if let Some(scene) = std::env::var("LAST_HARVEST_START")
+            .ok()
+            .and_then(|s| Scene::from_name(&s))
+        {
             game.open(scene);
         }
         #[cfg(target_os = "linux")]
@@ -146,7 +167,9 @@ impl App {
             tracker: InputTracker::default(),
             ticker: clock::Ticker::default(),
             gfx: None,
-            audio: audio::Audio::open(&sounds).inspect_err(|e| log!("audio disabled: {e}")).ok(),
+            audio: audio::Audio::open(&sounds)
+                .inspect_err(|e| log!("audio disabled: {e}"))
+                .ok(),
             sounds,
             audio_retry: None,
             #[cfg(target_os = "linux")]
@@ -192,7 +215,11 @@ impl App {
         #[cfg_attr(not(target_os = "linux"), allow(unused_mut))]
         let mut raw = RawInput {
             held: self.keys,
-            touch: self.touches.first().map(|&(_, p)| p).or(self.cursor.filter(|_| self.mouse_down)),
+            touch: self
+                .touches
+                .first()
+                .map(|&(_, p)| p)
+                .or(self.cursor.filter(|_| self.mouse_down)),
             lid_closed: self.lid_key,
             orbit: self.orbit,
             ..Default::default()
@@ -227,10 +254,19 @@ impl App {
         self.system.frame_ms = s.total_ms / s.frames as f32;
         self.system.worst_ms = s.worst_ms;
         let [u, d, r] = s.work_ms.map(|ms| ms / s.frames as f32);
-        *s = Stats { since: Some(Instant::now()), ..Default::default() };
+        *s = Stats {
+            since: Some(Instant::now()),
+            ..Default::default()
+        };
         if self.debug.is_some() {
             let sys = &self.system;
-            log!("perf: fps={:.1} ms={:.1} worst={:.1} update={u:.1} build={d:.1} render={r:.1} {}", sys.fps, sys.frame_ms, sys.worst_ms, self.game.summary());
+            log!(
+                "perf: fps={:.1} ms={:.1} worst={:.1} update={u:.1} build={d:.1} render={r:.1} {}",
+                sys.fps,
+                sys.frame_ms,
+                sys.worst_ms,
+                self.game.summary()
+            );
         }
         #[cfg(target_os = "linux")]
         if let Some(dev) = &self.device {
@@ -259,12 +295,19 @@ impl App {
             self.audio = None;
             self.audio_retry = Some((Instant::now(), AUDIO_RETRY));
         }
-        let Some((since, wait)) = self.audio_retry else { return };
+        let Some((since, wait)) = self.audio_retry else {
+            return;
+        };
         if self.audio.is_some() || since.elapsed() < wait {
             return;
         }
-        self.audio = audio::Audio::open(&self.sounds).inspect_err(|e| log!("audio: still disabled: {e}")).ok();
-        self.audio_retry = self.audio.is_none().then(|| (Instant::now(), (wait * 2).min(AUDIO_RETRY_MAX)));
+        self.audio = audio::Audio::open(&self.sounds)
+            .inspect_err(|e| log!("audio: still disabled: {e}"))
+            .ok();
+        self.audio_retry = self
+            .audio
+            .is_none()
+            .then(|| (Instant::now(), (wait * 2).min(AUDIO_RETRY_MAX)));
     }
 
     fn tick(&mut self, el: &ActiveEventLoop) {
@@ -279,7 +322,12 @@ impl App {
         self.measure(frame);
         let mut shot = None;
         let mut photo = false;
-        for cmd in self.debug.iter().flat_map(|rx| rx.try_iter()).collect::<Vec<_>>() {
+        for cmd in self
+            .debug
+            .iter()
+            .flat_map(|rx| rx.try_iter())
+            .collect::<Vec<_>>()
+        {
             match cmd {
                 debug::Command::Press(b, secs) => self.injector.press(b, secs),
                 debug::Command::Touch(keys) => self.injector.touch(keys),
@@ -288,17 +336,30 @@ impl App {
                     None => log!("debug: unknown scene {name}"),
                 },
                 debug::Command::Shot(path) => shot = Some(path),
-                debug::Command::State => log!("debug: state\n{}", self.game.debug_state().unwrap_or_else(|| "not in a harvest".into())),
+                debug::Command::State => log!(
+                    "debug: state\n{}",
+                    self.game
+                        .debug_state()
+                        .unwrap_or_else(|| "not in a harvest".into())
+                ),
                 #[cfg(target_os = "linux")]
                 debug::Command::Sleep(secs) => return self.suspend(Some(secs)),
                 #[cfg(not(target_os = "linux"))]
                 debug::Command::Sleep(secs) => log!("debug: sleep {secs} needs the device"),
                 debug::Command::Panic => panic!("debug: panic requested"),
                 debug::Command::Pad(family) => self.game.set_pad_family(family),
-                debug::Command::Orbit(dx, wheel) => self.orbit = [self.orbit[0] + dx, self.orbit[1] + wheel],
+                debug::Command::Orbit(dx, wheel) => {
+                    self.orbit = [self.orbit[0] + dx, self.orbit[1] + wheel]
+                }
             }
         }
-        if let Some(line) = self.game.bench_report(|work| { let t = Instant::now(); work(); t.elapsed().as_secs_f64() }) { eprintln!("{line}"); }
+        if let Some(line) = self.game.bench_report(|work| {
+            let t = Instant::now();
+            work();
+            t.elapsed().as_secs_f64()
+        }) {
+            eprintln!("{line}");
+        }
         self.capture_mouse();
         let mut raw = self.raw_input();
         raw.held |= self.mouse_held;
@@ -331,7 +392,11 @@ impl App {
             raw.touches[0] = t;
         }
         let input = self.tracker.frame(raw);
-        self.home_held = if input.held.contains(Buttons::HOME) { self.home_held + dt } else { 0.0 };
+        self.home_held = if input.held.contains(Buttons::HOME) {
+            self.home_held + dt
+        } else {
+            0.0
+        };
         if self.home_held >= QUIT_HOLD || self.game.quit_asked() {
             return el.exit();
         }
@@ -361,11 +426,15 @@ impl App {
             && let Some(g) = &self.gfx
         {
             let size = g.top.window.inner_size();
-            self.game.set_phone(Some([size.width as f32, size.height as f32]));
+            self.game
+                .set_phone(Some([size.width as f32, size.height as f32]));
         }
         let started = Instant::now();
         self.online.pump(&mut self.game, dt);
-        for inputs in self.ticker.frame_all(frame, std::iter::once(input).chain(others).collect()) {
+        for inputs in self
+            .ticker
+            .frame_all(frame, std::iter::once(input).chain(others).collect())
+        {
             self.game.update_all(&inputs, clock::STEP);
         }
         persist::keep_replays(self.game.take_replays());
@@ -374,7 +443,8 @@ impl App {
         }
         self.online.send(&mut self.game);
         #[cfg(any(target_os = "macos", windows))]
-        self.pads.rumble(&self.seats, |seat| self.game.rumble_for(seat));
+        self.pads
+            .rumble(&self.seats, |seat| self.game.rumble_for(seat));
         self.stats.work_ms[0] += started.elapsed().as_secs_f32() * 1000.0;
         self.saver.update(self.game.save(), false);
         self.keep_audio();
@@ -393,7 +463,8 @@ impl App {
         if let Some(gfx) = &mut self.gfx {
             let started = Instant::now();
             let size = gfx.top.window.inner_size();
-            let views = last_harvest::lay_out_views(&mut self.game, !self.two, [size.width, size.height]);
+            let views =
+                last_harvest::lay_out_views(&mut self.game, !self.two, [size.width, size.height]);
             let frame = self.game.draw_at(self.ticker.alpha());
             if let Some(capture) = self.game.take_screenshot()
                 && shot.is_none()
@@ -408,11 +479,18 @@ impl App {
             match rendered {
                 Ok(Some(mut img)) => {
                     if photo && views > 1 {
-                        let rects = last_harvest_render::split::split(views, [size.width, size.height]);
+                        let rects =
+                            last_harvest_render::split::split(views, [size.width, size.height]);
                         img.top = rects.get(self.game.menu_view()).copied().unwrap_or(img.top);
                     }
                     let path = shot.unwrap();
-                    std::thread::spawn(move || if photo { save_photo(&path, &img) } else { save_shot(&path, img.width, &img.rgba) });
+                    std::thread::spawn(move || {
+                        if photo {
+                            save_photo(&path, &img)
+                        } else {
+                            save_shot(&path, img.width, &img.rgba)
+                        }
+                    });
                 }
                 Ok(None) => {}
                 Err(e) => {
@@ -433,19 +511,33 @@ impl App {
         let Some(g) = &self.gfx else { return };
         let window = &g.top.window;
         if want {
-            if let Err(e) = window.set_cursor_grab(CursorGrabMode::Locked).or_else(|_| window.set_cursor_grab(CursorGrabMode::Confined)) {
+            if let Err(e) = window
+                .set_cursor_grab(CursorGrabMode::Locked)
+                .or_else(|_| window.set_cursor_grab(CursorGrabMode::Confined))
+            {
                 log!("mouse: no capture: {e}");
             }
         } else {
             let _ = window.set_cursor_grab(CursorGrabMode::None);
         }
         window.set_cursor_visible(!want);
-        (self.mouse_look, self.mouse_dx, self.mouse_dy, self.mouse_held, self.mouse_down) = (want, 0.0, 0.0, Buttons::NONE, false);
+        (
+            self.mouse_look,
+            self.mouse_dx,
+            self.mouse_dy,
+            self.mouse_held,
+            self.mouse_down,
+        ) = (want, 0.0, 0.0, Buttons::NONE, false);
     }
 
     /// Whether a pointer on window `id` touches the game: the bottom screen's window, or the one window.
     fn is_bottom(&self, id: WindowId) -> bool {
-        self.gfx.as_ref().is_some_and(|g| g.bottom.as_ref().map_or(g.top.window.id(), |b| b.window.id()) == id)
+        self.gfx.as_ref().is_some_and(|g| {
+            g.bottom
+                .as_ref()
+                .map_or(g.top.window.id(), |b| b.window.id())
+                == id
+        })
     }
 
     /// Converts window pixels to screen pixels, as both screens are 1024x768 whatever the window's size; the one
@@ -458,7 +550,10 @@ impl App {
             let bottom = g.bottom.as_ref().filter(|b| b.window.id() == id);
             bottom.map_or(g.top.window.inner_size(), |b| b.window.inner_size())
         });
-        [p.x as f32 / size.width.max(1) as f32 * SCREEN_W, p.y as f32 / size.height.max(1) as f32 * SCREEN_H]
+        [
+            p.x as f32 / size.width.max(1) as f32 * SCREEN_W,
+            p.y as f32 / size.height.max(1) as f32 * SCREEN_H,
+        ]
     }
 }
 
@@ -474,8 +569,14 @@ fn save_photo(path: &Path, img: &last_harvest::shot::Shot) {
     let (top, full) = photo::crop(&img.rgba, img.width, img.top);
     save_shot(path, top[2], &full);
     let (square, pixels) = photo::crop(&img.rgba, img.width, photo::square(top));
-    let stem = path.file_stem().map_or_else(Default::default, |s| s.to_string_lossy().into_owned());
-    save_shot(&path.with_file_name(format!("{stem}-square.png")), square[2], &pixels);
+    let stem = path
+        .file_stem()
+        .map_or_else(Default::default, |s| s.to_string_lossy().into_owned());
+    save_shot(
+        &path.with_file_name(format!("{stem}-square.png")),
+        square[2],
+        &pixels,
+    );
 }
 
 fn key_button(code: KeyCode) -> Option<Buttons> {
@@ -506,7 +607,9 @@ impl ApplicationHandler for App {
                 }
             }
             WindowEvent::KeyboardInput { event, .. } => {
-                let PhysicalKey::Code(code) = event.physical_key else { return };
+                let PhysicalKey::Code(code) = event.physical_key else {
+                    return;
+                };
                 let down = event.state == ElementState::Pressed;
                 match code {
                     KeyCode::Escape if down && !event.repeat => {
@@ -515,7 +618,16 @@ impl ApplicationHandler for App {
                     }
                     KeyCode::Escape if !down => self.keys.set(self.esc, false),
                     KeyCode::Escape => {}
-                    _ if self.game.wants_text() && !matches!(code, KeyCode::ArrowUp | KeyCode::ArrowDown | KeyCode::ArrowLeft | KeyCode::ArrowRight) && event.text.as_deref().is_some_and(|t| !t.is_empty()) => {
+                    _ if self.game.wants_text()
+                        && !matches!(
+                            code,
+                            KeyCode::ArrowUp
+                                | KeyCode::ArrowDown
+                                | KeyCode::ArrowLeft
+                                | KeyCode::ArrowRight
+                        )
+                        && event.text.as_deref().is_some_and(|t| !t.is_empty()) =>
+                    {
                         if down && let Some(text) = event.text.as_deref() {
                             self.game.typed(text);
                         }
@@ -526,7 +638,8 @@ impl ApplicationHandler for App {
                             self.keys.set(b, down);
                             #[cfg(any(target_os = "macos", windows))]
                             if down {
-                                self.game.set_pad_family(last_harvest_game::PadFamily::Keyboard);
+                                self.game
+                                    .set_pad_family(last_harvest_game::PadFamily::Keyboard);
                             }
                         }
                     }
@@ -534,7 +647,10 @@ impl ApplicationHandler for App {
             }
             WindowEvent::CursorMoved { position, .. } => {
                 let p = [position.x as f32, position.y as f32];
-                if let Some((_, was)) = self.drag_cursor.filter(|&(w, _)| self.orbit_drag && w == id) {
+                if let Some((_, was)) = self
+                    .drag_cursor
+                    .filter(|&(w, _)| self.orbit_drag && w == id)
+                {
                     self.orbit[0] += p[0] - was[0];
                 }
                 self.drag_cursor = Some((id, p));
@@ -566,7 +682,9 @@ impl ApplicationHandler for App {
             }
             WindowEvent::MouseInput { state, button, .. } => {
                 let down = state == ElementState::Pressed;
-                if button == MouseButton::Right || (button == MouseButton::Left && !self.is_bottom(id)) {
+                if button == MouseButton::Right
+                    || (button == MouseButton::Left && !self.is_bottom(id))
+                {
                     self.orbit_drag = down;
                 }
                 if button == MouseButton::Left {
@@ -578,7 +696,9 @@ impl ApplicationHandler for App {
                 let p = self.to_screen(id, t.location);
                 let finger = self.touches.iter().position(|&(i, _)| i == t.id);
                 match (t.phase, finger) {
-                    (TouchPhase::Started, None) if self.touches.len() < MAX_TOUCHES => self.touches.push((t.id, p)),
+                    (TouchPhase::Started, None) if self.touches.len() < MAX_TOUCHES => {
+                        self.touches.push((t.id, p))
+                    }
                     (TouchPhase::Moved, Some(f)) => self.touches[f].1 = p,
                     (TouchPhase::Ended | TouchPhase::Cancelled, Some(f)) => {
                         self.touches.remove(f);
@@ -586,7 +706,11 @@ impl ApplicationHandler for App {
                     _ => {}
                 }
             }
-            WindowEvent::RedrawRequested if self.gfx.as_ref().is_some_and(|g| g.top.window.id() == id) => self.tick(el),
+            WindowEvent::RedrawRequested
+                if self.gfx.as_ref().is_some_and(|g| g.top.window.id() == id) =>
+            {
+                self.tick(el)
+            }
             _ => {}
         }
     }
@@ -701,7 +825,10 @@ mod stop {
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     persist::install_crash_log();
     stop::install();
-    log!("last-harvest {VERSION}, started at unix {}", log::unix_now());
+    log!(
+        "last-harvest {VERSION}, started at unix {}",
+        log::unix_now()
+    );
     let range = pak::range_setup();
     let sounds = pak::load_without(&persist::mods_off())?;
     let event_loop = EventLoop::new()?;

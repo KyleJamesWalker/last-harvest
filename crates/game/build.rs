@@ -31,7 +31,11 @@ struct Image {
 
 impl Image {
     fn new(w: u32, h: u32) -> Self {
-        Self { w, h, rgba: vec![0; (w * h * 4) as usize] }
+        Self {
+            w,
+            h,
+            rgba: vec![0; (w * h * 4) as usize],
+        }
     }
 
     fn blit(&mut self, src: &Image, [sx, sy]: [u32; 2], [w, h]: [u32; 2], [dx, dy]: [u32; 2]) {
@@ -70,7 +74,10 @@ fn clear_from_edges(img: &mut Image, key: &[[u8; 3]]) {
         let i = idx(x, y);
         img.rgba[i + 3] != 0 && key.contains(&[img.rgba[i], img.rgba[i + 1], img.rgba[i + 2]])
     };
-    let mut stack: Vec<(i32, i32)> = (0..w).flat_map(|x| [(x, 0), (x, h - 1)]).chain((0..h).flat_map(|y| [(0, y), (w - 1, y)])).collect();
+    let mut stack: Vec<(i32, i32)> = (0..w)
+        .flat_map(|x| [(x, 0), (x, h - 1)])
+        .chain((0..h).flat_map(|y| [(0, y), (w - 1, y)]))
+        .collect();
     while let Some((x, y)) = stack.pop() {
         if x < 0 || y < 0 || x >= w || y >= h || !keyed(img, x, y) {
             continue;
@@ -86,26 +93,46 @@ fn decode(path: &Path) -> Result<Image, String> {
     let mut decoder = png::Decoder::new(std::io::BufReader::new(file));
     decoder.set_transformations(png::Transformations::EXPAND);
     let mut reader = decoder.read_info().map_err(|e| e.to_string())?;
-    let mut buf = vec![0; reader.output_buffer_size().ok_or("the image is too big to decode")?];
+    let mut buf = vec![
+        0;
+        reader
+            .output_buffer_size()
+            .ok_or("the image is too big to decode")?
+    ];
     let info = reader.next_frame(&mut buf).map_err(|e| e.to_string())?;
-    if info.bit_depth != png::BitDepth::Eight || !matches!(info.color_type, png::ColorType::Rgba | png::ColorType::Rgb) {
-        return Err(format!("expected 8-bit RGBA or RGB, got {:?} {:?}", info.color_type, info.bit_depth));
+    if info.bit_depth != png::BitDepth::Eight
+        || !matches!(info.color_type, png::ColorType::Rgba | png::ColorType::Rgb)
+    {
+        return Err(format!(
+            "expected 8-bit RGBA or RGB, got {:?} {:?}",
+            info.color_type, info.bit_depth
+        ));
     }
     buf.truncate(info.buffer_size());
     if info.color_type == png::ColorType::Rgb {
-        buf = buf.chunks_exact(3).flat_map(|p| [p[0], p[1], p[2], 255]).collect();
+        buf = buf
+            .chunks_exact(3)
+            .flat_map(|p| [p[0], p[1], p[2], 255])
+            .collect();
     }
     // A few stray, nearly clear pixels would otherwise show as faint squares.
     for px in buf.chunks_exact_mut(4) {
         px[3] = if px[3] >= 128 { 255 } else { 0 };
     }
-    Ok(Image { w: info.width, h: info.height, rgba: buf })
+    Ok(Image {
+        w: info.width,
+        h: info.height,
+        rgba: buf,
+    })
 }
 
 fn cut(sheet: &Image, dir: &Path, frame: &str, line: usize) -> Vec<Image> {
     let words: Vec<&str> = frame.split_whitespace().collect();
     let bad = || -> Vec<Image> { panic!("art.txt:{line}: bad frame {frame:?}") };
-    let num = |s: &str| s.parse::<u32>().unwrap_or_else(|_| panic!("art.txt:{line}: bad number {s:?}"));
+    let num = |s: &str| {
+        s.parse::<u32>()
+            .unwrap_or_else(|_| panic!("art.txt:{line}: bad number {s:?}"))
+    };
     match words.first().copied() {
         Some("px") if words.len() == 5 => {
             let [x, y, w, h] = [1, 2, 3, 4].map(|i| num(words[i]));
@@ -115,19 +142,34 @@ fn cut(sheet: &Image, dir: &Path, frame: &str, line: usize) -> Vec<Image> {
         }
         Some("png") if (2..=3).contains(&words.len()) => {
             let frames = match words.get(2) {
-                Some(n) => num(n.strip_prefix('x').unwrap_or_else(|| panic!("art.txt:{line}: bad frame count {n:?}"))),
+                Some(n) => num(n
+                    .strip_prefix('x')
+                    .unwrap_or_else(|| panic!("art.txt:{line}: bad frame count {n:?}"))),
                 None => 1,
             };
-            assert!(frames > 0, "art.txt:{line}: a png is at least x1 frames, not x0");
+            assert!(
+                frames > 0,
+                "art.txt:{line}: a png is at least x1 frames, not x0"
+            );
             let path = dir.join(words[1]);
             println!("cargo:rerun-if-changed={}", path.display());
             let img = decode(&path).unwrap_or_else(|e| {
-                println!("cargo:warning=art.txt:{line}: {}: {e}; drawn as a magenta square", path.display());
+                println!(
+                    "cargo:warning=art.txt:{line}: {}: {e}; drawn as a magenta square",
+                    path.display()
+                );
                 let mut img = Image::new(8 * frames, 8);
-                img.rgba.chunks_exact_mut(4).for_each(|p| p.copy_from_slice(&[255, 0, 255, 255]));
+                img.rgba
+                    .chunks_exact_mut(4)
+                    .for_each(|p| p.copy_from_slice(&[255, 0, 255, 255]));
                 img
             });
-            assert!(img.w.is_multiple_of(frames), "art.txt:{line}: {} is {} pixels wide, which doesn't split into {frames} frames", path.display(), img.w);
+            assert!(
+                img.w.is_multiple_of(frames),
+                "art.txt:{line}: {} is {} pixels wide, which doesn't split into {frames} frames",
+                path.display(),
+                img.w
+            );
             let w = img.w / frames;
             (0..frames)
                 .map(|f| {
@@ -145,7 +187,11 @@ fn cut(sheet: &Image, dir: &Path, frame: &str, line: usize) -> Vec<Image> {
             vec![img]
         }
         Some("cell") => {
-            let nums: Vec<u32> = words[1..].iter().take_while(|w| w.parse::<u32>().is_ok()).map(|w| num(w)).collect();
+            let nums: Vec<u32> = words[1..]
+                .iter()
+                .take_while(|w| w.parse::<u32>().is_ok())
+                .map(|w| num(w))
+                .collect();
             let (c, r, w, h) = match nums[..] {
                 [c, r] => (c, r, 1, 1),
                 [c, r, w, h] => (c, r, w, h),
@@ -164,18 +210,25 @@ fn cut(sheet: &Image, dir: &Path, frame: &str, line: usize) -> Vec<Image> {
                     cleared.push(p);
                 } else if let Some(list) = word.strip_prefix("key=") {
                     for hex in list.split(',') {
-                        let n = u32::from_str_radix(hex, 16).unwrap_or_else(|_| panic!("art.txt:{line}: bad color {hex:?}"));
+                        let n = u32::from_str_radix(hex, 16)
+                            .unwrap_or_else(|_| panic!("art.txt:{line}: bad color {hex:?}"));
                         key.push([(n >> 16) as u8, (n >> 8) as u8, n as u8]);
                     }
                 } else if let Some(p) = word.strip_prefix('/').and_then(pair) {
                     crop = Some(p);
-                } else if let Some((cell, below)) = word.split_once('<').and_then(|(a, b)| Some((pair(a)?, pair(b)?))) {
+                } else if let Some((cell, below)) = word
+                    .split_once('<')
+                    .and_then(|(a, b)| Some((pair(a)?, pair(b)?)))
+                {
                     under.push((cell, below));
                 } else {
                     return bad();
                 }
             }
-            assert!(frames > 0, "art.txt:{line}: a cell is at least x1 frames, not x0");
+            assert!(
+                frames > 0,
+                "art.txt:{line}: a cell is at least x1 frames, not x0"
+            );
             let at = |(cc, rr): (u32, u32)| (ORIGIN[0] + cc * PITCH[0], ORIGIN[1] + rr * PITCH[1]);
             (0..frames)
                 .map(|f| {
@@ -212,13 +265,20 @@ fn cut(sheet: &Image, dir: &Path, frame: &str, line: usize) -> Vec<Image> {
 /// Rust for a stand written as `prop 12`, `slab 10`, `figure` or `ground`.
 fn stand_code(how: &str, line: usize) -> String {
     let words: Vec<&str> = how.split_whitespace().collect();
-    let size = || words.get(1).and_then(|w| w.parse::<f32>().ok()).unwrap_or_else(|| panic!("art.txt:{line}: {how:?} needs a size in pixels"));
+    let size = || {
+        words
+            .get(1)
+            .and_then(|w| w.parse::<f32>().ok())
+            .unwrap_or_else(|| panic!("art.txt:{line}: {how:?} needs a size in pixels"))
+    };
     match words.first().copied() {
         Some("prop") => format!("Stand::Prop {{ depth: {:?} }}", size()),
         Some("fold") => format!("Stand::Fold {{ rows: {:?} }}", size()),
         Some("slab") => {
             let lift = match words.get(2..4) {
-                Some(["float", n]) => n.parse::<f32>().unwrap_or_else(|_| panic!("art.txt:{line}: {how:?} floats a number of pixels")),
+                Some(["float", n]) => n.parse::<f32>().unwrap_or_else(|_| {
+                    panic!("art.txt:{line}: {how:?} floats a number of pixels")
+                }),
                 None if words.len() == 2 => 0.0,
                 _ => panic!("art.txt:{line}: a slab is slab N or slab N float N"),
             };
@@ -226,14 +286,18 @@ fn stand_code(how: &str, line: usize) -> String {
         }
         Some("figure") => {
             let lift = match words.get(1..3) {
-                Some(["float", n]) => n.parse::<f32>().unwrap_or_else(|_| panic!("art.txt:{line}: {how:?} floats a number of pixels")),
+                Some(["float", n]) => n.parse::<f32>().unwrap_or_else(|_| {
+                    panic!("art.txt:{line}: {how:?} floats a number of pixels")
+                }),
                 None if words.len() == 1 => 0.0,
                 _ => panic!("art.txt:{line}: a figure is figure or figure float N"),
             };
             format!("Stand::Figure {{ lift: {lift:?} }}")
         }
         Some("ground") => "Stand::Ground".into(),
-        _ => panic!("art.txt:{line}: unknown stand {how:?}; use prop N, fold N, slab N, figure or ground"),
+        _ => panic!(
+            "art.txt:{line}: unknown stand {how:?}; use prop N, fold N, slab N, figure or ground"
+        ),
     }
 }
 
@@ -242,18 +306,43 @@ fn stand_code(how: &str, line: usize) -> String {
 /// Without them, as in a clone that lacks the saved sprites, a carved sprite falls back to a slab.
 /// A turned sprite's east view is its folder's, else the cut its catalog line names, as in `turned 2 cell 21 10`,
 /// where the optional 2 is its depth.
-fn stand_for(how: &str, dir: &Path, intern: &mut impl FnMut(Image) -> usize, line: usize, cut_view: &dyn Fn(&str) -> Vec<Image>, coat: &dyn Fn(Image) -> Image) -> String {
+fn stand_for(
+    how: &str,
+    dir: &Path,
+    intern: &mut impl FnMut(Image) -> usize,
+    line: usize,
+    cut_view: &dyn Fn(&str) -> Vec<Image>,
+    coat: &dyn Fn(Image) -> Image,
+) -> String {
     if let Some(rest) = how.strip_prefix("turned") {
         let rest = rest.trim();
-        let (depth, rest) = match rest.split_once(char::is_whitespace).map_or((rest, ""), |(a, b)| (a, b.trim())) {
-            (n, cut) if n.parse::<f32>().is_ok() => (format!("Some({:?})", n.parse::<f32>().unwrap()), cut),
+        let (depth, rest) = match rest
+            .split_once(char::is_whitespace)
+            .map_or((rest, ""), |(a, b)| (a, b.trim()))
+        {
+            (n, cut) if n.parse::<f32>().is_ok() => {
+                (format!("Some({:?})", n.parse::<f32>().unwrap()), cut)
+            }
             _ => ("None".to_string(), rest),
         };
-        let east = decode(&dir.join("east.png")).ok().or_else(|| (!rest.is_empty()).then(|| cut_view(rest).into_iter().next()).flatten()).map(coat);
+        let east = decode(&dir.join("east.png"))
+            .ok()
+            .or_else(|| {
+                (!rest.is_empty())
+                    .then(|| cut_view(rest).into_iter().next())
+                    .flatten()
+            })
+            .map(coat);
         return match east {
-            Some(east) => format!("Stand::Turned {{ east: Art({}), depth: {depth} }}", intern(east)),
+            Some(east) => format!(
+                "Stand::Turned {{ east: Art({}), depth: {depth} }}",
+                intern(east)
+            ),
             None => {
-                println!("cargo:warning={} is turned but has no east.png or cut to stand up; it stands as a prop", dir.display());
+                println!(
+                    "cargo:warning={} is turned but has no east.png or cut to stand up; it stands as a prop",
+                    dir.display()
+                );
                 "Stand::Prop { depth: 3.0 }".into()
             }
         };
@@ -261,15 +350,30 @@ fn stand_for(how: &str, dir: &Path, intern: &mut impl FnMut(Image) -> usize, lin
     if how != "carve" {
         return stand_code(how, line);
     }
-    match (decode(&dir.join("south.png")), decode(&dir.join("east.png"))) {
+    match (
+        decode(&dir.join("south.png")),
+        decode(&dir.join("east.png")),
+    ) {
         (Ok(south), Ok(east)) => {
-            let mut optional = |file: &str| decode(&dir.join(file)).ok().map_or("None".to_string(), |s| format!("Some(Art({}))", intern(coat(s))));
-            let [footprint, roof, north, west] = ["footprint.png", "roof.png", "north.png", "west.png"].map(&mut optional);
+            let mut optional = |file: &str| {
+                decode(&dir.join(file))
+                    .ok()
+                    .map_or("None".to_string(), |s| {
+                        format!("Some(Art({}))", intern(coat(s)))
+                    })
+            };
+            let [footprint, roof, north, west] =
+                ["footprint.png", "roof.png", "north.png", "west.png"].map(&mut optional);
             let (south, east) = (intern(coat(south)), intern(coat(east)));
-            format!("Stand::Carve {{ footprint: {footprint}, roof: {roof}, south: Art({south}), east: Art({east}), north: {north}, west: {west} }}")
+            format!(
+                "Stand::Carve {{ footprint: {footprint}, roof: {roof}, south: Art({south}), east: Art({east}), north: {north}, west: {west} }}"
+            )
         }
         _ => {
-            println!("cargo:warning={} is carved but has no south.png and east.png; it stands as a slab", dir.display());
+            println!(
+                "cargo:warning={} is carved but has no south.png and east.png; it stands as a slab",
+                dir.display()
+            );
             "Stand::Slab { height: 10.0, lift: 0.0 }".into()
         }
     }
@@ -277,17 +381,24 @@ fn stand_for(how: &str, dir: &Path, intern: &mut impl FnMut(Image) -> usize, lin
 
 /// A sprite name the generated code can use as a constant.
 fn is_name(n: &str) -> bool {
-    n.starts_with(|c: char| c.is_ascii_uppercase()) && n.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+    n.starts_with(|c: char| c.is_ascii_uppercase())
+        && n.chars()
+            .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
 }
 
 /// The colors a sprite's folder's `clear.txt` lists, one hex color a line, which its copies for the 3D view lack.
 fn clear_colors(dir: &Path) -> Vec<[u8; 3]> {
     let path = dir.join("clear.txt");
-    let Ok(text) = std::fs::read_to_string(&path) else { return Vec::new() };
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return Vec::new();
+    };
     text.lines()
         .map(|l| l.trim().trim_start_matches('#'))
         .filter(|l| !l.is_empty())
-        .map(|l| paint::hex(l).unwrap_or_else(|| panic!("{}: {l} isn't a color like #5A6E3C", path.display())))
+        .map(|l| {
+            paint::hex(l)
+                .unwrap_or_else(|| panic!("{}: {l} isn't a color like #5A6E3C", path.display()))
+        })
         .collect()
 }
 
@@ -295,7 +406,10 @@ fn clear_colors(dir: &Path) -> Vec<[u8; 3]> {
 fn paint_of(dir: &Path) -> paint::Paint {
     let path = dir.join(paint::FILE);
     println!("cargo:rerun-if-changed={}", path.display());
-    std::fs::read_to_string(&path).map_or_else(|_| paint::Paint::default(), |t| paint::parse(&t).unwrap_or_else(|e| panic!("{}:{e}", path.display())))
+    std::fs::read_to_string(&path).map_or_else(
+        |_| paint::Paint::default(),
+        |t| paint::parse(&t).unwrap_or_else(|e| panic!("{}:{e}", path.display())),
+    )
 }
 
 /// What the generated code lists for each sprite.
@@ -319,7 +433,15 @@ struct Listed {
 
 /// Lists a sprite's frames, each once per coat of its paint, with how each coat stands, its top strip and its
 /// copies for the 3D view. Its folder is named for it.
-fn list(out: &mut Listed, drawn: &[Image], how: &str, dir: &Path, line: usize, cut_view: &dyn Fn(&str) -> Vec<Image>, intern: &mut impl FnMut(Image) -> usize) {
+fn list(
+    out: &mut Listed,
+    drawn: &[Image],
+    how: &str,
+    dir: &Path,
+    line: usize,
+    cut_view: &dyn Fn(&str) -> Vec<Image>,
+    intern: &mut impl FnMut(Image) -> usize,
+) {
     let name = dir.file_name().and_then(|n| n.to_str()).unwrap();
     let paint = paint_of(dir);
     let coat = |k: usize| {
@@ -330,9 +452,15 @@ fn list(out: &mut Listed, drawn: &[Image], how: &str, dir: &Path, line: usize, c
         }
     };
     let coats = paint.copies();
-    let detail = std::fs::read_to_string(dir.join("detail.txt")).ok().map(|text| {
-        text.trim().parse::<u8>().ok().filter(|d| [1, 2, 4].contains(d)).unwrap_or_else(|| panic!("{}: detail is 1, 2 or 4", dir.display()))
-    });
+    let detail = std::fs::read_to_string(dir.join("detail.txt"))
+        .ok()
+        .map(|text| {
+            text.trim()
+                .parse::<u8>()
+                .ok()
+                .filter(|d| [1, 2, 4].contains(d))
+                .unwrap_or_else(|| panic!("{}: detail is 1, 2 or 4", dir.display()))
+        });
     // A carved or turned sprite's views and its copies for the 3D view are drawn at its frames' detail.
     let mut at_detail = Vec::new();
     if !how.is_empty() {
@@ -341,17 +469,32 @@ fn list(out: &mut Listed, drawn: &[Image], how: &str, dir: &Path, line: usize, c
             at_detail.push(id);
             id
         };
-        out.stands.push((name.to_string(), (0..coats).map(|k| stand_for(how, dir, &mut view, line, cut_view, &coat(k))).collect()));
+        out.stands.push((
+            name.to_string(),
+            (0..coats)
+                .map(|k| stand_for(how, dir, &mut view, line, cut_view, &coat(k)))
+                .collect(),
+        ));
     }
     if let Ok(top) = decode(&dir.join("top.png")) {
-        out.tops.push((name.to_string(), (0..coats).map(|k| intern(coat(k)(top.clone()))).collect()));
+        out.tops.push((
+            name.to_string(),
+            (0..coats).map(|k| intern(coat(k)(top.clone()))).collect(),
+        ));
     }
-    let ids: Vec<usize> = (0..coats).flat_map(|k| drawn.iter().map(move |f| (k, f))).map(|(k, f)| intern(coat(k)(f.clone()))).collect();
+    let ids: Vec<usize> = (0..coats)
+        .flat_map(|k| drawn.iter().map(move |f| (k, f)))
+        .map(|(k, f)| intern(coat(k)(f.clone())))
+        .collect();
     let clear = clear_colors(dir);
     if !clear.is_empty() {
         for (i, &id) in ids.iter().enumerate() {
             let mut copy = drawn[i % drawn.len()].clone();
-            for px in copy.rgba.chunks_exact_mut(4).filter(|p| p[3] > 0 && clear.contains(&[p[0], p[1], p[2]])) {
+            for px in copy
+                .rgba
+                .chunks_exact_mut(4)
+                .filter(|p| p[3] > 0 && clear.contains(&[p[0], p[1], p[2]]))
+            {
                 px.fill(0);
             }
             let solid = intern(coat(i / drawn.len())(copy));
@@ -360,18 +503,23 @@ fn list(out: &mut Listed, drawn: &[Image], how: &str, dir: &Path, line: usize, c
         }
     }
     if let Some(d) = detail {
-        out.detail.extend(ids.iter().chain(&at_detail).map(|&id| (id, d)));
+        out.detail
+            .extend(ids.iter().chain(&at_detail).map(|&id| (id, d)));
     }
     if let Ok(text) = std::fs::read_to_string(dir.join("grenade.txt")) {
         let specs: Vec<&str> = text.trim().split(';').map(str::trim).collect();
         for (i, &id) in ids.iter().enumerate() {
-            out.worn.push((id, specs[(i % drawn.len()).min(specs.len() - 1)].to_string()));
+            out.worn.push((
+                id,
+                specs[(i % drawn.len()).min(specs.len() - 1)].to_string(),
+            ));
         }
     }
     if let Ok(text) = std::fs::read_to_string(dir.join("alpha.txt")) {
         let spec = alpha::parse(&text).unwrap_or_else(|e| panic!("{}: {e}", dir.display()));
         for (i, &id) in ids.iter().enumerate() {
-            out.alpha.push((id, alpha::to_byte(alpha::of_frame(&spec, i % drawn.len()))));
+            out.alpha
+                .push((id, alpha::to_byte(alpha::of_frame(&spec, i % drawn.len()))));
         }
     }
     out.entries.push((name.to_string(), ids));
@@ -390,18 +538,24 @@ fn saved(dir: &Path) -> Vec<Image> {
 }
 
 fn fnv1a(bytes: impl Iterator<Item = u8>) -> u64 {
-    bytes.fold(0xcbf2_9ce4_8422_2325, |h, b| (h ^ b as u64).wrapping_mul(0x0100_0000_01b3))
+    bytes.fold(0xcbf2_9ce4_8422_2325, |h, b| {
+        (h ^ b as u64).wrapping_mul(0x0100_0000_01b3)
+    })
 }
 
 fn main() {
     let manifest = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
     let out = PathBuf::from(std::env::var("OUT_DIR").unwrap());
     let catalog = manifest.join("art.txt");
-    let reference = manifest.join("../../assets/private/zombie-apocalypse/Zombie Apocalypse Tileset Reference.png");
+    let reference = manifest
+        .join("../../assets/private/zombie-apocalypse/Zombie Apocalypse Tileset Reference.png");
     println!("cargo:rerun-if-changed={}", catalog.display());
     println!("cargo:rerun-if-changed={}", reference.display());
     let sprites = manifest.join("../../assets/private/sprites");
-    println!("cargo:rerun-if-changed={}", manifest.join("../../assets/private").display());
+    println!(
+        "cargo:rerun-if-changed={}",
+        manifest.join("../../assets/private").display()
+    );
     let sheet = decode(&reference).unwrap_or_else(|e| {
         panic!("{}: {e}\nGet the Zombie Apocalypse Tileset from itch.io and run scripts/assets.sh <zip>.", reference.display())
     });
@@ -420,13 +574,30 @@ fn main() {
     let text = std::fs::read_to_string(&catalog).unwrap();
     for (i, raw) in text.lines().enumerate() {
         let line = raw.split('#').next().unwrap().trim();
-        let Some((name, rest)) = line.split_once(char::is_whitespace) else { continue };
+        let Some((name, rest)) = line.split_once(char::is_whitespace) else {
+            continue;
+        };
         let (rest, how) = rest.split_once('@').unwrap_or((rest, ""));
-        let how = std::fs::read_to_string(sprites.join(name).join("stand.txt")).unwrap_or_else(|_| how.to_string());
+        let how = std::fs::read_to_string(sprites.join(name).join("stand.txt"))
+            .unwrap_or_else(|_| how.to_string());
         // A sprite saved from the editor takes the place of its cut from the sheet.
         let drawn = saved(&sprites.join(name));
-        let frames: Vec<Image> = if drawn.is_empty() { rest.split(';').flat_map(|frame| cut(&sheet, &manifest, frame.trim(), i + 1)).collect() } else { drawn };
-        list(&mut listed, &frames, how.trim(), &sprites.join(name), i + 1, &|spec| cut(&sheet, &manifest, spec, i + 1), &mut intern);
+        let frames: Vec<Image> = if drawn.is_empty() {
+            rest.split(';')
+                .flat_map(|frame| cut(&sheet, &manifest, frame.trim(), i + 1))
+                .collect()
+        } else {
+            drawn
+        };
+        list(
+            &mut listed,
+            &frames,
+            how.trim(),
+            &sprites.join(name),
+            i + 1,
+            &|spec| cut(&sheet, &manifest, spec, i + 1),
+            &mut intern,
+        );
     }
     // Sprites drawn from scratch in the editor, with no line in the catalog.
     let mut extra: Vec<String> = std::fs::read_dir(&sprites)
@@ -439,9 +610,18 @@ fn main() {
     extra.sort();
     for name in extra {
         let frames = saved(&sprites.join(&name));
-        let how = std::fs::read_to_string(sprites.join(&name).join("stand.txt")).unwrap_or_default();
+        let how =
+            std::fs::read_to_string(sprites.join(&name).join("stand.txt")).unwrap_or_default();
         if !frames.is_empty() {
-            list(&mut listed, &frames, how.trim(), &sprites.join(&name), 0, &|spec| cut(&sheet, &manifest, spec, 0), &mut intern);
+            list(
+                &mut listed,
+                &frames,
+                how.trim(),
+                &sprites.join(&name),
+                0,
+                &|spec| cut(&sheet, &manifest, spec, 0),
+                &mut intern,
+            );
         }
     }
 
@@ -468,10 +648,25 @@ fn main() {
     std::fs::write(out.join("art.rgba"), &atlas.rgba).unwrap();
 
     let mut src = String::new();
-    writeln!(src, "pub const ATLAS_W: u32 = {ATLAS_W};\npub const ATLAS_H: u32 = {atlas_h};").unwrap();
-    let hash = fnv1a(rects.iter().flatten().flat_map(|v| v.to_le_bytes()).chain(atlas.rgba.iter().copied()));
+    writeln!(
+        src,
+        "pub const ATLAS_W: u32 = {ATLAS_W};\npub const ATLAS_H: u32 = {atlas_h};"
+    )
+    .unwrap();
+    let hash = fnv1a(
+        rects
+            .iter()
+            .flatten()
+            .flat_map(|v| v.to_le_bytes())
+            .chain(atlas.rgba.iter().copied()),
+    );
     writeln!(src, "/// Fingerprint of the packed texture and its rects; a data pack's atlas must carry the same one.\npub const ART_HASH: u64 = {hash:#018x};").unwrap();
-    writeln!(src, "pub(crate) const RECTS: [[u16; 4]; {}] = [", rects.len()).unwrap();
+    writeln!(
+        src,
+        "pub(crate) const RECTS: [[u16; 4]; {}] = [",
+        rects.len()
+    )
+    .unwrap();
     for r in &rects {
         writeln!(src, "    [{}, {}, {}, {}],", r[0], r[1], r[2], r[3]).unwrap();
     }
@@ -483,7 +678,13 @@ fn main() {
             writeln!(src, "pub const {name}: Art = {};", arts[0]).unwrap();
             names.push(format!("(\"{name}\", &[{name}])"));
         } else {
-            writeln!(src, "pub static {name}: [Art; {}] = [{}];", ids.len(), arts.join(", ")).unwrap();
+            writeln!(
+                src,
+                "pub static {name}: [Art; {}] = [{}];",
+                ids.len(),
+                arts.join(", ")
+            )
+            .unwrap();
             names.push(format!("(\"{name}\", &{name})"));
         }
     }
@@ -498,33 +699,80 @@ fn main() {
         }
     };
     let mut by_image = vec!["None".to_string(); images.len()];
-    let stands: Vec<(String, Vec<String>)> = listed.stands.iter().map(|(n, c)| (n.clone(), c.iter().map(|c| format!("Some({c})")).collect())).collect();
+    let stands: Vec<(String, Vec<String>)> = listed
+        .stands
+        .iter()
+        .map(|(n, c)| (n.clone(), c.iter().map(|c| format!("Some({c})")).collect()))
+        .collect();
     per_coat(&stands, &mut by_image);
-    writeln!(src, "pub(crate) static STANDS: [Option<Stand>; {}] = [{}];", by_image.len(), by_image.join(", ")).unwrap();
+    writeln!(
+        src,
+        "pub(crate) static STANDS: [Option<Stand>; {}] = [{}];",
+        by_image.len(),
+        by_image.join(", ")
+    )
+    .unwrap();
     let mut top_of = vec!["None".to_string(); images.len()];
-    let tops: Vec<(String, Vec<String>)> = listed.tops.iter().map(|(n, t)| (n.clone(), t.iter().map(|t| format!("Some(Art({t}))")).collect())).collect();
+    let tops: Vec<(String, Vec<String>)> = listed
+        .tops
+        .iter()
+        .map(|(n, t)| {
+            (
+                n.clone(),
+                t.iter().map(|t| format!("Some(Art({t}))")).collect(),
+            )
+        })
+        .collect();
     per_coat(&tops, &mut top_of);
-    writeln!(src, "pub(crate) static TOPS: [Option<Art>; {}] = [{}];", top_of.len(), top_of.join(", ")).unwrap();
+    writeln!(
+        src,
+        "pub(crate) static TOPS: [Option<Art>; {}] = [{}];",
+        top_of.len(),
+        top_of.join(", ")
+    )
+    .unwrap();
     let mut solid_of = vec!["None".to_string(); images.len()];
     for &(id, solid) in &listed.solids {
         solid_of[id] = format!("Some(Art({solid}))");
     }
-    writeln!(src, "pub(crate) static SOLIDS: [Option<Art>; {}] = [{}];", solid_of.len(), solid_of.join(", ")).unwrap();
+    writeln!(
+        src,
+        "pub(crate) static SOLIDS: [Option<Art>; {}] = [{}];",
+        solid_of.len(),
+        solid_of.join(", ")
+    )
+    .unwrap();
     let mut worn_of = vec!["None".to_string(); images.len()];
     for (id, spec) in &listed.worn {
         worn_of[*id] = format!("Some({spec:?})");
     }
-    writeln!(src, "pub(crate) static WORN: [Option<&str>; {}] = [{}];", worn_of.len(), worn_of.join(", ")).unwrap();
+    writeln!(
+        src,
+        "pub(crate) static WORN: [Option<&str>; {}] = [{}];",
+        worn_of.len(),
+        worn_of.join(", ")
+    )
+    .unwrap();
     let mut detail_of = vec![1u8; images.len()];
     for &(id, d) in &listed.detail {
         detail_of[id] = d;
     }
-    writeln!(src, "pub(crate) static DETAIL: [u8; {}] = {detail_of:?};", detail_of.len()).unwrap();
+    writeln!(
+        src,
+        "pub(crate) static DETAIL: [u8; {}] = {detail_of:?};",
+        detail_of.len()
+    )
+    .unwrap();
     let mut alpha_of = vec![255u8; images.len()];
     for &(id, a) in &listed.alpha {
         alpha_of[id] = a;
     }
-    writeln!(src, "pub(crate) static ALPHA: [u8; {}] = {alpha_of:?};", alpha_of.len()).unwrap();
+    writeln!(
+        src,
+        "pub(crate) static ALPHA: [u8; {}] = {alpha_of:?};",
+        alpha_of.len()
+    )
+    .unwrap();
     writeln!(src, "/// Every catalog entry with its frames, for the art gallery.\npub static ALL: &[(&str, &[Art])] = &[{}];", names.join(", ")).unwrap();
     std::fs::write(out.join("art_gen.rs"), src).unwrap();
 }

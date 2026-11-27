@@ -33,8 +33,12 @@ impl Saved {
     /// The replay, ready to watch, and a word on anything that may keep it from playing exactly here.
     pub fn open(&self) -> Result<(Replay, Option<String>), String> {
         let r = Replay::read(&self.raw)?;
-        let here = crate::data::fingerprint().map_or_else(|| "built-in".to_string(), |d| format!("{d:016x}"));
-        let warn = r.info("data").filter(|d| *d != here).map(|_| "Recorded with other game data or mods: it may drift".to_string());
+        let here = crate::data::fingerprint()
+            .map_or_else(|| "built-in".to_string(), |d| format!("{d:016x}"));
+        let warn = r
+            .info("data")
+            .filter(|d| *d != here)
+            .map(|_| "Recorded with other game data or mods: it may drift".to_string());
         Ok((r, warn))
     }
 }
@@ -43,14 +47,25 @@ impl Saved {
 fn describe(r: &Replay, name: &str) -> String {
     let s = &r.setup;
     let secs = r.ticks / 60;
-    let map = crate::data::maps().iter().find(|m| m.id == s.map).map_or("Random farm", |m| m.name.as_str());
+    let map = crate::data::maps()
+        .iter()
+        .find(|m| m.id == s.map)
+        .map_or("Random farm", |m| m.name.as_str());
     let who = match &s.kind {
         Kind::Host { .. } => format!("online, {}", plural(s.players, "player")),
         _ if s.players + s.bots > 1 => plural(s.players + s.bots, "player"),
-        _ => crate::player_looks().iter().find(|l| l.id == s.look).map_or_else(|| "Farmer".to_string(), |l| l.name.clone()),
+        _ => crate::player_looks()
+            .iter()
+            .find(|l| l.id == s.look)
+            .map_or_else(|| "Farmer".to_string(), |l| l.name.clone()),
     };
     let when = when(name).unwrap_or_else(|| name.to_string());
-    format!("{when}   {}   {}:{:02}   {map}   {who}", s.difficulty.name(), secs / 60, secs % 60)
+    format!(
+        "{when}   {}   {}:{:02}   {map}   {who}",
+        s.difficulty.name(),
+        secs / 60,
+        secs % 60
+    )
 }
 
 fn plural(n: usize, what: &str) -> String {
@@ -59,7 +74,12 @@ fn plural(n: usize, what: &str) -> String {
 
 /// A replay file's time, from its `night-<unix seconds>-<n>` name, in UTC.
 pub(crate) fn when(name: &str) -> Option<String> {
-    let unix: i64 = name.strip_prefix("night-")?.split('-').next()?.parse().ok()?;
+    let unix: i64 = name
+        .strip_prefix("night-")?
+        .split('-')
+        .next()?
+        .parse()
+        .ok()?;
     let (days, secs) = (unix.div_euclid(86_400), unix.rem_euclid(86_400));
     let z = days + 719_468;
     let (era, doe) = (z.div_euclid(146_097), z.rem_euclid(146_097));
@@ -69,7 +89,11 @@ pub(crate) fn when(name: &str) -> Option<String> {
     let day = doy - (153 * mp + 2) / 5 + 1;
     let month = if mp < 10 { mp + 3 } else { mp - 9 };
     let year = yoe + era * 400 + (month <= 2) as i64;
-    Some(format!("{year}-{month:02}-{day:02} {:02}:{:02}", secs / 3600, secs % 3600 / 60))
+    Some(format!(
+        "{year}-{month:02}-{day:02} {:02}:{:02}",
+        secs / 3600,
+        secs % 3600 / 60
+    ))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -82,7 +106,14 @@ enum Control {
     Photo,
 }
 
-const CONTROLS: [Control; 6] = [Control::Leave, Control::Slower, Control::Play, Control::Faster, Control::Player, Control::Photo];
+const CONTROLS: [Control; 6] = [
+    Control::Leave,
+    Control::Slower,
+    Control::Play,
+    Control::Faster,
+    Control::Player,
+    Control::Photo,
+];
 
 fn button(i: usize, top: f32) -> [f32; 4] {
     let x0 = (SCREEN_W - (CONTROLS.len() as f32 * (BUTTON_W + GAP) - GAP)) / 2.0;
@@ -114,7 +145,18 @@ pub(crate) struct Watching {
 
 impl Watching {
     pub fn new(r: Replay, warn: Option<String>) -> Self {
-        Self { viewer: Viewer::new(r), speed: NORMAL, paused: false, follow: 0, owed: 0.0, stepped: false, stopped_at_drift: false, warn, device: Device::default(), capture: false }
+        Self {
+            viewer: Viewer::new(r),
+            speed: NORMAL,
+            paused: false,
+            follow: 0,
+            owed: 0.0,
+            stepped: false,
+            stopped_at_drift: false,
+            warn,
+            device: Device::default(),
+            capture: false,
+        }
     }
 
     /// Lays photo mode's guides out for `device`.
@@ -138,14 +180,23 @@ impl Watching {
 
     /// A frame: photo mode while it's open, else the viewer's buttons, or a tap on the strip at `top`, then the ticks
     /// due; false once left. X or Photo pauses and opens photo mode where the night stands.
-    pub fn update(&mut self, input: &Input, tap: Option<[f32; 2]>, top: f32, dt: f32, sounds: &mut Vec<Sfx>) -> bool {
+    pub fn update(
+        &mut self,
+        input: &Input,
+        tap: Option<[f32; 2]>,
+        top: f32,
+        dt: f32,
+        sounds: &mut Vec<Sfx>,
+    ) -> bool {
         self.stepped = false;
         if self.viewer.in_photo() {
             self.capture = self.viewer.photo(input, dt, self.device, sounds).capture;
             self.viewer.hold();
             return true;
         }
-        let tapped = tap.and_then(|p| (0..CONTROLS.len()).find(|&i| inside(p, button(i, top)))).map(|i| CONTROLS[i]);
+        let tapped = tap
+            .and_then(|p| (0..CONTROLS.len()).find(|&i| inside(p, button(i, top))))
+            .map(|i| CONTROLS[i]);
         let pressed = |b: Buttons| input.pressed.contains(b);
         if pressed(Buttons::B) || tapped == Some(Control::Leave) {
             sounds.push(Sfx::Tick(0));
@@ -168,14 +219,16 @@ impl Watching {
             sounds.push(Sfx::Tick(if self.paused { 0 } else { 6 }));
         }
         let stepping = self.paused;
-        let by = ((pressed(Buttons::RIGHT) && !stepping) || tapped == Some(Control::Faster)) as i32 - ((pressed(Buttons::LEFT) && !stepping) || tapped == Some(Control::Slower)) as i32;
+        let by = ((pressed(Buttons::RIGHT) && !stepping) || tapped == Some(Control::Faster)) as i32
+            - ((pressed(Buttons::LEFT) && !stepping) || tapped == Some(Control::Slower)) as i32;
         let speed = (self.speed as i32 + by).clamp(0, SPEEDS.len() as i32 - 1) as usize;
         if speed != self.speed {
             self.speed = speed;
             sounds.push(Sfx::Tick(speed as u8 * 2));
         }
         let n = self.viewer.players();
-        let turn = (pressed(Buttons::R1) || tapped == Some(Control::Player)) as i32 - pressed(Buttons::L1) as i32;
+        let turn = (pressed(Buttons::R1) || tapped == Some(Control::Player)) as i32
+            - pressed(Buttons::L1) as i32;
         if turn != 0 && n > 1 {
             self.follow = (self.follow as i32 + turn).rem_euclid(n as i32) as usize;
             sounds.push(Sfx::Tick(self.follow as u8 * 3));
@@ -221,7 +274,11 @@ impl Watching {
     /// The night as the followed player saw it; `alpha` of the way through the last tick when one played this frame.
     /// In photo mode, a `clean` frame is the capture.
     pub fn draw(&mut self, alpha: f32, f: &mut crate::Frame, clean: bool) {
-        let alpha = if self.stepped && self.speed == NORMAL { alpha } else { 1.0 };
+        let alpha = if self.stepped && self.speed == NORMAL {
+            alpha
+        } else {
+            1.0
+        };
         self.viewer.draw(self.follow, alpha, f, clean);
     }
 
@@ -232,7 +289,11 @@ impl Watching {
 
     #[cfg(test)]
     pub fn at(&self) -> (u64, u64, Option<usize>) {
-        (self.viewer.played().0, self.viewer.checksum(), self.viewer.menu())
+        (
+            self.viewer.played().0,
+            self.viewer.checksum(),
+            self.viewer.menu(),
+        )
     }
 
     #[cfg(test)]
@@ -246,7 +307,11 @@ impl Watching {
     }
 
     pub fn dread(&self) -> f32 {
-        if self.paused { 0.0 } else { self.viewer.dread() }
+        if self.paused {
+            0.0
+        } else {
+            self.viewer.dread()
+        }
     }
 
     /// Whose view is on show, and where the night drifted, across the top screen.
@@ -255,21 +320,40 @@ impl Watching {
         let mut y = 200.0;
         let shown = self.viewer.shown(self.follow);
         if self.viewer.players() > 1 {
-            let who = if shown == self.follow { format!("WATCHING P{}", self.follow + 1) } else { format!("P{} TURNED  -  WATCHING P{}", self.follow + 1, shown + 1) };
+            let who = if shown == self.follow {
+                format!("WATCHING P{}", self.follow + 1)
+            } else {
+                format!("P{} TURNED  -  WATCHING P{}", self.follow + 1, shown + 1)
+            };
             c.label(who, SCREEN_W / 2.0, y, 30.0, HOT, Align::Center);
             y += 44.0;
         }
         if let Some(d) = self.viewer.drift() {
             c.rect(0.0, y - 6.0, SCREEN_W, 96.0, [0.0, 0.0, 0.0, 0.6]);
             let at = clock(d.tick as f32 / 60.0);
-            c.label(format!("Drifted from the recording at {at} (tick {})", d.tick), SCREEN_W / 2.0, y, 32.0, RED, Align::Center);
+            c.label(
+                format!("Drifted from the recording at {at} (tick {})", d.tick),
+                SCREEN_W / 2.0,
+                y,
+                32.0,
+                RED,
+                Align::Center,
+            );
             let more = match &d.check {
                 Some((tick, want, got)) => {
-                    let off = want.players.iter().zip(&got.players).map(|(a, b)| {
-                        let d = [a[0] - b[0], a[1] - b[1]];
-                        (d[0] * d[0] + d[1] * d[1]).sqrt()
-                    }).fold(0.0f32, f32::max);
-                    format!("Checkpoint at tick {tick}: {} zombies recorded, {} here; a player {off:.0} px off", want.zombies, got.zombies)
+                    let off = want
+                        .players
+                        .iter()
+                        .zip(&got.players)
+                        .map(|(a, b)| {
+                            let d = [a[0] - b[0], a[1] - b[1]];
+                            (d[0] * d[0] + d[1] * d[1]).sqrt()
+                        })
+                        .fold(0.0f32, f32::max);
+                    format!(
+                        "Checkpoint at tick {tick}: {} zombies recorded, {} here; a player {off:.0} px off",
+                        want.zombies, got.zombies
+                    )
                 }
                 None => "From here it no longer shows the night as it was played".to_string(),
             };
@@ -290,16 +374,56 @@ impl Watching {
         c.rect(bx, top + 10.0, bw, 8.0, [1.0, 1.0, 1.0, 0.2]);
         c.rect(bx, top + 10.0, bw * ticks as f32 / total as f32, 8.0, HOT);
         if let Some(d) = self.viewer.drift() {
-            c.rect(bx + bw * d.tick as f32 / total as f32 - 2.0, top + 4.0, 4.0, 20.0, RED);
+            c.rect(
+                bx + bw * d.tick as f32 / total as f32 - 2.0,
+                top + 4.0,
+                4.0,
+                20.0,
+                RED,
+            );
         }
-        let state = if self.viewer.ended() { "Ended" } else if self.paused { "Paused" } else { "Replay" };
-        c.label(format!("{state}   {} / {}", clock(secs), clock(total as f32 / 60.0)), bx, top + 24.0, 28.0, WHITE, Align::Left);
+        let state = if self.viewer.ended() {
+            "Ended"
+        } else if self.paused {
+            "Paused"
+        } else {
+            "Replay"
+        };
+        c.label(
+            format!("{state}   {} / {}", clock(secs), clock(total as f32 / 60.0)),
+            bx,
+            top + 24.0,
+            28.0,
+            WHITE,
+            Align::Left,
+        );
         let speed = SPEEDS[self.speed];
-        let speed = if speed < 1.0 { format!("{speed}x") } else { format!("{speed:.0}x") };
+        let speed = if speed < 1.0 {
+            format!("{speed}x")
+        } else {
+            format!("{speed:.0}x")
+        };
         let n = self.viewer.players();
-        let who = if n > 1 { format!("   P{} of {n}", self.follow + 1) } else { String::new() };
-        c.label(format!("{speed}{who}"), bx + bw, top + 24.0, 28.0, WHITE, Align::Right);
-        let play = if self.viewer.ended() { "Again" } else if self.paused { "Play" } else { "Pause" };
+        let who = if n > 1 {
+            format!("   P{} of {n}", self.follow + 1)
+        } else {
+            String::new()
+        };
+        c.label(
+            format!("{speed}{who}"),
+            bx + bw,
+            top + 24.0,
+            28.0,
+            WHITE,
+            Align::Right,
+        );
+        let play = if self.viewer.ended() {
+            "Again"
+        } else if self.paused {
+            "Play"
+        } else {
+            "Pause"
+        };
         for (i, control) in CONTROLS.into_iter().enumerate() {
             let [x, y, w, h] = button(i, top);
             let off = control == Control::Player && n < 2;
@@ -318,10 +442,26 @@ impl Watching {
                 (Control::Photo, true) => pad::hint("{X}: Photo"),
                 (Control::Photo, false) => "Photo".into(),
             };
-            crate::menu::fit_label(c, &text, x + w / 2.0, y + h / 2.0 - 13.0, 26.0, w - 12.0, if off { DIM } else { WHITE }, Align::Center);
+            crate::menu::fit_label(
+                c,
+                &text,
+                x + w / 2.0,
+                y + h / 2.0 - 13.0,
+                26.0,
+                w - 12.0,
+                if off { DIM } else { WHITE },
+                Align::Center,
+            );
         }
         if hints && self.paused && !self.viewer.ended() {
-            c.label(pad::hint("Left / Right or {Y}: step a tick"), bx + bw, top + STRIP_H - 4.0, 20.0, DIM, Align::Right);
+            c.label(
+                pad::hint("Left / Right or {Y}: step a tick"),
+                bx + bw,
+                top + STRIP_H - 4.0,
+                20.0,
+                DIM,
+                Align::Right,
+            );
         }
     }
 }
@@ -338,8 +478,14 @@ mod tests {
 
     #[test]
     fn a_replay_name_reads_as_its_time() {
-        assert_eq!(when("night-1795237918-00.lhr").as_deref(), Some("2026-11-21 05:11"));
-        assert_eq!(when("night-0000000000-01.lhr").as_deref(), Some("1970-01-01 00:00"));
+        assert_eq!(
+            when("night-1795237918-00.lhr").as_deref(),
+            Some("2026-11-21 05:11")
+        );
+        assert_eq!(
+            when("night-0000000000-01.lhr").as_deref(),
+            Some("1970-01-01 00:00")
+        );
         assert_eq!(when("dog.lhr"), None);
     }
 }

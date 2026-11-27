@@ -78,14 +78,21 @@ static FETCH_FAILED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBo
 #[cfg(not(target_arch = "wasm32"))]
 fn fetch_release_pack() -> Option<(Pak, PathBuf)> {
     use std::sync::atomic::Ordering;
-    if cfg!(feature = "embed") || std::env::var_os("LAST_HARVEST_PAK").is_some() || FETCH_FAILED.load(Ordering::Relaxed) {
+    if cfg!(feature = "embed")
+        || std::env::var_os("LAST_HARVEST_PAK").is_some()
+        || FETCH_FAILED.load(Ordering::Relaxed)
+    {
         return None;
     }
     let dir = data_folder()?;
     let downloads = std::env::var("LAST_HARVEST_DOWNLOADS").ok();
-    let base = downloads.as_deref().unwrap_or("https://github.com/KyleJamesWalker/last-harvest/releases/download");
+    let base = downloads
+        .as_deref()
+        .unwrap_or("https://github.com/KyleJamesWalker/last-harvest/releases/download");
     let api = std::env::var("LAST_HARVEST_API").ok();
-    let api = api.as_deref().unwrap_or("https://api.github.com/repos/KyleJamesWalker/last-harvest/releases");
+    let api = api
+        .as_deref()
+        .unwrap_or("https://api.github.com/repos/KyleJamesWalker/last-harvest/releases");
     let got = fetch_pack_into(&dir, crate::VERSION, base, api);
     FETCH_FAILED.store(got.is_none(), Ordering::Relaxed);
     got
@@ -99,13 +106,23 @@ fn curl() -> std::process::Command {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn fetch_pack_into(dir: &std::path::Path, version: &str, downloads: &str, api: &str) -> Option<(Pak, PathBuf)> {
+fn fetch_pack_into(
+    dir: &std::path::Path,
+    version: &str,
+    downloads: &str,
+    api: &str,
+) -> Option<(Pak, PathBuf)> {
     use sha2::Digest;
     if !version.starts_with('v') {
         return None;
     }
     let index = format!("{api}/tags/{version}");
-    let release = curl().args(["--max-time", "10"]).arg(&index).output().ok().filter(|o| o.status.success());
+    let release = curl()
+        .args(["--max-time", "10"])
+        .arg(&index)
+        .output()
+        .ok()
+        .filter(|o| o.status.success());
     let Some(want) = release.and_then(|o| pak_digest(&String::from_utf8_lossy(&o.stdout))) else {
         log!("data: no sha256 for game_data.pak from {index}");
         return None;
@@ -116,13 +133,25 @@ fn fetch_pack_into(dir: &std::path::Path, version: &str, downloads: &str, api: &
     let _ = std::fs::remove_file(&part);
     let url = format!("{downloads}/{version}/game_data.pak");
     log!("data: fetching {url}");
-    let ok = curl().args(["--max-time", "60", "-o"]).arg(&part).arg(&url).status().is_ok_and(|s| s.success());
+    let ok = curl()
+        .args(["--max-time", "60", "-o"])
+        .arg(&part)
+        .arg(&url)
+        .status()
+        .is_ok_and(|s| s.success());
     if !ok {
         log!("data: couldn't download {url}");
         let _ = std::fs::remove_file(&part);
         return None;
     }
-    let sum: String = std::fs::read(&part).map(|b| sha2::Sha256::digest(b).iter().map(|x| format!("{x:02x}")).collect()).unwrap_or_default();
+    let sum: String = std::fs::read(&part)
+        .map(|b| {
+            sha2::Sha256::digest(b)
+                .iter()
+                .map(|x| format!("{x:02x}"))
+                .collect()
+        })
+        .unwrap_or_default();
     if sum != want {
         log!("data: {url} doesn't match the release's sha256");
         let _ = std::fs::remove_file(&part);
@@ -171,7 +200,9 @@ fn pak_digest(json: &str) -> Option<String> {
                     i += 1;
                 }
                 let s = String::from_utf8_lossy(&s).into_owned();
-                let next = b[(i + 1).min(b.len())..].iter().find(|c| !c.is_ascii_whitespace());
+                let next = b[(i + 1).min(b.len())..]
+                    .iter()
+                    .find(|c| !c.is_ascii_whitespace());
                 if next == Some(&b':') {
                     key = Some(s);
                 } else {
@@ -189,7 +220,8 @@ fn pak_digest(json: &str) -> Option<String> {
                 key = None;
             }
             b'}' => {
-                if let (Some("game_data.pak"), Some(d)) = (objects[depth].0.as_deref(), objects[depth].1.as_deref())
+                if let (Some("game_data.pak"), Some(d)) =
+                    (objects[depth].0.as_deref(), objects[depth].1.as_deref())
                     && let Some(hex) = d.strip_prefix("sha256:")
                 {
                     return Some(hex.to_ascii_lowercase());
@@ -238,8 +270,16 @@ fn farms_folder() -> Option<PathBuf> {
 
 /// The farms among a farms folder's `files`, by id, noting any that won't read.
 fn read_farms(files: Vec<(String, Vec<u8>)>, problems: &mut Vec<String>) -> Vec<data::FarmFile> {
-    let pak = Pak::from_files(files.into_iter().map(|(name, bytes)| (format!("{}{name}", pack::FARMS), bytes)).collect());
-    pak.farms().into_iter().filter_map(|f| f.map_err(|e| problems.push(e)).ok()).collect()
+    let pak = Pak::from_files(
+        files
+            .into_iter()
+            .map(|(name, bytes)| (format!("{}{name}", pack::FARMS), bytes))
+            .collect(),
+    );
+    pak.farms()
+        .into_iter()
+        .filter_map(|f| f.map_err(|e| problems.push(e)).ok())
+        .collect()
 }
 
 /// `LAST_HARVEST_PROPS`, else `data/props` beside the binary.
@@ -252,8 +292,16 @@ fn props_folder() -> Option<PathBuf> {
 
 /// The props among `files`, by name, noting any that don't read.
 fn read_props(files: Vec<(String, Vec<u8>)>, problems: &mut Vec<String>) -> Vec<Card> {
-    let props = files.into_iter().filter(|(name, _)| name.ends_with(pack::prop::EXTENSION));
-    props.filter_map(|(name, bytes)| pack::prop::read(&name, &bytes).map_err(|e| problems.push(e)).ok()).collect()
+    let props = files
+        .into_iter()
+        .filter(|(name, _)| name.ends_with(pack::prop::EXTENSION));
+    props
+        .filter_map(|(name, bytes)| {
+            pack::prop::read(&name, &bytes)
+                .map_err(|e| problems.push(e))
+                .ok()
+        })
+        .collect()
 }
 
 /// The map files among `files`, by name, noting any that aren't text.
@@ -275,14 +323,30 @@ type OwnSounds = Vec<(String, Option<(String, Vec<u8>)>)>;
 
 /// Reads the cards of `kind` among `files`, by name, noting any that aren't, and adds each enemy card's own death
 /// sound, or None, to `own`. A sound that won't read is noted and the card loads without it.
-fn read_cards(kind: card::Kind, files: Vec<(String, Vec<u8>)>, problems: &mut Vec<String>, own: &mut OwnSounds) -> Vec<Card> {
+fn read_cards(
+    kind: card::Kind,
+    files: Vec<(String, Vec<u8>)>,
+    problems: &mut Vec<String>,
+    own: &mut OwnSounds,
+) -> Vec<Card> {
     let mut cards = Vec::new();
-    for (name, bytes) in files.into_iter().filter(|(name, _)| name.ends_with(kind.extension())) {
+    for (name, bytes) in files
+        .into_iter()
+        .filter(|(name, _)| name.ends_with(kind.extension()))
+    {
         match card::read_as(kind, &name, &bytes) {
             Ok(c) if kind == card::Kind::Enemy => {
-                let id = last_harvest_game::card_fields(&c.text).map(|f| f.id).unwrap_or_default();
-                let sound = card::sound(&bytes).map_err(|e| problems.push(format!("{name}: {e}"))).ok().flatten();
-                own.push((name, sound.map(|(ext, s)| (format!("kill-{id}.{ext}"), s.to_vec()))));
+                let id = last_harvest_game::card_fields(&c.text)
+                    .map(|f| f.id)
+                    .unwrap_or_default();
+                let sound = card::sound(&bytes)
+                    .map_err(|e| problems.push(format!("{name}: {e}")))
+                    .ok()
+                    .flatten();
+                own.push((
+                    name,
+                    sound.map(|(ext, s)| (format!("kill-{id}.{ext}"), s.to_vec())),
+                ));
                 cards.push(c);
             }
             Ok(c) => cards.push(c),
@@ -310,7 +374,9 @@ pub fn read_mod(pak: Result<Pak, String>) -> Result<Pak, String> {
 
 /// The packs in the mods folder, in name order, by file name; one that doesn't read is left out and noted.
 fn read_mods(problems: &mut Vec<String>) -> Vec<(String, Pak)> {
-    let Some(dir) = mods_folder() else { return Vec::new() };
+    let Some(dir) = mods_folder() else {
+        return Vec::new();
+    };
     let mut mods = Vec::new();
     for (name, bytes) in samples::read_files(&dir, &[".pak"]) {
         match Pak::read(std::io::Cursor::new(bytes)) {
@@ -327,33 +393,65 @@ const OLD_EDITOR_ID: &str = "my-cards";
 /// Each pack's key for the save: its id, else its file name, and its file name where two share an id.
 fn mod_keys(packs: &[(String, Pak)]) -> Vec<String> {
     let stem = |file: &str| last_harvest_game::pack_key(file.strip_suffix(".pak").unwrap_or(file));
-    let id = |p: &Pak| p.id().filter(|id| *id != OLD_EDITOR_ID).map(last_harvest_game::pack_key).filter(|k| !k.is_empty());
-    let first: Vec<String> = packs.iter().map(|(file, p)| id(p).unwrap_or_else(|| stem(file))).collect();
-    first.iter().zip(packs).map(|(k, (file, _))| if first.iter().filter(|o| *o == k).count() > 1 { stem(file) } else { k.clone() }).collect()
+    let id = |p: &Pak| {
+        p.id()
+            .filter(|id| *id != OLD_EDITOR_ID)
+            .map(last_harvest_game::pack_key)
+            .filter(|k| !k.is_empty())
+    };
+    let first: Vec<String> = packs
+        .iter()
+        .map(|(file, p)| id(p).unwrap_or_else(|| stem(file)))
+        .collect();
+    first
+        .iter()
+        .zip(packs)
+        .map(|(k, (file, _))| {
+            if first.iter().filter(|o| *o == k).count() > 1 {
+                stem(file)
+            } else {
+                k.clone()
+            }
+        })
+        .collect()
 }
 
 /// The packs to lay over the data, in order, and every pack found, on or off; an on pack `read_mod` refuses is
 /// left out and noted.
-fn choose_mods(found: Vec<(String, Pak)>, off: &[String], problems: &mut Vec<String>) -> (Vec<(String, Pak)>, Vec<data::FoundPack>) {
+fn choose_mods(
+    found: Vec<(String, Pak)>,
+    off: &[String],
+    problems: &mut Vec<String>,
+) -> (Vec<(String, Pak)>, Vec<data::FoundPack>) {
     let keys = mod_keys(&found);
     let (mut on, mut all) = (Vec::new(), Vec::new());
     for ((file, p), key) in found.into_iter().zip(keys) {
-        let name = p.name().or(p.id()).map(String::from).unwrap_or_else(|| file.strip_suffix(".pak").unwrap_or(&file).to_string());
+        let name = p
+            .name()
+            .or(p.id())
+            .map(String::from)
+            .unwrap_or_else(|| file.strip_suffix(".pak").unwrap_or(&file).to_string());
         let wanted = !off.contains(&key);
-        let loaded = wanted && match read_mod(Ok(p)) {
-            Ok(p) => {
-                on.push((file.clone(), p));
-                true
-            }
-            Err(e) => {
-                problems.push(format!("{file}: {e}"));
-                false
-            }
-        };
+        let loaded = wanted
+            && match read_mod(Ok(p)) {
+                Ok(p) => {
+                    on.push((file.clone(), p));
+                    true
+                }
+                Err(e) => {
+                    problems.push(format!("{file}: {e}"));
+                    false
+                }
+            };
         if wanted && !loaded {
             continue;
         }
-        all.push(data::FoundPack { file, key, name, on: loaded });
+        all.push(data::FoundPack {
+            file,
+            key,
+            name,
+            on: loaded,
+        });
     }
     (on, all)
 }
@@ -372,14 +470,22 @@ pub fn load_without(off: &[String]) -> Result<Files, String> {
     let folder = || missing(data_folder().map_or_else(|| DATA.into(), |d| d.display().to_string()));
     let base = match find().map(|path| (Pak::open(&path), path)) {
         Some((Ok(pak), path)) => {
-            log!("data: {} ({})", path.display(), pak.version().unwrap_or("no version"));
+            log!(
+                "data: {} ({})",
+                path.display(),
+                pak.version().unwrap_or("no version")
+            );
             Some(pak)
         }
         // A pack that won't open is a missing one: an update that swapped the binary but not its pack leaves one.
         Some((Err(e), path)) => {
             log!("data: {}: {e}", path.display());
             if let Some((pak, fetched)) = fetch_release_pack() {
-                log!("data: {} ({})", fetched.display(), pak.version().unwrap_or("no version"));
+                log!(
+                    "data: {} ({})",
+                    fetched.display(),
+                    pak.version().unwrap_or("no version")
+                );
                 Some(pak)
             } else {
                 problems.push(format!("game_data.pak: {e}"));
@@ -393,7 +499,11 @@ pub fn load_without(off: &[String]) -> Result<Files, String> {
         }
         None if !cfg!(feature = "embed") => {
             if let Some((pak, path)) = fetch_release_pack() {
-                log!("data: {} ({})", path.display(), pak.version().unwrap_or("no version"));
+                log!(
+                    "data: {} ({})",
+                    path.display(),
+                    pak.version().unwrap_or("no version")
+                );
                 Some(pak)
             } else {
                 let message = folder();
@@ -417,13 +527,22 @@ pub fn install(base: Option<Pak>, missing_pack: Option<String>) -> Result<Files,
 }
 
 /// `install` leaving out the mod packs whose keys are `off`.
-pub fn install_without(base: Option<Pak>, missing_pack: Option<String>, off: &[String]) -> Result<Files, String> {
+pub fn install_without(
+    base: Option<Pak>,
+    missing_pack: Option<String>,
+    off: &[String],
+) -> Result<Files, String> {
     install_noting(base, missing_pack, Vec::new(), Vec::new(), off)
 }
 
 /// `install` with `mods` laid over the mods folder's, in order, by name, and `problems` already found reading them:
 /// a web page keeps its mods in the browser.
-pub fn install_with(base: Pak, mods: Vec<(String, Pak)>, problems: Vec<String>, off: &[String]) -> Result<Files, String> {
+pub fn install_with(
+    base: Pak,
+    mods: Vec<(String, Pak)>,
+    problems: Vec<String>,
+    off: &[String],
+) -> Result<Files, String> {
     install_noting(Some(base), None, mods, problems, off)
 }
 
@@ -435,7 +554,13 @@ fn drop_refused_tables(pak: &mut Pak, problems: &mut Vec<String>) {
     }
 }
 
-fn install_noting(base: Option<Pak>, missing_pack: Option<String>, more: Vec<(String, Pak)>, mut problems: Vec<String>, off: &[String]) -> Result<Files, String> {
+fn install_noting(
+    base: Option<Pak>,
+    missing_pack: Option<String>,
+    more: Vec<(String, Pak)>,
+    mut problems: Vec<String>,
+    off: &[String],
+) -> Result<Files, String> {
     let pack_version = base.as_ref().and_then(Pak::version).map(String::from);
     let had_base = base.is_some();
     let mut pak = base.unwrap_or_else(Pak::empty);
@@ -444,22 +569,56 @@ fn install_noting(base: Option<Pak>, missing_pack: Option<String>, more: Vec<(St
     found.extend(more);
     let (mods, packs) = choose_mods(found, off, &mut problems);
     if packs.iter().any(|p| !p.on) {
-        log!("mods off: {:?}", packs.iter().filter(|p| !p.on).map(|p| &p.file).collect::<Vec<_>>());
+        log!(
+            "mods off: {:?}",
+            packs
+                .iter()
+                .filter(|p| !p.on)
+                .map(|p| &p.file)
+                .collect::<Vec<_>>()
+        );
     }
     let mod_names: Vec<String> = mods.iter().map(|(n, _)| n.clone()).collect();
-    let mod_packs: Vec<(String, u64)> = mods.iter().map(|(n, p)| (n.clone(), fingerprint(p))).collect();
+    let mod_packs: Vec<(String, u64)> = mods
+        .iter()
+        .map(|(n, p)| (n.clone(), fingerprint(p)))
+        .collect();
     if !mods.is_empty() {
-        log!("mods: {:?}", mods.iter().map(|(n, _)| n).collect::<Vec<_>>());
+        log!(
+            "mods: {:?}",
+            mods.iter().map(|(n, _)| n).collect::<Vec<_>>()
+        );
     }
     for (_, m) in mods {
         pak.overlay(m);
     }
-    let mut text = |file: &str| pak.take(file).map(String::from_utf8).transpose().map_err(|_| format!("{file} is not UTF-8"));
-    let (powerups, enemies, props_table, tuning, effects) = (text(pack::POWERUPS)?, text(pack::ENEMIES)?, text(pack::PROPS_TABLE)?, text(pack::TUNING)?, text(pack::EFFECTS)?);
+    let mut text = |file: &str| {
+        pak.take(file)
+            .map(String::from_utf8)
+            .transpose()
+            .map_err(|_| format!("{file} is not UTF-8"))
+    };
+    let (powerups, enemies, props_table, tuning, effects) = (
+        text(pack::POWERUPS)?,
+        text(pack::ENEMIES)?,
+        text(pack::PROPS_TABLE)?,
+        text(pack::TUNING)?,
+        text(pack::EFFECTS)?,
+    );
     let (ground, farm) = (text(pack::GROUND)?, text(pack::FARM)?);
-    let farms = pak.farms().into_iter().filter_map(|f| f.map_err(|e| problems.push(e)).ok()).collect();
+    let farms = pak
+        .farms()
+        .into_iter()
+        .filter_map(|f| f.map_err(|e| problems.push(e)).ok())
+        .collect();
     let powerups = match TRIED.lock().ok().and_then(|t| t.clone()) {
-        Some(section) => match last_harvest_game::powerups_with(powerups.as_deref().or(last_harvest_game::built_in_table("powerups.txt")).unwrap_or_default(), &section) {
+        Some(section) => match last_harvest_game::powerups_with(
+            powerups
+                .as_deref()
+                .or(last_harvest_game::built_in_table("powerups.txt"))
+                .unwrap_or_default(),
+            &section,
+        ) {
             Ok(text) => Some(text),
             Err(e) => {
                 problems.push(format!("the weapon tried: {e}"));
@@ -469,7 +628,13 @@ fn install_noting(base: Option<Pak>, missing_pack: Option<String>, more: Vec<(St
         None => powerups,
     };
     let effects = match TRIED_EFFECTS.lock().ok().and_then(|t| t.clone()) {
-        Some(sections) => match last_harvest_game::effects_with(effects.as_deref().or(last_harvest_game::built_in_table("effects.txt")).unwrap_or_default(), &sections) {
+        Some(sections) => match last_harvest_game::effects_with(
+            effects
+                .as_deref()
+                .or(last_harvest_game::built_in_table("effects.txt"))
+                .unwrap_or_default(),
+            &sections,
+        ) {
             Ok(text) => Some(text),
             Err(e) => {
                 problems.push(format!("the shot tried: {e}"));
@@ -480,20 +645,51 @@ fn install_noting(base: Option<Pak>, missing_pack: Option<String>, more: Vec<(St
     };
     let (enemy, player) = (card::Kind::Enemy, card::Kind::Player);
     let mut own = OwnSounds::new();
-    let cards = read_cards(enemy, pak.take_dir(pack::ENEMY_CARDS), &mut problems, &mut own);
-    let players = read_cards(player, pak.take_dir(pack::PLAYER_CARDS), &mut problems, &mut Vec::new());
+    let cards = read_cards(
+        enemy,
+        pak.take_dir(pack::ENEMY_CARDS),
+        &mut problems,
+        &mut own,
+    );
+    let players = read_cards(
+        player,
+        pak.take_dir(pack::PLAYER_CARDS),
+        &mut problems,
+        &mut Vec::new(),
+    );
     let maps = read_maps(pak.take_dir(pack::MAPS), &mut problems);
     let props = read_props(pak.take_dir(pack::PROPS), &mut problems);
-    let mut data = Data { atlas: pak.take(pack::ATLAS), font: pak.take(pack::FONT), powerups, enemies, props_table, tuning, effects, ground, farm, farms, cards, players, props, maps };
+    let mut data = Data {
+        atlas: pak.take(pack::ATLAS),
+        font: pak.take(pack::FONT),
+        powerups,
+        enemies,
+        props_table,
+        tuning,
+        effects,
+        ground,
+        farm,
+        farms,
+        cards,
+        players,
+        props,
+        maps,
+    };
     if missing_pack.is_some() && data.atlas.is_none() {
         data.atlas = Some(vec![0; (art::ATLAS_W * art::ATLAS_H * 4) as usize]);
     }
     if let Some(dir) = props_folder() {
-        data.props.extend(read_props(samples::read_files(&dir, &[pack::prop::EXTENSION]), &mut problems));
+        data.props.extend(read_props(
+            samples::read_files(&dir, &[pack::prop::EXTENSION]),
+            &mut problems,
+        ));
     }
     keep_last_of_each_name(&mut data.props);
     if let Some(dir) = maps_folder() {
-        data.maps.extend(read_maps(samples::read_files(&dir, &[last_harvest_game::MAP_EXTENSION]), &mut problems));
+        data.maps.extend(read_maps(
+            samples::read_files(&dir, &[last_harvest_game::MAP_EXTENSION]),
+            &mut problems,
+        ));
     }
     if let Some(dir) = farms_folder() {
         // A loose farm stands in for a pack's of the same id.
@@ -503,24 +699,56 @@ fn install_noting(base: Option<Pak>, missing_pack: Option<String>, more: Vec<(St
         }
     }
     if let Some(dir) = cards_folder() {
-        data.cards.extend(read_cards(enemy, samples::read_files(&dir, &[enemy.extension()]), &mut problems, &mut own));
+        data.cards.extend(read_cards(
+            enemy,
+            samples::read_files(&dir, &[enemy.extension()]),
+            &mut problems,
+            &mut own,
+        ));
     }
     if let Some(dir) = players_folder() {
-        data.players.extend(read_cards(player, samples::read_files(&dir, &[player.extension()]), &mut problems, &mut Vec::new()));
+        data.players.extend(read_cards(
+            player,
+            samples::read_files(&dir, &[player.extension()]),
+            &mut problems,
+            &mut Vec::new(),
+        ));
     }
     keep_last_of_each_name(&mut data.cards);
     keep_last_of_each_name(&mut data.players);
-    let cards: Vec<String> = data.cards.iter().chain(&data.players).map(|c| c.name.clone()).collect();
+    let cards: Vec<String> = data
+        .cards
+        .iter()
+        .chain(&data.players)
+        .map(|c| c.name.clone())
+        .collect();
     let left_out = data::install(data)?;
     if !cards.is_empty() {
         log!("cards: {cards:?}");
     }
-    let loaded = cards.iter().filter(|c| !left_out.iter().any(|l| l.strip_prefix(c.as_str()).is_some_and(|r| r.starts_with(": ")))).count();
+    let loaded = cards
+        .iter()
+        .filter(|c| {
+            !left_out.iter().any(|l| {
+                l.strip_prefix(c.as_str())
+                    .is_some_and(|r| r.starts_with(": "))
+            })
+        })
+        .count();
     problems.extend(left_out);
     for problem in &problems {
         log!("left out: {problem}");
     }
-    data::report(data::LoadReport { cards: loaded, mods: mod_names, problems, version: crate::VERSION.into(), pack_version, missing_pack, mod_packs, packs });
+    data::report(data::LoadReport {
+        cards: loaded,
+        mods: mod_names,
+        problems,
+        version: crate::VERSION.into(),
+        pack_version,
+        missing_pack,
+        mod_packs,
+        packs,
+    });
     let mut sounds = pak.take_dir(pack::SOUNDS);
     let forced = std::env::var_os("LAST_HARVEST_SOUNDS").is_some();
     if (forced || !had_base)
@@ -528,7 +756,11 @@ fn install_noting(base: Option<Pak>, missing_pack: Option<String>, more: Vec<(St
     {
         log!("audio: sounds from {}", dir.display());
         let folder = samples::read_folder(&dir);
-        sounds = if forced { folder } else { overlay_sounds(folder, sounds) };
+        sounds = if forced {
+            folder
+        } else {
+            overlay_sounds(folder, sounds)
+        };
     }
     let sounds = with_own_sounds(sounds, own);
     log!("audio: {} sound files", sounds.len());
@@ -539,13 +771,19 @@ fn install_noting(base: Option<Pak>, missing_pack: Option<String>, more: Vec<(St
 fn fingerprint(pak: &Pak) -> u64 {
     let mut paths = pak.paths();
     paths.sort_unstable();
-    last_harvest_game::replay::fingerprint(paths.into_iter().flat_map(|p| [p.as_bytes(), pak.get(p).unwrap_or_default()]))
+    last_harvest_game::replay::fingerprint(
+        paths
+            .into_iter()
+            .flat_map(|p| [p.as_bytes(), pak.get(p).unwrap_or_default()]),
+    )
 }
 
 /// Which `game_data.pak` to copy into `folder`: the one from this game's release.
 fn missing(folder: String) -> String {
     match crate::VERSION {
-        v if v.starts_with("dev") => format!("Copy in a game_data.pak built with this game: {folder}"),
+        v if v.starts_with("dev") => {
+            format!("Copy in a game_data.pak built with this game: {folder}")
+        }
         v => format!("Copy game_data.pak from release {v} into {folder}"),
     }
 }
@@ -560,7 +798,10 @@ fn keep_last_of_each_name(cards: &mut Vec<Card>) {
 
 /// `base` with each of `top`'s files in place of the one of the same name.
 fn overlay_sounds(base: Files, top: Files) -> Files {
-    let mut out: Files = base.into_iter().filter(|(n, _)| !top.iter().any(|(t, _)| t == n)).collect();
+    let mut out: Files = base
+        .into_iter()
+        .filter(|(n, _)| !top.iter().any(|(t, _)| t == n))
+        .collect();
     out.extend(top);
     out.sort_by(|a, b| a.0.cmp(&b.0));
     out
@@ -568,7 +809,8 @@ fn overlay_sounds(base: Files, top: Files) -> Files {
 
 /// `sounds` with each card's own death sound, the last read under each card name, where no file has its cue.
 fn with_own_sounds(mut sounds: Files, own: OwnSounds) -> Files {
-    let last: std::collections::HashMap<String, Option<(String, Vec<u8>)>> = own.into_iter().collect();
+    let last: std::collections::HashMap<String, Option<(String, Vec<u8>)>> =
+        own.into_iter().collect();
     let stem = |file: &str| file.rsplit_once('.').map_or(file, |(s, _)| s).to_string();
     for (file, bytes) in last.into_values().flatten() {
         if !sounds.iter().any(|(n, _)| stem(n) == stem(&file)) {
@@ -585,51 +827,137 @@ mod tests {
 
     #[test]
     fn a_pack_is_keyed_by_its_id_or_its_file_where_ids_clash_or_are_missing() {
-        let named = |id: &str| Pak::from_files(vec![(pack::MANIFEST.into(), pack::mod_manifest(id).into_bytes())]);
-        let packs = vec![("a.pak".to_string(), named("my-cards")), ("B Side.pak".into(), named("my-cards")), ("c.pak".into(), named("Thanksgiving")), ("card editor".into(), Pak::empty()), ("d.pak".into(), named("dup")), ("e.pak".into(), named("dup"))];
-        assert_eq!(mod_keys(&packs), ["a", "b-side", "thanksgiving", "card-editor", "d", "e"]);
-        assert_eq!(mod_keys(&packs[..1]), ["a"], "an old export keeps its key when another arrives");
+        let named = |id: &str| {
+            Pak::from_files(vec![(
+                pack::MANIFEST.into(),
+                pack::mod_manifest(id).into_bytes(),
+            )])
+        };
+        let packs = vec![
+            ("a.pak".to_string(), named("my-cards")),
+            ("B Side.pak".into(), named("my-cards")),
+            ("c.pak".into(), named("Thanksgiving")),
+            ("card editor".into(), Pak::empty()),
+            ("d.pak".into(), named("dup")),
+            ("e.pak".into(), named("dup")),
+        ];
+        assert_eq!(
+            mod_keys(&packs),
+            ["a", "b-side", "thanksgiving", "card-editor", "d", "e"]
+        );
+        assert_eq!(
+            mod_keys(&packs[..1]),
+            ["a"],
+            "an old export keeps its key when another arrives"
+        );
     }
 
     #[test]
     fn an_off_pack_is_listed_but_not_laid_over_and_a_refused_one_is_noted() {
-        let named = |id: &str| Pak::from_files(vec![(pack::MANIFEST.into(), pack::named_mod_manifest(id, &id.to_uppercase()).into_bytes())]);
+        let named = |id: &str| {
+            Pak::from_files(vec![(
+                pack::MANIFEST.into(),
+                pack::named_mod_manifest(id, &id.to_uppercase()).into_bytes(),
+            )])
+        };
         let mut bad = named("bad");
         bad.overlay(Pak::from_files(vec![(pack::ATLAS.into(), vec![0; 4])]));
         let mut problems = Vec::new();
-        let (on, all) = choose_mods(vec![("a.pak".into(), named("a")), ("b.pak".into(), named("b")), ("bad.pak".into(), bad)], &["b".into()], &mut problems);
-        assert_eq!(on.iter().map(|(f, _)| f.as_str()).collect::<Vec<_>>(), ["a.pak"]);
-        assert_eq!(all.iter().map(|p| (p.key.as_str(), p.name.as_str(), p.on)).collect::<Vec<_>>(), [("a", "A", true), ("b", "B", false)]);
-        assert!(problems.len() == 1 && problems[0].starts_with("bad.pak: "), "{problems:?}");
+        let (on, all) = choose_mods(
+            vec![
+                ("a.pak".into(), named("a")),
+                ("b.pak".into(), named("b")),
+                ("bad.pak".into(), bad),
+            ],
+            &["b".into()],
+            &mut problems,
+        );
+        assert_eq!(
+            on.iter().map(|(f, _)| f.as_str()).collect::<Vec<_>>(),
+            ["a.pak"]
+        );
+        assert_eq!(
+            all.iter()
+                .map(|p| (p.key.as_str(), p.name.as_str(), p.on))
+                .collect::<Vec<_>>(),
+            [("a", "A", true), ("b", "B", false)]
+        );
+        assert!(
+            problems.len() == 1 && problems[0].starts_with("bad.pak: "),
+            "{problems:?}"
+        );
     }
 
     #[test]
     fn a_card_that_wont_read_is_noted_and_the_rest_load() {
         let good = card::write("[ghoul]\nname Ghoul", 3, 5, &[0; 3 * 5 * 4]).unwrap();
-        let files = vec![("bad.enemy.png".to_string(), b"nope".to_vec()), ("ghoul.enemy.png".to_string(), good), ("notes.txt".to_string(), vec![])];
+        let files = vec![
+            ("bad.enemy.png".to_string(), b"nope".to_vec()),
+            ("ghoul.enemy.png".to_string(), good),
+            ("notes.txt".to_string(), vec![]),
+        ];
         let mut problems = Vec::new();
         let cards = read_cards(card::Kind::Enemy, files, &mut problems, &mut Vec::new());
-        assert_eq!(cards.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["ghoul.enemy.png"]);
+        assert_eq!(
+            cards.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
+            ["ghoul.enemy.png"]
+        );
         assert_eq!(problems.len(), 1);
         assert!(problems[0].starts_with("bad.enemy.png: "), "{problems:?}");
     }
 
     #[test]
     fn a_loose_card_stands_in_for_a_packs_of_the_same_name() {
-        let card = |name: &str, text: &str| Card { detail: 1, worn: String::new(), name: name.into(), text: text.into(), frame: [1, 1], sheet: vec![] };
-        let mut cards = vec![card("ghoul.enemy.png", "pack"), card("bat.enemy.png", "pack"), card("ghoul.enemy.png", "loose")];
+        let card = |name: &str, text: &str| Card {
+            detail: 1,
+            worn: String::new(),
+            name: name.into(),
+            text: text.into(),
+            frame: [1, 1],
+            sheet: vec![],
+        };
+        let mut cards = vec![
+            card("ghoul.enemy.png", "pack"),
+            card("bat.enemy.png", "pack"),
+            card("ghoul.enemy.png", "loose"),
+        ];
         keep_last_of_each_name(&mut cards);
-        assert_eq!(cards.iter().map(|c| (c.name.as_str(), c.text.as_str())).collect::<Vec<_>>(), [("bat.enemy.png", "pack"), ("ghoul.enemy.png", "loose")]);
+        assert_eq!(
+            cards
+                .iter()
+                .map(|c| (c.name.as_str(), c.text.as_str()))
+                .collect::<Vec<_>>(),
+            [("bat.enemy.png", "pack"), ("ghoul.enemy.png", "loose")]
+        );
     }
 
     #[test]
     fn a_farms_folder_pairs_its_files_and_notes_a_stray() {
-        let farm = last_harvest_game::built_in_table("farm.txt").unwrap().as_bytes().to_vec();
-        let files = vec![("kd.ground.txt".to_string(), b"[k]\nname Cane\nart SOIL\ncell field\n".to_vec()), ("kd.txt".to_string(), farm), ("Notes.txt".to_string(), vec![])];
+        let farm = last_harvest_game::built_in_table("farm.txt")
+            .unwrap()
+            .as_bytes()
+            .to_vec();
+        let files = vec![
+            (
+                "kd.ground.txt".to_string(),
+                b"[k]\nname Cane\nart SOIL\ncell field\n".to_vec(),
+            ),
+            ("kd.txt".to_string(), farm),
+            ("Notes.txt".to_string(), vec![]),
+        ];
         let mut problems = Vec::new();
         let farms = read_farms(files, &mut problems);
-        assert_eq!(farms.iter().map(|f| (f.id.as_str(), f.farm.is_some(), f.ground.is_some())).collect::<Vec<_>>(), [("kd", true, true)]);
-        assert!(problems.len() == 1 && problems[0].starts_with("farms/Notes.txt: "), "{problems:?}");
+        assert_eq!(
+            farms
+                .iter()
+                .map(|f| (f.id.as_str(), f.farm.is_some(), f.ground.is_some()))
+                .collect::<Vec<_>>(),
+            [("kd", true, true)]
+        );
+        assert!(
+            problems.len() == 1 && problems[0].starts_with("farms/Notes.txt: "),
+            "{problems:?}"
+        );
     }
 
     #[test]
@@ -643,23 +971,47 @@ mod tests {
             ("old.enemy.png".to_string(), None),
         ];
         let files = vec![("kill-ghoul.ogg".to_string(), b"pack".to_vec())];
-        let names: Vec<String> = with_own_sounds(files, own).into_iter().map(|(n, _)| n).collect();
-        assert_eq!(names, ["kill-bat.ogg", "kill-ghoul.ogg"], "the pack's ghoul wins, and a card replaced by one without a sound brings none");
+        let names: Vec<String> = with_own_sounds(files, own)
+            .into_iter()
+            .map(|(n, _)| n)
+            .collect();
+        assert_eq!(
+            names,
+            ["kill-bat.ogg", "kill-ghoul.ogg"],
+            "the pack's ghoul wins, and a card replaced by one without a sound brings none"
+        );
     }
 
     #[test]
     fn a_mods_sounds_replace_the_folders_by_name() {
-        let base = vec![("shot.ogg".to_string(), b"a".to_vec()), ("boom.ogg".to_string(), b"b".to_vec())];
-        let top = vec![("shot.ogg".to_string(), b"mod".to_vec()), ("kill-ghoul.ogg".to_string(), b"new".to_vec())];
+        let base = vec![
+            ("shot.ogg".to_string(), b"a".to_vec()),
+            ("boom.ogg".to_string(), b"b".to_vec()),
+        ];
+        let top = vec![
+            ("shot.ogg".to_string(), b"mod".to_vec()),
+            ("kill-ghoul.ogg".to_string(), b"new".to_vec()),
+        ];
         let names: Vec<(String, Vec<u8>)> = overlay_sounds(base, top);
-        assert_eq!(names, [("boom.ogg".into(), b"b".to_vec()), ("kill-ghoul.ogg".into(), b"new".to_vec()), ("shot.ogg".into(), b"mod".to_vec())]);
+        assert_eq!(
+            names,
+            [
+                ("boom.ogg".into(), b"b".to_vec()),
+                ("kill-ghoul.ogg".into(), b"new".to_vec()),
+                ("shot.ogg".into(), b"mod".to_vec())
+            ]
+        );
     }
 
     #[test]
     fn a_release_json_gives_the_packs_sha256_wherever_its_keys_are() {
         let json = r#"{"tag_name":"v1","assets":[{"name":"x.tar.gz","digest":"sha256:aa"},{"uploader":{"name":"me","digest":"sha256:bb"},"digest":"sha256:CC","name":"game_data.pak"}]}"#;
         assert_eq!(pak_digest(json).as_deref(), Some("cc"));
-        assert_eq!(pak_digest(r#"{"assets":[{"name":"game_data.pak"}]}"#), None, "no digest, no pack");
+        assert_eq!(
+            pak_digest(r#"{"assets":[{"name":"game_data.pak"}]}"#),
+            None,
+            "no digest, no pack"
+        );
     }
 
     #[test]
@@ -671,25 +1023,47 @@ mod tests {
         let data = dir.join("data");
         std::fs::create_dir_all(&src).unwrap();
         std::fs::create_dir_all(dir.join("api/tags")).unwrap();
-        let file_url = |p: &str| format!("file:///{}", dir.join(p).to_string_lossy().replace('\\', "/"));
+        let file_url = |p: &str| {
+            format!(
+                "file:///{}",
+                dir.join(p).to_string_lossy().replace('\\', "/")
+            )
+        };
         let (url, api) = (file_url("releases"), file_url("api"));
         let index = |bytes: &[u8]| {
-            let sum: String = sha2::Sha256::digest(bytes).iter().map(|x| format!("{x:02x}")).collect();
+            let sum: String = sha2::Sha256::digest(bytes)
+                .iter()
+                .map(|x| format!("{x:02x}"))
+                .collect();
             std::fs::write(dir.join("api/tags/v0.1.0"), format!(r#"{{"tag_name":"v0.1.0","assets":[{{"name":"game_data.pak","digest":"sha256:{sum}"}}]}}"#)).unwrap();
         };
-        assert!(fetch_pack_into(&data, "dev-1234", &url, &api).is_none(), "a dev build never fetches a release's pack");
+        assert!(
+            fetch_pack_into(&data, "dev-1234", &url, &api).is_none(),
+            "a dev build never fetches a release's pack"
+        );
         std::fs::write(src.join("game_data.pak"), b"not a zip").unwrap();
         index(b"not a zip");
-        assert!(fetch_pack_into(&data, "v0.1.0", &url, &api).is_none(), "a bad pack is turned away");
+        assert!(
+            fetch_pack_into(&data, "v0.1.0", &url, &api).is_none(),
+            "a bad pack is turned away"
+        );
         assert!(!data.join("game_data.pak").exists() && !data.join("game_data.pak.part").exists());
         let mut buf = std::io::Cursor::new(Vec::new());
-        pack::write(&mut buf, &[(pack::MANIFEST.into(), pack::manifest().into_bytes())]).unwrap();
+        pack::write(
+            &mut buf,
+            &[(pack::MANIFEST.into(), pack::manifest().into_bytes())],
+        )
+        .unwrap();
         let good = buf.into_inner();
         std::fs::write(src.join("game_data.pak"), &good).unwrap();
-        assert!(fetch_pack_into(&data, "v0.1.0", &url, &api).is_none(), "a pack the release's sha256 doesn't match is turned away");
+        assert!(
+            fetch_pack_into(&data, "v0.1.0", &url, &api).is_none(),
+            "a pack the release's sha256 doesn't match is turned away"
+        );
         assert!(!data.join("game_data.pak").exists() && !data.join("game_data.pak.part").exists());
         index(&good);
-        let (_, path) = fetch_pack_into(&data, "v0.1.0", &url, &api).expect("a valid pack is saved");
+        let (_, path) =
+            fetch_pack_into(&data, "v0.1.0", &url, &api).expect("a valid pack is saved");
         assert_eq!(path, data.join("game_data.pak"));
         assert!(path.is_file() && !data.join("game_data.pak.part").exists());
         let _ = std::fs::remove_dir_all(&dir);

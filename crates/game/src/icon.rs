@@ -5,8 +5,8 @@
 //! builds a new random farm, B puts the player beside it, R2 puts it behind a barricade, a tap of L1
 //! changes the square's background, X hides the guides, and R1 saves both screens as a screenshot to crop.
 
-use crate::fmath as fm;
 use crate::art::{self, Art, Stand};
+use crate::fmath as fm;
 use crate::harvest::{player_looks, roster};
 use crate::{Align, Buttons, Canvas, Color, Frame, Input, SCREEN_H, SCREEN_W, Showcase};
 
@@ -29,7 +29,12 @@ const FILL: f32 = 0.8;
 /// Android's adaptive icons show the middle 72 of 108 units whatever the launcher's mask.
 const SAFE: f32 = 72.0 / 108.0;
 /// Backgrounds from palette.txt: night, deep blue, earth, black.
-const BACKS: [Color; 4] = [rgb(0x24, 0x1e, 0x1e), rgb(0x2e, 0x54, 0x70), rgb(0x44, 0x38, 0x30), rgb(0, 0, 0)];
+const BACKS: [Color; 4] = [
+    rgb(0x24, 0x1e, 0x1e),
+    rgb(0x2e, 0x54, 0x70),
+    rgb(0x44, 0x38, 0x30),
+    rgb(0, 0, 0),
+];
 const GUIDE: Color = [1.0, 1.0, 0.6, 0.6];
 /// How much of the figure shows over the flat barricade.
 const OVER: f32 = 0.6;
@@ -62,9 +67,17 @@ const fn rgb(r: u8, g: u8, b: u8) -> Color {
 
 /// Every figure to pick from, by name, as its walk facing the camera: the zombies, then the players' looks.
 fn subjects() -> Vec<(String, Vec<Art>)> {
-    let enemies = roster().enemies.iter().map(|e| (format!("Zombie: {}", e.name), e.look.walk[0].clone()));
-    let players = player_looks().iter().map(|p| (format!("Player: {}", p.name), p.look.walk[0].clone()));
-    enemies.chain(players).filter(|(_, walk)| !walk.is_empty()).collect()
+    let enemies = roster()
+        .enemies
+        .iter()
+        .map(|e| (format!("Zombie: {}", e.name), e.look.walk[0].clone()));
+    let players = player_looks()
+        .iter()
+        .map(|p| (format!("Player: {}", p.name), p.look.walk[0].clone()));
+    enemies
+        .chain(players)
+        .filter(|(_, walk)| !walk.is_empty())
+        .collect()
 }
 
 pub struct Icon {
@@ -88,7 +101,24 @@ impl Default for Icon {
     fn default() -> Self {
         let mut show = Showcase::new(SEED);
         show.show_player(false);
-        Self { show, subject: 0, cam: Orbit { yaw: Showcase::yaw(), zoom: 2.0, lift: 0.0 }, lifted: false, held_l1: false, player: false, barricade: false, back: 0, guides: true, t: 0.0, seed: SEED, walked: false }
+        Self {
+            show,
+            subject: 0,
+            cam: Orbit {
+                yaw: Showcase::yaw(),
+                zoom: 2.0,
+                lift: 0.0,
+            },
+            lifted: false,
+            held_l1: false,
+            player: false,
+            barricade: false,
+            back: 0,
+            guides: true,
+            t: 0.0,
+            seed: SEED,
+            walked: false,
+        }
     }
 }
 
@@ -123,26 +153,38 @@ impl Icon {
         if input.pressed.contains(Buttons::X) && !walking {
             self.guides = !self.guides;
         }
-        let axis = |plus: Buttons, minus: Buttons| input.held.contains(plus) as i32 as f32 - input.held.contains(minus) as i32 as f32;
+        let axis = |plus: Buttons, minus: Buttons| {
+            input.held.contains(plus) as i32 as f32 - input.held.contains(minus) as i32 as f32
+        };
         if input.pressed.contains(Buttons::START) {
-            self.seed = self.seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            self.seed = self
+                .seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             self.show.new_farm(self.seed, self.barricade);
         }
         let lifting = input.held.contains(Buttons::L1);
         // A tap of L1 changes the background; held, it moves the camera with Up and Down instead.
-        if !lifting && std::mem::replace(&mut self.held_l1, false) && !std::mem::take(&mut self.lifted) {
+        if !lifting
+            && std::mem::replace(&mut self.held_l1, false)
+            && !std::mem::take(&mut self.lifted)
+        {
             self.back = (self.back + 1) % BACKS.len();
         }
         if lifting {
             self.held_l1 = true;
             self.lifted |= self.cam.steer(input, dt, true, MIN_ZOOM);
         } else if walking {
-            let (ahead, aside) = (axis(Buttons::UP, Buttons::DOWN), axis(Buttons::RIGHT, Buttons::LEFT));
+            let (ahead, aside) = (
+                axis(Buttons::UP, Buttons::DOWN),
+                axis(Buttons::RIGHT, Buttons::LEFT),
+            );
             let yaw = self.cam.yaw;
             let (forward, right) = ([fm::cos(yaw), fm::sin(yaw)], [-fm::sin(yaw), fm::cos(yaw)]);
             let step = WALK * dt;
             if ahead != 0.0 || aside != 0.0 {
-                self.show.walk([0, 1].map(|i| (forward[i] * ahead + right[i] * aside) * step));
+                self.show
+                    .walk([0, 1].map(|i| (forward[i] * ahead + right[i] * aside) * step));
                 self.walked = true;
             }
         } else {
@@ -162,7 +204,9 @@ impl Icon {
     pub fn draw(&self, f: &mut Frame) {
         f.top = self.show.top();
         let subjects = subjects();
-        let Some((name, walk)) = subjects.get(self.subject) else { return };
+        let Some((name, walk)) = subjects.get(self.subject) else {
+            return;
+        };
         if self.guides {
             // The top screen's middle square, for an icon cropped from the 3D view.
             let x = (SCREEN_W - SCREEN_H) / 2.0;
@@ -177,10 +221,24 @@ impl Icon {
         let art = walk[(self.t * 6.0) as usize % walk.len()];
         let bar = art::BARRIER;
         // The figure, then the barricade over its lower part, as a block scaled to fill the square.
-        let (cw, ch) = if self.barricade { (art.w().max(bar.w() * 2.0), art.h() * OVER + bar.h()) } else { (art.w(), art.h()) };
+        let (cw, ch) = if self.barricade {
+            (art.w().max(bar.w() * 2.0), art.h() * OVER + bar.h())
+        } else {
+            (art.w(), art.h())
+        };
         let scale = (SQUARE * FILL / cw.max(ch)).floor().max(1.0);
-        let (left, top) = (x + (SQUARE - cw * scale) / 2.0, y + (SQUARE - ch * scale) / 2.0);
-        b.art(art, left + (cw - art.w()) * scale / 2.0, top, scale, false, [1.0; 4]);
+        let (left, top) = (
+            x + (SQUARE - cw * scale) / 2.0,
+            y + (SQUARE - ch * scale) / 2.0,
+        );
+        b.art(
+            art,
+            left + (cw - art.w()) * scale / 2.0,
+            top,
+            scale,
+            false,
+            [1.0; 4],
+        );
         if self.barricade {
             let by = top + art.h() * OVER * scale;
             let bx = left + (cw - bar.w() * 2.0) * scale / 2.0;
@@ -190,14 +248,33 @@ impl Icon {
         if self.guides {
             let inset = SQUARE * (1.0 - SAFE) / 2.0;
             outline(b, x + inset, y + inset, SQUARE * SAFE, GUIDE);
-            b.label(format!("{name}   x{scale}   zoom {:.1}   height {:+.1}   {} more", self.cam.zoom, self.cam.lift, self.show.crowd()), SCREEN_W / 2.0, 30.0, 24.0, [1.0, 1.0, 0.6, 1.0], Align::Center);
+            b.label(
+                format!(
+                    "{name}   x{scale}   zoom {:.1}   height {:+.1}   {} more",
+                    self.cam.zoom,
+                    self.cam.lift,
+                    self.show.crowd()
+                ),
+                SCREEN_W / 2.0,
+                30.0,
+                24.0,
+                [1.0, 1.0, 0.6, 1.0],
+                Align::Center,
+            );
             let help = [
                 "Keys: arrows turn and zoom   A / X figure   Q + arrows walk   Q + X / Z / S drop, undo, clear zombies",
                 "1 + arrows camera height   tap 1 background   Enter new farm   2 barricade   Z player   S guides   W screenshot",
                 "Pad: {Y}/{A} figure, {L2} walk (+{A}/{B}/{X}), {L1} height (tap: background), {Start} farm, {R2} barricade, {B} player, {X} guides, {R1} shot",
             ];
             for (i, line) in help.iter().enumerate() {
-                b.label(crate::pad::hint(line), SCREEN_W / 2.0, SCREEN_H - 92.0 + i as f32 * 26.0, 17.0, [0.8, 0.8, 0.85, 1.0], Align::Center);
+                b.label(
+                    crate::pad::hint(line),
+                    SCREEN_W / 2.0,
+                    SCREEN_H - 92.0 + i as f32 * 26.0,
+                    17.0,
+                    [0.8, 0.8, 0.85, 1.0],
+                    Align::Center,
+                );
             }
         }
     }
@@ -220,31 +297,81 @@ mod tests {
         let mut icon = Icon::default();
         let n = subjects().len();
         assert!(n > 1);
-        icon.update(&Input { pressed: Buttons::Y, ..Default::default() }, 0.016);
+        icon.update(
+            &Input {
+                pressed: Buttons::Y,
+                ..Default::default()
+            },
+            0.016,
+        );
         assert_eq!(icon.subject, n - 1);
-        icon.update(&Input { pressed: Buttons::A, ..Default::default() }, 0.016);
+        icon.update(
+            &Input {
+                pressed: Buttons::A,
+                ..Default::default()
+            },
+            0.016,
+        );
         assert_eq!(icon.subject, 0);
         for _ in 0..200 {
-            icon.update(&Input { held: Buttons::UP, ..Default::default() }, 0.1);
+            icon.update(
+                &Input {
+                    held: Buttons::UP,
+                    ..Default::default()
+                },
+                0.1,
+            );
         }
         assert_eq!(icon.cam.zoom, MAX_ZOOM);
         let back = icon.back;
-        icon.update(&Input { held: Buttons::L1 | Buttons::UP, ..Default::default() }, 0.5);
+        icon.update(
+            &Input {
+                held: Buttons::L1 | Buttons::UP,
+                ..Default::default()
+            },
+            0.5,
+        );
         icon.update(&Input::default(), 0.016);
         assert!(icon.cam.lift > 0.0);
         assert_eq!(icon.back, back, "raising the camera keeps the background");
-        icon.update(&Input { held: Buttons::L1, ..Default::default() }, 0.016);
+        icon.update(
+            &Input {
+                held: Buttons::L1,
+                ..Default::default()
+            },
+            0.016,
+        );
         icon.update(&Input::default(), 0.016);
         assert_eq!(icon.back, back + 1, "a tap changes it");
-        icon.update(&Input { pressed: Buttons::R2, ..Default::default() }, 0.016);
+        icon.update(
+            &Input {
+                pressed: Buttons::R2,
+                ..Default::default()
+            },
+            0.016,
+        );
         assert!(icon.barricade);
         let before = icon.show.shown_at();
         for _ in 0..10 {
-            icon.update(&Input { held: Buttons::L2 | Buttons::UP, ..Default::default() }, 0.1);
+            icon.update(
+                &Input {
+                    held: Buttons::L2 | Buttons::UP,
+                    ..Default::default()
+                },
+                0.1,
+            );
         }
-        assert_ne!(icon.show.shown_at(), before, "L2 with the d-pad walks the figure");
+        assert_ne!(
+            icon.show.shown_at(),
+            before,
+            "L2 with the d-pad walks the figure"
+        );
         assert_eq!(icon.cam.zoom, MAX_ZOOM, "and doesn't zoom");
-        let drop = |pressed| Input { held: Buttons::L2, pressed, ..Default::default() };
+        let drop = |pressed| Input {
+            held: Buttons::L2,
+            pressed,
+            ..Default::default()
+        };
         icon.update(&drop(Buttons::A), 0.016);
         icon.update(&drop(Buttons::A), 0.016);
         assert_eq!(icon.show.crowd(), 2);
@@ -253,7 +380,13 @@ mod tests {
         icon.update(&drop(Buttons::X), 0.016);
         assert_eq!(icon.show.crowd(), 0);
         assert!(icon.guides, "X with L2 held clears, not hides the guides");
-        icon.update(&Input { pressed: Buttons::START, ..Default::default() }, 0.016);
+        icon.update(
+            &Input {
+                pressed: Buttons::START,
+                ..Default::default()
+            },
+            0.016,
+        );
         assert_ne!(icon.seed, SEED);
         icon.draw(&mut Frame::default());
     }

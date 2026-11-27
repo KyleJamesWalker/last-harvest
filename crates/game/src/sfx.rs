@@ -19,7 +19,10 @@ pub enum Sfx {
     Thud(bool),
     /// A zombie going down; the value is its kind, by its place in `enemies.txt`.
     Kill(u8),
-    Boom { pan: i8, gain: u8 },
+    Boom {
+        pan: i8,
+        gain: u8,
+    },
     Throw,
     /// Money picked up; each one in a quick run climbs a step.
     Pickup(u8),
@@ -29,12 +32,27 @@ pub enum Sfx {
     LevelUp,
     /// An upgrade chosen; true for a rare one.
     Pick(bool),
-    Rise { pan: i8, gain: u8 },
-    Groan { pan: i8, gain: u8 },
-    Caw { pan: i8, gain: u8 },
+    Rise {
+        pan: i8,
+        gain: u8,
+    },
+    Groan {
+        pan: i8,
+        gain: u8,
+    },
+    Caw {
+        pan: i8,
+        gain: u8,
+    },
     /// A ranged zombie spitting, and its spit landing.
-    Spit { pan: i8, gain: u8 },
-    Splat { pan: i8, gain: u8 },
+    Spit {
+        pan: i8,
+        gain: u8,
+    },
+    Splat {
+        pan: i8,
+        gain: u8,
+    },
     /// The bug zapper's bolt.
     Zap,
     /// The farm dog getting stuck in.
@@ -45,16 +63,29 @@ pub enum Sfx {
     Dawn,
     /// A weapon's own sound group, by its place among `powerups.txt`'s `sound` names; one with no clips plays
     /// `or`'s voice, by its place in `Sfx::WEAPON`, or nothing past its end.
-    Group { group: u8, or: u8 },
+    Group {
+        group: u8,
+        or: u8,
+    },
 }
 
 impl Sfx {
     /// The weapon sounds that have a voice of their own when no clip plays.
-    pub const WEAPON: [Sfx; 6] = [Sfx::Shot, Sfx::Blast, Sfx::Slash, Sfx::Zap, Sfx::Bark, Sfx::Throw];
+    pub const WEAPON: [Sfx; 6] = [
+        Sfx::Shot,
+        Sfx::Blast,
+        Sfx::Slash,
+        Sfx::Zap,
+        Sfx::Bark,
+        Sfx::Throw,
+    ];
 
     /// The group `group` of a weapon whose behaviour's own sound is `own`.
     pub fn group(group: u8, own: Sfx) -> Sfx {
-        Sfx::Group { group, or: Sfx::WEAPON.iter().position(|s| *s == own).unwrap_or(0) as u8 }
+        Sfx::Group {
+            group,
+            or: Sfx::WEAPON.iter().position(|s| *s == own).unwrap_or(0) as u8,
+        }
     }
 
     /// The group `group` with no voice to play when it has no clips.

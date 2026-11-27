@@ -8,12 +8,19 @@ use std::rc::Rc;
 
 use crate::clock;
 use crate::controllers::{Motors, Pad, Seats};
-use last_harvest_game::{Buttons, Game, InputTracker, MAX_TOUCHES, PadFamily, RangeSetup, RawInput, SCREEN_H, SCREEN_W, Save, Scene, System};
+use last_harvest_game::{
+    Buttons, Game, InputTracker, MAX_TOUCHES, PadFamily, RangeSetup, RawInput, SCREEN_H, SCREEN_W,
+    Save, Scene, System,
+};
 use last_harvest_pack::Pak;
 use last_harvest_render::{Profile, Renderer};
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
-use web_sys::{AddEventListenerOptions, Document, Element, Event, EventTarget, Gamepad, GamepadButton, HtmlCanvasElement, HtmlElement, KeyboardEvent, PointerEvent, Storage, WebGl2RenderingContext, WheelEvent};
+use web_sys::{
+    AddEventListenerOptions, Document, Element, Event, EventTarget, Gamepad, GamepadButton,
+    HtmlCanvasElement, HtmlElement, KeyboardEvent, PointerEvent, Storage, WebGl2RenderingContext,
+    WheelEvent,
+};
 
 use crate::{audio, pak, samples};
 
@@ -103,7 +110,9 @@ struct Web {
 }
 
 fn now() -> f64 {
-    web_sys::window().and_then(|w| w.performance()).map_or(0.0, |p| p.now())
+    web_sys::window()
+        .and_then(|w| w.performance())
+        .map_or(0.0, |p| p.now())
 }
 
 fn key_button(code: &str) -> Option<Buttons> {
@@ -114,20 +123,46 @@ fn key_button(code: &str) -> Option<Buttons> {
 /// pad without the standard layout is logged once, and `warned` remembers that.
 fn gamepads(warned: &mut bool) -> (Vec<Pad>, Option<PadFamily>) {
     let (mut out, mut busy) = (Vec::new(), None);
-    let Some(pads) = web_sys::window().and_then(|w| w.navigator().get_gamepads().ok()) else { return (out, busy) };
+    let Some(pads) = web_sys::window().and_then(|w| w.navigator().get_gamepads().ok()) else {
+        return (out, busy);
+    };
     for pad in pads.iter().filter_map(|p| p.dyn_into::<Gamepad>().ok()) {
-        if js_sys::Reflect::get(&pad, &"mapping".into()).ok().and_then(|m| m.as_string()).as_deref() != Some("standard") {
+        if js_sys::Reflect::get(&pad, &"mapping".into())
+            .ok()
+            .and_then(|m| m.as_string())
+            .as_deref()
+            != Some("standard")
+        {
             if !std::mem::replace(warned, true) {
-                web_sys::console::warn_1(&format!("gamepad: {} has no standard layout, so it is ignored", pad.id()).into());
+                web_sys::console::warn_1(
+                    &format!(
+                        "gamepad: {} has no standard layout, so it is ignored",
+                        pad.id()
+                    )
+                    .into(),
+                );
             }
             continue;
         }
         let buttons = pad.buttons();
         let axes = pad.axes();
-        let live = |i: u32| Some(axes.get(i).as_f64().unwrap_or(0.0) as f32).filter(|v| v.abs() >= STICK_DEAD).unwrap_or(0.0);
-        let mut state = Pad { id: pad.index() as usize, stick: [live(0), live(1)], look: live(2), ..Default::default() };
+        let live = |i: u32| {
+            Some(axes.get(i).as_f64().unwrap_or(0.0) as f32)
+                .filter(|v| v.abs() >= STICK_DEAD)
+                .unwrap_or(0.0)
+        };
+        let mut state = Pad {
+            id: pad.index() as usize,
+            stick: [live(0), live(1)],
+            look: live(2),
+            ..Default::default()
+        };
         for (i, b) in PAD {
-            if buttons.get(i).dyn_into::<GamepadButton>().is_ok_and(|b| b.pressed()) {
+            if buttons
+                .get(i)
+                .dyn_into::<GamepadButton>()
+                .is_ok_and(|b| b.pressed())
+            {
                 state.held |= b;
             }
         }
@@ -141,10 +176,15 @@ fn gamepads(warned: &mut bool) -> (Vec<Pad>, Option<PadFamily>) {
 
 /// Starts or stops the gamepad at `index` buzzing, where the browser gives it a vibration actuator.
 fn vibrate(index: usize, on: bool) {
-    let Some(pads) = web_sys::window().and_then(|w| w.navigator().get_gamepads().ok()) else { return };
-    let Some(actuator) = field(&pads.get(index as u32), "vibrationActuator") else { return };
+    let Some(pads) = web_sys::window().and_then(|w| w.navigator().get_gamepads().ok()) else {
+        return;
+    };
+    let Some(actuator) = field(&pads.get(index as u32), "vibrationActuator") else {
+        return;
+    };
     let call = |name: &str, args: &js_sys::Array| {
-        if let Some(f) = field(&actuator, name).and_then(|f| f.dyn_into::<js_sys::Function>().ok()) {
+        if let Some(f) = field(&actuator, name).and_then(|f| f.dyn_into::<js_sys::Function>().ok())
+        {
             let _ = f.apply(&actuator, args);
         }
     };
@@ -152,10 +192,17 @@ fn vibrate(index: usize, on: bool) {
         return call("reset", &js_sys::Array::new());
     }
     let effect = js_sys::Object::new();
-    for (k, v) in [("duration", 2000.0), ("strongMagnitude", 0.8), ("weakMagnitude", 0.4)] {
+    for (k, v) in [
+        ("duration", 2000.0),
+        ("strongMagnitude", 0.8),
+        ("weakMagnitude", 0.4),
+    ] {
         let _ = js_sys::Reflect::set(&effect, &k.into(), &v.into());
     }
-    call("playEffect", &js_sys::Array::of2(&"dual-rumble".into(), &effect));
+    call(
+        "playEffect",
+        &js_sys::Array::of2(&"dual-rumble".into(), &effect),
+    );
 }
 
 impl Web {
@@ -163,7 +210,10 @@ impl Web {
     fn fit(&mut self) {
         let dpr = web_sys::window().map_or(1.0, |w| w.device_pixel_ratio());
         if self.phone {
-            let [cw, ch] = [self.canvas.client_width().max(4) as f64 * dpr, self.canvas.client_height().max(4) as f64 * dpr];
+            let [cw, ch] = [
+                self.canvas.client_width().max(4) as f64 * dpr,
+                self.canvas.client_height().max(4) as f64 * dpr,
+            ];
             let k = (2560.0 / cw.max(ch)).min(1.0);
             let [w, h] = [(cw * k).round() as u32, (ch * k).round() as u32];
             if self.canvas.width() != w || self.canvas.height() != h {
@@ -172,7 +222,9 @@ impl Web {
             }
             return;
         }
-        let w = ((self.canvas.client_width() as f64 * dpr).round() as u32).clamp(4, SCREEN_W as u32) & !3;
+        let w = ((self.canvas.client_width() as f64 * dpr).round() as u32)
+            .clamp(4, SCREEN_W as u32)
+            & !3;
         if self.canvas.width() != w {
             self.canvas.set_width(w);
             self.canvas.set_height(w * 3 / 2);
@@ -181,12 +233,23 @@ impl Web {
 
     /// Bottom-screen pixels for a pointer, or None on the top screen; on a phone, canvas pixels.
     fn to_screen(&self, e: &PointerEvent) -> Option<[f32; 2]> {
-        let [w, h] = [self.canvas.client_width().max(1) as f32, self.canvas.client_height().max(2) as f32];
+        let [w, h] = [
+            self.canvas.client_width().max(1) as f32,
+            self.canvas.client_height().max(2) as f32,
+        ];
         if self.phone {
-            return Some([e.offset_x() as f32 / w * self.canvas.width() as f32, e.offset_y() as f32 / h * self.canvas.height() as f32]);
+            return Some([
+                e.offset_x() as f32 / w * self.canvas.width() as f32,
+                e.offset_y() as f32 / h * self.canvas.height() as f32,
+            ]);
         }
         let y = e.offset_y() as f32 / h * 2.0 - 1.0;
-        (y >= 0.0).then(|| [(e.offset_x() as f32 / w).clamp(0.0, 1.0) * SCREEN_W, y.min(1.0) * SCREEN_H])
+        (y >= 0.0).then(|| {
+            [
+                (e.offset_x() as f32 / w).clamp(0.0, 1.0) * SCREEN_W,
+                y.min(1.0) * SCREEN_H,
+            ]
+        })
     }
 
     /// Plays on one screen, as on a phone, or on two stacked; the address keeps the choice for a reload.
@@ -198,15 +261,23 @@ impl Web {
         self.touches = Default::default();
         show_screens(&self.document, &self.canvas, &self.overlay, one);
         if let Some(history) = web_sys::window().and_then(|w| w.history().ok()) {
-            let _ = history.replace_state_with_url(&JsValue::NULL, "", Some(if one { "?screens=1" } else { "?screens=2" }));
+            let _ = history.replace_state_with_url(
+                &JsValue::NULL,
+                "",
+                Some(if one { "?screens=1" } else { "?screens=2" }),
+            );
         }
     }
 
     /// The first click or key: the page may now play sound.
     fn begin(&mut self) {
-        let Some(sounds) = self.sounds.take() else { return };
+        let Some(sounds) = self.sounds.take() else {
+            return;
+        };
         self.overlay.set_hidden(!self.lost);
-        self.audio = audio::Audio::open(&sounds).inspect_err(|e| web_sys::console::warn_1(&format!("audio disabled: {e}").into())).ok();
+        self.audio = audio::Audio::open(&sounds)
+            .inspect_err(|e| web_sys::console::warn_1(&format!("audio disabled: {e}").into()))
+            .ok();
     }
 
     /// The browser took the GL context: nothing draws until it gives it back, so the game waits behind a note.
@@ -216,8 +287,16 @@ impl Web {
         if let Ok(label) = element::<HtmlElement>(&self.document, "start-label") {
             label.set_inner_text("Reload to continue");
         }
-        if let Some(p) = self.overlay.query_selector("p").ok().flatten().and_then(|p| p.dyn_into::<HtmlElement>().ok()) {
-            p.set_inner_text("The browser took the graphics away from the game. Reload the page to carry on.");
+        if let Some(p) = self
+            .overlay
+            .query_selector("p")
+            .ok()
+            .flatten()
+            .and_then(|p| p.dyn_into::<HtmlElement>().ok())
+        {
+            p.set_inner_text(
+                "The browser took the graphics away from the game. Reload the page to carry on.",
+            );
         }
         self.overlay.set_hidden(false);
     }
@@ -243,7 +322,10 @@ impl Web {
     /// The browser took or gave the pointer lock; losing it in play, as Esc does, pauses the run.
     fn lock_changed(&mut self) {
         let canvas: &Element = self.canvas.as_ref();
-        self.locked = self.document.pointer_lock_element().is_some_and(|el| &el == canvas);
+        self.locked = self
+            .document
+            .pointer_lock_element()
+            .is_some_and(|el| &el == canvas);
         if !self.locked {
             self.mouse_held = Buttons::NONE;
             (self.mouse_dx, self.mouse_dy) = (0.0, 0.0);
@@ -276,7 +358,12 @@ impl Web {
             && let Some(slot) = self.touches.iter_mut().find(|t| t.is_none())
         {
             let _ = self.canvas.set_pointer_capture(e.pointer_id());
-            *slot = Some(Touch { id: e.pointer_id(), at: p, seen: false, lifted: false });
+            *slot = Some(Touch {
+                id: e.pointer_id(),
+                at: p,
+                seen: false,
+                lifted: false,
+            });
             e.prevent_default();
         }
     }
@@ -291,13 +378,25 @@ impl Web {
         let p = if self.phone {
             self.to_screen(e)
         } else {
-            let [w, h] = [self.canvas.client_width().max(1) as f32, self.canvas.client_height().max(2) as f32];
-            Some([(e.offset_x() as f32 / w).clamp(0.0, 1.0) * SCREEN_W, (e.offset_y() as f32 / h * 2.0 - 1.0).clamp(0.0, 1.0) * SCREEN_H])
+            let [w, h] = [
+                self.canvas.client_width().max(1) as f32,
+                self.canvas.client_height().max(2) as f32,
+            ];
+            Some([
+                (e.offset_x() as f32 / w).clamp(0.0, 1.0) * SCREEN_W,
+                (e.offset_y() as f32 / h * 2.0 - 1.0).clamp(0.0, 1.0) * SCREEN_H,
+            ])
         };
         if e.pointer_type() == "mouse" {
             self.hover = p.filter(|_| e.buttons() == 0);
         }
-        if let (Some(p), Some(t)) = (p, self.touches.iter_mut().flatten().find(|t| t.id == e.pointer_id() && !t.lifted)) {
+        if let (Some(p), Some(t)) = (
+            p,
+            self.touches
+                .iter_mut()
+                .flatten()
+                .find(|t| t.id == e.pointer_id() && !t.lifted),
+        ) {
             t.at = p;
         }
     }
@@ -379,14 +478,21 @@ impl Web {
             self.saved = save;
             self.refused = false;
         } else if !std::mem::replace(&mut self.refused, true) {
-            web_sys::console::warn_1(&"save: the browser's storage refused it; trying again each frame".into());
+            web_sys::console::warn_1(
+                &"save: the browser's storage refused it; trying again each frame".into(),
+            );
         }
     }
 
     /// The kept replays' storage keys, oldest first.
     fn replay_keys(&self) -> Vec<String> {
-        let Some(s) = &self.storage else { return Vec::new() };
-        let mut keys: Vec<String> = (0..s.length().unwrap_or(0)).filter_map(|i| s.key(i).ok().flatten()).filter(|k| k.starts_with(REPLAY_KEY)).collect();
+        let Some(s) = &self.storage else {
+            return Vec::new();
+        };
+        let mut keys: Vec<String> = (0..s.length().unwrap_or(0))
+            .filter_map(|i| s.key(i).ok().flatten())
+            .filter(|k| k.starts_with(REPLAY_KEY))
+            .collect();
         keys.sort();
         keys
     }
@@ -397,7 +503,15 @@ impl Web {
         for raw in raws {
             let mut keys = self.replay_keys();
             let Some(s) = &self.storage else { return };
-            let key = (0..100).map(|n| format!("{REPLAY_KEY}night-{unix:010}-{n:02}.{}", crate::replays::EXTENSION)).find(|k| !keys.contains(k)).unwrap_or_default();
+            let key = (0..100)
+                .map(|n| {
+                    format!(
+                        "{REPLAY_KEY}night-{unix:010}-{n:02}.{}",
+                        crate::replays::EXTENSION
+                    )
+                })
+                .find(|k| !keys.contains(k))
+                .unwrap_or_default();
             let text = last_harvest_pack::browser::to_text(&crate::replays::pack(&raw));
             while keys.len() >= REPLAYS_KEPT {
                 let _ = s.remove_item(&keys.remove(0));
@@ -414,10 +528,15 @@ impl Web {
 
     /// The kept replays, newest first, as file names and their own bytes.
     fn saved_replays(&self) -> Vec<(String, Vec<u8>)> {
-        let Some(s) = &self.storage else { return Vec::new() };
+        let Some(s) = &self.storage else {
+            return Vec::new();
+        };
         let read = |k: &String| {
             let bytes = last_harvest_pack::browser::from_text(&s.get_item(k).ok()??)?;
-            Some((k.strip_prefix(REPLAY_KEY)?.to_string(), crate::replays::unpack(&bytes).ok()?))
+            Some((
+                k.strip_prefix(REPLAY_KEY)?.to_string(),
+                crate::replays::unpack(&bytes).ok()?,
+            ))
         };
         self.replay_keys().iter().rev().filter_map(read).collect()
     }
@@ -433,7 +552,8 @@ impl Web {
         self.measure(frame_ms);
         self.fit();
         let (pads, busy) = gamepads(&mut self.odd_pad);
-        self.seats.update(&pads, self.splits && self.game.at_title());
+        self.seats
+            .update(&pads, self.splits && self.game.at_title());
         self.game.set_players(self.seats.players());
         let seated = self.seats.inputs(&pads);
         let others = crate::seated_others(&seated, &mut self.trackers);
@@ -447,8 +567,22 @@ impl Web {
         }
         let yaw = std::mem::take(&mut self.mouse_dx) * self.game.mouse_turn();
         let pitch = std::mem::take(&mut self.mouse_dy) * self.game.mouse_turn();
-        let (hover, wheel) = (self.hover.filter(|_| !self.locked), std::mem::take(&mut self.wheel));
-        let mut raw = RawInput { yaw, pitch, hover, wheel, held: self.keys | std::mem::take(&mut self.struck) | pad | self.mouse_held, stick, look, touch: self.touches.iter().flatten().next().map(|t| t.at), lid_closed: self.lid_key, ..Default::default() };
+        let (hover, wheel) = (
+            self.hover.filter(|_| !self.locked),
+            std::mem::take(&mut self.wheel),
+        );
+        let mut raw = RawInput {
+            yaw,
+            pitch,
+            hover,
+            wheel,
+            held: self.keys | std::mem::take(&mut self.struck) | pad | self.mouse_held,
+            stick,
+            look,
+            touch: self.touches.iter().flatten().next().map(|t| t.at),
+            lid_closed: self.lid_key,
+            ..Default::default()
+        };
         for (out, slot) in raw.touches.iter_mut().zip(&mut self.touches) {
             if let Some(t) = slot {
                 *out = Some(t.at);
@@ -458,11 +592,17 @@ impl Web {
                 }
             }
         }
-        self.game.set_phone(self.phone.then(|| [self.canvas.width() as f32, self.canvas.height() as f32]));
+        self.game.set_phone(
+            self.phone
+                .then(|| [self.canvas.width() as f32, self.canvas.height() as f32]),
+        );
         let input = self.tracker.frame(raw);
         self.game.set_system(self.system);
         self.online.pump(&mut self.game, (frame_ms / 1000.0) as f32);
-        for inputs in self.ticker.frame_all(std::time::Duration::from_secs_f64(frame_ms.max(0.0) / 1000.0), std::iter::once(input).chain(others).collect()) {
+        for inputs in self.ticker.frame_all(
+            std::time::Duration::from_secs_f64(frame_ms.max(0.0) / 1000.0),
+            std::iter::once(input).chain(others).collect(),
+        ) {
             self.game.update_all(&inputs, clock::STEP);
         }
         self.online.send(&mut self.game);
@@ -474,7 +614,10 @@ impl Web {
             let saved = self.saved_replays();
             self.game.set_saved_replays(saved);
         }
-        for (index, on) in self.motors.changes(&self.seats, &pads, 0, |seat| self.game.rumble_for(seat)) {
+        for (index, on) in self
+            .motors
+            .changes(&self.seats, &pads, 0, |seat| self.game.rumble_for(seat))
+        {
             vibrate(index, on);
         }
         self.persist();
@@ -486,14 +629,29 @@ impl Web {
             audio.set_beds(outputs.screens_on[0]);
             sounds.into_iter().for_each(|s| audio.play(s));
         }
-        let n = crate::lay_out_views(&mut self.game, self.splits && self.phone, [self.canvas.width(), self.canvas.height()]);
+        let n = crate::lay_out_views(
+            &mut self.game,
+            self.splits && self.phone,
+            [self.canvas.width(), self.canvas.height()],
+        );
         let frame = self.game.draw_at(self.ticker.alpha());
         if n > 1 {
-            crate::draw_split(&mut self.renderer, &self.gl, &crate::frame_views(&frame, n), [self.canvas.width() as i32, self.canvas.height() as i32]);
+            crate::draw_split(
+                &mut self.renderer,
+                &self.gl,
+                &crate::frame_views(&frame, n),
+                [self.canvas.width() as i32, self.canvas.height() as i32],
+            );
             return;
         }
         if let Some(phone) = &frame.phone {
-            crate::draw_phone(&mut self.renderer, &self.gl, &frame, phone, [self.canvas.width() as i32, self.canvas.height() as i32]);
+            crate::draw_phone(
+                &mut self.renderer,
+                &self.gl,
+                &frame,
+                phone,
+                [self.canvas.width() as i32, self.canvas.height() as i32],
+            );
             return;
         }
         let (w, h) = (self.canvas.width() as i32, self.canvas.height() as i32 / 2);
@@ -515,7 +673,12 @@ impl Web {
 type Frame = Closure<dyn FnMut()>;
 
 /// Calls `f` with the page's state on each `kind` event at `target`.
-fn listen<E: JsCast + 'static>(target: &EventTarget, kind: &str, web: &Rc<RefCell<Web>>, f: impl Fn(&mut Web, &E) + 'static) {
+fn listen<E: JsCast + 'static>(
+    target: &EventTarget,
+    kind: &str,
+    web: &Rc<RefCell<Web>>,
+    f: impl Fn(&mut Web, &E) + 'static,
+) {
     let web = web.clone();
     let cb = Closure::<dyn FnMut(Event)>::new(move |e: Event| {
         if let Ok(mut w) = web.try_borrow_mut() {
@@ -524,16 +687,34 @@ fn listen<E: JsCast + 'static>(target: &EventTarget, kind: &str, web: &Rc<RefCel
     });
     let opts = AddEventListenerOptions::new();
     opts.set_passive(false);
-    target.add_event_listener_with_callback_and_add_event_listener_options(kind, cb.as_ref().unchecked_ref(), &opts).expect("listening");
+    target
+        .add_event_listener_with_callback_and_add_event_listener_options(
+            kind,
+            cb.as_ref().unchecked_ref(),
+            &opts,
+        )
+        .expect("listening");
     cb.forget();
 }
 
 fn element<T: JsCast>(document: &Document, id: &str) -> Result<T, String> {
-    document.get_element_by_id(id).and_then(|e| e.dyn_into().ok()).ok_or(format!("#{id} missing from the page"))
+    document
+        .get_element_by_id(id)
+        .and_then(|e| e.dyn_into().ok())
+        .ok_or(format!("#{id} missing from the page"))
 }
 
-fn start(pak: Pak, mods: Vec<(String, Pak)>, problems: Vec<String>, range: Option<RangeSetup>) -> Result<(), String> {
-    let off = web_sys::window().and_then(|w| w.local_storage().ok().flatten()).and_then(|s| s.get_item(SAVE_KEY).ok().flatten()).map(|t| last_harvest_game::mods_off_in(&t)).unwrap_or_default();
+fn start(
+    pak: Pak,
+    mods: Vec<(String, Pak)>,
+    problems: Vec<String>,
+    range: Option<RangeSetup>,
+) -> Result<(), String> {
+    let off = web_sys::window()
+        .and_then(|w| w.local_storage().ok().flatten())
+        .and_then(|s| s.get_item(SAVE_KEY).ok().flatten())
+        .map(|t| last_harvest_game::mods_off_in(&t))
+        .unwrap_or_default();
     // The renderer uploads the sprite atlas as it starts, so the data goes in first.
     let sounds = pak::install_with(pak, mods, problems, &off)?;
     let window = web_sys::window().ok_or("no window")?;
@@ -544,17 +725,35 @@ fn start(pak: Pak, mods: Vec<(String, Pak)>, problems: Vec<String>, range: Optio
     for (k, v) in [("antialias", true), ("alpha", false), ("depth", true)] {
         js_sys::Reflect::set(&options, &k.into(), &v.into()).map_err(|e| format!("{e:?}"))?;
     }
-    let context = canvas.get_context_with_context_options("webgl2", &options).ok().flatten().ok_or("this browser has no WebGL2")?;
-    let gl = glow::Context::from_webgl2_context(context.dyn_into::<WebGl2RenderingContext>().map_err(|_| "not a WebGL2 context")?);
+    let context = canvas
+        .get_context_with_context_options("webgl2", &options)
+        .ok()
+        .flatten()
+        .ok_or("this browser has no WebGL2")?;
+    let gl = glow::Context::from_webgl2_context(
+        context
+            .dyn_into::<WebGl2RenderingContext>()
+            .map_err(|_| "not a WebGL2 context")?,
+    );
     let renderer = Renderer::new(&gl, Profile::Gles)?;
     let storage = window.local_storage().ok().flatten();
     if storage.is_none() {
-        web_sys::console::warn_1(&"save: the browser gives this page no storage, so progress won't be kept".into());
+        web_sys::console::warn_1(
+            &"save: the browser gives this page no storage, so progress won't be kept".into(),
+        );
     }
-    let saved = storage.as_ref().and_then(|s| s.get_item(SAVE_KEY).ok().flatten()).map(|t| Save::parse(&t)).unwrap_or_default();
+    let saved = storage
+        .as_ref()
+        .and_then(|s| s.get_item(SAVE_KEY).ok().flatten())
+        .map(|t| Save::parse(&t))
+        .unwrap_or_default();
     let mut game = Game::new(js_sys::Date::now() as u64);
     game.load(saved);
-    game.set_mouse(web_sys::window().and_then(|w| w.match_media("(any-pointer: fine)").ok().flatten()).is_some_and(|m| m.matches()));
+    game.set_mouse(
+        web_sys::window()
+            .and_then(|w| w.match_media("(any-pointer: fine)").ok().flatten())
+            .is_some_and(|m| m.matches()),
+    );
     game.set_backlights(false);
     game.record_replays(crate::replays::info());
     if let Some(setup) = range {
@@ -564,11 +763,25 @@ fn start(pak: Pak, mods: Vec<(String, Pak)>, problems: Vec<String>, range: Optio
     let search = window.location().search().unwrap_or_default();
     let phone = !search.contains("screens=2");
     let splits = window.navigator().max_touch_points() == 0;
-    let split = search.split(['?', '&']).find_map(|kv| kv.strip_prefix("split=")).and_then(crate::split_views).filter(|_| splits);
+    let split = search
+        .split(['?', '&'])
+        .find_map(|kv| kv.strip_prefix("split="))
+        .and_then(crate::split_views)
+        .filter(|_| splits);
     game.set_split(split.unwrap_or(1));
     game.set_online(true);
     game.set_identity(crate::VERSION, 0);
-    let param = |key: &str| search.split(['?', '&']).find_map(|kv| kv.strip_prefix(key)).map(|v| js_sys::decode_uri_component(v).ok().and_then(|s| s.as_string()).unwrap_or_default());
+    let param = |key: &str| {
+        search
+            .split(['?', '&'])
+            .find_map(|kv| kv.strip_prefix(key))
+            .map(|v| {
+                js_sys::decode_uri_component(v)
+                    .ok()
+                    .and_then(|s| s.as_string())
+                    .unwrap_or_default()
+            })
+    };
     if let Some(relay) = param("relay=") {
         game.set_relay(&relay);
     }
@@ -619,7 +832,10 @@ fn start(pak: Pak, mods: Vec<(String, Pak)>, problems: Vec<String>, range: Optio
 
     listen(&overlay, "pointerdown", &web, |w, e: &PointerEvent| {
         let target = e.target().and_then(|t| t.dyn_into::<Element>().ok());
-        if target.as_ref().is_some_and(|t| t.closest("[data-mods]").ok().flatten().is_some()) {
+        if target
+            .as_ref()
+            .is_some_and(|t| t.closest("[data-mods]").ok().flatten().is_some())
+        {
             return;
         }
         e.prevent_default();
@@ -630,25 +846,47 @@ fn start(pak: Pak, mods: Vec<(String, Pak)>, problems: Vec<String>, range: Optio
         w.begin();
         let _ = w.canvas.focus();
     });
-    listen(&canvas, "pointerdown", &web, |w, e: &PointerEvent| w.down(e));
-    listen(&canvas, "pointermove", &web, |w, e: &PointerEvent| w.moved(e));
+    listen(&canvas, "pointerdown", &web, |w, e: &PointerEvent| {
+        w.down(e)
+    });
+    listen(&canvas, "pointermove", &web, |w, e: &PointerEvent| {
+        w.moved(e)
+    });
     for kind in ["pointerup", "pointercancel"] {
         listen(&canvas, kind, &web, |w, e: &PointerEvent| w.up(e));
     }
-    listen(&canvas, "contextmenu", &web, |_, e: &Event| e.prevent_default());
-    listen(&document, "pointerlockchange", &web, |w, _: &Event| w.lock_changed());
+    listen(&canvas, "contextmenu", &web, |_, e: &Event| {
+        e.prevent_default()
+    });
+    listen(&document, "pointerlockchange", &web, |w, _: &Event| {
+        w.lock_changed()
+    });
     listen(&canvas, "wheel", &web, |w, e: &WheelEvent| {
-        let lines = if e.delta_mode() == WheelEvent::DOM_DELTA_PIXEL { e.delta_y() / 40.0 } else { e.delta_y() };
+        let lines = if e.delta_mode() == WheelEvent::DOM_DELTA_PIXEL {
+            e.delta_y() / 40.0
+        } else {
+            e.delta_y()
+        };
         w.wheel -= lines as f32;
         e.prevent_default();
     });
-    listen(&canvas, "webglcontextlost", &web, |w, e: &Event| w.context_lost(e));
-    listen(&canvas, "webglcontextrestored", &web, |w, _: &Event| w.context_restored());
-    listen(&window, "keydown", &web, |w, e: &KeyboardEvent| w.key(e, true));
-    listen(&window, "keyup", &web, |w, e: &KeyboardEvent| w.key(e, false));
+    listen(&canvas, "webglcontextlost", &web, |w, e: &Event| {
+        w.context_lost(e)
+    });
+    listen(&canvas, "webglcontextrestored", &web, |w, _: &Event| {
+        w.context_restored()
+    });
+    listen(&window, "keydown", &web, |w, e: &KeyboardEvent| {
+        w.key(e, true)
+    });
+    listen(&window, "keyup", &web, |w, e: &KeyboardEvent| {
+        w.key(e, false)
+    });
     // A key let go while the page had no focus would otherwise stay down.
     listen(&window, "blur", &web, |w, _: &Event| w.keys = Buttons::NONE);
-    listen(&document, "visibilitychange", &web, |w, _: &Event| w.hidden());
+    listen(&document, "visibilitychange", &web, |w, _: &Event| {
+        w.hidden()
+    });
     listen(&window, "pagehide", &web, |w, _: &Event| {
         let raws = w.game.end_replays();
         w.keep_replays(raws);
@@ -664,7 +902,13 @@ fn start(pak: Pak, mods: Vec<(String, Pak)>, problems: Vec<String>, range: Optio
             let _ = window.request_animation_frame(cb.as_ref().unchecked_ref());
         }
     }));
-    let _ = window.request_animation_frame(tick.borrow().as_ref().ok_or("no frame callback")?.as_ref().unchecked_ref());
+    let _ = window.request_animation_frame(
+        tick.borrow()
+            .as_ref()
+            .ok_or("no frame callback")?
+            .as_ref()
+            .unchecked_ref(),
+    );
     Ok(())
 }
 
@@ -682,7 +926,9 @@ fn show_screens(document: &Document, canvas: &HtmlCanvasElement, overlay: &HtmlE
             let _ = style.remove_property("height");
         }
     }
-    let Ok(buttons) = document.query_selector_all("[data-screens]") else { return };
+    let Ok(buttons) = document.query_selector_all("[data-screens]") else {
+        return;
+    };
     for i in 0..buttons.length() {
         if let Some(b) = buttons.item(i).and_then(|n| n.dyn_into::<Element>().ok()) {
             let on = (b.get_attribute("data-screens").as_deref() == Some("2")) != one;
@@ -694,8 +940,13 @@ fn show_screens(document: &Document, canvas: &HtmlCanvasElement, overlay: &HtmlE
 /// Shows a failure on the page, where a player can see it.
 fn fail(text: &str) {
     web_sys::console::error_1(&text.into());
-    if let Some(body) = web_sys::window().and_then(|w| w.document()).and_then(|d| d.body()) {
-        let note = body.owner_document().and_then(|d| d.create_element("pre").ok());
+    if let Some(body) = web_sys::window()
+        .and_then(|w| w.document())
+        .and_then(|d| d.body())
+    {
+        let note = body
+            .owner_document()
+            .and_then(|d| d.create_element("pre").ok());
         if let Some(note) = note.and_then(|n| n.dyn_into::<HtmlElement>().ok()) {
             note.set_class_name("failure");
             note.set_inner_text(text);
@@ -706,7 +957,9 @@ fn fail(text: &str) {
 
 /// A field of a plain object the page hands over.
 fn field(v: &JsValue, k: &str) -> Option<JsValue> {
-    js_sys::Reflect::get(v, &k.into()).ok().filter(|v| !v.is_undefined())
+    js_sys::Reflect::get(v, &k.into())
+        .ok()
+        .filter(|v| !v.is_undefined())
 }
 
 /// The card editor's saved work on this site, from local storage, as one mod pack, with the death sounds the page
@@ -714,19 +967,44 @@ fn field(v: &JsValue, k: &str) -> Option<JsValue> {
 fn editor_mod(sounds: &js_sys::Array, problems: &mut Vec<String>) -> Option<Pak> {
     use last_harvest_pack::browser;
     let storage = web_sys::window()?.local_storage().ok()??;
-    let keys: Vec<String> = (0..storage.length().unwrap_or(0)).filter_map(|i| storage.key(i).ok().flatten()).collect();
-    let entries = keys.into_iter().filter_map(|k| Some((k.clone(), storage.get_item(&k).ok()??)));
+    let keys: Vec<String> = (0..storage.length().unwrap_or(0))
+        .filter_map(|i| storage.key(i).ok().flatten())
+        .collect();
+    let entries = keys
+        .into_iter()
+        .filter_map(|k| Some((k.clone(), storage.get_item(&k).ok()??)));
     let mut files = browser::editor_files(entries, problems);
     if files.is_empty() {
         return None;
     }
-    let name = storage.get_item(browser::PACK_NAME_KEY).ok().flatten().filter(|n| !n.trim().is_empty()).unwrap_or_else(|| "Card editor work".into());
-    files.push((last_harvest_pack::MANIFEST.into(), last_harvest_pack::named_mod_manifest(browser::EDITOR_PACK_ID, &name).into_bytes()));
+    let name = storage
+        .get_item(browser::PACK_NAME_KEY)
+        .ok()
+        .flatten()
+        .filter(|n| !n.trim().is_empty())
+        .unwrap_or_else(|| "Card editor work".into());
+    files.push((
+        last_harvest_pack::MANIFEST.into(),
+        last_harvest_pack::named_mod_manifest(browser::EDITOR_PACK_ID, &name).into_bytes(),
+    ));
     for s in sounds.iter() {
-        let (Some(id), Some(file), Some(bytes)) = (field(&s, "id").and_then(|v| v.as_string()), field(&s, "file").and_then(|v| v.as_string()), field(&s, "bytes")) else { continue };
-        let card = format!("{}{id}{}", last_harvest_pack::ENEMY_CARDS, last_harvest_pack::card::Kind::Enemy.extension());
+        let (Some(id), Some(file), Some(bytes)) = (
+            field(&s, "id").and_then(|v| v.as_string()),
+            field(&s, "file").and_then(|v| v.as_string()),
+            field(&s, "bytes"),
+        ) else {
+            continue;
+        };
+        let card = format!(
+            "{}{id}{}",
+            last_harvest_pack::ENEMY_CARDS,
+            last_harvest_pack::card::Kind::Enemy.extension()
+        );
         if files.iter().any(|(p, _)| *p == card) {
-            files.push((format!("{}{file}", last_harvest_pack::SOUNDS), js_sys::Uint8Array::new(&bytes).to_vec()));
+            files.push((
+                format!("{}{file}", last_harvest_pack::SOUNDS),
+                js_sys::Uint8Array::new(&bytes).to_vec(),
+            ));
         }
     }
     match pak::read_mod(Ok(Pak::from_files(files))) {
@@ -751,8 +1029,15 @@ pub fn run(pak: Vec<u8>, mods: js_sys::Array, sounds: js_sys::Array) -> Result<(
     let mut problems = Vec::new();
     let mut packs = Vec::new();
     for m in mods.iter() {
-        let (Some(name), Some(bytes)) = (field(&m, "name").and_then(|v| v.as_string()), field(&m, "bytes")) else { continue };
-        match pak::read_mod(Pak::read(std::io::Cursor::new(js_sys::Uint8Array::new(&bytes).to_vec()))) {
+        let (Some(name), Some(bytes)) = (
+            field(&m, "name").and_then(|v| v.as_string()),
+            field(&m, "bytes"),
+        ) else {
+            continue;
+        };
+        match pak::read_mod(Pak::read(std::io::Cursor::new(
+            js_sys::Uint8Array::new(&bytes).to_vec(),
+        ))) {
             Ok(p) => packs.push((name, p)),
             Err(e) => problems.push(format!("{name}: {e}")),
         }
@@ -767,10 +1052,21 @@ pub fn run(pak: Vec<u8>, mods: js_sys::Array, sounds: js_sys::Array) -> Result<(
 /// The weapon an editor's Try it left, when the page was opened with `?range`; its section goes over the powerups.
 fn range_asked(problems: &mut Vec<String>) -> Option<RangeSetup> {
     let window = web_sys::window()?;
-    if !window.location().search().unwrap_or_default().contains("range") {
+    if !window
+        .location()
+        .search()
+        .unwrap_or_default()
+        .contains("range")
+    {
         return None;
     }
-    let text = window.local_storage().ok().flatten()?.get_item(RANGE_KEY).ok().flatten()?;
+    let text = window
+        .local_storage()
+        .ok()
+        .flatten()?
+        .get_item(RANGE_KEY)
+        .ok()
+        .flatten()?;
     match RangeSetup::read(&text) {
         Ok(setup) => {
             pak::try_setup(&setup);

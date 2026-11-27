@@ -50,7 +50,15 @@ pub(super) struct Local {
 impl Local {
     /// A new player's start: the run's banishes, rerolls and favors, and a full health bar.
     pub fn of(h: &Harvest, p: PlayerId) -> Self {
-        Self { banishes: h.banishes, rerolls: h.rerolls, favors: h.favors, hp_shown: h.players[p].hp, zoom: h.zoom, lift: h.lift, ..Self::default() }
+        Self {
+            banishes: h.banishes,
+            rerolls: h.rerolls,
+            favors: h.favors,
+            hp_shown: h.players[p].hp,
+            zoom: h.zoom,
+            lift: h.lift,
+            ..Self::default()
+        }
     }
 
     pub fn set_counts(&mut self, banishes: u32, rerolls: u32, favors: u32) {
@@ -63,14 +71,20 @@ impl Harvest {
     /// have no view. More than one never freezes the shared world for one player's hit.
     pub fn with_views(mut self, views: usize) -> Self {
         self.views = views.clamp(1, self.players.len());
-        self.locals = (0..self.players.len()).map(|p| Local::of(&self, p)).collect();
+        self.locals = (0..self.players.len())
+            .map(|p| Local::of(&self, p))
+            .collect();
         self.juice.still = self.views > 1;
         self
     }
 
     /// How many players have a view of their own on this device.
     pub fn views(&self) -> usize {
-        if self.net.drawn > 0 { self.net.drawn.min(self.views) } else { self.views }
+        if self.net.drawn > 0 {
+            self.net.drawn.min(self.views)
+        } else {
+            self.views
+        }
     }
 
     /// Players 0 and `v` trade places everywhere a player is named, so the run reads as `v` saw it from ME; again
@@ -135,13 +149,21 @@ impl Harvest {
     /// The number a player goes by, from 1, whoever is ME just now.
     pub(super) fn number(&self, p: PlayerId) -> usize {
         let s = self.swapped;
-        let p = if p == ME { s } else if p == s { ME } else { p };
+        let p = if p == ME {
+            s
+        } else if p == s {
+            ME
+        } else {
+            p
+        };
         self.net.seats.get(p).copied().unwrap_or(p) + 1
     }
 
     /// Swaps the fields ME's controls, cards and camera live in with player `v`'s keeping.
     fn trade(&mut self, v: PlayerId) {
-        let Some(l) = self.locals.get_mut(v) else { return };
+        let Some(l) = self.locals.get_mut(v) else {
+            return;
+        };
         std::mem::swap(&mut self.turn_ready, &mut l.turn_ready);
         std::mem::swap(&mut self.targeting, &mut l.targeting);
         std::mem::swap(&mut self.lean, &mut l.lean);
@@ -164,7 +186,16 @@ impl Harvest {
         std::mem::swap(&mut self.favors, &mut l.favors);
         std::mem::swap(&mut self.zoom, &mut l.zoom);
         std::mem::swap(&mut self.lift, &mut l.lift);
-        if let (Phase::LevelUp { choices, selected, t, picked }, Some(c)) = (&mut self.phase, &mut l.cards) {
+        if let (
+            Phase::LevelUp {
+                choices,
+                selected,
+                t,
+                picked,
+            },
+            Some(c),
+        ) = (&mut self.phase, &mut l.cards)
+        {
             std::mem::swap(choices, &mut c.choices);
             std::mem::swap(selected, &mut c.selected);
             std::mem::swap(t, &mut c.t);
@@ -191,7 +222,13 @@ impl Harvest {
     }
 
     /// Photo mode, worked by the player who opened it from the pause menu, with their own camera.
-    pub(super) fn photo_coop(&mut self, input: &Input, dt: f32, sounds: &mut Vec<Sfx>, flow: &mut super::Flow) {
+    pub(super) fn photo_coop(
+        &mut self,
+        input: &Input,
+        dt: f32,
+        sounds: &mut Vec<Sfx>,
+        flow: &mut super::Flow,
+    ) {
         if let Some(i) = self.inputs.get_mut(ME) {
             *i = *input;
         }
@@ -215,10 +252,15 @@ impl Harvest {
     /// The player view `v` follows: themselves, leading the dead included, or else once turned while others stand, the
     /// first who still does.
     pub fn followed(&self, v: PlayerId) -> PlayerId {
-        if self.players[v].alive() || self.players[v].lead.is_some() || matches!(self.phase, Phase::Over { .. }) {
+        if self.players[v].alive()
+            || self.players[v].lead.is_some()
+            || matches!(self.phase, Phase::Over { .. })
+        {
             return v;
         }
-        (0..self.players.len()).find(|&p| self.players[p].alive()).unwrap_or(v)
+        (0..self.players.len())
+            .find(|&p| self.players[p].alive())
+            .unwrap_or(v)
     }
 
     /// Draws view `v` of a co-op run: what its player sees, or once turned, a living teammate's view under a banner.
@@ -234,8 +276,16 @@ impl Harvest {
         if seen != v {
             let name = format!("YOU TURNED  -  WATCHING P{}", seen + 1);
             f.top.anchor([0.5, 0.0]);
-            f.top.rect(0.0, 150.0, crate::SCREEN_W, 56.0, [0.0, 0.0, 0.0, 0.5]);
-            f.top.label(name, crate::SCREEN_W / 2.0, 158.0, 36.0, super::RED, crate::Align::Center);
+            f.top
+                .rect(0.0, 150.0, crate::SCREEN_W, 56.0, [0.0, 0.0, 0.0, 0.5]);
+            f.top.label(
+                name,
+                crate::SCREEN_W / 2.0,
+                158.0,
+                36.0,
+                super::RED,
+                crate::Align::Center,
+            );
         }
         (self.viewer, self.actor) = (ME, actor);
         if traded {
@@ -245,12 +295,23 @@ impl Harvest {
 
     /// Whether player `p` holds X, so their aimed weapons go for barrels first.
     pub(super) fn targeting_of(&self, p: PlayerId) -> bool {
-        if p == ME { self.targeting } else { self.locals.get(p).is_some_and(|l| l.targeting) }
+        if p == ME {
+            self.targeting
+        } else {
+            self.locals.get(p).is_some_and(|l| l.targeting)
+        }
     }
 
     /// Player `p`'s turn buttons count once let go after the A that started the run or ended a level-up.
     pub(super) fn turn_ready_mut(&mut self, p: PlayerId) -> Option<&mut bool> {
-        if p == ME { Some(&mut self.turn_ready) } else { self.locals.get_mut(p).filter(|_| p < self.views).map(|l| &mut l.turn_ready) }
+        if p == ME {
+            Some(&mut self.turn_ready)
+        } else {
+            self.locals
+                .get_mut(p)
+                .filter(|_| p < self.views)
+                .map(|l| &mut l.turn_ready)
+        }
     }
 
     /// What every viewed player but ME presses this step, by place in `players`; scripted players steer themselves.
@@ -265,7 +326,12 @@ impl Harvest {
 
     /// A co-op step: every viewed player's controls, one shared world, a pause anyone opens for all, and a level-up
     /// that waits for everyone's pick.
-    pub(super) fn update_coop(&mut self, input: &Input, dt: f32, sounds: &mut Vec<Sfx>) -> super::Flow {
+    pub(super) fn update_coop(
+        &mut self,
+        input: &Input,
+        dt: f32,
+        sounds: &mut Vec<Sfx>,
+    ) -> super::Flow {
         let mut flow = super::Flow::default();
         if let Some(i) = self.inputs.get_mut(ME) {
             *i = *input;
@@ -279,8 +345,18 @@ impl Harvest {
         if let Some(at) = self.menu {
             let here = self.views();
             let remote = self.paused_by >= here;
-            self.net.remote_pause = if remote { self.net.remote_pause + dt } else { 0.0 };
-            if remote && let Some(v) = (0..here).find(|&v| self.inputs[v].pressed.any(crate::Buttons::START | crate::Buttons::B)) {
+            self.net.remote_pause = if remote {
+                self.net.remote_pause + dt
+            } else {
+                0.0
+            };
+            if remote
+                && let Some(v) = (0..here).find(|&v| {
+                    self.inputs[v]
+                        .pressed
+                        .any(crate::Buttons::START | crate::Buttons::B)
+                })
+            {
                 (self.menu, self.paused_by) = (Some(0), v);
                 sounds.push(Sfx::Tick(0));
                 return flow;
@@ -293,12 +369,15 @@ impl Harvest {
             self.pause_menu(at, &own, sounds, &mut flow);
             return flow;
         }
-        if matches!(self.phase, Phase::Playing | Phase::LevelUp { .. }) && self.players.iter().all(|pl| !pl.alive()) {
+        if matches!(self.phase, Phase::Playing | Phase::LevelUp { .. })
+            && self.players.iter().all(|pl| !pl.alive())
+        {
             self.all_turned(sounds, &mut flow);
             return flow;
         }
         if matches!(self.phase, Phase::Playing)
-            && let Some(v) = (0..views).find(|&v| self.inputs[v].pressed.contains(crate::Buttons::START))
+            && let Some(v) =
+                (0..views).find(|&v| self.inputs[v].pressed.contains(crate::Buttons::START))
         {
             self.menu = Some(0);
             self.paused_by = v;
@@ -316,7 +395,11 @@ impl Harvest {
                 for v in 0..views {
                     self.relabel(v);
                     let own = self.inputs[ME];
-                    let own = if self.single { self.single_input(&own, dt, sounds).0 } else { own };
+                    let own = if self.single {
+                        self.single_input(&own, dt, sounds).0
+                    } else {
+                        own
+                    };
                     self.inputs[ME] = own;
                     self.relabel(v);
                 }
@@ -327,7 +410,8 @@ impl Harvest {
             Phase::Over { t: before, won } => {
                 let t = before + dt;
                 self.phase = Phase::Over { t, won };
-                self.juice.tick(if t < super::TURN_SINK { dt * 0.4 } else { dt });
+                self.juice
+                    .tick(if t < super::TURN_SINK { dt * 0.4 } else { dt });
                 self.wind_down(dt, sounds, &mut flow);
                 for p in 0..self.players.len() {
                     if self.players[p].down.is_some() {
@@ -339,8 +423,12 @@ impl Harvest {
                 }
                 self.fx.retain(|f| !f.done());
                 let ready = if won { 1.0 } else { super::TURNED + 0.6 };
-                let pressed = (0..self.views()).fold(crate::Buttons::NONE, |b, v| b | self.inputs[v].pressed);
-                if t > ready && self.net.role != super::online::Role::Off && pressed.any(crate::Buttons::A | crate::Buttons::START | crate::Buttons::B) {
+                let pressed =
+                    (0..self.views()).fold(crate::Buttons::NONE, |b, v| b | self.inputs[v].pressed);
+                if t > ready
+                    && self.net.role != super::online::Role::Off
+                    && pressed.any(crate::Buttons::A | crate::Buttons::START | crate::Buttons::B)
+                {
                     flow.quit = true;
                 } else if t > ready && pressed.any(crate::Buttons::A | crate::Buttons::START) {
                     self.restart(sounds);
@@ -357,16 +445,47 @@ impl Harvest {
     pub(super) fn cards_of(&self, p: PlayerId) -> Option<crate::netsync::snapshot::SeatCards> {
         use crate::netsync::snapshot::{CARD_FOUND, CARD_RARE, SeatCards};
         let (choices, selected, picked, counts) = if p == ME {
-            let Phase::LevelUp { choices, selected, picked, .. } = self.phase else { return None };
-            (choices, selected, picked, (self.banishes, self.rerolls, self.favors))
+            let Phase::LevelUp {
+                choices,
+                selected,
+                picked,
+                ..
+            } = self.phase
+            else {
+                return None;
+            };
+            (
+                choices,
+                selected,
+                picked,
+                (self.banishes, self.rerolls, self.favors),
+            )
         } else {
             let l = self.locals.get(p)?;
             let c = l.cards?;
-            (c.choices, c.selected, c.picked, (l.banishes, l.rerolls, l.favors))
+            (
+                c.choices,
+                c.selected,
+                c.picked,
+                (l.banishes, l.rerolls, l.favors),
+            )
         };
-        let card = |c: Choice| (c.up.min(255) as u8, if c.rare { CARD_RARE } else { 0 } | if c.found { CARD_FOUND } else { 0 });
+        let card = |c: Choice| {
+            (
+                c.up.min(255) as u8,
+                if c.rare { CARD_RARE } else { 0 } | if c.found { CARD_FOUND } else { 0 },
+            )
+        };
         let n = |v: u32| v.min(255) as u8;
-        Some(SeatCards { seat: p as u8, choices: choices.map(card), selected: selected as u8, picked: picked.is_some(), banishes: n(counts.0), rerolls: n(counts.1), favors: n(counts.2) })
+        Some(SeatCards {
+            seat: p as u8,
+            choices: choices.map(card),
+            selected: selected as u8,
+            picked: picked.is_some(),
+            banishes: n(counts.0),
+            rerolls: n(counts.1),
+            favors: n(counts.2),
+        })
     }
 
     /// The cards come up: every other viewed player gets their own draw from their own kit, after ME's.
@@ -380,7 +499,12 @@ impl Harvest {
             self.relabel(v);
             let l = &mut self.locals[v];
             (l.dealt, l.banishing, l.favoring) = ([0.0; 3], false, false);
-            l.cards = Some(Cards { choices, selected: 0, t: 0.0, picked: None });
+            l.cards = Some(Cards {
+                choices,
+                selected: 0,
+                t: 0.0,
+                picked: None,
+            });
         }
     }
 
@@ -398,7 +522,9 @@ impl Harvest {
                 own = bot_pick(self);
             }
             self.choose(&own, dt, sounds);
-            let Phase::LevelUp { picked, .. } = self.phase else { unreachable!("choose keeps the cards up in co-op") };
+            let Phase::LevelUp { picked, .. } = self.phase else {
+                unreachable!("choose keeps the cards up in co-op")
+            };
             done &= picked.is_some_and(|p| p >= super::PICK_TIME);
             self.relabel(v);
         }
@@ -415,9 +541,22 @@ impl Harvest {
 
 /// A scripted player with a view takes its first card once the cards are in.
 fn bot_pick(h: &Harvest) -> Input {
-    let Phase::LevelUp { t, picked: None, .. } = h.phase else { return Input::default() };
+    let Phase::LevelUp {
+        t, picked: None, ..
+    } = h.phase
+    else {
+        return Input::default();
+    };
     let ready = super::CARDS_IN + h.dealt.iter().copied().fold(0.0, f32::max) + 0.8;
-    if t > ready { Input { pressed: crate::Buttons::X, held: crate::Buttons::X, ..Input::default() } } else { Input::default() }
+    if t > ready {
+        Input {
+            pressed: crate::Buttons::X,
+            held: crate::Buttons::X,
+            ..Input::default()
+        }
+    } else {
+        Input::default()
+    }
 }
 
 #[cfg(test)]
@@ -428,7 +567,10 @@ mod tests {
     const DT: f32 = 1.0 / 60.0;
 
     fn pair() -> Harvest {
-        let mut h = Harvest::calm_on(5, &MapSource::new("Open", [40, 40])).unwrap().with_players(2).with_views(2);
+        let mut h = Harvest::calm_on(5, &MapSource::new("Open", [40, 40]))
+            .unwrap()
+            .with_players(2)
+            .with_views(2);
         h.birds.clear();
         h.players[0].pos = [18.5 * TILE, 20.5 * TILE];
         h.players[1].pos = [22.5 * TILE, 20.5 * TILE];
@@ -437,8 +579,20 @@ mod tests {
 
     /// One step with player 1 pressing `one` and player 2 `two`.
     fn step(h: &mut Harvest, one: Buttons, two: Buttons) {
-        h.set_inputs(&[Input { held: two, pressed: two, ..Input::default() }]);
-        h.update(&Input { held: one, pressed: one, ..Input::default() }, DT, &mut Vec::new());
+        h.set_inputs(&[Input {
+            held: two,
+            pressed: two,
+            ..Input::default()
+        }]);
+        h.update(
+            &Input {
+                held: one,
+                pressed: one,
+                ..Input::default()
+            },
+            DT,
+            &mut Vec::new(),
+        );
     }
 
     fn idle(h: &mut Harvest, secs: f32) {
@@ -455,30 +609,63 @@ mod tests {
             }
             idle(h, DT);
         }
-        assert!(matches!(h.phase, Phase::LevelUp { .. }), "the cards came up");
+        assert!(
+            matches!(h.phase, Phase::LevelUp { .. }),
+            "the cards came up"
+        );
         idle(h, CARDS_IN + 0.1);
     }
 
     #[test]
     fn relabeling_twice_puts_every_player_back() {
         let mut h = pair();
-        h.thrown.push(Grenade { from: [0.0; 2], to: [0.0; 2], t: 0.0, kind: Thrown::Grenade, by: None, owner: 1 });
+        h.thrown.push(Grenade {
+            from: [0.0; 2],
+            to: [0.0; 2],
+            t: 0.0,
+            kind: Thrown::Grenade,
+            by: None,
+            owner: 1,
+        });
         h.juice.tally.book_mut(1).hearts = 7;
         let (a, b) = (h.players[0].pos, h.players[1].pos);
         h.relabel(1);
-        assert_eq!((h.players[0].pos, h.thrown[0].owner, h.juice.tally.book(ME).hearts, h.number(ME), h.number(1)), (b, ME, 7, 2, 1));
+        assert_eq!(
+            (
+                h.players[0].pos,
+                h.thrown[0].owner,
+                h.juice.tally.book(ME).hearts,
+                h.number(ME),
+                h.number(1)
+            ),
+            (b, ME, 7, 2, 1)
+        );
         h.relabel(1);
-        assert_eq!((h.players[0].pos, h.players[1].pos, h.thrown[0].owner, h.juice.tally.book(1).hearts, h.number(ME)), (a, b, 1, 7, 1));
+        assert_eq!(
+            (
+                h.players[0].pos,
+                h.players[1].pos,
+                h.thrown[0].owner,
+                h.juice.tally.book(1).hearts,
+                h.number(ME)
+            ),
+            (a, b, 1, 7, 1)
+        );
     }
 
     /// Every text view `v` draws, on both its screens.
     fn texts(h: &mut Harvest, v: PlayerId) -> (crate::Frame, Vec<String>) {
         let mut f = crate::Frame::default();
         h.draw_view(v, &mut f, false);
-        let all = f.top.shapes.iter().chain(&f.bottom.shapes).filter_map(|s| match s {
-            crate::Shape::Text { text, .. } => Some(text.clone()),
-            _ => None,
-        });
+        let all = f
+            .top
+            .shapes
+            .iter()
+            .chain(&f.bottom.shapes)
+            .filter_map(|s| match s {
+                crate::Shape::Text { text, .. } => Some(text.clone()),
+                _ => None,
+            });
         let all = all.collect();
         (f, all)
     }
@@ -487,16 +674,44 @@ mod tests {
     fn each_view_marks_only_the_other_players_and_leaves_the_run_as_it_was() {
         let mut h = pair();
         h.players[1].pos = [h.players[0].pos[0], h.players[0].pos[1] + 6.0 * TILE];
-        let before = (h.summary(), h.players.iter().map(|p| (p.pos, p.view_yaw, p.hp)).collect::<Vec<_>>(), h.juice.feel(), h.zoom);
+        let before = (
+            h.summary(),
+            h.players
+                .iter()
+                .map(|p| (p.pos, p.view_yaw, p.hp))
+                .collect::<Vec<_>>(),
+            h.juice.feel(),
+            h.zoom,
+        );
         for v in 0..2 {
             let (_, said) = texts(&mut h, v);
             let (own, other) = (format!("P{}", v + 1), format!("P{}", 2 - v));
-            assert!(said.contains(&other), "view {v} names {other} on its map: {said:?}");
-            assert!(!said.iter().any(|t| *t == own || t.starts_with(&format!("{own} ")) || t.contains(&format!(" {own} "))), "view {v} never marks its own player");
+            assert!(
+                said.contains(&other),
+                "view {v} names {other} on its map: {said:?}"
+            );
+            assert!(
+                !said.iter().any(|t| *t == own
+                    || t.starts_with(&format!("{own} "))
+                    || t.contains(&format!(" {own} "))),
+                "view {v} never marks its own player"
+            );
         }
-        let after = (h.summary(), h.players.iter().map(|p| (p.pos, p.view_yaw, p.hp)).collect::<Vec<_>>(), h.juice.feel(), h.zoom);
+        let after = (
+            h.summary(),
+            h.players
+                .iter()
+                .map(|p| (p.pos, p.view_yaw, p.hp))
+                .collect::<Vec<_>>(),
+            h.juice.feel(),
+            h.zoom,
+        );
         assert_eq!(before, after);
-        assert_eq!((h.viewer, h.actor, h.swapped), (ME, ME, ME), "nothing stays traded");
+        assert_eq!(
+            (h.viewer, h.actor, h.swapped),
+            (ME, ME, ME),
+            "nothing stays traded"
+        );
     }
 
     #[test]
@@ -507,7 +722,13 @@ mod tests {
         h.players[1].grenades = h.players[1].kit.grenades();
         let health = |f: &crate::Frame| {
             f.top.shapes.iter().rev().find_map(|s| match *s {
-                crate::Shape::Rect { x: 24.0, y: 30.0, w, h: 22.0, color } if color[3] == 1.0 => Some(w),
+                crate::Shape::Rect {
+                    x: 24.0,
+                    y: 30.0,
+                    w,
+                    h: 22.0,
+                    color,
+                } if color[3] == 1.0 => Some(w),
                 _ => None,
             })
         };
@@ -528,25 +749,39 @@ mod tests {
         h.players[1].view_yaw = std::f32::consts::FRAC_PI_2;
         h.players[1].kit.mods.view = 1.5;
         let dots = |f: &crate::Frame| {
-            f.bottom.shapes.iter().filter_map(|s| match *s {
-                crate::Shape::Circle { x, y, r: 5.0, .. } => Some([x, y]),
-                _ => None,
-            }).collect::<Vec<_>>()
+            f.bottom
+                .shapes
+                .iter()
+                .filter_map(|s| match *s {
+                    crate::Shape::Circle { x, y, r: 5.0, .. } => Some([x, y]),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
         };
         for v in 0..2 {
             h.viewer = v;
             let cam = h.map_camera();
             h.viewer = ME;
             let pl = &h.players[v];
-            let (half, r) = (crate::tuning::tuning().view_half * pl.kit.mods.view, crate::tuning::tuning().map_sight / 8.0);
+            let (half, r) = (
+                crate::tuning::tuning().view_half * pl.kit.mods.view,
+                crate::tuning::tuning().map_sight / 8.0,
+            );
             let want = [-half, half].map(|edge| {
                 let a = pl.view_yaw + edge;
-                [(pl.pos[0] + crate::fmath::cos(a) * r - cam[0]) * map_scale(), (pl.pos[1] - 6.0 + crate::fmath::sin(a) * r - cam[1]) * map_scale()]
+                [
+                    (pl.pos[0] + crate::fmath::cos(a) * r - cam[0]) * map_scale(),
+                    (pl.pos[1] - 6.0 + crate::fmath::sin(a) * r - cam[1]) * map_scale(),
+                ]
             });
             let (f, _) = texts(&mut h, v);
             let got = dots(&f);
             for w in want {
-                assert!(got.iter().any(|d| (d[0] - w[0]).abs() < 0.5 && (d[1] - w[1]).abs() < 0.5), "view {v} has a cone dot at {w:?}: {got:?}");
+                assert!(
+                    got.iter()
+                        .any(|d| (d[0] - w[0]).abs() < 0.5 && (d[1] - w[1]).abs() < 0.5),
+                    "view {v} has a cone dot at {w:?}: {got:?}"
+                );
             }
         }
     }
@@ -565,17 +800,34 @@ mod tests {
     #[test]
     fn a_shared_level_up_deals_each_player_their_own_cards_and_waits_for_both_picks() {
         let mut h = pair();
-        let shoes = powerups::book().defs.iter().position(|d| d.id == "running_shoes").unwrap();
+        let shoes = powerups::book()
+            .defs
+            .iter()
+            .position(|d| d.id == "running_shoes")
+            .unwrap();
         h.players[1].kit.raise(shoes, 1);
         level_up(&mut h);
         assert!(h.locals[1].cards.is_some(), "player 2 has their own draw");
         let [one, two] = [h.players[0].kit.clone(), h.players[1].kit.clone()];
         step(&mut h, Buttons::X, Buttons::NONE);
         idle(&mut h, PICK_TIME + 0.1);
-        assert!(matches!(h.phase, Phase::LevelUp { .. }), "play waits for player 2");
-        let levels = |k: &weapons::Kit| k.weapons.iter().map(|w| w.level).sum::<u32>() + k.passives.iter().map(|p| p.1).sum::<u32>();
-        assert!(levels(&h.players[0].kit) > levels(&one), "player 1's card went to player 1");
-        assert_eq!(levels(&h.players[1].kit), levels(&two), "and nothing yet to player 2");
+        assert!(
+            matches!(h.phase, Phase::LevelUp { .. }),
+            "play waits for player 2"
+        );
+        let levels = |k: &weapons::Kit| {
+            k.weapons.iter().map(|w| w.level).sum::<u32>()
+                + k.passives.iter().map(|p| p.1).sum::<u32>()
+        };
+        assert!(
+            levels(&h.players[0].kit) > levels(&one),
+            "player 1's card went to player 1"
+        );
+        assert_eq!(
+            levels(&h.players[1].kit),
+            levels(&two),
+            "and nothing yet to player 2"
+        );
         step(&mut h, Buttons::X, Buttons::X);
         idle(&mut h, PICK_TIME + 0.1);
         assert!(matches!(h.phase, Phase::Playing), "both picked");
@@ -588,7 +840,11 @@ mod tests {
         level_up(&mut h);
         let rerolls = h.rerolls;
         step(&mut h, Buttons::NONE, Buttons::R1);
-        assert_eq!((h.rerolls, h.locals[1].rerolls), (rerolls, rerolls - 1), "player 2's reroll is theirs");
+        assert_eq!(
+            (h.rerolls, h.locals[1].rerolls),
+            (rerolls, rerolls - 1),
+            "player 2's reroll is theirs"
+        );
     }
 
     #[test]
@@ -617,23 +873,44 @@ mod tests {
         assert!(h.in_photo() && h.paused_by == 1);
         let heading = h.players[1].view_yaw;
         for _ in 0..20 {
-            step(&mut h, Buttons::RIGHT | Buttons::UP, Buttons::LEFT | Buttons::UP);
+            step(
+                &mut h,
+                Buttons::RIGHT | Buttons::UP,
+                Buttons::LEFT | Buttons::UP,
+            );
         }
         assert_eq!(h.players[0].view_yaw, yaw, "player 1's pad moves no camera");
-        assert!(h.players[1].view_yaw != heading && h.locals[1].zoom > 1.0, "player 2's turns and zooms");
+        assert!(
+            h.players[1].view_yaw != heading && h.locals[1].zoom > 1.0,
+            "player 2's turns and zooms"
+        );
         assert_eq!(h.zoom, 1.0, "and player 1's view keeps its own");
         let mut f = crate::Frame::default();
         h.draw_view(0, &mut f, false);
-        let says = |c: &crate::Canvas, s: &str| c.shapes.iter().any(|x| matches!(x, crate::Shape::Text { text, .. } if text.contains(s)));
-        assert!(says(&f.top, "P2 is taking a photo") && !says(&f.top, "PHOTO MODE"), "player 1 waits");
+        let says = |c: &crate::Canvas, s: &str| {
+            c.shapes
+                .iter()
+                .any(|x| matches!(x, crate::Shape::Text { text, .. } if text.contains(s)))
+        };
+        assert!(
+            says(&f.top, "P2 is taking a photo") && !says(&f.top, "PHOTO MODE"),
+            "player 1 waits"
+        );
         let mut f = crate::Frame::default();
         h.draw_view(1, &mut f, false);
-        assert!(says(&f.bottom, "PHOTO MODE") || says(&f.top, "PHOTO MODE"), "player 2 has the guides");
+        assert!(
+            says(&f.bottom, "PHOTO MODE") || says(&f.top, "PHOTO MODE"),
+            "player 2 has the guides"
+        );
         step(&mut h, Buttons::B, Buttons::NONE);
         assert!(h.in_photo(), "only player 2 leaves");
         step(&mut h, Buttons::NONE, Buttons::B);
         assert!(!h.in_photo() && h.menu.is_some());
-        assert_eq!((h.players[1].view_yaw, h.locals[1].zoom), (heading, 1.0), "with player 2's own view back");
+        assert_eq!(
+            (h.players[1].view_yaw, h.locals[1].zoom),
+            (heading, 1.0),
+            "with player 2's own view back"
+        );
     }
 
     #[test]
@@ -655,10 +932,17 @@ mod tests {
         let mut sounds = Vec::new();
         h.bitten(1, 5.0, &mut sounds, &mut Flow::default());
         assert!(sounds.contains(&Sfx::Hurt), "player 2's hurt is heard");
-        assert_eq!(h.place(h.players[1].pos).1, 255, "a sound at player 2 is loud though far from player 1");
+        assert_eq!(
+            h.place(h.players[1].pos).1,
+            255,
+            "a sound at player 2 is loud though far from player 1"
+        );
         let trauma = h.locals[1].feel[0];
         h.shake_all(0.3);
-        assert!(h.juice.trauma >= 0.3 && h.locals[1].feel[0] > trauma, "a horde shakes both cameras");
+        assert!(
+            h.juice.trauma >= 0.3 && h.locals[1].feel[0] > trauma,
+            "a horde shakes both cameras"
+        );
     }
 
     #[test]
@@ -668,8 +952,14 @@ mod tests {
         let mut sounds = Vec::new();
         h.bitten(1, 5.0, &mut sounds, &mut Flow::default());
         h.falls(1, &mut sounds);
-        assert!(!sounds.contains(&Sfx::Hurt) && !sounds.contains(&Sfx::GameOver), "a remote player's hurt and fall are theirs: {sounds:?}");
-        assert!(h.place(h.players[1].pos).1 < 40, "a sound at the remote player is placed from the host's own");
+        assert!(
+            !sounds.contains(&Sfx::Hurt) && !sounds.contains(&Sfx::GameOver),
+            "a remote player's hurt and fall are theirs: {sounds:?}"
+        );
+        assert!(
+            h.place(h.players[1].pos).1 < 40,
+            "a sound at the remote player is placed from the host's own"
+        );
     }
 
     #[test]
@@ -678,12 +968,19 @@ mod tests {
         step(&mut h, Buttons::NONE, Buttons::START);
         assert_eq!((h.menu, h.paused_by), (Some(0), 1));
         step(&mut h, Buttons::START, Buttons::NONE);
-        assert_eq!((h.menu, h.paused_by), (Some(0), ME), "the host's Start takes the menu");
+        assert_eq!(
+            (h.menu, h.paused_by),
+            (Some(0), ME),
+            "the host's Start takes the menu"
+        );
         step(&mut h, Buttons::START, Buttons::NONE);
         assert!(h.menu.is_none(), "and resumes");
         step(&mut h, Buttons::NONE, Buttons::START);
         idle(&mut h, super::REMOTE_PAUSE_MOST + 0.5);
-        assert!(h.menu.is_none(), "a remote pause doesn't hold the night forever");
+        assert!(
+            h.menu.is_none(),
+            "a remote pause doesn't hold the night forever"
+        );
     }
 
     #[test]
@@ -693,7 +990,10 @@ mod tests {
         h.set_away(1, true);
         step(&mut h, Buttons::X, Buttons::NONE);
         idle(&mut h, 3.0);
-        assert!(matches!(h.phase, Phase::Playing), "the away player's card is picked for them");
+        assert!(
+            matches!(h.phase, Phase::Playing),
+            "the away player's card is picked for them"
+        );
     }
 
     #[test]
@@ -705,7 +1005,11 @@ mod tests {
         h.unseat(1);
         h.set_inputs(&[Input::default()]);
         let flow = h.update(&Input::default(), DT, &mut Vec::new());
-        assert!(matches!(h.phase, Phase::Over { won: false, .. }), "{:?}", std::mem::discriminant(&h.phase));
+        assert!(
+            matches!(h.phase, Phase::Over { won: false, .. }),
+            "{:?}",
+            std::mem::discriminant(&h.phase)
+        );
         assert!(flow.ended.is_some(), "and the night is saved");
     }
 
@@ -727,17 +1031,42 @@ mod tests {
         c.rect(0.0, 100.0, 1100.0, 32.0, [0.0; 4]);
         c.label("P2", 900.0, 1000.0, 10.0, [1.0; 4], crate::Align::Center);
         c.refit([1365.0, 1152.0]);
-        assert!(matches!(c.shapes[0], crate::Shape::Rect { x: 0.0, y: 100.0, w: 1100.0, h: 32.0, .. }), "a wide row keeps its width");
-        assert!(matches!(c.shapes[1], crate::Shape::Text { x: 900.0, y: 1000.0, .. }));
+        assert!(
+            matches!(
+                c.shapes[0],
+                crate::Shape::Rect {
+                    x: 0.0,
+                    y: 100.0,
+                    w: 1100.0,
+                    h: 32.0,
+                    ..
+                }
+            ),
+            "a wide row keeps its width"
+        );
+        assert!(matches!(
+            c.shapes[1],
+            crate::Shape::Text {
+                x: 900.0,
+                y: 1000.0,
+                ..
+            }
+        ));
     }
 
     #[test]
     fn a_hit_shakes_only_its_player_and_never_freezes_the_shared_night() {
         let mut h = pair();
         h.ouch(1, 0.5);
-        assert!(!h.juice.frozen() && h.juice.trauma == 0.0, "player 1's camera is still");
+        assert!(
+            !h.juice.frozen() && h.juice.trauma == 0.0,
+            "player 1's camera is still"
+        );
         h.relabel(1);
-        assert!(h.juice.trauma > 0.0 && h.juice.hurt > 0.0, "player 2's shakes and flashes red");
+        assert!(
+            h.juice.trauma > 0.0 && h.juice.hurt > 0.0,
+            "player 2's shakes and flashes red"
+        );
         h.relabel(1);
         let t = h.t;
         idle(&mut h, 0.1);
@@ -752,14 +1081,24 @@ mod tests {
         assert_eq!(h.followed(0), 1);
         let mut f = crate::Frame::default();
         h.draw_view(0, &mut f, false);
-        let says = |f: &crate::Frame, s: &str| f.top.shapes.iter().any(|x| matches!(x, crate::Shape::Text { text, .. } if text.contains(s)));
+        let says = |f: &crate::Frame, s: &str| {
+            f.top
+                .shapes
+                .iter()
+                .any(|x| matches!(x, crate::Shape::Text { text, .. } if text.contains(s)))
+        };
         assert!(says(&f, "WATCHING P2"));
         h.players[1].hp = 0.0;
         idle(&mut h, TURNED + 1.5);
         let mut f = crate::Frame::default();
         h.draw(&mut f, false);
-        let line = |p: &str| [&f.top, &f.bottom].iter().any(|c| c.shapes.iter().any(|x| matches!(x, crate::Shape::Text { text, .. } if text.starts_with(p) && text.contains("kills"))));
-        assert!(matches!(h.phase, Phase::Over { .. }) && line("P1 ") && line("P2 "), "the end screen gives each player's kills a line");
+        let line = |p: &str| {
+            [&f.top, &f.bottom].iter().any(|c| c.shapes.iter().any(|x| matches!(x, crate::Shape::Text { text, .. } if text.starts_with(p) && text.contains("kills"))))
+        };
+        assert!(
+            matches!(h.phase, Phase::Over { .. }) && line("P1 ") && line("P2 "),
+            "the end screen gives each player's kills a line"
+        );
     }
 
     #[test]
@@ -777,10 +1116,18 @@ mod tests {
             crate::Shape::Text { x, y, .. } => [*x, *y, 0.0, 0.0],
             _ => unreachable!(),
         };
-        assert_eq!(at(0), [0.0, 0.0, 1024.0, 1152.0], "a full-screen dim covers the whole view");
+        assert_eq!(
+            at(0),
+            [0.0, 0.0, 1024.0, 1152.0],
+            "a full-screen dim covers the whole view"
+        );
         assert_eq!(at(1)[..2], [512.0, 592.0], "the middle stays in the middle");
         assert_eq!(at(2)[..2], [1000.0, 28.0], "the top right stays top right");
-        assert_eq!(at(3), [24.0, 1084.0, 40.0, 40.0], "the bottom left goes to the new bottom");
+        assert_eq!(
+            at(3),
+            [24.0, 1084.0, 40.0, 40.0],
+            "the bottom left goes to the new bottom"
+        );
         assert_eq!(c.size, Some([1024.0, 1152.0]));
     }
 
@@ -790,13 +1137,19 @@ mod tests {
         let one = Harvest::new(1);
         let two = Harvest::new(1).with_players(2);
         assert_eq!(one.cap(), t.max_zombies as usize);
-        assert_eq!(two.cap(), (t.max_zombies * (1.0 + t.max_per_player)) as usize);
+        assert_eq!(
+            two.cap(),
+            (t.max_zombies * (1.0 + t.max_per_player)) as usize
+        );
         let owed = |mut h: Harvest| {
             h.spawn(1.0);
             h.owed + h.tells.len() as f32
         };
         let (a, b) = (owed(Harvest::new(1)), owed(Harvest::new(1).with_players(2)));
-        assert!((b / a - (1.0 + t.spawn_per_player)).abs() < 0.05, "{a} then {b}");
+        assert!(
+            (b / a - (1.0 + t.spawn_per_player)).abs() < 0.05,
+            "{a} then {b}"
+        );
     }
 
     #[test]
@@ -805,7 +1158,16 @@ mod tests {
         let mut h = Harvest::new(1).with_players(3);
         assert_eq!(h.toughness(), 1.0 + 2.0 * t.health_per_player);
         h.spawn(1.0);
-        let tell = h.tells.iter().find(|t| !t.leader).expect("a zombie owed in the first second");
-        assert!((tell.hp - tell.kind.stats().hp * h.toughness()).abs() < 0.01, "{} for {}", tell.hp, tell.kind.stats().hp);
+        let tell = h
+            .tells
+            .iter()
+            .find(|t| !t.leader)
+            .expect("a zombie owed in the first second");
+        assert!(
+            (tell.hp - tell.kind.stats().hp * h.toughness()).abs() < 0.01,
+            "{} for {}",
+            tell.hp,
+            tell.kind.stats().hp
+        );
     }
 }

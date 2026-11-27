@@ -13,22 +13,22 @@ mod local;
 mod map;
 pub mod online;
 mod photo;
-pub mod replay;
-mod remote;
-mod props;
-mod quick;
-mod range;
-pub mod sandbox;
 mod player;
 mod players;
 mod powerups;
+mod props;
+mod quick;
+mod range;
+mod remote;
+pub mod replay;
+pub mod sandbox;
 pub mod showcase;
 mod sight;
 mod tally;
+pub(crate) use draw::powerup_icons;
 #[cfg(test)]
 pub use powerups::powerup_icon;
 pub use weapons::{SwingShow, swing_shown};
-pub(crate) use draw::powerup_icons;
 mod single;
 mod view3d;
 mod weapons;
@@ -40,20 +40,47 @@ use crate::art::{self, Art};
 use crate::rng::Rng;
 use crate::{Buttons, Color, Difficulty, Input, SCREEN_H, SCREEN_W, Sfx, Tier};
 use enemies::Enemy;
+pub use enemies::{
+    ABOUT_MAX, MAX_FRAME as CARD_MAX_FRAME, MAX_WALK, card_frame_most, flash_pixel, frame_limits,
+    hurt_pixel,
+};
+pub use enemies::{
+    CardFields, FLAGS as CARD_FLAGS, NUMBERS as CARD_NUMBERS, SpawnMix, card_fields,
+    set_card_field, spawn_mix,
+};
 pub(crate) use enemies::{install_cards, off_from_ids, off_ids, roster};
-pub use props::{MAX_FRAME as PROP_MAX_FRAME, MAX_FRAMES as PROP_MAX_FRAMES, Named as NamedProp, PREFIX as PROP_PREFIX, ByViews as PropByViews, PropFields, load_for_checks as load_props_for_checks, turned_depth, prop_fields, prop_text, props as named_props, set_props};
-pub(crate) use props::{alpha_of, stand_of};
-pub use map::{default_depth as default_prop_depth, ground_codes as map_ground, set_ground as set_map_ground, Sway as CropSway, MAP_EXTENSION, MAP_MAX, MAP_MIN, MAX_HP as PROP_MAX_HP, MapSource, map_props, parse_props, PropKind, PropLine, Tough as PropTough, check_map, valid_map_id, FARM_DIR, FARM_GROUND_END, FARM_ID_MAX, farm_file, farm_ids, farm_of_file, install_farms, set_farm, use_farm, use_farm_text, valid_farm_id};
-pub use map::check_map_on_any_farm;
-pub use enemies::{ABOUT_MAX, MAX_FRAME as CARD_MAX_FRAME, card_frame_most, MAX_WALK, flash_pixel, frame_limits, hurt_pixel};
-pub use players::{BASE_KEYS as PLAYER_BASE_KEYS, ID_MAX as PLAYER_ID_MAX, PlayerFields, PlayerLook, default_start, looks as player_looks, player_fields, set_player_farm, set_player_start, use_player_farm, player_powerups, weapon_slots, weapons};
-pub use enemies::{CardFields, FLAGS as CARD_FLAGS, NUMBERS as CARD_NUMBERS, SpawnMix, card_fields, set_card_field, spawn_mix};
 use juice::{Corpse, Juice, Particle, Tone};
+pub use map::check_map_on_any_farm;
+pub use map::{
+    FARM_DIR, FARM_GROUND_END, FARM_ID_MAX, MAP_EXTENSION, MAP_MAX, MAP_MIN, MAX_HP as PROP_MAX_HP,
+    MapSource, PropKind, PropLine, Sway as CropSway, Tough as PropTough, check_map,
+    default_depth as default_prop_depth, farm_file, farm_ids, farm_of_file,
+    ground_codes as map_ground, install_farms, map_props, parse_props, set_farm,
+    set_ground as set_map_ground, use_farm, use_farm_text, valid_farm_id, valid_map_id,
+};
 use map::{Map, TILE};
-pub use range::{RangeSetup, effects_with, powerups_with};
-pub use powerups::{DEFAULT_SOUND_DELAY, Progress, RUN_KIT, Run, WeaponLevels, found_from_ids, found_ids, hidden_for as hidden_powerups, owners as powerup_owners, powerup_id, powerup_index, powerup_zones, sound_group, sound_groups, valid_sound_group, unlock_conditions, weapon_behaviours, weapon_aims, weapon_levels, weapon_patterns, weapon_sound_names, weapon_stats, weapon_targets};
 use player::{ME, Player, PlayerId};
+pub use players::{
+    BASE_KEYS as PLAYER_BASE_KEYS, ID_MAX as PLAYER_ID_MAX, PlayerFields, PlayerLook,
+    default_start, looks as player_looks, player_fields, player_powerups, set_player_farm,
+    set_player_start, use_player_farm, weapon_slots, weapons,
+};
+pub use powerups::{
+    DEFAULT_SOUND_DELAY, Progress, RUN_KIT, Run, WeaponLevels, found_from_ids, found_ids,
+    hidden_for as hidden_powerups, owners as powerup_owners, powerup_id, powerup_index,
+    powerup_zones, sound_group, sound_groups, unlock_conditions, valid_sound_group, weapon_aims,
+    weapon_behaviours, weapon_levels, weapon_patterns, weapon_sound_names, weapon_stats,
+    weapon_targets,
+};
 use powerups::{Kind as Card, book};
+pub use props::{
+    ByViews as PropByViews, MAX_FRAME as PROP_MAX_FRAME, MAX_FRAMES as PROP_MAX_FRAMES,
+    Named as NamedProp, PREFIX as PROP_PREFIX, PropFields,
+    load_for_checks as load_props_for_checks, prop_fields, prop_text, props as named_props,
+    set_props, turned_depth,
+};
+pub(crate) use props::{alpha_of, stand_of};
+pub use range::{RangeSetup, effects_with, powerups_with};
 use weapons::{Bolt, Decoy, Kit, Patch, Stake};
 
 /// Screen pixels per art pixel on the bottom screen's map, as `tuning.txt` [map] sets it.
@@ -158,7 +185,16 @@ pub(crate) struct Look {
 }
 
 fn player_look() -> Look {
-    Look { walk: [art::PLAYER_FRONT.to_vec(), art::PLAYER_SIDE.to_vec(), art::PLAYER_BACK.to_vec()], flash: art::PLAYER_FLASH, hurt: art::PLAYER_HURT, dead: None }
+    Look {
+        walk: [
+            art::PLAYER_FRONT.to_vec(),
+            art::PLAYER_SIDE.to_vec(),
+            art::PLAYER_BACK.to_vec(),
+        ],
+        flash: art::PLAYER_FLASH,
+        hurt: art::PLAYER_HURT,
+        dead: None,
+    }
 }
 
 /// A kind of zombie: its place in `enemies.txt`.
@@ -181,18 +217,29 @@ impl Kind {
 
     #[cfg(test)]
     fn named(id: &str) -> Self {
-        Kind(roster().index(id).unwrap_or_else(|| panic!("no enemy {id}")) as u8)
+        Kind(
+            roster()
+                .index(id)
+                .unwrap_or_else(|| panic!("no enemy {id}")) as u8,
+        )
     }
 }
 
 /// The death sound of the zombie kind a `Sfx::Kill` names.
 pub fn kill_sound(kind: u8) -> &'static str {
-    roster().enemies.get(kind as usize).map_or("", |e| e.sound.as_str())
+    roster()
+        .enemies
+        .get(kind as usize)
+        .map_or("", |e| e.sound.as_str())
 }
 
 /// Checks a pack's own powerups.txt, enemies.txt and props.txt as the game will read them, without reading the
 /// game's data, so a mod that would break the game can be left out before it's installed.
-pub fn check_tables(powerups: Option<&str>, enemies: Option<&str>, props: Option<&str>) -> Result<(), String> {
+pub fn check_tables(
+    powerups: Option<&str>,
+    enemies: Option<&str>,
+    props: Option<&str>,
+) -> Result<(), String> {
     if let Some(text) = props {
         map::parse_props(text).map_err(|e| format!("props.txt:{e}"))?;
     }
@@ -206,7 +253,15 @@ pub fn check_tables(powerups: Option<&str>, enemies: Option<&str>, props: Option
 }
 
 /// The data files the game reads its rules from, which the editors change and a mod can replace.
-pub const TABLES: [&str; 7] = ["tuning.txt", "props.txt", "ground.txt", "farm.txt", "effects.txt", "powerups.txt", "enemies.txt"];
+pub const TABLES: [&str; 7] = [
+    "tuning.txt",
+    "props.txt",
+    "ground.txt",
+    "farm.txt",
+    "effects.txt",
+    "powerups.txt",
+    "enemies.txt",
+];
 
 /// A data file as the game has it built in.
 pub fn built_in_table(file: &str) -> Option<&'static str> {
@@ -234,9 +289,14 @@ pub fn table_kind(file: &str) -> Option<&'static str> {
 pub fn check_table(file: &str, text: &str) -> Result<(), String> {
     let fail = |e: String| format!("{file}:{e}");
     match table_kind(file).unwrap_or(file) {
-        "tuning.txt" => crate::tuning::parse(text, Some(&crate::tuning::built_in())).map(|_| ()).map_err(fail),
+        "tuning.txt" => crate::tuning::parse(text, Some(&crate::tuning::built_in()))
+            .map(|_| ())
+            .map_err(fail),
         "props.txt" => map::parse_props(text).map(|_| ()).map_err(fail),
-        "effects.txt" => effects::parse(text).and_then(|_| effects::parse_colors(text, Some(&effects::built_in_colors()))).map(|_| ()).map_err(fail),
+        "effects.txt" => effects::parse(text)
+            .and_then(|_| effects::parse_colors(text, Some(&effects::built_in_colors())))
+            .map(|_| ())
+            .map_err(fail),
         "ground.txt" => map::parse_ground(text).map(|_| ()).map_err(fail),
         "farm.txt" => map::parse_farm(text).map(|_| ()).map_err(fail),
         "powerups.txt" => powerups::parse(text).map(|_| ()).map_err(fail),
@@ -260,28 +320,46 @@ pub fn check_own_table(file: &str, text: &str) -> Result<(), String> {
             if let Some(w) = all().find(|w| !(w.art.is_empty() && w.is_shot()) && missing(&w.art)) {
                 return Err(format!("{file}: no sprite called {} in art.txt", w.art));
             }
-            match all().flat_map(|w| w.sprites.iter().flatten()).find(|n| missing(n)) {
+            match all()
+                .flat_map(|w| w.sprites.iter().flatten())
+                .find(|n| missing(n))
+            {
                 Some(n) => Err(format!("{file}: no sprite called {n} in art.txt")),
                 None => Ok(()),
             }
         }
-        "props.txt" => match map::parse_props(text).map_err(fail)?.props.iter().find(|k| missing(k.name)) {
+        "props.txt" => match map::parse_props(text)
+            .map_err(fail)?
+            .props
+            .iter()
+            .find(|k| missing(k.name))
+        {
             Some(k) => Err(format!("{file}: no sprite called {} in art.txt", k.name)),
             None => Ok(()),
         },
-        "powerups.txt" => match text.lines().filter_map(|l| l.split('#').next()?.trim().strip_prefix("icon")).map(str::trim).find(|n| missing(n)) {
+        "powerups.txt" => match text
+            .lines()
+            .filter_map(|l| l.split('#').next()?.trim().strip_prefix("icon"))
+            .map(str::trim)
+            .find(|n| missing(n))
+        {
             Some(name) => Err(format!("{file}: no sprite called {name} in art.txt")),
             None => Ok(()),
         },
         "farm.txt" => {
             let mut section = "";
-            for line in text.lines().map(|l| l.split('#').next().unwrap_or("").trim()).filter(|l| !l.is_empty()) {
+            for line in text
+                .lines()
+                .map(|l| l.split('#').next().unwrap_or("").trim())
+                .filter(|l| !l.is_empty())
+            {
                 if let Some(s) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
                     section = s;
                     continue;
                 }
                 let words: Vec<&str> = line.split_whitespace().collect();
-                let sprite = |w: &&&str| w.len() > 1 && w.starts_with(|c: char| c.is_ascii_uppercase());
+                let sprite =
+                    |w: &&&str| w.len() > 1 && w.starts_with(|c: char| c.is_ascii_uppercase());
                 let names = match (section, &words[..]) {
                     ("scatter", [name, ..]) => std::slice::from_ref(name),
                     (_, [_, rest @ ..]) => rest,
@@ -297,7 +375,8 @@ pub fn check_own_table(file: &str, text: &str) -> Result<(), String> {
         "ground.txt" => {
             let crops = text.lines().filter_map(|l| {
                 let l = l.split('#').next()?.trim();
-                l.strip_prefix("crop ").or_else(|| l.strip_prefix("crop_3d "))
+                l.strip_prefix("crop ")
+                    .or_else(|| l.strip_prefix("crop_3d "))
             });
             match crops.flat_map(str::split_whitespace).find(|n| missing(n)) {
                 Some(name) => Err(format!("{file}: no sprite called {name} in art.txt")),
@@ -499,7 +578,9 @@ impl Spit {
     /// The spit in its kind's own blood, if it has one.
     fn tint(&self) -> [f32; 3] {
         let spit = effects::effects().spit;
-        spit.frames.first().map_or([1.0; 3], |&a| juice::blood_tint(a, self.kind.stats().blood))
+        spit.frames
+            .first()
+            .map_or([1.0; 3], |&a| juice::blood_tint(a, self.kind.stats().blood))
     }
 }
 
@@ -557,7 +638,15 @@ impl Bullet {
             let (from, age, vel) = self.steer.leg;
             (from, vel, (self.life + self.age - age).min(LEG), age)
         } else {
-            ([self.pos[0] - self.vel[0] * self.age, self.pos[1] - self.vel[1] * self.age], self.vel, self.life + self.age, 0.0)
+            (
+                [
+                    self.pos[0] - self.vel[0] * self.age,
+                    self.pos[1] - self.vel[1] * self.age,
+                ],
+                self.vel,
+                self.life + self.age,
+                0.0,
+            )
         }
     }
 
@@ -567,9 +656,19 @@ impl Bullet {
             return;
         }
         let standing = |z: &&Zombie| z.hp > 0.0;
-        let mut to = self.steer.target.and_then(|id| zombies.iter().filter(standing).find(|z| z.id == id)).map(|z| z.pos);
+        let mut to = self
+            .steer
+            .target
+            .and_then(|id| zombies.iter().filter(standing).find(|z| z.id == id))
+            .map(|z| z.pos);
         if to.is_none() {
-            let near = zombies.iter().filter(standing).filter(|z| !self.hit.contains(&z.id)).map(|z| (z, len(sub(z.pos, self.pos)))).filter(|(_, d)| *d < RETARGET).min_by(|a, b| a.1.total_cmp(&b.1));
+            let near = zombies
+                .iter()
+                .filter(standing)
+                .filter(|z| !self.hit.contains(&z.id))
+                .map(|z| (z, len(sub(z.pos, self.pos))))
+                .filter(|(_, d)| *d < RETARGET)
+                .min_by(|a, b| a.1.total_cmp(&b.1));
             self.steer.target = near.map(|(z, _)| z.id);
             to = near.map(|(z, _)| z.pos);
         }
@@ -595,14 +694,22 @@ impl Bullet {
     /// Pixels above a gun's height it flies at `age` seconds.
     fn up(&self, age: f32) -> f32 {
         let [up, fall] = self.lift;
-        let lifted = if fall > 0.0 { up * (1.0 - age / fall).clamp(0.0, 1.0) } else { 0.0 };
+        let lifted = if fall > 0.0 {
+            up * (1.0 - age / fall).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
         lifted + self.climb(age)
     }
 
     /// Pixels an arcing shot is up at `age` seconds: it climbs and comes down again over its flight.
     fn climb(&self, age: f32) -> f32 {
         let [peak, flight] = self.steer.arc;
-        if flight > 0.0 { peak * fm::sin(PI * (age / flight).clamp(0.0, 1.0)) } else { 0.0 }
+        if flight > 0.0 {
+            peak * fm::sin(PI * (age / flight).clamp(0.0, 1.0))
+        } else {
+            0.0
+        }
     }
 
     /// Where it draws on the map: its place, raised by how far it has yet to come down.
@@ -661,7 +768,10 @@ impl Drop {
 
     /// The magnet takes it, toward the player along `n`: a flick to one side first makes it swoop in.
     fn catch(&mut self, n: [f32; 2], side: f32) {
-        self.vel = [-n[1] * side * 70.0 - n[0] * 40.0, n[0] * side * 70.0 - n[1] * 40.0];
+        self.vel = [
+            -n[1] * side * 70.0 - n[0] * 40.0,
+            n[0] * side * 70.0 - n[1] * 40.0,
+        ];
         self.pulled = Some(0.0);
     }
 }
@@ -672,10 +782,24 @@ enum Thrown {
     Grenade,
     /// A small one a grenade belt scatters.
     Bomblet,
-    Molotov { dps: f32, radius: f32, life: f32 },
-    Flare { dps: f32, radius: f32, life: f32 },
+    Molotov {
+        dps: f32,
+        radius: f32,
+        life: f32,
+    },
+    Flare {
+        dps: f32,
+        radius: f32,
+        life: f32,
+    },
     /// A `does lob` weapon's throw, by its place in the powerup book.
-    Lob { def: usize, damage: f32, radius: f32, life: f32, slow: f32 },
+    Lob {
+        def: usize,
+        damage: f32,
+        radius: f32,
+        life: f32,
+        slow: f32,
+    },
 }
 
 /// A grenade or the like in the air from `from` to `to`, `t` seconds after the throw.
@@ -696,7 +820,10 @@ impl Grenade {
             Thrown::Molotov { .. } => effects::effects().molotov.looping(self.t),
             Thrown::Flare { .. } => effects::effects().flare.looping(self.t),
             Thrown::Lob { def, .. } => {
-                let named = powerups::book().defs[def].bullet.as_deref().and_then(|n| effects::effects().named(n));
+                let named = powerups::book().defs[def]
+                    .bullet
+                    .as_deref()
+                    .and_then(|n| effects::effects().named(n));
                 named.unwrap_or(effects::effects().grenade).looping(self.t)
             }
         }
@@ -705,7 +832,10 @@ impl Grenade {
     /// Ground position and height above it, in world pixels.
     fn at(&self) -> ([f32; 2], f32) {
         let k = (self.t / crate::tuning::tuning().grenade_flight).min(1.0);
-        let p = [self.from[0] + (self.to[0] - self.from[0]) * k, self.from[1] + (self.to[1] - self.from[1]) * k];
+        let p = [
+            self.from[0] + (self.to[0] - self.from[0]) * k,
+            self.from[1] + (self.to[1] - self.from[1]) * k,
+        ];
         (p, fm::sin(k * PI) * 28.0)
     }
 }
@@ -744,7 +874,11 @@ fn blinking(h: &Harvest, p: PlayerId) -> bool {
 /// Which walk frame player `p` shows: standing, or one of two steps.
 fn walk_frame(h: &Harvest, p: PlayerId) -> usize {
     let pl = &h.players[p];
-    if pl.walk > 0.0 { 1 + (pl.walk * crate::tuning::tuning().walk_fps) as usize % 2 } else { 0 }
+    if pl.walk > 0.0 {
+        1 + (pl.walk * crate::tuning::tuning().walk_fps) as usize % 2
+    } else {
+        0
+    }
 }
 
 /// Player `p`'s frame for a facing: flashing while invulnerable, red just after a hit, else walking.
@@ -768,9 +902,20 @@ fn player_worn(h: &Harvest, p: PlayerId, facing: Facing) -> Option<([u8; 2], f32
     }
     let walk = &players::look(&pl.look).look.walk[facing.index()];
     // A hurt frame wears it where the standing frame does.
-    let frame = if pl.hurt > h.difficulty.hurt_time() - 0.2 { 0 } else { walk_frame(h, p) };
+    let frame = if pl.hurt > h.difficulty.hurt_time() - 0.2 {
+        0
+    } else {
+        walk_frame(h, p)
+    };
     let at = walk[frame.min(walk.len() - 1)].worn_at()?;
-    Some((at, if pl.ready_flash > 0.0 { READY_BRIGHT } else { 1.0 }))
+    Some((
+        at,
+        if pl.ready_flash > 0.0 {
+            READY_BRIGHT
+        } else {
+            1.0
+        },
+    ))
 }
 
 /// Where the worn grenade's top-left goes on frame `a`, in game pixels, for its middle on the frame's texture pixel
@@ -779,7 +924,10 @@ fn worn_corner(at: [u8; 2], a: Art, flip: bool) -> [f32; 2] {
     let (g, k) = (art::GRENADE_WORN, a.detail() as f32);
     let [x, y] = at.map(|v| (v as f32 + 0.5) / k);
     let x = if flip { a.w() - x } else { x };
-    [x - 0.5 - (g.w() / 2.0).floor(), y - 0.5 - (g.h() / 2.0).floor()]
+    [
+        x - 0.5 - (g.w() / 2.0).floor(),
+        y - 0.5 - (g.h() / 2.0).floor(),
+    ]
 }
 
 /// Player `p`'s frame for a facing, and how far out of the ground it stands, 0 to 1. Once fallen, it sinks
@@ -790,13 +938,21 @@ fn player_pose(h: &Harvest, p: PlayerId, facing: Facing) -> (Art, f32) {
         Phase::Over { t, won: false } if p == h.viewer => Some(t),
         _ => h.players[p].down,
     };
-    let Some(t) = fallen else { return (art_for(h, p, look, facing), 1.0) };
+    let Some(t) = fallen else {
+        return (art_for(h, p, look, facing), 1.0);
+    };
     let i = facing.index();
     if t < TURN_RISE {
-        (look.dead.map_or(look.hurt[i], |d| d[i]), 1.0 - ((t - TURN_FALL) / (TURN_SINK - TURN_FALL)).clamp(0.0, 1.0))
+        (
+            look.dead.map_or(look.hurt[i], |d| d[i]),
+            1.0 - ((t - TURN_FALL) / (TURN_SINK - TURN_FALL)).clamp(0.0, 1.0),
+        )
     } else {
         let walk = &Kind::common().stats().look.walk[i];
-        (walk[(t * crate::tuning::tuning().walk_fps * 0.6) as usize % walk.len()], ((t - TURN_RISE) / (TURNED - TURN_RISE)).min(1.0))
+        (
+            walk[(t * crate::tuning::tuning().walk_fps * 0.6) as usize % walk.len()],
+            ((t - TURN_RISE) / (TURNED - TURN_RISE)).min(1.0),
+        )
     }
 }
 
@@ -813,7 +969,15 @@ struct Fx {
 
 impl Fx {
     fn play(e: effects::Effect, pos: [f32; 2], angle: f32) -> Self {
-        Fx { frames: e.frames, fps: e.fps, pos, angle, t: 0.0, tint: [1.0; 3], fade: e.fade }
+        Fx {
+            frames: e.frames,
+            fps: e.fps,
+            pos,
+            angle,
+            t: 0.0,
+            tint: [1.0; 3],
+            fade: e.fade,
+        }
     }
 
     fn done(&self) -> bool {
@@ -843,8 +1007,16 @@ struct Choice {
 enum Phase {
     Playing,
     /// `t` counts up from when the cards appear; `picked` from when one was chosen.
-    LevelUp { choices: [Choice; 3], selected: usize, t: f32, picked: Option<f32> },
-    Over { t: f32, won: bool },
+    LevelUp {
+        choices: [Choice; 3],
+        selected: usize,
+        t: f32,
+        picked: Option<f32>,
+    },
+    Over {
+        t: f32,
+        won: bool,
+    },
 }
 
 /// What the run asks of the rest of the game after an update.
@@ -1054,8 +1226,14 @@ pub struct Harvest {
 
 /// Weapons and passives unlocked so far, out of all of them, and how many are waiting to be found.
 pub fn unlocked(p: &Progress) -> (usize, usize, usize) {
-    let all: Vec<usize> = (0..book().defs.len()).filter(|&i| book().defs[i].kind != Card::Filler && p.hidden & (1 << i) == 0).collect();
-    (all.iter().filter(|&&i| p.owns(i)).count(), all.len(), all.iter().filter(|&&i| p.findable(i)).count())
+    let all: Vec<usize> = (0..book().defs.len())
+        .filter(|&i| book().defs[i].kind != Card::Filler && p.hidden & (1 << i) == 0)
+        .collect();
+    (
+        all.iter().filter(|&&i| p.owns(i)).count(),
+        all.len(),
+        all.iter().filter(|&&i| p.findable(i)).count(),
+    )
 }
 
 /// The powerup closest to becoming findable, and what it takes.
@@ -1090,13 +1268,21 @@ fn sub(a: [f32; 2], b: [f32; 2]) -> [f32; 2] {
 
 fn norm(v: [f32; 2]) -> [f32; 2] {
     let l = len(v);
-    if l > 1e-4 { [v[0] / l, v[1] / l] } else { [0.0, 0.0] }
+    if l > 1e-4 {
+        [v[0] / l, v[1] / l]
+    } else {
+        [0.0, 0.0]
+    }
 }
 
 impl Harvest {
     /// What a keyboard's Esc stands for: Start to pause a run in play, else B to back out of what is open.
     pub fn escape(&self) -> Buttons {
-        if self.menu.is_none() && self.photo.is_none() && matches!(self.phase, Phase::Playing) { Buttons::START } else { Buttons::B }
+        if self.menu.is_none() && self.photo.is_none() && matches!(self.phase, Phase::Playing) {
+            Buttons::START
+        } else {
+            Buttons::B
+        }
     }
 
     /// The player's position and the solid cells and props around them, for the debug pipe's `state`.
@@ -1104,22 +1290,49 @@ impl Harvest {
         let half = crate::tuning::tuning().player_half();
         let [px, py] = self.me().pos;
         let (tx, ty) = ((px / TILE) as i32, (py / TILE) as i32);
-        let mut s = format!("pos {px:.1},{py:.1} tile {tx},{ty} half {half:?} yaw {:.2}\n", self.me().view_yaw);
+        let mut s = format!(
+            "pos {px:.1},{py:.1} tile {tx},{ty} half {half:?} yaw {:.2}\n",
+            self.me().view_yaw
+        );
         let r = 4;
         for y in ty - r..=ty + r {
             s += &format!("{y:4} ");
             for x in tx - r..=tx + r {
-                let solid = self.map.solid_at(x as f32 * TILE + 1.0, y as f32 * TILE + 1.0);
-                s.push(if (x, y) == (tx, ty) { 'P' } else if solid { '#' } else { '.' });
+                let solid = self
+                    .map
+                    .solid_at(x as f32 * TILE + 1.0, y as f32 * TILE + 1.0);
+                s.push(if (x, y) == (tx, ty) {
+                    'P'
+                } else if solid {
+                    '#'
+                } else {
+                    '.'
+                });
             }
             s.push('\n');
         }
-        let name = |a: art::Art| art::ALL.iter().find(|(_, f)| f.contains(&a)).map_or("?", |(n, _)| n);
+        let name = |a: art::Art| {
+            art::ALL
+                .iter()
+                .find(|(_, f)| f.contains(&a))
+                .map_or("?", |(n, _)| n)
+        };
         for p in &self.map.props {
             let [cx, cy, cw, ch] = p.cells().map(|v| v as i32);
             if cx + cw >= tx - r && cx <= tx + r && cy + ch >= ty - r && cy <= ty + r {
                 let a = p.frames[0];
-                s += &format!("{} at px {},{} size {}x{} blocks tiles x {}..{} y {}..{}\n", name(a), p.x, p.y, a.w(), a.h(), cx, cx + cw, cy, cy + ch);
+                s += &format!(
+                    "{} at px {},{} size {}x{} blocks tiles x {}..{} y {}..{}\n",
+                    name(a),
+                    p.x,
+                    p.y,
+                    a.w(),
+                    a.h(),
+                    cx,
+                    cx + cw,
+                    cy,
+                    cy + ch
+                );
             }
         }
         s
@@ -1132,11 +1345,19 @@ impl Harvest {
     /// A run on the hand-made map `id`, or on a generated farm when no map that reads has that id.
     pub fn on(seed: u64, id: &str) -> Self {
         let mut rng = Rng::new(seed);
-        let Some(file) = crate::data::maps().iter().find(|m| m.id == id) else { return Self::new(seed) };
+        let Some(file) = crate::data::maps().iter().find(|m| m.id == id) else {
+            return Self::new(seed);
+        };
         match Map::from_text(&file.text, &mut rng) {
-            Ok(map) => Self { map_id: id.to_string(), ..Self::with_map(seed, rng, map) },
+            Ok(map) => Self {
+                map_id: id.to_string(),
+                ..Self::with_map(seed, rng, map)
+            },
             Err(e) => {
-                crate::data::note(format!("{id}{}: {e}, so this run is on a random farm", MAP_EXTENSION));
+                crate::data::note(format!(
+                    "{id}{}: {e}, so this run is on a random farm",
+                    MAP_EXTENSION
+                ));
                 Self::new(seed)
             }
         }
@@ -1153,7 +1374,22 @@ impl Harvest {
         let mut juice = Juice::new(seed);
         juice.tally = tally::Tally::sized(book().defs.len(), 1);
         let own = crate::tuning::tuning().barrel_hp;
-        let barrels = map.barrels.iter().enumerate().map(|(i, &pos)| Barrel { pos, hp: map.barrel_hp.get(i).copied().filter(|h| *h > 0.0).unwrap_or(own), flash: 0.0, by: ME }).collect();
+        let barrels = map
+            .barrels
+            .iter()
+            .enumerate()
+            .map(|(i, &pos)| Barrel {
+                pos,
+                hp: map
+                    .barrel_hp
+                    .get(i)
+                    .copied()
+                    .filter(|h| *h > 0.0)
+                    .unwrap_or(own),
+                flash: 0.0,
+                by: ME,
+            })
+            .collect();
         Self {
             barrels,
             barrel_spots: map.barrels.clone(),
@@ -1191,7 +1427,11 @@ impl Harvest {
             waves: None,
             ticket: crate::tuning::tuning().driver_after,
             thrown: Vec::new(),
-            players: vec![Player::new(map.spawn, kit, book().grenades[Tier::Normal as usize] as f32)],
+            players: vec![Player::new(
+                map.spawn,
+                kit,
+                book().grenades[Tier::Normal as usize] as f32,
+            )],
             actor: ME,
             inputs: Vec::new(),
             bots: Vec::new(),
@@ -1271,7 +1511,14 @@ impl Harvest {
             setup: None,
             tape: None,
             updating: false,
-            picking: ([Choice { up: 0, rare: false, found: false }; 3], 0.0),
+            picking: (
+                [Choice {
+                    up: 0,
+                    rare: false,
+                    found: false,
+                }; 3],
+                0.0,
+            ),
         }
         .with_birds()
     }
@@ -1282,7 +1529,15 @@ impl Harvest {
             if let Some(pos) = self.perch(80.0) {
                 let flip = self.juice.rng.below(2) == 0;
                 let anim = self.juice.rng.range(0.0, 3.0);
-                self.birds.push(Bird { pos, z: 0.0, vel: [0.0; 2], vz: 0.0, flying: false, anim, flip });
+                self.birds.push(Bird {
+                    pos,
+                    z: 0.0,
+                    vel: [0.0; 2],
+                    vz: 0.0,
+                    flying: false,
+                    anim,
+                    flip,
+                });
             }
         }
         self
@@ -1291,8 +1546,13 @@ impl Harvest {
     /// Somewhere open for a bird at least `away` from the player.
     fn perch(&mut self, away: f32) -> Option<[f32; 2]> {
         for _ in 0..20 {
-            let p = [self.juice.rng.range(TILE, self.map.width_px() - TILE), self.juice.rng.range(TILE, self.map.height_px() - TILE)];
-            if !self.map.hits(p[0], p[1], [2.0, 2.0]) && self.players.iter().all(|q| len(sub(p, q.pos)) > away) {
+            let p = [
+                self.juice.rng.range(TILE, self.map.width_px() - TILE),
+                self.juice.rng.range(TILE, self.map.height_px() - TILE),
+            ];
+            if !self.map.hits(p[0], p[1], [2.0, 2.0])
+                && self.players.iter().all(|q| len(sub(p, q.pos)) > away)
+            {
                 return Some(p);
             }
         }
@@ -1303,36 +1563,114 @@ impl Harvest {
     /// camera turning a full circle every 600 frames, on a generated farm `size` tiles across.
     pub fn bench(size: [usize; 2]) -> Self {
         let [w, hgt] = size.map(|v| v.clamp(16, 400));
-        let mut h = Self { calm: true, bench: true, ..Self::sized(7, [w, hgt]) };
+        let mut h = Self {
+            calm: true,
+            bench: true,
+            ..Self::sized(7, [w, hgt])
+        };
         h.birds.clear();
         for i in 0..(crate::tuning::tuning().max_zombies as usize) {
             let a = i as f32 * 2.399;
             let r = 14.0 + (i as f32).sqrt() * 9.0;
-            let pos = [h.me().pos[0] + fm::cos(a) * r, h.me().pos[1] + fm::sin(a) * r];
+            let pos = [
+                h.me().pos[0] + fm::cos(a) * r,
+                h.me().pos[1] + fm::sin(a) * r,
+            ];
             let kinds = roster().enemies.len();
-            let mut z = Zombie::new(Kind((kinds - 1 - i % kinds) as u8), pos, 10.0, 1.0, i as f32 * 0.1);
+            let mut z = Zombie::new(
+                Kind((kinds - 1 - i % kinds) as u8),
+                pos,
+                10.0,
+                1.0,
+                i as f32 * 0.1,
+            );
             z.dir = norm(sub(h.me().pos, pos));
             h.zombies.push(z);
         }
         for i in 0..40 {
             let a = i as f32 * 0.9;
-            let at = [h.me().pos[0] + fm::cos(a) * 30.0, h.me().pos[1] + fm::sin(a) * 30.0];
+            let at = [
+                h.me().pos[0] + fm::cos(a) * 30.0,
+                h.me().pos[1] + fm::sin(a) * 30.0,
+            ];
             let stain = art::BLOOD_STAIN[i % art::BLOOD_STAIN.len()];
             h.stains.push((stain, at[0], at[1], [1.0; 3]));
-            h.juice.corpse(Corpse { art: art::SKINNY_HURT[0], dead: None, flip: false, pos: at, z: 0.0, vel: [0.0; 2], vz: 0.0, fall: [fm::cos(a), fm::sin(a)], age: 1.0, spin: 0.0 });
-            h.juice.burst(at, 8.0, 8, [0.0; 2], 0.0, [10.0, 40.0], juice::blood(), 1.5, 100.0, 0.0);
-            h.juice.popup(at, 12.0 + i as f32, if i % 5 == 0 { Tone::Crit } else { Tone::Hit });
+            h.juice.corpse(Corpse {
+                art: art::SKINNY_HURT[0],
+                dead: None,
+                flip: false,
+                pos: at,
+                z: 0.0,
+                vel: [0.0; 2],
+                vz: 0.0,
+                fall: [fm::cos(a), fm::sin(a)],
+                age: 1.0,
+                spin: 0.0,
+            });
+            h.juice.burst(
+                at,
+                8.0,
+                8,
+                [0.0; 2],
+                0.0,
+                [10.0, 40.0],
+                juice::blood(),
+                1.5,
+                100.0,
+                0.0,
+            );
+            h.juice.popup(
+                at,
+                12.0 + i as f32,
+                if i % 5 == 0 { Tone::Crit } else { Tone::Hit },
+            );
             let vel = [fm::cos(a) * 200.0, fm::sin(a) * 200.0];
-            h.bullets.push(Bullet { pos: [h.me().pos[0] + fm::cos(a) * 20.0, h.me().pos[1] - 6.0 + fm::sin(a) * 20.0], vel, damage: 0.0, pierce: 0, life: 1.0, force: 0.0, hit: Vec::new(), look: None, age: 0.0, by: None, owner: ME, soak: [0.0; 2], lift: [0.0; 2], steer: Default::default() });
+            h.bullets.push(Bullet {
+                pos: [
+                    h.me().pos[0] + fm::cos(a) * 20.0,
+                    h.me().pos[1] - 6.0 + fm::sin(a) * 20.0,
+                ],
+                vel,
+                damage: 0.0,
+                pierce: 0,
+                life: 1.0,
+                force: 0.0,
+                hit: Vec::new(),
+                look: None,
+                age: 0.0,
+                by: None,
+                owner: ME,
+                soak: [0.0; 2],
+                lift: [0.0; 2],
+                steer: Default::default(),
+            });
         }
         let e = effects::effects();
-        for (i, fx) in [e.explosion, e.explosion_smoke, e.zombie_rises, e.mound_breaks].into_iter().cycle().take(16).enumerate() {
+        for (i, fx) in [
+            e.explosion,
+            e.explosion_smoke,
+            e.zombie_rises,
+            e.mound_breaks,
+        ]
+        .into_iter()
+        .cycle()
+        .take(16)
+        .enumerate()
+        {
             let a = i as f32 * 0.4;
-            let mut f = Fx::play(fx, [h.me().pos[0] + fm::cos(a) * 40.0, h.me().pos[1] + fm::sin(a) * 40.0], 0.0);
+            let mut f = Fx::play(
+                fx,
+                [
+                    h.me().pos[0] + fm::cos(a) * 40.0,
+                    h.me().pos[1] + fm::sin(a) * 40.0,
+                ],
+                0.0,
+            );
             f.t = 0.6 * fx.frames.len() as f32 / fx.fps;
             h.fx.push(f);
         }
-        h.juice.flash(h.me().pos, 10.0, [1.2, 0.85, 0.4], 3.5, f32::MAX);
+        h.juice
+            .flash(h.me().pos, 10.0, [1.2, 0.85, 0.4], 3.5, f32::MAX);
         h
     }
 
@@ -1360,7 +1698,11 @@ impl Harvest {
             (0, _) => String::new(),
             (cells, cards) => format!(", {cells} crop cells and {cards} crop cards in view"),
         };
-        format!("bench: {w}x{hgt} tiles, {} props, flow field {:.2} ms{crops}", self.map.props.len(), secs * 1000.0 / 20.0)
+        format!(
+            "bench: {w}x{hgt} tiles, {} props, flow field {:.2} ms{crops}",
+            self.map.props.len(),
+            secs * 1000.0 / 20.0
+        )
     }
 
     pub fn difficulty(&self) -> Difficulty {
@@ -1373,7 +1715,19 @@ impl Harvest {
         let me = self.me_mut();
         (me.hp, me.grenades, me.kit) = (kit.max_hp(), kit.grenades(), kit);
         let t = crate::tuning::tuning();
-        (self.held_weight, self.banishes, self.rerolls, self.favors, self.ticket) = (t.held_weight, t.banish as u32, t.reroll as u32, t.favor as u32, t.driver_after);
+        (
+            self.held_weight,
+            self.banishes,
+            self.rerolls,
+            self.favors,
+            self.ticket,
+        ) = (
+            t.held_weight,
+            t.banish as u32,
+            t.reroll as u32,
+            t.favor as u32,
+            t.driver_after,
+        );
         Self { difficulty, ..self }
     }
 
@@ -1383,7 +1737,10 @@ impl Harvest {
     }
 
     pub fn without_enemies(self, off: u64) -> Self {
-        Self { enemies_off: off, ..self }
+        Self {
+            enemies_off: off,
+            ..self
+        }
     }
 
     /// Dresses the player as the look with `id`, or as the farmer when there's none.
@@ -1391,7 +1748,9 @@ impl Harvest {
     pub fn looking_like(mut self, id: &str) -> Self {
         let mine = players::look(id);
         let tier = self.difficulty.tier();
-        let own = mine.start_defs(tier).map(|defs| Kit::with_weapons(&defs, tier));
+        let own = mine
+            .start_defs(tier)
+            .map(|defs| Kit::with_weapons(&defs, tier));
         let me = self.me_mut();
         if let Some(kit) = own {
             me.grenades = kit.grenades();
@@ -1407,7 +1766,10 @@ impl Harvest {
 
     /// Play is under way with no menu or photo mode over it, so a mouse turns the view.
     pub(crate) fn mouse_looking(&self) -> bool {
-        matches!(self.phase, Phase::Playing) && self.menu.is_none() && !self.in_photo() && self.range.is_none()
+        matches!(self.phase, Phase::Playing)
+            && self.menu.is_none()
+            && !self.in_photo()
+            && self.range.is_none()
     }
 
     pub(crate) fn menu_open(&self) -> bool {
@@ -1423,7 +1785,12 @@ impl Harvest {
     pub(crate) fn deal_cards_with_rerolls(&mut self, rerolls: u32) {
         self.rerolls = rerolls;
         let choices = self.roll_choices(&[]);
-        self.phase = Phase::LevelUp { choices, selected: 0, t: 1.0, picked: None };
+        self.phase = Phase::LevelUp {
+            choices,
+            selected: 0,
+            t: 1.0,
+            picked: None,
+        };
     }
 
     #[cfg(test)]
@@ -1443,12 +1810,19 @@ impl Harvest {
 
     #[cfg(test)]
     pub fn grenades_in_the_air(&self) -> usize {
-        self.thrown.iter().filter(|g| g.kind == Thrown::Grenade).count()
+        self.thrown
+            .iter()
+            .filter(|g| g.kind == Thrown::Grenade)
+            .count()
     }
 
     #[cfg(test)]
     pub(crate) fn last_thrown_distance(&self) -> Option<f32> {
-        let g = self.thrown.iter().rev().find(|g| g.kind == Thrown::Grenade)?;
+        let g = self
+            .thrown
+            .iter()
+            .rev()
+            .find(|g| g.kind == Thrown::Grenade)?;
         Some(len(sub(g.to, g.from)))
     }
 
@@ -1482,14 +1856,20 @@ impl Harvest {
     }
 
     pub fn calm(seed: u64) -> Self {
-        Self { calm: true, ..Self::new(seed) }
+        Self {
+            calm: true,
+            ..Self::new(seed)
+        }
     }
 
     /// A calm farm on a hand-made map, built loosely so a half-made one still shows.
     pub(super) fn calm_on(seed: u64, src: &map::MapSource) -> Result<Self, String> {
         let mut rng = Rng::new(seed);
         let map = Map::from_source(src, &mut rng, false)?;
-        Ok(Self { calm: true, ..Self::with_map(seed, rng, map) })
+        Ok(Self {
+            calm: true,
+            ..Self::with_map(seed, rng, map)
+        })
     }
 
     pub fn summary(&self) -> String {
@@ -1497,10 +1877,20 @@ impl Harvest {
             return line;
         }
         let crops = match view3d::crops_in_view(self) {
-            (cells, cards) if self.bench && cells > 0 => format!(" crops={cells} crop_cards={cards}"),
+            (cells, cards) if self.bench && cells > 0 => {
+                format!(" crops={cells} crop_cards={cards}")
+            }
             _ => String::new(),
         };
-        format!("harvest {} t={:.0} level={} kills={} zombies={} hp={:.0}{crops}", self.difficulty.key(), self.t, self.level, self.kills, self.zombies.len(), self.me().hp)
+        format!(
+            "harvest {} t={:.0} level={} kills={} zombies={} hp={:.0}{crops}",
+            self.difficulty.key(),
+            self.t,
+            self.level,
+            self.kills,
+            self.zombies.len(),
+            self.me().hp
+        )
     }
 
     pub fn update(&mut self, input: &Input, dt: f32, sounds: &mut Vec<Sfx>) -> Flow {
@@ -1604,17 +1994,35 @@ impl Harvest {
 
     /// The upgrade cards: they slide in, take a pick, and hold it a moment before play resumes.
     fn choose(&mut self, input: &Input, dt: f32, sounds: &mut Vec<Sfx>) {
-        let Phase::LevelUp { mut choices, mut selected, t, picked } = self.phase else { return };
+        let Phase::LevelUp {
+            mut choices,
+            mut selected,
+            t,
+            picked,
+        } = self.phase
+        else {
+            return;
+        };
         let t = t + dt;
         if let Some(p) = picked {
             let p = p + dt;
             if p >= PICK_TIME && self.views > 1 {
-                self.phase = Phase::LevelUp { choices, selected, t, picked: Some(PICK_TIME) };
+                self.phase = Phase::LevelUp {
+                    choices,
+                    selected,
+                    t,
+                    picked: Some(PICK_TIME),
+                };
             } else if p >= PICK_TIME {
                 self.phase = Phase::Playing;
                 self.turn_ready = false;
             } else {
-                self.phase = Phase::LevelUp { choices, selected, t, picked: Some(p) };
+                self.phase = Phase::LevelUp {
+                    choices,
+                    selected,
+                    t,
+                    picked: Some(p),
+                };
             }
             return;
         }
@@ -1629,7 +2037,11 @@ impl Harvest {
                 selected = (selected + n - 1) % n;
                 sounds.push(Sfx::Tick(selected as u8 * 3));
             }
-            if let Some(i) = input.hover.and_then(|[_, y]| choice_row(y)).filter(|&i| i < n && i != selected) {
+            if let Some(i) = input
+                .hover
+                .and_then(|[_, y]| choice_row(y))
+                .filter(|&i| i < n && i != selected)
+            {
                 selected = i;
                 sounds.push(Sfx::Tick(selected as u8 * 3));
             }
@@ -1640,17 +2052,39 @@ impl Harvest {
             if input.pressed.contains(Buttons::R1) || key == Some(LevelKey::Reroll) {
                 self.reroll(&mut choices, t, sounds);
             } else if key == Some(LevelKey::Banish) {
-                let armed = !self.banishing && self.banishes > 0 && choices.iter().any(|c| book().defs[c.up].kind != Card::Filler);
-                sounds.push(if armed || self.banishing { Sfx::Tick(6) } else { Sfx::Miss });
+                let armed = !self.banishing
+                    && self.banishes > 0
+                    && choices
+                        .iter()
+                        .any(|c| book().defs[c.up].kind != Card::Filler);
+                sounds.push(if armed || self.banishing {
+                    Sfx::Tick(6)
+                } else {
+                    Sfx::Miss
+                });
                 (self.banishing, self.favoring) = (armed, false);
             } else if key == Some(LevelKey::Favor) {
-                let armed = !self.favoring && self.can_favor() && choices.iter().any(|c| book().defs[c.up].kind != Card::Filler);
-                sounds.push(if armed || self.favoring { Sfx::Tick(9) } else { Sfx::Miss });
+                let armed = !self.favoring
+                    && self.can_favor()
+                    && choices
+                        .iter()
+                        .any(|c| book().defs[c.up].kind != Card::Filler);
+                sounds.push(if armed || self.favoring {
+                    Sfx::Tick(9)
+                } else {
+                    Sfx::Miss
+                });
                 (self.favoring, self.banishing) = (armed, false);
-            } else if let Some(i) = tapped.filter(|_| self.banishing).or(input.pressed.contains(Buttons::L1).then_some(selected)) {
+            } else if let Some(i) = tapped
+                .filter(|_| self.banishing)
+                .or(input.pressed.contains(Buttons::L1).then_some(selected))
+            {
                 self.banish(&mut choices, i, t, sounds);
                 selected = i;
-            } else if let Some(i) = tapped.filter(|_| self.favoring).or(input.pressed.contains(Buttons::Y).then_some(selected)) {
+            } else if let Some(i) = tapped
+                .filter(|_| self.favoring)
+                .or(input.pressed.contains(Buttons::Y).then_some(selected))
+            {
                 self.favoring = false;
                 if self.favor(choices[i].up) {
                     self.take(choices[i], sounds);
@@ -1658,20 +2092,37 @@ impl Harvest {
                 } else {
                     sounds.push(Sfx::Miss);
                 }
-            } else if let Some(i) = tapped.or(input.pressed.contains(Buttons::X).then_some(selected)) {
+            } else if let Some(i) =
+                tapped.or(input.pressed.contains(Buttons::X).then_some(selected))
+            {
                 self.take(choices[i], sounds);
                 (selected, picked) = (i, Some(0.0));
             }
         }
-        self.phase = Phase::LevelUp { choices, selected, t, picked };
+        self.phase = Phase::LevelUp {
+            choices,
+            selected,
+            t,
+            picked,
+        };
         self.hold_card_levels();
     }
 
     /// Keeps each card's levels while none is picked, so the picked card goes on showing what it gave.
     fn hold_card_levels(&mut self) {
-        if let Phase::LevelUp { choices, picked: None, .. } = self.phase {
+        if let Phase::LevelUp {
+            choices,
+            picked: None,
+            ..
+        } = self.phase
+        {
             let kit = &self.me().kit;
-            self.card_levels = choices.map(|c| (kit.level(c.up), kit.raised(c.up, if c.rare { 2 } else { 1 })));
+            self.card_levels = choices.map(|c| {
+                (
+                    kit.level(c.up),
+                    kit.raised(c.up, if c.rare { 2 } else { 1 }),
+                )
+            });
         }
     }
 
@@ -1738,7 +2189,12 @@ impl Harvest {
             if self.leveling <= 0.0 {
                 self.dealt = [0.0; 3];
                 (self.banishing, self.favoring) = (false, false);
-                self.phase = Phase::LevelUp { choices: self.roll_choices(&[]), selected: 0, t: 0.0, picked: None };
+                self.phase = Phase::LevelUp {
+                    choices: self.roll_choices(&[]),
+                    selected: 0,
+                    t: 0.0,
+                    picked: None,
+                };
                 self.glory = 0.25;
                 if self.views > 1 {
                     self.deal_others();
@@ -1752,14 +2208,20 @@ impl Harvest {
         self.t += dt;
         self.juice.tally.tick(dt);
         for (p, player) in self.players.iter().enumerate() {
-            self.juice.tally.hold(p, player.kit.weapons.iter().map(|a| a.def), dt);
+            self.juice
+                .tally
+                .hold(p, player.kit.weapons.iter().map(|a| a.def), dt);
         }
         self.targeting = input.held.contains(Buttons::X);
         let side = input.dir()[0];
         self.lean += (side - self.lean) * (8.0 * dt).min(1.0);
         for p in 0..self.players.len() {
             if self.players[p].alive() {
-                let own = if p == ME { *input } else { self.inputs.get(p).copied().unwrap_or_default() };
+                let own = if p == ME {
+                    *input
+                } else {
+                    self.inputs.get(p).copied().unwrap_or_default()
+                };
                 self.walk(p, &own, dt);
             }
         }
@@ -1772,7 +2234,11 @@ impl Harvest {
                 self.recharge(p, dt);
             }
         }
-        if let Some(touch) = input.touch.filter(|_| input.touch_started).or(self.queued_touch.take()) {
+        if let Some(touch) = input
+            .touch
+            .filter(|_| input.touch_started)
+            .or(self.queued_touch.take())
+        {
             self.throw(touch, sounds);
         }
         self.quick_throw(input, dt, sounds);
@@ -1793,9 +2259,22 @@ impl Harvest {
         } else if input.pressed.contains(Buttons::X) {
             // The quiet farm takes one zombie at a time, for trying out weapons and effects.
             let f = self.me().aim;
-            let pos = [self.me().pos[0] + f[0] * 50.0, self.me().pos[1] + f[1] * 50.0];
-            if !self.map.hits_cells(pos[0], pos[1], crate::tuning::tuning().zombie_half()) {
-                self.tells.push(Tell { kind: Kind::common(), pos, hp: Kind::common().stats().hp, t: 0.0, leader: false, led: None });
+            let pos = [
+                self.me().pos[0] + f[0] * 50.0,
+                self.me().pos[1] + f[1] * 50.0,
+            ];
+            if !self
+                .map
+                .hits_cells(pos[0], pos[1], crate::tuning::tuning().zombie_half())
+            {
+                self.tells.push(Tell {
+                    kind: Kind::common(),
+                    pos,
+                    hp: Kind::common().stats().hp,
+                    t: 0.0,
+                    leader: false,
+                    led: None,
+                });
             }
         }
         if !self.calm {
@@ -1867,7 +2346,18 @@ impl Harvest {
         if let Some(p) = fell.filter(|_| self.players.iter().all(|pl| !pl.alive())) {
             sounds.push(Sfx::GameOver);
             self.shake_all(0.8);
-            self.juice.burst(self.players[p].pos, 8.0, 30, [0.0; 2], 0.0, [30.0, 120.0], juice::blood(), 2.0, 0.9, 0.0);
+            self.juice.burst(
+                self.players[p].pos,
+                8.0,
+                30,
+                [0.0; 2],
+                0.0,
+                [30.0, 120.0],
+                juice::blood(),
+                2.0,
+                0.9,
+                0.0,
+            );
             flow.buzz_all(Rumble::Blast);
             self.leveling = 0.0;
             self.spits.clear();
@@ -1881,18 +2371,41 @@ impl Harvest {
         } else if let Some(p) = fell {
             self.falls(p, sounds);
         } else if stood {
-        } else if self.t >= dawn() && self.players.iter().any(|pl| pl.alive() && len(sub(pl.pos, self.map.home)) < crate::tuning::tuning().home) {
+        } else if self.t >= dawn()
+            && self.players.iter().any(|pl| {
+                pl.alive() && len(sub(pl.pos, self.map.home)) < crate::tuning::tuning().home
+            })
+        {
             sounds.push(Sfx::Dawn);
             // Home: the door shuts and first light burns the dead away.
             let climbing: Vec<Zombie> = self.burrowed.drain(..).filter(|z| z.rise > 0.0).collect();
-            for z in std::mem::take(&mut self.zombies).into_iter().chain(climbing) {
-                self.juice.burst(z.pos, 8.0, 3, [0.0; 2], 0.0, [10.0, 40.0], juice::ember(), 1.4, 1.2, 1.0);
-                self.fx.push(Fx::play(effects::effects().dawn_burns, [z.pos[0], z.pos[1] - 6.0], 0.0));
+            for z in std::mem::take(&mut self.zombies)
+                .into_iter()
+                .chain(climbing)
+            {
+                self.juice.burst(
+                    z.pos,
+                    8.0,
+                    3,
+                    [0.0; 2],
+                    0.0,
+                    [10.0, 40.0],
+                    juice::ember(),
+                    1.4,
+                    1.2,
+                    1.0,
+                );
+                self.fx.push(Fx::play(
+                    effects::effects().dawn_burns,
+                    [z.pos[0], z.pos[1] - 6.0],
+                    0.0,
+                ));
             }
             self.tells.clear();
             self.burrowed.clear();
             self.spits.clear();
-            self.juice.flash(self.me().pos, 40.0, [1.6, 1.1, 0.7], 14.0, 1.5);
+            self.juice
+                .flash(self.me().pos, 40.0, [1.6, 1.1, 0.7], 14.0, 1.5);
             self.shake_all(0.3);
             flow.buzz_all(Rumble::Fanfare);
             self.phase = Phase::Over { t: 0.0, won: true };
@@ -1920,7 +2433,10 @@ impl Harvest {
             }
             None => input.held,
         };
-        let turn = (held.contains(Buttons::A) as i32 as f32 - held.contains(Buttons::Y) as i32 as f32 + input.look).clamp(-1.0, 1.0);
+        let turn = (held.contains(Buttons::A) as i32 as f32
+            - held.contains(Buttons::Y) as i32 as f32
+            + input.look)
+            .clamp(-1.0, 1.0);
         if input.pressed.contains(Buttons::B) {
             self.turn_around(p);
         }
@@ -1937,12 +2453,25 @@ impl Harvest {
         if len(mv) > 0.2 {
             let k = pl.kit.speed() * dt * len(mv).min(1.0) / len(mv);
             pl.heading = norm(mv);
-            pl.pos = self.map.slide(pl.pos, [mv[0] * k, mv[1] * k], t.player_half());
+            pl.pos = self
+                .map
+                .slide(pl.pos, [mv[0] * k, mv[1] * k], t.player_half());
             let before = (pl.walk * t.walk_fps) as u32;
             pl.walk += dt;
             if (pl.walk * t.walk_fps) as u32 / 2 != before / 2 {
                 let at = pl.pos;
-                self.juice.burst(at, 0.5, 2, [-mv[0], -mv[1]], 0.8, [8.0, 20.0], juice::dirt(), 1.0, 0.35, 0.0);
+                self.juice.burst(
+                    at,
+                    0.5,
+                    2,
+                    [-mv[0], -mv[1]],
+                    0.8,
+                    [8.0, 20.0],
+                    juice::dirt(),
+                    1.0,
+                    0.35,
+                    0.0,
+                );
             }
         } else {
             pl.walk = 0.0;
@@ -1953,8 +2482,14 @@ impl Harvest {
     fn recharge(&mut self, p: PlayerId, dt: f32) {
         let pl = &mut self.players[p];
         let before = pl.grenades;
-        pl.grenades = (pl.grenades + dt / (crate::tuning::tuning().grenade_recharge * pl.kit.mods.recharge)).min(pl.kit.grenades());
-        pl.ready_flash = if before < 1.0 && pl.grenades >= 1.0 { READY_FLASH } else { (pl.ready_flash - dt).max(0.0) };
+        pl.grenades = (pl.grenades
+            + dt / (crate::tuning::tuning().grenade_recharge * pl.kit.mods.recharge))
+            .min(pl.kit.grenades());
+        pl.ready_flash = if before < 1.0 && pl.grenades >= 1.0 {
+            READY_FLASH
+        } else {
+            (pl.ready_flash - dt).max(0.0)
+        };
         pl.hp = (pl.hp + pl.kit.mods.regen * dt).min(pl.kit.max_hp());
     }
 
@@ -1965,7 +2500,11 @@ impl Harvest {
         sounds.push(Sfx::Horde);
         flow.buzz_all(Rumble::Blast);
         self.shake_all(0.6);
-        self.juice.banner("DAWN.  THE HARVESTER WAKES.  GET HOME.", [1.0, 0.45, 0.3, 1.0], 4.0);
+        self.juice.banner(
+            "DAWN.  THE HARVESTER WAKES.  GET HOME.",
+            [1.0, 0.45, 0.3, 1.0],
+            4.0,
+        );
         self.raise_harvester(0.0);
     }
 
@@ -1988,7 +2527,8 @@ impl Harvest {
         sounds.push(Sfx::Horde);
         flow.buzz_all(Rumble::Blast);
         self.shake_all(0.6);
-        self.juice.banner("MORE HARVESTERS RISE.", [1.0, 0.45, 0.3, 1.0], 2.5);
+        self.juice
+            .banner("MORE HARVESTERS RISE.", [1.0, 0.45, 0.3, 1.0], 2.5);
         for i in 0..n {
             self.raise_harvester((i as f32 - (n - 1) as f32 / 2.0) * 0.45);
         }
@@ -2002,23 +2542,49 @@ impl Harvest {
         let from = self.players[p].pos;
         let away = norm(sub(from, self.map.home));
         let away = if away == [0.0; 2] { [0.0, 1.0] } else { away };
-        let away = [away[0] * fm::cos(turn) - away[1] * fm::sin(turn), away[0] * fm::sin(turn) + away[1] * fm::cos(turn)];
+        let away = [
+            away[0] * fm::cos(turn) - away[1] * fm::sin(turn),
+            away[0] * fm::sin(turn) + away[1] * fm::cos(turn),
+        ];
         let mut at = from;
         for k in 0..24 {
             let a = fm::sin(k as f32 * 0.4) * (k as f32 * 0.15);
-            let d = [away[0] * fm::cos(a) - away[1] * fm::sin(a), away[0] * fm::sin(a) + away[1] * fm::cos(a)];
-            let p = [from[0] + d[0] * t.harvester_rise, from[1] + d[1] * t.harvester_rise];
+            let d = [
+                away[0] * fm::cos(a) - away[1] * fm::sin(a),
+                away[0] * fm::sin(a) + away[1] * fm::cos(a),
+            ];
+            let p = [
+                from[0] + d[0] * t.harvester_rise,
+                from[1] + d[1] * t.harvester_rise,
+            ];
             if !self.map.hits_cells(p[0], p[1], t.zombie_half()) {
                 at = p;
                 break;
             }
         }
-        let mut z = Zombie::new(Kind(roster().harvester as u8), at, t.harvester_hp * self.fury * self.toughness(), 0.0, 0.0);
+        let mut z = Zombie::new(
+            Kind(roster().harvester as u8),
+            at,
+            t.harvester_hp * self.fury * self.toughness(),
+            0.0,
+            0.0,
+        );
         z.boss = true;
         z.id = self.next_id;
         self.next_id += 1;
         self.zombies.push(z);
-        self.juice.burst(at, 0.0, 40, [0.0; 2], 0.0, [30.0, 110.0], juice::dirt(), 2.2, 1.0, 0.0);
+        self.juice.burst(
+            at,
+            0.0,
+            40,
+            [0.0; 2],
+            0.0,
+            [30.0, 110.0],
+            juice::dirt(),
+            2.2,
+            1.0,
+            0.0,
+        );
         self.juice.ring(at, 60.0, 0.8, [0.9, 0.2, 0.15]);
     }
 
@@ -2052,11 +2618,18 @@ impl Harvest {
             at = (at + n - 1) % n;
             sounds.push(Sfx::Tick(at as u8 * 3));
         }
-        if let Some(row) = input.hover.and_then(|[_, y]| pause_row(y)).filter(|&r| r != at) {
+        if let Some(row) = input
+            .hover
+            .and_then(|[_, y]| pause_row(y))
+            .filter(|&r| r != at)
+        {
             at = row;
             sounds.push(Sfx::Tick(at as u8 * 3));
         }
-        let tapped = input.touch.filter(|_| input.touch_started).and_then(|[_, y]| pause_row(y));
+        let tapped = input
+            .touch
+            .filter(|_| input.touch_started)
+            .and_then(|[_, y]| pause_row(y));
         let chosen = tapped.or(input.pressed.any(Buttons::A | Buttons::X).then_some(at));
         self.menu = Some(at);
         let remote = self.net.role == online::Role::Host && self.paused_by >= self.views();
@@ -2081,14 +2654,47 @@ impl Harvest {
             self.restart_range(seed);
             return;
         }
-        let kit: Vec<String> = self.trial.iter().map(|&(d, l)| format!("{}:{l}", book().defs[d].id)).collect();
+        let kit: Vec<String> = self
+            .trial
+            .iter()
+            .map(|&(d, l)| format!("{}:{l}", book().defs[d].id))
+            .collect();
         let look = std::mem::take(&mut self.me_mut().look);
-        let (count, bots, views) = (self.players.len(), std::mem::take(&mut self.bots), self.views);
+        let (count, bots, views) = (
+            self.players.len(),
+            std::mem::take(&mut self.bots),
+            self.views,
+        );
         self.tape_restart();
         let (tape, progress) = (self.tape.take(), self.progress);
-        let seats = self.setup.as_ref().map(|s| s.seats.clone()).unwrap_or_default();
-        let setup = self.setup.take().map(|s| replay::Setup { seed, progress, look: look.clone(), kit: kit.join(","), players: count - bots.len(), bots: bots.len(), views, kind: replay::Kind::Night, ..*s });
-        *self = Harvest::on(seed, &self.map_id).at(self.difficulty).with_progress(self.progress).without_enemies(self.enemies_off).looking_like(&look).with_kit(&kit.join(",")).starting_at(self.start_t).single_screen(self.single).endless_grenades(self.endless).with_players(count).seated_as(&seats).with_views(views);
+        let seats = self
+            .setup
+            .as_ref()
+            .map(|s| s.seats.clone())
+            .unwrap_or_default();
+        let setup = self.setup.take().map(|s| replay::Setup {
+            seed,
+            progress,
+            look: look.clone(),
+            kit: kit.join(","),
+            players: count - bots.len(),
+            bots: bots.len(),
+            views,
+            kind: replay::Kind::Night,
+            ..*s
+        });
+        *self = Harvest::on(seed, &self.map_id)
+            .at(self.difficulty)
+            .with_progress(self.progress)
+            .without_enemies(self.enemies_off)
+            .looking_like(&look)
+            .with_kit(&kit.join(","))
+            .starting_at(self.start_t)
+            .single_screen(self.single)
+            .endless_grenades(self.endless)
+            .with_players(count)
+            .seated_as(&seats)
+            .with_views(views);
         self.bots = bots.into_iter().map(|(p, b)| (p, b.again())).collect();
         (self.tape, self.setup) = (tape, setup.map(Box::new));
         sounds.push(Sfx::Start);
@@ -2102,7 +2708,13 @@ impl Harvest {
 
     fn showing_of(&self, p: PlayerId) -> [f32; 2] {
         let pl = &self.players[p];
-        if pl.down.is_some() { pl.heading } else if pl.spin > 0.0 { pl.turned_from } else { pl.aim }
+        if pl.down.is_some() {
+            pl.heading
+        } else if pl.spin > 0.0 {
+            pl.turned_from
+        } else {
+            pl.aim
+        }
     }
 
     /// B: the camera swings round while the player keeps their old heading, so it sweeps past their front.
@@ -2129,8 +2741,14 @@ impl Harvest {
                 self.shove(self.players[p].pos, 320.0);
             }
         }
-        self.juice.ring(self.me().pos, crate::tuning::tuning().push, 0.5, juice::gold());
-        self.juice.flash(self.me().pos, 20.0, [1.8, 1.4, 0.6], 9.0, 0.8);
+        self.juice.ring(
+            self.me().pos,
+            crate::tuning::tuning().push,
+            0.5,
+            juice::gold(),
+        );
+        self.juice
+            .flash(self.me().pos, 20.0, [1.8, 1.4, 0.6], 9.0, 0.8);
         self.shake_each(|_| 0.3, 6.0);
         self.juice.shout("LEVEL UP", GOLD, 0.9);
         for i in 0..40 {
@@ -2141,7 +2759,10 @@ impl Harvest {
             let z = self.juice.rng.range(0.0, 6.0);
             self.juice.particle(Particle {
                 fade: effects::Fade::OPAQUE,
-                pos: [self.me().pos[0] + fm::cos(a) * r, self.me().pos[1] + fm::sin(a) * r],
+                pos: [
+                    self.me().pos[0] + fm::cos(a) * r,
+                    self.me().pos[1] + fm::sin(a) * r,
+                ],
                 z,
                 vel: [fm::cos(a) * 18.0, fm::sin(a) * 18.0],
                 vz: rise,
@@ -2178,12 +2799,20 @@ impl Harvest {
     /// Three cards from what's unlocked, unbanished and still has room to grow, apart from the cards in `avoid`
     /// while others are left; fillers make up the rest.
     fn roll_choices(&mut self, avoid: &[Choice]) -> [Choice; 3] {
-        let mut out = [Choice { up: 0, rare: false, found: false }; 3];
+        let mut out = [Choice {
+            up: 0,
+            rare: false,
+            found: false,
+        }; 3];
         for i in 0..3 {
             out[i] = self.deal(&out[..i], avoid);
         }
         if let Some(up) = self.find(self.chest) {
-            out[self.rng.below(3)] = Choice { up, rare: false, found: true };
+            out[self.rng.below(3)] = Choice {
+                up,
+                rare: false,
+                found: true,
+            };
         }
         out
     }
@@ -2193,8 +2822,17 @@ impl Harvest {
     fn deal(&mut self, shown: &[Choice], avoid: &[Choice]) -> Choice {
         let b = book();
         let free = |i: &usize| !shown.iter().any(|c| c.up == *i);
-        let pool: Vec<usize> = (0..b.defs.len()).filter(|&i| self.progress.owns(i) && self.me().kit.offerable(i) && self.banished & 1 << i == 0).filter(free).collect();
-        let fresh: Vec<usize> = pool.iter().copied().filter(|i| !avoid.iter().any(|c| c.up == *i)).collect();
+        let pool: Vec<usize> = (0..b.defs.len())
+            .filter(|&i| {
+                self.progress.owns(i) && self.me().kit.offerable(i) && self.banished & 1 << i == 0
+            })
+            .filter(free)
+            .collect();
+        let fresh: Vec<usize> = pool
+            .iter()
+            .copied()
+            .filter(|i| !avoid.iter().any(|c| c.up == *i))
+            .collect();
         let up = match if fresh.is_empty() { pool } else { fresh } {
             from if !from.is_empty() => {
                 let favor = crate::tuning::tuning().favor_weight;
@@ -2207,15 +2845,25 @@ impl Harvest {
                 from[at.unwrap_or(from.len() - 1)]
             }
             _ => {
-                let fillers: Vec<usize> = (0..b.defs.len()).filter(|&i| b.defs[i].kind == Card::Filler).collect();
+                let fillers: Vec<usize> = (0..b.defs.len())
+                    .filter(|&i| b.defs[i].kind == Card::Filler)
+                    .collect();
                 let open: Vec<usize> = fillers.iter().copied().filter(free).collect();
                 let from = if open.is_empty() { fillers } else { open };
-                if from.is_empty() { 0 } else { from[self.rng.below(from.len())] }
+                if from.is_empty() {
+                    0
+                } else {
+                    from[self.rng.below(from.len())]
+                }
             }
         };
         let rare = crate::tuning::tuning().rare + self.me().kit.mods.luck;
         let roll = self.rng.range(0.0, 1.0);
-        Choice { up, rare: b.defs[up].kind != Card::Filler && roll < rare, found: false }
+        Choice {
+            up,
+            rare: b.defs[up].kind != Card::Filler && roll < rare,
+            found: false,
+        }
     }
 
     /// A powerup to offer as a find, if one turns up: only one whose unlock is met, whose minute has come and
@@ -2227,7 +2875,13 @@ impl Harvest {
         }
         let minutes = self.t / 60.0;
         let finds: Vec<usize> = (0..b.defs.len())
-            .filter(|&i| self.progress.findable(i) && self.me().kit.offerable(i) && self.banished & 1 << i == 0 && minutes >= b.defs[i].after && (chest || !b.defs[i].chest))
+            .filter(|&i| {
+                self.progress.findable(i)
+                    && self.me().kit.offerable(i)
+                    && self.banished & 1 << i == 0
+                    && minutes >= b.defs[i].after
+                    && (chest || !b.defs[i].chest)
+            })
             .collect();
         if chest {
             let own: Vec<usize> = finds.iter().copied().filter(|&i| b.defs[i].chest).collect();
@@ -2245,12 +2899,20 @@ impl Harvest {
             self.progress.found |= 1 << c.up;
             self.found_now |= 1 << c.up;
             self.newly.push(c.up);
-            self.juice.banner(format!("FOUND: {}", def.name.to_uppercase()), [GOLD[0], GOLD[1], GOLD[2], 1.0], 2.4);
+            self.juice.banner(
+                format!("FOUND: {}", def.name.to_uppercase()),
+                [GOLD[0], GOLD[1], GOLD[2], 1.0],
+                2.4,
+            );
         }
         let (from, to) = self.me_mut().kit.raise(c.up, if c.rare { 2 } else { 1 });
         if to > def.max {
             self.broke = true;
-            self.juice.banner(format!("LEVEL BREAKER: {} {to}", def.name.to_uppercase()), [GOLD[0], GOLD[1], GOLD[2], 1.0], 2.8);
+            self.juice.banner(
+                format!("LEVEL BREAKER: {} {to}", def.name.to_uppercase()),
+                [GOLD[0], GOLD[1], GOLD[2], 1.0],
+                2.8,
+            );
             self.juice.shake(0.3);
         }
         let heal = def.at(powerups::Stat::Heal, to) * (to - from).max(1) as f32;
@@ -2269,12 +2931,17 @@ impl Harvest {
         pl.hurt = 2.0;
         let at = pl.pos;
         self.shove(at, 600.0);
-        self.juice.ring(at, crate::tuning::tuning().push, 0.6, [0.4, 1.0, 0.5]);
+        self.juice
+            .ring(at, crate::tuning::tuning().push, 0.6, [0.4, 1.0, 0.5]);
         self.juice.flash(at, 20.0, [0.6, 1.8, 0.7], 9.0, 0.8);
         self.feel_for(p, |j| j.shake(0.4));
         flow.buzz(p, Rumble::Fanfare);
         if p < self.views {
-            let line = if self.views > 1 { format!("P{}: THE VACCINE HOLDS", self.number(p)) } else { "THE VACCINE HOLDS".into() };
+            let line = if self.views > 1 {
+                format!("P{}: THE VACCINE HOLDS", self.number(p))
+            } else {
+                "THE VACCINE HOLDS".into()
+            };
             self.juice.banner(line, [0.5, 1.0, 0.55, 1.0], 2.4);
             sounds.push(Sfx::Heal);
         }
@@ -2297,13 +2964,30 @@ impl Harvest {
     fn finish(&mut self, won: bool) -> Run {
         self.juice.tally.shut = true;
         let mut kit = [None; RUN_KIT];
-        let held = self.me().kit.weapons.iter().map(|a| (a.def, a.level)).chain(self.me().kit.passives.iter().copied());
+        let held = self
+            .me()
+            .kit
+            .weapons
+            .iter()
+            .map(|a| (a.def, a.level))
+            .chain(self.me().kit.passives.iter().copied());
         for (slot, (def, level)) in kit.iter_mut().zip(held) {
             *slot = Some((def as u16, level.min(u8::MAX as u32) as u8));
         }
-        let run = Run { secs: self.t as u32, kills: self.kills, level: self.level, won, broke: self.broke, difficulty: self.difficulty, dps: self.juice.tally.dps(ME).round() as u32, kit };
+        let run = Run {
+            secs: self.t as u32,
+            kills: self.kills,
+            level: self.level,
+            won,
+            broke: self.broke,
+            difficulty: self.difficulty,
+            dps: self.juice.tally.dps(ME).round() as u32,
+            kit,
+        };
         let after = self.progress.after(run);
-        self.ready = (0..book().defs.len()).filter(|&i| !self.progress.findable(i) && after.findable(i)).count();
+        self.ready = (0..book().defs.len())
+            .filter(|&i| !self.progress.findable(i) && after.findable(i))
+            .count();
         self.progress = after;
         run
     }
@@ -2357,17 +3041,38 @@ impl Harvest {
         let roll = self.rng.range(0.0, 1.0);
         let leader = std::mem::take(&mut self.leader_owed);
         let r = roster();
-        let kind = Kind(if leader && self.enemies_off & 1 << r.leader == 0 { r.leader } else { r.pick(minutes, roll, self.enemies_off) } as u8);
-        let hp = kind.stats().hp * (1.0 + minutes * crate::tuning::tuning().growth) * if leader { crate::tuning::tuning().leader_hp } else { 1.0 } * self.fury * self.toughness();
+        let kind = Kind(if leader && self.enemies_off & 1 << r.leader == 0 {
+            r.leader
+        } else {
+            r.pick(minutes, roll, self.enemies_off)
+        } as u8);
+        let hp = kind.stats().hp
+            * (1.0 + minutes * crate::tuning::tuning().growth)
+            * if leader {
+                crate::tuning::tuning().leader_hp
+            } else {
+                1.0
+            }
+            * self.fury
+            * self.toughness();
         let p = self.ring_player();
         if let Some(pos) = self.ring_spot(p, None) {
-            self.tells.push(Tell { kind, pos, hp, t: 0.0, leader, led: None });
+            self.tells.push(Tell {
+                kind,
+                pos,
+                hp,
+                t: 0.0,
+                leader,
+                led: None,
+            });
         }
     }
 
     /// The living player the next zombie rises around, taking turns.
     fn ring_player(&mut self) -> PlayerId {
-        let living: Vec<PlayerId> = (0..self.players.len()).filter(|&p| self.players[p].alive()).collect();
+        let living: Vec<PlayerId> = (0..self.players.len())
+            .filter(|&p| self.players[p].alive())
+            .collect();
         if living.len() < 2 {
             return living.first().copied().unwrap_or(ME);
         }
@@ -2387,7 +3092,10 @@ impl Harvest {
             let [near, far] = spawn_ring(self.t);
             let r = self.rng.range(near, far);
             let pos = [at[0] + fm::cos(a) * r, at[1] + fm::sin(a) * r];
-            if !self.map.hits_cells(pos[0], pos[1], crate::tuning::tuning().zombie_half()) {
+            if !self
+                .map
+                .hits_cells(pos[0], pos[1], crate::tuning::tuning().zombie_half())
+            {
                 return Some(pos);
             }
         }
@@ -2398,9 +3106,15 @@ impl Harvest {
     fn on_screen(&self, pos: [f32; 2]) -> bool {
         let cam = self.camera();
         let [x, y] = [pos[0] - cam[0], pos[1] - cam[1]];
-        let on_map = (-TILE..=view_w() + TILE).contains(&x) && (-TILE..=view_h() + TILE).contains(&y);
+        let on_map =
+            (-TILE..=view_w() + TILE).contains(&x) && (-TILE..=view_h() + TILE).contains(&y);
         let view = (view3d::VIEW_RADIUS + view3d::CAMERA_BACK) * TILE;
-        on_map || self.players.iter().any(|p| p.alive() && len(sub(pos, p.pos)) <= view) || len(sub(pos, self.me().pos)) <= view
+        on_map
+            || self
+                .players
+                .iter()
+                .any(|p| p.alive() && len(sub(pos, p.pos)) <= view)
+            || len(sub(pos, self.me().pos)) <= view
     }
 
     /// A zombie left off screen and far behind long enough rises again ahead of the player, unchanged. The Harvester
@@ -2410,7 +3124,14 @@ impl Harvest {
         let mut i = 0;
         while i < self.zombies.len() {
             let z = &self.zombies[i];
-            let far = !z.boss && z.led.is_none() && z.rise >= 1.0 && self.players.iter().all(|p| !p.alive() || len(sub(z.pos, p.pos)) > t.straggler_reach) && !self.on_screen(z.pos);
+            let far = !z.boss
+                && z.led.is_none()
+                && z.rise >= 1.0
+                && self
+                    .players
+                    .iter()
+                    .all(|p| !p.alive() || len(sub(z.pos, p.pos)) > t.straggler_reach)
+                && !self.on_screen(z.pos);
             let z = &mut self.zombies[i];
             z.away = if far { z.away + dt } else { 0.0 };
             if !far || z.away < t.straggler_time {
@@ -2419,10 +3140,20 @@ impl Harvest {
             }
             let p = self.ring_player();
             let ahead = self.players[p].heading;
-            match self.ring_spot(p, Some(ahead)).or_else(|| self.ring_spot(p, None)) {
+            match self
+                .ring_spot(p, Some(ahead))
+                .or_else(|| self.ring_spot(p, None))
+            {
                 Some(pos) => {
                     let z = self.zombies.swap_remove(i);
-                    self.tells.push(Tell { kind: z.kind, pos, hp: z.hp, t: 0.0, leader: z.leader, led: None });
+                    self.tells.push(Tell {
+                        kind: z.kind,
+                        pos,
+                        hp: z.hp,
+                        t: 0.0,
+                        leader: z.leader,
+                        led: None,
+                    });
                 }
                 None => i += 1,
             }
@@ -2439,7 +3170,18 @@ impl Harvest {
             };
             if age < TELL_TIME {
                 if self.juice.rng.range(0.0, 1.0) < dt * 20.0 {
-                    self.juice.burst(pos, 0.0, 1, [0.0; 2], 0.0, [6.0, 18.0], juice::dirt(), 1.4, 0.4, 0.0);
+                    self.juice.burst(
+                        pos,
+                        0.0,
+                        1,
+                        [0.0; 2],
+                        0.0,
+                        [6.0, 18.0],
+                        juice::dirt(),
+                        1.4,
+                        0.4,
+                        0.0,
+                    );
                 }
                 continue;
             }
@@ -2456,9 +3198,24 @@ impl Harvest {
             } else {
                 self.zombies.push(z);
             }
-            let puff = if burrows { effects::effects().mound_breaks } else { effects::effects().zombie_rises };
+            let puff = if burrows {
+                effects::effects().mound_breaks
+            } else {
+                effects::effects().zombie_rises
+            };
             self.fx.push(Fx::play(puff, [pos[0], pos[1] - 3.0], 0.0));
-            self.juice.burst(pos, 0.0, 8, [0.0; 2], 0.0, [15.0, 45.0], juice::dirt(), 1.6, 0.6, 0.0);
+            self.juice.burst(
+                pos,
+                0.0,
+                8,
+                [0.0; 2],
+                0.0,
+                [15.0, 45.0],
+                juice::dirt(),
+                1.6,
+                0.6,
+                0.0,
+            );
             let (pan, gain) = self.place(pos);
             if self.hush[3] <= 0.0 && gain > 60 {
                 sounds.push(Sfx::Rise { pan, gain });
@@ -2469,8 +3226,17 @@ impl Harvest {
 
     /// Where the living players stand, which the dead hunt; the local player's spot when none stands.
     fn targets(&self) -> Vec<[f32; 2]> {
-        let living: Vec<[f32; 2]> = self.players.iter().filter(|p| p.alive()).map(|p| p.pos).collect();
-        if living.is_empty() { vec![self.me().pos] } else { living }
+        let living: Vec<[f32; 2]> = self
+            .players
+            .iter()
+            .filter(|p| p.alive())
+            .map(|p| p.pos)
+            .collect();
+        if living.is_empty() {
+            vec![self.me().pos]
+        } else {
+            living
+        }
     }
 
     /// How hard each zombie is pushed off its neighbors, in `self.sep`'s buffer; give it back when done.
@@ -2497,12 +3263,22 @@ impl Harvest {
         let radius = self.ring_radius();
         let sep = self.spread();
         let targets = self.targets();
-        let cells: Vec<[usize; 2]> = targets.iter().map(|p| [(p[0] / TILE) as usize, (p[1] / TILE) as usize]).collect();
+        let cells: Vec<[usize; 2]> = targets
+            .iter()
+            .map(|p| [(p[0] / TILE) as usize, (p[1] / TILE) as usize])
+            .collect();
         if cells != self.flow_cells {
-            self.map.flow_from(&targets, &mut self.flow, &mut self.steps);
+            self.map
+                .flow_from(&targets, &mut self.flow, &mut self.steps);
             self.flow_cells = cells;
         }
-        let nearest = |at: [f32; 2]| targets.iter().copied().min_by(|a, b| len(sub(*a, at)).total_cmp(&len(sub(*b, at)))).unwrap_or(at);
+        let nearest = |at: [f32; 2]| {
+            targets
+                .iter()
+                .copied()
+                .min_by(|a, b| len(sub(*a, at)).total_cmp(&len(sub(*b, at))))
+                .unwrap_or(at)
+        };
         let leaders = self.leaders();
         let mut bites = Vec::new();
         let mut spits = Vec::new();
@@ -2523,22 +3299,48 @@ impl Harvest {
             let t = crate::tuning::tuning();
             let prey = nearest(z.pos);
             let ranged = z.kind.stats().ranged;
-            let led = z.led.and_then(|q| leaders.get(q).copied().flatten()).filter(|&(id, ..)| z.id == id || len(sub(prey, z.pos)) > t.leader_chase);
+            let led = z
+                .led
+                .and_then(|q| leaders.get(q).copied().flatten())
+                .filter(|&(id, ..)| z.id == id || len(sub(prey, z.pos)) > t.leader_chase);
             let (to, speed, spitting) = if let Some((id, wish, at)) = led {
                 let (to, speed) = if z.id == id {
                     let k = len(wish).min(1.0);
-                    if k > 0.2 { (norm(wish), t.leader_speed * k) } else { (z.dir, 0.0) }
+                    if k > 0.2 {
+                        (norm(wish), t.leader_speed * k)
+                    } else {
+                        (z.dir, 0.0)
+                    }
                 } else {
                     let d = sub(at, z.pos);
-                    (norm(d), z.kind.stats().speed * ((len(d) - 16.0) / 32.0).clamp(0.0, 1.0))
+                    (
+                        norm(d),
+                        z.kind.stats().speed * ((len(d) - 16.0) / 32.0).clamp(0.0, 1.0),
+                    )
                 };
                 (to, speed * (1.0 - z.slow_k), false)
             } else {
-                let charge = if len(sub(prey, z.pos)) < t.charge_reach { z.kind.stats().charge } else { 1.0 };
-                let speed = if z.boss { t.harvester_speed } else { z.kind.stats().speed * charge } * (1.0 - z.slow_k);
+                let charge = if len(sub(prey, z.pos)) < t.charge_reach {
+                    z.kind.stats().charge
+                } else {
+                    1.0
+                };
+                let speed = if z.boss {
+                    t.harvester_speed
+                } else {
+                    z.kind.stats().speed * charge
+                } * (1.0 - z.slow_k);
                 let direct = sub(prey, z.pos);
-                let lure = self.decoys.iter().filter(|d| len(sub(d.pos, z.pos)) < d.lure).min_by(|a, b| len(sub(a.pos, z.pos)).total_cmp(&len(sub(b.pos, z.pos))));
-                let spitting = self.range.is_none() && !z.boss && lure.is_none() && len(direct) <= ranged && clear_shot(&self.map, z.pos, prey);
+                let lure = self
+                    .decoys
+                    .iter()
+                    .filter(|d| len(sub(d.pos, z.pos)) < d.lure)
+                    .min_by(|a, b| len(sub(a.pos, z.pos)).total_cmp(&len(sub(b.pos, z.pos))));
+                let spitting = self.range.is_none()
+                    && !z.boss
+                    && lure.is_none()
+                    && len(direct) <= ranged
+                    && clear_shot(&self.map, z.pos, prey);
                 let to = match lure {
                     Some(d) => norm(sub(d.pos, z.pos)),
                     None if spitting || len(direct) < TILE * 1.5 => norm(direct),
@@ -2551,25 +3353,52 @@ impl Harvest {
                 };
                 (to, speed, spitting)
             };
-            let s = if led.is_some_and(|(id, ..)| id == z.id) { [0.0; 2] } else { s };
+            let s = if led.is_some_and(|(id, ..)| id == z.id) {
+                [0.0; 2]
+            } else {
+                s
+            };
             if spitting && z.cd <= 0.0 {
                 z.cd = t.spit_every.max(0.1);
                 let fly = t.spit_speed.max(1.0);
                 let pos = [z.pos[0], z.pos[1] - 6.0];
-                spits.push(Spit { kind: z.kind, pos, vel: [to[0] * fly, to[1] * fly], damage: z.kind.stats().damage, life: ranged * 1.5 / fly, age: 0.0 });
+                spits.push(Spit {
+                    kind: z.kind,
+                    pos,
+                    vel: [to[0] * fly, to[1] * fly],
+                    damage: z.kind.stats().damage,
+                    life: ranged * 1.5 / fly,
+                    age: 0.0,
+                });
             }
-            let v = [to[0] * speed + s[0] * 20.0 + z.push[0], to[1] * speed + s[1] * 20.0 + z.push[1]];
+            let v = [
+                to[0] * speed + s[0] * 20.0 + z.push[0],
+                to[1] * speed + s[1] * 20.0 + z.push[1],
+            ];
             let half = t.zombie_half();
             // Whole cells can't reach prey in a solid cell's open part, so near it, or caught in one, it bumps as the player does.
-            let as_player = (len(sub(prey, z.pos)) < TILE * 1.5 && self.map.hits_cells(prey[0], prey[1], half)) || self.map.hits_cells(z.pos[0], z.pos[1], half);
-            z.pos = if as_player { self.map.slide(z.pos, [v[0] * dt, v[1] * dt], half) } else { self.map.slide_cells(z.pos, [v[0] * dt, v[1] * dt], half) };
-            z.push = [z.push[0] * (1.0 - 8.0 * dt).max(0.0), z.push[1] * (1.0 - 8.0 * dt).max(0.0)];
+            let as_player = (len(sub(prey, z.pos)) < TILE * 1.5
+                && self.map.hits_cells(prey[0], prey[1], half))
+                || self.map.hits_cells(z.pos[0], z.pos[1], half);
+            z.pos = if as_player {
+                self.map.slide(z.pos, [v[0] * dt, v[1] * dt], half)
+            } else {
+                self.map.slide_cells(z.pos, [v[0] * dt, v[1] * dt], half)
+            };
+            z.push = [
+                z.push[0] * (1.0 - 8.0 * dt).max(0.0),
+                z.push[1] * (1.0 - 8.0 * dt).max(0.0),
+            ];
             z.facing = Facing::of(to);
             z.dir = to;
             z.anim += dt;
             let ahead = [z.pos[0] + to[0] * TILE / 2.0, z.pos[1] + to[1] * TILE / 2.0];
             if let Some(i) = self.map.breakable_at(ahead[0], ahead[1]) {
-                bites.push((i, ahead, z.kind.stats().damage * crate::tuning::tuning().chew * self.fury * dt));
+                bites.push((
+                    i,
+                    ahead,
+                    z.kind.stats().damage * crate::tuning::tuning().chew * self.fury * dt,
+                ));
             }
         }
         self.sep = sep;
@@ -2586,21 +3415,48 @@ impl Harvest {
         while i < self.zombies.len() {
             let z = &self.zombies[i];
             let burrow = z.kind.stats().burrow;
-            if z.boss || burrow <= 0.0 || z.up < burrow || len(sub(nearest(z.pos), z.pos)) <= reach {
+            if z.boss || burrow <= 0.0 || z.up < burrow || len(sub(nearest(z.pos), z.pos)) <= reach
+            {
                 i += 1;
                 continue;
             }
             let mut z = self.zombies.swap_remove(i);
             z.up = 0.0;
             z.rise = 0.0;
-            self.fx.push(Fx::play(effects::effects().mound_breaks, [z.pos[0], z.pos[1] - 3.0], 0.0));
-            self.juice.burst(z.pos, 0.0, 8, [0.0; 2], 0.0, [15.0, 45.0], juice::dirt(), 1.6, 0.6, 0.0);
+            self.fx.push(Fx::play(
+                effects::effects().mound_breaks,
+                [z.pos[0], z.pos[1] - 3.0],
+                0.0,
+            ));
+            self.juice.burst(
+                z.pos,
+                0.0,
+                8,
+                [0.0; 2],
+                0.0,
+                [15.0, 45.0],
+                juice::dirt(),
+                1.6,
+                0.6,
+                0.0,
+            );
             self.burrowed.push(z);
         }
         for (i, at, damage) in bites {
             self.map.hurt_prop(i, damage, 0.0);
             if self.juice.rng.range(0.0, 1.0) < dt * 3.0 {
-                self.juice.burst(at, 4.0, 2, [0.0; 2], 0.0, [20.0, 50.0], juice::dirt(), 1.0, 0.3, 0.0);
+                self.juice.burst(
+                    at,
+                    4.0,
+                    2,
+                    [0.0; 2],
+                    0.0,
+                    [20.0, 50.0],
+                    juice::dirt(),
+                    1.0,
+                    0.3,
+                    0.0,
+                );
             }
         }
     }
@@ -2610,7 +3466,13 @@ impl Harvest {
     fn tunnel(&mut self, dt: f32, sounds: &mut Vec<Sfx>) {
         let t = crate::tuning::tuning();
         let targets = self.targets();
-        let nearest = |at: [f32; 2]| targets.iter().copied().min_by(|a, b| len(sub(*a, at)).total_cmp(&len(sub(*b, at)))).unwrap_or(at);
+        let nearest = |at: [f32; 2]| {
+            targets
+                .iter()
+                .copied()
+                .min_by(|a, b| len(sub(*a, at)).total_cmp(&len(sub(*b, at))))
+                .unwrap_or(at)
+        };
         for i in (0..self.burrowed.len()).rev() {
             let z = &mut self.burrowed[i];
             z.flash = (z.flash - dt).max(0.0);
@@ -2628,21 +3490,55 @@ impl Harvest {
                 continue;
             }
             let direct = sub(nearest(z.pos), z.pos);
-            let to = if len(direct) < TILE * 1.5 { norm(direct) } else { self.map.downhill(&self.flow, z.pos).unwrap_or(norm(direct)) };
+            let to = if len(direct) < TILE * 1.5 {
+                norm(direct)
+            } else {
+                self.map.downhill(&self.flow, z.pos).unwrap_or(norm(direct))
+            };
             let speed = z.kind.stats().speed;
-            z.pos = self.map.slide_cells(z.pos, [to[0] * speed * dt, to[1] * speed * dt], t.zombie_half());
+            z.pos = self.map.slide_cells(
+                z.pos,
+                [to[0] * speed * dt, to[1] * speed * dt],
+                t.zombie_half(),
+            );
             z.dir = to;
             z.facing = Facing::of(to);
             let pos = z.pos;
             if self.juice.rng.range(0.0, 1.0) < dt * 24.0 {
-                self.juice.burst(pos, 0.0, 2, [0.0; 2], 0.0, [8.0, 24.0], juice::dirt(), 1.6, 0.5, 0.0);
+                self.juice.burst(
+                    pos,
+                    0.0,
+                    2,
+                    [0.0; 2],
+                    0.0,
+                    [8.0, 24.0],
+                    juice::dirt(),
+                    1.6,
+                    0.5,
+                    0.0,
+                );
             }
             if len(sub(nearest(pos), pos)) > t.burrow_reach {
                 continue;
             }
             self.burrowed[i].rise = f32::MIN_POSITIVE;
-            self.fx.push(Fx::play(effects::effects().mound_breaks, [pos[0], pos[1] - 3.0], 0.0));
-            self.juice.burst(pos, 0.0, 16, [0.0; 2], 0.0, [25.0, 70.0], juice::dirt(), 2.0, 0.7, 0.0);
+            self.fx.push(Fx::play(
+                effects::effects().mound_breaks,
+                [pos[0], pos[1] - 3.0],
+                0.0,
+            ));
+            self.juice.burst(
+                pos,
+                0.0,
+                16,
+                [0.0; 2],
+                0.0,
+                [25.0, 70.0],
+                juice::dirt(),
+                2.0,
+                0.7,
+                0.0,
+            );
             let (pan, gain) = self.place(pos);
             sounds.push(Sfx::Rise { pan, gain });
             self.hush[3] = 0.3;
@@ -2658,13 +3554,27 @@ impl Harvest {
             s.life -= dt;
             s.age += dt;
             let ground = [s.pos[0], s.pos[1] + 6.0];
-            let player = self.players.iter().position(|p| p.alive() && len(sub(ground, p.pos)) < SPIT_REACH);
+            let player = self
+                .players
+                .iter()
+                .position(|p| p.alive() && len(sub(ground, p.pos)) < SPIT_REACH);
             if player.is_some() || self.map.cover_at(ground[0], ground[1]) {
                 if let Some(p) = player {
                     hit[p] = hit[p].max(s.damage);
                 }
                 splat = Some(ground);
-                self.juice.burst(ground, 6.0, 4, norm([-s.vel[0], -s.vel[1]]), 0.9, [20.0, 50.0], juice::blood_of(s.kind.stats().blood), 1.0, 0.3, 0.0);
+                self.juice.burst(
+                    ground,
+                    6.0,
+                    4,
+                    norm([-s.vel[0], -s.vel[1]]),
+                    0.9,
+                    [20.0, 50.0],
+                    juice::blood_of(s.kind.stats().blood),
+                    1.0,
+                    0.3,
+                    0.0,
+                );
                 s.life = 0.0;
             }
         }
@@ -2685,10 +3595,27 @@ impl Harvest {
 
     /// Breaks a prop chewed or shot to pieces, one per frame, and sends the dead the new way through.
     fn crumble(&mut self, dt: f32, sounds: &mut Vec<Sfx>) {
-        let Some(c) = self.map.crumble(dt) else { return };
+        let Some(c) = self.map.crumble(dt) else {
+            return;
+        };
         self.flow_cells.clear();
-        self.fx.push(Fx::play(effects::effects().prop_crumbles, [c[0], c[1] - 4.0], 0.0));
-        self.juice.burst(c, 4.0, 12, [0.0; 2], 0.0, [30.0, 80.0], juice::dirt(), 1.6, 0.6, 0.0);
+        self.fx.push(Fx::play(
+            effects::effects().prop_crumbles,
+            [c[0], c[1] - 4.0],
+            0.0,
+        ));
+        self.juice.burst(
+            c,
+            4.0,
+            12,
+            [0.0; 2],
+            0.0,
+            [30.0, 80.0],
+            juice::dirt(),
+            1.6,
+            0.6,
+            0.0,
+        );
         self.noise = Some(c);
         self.thud((1, false), sounds);
     }
@@ -2734,8 +3661,20 @@ impl Harvest {
     /// Player `p` falls while others stand: they stop acting, and the run goes on without them.
     fn falls(&mut self, p: PlayerId, sounds: &mut Vec<Sfx>) {
         let at = self.players[p].pos;
-        self.juice.burst(at, 8.0, 30, [0.0; 2], 0.0, [30.0, 120.0], juice::blood(), 2.0, 0.9, 0.0);
-        self.juice.banner(format!("PLAYER {} TURNED", self.number(p)), RED, 2.4);
+        self.juice.burst(
+            at,
+            8.0,
+            30,
+            [0.0; 2],
+            0.0,
+            [30.0, 120.0],
+            juice::blood(),
+            2.0,
+            0.9,
+            0.0,
+        );
+        self.juice
+            .banner(format!("PLAYER {} TURNED", self.number(p)), RED, 2.4);
         if p < self.views() {
             sounds.push(Sfx::GameOver);
         }
@@ -2765,8 +3704,23 @@ impl Harvest {
         }
         if before < TURN_RISE && t >= TURN_RISE {
             let at = self.players[p].pos;
-            self.juice.burst(at, 0.0, 16, [0.0; 2], 0.0, [20.0, 60.0], juice::dirt(), 1.8, 0.7, 0.0);
-            self.fx.push(Fx::play(effects::effects().player_rises, [at[0], at[1] - 3.0], 0.0));
+            self.juice.burst(
+                at,
+                0.0,
+                16,
+                [0.0; 2],
+                0.0,
+                [20.0, 60.0],
+                juice::dirt(),
+                1.8,
+                0.7,
+                0.0,
+            );
+            self.fx.push(Fx::play(
+                effects::effects().player_rises,
+                [at[0], at[1] - 3.0],
+                0.0,
+            ));
             if p < self.views {
                 sounds.push(Sfx::Turn);
             }
@@ -2781,7 +3735,11 @@ impl Harvest {
 
     /// A new way to wander from `dir`: a little off it, or well round when the way ahead is blocked.
     fn veer(&mut self, dir: [f32; 2], blocked: bool) -> [f32; 2] {
-        let turn = if blocked { self.rng.range(PI / 2.0, PI * 1.5) } else { self.rng.range(-1.2, 1.2) };
+        let turn = if blocked {
+            self.rng.range(PI / 2.0, PI * 1.5)
+        } else {
+            self.rng.range(-1.2, 1.2)
+        };
         let a = fm::atan2(dir[1], dir[0]) + turn;
         [fm::cos(a), fm::sin(a)]
     }
@@ -2817,11 +3775,24 @@ impl Harvest {
                 (z.dir, z.roam) = (dir, leg);
             }
             let z = &mut self.zombies[i];
-            let speed = if z.boss { t.harvester_speed } else { z.kind.stats().speed } * t.roam_speed * (1.0 - z.slow_k);
-            let v = [z.dir[0] * speed + s[0] * 20.0 + z.push[0], z.dir[1] * speed + s[1] * 20.0 + z.push[1]];
+            let speed = if z.boss {
+                t.harvester_speed
+            } else {
+                z.kind.stats().speed
+            } * t.roam_speed
+                * (1.0 - z.slow_k);
+            let v = [
+                z.dir[0] * speed + s[0] * 20.0 + z.push[0],
+                z.dir[1] * speed + s[1] * 20.0 + z.push[1],
+            ];
             let from = z.pos;
-            z.pos = self.map.slide_cells(from, [v[0] * dt, v[1] * dt], t.zombie_half());
-            z.push = [z.push[0] * (1.0 - 8.0 * dt).max(0.0), z.push[1] * (1.0 - 8.0 * dt).max(0.0)];
+            z.pos = self
+                .map
+                .slide_cells(from, [v[0] * dt, v[1] * dt], t.zombie_half());
+            z.push = [
+                z.push[0] * (1.0 - 8.0 * dt).max(0.0),
+                z.push[1] * (1.0 - 8.0 * dt).max(0.0),
+            ];
             z.facing = Facing::of(z.dir);
             z.anim += dt;
             if speed > 0.0 && len(sub(z.pos, from)) < speed * dt * 0.3 {
@@ -2845,7 +3816,11 @@ impl Harvest {
         let from = self.players[p].pos;
         let step = TURNED_SPEED * dt;
         let heading = self.players[p].heading;
-        self.players[p].pos = self.map.slide(from, [heading[0] * step, heading[1] * step], crate::tuning::tuning().player_half());
+        self.players[p].pos = self.map.slide(
+            from,
+            [heading[0] * step, heading[1] * step],
+            crate::tuning::tuning().player_half(),
+        );
         self.players[p].facing = Facing::of(heading);
         if len(sub(self.players[p].pos, from)) < step * 0.3 {
             self.players[p].heading = self.veer(self.players[p].heading, true);
@@ -2862,8 +3837,30 @@ impl Harvest {
             if pl.hurt > 0.0 || !pl.alive() {
                 continue;
             }
-            let biters = self.zombies.iter().filter(|z| z.rise >= crate::tuning::tuning().rise_bite_from.min(1.0) && len(sub(z.pos, pl.pos)) < crate::tuning::tuning().bite_reach);
-            let (hit, by) = biters.map(|z| (z.kind.stats().damage * if z.rise < 1.0 { z.kind.stats().rise_bite * crate::tuning::tuning().rise_bite } else { 1.0 } * if z.boss { crate::tuning::tuning().harvester_bite } else { 1.0 } * self.fury * self.difficulty.damage(), z.led)).fold((0.0, None), |a, b| if b.0 > a.0 { b } else { a });
+            let biters = self.zombies.iter().filter(|z| {
+                z.rise >= crate::tuning::tuning().rise_bite_from.min(1.0)
+                    && len(sub(z.pos, pl.pos)) < crate::tuning::tuning().bite_reach
+            });
+            let (hit, by) = biters
+                .map(|z| {
+                    (
+                        z.kind.stats().damage
+                            * if z.rise < 1.0 {
+                                z.kind.stats().rise_bite * crate::tuning::tuning().rise_bite
+                            } else {
+                                1.0
+                            }
+                            * if z.boss {
+                                crate::tuning::tuning().harvester_bite
+                            } else {
+                                1.0
+                            }
+                            * self.fury
+                            * self.difficulty.damage(),
+                        z.led,
+                    )
+                })
+                .fold((0.0, None), |a, b| if b.0 > a.0 { b } else { a });
             if hit > 0.0 {
                 if let Some(q) = by {
                     self.juice.tally.book_mut(q).bites += 1;
@@ -2896,7 +3893,18 @@ impl Harvest {
             j.shake(shake);
             j.stop(0.08);
         });
-        self.juice.burst(self.players[p].pos, 8.0, 10, [0.0; 2], 0.0, [30.0, 80.0], juice::blood(), 1.6, 0.5, 0.0);
+        self.juice.burst(
+            self.players[p].pos,
+            8.0,
+            10,
+            [0.0; 2],
+            0.0,
+            [30.0, 80.0],
+            juice::blood(),
+            1.6,
+            0.5,
+            0.0,
+        );
     }
 
     /// One hit sound for however many landed this frame, unless one just played.
@@ -2908,7 +3916,11 @@ impl Harvest {
     }
 
     fn move_bullets(&mut self, dt: f32, sounds: &mut Vec<Sfx>) {
-        let crits: Vec<f32> = self.players.iter().map(|p| crate::tuning::tuning().crit + p.kit.mods.crit).collect();
+        let crits: Vec<f32> = self
+            .players
+            .iter()
+            .map(|p| crate::tuning::tuning().crit + p.kit.mods.crit)
+            .collect();
         let own_shot = effects::effects().bullet.shot;
         let mut hits = (0, false);
         let mut own_hits: Vec<Sfx> = Vec::new();
@@ -2929,7 +3941,8 @@ impl Harvest {
                 self.juice.trail(ground, 6.0 + b.up(b.age), back, n, &s);
             }
             let overhead = b.climb(b.age) > OVERHEAD;
-            let from_above = overhead || b.by.and_then(|d| book().defs[d].does) == Some(powerups::Does::Drone);
+            let from_above =
+                overhead || b.by.and_then(|d| book().defs[d].does) == Some(powerups::Does::Drone);
             if !from_above && self.map.cover_at(ground[0], ground[1]) {
                 let cell = |p: [f32; 2]| [(p[0] / TILE).floor(), (p[1] / TILE).floor()];
                 let at = cell(ground);
@@ -2939,12 +3952,45 @@ impl Harvest {
                     }
                     barrel.hp -= b.damage;
                     barrel.flash = FLASH_TIME;
-                    self.juice.burst(ground, 6.0, 4, back, 0.8, [40.0, 100.0], juice::spark(), 0.8, 0.2, 1.0);
+                    self.juice.burst(
+                        ground,
+                        6.0,
+                        4,
+                        back,
+                        0.8,
+                        [40.0, 100.0],
+                        juice::spark(),
+                        0.8,
+                        0.2,
+                        1.0,
+                    );
                 } else if let Some(i) = self.map.breakable_at(ground[0], ground[1]) {
                     self.map.hurt_prop(i, b.damage, FLASH_TIME);
-                    self.juice.burst(ground, 6.0, 4, back, 0.9, [30.0, 70.0], juice::dirt(), 1.0, 0.3, 0.0);
+                    self.juice.burst(
+                        ground,
+                        6.0,
+                        4,
+                        back,
+                        0.9,
+                        [30.0, 70.0],
+                        juice::dirt(),
+                        1.0,
+                        0.3,
+                        0.0,
+                    );
                 } else {
-                    self.juice.burst(ground, 6.0, 2, back, 0.9, [20.0, 50.0], juice::dirt(), 1.0, 0.3, 0.0);
+                    self.juice.burst(
+                        ground,
+                        6.0,
+                        2,
+                        back,
+                        0.9,
+                        [20.0, 50.0],
+                        juice::dirt(),
+                        1.0,
+                        0.3,
+                        0.0,
+                    );
                 }
                 if let Some(s) = &shot {
                     self.juice.impact(ground, 6.0, back, s);
@@ -2956,11 +4002,20 @@ impl Harvest {
                 continue;
             }
             let spent = b.life <= 0.0;
-            if b.steer.through && !b.steer.target.is_some_and(|id| self.zombies.iter().any(|z| z.id == id && z.hp > 0.0)) {
+            if b.steer.through
+                && !b
+                    .steer
+                    .target
+                    .is_some_and(|id| self.zombies.iter().any(|z| z.id == id && z.hp > 0.0))
+            {
                 b.steer.target = None;
             }
             for z in &mut self.zombies {
-                if overhead || b.life <= 0.0 || b.hit.contains(&z.id) || (b.steer.through && b.steer.target.is_some_and(|id| id != z.id)) {
+                if overhead
+                    || b.life <= 0.0
+                    || b.hit.contains(&z.id)
+                    || (b.steer.through && b.steer.target.is_some_and(|id| id != z.id))
+                {
                     continue;
                 }
                 let d = sub([z.pos[0], z.pos[1] - 6.0], b.pos);
@@ -2969,7 +4024,14 @@ impl Harvest {
                 } else if len(d) < 7.0 {
                     self.juice.tally.credit(b.owner, b.by);
                     self.juice.soak = b.soak;
-                    let crit = strike(z, &mut self.juice, b.damage, norm(b.vel), b.force, crits[b.owner]);
+                    let crit = strike(
+                        z,
+                        &mut self.juice,
+                        b.damage,
+                        norm(b.vel),
+                        b.force,
+                        crits[b.owner],
+                    );
                     match own_hit {
                         Some(s) if !own_hits.contains(&s) => own_hits.push(s),
                         Some(_) => {}
@@ -3008,15 +4070,34 @@ impl Harvest {
 
     /// A shot's small blast at `c`: hurts every zombie in `radius` and sets off barrels, never a player. Bigger with
     /// its owner's blast and area.
-    fn pop(&mut self, c: [f32; 2], radius: f32, damage: f32, owner: PlayerId, by: Option<usize>, sounds: &mut Vec<Sfx>) {
+    fn pop(
+        &mut self,
+        c: [f32; 2],
+        radius: f32,
+        damage: f32,
+        owner: PlayerId,
+        by: Option<usize>,
+        sounds: &mut Vec<Sfx>,
+    ) {
         let m = self.players[owner].kit.mods;
-        let (radius, damage, crit) = (radius * m.blast * m.area, damage * m.blast, crate::tuning::tuning().crit + m.crit);
+        let (radius, damage, crit) = (
+            radius * m.blast * m.area,
+            damage * m.blast,
+            crate::tuning::tuning().crit + m.crit,
+        );
         self.juice.tally.credit(owner, by);
         let mut hits = (0, false);
         for z in self.zombies.iter_mut().filter(|z| z.hp > 0.0) {
             let d = sub(z.pos, c);
             if len(d) < radius {
-                hits.1 |= strike(z, &mut self.juice, damage, norm(d), 40.0 * m.knockback, crit);
+                hits.1 |= strike(
+                    z,
+                    &mut self.juice,
+                    damage,
+                    norm(d),
+                    40.0 * m.knockback,
+                    crit,
+                );
                 hits.0 += 1;
             }
         }
@@ -3032,11 +4113,26 @@ impl Harvest {
         if let Some(e) = effects::effects().named("pop") {
             self.fx.push(Fx::play(e, [c[0], c[1] - 6.0], 0.0));
         }
-        self.juice.flash(c, 8.0, [2.0, 1.2, 0.5], radius * 0.15, 0.18);
+        self.juice
+            .flash(c, 8.0, [2.0, 1.2, 0.5], radius * 0.15, 0.18);
         self.juice.ring(c, radius, 0.25, juice::ember());
-        self.juice.burst(c, 6.0, 8, [0.0; 2], 0.0, [30.0, 90.0], juice::ember(), 0.8, 0.4, 1.0);
+        self.juice.burst(
+            c,
+            6.0,
+            8,
+            [0.0; 2],
+            0.0,
+            [30.0, 90.0],
+            juice::ember(),
+            0.8,
+            0.4,
+            1.0,
+        );
         let (pan, gain) = self.place(c);
-        sounds.push(by.and_then(weapons::hit_sound).unwrap_or(Sfx::Boom { pan, gain: gain / 3 }));
+        sounds.push(by.and_then(weapons::hit_sound).unwrap_or(Sfx::Boom {
+            pan,
+            gain: gain / 3,
+        }));
         self.thud(hits, sounds);
     }
 
@@ -3052,7 +4148,12 @@ impl Harvest {
         self.flow_cells.clear();
         self.juice.tally.by = None;
         self.actor = barrel.by;
-        self.explode(c, crate::tuning::tuning().barrel_radius, crate::tuning::tuning().barrel_damage, sounds);
+        self.explode(
+            c,
+            crate::tuning::tuning().barrel_radius,
+            crate::tuning::tuning().barrel_damage,
+            sounds,
+        );
         self.actor = ME;
         Some(barrel.by)
     }
@@ -3062,15 +4163,32 @@ impl Harvest {
     fn explode(&mut self, c: [f32; 2], radius: f32, damage: f32, sounds: &mut Vec<Sfx>) {
         let m = self.actor().kit.mods;
         let t = crate::tuning::tuning();
-        let (radius, damage, crit) = (radius * m.blast * m.area, damage * m.blast * m.damage, t.crit + m.crit);
+        let (radius, damage, crit) = (
+            radius * m.blast * m.area,
+            damage * m.blast * m.damage,
+            t.crit + m.crit,
+        );
         let mut hits = (0, false);
         for z in &mut self.zombies {
             let d = sub(z.pos, c);
             if len(d) < radius {
-                hits.1 |= strike(z, &mut self.juice, damage, norm(d), 120.0 * m.knockback, crit);
+                hits.1 |= strike(
+                    z,
+                    &mut self.juice,
+                    damage,
+                    norm(d),
+                    120.0 * m.knockback,
+                    crit,
+                );
                 hits.0 += 1;
                 if z.soak > 0.0 && t.soak_blast > 0.0 {
-                    weapons::ignite(z, t.soak_blast, t.fire_burn, self.actor, self.juice.tally.by);
+                    weapons::ignite(
+                        z,
+                        t.soak_blast,
+                        t.fire_burn,
+                        self.actor,
+                        self.juice.tally.by,
+                    );
                 }
                 z.fling = 60.0 + 150.0 * (1.0 - len(d) / radius);
             }
@@ -3088,7 +4206,8 @@ impl Harvest {
         }
         let playing = !matches!(self.phase, Phase::Over { .. });
         let own = self.actor();
-        if playing && own.alive() && len(sub(own.pos, c)) < radius * t.blast_near && own.hurt <= 0.0 {
+        if playing && own.alive() && len(sub(own.pos, c)) < radius * t.blast_near && own.hurt <= 0.0
+        {
             let hurt = (t.blast_hurt - m.armor).max(1.0);
             let at = own.pos;
             self.actor_mut().hp -= hurt;
@@ -3102,17 +4221,30 @@ impl Harvest {
         }
         self.noise = Some(c);
         let (pan, gain) = self.place(c);
-        sounds.push(Sfx::Boom { pan, gain: gain.max(110) });
+        sounds.push(Sfx::Boom {
+            pan,
+            gain: gain.max(110),
+        });
         self.thud(hits, sounds);
     }
 
     fn merge_heart(&mut self, at: [f32; 2], xp: u32) -> bool {
         let t = crate::tuning::tuning();
-        let free = |d: &Drop| matches!(d.kind, DropKind::Money(_)) && d.pulled.is_none() && d.dog.is_none();
-        if t.merge_after <= 0.0 || (self.drops.iter().filter(|d| free(d)).count() as f32) < t.merge_after {
+        let free = |d: &Drop| {
+            matches!(d.kind, DropKind::Money(_)) && d.pulled.is_none() && d.dog.is_none()
+        };
+        if t.merge_after <= 0.0
+            || (self.drops.iter().filter(|d| free(d)).count() as f32) < t.merge_after
+        {
             return false;
         }
-        let near = self.drops.iter_mut().filter(|d| free(d)).map(|d| (len(sub(d.pos, at)), d)).filter(|(l, _)| *l <= t.merge_reach).min_by(|a, b| a.0.total_cmp(&b.0));
+        let near = self
+            .drops
+            .iter_mut()
+            .filter(|d| free(d))
+            .map(|d| (len(sub(d.pos, at)), d))
+            .filter(|(l, _)| *l <= t.merge_reach)
+            .min_by(|a, b| a.0.total_cmp(&b.0));
         let Some((_, d)) = near else { return false };
         if let DropKind::Money(v) = &mut d.kind {
             *v += xp;
@@ -3124,15 +4256,46 @@ impl Harvest {
     /// How a blast at `c` looks and feels: its sprite and smoke, shake, flash, ring, sparks and scorch.
     pub(super) fn blast_juice(&mut self, c: [f32; 2], radius: f32) {
         self.fx.push(Fx::play(effects::effects().explosion, c, 0.0));
-        self.fx.push(Fx::play(effects::effects().explosion_smoke, blast_smoke_at(c), 0.0));
+        self.fx.push(Fx::play(
+            effects::effects().explosion_smoke,
+            blast_smoke_at(c),
+            0.0,
+        ));
         self.shake_each(|at| (0.75 * (1.0 - len(sub(at, c)) / 260.0)).max(0.12), 4.0);
         self.juice.stop(0.07);
         self.juice.flash(c, 14.0, [2.4, 1.3, 0.5], 8.0, 0.45);
         self.juice.ring(c, radius * 1.3, 0.45, juice::ember());
-        self.juice.burst(c, 4.0, 18, [0.0; 2], 0.0, [40.0, 140.0], juice::ember(), 1.2, 0.6, 1.0);
-        self.juice.burst(c, 2.0, 14, [0.0; 2], 0.0, [30.0, 90.0], juice::dirt(), 1.8, 0.8, 0.0);
+        self.juice.burst(
+            c,
+            4.0,
+            18,
+            [0.0; 2],
+            0.0,
+            [40.0, 140.0],
+            juice::ember(),
+            1.2,
+            0.6,
+            1.0,
+        );
+        self.juice.burst(
+            c,
+            2.0,
+            14,
+            [0.0; 2],
+            0.0,
+            [30.0, 90.0],
+            juice::dirt(),
+            1.8,
+            0.8,
+            0.0,
+        );
         let scorch = art::BLOOD_STAIN[self.juice.rng.below(art::BLOOD_STAIN.len())];
-        self.stain((scorch, c[0] - scorch.w() / 2.0, c[1] - scorch.h() / 2.0, [0.12, 0.1, 0.09]));
+        self.stain((
+            scorch,
+            c[0] - scorch.w() / 2.0,
+            c[1] - scorch.h() / 2.0,
+            [0.12, 0.1, 0.09],
+        ));
     }
 
     fn stain(&mut self, s: (Art, f32, f32, [f32; 3])) {
@@ -3145,7 +4308,13 @@ impl Harvest {
     /// Lobs a grenade at the map point under a bottom-screen touch, if one is ready.
     fn throw(&mut self, touch: [f32; 2], sounds: &mut Vec<Sfx>) {
         let cam = self.camera();
-        self.throw_at([cam[0] + touch[0] / map_scale(), cam[1] + touch[1] / map_scale()], sounds);
+        self.throw_at(
+            [
+                cam[0] + touch[0] / map_scale(),
+                cam[1] + touch[1] / map_scale(),
+            ],
+            sounds,
+        );
     }
 
     fn throw_at(&mut self, to: [f32; 2], sounds: &mut Vec<Sfx>) {
@@ -3165,7 +4334,14 @@ impl Harvest {
             pl.grenades -= 1.0;
         }
         let from = pl.pos;
-        self.thrown.push(Grenade { from, to, t: 0.0, kind: Thrown::Grenade, by: None, owner: p });
+        self.thrown.push(Grenade {
+            from,
+            to,
+            t: 0.0,
+            kind: Thrown::Grenade,
+            by: None,
+            owner: p,
+        });
         sounds.push(Sfx::Throw);
     }
 
@@ -3173,7 +4349,9 @@ impl Harvest {
         for g in &mut self.thrown {
             g.t += dt;
         }
-        let (landed, flying): (Vec<Grenade>, Vec<Grenade>) = std::mem::take(&mut self.thrown).into_iter().partition(|g| g.t >= crate::tuning::tuning().grenade_flight);
+        let (landed, flying): (Vec<Grenade>, Vec<Grenade>) = std::mem::take(&mut self.thrown)
+            .into_iter()
+            .partition(|g| g.t >= crate::tuning::tuning().grenade_flight);
         self.thrown = flying;
         for g in landed {
             self.juice.tally.credit(g.owner, g.by);
@@ -3191,18 +4369,75 @@ impl Harvest {
     /// A zombie dying at `pos`, knocked toward `fall` and flung `fling` hard: blood in its `own` color or the game's, a
     /// stain, gibs and its corpse.
     #[allow(clippy::too_many_arguments)]
-    pub(super) fn gore(&mut self, pos: [f32; 2], fall: [f32; 2], fling: f32, dir: [f32; 2], look: &Look, gibs: usize, own: Option<[u8; 3]>) {
+    pub(super) fn gore(
+        &mut self,
+        pos: [f32; 2],
+        fall: [f32; 2],
+        fling: f32,
+        dir: [f32; 2],
+        look: &Look,
+        gibs: usize,
+        own: Option<[u8; 3]>,
+    ) {
         let splat = effects::effects().blood;
-        let tint = splat.frames.first().map_or([1.0; 3], |&a| juice::blood_tint(a, own));
-        self.fx.push(Fx { tint, ..Fx::play(splat, [pos[0], pos[1] - 4.0], 0.0) });
+        let tint = splat
+            .frames
+            .first()
+            .map_or([1.0; 3], |&a| juice::blood_tint(a, own));
+        self.fx.push(Fx {
+            tint,
+            ..Fx::play(splat, [pos[0], pos[1] - 4.0], 0.0)
+        });
         let stain = art::BLOOD_STAIN[self.rng.below(art::BLOOD_STAIN.len())];
-        self.stain((stain, pos[0] - stain.w() / 2.0, pos[1] - stain.h() / 2.0, juice::blood_tint(stain, own)));
-        let (vel, vz) = if fling > 0.0 { ([fall[0] * fling, fall[1] * fling], fling * 0.9) } else { ([fall[0] * 25.0, fall[1] * 25.0], 0.0) };
+        self.stain((
+            stain,
+            pos[0] - stain.w() / 2.0,
+            pos[1] - stain.h() / 2.0,
+            juice::blood_tint(stain, own),
+        ));
+        let (vel, vz) = if fling > 0.0 {
+            ([fall[0] * fling, fall[1] * fling], fling * 0.9)
+        } else {
+            ([fall[0] * 25.0, fall[1] * 25.0], 0.0)
+        };
         let flip = self.juice.rng.below(2) == 0;
         let dead = look.dead.map(|d| (d, dir));
-        self.juice.corpse(Corpse { art: look.hurt[Facing::Front.index()], dead, flip, pos, z: 0.0, vel, vz, fall, age: 0.0, spin: 0.0 });
-        self.juice.burst(pos, 8.0, gibs, fall, 1.2, [30.0, 110.0], juice::blood_of(own), 1.6, 0.6, 0.0);
-        self.juice.burst(pos, 8.0, gibs / 3, fall, 0.8, [20.0, 60.0], juice::dark_blood_of(own), 2.4, 0.8, 0.0);
+        self.juice.corpse(Corpse {
+            art: look.hurt[Facing::Front.index()],
+            dead,
+            flip,
+            pos,
+            z: 0.0,
+            vel,
+            vz,
+            fall,
+            age: 0.0,
+            spin: 0.0,
+        });
+        self.juice.burst(
+            pos,
+            8.0,
+            gibs,
+            fall,
+            1.2,
+            [30.0, 110.0],
+            juice::blood_of(own),
+            1.6,
+            0.6,
+            0.0,
+        );
+        self.juice.burst(
+            pos,
+            8.0,
+            gibs / 3,
+            fall,
+            0.8,
+            [20.0, 60.0],
+            juice::dark_blood_of(own),
+            2.4,
+            0.8,
+            0.0,
+        );
     }
 
     fn reap(&mut self, sounds: &mut Vec<Sfx>, flow: &mut Flow) {
@@ -3216,8 +4451,20 @@ impl Harvest {
             let z = self.zombies.swap_remove(i);
             if z.barren || matches!(self.phase, Phase::Over { .. }) {
                 let s = z.kind.stats();
-                let fall = if z.knock == [0.0; 2] { norm(sub(z.pos, self.players[self.nearest_player(z.pos)].pos)) } else { z.knock };
-                self.gore(z.pos, fall, z.fling, z.dir, &s.look, s.gibs as usize, s.blood);
+                let fall = if z.knock == [0.0; 2] {
+                    norm(sub(z.pos, self.players[self.nearest_player(z.pos)].pos))
+                } else {
+                    z.knock
+                };
+                self.gore(
+                    z.pos,
+                    fall,
+                    z.fling,
+                    z.dir,
+                    &s.look,
+                    s.gibs as usize,
+                    s.blood,
+                );
                 died = Some(z.kind);
                 flow.buzz(self.nearest_player(z.pos), Rumble::Tick);
                 continue;
@@ -3233,8 +4480,20 @@ impl Harvest {
                 _ => z.kind,
             });
             let s = z.kind.stats();
-            let fall = if z.knock == [0.0; 2] { norm(sub(z.pos, self.players[self.nearest_player(z.pos)].pos)) } else { z.knock };
-            self.gore(z.pos, fall, z.fling, z.dir, &s.look, s.gibs as usize, s.blood);
+            let fall = if z.knock == [0.0; 2] {
+                norm(sub(z.pos, self.players[self.nearest_player(z.pos)].pos))
+            } else {
+                z.knock
+            };
+            self.gore(
+                z.pos,
+                fall,
+                z.fling,
+                z.dir,
+                &s.look,
+                s.gibs as usize,
+                s.blood,
+            );
             if s.heavy {
                 self.juice.stop(0.06);
                 self.feel_for(self.nearest_player(z.pos), |j| j.shake(0.2));
@@ -3250,7 +4509,18 @@ impl Harvest {
             let speed = self.juice.rng.range(8.0, 28.0);
             let vz = self.juice.rng.range(60.0, 95.0);
             if !matches!(kind, DropKind::Money(v) if self.merge_heart(z.pos, v)) {
-                self.drops.push(Drop { kind, pos: z.pos, z: 4.0, vz, vel: [fm::cos(a) * speed, fm::sin(a) * speed], age: 0.0, pulled: None, to: ME, dog: None, hearts: 1 });
+                self.drops.push(Drop {
+                    kind,
+                    pos: z.pos,
+                    z: 4.0,
+                    vz,
+                    vel: [fm::cos(a) * speed, fm::sin(a) * speed],
+                    age: 0.0,
+                    pulled: None,
+                    to: ME,
+                    dog: None,
+                    hearts: 1,
+                });
             }
         }
         if let Some(kind) = died
@@ -3271,10 +4541,22 @@ impl Harvest {
     fn cash_in(&mut self, sounds: &mut Vec<Sfx>) {
         let t = crate::tuning::tuning();
         let Some(at) = self.ticket() else { return };
-        let Some(p) = (0..self.players.len()).find(|&p| self.players[p].alive() && len(sub(self.players[p].pos, at)) <= t.driver_reach) else { return };
+        let Some(p) = (0..self.players.len()).find(|&p| {
+            self.players[p].alive() && len(sub(self.players[p].pos, at)) <= t.driver_reach
+        }) else {
+            return;
+        };
         self.ticket = self.t + t.driver_every;
-        for d in self.drops.iter_mut().filter(|d| matches!(d.kind, DropKind::Money(_)) && d.pulled.is_none()) {
-            let side = if self.juice.rng.below(2) == 0 { 1.0 } else { -1.0 };
+        for d in self
+            .drops
+            .iter_mut()
+            .filter(|d| matches!(d.kind, DropKind::Money(_)) && d.pulled.is_none())
+        {
+            let side = if self.juice.rng.below(2) == 0 {
+                1.0
+            } else {
+                -1.0
+            };
             d.catch(norm(sub(self.players[p].pos, d.pos)), side);
             (d.to, d.dog) = (p, None);
         }
@@ -3309,9 +4591,16 @@ impl Harvest {
                 d.to = nearest;
             }
             if d.pulled.is_none()
-                && let Some(p) = (0..self.players.len()).find(|&p| self.players[p].alive() && len(sub(self.players[p].pos, d.pos)) < self.players[p].kit.magnet())
+                && let Some(p) = (0..self.players.len()).find(|&p| {
+                    self.players[p].alive()
+                        && len(sub(self.players[p].pos, d.pos)) < self.players[p].kit.magnet()
+                })
             {
-                let side = if self.juice.rng.below(2) == 0 { 1.0 } else { -1.0 };
+                let side = if self.juice.rng.below(2) == 0 {
+                    1.0
+                } else {
+                    -1.0
+                };
                 d.catch(norm(sub(self.players[p].pos, d.pos)), side);
                 (d.to, d.dog) = (p, None);
             }
@@ -3324,7 +4613,10 @@ impl Harvest {
                     *p += dt;
                     let speed = 110.0 + 320.0 * p.min(1.5);
                     let k = if *p > 0.6 { 1.0 } else { (8.0 * dt).min(1.0) };
-                    d.vel = [d.vel[0] + (n[0] * speed - d.vel[0]) * k, d.vel[1] + (n[1] * speed - d.vel[1]) * k];
+                    d.vel = [
+                        d.vel[0] + (n[0] * speed - d.vel[0]) * k,
+                        d.vel[1] + (n[1] * speed - d.vel[1]) * k,
+                    ];
                 }
                 None => {
                     let drag = (1.0 - 4.0 * dt).max(0.0);
@@ -3343,17 +4635,24 @@ impl Harvest {
                         self.xp_frac = self.xp_frac.fract();
                         money = Some(p);
                         if self.juice.motes.len() < 24 {
-                            self.juice.motes.push(juice::Mote { pos: d.pos, age: 0.0 });
+                            self.juice.motes.push(juice::Mote {
+                                pos: d.pos,
+                                age: 0.0,
+                            });
                         }
                     }
                     DropKind::Chest => {
                         self.chests += 1;
                         sounds.push(Sfx::LevelUp);
                         self.juice.shout("A CHEST", GOLD, 0.9);
-                        self.juice.flash(self.players[p].pos, 20.0, [1.8, 1.4, 0.6], 9.0, 0.8);
+                        self.juice
+                            .flash(self.players[p].pos, 20.0, [1.8, 1.4, 0.6], 9.0, 0.8);
                     }
                     DropKind::Health => {
-                        let gain = self.difficulty.heal().min(self.players[p].kit.max_hp() - self.players[p].hp);
+                        let gain = self
+                            .difficulty
+                            .heal()
+                            .min(self.players[p].kit.max_hp() - self.players[p].hp);
                         self.players[p].hp += gain;
                         if gain > 0.0 {
                             healed = Some(p);
@@ -3372,11 +4671,33 @@ impl Harvest {
             let n = if since < 0.5 { n + 1 } else { 0 };
             self.chain = (0.0, n);
             sounds.push(Sfx::Pickup(n.min(20) as u8));
-            self.juice.burst(self.players[p].pos, 10.0, 2, [0.0; 2], 0.0, [10.0, 30.0], juice::gold(), 0.8, 0.25, 1.0);
+            self.juice.burst(
+                self.players[p].pos,
+                10.0,
+                2,
+                [0.0; 2],
+                0.0,
+                [10.0, 30.0],
+                juice::gold(),
+                0.8,
+                0.25,
+                1.0,
+            );
         }
         if let Some(p) = healed {
             sounds.push(Sfx::Heal);
-            self.juice.burst(self.players[p].pos, 8.0, 14, [0.0; 2], 0.0, [10.0, 40.0], [0.4, 1.0, 0.5], 1.2, 0.7, 1.0);
+            self.juice.burst(
+                self.players[p].pos,
+                8.0,
+                14,
+                [0.0; 2],
+                0.0,
+                [10.0, 40.0],
+                [0.4, 1.0, 0.5],
+                1.2,
+                0.7,
+                1.0,
+            );
         }
     }
 
@@ -3395,8 +4716,15 @@ impl Harvest {
                 b.z = (b.z - 35.0 * dt).max(0.0);
                 b.pos = [b.pos[0] + b.vel[0] * dt, b.pos[1] + b.vel[1] * dt];
             }
-            let near = self.players.iter().filter(|p| p.alive()).map(|p| p.pos).min_by(|p, q| len(sub(b.pos, *p)).total_cmp(&len(sub(b.pos, *q)))).unwrap_or(self.players[ME].pos);
-            let startled = len(sub(b.pos, near)) < 40.0 || self.noise.is_some_and(|n| len(sub(b.pos, n)) < 110.0);
+            let near = self
+                .players
+                .iter()
+                .filter(|p| p.alive())
+                .map(|p| p.pos)
+                .min_by(|p, q| len(sub(b.pos, *p)).total_cmp(&len(sub(b.pos, *q))))
+                .unwrap_or(self.players[ME].pos);
+            let startled = len(sub(b.pos, near)) < 40.0
+                || self.noise.is_some_and(|n| len(sub(b.pos, n)) < 110.0);
             if startled {
                 let away = sub(b.pos, near);
                 let a = fm::atan2(away[1], away[0]) + self.juice.rng.range(-0.7, 0.7);
@@ -3413,7 +4741,10 @@ impl Harvest {
             && self.hush[4] <= 0.0
         {
             let (pan, gain) = self.place(at);
-            sounds.push(Sfx::Caw { pan, gain: gain.max(60) });
+            sounds.push(Sfx::Caw {
+                pan,
+                gain: gain.max(60),
+            });
             self.hush[4] = 1.2;
         }
         if self.birds.len() < MAX_BIRDS
@@ -3424,7 +4755,15 @@ impl Harvest {
             let vel = [fm::cos(a) * 20.0, fm::sin(a) * 20.0];
             let fall = 70.0 / 35.0;
             let pos = [land[0] - vel[0] * fall, land[1] - vel[1] * fall];
-            self.birds.push(Bird { pos, z: 70.0, vel, vz: 0.0, flying: false, anim: 0.0, flip: vel[0] < 0.0 });
+            self.birds.push(Bird {
+                pos,
+                z: 70.0,
+                vel,
+                vz: 0.0,
+                flying: false,
+                anim: 0.0,
+                flip: vel[0] < 0.0,
+            });
         }
     }
 
@@ -3440,10 +4779,15 @@ impl Harvest {
             flow.buzz_all(Rumble::Hit);
             sounds.push(Sfx::Horde);
         } else if minute > ((self.t - dt) / 60.0) as usize && (1..10).contains(&minute) {
-            self.juice.banner(format!("{minute}:00   {}", MINUTE_LINES[minute - 1]), WHITE, 3.0);
+            self.juice.banner(
+                format!("{minute}:00   {}", MINUTE_LINES[minute - 1]),
+                WHITE,
+                3.0,
+            );
             sounds.push(Sfx::Bell);
             // Where they will rise from now on.
-            self.juice.ring(self.me().pos, spawn_ring(self.t)[0], 1.6, [0.85, 0.2, 0.15]);
+            self.juice
+                .ring(self.me().pos, spawn_ring(self.t)[0], 1.6, [0.85, 0.2, 0.15]);
         }
 
         let night = (1.0 - self.t / dawn()).max(0.0);
@@ -3452,7 +4796,10 @@ impl Harvest {
             let a = self.juice.rng.range(0.0, TAU);
             let r = self.juice.rng.range(30.0, 130.0);
             let life = self.juice.rng.range(5.0, 9.0);
-            let pos = [self.me().pos[0] + fm::cos(a) * r, self.me().pos[1] + fm::sin(a) * r];
+            let pos = [
+                self.me().pos[0] + fm::cos(a) * r,
+                self.me().pos[1] + fm::sin(a) * r,
+            ];
             let z = self.juice.rng.range(4.0, 18.0);
             self.juice.particle(Particle {
                 fade: effects::Fade::OPAQUE,
@@ -3480,7 +4827,7 @@ impl Harvest {
             let (pos, z) = (d.pos, d.z + 6.0);
             if len(sub(pos, self.me().pos)) < 150.0 {
                 self.juice.particle(Particle {
-                fade: effects::Fade::OPAQUE,
+                    fade: effects::Fade::OPAQUE,
                     pos,
                     z,
                     vel: [0.0; 2],
@@ -3556,7 +4903,9 @@ impl Harvest {
     /// player with a view faces.
     fn place(&self, at: [f32; 2]) -> (i8, u8) {
         let far = |p: &PlayerId| len(sub(at, self.players[*p].pos));
-        let near = (0..self.views().min(self.players.len())).min_by(|a, b| far(a).total_cmp(&far(b))).unwrap_or(ME);
+        let near = (0..self.views().min(self.players.len()))
+            .min_by(|a, b| far(a).total_cmp(&far(b)))
+            .unwrap_or(ME);
         let pl = &self.players[near];
         let d = sub(at, pl.pos);
         let right = [-fm::sin(pl.view_yaw), fm::cos(pl.view_yaw)];
@@ -3575,7 +4924,11 @@ impl Harvest {
         if self.calm || !matches!(self.phase, Phase::Playing | Phase::LevelUp { .. }) {
             return 0.0;
         }
-        let close = self.zombies.iter().filter(|z| len(sub(z.pos, self.me().pos)) < 90.0).count() as f32;
+        let close = self
+            .zombies
+            .iter()
+            .filter(|z| len(sub(z.pos, self.me().pos)) < 90.0)
+            .count() as f32;
         (0.25 + 0.35 * self.t / dawn() + close / 40.0).min(1.0)
     }
 
@@ -3602,7 +4955,10 @@ impl Harvest {
     fn camera_at(&self, at: [f32; 2], [w, h]: [f32; 2]) -> [f32; 2] {
         let x = (at[0] - w / 2.0).clamp(0.0, (self.map.width_px() - w).max(0.0));
         let y = (at[1] - 8.0 - h / 2.0).clamp(0.0, (self.map.height_px() - h).max(0.0));
-        [(x * map_scale()).round() / map_scale(), (y * map_scale()).round() / map_scale()]
+        [
+            (x * map_scale()).round() / map_scale(),
+            (y * map_scale()).round() / map_scale(),
+        ]
     }
 
     /// Lays the views drawn from now on out to `size`, as `Canvas::refit` will; a screen's 1024x768 for None.
@@ -3612,7 +4968,13 @@ impl Harvest {
 }
 
 const CHOICE_TOP: f32 = 160.0;
-const PAUSE_CHOICES: [&str; 5] = ["Resume", "Settings", "Photo mode", "New farm", "Quit to title"];
+const PAUSE_CHOICES: [&str; 5] = [
+    "Resume",
+    "Settings",
+    "Photo mode",
+    "New farm",
+    "Quit to title",
+];
 const PAUSE_PHOTO: usize = 2;
 const CHOICE_ROW: f32 = 150.0;
 const PAUSE_ROW: f32 = 110.0;
@@ -3620,7 +4982,9 @@ const PAUSE_ROW: f32 = 110.0;
 /// Which pause row a bottom-screen touch at `y` lands on.
 fn pause_row(y: f32) -> Option<usize> {
     let row = ((y - CHOICE_TOP) / PAUSE_ROW).floor();
-    (0.0..PAUSE_CHOICES.len() as f32).contains(&row).then_some(row as usize)
+    (0.0..PAUSE_CHOICES.len() as f32)
+        .contains(&row)
+        .then_some(row as usize)
 }
 
 /// Which level-up card a bottom-screen touch at `y` lands on.
@@ -3638,9 +5002,33 @@ enum LevelKey {
 
 /// The level-up's on-screen keys under the cards, each with its x, y, width and height on the bottom screen.
 const LEVEL_KEYS: [(LevelKey, [f32; 4]); 3] = [
-    (LevelKey::Banish, [112.0, CHOICE_TOP + 3.0 * CHOICE_ROW, 256.0, CHOICE_ROW - 40.0]),
-    (LevelKey::Reroll, [384.0, CHOICE_TOP + 3.0 * CHOICE_ROW, 256.0, CHOICE_ROW - 40.0]),
-    (LevelKey::Favor, [656.0, CHOICE_TOP + 3.0 * CHOICE_ROW, 256.0, CHOICE_ROW - 40.0]),
+    (
+        LevelKey::Banish,
+        [
+            112.0,
+            CHOICE_TOP + 3.0 * CHOICE_ROW,
+            256.0,
+            CHOICE_ROW - 40.0,
+        ],
+    ),
+    (
+        LevelKey::Reroll,
+        [
+            384.0,
+            CHOICE_TOP + 3.0 * CHOICE_ROW,
+            256.0,
+            CHOICE_ROW - 40.0,
+        ],
+    ),
+    (
+        LevelKey::Favor,
+        [
+            656.0,
+            CHOICE_TOP + 3.0 * CHOICE_ROW,
+            256.0,
+            CHOICE_ROW - 40.0,
+        ],
+    ),
 ];
 
 /// Whether a level-up key shows: `tuning.txt` gives the run some of it, and Favor only from `favor_level`.
@@ -3655,12 +5043,24 @@ fn level_key_shows(key: LevelKey, level: u32) -> bool {
 
 /// Which level-up key a bottom-screen touch lands on, among those showing at `level`.
 fn level_key([x, y]: [f32; 2], level: u32) -> Option<LevelKey> {
-    LEVEL_KEYS.iter().find(|(k, [kx, ky, w, h])| (*kx..kx + w).contains(&x) && (*ky..ky + h).contains(&y) && level_key_shows(*k, level)).map(|(k, _)| *k)
+    LEVEL_KEYS
+        .iter()
+        .find(|(k, [kx, ky, w, h])| {
+            (*kx..kx + w).contains(&x) && (*ky..ky + h).contains(&y) && level_key_shows(*k, level)
+        })
+        .map(|(k, _)| *k)
 }
 
 /// Lands a hit: damage (now and then doubled), knockback, a red flash, a squash, a number and a spray of blood.
 /// Returns whether it was a critical hit.
-fn strike(z: &mut Zombie, juice: &mut Juice, damage: f32, dir: [f32; 2], force: f32, crit_chance: f32) -> bool {
+fn strike(
+    z: &mut Zombie,
+    juice: &mut Juice,
+    damage: f32,
+    dir: [f32; 2],
+    force: f32,
+    crit_chance: f32,
+) -> bool {
     let crit = juice.rng.range(0.0, 1.0) < crit_chance;
     let dealt = if crit { damage * 2.0 } else { damage };
     juice.tally.land(dealt, z.hp);
@@ -3676,7 +5076,18 @@ fn strike(z: &mut Zombie, juice: &mut Juice, damage: f32, dir: [f32; 2], force: 
     if z.kind.stats().heavy && !z.boss && (crit || force > 100.0) {
         z.stagger = crate::tuning::tuning().stagger;
     }
-    juice.burst(z.pos, 8.0, if crit { 6 } else { 3 }, dir, 0.6, [30.0, 90.0], juice::blood_of(z.kind.stats().blood), 1.4, 0.4, 0.0);
+    juice.burst(
+        z.pos,
+        8.0,
+        if crit { 6 } else { 3 },
+        dir,
+        0.6,
+        [30.0, 90.0],
+        juice::blood_of(z.kind.stats().blood),
+        1.4,
+        0.4,
+        0.0,
+    );
     crit
 }
 
@@ -3729,15 +5140,30 @@ mod tests {
     #[test]
     fn the_corn_bench_stands_tall_swaying_corn_and_its_horde_in_view_every_way_it_turns() {
         let mut h = Harvest::bench_corn(MAP_SIZE);
-        assert_eq!(h.zombies.len(), crate::tuning::tuning().max_zombies as usize);
+        assert_eq!(
+            h.zombies.len(),
+            crate::tuning::tuning().max_zombies as usize
+        );
         let [tx, ty] = h.me().pos.map(|v| (v / TILE) as usize);
-        assert!(h.map.standing(tx, ty).is_none(), "the player stands in a lane");
-        let stalk = h.map.standing(tx + 1, ty + 1).expect("corn beside the lane");
-        assert!(stalk.tall > 1 && stalk.sway.degrees > 0.0, "the corn ground's own height and sway: {stalk:?}");
+        assert!(
+            h.map.standing(tx, ty).is_none(),
+            "the player stands in a lane"
+        );
+        let stalk = h
+            .map
+            .standing(tx + 1, ty + 1)
+            .expect("corn beside the lane");
+        assert!(
+            stalk.tall > 1 && stalk.sway.degrees > 0.0,
+            "the corn ground's own height and sway: {stalk:?}"
+        );
         for k in 0..8 {
             h.me_mut().view_yaw = k as f32 * TAU / 8.0;
             let (cells, cards) = view3d::crops_in_view(&h);
-            assert!(cells > 300 && cards == cells * stalk.tall as usize, "at {k}/8 of a turn: {cells} cells, {cards} cards");
+            assert!(
+                cells > 300 && cards == cells * stalk.tall as usize,
+                "at {k}/8 of a turn: {cells} cells, {cards} cards"
+            );
         }
         assert!(h.summary().contains(" crops="), "{}", h.summary());
         assert!(h.bench_report(|_| 0.0).contains("crop cells"));
@@ -3765,28 +5191,58 @@ mod tests {
         let mut sounds = Vec::new();
         // A burst shades each speck from 0.8 to 1.15 times its color.
         let of = |p: &[f32; 3], c: [f32; 3]| (0..3).all(|k| (0.79..1.16).contains(&(p[k] / c[k])));
-        for (kind, blood, dark) in [(green, color, juice::dark_blood_of(Some(own))), (Kind::named("skinny"), juice::blood(), juice::dark_blood())] {
+        for (kind, blood, dark) in [
+            (green, color, juice::dark_blood_of(Some(own))),
+            (Kind::named("skinny"), juice::blood(), juice::dark_blood()),
+        ] {
             h.juice.particles.clear();
             let mut z = Zombie::new(kind, [h.me().pos[0] + 40.0, h.me().pos[1]], 1.0, 1.0, 0.0);
             strike(&mut z, &mut h.juice, 5.0, [1.0, 0.0], 0.0, 0.0);
-            assert!(h.juice.particles.iter().all(|p| of(&p.color, blood)), "a hit sprays its blood");
+            assert!(
+                h.juice.particles.iter().all(|p| of(&p.color, blood)),
+                "a hit sprays its blood"
+            );
             h.juice.particles.clear();
             h.zombies.push(z);
             h.reap(&mut sounds, &mut Flow::default());
             let colors: Vec<[f32; 3]> = h.juice.particles.iter().map(|p| p.color).collect();
-            assert!(colors.iter().any(|p| of(p, blood)) && colors.iter().any(|p| of(p, dark)), "its death sprays its blood and the darker shade");
+            assert!(
+                colors.iter().any(|p| of(p, blood)) && colors.iter().any(|p| of(p, dark)),
+                "its death sprays its blood and the darker shade"
+            );
             let (stain, fx) = (h.stains.last().unwrap(), h.fx.last().unwrap());
             let mean = stain.0.mean().unwrap();
             let drawn: Vec<f32> = (0..3).map(|k| mean[k] * stain.3[k]).collect();
             if kind == green {
-                assert!(drawn.iter().zip(blood).all(|(d, b)| (d - b).abs() < 1e-4), "its stain averages its color: {drawn:?}");
+                assert!(
+                    drawn.iter().zip(blood).all(|(d, b)| (d - b).abs() < 1e-4),
+                    "its stain averages its color: {drawn:?}"
+                );
                 assert_ne!(fx.tint, [1.0; 3], "its splat is tinted");
-                assert!(dark.iter().zip(blood).all(|(d, b)| d < &b), "the darker shade is darker");
+                assert!(
+                    dark.iter().zip(blood).all(|(d, b)| d < &b),
+                    "the darker shade is darker"
+                );
             } else {
-                assert_eq!((stain.3, fx.tint), ([1.0; 3], [1.0; 3]), "the game's own kinds keep the art's red");
+                assert_eq!(
+                    (stain.3, fx.tint),
+                    ([1.0; 3], [1.0; 3]),
+                    "the game's own kinds keep the art's red"
+                );
             }
-            let spit = Spit { kind, pos: h.me().pos, vel: [0.0; 2], damage: 1.0, life: 1.0, age: 0.0 };
-            assert_eq!(spit.tint() == [1.0; 3], kind != green, "a spit flies in its kind's blood");
+            let spit = Spit {
+                kind,
+                pos: h.me().pos,
+                vel: [0.0; 2],
+                damage: 1.0,
+                life: 1.0,
+                age: 0.0,
+            };
+            assert_eq!(
+                spit.tint() == [1.0; 3],
+                kind != green,
+                "a spit flies in its kind's blood"
+            );
         }
     }
 
@@ -3798,7 +5254,13 @@ mod tests {
             e.ranged = 60.0;
             e.damage = 12.0;
         });
-        h.zombies.push(Zombie::new(spitter, [h.me().pos[0] + 100.0, h.me().pos[1]], 1000.0, 1.0, 0.0));
+        h.zombies.push(Zombie::new(
+            spitter,
+            [h.me().pos[0] + 100.0, h.me().pos[1]],
+            1000.0,
+            1.0,
+            0.0,
+        ));
         let mut sounds = Vec::new();
         for _ in 0..60 * 3 {
             h.update(&Input::default(), 1.0 / 60.0, &mut sounds);
@@ -3807,8 +5269,14 @@ mod tests {
             }
         }
         let gap = len(sub(h.zombies[0].pos, h.me().pos));
-        assert!(!h.spits.is_empty() && gap <= 60.0 && gap > 50.0, "it stopped at its range, {gap}, and spat");
-        assert!(sounds.iter().any(|s| matches!(s, Sfx::Spit { .. })), "with a sound");
+        assert!(
+            !h.spits.is_empty() && gap <= 60.0 && gap > 50.0,
+            "it stopped at its range, {gap}, and spat"
+        );
+        assert!(
+            sounds.iter().any(|s| matches!(s, Sfx::Spit { .. })),
+            "with a sound"
+        );
         let before = h.zombies[0].pos;
         for _ in 0..60 * 2 {
             h.update(&Input::default(), 1.0 / 60.0, &mut sounds);
@@ -3816,24 +5284,64 @@ mod tests {
         assert_eq!(h.zombies[0].pos, before, "and holds its ground");
         assert!(h.me().hp < h.me().kit.max_hp(), "the spit landed");
         h.me_mut().hurt = 0.0;
-        h.spits = vec![Spit { kind: Kind(0), pos: [h.me().pos[0] - 1.0, h.me().pos[1] - 6.0], vel: [10.0, 0.0], damage: 12.0, life: 1.0, age: 0.0 }];
+        h.spits = vec![Spit {
+            kind: Kind(0),
+            pos: [h.me().pos[0] - 1.0, h.me().pos[1] - 6.0],
+            vel: [10.0, 0.0],
+            damage: 12.0,
+            life: 1.0,
+            age: 0.0,
+        }];
         let hp = h.me().hp;
         h.hush[6] = 0.0;
         sounds.clear();
         h.move_spits(0.016, &mut sounds, &mut Flow::default());
-        assert!(h.spits.is_empty() && h.me().hp == hp - 12.0, "a spit on the player hurts by its damage");
-        assert!(sounds.iter().any(|s| matches!(s, Sfx::Splat { .. })), "and splats");
+        assert!(
+            h.spits.is_empty() && h.me().hp == hp - 12.0,
+            "a spit on the player hurts by its damage"
+        );
+        assert!(
+            sounds.iter().any(|s| matches!(s, Sfx::Splat { .. })),
+            "and splats"
+        );
         h.me_mut().hurt = 0.0;
-        h.spits = vec![Spit { kind: Kind(0), pos: [h.me().pos[0] - 40.0, h.me().pos[1] - 6.0], vel: [10.0, 0.0], damage: 12.0, life: 1.0, age: 0.0 }];
+        h.spits = vec![Spit {
+            kind: Kind(0),
+            pos: [h.me().pos[0] - 40.0, h.me().pos[1] - 6.0],
+            vel: [10.0, 0.0],
+            damage: 12.0,
+            life: 1.0,
+            age: 0.0,
+        }];
         h.move_spits(0.016, &mut sounds, &mut Flow::default());
         assert_eq!(h.spits.len(), 1, "one off to the side flies on");
 
         let mut h = Harvest::calm(6);
-        let house = h.map.props.iter().find(|p| p.frames[0] == art::HOUSE).map(|p| [p.x + TILE / 2.0, p.base - TILE / 2.0]).unwrap();
-        h.spits = vec![Spit { kind: Kind(0), pos: [house[0], house[1] - 6.0], vel: [0.0; 2], damage: 12.0, life: 1.0, age: 0.0 }];
+        let house = h
+            .map
+            .props
+            .iter()
+            .find(|p| p.frames[0] == art::HOUSE)
+            .map(|p| [p.x + TILE / 2.0, p.base - TILE / 2.0])
+            .unwrap();
+        h.spits = vec![Spit {
+            kind: Kind(0),
+            pos: [house[0], house[1] - 6.0],
+            vel: [0.0; 2],
+            damage: 12.0,
+            life: 1.0,
+            age: 0.0,
+        }];
         h.move_spits(0.016, &mut sounds, &mut Flow::default());
         assert!(h.spits.is_empty(), "cover that stops a bullet stops spit");
-        assert!(!clear_shot(&h.map, [house[0] - 2.0 * TILE, house[1]], [house[0] + 2.0 * TILE, house[1]]), "nor spits through a house");
+        assert!(
+            !clear_shot(
+                &h.map,
+                [house[0] - 2.0 * TILE, house[1]],
+                [house[0] + 2.0 * TILE, house[1]]
+            ),
+            "nor spits through a house"
+        );
     }
 
     #[test]
@@ -3841,10 +5349,21 @@ mod tests {
         let mut h = Harvest::calm_on(1, &map::MapSource::new("Field", [20, 14])).unwrap();
         h.me_mut().kit.weapons.clear();
         let mole = skinny_but(|e| e.burrow = 2.0);
-        h.tells.push(Tell { kind: mole, pos: [h.me().pos[0] + 90.0, h.me().pos[1]], hp: 1000.0, t: 0.0, leader: false, led: None });
+        h.tells.push(Tell {
+            kind: mole,
+            pos: [h.me().pos[0] + 90.0, h.me().pos[1]],
+            hp: 1000.0,
+            t: 0.0,
+            leader: false,
+            led: None,
+        });
         let mut sounds = Vec::new();
         h.update(&Input::default(), TELL_TIME + 0.01, &mut sounds);
-        assert_eq!((h.zombies.len(), h.burrowed.len()), (0, 1), "it breaks ground straight into a tunnel");
+        assert_eq!(
+            (h.zombies.len(), h.burrowed.len()),
+            (0, 1),
+            "it breaks ground straight into a tunnel"
+        );
         h.explode(h.burrowed[0].pos, 40.0, 500.0, &mut sounds);
         assert_eq!(h.burrowed[0].hp, 1000.0, "nothing reaches it down there");
         for _ in 0..60 * 6 {
@@ -3855,15 +5374,32 @@ mod tests {
             }
         }
         assert!(h.burrowed[0].rise > 0.0, "it breaks ground");
-        assert!(h.fx.iter().any(|f| f.frames == effects::effects().mound_breaks.frames), "in a puff of dirt");
-        assert!(sounds.iter().any(|s| matches!(s, Sfx::Rise { .. })), "with a sound to warn of it");
-        assert!(len(sub(h.burrowed[0].pos, h.me().pos)) <= crate::tuning::tuning().burrow_reach, "beside the player");
+        assert!(
+            h.fx.iter()
+                .any(|f| f.frames == effects::effects().mound_breaks.frames),
+            "in a puff of dirt"
+        );
+        assert!(
+            sounds.iter().any(|s| matches!(s, Sfx::Rise { .. })),
+            "with a sound to warn of it"
+        );
+        assert!(
+            len(sub(h.burrowed[0].pos, h.me().pos)) <= crate::tuning::tuning().burrow_reach,
+            "beside the player"
+        );
         h.explode(h.burrowed[0].pos, 40.0, 500.0, &mut sounds);
-        assert_eq!(h.burrowed[0].hp, 1000.0, "nothing reaches it while it climbs out");
+        assert_eq!(
+            h.burrowed[0].hp, 1000.0,
+            "nothing reaches it while it climbs out"
+        );
         for _ in 0..60 * 2 {
             h.update(&Input::default(), 1.0 / 60.0, &mut sounds);
         }
-        assert_eq!((h.zombies.len(), h.burrowed.len()), (1, 0), "then it stands");
+        assert_eq!(
+            (h.zombies.len(), h.burrowed.len()),
+            (1, 0),
+            "then it stands"
+        );
         assert_eq!(h.zombies[0].rise, 1.0);
         h.zombies[0].pos = [h.me().pos[0] + 80.0, h.me().pos[1]];
         h.zombies[0].hp = 1000.0;
@@ -3873,37 +5409,104 @@ mod tests {
         for _ in 0..5 {
             h.update(&Input::default(), 1.0 / 60.0, &mut sounds);
         }
-        assert_eq!((h.zombies.len(), h.burrowed.len()), (0, 1), "then digs back under");
-        assert_eq!(h.burrowed[0].rise, 0.0, "to tunnel, not to climb straight back out");
+        assert_eq!(
+            (h.zombies.len(), h.burrowed.len()),
+            (0, 1),
+            "then digs back under"
+        );
+        assert_eq!(
+            h.burrowed[0].rise, 0.0,
+            "to tunnel, not to climb straight back out"
+        );
     }
 
     #[test]
     fn the_games_own_data_must_be_whole_and_name_its_sprites() {
         for file in TABLES {
-            assert_eq!(check_own_table(file, built_in_table(file).unwrap()), Ok(()), "{file}");
+            assert_eq!(
+                check_own_table(file, built_in_table(file).unwrap()),
+                Ok(()),
+                "{file}"
+            );
         }
-        assert!(check_table("tuning.txt", "[player]\nhp 120").is_ok(), "a mod sets only what it changes");
-        assert!(check_own_table("tuning.txt", "[player]\nhp 120").unwrap_err().contains("doesn't set"));
-        let sprite = built_in_table("effects.txt").unwrap().replacen("spark SHOT_SPARK", "spark NOPE", 1);
-        assert!(check_table("effects.txt", &sprite).is_ok() && check_own_table("effects.txt", &sprite).is_err(), "the game's own shots draw its own sprites");
-        let effects = built_in_table("effects.txt").unwrap().replace("art SLASH", "art NOPE");
-        assert_eq!(check_own_table("effects.txt", &effects), Err("effects.txt: no sprite called NOPE in art.txt".into()));
-        let farm = built_in_table("farm.txt").unwrap().replace("BUSH 140", "PROP_MINE 140");
-        assert!(check_table("farm.txt", &farm).is_ok() && check_own_table("farm.txt", &farm).is_err(), "only a mod's farm strews its props");
-        for (from, to) in [("sprites BARN_RED", "sprites PROP_MINE"), ("near HAY 7", "near PROP_MINE 7")] {
+        assert!(
+            check_table("tuning.txt", "[player]\nhp 120").is_ok(),
+            "a mod sets only what it changes"
+        );
+        assert!(
+            check_own_table("tuning.txt", "[player]\nhp 120")
+                .unwrap_err()
+                .contains("doesn't set")
+        );
+        let sprite =
+            built_in_table("effects.txt")
+                .unwrap()
+                .replacen("spark SHOT_SPARK", "spark NOPE", 1);
+        assert!(
+            check_table("effects.txt", &sprite).is_ok()
+                && check_own_table("effects.txt", &sprite).is_err(),
+            "the game's own shots draw its own sprites"
+        );
+        let effects = built_in_table("effects.txt")
+            .unwrap()
+            .replace("art SLASH", "art NOPE");
+        assert_eq!(
+            check_own_table("effects.txt", &effects),
+            Err("effects.txt: no sprite called NOPE in art.txt".into())
+        );
+        let farm = built_in_table("farm.txt")
+            .unwrap()
+            .replace("BUSH 140", "PROP_MINE 140");
+        assert!(
+            check_table("farm.txt", &farm).is_ok() && check_own_table("farm.txt", &farm).is_err(),
+            "only a mod's farm strews its props"
+        );
+        for (from, to) in [
+            ("sprites BARN_RED", "sprites PROP_MINE"),
+            ("near HAY 7", "near PROP_MINE 7"),
+        ] {
             let farm = built_in_table("farm.txt").unwrap().replace(from, to);
-            assert!(check_table("farm.txt", &farm).is_ok() && check_own_table("farm.txt", &farm).is_err(), "only a mod's farm builds with its props");
+            assert!(
+                check_table("farm.txt", &farm).is_ok()
+                    && check_own_table("farm.txt", &farm).is_err(),
+                "only a mod's farm builds with its props"
+            );
         }
         assert!(check_own_table("farm.txt", built_in_table("farm.txt").unwrap()).is_ok());
-        let farm = built_in_table("farm.txt").unwrap().replace("patch g", "patch Z");
-        assert_eq!(check_own_table("farm.txt", &farm), Err("farm.txt: no ground code Z in ground.txt".into()));
-        let farm = format!("{}\n[fields]\ncrops s 1", built_in_table("farm.txt").unwrap());
-        assert!(check_table("farm.txt", &farm).is_ok(), "a mod's crops may be its own ground's");
+        let farm = built_in_table("farm.txt")
+            .unwrap()
+            .replace("patch g", "patch Z");
+        assert_eq!(
+            check_own_table("farm.txt", &farm),
+            Err("farm.txt: no ground code Z in ground.txt".into())
+        );
+        let farm = format!(
+            "{}\n[fields]\ncrops s 1",
+            built_in_table("farm.txt").unwrap()
+        );
+        assert!(
+            check_table("farm.txt", &farm).is_ok(),
+            "a mod's crops may be its own ground's"
+        );
         assert_eq!(check_own_table("farm.txt", &farm), Err("farm.txt: crops s: not a ground code with cell field and a crop line in ground.txt".into()));
-        let farm = format!("{}\n[windmill]\nmill PROP_MINE", built_in_table("farm.txt").unwrap());
-        assert!(check_table("farm.txt", &farm).is_ok() && check_own_table("farm.txt", &farm).is_err(), "only a mod's windmill can be its prop");
-        let powerups = built_in_table("powerups.txt").unwrap().replacen("unlock    start", "unlock    start\nicon      PROP_MINE", 1);
-        assert!(check_table("powerups.txt", &powerups).is_ok() && check_own_table("powerups.txt", &powerups).is_err(), "only a mod's icon can be its prop");
+        let farm = format!(
+            "{}\n[windmill]\nmill PROP_MINE",
+            built_in_table("farm.txt").unwrap()
+        );
+        assert!(
+            check_table("farm.txt", &farm).is_ok() && check_own_table("farm.txt", &farm).is_err(),
+            "only a mod's windmill can be its prop"
+        );
+        let powerups = built_in_table("powerups.txt").unwrap().replacen(
+            "unlock    start",
+            "unlock    start\nicon      PROP_MINE",
+            1,
+        );
+        assert!(
+            check_table("powerups.txt", &powerups).is_ok()
+                && check_own_table("powerups.txt", &powerups).is_err(),
+            "only a mod's icon can be its prop"
+        );
     }
 
     fn run(h: &mut Harvest, input: &Input, secs: f32) {
@@ -3911,7 +5514,14 @@ mod tests {
         for _ in 0..(secs * 60.0) as usize {
             h.update(input, 1.0 / 60.0, &mut sounds);
             if let Phase::LevelUp { .. } = h.phase {
-                h.update(&Input { pressed: Buttons::X, ..Default::default() }, 1.0 / 60.0, &mut sounds);
+                h.update(
+                    &Input {
+                        pressed: Buttons::X,
+                        ..Default::default()
+                    },
+                    1.0 / 60.0,
+                    &mut sounds,
+                );
             }
         }
     }
@@ -3931,9 +5541,23 @@ mod tests {
         let mut h = Harvest::calm(9);
         h.me_mut().view_yaw = 0.0;
         let start = h.me().pos;
-        run(&mut h, &Input { held: Buttons::UP, ..Default::default() }, 0.5);
+        run(
+            &mut h,
+            &Input {
+                held: Buttons::UP,
+                ..Default::default()
+            },
+            0.5,
+        );
         assert!(h.me().pos[0] > start[0] && (h.me().pos[1] - start[1]).abs() < 1.0);
-        run(&mut h, &Input { held: Buttons::UP, ..Default::default() }, 120.0);
+        run(
+            &mut h,
+            &Input {
+                held: Buttons::UP,
+                ..Default::default()
+            },
+            120.0,
+        );
         assert!(h.me().pos[0] < h.map.width_px() - TILE);
     }
 
@@ -3942,30 +5566,77 @@ mod tests {
         let mut h = Harvest::calm(9);
         run(&mut h, &Input::default(), 0.05);
         let (start, yaw) = (h.me().pos, h.me().view_yaw);
-        run(&mut h, &Input { held: Buttons::L2 | Buttons::R2, ..Default::default() }, 0.25);
+        run(
+            &mut h,
+            &Input {
+                held: Buttons::L2 | Buttons::R2,
+                ..Default::default()
+            },
+            0.25,
+        );
         assert_eq!(h.me().view_yaw, yaw);
-        run(&mut h, &Input { held: Buttons::A, ..Default::default() }, 0.25);
+        run(
+            &mut h,
+            &Input {
+                held: Buttons::A,
+                ..Default::default()
+            },
+            0.25,
+        );
         assert_eq!(h.me().pos, start);
         assert!((h.me().view_yaw - yaw).rem_euclid(TAU) > 0.5);
-        run(&mut h, &Input { held: Buttons::Y, ..Default::default() }, 0.25);
-        assert!((h.me().view_yaw - yaw).rem_euclid(TAU) < 0.01 || (h.me().view_yaw - yaw).rem_euclid(TAU) > TAU - 0.01);
+        run(
+            &mut h,
+            &Input {
+                held: Buttons::Y,
+                ..Default::default()
+            },
+            0.25,
+        );
+        assert!(
+            (h.me().view_yaw - yaw).rem_euclid(TAU) < 0.01
+                || (h.me().view_yaw - yaw).rem_euclid(TAU) > TAU - 0.01
+        );
     }
 
     #[test]
     fn the_a_that_starts_a_run_does_not_turn() {
         let mut h = Harvest::calm(9);
         let yaw = h.me().view_yaw.rem_euclid(TAU);
-        run(&mut h, &Input { held: Buttons::A, ..Default::default() }, 0.2);
+        run(
+            &mut h,
+            &Input {
+                held: Buttons::A,
+                ..Default::default()
+            },
+            0.2,
+        );
         assert_eq!(h.me().view_yaw, yaw);
         run(&mut h, &Input::default(), 0.05);
-        run(&mut h, &Input { held: Buttons::A, ..Default::default() }, 0.2);
+        run(
+            &mut h,
+            &Input {
+                held: Buttons::A,
+                ..Default::default()
+            },
+            0.2,
+        );
         assert_ne!(h.me().view_yaw, yaw);
     }
 
     #[test]
     fn start_pauses_and_the_menu_resumes_opens_settings_restarts_or_quits() {
         let mut h = Harvest::new(5);
-        let press = |h: &mut Harvest, b: Buttons| h.update(&Input { pressed: b, ..Default::default() }, 1.0 / 60.0, &mut Vec::new());
+        let press = |h: &mut Harvest, b: Buttons| {
+            h.update(
+                &Input {
+                    pressed: b,
+                    ..Default::default()
+                },
+                1.0 / 60.0,
+                &mut Vec::new(),
+            )
+        };
         run(&mut h, &Input::default(), 1.0);
         press(&mut h, Buttons::START);
         let t = h.t;
@@ -3984,19 +5655,40 @@ mod tests {
         press(&mut h, Buttons::A);
         assert!(h.menu.is_none() && h.t == 0.0, "New farm starts over");
         press(&mut h, Buttons::START);
-        let tap = Input { touch: Some([500.0, CHOICE_TOP + PAUSE_ROW * 4.5]), touch_started: true, ..Default::default() };
-        assert!(h.update(&tap, 1.0 / 60.0, &mut Vec::new()).quit, "a tap on the last choice quits");
+        let tap = Input {
+            touch: Some([500.0, CHOICE_TOP + PAUSE_ROW * 4.5]),
+            touch_started: true,
+            ..Default::default()
+        };
+        assert!(
+            h.update(&tap, 1.0 / 60.0, &mut Vec::new()).quit,
+            "a tap on the last choice quits"
+        );
     }
 
     #[test]
     fn b_turns_all_the_way_around_quickly() {
         let mut h = Harvest::calm(9);
         let yaw = h.me().view_yaw;
-        h.update(&Input { pressed: Buttons::B, ..Default::default() }, 1.0 / 60.0, &mut Vec::new());
+        h.update(
+            &Input {
+                pressed: Buttons::B,
+                ..Default::default()
+            },
+            1.0 / 60.0,
+            &mut Vec::new(),
+        );
         run(&mut h, &Input::default(), SPIN_TIME * 0.8);
-        assert_eq!(h.showing(), h.me().turned_from, "the player keeps the old heading while the camera swings");
+        assert_eq!(
+            h.showing(),
+            h.me().turned_from,
+            "the player keeps the old heading while the camera swings"
+        );
         run(&mut h, &Input::default(), SPIN_TIME * 0.2 + 0.05);
-        assert!(((h.me().view_yaw - yaw).rem_euclid(TAU) - PI).abs() < 1e-3, "the camera swings right round");
+        assert!(
+            ((h.me().view_yaw - yaw).rem_euclid(TAU) - PI).abs() < 1e-3,
+            "the camera swings right round"
+        );
         assert_eq!(h.showing(), h.me().aim, "and turns to match as it lands");
     }
 
@@ -4004,13 +5696,30 @@ mod tests {
     fn mouse_look_turns_by_exactly_its_angle_and_walks_that_way() {
         let mut h = Harvest::calm(9);
         let yaw = h.me().view_yaw;
-        h.update(&Input { yaw: 0.4, ..Default::default() }, 1.0 / 60.0, &mut Vec::new());
+        h.update(
+            &Input {
+                yaw: 0.4,
+                ..Default::default()
+            },
+            1.0 / 60.0,
+            &mut Vec::new(),
+        );
         assert!(((h.me().view_yaw - yaw).rem_euclid(TAU) - 0.4).abs() < 1e-5);
         let (start, heading) = (h.me().pos, h.me().view_yaw);
-        run(&mut h, &Input { held: Buttons::UP, ..Default::default() }, 0.3);
+        run(
+            &mut h,
+            &Input {
+                held: Buttons::UP,
+                ..Default::default()
+            },
+            0.3,
+        );
         let moved = [h.me().pos[0] - start[0], h.me().pos[1] - start[1]];
         let off = (fm::atan2(moved[1], moved[0]) - heading + PI).rem_euclid(TAU) - PI;
-        assert!(off.abs() < 0.05, "forward follows the new heading, off by {off}");
+        assert!(
+            off.abs() < 0.05,
+            "forward follows the new heading, off by {off}"
+        );
     }
 
     #[test]
@@ -4018,7 +5727,14 @@ mod tests {
         let mut h = Harvest::calm(9);
         h.me_mut().view_yaw = -PI / 2.0;
         let start = h.me().pos;
-        run(&mut h, &Input { held: Buttons::RIGHT, ..Default::default() }, 0.3);
+        run(
+            &mut h,
+            &Input {
+                held: Buttons::RIGHT,
+                ..Default::default()
+            },
+            0.3,
+        );
         assert!(h.me().pos[0] > start[0] && (h.me().pos[1] - start[1]).abs() < 1.0);
     }
 
@@ -4029,16 +5745,32 @@ mod tests {
         assert!(h.me().grenades >= 1.0);
         let look = &players::look(&h.me().look).look;
         // The look may hide it on some facings; this one shows it.
-        let Some((facing, at)) = [Facing::Front, Facing::Side, Facing::Back].into_iter().find_map(|f| Some((f, look.walk[f.index()][0].worn_at()?))) else { return };
+        let Some((facing, at)) = [Facing::Front, Facing::Side, Facing::Back]
+            .into_iter()
+            .find_map(|f| Some((f, look.walk[f.index()][0].worn_at()?)))
+        else {
+            return;
+        };
         assert_eq!(player_worn(&h, ME, facing), Some((at, 1.0)));
         h.me_mut().grenades = 0.5;
         assert_eq!(player_worn(&h, ME, facing), None, "none ready, none worn");
-        h.update(&Input::default(), crate::tuning::tuning().grenade_recharge * h.me().kit.mods.recharge, &mut sounds);
-        assert_eq!(player_worn(&h, ME, facing).map(|w| w.1), Some(READY_BRIGHT), "it flashes as it comes ready");
+        h.update(
+            &Input::default(),
+            crate::tuning::tuning().grenade_recharge * h.me().kit.mods.recharge,
+            &mut sounds,
+        );
+        assert_eq!(
+            player_worn(&h, ME, facing).map(|w| w.1),
+            Some(READY_BRIGHT),
+            "it flashes as it comes ready"
+        );
         h.update(&Input::default(), READY_FLASH, &mut sounds);
         assert_eq!(player_worn(&h, ME, facing).map(|w| w.1), Some(1.0));
         h.me_mut().hurt = 0.5;
-        assert!(blinking(&h, ME) && player_worn(&h, ME, facing).is_none(), "it blinks with the player");
+        assert!(
+            blinking(&h, ME) && player_worn(&h, ME, facing).is_none(),
+            "it blinks with the player"
+        );
         h.me_mut().hurt = 0.0;
         h.phase = Phase::Over { t: 0.0, won: false };
         assert_eq!(player_worn(&h, ME, facing), None, "the dead wear nothing");
@@ -4051,7 +5783,11 @@ mod tests {
         let farmer = art::PLAYER_FRONT[0];
         assert_eq!(farmer.w(), 16.0);
         assert_eq!(worn_corner([11, 10], farmer, false), [10.0, 8.0]);
-        assert_eq!(worn_corner([11, 10], farmer, true), [3.0, 8.0], "pixel 11 of 16 mirrors to pixel 4");
+        assert_eq!(
+            worn_corner([11, 10], farmer, true),
+            [3.0, 8.0],
+            "pixel 11 of 16 mirrors to pixel 4"
+        );
     }
 
     #[test]
@@ -4059,13 +5795,29 @@ mod tests {
         let mut h = Harvest::calm(12);
         let cam = h.camera();
         let target = [h.me().pos[0] + 60.0, h.me().pos[1]];
-        h.zombies.push(Zombie::new(Kind::named("skinny"), target, 20.0, 1.0, 0.0));
-        let touch = [(target[0] - cam[0]) * map_scale(), (target[1] - cam[1]) * map_scale()];
+        h.zombies
+            .push(Zombie::new(Kind::named("skinny"), target, 20.0, 1.0, 0.0));
+        let touch = [
+            (target[0] - cam[0]) * map_scale(),
+            (target[1] - cam[1]) * map_scale(),
+        ];
         let mut sounds = Vec::new();
-        h.update(&Input { touch: Some(touch), touch_started: true, ..Default::default() }, 0.016, &mut sounds);
+        h.update(
+            &Input {
+                touch: Some(touch),
+                touch_started: true,
+                ..Default::default()
+            },
+            0.016,
+            &mut sounds,
+        );
         assert_eq!(h.thrown.len(), 1);
         assert!(h.me().grenades < h.me().kit.grenades());
-        h.update(&Input::default(), crate::tuning::tuning().grenade_flight, &mut sounds);
+        h.update(
+            &Input::default(),
+            crate::tuning::tuning().grenade_flight,
+            &mut sounds,
+        );
         assert!(h.thrown.is_empty());
         assert!(h.kills == 1 || h.zombies.iter().all(|z| z.hp <= 0.0));
     }
@@ -4073,12 +5825,28 @@ mod tests {
     #[test]
     fn a_tap_picks_an_upgrade() {
         let mut h = Harvest::new(2);
-        let choice = |id| Choice { up: book().index(id).unwrap(), rare: false, found: false };
-        h.phase = Phase::LevelUp { choices: [choice("shotgun"), choice("pistol"), choice("running_shoes")], selected: 0, t: 1.0, picked: None };
-        let tap = Input { touch: Some([500.0, CHOICE_TOP + CHOICE_ROW * 1.5]), touch_started: true, ..Default::default() };
+        let choice = |id| Choice {
+            up: book().index(id).unwrap(),
+            rare: false,
+            found: false,
+        };
+        h.phase = Phase::LevelUp {
+            choices: [choice("shotgun"), choice("pistol"), choice("running_shoes")],
+            selected: 0,
+            t: 1.0,
+            picked: None,
+        };
+        let tap = Input {
+            touch: Some([500.0, CHOICE_TOP + CHOICE_ROW * 1.5]),
+            touch_started: true,
+            ..Default::default()
+        };
         let before = h.me().kit.level(book().index("pistol").unwrap());
         h.update(&tap, 0.016, &mut Vec::new());
-        assert_eq!(h.me().kit.level(book().index("pistol").unwrap()), before + 1);
+        assert_eq!(
+            h.me().kit.level(book().index("pistol").unwrap()),
+            before + 1
+        );
         h.update(&Input::default(), PICK_TIME, &mut Vec::new());
         assert!(matches!(h.phase, Phase::Playing));
     }
@@ -4087,16 +5855,27 @@ mod tests {
     fn a_held_powerup_comes_up_held_weight_times_as_often() {
         let mut h = Harvest::new(2);
         h.held_weight = 3.0;
-        let held: Vec<usize> = (0..book().defs.len()).filter(|&i| h.me().kit.level(i) > 0 && h.me().kit.offerable(i)).collect();
-        let new: Vec<usize> = (0..book().defs.len()).filter(|&i| h.me().kit.level(i) == 0 && h.progress.owns(i) && h.me().kit.offerable(i)).collect();
+        let held: Vec<usize> = (0..book().defs.len())
+            .filter(|&i| h.me().kit.level(i) > 0 && h.me().kit.offerable(i))
+            .collect();
+        let new: Vec<usize> = (0..book().defs.len())
+            .filter(|&i| h.me().kit.level(i) == 0 && h.progress.owns(i) && h.me().kit.offerable(i))
+            .collect();
         assert!(!held.is_empty() && !new.is_empty());
         let (mut on_held, mut on_new) = (0.0, 0.0);
         for _ in 0..20000 {
             let up = h.deal(&[], &[]).up;
-            if held.contains(&up) { on_held += 1.0 } else { on_new += 1.0 }
+            if held.contains(&up) {
+                on_held += 1.0
+            } else {
+                on_new += 1.0
+            }
         }
         let ratio = (on_held / held.len() as f32) / (on_new / new.len() as f32);
-        assert!((ratio - 3.0).abs() < 0.45, "held cards came up {ratio} times as often, for a weight of 3");
+        assert!(
+            (ratio - 3.0).abs() < 0.45,
+            "held cards came up {ratio} times as often, for a weight of 3"
+        );
     }
 
     #[test]
@@ -4106,19 +5885,43 @@ mod tests {
         let pistol = book().index("pistol").unwrap();
         let before = h.me().kit.level(pistol);
         h.update(&Input::default(), CARDS_IN, &mut Vec::new());
-        h.update(&Input { pressed: Buttons::X, ..Default::default() }, 0.016, &mut Vec::new());
-        assert!(matches!(h.phase, Phase::LevelUp { picked: Some(_), .. }));
+        h.update(
+            &Input {
+                pressed: Buttons::X,
+                ..Default::default()
+            },
+            0.016,
+            &mut Vec::new(),
+        );
+        assert!(matches!(
+            h.phase,
+            Phase::LevelUp {
+                picked: Some(_),
+                ..
+            }
+        ));
         assert_eq!(h.me().kit.level(pistol), before + 1);
         assert_eq!(h.card_levels[1], (before, before + 1));
     }
 
     fn level_up_on(h: &mut Harvest, ids: [&str; 3]) {
-        let choice = |id| Choice { up: book().index(id).unwrap(), rare: false, found: false };
-        h.phase = Phase::LevelUp { choices: ids.map(choice), selected: 1, t: 1.0, picked: None };
+        let choice = |id| Choice {
+            up: book().index(id).unwrap(),
+            rare: false,
+            found: false,
+        };
+        h.phase = Phase::LevelUp {
+            choices: ids.map(choice),
+            selected: 1,
+            t: 1.0,
+            picked: None,
+        };
     }
 
     fn shown(h: &Harvest) -> [usize; 3] {
-        let Phase::LevelUp { choices, .. } = h.phase else { panic!("no level-up") };
+        let Phase::LevelUp { choices, .. } = h.phase else {
+            panic!("no level-up")
+        };
         choices.map(|c| c.up)
     }
 
@@ -4129,16 +5932,46 @@ mod tests {
         level_up_on(&mut h, ["shotgun", "pistol", "running_shoes"]);
         let pistol = book().index("pistol").unwrap();
         let mut sounds = Vec::new();
-        h.update(&Input { pressed: Buttons::L1, ..Default::default() }, 0.016, &mut sounds);
+        h.update(
+            &Input {
+                pressed: Buttons::L1,
+                ..Default::default()
+            },
+            0.016,
+            &mut sounds,
+        );
         let now = shown(&h);
-        assert!(now[1] != pistol && now[0] != now[1] && now[2] != now[1], "{now:?}");
-        assert_eq!((now[0], now[2]), (book().index("shotgun").unwrap(), book().index("running_shoes").unwrap()), "the others stay");
-        assert!(matches!(h.phase, Phase::LevelUp { picked: None, .. }), "a banish isn't a pick");
+        assert!(
+            now[1] != pistol && now[0] != now[1] && now[2] != now[1],
+            "{now:?}"
+        );
+        assert_eq!(
+            (now[0], now[2]),
+            (
+                book().index("shotgun").unwrap(),
+                book().index("running_shoes").unwrap()
+            ),
+            "the others stay"
+        );
+        assert!(
+            matches!(h.phase, Phase::LevelUp { picked: None, .. }),
+            "a banish isn't a pick"
+        );
         assert_eq!(h.banishes, 0);
-        assert!((0..300).all(|_| h.roll_choices(&[]).iter().all(|c| c.up != pistol)), "gone for the run");
+        assert!(
+            (0..300).all(|_| h.roll_choices(&[]).iter().all(|c| c.up != pistol)),
+            "gone for the run"
+        );
         h.update(&Input::default(), CARDS_IN, &mut sounds);
         sounds.clear();
-        h.update(&Input { pressed: Buttons::L1, ..Default::default() }, 0.016, &mut sounds);
+        h.update(
+            &Input {
+                pressed: Buttons::L1,
+                ..Default::default()
+            },
+            0.016,
+            &mut sounds,
+        );
         assert_eq!(shown(&h), now, "none left");
         assert!(sounds.contains(&Sfx::Miss));
     }
@@ -4147,10 +5980,22 @@ mod tests {
     fn a_filler_cannot_be_banished() {
         let mut h = Harvest::new(2);
         h.banishes = 3;
-        let snack = (0..book().defs.len()).find(|&i| book().defs[i].kind == Card::Filler).unwrap();
-        level_up_on(&mut h, ["shotgun", book().defs[snack].id.as_str(), "running_shoes"]);
+        let snack = (0..book().defs.len())
+            .find(|&i| book().defs[i].kind == Card::Filler)
+            .unwrap();
+        level_up_on(
+            &mut h,
+            ["shotgun", book().defs[snack].id.as_str(), "running_shoes"],
+        );
         let mut sounds = Vec::new();
-        h.update(&Input { pressed: Buttons::L1, ..Default::default() }, 0.016, &mut sounds);
+        h.update(
+            &Input {
+                pressed: Buttons::L1,
+                ..Default::default()
+            },
+            0.016,
+            &mut sounds,
+        );
         assert_eq!((shown(&h)[1], h.banishes, h.banished), (snack, 3, 0));
         assert!(sounds.contains(&Sfx::Miss));
     }
@@ -4161,19 +6006,53 @@ mod tests {
         h.rerolls = 1;
         level_up_on(&mut h, ["shotgun", "pistol", "running_shoes"]);
         let before = shown(&h);
-        h.update(&Input { pressed: Buttons::R1, ..Default::default() }, 0.016, &mut Vec::new());
+        h.update(
+            &Input {
+                pressed: Buttons::R1,
+                ..Default::default()
+            },
+            0.016,
+            &mut Vec::new(),
+        );
         let after = shown(&h);
-        assert!(after.iter().all(|up| !before.contains(up)), "{before:?} then {after:?}");
+        assert!(
+            after.iter().all(|up| !before.contains(up)),
+            "{before:?} then {after:?}"
+        );
         assert_eq!(h.rerolls, 0);
         let level: Vec<u32> = after.iter().map(|&up| h.me().kit.level(up)).collect();
-        h.update(&Input { pressed: Buttons::X, ..Default::default() }, 0.016, &mut Vec::new());
-        assert!(matches!(h.phase, Phase::LevelUp { picked: None, .. }), "too soon after the deal");
+        h.update(
+            &Input {
+                pressed: Buttons::X,
+                ..Default::default()
+            },
+            0.016,
+            &mut Vec::new(),
+        );
+        assert!(
+            matches!(h.phase, Phase::LevelUp { picked: None, .. }),
+            "too soon after the deal"
+        );
         h.update(&Input::default(), CARDS_IN, &mut Vec::new());
         let mut sounds = Vec::new();
-        h.update(&Input { pressed: Buttons::R1, ..Default::default() }, 0.016, &mut sounds);
+        h.update(
+            &Input {
+                pressed: Buttons::R1,
+                ..Default::default()
+            },
+            0.016,
+            &mut sounds,
+        );
         assert_eq!(shown(&h), after, "none left");
         assert!(sounds.contains(&Sfx::Miss));
-        assert_eq!(after.iter().map(|&up| h.me().kit.level(up)).collect::<Vec<_>>(), level, "nothing picked for the player");
+        assert_eq!(
+            after
+                .iter()
+                .map(|&up| h.me().kit.level(up))
+                .collect::<Vec<_>>(),
+            level,
+            "nothing picked for the player"
+        );
     }
 
     #[test]
@@ -4181,8 +6060,18 @@ mod tests {
         let mut h = Harvest::new(2);
         (h.banishes, h.rerolls) = (1, 1);
         level_up_on(&mut h, ["shotgun", "pistol", "running_shoes"]);
-        let tap = |at: [f32; 2]| Input { touch: Some(at), touch_started: true, ..Default::default() };
-        let mid = |key: LevelKey| LEVEL_KEYS.iter().find(|k| k.0 == key).map(|(_, [x, y, w, h])| [x + w / 2.0, y + h / 2.0]).unwrap();
+        let tap = |at: [f32; 2]| Input {
+            touch: Some(at),
+            touch_started: true,
+            ..Default::default()
+        };
+        let mid = |key: LevelKey| {
+            LEVEL_KEYS
+                .iter()
+                .find(|k| k.0 == key)
+                .map(|(_, [x, y, w, h])| [x + w / 2.0, y + h / 2.0])
+                .unwrap()
+        };
         let card = |i: f32| [500.0, CHOICE_TOP + CHOICE_ROW * (i + 0.5)];
         h.update(&tap(mid(LevelKey::Banish)), 0.016, &mut Vec::new());
         assert!(h.banishing);
@@ -4192,14 +6081,26 @@ mod tests {
         let shotgun = book().index("shotgun").unwrap();
         h.update(&tap(card(0.0)), 0.016, &mut Vec::new());
         assert!(!h.banishing && h.banished == 1 << shotgun && shown(&h)[0] != shotgun);
-        assert!(matches!(h.phase, Phase::LevelUp { picked: None, .. }), "the tap banished instead of taking");
+        assert!(
+            matches!(h.phase, Phase::LevelUp { picked: None, .. }),
+            "the tap banished instead of taking"
+        );
         h.update(&Input::default(), CARDS_IN, &mut Vec::new());
         let before = shown(&h);
         h.update(&tap(mid(LevelKey::Reroll)), 0.016, &mut Vec::new());
         assert!(h.rerolls == 0 && shown(&h) != before);
         h.update(&Input::default(), CARDS_IN, &mut Vec::new());
         h.update(&tap(card(2.0)), 0.016, &mut Vec::new());
-        assert!(matches!(h.phase, Phase::LevelUp { picked: Some(_), .. }), "a plain tap still takes a card");
+        assert!(
+            matches!(
+                h.phase,
+                Phase::LevelUp {
+                    picked: Some(_),
+                    ..
+                }
+            ),
+            "a plain tap still takes a card"
+        );
     }
 
     #[test]
@@ -4210,27 +6111,68 @@ mod tests {
         h.level = t.favor_level as u32 - 1;
         level_up_on(&mut h, ["shotgun", "pistol", "running_shoes"]);
         let mut sounds = Vec::new();
-        h.update(&Input { pressed: Buttons::Y, ..Default::default() }, 0.016, &mut sounds);
-        assert!(matches!(h.phase, Phase::LevelUp { picked: None, .. }) && h.favored.is_none() && sounds.contains(&Sfx::Miss), "not before favor_level");
+        h.update(
+            &Input {
+                pressed: Buttons::Y,
+                ..Default::default()
+            },
+            0.016,
+            &mut sounds,
+        );
+        assert!(
+            matches!(h.phase, Phase::LevelUp { picked: None, .. })
+                && h.favored.is_none()
+                && sounds.contains(&Sfx::Miss),
+            "not before favor_level"
+        );
         h.level = t.favor_level as u32;
         let pistol = book().index("pistol").unwrap();
         let was = h.me().kit.level(pistol);
-        h.update(&Input { pressed: Buttons::Y, ..Default::default() }, 0.016, &mut Vec::new());
-        assert!(matches!(h.phase, Phase::LevelUp { picked: Some(_), .. }), "a favor is a pick");
-        assert_eq!((h.favored, h.favors, h.me().kit.level(pistol)), (Some(pistol), 0, was + 1));
+        h.update(
+            &Input {
+                pressed: Buttons::Y,
+                ..Default::default()
+            },
+            0.016,
+            &mut Vec::new(),
+        );
+        assert!(
+            matches!(
+                h.phase,
+                Phase::LevelUp {
+                    picked: Some(_),
+                    ..
+                }
+            ),
+            "a favor is a pick"
+        );
+        assert_eq!(
+            (h.favored, h.favors, h.me().kit.level(pistol)),
+            (Some(pistol), 0, was + 1)
+        );
     }
 
     #[test]
     fn another_players_own_powerup_is_never_dealt_nor_found() {
         let scythe = book().index("scythe").unwrap();
-        let mut h = Harvest::new(2).with_progress(Progress { kills: u32::MAX, everything: true, hidden: 1 << scythe, ..Default::default() });
+        let mut h = Harvest::new(2).with_progress(Progress {
+            kills: u32::MAX,
+            everything: true,
+            hidden: 1 << scythe,
+            ..Default::default()
+        });
         h.chest = true;
         for _ in 0..2000 {
             assert!(h.roll_choices(&[]).iter().all(|c| c.up != scythe));
         }
         h.t = 3600.0;
         let found = |h: &mut Harvest, hidden| {
-            h.progress = Progress { kills: u32::MAX, best: u32::MAX, hidden, ..Default::default() };
+            h.progress = Progress {
+                kills: u32::MAX,
+                best: u32::MAX,
+                hidden,
+                ..Default::default()
+            };
             (0..4000).any(|_| h.find(false) == Some(scythe))
         };
         assert!(found(&mut h, 0), "found as a rule");
@@ -4241,7 +6183,10 @@ mod tests {
     fn a_save_that_found_a_weapon_now_ready_from_the_start_counts_it_once() {
         let tacks = book().index("tacks").unwrap();
         let fresh = Progress::default();
-        let found_it = Progress { found: 1 << tacks, ..Default::default() };
+        let found_it = Progress {
+            found: 1 << tacks,
+            ..Default::default()
+        };
         assert!(fresh.owns(tacks) && found_it.owns(tacks) && !found_it.findable(tacks));
         assert_eq!(unlocked(&found_it), unlocked(&fresh));
     }
@@ -4250,14 +6195,20 @@ mod tests {
     fn a_favored_powerup_comes_up_favor_weight_times_as_often() {
         let mut h = Harvest::new(2);
         h.held_weight = 1.0;
-        let pool: Vec<usize> = (0..book().defs.len()).filter(|&i| h.progress.owns(i) && h.me().kit.offerable(i)).collect();
+        let pool: Vec<usize> = (0..book().defs.len())
+            .filter(|&i| h.progress.owns(i) && h.me().kit.offerable(i))
+            .collect();
         let favored = pool[0];
         h.favored = Some(favored);
         let n = 30000;
         let hits = (0..n).filter(|_| h.deal(&[], &[]).up == favored).count() as f32;
         let w = crate::tuning::tuning().favor_weight;
         let expected = w / (w + pool.len() as f32 - 1.0);
-        assert!((hits / n as f32 - expected).abs() < 0.02, "came up {} of the time, for {expected}", hits / n as f32);
+        assert!(
+            (hits / n as f32 - expected).abs() < 0.02,
+            "came up {} of the time, for {expected}",
+            hits / n as f32
+        );
     }
 
     #[test]
@@ -4267,8 +6218,16 @@ mod tests {
         h.favors = 1;
         h.level = t.favor_level as u32 - 1;
         level_up_on(&mut h, ["shotgun", "pistol", "running_shoes"]);
-        let tap = |at: [f32; 2]| Input { touch: Some(at), touch_started: true, ..Default::default() };
-        let mid = LEVEL_KEYS.iter().find(|k| k.0 == LevelKey::Favor).map(|(_, [x, y, w, h])| [x + w / 2.0, y + h / 2.0]).unwrap();
+        let tap = |at: [f32; 2]| Input {
+            touch: Some(at),
+            touch_started: true,
+            ..Default::default()
+        };
+        let mid = LEVEL_KEYS
+            .iter()
+            .find(|k| k.0 == LevelKey::Favor)
+            .map(|(_, [x, y, w, h])| [x + w / 2.0, y + h / 2.0])
+            .unwrap();
         assert_eq!(level_key(mid, h.level), None, "hidden before favor_level");
         h.level += 1;
         h.update(&tap(mid), 0.016, &mut Vec::new());
@@ -4276,21 +6235,51 @@ mod tests {
         h.update(&tap(mid), 0.016, &mut Vec::new());
         assert!(!h.favoring, "a second tap cancels");
         h.update(&tap(mid), 0.016, &mut Vec::new());
-        h.update(&tap([500.0, CHOICE_TOP + CHOICE_ROW * 2.5]), 0.016, &mut Vec::new());
+        h.update(
+            &tap([500.0, CHOICE_TOP + CHOICE_ROW * 2.5]),
+            0.016,
+            &mut Vec::new(),
+        );
         assert_eq!(h.favored, book().index("running_shoes"));
-        assert!(!h.favoring && matches!(h.phase, Phase::LevelUp { picked: Some(_), .. }));
+        assert!(
+            !h.favoring
+                && matches!(
+                    h.phase,
+                    Phase::LevelUp {
+                        picked: Some(_),
+                        ..
+                    }
+                )
+        );
     }
 
     #[test]
     fn a_reroll_on_a_chest_still_holds_a_find() {
-        let mut h = Harvest::new(2).with_progress(Progress { kills: 100, ..Default::default() });
+        let mut h = Harvest::new(2).with_progress(Progress {
+            kills: 100,
+            ..Default::default()
+        });
         h.rerolls = 5;
         h.chest = true;
         let choices = h.roll_choices(&[]);
-        h.phase = Phase::LevelUp { choices, selected: 0, t: 1.0, picked: None };
+        h.phase = Phase::LevelUp {
+            choices,
+            selected: 0,
+            t: 1.0,
+            picked: None,
+        };
         for _ in 0..5 {
-            h.update(&Input { pressed: Buttons::R1, ..Default::default() }, 0.016, &mut Vec::new());
-            let Phase::LevelUp { choices, .. } = h.phase else { panic!() };
+            h.update(
+                &Input {
+                    pressed: Buttons::R1,
+                    ..Default::default()
+                },
+                0.016,
+                &mut Vec::new(),
+            );
+            let Phase::LevelUp { choices, .. } = h.phase else {
+                panic!()
+            };
             assert!(choices.iter().any(|c| c.found));
             h.update(&Input::default(), CARDS_IN, &mut Vec::new());
         }
@@ -4301,9 +6290,30 @@ mod tests {
         let mut h = Harvest::new(6);
         let barrel = h.barrels.first().expect("seed 6 has barrels");
         let c = barrel.center();
-        h.zombies.push(Zombie::new(Kind::named("big"), [c[0] + 20.0, c[1]], 50.0, 1.0, 0.0));
+        h.zombies.push(Zombie::new(
+            Kind::named("big"),
+            [c[0] + 20.0, c[1]],
+            50.0,
+            1.0,
+            0.0,
+        ));
         let mut sounds = Vec::new();
-        h.bullets.push(Bullet { pos: [c[0], c[1] - 6.0], vel: [1.0, 0.0], damage: 50.0, pierce: 0, life: 1.0, force: 30.0, hit: Vec::new(), look: None, age: 0.0, by: None, owner: ME, soak: [0.0; 2], lift: [0.0; 2], steer: Default::default() });
+        h.bullets.push(Bullet {
+            pos: [c[0], c[1] - 6.0],
+            vel: [1.0, 0.0],
+            damage: 50.0,
+            pierce: 0,
+            life: 1.0,
+            force: 30.0,
+            hit: Vec::new(),
+            look: None,
+            age: 0.0,
+            by: None,
+            owner: ME,
+            soak: [0.0; 2],
+            lift: [0.0; 2],
+            steer: Default::default(),
+        });
         h.move_bullets(0.016, &mut sounds);
         assert!(h.blow(0.016, &mut sounds).is_some());
         assert!(h.zombies[0].hp <= 0.0);
@@ -4312,70 +6322,211 @@ mod tests {
 
     #[test]
     fn a_bullet_throws_its_impact_sparks_where_it_hits_a_zombie_or_runs_out_on_the_ground() {
-        let look = effects::effects().named("pistol_shot").expect("the pistol's style");
+        let look = effects::effects()
+            .named("pistol_shot")
+            .expect("the pistol's style");
         let shot = look.shot.unwrap();
-        let sparks = |h: &Harvest| h.juice.particles.iter().filter(|p| p.glow > 0.0 && p.color == shot.color).count();
+        let sparks = |h: &Harvest| {
+            h.juice
+                .particles
+                .iter()
+                .filter(|p| p.glow > 0.0 && p.color == shot.color)
+                .count()
+        };
         let mut h = Harvest::calm(4);
         let at = h.me().pos;
-        h.zombies.push(Zombie::new(Kind::named("big"), [at[0] + 3.0, at[1]], 500.0, 1.0, 0.0));
-        h.bullets = vec![Bullet { pos: [at[0], at[1] - 6.0], vel: [10.0, 0.0], damage: 1.0, pierce: 0, life: 1.0, force: 0.0, hit: Vec::new(), look: Some(look), age: 0.0, by: None, owner: ME, soak: [0.0; 2], lift: [0.0; 2], steer: Default::default() }];
+        h.zombies.push(Zombie::new(
+            Kind::named("big"),
+            [at[0] + 3.0, at[1]],
+            500.0,
+            1.0,
+            0.0,
+        ));
+        h.bullets = vec![Bullet {
+            pos: [at[0], at[1] - 6.0],
+            vel: [10.0, 0.0],
+            damage: 1.0,
+            pierce: 0,
+            life: 1.0,
+            force: 0.0,
+            hit: Vec::new(),
+            look: Some(look),
+            age: 0.0,
+            by: None,
+            owner: ME,
+            soak: [0.0; 2],
+            lift: [0.0; 2],
+            steer: Default::default(),
+        }];
         h.juice.particles.clear();
         h.move_bullets(0.016, &mut Vec::new());
         assert!(h.bullets.is_empty());
         assert_eq!(sparks(&h), shot.impact as usize, "sparks beside the blood");
-        assert!(h.juice.particles.len() > shot.impact as usize + 1, "and the blood still sprays");
+        assert!(
+            h.juice.particles.len() > shot.impact as usize + 1,
+            "and the blood still sprays"
+        );
         h.zombies.clear();
         h.juice.particles.clear();
-        h.bullets = vec![Bullet { pos: [at[0], at[1] - 6.0], vel: [10.0, 0.0], damage: 1.0, pierce: 0, life: 0.01, force: 0.0, hit: Vec::new(), look: Some(look), age: 0.0, by: None, owner: ME, soak: [0.0; 2], lift: [0.0; 2], steer: Default::default() }];
+        h.bullets = vec![Bullet {
+            pos: [at[0], at[1] - 6.0],
+            vel: [10.0, 0.0],
+            damage: 1.0,
+            pierce: 0,
+            life: 0.01,
+            force: 0.0,
+            hit: Vec::new(),
+            look: Some(look),
+            age: 0.0,
+            by: None,
+            owner: ME,
+            soak: [0.0; 2],
+            lift: [0.0; 2],
+            steer: Default::default(),
+        }];
         h.move_bullets(0.016, &mut Vec::new());
-        assert_eq!(sparks(&h), shot.impact as usize, "a bullet that flies its range sparks on the ground");
+        assert_eq!(
+            sparks(&h),
+            shot.impact as usize,
+            "a bullet that flies its range sparks on the ground"
+        );
         h.juice.particles.clear();
         let sprite = effects::effects().slash;
-        h.bullets = vec![Bullet { pos: [at[0], at[1] - 6.0], vel: [10.0, 0.0], damage: 1.0, pierce: 0, life: 0.01, force: 0.0, hit: Vec::new(), look: Some(sprite), age: 0.0, by: None, owner: ME, soak: [0.0; 2], lift: [0.0; 2], steer: Default::default() }];
+        h.bullets = vec![Bullet {
+            pos: [at[0], at[1] - 6.0],
+            vel: [10.0, 0.0],
+            damage: 1.0,
+            pierce: 0,
+            life: 0.01,
+            force: 0.0,
+            hit: Vec::new(),
+            look: Some(sprite),
+            age: 0.0,
+            by: None,
+            owner: ME,
+            soak: [0.0; 2],
+            lift: [0.0; 2],
+            steer: Default::default(),
+        }];
         h.move_bullets(0.016, &mut Vec::new());
-        assert!(h.juice.particles.is_empty(), "a bullet that flies as a sprite throws none");
+        assert!(
+            h.juice.particles.is_empty(),
+            "a bullet that flies as a sprite throws none"
+        );
     }
 
     #[test]
     fn resuming_with_a_held_doesnt_turn_the_camera() {
         let mut h = Harvest::calm(4);
         h.update(&Input::default(), 1.0 / 60.0, &mut Vec::new());
-        h.update(&Input { pressed: Buttons::START, ..Default::default() }, 1.0 / 60.0, &mut Vec::new());
+        h.update(
+            &Input {
+                pressed: Buttons::START,
+                ..Default::default()
+            },
+            1.0 / 60.0,
+            &mut Vec::new(),
+        );
         assert_eq!(h.menu, Some(0));
-        h.update(&Input { pressed: Buttons::A, held: Buttons::A, ..Default::default() }, 1.0 / 60.0, &mut Vec::new());
+        h.update(
+            &Input {
+                pressed: Buttons::A,
+                held: Buttons::A,
+                ..Default::default()
+            },
+            1.0 / 60.0,
+            &mut Vec::new(),
+        );
         assert_eq!(h.menu, None);
         let yaw = h.me().view_yaw;
-        h.update(&Input { held: Buttons::A, ..Default::default() }, 0.5, &mut Vec::new());
-        assert_eq!(h.me().view_yaw, yaw.rem_euclid(TAU), "the A that resumed has to be let go before it turns");
+        h.update(
+            &Input {
+                held: Buttons::A,
+                ..Default::default()
+            },
+            0.5,
+            &mut Vec::new(),
+        );
+        assert_eq!(
+            h.me().view_yaw,
+            yaw.rem_euclid(TAU),
+            "the A that resumed has to be let go before it turns"
+        );
     }
 
     #[test]
     fn a_piercing_shot_hits_each_zombie_once_while_the_dead_are_cleared() {
         let mut h = penned();
         let at = [h.me().pos[0] + 20.0, h.me().pos[1]];
-        let mut dead = Zombie::new(Kind::named("skinny"), [h.me().pos[0] - 40.0, h.me().pos[1]], 0.0, 1.0, 0.0);
+        let mut dead = Zombie::new(
+            Kind::named("skinny"),
+            [h.me().pos[0] - 40.0, h.me().pos[1]],
+            0.0,
+            1.0,
+            0.0,
+        );
         dead.id = 1;
         let mut live = Zombie::new(Kind::named("skinny"), at, 1000.0, 1.0, 0.0);
         live.id = 2;
         h.zombies = vec![dead, live];
-        h.bullets = vec![Bullet { pos: [at[0], at[1] - 6.0], vel: [0.0; 2], damage: 10.0, pierce: 5, life: 1.0, force: 0.0, hit: Vec::new(), look: None, age: 0.0, by: None, owner: ME, soak: [0.0; 2], lift: [0.0; 2], steer: Default::default() }];
+        h.bullets = vec![Bullet {
+            pos: [at[0], at[1] - 6.0],
+            vel: [0.0; 2],
+            damage: 10.0,
+            pierce: 5,
+            life: 1.0,
+            force: 0.0,
+            hit: Vec::new(),
+            look: None,
+            age: 0.0,
+            by: None,
+            owner: ME,
+            soak: [0.0; 2],
+            lift: [0.0; 2],
+            steer: Default::default(),
+        }];
         let mut sounds = Vec::new();
         h.move_bullets(0.016, &mut sounds);
         let once = h.zombies[1].hp;
         assert!(once < 1000.0);
         h.reap(&mut sounds, &mut Flow::default());
         h.move_bullets(0.016, &mut sounds);
-        assert_eq!(h.zombies[0].hp, once, "the zombie that took the shot's place isn't hit again");
+        assert_eq!(
+            h.zombies[0].hp, once,
+            "the zombie that took the shot's place isn't hit again"
+        );
     }
 
     #[test]
     fn shots_fly_past_bushes_and_stop_at_buildings() {
         let mut h = Harvest::calm(6);
-        let bottom = |a: Art| h.map.props.iter().find(|p| p.frames[0] == a).map(|p| [p.x + TILE / 2.0, p.base - TILE / 2.0]).expect("seed 6 has one");
+        let bottom = |a: Art| {
+            h.map
+                .props
+                .iter()
+                .find(|p| p.frames[0] == a)
+                .map(|p| [p.x + TILE / 2.0, p.base - TILE / 2.0])
+                .expect("seed 6 has one")
+        };
         let (bush, house) = (bottom(art::BUSH), bottom(art::HOUSE));
         assert!(h.map.solid_at(bush[0], bush[1]));
         let mut stops = |at: [f32; 2]| {
-            h.bullets = vec![Bullet { pos: [at[0], at[1] - 6.0], vel: [0.0; 2], damage: 1.0, pierce: 0, life: 1.0, force: 0.0, hit: Vec::new(), look: None, age: 0.0, by: None, owner: ME, soak: [0.0; 2], lift: [0.0; 2], steer: Default::default() }];
+            h.bullets = vec![Bullet {
+                pos: [at[0], at[1] - 6.0],
+                vel: [0.0; 2],
+                damage: 1.0,
+                pierce: 0,
+                life: 1.0,
+                force: 0.0,
+                hit: Vec::new(),
+                look: None,
+                age: 0.0,
+                by: None,
+                owner: ME,
+                soak: [0.0; 2],
+                lift: [0.0; 2],
+                steer: Default::default(),
+            }];
             h.move_bullets(0.016, &mut Vec::new());
             h.bullets.is_empty()
         };
@@ -4386,7 +6537,15 @@ mod tests {
     /// A calm run on a dirt map with a gateless rail fence round the player, from tile (7, 4) to (13, 9).
     fn penned() -> Harvest {
         let mut src = map::MapSource::new("Pen", [20, 14]);
-        src.props.push((0, PropLine::Fence { picket: false, rect: [7, 4, 7, 6], gate: None, tough: Default::default() }));
+        src.props.push((
+            0,
+            PropLine::Fence {
+                picket: false,
+                rect: [7, 4, 7, 6],
+                gate: None,
+                tough: Default::default(),
+            },
+        ));
         Harvest::calm_on(1, &src).unwrap()
     }
 
@@ -4394,7 +6553,13 @@ mod tests {
     fn zombies_chew_through_a_fence_to_get_at_the_player() {
         let mut h = penned();
         let fence = h.map.props.len();
-        h.zombies.push(Zombie::new(Kind::named("skinny"), [3.5 * TILE, 7.5 * TILE], 1000.0, 1.0, 0.0));
+        h.zombies.push(Zombie::new(
+            Kind::named("skinny"),
+            [3.5 * TILE, 7.5 * TILE],
+            1000.0,
+            1.0,
+            0.0,
+        ));
         for _ in 0..60 * 20 {
             h.update(&Input::default(), 1.0 / 60.0, &mut Vec::new());
             if h.me().hp < h.me().kit.max_hp() {
@@ -4402,7 +6567,10 @@ mod tests {
             }
         }
         assert!(h.map.props.len() < fence, "a piece of fence is gone");
-        assert!(h.me().hp < h.me().kit.max_hp(), "and the zombie came through it");
+        assert!(
+            h.me().hp < h.me().kit.max_hp(),
+            "and the zombie came through it"
+        );
     }
 
     #[test]
@@ -4410,18 +6578,56 @@ mod tests {
         let mut h = penned();
         let post = [7.5 * TILE, 6.5 * TILE];
         let shoot = |h: &mut Harvest| {
-            h.bullets = vec![Bullet { pos: [post[0], post[1] - 6.0], vel: [0.0; 2], damage: 10.0, pierce: 0, life: 1.0, force: 0.0, hit: Vec::new(), look: None, age: 0.0, by: None, owner: ME, soak: [0.0; 2], lift: [0.0; 2], steer: Default::default() }];
+            h.bullets = vec![Bullet {
+                pos: [post[0], post[1] - 6.0],
+                vel: [0.0; 2],
+                damage: 10.0,
+                pierce: 0,
+                life: 1.0,
+                force: 0.0,
+                hit: Vec::new(),
+                look: None,
+                age: 0.0,
+                by: None,
+                owner: ME,
+                soak: [0.0; 2],
+                lift: [0.0; 2],
+                steer: Default::default(),
+            }];
             h.move_bullets(0.016, &mut Vec::new());
         };
         let i = h.map.breakable_at(post[0], post[1]).unwrap();
         shoot(&mut h);
-        assert_eq!((h.bullets.len(), h.map.props[i].hp), (1, 40.0), "a fence isn't cover");
+        assert_eq!(
+            (h.bullets.len(), h.map.props[i].hp),
+            (1, 40.0),
+            "a fence isn't cover"
+        );
         let mut src = map::MapSource::new("Pen", [20, 14]);
-        src.props.push((0, PropLine::Fence { picket: false, rect: [7, 4, 7, 6], gate: None, tough: map::Tough { hp: Some(30.0), cover: Some(true) } }));
+        src.props.push((
+            0,
+            PropLine::Fence {
+                picket: false,
+                rect: [7, 4, 7, 6],
+                gate: None,
+                tough: map::Tough {
+                    hp: Some(30.0),
+                    cover: Some(true),
+                },
+            },
+        ));
         h = Harvest::calm_on(1, &src).unwrap();
         shoot(&mut h);
-        assert!(h.bullets.is_empty() && h.map.props[i].hp == 20.0 && h.map.props[i].flash > 0.0, "cover that breaks takes the shot");
-        h.explode([post[0] - 20.0, post[1]], crate::tuning::tuning().barrel_radius, crate::tuning::tuning().barrel_damage, &mut Vec::new());
+        assert!(
+            h.bullets.is_empty() && h.map.props[i].hp == 20.0 && h.map.props[i].flash > 0.0,
+            "cover that breaks takes the shot"
+        );
+        h.explode(
+            [post[0] - 20.0, post[1]],
+            crate::tuning::tuning().barrel_radius,
+            crate::tuning::tuning().barrel_damage,
+            &mut Vec::new(),
+        );
         for _ in 0..10 {
             h.crumble(0.016, &mut Vec::new());
         }
@@ -4442,34 +6648,68 @@ mod tests {
             let at = [h.me().pos[0] + 4.0, h.me().pos[1]];
             h.zombies.push(Zombie::new(kind, at, 1000.0, 0.0, 0.0));
             let t = crate::tuning::tuning();
-            h.update(&Input::default(), t.rise * t.rise_bite_from * 0.5, &mut Vec::new());
-            assert_eq!(h.me().hp, h.me().kit.max_hp(), "no bite before rise_bite_from of the climb");
+            h.update(
+                &Input::default(),
+                t.rise * t.rise_bite_from * 0.5,
+                &mut Vec::new(),
+            );
+            assert_eq!(
+                h.me().hp,
+                h.me().kit.max_hp(),
+                "no bite before rise_bite_from of the climb"
+            );
             h.update(&Input::default(), t.rise * 0.6, &mut Vec::new());
             assert_eq!(h.zombies[0].pos, at, "rooted while it climbs");
             h.me().kit.max_hp() - h.me().hp
         };
         let full = bitten(Kind::named("skinny"));
         let half = bitten(skinny_but(|e| e.rise_bite = 0.5));
-        assert!(full > 0.0 && half > 0.0 && half < full, "{full} then {half}");
-        assert_eq!(bitten(skinny_but(|e| e.rise_bite = 0.0)), 0.0, "0 keeps it harmless until it's out");
+        assert!(
+            full > 0.0 && half > 0.0 && half < full,
+            "{full} then {half}"
+        );
+        assert_eq!(
+            bitten(skinny_but(|e| e.rise_bite = 0.0)),
+            0.0,
+            "0 keeps it harmless until it's out"
+        );
     }
 
     #[test]
     fn stroll_and_easy_turn_off_every_bite_while_rising() {
         let r = crate::tuning::rules();
-        let rise_bite = |id: &str| r.presets.iter().find(|p| p.id == id).map(|p| p.tuning.rise_bite);
-        assert_eq!((rise_bite("stroll"), rise_bite("easy"), rise_bite("normal")), (Some(0.0), Some(0.0), Some(r.base.rise_bite)));
+        let rise_bite = |id: &str| {
+            r.presets
+                .iter()
+                .find(|p| p.id == id)
+                .map(|p| p.tuning.rise_bite)
+        };
+        assert_eq!(
+            (rise_bite("stroll"), rise_bite("easy"), rise_bite("normal")),
+            (Some(0.0), Some(0.0), Some(r.base.rise_bite))
+        );
     }
 
     /// A calm farm whose player has just gone down at its spawn, ringed by `n` zombies.
     fn down_among(n: usize) -> Harvest {
         let mut h = Harvest::calm(4);
-        h.zombies = (0..n).map(|k| {
-            let a = k as f32 * TAU / n as f32;
-            let mut z = Zombie::new(Kind::named("skinny"), [h.me().pos[0] + fm::cos(a) * 14.0, h.me().pos[1] + fm::sin(a) * 14.0], 50.0, 1.0, 0.0);
-            z.id = k as u32 + 1;
-            z
-        }).collect();
+        h.zombies = (0..n)
+            .map(|k| {
+                let a = k as f32 * TAU / n as f32;
+                let mut z = Zombie::new(
+                    Kind::named("skinny"),
+                    [
+                        h.me().pos[0] + fm::cos(a) * 14.0,
+                        h.me().pos[1] + fm::sin(a) * 14.0,
+                    ],
+                    50.0,
+                    1.0,
+                    0.0,
+                );
+                z.id = k as u32 + 1;
+                z
+            })
+            .collect();
         h.me_mut().hp = 0.0;
         h.me_mut().down = Some(0.0);
         h.phase = Phase::Over { t: 0.0, won: false };
@@ -4482,17 +6722,34 @@ mod tests {
     fn after_the_player_turns_the_dead_wander_off_and_never_gather_on_them() {
         let mut h = down_among(12);
         let fell = h.me().pos;
-        let near = |h: &Harvest, p: [f32; 2]| h.zombies.iter().map(|z| len(sub(z.pos, p))).sum::<f32>() / h.zombies.len() as f32;
+        let near = |h: &Harvest, p: [f32; 2]| {
+            h.zombies.iter().map(|z| len(sub(z.pos, p))).sum::<f32>() / h.zombies.len() as f32
+        };
         let before = near(&h, fell);
         let starts: Vec<[f32; 2]> = h.zombies.iter().map(|z| z.pos).collect();
         for _ in 0..(12 * 60) {
             h.update(&Input::default(), 1.0 / 60.0, &mut Vec::new());
         }
-        assert!(near(&h, fell) > before + 20.0, "they drift off where the player fell: {before} -> {}", near(&h, fell));
-        assert!(near(&h, h.me().pos) > 30.0, "and don't gather on the turned player");
-        let moved = h.zombies.iter().zip(&starts).filter(|(z, s)| len(sub(z.pos, **s)) > 16.0).count();
+        assert!(
+            near(&h, fell) > before + 20.0,
+            "they drift off where the player fell: {before} -> {}",
+            near(&h, fell)
+        );
+        assert!(
+            near(&h, h.me().pos) > 30.0,
+            "and don't gather on the turned player"
+        );
+        let moved = h
+            .zombies
+            .iter()
+            .zip(&starts)
+            .filter(|(z, s)| len(sub(z.pos, **s)) > 16.0)
+            .count();
         assert!(moved >= 10, "none stands stuck: {moved} of 12 moved");
-        assert!(len(sub(h.me().pos, fell)) > 30.0, "the turned player wanders too");
+        assert!(
+            len(sub(h.me().pos, fell)) > 30.0,
+            "the turned player wanders too"
+        );
     }
 
     #[test]
@@ -4504,15 +6761,42 @@ mod tests {
             let mut z = Zombie::new(Kind::named("skinny"), target, 5.0, 1.0, 0.0);
             z.id = 99;
             h.zombies.push(z);
-            h.shoot_from([h.me().pos[0] + 20.0, h.me().pos[1] - 6.0], 0.0, 200.0, 50.0, 0, 1.0, 0.0, None, [0.0; 2]);
-            h.thrown.push(Grenade { from: h.me().pos, to: [h.me().pos[0] - 60.0, h.me().pos[1]], t: 0.0, kind: Thrown::Grenade, by: None, owner: ME });
+            h.shoot_from(
+                [h.me().pos[0] + 20.0, h.me().pos[1] - 6.0],
+                0.0,
+                200.0,
+                50.0,
+                0,
+                1.0,
+                0.0,
+                None,
+                [0.0; 2],
+            );
+            h.thrown.push(Grenade {
+                from: h.me().pos,
+                to: [h.me().pos[0] - 60.0, h.me().pos[1]],
+                t: 0.0,
+                kind: Thrown::Grenade,
+                by: None,
+                owner: ME,
+            });
             let (kills, total, hp) = (h.kills, h.juice.tally.total(ME), h.me().hp);
             for _ in 0..120 {
                 h.update(&Input::default(), 1.0 / 60.0, &mut Vec::new());
             }
-            assert!(h.bullets.is_empty() && h.thrown.is_empty(), "won {won}: the shot and the grenade finish");
-            assert!(h.zombies.iter().all(|z| z.id != 99), "won {won}: the shot still kills");
-            assert_eq!((h.kills, h.juice.tally.total(ME), h.me().hp), (kills, total, hp), "won {won}: no kill, damage or hurt counts");
+            assert!(
+                h.bullets.is_empty() && h.thrown.is_empty(),
+                "won {won}: the shot and the grenade finish"
+            );
+            assert!(
+                h.zombies.iter().all(|z| z.id != 99),
+                "won {won}: the shot still kills"
+            );
+            assert_eq!(
+                (h.kills, h.juice.tally.total(ME), h.me().hp),
+                (kills, total, hp),
+                "won {won}: no kill, damage or hurt counts"
+            );
             assert!(h.drops.is_empty(), "won {won}: nothing drops");
         }
     }
@@ -4522,11 +6806,19 @@ mod tests {
     fn fought_then_died(secs: f32) -> (Harvest, f32) {
         let mut h = Harvest::calm(3);
         let hp = 1.0e6;
-        h.zombies = (0..4).map(|k| {
-            let mut z = Zombie::new(Kind::named("big"), [h.me().pos[0] + 16.0, h.me().pos[1] - 6.0 + k as f32 * 4.0], hp, 1.0, 0.0);
-            z.id = 100 + k;
-            z
-        }).collect();
+        h.zombies = (0..4)
+            .map(|k| {
+                let mut z = Zombie::new(
+                    Kind::named("big"),
+                    [h.me().pos[0] + 16.0, h.me().pos[1] - 6.0 + k as f32 * 4.0],
+                    hp,
+                    1.0,
+                    0.0,
+                );
+                z.id = 100 + k;
+                z
+            })
+            .collect();
         h.me_mut().hp = 1.0e6;
         for _ in 0..(secs * 60.0) as usize {
             h.update(&Input::default(), 1.0 / 60.0, &mut Vec::new());
@@ -4541,7 +6833,17 @@ mod tests {
     fn top_text(h: &Harvest) -> Vec<String> {
         let mut f = crate::Frame::default();
         h.draw(&mut f, false);
-        f.top.shapes.iter().filter_map(|s| if let crate::Shape::Text { text, .. } = s { Some(text.clone()) } else { None }).collect()
+        f.top
+            .shapes
+            .iter()
+            .filter_map(|s| {
+                if let crate::Shape::Text { text, .. } = s {
+                    Some(text.clone())
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 
     #[test]
@@ -4549,17 +6851,51 @@ mod tests {
         let (h, hurt) = fought_then_died(5.0);
         assert!(hurt > 0.0);
         let tally = &h.juice.tally;
-        assert!((tally.total(ME) - hurt).abs() < 0.01 * hurt, "every hit counts: {} of {hurt}", tally.total(ME));
-        assert!((tally.secs - h.t).abs() < 1e-3 && tally.dps(ME) == tally.total(ME) / tally.secs, "over the night's time");
-        let names: Vec<&str> = tally.rows(ME).iter().map(|r| book().defs[r.by.unwrap()].name.as_str()).collect();
-        let held: Vec<&str> = h.me().kit.weapons.iter().map(|a| book().defs[a.def].name.as_str()).collect();
+        assert!(
+            (tally.total(ME) - hurt).abs() < 0.01 * hurt,
+            "every hit counts: {} of {hurt}",
+            tally.total(ME)
+        );
+        assert!(
+            (tally.secs - h.t).abs() < 1e-3 && tally.dps(ME) == tally.total(ME) / tally.secs,
+            "over the night's time"
+        );
+        let names: Vec<&str> = tally
+            .rows(ME)
+            .iter()
+            .map(|r| book().defs[r.by.unwrap()].name.as_str())
+            .collect();
+        let held: Vec<&str> = h
+            .me()
+            .kit
+            .weapons
+            .iter()
+            .map(|a| book().defs[a.def].name.as_str())
+            .collect();
         assert_eq!(names.len(), held.len(), "{names:?} {held:?}");
         assert!(held.iter().all(|n| names.contains(n)));
-        assert!(tally.rows(ME).windows(2).all(|w| w[0].damage >= w[1].damage), "most damage first");
+        assert!(
+            tally
+                .rows(ME)
+                .windows(2)
+                .all(|w| w[0].damage >= w[1].damage),
+            "most damage first"
+        );
         let text = top_text(&h);
-        let at = |s: &str| text.iter().position(|t| t == s).unwrap_or_else(|| panic!("{s} not on the end screen: {text:?}"));
-        let order: Vec<usize> = names.iter().map(|n| at(n)).chain([at("Whole run")]).collect();
-        assert!(order.windows(2).all(|w| w[0] < w[1]), "in that order, the whole run last");
+        let at = |s: &str| {
+            text.iter()
+                .position(|t| t == s)
+                .unwrap_or_else(|| panic!("{s} not on the end screen: {text:?}"))
+        };
+        let order: Vec<usize> = names
+            .iter()
+            .map(|n| at(n))
+            .chain([at("Whole run")])
+            .collect();
+        assert!(
+            order.windows(2).all(|w| w[0] < w[1]),
+            "in that order, the whole run last"
+        );
     }
 
     #[test]
@@ -4571,9 +6907,24 @@ mod tests {
             h.me_mut().kit.raise(points, 2);
             let mut f = crate::Frame::default();
             h.draw(&mut f, false);
-            let icons: Vec<Art> = f.top.shapes.iter().filter_map(|s| if let crate::Shape::Art { art, .. } = s { Some(*art) } else { None }).collect();
+            let icons: Vec<Art> = f
+                .top
+                .shapes
+                .iter()
+                .filter_map(|s| {
+                    if let crate::Shape::Art { art, .. } = s {
+                        Some(*art)
+                    } else {
+                        None
+                    }
+                })
+                .collect();
             for def in h.me().kit.weapons.iter().map(|a| a.def).chain([points]) {
-                assert!(icons.contains(&book().defs[def].icon), "{} on the top screen, one screen {single}", book().defs[def].id);
+                assert!(
+                    icons.contains(&book().defs[def].icon),
+                    "{} on the top screen, one screen {single}",
+                    book().defs[def].id
+                );
             }
             assert!(top_text(&h).contains(&"Build".to_string()));
         }
@@ -4587,8 +6938,17 @@ mod tests {
         h.me_mut().kit.raise(crows, 3);
         h.me_mut().kit.raise(points, 2);
         h.me_mut().hp = 0.0;
-        let run = h.update(&Input::default(), 1.0 / 60.0, &mut Vec::new()).ended.expect("the run ends");
-        let mut want: Vec<(u16, u8)> = h.me().kit.weapons.iter().map(|a| (a.def as u16, a.level as u8)).collect();
+        let run = h
+            .update(&Input::default(), 1.0 / 60.0, &mut Vec::new())
+            .ended
+            .expect("the run ends");
+        let mut want: Vec<(u16, u8)> = h
+            .me()
+            .kit
+            .weapons
+            .iter()
+            .map(|a| (a.def as u16, a.level as u8))
+            .collect();
         want.push((points as u16, 2));
         assert!(want.contains(&(crows as u16, 3)));
         assert_eq!(run.kit.iter().flatten().copied().collect::<Vec<_>>(), want);
@@ -4597,7 +6957,14 @@ mod tests {
     #[test]
     fn a_new_run_starts_its_tally_over() {
         let (mut h, _) = fought_then_died(1.0);
-        h.update(&Input { pressed: Buttons::A, ..Default::default() }, 1.0 / 60.0, &mut Vec::new());
+        h.update(
+            &Input {
+                pressed: Buttons::A,
+                ..Default::default()
+            },
+            1.0 / 60.0,
+            &mut Vec::new(),
+        );
         assert!(matches!(h.phase, Phase::Playing));
         assert_eq!((h.juice.tally.total(ME), h.juice.tally.secs), (0.0, 0.0));
     }
@@ -4612,16 +6979,25 @@ mod tests {
 
     #[test]
     fn dying_turns_the_player_then_offers_a_new_farm_at_the_same_difficulty() {
-        let mut h = Harvest::new(4).at(Difficulty::HARD).without_enemies(0b10).looking_like("");
+        let mut h = Harvest::new(4)
+            .at(Difficulty::HARD)
+            .without_enemies(0b10)
+            .looking_like("");
         let mut sounds = Vec::new();
         h.me_mut().hp = 0.0;
         h.update(&Input::default(), 0.016, &mut sounds);
         assert!(matches!(h.phase, Phase::Over { won: false, .. }));
-        let a = Input { pressed: Buttons::A, ..Default::default() };
+        let a = Input {
+            pressed: Buttons::A,
+            ..Default::default()
+        };
         h.update(&Input::default(), TURN_SINK, &mut sounds);
         assert_eq!(player_pose(&h, ME, Facing::Front).1, 0.0, "under the dirt");
         h.update(&a, 0.016, &mut sounds);
-        assert!(matches!(h.phase, Phase::Over { .. }), "too soon to start over");
+        assert!(
+            matches!(h.phase, Phase::Over { .. }),
+            "too soon to start over"
+        );
         h.update(&Input::default(), TURN_RISE - TURN_SINK, &mut sounds);
         assert!(sounds.contains(&Sfx::Turn));
         h.update(&Input::default(), TURNED - TURN_RISE + 0.7, &mut sounds);
@@ -4639,10 +7015,18 @@ mod tests {
 
     #[test]
     fn every_difficulty_starts_with_a_pistol_and_knife_and_easy_with_two_grenades() {
-        for (d, grenades) in [(Difficulty::EASY, 2.0), (Difficulty::NORMAL, 1.0), (Difficulty::HARD, 1.0)] {
+        for (d, grenades) in [
+            (Difficulty::EASY, 2.0),
+            (Difficulty::NORMAL, 1.0),
+            (Difficulty::HARD, 1.0),
+        ] {
             let h = Harvest::new(1).at(d).with_kit("lantern");
             assert_eq!(h.me().kit.weapons.len(), 3, "{d:?}");
-            assert_eq!((h.me().grenades, h.me().kit.grenades()), (grenades, grenades), "{d:?}");
+            assert_eq!(
+                (h.me().grenades, h.me().kit.grenades()),
+                (grenades, grenades),
+                "{d:?}"
+            );
         }
     }
 
@@ -4656,21 +7040,38 @@ mod tests {
             for p in &mut h.players {
                 p.kit.weapons.clear();
             }
-            let walk_in = |y: f32| (0..40).fold([2.5 * TILE, y], |p, _| h.map.slide(p, [-1.0, 0.0], ph));
-            let start = (2..h.map.h - 2).flat_map(|ty| (0..16).map(move |k| ty as f32 * TILE + k as f32)).find(|&y| !h.map.hits(2.5 * TILE, y, ph) && walk_in(y)[0] < 8.0);
+            let walk_in =
+                |y: f32| (0..40).fold([2.5 * TILE, y], |p, _| h.map.slide(p, [-1.0, 0.0], ph));
+            let start = (2..h.map.h - 2)
+                .flat_map(|ty| (0..16).map(move |k| ty as f32 * TILE + k as f32))
+                .find(|&y| !h.map.hits(2.5 * TILE, y, ph) && walk_in(y)[0] < 8.0);
             let at = walk_in(start.expect("a way into the edge ring"));
-            assert!(h.map.hits_cells(at[0], at[1], zh), "{at:?} is somewhere whole cells keep zombies out of");
+            assert!(
+                h.map.hits_cells(at[0], at[1], zh),
+                "{at:?} is somewhere whole cells keep zombies out of"
+            );
             h.players[hider].pos = at;
             if players > 1 {
-                assert!(len(sub(h.players[ME].pos, at)) > 100.0, "the other player is far off");
+                assert!(
+                    len(sub(h.players[ME].pos, at)) > 100.0,
+                    "the other player is far off"
+                );
             }
-            let z = (3..8).map(|k| [k as f32 * 0.5 * TILE + TILE, at[1]]).find(|q| !h.map.hits_cells(q[0], q[1], zh)).unwrap();
-            h.zombies.push(Zombie::new(Kind::named("skinny"), z, 1000.0, 1.0, 0.0));
+            let z = (3..8)
+                .map(|k| [k as f32 * 0.5 * TILE + TILE, at[1]])
+                .find(|q| !h.map.hits_cells(q[0], q[1], zh))
+                .unwrap();
+            h.zombies
+                .push(Zombie::new(Kind::named("skinny"), z, 1000.0, 1.0, 0.0));
             let mut sounds = Vec::new();
             for _ in 0..180 {
                 h.update(&Input::default(), 1.0 / 60.0, &mut sounds);
             }
-            assert!(h.players[hider].hp < h.players[hider].kit.max_hp(), "{players} players: unbitten at {at:?}, the zombie at {:?}", h.zombies[0].pos);
+            assert!(
+                h.players[hider].hp < h.players[hider].kit.max_hp(),
+                "{players} players: unbitten at {at:?}, the zombie at {:?}",
+                h.zombies[0].pos
+            );
         }
     }
 
@@ -4681,27 +7082,46 @@ mod tests {
         let mut normal = Harvest::new(1).at(Difficulty::NORMAL);
         assert_eq!(crate::tuning::tuning().spawn_rate, 0.7);
         brutal.update(&Input::default(), 1.0 / 60.0, &mut Vec::new());
-        assert_eq!(crate::tuning::tuning().leader_speed, 40.0, "each update plays its own");
+        assert_eq!(
+            crate::tuning::tuning().leader_speed,
+            40.0,
+            "each update plays its own"
+        );
         normal.update(&Input::default(), 1.0 / 60.0, &mut Vec::new());
         assert_eq!(crate::tuning::tuning().leader_speed, 24.0);
         let stroll = Harvest::new(1).at(Difficulty::STROLL);
-        assert_eq!((stroll.me().grenades, stroll.difficulty().tier()), (2.0, Tier::Easy), "Stroll starts with Easy's kit");
+        assert_eq!(
+            (stroll.me().grenades, stroll.difficulty().tier()),
+            (2.0, Tier::Easy),
+            "Stroll starts with Easy's kit"
+        );
         let dead = std::thread::spawn(|| {
             let _h = Harvest::new(1).at(Difficulty::DEAD);
             crate::tuning::tuning().max_zombies
         });
-        assert_eq!((dead.join().unwrap(), crate::tuning::tuning().max_zombies), (360.0, 220.0), "another thread's night doesn't reach Stroll's here");
+        assert_eq!(
+            (dead.join().unwrap(), crate::tuning::tuning().max_zombies),
+            (360.0, 220.0),
+            "another thread's night doesn't reach Stroll's here"
+        );
     }
 
     #[test]
     fn harder_difficulties_hit_harder_and_drop_less_health() {
         let bite = |d: Difficulty| {
             let mut h = Harvest::calm(3).at(d);
-            h.zombies.push(Zombie::new(Kind::named("skinny"), [h.me().pos[0] + 3.0, h.me().pos[1]], 1000.0, 1.0, 0.0));
+            h.zombies.push(Zombie::new(
+                Kind::named("skinny"),
+                [h.me().pos[0] + 3.0, h.me().pos[1]],
+                1000.0,
+                1.0,
+                0.0,
+            ));
             h.update(&Input::default(), 1.0 / 60.0, &mut Vec::new());
             h.me().kit.max_hp() - h.me().hp
         };
-        let [easy, normal, hard] = [Difficulty::EASY, Difficulty::NORMAL, Difficulty::HARD].map(bite);
+        let [easy, normal, hard] =
+            [Difficulty::EASY, Difficulty::NORMAL, Difficulty::HARD].map(bite);
         assert!(easy < normal && normal < hard, "{easy} {normal} {hard}");
         assert!(Difficulty::EASY.health_drop() < Difficulty::HARD.health_drop());
     }
@@ -4710,8 +7130,16 @@ mod tests {
     fn a_kill_drops_a_body_a_number_and_money_that_hops() {
         let mut h = Harvest::calm(3);
         h.me_mut().kit.raise(book().index("pistol").unwrap(), 1);
-        let at = [-30.0, 30.0, 0.0].into_iter().flat_map(|dx| [-30.0, 30.0].map(|dy| [h.me().pos[0] + dx, h.me().pos[1] + dy])).find(|p| !h.map.hits(p[0], p[1], crate::tuning::tuning().zombie_half())).unwrap();
-        h.zombies.push(Zombie::new(Kind::named("skinny"), at, 5.0, 1.0, 0.0));
+        let at = [-30.0, 30.0, 0.0]
+            .into_iter()
+            .flat_map(|dx| [-30.0, 30.0].map(|dy| [h.me().pos[0] + dx, h.me().pos[1] + dy]))
+            .find(|p| {
+                !h.map
+                    .hits(p[0], p[1], crate::tuning::tuning().zombie_half())
+            })
+            .unwrap();
+        h.zombies
+            .push(Zombie::new(Kind::named("skinny"), at, 5.0, 1.0, 0.0));
         let mut sounds = Vec::new();
         for _ in 0..90 {
             h.update(&Input::default(), 1.0 / 60.0, &mut sounds);
@@ -4722,7 +7150,8 @@ mod tests {
         let d = h.drops.first().map(|d| d.age).unwrap_or(0.0);
         assert!(h.drops.is_empty() || d > 0.0);
         let mut h = Harvest::calm(3);
-        h.zombies.push(Zombie::new(Kind::named("skinny"), at, 5.0, 1.0, 0.0));
+        h.zombies
+            .push(Zombie::new(Kind::named("skinny"), at, 5.0, 1.0, 0.0));
         h.zombies[0].hp = 0.0;
         h.reap(&mut sounds, &mut Flow::default());
         assert!(h.drops[0].vz > 0.0, "money hops out of the body");
@@ -4733,8 +7162,22 @@ mod tests {
         let mut j = Juice::new(1);
         let mut kid = Zombie::new(Kind::named("kid"), [0.0; 2], 100.0, 1.0, 0.0);
         let mut big = Zombie::new(Kind::named("big"), [0.0; 2], 100.0, 1.0, 0.0);
-        strike(&mut kid, &mut j, 10.0, [1.0, 0.0], 30.0, crate::tuning::tuning().crit);
-        strike(&mut big, &mut j, 10.0, [1.0, 0.0], 30.0, crate::tuning::tuning().crit);
+        strike(
+            &mut kid,
+            &mut j,
+            10.0,
+            [1.0, 0.0],
+            30.0,
+            crate::tuning::tuning().crit,
+        );
+        strike(
+            &mut big,
+            &mut j,
+            10.0,
+            [1.0, 0.0],
+            30.0,
+            crate::tuning::tuning().crit,
+        );
         assert_eq!(j.popups.len(), 2);
         assert!(kid.push[0] > big.push[0] * 3.0);
         assert!(kid.squash > 0.0 && kid.hurt > 0.0);
@@ -4775,15 +7218,34 @@ mod tests {
         z.leader = true;
         h.zombies.push(z);
         h.recycle(t.straggler_time - 0.1);
-        assert_eq!((h.zombies.len(), h.tells.len()), (1, 0), "not before its time is up");
+        assert_eq!(
+            (h.zombies.len(), h.tells.len()),
+            (1, 0),
+            "not before its time is up"
+        );
         h.recycle(0.2);
-        assert_eq!((h.zombies.len(), h.tells.len()), (0, 1), "then it goes back in the ground");
+        assert_eq!(
+            (h.zombies.len(), h.tells.len()),
+            (0, 1),
+            "then it goes back in the ground"
+        );
         let tell = &h.tells[0];
-        assert_eq!((tell.kind, tell.hp, tell.leader), (Kind::named("big"), 321.0, true), "the same zombie, no boost");
+        assert_eq!(
+            (tell.kind, tell.hp, tell.leader),
+            (Kind::named("big"), 321.0, true),
+            "the same zombie, no boost"
+        );
         let off = sub(tell.pos, h.me().pos);
         let [near, far] = spawn_ring(h.t);
-        assert!((near - 0.01..=far + 0.01).contains(&len(off)), "on the ring, {}", len(off));
-        assert!(off[0] / len(off) >= fm::cos(FRAC_PI_4) - 1e-3, "within a quarter turn of the way the player walks, {off:?}");
+        assert!(
+            (near - 0.01..=far + 0.01).contains(&len(off)),
+            "on the ring, {}",
+            len(off)
+        );
+        assert!(
+            off[0] / len(off) >= fm::cos(FRAC_PI_4) - 1e-3,
+            "within a quarter turn of the way the player walks, {off:?}"
+        );
     }
 
     #[test]
@@ -4791,15 +7253,25 @@ mod tests {
         let mut h = open_field();
         let t = crate::tuning::tuning();
         let sight = (view3d::VIEW_RADIUS + view3d::CAMERA_BACK) * TILE;
-        assert!(t.straggler_reach >= sight, "the straggler distance reaches past the view ahead");
+        assert!(
+            t.straggler_reach >= sight,
+            "the straggler distance reaches past the view ahead"
+        );
         h.me_mut().pos = [8.0, 480.0];
         let on_map = [h.me().pos[0] + t.straggler_reach + 5.0, h.me().pos[1]];
-        assert!(on_map[0] < view_w() && h.on_screen(on_map), "the map, pinned to the field's edge, still shows it");
+        assert!(
+            on_map[0] < view_w() && h.on_screen(on_map),
+            "the map, pinned to the field's edge, still shows it"
+        );
         h.zombies.push(standing("skinny", on_map, 10.0));
         let mut boss = standing("big", [h.me().pos[0], h.me().pos[1] + 420.0], 2500.0);
         boss.boss = true;
         h.zombies.push(boss);
-        h.zombies.push(standing("skinny", [h.me().pos[0] + 20.0, h.me().pos[1]], 10.0));
+        h.zombies.push(standing(
+            "skinny",
+            [h.me().pos[0] + 20.0, h.me().pos[1]],
+            10.0,
+        ));
         for _ in 0..10 {
             h.recycle(t.straggler_time);
         }
@@ -4810,7 +7282,11 @@ mod tests {
     fn a_straggler_that_comes_back_into_view_starts_its_time_again() {
         let mut h = open_field();
         let t = crate::tuning::tuning();
-        h.zombies.push(standing("skinny", [h.me().pos[0] - 400.0, h.me().pos[1]], 10.0));
+        h.zombies.push(standing(
+            "skinny",
+            [h.me().pos[0] - 400.0, h.me().pos[1]],
+            10.0,
+        ));
         h.recycle(t.straggler_time * 0.9);
         h.zombies[0].pos = [h.me().pos[0] - 100.0, h.me().pos[1]];
         h.recycle(0.01);
@@ -4824,7 +7300,9 @@ mod tests {
         let mut h = open_field();
         let t = crate::tuning::tuning();
         let max = t.max_zombies as usize;
-        h.zombies = (0..max).map(|_| standing("skinny", h.me().pos, 10.0)).collect();
+        h.zombies = (0..max)
+            .map(|_| standing("skinny", h.me().pos, 10.0))
+            .collect();
         h.owed = t.bank + 25.0;
         h.spawn(0.0);
         assert!(h.tells.is_empty(), "no room");
@@ -4839,8 +7317,16 @@ mod tests {
             risen.push(h.tells.len());
         }
         let release = t.bank_release;
-        assert!(risen[0] <= 2, "room opening doesn't raise the bank at once, {}", risen[0]);
-        assert!((risen[119] as f32 - release * 2.0).abs() <= 1.0, "{release} a second, {} in two", risen[119]);
+        assert!(
+            risen[0] <= 2,
+            "room opening doesn't raise the bank at once, {}",
+            risen[0]
+        );
+        assert!(
+            (risen[119] as f32 - release * 2.0).abs() <= 1.0,
+            "{release} a second, {} in two",
+            risen[119]
+        );
         assert_eq!(h.banked, t.bank - risen[119] as f32);
     }
 
@@ -4857,16 +7343,38 @@ mod tests {
         assert!(h.t - t < 0.05, "slow motion");
         h.update(&Input::default(), LEVEL_SLOW, &mut sounds);
         assert!(matches!(h.phase, Phase::LevelUp { picked: None, .. }));
-        let x = Input { pressed: Buttons::X, ..Default::default() };
+        let x = Input {
+            pressed: Buttons::X,
+            ..Default::default()
+        };
         h.update(&x, 1.0 / 60.0, &mut sounds);
-        assert!(matches!(h.phase, Phase::LevelUp { picked: None, .. }), "too soon");
+        assert!(
+            matches!(h.phase, Phase::LevelUp { picked: None, .. }),
+            "too soon"
+        );
         h.update(&Input::default(), CARDS_IN, &mut sounds);
         for turn in [Buttons::A, Buttons::START] {
-            h.update(&Input { pressed: turn, ..Default::default() }, 1.0 / 60.0, &mut sounds);
-            assert!(matches!(h.phase, Phase::LevelUp { picked: None, .. }), "{turn:?} doesn't pick");
+            h.update(
+                &Input {
+                    pressed: turn,
+                    ..Default::default()
+                },
+                1.0 / 60.0,
+                &mut sounds,
+            );
+            assert!(
+                matches!(h.phase, Phase::LevelUp { picked: None, .. }),
+                "{turn:?} doesn't pick"
+            );
         }
         h.update(&x, 1.0 / 60.0, &mut sounds);
-        assert!(matches!(h.phase, Phase::LevelUp { picked: Some(_), .. }));
+        assert!(matches!(
+            h.phase,
+            Phase::LevelUp {
+                picked: Some(_),
+                ..
+            }
+        ));
         h.update(&Input::default(), PICK_TIME, &mut sounds);
         assert!(matches!(h.phase, Phase::Playing));
     }
@@ -4874,7 +7382,13 @@ mod tests {
     #[test]
     fn getting_hit_freezes_the_world_for_a_moment() {
         let mut h = Harvest::calm(3);
-        h.zombies.push(Zombie::new(Kind::named("skinny"), [h.me().pos[0] + 3.0, h.me().pos[1]], 1000.0, 1.0, 0.0));
+        h.zombies.push(Zombie::new(
+            Kind::named("skinny"),
+            [h.me().pos[0] + 3.0, h.me().pos[1]],
+            1000.0,
+            1.0,
+            0.0,
+        ));
         let mut sounds = Vec::new();
         h.update(&Input::default(), 1.0 / 60.0, &mut sounds);
         assert!(h.me().hp < h.me().kit.max_hp() && h.juice.frozen());
@@ -4886,7 +7400,15 @@ mod tests {
     #[test]
     fn a_shot_scares_the_crows_off() {
         let mut h = Harvest::calm(5);
-        h.birds = vec![Bird { pos: [h.me().pos[0] + 80.0, h.me().pos[1]], z: 0.0, vel: [0.0; 2], vz: 0.0, flying: false, anim: 0.0, flip: false }];
+        h.birds = vec![Bird {
+            pos: [h.me().pos[0] + 80.0, h.me().pos[1]],
+            z: 0.0,
+            vel: [0.0; 2],
+            vz: 0.0,
+            flying: false,
+            anim: 0.0,
+            flip: false,
+        }];
         let mut sounds = Vec::new();
         h.flock(0.016, &mut sounds);
         assert!(!h.birds[0].flying);
@@ -4901,21 +7423,61 @@ mod tests {
         let mut h = Harvest::calm(5);
         let mut sounds = Vec::new();
         for _ in 0..3 {
-            h.drops.push(Drop { kind: DropKind::Money(1), pos: h.me().pos, z: 0.0, vz: 0.0, vel: [0.0; 2], age: 0.0, pulled: None, to: ME, dog: None, hearts: 1 });
+            h.drops.push(Drop {
+                kind: DropKind::Money(1),
+                pos: h.me().pos,
+                z: 0.0,
+                vz: 0.0,
+                vel: [0.0; 2],
+                age: 0.0,
+                pulled: None,
+                to: ME,
+                dog: None,
+                hearts: 1,
+            });
             h.collect(0.1, &mut sounds);
         }
-        let steps: Vec<u8> = sounds.iter().filter_map(|s| if let Sfx::Pickup(n) = s { Some(*n) } else { None }).collect();
+        let steps: Vec<u8> = sounds
+            .iter()
+            .filter_map(|s| {
+                if let Sfx::Pickup(n) = s {
+                    Some(*n)
+                } else {
+                    None
+                }
+            })
+            .collect();
         assert_eq!(steps, [0, 1, 2]);
     }
 
     #[test]
     fn a_horde_brings_a_leader_whose_chest_opens_a_find() {
-        let mut h = Harvest::new(3).with_progress(Progress { kills: 100, ..Default::default() });
+        let mut h = Harvest::new(3).with_progress(Progress {
+            kills: 100,
+            ..Default::default()
+        });
         h.t = 90.0;
         h.spawn(0.02);
-        let leader = h.tells.iter().find(|t| t.leader).expect("the horde has a leader");
-        assert!(leader.kind == Kind::named("big") && h.tells.iter().filter(|t| t.leader).count() == 1);
-        h.drops.push(Drop { kind: DropKind::Chest, pos: h.me().pos, z: 0.0, vz: 0.0, vel: [0.0; 2], age: 0.0, pulled: None, to: ME, dog: None, hearts: 1 });
+        let leader = h
+            .tells
+            .iter()
+            .find(|t| t.leader)
+            .expect("the horde has a leader");
+        assert!(
+            leader.kind == Kind::named("big") && h.tells.iter().filter(|t| t.leader).count() == 1
+        );
+        h.drops.push(Drop {
+            kind: DropKind::Chest,
+            pos: h.me().pos,
+            z: 0.0,
+            vz: 0.0,
+            vel: [0.0; 2],
+            age: 0.0,
+            pulled: None,
+            to: ME,
+            dog: None,
+            hearts: 1,
+        });
         h.collect(0.016, &mut Vec::new());
         for _ in 0..200 {
             if let Phase::LevelUp { choices, .. } = h.phase {
@@ -4931,16 +7493,32 @@ mod tests {
     fn a_chest_picked_up_during_a_level_up_still_brings_its_own() {
         let mut h = Harvest::calm(4);
         h.xp = h.next_xp;
-        let x = Input { pressed: Buttons::X, ..Default::default() };
+        let x = Input {
+            pressed: Buttons::X,
+            ..Default::default()
+        };
         h.update(&Input::default(), 1.0 / 60.0, &mut Vec::new());
         assert!(h.leveling > 0.0);
         for _ in 0..2 {
-            h.drops.push(Drop { kind: DropKind::Chest, pos: h.me().pos, z: 0.0, vz: 0.0, vel: [0.0; 2], age: 0.0, pulled: None, to: ME, dog: None, hearts: 1 });
+            h.drops.push(Drop {
+                kind: DropKind::Chest,
+                pos: h.me().pos,
+                z: 0.0,
+                vz: 0.0,
+                vel: [0.0; 2],
+                age: 0.0,
+                pulled: None,
+                to: ME,
+                dog: None,
+                hearts: 1,
+            });
         }
         h.collect(0.016, &mut Vec::new());
         let mut level_ups = 0;
         for _ in 0..2000 {
-            if let Phase::LevelUp { picked: None, t, .. } = h.phase
+            if let Phase::LevelUp {
+                picked: None, t, ..
+            } = h.phase
                 && t > CARDS_IN
             {
                 level_ups += 1;
@@ -4949,7 +7527,11 @@ mod tests {
                 h.update(&Input::default(), 0.016, &mut Vec::new());
             }
         }
-        assert_eq!((level_ups, h.level), (3, 2), "the full bar's level-up, then one for each chest");
+        assert_eq!(
+            (level_ups, h.level),
+            (3, 2),
+            "the full bar's level-up, then one for each chest"
+        );
     }
 
     /// A farm at the edge of dawn, with the player well away from home and nothing else about.
@@ -4967,11 +7549,21 @@ mod tests {
     fn dawn_wakes_the_harvester_instead_of_ending_the_night() {
         let mut h = before_dawn();
         let flow = h.update(&Input::default(), 0.02, &mut Vec::new());
-        assert!(flow.ended.is_none() && matches!(h.phase, Phase::Playing), "the night goes on");
-        let boss = h.zombies.iter().find(|z| z.boss).expect("the Harvester rises");
+        assert!(
+            flow.ended.is_none() && matches!(h.phase, Phase::Playing),
+            "the night goes on"
+        );
+        let boss = h
+            .zombies
+            .iter()
+            .find(|z| z.boss)
+            .expect("the Harvester rises");
         let (to_home, to_boss) = (sub(h.map.home, h.me().pos), sub(boss.pos, h.me().pos));
         if len(to_home) > 1.0 {
-            assert!(to_home[0] * to_boss[0] + to_home[1] * to_boss[1] <= 0.0, "it rises on the side away from home");
+            assert!(
+                to_home[0] * to_boss[0] + to_home[1] * to_boss[1] <= 0.0,
+                "it rises on the side away from home"
+            );
         }
     }
 
@@ -4988,7 +7580,10 @@ mod tests {
         h.update(&Input::default(), 0.02, &mut Vec::new());
         wait(&mut h, t.harvester_again * 3.0);
         assert_eq!(bosses(&h), 1, "no wave while the first lives");
-        h.zombies.iter_mut().filter(|z| z.boss).for_each(|z| z.hp = 0.0);
+        h.zombies
+            .iter_mut()
+            .filter(|z| z.boss)
+            .for_each(|z| z.hp = 0.0);
         h.reap(&mut Vec::new(), &mut Flow::default());
         assert_eq!(bosses(&h), 0);
         wait(&mut h, t.harvester_again - 1.0);
@@ -4998,21 +7593,34 @@ mod tests {
         let spots: Vec<[f32; 2]> = h.zombies.iter().filter(|z| z.boss).map(|z| z.pos).collect();
         assert!(len(sub(spots[0], spots[1])) > 10.0, "a wave spreads out");
         wait(&mut h, t.harvester_again);
-        assert_eq!(bosses(&h), 2 + 3, "the next comes whether or not the last is dead");
+        assert_eq!(
+            bosses(&h),
+            2 + 3,
+            "the next comes whether or not the last is dead"
+        );
         h.zombies.retain(|z| !z.boss);
         h.fury = 2.0;
         wait(&mut h, t.harvester_again * 10.0);
         let most = t.harvester_most as usize;
         let waves = (4..14).map(|n| n.min(most)).sum::<usize>();
         assert_eq!(bosses(&h), waves, "no wave above `most`");
-        assert!(h.zombies.iter().filter(|z| z.boss).all(|z| z.hp >= t.harvester_hp * 2.0 - 0.01), "fury grows them");
+        assert!(
+            h.zombies
+                .iter()
+                .filter(|z| z.boss)
+                .all(|z| z.hp >= t.harvester_hp * 2.0 - 0.01),
+            "fury grows them"
+        );
     }
 
     #[test]
     fn harvester_waves_stop_when_the_run_ends() {
         let mut h = before_dawn();
         h.update(&Input::default(), 0.02, &mut Vec::new());
-        h.zombies.iter_mut().filter(|z| z.boss).for_each(|z| z.hp = 0.0);
+        h.zombies
+            .iter_mut()
+            .filter(|z| z.boss)
+            .for_each(|z| z.hp = 0.0);
         h.update(&Input::default(), 0.02, &mut Vec::new());
         assert!(h.waves.is_some());
         h.zombies.clear();
@@ -5025,7 +7633,11 @@ mod tests {
         for _ in 0..(crate::tuning::tuning().harvester_again * 3.0 / 0.1) as usize {
             h.update(&Input::default(), 0.1, &mut Vec::new());
         }
-        assert_eq!(h.zombies.iter().filter(|z| z.boss).count(), 0, "home shuts the door on them");
+        assert_eq!(
+            h.zombies.iter().filter(|z| z.boss).count(),
+            0,
+            "home shuts the door on them"
+        );
     }
 
     #[test]
@@ -5035,14 +7647,24 @@ mod tests {
         h.update(&Input::default(), 0.02, &mut Vec::new());
         assert_eq!(h.zombies.iter().filter(|z| z.boss).count(), 1);
         h.update(&Input::default(), 0.02, &mut Vec::new());
-        assert_eq!(h.zombies.iter().filter(|z| z.boss).count(), 1, "and only once");
+        assert_eq!(
+            h.zombies.iter().filter(|z| z.boss).count(),
+            1,
+            "and only once"
+        );
     }
 
     #[test]
     fn past_dawn_the_dead_grow_one_percent_a_second() {
         let mut h = before_dawn();
         h.update(&Input::default(), 0.02, &mut Vec::new());
-        h.zombies.push(Zombie::new(Kind::named("skinny"), [h.me().pos[0] + 200.0, h.me().pos[1]], 100.0, 1.0, 0.0));
+        h.zombies.push(Zombie::new(
+            Kind::named("skinny"),
+            [h.me().pos[0] + 200.0, h.me().pos[1]],
+            100.0,
+            1.0,
+            0.0,
+        ));
         for _ in 0..10 {
             h.grow_fury(1.0);
         }
@@ -5068,7 +7690,10 @@ mod tests {
         h.t = dawn() - 5.0;
         h.me_mut().pos = h.map.home;
         h.update(&Input::default(), 0.02, &mut Vec::new());
-        assert!(matches!(h.phase, Phase::Playing), "home before dawn is just a house");
+        assert!(
+            matches!(h.phase, Phase::Playing),
+            "home before dawn is just a house"
+        );
         let mut h = before_dawn();
         h.update(&Input::default(), 0.02, &mut Vec::new());
         h.zombies.clear();
@@ -5081,14 +7706,34 @@ mod tests {
     /// Where the bottom map draws a zombie of `kind` standing up, as world spots.
     fn on_map(h: &Harvest, kind: Kind) -> Vec<[f32; 2]> {
         let look = &kind.stats().look;
-        let frames: Vec<Art> = look.walk.iter().flatten().chain(&look.flash).chain(&look.hurt).copied().collect();
+        let frames: Vec<Art> = look
+            .walk
+            .iter()
+            .flatten()
+            .chain(&look.flash)
+            .chain(&look.hurt)
+            .copied()
+            .collect();
         let mut f = crate::Frame::default();
         h.draw(&mut f, false);
         let cam = h.camera();
-        f.bottom.shapes.iter().filter_map(|s| match *s {
-            crate::Shape::Art { art: a, x, y, scale, .. } if frames.contains(&a) => Some([x / scale + cam[0] + a.w() / 2.0, y / scale + cam[1] + a.h() - 2.0]),
-            _ => None,
-        }).collect()
+        f.bottom
+            .shapes
+            .iter()
+            .filter_map(|s| match *s {
+                crate::Shape::Art {
+                    art: a,
+                    x,
+                    y,
+                    scale,
+                    ..
+                } if frames.contains(&a) => Some([
+                    x / scale + cam[0] + a.w() / 2.0,
+                    y / scale + cam[1] + a.h() - 2.0,
+                ]),
+                _ => None,
+            })
+            .collect()
     }
 
     #[test]
@@ -5097,11 +7742,20 @@ mod tests {
         h.zombies.clear();
         h.me_mut().view_yaw = 0.0;
         h.me_mut().aim = [1.0, 0.0];
-        let mut z = Zombie::new(Kind::named("skinny"), [h.me().pos[0] - 40.0, h.me().pos[1]], 50.0, 1.0, 0.0);
+        let mut z = Zombie::new(
+            Kind::named("skinny"),
+            [h.me().pos[0] - 40.0, h.me().pos[1]],
+            50.0,
+            1.0,
+            0.0,
+        );
         z.id = 9;
         h.zombies.push(z);
         h.update(&Input::default(), 1.0 / 60.0, &mut Vec::new());
-        assert!(on_map(&h, Kind::named("skinny")).is_empty(), "alive, the map shows only what the view has seen");
+        assert!(
+            on_map(&h, Kind::named("skinny")).is_empty(),
+            "alive, the map shows only what the view has seen"
+        );
         h.me_mut().hp = 0.0;
         h.update(&Input::default(), 1.0 / 60.0, &mut Vec::new());
         assert!(matches!(h.phase, Phase::Over { won: false, .. }));
@@ -5112,7 +7766,11 @@ mod tests {
             }
             let z = &h.zombies[0];
             let at = on_map(&h, z.kind);
-            assert!(at.iter().any(|p| len(sub(*p, z.pos)) < 0.5), "the map draws the zombie behind the dead player where it is: {at:?} vs {:?}", z.pos);
+            assert!(
+                at.iter().any(|p| len(sub(*p, z.pos)) < 0.5),
+                "the map draws the zombie behind the dead player where it is: {at:?} vs {:?}",
+                z.pos
+            );
             seen.push(z.pos);
         }
         assert!(seen[0] != seen[2], "and it walks");
@@ -5124,7 +7782,13 @@ mod tests {
         h.update(&Input::default(), 0.02, &mut Vec::new());
         h.me_mut().pos = h.map.home;
         h.me_mut().view_yaw = 0.0;
-        let mut z = Zombie::new(Kind::named("skinny"), [h.me().pos[0] + 12.0, h.me().pos[1]], 50.0, 1.0, 0.0);
+        let mut z = Zombie::new(
+            Kind::named("skinny"),
+            [h.me().pos[0] + 12.0, h.me().pos[1]],
+            50.0,
+            1.0,
+            0.0,
+        );
         z.id = 9;
         let kinds: Vec<Kind> = h.zombies.iter().chain([&z]).map(|z| z.kind).collect();
         h.zombies.push(z);
@@ -5132,7 +7796,10 @@ mod tests {
         assert!(matches!(h.phase, Phase::Over { won: true, .. }));
         h.update(&Input::default(), 0.5, &mut Vec::new());
         for kind in kinds {
-            assert!(on_map(&h, kind).is_empty(), "first light burned every zombie away");
+            assert!(
+                on_map(&h, kind).is_empty(),
+                "first light burned every zombie away"
+            );
         }
     }
 
@@ -5140,9 +7807,23 @@ mod tests {
     fn a_blast_staggers_a_big_zombie_in_place() {
         let mut j = Juice::new(1);
         let mut big = Zombie::new(Kind::named("big"), [0.0; 2], 500.0, 1.0, 0.0);
-        strike(&mut big, &mut j, 10.0, [1.0, 0.0], 30.0, crate::tuning::tuning().crit);
+        strike(
+            &mut big,
+            &mut j,
+            10.0,
+            [1.0, 0.0],
+            30.0,
+            crate::tuning::tuning().crit,
+        );
         let stagger = big.stagger;
-        strike(&mut big, &mut j, 10.0, [1.0, 0.0], 120.0, crate::tuning::tuning().crit);
+        strike(
+            &mut big,
+            &mut j,
+            10.0,
+            [1.0, 0.0],
+            120.0,
+            crate::tuning::tuning().crit,
+        );
         assert!(big.stagger > stagger && big.stagger == crate::tuning::tuning().stagger);
         let mut h = Harvest::calm(3);
         let at = [h.me().pos[0] + 60.0, h.me().pos[1]];
@@ -5157,7 +7838,15 @@ mod tests {
         let mut h = Harvest::calm(12);
         h.juice.stop(0.1);
         let mut sounds = Vec::new();
-        h.update(&Input { touch: Some([600.0, 300.0]), touch_started: true, ..Default::default() }, 0.016, &mut sounds);
+        h.update(
+            &Input {
+                touch: Some([600.0, 300.0]),
+                touch_started: true,
+                ..Default::default()
+            },
+            0.016,
+            &mut sounds,
+        );
         assert!(h.thrown.is_empty());
         h.update(&Input::default(), 0.1, &mut sounds);
         h.update(&Input::default(), 0.016, &mut sounds);
@@ -5168,17 +7857,42 @@ mod tests {
     fn past_merge_after_a_heart_joins_a_resting_one_and_counts_whole_on_pickup() {
         let t = crate::tuning::tuning();
         let mut h = Harvest::calm(5);
-        let heart = |pos: [f32; 2], v| Drop { kind: DropKind::Money(v), pos, z: 0.0, vz: 0.0, vel: [0.0; 2], age: 0.0, pulled: None, to: ME, dog: None, hearts: 1 };
+        let heart = |pos: [f32; 2], v| Drop {
+            kind: DropKind::Money(v),
+            pos,
+            z: 0.0,
+            vz: 0.0,
+            vel: [0.0; 2],
+            age: 0.0,
+            pulled: None,
+            to: ME,
+            dog: None,
+            hearts: 1,
+        };
         let far = [h.me().pos[0] + 300.0, h.me().pos[1]];
         let apart = t.merge_reach + 6.0;
         let n = t.merge_after as usize;
-        h.drops.extend((0..n - 1).map(|i| heart([far[0] + (i % 40) as f32 * apart, far[1] + (i / 40) as f32 * apart], 1)));
+        h.drops.extend((0..n - 1).map(|i| {
+            heart(
+                [
+                    far[0] + (i % 40) as f32 * apart,
+                    far[1] + (i / 40) as f32 * apart,
+                ],
+                1,
+            )
+        }));
         assert!(!h.merge_heart(far, 2), "fewer than merge_after lie free");
         h.drops.push(heart([far[0], far[1] - 40.0 * apart], 1));
         assert!(h.merge_heart([far[0] + 3.0, far[1]], 2));
-        assert!(!h.merge_heart([far[0] - 40.0 * apart, far[1]], 2), "none within merge_reach");
+        assert!(
+            !h.merge_heart([far[0] - 40.0 * apart, far[1]], 2),
+            "none within merge_reach"
+        );
         let i = h.drops.iter().position(|d| d.pos == far).unwrap();
-        assert!(h.drops[i].kind == DropKind::Money(3) && h.drops[i].hearts == 2 && h.drops.len() == n, "one heart worth both");
+        assert!(
+            h.drops[i].kind == DropKind::Money(3) && h.drops[i].hearts == 2 && h.drops.len() == n,
+            "one heart worth both"
+        );
         h.drops[i].pos = h.me().pos;
         h.update(&Input::default(), 1.0 / 60.0, &mut Vec::new());
         assert_eq!(h.juice.tally.book(ME).hearts, 2, "both hearts it holds");
@@ -5187,8 +7901,25 @@ mod tests {
     #[test]
     fn a_merged_heart_draws_bigger_as_its_hearts_double_up_to_twice() {
         let grow = crate::tuning::tuning().merge_grow;
-        let size = |hearts| Drop { kind: DropKind::Money(1), pos: [0.0; 2], z: 0.0, vz: 0.0, vel: [0.0; 2], age: 0.0, pulled: None, to: ME, dog: None, hearts }.size();
-        assert_eq!((size(1), size(2), size(3), size(4)), (1.0, 1.0 + grow, 1.0 + grow, 1.0 + 2.0 * grow));
+        let size = |hearts| {
+            Drop {
+                kind: DropKind::Money(1),
+                pos: [0.0; 2],
+                z: 0.0,
+                vz: 0.0,
+                vel: [0.0; 2],
+                age: 0.0,
+                pulled: None,
+                to: ME,
+                dog: None,
+                hearts,
+            }
+            .size()
+        };
+        assert_eq!(
+            (size(1), size(2), size(3), size(4)),
+            (1.0, 1.0 + grow, 1.0 + grow, 1.0 + 2.0 * grow)
+        );
         assert_eq!(size(u32::MAX), 2.0);
     }
 
@@ -5196,11 +7927,39 @@ mod tests {
     fn collection_day(each: u32) -> Harvest {
         let mut h = Harvest::calm(5);
         h.map.driver = Some(h.me().pos);
-        for (dx, dy) in [(200.0, 0.0), (-200.0, 40.0), (0.0, 180.0), (30.0, -190.0), (150.0, 150.0)] {
+        for (dx, dy) in [
+            (200.0, 0.0),
+            (-200.0, 40.0),
+            (0.0, 180.0),
+            (30.0, -190.0),
+            (150.0, 150.0),
+        ] {
             let pos = [h.me().pos[0] + dx, h.me().pos[1] + dy];
-            h.drops.push(Drop { kind: DropKind::Money(each), pos, z: 0.0, vz: 0.0, vel: [0.0; 2], age: 0.0, pulled: None, to: ME, dog: None, hearts: 1 });
+            h.drops.push(Drop {
+                kind: DropKind::Money(each),
+                pos,
+                z: 0.0,
+                vz: 0.0,
+                vel: [0.0; 2],
+                age: 0.0,
+                pulled: None,
+                to: ME,
+                dog: None,
+                hearts: 1,
+            });
         }
-        h.drops.push(Drop { kind: DropKind::Health, pos: [h.me().pos[0] + 200.0, h.me().pos[1] + 200.0], z: 0.0, vz: 0.0, vel: [0.0; 2], age: 0.0, pulled: None, to: ME, dog: None, hearts: 1 });
+        h.drops.push(Drop {
+            kind: DropKind::Health,
+            pos: [h.me().pos[0] + 200.0, h.me().pos[1] + 200.0],
+            z: 0.0,
+            vz: 0.0,
+            vel: [0.0; 2],
+            age: 0.0,
+            pulled: None,
+            to: ME,
+            dog: None,
+            hearts: 1,
+        });
         h
     }
 
@@ -5211,7 +7970,10 @@ mod tests {
         h.t = t.driver_after - 1.0;
         assert!(h.ticket().is_none());
         h.cash_in(&mut Vec::new());
-        assert!(h.drops.iter().all(|d| d.pulled.is_none()), "no ticket, no cash-in");
+        assert!(
+            h.drops.iter().all(|d| d.pulled.is_none()),
+            "no ticket, no cash-in"
+        );
         h.t = t.driver_after;
         assert_eq!(h.ticket(), h.map.driver);
     }
@@ -5223,22 +7985,47 @@ mod tests {
         h.t = t.driver_after + 5.0;
         h.map.driver = Some([h.me().pos[0] + t.driver_reach + 1.0, h.me().pos[1]]);
         h.cash_in(&mut Vec::new());
-        assert!(h.drops.iter().all(|d| d.pulled.is_none()), "out of reach of the driver");
+        assert!(
+            h.drops.iter().all(|d| d.pulled.is_none()),
+            "out of reach of the driver"
+        );
         h.map.driver = Some([h.me().pos[0] + t.driver_reach - 1.0, h.me().pos[1]]);
         let mut sounds = Vec::new();
         h.cash_in(&mut sounds);
-        assert!(h.drops.iter().filter(|d| matches!(d.kind, DropKind::Money(_))).all(|d| d.pulled.is_some()), "every coin flies in");
-        assert!(h.drops.iter().filter(|d| matches!(d.kind, DropKind::Health)).all(|d| d.pulled.is_none()), "only money");
+        assert!(
+            h.drops
+                .iter()
+                .filter(|d| matches!(d.kind, DropKind::Money(_)))
+                .all(|d| d.pulled.is_some()),
+            "every coin flies in"
+        );
+        assert!(
+            h.drops
+                .iter()
+                .filter(|d| matches!(d.kind, DropKind::Health))
+                .all(|d| d.pulled.is_none()),
+            "only money"
+        );
         assert!(sounds.contains(&Sfx::Pick(true)));
         assert!(h.ticket().is_none(), "the ticket is spent");
         h.t += t.driver_every - 1.0;
         assert!(h.ticket().is_none());
         h.t += 1.0;
-        assert!(h.ticket().is_some(), "the next ticket comes `every` after the cash-in");
+        assert!(
+            h.ticket().is_some(),
+            "the next ticket comes `every` after the cash-in"
+        );
         for _ in 0..300 {
             h.collect(1.0 / 60.0, &mut Vec::new());
         }
-        assert_eq!(h.drops.iter().filter(|d| matches!(d.kind, DropKind::Money(_))).count(), 0, "every coin reached the player");
+        assert_eq!(
+            h.drops
+                .iter()
+                .filter(|d| matches!(d.kind, DropKind::Money(_)))
+                .count(),
+            0,
+            "every coin reached the player"
+        );
         assert_eq!(h.xp, 5);
     }
 
@@ -5267,10 +8054,15 @@ mod tests {
             }
         }
         h.t = crate::tuning::tuning().driver_after;
-        let x = Input { pressed: Buttons::X, ..Default::default() };
+        let x = Input {
+            pressed: Buttons::X,
+            ..Default::default()
+        };
         let mut level_ups = 0;
         for _ in 0..3000 {
-            if let Phase::LevelUp { picked: None, t, .. } = h.phase
+            if let Phase::LevelUp {
+                picked: None, t, ..
+            } = h.phase
                 && t > CARDS_IN
             {
                 level_ups += 1;
@@ -5279,7 +8071,14 @@ mod tests {
                 h.update(&Input::default(), 0.016, &mut Vec::new());
             }
         }
-        assert!(h.ticket().is_none(), "the player cashed in standing at the driver");
-        assert_eq!((level_ups, h.level), (3, 4), "three levels' worth of cash, three level-ups in a row");
+        assert!(
+            h.ticket().is_none(),
+            "the player cashed in standing at the driver"
+        );
+        assert_eq!(
+            (level_ups, h.level),
+            (3, 4),
+            "three levels' worth of cash, three level-ups in a row"
+        );
     }
 }

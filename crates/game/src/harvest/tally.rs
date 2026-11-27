@@ -61,14 +61,24 @@ pub(super) struct Row {
 
 impl Book {
     fn sized(defs: usize) -> Self {
-        Self { dealt: vec![0.0; defs], held: vec![0.0; defs], useful: vec![0.0; defs], kills: vec![0; defs], ..Self::default() }
+        Self {
+            dealt: vec![0.0; defs],
+            held: vec![0.0; defs],
+            useful: vec![0.0; defs],
+            kills: vec![0; defs],
+            ..Self::default()
+        }
     }
 }
 
 impl Tally {
     /// A tally with room for `defs` powerups for each of `players`, so adding never allocates.
     pub fn sized(defs: usize, players: usize) -> Self {
-        Self { books: (0..players).map(|_| Book::sized(defs)).collect(), defs, ..Self::default() }
+        Self {
+            books: (0..players).map(|_| Book::sized(defs)).collect(),
+            defs,
+            ..Self::default()
+        }
     }
 
     /// Players 0 and `v` trade books, as `Harvest::relabel` trades them everywhere.
@@ -78,7 +88,13 @@ impl Tally {
             self.books.resize_with(v + 1, || Book::sized(defs));
         }
         self.books.swap(0, v);
-        self.owner = if self.owner == 0 { v } else if self.owner == v { 0 } else { self.owner };
+        self.owner = if self.owner == 0 {
+            v
+        } else if self.owner == v {
+            0
+        } else {
+            self.owner
+        };
     }
 
     /// Player `p`'s book as a client's end screen needs it.
@@ -87,25 +103,58 @@ impl Tally {
         let at = |v: &[f32], d: usize| v.get(d).copied().unwrap_or(0.0);
         let whole = |v: f32| v.max(0.0).round() as u32;
         let weapons = (0..b.held.len().max(b.dealt.len()).min(256))
-            .map(|d| (d as u8, whole(at(&b.held, d) * 100.0), whole(at(&b.dealt, d))))
+            .map(|d| {
+                (
+                    d as u8,
+                    whole(at(&b.held, d) * 100.0),
+                    whole(at(&b.dealt, d)),
+                )
+            })
             .filter(|&(_, held, damage)| held > 0 || damage > 0)
             .collect();
         let (kills, useful) = self.sum(p);
-        BookState { seat: p as u8, weapons, other: whole(b.other), kills, useful: whole(useful), hearts: b.hearts, fell: b.fell.map_or(0, |t| whole(t * 10.0) + 1), led: whole(b.led * 10.0), bites: b.bites }
+        BookState {
+            seat: p as u8,
+            weapons,
+            other: whole(b.other),
+            kills,
+            useful: whole(useful),
+            hearts: b.hearts,
+            fell: b.fell.map_or(0, |t| whole(t * 10.0) + 1),
+            led: whole(b.led * 10.0),
+            bites: b.bites,
+        }
     }
 
     /// The host's books, each in the place `at` gives its seat, over `secs` of play; a finished run's.
-    pub fn received(defs: usize, players: usize, secs: f32, books: &[BookState], at: impl Fn(usize) -> Option<PlayerId>) -> Self {
-        let mut t = Self { secs, shut: true, ..Self::sized(defs, players) };
+    pub fn received(
+        defs: usize,
+        players: usize,
+        secs: f32,
+        books: &[BookState],
+        at: impl Fn(usize) -> Option<PlayerId>,
+    ) -> Self {
+        let mut t = Self {
+            secs,
+            shut: true,
+            ..Self::sized(defs, players)
+        };
         for s in books {
-            let Some(p) = at(s.seat as usize) else { continue };
+            let Some(p) = at(s.seat as usize) else {
+                continue;
+            };
             let b = t.book_mut(p);
             for &(d, held, damage) in &s.weapons {
                 *grow(&mut b.held, d as usize) = held as f32 / 100.0;
                 *grow(&mut b.dealt, d as usize) = damage as f32;
             }
-            (b.other, b.kills_other, b.useful_other, b.hearts) = (s.other as f32, s.kills, s.useful as f32, s.hearts);
-            (b.fell, b.led, b.bites) = (s.fell.checked_sub(1).map(|t| t as f32 / 10.0), s.led as f32 / 10.0, s.bites);
+            (b.other, b.kills_other, b.useful_other, b.hearts) =
+                (s.other as f32, s.kills, s.useful as f32, s.hearts);
+            (b.fell, b.led, b.bites) = (
+                s.fell.checked_sub(1).map(|t| t as f32 / 10.0),
+                s.led as f32 / 10.0,
+                s.bites,
+            );
         }
         t
     }
@@ -117,7 +166,19 @@ impl Tally {
     }
 
     pub fn book(&self, p: PlayerId) -> &Book {
-        static EMPTY: Book = Book { dealt: Vec::new(), held: Vec::new(), other: 0.0, useful: Vec::new(), useful_other: 0.0, kills: Vec::new(), kills_other: 0, hearts: 0, fell: None, led: 0.0, bites: 0 };
+        static EMPTY: Book = Book {
+            dealt: Vec::new(),
+            held: Vec::new(),
+            other: 0.0,
+            useful: Vec::new(),
+            useful_other: 0.0,
+            kills: Vec::new(),
+            kills_other: 0,
+            hearts: 0,
+            fell: None,
+            led: 0.0,
+            bites: 0,
+        };
         self.books.get(p).unwrap_or(&EMPTY)
     }
 
@@ -183,8 +244,18 @@ impl Tally {
         let b = self.book(p);
         let at = |v: &[f32], d: usize| v.get(d).copied().unwrap_or(0.0);
         match by {
-            Some(d) => Dealt { raw: at(&b.dealt, d), useful: at(&b.useful, d), kills: b.kills.get(d).copied().unwrap_or(0), held: at(&b.held, d) },
-            None => Dealt { raw: b.other, useful: b.useful_other, kills: b.kills_other, held: self.secs },
+            Some(d) => Dealt {
+                raw: at(&b.dealt, d),
+                useful: at(&b.useful, d),
+                kills: b.kills.get(d).copied().unwrap_or(0),
+                held: at(&b.held, d),
+            },
+            None => Dealt {
+                raw: b.other,
+                useful: b.useful_other,
+                kills: b.kills_other,
+                held: self.secs,
+            },
         }
     }
 
@@ -196,7 +267,10 @@ impl Tally {
     /// Player `p`'s killing blows and useful damage over the run, every weapon's and their grenades' and barrels'.
     pub fn sum(&self, p: PlayerId) -> (u32, f32) {
         let b = self.book(p);
-        (b.kills.iter().sum::<u32>() + b.kills_other, b.useful.iter().sum::<f32>() + b.useful_other)
+        (
+            b.kills.iter().sum::<u32>() + b.kills_other,
+            b.useful.iter().sum::<f32>() + b.useful_other,
+        )
     }
 
     /// Player `p`'s damage a second over the whole run.
@@ -212,10 +286,18 @@ impl Tally {
         let mut rows: Vec<Row> = (0..n)
             .map(|d| (d, at(&b.held, d), at(&b.dealt, d)))
             .filter(|&(_, held, damage)| held > 0.0 || damage > 0.0)
-            .map(|(d, held, damage)| Row { by: Some(d), damage, dps: per_sec(damage, held) })
+            .map(|(d, held, damage)| Row {
+                by: Some(d),
+                damage,
+                dps: per_sec(damage, held),
+            })
             .collect();
         if b.other > 0.0 {
-            rows.push(Row { by: None, damage: b.other, dps: per_sec(b.other, self.secs) });
+            rows.push(Row {
+                by: None,
+                damage: b.other,
+                dps: per_sec(b.other, self.secs),
+            });
         }
         rows.sort_by(|a, b| b.damage.total_cmp(&a.damage));
         rows
@@ -252,11 +334,26 @@ mod tests {
         t.add(40.0);
         assert_eq!(t.total(0), 440.0);
         assert_eq!(t.dps(0), 22.0);
-        assert_eq!(t.rows(0), [
-            Row { by: Some(2), damage: 300.0, dps: 30.0 },
-            Row { by: Some(0), damage: 100.0, dps: 5.0 },
-            Row { by: None, damage: 40.0, dps: 2.0 },
-        ]);
+        assert_eq!(
+            t.rows(0),
+            [
+                Row {
+                    by: Some(2),
+                    damage: 300.0,
+                    dps: 30.0
+                },
+                Row {
+                    by: Some(0),
+                    damage: 100.0,
+                    dps: 5.0
+                },
+                Row {
+                    by: None,
+                    damage: 40.0,
+                    dps: 2.0
+                },
+            ]
+        );
     }
 
     #[test]
@@ -268,8 +365,24 @@ mod tests {
         t.land(8.0, 30.0);
         t.by = None;
         t.land(40.0, 40.0);
-        assert_eq!(t.dealt(0, Some(1)), Dealt { raw: 0.0, useful: 28.0, kills: 1, held: 0.0 });
-        assert_eq!(t.dealt(0, None), Dealt { raw: 0.0, useful: 40.0, kills: 1, held: 0.0 });
+        assert_eq!(
+            t.dealt(0, Some(1)),
+            Dealt {
+                raw: 0.0,
+                useful: 28.0,
+                kills: 1,
+                held: 0.0
+            }
+        );
+        assert_eq!(
+            t.dealt(0, None),
+            Dealt {
+                raw: 0.0,
+                useful: 40.0,
+                kills: 1,
+                held: 0.0
+            }
+        );
         assert_eq!(t.dealt(0, Some(0)), Dealt::default());
     }
 
@@ -279,6 +392,13 @@ mod tests {
         assert_eq!((t.dps(0), t.rows(0).len()), (0.0, 0));
         t.tick(5.0);
         t.hold(0, [1].into_iter(), 5.0);
-        assert_eq!(t.rows(0), [Row { by: Some(1), damage: 0.0, dps: 0.0 }]);
+        assert_eq!(
+            t.rows(0),
+            [Row {
+                by: Some(1),
+                damage: 0.0,
+                dps: 0.0
+            }]
+        );
     }
 }

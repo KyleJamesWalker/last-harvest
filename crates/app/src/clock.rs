@@ -38,25 +38,51 @@ pub struct Ticker {
 
 impl Ticker {
     pub fn frame(&mut self, frame: Duration, input: Input) -> Vec<Input> {
-        self.frame_all(frame, vec![input]).into_iter().map(|mut each| each.swap_remove(0)).collect()
+        self.frame_all(frame, vec![input])
+            .into_iter()
+            .map(|mut each| each.swap_remove(0))
+            .collect()
     }
 
     /// As `frame`, for each player's input at once: one list per step, player 1's first.
     pub fn frame_all(&mut self, frame: Duration, inputs: Vec<Input>) -> Vec<Vec<Input>> {
         let carried = std::mem::take(&mut self.carried);
-        let inputs: Vec<Input> = inputs.into_iter().enumerate().map(|(i, now)| match carried.get(i) {
-            Some(&before) => carry(before, now),
-            None => now,
-        }).collect();
+        let inputs: Vec<Input> = inputs
+            .into_iter()
+            .enumerate()
+            .map(|(i, now)| match carried.get(i) {
+                Some(&before) => carry(before, now),
+                None => now,
+            })
+            .collect();
         let steps = self.clock.advance(frame);
         if steps == 0 {
             self.carried = inputs;
             return Vec::new();
         }
         let share = 1.0 / steps as f32;
-        let inputs: Vec<Input> = inputs.into_iter().map(|i| Input { yaw: i.yaw * share, pitch: i.pitch * share, ..i }).collect();
-        let after: Vec<Input> = inputs.iter().map(|&i| Input { pressed: Buttons::NONE, touch_started: false, orbit: [0.0; 2], wheel: 0.0, hover: None, ..i }).collect();
-        std::iter::once(inputs).chain(std::iter::repeat_n(after, steps as usize - 1)).collect()
+        let inputs: Vec<Input> = inputs
+            .into_iter()
+            .map(|i| Input {
+                yaw: i.yaw * share,
+                pitch: i.pitch * share,
+                ..i
+            })
+            .collect();
+        let after: Vec<Input> = inputs
+            .iter()
+            .map(|&i| Input {
+                pressed: Buttons::NONE,
+                touch_started: false,
+                orbit: [0.0; 2],
+                wheel: 0.0,
+                hover: None,
+                ..i
+            })
+            .collect();
+        std::iter::once(inputs)
+            .chain(std::iter::repeat_n(after, steps as usize - 1))
+            .collect()
     }
 
     /// How far the time owed has come toward the next step, 0 to 1, for drawing between the last two.
@@ -74,7 +100,10 @@ fn carry(before: Input, now: Input) -> Input {
         touch_started: now.touch_started || before.touch_started,
         touch: if lifted { before.touch } else { now.touch },
         touches: if lifted { before.touches } else { now.touches },
-        orbit: [before.orbit[0] + now.orbit[0], before.orbit[1] + now.orbit[1]],
+        orbit: [
+            before.orbit[0] + now.orbit[0],
+            before.orbit[1] + now.orbit[1],
+        ],
         yaw: before.yaw + now.yaw,
         pitch: before.pitch + now.pitch,
         wheel: before.wheel + now.wheel,
@@ -169,12 +198,18 @@ mod tests {
     }
 
     fn held(b: Buttons) -> RawInput {
-        RawInput { held: b, ..Default::default() }
+        RawInput {
+            held: b,
+            ..Default::default()
+        }
     }
 
     fn play(frames: &[(f64, RawInput)]) -> Vec<Input> {
         let (mut tracker, mut ticker) = (InputTracker::default(), Ticker::default());
-        frames.iter().flat_map(|&(f, raw)| ticker.frame(ms(f), tracker.frame(raw))).collect()
+        frames
+            .iter()
+            .flat_map(|&(f, raw)| ticker.frame(ms(f), tracker.frame(raw)))
+            .collect()
     }
 
     #[test]
@@ -182,28 +217,53 @@ mod tests {
         let run = play(&[(50.0, held(Buttons::A))]);
         assert_eq!(run.len(), 3);
         assert_eq!(run[0].pressed, Buttons::A);
-        assert!(run[1..].iter().all(|i| i.pressed == Buttons::NONE && i.held == Buttons::A));
+        assert!(
+            run[1..]
+                .iter()
+                .all(|i| i.pressed == Buttons::NONE && i.held == Buttons::A)
+        );
     }
 
     #[test]
     fn a_tap_in_a_frame_with_no_step_reaches_the_next_step() {
-        let run = play(&[(17.0, held(Buttons::NONE)), (5.0, held(Buttons::A)), (5.0, held(Buttons::NONE)), (12.0, held(Buttons::NONE))]);
+        let run = play(&[
+            (17.0, held(Buttons::NONE)),
+            (5.0, held(Buttons::A)),
+            (5.0, held(Buttons::NONE)),
+            (12.0, held(Buttons::NONE)),
+        ]);
         let pressed: Vec<Buttons> = run.iter().map(|i| i.pressed).collect();
         assert_eq!(pressed, [Buttons::NONE, Buttons::A]);
-        assert_eq!(run[1].held, Buttons::A, "the tap is held for the step it reaches");
+        assert_eq!(
+            run[1].held,
+            Buttons::A,
+            "the tap is held for the step it reaches"
+        );
     }
 
     #[test]
     fn a_held_press_on_a_frame_with_no_step_fires_once() {
-        let run = play(&[(8.0, held(Buttons::A)), (9.0, held(Buttons::A)), (8.0, held(Buttons::A)), (9.0, held(Buttons::A))]);
+        let run = play(&[
+            (8.0, held(Buttons::A)),
+            (9.0, held(Buttons::A)),
+            (8.0, held(Buttons::A)),
+            (9.0, held(Buttons::A)),
+        ]);
         assert_eq!(run.len(), 2);
-        assert_eq!(run.iter().map(|i| i.pressed).collect::<Vec<_>>(), [Buttons::A, Buttons::NONE]);
+        assert_eq!(
+            run.iter().map(|i| i.pressed).collect::<Vec<_>>(),
+            [Buttons::A, Buttons::NONE]
+        );
         assert!(run.iter().all(|i| i.held == Buttons::A));
     }
 
     #[test]
     fn a_release_on_a_frame_with_no_step_is_seen_by_the_next() {
-        let run = play(&[(17.0, held(Buttons::A)), (5.0, held(Buttons::NONE)), (12.0, held(Buttons::NONE))]);
+        let run = play(&[
+            (17.0, held(Buttons::A)),
+            (5.0, held(Buttons::NONE)),
+            (12.0, held(Buttons::NONE)),
+        ]);
         assert_eq!(run.len(), 2);
         assert_eq!(run[1].held, Buttons::NONE);
         assert_eq!(run[1].pressed, Buttons::NONE);
@@ -212,8 +272,17 @@ mod tests {
     #[test]
     fn a_touch_lifted_before_any_step_still_starts_where_it_was() {
         let at = Some([10.0, 20.0]);
-        let down = RawInput { touch: at, touches: [at, None, None, None, None, None, None, None, None, None], ..Default::default() };
-        let run = play(&[(5.0, down), (5.0, RawInput::default()), (10.0, RawInput::default()), (17.0, RawInput::default())]);
+        let down = RawInput {
+            touch: at,
+            touches: [at, None, None, None, None, None, None, None, None, None],
+            ..Default::default()
+        };
+        let run = play(&[
+            (5.0, down),
+            (5.0, RawInput::default()),
+            (10.0, RawInput::default()),
+            (17.0, RawInput::default()),
+        ]);
         assert_eq!(run.len(), 2);
         assert!(run[0].touch_started);
         assert_eq!(run[0].touch, at);
@@ -224,7 +293,10 @@ mod tests {
 
     #[test]
     fn orbit_adds_up_across_frames_with_no_step_and_goes_to_one_step() {
-        let drag = RawInput { orbit: [3.0, 1.0], ..Default::default() };
+        let drag = RawInput {
+            orbit: [3.0, 1.0],
+            ..Default::default()
+        };
         let run = play(&[(8.0, drag), (40.0, drag)]);
         assert_eq!(run.len(), 2);
         assert_eq!(run[0].orbit, [6.0, 2.0]);

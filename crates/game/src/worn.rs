@@ -21,7 +21,11 @@ pub fn parse(spec: &str) -> Result<Vec<Worn>, String> {
             if pair.trim() == "hide" {
                 return Ok(Worn::Hidden);
             }
-            let n: Vec<u8> = pair.split_whitespace().map(|v| v.parse::<u8>().ok()).collect::<Option<_>>().unwrap_or_default();
+            let n: Vec<u8> = pair
+                .split_whitespace()
+                .map(|v| v.parse::<u8>().ok())
+                .collect::<Option<_>>()
+                .unwrap_or_default();
             match n[..] {
                 [x, y] => Ok(Worn::At([x, y])),
                 _ => Err(format!("{pair:?} isn't a pixel: X Y, each 0 to 255")),
@@ -60,7 +64,10 @@ pub fn parse_card(text: &str) -> Result<[Vec<Worn>; 3], String> {
             continue;
         }
         let (facing, spec) = line.split_once(char::is_whitespace).unwrap_or((line, ""));
-        let at = FACINGS.iter().position(|f| *f == facing).ok_or_else(|| format!("line {}: {facing:?} isn't front, side or back", i + 1))?;
+        let at = FACINGS
+            .iter()
+            .position(|f| *f == facing)
+            .ok_or_else(|| format!("line {}: {facing:?} isn't front, side or back", i + 1))?;
         out[at] = parse(spec).map_err(|e| format!("line {}: {e}", i + 1))?;
     }
     Ok(out)
@@ -68,14 +75,22 @@ pub fn parse_card(text: &str) -> Result<[Vec<Worn>; 3], String> {
 
 /// A player card's chunk for `facings`, a line for each one set.
 pub fn card_text(facings: &[Vec<Worn>; 3]) -> String {
-    FACINGS.iter().zip(facings).filter(|(_, f)| !f.is_empty()).map(|(name, f)| format!("{name} {}\n", spec(f))).collect()
+    FACINGS
+        .iter()
+        .zip(facings)
+        .filter(|(_, f)| !f.is_empty())
+        .map(|(name, f)| format!("{name} {}\n", spec(f)))
+        .collect()
 }
 
 /// Where a frame `w` by `h` with alpha `alpha(x, y)` wears the grenade when nothing says: on the right hip, a pixel in
 /// from the outline a little below the middle.
 pub fn default_at(w: usize, h: usize, alpha: impl Fn(usize, usize) -> bool) -> [u8; 2] {
     let y = (h * 2 / 3).min(h.saturating_sub(1));
-    let x = (0..w).rev().find(|&x| alpha(x, y)).map_or(w / 2, |x| x.saturating_sub(1));
+    let x = (0..w)
+        .rev()
+        .find(|&x| alpha(x, y))
+        .map_or(w / 2, |x| x.saturating_sub(1));
     [x as u8, y as u8]
 }
 
@@ -86,9 +101,15 @@ mod tests {
     #[test]
     fn a_spec_reads_a_pixel_per_frame_or_hide() {
         assert_eq!(parse("11 10").unwrap(), [Worn::At([11, 10])]);
-        assert_eq!(parse(" 11 10 ; 11 11 ").unwrap(), [Worn::At([11, 10]), Worn::At([11, 11])]);
+        assert_eq!(
+            parse(" 11 10 ; 11 11 ").unwrap(),
+            [Worn::At([11, 10]), Worn::At([11, 11])]
+        );
         assert_eq!(parse("hide").unwrap(), [Worn::Hidden]);
-        assert_eq!(parse("1 2 ; hide").unwrap(), [Worn::At([1, 2]), Worn::Hidden]);
+        assert_eq!(
+            parse("1 2 ; hide").unwrap(),
+            [Worn::At([1, 2]), Worn::Hidden]
+        );
         for bad in ["", "11", "11 10 2", "-1 4", "256 3", "a b", "11 10 ;"] {
             assert!(parse(bad).is_err(), "{bad:?}");
         }
@@ -97,11 +118,18 @@ mod tests {
     #[test]
     fn a_spec_writes_back_as_short_as_it_reads() {
         assert_eq!(spec(&[Worn::At([11, 10]); 3]), "11 10");
-        assert_eq!(spec(&[Worn::At([11, 10]), Worn::At([11, 11]), Worn::At([11, 11])]), "11 10 ; 11 11");
+        assert_eq!(
+            spec(&[Worn::At([11, 10]), Worn::At([11, 11]), Worn::At([11, 11])]),
+            "11 10 ; 11 11"
+        );
         assert_eq!(spec(&[Worn::Hidden; 3]), "hide");
         let frames = [Worn::At([1, 2]), Worn::At([3, 4]), Worn::At([5, 6])];
         assert_eq!(parse(&spec(&frames)).unwrap(), frames);
-        assert_eq!(frame(&frames[..1], 2), Some(Worn::At([1, 2])), "the last carries on");
+        assert_eq!(
+            frame(&frames[..1], 2),
+            Some(Worn::At([1, 2])),
+            "the last carries on"
+        );
         assert_eq!(frame(&[], 0), None);
     }
 
@@ -120,7 +148,11 @@ mod tests {
         for spec in crate::art::WORN.iter().flatten() {
             assert!(parse(spec).is_ok_and(|w| w.len() == 1), "{spec:?}");
         }
-        let farmer = [crate::art::PLAYER_FRONT[0], crate::art::PLAYER_SIDE[0], crate::art::PLAYER_BACK[0]];
+        let farmer = [
+            crate::art::PLAYER_FRONT[0],
+            crate::art::PLAYER_SIDE[0],
+            crate::art::PLAYER_BACK[0],
+        ];
         for [x, y] in farmer.iter().filter_map(|a| a.worn_at()) {
             assert!(x < 16 && y < 15, "the farmer wears it on the frame");
         }
@@ -130,6 +162,10 @@ mod tests {
     fn without_a_spec_the_grenade_sits_inside_the_right_edge_below_the_middle() {
         // A 6x6 figure filling columns 1 to 4.
         assert_eq!(default_at(6, 6, |x, _| (1..=4).contains(&x)), [3, 4]);
-        assert_eq!(default_at(6, 6, |_, _| false), [3, 4], "an empty frame wears it in the middle");
+        assert_eq!(
+            default_at(6, 6, |_, _| false),
+            [3, 4],
+            "an empty frame wears it in the middle"
+        );
     }
 }

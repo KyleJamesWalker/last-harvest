@@ -21,7 +21,11 @@ const DRONE_GAIN: f32 = 0.5;
 /// Music at full dread; it eases between a third of this and all of it as the danger grows.
 const MUSIC_GAIN: f32 = 0.6;
 /// The ambience beds that play under everything, by file name, and how loud each sits.
-const BEDS: [(&str, f32); 3] = [("ambience", 0.15), ("ambience-2", 0.15), ("ambience-3", 0.4)];
+const BEDS: [(&str, f32); 3] = [
+    ("ambience", 0.15),
+    ("ambience-2", 0.15),
+    ("ambience-3", 0.4),
+];
 /// Cues waiting for the audio callback; a frame queues a handful.
 const QUEUED_CUES: usize = 64;
 /// A level under this is silence: the music, beds and drone stop, and their decoders wait.
@@ -51,16 +55,33 @@ struct Note {
 }
 
 const fn note(delay: f32, dur: f32, f0: f32, f1: f32, wave: Wave, gain: f32) -> Note {
-    Note { delay, dur, f0, f1, wave, gain, pan: 0.0, curve: 1 }
+    Note {
+        delay,
+        dur,
+        f0,
+        f1,
+        wave,
+        gain,
+        pan: 0.0,
+        curve: 1,
+    }
 }
 
 /// A note that hits hard and falls away fast.
 const fn hit(delay: f32, dur: f32, f0: f32, f1: f32, wave: Wave, gain: f32) -> Note {
-    Note { curve: 3, ..note(delay, dur, f0, f1, wave, gain) }
+    Note {
+        curve: 3,
+        ..note(delay, dur, f0, f1, wave, gain)
+    }
 }
 
 fn arpeggio(out: &mut Vec<Note>, freqs: &[f32], step: f32, wave: Wave) {
-    out.extend(freqs.iter().enumerate().map(|(i, &f)| note(i as f32 * step, step * 1.4, f, f, wave, 0.8)));
+    out.extend(
+        freqs
+            .iter()
+            .enumerate()
+            .map(|(i, &f)| note(i as f32 * step, step * 1.4, f, f, wave, 0.8)),
+    );
 }
 
 fn pan_all(notes: &mut [Note], pan: f32) {
@@ -70,7 +91,13 @@ fn pan_all(notes: &mut [Note], pan: f32) {
 /// Places a cue in the world: `pan` from -100 to 100 and `gain` from 0 to 255.
 fn place(notes: &mut [Note], pan: i8, gain: u8) {
     let g = gain as f32 / 255.0;
-    notes.iter_mut().for_each(|n| *n = Note { pan: pan as f32 / 100.0, gain: n.gain * g, ..*n });
+    notes.iter_mut().for_each(|n| {
+        *n = Note {
+            pan: pan as f32 / 100.0,
+            gain: n.gain * g,
+            ..*n
+        }
+    });
 }
 
 /// Steps up a pentatonic scale from A5.
@@ -123,7 +150,10 @@ fn notes(sfx: Sfx, out: &mut Vec<Note>) {
         ]),
         Sfx::Slash => out.push(note(0.0, 0.12, 2000.0, 7000.0, Noise, 0.45)),
         Sfx::Thud(crit) => {
-            out.extend_from_slice(&[hit(0.0, 0.06, 1200.0, 300.0, Noise, 0.45), hit(0.0, 0.07, 220.0, 110.0, Triangle, 0.55)]);
+            out.extend_from_slice(&[
+                hit(0.0, 0.06, 1200.0, 300.0, Noise, 0.45),
+                hit(0.0, 0.07, 220.0, 110.0, Triangle, 0.55),
+            ]);
             if crit {
                 out.push(hit(0.0, 0.12, 1320.0, 1320.0, Square, 0.3));
                 out.push(hit(0.03, 0.12, 1760.0, 1760.0, Square, 0.25));
@@ -147,7 +177,10 @@ fn notes(sfx: Sfx, out: &mut Vec<Note>) {
                 KillVoice::Big => 160.0,
                 KillVoice::Plain => 300.0,
             };
-            out.extend_from_slice(&[hit(0.0, 0.16, 3000.0, 400.0, Noise, 0.65), hit(0.0, 0.14, f, f / 3.0, Triangle, 0.7)]);
+            out.extend_from_slice(&[
+                hit(0.0, 0.16, 3000.0, 400.0, Noise, 0.65),
+                hit(0.0, 0.14, f, f / 3.0, Triangle, 0.7),
+            ]);
             match voice {
                 KillVoice::Small => out.push(hit(0.0, 0.03, 900.0, 900.0, Square, 0.3)),
                 KillVoice::Big => out.push(hit(0.02, 0.4, 90.0, 35.0, Square, 0.5)),
@@ -157,21 +190,41 @@ fn notes(sfx: Sfx, out: &mut Vec<Note>) {
         Sfx::Boom { pan, gain } => {
             out.extend_from_slice(&[
                 hit(0.0, 0.8, 3000.0, 100.0, Noise, 1.0),
-                Note { curve: 2, ..note(0.0, 0.7, 90.0, 30.0, Triangle, 1.0) },
+                Note {
+                    curve: 2,
+                    ..note(0.0, 0.7, 90.0, 30.0, Triangle, 1.0)
+                },
                 hit(0.05, 1.2, 800.0, 60.0, Noise, 0.5),
             ]);
             place(out, pan, gain);
         }
-        Sfx::Throw => out.extend_from_slice(&[note(0.0, 0.15, 800.0, 3000.0, Noise, 0.3), note(0.0, 0.05, 600.0, 900.0, Triangle, 0.2)]),
+        Sfx::Throw => out.extend_from_slice(&[
+            note(0.0, 0.15, 800.0, 3000.0, Noise, 0.3),
+            note(0.0, 0.05, 600.0, 900.0, Triangle, 0.2),
+        ]),
         Sfx::Pickup(n) => {
             let f = step(n);
-            out.extend_from_slice(&[hit(0.0, 0.07, f, f, Square, 0.3), hit(0.02, 0.06, f * 2.0, f * 2.0, Triangle, 0.25)]);
+            out.extend_from_slice(&[
+                hit(0.0, 0.07, f, f, Square, 0.3),
+                hit(0.02, 0.06, f * 2.0, f * 2.0, Triangle, 0.25),
+            ]);
         }
         Sfx::Heal => arpeggio(out, &[523.0, 659.0, 784.0, 1047.0], 0.05, Triangle),
-        Sfx::Hurt => out.extend_from_slice(&[hit(0.0, 0.25, 300.0, 80.0, Square, 0.6), hit(0.0, 0.2, 1.0, 1.0, Noise, 0.5)]),
-        Sfx::Heartbeat => out.extend_from_slice(&[hit(0.0, 0.12, 60.0, 40.0, Sine, 1.0), hit(0.16, 0.1, 55.0, 38.0, Sine, 0.7)]),
+        Sfx::Hurt => out.extend_from_slice(&[
+            hit(0.0, 0.25, 300.0, 80.0, Square, 0.6),
+            hit(0.0, 0.2, 1.0, 1.0, Noise, 0.5),
+        ]),
+        Sfx::Heartbeat => out.extend_from_slice(&[
+            hit(0.0, 0.12, 60.0, 40.0, Sine, 1.0),
+            hit(0.16, 0.1, 55.0, 38.0, Sine, 0.7),
+        ]),
         Sfx::LevelUp => {
-            arpeggio(out, &[523.0, 659.0, 784.0, 1047.0, 1319.0, 1568.0], 0.05, Square);
+            arpeggio(
+                out,
+                &[523.0, 659.0, 784.0, 1047.0, 1319.0, 1568.0],
+                0.05,
+                Square,
+            );
             out.push(note(0.0, 0.4, 400.0, 1600.0, Triangle, 0.4));
             out.push(hit(0.0, 0.5, 8000.0, 4000.0, Noise, 0.15));
         }
@@ -183,7 +236,10 @@ fn notes(sfx: Sfx, out: &mut Vec<Note>) {
             }
         }
         Sfx::Rise { pan, gain } => {
-            out.extend_from_slice(&[note(0.0, 0.35, 400.0, 150.0, Noise, 0.45), hit(0.0, 0.2, 80.0, 50.0, Triangle, 0.4)]);
+            out.extend_from_slice(&[
+                note(0.0, 0.35, 400.0, 150.0, Noise, 0.45),
+                hit(0.0, 0.2, 80.0, 50.0, Triangle, 0.4),
+            ]);
             place(out, pan, gain);
         }
         Sfx::Groan { pan, gain } => {
@@ -204,16 +260,32 @@ fn notes(sfx: Sfx, out: &mut Vec<Note>) {
             place(out, pan, gain);
         }
         Sfx::Spit { pan, gain } => {
-            out.extend_from_slice(&[note(0.0, 0.16, 700.0, 2600.0, Noise, 0.35), hit(0.0, 0.1, 260.0, 140.0, Triangle, 0.3)]);
+            out.extend_from_slice(&[
+                note(0.0, 0.16, 700.0, 2600.0, Noise, 0.35),
+                hit(0.0, 0.1, 260.0, 140.0, Triangle, 0.3),
+            ]);
             place(out, pan, gain);
         }
         Sfx::Splat { pan, gain } => {
-            out.extend_from_slice(&[hit(0.0, 0.18, 1800.0, 250.0, Noise, 0.45), hit(0.0, 0.12, 180.0, 70.0, Triangle, 0.4)]);
+            out.extend_from_slice(&[
+                hit(0.0, 0.18, 1800.0, 250.0, Noise, 0.45),
+                hit(0.0, 0.12, 180.0, 70.0, Triangle, 0.4),
+            ]);
             place(out, pan, gain);
         }
-        Sfx::Zap => out.extend_from_slice(&[note(0.0, 0.14, 3200.0, 900.0, Square, 0.25), note(0.0, 0.1, 4000.0, 6000.0, Noise, 0.3)]),
-        Sfx::Bark => out.extend_from_slice(&[hit(0.0, 0.09, 520.0, 300.0, Square, 0.4), hit(0.12, 0.08, 480.0, 280.0, Square, 0.35)]),
-        Sfx::Bell => out.extend_from_slice(&[hit(0.0, 1.4, 660.0, 660.0, Triangle, 0.6), hit(0.0, 1.0, 1320.0, 1320.0, Sine, 0.3), hit(0.0, 0.8, 1650.0, 1650.0, Sine, 0.2)]),
+        Sfx::Zap => out.extend_from_slice(&[
+            note(0.0, 0.14, 3200.0, 900.0, Square, 0.25),
+            note(0.0, 0.1, 4000.0, 6000.0, Noise, 0.3),
+        ]),
+        Sfx::Bark => out.extend_from_slice(&[
+            hit(0.0, 0.09, 520.0, 300.0, Square, 0.4),
+            hit(0.12, 0.08, 480.0, 280.0, Square, 0.35),
+        ]),
+        Sfx::Bell => out.extend_from_slice(&[
+            hit(0.0, 1.4, 660.0, 660.0, Triangle, 0.6),
+            hit(0.0, 1.0, 1320.0, 1320.0, Sine, 0.3),
+            hit(0.0, 0.8, 1650.0, 1650.0, Sine, 0.2),
+        ]),
         Sfx::Horde => out.extend_from_slice(&[
             note(0.0, 1.3, 55.0, 50.0, Square, 0.45),
             note(0.0, 1.3, 82.0, 75.0, Square, 0.3),
@@ -246,7 +318,14 @@ struct Voice {
 impl Voice {
     fn new(note: Note, dt: f32) -> Self {
         let sweep = (note.f1 / note.f0).powf(dt / note.dur);
-        Voice { note, t: -note.delay, phase: 0.0, held: 0.0, freq: note.f0, sweep }
+        Voice {
+            note,
+            t: -note.delay,
+            phase: 0.0,
+            held: 0.0,
+            freq: note.f0,
+            sweep,
+        }
     }
 }
 
@@ -309,7 +388,11 @@ impl Synth {
             plays: Vec::with_capacity(MAX_VOICES + 1),
             volume: Arc::new(AtomicU32::new(0f32.to_bits())),
             dread: Arc::new(AtomicU32::new(0f32.to_bits())),
-            drone: Drone { level: 0.0, phases: [0.0; 3], t: 0.0 },
+            drone: Drone {
+                level: 0.0,
+                phases: [0.0; 3],
+                t: 0.0,
+            },
             music: None,
             music_level: 0.0,
             beds: Vec::new(),
@@ -343,7 +426,13 @@ impl Synth {
             v.phase = (v.phase + freq * self.dt).fract();
             let wrapped = v.phase < before || n.f0 <= 1.0;
             let wave = match n.wave {
-                Wave::Square => if v.phase < 0.5 { 1.0 } else { -1.0 },
+                Wave::Square => {
+                    if v.phase < 0.5 {
+                        1.0
+                    } else {
+                        -1.0
+                    }
+                }
                 Wave::Triangle => 4.0 * (v.phase - 0.5).abs() - 1.0,
                 Wave::Sine => (v.phase * std::f32::consts::TAU).sin(),
                 Wave::Noise => {
@@ -371,7 +460,8 @@ impl Synth {
             sum[1] += s[1] * p.gain * (1.0 + p.pan).min(1.0);
             p.pos += p.rate;
         }
-        self.plays.retain(|p| (p.pos as usize) < p.clip.frames.len());
+        self.plays
+            .retain(|p| (p.pos as usize) < p.clip.frames.len());
         let under = self.under();
         let gain = MIX * f32::from_bits(self.volume.load(Ordering::Relaxed));
         [0, 1].map(|i| ((sum[i] + under[i]) * gain).clamp(-1.0, 1.0))
@@ -383,7 +473,11 @@ impl Synth {
         let dread = f32::from_bits(self.dread.load(Ordering::Relaxed));
         let mut out = match &mut self.music {
             Some(music) => {
-                let target = if dread > 0.0 { MUSIC_GAIN * (0.33 + 0.67 * dread) } else { 0.0 };
+                let target = if dread > 0.0 {
+                    MUSIC_GAIN * (0.33 + 0.67 * dread)
+                } else {
+                    0.0
+                };
                 self.music_level += (target - self.music_level) * ease;
                 if self.music_level < SILENT {
                     [0.0; 2]
@@ -421,7 +515,11 @@ impl Synth {
         for (i, f) in freqs.iter().enumerate() {
             d.phases[i] = (d.phases[i] + f * self.dt).fract();
             let tri = 4.0 * (d.phases[i] - 0.5).abs() - 1.0;
-            let g = if i == 2 { ((d.level - 0.5) * 2.0).max(0.0) } else { 1.0 };
+            let g = if i == 2 {
+                ((d.level - 0.5) * 2.0).max(0.0)
+            } else {
+                1.0
+            };
             s += tri * g;
         }
         let swell = 0.7 + 0.3 * (d.t * 0.4).sin();
@@ -435,7 +533,13 @@ impl Synth {
             let pick = self.random() * 0.5 + 0.5;
             if let Some(clip) = self.bank.get(name, pick) {
                 let (pan, gain) = placement(sfx);
-                self.plays.push(Play { clip, pos: 0.0, rate: rate * k, gain, pan });
+                self.plays.push(Play {
+                    clip,
+                    pos: 0.0,
+                    rate: rate * k,
+                    gain,
+                    pan,
+                });
                 if self.plays.len() > MAX_VOICES {
                     self.plays.remove(0);
                 }
@@ -443,7 +547,15 @@ impl Synth {
             }
             notes(sfx, &mut self.cue);
             for &note in &self.cue {
-                let note = if note.f0 > 1.0 { Note { f0: note.f0 * k, f1: note.f1 * k, ..note } } else { note };
+                let note = if note.f0 > 1.0 {
+                    Note {
+                        f0: note.f0 * k,
+                        f1: note.f1 * k,
+                        ..note
+                    }
+                } else {
+                    note
+                };
                 self.voices.push(Voice::new(note, self.dt));
             }
             if self.voices.len() > MAX_VOICES {
@@ -484,16 +596,24 @@ pub struct Audio {
 
 impl Audio {
     pub fn open(sounds: &Files) -> Result<Self, Box<dyn Error>> {
-        let device = cpal::default_host().default_output_device().ok_or("no output device")?;
+        let device = cpal::default_host()
+            .default_output_device()
+            .ok_or("no output device")?;
         let supported = device.default_output_config()?;
-        log!("audio: {:?} {:?}", device.description().map(|d| d.name().to_string()), supported);
+        log!(
+            "audio: {:?} {:?}",
+            device.description().map(|d| d.name().to_string()),
+            supported
+        );
         let config = supported.config();
         let channels = config.channels as usize;
         let (tx, rx) = sync_channel(QUEUED_CUES);
         let rate = config.sample_rate as f32;
         let mut synth = Synth::new(rx, Bank::load(sounds, rate), rate);
         let track = |name: &str| {
-            let (file, bytes) = sounds.iter().find(|(file, _)| *file == format!("{name}.ogg"))?;
+            let (file, bytes) = sounds
+                .iter()
+                .find(|(file, _)| *file == format!("{name}.ogg"))?;
             let track = Loop::open(bytes.clone(), rate);
             if track.is_none() {
                 log!("audio: {file} won't play");
@@ -502,9 +622,24 @@ impl Audio {
             track
         };
         synth.music = track("music");
-        synth.beds = BEDS.iter().filter_map(|&(name, level)| Some((track(name)?, level))).collect();
-        log!("audio: music {}, {} ambience beds", if synth.music.is_some() { "recorded" } else { "synth" }, synth.beds.len());
-        let (volume, dread, beds_on) = (synth.volume.clone(), synth.dread.clone(), synth.beds_on.clone());
+        synth.beds = BEDS
+            .iter()
+            .filter_map(|&(name, level)| Some((track(name)?, level)))
+            .collect();
+        log!(
+            "audio: music {}, {} ambience beds",
+            if synth.music.is_some() {
+                "recorded"
+            } else {
+                "synth"
+            },
+            synth.beds.len()
+        );
+        let (volume, dread, beds_on) = (
+            synth.volume.clone(),
+            synth.dread.clone(),
+            synth.beds_on.clone(),
+        );
         let failed = Arc::new(AtomicBool::new(false));
         let on_error = {
             let failed = failed.clone();
@@ -516,12 +651,29 @@ impl Audio {
             }
         };
         let stream = match supported.sample_format() {
-            SampleFormat::F32 => device.build_output_stream(config, move |d: &mut [f32], _: &_| synth.fill(d, channels), on_error, None)?,
-            SampleFormat::I16 => device.build_output_stream(config, move |d: &mut [i16], _: &_| synth.fill(d, channels), on_error, None)?,
+            SampleFormat::F32 => device.build_output_stream(
+                config,
+                move |d: &mut [f32], _: &_| synth.fill(d, channels),
+                on_error,
+                None,
+            )?,
+            SampleFormat::I16 => device.build_output_stream(
+                config,
+                move |d: &mut [i16], _: &_| synth.fill(d, channels),
+                on_error,
+                None,
+            )?,
             f => return Err(format!("unsupported output format {f:?}").into()),
         };
         stream.play()?;
-        Ok(Self { _stream: stream, tx, volume, dread, beds_on, failed })
+        Ok(Self {
+            _stream: stream,
+            tx,
+            volume,
+            dread,
+            beds_on,
+            failed,
+        })
     }
 
     /// Whether the output went away, so this has stopped playing and should be opened again.
@@ -540,7 +692,8 @@ impl Audio {
 
     /// Whether the ambience beds play; they fade out while the game is paused.
     pub fn set_beds(&self, on: bool) {
-        self.beds_on.store(if on { 1f32 } else { 0f32 }.to_bits(), Ordering::Relaxed);
+        self.beds_on
+            .store(if on { 1f32 } else { 0f32 }.to_bits(), Ordering::Relaxed);
     }
 
     /// How loud and harsh the drone under the game is, 0 to 1.
@@ -557,7 +710,10 @@ mod tests {
 
     fn synth() -> (Synth, SyncSender<Sfx>) {
         let (tx, rx) = sync_channel(QUEUED_CUES);
-        let s = Synth { noise: 1, ..Synth::new(rx, Bank::default(), RATE) };
+        let s = Synth {
+            noise: 1,
+            ..Synth::new(rx, Bank::default(), RATE)
+        };
         s.volume.store(1f32.to_bits(), Ordering::Relaxed);
         s.beds_on.store(0f32.to_bits(), Ordering::Relaxed);
         (s, tx)
@@ -566,7 +722,15 @@ mod tests {
     #[test]
     fn no_cue_outgrows_the_notes_kept_for_it() {
         let mut out = Vec::new();
-        for cue in [Sfx::LevelUp, Sfx::Pick(true), Sfx::Dawn, Sfx::Caw { pan: 0, gain: 255 }, Sfx::Thud(true), Sfx::GameOver, Sfx::Start] {
+        for cue in [
+            Sfx::LevelUp,
+            Sfx::Pick(true),
+            Sfx::Dawn,
+            Sfx::Caw { pan: 0, gain: 255 },
+            Sfx::Thud(true),
+            Sfx::GameOver,
+            Sfx::Start,
+        ] {
             notes(cue, &mut out);
             assert!(out.len() <= MAX_NOTES, "{cue:?} plays {} notes", out.len());
         }
@@ -582,11 +746,36 @@ mod tests {
     #[test]
     fn every_cue_sounds_ends_and_stays_under_full_scale() {
         let cues = [
-            Sfx::Shot, Sfx::Blast, Sfx::Slash, Sfx::Thud(true), Sfx::Kill(0), Sfx::Kill(1), Sfx::Kill(2),
-            Sfx::Boom { pan: 0, gain: 255 }, Sfx::Throw, Sfx::Pickup(20), Sfx::Heal, Sfx::Hurt, Sfx::Heartbeat,
-            Sfx::LevelUp, Sfx::Pick(true), Sfx::Rise { pan: -100, gain: 255 }, Sfx::Groan { pan: 100, gain: 255 },
-            Sfx::Caw { pan: 0, gain: 255 }, Sfx::Bell, Sfx::Horde, Sfx::Dawn, Sfx::GameOver,
-            Sfx::Spit { pan: 0, gain: 255 }, Sfx::Splat { pan: 0, gain: 255 },
+            Sfx::Shot,
+            Sfx::Blast,
+            Sfx::Slash,
+            Sfx::Thud(true),
+            Sfx::Kill(0),
+            Sfx::Kill(1),
+            Sfx::Kill(2),
+            Sfx::Boom { pan: 0, gain: 255 },
+            Sfx::Throw,
+            Sfx::Pickup(20),
+            Sfx::Heal,
+            Sfx::Hurt,
+            Sfx::Heartbeat,
+            Sfx::LevelUp,
+            Sfx::Pick(true),
+            Sfx::Rise {
+                pan: -100,
+                gain: 255,
+            },
+            Sfx::Groan {
+                pan: 100,
+                gain: 255,
+            },
+            Sfx::Caw { pan: 0, gain: 255 },
+            Sfx::Bell,
+            Sfx::Horde,
+            Sfx::Dawn,
+            Sfx::GameOver,
+            Sfx::Spit { pan: 0, gain: 255 },
+            Sfx::Splat { pan: 0, gain: 255 },
         ];
         for cue in cues {
             let (mut s, tx) = synth();
@@ -615,7 +804,15 @@ mod tests {
         wav.extend(b"RIFF");
         wav.extend((36 + data).to_le_bytes());
         wav.extend(b"WAVEfmt ");
-        for v in [16u32.to_le_bytes().to_vec(), 1u16.to_le_bytes().to_vec(), 1u16.to_le_bytes().to_vec(), 48000u32.to_le_bytes().to_vec(), 96000u32.to_le_bytes().to_vec(), 2u16.to_le_bytes().to_vec(), 16u16.to_le_bytes().to_vec()] {
+        for v in [
+            16u32.to_le_bytes().to_vec(),
+            1u16.to_le_bytes().to_vec(),
+            1u16.to_le_bytes().to_vec(),
+            48000u32.to_le_bytes().to_vec(),
+            96000u32.to_le_bytes().to_vec(),
+            2u16.to_le_bytes().to_vec(),
+            16u16.to_le_bytes().to_vec(),
+        ] {
             wav.extend(v);
         }
         wav.extend(b"data");

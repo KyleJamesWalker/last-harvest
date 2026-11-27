@@ -17,7 +17,8 @@ impl Editor {
             return self.say("Back to the game's palette");
         }
         if !paint::lospec_name(name) {
-            return self.say("A Lospec palette's name is its address's last part, such as endesga-32");
+            return self
+                .say("A Lospec palette's name is its address's last part, such as endesga-32");
         }
         match self.store.lospec(name) {
             Ok(text) => self.use_palette(name, &text),
@@ -32,7 +33,11 @@ impl Editor {
                 let n = colors.len();
                 self.palette = colors.into_iter().map(|[r, g, b]| [r, g, b, 255]).collect();
                 self.palette_name = Some(name.to_string());
-                let cut = if n > SHOWN { format!("; the first {SHOWN} show") } else { String::new() };
+                let cut = if n > SHOWN {
+                    format!("; the first {SHOWN} show")
+                } else {
+                    String::new()
+                };
                 self.say(format!("Drawing from {name}: {n} colors{cut}. The game's own art keeps to crates/game/palette.txt"));
             }
             Err(e) => self.say(format!("{name} isn't a palette: {e}")),

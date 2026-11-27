@@ -9,8 +9,8 @@ mod codec;
 mod host;
 
 pub use client::{Client, ClientEvent, ClientState, EndReason};
-pub use code::{CodeError, RoomCode, ALPHABET, CODE_LEN};
-pub use codec::{decode, encode, is_lobby_message, DecodeError, Message};
+pub use code::{ALPHABET, CODE_LEN, CodeError, RoomCode};
+pub use codec::{DecodeError, Message, decode, encode, is_lobby_message};
 pub use host::{Host, HostConfig, HostEvent, StartError};
 
 /// The lobby protocol's version; every message carries it.
@@ -25,7 +25,9 @@ pub type PeerKey = u128;
 
 /// FNV-1a, 64-bit: a data pack's or a mod pack's fingerprint.
 pub fn fingerprint(bytes: &[u8]) -> u64 {
-    bytes.iter().fold(0xcbf2_9ce4_8422_2325, |h, &b| (h ^ b as u64).wrapping_mul(0x0000_0100_0000_01b3))
+    bytes.iter().fold(0xcbf2_9ce4_8422_2325, |h, &b| {
+        (h ^ b as u64).wrapping_mul(0x0000_0100_0000_01b3)
+    })
 }
 
 /// A mod pack by its name and fingerprint.
@@ -102,11 +104,24 @@ pub struct Settings {
 /// Why the host turned a client away.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Refusal {
-    Protocol { host: u8, yours: u8 },
-    Version { host: String, yours: String },
+    Protocol {
+        host: u8,
+        yours: u8,
+    },
+    Version {
+        host: String,
+        yours: String,
+    },
     Pak,
-    Mods { missing: Vec<String>, extra: Vec<String>, different: Vec<String> },
-    Full { free: u8, asked: u8 },
+    Mods {
+        missing: Vec<String>,
+        extra: Vec<String>,
+        different: Vec<String>,
+    },
+    Full {
+        free: u8,
+        asked: u8,
+    },
     Running,
     BadHello(String),
     /// A refusal from another protocol version, by its text.
@@ -117,10 +132,23 @@ impl std::fmt::Display for Refusal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let list = |names: &[String]| names.join(", ");
         match self {
-            Refusal::Protocol { host, yours } => write!(f, "The host speaks lobby protocol {host}, this game {yours}: update both to the same release."),
-            Refusal::Version { host, yours } => write!(f, "The host runs version {host}, this game {yours}: update both to the same release."),
-            Refusal::Pak => write!(f, "The host's game data differs from this game's: use the same release's game_data.pak, and the same cards, maps and farms."),
-            Refusal::Mods { missing, extra, different } => {
+            Refusal::Protocol { host, yours } => write!(
+                f,
+                "The host speaks lobby protocol {host}, this game {yours}: update both to the same release."
+            ),
+            Refusal::Version { host, yours } => write!(
+                f,
+                "The host runs version {host}, this game {yours}: update both to the same release."
+            ),
+            Refusal::Pak => write!(
+                f,
+                "The host's game data differs from this game's: use the same release's game_data.pak, and the same cards, maps and farms."
+            ),
+            Refusal::Mods {
+                missing,
+                extra,
+                different,
+            } => {
                 let mut parts = Vec::new();
                 if !missing.is_empty() {
                     parts.push(format!("install or turn on {}", list(missing)));
@@ -133,9 +161,14 @@ impl std::fmt::Display for Refusal {
                 }
                 write!(f, "The host's mods differ: {}.", parts.join("; "))
             }
-            Refusal::Full { free, asked } => write!(f, "The room has {free} free seat(s); this game asked for {asked}."),
+            Refusal::Full { free, asked } => write!(
+                f,
+                "The room has {free} free seat(s); this game asked for {asked}."
+            ),
             Refusal::Running => write!(f, "The run has started and the host takes no one mid-run."),
-            Refusal::BadHello(why) => write!(f, "The host could not read this game's hello: {why}."),
+            Refusal::BadHello(why) => {
+                write!(f, "The host could not read this game's hello: {why}.")
+            }
             Refusal::Other(text) => f.write_str(text),
         }
     }

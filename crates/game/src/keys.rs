@@ -34,7 +34,17 @@ mod tests {
 
     #[test]
     fn both_hands_walk_and_turn_the_same_way() {
-        for (left, right) in [("KeyW", "KeyI"), ("KeyA", "KeyJ"), ("KeyS", "KeyK"), ("KeyD", "KeyL"), ("KeyQ", "KeyU"), ("KeyE", "KeyO"), ("KeyR", "KeyP"), ("KeyF", "Semicolon"), ("KeyG", "Quote")] {
+        for (left, right) in [
+            ("KeyW", "KeyI"),
+            ("KeyA", "KeyJ"),
+            ("KeyS", "KeyK"),
+            ("KeyD", "KeyL"),
+            ("KeyQ", "KeyU"),
+            ("KeyE", "KeyO"),
+            ("KeyR", "KeyP"),
+            ("KeyF", "Semicolon"),
+            ("KeyG", "Quote"),
+        ] {
             assert_eq!(key_button(left), key_button(right), "{left} and {right}");
             assert!(key_button(left).is_some(), "{left}");
         }
@@ -43,7 +53,14 @@ mod tests {
     #[test]
     fn every_button_the_controls_page_moves_has_a_key() {
         for b in crate::controls::BINDABLE {
-            assert!(["KeyE", "KeyR", "KeyF", "KeyQ", "Tab", "Space", "KeyG", "F12", "F3", "Enter"].iter().any(|k| key_button(k) == Some(b)), "{b:?}");
+            assert!(
+                [
+                    "KeyE", "KeyR", "KeyF", "KeyQ", "Tab", "Space", "KeyG", "F12", "F3", "Enter"
+                ]
+                .iter()
+                .any(|k| key_button(k) == Some(b)),
+                "{b:?}"
+            );
         }
     }
 }

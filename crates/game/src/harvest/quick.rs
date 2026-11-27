@@ -1,8 +1,8 @@
 //! R1's quick throw: a marker on the ground straight ahead that slides out while R1 is held, and the grenade lands on
 //! it when R1 is let go. Time runs on and the player keeps moving; it never picks a target.
 
-use crate::fmath as fm;
 use super::{Harvest, Phase};
+use crate::fmath as fm;
 use crate::input::{Buttons, Input};
 use crate::sfx::Sfx;
 
@@ -48,15 +48,18 @@ impl Harvest {
     pub(super) fn quick_mark(&self) -> Option<[f32; 2]> {
         let d = reach(self.quick?);
         let (w, h) = (self.map.width_px(), self.map.height_px());
-        Some([(self.eye().pos[0] + fm::cos(self.eye().view_yaw) * d).clamp(0.0, w), (self.eye().pos[1] + fm::sin(self.eye().view_yaw) * d).clamp(0.0, h)])
+        Some([
+            (self.eye().pos[0] + fm::cos(self.eye().view_yaw) * d).clamp(0.0, w),
+            (self.eye().pos[1] + fm::sin(self.eye().view_yaw) * d).clamp(0.0, h),
+        ])
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::super::{Harvest, len};
-    use crate::fmath as fm;
     use super::reach;
+    use crate::fmath as fm;
     use crate::input::{Buttons, Input};
     use crate::sfx::Sfx;
 
@@ -64,7 +67,15 @@ mod tests {
 
     fn step(h: &mut Harvest, held: Buttons, pressed: Buttons) -> Vec<Sfx> {
         let mut sounds = Vec::new();
-        h.update(&Input { held, pressed, ..Default::default() }, DT, &mut sounds);
+        h.update(
+            &Input {
+                held,
+                pressed,
+                ..Default::default()
+            },
+            DT,
+            &mut sounds,
+        );
         sounds
     }
 
@@ -84,7 +95,11 @@ mod tests {
         let at = h.quick_mark().expect("a marker");
         let off = [at[0] - h.me().pos[0], at[1] - h.me().pos[1]];
         let along = off[0] * fm::cos(h.me().view_yaw) + off[1] * fm::sin(h.me().view_yaw);
-        assert!(len(off) - along < 0.5, "straight ahead: {off:?} along {}", h.me().view_yaw);
+        assert!(
+            len(off) - along < 0.5,
+            "straight ahead: {off:?} along {}",
+            h.me().view_yaw
+        );
         along
     }
 
@@ -95,14 +110,24 @@ mod tests {
             let before = h.me().grenades;
             step(&mut h, Buttons::R1, Buttons::R1);
             let t = crate::tuning::tuning();
-            assert!((ahead(&h) - t.quick_near).abs() < 1.0, "{single}: starts at quick_near, {}", ahead(&h));
+            assert!(
+                (ahead(&h) - t.quick_near).abs() < 1.0,
+                "{single}: starts at quick_near, {}",
+                ahead(&h)
+            );
             assert!(h.thrown.is_empty(), "{single}: nothing thrown while held");
             let at = h.quick_mark().unwrap();
             let sounds = step(&mut h, Buttons::NONE, Buttons::NONE);
             assert!(sounds.iter().any(|s| matches!(s, Sfx::Throw)));
             assert_eq!(h.thrown.len(), 1, "{single}");
-            assert!(len([h.thrown[0].to[0] - at[0], h.thrown[0].to[1] - at[1]]) < 1.0, "{single}: lands on the marker");
-            assert!(h.quick_mark().is_none() && h.me().grenades < before, "{single}: one grenade spent, as any throw");
+            assert!(
+                len([h.thrown[0].to[0] - at[0], h.thrown[0].to[1] - at[1]]) < 1.0,
+                "{single}: lands on the marker"
+            );
+            assert!(
+                h.quick_mark().is_none() && h.me().grenades < before,
+                "{single}: one grenade spent, as any throw"
+            );
         }
     }
 
@@ -114,9 +139,16 @@ mod tests {
         let near = ahead(&h);
         hold(&mut h, Buttons::R1, t.quick_grow / 2.0);
         let mid = ahead(&h);
-        assert!(mid > near + 10.0 && mid < t.quick_far - 10.0, "{near} then {mid}");
+        assert!(
+            mid > near + 10.0 && mid < t.quick_far - 10.0,
+            "{near} then {mid}"
+        );
         hold(&mut h, Buttons::R1, t.quick_grow * 2.0);
-        assert!((ahead(&h) - t.quick_far).abs() < 1.0, "capped at quick_far: {}", ahead(&h));
+        assert!(
+            (ahead(&h) - t.quick_far).abs() < 1.0,
+            "capped at quick_far: {}",
+            ahead(&h)
+        );
         assert_eq!((reach(-1.0), reach(1e6)), (t.quick_near, t.quick_far));
     }
 
@@ -127,7 +159,10 @@ mod tests {
         step(&mut h, Buttons::R1, Buttons::R1);
         hold(&mut h, Buttons::R1 | Buttons::UP | Buttons::A, 0.5);
         assert!(h.t - t > 0.5, "no slow motion");
-        assert!(len([h.me().pos[0] - start[0], h.me().pos[1] - start[1]]) > 5.0, "kept walking");
+        assert!(
+            len([h.me().pos[0] - start[0], h.me().pos[1] - start[1]]) > 5.0,
+            "kept walking"
+        );
         assert!((h.me().view_yaw - yaw).abs() > 0.1, "kept turning");
         ahead(&h);
     }
@@ -170,8 +205,22 @@ mod tests {
     fn the_marker_lies_on_the_ground_in_the_3d_view_and_glows() {
         let mut h = farm(27, false);
         let marks = |h: &Harvest| {
-            let lefts: Vec<f32> = crate::art::QUICK_MARK.iter().map(|a| f32::from(a.rect()[0])).collect();
-            super::super::view3d::scene(h).cards.iter().filter(|c| c.normal == glam::Vec3::Y && c.glow == 1.0 && lefts.iter().any(|l| (c.uv[0] * crate::art::ATLAS_W as f32 - l).abs() < 0.01)).map(|c| (c.corners[0] + c.corners[2]) / 2.0).collect::<Vec<_>>()
+            let lefts: Vec<f32> = crate::art::QUICK_MARK
+                .iter()
+                .map(|a| f32::from(a.rect()[0]))
+                .collect();
+            super::super::view3d::scene(h)
+                .cards
+                .iter()
+                .filter(|c| {
+                    c.normal == glam::Vec3::Y
+                        && c.glow == 1.0
+                        && lefts
+                            .iter()
+                            .any(|l| (c.uv[0] * crate::art::ATLAS_W as f32 - l).abs() < 0.01)
+                })
+                .map(|c| (c.corners[0] + c.corners[2]) / 2.0)
+                .collect::<Vec<_>>()
         };
         assert!(marks(&h).is_empty());
         step(&mut h, Buttons::R1, Buttons::R1);
@@ -179,6 +228,9 @@ mod tests {
         let shown = marks(&h);
         assert_eq!(shown.len(), 1);
         let tile = super::super::map::TILE;
-        assert!((shown[0].x - at[0] / tile).abs() < 0.01 && (shown[0].z - at[1] / tile).abs() < 0.01, "{shown:?} vs {at:?}");
+        assert!(
+            (shown[0].x - at[0] / tile).abs() < 0.01 && (shown[0].z - at[1] / tile).abs() < 0.01,
+            "{shown:?} vs {at:?}"
+        );
     }
 }

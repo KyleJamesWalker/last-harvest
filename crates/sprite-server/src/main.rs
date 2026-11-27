@@ -17,17 +17,43 @@ const MAX_BODY: u64 = 16 << 20;
 type Reply = (u16, &'static str, Vec<u8>);
 
 fn text(status: u16, body: impl Into<String>) -> Reply {
-    (status, "text/plain; charset=utf-8", body.into().into_bytes())
+    (
+        status,
+        "text/plain; charset=utf-8",
+        body.into().into_bytes(),
+    )
 }
 
 /// A file a sprite's folder may hold.
 fn sprite_file(file: &str) -> bool {
-    let frame = file.strip_suffix(".png").is_some_and(|n| !n.is_empty() && n.len() <= 3 && n.bytes().all(|b| b.is_ascii_digit()));
-    frame || matches!(file, "south.png" | "east.png" | "footprint.png" | "roof.png" | "north.png" | "west.png" | "top.png" | "stand.txt" | "enemy.txt" | "clear.txt" | "paints.txt" | "grenade.txt" | "detail.txt" | "alpha.txt")
+    let frame = file
+        .strip_suffix(".png")
+        .is_some_and(|n| !n.is_empty() && n.len() <= 3 && n.bytes().all(|b| b.is_ascii_digit()));
+    frame
+        || matches!(
+            file,
+            "south.png"
+                | "east.png"
+                | "footprint.png"
+                | "roof.png"
+                | "north.png"
+                | "west.png"
+                | "top.png"
+                | "stand.txt"
+                | "enemy.txt"
+                | "clear.txt"
+                | "paints.txt"
+                | "grenade.txt"
+                | "detail.txt"
+                | "alpha.txt"
+        )
 }
 
 fn bytes(found: Option<Vec<u8>>) -> Reply {
-    found.map_or_else(|| text(404, "not found"), |b| (200, "application/octet-stream", b))
+    found.map_or_else(
+        || text(404, "not found"),
+        |b| (200, "application/octet-stream", b),
+    )
 }
 
 /// Answers one request: the API under `/api/`, else a file of the web build in `web`.
@@ -36,61 +62,153 @@ fn handle(store: &FsStore, web: &Path, method: &Method, url: &str, body: &[u8]) 
     let parts: Vec<&str> = path.trim_start_matches('/').split('/').collect();
     let named = |n: &str| sprite::valid_name(n);
     match (method, parts.as_slice()) {
-        (Method::Get, ["api", "names"]) => text(200, store.names().iter().map(|(n, saved)| format!("{n}\t{}\n", *saved as u8)).collect::<String>()),
-        (Method::Get, ["api", "file", name, file]) if named(name) && sprite_file(file) => bytes(store.read(name, file)),
-        (Method::Get, ["api", "stand", name]) if named(name) => store.stand(name).map_or_else(|| text(404, "no stand"), |s| text(200, s)),
+        (Method::Get, ["api", "names"]) => text(
+            200,
+            store
+                .names()
+                .iter()
+                .map(|(n, saved)| format!("{n}\t{}\n", *saved as u8))
+                .collect::<String>(),
+        ),
+        (Method::Get, ["api", "file", name, file]) if named(name) && sprite_file(file) => {
+            bytes(store.read(name, file))
+        }
+        (Method::Get, ["api", "stand", name]) if named(name) => store
+            .stand(name)
+            .map_or_else(|| text(404, "no stand"), |s| text(200, s)),
         (Method::Put, ["api", "stand", name]) if named(name) => {
             // Written back from its parsed form, so nothing else reaches the catalog.
-            let how = std::str::from_utf8(body).ok().map(str::trim).and_then(|h| if h == "carve" || last_harvest_game::turned_depth(h).is_some() { Some(h.to_string()) } else { sprite::parse_stand(h).map(sprite::stand_text) });
+            let how = std::str::from_utf8(body).ok().map(str::trim).and_then(|h| {
+                if h == "carve" || last_harvest_game::turned_depth(h).is_some() {
+                    Some(h.to_string())
+                } else {
+                    sprite::parse_stand(h).map(sprite::stand_text)
+                }
+            });
             match how {
-                Some(how) => store.save_stand(name, &how).map_or_else(|e| text(500, e), |()| text(200, "saved")),
-                None => text(400, "a stand is prop N, slab N, figure, ground, carve or turned"),
+                Some(how) => store
+                    .save_stand(name, &how)
+                    .map_or_else(|e| text(500, e), |()| text(200, "saved")),
+                None => text(
+                    400,
+                    "a stand is prop N, slab N, figure, ground, carve or turned",
+                ),
             }
         }
         (Method::Put, ["api", "sprite", name]) if named(name) => {
-            let Some(files) = unbundle(body).filter(|f| f.iter().all(|(n, _)| sprite_file(n) && n != "stand.txt")) else { return text(400, "bad bundle") };
+            let Some(files) = unbundle(body)
+                .filter(|f| f.iter().all(|(n, _)| sprite_file(n) && n != "stand.txt"))
+            else {
+                return text(400, "bad bundle");
+            };
             match Sprite::from_files(name, &files) {
-                Some(s) if s.frames.len() == files.iter().filter(|(n, _)| n.as_bytes()[0].is_ascii_digit()).count() => store.save(&s).map_or_else(|e| text(500, e), |()| text(200, "saved")),
+                Some(s)
+                    if s.frames.len()
+                        == files
+                            .iter()
+                            .filter(|(n, _)| n.as_bytes()[0].is_ascii_digit())
+                            .count() =>
+                {
+                    store
+                        .save(&s)
+                        .map_or_else(|e| text(500, e), |()| text(200, "saved"))
+                }
                 _ => text(400, "frames must run 0.png, 1.png and on, and decode"),
             }
         }
         (Method::Get, ["api", "history", name]) if named(name) => match store.history(name) {
-            Some((commits, changed)) => text(200, std::iter::once((changed as u8).to_string()).chain(commits.iter().map(|c| c.line())).collect::<Vec<_>>().join("\n")),
+            Some((commits, changed)) => text(
+                200,
+                std::iter::once((changed as u8).to_string())
+                    .chain(commits.iter().map(|c| c.line()))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            ),
             None => text(404, "not a git repository"),
         },
-        (Method::Get, ["api", "version", id, name, file]) if valid_id(id) && named(name) && sprite_file(file) => bytes(store.version(id, name, file)),
-        (Method::Get, ["api", "sounds"]) => text(200, store.sound_groups().iter().map(|g| format!("{g}\n")).collect::<String>()),
-        (Method::Get, ["api", "farms"]) => text(200, store.farm_ids().iter().map(|id| format!("{id}\n")).collect::<String>()),
+        (Method::Get, ["api", "version", id, name, file])
+            if valid_id(id) && named(name) && sprite_file(file) =>
+        {
+            bytes(store.version(id, name, file))
+        }
+        (Method::Get, ["api", "sounds"]) => text(
+            200,
+            store
+                .sound_groups()
+                .iter()
+                .map(|g| format!("{g}\n"))
+                .collect::<String>(),
+        ),
+        (Method::Get, ["api", "farms"]) => text(
+            200,
+            store
+                .farm_ids()
+                .iter()
+                .map(|id| format!("{id}\n"))
+                .collect::<String>(),
+        ),
         (Method::Get, ["api", "table", "farms", name]) => {
             let file = format!("{}{name}", last_harvest_game::FARM_DIR);
-            store.read_table(&file).map_or_else(|| text(404, "no such farm"), |t| text(200, t))
+            store
+                .read_table(&file)
+                .map_or_else(|| text(404, "no such farm"), |t| text(200, t))
         }
         (Method::Put, ["api", "table", "farms", name]) => match std::str::from_utf8(body) {
-            Ok(t) => store.save_table(&format!("{}{name}", last_harvest_game::FARM_DIR), t).map_or_else(|e| text(400, e), |()| text(200, "saved")),
+            Ok(t) => store
+                .save_table(&format!("{}{name}", last_harvest_game::FARM_DIR), t)
+                .map_or_else(|e| text(400, e), |()| text(200, "saved")),
             Err(_) => text(400, "not text"),
         },
-        (Method::Delete, ["api", "table", "farms", name]) => store.delete_table(&format!("{}{name}", last_harvest_game::FARM_DIR)).map_or_else(|e| text(400, e), |()| text(200, "deleted")),
-        (Method::Get, ["api", "table", file]) if last_harvest_game::TABLES.contains(file) => store.read_table(file).map_or_else(|| text(404, "no such table"), |t| text(200, t)),
-        (Method::Put, ["api", "table", file]) if last_harvest_game::TABLES.contains(file) => match std::str::from_utf8(body) {
-            // Checked as the game reads it, so a save never breaks the build.
-            Ok(t) => store.save_table(file, t).map_or_else(|e| text(400, e), |()| text(200, "saved")),
-            Err(_) => text(400, "not text"),
-        },
+        (Method::Delete, ["api", "table", "farms", name]) => store
+            .delete_table(&format!("{}{name}", last_harvest_game::FARM_DIR))
+            .map_or_else(|e| text(400, e), |()| text(200, "deleted")),
+        (Method::Get, ["api", "table", file]) if last_harvest_game::TABLES.contains(file) => store
+            .read_table(file)
+            .map_or_else(|| text(404, "no such table"), |t| text(200, t)),
+        (Method::Put, ["api", "table", file]) if last_harvest_game::TABLES.contains(file) => {
+            match std::str::from_utf8(body) {
+                // Checked as the game reads it, so a save never breaks the build.
+                Ok(t) => store
+                    .save_table(file, t)
+                    .map_or_else(|e| text(400, e), |()| text(200, "saved")),
+                Err(_) => text(400, "not text"),
+            }
+        }
         // lospec.com sends no CORS header, so the page asks this server to fetch a palette for it.
-        (Method::Get, ["api", "lospec", name]) => store.lospec(name).map_or_else(|e| text(502, e), |t| text(200, t)),
-        (Method::Get, ["api", "maps"]) => text(200, store.map_ids().iter().map(|id| format!("{id}\n")).collect::<String>()),
-        (Method::Get, ["api", "map", id]) if last_harvest_game::valid_map_id(id) => store.read_map(id).map_or_else(|| text(404, "no such map"), |t| text(200, t)),
-        (Method::Put, ["api", "map", id]) if last_harvest_game::valid_map_id(id) => match std::str::from_utf8(body).map_err(|_| "not text".to_string()).and_then(last_harvest_game::MapSource::parse) {
-            // Written back from its parsed form, so only map syntax reaches the folder.
-            Ok(src) => store.save_map(id, &src.to_text()).map_or_else(|e| text(500, e), |()| text(200, "saved")),
-            Err(e) => text(400, e),
-        },
+        (Method::Get, ["api", "lospec", name]) => store
+            .lospec(name)
+            .map_or_else(|e| text(502, e), |t| text(200, t)),
+        (Method::Get, ["api", "maps"]) => text(
+            200,
+            store
+                .map_ids()
+                .iter()
+                .map(|id| format!("{id}\n"))
+                .collect::<String>(),
+        ),
+        (Method::Get, ["api", "map", id]) if last_harvest_game::valid_map_id(id) => store
+            .read_map(id)
+            .map_or_else(|| text(404, "no such map"), |t| text(200, t)),
+        (Method::Put, ["api", "map", id]) if last_harvest_game::valid_map_id(id) => {
+            match std::str::from_utf8(body)
+                .map_err(|_| "not text".to_string())
+                .and_then(last_harvest_game::MapSource::parse)
+            {
+                // Written back from its parsed form, so only map syntax reaches the folder.
+                Ok(src) => store
+                    .save_map(id, &src.to_text())
+                    .map_or_else(|e| text(500, e), |()| text(200, "saved")),
+                Err(e) => text(400, e),
+            }
+        }
         (_, ["api", ..]) => text(404, "no such call"),
         (Method::Get, ["play", file]) => match web.parent().map(|t| t.join("web-game")) {
             Some(game) => serve(&game, file, "build the web game with scripts/web-game.sh"),
             None => text(404, "not found"),
         },
-        (Method::Get, [file]) => serve(web, file, "build the web editor with scripts/web-editor.sh"),
+        (Method::Get, [file]) => {
+            serve(web, file, "build the web editor with scripts/web-editor.sh")
+        }
         _ => text(404, "not found"),
     }
 }
@@ -119,7 +237,11 @@ fn local(addr: IpAddr) -> bool {
         IpAddr::V4(a) => a.is_loopback() || a.is_private() || a.is_link_local(),
         IpAddr::V6(a) => match a.to_ipv4_mapped() {
             Some(v4) => local(IpAddr::V4(v4)),
-            None => a.is_loopback() || (a.segments()[0] & 0xfe00) == 0xfc00 || (a.segments()[0] & 0xffc0) == 0xfe80,
+            None => {
+                a.is_loopback()
+                    || (a.segments()[0] & 0xfe00) == 0xfc00
+                    || (a.segments()[0] & 0xffc0) == 0xfe80
+            }
         },
     }
 }
@@ -127,19 +249,29 @@ fn local(addr: IpAddr) -> bool {
 /// A Host header naming this machine by address or as localhost, with or without a port: any other name could be a
 /// domain rebound to a local address.
 fn host_allowed(host: &str) -> bool {
-    let port_ok = |p: &str| p.is_empty() || p.strip_prefix(':').is_some_and(|p| p.parse::<u16>().is_ok());
+    let port_ok = |p: &str| {
+        p.is_empty()
+            || p.strip_prefix(':')
+                .is_some_and(|p| p.parse::<u16>().is_ok())
+    };
     if let Some(rest) = host.strip_prefix('[') {
-        return rest.split_once(']').is_some_and(|(ip, port)| ip.parse::<std::net::Ipv6Addr>().is_ok() && port_ok(port));
+        return rest
+            .split_once(']')
+            .is_some_and(|(ip, port)| ip.parse::<std::net::Ipv6Addr>().is_ok() && port_ok(port));
     }
     let (name, port) = host.find(':').map_or((host, ""), |at| host.split_at(at));
-    port_ok(port) && (name.eq_ignore_ascii_case("localhost") || name.parse::<std::net::Ipv4Addr>().is_ok())
+    port_ok(port)
+        && (name.eq_ignore_ascii_case("localhost") || name.parse::<std::net::Ipv4Addr>().is_ok())
 }
 
 /// Why a request is turned away before it's read: a foreign Host, or a write sent from another origin's page.
 fn refused(method: &Method, host: Option<&str>, origin: Option<&str>) -> Option<Reply> {
-    let Some(host) = host.filter(|h| host_allowed(h)) else { return Some(text(403, "open this by its address or localhost")) };
+    let Some(host) = host.filter(|h| host_allowed(h)) else {
+        return Some(text(403, "open this by its address or localhost"));
+    };
     let foreign = origin.is_some_and(|o| o != format!("http://{host}"));
-    (!matches!(method, Method::Get | Method::Head) && foreign).then(|| text(403, "writes come from this server's own page"))
+    (!matches!(method, Method::Get | Method::Head) && foreign)
+        .then(|| text(403, "writes come from this server's own page"))
 }
 
 /// The whole body, or None when it runs past `max` bytes.
@@ -158,16 +290,29 @@ fn lan_ip() -> Option<IpAddr> {
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let port = std::env::var("SPRITE_SERVER_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(PORT);
-    let web = args.first().map(PathBuf::from).unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/web-editor"));
+    let port = std::env::var("SPRITE_SERVER_PORT")
+        .ok()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(PORT);
+    let web = args
+        .first()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/web-editor"));
     let store = FsStore::default();
-    let server = Server::http(SocketAddr::from(([0, 0, 0, 0], port))).unwrap_or_else(|e| panic!("port {port}: {e}"));
-    eprintln!("sprites: {}\nweb build: {}", store.dir.display(), web.display());
+    let server = Server::http(SocketAddr::from(([0, 0, 0, 0], port)))
+        .unwrap_or_else(|e| panic!("port {port}: {e}"));
+    eprintln!(
+        "sprites: {}\nweb build: {}",
+        store.dir.display(),
+        web.display()
+    );
     if !web.join("index.html").exists() {
         eprintln!("no web build there yet: run scripts/web-editor.sh");
     }
     match lan_ip() {
-        Some(ip) if local(ip) => eprintln!("open http://{ip}:{port}/ on the iPad, or http://localhost:{port}/ here"),
+        Some(ip) if local(ip) => {
+            eprintln!("open http://{ip}:{port}/ on the iPad, or http://localhost:{port}/ here")
+        }
         _ => eprintln!("open http://localhost:{port}/; no local network address found"),
     }
     for mut req in server.incoming_requests() {
@@ -175,9 +320,18 @@ fn main() {
             let _ = req.respond(Response::from_string("local network only").with_status_code(403));
             continue;
         }
-        let header = |name: &'static str| req.headers().iter().find(|h| h.field.equiv(name)).map(|h| h.value.as_str().to_string());
+        let header = |name: &'static str| {
+            req.headers()
+                .iter()
+                .find(|h| h.field.equiv(name))
+                .map(|h| h.value.as_str().to_string())
+        };
         let (method, url) = (req.method().clone(), req.url().to_string());
-        let (status, kind, out) = if let Some(no) = refused(&method, header("Host").as_deref(), header("Origin").as_deref()) {
+        let (status, kind, out) = if let Some(no) = refused(
+            &method,
+            header("Host").as_deref(),
+            header("Origin").as_deref(),
+        ) {
             no
         } else {
             match read_body(req.as_reader(), MAX_BODY) {
@@ -208,32 +362,122 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(root.join("art.txt"), "BARREL  cell 14 7\n").unwrap();
-        FsStore { dir: root.join("sprites"), catalog: root.join("art.txt"), cards: root.join("enemies") }
+        FsStore {
+            dir: root.join("sprites"),
+            catalog: root.join("art.txt"),
+            cards: root.join("enemies"),
+        }
     }
 
     #[test]
     fn saves_and_reads_back_a_sprite_the_way_the_editor_does() {
         let s = store("save");
         let web = Path::new("/nonexistent");
-        let mut sprite = Sprite { detail: 1, alpha: Vec::new(), worn: Vec::new(), name: "BARREL".into(), frames: vec![Frame::blank(4, 3); 3], views: None, footprint: None, roof: None, north: None, west: None, top: Some(Frame::blank(4, 1)), card: None, clear_in_3d: Vec::new(), paint: Default::default() };
+        let mut sprite = Sprite {
+            detail: 1,
+            alpha: Vec::new(),
+            worn: Vec::new(),
+            name: "BARREL".into(),
+            frames: vec![Frame::blank(4, 3); 3],
+            views: None,
+            footprint: None,
+            roof: None,
+            north: None,
+            west: None,
+            top: Some(Frame::blank(4, 1)),
+            card: None,
+            clear_in_3d: Vec::new(),
+            paint: Default::default(),
+        };
         sprite.frames[2].set(1, 1, [9, 8, 7, 255]);
-        assert_eq!(handle(&s, web, &Method::Put, "/api/sprite/BARREL", &bundle(&sprite.files())).0, 200);
+        assert_eq!(
+            handle(
+                &s,
+                web,
+                &Method::Put,
+                "/api/sprite/BARREL",
+                &bundle(&sprite.files())
+            )
+            .0,
+            200
+        );
         sprite.frames.truncate(2);
-        assert_eq!(handle(&s, web, &Method::Put, "/api/sprite/BARREL", &bundle(&sprite.files())).0, 200);
-        assert!(s.dir.join("BARREL/1.png").exists() && !s.dir.join("BARREL/2.png").exists(), "a shorter save drops leftovers");
+        assert_eq!(
+            handle(
+                &s,
+                web,
+                &Method::Put,
+                "/api/sprite/BARREL",
+                &bundle(&sprite.files())
+            )
+            .0,
+            200
+        );
+        assert!(
+            s.dir.join("BARREL/1.png").exists() && !s.dir.join("BARREL/2.png").exists(),
+            "a shorter save drops leftovers"
+        );
         let (status, _, png) = handle(&s, web, &Method::Get, "/api/file/BARREL/1.png", &[]);
-        assert_eq!((status, png), (200, std::fs::read(s.dir.join("BARREL/1.png")).unwrap()));
-        assert_eq!(handle(&s, web, &Method::Get, "/api/file/BARREL/top.png", &[]).0, 200, "the top strip comes back too");
+        assert_eq!(
+            (status, png),
+            (200, std::fs::read(s.dir.join("BARREL/1.png")).unwrap())
+        );
+        assert_eq!(
+            handle(&s, web, &Method::Get, "/api/file/BARREL/top.png", &[]).0,
+            200,
+            "the top strip comes back too"
+        );
         sprite.worn = vec![last_harvest_game::worn::Worn::At([2, 1])];
-        assert_eq!(handle(&s, web, &Method::Put, "/api/sprite/BARREL", &bundle(&sprite.files())).0, 200);
-        assert_eq!(handle(&s, web, &Method::Get, "/api/file/BARREL/grenade.txt", &[]).2, b"2 1\n", "where a figure wears its grenade comes back too");
+        assert_eq!(
+            handle(
+                &s,
+                web,
+                &Method::Put,
+                "/api/sprite/BARREL",
+                &bundle(&sprite.files())
+            )
+            .0,
+            200
+        );
+        assert_eq!(
+            handle(&s, web, &Method::Get, "/api/file/BARREL/grenade.txt", &[]).2,
+            b"2 1\n",
+            "where a figure wears its grenade comes back too"
+        );
         sprite.alpha = vec![1.0, 0.6];
-        assert_eq!(handle(&s, web, &Method::Put, "/api/sprite/BARREL", &bundle(&sprite.files())).0, 200);
-        assert_eq!(handle(&s, web, &Method::Get, "/api/file/BARREL/alpha.txt", &[]).2, b"1 0.6\n", "how opaque its frames draw comes back too");
-        assert_eq!(handle(&s, web, &Method::Put, "/api/stand/BARREL", b"slab 7").0, 200);
-        assert_eq!(std::fs::read_to_string(&s.catalog).unwrap(), "BARREL  cell 14 7  @slab 7\n");
-        assert_eq!(handle(&s, web, &Method::Get, "/api/stand/BARREL", &[]).2, b"slab 7");
-        assert!(String::from_utf8(handle(&s, web, &Method::Get, "/api/names", &[]).2).unwrap().contains("BARREL\t1\n"));
+        assert_eq!(
+            handle(
+                &s,
+                web,
+                &Method::Put,
+                "/api/sprite/BARREL",
+                &bundle(&sprite.files())
+            )
+            .0,
+            200
+        );
+        assert_eq!(
+            handle(&s, web, &Method::Get, "/api/file/BARREL/alpha.txt", &[]).2,
+            b"1 0.6\n",
+            "how opaque its frames draw comes back too"
+        );
+        assert_eq!(
+            handle(&s, web, &Method::Put, "/api/stand/BARREL", b"slab 7").0,
+            200
+        );
+        assert_eq!(
+            std::fs::read_to_string(&s.catalog).unwrap(),
+            "BARREL  cell 14 7  @slab 7\n"
+        );
+        assert_eq!(
+            handle(&s, web, &Method::Get, "/api/stand/BARREL", &[]).2,
+            b"slab 7"
+        );
+        assert!(
+            String::from_utf8(handle(&s, web, &Method::Get, "/api/names", &[]).2)
+                .unwrap()
+                .contains("BARREL\t1\n")
+        );
         std::fs::remove_dir_all(s.dir.parent().unwrap()).unwrap();
     }
 
@@ -241,19 +485,87 @@ mod tests {
     fn saves_and_reads_back_a_card_part_the_way_the_web_editor_does() {
         let s = store("card");
         let web = Path::new("/nonexistent");
-        let mut part = Sprite { detail: 1, alpha: Vec::new(), worn: Vec::new(), name: "CARD_GHOUL_HURT".into(), frames: vec![Frame::blank(16, 16); 3], views: None, footprint: None, roof: None, north: None, west: None, top: None, card: Some("[ghoul]\nhp 40\n".into()), clear_in_3d: Vec::new(), paint: Default::default() };
+        let mut part = Sprite {
+            detail: 1,
+            alpha: Vec::new(),
+            worn: Vec::new(),
+            name: "CARD_GHOUL_HURT".into(),
+            frames: vec![Frame::blank(16, 16); 3],
+            views: None,
+            footprint: None,
+            roof: None,
+            north: None,
+            west: None,
+            top: None,
+            card: Some("[ghoul]\nhp 40\n".into()),
+            clear_in_3d: Vec::new(),
+            paint: Default::default(),
+        };
         part.frames[2].set(7, 7, [1, 2, 3, 255]);
-        assert_eq!(handle(&s, web, &Method::Put, "/api/sprite/CARD_GHOUL_HURT", &bundle(&part.files())).0, 200);
+        assert_eq!(
+            handle(
+                &s,
+                web,
+                &Method::Put,
+                "/api/sprite/CARD_GHOUL_HURT",
+                &bundle(&part.files())
+            )
+            .0,
+            200
+        );
         assert!(s.cards.join("ghoul.enemy.png").exists());
-        assert_eq!(handle(&s, web, &Method::Get, "/api/file/CARD_GHOUL_SIDE/enemy.txt", &[]).2, b"[ghoul]\nhp 40\n");
-        let back = Sprite::load_from("CARD_GHOUL_HURT", |file| Some(handle(&s, web, &Method::Get, &format!("/api/file/CARD_GHOUL_HURT/{file}"), &[])).filter(|r| r.0 == 200).map(|r| r.2)).unwrap();
-        assert_eq!((back.frames.len(), back.frames[2].get(7, 7)), (3, Some([1, 2, 3, 255])));
+        assert_eq!(
+            handle(
+                &s,
+                web,
+                &Method::Get,
+                "/api/file/CARD_GHOUL_SIDE/enemy.txt",
+                &[]
+            )
+            .2,
+            b"[ghoul]\nhp 40\n"
+        );
+        let back = Sprite::load_from("CARD_GHOUL_HURT", |file| {
+            Some(handle(
+                &s,
+                web,
+                &Method::Get,
+                &format!("/api/file/CARD_GHOUL_HURT/{file}"),
+                &[],
+            ))
+            .filter(|r| r.0 == 200)
+            .map(|r| r.2)
+        })
+        .unwrap();
+        assert_eq!(
+            (back.frames.len(), back.frames[2].get(7, 7)),
+            (3, Some([1, 2, 3, 255]))
+        );
         let names = String::from_utf8(handle(&s, web, &Method::Get, "/api/names", &[]).2).unwrap();
-        assert!(["FRONT", "SIDE", "BACK", "FLASH", "HURT"].iter().all(|p| names.contains(&format!("CARD_GHOUL_{p}\t1\n"))));
+        assert!(
+            ["FRONT", "SIDE", "BACK", "FLASH", "HURT"]
+                .iter()
+                .all(|p| names.contains(&format!("CARD_GHOUL_{p}\t1\n")))
+        );
         let before = std::fs::read(s.cards.join("ghoul.enemy.png")).unwrap();
         part.frames.pop();
-        assert_eq!(handle(&s, web, &Method::Put, "/api/sprite/CARD_GHOUL_HURT", &bundle(&part.files())).0, 500, "a part keeps its frames");
-        assert_eq!(std::fs::read(s.cards.join("ghoul.enemy.png")).unwrap(), before, "and a refused save leaves the card as it was");
+        assert_eq!(
+            handle(
+                &s,
+                web,
+                &Method::Put,
+                "/api/sprite/CARD_GHOUL_HURT",
+                &bundle(&part.files())
+            )
+            .0,
+            500,
+            "a part keeps its frames"
+        );
+        assert_eq!(
+            std::fs::read(s.cards.join("ghoul.enemy.png")).unwrap(),
+            before,
+            "and a refused save leaves the card as it was"
+        );
         std::fs::remove_dir_all(s.dir.parent().unwrap()).unwrap();
     }
 
@@ -262,9 +574,20 @@ mod tests {
         let s = store("undecodable");
         let web = Path::new("/nonexistent");
         let good = sprite::encode_png(&Frame::blank(4, 3));
-        for files in [vec![("0.png", b"junk".to_vec())], vec![("0.png", good.clone()), ("1.png", b"junk".to_vec())], vec![("0.png", good.clone()), ("south.png", b"junk".to_vec())], vec![("0.png", good.clone()), ("2.png", good.clone())]] {
-            let files: Vec<(String, Vec<u8>)> = files.into_iter().map(|(n, b)| (n.to_string(), b)).collect();
-            assert_eq!(handle(&s, web, &Method::Put, "/api/sprite/BARREL", &bundle(&files)).0, 400, "{:?}", files.iter().map(|f| &f.0).collect::<Vec<_>>());
+        for files in [
+            vec![("0.png", b"junk".to_vec())],
+            vec![("0.png", good.clone()), ("1.png", b"junk".to_vec())],
+            vec![("0.png", good.clone()), ("south.png", b"junk".to_vec())],
+            vec![("0.png", good.clone()), ("2.png", good.clone())],
+        ] {
+            let files: Vec<(String, Vec<u8>)> =
+                files.into_iter().map(|(n, b)| (n.to_string(), b)).collect();
+            assert_eq!(
+                handle(&s, web, &Method::Put, "/api/sprite/BARREL", &bundle(&files)).0,
+                400,
+                "{:?}",
+                files.iter().map(|f| &f.0).collect::<Vec<_>>()
+            );
         }
         assert!(!s.dir.exists(), "nothing is written");
         std::fs::remove_dir_all(s.dir.parent().unwrap()).unwrap();
@@ -272,26 +595,70 @@ mod tests {
 
     #[test]
     fn only_its_own_address_or_localhost_reaches_it_and_only_its_own_page_writes() {
-        for host in ["localhost", "localhost:8080", "LOCALHOST:1", "127.0.0.1", "192.168.1.5:8080", "[::1]", "[fe80::1]:8080"] {
+        for host in [
+            "localhost",
+            "localhost:8080",
+            "LOCALHOST:1",
+            "127.0.0.1",
+            "192.168.1.5:8080",
+            "[::1]",
+            "[fe80::1]:8080",
+        ] {
             assert!(host_allowed(host), "{host}");
         }
-        for host in ["", "attacker.example", "attacker.example:8080", "localhost.attacker.example", "192.168.1.5:http", "192.168.1.5:99999", "[::1", "[evil]:80", "1.2.3.4.5"] {
+        for host in [
+            "",
+            "attacker.example",
+            "attacker.example:8080",
+            "localhost.attacker.example",
+            "192.168.1.5:http",
+            "192.168.1.5:99999",
+            "[::1",
+            "[evil]:80",
+            "1.2.3.4.5",
+        ] {
             assert!(!host_allowed(host), "{host}");
         }
         let own = Some("http://192.168.1.5:8080");
-        assert!(refused(&Method::Get, None, None).is_some(), "no Host, no answer");
+        assert!(
+            refused(&Method::Get, None, None).is_some(),
+            "no Host, no answer"
+        );
         assert!(refused(&Method::Get, Some("evil.example:8080"), None).is_some_and(|r| r.0 == 403));
-        assert!(refused(&Method::Get, Some("192.168.1.5:8080"), Some("http://evil.example")).is_none(), "anyone's page may read");
+        assert!(
+            refused(
+                &Method::Get,
+                Some("192.168.1.5:8080"),
+                Some("http://evil.example")
+            )
+            .is_none(),
+            "anyone's page may read"
+        );
         assert!(refused(&Method::Put, Some("192.168.1.5:8080"), own).is_none());
-        assert!(refused(&Method::Put, Some("192.168.1.5:8080"), None).is_none(), "curl sends no Origin");
-        for origin in ["http://evil.example", "null", "http://192.168.1.5:9090", "https://192.168.1.5:8080"] {
-            assert!(refused(&Method::Put, Some("192.168.1.5:8080"), Some(origin)).is_some_and(|r| r.0 == 403), "{origin}");
+        assert!(
+            refused(&Method::Put, Some("192.168.1.5:8080"), None).is_none(),
+            "curl sends no Origin"
+        );
+        for origin in [
+            "http://evil.example",
+            "null",
+            "http://192.168.1.5:9090",
+            "https://192.168.1.5:8080",
+        ] {
+            assert!(
+                refused(&Method::Put, Some("192.168.1.5:8080"), Some(origin))
+                    .is_some_and(|r| r.0 == 403),
+                "{origin}"
+            );
         }
     }
 
     #[test]
     fn a_body_past_the_limit_is_refused_whole() {
-        assert_eq!(read_body(&b"12345"[..], 5).unwrap(), Some(b"12345".to_vec()));
+        assert_eq!(
+            read_body(&b"12345"[..], 5).unwrap(),
+            Some(b"12345".to_vec())
+        );
         assert_eq!(read_body(&b"123456"[..], 5).unwrap(), None);
     }
 
@@ -301,15 +668,62 @@ mod tests {
         let web = Path::new("/nonexistent");
         let root = s.dir.parent().unwrap().to_path_buf();
         let tuning = last_harvest_game::built_in_table("tuning.txt").unwrap();
-        assert_eq!(handle(&s, web, &Method::Put, "/api/table/tuning.txt", b"[player]\nhp lots\n").0, 400);
-        assert_eq!(handle(&s, web, &Method::Put, "/api/table/tuning.txt", &[0xff, 0xfe]).0, 400);
-        assert!(!root.join("tuning.txt").exists(), "a refused table writes nothing");
-        for url in ["/api/table/art.txt", "/api/table/..%2Fart.txt", "/api/table/notes.txt"] {
-            assert_eq!(handle(&s, web, &Method::Put, url, tuning.as_bytes()).0, 404, "{url}");
+        assert_eq!(
+            handle(
+                &s,
+                web,
+                &Method::Put,
+                "/api/table/tuning.txt",
+                b"[player]\nhp lots\n"
+            )
+            .0,
+            400
+        );
+        assert_eq!(
+            handle(
+                &s,
+                web,
+                &Method::Put,
+                "/api/table/tuning.txt",
+                &[0xff, 0xfe]
+            )
+            .0,
+            400
+        );
+        assert!(
+            !root.join("tuning.txt").exists(),
+            "a refused table writes nothing"
+        );
+        for url in [
+            "/api/table/art.txt",
+            "/api/table/..%2Fart.txt",
+            "/api/table/notes.txt",
+        ] {
+            assert_eq!(
+                handle(&s, web, &Method::Put, url, tuning.as_bytes()).0,
+                404,
+                "{url}"
+            );
         }
-        assert_eq!(std::fs::read_to_string(&s.catalog).unwrap(), "BARREL  cell 14 7\n");
-        assert_eq!(handle(&s, web, &Method::Put, "/api/table/tuning.txt", tuning.as_bytes()).0, 200);
-        assert_eq!(std::fs::read_to_string(root.join("tuning.txt")).unwrap(), tuning);
+        assert_eq!(
+            std::fs::read_to_string(&s.catalog).unwrap(),
+            "BARREL  cell 14 7\n"
+        );
+        assert_eq!(
+            handle(
+                &s,
+                web,
+                &Method::Put,
+                "/api/table/tuning.txt",
+                tuning.as_bytes()
+            )
+            .0,
+            200
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join("tuning.txt")).unwrap(),
+            tuning
+        );
         std::fs::remove_dir_all(&root).unwrap();
     }
 
@@ -317,16 +731,45 @@ mod tests {
     fn refuses_what_could_reach_outside_a_sprite_folder() {
         let s = store("refuse");
         let web = Path::new("/nonexistent");
-        for url in ["/api/file/../art.txt", "/api/file/BARREL/..", "/api/file/barrel/0.png", "/api/version/HEAD/BARREL/0.png", "/api/file/BARREL/x.txt"] {
+        for url in [
+            "/api/file/../art.txt",
+            "/api/file/BARREL/..",
+            "/api/file/barrel/0.png",
+            "/api/version/HEAD/BARREL/0.png",
+            "/api/file/BARREL/x.txt",
+        ] {
             assert_eq!(handle(&s, web, &Method::Get, url, &[]).0, 404, "{url}");
         }
         let bad = bundle(&[("../0.png".into(), vec![])]);
-        assert_eq!(handle(&s, web, &Method::Put, "/api/sprite/BARREL", &bad).0, 400);
-        assert_eq!(handle(&s, web, &Method::Put, "/api/stand/BARREL", b"prop\n@slab 3").0, 400);
-        assert_eq!(handle(&s, web, &Method::Put, "/api/stand/BARREL", b"prop 3 4\nSNEAKY").0, 200);
-        assert_eq!(std::fs::read_to_string(&s.catalog).unwrap(), "BARREL  cell 14 7  @prop 3\n");
+        assert_eq!(
+            handle(&s, web, &Method::Put, "/api/sprite/BARREL", &bad).0,
+            400
+        );
+        assert_eq!(
+            handle(&s, web, &Method::Put, "/api/stand/BARREL", b"prop\n@slab 3").0,
+            400
+        );
+        assert_eq!(
+            handle(
+                &s,
+                web,
+                &Method::Put,
+                "/api/stand/BARREL",
+                b"prop 3 4\nSNEAKY"
+            )
+            .0,
+            200
+        );
+        assert_eq!(
+            std::fs::read_to_string(&s.catalog).unwrap(),
+            "BARREL  cell 14 7  @prop 3\n"
+        );
         assert!(!s.dir.exists());
-        assert!(!local("8.8.8.8".parse().unwrap()) && local("192.168.1.5".parse().unwrap()) && local("::1".parse().unwrap()));
+        assert!(
+            !local("8.8.8.8".parse().unwrap())
+                && local("192.168.1.5".parse().unwrap())
+                && local("::1".parse().unwrap())
+        );
         std::fs::remove_dir_all(s.dir.parent().unwrap()).unwrap();
     }
 
@@ -340,10 +783,23 @@ mod tests {
         std::fs::write(game.join("index.html"), "game").unwrap();
         std::fs::write(game.join("game_data.pak"), "pak").unwrap();
         let (status, kind, body) = handle(&s, &web, &Method::Get, "/play/?range", &[]);
-        assert_eq!((status, kind, body), (200, "text/html; charset=utf-8", b"game".to_vec()));
-        assert_eq!(handle(&s, &web, &Method::Get, "/play/game_data.pak", &[]).0, 200);
-        assert_eq!(handle(&s, &web, &Method::Get, "/play/..%2Fart.txt", &[]).0, 404);
-        assert_eq!(handle(&s, &web, &Method::Get, "/index.html", &[]).0, 404, "the editor isn't built here");
+        assert_eq!(
+            (status, kind, body),
+            (200, "text/html; charset=utf-8", b"game".to_vec())
+        );
+        assert_eq!(
+            handle(&s, &web, &Method::Get, "/play/game_data.pak", &[]).0,
+            200
+        );
+        assert_eq!(
+            handle(&s, &web, &Method::Get, "/play/..%2Fart.txt", &[]).0,
+            404
+        );
+        assert_eq!(
+            handle(&s, &web, &Method::Get, "/index.html", &[]).0,
+            404,
+            "the editor isn't built here"
+        );
         std::fs::remove_dir_all(&root).unwrap();
     }
 }

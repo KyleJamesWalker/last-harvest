@@ -124,11 +124,51 @@ fn print_of(data: &Data) -> u64 {
     fn text(t: &Option<String>) -> &[u8] {
         t.as_deref().unwrap_or("").as_bytes()
     }
-    let built = [built_in::POWERUPS, built_in::ENEMIES, built_in::PROPS, built_in::TUNING, built_in::EFFECTS, built_in::GROUND, built_in::FARM];
-    let tables = [&data.powerups, &data.enemies, &data.props_table, &data.tuning, &data.effects, &data.ground, &data.farm].map(text).into_iter().zip(built).map(|(own, b)| if own.is_empty() { b.unwrap_or("").as_bytes() } else { own });
-    let cards = data.cards.iter().chain(&data.players).chain(&data.props).flat_map(|c| [c.name.as_bytes(), c.text.as_bytes(), &c.sheet]);
-    let farms = data.farms.iter().flat_map(|f| [f.id.as_bytes(), f.farm.as_deref().unwrap_or("").as_bytes(), f.ground.as_deref().unwrap_or("").as_bytes()]);
-    let maps = data.maps.iter().flat_map(|m| [m.file.as_bytes(), m.text.as_bytes()]);
+    let built = [
+        built_in::POWERUPS,
+        built_in::ENEMIES,
+        built_in::PROPS,
+        built_in::TUNING,
+        built_in::EFFECTS,
+        built_in::GROUND,
+        built_in::FARM,
+    ];
+    let tables = [
+        &data.powerups,
+        &data.enemies,
+        &data.props_table,
+        &data.tuning,
+        &data.effects,
+        &data.ground,
+        &data.farm,
+    ]
+    .map(text)
+    .into_iter()
+    .zip(built)
+    .map(|(own, b)| {
+        if own.is_empty() {
+            b.unwrap_or("").as_bytes()
+        } else {
+            own
+        }
+    });
+    let cards = data
+        .cards
+        .iter()
+        .chain(&data.players)
+        .chain(&data.props)
+        .flat_map(|c| [c.name.as_bytes(), c.text.as_bytes(), &c.sheet]);
+    let farms = data.farms.iter().flat_map(|f| {
+        [
+            f.id.as_bytes(),
+            f.farm.as_deref().unwrap_or("").as_bytes(),
+            f.ground.as_deref().unwrap_or("").as_bytes(),
+        ]
+    });
+    let maps = data
+        .maps
+        .iter()
+        .flat_map(|m| [m.file.as_bytes(), m.text.as_bytes()]);
     crate::replay::fingerprint(tables.chain(cards).chain(farms).chain(maps))
 }
 
@@ -146,7 +186,10 @@ static LATER: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
 /// Adds a problem found after the report was made.
 pub fn note(problem: String) {
-    LATER.lock().unwrap_or_else(|e| e.into_inner()).push(problem);
+    LATER
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .push(problem);
 }
 
 #[cfg(test)]
@@ -169,7 +212,9 @@ mod built_in {
     pub const ATLAS: Option<&[u8]> = Some(include_bytes!(concat!(env!("OUT_DIR"), "/art.rgba")));
     #[cfg(not(feature = "embed"))]
     pub const ATLAS: Option<&[u8]> = None;
-    pub const FONT: Option<&[u8]> = Some(include_bytes!("../../../assets/fonts/AtkinsonHyperlegible-Regular.ttf"));
+    pub const FONT: Option<&[u8]> = Some(include_bytes!(
+        "../../../assets/fonts/AtkinsonHyperlegible-Regular.ttf"
+    ));
     pub const POWERUPS: Option<&str> = Some(include_str!("../powerups.txt"));
     pub const ENEMIES: Option<&str> = Some(include_str!("../enemies.txt"));
     pub const PROPS: Option<&str> = Some(include_str!("../props.txt"));
@@ -185,7 +230,10 @@ pub fn install(mut data: Data) -> Result<Vec<String>, String> {
     if let Some(atlas) = &data.atlas
         && atlas.len() != (ATLAS_W * ATLAS_H * 4) as usize
     {
-        return Err(format!("the atlas is {} bytes, not {ATLAS_W}x{ATLAS_H} RGBA", atlas.len()));
+        return Err(format!(
+            "the atlas is {} bytes, not {ATLAS_W}x{ATLAS_H} RGBA",
+            atlas.len()
+        ));
     }
     if DATA.get().is_some() {
         return Err("the game data was already read".into());
@@ -198,27 +246,52 @@ pub fn install(mut data: Data) -> Result<Vec<String>, String> {
     if !cards.is_empty() || !players.is_empty() || !props.is_empty() {
         match data.atlas.take().or(built_in::ATLAS.map(<[u8]>::to_vec)) {
             Some(mut atlas) => {
-                let base = data.enemies.as_deref().or(built_in::ENEMIES).unwrap_or_else(|| missing("enemies.txt"));
+                let base = data
+                    .enemies
+                    .as_deref()
+                    .or(built_in::ENEMIES)
+                    .unwrap_or_else(|| missing("enemies.txt"));
                 notes = crate::harvest::install_cards(&cards, &players, &props, base, &mut atlas);
                 data.atlas = Some(atlas);
             }
-            None => notes = cards.iter().chain(&players).chain(&props).map(|c| format!("{}: no sprite atlas to draw it into", c.name)).collect(),
+            None => {
+                notes = cards
+                    .iter()
+                    .chain(&players)
+                    .chain(&props)
+                    .map(|c| format!("{}: no sprite atlas to draw it into", c.name))
+                    .collect()
+            }
         }
     }
     let files = std::mem::take(&mut data.maps);
     let farms = std::mem::take(&mut data.farms);
-    let owners = crate::harvest::powerup_owners(data.powerups.as_deref().or(built_in::POWERUPS).unwrap_or_default());
+    let owners = crate::harvest::powerup_owners(
+        data.powerups
+            .as_deref()
+            .or(built_in::POWERUPS)
+            .unwrap_or_default(),
+    );
     // Maps are checked against the data being installed, its ground and props, so that comes first.
-    DATA.set(data).map_err(|_| "the game data was already read".to_string())?;
+    DATA.set(data)
+        .map_err(|_| "the game data was already read".to_string())?;
     notes.extend(crate::harvest::install_farms(&farms));
     let known = crate::harvest::farm_ids();
     for look in crate::harvest::player_looks() {
         if let Some(f) = look.farm.as_ref().filter(|f| !known.contains(f)) {
-            notes.push(format!("player {}: no farm called {f}, so it plays on the game's", look.id));
+            notes.push(format!(
+                "player {}: no farm called {f}, so it plays on the game's",
+                look.id
+            ));
         }
     }
-    for (powerup, player) in owners.iter().filter(|(_, p)| !crate::harvest::player_looks().iter().any(|l| l.id == *p)) {
-        notes.push(format!("powerups.txt [{powerup}]: no player card is [{player}], so no one is offered it"));
+    for (powerup, player) in owners
+        .iter()
+        .filter(|(_, p)| !crate::harvest::player_looks().iter().any(|l| l.id == *p))
+    {
+        notes.push(format!(
+            "powerups.txt [{powerup}]: no player card is [{player}], so no one is offered it"
+        ));
     }
     let mut maps: Vec<LoadedMap> = Vec::new();
     for file in files {
@@ -244,11 +317,19 @@ fn missing(what: &str) -> ! {
 
 /// The sprite texture, `ATLAS_W` by `ATLAS_H` RGBA.
 pub fn atlas() -> &'static [u8] {
-    data().atlas.as_deref().or(built_in::ATLAS).unwrap_or_else(|| missing("sprite atlas"))
+    data()
+        .atlas
+        .as_deref()
+        .or(built_in::ATLAS)
+        .unwrap_or_else(|| missing("sprite atlas"))
 }
 
 pub fn font() -> &'static [u8] {
-    data().font.as_deref().or(built_in::FONT).unwrap_or_else(|| missing("font"))
+    data()
+        .font
+        .as_deref()
+        .or(built_in::FONT)
+        .unwrap_or_else(|| missing("font"))
 }
 
 /// The font built into the game, for when a pack's won't do.
@@ -262,27 +343,47 @@ pub fn maps() -> &'static [LoadedMap] {
 }
 
 pub fn powerups() -> &'static str {
-    data().powerups.as_deref().or(built_in::POWERUPS).unwrap_or_else(|| missing("powerups.txt"))
+    data()
+        .powerups
+        .as_deref()
+        .or(built_in::POWERUPS)
+        .unwrap_or_else(|| missing("powerups.txt"))
 }
 
 /// The game's own props, as `props.txt` lists them.
 pub fn props() -> &'static str {
-    data().props_table.as_deref().or(built_in::PROPS).unwrap_or_else(|| missing("props.txt"))
+    data()
+        .props_table
+        .as_deref()
+        .or(built_in::PROPS)
+        .unwrap_or_else(|| missing("props.txt"))
 }
 
 /// How the random farm lays itself out, as `farm.txt` says.
 pub fn farm() -> &'static str {
-    data().farm.as_deref().or(built_in::FARM).unwrap_or_else(|| missing("farm.txt"))
+    data()
+        .farm
+        .as_deref()
+        .or(built_in::FARM)
+        .unwrap_or_else(|| missing("farm.txt"))
 }
 
 /// The ground a map paints, as `ground.txt` says.
 pub fn ground() -> &'static str {
-    data().ground.as_deref().or(built_in::GROUND).unwrap_or_else(|| missing("ground.txt"))
+    data()
+        .ground
+        .as_deref()
+        .or(built_in::GROUND)
+        .unwrap_or_else(|| missing("ground.txt"))
 }
 
 /// What each effect, swing and animal plays, as `effects.txt` says.
 pub fn effects() -> &'static str {
-    data().effects.as_deref().or(built_in::EFFECTS).unwrap_or_else(|| missing("effects.txt"))
+    data()
+        .effects
+        .as_deref()
+        .or(built_in::EFFECTS)
+        .unwrap_or_else(|| missing("effects.txt"))
 }
 
 /// A pack's `tuning.txt`, if it has one; the game's own numbers are built in.
@@ -291,7 +392,11 @@ pub fn tuning() -> Option<&'static str> {
 }
 
 pub fn enemies() -> &'static str {
-    data().enemies.as_deref().or(built_in::ENEMIES).unwrap_or_else(|| missing("enemies.txt"))
+    data()
+        .enemies
+        .as_deref()
+        .or(built_in::ENEMIES)
+        .unwrap_or_else(|| missing("enemies.txt"))
 }
 
 #[cfg(test)]
@@ -301,13 +406,30 @@ mod tests {
     #[test]
     fn a_pack_of_the_games_own_tables_prints_as_the_built_in_data() {
         let own = |t: Option<&str>| t.map(String::from);
-        let pack = Data { powerups: own(built_in::POWERUPS), enemies: own(built_in::ENEMIES), props_table: own(built_in::PROPS), tuning: own(built_in::TUNING), effects: own(built_in::EFFECTS), ground: own(built_in::GROUND), farm: own(built_in::FARM), ..Default::default() };
-        assert_eq!(print_of(&pack), print_of(&Data::default()), "a native dev build and the web build of one commit agree");
+        let pack = Data {
+            powerups: own(built_in::POWERUPS),
+            enemies: own(built_in::ENEMIES),
+            props_table: own(built_in::PROPS),
+            tuning: own(built_in::TUNING),
+            effects: own(built_in::EFFECTS),
+            ground: own(built_in::GROUND),
+            farm: own(built_in::FARM),
+            ..Default::default()
+        };
+        assert_eq!(
+            print_of(&pack),
+            print_of(&Data::default()),
+            "a native dev build and the web build of one commit agree"
+        );
     }
 
     #[test]
     fn versions_name_the_pack_only_when_it_differs() {
-        let report = |pack: Option<&str>| LoadReport { version: "v0.2.0".into(), pack_version: pack.map(String::from), ..Default::default() };
+        let report = |pack: Option<&str>| LoadReport {
+            version: "v0.2.0".into(),
+            pack_version: pack.map(String::from),
+            ..Default::default()
+        };
         assert_eq!(report(Some("v0.2.0")).versions(), "v0.2.0");
         assert_eq!(report(None).versions(), "v0.2.0");
         assert_eq!(report(Some("v0.1.0")).versions(), "v0.2.0, data v0.1.0");

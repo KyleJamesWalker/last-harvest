@@ -3,10 +3,10 @@
 #[cfg(not(target_arch = "wasm32"))]
 use std::path::{Path, PathBuf};
 
-use last_harvest_game::{Stand, alpha};
 use last_harvest_game::art::{self, ATLAS_W, Art};
 use last_harvest_game::paint::{self, Paint};
 use last_harvest_game::worn::{self, Worn};
+use last_harvest_game::{Stand, alpha};
 
 pub type Rgba = [u8; 4];
 pub const CLEAR: Rgba = [0, 0, 0, 0];
@@ -20,7 +20,11 @@ pub struct Frame {
 
 impl Frame {
     pub fn blank(w: usize, h: usize) -> Self {
-        Self { w, h, px: vec![CLEAR; w * h] }
+        Self {
+            w,
+            h,
+            px: vec![CLEAR; w * h],
+        }
     }
 
     pub fn from_art(a: Art) -> Self {
@@ -36,7 +40,8 @@ impl Frame {
     }
 
     pub fn get(&self, x: i32, y: i32) -> Option<Rgba> {
-        self.inside(x, y).then(|| self.px[y as usize * self.w + x as usize])
+        self.inside(x, y)
+            .then(|| self.px[y as usize * self.w + x as usize])
     }
 
     pub fn set(&mut self, x: i32, y: i32, c: Rgba) {
@@ -68,12 +73,25 @@ impl Frame {
     pub fn in_coat(&self, paint: &Paint, k: usize) -> Self {
         let mut bytes = self.px.concat();
         paint.repaint(k, &mut bytes);
-        Self { px: bytes.chunks_exact(4).map(|p| [p[0], p[1], p[2], p[3]]).collect(), ..self.clone() }
+        Self {
+            px: bytes
+                .chunks_exact(4)
+                .map(|p| [p[0], p[1], p[2], p[3]])
+                .collect(),
+            ..self.clone()
+        }
     }
 
     /// Left to right reversed, as a view from the opposite side sees it.
     pub fn mirrored(&self) -> Self {
-        Self { px: self.px.chunks(self.w).flat_map(|row| row.iter().rev().copied()).collect(), ..self.clone() }
+        Self {
+            px: self
+                .px
+                .chunks(self.w)
+                .flat_map(|row| row.iter().rev().copied())
+                .collect(),
+            ..self.clone()
+        }
     }
 
     /// The frame drawn at detail `to` instead of `from`: each pixel copied into a block going up, and each block read as
@@ -82,16 +100,39 @@ impl Frame {
         let (from, to) = (from.max(1) as usize, to.max(1) as usize);
         if to >= from {
             let k = to / from;
-            let px = (0..self.h * k).flat_map(|y| (0..self.w * k).map(move |x| (x / k, y / k))).map(|(x, y)| self.px[y * self.w + x]).collect();
-            return Self { w: self.w * k, h: self.h * k, px };
+            let px = (0..self.h * k)
+                .flat_map(|y| (0..self.w * k).map(move |x| (x / k, y / k)))
+                .map(|(x, y)| self.px[y * self.w + x])
+                .collect();
+            return Self {
+                w: self.w * k,
+                h: self.h * k,
+                px,
+            };
         }
         let k = from / to;
         let (w, h) = (self.w.div_ceil(k), self.h.div_ceil(k));
         let block = |bx: usize, by: usize| {
-            let opaque: Vec<Rgba> = (0..k * k).map(|i| (bx * k + i % k, by * k + i / k)).filter(|&(x, y)| x < self.w && y < self.h).map(|(x, y)| self.px[y * self.w + x]).filter(|p| p[3] > 0).collect();
-            opaque.iter().max_by_key(|p| opaque.iter().filter(|q| q == p).count()).copied().unwrap_or(CLEAR)
+            let opaque: Vec<Rgba> = (0..k * k)
+                .map(|i| (bx * k + i % k, by * k + i / k))
+                .filter(|&(x, y)| x < self.w && y < self.h)
+                .map(|(x, y)| self.px[y * self.w + x])
+                .filter(|p| p[3] > 0)
+                .collect();
+            opaque
+                .iter()
+                .max_by_key(|p| opaque.iter().filter(|q| q == p).count())
+                .copied()
+                .unwrap_or(CLEAR)
         };
-        Self { w, h, px: (0..h).flat_map(|y| (0..w).map(move |x| (x, y))).map(|(x, y)| block(x, y)).collect() }
+        Self {
+            w,
+            h,
+            px: (0..h)
+                .flat_map(|y| (0..w).map(move |x| (x, y)))
+                .map(|(x, y)| block(x, y))
+                .collect(),
+        }
     }
 
     /// The `d`-pixel blocks, by column and row, that are only partly filled: the game draws their pixels as painted,
@@ -102,8 +143,12 @@ impl Frame {
         (0..bh)
             .flat_map(|by| (0..bw).map(move |bx| (bx, by)))
             .filter(|&(bx, by)| {
-                let px = (0..d * d).map(|i| (bx * d + i % d, by * d + i / d)).filter(|&(x, y)| x < self.w && y < self.h);
-                let (filled, all) = px.fold((0, 0), |(f, a), (x, y)| (f + (self.px[y * self.w + x][3] > 0) as usize, a + 1));
+                let px = (0..d * d)
+                    .map(|i| (bx * d + i % d, by * d + i / d))
+                    .filter(|&(x, y)| x < self.w && y < self.h);
+                let (filled, all) = px.fold((0, 0), |(f, a), (x, y)| {
+                    (f + (self.px[y * self.w + x][3] > 0) as usize, a + 1)
+                });
                 filled > 0 && filled < all
             })
             .collect()
@@ -178,10 +223,12 @@ pub const PLAYER_SECTION: &str = "Player cards";
 pub fn redetailed_worn(worn: &[Worn], from: u8, to: u8) -> Vec<Worn> {
     let (from, to) = (from.max(1) as u32, to.max(1) as u32);
     let at = |v: u8| ((v as u32 * to + (to / from).saturating_sub(1) / 2) / from).min(255) as u8;
-    worn.iter().map(|w| match *w {
-        Worn::At([x, y]) => Worn::At([at(x), at(y)]),
-        Worn::Hidden => Worn::Hidden,
-    }).collect()
+    worn.iter()
+        .map(|w| match *w {
+            Worn::At([x, y]) => Worn::At([at(x), at(y)]),
+            Worn::Hidden => Worn::Hidden,
+        })
+        .collect()
 }
 
 pub const CARD_PARTS: [&str; 6] = ["FRONT", "SIDE", "BACK", "FLASH", "HURT", "DEAD"];
@@ -226,7 +273,9 @@ pub fn card_wanted(name: &str) -> Option<(CardKind, String)> {
     if let (Some(kind), Some(id)) = (card_kind(name), card_id(name)) {
         return Some((kind, id));
     }
-    split_kind(name).filter(|(_, id)| !id.is_empty()).map(|(kind, id)| (kind, id.to_ascii_lowercase()))
+    split_kind(name)
+        .filter(|(_, id)| !id.is_empty())
+        .map(|(kind, id)| (kind, id.to_ascii_lowercase()))
 }
 
 /// The part names an enemy card id lists under, when the id is one a sprite name can carry.
@@ -237,7 +286,12 @@ pub fn card_names(id: &str) -> Option<[String; 6]> {
 /// The part names a card of `kind` lists under, when the id is one a sprite name can carry.
 pub fn card_names_of(kind: CardKind, id: &str) -> Option<[String; 6]> {
     let names = CARD_PARTS.map(|p| format!("{}{}_{p}", prefix(kind), id.to_ascii_uppercase()));
-    (!id.is_empty() && id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_') && names.iter().all(|n| valid_name(n))).then_some(names)
+    (!id.is_empty()
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+        && names.iter().all(|n| valid_name(n)))
+    .then_some(names)
 }
 
 /// A new card's 18 frames: a plain 16x16 figure to paint over, walking front, side and back with its legs taking
@@ -250,7 +304,9 @@ pub fn card_template() -> Vec<Frame> {
     const EYE: Rgba = [40, 40, 48, 255];
     let figure = |facing: usize, step: usize| {
         let mut f = Frame::blank(16, 16);
-        let mut fill = |x0: i32, y0: i32, x1: i32, y1: i32, c: Rgba| (y0..=y1).for_each(|y| (x0..=x1).for_each(|x| f.set(x, y, c)));
+        let mut fill = |x0: i32, y0: i32, x1: i32, y1: i32, c: Rgba| {
+            (y0..=y1).for_each(|y| (x0..=x1).for_each(|x| f.set(x, y, c)))
+        };
         let side = facing == 1;
         let (hx0, hx1) = if side { (6, 10) } else { (5, 10) };
         fill(hx0 - 1, 0, hx1 + 1, 6, OUTLINE);
@@ -258,7 +314,11 @@ pub fn card_template() -> Vec<Frame> {
         let (bx0, bx1) = if side { (5, 10) } else { (3, 12) };
         fill(bx0 - 1, 6, bx1 + 1, 11, OUTLINE);
         fill(bx0, 7, bx1, 10, BODY);
-        let legs = if side { [(6, 7), (8, 9)] } else { [(5, 7), (8, 10)] };
+        let legs = if side {
+            [(6, 7), (8, 9)]
+        } else {
+            [(5, 7), (8, 10)]
+        };
         for (i, (l0, l1)) in legs.into_iter().enumerate() {
             let bottom = if step == i + 1 { 14 } else { 15 };
             fill(l0 - 1, 11, l1 + 1, bottom, OUTLINE);
@@ -278,7 +338,11 @@ pub fn card_template() -> Vec<Frame> {
 /// What frame `i` of a card's part in `row` shows.
 pub fn card_frame_name(row: usize, i: usize) -> String {
     let facing = ["Facing front", "Facing side", "Facing back"];
-    if row < 3 { format!("Walking, step {}", i + 1) } else { facing.get(i).unwrap_or(&"").to_string() }
+    if row < 3 {
+        format!("Walking, step {}", i + 1)
+    } else {
+        facing.get(i).unwrap_or(&"").to_string()
+    }
 }
 
 /// A top strip as the 3D view colors a figure's top without one: each column's first solid pixel, or the one
@@ -287,10 +351,20 @@ pub fn top_strip(f: &Frame) -> Frame {
     let mut strip = Frame::blank(f.w, 1);
     let dark = |p: Rgba| p[0] as u32 + p[1] as u32 + p[2] as u32 <= 40;
     for x in 0..f.w as i32 {
-        let Some(y) = (0..f.h as i32).find(|&y| f.get(x, y).is_some_and(|p| p[3] > 0)) else { continue };
+        let Some(y) = (0..f.h as i32).find(|&y| f.get(x, y).is_some_and(|p| p[3] > 0)) else {
+            continue;
+        };
         let below = f.get(x, y + 1).filter(|p| p[3] > 0 && !dark(*p));
         let edge = f.get(x, y).unwrap_or(CLEAR);
-        strip.set(x, 0, if dark(edge) { below.unwrap_or(edge) } else { edge });
+        strip.set(
+            x,
+            0,
+            if dark(edge) {
+                below.unwrap_or(edge)
+            } else {
+                edge
+            },
+        );
     }
     strip
 }
@@ -338,7 +412,11 @@ pub fn block_views(top: &Frame, height: usize) -> [Frame; 2] {
 #[cfg(not(target_arch = "wasm32"))]
 /// Where saved sprites live; the game's build packs them in place of, or beside, the tileset's.
 pub fn folder() -> PathBuf {
-    std::env::var_os("LAST_HARVEST_SPRITES").map(PathBuf::from).unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/private/sprites"))
+    std::env::var_os("LAST_HARVEST_SPRITES")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/private/sprites")
+        })
 }
 
 /// A name the build can turn into a constant: a capital letter, then capitals, digits and underscores.
@@ -372,17 +450,25 @@ pub fn section(name: &str) -> &'static str {
     }
     static SECTIONS: std::sync::OnceLock<Vec<(String, String)>> = std::sync::OnceLock::new();
     let sections = SECTIONS.get_or_init(|| sections_of(include_str!("../../game/art.txt")));
-    sections.iter().find(|(n, _)| n == name).map_or(NEW_SECTION, |(_, s)| s.as_str())
+    sections
+        .iter()
+        .find(|(n, _)| n == name)
+        .map_or(NEW_SECTION, |(_, s)| s.as_str())
 }
 
 /// The headings a section lists under, outermost first: `Data/tuning` is under `Data`, then `Data/tuning`.
 pub fn section_path(section: &'static str) -> impl Iterator<Item = &'static str> {
-    section.match_indices('/').map(move |(i, _)| &section[..i]).chain(std::iter::once(section))
+    section
+        .match_indices('/')
+        .map(move |(i, _)| &section[..i])
+        .chain(std::iter::once(section))
 }
 
 /// Whether `section` lists under the heading `path`.
 pub fn within(section: &str, path: &str) -> bool {
-    section.strip_prefix(path).is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+    section
+        .strip_prefix(path)
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
 }
 
 pub const NEW_SECTION: &str = "New sprites";
@@ -392,7 +478,10 @@ pub const DIFFICULTY_SECTION: &str = "Data/difficulty";
 /// Whether a `DATA_` name past its prefix, such as `TUNING_BRUTAL`, is one of `tuning.txt`'s difficulties.
 fn is_difficulty(rest: &str) -> bool {
     let section = rest.strip_prefix("TUNING_").unwrap_or("");
-    !section.is_empty() && !last_harvest_game::tuning::KEYS.iter().any(|(s, _)| s.eq_ignore_ascii_case(section))
+    !section.is_empty()
+        && !last_harvest_game::tuning::KEYS
+            .iter()
+            .any(|(s, _)| s.eq_ignore_ascii_case(section))
 }
 /// A hand-made map lists as `MAP_<ID>` under Maps.
 pub const MAP_PREFIX: &str = "MAP_";
@@ -405,13 +494,20 @@ pub const PROP_SECTION: &str = "Props";
 /// Each sprite's heading in catalog text: a comment opens a group when a blank line comes before it and a
 /// sprite right after it.
 fn sections_of(text: &str) -> Vec<(String, String)> {
-    let (mut out, mut heading, mut gap, mut pending) = (Vec::new(), String::new(), true, None::<String>);
+    let (mut out, mut heading, mut gap, mut pending) =
+        (Vec::new(), String::new(), true, None::<String>);
     for line in text.lines().map(str::trim) {
         if line.is_empty() {
             (gap, pending) = (true, None);
         } else if let Some(c) = line.strip_prefix('#') {
             if gap {
-                pending = Some(c.split([',', ':', ';']).next().unwrap_or("").trim().to_string());
+                pending = Some(
+                    c.split([',', ':', ';'])
+                        .next()
+                        .unwrap_or("")
+                        .trim()
+                        .to_string(),
+                );
             }
             gap = false;
         } else {
@@ -441,14 +537,20 @@ pub fn parse_hex(text: &str) -> Option<Rgba> {
 }
 
 pub fn valid_name(n: &str) -> bool {
-    n.starts_with(|c: char| c.is_ascii_uppercase()) && n.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+    n.starts_with(|c: char| c.is_ascii_uppercase())
+        && n.chars()
+            .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 /// Every sprite to choose from: the packed catalog, then new ones saved on disk, with whether each has a saved copy.
 pub fn catalog(dir: &Path) -> Vec<(String, bool)> {
     let saved = |n: &str| dir.join(n).join("0.png").exists();
-    let mut names: Vec<(String, bool)> = art::ALL.iter().filter(|(n, _)| *n != "SCRATCH").map(|(n, _)| (n.to_string(), saved(n))).collect();
+    let mut names: Vec<(String, bool)> = art::ALL
+        .iter()
+        .filter(|(n, _)| *n != "SCRATCH")
+        .map(|(n, _)| (n.to_string(), saved(n)))
+        .collect();
     let mut extra: Vec<String> = std::fs::read_dir(dir)
         .into_iter()
         .flatten()
@@ -472,7 +574,9 @@ impl Sprite {
     /// file is there but doesn't decode.
     pub fn load_from(name: &str, read: impl Fn(&str) -> Option<Vec<u8>>) -> Option<Self> {
         let broken = std::cell::Cell::new(false);
-        let png = |file: &str| read(file).and_then(|bytes| decode_png(&bytes).inspect_err(|_| broken.set(true)).ok());
+        let png = |file: &str| {
+            read(file).and_then(|bytes| decode_png(&bytes).inspect_err(|_| broken.set(true)).ok())
+        };
         let mut frames = Vec::new();
         while let Some(f) = png(&format!("{}.png", frames.len())) {
             frames.push(f);
@@ -485,43 +589,117 @@ impl Sprite {
             frames = arts.iter().map(|&a| Frame::from_art(a)).collect();
         }
         // A sprite the catalog turns shows the east view it packs until one is saved.
-        let packed_east = || match art::ALL.iter().find(|(n, _)| *n == name)?.1.first()?.stand()? {
+        let packed_east = || match art::ALL
+            .iter()
+            .find(|(n, _)| *n == name)?
+            .1
+            .first()?
+            .stand()?
+        {
             Stand::Turned { east, .. } => Some(Frame::from_art(east)),
             _ => None,
         };
-        let views = png(VIEW_FILES[0]).zip(png(VIEW_FILES[1])).map(|(s, e)| [s, e]).or_else(|| {
-            let east = packed_east()?;
-            Some([block_views(&frames[0], east.h)[0].clone(), east])
-        });
+        let views = png(VIEW_FILES[0])
+            .zip(png(VIEW_FILES[1]))
+            .map(|(s, e)| [s, e])
+            .or_else(|| {
+                let east = packed_east()?;
+                Some([block_views(&frames[0], east.h)[0].clone(), east])
+            });
         let card = read(CARD_FILE).and_then(|b| String::from_utf8(b).ok());
-        let clear = read(CLEAR_FILE).and_then(|b| String::from_utf8(b).ok()).unwrap_or_default();
+        let clear = read(CLEAR_FILE)
+            .and_then(|b| String::from_utf8(b).ok())
+            .unwrap_or_default();
         let clear_in_3d = clear.lines().filter_map(parse_hex).collect();
-        let paint = read(paint::FILE).and_then(|b| paint::parse(&String::from_utf8(b).ok()?).ok()).unwrap_or_default();
-        let worn = read(WORN_FILE).and_then(|b| worn::parse(&String::from_utf8(b).ok()?).ok()).unwrap_or_default();
-        let detail = read(DETAIL_FILE).and_then(|b| String::from_utf8(b).ok()?.trim().parse().ok()).filter(|d| art::DETAILS.contains(d)).unwrap_or(1);
-        let alpha = read(ALPHA_FILE).and_then(|b| alpha::parse(&String::from_utf8(b).ok()?).ok()).unwrap_or_default();
-        let sprite = Self { name: name.to_string(), frames, views, footprint: png(FOOTPRINT_FILE), roof: png(ROOF_FILE), north: png(NORTH_FILE), west: png(WEST_FILE), top: png(TOP_FILE), card, clear_in_3d, paint, worn, detail, alpha };
+        let paint = read(paint::FILE)
+            .and_then(|b| paint::parse(&String::from_utf8(b).ok()?).ok())
+            .unwrap_or_default();
+        let worn = read(WORN_FILE)
+            .and_then(|b| worn::parse(&String::from_utf8(b).ok()?).ok())
+            .unwrap_or_default();
+        let detail = read(DETAIL_FILE)
+            .and_then(|b| String::from_utf8(b).ok()?.trim().parse().ok())
+            .filter(|d| art::DETAILS.contains(d))
+            .unwrap_or(1);
+        let alpha = read(ALPHA_FILE)
+            .and_then(|b| alpha::parse(&String::from_utf8(b).ok()?).ok())
+            .unwrap_or_default();
+        let sprite = Self {
+            name: name.to_string(),
+            frames,
+            views,
+            footprint: png(FOOTPRINT_FILE),
+            roof: png(ROOF_FILE),
+            north: png(NORTH_FILE),
+            west: png(WEST_FILE),
+            top: png(TOP_FILE),
+            card,
+            clear_in_3d,
+            paint,
+            worn,
+            detail,
+            alpha,
+        };
         (!broken.get()).then_some(sprite)
     }
 
     /// The files a save writes: the frames, then the views, footprint, roof, north and west views and top when it has
     /// them.
     pub fn files(&self) -> Vec<(String, Vec<u8>)> {
-        let frames = self.frames.iter().enumerate().map(|(i, f)| (format!("{i}.png"), f));
-        let views = self.views.iter().flat_map(|v| VIEW_FILES.iter().zip(v).map(|(n, f)| (n.to_string(), f)));
-        let optional = self.optional().into_iter().filter_map(|(n, f)| Some((n.to_string(), f.as_ref()?)));
-        let pngs = frames.chain(views).chain(optional).map(|(n, f)| (n, encode_png(f)));
-        let clear = self.clear_text().map(|t| (CLEAR_FILE.to_string(), t.into_bytes()));
-        let paint = Some(self.paint.text()).filter(|t| !t.is_empty()).map(|t| (paint::FILE.to_string(), t.into_bytes()));
-        let worn = self.worn_text().map(|t| (WORN_FILE.to_string(), t.into_bytes()));
-        let detail = self.detail_text().map(|t| (DETAIL_FILE.to_string(), t.into_bytes()));
-        let alpha = self.alpha_text().map(|t| (ALPHA_FILE.to_string(), t.into_bytes()));
-        pngs.chain(self.card.iter().map(|t| (CARD_FILE.to_string(), t.clone().into_bytes()))).chain(clear).chain(paint).chain(worn).chain(detail).chain(alpha).collect()
+        let frames = self
+            .frames
+            .iter()
+            .enumerate()
+            .map(|(i, f)| (format!("{i}.png"), f));
+        let views = self
+            .views
+            .iter()
+            .flat_map(|v| VIEW_FILES.iter().zip(v).map(|(n, f)| (n.to_string(), f)));
+        let optional = self
+            .optional()
+            .into_iter()
+            .filter_map(|(n, f)| Some((n.to_string(), f.as_ref()?)));
+        let pngs = frames
+            .chain(views)
+            .chain(optional)
+            .map(|(n, f)| (n, encode_png(f)));
+        let clear = self
+            .clear_text()
+            .map(|t| (CLEAR_FILE.to_string(), t.into_bytes()));
+        let paint = Some(self.paint.text())
+            .filter(|t| !t.is_empty())
+            .map(|t| (paint::FILE.to_string(), t.into_bytes()));
+        let worn = self
+            .worn_text()
+            .map(|t| (WORN_FILE.to_string(), t.into_bytes()));
+        let detail = self
+            .detail_text()
+            .map(|t| (DETAIL_FILE.to_string(), t.into_bytes()));
+        let alpha = self
+            .alpha_text()
+            .map(|t| (ALPHA_FILE.to_string(), t.into_bytes()));
+        pngs.chain(
+            self.card
+                .iter()
+                .map(|t| (CARD_FILE.to_string(), t.clone().into_bytes())),
+        )
+        .chain(clear)
+        .chain(paint)
+        .chain(worn)
+        .chain(detail)
+        .chain(alpha)
+        .collect()
     }
 
     /// The pictures a sprite may have or not, by the file each saves as.
     fn optional(&self) -> [(&'static str, &Option<Frame>); 5] {
-        [(FOOTPRINT_FILE, &self.footprint), (ROOF_FILE, &self.roof), (NORTH_FILE, &self.north), (WEST_FILE, &self.west), (TOP_FILE, &self.top)]
+        [
+            (FOOTPRINT_FILE, &self.footprint),
+            (ROOF_FILE, &self.roof),
+            (NORTH_FILE, &self.north),
+            (WEST_FILE, &self.west),
+            (TOP_FILE, &self.top),
+        ]
     }
 
     /// `detail.txt` as written, or None at detail 1.
@@ -541,13 +719,23 @@ impl Sprite {
 
     /// `clear.txt` as written, or None when no color is cleared in 3D.
     fn clear_text(&self) -> Option<String> {
-        (!self.clear_in_3d.is_empty()).then(|| self.clear_in_3d.iter().map(|&c| format!("{}\n", hex(c))).collect())
+        (!self.clear_in_3d.is_empty()).then(|| {
+            self.clear_in_3d
+                .iter()
+                .map(|&c| format!("{}\n", hex(c)))
+                .collect()
+        })
     }
 
     /// A sprite from the files `files` lists, which must hold at least one frame.
     pub fn from_files(name: &str, files: &[(String, Vec<u8>)]) -> Option<Self> {
         files.iter().any(|(n, _)| n == "0.png").then_some(())?;
-        Self::load_from(name, |file| files.iter().find(|(n, _)| n == file).map(|(_, b)| b.clone()))
+        Self::load_from(name, |file| {
+            files
+                .iter()
+                .find(|(n, _)| n == file)
+                .map(|(_, b)| b.clone())
+        })
     }
 
     /// Writes `0.png`, `1.png` and so on, removing frames left over from a longer save.
@@ -570,7 +758,13 @@ impl Sprite {
                 }
             }
         }
-        for (file, text) in [(CLEAR_FILE, self.clear_text().unwrap_or_default()), (paint::FILE, self.paint.text()), (WORN_FILE, self.worn_text().unwrap_or_default()), (DETAIL_FILE, self.detail_text().unwrap_or_default()), (ALPHA_FILE, self.alpha_text().unwrap_or_default())] {
+        for (file, text) in [
+            (CLEAR_FILE, self.clear_text().unwrap_or_default()),
+            (paint::FILE, self.paint.text()),
+            (WORN_FILE, self.worn_text().unwrap_or_default()),
+            (DETAIL_FILE, self.detail_text().unwrap_or_default()),
+            (ALPHA_FILE, self.alpha_text().unwrap_or_default()),
+        ] {
             if text.is_empty() {
                 let _ = std::fs::remove_file(path.join(file));
             } else {
@@ -592,7 +786,9 @@ impl Sprite {
 #[cfg(not(target_arch = "wasm32"))]
 /// The game's sprite catalog, where a packed sprite's stand is written.
 pub fn catalog_file() -> PathBuf {
-    std::env::var_os("LAST_HARVEST_CATALOG").map(PathBuf::from).unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("../game/art.txt"))
+    std::env::var_os("LAST_HARVEST_CATALOG")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("../game/art.txt"))
 }
 
 /// How a stand is written in the catalog and in `stand.txt`.
@@ -623,7 +819,10 @@ pub fn parse_stand(text: &str) -> Option<Stand> {
                 None if words.len() == 2 => 0.0,
                 _ => return None,
             };
-            Stand::Slab { height: size()?, lift }
+            Stand::Slab {
+                height: size()?,
+                lift,
+            }
         }
         "figure" => Stand::Figure {
             lift: match words.get(1..3) {
@@ -640,7 +839,10 @@ pub fn parse_stand(text: &str) -> Option<Stand> {
 /// The line for `name` in the catalog, as (index, the line).
 #[cfg(not(target_arch = "wasm32"))]
 fn catalog_line(text: &str, name: &str) -> Option<(usize, String)> {
-    text.lines().enumerate().find(|(_, l)| l.split_whitespace().next() == Some(name) && !l.starts_with('#')).map(|(i, l)| (i, l.to_string()))
+    text.lines()
+        .enumerate()
+        .find(|(_, l)| l.split_whitespace().next() == Some(name) && !l.starts_with('#'))
+        .map(|(i, l)| (i, l.to_string()))
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -660,14 +862,18 @@ pub fn read_stand(dir: &Path, catalog: &Path, name: &str) -> Option<String> {
 /// Writes how a sprite stands: on its catalog line when it has one, which git keeps, else in its folder.
 /// A carved sprite's stand always goes in its folder, beside the views it needs.
 pub fn save_stand(dir: &Path, catalog: &Path, name: &str, how: &str) -> Result<(), String> {
-    let text = std::fs::read_to_string(catalog).map_err(|e| format!("{}: {e}", catalog.display()))?;
+    let text =
+        std::fs::read_to_string(catalog).map_err(|e| format!("{}: {e}", catalog.display()))?;
     let line = catalog_line(&text, name).filter(|_| how != "carve");
     let Some((i, line)) = line else {
         let path = dir.join(name);
         std::fs::create_dir_all(&path).map_err(|e| e.to_string())?;
-        return std::fs::write(path.join("stand.txt"), format!("{how}\n")).map_err(|e| e.to_string());
+        return std::fs::write(path.join("stand.txt"), format!("{how}\n"))
+            .map_err(|e| e.to_string());
     };
-    let (code, comment) = line.split_once('#').map_or((line.as_str(), None), |(c, m)| (c, Some(m)));
+    let (code, comment) = line
+        .split_once('#')
+        .map_or((line.as_str(), None), |(c, m)| (c, Some(m)));
     let code = code.split('@').next().unwrap_or(code).trim_end();
     let new = match comment {
         Some(m) => format!("{code}  @{how}  #{m}"),
@@ -682,17 +888,34 @@ pub fn save_stand(dir: &Path, catalog: &Path, name: &str, how: &str) -> Result<(
 
 pub fn decode_png(bytes: &[u8]) -> Result<Frame, String> {
     let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes));
-    decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16 | png::Transformations::ALPHA);
+    decoder.set_transformations(
+        png::Transformations::EXPAND | png::Transformations::STRIP_16 | png::Transformations::ALPHA,
+    );
     let mut reader = decoder.read_info().map_err(|e| e.to_string())?;
-    let mut buf = vec![0; reader.output_buffer_size().ok_or("the image is too big to decode")?];
+    let mut buf = vec![
+        0;
+        reader
+            .output_buffer_size()
+            .ok_or("the image is too big to decode")?
+    ];
     let info = reader.next_frame(&mut buf).map_err(|e| e.to_string())?;
     let buf = &buf[..info.buffer_size()];
     let px = match info.color_type {
-        png::ColorType::Rgba => buf.chunks_exact(4).map(|p| [p[0], p[1], p[2], p[3]]).collect(),
-        png::ColorType::GrayscaleAlpha => buf.chunks_exact(2).map(|p| [p[0], p[0], p[0], p[1]]).collect(),
+        png::ColorType::Rgba => buf
+            .chunks_exact(4)
+            .map(|p| [p[0], p[1], p[2], p[3]])
+            .collect(),
+        png::ColorType::GrayscaleAlpha => buf
+            .chunks_exact(2)
+            .map(|p| [p[0], p[0], p[0], p[1]])
+            .collect(),
         other => return Err(format!("unsupported {other:?}")),
     };
-    Ok(Frame { w: info.width as usize, h: info.height as usize, px })
+    Ok(Frame {
+        w: info.width as usize,
+        h: info.height as usize,
+        px,
+    })
 }
 
 pub fn encode_png(f: &Frame) -> Vec<u8> {
@@ -701,7 +924,9 @@ pub fn encode_png(f: &Frame) -> Vec<u8> {
     enc.set_color(png::ColorType::Rgba);
     enc.set_depth(png::BitDepth::Eight);
     let data: Vec<u8> = f.px.iter().flatten().copied().collect();
-    enc.write_header().and_then(|mut w| w.write_image_data(&data)).expect("encoding into memory");
+    enc.write_header()
+        .and_then(|mut w| w.write_image_data(&data))
+        .expect("encoding into memory");
     out
 }
 
@@ -739,7 +964,10 @@ pub fn unbundle(mut body: &[u8]) -> Option<Vec<(String, Vec<u8>)>> {
 
 /// The colors the game's own art keeps to, from `palette.txt`, for the palette the editors start with.
 pub fn palette() -> Vec<Rgba> {
-    paint::palette().into_iter().map(|[r, g, b]| [r, g, b, 255]).collect()
+    paint::palette()
+        .into_iter()
+        .map(|[r, g, b]| [r, g, b, 255])
+        .collect()
 }
 
 /// The color of `palette` that looks closest to `c`, weighing red, green and blue as the eye does.
@@ -763,8 +991,15 @@ mod tests {
         for (x, y) in [(2, 0), (3, 0), (2, 1), (3, 1)] {
             f.set(x, y, [x as u8, y as u8, 9, 255]);
         }
-        assert_eq!(f.partial_blocks(2), [(0, 0)], "a full block of mixed colors is fine");
-        assert!(f.partial_blocks(1).is_empty(), "every pixel is its own block at detail 1");
+        assert_eq!(
+            f.partial_blocks(2),
+            [(0, 0)],
+            "a full block of mixed colors is fine"
+        );
+        assert!(
+            f.partial_blocks(1).is_empty(),
+            "every pixel is its own block at detail 1"
+        );
     }
 
     #[test]
@@ -773,29 +1008,50 @@ mod tests {
         f.set(0, 0, [1, 2, 3, 255]);
         f.set(2, 1, [9, 9, 9, 255]);
         let fine = f.redetailed(1, 4);
-        assert_eq!((fine.w, fine.h, fine.get(11, 7)), (12, 8, Some([9, 9, 9, 255])));
+        assert_eq!(
+            (fine.w, fine.h, fine.get(11, 7)),
+            (12, 8, Some([9, 9, 9, 255]))
+        );
         assert_eq!(fine.redetailed(4, 1), f);
         let mut block = Frame::blank(2, 2);
         for (x, y, c) in [(0, 0, 5), (1, 0, 7), (0, 1, 7)] {
             block.set(x, y, [c, c, c, 255]);
         }
         assert_eq!(block.redetailed(2, 1).px, [[7, 7, 7, 255]]);
-        assert_eq!(redetailed_worn(&[Worn::At([3, 10]), Worn::Hidden], 1, 2), [Worn::At([6, 20]), Worn::Hidden]);
-        assert_eq!(redetailed_worn(&[Worn::At([7, 21])], 2, 1), [Worn::At([3, 10])]);
+        assert_eq!(
+            redetailed_worn(&[Worn::At([3, 10]), Worn::Hidden], 1, 2),
+            [Worn::At([6, 20]), Worn::Hidden]
+        );
+        assert_eq!(
+            redetailed_worn(&[Worn::At([7, 21])], 2, 1),
+            [Worn::At([3, 10])]
+        );
     }
 
     /// Every color the game's own drawings and coats use that `palette.txt` doesn't list, with where.
     fn off_palette(dirs: &[PathBuf]) -> Vec<String> {
         let palette = paint::palette();
         let mut off = Vec::new();
-        let files = dirs.iter().flat_map(|d| std::fs::read_dir(d).into_iter().flatten().flatten().map(|e| e.path()));
+        let files = dirs.iter().flat_map(|d| {
+            std::fs::read_dir(d)
+                .into_iter()
+                .flatten()
+                .flatten()
+                .map(|e| e.path())
+        });
         for path in files {
             if path.is_dir() {
                 off.extend(off_palette(&[path]));
                 continue;
             }
             let colors: Vec<paint::Rgb> = match path.extension().and_then(|e| e.to_str()) {
-                Some("png") => decode_png(&std::fs::read(&path).unwrap()).unwrap().px.iter().filter(|p| p[3] > 0).map(|p| [p[0], p[1], p[2]]).collect(),
+                Some("png") => decode_png(&std::fs::read(&path).unwrap())
+                    .unwrap()
+                    .px
+                    .iter()
+                    .filter(|p| p[3] > 0)
+                    .map(|p| [p[0], p[1], p[2]])
+                    .collect(),
                 _ if path.file_name().is_some_and(|n| n == paint::FILE) => {
                     let p = paint::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
                     (0..p.coats.len()).flat_map(|k| p.shades(k)).collect()
@@ -806,7 +1062,11 @@ mod tests {
             for c in colors.into_iter().filter(|c| !palette.contains(c)) {
                 if !seen.contains(&c) {
                     seen.push(c);
-                    off.push(format!("{}: {}", path.display(), hex([c[0], c[1], c[2], 255])));
+                    off.push(format!(
+                        "{}: {}",
+                        path.display(),
+                        hex([c[0], c[1], c[2], 255])
+                    ));
                 }
             }
         }
@@ -819,23 +1079,51 @@ mod tests {
         // A clone without the private assets checks only the placeholders.
         dirs.extend(Some(folder()).filter(|f| f.is_dir()));
         let off = off_palette(&dirs);
-        assert!(off.is_empty(), "colors that crates/game/palette.txt doesn't list; add each there with what it's for, or redraw with the palette's:\n{}", off.join("\n"));
+        assert!(
+            off.is_empty(),
+            "colors that crates/game/palette.txt doesn't list; add each there with what it's for, or redraw with the palette's:\n{}",
+            off.join("\n")
+        );
     }
 
     #[test]
     fn the_gunshots_heading_lists_only_the_shot_sprites() {
         let sections = sections_of(include_str!("../../game/art.txt"));
-        let under = |h: &str| sections.iter().filter(|(_, s)| s == h).map(|(n, _)| n.as_str()).collect::<Vec<_>>();
-        assert_eq!(under("Gunshots"), ["SHOT_TRACER", "SHOT_PELLET", "SHOT_ROUND", "SHOT_SPARK", "SHOT_SMOKE", "SHOT_FLARE"]);
-        let touch: Vec<&str> = sections.iter().filter(|(n, _)| n.starts_with("TOUCH_")).map(|(_, h)| h.as_str()).collect();
-        assert!(!touch.is_empty() && touch.iter().all(|h| *h == touch[0] && *h != "Gunshots"), "{touch:?}");
+        let under = |h: &str| {
+            sections
+                .iter()
+                .filter(|(_, s)| s == h)
+                .map(|(n, _)| n.as_str())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            under("Gunshots"),
+            [
+                "SHOT_TRACER",
+                "SHOT_PELLET",
+                "SHOT_ROUND",
+                "SHOT_SPARK",
+                "SHOT_SMOKE",
+                "SHOT_FLARE"
+            ]
+        );
+        let touch: Vec<&str> = sections
+            .iter()
+            .filter(|(n, _)| n.starts_with("TOUCH_"))
+            .map(|(_, h)| h.as_str())
+            .collect();
+        assert!(
+            !touch.is_empty() && touch.iter().all(|h| *h == touch[0] && *h != "Gunshots"),
+            "{touch:?}"
+        );
     }
 
     #[test]
     fn headings_come_from_the_comment_that_opens_each_group() {
         let text = "# The file\n# says what it is\n\n# Ground\nDIRT cell 1 1\n# Indexed by connections: N=1\nPATH cell 2 2\n\n# Fences: top row,\n# then the posts\nRAIL cell 3 3\n";
         let got: Vec<(String, String)> = sections_of(text);
-        let want = [("DIRT", "Ground"), ("PATH", "Ground"), ("RAIL", "Fences")].map(|(a, b)| (a.to_string(), b.to_string()));
+        let want = [("DIRT", "Ground"), ("PATH", "Ground"), ("RAIL", "Fences")]
+            .map(|(a, b)| (a.to_string(), b.to_string()));
         assert_eq!(got, want);
         assert_eq!(section("PLAYER_FRONT"), "Characters");
         assert_eq!(section("ICON_AMMO_CRATE"), "Icons");
@@ -869,26 +1157,69 @@ mod tests {
     #[test]
     fn saves_and_loads_every_frame_and_drops_leftovers() {
         let dir = std::env::temp_dir().join(format!("lh-sprites-{}", std::process::id()));
-        let mut s = Sprite { detail: 1, alpha: Vec::new(), worn: Vec::new(), name: "TEST_THING".into(), frames: vec![Frame::blank(3, 2), Frame::blank(3, 2), Frame::blank(3, 2)], views: None, footprint: None, roof: None, north: None, west: None, top: None, card: None, clear_in_3d: Vec::new(), paint: Default::default() };
+        let mut s = Sprite {
+            detail: 1,
+            alpha: Vec::new(),
+            worn: Vec::new(),
+            name: "TEST_THING".into(),
+            frames: vec![Frame::blank(3, 2), Frame::blank(3, 2), Frame::blank(3, 2)],
+            views: None,
+            footprint: None,
+            roof: None,
+            north: None,
+            west: None,
+            top: None,
+            card: None,
+            clear_in_3d: Vec::new(),
+            paint: Default::default(),
+        };
         s.frames[1].set(2, 1, [200, 10, 10, 255]);
         s.save(&dir).unwrap();
         s.frames.truncate(2);
         s.save(&dir).unwrap();
         let back = Sprite::load(&dir, "TEST_THING").unwrap();
-        assert!(catalog(&dir).iter().any(|(n, saved)| n == "TEST_THING" && *saved));
+        assert!(
+            catalog(&dir)
+                .iter()
+                .any(|(n, saved)| n == "TEST_THING" && *saved)
+        );
         std::fs::remove_dir_all(&dir).unwrap();
         assert_eq!(back.frames, s.frames);
     }
 
     #[test]
     fn a_sprites_files_bundle_and_come_back_whole() {
-        let mut s = Sprite { detail: 1, alpha: Vec::new(), worn: Vec::new(), name: "THING".into(), frames: vec![Frame::blank(3, 2); 2], views: Some([Frame::blank(3, 4), Frame::blank(2, 4)]), footprint: None, roof: None, north: None, west: None, top: Some(Frame::blank(3, 1)), card: None, clear_in_3d: Vec::new(), paint: Default::default() };
+        let mut s = Sprite {
+            detail: 1,
+            alpha: Vec::new(),
+            worn: Vec::new(),
+            name: "THING".into(),
+            frames: vec![Frame::blank(3, 2); 2],
+            views: Some([Frame::blank(3, 4), Frame::blank(2, 4)]),
+            footprint: None,
+            roof: None,
+            north: None,
+            west: None,
+            top: Some(Frame::blank(3, 1)),
+            card: None,
+            clear_in_3d: Vec::new(),
+            paint: Default::default(),
+        };
         s.frames[1].set(1, 1, [1, 2, 3, 255]);
         let files = unbundle(&bundle(&s.files())).unwrap();
-        assert_eq!(files.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>(), ["0.png", "1.png", "south.png", "east.png", "top.png"]);
+        assert_eq!(
+            files.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>(),
+            ["0.png", "1.png", "south.png", "east.png", "top.png"]
+        );
         let back = Sprite::from_files("THING", &files).unwrap();
-        assert_eq!((back.frames, back.views, back.footprint, back.top), (s.frames, s.views, s.footprint, s.top));
-        assert!(Sprite::from_files("THING", &files[1..]).is_none(), "a frame at least");
+        assert_eq!(
+            (back.frames, back.views, back.footprint, back.top),
+            (s.frames, s.views, s.footprint, s.top)
+        );
+        assert!(
+            Sprite::from_files("THING", &files[1..]).is_none(),
+            "a frame at least"
+        );
         assert!(unbundle(b"0.png\n9\nshort").is_none());
     }
 
@@ -897,17 +1228,40 @@ mod tests {
         let mut enc = png::Encoder::new(&mut out, w, h);
         enc.set_color(color);
         enc.set_depth(depth);
-        enc.write_header().and_then(|mut w| w.write_image_data(data)).unwrap();
+        enc.write_header()
+            .and_then(|mut w| w.write_image_data(data))
+            .unwrap();
         out
     }
 
     #[test]
     fn grayscale_and_16_bit_pngs_decode_to_their_colors() {
-        let gray = png_of(2, 1, png::ColorType::Grayscale, png::BitDepth::Eight, &[10, 200]);
-        assert_eq!(decode_png(&gray).unwrap().px, [[10, 10, 10, 255], [200, 200, 200, 255]]);
-        let gray_alpha = png_of(1, 1, png::ColorType::GrayscaleAlpha, png::BitDepth::Eight, &[7, 0]);
+        let gray = png_of(
+            2,
+            1,
+            png::ColorType::Grayscale,
+            png::BitDepth::Eight,
+            &[10, 200],
+        );
+        assert_eq!(
+            decode_png(&gray).unwrap().px,
+            [[10, 10, 10, 255], [200, 200, 200, 255]]
+        );
+        let gray_alpha = png_of(
+            1,
+            1,
+            png::ColorType::GrayscaleAlpha,
+            png::BitDepth::Eight,
+            &[7, 0],
+        );
         assert_eq!(decode_png(&gray_alpha).unwrap().px, [[7, 7, 7, 0]]);
-        let deep = png_of(1, 1, png::ColorType::Rgba, png::BitDepth::Sixteen, &[0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xff, 0xff]);
+        let deep = png_of(
+            1,
+            1,
+            png::ColorType::Rgba,
+            png::BitDepth::Sixteen,
+            &[0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xff, 0xff],
+        );
         assert_eq!(decode_png(&deep).unwrap().px, [[0x12, 0x56, 0x9a, 0xff]]);
         let rgb = png_of(1, 1, png::ColorType::Rgb, png::BitDepth::Eight, &[1, 2, 3]);
         assert_eq!(decode_png(&rgb).unwrap().px, [[1, 2, 3, 255]]);
@@ -916,11 +1270,29 @@ mod tests {
     #[test]
     fn a_saved_picture_that_wont_decode_never_falls_back_to_the_packed_frames() {
         let good = encode_png(&Frame::blank(3, 2));
-        let files = |zero: &[u8], extra: Option<(&str, &[u8])>| -> Vec<(String, Vec<u8>)> { std::iter::once(("0.png".to_string(), zero.to_vec())).chain(extra.map(|(n, b)| (n.to_string(), b.to_vec()))).collect() };
-        assert!(Sprite::from_files("BARREL", &files(b"not a png", None)).is_none(), "a broken 0.png isn't swapped for the atlas");
-        assert!(Sprite::from_files("BARREL", &files(&good, Some(("1.png", b"junk")))).is_none(), "nor a broken later frame dropped");
-        assert!(Sprite::from_files("BARREL", &files(&good, Some(("south.png", b"junk")))).is_none(), "nor a broken view");
-        assert_eq!(Sprite::from_files("BARREL", &files(&good, None)).unwrap().frames, [Frame::blank(3, 2)]);
+        let files = |zero: &[u8], extra: Option<(&str, &[u8])>| -> Vec<(String, Vec<u8>)> {
+            std::iter::once(("0.png".to_string(), zero.to_vec()))
+                .chain(extra.map(|(n, b)| (n.to_string(), b.to_vec())))
+                .collect()
+        };
+        assert!(
+            Sprite::from_files("BARREL", &files(b"not a png", None)).is_none(),
+            "a broken 0.png isn't swapped for the atlas"
+        );
+        assert!(
+            Sprite::from_files("BARREL", &files(&good, Some(("1.png", b"junk")))).is_none(),
+            "nor a broken later frame dropped"
+        );
+        assert!(
+            Sprite::from_files("BARREL", &files(&good, Some(("south.png", b"junk")))).is_none(),
+            "nor a broken view"
+        );
+        assert_eq!(
+            Sprite::from_files("BARREL", &files(&good, None))
+                .unwrap()
+                .frames,
+            [Frame::blank(3, 2)]
+        );
     }
 
     #[test]
@@ -942,18 +1314,44 @@ mod tests {
         let tmp = std::env::temp_dir().join(format!("lh-stand-{}", std::process::id()));
         std::fs::create_dir_all(&tmp).unwrap();
         let catalog = tmp.join("art.txt");
-        std::fs::write(&catalog, "# a comment about CAR_V\nCAR_V  px 1 2 3 4\nCAR_H  px 5 6 7 8  @prop 4\n").unwrap();
+        std::fs::write(
+            &catalog,
+            "# a comment about CAR_V\nCAR_V  px 1 2 3 4\nCAR_H  px 5 6 7 8  @prop 4\n",
+        )
+        .unwrap();
         let dir = tmp.join("sprites");
-        save_stand(&dir, &catalog, "CAR_V", &stand_text(Stand::Slab { height: 12.0, lift: 0.0 })).unwrap();
+        save_stand(
+            &dir,
+            &catalog,
+            "CAR_V",
+            &stand_text(Stand::Slab {
+                height: 12.0,
+                lift: 0.0,
+            }),
+        )
+        .unwrap();
         save_stand(&dir, &catalog, "CAR_H", "slab 10").unwrap();
         save_stand(&dir, &catalog, "NEW_ONE", "figure").unwrap();
         let text = std::fs::read_to_string(&catalog).unwrap();
-        assert_eq!(text, "# a comment about CAR_V\nCAR_V  px 1 2 3 4  @slab 12\nCAR_H  px 5 6 7 8  @slab 10\n");
-        assert_eq!(read_stand(&dir, &catalog, "CAR_V").as_deref(), Some("slab 12"));
-        assert_eq!(read_stand(&dir, &catalog, "NEW_ONE").as_deref(), Some("figure"));
+        assert_eq!(
+            text,
+            "# a comment about CAR_V\nCAR_V  px 1 2 3 4  @slab 12\nCAR_H  px 5 6 7 8  @slab 10\n"
+        );
+        assert_eq!(
+            read_stand(&dir, &catalog, "CAR_V").as_deref(),
+            Some("slab 12")
+        );
+        assert_eq!(
+            read_stand(&dir, &catalog, "NEW_ONE").as_deref(),
+            Some("figure")
+        );
         assert_eq!(read_stand(&dir, &catalog, "MISSING"), None);
         save_stand(&dir, &catalog, "CAR_H", "carve").unwrap();
-        assert_eq!(read_stand(&dir, &catalog, "CAR_H").as_deref(), Some("carve"), "the folder's stand.txt wins");
+        assert_eq!(
+            read_stand(&dir, &catalog, "CAR_H").as_deref(),
+            Some("carve"),
+            "the folder's stand.txt wins"
+        );
         std::fs::remove_dir_all(&tmp).unwrap();
     }
 

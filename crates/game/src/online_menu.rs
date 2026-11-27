@@ -17,7 +17,11 @@ const RELAY_MAX: usize = crate::save::RELAY_MAX;
 const THROUGH: [f32; 4] = [40.0, 212.0, SCREEN_W - 80.0, 34.0];
 const KEYS_TOP: f32 = 250.0;
 /// The lobby's buttons: Leave, Ready, Start.
-const BUTTONS: [[f32; 4]; 3] = [[40.0, 650.0, 290.0, 80.0], [367.0, 650.0, 290.0, 80.0], [694.0, 650.0, 290.0, 80.0]];
+const BUTTONS: [[f32; 4]; 3] = [
+    [40.0, 650.0, 290.0, 80.0],
+    [367.0, 650.0, 290.0, 80.0],
+    [694.0, 650.0, 290.0, 80.0],
+];
 /// The host's difficulty in the lobby's top right, which a tap steps on.
 const LOBBY_DIFFICULTY: [f32; 4] = [684.0, 16.0, 320.0, 60.0];
 
@@ -66,7 +70,21 @@ enum Key {
 fn keys(chars: &[u8], cols: usize) -> Vec<([f32; 4], Key)> {
     let w = (SCREEN_W - 80.0) / cols as f32;
     let h = if cols > 7 { 70.0 } else { 90.0 };
-    let mut out: Vec<([f32; 4], Key)> = chars.iter().enumerate().map(|(i, &c)| ([40.0 + (i % cols) as f32 * w, KEYS_TOP + (i / cols) as f32 * h, w - 8.0, h - 8.0], Key::Char(c))).collect();
+    let mut out: Vec<([f32; 4], Key)> = chars
+        .iter()
+        .enumerate()
+        .map(|(i, &c)| {
+            (
+                [
+                    40.0 + (i % cols) as f32 * w,
+                    KEYS_TOP + (i / cols) as f32 * h,
+                    w - 8.0,
+                    h - 8.0,
+                ],
+                Key::Char(c),
+            )
+        })
+        .collect();
     let y = KEYS_TOP + chars.len().div_ceil(cols) as f32 * h + 8.0;
     out.push(([40.0, y, 300.0, 76.0], Key::Back));
     out.push(([362.0, y, 300.0, 76.0], Key::Delete));
@@ -78,8 +96,18 @@ fn keys(chars: &[u8], cols: usize) -> Vec<([f32; 4], Key)> {
 /// and the last row is Back, Delete and Done, across the thirds of the keys.
 fn step_key(at: usize, dx: i32, dy: i32, chars: usize, cols: usize) -> usize {
     let rows = chars.div_ceil(cols);
-    let row_len = |r: usize| if r == rows { 3 } else { (chars - r * cols).min(cols) };
-    let (row, col) = if at < chars { (at / cols, at % cols) } else { (rows, at - chars) };
+    let row_len = |r: usize| {
+        if r == rows {
+            3
+        } else {
+            (chars - r * cols).min(cols)
+        }
+    };
+    let (row, col) = if at < chars {
+        (at / cols, at % cols)
+    } else {
+        (rows, at - chars)
+    };
     let col = (col as i32 + dx).rem_euclid(row_len(row) as i32) as usize;
     let to = (row as i32 + dy).rem_euclid(rows as i32 + 1) as usize;
     let col = match (row == rows, to == rows) {
@@ -93,7 +121,11 @@ fn step_key(at: usize, dx: i32, dy: i32, chars: usize, cols: usize) -> usize {
         _ => col,
     }
     .min(row_len(to) - 1);
-    if to == rows { chars + col } else { to * cols + col }
+    if to == rows {
+        chars + col
+    } else {
+        to * cols + col
+    }
 }
 
 /// What a press on the keys did.
@@ -104,20 +136,39 @@ enum Typed {
 }
 
 impl Entry {
-    fn input(&mut self, input: &Input, tapped: Option<[f32; 2]>, chars: &[u8], cols: usize, max: usize, sounds: &mut Vec<Sfx>) -> Typed {
+    fn input(
+        &mut self,
+        input: &Input,
+        tapped: Option<[f32; 2]>,
+        chars: &[u8],
+        cols: usize,
+        max: usize,
+        sounds: &mut Vec<Sfx>,
+    ) -> Typed {
         let all = keys(chars, cols);
         let n = all.len();
-        let (dx, dy) = (input.pressed.contains(Buttons::RIGHT) as i32 - input.pressed.contains(Buttons::LEFT) as i32, input.pressed.contains(Buttons::DOWN) as i32 - input.pressed.contains(Buttons::UP) as i32);
+        let (dx, dy) = (
+            input.pressed.contains(Buttons::RIGHT) as i32
+                - input.pressed.contains(Buttons::LEFT) as i32,
+            input.pressed.contains(Buttons::DOWN) as i32
+                - input.pressed.contains(Buttons::UP) as i32,
+        );
         if dx != 0 || dy != 0 {
             self.at = step_key(self.at.min(n - 1), dx, dy, chars.len(), cols);
             sounds.push(Sfx::Tick(2));
             return Typed::Nothing;
         }
         let key = match tapped {
-            Some(p) => all.iter().position(|(r, _)| inside(p, *r)).inspect(|&i| self.at = i).map(|i| all[i].1),
+            Some(p) => all
+                .iter()
+                .position(|(r, _)| inside(p, *r))
+                .inspect(|&i| self.at = i)
+                .map(|i| all[i].1),
             None if input.pressed.contains(Buttons::A) => Some(all[self.at.min(n - 1)].1),
             None if input.pressed.contains(Buttons::START) => Some(Key::Done),
-            None if input.pressed.contains(Buttons::B) && self.text.is_empty() => return Typed::Back,
+            None if input.pressed.contains(Buttons::B) && self.text.is_empty() => {
+                return Typed::Back;
+            }
             None if input.pressed.contains(Buttons::B) => Some(Key::Delete),
             None => None,
         };
@@ -145,7 +196,11 @@ impl Entry {
                 '\u{8}' | '\u{7f}' => drop(self.text.pop()),
                 '\r' | '\n' => done = true,
                 c => {
-                    let c = if upper { c.to_ascii_uppercase() } else { c.to_ascii_lowercase() };
+                    let c = if upper {
+                        c.to_ascii_uppercase()
+                    } else {
+                        c.to_ascii_lowercase()
+                    };
                     if c.is_ascii() && chars.contains(&(c as u8)) && self.text.len() < max {
                         self.text.push(c);
                     }
@@ -158,14 +213,31 @@ impl Entry {
     fn draw(&self, c: &mut Canvas, chars: &[u8], cols: usize) {
         for (i, (r, key)) in keys(chars, cols).into_iter().enumerate() {
             let on = i == self.at;
-            c.rect(r[0], r[1], r[2], r[3], if on { [1.0, 0.85, 0.3, 0.3] } else { [1.0, 1.0, 1.0, 0.08] });
+            c.rect(
+                r[0],
+                r[1],
+                r[2],
+                r[3],
+                if on {
+                    [1.0, 0.85, 0.3, 0.3]
+                } else {
+                    [1.0, 1.0, 1.0, 0.08]
+                },
+            );
             let (name, size) = match key {
                 Key::Char(ch) => ((ch as char).to_string(), if cols > 7 { 40.0 } else { 52.0 }),
                 Key::Back => ("Back".to_string(), 40.0),
                 Key::Delete => ("Delete".to_string(), 40.0),
                 Key::Done => ("Done".to_string(), 40.0),
             };
-            c.label(name, r[0] + r[2] / 2.0, r[1] + r[3] / 2.0 - size / 2.0, size, if on { HOT } else { WHITE }, Align::Center);
+            c.label(
+                name,
+                r[0] + r[2] / 2.0,
+                r[1] + r[3] / 2.0 - size / 2.0,
+                size,
+                if on { HOT } else { WHITE },
+                Align::Center,
+            );
         }
     }
 }
@@ -252,12 +324,23 @@ impl Game {
 
     /// The port to start this device's LAN relay on, once, before the session's connect.
     pub fn take_lan_host(&mut self) -> Option<u16> {
-        std::mem::take(&mut self.online.lan_wanted).then_some(self.online.lan).flatten()
+        std::mem::take(&mut self.online.lan_wanted)
+            .then_some(self.online.lan)
+            .flatten()
     }
 
     fn online_rows(&self) -> Vec<Row> {
         let lan = self.online.lan.is_some().then_some(Row::HostLan);
-        [Some(Row::Host), lan, Some(Row::Join), Some(Row::Relay), Some(Row::Back)].into_iter().flatten().collect()
+        [
+            Some(Row::Host),
+            lan,
+            Some(Row::Join),
+            Some(Row::Relay),
+            Some(Row::Back),
+        ]
+        .into_iter()
+        .flatten()
+        .collect()
     }
 
     pub fn set_relay(&mut self, relay: &str) {
@@ -269,7 +352,10 @@ impl Game {
     }
 
     fn relay(&self) -> String {
-        self.online.relay_env.clone().unwrap_or_else(|| self.save.relay.as_str().to_string())
+        self.online
+            .relay_env
+            .clone()
+            .unwrap_or_else(|| self.save.relay.as_str().to_string())
     }
 
     fn relay_urls(&mut self) -> Option<(String, String)> {
@@ -292,10 +378,29 @@ impl Game {
     }
 
     fn identity(&self) -> Identity {
-        let version = if self.online.version.is_empty() { "dev".to_string() } else { self.online.version.clone() };
-        let pak = if self.online.pak != 0 { self.online.pak } else { crate::data::fingerprint().unwrap_or_default() };
-        let mods = crate::data::load_report().mod_packs.iter().map(|(name, fingerprint)| ModPack { name: name.clone(), fingerprint: *fingerprint }).collect();
-        Identity { game_version: version, pak, mods }
+        let version = if self.online.version.is_empty() {
+            "dev".to_string()
+        } else {
+            self.online.version.clone()
+        };
+        let pak = if self.online.pak != 0 {
+            self.online.pak
+        } else {
+            crate::data::fingerprint().unwrap_or_default()
+        };
+        let mods = crate::data::load_report()
+            .mod_packs
+            .iter()
+            .map(|(name, fingerprint)| ModPack {
+                name: name.clone(),
+                fingerprint: *fingerprint,
+            })
+            .collect();
+        Identity {
+            game_version: version,
+            pak,
+            mods,
+        }
     }
 
     fn local_cards(&self) -> Vec<String> {
@@ -303,7 +408,9 @@ impl Game {
     }
 
     pub fn host_online(&mut self, code: Option<&str>) {
-        let Some(relay) = self.relay_urls() else { return };
+        let Some(relay) = self.relay_urls() else {
+            return;
+        };
         self.online.lan_session = false;
         self.host_through(code, relay);
     }
@@ -320,10 +427,23 @@ impl Game {
     }
 
     fn host_through(&mut self, code: Option<&str>, relay: (String, String)) {
-        let code = code.and_then(|c| RoomCode::parse(c).ok()).or(self.online.fixed).or(self.save.hosted).unwrap_or_else(|| RoomCode::from_random(self.rng.next_u32() as u64 * 0x9E37 + self.rng.next_u32() as u64));
+        let code = code
+            .and_then(|c| RoomCode::parse(c).ok())
+            .or(self.online.fixed)
+            .or(self.save.hosted)
+            .unwrap_or_else(|| {
+                RoomCode::from_random(
+                    self.rng.next_u32() as u64 * 0x9E37 + self.rng.next_u32() as u64,
+                )
+            });
         self.online.fixed = Some(code);
         self.save.hosted = Some(code);
-        self.net = Some(Box::new(Net::host(code, self.identity(), self.local_cards(), relay)));
+        self.net = Some(Box::new(Net::host(
+            code,
+            self.identity(),
+            self.local_cards(),
+            relay,
+        )));
         self.online.message.clear();
         self.page = Page::Lobby;
     }
@@ -334,13 +454,20 @@ impl Game {
                 let relay = match self.online.through.clone() {
                     Some(host) => (format!("ws://{host}"), String::new()),
                     None => {
-                        let Some(relay) = self.relay_urls() else { return };
+                        let Some(relay) = self.relay_urls() else {
+                            return;
+                        };
                         relay
                     }
                 };
                 self.online.lan_session = false;
                 self.save.joined = Some(code);
-                self.net = Some(Box::new(Net::join(code, self.identity(), self.local_cards(), relay)));
+                self.net = Some(Box::new(Net::join(
+                    code,
+                    self.identity(),
+                    self.local_cards(),
+                    relay,
+                )));
                 self.online.message.clear();
                 self.page = Page::Lobby;
             }
@@ -383,12 +510,19 @@ impl Game {
 
     pub fn net_receive(&mut self, channel: usize, peer: u128, bytes: Vec<u8>) {
         if let Some(n) = self.net.as_mut() {
-            n.receive(Packet { channel, peer, bytes });
+            n.receive(Packet {
+                channel,
+                peer,
+                bytes,
+            });
         }
     }
 
     pub fn net_outgoing(&mut self) -> Vec<Packet> {
-        self.net.as_mut().map(|n| n.take_outgoing()).unwrap_or_default()
+        self.net
+            .as_mut()
+            .map(|n| n.take_outgoing())
+            .unwrap_or_default()
     }
 
     pub fn net_traffic(&self) -> Option<Traffic> {
@@ -398,7 +532,11 @@ impl Game {
     pub fn typed(&mut self, text: &str) {
         match self.page {
             Page::Join => {
-                if self.online.code.typed(text, ALPHABET, last_harvest_lobby::CODE_LEN, true) {
+                if self
+                    .online
+                    .code
+                    .typed(text, ALPHABET, last_harvest_lobby::CODE_LEN, true)
+                {
                     let code = self.online.code.text.clone();
                     self.join_online(&code);
                 }
@@ -433,7 +571,9 @@ impl Game {
         }
         for h in net.take_happenings() {
             match h {
-                Happening::Start(start) if !self.in_run() || !self.online_run() => self.start_online(start),
+                Happening::Start(start) if !self.in_run() || !self.online_run() => {
+                    self.start_online(start)
+                }
                 Happening::Start(_) => {}
                 Happening::Seat(seat, card) => {
                     if let State::Harvest(h) = &mut self.state {
@@ -472,7 +612,9 @@ impl Game {
         }
         self.pump_net(dt);
         let mut state = std::mem::replace(&mut self.state, State::Title);
-        if let (State::Harvest(h), Some(net)) = (&mut state, self.net.as_mut().filter(|n| n.running)) {
+        if let (State::Harvest(h), Some(net)) =
+            (&mut state, self.net.as_mut().filter(|n| n.running))
+        {
             net.step_away(h, dt, &mut Vec::new());
         }
         self.state = state;
@@ -480,9 +622,17 @@ impl Game {
 
     /// BACK leaves online play, with a word to the room: the host closes it, a client leaves it.
     pub(crate) fn leave_online(&mut self, in_run: bool) {
-        let Some(net) = self.net.as_mut().filter(|n| !n.leaving()) else { return };
+        let Some(net) = self.net.as_mut().filter(|n| !n.leaving()) else {
+            return;
+        };
         net.leave();
-        self.online.message = if !in_run { String::new() } else if net.is_host() { "You closed the room.".into() } else { "You left the night.".into() };
+        self.online.message = if !in_run {
+            String::new()
+        } else if net.is_host() {
+            "You closed the room.".into()
+        } else {
+            "You left the night.".into()
+        };
         self.page = Page::Online;
     }
 
@@ -506,8 +656,19 @@ impl Game {
             self.page = Page::Online;
             return;
         }
-        let card = |seat: usize| start.players.iter().find(|p| p.seat as usize == seat).map_or("", |p| p.card.as_str()).to_string();
-        let look = start.options.iter().find(|o| o.0 == "look").map_or_else(|| card(0), |o| o.1.clone());
+        let card = |seat: usize| {
+            start
+                .players
+                .iter()
+                .find(|p| p.seat as usize == seat)
+                .map_or("", |p| p.card.as_str())
+                .to_string()
+        };
+        let look = start
+            .options
+            .iter()
+            .find(|o| o.0 == "look")
+            .map_or_else(|| card(0), |o| o.1.clone());
         harvest::use_farm(None);
         harvest::use_player_farm(&look);
         let seats: Vec<usize> = start.players.iter().map(|p| p.seat as usize).collect();
@@ -515,15 +676,34 @@ impl Game {
         let difficulty = Difficulty::from_index(start.difficulty).unwrap_or_default();
         let looks: Vec<(usize, String)> = seats.iter().map(|&s| (s, card(s))).collect();
         let h = if host {
-            let kind = replay::Kind::Host { looks, local: mine.len() };
-            let setup = replay::Setup { map: start.map.clone(), difficulty, progress: self.progress(), look: look.clone(), farm: Some(look), one_screen: self.one_screen(), players: n, kind, ..replay::Setup::night(start.seed) };
+            let kind = replay::Kind::Host {
+                looks,
+                local: mine.len(),
+            };
+            let setup = replay::Setup {
+                map: start.map.clone(),
+                difficulty,
+                progress: self.progress(),
+                look: look.clone(),
+                farm: Some(look),
+                one_screen: self.one_screen(),
+                players: n,
+                kind,
+                ..replay::Setup::night(start.seed)
+            };
             let mut h = setup.build();
             if let Some(info) = &self.replay_info {
                 h.record(info.clone());
             }
             h
         } else {
-            Harvest::on(start.seed, &start.map).at(difficulty).single_screen(self.one_screen()).with_players(n).client_of(&mine, &seats).dressed(&looks).with_views(mine.len())
+            Harvest::on(start.seed, &start.map)
+                .at(difficulty)
+                .single_screen(self.one_screen())
+                .with_players(n)
+                .client_of(&mine, &seats)
+                .dressed(&looks)
+                .with_views(mine.len())
         };
         self.keep_replays();
         self.sounds.push(Sfx::Start);
@@ -531,12 +711,25 @@ impl Game {
         self.page = Page::Main;
     }
 
-    pub(crate) fn step_online(&mut self, h: &mut Harvest, input: &Input, others: &[Input], dt: f32) -> Option<harvest::Flow> {
-        let net = self.net.as_mut().filter(|n| n.running && (h.is_host() || h.is_client()))?;
+    pub(crate) fn step_online(
+        &mut self,
+        h: &mut Harvest,
+        input: &Input,
+        others: &[Input],
+        dt: f32,
+    ) -> Option<harvest::Flow> {
+        let net = self
+            .net
+            .as_mut()
+            .filter(|n| n.running && (h.is_host() || h.is_client()))?;
         let flow = net.step(h, input, others, dt, &mut self.sounds);
         if flow.quit {
             net.leave();
-            self.online.message = if net.is_host() { "You closed the room.".into() } else { "You left the night.".into() };
+            self.online.message = if net.is_host() {
+                "You closed the room.".into()
+            } else {
+                "You left the night.".into()
+            };
             self.page = Page::Online;
         }
         Some(flow)
@@ -553,7 +746,8 @@ impl Game {
         let all = self.online_rows();
         let rows = all.len();
         self.online.row = self.online.row.min(rows - 1);
-        let step = input.pressed.contains(Buttons::DOWN) as i32 - input.pressed.contains(Buttons::UP) as i32;
+        let step = input.pressed.contains(Buttons::DOWN) as i32
+            - input.pressed.contains(Buttons::UP) as i32;
         if step != 0 {
             self.online.row = (self.online.row as i32 + step).rem_euclid(rows as i32) as usize;
             self.sounds.push(Sfx::Tick(self.online.row as u8 * 3));
@@ -562,7 +756,10 @@ impl Game {
         let chosen = match tapped {
             Some(p) => (0..rows).find(|&i| inside(p, online_row(i, rows))),
             None if back => Some(rows - 1),
-            None => input.pressed.any(Buttons::A | Buttons::START).then_some(self.online.row),
+            None => input
+                .pressed
+                .any(Buttons::A | Buttons::START)
+                .then_some(self.online.row),
         };
         match chosen.map(|i| all[i]) {
             Some(Row::Host | Row::HostLan | Row::Join) if !self.online.available => {
@@ -580,10 +777,15 @@ impl Game {
             Some(Row::Join) => {
                 self.page = Page::Join;
                 self.online.code.at = 0;
-                if let Some(code) = self.save.joined.filter(|_| self.online.code.text.is_empty()) {
+                if let Some(code) = self
+                    .save
+                    .joined
+                    .filter(|_| self.online.code.text.is_empty())
+                {
                     self.online.code.text = code.to_string();
                 }
-                (self.online.through, self.online.through_picked) = (self.online.nearby.first().cloned(), false);
+                (self.online.through, self.online.through_picked) =
+                    (self.online.nearby.first().cloned(), false);
                 self.sounds.push(Sfx::Tick(9));
             }
             Some(Row::Relay) => self.open_relay(Page::Online),
@@ -596,7 +798,10 @@ impl Game {
     }
 
     pub(crate) fn open_relay(&mut self, from: Page) {
-        self.online.relay = Entry { text: self.save.relay.as_str().to_string(), at: 0 };
+        self.online.relay = Entry {
+            text: self.save.relay.as_str().to_string(),
+            at: 0,
+        };
         self.online.relay_from = from;
         self.page = Page::Relay;
         self.sounds.push(Sfx::Tick(9));
@@ -604,17 +809,29 @@ impl Game {
 
     fn close_relay(&mut self) {
         self.save.relay = crate::save::Relay::new(&self.online.relay.text);
-        self.online.message = crate::netplay::relay_urls(self.save.relay.as_str(), self.online.secure_page).err().unwrap_or_default();
+        self.online.message =
+            crate::netplay::relay_urls(self.save.relay.as_str(), self.online.secure_page)
+                .err()
+                .unwrap_or_default();
         self.page = self.online.relay_from;
         self.sounds.push(Sfx::Tick(6));
     }
 
     pub(crate) fn join_page(&mut self, input: &Input, tapped: Option<[f32; 2]>) {
-        if !self.online.nearby.is_empty() && (input.pressed.contains(Buttons::Y) || tapped.is_some_and(|p| inside(p, THROUGH))) {
+        if !self.online.nearby.is_empty()
+            && (input.pressed.contains(Buttons::Y) || tapped.is_some_and(|p| inside(p, THROUGH)))
+        {
             self.next_through();
             return;
         }
-        match self.online.code.input(input, tapped, ALPHABET, 7, last_harvest_lobby::CODE_LEN, &mut self.sounds) {
+        match self.online.code.input(
+            input,
+            tapped,
+            ALPHABET,
+            7,
+            last_harvest_lobby::CODE_LEN,
+            &mut self.sounds,
+        ) {
             Typed::Done => {
                 let code = self.online.code.text.clone();
                 self.join_online(&code);
@@ -631,7 +848,11 @@ impl Game {
     /// The next of the nearby hosts, then the relay setting.
     fn next_through(&mut self) {
         let nearby = &self.online.nearby;
-        let at = self.online.through.as_ref().and_then(|t| nearby.iter().position(|h| h == t));
+        let at = self
+            .online
+            .through
+            .as_ref()
+            .and_then(|t| nearby.iter().position(|h| h == t));
         self.online.through = match at {
             Some(i) => nearby.get(i + 1).cloned(),
             None => nearby.first().cloned(),
@@ -641,7 +862,11 @@ impl Game {
     }
 
     pub(crate) fn relay_page(&mut self, input: &Input, tapped: Option<[f32; 2]>) {
-        match self.online.relay.input(input, tapped, RELAY_KEYS, 10, RELAY_MAX, &mut self.sounds) {
+        match self
+            .online
+            .relay
+            .input(input, tapped, RELAY_KEYS, 10, RELAY_MAX, &mut self.sounds)
+        {
             Typed::Done => self.close_relay(),
             Typed::Back => {
                 self.page = self.online.relay_from;
@@ -658,11 +883,16 @@ impl Game {
         };
         let button = tapped.and_then(|p| BUTTONS.iter().position(|r| inside(p, *r)));
         let (_, ready) = net.roster();
-        let by = input.pressed.contains(Buttons::RIGHT) as i32 - input.pressed.contains(Buttons::LEFT) as i32;
+        let by = input.pressed.contains(Buttons::RIGHT) as i32
+            - input.pressed.contains(Buttons::LEFT) as i32;
         let tapped_difficulty = tapped.is_some_and(|p| inside(p, LOBBY_DIFFICULTY));
         if net.is_host() && (by != 0 || tapped_difficulty) {
             let d = self.save.difficulty;
-            let next = if tapped_difficulty && d.is_last() { Difficulty::from_index(0).unwrap_or(d) } else { d.step(if by == 0 { 1 } else { by }) };
+            let next = if tapped_difficulty && d.is_last() {
+                Difficulty::from_index(0).unwrap_or(d)
+            } else {
+                d.step(if by == 0 { 1 } else { by })
+            };
             if next != d {
                 self.save.difficulty = next;
                 self.sounds.push(Sfx::Tick(next.index() * 2));
@@ -675,8 +905,16 @@ impl Game {
         } else if input.pressed.contains(Buttons::A) || button == Some(1) {
             net.set_ready(!ready);
             self.sounds.push(Sfx::Tick(if ready { 0 } else { 9 }));
-        } else if net.is_host() && (input.pressed.any(Buttons::START | Buttons::X) || button == Some(2)) {
-            let settings = Settings { seed: self.rng.next_u32() as u64 + 1, map: self.save.map.as_str().to_string(), difficulty: self.save.difficulty.index(), unlocked: Vec::new(), options: vec![("look".into(), self.save.player.as_str().to_string())] };
+        } else if net.is_host()
+            && (input.pressed.any(Buttons::START | Buttons::X) || button == Some(2))
+        {
+            let settings = Settings {
+                seed: self.rng.next_u32() as u64 + 1,
+                map: self.save.map.as_str().to_string(),
+                difficulty: self.save.difficulty.index(),
+                unlocked: Vec::new(),
+                options: vec![("look".into(), self.save.player.as_str().to_string())],
+            };
             match net.start(settings) {
                 Ok(start) => self.start_online(start),
                 Err(why) => {
@@ -695,23 +933,73 @@ impl Game {
             let [x, y, w, h] = online_row(i, all.len());
             let on = i == self.online.row;
             let off = matches!(row, Row::Host | Row::HostLan | Row::Join) && !self.online.available;
-            c.rect(x, y, w, h, if on { [1.0, 0.85, 0.3, 0.25] } else { [1.0, 1.0, 1.0, 0.06] });
-            let color = if off { DIM } else if on { HOT } else { WHITE };
+            c.rect(
+                x,
+                y,
+                w,
+                h,
+                if on {
+                    [1.0, 0.85, 0.3, 0.25]
+                } else {
+                    [1.0, 1.0, 1.0, 0.06]
+                },
+            );
+            let color = if off {
+                DIM
+            } else if on {
+                HOT
+            } else {
+                WHITE
+            };
             let side = match row {
                 Row::Relay => {
                     let relay = self.relay();
-                    Some(if relay.trim().is_empty() { crate::netplay::DEFAULT_RELAY.trim_start_matches("wss://").to_string() } else { relay })
+                    Some(if relay.trim().is_empty() {
+                        crate::netplay::DEFAULT_RELAY
+                            .trim_start_matches("wss://")
+                            .to_string()
+                    } else {
+                        relay
+                    })
                 }
-                Row::Join => self.online.nearby.first().map(|h| format!("Nearby: {}", h.rsplit_once(':').map_or(h.as_str(), |(a, _)| a))),
+                Row::Join => self.online.nearby.first().map(|h| {
+                    format!(
+                        "Nearby: {}",
+                        h.rsplit_once(':').map_or(h.as_str(), |(a, _)| a)
+                    )
+                }),
                 _ => None,
             };
             match side {
                 Some(shown) => {
-                    c.label(row.name(), x + 30.0, y + h / 2.0 - 22.0, 44.0, color, Align::Left);
+                    c.label(
+                        row.name(),
+                        x + 30.0,
+                        y + h / 2.0 - 22.0,
+                        44.0,
+                        color,
+                        Align::Left,
+                    );
                     let left = if *row == Row::Join { 420.0 } else { 260.0 };
-                    fit_label(c, &shown, x + w - 30.0, y + h / 2.0 - 18.0, 36.0, w - left, if on { HOT } else { DIM }, Align::Right);
+                    fit_label(
+                        c,
+                        &shown,
+                        x + w - 30.0,
+                        y + h / 2.0 - 18.0,
+                        36.0,
+                        w - left,
+                        if on { HOT } else { DIM },
+                        Align::Right,
+                    );
                 }
-                None => c.label(row.name(), x + w / 2.0, y + h / 2.0 - 24.0, 48.0, color, Align::Center),
+                None => c.label(
+                    row.name(),
+                    x + w / 2.0,
+                    y + h / 2.0 - 24.0,
+                    48.0,
+                    color,
+                    Align::Center,
+                ),
             }
         }
         self.draw_message(c, 560.0);
@@ -719,13 +1007,30 @@ impl Game {
 
     fn draw_message(&self, c: &mut Canvas, y: f32) {
         if !self.online.message.is_empty() {
-            wrap_label(c, &self.online.message, SCREEN_W / 2.0, y, 30.0, SCREEN_W - 80.0, 3, RED, Align::Center);
+            wrap_label(
+                c,
+                &self.online.message,
+                SCREEN_W / 2.0,
+                y,
+                30.0,
+                SCREEN_W - 80.0,
+                3,
+                RED,
+                Align::Center,
+            );
         }
     }
 
     pub(crate) fn draw_join(&self, c: &mut Canvas) {
         c.rect(0.0, 0.0, SCREEN_W, 768.0, [0.12, 0.12, 0.15, 1.0]);
-        c.label("Join with a code", SCREEN_W / 2.0, 20.0, 48.0, WHITE, Align::Center);
+        c.label(
+            "Join with a code",
+            SCREEN_W / 2.0,
+            20.0,
+            48.0,
+            WHITE,
+            Align::Center,
+        );
         let n = last_harvest_lobby::CODE_LEN;
         for i in 0..n {
             let x = SCREEN_W / 2.0 + (i as f32 - n as f32 / 2.0) * 110.0 + 5.0;
@@ -738,18 +1043,42 @@ impl Game {
             Some(host) => (format!("Through nearby host {host}"), HOT),
             None => {
                 let relay = self.relay();
-                (format!("Through relay {}", if relay.trim().is_empty() { crate::netplay::DEFAULT_RELAY.trim_start_matches("wss://") } else { relay.as_str() }), DIM)
+                (
+                    format!(
+                        "Through relay {}",
+                        if relay.trim().is_empty() {
+                            crate::netplay::DEFAULT_RELAY.trim_start_matches("wss://")
+                        } else {
+                            relay.as_str()
+                        }
+                    ),
+                    DIM,
+                )
             }
         };
         let [x, y, w, _] = THROUGH;
         if self.online.nearby.is_empty() {
             fit_label(c, &through, x + w / 2.0, y, 26.0, w, color, Align::Center);
         } else {
-            c.hint(&format!("{through}   {{Y}}: change"), x + w / 2.0, y, 26.0, color, Align::Center);
+            c.hint(
+                &format!("{through}   {{Y}}: change"),
+                x + w / 2.0,
+                y,
+                26.0,
+                color,
+                Align::Center,
+            );
         }
         self.online.code.draw(c, ALPHABET, 7);
         if self.online.message.is_empty() {
-            c.hint("{A}: type.   {B}: delete.   {START}: join.", SCREEN_W / 2.0, 720.0, 26.0, DIM, Align::Center);
+            c.hint(
+                "{A}: type.   {B}: delete.   {START}: join.",
+                SCREEN_W / 2.0,
+                720.0,
+                26.0,
+                DIM,
+                Align::Center,
+            );
         } else {
             self.draw_message(c, 700.0);
         }
@@ -760,11 +1089,34 @@ impl Game {
         c.label("Relay", SCREEN_W / 2.0, 20.0, 48.0, WHITE, Align::Center);
         let text = &self.online.relay.text;
         c.rect(40.0, 90.0, SCREEN_W - 80.0, 100.0, [1.0, 1.0, 1.0, 0.1]);
-        let default = format!("Empty: {}", crate::netplay::DEFAULT_RELAY.trim_start_matches("wss://"));
-        let shown = if text.is_empty() { default.as_str() } else { text.as_str() };
-        fit_label(c, shown, SCREEN_W / 2.0, 120.0, 44.0, SCREEN_W - 120.0, if text.is_empty() { DIM } else { HOT }, Align::Center);
+        let default = format!(
+            "Empty: {}",
+            crate::netplay::DEFAULT_RELAY.trim_start_matches("wss://")
+        );
+        let shown = if text.is_empty() {
+            default.as_str()
+        } else {
+            text.as_str()
+        };
+        fit_label(
+            c,
+            shown,
+            SCREEN_W / 2.0,
+            120.0,
+            44.0,
+            SCREEN_W - 120.0,
+            if text.is_empty() { DIM } else { HOT },
+            Align::Center,
+        );
         if self.online.relay_env.is_some() {
-            c.label("LAST_HARVEST_RELAY is set and wins over this", SCREEN_W / 2.0, 200.0, 26.0, DIM, Align::Center);
+            c.label(
+                "LAST_HARVEST_RELAY is set and wins over this",
+                SCREEN_W / 2.0,
+                200.0,
+                26.0,
+                DIM,
+                Align::Center,
+            );
         }
         self.online.relay.draw(c, RELAY_KEYS, 10);
         self.draw_message(c, 700.0);
@@ -773,34 +1125,86 @@ impl Game {
     pub(crate) fn draw_lobby(&self, c: &mut Canvas) {
         c.rect(0.0, 0.0, SCREEN_W, 768.0, [0.12, 0.12, 0.15, 1.0]);
         let Some(net) = self.net.as_ref() else { return };
-        c.label(format!("Room {}", net.code.as_str()), SCREEN_W / 2.0, 20.0, 64.0, HOT, Align::Center);
+        c.label(
+            format!("Room {}", net.code.as_str()),
+            SCREEN_W / 2.0,
+            20.0,
+            64.0,
+            HOT,
+            Align::Center,
+        );
         let (members, ready) = net.roster();
         if net.is_host() {
             let [x, y, w, _] = LOBBY_DIFFICULTY;
             let d = self.save.difficulty;
-            let text = format!("{}{}{}", if d.is_first() { "" } else { "< " }, d.name(), if d.is_last() { "" } else { " >" });
+            let text = format!(
+                "{}{}{}",
+                if d.is_first() { "" } else { "< " },
+                d.name(),
+                if d.is_last() { "" } else { " >" }
+            );
             fit_label(c, &text, x + w, y + 10.0, 34.0, w, HOT, Align::Right);
         }
         if let Some(status) = net.status() {
             c.label(status, SCREEN_W / 2.0, 110.0, 34.0, DIM, Align::Center);
         } else if net.is_host() {
-            c.label("Share the code: players join it from Online", SCREEN_W / 2.0, 110.0, 30.0, DIM, Align::Center);
+            c.label(
+                "Share the code: players join it from Online",
+                SCREEN_W / 2.0,
+                110.0,
+                30.0,
+                DIM,
+                Align::Center,
+            );
         }
         if self.online.lan_session && net.is_host() {
-            let address = self.online.lan_address.as_deref().unwrap_or("this device's address");
+            let address = self
+                .online
+                .lan_address
+                .as_deref()
+                .unwrap_or("this device's address");
             let port = self.online.lan.unwrap_or_default();
-            fit_label(c, &format!("On this network: Join lists this host, or set the relay to {address}:{port}"), SCREEN_W / 2.0, 142.0, 24.0, SCREEN_W - 80.0, DIM, Align::Center);
+            fit_label(
+                c,
+                &format!(
+                    "On this network: Join lists this host, or set the relay to {address}:{port}"
+                ),
+                SCREEN_W / 2.0,
+                142.0,
+                24.0,
+                SCREEN_W - 80.0,
+                DIM,
+                Align::Center,
+            );
         }
         let looks = crate::player_looks();
         let mut y = 170.0;
         for m in &members {
             for s in &m.seats {
-                let name = looks.iter().find(|l| l.id == s.card).map_or("Farmer", |l| l.name.as_str());
+                let name = looks
+                    .iter()
+                    .find(|l| l.id == s.card)
+                    .map_or("Farmer", |l| l.name.as_str());
                 c.rect(40.0, y, SCREEN_W - 80.0, 92.0, [1.0, 1.0, 1.0, 0.07]);
-                c.label(format!("P{}", s.seat + 1), 70.0, y + 24.0, 44.0, HOT, Align::Left);
-                let who = if m.host { format!("{name}  (host)") } else { name.to_string() };
+                c.label(
+                    format!("P{}", s.seat + 1),
+                    70.0,
+                    y + 24.0,
+                    44.0,
+                    HOT,
+                    Align::Left,
+                );
+                let who = if m.host {
+                    format!("{name}  (host)")
+                } else {
+                    name.to_string()
+                };
                 fit_label(c, &who, 180.0, y + 26.0, 40.0, 520.0, WHITE, Align::Left);
-                let (mark, color) = if m.ready { ("Ready", HOT) } else { ("Not ready", DIM) };
+                let (mark, color) = if m.ready {
+                    ("Ready", HOT)
+                } else {
+                    ("Not ready", DIM)
+                };
                 c.label(mark, SCREEN_W - 70.0, y + 26.0, 40.0, color, Align::Right);
                 y += 104.0;
             }
@@ -812,11 +1216,32 @@ impl Game {
                 continue;
             }
             let lit = i == 1 || (i == 2 && all);
-            c.rect(r[0], r[1], r[2], r[3], if lit { [1.0, 0.85, 0.3, 0.25] } else { [1.0, 1.0, 1.0, 0.08] });
-            c.label(labels[i], r[0] + r[2] / 2.0, r[1] + 18.0, 42.0, if lit { HOT } else { WHITE }, Align::Center);
+            c.rect(
+                r[0],
+                r[1],
+                r[2],
+                r[3],
+                if lit {
+                    [1.0, 0.85, 0.3, 0.25]
+                } else {
+                    [1.0, 1.0, 1.0, 0.08]
+                },
+            );
+            c.label(
+                labels[i],
+                r[0] + r[2] / 2.0,
+                r[1] + 18.0,
+                42.0,
+                if lit { HOT } else { WHITE },
+                Align::Center,
+            );
         }
         if self.online.message.is_empty() {
-            let hint = if net.is_host() { "{A}: ready.   Left / Right: difficulty.   {START}: start once all are ready.   {B}: close." } else { "{A}: ready.   {B}: leave." };
+            let hint = if net.is_host() {
+                "{A}: ready.   Left / Right: difficulty.   {START}: start once all are ready.   {B}: close."
+            } else {
+                "{A}: ready.   {B}: leave."
+            };
             c.hint(hint, SCREEN_W / 2.0, 610.0, 26.0, DIM, Align::Center);
         } else {
             self.draw_message(c, 590.0);
@@ -826,7 +1251,12 @@ impl Game {
 
 /// Why a start can't be played here: no players, a seat past the room's, or none of them this device's.
 fn start_refused(start: &Start, mine: &[usize]) -> Option<&'static str> {
-    if start.players.is_empty() || start.players.iter().any(|p| p.seat >= last_harvest_lobby::MAX_SEATS) {
+    if start.players.is_empty()
+        || start
+            .players
+            .iter()
+            .any(|p| p.seat >= last_harvest_lobby::MAX_SEATS)
+    {
         Some("The host's start named no seats this game can play.")
     } else if mine.is_empty() {
         Some("The host started without a seat for this game.")
@@ -850,42 +1280,89 @@ mod tests {
         let mut g = Game::new(1);
         g.set_online(true);
         g.page = Page::Online;
-        g.online_page(&Input { pressed: Buttons::A, ..Input::default() }, None);
+        g.online_page(
+            &Input {
+                pressed: Buttons::A,
+                ..Input::default()
+            },
+            None,
+        );
         assert_eq!((g.page, g.save.difficulty), (Page::Lobby, Difficulty::EASY));
         for _ in 0..3 {
-            g.lobby_page(&Input { pressed: Buttons::RIGHT, ..Input::default() }, None);
+            g.lobby_page(
+                &Input {
+                    pressed: Buttons::RIGHT,
+                    ..Input::default()
+                },
+                None,
+            );
         }
-        assert_eq!(g.save.difficulty, Difficulty::BRUTAL, "the start sends the host's difficulty");
+        assert_eq!(
+            g.save.difficulty,
+            Difficulty::BRUTAL,
+            "the start sends the host's difficulty"
+        );
         g.lobby_page(&Input::default(), Some([800.0, 40.0]));
         g.lobby_page(&Input::default(), Some([800.0, 40.0]));
-        assert_eq!(g.save.difficulty, Difficulty::STROLL, "a tap past the last wraps to the first");
+        assert_eq!(
+            g.save.difficulty,
+            Difficulty::STROLL,
+            "a tap past the last wraps to the first"
+        );
         assert_eq!(g.page, Page::Lobby);
     }
 
     #[test]
     fn an_empty_relay_is_the_default_one_and_the_typed_relay_is_saved() {
-        let a = Input { pressed: Buttons::A, ..Input::default() };
+        let a = Input {
+            pressed: Buttons::A,
+            ..Input::default()
+        };
         let mut g = Game::new(1);
         g.set_online(true);
         g.page = Page::Online;
         g.online_page(&a, None);
-        assert_eq!(g.page, Page::Lobby, "hosting with no relay set uses the default");
-        let Some(crate::netplay::Request::Connect { room, ice }) = g.net_request() else { panic!("no connect") };
-        assert!(room.starts_with("wss://lh-relay.vps.pocketsquirrel.com/signal/"), "{room}");
+        assert_eq!(
+            g.page,
+            Page::Lobby,
+            "hosting with no relay set uses the default"
+        );
+        let Some(crate::netplay::Request::Connect { room, ice }) = g.net_request() else {
+            panic!("no connect")
+        };
+        assert!(
+            room.starts_with("wss://lh-relay.vps.pocketsquirrel.com/signal/"),
+            "{room}"
+        );
         assert_eq!(ice, "https://lh-relay.vps.pocketsquirrel.com/ice");
-        g.lobby_page(&Input { pressed: Buttons::B, ..Input::default() }, None);
+        g.lobby_page(
+            &Input {
+                pressed: Buttons::B,
+                ..Input::default()
+            },
+            None,
+        );
         g.online.row = 2;
         g.online_page(&a, None);
         assert_eq!(g.page, Page::Relay);
         g.typed("192.168.1.5:8097\n");
         assert_eq!(g.page, Page::Online);
         assert_eq!(g.save().relay.as_str(), "192.168.1.5:8097");
-        assert!(g.save().to_text().contains("relay=192.168.1.5:8097"), "and it goes in save.txt");
-        assert_eq!(crate::Save::parse(&g.save().to_text()).relay.as_str(), "192.168.1.5:8097", "and reads back after a restart");
+        assert!(
+            g.save().to_text().contains("relay=192.168.1.5:8097"),
+            "and it goes in save.txt"
+        );
+        assert_eq!(
+            crate::Save::parse(&g.save().to_text()).relay.as_str(),
+            "192.168.1.5:8097",
+            "and reads back after a restart"
+        );
         g.online.row = 0;
         g.online_page(&a, None);
         assert_eq!(g.page, Page::Lobby, "with one set, Host opens the lobby");
-        let Some(crate::netplay::Request::Connect { room, .. }) = g.net_request() else { panic!("no connect") };
+        let Some(crate::netplay::Request::Connect { room, .. }) = g.net_request() else {
+            panic!("no connect")
+        };
         assert!(room.starts_with("ws://192.168.1.5:8097/signal/"), "{room}");
     }
 
@@ -903,37 +1380,75 @@ mod tests {
 
     #[test]
     fn host_on_this_network_shows_only_where_the_platform_can_serve_a_relay() {
-        let a = Input { pressed: Buttons::A, ..Input::default() };
+        let a = Input {
+            pressed: Buttons::A,
+            ..Input::default()
+        };
         let mut g = Game::new(1);
         g.set_online(true);
         g.page = Page::Online;
-        assert_eq!(g.online_rows(), [Row::Host, Row::Join, Row::Relay, Row::Back], "the web build never calls set_lan");
+        assert_eq!(
+            g.online_rows(),
+            [Row::Host, Row::Join, Row::Relay, Row::Back],
+            "the web build never calls set_lan"
+        );
         assert!(!shown_text(&g).iter().any(|t| t == "Host on this network"));
 
         g.set_lan(Some(12525));
         g.set_lan_address(Some("192.168.1.5".into()));
-        assert_eq!(g.online_rows(), [Row::Host, Row::HostLan, Row::Join, Row::Relay, Row::Back]);
+        assert_eq!(
+            g.online_rows(),
+            [Row::Host, Row::HostLan, Row::Join, Row::Relay, Row::Back]
+        );
         assert!(shown_text(&g).iter().any(|t| t == "Host on this network"));
         g.online.row = 1;
         g.online_page(&a, None);
         assert_eq!(g.page, Page::Lobby);
-        assert_eq!(g.take_lan_host(), Some(12525), "the platform starts its relay");
+        assert_eq!(
+            g.take_lan_host(),
+            Some(12525),
+            "the platform starts its relay"
+        );
         assert_eq!(g.take_lan_host(), None, "once");
-        let Some(Request::Connect { room, ice }) = g.net_request() else { panic!("no connect") };
+        let Some(Request::Connect { room, ice }) = g.net_request() else {
+            panic!("no connect")
+        };
         assert!(room.starts_with("ws://127.0.0.1:12525/signal/"), "{room}");
         assert!(ice.is_empty(), "no ICE servers to fetch: {ice}");
-        assert!(g.save().relay.as_str().is_empty(), "the relay setting is left alone");
-        assert!(shown_text(&g).iter().any(|t| t.contains("192.168.1.5:12525")), "the lobby shows where others find it");
+        assert!(
+            g.save().relay.as_str().is_empty(),
+            "the relay setting is left alone"
+        );
+        assert!(
+            shown_text(&g)
+                .iter()
+                .any(|t| t.contains("192.168.1.5:12525")),
+            "the lobby shows where others find it"
+        );
 
-        g.lobby_page(&Input { pressed: Buttons::B, ..Input::default() }, None);
+        g.lobby_page(
+            &Input {
+                pressed: Buttons::B,
+                ..Input::default()
+            },
+            None,
+        );
         g.online.row = 0;
         g.online_page(&a, None);
-        assert!(!shown_text(&g).iter().any(|t| t.contains("192.168.1.5:12525")), "a room on the public relay shows no address");
+        assert!(
+            !shown_text(&g)
+                .iter()
+                .any(|t| t.contains("192.168.1.5:12525")),
+            "a room on the public relay shows no address"
+        );
     }
 
     #[test]
     fn a_nearby_host_is_joined_through_for_that_session_only() {
-        let a = Input { pressed: Buttons::A, ..Input::default() };
+        let a = Input {
+            pressed: Buttons::A,
+            ..Input::default()
+        };
         let mut g = Game::new(1);
         g.set_online(true);
         g.page = Page::Online;
@@ -941,30 +1456,68 @@ mod tests {
         assert!(shown_text(&g).iter().any(|t| t == "Nearby: 192.168.1.7"));
         g.online.row = 1;
         g.online_page(&a, None);
-        assert_eq!((g.page, g.online.through.as_deref()), (Page::Join, Some("192.168.1.7:12525")));
-        assert!(shown_text(&g).iter().any(|t| t.contains("Through nearby host 192.168.1.7:12525")));
+        assert_eq!(
+            (g.page, g.online.through.as_deref()),
+            (Page::Join, Some("192.168.1.7:12525"))
+        );
+        assert!(
+            shown_text(&g)
+                .iter()
+                .any(|t| t.contains("Through nearby host 192.168.1.7:12525"))
+        );
         g.typed("ACDEF\n");
         assert_eq!(g.page, Page::Lobby);
-        let Some(Request::Connect { room, ice }) = g.net_request() else { panic!("no connect") };
+        let Some(Request::Connect { room, ice }) = g.net_request() else {
+            panic!("no connect")
+        };
         assert!(room.starts_with("ws://192.168.1.7:12525/signal/"), "{room}");
         assert!(ice.is_empty());
-        assert!(g.save().relay.as_str().is_empty(), "the saved relay is not overwritten");
+        assert!(
+            g.save().relay.as_str().is_empty(),
+            "the saved relay is not overwritten"
+        );
 
-        g.lobby_page(&Input { pressed: Buttons::B, ..Input::default() }, None);
+        g.lobby_page(
+            &Input {
+                pressed: Buttons::B,
+                ..Input::default()
+            },
+            None,
+        );
         let _ = g.net_request();
         g.online_page(&a, None);
-        g.join_page(&Input { pressed: Buttons::Y, ..Input::default() }, None);
-        assert_eq!(g.online.through, None, "{{Y}} moves on to the relay setting");
+        g.join_page(
+            &Input {
+                pressed: Buttons::Y,
+                ..Input::default()
+            },
+            None,
+        );
+        assert_eq!(
+            g.online.through, None,
+            "{{Y}} moves on to the relay setting"
+        );
         g.set_nearby(vec!["192.168.1.7:12525".into()]);
-        assert_eq!(g.online.through, None, "and a beacon does not undo the pick");
+        assert_eq!(
+            g.online.through, None,
+            "and a beacon does not undo the pick"
+        );
         g.typed("ACDEF\n");
-        let Some(Request::Connect { room, .. }) = g.net_request() else { panic!("no connect") };
-        assert!(room.starts_with("wss://lh-relay.vps.pocketsquirrel.com/signal/"), "{room}");
+        let Some(Request::Connect { room, .. }) = g.net_request() else {
+            panic!("no connect")
+        };
+        assert!(
+            room.starts_with("wss://lh-relay.vps.pocketsquirrel.com/signal/"),
+            "{room}"
+        );
     }
 
     #[test]
     fn the_join_page_keeps_the_last_code_for_the_next_night() {
-        let a = Input { pressed: Buttons::A, ..Input::default() };
+        let a = Input {
+            pressed: Buttons::A,
+            ..Input::default()
+        };
         let mut g = Game::new(1);
         g.set_online(true);
         g.page = Page::Online;
@@ -972,12 +1525,26 @@ mod tests {
         g.online_page(&a, None);
         g.typed("ACDEF\n");
         assert!(matches!(g.net_request(), Some(Request::Connect { .. })));
-        g.lobby_page(&Input { pressed: Buttons::B, ..Input::default() }, None);
+        g.lobby_page(
+            &Input {
+                pressed: Buttons::B,
+                ..Input::default()
+            },
+            None,
+        );
         let _ = g.net_request();
         g.online_page(&a, None);
         assert_eq!((g.page, g.online.code.text.as_str()), (Page::Join, "ACDEF"));
-        g.join_page(&Input { pressed: Buttons::START, ..Input::default() }, None);
-        let Some(Request::Connect { room, .. }) = g.net_request() else { panic!("Start alone joins again") };
+        g.join_page(
+            &Input {
+                pressed: Buttons::START,
+                ..Input::default()
+            },
+            None,
+        );
+        let Some(Request::Connect { room, .. }) = g.net_request() else {
+            panic!("Start alone joins again")
+        };
         assert!(room.contains("ACDEF"), "{room}");
 
         let mut next = Game::new(1);
@@ -1006,27 +1573,69 @@ mod tests {
     fn a_relay_without_a_scheme_is_ws_on_a_lan_and_wss_by_name() {
         use crate::netplay::relay_urls;
         let urls = |r: &str| relay_urls(r, false).unwrap();
-        assert_eq!(urls(""), ("wss://lh-relay.vps.pocketsquirrel.com".into(), "https://lh-relay.vps.pocketsquirrel.com/ice".into()));
+        assert_eq!(
+            urls(""),
+            (
+                "wss://lh-relay.vps.pocketsquirrel.com".into(),
+                "https://lh-relay.vps.pocketsquirrel.com/ice".into()
+            )
+        );
         assert_eq!(urls("192.168.1.5:8097").0, "ws://192.168.1.5:8097");
         assert_eq!(urls("localhost:8080/").1, "http://localhost:8080/ice");
-        assert_eq!(urls("rgds:8097").0, "ws://rgds:8097", "a name with no dot is on the LAN");
+        assert_eq!(
+            urls("rgds:8097").0,
+            "ws://rgds:8097",
+            "a name with no dot is on the LAN"
+        );
         assert_eq!(urls("mac.local:8097").0, "ws://mac.local:8097");
         assert_eq!(urls("[::1]:8097").0, "ws://[::1]:8097");
         assert_eq!(urls("relay.example.com").0, "wss://relay.example.com");
-        assert_eq!(urls("relay.example.com:8443").1, "https://relay.example.com:8443/ice");
-        assert_eq!(urls("WS://relay.example.com").0, "ws://relay.example.com", "a typed scheme wins, in any case");
-        assert_eq!(urls("https://relay.example.com").0, "wss://relay.example.com");
+        assert_eq!(
+            urls("relay.example.com:8443").1,
+            "https://relay.example.com:8443/ice"
+        );
+        assert_eq!(
+            urls("WS://relay.example.com").0,
+            "ws://relay.example.com",
+            "a typed scheme wins, in any case"
+        );
+        assert_eq!(
+            urls("https://relay.example.com").0,
+            "wss://relay.example.com"
+        );
     }
 
     #[test]
     fn an_https_page_refuses_a_plain_relay_but_this_machines() {
         use crate::netplay::relay_urls;
-        assert_eq!(relay_urls("", true).unwrap().0, "wss://lh-relay.vps.pocketsquirrel.com");
-        assert_eq!(relay_urls("relay.example.com", true).unwrap().0, "wss://relay.example.com");
-        assert_eq!(relay_urls("localhost:8101", true).unwrap().0, "ws://localhost:8101", "browsers let a secure page reach loopback");
-        assert_eq!(relay_urls("ws://127.0.0.1:8101", true).unwrap().0, "ws://127.0.0.1:8101");
-        for r in ["192.168.1.5:8097", "ws://relay.example.com", "http://192.168.1.5:8097", "rgds:8097"] {
-            assert_eq!(relay_urls(r, true), Err(crate::netplay::INSECURE_RELAY.to_string()), "{r}");
+        assert_eq!(
+            relay_urls("", true).unwrap().0,
+            "wss://lh-relay.vps.pocketsquirrel.com"
+        );
+        assert_eq!(
+            relay_urls("relay.example.com", true).unwrap().0,
+            "wss://relay.example.com"
+        );
+        assert_eq!(
+            relay_urls("localhost:8101", true).unwrap().0,
+            "ws://localhost:8101",
+            "browsers let a secure page reach loopback"
+        );
+        assert_eq!(
+            relay_urls("ws://127.0.0.1:8101", true).unwrap().0,
+            "ws://127.0.0.1:8101"
+        );
+        for r in [
+            "192.168.1.5:8097",
+            "ws://relay.example.com",
+            "http://192.168.1.5:8097",
+            "rgds:8097",
+        ] {
+            assert_eq!(
+                relay_urls(r, true),
+                Err(crate::netplay::INSECURE_RELAY.to_string()),
+                "{r}"
+            );
         }
         let mut g = Game::new(1);
         g.set_online(true);
@@ -1045,7 +1654,13 @@ mod tests {
         let mut touches = [None; crate::MAX_TOUCHES];
         touches[0] = Some([rx + x / SCREEN_W * rw, ry + y / crate::SCREEN_H * rh]);
         assert!(touches[0].is_some_and(|[x, y]| x < size[0] && y < size[1]));
-        g.update(&Input { touches, ..Input::default() }, 0.016);
+        g.update(
+            &Input {
+                touches,
+                ..Input::default()
+            },
+            0.016,
+        );
         g.update(&Input::default(), 0.016);
     }
 
@@ -1056,7 +1671,10 @@ mod tests {
     fn type_by_touch(g: &mut Game, size: [f32; 2], text: &str, chars: &[u8], cols: usize) {
         let all = keys(chars, cols);
         for ch in text.bytes() {
-            let (r, _) = all.iter().find(|(_, k)| matches!(k, Key::Char(c) if *c == ch)).expect("a key for each character");
+            let (r, _) = all
+                .iter()
+                .find(|(_, k)| matches!(k, Key::Char(c) if *c == ch))
+                .expect("a key for each character");
             tap(g, size, middle(*r));
         }
         let (done, _) = all.iter().find(|(_, k)| matches!(k, Key::Done)).unwrap();
@@ -1078,7 +1696,10 @@ mod tests {
                 closed |= r == Request::Close;
             }
         }
-        assert!(closed && g.net_traffic().is_none(), "the shell is asked to close the socket");
+        assert!(
+            closed && g.net_traffic().is_none(),
+            "the shell is asked to close the socket"
+        );
     }
 
     #[test]
@@ -1089,41 +1710,76 @@ mod tests {
         g.set_touch(true);
         g.set_online(true);
         let phone = g.draw().phone.unwrap();
-        let (rect, canvas) = if phone.bottom.is_some() { (phone.bottom, g.draw().bottom) } else { (phone.top, g.draw().top) };
+        let (rect, canvas) = if phone.bottom.is_some() {
+            (phone.bottom, g.draw().bottom)
+        } else {
+            (phone.top, g.draw().top)
+        };
         let [rx, ry, rw, rh] = rect.unwrap();
         let at = canvas.shapes.iter().find_map(|s| match s {
-            crate::draw::Shape::Text { text, x, y, size, .. } if text == "Online" => Some([*x, y + size / 2.0]),
+            crate::draw::Shape::Text {
+                text, x, y, size, ..
+            } if text == "Online" => Some([*x, y + size / 2.0]),
             _ => None,
         });
         let [x, y] = at.expect("Online on the title menu");
         let mut touches = [None; crate::MAX_TOUCHES];
         touches[0] = Some([rx + x / SCREEN_W * rw, ry + y / crate::SCREEN_H * rh]);
-        g.update(&Input { touches, ..Input::default() }, 0.016);
+        g.update(
+            &Input {
+                touches,
+                ..Input::default()
+            },
+            0.016,
+        );
         g.update(&Input::default(), 0.016);
         assert_eq!(g.page, Page::Online, "a tap on Online opens it");
 
         tap(&mut g, size, middle(online_row(2, 4)));
         assert_eq!(g.page, Page::Relay, "a tap on Relay opens its keys");
         type_by_touch(&mut g, size, "10.0.0.2:8097", RELAY_KEYS, 10);
-        assert_eq!((g.page, g.save().relay.as_str()), (Page::Online, "10.0.0.2:8097"));
+        assert_eq!(
+            (g.page, g.save().relay.as_str()),
+            (Page::Online, "10.0.0.2:8097")
+        );
 
         tap(&mut g, size, middle(online_row(1, 4)));
         assert_eq!(g.page, Page::Join);
         let join_keys = keys(ALPHABET, 7);
-        let (first_ch, _) = join_keys.iter().find(|(_, k)| matches!(k, Key::Char(_))).unwrap();
-        let (join_back, _) = join_keys.iter().find(|(_, k)| matches!(k, Key::Back)).unwrap();
+        let (first_ch, _) = join_keys
+            .iter()
+            .find(|(_, k)| matches!(k, Key::Char(_)))
+            .unwrap();
+        let (join_back, _) = join_keys
+            .iter()
+            .find(|(_, k)| matches!(k, Key::Back))
+            .unwrap();
         tap(&mut g, size, middle(*first_ch));
         tap(&mut g, size, middle(*join_back));
-        assert_eq!(g.page, Page::Online, "a tap on Back leaves Join without a gamepad");
+        assert_eq!(
+            g.page,
+            Page::Online,
+            "a tap on Back leaves Join without a gamepad"
+        );
 
         tap(&mut g, size, middle(online_row(2, 4)));
         assert_eq!(g.page, Page::Relay);
         let relay_keys = keys(RELAY_KEYS, 10);
-        let (relay_del, _) = relay_keys.iter().find(|(_, k)| matches!(k, Key::Delete)).unwrap();
-        let (relay_back, _) = relay_keys.iter().find(|(_, k)| matches!(k, Key::Back)).unwrap();
+        let (relay_del, _) = relay_keys
+            .iter()
+            .find(|(_, k)| matches!(k, Key::Delete))
+            .unwrap();
+        let (relay_back, _) = relay_keys
+            .iter()
+            .find(|(_, k)| matches!(k, Key::Back))
+            .unwrap();
         tap(&mut g, size, middle(*relay_del));
         tap(&mut g, size, middle(*relay_back));
-        assert_eq!((g.page, g.save().relay.as_str()), (Page::Online, "10.0.0.2:8097"), "Back leaves Relay without saving");
+        assert_eq!(
+            (g.page, g.save().relay.as_str()),
+            (Page::Online, "10.0.0.2:8097"),
+            "Back leaves Relay without saving"
+        );
 
         tap(&mut g, size, middle(online_row(1, 4)));
         assert_eq!(g.page, Page::Join);
@@ -1139,17 +1795,41 @@ mod tests {
     fn every_key_on_both_keyboards_is_reached_from_its_neighbours_in_all_four_directions() {
         for (chars, cols) in [(&ALPHABET[..], 7), (RELAY_KEYS, 10)] {
             let (n, len) = (keys(chars, cols).len(), chars.len());
-            assert_eq!(step_key(n - 3, 1, 0, len, cols), n - 2, "Right from Back is Delete");
-            assert_eq!(step_key(n - 2, 1, 0, len, cols), n - 1, "Right from Delete is Done");
-            assert_eq!(step_key(n - 1, 1, 0, len, cols), n - 3, "and wraps back to Back");
-            assert_eq!(step_key(n - 1, -1, 0, len, cols), n - 2, "Left from Done is Delete");
-            assert_eq!(step_key(n - 2, -1, 0, len, cols), n - 3, "Left from Delete is Back");
+            assert_eq!(
+                step_key(n - 3, 1, 0, len, cols),
+                n - 2,
+                "Right from Back is Delete"
+            );
+            assert_eq!(
+                step_key(n - 2, 1, 0, len, cols),
+                n - 1,
+                "Right from Delete is Done"
+            );
+            assert_eq!(
+                step_key(n - 1, 1, 0, len, cols),
+                n - 3,
+                "and wraps back to Back"
+            );
+            assert_eq!(
+                step_key(n - 1, -1, 0, len, cols),
+                n - 2,
+                "Left from Done is Delete"
+            );
+            assert_eq!(
+                step_key(n - 2, -1, 0, len, cols),
+                n - 3,
+                "Left from Delete is Back"
+            );
             for at in 0..n {
                 for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
                     let to = step_key(at, dx, dy, len, cols);
                     assert!(to < n, "{at} steps ({dx}, {dy}) off the keys to {to}");
                     if dx != 0 {
-                        assert_eq!(step_key(to, -dx, 0, len, cols), at, "left and right undo each other");
+                        assert_eq!(
+                            step_key(to, -dx, 0, len, cols),
+                            at,
+                            "left and right undo each other"
+                        );
                     }
                 }
             }
@@ -1157,7 +1837,10 @@ mod tests {
             let mut todo = vec![0];
             while let Some(at) = todo.pop() {
                 if !std::mem::replace(&mut seen[at], true) {
-                    todo.extend([(1, 0), (-1, 0), (0, 1), (0, -1)].map(|(dx, dy)| step_key(at, dx, dy, len, cols)));
+                    todo.extend(
+                        [(1, 0), (-1, 0), (0, 1), (0, -1)]
+                            .map(|(dx, dy)| step_key(at, dx, dy, len, cols)),
+                    );
                 }
             }
             assert!(seen.iter().all(|&s| s), "every key is reached: {seen:?}");

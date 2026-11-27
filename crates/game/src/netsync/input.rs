@@ -31,7 +31,9 @@ pub struct InputFrame {
 const YAW_STEPS: f32 = 2048.0;
 
 fn steps(v: f32) -> i16 {
-    (v * YAW_STEPS).round().clamp(i16::MIN as f32, i16::MAX as f32) as i16
+    (v * YAW_STEPS)
+        .round()
+        .clamp(i16::MIN as f32, i16::MAX as f32) as i16
 }
 
 fn q(v: f32) -> i8 {
@@ -40,11 +42,26 @@ fn q(v: f32) -> i8 {
 
 impl InputFrame {
     pub fn of(i: &Input) -> Self {
-        Self { held: i.held.0, pressed: i.pressed.0, stick: i.stick.map(q), look: q(i.look), yaw: steps(i.yaw), pitch: steps(i.pitch) }
+        Self {
+            held: i.held.0,
+            pressed: i.pressed.0,
+            stick: i.stick.map(q),
+            look: q(i.look),
+            yaw: steps(i.yaw),
+            pitch: steps(i.pitch),
+        }
     }
 
     pub fn input(&self) -> Input {
-        Input { held: Buttons(self.held), pressed: Buttons(self.pressed), stick: self.stick.map(|v| v as f32 / 127.0), look: self.look as f32 / 127.0, yaw: self.yaw as f32 / YAW_STEPS, pitch: self.pitch as f32 / YAW_STEPS, ..Input::default() }
+        Input {
+            held: Buttons(self.held),
+            pressed: Buttons(self.pressed),
+            stick: self.stick.map(|v| v as f32 / 127.0),
+            look: self.look as f32 / 127.0,
+            yaw: self.yaw as f32 / YAW_STEPS,
+            pitch: self.pitch as f32 / YAW_STEPS,
+            ..Input::default()
+        }
     }
 
     fn write(&self, w: &mut Writer) {
@@ -58,7 +75,14 @@ impl InputFrame {
     }
 
     fn read(r: &mut Reader) -> Option<Self> {
-        Some(Self { held: r.var()?, pressed: r.var()?, stick: [r.i8()?, r.i8()?], look: r.i8()?, yaw: r.i16()?, pitch: r.i16()? })
+        Some(Self {
+            held: r.var()?,
+            pressed: r.var()?,
+            stick: [r.i8()?, r.i8()?],
+            look: r.i8()?,
+            yaw: r.i16()?,
+            pitch: r.i16()?,
+        })
     }
 }
 
@@ -81,7 +105,11 @@ impl InputMsg {
     pub fn encode(&self) -> Vec<u8> {
         let mut w = Writer::new();
         w.u8(super::snapshot::VERSION);
-        w.var(self.ack_snapshot.and_then(|t| t.checked_add(1)).unwrap_or(0));
+        w.var(
+            self.ack_snapshot
+                .and_then(|t| t.checked_add(1))
+                .unwrap_or(0),
+        );
         w.var(self.ack_event);
         w.u8(self.seats.len() as u8);
         for s in &self.seats {
@@ -103,10 +131,16 @@ impl InputMsg {
         let mut seats = Vec::new();
         for _ in 0..r.u8()? {
             let (seat, last) = (r.u8()?, r.var()?);
-            let frames = (0..r.u8()?).map(|_| InputFrame::read(&mut r)).collect::<Option<Vec<_>>>()?;
+            let frames = (0..r.u8()?)
+                .map(|_| InputFrame::read(&mut r))
+                .collect::<Option<Vec<_>>>()?;
             seats.push(SeatInputs { seat, last, frames });
         }
-        Some(Self { ack_snapshot, ack_event, seats })
+        Some(Self {
+            ack_snapshot,
+            ack_event,
+            seats,
+        })
     }
 }
 
@@ -125,7 +159,11 @@ impl InputLog {
     }
 
     pub fn seat(&self, seat: u8) -> SeatInputs {
-        SeatInputs { seat, last: self.frames.last().map_or(0, |f| f.0), frames: self.frames.iter().map(|f| f.1).collect() }
+        SeatInputs {
+            seat,
+            last: self.frames.last().map_or(0, |f| f.0),
+            frames: self.frames.iter().map(|f| f.1).collect(),
+        }
     }
 }
 
@@ -146,13 +184,20 @@ impl InputQueue {
     pub fn receive(&mut self, s: &SeatInputs) {
         let n = s.frames.len() as u64;
         for (i, f) in s.frames.iter().enumerate() {
-            let Some(tick) = (s.last as u64 + 1 + i as u64).checked_sub(n).and_then(|t| u32::try_from(t).ok()) else { continue };
+            let Some(tick) = (s.last as u64 + 1 + i as u64)
+                .checked_sub(n)
+                .and_then(|t| u32::try_from(t).ok())
+            else {
+                continue;
+            };
             if self.played.is_none_or(|p| tick > p) && self.queued.insert(tick, *f).is_none() {
                 self.quiet = 0;
             }
         }
         while self.queued.len() > MOST_QUEUED {
-            let Some((t, f)) = self.queued.pop_first() else { break };
+            let Some((t, f)) = self.queued.pop_first() else {
+                break;
+            };
             self.played = Some(t);
             self.skipped |= f.pressed;
             self.skipped_yaw += f.input().yaw;
@@ -177,7 +222,11 @@ impl InputQueue {
             }
             None => {
                 self.quiet = self.quiet.saturating_add(1);
-                let mut i = if self.quiet > STALE_TICKS { Input::default() } else { self.last.input() };
+                let mut i = if self.quiet > STALE_TICKS {
+                    Input::default()
+                } else {
+                    self.last.input()
+                };
                 i.pressed = Buttons(std::mem::take(&mut self.skipped));
                 i.yaw = std::mem::take(&mut self.skipped_yaw);
                 i.pitch = std::mem::take(&mut self.skipped_pitch);
@@ -199,9 +248,23 @@ mod tests {
     fn a_message_reads_back() {
         let mut log = InputLog::default();
         for t in 1..=10 {
-            log.push(t, InputFrame { held: t, pressed: (t == 9) as u32 * Buttons::B.0, stick: [-127, 64], look: 5, yaw: -300, pitch: 77 });
+            log.push(
+                t,
+                InputFrame {
+                    held: t,
+                    pressed: (t == 9) as u32 * Buttons::B.0,
+                    stick: [-127, 64],
+                    look: 5,
+                    yaw: -300,
+                    pitch: 77,
+                },
+            );
         }
-        let msg = InputMsg { ack_snapshot: Some(0), ack_event: 4, seats: vec![log.seat(1)] };
+        let msg = InputMsg {
+            ack_snapshot: Some(0),
+            ack_event: 4,
+            seats: vec![log.seat(1)],
+        };
         assert_eq!(msg.seats[0].frames.len(), HISTORY);
         assert_eq!(InputMsg::decode(&msg.encode()), Some(msg));
     }
@@ -212,7 +275,13 @@ mod tests {
         let mut host = InputQueue::default();
         let mut played = Vec::new();
         for t in 1..=40u32 {
-            log.push(t, InputFrame { held: t, ..Default::default() });
+            log.push(
+                t,
+                InputFrame {
+                    held: t,
+                    ..Default::default()
+                },
+            );
             if t % 2 == 0 && t % 6 != 0 {
                 host.receive(&log.seat(0));
             }
@@ -232,15 +301,35 @@ mod tests {
     fn mouse_look_plays_once_and_never_repeats_while_quiet() {
         let mut log = InputLog::default();
         let mut host = InputQueue::default();
-        log.push(1, InputFrame { yaw: 512, ..Default::default() });
+        log.push(
+            1,
+            InputFrame {
+                yaw: 512,
+                ..Default::default()
+            },
+        );
         host.receive(&log.seat(0));
         assert_eq!(host.play().0.yaw, 0.25);
-        assert_eq!(host.play().0.yaw, 0.0, "a quiet tick holds buttons, not the turn");
+        assert_eq!(
+            host.play().0.yaw,
+            0.0,
+            "a quiet tick holds buttons, not the turn"
+        );
         for t in 2..=HISTORY as u32 + 1 {
-            log.push(t, InputFrame { yaw: 64, ..Default::default() });
+            log.push(
+                t,
+                InputFrame {
+                    yaw: 64,
+                    ..Default::default()
+                },
+            );
         }
         host.receive(&log.seat(0));
         let turned: f32 = (0..HISTORY + 2).map(|_| host.play().0.yaw).sum();
-        assert_eq!(turned, HISTORY as f32 * 64.0 / YAW_STEPS, "ticks skipped to catch up still turn");
+        assert_eq!(
+            turned,
+            HISTORY as f32 * 64.0 / YAW_STEPS,
+            "ticks skipped to catch up still turn"
+        );
     }
 }

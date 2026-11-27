@@ -158,8 +158,13 @@ impl Harvest {
         while self.players.len() < n {
             let p = self.players.len();
             let mine = self.me().look.clone();
-            let others: Vec<&'static PlayerLook> = players::looks().iter().filter(|l| l.id != mine).collect();
-            let look = if others.is_empty() { players::look(&mine) } else { others[(p - 1) % others.len()] };
+            let others: Vec<&'static PlayerLook> =
+                players::looks().iter().filter(|l| l.id != mine).collect();
+            let look = if others.is_empty() {
+                players::look(&mine)
+            } else {
+                others[(p - 1) % others.len()]
+            };
             let pos = self.beside_spawn(p);
             let player = self.new_player(pos, look);
             self.players.push(player);
@@ -184,10 +189,24 @@ impl Harvest {
     /// Player `p`'s card, health, speed, magnet and weapons as the night starts them, one line, for tests.
     #[doc(hidden)]
     pub fn seat_summary(&self, p: PlayerId) -> String {
-        let Some(pl) = self.players.get(p) else { return String::new() };
+        let Some(pl) = self.players.get(p) else {
+            return String::new();
+        };
         let k = &pl.kit;
-        let weapons: Vec<&str> = k.weapons.iter().map(|w| super::book().defs[w.def].id.as_str()).collect();
-        format!("{} hp={}/{} speed={} magnet={} weapons={}", pl.look, pl.hp, k.max_hp(), k.speed(), k.magnet(), weapons.join(","))
+        let weapons: Vec<&str> = k
+            .weapons
+            .iter()
+            .map(|w| super::book().defs[w.def].id.as_str())
+            .collect();
+        format!(
+            "{} hp={}/{} speed={} magnet={} weapons={}",
+            pl.look,
+            pl.hp,
+            k.max_hp(),
+            k.speed(),
+            k.magnet(),
+            weapons.join(",")
+        )
     }
 
     /// Adds `n` scripted players after the players already in the run, each walking and steering by what its own map
@@ -195,7 +214,9 @@ impl Harvest {
     pub fn with_bots(self, n: usize) -> Self {
         let first = self.players.len();
         let mut h = self.with_players(first + n);
-        h.bots = (first..h.players.len()).map(|p| (p, Bot::new(Walk::Avoid, 0.25, 0.0, 12.0))).collect();
+        h.bots = (first..h.players.len())
+            .map(|p| (p, Bot::new(Walk::Avoid, 0.25, 0.0, 12.0)))
+            .collect();
         h
     }
 
@@ -237,7 +258,9 @@ impl Harvest {
     pub(super) fn new_player(&self, pos: [f32; 2], look: &PlayerLook) -> Player {
         let d = self.difficulty;
         let t = d.tier();
-        let mut kit = look.start_defs(t).map_or_else(|| Kit::start(t), |defs| Kit::with_weapons(&defs, t));
+        let mut kit = look
+            .start_defs(t)
+            .map_or_else(|| Kit::start(t), |defs| Kit::with_weapons(&defs, t));
         for (b, theirs) in kit.base.iter_mut().zip(look.base) {
             *b = theirs.unwrap_or(*b);
         }
@@ -255,6 +278,10 @@ impl Harvest {
     /// The living player nearest `at`, or the local player when none stands.
     pub(super) fn nearest_player(&self, at: [f32; 2]) -> PlayerId {
         let living = self.players.iter().enumerate().filter(|(_, p)| p.alive());
-        living.min_by(|a, b| super::len(super::sub(a.1.pos, at)).total_cmp(&super::len(super::sub(b.1.pos, at)))).map_or(ME, |(i, _)| i)
+        living
+            .min_by(|a, b| {
+                super::len(super::sub(a.1.pos, at)).total_cmp(&super::len(super::sub(b.1.pos, at)))
+            })
+            .map_or(ME, |(i, _)| i)
     }
 }

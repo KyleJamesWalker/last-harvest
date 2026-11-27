@@ -11,9 +11,17 @@ const PARTS: [&str; 3] = ["FRONT", "SIDE", "BACK"];
 /// hurt and dead, named after the card.
 fn entries() -> Vec<(String, Vec<Art>)> {
     let catalog = ALL.iter().filter(|(n, _)| *n != "SCRATCH");
-    let mut out: Vec<(String, Vec<Art>)> = catalog.map(|(n, f)| (n.to_string(), f.to_vec())).collect();
-    let cards = roster().enemies.iter().filter(|e| e.from_card).map(|e| (format!("CARD {}", e.id), &e.look));
-    let players = player_looks().iter().skip(1).map(|p| (format!("PLAYER CARD {}", p.id), &p.look));
+    let mut out: Vec<(String, Vec<Art>)> =
+        catalog.map(|(n, f)| (n.to_string(), f.to_vec())).collect();
+    let cards = roster()
+        .enemies
+        .iter()
+        .filter(|e| e.from_card)
+        .map(|e| (format!("CARD {}", e.id), &e.look));
+    let players = player_looks()
+        .iter()
+        .skip(1)
+        .map(|p| (format!("PLAYER CARD {}", p.id), &p.look));
     for (name, look) in cards.chain(players) {
         for (part, walk) in PARTS.iter().zip(&look.walk) {
             out.push((format!("{name} {part}"), walk.clone()));
@@ -49,7 +57,11 @@ fn layout(entries: &[(String, Vec<Art>)]) -> (Vec<[f32; 2]>, f32) {
 }
 
 fn size(name: &str, frames: &[Art]) -> (f32, f32) {
-    let w = frames.iter().map(|a| a.w() * SCALE + 4.0).sum::<f32>().max(name.len() as f32 * 9.0);
+    let w = frames
+        .iter()
+        .map(|a| a.w() * SCALE + 4.0)
+        .sum::<f32>()
+        .max(name.len() as f32 * 9.0);
     let h = frames.iter().map(|a| a.h() * SCALE).fold(0.0, f32::max) + LABEL + 4.0;
     (w, h)
 }
@@ -61,7 +73,8 @@ pub struct Gallery {
 
 impl Gallery {
     pub fn update(&mut self, input: &Input, dt: f32) {
-        let dy = input.held.contains(Buttons::DOWN) as i32 - input.held.contains(Buttons::UP) as i32;
+        let dy =
+            input.held.contains(Buttons::DOWN) as i32 - input.held.contains(Buttons::UP) as i32;
         self.scroll += dy as f32 * SCROLL * dt;
         if input.pressed.contains(Buttons::R1) {
             self.scroll += SCREEN_H * 2.0;
@@ -87,7 +100,14 @@ impl Gallery {
                 if cy + h < 0.0 || cy > SCREEN_H {
                     continue;
                 }
-                canvas.label(name.as_str(), x, cy, LABEL, [1.0, 1.0, 0.6, 1.0], Align::Left);
+                canvas.label(
+                    name.as_str(),
+                    x,
+                    cy,
+                    LABEL,
+                    [1.0, 1.0, 0.6, 1.0],
+                    Align::Left,
+                );
                 let mut fx = x;
                 for art in frames {
                     canvas.art(*art, fx, cy + LABEL + 4.0, SCALE, false, [1.0; 4]);
@@ -108,10 +128,22 @@ mod tests {
         let (at, height) = layout(&entries());
         assert_eq!(at.len(), entries().len());
         for _ in 0..200 {
-            g.update(&Input { pressed: Buttons::R1, ..Default::default() }, 0.016);
+            g.update(
+                &Input {
+                    pressed: Buttons::R1,
+                    ..Default::default()
+                },
+                0.016,
+            );
         }
         assert_eq!(g.scroll, (height - SCREEN_H * 2.0).max(0.0));
-        g.update(&Input { pressed: Buttons::L1, ..Default::default() }, 0.016);
+        g.update(
+            &Input {
+                pressed: Buttons::L1,
+                ..Default::default()
+            },
+            0.016,
+        );
         assert!(g.scroll < (height - SCREEN_H * 2.0).max(0.0) || height <= SCREEN_H * 2.0);
         g.draw(&mut Frame::default());
     }

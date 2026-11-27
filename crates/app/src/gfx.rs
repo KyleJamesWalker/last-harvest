@@ -2,21 +2,28 @@ use std::error::Error;
 use std::num::NonZeroU32;
 
 use glutin::config::{Config, ConfigTemplateBuilder, GlConfig};
-use glutin::context::{ContextApi, ContextAttributesBuilder, GlProfile, NotCurrentGlContext, PossiblyCurrentContext, PossiblyCurrentGlContext, Version};
+use glutin::context::{
+    ContextApi, ContextAttributesBuilder, GlProfile, NotCurrentGlContext, PossiblyCurrentContext,
+    PossiblyCurrentGlContext, Version,
+};
 use glutin::display::{GetGlDisplay, GlDisplay};
 use glutin::surface::{GlSurface, Surface, SwapInterval, WindowSurface};
 use glutin_winit::{DisplayBuilder, GlWindow};
-use raw_window_handle::HasWindowHandle;
 use last_harvest::log;
 use last_harvest::shot::{Shot, read_back, stack};
 use last_harvest_game::Frame;
 use last_harvest_render::{Profile, Renderer};
+use raw_window_handle::HasWindowHandle;
 use winit::dpi::{LogicalPosition, LogicalSize, PhysicalSize};
 use winit::event_loop::ActiveEventLoop;
 use winit::window::{Fullscreen, Icon, Window, WindowAttributes, WindowId};
 
 const MAX_SAMPLES: u8 = 4;
-const PROFILE: Profile = if cfg!(target_os = "linux") { Profile::Gles } else { Profile::Desktop };
+const PROFILE: Profile = if cfg!(target_os = "linux") {
+    Profile::Gles
+} else {
+    Profile::Desktop
+};
 
 pub struct Screen {
     pub window: Window,
@@ -52,12 +59,24 @@ impl Gfx {
             .with_window_attributes(Some(top_attrs))
             .build(el, template, |configs| {
                 configs
-                    .max_by_key(|c| (c.depth_size().min(24), c.num_samples().min(MAX_SAMPLES), std::cmp::Reverse(c.num_samples())))
+                    .max_by_key(|c| {
+                        (
+                            c.depth_size().min(24),
+                            c.num_samples().min(MAX_SAMPLES),
+                            std::cmp::Reverse(c.num_samples()),
+                        )
+                    })
                     .expect("no GL config")
             })?;
-        log!("gl config: depth {} bits, {} samples", config.depth_size(), config.num_samples());
+        log!(
+            "gl config: depth {} bits, {} samples",
+            config.depth_size(),
+            config.num_samples()
+        );
         let top_window = top_window.ok_or("display builder made no window")?;
-        let bottom_window = bottom_attrs.map(|a| glutin_winit::finalize_window(el, a, &config)).transpose()?;
+        let bottom_window = bottom_attrs
+            .map(|a| glutin_winit::finalize_window(el, a, &config))
+            .transpose()?;
 
         let api = match PROFILE {
             Profile::Gles => ContextApi::Gles(Some(Version::new(3, 0))),
@@ -76,18 +95,32 @@ impl Gfx {
         if let Some(bottom) = &bottom {
             context.make_current(&bottom.surface)?;
             // Vsync on one screen paces the loop; waiting on both would halve the frame rate.
-            bottom.surface.set_swap_interval(&context, SwapInterval::DontWait).ok();
+            bottom
+                .surface
+                .set_swap_interval(&context, SwapInterval::DontWait)
+                .ok();
             context.make_current(&top.surface)?;
         }
-        top.surface.set_swap_interval(&context, SwapInterval::Wait(NonZeroU32::MIN)).ok();
+        top.surface
+            .set_swap_interval(&context, SwapInterval::Wait(NonZeroU32::MIN))
+            .ok();
 
-        let gl = unsafe { glow::Context::from_loader_function_cstr(|s| display.get_proc_address(s)) };
+        let gl =
+            unsafe { glow::Context::from_loader_function_cstr(|s| display.get_proc_address(s)) };
         let renderer = Renderer::new(&gl, PROFILE)?;
-        Ok(Self { top, bottom, context, gl, renderer })
+        Ok(Self {
+            top,
+            bottom,
+            context,
+            gl,
+            renderer,
+        })
     }
 
     pub fn resize(&self, id: WindowId, size: PhysicalSize<u32>) {
-        let (Some(w), Some(h)) = (NonZeroU32::new(size.width), NonZeroU32::new(size.height)) else { return };
+        let (Some(w), Some(h)) = (NonZeroU32::new(size.width), NonZeroU32::new(size.height)) else {
+            return;
+        };
         for screen in std::iter::once(&self.top).chain(&self.bottom) {
             if screen.window.id() == id {
                 screen.surface.resize(&self.context, w, h);
@@ -98,12 +131,28 @@ impl Gfx {
     /// Draws both screens, or in one window the frame as on a phone, or its top screen in `views` split-screen views.
     /// With `capture`, also returns what was drawn, two screens stacked top above bottom, as RGBA rows, and where
     /// the top screen is in it.
-    pub fn render(&mut self, frame: &Frame, views: Option<usize>, capture: bool) -> Result<Option<Shot>, Box<dyn Error>> {
-        let Self { top, bottom, context, gl, renderer } = self;
+    pub fn render(
+        &mut self,
+        frame: &Frame,
+        views: Option<usize>,
+        capture: bool,
+    ) -> Result<Option<Shot>, Box<dyn Error>> {
+        let Self {
+            top,
+            bottom,
+            context,
+            gl,
+            renderer,
+        } = self;
         if let (None, Some(n)) = (&bottom, views) {
             context.make_current(&top.surface)?;
             let size = top.window.inner_size();
-            last_harvest::draw_split(renderer, gl, &last_harvest::frame_views(frame, n), [size.width as i32, size.height as i32]);
+            last_harvest::draw_split(
+                renderer,
+                gl,
+                &last_harvest::frame_views(frame, n),
+                [size.width as i32, size.height as i32],
+            );
             let shot = capture.then(|| read_back(gl, size.width, size.height));
             top.surface.swap_buffers(context)?;
             return Ok(shot);
@@ -111,14 +160,25 @@ impl Gfx {
         if let (None, Some(phone)) = (&bottom, &frame.phone) {
             context.make_current(&top.surface)?;
             let size = top.window.inner_size();
-            last_harvest::draw_phone(renderer, gl, frame, phone, [size.width as i32, size.height as i32]);
+            last_harvest::draw_phone(
+                renderer,
+                gl,
+                frame,
+                phone,
+                [size.width as i32, size.height as i32],
+            );
             let pic = phone.top.map(|r| r.map(|v| v.round().max(0.0) as u32));
-            let shot = capture.then(|| Shot { top: pic.unwrap_or([0, 0, size.width, size.height]), ..read_back(gl, size.width, size.height) });
+            let shot = capture.then(|| Shot {
+                top: pic.unwrap_or([0, 0, size.width, size.height]),
+                ..read_back(gl, size.width, size.height)
+            });
             top.surface.swap_buffers(context)?;
             return Ok(shot);
         }
         let mut shots = Vec::new();
-        for (screen, canvas) in std::iter::once((&*top, &frame.top)).chain(bottom.as_ref().map(|b| (b, &frame.bottom))) {
+        for (screen, canvas) in
+            std::iter::once((&*top, &frame.top)).chain(bottom.as_ref().map(|b| (b, &frame.bottom)))
+        {
             context.make_current(&screen.surface)?;
             let size = screen.window.inner_size();
             renderer.draw(gl, canvas, [0, 0, size.width as i32, size.height as i32]);
@@ -128,31 +188,52 @@ impl Gfx {
             screen.surface.swap_buffers(context)?;
         }
         let top = shots.first().map_or([0; 4], |s| [0, 0, s.width, s.height]);
-        Ok(capture.then(|| Shot { top, ..stack(shots) }))
+        Ok(capture.then(|| Shot {
+            top,
+            ..stack(shots)
+        }))
     }
 }
 
 /// The game's icon for its windows, where the system shows one: macOS takes the app bundle's instead.
 fn icon() -> Option<Icon> {
-    let mut reader = png::Decoder::new(std::io::Cursor::new(include_bytes!("../../../assets/private/icons/game-32.png"))).read_info().ok()?;
+    let mut reader = png::Decoder::new(std::io::Cursor::new(include_bytes!(
+        "../../../assets/private/icons/game-32.png"
+    )))
+    .read_info()
+    .ok()?;
     let mut rgba = vec![0; reader.output_buffer_size()?];
     let info = reader.next_frame(&mut rgba).ok()?;
     if info.color_type != png::ColorType::Rgba {
         return None;
     }
-    Icon::from_rgba(rgba, info.width, info.height).inspect_err(|e| log!("icon: {e}")).ok()
+    Icon::from_rgba(rgba, info.width, info.height)
+        .inspect_err(|e| log!("icon: {e}"))
+        .ok()
 }
 
 /// The top window's attributes, and the bottom's when there are `two`: full screen on each of the device's screens,
 /// else small windows one above the other. One window is resizable and as wide as a phone held sideways.
 fn window_attrs(el: &ActiveEventLoop, two: bool) -> (WindowAttributes, Option<WindowAttributes>) {
-    let base = |title: &str| Window::default_attributes().with_title(title).with_resizable(false).with_window_icon(icon());
+    let base = |title: &str| {
+        Window::default_attributes()
+            .with_title(title)
+            .with_resizable(false)
+            .with_window_icon(icon())
+    };
     let monitors: Vec<_> = el.available_monitors().collect();
     for m in &monitors {
-        log!("monitor {:?} {:?} at {:?}", m.name(), m.size(), m.position());
+        log!(
+            "monitor {:?} {:?} at {:?}",
+            m.name(),
+            m.size(),
+            m.position()
+        );
     }
     if !two {
-        let attrs = Window::default_attributes().with_title("Last Harvest").with_window_icon(icon());
+        let attrs = Window::default_attributes()
+            .with_title("Last Harvest")
+            .with_window_icon(icon());
         let attrs = match window_size() {
             Some([w, h]) => attrs.with_inner_size(PhysicalSize::new(w, h)),
             None => attrs.with_inner_size(LogicalSize::new(1200.0, 600.0)),
@@ -160,18 +241,36 @@ fn window_attrs(el: &ActiveEventLoop, two: bool) -> (WindowAttributes, Option<Wi
         return (attrs, None);
     }
     if cfg!(target_os = "linux") && monitors.len() >= 2 {
-        let swapped = std::fs::read_to_string("/sys/class/anbernic_misc/lcdswap").is_ok_and(|s| s.trim() == "1");
-        let top_name = std::env::var("LAST_HARVEST_TOP").unwrap_or_else(|_| if swapped { "DSI-2" } else { "DSI-1" }.into());
-        let top = monitors.iter().find(|m| m.name().as_deref() == Some(&top_name)).unwrap_or(&monitors[0]);
-        let bottom = monitors.iter().find(|m| m.name() != top.name()).unwrap_or(&monitors[1]);
+        let swapped = std::fs::read_to_string("/sys/class/anbernic_misc/lcdswap")
+            .is_ok_and(|s| s.trim() == "1");
+        let top_name = std::env::var("LAST_HARVEST_TOP")
+            .unwrap_or_else(|_| if swapped { "DSI-2" } else { "DSI-1" }.into());
+        let top = monitors
+            .iter()
+            .find(|m| m.name().as_deref() == Some(&top_name))
+            .unwrap_or(&monitors[0]);
+        let bottom = monitors
+            .iter()
+            .find(|m| m.name() != top.name())
+            .unwrap_or(&monitors[1]);
         log!("top={:?} bottom={:?}", top.name(), bottom.name());
-        let full = |m: &winit::monitor::MonitorHandle| Some(Fullscreen::Borderless(Some(m.clone())));
-        (base("last-harvest top").with_fullscreen(full(top)), Some(base("last-harvest bottom").with_fullscreen(full(bottom))))
+        let full =
+            |m: &winit::monitor::MonitorHandle| Some(Fullscreen::Borderless(Some(m.clone())));
+        (
+            base("last-harvest top").with_fullscreen(full(top)),
+            Some(base("last-harvest bottom").with_fullscreen(full(bottom))),
+        )
     } else {
         let size = LogicalSize::new(512.0, 384.0);
         (
-            base("last-harvest top").with_inner_size(size).with_position(LogicalPosition::new(200.0, 60.0)),
-            Some(base("last-harvest bottom").with_inner_size(size).with_position(LogicalPosition::new(200.0, 60.0 + 384.0 + 36.0))),
+            base("last-harvest top")
+                .with_inner_size(size)
+                .with_position(LogicalPosition::new(200.0, 60.0)),
+            Some(
+                base("last-harvest bottom")
+                    .with_inner_size(size)
+                    .with_position(LogicalPosition::new(200.0, 60.0 + 384.0 + 36.0)),
+            ),
         )
     }
 }

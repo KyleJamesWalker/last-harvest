@@ -4,8 +4,8 @@ use crate::fmath as fm;
 use std::f32::consts::{PI, TAU};
 
 use super::{Harvest, Phase, PlayerId, Zombie, clear_shot, len, sub};
-use crate::art::Art;
 use crate::Canvas;
+use crate::art::Art;
 
 /// Screen pixels across each square of the map's shade.
 const SHADE_CELL: f32 = 16.0;
@@ -31,13 +31,27 @@ pub(super) struct Mark {
 
 impl Mark {
     pub fn of(z: &Zombie) -> Self {
-        Mark { id: z.id, pos: z.pos, art: z.art(z.facing.0), flip: z.facing.1, rise: z.rise, leader: z.leader, boss: z.boss, soaked: z.soak > 0.0, age: 0.0 }
+        Mark {
+            id: z.id,
+            pos: z.pos,
+            art: z.art(z.facing.0),
+            flip: z.facing.1,
+            rise: z.rise,
+            leader: z.leader,
+            boss: z.boss,
+            soaked: z.soak > 0.0,
+            age: 0.0,
+        }
     }
 
     /// How strongly the map draws it, 1 while in sight down to 0 when forgotten.
     pub fn fade(&self) -> f32 {
         let memory = crate::tuning::tuning().map_memory;
-        if memory > 0.0 { (1.0 - self.age / memory).clamp(0.0, 1.0) } else { 1.0 }
+        if memory > 0.0 {
+            (1.0 - self.age / memory).clamp(0.0, 1.0)
+        } else {
+            1.0
+        }
     }
 }
 
@@ -73,7 +87,8 @@ impl Harvest {
         let r = len(d);
         let sight = crate::tuning::tuning().map_sight;
         let far = smoothstep((r - sight) / (sight * SHADE_SOFT.1).max(1.0));
-        let off = ((fm::atan2(d[1], d[0]) - self.eye().view_yaw + PI).rem_euclid(TAU) - PI).abs() - self.ahead_half();
+        let off = ((fm::atan2(d[1], d[0]) - self.eye().view_yaw + PI).rem_euclid(TAU) - PI).abs()
+            - self.ahead_half();
         // Right around the player every way counts as ahead.
         let aside = smoothstep(off / SHADE_SOFT.0) * smoothstep((r - 4.0) / 12.0);
         far.max(aside)
@@ -86,20 +101,35 @@ impl Harvest {
         if dark <= 0.0 || matches!(self.phase, Phase::Over { .. }) {
             return;
         }
-        let (cols, rows) = ((self.canvas[0] / SHADE_CELL).ceil() as usize, (self.canvas[1] / SHADE_CELL).ceil() as usize);
-        let step = |sx: f32, sy: f32| (self.unseen([cam[0] + sx / scale, cam[1] + sy / scale]) * SHADE_STEPS).round();
+        let (cols, rows) = (
+            (self.canvas[0] / SHADE_CELL).ceil() as usize,
+            (self.canvas[1] / SHADE_CELL).ceil() as usize,
+        );
+        let step = |sx: f32, sy: f32| {
+            (self.unseen([cam[0] + sx / scale, cam[1] + sy / scale]) * SHADE_STEPS).round()
+        };
         for row in 0..rows {
             let y = row as f32 * SHADE_CELL;
             let mid = y + SHADE_CELL / 2.0;
             let mut run = (0, step(SHADE_CELL / 2.0, mid));
             for col in 1..=cols {
-                let level = if col < cols { step(col as f32 * SHADE_CELL + SHADE_CELL / 2.0, mid) } else { -1.0 };
+                let level = if col < cols {
+                    step(col as f32 * SHADE_CELL + SHADE_CELL / 2.0, mid)
+                } else {
+                    -1.0
+                };
                 if level == run.1 {
                     continue;
                 }
                 if run.1 > 0.0 {
                     let x = run.0 as f32 * SHADE_CELL;
-                    c.rect(x, y, (col - run.0) as f32 * SHADE_CELL, SHADE_CELL, [0.0, 0.0, 0.0, dark * run.1 / SHADE_STEPS]);
+                    c.rect(
+                        x,
+                        y,
+                        (col - run.0) as f32 * SHADE_CELL,
+                        SHADE_CELL,
+                        [0.0, 0.0, 0.0, dark * run.1 / SHADE_STEPS],
+                    );
                 }
                 run = (col, level);
             }
@@ -128,7 +158,10 @@ impl Harvest {
         let kept: Vec<Mark> = old
             .into_iter()
             .filter(|m| !seen.iter().any(|s| s.id == m.id))
-            .map(|m| Mark { age: m.age + dt, ..m })
+            .map(|m| Mark {
+                age: m.age + dt,
+                ..m
+            })
             .filter(|m| m.age < memory && !self.in_sight_of(p, m.pos))
             .collect();
         self.players[p].marks = kept;
@@ -143,10 +176,10 @@ fn smoothstep(k: f32) -> f32 {
 
 #[cfg(test)]
 mod tests {
+    use super::super::PropLine;
     use super::super::map::{self, TILE};
-    use crate::fmath as fm;
-use super::super::PropLine;
     use super::super::{Harvest, Kind, Zombie};
+    use crate::fmath as fm;
     use std::f32::consts::PI;
 
     const DT: f32 = 1.0 / 60.0;
@@ -158,7 +191,13 @@ use super::super::PropLine;
         h.me_mut().pos = [20.5 * TILE, 7.5 * TILE];
         h.me_mut().view_yaw = 0.0;
         h.me_mut().marks.clear();
-        let mut z = Zombie::new(Kind::common(), [h.me().pos[0] + ahead, h.me().pos[1]], 1000.0, 1.0, 0.0);
+        let mut z = Zombie::new(
+            Kind::common(),
+            [h.me().pos[0] + ahead, h.me().pos[1]],
+            1000.0,
+            1.0,
+            0.0,
+        );
         z.id = 9;
         h.zombies = vec![z];
         h
@@ -170,10 +209,20 @@ use super::super::PropLine;
         h.draw(&mut f, false);
         let (cam, k) = (h.camera(), super::super::map_scale());
         let [sx, sy] = [(at[0] - cam[0]) * k, (at[1] - cam[1]) * k];
-        f.bottom.shapes.iter().filter_map(|s| match *s {
-            crate::Shape::Rect { x, y, w, h, color: [0.0, 0.0, 0.0, a] } if (x..x + w).contains(&sx) && (y..y + h).contains(&sy) => Some(a),
-            _ => None,
-        }).fold(0.0, f32::max)
+        f.bottom
+            .shapes
+            .iter()
+            .filter_map(|s| match *s {
+                crate::Shape::Rect {
+                    x,
+                    y,
+                    w,
+                    h,
+                    color: [0.0, 0.0, 0.0, a],
+                } if (x..x + w).contains(&sx) && (y..y + h).contains(&sy) => Some(a),
+                _ => None,
+            })
+            .fold(0.0, f32::max)
     }
 
     #[test]
@@ -183,14 +232,29 @@ use super::super::PropLine;
         let ahead = [h.me().pos[0] + 60.0, h.me().pos[1] - 6.0];
         let behind = [h.me().pos[0] - 60.0, h.me().pos[1] - 6.0];
         assert_eq!(shade_over(&h, ahead), 0.0, "the cone is full brightness");
-        assert!((shade_over(&h, behind) - dark).abs() < 1e-4, "behind is as dark as [map] shade says");
+        assert!(
+            (shade_over(&h, behind) - dark).abs() < 1e-4,
+            "behind is as dark as [map] shade says"
+        );
         let edge = h.ahead_half();
-        let along = |a: f32| h.unseen([h.me().pos[0] + fm::cos(a) * 100.0, h.me().pos[1] - 6.0 + fm::sin(a) * 100.0]);
+        let along = |a: f32| {
+            h.unseen([
+                h.me().pos[0] + fm::cos(a) * 100.0,
+                h.me().pos[1] - 6.0 + fm::sin(a) * 100.0,
+            ])
+        };
         let steps: Vec<f32> = (0..8).map(|i| along(edge + i as f32 * 0.05)).collect();
         assert_eq!(steps[0], 0.0);
-        assert!(steps.windows(2).all(|w| w[1] >= w[0]) && steps.iter().any(|&s| s > 0.0 && s < 1.0), "fades in past the edge: {steps:?}");
+        assert!(
+            steps.windows(2).all(|w| w[1] >= w[0]) && steps.iter().any(|&s| s > 0.0 && s < 1.0),
+            "fades in past the edge: {steps:?}"
+        );
         let sight = crate::tuning::tuning().map_sight;
-        assert_eq!(h.unseen([h.me().pos[0] + sight * 2.0, h.me().pos[1] - 6.0]), 1.0, "and past the sight range");
+        assert_eq!(
+            h.unseen([h.me().pos[0] + sight * 2.0, h.me().pos[1] - 6.0]),
+            1.0,
+            "and past the sight range"
+        );
     }
 
     #[test]
@@ -201,23 +265,49 @@ use super::super::PropLine;
         let mut cone = crate::Canvas::default();
         h.view_cone(&mut cone, h.camera());
         let shapes = &f.bottom.shapes;
-        let last_shade = shapes.iter().rposition(|s| matches!(s, crate::Shape::Rect { h: super::SHADE_CELL, color: [0.0, 0.0, 0.0, _], .. })).expect("a shade");
-        let at = shapes.windows(cone.shapes.len()).position(|w| format!("{w:?}") == format!("{:?}", cone.shapes)).expect("the cone's dots as the cone draws them");
-        assert!(at > last_shade, "the cone's dots draw after, so the shade never dims them");
+        let last_shade = shapes
+            .iter()
+            .rposition(|s| {
+                matches!(
+                    s,
+                    crate::Shape::Rect {
+                        h: super::SHADE_CELL,
+                        color: [0.0, 0.0, 0.0, _],
+                        ..
+                    }
+                )
+            })
+            .expect("a shade");
+        let at = shapes
+            .windows(cone.shapes.len())
+            .position(|w| format!("{w:?}") == format!("{:?}", cone.shapes))
+            .expect("the cone's dots as the cone draws them");
+        assert!(
+            at > last_shade,
+            "the cone's dots draw after, so the shade never dims them"
+        );
     }
 
     #[test]
     fn the_shade_lifts_once_the_run_is_over() {
         let mut h = facing_one(60.0);
         h.phase = super::super::Phase::Over { t: 5.0, won: false };
-        assert_eq!(shade_over(&h, [h.me().pos[0] - 60.0, h.me().pos[1] - 6.0]), 0.0);
+        assert_eq!(
+            shade_over(&h, [h.me().pos[0] - 60.0, h.me().pos[1] - 6.0]),
+            0.0
+        );
     }
 
     #[test]
     fn a_zombie_ahead_is_marked_where_it_stands() {
         let mut h = facing_one(60.0);
         h.remember(DT);
-        let m = h.me().marks.iter().find(|m| m.id == 9).expect("a zombie in sight is marked");
+        let m = h
+            .me()
+            .marks
+            .iter()
+            .find(|m| m.id == 9)
+            .expect("a zombie in sight is marked");
         assert_eq!((m.pos, m.age), (h.zombies[0].pos, 0.0));
     }
 
@@ -243,7 +333,10 @@ use super::super::PropLine;
         assert_eq!(m.pos, seen_at, "a mark stays where the zombie was seen");
         assert!(m.fade() < 1.0);
         h.remember(crate::tuning::tuning().map_memory);
-        assert!(h.me().marks.is_empty(), "forgotten once its memory runs out");
+        assert!(
+            h.me().marks.is_empty(),
+            "forgotten once its memory runs out"
+        );
     }
 
     #[test]
@@ -256,7 +349,10 @@ use super::super::PropLine;
         assert_eq!(h.me().marks.len(), 1);
         h.me_mut().view_yaw = 0.0;
         h.remember(DT);
-        assert!(h.me().marks.is_empty(), "the zombie moved off out of sight, and its spot is empty");
+        assert!(
+            h.me().marks.is_empty(),
+            "the zombie moved off out of sight, and its spot is empty"
+        );
     }
 
     #[test]
@@ -273,12 +369,29 @@ use super::super::PropLine;
     fn cover_hides_a_zombie_that_a_fence_does_not() {
         let fenced = |cover: bool| {
             let mut src = map::MapSource::new("Pen", [40, 14]);
-            let tough = map::Tough { hp: None, cover: Some(cover) };
-            src.props.push((0, PropLine::Fence { picket: false, rect: [17, 4, 7, 6], gate: None, tough }));
+            let tough = map::Tough {
+                hp: None,
+                cover: Some(cover),
+            };
+            src.props.push((
+                0,
+                PropLine::Fence {
+                    picket: false,
+                    rect: [17, 4, 7, 6],
+                    gate: None,
+                    tough,
+                },
+            ));
             let mut h = Harvest::calm_on(1, &src).unwrap();
             h.me_mut().pos = [20.5 * TILE, 7.5 * TILE];
             h.me_mut().view_yaw = 0.0;
-            let mut z = Zombie::new(Kind::common(), [h.me().pos[0] + 96.0, h.me().pos[1]], 1000.0, 1.0, 0.0);
+            let mut z = Zombie::new(
+                Kind::common(),
+                [h.me().pos[0] + 96.0, h.me().pos[1]],
+                1000.0,
+                1.0,
+                0.0,
+            );
             z.id = 9;
             h.zombies = vec![z];
             h.me_mut().marks.clear();

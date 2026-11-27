@@ -52,7 +52,10 @@ impl PadFamily {
     /// From a pad's vendor id, else its name, which in a browser can carry the vendor id
     /// (`Vendor: 054c` in Chrome, a leading `054c-` in Firefox). An unknown pad is taken for an XInput pad.
     pub fn detect(vendor: Option<u16>, name: &str) -> Self {
-        if let Some(f) = vendor.and_then(Self::from_vendor).or_else(|| name_vendor(name).and_then(Self::from_vendor)) {
+        if let Some(f) = vendor
+            .and_then(Self::from_vendor)
+            .or_else(|| name_vendor(name).and_then(Self::from_vendor))
+        {
             return f;
         }
         let name = name.to_ascii_lowercase();
@@ -84,19 +87,29 @@ impl PadFamily {
         match self {
             Nintendo => NAMES[i].0,
             Xbox => ["B", "A", "Y", "X", "LB", "RB", "LT", "RT", "View", "Menu"][i],
-            PlayStation => ["Circle", "Cross", "Triangle", "Square", "L1", "R1", "L2", "R2", "Share", "Options"][i],
-            Keyboard => ["E", "R", "F", "Q", "Tab", "Space", "G", "F12", "F3", "Enter"][i],
+            PlayStation => [
+                "Circle", "Cross", "Triangle", "Square", "L1", "R1", "L2", "R2", "Share", "Options",
+            ][i],
+            Keyboard => [
+                "E", "R", "F", "Q", "Tab", "Space", "G", "F12", "F3", "Enter",
+            ][i],
         }
     }
 }
 
 fn name_vendor(name: &str) -> Option<u16> {
     let lower = name.to_ascii_lowercase();
-    let hex = |s: &str| s.get(..4).filter(|h| h.bytes().all(|c| c.is_ascii_hexdigit())).and_then(|h| u16::from_str_radix(h, 16).ok());
+    let hex = |s: &str| {
+        s.get(..4)
+            .filter(|h| h.bytes().all(|c| c.is_ascii_hexdigit()))
+            .and_then(|h| u16::from_str_radix(h, 16).ok())
+    };
     if let Some(at) = lower.find("vendor: ") {
         return hex(&lower[at + 8..]);
     }
-    (lower.as_bytes().get(4) == Some(&b'-')).then(|| hex(&lower)).flatten()
+    (lower.as_bytes().get(4) == Some(&b'-'))
+        .then(|| hex(&lower))
+        .flatten()
 }
 
 thread_local! {
@@ -124,10 +137,14 @@ fn shown(family: PadFamily, b: Buttons) -> &'static str {
     if !BY_NAME.get() {
         return family.label(b);
     }
-    let Some(i) = NAMES.iter().position(|&(_, n)| n == b) else { return "" };
+    let Some(i) = NAMES.iter().position(|&(_, n)| n == b) else {
+        return "";
+    };
     match family {
         PadFamily::Xbox => ["A", "B", "X", "Y", "LB", "RB", "LT", "RT", "View", "Menu"][i],
-        PadFamily::PlayStation => ["Cross", "Circle", "Square", "Triangle", "L1", "R1", "L2", "R2", "Share", "Options"][i],
+        PadFamily::PlayStation => [
+            "Cross", "Circle", "Square", "Triangle", "L1", "R1", "L2", "R2", "Share", "Options",
+        ][i],
         PadFamily::Nintendo | PadFamily::Keyboard => family.label(b),
     }
 }
@@ -178,7 +195,12 @@ fn fill(family: PadFamily, controls: Controls, text: &str) -> String {
     while let Some(open) = rest.find('{') {
         out.push_str(&rest[..open]);
         let after = &rest[open + 1..];
-        match after.find('}').and_then(|close| NAMES.iter().find(|(n, _)| *n == &after[..close]).map(|&(_, b)| (close, b))) {
+        match after.find('}').and_then(|close| {
+            NAMES
+                .iter()
+                .find(|(n, _)| *n == &after[..close])
+                .map(|&(_, b)| (close, b))
+        }) {
             Some((close, b)) => {
                 out.push_str(shown(family, controls.physical(b)));
                 rest = &after[close + 1..];
@@ -195,7 +217,10 @@ fn fill(family: PadFamily, controls: Controls, text: &str) -> String {
 
 /// `hint(text)` and a size that keeps it as wide as the RG DS's names make it at `size`.
 pub fn hint_sized(text: &str, size: f32) -> (String, f32) {
-    let (shown, own) = (hint(text), fill(PadFamily::Nintendo, Controls::default(), text));
+    let (shown, own) = (
+        hint(text),
+        fill(PadFamily::Nintendo, Controls::default(), text),
+    );
     let k = own.chars().count() as f32 / shown.chars().count().max(1) as f32;
     (shown, size * k.min(1.0))
 }
@@ -209,22 +234,64 @@ mod tests {
         let faces = [Buttons::A, Buttons::B, Buttons::X, Buttons::Y];
         let names = |f: PadFamily| faces.map(|b| f.label(b));
         assert_eq!(names(PadFamily::Nintendo), ["A", "B", "X", "Y"]);
-        assert_eq!(names(PadFamily::Xbox), ["B", "A", "Y", "X"], "right, bottom, top, left");
-        assert_eq!(names(PadFamily::PlayStation), ["Circle", "Cross", "Triangle", "Square"]);
+        assert_eq!(
+            names(PadFamily::Xbox),
+            ["B", "A", "Y", "X"],
+            "right, bottom, top, left"
+        );
+        assert_eq!(
+            names(PadFamily::PlayStation),
+            ["Circle", "Cross", "Triangle", "Square"]
+        );
         assert_eq!(names(PadFamily::Keyboard), ["E", "R", "F", "Q"]);
-        let rest = [Buttons::L1, Buttons::R1, Buttons::L2, Buttons::R2, Buttons::SELECT, Buttons::START];
-        assert_eq!(rest.map(|b| PadFamily::Xbox.label(b)), ["LB", "RB", "LT", "RT", "View", "Menu"]);
-        assert_eq!(rest.map(|b| PadFamily::Nintendo.label(b)), ["L1", "R1", "L2", "R2", "Select", "Start"]);
-        assert_eq!(rest.map(|b| PadFamily::PlayStation.label(b)), ["L1", "R1", "L2", "R2", "Share", "Options"]);
+        let rest = [
+            Buttons::L1,
+            Buttons::R1,
+            Buttons::L2,
+            Buttons::R2,
+            Buttons::SELECT,
+            Buttons::START,
+        ];
+        assert_eq!(
+            rest.map(|b| PadFamily::Xbox.label(b)),
+            ["LB", "RB", "LT", "RT", "View", "Menu"]
+        );
+        assert_eq!(
+            rest.map(|b| PadFamily::Nintendo.label(b)),
+            ["L1", "R1", "L2", "R2", "Select", "Start"]
+        );
+        assert_eq!(
+            rest.map(|b| PadFamily::PlayStation.label(b)),
+            ["L1", "R1", "L2", "R2", "Share", "Options"]
+        );
     }
 
     #[test]
     fn by_name_each_family_names_the_button_printed_with_the_game_buttons_name() {
         set_by_name(true);
-        let all = [Buttons::A, Buttons::B, Buttons::X, Buttons::Y, Buttons::L1, Buttons::SELECT, Buttons::START];
-        assert_eq!(all.map(|b| label_as(PadFamily::Xbox, b)), ["A", "B", "X", "Y", "LB", "View", "Menu"]);
-        assert_eq!(all.map(|b| label_as(PadFamily::PlayStation, b)), ["Cross", "Circle", "Square", "Triangle", "L1", "Share", "Options"]);
-        assert_eq!(all.map(|b| label_as(PadFamily::Nintendo, b)), ["A", "B", "X", "Y", "L1", "Select", "Start"]);
+        let all = [
+            Buttons::A,
+            Buttons::B,
+            Buttons::X,
+            Buttons::Y,
+            Buttons::L1,
+            Buttons::SELECT,
+            Buttons::START,
+        ];
+        assert_eq!(
+            all.map(|b| label_as(PadFamily::Xbox, b)),
+            ["A", "B", "X", "Y", "LB", "View", "Menu"]
+        );
+        assert_eq!(
+            all.map(|b| label_as(PadFamily::PlayStation, b)),
+            [
+                "Cross", "Circle", "Square", "Triangle", "L1", "Share", "Options"
+            ]
+        );
+        assert_eq!(
+            all.map(|b| label_as(PadFamily::Nintendo, b)),
+            ["A", "B", "X", "Y", "L1", "Select", "Start"]
+        );
         set_active(PadFamily::PlayStation);
         assert_eq!(hint("{A}: pick"), "Cross: pick");
         set_by_name(false);
@@ -234,27 +301,65 @@ mod tests {
     #[test]
     fn a_pad_is_known_by_its_vendor_or_its_name() {
         assert_eq!(PadFamily::detect(Some(0x045E), ""), PadFamily::Xbox);
-        assert_eq!(PadFamily::detect(Some(0x054C), "Wireless Controller"), PadFamily::PlayStation);
-        assert_eq!(PadFamily::detect(Some(0x057E), "Pro Controller"), PadFamily::Nintendo);
-        assert_eq!(PadFamily::detect(Some(0x2DC8), "8BitDo Pro 2"), PadFamily::Nintendo);
-        assert_eq!(PadFamily::detect(None, "Wireless Controller (STANDARD GAMEPAD Vendor: 054c Product: 09cc)"), PadFamily::PlayStation);
-        assert_eq!(PadFamily::detect(None, "057e-2009-Pro Controller"), PadFamily::Nintendo);
-        assert_eq!(PadFamily::detect(None, "Xbox 360 Controller (XInput STANDARD GAMEPAD)"), PadFamily::Xbox);
-        assert_eq!(PadFamily::detect(None, "DualSense Wireless Controller"), PadFamily::PlayStation);
-        assert_eq!(PadFamily::detect(Some(0x1234), "Some Pad"), PadFamily::Xbox, "an unknown pad is taken for XInput");
+        assert_eq!(
+            PadFamily::detect(Some(0x054C), "Wireless Controller"),
+            PadFamily::PlayStation
+        );
+        assert_eq!(
+            PadFamily::detect(Some(0x057E), "Pro Controller"),
+            PadFamily::Nintendo
+        );
+        assert_eq!(
+            PadFamily::detect(Some(0x2DC8), "8BitDo Pro 2"),
+            PadFamily::Nintendo
+        );
+        assert_eq!(
+            PadFamily::detect(
+                None,
+                "Wireless Controller (STANDARD GAMEPAD Vendor: 054c Product: 09cc)"
+            ),
+            PadFamily::PlayStation
+        );
+        assert_eq!(
+            PadFamily::detect(None, "057e-2009-Pro Controller"),
+            PadFamily::Nintendo
+        );
+        assert_eq!(
+            PadFamily::detect(None, "Xbox 360 Controller (XInput STANDARD GAMEPAD)"),
+            PadFamily::Xbox
+        );
+        assert_eq!(
+            PadFamily::detect(None, "DualSense Wireless Controller"),
+            PadFamily::PlayStation
+        );
+        assert_eq!(
+            PadFamily::detect(Some(0x1234), "Some Pad"),
+            PadFamily::Xbox,
+            "an unknown pad is taken for XInput"
+        );
     }
 
     #[test]
     fn a_hint_names_the_active_pads_buttons() {
-        let text = "Up / Down and {X}: choose.   {L1}: banish.   {Start} or {B}: resume.   {Fog} stays";
-        assert_eq!(hint(text), "Up / Down and X: choose.   L1: banish.   Start or B: resume.   {Fog} stays");
+        let text =
+            "Up / Down and {X}: choose.   {L1}: banish.   {Start} or {B}: resume.   {Fog} stays";
+        assert_eq!(
+            hint(text),
+            "Up / Down and X: choose.   L1: banish.   Start or B: resume.   {Fog} stays"
+        );
         set_active(PadFamily::Xbox);
-        assert_eq!(hint(text), "Up / Down and Y: choose.   LB: banish.   Menu or A: resume.   {Fog} stays");
+        assert_eq!(
+            hint(text),
+            "Up / Down and Y: choose.   LB: banish.   Menu or A: resume.   {Fog} stays"
+        );
         set_active(PadFamily::PlayStation);
         assert_eq!(label(Buttons::X), "Triangle");
         let (text, size) = hint_sized("{X}: aim", 24.0);
         assert_eq!(text, "Triangle: aim");
-        assert!((size - 24.0 * 6.0 / 13.0).abs() < 1e-4, "as wide as X: aim at 24: {size}");
+        assert!(
+            (size - 24.0 * 6.0 / 13.0).abs() < 1e-4,
+            "as wide as X: aim at 24: {size}"
+        );
         assert_eq!(hint_sized("{L1}: map", 24.0).1, 24.0, "never grows");
         set_active(PadFamily::Nintendo);
     }

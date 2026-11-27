@@ -11,18 +11,27 @@
 use std::path::{Path, PathBuf};
 
 use last_harvest_game::art;
-use last_harvest_pack::{ATLAS, ENEMIES, FONT, MANIFEST, EFFECTS, FARM, FARMS, GROUND, POWERUPS, PROPS_TABLE, SOUNDS, TUNING, card, manifest, mod_manifest, write};
+use last_harvest_pack::{
+    ATLAS, EFFECTS, ENEMIES, FARM, FARMS, FONT, GROUND, MANIFEST, POWERUPS, PROPS_TABLE, SOUNDS,
+    TUNING, card, manifest, mod_manifest, write,
+};
 
 /// Files by path or name, with their bytes.
 type Files = Vec<(String, Vec<u8>)>;
 
 /// The files in `dir` ending in one of `exts`, by name, or none when it doesn't exist.
 fn listed(dir: &Path, exts: &[&str]) -> std::io::Result<Files> {
-    let Ok(entries) = std::fs::read_dir(dir) else { return Ok(Vec::new()) };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Ok(Vec::new());
+    };
     let mut files = Vec::new();
     for entry in entries {
         let path = entry?.path();
-        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or_default().to_string();
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or_default()
+            .to_string();
         if exts.iter().any(|ext| name.ends_with(ext)) {
             files.push((name, std::fs::read(&path)?));
         }
@@ -35,14 +44,38 @@ fn files(root: &Path) -> Result<Files, Box<dyn std::error::Error>> {
     let mut files = vec![
         (MANIFEST.to_string(), manifest().into_bytes()),
         (ATLAS.to_string(), art::pixels().to_vec()),
-        (FONT.to_string(), std::fs::read(root.join("assets").join(FONT))?),
-        (POWERUPS.to_string(), std::fs::read(root.join("crates/game").join(POWERUPS))?),
-        (ENEMIES.to_string(), std::fs::read(root.join("crates/game").join(ENEMIES))?),
-        (PROPS_TABLE.to_string(), std::fs::read(root.join("crates/game").join(PROPS_TABLE))?),
-        (TUNING.to_string(), std::fs::read(root.join("crates/game").join(TUNING))?),
-        (EFFECTS.to_string(), std::fs::read(root.join("crates/game").join(EFFECTS))?),
-        (GROUND.to_string(), std::fs::read(root.join("crates/game").join(GROUND))?),
-        (FARM.to_string(), std::fs::read(root.join("crates/game").join(FARM))?),
+        (
+            FONT.to_string(),
+            std::fs::read(root.join("assets").join(FONT))?,
+        ),
+        (
+            POWERUPS.to_string(),
+            std::fs::read(root.join("crates/game").join(POWERUPS))?,
+        ),
+        (
+            ENEMIES.to_string(),
+            std::fs::read(root.join("crates/game").join(ENEMIES))?,
+        ),
+        (
+            PROPS_TABLE.to_string(),
+            std::fs::read(root.join("crates/game").join(PROPS_TABLE))?,
+        ),
+        (
+            TUNING.to_string(),
+            std::fs::read(root.join("crates/game").join(TUNING))?,
+        ),
+        (
+            EFFECTS.to_string(),
+            std::fs::read(root.join("crates/game").join(EFFECTS))?,
+        ),
+        (
+            GROUND.to_string(),
+            std::fs::read(root.join("crates/game").join(GROUND))?,
+        ),
+        (
+            FARM.to_string(),
+            std::fs::read(root.join("crates/game").join(FARM))?,
+        ),
     ];
     for (name, bytes) in listed(&root.join("assets/private/sounds"), &[".ogg", ".wav"])? {
         files.push((format!("{SOUNDS}{name}"), bytes));
@@ -55,26 +88,46 @@ fn decode_sheet(path: &Path) -> Result<(u32, u32, Vec<u8>), String> {
     let fail = |e: &dyn std::fmt::Display| format!("{}: {e}", path.display());
     let file = std::fs::File::open(path).map_err(|e| fail(&e))?;
     let mut decoder = png::Decoder::new(std::io::BufReader::new(file));
-    decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16 | png::Transformations::ALPHA);
+    decoder.set_transformations(
+        png::Transformations::EXPAND | png::Transformations::STRIP_16 | png::Transformations::ALPHA,
+    );
     let mut reader = decoder.read_info().map_err(|e| fail(&e))?;
-    let mut buf = vec![0; reader.output_buffer_size().ok_or_else(|| fail(&"the image is too big to decode"))?];
+    let mut buf = vec![
+        0;
+        reader
+            .output_buffer_size()
+            .ok_or_else(|| fail(&"the image is too big to decode"))?
+    ];
     let info = reader.next_frame(&mut buf).map_err(|e| fail(&e))?;
     buf.truncate(info.buffer_size());
     let rgba = match info.color_type {
         png::ColorType::Rgba => buf,
-        png::ColorType::GrayscaleAlpha => buf.chunks_exact(2).flat_map(|p| [p[0], p[0], p[0], p[1]]).collect(),
+        png::ColorType::GrayscaleAlpha => buf
+            .chunks_exact(2)
+            .flat_map(|p| [p[0], p[0], p[0], p[1]])
+            .collect(),
         other => return Err(fail(&format!("unexpected color type {other:?}"))),
     };
     Ok((info.width, info.height, rgba))
 }
 
-fn make_prop(sheet: &Path, text: &Path, out: &Path, detail: u8) -> Result<(), Box<dyn std::error::Error>> {
+fn make_prop(
+    sheet: &Path,
+    text: &Path,
+    out: &Path,
+    detail: u8,
+) -> Result<(), Box<dyn std::error::Error>> {
     let ext = last_harvest_pack::prop::EXTENSION;
     if !out.to_string_lossy().ends_with(ext) {
-        return Err(format!("{}: a prop's name ends in {ext}, so the game finds it", out.display()).into());
+        return Err(format!(
+            "{}: a prop's name ends in {ext}, so the game finds it",
+            out.display()
+        )
+        .into());
     }
     let (w, h, rgba) = decode_sheet(sheet)?;
-    let bytes = last_harvest_pack::prop::write_at(&std::fs::read_to_string(text)?, detail, w, h, &rgba)?;
+    let bytes =
+        last_harvest_pack::prop::write_at(&std::fs::read_to_string(text)?, detail, w, h, &rgba)?;
     let name = out.display().to_string();
     let made = last_harvest_pack::prop::read(&name, &bytes)?;
     std::fs::write(out, bytes)?;
@@ -82,9 +135,20 @@ fn make_prop(sheet: &Path, text: &Path, out: &Path, detail: u8) -> Result<(), Bo
     Ok(())
 }
 
-fn make_card(kind: card::Kind, sheet: &Path, text: &Path, out: &Path, detail: u8) -> Result<(), Box<dyn std::error::Error>> {
+fn make_card(
+    kind: card::Kind,
+    sheet: &Path,
+    text: &Path,
+    out: &Path,
+    detail: u8,
+) -> Result<(), Box<dyn std::error::Error>> {
     if !out.to_string_lossy().ends_with(kind.extension()) {
-        return Err(format!("{}: a card's name ends in {}, so the game finds it", out.display(), kind.extension()).into());
+        return Err(format!(
+            "{}: a card's name ends in {}, so the game finds it",
+            out.display(),
+            kind.extension()
+        )
+        .into());
     }
     let (w, h, rgba) = decode_sheet(sheet)?;
     let text = std::fs::read_to_string(text)?;
@@ -106,7 +170,11 @@ fn make_card(kind: card::Kind, sheet: &Path, text: &Path, out: &Path, detail: u8
 fn tree(dir: &Path, under: &str, out: &mut Files) -> std::io::Result<()> {
     for entry in std::fs::read_dir(dir)? {
         let path = entry?.path();
-        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or_default().to_string();
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or_default()
+            .to_string();
         if name.starts_with('.') {
             continue;
         }
@@ -128,9 +196,20 @@ fn make_mod(dir: &Path, out: &Path) -> Result<(), Box<dyn std::error::Error>> {
         let id = dir.file_name().and_then(|n| n.to_str()).unwrap_or("mod");
         files.push((MANIFEST.to_string(), mod_manifest(id).into_bytes()));
     }
-    let farms = last_harvest_pack::Pak::from_files(files.clone()).farms().into_iter().collect::<Result<Vec<_>, _>>()?;
+    let farms = last_harvest_pack::Pak::from_files(files.clone())
+        .farms()
+        .into_iter()
+        .collect::<Result<Vec<_>, _>>()?;
     load_props(files.iter().map(|(p, b)| (p.as_str(), b.as_slice())))?;
-    install_tables(|name| files.iter().find(|(p, _)| p == name).map(|(_, b)| b.as_slice()), farms)?;
+    install_tables(
+        |name| {
+            files
+                .iter()
+                .find(|(p, _)| p == name)
+                .map(|(_, b)| b.as_slice())
+        },
+        farms,
+    )?;
     for (path, bytes) in &files {
         if let Some(kind) = card::Kind::of(path) {
             card::read_as(kind, path, bytes)?;
@@ -139,33 +218,57 @@ fn make_mod(dir: &Path, out: &Path) -> Result<(), Box<dyn std::error::Error>> {
             last_harvest_pack::prop::read(path, bytes)?;
         }
         if let Some(file) = map_file(path) {
-            last_harvest_game::check_map_on_any_farm(file, String::from_utf8(bytes.clone()).map_err(|_| format!("{path}: not text"))?)?;
+            last_harvest_game::check_map_on_any_farm(
+                file,
+                String::from_utf8(bytes.clone()).map_err(|_| format!("{path}: not text"))?,
+            )?;
         }
     }
     files.sort_by(|a, b| a.0.cmp(&b.0));
     write(std::fs::File::create(out)?, &files)?;
-    last_harvest_pack::Pak::open(out)?.check_mod().inspect_err(|_| _ = std::fs::remove_file(out))?;
+    last_harvest_pack::Pak::open(out)?
+        .check_mod()
+        .inspect_err(|_| _ = std::fs::remove_file(out))?;
     println!("{}: {} files", out.display(), files.len());
     Ok(())
 }
 
 /// Installs a pack's own ground.txt, props.txt and farms, where it brings them, so its maps are checked against them
 /// as the game will check them.
-fn install_tables<'a>(get: impl Fn(&str) -> Option<&'a [u8]>, farms: Vec<last_harvest_game::data::FarmFile>) -> Result<(), String> {
+fn install_tables<'a>(
+    get: impl Fn(&str) -> Option<&'a [u8]>,
+    farms: Vec<last_harvest_game::data::FarmFile>,
+) -> Result<(), String> {
     let table = |name: &str| get(name).and_then(|b| String::from_utf8(b.to_vec()).ok());
     for file in [GROUND, PROPS_TABLE] {
         if let Some(t) = table(file) {
             last_harvest_game::check_table(file, &t)?;
         }
     }
-    last_harvest_game::data::install(last_harvest_game::data::Data { ground: table(GROUND), props_table: table(PROPS_TABLE), farms, ..Default::default() })
-        .and_then(|notes| notes.into_iter().find(|n| n.starts_with(FARMS)).map_or(Ok(()), Err))
+    last_harvest_game::data::install(last_harvest_game::data::Data {
+        ground: table(GROUND),
+        props_table: table(PROPS_TABLE),
+        farms,
+        ..Default::default()
+    })
+    .and_then(|notes| {
+        notes
+            .into_iter()
+            .find(|n| n.starts_with(FARMS))
+            .map_or(Ok(()), Err)
+    })
 }
 
 /// Reads the props among `files` and loads them so maps that place them can be checked.
 fn load_props<'a>(files: impl Iterator<Item = (&'a str, &'a [u8])>) -> Result<(), String> {
-    let props = files.filter(|(p, _)| p.ends_with(last_harvest_pack::prop::EXTENSION)).map(|(p, b)| last_harvest_pack::prop::read(p, b)).collect::<Result<Vec<_>, _>>()?;
-    match last_harvest_game::load_props_for_checks(&props).into_iter().next() {
+    let props = files
+        .filter(|(p, _)| p.ends_with(last_harvest_pack::prop::EXTENSION))
+        .map(|(p, b)| last_harvest_pack::prop::read(p, b))
+        .collect::<Result<Vec<_>, _>>()?;
+    match last_harvest_game::load_props_for_checks(&props)
+        .into_iter()
+        .next()
+    {
         Some(problem) => Err(problem),
         None => Ok(()),
     }
@@ -174,21 +277,37 @@ fn load_props<'a>(files: impl Iterator<Item = (&'a str, &'a [u8])>) -> Result<()
 /// Lists a pack's files and whether the game would take it as a mod, reading each card in it.
 fn show_pak(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let pak = last_harvest_pack::Pak::open(path)?;
-    if let Err(e) = load_props(pak.paths().into_iter().map(|p| (p, pak.get(p).unwrap_or_default()))) {
+    if let Err(e) = load_props(
+        pak.paths()
+            .into_iter()
+            .map(|p| (p, pak.get(p).unwrap_or_default())),
+    ) {
         println!("A prop won't load, so maps that place it won't either: {e}\n");
     }
-    let farms = pak.farms().into_iter().filter_map(|f| f.map_err(|e| println!("{e}\n")).ok()).collect();
+    let farms = pak
+        .farms()
+        .into_iter()
+        .filter_map(|f| f.map_err(|e| println!("{e}\n")).ok())
+        .collect();
     if let Err(e) = install_tables(|name| pak.get(name), farms) {
-        println!("Its ground, props table or a farm won't read, so its maps are checked against the game's: {e}\n");
+        println!(
+            "Its ground, props table or a farm won't read, so its maps are checked against the game's: {e}\n"
+        );
     }
     for file in pak.paths() {
         let size = pak.get(file).map_or(0, <[u8]>::len);
         let bytes = pak.get(file).unwrap_or_default();
         let note = match (card::Kind::of(file), map_file(file)) {
-            (Some(kind), _) => card::read_as(kind, file, bytes).map_or_else(|e| format!("  not a card: {e}"), |c| format!("  {}x{} frames", c.frame[0], c.frame[1])),
+            (Some(kind), _) => card::read_as(kind, file, bytes).map_or_else(
+                |e| format!("  not a card: {e}"),
+                |c| format!("  {}x{} frames", c.frame[0], c.frame[1]),
+            ),
             (_, Some(name)) => map_note(name, bytes),
             _ if file.ends_with(last_harvest_pack::prop::EXTENSION) => {
-                last_harvest_pack::prop::read(file, bytes).map_or_else(|e| format!("  not a prop: {e}"), |p| format!("  prop: {}x{} frames", p.frame[0], p.frame[1]))
+                last_harvest_pack::prop::read(file, bytes).map_or_else(
+                    |e| format!("  not a prop: {e}"),
+                    |p| format!("  prop: {}x{} frames", p.frame[0], p.frame[1]),
+                )
             }
             _ => String::new(),
         };
@@ -205,11 +324,15 @@ fn show_pak(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
 fn map_file(path: &str) -> Option<&str> {
     let name = path.strip_prefix(last_harvest_pack::MAPS).unwrap_or(path);
     let name = name.rsplit('/').next().unwrap_or(name);
-    name.ends_with(last_harvest_game::MAP_EXTENSION).then_some(name)
+    name.ends_with(last_harvest_game::MAP_EXTENSION)
+        .then_some(name)
 }
 
 fn map_note(name: &str, bytes: &[u8]) -> String {
-    match std::str::from_utf8(bytes).map_err(|_| "not text".to_string()).and_then(|t| last_harvest_game::check_map_on_any_farm(name, t.to_string())) {
+    match std::str::from_utf8(bytes)
+        .map_err(|_| "not text".to_string())
+        .and_then(|t| last_harvest_game::check_map_on_any_farm(name, t.to_string()))
+    {
         Ok(m) => format!("  map: {}", m.name),
         Err(e) => format!("  not a map: {e}"),
     }
@@ -222,8 +345,17 @@ fn show(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let shown = path.to_string_lossy();
     if shown.ends_with(last_harvest_pack::prop::EXTENSION) {
         let p = last_harvest_pack::prop::read(&shown, &std::fs::read(path)?)?;
-        let detail = if p.detail > 1 { format!(" at detail {}", p.detail) } else { String::new() };
-        println!("{}x{} frames{detail}\n{}", p.frame[0], p.frame[1], p.text.trim_end());
+        let detail = if p.detail > 1 {
+            format!(" at detail {}", p.detail)
+        } else {
+            String::new()
+        };
+        println!(
+            "{}x{} frames{detail}\n{}",
+            p.frame[0],
+            p.frame[1],
+            p.text.trim_end()
+        );
         return Ok(());
     }
     if let Some(name) = map_file(&shown) {
@@ -232,24 +364,61 @@ fn show(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
     }
     let kind = card::Kind::of(&path.to_string_lossy()).unwrap_or(card::Kind::Enemy);
     let card = card::read_as(kind, &path.display().to_string(), &std::fs::read(path)?)?;
-    let detail = if card.detail > 1 { format!(" at detail {}", card.detail) } else { String::new() };
-    println!("{}x{} frames{detail}\n{}", card.frame[0], card.frame[1], card.text.trim_end());
+    let detail = if card.detail > 1 {
+        format!(" at detail {}", card.detail)
+    } else {
+        String::new()
+    };
+    println!(
+        "{}x{} frames{detail}\n{}",
+        card.frame[0],
+        card.frame[1],
+        card.text.trim_end()
+    );
     match kind {
         card::Kind::Enemy => {
             let f = last_harvest_game::card_fields(&card.text)?;
-            println!("\nAbout: {}", if f.about.is_empty() { "none" } else { &f.about });
+            println!(
+                "\nAbout: {}",
+                if f.about.is_empty() { "none" } else { &f.about }
+            );
             show_mix(&card.text)?
         }
         card::Kind::Player => {
             let f = last_harvest_game::player_fields(&card.text)?;
-            println!("\nAbout: {}", if f.about.is_empty() { "none" } else { &f.about });
+            println!(
+                "\nAbout: {}",
+                if f.about.is_empty() { "none" } else { &f.about }
+            );
             println!("\nStarts with:");
             for (d, start) in last_harvest_game::Tier::ALL.into_iter().zip(&f.start) {
-                let weapons = start.clone().unwrap_or_else(|| last_harvest_game::default_start(d));
-                let how = if start.is_some() { "" } else { " (the game's own)" };
-                println!("  {:<7}{}{how}", d.name(), if weapons.is_empty() { "nothing".to_string() } else { weapons.join(", ") });
+                let weapons = start
+                    .clone()
+                    .unwrap_or_else(|| last_harvest_game::default_start(d));
+                let how = if start.is_some() {
+                    ""
+                } else {
+                    " (the game's own)"
+                };
+                println!(
+                    "  {:<7}{}{how}",
+                    d.name(),
+                    if weapons.is_empty() {
+                        "nothing".to_string()
+                    } else {
+                        weapons.join(", ")
+                    }
+                );
             }
-            println!("\nWears a ready grenade:\n{}", if card.worn.is_empty() { "  on the right hip".to_string() } else { card.worn.lines().map(|l| format!("  {l}\n")).collect() }.trim_end());
+            println!(
+                "\nWears a ready grenade:\n{}",
+                if card.worn.is_empty() {
+                    "  on the right hip".to_string()
+                } else {
+                    card.worn.lines().map(|l| format!("  {l}\n")).collect()
+                }
+                .trim_end()
+            );
         }
     }
     Ok(())
@@ -259,13 +428,24 @@ fn show(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
 fn show_mix(text: &str) -> Result<(), Box<dyn std::error::Error>> {
     let minutes = [0.5, 2.5, 5.0, 9.5];
     let mix = last_harvest_game::spawn_mix(&[text], &minutes)?;
-    println!("\nSpawn mix{}:", if mix.replaced.is_empty() { String::new() } else { format!(", replacing the game's {}", mix.replaced.join(", ")) });
+    println!(
+        "\nSpawn mix{}:",
+        if mix.replaced.is_empty() {
+            String::new()
+        } else {
+            format!(", replacing the game's {}", mix.replaced.join(", "))
+        }
+    );
     print!("  {:<14}", "");
-    minutes.iter().for_each(|m| print!("{:>8}", format!("{m} min")));
+    minutes
+        .iter()
+        .for_each(|m| print!("{:>8}", format!("{m} min")));
     println!();
     for (k, (_, name)) in mix.kinds.iter().enumerate() {
         print!("  {:<14}", name.chars().take(14).collect::<String>());
-        mix.shares.iter().for_each(|s| print!("{:>7.0}%", s[k] * 100.0));
+        mix.shares
+            .iter()
+            .for_each(|s| print!("{:>7.0}%", s[k] * 100.0));
         let never = mix.shares.iter().all(|s| s[k] <= 0.0);
         println!("{}", if never { "   never spawns" } else { "" });
     }
@@ -274,7 +454,12 @@ fn show_mix(text: &str) -> Result<(), Box<dyn std::error::Error>> {
 
 /// The usage lines from this file's own doc.
 fn usage() -> String {
-    include_str!("main.rs").lines().map_while(|l| l.strip_prefix("//!")).map(|l| l.strip_prefix(' ').unwrap_or(l)).collect::<Vec<_>>().join("\n")
+    include_str!("main.rs")
+        .lines()
+        .map_while(|l| l.strip_prefix("//!"))
+        .map(|l| l.strip_prefix(' ').unwrap_or(l))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// A command line that isn't one of the usage lines.
@@ -317,7 +502,11 @@ fn run(args: &[PathBuf], words: &[&str]) -> Result<(), Box<dyn std::error::Error
         [kind @ ("card" | "player" | "prop"), _, _, _, rest @ ..] if rest.len() <= 1 => {
             let detail = match rest.first() {
                 None => 1,
-                Some(d) => d.parse().ok().filter(|d| art::DETAILS.contains(d)).ok_or_else(|| Usage(format!("{d} isn't a detail: 1, 2 or 4")))?,
+                Some(d) => d
+                    .parse()
+                    .ok()
+                    .filter(|d| art::DETAILS.contains(d))
+                    .ok_or_else(|| Usage(format!("{d} isn't a detail: 1, 2 or 4")))?,
             };
             return match *kind {
                 "prop" => make_prop(&args[1], &args[2], &args[3], detail),
@@ -337,17 +526,36 @@ fn run(args: &[PathBuf], words: &[&str]) -> Result<(), Box<dyn std::error::Error
         }
         [] => {}
         [out] if out.ends_with(".pak") || out.contains(['/', std::path::MAIN_SEPARATOR]) => {}
-        [word] => return Err(Usage(format!("{word} isn't a command; to write the pack somewhere else, name a .pak file")).into()),
+        [word] => {
+            return Err(Usage(format!(
+                "{word} isn't a command; to write the pack somewhere else, name a .pak file"
+            ))
+            .into());
+        }
         _ => return Err(Usage("too many paths".into()).into()),
     }
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2).unwrap();
-    let out = args.first().cloned().unwrap_or_else(|| root.join("target/game_data.pak"));
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(2)
+        .unwrap();
+    let out = args
+        .first()
+        .cloned()
+        .unwrap_or_else(|| root.join("target/game_data.pak"));
     let files = files(root)?;
-    if let Some(dir) = Path::new(&out).parent().filter(|d| !d.as_os_str().is_empty()) {
+    if let Some(dir) = Path::new(&out)
+        .parent()
+        .filter(|d| !d.as_os_str().is_empty())
+    {
         std::fs::create_dir_all(dir)?;
     }
     write(std::fs::File::create(&out)?, &files)?;
     let size = std::fs::metadata(&out)?.len();
-    println!("{}: {} files, {:.1} MB", out.display(), files.len(), size as f64 / 1e6);
+    println!(
+        "{}: {} files, {:.1} MB",
+        out.display(),
+        files.len(),
+        size as f64 / 1e6
+    );
     Ok(())
 }

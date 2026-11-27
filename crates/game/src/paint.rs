@@ -25,7 +25,11 @@ pub struct Paint {
 impl Paint {
     /// How many copies each frame comes in: one per coat, or one as drawn.
     pub fn copies(&self) -> usize {
-        if self.colors.is_empty() { 1 } else { self.coats.len().max(1) }
+        if self.colors.is_empty() {
+            1
+        } else {
+            self.coats.len().max(1)
+        }
     }
 
     /// Coat `k`'s color for each paint color.
@@ -34,7 +38,10 @@ impl Paint {
         if coat.len() == self.colors.len() {
             return coat.clone();
         }
-        self.colors.iter().map(|&c| shade(coat[0], self.colors[0], c)).collect()
+        self.colors
+            .iter()
+            .map(|&c| shade(coat[0], self.colors[0], c))
+            .collect()
     }
 
     /// Changes which colors are paint. A coat of one color stays so; any other keeps its shade for each color that
@@ -46,7 +53,15 @@ impl Paint {
                 coat.truncate(1);
                 continue;
             }
-            *coat = self.colors.iter().map(|c| old.iter().position(|o| o == c).map_or_else(|| shade(coat[0], old[0], *c), |i| coat[i])).collect();
+            *coat = self
+                .colors
+                .iter()
+                .map(|c| {
+                    old.iter()
+                        .position(|o| o == c)
+                        .map_or_else(|| shade(coat[0], old[0], *c), |i| coat[i])
+                })
+                .collect();
         }
     }
 
@@ -65,19 +80,31 @@ impl Paint {
 
     /// Reads a `paint` or `coat` line's value into these, or None when `key` is neither. Errors don't name the line.
     pub fn read(&mut self, key: &str, value: &str) -> Option<Result<(), String>> {
-        let list = || value.split_whitespace().map(hex).collect::<Option<Vec<Rgb>>>().filter(|l| !l.is_empty());
+        let list = || {
+            value
+                .split_whitespace()
+                .map(hex)
+                .collect::<Option<Vec<Rgb>>>()
+                .filter(|l| !l.is_empty())
+        };
         Some(match (key, list()) {
             ("paint", Some(l)) if l.len() <= MAX_COLORS => {
                 self.colors = l;
                 Ok(())
             }
-            ("paint", _) => Err(format!("paint lists 1 to {MAX_COLORS} colors such as 91765F, light to dark")),
-            ("coat", Some(_)) if self.coats.len() >= MAX_COATS => Err(format!("a sprite has at most {MAX_COATS} coats")),
+            ("paint", _) => Err(format!(
+                "paint lists 1 to {MAX_COLORS} colors such as 91765F, light to dark"
+            )),
+            ("coat", Some(_)) if self.coats.len() >= MAX_COATS => {
+                Err(format!("a sprite has at most {MAX_COATS} coats"))
+            }
             ("coat", Some(l)) => {
                 self.coats.push(l);
                 Ok(())
             }
-            ("coat", None) => Err("a coat is one color such as 4A6FA5, or one for each paint color".into()),
+            ("coat", None) => {
+                Err("a coat is one color such as 4A6FA5, or one for each paint color".into())
+            }
             _ => return None,
         })
     }
@@ -87,25 +114,48 @@ impl Paint {
         if !self.coats.is_empty() && self.colors.is_empty() {
             return Err("coats need a paint line saying which colors they repaint".into());
         }
-        match self.coats.iter().find(|c| c.len() != 1 && c.len() != self.colors.len()) {
-            Some(_) => Err(format!("a coat has one color, or {} for the paint colors", self.colors.len())),
+        match self
+            .coats
+            .iter()
+            .find(|c| c.len() != 1 && c.len() != self.colors.len())
+        {
+            Some(_) => Err(format!(
+                "a coat has one color, or {} for the paint colors",
+                self.colors.len()
+            )),
             None => Ok(()),
         }
     }
 
     /// The `paint` and `coat` lines, or nothing when there's no paint.
     pub fn text(&self) -> String {
-        let line = |key: &str, l: &[Rgb]| format!("{key} {}\n", l.iter().map(|c| format!("{:02X}{:02X}{:02X}", c[0], c[1], c[2])).collect::<Vec<_>>().join(" "));
+        let line = |key: &str, l: &[Rgb]| {
+            format!(
+                "{key} {}\n",
+                l.iter()
+                    .map(|c| format!("{:02X}{:02X}{:02X}", c[0], c[1], c[2]))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            )
+        };
         if self.colors.is_empty() {
             return String::new();
         }
-        std::iter::once(line("paint", &self.colors)).chain(self.coats.iter().map(|c| line("coat", c))).collect()
+        std::iter::once(line("paint", &self.colors))
+            .chain(self.coats.iter().map(|c| line("coat", c)))
+            .collect()
     }
 }
 
 /// The shade of `base` that `c` is of `first`, channel by channel.
 fn shade(base: Rgb, first: Rgb, c: Rgb) -> Rgb {
-    std::array::from_fn(|i| if first[i] == 0 { c[i] } else { (base[i] as u32 * c[i] as u32 / first[i] as u32).min(255) as u8 })
+    std::array::from_fn(|i| {
+        if first[i] == 0 {
+            c[i]
+        } else {
+            (base[i] as u32 * c[i] as u32 / first[i] as u32).min(255) as u8
+        }
+    })
 }
 
 /// Reads a `paints.txt`; errors name the line.
@@ -116,7 +166,9 @@ pub fn parse(text: &str) -> Result<Paint, String> {
         if line.is_empty() {
             continue;
         }
-        let (key, value) = line.split_once(char::is_whitespace).map_or((line, ""), |(k, v)| (k, v.trim()));
+        let (key, value) = line
+            .split_once(char::is_whitespace)
+            .map_or((line, ""), |(k, v)| (k, v.trim()));
         match p.read(key, value) {
             Some(r) => r.map_err(|e| format!("{}: {e}", i + 1))?,
             None => return Err(format!("{}: {key} isn't paint or coat", i + 1)),
@@ -140,7 +192,11 @@ pub fn parse_palette(text: &str) -> Result<Vec<Rgb>, String> {
         if line.is_empty() || line == "#" || line.starts_with("# ") {
             continue;
         }
-        let word = line.split_whitespace().next().unwrap_or("").trim_start_matches('#');
+        let word = line
+            .split_whitespace()
+            .next()
+            .unwrap_or("")
+            .trim_start_matches('#');
         let c = hex(word).ok_or_else(|| format!("{}: {word} isn't a color like 5A6E3C", i + 1))?;
         if !out.contains(&c) {
             out.push(c);
@@ -154,7 +210,10 @@ pub fn parse_palette(text: &str) -> Result<Vec<Rgb>, String> {
 
 /// Whether a Lospec palette can be named so: its name in lospec.com/palette-list, lowercase letters, digits and -.
 pub fn lospec_name(name: &str) -> bool {
-    (1..=64).contains(&name.len()) && name.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+    (1..=64).contains(&name.len())
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
 }
 
 /// A color from `5A6E3C`.
@@ -174,27 +233,60 @@ mod tests {
     fn coats_repaint_only_the_paint() {
         let p = parse(WRECK).unwrap();
         assert_eq!((p.copies(), parse(&p.text()).unwrap()), (2, p.clone()));
-        let mut px = [0x91, 0x76, 0x5F, 255, 0x87, 0x30, 0x18, 255, 0x4E, 0x46, 0x37, 0];
+        let mut px = [
+            0x91, 0x76, 0x5F, 255, 0x87, 0x30, 0x18, 255, 0x4E, 0x46, 0x37, 0,
+        ];
         p.repaint(0, &mut px);
-        assert_eq!(px, [0xAD, 0x64, 0x4B, 255, 0x87, 0x30, 0x18, 255, 0x4E, 0x46, 0x37, 0], "taillights and clear pixels stay");
+        assert_eq!(
+            px,
+            [
+                0xAD, 0x64, 0x4B, 255, 0x87, 0x30, 0x18, 255, 0x4E, 0x46, 0x37, 0
+            ],
+            "taillights and clear pixels stay"
+        );
         assert_eq!(p.shades(1)[0], [0x4A, 0x6F, 0xA5]);
-        assert!(p.shades(1)[2].iter().zip([0x4A, 0x6F, 0xA5]).all(|(d, b)| *d < b), "darker shades follow the drawing's");
+        assert!(
+            p.shades(1)[2]
+                .iter()
+                .zip([0x4A, 0x6F, 0xA5])
+                .all(|(d, b)| *d < b),
+            "darker shades follow the drawing's"
+        );
         assert_eq!(Paint::default().copies(), 1);
     }
 
     #[test]
     fn coats_keep_their_shades_as_paint_colors_change() {
         let mut p = parse(WRECK).unwrap();
-        p.set_colors(vec![[0x91, 0x76, 0x5F], [0x4E, 0x46, 0x37], [0x30, 0x30, 0x30]]);
-        assert_eq!(p.coats[0][..2], [[0xAD, 0x64, 0x4B], [0x87, 0x30, 0x18]], "shades of colors that stay stay");
-        assert_eq!((p.coats[0].len(), p.coats[1].len()), (3, 1), "a new color gets a shade, and a one-color coat stays one");
+        p.set_colors(vec![
+            [0x91, 0x76, 0x5F],
+            [0x4E, 0x46, 0x37],
+            [0x30, 0x30, 0x30],
+        ]);
+        assert_eq!(
+            p.coats[0][..2],
+            [[0xAD, 0x64, 0x4B], [0x87, 0x30, 0x18]],
+            "shades of colors that stay stay"
+        );
+        assert_eq!(
+            (p.coats[0].len(), p.coats[1].len()),
+            (3, 1),
+            "a new color gets a shade, and a one-color coat stays one"
+        );
         p.check().unwrap();
     }
 
     #[test]
     fn palettes_read_as_lospec_writes_them() {
-        assert_eq!(parse_palette("be4a2f\n#D77643\n\n# warm\nbe4a2f\n").unwrap(), [[0xBE, 0x4A, 0x2F], [0xD7, 0x76, 0x43]]);
-        assert!(parse_palette("be4a2f\nred").unwrap_err().starts_with("2: red"));
+        assert_eq!(
+            parse_palette("be4a2f\n#D77643\n\n# warm\nbe4a2f\n").unwrap(),
+            [[0xBE, 0x4A, 0x2F], [0xD7, 0x76, 0x43]]
+        );
+        assert!(
+            parse_palette("be4a2f\nred")
+                .unwrap_err()
+                .starts_with("2: red")
+        );
         assert_eq!(palette().len(), 34);
         assert!(lospec_name("endesga-32") && !lospec_name("../x") && !lospec_name("Endesga"));
     }
@@ -202,9 +294,28 @@ mod tests {
     #[test]
     fn bad_paint_lines_are_refused() {
         assert!(parse("coat 4A6FA5").unwrap_err().contains("paint line"));
-        assert!(parse("paint 91765F 726650\ncoat 4A6FA5 000000 111111").unwrap_err().contains("one color, or 2"));
-        assert!(parse("paint #91765F").unwrap_err().starts_with("1: paint lists"));
-        assert!(parse("paint 91765F\nshine 1").unwrap_err().starts_with("2: shine"));
-        assert!(parse(&format!("paint 91765F\n{}", "coat 000000\n".repeat(MAX_COATS + 1))).unwrap_err().contains("at most"));
+        assert!(
+            parse("paint 91765F 726650\ncoat 4A6FA5 000000 111111")
+                .unwrap_err()
+                .contains("one color, or 2")
+        );
+        assert!(
+            parse("paint #91765F")
+                .unwrap_err()
+                .starts_with("1: paint lists")
+        );
+        assert!(
+            parse("paint 91765F\nshine 1")
+                .unwrap_err()
+                .starts_with("2: shine")
+        );
+        assert!(
+            parse(&format!(
+                "paint 91765F\n{}",
+                "coat 000000\n".repeat(MAX_COATS + 1)
+            ))
+            .unwrap_err()
+            .contains("at most")
+        );
     }
 }

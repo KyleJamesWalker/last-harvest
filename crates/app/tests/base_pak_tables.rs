@@ -21,9 +21,31 @@ fn a_base_table_the_game_would_refuse_falls_back_to_the_built_in_one() {
     pak::install(Some(common::read(&files)), None).expect("a bad table doesn't stop the game");
     let problems = &data::load_report().problems;
     assert_eq!(problems.len(), 3, "{problems:?}");
-    assert!(problems.iter().any(|p| p.starts_with("game_data.pak: tuning.txt:")), "{problems:?}");
-    assert!(problems.iter().any(|p| p.starts_with("game_data.pak: powerups.txt is not UTF-8")), "{problems:?}");
-    assert!(problems.iter().any(|p| p.starts_with("game_data.pak: effects.txt:")), "{problems:?}");
-    assert_eq!(last_harvest_game::tuning::tuning().player_width, last_harvest_game::tuning::built_in().player_width, "the built-in numbers stand in");
-    assert!(data::powerups().contains("[pistol]"), "the built-in powerups stand in");
+    assert!(
+        problems
+            .iter()
+            .any(|p| p.starts_with("game_data.pak: tuning.txt:")),
+        "{problems:?}"
+    );
+    assert!(
+        problems
+            .iter()
+            .any(|p| p.starts_with("game_data.pak: powerups.txt is not UTF-8")),
+        "{problems:?}"
+    );
+    assert!(
+        problems
+            .iter()
+            .any(|p| p.starts_with("game_data.pak: effects.txt:")),
+        "{problems:?}"
+    );
+    assert_eq!(
+        last_harvest_game::tuning::tuning().player_width,
+        last_harvest_game::tuning::built_in().player_width,
+        "the built-in numbers stand in"
+    );
+    assert!(
+        data::powerups().contains("[pistol]"),
+        "the built-in powerups stand in"
+    );
 }

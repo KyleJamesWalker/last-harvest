@@ -17,7 +17,9 @@ pub const EDITOR_PACK_ID: &str = "card-editor";
 
 /// The id and file name of a pack named `name`; no name gives `my-cards`.
 pub fn pack_file(name: &str) -> (String, String) {
-    let id = Some(last_harvest_game::pack_key(name)).filter(|k| !k.is_empty()).unwrap_or_else(|| "my-cards".into());
+    let id = Some(last_harvest_game::pack_key(name))
+        .filter(|k| !k.is_empty())
+        .unwrap_or_else(|| "my-cards".into());
     let file = format!("{id}.pak");
     (id, file)
 }
@@ -36,9 +38,16 @@ const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwx
 pub fn to_text(bytes: &[u8]) -> String {
     let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for chunk in bytes.chunks(3) {
-        let n = chunk.iter().enumerate().fold(0u32, |n, (i, &b)| n | (b as u32) << (16 - 8 * i));
+        let n = chunk
+            .iter()
+            .enumerate()
+            .fold(0u32, |n, (i, &b)| n | (b as u32) << (16 - 8 * i));
         for i in 0..4 {
-            out.push(if i <= chunk.len() { ALPHABET[(n >> (18 - 6 * i) & 63) as usize] as char } else { '=' });
+            out.push(if i <= chunk.len() {
+                ALPHABET[(n >> (18 - 6 * i) & 63) as usize] as char
+            } else {
+                '='
+            });
         }
     }
     out
@@ -52,7 +61,11 @@ pub fn from_text(text: &str) -> Option<Vec<u8>> {
         if pad > 2 {
             return None;
         }
-        let n = chunk.iter().take(4 - pad).enumerate().try_fold(0u32, |n, (i, &c)| Some(n | digit(c)? << (18 - 6 * i)))?;
+        let n = chunk
+            .iter()
+            .take(4 - pad)
+            .enumerate()
+            .try_fold(0u32, |n, (i, &c)| Some(n | digit(c)? << (18 - 6 * i)))?;
         out.extend((0..3 - pad).map(|i| (n >> (16 - 8 * i)) as u8));
     }
     Some(out)
@@ -60,15 +73,22 @@ pub fn from_text(text: &str) -> Option<Vec<u8>> {
 
 /// Whether local storage's `key` is something the card editor keeps: a card, prop, map, data file or the pack name.
 pub fn is_editor_key(key: &str) -> bool {
-    key == PACK_NAME_KEY || [ENEMY_KEY, PLAYER_KEY, PROP_KEY, MAP_KEY, TABLE_KEY].iter().any(|p| key.starts_with(p))
+    key == PACK_NAME_KEY
+        || [ENEMY_KEY, PLAYER_KEY, PROP_KEY, MAP_KEY, TABLE_KEY]
+            .iter()
+            .any(|p| key.starts_with(p))
 }
 
 /// The editor's work among local storage's `entries`, as the files Export all would pack, by their paths in a pack;
 /// other keys are skipped, and an entry that won't decode is noted.
-pub fn editor_files(entries: impl IntoIterator<Item = (String, String)>, problems: &mut Vec<String>) -> Vec<(String, Vec<u8>)> {
+pub fn editor_files(
+    entries: impl IntoIterator<Item = (String, String)>,
+    problems: &mut Vec<String>,
+) -> Vec<(String, Vec<u8>)> {
     let mut files = Vec::new();
     for (key, value) in entries {
-        let binary = |dir: &str, id: &str, ext: &str| (format!("{dir}{id}{ext}"), from_text(&value));
+        let binary =
+            |dir: &str, id: &str, ext: &str| (format!("{dir}{id}{ext}"), from_text(&value));
         let (path, bytes) = if let Some(id) = key.strip_prefix(ENEMY_KEY) {
             binary(ENEMY_CARDS, id, Kind::Enemy.extension())
         } else if let Some(id) = key.strip_prefix(PLAYER_KEY) {
@@ -76,7 +96,10 @@ pub fn editor_files(entries: impl IntoIterator<Item = (String, String)>, problem
         } else if let Some(id) = key.strip_prefix(PROP_KEY) {
             binary(PROPS, id, prop::EXTENSION)
         } else if let Some(id) = key.strip_prefix(MAP_KEY) {
-            (format!("{MAPS}{id}{}", last_harvest_game::MAP_EXTENSION), Some(value.into_bytes()))
+            (
+                format!("{MAPS}{id}{}", last_harvest_game::MAP_EXTENSION),
+                Some(value.into_bytes()),
+            )
         } else if let Some(file) = key.strip_prefix(TABLE_KEY) {
             (file.to_string(), Some(value.into_bytes()))
         } else {
@@ -97,8 +120,14 @@ mod tests {
 
     #[test]
     fn a_pack_name_gives_its_id_and_file() {
-        assert_eq!(pack_file("Thanksgiving"), ("thanksgiving".into(), "thanksgiving.pak".into()));
-        assert_eq!(pack_file("Night of the Dead!"), ("night-of-the-dead".into(), "night-of-the-dead.pak".into()));
+        assert_eq!(
+            pack_file("Thanksgiving"),
+            ("thanksgiving".into(), "thanksgiving.pak".into())
+        );
+        assert_eq!(
+            pack_file("Night of the Dead!"),
+            ("night-of-the-dead".into(), "night-of-the-dead.pak".into())
+        );
         assert_eq!(pack_file("  "), ("my-cards".into(), "my-cards.pak".into()));
     }
 
@@ -143,8 +172,21 @@ mod tests {
         let files = editor_files(entries.map(|(k, v)| (k, v)), &mut problems);
         let paths: Vec<&str> = files.iter().map(|(p, _)| p.as_str()).collect();
         let map = format!("maps/yard{}", last_harvest_game::MAP_EXTENSION);
-        assert_eq!(paths, ["enemies/biter.enemy.png", "farms/kd.ground.txt", map.as_str(), "players/me.player.png", "props/crate.prop.png", "tuning.txt"]);
+        assert_eq!(
+            paths,
+            [
+                "enemies/biter.enemy.png",
+                "farms/kd.ground.txt",
+                map.as_str(),
+                "players/me.player.png",
+                "props/crate.prop.png",
+                "tuning.txt"
+            ]
+        );
         assert_eq!(files[0].1, b"png");
-        assert_eq!(problems, ["enemies/bad.enemy.png: the card editor's copy is damaged"]);
+        assert_eq!(
+            problems,
+            ["enemies/bad.enemy.png: the card editor's copy is damaged"]
+        );
     }
 }

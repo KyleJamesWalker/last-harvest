@@ -1,12 +1,12 @@
 //! The title's bottom-screen menu and its pages; Settings also opens over a paused run.
 
-use crate::fmath as fm;
+use crate::controls::{ACTIONS, BINDABLE, Controls};
+use crate::data::FoundPack;
 use crate::draw::{Align, Canvas, Color, Frame};
+use crate::fmath as fm;
 use crate::harvest::{self, roster};
 use crate::input::{Buttons, Input};
-use crate::controls::{ACTIONS, BINDABLE, Controls};
 use crate::pad::{self, PadFamily};
-use crate::data::FoundPack;
 use crate::save::LEVELS;
 use crate::{DIM, Game, HOT, SCREEN_H, SCREEN_W, Sfx, WHITE};
 
@@ -30,7 +30,15 @@ pub(crate) enum Page {
     Setup,
 }
 
-const MAIN: [(Page, &str); 7] = [(Page::Setup, "Play"), (Page::HowTo, "How to play"), (Page::Settings, "Settings"), (Page::Stats, "Stats"), (Page::Credits, "Credits"), (Page::Online, "Online"), (Page::Main, "Quit")];
+const MAIN: [(Page, &str); 7] = [
+    (Page::Setup, "Play"),
+    (Page::HowTo, "How to play"),
+    (Page::Settings, "Settings"),
+    (Page::Stats, "Stats"),
+    (Page::Credits, "Credits"),
+    (Page::Online, "Online"),
+    (Page::Main, "Quit"),
+];
 /// The last row, shown only where the game can quit.
 const QUIT_ROW: usize = 6;
 
@@ -55,7 +63,24 @@ pub(crate) enum Setting {
 }
 
 impl Setting {
-    const ALL: [Setting; 16] = [Setting::TopBrightness, Setting::BottomBrightness, Setting::Volume, Setting::Mouse, Setting::Rumble, Setting::Fps, Setting::Screens, Setting::CornerMap, Setting::Touch, Setting::Grenades, Setting::Controls, Setting::Enemies, Setting::Mods, Setting::Folder, Setting::Relay, Setting::Reset];
+    const ALL: [Setting; 16] = [
+        Setting::TopBrightness,
+        Setting::BottomBrightness,
+        Setting::Volume,
+        Setting::Mouse,
+        Setting::Rumble,
+        Setting::Fps,
+        Setting::Screens,
+        Setting::CornerMap,
+        Setting::Touch,
+        Setting::Grenades,
+        Setting::Controls,
+        Setting::Enemies,
+        Setting::Mods,
+        Setting::Folder,
+        Setting::Relay,
+        Setting::Reset,
+    ];
 
     fn name(self) -> &'static str {
         match self {
@@ -125,11 +150,25 @@ pub(crate) fn inside([x, y]: [f32; 2], [rx, ry, w, h]: [f32; 4]) -> bool {
 }
 
 fn replay_row(i: usize) -> [f32; 4] {
-    [40.0, REPLAY_TOP + i as f32 * REPLAY_H, SCREEN_W - 80.0, REPLAY_H - 8.0]
+    [
+        40.0,
+        REPLAY_TOP + i as f32 * REPLAY_H,
+        SCREEN_W - 80.0,
+        REPLAY_H - 8.0,
+    ]
 }
 
 pub(crate) fn main_row(i: usize) -> [f32; 4] {
-    if i == 0 { PLAY } else { [212.0, ROWS_TOP + (i - 1) as f32 * ROW_H, 600.0, ROW_H - 12.0] }
+    if i == 0 {
+        PLAY
+    } else {
+        [
+            212.0,
+            ROWS_TOP + (i - 1) as f32 * ROW_H,
+            600.0,
+            ROW_H - 12.0,
+        ]
+    }
 }
 
 /// Row `i` of `n`, which shrink to fit above the Back button.
@@ -224,12 +263,18 @@ impl Game {
                 self.page = Page::Main;
                 self.sounds.push(Sfx::Tick(0));
             }
-            Page::Stats if input.pressed.contains(Buttons::A) || tapped.is_some_and(|p| inside(p, HISTORY)) => {
+            Page::Stats
+                if input.pressed.contains(Buttons::A)
+                    || tapped.is_some_and(|p| inside(p, HISTORY)) =>
+            {
                 self.page = Page::History;
                 self.history_page = 0;
                 self.sounds.push(Sfx::Tick(3));
             }
-            Page::Stats if input.pressed.contains(Buttons::X) || tapped.is_some_and(|p| inside(p, REPLAYS)) => {
+            Page::Stats
+                if input.pressed.contains(Buttons::X)
+                    || tapped.is_some_and(|p| inside(p, REPLAYS)) =>
+            {
                 self.page = Page::Replays;
                 self.replays_asked = true;
                 self.sounds.push(Sfx::Tick(6));
@@ -245,7 +290,8 @@ impl Game {
                 self.sounds.push(Sfx::Tick(0));
             }
             Page::History => {
-                let next = input.pressed.any(Buttons::RIGHT | Buttons::R1 | Buttons::A) || tapped.is_some_and(|p| inside(p, HISTORY));
+                let next = input.pressed.any(Buttons::RIGHT | Buttons::R1 | Buttons::A)
+                    || tapped.is_some_and(|p| inside(p, HISTORY));
                 let by = next as i32 - input.pressed.any(Buttons::LEFT | Buttons::L1) as i32;
                 let pages = self.history_pages() as i32;
                 if by != 0 && pages > 1 {
@@ -258,7 +304,12 @@ impl Game {
             Page::Join => self.join_page(input, tapped),
             Page::Lobby => self.lobby_page(input, tapped),
             Page::Relay => self.relay_page(input, tapped),
-            Page::HowTo if tapped.is_some() || input.pressed.any(Buttons::A | Buttons::B | Buttons::X | Buttons::Y | Buttons::START) => {
+            Page::HowTo
+                if tapped.is_some()
+                    || input.pressed.any(
+                        Buttons::A | Buttons::B | Buttons::X | Buttons::Y | Buttons::START,
+                    ) =>
+            {
                 self.close_how_to(input.pressed.contains(Buttons::B));
             }
             Page::HowTo => {}
@@ -272,7 +323,11 @@ impl Game {
         self.save.how_to_seen = true;
         self.how_to_due = false;
         let then_play = std::mem::take(&mut self.how_to_then_play);
-        self.page = if then_play && back { Page::Setup } else { Page::Main };
+        self.page = if then_play && back {
+            Page::Setup
+        } else {
+            Page::Main
+        };
         if then_play && !back {
             self.open(crate::Scene::Harvest);
         } else {
@@ -281,19 +336,27 @@ impl Game {
     }
 
     fn main_page(&mut self, input: &Input, tapped: Option<[f32; 2]>) {
-        let step = input.pressed.contains(Buttons::DOWN) as i32 - input.pressed.contains(Buttons::UP) as i32;
+        let step = input.pressed.contains(Buttons::DOWN) as i32
+            - input.pressed.contains(Buttons::UP) as i32;
         if step != 0 {
             self.row = (self.row as i32 + step).rem_euclid(self.main_rows() as i32) as usize;
             self.sounds.push(Sfx::Tick(self.row as u8 * 3));
             return;
         }
-        if let Some(i) = input.hover.and_then(|p| (0..self.main_rows()).find(|&i| inside(p, main_row(i)))).filter(|&i| i != self.row) {
+        if let Some(i) = input
+            .hover
+            .and_then(|p| (0..self.main_rows()).find(|&i| inside(p, main_row(i))))
+            .filter(|&i| i != self.row)
+        {
             self.row = i;
             self.sounds.push(Sfx::Tick(self.row as u8 * 3));
         }
         let chosen = match tapped {
             Some(p) => (0..self.main_rows()).find(|&i| inside(p, main_row(i))),
-            None => input.pressed.any(Buttons::START | Buttons::A).then_some(self.row),
+            None => input
+                .pressed
+                .any(Buttons::START | Buttons::A)
+                .then_some(self.row),
         };
         match chosen {
             Some(0) if crate::data::load_report().missing_pack.is_some() => {
@@ -323,9 +386,13 @@ impl Game {
     /// Moves the map runs start on `by` along Random and the hand-made maps.
     pub(crate) fn step_map(&mut self, by: i32) {
         let maps = crate::data::maps();
-        let at = maps.iter().position(|m| m.id == self.save.map.as_str()).map_or(0, |i| i + 1) as i32;
+        let at = maps
+            .iter()
+            .position(|m| m.id == self.save.map.as_str())
+            .map_or(0, |i| i + 1) as i32;
         let next = (at + by).rem_euclid(maps.len() as i32 + 1) as usize;
-        self.save.map = crate::save::LookId::new(next.checked_sub(1).map_or("", |i| maps[i].id.as_str()));
+        self.save.map =
+            crate::save::LookId::new(next.checked_sub(1).map_or("", |i| maps[i].id.as_str()));
         self.sounds.push(Sfx::Tick(next as u8 * 3));
     }
 
@@ -349,27 +416,36 @@ impl Game {
             return false;
         }
         let list = self.settings_list();
-        if input.pressed.any(Buttons::B | Buttons::START) || tapped.is_some_and(|p| inside(p, BACK)) {
+        if input.pressed.any(Buttons::B | Buttons::START) || tapped.is_some_and(|p| inside(p, BACK))
+        {
             self.reset_armed = 0.0;
             self.sounds.push(Sfx::Tick(0));
             return true;
         }
-        let step = input.pressed.contains(Buttons::DOWN) as i32 - input.pressed.contains(Buttons::UP) as i32;
+        let step = input.pressed.contains(Buttons::DOWN) as i32
+            - input.pressed.contains(Buttons::UP) as i32;
         if step != 0 {
             self.setting = (self.setting as i32 + step).rem_euclid(list.len() as i32) as usize;
             self.reset_armed = 0.0;
             self.sounds.push(Sfx::Tick(self.setting as u8 * 2));
             return false;
         }
-        if let Some(i) = input.hover.and_then(|p| (0..list.len()).find(|&i| inside(p, setting_row(i, list.len())))).filter(|&i| i != self.setting) {
+        if let Some(i) = input
+            .hover
+            .and_then(|p| (0..list.len()).find(|&i| inside(p, setting_row(i, list.len()))))
+            .filter(|&i| i != self.setting)
+        {
             self.setting = i;
             self.reset_armed = 0.0;
             self.sounds.push(Sfx::Tick(self.setting as u8 * 2));
         }
-        let mut by = input.pressed.contains(Buttons::RIGHT) as i32 - input.pressed.contains(Buttons::LEFT) as i32;
+        let mut by = input.pressed.contains(Buttons::RIGHT) as i32
+            - input.pressed.contains(Buttons::LEFT) as i32;
         let mut press = input.pressed.contains(Buttons::A);
         if let Some(p) = tapped {
-            let Some(i) = (0..list.len()).find(|&i| inside(p, setting_row(i, list.len()))) else { return false };
+            let Some(i) = (0..list.len()).find(|&i| inside(p, setting_row(i, list.len()))) else {
+                return false;
+            };
             self.setting = i;
             match p[0] {
                 x if (x - LESS_X).abs() < 60.0 => by = -1,
@@ -379,8 +455,12 @@ impl Game {
         }
         let level = |v: u8, lo: u8| v.saturating_add_signed(by as i8).clamp(lo, LEVELS);
         match list[self.setting] {
-            Setting::TopBrightness if by != 0 => self.save.brightness[0] = level(self.save.brightness[0], 1),
-            Setting::BottomBrightness if by != 0 => self.save.brightness[1] = level(self.save.brightness[1], 1),
+            Setting::TopBrightness if by != 0 => {
+                self.save.brightness[0] = level(self.save.brightness[0], 1)
+            }
+            Setting::BottomBrightness if by != 0 => {
+                self.save.brightness[1] = level(self.save.brightness[1], 1)
+            }
             Setting::Volume if by != 0 => {
                 self.save.volume = level(self.save.volume, 0);
                 self.sounds.push(Sfx::Tick(self.save.volume));
@@ -396,8 +476,12 @@ impl Game {
             Setting::Fps if by != 0 || press => self.save.fps = !self.save.fps,
             Setting::Screens if by != 0 || press => self.save.one_screen = !self.save.one_screen,
             Setting::CornerMap if by != 0 || press => self.save.corner_map = !self.save.corner_map,
-            Setting::Touch if by != 0 || press => self.save.touch = self.save.touch.step(if by == 0 { 1 } else { by }),
-            Setting::Grenades if by != 0 || press => self.save.touch_grenades = !self.save.touch_grenades,
+            Setting::Touch if by != 0 || press => {
+                self.save.touch = self.save.touch.step(if by == 0 { 1 } else { by })
+            }
+            Setting::Grenades if by != 0 || press => {
+                self.save.touch_grenades = !self.save.touch_grenades
+            }
             Setting::Controls if by > 0 || press => {
                 self.rebind = Some(Rebind::default());
                 self.sounds.push(Sfx::Tick(9));
@@ -441,7 +525,9 @@ impl Game {
     /// Up and Down choose a game button's job, then A or a tap waits for the pad button or key to send it, which
     /// swaps with the job that had it; the last row restores them all. Returns true once B leaves.
     fn controls_page(&mut self, input: &Input, tapped: Option<[f32; 2]>) -> bool {
-        let Some(mut r) = self.rebind.take() else { return true };
+        let Some(mut r) = self.rebind.take() else {
+            return true;
+        };
         let leave = self.rebind_input(&mut r, input, tapped);
         self.rebind = Some(r);
         leave
@@ -464,11 +550,13 @@ impl Game {
             }
             return false;
         }
-        if input.pressed.any(Buttons::B | Buttons::START) || tapped.is_some_and(|p| inside(p, BACK)) {
+        if input.pressed.any(Buttons::B | Buttons::START) || tapped.is_some_and(|p| inside(p, BACK))
+        {
             self.sounds.push(Sfx::Tick(0));
             return true;
         }
-        let step = input.pressed.contains(Buttons::DOWN) as i32 - input.pressed.contains(Buttons::UP) as i32;
+        let step = input.pressed.contains(Buttons::DOWN) as i32
+            - input.pressed.contains(Buttons::UP) as i32;
         if step != 0 {
             r.row = (r.row as i32 + step).rem_euclid(rows as i32) as usize;
             self.sounds.push(Sfx::Tick(r.row as u8 * 2));
@@ -476,7 +564,8 @@ impl Game {
         }
         let first = r.row.saturating_sub(CONTROL_ROWS - 1);
         let chosen = match tapped {
-            Some(p) => (first..rows.min(first + CONTROL_ROWS)).find(|&i| inside(p, setting_row(i - first, CONTROL_ROWS))),
+            Some(p) => (first..rows.min(first + CONTROL_ROWS))
+                .find(|&i| inside(p, setting_row(i - first, CONTROL_ROWS))),
             None => input.pressed.contains(Buttons::A).then_some(r.row),
         };
         match chosen {
@@ -500,24 +589,38 @@ impl Game {
     /// Up and Down choose a kind, A, Left, Right or a tap turns it on or off; returns true once B leaves.
     fn enemies_page(&mut self, input: &Input, tapped: Option<[f32; 2]>) -> bool {
         let count = roster().enemies.len();
-        if input.pressed.any(Buttons::B | Buttons::START) || tapped.is_some_and(|p| inside(p, BACK)) {
+        if input.pressed.any(Buttons::B | Buttons::START) || tapped.is_some_and(|p| inside(p, BACK))
+        {
             self.sounds.push(Sfx::Tick(0));
             return true;
         }
-        let step = input.pressed.contains(Buttons::DOWN) as i32 - input.pressed.contains(Buttons::UP) as i32;
+        let step = input.pressed.contains(Buttons::DOWN) as i32
+            - input.pressed.contains(Buttons::UP) as i32;
         if step != 0 {
             self.enemy = (self.enemy as i32 + step).rem_euclid(count as i32) as usize;
             self.sounds.push(Sfx::Tick(self.enemy as u8 * 2));
             return false;
         }
         let first = self.enemy.saturating_sub(ENEMY_ROWS - 1);
-        if let Some(i) = input.hover.and_then(|p| (first..count.min(first + ENEMY_ROWS)).find(|&i| inside(p, setting_row(i - first, ENEMY_ROWS)))).filter(|&i| i != self.enemy) {
+        if let Some(i) = input
+            .hover
+            .and_then(|p| {
+                (first..count.min(first + ENEMY_ROWS))
+                    .find(|&i| inside(p, setting_row(i - first, ENEMY_ROWS)))
+            })
+            .filter(|&i| i != self.enemy)
+        {
             self.enemy = i;
             self.sounds.push(Sfx::Tick(self.enemy as u8 * 2));
         }
         let toggle = match tapped {
-            Some(p) => (first..count.min(first + ENEMY_ROWS)).find(|&i| inside(p, setting_row(i - first, ENEMY_ROWS))).inspect(|&i| self.enemy = i).is_some(),
-            None => input.pressed.any(Buttons::A | Buttons::LEFT | Buttons::RIGHT),
+            Some(p) => (first..count.min(first + ENEMY_ROWS))
+                .find(|&i| inside(p, setting_row(i - first, ENEMY_ROWS)))
+                .inspect(|&i| self.enemy = i)
+                .is_some(),
+            None => input
+                .pressed
+                .any(Buttons::A | Buttons::LEFT | Buttons::RIGHT),
         };
         if toggle {
             let flipped = self.save.enemies_off ^ 1 << self.enemy;
@@ -540,33 +643,51 @@ impl Game {
     /// B leaves.
     fn mods_page(&mut self, input: &Input, tapped: Option<[f32; 2]>) -> bool {
         let count = self.packs.len();
-        if input.pressed.any(Buttons::B | Buttons::START) || tapped.is_some_and(|p| inside(p, BACK)) {
+        if input.pressed.any(Buttons::B | Buttons::START) || tapped.is_some_and(|p| inside(p, BACK))
+        {
             self.sounds.push(Sfx::Tick(0));
             return true;
         }
         if count == 0 {
             return false;
         }
-        let step = input.pressed.contains(Buttons::DOWN) as i32 - input.pressed.contains(Buttons::UP) as i32;
+        let step = input.pressed.contains(Buttons::DOWN) as i32
+            - input.pressed.contains(Buttons::UP) as i32;
         if step != 0 {
             self.mod_row = (self.mod_row as i32 + step).rem_euclid(count as i32) as usize;
             self.sounds.push(Sfx::Tick(self.mod_row as u8 * 2));
             return false;
         }
         let first = self.mod_row.saturating_sub(MOD_ROWS - 1);
-        if let Some(i) = input.hover.and_then(|p| (first..count.min(first + MOD_ROWS)).find(|&i| inside(p, setting_row(i - first, MOD_ROWS)))).filter(|&i| i != self.mod_row) {
+        if let Some(i) = input
+            .hover
+            .and_then(|p| {
+                (first..count.min(first + MOD_ROWS))
+                    .find(|&i| inside(p, setting_row(i - first, MOD_ROWS)))
+            })
+            .filter(|&i| i != self.mod_row)
+        {
             self.mod_row = i;
             self.sounds.push(Sfx::Tick(self.mod_row as u8 * 2));
         }
         let toggle = match tapped {
-            Some(p) => (first..count.min(first + MOD_ROWS)).find(|&i| inside(p, setting_row(i - first, MOD_ROWS))).inspect(|&i| self.mod_row = i).is_some(),
-            None => input.pressed.any(Buttons::A | Buttons::LEFT | Buttons::RIGHT),
+            Some(p) => (first..count.min(first + MOD_ROWS))
+                .find(|&i| inside(p, setting_row(i - first, MOD_ROWS)))
+                .inspect(|&i| self.mod_row = i)
+                .is_some(),
+            None => input
+                .pressed
+                .any(Buttons::A | Buttons::LEFT | Buttons::RIGHT),
         };
         if toggle {
             let pack = &self.packs[self.mod_row];
             let off = self.pack_wanted(pack);
             let packs = &self.packs;
-            if self.save.mods_off.set(&pack.key, off, |k| !packs.iter().any(|p| p.key == k)) {
+            if self
+                .save
+                .mods_off
+                .set(&pack.key, off, |k| !packs.iter().any(|p| p.key == k))
+            {
                 self.sounds.push(Sfx::Tick(6));
             } else {
                 self.sounds.push(Sfx::Miss);
@@ -602,25 +723,82 @@ impl Game {
             let [x, y, w, h] = main_row(i);
             let on = i == self.row;
             let off = i == 0 && missing.is_some();
-            c.rect(x, y, w, h, if on { [1.0, 0.85, 0.3, if off { 0.12 } else { 0.3 }] } else { [1.0, 1.0, 1.0, 0.08] });
-            let color = if off { DIM } else if on { [HOT[0], HOT[1], HOT[2], if i == 0 { pulse } else { 1.0 }] } else { WHITE };
+            c.rect(
+                x,
+                y,
+                w,
+                h,
+                if on {
+                    [1.0, 0.85, 0.3, if off { 0.12 } else { 0.3 }]
+                } else {
+                    [1.0, 1.0, 1.0, 0.08]
+                },
+            );
+            let color = if off {
+                DIM
+            } else if on {
+                [HOT[0], HOT[1], HOT[2], if i == 0 { pulse } else { 1.0 }]
+            } else {
+                WHITE
+            };
             let size = if i == 0 { 52.0 } else { 42.0 };
-            c.label(*name, x + w / 2.0, y + h / 2.0 - size / 2.0, size, color, Align::Center);
+            c.label(
+                *name,
+                x + w / 2.0,
+                y + h / 2.0 - size / 2.0,
+                size,
+                color,
+                Align::Center,
+            );
         }
         if let Some(how) = missing {
             let (y, mid, red) = (MISSING_Y, SCREEN_W / 2.0, [1.0, 0.55, 0.5, 1.0]);
-            c.rect(mid - 420.0, y - 10.0, 840.0, 150.0, [0.45, 0.12, 0.12, 0.35]);
+            c.rect(
+                mid - 420.0,
+                y - 10.0,
+                840.0,
+                150.0,
+                [0.45, 0.12, 0.12, 0.35],
+            );
             c.label("No game_data.pak", mid, y + 6.0, 44.0, red, Align::Center);
             wrap_label(c, how, mid, y + 62.0, 28.0, 800.0, 2, WHITE, Align::Center);
             return;
         }
         if self.title_on_one() {
-            c.hint("D-pad: walk.   {Y} / {A}: turn.   {B}: turn around.", SCREEN_W / 2.0, SCREEN_H - 86.0, 36.0, DIM, Align::Center);
-            c.hint("{L1}: map.   {L2}: aim a grenade.   {R1}: throw ahead.", SCREEN_W / 2.0, SCREEN_H - 44.0, 36.0, DIM, Align::Center);
+            c.hint(
+                "D-pad: walk.   {Y} / {A}: turn.   {B}: turn around.",
+                SCREEN_W / 2.0,
+                SCREEN_H - 86.0,
+                36.0,
+                DIM,
+                Align::Center,
+            );
+            c.hint(
+                "{L1}: map.   {L2}: aim a grenade.   {R1}: throw ahead.",
+                SCREEN_W / 2.0,
+                SCREEN_H - 44.0,
+                36.0,
+                DIM,
+                Align::Center,
+            );
             return;
         }
-        c.hint("D-pad: walk and strafe.   {Y} / {A}: turn.   {B}: turn around.   {R2}: screenshot.", SCREEN_W / 2.0, SCREEN_H - 84.0, 24.0, DIM, Align::Center);
-        c.hint("Hold {X}: aim at barrels.   Tap the map, or hold {R1}: throw.", SCREEN_W / 2.0, SCREEN_H - 50.0, 24.0, DIM, Align::Center);
+        c.hint(
+            "D-pad: walk and strafe.   {Y} / {A}: turn.   {B}: turn around.   {R2}: screenshot.",
+            SCREEN_W / 2.0,
+            SCREEN_H - 84.0,
+            24.0,
+            DIM,
+            Align::Center,
+        );
+        c.hint(
+            "Hold {X}: aim at barrels.   Tap the map, or hold {R1}: throw.",
+            SCREEN_W / 2.0,
+            SCREEN_H - 50.0,
+            24.0,
+            DIM,
+            Align::Center,
+        );
     }
 
     pub(crate) fn draw_settings(&self, c: &mut Canvas) {
@@ -633,12 +811,39 @@ impl Game {
         for (i, &s) in list.iter().enumerate() {
             let [x, y, w, h] = setting_row(i, list.len());
             let on = i == self.setting;
-            c.rect(x, y, w, h, if on { [1.0, 0.85, 0.3, 0.25] } else { [1.0, 1.0, 1.0, 0.06] });
+            c.rect(
+                x,
+                y,
+                w,
+                h,
+                if on {
+                    [1.0, 0.85, 0.3, 0.25]
+                } else {
+                    [1.0, 1.0, 1.0, 0.06]
+                },
+            );
             let mid = y + h / 2.0;
             let armed = s == Setting::Reset && self.reset_armed > 0.0;
             let red = [1.0, 0.45, 0.4, 1.0];
-            let name = if armed { pad::hint("Press {A} again to erase") } else { s.name().to_string() };
-            c.label(name, x + 30.0, mid - 20.0, 38.0, if armed { red } else if on { HOT } else { WHITE }, Align::Left);
+            let name = if armed {
+                pad::hint("Press {A} again to erase")
+            } else {
+                s.name().to_string()
+            };
+            c.label(
+                name,
+                x + 30.0,
+                mid - 20.0,
+                38.0,
+                if armed {
+                    red
+                } else if on {
+                    HOT
+                } else {
+                    WHITE
+                },
+                Align::Left,
+            );
             let (value, lo) = match s {
                 Setting::TopBrightness => (self.save.brightness[0], 1),
                 Setting::BottomBrightness => (self.save.brightness[1], 1),
@@ -650,7 +855,14 @@ impl Game {
                         Setting::Fps => self.save.fps,
                         _ => self.save.corner_map,
                     };
-                    c.label(if v { "On" } else { "Off" }, (LESS_X + MORE_X) / 2.0, mid - 20.0, 38.0, if v { HOT } else { DIM }, Align::Center);
+                    c.label(
+                        if v { "On" } else { "Off" },
+                        (LESS_X + MORE_X) / 2.0,
+                        mid - 20.0,
+                        38.0,
+                        if v { HOT } else { DIM },
+                        Align::Center,
+                    );
                     continue;
                 }
                 Setting::Screens | Setting::Touch | Setting::Grenades => {
@@ -661,25 +873,67 @@ impl Game {
                         _ if self.save.touch_grenades => "Touch",
                         _ => "Pad",
                     };
-                    c.label(label, (LESS_X + MORE_X) / 2.0, mid - 20.0, 38.0, HOT, Align::Center);
+                    c.label(
+                        label,
+                        (LESS_X + MORE_X) / 2.0,
+                        mid - 20.0,
+                        38.0,
+                        HOT,
+                        Align::Center,
+                    );
                     continue;
                 }
                 Setting::Controls => {
                     let changed = !self.save.controls.is_default();
-                    c.label(if changed { "Changed   >" } else { "Default   >" }, x + w - 30.0, mid - 20.0, 38.0, if changed { HOT } else { DIM }, Align::Right);
+                    c.label(
+                        if changed {
+                            "Changed   >"
+                        } else {
+                            "Default   >"
+                        },
+                        x + w - 30.0,
+                        mid - 20.0,
+                        38.0,
+                        if changed { HOT } else { DIM },
+                        Align::Right,
+                    );
                     continue;
                 }
                 Setting::Enemies => {
                     let r = roster();
-                    let on = (0..r.enemies.len()).filter(|i| self.save.enemies_off & 1 << i == 0).count();
-                    c.label(format!("{on} of {} on   >", r.enemies.len()), x + w - 30.0, mid - 20.0, 38.0, if on < r.enemies.len() { HOT } else { DIM }, Align::Right);
+                    let on = (0..r.enemies.len())
+                        .filter(|i| self.save.enemies_off & 1 << i == 0)
+                        .count();
+                    c.label(
+                        format!("{on} of {} on   >", r.enemies.len()),
+                        x + w - 30.0,
+                        mid - 20.0,
+                        38.0,
+                        if on < r.enemies.len() { HOT } else { DIM },
+                        Align::Right,
+                    );
                     continue;
                 }
                 Setting::Mods => {
                     let pending = self.packs.iter().any(|p| self.pack_wanted(p) != p.on);
                     let on = self.packs.iter().filter(|p| self.pack_wanted(p)).count();
-                    let text = if pending { "Restart to apply   >".to_string() } else { format!("{on} of {} on   >", self.packs.len()) };
-                    c.label(text, x + w - 30.0, mid - 20.0, 38.0, if pending || on < self.packs.len() { HOT } else { DIM }, Align::Right);
+                    let text = if pending {
+                        "Restart to apply   >".to_string()
+                    } else {
+                        format!("{on} of {} on   >", self.packs.len())
+                    };
+                    c.label(
+                        text,
+                        x + w - 30.0,
+                        mid - 20.0,
+                        38.0,
+                        if pending || on < self.packs.len() {
+                            HOT
+                        } else {
+                            DIM
+                        },
+                        Align::Right,
+                    );
                     continue;
                 }
                 Setting::Folder => {
@@ -687,29 +941,82 @@ impl Game {
                         Some("") | None => ("Choose", HOT),
                         Some(name) => (name, if on { HOT } else { WHITE }),
                     };
-                    fit_label(c, name, x + w - 30.0, mid - 20.0, 38.0, w - 420.0, color, Align::Right);
+                    fit_label(
+                        c,
+                        name,
+                        x + w - 30.0,
+                        mid - 20.0,
+                        38.0,
+                        w - 420.0,
+                        color,
+                        Align::Right,
+                    );
                     continue;
                 }
                 Setting::Relay => {
                     let relay = self.save.relay.as_str();
-                    let (name, color) = if relay.is_empty() { ("This machine", DIM) } else { (relay, if on { HOT } else { WHITE }) };
-                    fit_label(c, name, x + w - 30.0, mid - 20.0, 38.0, w - 420.0, color, Align::Right);
+                    let (name, color) = if relay.is_empty() {
+                        ("This machine", DIM)
+                    } else {
+                        (relay, if on { HOT } else { WHITE })
+                    };
+                    fit_label(
+                        c,
+                        name,
+                        x + w - 30.0,
+                        mid - 20.0,
+                        38.0,
+                        w - 420.0,
+                        color,
+                        Align::Right,
+                    );
                     continue;
                 }
                 Setting::Reset => {
-                    let hint = if armed { "Clears records, kills and found powerups" } else { "Settings stay" };
-                    c.label(hint, x + w - 30.0, mid - 14.0, 24.0, if armed { red } else { DIM }, Align::Right);
+                    let hint = if armed {
+                        "Clears records, kills and found powerups"
+                    } else {
+                        "Settings stay"
+                    };
+                    c.label(
+                        hint,
+                        x + w - 30.0,
+                        mid - 14.0,
+                        24.0,
+                        if armed { red } else { DIM },
+                        Align::Right,
+                    );
                     continue;
                 }
             };
             let arrow = |live: bool| if live { HOT } else { [1.0, 1.0, 1.0, 0.15] };
-            c.label("<", LESS_X, mid - 24.0, 44.0, arrow(value > lo), Align::Center);
-            c.label(">", MORE_X, mid - 24.0, 44.0, arrow(value < LEVELS), Align::Center);
+            c.label(
+                "<",
+                LESS_X,
+                mid - 24.0,
+                44.0,
+                arrow(value > lo),
+                Align::Center,
+            );
+            c.label(
+                ">",
+                MORE_X,
+                mid - 24.0,
+                44.0,
+                arrow(value < LEVELS),
+                Align::Center,
+            );
             let (left, span) = (LESS_X + 40.0, MORE_X - LESS_X - 80.0);
             let cell = span / LEVELS as f32;
             for l in 0..LEVELS {
                 let lit = l < value;
-                c.rect(left + l as f32 * cell + 3.0, mid - 14.0, cell - 6.0, 28.0, if lit { HOT } else { [1.0, 1.0, 1.0, 0.12] });
+                c.rect(
+                    left + l as f32 * cell + 3.0,
+                    mid - 14.0,
+                    cell - 6.0,
+                    28.0,
+                    if lit { HOT } else { [1.0, 1.0, 1.0, 0.12] },
+                );
             }
         }
         back_button(c);
@@ -721,20 +1028,40 @@ impl Game {
         c.rect(0.0, 0.0, SCREEN_W, SCREEN_H, [0.12, 0.12, 0.15, 1.0]);
         c.label("Controls", SCREEN_W / 2.0, 24.0, 48.0, WHITE, Align::Center);
         let family = pad::last_pad();
-        let (pad_x, key_x) = if self.keyboard { (700.0, 880.0) } else { (840.0, 0.0) };
+        let (pad_x, key_x) = if self.keyboard {
+            (700.0, 880.0)
+        } else {
+            (840.0, 0.0)
+        };
         let head = 74.0;
         c.label(family.name(), pad_x, head, 22.0, DIM, Align::Center);
         if self.keyboard {
             c.label("Keys", key_x, head, 22.0, DIM, Align::Center);
         }
         let (status, color) = if r.waiting() {
-            (format!("Press the button for {}   {}", ACTIONS[r.row].1, r.waiting.ceil()), HOT)
+            (
+                format!(
+                    "Press the button for {}   {}",
+                    ACTIONS[r.row].1,
+                    r.waiting.ceil()
+                ),
+                HOT,
+            )
         } else if r.note_t > 0.0 {
             (r.note.clone(), HOT)
         } else {
             (pad::hint("Tap or {A}: change   {B}: back"), DIM)
         };
-        fit_label(c, &status, 40.0, head, 22.0, pad_x - 120.0, color, Align::Left);
+        fit_label(
+            c,
+            &status,
+            40.0,
+            head,
+            22.0,
+            pad_x - 120.0,
+            color,
+            Align::Left,
+        );
         let pulse = 0.5 + 0.5 * fm::sin(self.clock * 6.0).abs();
         let rows = ACTIONS.len() + 1;
         let first = r.row.saturating_sub(CONTROL_ROWS - 1);
@@ -742,21 +1069,82 @@ impl Game {
             let [x, y, w, h] = setting_row(row, CONTROL_ROWS);
             let sel = i == r.row;
             let armed = sel && r.waiting();
-            c.rect(x, y, w, h, if armed { [1.0, 0.85, 0.3, 0.25 * pulse + 0.1] } else if sel { [1.0, 0.85, 0.3, 0.25] } else { [1.0, 1.0, 1.0, 0.06] });
+            c.rect(
+                x,
+                y,
+                w,
+                h,
+                if armed {
+                    [1.0, 0.85, 0.3, 0.25 * pulse + 0.1]
+                } else if sel {
+                    [1.0, 0.85, 0.3, 0.25]
+                } else {
+                    [1.0, 1.0, 1.0, 0.06]
+                },
+            );
             let mid = y + h / 2.0;
             let name_color = if sel { HOT } else { WHITE };
             let Some(&(game, name)) = ACTIONS.get(i) else {
-                c.label("Default", x + 30.0, mid - 20.0, 38.0, name_color, Align::Left);
+                c.label(
+                    "Default",
+                    x + 30.0,
+                    mid - 20.0,
+                    38.0,
+                    name_color,
+                    Align::Left,
+                );
                 let same = self.save.controls.is_default();
-                c.label(if same { "In use" } else { "Put every button back" }, x + w - 30.0, mid - 14.0, 26.0, if same { DIM } else { HOT }, Align::Right);
+                c.label(
+                    if same {
+                        "In use"
+                    } else {
+                        "Put every button back"
+                    },
+                    x + w - 30.0,
+                    mid - 14.0,
+                    26.0,
+                    if same { DIM } else { HOT },
+                    Align::Right,
+                );
                 continue;
             };
-            fit_label(c, name, x + 30.0, mid - 20.0, 38.0, pad_x - 100.0 - x, name_color, Align::Left);
+            fit_label(
+                c,
+                name,
+                x + 30.0,
+                mid - 20.0,
+                38.0,
+                pad_x - 100.0 - x,
+                name_color,
+                Align::Left,
+            );
             let moved = self.save.controls.physical(game) != game;
-            let shown = if armed { "?" } else { pad::label_as(family, game) };
-            fit_label(c, shown, pad_x, mid - 20.0, 38.0, 170.0, if armed || moved { HOT } else { WHITE }, Align::Center);
+            let shown = if armed {
+                "?"
+            } else {
+                pad::label_as(family, game)
+            };
+            fit_label(
+                c,
+                shown,
+                pad_x,
+                mid - 20.0,
+                38.0,
+                170.0,
+                if armed || moved { HOT } else { WHITE },
+                Align::Center,
+            );
             if self.keyboard {
-                fit_label(c, pad::label_as(PadFamily::Keyboard, game), key_x, mid - 20.0, 38.0, 170.0, if moved { HOT } else { DIM }, Align::Center);
+                fit_label(
+                    c,
+                    pad::label_as(PadFamily::Keyboard, game),
+                    key_x,
+                    mid - 20.0,
+                    38.0,
+                    170.0,
+                    if moved { HOT } else { DIM },
+                    Align::Center,
+                );
             }
         }
         back_button(c);
@@ -770,18 +1158,64 @@ impl Game {
         for (row, i) in (first..r.enemies.len().min(first + ENEMY_ROWS)).enumerate() {
             let [x, y, w, h] = setting_row(row, ENEMY_ROWS);
             let (sel, on) = (i == self.enemy, self.save.enemies_off & 1 << i == 0);
-            c.rect(x, y, w, h, if sel { [1.0, 0.85, 0.3, 0.25] } else { [1.0, 1.0, 1.0, 0.06] });
+            c.rect(
+                x,
+                y,
+                w,
+                h,
+                if sel {
+                    [1.0, 0.85, 0.3, 0.25]
+                } else {
+                    [1.0, 1.0, 1.0, 0.06]
+                },
+            );
             let [cr, cg, cb, _] = self.mix_shade(i);
             c.rect(x, y, 10.0, h, [cr, cg, cb, if on { 1.0 } else { 0.25 }]);
             let e = &r.enemies[i];
             let icon = e.look.walk[0][0];
             let scale = (h - 16.0) / icon.h();
-            c.art(icon, x + 20.0, y + 8.0, scale, false, if on { WHITE } else { [1.0, 1.0, 1.0, 0.3] });
+            c.art(
+                icon,
+                x + 20.0,
+                y + 8.0,
+                scale,
+                false,
+                if on { WHITE } else { [1.0, 1.0, 1.0, 0.3] },
+            );
             let left = x + 40.0 + icon.w() * scale;
-            fit_label(c, &e.name, left, y + h / 2.0 - 20.0, 38.0, (LESS_X + MORE_X) / 2.0 - 60.0 - left, if sel { HOT } else if on { WHITE } else { DIM }, Align::Left);
-            c.label(if on { "On" } else { "Off" }, (LESS_X + MORE_X) / 2.0, y + h / 2.0 - 20.0, 38.0, if on { HOT } else { DIM }, Align::Center);
+            fit_label(
+                c,
+                &e.name,
+                left,
+                y + h / 2.0 - 20.0,
+                38.0,
+                (LESS_X + MORE_X) / 2.0 - 60.0 - left,
+                if sel {
+                    HOT
+                } else if on {
+                    WHITE
+                } else {
+                    DIM
+                },
+                Align::Left,
+            );
+            c.label(
+                if on { "On" } else { "Off" },
+                (LESS_X + MORE_X) / 2.0,
+                y + h / 2.0 - 20.0,
+                38.0,
+                if on { HOT } else { DIM },
+                Align::Center,
+            );
             if e.from_card {
-                c.label("Card", x + w - 24.0, y + h / 2.0 - 14.0, 26.0, DIM, Align::Right);
+                c.label(
+                    "Card",
+                    x + w - 24.0,
+                    y + h / 2.0 - 14.0,
+                    26.0,
+                    DIM,
+                    Align::Right,
+                );
             }
         }
         back_button(c);
@@ -791,53 +1225,187 @@ impl Game {
     /// that the next start changes.
     fn draw_mods(&self, c: &mut Canvas) {
         c.rect(0.0, 0.0, SCREEN_W, SCREEN_H, [0.12, 0.12, 0.15, 1.0]);
-        c.label("Mod packs", SCREEN_W / 2.0, 24.0, 48.0, WHITE, Align::Center);
+        c.label(
+            "Mod packs",
+            SCREEN_W / 2.0,
+            24.0,
+            48.0,
+            WHITE,
+            Align::Center,
+        );
         let first = self.mod_row.saturating_sub(MOD_ROWS - 1);
         for (row, i) in (first..self.packs.len().min(first + MOD_ROWS)).enumerate() {
             let [x, y, w, h] = setting_row(row, MOD_ROWS);
             let p = &self.packs[i];
             let (sel, on) = (i == self.mod_row, self.pack_wanted(p));
-            c.rect(x, y, w, h, if sel { [1.0, 0.85, 0.3, 0.25] } else { [1.0, 1.0, 1.0, 0.06] });
+            c.rect(
+                x,
+                y,
+                w,
+                h,
+                if sel {
+                    [1.0, 0.85, 0.3, 0.25]
+                } else {
+                    [1.0, 1.0, 1.0, 0.06]
+                },
+            );
             let room = w - 260.0;
-            fit_label(c, &p.name, x + 24.0, y + 1.0, 28.0, room, if sel { HOT } else if on { WHITE } else { DIM }, Align::Left);
+            fit_label(
+                c,
+                &p.name,
+                x + 24.0,
+                y + 1.0,
+                28.0,
+                room,
+                if sel {
+                    HOT
+                } else if on {
+                    WHITE
+                } else {
+                    DIM
+                },
+                Align::Left,
+            );
             let stem = p.file.strip_suffix(".pak").unwrap_or(&p.file);
-            let under = if crate::save::pack_key(stem) == p.key { p.file.clone() } else { format!("{}   id {}", p.file, p.key) };
+            let under = if crate::save::pack_key(stem) == p.key {
+                p.file.clone()
+            } else {
+                format!("{}   id {}", p.file, p.key)
+            };
             fit_label(c, &under, x + 24.0, y + 30.0, 18.0, room, DIM, Align::Left);
-            c.label(if on { "On" } else { "Off" }, x + w - 24.0, y + 1.0, 28.0, if on { HOT } else { DIM }, Align::Right);
+            c.label(
+                if on { "On" } else { "Off" },
+                x + w - 24.0,
+                y + 1.0,
+                28.0,
+                if on { HOT } else { DIM },
+                Align::Right,
+            );
             if on != p.on {
-                c.label(if on { "On after restart" } else { "Off after restart" }, x + w - 24.0, y + 30.0, 18.0, HOT, Align::Right);
+                c.label(
+                    if on {
+                        "On after restart"
+                    } else {
+                        "Off after restart"
+                    },
+                    x + w - 24.0,
+                    y + 30.0,
+                    18.0,
+                    HOT,
+                    Align::Right,
+                );
             }
         }
         let [_, y, _, h] = setting_row(self.packs.len().min(MOD_ROWS), MOD_ROWS);
-        let note = if self.packs.iter().any(|p| self.pack_wanted(p) != p.on) { "Restart the game to apply the changes" } else { "Packs load as the game starts: a change applies after a restart" };
-        fit_label(c, note, SCREEN_W / 2.0, y + h / 2.0 - 12.0, 24.0, SCREEN_W - 80.0, if note.starts_with("Restart") { HOT } else { DIM }, Align::Center);
+        let note = if self.packs.iter().any(|p| self.pack_wanted(p) != p.on) {
+            "Restart the game to apply the changes"
+        } else {
+            "Packs load as the game starts: a change applies after a restart"
+        };
+        fit_label(
+            c,
+            note,
+            SCREEN_W / 2.0,
+            y + h / 2.0 - 12.0,
+            24.0,
+            SCREEN_W - 80.0,
+            if note.starts_with("Restart") {
+                HOT
+            } else {
+                DIM
+            },
+            Align::Center,
+        );
         back_button(c);
     }
 
-        /// Player 1's card walking on the top screen, turning through its facings, under its name.
+    /// Player 1's card walking on the top screen, turning through its facings, under its name.
     pub(crate) fn draw_player(&self, c: &mut Canvas) {
         let looks = crate::player_looks();
-        let Some(p) = looks.iter().find(|l| l.id == self.save.player.as_str()).or(looks.first()) else { return };
+        let Some(p) = looks
+            .iter()
+            .find(|l| l.id == self.save.player.as_str())
+            .or(looks.first())
+        else {
+            return;
+        };
         c.rect(0.0, 560.0, SCREEN_W, 208.0, [0.1, 0.08, 0.07, 1.0]);
-        let (facing, flip) = [(0, false), (1, false), (2, false), (1, true)][(self.clock / 1.5) as usize % 4];
+        let (facing, flip) =
+            [(0, false), (1, false), (2, false), (1, true)][(self.clock / 1.5) as usize % 4];
         let walk = &p.look.walk[facing];
         let frame = walk[(self.clock * 8.0) as usize % walk.len()];
         let scale = 300.0 / frame.h().max(frame.w());
-        c.art(frame, SCREEN_W / 2.0 - frame.w() * scale / 2.0, 600.0 - frame.h() * scale, scale, flip, WHITE);
-        fit_label(c, &p.name, SCREEN_W / 2.0, 40.0, 64.0, SCREEN_W - 80.0, HOT, Align::Center);
-        wrap_label(c, &p.about, SCREEN_W / 2.0, 118.0, 28.0, SCREEN_W - 80.0, 2, WHITE, Align::Center);
-        let note = if looks.len() > 1 { format!("{} of {}: Left and Right to change", looks.iter().position(|l| l.id == p.id).unwrap_or(0) + 1, looks.len()) } else { "Add a .player.png to data/players for more".to_string() };
+        c.art(
+            frame,
+            SCREEN_W / 2.0 - frame.w() * scale / 2.0,
+            600.0 - frame.h() * scale,
+            scale,
+            flip,
+            WHITE,
+        );
+        fit_label(
+            c,
+            &p.name,
+            SCREEN_W / 2.0,
+            40.0,
+            64.0,
+            SCREEN_W - 80.0,
+            HOT,
+            Align::Center,
+        );
+        wrap_label(
+            c,
+            &p.about,
+            SCREEN_W / 2.0,
+            118.0,
+            28.0,
+            SCREEN_W - 80.0,
+            2,
+            WHITE,
+            Align::Center,
+        );
+        let note = if looks.len() > 1 {
+            format!(
+                "{} of {}: Left and Right to change",
+                looks.iter().position(|l| l.id == p.id).unwrap_or(0) + 1,
+                looks.len()
+            )
+        } else {
+            "Add a .player.png to data/players for more".to_string()
+        };
         c.label(note, SCREEN_W / 2.0, 200.0, 26.0, DIM, Align::Center);
         let d = self.save.difficulty;
         let start = p.start_names(d.tier());
-        let kit = if start.is_empty() { "no weapons".to_string() } else { start.join(", ") };
-        fit_label(c, &format!("{} starts with {kit}", d.name()), SCREEN_W / 2.0, 240.0, 28.0, SCREEN_W - 80.0, WHITE, Align::Center);
+        let kit = if start.is_empty() {
+            "no weapons".to_string()
+        } else {
+            start.join(", ")
+        };
+        fit_label(
+            c,
+            &format!("{} starts with {kit}", d.name()),
+            SCREEN_W / 2.0,
+            240.0,
+            28.0,
+            SCREEN_W - 80.0,
+            WHITE,
+            Align::Center,
+        );
     }
 
     /// Kind `i`'s colour in the spawn mix, and on its row of the list: `HOT` when highlighted.
     fn mix_shade(&self, i: usize) -> Color {
-        const SHADES: [[f32; 4]; 4] = [[0.55, 0.62, 0.78, 1.0], [0.5, 0.75, 0.55, 1.0], [0.78, 0.5, 0.62, 1.0], [0.62, 0.55, 0.85, 1.0]];
-        if i == self.enemy { HOT } else { SHADES[i % SHADES.len()] }
+        const SHADES: [[f32; 4]; 4] = [
+            [0.55, 0.62, 0.78, 1.0],
+            [0.5, 0.75, 0.55, 1.0],
+            [0.78, 0.5, 0.62, 1.0],
+            [0.62, 0.55, 0.85, 1.0],
+        ];
+        if i == self.enemy {
+            HOT
+        } else {
+            SHADES[i % SHADES.len()]
+        }
     }
 
     /// How a night's spawns split between the kinds left on, dusk to dawn across the foot of the top screen.
@@ -845,15 +1413,32 @@ impl Game {
         const COLUMNS: usize = 60;
         let r = roster();
         let [x, y, w, h] = [40.0, 664.0, SCREEN_W - 80.0, 64.0];
-        c.label("Spawn mix through the night", x, 628.0, 26.0, DIM, Align::Left);
+        c.label(
+            "Spawn mix through the night",
+            x,
+            628.0,
+            26.0,
+            DIM,
+            Align::Left,
+        );
         let col = w / COLUMNS as f32;
         for k in 0..COLUMNS {
             let minutes = (k as f32 + 0.5) / COLUMNS as f32 * crate::harvest::night_minutes();
             let mut top = y + h;
-            for (i, share) in r.shares(minutes, self.save.enemies_off).into_iter().enumerate() {
+            for (i, share) in r
+                .shares(minutes, self.save.enemies_off)
+                .into_iter()
+                .enumerate()
+            {
                 let tall = share * h;
                 if tall > 0.0 {
-                    c.rect(x + k as f32 * col, top - tall, col + 0.5, tall, self.mix_shade(i));
+                    c.rect(
+                        x + k as f32 * col,
+                        top - tall,
+                        col + 0.5,
+                        tall,
+                        self.mix_shade(i),
+                    );
                 }
                 top -= tall;
             }
@@ -865,7 +1450,9 @@ impl Game {
     /// The highlighted kind walking on the top screen, turning through its facings, beside its numbers.
     pub(crate) fn draw_enemy(&self, c: &mut Canvas) {
         let r = roster();
-        let Some(e) = r.enemies.get(self.enemy) else { return };
+        let Some(e) = r.enemies.get(self.enemy) else {
+            return;
+        };
         let on = self.save.enemies_off & 1 << self.enemy == 0;
         c.rect(0.0, 560.0, SCREEN_W, 208.0, [0.1, 0.08, 0.07, 1.0]);
         let turn = (self.clock / 1.5) as usize % 4;
@@ -873,21 +1460,68 @@ impl Game {
         let walk = &e.look.walk[facing];
         let frame = walk[(self.clock * 8.0 * e.speed / 20.0) as usize % walk.len()];
         let scale = 300.0 / frame.h().max(frame.w());
-        c.art(frame, 280.0 - frame.w() * scale / 2.0, 600.0 - frame.h() * scale, scale, flip, if on { WHITE } else { [0.35, 0.35, 0.4, 1.0] });
+        c.art(
+            frame,
+            280.0 - frame.w() * scale / 2.0,
+            600.0 - frame.h() * scale,
+            scale,
+            flip,
+            if on { WHITE } else { [0.35, 0.35, 0.4, 1.0] },
+        );
         if !on {
-            c.label("OFF", 280.0, 400.0, 64.0, [1.0, 0.45, 0.4, 1.0], Align::Center);
+            c.label(
+                "OFF",
+                280.0,
+                400.0,
+                64.0,
+                [1.0, 0.45, 0.4, 1.0],
+                Align::Center,
+            );
         }
-        wrap_label(c, &e.about, 280.0, 60.0, 30.0, 480.0, 3, WHITE, Align::Center);
+        wrap_label(
+            c,
+            &e.about,
+            280.0,
+            60.0,
+            30.0,
+            480.0,
+            3,
+            WHITE,
+            Align::Center,
+        );
         self.draw_spawn_mix(c);
-        fit_label(c, &e.name, 560.0, 60.0, 64.0, SCREEN_W - 560.0 - 24.0, HOT, Align::Left);
-        let minutes = |m: f32| if m == 1.0 { "1 minute".to_string() } else { format!("{m} minutes") };
+        fit_label(
+            c,
+            &e.name,
+            560.0,
+            60.0,
+            64.0,
+            SCREEN_W - 560.0 - 24.0,
+            HOT,
+            Align::Left,
+        );
+        let minutes = |m: f32| {
+            if m == 1.0 {
+                "1 minute".to_string()
+            } else {
+                format!("{m} minutes")
+            }
+        };
         let arrives = match (e.chance >= 1.0 && e.per_minute == 0.0, e.after > 0.0) {
             (true, false) => "Whenever no other kind does".to_string(),
             (true, true) => format!("After {}", minutes(e.after)),
             (false, after) => {
                 let percent = |p: f32| (p * 1000.0).round() / 10.0;
-                let grows = if e.per_minute > 0.0 { format!(" +{}%/min", percent(e.per_minute)) } else { String::new() };
-                let from = if after { format!(" after {} min", e.after) } else { String::new() };
+                let grows = if e.per_minute > 0.0 {
+                    format!(" +{}%/min", percent(e.per_minute))
+                } else {
+                    String::new()
+                };
+                let from = if after {
+                    format!(" after {} min", e.after)
+                } else {
+                    String::new()
+                };
                 format!("Chance {}%{grows}{from}", percent(e.chance))
             }
         };
@@ -904,9 +1538,21 @@ impl Game {
             c.label(value.clone(), 900.0, y, 36.0, WHITE, Align::Right);
         }
         c.label(arrives, 560.0, 450.0, 28.0, DIM, Align::Left);
-        let traits = [(e.heavy, "Staggers on a hard hit"), (r.leader == self.enemy, "Leads hordes"), (r.harvester == self.enemy, "Rises at dawn as the Harvester"), (e.from_card, "From an enemy card")];
+        let traits = [
+            (e.heavy, "Staggers on a hard hit"),
+            (r.leader == self.enemy, "Leads hordes"),
+            (r.harvester == self.enemy, "Rises at dawn as the Harvester"),
+            (e.from_card, "From an enemy card"),
+        ];
         for (i, (_, line)) in traits.iter().filter(|t| t.0).enumerate() {
-            c.label(*line, 560.0, 500.0 + i as f32 * 36.0, 28.0, HOT, Align::Left);
+            c.label(
+                *line,
+                560.0,
+                500.0 + i as f32 * 36.0,
+                28.0,
+                HOT,
+                Align::Left,
+            );
         }
     }
 
@@ -914,18 +1560,36 @@ impl Game {
         let s = self.save.records(self.save.difficulty);
         let (open, all, _) = harvest::unlocked(&self.progress());
         let rows = [
-            ("Longest night", format!("{}:{:02}", s.best / 60, s.best % 60)),
+            (
+                "Longest night",
+                format!("{}:{:02}", s.best / 60, s.best % 60),
+            ),
             ("Highest level", s.best_level.to_string()),
             ("Zombies killed", s.kills.to_string()),
             ("Nights played", s.nights.to_string()),
             ("Nights survived", s.dawns.to_string()),
-            ("Level breakers", format!("{}, {} to dawn", s.breakers, s.breaker_dawns)),
+            (
+                "Level breakers",
+                format!("{}, {} to dawn", s.breakers, s.breaker_dawns),
+            ),
             ("Best damage a second", s.best_dps.to_string()),
             ("Powerups unlocked", format!("{open} of {all}")),
             ("Cards loaded", crate::data::load_report().cards.to_string()),
-            ("Mod packs", crate::data::load_report().mods.len().to_string()),
+            (
+                "Mod packs",
+                crate::data::load_report().mods.len().to_string(),
+            ),
         ];
-        fit_label(c, &format!("Stats: {}", self.save.difficulty.name()), SCREEN_W / 2.0, 24.0, 48.0, SCREEN_W - 80.0, WHITE, Align::Center);
+        fit_label(
+            c,
+            &format!("Stats: {}", self.save.difficulty.name()),
+            SCREEN_W / 2.0,
+            24.0,
+            48.0,
+            SCREEN_W - 80.0,
+            WHITE,
+            Align::Center,
+        );
         for (i, (name, value)) in rows.iter().enumerate() {
             let y = 100.0 + i as f32 * 60.0;
             c.label(*name, 160.0, y, 36.0, DIM, Align::Left);
@@ -933,20 +1597,57 @@ impl Game {
         }
         let mods = &crate::data::load_report().mods;
         if !mods.is_empty() {
-            let line: String = mods.iter().map(|m| m.trim_end_matches(".pak")).collect::<Vec<_>>().join(", ").chars().take(60).collect();
-            c.label(line, SCREEN_W - 160.0, 100.0 + rows.len() as f32 * 60.0 - 14.0, 24.0, DIM, Align::Right);
+            let line: String = mods
+                .iter()
+                .map(|m| m.trim_end_matches(".pak"))
+                .collect::<Vec<_>>()
+                .join(", ")
+                .chars()
+                .take(60)
+                .collect();
+            c.label(
+                line,
+                SCREEN_W - 160.0,
+                100.0 + rows.len() as f32 * 60.0 - 14.0,
+                24.0,
+                DIM,
+                Align::Right,
+            );
         }
         let report = crate::data::load_report();
         if !report.version.is_empty() {
-            fit_label(c, &format!("Version {}", report.versions()), 24.0, 36.0, 24.0, 300.0, DIM, Align::Left);
+            fit_label(
+                c,
+                &format!("Version {}", report.versions()),
+                24.0,
+                36.0,
+                24.0,
+                300.0,
+                DIM,
+                Align::Left,
+            );
         }
         back_button(c);
         let [x, y, w, h] = REPLAYS;
         c.rect(x, y, w, h, [1.0, 1.0, 1.0, 0.08]);
-        c.label(pad::hint("{X}: Replays"), x + w / 2.0, y + h / 2.0 - 22.0, 40.0, WHITE, Align::Center);
+        c.label(
+            pad::hint("{X}: Replays"),
+            x + w / 2.0,
+            y + h / 2.0 - 22.0,
+            40.0,
+            WHITE,
+            Align::Center,
+        );
         let [x, y, w, h] = HISTORY;
         c.rect(x, y, w, h, [1.0, 1.0, 1.0, 0.08]);
-        c.label(pad::hint("{A}: History"), x + w / 2.0, y + h / 2.0 - 22.0, 40.0, WHITE, Align::Center);
+        c.label(
+            pad::hint("{A}: History"),
+            x + w / 2.0,
+            y + h / 2.0 - 22.0,
+            40.0,
+            WHITE,
+            Align::Center,
+        );
     }
 
     /// The how-to page's rows, each an icon and a line or two, worded for touch, one screen or two.
@@ -956,7 +1657,11 @@ impl Game {
         let r = roster();
         let harvester = r.enemies.get(r.harvester).map(|e| e.look.walk[0][0]);
         let looks = crate::player_looks();
-        let player = looks.iter().find(|l| l.id == self.save.player.as_str()).or(looks.first()).map(|p| p.look.walk[0][0]);
+        let player = looks
+            .iter()
+            .find(|l| l.id == self.save.player.as_str())
+            .or(looks.first())
+            .map(|p| p.look.walk[0][0]);
         let (walk, cards, grenades, map) = if touch {
             (
                 "Drag on the left to walk. Slide on the strip under Around to turn; the view turns with you.",
@@ -969,21 +1674,38 @@ impl Game {
                 "The map shows where zombies were last seen. Out of sight, they fade where they stood.",
             )
         } else {
-            let walk = "D-pad: walk and strafe.   Y / A: turn; the view turns with you.   B: turn around.";
+            let walk =
+                "D-pad: walk and strafe.   Y / A: turn; the view turns with you.   B: turn around.";
             let cards = "Kills drop zombie hearts. Gather them to level up and pick a card.   L1: banish.   R1: reroll.   Y: favor.";
             if self.one_screen() {
-                (walk, cards, "Hold L2: aim a grenade, let go to throw.   Hold R1: throw one ahead.", "Hold L1: the map. It shows where zombies were last seen.")
+                (
+                    walk,
+                    cards,
+                    "Hold L2: aim a grenade, let go to throw.   Hold R1: throw one ahead.",
+                    "Hold L1: the map. It shows where zombies were last seen.",
+                )
             } else {
-                (walk, cards, "Tap the map: throw a grenade there.   Hold R1: throw one ahead.", "The map below shows where zombies were last seen.")
+                (
+                    walk,
+                    cards,
+                    "Tap the map: throw a grenade there.   Hold R1: throw one ahead.",
+                    "The map below shows where zombies were last seen.",
+                )
             }
         };
         [
             (player, walk),
-            (Some(art::ICON_PISTOL), "Your weapons fire on their own. You choose where to face."),
+            (
+                Some(art::ICON_PISTOL),
+                "Your weapons fire on their own. You choose where to face.",
+            ),
             (Some(art::ZOMBIE_HEART[0]), cards),
             (Some(art::GRENADE), grenades),
             (Some(art::TOUCH_MAP), map),
-            (harvester, "Survive the night. At dawn the Harvester rises: run home to the farmhouse before it catches you."),
+            (
+                harvester,
+                "Survive the night. At dawn the Harvester rises: run home to the farmhouse before it catches you.",
+            ),
         ]
     }
 
@@ -994,41 +1716,92 @@ impl Game {
 
     /// How to play, a row per lesson with its picture, over a button that leaves or, on a first Play, plays.
     fn draw_how_to(&self, c: &mut Canvas) {
-        c.label("How to play", SCREEN_W / 2.0, 20.0, 48.0, WHITE, Align::Center);
+        c.label(
+            "How to play",
+            SCREEN_W / 2.0,
+            20.0,
+            48.0,
+            WHITE,
+            Align::Center,
+        );
         for (i, (icon, text)) in self.how_to_lines().into_iter().enumerate() {
             let y = HOW_TO_TOP + i as f32 * HOW_TO_H;
-            c.rect(40.0, y, SCREEN_W - 80.0, HOW_TO_H - 12.0, [1.0, 1.0, 1.0, 0.06]);
+            c.rect(
+                40.0,
+                y,
+                SCREEN_W - 80.0,
+                HOW_TO_H - 12.0,
+                [1.0, 1.0, 1.0, 0.06],
+            );
             if let Some(icon) = icon {
                 let scale = (HOW_TO_ICON - 16.0) / icon.w().max(icon.h());
-                c.art(icon, 40.0 + (HOW_TO_ICON - icon.w() * scale) / 2.0 + 8.0, y + (HOW_TO_H - 12.0 - icon.h() * scale) / 2.0, scale, false, WHITE);
+                c.art(
+                    icon,
+                    40.0 + (HOW_TO_ICON - icon.w() * scale) / 2.0 + 8.0,
+                    y + (HOW_TO_H - 12.0 - icon.h() * scale) / 2.0,
+                    scale,
+                    false,
+                    WHITE,
+                );
             }
             let lines = wrapped(text, HOW_TO_SIZE, HOW_TO_ROOM, 2).len() as f32;
             let top = y + (HOW_TO_H - 12.0 - lines * HOW_TO_SIZE * 1.25) / 2.0 + 2.0;
-            wrap_label(c, text, 40.0 + HOW_TO_ICON + 24.0, top, HOW_TO_SIZE, HOW_TO_ROOM, 2, WHITE, Align::Left);
+            wrap_label(
+                c,
+                text,
+                40.0 + HOW_TO_ICON + 24.0,
+                top,
+                HOW_TO_SIZE,
+                HOW_TO_ROOM,
+                2,
+                WHITE,
+                Align::Left,
+            );
         }
         if !self.how_to_then_play {
             return back_button(c);
         }
         let [x, y, w, h] = BACK;
         c.rect(x, y, w, h, [1.0, 0.85, 0.3, 0.3]);
-        c.label(if self.how_to_by_touch() { "Play" } else { "A: Play" }, x + w / 2.0, y + h / 2.0 - 22.0, 40.0, HOT, Align::Center);
+        c.label(
+            if self.how_to_by_touch() {
+                "Play"
+            } else {
+                "A: Play"
+            },
+            x + w / 2.0,
+            y + h / 2.0 - 22.0,
+            40.0,
+            HOT,
+            Align::Center,
+        );
     }
 
     fn replays_page(&mut self, input: &Input, tapped: Option<[f32; 2]>) {
         let n = self.saved_replays.len();
-        let step = input.pressed.contains(Buttons::DOWN) as i32 - input.pressed.contains(Buttons::UP) as i32;
+        let step = input.pressed.contains(Buttons::DOWN) as i32
+            - input.pressed.contains(Buttons::UP) as i32;
         if step != 0 && n > 0 {
             self.replay_row = (self.replay_row as i32 + step).rem_euclid(n as i32) as usize;
             self.sounds.push(Sfx::Tick(self.replay_row as u8 * 2));
             return;
         }
-        if let Some(i) = input.hover.and_then(|p| (0..n).find(|&i| inside(p, replay_row(i)))).filter(|&i| i != self.replay_row) {
+        if let Some(i) = input
+            .hover
+            .and_then(|p| (0..n).find(|&i| inside(p, replay_row(i))))
+            .filter(|&i| i != self.replay_row)
+        {
             self.replay_row = i;
             self.sounds.push(Sfx::Tick(self.replay_row as u8 * 2));
         }
         let chosen = match tapped {
-            Some(p) => (0..n).find(|&i| inside(p, replay_row(i))).or_else(|| inside(p, HISTORY).then_some(self.replay_row)),
-            None => input.pressed.any(Buttons::A | Buttons::START).then_some(self.replay_row),
+            Some(p) => (0..n)
+                .find(|&i| inside(p, replay_row(i)))
+                .or_else(|| inside(p, HISTORY).then_some(self.replay_row)),
+            None => input
+                .pressed
+                .any(Buttons::A | Buttons::START)
+                .then_some(self.replay_row),
         };
         if let Some(i) = chosen.filter(|&i| i < n) {
             self.replay_row = i;
@@ -1040,45 +1813,115 @@ impl Game {
     fn draw_replays(&self, c: &mut Canvas) {
         c.label("Replays", SCREEN_W / 2.0, 24.0, 48.0, WHITE, Align::Center);
         if self.saved_replays.is_empty() {
-            c.label("No replays yet", SCREEN_W / 2.0, 280.0, 36.0, DIM, Align::Center);
-            c.label("Every night you play is kept here, the last ten.", SCREEN_W / 2.0, 336.0, 28.0, DIM, Align::Center);
+            c.label(
+                "No replays yet",
+                SCREEN_W / 2.0,
+                280.0,
+                36.0,
+                DIM,
+                Align::Center,
+            );
+            c.label(
+                "Every night you play is kept here, the last ten.",
+                SCREEN_W / 2.0,
+                336.0,
+                28.0,
+                DIM,
+                Align::Center,
+            );
         }
         for (i, saved) in self.saved_replays.iter().enumerate() {
             let [x, y, w, h] = replay_row(i);
             let on = i == self.replay_row;
-            c.rect(x, y, w, h, if on { [1.0, 0.85, 0.3, 0.3] } else { [1.0, 1.0, 1.0, 0.08] });
+            c.rect(
+                x,
+                y,
+                w,
+                h,
+                if on {
+                    [1.0, 0.85, 0.3, 0.3]
+                } else {
+                    [1.0, 1.0, 1.0, 0.08]
+                },
+            );
             let (text, color) = match &saved.line {
                 Ok(line) => (line.clone(), if on { HOT } else { WHITE }),
-                Err(e) => (format!("{}: {e}", crate::watch::when(&saved.name).unwrap_or_else(|| saved.name.clone())), [1.0, 0.55, 0.5, 1.0]),
+                Err(e) => (
+                    format!(
+                        "{}: {e}",
+                        crate::watch::when(&saved.name).unwrap_or_else(|| saved.name.clone())
+                    ),
+                    [1.0, 0.55, 0.5, 1.0],
+                ),
             };
-            fit_label(c, &text, x + 16.0, y + h / 2.0 - 15.0, 30.0, w - 32.0, color, Align::Left);
+            fit_label(
+                c,
+                &text,
+                x + 16.0,
+                y + h / 2.0 - 15.0,
+                30.0,
+                w - 32.0,
+                color,
+                Align::Left,
+            );
         }
         back_button(c);
         if !self.saved_replays.is_empty() {
             let [x, y, w, h] = HISTORY;
             c.rect(x, y, w, h, [1.0, 1.0, 1.0, 0.08]);
-            c.label(pad::hint("{A}: Watch"), x + w / 2.0, y + h / 2.0 - 22.0, 40.0, WHITE, Align::Center);
+            c.label(
+                pad::hint("{A}: Watch"),
+                x + w / 2.0,
+                y + h / 2.0 - 22.0,
+                40.0,
+                WHITE,
+                Align::Center,
+            );
         }
     }
 
     fn history_pages(&self) -> usize {
-        self.save.history.iter().flatten().count().div_ceil(HISTORY_PAGE).max(1)
+        self.save
+            .history
+            .iter()
+            .flatten()
+            .count()
+            .div_ceil(HISTORY_PAGE)
+            .max(1)
     }
 
     /// The last runs, newest first, a page at a time: difficulty, how it ended, how long, the level reached and
     /// damage a second, over the powerups it ended with.
     fn draw_history(&self, c: &mut Canvas) {
         c.label("History", SCREEN_W / 2.0, 24.0, 48.0, WHITE, Align::Center);
-        let cols: [(f32, &str, Align); 5] = [(60.0, "Difficulty", Align::Left), (300.0, "Result", Align::Left), (640.0, "Time", Align::Right), (790.0, "Level", Align::Right), (964.0, "Damage/s", Align::Right)];
+        let cols: [(f32, &str, Align); 5] = [
+            (60.0, "Difficulty", Align::Left),
+            (300.0, "Result", Align::Left),
+            (640.0, "Time", Align::Right),
+            (790.0, "Level", Align::Right),
+            (964.0, "Damage/s", Align::Right),
+        ];
         for (x, name, align) in cols {
             c.label(name, x, 96.0, 28.0, DIM, align);
         }
         let runs: Vec<_> = self.save.history.iter().flatten().collect();
         if runs.is_empty() {
-            c.label("No runs yet", SCREEN_W / 2.0, 300.0, 36.0, DIM, Align::Center);
+            c.label(
+                "No runs yet",
+                SCREEN_W / 2.0,
+                300.0,
+                36.0,
+                DIM,
+                Align::Center,
+            );
         }
         let page = self.history_page.min(self.history_pages() - 1);
-        for (i, r) in runs.iter().skip(page * HISTORY_PAGE).take(HISTORY_PAGE).enumerate() {
+        for (i, r) in runs
+            .iter()
+            .skip(page * HISTORY_PAGE)
+            .take(HISTORY_PAGE)
+            .enumerate()
+        {
             let y = 136.0 + i as f32 * 104.0;
             let cells = [
                 r.difficulty.name().to_string(),
@@ -1101,8 +1944,22 @@ impl Game {
         if self.history_pages() > 1 {
             let [x, y, w, h] = HISTORY;
             c.rect(x, y, w, h, [1.0, 1.0, 1.0, 0.08]);
-            c.label(format!("Page {} of {}", page + 1, self.history_pages()), x + w / 2.0, y + h / 2.0 - 18.0, 32.0, WHITE, Align::Center);
-            c.label("Left / Right", 24.0, SCREEN_H - 52.0, 24.0, DIM, Align::Left);
+            c.label(
+                format!("Page {} of {}", page + 1, self.history_pages()),
+                x + w / 2.0,
+                y + h / 2.0 - 18.0,
+                32.0,
+                WHITE,
+                Align::Center,
+            );
+            c.label(
+                "Left / Right",
+                24.0,
+                SCREEN_H - 52.0,
+                24.0,
+                DIM,
+                Align::Left,
+            );
         }
     }
 }
@@ -1126,7 +1983,16 @@ fn draw_credits(c: &mut Canvas) {
 /// Draws `text` within `room` pixels: smaller, down to two thirds of `size`, then cut short, keeping its middle where
 /// a label of `size` at `y` would have it. Widths are estimated, since a label isn't measured until it's drawn.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn fit_label(c: &mut Canvas, text: &str, x: f32, y: f32, size: f32, room: f32, color: Color, align: Align) {
+pub(crate) fn fit_label(
+    c: &mut Canvas,
+    text: &str,
+    x: f32,
+    y: f32,
+    size: f32,
+    room: f32,
+    color: Color,
+    align: Align,
+) {
     let (text, fits) = fitted(text, size, room, size * 2.0 / 3.0);
     c.label(text, x, y + (size - fits) / 2.0, fits, color, align);
 }
@@ -1134,9 +2000,28 @@ pub(crate) fn fit_label(c: &mut Canvas, text: &str, x: f32, y: f32, size: f32, r
 /// Draws `text` word-wrapped to `room` pixels, in at most `lines` lines of `size` from `y` down, the last one fitted
 /// as `fit_label` fits it.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn wrap_label(c: &mut Canvas, text: &str, x: f32, y: f32, size: f32, room: f32, lines: usize, color: Color, align: Align) {
+pub(crate) fn wrap_label(
+    c: &mut Canvas,
+    text: &str,
+    x: f32,
+    y: f32,
+    size: f32,
+    room: f32,
+    lines: usize,
+    color: Color,
+    align: Align,
+) {
     for (i, line) in wrapped(text, size, room, lines).into_iter().enumerate() {
-        fit_label(c, &line, x, y + i as f32 * size * 1.25, size, room, color, align);
+        fit_label(
+            c,
+            &line,
+            x,
+            y + i as f32 * size * 1.25,
+            size,
+            room,
+            color,
+            align,
+        );
     }
 }
 
@@ -1167,14 +2052,30 @@ pub(crate) fn fitted(text: &str, size: f32, room: f32, least: f32) -> (String, f
     let n = text.chars().count();
     let fits = size.min(room / (n.max(1) as f32 * EM)).max(least);
     let max = (room / (fits * EM) + 1e-3) as usize;
-    let text = if n <= max { text.to_string() } else { text.chars().take(max.saturating_sub(3)).collect::<String>().trim_end().to_string() + "..." };
+    let text = if n <= max {
+        text.to_string()
+    } else {
+        text.chars()
+            .take(max.saturating_sub(3))
+            .collect::<String>()
+            .trim_end()
+            .to_string()
+            + "..."
+    };
     (text, fits)
 }
 
 fn back_button(c: &mut Canvas) {
     let [x, y, w, h] = BACK;
     c.rect(x, y, w, h, [1.0, 1.0, 1.0, 0.08]);
-    c.label(pad::hint("{B}: Back"), x + w / 2.0, y + h / 2.0 - 22.0, 40.0, WHITE, Align::Center);
+    c.label(
+        pad::hint("{B}: Back"),
+        x + w / 2.0,
+        y + h / 2.0 - 22.0,
+        40.0,
+        WHITE,
+        Align::Center,
+    );
 }
 
 #[cfg(test)]
@@ -1183,7 +2084,11 @@ mod tests {
 
     #[test]
     fn a_label_shrinks_to_fit_then_cuts_short() {
-        assert_eq!(fitted("Big", 64.0, 440.0, 40.0), ("Big".to_string(), 64.0), "a short name keeps its size");
+        assert_eq!(
+            fitted("Big", 64.0, 440.0, 40.0),
+            ("Big".to_string(), 64.0),
+            "a short name keeps its size"
+        );
         let (text, size) = fitted("Ghoul of the North", 64.0, 440.0, 40.0);
         assert!((40.0..64.0).contains(&size) && text == "Ghoul of the North");
         for n in 20..=40 {
@@ -1194,9 +2099,17 @@ mod tests {
                 assert_eq!(text, name, "shrunk to fit, it isn't also cut");
             }
         }
-        let (text, size) = fitted("Ghoul of the Northern Fields and Far Beyond", 64.0, 440.0, 40.0);
+        let (text, size) = fitted(
+            "Ghoul of the Northern Fields and Far Beyond",
+            64.0,
+            440.0,
+            40.0,
+        );
         assert_eq!(size, 40.0);
-        assert!(text.ends_with("...") && text.chars().count() as f32 * 0.56 * size <= 440.0, "{text}");
+        assert!(
+            text.ends_with("...") && text.chars().count() as f32 * 0.56 * size <= 440.0,
+            "{text}"
+        );
     }
 
     #[test]
@@ -1204,9 +2117,19 @@ mod tests {
         let about = "Slow and huge; it bites hard, shrugs off knockback and leads the hordes.";
         let lines = wrapped(about, 30.0, 480.0, 3);
         assert_eq!(lines.join(" "), about, "nothing is lost or split mid-word");
-        assert!(lines.len() > 1 && lines.iter().all(|l| l.chars().count() as f32 * EM * 30.0 <= 480.0), "{lines:?}");
+        assert!(
+            lines.len() > 1
+                && lines
+                    .iter()
+                    .all(|l| l.chars().count() as f32 * EM * 30.0 <= 480.0),
+            "{lines:?}"
+        );
         assert_eq!(wrapped("", 30.0, 480.0, 3), Vec::<String>::new());
         let squeezed = wrapped(&"word ".repeat(40), 30.0, 480.0, 2);
-        assert_eq!(squeezed.len(), 2, "the last line takes the rest, for fit_label to cut");
+        assert_eq!(
+            squeezed.len(),
+            2,
+            "the last line takes the rest, for fit_label to cut"
+        );
     }
 }

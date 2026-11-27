@@ -16,13 +16,22 @@ impl Commit {
         text.lines()
             .filter_map(|l| {
                 let mut f = l.splitn(3, SEP);
-                Some(Commit { id: f.next()?.into(), date: f.next()?.into(), subject: f.next().unwrap_or("").into() })
+                Some(Commit {
+                    id: f.next()?.into(),
+                    date: f.next()?.into(),
+                    subject: f.next().unwrap_or("").into(),
+                })
             })
             .collect()
     }
 
     pub fn line(&self) -> String {
-        format!("{}{SEP}{}{SEP}{}", self.id, self.date, self.subject.replace(['\n', SEP], " "))
+        format!(
+            "{}{SEP}{}{SEP}{}",
+            self.id,
+            self.date,
+            self.subject.replace(['\n', SEP], " ")
+        )
     }
 }
 
@@ -49,18 +58,32 @@ mod git {
     impl Repo {
         pub fn open(dir: &Path) -> Option<Self> {
             let out = git(dir, &["rev-parse", "--is-inside-work-tree"])?;
-            (out.trim_ascii() == b"true").then(|| Self { dir: dir.to_path_buf() })
+            (out.trim_ascii() == b"true").then(|| Self {
+                dir: dir.to_path_buf(),
+            })
         }
 
         /// Commits that touched the sprite's folder, newest first.
         pub fn log(&self, name: &str) -> Vec<Commit> {
-            let Some(out) = git(&self.dir, &["log", "--format=%h%x1f%ad%x1f%s", "--date=format:%Y-%m-%d %H:%M", "--", name]) else { return Vec::new() };
+            let Some(out) = git(
+                &self.dir,
+                &[
+                    "log",
+                    "--format=%h%x1f%ad%x1f%s",
+                    "--date=format:%Y-%m-%d %H:%M",
+                    "--",
+                    name,
+                ],
+            ) else {
+                return Vec::new();
+            };
             Commit::parse(&String::from_utf8_lossy(&out))
         }
 
         /// Whether the sprite's files differ from the last commit.
         pub fn changed(&self, name: &str) -> bool {
-            git(&self.dir, &["status", "--porcelain", "--", name]).is_some_and(|out| !out.is_empty())
+            git(&self.dir, &["status", "--porcelain", "--", name])
+                .is_some_and(|out| !out.is_empty())
         }
 
         /// A file of the sprite's folder as it was at commit `id`, if it existed then.
@@ -76,7 +99,12 @@ mod git {
 
     /// Runs git in `dir` and returns what it printed, or None if it failed.
     pub(super) fn git(dir: &Path, args: &[&str]) -> Option<Vec<u8>> {
-        let out = Command::new("git").arg("-C").arg(dir).args(args).output().ok()?;
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .output()
+            .ok()?;
         out.status.success().then_some(out.stdout)
     }
 }
@@ -93,7 +121,12 @@ pub mod tests {
         let root = std::env::temp_dir().join(format!("lh-history-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join("sprites")).unwrap();
-        for args in [&["init", "-q"][..], &["config", "user.email", "test@example.com"], &["config", "user.name", "Test"], &["config", "commit.gpgsign", "false"]] {
+        for args in [
+            &["init", "-q"][..],
+            &["config", "user.email", "test@example.com"],
+            &["config", "user.name", "Test"],
+            &["config", "commit.gpgsign", "false"],
+        ] {
             git(&root, args).unwrap();
         }
         root
@@ -116,13 +149,22 @@ pub mod tests {
         std::fs::write(dir.join("THING/stand.txt"), "figure\n").unwrap();
         let r = Repo::open(&dir).unwrap();
         let log = r.log("THING");
-        assert_eq!(log.iter().map(|c| c.subject.as_str()).collect::<Vec<_>>(), ["second", "first"]);
-        assert_eq!(r.read(&log[1].id, "THING", "stand.txt").as_deref(), Some(&b"slab 4\n"[..]));
+        assert_eq!(
+            log.iter().map(|c| c.subject.as_str()).collect::<Vec<_>>(),
+            ["second", "first"]
+        );
+        assert_eq!(
+            r.read(&log[1].id, "THING", "stand.txt").as_deref(),
+            Some(&b"slab 4\n"[..])
+        );
         assert_eq!(r.read(&log[1].id, "THING", "east.png"), None);
         assert!(r.changed("THING"));
         assert!(Repo::open(&std::env::temp_dir().join("lh-not-a-repo-anywhere")).is_none());
         assert!(log.iter().all(|c| valid_id(&c.id)));
-        assert_eq!(Commit::parse(&log.iter().map(Commit::line).collect::<Vec<_>>().join("\n")), log);
+        assert_eq!(
+            Commit::parse(&log.iter().map(Commit::line).collect::<Vec<_>>().join("\n")),
+            log
+        );
         std::fs::remove_dir_all(&root).unwrap();
     }
 }

@@ -52,7 +52,10 @@ pub struct Fields {
 impl Fields {
     /// Every kind of field, bare ones first, each with its weight and whether it grows a crop.
     pub fn kinds(&self) -> impl Iterator<Item = (u8, usize, bool)> + '_ {
-        self.plain.iter().map(|&(c, w)| (c, w, false)).chain(self.crops.iter().map(|&(c, w)| (c, w, true)))
+        self.plain
+            .iter()
+            .map(|&(c, w)| (c, w, false))
+            .chain(self.crops.iter().map(|&(c, w)| (c, w, true)))
     }
 }
 
@@ -109,7 +112,11 @@ pub struct Building {
 #[derive(Clone, Debug)]
 pub enum Near {
     /// A sprite's frames within this many tiles of the building's middle, or of the step outside its door.
-    Prop { frames: &'static [Art], within: usize, door: bool },
+    Prop {
+        frames: &'static [Art],
+        within: usize,
+        door: bool,
+    },
     /// The windmill, its fan turning.
     Windmill,
     /// Tombstones in a picket fence.
@@ -118,7 +125,11 @@ pub enum Near {
 
 /// A sprite's frames by name: the catalog's, else a player's prop's.
 fn frames(name: &str) -> Option<&'static [Art]> {
-    art::ALL.iter().find(|(n, _)| *n == name).map(|(_, f)| *f).or_else(|| super::super::props::prop(name).map(|p| p.frames))
+    art::ALL
+        .iter()
+        .find(|(n, _)| *n == name)
+        .map(|(_, f)| *f)
+        .or_else(|| super::super::props::prop(name).map(|p| p.frames))
 }
 
 /// The most tiles a building's `within`, `margin`, `door` or `near` may name: wider than the largest map.
@@ -136,18 +147,40 @@ const MAX_SIGNS: usize = 64;
 const MAX_WEIGHT: usize = 1000;
 
 /// The sections that aren't buildings.
-const SECTIONS: [&str; 7] = ["farm", "scatter", "fields", "road", "gas_station", "windmill", "graveyard"];
+const SECTIONS: [&str; 7] = [
+    "farm",
+    "scatter",
+    "fields",
+    "road",
+    "gas_station",
+    "windmill",
+    "graveyard",
+];
 
 /// One of the game's own sprites, which the farm lays when `farm.txt` doesn't say.
 fn own(name: &str) -> &'static [Art] {
-    art::ALL.iter().find(|(n, _)| *n == name).map(|(_, f)| *f).unwrap_or_else(|| panic!("no sprite called {name} in art.txt"))
+    art::ALL
+        .iter()
+        .find(|(n, _)| *n == name)
+        .map(|(_, f)| *f)
+        .unwrap_or_else(|| panic!("no sprite called {name} in art.txt"))
 }
 
 impl Default for Farm {
     /// Today's farm, but for the counts `[farm]` must set and the buildings and scatter it lists.
     fn default() -> Self {
-        let rail = Fence { top: own("RAIL_TOP"), side: own("RAIL_SIDE"), bottom: own("RAIL_BOTTOM"), gate_post: None };
-        let picket = Fence { top: own("PICKET_TOP"), side: own("PICKET_SIDE"), bottom: own("PICKET_BOTTOM"), gate_post: Some(own("SKULL_FENCE")) };
+        let rail = Fence {
+            top: own("RAIL_TOP"),
+            side: own("RAIL_SIDE"),
+            bottom: own("RAIL_BOTTOM"),
+            gate_post: None,
+        };
+        let picket = Fence {
+            top: own("PICKET_TOP"),
+            side: own("PICKET_SIDE"),
+            bottom: own("PICKET_BOTTOM"),
+            gate_post: Some(own("SKULL_FENCE")),
+        };
         Farm {
             tufts: 0,
             grass: 0,
@@ -159,11 +192,39 @@ impl Default for Farm {
             patch: b'g',
             border: vec![own("DEAD_TREE"), own("BUSH"), own("BUSH")],
             corpse: own("CORPSE"),
-            field: Fields { soil: b's', plain: vec![(b's', 1), (b'p', 1)], crops: vec![(b'c', 2)], width: [5, 11], height: [4, 8], fenced: 2, fence: rail, scarecrow: (own("SCARECROW"), 2) },
-            road: Road { ground: b'v', signs: 4, sign: vec![own("SIGN"), own("SIGN_LOW")], barrier: own("BARRIER"), wrecks: [3, 5], wreck: own("WRECK_V") },
-            station: Station { station: own("GAS_STATION"), pump: own("GAS_PUMP"), car: own("CAR_V"), truck: own("TRUCK"), driver: own("TRUCK_DRIVER") },
-            windmill: Windmill { mill: own("WINDMILL"), fan: own("WINDMILL_FAN") },
-            graveyard: Graveyard { tombstone: own("TOMBSTONE"), fence: picket },
+            field: Fields {
+                soil: b's',
+                plain: vec![(b's', 1), (b'p', 1)],
+                crops: vec![(b'c', 2)],
+                width: [5, 11],
+                height: [4, 8],
+                fenced: 2,
+                fence: rail,
+                scarecrow: (own("SCARECROW"), 2),
+            },
+            road: Road {
+                ground: b'v',
+                signs: 4,
+                sign: vec![own("SIGN"), own("SIGN_LOW")],
+                barrier: own("BARRIER"),
+                wrecks: [3, 5],
+                wreck: own("WRECK_V"),
+            },
+            station: Station {
+                station: own("GAS_STATION"),
+                pump: own("GAS_PUMP"),
+                car: own("CAR_V"),
+                truck: own("TRUCK"),
+                driver: own("TRUCK_DRIVER"),
+            },
+            windmill: Windmill {
+                mill: own("WINDMILL"),
+                fan: own("WINDMILL_FAN"),
+            },
+            graveyard: Graveyard {
+                tombstone: own("TOMBSTONE"),
+                fence: picket,
+            },
             scatter: Vec::new(),
             buildings: Vec::new(),
         }
@@ -174,7 +235,9 @@ impl Default for Farm {
 fn code(n: usize, key: &str, word: &str) -> Result<u8, String> {
     match word.as_bytes() {
         [c] if c.is_ascii_graphic() => Ok(*c),
-        _ => Err(format!("{n}: {key} is a ground code from ground.txt, one character")),
+        _ => Err(format!(
+            "{n}: {key} is a ground code from ground.txt, one character"
+        )),
     }
 }
 
@@ -189,7 +252,11 @@ fn sprite(n: usize, name: &str) -> Result<Option<&'static [Art]>, String> {
 
 /// A fence style: its top row's three frames, its sides' two, its bottom row's three, and a gate post's, if any.
 fn fence(n: usize, key: &str, words: &[&str], into: &mut Fence) -> Result<(), String> {
-    let bad = || format!("{n}: {key} is TOP SIDE BOTTOM and a GATE post if any: sprites of 3, 2 and 3 frames");
+    let bad = || {
+        format!(
+            "{n}: {key} is TOP SIDE BOTTOM and a GATE post if any: sprites of 3, 2 and 3 frames"
+        )
+    };
     let ([top, side, bottom], gate) = match *words {
         [a, b, c] => ([a, b, c], None),
         [a, b, c, d] => ([a, b, c], Some(d)),
@@ -197,29 +264,60 @@ fn fence(n: usize, key: &str, words: &[&str], into: &mut Fence) -> Result<(), St
     };
     let (top, side, bottom) = (sprite(n, top)?, sprite(n, side)?, sprite(n, bottom)?);
     let gate = gate.map(|g| sprite(n, g)).transpose()?;
-    if [top.map(<[Art]>::len), side.map(<[Art]>::len), bottom.map(<[Art]>::len)].iter().zip([3, 2, 3]).any(|(l, want)| l.is_some_and(|l| l != want)) {
+    if [
+        top.map(<[Art]>::len),
+        side.map(<[Art]>::len),
+        bottom.map(<[Art]>::len),
+    ]
+    .iter()
+    .zip([3, 2, 3])
+    .any(|(l, want)| l.is_some_and(|l| l != want))
+    {
         return Err(bad());
     }
     if let (Some(top), Some(side), Some(bottom)) = (top, side, bottom)
         && gate.is_none_or(|g| g.is_some())
     {
-        *into = Fence { top, side, bottom, gate_post: gate.flatten() };
+        *into = Fence {
+            top,
+            side,
+            bottom,
+            gate_post: gate.flatten(),
+        };
     }
     Ok(())
 }
 
 /// `K` whole numbers, each up to `most`.
-fn numbers<const K: usize>(n: usize, key: &str, words: &[&str], most: usize, what: &str) -> Result<[usize; K], String> {
+fn numbers<const K: usize>(
+    n: usize,
+    key: &str,
+    words: &[&str],
+    most: usize,
+    what: &str,
+) -> Result<[usize; K], String> {
     let bad = || format!("{n}: {key} is {what}, up to {most}");
-    let got: Vec<usize> = words.iter().map(|w| w.parse::<usize>().ok().filter(|v| *v <= most)).collect::<Option<_>>().ok_or_else(bad)?;
+    let got: Vec<usize> = words
+        .iter()
+        .map(|w| w.parse::<usize>().ok().filter(|v| *v <= most))
+        .collect::<Option<_>>()
+        .ok_or_else(bad)?;
     got.try_into().map_err(|_| bad())
 }
 
 /// A least and most, from `least` up.
-fn range(n: usize, key: &str, words: &[&str], least: usize, most: usize) -> Result<[usize; 2], String> {
+fn range(
+    n: usize,
+    key: &str,
+    words: &[&str],
+    least: usize,
+    most: usize,
+) -> Result<[usize; 2], String> {
     let [lo, hi] = numbers::<2>(n, key, words, most, "LEAST MOST")?;
     if lo < least || lo > hi {
-        return Err(format!("{n}: {key} is LEAST MOST, from {least} to {most}, the least first"));
+        return Err(format!(
+            "{n}: {key} is LEAST MOST, from {least} to {most}, the least first"
+        ));
     }
     Ok([lo, hi])
 }
@@ -238,40 +336,83 @@ pub fn parse(text: &str) -> Result<Farm, String> {
         if let Some(s) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
             section = match SECTIONS.iter().find(|k| **k == s) {
                 Some(k) => k,
-                None if s.is_empty() || !s.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_') => {
-                    return Err(format!("{n}: [{s}] isn't [farm], [scatter], [fields], [road], [gas_station], [windmill], [graveyard] or a building named in lowercase letters, digits and _"));
+                None if s.is_empty()
+                    || !s
+                        .chars()
+                        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_') =>
+                {
+                    return Err(format!(
+                        "{n}: [{s}] isn't [farm], [scatter], [fields], [road], [gas_station], [windmill], [graveyard] or a building named in lowercase letters, digits and _"
+                    ));
                 }
-                None if f.buildings.iter().any(|b| b.name == s) => return Err(format!("{n}: [{s}] appears twice")),
+                None if f.buildings.iter().any(|b| b.name == s) => {
+                    return Err(format!("{n}: [{s}] appears twice"));
+                }
                 None => {
-                    f.buildings.push(Building { name: s.to_string(), sprites: Vec::new(), within: 0, margin: 0, door: 0, near: Vec::new() });
+                    f.buildings.push(Building {
+                        name: s.to_string(),
+                        sprites: Vec::new(),
+                        within: 0,
+                        margin: 0,
+                        door: 0,
+                        near: Vec::new(),
+                    });
                     "building"
                 }
             };
             continue;
         }
-        let (key, value) = line.split_once(char::is_whitespace).map_or((line, ""), |(k, v)| (k, v.trim()));
-        let count = || value.parse::<usize>().map_err(|_| format!("{n}: {key} takes a whole number"));
+        let (key, value) = line
+            .split_once(char::is_whitespace)
+            .map_or((line, ""), |(k, v)| (k, v.trim()));
+        let count = || {
+            value
+                .parse::<usize>()
+                .map_err(|_| format!("{n}: {key} takes a whole number"))
+        };
         let words: Vec<&str> = value.split_whitespace().collect();
         let one = |into: &mut &'static [Art]| -> Result<(), String> {
-            let [name] = words[..] else { return Err(format!("{n}: {key} is one sprite")) };
+            let [name] = words[..] else {
+                return Err(format!("{n}: {key} is one sprite"));
+            };
             if let Some(set) = sprite(n, name)? {
                 *into = set;
             }
             Ok(())
         };
         let weights = |into: &mut Vec<(u8, usize)>| -> Result<(), String> {
-            let bad = || format!("{n}: {key} is ground codes from ground.txt, each with its weight, 1 to {MAX_WEIGHT}");
+            let bad = || {
+                format!(
+                    "{n}: {key} is ground codes from ground.txt, each with its weight, 1 to {MAX_WEIGHT}"
+                )
+            };
             if !words.len().is_multiple_of(2) {
                 return Err(bad());
             }
-            *into = words.chunks(2).map(|p| Ok((code(n, key, p[0])?, p[1].parse::<usize>().ok().filter(|w| (1..=MAX_WEIGHT).contains(w)).ok_or_else(bad)?))).collect::<Result<_, String>>()?;
+            *into = words
+                .chunks(2)
+                .map(|p| {
+                    Ok((
+                        code(n, key, p[0])?,
+                        p[1].parse::<usize>()
+                            .ok()
+                            .filter(|w| (1..=MAX_WEIGHT).contains(w))
+                            .ok_or_else(bad)?,
+                    ))
+                })
+                .collect::<Result<_, String>>()?;
             Ok(())
         };
         match section {
             "farm" if key == "border" => {
-                let sets: Vec<Option<&'static [Art]>> = words.iter().map(|w| sprite(n, w)).collect::<Result<_, _>>()?;
+                let sets: Vec<Option<&'static [Art]>> = words
+                    .iter()
+                    .map(|w| sprite(n, w))
+                    .collect::<Result<_, _>>()?;
                 if sets.is_empty() {
-                    return Err(format!("{n}: border is the sprites ringing the map, at least one"));
+                    return Err(format!(
+                        "{n}: border is the sprites ringing the map, at least one"
+                    ));
                 }
                 f.border = sets.into_iter().flatten().collect();
                 if f.border.is_empty() {
@@ -280,7 +421,11 @@ pub fn parse(text: &str) -> Result<Farm, String> {
             }
             "farm" if key == "corpse" => one(&mut f.corpse)?,
             "farm" if matches!(key, "ground" | "tufted" | "patch") => {
-                let [code] = value.as_bytes() else { return Err(format!("{n}: {key} is a ground code from ground.txt, one character")) };
+                let [code] = value.as_bytes() else {
+                    return Err(format!(
+                        "{n}: {key} is a ground code from ground.txt, one character"
+                    ));
+                };
                 *match key {
                     "ground" => &mut f.ground,
                     "tufted" => &mut f.tufted,
@@ -288,41 +433,82 @@ pub fn parse(text: &str) -> Result<Farm, String> {
                 } = *code;
             }
             "farm" => {
-                let at = FARM_KEYS.iter().position(|k| *k == key).ok_or_else(|| format!("{n}: {key} isn't something [farm] sets"))?;
+                let at = FARM_KEYS
+                    .iter()
+                    .position(|k| *k == key)
+                    .ok_or_else(|| format!("{n}: {key} isn't something [farm] sets"))?;
                 let v = count()?;
                 if matches!(key, "fields" | "more_fields") && v > MAX_FIELDS {
                     return Err(format!("{n}: {key} is at most {MAX_FIELDS}"));
                 }
-                *[&mut f.tufts, &mut f.grass, &mut f.corpses, &mut f.fields, &mut f.more_fields][at] = v;
+                *[
+                    &mut f.tufts,
+                    &mut f.grass,
+                    &mut f.corpses,
+                    &mut f.fields,
+                    &mut f.more_fields,
+                ][at] = v;
                 seen[at] = true;
             }
-            "fields" => match key {
-                "soil" => {
-                    let [c] = words[..] else { return Err(format!("{n}: soil is a ground code from ground.txt, one character")) };
-                    f.field.soil = code(n, key, c)?;
+            "fields" => {
+                match key {
+                    "soil" => {
+                        let [c] = words[..] else {
+                            return Err(format!(
+                                "{n}: soil is a ground code from ground.txt, one character"
+                            ));
+                        };
+                        f.field.soil = code(n, key, c)?;
+                    }
+                    "plain" => weights(&mut f.field.plain)?,
+                    "crops" => weights(&mut f.field.crops)?,
+                    "width" => f.field.width = range(n, key, &words, 2, MAX_FIELD)?,
+                    "height" => f.field.height = range(n, key, &words, 2, MAX_FIELD)?,
+                    "fenced" => f.field.fenced = count()?,
+                    "fence" => fence(n, key, &words, &mut f.field.fence)?,
+                    "scarecrow" => {
+                        let [name, every] = words[..] else {
+                            return Err(format!(
+                                "{n}: scarecrow is a sprite and N, for one bare field in N; 0 for none"
+                            ));
+                        };
+                        let every = every.parse().map_err(|_| format!("{n}: scarecrow is a sprite and N, for one bare field in N; 0 for none"))?;
+                        f.field.scarecrow =
+                            (sprite(n, name)?.unwrap_or(f.field.scarecrow.0), every);
+                    }
+                    _ => {
+                        return Err(format!(
+                            "{n}: {key} isn't something [fields] sets; there's soil, plain, crops, width, height, fenced, fence and scarecrow"
+                        ));
+                    }
                 }
-                "plain" => weights(&mut f.field.plain)?,
-                "crops" => weights(&mut f.field.crops)?,
-                "width" => f.field.width = range(n, key, &words, 2, MAX_FIELD)?,
-                "height" => f.field.height = range(n, key, &words, 2, MAX_FIELD)?,
-                "fenced" => f.field.fenced = count()?,
-                "fence" => fence(n, key, &words, &mut f.field.fence)?,
-                "scarecrow" => {
-                    let [name, every] = words[..] else { return Err(format!("{n}: scarecrow is a sprite and N, for one bare field in N; 0 for none")) };
-                    let every = every.parse().map_err(|_| format!("{n}: scarecrow is a sprite and N, for one bare field in N; 0 for none"))?;
-                    f.field.scarecrow = (sprite(n, name)?.unwrap_or(f.field.scarecrow.0), every);
-                }
-                _ => return Err(format!("{n}: {key} isn't something [fields] sets; there's soil, plain, crops, width, height, fenced, fence and scarecrow")),
-            },
+            }
             "road" => match key {
                 "ground" => {
-                    let [c] = words[..] else { return Err(format!("{n}: ground is a ground code from ground.txt, one character")) };
+                    let [c] = words[..] else {
+                        return Err(format!(
+                            "{n}: ground is a ground code from ground.txt, one character"
+                        ));
+                    };
                     f.road.ground = code(n, key, c)?;
                 }
                 "signs" => {
-                    let Some((tries, names)) = words.split_first() else { return Err(format!("{n}: signs is N tries and the sprites a sign picks from")) };
-                    let [tries] = numbers::<1>(n, key, &[tries], MAX_SIGNS, "N tries and the sprites a sign picks from")?;
-                    let sets: Vec<Option<&'static [Art]>> = names.iter().map(|w| sprite(n, w)).collect::<Result<_, _>>()?;
+                    let Some((tries, names)) = words.split_first() else {
+                        return Err(format!(
+                            "{n}: signs is N tries and the sprites a sign picks from"
+                        ));
+                    };
+                    let [tries] = numbers::<1>(
+                        n,
+                        key,
+                        &[tries],
+                        MAX_SIGNS,
+                        "N tries and the sprites a sign picks from",
+                    )?;
+                    let sets: Vec<Option<&'static [Art]>> = names
+                        .iter()
+                        .map(|w| sprite(n, w))
+                        .collect::<Result<_, _>>()?;
                     if tries > 0 && sets.is_empty() {
                         return Err(format!("{n}: signs names the sprites a sign picks from"));
                     }
@@ -331,13 +517,19 @@ pub fn parse(text: &str) -> Result<Farm, String> {
                 }
                 "barrier" => one(&mut f.road.barrier)?,
                 "wrecks" => {
-                    let [lo, hi, name] = words[..] else { return Err(format!("{n}: wrecks is LEAST MOST and a sprite")) };
+                    let [lo, hi, name] = words[..] else {
+                        return Err(format!("{n}: wrecks is LEAST MOST and a sprite"));
+                    };
                     f.road.wrecks = range(n, key, &[lo, hi], 0, MAX_WRECKS)?;
                     if let Some(set) = sprite(n, name)? {
                         f.road.wreck = set;
                     }
                 }
-                _ => return Err(format!("{n}: {key} isn't something [road] sets; there's ground, signs, barrier and wrecks")),
+                _ => {
+                    return Err(format!(
+                        "{n}: {key} isn't something [road] sets; there's ground, signs, barrier and wrecks"
+                    ));
+                }
             },
             "gas_station" => match key {
                 "station" => one(&mut f.station.station)?,
@@ -345,17 +537,29 @@ pub fn parse(text: &str) -> Result<Farm, String> {
                 "car" => one(&mut f.station.car)?,
                 "truck" => one(&mut f.station.truck)?,
                 "driver" => one(&mut f.station.driver)?,
-                _ => return Err(format!("{n}: {key} isn't something [gas_station] sets; there's station, pump, car, truck and driver")),
+                _ => {
+                    return Err(format!(
+                        "{n}: {key} isn't something [gas_station] sets; there's station, pump, car, truck and driver"
+                    ));
+                }
             },
             "windmill" => match key {
                 "mill" => one(&mut f.windmill.mill)?,
                 "fan" => one(&mut f.windmill.fan)?,
-                _ => return Err(format!("{n}: {key} isn't something [windmill] sets; there's mill and fan")),
+                _ => {
+                    return Err(format!(
+                        "{n}: {key} isn't something [windmill] sets; there's mill and fan"
+                    ));
+                }
             },
             "graveyard" => match key {
                 "tombstone" => one(&mut f.graveyard.tombstone)?,
                 "fence" => fence(n, key, &words, &mut f.graveyard.fence)?,
-                _ => return Err(format!("{n}: {key} isn't something [graveyard] sets; there's tombstone and fence")),
+                _ => {
+                    return Err(format!(
+                        "{n}: {key} isn't something [graveyard] sets; there's tombstone and fence"
+                    ));
+                }
             },
             "scatter" => {
                 let count = count()?;
@@ -397,17 +601,33 @@ pub fn parse(text: &str) -> Result<Farm, String> {
                         [name, within, ref rest @ ..] if rest.is_empty() || rest == ["door"] => {
                             let within = within.parse::<usize>().ok().filter(|w| (1..=MAX_TILES).contains(w)).ok_or_else(|| format!("{n}: near takes a sprite and how many tiles, 1 to {MAX_TILES}"))?;
                             match frames(name) {
-                                Some(frames) => b.near.push(Near::Prop { frames, within, door: !rest.is_empty() }),
+                                Some(frames) => b.near.push(Near::Prop {
+                                    frames,
+                                    within,
+                                    door: !rest.is_empty(),
+                                }),
                                 None if name.starts_with(super::super::props::PREFIX) => {}
                                 None => return Err(format!("{n}: no sprite called {name}")),
                             }
                         }
-                        _ => return Err(format!("{n}: near is windmill, graveyard, or a sprite and how many tiles, then door to count from it")),
+                        _ => {
+                            return Err(format!(
+                                "{n}: near is windmill, graveyard, or a sprite and how many tiles, then door to count from it"
+                            ));
+                        }
                     },
-                    _ => return Err(format!("{n}: {key} isn't something a building sets; there's sprites, within, margin, door and near")),
+                    _ => {
+                        return Err(format!(
+                            "{n}: {key} isn't something a building sets; there's sprites, within, margin, door and near"
+                        ));
+                    }
                 }
             }
-            _ => return Err(format!("{n}: a line before [farm], [scatter] or a building")),
+            _ => {
+                return Err(format!(
+                    "{n}: a line before [farm], [scatter] or a building"
+                ));
+            }
         }
     }
     if let Some(k) = seen.iter().position(|s| !s) {
@@ -425,12 +645,24 @@ pub fn parse(text: &str) -> Result<Farm, String> {
 /// Checks the ground codes a farm names against `ground`: each is there, and each of its crops is a field with a
 /// crop.
 pub fn check_codes(f: &Farm, ground: &[super::ground::Ground]) -> Result<(), String> {
-    let plain = [f.ground, f.tufted, f.patch, f.field.soil, f.road.ground].into_iter().chain(f.field.plain.iter().map(|p| p.0));
-    if let Some(c) = plain.into_iter().find(|c| !ground.iter().any(|g| g.code == *c)) {
+    let plain = [f.ground, f.tufted, f.patch, f.field.soil, f.road.ground]
+        .into_iter()
+        .chain(f.field.plain.iter().map(|p| p.0));
+    if let Some(c) = plain
+        .into_iter()
+        .find(|c| !ground.iter().any(|g| g.code == *c))
+    {
         return Err(format!("no ground code {} in ground.txt", c as char));
     }
-    match f.field.crops.iter().find(|(c, _)| !ground.iter().any(|g| g.code == *c && g.cell == super::Cell::Taken && g.crop.is_some())) {
-        Some((c, _)) => Err(format!("crops {}: not a ground code with cell field and a crop line in ground.txt", *c as char)),
+    match f.field.crops.iter().find(|(c, _)| {
+        !ground
+            .iter()
+            .any(|g| g.code == *c && g.cell == super::Cell::Taken && g.crop.is_some())
+    }) {
+        Some((c, _)) => Err(format!(
+            "crops {}: not a ground code with cell field and a crop line in ground.txt",
+            *c as char
+        )),
         None => Ok(()),
     }
 }
@@ -447,7 +679,9 @@ pub fn farm() -> &'static Farm {
         return f;
     }
     let f = parse(crate::data::farm()).unwrap_or_else(|e| panic!("farm.txt:{e}"));
-    FARM.write().unwrap_or_else(|e| e.into_inner()).get_or_insert(Box::leak(Box::new(f)))
+    FARM.write()
+        .unwrap_or_else(|e| e.into_inner())
+        .get_or_insert(Box::leak(Box::new(f)))
 }
 
 /// Replaces the random farm's rules with `text`, as an editor does once a mod's `farm.txt` changes.
@@ -464,26 +698,94 @@ mod tests {
     #[test]
     fn the_farm_reads_and_mistakes_name_their_line() {
         let f = farm();
-        assert_eq!((f.tufts, f.fields, f.scatter.len(), f.ground), (10, 4, 11, b'.'));
+        assert_eq!(
+            (f.tufts, f.fields, f.scatter.len(), f.ground),
+            (10, 4, 11, b'.')
+        );
         assert_eq!(f.scatter[0], (&art::DEAD_TREE[..], 120));
-        assert_eq!(f.buildings.iter().map(|b| (b.name.as_str(), b.sprites.len(), b.near.len())).collect::<Vec<_>>(), [("house", 1, 2), ("barn", 2, 4)]);
+        assert_eq!(
+            f.buildings
+                .iter()
+                .map(|b| (b.name.as_str(), b.sprites.len(), b.near.len()))
+                .collect::<Vec<_>>(),
+            [("house", 1, 2), ("barn", 2, 4)]
+        );
         let base = "[farm]\ntufts 1\ngrass 1\ncorpses 1\nfields 1\nmore_fields 1\n[scatter]\n";
-        assert!(parse(&format!("{base}PROP_NOT_LOADED 5")).unwrap().scatter.is_empty(), "a prop that isn't loaded is left out");
-        assert!(parse(&format!("{base}NOPE 5")).unwrap_err().starts_with("8: no sprite"));
-        assert!(parse(&format!("{base}BUSH 0")).unwrap_err().starts_with("8: BUSH"));
-        assert!(parse("[farm]\ntufts 1").unwrap_err().contains("doesn't set grass"));
-        let shed = parse(&format!("{base}[shed]\nsprites TANK PROP_GONE\nwithin 5\nnear SIGN 3 door\nnear graveyard")).unwrap();
-        assert!(matches!(shed.buildings[0].near[..], [Near::Prop { within: 3, door: true, .. }, Near::Graveyard]));
+        assert!(
+            parse(&format!("{base}PROP_NOT_LOADED 5"))
+                .unwrap()
+                .scatter
+                .is_empty(),
+            "a prop that isn't loaded is left out"
+        );
+        assert!(
+            parse(&format!("{base}NOPE 5"))
+                .unwrap_err()
+                .starts_with("8: no sprite")
+        );
+        assert!(
+            parse(&format!("{base}BUSH 0"))
+                .unwrap_err()
+                .starts_with("8: BUSH")
+        );
+        assert!(
+            parse("[farm]\ntufts 1")
+                .unwrap_err()
+                .contains("doesn't set grass")
+        );
+        let shed = parse(&format!(
+            "{base}[shed]\nsprites TANK PROP_GONE\nwithin 5\nnear SIGN 3 door\nnear graveyard"
+        ))
+        .unwrap();
+        assert!(matches!(
+            shed.buildings[0].near[..],
+            [
+                Near::Prop {
+                    within: 3,
+                    door: true,
+                    ..
+                },
+                Near::Graveyard
+            ]
+        ));
         assert_eq!(shed.buildings[0].sprites.len(), 1);
-        assert_eq!(parse(&format!("{base}[shed]\nsprites TANK")).unwrap_err(), "[shed] needs within, from 1");
-        assert!(parse(&format!("{base}[shed]\nwithin 5\nnear SIGN")).unwrap_err().starts_with("10: near is"));
-        assert!(parse(&format!("{base}[Shed]")).unwrap_err().starts_with("8: [Shed]"));
-        assert!(parse("[farm]\nground ..").unwrap_err().starts_with("2: ground is a ground code"));
-        assert!(parse(&format!("{base}[shed]\nmargin 18446744073709551615")).unwrap_err().starts_with("9: margin"));
-        assert!(parse(&format!("{base}[shed]\nwithin 5\nnear SIGN 201")).unwrap_err().starts_with("10: near takes"));
+        assert_eq!(
+            parse(&format!("{base}[shed]\nsprites TANK")).unwrap_err(),
+            "[shed] needs within, from 1"
+        );
+        assert!(
+            parse(&format!("{base}[shed]\nwithin 5\nnear SIGN"))
+                .unwrap_err()
+                .starts_with("10: near is")
+        );
+        assert!(
+            parse(&format!("{base}[Shed]"))
+                .unwrap_err()
+                .starts_with("8: [Shed]")
+        );
+        assert!(
+            parse("[farm]\nground ..")
+                .unwrap_err()
+                .starts_with("2: ground is a ground code")
+        );
+        assert!(
+            parse(&format!("{base}[shed]\nmargin 18446744073709551615"))
+                .unwrap_err()
+                .starts_with("9: margin")
+        );
+        assert!(
+            parse(&format!("{base}[shed]\nwithin 5\nnear SIGN 201"))
+                .unwrap_err()
+                .starts_with("10: near takes")
+        );
         for key in ["fields", "more_fields"] {
             let huge = base.replace(&format!("\n{key} 1"), &format!("\n{key} 4000000000"));
-            assert!(crate::harvest::check_table("farm.txt", &huge).unwrap_err().contains(&format!("{key} is at most 64")), "{key}");
+            assert!(
+                crate::harvest::check_table("farm.txt", &huge)
+                    .unwrap_err()
+                    .contains(&format!("{key} is at most 64")),
+                "{key}"
+            );
             parse(&base.replace(&format!("\n{key} 1"), &format!("\n{key} 64"))).unwrap();
         }
     }
@@ -493,39 +795,95 @@ mod tests {
         let base = "[farm]\ntufts 1\ngrass 1\ncorpses 1\nfields 1\nmore_fields 1\n";
         let today = parse(base).unwrap();
         let own = crate::harvest::built_in_table("farm.txt").unwrap();
-        let said = parse(&format!("{base}{}", &own[own.find("border").unwrap()..own.find("[scatter]").unwrap()])).unwrap();
-        assert_eq!(format!("{today:?}"), format!("{said:?}"), "the game's own file says what's kept when left out");
-        let f = parse(&format!("{base}[fields]\nplain\ncrops c 2 k 1\n[windmill]\nfan PROP_GONE")).unwrap();
-        assert_eq!((f.field.plain, f.field.crops), (vec![], vec![(b'c', 2), (b'k', 1)]));
-        assert_eq!(f.windmill.fan, today.windmill.fan, "a prop that isn't loaded keeps the sprite");
+        let said = parse(&format!(
+            "{base}{}",
+            &own[own.find("border").unwrap()..own.find("[scatter]").unwrap()]
+        ))
+        .unwrap();
+        assert_eq!(
+            format!("{today:?}"),
+            format!("{said:?}"),
+            "the game's own file says what's kept when left out"
+        );
+        let f = parse(&format!(
+            "{base}[fields]\nplain\ncrops c 2 k 1\n[windmill]\nfan PROP_GONE"
+        ))
+        .unwrap();
+        assert_eq!(
+            (f.field.plain, f.field.crops),
+            (vec![], vec![(b'c', 2), (b'k', 1)])
+        );
+        assert_eq!(
+            f.windmill.fan, today.windmill.fan,
+            "a prop that isn't loaded keeps the sprite"
+        );
         for (text, error) in [
             ("[fields]\ncrops c", "8: crops is ground codes"),
             ("[fields]\ncrops cc 1", "8: crops is a ground code"),
             ("[fields]\ncrops c 0", "8: crops is ground codes"),
             ("[fields]\nwidth 9 3", "8: width is LEAST MOST"),
             ("[fields]\nheight 1 3", "8: height is LEAST MOST"),
-            ("[fields]\nfence RAIL_TOP RAIL_TOP RAIL_BOTTOM", "8: fence is TOP SIDE BOTTOM"),
+            (
+                "[fields]\nfence RAIL_TOP RAIL_TOP RAIL_BOTTOM",
+                "8: fence is TOP SIDE BOTTOM",
+            ),
             ("[fields]\nscarecrow SCARECROW", "8: scarecrow is a sprite"),
-            ("[fields]\nplain\ncrops", "[fields] needs a plain or crops code"),
+            (
+                "[fields]\nplain\ncrops",
+                "[fields] needs a plain or crops code",
+            ),
             ("[road]\nwrecks 1 2 NOPE", "8: no sprite called NOPE"),
             ("[road]\nsigns 4", "8: signs names"),
-            ("[gas_station]\npump GAS_PUMP CAR_V", "8: pump is one sprite"),
-            ("[windmill]\nsail WINDMILL", "8: sail isn't something [windmill] sets"),
+            (
+                "[gas_station]\npump GAS_PUMP CAR_V",
+                "8: pump is one sprite",
+            ),
+            (
+                "[windmill]\nsail WINDMILL",
+                "8: sail isn't something [windmill] sets",
+            ),
             ("border", "7: border is"),
         ] {
-            assert!(parse(&format!("{base}{text}")).unwrap_err().starts_with(error), "{text}: {:?}", parse(&format!("{base}{text}")).unwrap_err());
+            assert!(
+                parse(&format!("{base}{text}"))
+                    .unwrap_err()
+                    .starts_with(error),
+                "{text}: {:?}",
+                parse(&format!("{base}{text}")).unwrap_err()
+            );
         }
     }
 
     #[test]
     fn a_farms_codes_are_ground_and_its_crops_grow() {
-        let ground = super::super::ground::parse(&format!("{}\n[k]\nname Cane\nart SOIL\ncell field\ncrop SIGN BARRIER TOMBSTONE\n", crate::harvest::built_in_table("ground.txt").unwrap())).unwrap();
-        let farm = |more: &str| parse(&format!("[farm]\ntufts 1\ngrass 1\ncorpses 1\nfields 1\nmore_fields 1\n{more}")).unwrap();
+        let ground = super::super::ground::parse(&format!(
+            "{}\n[k]\nname Cane\nart SOIL\ncell field\ncrop SIGN BARRIER TOMBSTONE\n",
+            crate::harvest::built_in_table("ground.txt").unwrap()
+        ))
+        .unwrap();
+        let farm = |more: &str| {
+            parse(&format!(
+                "[farm]\ntufts 1\ngrass 1\ncorpses 1\nfields 1\nmore_fields 1\n{more}"
+            ))
+            .unwrap()
+        };
         assert_eq!(check_codes(&farm(""), &ground), Ok(()));
         assert_eq!(check_codes(&farm("[fields]\ncrops k 1"), &ground), Ok(()));
-        assert_eq!(check_codes(&farm("[fields]\ncrops p 1"), &ground), Err("crops p: not a ground code with cell field and a crop line in ground.txt".into()));
-        assert_eq!(check_codes(&farm("[fields]\ncrops Z 1"), &ground).unwrap_err(), "crops Z: not a ground code with cell field and a crop line in ground.txt");
-        assert_eq!(check_codes(&farm("[road]\nground Z"), &ground), Err("no ground code Z in ground.txt".into()));
-        assert_eq!(check_codes(&farm("[fields]\nplain Z 1"), &ground), Err("no ground code Z in ground.txt".into()));
+        assert_eq!(
+            check_codes(&farm("[fields]\ncrops p 1"), &ground),
+            Err("crops p: not a ground code with cell field and a crop line in ground.txt".into())
+        );
+        assert_eq!(
+            check_codes(&farm("[fields]\ncrops Z 1"), &ground).unwrap_err(),
+            "crops Z: not a ground code with cell field and a crop line in ground.txt"
+        );
+        assert_eq!(
+            check_codes(&farm("[road]\nground Z"), &ground),
+            Err("no ground code Z in ground.txt".into())
+        );
+        assert_eq!(
+            check_codes(&farm("[fields]\nplain Z 1"), &ground),
+            Err("no ground code Z in ground.txt".into())
+        );
     }
 }

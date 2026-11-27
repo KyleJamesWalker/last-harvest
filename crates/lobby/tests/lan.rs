@@ -21,7 +21,9 @@ impl Peer {
         for (peer, state) in self.socket.update_peers() {
             match (&mut self.side, state) {
                 (Side::Client(client), PeerState::Connected) => client.connected(peer.0),
-                (Side::Client(client), PeerState::Disconnected) => drop(client.disconnected(peer.0)),
+                (Side::Client(client), PeerState::Disconnected) => {
+                    drop(client.disconnected(peer.0))
+                }
                 (Side::Host(host), PeerState::Disconnected) => drop(host.disconnected(peer.0)),
                 (Side::Host(_), PeerState::Connected) => {}
             }
@@ -37,7 +39,8 @@ impl Peer {
             Side::Client(client) => client.take_outgoing(),
         };
         for (to, bytes) in outgoing {
-            self.socket.send(RELIABLE, last_harvest_net::PeerId(to), &bytes);
+            self.socket
+                .send(RELIABLE, last_harvest_net::PeerId(to), &bytes);
         }
     }
 
@@ -83,14 +86,37 @@ fn a_lan_host_and_a_client_meet_through_the_lan_relay_which_holds_one_room() {
     let base = format!("ws://127.0.0.1:{port}");
     let code = RoomCode::from_random(0x1a7);
     let url = code.room_url(&base);
-    let identity = Identity { game_version: "test".into(), pak: fingerprint(b"pak"), mods: Vec::new() };
+    let identity = Identity {
+        game_version: "test".into(),
+        pak: fingerprint(b"pak"),
+        mods: Vec::new(),
+    };
 
     let mut host_socket = connect(&url);
     let me = host_socket.id().unwrap().0;
-    let config = HostConfig { identity: identity.clone(), cards: vec!["farmer".into()], seats: 4, drop_in: true };
-    let hello = Hello { identity, cards: vec!["witch".into()] };
-    let mut peers = vec![Peer { side: Side::Host(Host::new(code, config, me)), socket: host_socket }, Peer { socket: connect(&url), side: Side::Client(Client::new(hello)) }];
-    run_until(&mut peers, "the client in the lobby", |p| p[1].client().state() == &ClientState::Lobby && p[1].client().roster().len() == 2);
+    let config = HostConfig {
+        identity: identity.clone(),
+        cards: vec!["farmer".into()],
+        seats: 4,
+        drop_in: true,
+    };
+    let hello = Hello {
+        identity,
+        cards: vec!["witch".into()],
+    };
+    let mut peers = vec![
+        Peer {
+            side: Side::Host(Host::new(code, config, me)),
+            socket: host_socket,
+        },
+        Peer {
+            socket: connect(&url),
+            side: Side::Client(Client::new(hello)),
+        },
+    ];
+    run_until(&mut peers, "the client in the lobby", |p| {
+        p[1].client().state() == &ClientState::Lobby && p[1].client().roster().len() == 2
+    });
     assert_eq!(peers[1].client().host(), Some(me));
 
     let other = RoomCode::from_random(0xbad).room_url(&base);
@@ -104,7 +130,9 @@ fn a_lan_host_and_a_client_meet_through_the_lan_relay_which_holds_one_room() {
     stray.close();
 
     peers[0].host_mut().close();
-    run_until(&mut peers, "the room to close", |p| p[1].client().state() == &ClientState::Ended(EndReason::HostLeft));
+    run_until(&mut peers, "the room to close", |p| {
+        p[1].client().state() == &ClientState::Ended(EndReason::HostLeft)
+    });
     for peer in &mut peers {
         peer.socket.close();
     }

@@ -4,22 +4,30 @@
 use crate::config::Config;
 use base64::Engine;
 use hmac::{Hmac, KeyInit, Mac};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::net::IpAddr;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub fn now_unix() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs())
 }
 
 fn hmac(secret: &str, text: &str) -> Vec<u8> {
-    let mut mac = Hmac::<sha1::Sha1>::new_from_slice(secret.as_bytes()).expect("HMAC takes any key length");
+    let mut mac =
+        Hmac::<sha1::Sha1>::new_from_slice(secret.as_bytes()).expect("HMAC takes any key length");
     mac.update(text.as_bytes());
     mac.finalize().into_bytes().to_vec()
 }
 
 /// A credential for `name` that expires `lifetime_seconds` after `now_unix`.
-pub fn turn_credentials(secret: &str, now_unix: u64, lifetime_seconds: u64, name: &str) -> (String, String) {
+pub fn turn_credentials(
+    secret: &str,
+    now_unix: u64,
+    lifetime_seconds: u64,
+    name: &str,
+) -> (String, String) {
     let username = format!("{}:{}", now_unix + lifetime_seconds, name);
     let password = base64::engine::general_purpose::STANDARD.encode(hmac(secret, &username));
     (username, password)
@@ -28,14 +36,29 @@ pub fn turn_credentials(secret: &str, now_unix: u64, lifetime_seconds: u64, name
 /// The TURN name of every peer from `client`'s address: coturn's `user-quota` counts allocations per name.
 pub fn turn_name(secret: &str, client: IpAddr) -> String {
     let digest = hmac(secret, &format!("quota {}", crate::limits::key(client)));
-    format!("lh-{}", digest[..8].iter().map(|b| format!("{b:02x}")).collect::<String>())
+    format!(
+        "lh-{}",
+        digest[..8]
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>()
+    )
 }
 
 /// `{"iceServers": [...]}`, as in `RTCConfiguration`, for a peer from `client`; None without a TURN URL and secret.
 pub fn ice_servers(config: &Config, now_unix: u64, client: IpAddr) -> Option<Value> {
-    let (Some(url), Some(secret)) = (&config.turn_url, &config.turn_secret) else { return None };
-    let (username, credential) = turn_credentials(secret, now_unix, config.turn_lifetime.as_secs(), &turn_name(secret, client));
-    Some(json!({ "iceServers": [{ "urls": [url], "username": username, "credential": credential }] }))
+    let (Some(url), Some(secret)) = (&config.turn_url, &config.turn_secret) else {
+        return None;
+    };
+    let (username, credential) = turn_credentials(
+        secret,
+        now_unix,
+        config.turn_lifetime.as_secs(),
+        &turn_name(secret, client),
+    );
+    Some(
+        json!({ "iceServers": [{ "urls": [url], "username": username, "credential": credential }] }),
+    )
 }
 
 #[cfg(test)]
@@ -62,8 +85,14 @@ mod tests {
         assert_eq!(server["urls"][0], "turn:relay.example.com:3478");
         let username = server["username"].as_str().unwrap();
         let lifetime = config.turn_lifetime.as_secs();
-        assert_eq!(username, format!("{}:{}", 100 + lifetime, turn_name("00ff", client)));
-        assert_eq!(server["credential"].as_str().unwrap(), turn_credentials("00ff", 100, lifetime, &turn_name("00ff", client)).1);
+        assert_eq!(
+            username,
+            format!("{}:{}", 100 + lifetime, turn_name("00ff", client))
+        );
+        assert_eq!(
+            server["credential"].as_str().unwrap(),
+            turn_credentials("00ff", 100, lifetime, &turn_name("00ff", client)).1
+        );
     }
 
     #[test]
@@ -71,9 +100,20 @@ mod tests {
         let ip = |s: &str| s.parse::<IpAddr>().unwrap();
         let name = turn_name("00ff", ip("2001:db8:5:1::1"));
         assert!(name.starts_with("lh-") && name.len() == 19, "{name}");
-        assert_eq!(name, turn_name("00ff", ip("2001:db8:5:2::2")), "the same /56");
+        assert_eq!(
+            name,
+            turn_name("00ff", ip("2001:db8:5:2::2")),
+            "the same /56"
+        );
         assert_ne!(name, turn_name("00ff", ip("2001:db8:5:100::1")));
-        assert_ne!(name, turn_name("11ee", ip("2001:db8:5:1::1")), "the secret keys the name");
-        assert_ne!(turn_name("00ff", ip("203.0.113.1")), turn_name("00ff", ip("203.0.113.2")));
+        assert_ne!(
+            name,
+            turn_name("11ee", ip("2001:db8:5:1::1")),
+            "the secret keys the name"
+        );
+        assert_ne!(
+            turn_name("00ff", ip("203.0.113.1")),
+            turn_name("00ff", ip("203.0.113.2"))
+        );
     }
 }

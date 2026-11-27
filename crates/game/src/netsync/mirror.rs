@@ -5,7 +5,10 @@ use crate::fmath as fm;
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::f32::consts::{PI, TAU};
 
-use super::snapshot::{P_DOWN, P_LEADING, P_PICKING, Part, PetState, PlayerState, RunState, Spawn, Spawned, TICK_HZ, Thing, ZombieState, unq_angle, unq_pos};
+use super::snapshot::{
+    P_DOWN, P_LEADING, P_PICKING, Part, PetState, PlayerState, RunState, Spawn, Spawned, TICK_HZ,
+    Thing, ZombieState, unq_angle, unq_pos,
+};
 use crate::{Buttons, Input};
 
 /// How far behind the newest snapshot others are drawn, in ticks: two snapshots' worth.
@@ -35,7 +38,12 @@ struct Track {
 
 impl Track {
     fn new(tick: u32, pos: [f32; 2], state: ZombieState) -> Self {
-        Self { samples: VecDeque::from([(tick, pos)]), shown: pos, last_target: pos, state }
+        Self {
+            samples: VecDeque::from([(tick, pos)]),
+            shown: pos,
+            last_target: pos,
+            state,
+        }
     }
 
     fn add(&mut self, tick: u32, pos: [f32; 2]) {
@@ -64,13 +72,20 @@ impl Track {
                 return last.1;
             }
             let prev = s[s.len() - 2];
-            let k = (at - last.0 as f64).min(EXTRAPOLATE_TICKS) as f32 / (last.0 - prev.0).max(1) as f32;
-            return [last.1[0] + (last.1[0] - prev.1[0]) * k, last.1[1] + (last.1[1] - prev.1[1]) * k];
+            let k = (at - last.0 as f64).min(EXTRAPOLATE_TICKS) as f32
+                / (last.0 - prev.0).max(1) as f32;
+            return [
+                last.1[0] + (last.1[0] - prev.1[0]) * k,
+                last.1[1] + (last.1[1] - prev.1[1]) * k,
+            ];
         }
         let i = s.partition_point(|x| (x.0 as f64) <= at);
         let (a, b) = (s[i - 1], s[i]);
         let k = ((at - a.0 as f64) / (b.0 - a.0) as f64) as f32;
-        [a.1[0] + (b.1[0] - a.1[0]) * k, a.1[1] + (b.1[1] - a.1[1]) * k]
+        [
+            a.1[0] + (b.1[0] - a.1[0]) * k,
+            a.1[1] + (b.1[1] - a.1[1]) * k,
+        ]
     }
 
     /// Moves the drawn place with the target, closing any gap at `CATCH_UP` and snapping past `SNAP`.
@@ -83,7 +98,10 @@ impl Track {
             self.shown = target;
         } else {
             let k = step / gap;
-            self.shown = [self.shown[0] + (target[0] - self.shown[0]) * k, self.shown[1] + (target[1] - self.shown[1]) * k];
+            self.shown = [
+                self.shown[0] + (target[0] - self.shown[0]) * k,
+                self.shown[1] + (target[1] - self.shown[1]) * k,
+            ];
         }
     }
 }
@@ -124,14 +142,30 @@ impl PetTrack {
         let i = s.partition_point(|x| (x.0 as f64) <= at);
         let (tick, p) = s[i.saturating_sub(1)];
         let anim = match s.get(i).filter(|_| i > 0) {
-            Some(&(t2, next)) => p.anim as f32 + next.anim.wrapping_sub(p.anim) as f32 * ((at - tick as f64) / (t2 - tick).max(1) as f64) as f32,
+            Some(&(t2, next)) => {
+                p.anim as f32
+                    + next.anim.wrapping_sub(p.anim) as f32
+                        * ((at - tick as f64) / (t2 - tick).max(1) as f64) as f32
+            }
             None => p.anim as f32,
         } / 64.0;
         let time = crate::tuning::tuning().dog_leap_time;
         let since = (at - tick as f64).max(0.0) as f32 / TICK_HZ as f32;
-        let leap = p.leap.checked_sub(1).map(|l| (l as f32 / 254.0 * time + since).min(time * 0.999));
+        let leap = p
+            .leap
+            .checked_sub(1)
+            .map(|l| (l as f32 / 254.0 * time + since).min(time * 0.999));
         let a = p.heading as f32 / 256.0 * TAU;
-        ShownPet { owner: p.owner, def: p.def, slot: p.slot, pos: self.track.shown, heading: [fm::cos(a), fm::sin(a)], anim, leap, heart: p.heart.checked_sub(1).map(u32::from) }
+        ShownPet {
+            owner: p.owner,
+            def: p.def,
+            slot: p.slot,
+            pos: self.track.shown,
+            heading: [fm::cos(a), fm::sin(a)],
+            anim,
+            leap,
+            heart: p.heart.checked_sub(1).map(u32::from),
+        }
     }
 }
 
@@ -183,7 +217,14 @@ pub struct Mirror {
 impl Mirror {
     /// Player `seat` is played here: predicted, not drawn from snapshots.
     pub fn play_locally(&mut self, seat: usize) {
-        self.own.entry(seat).or_insert(Own { pos: [0.0; 2], yaw: 0.0, spin: 0.0, history: VecDeque::new(), reconciled: 0, placed: false });
+        self.own.entry(seat).or_insert(Own {
+            pos: [0.0; 2],
+            yaw: 0.0,
+            spin: 0.0,
+            history: VecDeque::new(),
+            reconciled: 0,
+            placed: false,
+        });
     }
 
     pub fn render_tick(&self) -> f64 {
@@ -199,18 +240,23 @@ impl Mirror {
         }
         for z in &part.zombies {
             let pos = unq_pos(z.pos);
-            let track = self.zombies.entry(z.id).or_insert_with(|| Track::new(tick, pos, *z));
+            let track = self
+                .zombies
+                .entry(z.id)
+                .or_insert_with(|| Track::new(tick, pos, *z));
             if tick >= track.newest() {
                 track.state = *z;
             }
             track.add(tick, pos);
         }
         let present: std::collections::HashSet<u32> = part.zombies.iter().map(|z| z.id).collect();
-        self.zombies.retain(|&id, t| !part.has_zombie_id(id) || present.contains(&id) || t.newest() > tick);
+        self.zombies
+            .retain(|&id, t| !part.has_zombie_id(id) || present.contains(&id) || t.newest() > tick);
         if tick >= self.things_tick {
             self.things_tick = tick;
             let (lo, hi) = part.thing_range;
-            self.things.retain(|&k, _| k < lo || (hi != u32::MAX && k >= hi));
+            self.things
+                .retain(|&k, _| k < lo || (hi != u32::MAX && k >= hi));
             self.things.extend(part.things.iter().copied());
         }
         if let Some(pets) = &part.pets {
@@ -223,7 +269,10 @@ impl Mirror {
                 if !self.pets.contains_key(&p.key()) && tick < self.pets_tick {
                     continue;
                 }
-                let t = self.pets.entry(p.key()).or_insert_with(|| PetTrack { track: Track::new(tick, pos, ZombieState::default()), states: VecDeque::new() });
+                let t = self.pets.entry(p.key()).or_insert_with(|| PetTrack {
+                    track: Track::new(tick, pos, ZombieState::default()),
+                    states: VecDeque::new(),
+                });
                 t.track.add(tick, pos);
                 let at = t.states.partition_point(|s| s.0 < tick);
                 if t.states.get(at).is_none_or(|s| s.0 != tick) {
@@ -244,7 +293,10 @@ impl Mirror {
             match self.own.get_mut(&seat) {
                 Some(own) => reconcile(own, p, tick),
                 None => {
-                    let other = self.others.entry(seat).or_insert_with(|| Other { track: Track::new(tick, pos, ZombieState::default()), yaw: 0.0 });
+                    let other = self.others.entry(seat).or_insert_with(|| Other {
+                        track: Track::new(tick, pos, ZombieState::default()),
+                        yaw: 0.0,
+                    });
                     other.track.add(tick, pos);
                     if tick >= other.track.newest() {
                         other.yaw = unq_angle(p.yaw);
@@ -255,7 +307,8 @@ impl Mirror {
     }
 
     pub fn spawn(&mut self, fresh: Vec<Spawned>) {
-        self.live.extend(fresh.into_iter().map(|spawned| Live { spawned, held: 0.0 }));
+        self.live
+            .extend(fresh.into_iter().map(|spawned| Live { spawned, held: 0.0 }));
     }
 
     /// Moves the clock and every drawn place on by `dt` seconds.
@@ -263,7 +316,9 @@ impl Mirror {
         if !self.paused {
             self.clock += (dt * TICK_HZ as f32) as f64;
             if self.frozen {
-                self.live.iter_mut().for_each(|l| l.held += (dt * TICK_HZ as f32) as f64);
+                self.live
+                    .iter_mut()
+                    .for_each(|l| l.held += (dt * TICK_HZ as f32) as f64);
             }
         }
         let at = self.render_tick();
@@ -284,17 +339,27 @@ impl Mirror {
 
     /// Plays local player `seat`'s input for client tick `tick` as the host will.
     pub fn predict(&mut self, seat: usize, tick: u32, input: &Input, turn_speed: f32) {
-        let Some(own) = self.own.get_mut(&seat) else { return };
-        let Some(p) = self.players.get(seat) else { return };
+        let Some(own) = self.own.get_mut(&seat) else {
+            return;
+        };
+        let Some(p) = self.players.get(seat) else {
+            return;
+        };
         if !own.placed {
             (own.pos, own.yaw, own.placed) = (unq_pos(p.pos), unq_angle(p.yaw), true);
         }
         if !self.paused && !self.frozen && p.flags & P_PICKING != 0 {
             let (d, k) = (input.dir(), p.speed as f32 / 16.0 * DT);
             own.pos = [own.pos[0] + d[0] * k, own.pos[1] + d[1] * k];
-        } else if !self.paused && !self.frozen && (p.flags & P_DOWN == 0 || p.flags & P_LEADING != 0) {
+        } else if !self.paused
+            && !self.frozen
+            && (p.flags & P_DOWN == 0 || p.flags & P_LEADING != 0)
+        {
             let dir = input.dir();
-            let turn = (input.held.contains(Buttons::A) as i32 as f32 - input.held.contains(Buttons::Y) as i32 as f32 + input.look).clamp(-1.0, 1.0);
+            let turn = (input.held.contains(Buttons::A) as i32 as f32
+                - input.held.contains(Buttons::Y) as i32 as f32
+                + input.look)
+                .clamp(-1.0, 1.0);
             if input.pressed.contains(Buttons::B) && own.spin <= 0.0 {
                 own.spin = PI;
             }
@@ -335,9 +400,14 @@ impl Mirror {
     pub fn shots_for(&self, own: &[usize]) -> Vec<([f32; 2], f32, &Spawned)> {
         let mine = |s: &Spawned| matches!(s.what, Spawn::Shot { owner, .. } if own.contains(&(owner as usize)));
         let lead = |s: &Spawned| -> [f32; 2] {
-            let Spawn::Shot { owner, .. } = s.what else { return [0.0; 2] };
+            let Spawn::Shot { owner, .. } = s.what else {
+                return [0.0; 2];
+            };
             let seat = owner as usize;
-            match (self.own.get(&seat).filter(|o| o.placed), self.players.get(seat)) {
+            match (
+                self.own.get(&seat).filter(|o| o.placed),
+                self.players.get(seat),
+            ) {
                 (Some(o), Some(p)) => {
                     let host = unq_pos(p.pos);
                     [o.pos[0] - host[0], o.pos[1] - host[1]]
@@ -350,16 +420,29 @@ impl Mirror {
             .iter()
             .filter_map(|l| {
                 let s = &l.spawned;
-                let (at, off) = if mine(s) { (self.clock - l.held, lead(s)) } else { (back - l.held, [0.0; 2]) };
+                let (at, off) = if mine(s) {
+                    (self.clock - l.held, lead(s))
+                } else {
+                    (back - l.held, [0.0; 2])
+                };
                 let p = shot_at(s, at)?;
-                Some(([p[0] + off[0], p[1] + off[1]], (at - s.tick as f64) as f32 / TICK_HZ as f32, s))
+                Some((
+                    [p[0] + off[0], p[1] + off[1]],
+                    (at - s.tick as f64) as f32 / TICK_HZ as f32,
+                    s,
+                ))
             })
             .collect()
     }
 
     /// Where local player `seat` was predicted at client tick `tick`, as corrected since.
     pub fn predicted_at(&self, seat: usize, tick: u32) -> Option<[f32; 2]> {
-        self.own.get(&seat)?.history.iter().find(|h| h.0 == tick).map(|h| h.1)
+        self.own
+            .get(&seat)?
+            .history
+            .iter()
+            .find(|h| h.0 == tick)
+            .map(|h| h.1)
     }
 
     pub fn zombies(&self) -> impl Iterator<Item = ([f32; 2], &ZombieState)> {
@@ -399,7 +482,9 @@ impl Mirror {
     /// Every shot, spit and bolt in flight, with where it is now.
     pub fn shots(&self) -> impl Iterator<Item = ([f32; 2], &Spawn)> {
         let at = self.render_tick();
-        self.live.iter().filter_map(move |l| shot_at(&l.spawned, at - l.held).map(|p| (p, &l.spawned.what)))
+        self.live
+            .iter()
+            .filter_map(move |l| shot_at(&l.spawned, at - l.held).map(|p| (p, &l.spawned.what)))
     }
 }
 
@@ -408,11 +493,17 @@ fn reconcile(own: &mut Own, p: &PlayerState, tick: u32) {
         return;
     }
     own.reconciled = tick;
-    let Some(&(_, then, yaw)) = own.history.iter().find(|h| h.0 == p.input_tick) else { return };
+    let Some(&(_, then, yaw)) = own.history.iter().find(|h| h.0 == p.input_tick) else {
+        return;
+    };
     let host = unq_pos(p.pos);
     let err = [host[0] - then[0], host[1] - then[1]];
     let yaw_err = wrap(unq_angle(p.yaw) - yaw);
-    let k = if dist(host, then) > OWN_SNAP { 1.0 } else { RECONCILE };
+    let k = if dist(host, then) > OWN_SNAP {
+        1.0
+    } else {
+        RECONCILE
+    };
     let fix = [err[0] * k, err[1] * k];
     own.pos = [own.pos[0] + fix[0], own.pos[1] + fix[1]];
     own.yaw = (own.yaw + yaw_err * k).rem_euclid(TAU);
@@ -443,10 +534,12 @@ fn shot_at(s: &Spawned, at: f64) -> Option<[f32; 2]> {
     Some(match &s.what {
         Spawn::Shot { from, vel, .. } | Spawn::Spit { from, vel, .. } => {
             let from = unq_pos(*from);
-            [from[0] + vel[0] as f32 / 8.0 * age, from[1] + vel[1] as f32 / 8.0 * age]
+            [
+                from[0] + vel[0] as f32 / 8.0 * age,
+                from[1] + vel[1] as f32 / 8.0 * age,
+            ]
         }
         Spawn::Bolt { points } => points.first().map_or([0.0; 2], |p| unq_pos(*p)),
         Spawn::Fx { pos, .. } => unq_pos(*pos),
     })
 }
-

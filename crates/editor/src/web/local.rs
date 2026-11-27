@@ -37,15 +37,33 @@ pub struct LocalStore {
 impl LocalStore {
     pub fn open() -> Result<Self, String> {
         let window = web_sys::window().ok_or("no window")?;
-        let storage = window.local_storage().ok().flatten().ok_or("this browser keeps no local storage")?;
-        let kept = js_sys::Reflect::get(&window, &"lastHarvestSounds".into()).ok().filter(js_sys::Array::is_array).map(|v| js_sys::Array::from(&v));
+        let storage = window
+            .local_storage()
+            .ok()
+            .flatten()
+            .ok_or("this browser keeps no local storage")?;
+        let kept = js_sys::Reflect::get(&window, &"lastHarvestSounds".into())
+            .ok()
+            .filter(js_sys::Array::is_array)
+            .map(|v| js_sys::Array::from(&v));
         let field = |v: &JsValue, k: &str| js_sys::Reflect::get(v, &k.into()).ok();
         let sounds = kept
             .into_iter()
             .flat_map(|a: js_sys::Array| a.to_vec())
-            .filter_map(|s| Some((field(&s, "id")?.as_string()?, (field(&s, "file")?.as_string()?, js_sys::Uint8Array::new(&field(&s, "bytes")?).to_vec()))))
+            .filter_map(|s| {
+                Some((
+                    field(&s, "id")?.as_string()?,
+                    (
+                        field(&s, "file")?.as_string()?,
+                        js_sys::Uint8Array::new(&field(&s, "bytes")?).to_vec(),
+                    ),
+                ))
+            })
             .collect();
-        Ok(Self { storage, sounds: RefCell::new(sounds) })
+        Ok(Self {
+            storage,
+            sounds: RefCell::new(sounds),
+        })
     }
 
     fn get(&self, kind: CardKind, id: &str) -> Option<Vec<u8>> {
@@ -53,19 +71,39 @@ impl LocalStore {
     }
 
     fn put(&self, kind: CardKind, id: &str, bytes: &[u8]) -> Result<(), String> {
-        self.storage.set_item(&key(kind, id), &cards::to_text(bytes)).map_err(|_| "the browser's storage for this page is full".into())
+        self.storage
+            .set_item(&key(kind, id), &cards::to_text(bytes))
+            .map_err(|_| "the browser's storage for this page is full".into())
     }
 
     fn ids(&self, kind: CardKind) -> Vec<String> {
         let n = self.storage.length().unwrap_or(0);
         let prefix = key(kind, "");
-        (0..n).filter_map(|i| self.storage.key(i).ok().flatten()?.strip_prefix(&prefix).map(str::to_string)).collect()
+        (0..n)
+            .filter_map(|i| {
+                self.storage
+                    .key(i)
+                    .ok()
+                    .flatten()?
+                    .strip_prefix(&prefix)
+                    .map(str::to_string)
+            })
+            .collect()
     }
 
     /// The ids kept under keys starting `prefix`, sorted.
     fn keyed(&self, prefix: &str) -> Vec<String> {
         let n = self.storage.length().unwrap_or(0);
-        let mut ids: Vec<String> = (0..n).filter_map(|i| self.storage.key(i).ok().flatten()?.strip_prefix(prefix).map(str::to_string)).collect();
+        let mut ids: Vec<String> = (0..n)
+            .filter_map(|i| {
+                self.storage
+                    .key(i)
+                    .ok()
+                    .flatten()?
+                    .strip_prefix(prefix)
+                    .map(str::to_string)
+            })
+            .collect();
         ids.sort();
         ids
     }
@@ -78,8 +116,15 @@ impl LocalStore {
 
 impl Store for LocalStore {
     fn names(&self) -> Vec<(String, bool)> {
-        let mut names: Vec<(String, bool)> = [CardKind::Enemy, CardKind::Player].into_iter().flat_map(|k| cards::listing(k, self.ids(k))).collect();
-        names.extend(self.keyed(PROP_KEY).iter().map(|id| (props::name(id), true)));
+        let mut names: Vec<(String, bool)> = [CardKind::Enemy, CardKind::Player]
+            .into_iter()
+            .flat_map(|k| cards::listing(k, self.ids(k)))
+            .collect();
+        names.extend(
+            self.keyed(PROP_KEY)
+                .iter()
+                .map(|id| (props::name(id), true)),
+        );
         names
     }
 
@@ -95,7 +140,8 @@ impl Store for LocalStore {
         if let Some(id) = props::id(&sprite.name) {
             return self.put_prop(&id, &props::from_sprite(sprite)?);
         }
-        let (kind, id) = Self::card_of(&sprite.name).ok_or("the mod editor keeps cards, props and maps only")?;
+        let (kind, id) =
+            Self::card_of(&sprite.name).ok_or("the mod editor keeps cards, props and maps only")?;
         let bytes = cards::with_part(self.get(kind, &id).as_deref(), sprite)?;
         self.put(kind, &id, &bytes)
     }
@@ -108,7 +154,9 @@ impl Store for LocalStore {
     }
 
     fn save_stand(&self, name: &str, how: &str) -> Result<(), String> {
-        let Some(id) = props::id(name) else { return Ok(()) };
+        let Some(id) = props::id(name) else {
+            return Ok(());
+        };
         let bytes = self.prop_bytes(&id).ok_or("save the prop first")?;
         self.put_prop(&id, &props::with_stand(&bytes, how)?)
     }
@@ -119,7 +167,9 @@ impl Store for LocalStore {
 
     fn put_prop(&self, id: &str, bytes: &[u8]) -> Result<(), String> {
         last_harvest_pack::prop::read(id, bytes)?;
-        self.storage.set_item(&format!("{PROP_KEY}{id}"), &cards::to_text(bytes)).map_err(|_| "the browser's storage for this page is full".into())
+        self.storage
+            .set_item(&format!("{PROP_KEY}{id}"), &cards::to_text(bytes))
+            .map_err(|_| "the browser's storage for this page is full".into())
     }
 
     fn history(&self, _name: &str) -> Option<(Vec<Commit>, bool)> {
@@ -134,9 +184,15 @@ impl Store for LocalStore {
     fn import_card(&self, file: &str, bytes: &[u8]) -> Result<String, String> {
         use last_harvest_pack::card;
         let (kind, id) = cards::identify(file, bytes)?;
-        let names = sprite::card_names_of(kind, &id).ok_or_else(|| format!("its id [{id}] needs to be letters, digits and _ to open here"))?;
+        let names = sprite::card_names_of(kind, &id).ok_or_else(|| {
+            format!("its id [{id}] needs to be letters, digits and _ to open here")
+        })?;
         self.put(kind, &id, &card::with_sound(bytes, None)?)?;
-        if let Some((ext, sound)) = card::sound(bytes).ok().flatten().filter(|_| kind == CardKind::Enemy) {
+        if let Some((ext, sound)) = card::sound(bytes)
+            .ok()
+            .flatten()
+            .filter(|_| kind == CardKind::Enemy)
+        {
             self.set_card_sound(&id, &format!("kill-{id}.{ext}"), sound)?;
         }
         Ok(names[0].clone())
@@ -152,7 +208,9 @@ impl Store for LocalStore {
         for kind in [CardKind::Enemy, CardKind::Player] {
             let mut ids = self.ids(kind);
             ids.sort();
-            out.extend(ids.into_iter().filter_map(|id| Some((format!("{id}{}", kind.extension()), self.get(kind, &id)?))));
+            out.extend(ids.into_iter().filter_map(|id| {
+                Some((format!("{id}{}", kind.extension()), self.get(kind, &id)?))
+            }));
         }
         out
     }
@@ -163,8 +221,17 @@ impl Store for LocalStore {
 
     /// IndexedDB writes finish later; one that fails says so on the page through `lastharvest-said`.
     fn set_card_sound(&self, id: &str, file: &str, bytes: &[u8]) -> Result<(), String> {
-        super::call("putSound", &[id.into(), file.into(), js_sys::Uint8Array::from(bytes).into()]);
-        self.sounds.borrow_mut().insert(id.to_string(), (file.to_string(), bytes.to_vec()));
+        super::call(
+            "putSound",
+            &[
+                id.into(),
+                file.into(),
+                js_sys::Uint8Array::from(bytes).into(),
+            ],
+        );
+        self.sounds
+            .borrow_mut()
+            .insert(id.to_string(), (file.to_string(), bytes.to_vec()));
         Ok(())
     }
 
@@ -175,7 +242,12 @@ impl Store for LocalStore {
     }
 
     fn sound_groups(&self) -> Vec<String> {
-        let own: Vec<String> = self.sounds.borrow().values().map(|(file, _)| file.clone()).collect();
+        let own: Vec<String> = self
+            .sounds
+            .borrow()
+            .values()
+            .map(|(file, _)| file.clone())
+            .collect();
         PAK_SOUNDS.with(|s| sprite_editor::store::sound_groups(s.borrow().iter().chain(&own)))
     }
 
@@ -187,7 +259,9 @@ impl Store for LocalStore {
 
     fn delete_card(&self, name: &str) -> Result<(), String> {
         let (kind, id) = Self::card_of(name).ok_or("not a card")?;
-        self.storage.remove_item(&key(kind, &id)).map_err(|_| "the browser wouldn't remove it".to_string())?;
+        self.storage
+            .remove_item(&key(kind, &id))
+            .map_err(|_| "the browser wouldn't remove it".to_string())?;
         if kind == CardKind::Enemy {
             let _ = self.remove_card_sound(&id);
         }
@@ -196,9 +270,14 @@ impl Store for LocalStore {
 
     fn clear_all(&self) -> Result<(), String> {
         let n = self.storage.length().unwrap_or(0);
-        let keys: Vec<String> = (0..n).filter_map(|i| self.storage.key(i).ok().flatten()).filter(|k| last_harvest_pack::browser::is_editor_key(k)).collect();
+        let keys: Vec<String> = (0..n)
+            .filter_map(|i| self.storage.key(i).ok().flatten())
+            .filter(|k| last_harvest_pack::browser::is_editor_key(k))
+            .collect();
         for key in keys {
-            self.storage.remove_item(&key).map_err(|_| "the browser wouldn't remove it".to_string())?;
+            self.storage
+                .remove_item(&key)
+                .map_err(|_| "the browser wouldn't remove it".to_string())?;
         }
         super::call("clearSounds", &[]);
         self.sounds.borrow_mut().clear();
@@ -206,11 +285,15 @@ impl Store for LocalStore {
     }
 
     fn delete_prop(&self, id: &str) -> Result<(), String> {
-        self.storage.remove_item(&format!("{PROP_KEY}{id}")).map_err(|_| "the browser wouldn't remove it".to_string())
+        self.storage
+            .remove_item(&format!("{PROP_KEY}{id}"))
+            .map_err(|_| "the browser wouldn't remove it".to_string())
     }
 
     fn delete_map(&self, id: &str) -> Result<(), String> {
-        self.storage.remove_item(&format!("{MAP_KEY}{id}")).map_err(|_| "the browser wouldn't remove it".to_string())
+        self.storage
+            .remove_item(&format!("{MAP_KEY}{id}"))
+            .map_err(|_| "the browser wouldn't remove it".to_string())
     }
 
     fn map_ids(&self) -> Vec<String> {
@@ -219,14 +302,20 @@ impl Store for LocalStore {
 
     fn farm_ids(&self) -> Vec<String> {
         let files = self.keyed(&format!("{TABLE_KEY}{}", last_harvest_game::FARM_DIR));
-        sprite_editor::store::farm_ids(files.into_iter().map(|f| format!("{}{f}", last_harvest_game::FARM_DIR)))
+        sprite_editor::store::farm_ids(
+            files
+                .into_iter()
+                .map(|f| format!("{}{f}", last_harvest_game::FARM_DIR)),
+        )
     }
 
     fn delete_table(&self, file: &str) -> Result<(), String> {
         if last_harvest_game::farm_of_file(file).is_none() {
             return Err(format!("{file} isn't a farm's"));
         }
-        self.storage.remove_item(&format!("{TABLE_KEY}{file}")).map_err(|_| "the browser wouldn't remove it".to_string())
+        self.storage
+            .remove_item(&format!("{TABLE_KEY}{file}"))
+            .map_err(|_| "the browser wouldn't remove it".to_string())
     }
 
     fn read_map(&self, id: &str) -> Option<String> {
@@ -234,7 +323,9 @@ impl Store for LocalStore {
     }
 
     fn save_map(&self, id: &str, text: &str) -> Result<(), String> {
-        self.storage.set_item(&format!("{MAP_KEY}{id}"), text).map_err(|_| "the browser's storage for this page is full".into())
+        self.storage
+            .set_item(&format!("{MAP_KEY}{id}"), text)
+            .map_err(|_| "the browser's storage for this page is full".into())
     }
 
     fn read_table(&self, file: &str) -> Option<String> {
@@ -242,17 +333,27 @@ impl Store for LocalStore {
             return self.storage.get_item(&format!("{TABLE_KEY}{file}")).ok()?;
         }
         let built_in = last_harvest_game::built_in_table(file)?;
-        Some(self.storage.get_item(&format!("{TABLE_KEY}{file}")).ok().flatten().unwrap_or_else(|| built_in.to_string()))
+        Some(
+            self.storage
+                .get_item(&format!("{TABLE_KEY}{file}"))
+                .ok()
+                .flatten()
+                .unwrap_or_else(|| built_in.to_string()),
+        )
     }
 
     /// Keeps a data file the mod changes; one the same as the game's own is dropped, so Export leaves it out.
     fn save_table(&self, file: &str, text: &str) -> Result<(), String> {
         last_harvest_game::check_table(file, text)?;
         let key = format!("{TABLE_KEY}{file}");
-        if last_harvest_game::farm_of_file(file).is_none() && last_harvest_game::built_in_table(file) == Some(text) {
+        if last_harvest_game::farm_of_file(file).is_none()
+            && last_harvest_game::built_in_table(file) == Some(text)
+        {
             let _ = self.storage.remove_item(&key);
             return Ok(());
         }
-        self.storage.set_item(&key, text).map_err(|_| "the browser's storage for this page is full".into())
+        self.storage
+            .set_item(&key, text)
+            .map_err(|_| "the browser's storage for this page is full".into())
     }
 }
