@@ -15,7 +15,7 @@ store = []
 
 [[bin]]
 name = "last-harvest"
-path = "src/main.rs"
+path = "src/desktop_main.rs"
 
 [[bin]]
 name = "last-harvest-sandbox"
