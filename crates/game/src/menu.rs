@@ -39,6 +39,7 @@ pub(crate) enum Setting {
     TopBrightness,
     BottomBrightness,
     Volume,
+    Mouse,
     Rumble,
     Fps,
     Screens,
@@ -54,13 +55,14 @@ pub(crate) enum Setting {
 }
 
 impl Setting {
-    const ALL: [Setting; 15] = [Setting::TopBrightness, Setting::BottomBrightness, Setting::Volume, Setting::Rumble, Setting::Fps, Setting::Screens, Setting::CornerMap, Setting::Touch, Setting::Grenades, Setting::Controls, Setting::Enemies, Setting::Mods, Setting::Folder, Setting::Relay, Setting::Reset];
+    const ALL: [Setting; 16] = [Setting::TopBrightness, Setting::BottomBrightness, Setting::Volume, Setting::Mouse, Setting::Rumble, Setting::Fps, Setting::Screens, Setting::CornerMap, Setting::Touch, Setting::Grenades, Setting::Controls, Setting::Enemies, Setting::Mods, Setting::Folder, Setting::Relay, Setting::Reset];
 
     fn name(self) -> &'static str {
         match self {
             Setting::TopBrightness => "Top brightness",
             Setting::BottomBrightness => "Bottom brightness",
             Setting::Volume => "Volume",
+            Setting::Mouse => "Mouse speed",
             Setting::Rumble => "Rumble",
             Setting::Fps => "Show FPS",
             Setting::Screens => "Screens",
@@ -126,7 +128,7 @@ fn replay_row(i: usize) -> [f32; 4] {
     [40.0, REPLAY_TOP + i as f32 * REPLAY_H, SCREEN_W - 80.0, REPLAY_H - 8.0]
 }
 
-fn main_row(i: usize) -> [f32; 4] {
+pub(crate) fn main_row(i: usize) -> [f32; 4] {
     if i == 0 { PLAY } else { [212.0, ROWS_TOP + (i - 1) as f32 * ROW_H, 600.0, ROW_H - 12.0] }
 }
 
@@ -185,6 +187,7 @@ impl Game {
                 Setting::Folder => !self.settings_in_run && self.folder.is_some(),
                 Setting::Relay => !self.settings_in_run && self.online_available(),
                 Setting::TopBrightness | Setting::BottomBrightness => self.has_backlights(),
+                Setting::Mouse => self.mouse,
                 Setting::Screens => !phone,
                 Setting::CornerMap => self.one_screen(),
                 Setting::Touch => phone && self.touch_screen(),
@@ -284,6 +287,10 @@ impl Game {
             self.sounds.push(Sfx::Tick(self.row as u8 * 3));
             return;
         }
+        if let Some(i) = input.hover.and_then(|p| (0..self.main_rows()).find(|&i| inside(p, main_row(i)))).filter(|&i| i != self.row) {
+            self.row = i;
+            self.sounds.push(Sfx::Tick(self.row as u8 * 3));
+        }
         let chosen = match tapped {
             Some(p) => (0..self.main_rows()).find(|&i| inside(p, main_row(i))),
             None => input.pressed.any(Buttons::START | Buttons::A).then_some(self.row),
@@ -354,6 +361,11 @@ impl Game {
             self.sounds.push(Sfx::Tick(self.setting as u8 * 2));
             return false;
         }
+        if let Some(i) = input.hover.and_then(|p| (0..list.len()).find(|&i| inside(p, setting_row(i, list.len())))).filter(|&i| i != self.setting) {
+            self.setting = i;
+            self.reset_armed = 0.0;
+            self.sounds.push(Sfx::Tick(self.setting as u8 * 2));
+        }
         let mut by = input.pressed.contains(Buttons::RIGHT) as i32 - input.pressed.contains(Buttons::LEFT) as i32;
         let mut press = input.pressed.contains(Buttons::A);
         if let Some(p) = tapped {
@@ -374,6 +386,7 @@ impl Game {
                 self.sounds.push(Sfx::Tick(self.save.volume));
                 return false;
             }
+            Setting::Mouse if by != 0 => self.save.mouse = level(self.save.mouse, 1),
             Setting::Rumble if by != 0 || press => {
                 self.save.rumble = !self.save.rumble;
                 if self.save.rumble {
@@ -498,6 +511,10 @@ impl Game {
             return false;
         }
         let first = self.enemy.saturating_sub(ENEMY_ROWS - 1);
+        if let Some(i) = input.hover.and_then(|p| (first..count.min(first + ENEMY_ROWS)).find(|&i| inside(p, setting_row(i - first, ENEMY_ROWS)))).filter(|&i| i != self.enemy) {
+            self.enemy = i;
+            self.sounds.push(Sfx::Tick(self.enemy as u8 * 2));
+        }
         let toggle = match tapped {
             Some(p) => (first..count.min(first + ENEMY_ROWS)).find(|&i| inside(p, setting_row(i - first, ENEMY_ROWS))).inspect(|&i| self.enemy = i).is_some(),
             None => input.pressed.any(Buttons::A | Buttons::LEFT | Buttons::RIGHT),
@@ -537,6 +554,10 @@ impl Game {
             return false;
         }
         let first = self.mod_row.saturating_sub(MOD_ROWS - 1);
+        if let Some(i) = input.hover.and_then(|p| (first..count.min(first + MOD_ROWS)).find(|&i| inside(p, setting_row(i - first, MOD_ROWS)))).filter(|&i| i != self.mod_row) {
+            self.mod_row = i;
+            self.sounds.push(Sfx::Tick(self.mod_row as u8 * 2));
+        }
         let toggle = match tapped {
             Some(p) => (first..count.min(first + MOD_ROWS)).find(|&i| inside(p, setting_row(i - first, MOD_ROWS))).inspect(|&i| self.mod_row = i).is_some(),
             None => input.pressed.any(Buttons::A | Buttons::LEFT | Buttons::RIGHT),
@@ -622,6 +643,7 @@ impl Game {
                 Setting::TopBrightness => (self.save.brightness[0], 1),
                 Setting::BottomBrightness => (self.save.brightness[1], 1),
                 Setting::Volume => (self.save.volume, 0),
+                Setting::Mouse => (self.save.mouse, 1),
                 Setting::Rumble | Setting::Fps | Setting::CornerMap => {
                     let v = match s {
                         Setting::Rumble => self.save.rumble,
@@ -999,6 +1021,10 @@ impl Game {
             self.replay_row = (self.replay_row as i32 + step).rem_euclid(n as i32) as usize;
             self.sounds.push(Sfx::Tick(self.replay_row as u8 * 2));
             return;
+        }
+        if let Some(i) = input.hover.and_then(|p| (0..n).find(|&i| inside(p, replay_row(i)))).filter(|&i| i != self.replay_row) {
+            self.replay_row = i;
+            self.sounds.push(Sfx::Tick(self.replay_row as u8 * 2));
         }
         let chosen = match tapped {
             Some(p) => (0..n).find(|&i| inside(p, replay_row(i))).or_else(|| inside(p, HISTORY).then_some(self.replay_row)),

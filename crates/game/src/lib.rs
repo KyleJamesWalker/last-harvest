@@ -26,6 +26,7 @@ mod controls;
 pub mod pad;
 pub mod photo;
 mod rng;
+mod keys;
 mod save;
 pub mod scene3d;
 mod setup;
@@ -52,6 +53,7 @@ pub use harvest::{ABOUT_MAX, CARD_FLAGS, CARD_MAX_FRAME, card_frame_most, CARD_N
 pub use input::{Buttons, Input, InputTracker, MAX_TOUCHES, RawInput};
 pub use pad::PadFamily;
 pub use controls::Controls;
+pub use keys::key_button;
 pub use save::{ModsOff, Save, TouchControls, mods_off_in, pack_key};
 pub use sfx::Sfx;
 pub use system::{Battery, Outputs, System};
@@ -69,6 +71,7 @@ pub const SEATS: usize = 4;
 /// Kill ticks closer together than this blur into one buzz.
 const TICK_GAP: f32 = 0.15;
 const VOLUME_SHOWN: f32 = 1.2;
+const MOUSE_TURN: f32 = 0.0025;
 /// The most kinds walking the title's horizon besides the filler between them.
 const MAX_TITLE_KINDS: usize = 5;
 const WHITE: Color = [1.0, 1.0, 1.0, 1.0];
@@ -223,6 +226,11 @@ pub struct Game {
     raw_pressed: Buttons,
     /// The platform has a keyboard, so the Controls page shows each job's key.
     keyboard: bool,
+    /// The platform has a mouse, so Settings offers its speed.
+    mouse: bool,
+    /// Where the mouse last pointed, and wheel steps not yet spent.
+    hover_at: Option<[f32; 2]>,
+    wheel: f32,
     /// Players sharing the screen, as the platform seated them at the title.
     players: usize,
     /// The fewest views a run shows, for trying split-screen with scripted players in the views past the seated ones.
@@ -308,6 +316,9 @@ impl Game {
             rebind: None,
             raw_pressed: Buttons::NONE,
             keyboard: false,
+            mouse: false,
+            hover_at: None,
+            wheel: 0.0,
             players: 1,
             split: 1,
             view_sizes: Vec::new(),
@@ -432,6 +443,12 @@ impl Game {
     pub fn set_pad_family(&mut self, family: PadFamily) {
         pad::set_active(family);
         self.keyboard |= family == PadFamily::Keyboard;
+    }
+
+    /// A mouse button was pressed: hints name the keyboard's keys, and the mouse for throwing.
+    pub fn mouse_used(&mut self) {
+        pad::set_mouse(true);
+        self.set_pad_family(PadFamily::Keyboard);
     }
 
     /// The platform maps a pad's face buttons by the names printed on them, not by position, so hints name them so.
@@ -681,9 +698,37 @@ impl Game {
         let stick = [0, 1].map(|i| (input.stick[i] + pad.stick[i]).clamp(-1.0, 1.0));
         let look = (input.look + pad.look).clamp(-1.0, 1.0);
         let touch = if self.title_on_one() { pad.touch.and_then(title_menu_touch) } else { pad.touch };
+        let hover = input.hover.and_then(|p| touch::screen_point(&layout, p)).and_then(|p| if self.title_on_one() { title_menu_touch(p) } else { Some(p) });
         let mut touches = [None; MAX_TOUCHES];
         touches[0] = touch;
-        Input { held: input.held | pad.held, pressed: input.pressed | pad.pressed, stick, look, touch, touches, touch_started: pad.touch_started && touch.is_some(), ..*input }
+        Input { held: input.held | pad.held, pressed: input.pressed | pad.pressed, stick, look, touch, touches, touch_started: pad.touch_started && touch.is_some(), hover, ..*input }
+    }
+
+    /// Keeps the pointer's spot only on frames it moved, and turns wheel steps into Up and Down while a menu, the
+    /// cards or photo mode is up.
+    fn through_mouse(&mut self, input: &Input) -> Input {
+        let hover = input.hover.filter(|&p| Some(p) != self.hover_at);
+        self.hover_at = input.hover.or(self.hover_at);
+        let mut pressed = input.pressed;
+        if self.menu_up() {
+            self.wheel += input.wheel;
+            if self.wheel.abs() >= 1.0 {
+                pressed |= if self.wheel > 0.0 { Buttons::UP } else { Buttons::DOWN };
+                self.wheel -= self.wheel.signum();
+            }
+        } else {
+            self.wheel = 0.0;
+        }
+        Input { pressed, hover, wheel: 0.0, ..*input }
+    }
+
+    /// A menu, the level-up cards or photo mode is up, where the wheel steps through rows.
+    fn menu_up(&self) -> bool {
+        match &self.state {
+            State::Title => true,
+            State::Harvest(h) => self.page == Page::Settings || h.menu_open() || h.choosing() || h.in_photo(),
+            _ => false,
+        }
     }
 
     /// Whether the vibration motor should be running this frame.
@@ -739,6 +784,21 @@ impl Game {
         std::mem::take(&mut self.sounds)
     }
 
+    pub fn set_mouse(&mut self, on: bool) {
+        self.mouse = on;
+    }
+
+    /// The run wants the pointer captured for mouse-look: play is on, with no menu, pause, cards or settings over it.
+    pub fn mouse_look(&self) -> bool {
+        !self.paused && self.page != Page::Settings && matches!(&self.state, State::Harvest(h) if h.mouse_looking() && !h.choosing())
+    }
+
+    /// Radians of turn per unit of mouse movement, at the Mouse speed setting.
+    pub fn mouse_turn(&self) -> f32 {
+        let steps = self.save.mouse as i32 - save::MOUSE_DEFAULT as i32;
+        MOUSE_TURN * std::iter::repeat_n(if steps < 0 { 0.8 } else { 1.25 }, steps.unsigned_abs() as usize).product::<f32>()
+    }
+
     /// Master volume in 0..=1, set with the volume keys.
     pub fn volume(&self) -> f32 {
         self.save.volume as f32 / LEVELS as f32
@@ -765,6 +825,8 @@ impl Game {
             }
             None => input,
         };
+        let moused = self.through_mouse(input);
+        let input = &moused;
         self.paused = input.lid_closed;
         self.input = *input;
         self.rumble = (self.rumble - dt).max(0.0);
@@ -1826,7 +1888,7 @@ mod tests {
             f.top.shapes.iter().chain(&f.bottom.shapes).filter_map(|s| if let Shape::Text { text, .. } = s { Some(text.clone()) } else { None }).collect::<Vec<_>>().join("\n")
         };
         assert!(texts(&game).contains("L1: map.") && texts(&game).contains("B: turn around."), "{}", texts(&game));
-        for (family, map, turn) in [(PadFamily::Xbox, "LB: map.", "A: turn around."), (PadFamily::PlayStation, "L1: map.", "Cross: turn around."), (PadFamily::Keyboard, "1: map.", "Z: turn around.")] {
+        for (family, map, turn) in [(PadFamily::Xbox, "LB: map.", "A: turn around."), (PadFamily::PlayStation, "L1: map.", "Cross: turn around."), (PadFamily::Keyboard, "Tab: map.", "R: turn around.")] {
             game.set_pad_family(family);
             let shown = texts(&game);
             assert!(shown.contains(map) && shown.contains(turn), "{family:?}: {shown}");
@@ -2464,6 +2526,51 @@ mod tests {
                 assert!(night(&game) > before + 1.0, "one screen: {one}: holding {held:?} never pauses the night");
             }
         }
+    }
+
+    #[test]
+    fn the_mouse_is_captured_only_while_a_run_plays() {
+        let mut game = Game::new(1);
+        assert!(!game.mouse_look(), "the title keeps the pointer");
+        game.open(Scene::Harvest);
+        game.update(&Input::default(), 1.0 / 60.0);
+        assert!(game.mouse_look());
+        press(&mut game, Buttons::START);
+        assert!(!game.mouse_look(), "the pause menu frees it");
+    }
+
+    #[test]
+    fn hovering_a_title_row_selects_it_once_and_the_wheel_steps_rows() {
+        let mut game = Game::new(1);
+        let mid = |i: usize| { let [x, y, w, h] = menu::main_row(i); [x + w / 2.0, y + h / 2.0] };
+        game.update(&Input { hover: Some(mid(2)), ..Default::default() }, 1.0 / 60.0);
+        assert_eq!(game.row, 2);
+        press(&mut game, Buttons::UP);
+        game.update(&Input { hover: Some(mid(2)), ..Default::default() }, 1.0 / 60.0);
+        assert_eq!(game.row, 1, "a pointer that stays put leaves the keys' choice alone");
+        game.update(&Input { wheel: -1.0, ..Default::default() }, 1.0 / 60.0);
+        assert_eq!(game.row, 2);
+    }
+
+    #[test]
+    fn after_a_click_the_keyboard_hints_name_the_mouse() {
+        let mut game = Game::new(1);
+        game.set_pad_family(PadFamily::Keyboard);
+        assert_eq!(pad::hint("{R1}"), "Space");
+        game.mouse_used();
+        assert_eq!((pad::hint("{R1}"), pad::hint("{L2}"), pad::hint("{B}")), ("Click".into(), "Right-click".into(), "R".into()));
+        pad::set_mouse(false);
+        game.set_pad_family(PadFamily::Nintendo);
+    }
+
+    #[test]
+    fn mouse_speed_steps_the_turn_per_count() {
+        let mut game = Game::new(1);
+        let base = game.mouse_turn();
+        game.save.mouse = save::MOUSE_DEFAULT + 1;
+        assert!(game.mouse_turn() > base);
+        game.save.mouse = 1;
+        assert!(game.mouse_turn() < base && game.mouse_turn() > 0.0);
     }
 
     fn in_photo_mode(captures: bool) -> Game {

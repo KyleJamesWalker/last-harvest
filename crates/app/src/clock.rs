@@ -53,7 +53,9 @@ impl Ticker {
             self.carried = inputs;
             return Vec::new();
         }
-        let after: Vec<Input> = inputs.iter().map(|&i| Input { pressed: Buttons::NONE, touch_started: false, orbit: [0.0; 2], ..i }).collect();
+        let share = 1.0 / steps as f32;
+        let inputs: Vec<Input> = inputs.into_iter().map(|i| Input { yaw: i.yaw * share, pitch: i.pitch * share, ..i }).collect();
+        let after: Vec<Input> = inputs.iter().map(|&i| Input { pressed: Buttons::NONE, touch_started: false, orbit: [0.0; 2], wheel: 0.0, hover: None, ..i }).collect();
         std::iter::once(inputs).chain(std::iter::repeat_n(after, steps as usize - 1)).collect()
     }
 
@@ -73,6 +75,10 @@ fn carry(before: Input, now: Input) -> Input {
         touch: if lifted { before.touch } else { now.touch },
         touches: if lifted { before.touches } else { now.touches },
         orbit: [before.orbit[0] + now.orbit[0], before.orbit[1] + now.orbit[1]],
+        yaw: before.yaw + now.yaw,
+        pitch: before.pitch + now.pitch,
+        wheel: before.wheel + now.wheel,
+        hover: now.hover.or(before.hover),
         ..now
     }
 }

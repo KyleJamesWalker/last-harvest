@@ -20,6 +20,9 @@ pub(super) struct Aiming {
     pub steer: bool,
 }
 
+/// Map pixels the aim cursor moves per radian of mouse movement.
+const AIM_MOUSE: f32 = 400.0;
+
 const PAD: Buttons = Buttons(Buttons::UP.0 | Buttons::DOWN.0 | Buttons::LEFT.0 | Buttons::RIGHT.0);
 
 impl Harvest {
@@ -102,7 +105,8 @@ impl Harvest {
         let d = input.dir();
         aim.steer |= len([d[0] - aim.walk[0], d[1] - aim.walk[1]]) > 0.3;
         let d = if aim.steer { d } else { [0.0; 2] };
-        aim.at = self.on_view([aim.at[0] + d[0] * t.aim_speed * dt, aim.at[1] + d[1] * t.aim_speed * dt]);
+        let mouse = [input.yaw * AIM_MOUSE, input.pitch * AIM_MOUSE];
+        aim.at = self.on_view([aim.at[0] + d[0] * t.aim_speed * dt + mouse[0], aim.at[1] + d[1] * t.aim_speed * dt + mouse[1]]);
         aim.left -= dt;
         if !input.held.contains(Buttons::L2) || aim.left <= 0.0 {
             self.aiming = None;
@@ -113,7 +117,7 @@ impl Harvest {
             return (own, dt);
         }
         self.aiming = Some(aim);
-        let own = Input { stick: aim.walk, look: 0.0, ..without(own, PAD | Buttons::A | Buttons::Y | Buttons::B) };
+        let own = Input { stick: aim.walk, look: 0.0, yaw: 0.0, pitch: 0.0, ..without(own, PAD | Buttons::A | Buttons::Y | Buttons::B) };
         (own, dt * t.aim_slow)
     }
 
@@ -267,6 +271,17 @@ mod tests {
         let at = h.aiming.unwrap().at;
         hold(&mut h, Buttons::L2 | Buttons::LEFT, 0.25);
         assert!(h.aiming.unwrap().at[0] < at[0] - 10.0);
+    }
+
+    #[test]
+    fn the_mouse_moves_the_cursor_while_aiming_and_never_turns_the_view() {
+        let mut h = single(12);
+        press(&mut h, Buttons::L2, Buttons::L2);
+        let (at, yaw) = (h.aiming.unwrap().at, h.me().view_yaw);
+        h.update(&Input { held: Buttons::L2, yaw: 0.05, pitch: -0.05, ..Default::default() }, DT, &mut Vec::new());
+        let now = h.aiming.unwrap().at;
+        assert!(now[0] > at[0] + 10.0 && now[1] < at[1] - 10.0, "right and up: {at:?} -> {now:?}");
+        assert_eq!(h.me().view_yaw, yaw);
     }
 
     #[test]

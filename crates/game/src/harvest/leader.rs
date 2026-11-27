@@ -113,7 +113,7 @@ impl Harvest {
         let pl = &mut self.players[p];
         let spun = pl.spin.min(PI / SPIN_TIME * dt);
         pl.spin -= spun;
-        pl.view_yaw = (pl.view_yaw + turn * t.turn_speed * dt + spun).rem_euclid(TAU);
+        pl.view_yaw = (pl.view_yaw + turn * t.turn_speed * dt + spun + own.yaw).rem_euclid(TAU);
         let f = [fm::cos(pl.view_yaw), fm::sin(pl.view_yaw)];
         let [side, ahead] = [own.dir()[0], -own.dir()[1]];
         pl.steer = [f[0] * ahead - f[1] * side, f[1] * ahead + f[0] * side];

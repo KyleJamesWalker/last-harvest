@@ -85,7 +85,7 @@ impl PadFamily {
             Nintendo => NAMES[i].0,
             Xbox => ["B", "A", "Y", "X", "LB", "RB", "LT", "RT", "View", "Menu"][i],
             PlayStation => ["Circle", "Cross", "Triangle", "Square", "L1", "R1", "L2", "R2", "Share", "Options"][i],
-            Keyboard => ["X", "Z", "S", "A", "1", "W", "Q", "2", "Backspace", "Enter"][i],
+            Keyboard => ["E", "R", "F", "Q", "Tab", "Space", "G", "F12", "F3", "Enter"][i],
         }
     }
 }
@@ -104,6 +104,7 @@ thread_local! {
     static PAD: Cell<PadFamily> = const { Cell::new(PadFamily::Nintendo) };
     static CONTROLS: Cell<Controls> = Cell::new(Controls::default());
     static BY_NAME: Cell<bool> = const { Cell::new(false) };
+    static MOUSE: Cell<bool> = const { Cell::new(false) };
 }
 
 /// The platform maps a pad's face buttons by the names printed on them rather than by position, as Android does.
@@ -113,6 +114,13 @@ pub(crate) fn set_by_name(on: bool) {
 
 /// What `family` prints on the button that sends game button `b`, by position or, with `set_by_name`, by name.
 fn shown(family: PadFamily, b: Buttons) -> &'static str {
+    if family == PadFamily::Keyboard && MOUSE.get() {
+        match b {
+            Buttons::R1 => return "Click",
+            Buttons::L2 => return "Right-click",
+            _ => {}
+        }
+    }
     if !BY_NAME.get() {
         return family.label(b);
     }
@@ -122,6 +130,11 @@ fn shown(family: PadFamily, b: Buttons) -> &'static str {
         PadFamily::PlayStation => ["Cross", "Circle", "Square", "Triangle", "L1", "R1", "L2", "R2", "Share", "Options"][i],
         PadFamily::Nintendo | PadFamily::Keyboard => family.label(b),
     }
+}
+
+/// A mouse button has been used, so keyboard hints name the mouse for the quick throw and grenade aim.
+pub(crate) fn set_mouse(on: bool) {
+    MOUSE.set(on);
 }
 
 pub(crate) fn set_active(family: PadFamily) {
@@ -198,7 +211,7 @@ mod tests {
         assert_eq!(names(PadFamily::Nintendo), ["A", "B", "X", "Y"]);
         assert_eq!(names(PadFamily::Xbox), ["B", "A", "Y", "X"], "right, bottom, top, left");
         assert_eq!(names(PadFamily::PlayStation), ["Circle", "Cross", "Triangle", "Square"]);
-        assert_eq!(names(PadFamily::Keyboard), ["X", "Z", "S", "A"]);
+        assert_eq!(names(PadFamily::Keyboard), ["E", "R", "F", "Q"]);
         let rest = [Buttons::L1, Buttons::R1, Buttons::L2, Buttons::R2, Buttons::SELECT, Buttons::START];
         assert_eq!(rest.map(|b| PadFamily::Xbox.label(b)), ["LB", "RB", "LT", "RT", "View", "Menu"]);
         assert_eq!(rest.map(|b| PadFamily::Nintendo.label(b)), ["L1", "R1", "L2", "R2", "Select", "Start"]);

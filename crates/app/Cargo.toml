@@ -75,4 +75,4 @@ last-harvest-relay = { path = "../relay" }
 cpal = { version = "0.18", features = ["wasm-bindgen"] }
 js-sys = "0.3"
 wasm-bindgen = "0.2"
-web-sys = { version = "0.3", features = ["AddEventListenerOptions", "console", "CssStyleDeclaration", "Document", "Element", "Event", "EventTarget", "Gamepad", "GamepadButton", "HtmlCanvasElement", "HtmlElement", "History", "KeyboardEvent", "Location", "MouseEvent", "NodeList", "Navigator", "Performance", "PointerEvent", "Storage", "WebGl2RenderingContext", "Window"] }
+web-sys = { version = "0.3", features = ["AddEventListenerOptions", "console", "CssStyleDeclaration", "Document", "Element", "Event", "EventTarget", "Gamepad", "GamepadButton", "HtmlCanvasElement", "HtmlElement", "History", "KeyboardEvent", "Location", "MediaQueryList", "MouseEvent", "NodeList", "Navigator", "Performance", "PointerEvent", "Storage", "WebGl2RenderingContext", "WheelEvent", "Window"] }

@@ -84,6 +84,14 @@ pub struct RawInput {
     pub lid_closed: bool,
     /// A mouse drag across the top screen since the last frame, in pixels, and wheel steps; the range orbits by it.
     pub orbit: [f32; 2],
+    /// Mouse-look turn in radians, positive to the right.
+    pub yaw: f32,
+    /// Mouse movement down, scaled as `yaw` is; it moves a grenade's aim.
+    pub pitch: f32,
+    /// Where a mouse points with no button down, in touch pixels.
+    pub hover: Option<[f32; 2]>,
+    /// Wheel steps, positive away from the player.
+    pub wheel: f32,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -97,6 +105,11 @@ pub struct Input {
     pub touch_started: bool,
     pub lid_closed: bool,
     pub orbit: [f32; 2],
+    pub yaw: f32,
+    pub pitch: f32,
+    /// Where a mouse points, in screen pixels, on the frames it moved.
+    pub hover: Option<[f32; 2]>,
+    pub wheel: f32,
 }
 
 impl Input {
@@ -130,6 +143,10 @@ impl InputTracker {
             touch_started: raw.touch.is_some() && self.prev.touch.is_none(),
             lid_closed: raw.lid_closed,
             orbit: raw.orbit,
+            yaw: raw.yaw,
+            pitch: raw.pitch,
+            hover: raw.hover,
+            wheel: raw.wheel,
         };
         self.prev = raw;
         input

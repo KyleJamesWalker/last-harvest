@@ -8,26 +8,28 @@ Your weapons fire on their own. You move, turn, throw grenades and pick upgrades
 
 ### Buttons and keys
 
-| Action | RG DS | Keyboard |
+| Action | RG DS | Keyboard and mouse |
 |---|---|---|
-| Walk forward and back | Up and Down, or the stick | Up and Down arrows |
-| Strafe | Left and Right, or the stick | Left and Right arrows |
-| Turn | Y and A | A and X |
-| Turn around | B | Z |
-| Aim at barrels | Hold X | Hold S |
-| Throw a grenade | Tap the map | Click the bottom screen |
-| Throw a grenade straight ahead | Hold R1, then let go | Hold W, then let go |
-| Pick an upgrade | Tap it, or Up, Down and X | Click it, or the arrows and S |
-| Banish the highlighted upgrade | L1, or Banish then the card | 1, or click Banish then the card |
-| Reroll the upgrades | R1, or Reroll | W, or click Reroll |
-| Take and favor the highlighted upgrade | Y, or Favor then the card | A, or click Favor then the card |
+| Walk forward and back | Up and Down, or the stick | W and S (I and K), or Up and Down |
+| Strafe | Left and Right, or the stick | A and D (J and L), or Left and Right |
+| Turn | Y and A | Move the mouse, or Q and E (U and O) |
+| Turn around | B | R (P) |
+| Aim at barrels | Hold X | Hold F (;) or Shift |
+| Throw a grenade | Tap the map | Click the bottom screen, with two windows |
+| Throw a grenade straight ahead | Hold R1, then let go | Hold the left button or Space, then let go |
+| Pick an upgrade | Tap it, or Up, Down and X | Click it, or W, S and F |
+| Banish the highlighted upgrade | L1, or Banish then the card | Tab (M), or click Banish then the card |
+| Reroll the upgrades | R1, or Reroll | Space, or click Reroll |
+| Take and favor the highlighted upgrade | Y, or Favor then the card | Q (U), or click Favor then the card |
 | Pause | Start | Enter, or Esc |
-| Back out of a menu | B | Z, or Esc |
-| Back to the title | Back, or B after a run | Tab, or Z after a run |
-| Screenshot | R2 | 2 |
-| Frame-rate overlay | Select | Backspace |
+| Back out of a menu | B | R (P), Backspace or Esc |
+| Back to the title | Back, or B after a run | Home, or R after a run |
+| Screenshot | R2 | F12 |
+| Frame-rate overlay | Select | F3 |
 | Volume | V+ and V- | `=` and `-` |
 | Quit | Hold Home for one second | Cmd+Q, or close the window |
+
+Keys in brackets are the right-hand set: IJKL walks as WASD does, and each key beside WASD has a twin beside IJKL, so you can hold the mouse in either hand. During a run the window keeps the mouse: moving it turns you, and Esc pauses and lets it go. In a browser, click the game once to hand it the mouse. Settings > Mouse speed sets how far a movement turns. In menus, on the level-up cards and in the pause menu, pointing at a row picks it, a click takes it, and the wheel steps through the rows. Once you click, the hints name the mouse buttons.
 
 R1 is the quick throw. With a grenade ready, R1 puts a marker on the ground 4 tiles ahead. Holding R1 slides the marker out to 8 tiles over one second, and letting go throws there. Nothing slows down, and the marker follows you as you walk and turn. With no grenade ready, R1 clicks.
 
@@ -39,11 +41,11 @@ With Settings > Screens set to One, a run plays on the top screen alone and the 
 
 | Action | RG DS | Keyboard |
 |---|---|---|
-| Show the map | Hold L1 | Hold 1 |
-| Aim a grenade, in slowed time | Hold L2, then the d-pad or stick | Hold Q, then the arrows |
-| Throw it | Let go of L2 | Let go of Q |
-| Cancel the throw | B | Z |
-| Throw a grenade straight ahead | Hold R1, then let go | Hold W, then let go |
+| Show the map | Hold L1 | Hold Tab (M) |
+| Aim a grenade, in slowed time | Hold L2, then the d-pad or stick | Hold the right button or G ('), then move the mouse or use WASD |
+| Throw it | Let go of L2 | Let go |
+| Cancel the throw | B | R (P) |
+| Throw a grenade straight ahead | Hold R1, then let go | Hold the left button or Space, then let go |
 
 - Your grenade count shows only on the map. A grenade on your belt means one is ready.
 - With no grenade ready, L2 shows the map at full speed and clicks.
@@ -277,6 +279,7 @@ The title's bottom screen lists Play, How to play, Settings, Stats, Credits and 
 |---|---|
 | Top brightness, Bottom brightness | Each screen's backlight. RG DS only. |
 | Volume, Rumble | Sound level, and the motor on and off |
+| Mouse speed | How far a mouse movement turns you in a run. Shown on a computer, and in a browser with a mouse. |
 | Show FPS | The frame-rate overlay |
 | Screens | One or two screens for a run. Not shown on a phone. |
 | Corner map | On one screen, the small map in the top right corner of the view while you play. Shown only on one screen. |
@@ -372,10 +375,10 @@ If you fall while another player still stands, you rise as a gold-lit leader of 
 
 | Action | RG DS | Keyboard |
 |---|---|---|
-| Walk and strafe | The d-pad or the stick | The arrows |
-| Turn | Y and A | A and X |
-| Turn around | B | Z |
-| Call the dead near your leader into your swarm | X | S |
+| Walk and strafe | The d-pad or the stick | WASD (IJKL) or the arrows |
+| Turn | Y and A | Move the mouse, or Q and E (U and O) |
+| Turn around | B | R (P) |
+| Call the dead near your leader into your swarm | X | F (;) |
 
 - Hunt the living. Your swarm drops no hearts and counts no kills.
 - When your leader falls, your map shows a cross. Move it within 15 seconds to where the next leader rises, at least 10 tiles from every living player, and press A or tap there. Otherwise it rises where a horde's leader would.
@@ -397,16 +400,16 @@ Photo mode, from the pause menu or a replay, freezes the run, horde and all, to 
 |---|---|---|---|
 | Turn the camera around you | Left and Right, or the stick | Left and Right arrows | Stick left and right, or the turn strip |
 | Zoom | Up and Down | Up and Down arrows | Stick up and down |
-| Raise or lower the camera | Hold L1 with Up and Down | Hold 1 with Up and Down | Hold Height with the stick |
-| Choose a setting | L2 | Q | Setting |
+| Raise or lower the camera | Hold L1 with Up and Down | Hold Tab with Up and Down | Hold Height with the stick |
+| Choose a setting | L2 | G | Setting |
 | Change it | R2 | 2 | Change |
-| Put the cross back where the camera looks, on Place | X | S | Reset |
+| Put the cross back where the camera looks, on Place | X | F | Reset |
 | Walk the camera, on Walk | Up and Down, or the stick | Up and Down arrows | Stick |
 | Turn while walking | Left and Right, or the right stick | Left and Right arrows | Turn strip |
-| Bring the camera back to you, on Walk | X | S | Reset |
-| Take back the last prop, on Props or Place | Y | A | Change on Take back |
-| Take a photo | R1, or tap | W | Tap the picture |
-| Back to the pause menu | B or Start | Z, Enter or Esc | Back |
+| Bring the camera back to you, on Walk | X | F | Reset |
+| Take back the last prop, on Props or Place | Y | Q | Change on Take back |
+| Take a photo | R1, or tap | Space | Tap the picture |
+| Back to the pause menu | B or Start | R, Enter or Esc | Back |
 
 The settings:
 

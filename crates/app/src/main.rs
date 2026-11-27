@@ -18,10 +18,10 @@ use last_harvest::{VERSION, audio, clock, log, pak, samples};
 use last_harvest_game::{photo, Buttons, Capture, Game, InputTracker, MAX_TOUCHES, RangeSetup, RawInput, SCREEN_H, SCREEN_W, Scene, System};
 use winit::application::ApplicationHandler;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
-use winit::event::{ElementState, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent};
+use winit::event::{DeviceEvent, DeviceId, ElementState, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{KeyCode, PhysicalKey};
-use winit::window::WindowId;
+use winit::window::{CursorGrabMode, WindowId};
 
 const QUIT_HOLD: f32 = 1.0;
 /// The press that wakes the device arrives after resume and must not suspend it again.
@@ -71,6 +71,13 @@ struct App {
     esc: Buttons,
     cursor: Option<[f32; 2]>,
     mouse_down: bool,
+    /// The pointer is captured for mouse-look; its buttons throw, and its motion waits in `mouse_dx`.
+    mouse_look: bool,
+    mouse_dx: f32,
+    mouse_dy: f32,
+    mouse_held: Buttons,
+    focused: bool,
+    wheel: f32,
     /// The window and pixel the mouse last moved over, and whether a drag that orbits the range's camera is on.
     drag_cursor: Option<(WindowId, [f32; 2])>,
     orbit_drag: bool,
@@ -128,6 +135,7 @@ impl App {
         #[cfg(not(target_os = "linux"))]
         let on_device = false;
         let two = on_device || std::env::var("LAST_HARVEST_WINDOWS").is_ok_and(|v| v == "2");
+        game.set_mouse(!on_device);
         game.set_quit(true);
         game.set_captures(true);
         game.set_keyboard(!on_device);
@@ -156,6 +164,12 @@ impl App {
             esc: Buttons::NONE,
             cursor: None,
             mouse_down: false,
+            mouse_look: false,
+            mouse_dx: 0.0,
+            mouse_dy: 0.0,
+            mouse_held: Buttons::NONE,
+            focused: true,
+            wheel: 0.0,
             drag_cursor: None,
             orbit_drag: false,
             orbit: [0.0; 2],
@@ -285,7 +299,13 @@ impl App {
             }
         }
         if let Some(line) = self.game.bench_report(|work| { let t = Instant::now(); work(); t.elapsed().as_secs_f64() }) { eprintln!("{line}"); }
+        self.capture_mouse();
         let mut raw = self.raw_input();
+        raw.held |= self.mouse_held;
+        raw.yaw = std::mem::take(&mut self.mouse_dx) * self.game.mouse_turn();
+        raw.pitch = std::mem::take(&mut self.mouse_dy) * self.game.mouse_turn();
+        raw.wheel = std::mem::take(&mut self.wheel);
+        raw.hover = self.cursor.filter(|_| !self.mouse_down && !self.mouse_look);
         self.orbit = [0.0; 2];
         #[cfg(not(any(target_os = "macos", windows)))]
         let others = Vec::new();
@@ -404,6 +424,25 @@ impl App {
         }
     }
 
+    /// Captures the pointer while the run wants mouse-look and the one window has focus, and lets it go otherwise.
+    fn capture_mouse(&mut self) {
+        let want = !self.two && self.focused && self.game.mouse_look();
+        if want == self.mouse_look {
+            return;
+        }
+        let Some(g) = &self.gfx else { return };
+        let window = &g.top.window;
+        if want {
+            if let Err(e) = window.set_cursor_grab(CursorGrabMode::Locked).or_else(|_| window.set_cursor_grab(CursorGrabMode::Confined)) {
+                log!("mouse: no capture: {e}");
+            }
+        } else {
+            let _ = window.set_cursor_grab(CursorGrabMode::None);
+        }
+        window.set_cursor_visible(!want);
+        (self.mouse_look, self.mouse_dx, self.mouse_dy, self.mouse_held, self.mouse_down) = (want, 0.0, 0.0, Buttons::NONE, false);
+    }
+
     /// Whether a pointer on window `id` touches the game: the bottom screen's window, or the one window.
     fn is_bottom(&self, id: WindowId) -> bool {
         self.gfx.as_ref().is_some_and(|g| g.bottom.as_ref().map_or(g.top.window.id(), |b| b.window.id()) == id)
@@ -440,27 +479,7 @@ fn save_photo(path: &Path, img: &last_harvest::shot::Shot) {
 }
 
 fn key_button(code: KeyCode) -> Option<Buttons> {
-    Some(match code {
-        KeyCode::ArrowUp => Buttons::UP,
-        KeyCode::ArrowDown => Buttons::DOWN,
-        KeyCode::ArrowLeft => Buttons::LEFT,
-        KeyCode::ArrowRight => Buttons::RIGHT,
-        KeyCode::KeyX => Buttons::A,
-        KeyCode::KeyZ => Buttons::B,
-        KeyCode::KeyS => Buttons::X,
-        KeyCode::KeyA => Buttons::Y,
-        KeyCode::KeyQ => Buttons::L2,
-        KeyCode::KeyW => Buttons::R1,
-        KeyCode::Enter => Buttons::START,
-        KeyCode::Backspace => Buttons::SELECT,
-        KeyCode::Tab => Buttons::BACK,
-        KeyCode::Digit1 => Buttons::L1,
-        KeyCode::Digit2 => Buttons::R2,
-        KeyCode::KeyH => Buttons::HOME,
-        KeyCode::Minus => Buttons::VOL_DOWN,
-        KeyCode::Equal => Buttons::VOL_UP,
-        _ => return None,
-    })
+    last_harvest_game::key_button(&format!("{code:?}"))
 }
 
 impl ApplicationHandler for App {
@@ -525,12 +544,26 @@ impl ApplicationHandler for App {
             }
             WindowEvent::CursorLeft { .. } if self.is_bottom(id) => self.cursor = None,
             WindowEvent::MouseWheel { delta, .. } => {
-                self.orbit[1] += match delta {
+                let steps = match delta {
                     MouseScrollDelta::LineDelta(_, y) => y,
                     MouseScrollDelta::PixelDelta(p) => p.y as f32 / 40.0,
                 };
+                self.orbit[1] += steps;
+                self.wheel += steps;
             }
             // A left press on the game's window is a touch, which throws, so only the right button drags the orbit there.
+            WindowEvent::Focused(on) => self.focused = on,
+            WindowEvent::MouseInput { state, button, .. } if self.mouse_look => {
+                let down = state == ElementState::Pressed;
+                if down {
+                    self.game.mouse_used();
+                }
+                match button {
+                    MouseButton::Left => self.mouse_held.set(Buttons::R1, down),
+                    MouseButton::Right => self.mouse_held.set(Buttons::L2, down),
+                    _ => {}
+                }
+            }
             WindowEvent::MouseInput { state, button, .. } => {
                 let down = state == ElementState::Pressed;
                 if button == MouseButton::Right || (button == MouseButton::Left && !self.is_bottom(id)) {
@@ -555,6 +588,15 @@ impl ApplicationHandler for App {
             }
             WindowEvent::RedrawRequested if self.gfx.as_ref().is_some_and(|g| g.top.window.id() == id) => self.tick(el),
             _ => {}
+        }
+    }
+
+    fn device_event(&mut self, _el: &ActiveEventLoop, _id: DeviceId, event: DeviceEvent) {
+        if let DeviceEvent::MouseMotion { delta } = event
+            && self.mouse_look
+        {
+            self.mouse_dx += delta.0 as f32;
+            self.mouse_dy += delta.1 as f32;
         }
     }
 

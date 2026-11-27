@@ -572,6 +572,19 @@ fn write_input(out: &mut Vec<u8>, was: &Input, now: &Input) -> u16 {
         mask |= 256;
         put_f32s(out, &now.orbit);
     }
+    if was.yaw.to_bits() != now.yaw.to_bits() {
+        mask |= 512;
+        put_f32s(out, &[now.yaw]);
+    }
+    if was.pitch.to_bits() != now.pitch.to_bits() {
+        mask |= 1024;
+        put_f32s(out, &[now.pitch]);
+    }
+    if spot(&was.hover) != spot(&now.hover) {
+        mask |= 2048;
+        out.push(now.hover.is_some() as u8);
+        put_f32s(out, &now.hover.unwrap_or_default());
+    }
     mask
 }
 
@@ -753,6 +766,17 @@ impl Reader<'_> {
         i.lid_closed ^= mask & 128 != 0;
         if mask & 256 != 0 {
             i.orbit = self.pair()?;
+        }
+        if mask & 512 != 0 {
+            i.yaw = self.f32()?;
+        }
+        if mask & 1024 != 0 {
+            i.pitch = self.f32()?;
+        }
+        if mask & 2048 != 0 {
+            let some = self.u8()? != 0;
+            let at = self.pair()?;
+            i.hover = some.then_some(at);
         }
         Ok(i)
     }
@@ -1351,8 +1375,8 @@ mod tests {
     fn every_field_of_an_input_survives_the_trip() {
         let mut touches = [None; MAX_TOUCHES];
         (touches[1], touches[7]) = (Some([1.5, -2.0]), Some([0.25, 99.0]));
-        let a = Input { held: Buttons::A | Buttons::UP, pressed: Buttons::A, stick: [0.3, -0.7], look: -0.0, touch: Some([3.0, 4.0]), touches, touch_started: true, lid_closed: true, orbit: [2.0, 1.0] };
-        let b = Input { held: Buttons::B, touches: [None; MAX_TOUCHES], touch: None, look: 0.125, ..a };
+        let a = Input { held: Buttons::A | Buttons::UP, pressed: Buttons::A, stick: [0.3, -0.7], look: -0.0, touch: Some([3.0, 4.0]), touches, touch_started: true, lid_closed: true, orbit: [2.0, 1.0], yaw: 0.0021, pitch: -0.003, hover: Some([5.0, 6.0]), wheel: 0.0 };
+        let b = Input { held: Buttons::B, touches: [None; MAX_TOUCHES], touch: None, look: 0.125, yaw: -0.5, hover: None, ..a };
         let mut seen = Input::default();
         for want in [a, b, Input::default()] {
             let mut bytes = Vec::new();

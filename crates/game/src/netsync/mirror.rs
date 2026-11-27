@@ -300,7 +300,7 @@ impl Mirror {
             }
             let spun = own.spin.min(PI / SPIN_TIME * DT);
             own.spin -= spun;
-            own.yaw = (own.yaw + turn * turn_speed * DT + spun).rem_euclid(TAU);
+            own.yaw = (own.yaw + turn * turn_speed * DT + spun + input.yaw).rem_euclid(TAU);
             let f = [fm::cos(own.yaw), fm::sin(own.yaw)];
             let (side, ahead) = (dir[0], -dir[1]);
             let mv = [f[0] * ahead - f[1] * side, f[1] * ahead + f[0] * side];
