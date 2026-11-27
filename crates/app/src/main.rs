@@ -111,7 +111,9 @@ impl App {
             .duration_since(UNIX_EPOCH)
             .map_or(1, |d| d.as_nanos() as u64);
         let mut game = Game::new(seed);
-        let (saver, save) = persist::Saver::load();
+        let (mut saver, save) = persist::Saver::load();
+        let mut platform = last_harvest::platform::backend();
+        saver.fetch(platform.as_mut());
         game.load(save);
         game.record_replays(last_harvest::replays::info());
         if std::env::var_os("LAST_HARVEST_UNLOCK_ALL").is_some() {
@@ -209,7 +211,7 @@ impl App {
             failed: false,
             two,
             online: Default::default(),
-            platform: last_harvest::platform::backend(),
+            platform,
         }
     }
 
@@ -280,7 +282,8 @@ impl App {
 
     #[cfg(target_os = "linux")]
     fn suspend(&mut self, wake_after: Option<u32>) {
-        self.saver.update(self.game.save(), true);
+        self.saver
+            .update(self.game.save(), true, self.platform.as_mut());
         if let Some(dev) = &mut self.device {
             dev.suspend(wake_after);
             log!("resumed");
@@ -439,6 +442,7 @@ impl App {
         {
             self.game.update_all(&inputs, clock::STEP);
         }
+        self.saver.sync(&mut self.game, self.platform.as_mut());
         last_harvest::platform::serve(&mut self.game, self.platform.as_mut());
         persist::keep_replays(self.game.take_replays());
         if self.game.take_replays_request() {
@@ -449,7 +453,8 @@ impl App {
         self.pads
             .rumble(&self.seats, |seat| self.game.rumble_for(seat));
         self.stats.work_ms[0] += started.elapsed().as_secs_f32() * 1000.0;
-        self.saver.update(self.game.save(), false);
+        self.saver
+            .update(self.game.save(), false, self.platform.as_mut());
         self.keep_audio();
         let sounds = self.game.take_sounds();
         if let Some(audio) = &self.audio {
@@ -729,7 +734,8 @@ impl ApplicationHandler for App {
 
     /// Saves and restores the device, then exits without running the GL and Wayland teardown.
     fn exiting(&mut self, _el: &ActiveEventLoop) {
-        self.saver.update(self.game.save(), true);
+        self.saver
+            .update(self.game.save(), true, self.platform.as_mut());
         persist::keep_replays(self.game.end_replays());
         #[cfg(target_os = "linux")]
         drop(self.device.take());
