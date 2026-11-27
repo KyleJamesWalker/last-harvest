@@ -6,6 +6,7 @@ use crate::controls::Controls;
 use crate::harvest::{RUN_KIT, Run, found_from_ids, found_ids, off_from_ids, off_ids, powerup_id, powerup_index};
 
 pub const LEVELS: u8 = 10;
+pub const MOUSE_DEFAULT: u8 = 5;
 /// Runs the history keeps.
 pub const HISTORY: usize = 10;
 /// Most characters a run's powerups take in its `run=` line.
@@ -42,6 +43,8 @@ pub struct Save {
     pub how_to_seen: bool,
     /// Which pad button sends each game button.
     pub controls: Controls,
+    /// Mouse-look speed in 1..=LEVELS.
+    pub mouse: u8,
     /// The online relay's address; empty for `netplay::DEFAULT_RELAY`.
     pub relay: Relay,
     /// The room code this device last hosted, and the one it last joined.
@@ -306,13 +309,16 @@ impl Records {
 
 impl Default for Save {
     fn default() -> Self {
-        Self { volume: 6, brightness: [4, 4], rumble: true, fps: false, one_screen: false, corner_map: true, touch_grenades: true, touch: TouchControls::Auto, difficulty: Difficulty::default(), records: [(PresetId::default(), Records::default()); PRESETS_MAX], enemies_off: 0, player: LookId::default(), map: LookId::default(), history: [None; HISTORY], how_to_seen: false, controls: Controls::default(), relay: Relay::default(), hosted: None, joined: None, mods_off: ModsOff::default() }
+        Self { volume: 6, brightness: [4, 4], rumble: true, fps: false, one_screen: false, corner_map: true, touch_grenades: true, touch: TouchControls::Auto, difficulty: Difficulty::default(), records: [(PresetId::default(), Records::default()); PRESETS_MAX], enemies_off: 0, player: LookId::default(), map: LookId::default(), history: [None; HISTORY], how_to_seen: false, controls: Controls::default(), mouse: MOUSE_DEFAULT, relay: Relay::default(), hosted: None, joined: None, mods_off: ModsOff::default() }
     }
 }
 
 impl Save {
     pub fn to_text(&self) -> String {
         let mut controls = if self.controls.is_default() { String::new() } else { format!("controls={}\n", self.controls.key()) };
+        if self.mouse != MOUSE_DEFAULT {
+            controls += &format!("mouse={}\n", self.mouse);
+        }
         if self.relay.len > 0 {
             controls += &format!("relay={}\n", self.relay.as_str());
         }
@@ -390,6 +396,7 @@ impl Save {
                 "volume" => save.volume = value.parse().unwrap_or(save.volume).min(LEVELS),
                 "brightness_top" => save.brightness[0] = value.parse().unwrap_or(save.brightness[0]).clamp(1, LEVELS),
                 "brightness_bottom" => save.brightness[1] = value.parse().unwrap_or(save.brightness[1]).clamp(1, LEVELS),
+                "mouse" => save.mouse = value.parse().unwrap_or(save.mouse).clamp(1, LEVELS),
                 "rumble" => save.rumble = value == "on",
                 "fps" => save.fps = value == "on",
                 "layout" => save.one_screen = value == "one",
@@ -501,7 +508,7 @@ mod tests {
 
     #[test]
     fn round_trips() {
-        let mut save = Save { volume: 3, brightness: [7, 2], rumble: false, fps: true, one_screen: true, corner_map: false, touch_grenades: false, touch: TouchControls::Off, difficulty: Difficulty::HARD, enemies_off: 0b10, player: LookId::new("jo"), map: LookId::new("old_farm"), history: [None; HISTORY], how_to_seen: true, controls: Controls::default(), relay: Relay::new("wss://relay.example.com"), hosted: last_harvest_lobby::RoomCode::parse("ACDEF").ok(), joined: last_harvest_lobby::RoomCode::parse("FEDCA").ok(), ..Save::default() };
+        let mut save = Save { mouse: 8, volume: 3, brightness: [7, 2], rumble: false, fps: true, one_screen: true, corner_map: false, touch_grenades: false, touch: TouchControls::Off, difficulty: Difficulty::HARD, enemies_off: 0b10, player: LookId::new("jo"), map: LookId::new("old_farm"), history: [None; HISTORY], how_to_seen: true, controls: Controls::default(), relay: Relay::new("wss://relay.example.com"), hosted: last_harvest_lobby::RoomCode::parse("ACDEF").ok(), joined: last_harvest_lobby::RoomCode::parse("FEDCA").ok(), ..Save::default() };
         assert!(save.hosted.is_some() && save.joined.is_some());
         *save.records_mut(Difficulty::HARD).unwrap() = Records { best: 41, kills: 900, best_level: 12, nights: 7, dawns: 1, breakers: 3, breaker_dawns: 1, found: 0b1010_0000_0000, best_dps: 0 };
         *save.records_mut(Difficulty::DEAD).unwrap() = Records { kills: 5, nights: 1, best_dps: 70, ..Records::default() };

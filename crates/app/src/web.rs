@@ -13,7 +13,7 @@ use last_harvest_pack::Pak;
 use last_harvest_render::{Profile, Renderer};
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
-use web_sys::{AddEventListenerOptions, Document, Element, Event, EventTarget, Gamepad, GamepadButton, HtmlCanvasElement, HtmlElement, KeyboardEvent, PointerEvent, Storage, WebGl2RenderingContext};
+use web_sys::{AddEventListenerOptions, Document, Element, Event, EventTarget, Gamepad, GamepadButton, HtmlCanvasElement, HtmlElement, KeyboardEvent, PointerEvent, Storage, WebGl2RenderingContext, WheelEvent};
 
 use crate::{audio, pak, samples};
 
@@ -72,6 +72,14 @@ struct Web {
     /// By slot, which a finger keeps until it lifts.
     touches: [Option<Touch>; MAX_TOUCHES],
     phone: bool,
+    /// The canvas holds the pointer lock for mouse-look; its buttons throw, and its motion waits in `mouse_dx`.
+    locked: bool,
+    mouse_dx: f32,
+    mouse_dy: f32,
+    mouse_held: Buttons,
+    /// Where the mouse points with no button down.
+    hover: Option<[f32; 2]>,
+    wheel: f32,
     storage: Option<Storage>,
     saved: Save,
     /// The last write was refused and has been warned of.
@@ -99,26 +107,7 @@ fn now() -> f64 {
 }
 
 fn key_button(code: &str) -> Option<Buttons> {
-    Some(match code {
-        "ArrowUp" => Buttons::UP,
-        "ArrowDown" => Buttons::DOWN,
-        "ArrowLeft" => Buttons::LEFT,
-        "ArrowRight" => Buttons::RIGHT,
-        "KeyX" => Buttons::A,
-        "KeyZ" => Buttons::B,
-        "KeyS" => Buttons::X,
-        "KeyA" => Buttons::Y,
-        "KeyQ" => Buttons::L2,
-        "KeyW" => Buttons::R1,
-        "Enter" | "NumpadEnter" => Buttons::START,
-        "Backspace" => Buttons::SELECT,
-        "Tab" => Buttons::BACK,
-        "Digit1" => Buttons::L1,
-        "Digit2" => Buttons::R2,
-        "Minus" => Buttons::VOL_DOWN,
-        "Equal" => Buttons::VOL_UP,
-        _ => return None,
-    })
+    last_harvest_game::key_button(code)
 }
 
 /// Each standard-layout pad by its index, and the labels of a pad with a button down or a stick pushed; the first
@@ -245,10 +234,41 @@ impl Web {
         }
     }
 
+    /// Left and right buttons, while the pointer is locked: a quick throw and grenade aim.
+    fn mouse_buttons(&mut self, e: &PointerEvent) {
+        self.mouse_held.set(Buttons::R1, e.buttons() & 1 != 0);
+        self.mouse_held.set(Buttons::L2, e.buttons() & 2 != 0);
+    }
+
+    /// The browser took or gave the pointer lock; losing it in play, as Esc does, pauses the run.
+    fn lock_changed(&mut self) {
+        let canvas: &Element = self.canvas.as_ref();
+        self.locked = self.document.pointer_lock_element().is_some_and(|el| &el == canvas);
+        if !self.locked {
+            self.mouse_held = Buttons::NONE;
+            (self.mouse_dx, self.mouse_dy) = (0.0, 0.0);
+            if self.game.mouse_look() {
+                self.struck |= Buttons::START;
+            }
+        }
+    }
+
     fn down(&mut self, e: &PointerEvent) {
         self.begin();
         // In an iframe, as on itch.io, the keys only come once the page has the focus.
         let _ = self.canvas.focus();
+        if e.pointer_type() == "mouse" {
+            self.game.mouse_used();
+        }
+        if e.pointer_type() == "mouse" && (self.locked || self.game.mouse_look()) {
+            if self.locked {
+                self.mouse_buttons(e);
+            } else {
+                self.canvas.request_pointer_lock();
+            }
+            e.prevent_default();
+            return;
+        }
         if e.pointer_type() == "mouse" && e.button() != 0 {
             return;
         }
@@ -262,18 +282,31 @@ impl Web {
     }
 
     fn moved(&mut self, e: &PointerEvent) {
+        if self.locked {
+            self.mouse_dx += e.movement_x() as f32;
+            self.mouse_dy += e.movement_y() as f32;
+            self.mouse_buttons(e);
+            return;
+        }
         let p = if self.phone {
             self.to_screen(e)
         } else {
             let [w, h] = [self.canvas.client_width().max(1) as f32, self.canvas.client_height().max(2) as f32];
             Some([(e.offset_x() as f32 / w).clamp(0.0, 1.0) * SCREEN_W, (e.offset_y() as f32 / h * 2.0 - 1.0).clamp(0.0, 1.0) * SCREEN_H])
         };
+        if e.pointer_type() == "mouse" {
+            self.hover = p.filter(|_| e.buttons() == 0);
+        }
         if let (Some(p), Some(t)) = (p, self.touches.iter_mut().flatten().find(|t| t.id == e.pointer_id() && !t.lifted)) {
             t.at = p;
         }
     }
 
     fn up(&mut self, e: &PointerEvent) {
+        if self.locked {
+            self.mouse_buttons(e);
+            return;
+        }
         for slot in &mut self.touches {
             if let Some(t) = slot {
                 t.lifted |= t.id == e.pointer_id();
@@ -409,7 +442,13 @@ impl Web {
             self.game.set_pad_family(family);
         }
         self.pad_busy = busy.is_some();
-        let mut raw = RawInput { held: self.keys | std::mem::take(&mut self.struck) | pad, stick, look, touch: self.touches.iter().flatten().next().map(|t| t.at), lid_closed: self.lid_key, ..Default::default() };
+        if self.locked && !self.game.mouse_look() {
+            self.document.exit_pointer_lock();
+        }
+        let yaw = std::mem::take(&mut self.mouse_dx) * self.game.mouse_turn();
+        let pitch = std::mem::take(&mut self.mouse_dy) * self.game.mouse_turn();
+        let (hover, wheel) = (self.hover.filter(|_| !self.locked), std::mem::take(&mut self.wheel));
+        let mut raw = RawInput { yaw, pitch, hover, wheel, held: self.keys | std::mem::take(&mut self.struck) | pad | self.mouse_held, stick, look, touch: self.touches.iter().flatten().next().map(|t| t.at), lid_closed: self.lid_key, ..Default::default() };
         for (out, slot) in raw.touches.iter_mut().zip(&mut self.touches) {
             if let Some(t) = slot {
                 *out = Some(t.at);
@@ -515,6 +554,7 @@ fn start(pak: Pak, mods: Vec<(String, Pak)>, problems: Vec<String>, range: Optio
     let saved = storage.as_ref().and_then(|s| s.get_item(SAVE_KEY).ok().flatten()).map(|t| Save::parse(&t)).unwrap_or_default();
     let mut game = Game::new(js_sys::Date::now() as u64);
     game.load(saved);
+    game.set_mouse(web_sys::window().and_then(|w| w.match_media("(any-pointer: fine)").ok().flatten()).is_some_and(|m| m.matches()));
     game.set_backlights(false);
     game.record_replays(crate::replays::info());
     if let Some(setup) = range {
@@ -555,6 +595,12 @@ fn start(pak: Pak, mods: Vec<(String, Pak)>, problems: Vec<String>, range: Optio
         lid_key: false,
         touches: Default::default(),
         phone,
+        locked: false,
+        mouse_dx: 0.0,
+        mouse_dy: 0.0,
+        mouse_held: Buttons::NONE,
+        hover: None,
+        wheel: 0.0,
         storage,
         saved,
         refused: false,
@@ -590,6 +636,12 @@ fn start(pak: Pak, mods: Vec<(String, Pak)>, problems: Vec<String>, range: Optio
         listen(&canvas, kind, &web, |w, e: &PointerEvent| w.up(e));
     }
     listen(&canvas, "contextmenu", &web, |_, e: &Event| e.prevent_default());
+    listen(&document, "pointerlockchange", &web, |w, _: &Event| w.lock_changed());
+    listen(&canvas, "wheel", &web, |w, e: &WheelEvent| {
+        let lines = if e.delta_mode() == WheelEvent::DOM_DELTA_PIXEL { e.delta_y() / 40.0 } else { e.delta_y() };
+        w.wheel -= lines as f32;
+        e.prevent_default();
+    });
     listen(&canvas, "webglcontextlost", &web, |w, e: &Event| w.context_lost(e));
     listen(&canvas, "webglcontextrestored", &web, |w, _: &Event| w.context_restored());
     listen(&window, "keydown", &web, |w, e: &KeyboardEvent| w.key(e, true));

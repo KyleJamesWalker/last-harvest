@@ -1405,6 +1405,15 @@ impl Harvest {
         self
     }
 
+    /// Play is under way with no menu or photo mode over it, so a mouse turns the view.
+    pub(crate) fn mouse_looking(&self) -> bool {
+        matches!(self.phase, Phase::Playing) && self.menu.is_none() && !self.in_photo() && self.range.is_none()
+    }
+
+    pub(crate) fn menu_open(&self) -> bool {
+        self.menu.is_some()
+    }
+
     /// The level-up cards are up.
     pub(crate) fn choosing(&self) -> bool {
         matches!(self.phase, Phase::LevelUp { .. })
@@ -1618,6 +1627,10 @@ impl Harvest {
             }
             if input.pressed.any(Buttons::UP | Buttons::LEFT) {
                 selected = (selected + n - 1) % n;
+                sounds.push(Sfx::Tick(selected as u8 * 3));
+            }
+            if let Some(i) = input.hover.and_then(|[_, y]| choice_row(y)).filter(|&i| i < n && i != selected) {
+                selected = i;
                 sounds.push(Sfx::Tick(selected as u8 * 3));
             }
             let tap = input.touch.filter(|_| input.touch_started);
@@ -1915,7 +1928,7 @@ impl Harvest {
         let pl = &mut self.players[p];
         let spun = pl.spin.min(PI / SPIN_TIME * dt);
         pl.spin -= spun;
-        pl.view_yaw = (pl.view_yaw + turn * t.turn_speed * dt + spun).rem_euclid(TAU);
+        pl.view_yaw = (pl.view_yaw + turn * t.turn_speed * dt + spun + input.yaw).rem_euclid(TAU);
         let f = [fm::cos(pl.view_yaw), fm::sin(pl.view_yaw)];
         let (side, ahead) = (dir[0], -dir[1]);
         let mv = [f[0] * ahead - f[1] * side, f[1] * ahead + f[0] * side];
@@ -2037,6 +2050,10 @@ impl Harvest {
         }
         if input.pressed.any(Buttons::UP | Buttons::LEFT) {
             at = (at + n - 1) % n;
+            sounds.push(Sfx::Tick(at as u8 * 3));
+        }
+        if let Some(row) = input.hover.and_then(|[_, y]| pause_row(y)).filter(|&r| r != at) {
+            at = row;
             sounds.push(Sfx::Tick(at as u8 * 3));
         }
         let tapped = input.touch.filter(|_| input.touch_started).and_then(|[_, y]| pause_row(y));
@@ -3981,6 +3998,19 @@ mod tests {
         run(&mut h, &Input::default(), SPIN_TIME * 0.2 + 0.05);
         assert!(((h.me().view_yaw - yaw).rem_euclid(TAU) - PI).abs() < 1e-3, "the camera swings right round");
         assert_eq!(h.showing(), h.me().aim, "and turns to match as it lands");
+    }
+
+    #[test]
+    fn mouse_look_turns_by_exactly_its_angle_and_walks_that_way() {
+        let mut h = Harvest::calm(9);
+        let yaw = h.me().view_yaw;
+        h.update(&Input { yaw: 0.4, ..Default::default() }, 1.0 / 60.0, &mut Vec::new());
+        assert!(((h.me().view_yaw - yaw).rem_euclid(TAU) - 0.4).abs() < 1e-5);
+        let (start, heading) = (h.me().pos, h.me().view_yaw);
+        run(&mut h, &Input { held: Buttons::UP, ..Default::default() }, 0.3);
+        let moved = [h.me().pos[0] - start[0], h.me().pos[1] - start[1]];
+        let off = (fm::atan2(moved[1], moved[0]) - heading + PI).rem_euclid(TAU) - PI;
+        assert!(off.abs() < 0.05, "forward follows the new heading, off by {off}");
     }
 
     #[test]

@@ -270,6 +270,15 @@ fn rest([x, y, w, h]: Rect, r: f32) -> [f32; 2] {
     [x + w / 2.0, y + h - r * 1.4]
 }
 
+/// Screen pixels for a window point over the picture that takes touches, as a finger there would give.
+pub(crate) fn screen_point(l: &Layout, p: [f32; 2]) -> Option<[f32; 2]> {
+    if claim(l, p) != Claim::Screen(true) {
+        return None;
+    }
+    let [x, y, w, h] = l.bottom.or(l.top).unwrap_or([0.0, 0.0, 1.0, 1.0]);
+    Some([(p[0] - x) / w * SCREEN_W, (p[1] - y) / h * SCREEN_H])
+}
+
 fn claim(l: &Layout, p: [f32; 2]) -> Claim {
     if let Some(&(b, ..)) = l.keys().find(|&&(_, _, r)| inside(r, p)) {
         return Claim::Key(b);

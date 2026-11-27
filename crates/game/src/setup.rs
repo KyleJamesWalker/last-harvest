@@ -125,6 +125,10 @@ impl Game {
         if let Some(p) = tapped {
             return self.setup_tap(p);
         }
+        if let Some(row) = input.hover.and_then(|p| self.setup_row_at(p)).filter(|&r| r != self.setup_row) {
+            self.setup_row = row;
+            self.sounds.push(Sfx::Tick(self.setup_row as u8 * 3));
+        }
         if input.pressed.contains(Buttons::START) {
             return self.begin_night();
         }
@@ -143,6 +147,11 @@ impl Game {
             START_ROW if a => self.begin_night(),
             _ => {}
         }
+    }
+
+    /// The row of player 1's page under `p`.
+    fn setup_row_at(&self, p: [f32; 2]) -> Option<usize> {
+        [(START, START_ROW), (seat_row(0, self.players.max(1)), PLAYER_ROW), (MAP, MAP_ROW), (DIFFICULTY, DIFFICULTY_ROW)].into_iter().find(|&(r, _)| inside(p, r)).map(|(_, row)| row)
     }
 
     fn setup_tap(&mut self, p: [f32; 2]) {
