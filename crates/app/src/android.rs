@@ -1342,7 +1342,10 @@ fn run(android: AndroidApp) -> Result<(), String> {
     let mut app = App {
         android: android.clone(),
         game,
-        platform: crate::platform::backend(android.internal_data_path()),
+        platform: crate::platform::Hooks::new(
+            crate::platform::backend(),
+            android.internal_data_path(),
+        ),
         tracker: InputTracker::default(),
         ticker: crate::clock::Ticker::default(),
         gl: None,

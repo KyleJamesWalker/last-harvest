@@ -10,6 +10,7 @@ compile_error!(
 mod android;
 pub mod audio;
 pub mod clock;
+pub mod cloud;
 pub mod controllers;
 pub mod log;
 mod loops;

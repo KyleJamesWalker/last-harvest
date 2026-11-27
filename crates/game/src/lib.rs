@@ -5,6 +5,7 @@
 pub mod alpha;
 pub mod art;
 mod controls;
+mod credits;
 pub mod data;
 mod difficulty;
 mod draw;
@@ -75,7 +76,7 @@ pub use harvest::{SwingShow, swing_shown};
 pub use input::{Buttons, Input, InputTracker, MAX_TOUCHES, RawInput};
 pub use keys::key_button;
 pub use pad::PadFamily;
-pub use save::{Consent, ModsOff, Save, TouchControls, mods_off_in, pack_key};
+pub use save::{Consent, ModsOff, Records, Save, TouchControls, mods_off_in, pack_key};
 pub use sfx::Sfx;
 pub use system::{Ask, Battery, Outputs, System};
 
@@ -217,6 +218,7 @@ pub struct Game {
     row: usize,
     /// The History page on show.
     history_page: usize,
+    credits_page: usize,
     setting: usize,
     /// The highlighted kind on the Enemies page.
     enemy: usize,
@@ -325,6 +327,7 @@ impl Game {
             page: Page::Main,
             row: 0,
             history_page: 0,
+            credits_page: 0,
             setting: 0,
             enemy: 0,
             mod_row: 0,
@@ -447,6 +450,13 @@ impl Game {
         self.save
     }
 
+    /// Folds another copy of the save, such as the cloud's, into this one's progress; this device's settings stay.
+    pub fn merge_save(&mut self, other: &Save) {
+        self.save = self.save.with_progress_of(other);
+        self.how_to_due &= !self.save.how_to_seen;
+        self.ask_achievements();
+    }
+
     pub fn unlock_everything(&mut self) {
         self.unlock_all = true;
     }
@@ -535,6 +545,12 @@ impl Game {
     /// The platform maps a pad's face buttons by the names printed on them, not by position, so hints name them so.
     pub fn set_buttons_by_name(&mut self, on: bool) {
         pad::set_by_name(on);
+    }
+
+    /// The platform's own labels for the pad buttons the shell reads as each game button, before the Controls page's
+    /// remap. Hints use them over the pad family's, never over the keyboard's; a button left out keeps its own.
+    pub fn set_button_labels<'a>(&mut self, labels: impl IntoIterator<Item = (Buttons, &'a str)>) {
+        pad::set_platform_labels(labels);
     }
 
     /// The platform has a keyboard, before any key is pressed.
