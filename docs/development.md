@@ -198,7 +198,7 @@ CI reads the private submodule with the `ASSETS_DEPLOY_KEY` secret. A pull reque
 | `crates/pack` | Reads and writes data packs. Its binary builds `game_data.pak` and mod packs. |
 | `crates/net` | WebRTC peers in a matchbox signaling room, each with a reliable and an unreliable channel. Native and browser builds. Nothing uses it yet. |
 | `crates/lobby` | The online co-op lobby: room codes, the join handshake, ready-up, start and drop-in. No transport of its own. See [online](online.md). |
-| `crates/platform` | The hooks a store or console plugs into: achievements, cloud saves, metrics, the store overlay and input glyphs. The public build's backend does nothing; a recording backend lets tests check the calls. |
+| `crates/platform` | The hooks a store or console plugs into: achievements, cloud saves, metrics, the store overlay and input glyphs. The public build's backend does nothing; a recording backend lets tests check the calls. Another crate runs the desktop game with its own backend through `last_harvest::desktop::run`. |
 | `crates/relay` | `last-harvest-relay`: signaling and TURN credentials for online co-op. Native only. See [online](online.md). |
 | `deploy` | The relay's Dockerfile and a compose file with Caddy and coturn. Not deployed. |
 | `scripts` | Build, deploy, install, debug, capture, web and Pages scripts. |
