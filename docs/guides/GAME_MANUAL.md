@@ -289,6 +289,7 @@ The title's bottom screen lists Play, How to play, Settings, Stats, Credits and 
 | Mod packs | Each mod pack found, by name, with its file under it. A, Left, Right or a tap turns one on or off. Packs load as the game starts, so a change applies at the next start; until then the page marks each pack it will change. Shown only when there are packs. |
 | Game folder | Android only. See [Where files go](#where-files-go). |
 | Online relay | The relay online play connects through. See [Online](#online). |
+| Share play stats | Only in builds that can send play stats. Sends play time, how runs end, the builds taken and crash reports, with nothing that names you or the device. The game asks once, at first launch; off deletes anything not yet sent. |
 | Reset progress | Clears kills, records and found powerups after a second press. Settings stay. |
 
 Settings from the pause menu leave out Enemies, Mod packs, Game folder, Online relay and Reset progress.
