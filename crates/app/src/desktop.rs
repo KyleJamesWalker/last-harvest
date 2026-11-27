@@ -111,13 +111,16 @@ struct App {
 }
 
 impl App {
-    fn new(sounds: samples::Files, range: Option<RangeSetup>, platform: Box<dyn Platform>) -> Self {
+    fn new(
+        sounds: samples::Files,
+        range: Option<RangeSetup>,
+        mut platform: Box<dyn Platform>,
+    ) -> Self {
         let seed = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(1, |d| d.as_nanos() as u64);
         let mut game = Game::new(seed);
         let (mut saver, save) = persist::Saver::load();
-        let mut platform = last_harvest::platform::backend();
         saver.fetch(platform.as_mut());
         game.load(save);
         game.record_replays(last_harvest::replays::info());
