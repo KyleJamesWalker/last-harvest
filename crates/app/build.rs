@@ -35,6 +35,33 @@ fn main() {
     };
     println!("cargo:rustc-env=LAST_HARVEST_BUILD={version}");
     windows_icon();
+    store_pak();
+}
+
+/// Points a store build at the `game_data.pak` it builds in: `LAST_HARVEST_STORE_PAK`, else the packer's
+/// `target/game_data.pak`. An Android store build carries the pack as an APK asset instead.
+fn store_pak() {
+    println!("cargo:rerun-if-env-changed=LAST_HARVEST_STORE_PAK");
+    if std::env::var_os("CARGO_FEATURE_STORE").is_none()
+        || std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("android")
+    {
+        return;
+    }
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let path = root.join(
+        std::env::var_os("LAST_HARVEST_STORE_PAK").unwrap_or_else(|| "target/game_data.pak".into()),
+    );
+    let path = path.canonicalize().unwrap_or_else(|e| {
+        panic!(
+            "the store feature builds in {}: {e}. Build it first with `cargo run -p last-harvest-pack`.",
+            path.display()
+        )
+    });
+    println!("cargo:rerun-if-changed={}", path.display());
+    println!(
+        "cargo:rustc-env=LAST_HARVEST_BUNDLED_PAK={}",
+        path.display()
+    );
 }
 
 /// Builds the icon into a Windows binary; without the resource compiler, it goes without one.

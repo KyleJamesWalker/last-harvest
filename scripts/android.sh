@@ -5,7 +5,8 @@
 #
 # A release build sets LAST_HARVEST_VERSION (its tag, which also gives the versionCode) and LAST_HARVEST_NO_PAK=1:
 # the APK then fetches the release's shared game_data.pak on first run. ANDROID_KEYSTORE, ANDROID_KEYSTORE_PASSWORD
-# and ANDROID_KEY_ALIAS sign it; without them it signs with the local debug key.
+# and ANDROID_KEY_ALIAS sign it; without them it signs with the local debug key. LAST_HARVEST_FEATURES adds cargo
+# features, such as store.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 export ANDROID_HOME="${ANDROID_HOME:-$HOME/Library/Android/sdk}"
@@ -22,7 +23,7 @@ rm -rf "$stage"
 mkdir -p "$stage/assets" "$stage/lib/arm64-v8a" "$stage/res/mipmap" "$stage/classes"
 
 cargo run -q -p last-harvest-pack
-CARGO_PROFILE_RELEASE_STRIP=symbols CARGO_PROFILE_RELEASE_DEBUG=false cargo ndk -t arm64-v8a --platform 26 -- rustc --release -p last-harvest --lib --crate-type cdylib --no-default-features
+CARGO_PROFILE_RELEASE_STRIP=symbols CARGO_PROFILE_RELEASE_DEBUG=false cargo ndk -t arm64-v8a --platform 26 -- rustc --release -p last-harvest --lib --crate-type cdylib --no-default-features ${LAST_HARVEST_FEATURES:+--features "$LAST_HARVEST_FEATURES"}
 cp "$bin/aarch64-linux-android/release/liblast_harvest.so" "$stage/lib/arm64-v8a/"
 [ "${LAST_HARVEST_NO_PAK:-}" = 1 ] || cp target/game_data.pak "$stage/assets/"
 cp assets/private/icons/game-512.png "$stage/res/mipmap/icon.png"

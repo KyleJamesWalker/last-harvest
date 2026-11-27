@@ -10,6 +10,8 @@ default = ["embed"]
 embed = ["last-harvest-game/embed"]
 # The muOS handheld build, through the device's own SDL2.
 muos = ["dep:sdl2"]
+# Store builds: game_data.pak built in (an APK asset on Android) and no downloads.
+store = []
 
 [[bin]]
 name = "last-harvest"

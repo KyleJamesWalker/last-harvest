@@ -67,6 +67,7 @@ jobs:
         run: |
           export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/29.0.14206865"
           cargo ndk -t arm64-v8a --platform 26 -- clippy --locked -p last-harvest --lib --no-default-features -- -D warnings
+          cargo ndk -t arm64-v8a --platform 26 -- clippy --locked -p last-harvest --lib --no-default-features --features store -- -D warnings
 
       - name: Build
         env:
